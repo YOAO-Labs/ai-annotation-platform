@@ -109,7 +109,6 @@ def _health_backend_fact(value) -> HealthBackendFact | None:
 
 
 def _synchronise(row, applied):
-    # Later caller edits still belong to the ordinary ORM unit of work.
     for name, value in applied.items():
         current = getattr(row, name)
         changed_later = current != value
@@ -137,7 +136,6 @@ def _flush_health_reconciliations(session, flush_context, instances):
         ):
             continue
         operation = stage.params["operation"]
-        # The closed literal also identifies the legacy write macro in SQL traces.
         statement = text(
             "SELECT * FROM " + _NATIVE + "apply_reconciliation("
             ":registry_id,:pool_id,'" + operation + "',:snapshot,:fingerprint,"
@@ -220,7 +218,6 @@ class InferenceHealthData:
         return await self.db.scalar(text("SELECT " + _NATIVE + "try_promotion()"))
 
     async def write_health(self, registry_id, values):
-        # ORM UPDATE autoflushed pending caller work at this same phase.
         if self.db.autoflush:
             await self.db.flush()
         return await self.db.scalar(
@@ -239,7 +236,6 @@ class InferenceHealthData:
         )
 
     async def refresh_backend(self, backend):
-        # Refresh only the non-secret fields changed by Native health writes.
         registry_id = backend.id
         with self.db.no_autoflush:
             fresh = await self._backend(registry_id, autoflush=False)

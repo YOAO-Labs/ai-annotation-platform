@@ -100,7 +100,6 @@ function preferences(
   };
 }
 
-/** `contexts` 在契约上可缺席(只存过命名预设的账号),测试里的 fixture 恒有。 */
 function contextsOf(prefs: UserPreferences) {
   return (prefs.workbench.layout.workspace!.contexts ??= {});
 }
@@ -482,7 +481,6 @@ describe("workspace layout owner", () => {
     await waitFor(() => expect(result.current.initialized).toBe(true));
     act(() => void result.current.save(changed));
     await waitFor(() => expect(mocks.patch).toHaveBeenCalledTimes(1));
-    // The layout writer submits only its own context and must not drop the sibling map.
     expect(mocks.patch.mock.calls[0][0].workbench.layout.workspace).not.toHaveProperty(
       "namedPresets",
     );

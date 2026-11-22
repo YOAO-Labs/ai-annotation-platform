@@ -23,17 +23,13 @@ import {
   strokeWidthFor,
   type AnnotationVisualConfig,
 } from "./annotationVisual";
-// holes / multi_polygon even-odd 渲染地基 (ADR-0052 D5 / D8)。
 import {
   collectOuterRings,
   drawEvenOddShape,
   type PolygonRing,
 } from "./shared/geometry/evenOddFill";
 
-// Douglas-Peucker LOD: 仅在 polygon 不可编辑 / 未选中时启用；
-// 简化阈值 ≈ 1 屏幕像素，避免视觉差异。
-const LOD_VERTEX_THRESHOLD = 60; // ≤60 顶点不简化（O(n²) 渲染开销低于 RDP 设置成本）。
-// 编辑态顶点视口粗筛门限：>60 顶点才走 rbush 粗筛，避免小 polygon 开销。
+const LOD_VERTEX_THRESHOLD = 60;
 const VERTEX_CULL_THRESHOLD = 60;
 const DEFAULT_FADED_OPACITY = 0.35;
 
@@ -46,7 +42,6 @@ function shapeLabelText(
   return buildLabelText(
     {
       className: displayClassName(b.cls),
-      // 编组下线后图片框无实例序号 (原读 group_id); 跨帧实例身份走 track_id, 不入此标签。
       instanceId: null,
       confidence: b.conf,
       attributes: (b as { attributes?: Record<string, unknown> }).attributes ?? null,
@@ -81,14 +76,8 @@ interface KonvaBoxProps {
   editable: boolean;
   faded: boolean;
   fadedOpacity?: number;
-  /** 共享视觉规格(线宽/填充/字号/标签显隐+内容)。 */
   visual: AnnotationVisualConfig;
-  /**
-   * 显式传入的类别配色 (按项目)。缺省时回落到 Workbench 设置的模块级全局配置;
-   * 独立渲染面 (如 Data Manager 只读预览) 必须显式传入, 避免读到上一个项目的全局色。
-   */
   colorConfig?: ClassesConfig;
-  /** occluded：渲染为虚线 + 半透。 */
   occluded?: boolean;
   imgW: number;
   imgH: number;
@@ -98,9 +87,7 @@ interface KonvaBoxProps {
   onResizeStart: ((dir: ResizeDirection, e: Konva.KonvaEventObject<MouseEvent>) => void) | null;
 }
 
-// 父子标注同胞高亮环色。选中父框时其子框描边此固定色 + 细点线,
-// 刻意区别于 AI 框的类色虚线; 属画布数据域固定色。
-export const SIBLING_HIGHLIGHT_COLOR = "#38bdf8"; // sky-400
+export const SIBLING_HIGHLIGHT_COLOR = "#38bdf8";
 
 export function KonvaBox({
   b,
@@ -126,6 +113,8 @@ export function KonvaBox({
   const labelFontSize = visual.labelFontSize / scale;
   const isUserSelected = selected && !isAi && editable;
   const labelText = shapeLabelText(b, isAi, visual.labelContent);
+  const opacity = faded ? fadedOpacity : occluded ? 0.5 : 1;
+  const needsOpacityBuffer = opacity !== 1;
 
   return (
     <Group id={annotationId}>
@@ -138,7 +127,8 @@ export function KonvaBox({
         strokeWidth={sw}
         dash={isAi || occluded ? [4 / scale, 3 / scale] : undefined}
         fill={hexToRgba(color, fillAlpha(selected, visual))}
-        opacity={faded ? fadedOpacity : occluded ? 0.5 : 1}
+        opacity={opacity}
+        perfectDrawEnabled={needsOpacityBuffer}
         shadowEnabled={selected && !faded}
         shadowColor={color}
         shadowBlur={8 / scale}
@@ -217,14 +207,8 @@ interface KonvaPolygonProps {
   selected: boolean;
   faded: boolean;
   fadedOpacity?: number;
-  /** 共享视觉规格(线宽/填充/字号/标签显隐+内容)。 */
   visual: AnnotationVisualConfig;
-  /**
-   * 显式传入的类别配色 (按项目)。缺省时回落到 Workbench 设置的模块级全局配置;
-   * 独立渲染面 (如 Data Manager 只读预览) 必须显式传入, 避免读到上一个项目的全局色。
-   */
   colorConfig?: ClassesConfig;
-  /** occluded：渲染为虚线 + 半透（与 selfIntersect 红色互斥）。 */
   occluded?: boolean;
   imgW: number;
   imgH: number;
@@ -236,18 +220,8 @@ interface KonvaPolygonProps {
   onVertexMouseDown?: (vidx: number, e: Konva.KonvaEventObject<MouseEvent>) => void;
   onEdgeMouseDown?: (edgeIdx: number, e: Konva.KonvaEventObject<MouseEvent>) => void;
   onBodyMouseDown?: ((e: Konva.KonvaEventObject<MouseEvent>) => void) | null;
-  /** 归一化 [0,1] viewport bbox。提供后启用顶点视口粗筛。 */
   viewportBBox?: ViewportBBox;
-  /**
-   * 单 polygon 的内环 (holes), 仅参与 even-odd 填充, 不参与顶点编辑。
-   * 与 b.holes 二选一透传; 显式 prop 优先 (供 ImageStage override 几何时使用)。
-   */
   holes?: Pt[][];
-  /**
-   * 多连通域: 每个 {points, holes?} 是一个独立外环。提供后外环用
-   * even-odd 合并填充 (分量按定义互不相交, evenodd 不会 XOR 抵消)。与 b.multiPolygon
-   * 二选一; 显式 prop 优先。
-   */
   multiPolygon?: PolygonRing[];
 }
 
@@ -283,12 +257,10 @@ export function KonvaPolygon({
     () => (points && points.length >= 3 ? points : (b.polygon ?? [])),
     [b.polygon, points],
   );
-  // I2.1 渲染层 LOD：编辑态 / 选中态用原顶点（保证手感）；其它态按 viewport scale 简化。
   const renderPs = useMemo<Pt[]>(() => {
     if (editable || selected) return ps;
     if (ps.length < LOD_VERTEX_THRESHOLD) return ps;
     if (scale <= 0 || imgW <= 0) return ps;
-    // 视觉等价阈值 = 1 像素；归一化空间换算 ≈ 1 / (scale * imgW)。
     const epsilon = 1 / (scale * Math.max(imgW, imgH));
     return simplifyPolygon(ps, epsilon);
   }, [ps, editable, selected, scale, imgW, imgH]);
@@ -296,25 +268,18 @@ export function KonvaPolygon({
   for (const [px, py] of renderPs) flat.push(px * imgW, py * imgH);
   const strokeColor = selfIntersect ? "oklch(0.55 0.22 25)" : color;
 
-  // 编辑态下大 polygon 用 rbush 视口粗筛，省 Konva 节点数与 hit-test。
-  // 只在 editable && ps.length>阈值 && 提供了 viewportBBox 时启用；否则全量渲染保持现有行为。
   const visibleVertexIdx = useMemo<Set<number> | null>(() => {
     if (!editable || !viewportBBox || ps.length < VERTEX_CULL_THRESHOLD) return null;
     const idx = buildVertexIndex(ps);
     return new Set(idx.verticesInBBox(viewportBBox));
   }, [editable, viewportBBox, ps]);
 
-  // holes / multi_polygon even-odd 渲染 (ADR-0052 D5)。
-  // 显式 prop 优先, 缺省回落 b.holes / b.multiPolygon (transforms.geometryToShape 透传)。
-  // 仅当存在非空 holes 或 multi_polygon 时走 sceneFunc 分支; 否则保留单环 <Line> 快路径
-  // (常见 bbox/单 polygon 不回归 LOD simplify / vertex cull 行为)。
   const holesArr = holes ?? b.holes;
   const multiArr = multiPolygon ?? b.multiPolygon;
   const hasHolesOrMulti = !!(
     (multiArr && multiArr.length > 0) ||
     (holesArr && holesArr.some((ring) => ring.length >= 2))
   );
-  // 收集 even-odd 子路径列表 (纯函数, 便于单测); 仅在分支启用时计算。
   const fillRings = useMemo<PolygonRing[]>(() => {
     if (!hasHolesOrMulti) return [];
     return collectOuterRings({
@@ -323,15 +288,12 @@ export function KonvaPolygon({
       multiPolygon: multiArr,
     });
   }, [hasHolesOrMulti, ps, holesArr, multiArr]);
-  // sceneFunc 闭包依赖 imgW/imgH + rings; 用 useMemo 稳定引用减少 Konva 重绘。
   const drawEvenOdd = useMemo(
     () => (ctx: Konva.Context, shape: Konva.Shape) => {
       if (fillRings.length === 0) {
-        // 无可画 → 清空 path, 让 Konva 退化为不填充 (与 Line 空 points 行为一致)。
         ctx.beginPath();
         return;
       }
-      // 填充与描边都覆盖外环 + holes；hole 边缘是真实边界，不能在描边阶段剥离。
       drawEvenOddShape(ctx, shape, fillRings, imgW, imgH);
     },
     [fillRings, imgW, imgH],
@@ -342,9 +304,6 @@ export function KonvaPolygon({
       <Line
         points={flat}
         closed
-        // 有 holes/multi 时走 sceneFunc + fillRule=evenodd;
-        // Konva Context.fill(...args) 直接转发到原生 canvas.fill, fillRule 透传无损。
-        // 无 holes/multi 时 sceneFunc=undefined, Konva 用内置 Line._sceneFunc (快路径)。
         sceneFunc={hasHolesOrMulti ? drawEvenOdd : undefined}
         fillRule={hasHolesOrMulti ? "evenodd" : undefined}
         stroke={strokeColor}
@@ -396,7 +355,6 @@ export function KonvaPolygon({
       {editable &&
         onEdgeMouseDown &&
         ps.map((_, i) => {
-          // I2.3 · 边视口粗筛：边的两个端点都不在视口内 → 跳过（边完全在屏外）。
           if (
             visibleVertexIdx &&
             !visibleVertexIdx.has(i) &&
@@ -434,7 +392,6 @@ export function KonvaPolygon({
       {editable &&
         onVertexMouseDown &&
         ps.map(([px, py], i) => {
-          // I2.3 · 顶点视口粗筛：屏外顶点不渲染 Circle 手柄。
           if (visibleVertexIdx && !visibleVertexIdx.has(i)) return null;
           return (
             <Circle
@@ -465,28 +422,17 @@ export function KonvaPolygon({
   );
 }
 
-// 旋转框 (OBB)。把整框放进一个绕中心 (cx,cy) 旋转 angle 度的 Group:
-//   - 主体 Rect 用 offsetX/offsetY = 半宽高, 让本地原点落在框中心。
-//   - 标签贴在框左上角 (本地坐标 -hw,-hh)。
-//   - 选中可编辑时, 顶部边外侧画一个旋转手柄圆点 + 连接线。
-// 样式 (色 / 选中 / faded / occluded) 比照 KonvaBox。
 interface KonvaRotatedBoxProps {
   b: Annotation;
   annotationId?: string;
   geometry: RotatedBboxGeometry;
-  /** 实时角度 (拖拽中由 ImageStage override; 否则 = geometry.angle)。度数 [0,360) 顺时针。 */
   angle: number;
   isAi: boolean;
   selected: boolean;
   editable: boolean;
   faded: boolean;
   fadedOpacity?: number;
-  /** 共享视觉规格(线宽/填充/字号/标签显隐+内容)。 */
   visual: AnnotationVisualConfig;
-  /**
-   * 显式传入的类别配色 (按项目)。缺省时回落到 Workbench 设置的模块级全局配置;
-   * 独立渲染面 (如 Data Manager 只读预览) 必须显式传入, 避免读到上一个项目的全局色。
-   */
   colorConfig?: ClassesConfig;
   occluded?: boolean;
   imgW: number;
@@ -532,7 +478,6 @@ export function KonvaRotatedBox({
   const hPx = geometry.h * imgH;
   const hw = wPx / 2;
   const hh = hPx / 2;
-  // 旋转手柄: 顶边中点外侧 (本地坐标 y < -hh)。
   const handleOffset = 18 / scale;
   const handleY = -hh - handleOffset;
 
@@ -658,20 +603,13 @@ interface KonvaPolylineProps {
   selected: boolean;
   faded: boolean;
   fadedOpacity?: number;
-  /** 共享视觉规格(线宽/填充/字号/标签显隐+内容)。 */
   visual: AnnotationVisualConfig;
-  /**
-   * 显式传入的类别配色 (按项目)。缺省时回落到 Workbench 设置的模块级全局配置;
-   * 独立渲染面 (如 Data Manager 只读预览) 必须显式传入, 避免读到上一个项目的全局色。
-   */
   colorConfig?: ClassesConfig;
-  /** occluded：渲染为虚线 + 半透。 */
   occluded?: boolean;
   imgW: number;
   imgH: number;
   scale: number;
   onClick: (e?: Konva.KonvaEventObject<MouseEvent>) => void;
-  /** 折线顶点（归一化，≥2 点，不闭合）。 */
   points: Pt[];
   editable?: boolean;
   onVertexMouseDown?: (vidx: number, e: Konva.KonvaEventObject<MouseEvent>) => void;
@@ -679,10 +617,6 @@ interface KonvaPolylineProps {
   onBodyMouseDown?: ((e: Konva.KonvaEventObject<MouseEvent>) => void) | null;
 }
 
-/**
- * 折线 (polyline) 渲染：Konva <Line closed={false}>，无填充、无首尾连边、无自交检测。
- * 顶点拖拽 / Alt 边插点 / Shift 删点的交互与 KonvaPolygon 一致，但边集合不环绕 (0..n-2)。
- */
 export function KonvaPolyline({
   b,
   annotationId,
@@ -764,7 +698,6 @@ export function KonvaPolyline({
           </Label>
         )}
 
-      {/* 折线边：0..n-2（不环绕）。Alt+点击在该段插入顶点。 */}
       {editable &&
         onEdgeMouseDown &&
         ps.slice(0, -1).map((a, i) => {
@@ -847,32 +780,18 @@ interface KonvaKeypointProps {
   selected: boolean;
   faded: boolean;
   fadedOpacity?: number;
-  /** 共享视觉规格(线宽/填充/字号/标签显隐+内容)。 */
   visual: AnnotationVisualConfig;
-  /**
-   * 显式传入的类别配色 (按项目)。缺省时回落到 Workbench 设置的模块级全局配置;
-   * 独立渲染面 (如 Data Manager 只读预览) 必须显式传入, 避免读到上一个项目的全局色。
-   */
   colorConfig?: ClassesConfig;
   imgW: number;
   imgH: number;
   scale: number;
-  /** 当前类别的骨骼模板 (命名节点 + 连线)。缺省时按 index 取色、无连线。 */
   schema?: KeypointSchema | null;
   onClick: (e?: Konva.KonvaEventObject<MouseEvent>) => void;
   editable?: boolean;
-  /** 单点拖拽起始 (移动该 keypoint)。 */
   onNodeMouseDown?: (nodeIdx: number, e: Konva.KonvaEventObject<MouseEvent>) => void;
-  /** Alt+点击节点切换可见性 (2 → 1 → 0 → 2 循环)。 */
   onToggleVisibility?: (nodeIdx: number) => void;
 }
 
-/**
- * 关键点渲染：
- *   - 按 schema.edges 在对应两点间画骨骼连线 (两端 v>0 时才连)；
- *   - 每个节点画圆点：v=2 实心 / v=1 空心 / v=0 淡显小点；颜色取 schema.nodes[i].color；
- *   - 节点标签 = schema.nodes[i].name（有 sublabel 时显示 name·sublabel）；选中态加阴影 + 类别标签。
- */
 export function KonvaKeypoint({
   b,
   annotationId,
@@ -899,14 +818,12 @@ export function KonvaKeypoint({
   const labelText = shapeLabelText(b, isAi, visual.labelContent);
   const edges = schema?.edges ?? [];
 
-  // 类别标签锚点：第一个已标注点；都没有则用 bbox 左上。
   const anchor = kps.find((p) => p.v > 0);
   const anchorX = (anchor?.x ?? b.x) * imgW;
   const anchorY = (anchor?.y ?? b.y) * imgH;
 
   return (
     <Group id={annotationId} opacity={faded ? fadedOpacity : 1}>
-      {/* 骨骼连线 (两端可见 / 遮挡才连) */}
       {edges.map(([i, j], idx) => {
         const a = kps[i];
         const c = kps[j];
@@ -923,13 +840,11 @@ export function KonvaKeypoint({
         );
       })}
 
-      {/* 节点圆点 */}
       {kps.map((p, i) => {
         const nodeColor = keypointColorByIndex(i, schema);
         const cx = p.x * imgW;
         const cy = p.y * imgH;
         if (p.v === 0) {
-          // 未标注：淡显小点 (不可拖)
           return (
             <Circle
               key={`kp-${i}`}
@@ -948,7 +863,6 @@ export function KonvaKeypoint({
             y={cy}
             radius={r}
             hitStrokeWidth={9 / scale}
-            // v=2 实心 / v=1 空心
             fill={p.v === 2 ? nodeColor : "white"}
             stroke={nodeColor}
             strokeWidth={sw}
@@ -982,7 +896,6 @@ export function KonvaKeypoint({
         );
       })}
 
-      {/* 节点名标签 (选中或编辑态时显示, 避免拥挤) */}
       {(selected || editable) &&
         schema?.nodes &&
         kps.map((p, i) => {
@@ -1005,7 +918,6 @@ export function KonvaKeypoint({
           );
         })}
 
-      {/* 类别标签 */}
       {shouldShowLabel(selected, visual.labelVisibility) && !(isAi && faded) && (
         <Label
           x={anchorX}

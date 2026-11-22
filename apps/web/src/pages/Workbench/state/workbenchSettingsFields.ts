@@ -1,6 +1,3 @@
-// 工作台设置字段注册表(单一来源):工作台设置窗口与 Settings 页「标注偏好」
-// 共用本数组渲染,杜绝两处 UI 漂移。新增字段流程:后端子树加字段 → auth.ts 类型同步 →
-// 这里加一行 → 消费点读配置。
 import type { LabelContentByType, WorkbenchPreferences } from "@/api/auth";
 import {
   WEBCODECS_DEFAULT_ENABLED,
@@ -12,6 +9,7 @@ import {
   type VideoReferenceSetting,
 } from "../stage/videoReferencePredict";
 import type { LockableField, WorkbenchConfigPatch } from "./useWorkbenchConfig";
+import type { WORKBENCH_LOCAL_DEFAULTS } from "./workbenchLocalDefaults";
 import {
   POINT_CLOUD_WEBGPU_STORAGE_KEY,
   readPointCloudWebGpuExperiment,
@@ -34,10 +32,8 @@ export type WorkbenchSettingControl =
       resetTo?: number;
     }
   | { type: "select"; options: Array<{ value: WorkbenchSettingValue; label: string }> }
-  // 多选(存 string[]);min 兜底至少保留几项(labelContent 至少留「类别名」)。
   | { type: "multiselect"; options: Array<{ value: string; label: string }>; min?: number }
   | { type: "text"; maxLength: number; placeholder?: string }
-  // 标签内容按标注类型分段：每段独立 toggle 列，提交整个 LabelContentByType 对象。
   | {
       type: "labelContentByType";
       segments: Array<{
@@ -48,17 +44,13 @@ export type WorkbenchSettingControl =
     };
 
 interface WorkbenchSettingFieldBase {
-  /** "image.controlPointsSize" — 与 WorkbenchPreferences 子树路径一致(category.字段名)。 */
   key: `${WorkbenchSettingCategory}.${string}`;
-  /** 子设置挂到父开关下面;父开关关闭时子项禁用并置灰。 */
   parentKey?: `${WorkbenchSettingCategory}.${string}`;
   category: WorkbenchSettingCategory;
-  /** 仅用于展示分组，不参与偏好存储。 */
   section: WorkbenchSettingSection;
   label: string;
   description?: string;
   control: WorkbenchSettingControl;
-  /** 注册但不渲染；snapToGrid 不提供设置 UI。 */
   hidden?: boolean;
 }
 
@@ -66,12 +58,11 @@ export interface WorkbenchPreferenceSettingField extends WorkbenchSettingFieldBa
   key: `${WorkbenchPreferenceSettingCategory}.${string}`;
   category: WorkbenchPreferenceSettingCategory;
   storage?: "preferences";
-  /** 是否参与项目锁定；ProjectRenderingConfig 可覆盖同名平铺字段。 */
   lockable?: boolean;
 }
 
 export interface WorkbenchLocalSettingField extends WorkbenchSettingFieldBase {
-  key: `experiment.${string}`;
+  key: keyof typeof WORKBENCH_LOCAL_DEFAULTS;
   category: "experiment";
   storage: "local";
   read: () => WorkbenchSettingValue;
@@ -88,8 +79,6 @@ export const WORKBENCH_SETTING_CATEGORY_LABELS: Record<WorkbenchSettingCategory,
   experiment: "实验特性",
 };
 
-// 导航按用途组织，category 继续表示原有偏好存储子树。
-// notifications 组渲染共享的通知偏好面板，不进 buildFieldPatch/useWorkbenchConfig。
 export const WORKBENCH_SETTING_GROUPS = {
   layout: { label: "界面布局", description: "边栏宽度与工作台辅助显示。" },
   appearance: { label: "标注显示", description: "标签、线条、填充和邻帧参考框。" },
@@ -126,7 +115,7 @@ export const WORKBENCH_SETTING_SECTIONS = {
 
 export type WorkbenchSettingSection = keyof typeof WORKBENCH_SETTING_SECTIONS;
 
-function readLocalBoolean(key: string, defaultValue = false): boolean {
+function readLocalBoolean(key: string, defaultValue: boolean): boolean {
   if (typeof window === "undefined") return defaultValue;
   try {
     const raw = window.localStorage.getItem(key);
@@ -419,7 +408,6 @@ export const WORKBENCH_SETTING_FIELDS: WorkbenchSettingField[] = [
     label: "网格吸附",
     control: { type: "toggle" },
     lockable: true,
-    // 现状只有项目级覆盖入口,用户侧无 UI;本版不新增可感知项,先注册不渲染。
     hidden: true,
   },
   {
@@ -665,7 +653,7 @@ export const WORKBENCH_SETTING_FIELDS: WorkbenchSettingField[] = [
     storage: "local",
     label: "3D WebGPU 渲染器",
     description:
-      "仅当前浏览器，默认关闭；切换点云主视图和框体精修视图的渲染器，刷新或重新打开点云任务后生效。实际后端显示在 3D 状态栏",
+      "仅当前浏览器；切换点云主视图和框体精修视图的渲染器，刷新或重新打开点云任务后生效。实际后端显示在 3D 状态栏",
     control: { type: "toggle", onText: "实验已启用", offText: "Legacy" },
     read: () => readPointCloudWebGpuExperiment(),
     write: (value) => writePointCloudWebGpuExperiment(Boolean(value)),
@@ -677,7 +665,7 @@ export const WORKBENCH_SETTING_FIELDS: WorkbenchSettingField[] = [
     storage: "local",
     label: "WebCodecs 精确解码",
     description:
-      "仅当前浏览器，默认开启；视频暂停、逐帧和 seek 优先精确解码，不支持时安全回退。刷新后生效；URL 的 webcodecs 参数优先于本机开关",
+      "仅当前浏览器；视频暂停、逐帧和 seek 优先精确解码，不支持时安全回退。刷新后生效；URL 的 webcodecs 参数优先于本机开关",
     control: { type: "toggle" },
     read: () => readLocalBoolean(WEBCODECS_FLAG_STORAGE_KEY, WEBCODECS_DEFAULT_ENABLED),
     write: (value) => writeLocalBoolean(WEBCODECS_FLAG_STORAGE_KEY, value),
@@ -688,7 +676,7 @@ export const WORKBENCH_SETTING_FIELDS: WorkbenchSettingField[] = [
     category: "experiment",
     storage: "local",
     label: "参考框运动预测",
-    description: "仅当前浏览器，即时生效；视频轨迹当前帧无框时的参考框预测方式，默认取最近关键帧",
+    description: "仅当前浏览器，即时生效；选择视频轨迹当前帧无框时的参考框运动预测方式",
     control: {
       type: "select",
       options: [
@@ -711,7 +699,6 @@ export function isLocalSettingField(
   return field.storage === "local";
 }
 
-/** 按 key 的子树路径从配置中取当前值。 */
 export function getFieldValue(
   config: WorkbenchPreferences,
   field: WorkbenchSettingField,
@@ -721,7 +708,6 @@ export function getFieldValue(
   return (config[field.category] as unknown as Record<string, WorkbenchSettingValue>)[name];
 }
 
-/** 把单字段新值包装成子树级 patch(useWorkbenchConfig.update / setFields 入参)。 */
 export function buildFieldPatch(
   field: WorkbenchSettingField,
   value: WorkbenchSettingValue,
@@ -733,19 +719,16 @@ export function buildFieldPatch(
   return { [field.category]: { [name]: value } } as WorkbenchConfigPatch;
 }
 
-/** lockable 字段对应的 LockableField 名(平铺命名,与 lockedFields 比对);非 lockable 返回 null。 */
 export function lockableFieldName(field: WorkbenchSettingField): LockableField | null {
   if (isLocalSettingField(field)) return null;
   if (!field.lockable) return null;
   return field.key.slice(field.category.length + 1) as LockableField;
 }
 
-/** 统一设置不按当前任务过滤；未开放的字段仍保持隐藏。 */
 export function getVisibleWorkbenchSettingFields() {
   return WORKBENCH_SETTING_FIELDS.filter((field) => !field.hidden);
 }
 
-/** 窗口、搜索结果与个人页共用同一套展示顺序。 */
 export function groupWorkbenchSettings<T extends { section: WorkbenchSettingSection }>(
   fields: readonly T[],
 ) {

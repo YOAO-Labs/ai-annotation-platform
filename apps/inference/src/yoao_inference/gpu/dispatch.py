@@ -1430,7 +1430,6 @@ async def _call_eviction_lifecycle(
         remaining_seconds = (hard_deadline_ms - int(clock.time() * 1000)) / 1000
         if remaining_seconds <= 0:
             return None
-        # Each control send owns a fresh durable routing attempt, including retries.
         request_id = uuid.uuid4()
         grant = GPUDispatchGrant(
             generation=generation,
@@ -3057,8 +3056,6 @@ def build_gpu_dispatch_context_factory(
                             GPUArbiterErrorCode.NOT_READY,
                             "GPU runtime subject is not ready",
                         ) from cold_exc
-                    # Another pool may have finished loading since the last probe.
-                    # Observe once; never replay execution or relax either proof.
                     try:
                         refreshed_health = await health_refresher(
                             uuid.UUID(request.backend_id), secrets.token_hex(32)

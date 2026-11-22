@@ -2,21 +2,13 @@ import { Icon } from "./Icon";
 import { cn } from "@/lib/utils";
 import { useElementStyle } from "./useElementStyle";
 
-/**
- * SearchInput —— 搜索框外壳。
- * 外壳 div 带边框/底色,内嵌透明 input + 可选 ⌘K kbd。内层 <input> 显式
- * `border-0 bg-transparent outline-none` —— 迁移期无全局 preflight,杜绝浏览器 UA 默认边框漏出。
- * `width` 动态值用 useElementStyle 注入(绕 eslint inline-style)。
- */
 interface SearchInputProps {
   placeholder?: string;
   value?: string;
   onChange?: (value: string) => void;
   width?: number;
   kbd?: string;
-  /** TopBar 用作 ⌘K palette 触发;点击外壳即调用 onClick。 */
   onClick?: () => void;
-  /** 与 onClick 配合:只读,避免 input 抢键盘焦点。 */
   readOnly?: boolean;
 }
 

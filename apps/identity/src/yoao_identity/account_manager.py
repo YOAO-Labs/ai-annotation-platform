@@ -313,10 +313,6 @@ class AccountManager:
             elif isinstance(request, SetAvatarRefRequest):
                 payload = request.payload
                 expected = payload.expected_previous_avatar_ref
-                # An upload always publishes against the reference frozen before
-                # its bytes were written (including an explicit "no avatar").
-                # Preset/clear has no I/O race, so an unspecified expectation
-                # uses the freshly read account value.
                 base_value = (
                     expected
                     if payload.kind == "upload" or expected is not None

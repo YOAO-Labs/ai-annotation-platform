@@ -103,8 +103,6 @@ def _docker(*arguments: str, timeout: int = 90) -> str:
                     }
             except (OSError, subprocess.TimeoutExpired, ValueError, IndexError) as exc:
                 evidence["inspect_error"] = type(exc).__name__
-        # Keep potentially sensitive argv/output in a mode-0600 evidence file,
-        # never in the shared JUnit/console failure message.
         with tempfile.NamedTemporaryFile(
             mode="w",
             prefix="assets-docker-failure-",
@@ -472,8 +470,6 @@ def _write_worker_environment(
     native_storage_url: str,
     native_storage_token: str,
 ) -> None:
-    # The Native lane is a required cleanup lane: point it at the real Source
-    # signer and its cleanup role token, never a no-op or a configured bucket.
     values = {
         "ASSET_CLEANUP_DATABASE_URL": database_url,
         "ASSET_CLEANUP_S3_ENDPOINT": endpoint,
@@ -1313,9 +1309,6 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
     tmpdir = Path(_required_env("TMPDIR")).resolve()
 
     try:
-        # Foreign suites legitimately leave committed deletions in this bucket;
-        # the worker claims per bucket, so scope the emptiness guard to the
-        # prefixes this test owns below.
         _build_worker_image(image_tag, image_identity)
         image_built = True
         image = _inspect_docker(image_tag)

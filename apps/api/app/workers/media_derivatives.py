@@ -38,8 +38,6 @@ def _decoder_config(path):
     from app.workers import media_codec
     import base64
 
-    # All generated chunks use fragmented MP4 with an initial moov. Reading the
-    # entire (potentially GiB-sized) mdat to find its codec config is unnecessary.
     with storage_access.closing_registered(path.open("rb")) as stream:
         data = stream.read(1024 * 1024)
     avcc = media_codec._find_mp4_box_payload(data, b"avcC")
@@ -121,8 +119,6 @@ def _chunk(output, metadata, input_path, fds, directory):
     by_index = {frame["frame_index"]: frame for frame in frames}
     start = by_index.get(spec["start_frame"])
     end = by_index.get(spec["end_frame"])
-    # Always describe the canonical original, even when a browser transcode is
-    # present in metadata. Its codec/frame numbering cannot select this input.
     codec = media._normalize_video_codec(info.codec)
     keyframe = start["is_keyframe"] if start else None
     reason = media._transcode_fallback_reason(codec, keyframe, start is not None)
@@ -182,8 +178,6 @@ def _chunk(output, metadata, input_path, fds, directory):
                 diagnostics["description"] = description
     except Exception as exc:
         _known_decoder_failure(exc)
-    # A known probe failure may keep ordinary video playback available. A
-    # present precise packet table must describe every promised frame exactly.
     contract.validate_samples(diagnostics, path.stat().st_size, spec)
     return {
         "schema": 1,
@@ -349,8 +343,6 @@ async def claim_with_retry(factory, identifier):
             if not transient(exc):
                 raise
             if attempt == 7:
-                # The owner remains unclaimed. A subsequent request redelivers
-                # the same attempt instead of changing its immutable authority.
                 log.info("video derivative claim deferred: code=content_busy")
                 return None
             await asyncio.sleep(0.05 * (attempt + 1))
@@ -375,8 +367,6 @@ async def fail_with_retry(factory, identifier, token, code):
             if not transient(exc):
                 raise
             if attempt == 7:
-                # No lease is renewed and no responsibility is erased. The
-                # reconciler can retire the abandoned owner after its deadline.
                 log.info("video derivative failure deferred: code=content_busy")
                 return
             await asyncio.sleep(0.05 * (attempt + 1))
@@ -524,8 +514,6 @@ async def run_outputs(identifiers, *, propagate_failure=False):
                                         )
                                     raise
                             completed.append((claimed, result, inventory, revisions[0]))
-                # Every decoder, output file/client and the shared source stage
-                # has really closed before any member of this batch is ready.
                 for claimed, result, inventory, revision in completed:
                     async with factory() as final:
                         await contract.publish(

@@ -24,7 +24,6 @@ interface VideoTrackPanelProps {
   videoTracks: VideoTrackAnnotation[];
   selectedId: string | null;
   selectedTrackIds: Set<string>;
-  /** 仅用于列表态样式(选中时收紧列表高度);单轨迹详情已迁至选中卡。 */
   selectedTrack: VideoTrackAnnotation | null;
   frameIndex: number;
   trackFilter?: TrackFilter;
@@ -43,29 +42,21 @@ interface VideoTrackPanelProps {
   onDeleteTrack?: (annotation: VideoTrackAnnotation) => void;
   onBatchRenameTracks?: (className: string) => void;
   onBatchDeleteTracks?: () => void;
-  /** M2 · 批量 AI 追踪: 对多选轨迹一次发起多源追踪 (单 job 各回填各自源)。 */
   onBatchTrackTracks?: () => void;
   onAggregateSelectedBboxes?: () => void;
   onMergeSelectedTracks?: () => void;
   canMergeSelectedTracks?: boolean;
-  /** 合并禁用时按当前选择态给出动态原因 (差在哪); 可用时为 null。 */
   mergeDisabledReason?: string | null;
-  // Join: 选中两条同类且帧号不重叠的轨迹时跳连, gapMode 由 ComposeDialog 选定。
   onJoinSelectedTracks?: (gapMode: VideoTrackGapMode) => void;
   canJoinSelectedTracks?: boolean;
-  /** 跳连禁用时按当前选择态给出动态原因; 可用时为 null。 */
   joinDisabledReason?: string | null;
-  /** 选中的轨迹是否全部已隐藏 / 已锁定 —— 决定切换按钮的图标与文案。 */
   allSelectedTracksHidden?: boolean;
   allSelectedTracksLocked?: boolean;
   onToggleSelectedTracksHidden?: () => void;
   onToggleSelectedTracksLocked?: () => void;
   reviewDisplayMode?: DiffMode;
-  // 1A 选色器: session 级覆盖 (trackId → oklch), 未接线时回落到 classColor。
   trackColorOverrides?: Record<string, string>;
   onSetTrackColor?: (trackId: string, colorToken: string | null) => void;
-  /** 「轨迹」分组头折叠态 (受控, 走 workbench.layout 服务端持久)。缺省 = 展开;
-   *  未传 onToggleCollapsed 时不渲染折叠箭头, 退化为静态头。 */
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
 }
@@ -82,11 +73,6 @@ function sourceChipClass(source: VideoFrameEntry["source"] | null): string | nul
   return null;
 }
 
-/**
- * 轨迹关键帧来源迷你条: 沿帧区间 bucket 化 (最多 40 桶, 防大量关键帧撑爆 DOM),
- * AI 追出的关键帧 (source==="prediction") 着 violet (对齐本面板 source chip 语言), 人工帧着中性。
- * 全人工轨迹不渲染 (省视觉噪音, 只在有 AI 追帧时提示"哪几段是 AI 补的")。
- */
 function KeyframeSourceStrip({ keyframes }: { keyframes: readonly VideoTrackKeyframe[] }) {
   if (keyframes.length === 0 || !keyframes.some((kf) => kf.source === "prediction")) return null;
   const frames = keyframes.map((kf) => kf.frame_index);
@@ -94,14 +80,12 @@ function KeyframeSourceStrip({ keyframes }: { keyframes: readonly VideoTrackKeyf
   const max = Math.max(...frames);
   const span = max - min + 1;
   const BUCKETS = 40;
-  // 每桶: 0=空, 1=人工, 2=AI 追 (AI 优先着色)。
   const buckets = new Array<number>(BUCKETS).fill(0);
   for (const kf of keyframes) {
     const idx = Math.min(BUCKETS - 1, Math.floor(((kf.frame_index - min) / span) * BUCKETS));
     const weight = kf.source === "prediction" ? 2 : 1;
     if (weight > buckets[idx]) buckets[idx] = weight;
   }
-  // 桶等宽且连续 → 用 flex 等分格渲染, 避免逐格内联定位 (本文件禁 inline style)。
   return (
     <div
       data-testid="track-keyframe-source-strip"
@@ -125,11 +109,6 @@ function KeyframeSourceStrip({ keyframes }: { keyframes: readonly VideoTrackKeyf
   );
 }
 
-/**
- * 视频轨迹「清单」(roster):列出所有轨迹 + 行内显隐/锁/改类 + 多选批量(改类/合并/跳连/删除)。
- * 单条选中轨迹的详情 / 操作 / 关键帧 / 属性已迁至画布内选中卡(VideoTrackCardContent),
- * 由 VideoTrackSidebar 的 view="card" 分支渲染,与本清单共享同一份派生状态与回调。
- */
 export function VideoTrackPanel({
   videoTracks,
   selectedId,
@@ -176,10 +155,7 @@ export function VideoTrackPanel({
   const canAggregateBboxes =
     !readOnly && selectedBboxCount > 1 && Boolean(onAggregateSelectedBboxes);
   const [joinOpen, setJoinOpen] = useState(false);
-  // 当前打开取色器的 trackId; null 表示关闭。
   const [colorPickerTrackId, setColorPickerTrackId] = useState<string | null>(null);
-  // 点击「更多操作 ⋮」钉住该行操作条；
-  // hover 仍可临时浮出, 点击则常驻(便于触屏 / 无 hover 环境)。
   const [actionsPinnedId, setActionsPinnedId] = useState<string | null>(null);
   const canEditColor = !readOnly && Boolean(onSetTrackColor);
   const filteredVideoTracks = useMemo(
@@ -196,7 +172,6 @@ export function VideoTrackPanel({
 
   return (
     <div className="grid gap-3 py-0.5 pb-2">
-      {/* 轨迹分组头:与「AI 待审 / 人工」分组头 (AIInspectorPanel SECTION_CARD_CLASS) 视觉对齐 + 可折叠。 */}
       <div
         className={cn(
           "rounded-lg border border-border bg-card px-2.5 py-1.5 text-foreground",
@@ -249,7 +224,6 @@ export function VideoTrackPanel({
       </div>
       {!collapsed && (
         <div className={cn("grid gap-2", selectedTrack && "order-2")}>
-          {/* 批量操作仅在「当前帧」tab 下可用:全局视图下多选极易误删整条跨帧轨迹。 */}
           {batchCount > 1 && trackFilter !== "current" && (
             <div
               data-testid="video-track-batch-hint"
@@ -503,7 +477,6 @@ export function VideoTrackPanel({
                       </span>
                     </div>
                   </div>
-                  {/* 操作区与单帧标注 AI 待审一致:默认只留一个常驻 ⋮ 在最右,hover 时其余操作向左浮出工具条。 */}
                   <div className="flex gap-1.5 items-center">
                     <div className="relative flex items-center justify-end group/act">
                       <div

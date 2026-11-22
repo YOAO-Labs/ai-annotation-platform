@@ -18,7 +18,6 @@ class TrackerControlError(t.Value):
     code: t.TrackerErrorCode
 
 
-# Route values stay narrower than the native matrix: no work facts or lease calls.
 HTTP_OPERATIONS: dict[str, tuple[type[BaseModel], type[BaseModel]]] = {
     "input": (t.TrackerInputReadRequest, t.TrackerVideoInputStatus),
     "prepare": (t.TrackerInputRequest, t.TrackerVideoInputStatus),

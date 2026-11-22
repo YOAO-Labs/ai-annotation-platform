@@ -45,7 +45,6 @@ from tests.factory import create_project
 
 
 async def _register_metadata_sources(db, *items):
-    # These preflight fixtures exercise DB facts only, with no physical reads.
     from app.services.dataset_assets import register_item_asset
 
     for item in items:
@@ -112,8 +111,6 @@ def _camera() -> LidarCameraExportCtx:
 def test_nuscenes_fetch_script_uses_shared_strict_public_receipt_contract():
     from app.services.exporting.lidar_fetch import FETCH_TRUSTED_MEDIA_TEMPLATE
 
-    # Actual HTTP, full-body verification and base-origin handling are exercised
-    # by test_lidar_fetch_receipts for this exact media template.
     assert _FETCH_NUSCENES_MEDIA_TEMPLATE == FETCH_TRUSTED_MEDIA_TEMPLATE
 
 

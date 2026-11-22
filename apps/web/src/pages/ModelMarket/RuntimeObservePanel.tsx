@@ -2,18 +2,6 @@ import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useListPagination } from "@/hooks/useListPagination";
 import { CopyableError } from "@/components/ui/CopyableError";
-/**
- * runtime observation orchestrator (plan §6.2 / §9.3).
- *
- * Pure shell: owns three queries (topology, runtime-snapshot, observe) and
- * delegates rendering to the runtime/ components. No URL-join — pool/member
- * join is done by {@link mergeTopologyAndSnapshot}. One user-visible refresh
- * button refetches all three in parallel; auto-refresh ticks runtime-snapshot
- * only. Partial source failure is surfaced as a banner, never an error block.
- *
- * Super-admin-only: the parent tab is hidden for non-super-admins (kept
- * assumption); this panel does not re-gate.
- */
 import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
@@ -76,9 +64,6 @@ export function RuntimeObservePanel(): React.ReactElement {
     queryFn: () => adminMlIntegrationsApi.observe(),
     refetchInterval: 60_000,
   });
-  // legacy /all + /overview — still needed for per-member backend lookup,
-  // GPU claim display and the warmup projectId path. Pool members
-  // reference registry_id, and /all is the per-registry record source.
   const allQ = useQuery({
     queryKey: ["admin", "ml-integrations", "all"],
     queryFn: () => adminMlIntegrationsApi.listAll(),
@@ -103,22 +88,18 @@ export function RuntimeObservePanel(): React.ReactElement {
     return mergeTopologyAndSnapshot(topologyQ.data, snapshotQ.data ?? null);
   }, [topologyQ.data, snapshotQ.data]);
 
-  // registry_id → GlobalBackendItem (from /all).
   const backendsById = useMemo(() => {
     const map = new Map<string, GlobalBackendItem>();
     for (const b of allQ.data?.items ?? []) map.set(b.id, b);
     return map;
   }, [allQ.data]);
 
-  // url → ObserveTarget (normalized), for residency + env-only.
   const observeByUrl = useMemo(() => {
     const map = new Map<string, ObserveTarget>();
     for (const t of observeQ.data?.targets ?? []) map.set(normalizeUrl(t.url), t);
     return map;
   }, [observeQ.data]);
 
-  // registry_id → ObserveTarget via its backend.url (display-only join — NOT a
-  // routing-key join; observe has no pool/registry identity).
   const observeByRegistry = useMemo(() => {
     const map = new Map<string, ObserveTarget>();
     for (const b of backendsById.values()) {
@@ -128,7 +109,6 @@ export function RuntimeObservePanel(): React.ReactElement {
     return map;
   }, [backendsById, observeByUrl]);
 
-  // registry_id → first enabling projectId (warmup path needs one).
   const projectByBackend = useMemo(() => {
     const map = new Map<string, string>();
     for (const project of overviewQ.data?.projects ?? []) {
@@ -272,8 +252,6 @@ function RuntimeSummaryBand({
     off: "直连观测",
   };
 
-  // 紧凑摘要带（plan §4.2 阶段三）：路由模式 · 可路由实例 · 需关注服务池 ·
-  // 数据来源可用性，一条可换行的字段带替代旧版四个大摘要块。
   return (
     <div
       className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-border bg-muted/30 px-3.5 py-2.5 text-xs"
@@ -499,11 +477,6 @@ function EnvOnlySection({
   );
 }
 
-/**
- * Warmup dispatcher: resolves the projectId for a registry_id and invokes the
- * declared generic /warmup endpoint when available, falling back to legacy
- * /reload only for older backends.
- */
 function useWarmupDispatcher(
   projectByBackend: Map<string, string>,
   backendsById: Map<string, GlobalBackendItem>,

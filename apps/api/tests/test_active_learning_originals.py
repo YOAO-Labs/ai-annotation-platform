@@ -560,8 +560,6 @@ def output(world, monkeypatch):
     target = SimpleNamespace(
         client=client, bucket=owner.bucket, location_id=owner.location_id
     )
-    # This SQL-free fixture owns the physical transport and permits; durable
-    # write-accounting transactions are exercised by the accounting suites.
     monkeypatch.setattr(learning.storage_io, "prepare", AsyncMock(return_value=target))
     monkeypatch.setattr(learning.write_accounting, "recorder", lambda *_a, **_k: None)
     monkeypatch.setattr(service, "delegated", AsyncMock(return_value=world.authority))

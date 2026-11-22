@@ -151,7 +151,6 @@ async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
         assert original.state == "reserved"
         original_revision = original.eligibility_revision
         if case == "legacy_capability":
-            # Rows created before the migration have no captured revision.
             await owner.execute(
                 "UPDATE yoao_inference_routing_v1.scopes SET reservation_eligibility_revision=NULL,reservation_boot_id=NULL WHERE id=$1",
                 original.id,
@@ -166,7 +165,6 @@ async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
             assert legacy.result.scope.eligibility_revision == original_revision
             return
         if case != "unchanged_legacy":
-            # A mandatory challenged health observation changes only live health data.
             health["probe"] = {"challenge": uuid.uuid4().hex}
             if case in {"boot", "boot_at_open"}:
                 health["residency"]["boot_id"] = "replacement-boot"
@@ -364,8 +362,6 @@ async def test_model_route_health_refresh_keeps_identity_and_fences_changes(
             assert status.result.attempts[0].state == "not_sent"
             assert status.result.attempts[0].reason == "not_sent"
             if case == "cancel_before_send":
-                # A cancelled, never-sent attempt does not make a later attempt
-                # the second physical send for the same still-open scope.
                 health["probe"] = {"challenge": uuid.uuid4().hex}
                 await owner.execute(
                     "UPDATE public.ml_backend_registry SET health_meta=$2::jsonb,last_checked_at=now() WHERE id=$1",

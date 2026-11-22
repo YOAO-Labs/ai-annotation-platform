@@ -34,9 +34,7 @@ async function enterViewport() {
     video.value?.load();
   }
   if (!props.autoplay || prefersReducedMotion.value) return;
-  await video.value?.play().catch(() => {
-    // 浏览器可拒绝自动播放；控件仍允许用户主动播放。
-  });
+  await video.value?.play().catch(() => {});
 }
 
 onMounted(() => {

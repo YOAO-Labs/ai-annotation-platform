@@ -5,11 +5,6 @@ import { cn } from "@/lib/utils";
 
 import { useElementStyle } from "./useElementStyle";
 
-/**
- * Badge —— shadcn / 设计规范适配层。
- * 保留原有 `variant/dot` API(调用点零改动);语义色走设计 §2.2 固定调色板(柔底 /10 + 暗色提亮)。
- * 映射见 docs/plans/archive/2026-06-19-v0.17.1-ui-primitives-wave1.md §3.2。
- */
 interface BadgeProps extends Omit<HTMLAttributes<HTMLSpanElement>, "children"> {
   variant?: "default" | "success" | "warning" | "danger" | "accent" | "ai" | "outline";
   dot?: boolean;

@@ -1,7 +1,3 @@
-// SelectedAnnotationCard 基座单测:
-// - 展开态渲染 FloatingPanelShell(标题 + 内容 + 收起按钮),点收起触发 onCollapse
-// - 折叠态渲染可点信息胶囊(不渲染内容),点击触发 onExpand
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, render, fireEvent } from "@testing-library/react";
 import { SelectedAnnotationCard } from "./SelectedAnnotationCard";
@@ -122,7 +118,6 @@ describe("SelectedAnnotationCard", () => {
         <div>卡片内容</div>
       </SelectedAnnotationCard>,
     );
-    // 折叠态:标题仍在(信息胶囊上),但内容不渲染;胶囊以展开面板中心定位。
     const tab = getByLabelText("展开选中信息卡(可拖动)") as HTMLElement;
     expect(getByText("car")).not.toBeNull();
     expect(queryByText("卡片内容")).toBeNull();

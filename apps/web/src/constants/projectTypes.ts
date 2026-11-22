@@ -7,7 +7,6 @@ export interface ProjectTypeOption {
   hint: string;
 }
 
-/** Project/template choices use the same geometry vocabulary as annotation tools. */
 export const PROJECT_TYPES: ReadonlyArray<ProjectTypeOption> = [
   { key: "image-det", label: "图像 · 目标检测", icon: "rect", hint: "矩形框圈选物体" },
   {

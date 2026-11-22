@@ -1,27 +1,4 @@
 #!/usr/bin/env node
-// scripts/check-dead-links.mjs
-//
-// 扫描仓库所有 markdown 文件中的相对路径引用，找出指向不存在文件的「死链」，
-// 并为每条死链推荐最相似的现有文件（用 Damerau-Levenshtein 距离 + 路径相似度）。
-//
-// 用法：
-//   node scripts/check-dead-links.mjs                   # 全仓扫描（默认跳过历史快照）
-//   node scripts/check-dead-links.mjs --json            # JSON 输出（CI 用）
-//   node scripts/check-dead-links.mjs --include-historical
-//                                                       # 也检查 docs/plans/ 与 docs/changelogs/
-//   node scripts/check-dead-links.mjs path/to/dir       # 仅扫描子目录
-//
-// 退出码：发现死链返回 1，否则 0。
-//
-// 默认跳过的源（不视为死链来源，因为是固化历史快照）：
-//   docs/plans/、docs/changelogs/
-// 默认跳过的目录（不扫描）：
-//   node_modules / .git / .claude/worktrees / dist / build /
-//   docs-site/changelog/ / docs-site/roadmap/ / docs-site/dev/adr/（VitePress 自动镜像）
-//
-// 目标侧识别：VitePress 风格 `./foo` 自动尝试 `./foo.md` 与 `./foo/index.md`；
-// 源码引用 `path/file.ts:123` 自动剥离行号后缀；docs-site/dev/adr 等镜像目录
-// 会回查 docs/adr 源文件，避免镜像未重建造成的假死链。
 
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { dirname, resolve, relative, basename, sep } from "node:path";
@@ -48,7 +25,6 @@ const SKIP_DIRS = new Set([
   ".cache",
 ]);
 
-// 这些目录虽然在仓内，但属于自动生成 / 临时副本 / 第三方 vendor，不作为死链来源
 const SKIP_PATH_PREFIXES = [
   ".claude/worktrees/",
   "docs-site/changelog/",
@@ -58,7 +34,6 @@ const SKIP_PATH_PREFIXES = [
   "docs-site/.vitepress/dist/",
 ];
 
-// 路径片段匹配（更通用）：vendor/、third_party/ 等子目录
 const SKIP_PATH_SEGMENTS = ["/vendor/", "/third_party/", "/third-party/"];
 
 function shouldSkipDir(name) {
@@ -94,13 +69,7 @@ function walk(root, out = []) {
   return out;
 }
 
-// 提取 markdown 中的相对链接目标。匹配两类：
-//   [text](path)            标准链接
-//   [text]: path            引用式定义
-// 忽略：http(s)://, mailto:, #anchor, javascript:, data:
 function extractLinks(text) {
-  // 屏蔽代码 fence (```...```) 与行内 code (`...`)：把它们替换为等长空格，
-  // 这样下游 regex 不会匹配代码里的示例链接，行号也保持原样。
   function maskCode(src) {
     const lines = src.split("\n");
     let inFence = false;
@@ -114,7 +83,6 @@ function extractLinks(text) {
         lines[i] = " ".repeat(lines[i].length);
         continue;
       }
-      // 行内 code：成对反引号之间清空
       lines[i] = lines[i].replace(/`[^`\n]*`/g, (m) => " ".repeat(m.length));
     }
     return lines.join("\n");
@@ -166,13 +134,10 @@ function stripQuery(target) {
   return i >= 0 ? target.slice(0, i) : target;
 }
 
-// 源码引用约定：`path/to/file.ts:123` 或 `path/to/file.ts:12-34` 用尾部冒号 + 数字定位行号
 function stripLineSuffix(target) {
   return target.replace(/:\d+(?:-\d+)?$/, "");
 }
 
-// 解析链接目标为绝对仓库路径；返回 null 表示「非文件链接」(纯锚点)
-// 当源文件在 docs-site/ 内部时，绝对路径（/foo）按 VitePress 站点根 (= docs-site/) 解析
 function resolveTarget(sourceFile, target) {
   if (!target || target.startsWith("#")) return null;
   if (isExternal(target)) return null;
@@ -182,9 +147,7 @@ function resolveTarget(sourceFile, target) {
 
   try {
     t = decodeURIComponent(t);
-  } catch {
-    // 保留原样
-  }
+  } catch {}
 
   let abs;
   if (t.startsWith("/")) {
@@ -200,7 +163,6 @@ function resolveTarget(sourceFile, target) {
   return abs;
 }
 
-// Damerau-Levenshtein 距离，带上限剪枝
 function dlDistance(a, b, cap = 64) {
   if (a === b) return 0;
   if (Math.abs(a.length - b.length) > cap) return cap + 1;
@@ -230,13 +192,11 @@ function dlDistance(a, b, cap = 64) {
   return prev[n];
 }
 
-// 综合相似度评分：basename 距离权重高 + 完整路径距离次之，越小越像
 function similarityScore(missingRel, candidateRel) {
   const a = basename(missingRel);
   const b = basename(candidateRel);
   const nameDist = dlDistance(a.toLowerCase(), b.toLowerCase());
   const pathDist = dlDistance(missingRel.toLowerCase(), candidateRel.toLowerCase());
-  // basename 严重失配时直接惩罚
   return nameDist * 4 + pathDist;
 }
 
@@ -252,8 +212,6 @@ function pickClosest(missingAbs, repoFiles, limit = 3) {
   return scored.slice(0, limit);
 }
 
-// 收集仓库内所有候选文件（用于相似度匹配）。这里不排除自动镜像目录，
-// 因为有时死链可以通过指向镜像目录修复。
 function collectAllFiles(root, out = []) {
   for (const entry of readdirSync(root)) {
     const full = resolve(root, entry);
@@ -265,7 +223,6 @@ function collectAllFiles(root, out = []) {
     }
     if (st.isDirectory()) {
       if (shouldSkipDir(entry)) continue;
-      // 即使是 SKIP_PATH_PREFIXES 也保留，候选用
       collectAllFiles(full, out);
     } else if (st.isFile()) {
       out.push(full);
@@ -274,8 +231,6 @@ function collectAllFiles(root, out = []) {
   return out;
 }
 
-// 历史快照目录：默认不视为死链来源（内容已固化，引用的源码常已搬迁）
-// docs/adr/archive/ = Accepted ADR 归档，内部相对引用维持原样，不作为死链源。
 const HISTORICAL_SOURCE_PREFIXES = ["docs/plans/", "docs/changelogs/", "docs/adr/archive/"];
 
 function isHistoricalSource(relPath) {
@@ -296,13 +251,6 @@ function main() {
   });
   const allFiles = collectAllFiles(REPO);
 
-  // VitePress / MkDocs 风格：`./foo` 实际指向 `./foo.md` 或 `./foo/index.md`
-  // 同时识别 docs-site/ 下的自动镜像约定：
-  //   docs-site/dev/adr/<X>     ↔ docs/adr/<X>
-  //   docs-site/changelog/<X>   ↔ docs/changelogs/<X> 或根 CHANGELOG.md
-  //   docs-site/roadmap/<X>     ↔ ROADMAP/<X>（前缀 `archived-` 对应 archive/）
-  //   rewrites 的公开路由       ↔ docs-site/ 下的实际源文件
-  //   /api-reference.html 等    ↔ docs-site/public/...（VitePress public/ 挂载到站根）
   function existsAny(...paths) {
     return paths.some((p) => existsSync(p));
   }
@@ -318,13 +266,11 @@ function main() {
       if (source && existsSync(resolve(REPO, "docs-site", source))) return true;
     }
 
-    // ADR 镜像
     if (rel.startsWith("docs-site/dev/adr/")) {
       const sub = rel.slice("docs-site/dev/adr/".length);
       const srcBase = resolve(REPO, "docs/adr", sub);
       if (existsAny(srcBase, srcBase + ".md")) return true;
     }
-    // CHANGELOG 镜像
     if (rel.startsWith("docs-site/changelog/")) {
       const sub = rel.slice("docs-site/changelog/".length);
       const srcBase = resolve(REPO, "docs/changelogs", sub);
@@ -333,7 +279,6 @@ function main() {
         if (existsSync(resolve(REPO, "CHANGELOG.md"))) return true;
       }
     }
-    // ROADMAP 镜像（`archived-` → `archive/`）
     if (rel.startsWith("docs-site/roadmap/")) {
       const rawSub = rel.slice("docs-site/roadmap/".length);
       const sub = rawSub.startsWith("archived-")
@@ -345,7 +290,6 @@ function main() {
         if (existsSync(resolve(REPO, "ROADMAP.md"))) return true;
       }
     }
-    // VitePress public/ 静态资源
     if (rel.startsWith("docs-site/") && !rel.startsWith("docs-site/public/")) {
       const sub = rel.slice("docs-site/".length);
       if (existsSync(resolve(REPO, "docs-site/public", sub))) return true;

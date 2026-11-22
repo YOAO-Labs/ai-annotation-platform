@@ -57,9 +57,6 @@ def _capture(key, observed):
     else:
         expected = json.loads(_GOLDEN.read_text())["cases"][key]
 
-        # The legacy batch query has no ORDER BY. Either batch may be the final
-        # deferred dirty row, so compare the persisted + pending projection and
-        # the number of deferred rows, not a random UUID-dependent query order.
         def comparable(value):
             value = dict(value)
             rows = value.pop("batch_rows")
@@ -270,7 +267,6 @@ async def test_project_counters_match_legacy_flush_state(
                                 )
                             ).all()
                         )
-                        # Batch identities may be weakly released after the method returns.
                         dirty_batches = sorted(
                             (
                                 inspect(obj).dict.get("total_tasks"),

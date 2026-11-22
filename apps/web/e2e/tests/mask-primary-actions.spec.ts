@@ -156,7 +156,6 @@ test.describe("Mask phase primary actions", () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    // Explicit latency injection holds the real API write to exercise repeated input.
     await page.route("**/annotations/mask-mutations:commit", async (route) => {
       writes += 1;
       await gate;
@@ -227,7 +226,6 @@ test.describe("Mask phase primary actions", () => {
         await expect(page.getByTitle("撤销笔画 (Ctrl+Z)")).toBeEnabled();
       }
     }
-    // Escape 触发离开守卫:应用内三选一选「继续编辑」,工具与稿件保持。
     const leaveDialog = page.getByRole("alertdialog");
     await primaryKey(page, "Escape");
     await expect(leaveDialog).toBeVisible({ timeout: 5_000 });
@@ -235,7 +233,6 @@ test.describe("Mask phase primary actions", () => {
     await openMaskSettings(page);
     await expect(page.getByTestId("mask-primary-action")).toHaveText("保存 Mask");
     await expect(page.getByTitle("撤销笔画 (Ctrl+Z)")).toBeEnabled();
-    // secondary(取消编辑)选「丢弃并离开」,稿件丢弃且不落库。
     await page.getByTestId("mask-secondary-action").click();
     await expect(leaveDialog).toBeVisible({ timeout: 5_000 });
     await leaveDialog.getByRole("button", { name: "丢弃并离开", exact: true }).click();
@@ -283,8 +280,6 @@ test.describe("Mask phase primary actions", () => {
     const videoStage = page.getByTestId("video-konva-stage");
     await expect(videoStage).toBeVisible({ timeout: 20_000 });
     await page.getByTestId(`video-mask-track-${original.id}`).click();
-    // The selected track button intentionally consumes arrow keys while focused;
-    // navigation is a canvas/workbench shortcut after focus returns to the page.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.keyboard.press("ArrowRight");
     await expect(videoStage).toHaveAttribute("data-video-frame-index", "1", {
@@ -422,9 +417,6 @@ test.describe("Mask phase primary actions", () => {
     seed,
     request,
   }) => {
-    // The e2e build bundles this module, so source interception is unavailable in preview.
-    // The app consumes this override only in development/e2e builds; pointer/zoom input still
-    // drives the real resource-admission path and no editor state is injected.
     await page.addInitScript(() => {
       (
         window as typeof window & { __E2E_MASK_TILE_MAX_BYTES__?: number }
@@ -448,7 +440,6 @@ test.describe("Mask phase primary actions", () => {
     const point = await paintImage(page, 2816, 4864, [8192, 8192]);
     await closeMaskSettings(page);
     await page.mouse.move(point.x, point.y);
-    // Ctrl+wheel is image zoom; ordinary wheel controls the Mask brush radius.
     await page.keyboard.down("Control");
     for (let step = 0; step < 45; step += 1) {
       await page.mouse.wheel(0, -120);

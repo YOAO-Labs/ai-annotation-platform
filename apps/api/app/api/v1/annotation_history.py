@@ -32,7 +32,6 @@ from app.services.labeling_core_read_relations import annotation_row
 
 router = APIRouter()
 
-# 这些 task 级 action 直接影响 annotation 的命运，归入时间线
 _RELEVANT_TASK_ACTIONS = (
     "task.submit",
     "task.withdraw",
@@ -53,7 +52,6 @@ async def get_annotation_history(
 ):
     ann, _task = await require_visible_annotation(db, annotation_id, actor_id)
 
-    # 1. annotation 级 audit
     ann_audits = (
         (
             await db.execute(
@@ -67,7 +65,6 @@ async def get_annotation_history(
         .all()
     )
 
-    # 2. 关联 task 的关键 audit（按 task_id 取，仅 _RELEVANT_TASK_ACTIONS）
     task_audits = (
         (
             await db.execute(
@@ -82,12 +79,10 @@ async def get_annotation_history(
         .all()
     )
 
-    # 3. 评论
     comments = await AnnotationCommentService(db).list_for_annotation(
         annotation_id, active_only=False
     )
 
-    # 解析 actor / author UserBrief（一次 IN 查询）
     user_ids: set = set()
     for a in ann_audits:
         if a.actor_id:
@@ -135,7 +130,6 @@ async def get_annotation_history(
             )
         )
 
-    # 倒序：最新事件在最前（与"评论"tab 的 created_at desc 一致）。
     entries.sort(key=lambda e: e.timestamp, reverse=True)
 
     return AnnotationHistoryResponse(
@@ -172,7 +166,6 @@ async def get_task_audit_history(
         .all()
     )
 
-    # 该 task 下所有 annotation.id
     ann_ids = (
         (
             await db.execute(
@@ -227,7 +220,6 @@ async def get_task_audit_history(
                 detail=a.detail_json,
             )
         )
-    # 倒序：最新事件在最前（与"评论"tab 的 created_at desc 一致）。
     entries.sort(key=lambda e: e.timestamp, reverse=True)
 
     return AnnotationHistoryResponse(

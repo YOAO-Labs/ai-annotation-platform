@@ -100,8 +100,6 @@ class NotificationDeliveryReadPolicy:
                         or job_project is not None
                         or job_kind not in GLOBAL_ASYNC_JOB_KINDS
                     )
-                    # The actual job kind wins; a retained private kind survives
-                    # job-row retention through the payload fallback.
                     effective_kind = (
                         job_kind
                         if job is not None
@@ -173,7 +171,6 @@ class NotificationDeliveryReadPolicy:
         owner_pairs: set[Pair] = set()
         super_pairs: set[Pair] = set()
         if pairs:
-            # Keep these as separate owner reads in the original evaluation order.
             member_pairs = set(await self.data.member_pairs(pairs))
             reviewer_pairs = set(await self.data.reviewer_pairs(pairs))
             owner_pairs = set(await self.data.owner_pairs(pairs))

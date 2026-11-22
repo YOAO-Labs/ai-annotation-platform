@@ -208,7 +208,6 @@ def content_file(
                     raise FilesystemStorageError("source_changed")
             finally:
                 _close_descriptors([current])
-            # Detect replacement of the source directory itself after opening.
             with location_directory(
                 config, source_path, expected_anchor=expected_anchor
             ) as (again, _):
@@ -315,7 +314,6 @@ def probe_directory(config, sample_file=None, *, expected_anchor=None):
             fd,
             anchor,
         ):
-            # Enumeration is independently bounded; reading is never inferred.
             browse_directory(config, "", expected_anchor=anchor, limit=1)
             capabilities["list"] = "verified"
             if sample_file is not None:

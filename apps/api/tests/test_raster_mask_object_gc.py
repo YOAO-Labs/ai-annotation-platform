@@ -80,8 +80,6 @@ async def test_exact_business_reference_and_publication_each_block_retirement(
         result = await owners.cleanup(db, storage=harness.blobs)
         assert result["referenced"] == 1 and result["retired"] == 0
         harness.references.clear()
-        # An independently committed caller guard remains effective even if the
-        # caller performs an unrelated progress commit and then rolls back.
         _, second, data = harness.content()
         await owners.store(second, data, db=db, storage=harness.blobs)
         await db.commit()

@@ -73,7 +73,6 @@ async def _restricted_http_world(test_engine, app_module, monkeypatch):
 
         monkeypatch.setattr(audit_middleware, "async_session", api)
         statements = []
-        # Video journals and business audits are retained until owned DB teardown.
         async with _restricted_api_client(app_module, api, statements) as client:
             yield owner, world, client, statements, dispatcher
 

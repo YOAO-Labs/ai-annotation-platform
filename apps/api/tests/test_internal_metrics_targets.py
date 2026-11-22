@@ -53,8 +53,6 @@ async def test_metrics_targets_excludes_disconnected_and_dedupes(
 
     monkeypatch.setattr(internal.settings, "metrics_sd_token", "")
 
-    # ADR-0044 · backend 是全局注册项 (url unique), 不再按项目拆分。
-    # 两个 distinct url 解析到同一 host:port → 仍按 host:port 兜底去重为 1。
     db_session.add_all(
         [
             MLBackendRegistry(
@@ -89,7 +87,7 @@ async def test_metrics_targets_excludes_disconnected_and_dedupes(
     assert "offline:9000" not in targets
     assert targets["sam3-backend:8080"]["service"] == "sam3"
     assert targets["gs2:8001"]["service"] == "grounded-sam2"
-    assert len(body) == 2  # 同 host:port 去重
+    assert len(body) == 2
 
 
 @pytest.mark.asyncio

@@ -91,7 +91,6 @@ async def create_view(
     actor: User = Depends(get_current_user),
 ):
     await require_dataset(db, dataset_id)
-    # Serialize the bounded per-dataset creation check, including concurrent requests.
     await db.scalar(
         select(Dataset.id).where(Dataset.id == dataset_id).with_for_update()
     )

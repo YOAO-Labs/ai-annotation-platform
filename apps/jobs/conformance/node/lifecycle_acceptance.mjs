@@ -84,6 +84,24 @@ const functionReturns = {
   "yoao_jobs_v1.delete_batch_predict_jobs": "uuid[]",
   "yoao_jobs_v1.delete_terminal_jobs_before": "uuid[]",
 };
+const borrowedSessionCapabilities = {
+  "yoao_jobs_v1.bind_prediction_execution_snapshot": {
+    arguments: "uuid, uuid, uuid",
+    returns: "boolean",
+    volatility: "v",
+    extraSettings: ["TimeZone=UTC"],
+  },
+  "yoao_jobs_v1.read_job_execution_snapshot": {
+    arguments: "uuid",
+    returns: "uuid",
+    volatility: "s",
+  },
+  "yoao_jobs_v1.read_job_progress": {
+    arguments: "uuid",
+    returns: "TABLE(last_progress_at timestamp with time zone, progress_observation jsonb)",
+    volatility: "s",
+  },
+};
 
 let phase = "startup";
 
@@ -211,9 +229,12 @@ function assertFunctionRow(row, contract, signature) {
   assert.equal(row.prosecdef, true);
   assert.equal(
     row.provolatile,
-    ["read_job", "jobs_by_execution_id"].includes(row.proname) ? "s" : "v",
+    contract.volatility ?? (["read_job", "jobs_by_execution_id"].includes(row.proname) ? "s" : "v"),
   );
-  assert.deepEqual(row.proconfig, ["search_path=pg_catalog, pg_temp"]);
+  assert.deepEqual(row.proconfig, [
+    "search_path=pg_catalog, pg_temp",
+    ...(contract.extraSettings ?? []),
+  ]);
 }
 
 function assertNativeRow(result, columns) {
@@ -296,6 +317,7 @@ async function verifyLifecycle() {
       true,
     ]);
 
+    phase = "lifecycle and borrowed-session function allowlist";
     const functionRows = await client.query(
       "SELECT n.nspname AS schema_name, p.oid::text AS oid, p.proname, " +
         "pg_catalog.oidvectortypes(p.proargtypes) AS arguments, " +
@@ -309,13 +331,17 @@ async function verifyLifecycle() {
         "WHERE n.nspname='yoao_jobs_v1' ORDER BY p.proname",
     );
     const expectedFunctions = Object.entries(schema["x-postgresql-functions"]);
+    const expectedProfileFunctions = [
+      ...expectedFunctions,
+      ...Object.entries(borrowedSessionCapabilities),
+    ];
     const bySignature = new Map(
       functionRows.rows.map((row) => [
         normalizeSql(`${row.schema_name}.${row.proname}(${row.arguments})`),
         row,
       ]),
     );
-    for (const [name, contract] of expectedFunctions) {
+    for (const [name, contract] of expectedProfileFunctions) {
       const signature = signatureFromContract(name, contract);
       const row = bySignature.get(normalizeSql(signature));
       assert.ok(row, `missing native function ${name}`);
@@ -340,11 +366,12 @@ async function verifyLifecycle() {
     );
     assert.deepEqual(
       executableAapFunctions.rows.map((row) => normalizeSql(row.signature)),
-      expectedFunctions
+      expectedProfileFunctions
         .map(([name, contract]) => normalizeSql(signatureFromContract(name, contract)))
         .sort(),
     );
 
+    phase = "creation relation and private data denial";
     const viewAndRelations = await client.query(
       "SELECT c.oid::text AS oid, n.nspname, c.relname, c.relkind, " +
         "pg_catalog.has_table_privilege(current_user,c.oid,'SELECT') AS can_select, " +
@@ -400,7 +427,7 @@ async function verifyLifecycle() {
         .filter((row) => row.can_use)
         .map((row) => row.nspname)
         .sort(),
-      ["yoao_jobs_v1", "public"],
+      ["public", "yoao_jobs_v1"],
     );
     assert.ok(schemas.rows.every((row) => !row.can_create));
     const unsafeRights = await client.query(
@@ -612,6 +639,7 @@ async function verifyLifecycle() {
         status: "passed",
         login: "yoao_jobs_lifecycle_client",
         functionCapabilities: expectedFunctions.length,
+        borrowedSessionCapabilities: Object.keys(borrowedSessionCapabilities).length,
         rowColumns: rowFields(schema).length,
         rawJsonb: "precision-unicode-null-false",
         retainedJobUntilVerifierTeardown: true,

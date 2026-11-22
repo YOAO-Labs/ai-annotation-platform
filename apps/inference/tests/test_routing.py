@@ -60,8 +60,6 @@ def _registry_row(registry_id, *, capabilities=None, checked_at=None):
         "is_interactive": False,
         "auth_method": "token",
         "auth_token": "private-synthetic-credential",
-        # Native admission serializes the whole registry row, including the
-        # database-managed rotation revision.
         "auth_revision": 0,
         "extra_params": {"max_concurrency": 2},
         "gpu_resource_id": None,
@@ -548,8 +546,6 @@ async def test_admission_retries_only_known_contention_outside_the_transaction(
         assert isinstance(result.result, RoutingRejectedResult)
         assert result.result.reason == "management_busy"
     assert sum(action == "record_command" for action, _ in native.calls) == 1
-    # Replaying the public request reads its one final receipt; it does not retry
-    # admission or execute any backend operation after an ambiguous outcome.
     assert (await manager.execute(command)).result == result.result
     assert len(calls) == min(busy_count + 1, 5)
     exits = [event for event in native.events if event[0] == "exit"]

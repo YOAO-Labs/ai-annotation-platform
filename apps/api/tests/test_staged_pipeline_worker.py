@@ -199,7 +199,6 @@ async def test_single_stage_passthrough():
     assert isinstance(results[0].result, tuple)
     with pytest.raises(TypeError):
         results[0].result[0]["type"] = "polygonlabels"
-    # 单阶段不应触碰下游, 只调一次
     assert len(client.calls) == 1
 
 
@@ -264,10 +263,8 @@ async def test_roi_uses_private_input_after_root(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_two_stage_enriches_attributes(monkeypatch):
     task = _Task()
-    # 源阶段产 2 个车框
     boxes = [_bbox(10, 10, 20, 20), _bbox(50, 50, 10, 10)]
     detect_client = _FakeClient(responses=[[_Result(task.id, boxes)]])
-    # 下游对每个 crop 返回带 attributes 的结果 (id 即父框下标)
     classify_client = _FakeClient(
         responses=[
             [
@@ -292,7 +289,6 @@ async def test_two_stage_enriches_attributes(monkeypatch):
             ]
         ]
     )
-    # 避免真去对象存储取图
     monkeypatch.setattr(
         prediction_context,
         "load_task_image",
@@ -321,7 +317,6 @@ async def test_two_stage_enriches_attributes(monkeypatch):
     enriched = results[0].result
     assert enriched[0]["attributes"] == {"color": "blue", "vehicle_type": "bus"}
     assert enriched[1]["attributes"] == {"color": "red", "vehicle_type": "car"}
-    # 下游收到 2 个 crop input (每个父框一个)
     assert len(classify_client.calls[0]) == 2
     assert extra["pipeline"]["stage_count"] == 2
     assert extra["pipeline"]["enriched_attr_keys"] == ["color", "vehicle_type"]
@@ -330,7 +325,6 @@ async def test_two_stage_enriches_attributes(monkeypatch):
 @pytest.mark.asyncio
 async def test_parent_class_filter_routes_by_class(monkeypatch):
     task = _Task()
-    # 源产 car + person 各一; 下游只对 car 跑
     boxes = [_bbox(10, 10, 20, 20, cls="car"), _bbox(50, 50, 10, 10, cls="person")]
     detect_client = _FakeClient(responses=[[_Result(task.id, boxes)]])
     classify_client = _FakeClient(
@@ -352,7 +346,6 @@ async def test_parent_class_filter_routes_by_class(monkeypatch):
         [None, None],
         resolve_url=lambda t: "http://x/img.jpg",
     )
-    # 只对 car (idx0) 裁 crop; person 保持纯检测框 (无 attributes)
     assert len(classify_client.calls[0]) == 1
     assert classify_client.calls[0][0]["id"] == "0"
     assert results[0].result[0].get("attributes") == {"color": "blue"}
@@ -374,7 +367,6 @@ async def test_on_failure_keep_parent_vs_drop_box(monkeypatch):
         async def predict(self, inputs, context=None):
             raise RuntimeError("backend down")
 
-    # keep_parent: 下游炸 → 保留父框 (属性空), task 不整体失败
     task = _Task()
     boxes = [_bbox(10, 10, 20, 20)]
     detect = _FakeClient(responses=[[_Result(task.id, boxes)]])
@@ -389,10 +381,9 @@ async def test_on_failure_keep_parent_vs_drop_box(monkeypatch):
         [None, None],
         resolve_url=lambda t: "http://x/img.jpg",
     )
-    assert len(results[0].result) == 1  # 框保留
+    assert len(results[0].result) == 1
     assert stats[1]["failed"] == 1
 
-    # drop_box: 下游炸 → 丢父框
     detect2 = _FakeClient(responses=[[_Result(task.id, [_bbox(10, 10, 20, 20)])]])
     stages_drop = [
         {"stage": 0, "parent_stage": None},
@@ -412,7 +403,6 @@ async def test_on_failure_keep_parent_vs_drop_box(monkeypatch):
 async def test_geometry_stage_appends_polygons(monkeypatch):
     """geometry 模式: 下游收全图 URL + 父框列表, 出 polygon 追加进预测 (不裁图)。"""
 
-    # geometry 模式纯坐标换算, 不应加载原图。
     def _boom(_t):
         raise AssertionError("geometry 模式不应加载原图")
 
@@ -420,7 +410,6 @@ async def test_geometry_stage_appends_polygons(monkeypatch):
     task = _Task()
     boxes = [_bbox(10, 10, 20, 20, cls="car"), _bbox(50, 50, 10, 10, cls="car")]
     detect = _FakeClient(responses=[[_Result(task.id, boxes)]])
-    # box-seg 单图返回一条 result, result[] 里每 polygon 带 parent_box_idx。
     box_seg = _FakeClient(
         responses=[
             [
@@ -465,14 +454,11 @@ async def test_geometry_stage_appends_polygons(monkeypatch):
         resolve_url=lambda t: "http://x/img.jpg",
         stage_modes=["crop", "geometry"],
     )
-    # 下游收全图 URL + prompts (非逐 crop)。
     sent = box_seg.calls[0]
     assert len(sent) == 1
     assert sent[0]["file_path"] == "http://x/img.jpg"
     assert [p["parent_box_idx"] for p in sent[0]["prompts"]] == [0, 1]
-    # 框坐标归一化: x=10%→0.1, x2=(10+20)%→0.3。
     assert sent[0]["prompts"][0]["box"] == pytest.approx([0.1, 0.1, 0.3, 0.3])
-    # 2 个 polygon 追加到原 2 框之后 (原框保留)。
     out = results[0].result
     assert len(out) == 4
     assert out[0]["type"] == "rectanglelabels" and out[1]["type"] == "rectanglelabels"
@@ -513,10 +499,8 @@ async def test_geometry_stage_class_filter_and_failure(monkeypatch):
         resolve_url=lambda t: "http://x/img.jpg",
         stage_modes=["crop", "geometry"],
     )
-    # 只对 car 发 1 个 prompt。
     assert len(boom.calls[0][0]["prompts"]) == 1
     assert boom.calls[0][0]["prompts"][0]["parent_box_idx"] == 0
-    # 下游炸 → 原 2 框保留、无 polygon 追加。
     assert len(results[0].result) == 2
     assert stats[1]["targeted"] == 1 and stats[1]["failed"] == 1
 
@@ -668,7 +652,6 @@ async def test_presigned_delivery_wires_upload_crop(monkeypatch):
         resolve_url=lambda t: "http://x/img.jpg",
         upload_crop=upload_crop,
     )
-    # 下游收到的是 presigned URL (非 data URI)
     sent = classify.calls[0]
     assert [c["file_path"] for c in sent] == [
         "http://store/task-1/0.jpg",
@@ -688,7 +671,6 @@ async def test_crop_cache_reused_across_parallel_siblings(monkeypatch):
     task = _Task()
     boxes = [_bbox(10, 10, 20, 20), _bbox(50, 50, 10, 10)]
     detect = _FakeClient(responses=[[_Result(task.id, boxes)]])
-    # 两个兄弟阶段各自对同一批框跑分类 (同 pad), 各回不同属性键
     sib_a = _FakeClient(
         responses=[
             [
@@ -724,7 +706,6 @@ async def test_crop_cache_reused_across_parallel_siblings(monkeypatch):
         resolve_url=lambda t: "http://x/img.jpg",
         upload_crop=upload_crop,
     )
-    # 2 框 × 1 次 (第二个兄弟阶段全部命中缓存), 而非 2 框 × 2 阶段 = 4 次
     assert sorted(upload_count) == [0, 1]
 
 
@@ -738,7 +719,7 @@ async def test_skipped_geometry_counted_and_topology_in_extra(monkeypatch):
     )
     task = _Task()
     boxes = [
-        _bbox(10, 10, 20, 20),  # idx0: 有效 car
+        _bbox(10, 10, 20, 20),
         {
             "type": "rectanglelabels",
             "value": {
@@ -749,7 +730,7 @@ async def test_skipped_geometry_counted_and_topology_in_extra(monkeypatch):
                 "rotation": 30,
                 "rectanglelabels": ["car"],
             },
-        },  # idx1: car 但旋转 → 命中路由后几何跳过
+        },
     ]
     detect = _FakeClient(responses=[[_Result(task.id, boxes)]])
     classify = _FakeClient(
@@ -834,7 +815,6 @@ async def test_drop_box_on_one_sibling_keeps_other_sibling_boxes(monkeypatch):
         resolve_url=lambda t: "http://x/img.jpg",
     )
     surviving = results[0].result
-    # person 框被丢, car 框保留且带 color
     assert len(surviving) == 1
     assert surviving[0]["value"]["rectanglelabels"] == ["car"]
     assert surviving[0]["attributes"] == {"color": "blue"}
@@ -854,8 +834,7 @@ def test_resolve_input_mode_by_write_target():
         worker_tasks._resolve_input_mode({"write": {"target": "intermediate"}})
         == "geometry"
     )
-    assert worker_tasks._resolve_input_mode({}) == "crop"  # 缺省 attributes → crop
-    # 显式 input.mode 覆盖 write.target 推断
+    assert worker_tasks._resolve_input_mode({}) == "crop"
     assert (
         worker_tasks._resolve_input_mode(
             {"input": {"mode": "geometry"}, "write": {"target": "attributes"}}
@@ -866,11 +845,11 @@ def test_resolve_input_mode_by_write_target():
 
 def test_resolve_pad_by_depth():
     """pad: 显式 roi.pad 优先, 缺省按深度取默认。"""
-    assert worker_tasks._resolve_pad({"roi": {"pad": 0.2}}, 2) == 0.2  # 显式优先
+    assert worker_tasks._resolve_pad({"roi": {"pad": 0.2}}, 2) == 0.2
     assert worker_tasks._resolve_pad({}, 1) == 0.05
     assert worker_tasks._resolve_pad({}, 2) == 0.08
     assert worker_tasks._resolve_pad({}, 3) == 0.12
-    assert worker_tasks._resolve_pad({}, 9) == 0.05  # 未知深度回落
+    assert worker_tasks._resolve_pad({}, 9) == 0.05
 
 
 def test_compute_stage_depths():
@@ -976,7 +955,6 @@ async def test_intermediate_target_not_appended(monkeypatch):
         stage_modes=["crop", "geometry"],
     )
     out = results[0].result
-    # intermediate → polygon 不追加进结果 (仅内部供下游消费); 原框保留。
     assert len(out) == 1
     assert stats[1]["ok"] == 1
 
@@ -993,10 +971,8 @@ async def test_crop_detect_geometry_remaps_to_image(monkeypatch):
         lambda t: Image.new("RGB", (1000, 1000), (1, 2, 3)),
     )
     task = _Task()
-    # person 像素 (200,200)-(600,600) → transform ox=oy=0.2, sx=sy=0.4 (pad=0)
     person = [_bbox(20, 20, 40, 40, cls="person")]
     detect = _FakeClient(responses=[[_Result(task.id, person)]])
-    # hat-detect 在 crop 上返回 crop-pct 坐标的 hat 框 (居中偏上)
     hat_detect = _FakeClient(
         responses=[
             [
@@ -1037,16 +1013,13 @@ async def test_crop_detect_geometry_remaps_to_image(monkeypatch):
         stage_modes=["crop", "crop"],
     )
     out = results[0].result
-    # person 原框保留 + hat 新框追加
     assert len(out) == 2
     hat = out[1]
     assert hat["type"] == "rectanglelabels"
     assert hat["parent_box_idx"] == 0
-    # 回映: x=(0.2+0.25*0.4)*100=30, y=(0.2+0.10*0.4)*100=24, w=50*0.4=20, h=30*0.4=12
     v = hat["value"]
     assert v["x"] == pytest.approx(30) and v["y"] == pytest.approx(24)
     assert v["width"] == pytest.approx(20) and v["height"] == pytest.approx(12)
-    # hat 落在 person 框 (20~60) 内部
     assert 20 <= v["x"] and v["x"] + v["width"] <= 60
     assert 20 <= v["y"] and v["y"] + v["height"] <= 60
     assert stats[1]["ok"] == 1
@@ -1081,7 +1054,6 @@ async def test_depth_three_geometry_then_attribute(monkeypatch):
             ]
         ]
     )
-    # color 阶段裁 hat 框 (stage_outputs[1] 的下标 0) → 返回 color
     color_clf = _FakeClient(
         responses=[[_Result("0", [{"score": 0.9, "attributes": {"color": "red"}}])]]
     )
@@ -1111,9 +1083,8 @@ async def test_depth_three_geometry_then_attribute(monkeypatch):
         stage_modes=["crop", "crop", "crop"],
     )
     out = results[0].result
-    assert len(out) == 2  # person + hat
+    assert len(out) == 2
     hat = out[1]
-    # color 写回 hat 框, 带 hat_ 前缀
     assert hat["attributes"] == {"hat_color": "red"}
     assert extra["pipeline"]["max_depth"] == 3
     assert extra["pipeline"]["enriched_attr_keys"] == ["hat_color"]
@@ -1183,7 +1154,6 @@ async def test_depth_three_drop_box_does_not_delete_root(monkeypatch):
         stage_modes=["crop", "crop", "crop"],
     )
     out = results[0].result
-    # person (root) + hat (stage1 落库) 都在; person 未被深层 drop_box 误删。
     assert len(out) == 2
     assert out[0]["value"]["rectanglelabels"] == ["person"]
     assert stats[2]["failed"] == 1

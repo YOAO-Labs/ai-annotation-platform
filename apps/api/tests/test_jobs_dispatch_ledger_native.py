@@ -162,7 +162,6 @@ async def test_unknown_publication_reclaims_same_wire_ids_and_fences_old_acknowl
     await db_session.flush()
     envelope = _dispatch(str(uuid.uuid4()))
     inline = _data(await _prepare(db_session, job.id, envelope))
-    # This savepoint-only state-machine test never publishes physical I/O.
     assert await db_session.scalar(
         text(
             "SELECT pg_catalog.pg_try_advisory_xact_lock("

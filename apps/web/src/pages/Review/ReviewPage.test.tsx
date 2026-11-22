@@ -227,15 +227,12 @@ describe("ReviewPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "整批退回" }));
     const dialog = await screen.findByRole("alertdialog", { name: "驳回批次 B-1" });
     const textarea = within(dialog).getByPlaceholderText(/请说明需要标注员重做的具体问题/);
-    // inputDialog 的 textarea 强制 maxLength=500（服务统一行为）
     expect(textarea).toHaveAttribute("maxlength", "500");
 
-    // 原因为空时点确认：行内报错、不关窗、mutation 不触发
     fireEvent.click(within(dialog).getByRole("button", { name: "确认驳回" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(/请填写/);
     expect(mutate).not.toHaveBeenCalled();
 
-    // 补齐后确认：mutation 只在确认后收到去空白的原因
     fireEvent.change(textarea, { target: { value: "  重新标注车辆框  " } });
     fireEvent.click(within(dialog).getByRole("button", { name: "确认驳回" }));
     await waitFor(() =>
@@ -286,7 +283,6 @@ describe("ReviewPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "整批退回" }));
     const dialog = await screen.findByRole("alertdialog", { name: "驳回批次 B-1" });
 
-    // decisionDialog 不感知页面作用域，弹窗仍打开；确认后由 queueScopeKeyRef 复查拦下
     fireEvent.click(screen.getByTestId("batch-b2"));
     const textarea = within(dialog).getByPlaceholderText(/请说明需要标注员重做的具体问题/);
     fireEvent.change(textarea, { target: { value: "重做" } });

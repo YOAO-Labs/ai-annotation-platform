@@ -19,7 +19,6 @@ from app.workers.celery_app import celery_app
 router = APIRouter()
 
 CELERY_INSPECT_TIMEOUT_SECONDS = 0.75
-# ml.cpu = 设备感知路由的 CPU 预标队列 (全 CPU pipeline 落此)。
 CELERY_QUEUE_NAMES = (
     "default",
     "ml",
@@ -108,13 +107,9 @@ def _check_celery() -> dict:
         except Exception:
             queue_counts = {}
 
-        # Prometheus Gauge：覆盖式更新
         for qname, count in queue_counts.items():
             CELERY_QUEUE_LENGTH.labels(queue=qname).set(count)
 
-        # 心跳新鲜度：worker 的心跳 bootstep（见 workers/heartbeat.py）周期性地把
-        # unix 时间戳写进 Redis（key celery:hb:{worker}，worker 名与 ping().keys() 同源）。这里同步读
-        # 同名 key 算 now - ts。读 Redis 失败整体降级为 None，不影响 /health 其它统计。
         import redis  # noqa: PLC0415
 
         from app.workers.heartbeat import HEARTBEAT_KEY_PREFIX  # noqa: PLC0415
@@ -133,7 +128,6 @@ def _check_celery() -> dict:
         workers_payload = []
         for name in sorted(stats.keys()):
             last = heartbeats.get(name)
-            # 仅在有真实心跳值时填 Gauge，无值不 set 避免误报 0。
             if last is not None:
                 CELERY_WORKER_HEARTBEAT_SECONDS.labels(worker=name).set(last)
             workers_payload.append(

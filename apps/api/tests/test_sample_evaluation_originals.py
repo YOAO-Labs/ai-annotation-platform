@@ -409,7 +409,6 @@ async def test_real_temporary_close_owns_quota_and_permit_until_it_settles(
 ):
     entered, release = threading.Event(), threading.Event()
     captured = []
-    # This test targets final file ownership; image decoding has its own real-Pillow cases.
     monkeypatch.setattr(service, "inspect_image", lambda *_: {"width": 4, "height": 3})
 
     class ClosingFile:
@@ -463,8 +462,6 @@ async def test_real_temporary_close_owns_quota_and_permit_until_it_settles(
                 assert caught.value.storage_operation_unsettled
                 assert world.permit.exits[0]["error"].storage_operation_unsettled
     finally:
-        # A deliberately unknown close cannot be declared settled by production code.
-        # The test still owns the exact real descriptor and removes its own artifact.
         captured[0].close()
 
 

@@ -10,9 +10,10 @@ import uuid
 from datetime import UTC
 
 from .notification_delivery_contract import (
-    NotificationDeliveryUnavailable,
-    NotificationLease,
     NOTIFICATION_DELIVERY_POLICY,
+    NotificationDeliveryLease,
+    NotificationDeliveryUnavailable,
+    NotificationTerminalLease,
 )
 from .notification_delivery_postgres import NotificationDeliveryPostgresData
 
@@ -22,14 +23,18 @@ from .realtime_event_contract import notification_event_message
 log = logging.getLogger("aap_notifications.delivery_worker")
 
 
-def _notification_message(lease: NotificationLease) -> tuple[str, str]:
+def _notification_message(lease: NotificationDeliveryLease) -> tuple[str, str]:
     """Build the existing WebSocket channel and message shape without user_id."""
     message = notification_event_message(
         id=str(lease.id),
         type=lease.type,
         target_type=lease.target_type,
         target_id=str(lease.target_id),
-        payload=lease.payload.model_dump(mode="json", by_alias=True),
+        payload=(
+            lease.payload
+            if isinstance(lease, NotificationTerminalLease)
+            else lease.payload.model_dump(mode="json", by_alias=True)
+        ),
         created_at=lease.created_at.astimezone(UTC).isoformat(),
     )
     try:
@@ -79,28 +84,22 @@ class NotificationPublisher:
         self.concurrency = concurrency
         self.redis_timeout_seconds = float(redis_timeout_seconds)
 
-    async def _retry(self, lease: NotificationLease) -> str:
+    async def _retry(self, lease: NotificationDeliveryLease) -> str:
         try:
             accepted = await self.data.finish_delivery(
                 lease, outcome="retry", reason="redis_error"
             )
         except NotificationDeliveryUnavailable:
-            # The lease expires and can be reclaimed; never log the Redis URL or
-            # driver exception from a delivery failure.
             return "unavailable"
         return "retry" if accepted else "stale"
 
-    async def _publish_one(self, lease: NotificationLease, semaphore) -> str:
+    async def _publish_one(self, lease: NotificationDeliveryLease, semaphore) -> str:
         async with semaphore:
             try:
                 channel, message = _notification_message(lease)
                 async with asyncio.timeout(self.redis_timeout_seconds):
-                    # A zero subscriber count still means Redis accepted PUBLISH;
-                    # inbox rows are durable and clients can fetch them later.
                     await self.redis.publish(channel, message)
             except asyncio.CancelledError:
-                # The lease will expire and another worker will retry. A publish
-                # interrupted in flight may be delivered twice with the same ID.
                 raise
             except Exception:
                 return await self._retry(lease)
@@ -110,8 +109,6 @@ class NotificationPublisher:
                     lease, outcome="delivered", reason="published"
                 )
             except NotificationDeliveryUnavailable:
-                # Redis may already have delivered. Lease expiry provides the
-                # recovery path and the stable notification ID deduplicates it.
                 return "unavailable"
             return "published" if accepted else "stale"
 
@@ -168,6 +165,7 @@ async def run_forever(
             settings.database_url.get_secret_value(),
             connect_timeout=settings.connect_timeout_seconds,
             command_timeout=settings.command_timeout_seconds,
+            include_terminal=True,
         )
     if redis is None:
         from redis.asyncio import Redis
@@ -205,7 +203,6 @@ async def run_forever(
             except asyncio.CancelledError:
                 raise
             except Exception:
-                # Do not log exception text: driver errors can contain DSNs.
                 try:
                     await asyncio.wait_for(
                         stop_event.wait(), timeout=settings.poll_interval_seconds
@@ -244,6 +241,7 @@ async def run_once(
             settings.database_url.get_secret_value(),
             connect_timeout=settings.connect_timeout_seconds,
             command_timeout=settings.command_timeout_seconds,
+            include_terminal=True,
         )
     if redis is None:
         from redis.asyncio import Redis
@@ -297,6 +295,7 @@ async def _serve(settings: NotificationPublisherSettings, *, once: bool) -> None
         settings.database_url.get_secret_value(),
         connect_timeout=settings.connect_timeout_seconds,
         command_timeout=settings.command_timeout_seconds,
+        include_terminal=True,
     )
     redis = Redis.from_url(
         settings.redis_url.get_secret_value(),

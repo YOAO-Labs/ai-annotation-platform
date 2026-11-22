@@ -79,7 +79,6 @@ class FailedPredictionItem(BaseModel):
     message: str
     retry_count: int
     last_retry_at: datetime | None
-    # 永久放弃时间戳；非空表示已被 admin dismiss
     dismissed_at: datetime | None = None
     created_at: datetime
 
@@ -124,8 +123,6 @@ async def list_failed_predictions(
         .order_by(desc(failed_prediction_row.created_at))
     )
     if actor.role == UserRole.PROJECT_ADMIN.value:
-        # A platform project administrator's global list covers only their own
-        # projects; an explicit other-owner project cannot be enumerated here.
         owner_facts = project_facts()
         owned_project_ids = select(owner_facts.c.id).where(
             owner_facts.c.owner_id == actor.id
@@ -340,7 +337,6 @@ async def import_predictions(
                 )
             image_size_hint = (image_width, image_height)
 
-    # async_jobs 双写（同步端点；dry_run 不记录）
     aj_id: uuid.UUID | None = None
     if not dry_run:
         try:
@@ -438,7 +434,6 @@ async def import_predictions(
             else:
                 result.errors.extend(part.errors)
     except Exception as exc:
-        # A failure receipt must never commit any import-side business writes.
         await db.rollback()
         if aj_id is not None:
             try:
@@ -454,6 +449,11 @@ async def import_predictions(
         raise
 
     if not dry_run:
+        outcome = {
+            "imported": result.imported,
+            "skipped": result.skipped,
+            "error_count": len(result.errors),
+        }
         await AuditService.log(
             db,
             actor=current_user,
@@ -466,28 +466,19 @@ async def import_predictions(
                 "format": format,
                 "project_display_id": project.display_id,
                 "file_count": len(raw_files),
-                "imported": result.imported,
-                "skipped": result.skipped,
-                "error_count": len(result.errors),
+                **outcome,
                 "model_version_fallback": model_version,
                 "overwrite_existing": overwrite_existing,
                 "image_size_hint": list(image_size_hint)
                 if image_size_hint is not None
                 else None,
                 "yolo_variant": yolo_variant if format == "yolo" else None,
+                **({"job_id": str(aj_id)} if aj_id is not None else {}),
             },
         )
         if aj_id is not None:
             try:
-                await async_job_svc.mark_complete(
-                    db,
-                    aj_id,
-                    result={
-                        "imported": result.imported,
-                        "skipped": result.skipped,
-                        "error_count": len(result.errors),
-                    },
-                )
+                await async_job_svc.mark_complete(db, aj_id, result=outcome)
                 await notify_job_terminal(db, job_id=aj_id)
             except Exception:
                 pass

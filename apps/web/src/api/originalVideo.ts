@@ -18,9 +18,7 @@ export interface OriginalVideoLease {
   expiresAt: number;
   identity: OriginalIdentity;
   owner: OriginalOwner;
-  /** Idempotent in-page retirement; failures leave lease expiry as the final owner. */
   release(): Promise<void>;
-  /** Best-effort retirement when the document leaves, where nothing can be awaited. */
   retireOnUnload(): void;
 }
 interface PrepareOptions {
@@ -30,6 +28,7 @@ interface PrepareOptions {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const RETIREMENT_PREFIX = "yoao:original-video-retirement:";
 const SHA = /^[0-9a-f]{64}$/;
 const MAX_BYTES = 5 * 1024 ** 3;
 const RETRY_CODES = new Set([
@@ -39,6 +38,7 @@ const RETRY_CODES = new Set([
   "snapshot_capacity_exceeded",
 ]);
 const leases = new WeakMap<OriginalVideoLease, { released: boolean; token: string }>();
+const attemptedRetirements = new Map<string, Promise<void> | null>();
 
 function invalid(): never {
   throw new ApiError(409, "原视频身份或播放路径无效，请刷新后重试");
@@ -98,49 +98,109 @@ function delay(signal: AbortSignal | undefined, milliseconds: number): Promise<v
   });
 }
 
-/**
- * In-page retirement. Chromium reports a completed `fetch()` whose response has
- * no body as `net::ERR_ABORTED` (crbug.com/371021302), so the API's 204 lease
- * release would look like a cancelled request to fail-closed observers. XHR
- * sends the same DELETE, credentials and cookie clearing without that false
- * abort; the browser bounds it with `timeout`.
- */
-function retireLease(url: string, token: string, body: string): Promise<void> {
-  return new Promise<void>((resolve) => {
+function retireLease(url: string, token: string, body: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
     try {
       const request = new XMLHttpRequest();
       request.open("DELETE", url);
       request.setRequestHeader("Content-Type", "application/json");
       request.setRequestHeader("Authorization", `Bearer ${token}`);
+      request.setRequestHeader("Prefer", "ignore-missing");
       request.timeout = 5_000;
-      request.onloadend = () => resolve();
+      request.onloadend = () => resolve(request.status === 204);
       request.send(body);
     } catch {
-      // A revoked JWT, restart or offline browser leaves expiry as the final cleanup owner.
-      resolve();
+      resolve(false);
     }
   });
 }
 
-/**
- * The document is leaving: only a keepalive request outlives it, and nothing can
- * await the answer. A revoked JWT, restart or offline browser still leaves lease
- * expiry as the final cleanup owner.
- */
-function retireLeaseOnUnload(url: string, token: string, body: string): void {
+async function retireLeaseOnUnload(url: string, token: string, body: string): Promise<boolean> {
   try {
-    void fetch(url, {
+    const response = await fetch(url, {
       method: "DELETE",
       keepalive: true,
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        Prefer: "ignore-missing",
+      },
       body,
       credentials: "same-origin",
       redirect: "error",
       cache: "no-store",
-    }).catch(() => undefined);
+    });
+    return response.status === 204;
   } catch {
-    // Nothing can be delivered from a document that is already gone.
+    return false;
   }
+}
+
+interface Retirement extends OriginalOwner {
+  resource: VideoOriginalResource;
+  expiresAt: number;
+}
+
+function forgetRetirement(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    attemptedRetirements.set(key, null);
+    return;
+  }
+  attemptedRetirements.delete(key);
+}
+
+function recoverRetirements(owner: OriginalOwner, token: string): Promise<void[]> | undefined {
+  const recovering: Promise<void>[] = [];
+  let keys: string[];
+  try {
+    keys = Object.keys(sessionStorage);
+  } catch {
+    return;
+  }
+  for (const key of keys) {
+    if (!key.startsWith(RETIREMENT_PREFIX)) continue;
+    const id = leaseId(key.slice(RETIREMENT_PREFIX.length));
+    if (!id) continue;
+    let record: Partial<Retirement> | null;
+    try {
+      const raw = sessionStorage.getItem(key);
+      if (raw === null) continue;
+      record = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    if (!record || typeof record.expiresAt !== "number" || !Number.isFinite(record.expiresAt))
+      continue;
+    if (record.expiresAt <= Date.now()) {
+      forgetRetirement(key);
+      continue;
+    }
+    if (record.userId !== owner.userId || record.sessionId !== owner.sessionId || !record.resource)
+      continue;
+    let path: string;
+    try {
+      path = resourcePath(record.resource);
+    } catch {
+      continue;
+    }
+    const pending = attemptedRetirements.get(key);
+    if (pending === null) continue;
+    const attempt =
+      pending ??
+      retireLease(
+        `/api/v1${path}-playback/${id}`,
+        token,
+        JSON.stringify({ session_id: owner.sessionId }),
+      ).then((acknowledged) => {
+        if (acknowledged) forgetRetirement(key);
+        else if (attemptedRetirements.has(key)) attemptedRetirements.set(key, null);
+      });
+    attemptedRetirements.set(key, attempt);
+    recovering.push(attempt);
+  }
+  if (recovering.length) return Promise.all(recovering);
 }
 
 interface Releaser {
@@ -148,23 +208,41 @@ interface Releaser {
   retireOnUnload(): void;
 }
 
-/** Cleanup uses the credentials that created this lease, without global auth side effects. */
-function releaser(path: string, id: string, token: string, sessionId: string): Releaser {
+function releaser(path: string, id: string, token: string, record: Retirement): Releaser {
   const url = `/api/v1${path}-playback/${id}`;
-  const body = JSON.stringify({ session_id: sessionId });
+  const body = JSON.stringify({ session_id: record.sessionId });
+  const key = `${RETIREMENT_PREFIX}${id}`;
   let pending: Promise<void> | undefined;
   let settled = false;
+  let unloading = false;
+  const remember = () => {
+    if (!Number.isFinite(record.expiresAt) || record.expiresAt <= Date.now()) return;
+    try {
+      sessionStorage.setItem(key, JSON.stringify(record));
+    } catch {
+      return;
+    }
+    attemptedRetirements.set(key, null);
+  };
+  const conclude = (acknowledged: boolean) => {
+    if (!acknowledged) return;
+    settled = true;
+    forgetRetirement(key);
+  };
   return {
     release: () => {
-      pending ??= retireLease(url, token, body).finally(() => {
-        settled = true;
-      });
+      if (!pending) {
+        if (settled) return Promise.resolve();
+        remember();
+        pending = retireLease(url, token, body).then(conclude);
+      }
       return pending;
     },
     retireOnUnload: () => {
-      // A settled release already revoked this lease; an in-flight or unstarted
-      // one is re-sent because its document can no longer deliver it.
-      if (!settled) retireLeaseOnUnload(url, token, body);
+      if (settled || unloading) return;
+      unloading = true;
+      remember();
+      void retireLeaseOnUnload(url, token, body).then(conclude);
     },
   };
 }
@@ -174,15 +252,20 @@ export async function prepareOriginalVideo(
   options: PrepareOptions = {},
 ): Promise<OriginalVideoLease> {
   const path = resourcePath(resource);
+  const ownedResource: VideoOriginalResource =
+    resource.kind === "task"
+      ? { kind: "task", taskId: resource.taskId }
+      : { kind: "item", datasetId: resource.datasetId, itemId: resource.itemId };
   const captured = options.owner ?? captureOriginalOwner();
   if (!captured || !UUID.test(captured.sessionId)) throw aborted();
   const owner = Object.freeze({ ...captured });
   current(owner, options.signal);
   const identity = validateIdentity(
     path,
-    options.identity ?? (await describeOriginal(resource, { owner, signal: options.signal })),
+    options.identity ?? (await describeOriginal(ownedResource, { owner, signal: options.signal })),
   );
-  current(owner, options.signal);
+  const recovery = recoverRetirements(owner, current(owner, options.signal));
+  if (recovery) await recovery;
   let tokenRetries = 0;
   let capacityRetries = 0;
   for (;;) {
@@ -194,7 +277,6 @@ export async function prepareOriginalVideo(
         `${path}-playback`,
         { content_id: identity.content_id, sha256: identity.sha256, session_id: owner.sessionId },
         {
-          signal: options.signal,
           cache: "no-store",
           redirect: "error",
           credentials: "same-origin",
@@ -204,12 +286,19 @@ export async function prepareOriginalVideo(
       failure = error;
     }
     const id = leaseId(result?.lease_id);
-    const release = id ? releaser(path, id, token, owner.sessionId) : undefined;
+    const expiresAt = typeof result?.expires_at === "string" ? Date.parse(result.expires_at) : NaN;
+    const release = id
+      ? releaser(path, id, token, {
+          userId: owner.userId,
+          sessionId: owner.sessionId,
+          resource: ownedResource,
+          expiresAt,
+        })
+      : undefined;
     let latest: string;
     try {
       latest = current(owner, options.signal);
     } catch (error) {
-      // Never publish a late cookie/path into the next task, account or session.
       if (release) void release.release();
       throw error;
     }
@@ -235,7 +324,6 @@ export async function prepareOriginalVideo(
       }
       throw failure;
     }
-    const expiresAt = typeof result?.expires_at === "string" ? Date.parse(result.expires_at) : NaN;
     if (
       !id ||
       result?.media_path !== `/api/v1/media/original-playback/${id}` ||
@@ -266,7 +354,6 @@ export async function prepareOriginalVideo(
   }
 }
 
-/** Native media errors carry no HTTP status; this scoped HEAD distinguishes an expired lease. */
 export async function probeOriginalVideo(
   lease: OriginalVideoLease,
   options: { signal?: AbortSignal } = {},
@@ -274,8 +361,6 @@ export async function probeOriginalVideo(
   const state = leases.get(lease);
   if (!state) invalid();
   const token = current(lease.owner, options.signal);
-  // Recover may need a fresh authority proof even when the logical login continues.
-  // Keep this receipt private: the lease URL and public owner never carry credentials.
   if (state.released || state.token !== token) return "expired";
   const response = await fetch(lease.mediaPath, {
     method: "HEAD",

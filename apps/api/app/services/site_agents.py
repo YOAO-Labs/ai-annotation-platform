@@ -298,7 +298,6 @@ def state(agent, measured_at=None):
 
 
 def agent_out(agent, measured_at=None):
-    # Project only approved public fields even if a future transport stores more.
     return {
         **{
             field: getattr(agent, field)

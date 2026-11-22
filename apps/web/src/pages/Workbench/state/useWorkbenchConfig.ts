@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useReducer } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   authApi,
@@ -10,6 +10,7 @@ import {
   type PointcloudCameraState,
   type TriViewFloatState,
   type UserPreferences,
+  type UserPreferencesPatch,
   type WorkbenchCommonPreferences,
   type WorkbenchImagePreferences,
   type WorkbenchLayoutPreferences,
@@ -19,12 +20,9 @@ import {
 } from "@/api/auth";
 import type { ProjectRenderingConfig } from "@/api/projects";
 import { useToastStore } from "@/components/ui/Toast";
-import { useAuthStore } from "@/stores/authStore";
+import { authSessionToken, type AuthSessionOwner, useAuthStore } from "@/stores/authStore";
 import { useUserPreferences, userPreferencesQueryKey } from "./useUserPreferences";
 
-// 项目级覆盖的字段名集合（用于 SettingsPage badge 与控件 disabled）。
-// 与 ProjectRenderingConfig 字段同集（平铺命名不变），不含 longTaskSampleRate / layout。
-// 偏好四分树后,这些字段落在用户偏好的 image.* 子树。
 export type LockableField = "smoothImage" | "cssImageFilter" | "controlPointsSize" | "snapToGrid";
 
 export type WorkbenchLayoutPatch = Omit<
@@ -44,12 +42,10 @@ export type WorkbenchLayoutPatch = Omit<
   floatingDiscussion?: Partial<FloatingPanelState> | null;
   floatingSelection?: Partial<FloatingSelectionState> | null;
   triViewFloat?: Partial<TriViewFloatState> | null;
-  // cameraPanels 是按 role 分桶的全量 Record(由调用方合并好整份传入),非逐字段 patch。
   cameraPanels?: Record<string, CameraPanelState>;
   pointcloudCamera?: PointcloudCameraState | null;
 };
 
-/** 子树级 patch:每个子树内字段可单独提交,layout 同 update 既有语义(整树合并)。 */
 export interface WorkbenchConfigPatch {
   common?: Partial<WorkbenchCommonPreferences>;
   image?: Partial<WorkbenchImagePreferences>;
@@ -66,27 +62,56 @@ interface WorkbenchConfigState {
   retryLoad: () => void;
   saving: boolean;
   update: (patch: WorkbenchConfigPatch) => Promise<void>;
-  /** 设置窗口写路径:本地立即生效 + 300ms 防抖 PATCH(与 setLayout 共用卸载 flush)。 */
   setFields: (patch: WorkbenchConfigPatch) => void;
   setLayout: (patch: WorkbenchLayoutPatch) => void;
-  /** 被项目级覆盖的字段名（用户级修改会立刻被合并覆盖）。 */
   lockedFields: LockableField[];
 }
 
 const clampNum = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
 
-// 多实例同步:抽屉与画布(ImageStage)各自挂载本 hook,任一实例改动用户配置后
-// 广播给其余实例 → 抽屉拖滑块画布实时预览。只广播内存态,不引入模块级缓存。
-type ConfigListener = (config: WorkbenchPreferences, source: object) => void;
-const configListeners = new Set<ConfigListener>();
-function broadcastConfig(config: WorkbenchPreferences, source: object): void {
-  for (const listener of configListeners) listener(config, source);
+interface ConfigSave {
+  owner: AuthSessionOwner;
+  revision: number;
+  payload: UserPreferencesPatch;
 }
 
-// 浮窗面板坐标 x/y/w/h 在前端来自 getBoundingClientRect / 指针位移，可能带小数；
-// 后端 FloatingPanelState / FloatingSelectionState / TriViewFloatState 的这些字段是
-// 整数（Pydantic int），直接 PATCH 小数会被 int_from_float 拒（422）。持久化前对这些
-// 子树就地取整，保证契约一致。cameraPanels.x/y 与 pointcloudCamera 后端为 float，不动。
+interface ConfigSession {
+  owner: AuthSessionOwner | null;
+  config: WorkbenchPreferences;
+  hydrated: boolean;
+  active: boolean;
+  saving: boolean;
+  pending: { timer: number; save: ConfigSave } | null;
+}
+
+type ConfigListener = (
+  config: WorkbenchPreferences,
+  owner: AuthSessionOwner,
+  source: ConfigSession,
+) => void;
+const configListeners = new Set<ConfigListener>();
+let latestRevision = 0;
+
+function cancelPending(session: ConfigSession): ConfigSave | undefined {
+  if (!session.pending) return;
+  const { timer, save } = session.pending;
+  window.clearTimeout(timer);
+  session.pending = null;
+  return save;
+}
+
+function isCurrentSave(save: ConfigSave): boolean {
+  return save.revision === latestRevision && !!authSessionToken(save.owner);
+}
+
+function broadcastConfig(
+  config: WorkbenchPreferences,
+  owner: AuthSessionOwner,
+  source: ConfigSession,
+): void {
+  for (const listener of configListeners) listener(config, owner, source);
+}
+
 function roundPanelRect<T>(panel: T): T {
   if (!panel || typeof panel !== "object") return panel;
   const r = { ...(panel as Record<string, unknown>) };
@@ -96,15 +121,12 @@ function roundPanelRect<T>(panel: T): T {
   return r as T;
 }
 
-/** 持久化前对 layout 浮窗坐标取整，避免小数像素触发后端 int 校验 422。 */
 export function sanitizeForPersist(wb: WorkbenchPreferences): Omit<
   WorkbenchPreferences,
   "layout" | "shortcuts"
 > & {
   layout: Omit<WorkbenchPreferences["layout"], "workspace" | "triViewFloat">;
 } {
-  // Docking snapshots and shortcuts have their own writers; this legacy PATCH
-  // must never carry stale data copied from another preferences response.
   const { shortcuts: _shortcuts, ...settings } = wb;
   const { workspace: _workspace, triViewFloat: _triViewFloat, ...l } = wb.layout;
   return {
@@ -150,7 +172,6 @@ function mergeUser(
     ...(remote?.common ?? {}),
   };
   const remoteCommon = remote?.common as Record<string, unknown> | undefined;
-  // labelContent 规范化：旧扁平 list / 缺段补全（与后端 before validator 同款，前端兜底）。
   common.labelContent = migrateLabelContent(remoteCommon?.labelContent);
   if (
     remoteCommon &&
@@ -171,7 +192,6 @@ function mergeUser(
   };
 }
 
-/** 把子树级 patch 应用到完整配置(子树内字段级合并;layout 由调用方决定合并策略)。 */
 function applyConfigPatch(
   prev: WorkbenchPreferences,
   patch: WorkbenchConfigPatch,
@@ -186,8 +206,6 @@ function applyConfigPatch(
   };
 }
 
-// localStorage 布局缓存按账号分桶，避免同浏览器多账号布局串台 / 互相覆盖（首帧闪烁、
-// 后登录账号被先前账号覆盖）。登出态用无账号前缀（此时无账号可串）。
 const LAYOUT_KEY_NAMES = [
   "leftOpen",
   "rightOpen",
@@ -199,8 +217,6 @@ const LAYOUT_KEY_NAMES = [
   "triViewFloat",
   "cameraPanels",
   "pointcloudCamera",
-  // 分组折叠 + 讨论区收起进 localStorage 白名单: 服务端仍是权威,
-  // 但初始 render 直接从 localStorage 拿最近值, 避免"刷新一瞬间看到展开态再收起"闪。
   "aiSectionCollapsed",
   "manualSectionCollapsed",
   "trackSectionCollapsed",
@@ -252,15 +268,12 @@ function readLocalLayout(userId: string | null | undefined): WorkbenchLayoutPatc
     floatingDiscussion: readJsonObject<FloatingPanelState>(K.floatingDiscussion),
     floatingSelection: readJsonObject<FloatingSelectionState>(K.floatingSelection),
     triViewFloat: readJsonObject<TriViewFloatState>(K.triViewFloat),
-    // 整份 Record(非逐字段 patch):readJsonObject 泛型回 Partial,JSON 解析出的值实为
-    // 完整 CameraPanelState,断言回整份类型对齐 setter 语义。
     cameraPanels: readJsonObject<Record<string, CameraPanelState>>(K.cameraPanels) as
       | Record<string, CameraPanelState>
       | undefined,
     pointcloudCamera: readJsonObject<PointcloudCameraState>(K.pointcloudCamera) as
       | PointcloudCameraState
       | undefined,
-    // 分组折叠 + 讨论区收起本地读回, 消除首屏闪。
     aiSectionCollapsed: readBool(K.aiSectionCollapsed),
     manualSectionCollapsed: readBool(K.manualSectionCollapsed),
     trackSectionCollapsed: readBool(K.trackSectionCollapsed),
@@ -308,7 +321,6 @@ function writeLocalLayout(
     window.localStorage.setItem(K.floatingSelection, JSON.stringify(layout.floatingSelection));
     window.localStorage.setItem(K.cameraPanels, JSON.stringify(layout.cameraPanels));
     window.localStorage.setItem(K.pointcloudCamera, JSON.stringify(layout.pointcloudCamera));
-    // 分组折叠 + 讨论区收起本地写入, 消除首屏闪。
     window.localStorage.setItem(K.aiSectionCollapsed, layout.aiSectionCollapsed ? "1" : "0");
     window.localStorage.setItem(
       K.manualSectionCollapsed,
@@ -321,8 +333,6 @@ function writeLocalLayout(
   }
 }
 
-// w/h 与后端 FloatingPanelState 约束一致(w 48–720 / h 120–900)，确保越界尺寸不会
-// 让整棵 workbench PATCH 触发 422 → catch 只 console.warn → 偏好静默丢失且持续失败。
 function mergeFloatingPanel(
   fallback: FloatingPanelState,
   remote: Partial<FloatingPanelState> | null | undefined,
@@ -335,7 +345,6 @@ function mergeFloatingPanel(
   };
 }
 
-// 选中卡:无 detached,有 collapsed;w/h 界与 FloatingPanelState 一致(48–720 / 120–900)。
 function mergeFloatingSelection(
   remote: Partial<FloatingSelectionState> | null | undefined,
 ): FloatingSelectionState {
@@ -401,7 +410,6 @@ function mergeLayout(
     preferLocal,
   );
   const triViewFloat = mergeLayoutPatch(local.triViewFloat, remote?.triViewFloat, preferLocal);
-  // cameraPanels 是整份 Record(非逐字段 patch):优先方整份覆盖,缺省回另一方再回默认空。
   const cameraPanels = preferLocal
     ? (local.cameraPanels ?? remote?.cameraPanels)
     : (remote?.cameraPanels ?? local.cameraPanels);
@@ -414,9 +422,6 @@ function mergeLayout(
     rightOpen: merged.rightOpen ?? DEFAULT_WORKBENCH_PREFERENCES.layout.rightOpen,
     attrPanelCollapsed:
       merged.attrPanelCollapsed ?? DEFAULT_WORKBENCH_PREFERENCES.layout.attrPanelCollapsed,
-    // 分组折叠 + 讨论区完全收起 (跨设备持久); 与 attrPanelCollapsed
-    // 不同, 这三个进 LAYOUT_KEY_NAMES localStorage 双写以消首屏闪 (进任务立即渲染,
-    // 属性区选中后才渲染, 闪的可见度差异催出这一分化)。
     aiSectionCollapsed:
       merged.aiSectionCollapsed ?? DEFAULT_WORKBENCH_PREFERENCES.layout.aiSectionCollapsed,
     manualSectionCollapsed:
@@ -503,12 +508,6 @@ function applyLayoutPatch(
   };
 }
 
-/**
- * 把项目级 rendering_config 合进用户级 preferences。
- * 仅 non-null/non-undefined 字段覆盖；其余字段沿用用户级。
- * 同时返回被覆盖的字段名列表，供 UI 渲染「项目锁定」badge。
- * ProjectRenderingConfig 保持平铺(项目侧不迁移),覆盖映射到 image.* 子树字段。
- */
 function applyProjectOverride(
   user: WorkbenchPreferences,
   project: ProjectRenderingConfig | null | undefined,
@@ -533,209 +532,202 @@ function applyProjectOverride(
   return { merged: { ...user, image }, lockedFields: locked };
 }
 
-/**
- * 工作台渲染配置 hook（I17）。
- * 支持项目级覆盖：合并优先级 = DEFAULTS → user prefs → project rendering_config。
- *
- * 多组件可同时挂载本 hook —— Settings 页面不传 project (= 纯用户视图);
- * 工作台传 currentProject.rendering_config，合并后驱动 KonvaImage 等。
- */
 export function useWorkbenchConfig(
   projectRenderingConfig?: ProjectRenderingConfig | null,
 ): WorkbenchConfigState {
-  const user = useAuthStore((s) => s.user);
-  const userId = user?.id;
+  const userId = useAuthStore((s) => s.user?.id);
+  const sessionId = useAuthStore((s) => s.sessionId);
+  const token = useAuthStore((s) => s.token);
   const queryClient = useQueryClient();
-  // 读路径接入共享 preferences query: 与 ai.* 四偏好 hook 复用同一
-  // ["me","preferences",userId] GET, 消除首屏多个 useWorkbenchConfig 实例各自裸 fetch。
-  const { prefs, loaded, error, refetch } = useUserPreferences();
-  // A background refresh failure does not invalidate a previously loaded preference snapshot.
-  const loadError = prefs === undefined ? error : null;
+  const { prefs, error, refetch } = useUserPreferences();
+  const [, refresh] = useReducer((value: number) => value + 1, 0);
+  const session = useMemo<ConfigSession>(() => {
+    const user = useAuthStore.getState().user;
+    return {
+      owner: userId && sessionId ? { userId, sessionId } : null,
+      config: mergeUser(user?.id === userId ? user?.preferences?.workbench : undefined, userId, {
+        preferLocalLayout: true,
+      }),
+      hydrated: false,
+      active: false,
+      saving: false,
+      pending: null,
+    };
+  }, [userId, sessionId]);
+
   const retryLoad = useCallback(() => {
-    void refetch();
-  }, [refetch]);
-  const [userConfig, setUserConfig] = useState<WorkbenchPreferences>(() =>
-    mergeUser(user?.preferences?.workbench, userId, { preferLocalLayout: true }),
+    if (session.owner && authSessionToken(session.owner)) void refetch();
+  }, [session, refetch]);
+
+  const publish = useCallback(
+    (config: WorkbenchPreferences, owner: AuthSessionOwner) => {
+      if (session.active) {
+        session.config = config;
+        refresh();
+      }
+      broadcastConfig(config, owner, session);
+    },
+    [session],
   );
-  const userConfigRef = useRef(userConfig);
-  const saveRevisionRef = useRef(0);
-  const layoutSaveTimerRef = useRef<number | null>(null);
-  // 每个 userId 只用共享 query 数据 hydrate 一次本地态: 首屏 remote 优先同步, 之后共享 query
-  // 的后续变化(ai.* 写触发的 refetch / 本 hook 写回灌)不再覆盖本地 userConfig, 避免盖掉
-  // 「正在拖动但防抖 PATCH 未发」的 layout。切账号 userId 变则重新 hydrate。
-  const hydratedUserIdRef = useRef<string | null | undefined>(null);
-  const [saving, setSaving] = useState(false);
-  // 多实例同步:本实例广播时携带 sourceRef 标识,收到自己发的广播不回灌。
-  const sourceRef = useRef<object>({});
 
-  useEffect(() => {
-    userConfigRef.current = userConfig;
-  }, [userConfig]);
+  const persist = useCallback(
+    async (
+      save: ConfigSave,
+      mode: "immediate" | "debounce" | "unmount",
+      previous?: WorkbenchPreferences,
+    ) => {
+      if (!isCurrentSave(save)) return;
+      if (session.active) {
+        session.saving = true;
+        refresh();
+      }
+      try {
+        const result = await authApi.updatePreferences(save.payload, save.owner);
+        if (!isCurrentSave(save)) return;
+        const { userId } = save.owner;
+        await queryClient.cancelQueries(
+          { queryKey: userPreferencesQueryKey(userId), exact: true },
+          { revert: false },
+        );
+        if (!isCurrentSave(save)) return;
+        cachePreferences(queryClient, userId, result);
+        const config = mergeUser(result.workbench, userId);
+        writeLocalLayout(config.layout, userId);
+        publish(config, save.owner);
+        return true;
+      } catch (err) {
+        if (!isCurrentSave(save)) return;
+        if (previous) publish(previous, save.owner);
+        if (mode === "debounce") console.warn("Failed to persist workbench preferences", err);
+        useToastStore.getState().push({
+          kind: "error",
+          msg: "工作台设置未同步",
+          sub:
+            mode === "unmount"
+              ? "离开页面前的修改保存失败，请返回工作台检查并重新设置。"
+              : mode === "immediate"
+                ? "设置已恢复为保存前的值，请重试。"
+                : "当前工作台保留本次修改，再次调整设置可重试保存。",
+        });
+        if (previous) throw err;
+      } finally {
+        if (session.active && isCurrentSave(save)) {
+          session.saving = false;
+          refresh();
+        }
+      }
+    },
+    [session, queryClient, publish],
+  );
 
-  useEffect(() => {
-    const listener: ConfigListener = (config, source) => {
-      if (source === sourceRef.current) return;
-      saveRevisionRef.current += 1;
-      userConfigRef.current = config;
-      setUserConfig(config);
+  useLayoutEffect(() => {
+    session.active = true;
+    const listener: ConfigListener = (config, owner, source) => {
+      const current = session.owner;
+      if (
+        source === session ||
+        !current ||
+        owner.userId !== current.userId ||
+        owner.sessionId !== current.sessionId ||
+        !session.hydrated
+      ) {
+        return;
+      }
+      cancelPending(session);
+      session.config = config;
+      session.saving = false;
+      refresh();
     };
     configListeners.add(listener);
     return () => {
       configListeners.delete(listener);
+      session.active = false;
+      const save = cancelPending(session);
+      if (save) void persist(save, "unmount");
     };
-  }, []);
+  }, [persist, session]);
 
-  useEffect(
-    () => () => {
-      if (layoutSaveTimerRef.current !== null) {
-        window.clearTimeout(layoutSaveTimerRef.current);
-        // 卸载(路由切换)时若仍有未发出的防抖 PATCH，立即 flush，避免拖完 300ms 内
-        // 离开页面丢失跨设备同步。timer 仅在已登录时设置，故无需再判 userId。
-        // flush 成功后把整份返回值回灌共享 query 缓存, 否则 staleTime 内再进
-        // 工作台会读到被本次 flush 覆盖前的旧缓存。userId 从 store 取最新(本 effect deps 稳定)。
-        const flushUserId = useAuthStore.getState().user?.id;
-        void authApi
-          .updatePreferences({ workbench: sanitizeForPersist(userConfigRef.current) })
-          .then((res) => {
-            cachePreferences(queryClient, flushUserId, res);
-          })
-          .catch(() => {
-            useToastStore.getState().push({
-              kind: "error",
-              msg: "工作台设置未同步",
-              sub: "离开页面前的修改保存失败，请返回工作台检查并重新设置。",
-            });
-          });
-      }
+  useLayoutEffect(() => {
+    const owner = session.owner;
+    if (!owner || !token || !prefs || session.hydrated || !authSessionToken(owner)) return;
+    session.config = mergeUser(prefs.workbench, owner.userId);
+    session.hydrated = true;
+    writeLocalLayout(session.config.layout, owner.userId);
+    refresh();
+  }, [prefs, session, token]);
+
+  const prepareSave = useCallback(
+    (config: WorkbenchPreferences, owner: AuthSessionOwner): ConfigSave => {
+      cancelPending(session);
+      session.saving = false;
+      const save = {
+        owner,
+        revision: ++latestRevision,
+        payload: { workbench: sanitizeForPersist(config) },
+      };
+      publish(config, owner);
+      return save;
     },
-    [queryClient],
+    [publish, session],
   );
-
-  // 共享 query 数据到达时把 workbench 子树 hydrate 进本地态(每 userId 一次,
-  // 见 hydratedUserIdRef)。首屏由 useUserPreferences 的单次 GET 供数; 各挂载实例各自在此
-  // mergeUser + 写回本地 layout 缓存(幂等)。
-  useEffect(() => {
-    if (!userId || !prefs) return;
-    if (hydratedUserIdRef.current === userId) return;
-    hydratedUserIdRef.current = userId;
-    const next = mergeUser(prefs.workbench, userId);
-    userConfigRef.current = next;
-    setUserConfig(next);
-    writeLocalLayout(next.layout, userId);
-  }, [prefs, userId]);
 
   const update = useCallback(
     async (patch: WorkbenchConfigPatch) => {
-      const saveRevision = ++saveRevisionRef.current;
-      const prev = userConfigRef.current;
-      const next = applyConfigPatch(
-        prev,
-        patch,
-        patch.layout ? mergeLayout(patch.layout, userId) : prev.layout,
-      );
-      userConfigRef.current = next;
-      setUserConfig(next);
-      broadcastConfig(next, sourceRef.current);
-      setSaving(true);
-      try {
-        const res = await authApi.updatePreferences({
-          workbench: sanitizeForPersist(next),
-        });
-        if (saveRevision !== saveRevisionRef.current) return;
-        // 整份返回值回灌共享 query 缓存(PATCH 返回整份 preferences, 无子键覆盖风险)。
-        cachePreferences(queryClient, userId, res);
-        const saved = mergeUser(res.workbench, userId);
-        userConfigRef.current = saved;
-        setUserConfig(saved);
-        broadcastConfig(saved, sourceRef.current);
-        writeLocalLayout(saved.layout, userId);
-      } catch {
-        if (saveRevision !== saveRevisionRef.current) return;
-        userConfigRef.current = prev;
-        setUserConfig(prev);
-        broadcastConfig(prev, sourceRef.current);
-      } finally {
-        if (saveRevision === saveRevisionRef.current) setSaving(false);
+      const owner = session.owner;
+      if (session.active && session.hydrated && owner && authSessionToken(owner)) {
+        const previous = session.config;
+        const config = applyConfigPatch(
+          previous,
+          patch,
+          patch.layout ? mergeLayout(patch.layout, owner.userId) : previous.layout,
+        );
+        const save = prepareSave(config, owner);
+        if ((await persist(save, "immediate", previous)) && isCurrentSave(save)) return;
       }
+      throw new DOMException("工作台设置保存已取消", "AbortError");
     },
-    [userId, queryClient],
+    [persist, prepareSave, session],
   );
 
-  // setLayout / setFields 共用的 300ms 防抖全量 PATCH(卸载时由上方 cleanup flush)。
-  const scheduleDebouncedSave = useCallback(() => {
-    if (layoutSaveTimerRef.current !== null) {
-      window.clearTimeout(layoutSaveTimerRef.current);
-    }
-    if (!userId) return;
-
-    layoutSaveTimerRef.current = window.setTimeout(() => {
-      // 已触发，标记为「无待写」，卸载时不再冗余 flush(见上方 cleanup)。
-      layoutSaveTimerRef.current = null;
-      const payload = userConfigRef.current;
-      const saveRevision = saveRevisionRef.current;
-      setSaving(true);
-      authApi
-        .updatePreferences({ workbench: sanitizeForPersist(payload) })
-        .then((res) => {
-          if (saveRevision !== saveRevisionRef.current) return;
-          cachePreferences(queryClient, userId, res);
-          const saved = mergeUser(res.workbench, userId);
-          userConfigRef.current = saved;
-          setUserConfig(saved);
-          broadcastConfig(saved, sourceRef.current);
-          writeLocalLayout(saved.layout, userId);
-        })
-        .catch((err) => {
-          if (saveRevision !== saveRevisionRef.current) return;
-          console.warn("Failed to persist workbench preferences", err);
-          useToastStore.getState().push({
-            kind: "error",
-            msg: "工作台设置未同步",
-            sub: "当前工作台保留本次修改，再次调整设置可重试保存。",
-          });
-        })
-        .finally(() => {
-          if (saveRevision === saveRevisionRef.current) setSaving(false);
-        });
-    }, 300);
-  }, [userId, queryClient]);
+  const scheduleSave = useCallback(
+    (config: WorkbenchPreferences, owner: AuthSessionOwner) => {
+      const save = prepareSave(config, owner);
+      const timer = window.setTimeout(() => {
+        session.pending = null;
+        void persist(save, "debounce");
+      }, 300);
+      session.pending = { timer, save };
+    },
+    [persist, prepareSave, session],
+  );
 
   const setLayout = useCallback(
     (patch: WorkbenchLayoutPatch) => {
-      saveRevisionRef.current += 1;
-      const prev = userConfigRef.current;
-      const next = {
-        ...prev,
-        layout: applyLayoutPatch(prev.layout, patch),
-      };
-      userConfigRef.current = next;
-      setUserConfig(next);
-      broadcastConfig(next, sourceRef.current);
-      writeLocalLayout(next.layout, userId);
-      scheduleDebouncedSave();
+      const owner = session.owner;
+      if (!session.active || !session.hydrated || !owner || !authSessionToken(owner)) return;
+      const config = { ...session.config, layout: applyLayoutPatch(session.config.layout, patch) };
+      writeLocalLayout(config.layout, owner.userId);
+      scheduleSave(config, owner);
     },
-    [userId, scheduleDebouncedSave],
+    [scheduleSave, session],
   );
 
-  // 设置窗口写路径:成功读取后才允许编辑，避免默认值覆盖尚未加载的远端偏好。
   const setFields = useCallback(
     (patch: WorkbenchConfigPatch) => {
-      if (!prefs) return;
-      saveRevisionRef.current += 1;
-      const prev = userConfigRef.current;
-      const next = applyConfigPatch(
-        prev,
+      const owner = session.owner;
+      if (!session.active || !session.hydrated || !owner || !authSessionToken(owner)) return;
+      const previous = session.config;
+      const config = applyConfigPatch(
+        previous,
         patch,
-        patch.layout ? applyLayoutPatch(prev.layout, patch.layout) : prev.layout,
+        patch.layout ? applyLayoutPatch(previous.layout, patch.layout) : previous.layout,
       );
-      userConfigRef.current = next;
-      setUserConfig(next);
-      broadcastConfig(next, sourceRef.current);
-      scheduleDebouncedSave();
+      scheduleSave(config, owner);
     },
-    [prefs, scheduleDebouncedSave],
+    [scheduleSave, session],
   );
 
+  const userConfig = session.config;
   const { merged, lockedFields } = useMemo(
     () => applyProjectOverride(userConfig, projectRenderingConfig),
     [userConfig, projectRenderingConfig],
@@ -744,10 +736,10 @@ export function useWorkbenchConfig(
   return {
     config: merged,
     layout: userConfig.layout,
-    loaded,
-    loadError,
+    loaded: session.hydrated,
+    loadError: session.hydrated ? null : error,
     retryLoad,
-    saving,
+    saving: session.saving,
     update,
     setFields,
     setLayout,

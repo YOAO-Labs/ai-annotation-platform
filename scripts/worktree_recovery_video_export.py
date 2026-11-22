@@ -250,7 +250,6 @@ async def _seed_sources(db, *, actor, storage, raw_by_case):
         )
         db.add(task)
         tasks[case] = task
-    # Creation and TaskOriginal publication use separate durable transactions.
     await db.commit()
     evidence = {}
     for case in CASES:

@@ -417,8 +417,6 @@ async def gc_db(owned_db):
     ):
         await db.execute(text(ddl))
     connection = await db.connection()
-    # Retirement reads full AsyncJob rows; mirror the production entity rather
-    # than a hand-narrowed copy that silently misses later model columns.
     await connection.run_sync(AsyncJob.__table__.create)
     await connection.run_sync(StorageUsageMutation.__table__.create)
     await db.commit()

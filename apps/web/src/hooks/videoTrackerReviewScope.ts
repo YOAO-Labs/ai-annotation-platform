@@ -24,7 +24,6 @@ export function reviewInstanceIds(preview: VideoTrackerJobPreview): string[] {
   return [...new Set(preview.results.map((result) => result.instance_id ?? "1"))].sort();
 }
 
-/** Map an inspected annotation only when the staged target actually belongs to it. */
 export function referenceReviewInstanceIds(
   preview: VideoTrackerJobPreview,
   annotationId: string | null,

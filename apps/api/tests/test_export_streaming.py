@@ -115,11 +115,10 @@ async def test_iter_export_chunks_matches_load_data(super_admin, db_session):
         chunks += 1
         streamed_task_ids.extend(t.id for t in ts)
         streamed_ann_count += sum(len(v) for v in ann_by_task.values())
-        # 该块每个有 dataset_item 的 task 都应水合到 items。
         assert all(t.dataset_item_id in items for t in ts if t.dataset_item_id)
 
-    assert chunks == 3  # 5 个 task / chunk_size=2 → 3 块
-    assert streamed_task_ids == [t.id for t in full_tasks]  # 同序
+    assert chunks == 3
+    assert streamed_task_ids == [t.id for t in full_tasks]
     assert streamed_ann_count == len(full_anns)
 
 
@@ -151,8 +150,6 @@ async def test_export_annotations_use_id_as_equal_timestamp_tiebreaker(
             )
         )
     await db_session.flush()
-    # 强制顺序结果来自显式 ORDER BY，不依赖测试库恰好选中
-    # (task_id, created_at, id) 索引所产生的偶然顺序。
     await db_session.execute(text("SET LOCAL enable_indexscan = off"))
     await db_session.execute(text("SET LOCAL enable_bitmapscan = off"))
 
@@ -204,7 +201,6 @@ async def test_build_export_zip_streamed_to_disk(super_admin, db_session, monkey
     try:
         assert os.path.exists(zip_path)
         assert size_bytes == os.path.getsize(zip_path)
-        # yolo 5 个 label 文件 + coco 计 5 → 10。
         assert file_count == 10
 
         with zipfile.ZipFile(zip_path) as zf:
@@ -214,7 +210,6 @@ async def test_build_export_zip_streamed_to_disk(super_admin, db_session, monkey
             assert "fetch_images.py" in names
             assert "yolo/data.yaml" in names
             assert "coco/annotations.json" in names
-            # 多目标 → yolo/ 前缀的镜像 label。
             yolo_labels = [
                 n for n in names if n.startswith("yolo/") and n.endswith(".txt")
             ]
@@ -232,7 +227,6 @@ async def test_build_export_zip_streamed_to_disk(super_admin, db_session, monkey
             coco = json.loads(zf.read("coco/annotations.json"))
             assert coco["images"][0]["width"] == 800
             assert coco["images"][0]["height"] == 600
-            # bbox x=0.1*800=80, y=0.2*600=120, w=0.3*800=240, h=0.4*600=240。
             assert coco["annotations"][0]["bbox"] == [80.0, 120.0, 240.0, 240.0]
     finally:
         try:

@@ -52,8 +52,6 @@ class IdentityProvisioningData:
         )
 
     async def read_scale_seed_annotator(self):
-        # Both owner reads use the calling statement's snapshot. Do not fetch
-        # membership candidates in a separate Python/SQL round trip.
         return _payload(
             await self.db.scalar(
                 text(
@@ -72,8 +70,6 @@ class IdentityProvisioningData:
         return user.id if user is not None else None
 
     async def lookup_seed_accounts(self, emails):
-        # One snapshot preserves the bulk lookup and loaded email/ID cache
-        # behavior without reading private Identity fields.
         profile = aliased(User, account_profiles, adapt_on_names=True)
         users = (
             await self.db.execute(
@@ -98,8 +94,6 @@ class IdentityProvisioningData:
         )
 
     async def create_account(self, request: ProvisioningCreateRequest) -> dict | bytes:
-        # The old ORM creator explicitly flushed all pending work, even inside
-        # no_autoflush; the native write keeps that caller-owned unit of work.
         await self.db.flush()
         return _payload(
             await self.db.scalar(

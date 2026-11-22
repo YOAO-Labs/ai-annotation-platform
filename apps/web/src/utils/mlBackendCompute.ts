@@ -15,7 +15,6 @@ function normalized(value: string | null | undefined): string {
   return value?.trim().toLowerCase() ?? "";
 }
 
-/** 已知 GPU 配置的 backend 实际落到 CPU 时返回 true。 */
 export function isCpuFallback(compute: MLBackendCompute | null | undefined): boolean {
   if (!compute || compute.cpu_fallback_supported === false) return false;
 
@@ -30,7 +29,6 @@ export function isCpuFallback(compute: MLBackendCompute | null | undefined): boo
   );
 }
 
-/** 实时探测成功时以实时值为准；探测不可达时才回退到注册表快照。 */
 export function resolveRuntimeCompute(
   observation: RuntimeComputeObservation | undefined,
   snapshot: MLBackendCompute | null | undefined,

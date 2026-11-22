@@ -65,7 +65,6 @@ async def _singleton_pool(db: AsyncSession, registry_id: uuid.UUID) -> PoolFacts
 
 
 async def _seed_registry(db: AsyncSession, name: str = "g") -> MLBackendRegistry:
-    # ADR-0050 · 每 registry 须有 singleton pool (alembic 0132 backfill 语义)。
     registry, _pool = await create_registry_with_pool(
         db,
         id=uuid.uuid4(),
@@ -316,9 +315,6 @@ def _gpu_admin_authority(
         lambda: authority,
     )
     return authority
-
-
-# ── admin 全局 CRUD ──────────────────────────────────────────────────────
 
 
 async def test_create_registry_superadmin(httpx_client, super_admin):
@@ -1511,7 +1507,6 @@ async def test_delete_registry_rejects_live_redis_route_lease(
     ledger = make_ledger_from_settings()
     lease = None
     try:
-        # Exercise the real isolated Redis ledger without contacting any model/GPU endpoint.
         lease, rejection = await ledger.acquire(
             str(pool.id),
             pool.routing_generation,
@@ -1769,9 +1764,6 @@ async def test_registry_unload_preserves_gpu_arbiter_error_contract(
     assert response.headers["Retry-After"] == "7"
 
 
-# ── 项目启用勾选清单 ──────────────────────────────────────────────────────
-
-
 async def test_available_lists_all_with_enabled_flag(
     httpx_client, db_session, super_admin
 ):
@@ -1808,7 +1800,6 @@ async def test_enablement_toggle_and_override(httpx_client, db_session, super_ad
     b = await _seed_registry(db_session, name="tog")
     await db_session.commit()
 
-    # 启用 + 写变体覆盖
     res = await httpx_client.put(
         f"/api/v1/projects/{proj.id}/ml-backends/{b.id}/enablement",
         json={"enabled": True, "default_variants": {"sam_variant": "base"}},
@@ -1819,7 +1810,6 @@ async def test_enablement_toggle_and_override(httpx_client, db_session, super_ad
     assert body["enabled"] is True
     assert body["default_variants"] == {"sam_variant": "base"}
 
-    # 停用 (覆盖缺省不动)
     res = await httpx_client.put(
         f"/api/v1/projects/{proj.id}/ml-backends/{b.id}/enablement",
         json={"enabled": False},

@@ -1,4 +1,3 @@
-/* mermaid 缩放容器：定高画布 + 可手动纵向拖拽改高。背景透明，保持图自身对比度。 */
 .mermaid-zoom {
   position: relative;
   width: 100%;
@@ -7,7 +6,7 @@
   border-radius: 8px;
   background: var(--vp-c-bg-soft);
   overflow: hidden;
-  resize: vertical; /* 拖右下角可改容器高度 */
+  resize: vertical;
   cursor: grab;
 }
 
@@ -19,7 +18,6 @@
   display: block;
 }
 
-/* 右上角自定义缩放控件 */
 .mermaid-zoom-ctrl {
   position: absolute;
   top: 8px;
@@ -54,10 +52,6 @@
   background: var(--vp-c-bg-soft);
   border-color: var(--vp-c-brand-1);
 }
-
-/* ============================================================
- * 暗色模式高对比度 Mermaid 主题覆盖
- * ============================================================ */
 
 .dark .mermaid-zoom {
   background: #14161f;

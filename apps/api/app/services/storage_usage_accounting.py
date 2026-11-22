@@ -134,8 +134,6 @@ async def begin_in_transaction(
         if row.object_key != key or row.scope_key != scope or row.kind != kind:
             raise ValueError("accounting_identity_collision")
         if new_request:
-            # Every explicit submission has its own durable window. A later
-            # success or absence cannot explain an earlier unresolved request.
             values["idempotency_key"] = digest(identity + ":" + str(identifier))
             values["evidence"]["logical_intent_id"] = str(row.id)
             await db.execute(insert(Mutation).values(**values))
@@ -195,8 +193,6 @@ async def publish(factory, handle, evidence, *, settled=True):
                     fact["returned_version"] = previous["returned_version"]
                 if row.physical_size_bytes is not None:
                     size = row.physical_size_bytes
-            # A repeated unresolved intent cannot infer the earlier attempt from
-            # its eventual presence or a later 412 response.
             if not settled or not handle.fresh:
                 delta = None
             row.physical_outcome = physical
@@ -294,8 +290,6 @@ async def stage_page(db, generation, scope, objects, started, completed):
         await db.execute(insert(Observation), values)
 
 
-# The database joins bounded persisted pages. Python never loads all keys or
-# events; an absent object uses the whole successful bucket observation window.
 _COMPARE = text("""
 WITH p AS (
  SELECT * FROM storage_usage_inventory_objects WHERE scope_key=:scope AND generation=:previous
@@ -389,8 +383,6 @@ async def complete_bucket(db, snapshot, generation, started, completed):
         )
     )
     snapshot.object_generation = generation
-    # Keep exactly two successful generations for this bucket. Failed staging
-    # is also removed here; active inventory publication is fenced by its owner.
     keep = [generation] + ([previous] if previous else [])
     await db.execute(
         delete(Observation).where(

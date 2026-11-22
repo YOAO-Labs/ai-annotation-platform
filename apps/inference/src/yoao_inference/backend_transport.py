@@ -37,9 +37,6 @@ from yoao_protocol_v2.lifecycle import (
 from .capabilities import resolve_model_task
 from .request_tracking import GPU_UNLOAD_ROUTE_EXTENSION, RequestContext, http_client
 
-# BUG B-17 · per-backend asyncio.Semaphore 限速. 受 backend extra_params.max_concurrency
-# 控制 (默认 4, 匹配现有 celery worker --concurrency=4 不破坏既有行为). 改 extra_params 后需 worker
-# 重启才生效 (每个存活 event loop 按 backend_id 缓存; 见 docs-site/dev/concepts/ai-models.md).
 _DEFAULT_MAX_CONCURRENCY = 4
 GPU_HEALTH_CHALLENGE_HEADER = "X-YOAO-GPU-Health-Challenge"
 GPU_HEALTH_CHALLENGE_QUERY_PARAM = "yoao_gpu_health_challenge"
@@ -237,10 +234,7 @@ class PredictionResult:
     inference_time_ms: int | None = None
     cache_hit: bool | None = None
     model_load_ms: int | None = None
-    # token / cost 透传 (LLM-backed backend 才有, grounded-sam2 当前留 None).
-    # worker 累加到 async_job.result.total_cost, prediction_meta 单条留档.
     meta: dict | None = None
-    # 交互单实例精修的 low-res logits 回灌 (base64); 平台仅透传, 前端原样回带.
     mask_input_next: str | None = None
     diagnostic: dict | None = None
 
@@ -297,7 +291,6 @@ class BackendTransport:
         meta = getattr(self._backend, "health_meta", None) or {}
         revision = (meta.get("capabilities") or {}).get("task_contract_revision", 0)
         if revision != 1:
-            # Compatibility is confined to the transport; stored context is canonical.
             task = normalized.pop("task", None)
             if task is not None and "type" not in normalized:
                 normalized["type"] = legacy_inference_task(task)
@@ -309,8 +302,6 @@ class BackendTransport:
 
     def _headers(self, grant: BackendDispatchGrant | None = None) -> dict[str, str]:
         headers: dict[str, str] = {"Content-Type": "application/json"}
-        # Credentials are resolved by the API owner before capture; a managed
-        # ``managed:<provider>`` method arrives here already materialized as a token.
         if self.auth_method != "none" and self.auth_token:
             headers["Authorization"] = f"Bearer {self.auth_token}"
         if grant is not None:
@@ -396,13 +387,6 @@ class BackendTransport:
                     data = resp.json()
                 except Exception:
                     return True, None
-                # 加 host (PerfHud 容器 CPU/RAM); gpu_info/cache/model_version 保留
-                # 加 pool (cap / loaded_variants / per_variant_lru_ts), # 升级到协议 §4.3 PoolStatus (cap / current_size / loaded_keys / last_evict),
-                # 这里整段透传; 模型市场变体面板按字段优先级展示 (backend 无 pool 时静默跳过).
-                # 加 video_pool (cap / loaded_variants / active_sessions / idle_seconds),
-                # 供视频追踪显存池观测 (backend 无该字段时静默跳过; video pool 协议化留下版).
-                # WS4 · 加 compute (configured_device/effective_device/effective_provider),
-                # 暴露 backend 是否已静默退回 CPU; platform overview + PerfHud 两路均依赖此处放行.
                 meta = {
                     k: data[k]
                     for k in (
@@ -418,7 +402,6 @@ class BackendTransport:
                         "compute",
                         "pool_topology",
                         "ort_session_counts",
-                        # ADR-0049 · 全 pool/session 驻留真值，与 compute 配置意图分离。
                         "residency",
                     )
                     if k in data
@@ -472,7 +455,6 @@ class BackendTransport:
                 raise ValueError("Evaluation profile only supports reading")
         elif receipt is None or bool(receipt.group("seal")) != (payload is not None):
             raise ValueError("Unknown evaluation receipt path or method")
-        # Sealing an already completed request also returns its frozen response.
         max_bytes = (
             17 * 1024 * 1024 if receipt and receipt.group("segment") else 256 * 1024
         )
@@ -506,7 +488,6 @@ class BackendTransport:
         outcome = "success"
         payload: dict = {"tasks": tasks}
         if context:
-            # 批量预标透传 context（含 type=text + prompt + output 三模式 + DINO 阈值）。
             payload["context"] = self._predict_context(context)
         try:
             async with await self._acquire():
@@ -559,7 +540,6 @@ class BackendTransport:
 
         results = []
         for item in data.get("results", []):
-            # 优先用 backend 自报的 inference_time_ms（去 IO 开销更准），缺失则回退 wall clock。
             results.append(
                 PredictionResult(
                     task_id=item.get("task"),
@@ -567,7 +547,7 @@ class BackendTransport:
                     score=item.get("score"),
                     model_version=item.get("model_version"),
                     inference_time_ms=item.get("inference_time_ms") or wall_ms,
-                    meta=item.get("meta"),  # LLM cost/token (grounded-sam2 不返回)
+                    meta=item.get("meta"),
                 )
             )
         return results
@@ -616,7 +596,6 @@ class BackendTransport:
                                     )
                             if grant is not None:
                                 grant.report_response(resp.status_code)
-                            # 上游 4xx 原样透传, 5xx → 502 (见 _raise_for_backend_status)
                             self._raise_for_backend_status(resp)
                             try:
                                 data = json.loads(resp.content)
@@ -637,14 +616,11 @@ class BackendTransport:
                                     },
                                 )
                 except (httpx.ConnectError, httpx.TimeoutException) as exc:
-                    # 转换发生在 dispatch context 退出后，使 authority 能看到
-                    # 原始 timeout/connect 不确定结果。
                     raise self.error_factory(
                         status_code=502,
                         detail=f"ML backend unreachable: {exc}",
                     ) from exc
         except Exception:
-            # 仍记 error 指标, 再原样抛出, 指标语义不变.
             outcome = "error"
             self._observe(self.backend_id, outcome, time.monotonic() - start)
             raise

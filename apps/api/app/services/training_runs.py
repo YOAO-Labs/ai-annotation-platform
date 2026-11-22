@@ -629,15 +629,12 @@ async def observe_lost(db, lease):
                 run.error_message,
                 source="platform",
             )
-            # Lost is not a terminal state: retain the lease and allow recovery.
             await jobs.update_progress(
                 db, run.async_job_id, 0, extra_payload={"execution_lost": True}
             )
 
 
 async def fenced(db, attempt_id, fence: ExecutorFence, *, allow_terminal=False):
-    # Resource first, then actor/project and run/attempt. Public cancellation never
-    # acquires the resource lock and cannot release an active lease.
     preliminary = await db.get(TrainingAttempt, attempt_id)
     if preliminary is None or not preliminary.resource_id:
         raise HTTPException(status_code=404, detail="执行尝试不存在")
@@ -1213,8 +1210,6 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
             actor_id=run.creator_id,
             api_key_id=run.authorization.get("api_key_id"),
         )
-        # An exact fenced completion receipt can resolve a lost heartbeat after
-        # an upload outage. No successor can start while this lease is retained.
     if attempt.run_id != run.id:
         raise HTTPException(status_code=409, detail="执行尝试不属于当前训练实验")
     owner = None
@@ -1224,8 +1219,6 @@ async def finish(db, attempt_id, body, *, training_authority: TrainingAuthorityP
         except HTTPException as exc:
             if status == "succeeded" or exc.status_code != 409:
                 raise
-            # An exact failed/stopped receipt settles the lease without guessing
-            # where an old execution wrote. Its upload inventory remains durable.
     artifacts = {}
     inventory = dict(attempt.upload_inventory) if owner else {}
     saved_ref = owner.ref if owner else None

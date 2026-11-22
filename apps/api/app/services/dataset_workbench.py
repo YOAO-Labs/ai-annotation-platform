@@ -94,7 +94,6 @@ async def scene_options(db, dataset_id, *, limit, offset, search, selected_id):
 
 
 def location_dataset_scope(location_id, actor):
-    # EXISTS gives a unique business count even when one dataset has many sources.
     return (
         select(1)
         .select_from(DatasetSource)
@@ -147,8 +146,6 @@ def observations(
     if dataset_id is None and reference_source_ids is None:
         raise ValueError("Observations require a dataset or explicit reference sources")
     if state_only:
-        # Non-reference state depends on the managed original, not its optional
-        # directory provenance. Reference state always uses its retained source.
         source_id = DatasetReference.source_id
     else:
         provenance_query = visible_mapping_query(
@@ -189,8 +186,6 @@ def observations(
             DatasetSourceChange.before_item_id == DatasetItem.id,
             DatasetRegistrationRun.source_id == DatasetReference.source_id,
             DatasetRegistrationRun.comparison_complete.is_(True),
-            # Registration can complete again after accepting a revalidation or
-            # move. Its mutable completion time must not revive old evidence.
             DatasetSourceChange.before_revision_id == accepted_revision,
         )
         .order_by(
@@ -314,8 +309,6 @@ def observations(
             return reference_states.where(
                 DatasetReference.source_id.in_(reference_source_ids)
             ).subquery("item_observations")
-        # Managed/unverified items have no reference availability history. Keep
-        # source changes and preview checks on the reference branch only.
         managed_states = scoped(
             select(
                 DatasetItem.id.label("item_id"),
@@ -488,8 +481,6 @@ async def available_cache_ids(
     sources, available = {}, []
     for record in records:
         try:
-            # A published cache is qualified by its complete saved member,
-            # not by another object's root or the current allocation binding.
             await original_cache.prepare_read(db, record)
             if record.scope_location_id not in sources:
                 sources[record.scope_location_id] = False
@@ -602,8 +593,6 @@ async def item_query(
         if filters.media_type:
             predicates.append(DatasetItem.file_type == filters.media_type)
         if filters.extension:
-            # Logical filename, never the opaque reference key; only the final
-            # path component can contribute an extension.
             extension = func.lower(func.substring(DatasetItem.file_name, r"[^/.]+$"))
             has_extension = DatasetItem.file_name.op("~")(r"[^/]+\.[^/.]+$")
             extensions = (
@@ -719,7 +708,6 @@ async def item_page(
     )
     from app.services.dataset import DatasetService
 
-    # Reuse legacy media serialization only for the bounded page's identities.
     ids = [row["item_id"] for row in rows]
     items, _ = await DatasetService(db).list_items(
         dataset_id, limit=limit, item_ids=ids
@@ -781,8 +769,6 @@ async def workbench(db, dataset_id, actor):
         {"field": "dataset.dataset_id", "op": "eq", "value": str(dataset_id)},
         user=actor,
     )
-    # Group equivalent access kinds so the canonical Data Manager predicates run
-    # in one aggregate query, with at most manager + three membership branches.
     visible_queries = [
         apply_task_visibility(
             select(task_row.id).where(

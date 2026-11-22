@@ -1,9 +1,3 @@
-/**
- * BUG B-16 / B-17
- *
- * `/ai-pre` 已就绪卡片多选批量清理 + 项目卡片聚合.
- */
-
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { adminPreannotateApi, type BulkClearRequest } from "@/api/adminPreannotate";

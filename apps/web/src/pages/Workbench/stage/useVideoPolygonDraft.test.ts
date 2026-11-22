@@ -57,7 +57,6 @@ describe("useVideoPolygonDraft.removeLastPoint", () => {
     expect(result.current.draft?.points).toEqual([[0.1, 0.1]]);
     act(() => result.current.removeLastPoint());
     expect(result.current.draft).toBeNull();
-    // 空草稿上再撤销无副作用。
     act(() => result.current.removeLastPoint());
     expect(result.current.draft).toBeNull();
   });

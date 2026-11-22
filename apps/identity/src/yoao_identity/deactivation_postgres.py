@@ -273,7 +273,6 @@ class DeactivationDuePostgresData:
                 native = decode_native_deactivation_due_reply(
                     request, json.loads(raw) if isinstance(raw, str) else raw
                 )
-                # Validate the exact public projection before transaction commit.
                 return decode_deactivation_due_reply(
                     request,
                     {

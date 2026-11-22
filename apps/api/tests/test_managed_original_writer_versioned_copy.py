@@ -15,7 +15,6 @@ def copy_world(monkeypatch):
     data = b"original"
     client.store("stage", "source", data, content_type="image/png")
     source = writer.inspect_staging(client, "stage", "source", max_bytes=len(data))
-    # Only staging is versioned; the target returns its genuine null receipt.
     client.versioned = False
     copy = client.upload_part_copy
 

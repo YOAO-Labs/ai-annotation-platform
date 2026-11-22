@@ -2,8 +2,6 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-// Radix Tooltip / ScrollArea read ResizeObserver; jsdom doesn't ship it.
-// Minimal stub — enough for mount/render assertions (no real layout).
 beforeAll(() => {
   class RO {
     observe() {}
@@ -15,8 +13,6 @@ beforeAll(() => {
   }
   (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = RO;
 });
-
-// ── module mocks (same style as the legacy test) ───────────────────────────
 
 const mockTopology = vi.fn();
 const mockRuntimeSnapshot = vi.fn();
@@ -73,8 +69,6 @@ vi.mock("@/components/ui/Toast", async () => {
 
 import { RuntimeObservePanel } from "./RuntimeObservePanel";
 
-// ── fixtures ───────────────────────────────────────────────────────────────
-
 type MemberState = "active" | "draining" | "disabled";
 
 function makeMember(
@@ -96,12 +90,10 @@ function makeMember(
     state: "connected",
     last_checked_at: new Date().toISOString(),
     gpu_resource_id: "node-a/GPU-abc",
-    // runtime-snapshot member fields:
     health_fresh: true,
     route_inflight: opts.route_inflight ?? 0,
     circuit_open: opts.circuit_open ?? false,
     registry_state: opts.registry_state ?? "connected",
-    // Routing metrics are not available in this fixture.
     last_selected_at: null,
     selection_count_window: null,
     rejection_count_window: null,
@@ -285,16 +277,13 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
     renderPanel();
     await screen.findByText("图像分割池");
 
-    // collapsed by default — member row not present
     expect(screen.queryByText("grounded-sam2-a")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /展开服务池成员/ }));
     expect(await screen.findByText("grounded-sam2-a")).toBeInTheDocument();
 
-    // Missing routing metrics render as 「暂无路由指标」.
     expect(screen.getAllByText("暂无路由指标").length).toBeGreaterThanOrEqual(1);
 
-    // collapse
     fireEvent.click(screen.getByRole("button", { name: /收起服务池成员/ }));
     await waitFor(() => expect(screen.queryByText("grounded-sam2-a")).not.toBeInTheDocument());
   });
@@ -343,8 +332,6 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
   });
 
   it.each([
-    // 回归（PR #103 Codex P2）：池级「驻留」已知性此前只看原始字段非空，
-    // {state:"unknown"} / 畸形载荷 / 未核实来源会把「未知」冒充成「0 个」。
     ["direct", { state: "unknown" }, true],
     ["cached", { state: "unknown" }, true],
     ["direct", "unsupported", true],
@@ -382,7 +369,6 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
       });
 
       renderPanel();
-      // 不展开成员：池卡字段带是唯一渲染「驻留」标签的位置。
       const poolName = await screen.findByText("图像分割池");
       const poolCard = poolName.closest("article")!;
       const residencyField = within(poolCard).getByText("驻留", { exact: true }).parentElement!;
@@ -494,7 +480,6 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
     fireEvent.click(await screen.findByRole("button", { name: /展开服务池成员/ }));
     fireEvent.click(await screen.findByRole("button", { name: /^详情/ }));
 
-    // sheet is open — copy-id button visible inside it
     const copyBtn = await screen.findByRole("button", { name: "复制实例 ID" });
     fireEvent.click(copyBtn);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("inst-1"));
@@ -526,17 +511,14 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
     mockListAll.mockResolvedValue({ items: [] });
 
     renderPanel();
-    // wait for queries to resolve + env-only section to render
     const envToggle = await screen.findByRole("button", { name: /未纳管容器/ });
     fireEvent.click(envToggle);
     expect(await screen.findByText("http://172.17.0.1:9001")).toBeInTheDocument();
 
-    // isolation: env card has NO weight / routable / drain / unload fields
     expect(screen.queryByText("可路由")).not.toBeInTheDocument();
     expect(screen.queryByText("权重")).not.toBeInTheDocument();
     expect(screen.queryByText("停流")).not.toBeInTheDocument();
     expect(screen.queryByText("卸载")).not.toBeInTheDocument();
-    // it DOES have register + smoke-test actions
     expect(screen.getByRole("button", { name: /显式注册/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /试启动/ })).toBeInTheDocument();
   });
@@ -735,10 +717,8 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
     mockListAll.mockResolvedValue({ items: [makeBackend()] });
 
     renderPanel();
-    // pool still renders despite partial
     expect(await screen.findByText("图像分割池")).toBeInTheDocument();
 
-    // expand data source region to reveal partial banner
     fireEvent.click(screen.getByRole("button", { name: /数据来源/ }));
     expect(await screen.findByText(/部分数据来源失败/)).toBeInTheDocument();
   });
@@ -782,7 +762,6 @@ describe("parseResidency (extracted module)", () => {
 
   it("畸形叶子字段被标记为 malformed 且不推断为空闲", async () => {
     const { parseResidency } = await import("./runtime/parseResidency");
-    // resident 非 boolean → poolsValid=false → strictEmpty 不能成立
     const r = parseResidency({
       state: "unloaded",
       gpu_loaded: false,

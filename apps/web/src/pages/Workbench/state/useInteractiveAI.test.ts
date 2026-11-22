@@ -1,8 +1,3 @@
-/**
- * useInteractiveAI hook 单测.
- * 覆盖 point / bbox / text 三种 prompt 路由 + backend 失败 toast + mlBackendId 缺失守卫
- * + 80ms 防抖合并连续点击。
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 
@@ -12,7 +7,6 @@ import { simplifyPolygon } from "../stage/shared/geometry/simplify";
 
 const interactiveAnnotateMock = vi.fn();
 const pushToastMock = vi.fn();
-const recordPredictCacheHitMock = vi.fn();
 
 vi.mock("@/api/ml-backends", () => ({
   mlBackendsApi: {
@@ -23,10 +17,6 @@ vi.mock("@/api/ml-backends", () => ({
 vi.mock("@/components/ui/Toast", () => ({
   useToastStore: (selector: (s: { push: typeof pushToastMock }) => unknown) =>
     selector({ push: pushToastMock }),
-}));
-
-vi.mock("./sessionVariantCache", () => ({
-  recordPredictCacheHit: (...args: unknown[]) => recordPredictCacheHitMock(...args),
 }));
 
 const ARGS = { projectId: "p1", taskId: "t1", mlBackendId: "b1" };
@@ -108,7 +98,6 @@ describe("useInteractiveAI", () => {
   beforeEach(() => {
     interactiveAnnotateMock.mockReset();
     pushToastMock.mockReset();
-    recordPredictCacheHitMock.mockReset();
   });
 
   afterEach(() => {
@@ -155,7 +144,6 @@ describe("useInteractiveAI", () => {
       });
       expect(interactiveAnnotateMock).toHaveBeenCalledTimes(1);
       const ctx = interactiveAnnotateMock.mock.calls[0][2].context;
-      // 累加: 全量点 + 对应极性; ≥2 点 → multimask_output=false (单 mask 精修).
       expect(ctx.points).toEqual([
         [0.1, 0.1],
         [0.2, 0.2],
@@ -179,7 +167,6 @@ describe("useInteractiveAI", () => {
   });
 
   it("§5.4 mask_input 回灌: 首点不回灌, ≥2 点回传上一轮 low-res logits", async () => {
-    // 首点 multimask → 后端 mask_input_next=null; 第 2 点起单 mask → 返回 token 供下次回传。
     interactiveAnnotateMock
       .mockResolvedValueOnce({ ...POLY_RESPONSE, mask_input_next: null })
       .mockResolvedValueOnce({ ...POLY_RESPONSE, mask_input_next: "TOKEN_A" })
@@ -191,7 +178,6 @@ describe("useInteractiveAI", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    // 首点候选阶段 (multimask=true) 不回灌。
     expect(interactiveAnnotateMock.mock.calls[0][2].context.mask_input).toBeUndefined();
 
     act(() => result.current.runPoint([0.2, 0.2], 1));
@@ -199,12 +185,10 @@ describe("useInteractiveAI", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    // 第 2 点: 上一轮 (首点) 返回 null → maskInputRef 仍空, 不回灌。
     expect(interactiveAnnotateMock.mock.calls[1][2].context.mask_input).toBeUndefined();
 
     act(() => result.current.runPoint([0.3, 0.3], 1));
     await waitFor(() => expect(interactiveAnnotateMock).toHaveBeenCalledTimes(3));
-    // 第 3 点: 回传第 2 点返回的 TOKEN_A。
     expect(interactiveAnnotateMock.mock.calls[2][2].context.mask_input).toBe("TOKEN_A");
   });
 
@@ -405,7 +389,6 @@ describe("useInteractiveAI", () => {
   });
 
   it("多连通 mask (value.polygons) → 取面积最大外环, 不丢候选", async () => {
-    // 后端多环结构: 一个大三角 (面积 0.5) + 一个碎屑小三角 (面积 ~0.005)。
     interactiveAnnotateMock.mockResolvedValue({
       result: [
         {
@@ -418,14 +401,14 @@ describe("useInteractiveAI", () => {
                   [0.1, 0],
                   [0, 0.1],
                 ],
-              }, // 碎屑
+              },
               {
                 points: [
                   [0, 0],
                   [1, 0],
                   [0, 1],
                 ],
-              }, // 主体 (最大)
+              },
             ],
             polygonlabels: ["object"],
           },
@@ -436,7 +419,6 @@ describe("useInteractiveAI", () => {
     const { result } = renderHook(() => useInteractiveAI(ARGS));
     act(() => result.current.runPoint([0.5, 0.5], 1));
     await waitFor(() => expect(result.current.candidates).toHaveLength(1));
-    // 取最大外环 (主体三角), 而非碎屑。
     const candidate = result.current.candidates[0];
     expect(candidate.type).toBe("polygonlabels");
     if (candidate.type !== "polygonlabels") throw new Error("expected polygon candidate");
@@ -741,12 +723,11 @@ describe("useInteractiveAI", () => {
     expect(result.current.activeIdx).toBe(1);
     act(() => result.current.cycle(1));
     act(() => result.current.cycle(1));
-    expect(result.current.activeIdx).toBe(0); // 3 → 0 wrap
+    expect(result.current.activeIdx).toBe(0);
     act(() => result.current.cycle(-1));
     expect(result.current.activeIdx).toBe(2);
   });
 
-  // 会话级模型变体切换三态通知
   it("切换变体后首次预测 → 切换中 + 成功 toast", async () => {
     interactiveAnnotateMock.mockResolvedValue(POLY_RESPONSE);
     const { result } = renderHook(() => useInteractiveAI(ARGS));
@@ -767,8 +748,8 @@ describe("useInteractiveAI", () => {
     expect(interactiveAnnotateMock.mock.calls[0][2].context.dino_variant).toBeUndefined();
   });
 
-  it("model_variants 响应 cache_hit 真信号写入 variant hot map", async () => {
-    interactiveAnnotateMock.mockResolvedValue({ ...POLY_RESPONSE, cache_hit: false });
+  it("显式模型变体按请求契约传递", async () => {
+    interactiveAnnotateMock.mockResolvedValue(POLY_RESPONSE);
     const { result } = renderHook(() => useInteractiveAI(ARGS));
     act(() =>
       result.current.runBbox([0, 0, 0.5, 0.5], {
@@ -780,11 +761,6 @@ describe("useInteractiveAI", () => {
       series: "yolov11",
       size: "s",
     });
-    expect(recordPredictCacheHitMock).toHaveBeenCalledWith(
-      "b1",
-      { series: "yolov11", size: "s" },
-      false,
-    );
   });
 
   it("同变体的后续预测不再弹切换 toast", async () => {
@@ -793,7 +769,6 @@ describe("useInteractiveAI", () => {
     act(() => result.current.runBbox([0, 0, 0.5, 0.5], { sam_variant: "large" }));
     await waitFor(() => expect(result.current.candidates).toHaveLength(1));
     pushToastMock.mockClear();
-    // 不同 bbox (避开前端缓存) 但同变体 → 不应再弹切换通知
     act(() => result.current.runBbox([0.1, 0.1, 0.6, 0.6], { sam_variant: "large" }));
     await waitFor(() => expect(interactiveAnnotateMock).toHaveBeenCalledTimes(2));
     expect(pushToastMock).not.toHaveBeenCalledWith(
@@ -878,11 +853,7 @@ describe("useInteractiveAI", () => {
     expect(result.current.candidates).toHaveLength(0);
   });
 
-  // claude[bot] P1 回归 · cache-hit-after-inflight: 上一个真实请求 in-flight 时, 紧接着
-  // 触发一次命中前端缓存的调用 → 旧请求被 abort + inflightRef 自增, 但 cache 分支直接 return,
-  // 旧请求 finally 守卫不通过 → isRunning 卡在 true。修后 cache 分支显式 setIsRunning(false)。
   it("cache 命中且上一个请求 in-flight 时 isRunning 复位 (P1 回归)", async () => {
-    // 调用次序: 1) 跑通填 cache → 2) hang 住模拟 in-flight → 3) cache 命中(不再调 mock)。
     interactiveAnnotateMock.mockResolvedValueOnce(POLY_RESPONSE);
     let secondResolve: ((v: typeof POLY_RESPONSE) => void) | undefined;
     interactiveAnnotateMock.mockImplementationOnce(
@@ -894,26 +865,20 @@ describe("useInteractiveAI", () => {
 
     const { result } = renderHook(() => useInteractiveAI(ARGS));
 
-    // 第 1 次: 同一 bbox 跑通 → 缓存填好。
     act(() => result.current.runBbox([0, 0, 0.5, 0.5]));
     await waitFor(() => expect(result.current.candidates).toHaveLength(1));
     expect(result.current.isRunning).toBe(false);
 
-    // 第 2 次: 换 prompt, hang 住 (mockImplementationOnce 走这次)。
     act(() => result.current.runBbox([0.1, 0.1, 0.4, 0.4]));
     await waitFor(() => expect(result.current.isRunning).toBe(true));
 
-    // 第 3 次: 回到第 1 次的 prompt → cache 命中, 在 in-flight 期间触发。
     act(() => result.current.runBbox([0, 0, 0.5, 0.5]));
-    // 候选立刻复用 (cache 同步命中); isRunning 必须立刻复位, 不等 in-flight resolve。
     expect(result.current.candidates).toHaveLength(1);
     expect(result.current.isRunning).toBe(false);
 
-    // 收尾: 让 hang 的请求 resolve, 防止泄漏 (旧请求的结果被 inflight 守卫丢弃)。
     secondResolve?.(POLY_RESPONSE);
   });
 
-  // exemplar refine 会话 (多正负框 + text 组合 + 阈值重过滤)
   describe("exemplar refine 会话", () => {
     it("框与原生 Mask 混合候选消费矩形后仍保留 Mask 的签名索引", async () => {
       const response = nativeResponse();
@@ -1044,12 +1009,10 @@ describe("useInteractiveAI", () => {
 
       act(() => result.current.runExemplar([0.5, 0.5, 0.6, 0.6], 0, "mask"));
       await waitFor(() => expect(interactiveAnnotateMock).toHaveBeenCalledTimes(2));
-      // 第二次重发全量 (正框 + 负框)。
       expect(interactiveAnnotateMock.mock.calls[1][2].context.exemplars).toEqual([
         { bbox: [0.1, 0.1, 0.2, 0.2], label: true },
         { bbox: [0.5, 0.5, 0.6, 0.6], label: false },
       ]);
-      // 会话框镜像供画布 overlay。
       expect(result.current.sessionExemplars).toEqual([
         { bbox: [0.1, 0.1, 0.2, 0.2], polarity: 1 },
         { bbox: [0.5, 0.5, 0.6, 0.6], polarity: 0 },
@@ -1127,24 +1090,17 @@ describe("useInteractiveAI", () => {
     });
   });
 
-  // claude[bot] P1 #2 回归: cache 命中分支需显式 setIsRunning(false), 否则上一次 in-flight
-  // 被 abort + inflightRef 已自增 → 旧请求 finally 守卫不再通过, 旋转图标永不清除。
-  // 复现路径: 真实请求 in-flight 时同一 key 再发一次 (命中 cache) → isRunning 应回 false。
   it("§P1 #2 · cache 命中 (紧跟 in-flight) 时 isRunning 必须复位", async () => {
-    // 第 1 发: 真实 HTTP, 永不 resolve (模拟 in-flight)。
     let firstResolve: (v: unknown) => void = () => {};
     const firstPromise = new Promise((res) => {
       firstResolve = res;
     });
-    // 第 2 发: 同 key, 应命中本地 cache, 不进 mock。
     interactiveAnnotateMock.mockImplementationOnce(() => firstPromise);
 
     const { result } = renderHook(() => useInteractiveAI(ARGS));
-    // 第 1 次: in-flight, isRunning=true。
     act(() => result.current.runBbox([0.1, 0.1, 0.4, 0.4]));
     await waitFor(() => expect(result.current.isRunning).toBe(true));
 
-    // 让第 1 个请求 resolve 出候选, 触发 cache 写入 (同 key 下次命中)。
     await act(async () => {
       firstResolve(POLY_RESPONSE);
       await firstPromise;
@@ -1152,16 +1108,12 @@ describe("useInteractiveAI", () => {
     await waitFor(() => expect(result.current.isRunning).toBe(false));
     await waitFor(() => expect(result.current.candidates).toHaveLength(1));
 
-    // 第 2 次相同 bbox: 命中 cache; 旧 abort + inflightRef++ 仍发生, 但 isRunning 必须回 false。
     act(() => result.current.runBbox([0.1, 0.1, 0.4, 0.4]));
-    // 不要 await waitFor (cache 同步生效); 立即断言。
     expect(result.current.isRunning).toBe(false);
-    // 第 2 次未发 HTTP (cache 命中)。
     expect(interactiveAnnotateMock).toHaveBeenCalledTimes(1);
   });
 });
 
-// transport 注入 + cacheScope（视频当前帧交互式 SAM 复用本 hook）
 describe("useInteractiveAI · transport 注入与 cacheScope", () => {
   beforeEach(() => {
     interactiveAnnotateMock.mockReset();
@@ -1202,13 +1154,11 @@ describe("useInteractiveAI · transport 注入与 cacheScope", () => {
     act(() => result.current.runPoint([0.5, 0.5], 1));
     await waitFor(() => expect(transport).toHaveBeenCalledTimes(1));
 
-    // cancel 明确释放原始候选缓存，同 prompt 也必须重新推理。
     act(() => result.current.cancel());
     act(() => result.current.runPoint([0.5, 0.5], 1));
     await waitFor(() => expect(result.current.candidates.length).toBe(1));
     expect(transport).toHaveBeenCalledTimes(2);
 
-    // 换帧（scope 变）→ 同样的 prompt 必须重新推理，不能复用上一帧候选。
     rerender({ scope: 2 });
     act(() => result.current.runPoint([0.5, 0.5], 1));
     await waitFor(() => expect(transport).toHaveBeenCalledTimes(3));
@@ -1228,14 +1178,11 @@ describe("useInteractiveAI · transport 注入与 cacheScope", () => {
     rerender({ scope: 2 });
     await waitFor(() => expect(result.current.sessionPoints.length).toBe(0));
 
-    // 新帧首击 → 只带 1 个点（若会话未重置会带 2 个）。
     act(() => result.current.runPoint([0.8, 0.8], 1));
     await waitFor(() => expect(transport).toHaveBeenCalledTimes(2));
     expect(transport.mock.calls[1][0].context.points).toEqual([[0.8, 0.8]]);
   });
 
-  // 回归: 候选跨帧存活会被采纳到新帧上 —— 提示发生在 F20、Enter 时画布已到 F28,
-  // 于是标注落在 F28 而当前帧看不见它。候选只属它被算出来的那一帧。
   it("cacheScope 变化 → 候选清空（不得跨帧存活被采纳到新帧）", async () => {
     const transport = vi.fn().mockResolvedValue(POLY_RESPONSE);
     const { result, rerender } = renderHook(
@@ -1263,12 +1210,10 @@ describe("simplifyCandidateRing · 候选顶点简化", () => {
     return Math.abs(a) / 2;
   };
 
-  /** 逐像素台阶的锯齿圆环 —— 复刻 SAM mask 轮廓的形态。 */
   const jaggedRing = (cx: number, cy: number, radius: number, n: number, jitter: number) => {
     const ring: [number, number][] = [];
     for (let i = 0; i < n; i++) {
       const t = (i / n) * Math.PI * 2;
-      // 交替 ±jitter 制造台阶; 幅度远小于半径, 简化后应被抹平。
       const r = radius + (i % 2 === 0 ? jitter : -jitter);
       ring.push([cx + r * Math.cos(t), cy + r * Math.sin(t)]);
     }
@@ -1284,7 +1229,6 @@ describe("simplifyCandidateRing · 候选顶点简化", () => {
   });
 
   it("小目标: 顶点几乎不动（容差随目标尺度缩小）", () => {
-    // 与大目标同形状、同锯齿相对幅度, 只是整体缩小 20 倍。
     const small = jaggedRing(0.5, 0.5, 0.0175, 24, 0.000025);
     const out = simplifyCandidateRing(small);
     expect(out.length).toBeGreaterThanOrEqual(small.length - 2);
@@ -1293,10 +1237,8 @@ describe("simplifyCandidateRing · 候选顶点简化", () => {
 
   it("固定像素容差会毁掉小目标 —— 这正是用相对容差的理由", () => {
     const small = jaggedRing(0.5, 0.5, 0.0175, 24, 0.000025);
-    // 5px / 1920 ≈ 0.0026, 足以压平路面, 但对这个半径 0.0175 的目标是灾难。
     const absolute = simplifyPolygon(small, 5 / 1920);
-    expect(absolute.length).toBeLessThan(small.length / 2); // 24 → 8, 形状已面目全非
-    // 相对容差下同一目标保住了形状。
+    expect(absolute.length).toBeLessThan(small.length / 2);
     expect(simplifyCandidateRing(small).length).toBeGreaterThan(20);
   });
 

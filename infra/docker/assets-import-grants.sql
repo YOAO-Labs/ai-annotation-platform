@@ -1,7 +1,3 @@
--- Run after migrations and module-data-grants as the migration role.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v assets_owner=assets_code -v asset_import_role=yoao_asset_import_client
---   -f infra/docker/assets-import-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -68,7 +64,6 @@ END $$;
 REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_import_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_import_role";
 
--- Remove any stale grants before applying the narrow import surface.
 REVOKE ALL ON SCHEMA public FROM :"asset_import_role";
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"asset_import_role";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"asset_import_role";
@@ -102,7 +97,6 @@ END $$;
 REVOKE ALL ON SCHEMA yoao_assets_v1 FROM :"asset_import_role";
 GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"asset_import_role";
 
--- The runtime can execute only accepted-import and verified-original capabilities.
 GRANT EXECUTE ON FUNCTION yoao_assets_v1.claim_dataset_import(uuid,integer,uuid),
     yoao_assets_v1.resume_import_original_verification(jsonb),
     yoao_assets_v1.reserve_import_original_read(jsonb),
@@ -123,7 +117,6 @@ GRANT EXECUTE ON FUNCTION yoao_assets_v1.claim_dataset_import(uuid,integer,uuid)
     yoao_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)
     TO :"asset_import_role";
 
--- Fail closed if the runtime role can access anything beyond the exact protocol.
 DO $$
 DECLARE
     role_oid oid := (

@@ -101,7 +101,6 @@ async def test_original_narrow_key_is_rechecked_before_io_and_after_close(
 async def test_original_narrow_key_works_without_new_scope_requirement(
     httpx_client, project_admin, project, objects
 ):
-    # Exercise both registered checkpoints without requiring upload-only scopes.
     key = await key_for(httpx_client, project_admin)
     actor = project_admin[0], key["plaintext"]
     value = await upload(httpx_client, actor, project)

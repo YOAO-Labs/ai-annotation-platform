@@ -53,8 +53,6 @@ async def test_pool_wait_times_out_then_retries_with_original_transaction_settin
             assert (
                 await client.fetchval("SELECT current_setting('lock_timeout')") == "2s"
             )
-            # The rejection rolls back its partial owner locks, preserving this
-            # transaction so the same caller can retry after contention ends.
             await lock_transaction.rollback()
             accepted = await _step(client, "admission_snapshot", args)
             assert accepted["status"] == "ok"

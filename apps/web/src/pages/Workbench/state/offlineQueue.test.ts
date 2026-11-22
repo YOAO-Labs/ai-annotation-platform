@@ -1,6 +1,3 @@
-// Model IndexedDB's structured clones and transaction completion separately from
-// put(), including failures before get.onsuccess and after a successful put().
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/api/client";
 
@@ -21,7 +18,8 @@ vi.mock("idb-keyval", async (importOriginal) => {
     createStore: vi.fn(
       () => (_mode: IDBTransactionMode, callback: (store: IDBObjectStore) => unknown) => {
         let settled = false;
-        let pending: { key: string; value: unknown } | null = null;
+        const pending = new Map<string, unknown>();
+        let reads = 0;
         const transaction = {
           error: null as Error | null,
           oncomplete: null as (() => void) | null,
@@ -35,19 +33,19 @@ vi.mock("idb-keyval", async (importOriginal) => {
           },
         };
         const finish = async () => {
-          if (pending && storage.commitGate) {
+          if (pending.size && storage.commitGate) {
             const gate = storage.commitGate;
             storage.commitGate = null;
             await gate;
           }
           if (settled) return;
-          if (pending && storage.commitError) {
+          if (pending.size && storage.commitError) {
             transaction.error = storage.commitError;
             storage.commitError = null;
             transaction.abort();
             return;
           }
-          if (pending) storage.values.set(pending.key, structuredClone(pending.value));
+          for (const [key, value] of pending) storage.values.set(key, structuredClone(value));
           settled = true;
           transaction.oncomplete?.();
         };
@@ -59,6 +57,7 @@ vi.mock("idb-keyval", async (importOriginal) => {
               storage.readThrow = null;
               throw error;
             }
+            reads++;
             const request = {
               result: undefined as unknown,
               error: null as Error | null,
@@ -75,7 +74,7 @@ vi.mock("idb-keyval", async (importOriginal) => {
               }
               request.result = structuredClone(storage.values.get(key));
               request.onsuccess?.();
-              queueMicrotask(() => void finish());
+              if (--reads === 0) queueMicrotask(() => void finish());
             });
             return request;
           },
@@ -86,7 +85,7 @@ vi.mock("idb-keyval", async (importOriginal) => {
               storage.writeError = null;
               throw error;
             }
-            pending = { key, value: structuredClone(value) };
+            pending.set(key, structuredClone(value));
           },
         };
         return Promise.resolve(callback(store as unknown as IDBObjectStore));
@@ -98,11 +97,12 @@ vi.mock("idb-keyval", async (importOriginal) => {
 import {
   clearAll,
   drain,
-  enqueue,
   enqueueDurably,
   getAll,
   count,
-  removeById,
+  removeDurablyById,
+  cancelOfflineCreate,
+  resolveOfflineAnnotationId,
   replaceAnnotationId,
   subscribe,
   type OfflineOp,
@@ -237,14 +237,6 @@ describe("offlineQueue durable acceptance", () => {
     expect(await getAll()).toEqual([deleteOp("other-tab"), deleteOp("new")]);
   });
 
-  it("legacy fire-and-forget enqueue does not reject or accept an uncommitted operation", async () => {
-    storage.commitError = new Error("Quota exceeded");
-    await expect(enqueue(deleteOp("legacy"))).resolves.toBeUndefined();
-    expect(await getAll()).toEqual([]);
-    await enqueueDurably(deleteOp("next"));
-    expect(await getAll()).toEqual([deleteOp("next")]);
-  });
-
   it("captures input payloads and returns independent snapshots", async () => {
     const op: OfflineOp = {
       kind: "create",
@@ -273,7 +265,7 @@ describe("offlineQueue durable acceptance", () => {
   it("keeps invocation order across concurrent durable and legacy enqueues", async () => {
     await Promise.all([
       enqueueDurably(deleteOp("one")),
-      enqueue(deleteOp("two")),
+      enqueueDurably(deleteOp("two")),
       enqueueDurably(deleteOp("three")),
     ]);
     expect((await getAll()).map((op) => op.id)).toEqual(["one", "two", "three"]);
@@ -283,8 +275,15 @@ describe("offlineQueue durable acceptance", () => {
 describe("offlineQueue.replaceAnnotationId", () => {
   it("把队列中后续 update / delete op 的 annotationId 同步替换", async () => {
     const tmp = "tmp_abc";
-    await enqueue({ kind: "create", id: "op1", taskId: "t1", tmpId: tmp, payload: {}, ts: 1 });
-    await enqueue({
+    await enqueueDurably({
+      kind: "create",
+      id: "op1",
+      taskId: "t1",
+      tmpId: tmp,
+      payload: {},
+      ts: 1,
+    });
+    await enqueueDurably({
       kind: "update",
       id: "op2",
       taskId: "t1",
@@ -292,8 +291,8 @@ describe("offlineQueue.replaceAnnotationId", () => {
       payload: { foo: 1 },
       ts: 2,
     });
-    await enqueue({ kind: "delete", id: "op3", taskId: "t1", annotationId: tmp, ts: 3 });
-    await enqueue({
+    await enqueueDurably({ kind: "delete", id: "op3", taskId: "t1", annotationId: tmp, ts: 3 });
+    await enqueueDurably({
       kind: "update",
       id: "op4",
       taskId: "t1",
@@ -306,17 +305,14 @@ describe("offlineQueue.replaceAnnotationId", () => {
 
     const all = await getAll();
     expect(all).toHaveLength(4);
-    // create 的 tmpId 字段不动（执行 create 时调用方自己换 cache，drain 自然消费）
     expect((all[0] as Extract<OfflineOp, { kind: "create" }>).tmpId).toBe(tmp);
-    // update / delete 的 annotationId 已替换
     expect((all[1] as Extract<OfflineOp, { kind: "update" }>).annotationId).toBe("real-1");
     expect((all[2] as Extract<OfflineOp, { kind: "delete" }>).annotationId).toBe("real-1");
-    // 不是目标 tmpId 的 op 不动
     expect((all[3] as Extract<OfflineOp, { kind: "update" }>).annotationId).toBe("other");
   });
 
   it("无匹配项时不写盘", async () => {
-    await enqueue({
+    await enqueueDurably({
       kind: "update",
       id: "op1",
       taskId: "t1",
@@ -334,7 +330,7 @@ describe("offlineQueue.replaceAnnotationId", () => {
 
 describe("offlineQueue.drain · retry_count 累计 + 失败时停止", () => {
   it("handler 抛错 → op.retry_count +1，op 仍留队列", async () => {
-    await enqueue({ kind: "delete", id: "op1", taskId: "t1", annotationId: "a", ts: 1 });
+    await enqueueDurably({ kind: "delete", id: "op1", taskId: "t1", annotationId: "a", ts: 1 });
     const handler = vi.fn(async () => {
       throw new Error("network");
     });
@@ -346,7 +342,6 @@ describe("offlineQueue.drain · retry_count 累计 + 失败时停止", () => {
     expect(all).toHaveLength(1);
     expect(all[0].retry_count).toBe(1);
 
-    // 再 drain 一次应继续累加
     const result2 = await drain(handler);
     expect(result2).toEqual({ ok: 0, failed: 1 });
     const all2 = await getAll();
@@ -354,20 +349,18 @@ describe("offlineQueue.drain · retry_count 累计 + 失败时停止", () => {
   });
 
   it("成功的 op 出队，不写 retry_count", async () => {
-    await enqueue({ kind: "delete", id: "op1", taskId: "t1", annotationId: "a", ts: 1 });
-    await enqueue({ kind: "delete", id: "op2", taskId: "t1", annotationId: "b", ts: 2 });
-    const result = await drain(async () => {
-      /* ok */
-    });
+    await enqueueDurably({ kind: "delete", id: "op1", taskId: "t1", annotationId: "a", ts: 1 });
+    await enqueueDurably({ kind: "delete", id: "op2", taskId: "t1", annotationId: "b", ts: 2 });
+    const result = await drain(async () => {});
     expect(result).toEqual({ ok: 2, failed: 0 });
     const all = await getAll();
     expect(all).toHaveLength(0);
   });
 
   it("半路失败 → 已成功部分出队，失败 op 累计 retry_count，后续保留", async () => {
-    await enqueue({ kind: "delete", id: "ok1", taskId: "t1", annotationId: "a", ts: 1 });
-    await enqueue({ kind: "delete", id: "fail", taskId: "t1", annotationId: "b", ts: 2 });
-    await enqueue({ kind: "delete", id: "later", taskId: "t1", annotationId: "c", ts: 3 });
+    await enqueueDurably({ kind: "delete", id: "ok1", taskId: "t1", annotationId: "a", ts: 1 });
+    await enqueueDurably({ kind: "delete", id: "fail", taskId: "t1", annotationId: "b", ts: 1 });
+    await enqueueDurably({ kind: "delete", id: "later", taskId: "t1", annotationId: "c", ts: 1 });
     let calls = 0;
     const handler = vi.fn(async () => {
       calls++;
@@ -432,7 +425,7 @@ describe("offlineQueue concurrent mutations", () => {
     await entered.promise;
     try {
       await enqueueDurably(deleteOp("later"));
-      await removeById("in-flight");
+      await removeDurablyById("in-flight");
     } finally {
       release.resolve();
     }
@@ -490,7 +483,7 @@ describe("offlineQueue concurrent mutations", () => {
     await enqueueDurably(deleteOp("local", "tmp"));
     storage.values.set(KEY, [deleteOp("local", "tmp"), deleteOp("other-tab", "tmp")]);
     await replaceAnnotationId("tmp", "real");
-    await removeById("local");
+    await removeDurablyById("local");
     expect(await getAll()).toEqual([deleteOp("other-tab", "real")]);
   });
 
@@ -501,18 +494,86 @@ describe("offlineQueue concurrent mutations", () => {
       storage.commitError = new Error("Commit failed");
       const pending =
         mutation === "remove"
-          ? removeById("saved")
+          ? removeDurablyById("saved")
           : mutation === "replace"
             ? replaceAnnotationId("tmp", "real")
             : clearAll();
-      if (mutation === "replace") {
-        await expect(pending).rejects.toThrow("Commit failed");
-      } else {
-        await expect(pending).resolves.toBeUndefined();
-      }
+      await expect(pending).rejects.toThrow("Commit failed");
       expect(await getAll()).toEqual([deleteOp("saved", "tmp")]);
     },
   );
+
+  it("cancels only a matching account/task/segment create and all its dependent writes", async () => {
+    const scope = { userId: "alice", taskId: "task", videoSegmentId: "segment-a" };
+    const tmpId = "tmp_create";
+    await enqueueDurably(
+      {
+        kind: "create",
+        id: "create",
+        taskId: scope.taskId,
+        videoSegmentId: scope.videoSegmentId,
+        tmpId,
+        payload: {},
+        ts: 1,
+      },
+      scope,
+    );
+    await enqueueDurably(
+      { ...updateOp("dependent", tmpId), videoSegmentId: scope.videoSegmentId },
+      scope,
+    );
+    await enqueueDurably({ ...deleteOp("other-owner", tmpId), userId: "bob" });
+    expect(await cancelOfflineCreate(tmpId, { ...scope, videoSegmentId: "segment-b" })).toBe(false);
+    storage.commitError = new Error("delete commit failed");
+    await expect(cancelOfflineCreate(tmpId, scope)).rejects.toThrow("delete commit failed");
+    expect(await getAll(scope)).toHaveLength(2);
+    expect(await cancelOfflineCreate(tmpId, scope)).toBe(true);
+    expect(await getAll()).toMatchObject([{ id: "other-owner", annotationId: tmpId }]);
+  });
+
+  it("commits remapped references and the scoped replay receipt together", async () => {
+    const scope = { userId: "alice", taskId: "task" };
+    const tmpId = "tmp_synced";
+    await enqueueDurably(
+      { kind: "create", id: "create", taskId: scope.taskId, tmpId, payload: {}, ts: 1 },
+      scope,
+    );
+    await enqueueDurably(updateOp("dependent", tmpId), scope);
+    storage.commitError = new Error("remap commit failed");
+    await expect(replaceAnnotationId(tmpId, "server", scope, "create")).rejects.toThrow(
+      "remap commit failed",
+    );
+    expect(await resolveOfflineAnnotationId(tmpId, scope)).toBeUndefined();
+    expect(await getAll(scope)).toMatchObject([{ id: "create" }, { annotationId: tmpId }]);
+    await replaceAnnotationId(tmpId, "server", scope, "create");
+    expect(await resolveOfflineAnnotationId(tmpId, scope)).toBe("server");
+    expect(await resolveOfflineAnnotationId(tmpId, { ...scope, userId: "bob" })).toBeUndefined();
+    expect(await resolveOfflineAnnotationId(tmpId, { ...scope, taskId: "other" })).toBeUndefined();
+    expect(await getAll(scope)).toMatchObject([{ annotationId: "server" }]);
+  });
+
+  it("retains a create after server acceptance when replay bookkeeping fails", async () => {
+    const scope = { userId: "alice", taskId: "task" };
+    const tmpId = "tmp_replay";
+    await enqueueDurably(
+      { kind: "create", id: "create", taskId: scope.taskId, tmpId, payload: {}, ts: 1 },
+      scope,
+    );
+    const failed = await drain(async (op) => {
+      expect(await getAll(scope)).toMatchObject([{ id: op.id, replayStarted: true }]);
+      storage.commitError = new Error("commit failed");
+      await replaceAnnotationId(tmpId, "same-server-id", scope, op.id);
+    }, scope);
+    expect(failed).toEqual({ ok: 0, failed: 1 });
+    await expect(cancelOfflineCreate(tmpId, scope)).rejects.toThrow("该创建已开始同步");
+    const retried = await drain(
+      (op) => replaceAnnotationId(tmpId, "same-server-id", scope, op.id),
+      scope,
+    );
+    expect(retried).toEqual({ ok: 1, failed: 0 });
+    expect(await cancelOfflineCreate(tmpId, scope)).toBe(false);
+    expect(await resolveOfflineAnnotationId(tmpId, scope)).toBe("same-server-id");
+  });
 });
 
 describe("offlineQueue account ownership", () => {
@@ -668,7 +729,6 @@ describe("offlineQueue.drain · permanent authority denial", () => {
     );
     expect(result).toEqual({ ok: 2, failed: 0, denied: 0, deferred: 0 });
     expect(processed).toEqual(["b"]);
-    // The satisfied delete left the queue and the second op synced cleanly.
     expect(await getAll()).toEqual([]);
   });
 

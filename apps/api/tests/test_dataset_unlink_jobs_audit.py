@@ -303,7 +303,7 @@ async def test_dataset_unlink_audit_context_and_fixed_metadata(db_session, super
             is True
         )
     invalid_contexts = (
-        None,  # JSON null, distinct from SQL NULL.
+        None,
         [],
         {"other": "value"},
         {"method": 7},

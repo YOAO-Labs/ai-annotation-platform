@@ -138,7 +138,6 @@ class InputExecutor:
         self.database, self.storage = database, storage
         self.worker_id = worker_id or uuid4()
         self.policy = policy or ImagePolicy()
-        # Sticky: a lost lease is not evidence that this worker's claim settled.
         self.unsettled_claim = False
         self.temp_root = Path(temp_root) if temp_root is not None else None
 
@@ -197,9 +196,6 @@ class InputExecutor:
             )
             if blob.sha256 != measured.sha256 or blob.byte_size != measured.byte_size:
                 raise c.InputFailure("input_corrupt")
-            # The worker owns only its four input capabilities. Recheck current
-            # object bytes here; finish performs the canonical owner/source fence
-            # in SQL without granting the worker control/system operations.
             if await lease.call(source_storage.head_source, source) != expected:
                 raise c.InputFailure("source_changed")
             return blob
@@ -232,8 +228,6 @@ class InputExecutor:
                 lease_token=claim.lease_token,
                 blob=blob,
             )
-            # Reuse the verified Blob when persistence is briefly busy; never copy
-            # another current source or upload another version inside this attempt.
             failures = 0
             while True:
                 lease.check()

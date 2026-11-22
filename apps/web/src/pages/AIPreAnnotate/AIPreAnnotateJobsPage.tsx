@@ -1,9 +1,6 @@
 import { ListPagination, listPageSize } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
-/**
- * /ai-pre/jobs — 统一 async_jobs AI 任务历史页.
- */
 
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
@@ -43,11 +40,6 @@ function parsePage(raw: string | null): number {
   return Number.isInteger(value) && value >= 1 ? value : 1;
 }
 
-/**
- * /ai-pre/jobs 统一 AI 任务历史 (epic 阶段 3): 「图像」 /
- * 「视频」两个模态 tab。tab 用 ?tab 同步,
- * 供 ProjectDetailPanel 视频引导卡片深链 (?tab=video&project_id=)。
- */
 export default function AIPreAnnotateJobsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = searchParams.get("tab") === "video" ? "video" : "image";
@@ -85,8 +77,6 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
   const userId = useAuthStore((state) => state.user?.id ?? null);
   const token = useAuthStore((state) => state.token);
   const authOwnerKey = `${userId ?? "anonymous"}:${token ?? "none"}`;
-  // URL is the applied state. Keep the legacy ?status=failed deep link while
-  // namespacing video filters separately in VideoTrackerJobsPanel.
   const rawStatus = searchParams.get("status");
   const statusFilter = STATUS_ORDER.includes(rawStatus as AsyncJobStatus)
     ? (rawStatus as AsyncJobStatus)
@@ -103,8 +93,6 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
 
-  // The URL is the applied request state. Keep a raw local draft for spaces and
-  // rehydrate it when another navigation changes q.
   useEffect(() => {
     if (lastUrlSearch.current === search) return;
     lastUrlSearch.current = search;
@@ -222,9 +210,6 @@ function ImageJobsPanel({ projectId }: { projectId?: string }) {
   const offset = (page - 1) * pageSize;
   const hasNext = offset + pageSize < total;
   const lastPage = Math.max(1, Math.ceil(total / pageSize));
-  // The draft is ahead of the applied query: the debounced apply rewrites q and
-  // drops the page in the same navigation, so clamping an out-of-range page on
-  // its own here would fire an extra unfiltered first-page request in between.
   const searchDraftPending = searchDraft.trim() !== search;
   useEffect(() => {
     if (searchDraftPending) return;
@@ -378,8 +363,6 @@ function JobRow({
     ? (payloadString(job.payload, "error_type") ?? payloadString(job.payload, "message") ?? "")
     : (payloadString(job.payload, "prompt") ?? "");
   const promptShort = prompt.length > 50 ? prompt.slice(0, 50) + "…" : prompt;
-  // 几何 backend (yolo): 展示实际模型 (如 yolov8l, 由 worker 从 model_variants 派生);
-  // 文本 prompt 路径: 展示 output_mode (box/mask/both)。retry job 固定 "retry"。
   const modelLabel = payloadString(job.payload, "model_label");
   const outputMode = isRetry
     ? "retry"

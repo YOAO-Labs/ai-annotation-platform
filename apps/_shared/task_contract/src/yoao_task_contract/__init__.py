@@ -17,7 +17,6 @@ Task = Literal[
 VISUAL_TASK_VALUES = ("detect", "segment", "classify", "pose", "obb")
 TASK_VALUES = (*VISUAL_TASK_VALUES, "ocr", "doc_layout", "tracker", "interactive_seg")
 
-# These aliases are accepted at input boundaries, never emitted as new task names.
 TASK_ALIASES = {
     "detection": "detect",
     "object_detection": "detect",

@@ -200,8 +200,6 @@ async def test_late_http_delete_keeps_durable_fence_until_exact_receipt(
             )
         ).sweep
         assert sweep is not None
-        # S3 cannot backdate fixtures. Move only this owned pass's cutoff past
-        # the freshly seeded object; production age checks remain unchanged.
         async with maker.begin() as db:
             changed = await db.execute(
                 text(
@@ -243,8 +241,6 @@ async def test_late_http_delete_keeps_durable_fence_until_exact_receipt(
                 )
                 stats = await run_cycle(data, storage, worker_id=worker, delete_limit=1)
         assert stats.indeterminate == 1 and stats.durable_uncertainties == 1
-        # Lose the real HTTP reply only after this exact S3 delete returned.
-        # Its owner remains occupied until the physical-return gate is released.
         for _ in range(200):
             if entered.exists():
                 break

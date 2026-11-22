@@ -186,7 +186,7 @@ async def test_public_reader_uses_saved_b_sidecar_and_closes_its_context(
         reader, "create_client", lambda **_: pytest.fail("A client used")
     )
     options = await sources.read_options(db, source)
-    assert not contexts  # Metadata capture does not open the provider.
+    assert not contexts
     stage = await reader.capture(
         reader.ObjectSpec(
             source.endpoint_url,

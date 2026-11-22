@@ -224,8 +224,6 @@ class CatalogObjectSigner:
         self._config = config
         self._source_client = source_client
         self._spatial_source_reader: SpatialCalibrationSourceReader | None = None
-        # SigV4 binds Host into the canonical request. Sign against the external
-        # origin directly instead of rewriting a URL signed for the internal host.
         if client is None:
             import boto3
             from botocore.config import Config
@@ -304,9 +302,6 @@ class CatalogObjectSigner:
 
     def _read_client(self) -> SourceReadClient:
         if self._source_client is None:
-            # Presigning has no network timeout, while reads must not hold an
-            # accepted import open indefinitely. Always use a separate client
-            # with the fixed datasets origin and bounded I/O/retry budgets.
             self._source_client = create_source_read_client(
                 endpoint_url=self._config.s3_endpoint,
                 access_key=self._config.s3_access_key,

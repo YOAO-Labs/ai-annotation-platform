@@ -758,7 +758,6 @@ async def test_installed_identity_seed_selection_consumers(
     assert owner_s3.list_objects_v2(Bucket=bucket).get("Contents", []) == []
     from scripts.prepare_original_catalog import main as prepare_original_catalog
 
-    # Owner provisioning is separate from the installed consumer's environment.
     with monkeypatch.context() as owner_env:
         for key, value in {
             "DATABASE_URL": test_engine.url.render_as_string(hide_password=False),

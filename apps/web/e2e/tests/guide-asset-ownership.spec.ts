@@ -19,18 +19,26 @@ type ProjectGuide = {
   guide_assets: GuideEntry[];
 };
 
-async function prepare(page: Page, request: APIRequestContext, seed: SeedAPI) {
-  const data = await seed.owned();
-  const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
-  const url = `${API}/projects/${data.project_id}`;
+async function guideAccount(page: Page, seed: SeedAPI) {
+  const { project_id, admin_email } = await seed.owned();
+  const headers = { Authorization: `Bearer ${await seed.accessToken(admin_email)}` };
+  await seed.injectToken(page, admin_email);
+  return { project_id, headers };
+}
+
+async function prepareGuide(
+  request: APIRequestContext,
+  project_id: string,
+  headers: Record<string, string>,
+) {
+  const url = `${API}/projects/${project_id}`;
   const patched = await request.patch(url, {
     headers,
     data: { annotation_guide: "# 图片归属验收\n\n原始字节与独立引用。" },
   });
   expect(patched.ok(), await patched.text()).toBe(true);
-  await seed.injectToken(page, data.admin_email);
   return {
-    ...data,
+    project_id,
     headers,
     url,
     async read(): Promise<ProjectGuide> {
@@ -124,7 +132,8 @@ test.describe("guide image ownership in the browser", () => {
     request,
     seed,
   }, info) => {
-    const fixture = await prepare(page, request, seed);
+    const account = await guideAccount(page, seed);
+    const fixture = await prepareGuide(request, account.project_id, account.headers);
     const marker = `guide-svg-${fixture.project_id}`;
     const executionMarker = `SVG script executed ${fixture.project_id}`;
     const imageScriptExecutions: string[] = [];
@@ -187,7 +196,6 @@ test.describe("guide image ownership in the browser", () => {
       expect(await page.locator("html").getAttribute("data-script-ran")).toBeNull();
       expect(imageScriptExecutions).toEqual([]);
 
-      // Open the actual rendered address, rather than constructing a substitute.
       documentPage = await context.newPage();
       const browserMessages: string[] = [];
       documentPage.on("console", (message) => browserMessages.push(message.text()));
@@ -256,9 +264,22 @@ test.describe("guide image ownership in the browser", () => {
     request,
     seed,
   }) => {
-    const fixture = await prepare(page, request, seed);
+    const account = await guideAccount(page, seed);
+    const created = await request.post(`${API}/projects`, {
+      headers: account.headers,
+      data: {
+        name: `B11 guide source ${account.project_id}`,
+        type_label: "图像-检测",
+        type_key: "image-det",
+        data_type: "image",
+      },
+    });
+    expect(created.ok(), await created.text()).toBe(true);
+    const sourceId = ((await created.json()) as ProjectGuide).id;
+    let sourceDeleted = false;
     let targetId: string | undefined;
     try {
+      const fixture = await prepareGuide(request, sourceId, account.headers);
       const editor = await openGuide(page, fixture.project_id);
       const name = "共享 引用%示例.png";
       const asset = await uploadInEditor(page, editor, fixture.project_id, PNG, name, "image/png");
@@ -282,6 +303,7 @@ test.describe("guide image ownership in the browser", () => {
       expect(asset.key).toMatch(new RegExp(`^projects/${fixture.project_id}/guide/`));
       const removed = await request.delete(fixture.url, { headers: fixture.headers });
       expect(removed.status(), await removed.text()).toBe(204);
+      sourceDeleted = true;
       let targetEditor = await openGuide(page, targetId);
       await mode(targetEditor, "预览");
       await loadedImage(targetEditor.getByRole("img", { name, exact: true }));
@@ -344,12 +366,16 @@ test.describe("guide image ownership in the browser", () => {
       try {
         await page.goto("/projects");
       } finally {
-        // Only this test's public clone needs explicit cleanup; seed owns its source.
-        if (targetId) {
-          const removed = await request.delete(`${API}/projects/${targetId}`, {
-            headers: fixture.headers,
+        const removeCreatedProject = async (id: string) => {
+          const removed = await request.delete(`${API}/projects/${id}`, {
+            headers: account.headers,
           });
           expect([204, 404]).toContain(removed.status());
+        };
+        try {
+          if (targetId) await removeCreatedProject(targetId);
+        } finally {
+          if (!sourceDeleted) await removeCreatedProject(sourceId);
         }
       }
     }

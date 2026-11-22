@@ -54,7 +54,6 @@ async def test_create_project_with_ml_backend_id_binds_backend(
     httpx_client, super_admin, db_session
 ):
     user, token = super_admin
-    # 先建一个 dummy project + backend（绑定的 backend 必须先存在）
     dummy = await _seed_project(db_session, user.id)
     backend = await _seed_backend(db_session, dummy.id, name="dino-sam2")
     await db_session.commit()

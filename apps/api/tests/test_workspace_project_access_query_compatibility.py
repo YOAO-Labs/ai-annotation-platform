@@ -88,8 +88,6 @@ async def test_current_project_access_owner_matches_frozen_public_samples(
         if binding == "dedicated":
             dsn = project_query_dsn(test_engine)
         elif binding == "http":
-            # Access queries use the identity actor snapshot in the API; they do
-            # not depend on the separate Identity profile/briefs capability.
             url = await stack.enter_async_context(
                 project_query_provider(project_query_dsn(test_engine), token)
             )
@@ -107,9 +105,6 @@ async def test_current_project_access_owner_matches_frozen_public_samples(
     expected_http = [_public_http_sample(sample) for sample in reference["samples"]]
     assert current["samples"] == expected_http
 
-    # These two calls deliberately exercise the existing resolver directly.
-    # They bypass the HTTP visibility dependency and are not part of the new
-    # Project-query HTTP owner trace above.
     expected_resolver = reference["observations"]["resolver_caller_autoflush"]
     assert current["resolver_caller_autoflush"] == {
         "caller": expected_resolver["caller"],

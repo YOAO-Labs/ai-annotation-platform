@@ -95,7 +95,6 @@ export function disposeDefaultRasterMaskWorkerPool(): void {
   defaultPool = null;
 }
 
-/** Decode and analyze an RLE outside the UI thread. */
 export function analyzeRasterMaskRleAsync(
   rle: CocoRle,
   options: RasterMaskComputeOptions = {},

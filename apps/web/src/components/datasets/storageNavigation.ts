@@ -1,7 +1,6 @@
 const DATASET_PATH =
   /^\/datasets(?:\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i;
 
-/** Restrict configuration return links to the dataset surfaces that own drafts. */
 export function safeDatasetReturn(value: string | null | undefined): string | null {
   if (!value || value.length > 8000 || !value.startsWith("/") || value.includes("\\")) return null;
   try {
@@ -90,7 +89,6 @@ function parseDraft(raw: string): ImportTextDraft | null {
   }
 }
 
-/** Read only this tab's exact owner records; unsupported bytes stay available for recovery. */
 export function inspectImportTextDrafts(
   session: string | null,
   datasetId?: string,
@@ -109,7 +107,6 @@ export function saveImportTextDraft(
 ) {
   if (!session) throw new Error("没有可用的登录会话");
   if (inspectImportTextDrafts(session, datasetId).length) throw new Error("请先处理已有的导入草稿");
-  // Select fields explicitly: files, credentials and job payloads never enter storage.
   const {
     mode,
     name,
@@ -158,7 +155,6 @@ export function upgradeImportTextDraft(
   return { ...record, source: "current" };
 }
 
-/** Act only on the exact bytes presented to the user, never a replacement record. */
 export function removeImportTextDraft(
   session: string,
   datasetId: string | undefined,

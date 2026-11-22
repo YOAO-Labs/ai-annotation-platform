@@ -115,7 +115,6 @@ async def test_neighbors_k5_full_window(db_session, httpx_client, super_admin):
     body = resp.json()
     assert len(body["prev"]) == 5
     assert len(body["next"]) == 5
-    # prev[0] 最近邻
     assert body["prev"][0]["frame_index"] == 4
     assert body["prev"][-1]["frame_index"] == 0
     assert body["next"][0]["frame_index"] == 6
@@ -213,7 +212,6 @@ async def test_neighbors_no_scene_returns_empty(db_session, httpx_client, super_
     assert body["prev"] == []
     assert body["next"] == []
     assert body["scene_total_frames"] == 0
-    # 空结果不再用全零 UUID sentinel, 改为 None。
     assert body["scene_id"] is None
     assert body["scene_name"] is None
     assert body["frame_index"] is None

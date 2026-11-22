@@ -88,7 +88,7 @@ def _owner_settings(config: Settings) -> GPUAuthoritySettings:
 @asynccontextmanager
 async def _readonly_dispatch(_operation, _scope):
     raise RuntimeError("Backend observation cannot issue a GPU mutation")
-    yield  # The context manager must reject entry rather than provide a grant.
+    yield
 
 
 EVIDENCE_SCHEMA = "aap.gpu-arbitration.acceptance/v1"

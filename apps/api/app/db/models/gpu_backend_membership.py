@@ -105,8 +105,6 @@ class GPUBackendMembership(Base):
         ),
     )
 
-    # There is intentionally no registry FK: the row is the resource tombstone
-    # after a registry entry is removed. The fence FK prevents high-water loss.
     backend_registry_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey(

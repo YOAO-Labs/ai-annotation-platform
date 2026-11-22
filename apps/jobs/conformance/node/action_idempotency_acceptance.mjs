@@ -410,9 +410,7 @@ async function live() {
       if (transactions.has(client)) {
         try {
           await client.query("ROLLBACK");
-        } catch {
-          // The server releases the transaction when the connection closes.
-        }
+        } catch {}
       }
       await client.end();
     }

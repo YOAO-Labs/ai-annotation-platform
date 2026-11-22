@@ -1,7 +1,3 @@
--- Apply after owner grants to an existing API role using remote Identity.
--- Embedded Identity and isolated test-seed operators retain their own profiles.
--- psql -v expected_database=... -v migration_role=... -v identity_owner=...
---      -v consumer_role=... -f identity-consumer-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -80,7 +76,6 @@ BEGIN
 END;
 $guard$;
 
--- Remove both table and column grants; NOINHERIT alone cannot close direct ACLs.
 DO $revoke$
 DECLARE
     v_consumer name := current_setting('yoao.identity_consumer_role');
@@ -128,7 +123,6 @@ GRANT USAGE ON SCHEMA yoao_identity_v1 TO :"consumer_role";
 GRANT SELECT ON yoao_identity_v1.account_profiles,
     yoao_identity_v1.invitation_audit_targets TO :"consumer_role";
 GRANT EXECUTE ON FUNCTION
-    -- Read-only JWT rechecks in the caller transaction; no revocation commands.
     yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid),
     yoao_identity_v1.read_actor_facts(uuid),
     yoao_identity_v1.lock_accounts_share(uuid[],boolean),

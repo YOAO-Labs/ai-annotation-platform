@@ -1,18 +1,12 @@
-// 能力目录的纯计算逻辑(从 CapabilityCatalogPanel.tsx 拆出,行为零变化)。
-// 有效 infra/modality 派生、分组/多选 toggle、列表行构建(legacy / shared 两策略)与池状态读取。
-// 不含 JSX —— 主面板与各子组件共享导入。
-
 import type { PoolEvictRecord } from "@/api/adminMlIntegrations";
 import type { MLModelCapability } from "@/api/ml-backends";
 import { infraLabel, taskLabel, taskSuffix } from "./labels";
 import type { CatalogGroupBy, FlatModel, ListRow } from "./types";
 
-// model 的有效 infra: 优先 model.infra, 回落 backend.infra.
 export function effectiveInfra(m: MLModelCapability, backendInfra?: string): string | undefined {
   return m.infra ?? backendInfra;
 }
 
-// model 的有效 modality: 优先 model.modality, 回落 backend.modalities (派生).
 export function effectiveModalities(m: MLModelCapability, backendModalities?: string[]): string[] {
   if (m.modality) return [m.modality];
   return backendModalities ?? [];
@@ -26,8 +20,6 @@ export function groupModels(items: FlatModel[], groupBy: CatalogGroupBy) {
     let label = "未知";
     if (groupBy === "backend") {
       key = item.backendId;
-      // group header 只用 backend 名 (不再前缀项目名). 同一 backend
-      // 注册到 N 个项目时仍是 N 个 group, 但区分由「注册状态」列承担, 不靠 header。
       label = item.backendName;
     } else if (groupBy === "task") {
       key = item.model.task ?? "unknown";
@@ -156,7 +148,6 @@ export function formatEvict(evict: PoolEvictRecord): string {
   return `${ago} 淘汰 ${evict.key}，原因 ${evict.reason}`;
 }
 
-// 单 model 的传统拆行: yolo / 每 task 独立权重风格.
 export function buildModelRowsLegacy(item: FlatModel): ListRow[] {
   const m = item.model;
   const axes = (m.supported_variants ?? []).filter(
@@ -238,10 +229,7 @@ export function buildModelRowsLegacy(item: FlatModel): ListRow[] {
   });
 }
 
-// 跨 task 共享权重: 同 backend 内多个 shared=true model 按 axis_key 聚合.
-// 每个 axis 内 (axis_key, axis_value) 唯一一行, task 列汇总所有 model.task。
 export function buildSharedRows(items: FlatModel[]): ListRow[] {
-  // axis_key → axis_value → 累积信息.
   type Acc = {
     parent: FlatModel;
     label: string;
@@ -309,7 +297,6 @@ export function buildSharedRows(items: FlatModel[]): ListRow[] {
   return rows;
 }
 
-// 列表入口: 按 backendId 分桶, 每桶按 variants_shared_across_tasks 切换策略.
 export function buildListRows(items: FlatModel[]): ListRow[] {
   const byBackend = new Map<string, FlatModel[]>();
   for (const it of items) {

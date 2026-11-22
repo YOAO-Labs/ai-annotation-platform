@@ -10,22 +10,12 @@ import {
   DialogTitle,
 } from "@/components/shadcn/ui/dialog";
 
-/**
- * 内置像素头像选择器。
- *
- * 目录来自构建期生成、随前端发布的 `manifest.json`（真值源是生成脚本）。后端只校验
- * 引用语法、不维护 id 白名单，所以这里拉不到 manifest 时显示空态并提示，不影响上传与
- * 恢复默认。头像素材为 DiceBear Pixel Art（CC0 1.0），来源与许可见 manifest。
- */
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** 当前头像引用，用于标记选中项。 */
   currentRef: string | null | undefined;
-  /** 提交中：禁用重复点击。 */
   pending?: boolean;
   onSelect: (ref: string) => void;
-  /** 恢复默认头像（清除引用）。 */
   onClear: () => void;
 }
 

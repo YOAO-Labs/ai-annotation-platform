@@ -7,10 +7,6 @@ export interface PointCloudRenderPlan {
   renderTri: boolean;
 }
 
-/**
- * The renderer owns one swapchain for the main and orthographic views. A tri-view clear can
- * invalidate the main surface, so every visible dirty frame restores main before drawing tri.
- */
 export function resolvePointCloudRenderPlan(
   dirtyMask: number,
   controlsChanged: boolean,
@@ -25,7 +21,6 @@ export function resolvePointCloudRenderPlan(
 type RequestFrame = (callback: FrameRequestCallback) => number;
 type CancelFrame = (handle: number) => void;
 
-/** Coalesces visible state changes and stops requesting frames once the renderer settles. */
 export class PointCloudRenderScheduler {
   private frameHandle = 0;
   private dirtyMask = 0;

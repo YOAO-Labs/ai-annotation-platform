@@ -256,7 +256,6 @@ def _claim(model, category, key_column, conditions):
 
 
 def _hashed_keys(model, bucket, keys):
-    # Match the existing retirement hash index and the equivalent locator indexes.
     return (
         func.md5(model.bucket) == hashlib.md5(bucket.encode()).hexdigest(),
         func.md5(model.object_key).in_(
@@ -430,7 +429,6 @@ async def classify(db, bucket, objects):
             if (match := re.fullmatch(rf"{namespace}/{_UUID}/{_UUID}/payload", key))
         }
         if identifiers:
-            # Restore remaps these current locators while preserving creation history.
             queries.append(
                 _claim(
                     model,
@@ -573,7 +571,6 @@ async def classify(db, bucket, objects):
                     *[data[name] for name in family.arguments]
                 )
                 if family.service in _TRAINING_SERVICES:
-                    # Record identity is logical; expected_prefix elsewhere is physical.
                     owner = service.resolve(SimpleNamespace(**data))
                 elif (
                     family.service
@@ -631,7 +628,6 @@ async def classify(db, bucket, objects):
             KeyError,
             AttributeError,
         ):
-            # Bad or legacy evidence leaves the listed object's bytes unclassified.
             continue
     for row in objects:
         categories = claims[row["key"]]

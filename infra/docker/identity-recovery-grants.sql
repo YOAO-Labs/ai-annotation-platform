@@ -1,12 +1,3 @@
--- Grant only the four native recovery, four mail and one mail-settings functions.
--- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v identity_owner=identity_code -v audit_owner=audit_code \
---   -v settings_owner=settings_code \
---   -v identity_recovery_role=yoao_identity_recovery_client \
---   -v identity_mail_role=yoao_identity_mail_client \
---   -v identity_mail_settings_role=yoao_identity_mail_settings_client \
---   -f infra/docker/identity-recovery-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

@@ -46,9 +46,6 @@ import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { useUrlFilterState } from "@/hooks/useUrlFilterState";
 import { USERS_URL_DEFAULTS, USERS_URL_KEYS, usersUrlCodec } from "./usersUrlState";
 
-// actor.role × target.role → 可点"编辑"（即可改平台角色或可删）。
-// 平台角色编辑仅 super_admin（后端 AUTH-04）；项目管理员的生命周期路径仅
-// 接受 employee 目标，观察者行不提供编辑/离职等入口。
 const EDITABLE_TARGET_ROLES_BY_ACTOR: Record<UserRole, UserRole[]> = {
   super_admin: ["super_admin", "project_admin", "employee", "viewer"],
   project_admin: ["employee"],
@@ -91,11 +88,9 @@ const DISABLED_KIND_LABELS: Record<string, string> = {
 
 const REACTIVATABLE_KINDS = new Set(["suspended", "emergency_suspended"]);
 
-// 表头单元 / 主表数据单元
 const TH_CLASS =
   "border-b border-border bg-muted px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap";
 const TD_CLASS = "border-b border-border p-3 align-middle";
-// 弹窗内成员摘要卡 / 选择框基线
 const SELECT_BASE =
   "appearance-none rounded-md border border-border bg-card text-foreground [font:inherit] outline-none";
 const SUMMARY_CARD_CLASS =
@@ -148,7 +143,6 @@ function UsersPageContent() {
     password: string;
   } | null>(null);
   const [pwdResetSubmitting, setPwdResetSubmitting] = useState(false);
-  /** 后端 409 返回的待转交任务详情（pending_task_count / locked_task_count / sample_task_ids）。 */
   const [transferStage, setTransferStage] = useState<{
     pending: number;
     locked: number;
@@ -786,9 +780,6 @@ function UsersPageContent() {
                                     <Icon name="key" size={11} />
                                   </Button>
                                 )}
-                                {/* 生命周期写入（离职/删除/恢复）需要目标的派生项目
-                                    全部在自己的管理范围内；跨项目行仅开放账号级操作，
-                                    否则按钮点开必然 403。 */}
                                 {isActive && u.is_lifecycle_managed !== false && (
                                   <Button
                                     variant="ghost"
@@ -1220,7 +1211,6 @@ function UsersPageContent() {
                     setTransferStage(null);
                     setTransferToId("");
                   } catch (err) {
-                    // 检测 409 + has_pending_tasks → 切到二阶段
                     if (err instanceof ApiError && err.status === 409) {
                       const raw = err.detailRaw as
                         | {

@@ -624,8 +624,6 @@ async def test_capture_pre_extraction_project_class_rename(
                         assigned_at=_FIXED_TIME,
                     )
                 )
-            # The employee owner with a membership also demonstrates that a
-            # platform owner field alone does not confer the managed-write role.
             await add_annotation(db, scoped, owner, unit="bbox")
             await add_annotation(db, scoped, owner, unit="region", source_name="ai")
             await add_annotation(db, scoped, owner, unit="disabled_unit", active=False)

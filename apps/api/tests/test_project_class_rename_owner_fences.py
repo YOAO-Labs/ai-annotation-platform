@@ -58,9 +58,6 @@ async def _query_function_metadata(connection):
 async def _gated_rename_projection(test_engine, *, project_id, lock_key):
     async with test_engine.connect() as owner:
         original = dict(await _query_function_metadata(owner))
-    # Patch only this owned database function and exact owned Project. The gate
-    # executes in the actual projection statement, without mocking authority,
-    # the callback, its transaction, or any data read.
     needle = "BEGIN\n"
     assert needle in original["definition"]
     definition = original["definition"].replace(

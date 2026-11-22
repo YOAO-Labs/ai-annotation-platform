@@ -21,9 +21,6 @@ import type {
   DiscussionCommentFocus,
 } from "../state/useDiscussionNavigation";
 
-// 顶部 tab 切换条: 字号/字重与右栏上段"标注详情"标题 (text-sm font-semibold) 对齐,
-// 视觉上作为同级标题。中性和激活态分支分开，避免 border-transparent 与
-// border-brand 同挂后互相覆盖。文本颜色类同理。
 const TAB_BUTTON_BASE =
   "shrink-0 cursor-pointer appearance-none border-0 border-b-2 bg-transparent px-2 py-1 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [font:inherit]";
 const TAB_BUTTON_ACTIVE = "border-brand text-foreground";
@@ -60,20 +57,6 @@ function DiscussionCountBadge({
   );
 }
 
-/**
- * B 组 · 工作台右栏下段统一讨论面板。
- *
- * 三个常驻 tab：
- *   - comments：复用 CommentsPanel 的评论能力 (hideTabs + forceTab)，
- *     annotationId 非 null → 标注级评论；null → 任务级评论 (合并 annotation_comments + feedback)。
- *   - history：复用 CommentsPanel 的历史时间线 (forceTab="history")，
- *     annotation 优先，null 降级查任务级 audit (GET /tasks/{id}/audit-history)。
- *   - issues：kind=issue feedback 列表 + status 过滤 + 与 IssueLayer 图钉双向联动。
- *
- * 转正：去 flag 成为右栏下段默认；旧浮层 IssueListPanel 路径已删，
- * CommentsPanel 保留作本面板 comments/history tab 的子渲染器。
- * 边界：只统一 comment + issue + history(audit)；bug / reject 刻意不进。
- */
 type DiscussionTab = "comments" | "history" | "issues" | "mask_qc";
 
 const TABS: { key: DiscussionTab; label: string }[] = [
@@ -83,8 +66,6 @@ const TABS: { key: DiscussionTab; label: string }[] = [
   { key: "mask_qc", label: "Mask 质检" },
 ];
 
-// 把画布批注（live 绘图）和评论跳帧（video）的 props 传给 CommentsPanel。
-// 类型从 CommentsPanel 派生，避免接口漂移。
 type CommentsBridgeProps = Pick<
   ComponentProps<typeof CommentsPanel>,
   | "backgroundUrl"
@@ -116,8 +97,6 @@ interface DiscussionPanelProps extends CommentsBridgeProps {
   currentUserId: string | null;
   onDetach?: () => void;
   floating?: boolean;
-  /** 完全收起态 (受控, 走 workbench.layout 持久); 缺省回落组件内会话态。
-   *  收起时不渲染 tabpanel 内容区, 仅剩 tab 头一条。 */
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
 }
@@ -155,7 +134,6 @@ export function DiscussionPanel({
   const id = useId();
   const [tab, setTab] = useState<DiscussionTab>(maskQc?.activeIssue ? "mask_qc" : "comments");
   const availableTabs = TABS.filter((t) => t.key !== "mask_qc" || maskQc);
-  // 受控优先 (走 workbench.layout 持久), 缺省回落组件内会话态 (测试/独立使用)。
   const [collapsedLocal, setCollapsedLocal] = useState(false);
   const collapsed = collapsedProp ?? collapsedLocal;
   const toggleCollapsedLocal = useCallback(() => setCollapsedLocal((v) => !v), []);
@@ -165,12 +143,8 @@ export function DiscussionPanel({
   const [annotationReadRequest, setAnnotationReadRequest] =
     useState<DiscussionAnnotationReadRequest | null>(null);
   const consumedAnnotationRequestRef = useRef<string | null>(null);
-  // Share the complete feed's cached total, independent of the active tab or
-  // reading filter. This observer also receives existing mutation invalidations.
   const commentCountQuery = useTaskDiscussion(taskId, "all", null, Boolean(projectId), projectId);
 
-  // The panel, not its conditionally mounted Issues tab, owns the activation
-  // lifetime. Drafts have a separate authenticated owner and are not cleared.
   const detailOwner = JSON.stringify([currentUserId, projectId, taskId]);
   const detailOwnerRef = useRef(detailOwner);
   const detailLeaseRef = useRef<object | null>(null);
@@ -187,9 +161,6 @@ export function DiscussionPanel({
       detailLeaseRef.current = null;
       const { detailRequestTick, detailTargetId } = useActiveIssueStore.getState();
       queueMicrotask(() => {
-        // StrictMode immediately reactivates this presentation. A real
-        // unmount retires only the request that was present at cleanup, never
-        // a newer navigation emitted by the replacement Workbench.
         if (detailLeaseRef.current) return;
         const state = useActiveIssueStore.getState();
         if (
@@ -269,22 +240,17 @@ export function DiscussionPanel({
       setCommentFocus({ requestId, commentId: target.commentId, source: "feedback" });
     }
     navigation?.consume(requestId);
-    // Activation is keyed by the owner-produced state, not by callback or
-    // presentation changes such as collapsing and reopening the panel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigationState]);
 
-  // 单击/hover IssueLayer 图钉 → store.tabRequestTick++ → 自动切到 issues tab。
   const tabRequestTick = useActiveIssueStore((s) => s.tabRequestTick);
   const lastTabRequestRef = useRef(tabRequestTick);
   useEffect(() => {
     if (tabRequestTick !== lastTabRequestRef.current) {
       lastTabRequestRef.current = tabRequestTick;
       setTab("issues");
-      // IssueLayer 图钉切 tab 时若讨论区处于收起态, 顺手展开让用户看到 issue 列表。
       if (collapsed) toggleCollapsed();
     }
-    // toggleCollapsed / collapsed 依赖漂移会引起循环触发, 故按 tick 一路径走。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabRequestTick]);
 
@@ -296,8 +262,6 @@ export function DiscussionPanel({
     if (!maskQc?.activeIssue) return;
     setTab("mask_qc");
     if (collapsed) toggleCollapsed();
-    // An active QC navigation is an explicit request to expose this tab. The
-    // collapsed callbacks are intentionally omitted to avoid replaying it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [maskQc?.activeIssue?.id]);
 
@@ -308,7 +272,6 @@ export function DiscussionPanel({
     >
       <div className="flex shrink-0 items-center justify-between gap-1 px-2 pt-1.5">
         {!floating && (
-          // 收起 chevron: 只在嵌入布局显示 (浮层已是独立窗口, 无收起语义)。
           <button
             type="button"
             onClick={toggleCollapsed}
@@ -424,7 +387,6 @@ export function DiscussionPanel({
             )}
           </div>
         )}
-      {/* 完全收起时不渲染 tabpanel, 仅留 tab 头一条; 展开由 chevron 或 IssueLayer 图钉触发。 */}
       {!collapsed && (
         <div
           className={`flex min-h-0 flex-1 flex-col ${tab === "mask_qc" ? "overflow-y-auto" : "overflow-hidden"}`}

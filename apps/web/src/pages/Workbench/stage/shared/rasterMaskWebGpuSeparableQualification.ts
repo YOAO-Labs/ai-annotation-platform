@@ -242,7 +242,6 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 `;
 
-/** Benchmark-only provider. Production continues to import only rasterMaskWebGpu.ts. */
 export class RasterMaskWebGpuSeparableQualificationProvider {
   private state: RasterMaskWebGpuSeparableSnapshot["state"] = "idle";
   private resources: Resources | null = null;

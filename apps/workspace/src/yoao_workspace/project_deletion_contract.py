@@ -33,7 +33,6 @@ class ProjectDeletionCommand(_Value):
     operation_id: UUID
     actor_id: UUID
     project_id: UUID
-    # No default: null is allowed, but the field is required on the wire.
     audit_context: ProjectDeletionAuditContext | None
 
 
@@ -57,7 +56,6 @@ class ProjectDeletionReceipt(_Value):
 
 
 class _Failure(_Value):
-    # Codes remain open so a newer native function can report a new stable code.
     code: str
 
 

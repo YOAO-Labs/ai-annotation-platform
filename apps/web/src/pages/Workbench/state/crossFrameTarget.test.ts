@@ -1,6 +1,3 @@
-/**
- * resolveCrossFrameTarget 单测: scene 边界 / 无 scene / 正常解析。
- */
 import { describe, it, expect } from "vitest";
 import { resolveCrossFrameNavigation, resolveCrossFrameTarget } from "./crossFrameTarget";
 import type { NeighborsResponse } from "@/types";

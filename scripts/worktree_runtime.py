@@ -39,7 +39,6 @@ def worker_queues_match(node: str, configured: str, active: list[dict]) -> bool:
 
     expected = set(configured.split(","))
     actual = {queue["name"] for queue in active}
-    # worker_direct adds the node's own inbox; unknown queues still fail closed.
     return actual in (expected, expected | {worker_direct(node).name})
 
 
@@ -93,9 +92,7 @@ def environment_lock(resources: dict):
             raise WorktreeError("环境锁身份无效；拒绝操作")
         yield
     finally:
-        os.close(
-            descriptor
-        )  # Keep the inode; unlinking a lock permits split ownership.
+        os.close(descriptor)
 
 
 def validate_revisions(
@@ -441,8 +438,6 @@ def settle_e2e_descendants(record, record_path, native_owner, *, timeout=12):
             if not tracked and not (direct - excluded):
                 if native_owner and native_owner.process_identity_inventory() != native:
                     raise WorktreeError("推理 owner 身份在消费者排空期间变化")
-                # The subreaper was established before launch: every escaped
-                # descendant stays a child or has a live ancestor here until reaped.
                 current = ctypes.c_int()
                 if (
                     ctypes.CDLL(None, use_errno=True).prctl(
@@ -459,7 +454,6 @@ def settle_e2e_descendants(record, record_path, native_owner, *, timeout=12):
                 raise WorktreeError("e2e 后代仍在运行；保留消费者记录")
             time.sleep(0.05)
     finally:
-        # Preserve exact pidfds for unresolved consumers while this owner lives.
         _UNSETTLED_E2E_PIDFDS.extend(descriptor for descriptor, _ in tracked.values())
 
 
@@ -507,7 +501,6 @@ def session_record(resources: dict) -> dict | None:
 
 
 def safe_error(exc: BaseException) -> str:
-    # Resource/validation messages are controlled; third-party errors may expose URLs.
     if isinstance(exc, BaseExceptionGroup):
         return f"{exc.message}: " + "；".join(
             safe_error(item) for item in exc.exceptions
@@ -676,8 +669,6 @@ def stop_environment(backend) -> None:
     record = session_record(resources)
     script = str(backend.code_root / "scripts/worktree_runtime.py")
     if record and process_matches(record, script):
-        # The public Node entry point gives this owner its own process group. A direct
-        # Python invocation may share the user's shell group; never signal that group.
         if os.getpgid(record["pid"]) == record["pid"]:
             os.killpg(record["pid"], signal.SIGTERM)
         else:
@@ -768,10 +759,21 @@ def _e2e_child_status(child, descriptor=None):
     return _waitid_exit_code(result)
 
 
+def _matches_supervisor_exit_receipt(descriptor, result):
+    if descriptor is None or result < 0:
+        return False
+    try:
+        return os.read(descriptor, 4) == str(result).encode() and not os.read(
+            descriptor, 1
+        )
+    except BlockingIOError:
+        return False
+
+
 def finish_e2e_direct_children(
-    children, record, record_path, *, orderly, request_stop, deadline
+    children, record, record_path, *, command_exit, request_stop, deadline
 ):
-    """Record exact direct-child exits; only requested, zero-exit workers settle."""
+    """Require an acknowledged supervisor exit and requested, zero-exit workers."""
     entries = {item["pid"]: item for item in record["children"]}
     requested = set()
     failures = []
@@ -831,10 +833,16 @@ def finish_e2e_direct_children(
                 entry["exit_observed"] = True
                 role = entry["role"]
                 if role == "supervisor":
-                    if result != 0:
+                    acknowledged = result == command_exit and child.pid not in requested
+                    entry["command_exit_acknowledged"] = acknowledged
+                    if not acknowledged:
                         failures.append(f"{role}:{result}")
                 elif role in {"worker", "maintenance_worker"}:
-                    if not orderly or child.pid not in requested or result != 0:
+                    if (
+                        command_exit is None
+                        or child.pid not in requested
+                        or result != 0
+                    ):
                         failures.append(f"{role}:{result}")
                 else:
                     failures.append(f"unexpected_role:{role}")
@@ -861,11 +869,18 @@ def run_processes(
     inference = None
     selected_inference = fixture_inference
     exit_code = None
+    supervisor_receipt_fd = None
+    supervisor_receipt_writer = None
     boundary_proven = False
     canonical_e2e = resources["mode"] == "e2e" and options.command in {
         "exec",
         "recover-inference",
     }
+    ai_request_worker = os.environ.get("PLAYWRIGHT_AI_REQUEST_WORKER") == "1"
+    if ai_request_worker and not (
+        resources["mode"] == "e2e" and options.command == "exec" and options.with_worker
+    ):
+        raise WorktreeError("当前题 AI 门禁需要 exec --mode e2e --with-worker")
     if coordinator_input is not None and (
         not canonical_e2e
         or fixture_inference is None
@@ -900,7 +915,6 @@ def run_processes(
     def retain_consumers(reason):
         if not canonical_e2e or not children or record.get("unsettled_consumers"):
             return
-        # Publish the conservative fence before attempting the racy process-tree scan.
         record["unsettled_consumers"] = {"reason": reason, "snapshot": None}
         atomic_json(record_path, record)
         try:
@@ -988,8 +1002,34 @@ def run_processes(
             environment.update(
                 selected_inference.verified_selection(resources, code_root=root)
             )
+        if ai_request_worker:
+            from sqlalchemy.engine import make_url
+
+            runtime = make_url(environment["DATABASE_URL"])
+            if (
+                runtime != backend.runtime_url()
+                or runtime.database != resources["database"]
+                or runtime.username == backend.url.username
+            ):
+                raise WorktreeError(
+                    "当前题 AI API 与 worker 必须使用本环境普通数据库账号"
+                )
+            for key in ("PREANNOTATE_GPU_QUEUE", "PREANNOTATE_CPU_QUEUE"):
+                selectors = [
+                    value for name, value in environment.items() if name.upper() == key
+                ]
+                if any(value != "ml.cpu" for value in selectors):
+                    raise WorktreeError(f"当前题 AI 门禁要求 {key}=ml.cpu")
+                environment[key] = "ml.cpu"
+            environment["JOBS_PUBLICATION_DATABASE_URL"] = asyncio.run(
+                selected_inference.prepare_jobs_publication()
+            )
+            print(
+                f"[dev:worktree] 当前题 AI：数据库 {runtime.database}，普通账号 {runtime.username}，"
+                "受限 Jobs 发布及私有路由、健康、模型执行已就绪",
+                flush=True,
+            )
         if options.scenario:
-            # Keep the manual guide readable and avoid SQL/S3 debug credential logs.
             environment = {
                 key: value
                 for key, value in environment.items()
@@ -998,7 +1038,13 @@ def run_processes(
             environment["DEBUG"] = "false"
 
         def launch(
-            command, label, cwd, *, child_environment=None, private_environment=None
+            command,
+            label,
+            cwd,
+            *,
+            child_environment=None,
+            private_environment=None,
+            pass_fds=(),
         ):
             if canonical_e2e:
                 record["phase"] = "admitting"
@@ -1009,9 +1055,9 @@ def run_processes(
                 env=environment if child_environment is None else child_environment,
                 stdin=subprocess.PIPE if private_environment is not None else None,
                 start_new_session=True,
+                pass_fds=pass_fds,
             )
             children.append(child)
-            # A signal can arrive while Popen is returning, before registration.
             if canonical_e2e and stopping:
                 retain_consumers(f"signal_{stop_signal}")
                 signal_children(stop_signal)
@@ -1107,20 +1153,23 @@ def run_processes(
                 "worktree_readiness", broker=environment["CELERY_BROKER_URL"]
             )
             try:
-                for role, suffix, queues, database_url, required_task in (
+                for role, suffix, queues, database_url, required_tasks in (
                     (
                         "worker",
                         "",
                         "default,media,cleanup,audit,export,image-pyramid,ml.cpu",
                         environment["DATABASE_URL"],
-                        "app.workers.audit.persist_audit_entry",
+                        (
+                            "app.workers.audit.persist_audit_entry",
+                            "app.workers.tasks.batch_predict",
+                        ),
                     ),
                     (
                         "maintenance_worker",
                         "-maintenance",
                         "maintenance",
                         environment["MIGRATION_DATABASE_URL"],
-                        "app.workers.audit_partition.ensure_future_audit_partitions",
+                        ("app.workers.audit_partition.ensure_future_audit_partitions",),
                     ),
                 ):
                     worker_name = (
@@ -1145,6 +1194,11 @@ def run_processes(
                         child_environment={
                             **application_environment(environment),
                             "DATABASE_URL": database_url,
+                            **(
+                                {"JOBS_PUBLICATION_DATABASE_URL": ""}
+                                if ai_request_worker
+                                else {}
+                            ),
                         },
                     )
                     deadline = time.monotonic() + 60
@@ -1159,8 +1213,8 @@ def run_processes(
                         )
                         registered = inspector.registered() or {}
                         active = inspector.active_queues() or {}
-                        if required_task in registered.get(
-                            worker_name, []
+                        if set(required_tasks).issubset(
+                            registered.get(worker_name, [])
                         ) and worker_queues_match(
                             worker_name, queues, active.get(worker_name, [])
                         ):
@@ -1176,7 +1230,11 @@ def run_processes(
                         raise WorktreeError(f"{role} 在注册后退出")
                     register_child(record, handle, role)
                     atomic_json(record_path, record)
-                    print(f"[dev:worktree] {role} 已注册：{worker_name}", flush=True)
+                    print(
+                        f"[dev:worktree] {role} 已注册：{worker_name}（PID {worker.pid}；"
+                        f"队列 {queues}；任务 {', '.join(required_tasks)}）",
+                        flush=True,
+                    )
             finally:
                 client.close()
         if stopping:
@@ -1184,7 +1242,10 @@ def run_processes(
         module = (root / "scripts/dev-worktree.mjs").as_uri()
         ports = {"apiPort": options.api_port, "webPort": options.web_port}
         if canonical_e2e:
-            ports["cooperativeE2e"] = True
+            supervisor_receipt_fd, supervisor_receipt_writer = os.pipe2(
+                os.O_CLOEXEC | os.O_NONBLOCK
+            )
+            ports.update(cooperativeE2e=True, exitReceiptFd=supervisor_receipt_writer)
         if options.command in {"exec", "recover-inference"}:
             expression = f"import {{runIsolatedCommand}} from {json.dumps(module)}; process.exitCode = await runIsolatedCommand({json.dumps(options.execute)}, {json.dumps(ports)});"
             supervisor_environment = environment
@@ -1208,6 +1269,11 @@ def run_processes(
             root,
             child_environment=supervisor_environment,
             private_environment=private_environment,
+            pass_fds=(
+                ()
+                if supervisor_receipt_writer is None
+                else (supervisor_receipt_writer,)
+            ),
         )
         while child_status(supervisor) is None and not stopping:
             if (
@@ -1233,19 +1299,32 @@ def run_processes(
     finally:
         original = sys.exception()
         cleanup_error = None
+        command_exit = None
         try:
+            if supervisor_receipt_writer is not None:
+                os.close(supervisor_receipt_writer)
             if original is not None and record.get("phase") == "prelaunch" and previous:
                 record["prelaunch_failures"].append(type(original).__name__)
                 atomic_json(record_path, record)
-            if canonical_e2e and (original is not None or exit_code not in (None, 0)):
-                retain_consumers("command_failed")
+            if canonical_e2e:
+                if (
+                    original is None
+                    and not stopping
+                    and exit_code is not None
+                    and _matches_supervisor_exit_receipt(
+                        supervisor_receipt_fd, exit_code
+                    )
+                ):
+                    command_exit = exit_code
+                else:
+                    retain_consumers("command_failed")
             deadline = time.monotonic() + 12
             if canonical_e2e:
                 finish_e2e_direct_children(
                     children,
                     record,
                     record_path,
-                    orderly=original is None and exit_code == 0 and not stopping,
+                    command_exit=command_exit,
                     request_stop=not stopping,
                     deadline=deadline,
                 )
@@ -1258,7 +1337,7 @@ def run_processes(
                     except subprocess.TimeoutExpired:
                         os.killpg(child.pid, signal.SIGKILL)
                         child.wait(timeout=5)
-            if canonical_e2e and original is None and exit_code == 0 and not stopping:
+            if canonical_e2e and command_exit is not None and not stopping:
                 lock = (
                     selected_inference._lifecycle_lock
                     if selected_inference
@@ -1291,6 +1370,8 @@ def run_processes(
             cleanup_error = error
         finally:
             try:
+                if supervisor_receipt_fd is not None:
+                    os.close(supervisor_receipt_fd)
                 if canonical_e2e and record.get("unsettled_consumers"):
                     retain_adopted_evidence(record, record_path, selected_inference)
                 if canonical_e2e and (boundary_proven or not children):

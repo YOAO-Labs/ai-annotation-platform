@@ -33,39 +33,32 @@ import { VideoKeyframeControls } from "./VideoKeyframeControls";
 
 const BODY_CLASS = "flex min-h-0 flex-col gap-2.5 overflow-x-hidden overflow-y-auto px-3 pt-2.5";
 
-/* ─── 帧定位 chip ─── */
 const FRAME_CHIP_BASE =
   "inline-flex flex-none items-center gap-1 rounded-full px-1.5 py-px text-2xs font-medium tabular-nums whitespace-nowrap";
 const FRAME_CHIP_DEFAULT_CLASS = `${FRAME_CHIP_BASE} bg-brand/10 text-brand`;
 const FRAME_CHIP_DANGER_CLASS = `${FRAME_CHIP_BASE} bg-status-danger-soft text-status-danger`;
 
-/* ─── 小节 ─── */
 const SECTION_CLASS = "grid gap-2";
 const SECTION_DIVIDED_CLASS = "border-t border-border pt-2.5";
 const SECTION_HEADER_CLASS = "flex items-center justify-between gap-2";
 const SECTION_TITLE_CLASS = "text-xs font-semibold tracking-[0.02em] text-muted-foreground";
 const SECTION_COUNT_CLASS = "text-xs text-muted-foreground";
 
-/* ─── 操作网格 ─── */
 const ACTION_GRID_CLASS = "grid grid-cols-2 gap-1";
 const ACTION_BUTTON_CLASS = "min-h-[30px]! justify-start! rounded-lg! px-2! py-1! text-xs!";
 const ACTION_BUTTON_PRESSED_CLASS = "border-brand/55! bg-brand/10! text-brand!";
 
-/* ─── 语义标签 ─── */
 const SEMANTIC_ROW_CLASS = "flex items-center gap-1.5";
 const SEMANTIC_LABEL_CLASS =
   "flex-[0_0_52px] text-2xs font-semibold leading-[1.3] text-muted-foreground whitespace-nowrap";
 const SEMANTIC_INPUT_CLASS =
   "appearance-none flex-1 min-w-0 h-7 px-2 border border-border rounded-md bg-background text-foreground text-xs";
 
-/* ─── Tracker job ─── */
 const TRACKER_JOB_ROW_CLASS = "flex items-center gap-1.5";
 
-/* ─── 标题行图标按钮 ─── */
 const HEADER_ACTIONS_CLASS = "flex items-center gap-1";
 const ICON_BUTTON_CLASS = "size-7! p-0! justify-center! rounded-lg!";
 
-/* ─── 关键帧表 ─── */
 const KF_TABLE_CLASS =
   "border border-border rounded-lg overflow-x-clip overflow-y-auto max-h-[232px] bg-background";
 const KF_HEADER_CLASS =
@@ -95,9 +88,7 @@ export interface VideoTrackCardContentProps {
   userId?: string | null;
   readOnly: boolean;
   attributeSchema?: AttributeSchema;
-  /** 逐轨道颜色覆盖(session 级),用于色块与列表/画布同源。 */
   trackColorOverrides?: Record<string, string>;
-  /** 选中轨迹当前是否隐藏(底部操作栏的显隐切换态)。 */
   selectedTrackHidden: boolean;
   copiedKeyframeLabel?: string | null;
   canCopyCurrentKeyframe: boolean;
@@ -146,7 +137,6 @@ function cn(...classes: Array<string | false | null | undefined>): string {
   return classes.filter(Boolean).join(" ");
 }
 
-/** 秒 → 紧凑时间码 m:ss(帧定位 chip 用,不带毫秒)。 */
 function formatTimecode(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return "0:00";
   const m = Math.floor(sec / 60);
@@ -154,15 +144,6 @@ function formatTimecode(sec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/**
- * 选中视频「轨迹」(video_track)的浮动卡内容。
- *
- * 取代「把整个右栏轨迹面板(含全部轨迹清单)搬进卡」的旧做法,聚焦单条选中轨迹,
- * 用选中卡设计系统(IdentityHeader / MetricGrid / MetaFooter)承载两层语义:
- * 「轨迹整体」(关键帧数 / 范围 / 语义标签 / 轨迹操作 / 轨迹属性)+「当前帧」
- * (帧定位 / 状态来源 / 几何指标 / 帧操作 / 帧属性),并整合关键帧表 + 上/下关键帧导航
- * (退役画布右上的旧快跳浮层)。轨迹清单与多选批量留在右栏 roster。
- */
 export function VideoTrackCardContent({
   selectedTrack,
   selectedTrackGhost,
@@ -216,7 +197,6 @@ export function VideoTrackCardContent({
     void navigator.clipboard.writeText(geom.track_id);
     pushToast({ msg: `已复制轨迹 ID ${shortTrackId(geom.track_id)}`, kind: "success" });
   };
-  // semantic_label inline 编辑草稿; null 表示同步当前轨迹值。切换轨迹时重置。
   const [semanticDraft, setSemanticDraft] = useState<string | null>(null);
   useEffect(() => {
     setSemanticDraft(null);
@@ -344,7 +324,6 @@ export function VideoTrackCardContent({
         dotColor={trackColor}
       />
 
-      {/* —— 轨迹整体 —— */}
       <div className={SECTION_CLASS}>
         <div className={SECTION_HEADER_CLASS}>
           <span className={SECTION_TITLE_CLASS}>轨迹整体</span>
@@ -456,7 +435,6 @@ export function VideoTrackCardContent({
         </div>
       </div>
 
-      {/* —— 当前帧 —— */}
       <div className={cn(SECTION_CLASS, SECTION_DIVIDED_CLASS)}>
         <div className={SECTION_HEADER_CLASS}>
           <span className={SECTION_TITLE_CLASS}>当前帧</span>
@@ -535,7 +513,6 @@ export function VideoTrackCardContent({
         </div>
       </div>
 
-      {/* —— 关键帧(整合旧快跳浮层) —— */}
       <div className={cn(SECTION_CLASS, SECTION_DIVIDED_CLASS)}>
         <div className={SECTION_HEADER_CLASS}>
           <span className={SECTION_TITLE_CLASS}>关键帧</span>
@@ -671,7 +648,6 @@ export function VideoTrackCardContent({
         </div>
       </div>
 
-      {/* —— 属性(轨迹级 + 当前帧级) —— */}
       {hasAttributes && (
         <div className={cn(SECTION_CLASS, SECTION_DIVIDED_CLASS)} data-floating-panel-no-drag>
           <VideoAttributesEditor

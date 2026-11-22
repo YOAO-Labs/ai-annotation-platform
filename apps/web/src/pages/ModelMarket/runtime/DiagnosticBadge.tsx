@@ -1,11 +1,4 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-/**
- * diagnostic severity badge with affected-objects count.
- *
- * Plan §7.2: severity badges use icon + text (never color-only). The badge
- * shows the affected-object count so an operator can scan scope at a glance;
- * clicking jumps to the diagnostic detail (caller wires the onClick).
- */
 import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -16,7 +9,6 @@ import type { Diagnostic } from "../runtimeTopology";
 export interface DiagnosticBadgeProps {
   diagnostic: Diagnostic;
   onClick?: (d: Diagnostic) => void;
-  /** Show affected-objects count chip (default true). */
   showAffected?: boolean;
 }
 

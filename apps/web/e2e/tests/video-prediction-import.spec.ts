@@ -35,13 +35,17 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function json<T>(response: APIResponse): Promise<T> {
+async function json<T>(response: Pick<APIResponse, "ok" | "text" | "json">): Promise<T> {
   expect(response.ok(), await response.text()).toBe(true);
   return (await response.json()) as T;
 }
 
-test("历史原生 JSON 视频预测可预检、审阅并持久化采纳/忽略", async ({ page, request, seed }) => {
-  const data = await seed.owned();
+test("历史原生 JSON 视频预测可预检、审阅并持久化采纳/忽略", async ({
+  page,
+  request,
+  seed,
+  owned: data,
+}) => {
   const { task_id: taskId } = await seed.videoTask(data.project_id);
   await seed.configureRasterMask(data.project_id, true);
   const token = await seed.accessToken(data.admin_email);
@@ -270,6 +274,7 @@ test("历史原生 JSON 视频预测可预检、审阅并持久化采纳/忽略"
   await page.getByRole("button", { name: "收起浮窗", exact: true }).click();
 
   const bboxRow = page.getByTestId(`box-list-item-${bboxCandidateId}`);
+  await bboxRow.getByRole("button", { name: "更多操作", exact: true }).click();
   const acceptResponse = page.waitForResponse(
     (response) =>
       response
@@ -277,10 +282,8 @@ test("历史原生 JSON 视频预测可预检、审阅并持久化采纳/忽略"
         .includes(`/predictions/${bboxPrediction.id}/accept?shape_index=${bboxIndex}`) &&
       response.request().method() === "POST",
   );
-  // 常驻 success toast (右上 sonner) 与行内浮出按钮的过渡动画会拦截合成指针事件,
-  // 用 dispatchEvent 直接触发 onClick, 与行内按钮的真实 handler 一致。
-  await bboxRow.getByRole("button", { name: "采纳预测" }).dispatchEvent("click");
-  const accepted = (await (await acceptResponse).json()) as Annotation[];
+  await bboxRow.getByRole("button", { name: "采纳预测" }).click();
+  const accepted = await json<Annotation[]>(await acceptResponse);
   expect(accepted).toHaveLength(1);
   expect(accepted[0]).toMatchObject({
     annotation_type: "video_bbox",
@@ -289,6 +292,7 @@ test("历史原生 JSON 视频预测可预检、审阅并持久化采纳/忽略"
   await expect(bboxRow).toHaveCount(0);
 
   const polygonRow = page.getByTestId(`box-list-item-${polygonCandidateId}`);
+  await polygonRow.getByRole("button", { name: "更多操作", exact: true }).click();
   const rejectResponse = page.waitForResponse(
     (response) =>
       response
@@ -296,7 +300,7 @@ test("历史原生 JSON 视频预测可预检、审阅并持久化采纳/忽略"
         .includes(`/predictions/${regionPrediction.id}/reject?shape_index=${polygonIndex}`) &&
       response.request().method() === "POST",
   );
-  await polygonRow.getByRole("button", { name: "忽略预测" }).dispatchEvent("click");
+  await polygonRow.getByRole("button", { name: "忽略预测" }).click();
   expect((await rejectResponse).status()).toBe(204);
   await expect(polygonRow).toHaveCount(0);
 

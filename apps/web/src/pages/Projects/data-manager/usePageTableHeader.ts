@@ -9,15 +9,10 @@ export function pageTableHeaderOffset(
   return Math.max(0, Math.min(pageTop - tableTop, tableHeight - headerHeight));
 }
 
-/** Keep one native header aligned with its rows inside a horizontal scroller.
- * CSS sticky cannot follow the outer page through an overflow-x:auto ancestor.
- * Only the vertical offset is compensated here; horizontal scrolling is native.
- */
 export function usePageTableHeader<Header extends HTMLElement = HTMLDivElement>(
   pageRef: RefObject<HTMLDivElement | null>,
   tableRef: RefObject<HTMLDivElement | null>,
 ) {
-  // The header can mount after schema loading, or after leaving gallery mode.
   const headerRef = useRef<Header | null>(null);
   useLayoutEffect(() => {
     const header = headerRef.current;
@@ -49,7 +44,6 @@ export function usePageTableHeader<Header extends HTMLElement = HTMLDivElement>(
     observer?.observe(page);
     observer?.observe(table);
     observer?.observe(header);
-    // Summaries and filter controls can move the table without resizing it.
     for (const child of page.children) observer?.observe(child);
     return () => {
       if (frame !== null) cancelAnimationFrame(frame);
@@ -58,8 +52,6 @@ export function usePageTableHeader<Header extends HTMLElement = HTMLDivElement>(
       observer?.disconnect();
       header.style.transform = originalTransform;
     };
-    // Rebind after commits where loading/gallery swaps the DOM. Ref callbacks
-    // must not set React state: that can flush the owner's URL hydration early.
   });
   return headerRef;
 }

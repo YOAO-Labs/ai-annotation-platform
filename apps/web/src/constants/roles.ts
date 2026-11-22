@@ -1,9 +1,5 @@
 import type { UserRole, PlatformRole, ProjectRole, ProjectStatus, TaskStatus } from "@/types";
 
-/**
- * Account/platform role labels.  `employee` is the only global staff identity;
- * its annotation/review duties are project-scoped ({@link PROJECT_ROLE_LABELS}).
- */
 export const ROLE_LABELS: Record<PlatformRole, string> = {
   super_admin: "超级管理员",
   project_admin: "项目管理员",
@@ -18,7 +14,6 @@ export const ROLE_DESC: Record<PlatformRole, string> = {
   viewer: "只读浏览项目数据与标注结果",
 };
 
-/** Project responsibility labels (the 项目职责 dimension). */
 export const PROJECT_ROLE_LABELS: Record<ProjectRole, string> = {
   annotator: "标注员",
   reviewer: "质检员",

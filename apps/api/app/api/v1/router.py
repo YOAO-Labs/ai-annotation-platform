@@ -96,20 +96,17 @@ api_router.include_router(
 )
 api_router.include_router(me.router, prefix="/auth/me", tags=["me"])
 api_router.include_router(api_keys.router, prefix="/me/api-keys", tags=["api-keys"])
-# 头像图片读取。免鉴权(浏览器 <img> 不带 Authorization 头),详见 avatars.py 模块注释。
 api_router.include_router(avatars.router, prefix="/avatars", tags=["avatars"])
 api_router.include_router(
     admin_ml_integrations.router,
     prefix="/admin/ml-integrations",
     tags=["admin-ml-integrations"],
 )
-# /admin/preannotate-queue (注意: 端点路径已含 /admin/preannotate-queue, 这里 prefix 留空)
 api_router.include_router(
     admin_preannotate.router,
     prefix="",
     tags=["admin-preannotate"],
 )
-# /admin/projects/:id/alias-frequency
 api_router.include_router(
     admin_alias_freq.router,
     prefix="",
@@ -138,19 +135,15 @@ api_router.include_router(training_recipes.router, tags=["training-recipes"])
 api_router.include_router(project_performance.router, tags=["project-performance"])
 api_router.include_router(task_views.router, tags=["task-views"])
 api_router.include_router(data_manager.router, tags=["data-manager"])
-# 项目标注指引图片资源端点 (与 datasets items upload 独立, 不污染 dataset_items 表)
 api_router.include_router(
     guide_assets.router, prefix="/projects", tags=["guide-assets"]
 )
-# 项目模板库
 api_router.include_router(
     project_templates.router, prefix="/project-templates", tags=["project-templates"]
 )
 api_router.include_router(
     project_pipelines.router, prefix="/project-pipelines", tags=["project-pipelines"]
 )
-# /tasks 前缀已下放至 tasks 包内部聚合(见 app/api/v1/tasks/__init__.py);
-# 此处仅施加 tag,避免与包内前缀叠加成 /tasks/tasks。
 api_router.include_router(tasks.router, tags=["tasks"])
 api_router.include_router(videos.router, prefix="/videos", tags=["videos"])
 api_router.include_router(
@@ -166,7 +159,6 @@ api_router.include_router(
     prefix="/projects/{project_id}/ml-backends",
     tags=["ml-backends"],
 )
-# 协议级能力目录 (与 backend 注册解耦)
 api_router.include_router(
     ml_capabilities.router,
     prefix="/ml-capabilities",
@@ -199,37 +191,27 @@ api_router.include_router(
 )
 api_router.include_router(annotation_comments.router, tags=["annotation-comments"])
 api_router.include_router(annotation_history.router, tags=["annotation-history"])
-# I12 · Object Group 与批量编辑
 api_router.include_router(annotations.router, tags=["annotations"])
-# I18 · AnnotationFeedback 统一反馈表
 api_router.include_router(annotation_feedbacks.router, tags=["annotation-feedbacks"])
 api_router.include_router(search.router, prefix="/search", tags=["search"])
 api_router.include_router(bug_reports.router, tags=["bug-reports"])
 api_router.include_router(notifications.router, tags=["notifications"])
-# 失败预测管理 + 重试
 api_router.include_router(predictions.router, tags=["predictions"])
-# 统一异步任务表
 api_router.include_router(async_jobs.router, tags=["async-jobs"])
 api_router.include_router(mask_qc.router, tags=["mask-qc"])
 api_router.include_router(point_cloud_quality.router, tags=["point-cloud-quality"])
 api_router.include_router(mask_formats.router, tags=["mask-formats"])
-# DuckDB 离线分析面板（super_admin only）
 api_router.include_router(
     admin_analytics.router, prefix="/admin/analytics", tags=["admin-analytics"]
 )
-# super_admin 系统健康聚合面板
 api_router.include_router(
     admin_system_health.router,
     prefix="/admin/system-health",
     tags=["admin-system-health"],
 )
 
-# 内部服务发现 router (/internal/metrics-targets, Prometheus http_sd)。
-# include_in_schema=False, 不进 OpenAPI 公开 schema; 所有环境暴露 (监控用)。
 api_router.include_router(internal.router, prefix="/internal", tags=["internal"])
 
-# _test_seed router 仅在非 production 且显式开启 E2E_SEED_ENABLED 时挂载；
-# router 内还有数据库名守卫，避免测试造数端点误连开发库。
 from app.config import settings as _settings  # noqa: E402
 
 

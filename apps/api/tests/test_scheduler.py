@@ -24,9 +24,6 @@ from app.services.display_id import next_display_id
 from tests.factory import create_membership, build_tool_bindings
 
 
-# ── 共用 seed helper ─────────────────────────────────────────────────────────
-
-
 async def _seed(
     db: AsyncSession,
     owner_id: uuid.UUID,
@@ -83,9 +80,6 @@ async def _seed(
         tasks.append(t)
     await db.flush()
     return p, batch, tasks
-
-
-# ── 1. active/pre_annotated → annotating ────────────────────────────────────
 
 
 class TestAutoTransitionActiveToAnnotating:
@@ -195,9 +189,6 @@ class TestAutoTransitionActiveToAnnotating:
         await BatchService(db_session).check_auto_transitions(batch.id)
         await db_session.refresh(batch)
         assert batch.status == "pre_annotated"
-
-
-# ── 2. annotating → reviewing ────────────────────────────────────────────────
 
 
 class TestAutoTransitionAnnotatingToReviewing:
@@ -317,16 +308,12 @@ class TestAutoTransitionAnnotatingToReviewing:
         assert batch.status == "annotating"
 
 
-# ── 3. 边界情况 ──────────────────────────────────────────────────────────────
-
-
 class TestAutoTransitionBoundary:
     @pytest.mark.asyncio
     async def test_none_batch_id_is_noop(self, db_session, super_admin, annotator):
         from app.services.batch import BatchService
 
         await BatchService(db_session).check_auto_transitions(None)
-        # 没有抛出异常即通过
 
     @pytest.mark.asyncio
     async def test_nonexistent_batch_id_is_noop(
@@ -335,7 +322,6 @@ class TestAutoTransitionBoundary:
         from app.services.batch import BatchService
 
         await BatchService(db_session).check_auto_transitions(uuid.uuid4())
-        # 没有抛出异常即通过
 
     @pytest.mark.asyncio
     async def test_reviewing_status_is_noop(self, db_session, super_admin, annotator):
@@ -375,9 +361,6 @@ class TestAutoTransitionBoundary:
         await BatchService(db_session).check_auto_transitions(batch.id)
         await db_session.refresh(batch)
         assert batch.status == "approved"
-
-
-# ── 4. get_next_task 批次状态过滤 ────────────────────────────────────────────
 
 
 class TestGetNextTaskBatchFiltering:

@@ -93,13 +93,11 @@ def _has_create_fk(
 def test_upgrade_creates_pool_and_member_tables() -> None:
     migration = _load_migration_0132()
     migration.op = MagicMock()
-    # op.create_table / create_index / create_foreign_key etc are MagicMock attrs.
     migration.upgrade()
 
     created = [c.args[0] for c in migration.op.create_table.call_args_list]
     assert "ml_backend_service_pools" in created
     assert "ml_backend_pool_members" in created
-    # index on pool_id for member lookups
     migration.op.create_index.assert_any_call(
         "ix_ml_backend_pool_members_pool_id", "ml_backend_pool_members", ["pool_id"]
     )
@@ -112,16 +110,14 @@ def test_upgrade_singleton_backfill_uses_project_enablement_for_pool_enabled() -
     migration.upgrade()
 
     sqls = _collected_sql(migration.op)
-    # The singleton-pool INSERT must derive enabled from project_ml_backend (pre-rename).
     pool_inserts = [s for s in sqls if "INSERT INTO ml_backend_service_pools" in s]
     assert pool_inserts, "singleton pool backfill INSERT missing"
     assert "project_ml_backend" in pool_inserts[0]
     assert "enabled = true" in pool_inserts[0] or "enabled=true" in pool_inserts[0]
-    # Every pool gets exactly one active weight=1 member.
     member_inserts = [s for s in sqls if "INSERT INTO ml_backend_pool_members" in s]
     assert member_inserts
     assert "'active'" in member_inserts[0]
-    assert "1" in member_inserts[0]  # weight
+    assert "1" in member_inserts[0]
 
 
 def test_upgrade_builds_machine_readable_registry_to_pool_map() -> None:
@@ -141,13 +137,10 @@ def test_upgrade_renames_project_binding_table_and_column() -> None:
     migration.op = MagicMock()
     migration.upgrade()
 
-    # registry_id → pool_id column rename on project_ml_backend
     assert _has_alter(migration.op, "project_ml_backend", "registry_id", "pool_id")
-    # table rename project_ml_backend → project_ml_backend_pool
     migration.op.rename_table.assert_any_call(
         "project_ml_backend", "project_ml_backend_pool"
     )
-    # new FK points at ml_backend_service_pools
     assert _has_create_fk(
         migration.op,
         "project_ml_backend_pool_pool_id_fkey",
@@ -168,16 +161,13 @@ def test_upgrade_renames_project_main_column_without_dropping_nonexistent_fk() -
     migration.op = MagicMock()
     migration.upgrade()
 
-    # Column rename ml_backend_id → ml_backend_pool_id
     assert _has_alter(migration.op, "projects", "ml_backend_id", "ml_backend_pool_id")
-    # Conditional drop (IF EXISTS), not a hard op.drop_constraint
     sqls = _collected_sql(migration.op)
     assert any(
         "ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_ml_backend_id_fkey"
         in s
         for s in sqls
     ), "projects FK drop must be conditional (FK may not exist historically)"
-    # New FK created pointing at pools (ON DELETE SET NULL)
     assert _has_create_fk(
         migration.op,
         "projects_ml_backend_pool_id_fkey",
@@ -198,7 +188,6 @@ def test_upgrade_adds_pool_id_to_partitioned_predictions_and_failed_predictions(
     add_targets = _add_column_targets(migration.op)
     assert "predictions" in add_targets
     assert "failed_predictions" in add_targets
-    # FK on parent propagates to partitions (ADR-0006)
     assert _has_create_fk(
         migration.op,
         "predictions_ml_backend_pool_id_fkey",
@@ -225,12 +214,9 @@ def test_upgrade_remaps_all_seven_jsonb_classes() -> None:
 
     sqls = _collected_sql(migration.op)
     blob = "\n".join(sqls)
-    # 7 classes per plan §5.5
     assert "preannotate_pipeline" in blob and "ml_backend_pool_id" in blob
     assert "projects" in blob and "default_variants" in blob
-    assert (
-        "project_ml_backend" in blob
-    )  # project_ml_backend_pool.default_variants (pre-rename)
+    assert "project_ml_backend" in blob
     assert "params_by_backend" in blob
     assert "model_by_backend" in blob
     assert "interactive_backend_by_project" in blob
@@ -271,13 +257,10 @@ def test_downgrade_reverses_column_and_table_renames_when_singleton() -> None:
     migration.op = MagicMock()
     migration.downgrade()
 
-    # pool_id → registry_id on project_ml_backend_pool (before rename back)
     assert _has_alter(migration.op, "project_ml_backend_pool", "pool_id", "registry_id")
-    # table rename back
     migration.op.rename_table.assert_any_call(
         "project_ml_backend_pool", "project_ml_backend"
     )
-    # projects column rename back; NOTE no FK recreation (never existed historically)
     assert _has_alter(migration.op, "projects", "ml_backend_pool_id", "ml_backend_id")
 
 
@@ -291,7 +274,6 @@ def test_downgrade_does_not_recreate_historically_absent_projects_fk() -> None:
     assert "projects_ml_backend_id_fkey" not in fk_names, (
         "downgrade must not recreate the historically-absent projects.ml_backend_id FK"
     )
-    # But it SHOULD recreate the project_ml_backend_registry_id_fkey (that one existed).
     assert "project_ml_backend_registry_id_fkey" in fk_names
 
 
@@ -305,7 +287,6 @@ def test_downgrade_reverses_jsonb_remapping_via_legacy_instance_map() -> None:
     blob = "\n".join(sqls)
     assert "_pool_map_down" in blob
     assert "legacy_instance_id" in blob
-    # All 7 JSONB classes reversed
     for key in (
         "preannotate_pipeline",
         "default_variants",

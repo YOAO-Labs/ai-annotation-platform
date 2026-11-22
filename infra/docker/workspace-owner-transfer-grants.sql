@@ -1,8 +1,3 @@
--- Grant the Workspace owner-transfer LOGIN only its two closed native functions.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v identity_owner=identity_code -v workspace_owner=workspace_code
---   -v workspace_owner_transfer_role=yoao_workspace_owner_transfer_client
---   -f infra/docker/workspace-owner-transfer-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

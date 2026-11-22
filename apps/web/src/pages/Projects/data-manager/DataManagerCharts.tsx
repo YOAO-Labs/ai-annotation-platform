@@ -42,8 +42,6 @@ const CONFIDENCE_BUCKET_LABELS: Record<string, string> = {
   gte_075: "75–100%",
 };
 
-// 任务状态语义色：与列表 Badge 语义呼应（已完成=绿 / 待审核=琥珀 / 已退回=红），
-// 让表格与图表的颜色语言一致。其余分布维度统一用量级色（chart-1），不按图序号轮换。
 const STATUS_COLOR_VARS: Record<string, string> = {
   pending: "--sc-chart-1",
   in_progress: "--sc-chart-4",
@@ -74,8 +72,6 @@ interface ChartSpec {
   description: string;
   data: Array<{ key: string; name: string; value: number }>;
   kind?: "status";
-  // 该图对应的可筛选字段 key（来自 schema.filter_fields）；有值时点柱子即加一条 `field eq value` 筛选。
-  // 无对应字段（置信度桶 / 质量异常 / 待审模型版本的 null 占位）留空 → 图表只读。
   filterField?: string;
 }
 
@@ -94,7 +90,6 @@ export function DataManagerCharts({
   scope: DataManagerEntityScope;
   summary?: DataManagerSummary;
   facets?: DataManagerEntityFacets;
-  // 可筛选字段（用于属性值分布图的 value→label 映射与可点校验）
   fields?: DataManagerFilterField[];
   isLoading?: boolean;
   onSelect?: (field: string, value: string) => void;
@@ -154,8 +149,6 @@ export function DataManagerCharts({
           ]),
         },
       ];
-      // 每个 select / boolean 属性追加一张「属性值分布」图，点柱子下钻到含该值的任务。
-      // 值分布只对这两类属性产出（后端聚合口径），它们都支持 eq 筛选，恰好匹配交叉筛选。
       const attributeSpecs: ChartSpec[] = (summary.attributes ?? [])
         .filter((attr) => Object.keys(attr.values).length > 0)
         .map((attr) => {

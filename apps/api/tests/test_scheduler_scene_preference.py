@@ -131,12 +131,11 @@ async def test_scene_preference_on_returns_next_frame(
     project, _, tasks = await _seed_scene_project(
         db_session, owner_id=owner.id, annotator_id=user.id, n=4, prefer=True
     )
-    # 用户刚标完 frame 1
     await _annotate(db_session, task=tasks[1], project=project, user_id=user.id)
 
     nxt = await get_next_task(user.id, project.id, db_session, project_role="annotator")
     assert nxt is not None
-    assert nxt.id == tasks[2].id  # 同 scene 下一帧
+    assert nxt.id == tasks[2].id
 
 
 @pytest.mark.asyncio
@@ -150,7 +149,6 @@ async def test_scene_preference_off_uses_sequence(db_session, super_admin, annot
 
     nxt = await get_next_task(user.id, project.id, db_session, project_role="annotator")
     assert nxt is not None
-    # OFF: 既有 sequence 策略 → frame 0(已标的 frame1 被排除, 但不优先连续)
     assert nxt.id == tasks[0].id
 
 
@@ -163,7 +161,6 @@ async def test_scene_preference_on_no_recent_falls_back(
     project, _, tasks = await _seed_scene_project(
         db_session, owner_id=owner.id, annotator_id=user.id, n=4, prefer=True
     )
-    # 无 recent annotation → 回退 sequence → frame 0
     nxt = await get_next_task(user.id, project.id, db_session, project_role="annotator")
     assert nxt is not None
     assert nxt.id == tasks[0].id
@@ -178,7 +175,6 @@ async def test_scene_preference_on_last_frame_falls_back(
     project, _, tasks = await _seed_scene_project(
         db_session, owner_id=owner.id, annotator_id=user.id, n=3, prefer=True
     )
-    # 标完末帧 frame 2 → scene 内无后续帧 → 回退 sequence → frame 0
     await _annotate(db_session, task=tasks[2], project=project, user_id=user.id)
     nxt = await get_next_task(user.id, project.id, db_session, project_role="annotator")
     assert nxt is not None
@@ -196,14 +192,12 @@ async def test_scene_preference_on_acquire_fails_falls_back(
     project, _, tasks = await _seed_scene_project(
         db_session, owner_id=owner.id, annotator_id=user.id, n=4, prefer=True
     )
-    # 用户刚标完 frame 1 → scene 分支会命中 frame 2(tasks[2])
     await _annotate(db_session, task=tasks[1], project=project, user_id=user.id)
 
     scene_next_id = tasks[2].id
     real_acquire = TaskLockService.acquire
 
     async def fake_acquire(self, task_id, user_id, ttl=None, force_takeover=False):
-        # 模拟他人在预过滤与 acquire 之间抢先: 仅对 scene next frame 抢锁失败
         if task_id == scene_next_id:
             return None
         return await real_acquire(
@@ -214,9 +208,7 @@ async def test_scene_preference_on_acquire_fails_falls_back(
 
     nxt = await get_next_task(user.id, project.id, db_session, project_role="annotator")
     assert nxt is not None
-    # 不能返回未拿到锁的 scene next frame
     assert nxt.id != scene_next_id
-    # 回退经典 sequence 策略: frame1 已标被排除, 取 frame 0
     assert nxt.id == tasks[0].id
 
 
@@ -233,12 +225,12 @@ async def test_classic_path_skips_candidate_when_acquire_fails(
         db_session, owner_id=owner.id, annotator_id=user.id, n=4, prefer=False
     )
 
-    contended_id = tasks[0].id  # 经典 sequence 序首个候选
+    contended_id = tasks[0].id
     real_acquire = TaskLockService.acquire
 
     async def fake_acquire(self, task_id, user_id, ttl=None, force_takeover=False):
         if task_id == contended_id:
-            return None  # 模拟他人抢先上锁
+            return None
         return await real_acquire(
             self, task_id, user_id, ttl=ttl, force_takeover=force_takeover
         )
@@ -247,8 +239,8 @@ async def test_classic_path_skips_candidate_when_acquire_fails(
 
     nxt = await get_next_task(user.id, project.id, db_session, project_role="annotator")
     assert nxt is not None
-    assert nxt.id != contended_id  # 不返回未拿到锁的首候选
-    assert nxt.id == tasks[1].id  # 跳到下一候选并成功上锁
+    assert nxt.id != contended_id
+    assert nxt.id == tasks[1].id
 
 
 @pytest.mark.asyncio
@@ -263,7 +255,7 @@ async def test_classic_path_returns_none_when_all_candidates_locked(
     )
 
     async def fake_acquire(self, task_id, user_id, ttl=None, force_takeover=False):
-        return None  # 所有候选都抢不到锁
+        return None
 
     monkeypatch.setattr(TaskLockService, "acquire", fake_acquire)
 

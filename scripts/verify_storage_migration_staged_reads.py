@@ -176,8 +176,6 @@ async def seed_staged(input_path, output_path):
             mapping={},
             options={"overwrite": False},
         )
-        # A failed dataset is only the durable FK parent of the terminal run.
-        # No training preparation, execution or model qualification is claimed.
         snapshot = {"schema": 1, "samples": [], "classes": ["object"]}
         dataset = TrainingDatasetVersion(
             id=uuid.uuid4(),

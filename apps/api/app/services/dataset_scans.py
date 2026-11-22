@@ -120,13 +120,9 @@ async def run_context(db, run_id):
     if run is None:
         raise HTTPException(404, "Dataset scan not found")
     location, source = await source_context(db, run.source_id)
-    # Waiting for Source may have allowed a resume to replace the attempt.
-    # Read the association again after serialization, before locking Job.
     job_id = await db.scalar(
         select(DatasetScanRun.async_job_id).where(DatasetScanRun.id == run_id)
     )
-    # Retention deletes Job before its FK clears Run.async_job_id. Match that
-    # order after Source serialization, including resumes of old terminal jobs.
     job = (
         await db.scalar(
             select(AsyncJob)

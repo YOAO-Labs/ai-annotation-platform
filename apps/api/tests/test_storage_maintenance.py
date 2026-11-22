@@ -34,8 +34,6 @@ async def where(db_session, test_engine):
     identity = row.id
     yield row
     await db_session.rollback()
-    # The shared fixture owns an outer Connection transaction beyond Session
-    # SAVEPOINTs; release its locks before independent ledger cleanup.
     await db_session.bind.rollback()
     async with test_engine.begin() as connection:
         await connection.execute(
@@ -98,7 +96,6 @@ async def test_disabled_protocol_reports_state_but_cannot_control(
             response.json()["detail"]["code"]
             == "storage_maintenance_protocol_unqualified"
         )
-    # Rollout guard controls only the UI/API operations, not durable recording.
     async with await access.acquire(db_session, where.id, "rollout_read"):
         assert (await svc.snapshot(db_session, where.id))["open_operations"] == 1
 

@@ -24,7 +24,6 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   "bug_report.created": "提交反馈",
   "bug_report.status_changed": "反馈状态更新",
   "bug_comment.created": "反馈评论",
-  // B-5 · AI 相关审计
   "ai.preannotate.triggered": "触发 AI 预标注",
   "video_tracker_job.decision": "审核视频追踪候选",
   "video_mask.keyframe_correct": "保存视频 Mask 纠错帧",

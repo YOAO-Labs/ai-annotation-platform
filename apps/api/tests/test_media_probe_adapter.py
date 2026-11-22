@@ -312,7 +312,6 @@ async def test_remote_timetable_only_replaces_committed_rows_after_integrity_che
             else:
                 with pytest.raises(media_probe.MediaProbeError):
                     await workflow.rebuild_item(item)
-            # Commit even after a rejected result: no partial replacement may exist.
             await mutation.commit()
 
         async with maker() as observer:

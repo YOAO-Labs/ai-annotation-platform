@@ -63,8 +63,6 @@ from tests.test_fixture_inference_retirement_live import (
 pytestmark = pytest.mark.asyncio
 _RETAINED_UNCERTAIN = []
 
-# Installed only in the one selected worker.  The actual boto response is read,
-# held with its socket open, and then passed through without modifying bytes.
 _GATE = """\
 import json, os, time
 from pathlib import Path
@@ -356,8 +354,6 @@ async def _check_listener_teardown(test_engine, run_id, monkeypatch):
                 async def hold_unlisten(connection, query, *args, **kwargs):
                     if query == f'UNLISTEN "{channel}"':
                         if mode == "socket_stall":
-                            # Finish Parse/Describe first so the paused socket
-                            # stalls the actual UNLISTEN execution response.
                             statement = await connection.prepare(query)
                             connection._transport.pause_reading()
                             deregistering.set()
@@ -720,8 +716,6 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
                 media.control_client, media.control_token, "/v1/source-reference", req_a
             )
             assert late_read.status_code == 409, late_read.text
-            # Hold the status relation lock until the owner finishes. This
-            # forces completion after LISTEN but before the first status result.
             async with test_engine.begin() as blocker:
                 await blocker.execute(
                     text(
@@ -759,8 +753,6 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
             assert (gate / "resumed").is_file()
             assert not await _operations(test_engine, creation_a["id"])
             blocked = await asyncio.wait_for(cleanup, 120)
-            # Exact-run reader completion does not bypass the shared Location
-            # maintenance gate while the neighboring reader remains active.
             assert blocked.status_code == 409, blocked.text
             assert blocked.json()["detail"]["code"] == "fixture_maintenance_unsettled"
             assert await _ownership_evidence(test_engine, run_a) == evidence_a

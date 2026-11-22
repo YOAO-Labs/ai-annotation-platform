@@ -85,11 +85,9 @@ async def test_users_query_stats_and_export_keep_the_same_filtered_scope(
     )
     assert query_body["items"][0]["id"] == str(managed.id)
     assert export_body["users"][0]["id"] == str(managed.id)
-    # Read visibility excludes unassigned viewers and disabled accounts...
     assert str(outside.id) not in {row["id"] for row in query_body["items"]}
     assert str(disabled_outside.id) not in {row["id"] for row in query_body["items"]}
 
-    # ...but does include enabled unassigned annotators (issue #115).
     enabled_outside = await create_user(
         db_session,
         "employee",

@@ -90,7 +90,7 @@ async def _run(operation: str, arguments: list[str]) -> None:
                     result["pending_id"] = str(pending_dataset.id)
             finally:
                 event.remove(db.sync_session, "before_commit", track_commit)
-    except Exception as exc:  # the API context manager closes and rolls back first
+    except Exception as exc:
         failure = exc
         database_error = getattr(exc, "orig", None)
         result["error_type"] = type(database_error or exc).__name__

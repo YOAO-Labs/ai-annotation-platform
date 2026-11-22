@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useListPagination } from "@/hooks/useListPagination";
 
-/** Keep object deep links reachable after the collection is split into pages. */
 export function useFocusedListPagination<T>(
   items: readonly T[],
   resetKey: string,

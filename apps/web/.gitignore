@@ -1,2 +1,1 @@
-# A.1：OpenAPI codegen 产物（运行 `pnpm codegen` 重新生成）
 src/api/generated/

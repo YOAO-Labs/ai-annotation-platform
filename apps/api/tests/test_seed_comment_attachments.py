@@ -93,7 +93,6 @@ async def clean(ctx, world):
 
 
 async def present(ctx, row):
-    # A failed ASGI request rolls back this session and expires even primary keys.
     current = await ctx.db.get(Upload, inspect(row).identity[0], populate_existing=True)
     await ctx.db.commit()
     return current
@@ -166,7 +165,6 @@ async def test_uploader_in_another_scope_is_not_selected(context):
 
 async def test_bound_foreign_comment_keeps_original_namespace_as_retry_anchor(context):
     ctx = context
-    # The fixture teardown also cleans B before A when an assertion fails.
     a, b = await build(ctx), await build(ctx)
     own, _, own_comment = await upload(ctx, a)
     foreign, attachment, foreign_comment = await upload(ctx, b, actor=a)
@@ -237,7 +235,6 @@ async def test_any_pending_refuses_with_zero_physical_delete_and_keeps_ready(
     assert ctx.objects.data == before and not ctx.objects.deleted
     assert (await present(ctx, ready)).state == "ready"
     assert await ctx.db.get(Project, uuid.UUID(world["project_id"])) is not None
-    # This pending row and its optional bytes were injected by this test.
     await ctx.db.delete(pending)
     await ctx.db.commit()
     ctx.objects.data.pop(
@@ -734,7 +731,6 @@ async def test_real_open_body_and_unknown_close_keep_durable_read_responsibility
         release.set()
         with pytest.raises(asyncio.CancelledError):
             await task
-        # First assert uncertainty remains. Cleanup cannot infer a closed body.
         assert (await clean(ctx, world)).status_code == 409
         for body in ctx.objects.bodies:
             io.BytesIO.close(body)

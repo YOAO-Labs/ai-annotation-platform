@@ -195,8 +195,6 @@ class VideoWriterHttpClient:
                 raise _AmbiguousVideoWriterResponse()
             return result
         if status_code in {401, 409, 413, 422}:
-            # A well-formed closed rejection is final; malformed errors are not
-            # evidence that the transaction failed to commit.
             try:
                 result = decode_video_writer_api_reply(raw, status=False)
             except (VideoWriterInvalidRequest, VideoWriterRejected):

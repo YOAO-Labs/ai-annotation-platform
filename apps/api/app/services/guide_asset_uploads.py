@@ -270,9 +270,6 @@ async def upload(db, proof, project_id, data, mime_type, file_name):
         )
         actor = await reauthorize(db, proof)
         entry = storage.entry(receipt)
-        # The Workspace owner re-acquires the storage gate at this exact
-        # revision, verifies the still-pending owner row and publishes the
-        # reference plus list entry in the caller's transaction.
         await references.publish(
             db,
             actor_id=actor.id,

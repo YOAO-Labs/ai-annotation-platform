@@ -15,7 +15,6 @@ type BatchChangeTarget = {
   geom: Geom;
   className: string;
   count: number;
-  /** 视频几何用固定屏幕锚点(无 image 定位);图片留空走 geom + vp。 */
   anchor?: { left: number; top: number };
 } | null;
 
@@ -23,11 +22,6 @@ interface WorkbenchOverlaysProps {
   pendingDrawing: PendingDrawing;
   editingClass: EditingClass;
   samPendingGeom: Geom | null;
-  /**
-   * 视频侧 SAM 候选的类选择器锚点 (屏幕坐标)。
-   * 图片侧用 geom + vp 换算; 视频画布的 vp 不在这层, 故由画布换算好再传下来 —— 与视频
-   * pendingDrawing 的 anchor 同式。二者互斥: 有 anchor 走 fixed 定位。
-   */
   samPendingAnchor?: { left: number; top: number } | null;
   samDefaultClass: string;
   batchChanging: boolean;
@@ -36,18 +30,14 @@ interface WorkbenchOverlaysProps {
   stageGeom: StageGeometry;
   vp: Viewport;
   classes: string[];
-  /** B-57 · 采纳预测选类时按预测自身工具单位 (如 region) 列出的类别; 非采纳态等于 classes。 */
   editingClassClasses: string[];
-  /** 批量改类按选中对象的工具单位取类别；混合工具单位会在打开弹层前阻止。 */
   batchChangeClasses?: string[];
   recentClasses: string[];
   activeClass: string;
   onPickPendingClass: (cls: string) => void;
   onCancelPending: (reason: ClassPickerCancelReason) => void;
   onCommitChangeClass: (cls: string) => void;
-  /** 改类悬浮框含属性时用此回调——提交改类但不关闭悬浮框，便于接着编辑属性。 */
   onChangeClassKeepOpen?: (cls: string) => void;
-  /** 改类悬浮框内联属性编辑（按当前选中标注派生；缺省时退化为纯改类、点选即关）。 */
   changeClassAttrEditing?: ClassPickerAttrEditing;
   onCancelChangeClass: () => void;
   onSamCommitClass: (cls: string) => void;

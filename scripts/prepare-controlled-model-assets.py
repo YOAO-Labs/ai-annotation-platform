@@ -19,8 +19,6 @@ from training_contract.assets import asset_object_key, prepare_asset, read_manif
 
 
 def _storage_client(args):
-    # This is an administrator-only dependency already supplied by the API
-    # environment. Runtime consumers never receive object-store credentials.
     import boto3  # noqa: PLC0415
 
     endpoint = args.endpoint or os.environ.get("MINIO_ENDPOINT")
@@ -102,7 +100,6 @@ def _publish_object(client, bucket, reference, path):
                 "PreconditionFailed",
             }:
                 raise
-    # Never trust a matching name, size, ETag or custom metadata alone.
     _verify_object(client, bucket, reference)
 
 
@@ -133,7 +130,6 @@ def _prepare_manifest(args, target_dir):
                 break
             except Exception:
                 if attempt == 2:
-                    # HTTP/storage exceptions can contain signed credentials.
                     raise RuntimeError(
                         f"Could not prepare immutable asset {reference.filename}"
                     ) from None
@@ -172,7 +168,6 @@ def main() -> int:
     try:
         return _prepare_manifest(args, target_dir)
     except Exception as exc:
-        # Keep administrator errors useful without exposing storage URLs.
         print(
             f"Controlled asset preparation failed ({type(exc).__name__})",
             file=sys.stderr,

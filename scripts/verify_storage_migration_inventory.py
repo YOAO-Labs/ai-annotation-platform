@@ -26,7 +26,6 @@ def records(path):
 
 
 def source_facts(path):
-    # Observation timestamps and headers differ; bucket/object/upload facts must not.
     def stable(record):
         result = {key: value for key, value in record.items() if key != "observed_at"}
         if "verification" in result:
@@ -323,7 +322,6 @@ async def qualify(backend, directory, report):
             and summary["counts"]["multipart"] == 1,
             "Version or upload omitted",
         )
-        # The production CLI must also retain a valid but incomplete report on budget refusal.
         incomplete = directory / "limited.jsonl"
         refused = subprocess.run(
             [*command[:-4], "--output", str(incomplete), "--max-entries", "1"],

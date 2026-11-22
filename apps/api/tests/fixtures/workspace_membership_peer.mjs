@@ -1129,7 +1129,6 @@ async function runPublicHttp(input) {
     for (let index = 1; index < body.length; index += 1) {
       if (Date.parse(body[index].assigned_at) > Date.parse(body[index - 1].assigned_at)) fail();
     }
-    // The legacy capture shares a transaction timestamp; tie order is unspecified.
     const byUser = (left, right) => left.user_id.localeCompare(right.user_id);
     actualNormalized.sort(byUser);
     expectedNormalized.sort(byUser);
@@ -1287,7 +1286,6 @@ async function runNative(input) {
       input.request.actor_id,
       input.request.payload.target_user_id,
     ].sort();
-    // This peer deliberately exercises one simple, valid add; manager policy is qualified by the Workspace owner HTTP calls.
     if (
       !canManage ||
       !compatible ||

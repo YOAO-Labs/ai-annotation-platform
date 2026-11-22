@@ -55,9 +55,6 @@ RAW = b"opaque original\x00\xff"
 @pytest.fixture
 async def world(original_db, original_client, test_engine, monkeypatch):
     db = original_db
-    # Extend the existing per-test owner schema with real authority tables.
-    # LIKE preserves production columns/checks without introducing business FKs
-    # into the independently disposable ledger fixture.
     async with test_engine.connect() as connection:
         template = await connection.scalar(text("SELECT current_schema()"))
     schema = await db.scalar(text("SELECT current_schema()"))
@@ -136,8 +133,6 @@ async def world(original_db, original_client, test_engine, monkeypatch):
             stage.close()
         await db.rollback()
         assert all(body.closed for body in provider.bodies)
-        # Only this schema is dropped by original_db; immutable receipts never
-        # need a production deletion exception for test teardown.
 
 
 def request(actor, *, token=None, key_id=None, scopes=None):
@@ -631,5 +626,3 @@ async def test_unknown_physical_close_keeps_independent_operation(world):
     assert getattr(error.value, "storage_operation_unsettled", False)
     assert await operations(world) == 1
     assert world.provider.calls and all(body.closed for body in world.provider.bodies)
-    # The schema fixture is the sole owner of this synthetic unresolved permit;
-    # teardown destroys its isolated schema, never deletes production evidence.

@@ -307,10 +307,6 @@ async def test_catalog_list_uses_filters_page_snapshot_and_asset_owned_aggregate
             "offset": 0,
         },
     )
-    # The catalog list is global for a super admin, so an unfiltered page would
-    # also contain datasets left by earlier files.  Keep this assertion about
-    # the empty-string ``data_type`` alias by selecting this test's two datasets
-    # with the same case-insensitive search the tie page uses.
     image_empty_alias = await _call(
         db_session,
         _LIST,

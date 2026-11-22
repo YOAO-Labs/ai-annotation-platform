@@ -8,7 +8,6 @@ interface Props {
   loading?: boolean;
   error?: unknown;
   onRetry?: () => void;
-  /** Docked Workbench fills the available content area; ReviewWorkbench stays bounded. */
   presentation?: "fill" | "bounded";
   scopeLabel?: string;
 }
@@ -42,21 +41,17 @@ function formatRelative(iso: string): string {
 
 function summarizeDetail(action: string | null, detail: Record<string, unknown> | null): string {
   if (!detail) return "";
-  // attribute_change：before / after / field_key
   if (action === "annotation.attribute_change" && "field_key" in detail) {
     const before = detail.before;
     const after = detail.after;
     return `${detail.field_key}: ${JSON.stringify(before)} → ${JSON.stringify(after)}`;
   }
-  // annotation.update: 显示哪些字段
   if (action === "annotation.update" && Array.isArray(detail.fields)) {
     return `字段：${(detail.fields as string[]).join("、")}`;
   }
-  // task.reject: reason
   if (action === "task.reject" && detail.reason) {
     return String(detail.reason).slice(0, 80);
   }
-  // annotation.create: class_name
   if (action === "annotation.create" && detail.class_name) {
     return `类别：${detail.class_name}`;
   }

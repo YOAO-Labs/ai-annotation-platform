@@ -403,7 +403,6 @@ async def test_pool_and_member_rows_stage_a_seed_until_native_flush(monkeypatch)
     )
     assert len(connection.calls) == calls_before_stage
     assert pool.updated_at == old_updated_at
-    # A later failed refresh must neither mutate nor discard the staged command.
     snapshot["models"][0]["id"] = "caller-edited"
     pool_sql = f"SELECT * FROM {_SCHEMA}.pool_row($1::uuid, $2::uuid)"
     connection.rows[pool_sql] = [_pool_row(capability_snapshot="not-json")]

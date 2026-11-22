@@ -57,8 +57,6 @@ async def test_private_original_exact_version_and_caller_transaction(
             version, etag = receipt.version_id, receipt.etag
             await db.rollback()
 
-            # The independent Media permit may commit its own work, never this
-            # caller-owned transaction or its uncommitted temporary state.
             await db.execute(
                 text(
                     "CREATE TEMP TABLE export_reader_transaction "

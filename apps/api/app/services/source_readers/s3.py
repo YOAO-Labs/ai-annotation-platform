@@ -266,7 +266,7 @@ class S3Access(_S3ClientAccess):
             observed = observation(
                 {**obj, "ContentLength": obj.get("Size")}, self.config["bucket"], key
             )
-            observed.pop("version_id")  # LIST does not identify a version.
+            observed.pop("version_id")
             entries.append({"name": key[len(prefix) :], **observed})
         names = []
         for obj in response.get("CommonPrefixes", []):
@@ -364,7 +364,6 @@ class ScopedS3Access(_S3ClientAccess):
     allowlist: tuple[str, ...]
 
     def _check_destination(self, endpoint):
-        # The owner admits one exact origin with its scoped credentials.
         if endpoint != self.secret.get("endpoint"):
             raise StorageError("connector_host_denied")
         try:
@@ -372,8 +371,6 @@ class ScopedS3Access(_S3ClientAccess):
         except ValueError:
             allowed_endpoint(endpoint, self.allowlist)
         else:
-            # An exact literal owner address needs no DNS. Loopback is reserved
-            # for that origin; other literals still pass the connector IP guard.
             if not address.is_loopback:
                 allowed_endpoint(endpoint, (str(address),))
 

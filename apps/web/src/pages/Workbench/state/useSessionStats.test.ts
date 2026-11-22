@@ -1,13 +1,3 @@
-/**
- * useSessionStats ring buffer 单测。
- *
- * 覆盖：
- *  - < MIN_SAMPLES (10) 时 avgMs=null，etaMs=null
- *  - ≥ MIN_SAMPLES 时 avgMs=平均，etaMs(n)=avg*n
- *  - dt < 1.5s 误触、idle 暂停、长段切分后仍按任务累计
- *  - 满 RING_SIZE (20) 时旧样本被丢弃
- *  - formatDuration 边界（mm:ss / h:mm / 负值）
- */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -60,9 +50,7 @@ describe("useSessionStats", () => {
 
     advance(5_000);
     rerender({ id: "t2" });
-    // 现在累计 1 个样本
     expect(result.current.samplesCount).toBe(1);
-    // 仍 < MIN_SAMPLES = 10
     expect(result.current.avgMs).toBeNull();
   });
 
@@ -76,7 +64,6 @@ describe("useSessionStats", () => {
       rerender({ id: `t${i}` });
     }
     expect(result.current.samplesCount).toBe(10);
-    // 每次间隔 2s
     expect(result.current.avgMs).toBe(2_000);
     expect(result.current.etaMs(3)).toBe(6_000);
     expect(result.current.etaMs(0)).toBeNull();
@@ -93,7 +80,6 @@ describe("useSessionStats", () => {
 
     advance(31 * 60 * 1000);
     rerender({ id: "t2" });
-    // A long interval is bounded by the idle cutoff instead of being lost.
     expect(result.current.samplesCount).toBe(1);
 
     advance(2_000);

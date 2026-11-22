@@ -1,10 +1,3 @@
--- Grant the standalone Identity active-status read to a dedicated LOGIN.
--- Run after migrations and module-data-grants as the migration role.
--- The status LOGIN receives no table, column, or second function capability.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v identity_owner=identity_code \
---   -v status_role=yoao_identity_actor_status_client \
---   -f infra/docker/identity-actor-status-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

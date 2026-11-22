@@ -97,17 +97,14 @@ def _selection_from_config(config: pytest.Config) -> ShardSelection | None:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    # 尽早校验：非法范围在收集开始前就以 UsageError 失败。
     _selection_from_config(config)
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list) -> None:
     selection = _selection_from_config(config)
     if selection is None or selection.count == 1:
-        # 未分片，或 count=1/index=0：保留全部，不报告 deselected。
         return
     kept, deselected = partition_items(items, selection)
     if deselected:
-        # 让 pytest 的输出/统计如实反映被分片排除的用例（计数准确，不静默丢弃）。
         config.hook.pytest_deselected(items=deselected)
     items[:] = kept

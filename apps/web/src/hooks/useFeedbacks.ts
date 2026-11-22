@@ -1,10 +1,3 @@
-/**
- * I18 · AnnotationFeedback React Query hooks.
- *
- * Feedback list ownership lives here. The Workbench can therefore share the
- * same cache family for filtered root lists, exact counts, threads and pins
- * without each consumer inventing a second client or invalidation prefix.
- */
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   feedbacksApi,
@@ -16,11 +9,6 @@ import {
 import { discussionKeys } from "@/pages/Workbench/state/discussionTypes";
 import { useAuthStore } from "@/stores/authStore";
 
-/**
- * Query keys include every server-side filter and response mode. The cursor
- * is a page parameter for infinite queries, but remains part of the key for
- * direct one-page callers so a cursor cannot reuse the first page's cache.
- */
 export function feedbacksQueryKey(params: ListFeedbacksParams, ownerId?: string | null) {
   return [
     ...discussionKeys.feedbacks(params.project_id),
@@ -37,7 +25,6 @@ export function feedbacksQueryKey(params: ListFeedbacksParams, ownerId?: string 
   ] as const;
 }
 
-/** Invalidation intentionally targets the shared feedback family prefix. */
 function invalidateFeedbackFamily(
   queryClient: ReturnType<typeof useQueryClient>,
   params: ListFeedbacksParams,
@@ -46,9 +33,6 @@ function invalidateFeedbackFamily(
   if (params.task_id) {
     queryClient.invalidateQueries({ queryKey: discussionKeys.task(params.task_id) });
   }
-  // A mutation may target a root, descendant, or a root supplied by a legacy
-  // caller. The exact thread key is invalidated by reply below; the prefix
-  // keeps all other affected thread details from becoming stale.
   queryClient.invalidateQueries({ queryKey: ["feedback-thread"] });
 }
 
@@ -69,9 +53,6 @@ function feedbackScope(data: unknown, fallback: ListFeedbacksParams): ListFeedba
 }
 
 function invalidatePublicDiscussionFamily(queryClient: ReturnType<typeof useQueryClient>) {
-  // Used only when a legacy 204 delete call did not carry its originating
-  // scope. It is deliberately conservative so a late A response cannot leave
-  // B's cache as the only invalidated owner.
   queryClient.invalidateQueries({ queryKey: ["feedbacks"] });
   queryClient.invalidateQueries({ queryKey: ["task-discussion"] });
   queryClient.invalidateQueries({ queryKey: ["feedback-thread"] });
@@ -89,8 +70,6 @@ export function useFeedbacks(params: ListFeedbacksParams, enabled = true) {
 
 export function useInfiniteFeedbacks(params: ListFeedbacksParams, enabled = true) {
   const ownerId = useAuthStore((state) => state.user?.id ?? null);
-  // Cursor is supplied by React Query's pageParam and must not create a new
-  // cache entry for every page.
   const queryKey = feedbacksQueryKey({ ...params, cursor: undefined }, ownerId);
   return useInfiniteQuery({
     queryKey: [...queryKey, "infinite"],

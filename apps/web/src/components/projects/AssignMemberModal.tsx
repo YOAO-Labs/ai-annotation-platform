@@ -20,7 +20,6 @@ interface Props {
 
 type MemberRole = "annotator" | "reviewer";
 
-/** Per-role selections. A user lives in at most one role's list at a time. */
 type Selection = Record<MemberRole, string[]>;
 
 const ROLE_LABEL: Record<MemberRole, string> = {
@@ -41,9 +40,6 @@ export function AssignMemberModal({ open, projectId, existing, onClose }: Props)
   const [submitting, setSubmitting] = useState(false);
   const add = useAddProjectMember(projectId);
 
-  // Every open/project is an independent assignment context. Reset all local
-  // state on entry and invalidate the previous context on exit (close, project
-  // switch or unmount) so a late result cannot close or clear a newer context.
   const contextEpoch = useRef(0);
   useEffect(() => {
     contextEpoch.current += 1;
@@ -57,8 +53,6 @@ export function AssignMemberModal({ open, projectId, existing, onClose }: Props)
   }, [open, projectId]);
 
   const { data: users = [], isLoading } = useQuery({
-    // Assignment candidates are ordinary active employees; the membership role
-    // is chosen separately below and rechecked by the server on write.
     queryKey: ["users", "assign-member", "employee"],
     queryFn: () => usersApi.list({ role: "employee" }),
     enabled: open,
@@ -86,8 +80,6 @@ export function AssignMemberModal({ open, projectId, existing, onClose }: Props)
   const toggleSelected = (userId: string) => {
     if (submitting) return;
     setSelected((prev) => {
-      // A user selected in the opposite role stays there until unselected on
-      // that role's tab; selecting here would silently transfer them.
       if (prev[otherRole(role)].includes(userId)) return prev;
       const inRole = prev[role].includes(userId);
       return {
@@ -104,12 +96,9 @@ export function AssignMemberModal({ open, projectId, existing, onClose }: Props)
     );
     const epoch = contextEpoch.current;
     setSubmitting(true);
-    // The shared mutation observer's isPending tracks a single concurrent
-    // request, so lock on the whole batch and release only when all settle.
     const results = await Promise.allSettled(
       payloads.map((p) => add.mutateAsync({ user_id: p.userId, role: p.role })),
     );
-    // A close/reopen or project switch started a new context: discard results.
     if (contextEpoch.current !== epoch) return;
 
     const failed: Selection = { annotator: [], reviewer: [] };
@@ -133,7 +122,6 @@ export function AssignMemberModal({ open, projectId, existing, onClose }: Props)
         sub: firstError && firstError.status === "rejected" ? String(firstError.reason) : undefined,
         kind: "error",
       });
-      // Keep only the failed users, with their original roles, for retry.
       setSelected(failed);
       setSubmitting(false);
       return;

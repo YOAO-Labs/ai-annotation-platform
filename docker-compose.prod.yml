@@ -1,23 +1,3 @@
-# 线上叠加文件 · 仅生产使用，把 api / web 容器化并让 celery worker/beat 改用生产配置。
-#
-#   生产：docker compose --env-file .env.production \
-#           -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-#   开发：docker compose up -d            # 不带本文件 → 只起基础设施，api/web 仍跑宿主机
-#
-# 必须带 --env-file .env.production：worker 下面用 ${VAR} 插值覆盖基础文件里硬编码的 dev 凭据，
-# 插值源由 --env-file 指定（默认 .env 是 dev 用的）。
-#
-# 为什么 worker 要 inline environment 覆盖、api/web 只用 env_file：
-#   docker-compose.yml 给 worker/beat 硬编码了 dev 的 DATABASE_URL/MINIO 凭据（inline environment），
-#   而 inline environment 优先级高于 env_file —— 叠加文件光加 env_file 盖不掉，必须再用 inline 覆盖这几个 key。
-#   api/web 在基础文件里不存在，无 inline 冲突，env_file 就能注入全部生产配置。
-#
-# 应用配置统一来自 .env.production（基于 .env.example 复制、逐项审过；已被 .gitignore 忽略，
-# ENVIRONMENT=production 时 SECRET_KEY / CORS_ALLOW_ORIGINS / MINIO_SECRET_KEY 等必填，
-# 否则启动断言失败 —— 见 docs-site/dev/concepts/runtime-environments.md）。
-# 注：前端不读 VITE_API_URL，调用硬编码同源 /api/v1，由 web 容器内 nginx 反代到 api:8000，故 web 镜像无需 build arg。
-
-# worker/beat 共用：覆盖基础文件硬编码的 dev infra 凭据，全部从 .env.production 取（缺失即报错）。
 x-prod-infra-env: &prod-infra-env
   DATABASE_URL: ${DATABASE_URL:?.env.production 必须设置 DATABASE_URL}
   MIGRATION_DATABASE_URL: ""
@@ -26,6 +6,8 @@ x-prod-infra-env: &prod-infra-env
   EXPORT_EXECUTION_DATABASE_URL: ""
   EXPORT_EXECUTION_DATABASE_URL_FILE: ""
   ALEMBIC_AUTO_UPGRADE: "false"
+  SMTP_PASSWORD: ""
+  SMTP_PASSWORD_FILE: ""
   ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://yolo-backend:8003","onnxtools":"http://onnxtools-backend:8004","rapidocr":"http://rapidocr-backend:8005"}}'
   STORAGE_FILESYSTEM_ROOTS: "${STORAGE_FILESYSTEM_ROOTS:-{}}"
   REDIS_URL: ${REDIS_URL:?.env.production 必须设置 REDIS_URL}
@@ -34,27 +16,27 @@ x-prod-infra-env: &prod-infra-env
   MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?.env.production 必须设置 MINIO_ACCESS_KEY}
   MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?.env.production 必须设置 MINIO_SECRET_KEY}
 
+x-smtp-password: &smtp-password
+  type: bind
+  source: ${SMTP_PASSWORD_FILE:-/dev/null}
+  target: /run/secrets/api_smtp_password
+  read_only: true
+  bind:
+    create_host_path: false
+
 services:
-  # 生产不把基础设施端口发布到宿主：api/web/worker 都在 compose 内网，经 service 名
-  # DNS（postgres:5432 / redis:6379 / minio:9000）直连即可，无需 host 发布。
-  # 基础 docker-compose.yml 为 dev 把它们绑在 0.0.0.0（host 工具直连方便），生产必须收回，
-  # 否则 PG/Redis/MinIO 直接暴露在宿主公网网卡上（比 api 端口更危险的直连入口）。
-  # ports 合并是 append（覆盖写法盖不掉基础 0.0.0.0），故用 !reset 清空（Compose v2.24+）。
   postgres:
     ports: !reset []
   redis:
     ports: !reset []
   minio:
     ports: !reset []
-  # mailpit 是 dev 假收件箱，生产本应禁用并改真实 SMTP；若仍随基础栈起来，至少不发布端口。
-  mailpit:
-    ports: !reset []
+  mailpit: !reset null
 
   api:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.api
-    # entrypoint.sh 启动时自动 alembic upgrade head，再跑 Dockerfile CMD 的 uvicorn。
     env_file:
       - .env.production
     environment:
@@ -67,7 +49,10 @@ services:
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://yolo-backend:8003","onnxtools":"http://onnxtools-backend:8004","rapidocr":"http://rapidocr-backend:8005"}}'
       ML_MANAGED_AUTH_DIR: /run/aap-inference-auth
       ML_BACKEND_OPERATIONS_DIR: /run/aap-backend-manager
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_PASSWORD_FILE: ${SMTP_PASSWORD_FILE:+/run/secrets/api_smtp_password}
     volumes:
+      - *smtp-password
       - type: bind
         source: ${JOBS_PUBLICATION_DATABASE_URL_FILE:-/dev/null}
         target: /run/secrets/jobs_publication_database_url
@@ -91,8 +76,6 @@ services:
         read_only: true
         bind:
           create_host_path: false
-    # 默认只绑宿主回环 127.0.0.1：强制流量走外层反代，不直接暴露公网（Docker 发布端口会绕过 ufw）。
-    # 外层反代在别的机器时，于 .env.production 设 PROXY_BIND_HOST=<内网IP>（勿用 0.0.0.0）。
     ports:
       - "${PROXY_BIND_HOST:-127.0.0.1}:8080:8000"
     depends_on:
@@ -121,20 +104,12 @@ services:
       args:
         VITE_EXPERIMENTAL_RASTER_MASK_WEBGPU: ${VITE_EXPERIMENTAL_RASTER_MASK_WEBGPU:-true}
         VITE_EXPERIMENTAL_LARGE_IMAGE_TILES: ${VITE_EXPERIMENTAL_LARGE_IMAGE_TILES:-true}
-    # 容器内 nginx 监听 80：托管静态产物 + 反代 /api/ /ws/ 到 api:8000。
-    # 宿主端口 8088 避开 dev 前端 3000 与 grafana 3001；生产由外层反代 (nginx/Caddy) 终结 TLS 指向它。
-    # 同 api：默认绑回环，反代异机时用 PROXY_BIND_HOST 覆盖（见上）。
     ports:
       - "${PROXY_BIND_HOST:-127.0.0.1}:8088:80"
     depends_on:
       api:
         condition: service_healthy
 
-  # 以下 worker/beat 服务已在 docker-compose.yml 定义，这里仅叠加生产环境配置：
-  # env_file 注入 ENVIRONMENT/SECRET_KEY/SENTRY 等全部生产变量，environment 覆盖硬编码的 infra 凭据。
-  # celery-worker-gpu / celery-worker-cpu 是设备感知预标路由的两条独立 worker
-  # (ml = GPU, ml.cpu = CPU), 必须与 celery-worker 同等注入生产 env, 否则用 dev 凭据连不上 DB/MinIO
-  # 且 ENVIRONMENT/SECRET_KEY 缺失会触发生产断言失败拒启 → ml.cpu 队列永远无消费者。
   celery-worker-maintenance:
     env_file:
       - .env.production
@@ -152,6 +127,10 @@ services:
       <<: *prod-infra-env
       JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_PASSWORD_FILE: ${SMTP_PASSWORD_FILE:+/run/secrets/api_smtp_password}
+    volumes:
+      - *smtp-password
 
   celery-worker-image-pyramid:
     env_file:
@@ -195,3 +174,18 @@ services:
       - .env.production
     environment:
       <<: *prod-infra-env
+
+  alertmanager:
+    volumes:
+      - type: bind
+        source: ${ALERTMANAGER_CONFIG_FILE:-./infra/alertmanager/alertmanager.production.yml}
+        target: /etc/alertmanager/alertmanager.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ALERTMANAGER_SMTP_PASSWORD_FILE:-/dev/null}
+        target: /run/secrets/alertmanager_smtp_password
+        read_only: true
+        bind:
+          create_host_path: false

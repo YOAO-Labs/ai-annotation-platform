@@ -7,9 +7,9 @@ describe("ByteLru · 字节预算 LRU", () => {
     const dispose = vi.fn();
     const lru = new ByteLru<string, number>(20);
     lru.set("a", { value: 1, bytes: 10, dispose });
-    lru.set("b", { value: 2, bytes: 10, dispose }); // 20 bytes 刚好不淘汰
-    expect(lru.get("a")).toBe(1); // a 提到最近使用 → 顺序 [b, a]
-    lru.set("c", { value: 3, bytes: 10, dispose }); // 30 > 20 → 淘汰最旧 b
+    lru.set("b", { value: 2, bytes: 10, dispose });
+    expect(lru.get("a")).toBe(1);
+    lru.set("c", { value: 3, bytes: 10, dispose });
     expect(lru.has("b")).toBe(false);
     expect(lru.has("a")).toBe(true);
     expect(lru.has("c")).toBe(true);
@@ -23,7 +23,7 @@ describe("ByteLru · 字节预算 LRU", () => {
     lru.set("b", { value: 2, bytes: 4, dispose });
     expect(lru.size).toBe(2);
     expect(lru.bytes).toBe(8);
-    lru.set("c", { value: 3, bytes: 10, dispose }); // 8+10=18 → 淘汰 a(14)→ 淘汰 b(10)
+    lru.set("c", { value: 3, bytes: 10, dispose });
     expect(lru.size).toBe(1);
     expect(lru.has("c")).toBe(true);
     expect(dispose).toHaveBeenCalledTimes(2);
@@ -53,14 +53,14 @@ describe("ByteLru · 字节预算 LRU", () => {
     const lru = new ByteLru<string, number>(100);
     lru.set("a", { value: 1, bytes: 30, dispose });
     lru.set("b", { value: 2, bytes: 30, dispose });
-    lru.set("c", { value: 3, bytes: 30, dispose }); // 90 bytes
+    lru.set("c", { value: 3, bytes: 30, dispose });
     expect(lru.size).toBe(3);
-    const evicted = lru.setBudget(50); // 90 > 50 → 淘汰 a(60)→ 淘汰 b(30)
+    const evicted = lru.setBudget(50);
     expect(evicted).toBe(2);
     expect(lru.has("c")).toBe(true);
     expect(lru.bytes).toBe(30);
     expect(dispose).toHaveBeenCalledTimes(2);
-    lru.setBudget(200); // 上调
+    lru.setBudget(200);
     expect(lru.bytes).toBe(30);
   });
 
@@ -117,7 +117,7 @@ describe("ByteLru · 字节预算 LRU", () => {
     const lru = new ByteLru<string, number>(10);
     lru.set("a", { value: 1, bytes: 5, dispose: vi.fn() });
     lru.set("b", { value: 2, bytes: 5, dispose: vi.fn() });
-    lru.set("c", { value: 3, bytes: 5, dispose: vi.fn() }); // 15 > 10 → 淘汰 a
+    lru.set("c", { value: 3, bytes: 5, dispose: vi.fn() });
     expect(lru.evictions).toBe(1);
   });
 
@@ -153,10 +153,9 @@ describe("ByteLru · 字节预算 LRU", () => {
     const dispose = vi.fn();
     const lru = new ByteLru<string, number>(20);
     lru.set("active", { value: 1, bytes: 10, dispose });
-    lru.set("buf", { value: 2, bytes: 10, dispose }); // [active, buf], 20 bytes
-    // 展示新帧前先把活动项 get 到最近 → 顺序 [buf, active]
+    lru.set("buf", { value: 2, bytes: 10, dispose });
     lru.get("active");
-    lru.set("new", { value: 3, bytes: 10, dispose }); // 30 > 20 → 淘汰最旧 buf,保留 active
+    lru.set("new", { value: 3, bytes: 10, dispose });
     expect(lru.has("active")).toBe(true);
     expect(lru.has("buf")).toBe(false);
     expect(lru.has("new")).toBe(true);

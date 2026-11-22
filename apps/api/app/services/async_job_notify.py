@@ -191,7 +191,6 @@ def _terminal_payload(job: AsyncJob) -> dict[str, Any]:
             payload["error_code"] = code
         return payload
     if job.kind == "storage_migration_inventory":
-        # This global private-report task has a deliberately closed summary.
         from app.schemas.storage_migration_inventory import (
             StorageMigrationInventoryCounts,
         )
@@ -230,11 +229,10 @@ def _terminal_payload(job: AsyncJob) -> dict[str, Any]:
 
 
 async def notify_job_terminal(db: AsyncSession, *, job_id: uuid.UUID) -> None:
-    """Emit a generic user notification for a whitelisted terminal async job.
+    """Queue a notification in the transaction for a whitelisted terminal job.
 
-    Callers keep transaction ownership: invoke this after mark_complete/failed/cancelled
-    and before the caller's commit. Notification failures are logged and do not affect
-    the job state transition.
+    Invoke after the Jobs state transition and before the caller commits. The
+    Notifications relay cannot see the handoff until that commit succeeds.
     """
     try:
         job = await jobs.get_job(db, job_id)
@@ -249,12 +247,6 @@ async def notify_job_terminal(db: AsyncSession, *, job_id: uuid.UUID) -> None:
         if notif_type is None:
             return
 
-        # This helper's documented contract is "write + publish before the
-        # caller's commit" across 60+ worker call sites.  The WS delivery gate
-        # briefly retries when the row is not yet visible in its own session, so
-        # the message is delivered once the caller's commit lands instead of
-        # being dropped; publish only after commit is not possible here without
-        # touching every caller.
         service = NotificationService(db)
         await service.notify_terminal(
             user_id=job.user_id,

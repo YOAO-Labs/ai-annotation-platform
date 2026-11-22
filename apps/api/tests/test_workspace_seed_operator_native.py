@@ -12,6 +12,7 @@ import subprocess
 
 import asyncpg
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -19,7 +20,7 @@ from tests.factory import create_user
 from tests.frozen_namespaces import historical
 from tests.test_workspace_consumer_profile_native import _grants, _world
 from contextlib import asynccontextmanager
-from app.db.models.dataset import Dataset
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.project import Project
 from app.services.project_access import get_workspace_project
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
@@ -63,8 +64,6 @@ async def _seed_world(test_engine):
             test_engine, ROOT / "infra/docker/workspace-seed-operator-grants.sql", role
         )
         assert result.returncode == 0, result.stderr
-        # Match the existing development operator's Assets capabilities. This
-        # slice fences Project; it does not qualify the operator's other owners.
         async with test_engine.begin() as db:
             signatures = (
                 (
@@ -247,7 +246,14 @@ async def test_directory_and_nuscenes_match_original_workflow(
         scene = await _project_state(db, seed.PROJECT_DISPLAY_ID)
         assert scene["scene_mode"] is True
         assert scene["prefer_same_scene_continuation"] is True
-        assert info["total_items"] == 3 and not keys
+        assert info["total_items"] == 3 and info["batches"] == 0 and not keys
+        assert not await db.scalar(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM yoao_labeling_v1.batch_rows "
+                "WHERE project_id=:project_id AND display_id <> 'B-DEFAULT')"
+            ),
+            {"project_id": info["project_id"]},
+        )
         async with test_engine.connect() as observer:
             assert (
                 await observer.scalar(
@@ -269,6 +275,212 @@ async def test_directory_and_nuscenes_match_original_workflow(
         "the actual seed must not query or write the private Project table"
     )
     record_property("legacy_source_revision", GOLDEN["source_revision"])
+
+
+@pytest.mark.parametrize(
+    "failure, fail_on",
+    [
+        (None, None),
+        ("unavailable", 1),
+        ("unavailable", 2),
+        ("busy", 2),
+        ("other_400", 2),
+        ("unknown", 2),
+    ],
+)
+async def test_nuscenes_seed_split_owns_only_the_empty_outcome(
+    tmp_path, monkeypatch, seed_world, failure, fail_on
+):
+    from app.db import base
+
+    owner_maker, maker = seed_world
+    suffix = uuid.uuid4().hex[:8]
+    project_display_id = f"P-SEED-{suffix}"
+    dataset_display_id = f"DS-SEED-{suffix}"
+    legacy_project_id = uuid.uuid4()
+    legacy_dataset_id = uuid.uuid4()
+    old_key = f"__aap_trusted_nuscenes__-{uuid.uuid4().hex}/legacy/old.pcd"
+    async with owner_maker.begin() as db:
+        actor = await create_user(
+            db, "super_admin", f"seed-batch-{suffix}@example.test", "Seed owner"
+        )
+        actor_id = actor.id
+        db.add_all(
+            [
+                Project(
+                    id=legacy_project_id,
+                    owner_id=actor_id,
+                    display_id=project_display_id,
+                    name="点云联合标注 (dev)",
+                    type_key="lidar",
+                    type_label="点云检测",
+                    data_type="lidar",
+                ),
+                Dataset(
+                    id=legacy_dataset_id,
+                    created_by=actor_id,
+                    display_id=dataset_display_id,
+                    name="pc-scene-dev",
+                    data_type="point_cloud",
+                    file_count=1,
+                ),
+            ]
+        )
+        await db.flush()
+        db.add_all(
+            [
+                ProjectDataset(
+                    project_id=legacy_project_id, dataset_id=legacy_dataset_id
+                ),
+                DatasetItem(
+                    dataset_id=legacy_dataset_id,
+                    file_name="old.pcd",
+                    file_path=old_key,
+                    file_type="point_cloud",
+                ),
+            ]
+        )
+
+    fake = _FakeDatasetSourceStorage()
+    fake.objects[old_key] = b"legacy point cloud"
+    _patch_storage_clients(monkeypatch, fake)
+    nuscenes = tmp_path / "nuscenes"
+    _write_fake_nuscenes(nuscenes, scenes=2, samples_per=2)
+    monkeypatch.setattr(seed, "ensure_nuscenes_mini", lambda **kwargs: nuscenes)
+    monkeypatch.setattr(seed, "NUSCENES_SCENES", ["scene-0000", "scene-0001"])
+    monkeypatch.setattr(seed, "PROJECT_DISPLAY_ID", project_display_id)
+    monkeypatch.setattr(seed, "DATASET_DISPLAY_ID", dataset_display_id)
+    monkeypatch.setattr(seed, "_ensure_admin", AsyncMock(return_value=actor_id))
+
+    errors = {
+        "other_400": HTTPException(400, "No unassigned tasks to split"),
+        "unknown": RuntimeError("unexpected batch response"),
+    }
+    creates = []
+    commits = []
+    cleanup = seed.cleanup_legacy_dev_seed_objects
+
+    def cleanup_after_commit(keys):
+        assert commits == [True]
+        assert keys == [old_key] and old_key in fake.objects
+        cleanup(keys)
+
+    @asynccontextmanager
+    async def seed_session():
+        async with maker() as db:
+            event.listen(
+                db.sync_session, "after_commit", lambda session: commits.append(True)
+            )
+            scalar = db.scalar
+
+            async def batch_scalar(statement, params=None, **kwargs):
+                if "yoao_labeling_v1.batch_control_command(" not in str(statement):
+                    return await scalar(statement, params, **kwargs)
+                command = json.loads(params["request"])
+                if command["operation"] != "create_batch":
+                    return await scalar(statement, params, **kwargs)
+                creates.append(command)
+                if len(creates) != fail_on:
+                    return await scalar(statement, params, **kwargs)
+                if fail_on == 2:
+                    first_batch = uuid.UUID(creates[0]["batch_id"])
+                    assert (
+                        await scalar(
+                            text(
+                                "SELECT count(*) FROM yoao_labeling_v1.task_rows "
+                                "WHERE batch_id=:batch"
+                            ),
+                            {"batch": first_batch},
+                        )
+                        == 2
+                    )
+                if failure == "unavailable":
+                    await scalar(statement, params, **kwargs)
+                    return None
+                if failure == "busy":
+                    return await scalar(
+                        text("DO $$ BEGIN RAISE SQLSTATE '55P03'; END $$")
+                    )
+                raise errors[failure]
+
+            monkeypatch.setattr(db, "scalar", batch_scalar)
+            yield db
+
+    monkeypatch.setattr(base, "async_session", seed_session)
+    monkeypatch.setattr(seed, "cleanup_legacy_dev_seed_objects", cleanup_after_commit)
+    if failure is None:
+        await seed.main()
+        assert commits == [True]
+        assert old_key in fake.deleted and old_key not in fake.objects
+    else:
+        error_type = RuntimeError if failure == "unknown" else HTTPException
+        with pytest.raises(error_type) as exc:
+            await seed.main()
+        assert len(creates) == fail_on
+        assert commits == [] and old_key not in fake.deleted
+        assert fake.objects[old_key] == b"legacy point cloud"
+        if failure in errors:
+            assert exc.value is errors[failure]
+        elif failure == "unavailable":
+            assert exc.value.status_code == 503
+            assert exc.value.detail == {"reason": "batch_control_unavailable"}
+        else:
+            assert exc.value.status_code == 409
+            assert exc.value.detail == {"reason": "batch_control_busy"}
+
+    async with owner_maker() as db:
+        project = (
+            await db.execute(
+                text("SELECT id, name FROM projects WHERE display_id=:display_id"),
+                {"display_id": project_display_id},
+            )
+        ).one()
+        dataset = (
+            await db.execute(
+                text("SELECT id, name FROM datasets WHERE display_id=:display_id"),
+                {"display_id": dataset_display_id},
+            )
+        ).one()
+        batches = (
+            await db.execute(
+                text(
+                    "SELECT name, total_tasks FROM task_batches "
+                    "WHERE project_id=:project_id AND display_id <> 'B-DEFAULT' ORDER BY name"
+                ),
+                {"project_id": project.id},
+            )
+        ).all()
+        if failure is None:
+            assert project.id != legacy_project_id and dataset.id != legacy_dataset_id
+            assert batches == [("Scene · scene-0000", 2), ("Scene · scene-0001", 2)]
+        else:
+            assert project == (legacy_project_id, "点云联合标注 (dev)")
+            assert dataset == (legacy_dataset_id, "pc-scene-dev")
+            assert batches == []
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT file_path FROM dataset_items WHERE dataset_id=:dataset_id"
+                    ),
+                    {"dataset_id": legacy_dataset_id},
+                )
+                == old_key
+            )
+            assert not await db.scalar(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM task_batches WHERE id=ANY(:batch_ids))"
+                ),
+                {"batch_ids": [uuid.UUID(command["batch_id"]) for command in creates]},
+            )
+
+    if failure is None:
+        async with maker.begin() as db:
+            info, old_keys = await seed.seed_nuscenes_scene(
+                db, owner_id=actor_id, offline=True
+            )
+            assert info["project_id"] == project.id and info["dataset_id"] == dataset.id
+            assert info["batches"] == 0 and old_keys == []
+            assert all(scene["skipped"] for scene in info["scenes"])
 
 
 @pytest.mark.parametrize(
@@ -325,7 +537,6 @@ async def test_seed_native_descriptor_restrictions_errors_and_rollback(test_engi
         )
         == expected
     )
-    # The packaged migration descriptor keeps the historical AAP spelling.
     assert json.loads(
         (
             ROOT / "apps/api/alembic/sql/0301_workspace_seed_project.schema.json"

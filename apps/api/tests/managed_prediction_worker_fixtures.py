@@ -55,13 +55,9 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
         monkeypatch=monkeypatch,
     )
     world.factory.configure(info={"managed_worker_world": world})
-    # Canonical AssetLocation FKs point at the migrated business schema's
-    # platform location; source/target permits remain in the private schema.
     async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
         await ensure_legacy_bindings(db)
         await db.commit()
-    # Legacy ORM audit fixtures use this private table. Native audited API
-    # scenarios need an owned database; public audit history stays immutable.
     async with world.factory() as db:
         schema = await db.scalar(text("SELECT current_schema()"))
         assert schema.startswith("prediction_inputs_")
@@ -73,8 +69,6 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
         )
         await db.commit()
 
-    # Retain instances through rollback and distinguish committed rows from
-    # flushed rows whose session closes without a commit.
     created = {}
 
     def forget(row):
@@ -124,8 +118,6 @@ async def managed_worker_world(input_world, test_engine, monkeypatch):
                     forget(row)
 
     def capture(spec, maximum, seconds, deadline, stop, release, **kwargs):
-        # The native-reader boundary is the only substituted original read.
-        # Resolution, saved locator/digest validation and durable permits run.
         raw = world.source_bytes[spec.bucket, spec.object_key]
         assert len(raw) == spec.size_bytes <= maximum
         assert hashlib.sha256(raw).hexdigest() == spec.sha256

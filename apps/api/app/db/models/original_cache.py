@@ -53,7 +53,6 @@ class OriginalCacheEntry(Base):
     storage_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
-    # No business FKs: a cascade must never erase object deletion/accounting.
     scope_location_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     source_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     asset_id: Mapped[uuid.UUID] = mapped_column(nullable=False)

@@ -100,7 +100,6 @@ class CommentAttachmentUpload(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    # Historical snapshots have no FK: business deletion cannot erase responsibility.
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     annotation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     task_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)

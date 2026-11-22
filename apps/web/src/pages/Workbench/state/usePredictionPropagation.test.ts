@@ -1,5 +1,3 @@
-// 跨帧传播守卫单测:重点覆盖「传播进行中用户手切 task」竞态 ——
-// 传播落库后只有起始 task 仍是当前 task 时才抢导航 + 预约补选,否则不把用户拽回。
 import { act, renderHook } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -85,14 +83,11 @@ describe("usePredictionPropagation · 跨帧守卫", () => {
     act(() => {
       pending = result.current.crossFramePropagate("next");
     });
-    // 放行 getNeighbors,推进到等待 propagateToTask(deferred)的点。
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // 用户用任务列表/上下帧手动切到别的 task(effect 同步 latestTaskIdRef)。
     rerender({ taskId: "B" });
-    // 此刻传播才落库返回。
     await act(async () => {
       d.resolve({ annotation: { id: "new-ann" }, motion_compensated: true });
       await pending;
@@ -130,7 +125,6 @@ describe("usePredictionPropagation · 跨帧守卫", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    // 第二次触发应被 crossFrameInFlightRef 直接挡掉(不再发 getNeighbors)。
     await act(async () => {
       await result.current.crossFramePropagate("next");
     });

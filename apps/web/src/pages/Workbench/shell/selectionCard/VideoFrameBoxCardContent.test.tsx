@@ -1,8 +1,3 @@
-// VideoFrameBoxCardContent 单测:
-// - 帧定位 chip(F{n} + 时间)+ 指标网格
-// - 跳到该帧 / 改类 / 删除 回调透传
-// - readOnly 禁用改类/删除(跳帧仍可用)
-
 import { describe, expect, it, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import type { AnnotationResponse } from "@/types";
@@ -43,8 +38,8 @@ describe("VideoFrameBoxCardContent", () => {
   it("渲染帧定位 chip(F48 + 时间)与指标", () => {
     const { getByText } = renderCard();
     expect(getByText(/F48/)).not.toBeNull();
-    expect(getByText("· 0:02")).not.toBeNull(); // 48/24 = 2s
-    expect(getByText("480×216 px")).not.toBeNull(); // bbox 指标
+    expect(getByText("· 0:02")).not.toBeNull();
+    expect(getByText("480×216 px")).not.toBeNull();
   });
 
   it("缺 fps 时只显示帧号,不显示时间", () => {

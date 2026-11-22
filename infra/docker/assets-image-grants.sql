@@ -1,9 +1,3 @@
--- Grant the exact Assets image-media polling-worker capabilities.
--- Run after migrations and module-data/media grants.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v assets_owner=assets_code
---   -v asset_image_worker_role=yoao_asset_image_worker_client
---   -f infra/docker/assets-image-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

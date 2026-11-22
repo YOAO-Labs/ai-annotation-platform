@@ -1,9 +1,3 @@
-/**
- * 视频交互层(Konva)渲染 + 句柄事件测试(konva-mock)。
- *
- * 断言:可编辑选中框出 8 向 resize 句柄、句柄 pointerdown 回传方向、画框/拖拽 live 预览
- * (虚线 + 像素空间几何)。真实命中/拖拽精度交给 Playwright(决策 C)。
- */
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
 import { VideoKonvaInteractionLayer } from "./VideoKonvaInteractionLayer";
@@ -55,7 +49,6 @@ describe("VideoKonvaInteractionLayer", () => {
       />,
     );
     const handles = document.querySelectorAll('[data-testid="video-resize-handle"]');
-    // 第一个句柄是 nw(锚点顺序与图片 / 旧 SVG 栈一致)。
     fireEvent.pointerDown(handles[0]);
     expect(onResize).toHaveBeenCalledTimes(1);
     expect(onResize.mock.calls[0][0]).toBe("nw");
@@ -74,7 +67,6 @@ describe("VideoKonvaInteractionLayer", () => {
         onResizeHandlePointerDown={vi.fn()}
       />,
     );
-    // 句柄尺寸 = BOX_HANDLE_SCREEN_PX(8) / scale(2) = 4;nw 锚点在 (0,0) → x = 0 - 4/2 = -2。
     const nw = document.querySelectorAll('[data-testid="video-resize-handle"]')[0];
     expect(nw.getAttribute("data-width")).toBe("4");
     expect(nw.getAttribute("data-x")).toBe("-2");
@@ -98,8 +90,8 @@ describe("VideoKonvaInteractionLayer", () => {
     );
     const draft = document.querySelector('[data-testid="video-pending-draft"]')!;
     expect(draft).not.toBeNull();
-    expect(draft.getAttribute("data-x")).toBe("100"); // 0.1 * 1000
-    expect(draft.getAttribute("data-width")).toBe("300"); // 0.3 * 1000
+    expect(draft.getAttribute("data-x")).toBe("100");
+    expect(draft.getAttribute("data-width")).toBe("300");
     expect(draft.getAttribute("data-dash")).toBe(JSON.stringify([6, 4]));
   });
 

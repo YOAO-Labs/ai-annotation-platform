@@ -123,16 +123,13 @@ async def test_reopen_increments_on_repeated_cycles(db_session, annotator, super
 
     svc = BugReportService(db_session)
 
-    # 第一次 reopen
     await svc.add_comment(report.id, reporter.id, "no.1")
     refreshed = await db_session.get(BugReport, report.id)
     assert refreshed.reopen_count == 1
 
-    # 管理员重新关掉
     refreshed.status = "fixed"
     await db_session.flush()
 
-    # 第二次 reopen
     await svc.add_comment(report.id, reporter.id, "no.2")
     refreshed2 = await db_session.get(BugReport, report.id)
     assert refreshed2.reopen_count == 2
@@ -145,7 +142,7 @@ async def test_third_party_cannot_comment(
 ):
     """非提交者非管理员调评论端点 → 403。"""
     reporter, _ = annotator
-    other, other_token = reviewer  # reviewer 不是项目管理员
+    other, other_token = reviewer
     report = await _seed_bug(db_session, reporter.id, status="new")
     await db_session.commit()
 
@@ -175,7 +172,6 @@ async def test_reporter_can_comment_via_http(httpx_client, db_session, annotator
     assert data["author_role"] == "employee"
     assert data["author_name"] == "Annotator"
 
-    # 再 GET 详情，确认 reopen_count + status
     detail = await httpx_client.get(
         f"/api/v1/bug_reports/{report.id}", headers=_bearer(token)
     )

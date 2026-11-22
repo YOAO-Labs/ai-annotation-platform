@@ -35,9 +35,6 @@ from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
-#: Global media/asset maintenance is a platform-administrator surface.  These
-#: endpoints are not project-path scoped; a project-scoped asset is additionally
-#: restricted to its legitimate project manager.
 _MEDIA_MANAGERS = (PlatformRole.SUPER_ADMIN, PlatformRole.PROJECT_ADMIN)
 
 

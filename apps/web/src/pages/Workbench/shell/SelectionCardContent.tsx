@@ -42,12 +42,10 @@ export interface SelectionCardContentProps {
   videoFrameIndex: number;
   setVideoFrameIndex: (frame: number) => void;
   attributeSchema?: ImageSelectionProps["attributeSchema"];
-  /** 图片原生 Mask 持久化模式；native 才开放编辑/区域转 Mask 入口。 */
   imageMaskPersistenceMode: "native" | "legacy" | "blocked";
   userBoxes: Annotation[];
   visibleAnnotations: AnnotationResponse[];
   videoBatchTracks: VideoTrackAnnotation[];
-  /** 活跃标注引用（装配层持有）；删除确认 await 之后必须迟到读取，过滤并发已删轨迹。 */
   annotationsSnapshotRef: { readonly current: readonly AnnotationResponse[] };
   classes: VideoTrackBatchProps["classes"];
   hiddenVideoTrackIds: ReadonlySet<string>;
@@ -56,16 +54,13 @@ export interface SelectionCardContentProps {
   rasterMaskRetry: ImageSelectionProps["onRetryRasterMask"];
   videoMaskKeyframeActions?: VideoMaskKeyframeActionHandlers;
   renderTrackCard: ReactNode;
-  // ---- 命令（全部来自既有领域 owner / 装配层） ----
   setSelectedId: (id: string | null) => void;
   handleSelectBox: (id: string | null) => void;
   requestVideoTool: (tool: "mask" | "mask-track") => void;
   onStartBatchChangeClass: ImageBatchProps["onChangeClass"];
   onJoinSelectedPolygons: ImageBatchProps["onJoin"];
   onBatchPatchFlag: (flag: "is_locked" | "is_hidden") => void;
-  /** 选中集批量删除（组件零参调用；选区归装配层）。 */
   onBatchDelete: () => void;
-  /** 轨迹批量删除（显式传入轨迹列表）。 */
   onVideoBatchDelete: (tracks: VideoTrackAnnotation[]) => void;
   onBatchTrack: () => void;
   onComposeTracks: (
@@ -93,12 +88,6 @@ export interface SelectionCardContentProps {
   openPropagateDialog: (source: AnnotationResponse | AnnotationResponse[]) => void;
 }
 
-/**
- * 选中浮卡的内容分派（§4.4(4)）：按 stage / 多选 / 几何族渲染对应内容组件，
- * 并持有内容层的本地判定——批量转换资格（原生 Mask 持久化权限）、视频轨迹
- * 合并/拼接资格、批量显隐锁定的「全部选中才翻转」语义、轨迹删除前确认。
- * 浮卡窗口位置与折叠偏好仍归装配层（SelectedAnnotationCardProps 外壳）。
- */
 export function SelectionCardContent(props: SelectionCardContentProps): ReactNode {
   const {
     stageKind,
@@ -150,7 +139,6 @@ export function SelectionCardContent(props: SelectionCardContentProps): ReactNod
   } = props;
 
   if (multi && stageKind === "image") {
-    // 图片多选:批量操作(改类 / 合并 / 锁定 / 隐藏 / 删除)收进浮卡,取代退役的贴框浮条。
     const selectedAnns = userBoxes.filter((b) => selectedIds.includes(b.id));
     const allLocked = selectedAnns.length > 0 && selectedAnns.every((a) => a.is_locked);
     const allHidden = selectedAnns.length > 0 && selectedAnns.every((a) => a.is_hidden);
@@ -179,8 +167,6 @@ export function SelectionCardContent(props: SelectionCardContentProps): ReactNod
     );
   }
   if (multi && stageKind === "video") {
-    // 视频多选:单帧框(video_bbox)走 selectedIds,给批量卡(改类 / 锁 / 隐藏 / 删除 + 聚合为轨迹);
-    // 轨迹多选走右栏 roster 的 selectedTrackIds,不进 selectedIds,浮卡保持精简占位。
     const selectedAnns = visibleAnnotations.filter((a) => selectedIds.includes(a.id));
     const allVideoBbox =
       selectedAnns.length > 0 && selectedAnns.every((a) => a.geometry.type === "video_bbox");
@@ -232,7 +218,6 @@ export function SelectionCardContent(props: SelectionCardContentProps): ReactNod
     return <SelectionCardPlaceholder summary={`已选中 ${count} 个标注。`} />;
   }
   if (selectedAiBox) {
-    // AI 预测分支(图片端专属):置信度条 + 来源/候选序号 + 采纳/精修/忽略,直连模型既有 handler。
     return (
       <AIPredictionCardContent
         box={selectedAiBox}
@@ -250,8 +235,6 @@ export function SelectionCardContent(props: SelectionCardContentProps): ReactNod
   }
   if (stageKind === "video") {
     if (ann && isAnyVideoSingleFrame(ann)) {
-      // 视频单帧标注 (bbox / polygon / polyline / rotated_bbox):不属任何轨迹、会被轨迹面板
-      // 过滤掉,改用专属单帧卡(帧定位 + 指标 + 属性)。
       return (
         <VideoFrameBoxCardContent
           annotation={ann}
@@ -270,7 +253,6 @@ export function SelectionCardContent(props: SelectionCardContentProps): ReactNod
       );
     }
     if (ann && (isVideoPointsTrack(ann) || isVideoMaskTrack(ann))) {
-      // 点集轨迹 (polygon / polyline track):简化卡(指标 + 改类 / 显隐 / 锁 / 删整条)。
       return (
         <VideoPointsTrackCardContent
           annotation={ann}
@@ -298,7 +280,6 @@ export function SelectionCardContent(props: SelectionCardContentProps): ReactNod
       );
     }
     if (videoBatchTracks.length >= 2) {
-      // 多选 ≥2 条轨迹 → 浮卡渲染批量卡 (与右栏 roster 批量条对等)。
       const ids = videoBatchTracks.map((t) => t.id);
       const sameClass =
         videoBatchTracks.length === 2 &&
@@ -328,7 +309,6 @@ export function SelectionCardContent(props: SelectionCardContentProps): ReactNod
           if (lockedVideoTrackIds.has(t.geometry.track_id) !== locked)
             toggleLockedVideoTrack(t.geometry.track_id);
         });
-      // 全选中才算「已隐藏 / 已锁定」→ 切换按钮翻转为反向动作; 部分选中时仍显示正向动作(与图片侧一致)。
       const allTracksHidden = videoBatchTracks.every((t) =>
         hiddenVideoTrackIds.has(t.geometry.track_id),
       );
@@ -362,8 +342,6 @@ export function SelectionCardContent(props: SelectionCardContentProps): ReactNod
                 confirmLabel: "删除",
               });
               if (!confirmed) return;
-              // 等待决定期间部分轨迹可能已被删除;确认后迟到读取活跃标注，
-              // 过滤后仍非空才提交 (删除已消失项只会报错)。
               const stillPresent = videoBatchTracks.filter((t) =>
                 annotationsSnapshotRef.current.some((item) => item.id === t.id),
               );
@@ -375,10 +353,8 @@ export function SelectionCardContent(props: SelectionCardContentProps): ReactNod
       );
     }
     if (ann && isVideoTrack(ann)) {
-      // 视频 bbox 轨迹:单轨迹两层信息卡由轨迹清单构建器渲染。
       return renderTrackCard;
     }
-    // 兜底:未被上面任何分支覆盖的视频几何也给占位摘要 (类别 + type)。
     return (
       <SelectionCardPlaceholder
         summary={ann ? `类别 ${ann.class_name} · ${ann.geometry.type}` : "已选中 1 个标注。"}

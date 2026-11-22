@@ -6,7 +6,6 @@ import {
   type UseBatchBackendSelectionParams,
 } from "./useBatchBackendSelection";
 
-/** Typed backend factory: only the fields batch selection reads are varied. */
 function makeBackend(id: string, name: string): MLBackendResponse {
   return {
     id,
@@ -59,8 +58,6 @@ describe("useBatchBackendSelection", () => {
     act(() => result.current.selectBatchBackend("b2"));
     expect(result.current.batchBackendId).toBe("b2");
 
-    // 另一 Tab 把项目默认后端改成 b1、列表顺序变为 b3 在首: 手动选择不被静默重置
-    // (默认跟随会得到 b1, 首位回落会得到 b3, 只有手动粘滞才是 b2)。
     rerender({ projectId: "p1", projectDefaultBackendId: "b1", backends: [b3, b1, b2] });
     expect(result.current.batchBackendId).toBe("b2");
   });
@@ -76,7 +73,6 @@ describe("useBatchBackendSelection", () => {
     rerender({ ...base, projectId: "p2", projectDefaultBackendId: "b1" });
     expect(result.current.batchBackendId).toBe("b1");
 
-    // 新项目内默认变化继续跟随 (未手动选过)。
     rerender({ ...base, projectId: "p2", projectDefaultBackendId: "b2" });
     expect(result.current.batchBackendId).toBe("b2");
   });

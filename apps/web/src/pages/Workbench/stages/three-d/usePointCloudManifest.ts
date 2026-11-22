@@ -9,7 +9,6 @@ import {
   registerPointCloudNavigationResource,
 } from "@/utils/pointCloudNavigationDiagnostics";
 
-/** Load metadata and versioned original identities for the active 3D task. */
 export function usePointCloudManifest(taskId: string | null, enabled: boolean) {
   useOriginalAssetOwner();
   return useQuery({
@@ -91,7 +90,6 @@ export function usePointCloudManifest(taskId: string | null, enabled: boolean) {
       }
     },
     enabled: enabled && !!taskId,
-    // Reuse metadata briefly; each uncached binary read still checks its version.
     staleTime: 5 * 60 * 1000,
   });
 }

@@ -1,7 +1,3 @@
--- Run after migrations and module-data-grants as the migration role.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v assets_owner=assets_code -v asset_catalog_role=yoao_asset_catalog_client
---   -f infra/docker/assets-catalog-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -68,7 +64,6 @@ END $$;
 REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_catalog_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_catalog_role";
 
--- Remove any stale grants before applying the narrow catalog surface.
 REVOKE ALL ON SCHEMA public FROM :"asset_catalog_role";
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"asset_catalog_role";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"asset_catalog_role";
@@ -102,7 +97,6 @@ END $$;
 REVOKE ALL ON SCHEMA yoao_assets_v1 FROM :"asset_catalog_role";
 GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"asset_catalog_role";
 
--- The NOLOGIN Assets owner may read only catalog facts and write catalog fields.
 GRANT SELECT (
     id, display_id, name, description, data_type, is_temporal, file_count,
     created_by, metadata, created_at, updated_at
@@ -119,7 +113,6 @@ GRANT SELECT (
 )
     ON public.dataset_catalog_operations TO :"assets_owner";
 
--- Function owners are NOLOGIN; the runtime receives only the frozen public calls.
 GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1._catalog_failure(text) OWNER TO :"assets_owner";
 ALTER FUNCTION yoao_assets_v1._catalog_actor(uuid, boolean) OWNER TO :"assets_owner";
@@ -172,7 +165,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)
     TO :"asset_catalog_role";
 
--- Fail closed if the runtime role can access anything beyond the exact protocol.
 DO $$
 DECLARE
     role_oid oid := (

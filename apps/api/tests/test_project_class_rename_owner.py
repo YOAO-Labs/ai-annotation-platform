@@ -96,9 +96,6 @@ def _sample_path(sample: dict, aliases: dict[str, str]) -> str:
 def _business_snapshot(value, aliases):
     result = legacy._normalise(value, aliases)
     if result is not None:
-        # The internal capture sorted by freshly generated row UUIDs. Their
-        # relative order is not a public behavior; compare every frozen row by
-        # its stable seed alias while preserving each row's complete contents.
         result["annotations"] = sorted(result["annotations"], key=lambda row: row["id"])
     return result
 

@@ -2,14 +2,7 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
-from sqlalchemy import delete, inspect, or_, select, text, update
-from sqlalchemy.orm.bulk_persistence import (
-    BulkORMDelete,
-    BulkORMUpdate,
-    BulkUDCompileState,
-)
+from sqlalchemy import inspect, select, text, update
 
 from yoao_jobs.row_lock_contract import (
     JOBS_EXECUTION_SNAPSHOT_FUNCTION,
@@ -17,7 +10,12 @@ from yoao_jobs.row_lock_contract import (
 )
 
 from app.db.jobs_lifecycle import encode_jobs_json, observe_job_changes
-from app.db.models.async_job import AsyncJob, AsyncJobKind
+from app.db.models.async_job import AsyncJob
+from app.db.owner_orm_compat import (
+    mark_missing_identity,
+    synchronize_owner_deleted_ids,
+    synchronize_owner_fetch,
+)
 
 
 def job_lock_statement(job_id, *, mode, populate_existing=False):
@@ -124,7 +122,7 @@ class JobsLifecyclePostgresData:
         )
         row = result.scalar_one_or_none()
         if row is None and state is not None and state.expired:
-            session._remove_newly_deleted([state])
+            mark_missing_identity(session, state)
         if row is not None:
             self._reset_snapshot_binding(row)
         return row
@@ -170,24 +168,8 @@ class JobsLifecyclePostgresData:
         if self.db.autoflush:
             await self.db.flush()
 
-    def _synchronize(self, statement, affected_ids, *, deleting=False):
-        # shortcut: Pinned SQLAlchemy cache hooks; rebaseline on upgrades.
-        compiled = statement.compile()
-        options = BulkUDCompileState.default_update_options + {
-            "_subject_mapper": inspect(AsyncJob),
-            "_identity_token": None,
-            "_matched_rows": [(job_id, None) for job_id in affected_ids],
-        }
-        result = SimpleNamespace(
-            returned_defaults_rows=None,
-            context=SimpleNamespace(compiled_parameters=[compiled.construct_params()]),
-            prefetch_cols=lambda: compiled.prefetch,
-            postfetch_cols=lambda: compiled.postfetch,
-        )
-        owner = BulkORMDelete if deleting else BulkORMUpdate
-        owner._do_post_synchronize_fetch(
-            self.db.sync_session, statement, result, options
-        )
+    def _synchronize(self, statement, affected_ids):
+        synchronize_owner_fetch(self.db.sync_session, AsyncJob, statement, affected_ids)
 
     async def mark_dispatch_failed(self, job_id, *, failed_at, error):
         await self._autoflush()
@@ -200,19 +182,16 @@ class JobsLifecyclePostgresData:
             ),
             {"job_id": job_id, "failed_at": failed_at, "error": error},
         )
-        statement = (
-            update(AsyncJob)
-            .where(AsyncJob.id == job_id, AsyncJob.status == "pending")
-            .values(status="failed", completed_at=failed_at, error_message=error)
-        )
-        self._synchronize(statement, [job_id] if changed else [])
+        if changed:
+            self._synchronize(
+                update(AsyncJob).values(
+                    status="failed", completed_at=failed_at, error_message=error
+                ),
+                (job_id,),
+            )
         return bool(changed)
 
     async def delete_batch_predict_jobs(self, batch_id, *, completed_at):
-        filters = (
-            AsyncJob.kind == AsyncJobKind.BATCH_PREDICT.value,
-            AsyncJob.payload["batch_id"].astext == str(batch_id),
-        )
         await self._autoflush()
         cancelled = await self.db.scalar(
             text(
@@ -222,12 +201,11 @@ class JobsLifecyclePostgresData:
             ),
             {"batch_id": batch_id, "completed_at": completed_at},
         )
-        self._synchronize(
-            update(AsyncJob)
-            .where(*filters, AsyncJob.status.in_(("pending", "running")))
-            .values(status="cancelled", completed_at=completed_at),
-            cancelled,
-        )
+        if cancelled:
+            self._synchronize(
+                update(AsyncJob).values(status="cancelled", completed_at=completed_at),
+                cancelled,
+            )
         await self._autoflush()
         deleted = await self.db.scalar(
             text(
@@ -236,7 +214,7 @@ class JobsLifecyclePostgresData:
             ),
             {"batch_id": batch_id},
         )
-        self._synchronize(delete(AsyncJob).where(*filters), deleted, deleting=True)
+        synchronize_owner_deleted_ids(self.db.sync_session, AsyncJob, deleted)
         return len(deleted)
 
     async def delete_terminal_jobs_before(self, cutoff, *, statuses):
@@ -249,15 +227,5 @@ class JobsLifecyclePostgresData:
             ),
             {"cutoff": cutoff, "statuses": list(statuses)},
         )
-        statement = delete(AsyncJob).where(
-            AsyncJob.status.in_(statuses),
-            AsyncJob.created_at < cutoff,
-            or_(
-                AsyncJob.kind != AsyncJobKind.DATASET_IMPORT.value,
-                AsyncJob.payload["import_protocol"].astext.is_distinct_from(
-                    "aap-dataset-import/v1"
-                ),
-            ),
-        )
-        self._synchronize(statement, deleted, deleting=True)
+        synchronize_owner_deleted_ids(self.db.sync_session, AsyncJob, deleted)
         return list(deleted)

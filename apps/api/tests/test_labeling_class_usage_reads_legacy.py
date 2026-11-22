@@ -867,8 +867,6 @@ async def test_capture_legacy_labeling_class_usage(
                     race["committed_after"] = "class_counts query completed"
                     race["attributes_key"] = "between_reads"
 
-                # The dependency/session bridge reads this callback from the
-                # active request context immediately before the first query.
                 state["next_interleave"] = commit_between_aggregate_reads
                 race_sample = await _request(
                     client,

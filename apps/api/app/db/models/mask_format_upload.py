@@ -94,7 +94,6 @@ class MaskFormatUpload(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    # Account/project deletion must not erase a previously issued upload target.
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     uploader_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     logical_object_key: Mapped[str] = mapped_column(

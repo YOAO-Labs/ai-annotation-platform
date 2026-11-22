@@ -41,7 +41,7 @@ docker compose --env-file .env.production \
 | Celery worker/beat         | 容器内 + 源码热挂载（`./apps/api:/app`），改码 `docker restart` 即可        | 镜像冻结源码                                        | 镜像冻结源码                                               |
 | GPU ML Backend & 训练节点  | 插件叠加的 `gpu*` 与 `docker-compose.training.yml` 的 `training` 默认不启动 | 按需启用                                            | 按需启用，调显存预算与 GPU 独占锁                          |
 | 监控（Prometheus/Grafana） | `profile: monitoring` 默认不启动                                            | 按需启用                                            | 按需启用                                                   |
-| 邮件                       | Mailpit 假收件箱（`:8025`），不外发                                         | 真实 SMTP                                           | 真实 SMTP                                                  |
+| 邮件                       | Mailpit 假收件箱（`:8025`），不外发                                         | 默认不发送；可显式配置真实 SMTP                     | 默认不发送；可显式配置真实 SMTP                            |
 
 ## `ENVIRONMENT` 的代码行为差异
 
@@ -57,7 +57,7 @@ environment: Literal["development", "staging", "production"] = "development"
 | 行为                                            | development                                               | staging        | production | 出处                          |
 | ----------------------------------------------- | --------------------------------------------------------- | -------------- | ---------- | ----------------------------- |
 | `SECRET_KEY` 仍为默认值 → 启动 RuntimeError     | 跳过                                                      | 跳过           | 强制       | `main.py`                     |
-| `CORS_ALLOW_ORIGINS` 为空 → 启动断言失败        | 跳过                                                      | 跳过           | 强制       | `main.py`                     |
+| `CORS_ALLOW_ORIGINS` 缺失或为空 → 拒绝启动      | 跳过                                                      | 跳过           | 强制       | `main.py`                     |
 | `CORS_ALLOW_ORIGIN_REGEX`（放行 localhost）生效 | ✅                                                        | ✅             | 自动忽略   | `main.py`                     |
 | 测试路由 `/api/v1/__test/seed/*`                | 仅 `E2E_SEED_ENABLED=true` 且库名以 `_e2e` / `_test` 结尾 | 同 development | 永不挂载   | `router.py` / `_test_seed.py` |
 | `apps/api/scripts/seed.py` 允许灌数据           | ✅                                                        | ✅             | 拒绝       | `apps/api/scripts/seed.py`    |

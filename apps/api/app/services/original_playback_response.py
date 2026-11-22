@@ -53,7 +53,6 @@ def select_range(
     full = PlaybackRange(200, 0, size)
     if method == "HEAD" or range_header is None:
         return full
-    # If-Range is a precondition to evaluating the entire Range field.
     if if_range is not None and if_range != etag:
         return full
     if (
@@ -76,8 +75,6 @@ def select_range(
         if match is None or not any(match.groups()):
             _invalid_range()
         left, right = match.groups()
-        # The header bound limits each conversion to at most 511 ASCII digits;
-        # offsets are clamped to the actual file before reaching os.pread.
         start = int(left) if left else None
         end = int(right) if right else None
         if start is not None and end is not None and end < start:
@@ -88,8 +85,6 @@ def select_range(
 
     start, end = parts[0]
     if start is None:
-        # RFC 9110 permits ignoring Range for an empty representation. A
-        # positive suffix is satisfiable, but has no valid 206 byte interval.
         if size == 0 and end > 0:
             return full
         start = max(0, size - end)

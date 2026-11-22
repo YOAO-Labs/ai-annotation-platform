@@ -261,7 +261,6 @@ def test_executor_advertises_saved_prefix_protocol_without_model_or_gpu_executio
     monkeypatch.syspath_prepend(
         str(Path(__file__).resolve().parents[2] / "training-executor")
     )
-    # Process supervision is unused in this protocol-only runtime handshake.
     monkeypatch.setitem(sys.modules, "psutil", SimpleNamespace())
     monkeypatch.setitem(
         sys.modules,

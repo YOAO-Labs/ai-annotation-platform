@@ -298,8 +298,6 @@ async def measure(resources, fixture_path, output, rounds):
         "Fixture is incomplete; both seeded tiers are required",
     )
 
-    # Runtime roles do not own migrated tables: their ANALYZE may only warn and
-    # skip. Prepare all join statistics with the already verified namespace owner.
     owner_engine = create_async_engine(os.environ["MIGRATION_DATABASE_URL"])
     try:
         async with owner_engine.begin() as db:

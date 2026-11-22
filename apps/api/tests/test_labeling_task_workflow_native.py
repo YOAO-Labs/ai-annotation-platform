@@ -178,7 +178,6 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
         other = ClearReviewEvidence(**scope, operation="clear_review_evidence")
 
         async with owner.transaction():
-            # Hold the neighboring Task's batch exactly as an original-authority reader does.
             assert (
                 await owner.fetchval(
                     "SELECT batch.id FROM public.tasks AS task "
@@ -196,7 +195,6 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
                 assert reply.task.annotation_contributor_ids == [
                     str(world["member_id"])
                 ]
-                # Two SHARE holders must not proceed to competing Batch upgrades.
                 with pytest.raises(asyncpg.LockNotAvailableError) as caught:
                     await peer_data.command(
                         request.model_copy(update={"task_id": neighbor.id})
@@ -220,7 +218,6 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
                 )
                 == "[]"
             )
-            # Rollback releases the same-batch writer exclusion, not the reader.
             neighbor_reply = await peer_data.command(
                 request.model_copy(update={"task_id": neighbor.id})
             )
@@ -235,7 +232,6 @@ async def test_batched_contributor_lock_compatibility_and_fences(test_engine):
                 )
                 == f'["{world["member_id"]}"]'
             )
-            # Commit also releases the exclusion; an identical write is idempotent.
             assert (await peer_data.command(request)).changed is False
             with pytest.raises(asyncpg.LockNotAvailableError) as caught:
                 await data.command(other)

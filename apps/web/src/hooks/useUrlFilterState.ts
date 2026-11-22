@@ -15,7 +15,6 @@ export interface UrlStateIssue {
 export interface UseUrlFilterStateOptions<T> {
   codec: UrlStateCodec<T>;
   defaults: T;
-  /** Documentation for the owner; the codec remains the source of truth for which keys it writes. */
   ownedKeys?: readonly string[];
 }
 

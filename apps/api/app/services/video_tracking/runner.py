@@ -172,8 +172,6 @@ class _TrackerSourceSubject:
     task_id: uuid.UUID
 
 
-# B-combo · 发现趟窗口帧数。multiplex 需多帧传播才在种子帧填充 obj_id (单帧窗
-# 不出检测), 故发现趟跑这么多帧但只取种子帧的框铸种; 取小值以压低 multiplex 显存与耗时。
 COMBO_DISCOVERY_WINDOW_FRAMES = 5
 
 
@@ -235,8 +233,6 @@ async def _renew_tracker_route(router, lease, job_id: uuid.UUID) -> bool:
                 if exc.reason != "management_busy":
                     return False
             except RoutingUnavailable:
-                # A heartbeat does not send model work or prove completion.
-                # Admission and every writer still require the current claim.
                 pass
             except Exception:
                 return False
@@ -303,8 +299,6 @@ async def _materialize_tracker_mask_result(
                 )
                 reference = stored
             else:
-                # Root registration can lose a NOWAIT race with Job finalization.
-                # Reacquire the byte fence while keeping the already-written RLE.
                 await lock_raster_mask_references(
                     db, reference, verify=False, content_epochs=content_epochs
                 )
@@ -319,15 +313,12 @@ async def _materialize_tracker_mask_result(
             await db.rollback()
             raise TrackerMaskWriteCancelled from None
         except TrackerExecutionBusy:
-            # Keep this successfully inferred RLE and retry only persistence.
             await db.rollback()
             if still_running is None or not await still_running():
                 raise TrackerMaskWriteCancelled from None
             await asyncio.sleep(0.2)
         except RasterMaskContractError as exc:
             if exc.detail.get("reason") == "mask_content_epoch_changed":
-                # An intervening collection invalidates the old byte fact. Reuse
-                # the held model RLE to publish again under the new epoch.
                 reference = content_epochs = None
             if (
                 exc.detail.get("reason")
@@ -343,7 +334,6 @@ async def _materialize_tracker_mask_result(
             if not await still_running():
                 raise TrackerMaskWriteCancelled from None
             await asyncio.sleep(0.2)
-    # A later window can commit before final staging; retain producer grace now.
     await db.commit()
     bbox = coco_rle_bbox_norm(rle)
     return replace(
@@ -377,11 +367,6 @@ def _tracker_windows(
     model_key: str | None = None,
 ) -> list[tuple[int, int]]:
     size = max(1, int(settings.video_tracker_window_size_frames))
-    # sam3 两档视频模型都用更小分窗(不动 sam2 的窗口, 避免回归其长程记忆):
-    # - sam3_video(multiplex): 视频前向显存随窗口线性增长, 大窗 OOM@24GB。
-    # - sam3_video_interactive(PVS): backend wrapper 上限 SAM3_PVS_MAX_WINDOW_FRAMES(默认 16),
-    #   超限会被 backend 拒; PVS 是 SAM2 式 memory 传播、显存轻于 multiplex, 但先与之齐。
-    # B-combo · sam3_video_combo 追踪趟走 PVS, 用与 PVS 齐的小分窗。
     model = model_key or job.model_key
     start_frame = job.from_frame if from_frame is None else from_frame
     end_frame = job.to_frame if to_frame is None else to_frame
@@ -728,8 +713,6 @@ def apply_tracker_results(
     outside_frames: list[int] = []
 
     for result in results:
-        # 采样开启时只回填落在网格上的帧（D2：tracker 仍逐源帧算并用于跨窗续追，
-        # 但只持久化网格帧，与导航/导出网格一致，避免编辑器里堆满够不到的关键帧）。
         if grid_step > 1 and result.frame_index % grid_step != 0:
             continue
         if result.outside:
@@ -749,7 +732,6 @@ def apply_tracker_results(
         elif is_polygon:
             points = _normalize_points(result.geometry)
             if len(points) < 3:
-                # 退化多边形(顶点<3)当 outside 处理, 避免写坏 schema。
                 outside_frames.append(result.frame_index)
                 prediction_by_frame.pop(result.frame_index, None)
                 continue
@@ -820,8 +802,6 @@ def _partition_results_by_instance(
         None,
     )
     if primary_id is None:
-        # instance_id 契约上是 str(obj_id) (见 _instance_seed_obj_id), 但可能是非数字兜底。
-        # 纯数字按数值取 min ("2" < "10"), 否则字典序, 避免 "10" < "2" 挑错主实例。
         primary_id = min(
             (r.instance_id for r in results if r.instance_id is not None),
             key=lambda s: (0, int(s)) if s.isdigit() else (1, s),
@@ -837,7 +817,6 @@ def _partition_results_by_instance(
     return primary, extras
 
 
-# M · 多选批量: 单源延展时从结果推断主实例 id, 构造单源 source_map 的键。
 _SOLE_SOURCE_KEY = "__sole__"
 
 
@@ -859,12 +838,6 @@ def _continuation_seeds(last_geom_by_instance: dict[str, dict]) -> list[dict]:
         {"obj_id": _instance_seed_obj_id(iid, idx + 1), "geometry": geom}
         for idx, (iid, geom) in enumerate(sorted(last_geom_by_instance.items()))
     ]
-
-
-# ── B-combo · multiplex 发现 → PVS 种子铸造 ──────────────────────
-# combo (sam3_video_combo) 两趟编排的桥: 发现趟 (multiplex 按 text 在种子帧检测) 的
-# per-obj 结果 → 追踪趟 (PVS) 的逐对象种子。发现对象**无源** → 种子不带
-# source_annotation_id, 落库走成熟的无源新建 (source_map 为空 → 全部 _new_discovered_track)。
 
 
 def _combo_seeds_from_discovery(
@@ -890,12 +863,6 @@ def _combo_seeds_from_discovery(
         seeds.append({"obj_id": obj, "geometry": result.geometry})
         obj += 1
     return seeds
-
-
-# ── B-mx · text-multiplex 跨窗 IoU 关联 ─────────────────────────
-# multiplex (sam3_video) 按 text 每窗独立会话重检测, 窗内 obj_id 稳定但**跨窗局部**
-# (窗 N 的 obj "1" 与窗 N-1 的 obj "1" 未必同物)。平台在窗边界帧按 IoU 关联, 把窗内
-# obj_id remap 成跨窗稳定的全局 instance_id (未匹配 → 新 track), 供阶段 0 分组落库。
 
 
 def _bbox_of_geometry(geom: dict) -> tuple[float, float, float, float]:
@@ -976,11 +943,9 @@ def _associate_multiplex_window(
         replace(r, instance_id=remap[r.instance_id or "0"]) for r in window_results
     ]
     new_boundary: dict[str, dict] = {}
-    for r in remapped:  # yield 序: 末帧最后写入 → 与下一窗相邻的边界
+    for r in remapped:
         if not r.outside and r.geometry and r.instance_id:
             new_boundary[r.instance_id] = r.geometry
-    # 本窗全 outside / 空产出 (短暂遮挡 / backend 空窗) 时保留上一窗边界: 否则遮挡帧会把
-    # 跨窗身份抹掉, 下一窗所有实例被当作新发现 → 同一物体在遮挡后被拆成两条轨迹。
     if new_boundary:
         prev_boundary.clear()
         prev_boundary.update(new_boundary)
@@ -1011,7 +976,6 @@ def _target_from_source(source: Annotation) -> _TrackTarget:
 
 
 def _target_from_job(job: VideoTrackerJob, task: Task) -> _TrackTarget:
-    # B · 无源检测: 类别由 job.target_* 显式指定 (缺省兜底空类 / bbox 单位)。
     return _TrackTarget(
         task_id=job.task_id,
         project_id=task.project_id,
@@ -1151,9 +1115,6 @@ def _persist_tracker_results(
             if _discovered_track_has_keyframes(new_ann):
                 created.append(new_ann)
     return created
-
-
-# ---------- 候选/接受流: 暂存 + accept/discard ----------
 
 
 def _serialize_results(results: list[TrackerFrameResult]) -> list[dict]:
@@ -1408,7 +1369,6 @@ async def _refresh_tracker_source_reference(
     ):
         raise TrackerFailure("source_changed")
     if isinstance(job, VideoTrackerJob):
-        # A claim-contention retry can expire the caller's mapped Job.
         job = await _refresh_worker_job(db, job)
     return reference
 
@@ -1885,9 +1845,6 @@ async def _lock_tracker_review_context(
         raise TrackerJobStateConflict(
             "task assignment changed before review", reason="task_assignment_changed"
         )
-    # After the fresh Task lock and the specific claim/assignment checks,
-    # reauthorize the actual actor against current project membership, phase
-    # capability and frozen review evidence (no creator fallback).
     await _assert_tracker_actor_authority(db, task, actor_id)
     if job.segment_id is not None:
         segment = await _read_review_segment(db, job=job, actor_id=actor_id, task=task)
@@ -2042,7 +1999,6 @@ async def _persist_human_video_review(
         for value in touched
         if getattr(value, "_is_new", False)
     )
-    # Pending Mask review evidence and audit-adjacent rows stay in the caller's UOW.
     await db.flush()
     try:
         raw = await video_control_command(
@@ -2543,8 +2499,6 @@ async def decide_tracker_job(
 ) -> VideoTrackerJob | None:
     """Atomically accept/reject one explicit instance/window candidate slice."""
 
-    # Account-first bounded lock order: actor (share) -> job -> task.  Authority
-    # is rechecked before the QC-region dispatch and any idempotent replay exit.
     await _lock_actor_share(db, actor_id)
     job = await _lock_video_control_job_for_update(db, job_id, actor_id)
     if job is None:
@@ -2966,9 +2920,6 @@ async def accept_tracker_job(
 ) -> VideoTrackerJob | None:
     """接受候选: 把 job.staged_result 应用到 annotation (主实例回填源 + 每个新 instance 各建
     一条 track), status=ACCEPTED。幂等 (已 ACCEPTED 直接返回)。状态不符 / 无 staged → 原样返回。"""
-    # Account-first bounded lock order: actor (share) -> job -> task.  Authority
-    # is rechecked before ANY replay/status early return so an idempotent replay
-    # cannot bypass current project/phase authority.
     await _lock_actor_share(db, actor_id)
     job = await _lock_video_control_job_for_update(db, job_id, actor_id)
     if job is None:
@@ -2993,10 +2944,7 @@ async def accept_tracker_job(
         raise TrackerJobStateConflict(
             f"Video tracker job cannot be accepted from status {current_status}"
         )
-    # 源轨迹可选。prompt.seeds 中没有源的实例新建轨迹；
-    # 各 seed 可用 source_annotation_id 绑定自己的源轨迹。
     results = _deserialize_results(rows)
-    # Explicit actor only; never impersonate the job creator.
     effective_actor = actor_id
     if task.status in {"review", "completed"}:
         raise TrackerJobStateConflict(f"task is locked in status {task.status}")
@@ -3048,11 +2996,7 @@ async def accept_tracker_job(
             else _target_from_job(job, task)
         )
     else:
-        # 无源检测 (画布级文本/种子发起): 全部新建, 归属取 job 显式目标类别。
         target = _target_from_job(job, task)
-    # refuse accept if any source annotation was mutated
-    # between job creation and accept. Runs before _persist_tracker_results so
-    # a conflict leaves annotations untouched (no last-writer-wins).
     created = _persist_tracker_results(
         source_map,
         target,
@@ -3091,24 +3035,17 @@ async def accept_tracker_job(
     except ValueError:
         await db.rollback()
         raise
-    # A2 · accept holds source/Annotation locks, so the task rows are acquired
-    # with NOWAIT: a busy task rolls back to a retryable 409 instead of a cycle.
     await record_annotation_actors_for_tasks(
         db,
         {task.id, *(source.task_id for source in source_map.values())},
         effective_actor,
         nowait=True,
     )
-    # M · 记录本 job 触及的轨迹 id (回填源 + 新建) 供前端刷新/审计。落 job.prompt JSONB
-    # (免 DB 迁移); accept 后 job 终态, prompt 不再被 runner 读, 写此键安全。JSONB 须重赋新 dict
-    # 才能让 SQLAlchemy 检测到脏 (同一 dict 引用 in-place 改不触发 UPDATE)。
     touched = [str(src.id) for src in source_map.values()] + [
         str(created_annotation.id) for created_annotation in created
     ]
     job.prompt = {**(job.prompt or {}), "touched_annotation_ids": touched}
     job.status = VideoTrackerJobStatus.ACCEPTED.value
-    # Accepted refs are now reachable from annotations; the candidate copy no
-    # longer needs a grace period. Discard/failure likewise clear immediately.
     job.staged_result = None
     expected_revision = int(job.revision or 1)
     job = await _persist_human_video_review(
@@ -3289,7 +3226,6 @@ async def run_tracker_job(
             db, job_id, session_factory=shadow_session_factory
         ) as execution:
             if isinstance(execution, ExecutionSettled):
-                # Claim checked the current canonical Job, not our pre-claim snapshot.
                 try:
                     return await _read_worker_job(db, job_id)
                 except (SQLAlchemyError, OSError, VideoControlRejected):
@@ -3337,9 +3273,6 @@ async def run_tracker_job(
                     "cancelled",
                 }:
                     raise
-                # The business commit may have succeeded before its reply or
-                # publication was lost. Its canonical outcome still needs the
-                # same proof-bound physical retirement, never a normal None exit.
                 result = canonical
             if result is None or result.status not in {"queued", "running"}:
                 await retire_terminal_tracker_execution(db, job_id)
@@ -3351,9 +3284,6 @@ async def run_tracker_job(
         except (SQLAlchemyError, OSError, VideoControlRejected):
             raise TrackerExecutionDeferred("storage_unavailable") from None
         if canonical is not None and canonical.status in {"queued", "running"}:
-            # Renewal may have stopped after an ambiguous response or expiry
-            # without any replacement worker. Stop this proof's writes while
-            # retaining a delivery that can recheck and claim after expiry.
             raise TrackerExecutionDeferred("execution_recheck_required") from None
         return None
 
@@ -3385,8 +3315,6 @@ async def _run_tracker_job_claimed(
         await db.commit()
         return job
 
-    # Read/prepare accepted bytes without holding the Job row. A separate
-    # Assets worker may still be materializing the immutable source plan.
     actor_id, task_id = job.created_by, job.task_id
     await db.commit()
     from app.services.accepted_tracker_inputs import (
@@ -3442,8 +3370,6 @@ async def _run_tracker_job_claimed(
     except TrackerFailure as exc:
         return await _mark_failed(db, job_id, exc.code, publisher)
 
-    # Re-read the canonical Job after source preparation so cancellation or
-    # another worker's state transition wins before inference starts.
     job = await _load_job_for_update(db, job_id)
     if job is None:
         return None
@@ -3495,8 +3421,6 @@ async def _run_tracker_job_claimed(
         )
         tracker_input_gateway = await tracker_input_gateway_context.__aenter__()
         tracker_input_gateway_entered = True
-        # B · 源轨迹可选: 无源检测 (job.annotation_id is None) 时不加载 source,
-        # 种子来自 prompt (text/seeds), 主实例落库时新建。
         annotation = (
             await get_core_row(db, annotation_row, job.annotation_id)
             if job.annotation_id
@@ -3553,9 +3477,6 @@ async def _run_tracker_job_claimed(
             if is_correction and annotation is not None
             else None
         )
-        # B-combo · sam3_video_combo = multiplex 发现 → PVS 追踪 两趟编排。
-        # 两趟都在 sam3-backend (声明 sam3_video + sam3_video_interactive); 后端按 PVS 能力
-        # 解析 (同一 backend), 追踪趟 adapter 用 PVS, 发现趟另取 multiplex adapter (见下)。
         is_combo = execution.model_key == "sam3_video_combo"
         frozen_plan = await window_journal.read_plan()
         job = await _refresh_worker_job(db, job)
@@ -3565,8 +3486,6 @@ async def _run_tracker_job_claimed(
             if frozen_plan is not None
             else None
         )
-        # 按 tracker 能力选后端而非项目单一绑定: sam3_video 挑声明了
-        # sam3_video 的 backend(sam3-backend), 而非静默落到项目绑定的 grounded-sam2。
         tracker_capability = (
             "sam3_video_interactive" if is_combo else execution.model_key
         )
@@ -3607,10 +3526,6 @@ async def _run_tracker_job_claimed(
                 if backend is not None
                 else None
             )
-        # ADR-0050 §11 · tracker pins one instance per job (stateful session).
-        # 经 MLBackendRouter 取得 job-scope route lease (enforce) 或记录 would-select
-        # 证据 (observe); off 模式行为不变 (legacy instance dispatch)。lease 在整个 job
-        # 期间按 heartbeat_interval 周期续命, job 结束时 finish/cancel exactly once。
         from app.services.ml_routing.router import (
             MLBackendRouter,
             make_ledger_from_settings,
@@ -3625,8 +3540,6 @@ async def _run_tracker_job_claimed(
             execution.to_frame - execution.from_frame + 1 - (1 if is_correction else 0),
         )
         progress = 0
-        # ADR-0050 §11 · 取得 job-scope route lease (enforce) / 记录 would-select
-        # (observe)。tracker 整 job pin 一个实例, lease 周期 heartbeat 续命 (不能中途换实例)。
         if backend is not None:
             from yoao_inference_contract.plugin_assets import (
                 plugin_asset_reason,
@@ -3761,8 +3674,6 @@ async def _run_tracker_job_claimed(
                 )
             backend = selected_backend
             if _sel.instance_id is not None:
-                # off/observe: instance = legacy (unchanged). enforce: router-selected.
-                # tracker pins the acquired instance for the whole job (stateful session).
                 if _sel.lease is not None:
                     tracker_lease = _sel.lease
                     from app.services.ml_routing.authority import scope_binding
@@ -3772,7 +3683,6 @@ async def _run_tracker_job_claimed(
                     )
                     await tracker_scope_context.__aenter__()
 
-                    # heartbeat loop: renew lease periodically until job ends.
                     async def _heartbeat_loop():
                         nonlocal heartbeat_failed
                         heartbeat_failed = not await _renew_tracker_route(
@@ -3781,7 +3691,6 @@ async def _run_tracker_job_claimed(
 
                     heartbeat_task = asyncio.create_task(_heartbeat_loop())
 
-                # observe: record would-select evidence (non-gating).
                 if _sel.would_select is not None:
                     log.info(
                         "tracker job %s observe would_select=%s actual=%s pool=%s",
@@ -3790,7 +3699,6 @@ async def _run_tracker_job_claimed(
                         _sel.instance_id,
                         tracker_pool_id,
                     )
-            # pool/instance dual-ID recorded via structured log (audit lineage, §5.4).
             log.info(
                 "tracker job %s routed pool=%s instance=%s mode=%s",
                 job_id,
@@ -3867,10 +3775,6 @@ async def _run_tracker_job_claimed(
             "file_type": tracker_input_status.file_type,
         }
 
-        # Cross-window continuation: window 1 seeds from the original keyframe,
-        # each subsequent window seeds from the previous window's last
-        # non-outside frame geometry so the tracker keeps following a moving
-        # target instead of restarting from the original box every window.
         source_geometry = (
             source_annotation_snapshot.geometry
             if source_annotation_snapshot is not None
@@ -3881,17 +3785,10 @@ async def _run_tracker_job_claimed(
             if is_mask_track(source_geometry)
             else source_geometry
         )
-        # U-pvs-1 · 多目标跨窗续追: 记每个实例的末帧 (非 outside) 几何, 后续窗对
-        # 每个实例各用其上一窗末帧几何 + 同一 obj_id 重播种 (否则非主实例过一窗即丢)。仅当
-        # 有多实例 (backend 发了 ≥2 个 instance_id) 时启用; 单目标 / None-instance 不触发。
         last_geom_by_instance: dict[str, dict] = {}
-        # B-mx · text-multiplex (sam3_video) 每窗独立会话重检测, 窗内 obj_id 局部;
-        # 平台在窗边界帧按 IoU 关联把窗内 id remap 成跨窗稳定的全局 instance_id (未匹配 → 新
-        # track)。mp_prev_boundary = 上一窗每全局实例的末帧几何; mp_next_global = 新全局 id 计数。
         associate_multiplex = execution.model_key == "sam3_video"
         mp_prev_boundary: dict[str, dict] = {}
         mp_next_global = [1]
-        # polygon track: 让 backend 逐帧保留 mask 矢量化的多边形而非降 bbox。
         output_geometry = accepted_prompt.get("output_geometry") or (
             (
                 "mask"
@@ -4089,9 +3986,6 @@ async def _run_tracker_job_claimed(
             )
             return current_source is not None
 
-        # B-combo · 发现趟 (先于追踪窗循环, 串行 → 中间 idle 可卸载 multiplex 再载
-        # PVS, 避两模型同容峰值)。multiplex 在种子帧按 text 检测 → per-obj 框 → 铸成 PVS 种子
-        # (无源, 落库全新建)。发现不到目标即失败 (无种子无法追踪)。
         if is_combo:
             discovery_text = accepted_prompt.get("text")
             if not discovery_text:
@@ -4224,8 +4118,6 @@ async def _run_tracker_job_claimed(
                 )
                 active_session_span = span_key
                 active_session_span_digest = window.context_span.span_digest
-            # 种子窗下发原始点/框种子; 后续窗若多实例则各自续种 (见 _continuation_seeds),
-            # 单实例则靠 source_geometry=last_geometry 兜底 (零回归)。
             if is_correction and is_seed_window:
                 last_geometry = source_geometry
                 last_geom_by_instance.clear()
@@ -4267,12 +4159,9 @@ async def _run_tracker_job_claimed(
                 task_data=task_data,
                 **tracker_execution_context,
                 sam_variant=accepted_prompt.get("sam_variant"),
-                # text-driven 追踪的 text/exemplars 从 prompt JSONB 读出透传。
                 text=accepted_prompt.get("text"),
                 exemplars=accepted_prompt.get("exemplars"),
-                # polygon track 回填: 期望输出几何 (polygon/bbox)。
                 output_geometry=output_geometry,
-                # U-pvs-1 · 种子窗原始种子 / 后续窗多实例续种 (见上)。
                 seeds=window_seeds,
                 session=active_session,
                 model_id=frozen_plan.backend_compatibility[0].model_id,
@@ -4283,8 +4172,6 @@ async def _run_tracker_job_claimed(
                     "context_span_digest": window.context_span.span_digest,
                 },
             )
-            # B-mx · 逐窗缓冲结果; 窗末对 text-multiplex 做跨窗 IoU 关联 (remap
-            # 窗内 obj_id → 全局 instance_id) 后再并入 results。非 multiplex 时缓冲即透传。
             window_results: list[TrackerFrameResult] = []
             propagation = await adapter.propagate(ctx)
             validate_pinned_provenance(propagation)
@@ -4343,7 +4230,6 @@ async def _run_tracker_job_claimed(
                     job.cancel_requested_at is not None
                     or job.status == VideoTrackerJobStatus.CANCELLED.value
                 ):
-                    # 取消也暂存部分结果 (候选); multiplex 先关联本窗已收部分。
                     if associate_multiplex and window_results and not is_correction:
                         window_results = _associate_multiplex_window(
                             window_results, mp_prev_boundary, mp_next_global
@@ -4354,7 +4240,6 @@ async def _run_tracker_job_claimed(
 
                 window_results.append(result)
                 progress += 1
-                # live 预览事件用窗内 id (瞬态); 最终暂存的 results 用关联后的全局 id。
                 frame_payload = {
                     "frame_index": result.frame_index,
                     "geometry": thaw_json(result.geometry),
@@ -4378,14 +4263,11 @@ async def _run_tracker_job_claimed(
             if heartbeat_failed:
                 raise RuntimeError("tracker route lease heartbeat failed")
 
-            # Backend 响应数组不保证按帧有序；统一转为追踪方向的遍历顺序，
-            # 使窗口末尾几何和多实例跨窗关联都使用真实边界帧。
             window_results.sort(
                 key=lambda result: result.frame_index,
                 reverse=window_direction == "backward",
             )
 
-            # 窗末: text-multiplex 关联 remap 窗内 obj_id → 跨窗全局 instance_id。
             if associate_multiplex:
                 window_results = _associate_multiplex_window(
                     window_results, mp_prev_boundary, mp_next_global
@@ -4396,16 +4278,11 @@ async def _run_tracker_job_claimed(
                     replace(result, instance_id="1", primary=True)
                     for result in primary_results
                 ]
-            # PVS 单目标结果会带 instance_id，但不保证额外标记 primary。按与最终落库相同的
-            # 主实例规则推断本窗主目标，并始终用它最后一个有效几何续下一窗；否则无源任务
-            # 的 source_geometry 会一直为空，第二窗被 backend 以“缺少种子”拒绝。
             primary_results, _ = _partition_results_by_instance(window_results)
             for primary_result in reversed(primary_results):
                 if not primary_result.outside and primary_result.geometry:
                     last_geometry = primary_result.geometry
                     break
-            # 续种状态 (关联后 id): 逐实例记末帧几何 (供多实例续种); 主实例 (或单实例 None)
-            # 另记 last_geometry 供 source_geometry 兜底 (与既有单 track 续追一致)。
             for result in window_results:
                 if not result.outside and result.geometry:
                     if result.instance_id is not None:
@@ -4431,7 +4308,6 @@ async def _run_tracker_job_claimed(
         if job.cancel_requested_at is not None:
             return await finalize_cancelled_tracker()
 
-        # Source observations precede the independent owner's locked write.
         subject = _TrackerSourceSubject(tracker_job_id, tracker_task_id)
         reference = await _refresh_tracker_source_reference(
             tracker_input_gateway,

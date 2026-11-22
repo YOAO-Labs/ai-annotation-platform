@@ -166,7 +166,6 @@ describe("StorageConnectionsPanel", () => {
       kind: "warning",
     });
 
-    // 删除走决策对话框:确认前不触发,点确认后才发起删除
     fireEvent.click(screen.getByRole("button", { name: /删除/ }));
     const dialog = await screen.findByRole("alertdialog");
     expect(mocks.remove.mutate).not.toHaveBeenCalled();

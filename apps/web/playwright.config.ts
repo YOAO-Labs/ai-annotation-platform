@@ -5,7 +5,6 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { browserEnvironment } from "./e2e/helpers/browser-environment.mjs";
 
-// One run identity survives worker restarts but never aliases another invocation.
 if (process.env.PLAYWRIGHT_RASTER_OFFLINE === "1" && !process.env.PLAYWRIGHT_FIXTURE_RUN_ID) {
   throw new Error("离线 Mask 测试必须使用启动器准备的 suite");
 }
@@ -66,7 +65,6 @@ const browserEnv = browserEnvironment();
 const pointcloudBrowserEnv = browserEnvironment({ dropForwardedDisplay: true });
 
 if (useIsolatedServers) {
-  // 固定隔离端口，避免继承 shell/CI job 中指向开发服务的旧变量。
   process.env.PLAYWRIGHT_BASE_URL = `http://127.0.0.1:${isolatedWebPort}`;
   process.env.PLAYWRIGHT_API_BASE = `http://127.0.0.1:${isolatedApiPort}`;
 }
@@ -84,7 +82,6 @@ const e2eDatabaseURL = rasterOffline
         "postgresql+asyncpg://user:pass@127.0.0.1:5432/annotation_test")
       : (process.env.PLAYWRIGHT_E2E_DATABASE_URL ??
         "postgresql+asyncpg://user:pass@127.0.0.1:5432/annotation_e2e");
-// The offline Mask consumer never receives either database credential.
 if (e2eDatabaseURL !== undefined) process.env.PLAYWRIGHT_E2E_DATABASE_URL ??= e2eDatabaseURL;
 const e2eRuntimeDatabaseURL = worktreeMode ? process.env.DATABASE_URL : e2eDatabaseURL;
 
@@ -98,24 +95,13 @@ const isolatedApiCommand = [
     : `MIGRATION_DATABASE_URL= TEST_DATABASE_URL= PLAYWRIGHT_E2E_DATABASE_URL= uv run uvicorn app.main:app --host 127.0.0.1 --port ${isolatedApiPort}`,
 ].join(" && ");
 
-/**
- * Playwright E2E 配置。
- *
- * 本地只需先启动 postgres / redis / minio；Playwright 会创建并迁移
- * annotation_e2e，再自启 8010 API 和 3001 Web，避免复用开发服务。
- *
- * CI 中通过 webServer 启动 vite preview，使用真实后端 API。
- */
 export default defineConfig({
   testDir: "./e2e",
-  // Layout stress uses its own config.
   testMatch: ["**/tests/**/*.spec.ts"],
   grepInvert: new RegExp(excludedTags.join("|")),
-  // Unproved fixture families remain serial even when their runs are isolated.
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: isCI ? 1 : 0,
-  // Bound each CI shard, including serial failures and retries.
   maxFailures: isCI ? 1 : 0,
   globalTimeout: isCI ? 15 * 60_000 : 0,
   workers: 1,
@@ -140,11 +126,8 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         ...(chromiumChannel ? { channel: chromiumChannel } : {}),
       },
-      // 3D 点云 spec 交给下方 pointcloud project(需 WebGL 软渲染参数),此处排除。
       testIgnore: ["**/workbench-pointcloud*.spec.ts"],
     },
-    // 3D 点云 spec 单列:headless Chromium 默认无 GPU,Three.js/WebGL 跑不起来;
-    // 经 ANGLE 走 SwiftShader 软渲染(新版 Chromium 的 WebGL SwiftShader 需 unsafe 旗标显式放行)。
     {
       name: "pointcloud",
       testMatch: ["**/workbench-pointcloud*.spec.ts"],
@@ -172,7 +155,6 @@ export default defineConfig({
         },
       },
     },
-    // 起步只跑 chromium；稳定后再加 firefox/webkit
   ],
 
   webServer: useIsolatedServers
@@ -198,15 +180,12 @@ export default defineConfig({
                 url: `http://127.0.0.1:${isolatedApiPort}/health/db`,
                 reuseExistingServer: false,
                 timeout: 120_000,
-                // The owned API supervisor retires its native run on SIGTERM;
-                // a hard kill would leak the supervisor, its workers and the
-                // run journal for the next suite.
                 gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
               },
             ]),
         {
           command: `env -i PATH="$PATH" HOME="$HOME" LANG="\${LANG:-C.UTF-8}" API_PROXY_TARGET="$API_PROXY_TARGET" MINIO_PROXY_TARGET="$MINIO_PROXY_TARGET" VITE_WS_HOST="$VITE_WS_HOST" PORT="$PORT" ${
-            isCI && !rasterMaskMatrix
+            isCI && (!rasterMaskMatrix || process.env.PLAYWRIGHT_WEB_PREVIEW === "1")
               ? `pnpm preview --host 127.0.0.1 --port ${isolatedWebPort} --strictPort`
               : "pnpm dev --host 127.0.0.1"
           }`,
@@ -220,8 +199,6 @@ export default defineConfig({
           url: `http://127.0.0.1:${isolatedWebPort}`,
           reuseExistingServer: false,
           timeout: 120_000,
-          // Node reports SIGTERM as 143; a hard kill would leak the Vite
-          // process group into the exec descendant boundary.
           gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
         },
       ]

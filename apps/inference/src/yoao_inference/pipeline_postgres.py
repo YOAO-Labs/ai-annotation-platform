@@ -220,8 +220,6 @@ class PipelinePostgresTransaction:
 
         if raw is None:
             raise PipelineUnavailable()
-        # The portable manager decodes and binds the step envelope before it
-        # consumes any fact; the port preserves the Native driver value.
         return raw
 
 
@@ -361,7 +359,6 @@ class PipelinePostgresData:
                 try:
                     await asyncio.shield(transaction.rollback())
                 except BaseException:
-                    # The body failure remains authoritative; COMMIT was never attempted.
                     pass
                 raise
             try:
@@ -372,7 +369,6 @@ class PipelinePostgresData:
                     raise rejected from None
                 raise PipelineUnavailable() from None
             except (asyncpg.InterfaceError, OSError, TimeoutError):
-                # COMMIT may have reached PostgreSQL. The status RPC resolves this.
                 raise PipelineUnavailable() from None
         except BaseException as error:
             primary_error = error

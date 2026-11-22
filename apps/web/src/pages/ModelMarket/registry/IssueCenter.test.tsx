@@ -32,7 +32,6 @@ describe("IssueCenter filter summaries", () => {
     expect(screen.getByLabelText("已应用的诊断筛选")).toHaveTextContent("pool_offline");
   });
   it("does not reserve a summary row when no conditions are applied", () => {
-    // The empty branch reads only diagnostics; no topology rows are rendered.
     const scope = { diagnostics: [] } as unknown as RegistryScope;
     render(<IssueCenter scope={scope} url={urlState()} patchUrl={noopPatch} urlIssues={[]} />);
     expect(screen.getByText("当前没有诊断告警")).toBeInTheDocument();
@@ -58,7 +57,6 @@ describe("IssueCenter filter summaries", () => {
       issueGpu: "",
       issueCode: "",
     });
-    // 文本搜索键不在清除范围内。
     expect(screen.getByLabelText("按 code 搜索")).toHaveValue("circuit_open");
   });
 });

@@ -177,8 +177,6 @@ async def test_legacy_login_materializes_images_manifests_and_annotation_pins(
                     {"function": signature},
                 ), signature
 
-        # Only fixture creation uses the owner. Every capability call below uses
-        # the same LOGIN as the API and ordinary Celery workers.
         owner_sessions = async_sessionmaker(test_engine, expire_on_commit=False)
         async with owner_sessions.begin() as db:
             actor = await _seed_actor(db)
@@ -354,5 +352,3 @@ async def test_legacy_login_materializes_images_manifests_and_annotation_pins(
             with Image.open(BytesIO(response.content)) as thumbnail:
                 assert thumbnail.format == "WEBP"
                 assert thumbnail.getpixel((128, 64))[0] > 220
-        # All receipts and referenced users remain until the verifier destroys
-        # this test's whole database and versioned buckets.

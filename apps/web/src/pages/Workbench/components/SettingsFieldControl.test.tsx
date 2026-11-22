@@ -1,4 +1,3 @@
-// 共享设置控件:按注册表 control 类型渲染、锁定禁用 + badge、提交回调。
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { SettingsFieldControl } from "./SettingsFieldControl";
@@ -91,7 +90,6 @@ describe("SettingsFieldControl", () => {
     expect(screen.getByLabelText("顶点拖拽手柄半径")).toBeTruthy();
     fireEvent.change(screen.getByRole("slider"), { target: { value: "12" } });
     expect(onCommit).not.toHaveBeenCalled();
-    // 拖动中(未松手)数字实时跟随,不冻结在旧值 6px。
     expect(screen.getByText(/12px/)).toBeTruthy();
     expect(screen.queryByText(/6px/)).toBeNull();
     fireEvent.pointerUp(screen.getByRole("slider"));
@@ -127,7 +125,6 @@ describe("SettingsFieldControl", () => {
     const onCommit = vi.fn();
     render(<SettingsFieldControl field={multiselectField} value={["class"]} onCommit={onCommit} />);
     fireEvent.click(screen.getByRole("button", { name: "置信度" }));
-    // 按 options 顺序重建:class 在 score 之前。
     expect(onCommit).toHaveBeenCalledWith(["class", "score"]);
   });
 
@@ -142,7 +139,6 @@ describe("SettingsFieldControl", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "置信度" }));
     expect(onCommit).toHaveBeenCalledWith(["class"]);
-    // 只剩 class 时,class chip 触底禁用(min:1),点击不提交。
     onCommit.mockClear();
     rerender(
       <SettingsFieldControl field={multiselectField} value={["class"]} onCommit={onCommit} />,

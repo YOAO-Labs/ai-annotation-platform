@@ -124,12 +124,8 @@ def _parse_query(value: str) -> dict[str, str]:
     return dict(pairs)
 
 
-def _require_saved_target(
-    output_id, storage_ref: NativePyramidSavedTarget
-) -> str:
-    expected = (
-        storage_ref.key_prefix + "image-pyramids/objects/" + str(output_id) + "/"
-    )
+def _require_saved_target(output_id, storage_ref: NativePyramidSavedTarget) -> str:
+    expected = storage_ref.key_prefix + "image-pyramids/objects/" + str(output_id) + "/"
     if storage_ref.prefix != expected:
         raise ValueError("saved target escaped its output prefix")
     return expected
@@ -274,7 +270,9 @@ class NativePyramidRetirementIoRequest(Value):
 class NativePyramidRetirementPrefixIoRequest(NativePyramidRetirementIoRequest):
     kind: Literal["objects", "versions", "uploads"]
     key_marker: Annotated[StrictStr, Field(min_length=1, max_length=1024)] | None = None
-    upload_id_marker: Annotated[StrictStr, Field(min_length=1, max_length=1024)] | None = None
+    upload_id_marker: (
+        Annotated[StrictStr, Field(min_length=1, max_length=1024)] | None
+    ) = None
 
     @model_validator(mode="after")
     def multipart_cursor_only(self):
@@ -285,7 +283,8 @@ class NativePyramidRetirementPrefixIoRequest(NativePyramidRetirementIoRequest):
             raise ValueError("only multipart probes accept a cursor")
         if any(
             ord(character) < 32 or ord(character) == 127
-            for value in markers if value is not None
+            for value in markers
+            if value is not None
             for character in value
         ):
             raise ValueError("multipart cursor contains a control character")
@@ -487,9 +486,7 @@ def _require_member_request(
     _bounded_http_url(signed.url)
     if not public and _origin(signed.url) != _origin(storage_ref.endpoint_url):
         raise ValueError("signed member request escaped the saved endpoint")
-    expected_path = "/" + _quote(storage_ref.bucket) + "/" + _quote(
-        key, safe="/-_.~"
-    )
+    expected_path = "/" + _quote(storage_ref.bucket) + "/" + _quote(key, safe="/-_.~")
     if parsed.path != expected_path:
         raise ValueError("signed member request escaped its exact key")
     query = _parse_query(parsed.query)
@@ -602,11 +599,8 @@ def _require_signed_member(
                 now=now,
             )
         return
-    # Mode read.
     if row.public_url is None:
-        if any(
-            value is not None for value in (row.put, row.delete, row.public_url)
-        ):
+        if any(value is not None for value in (row.put, row.delete, row.public_url)):
             raise ValueError("an inspection reference carries another operation")
         if row.head is None or row.get is None:
             raise ValueError("an inspection reference is incomplete")
@@ -622,17 +616,13 @@ def _require_signed_member(
                 now=now,
             )
         return
-    if any(
-        value is not None for value in (row.put, row.head, row.get, row.delete)
-    ):
+    if any(value is not None for value in (row.put, row.head, row.get, row.delete)):
         raise ValueError("a public reference carries a private operation")
     if row.public_expires_at is None:
         raise ValueError("a public reference has no exact lifetime")
     parsed = urlsplit(row.public_url)
     _bounded_http_url(row.public_url)
-    expected_path = "/" + _quote(storage_ref.bucket) + "/" + _quote(
-        key, safe="/-_.~"
-    )
+    expected_path = "/" + _quote(storage_ref.bucket) + "/" + _quote(key, safe="/-_.~")
     if parsed.path != expected_path:
         raise ValueError("a public reference escaped its exact key")
     query = _parse_query(parsed.query)
@@ -693,10 +683,7 @@ def require_read_reference_scope(
         raise ValueError("read reference is not an io references value")
     if result.mode != "read":
         raise ValueError("read reference changed its mode")
-    if (
-        result.scope_id != request.operation_id
-        or result.scope_token != request.token
-    ):
+    if result.scope_id != request.operation_id or result.scope_token != request.token:
         raise ValueError("read reference escaped its operation")
     actual = [row.member.relative_key for row in result.members]
     if len(actual) != len(request.relative_keys) or set(actual) != set(
@@ -775,14 +762,14 @@ def prefix_listing_query(
     if kind == "versions":
         return [("versions", ""), ("max-keys", "1"), ("prefix", prefix)]
     if kind == "uploads":
-        # Some S3 peers interpret Prefix as an entire object name.  Scan the
-        # captured bucket and let Cleanup reject uploads under the saved prefix.
         query = [("uploads", ""), ("max-uploads", "100")]
         if key_marker is not None:
-            query.extend((
-                ("key-marker", key_marker),
-                ("upload-id-marker", upload_id_marker),
-            ))
+            query.extend(
+                (
+                    ("key-marker", key_marker),
+                    ("upload-id-marker", upload_id_marker),
+                )
+            )
         return query
     raise ValueError("unsupported native listing kind")
 
@@ -802,8 +789,10 @@ def require_retirement_prefix_reference_scope(
     if result.kind != request.kind:
         raise ValueError("prefix reference changed its listing")
     expected = prefix_listing_query(
-        result.storage_ref.prefix, result.kind,
-        key_marker=request.key_marker, upload_id_marker=request.upload_id_marker,
+        result.storage_ref.prefix,
+        result.kind,
+        key_marker=request.key_marker,
+        upload_id_marker=request.upload_id_marker,
     )
     signed = result.request
     parsed = urlsplit(signed.url)

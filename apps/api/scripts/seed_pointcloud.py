@@ -16,9 +16,6 @@ import sys
 import uuid
 from pathlib import Path
 
-# nuScenes-mini scene 模式项目:复用同目录 import_nuscenes_scene.py 的转换/入库逻辑。
-# scripts/ 在独立跑时即 sys.path[0];经 seed.py 导入时 seed.py 已把 scripts/ 入 path,
-# 这里再补一次保证两种入口都能 import 兄弟脚本。
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from import_nuscenes_scene import import_nuscenes  # noqa: E402  (依赖 sys.path 先扩)
 from nuscenes_fixture import ensure_nuscenes_mini  # noqa: E402
@@ -48,8 +45,6 @@ POINTCLOUD_TOOL_BINDINGS = {
     },
 }
 
-# nuScenes mini 共 10 个 scene。dev seed 只导入 scene-0061 的 39 个 key frame；下载
-# 缓存仍保留完整 mini 的 key-frame samples，方便后续切换 scene，不提取未使用的 sweeps。
 NUSCENES_SCENES = ["scene-0061"]
 NUSCENES_DATASET_NAME = "nuscenes-mini"
 NUSCENES_PROJECT_NAME = "nuScenes mini 自动驾驶场景（dev）"
@@ -109,7 +104,6 @@ async def seed_pointcloud(
     if not fixture.exists():
         raise FileNotFoundError(f"点云夹具缺失: {fixture}")
 
-    # 不同点云来源显式传自己的轴向约定，前端统一归一到 ISO 8855。
     ds = Dataset(
         display_id=dataset_display_id,
         name=dataset_name,
@@ -278,15 +272,13 @@ async def seed_nuscenes_scene(
     import 后跑 BatchService 的 by_scene split,把未分包任务按 scene 分组,每个 scene 建一个
     TaskBatch(按 frame_index 排序)。name_prefix 与向导一致用 "Scene"。
 
-    幂等:dataset/scene/project 均按派生 display_id 复用,同名 scene 已存在则跳过;重跑时
-    无未分包任务 → by_scene split 抛 400,捕获后视作已建包(batches=0)。
+    幂等:dataset/scene/project 均按派生 display_id 复用,同名 scene 已存在则跳过;
+    只有批次 owner 确认无未分包任务才返回 batches=0。
     调用方负责最终 commit(import_nuscenes 的 task-creation workflow 不会 commit)。
     返回 (import_nuscenes 报告 + batches, 提交后可删的旧对象 key)。
     """
-    from fastapi import HTTPException
-
     from app.schemas.batch import BatchSplitRequest
-    from app.services.batch import BatchService
+    from app.services.batch import BatchService, NoUnassignedTasksToSplit
 
     nuscenes_root = ensure_nuscenes_mini(cache_dir=cache_dir, offline=offline)
     stale_storage_keys = await _remove_legacy_dev_seed(db, owner_id=owner_id)
@@ -330,9 +322,10 @@ async def seed_nuscenes_scene(
                 BatchSplitRequest(strategy="by_scene", name_prefix="Scene"),
                 created_by=owner_id,
             )
+        except NoUnassignedTasksToSplit:
+            pass
+        else:
             info["batches"] = len(batches)
-        except HTTPException:
-            pass  # 无未分包任务(重跑已建包)
     info["fixture"] = str(nuscenes_root)
     info["replaced_legacy"] = bool(stale_storage_keys)
     return info, stale_storage_keys

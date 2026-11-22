@@ -247,6 +247,5 @@ class LabelingAnnotationMaintenanceService:
             await record_annotation_actor(self.db, tasks[task_id], actor_id, lock=False)
         for task_id in sorted(written.deactivated_task_ids, key=str):
             await update_annotation_statistics(self.db, task_id)
-        # Keep the same loaded rows alive until evidence and statistics finish.
         del batches, locked_annotations
         return written.report.model_dump()

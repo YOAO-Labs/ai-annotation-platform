@@ -82,7 +82,6 @@ async def test_new_run_freezes_members_and_old_image_cannot_claim_or_replay(
     assignment = await service.claim(db_session, claim)
     assert assignment["run_id"] == str(run.id)
     assert (await service.claim(db_session, claim)) == assignment
-    # Existing leases can recover publication without requalifying startup inputs.
     claim.runtime["image_digest"] = "sha256:" + "f" * 64
     assert (await service.claim(db_session, claim)) == assignment
     claim.runtime.pop("input_receipt_policy_digest")

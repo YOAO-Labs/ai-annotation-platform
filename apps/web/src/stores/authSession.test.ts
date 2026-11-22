@@ -51,7 +51,6 @@ describe("persistent authenticated session namespace", () => {
       JSON.stringify({ state: { token: "legacy-token", user }, version: 0 }),
     );
     useAuthStore.setState({ token: null, user: null, sessionId: null });
-    // setState persists its state, so restore the legacy input after clearing memory.
     localStorage.setItem(
       "auth-storage",
       JSON.stringify({ state: { token: "legacy-token", user }, version: 0 }),

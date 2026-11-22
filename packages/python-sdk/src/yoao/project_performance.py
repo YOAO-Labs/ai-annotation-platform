@@ -79,7 +79,6 @@ class ProjectPerformance:
     ) -> Path:
         """Stream the full filtered member report as CSV to an existing directory."""
         params = _params(query)
-        # The export endpoint always emits the full matching roster.
         params.pop("cursor", None)
         params.pop("limit", None)
         return self._http.stream_download(

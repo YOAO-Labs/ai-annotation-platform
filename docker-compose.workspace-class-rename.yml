@@ -1,5 +1,3 @@
-# Optional override for the existing Configuration process, including NoOp projection.
-# Use with docker-compose.workspace-configuration.yml; no additional service is created.
 services:
   workspace-configuration:
     environment:

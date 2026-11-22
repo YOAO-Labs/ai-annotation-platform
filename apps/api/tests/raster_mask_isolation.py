@@ -53,8 +53,6 @@ def track_raster_owners(engine):
         statement = compiled.statement
         if statement.table._deannotate() is not StorageOperation.__table__:
             return
-        # The permit path inserts one explicit ID. A no-op conflict inserts none;
-        # an upsert update and a mixed multi-row insert cannot establish ownership.
         if (
             cursor.rowcount != 1
             or len(context.compiled_parameters) != 1
@@ -90,8 +88,6 @@ def track_raster_owners(engine):
         merge(created, owned)
 
     def commit_failed(context):
-        # The commit event precedes DBAPI COMMIT. Revoke only that attempt's
-        # additions on failure; successful independent commits remain owned.
         if context.execution_context is not None:
             return
         owned = committing.pop(context.connection, None)
@@ -126,8 +122,6 @@ def track_raster_owners(engine):
 
 
 async def remove_test_raster_owners(engine, created):
-    # Delete only registered operation and publication IDs, including guards
-    # attached to reused owners. Never remove another test's guard.
     async with async_sessionmaker(engine)() as db:
         await db.execute(
             delete(StorageOperation).where(StorageOperation.id.in_(created.operations))

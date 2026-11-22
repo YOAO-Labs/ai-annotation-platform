@@ -53,7 +53,6 @@ class ArchiveAuthority:
 
 
 def _jwt_proof(actor_id, request):
-    # Capture the presented credentials before the first row-lock await.
     if getattr(request.state, "api_key_id", None) is not None:
         return None
     scheme, _, presented = request.headers.get("authorization", "").partition(" ")
@@ -93,7 +92,6 @@ async def _jwt_current(db, proof):
     _check_clock(proof)
     jwt = proof.jwt
     if jwt is not None and jwt.jti is not None:
-        # Recheck Identity in the transaction holding the account SHARE fence.
         if await token_blacklist.is_blacklisted(jwt.jti, db=db):
             reject("audit_archive_authority_revoked", 403)
         generation = await token_blacklist.get_user_generation(

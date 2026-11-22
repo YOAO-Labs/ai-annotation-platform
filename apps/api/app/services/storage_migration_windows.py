@@ -270,7 +270,6 @@ async def transition(db, window_id, actor, body, *, api_key_id=None, request=Non
     if body.action != "close":
         enabled()
     actor, _ = await authority(db, actor, api_key_id, lock=True)
-    # Keep source metadata before window/Gate locks, as the reader admission does.
     if body.action == "stop":
         source = await inventories.source_scope(db, lock=True)
     row = await owner(db, window_id, lock=True, exclusive=True)
@@ -491,17 +490,11 @@ async def acquire_source_read(
     try:
         from app.services.managed_original_reclaim_fence import require_source_readable
 
-        # This must follow the Operation commit. A logical alias of the source
-        # can have a different Gate, so its already-durable GC claim is checked
-        # once more before handing the caller any physical source-read permit.
         async with AsyncSession(
             bind=bind, expire_on_commit=False, autoflush=False
         ) as guarded:
             await require_source_readable(guarded, window.source)
     except BaseException:
-        # No SDK has run: settle only this just-created responsibility. The
-        # existing Permit drains repeated cancellation and preserves failed DB
-        # settlement instead of pretending the receipt disappeared.
         await permit.__aexit__(None, None, None)
         raise
     return permit

@@ -23,10 +23,6 @@ interface RunOptions {
   onUpdate?: () => void;
 }
 
-/**
- * 简易 promise pool。所有 task 顺序触发，最多 `concurrency` 个并发跑。
- * 调用方持有 `items` 引用，可在 onUpdate 中读取实时状态。
- */
 export async function runUploadQueue<T>(
   tasks: Task<T>[],
   items: Map<string, QueueItem<T>>,
@@ -65,9 +61,6 @@ export async function runUploadQueue<T>(
   await Promise.all(Array.from({ length: concurrency }, () => runOne()));
 }
 
-/**
- * 用 XHR 实现可上报进度的 PUT — 浏览器 fetch 暂无原生上传进度。
- */
 export function putWithProgress(
   url: string,
   file: File,

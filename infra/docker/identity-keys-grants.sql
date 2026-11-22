@@ -1,9 +1,3 @@
--- Grant the exact API-key management surface after migrations and module-data-grants.
--- The restricted LOGIN role must already exist and have no memberships.
--- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v identity_owner=identity_code -v identity_key_role=yoao_identity_key_client \
---   -f infra/docker/identity-keys-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -124,7 +118,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_identity_keys_v1.execute_key_command(jsonb)
     TO :"identity_key_role";
 
--- The LOGIN gets exactly the two public key capabilities and no data or DDL access.
 DO $$
 DECLARE
     role_name text := current_setting('yoao.identity_key_role');

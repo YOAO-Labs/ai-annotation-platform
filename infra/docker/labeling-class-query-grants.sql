@@ -1,8 +1,3 @@
--- Grant the Labeling class-query LOGIN only its three closed native functions.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v labeling_owner=labeling_code
---   -v labeling_class_query_role=yoao_labeling_class_query_client
---   -f infra/docker/labeling-class-query-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

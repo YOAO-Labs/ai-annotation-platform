@@ -71,8 +71,6 @@ test("图片与视频在三种高度和原生页面缩放下保留全部工具�
   let expectedImage: Array<string | null> | undefined;
   const expectedVideo: Partial<Record<"frame" | "track", Array<string | null>>> = {};
   for (const height of [768, 900, 1080]) {
-    // Headless Chromium reserves 87 physical pixels for browser chrome at 100%.
-    // Assert the real CSS viewport below so changes to that inset fail visibly.
     const browser = await launchNativeBrowserZoom({
       baseURL,
       windowSize: { width: 1920, height: height + 87 },
@@ -161,7 +159,6 @@ test("图片与视频在三种高度和原生页面缩放下保留全部工具�
             true,
           );
         }
-        // Closing the menu restores focus to More; normal tool hotkeys resume there.
         if (await page.getByTestId("tool-dock-more").isVisible()) {
           await page.getByTestId("tool-dock-more").press("v");
           await expect(
@@ -171,10 +168,6 @@ test("图片与视频在三种高度和原生页面缩放下保留全部工具�
       }
       expect(pageErrors).toEqual([]);
     } finally {
-      // Closing the profile alone never fires pagehide, so the video document's
-      // original-playback lease would keep its server stage and the next height
-      // could not prepare another one. Close the tab first: its pagehide release
-      // is delivered before the profile goes away.
       await browser.page.close().catch(() => undefined);
       await browser.close();
     }
@@ -218,7 +211,6 @@ for (const video of [false, true]) {
       [0.5, 0.55],
     ]) {
       await page.mouse.click(bounds.x + bounds.width * x, bounds.y + bounds.height * y);
-      // Konva detects consecutive canvas clicks as double-clicks, even at different points.
       await page.waitForTimeout(450);
     }
     const writes: string[] = [];
@@ -272,8 +264,6 @@ for (const video of [false, true]) {
     await page.mouse.down();
     await page.mouse.move(divider.x, divider.y - (video ? 150 : 65), { steps: 8 });
     await page.mouse.up();
-    // Native docking splits the canvas in half; its minimum height can leave
-    // less than 40px to shrink. Verify resizing and the resulting overflow below.
     await expect.poll(async () => (await dock.boundingBox())!.height).toBeLessThan(beforeDrag);
     const more = page.getByTestId("tool-dock-more");
     await expect(more).toBeVisible();
@@ -291,13 +281,9 @@ for (const video of [false, true]) {
       "true",
     );
     await more.click();
-    await expect(menu.getByTestId("tool-overflow-item-smart-point")).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
-    await expect(menu.getByTestId("tool-overflow-item-smart-point")).toHaveAccessibleDescription(
-      "当前后端不支持此交互模式",
-    );
+    const unsupported = menu.getByTestId("tool-overflow-item-exemplar");
+    await expect(unsupported).toHaveAttribute("aria-disabled", "true");
+    await expect(unsupported).toHaveAccessibleDescription("当前后端不支持此交互模式");
     const currentBounds = (await stage.boundingBox())!;
     await page.mouse.click(
       currentBounds.x + currentBounds.width * 0.8,
@@ -314,7 +300,6 @@ for (const video of [false, true]) {
         .first()
         .evaluate((node, original) => node === original, originalCanvas),
     ).toBe(true);
-    // Move focus away from the menu trigger without adding a fourth geometry point.
     await page.getByRole("button", { name: "适应", exact: true }).click();
     await page.keyboard.press("Enter");
     const picker = page.getByTestId("class-picker-popover");
@@ -326,16 +311,27 @@ for (const video of [false, true]) {
       await expect(more).toBeFocused();
       await expect(picker).toBeVisible();
     }
-    await picker.getByText("car", { exact: true }).click();
-    await expect.poll(() => writes.length).toBe(1);
+    const [created] = await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          new URL(response.url()).pathname === `/api/v1/tasks/${taskId}/annotations`,
+      ),
+      picker.getByText("car", { exact: true }).click(),
+    ]);
+    expect(created.ok(), await created.text()).toBe(true);
+    const { id } = await created.json();
+    expect(writes).toHaveLength(1);
     await expect(picker).toBeHidden();
     await page.reload();
+    await expect(stage.locator(".konvajs-content > canvas").first()).toBeVisible();
     const saved = await request.get(`${API_BASE}/api/v1/tasks/${taskId}/annotations`, {
       headers: data.headers,
     });
     expect(saved.ok()).toBe(true);
     const annotations = await saved.json();
     expect(annotations).toHaveLength(1);
+    expect(annotations[0].id).toBe(id);
     expect(annotations[0].geometry.points).toHaveLength(3);
     expect(pageErrors).toEqual([]);
   });

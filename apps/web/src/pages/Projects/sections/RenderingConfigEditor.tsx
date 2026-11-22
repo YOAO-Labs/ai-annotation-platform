@@ -1,13 +1,3 @@
-// 从 RenderingConfigSection 抽出的受控视图.
-//
-// 用法:
-//   ProjectSettings: <RenderingConfigSection> 持有 useUpdateProject + draft, 包一层
-//   TemplateEditModal: 直接渲染 <RenderingConfigEditor value={form.rendering_config} onChange={...} />
-//
-// 字段集与 User.preferences.workbench 同: smoothImage / cssImageFilter /
-// controlPointsSize / snapToGrid. 每行有「覆盖此项」开关 + 控件;
-// 开关关闭时显示「跟随用户偏好」, value 中该 key 设为 null 表示不下发.
-
 import { useState } from "react";
 import type { ProjectRenderingConfig } from "@/api/projects";
 import { LABEL_CLASS } from "./formClasses";
@@ -16,7 +6,6 @@ function cn(...xs: Array<string | false | null | undefined>): string {
   return xs.filter(Boolean).join(" ");
 }
 
-// UA-safe 表单基线(无全局 preflight 期间,原生 input 需消浏览器默认样式)。
 const ROW_CLASS = "flex flex-col gap-1.5 border-b border-border py-2.5";
 const OVERRIDE_TOGGLE_CLASS =
   "inline-flex cursor-pointer items-center gap-1.5 text-xs text-muted-foreground";
@@ -77,7 +66,6 @@ export function RenderingConfigEditor({ value, onChange, disabled }: RenderingCo
 
   return (
     <fieldset className="p-4" disabled={disabled}>
-      {/* smoothImage */}
       <div className={ROW_CLASS}>
         <span className={LABEL_CLASS}>图像平滑（关闭后像素清晰）</span>
         <label className={OVERRIDE_TOGGLE_CLASS}>
@@ -104,7 +92,6 @@ export function RenderingConfigEditor({ value, onChange, disabled }: RenderingCo
         )}
       </div>
 
-      {/* cssImageFilter */}
       <div className={ROW_CLASS}>
         <span className={LABEL_CLASS}>CSS 图像滤镜（例：brightness(1.2) invert(1)）</span>
         <label className={OVERRIDE_TOGGLE_CLASS}>
@@ -132,7 +119,6 @@ export function RenderingConfigEditor({ value, onChange, disabled }: RenderingCo
         )}
       </div>
 
-      {/* controlPointsSize */}
       <div className={ROW_CLASS}>
         <span className={LABEL_CLASS}>
           控制点大小（顶点拖拽手柄半径）
@@ -161,7 +147,6 @@ export function RenderingConfigEditor({ value, onChange, disabled }: RenderingCo
         )}
       </div>
 
-      {/* snapToGrid */}
       <div className={ROW_CLASS}>
         <span className={LABEL_CLASS}>网格吸附</span>
         <label className={OVERRIDE_TOGGLE_CLASS}>
@@ -188,7 +173,6 @@ export function RenderingConfigEditor({ value, onChange, disabled }: RenderingCo
         )}
       </div>
 
-      {/* box3dDefaultSize */}
       <div className={ROW_CLASS}>
         <span className={LABEL_CLASS}>3D 新框默认尺寸（长 / 宽 / 高，米）</span>
         <label className={OVERRIDE_TOGGLE_CLASS}>
@@ -232,7 +216,6 @@ export function RenderingConfigEditor({ value, onChange, disabled }: RenderingCo
         )}
       </div>
 
-      {/* propagateOverwrite */}
       <div className={ROW_CLASS}>
         <span className={LABEL_CLASS}>关键帧复制覆盖策略</span>
         <label className={OVERRIDE_TOGGLE_CLASS}>
@@ -259,7 +242,6 @@ export function RenderingConfigEditor({ value, onChange, disabled }: RenderingCo
         )}
       </div>
 
-      {/* trackerDefaultModel */}
       <div className={cn(ROW_CLASS, "border-b-0")}>
         <span className={LABEL_CLASS}>AI 追踪默认模型</span>
         <label className={OVERRIDE_TOGGLE_CLASS}>

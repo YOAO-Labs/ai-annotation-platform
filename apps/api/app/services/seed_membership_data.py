@@ -95,8 +95,6 @@ class SeedMembershipWrites:
                         write_assigned_by=write_assigner,
                     )
                 )
-            # Let the caller flush unrelated attributes without emitting a
-            # private-table write for the fields staged through Workspace.
             for key, original in (
                 ("role", change.original_role),
                 ("assigned_by", change.original_assigner),
@@ -144,8 +142,6 @@ class SeedMembershipWrites:
                 make_transient_to_detached(member)
                 session.merge(member, load=False)
             else:
-                # Legacy ORM onupdate leaves this server value unloaded until
-                # the next SELECT; preserve that cache behavior after native SQL.
                 session.expire(self.changes[operation.id].member, ["updated_at"])
         for change in self.changes.values():
             set_committed_value(change.member, "role", change.role)
@@ -166,8 +162,6 @@ class SeedMembershipWrites:
             await self.flush()
 
     async def commit(self):
-        # Before-commit keeps both unrelated pending work and duplicate-insert
-        # errors at the same caller-owned commit boundary, including no_autoflush.
         callback = self._flush
         event.listen(self.db.sync_session, "before_commit", callback)
         try:

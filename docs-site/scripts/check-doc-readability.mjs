@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-/**
- * 检查文档站 Markdown 文件的写作规范与可读性体验：
- * 1. 避免 H1 开篇被历史 UI 补丁声明或生硬外链直接劫持；
- * 2. 避免在面向业务用户的 user-guide/ 中裸露未折叠的底层 HTTP 接口请求；
- * 3. 提示单段连续正文行数过长（> 14 行）的视觉文字瀑布。
- *
- * 用法：node docs-site/scripts/check-doc-readability.mjs [--strict]
- */
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, extname } from "node:path";
@@ -56,7 +48,6 @@ function checkFile(filePath) {
   const content = readFileSync(filePath, "utf8");
   checked++;
 
-  // 1. 检查开篇生硬插话 (H1 后面不能紧接独立的筛选控件补丁说明)
   const h1Match = content.match(/^#\s+[^\n]+/m);
   if (h1Match) {
     const afterH1 = content.slice(h1Match.index + h1Match[0].length).trimStart();
@@ -70,7 +61,6 @@ function checkFile(filePath) {
     }
   }
 
-  // 2. 检查 user-guide/ 中裸露的底层 API 请求体（未包裹在 <details> 中）
   if (rel.startsWith("user-guide/")) {
     const rawApiPattern =
       /```(?:json|bash|http|text)?\s*\n\s*(?:POST|GET|PUT|DELETE)\s+\/api\/v1\//g;

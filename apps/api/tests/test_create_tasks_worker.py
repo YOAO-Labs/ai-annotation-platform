@@ -75,7 +75,6 @@ async def test_initial_task_creation_is_idempotent(
     ds = await _seed_dataset(db_session, user.id, n_items=12)
     project = await _seed_project(db_session, user.id)
 
-    # The worker receives a dataset/project pair whose link is already committed.
     db_session.add(ProjectDataset(dataset_id=ds.id, project_id=project.id))
     await db_session.flush()
 
@@ -96,7 +95,6 @@ async def test_initial_task_creation_is_idempotent(
     await db_session.refresh(project)
     assert project.total_tasks == 12
 
-    # 幂等：再跑一次不双建。
     again = await workflow.create_tasks_for_linked_dataset(
         dataset_id=ds.id, project_id=project.id, actor_id=user.id
     )

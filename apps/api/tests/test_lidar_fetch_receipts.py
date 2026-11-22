@@ -169,7 +169,7 @@ def test_actual_script_streams_exact_bytes_with_or_without_http_length_and_verif
     fetcher, content_length
 ):
     world = fetcher
-    world.server.body = bytes(range(256)) * 2300  # More than two streaming chunks.
+    world.server.body = bytes(range(256)) * 2300
     world.server.length = content_length
     world.write()
     result = world.run()
@@ -178,9 +178,7 @@ def test_actual_script_streams_exact_bytes_with_or_without_http_length_and_verif
     assert len(world.server.requests) == 1
     result = world.run()
     assert result.returncode == 0
-    assert (
-        len(world.server.requests) == 1
-    )  # Existing bytes were fully verified locally.
+    assert len(world.server.requests) == 1
 
 
 def test_existing_same_length_wrong_content_is_replaced_only_after_full_verification(
@@ -554,7 +552,6 @@ def test_absolute_signed_url_keeps_original_origin_when_a_different_base_is_give
         "/saved/object%2f.bin?signature=never-print-this-signature&v=a%2Bb&v=second+one"
     )
     world.write(presigned_url=world.server.origin + path)
-    # A rewrite would connect to an unused endpoint rather than this controlled source.
     result = world.run("--base-url", "http://127.0.0.1:1")
     assert result.returncode == 0, result.stdout + result.stderr
     assert world.server.requests == [path]

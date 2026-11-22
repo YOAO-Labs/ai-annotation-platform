@@ -5,12 +5,9 @@ from datetime import datetime, timedelta, timezone
 import threading
 from uuid import UUID
 
-from fastapi import HTTPException
-
 from app.services import managed_original_reader as reader
 from app.services import original_binary as originals
 from app.services.content_snapshot import ContentError
-from app.services.original_request import connected_snapshot
 from app.services.original_playback_registry import MAX_STAGE_BYTES
 
 COPY_SECONDS = 900
@@ -55,12 +52,7 @@ async def prepare(db, resource, actor, payload, request, registry):
         expires_at = min(expires_at, proof.key_proof[2])
 
     async def capture():
-        stage = await connected_snapshot(
-            request, originals.capture_authorized(db, original, capture_video)
-        )
-        if stage is None:
-            raise HTTPException(499, {"code": "original_playback_disconnected"})
-        return stage
+        return await originals.capture_authorized(db, original, capture_video)
 
     return await registry.prepare(
         key=context,

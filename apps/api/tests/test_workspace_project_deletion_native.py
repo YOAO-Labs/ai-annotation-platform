@@ -178,7 +178,6 @@ async def test_portable_owner_keeps_outer_transaction_and_frozen_replay(
 
 @asynccontextmanager
 async def _failed_commit(test_engine, operation_id):
-    # This operation-scoped deferred trigger leaves the caller LOGIN function-only.
     name = "deletion_commit_" + uuid.uuid4().hex[:12]
     async with test_engine.begin() as db:
         await db.execute(

@@ -1809,8 +1809,6 @@ async def test_redis_gc_receipt_resumes_db_tombstone_and_orphan_fence_finalize(
     )
     assert receipt is not None
 
-    # Simulate a process crash after Redis, followed by registry deletion.  The
-    # next worker must finalize from the exact Redis receipt without frozen health.
     async with factory.begin() as db:
         await db.execute(
             delete(MLBackendRegistry).where(MLBackendRegistry.id == backend_id)
@@ -1915,7 +1913,6 @@ async def test_ready_repair_renews_only_with_complete_fresh_idle_proof(
         )
         assert first.ready
         original = await proof_store.snapshot(_RESOURCE_A)
-        # Advance the apparent card horizon without sleeping through production cadence.
         for _ in range(2):
             await proof_store._redis.hset(
                 proof_store.keys(_RESOURCE_A).card,
@@ -2245,8 +2242,6 @@ async def test_resident_runtime_subject_allows_nonidle_and_post_horizon_proof(
         )
         assert persisted == token_expires_at
 
-        # Workload admission deliberately does not require a new proof after each
-        # token horizon advance; that condition belongs only to proof recovery.
         async with factory() as db:
             repeated = await read_gpu_resident_runtime_subject(
                 factory,
@@ -3561,8 +3556,6 @@ async def test_busy_eviction_cancel_intent_advances_once_and_replays_exactly(
                 ),
             )
 
-        # A never-exposed durable generation gap is legal.  Cancel advances from
-        # the current high-water while remaining bound to the exact Redis drain.
         async with factory.begin() as db:
             fence = await db.get(GPUBackendFence, victim_id)
             assert fence is not None
@@ -4158,7 +4151,6 @@ async def test_eviction_phase_commit_proves_drain_and_unload_exactly(
             requester_id=requester_id,
             resource_id=_RESOURCE_A,
         )
-        # A concurrent preparation may burn a later generation without exposing it.
         async with factory.begin() as db:
             fence = await db.get(GPUBackendFence, victim_id)
             assert fence is not None

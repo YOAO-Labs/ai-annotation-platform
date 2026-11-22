@@ -239,7 +239,6 @@ async def test_frame_bytes_become_backend_file_path(
     assert patched["task_data"]["file_path"] == FRAME_URL
     assert patched["task_data"]["file_path"] != VIDEO_PATH
     assert patched["task_data"]["id"] == str(task.id)
-    # 上传键按 task/frame 分桶，便于同帧连击命中同一对象。
     assert patched["upload_key"] == f"frame-interactive/{task.id}/7.jpg"
     assert patched["upload_size"] == len(JPEG_BYTES)
 
@@ -308,9 +307,7 @@ async def test_mask_input_next_passthrough(
     assert body["model_load_ms"] == 42
     assert body["cache_hit"] is False
     assert body["result"][0]["type"] == "polygonlabels"
-    # 候选瞬态返回, 不落 Prediction (对齐图片侧交互链路)。
     assert "prediction_id" not in body
-    # frame_index 进上传键 → 同 task 不同帧不会互相覆盖。
     assert patched["upload_key"].endswith("/3.jpg")
 
 
@@ -398,7 +395,6 @@ async def test_non_interactive_backend_rejected(
     )
     assert resp.status_code == 400
     assert "interactive" in resp.json()["detail"]
-    # 拒绝发生在读帧之前: 不上传、不打 backend。
     assert "upload_key" not in patched
     assert "task_data" not in patched
 
@@ -463,7 +459,6 @@ async def test_invalid_context_json_rejected(
     )
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Invalid context JSON"
-    # context 解析先于读帧: 坏 JSON 不该白传一张图上对象存储。
     assert "upload_key" not in patched
     assert "task_data" not in patched
 

@@ -10,7 +10,6 @@ import select
 import sys
 
 
-# The kernel assigns these pidfd syscall numbers on the supported Linux hosts.
 _PIDFD_SEND_SIGNAL = 424
 _PIDFD_OPEN = 434
 _P_PIDFD = 3
@@ -18,7 +17,10 @@ _P_PIDFD = 3
 
 def _syscall(number: int, *arguments: object) -> int:
     if sys.platform != "linux" or platform.machine().lower() not in {
-        "x86_64", "amd64", "aarch64", "arm64"
+        "x86_64",
+        "amd64",
+        "aarch64",
+        "arm64",
     }:
         raise OSError(errno.ENOSYS, "Linux pidfd syscalls are unavailable")
     libc = ctypes.CDLL(None, use_errno=True)

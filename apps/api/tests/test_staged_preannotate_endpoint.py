@@ -54,7 +54,6 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
         state="connected",
     )
     proj.ml_backend_pool_id = detect_pool.id
-    # ADR-0044 · 源阶段 + 下游阶段 backend 均须在本项目「已启用」
     db.add(
         ProjectMLBackendPool(project_id=proj.id, pool_id=detect_pool.id, enabled=True)
     )
@@ -194,7 +193,6 @@ async def test_pipeline_source_stage_is_execution_source(
 async def test_accept_parallel_fanout_three_stages(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 三阶段单层扇出 (两个下游共享 parent_stage=0) 现在合法。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
@@ -236,8 +234,6 @@ async def _post_stages(client, token, proj, detect, batch, stages):
 async def test_accept_depth_three_geometry_chain(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 受限树形: depth-3 链路 (root 产几何 → 中间 intermediate → 叶子 attributes)
-    # 现在结构上被接受 (深度=3, 父均产几何)。中间阶段的能力可达性由 worker 路由期再校验。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = [
@@ -278,7 +274,6 @@ async def test_accept_depth_three_geometry_chain(
 async def test_reject_forward_parent_stage(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 前向 parent_stage (指向更晚的阶段) → 受限树形要求父序号严格更小。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = [
@@ -309,7 +304,6 @@ async def test_reject_forward_parent_stage(
 
 @pytest.mark.asyncio
 async def test_reject_depth_four(httpx_client, super_admin, db_session, _mock_celery):
-    # 0→1→2→3 链路深度 4 → 超过最大深度 3。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = [
@@ -349,7 +343,6 @@ async def test_reject_depth_four(httpx_client, super_admin, db_session, _mock_ce
 async def test_reject_parent_not_geometry(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 父阶段 write.target=attributes (不产几何) 被当作父引用 → 拒绝。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = [
@@ -381,7 +374,6 @@ async def test_reject_parent_not_geometry(
 async def test_reject_unsupported_target_stage(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # write.target_stage 非 'root' (本版仅接受 root) → 拒绝。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
@@ -399,7 +391,6 @@ async def test_reject_unsupported_target_stage(
 async def test_reject_key_conflict_default(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 两个并行兄弟写同一键 → 默认 reject (422); last_wins 时放行。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
@@ -421,7 +412,6 @@ async def test_reject_key_conflict_default(
         f"/api/v1/projects/{proj.id}/preannotate", headers=_bearer(token), json=body
     )
     assert resp.status_code == 422, resp.text
-    # last_wins 放行
     resp2 = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/preannotate",
         headers=_bearer(token),
@@ -435,7 +425,7 @@ async def test_reject_bad_roi_pad(httpx_client, super_admin, db_session, _mock_c
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
-    stages[1]["roi"] = {"mode": "crop", "pad": 0.9}  # 超出 [0,0.5]
+    stages[1]["roi"] = {"mode": "crop", "pad": 0.9}
     resp = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/preannotate",
         headers=_bearer(token),
@@ -452,7 +442,6 @@ async def test_reject_bad_roi_pad(httpx_client, super_admin, db_session, _mock_c
 async def test_accept_geometry_downstream(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # gsam2 box-seg 下游 (roi.mode=geometry + write.target=geometry) 应被放行。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = [
@@ -489,7 +478,7 @@ async def test_reject_invalid_roi_mode(
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
-    stages[1]["roi"] = {"mode": "polygon", "pad": 0.05}  # 非 crop / geometry
+    stages[1]["roi"] = {"mode": "polygon", "pad": 0.05}
     resp = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/preannotate",
         headers=_bearer(token),
@@ -512,7 +501,7 @@ async def test_reject_invalid_write_target(
     stages[1]["write"] = {
         "target": "new_shape",
         "keys": ["color"],
-    }  # 非 attributes / geometry
+    }
     resp = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/preannotate",
         headers=_bearer(token),
@@ -529,9 +518,6 @@ async def test_reject_invalid_write_target(
 async def test_geometry_target_skips_key_conflict(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # geometry target 不写 attributes, 不应卷进键冲突检测。
-    # 一个 attributes 阶段 + 一个 geometry 阶段, 即使前者写了 keys=["color"], geometry 阶段
-    # 没 keys 也不该 422。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = [
@@ -579,7 +565,6 @@ async def _set_model_caps(db, backend, model_id, supported_inputs):
 async def test_reject_geometry_child_without_compatible_input(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 产几何的子, supported_inputs 只有 full_image (无 bbox_prompt/crop) → 422。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     await _set_model_caps(db_session, classify, "fullimg-only", ["full_image"])
@@ -607,7 +592,6 @@ async def test_reject_geometry_child_without_compatible_input(
 async def test_bakes_crop_delivery_for_plain_detector_geometry_child(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 产几何的子是普通检测器 (supported_inputs 含 crop) → 烘焙 input.mode=crop。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     await _set_model_caps(db_session, classify, "hat-det", ["full_image", "crop"])
@@ -636,7 +620,6 @@ async def test_bakes_crop_delivery_for_plain_detector_geometry_child(
 async def test_bakes_geometry_delivery_for_box_seg_child(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 产几何的子是 box-prompt seg (supported_inputs 含 bbox_prompt) → input.mode=geometry。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     await _set_model_caps(
@@ -667,7 +650,6 @@ async def test_bakes_geometry_delivery_for_box_seg_child(
 async def test_explicit_input_mode_not_overridden(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 用户显式 input.mode 不被烘焙覆盖。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     await _set_model_caps(
@@ -698,7 +680,6 @@ async def test_explicit_input_mode_not_overridden(
 async def test_label_forwarded_to_worker(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 修复: label 字段须透传给 worker (子物体属性前缀链路依赖它)。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
@@ -714,7 +695,6 @@ async def test_pipeline_source_backend_overrides_top_level_compat_field(
 ):
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
-    # 顶层 ml_backend_id 用 detect, 但源阶段写成 classify → 派发时以源阶段为准。
     stages = _stages(classify.id, classify.id)
     resp = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/preannotate",
@@ -735,7 +715,7 @@ async def test_reject_unknown_downstream_backend(
 ):
     owner, token = super_admin
     proj, detect, _, batch = await _seed(db_session, owner.id)
-    stages = _stages(detect.id, uuid.uuid4())  # 下游 backend 不存在
+    stages = _stages(detect.id, uuid.uuid4())
     resp = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/preannotate",
         headers=_bearer(token),
@@ -752,8 +732,6 @@ async def test_reject_unknown_downstream_backend(
 async def test_reject_source_backend_other_project(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # ADR-0044 · backend 现为全局注册项, 隔离改读「项目已启用」: detect_b 虽全局存在,
-    # 但未在 proj_a 启用 (ProjectMLBackend) → is_enabled(proj_a, detect_b)=False → 404。
     owner, token = super_admin
     proj_a, _, _, batch_a = await _seed(db_session, owner.id)
     _proj_b, detect_b, _, _ = await _seed(db_session, owner.id)
@@ -761,7 +739,7 @@ async def test_reject_source_backend_other_project(
         f"/api/v1/projects/{proj_a.id}/preannotate",
         headers=_bearer(token),
         json={
-            "ml_backend_id": str(detect_b.id),  # 别项目的 backend
+            "ml_backend_id": str(detect_b.id),
             "batch_id": str(batch_a.id),
         },
     )
@@ -772,8 +750,6 @@ async def test_reject_source_backend_other_project(
 async def test_reject_drop_box_on_non_root_parent(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # issue 0001 · 深层 (非-root-父) 阶段设 on_failure=drop_box → 422。worker 侧 dropped 的下标
-    # 只与 root_boxes 对齐, 深层父框下标语义不同, 放行会误删无关 root 框。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = [
@@ -810,11 +786,10 @@ async def test_reject_drop_box_on_non_root_parent(
 async def test_accept_drop_box_on_root_parent(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # issue 0001 回归 · 父=源阶段 (root) 的 drop_box 仍合法 (下标对齐, 旧双阶段行为不变)。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
-    stages[1]["on_failure"] = "drop_box"  # parent_stage=0=root
+    stages[1]["on_failure"] = "drop_box"
     resp = await _post_stages(httpx_client, token, proj, detect, batch, stages)
     assert resp.status_code == 200, resp.text
 
@@ -823,8 +798,6 @@ async def test_accept_drop_box_on_root_parent(
 async def test_reject_full_image_input_mode(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # issue 0006 · input.mode=full_image 非真实投递模式 (worker 只认 crop/geometry, 会静默忽略),
-    # 校验期直接拒绝以保契约一致。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
@@ -832,9 +805,6 @@ async def test_reject_full_image_input_mode(
     resp = await _post_stages(httpx_client, token, proj, detect, batch, stages)
     assert resp.status_code == 422, resp.text
     assert "input.mode 须为" in resp.text
-
-
-# ---------- batchable + output_attribute_types 落点硬校验 ----------
 
 
 async def _set_caps(db, backend, models: list[dict]):
@@ -848,7 +818,6 @@ async def _set_caps(db, backend, models: list[dict]):
 async def test_reject_source_model_not_batchable(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # WS2: 源模型自报 batchable=false (交互/有状态) → 不能批量预标, 422。
     owner, token = super_admin
     proj, detect, _, batch = await _seed(db_session, owner.id)
     await _set_caps(
@@ -873,7 +842,6 @@ async def test_reject_source_model_not_batchable(
 async def test_accept_source_model_batchable_true(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # WS2 零退化: 源模型 batchable=true → 放行。
     owner, token = super_admin
     proj, detect, _, batch = await _seed(db_session, owner.id)
     await _set_caps(
@@ -897,7 +865,6 @@ async def test_accept_source_model_batchable_true(
 async def test_reject_downstream_model_not_batchable(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # WS2: 下游阶段模型 batchable=false → 422。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     await _set_caps(
@@ -916,7 +883,6 @@ async def test_reject_downstream_model_not_batchable(
 async def test_reject_attributes_stage_model_without_class(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # WS2: write.target=attributes 但模型 output_attribute_types 不含 class → 422 (属性恒空)。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     await _set_caps(
@@ -935,7 +901,6 @@ async def test_reject_attributes_stage_model_without_class(
 async def test_accept_attributes_stage_model_with_class(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # WS2 零退化: 模型自报 output_attribute_types 含 class → 放行。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     await _set_caps(
@@ -953,7 +918,6 @@ async def test_accept_attributes_stage_model_with_class(
 async def test_accept_attributes_stage_model_no_self_report(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # WS2 零退化: 模型未自报 output_attribute_types (老 backend) → 跳过 class 校验, 放行。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     await _set_caps(db_session, classify, [{"id": "va"}])
@@ -961,9 +925,6 @@ async def test_accept_attributes_stage_model_no_self_report(
         httpx_client, token, proj, detect, batch, _stages(detect.id, classify.id)
     )
     assert resp.status_code == 200, resp.text
-
-
-# ---------- resource_profile.device 设备感知队列路由 ----------
 
 
 async def _post_single(client, token, proj, detect, batch, model_id):
@@ -982,7 +943,6 @@ async def _post_single(client, token, proj, detect, batch, model_id):
 async def test_route_cpu_model_to_cpu_queue(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 源模型 device=cpu（单模型预标=全 CPU pipeline）→ ml.cpu 队列。
     owner, token = super_admin
     proj, detect, _, batch = await _seed(db_session, owner.id)
     await _set_caps(
@@ -997,7 +957,6 @@ async def test_route_cpu_model_to_cpu_queue(
 async def test_route_gpu_model_to_gpu_queue(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 源模型 device=gpu → ml 队列。
     owner, token = super_admin
     proj, detect, _, batch = await _seed(db_session, owner.id)
     await _set_caps(
@@ -1012,7 +971,6 @@ async def test_route_gpu_model_to_gpu_queue(
 async def test_route_no_device_to_gpu_queue(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 零退化: 老 backend 未自报 device → 进默认 ml 队列。
     owner, token = super_admin
     proj, detect, _, batch = await _seed(db_session, owner.id)
     await _set_caps(db_session, detect, [{"id": "plain-det"}])
@@ -1025,7 +983,6 @@ async def test_route_no_device_to_gpu_queue(
 async def test_route_mixed_pipeline_to_gpu_queue(
     httpx_client, super_admin, db_session, _mock_celery
 ):
-    # 混合 device pipeline (源 cpu + 下游 gpu) → 保守进 ml 队列 (任一 GPU 阶段 → GPU 队列)。
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
     await _set_caps(
@@ -1078,7 +1035,6 @@ async def test_reject_parent_geometry_not_roi_capable(
     """
     owner, token = super_admin
     proj, detect, classify, batch = await _seed(db_session, owner.id)
-    # 源阶段 detect 自报只产 keypoint (不可作 ROI 外接框)。
     detect.health_meta = {
         "capabilities": {
             "models": [

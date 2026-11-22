@@ -261,8 +261,6 @@ async def ordinary_source_stack(test_engine, app_module, monkeypatch, tmp_path):
         if process is not None and process.returncode is None:
             process.terminate()
             await asyncio.wait_for(process.wait(), timeout=30)
-        # The verified disposable database and buckets own this fixture's complete
-        # lifetime, including immutable audit and original-creation histories.
         await api_engine.dispose()
         await source_engine.dispose()
 

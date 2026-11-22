@@ -37,7 +37,6 @@ async def test_attribute_change_writes_one_audit_per_changed_key(
     )
     db_session.add(project)
     await db_session.flush()
-    # Literal employee: explicit annotator membership carries the write authority.
     await create_membership(
         db_session, project_id=project.id, user_id=ann_user.id, role="annotator"
     )
@@ -70,7 +69,6 @@ async def test_attribute_change_writes_one_audit_per_changed_key(
     db_session.add(ann)
     await db_session.flush()
 
-    # PATCH attributes：改 2 个 key（color: red→blue，occluded: false→true），加 1 个新 key（truncated）
     r = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/annotations/{ann.id}",
         json={"attributes": {"color": "blue", "occluded": True, "truncated": True}},
@@ -89,12 +87,10 @@ async def test_attribute_change_writes_one_audit_per_changed_key(
         .scalars()
         .all()
     )
-    # 3 个 key 变化 → 3 条审计行
     assert len(rows) == 3
     field_keys = {r.detail_json["field_key"] for r in rows}
     assert field_keys == {"color", "occluded", "truncated"}
 
-    # 同一 PATCH 触发的所有审计行共享 request_id。
     request_ids = {r.request_id for r in rows}
     assert len(request_ids) == 1, f"expected 1 request_id, got {request_ids}"
     assert next(iter(request_ids)) is not None

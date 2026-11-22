@@ -21,7 +21,6 @@ export const WORKSPACE_PRESETS = [
 export type WorkspacePresetId = (typeof WORKSPACE_PRESETS)[number]["id"];
 export type ActiveWorkspacePreset = WorkspacePresetId | "custom";
 
-/** Match visible topology, not generated group IDs, focused tabs or user-resized dimensions. */
 export function getActiveWorkspacePreset(
   snapshot: WorkspaceSnapshot,
   context: WorkspaceContext,
@@ -228,7 +227,6 @@ export interface LegacyWorkbenchLayout {
   rightSplitTop?: number;
 }
 
-/** Only call with the current account's authoritative preferences after hydration. */
 export function migrateThreeDWorkspace(
   input: WorkspaceSnapshot,
   legacy: LegacyWorkbenchLayout,
@@ -274,7 +272,6 @@ export function migrateThreeDWorkspace(
     return node;
   };
   snapshot.layout.grid.root = visit(snapshot.layout.grid.root, snapshot.layout.grid.orientation);
-  // The insertion may change the canvas path; the executor restores maximization after hydration.
   if (snapshot.layout.grid.maximizedNode) {
     const find = (node: WorkspaceNode, path: number[] = []): number[] | undefined =>
       node.type === "leaf"
@@ -287,7 +284,6 @@ export function migrateThreeDWorkspace(
   return sanitizeWorkspaceSnapshot(snapshot);
 }
 
-/** One-way migration; legacy preferences remain untouched for frontend rollback. */
 export function migrateLegacyWorkspace(
   legacy: LegacyWorkbenchLayout,
   bounds: WorkspaceBounds = DEFAULT_WORKSPACE_BOUNDS,

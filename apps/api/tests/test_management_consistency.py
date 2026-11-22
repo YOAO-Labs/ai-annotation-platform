@@ -32,7 +32,6 @@ async def test_distribution_counts_real_tasks_and_applies_identical_tied_order(
         )
     timestamp = datetime.now(timezone.utc)
     batches = []
-    # Insert opposite to UUID order; priority and timestamps intentionally tie.
     for index in (2, 1):
         batch = TaskBatch(
             id=uuid.UUID(int=index),
@@ -165,8 +164,6 @@ async def test_management_previews_do_not_reveal_out_of_scope_users(
 ):
     _, token = project_admin
     headers = {"Authorization": f"Bearer {token}"}
-    # Viewers stay outside a project admin's visibility and manage scope
-    # (enabled annotators/reviewers are operable since the #115 revision).
     outside = await create_user(
         db_session, "viewer", "secret-member@e.test", "Hidden Person"
     )
@@ -179,8 +176,6 @@ async def test_management_previews_do_not_reveal_out_of_scope_users(
     item = group.json()["items"][0]
     assert item["ok"] is False
     assert item["email"] is None and item["name"] is None
-    # Platform-role preview is super-admin only; a project administrator is
-    # denied before any out-of-scope detail is disclosed.
     impact = await httpx_client.get(
         f"/api/v1/users/{outside.id}/role/preview?role=employee", headers=headers
     )
@@ -217,8 +212,6 @@ async def test_role_preview_is_super_admin_only_and_hides_project_names(
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert allowed.status_code == 200, allowed.text
-    # A super administrator legitimately sees every project; only the denied
-    # project administrator response must not disclose it.
     assert "Private project name" in allowed.text
 
 

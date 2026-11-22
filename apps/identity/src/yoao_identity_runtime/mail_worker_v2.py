@@ -82,7 +82,6 @@ def create_app(
             except asyncio.CancelledError:
                 raise
             except Exception:
-                # Driver and SMTP exceptions may contain connection details.
                 await asyncio.sleep(settings.poll_interval_seconds)
 
     app = FastAPI(

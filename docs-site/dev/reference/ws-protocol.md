@@ -14,24 +14,20 @@ last_reviewed: 2026-10-24
 
 平台目前公开 6 个 WS 频道，全部通过 Redis Pub/Sub 串接：publisher 向 Redis 频道发消息，WS 端订阅后转发到客户端。具有持久状态的业务仍以 REST / Postgres 为真值，WS 只是「在线提示」快通道，不承担可靠队列语义。
 
-<ExcalidrawDiagram
-  src="/diagrams/shared/realtime/durable-notification-delivery.svg"
-  alt="普通通知默认由调用方提交后再尝试发布；终态 job 保留提交前兼容路径，WebSocket 先核验已提交行和权限再转发"
-  caption="普通通知提交后发布、终态 job 提交前兼容路径及 WebSocket 可见性门禁"
-/>
+> Jobs 终态的持久边界到 Notifications publisher 为止；WebSocket 提示仍不是可靠队列。
 
 ---
 
 ## 1. 端点总览
 
-| 频道                    | URL                                           | 鉴权                                                                                       | Redis 频道                                                         | 用途                                                                                                                                       |
-| ----------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| 用户通知                | `/ws/notifications?token=<jwt>`               | JWT (query param)                                                                          | `notify:{user_id}` (`yoao_notifications.redis_pubsub.channel_for`) | 任务分配、AI 进度、在线学习训练/评估终态、导出完成、@提及 等                                                                               |
-| 预标注进度（单项目）    | `/ws/projects/{project_id}/preannotate`       | JWT/`ak_`（query）+ 项目访问                                                               | `project:{project_id}:preannotate` (`ws.py`)                       | 工作台单次自动预标注的逐 batch progress                                                                                                    |
-| Batch 状态广播          | `/ws/batches/project/{project_id}`            | JWT/`ak_`（query）+ 项目访问                                                               | `project:{project_id}:batch` (`ws.py:112`)                         | 项目级 batch 状态翻转事件（B-15），让标注员/admin 多端实时同步                                                                             |
-| Prediction Jobs（全局） | `/ws/prediction-jobs?token=<jwt>`             | JWT (query, `super_admin` / `project_admin`)                                               | `global:prediction-jobs` (`ws.py:168`)                             | Topbar 徽章 + 切项目 toast 用，仅在 job 开始/结束/失败 3 时点带 `job_meta` 推一条                                                          |
-| 视频 tracker job        | `/ws/video-tracker-jobs/{job_id}?token=<jwt>` | JWT (query)，并按 task 可见性校验                                                          | `video-tracker-job:{job_id}` (`video_tracker_runner.py`)           | 单条 tracker job 的运行、候选暂存与人工决策事件                                                                                            |
-| ML Backend Stats        | `/ws/ml-backend-stats?token=<jwt 或 ak_key>`  | JWT **或 `ak_` api_key**（query, `super_admin` / `project_admin`；SDK / TUI 可用 api_key） | `ml-backend-stats:global` (`ws.py:246`)                            | Celery beat 每 1s 拉取 backend `/health` 快照后 publish；通过 `ml-backend-stats:subscribers` INCR/DECR 计数门控 — 0 订阅者时 beat 跳过实拉 |
+| 频道                    | URL                                           | 鉴权                                                                                       | Redis 频道                                                         | 用途                                                                              |
+| ----------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ | --------------------------------------------------------------------------------- |
+| 用户通知                | `/ws/notifications?token=<jwt>`               | JWT (query param)                                                                          | `notify:{user_id}` (`yoao_notifications.redis_pubsub.channel_for`) | 任务分配、AI 进度、在线学习训练/评估终态、导出完成、@提及 等                      |
+| 预标注进度（单项目）    | `/ws/projects/{project_id}/preannotate`       | JWT/`ak_`（query）+ 项目访问                                                               | `project:{project_id}:preannotate` (`ws.py`)                       | 工作台单次自动预标注的逐 batch progress                                           |
+| Batch 状态广播          | `/ws/batches/project/{project_id}`            | JWT/`ak_`（query）+ 项目访问                                                               | `project:{project_id}:batch` (`ws.py:112`)                         | 项目级 batch 状态翻转事件（B-15），让标注员/admin 多端实时同步                    |
+| Prediction Jobs（全局） | `/ws/prediction-jobs?token=<jwt>`             | JWT (query, `super_admin` / `project_admin`)                                               | `global:prediction-jobs` (`ws.py:168`)                             | Topbar 徽章 + 切项目 toast 用，仅在 job 开始/结束/失败 3 时点带 `job_meta` 推一条 |
+| 视频 tracker job        | `/ws/video-tracker-jobs/{job_id}?token=<jwt>` | JWT (query)，并按 task 可见性校验                                                          | `video-tracker-job:{job_id}` (`video_tracker_runner.py`)           | 单条 tracker job 的运行、候选暂存与人工决策事件                                   |
+| ML Backend Stats        | `/ws/ml-backend-stats?token=<jwt 或 ak_key>`  | JWT **或 `ak_` api_key**（query, `super_admin` / `project_admin`；SDK / TUI 可用 api_key） | `ml-backend-stats:global` (`ws.py`)                                | Celery Beat 每 1s 在存在未过期订阅租约时拉取并发布快照；无租约则跳过探活          |
 
 base URL：`ws://<api-host>/ws/...` 或 `wss://...`。多数频道复用 `apps/web/src/hooks/useReconnectingWebSocket.ts`；用户通知为了 token refresh 使用 `useNotificationSocket.ts` 内的专用重连循环。浏览器中的 DEV 连接统一使用页面同源 `/ws` 代理，避免 LAN 或 SSH LocalForward 访问把浏览器自己的 localhost 误当成 API 主机。
 
@@ -110,9 +106,9 @@ WebSocket 始终是在线刷新提示，不是所有通知共用的可靠队列�
 
 1. 普通 `NotificationService.notify()` 检查用户的 `in_app` 偏好并写入调用方事务，默认 `defer_publish=True`，不会立即发布。调用方提交成功后再调用 `publish_committed`；它重新检查当前投递权限并 best-effort 发布，Redis 失败只记日志，不回滚已提交业务。读、删除和偏好变更的 `notifications.sync` 也在提交后发布。
 2. 选定的通知工作流有自己的 durable outbox / lease 投递路径，提交 claim 后再 publish，并在 Redis 接收后确认 lease。它只覆盖接入该路径的生产者，不代表所有通知都有 at-least-once 保证。
-3. 白名单后台作业终态仍通过 `notify_job_terminal` 在外层 job 事务提交前写入并尝试发布。这是保留多处既有 worker 调用顺序的兼容路径。
+3. 白名单后台作业终态通过 `notify_job_terminal` 在 Jobs 调用方事务内同时写入通知行和 outbox。回滚时不会发布；提交后由同一 publisher 领取。Redis 确认不明时，重放使用同一持久通知 ID。
 
-通知 WebSocket 对业务消息逐帧重新验证 JWT，解析通知 ID，确认持久化行属于当前接收者，并重新检查项目投递权限。若终态消息先于外层 commit 到达，服务端最多查询 4 次通知行；3 次未命中后分别等待 150ms（合计 sleep 450ms，另加查询耗时），第四次仍未见行则丢弃消息。事务回滚时也不会转发幽灵通知；若事务提交但发布失败或 gate 已结束，REST 仍能读到已提交通知。
+通知 WebSocket 对业务消息逐帧验证身份，解析通知 ID，确认持久化行属于当前收件人并重新检查目标权限。终态提示查一次持久行，并按通知 ID 在同一连接内去重；其他通知在短暂缺行时仍最多读取 4 次、未命中间隔 150ms。重连和离线场景以 REST 的已提交收件箱为准。
 
 因此客户端应把 push 视为「可以刷新了」，再通过 `GET /api/v1/notifications` 读已提交真值：
 
@@ -277,9 +273,11 @@ job_accepted | job_discarded                    # 未决集合清空
 
 JWT 或 `ak_` API key 通过 query token 传入；当前账号须为 super_admin／project_admin，否则握手被拒绝。
 
-### 7.2 订阅计数门控
+### 7.2 订阅租约门控
 
-服务端在 `subscribe` 后立刻 `INCR ml-backend-stats:subscribers`，断开时 `DECR`（异常退出场景兜底 `max(0, ...)`）。Celery beat `publish_ml_backend_stats` 每 1s 启动前读这个键：**0 订阅者时直接 skip**，避免每秒空转 GPU 探活。
+服务端订阅发布频道后为每次连接建立独立 Redis 租约，每 10s 续期，租约有效期为 30s。正常断开仅移除该连接成功注册的租约；进程直接终止时由 Redis 到期。Celery Beat 的 `publish_ml_backend_stats` 每秒清理过期成员并读取存活订阅数；没有存活订阅或无法读取 Redis 时不探活。已连接客户端遇到暂时的租约故障会继续尝试续期或重新注册，发送快照前仍复核当前凭据和角色。
+
+部署时同时刷新 WebSocket 服务和执行统计任务的 worker，让连接重建租约；旧整数订阅键不参与新门控。隔离验收：`pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && AAP_ML_STATS_ACCEPTANCE=1 .venv/bin/python -m pytest tests/test_ml_stats_presence_live.py'`。
 
 ### 7.3 消息格式
 
@@ -344,7 +342,7 @@ client.ts 已自动 logout()  // 路由层会跳 /login
 新增一个 WS 频道大致 4 步：
 
 1. **定义 Redis 频道命名**：放到 owner transport 模块（参考 `yoao_notifications.redis_pubsub.channel_for(user_id)`）。
-2. **写 publisher**：先定义持久化真值与事务边界，再调用 Redis Pub/Sub。普通通知默认只写调用方事务；调用方 commit 后通过 `publish_committed` best-effort 发布。白名单后台 job 终态保留 `notify_job_terminal` 的提交前兼容路径，服务端会等待通知行短暂可见并重新校验权限。需要可重试投递时使用 owner durable outbox/lease，而不是只靠原始 Pub/Sub。
+2. **写 publisher**：先定义持久化真值与事务边界，再调用 Redis Pub/Sub。普通通知默认只写调用方事务；成功提交后通过 `publish_committed` 尽力发布。白名单后台 job 终态使用 `notify_job_terminal` 在事务内写通知和 outbox，禁止在提交前直接发布。需要可重试投递时应复用 Notifications owner 的租约能力，不能只靠 Pub/Sub。
 3. **写 WS 端点**：`@router.websocket("/ws/...")`，accept → SUBSCRIBE → 转发循环 → finally UNSUBSCRIBE。复制 `ws.py:notifications_socket` 模板即可，注意：
    - 鉴权写在 `accept` 之前；失败用 `await websocket.close(code=1008)`，不要先 accept 再 close（会被 LB 当成正常关闭）
    - 长生命周期频道补 `_heartbeat_loop` 防 LB idle

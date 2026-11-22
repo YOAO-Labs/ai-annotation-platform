@@ -450,8 +450,6 @@ async def test_current_labeling_module_state_survives_owned_restore(
         )
         assert await _database_head(restored_engine) == current_head
 
-        # Compare native metadata and the seeded Task, Annotation, and receipt
-        # before any grant script or owner operation can alter the restored clone.
         assert sorted(await _database_acl(source_engine)) == sorted(
             await _database_acl(restored_engine)
         )

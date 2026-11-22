@@ -452,7 +452,6 @@ def _require_version_owner(client, owner, proof):
         except Exception as exc:
             raise _unavailable(exc) from None
         if status is not None:
-            # A current HEAD, even with identical bytes, cannot identify the saved PUT.
             _reject("export_storage_invalid_receipt")
 
 

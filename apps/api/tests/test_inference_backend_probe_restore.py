@@ -170,7 +170,6 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
             assert await _state(restored) == before
             probe = await _connect(restored, role="yoao_inference_backend_probe_client")
             try:
-                # The key is preserved, but an active subject from the source database is rejected.
                 await _assert_invalid_subject(probe, old_subject, registry_id)
                 assert (
                     await probe.fetchval(

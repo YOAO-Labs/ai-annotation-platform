@@ -197,7 +197,6 @@ def _export_body(body: ExportRequestBody | None) -> dict[str, Any] | None:
         return None
     payload = body.model_dump(mode="json", by_alias=True, exclude_unset=True)
     if body.scope is not None:
-        # The server discriminates this union by kind; keep its model default explicit.
         payload["scope"]["selection"]["kind"] = body.scope.selection.kind
     return payload
 
@@ -801,7 +800,6 @@ class Tasks:
         if batch_id is not None:
             params["batch_id"] = str(batch_id)
         resp = self._http.request("GET", "/tasks/next", params=params)
-        # 无可领任务时后端返回 null; 空 body 同样按 None 处理
         data = resp.json() if resp.content else None
         return Task.model_validate(data) if data is not None else None
 
@@ -984,7 +982,6 @@ class Feedbacks:
                 "thread_parent_id": thread_parent_id,
             }
         ).model_dump(mode="json", by_alias=True, exclude_none=True)
-        # A task-level feedback explicitly carries no pixel anchor.
         payload.setdefault("anchor_position", None)
         resp = self._http.request("POST", "/feedbacks", json=payload)
         return AnnotationFeedback.model_validate(resp.json())

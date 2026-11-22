@@ -108,7 +108,6 @@ def run(args):
         )
         if args.check:
             return
-        # Revalidate IDs immediately before acting; Docker never selects by a reused name.
         validate(json.loads(docker("inspect", *workers)), args.project_dir.resolve())
         if (args.state_dir / "maintenance").exists():
             print("Development maintenance enabled; skipped.", flush=True)

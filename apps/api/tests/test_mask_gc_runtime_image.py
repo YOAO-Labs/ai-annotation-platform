@@ -74,10 +74,6 @@ async def _start_gc(
         and dsn.database == resources["database"]
     )
     token = secrets.token_urlsafe(32)
-    # The owned PostgreSQL login and the byte owner are separate containers on the
-    # default bridge. Give the installed owner their verified private addresses and
-    # internal listen ports; host-published loopback endpoints are not reachable
-    # from a bridge container.
     database_url = _container_database_url(dsn)
     content_url = _byte_container_origin(
         byte_container, byte_image, identity, resources["owner"]
@@ -259,8 +255,6 @@ async def test_installed_gc_progresses_past_retained_prefix_with_independent_bud
                 == journal_before
             )
 
-            # Only this disposable fixture's sweep uses a future cutoff; actual
-            # object identity, conditional deletion and journal receipts stay real.
             fixture_worker = uuid4()
             async with world["maker"].begin() as db:
                 claim = await _native_call(

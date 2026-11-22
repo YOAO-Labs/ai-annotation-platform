@@ -51,7 +51,6 @@ class PreferenceValidationError(Exception):
         super().__init__("User preferences are invalid")
 
 
-# Older open tabs may still send known flattened preference keys during a rollout.
 _LEGACY_WORKBENCH_KEYS: dict[str, str] = {
     "smoothImage": "image",
     "cssImageFilter": "image",
@@ -74,7 +73,6 @@ def _promote_legacy_workbench_keys(payload: dict) -> dict:
             continue
         subtree = workbench.get(subtree_key)
         if subtree is not None and not isinstance(subtree, dict):
-            # 子树类型非法：不动，留给 pydantic 校验报错
             continue
         value = workbench.pop(key)
         merged_subtree = dict(subtree or {})
@@ -83,13 +81,11 @@ def _promote_legacy_workbench_keys(payload: dict) -> dict:
     return {**payload, "workbench": workbench}
 
 
-# Strip removed workbench layout fields that may remain in stored JSONB.
 _REMOVED_WORKBENCH_LAYOUT_KEYS = ("leftWidth", "rightWidth")
 
 
 _ATOMIC_PREFERENCE_MAP_PATHS = {
     ("workbench", "layout", "cameraPanels"),
-    # 命名布局预设按整份清单提交；递归合并会让被删掉的那条永远留在库里。
     ("workbench", "layout", "workspace", "namedPresets"),
 }
 _WORKSPACE_CONTEXTS_PATH = ("workbench", "layout", "workspace", "contexts")
@@ -99,7 +95,6 @@ _INITIAL_NAMED_PRESETS_REVISION = "0"
 _NAMED_PRESET_ADAPTER = TypeAdapter(dict[PresetId, NamedWorkspacePreset])
 _NAMED_PRESETS_REVISION_ADAPTER = TypeAdapter(NamedPresetsRevision)
 
-# Shortcut overrides merge by command entry; reads preserve corrupt or newer subtrees.
 _SHORTCUTS_PATH = ("workbench", "shortcuts")
 _SHORTCUTS_DOMAINS = ("common", "image", "video")
 _SHORTCUT_ENTRY_ADAPTER = TypeAdapter(list[ShortcutBinding] | None)
@@ -133,16 +128,12 @@ def _prepare_shortcuts_validation(payload: dict, existing: dict) -> tuple[dict, 
         return payload, {}
     stored = _shortcuts_value(existing) or {}
     opaque: dict[str, dict[str, object]] = {}
-    # Preserve submitted metadata and field presence: omitted buckets must not
-    # become writes, and malformed metadata / explicit null buckets must still
-    # reach the normal model validation below.
     validation = dict(incoming)
     for domain in _SHORTCUTS_DOMAINS:
         if domain not in incoming:
             continue
         incoming_bucket = incoming[domain]
         if not isinstance(incoming_bucket, dict):
-            # Leave malformed buckets in the payload so Pydantic reports the normal 422.
             continue
         stored_bucket = (
             stored.get(domain) if isinstance(stored.get(domain), dict) else {}
@@ -156,16 +147,12 @@ def _prepare_shortcuts_validation(payload: dict, existing: dict) -> tuple[dict, 
                 and _same_json_value(value, stored_value)
             ):
                 try:
-                    # Include command IDs and per-command binding limits in the
-                    # compatibility decision, not just the binding shape.
                     WorkbenchShortcutPreferences.model_validate(
                         {domain: {command_id: value}}
                     )
                 except ValidationError:
                     opaque.setdefault(domain, {})[command_id] = stored_value
                     continue
-            # 预归一化：defaulted 字段（如缺省 modifiers）在此补全，避免 exclude_unset
-            # 把半截绑定写进 JSONB。校验失败时保留原值，让整模型给出常规 422。
             try:
                 normalized = _SHORTCUT_ENTRY_ADAPTER.validate_python(value)
             except ValidationError:
@@ -192,14 +179,8 @@ def _becomes_null_in_javascript(value) -> bool:
 def _same_json_value(left, right) -> bool:
     """Compare JSON recursively without Python's bool/int equality coercion."""
     if left is None and _becomes_null_in_javascript(right):
-        # JSON.stringify replaces a binary64 Infinity with null. The caller will
-        # restore the stored opaque value rather than persisting that lossy form.
         return True
     if type(left) in (int, float) and type(right) in (int, float):
-        # JSON has one number type. A browser round-trip may turn JSONB 1.0 into
-        # 1 or normalize integers outside JavaScript's safe range. Comparing as
-        # binary64 accepts that transport loss, then the caller restores the
-        # actual stored value; booleans remain distinct from both forms.
         try:
             return float(left) == float(right)
         except OverflowError:
@@ -281,8 +262,6 @@ def _prepare_workspace_validation(
     validation_workspace = dict(workspace)
     preset_only = "namedPresets" in workspace and set(workspace) == {"namedPresets"}
     if not engine_supplied and preset_only:
-        # The response model requires an engine, while a preset-only PATCH must
-        # leave an existing (possibly newer) enclosing engine untouched.
         validation_workspace["engine"] = "dockview@8"
 
     opaque: dict[str, object] = {}
@@ -297,9 +276,6 @@ def _prepare_workspace_validation(
             len(incoming_presets) > MAX_NAMED_PRESETS and incoming_keys <= stored_keys
         )
         if len(incoming_presets) > MAX_NAMED_PRESETS and not over_limit_compat:
-            # Keep the raw map in the validation payload so Pydantic reports the
-            # normal max-length 422. Compatibility never permits adding a key to
-            # an already over-limit map.
             return (
                 _with_workspace(payload, validation_workspace),
                 {},
@@ -314,10 +290,6 @@ def _prepare_workspace_validation(
             or not preset_ids <= stored_duplicates[name]
             for name, preset_ids in incoming_duplicates.items()
         ):
-            # Do not hide a newly introduced duplicate from the workspace-level
-            # uniqueness validator, including collisions with opaque entries.
-            # A strict subset is allowed so repeated single-entry deletions can
-            # repair a pre-existing duplicate group.
             return (
                 _with_workspace(payload, validation_workspace),
                 {},
@@ -342,12 +314,8 @@ def _prepare_workspace_validation(
                 _NAMED_PRESET_ADAPTER.validate_python({preset_id: preset})
             except ValidationError:
                 if unchanged:
-                    # Restore the actual stored object after validation rather
-                    # than a browser-normalized equivalent (for example 1 vs 1.0).
                     opaque[preset_id] = stored_presets[preset_id]
                 else:
-                    # Keep new or modified invalid values in the validation
-                    # payload so the normal Pydantic 422 identifies them.
                     strict[preset_id] = preset
             else:
                 strict[preset_id] = preset
@@ -478,8 +446,6 @@ def read_preferences(prefs: dict) -> dict:
                 )
             )
         except ValidationError:
-            # Corrupt or newer shortcut subtree: pass it through verbatim so the
-            # client can identify the affected overrides instead of losing them.
             content["workbench"]["shortcuts"] = shortcuts_raw
     return content
 
@@ -523,13 +489,11 @@ def patch_preferences(existing: dict, payload: dict) -> tuple[dict, dict]:
                     promoted[_NAMED_PRESETS_REVISION_KEY], strict=True
                 )
             except ValidationError:
-                # The complete request model reports the field-level 422 below.
                 pass
             else:
                 if expected_revision != stored_revision:
                     raise _named_presets_conflict(stored_revision)
         elif _NAMED_PRESETS_REVISION_KEY in existing:
-            # A legacy writer may establish the revision once, before one exists.
             raise _named_presets_conflict(stored_revision)
 
     validation_payload, opaque_presets, engine_supplied, had_stored_workspace = (
@@ -541,8 +505,6 @@ def patch_preferences(existing: dict, payload: dict) -> tuple[dict, dict]:
     try:
         validated = UserPreferences.model_validate(validation_payload)
     except ValidationError as error:
-        # Keep only stable locations and messages; never retain Pydantic's raw
-        # input/context in the portable error envelope.
         raise PreferenceValidationError(error.errors()) from None
 
     incoming = validated.model_dump(mode="json", exclude_unset=True, by_alias=True)

@@ -77,7 +77,6 @@ def healthy(container):
 
 
 def api_responds(cid):
-    # Use a dependency-free route; any HTTP response proves the server is alive.
     code = """import urllib.request, urllib.error
 try:
     urllib.request.urlopen('http://127.0.0.1:8000/openapi.json', timeout=5)
@@ -120,7 +119,7 @@ def classify(service, container, containers, ca_file):
     if status in ("exited", "created"):
         return "start", status
     if status != "running":
-        return None, status  # Docker owns restarting; paused containers stay paused.
+        return None, status
     health = state.get("Health", {}).get("Status")
     if health == "starting":
         return None, "starting"
@@ -156,7 +155,6 @@ def run(args):
         if (state_dir / "maintenance").exists():
             print("Production maintenance enabled; recovery paused.")
             return 0
-        # Validate CA before any mutation, even when gateway is stopped.
         ssl.create_default_context(cafile=str(args.ca_file))
         ids = docker(
             "ps", "-aq", "--filter", f"label=com.docker.compose.project={PROJECT}"
@@ -198,7 +196,6 @@ def run(args):
             identity = [container["Id"], container["State"].get("StartedAt")]
             if record.get("identity") != identity:
                 record.update(identity=identity, failures=0)
-            # Require consecutive scheduled observations, not stale failures after downtime.
             consecutive = 0 <= now - record.get("observed", 0) <= 300
             record["failures"] = (
                 (record.get("failures", 0) + 1 if consecutive else 1) if action else 0
@@ -225,7 +222,6 @@ def run(args):
                 continue
             if (state_dir / "maintenance").exists():
                 return 0
-            # Persist attempt before mutation so interrupted runs cannot cause restart loops.
             record["attempts"].append(now)
             save_state(state_file, history)
             print(f"{service}: {action} {container['Id'][:12]}", flush=True)
@@ -233,7 +229,6 @@ def run(args):
                 docker("restart", "--time", "60", container["Id"], timeout=85)
             else:
                 docker("start", container["Id"], timeout=85)
-            # The next timer invocation verifies health, allowing normal startup grace.
             return 1
         if not args.check:
             save_state(state_file, history)
@@ -260,7 +255,6 @@ def main():
     try:
         return run(args)
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
-        # Subprocess output may contain configuration; never dump it into the journal.
         print(
             f"Production health check failed: {type(error).__name__}: "
             + (

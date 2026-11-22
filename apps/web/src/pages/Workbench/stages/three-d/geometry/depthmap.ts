@@ -1,12 +1,3 @@
-/**
- * 点云 → 相机深度栅格(C2 深度联动)。
- *
- * 把点云逐点投到某相机像面(与 colorize/projection 同口径行主序投影),按像素网格(cell)
- * 聚合:每格保留**最近**(depth 最小)的那个点的深度 + 其 3D 坐标 + 投影像素。
- *   - 用途 1:相机图 hover → sampleDepth 查光标所在格的深度/3D 坐标读数。
- *   - 用途 2:深度热力图 → 遍历非空格,在 (u,v) 画按 depth 着色的点。
- * 建栅格 O(点数)一次(开关/换帧时),hover 查 O(1)。深度 = 相机系 z(intrinsic 末行 [0,0,1])。
- */
 import type { SensorCalibration } from "@/types";
 
 export interface DepthRaster {
@@ -15,27 +6,22 @@ export interface DepthRaster {
   cell: number;
   width: number;
   height: number;
-  /** 每格最近点深度(米);未命中为 Infinity。长度 cols*rows。 */
   depth: Float32Array;
-  /** 每格最近点的 3D 坐标(lidar/world 系)与投影像素。 */
   x: Float32Array;
   y: Float32Array;
   z: Float32Array;
   u: Float32Array;
   v: Float32Array;
-  /** 命中格的深度范围(供热力图归一化);无命中时 min>max。 */
   minDepth: number;
   maxDepth: number;
 }
 
-/** WebGPU camera colorization only needs the nearest depth per low-resolution cell. */
 export interface GpuDepthRaster {
   cols: number;
   rows: number;
   depth: Float32Array;
 }
 
-/** 单点投影到相机:{u, v, depth};depth = 相机系 z(w)。与 colorize.projectOne 同。 */
 function projectOne(
   x: number,
   y: number,
@@ -61,7 +47,6 @@ function projectOne(
   return { u: uu / ww, v: vv / ww, depth: ww };
 }
 
-/** 建相机深度栅格。cell = 网格边长(原图像素),默认 8。 */
 export function buildDepthRaster(
   positions: Float32Array,
   calib: SensorCalibration,
@@ -106,10 +91,6 @@ export function buildDepthRaster(
   return { cols, rows, cell, width, height, depth, x, y, z, u, v, minDepth, maxDepth };
 }
 
-/**
- * Build the compact depth texture payload used by GPU camera colorization.
- * Empty cells use a finite sentinel so the main thread can upload the array directly.
- */
 export function buildGpuDepthRaster(
   positions: Float32Array,
   calib: SensorCalibration,
@@ -134,10 +115,6 @@ export function buildGpuDepthRaster(
   return { cols, rows, depth };
 }
 
-/**
- * 查像素 (u,v) 处最近点的深度与 3D 坐标。先查所在格,空则向外扩 1 环(共 3×3)取最近。
- * 命中返回 {depth, point};无命中(光标在无点区)返回 null。
- */
 export function sampleDepth(
   raster: DepthRaster,
   u: number,

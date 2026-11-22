@@ -74,8 +74,6 @@ async def test_fixture_receipts_reject_restricted_login_even_with_stale_grants(
                 receipt_owner
             )
             await owner.exec_driver_sql(f"SET LOCAL ROLE {quoted_owner}")
-            # Simulate the reported stale grants: the owner checks must still
-            # reject both paths, not merely rely on the final ACL migration.
             await owner.exec_driver_sql(
                 f"GRANT INSERT ON public.fixture_export_zip_retirements TO {quoted}"
             )

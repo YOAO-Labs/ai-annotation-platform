@@ -39,8 +39,6 @@ def migration(connection):
 async def test_empty_roundtrip_keeps_historical_inventory_id_without_job_fk(
     test_engine,
 ):
-    # Schema roundtrip drops named indexes/constraints, so it must run against
-    # the real public schema, not the isolation clone (LIKE renames them).
     async with test_engine.connect() as connection:
         transaction = await connection.begin()
         try:

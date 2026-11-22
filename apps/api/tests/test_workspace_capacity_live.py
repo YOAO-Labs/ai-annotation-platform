@@ -431,8 +431,6 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                     }
                 )
 
-            # Exercise the actual owner policy before the timed workload.
-            # A numeric stage string retains the existing normalization behavior.
             pipeline = [{"stage": "17", "ml_backend_id": str(uuid.UUID(int=1))}]
             canonical_pipeline = [{**pipeline[0], "stage": 17}]
             pipeline_project = lanes[0]

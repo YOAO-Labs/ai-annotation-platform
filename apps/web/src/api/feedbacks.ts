@@ -1,9 +1,3 @@
-/**
- * I18 · AnnotationFeedback 统一反馈表 API client.
- *
- * 端点列表见 docs/adr/archive/0027-annotation-feedback-unified-table.md.
- * pixel anchor 携带相对 0-1 坐标，并可选携带 Mask 质检区域与边界摘要。
- */
 import { apiClient } from "./client";
 import type { CommentCanvasDrawing, CommentMention } from "./comments";
 import type { DiscussionActions } from "@/pages/Workbench/state/discussionTypes";
@@ -27,7 +21,6 @@ export interface MaskFeedbackCompareLocator {
 export interface FeedbackVideoViewport {
   center_x: number;
   center_y: number;
-  /** Relative to the fit scale, independently of the current screen dimensions. */
   zoom: number;
 }
 
@@ -63,7 +56,6 @@ export interface FeedbackAnchorPosition {
   scene_track_id?: string | null;
   auxiliary_layers?: string[];
   compare_locator?: MaskFeedbackCompareLocator | null;
-  /** Historical/future versions remain readable; consumers validate V1 before restoring it. */
   video_context?: FeedbackVideoContext | Record<string, unknown> | null;
 }
 
@@ -82,7 +74,6 @@ export interface AnnotationFeedback {
   author_id: string;
   author_name: string | null;
   attachments: Array<Record<string, unknown>>;
-  /** Optional for old API payloads; native task comments from current servers include it. */
   mentions?: CommentMention[];
   canvas_drawing?: CommentCanvasDrawing | null;
   thread_parent_id: string | null;
@@ -91,7 +82,6 @@ export interface AnnotationFeedback {
   resolved_by_id: string | null;
   created_at: string;
   updated_at: string | null;
-  /** Server-computed capabilities; absent only for legacy mocked/old payloads. */
   actions?: DiscussionActions;
 }
 
@@ -111,9 +101,7 @@ export function hasPixelAnchor(feedback: AnnotationFeedback): feedback is PixelA
 export interface AnnotationFeedbackListPage {
   items: AnnotationFeedback[];
   next_cursor: string | null;
-  /** Exact count for this request when include_counts=true. */
   total?: number | null;
-  /** Exact status counts for this request, independent of status filtering. */
   status_counts?: Partial<Record<FeedbackStatus, number>> | null;
 }
 
@@ -157,9 +145,7 @@ export interface ListFeedbacksParams {
   status?: FeedbackStatus;
   limit?: number;
   cursor?: string;
-  /** Return only root feedbacks (the Workbench Issue list sets this explicitly). */
   root_only?: boolean;
-  /** Include exact total and status_counts in the page response. */
   include_counts?: boolean;
 }
 
@@ -193,7 +179,6 @@ export const feedbacksApi = {
   reply: (id: string, payload: { body: string; attachments?: Array<Record<string, unknown>> }) =>
     apiClient.post<AnnotationFeedback>(`/feedbacks/${id}/replies`, payload),
 
-  /** Read an active root Issue and its flat, paged descendant conversation. */
   thread: (rootFeedbackId: string, params: ListFeedbackThreadParams = {}, signal?: AbortSignal) =>
     apiClient.get<AnnotationFeedbackThreadPage>(
       `/feedbacks/${rootFeedbackId}/thread${buildQuery(params)}`,

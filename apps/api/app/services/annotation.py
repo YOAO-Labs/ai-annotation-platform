@@ -47,8 +47,6 @@ from app.db.models.prediction import (
 from app.db.models.task import Task
 from app.db.models.task_lock import AnnotationDraft
 
-# 传播纯逻辑由 annotation_propagation.py 持有；此处为端点和类方法引入，
-# 并保留 `from app.services.annotation import ...` 的既有入口。
 from app.services.annotation_propagation import (
     _PropagateContext as _PropagateContext,
     _clean_bbox_geometry as _clean_bbox_geometry,
@@ -183,8 +181,7 @@ def _sync_attributes_meta(
             continue
         entry = old_meta.get(key)
         if entry is None:
-            continue  # 人工产物（隐式 human），不落 meta
-        # 该 key 原是 AI 产物：仅当值未被人工改动才保留 AI 溯源。
+            continue
         if key in old_attrs and old_attrs[key] == val:
             new_meta[key] = entry
     return new_meta
@@ -379,9 +376,6 @@ class AnnotationService:
         """
         from fastapi import HTTPException
 
-        # Slice restore may deactivate a prospective parent. Serialize child
-        # creation with it before validating, so a waiter cannot create a child
-        # from an active-state snapshot taken before the restore committed.
         await lock_task_for_core_read(self.db, task_id)
         parent = await self.db.scalar(
             select(annotation_row)
@@ -440,9 +434,6 @@ class AnnotationService:
                     native_original_receipt=native_original_receipt,
                 )
             )
-        # A2 · record before any Annotation/SceneTrack lock: this takes the task
-        # row lock first, keeps the global Task -> Annotation order, and rolls
-        # back with the mutation if the mutation fails.
         await record_annotation_actor(self.db, task, user_id)
 
         if task.project_id:
@@ -610,7 +601,6 @@ class AnnotationService:
         user_id = write_scope.actor_id
         if user_id is None:
             raise HTTPException(status_code=401, detail="Authentication required")
-        # predictions 复合 PK (id, created_at) 后不能用 db.get(单值)，改按 id 查。
         prediction = (
             await self.db.execute(
                 select(prediction_row).where(prediction_row.id == prediction_id)
@@ -836,9 +826,6 @@ class AnnotationService:
                     status_code=409,
                     detail={"reason": "accepted_video_input_unavailable"},
                 )
-        # Convert and validate every selected geometry before constructing or adding
-        # any Annotation row.  This closes the accept path that previously bypassed
-        # the raster create gate and linked uploads immediately before flush.
         from app.services.prediction import to_internal_shape
 
         raw_shapes = list(prediction.result or [])
@@ -878,7 +865,6 @@ class AnnotationService:
             operations=("candidate_accept", "interactive_mask_accept"),
         )
         if task is not None:
-            # A2 · task row lock before the accepted annotations are written.
             await record_annotation_actor(self.db, task, user_id)
         await prepare_mask_payload_for_write(
             self.db,
@@ -890,10 +876,6 @@ class AnnotationService:
             video_acceptance_receipt=video_acceptance_receipt,
         )
 
-        # 属性级溯源: 从 PredictionMeta.extra.pipeline 建「AI 富集属性键 → model_ref」
-        # 映射。pipeline 是 stage 级 (非 per-key), 但 enriched key = f"{label}_{k}" if label else k
-        # (与 application/preannotation_execution.py:_run_task_pipeline 一致), 故能精确反推每个键出自哪个 stage 的 backend/model。
-        # PredictionMeta 与 prediction 1:1 (prediction_id unique)。confidence 不在 extra 里, 不编造。
         ai_key_model: dict[str, dict] = {}
         pipeline_meta = (pred_meta.extra or {}).get("pipeline") if pred_meta else None
         controlled_binding = bool(
@@ -912,16 +894,9 @@ class AnnotationService:
                 for k in st.get("write_keys") or []:
                     ai_key_model[f"{prefix}{k}"] = model_ref
 
-        # 把 LabelStudio 格式的 prediction.result 转为内部 schema 后再采纳。
-
-        # B-11 · DINO 写入的 class_name 是项目类别的英文 alias; 采纳时反查
-        # 对应 tool_unit 的 classes 把 alias 映射回原类别名 (中文 / 业务名).
-        # 强隔离: 只查 prediction.tool_unit_id 对应 unit 的 classes,
-        # 不再跨 unit 走派生 classes_config (不同 unit 同名类可有不同 alias).
         project = await get_workspace_project(self.db, project_id=prediction.project_id)
         prediction_unit = getattr(prediction, "tool_unit_id", None) or "bbox"
         alias_to_name: dict[str, str] = {}
-        # select/multiselect 属性的合法取值集合, 采纳时软校验 (不阻断, 仅 warning).
         attr_select_options: dict[str, set[str]] = {}
         if project is not None:
             binding = (project.tool_bindings or {}).get(prediction_unit) or {}
@@ -950,9 +925,6 @@ class AnnotationService:
         anns: list[Annotation] = []
         for idx, shape in indexed:
             raw_class = shape.get("class_name", "") or ""
-            # 采纳时选类: override_class_name 非空时直接用它 (人工指定项目标签),
-            # 跳过 alias 反查 — 用于"预测类名既不在标签集、又无 alias 命中"时让人当场选类落库,
-            # 不再 422 拒死。仍走下面同一段软校验。平台不做自动映射 (NG6)。
             mapped_class = (
                 override_class_name
                 if override_class_name
@@ -960,21 +932,13 @@ class AnnotationService:
                 if controlled_binding
                 else alias_to_name.get(raw_class.strip().lower(), raw_class)
             )
-            # 走与 create 同一段 class_name 软校验, 避免 accept_prediction 写入
-            # 不在 unit allowed 集合内的"幽灵类别"导致 UI 看不见 DB 仍有的记录.
             await self._validate_class_name(
                 prediction.project_id, prediction_unit, mapped_class
             )
-            # 协议 v2 OCR / doc_layout: 把 prediction shape 的富属性 (text /
-            # language / orientation) 透传到 annotation.attributes。tool_binding 的
-            # attribute_schema 未定义对应 key 时仍原样保留 (不静默丢、不硬校验), 让 OCR
-            # 文本随采纳进人工标注。_shape_index 始终保留供前端双键判定。
             attributes: dict = {}
             shape_attributes = shape.get("attributes")
             if isinstance(shape_attributes, dict):
                 attributes.update(shape_attributes)
-            # 采纳前在工作台审阅候选属性时改过的值按键覆盖 (edit-before-accept 原子落库)。
-            # 内部键 (_shape_index 等) 不允许被 override 干扰, 下面权威重写。
             if isinstance(attribute_overrides, dict):
                 attributes.update(
                     {
@@ -983,11 +947,7 @@ class AnnotationService:
                         if not k.startswith("_")
                     }
                 )
-            # 权威 _shape_index 放在最后, 防止 backend 在 shape attributes 里同名覆盖
-            # 导致前端按 (predictionId, shapeIndex) 双键命中错位。
             attributes["_shape_index"] = idx
-            # 软校验 select/multiselect 属性值: 不在 options 内仍保留入库, 仅记 warning
-            # (避免模型抖动产出越界值时整框采纳失败; 硬校验留给人工提交). _shape_index 等内部键跳过.
             for _akey, _aval in attributes.items():
                 _allowed = attr_select_options.get(_akey)
                 if _allowed is None:
@@ -1005,8 +965,6 @@ class AnnotationService:
                         _akey,
                         _bad,
                     )
-            # per-key 溯源: pipeline 富集键标 origin=ai + model_ref; 采纳前
-            # 被人工改过的键 (attribute_overrides) 视为 human 认领, 不标 ai。内部键跳过。
             overridden = (
                 {k for k in attribute_overrides if not k.startswith("_")}
                 if isinstance(attribute_overrides, dict)
@@ -1283,7 +1241,6 @@ class AnnotationService:
                 ),
             )
             set_committed_value(child, "source", written.source)
-            # The old source-only ORM UPDATE did not refresh Mask-trigger versions.
             set_committed_value(child, "updated_at", written.updated_at)
             children.append(child)
         if children:
@@ -1686,8 +1643,6 @@ class AnnotationService:
                 self.db, task, geometry
             )
         if class_name is not None:
-            # 与 create / accept_prediction 对齐: PATCH 改类也走软校验,
-            # 堵住"采纳后 PATCH 改成项目标签集外的任意非法值"的数据质量缺口.
             await self._validate_class_name(
                 annotation.project_id, annotation.tool_unit_id, class_name
             )
@@ -1743,12 +1698,10 @@ class AnnotationService:
         if confidence is not None:
             values["confidence"] = confidence
         if attributes is not None:
-            # 先据旧值算 meta 同步（人工改动即认领），再替换 attributes。
             values["attributes_meta"] = _sync_attributes_meta(
                 annotation.attributes, annotation.attributes_meta, attributes
             )
             values["attributes"] = attributes
-        # 字段级 PATCH 更新 shape 状态位。
         if z_order is not None:
             values["z_order"] = z_order
         if is_locked is not None:

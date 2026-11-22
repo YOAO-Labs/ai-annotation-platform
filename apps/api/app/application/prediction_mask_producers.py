@@ -41,7 +41,6 @@ async def prediction_mask_producer(execution, ordinal):
     try:
         yield
     except BaseException:
-        # Unknown outcomes retain the durable anchor and exact owned objects.
         raise
     else:
         async with execution.session_factory() as db:

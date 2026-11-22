@@ -154,7 +154,6 @@ async def locked_task(db, task_id):
 
 
 def credentials_value(proof):
-    # Fingerprint the exact accepted facts, never the request token or verifier.
     key = proof.key_proof
     expires_at = key[2] if key is not None else proof.expires_at
     return {
@@ -416,7 +415,6 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
         read_options = await settled(
             original_sources.read_options(db, source, read_timeout=15)
         )
-        # The reader owns/relinquishes the slot only after real file close.
         if not _slots.acquire(blocking=False):
             raise ContentError("snapshot_capacity_exceeded", 429)
         stop = threading.Event()
@@ -456,7 +454,6 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
             raise
         if stage.sha256 != source.sha256 or stage.size != source.size_bytes:
             raise ContentError("source_changed")
-        # adopt_stage owns the file from invocation, including interrupted waits.
         consumed, stage = stage, None
         snapshot = await settled(
             images.adopt_stage(consumed), late=lambda value: physical_close(value.close)

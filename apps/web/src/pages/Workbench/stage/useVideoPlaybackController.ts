@@ -111,7 +111,7 @@ export interface UseVideoPlaybackControllerOptions {
   videoSampling?: VideoSamplingConfig | null;
   defaultPlaybackRate?: VideoPlaybackRate;
   annotations: AnnotationResponse[];
-  /** AI 预测有内容的帧集合 (升序去重, collectPredictedFrames 产); 时间轴预测密度轨 + 跳预测帧。 */
+  annotationWritesPending?: boolean;
   predictedFrames?: readonly number[];
   selectedId: string | null;
   selectedTrack: VideoTrackAnnotation | null;
@@ -138,7 +138,6 @@ export interface UseVideoPlaybackControllerResult {
   cachedRanges: { from: number; to: number }[];
   displayBitmap: CachedVideoBitmap | null;
   frameSource: "webcodecs" | "video-bitmap" | "video-element";
-  /** 精确帧 pipeline 的当前状态(供 stage 暴露 data-video-precise-state 给 E2E)。 */
   preciseSourceState: PreciseFrameSourceState;
   precisePaintedFrameIndex: number | null;
   markPreciseFramePainted: (frameIndex: number) => void;
@@ -174,7 +173,6 @@ export interface UseVideoPlaybackControllerResult {
   seekToFrame: (frameIndex: number, options?: { recordHistory?: boolean }) => void;
   seekOverlayByFrames: (delta: number, options?: { recordHistory?: boolean }) => void;
   pausePlayback: (options?: { snapToGrid?: boolean }) => void;
-  /** cycleInCategory / stepCategory 由 VideoKonvaStage 补齐, 故此处 Omit(见 controls memo)。 */
   controls: Omit<
     VideoStageControls,
     "cycleInCategory" | "stepCategory" | "focusObject" | "focusRegion" | "normToClient"
@@ -196,6 +194,7 @@ export function useVideoPlaybackController({
   videoSampling = null,
   defaultPlaybackRate = DEFAULT_VIDEO_PLAYBACK_RATE,
   annotations,
+  annotationWritesPending = false,
   predictedFrames = [],
   selectedTrack,
   trackColorOverrides,
@@ -232,8 +231,6 @@ export function useVideoPlaybackController({
   const overlayHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameIndexRef = useRef(0);
-  // Issue #114 · 最新一次主动导航（seekFrameAsync）的目标帧。暂停态下 handleFrameClockChange
-  // 只接受该目标或当前帧回声；浏览器高负载交错产生的其它媒体帧回报一律视为过期并丢弃。
   const frameNavigationTargetRef = useRef<number | null>(null);
   const jogPlaybackRef = useRef<VideoJogPlayback>(DEFAULT_PAUSED_JOG_PLAYBACK);
   const onSelectRef = useRef(onSelect);
@@ -283,10 +280,6 @@ export function useVideoPlaybackController({
 
   const frameIndex = controlledFrameIndex ?? uncontrolledFrameIndex;
   frameIndexRef.current = frameIndex;
-  // PR #118 评审跟进:导航目标在渲染期收敛到已提交帧——播放逐帧推进与宿主外部改写受控帧
-  // (章节/段落/任务恢复)都不经 seekFrameAsync,若沿用旧目标,「seek A → 播放到 B →
-  // 暂停」后 A 的迟到回报仍能过栅栏拽回旧帧。seekFrameAsync 对目标的赋值与其乐观写
-  // 在同一同步栈内完成,不会在提交前被此收敛覆盖。
   frameNavigationTargetRef.current = frameIndex;
   jogPlaybackRef.current = jogPlayback;
   const isJogPlaying = jogPlayback.direction !== 0;
@@ -294,7 +287,6 @@ export function useVideoPlaybackController({
   const isPlaybackActiveRef = useRef(isPlaybackActive);
   isPlaybackActiveRef.current = isPlaybackActive;
 
-  // defaultPlaybackRate 变化时重置停帧态的 jog 速率,不中断播放。
   useEffect(() => {
     if (jogPlaybackRef.current.direction === 0) {
       setJogPlayback(pausedJogPlayback);
@@ -355,10 +347,6 @@ export function useVideoPlaybackController({
         if (video) video.currentTime = frameToTime(loopRegion.startFrame, timebase);
         return;
       }
-      // Issue #114 · 暂停态 stale-assignment 栅栏：时间轴点击的异步取帧在高负载下可能迟到，
-      // 与键盘步进竞争后把帧号拽回旧帧。合法的暂停态写入只可能是最新导航目标（含其回声
-      // 回执）；播放态逐帧推进不受此限制。被丢弃的写不影响媒体 seek 本身，画面在下一帧
-      // 变化时由 useFrameClock 的重对齐 effect 收敛。
       if (
         !isPlaybackActiveRef.current &&
         nextFrame !== frameNavigationTargetRef.current &&
@@ -400,6 +388,10 @@ export function useVideoPlaybackController({
     scrubPrefetchHalfWindow: performanceConfig.prefetchHalfWindow,
     anchorPrefetchCount: performanceConfig.anchorPrefetch,
   });
+  const lastTrackPrefetchRef = useRef<{
+    prefetch: typeof prefetchFrames;
+    frames: Set<number>;
+  }>();
 
   const {
     activeBitmap,
@@ -416,7 +408,6 @@ export function useVideoPlaybackController({
     maxItems: performanceConfig.videoBitmapCache,
   });
 
-  // 精确帧:WebCodecs decoder 激活时优先 precise bitmap,回退 native <video> capture bitmap。
   const precise = useVideoPreciseFrame({
     taskId: manifest?.task_id,
     metadataGenerationId: manifest?.metadata_generation_id,
@@ -430,10 +421,7 @@ export function useVideoPlaybackController({
   const preciseBitmap =
     precise.bitmap && precise.bitmap.frameIndex === frameIndex ? precise.bitmap : null;
   const nativeBitmap = activeBitmap && activeBitmap.frameIndex === frameIndex ? activeBitmap : null;
-  // 播放态的真实显示源始终是 <video>;暂停态只接受与当前 frameIndex 严格匹配的 bitmap。
-  // 这份选择同时供 Konva、Minimap 与 captureCurrentFrameJpeg 使用,避免画面 / 标注 / AI 串帧。
   const displayBitmap = isPlaybackActive ? null : (preciseBitmap ?? nativeBitmap);
-  // 当前帧位图 ref(读最新值, 避免把 displayBitmap 塞进 controls memo deps → 逐帧重建句柄)。
   const displayBitmapRef = useRef(displayBitmap);
   displayBitmapRef.current = displayBitmap;
   const frameSource: "webcodecs" | "video-bitmap" | "video-element" = isPlaybackActive
@@ -467,8 +455,6 @@ export function useVideoPlaybackController({
     [captureBitmapFrame, getFrameEvidence, videoRef],
   );
 
-  // The video can finish seeking after rVFC stored its receipt. Revalidate on render:
-  // the receipt object stays identical while the native element becomes drawable.
   const currentNativeEvidence =
     nativeFrameEvidence?.frameIndex === frameIndex ? getFrameEvidence(frameIndex) : null;
   const framePresentation = useMemo<VideoFramePresentation | null>(() => {
@@ -588,9 +574,6 @@ export function useVideoPlaybackController({
     videoRef,
   ]);
 
-  // 把精确帧状态写入 window.__videoWorkbenchDiagnostics，
-  // 供 BugReportDrawer 附带与排障。写入 window 不触发 React 重渲染;发布频率上限 5 Hz,
-  // state / fallback 转换立即写入,trailing 保证最后一次值落盘。
   const diagnosticsRoute =
     typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : "";
   const diagnosticsTaskId = manifest?.task_id ?? null;
@@ -694,7 +677,6 @@ export function useVideoPlaybackController({
 
   const timelineDensityBins = Math.min(Math.max(maxFrame + 1, 1), 2000);
 
-  // 全局标注密度是独立上下文层; 选中轨迹时仍常驻显示, 轨迹行只额外渲染选中轨迹详情。
   const globalTimelineDensity = useMemo(
     () =>
       buildGlobalTimelineDensity(
@@ -706,7 +688,6 @@ export function useVideoPlaybackController({
     [manualBboxFrames, maxFrame, timelineDensityBins, videoTracks],
   );
 
-  // 预测密度轨: 始终计算, 让审阅时预测分布常驻可见。
   const predictionDensity = useMemo(
     () => buildPredictionDensity(predictedFrames, maxFrame, timelineDensityBins),
     [predictedFrames, maxFrame, timelineDensityBins],
@@ -804,13 +785,11 @@ export function useVideoPlaybackController({
     selectedTrackCurrentKeyframe,
   ]);
 
-  // ---- 播放 overlay 计时器 ----
   const showPlaybackOverlay = useCallback(() => {
     if (overlayHideTimerRef.current) clearTimeout(overlayHideTimerRef.current);
     setPlaybackOverlayVisible(true);
   }, []);
 
-  // 指针离开画布 2s 后隐藏播放浮层(对齐旧 SVG 栈);否则浮层默认 true 后永不收起、长期遮挡画布。
   const schedulePlaybackOverlayHide = useCallback(() => {
     if (overlayHideTimerRef.current) clearTimeout(overlayHideTimerRef.current);
     overlayHideTimerRef.current = setTimeout(() => setPlaybackOverlayVisible(false), 2000);
@@ -822,7 +801,6 @@ export function useVideoPlaybackController({
     highlightTimerRef.current = setTimeout(() => setHighlightAction(null), 180);
   }, []);
 
-  // ---- seek 核心 ----
   const seekFrameAsync = useCallback(
     async (
       nextFrame: number,
@@ -848,8 +826,6 @@ export function useVideoPlaybackController({
       if (options?.recordHistory) {
         setJumpHistory((history) => pushVideoJumpHistory(history, targetFrame));
       }
-      // Issue #114 · 在发起媒体 seek 之前登记导航目标：startSeek 的乐观写与后续媒体回执
-      // 都以此目标为准，迟到的旧帧回报会在 handleFrameClockChange 的栅栏处被丢弃。
       frameNavigationTargetRef.current = targetFrame;
       showCachedBitmapFrame(targetFrame);
       let result: FrameSeekResult;
@@ -887,7 +863,6 @@ export function useVideoPlaybackController({
     seekFrameAsyncRef.current = seekFrameAsync;
   }, [seekFrameAsync]);
 
-  // ---- 播放控制 ----
   const pausePlayback = useCallback(
     (options?: { snapToGrid?: boolean }) => {
       onPauseIntent?.();
@@ -1049,8 +1024,6 @@ export function useVideoPlaybackController({
       cancelPresentation();
       showPlaybackOverlay();
       pausePlayback({ snapToGrid: false });
-      // Priming may finish inside the existing presentation deadline. The draw
-      // receipt still rechecks the current source before it can resolve ready.
       if (
         !mountedRef.current ||
         !manifest?.task_id ||
@@ -1075,8 +1048,6 @@ export function useVideoPlaybackController({
           settlePresentation(request, { status: "timeout", frameIndex: nextFrame, source: null });
         }, VIDEO_FRAME_READY_TIMEOUT_MS);
         setPresentationRequest(request);
-        // Native seek may time out while a precise decode is still useful. Only the actual
-        // media-layer receipt resolves ready; all ordinary navigation still cancels this wait.
         void seekFrameAsync(nextFrame, { recordHistory: options?.recordHistory ?? true }, request);
       });
     },
@@ -1093,7 +1064,6 @@ export function useVideoPlaybackController({
     ],
   );
 
-  // 跳到下一个/上一个有预测的帧 (预测帧集合上的 next/prev)。
   const seekToAdjacentPredictedFrame = useCallback(
     (dir: -1 | 1) => {
       const target = adjacentPredictedFrame(predictedFrames, frameIndex, dir);
@@ -1132,7 +1102,6 @@ export function useVideoPlaybackController({
     [maxFrame, showPlaybackOverlay],
   );
 
-  // ---- 正向 jog 播放 effect ----
   useEffect(() => {
     if (jogPlayback.direction !== 1) return;
     const video = videoRef.current;
@@ -1155,7 +1124,6 @@ export function useVideoPlaybackController({
     }
   }, [jogPlayback.direction, jogPlayback.rate, loopRegion, videoRef]);
 
-  // ---- 反向 rAF 循环 effect ----
   useEffect(() => {
     if (jogPlayback.direction !== -1) return;
     const video = videoRef.current;
@@ -1211,7 +1179,6 @@ export function useVideoPlaybackController({
     };
   }, [defaultPlaybackRate, fps, jogPlayback.direction, jogPlayback.rate, loopRegion, videoRef]);
 
-  // ---- 视频事件监听 ----
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
@@ -1232,7 +1199,6 @@ export function useVideoPlaybackController({
     video.addEventListener("ended", onEnded);
     video.addEventListener("error", onError);
     const onFrameReady = () => {
-      // Drawability can change without a frame receipt on browsers without rVFC.
       refreshNativeReadiness((value) => value + 1);
       if (!isPlaybackActive) void captureVerifiedFrame(video, frameIndexRef.current);
     };
@@ -1248,7 +1214,6 @@ export function useVideoPlaybackController({
     };
   }, [captureVerifiedFrame, isPlaybackActive, onSourceRecover, videoRef]);
 
-  // ---- 首帧预热 ----
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !manifest?.video_url) return;
@@ -1274,8 +1239,6 @@ export function useVideoPlaybackController({
               video.videoWidth > 0 &&
               video.videoHeight > 0 &&
               timeToFrame(video.currentTime, timebase) === frameIndexRef.current);
-          // Ordinary transport positioning may resume estimated videos. Strict QC
-          // presentation still requires its independent source-frame pixel receipt.
           if (
             !disposed &&
             aligned &&
@@ -1297,12 +1260,6 @@ export function useVideoPlaybackController({
     };
   }, [manifest?.video_url, onSourcePrimed, timebase, videoRef]);
 
-  // ---- 加载卡死看门狗 ----
-  // 隐藏 <video> 偶发卡在 readyState=HAVE_NOTHING(networkState=NETWORK_LOADING)永不
-  // 触发 loadedmetadata——mp4 的 range 请求 stall / 连接竞态所致, 表现为画布永久黑屏,
-  // 此前只能手动刷新恢复。hang 不抛 error 事件(error 只在真·加载失败时触发), 故无事件
-  // 可依赖, 靠轮询探测: src 就绪后若持续拿不到元数据, 定时 video.load() 重踢一次加载
-  // (重跑资源选择、中止卡住的请求, 等价于"局部刷新"), 有限次重试后仍不行才报错。
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !manifest?.video_url) return;
@@ -1311,7 +1268,6 @@ export function useVideoPlaybackController({
     const MAX_RETRIES = 3;
     let retries = 0;
     let timer: number | undefined = window.setTimeout(function check() {
-      // 期间已拿到元数据 → 加载已恢复, 停止看门狗。
       if (!video.isConnected || video.readyState >= HTMLMediaElement.HAVE_METADATA) return;
       if (retries >= MAX_RETRIES) {
         if (onSourceRecover) onSourceRecover();
@@ -1331,7 +1287,6 @@ export function useVideoPlaybackController({
     };
   }, [manifest?.video_url, onSourceRecover, videoRef]);
 
-  // ---- 暂停时持续抓位图 ----
   useEffect(() => {
     if (isPlaybackActive || frameClock.isSeeking) return;
     const schedule =
@@ -1357,7 +1312,6 @@ export function useVideoPlaybackController({
     videoRef,
   ]);
 
-  // ---- 任务切换复位 ----
   useEffect(() => {
     const taskId = manifest?.task_id ?? null;
     if (!taskId || lastResetTaskIdRef.current === taskId) return;
@@ -1392,12 +1346,9 @@ export function useVideoPlaybackController({
       setBookmarks([]);
       setJumpHistory(emptyVideoJumpHistory());
     }
-    // 首次拿到本题 manifest 只初始化播放态: 候选/标注行可能先于 manifest 就绪, 用户此时选中的
-    // 对象属于当前题, 迟到的初始化不能把它清掉。只有真正换题(上一题播放态已建立)才按生命周期复位。
     if (previousTaskId !== null) onSelectRef.current?.(null, { source: "task-reset" });
   }, [manifest?.task_id, maxFrame, setFrameIndex]);
 
-  // ---- sessionStorage 持久化 ----
   useEffect(() => {
     const taskId = manifest?.task_id;
     if (!taskId) return;
@@ -1436,11 +1387,18 @@ export function useVideoPlaybackController({
     }
   }, [jumpHistory, manifest?.task_id]);
 
-  // ---- 预加载关键帧预览 ----
   useEffect(() => {
-    if (!selectedTrack) return;
-    prefetchFrames(selectedTrackKeyframes.map((kf) => kf.frame_index));
-  }, [prefetchFrames, selectedTrack, selectedTrackKeyframes]);
+    if (annotationWritesPending || selectedTrackKeyframes.length === 0) return;
+    const previous = lastTrackPrefetchRef.current;
+    if (
+      previous?.prefetch === prefetchFrames &&
+      selectedTrackKeyframes.every(({ frame_index }) => previous.frames.has(frame_index))
+    )
+      return;
+    const frames = selectedTrackKeyframes.map(({ frame_index }) => frame_index);
+    lastTrackPrefetchRef.current = { prefetch: prefetchFrames, frames: new Set(frames) };
+    prefetchFrames(frames);
+  }, [annotationWritesPending, prefetchFrames, selectedTrackKeyframes]);
 
   useEffect(() => {
     prefetchFrames(bookmarks.map((bookmark) => bookmark.frameIndex));
@@ -1451,7 +1409,6 @@ export function useVideoPlaybackController({
     prefetchFrames([loopRegion.startFrame, loopRegion.endFrame]);
   }, [loopRegion, prefetchFrames]);
 
-  // ---- 计时器清理 ----
   useEffect(() => {
     return () => {
       if (overlayHideTimerRef.current) clearTimeout(overlayHideTimerRef.current);
@@ -1459,9 +1416,6 @@ export function useVideoPlaybackController({
     };
   }, []);
 
-  // ---- controls 句柄(对齐 VideoStage useImperativeHandle) ----
-  // cycleInCategory / stepCategory 依赖 stage 侧的当前帧分类 + selectedId + onSelect,
-  // 由 VideoKonvaStage 在 useImperativeHandle 补齐, 故此处 Omit。
   const controls = useMemo<
     Omit<
       VideoStageControls,
@@ -1488,7 +1442,6 @@ export function useVideoPlaybackController({
       toggleSelectedTrackLocked: trackActions.toggleSelectedTrackLocked,
       propagateSelectedTrack: trackActions.propagateSelectedTrack,
       deleteSelectedTrackKeyframe,
-      // 当前帧 → JPEG(视频单题 AI / 交互式 SAM 供图), 经 ref 读最新位图故不入 deps。
       captureCurrentFrameJpeg: async (quality?: number) => {
         const epoch = sourceOwnerRef.current.epoch;
         const frame = frameIndexRef.current;
@@ -1508,10 +1461,7 @@ export function useVideoPlaybackController({
         if (shown) {
           if (shown.frameIndex !== frame) return null;
           result = await imageBitmapToJpeg(shown.bitmap, quality);
-        }
-        // 位图缓存未命中时画布画的是 <video> 本身(pickMediaImageSource 的回退),
-        // 只认 bitmap 会在画面明明可见时谎报「当前帧尚未就绪」。取帧与渲染取同一源。
-        else {
+        } else {
           if (!nativeFrameCurrent()) return null;
           result = await videoElementToJpeg(el!, quality);
         }

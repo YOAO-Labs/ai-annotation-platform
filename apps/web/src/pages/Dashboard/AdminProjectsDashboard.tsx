@@ -47,10 +47,8 @@ const FILTER_STATUS_MAP: Record<string, DashboardStatus | undefined> = {
   待审核: "pending_review",
   已完成: "completed",
 };
-// 按媒体维度 data_type 放行工作台,图像子类型(det/ocr/seg)同走图像栈,见 DashboardPage。
 const WORKBENCH_DATA_TYPES = new Set(["image", "video", "lidar"]);
 
-// 表格单元(列表视图)共用类
 const TD_CLASS = "border-b border-border p-3 align-middle";
 const TH_CLASS =
   "border-b border-border bg-muted px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap first:pl-4 last:pr-4";

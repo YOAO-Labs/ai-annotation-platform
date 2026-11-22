@@ -1,9 +1,3 @@
--- Grant the Inference health data LOGIN only its eleven fixed capabilities.
--- Apply module-data-grants.sql first in the same explicitly named database.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v inference_owner=inference_code
---   -v inference_health_data_role=yoao_inference_health_data_client
---   -f infra/docker/inference-health-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

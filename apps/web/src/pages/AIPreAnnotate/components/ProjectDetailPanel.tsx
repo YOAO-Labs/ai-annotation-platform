@@ -1,9 +1,3 @@
-/**
- * BUG B-17 · 项目详情面板 (多选 batch + 串/并行预标 + 已就绪 HistoryTable).
- *
- * 进入条件: ProjectCardGrid 点击某项目卡片;此面板替代主视图渲染.
- */
-
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -58,10 +52,8 @@ import {
 } from "../utils/pipelineGraph";
 import styles from "./ProjectDetailPanel.module.css";
 
-// react-flow 经 lazy 隔离: chunk 不进主包, 仅 /ai-pre 详情面板按需加载 (同 App.tsx 惯例)。
 const PipelineGraphCanvas = lazy(() => import("./PipelineGraphCanvas"));
 
-// 预标幂等模式
 const PREDICT_MODE_TABS = ["跳过已预标", "覆盖", "追加"];
 const PREDICT_MODE_LABELS: Record<PredictMode, string> = {
   skip_predicted: "跳过已预标",
@@ -100,11 +92,6 @@ function describePipelineError(error: unknown): string {
   return (error as Error).message;
 }
 
-/**
- * 把单节点配置 (PreannotateArgs) 投影成一个 pipeline stage。
- * batch 级字段 (prompt / output_mode / predict_mode) 不进 stage —— 源阶段的 prompt 由顶层请求
- * 承载, 下游阶段吃 crop 不需要 prompt。
- */
 function argsToStage(
   args: PreannotateArgs,
   stage: number,
@@ -126,11 +113,9 @@ interface Props {
   initialCatalogModelId?: string | null;
   projectId: string;
   onBack: () => void;
-  /** 项目卡片传入的聚合摘要（用于头部 ml_backend chip + 并发上限）；不可省的部分会再用 hooks 拉. */
   summary?: {
     project_name: string;
     project_display_id?: string | null;
-    /** 媒体维度, 用于按模态分流 (image=文本批量预标 / video=引导卡片). */
     data_type?: string | null;
     ml_backend_id?: string | null;
     ml_backend_name?: string | null;
@@ -143,7 +128,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
   const pushToast = useToastStore((s) => s.push);
   const navigate = useNavigate();
 
-  // 订阅 batch 状态变更, 让"待预标批次"列表实时刷新 (B-15)
   useBatchEventsSocket(projectId);
 
   const projectQ = useProject(projectId);
@@ -153,17 +137,13 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
         data_type?: string | null;
         ml_backend_id?: string | null;
         classes_config?: Record<string, { alias?: string | null }>;
-        // 项目属性 schema, 多阶段下游卡「写回属性键」多选的回落选项。
         attribute_schema?: { fields?: Array<{ key: string; label?: string }> };
         box_threshold?: number | null;
         text_threshold?: number | null;
-        // 项目级 variant 偏好 (按 backend_id 分桶), 详见 ProjectOut.default_variants.
         default_variants?: Record<string, Record<string, string>>;
-        // 项目级「已保存的编排」(方案 A); null/缺 = 未配编排.
         preannotate_pipeline?: PipelineStagePayload[] | null;
       }
     | undefined;
-  // 项目编排保存 / 清除 (方案 A, 一项目一条)。
   const updateProject = useUpdateProject(projectId);
   const createProjectPipeline = useCreateProjectPipeline();
   const applyProjectPipeline = useApplyProjectPipeline(projectId);
@@ -204,10 +184,7 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
       setSelectedLibraryPipelineId(libraryPipelines[0].id);
     }
   }, [libraryPipelines, selectedLibraryPipelineId]);
-  // 模态分流: summary 优先 (列表已带), 回落 project 查询.
   const dataType = summary?.data_type ?? project?.data_type ?? "image";
-  // 视频项目执行单位 (输入节点顶层分叉): "video"=整段序列(tracker) / "frame"=逐帧(图像检测)。
-  //   默认整段序列 (视频主能力)。图像项目无此选择 (恒图像检测)。
   const [executionUnit, setExecutionUnit] = useState<"video" | "frame">("video");
 
   const backendsQ = useMLBackends(projectId);
@@ -215,16 +192,12 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     () => (backendsQ.data ?? []) as unknown as Array<{ id: string; name: string }>,
     [backendsQ.data],
   );
-  // 多 backend 选择: 默认绑定值, 用户可在项目已注册 backend 间切换 (epic 阶段 2).
   const [selectedBackendId, setSelectedBackendId] = useState<string | null>(null);
   const firstBackendId = backends[0]?.id ?? null;
   useEffect(() => {
-    // 项目切换 / 列表加载后, 默认选绑定 backend (否则第一个)
     setSelectedBackendId(project?.ml_backend_id ?? firstBackendId);
   }, [projectId, project?.ml_backend_id, firstBackendId]);
   const selectedBackend = backends.find((b) => b.id === selectedBackendId) ?? null;
-  // claude[bot] P1 #5 · 已保存编排里引用的 backend id 在本项目当前 backends 列表里缺多少 (= 被删/停)。
-  // 编排可能跨多个 backend, 集合用 backends.map(b.id); 工作台 popover 入口同步据此禁用。
   const savedPipelineMissingBackendCount = useMemo(() => {
     if (!savedPipeline?.length) return 0;
     const known = new Set(backends.map((b) => b.id));
@@ -235,8 +208,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     return missing.size;
   }, [savedPipeline, backends]);
 
-  // 预标配置区共享状态 (任务类型 / 几何 task / 类别白名单 / variant / 参数 / prompt / 预设 /
-  // 输出形态 / buildArgs); 详见 usePreannotateConfig. 工作台 AI 面板复用同一 hook + PreannotateConfigForm.
   const cfg = usePreannotateConfig({
     projectId,
     backendId: selectedBackendId,
@@ -252,13 +223,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     }
   }, [projectId, initialCatalogModelId, cfg]);
 
-  // 多阶段预标注 (路径 B M2): 下游阶段卡列表 (并行兄弟, 单层扇出)。每张卡 (StageCard)
-  // 自持一份 usePreannotateConfig + PreannotateConfigForm 实例 —— 共享 hook/组件本身不感知阶段
-  // 编排 (红线)。卡片把派生 stage payload 上抛, 容器在运行时组装成 pipeline_stages。
-  // 受限树形 (max depth 3): 下游阶段为 {sid, parentSid} 列表, parentSid="root"=源阶段。
-  // 数组顺序即添加顺序 (子总在父之后追加 → 运行期分配的 stage 号天然满足「父序号 < 子序号」)。
-  // usePipelineComposer 是项目侧与全局编排页共用的状态机。
-  // 下游须用不同于源检测的 backend, backends 数<2 时不允许加子 (原 canAddBackend 语义)。
   const hasCompatibleDownstream = cfg.catalogQ?.data
     ? cfg.catalogQ.data.items.some(
         (entry) =>
@@ -293,19 +257,13 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     onCascadeDelete: (n) => pushToast({ msg: "已删除阶段", sub: `连带移除 ${n} 个子阶段` }),
   });
 
-  // 运行态可视化: 跑批后轮询最后一个多阶段 job 的 result.pipeline_stages (终态真值)。
   const [lastPipelineJobId, setLastPipelineJobId] = useState<string | null>(null);
   const pipelineJobQ = useAsyncJob(lastPipelineJobId, true);
   const terminalStageStats =
     (pipelineJobQ.data?.result?.pipeline_stages as PipelineStageStat[] | undefined) ?? null;
 
-  // 运行态实时化: 订阅项目预标 WS, 拿 worker 跑批中途推的逐阶段累加快照。
   const { progress: liveProgress } = usePreannotationProgress(projectId);
 
-  // issue #124 · 可预标批次 = active 批次 + 未分派标注员与质检员的 draft 批次,
-  // 让管理员先跑 AI 再分派人工。准入规则与后端同源 (batchPreannotationEligible),
-  // 前端仅负责入口展示, 提交时后端仍会复校验。
-  // 查询限定 active,draft, 不再拉取 approved/rejected/archived 全量历史。
   const batchesQ = useBatches(projectId, "active,draft");
   const batches = (
     (batchesQ.data ?? []) as unknown as Array<{
@@ -319,7 +277,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     }>
   ).filter(batchPreannotationEligible);
 
-  // Read all ready batches in this project before local history filtering and pagination.
   const queueQ = useQuery({
     queryKey: ["admin", "preannotate-queue", projectId],
     queryFn: ({ signal }) => adminPreannotateApi.projectQueue(projectId, signal),
@@ -331,37 +288,31 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
   );
 
   const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(new Set());
-  // 默认跳过已预标 task，避免重复预标叠加重复标注
   const [predictMode, setPredictMode] = useState<PredictMode>("skip_predicted");
   const [concurrency, setConcurrency] = useState<ConcurrencyMode>("serial");
-  const [running, setRunning] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
-  // 逐阶段统计: 运行中用 WS 实时快照, 终态/重连回落 job result (终态真值, 不丢)。
   const liveStageStats = liveProgress?.pipeline_stages ?? null;
-  const stagesRunning = running || pipelineJobQ.data?.status === "running";
+  const stagesRunning = pipelineJobQ.data?.status === "running";
   const stageStats = liveStageStats ?? terminalStageStats;
-  // stage 序号 → 统计, 供各卡按自身 stage 取数。stage 0=源检测; i+1=第 i 张下游卡。
   const stageStatByIndex = useMemo(() => {
     const m = new Map<number, PipelineStageStat>();
     for (const s of stageStats ?? []) m.set(s.stage, s);
     return m;
   }, [stageStats]);
   const sourceDetected = stageStatByIndex.get(0)?.detected;
-  // 单卡运行态: 未跑=pending; 跑批中=running; 已出统计且非运行中=done。
   const stageRunState = (si: number): "pending" | "running" | "done" => {
     if (stagesRunning) return "running";
     if (stageStatByIndex.has(si)) return "done";
     return "pending";
   };
 
-  // 项目切换时重置批次选择 + 下游阶段卡 (prompt / outputMode 的重置在 usePreannotateConfig 内).
   useEffect(() => {
     setSelectedBatchIds(new Set());
     resetComposer();
     setLastPipelineJobId(null);
     setKeyConflictLastWins(false);
-    // resetComposer 已是稳定引用, 无需入依赖.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
@@ -389,9 +340,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     });
   };
 
-  // downstreamPayloads / allDownstreamReady / payloadBySid 由 usePipelineComposer 提供。
-
-  // 选择器化数据源: 项目类别 (类名) + 项目属性 schema 字段键, 传给 StageCard 多选。
   const projectClasses = useMemo(
     () => Object.keys(project?.classes_config ?? {}),
     [project?.classes_config],
@@ -401,9 +349,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     [project?.attribute_schema],
   );
 
-  // 源阶段「筛完的有效类别」(类名): 源模型类别表 (静态 COCO80 等) ∩ 源类别白名单
-  //   (白名单空 = 全类)。下游卡的「父框类别」选项优先取此 (下游只会见到源筛出的框), 取不到回落
-  //   projectClasses。注: 仅按源阶段算 (覆盖主流单层 det→下游); 多层父为中间阶段时回落自由文本。
   const sourceEffectiveClasses = useMemo<string[]>(() => {
     const all = cfg.geometricModel?.classes ?? [];
     if (all.length === 0) return [];
@@ -414,12 +359,8 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     ];
   }, [cfg.geometricModel, cfg.selectedClassIdx, cfg.selectedCatalogEntry]);
 
-  // 键冲突策略: reject (默认, 后端校验期拦) | last_wins (末位覆盖, 用户显式允许).
-  // conflictInfo/hasKeyConflict/onReparent/canReparentConn 现由 usePipelineComposer 提供.
   const [keyConflictLastWins, setKeyConflictLastWins] = useState(false);
 
-  // 输入节点数据源描述: 数据类型随项目 (image/video); 视频项目执行单位随
-  //   顶层选择 (整段序列=video / 逐帧=frame), 串进 source → 序列化 → 后端逐帧 fan-out。
   const sourceMeta = useMemo<PipelineSource>(
     () => ({
       kind: "dataset",
@@ -429,17 +370,12 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     [dataType, executionUnit],
   );
 
-  // DAG 图节点模型 (源 + 各下游): 角色徽标 / 运行态 / 迷你计数 / 可加子 / 键冲突。
-  // 下游须用不同于检测的 backend → composer.canAddChildAt 已合并 backends 数<2 判据.
   const graphNodes = useMemo<GraphNodeModel[]>(() => {
     const nameOf = (id?: string | null) =>
       id ? (backends.find((b) => b.id === id)?.name ?? undefined) : undefined;
-    // 输入节点纯数据源(源类型/执行单位徽标); 源模型 stage(SOURCE_SID)承接 cfg 检测/tracker。
     const srcShape = sourceNodeShape(sourceMeta, cfg.primaryModel);
-    // 后端 stage 号 = 数组索引-1 (输入节点 index0 不入后端; 源模型 index1→stage0; 下游 index k→stage k-1)。
     return stagesGraph.map<GraphNodeModel>((e, i) => {
       if (e.parentSid == null) {
-        // 输入节点: 纯数据源, 无模型/后端; 显数据类型 + 执行单位徽标。
         return {
           sid: e.sid,
           parentSid: null,
@@ -456,7 +392,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
         };
       }
       if (e.sid === SOURCE_SID) {
-        // 源模型 stage: cfg 配置的整图检测/tracker, 后端 stage 0。
         return {
           sid: e.sid,
           parentSid: e.parentSid,
@@ -497,7 +432,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
         variantInfo: variantText(p),
       };
     });
-    // stageRunState 每渲染重建 (依赖 stagesRunning/统计); stageCapsRef 是 ref, composer 内 tick 触发重算.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     stagesGraph,
@@ -515,30 +449,23 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     backends,
   ]);
 
-  // 有无 StageCard 下游卡 (父=模型 stage, 非输入节点直子 SOURCE_SID)。
   const hasDownstreamCards = stagesGraph.some((e) => e.parentSid != null && e.sid !== SOURCE_SID);
 
-  // 配置层就绪 (源 cfg.configReady) && 下游卡 (若有) 全就绪 && 选了批次 && 不在跑 &&
-  // (无键冲突 || 已选末位覆盖)。
   const canRun =
     cfg.configReady &&
     (!hasDownstreamCards || allDownstreamReady) &&
     selectedBatchIds.size > 0 &&
-    !running &&
+    !submitting &&
     (!hasKeyConflict || keyConflictLastWins);
 
-  // 组装后端 pipeline_stages: 输入节点(纯数据源)不入; 源模型 stage(SOURCE_SID)=后端 stage 0
-  // (parent_stage=null, 携 source 元数据); 下游卡=stage 1+ (后端号=数组索引-1)。仅源模型无下游卡时
-  // 返回 undefined → onRun 走单阶段 (向后兼容); 保存编排时兜成单元素数组 (见 onSavePipeline)。
   const buildDownstreamStages = (baseArgs: PreannotateArgs): PipelineStagePayload[] | undefined => {
     if (!hasDownstreamCards || !allDownstreamReady) return undefined;
-    // sid → 后端 stage 号 = 数组索引-1 (SOURCE_SID index1→0, 下游 index k→k-1; 输入节点不计)。
     const numberBySid: Record<string, number> = {};
     stagesGraph.forEach((e, i) => {
       if (e.parentSid != null) numberBySid[e.sid] = i - 1;
     });
     return stagesGraph.flatMap((e, i) => {
-      if (e.parentSid == null) return []; // 输入节点纯数据源, 不入后端
+      if (e.parentSid == null) return [];
       if (e.sid === SOURCE_SID) return [argsToStage(baseArgs, 0, { source: sourceMeta })];
       return [
         {
@@ -550,8 +477,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     });
   };
 
-  // 保存当前配置为「项目编排」(方案 A, 一项目一条)。单阶段也存成单元素数组,
-  // 工作台「运行当前题（按项目编排）」读取此配置；保存操作本身不运行编排。
   const saveNamedPipeline = async (stages: PipelineStagePayload[]) => {
     const name = pipelineName.trim();
     if (!name) {
@@ -659,10 +584,9 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
     const baseArgs = cfg.buildArgs(predictMode);
     if (!baseArgs || selectedBatchIds.size === 0) return;
     const pipelineStages = buildDownstreamStages(baseArgs);
-    // 有下游卡但未就绪 → 不发; 仅源模型(无下游卡)走单阶段执行。
     if (hasDownstreamCards && !pipelineStages) return;
     const ids = Array.from(selectedBatchIds);
-    setRunning(true);
+    setSubmitting(true);
     try {
       let okCount = 0;
       let failCount = 0;
@@ -697,11 +621,10 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
         await Promise.all(ids.map(fireOne));
       }
       pushToast({
-        msg: `${concurrency === "serial" ? "串行" : "并行"} 预标已分发`,
-        sub: `${okCount} 成功 · ${failCount} 失败`,
+        msg: okCount > 0 ? "预标已提交" : "预标提交失败",
+        sub: `${okCount} 个批次已受理 · ${failCount} 个批次提交失败`,
         kind: failCount > 0 ? "warning" : "success",
       });
-      // 派发期软提示 (如 output=both + 多阶段致下游重复处理), 去重后逐条弹出。
       for (const w of pipelineWarnings) {
         pushToast({ msg: w, kind: "warning" });
       }
@@ -710,21 +633,17 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
       }
       if (okCount > 0) {
         setSelectedBatchIds(new Set());
-        // 至少一批成功 → 记 variant 已热 (异步 trigger 拿不到 cache_hit, 走兜底).
-        cfg.markHot();
-        // 多阶段时盯最后一个 job 的逐阶段统计 (单阶段无 pipeline_stages, 不显示)。
         if (pipelineStages && firedJobIds.length > 0) {
           setLastPipelineJobId(firedJobIds[firedJobIds.length - 1]);
         }
       }
     } finally {
-      setRunning(false);
+      setSubmitting(false);
     }
   };
 
   const headerName = summary?.project_name ?? `项目 ${projectId.slice(0, 8)}`;
 
-  // 视频项目使用同一编排画布；输入节点数据类型为 video。
   if (dataType === "lidar") {
     return (
       <div className={styles.root}>
@@ -829,8 +748,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
                   <span className={styles.batchName}>
                     {b.name} <span className={styles.subtleText}>({b.display_id})</span>
                   </span>
-                  {/* issue #124 · 未分派人员的 draft 批次也可预标; 标注状态提醒管理员
-                      该批尚未激活, 跑完 AI 后仍需分派人员并激活才进入人工流程。 */}
                   {b.status === "draft" && (
                     <Badge variant="default" dot>
                       草稿·未分派
@@ -844,8 +761,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
         </div>
       </Card>
 
-      {/* 配置区常驻: 不再被 selectedBatchIds gate, 未选批次也可预先配置 / 存预设,
-          仅"运行"按钮禁用 (见 canRun). */}
       <Card>
         <div className={styles.runPanel}>
           <strong className={styles.sectionTitle}>
@@ -874,8 +789,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
                 >
                   <option value="private">项目私有</option>
                 </select>
-                {/* 组织 / 公共 scope 需 organization_id / 超管权限, 首版未提供对应 UI 与选项,
-                      故项目内保存只放行 private, 避免选了必定 400/403。跨项目复用走全局 Pipeline 库。 */}
               </label>
             </div>
 
@@ -914,8 +827,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
             </div>
           </div>
 
-          {/* 两列编排: 左 DAG 画布 (点选/增删/拖边改父), 右选中节点参数检查器。
-                页面高度恒定 (右列永远一张卡), 结构所见即所得。 */}
           <div className={styles.editorTwoCol}>
             <div className={styles.editorCanvas}>
               <Suspense fallback={<div className={styles.canvasFallback}>加载编排画布…</div>}>
@@ -942,16 +853,13 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
               ) : null}
             </div>
 
-            {/* 检查器: 所有配置体常驻挂载, 非选中者 CSS 隐藏 (保住各自 usePreannotateConfig 状态)。 */}
             <div className={styles.editorInspector}>
-              {/* 输入节点: 纯数据源 (data_type 只读 + 执行单位可选); 选中时显示。 */}
               <div hidden={selectedSid !== ROOT_SID}>
                 <strong className={styles.sectionTitle}>输入节点 · 数据源</strong>
                 <div className={styles.mutedText}>
                   数据类型：
                   {dataType === "video" ? "视频" : dataType === "image" ? "图像" : dataType}
                 </div>
-                {/* 视频项目执行单位顶层分叉: 换它会重置源模型下拉 (整段=tracker / 逐帧=图像检测)。 */}
                 {dataType === "video" && (
                   <label className={styles.field}>
                     <span className={styles.fieldLabel}>执行单位</span>
@@ -971,7 +879,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
                   </label>
                 )}
               </div>
-              {/* 源模型参数 (整图检测/tracker, 后端 stage 0): 选中 SOURCE_SID 时显示。 */}
               <div hidden={selectedSid !== SOURCE_SID}>
                 <strong className={styles.sectionTitle}>
                   {dataType === "video" && executionUnit === "video"
@@ -986,7 +893,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
                   projectMlBackendId={project?.ml_backend_id}
                 />
               </div>
-              {/* 各下游阶段卡: 全部挂载, 非选中 hidden。输入节点/源模型不出卡 (走上方配置体)。 */}
               {stagesGraph.map((e, i) =>
                 e.parentSid == null || e.sid === SOURCE_SID ? null : (
                   <StageCard
@@ -1017,7 +923,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
             </div>
           </div>
 
-          {/* 键冲突配置期预警: 多个 attributes 阶段写同一最终键 → 红字提示 + 末位覆盖开关。 */}
           {hasKeyConflict && (
             <div className={styles.stageWarn}>
               <Icon name="warning" size={12} />
@@ -1096,15 +1001,12 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
               }
             >
               <Icon name="bot" size={12} />
-              {running
-                ? cfg.isCurrentVariantWarm
-                  ? "分发中..."
-                  : "加载模型中…（首次约 5-15s）"
+              {submitting
+                ? "提交中…"
                 : selectedBatchIds.size === 0
                   ? "跑预标（先选批次）"
                   : `跑预标（${selectedBatchIds.size} 批）`}
             </Button>
-            {/* 保存当前配置为「项目编排」，供工作台运行当前题时读取。 */}
             <Button
               variant="default"
               onClick={onSavePipeline}
@@ -1124,7 +1026,6 @@ export function ProjectDetailPanel({ projectId, onBack, summary, initialCatalogM
                 <Badge>
                   {savedPipelineName} · {savedStageCount} 阶段
                 </Badge>
-                {/* claude[bot] P1 #5 · 引用的 backend 被删/停 → 工作台 popover「按编排跑」会禁用; 这里同时提示。 */}
                 {savedPipelineMissingBackendCount > 0 && (
                   <span title="编排引用的模型服务不在本项目注册列表中；工作台无法按该编排运行，请重新注册或修改编排">
                     <Badge variant="warning">

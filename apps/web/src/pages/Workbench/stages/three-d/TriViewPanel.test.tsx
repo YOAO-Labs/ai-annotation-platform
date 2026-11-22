@@ -1,17 +1,7 @@
 import { render, screen } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { TriViewPanel } from "./TriViewPanel";
-
-beforeAll(() => {
-  vi.stubGlobal(
-    "ResizeObserver",
-    class {
-      observe() {}
-      disconnect() {}
-    },
-  );
-});
 
 describe("TriViewPanel layer coverage", () => {
   it("三行连续填满面板，不给共享主画布留下透明 padding 或 gap", () => {

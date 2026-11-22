@@ -2267,9 +2267,6 @@ def _eviction_terminal_durable_reason(
         or membership.max_concurrency != expected_subject.max_concurrency
     ):
         return "membership_changed"
-    # A concurrently prepared but never exposed generation may legitimately leave
-    # a gap above this owner. Exact Redis owner/generation and fresh health still
-    # fence the active transition; only a regressed durable high-water is stale.
     if generation < int(expected_subject.generation):
         return "generation_changed"
     if control_epoch != int(expected_subject.control_epoch):
@@ -2727,9 +2724,6 @@ def _cold_terminal_durable_reason(
         or membership.max_concurrency != expected_subject.max_concurrency
     ):
         return "membership_changed"
-    # Native has already checked equality or the exact, locked installation
-    # terminal intent for this old cold generation. Never infer that exception
-    # here from a high-water value alone.
     if generation != int(expected_subject.generation) and not (
         native_generation_checked and generation > int(expected_subject.generation)
     ):

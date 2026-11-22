@@ -21,7 +21,6 @@ interface Group {
   pending: number;
 }
 
-/** 单根进度条；与质检进度卡的两档配色对齐（待审=caution / 通过=positive）。 */
 function ProgressRow({
   label,
   count,
@@ -52,8 +51,6 @@ function ProgressRow({
   );
 }
 
-/** 质检审核未选批次时的右侧批次卡片网格：项目分组 + 批次卡片，点卡直接选中批次。
- *  封面左下角叠标注员头像，让审核员一眼看到「这批是谁标的」。 */
 export function ReviewBatchCardGrid({ batches, onSelect }: Props) {
   const groups = useMemo<Group[]>(() => {
     const m = new Map<string, Group>();
@@ -116,8 +113,7 @@ export function ReviewBatchCardGrid({ batches, onSelect }: Props) {
                           <Thumbnail
                             src={b.thumbnail_url ?? undefined}
                             blurhash={b.cover_blurhash ?? undefined}
-                            width={88}
-                            height={88}
+                            fillContainer
                           />
                         </div>
                         <div className={styles.body}>

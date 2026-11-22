@@ -182,9 +182,6 @@ async def _seed_member_job(
         )
         await db.flush()
 
-        # Birth the Job through the real producer so its immutable Dataset
-        # receipt is derived from these Scene/Task/source facts, not from a
-        # legacy minimal envelope.
         from app.api.v1.tasks.cross_frame_jobs import _create_job
         from app.schemas.cross_frame_job import CrossFrameJobCreate
         from app.services.project_access import resolve_project_access

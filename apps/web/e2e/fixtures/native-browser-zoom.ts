@@ -4,18 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { browserEnvironment } from "../helpers/browser-environment.mjs";
 
-/**
- * Chromium creates its POSIX singleton socket at
- * `<TMPDIR>/org.chromium.Chromium.XXXXXX/SingletonSocket`, bounded by
- * `sockaddr_un.sun_path` (108 bytes on this Linux host). The long worktree e2e
- * `TMPDIR` overruns it, so the full Chromium build the MV3 zoom extension
- * requires aborts with SIGTRAP before any page loads: a 77-byte TMPDIR produced
- * a 122-byte socket path and failed, while a 39-byte `/tmp` TMPDIR produced an
- * 84-byte path and passed with the same arguments. The shorter prefix below
- * keeps the browser process within that bound; `close` removes it on
- * launch failure and normal close. Windows uses named pipes without this limit
- * and retains the browser's allowlisted temporary-directory settings.
- */
 async function makeBrowserTempDirectory(): Promise<string | undefined> {
   if (process.platform === "win32") return undefined;
   return mkdtemp(join("/tmp", "browser-zoom-tmp-"));
@@ -38,23 +26,11 @@ interface ZoomExtensionScope {
 export interface NativeBrowserZoom {
   context: BrowserContext;
   page: Page;
-  /** Call after navigation; Chromium resets per-tab zoom on document navigation. */
   setZoom(factor: number): Promise<void>;
   getZoom(): Promise<number>;
-  /** Always call in finally, including when a test assertion fails. */
   close(): Promise<void>;
 }
 
-/**
- * Launch a disposable Chromium profile with an MV3 extension that uses the native
- * tabs zoom API. No CSS zoom, device emulation, user profile, or CDP commands.
- *
- * windowSize is the outer browser window in device-independent pixels. Browser
- * chrome can reduce the content height. Keep viewport null and do not call
- * page.setViewportSize(), which would hide native zoom's CSS viewport changes.
- * See https://playwright.dev/docs/chrome-extensions and
- * https://developer.chrome.com/docs/extensions/reference/api/tabs#method-setZoom.
- */
 export async function launchNativeBrowserZoom(
   options: {
     baseURL?: string;
@@ -118,7 +94,6 @@ export async function launchNativeBrowserZoom(
       headless: options.headless ?? true,
       baseURL: options.baseURL,
       viewport: null,
-      // Clear a Playwright Test project's inherited device preset for native zoom.
       deviceScaleFactor: undefined,
       env: browserEnv,
       args: [
@@ -164,7 +139,6 @@ export async function launchNativeBrowserZoom(
         if (Math.abs(actual - factor) > 0.0001) {
           throw new Error(`Chromium applied zoom ${actual}, expected ${factor}`);
         }
-        // Let Chromium finish applying the new layout before the caller measures it.
         await page.evaluate(
           () =>
             new Promise<void>((resolve) =>

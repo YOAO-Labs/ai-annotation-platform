@@ -29,7 +29,6 @@ def _load_manifest(artifact_root: Path) -> list[str]:
         artifact_root / "tests" / "_fixtures" / "removed_service_modules.json"
     )
     if not manifest_path.is_file():
-        # Fallback: the manifest might be at apps/api/tests/... relative to repo root.
         manifest_path = artifact_root / "apps" / "api" / _MANIFEST_REL
     if not manifest_path.is_file():
         print(f"FATAL: manifest not found under {artifact_root}", file=sys.stderr)
@@ -42,7 +41,6 @@ def _check_source_absence(artifact_root: Path, removed: list[str]) -> list[str]:
     """Verify no .py / .pyi / .pyc files exist for any removed module."""
     services_dir = artifact_root / "app" / "services"
     if not services_dir.is_dir():
-        # Fallback for image layout where app lives under apps/api/app
         services_dir = artifact_root / "apps" / "api" / "app" / "services"
     offenders = []
     for dotted in removed:
@@ -51,7 +49,6 @@ def _check_source_absence(artifact_root: Path, removed: list[str]) -> list[str]:
             p = services_dir / f"{basename}{suffix}"
             if p.exists():
                 offenders.append(f"source file exists: {p}")
-        # __pycache__ bytecode
         pycache = services_dir / "__pycache__"
         if pycache.is_dir():
             for f in pycache.iterdir():
@@ -64,7 +61,6 @@ def _check_import_failure(removed: list[str]) -> list[str]:
     """Verify every import form fails for each removed module."""
     offenders = []
     for dotted in removed:
-        # find_spec must return None
         spec = importlib.util.find_spec(dotted)
         if spec is not None:
             offenders.append(
@@ -72,16 +68,14 @@ def _check_import_failure(removed: list[str]) -> list[str]:
             )
             continue
 
-        # Direct import must fail
         try:
             importlib.import_module(dotted)
             offenders.append(f"import {dotted} succeeded (should have failed)")
         except ModuleNotFoundError:
-            pass  # expected
+            pass
         except ImportError:
-            pass  # also acceptable for package-attribute form
+            pass
 
-        # from app.services import <name> must fail
         parts = dotted.rsplit(".", 1)
         if len(parts) == 2 and parts[0] == "app.services":
             name = parts[1]
@@ -94,7 +88,7 @@ def _check_import_failure(removed: list[str]) -> list[str]:
                         f"app.services.{name} still accessible as package attribute"
                     )
             except (ImportError, ModuleNotFoundError):
-                pass  # fine
+                pass
 
     return offenders
 

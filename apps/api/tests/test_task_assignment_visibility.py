@@ -185,8 +185,6 @@ async def test_task_assignment_scopes_batch_query_get_and_next(
     assert target_query.json()["total"] == 1
     assert target_query.json()["items"][0]["effective_assignee"]["id"] == str(target.id)
 
-    # The owner sees batch defaults in both the table projection and filters,
-    # while the physical task override remains null for untouched siblings.
     batch_scope = await httpx_client.post(
         f"/api/v1/projects/{project.id}/tasks/query",
         headers=_bearer(owner_token),
@@ -223,9 +221,6 @@ async def test_task_assignment_scopes_batch_query_get_and_next(
     assert claimed.status_code == 200, claimed.text
     assert claimed.json()["id"] == str(selected.id)
 
-    # The old batch assignee cannot claim the reassigned task. Marking the
-    # untouched sibling labeled makes a None result prove the selected task
-    # itself was excluded from the candidate query.
     sibling.is_labeled = True
     await db_session.flush()
     old_assignee_next = await httpx_client.get(
@@ -354,9 +349,6 @@ async def test_removed_member_cannot_reuse_assigned_task_url_or_write(
         await httpx_client.get(f"/api/v1/tasks/{task.id}", headers=member_headers)
     ).status_code == 200
 
-    # Member removal is blocked while unfinished work remains, so hand the task
-    # off to a second annotator first; the removed account must still lose read
-    # and write access to its former URL.
     receiver = await create_user(
         db_session,
         "employee",
@@ -613,8 +605,6 @@ async def test_reviewer_assignment_reserves_review_claim_and_can_be_cleared(
         display_id=f"T-REVIEW-PENDING-{uuid.uuid4().hex[:8]}",
         batch_id=batch.id,
     )
-    # Frozen round evidence names a distinct submitter so the reviewer claims
-    # reach the assignment/reservation checks instead of failing closed unknown.
     for review_task in (task, pool_task):
         review_task.annotation_contributor_ids = [str(owner.id)]
         review_task.review_contributor_ids = [str(owner.id)]
@@ -722,7 +712,6 @@ async def test_unbatched_reviewer_assignment_is_visible_and_claimable(
         display_id=f"T-UNBATCHED-REVIEW-{uuid.uuid4().hex[:8]}",
     )
     task.status = "review"
-    # Frozen round evidence from a distinct submitter so the claim is authorized.
     task.annotation_contributor_ids = [str(owner.id)]
     task.review_contributor_ids = [str(owner.id)]
     task.review_submitter_id = owner.id

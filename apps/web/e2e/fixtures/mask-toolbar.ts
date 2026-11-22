@@ -10,7 +10,6 @@ export async function openMaskSettings(page: Page) {
     await expect(trigger).toBeVisible();
     if ((await trigger.getAttribute("aria-expanded")) !== "true") await trigger.click();
     await expect(trigger).toHaveAttribute("aria-expanded", "true");
-    // Expansion changes the clipped quick-tools width and clamps its scroll position.
     await capsule.evaluate((node) =>
       Promise.allSettled(
         node
@@ -30,6 +29,5 @@ export async function closeMaskSettings(page: Page) {
     await page.getByRole("button", { name: "收起 Mask 设置", exact: true }).click();
   }
   await expect(toolbar).toBeHidden();
-  // Restored trigger focus owns Enter; return keyboard input to the workbench.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 }

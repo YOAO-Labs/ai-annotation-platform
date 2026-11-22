@@ -114,7 +114,6 @@ async def maintenance_authority(db, run, *, lock=False):
             .order_by(StorageLocation.id)
             .with_for_update(read=True, nowait=True)
         )
-    # Old queued runs belong to epoch 1, not whatever epoch is current on retry.
     for location_id in locations:
         await storage_access.check(
             db,

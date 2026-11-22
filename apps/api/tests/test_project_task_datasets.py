@@ -501,8 +501,6 @@ async def test_manual_creator_and_old_writer_request_replay_attach_atomically(
                 "issues": [],
                 "excluded": [],
             },
-            # A faked preparation still carries the caller's authority so the
-            # route's real clock check remains active instead of being skipped.
             authority=SimpleNamespace(
                 project_id=project.id,
                 actor_id=owner.id,

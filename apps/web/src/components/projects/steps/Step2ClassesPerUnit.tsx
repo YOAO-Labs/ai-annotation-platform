@@ -1,6 +1,3 @@
-// CreateProjectWizard 第 2 步: 类别按工具单位独立配置.
-// 从 CreateProjectWizard.tsx 抽出.
-
 import { ClassEditor, type ClassRow } from "@/pages/Projects/sections/ClassEditor";
 import type { FormState } from "../CreateProjectWizard";
 import { UnitTabs } from "./UnitTabs";

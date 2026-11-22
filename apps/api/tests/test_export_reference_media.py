@@ -99,7 +99,6 @@ async def make_export(
 
         principal = await get_identity_gateway().authenticate(_EXPORT_TEST_KEY, db=db)
         assert principal.actor_id == actor.id and principal.credential_id == key.id
-        # Match the request admission boundary: accepted usage is committed.
         await db.commit()
     request = SimpleNamespace(
         state=SimpleNamespace(
@@ -301,9 +300,6 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
             side_effect=AssertionError("current-bucket original signing is forbidden")
         ),
     )
-    # Owned copies are signed through the saved transport. The fake provider
-    # returns a placeholder, but the packaged fetcher validates that a managed
-    # receipt carries a real URL, so emulate the signed link it would receive.
     monkeypatch.setattr(
         image_transport.copy,
         "generate_presigned_url",
@@ -317,7 +313,6 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
         await export_media_bundles.check_claim(owned, receipt)
 
     delivery = await image_delivery.prepare(db_session, receipt, guard=guard)
-    # New tasks cannot appear between passes of the frozen export.
     late_task = await create_task(db_session, project_id=project.id)
     path, _, _ = await build_export_zip(
         db_session,
@@ -394,7 +389,6 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
             capture_output=True,
             text=True,
         )
-        # Both embedded entries verify even though the fake managed URL is unreachable.
         assert result.stdout.count("[ok] embedded SHA-256") == 2
         assert "Invalid manifest" not in result.stdout
         assert result.returncode == 2
@@ -505,8 +499,6 @@ async def test_output_authority_fences_real_key_authentication(
         await setup.commit()
         key_id = key.id
 
-    # Use the real function-only Identity owner with its independent committed
-    # transactions; no credential or permission result is substituted.
     gateway = IdentityGateway(
         auth_database_url=test_engine.url.render_as_string(hide_password=False),
         timeout_seconds=10,
@@ -552,8 +544,6 @@ async def test_output_authority_fences_real_key_authentication(
                 await change_key(key_hash=replacement)
             principal = await authenticate(raw, db=db)
             if change == "after_auth":
-                # Same plaintext still authenticates, but its verifier revision
-                # changed after confirmation and cannot become the proof.
                 await change_key(key_hash=hash_password(token))
             elif change == "scope":
                 await change_key(scopes=[])
@@ -584,8 +574,6 @@ async def test_output_authority_fences_real_key_authentication(
                     payload={"output_authority": proof},
                 ),
             )
-            # The accepted key is still fenced until the request transaction
-            # commits the export proof; another owner cannot rotate it.
             async with world.factory() as writer:
                 with pytest.raises(DBAPIError) as busy:
                     await writer.execute(
@@ -650,7 +638,6 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
     world = referenced_cache
     project_id, source_id = world.project.id, world.source_id
     async with world.factory() as db:
-        # The source itself, not an optional original cache, supplies the image.
         from app.db.models.dataset_source import DatasetSource
 
         source = await db.get(DatasetSource, source_id)
@@ -664,8 +651,6 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
         )
         job_id = job.id
 
-    # The storage provider here is simulated.  Do not manufacture native
-    # completion evidence for it; the live worker test exercises that owner.
     class IsolatedExecution:
         def __init__(self, *_args):
             self.token = None
@@ -716,9 +701,6 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
     original_guard = worker._reauthorize_export_final_write
 
     async def guard(db, job_id, ids, **kwargs):
-        # The owned lifecycle checks authority in several fresh sessions before
-        # and after physical work. Reject only at the original final boundary,
-        # after a real ZIP PUT, so this still exercises retained responsibility.
         if not isinstance(db.bind, AsyncConnection) or not uploaded:
             return await original_guard(db, job_id, ids, **kwargs)
         if mutation == "source_disable":
@@ -757,7 +739,6 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
             celery_task_id="test-export",
             worker_node_id="worker:content@test",
         )
-    # Observe from a new session rather than the worker's identity map.
     async with world.factory() as observer:
         job = await observer.get(AsyncJob, job_id)
         assert len(uploaded) == 1 and not deleted

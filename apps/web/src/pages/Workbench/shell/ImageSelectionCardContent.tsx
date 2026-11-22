@@ -20,7 +20,6 @@ export interface ImageSelectionCardContentProps {
   imageWidth: number | null;
   imageHeight: number | null;
   attributeSchema: AttributeSchema | undefined;
-  /** 任务级锁定(review/completed)→ 全部操作只读。 */
   readOnly: boolean;
   onChangeClass: (id: string) => void;
   onToggleFlag: (id: string, flag: "is_locked" | "is_hidden", value: boolean) => void;
@@ -33,12 +32,6 @@ export interface ImageSelectionCardContentProps {
   onConvertRasterToRegion?: (id: string) => void;
 }
 
-/**
- * 选中标注浮动信息卡的图片端内容。
- * 由设计系统积木组合:IdentityHeader(类别 + 来源 + 置信度)/ MetricGrid(结构化几何指标)/
- * AttributeForm(属性)/ MetaFooter(折叠次要信息)/ ActionBar(改类 / 隐藏 / 锁定 / 删除)。
- * 复用模型既有回调,不重写逻辑;与右栏 attrDock 共享同一批回调。
- */
 export function ImageSelectionCardContent({
   annotation,
   imageWidth,
@@ -62,7 +55,6 @@ export function ImageSelectionCardContent({
   const rasterMask = annotation.geometry.type === "raster_mask";
   const hasAttributes = !!attributeSchema && (attributeSchema.fields ?? []).length > 0;
   const source = annotationSourceKind(annotation);
-  // 置信度仅对 AI 来源(采纳 / 导入)有意义;手动框即便后端落了 conf=1 也不展示 pill。
   const confidence = source === "manual" ? null : annotation.confidence;
 
   return (

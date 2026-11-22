@@ -145,12 +145,15 @@ DELETE /api/v1/admin/ml-integrations/service-pools/:pool_id/members/:registry_id
 POST   /api/v1/admin/ml-integrations/service-pools/:pool_id/members/:registry_id/drain
 POST   /api/v1/admin/ml-integrations/service-pools/:pool_id/members/:registry_id/resume
 GET    /api/v1/admin/ml-integrations/topology
+GET    /api/v1/admin/ml-integrations/primary-pool-project-counts
 GET    /api/v1/admin/ml-integrations/runtime-snapshot
 ```
 
 服务池和成员 mutation 仅超级管理员可用。成员 PUT 是幂等 upsert：对已在本池的实例只更新权重，保留 traffic state；实例已属于其他池、能力指纹不一致或能力基线不可用时返回 409。移除成员与物理删除 registry 共用上述停流证明；删除服务池前必须先安全移除全部成员。
 
 `topology` 对项目管理员和超级管理员开放，但在服务端裁剪项目管理员不可见的权重、接流状态和 GPU 标识；`runtime-snapshot` 仅超级管理员可用，并携带各数据来源的 `updated_at / stale / error` 与 partial 信封。
+
+`primary-pool-project-counts` 按 Workspace 项目主池字段 `ml_backend_pool_id` 聚合，不读取池成员或项目已启用实例。超级管理员统计全部项目；项目管理员仅统计本人负责或拥有有效成员身份的项目。成功响应为 `{"counts": {"<pool_uuid>": 2}}`；未列出的池没有可见项目绑定，显示为 `0`。绑定了项目的空成员池仍有计数。API Key 必须具有完整权限（`*`）；无权读取返回 `403`，统计读取失败返回 `503`，都不能当作零。
 
 ## 协议
 

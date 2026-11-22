@@ -387,9 +387,7 @@ async function liveAcceptance() {
     if (connected && inTransaction) {
       try {
         await client.query("ROLLBACK");
-      } catch {
-        // The failed transaction is discarded when the client disconnects.
-      }
+      } catch {}
     }
     if (connected) await client.end();
   }

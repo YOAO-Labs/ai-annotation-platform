@@ -235,7 +235,6 @@ export function comparisonMetricValues(
   );
 }
 
-/** Rank each metric within its own compatible evidence group, independently of URL reference. */
 export function comparisonMetricRanking(
   experiments: ComparisonExperiment[],
   source: ComparisonMetricSource,
@@ -272,7 +271,6 @@ export function comparisonMetricRanking(
   return ranking;
 }
 
-/** Null entries mark absent observations, never interpolated metric values. */
 export function curveData(
   experiments: ComparisonExperiment[],
   metric: string,

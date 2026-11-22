@@ -27,7 +27,6 @@ from app.services.labeling_discussion_relations import task_event_facts
 log = logging.getLogger(__name__)
 
 
-# DuckDB schema 元数据表（自身维护 last_synced_at 高水位）
 _SYNC_STATE_DDL = """
 CREATE TABLE IF NOT EXISTS sync_state (
     source TEXT PRIMARY KEY,
@@ -36,7 +35,6 @@ CREATE TABLE IF NOT EXISTS sync_state (
 );
 """
 
-# task_events 目标表（与 PG 端字段对齐）
 _TASK_EVENTS_DDL = """
 CREATE TABLE IF NOT EXISTS task_events (
     id UUID PRIMARY KEY,
@@ -54,7 +52,6 @@ CREATE TABLE IF NOT EXISTS task_events (
 );
 """
 
-# audit_logs 目标表（只保留分析所需列）
 _AUDIT_LOGS_DDL = """
 CREATE TABLE IF NOT EXISTS audit_logs (
     id BIGINT,
@@ -88,7 +85,6 @@ def _get_high_water(con: duckdb.DuckDBPyConnection, source: str) -> datetime:
         "SELECT last_synced_at FROM sync_state WHERE source = ?", [source]
     ).fetchone()
     if row is None:
-        # 首次同步：拉过去 90 天
         return datetime(2020, 1, 1, tzinfo=timezone.utc)
     return row[0].replace(tzinfo=timezone.utc) if row[0].tzinfo is None else row[0]
 
@@ -137,7 +133,6 @@ async def sync_task_events(db: AsyncSession) -> dict:
                 "high_water": watermark.isoformat(),
             }
 
-        # batch insert
         con.executemany(
             """
             INSERT INTO task_events (id, task_id, user_id, project_id, kind,
@@ -178,7 +173,7 @@ async def sync_audit_logs(db: AsyncSession) -> dict:
             )
             .where(audit_event.created_at > watermark)
             .order_by(audit_event.created_at)
-            .limit(50000)  # 单次 cap，防止首次同步爆内存
+            .limit(50000)
         )
         result = await db.execute(stmt)
         rows = result.all()

@@ -95,8 +95,6 @@ class _AnnotationCreateSqlAdapter(AnnotationCreatePort):
             await heartbeat_task_lock_for_legacy_video(self.db, task, actor.id)
 
             if idempotency_key is not None:
-                # AnnotationService.create flushes the annotation and task stats;
-                # refresh server defaults before persisting the historical response.
                 await refresh_core_row(self.db, annotation_row, annotation)
                 annotation_response = AnnotationOut.model_validate(annotation)
                 await self.annotations.record_annotation_create_receipt(

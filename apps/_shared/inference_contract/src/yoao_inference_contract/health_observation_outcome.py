@@ -114,7 +114,6 @@ def health_observation_outcome_text(outcome: dict) -> str:
         )
         if len(raw_text.encode("utf-8")) > HEALTH_OBSERVATION_OUTCOME_MAX_BYTES:
             raise BackendHealthObservationUnavailable()
-        # Keep encode and decode validation aligned, including byte limits.
         decode_health_observation_outcome(raw_text)
         return raw_text
     except BackendHealthObservationUnavailable:

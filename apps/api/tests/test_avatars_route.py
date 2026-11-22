@@ -65,10 +65,10 @@ async def test_get_avatar_404_for_malformed_token_without_touching_storage(
     for bad in (
         "..",
         "../../etc/passwd",
-        "0123456789ABCDEF0123456789ABCDEF",  # 大写非 hex
-        "0123456789abcdef",  # 太短
-        "0123456789abcdef0123456789abcdef0",  # 太长
-        "0123456789abcdef0123456789abcdeg",  # 非 hex 字符
+        "0123456789ABCDEF0123456789ABCDEF",
+        "0123456789abcdef",
+        "0123456789abcdef0123456789abcdef0",
+        "0123456789abcdef0123456789abcdeg",
     ):
         response = await httpx_client.get(f"/api/v1/avatars/{bad}")
         assert response.status_code in {404, 400}, bad

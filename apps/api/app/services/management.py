@@ -62,9 +62,6 @@ async def preview_batch_distribution(
         .execution_options(populate_existing=True)
     )
     if lock_batches:
-        # The shared lock capability orders IDs for its own deadlock discipline.
-        # Management historically locks in distribution priority order, so acquire
-        # each row separately in that same sequence.
         probe_batches = (await db.execute(batch_query)).scalars().all()
         batches = []
         for probe in probe_batches:
@@ -84,7 +81,6 @@ async def preview_batch_distribution(
         )
     if not batches:
         raise HTTPException(status_code=400, detail="没有可分派的批次")
-    # Aggregate persisted tasks rather than trusting cached batch counters.
     task_groups = (
         await db.execute(
             select(

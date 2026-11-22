@@ -115,8 +115,6 @@ def _roles(*, with_fingerprint):
         values = [getattr(model, name) for name in fields.split()] + list(
             locator_fields
         )
-        # This stays inside SQL; neither references nor business documents are
-        # returned by the aggregate. Poll/access/retry timestamps are omitted.
         fingerprint = (
             _digest(
                 cast(func.jsonb_build_array(model.__tablename__, kind, *values), Text)

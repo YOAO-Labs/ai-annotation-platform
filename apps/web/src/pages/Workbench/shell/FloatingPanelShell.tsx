@@ -32,13 +32,11 @@ interface FloatingPanelShellProps {
   onMergeBack?: () => void;
   onClose?: () => void;
   onCollapse?: () => void;
-  /** Keeps panel content mounted while excluding the collapsed shell from input and accessibility. */
   collapsed?: boolean;
   variant?: "default" | "no-merge";
   className?: string;
   style?: CSSProperties;
   headerContent?: ReactNode;
-  /** 头部右侧额外操作 (渲染在 收起/合并/关闭 图标簇最前)。 */
   extraActions?: ReactNode;
   children: ReactNode;
 }

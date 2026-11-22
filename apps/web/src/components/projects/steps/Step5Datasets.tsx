@@ -1,6 +1,3 @@
-// CreateProjectWizard 第 5 步: 数据集关联 + 批次切分.
-// 从 CreateProjectWizard.tsx 抽出.
-
 import { useEffect, useState } from "react";
 import { clsx } from "clsx";
 import { Button } from "@/components/ui/Button";
@@ -27,20 +24,14 @@ export function Step5Datasets({
 }) {
   const pushToast = useToastStore((s) => s.push);
   const projectHasScenes = !!project.scene_mode;
-  // data_type 传项目原始值,后端按 media kind 归一(lidar/point_cloud 互通),
-  // 与 link 硬门同口径,避免存成 "lidar" 的点云数据集被 picker 漏掉。
   const { data: datasetsRes, isLoading } = useDatasets({
     data_type: project.data_type ?? "image",
     has_scenes: projectHasScenes,
   });
   const splitMutation = useSplitBatches(project.id);
-  // useLinkProject 需要 datasetId 维度的实例，链路上每个 ds 的 mutation 都建一个会失控；
-  // 这里走原始 api 直接调（hooks 仅用于 invalidate；step 完成后整体 invalidate 一次足够）。
   const datasets: DatasetResponse[] = datasetsRes?.items ?? [];
   const [linking, setLinking] = useState(false);
-  // 大 dataset 异步建 task 的 job id 列表，非空则在底部显示进度条
   const [linkJobIds, setLinkJobIds] = useState<string[]>([]);
-  // 大 dataset 异步时 task 尚未建完，切分需延后到所有建任务 job 完成再跑
   const [splitAfterJobs, setSplitAfterJobs] = useState(false);
 
   const runSplit = async () => {
@@ -52,8 +43,6 @@ export function Step5Datasets({
           name_prefix: "Scene",
           priority: 50,
         });
-        // by_scene 切到 0 batch(所选数据集未识别出 scene)时不能静默成功 —— 跨步骤
-        // 切换可能让 by_scene 落在无 scene 的数据集上,给用户显式告警。
         if (!created || created.length === 0) {
           pushToast({
             msg: "未生成批次：所选数据集未识别出任何 scene",
@@ -77,7 +66,6 @@ export function Step5Datasets({
     }
   };
 
-  // 所有异步建任务 job 完成（linkJobIds 清空）后，再执行延后的切分。
   useEffect(() => {
     if (splitAfterJobs && linkJobIds.length === 0) {
       setSplitAfterJobs(false);
@@ -103,7 +91,6 @@ export function Step5Datasets({
     setLinking(true);
     try {
       const { datasetsApi } = await import("@/api/datasets");
-      // 依次 link（保证审计一行一项），失败不阻断
       let linkedOK = 0;
       const jobIds: string[] = [];
       for (const dsId of form.datasetIds) {
@@ -119,9 +106,6 @@ export function Step5Datasets({
           });
         }
       }
-      // 切分（仅当用户选了 >=2）。大 dataset 异步建 task 时此刻任务尚未建完，
-      // 立即切分会切到空集 → 延后到所有建任务 job 完成再切（见 splitAfterJobs effect）；
-      // 全同步时任务已就绪，立即切。
       if (form.splitStrategy !== "none") {
         if (jobIds.length > 0) {
           setSplitAfterJobs(true);
@@ -130,8 +114,6 @@ export function Step5Datasets({
         }
       }
       pushToast({ msg: `已关联 ${linkedOK} 个数据集`, kind: "success" });
-      // 有大 dataset 异步建 task：留在本步显示进度，待用户点「下一步」再前进；
-      // 否则（全同步）直接前进。
       if (jobIds.length > 0) {
         setLinkJobIds(jobIds);
       } else {

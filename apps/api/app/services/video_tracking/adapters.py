@@ -206,8 +206,6 @@ _REGISTRY: dict[str, TrackerAdapter] = {
     MockBboxTrackerAdapter.model_key: MockBboxTrackerAdapter(),
     "sam2_video": MLBackendVideoTrackerAdapter("sam2_video"),
     "sam3_video": MLBackendVideoTrackerAdapter("sam3_video"),
-    # PVS 交互追踪 (点/框 seed + memory 传播)。与 sam3_video
-    # (text 开集) 同后端不同模型; adapter 与 sam2_video 同为 seed 驱动 (透传 source_geometry)。
     "sam3_video_interactive": MLBackendVideoTrackerAdapter("sam3_video_interactive"),
 }
 

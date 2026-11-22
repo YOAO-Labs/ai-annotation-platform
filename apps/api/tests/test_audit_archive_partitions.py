@@ -161,7 +161,6 @@ async def source_case(test_engine, monkeypatch):
         yield case
     finally:
         async with maker() as db:
-            # Both names belong only to the partition created above.
             for owned in (name, f"{name}_renamed"):
                 await db.execute(text(f'DROP TABLE IF EXISTS public."{owned}"'))
             await db.execute(
@@ -625,8 +624,6 @@ async def test_same_size_source_mutation_is_detected_by_full_sha(
     case = source_case
     async with _paused_write(case, monkeypatch) as (task, release, _):
         async with case.maker() as owner:
-            # Exercise historical row changes (for example a restored source),
-            # retaining the exact row count and canonical byte length.
             await owner.execute(
                 text(f"ALTER TABLE {case.source.qualified} DISABLE TRIGGER USER")
             )
@@ -865,12 +862,9 @@ async def test_stream_closes_server_portal_before_drop_and_preserves_other_curso
                 )
                 == 1
             )
-            # Reproduces PostgreSQL 55006 if any archive portal remains active.
             await db.execute(text(f"DROP TABLE {case.source.qualified}"))
             assert await db.scalar(text(f'FETCH FORWARD 1 FROM "{unrelated}"')) == 1
         finally:
-            # Rollback also closes our unrelated test cursor and restores the
-            # fixture's source; no ownership or archive was created.
             await db.rollback()
 
 

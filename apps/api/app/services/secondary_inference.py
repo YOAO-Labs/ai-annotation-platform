@@ -123,8 +123,6 @@ def prepare_secondary_request(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # 1. 内部几何 (0-1) → LS 标准 box (百分比 0-100), 供 crop 复用批量投递。
-    #    起始不带 attributes: merge 后 box["attributes"] 里的键即全为 AI 写入 (精确标 origin)。
     ls_box = internal_geometry_to_ls_shape(
         annotation.geometry, annotation.class_name, annotation.confidence
     )
@@ -134,9 +132,6 @@ def prepare_secondary_request(
             detail="selected annotation geometry is not croppable (need bbox/polygon)",
         )
 
-    # 门2 几何判据: 旋转框 / polyline / keypoint / multi_polygon 能转 LS shape
-    #   (门1 过), 但 _box_bbox_pct 取不到轴对齐外接框 → 无法作 ROI。此前静默返回空被前端
-    #   伪装成「没结果」, 这里提前明确报错并告知实际几何类型 (与批量链路 skipped_geometry 对称)。
     if _box_bbox_pct(ls_box) is None:
         geo_type = (annotation.geometry or {}).get("type", "unknown")
         raise HTTPException(
@@ -207,8 +202,6 @@ async def _execute_secondary(
         correlation={"annotation_id": str(annotation.id)},
     )
     if original_operation is not None:
-        # Recheck the frozen source immediately before transport; the final
-        # fence below re-validates it under the caller's write locks.
         await original_operation.before_dispatch()
     try:
         operation = await model_execution_port(db).execute(request)
@@ -311,7 +304,6 @@ async def run_secondary_inference(
             status_code=409,
             detail={"code": "prediction_original_receipt_invalid"},
         )
-    # Reference originals have no in-place crop contract for non-image tasks.
     if is_reference(task.file_path):
         raise HTTPException(
             status_code=409, detail={"code": "reference_operation_not_supported"}
@@ -337,8 +329,6 @@ async def run_secondary_inference(
     ) as inputs:
         batch = await _temporary_crop_batch(task, ls_box, pad=pad, inputs=inputs)
         if not batch.inputs:
-            # 几何已判可裁 (上面门2 通过), 此处 inputs 空只可能是 crop 退化:
-            #   框太小 (短边 < min_crop_side_px=32) 或贴边裁出零面积。
             raise HTTPException(
                 status_code=422,
                 detail="选中框过小或贴边, 裁出的 ROI 退化, 无法二次推理 (可放大框或改选更大的对象)",

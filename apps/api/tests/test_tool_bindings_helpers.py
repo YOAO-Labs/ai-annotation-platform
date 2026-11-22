@@ -29,9 +29,6 @@ from yoao_workspace.configuration_policy import (
 )
 
 
-# ── derive_tool_unit_from_ls_type / _from_result ───────────────────────────
-
-
 @pytest.mark.parametrize(
     "ls_type, expected",
     [
@@ -75,9 +72,6 @@ def test_derive_tool_unit_from_result_uses_shape_value():
     assert derive_tool_unit_from_result(result) == "rotated_bbox"
 
 
-# ── derive_tool_unit_for_type_key ──────────────────────────────────────────
-
-
 @pytest.mark.parametrize(
     "type_key, expected",
     [
@@ -92,9 +86,6 @@ def test_derive_tool_unit_from_result_uses_shape_value():
 )
 def test_derive_tool_unit_for_type_key(type_key, expected):
     assert derive_tool_unit_for_type_key(type_key) == expected
-
-
-# ── derive_classes_config ───────────────────────────────────────────
 
 
 def test_derive_classes_config_empty():
@@ -130,7 +121,6 @@ def test_derive_classes_config_first_occurrence_wins():
         },
     }
     out = derive_classes_config(tb)
-    # 同名类强隔离 union: 取最先出现的 binding 配色 / alias.
     assert out["person"]["color"] == "#aaa"
     assert out["person"]["alias"] == "p"
 
@@ -150,9 +140,6 @@ def test_derive_classes_config_drops_empty_fields():
     assert "alias" not in out["x"]
     assert out["x"]["order"] == 0
     assert out["y"] == {"color": "#fff"}
-
-
-# ── resolve_class_visual / alias_to 软关联 ─────────────────────────────
 
 
 def _alias_tb():
@@ -184,7 +171,6 @@ def test_resolve_inherits_color_and_alias_from_target():
 
 def test_resolve_explicit_value_overrides_inheritance():
     tb = _alias_tb()
-    # 本类显式蓝色 → 覆盖继承; alias 仍空 → 继承.
     tb["region"]["classes"][0]["color"] = "#0000ff"
     color, alias = resolve_class_visual(tb, tb["region"]["classes"][0])
     assert color == "#0000ff"
@@ -193,7 +179,6 @@ def test_resolve_explicit_value_overrides_inheritance():
 
 def test_resolve_dangling_target_falls_back_to_own():
     tb = _alias_tb()
-    # 目标类不存在 → 降级用自身值 (此处自身 color 空).
     tb["region"]["classes"][0]["alias_to"] = {
         "tool_unit_id": "bbox",
         "class_name": "ghost",
@@ -205,7 +190,6 @@ def test_resolve_dangling_target_falls_back_to_own():
 
 
 def test_resolve_cycle_terminates():
-    # A→B→A 环: 不死循环, 各自降级到自身已知值.
     tb = {
         "bbox": {
             "enabled": True,
@@ -228,12 +212,11 @@ def test_resolve_cycle_terminates():
         },
     }
     color, alias = resolve_class_visual(tb, tb["region"]["classes"][0])
-    assert color == "#aaaaaa"  # b 继承 a 的显式色; a 回指 b 时遇环停住
+    assert color == "#aaaaaa"
     assert alias is None
 
 
 def test_resolve_multi_hop_chain():
-    # c → b → a, a 有显式色; c 应跨两跳继承.
     tb = {
         "bbox": {
             "enabled": True,
@@ -263,14 +246,10 @@ def test_resolve_multi_hop_chain():
 
 
 def test_derive_classes_config_resolves_alias_to():
-    # 扁平视图里, 不同名继承类应带上继承后的 color/alias.
     out = derive_classes_config(_alias_tb())
     assert out["person"]["color"] == "#ff0000"
     assert out["pedestrian"]["color"] == "#ff0000"
     assert out["pedestrian"]["alias"] == "person"
-
-
-# ── derive_classes_list ─────────────────────────────────────────────
 
 
 def test_derive_classes_list_sorts_by_order():
@@ -313,9 +292,6 @@ def test_derive_classes_list_skips_dup_across_units():
     assert out == ["person"]
 
 
-# ── derive_attribute_schema ─────────────────────────────────────────
-
-
 def test_derive_attribute_schema_union_first_wins():
     tb = {
         "bbox": {
@@ -332,7 +308,7 @@ def test_derive_attribute_schema_union_first_wins():
             "classes": [],
             "attribute_schema": {
                 "fields": [
-                    {"key": "occluded", "type": "select"},  # 重复 key 被丢弃
+                    {"key": "occluded", "type": "select"},
                     {"key": "color", "type": "string"},
                 ]
             },
@@ -341,16 +317,12 @@ def test_derive_attribute_schema_union_first_wins():
     out = derive_attribute_schema(tb)
     keys = [f["key"] for f in out["fields"]]
     assert keys == ["occluded", "color"]
-    # 首次出现的版本保留
     assert out["fields"][0]["type"] == "boolean"
 
 
 def test_derive_attribute_schema_empty_input():
     assert derive_attribute_schema(None) == {"fields": []}
     assert derive_attribute_schema({}) == {"fields": []}
-
-
-# ── lookup_classes_for_tool_unit ───────────────────────────────────────────
 
 
 def test_lookup_classes_for_tool_unit_disabled_returns_empty():
@@ -384,9 +356,6 @@ def test_lookup_classes_for_tool_unit_missing_unit():
     assert lookup_classes_for_tool_unit(None, "bbox") == []
 
 
-# ── coalesce_legacy_into_tool_bindings ─────────────────────────────────────
-
-
 def test_coalesce_skips_when_tool_bindings_already_set():
     payload = {
         "tool_bindings": {
@@ -405,7 +374,6 @@ def test_coalesce_skips_when_no_legacy_keys():
 
 
 def test_coalesce_empty_dict_tool_bindings_is_treated_as_unset():
-    # 模板 fixture 默认 tool_bindings={}, 应触发反向派生.
     payload = {"tool_bindings": {}, "classes": ["car"]}
     coalesce_legacy_into_tool_bindings(payload, None, "image-det")
     assert payload["tool_bindings"]["bbox"]["classes"] == [{"name": "car", "order": 0}]
@@ -448,7 +416,6 @@ def test_coalesce_preserves_other_units_from_existing():
     }
     payload = {"classes": ["car"]}
     coalesce_legacy_into_tool_bindings(payload, existing, "image-det")
-    # bbox 被反向派生; 其它已配置单位 (keypoint) 保留.
     assert payload["tool_bindings"]["bbox"]["classes"][0]["name"] == "car"
     assert payload["tool_bindings"]["keypoint"]["classes"][0]["name"] == "kp_kept"
 

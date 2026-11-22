@@ -1893,7 +1893,6 @@ async def test_legacy_generation_reference_keeps_its_original_lifetime_default()
             assert operation == "read_image_generation"
             return state
 
-    # Frozen/current policy selection applies only to Native references.
     control = ImageControl(Database(), storage, ImagePolicy(url_expiry_seconds=900))
     default = await control.generation_reference(
         ImageGenerationReferenceRequest(actor_id=uuid4(), dataset_item_id=owner.id)

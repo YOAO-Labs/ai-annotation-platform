@@ -2,9 +2,7 @@ name: E2E extended
 
 on:
   schedule:
-    # Nightly full verification (plan §6.2). The scope is passed explicitly
-    # below instead of being implied by the event name.
-    - cron: "0 19 * * *" # 03:00 Asia/Shanghai
+    - cron: "0 19 * * *"
   workflow_dispatch:
     inputs:
       scope:

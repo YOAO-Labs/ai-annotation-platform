@@ -24,13 +24,11 @@ def login(
 ) -> None:
     """验证凭据并写入 ~/.config/yoao/config.toml (权限 0600)。"""
     if url is None:
-        # 默认值优先复用已存配置的 base_url, 否则回退到本地默认地址
         saved_url, _ = load_config()
         url = typer.prompt("平台地址", default=saved_url or DEFAULT_URL)
     if api_key is None:
         api_key = typer.prompt("API key", hide_input=True)
     with cli_errors(json_output):
-        # 先用给定凭据调一个轻量 GET 验证连通; 失败则不落盘
         with Client(base_url=url, api_key=api_key) as client:
             client.projects.list()
         path = save_config(url, api_key)

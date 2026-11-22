@@ -1,10 +1,3 @@
--- Grant only the directory policy and command functions to its dedicated
--- LOGIN client. The Identity owner retains the data and export transaction.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v identity_owner=identity_code -v workspace_owner=workspace_code
---   -v labeling_owner=labeling_code -v audit_owner=audit_code
---   -v identity_directory_role=yoao_identity_directory_client
---   -f infra/docker/identity-directory-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

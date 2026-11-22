@@ -197,9 +197,7 @@ async def test_uploaded_version_is_read_back_before_receipt(tmp_path):
     store.corrupt_reads = True
     with pytest.raises(c.InputFailure, match="input_corrupt"):
         await upload(make_storage(store), tmp_path)
-    assert (
-        store.versions
-    )  # Unconfirmed version remains discoverable under the lease prefix.
+    assert store.versions
 
 
 @pytest.mark.asyncio

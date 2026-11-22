@@ -1041,8 +1041,6 @@ async def test_copy_rejects_incomplete_connected_component(
     )
     await db_session.flush()
     payload = _payload(source, _scope(), reference=partial_reference)
-    # The two source pixels are one diagonal component under 8-connectivity;
-    # returning only one of them is a subset but not a complete component.
     payload["report"]["connectivity"] = 8
 
     response = await httpx_client.post(
@@ -2129,7 +2127,6 @@ async def test_mask_commit_uses_current_task_after_lock(
                     ]
                 await session_b.commit()
 
-            # Session A deliberately retains the pre-lock ORM instance.
             assert task_a.status == "in_progress"
             assert task_a.assignee_id == cleanup_ids["actor"]
             with pytest.raises(HTTPException) as exc_info:

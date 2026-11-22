@@ -1,6 +1,3 @@
-/**
- * auditLabels 工具单测。
- */
 import { describe, it, expect } from "vitest";
 import {
   AUDIT_ACTION_LABELS,
@@ -29,7 +26,6 @@ describe("AUDIT_BUSINESS_ACTIONS / AUDIT_TARGET_TYPES", () => {
     for (const a of AUDIT_BUSINESS_ACTIONS) {
       expect(a.startsWith("http.")).toBe(false);
     }
-    // 仍包含核心业务动作
     expect(AUDIT_BUSINESS_ACTIONS).toContain("auth.login");
     expect(AUDIT_BUSINESS_ACTIONS).toContain("user.invite");
     expect(AUDIT_BUSINESS_ACTIONS).toContain("video_tracker_job.decision");

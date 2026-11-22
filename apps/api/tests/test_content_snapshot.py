@@ -232,7 +232,7 @@ async def test_late_success_after_interruption_is_disposed_once(monkeypatch, fin
             task.cancel()
         await asyncio.sleep(0.03)
         assert not task.done()
-        task.cancel()  # A second cancellation must also wait for the real Future.
+        task.cancel()
         await asyncio.sleep(0)
         assert not task.done()
     finally:
@@ -261,7 +261,6 @@ async def test_late_handle_close_uncertainty_survives_interruption(monkeypatch, 
             yield body, {"size": len(image_bytes())}
         finally:
             body.close()
-            # Model a provider that could not prove every source handle closed.
             error = OSError("source handle closure unknown")
             error.storage_operation_unsettled = True
             raise error

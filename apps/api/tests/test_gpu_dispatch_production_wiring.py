@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-import redis
 from yoao_inference.gpu.contracts import GPUArbiterErrorCode
 from yoao_inference.tracker import TrackerSessionState
 from yoao_inference_contract.execution import (
@@ -165,7 +164,7 @@ async def test_frame_segment_does_not_pass_worker_session_factory_to_gateway(
     monkeypatch.setattr(
         "app.services.inference_model_execution.model_execution_port", port_factory
     )
-    monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_args: (1, 1))
+    monkeypatch.setattr(frame_preannotate, "_read_progress", lambda *_args: (1, 1))
     monkeypatch.setattr(
         frame_preannotate, "_publish_frame_progress", lambda *_args, **_kwargs: None
     )
@@ -202,7 +201,7 @@ async def test_frame_segment_aggregates_gpu_arbiter_failures(
         "app.services.inference_model_execution.model_execution_port",
         lambda *_args, **_kwargs: RejectedPort(),
     )
-    monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_args: (2, 2))
+    monkeypatch.setattr(frame_preannotate, "_read_progress", lambda *_args: (2, 2))
     monkeypatch.setattr(
         frame_preannotate, "_publish_frame_progress", lambda *_args, **_kwargs: None
     )
@@ -268,7 +267,7 @@ async def test_frame_finalize_merges_gpu_arbiter_failures_into_job_result(
         "sqlalchemy.ext.asyncio.async_sessionmaker",
         FakeSessionFactory,
     )
-    monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_args: (4, 4))
+    monkeypatch.setattr(frame_preannotate, "_cache_progress", lambda *_args: None)
     monkeypatch.setattr(
         frame_preannotate, "_publish_frame_progress", lambda *_args, **_kwargs: None
     )
@@ -309,24 +308,17 @@ async def test_frame_finalize_merges_gpu_arbiter_failures_into_job_result(
             ],
         },
     ]
-    with redis.from_url(frame_preannotate.settings.redis_url) as progress:
-        key = frame_preannotate._segment_results_key(str(job.id))
-        progress.hset(
-            key,
-            mapping={
-                name: frame_preannotate._serialize_segment_stats(stats)
-                for name, stats in zip(("first", "second"), receipts, strict=True)
-            },
-        )
-    try:
-        await frame_preannotate._finalize(
-            [{"frames_done": 999, "boxes": 999}],
-            project_id=str(uuid.uuid4()),
-            job_id=str(job.id),
-        )
-    finally:
-        with redis.from_url(frame_preannotate.settings.redis_url) as progress:
-            progress.delete(key)
+    job.payload = {
+        "frame_segment_receipts": {
+            name: frame_preannotate._bounded_segment_stats(stats)
+            for name, stats in zip(("first", "second"), receipts, strict=True)
+        }
+    }
+    await db_session.commit()
+    await frame_preannotate._finalize(
+        project_id=str(job.project_id),
+        job_id=str(job.id),
+    )
 
     await db_session.refresh(job)
     assert job.status == AsyncJobStatus.COMPLETED.value

@@ -79,9 +79,7 @@ export function useIssuePins(params: {
   seekVideoFrameReady: (frame: number, isRelevant: () => boolean) => Promise<VideoFrameSeekResult>;
   pauseVideoPlayback: () => void;
   isVideoTask: boolean;
-  /** Snapshot one saved image selection at the drop event; null means no association. */
   captureImageContext?: () => Pick<IssuePinAnchor, "annotationId" | "annotationLabel"> | null;
-  /** Resolve explicit image locate; false retires the request before viewport restoration. */
   selectImageAnnotation?: (annotationId: string, isCurrent: () => boolean) => Promise<boolean>;
   captureVideoContext?: (frame: number) => Partial<IssuePinAnchor> | null;
   navigateVideoIssue?: (issue: AnnotationFeedback) => Promise<void>;
@@ -102,7 +100,6 @@ export function useIssuePins(params: {
   const uiRef = useRef(emptyIssueState(owner));
   const [ui, setUi] = useState(uiRef.current);
 
-  // Changing away and back creates a new owner, even when the task id repeats.
   if (uiRef.current.owner !== owner) {
     uiRef.current = emptyIssueState(owner);
     activeRequestRef.current = null;
@@ -261,10 +258,6 @@ export function useIssuePins(params: {
     await runNavigation(request);
   }, [owner, runNavigation]);
 
-  // One infinite root query is the source for both exact counts and canvas
-  // pins. It pages through the current task only (never the whole project),
-  // and keeps the first response's status_counts independent of the loaded
-  // pin rows. React Query supplies an AbortSignal for task replacement.
   const issueListParams = useMemo(
     () => ({
       project_id: projectId ?? "",
@@ -286,9 +279,6 @@ export function useIssuePins(params: {
     pinFetchRef.current = { ownerKey: pinOwnerKey, inFlight: false };
   }
 
-  // Fetch all current-task pages so the shared IssueLayer does not silently
-  // omit pins after page one. The in-flight guard prevents an effect rerender
-  // from issuing duplicate fetchNextPage calls.
   useEffect(() => {
     if (
       !issueQueryEnabled ||
@@ -328,13 +318,7 @@ export function useIssuePins(params: {
           issuePagesQuery.data?.pages[issuePagesQuery.data.pages.length - 1]?.next_cursor ?? null,
       }
     : undefined;
-  // Keep the old consumer shape (data.items/data.next_cursor/isLoading/etc.)
-  // while making its items complete. The real observer remains available for
-  // the coordinator through the spread properties below.
   const issuesQuery = { ...issuePagesQuery, data: aggregatedIssuePage };
-  // A failed refresh invalidates the previous count as evidence. Keep the
-  // already loaded pins/cards for continuity, but report the badge unknown
-  // until a fresh first page supplies status_counts.
   const openIssueCount = issuePagesQuery.isError
     ? null
     : (firstIssuePage?.status_counts?.open ?? null);
@@ -391,8 +375,6 @@ export function useIssuePins(params: {
       if (typeof frame === "number") void onSeekIssueFrame(frame);
       return;
     }
-    // Image/3D canvas navigation is task-local. A global highlight can arrive
-    // after a task switch; never apply its coordinates to the new task.
     if (target.project_id !== projectId || target.task_id !== taskId) return;
     if (!hasPixelAnchor(target)) return;
     const request = { owner, tick: issueFocusTick, id: target.id };
@@ -408,9 +390,6 @@ export function useIssuePins(params: {
       if (!imgW || !imgH || !vpSize.w || !vpSize.h) return;
       setVp((cur) => resolvePinViewport(cur, target.anchor_position, imgW, imgH, vpSize));
     };
-    // The bridge returns false only for a retired request. It returns true for
-    // a selected object and for a current but unavailable object so the durable
-    // pixel can still be located without conflating those outcomes.
     if (target.annotation_id && paramsRef.current.selectImageAnnotation) {
       void paramsRef.current
         .selectImageAnnotation(target.annotation_id, isCurrent)
@@ -438,7 +417,6 @@ export function useIssuePins(params: {
 
   return {
     issueCreateOpen: currentUi.issueCreateOpen,
-    /** Explicit creation intent consumed by IssueCreateModal. */
     issueAnchorMode: currentUi.issueAnchorMode,
     issuePinDropArmed: currentUi.issuePinDropArmed,
     issuePinPrefill: currentUi.issuePinPrefill,

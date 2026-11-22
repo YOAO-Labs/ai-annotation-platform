@@ -57,8 +57,6 @@ class _Attempt:
             else:
                 await self.grant.response(status_code)
         except Exception:
-            # A missing acknowledgement leaves durable work unresolved. It must
-            # not discard an already received inference result or repeat HTTP.
             logger.warning("backend_route_settlement_unacknowledged")
         finally:
             try:
@@ -107,7 +105,6 @@ class TrackedHttpClient:
         self.admission_passed = False
         self.attempts: dict[httpx.Request, _Attempt] = {}
         hooks = dict(kwargs.pop("event_hooks", {}) or {})
-        # Admission comes last so the final request method/path is authenticated.
         hooks["request"] = [*hooks.get("request", []), self._before_request]
         hooks["response"] = [self._after_response, *hooks.get("response", [])]
         self.client = httpx.AsyncClient(event_hooks=hooks, **kwargs)
@@ -137,7 +134,6 @@ class TrackedHttpClient:
                     not_sent=bool(getattr(attempt.grant, "can_prove_not_sent", False)),
                 )
             raise
-        # A later rejected redirect cannot prove that this dispatch never sent.
         self.admission_passed = True
 
     async def _after_response(self, response):

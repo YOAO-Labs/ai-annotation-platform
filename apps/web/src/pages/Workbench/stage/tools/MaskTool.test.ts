@@ -1,5 +1,3 @@
-// MaskTool 单测：onPointerDown 返回 maskBrush DragInit + 自动 beginBlank。
-
 import { describe, expect, it, vi } from "vitest";
 import { MaskTool } from "./MaskTool";
 import type { ToolPointerContext, DragInit } from "./index";

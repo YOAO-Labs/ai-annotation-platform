@@ -22,8 +22,6 @@ from sqlalchemy.orm import Mapped, mapped_column, column_property
 from app.db.base import Base
 
 
-# Both durable owners use the same non-secret locator envelope. Runtime
-# resolution applies the stricter platform identity and canonical key checks.
 TRAINING_STORAGE_REF_CHECK = """
 storage_ref IS NULL OR COALESCE((
     jsonb_typeof(storage_ref) = 'object'

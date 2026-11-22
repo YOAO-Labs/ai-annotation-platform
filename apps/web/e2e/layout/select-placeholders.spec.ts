@@ -4,7 +4,6 @@ const fixture = "/e2e/fixtures/select-placeholders.html";
 const color = (element: Locator) => element.evaluate((node) => getComputedStyle(node).color);
 
 test.beforeEach(async ({ page }) => {
-  // This fixture uses actual controls and styles without API/auth/seed data.
   await page.route("**/api/**", (route) => route.abort());
   await page.goto(fixture);
 });

@@ -246,7 +246,6 @@ def segmentation():
 
 
 def normalized(text):
-    # Prettier aligns Markdown tables without changing their cell values.
     lines = []
     for line in text.strip().splitlines():
         if line.lstrip().startswith("|"):

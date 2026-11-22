@@ -37,13 +37,10 @@ def test_viewer_scope_is_batch_level_and_excludes_annotator_arms():
     viewer_sql = _sql(task_visibility_clause(actor_id, project_role="viewer"))
     annotator_sql = _sql(task_visibility_clause(actor_id, project_role="annotator"))
 
-    # Viewer keeps task-level assignee-override filtering (active/annotating and
-    # rejected assigned arms) but must not enter the two annotator-only arms.
     assert "tasks.assignee_id" in viewer_sql
-    assert "tasks.batch_id IS NULL" not in viewer_sql  # unbatched arm
-    assert "tasks.status" not in viewer_sql  # reviewing rework arm
+    assert "tasks.batch_id IS NULL" not in viewer_sql
+    assert "tasks.status" not in viewer_sql
 
-    # The annotator branch does include both annotator-only arms.
     assert "tasks.batch_id IS NULL" in annotator_sql
     assert "tasks.status" in annotator_sql
     assert viewer_sql != annotator_sql

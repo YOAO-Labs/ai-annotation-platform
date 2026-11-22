@@ -96,7 +96,6 @@ class PredictionInputLease(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
-    # Deliberately no cascading FKs: deleting a business owner cannot erase cleanup.
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     owner_kind: Mapped[str] = mapped_column(String(32), nullable=False)
     task_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)

@@ -104,7 +104,6 @@ async def execute_configuration(
         if url and dsn:
             raise ConfigurationUnavailable()
         if not url and not dsn:
-            # Retain the existing blocking pool lock for borrowed transactions.
             data = WorkspaceConfigurationData(db)
             reply = await configuration_manager(data, db=db).execute(request)
         else:

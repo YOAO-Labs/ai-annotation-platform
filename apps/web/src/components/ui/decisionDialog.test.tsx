@@ -1,9 +1,3 @@
-/**
- * decisionDialog 服务 + <DecisionDialogHost /> 单测(docs/plans/archive/1789527942 Phase 0 验收):
- * Promise 结算(确认/取消/Esc/点遮罩)、危险态默认聚焦取消 vs 普通态聚焦确认、
- * 危险态语义 token、input 必填/maxLength/validate/initialValue 行为、choice 取消为 null、
- * 队列一次只显示一条、data-modal 模态标记、cancelAll 认证归属变更兜底。
- */
 import { afterEach, describe, expect, it } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
@@ -26,7 +20,6 @@ function getOverlay() {
   return overlay as Element;
 }
 
-/** 服务入队即 store 更新,包一层 act 避免测试告警;同步冲出首帧 DOM。 */
 function openDialog<T>(open: () => T): T {
   let result!: T;
   act(() => {
@@ -35,17 +28,12 @@ function openDialog<T>(open: () => T): T {
   return result;
 }
 
-/**
- * 触发关闭后,把 Radix Presence 的 rAF 卸载帧(jsdom 约 16ms)放进 act 里冲掉,
- * 让「退场完毕出队」的 store 更新落在 act 内,避免测试告警。
- */
 async function flushTeardown() {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
   });
 }
 
-// vitest 的 afterEach 按 LIFO 在 RTL cleanup 前跑,此刻 Host 仍挂载,清空队列需包 act。
 afterEach(() => {
   act(() => {
     useDecisionDialogStore.setState({ queue: [] });
@@ -285,7 +273,6 @@ describe("decisionDialog 服务", () => {
     renderHost();
     openDialog(() => confirmDialog({ title: "删除数据集", confirmLabel: "删除" }));
     const dialog = await screen.findByRole("alertdialog", { name: "删除数据集" });
-    // Workbench 的窗口级快捷键守卫靠 [data-modal] 拦截,缺标记时 A/R 键会穿透对话框。
     expect(dialog).toHaveAttribute("data-modal", "");
   });
 
@@ -331,7 +318,6 @@ describe("decisionDialog 服务", () => {
     fireEvent.click(preset2);
     expect(textarea).toHaveValue("边缘漏标；重叠遮挡未拆分");
 
-    // 重复点击同一标签不重复添加
     fireEvent.click(preset1);
     expect(textarea).toHaveValue("边缘漏标；重叠遮挡未拆分");
 

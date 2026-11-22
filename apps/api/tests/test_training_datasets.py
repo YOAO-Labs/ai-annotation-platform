@@ -145,7 +145,6 @@ async def test_segmentation_freeze_keeps_region_instances_negatives_and_task_in_
     assert detail.json()["class_count"] == 1
     assert detail.json()["source_media_type"] == "image"
     assert detail.json()["summary"]["objects"] == 3
-    # Unsupported active geometry is an error, never a silently emitted negative.
     annotations[0].geometry = {
         **annotations[0].geometry,
         "holes": [[[0.2, 0.2], [0.3, 0.2], [0.3, 0.3]]],
@@ -608,7 +607,6 @@ async def test_real_storage_materialization_retry_preserves_originals(
         )
         await db_session.refresh(version)
         assert version.package_sha256 == original_checksum
-        # A late cancellation after upload must discard this attempt's ZIP.
         version.status = "failed"
         await service.enqueue_dataset(db_session, version)
         await db_session.commit()
@@ -759,7 +757,6 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
         for sample in segment["samples"]
         for a in sample["annotations"]
     )
-    # Invalid geometry in the selected binding remains a hard validation issue.
     polygons[0].geometry = {
         **polygons[0].geometry,
         "holes": [[[0.2, 0.2], [0.3, 0.2], [0.3, 0.3]]],
@@ -775,7 +772,6 @@ async def test_mixed_project_extracts_only_selected_binding_and_never_assumes_ot
     assert (
         not report["ready"] and report["issues"][0]["code"] == "unsupported_annotation"
     )
-    # The manager's negative confirmation is explicit and scoped to detect.
     snapshot, report = await service.freeze_selection(
         db_session,
         project,

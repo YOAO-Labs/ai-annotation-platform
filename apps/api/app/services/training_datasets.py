@@ -405,8 +405,6 @@ async def _freeze_selection(
         .correlate(task_row)
         .scalar_subquery()
     )
-    # Classes, task eligibility, media references and annotations share one PG
-    # statement snapshot, even when the request session uses READ COMMITTED.
     project_row = project_facts()
     stmt = (
         select(task_row, DatasetItem, project_row.c.tool_bindings, annotation_json)
@@ -593,8 +591,6 @@ async def _freeze_selection(
     for dataset_id in sorted(eligible_dataset_ids, key=str):
         dataset = await require_writable(db, dataset_id)
         dataset_revisions[dataset_id] = dataset.lifecycle_revision
-    # Resolve declared content before any image I/O so the version budget is
-    # enforced on authoritative sizes, not after downloading every sample.
     declared = 0
     for sample in samples:
         try:
@@ -701,7 +697,6 @@ async def _freeze_selection(
         from app.services.training_dataset_sources import training_reference_snapshot
 
         actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
-        # One AsyncSession cannot serve concurrent resolver queries.
         for sample in references:
             try:
                 content, identity, lineage = await training_reference_snapshot(
@@ -824,13 +819,9 @@ async def _freeze_selection(
         "excluded": excluded,
     }
     if frozen_samples is not None and is_instance_rle(contract) and report["ready"]:
-        # The caller inserts the immutable version and commits this same
-        # transaction. GC rechecks roots while holding these exact content locks.
         from app.services.raster_mask_storage import lock_raster_mask_references
 
         await lock_raster_mask_references(db, snapshot)
-    # Only a new selection is gated. Workers serving existing immutable versions
-    # continue under their captured content and current project permissions.
     if frozen_samples is not None:
         for dataset_id, revision in dataset_revisions.items():
             await require_writable(

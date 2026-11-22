@@ -295,8 +295,6 @@ async def execute_cross_frame_job(
         )
 
     source_stale = False
-    # Keep only the durable job identity across per-frame transaction rollbacks;
-    # every eligible frame reads fresh account facts under its write fence.
     cross_frame_batch_stager = bind_cross_frame_batch_stager(db)
     for target_index, target in enumerate(targets):
         frame_index = int(target["frame_index"])
@@ -337,12 +335,6 @@ async def execute_cross_frame_job(
 
         target_task_id = uuid.UUID(str(target["task_id"]))
         try:
-            # Re-read current account facts after each rollback so a disabled
-            # or role-changed actor cannot keep using a cached frame snapshot.
-            # Account-first: bounded FOR SHARE NOWAIT on the acting account
-            # before membership/Task locks so a concurrent global disable cannot
-            # race the frame commit.  A busy account rolls back to a terminal
-            # item via the outer handler instead of a wait cycle.
             from app.services.project_write_guard import (
                 lock_actor_account_facts,
                 lock_actor_scope,
@@ -359,9 +351,6 @@ async def execute_cross_frame_job(
             if not actor.is_active:
                 raise RuntimeError("permission_changed")
             lock_ids = sorted({source_task_id, target_task_id}, key=str)
-            # Account/membership-before-resource: bounded share lock the actor's
-            # membership for each involved project before the Task locks, so the
-            # final-write guard's membership re-read cannot wait after a Task.
 
             member_project_ids = set(
                 (
@@ -386,9 +375,6 @@ async def execute_cross_frame_job(
                 or target_task.project_id != job.project_id
             ):
                 raise RuntimeError("permission_changed")
-            # Recheck the born Dataset proof inside every frame transaction so
-            # a committed Task/item/primary_lidar/Scene remap fails the frame
-            # before any Annotation write instead of widening silently.
             if not await _born_dataset_scope_matches(db, job_id):
                 raise RuntimeError("dataset_scope_changed")
             try:
@@ -399,17 +385,12 @@ async def execute_cross_frame_job(
             if source_task.status == "completed":
                 raise RuntimeError("source_task_locked")
             if source_task.status == "review":
-                # Reading a review-state source still needs review authority.
                 try:
                     await _review_task_authority(db, source_task, actor)
                 except HTTPException as exc:
                     raise RuntimeError("source_task_locked") from exc
             if target_task.status == "completed":
                 raise RuntimeError("target_task_locked")
-            # Phase-aware write: pending/in-progress requires the effective
-            # annotator (or manager); review additionally validates the frozen
-            # contributor evidence.  Reviewer/viewer cannot write annotation
-            # work.
             try:
                 from app.services.project_write_guard import (
                     assert_phase_write_allowed,

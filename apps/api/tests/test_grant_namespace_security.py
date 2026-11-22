@@ -47,7 +47,6 @@ def _suffix() -> str:
 def _assert_guard_rejected(result: subprocess.CompletedProcess) -> None:
     """A rejecting installer must fail through its own PL/pgSQL guard."""
     assert result.returncode != 0, result.stderr
-    # psql VERBOSITY=verbose prefixes the SQLSTATE; P0001 is RAISE EXCEPTION.
     assert "P0001" in result.stderr, result.stderr
 
 
@@ -195,7 +194,6 @@ async def _login(engine, prefix: str, *, installs_lan_profile: bool = False):
     finally:
         async with engine.begin() as db:
             if installs_lan_profile:
-                # Restore only the view this installer transferred to our LOGIN.
                 actual_owner = await db.scalar(view_owner_sql)
                 if actual_owner == role:
                     quote = db.dialect.identifier_preparer.quote_identifier
@@ -238,8 +236,6 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                         f"REVOKE ALL ON FUNCTION {probe}.probe_read() FROM PUBLIC",
                         f"GRANT USAGE, CREATE ON SCHEMA {probe} TO {role}",
                         f"GRANT SELECT, INSERT ON {probe}.probe_rows TO {role}",
-                        # An independent column ACL inside the classified
-                        # namespace: the installer must revoke it, not reject it.
                         f"GRANT UPDATE (name) ON {probe}.probe_rows TO {role}",
                         f"GRANT USAGE ON SEQUENCE {probe}.probe_seq TO {role}",
                         f"GRANT EXECUTE ON FUNCTION {probe}.probe_read() TO {role}",
@@ -283,9 +279,6 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                     "approved_usage": True,
                     "approved_function": True,
                 }
-                # The classifier's table revoke drops the probe column ACL too,
-                # per SQL spec. A table outside the classifier keeps its ACL,
-                # and only the installer's own column inventory can reject it.
                 await _execute(
                     owner_engine,
                     [f"GRANT UPDATE (name) ON {neighbor}.probe_rows TO {role}"],
@@ -312,8 +305,6 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                 assert recovered.returncode == 0, recovered.stderr
                 final = await _catalog_state(owner_engine, role, probe, neighbor)
                 assert dict(final) == dict(revoked)
-                # The install grants CONNECT; the login can open a session but
-                # cannot resolve or read the private module namespace.
                 connected = await _psql(
                     migration_url,
                     sql="SELECT 1;",
@@ -398,7 +389,6 @@ async def test_audit_read_rejects_new_namespace_schema_usage(
                 owner_engine,
                 [
                     f"GRANT USAGE ON SCHEMA {probe} TO {role}",
-                    # A deficit the rejecting install would repair only on commit.
                     f"REVOKE SELECT ON yoao_audit_v1.audit_events FROM {role}",
                 ],
             )
@@ -411,8 +401,6 @@ async def test_audit_read_rejects_new_namespace_schema_usage(
             rejected = await _apply(migration_url, "audit-read-grants.sql", variables)
             _assert_guard_rejected(rejected)
             after = await _audit_state(owner_engine, role, probe)
-            # The guard aborted the installer: the deficit it would have repaired
-            # is still present, and the probe schema was never touched.
             assert dict(after) == dict(before)
         recovered = await _apply(migration_url, "audit-read-grants.sql", variables)
         assert recovered.returncode == 0, recovered.stderr
@@ -477,10 +465,6 @@ async def test_identity_briefs_inventory_sees_public_invoker_new_namespace(
             ],
         )
         shape = await _function_shape(owner_engine, role, function)
-        # The installer revokes every explicit role ACL in its own transaction,
-        # so at verification time only the PUBLIC EXECUTE grant keeps this
-        # SECURITY INVOKER function in the executable inventory. SECURITY
-        # DEFINER and explicit-role ACL clauses cannot classify it.
         assert dict(shape) == {
             "invoker": True,
             "executable": True,
@@ -488,7 +472,6 @@ async def test_identity_briefs_inventory_sees_public_invoker_new_namespace(
         }
         rejected = await _apply(migration_url, "identity-briefs-grants.sql", variables)
         _assert_guard_rejected(rejected)
-        # The rejecting install rolled back; its revoke never committed.
         assert await _explicit_execute_grants(owner_engine, role, function) == 1
         approved = await _row(
             owner_engine,
@@ -572,10 +555,6 @@ async def test_identity_consumer_scopes_new_namespace_revocation(
                         f"CREATE TABLE {workspace_probe}.probe_rows (id integer)",
                         f"GRANT USAGE ON SCHEMA {workspace_probe} TO {role}",
                         f"GRANT SELECT ON {workspace_probe}.probe_rows TO {role}",
-                        # The verifier's installation profile revokes CONNECT
-                        # from PUBLIC. This throwaway role needs the database
-                        # access a live API role already has, so the boundary
-                        # asserted below is the object ACL and not login.
                         f'GRANT CONNECT ON DATABASE "{migration_url.database}" '
                         f"TO {role}",
                     ],
@@ -623,7 +602,6 @@ async def test_identity_consumer_scopes_new_namespace_revocation(
                     probe=workspace_probe,
                     rows=f"{workspace_probe}.probe_rows",
                 )
-                # Identity-only recognition must not widen to another namespace.
                 assert dict(workspace_state) == {
                     "usage": True,
                     "table_read": True,
@@ -654,8 +632,6 @@ async def test_identity_consumer_scopes_new_namespace_revocation(
                     "read_actor": True,
                     "identity_functions": 8,
                 }
-                # The scoped role can connect and read the namespace it keeps;
-                # the Identity probe is then denied at the object boundary.
                 retained = await _psql(
                     migration_url,
                     sql=f"SELECT count(*) FROM {workspace_probe}.probe_rows;",
@@ -702,10 +678,6 @@ async def test_identity_deactivation_classifies_new_namespace_as_module(
             ],
         )
         shape = await _function_shape(owner_engine, role, function)
-        # Both the explicit role ACL and the PUBLIC grant exist here. The
-        # installer revokes the explicit ACL first, so only the PUBLIC grant
-        # remains when its allowlist runs; the module-prefix predicate is what
-        # keeps the SECURITY INVOKER function in that inventory.
         assert dict(shape) == {
             "invoker": True,
             "executable": True,
@@ -752,9 +724,6 @@ async def test_workspace_pipeline_rejects_new_namespace_private_access(
     ):
         async with _login(owner_engine, "cleanup") as (cleanup, _cleanup):
             async with _schema(owner_engine, lan_probe):
-                # The development runtime is configured by lan-production-grants
-                # before the fresh API/worker profile below, so this storage must
-                # already exist when that installer runs.
                 await _execute(
                     owner_engine,
                     [
@@ -816,8 +785,6 @@ async def test_workspace_pipeline_rejects_new_namespace_private_access(
                                 f"CREATE TABLE {other_probe}.probe_rows (id integer)",
                                 f"GRANT USAGE ON SCHEMA {other_probe} TO {role}",
                                 f"GRANT SELECT ON {other_probe}.probe_rows TO {role}",
-                                # Mirror the existing profile setup: broad
-                                # legacy grants that the profile must remove.
                                 f"GRANT SELECT(id), UPDATE(name) "
                                 f"ON public.projects TO {role}",
                                 f"GRANT SELECT ON yoao_workspace_v1"
@@ -873,8 +840,6 @@ async def test_workspace_pipeline_rejects_new_namespace_private_access(
                             probe=other_probe,
                             rows=f"{other_probe}.probe_rows",
                         )
-                        # Workspace-only cleanup must not sweep another
-                        # new-prefix namespace.
                         assert dict(other) == {
                             "usage": True,
                             "table_read": True,

@@ -209,7 +209,6 @@ class RegistryIngressPostgresData:
         is_interactive: bool = False,
         extra_params: Any = None,
     ) -> BackendHealthRow:
-        # Legacy ORM insert flushes before the following singleton lookup.
         await self.flush()
         extra_json = json.dumps({} if extra_params is None else extra_params)
         record = await self._fetchrow(
@@ -238,7 +237,6 @@ class RegistryIngressPostgresData:
         snapshot: dict[str, Any] | None,
         fingerprint: str | None,
     ) -> HealthServicePoolRow:
-        # The legacy helper flushes the Pool row before inserting its Member.
         await self.flush()
         record = await self._fetchrow(
             _CREATE_SINGLETON_POOL_SQL,

@@ -1,25 +1,6 @@
 import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useFocusedListPagination } from "./useFocusedListPagination";
-/**
- * registry "服务池" tab.
- *
- * Plan §4.3（模型市场多 TAB UI 优化 · 阶段一）: the pool table keeps its
- * 身份/成员/容量/关联项目/状态/操作 columns, but now owns the toolbar that
- * actually applies to it — pool-or-member search (`pool_q`) + health filter
- * (`pool_health`) both URL-backed, 新建服务池 as the primary action and
- * 注册实例 kept as the secondary entry. Row ids render as 名称 + 短 ID with
- * copy/tooltip (full value in detail views). 「查看实例」navigates via the URL
- * (`registry_view=instances&instance_pool=<id>`) instead of the removed
- * registry:focus-tab event. `pool_id` deep-links expand + scroll to the pool.
- *
- * Project Admin: routing_policy is hidden (server returns "unknown"), no GPU
- * column, no actions, no expansion of internal reason — read-only.
- *
- * Pure consumer of the orchestrator-provided `RegistryScope`. It does not own
- * queries; mutations come from `useGlobalRegistry` and invalidate the shared
- * keys.
- */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -90,7 +71,6 @@ import {
   useResumePoolMember,
 } from "../useGlobalRegistry";
 
-/** Map a routing policy enum to a friendly Chinese label, "unknown"-aware. */
 function policyLabel(policy: string): string {
   switch (policy) {
     case "smooth_weighted_round_robin":
@@ -114,7 +94,6 @@ function identityName(name: string, noun: string, ordinal?: DuplicateNameOrdinal
   return ordinal ? `${name}（同名${noun} ${ordinal.index}/${ordinal.total}）` : name;
 }
 
-/** Find the highest GPU diagnostic severity touching this pool's members. */
 function poolMaxGpuSeverity(pool: PoolViewModel, scope: RegistryScope): GpuSeverity | null {
   if (!scope.gpuResources) return null;
   const gpuIds = new Set<string>();
@@ -159,11 +138,17 @@ function gpuSeverityBadge(sev: GpuSeverity): ReactNode {
 
 export function ServicePoolsSection({
   scope,
+  primaryPoolProjectCounts,
+  primaryPoolProjectCountsLoading,
   url,
   patchUrl,
   urlIssues,
   onOpenRegister,
-}: RegistrySectionProps & { onOpenRegister?: () => void }): ReactNode {
+}: RegistrySectionProps & {
+  primaryPoolProjectCounts: Partial<Record<string, number>> | null;
+  primaryPoolProjectCountsLoading: boolean;
+  onOpenRegister?: () => void;
+}): ReactNode {
   const { isSuperAdmin, vm } = scope;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [createOpen, setCreateOpen] = useState(false);
@@ -189,8 +174,6 @@ export function ServicePoolsSection({
     [vm.pools],
   );
 
-  // pool_id 定位键（plan §5）：池存在 → 展开成员并滚动到该行；对象不存在或
-  // 当前不可访问 → 明确提示，不静默清掉条件。
   const focusPoolId = url.poolId;
   const focusPoolExists = vm.pools.some((p) => p.id === focusPoolId);
 
@@ -220,7 +203,6 @@ export function ServicePoolsSection({
     });
   };
 
-  // 搜索池名/池 ID/策略以及成员名/成员 ID（plan §4.3：搜索池或成员）。
   const rows = useMemo(() => {
     const filtered = vm.pools.filter((p) => {
       if (url.poolQ) {
@@ -357,7 +339,7 @@ export function ServicePoolsSection({
             <TableHead>服务池</TableHead>
             <TableHead>成员</TableHead>
             <TableHead>容量</TableHead>
-            <TableHead>项目</TableHead>
+            <TableHead title="以此池为主服务池、且当前账号可见的项目数">项目</TableHead>
             {isSuperAdmin && <TableHead>GPU</TableHead>}
             <TableHead>状态</TableHead>
             {isSuperAdmin && <TableHead className="text-right">操作</TableHead>}
@@ -368,6 +350,13 @@ export function ServicePoolsSection({
             <PoolRow
               key={pool.id}
               pool={pool}
+              projectCount={
+                primaryPoolProjectCountsLoading
+                  ? "loading"
+                  : primaryPoolProjectCounts === null
+                    ? null
+                    : (primaryPoolProjectCounts[pool.id] ?? 0)
+              }
               scope={scope}
               patchUrl={patchUrl}
               poolOrdinal={poolOrdinals.get(pool.id)}
@@ -454,6 +443,7 @@ function CreatePoolDialog({
 
 function PoolRow({
   pool,
+  projectCount,
   scope,
   patchUrl,
   poolOrdinal,
@@ -463,6 +453,7 @@ function PoolRow({
   onToggle,
 }: {
   pool: PoolViewModel;
+  projectCount: number | "loading" | null;
   scope: RegistryScope;
   patchUrl: RegistrySectionProps["patchUrl"];
   poolOrdinal?: DuplicateNameOrdinal;
@@ -473,13 +464,11 @@ function PoolRow({
 }): ReactNode {
   const { isSuperAdmin, vm } = scope;
   const poolIdentity = identityName(pool.name, "服务池", poolOrdinal);
-  const projectCount = countProjectsForPool(pool.id, scope);
   const affectedCount = scope.diagnostics.filter(
     (d) => d.subject_type === "service_pool" && d.subject_id === pool.id,
   ).length;
   const gpuSev = poolMaxGpuSeverity(pool, scope);
 
-  // Capacity column — plan Appendix A.2: limit null → "未声明"; no metrics → "暂无路由指标".
   const inflight = pool.capacity.inflight;
   const limit = pool.capacity.limit;
   const capacityText = !pool.metrics_available
@@ -526,7 +515,6 @@ function PoolRow({
               {affectedCount > 0 && <AffectedCountChip count={affectedCount} />}
             </div>
             <div className="flex items-center gap-2">
-              {/* routing_policy: Super Admin only; Project Admin server-projection is "unknown". */}
               {isSuperAdmin && (
                 <span className="text-2xs text-muted-foreground">
                   策略 · {policyLabel(pool.routing_policy)}
@@ -571,10 +559,12 @@ function PoolRow({
           )}
         </TableCell>
         <TableCell>
-          {projectCount > 0 ? (
-            <span className="text-sm">{projectCount}</span>
+          {projectCount === "loading" ? (
+            <NullCell>加载中</NullCell>
+          ) : projectCount === null ? (
+            <NullCell>不可用</NullCell>
           ) : (
-            <NullCell>0</NullCell>
+            <span className="text-sm">{projectCount}</span>
           )}
         </TableCell>
         {isSuperAdmin && (
@@ -618,7 +608,6 @@ function PoolStatusCell({
   const statusToken = poolStatusToken(pool.status);
   const routerFreshness = sources.find((s) => s.name === "router_ledger");
   const topologyFreshness = sources.find((s) => s.name === "topology");
-  // Routing effective axis — derived by the view-model (already accounts for shadow mode).
   const effectiveRouting = derivePoolEffectiveRouting(pool);
   return (
     <div className="flex flex-col gap-1">
@@ -805,8 +794,6 @@ function PoolActionsMenu({
       label: "查看实例",
       icon: "layers",
       onSelect: () => {
-        // 子 TAB 与对象定位由 URL 承载（plan §5）：切到实例子视图并按池过滤，
-        // 显式跳转 push 浏览器历史，刷新/前进后退可恢复。
         patchUrl(instancesForPoolPatch(pool.id), { replace: false });
       },
     },
@@ -1148,29 +1135,3 @@ function PoolMemberActions({
     </>
   );
 }
-
-/**
- * Count AI-enabled projects whose primary pool equals this pool.
- *
- * Plan Appendix A.4: project ↔ pool relationship is authoritative (Project.ml_backend_pool_id).
- * Falls back to 0 when overview is unavailable (Project Admin / load failure).
- */
-function countProjectsForPool(poolId: string, scope: RegistryScope): number {
-  if (!scope.overview) return 0;
-  // overview() returns per-project enabled backend rows; without a pool_id field
-  // exposed on MLBackendItem, we approximate via the service-pool admin list:
-  // if a pool contains a member whose registry_id appears in any project's
-  // enabled backends, count it. This is a *display* approximation only — the
-  // authoritative project↔pool binding lives server-side.
-  const memberRegistryIds = new Set(
-    (scope.vm.pools.find((p) => p.id === poolId)?.members ?? []).map((m) => m.registry_id),
-  );
-  if (memberRegistryIds.size === 0) return 0;
-  let count = 0;
-  for (const proj of scope.overview.projects) {
-    if (proj.backends.some((b) => memberRegistryIds.has(b.id))) count += 1;
-  }
-  return count;
-}
-
-// (no re-exports — section is a leaf presentational component)

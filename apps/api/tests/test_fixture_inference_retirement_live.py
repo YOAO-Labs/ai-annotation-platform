@@ -81,7 +81,6 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from linux_pidfd import open_pidfd as _process_handle  # noqa: E402
 from worktree_env import atomic_json  # noqa: E402
 
-# Keep all exact process and pipe handles after indeterminate native work.
 _RETAINED_UNCERTAIN = []
 
 
@@ -193,8 +192,6 @@ async def test_shutdown_ack_reconnects_and_preserves_exact_owner_identity(test_e
             }
         )
         assert json.loads(result["body"])["state"] == "stopped"
-        # Attach before replacement, then prove that the final ACK cannot
-        # finalize an altered record; restore the exact record before recovery.
         probe = await asyncio.create_subprocess_exec(
             sys.executable,
             str(ROOT / "apps/web/e2e/fixtures/seed-request.py"),
@@ -443,9 +440,6 @@ def _worker_environment(test_engine, media, execution_url, execution_token, brok
         "yoao_jobs_publication_client",
         test_engine,
     )
-    # app.config normally reads the checkout's absolute .env. Override its
-    # credential/role fields rather than exposing owner or storage credentials
-    # to the ordinary worker, then provide only its actual narrow authorities.
     environment = {
         "PATH": os.environ.get("PATH", ""),
         "LANG": os.environ.get("LANG", "C.UTF-8"),
@@ -495,8 +489,6 @@ def _worker_environment(test_engine, media, execution_url, execution_token, brok
 
 
 async def _start_execution_owner(tmp_path):
-    # Same real owner and narrow role set as _start_model_execution_owner, but
-    # Popen deliberately survives pytest if physical work remains uncertain.
     role_sources = {
         "INFERENCE_BACKEND_ENDPOINT_EXECUTION_DATABASE_URL": "AAP_MODULE_DATA_INFERENCE_ENDPOINT_EXECUTION_URL",
         "INFERENCE_GPU_DATABASE_URL": "AAP_MODULE_DATA_INFERENCE_GPU_URL",
@@ -545,7 +537,6 @@ async def _start_execution_owner(tmp_path):
 
             await _eventually("model execution owner readiness", ready, timeout=30)
     except BaseException:
-        # No execution requests exist before this owner is returned.
         await _stop_known_process(process)
         stream.close()
         raise
@@ -653,7 +644,6 @@ async def _start_media_runtime(test_engine, tmp_path):
     try:
         await _wait_control_ready(client, process, log_path)
     except BaseException:
-        # No fixture or input work exists at this startup boundary.
         if process.poll() is None:
             process.terminate()
         await asyncio.to_thread(process.wait, timeout=30)
@@ -728,8 +718,6 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
         "yoao_jobs_publication_client",
         test_engine,
     )
-    # The in-process product API reads these settings per request; the
-    # verifier supplies the narrow role URL under its own prefix.
     monkeypatch.setattr(
         settings, "jobs_publication_database_url", _runtime_database_url(publication)
     )
@@ -761,7 +749,6 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
     queue = "fixture_held_inference_" + uuid.uuid4().hex
     monkeypatch.setattr(settings, "preannotate_cpu_queue", queue)
     monkeypatch.setattr(settings, "preannotate_gpu_queue", queue)
-    # Exercise the normal Celery publication, not a fixture dispatcher.
     monkeypatch.setattr(settings, "jobs_queue_url", "")
     routing_context = fixture_routing_owner(test_engine, monkeypatch)
     media = None
@@ -885,9 +872,6 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
 
             entered = await _eventually("held provider entry", entered_a)
             assert "responseStatus" not in entered
-            # Lose the actual response to a committed owned-fixture mutation while
-            # the original provider is physically held.  Reconnect to that same
-            # authority, recover by identity, and refuse ambiguous re-execution.
             run_c = suite.new_run("loss" + uuid.uuid4().hex[:8])
             lost_id = str(uuid.uuid4())
             lost_payload = {
@@ -1006,8 +990,6 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
             else:
                 lost.stdin.close()
                 lost_log.close()
-            # A later busy provider fences admission but cannot prove quiescence;
-            # the earlier provider's real acknowledgement must remain visible.
             with pytest.raises(RuntimeError, match="Fixture operation failed"):
                 await owner._request({"operation": "owner_offline_seal"})
             partial = json.loads(
@@ -1119,8 +1101,6 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
             requests = await _control(owner, run_a, fixture_a, "requests")
             assert len(requests) == 1 and "responseStatus" not in requests[0]
 
-            # Request cooperative cancellation while the real provider is still held;
-            # no revoke with terminate, fabricated result, or lease mutation.
             cancel = await asyncio.wait_for(
                 fenced_http.post(
                     f"/api/v1/async-jobs/{job_a}/cancel", headers=headers_a
@@ -1198,9 +1178,6 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
             await _stop_media_runtime(media)
             await routing_context.__aexit__(None, None, None)
         else:
-            # Never close the private owner, terminate workers, delete a queue,
-            # or retire source versions while work might still be physical.
-            # The verifier owns inspection/recovery of this exact failed run.
             _RETAINED_UNCERTAIN.append(
                 (
                     owner,

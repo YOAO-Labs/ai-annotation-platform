@@ -35,9 +35,6 @@ async def _run_async() -> dict:
 
 async def mark_inactive_offline_with_session(db) -> dict:
     """以传入 session 执行扫描 + 提交。供 Celery 任务包装与测试复用。"""
-    # Resolve the setting at the start of each scheduled scan.  The service's
-    # 30-second process cache keeps the original beat cadence while allowing a
-    # runtime override to reach the next scan without a worker restart.
     threshold_minutes = await SystemSettingsService.get(db, "offline_threshold_minutes")
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=threshold_minutes)
     affected = await IdentityPresenceCommands(

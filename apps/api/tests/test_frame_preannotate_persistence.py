@@ -278,8 +278,6 @@ async def frame_world(test_engine):
                     FailedPrediction.task_id == world.task_id
                 )
             )
-            # Accepted video receipts are immutable audit records. Keep them
-            # until the disposable test database is destroyed.
             await db.execute(delete(AsyncJob).where(AsyncJob.id == world.job_id))
             await db.execute(delete(Task).where(Task.id == world.task_id))
             await db.execute(delete(DatasetItem).where(DatasetItem.id == world.item_id))
@@ -374,7 +372,7 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
         monkeypatch, predict, actual_instance_id=world.backend_id
     )
     _install_video_gateway(monkeypatch, world)
-    monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_a: (1, 1))
+    monkeypatch.setattr(frame_preannotate, "_read_progress", lambda *_a: (1, 1))
     monkeypatch.setattr(
         frame_preannotate, "_publish_frame_progress", lambda *_a, **_k: None
     )
@@ -407,9 +405,6 @@ async def test_frame_persistence_retries_contention_and_rechecks_scope(
 
     monkeypatch.setattr(PredictionService, "apply_prediction_result", observed_apply)
     async with world.maker() as locker:
-        # Hold only the Task row. The baseline prediction and its authority
-        # locks were committed above, so the contention reaches the intended
-        # task-write NOWAIT fence instead of an earlier scope lock.
         task = await locker.scalar(
             select(Task).where(Task.id == world.task_id).with_for_update()
         )
@@ -581,14 +576,12 @@ async def test_mask_content_write_contention_defers_accepted_frame_result(
         monkeypatch, predict, actual_instance_id=world.backend_id
     )
     _install_video_gateway(monkeypatch, world)
-    monkeypatch.setattr(frame_preannotate, "_bump_progress", lambda *_a: (1, 1))
+    monkeypatch.setattr(frame_preannotate, "_read_progress", lambda *_a: (1, 1))
     monkeypatch.setattr(
         frame_preannotate, "_publish_frame_progress", lambda *_a, **_k: None
     )
 
-    async def retain_segment_stats(
-        _job_id, _done_delta, _project_id, *, segment_id, segment_stats
-    ):
+    async def retain_segment_stats(_job_id, segment_id, _project_id, *, segment_stats):
         assert segment_id
         return segment_stats
 
@@ -648,7 +641,7 @@ async def test_late_frame_progress_and_finalize_preserve_terminal_job(
     publish = Mock()
     progress = Mock()
     monkeypatch.setattr(frame_preannotate, "_publish_frame_progress", publish)
-    monkeypatch.setattr(frame_preannotate, "_bump_progress", progress)
+    monkeypatch.setattr(frame_preannotate, "_cache_progress", progress)
     async with world.maker() as db:
         job = await db.get(AsyncJob, world.job_id)
         job.status = status
@@ -663,7 +656,6 @@ async def test_late_frame_progress_and_finalize_preserve_terminal_job(
         segment_id="segment",
     )
     await frame_preannotate._finalize(
-        [{"frames_done": 9, "boxes": 9}],
         project_id=str(world.project_id),
         job_id=str(world.job_id),
     )

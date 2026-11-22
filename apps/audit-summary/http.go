@@ -11,7 +11,6 @@ import (
 const (
 	monthlySummaryPath = "/v1/audit/monthly-summary"
 	maxRequestBytes    = 64 << 20
-	// shortcut: 2 concurrent summaries, raise after measuring peak request memory.
 	maxConcurrent = 2
 )
 

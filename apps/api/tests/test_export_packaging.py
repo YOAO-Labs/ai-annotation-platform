@@ -146,7 +146,6 @@ def test_same_leaf_different_dir_stay_distinct():
 
 
 def test_prefix_mismatch_returns_path_unchanged():
-    # 首段非 dataset_name 时保守返回（不误删层级）。
     assert (
         relative_path_from_file_path("other/animals/cat/001.jpg", "mydataset")
         == "other/animals/cat/001.jpg"
@@ -173,7 +172,6 @@ def test_clean_export_targets_accepts_video_yolo_frames_det():
 
 
 def test_clean_export_targets_rejects_video_target_for_image_project():
-    # 图像项目混入视频目标应在端点层就被拒，而非派发后整批失败。
     with pytest.raises(ValueError, match="image project"):
         clean_export_targets(["coco", "mot"], data_type="image")
 
@@ -274,7 +272,6 @@ async def test_video_yolo_frames_zip_writes_grid_labels_and_manifest(monkeypatch
         attributes={"speed": 3},
     )
 
-    # 流式签名：喂内存 chunk（单块），ZIP 落盘后断言。
     async def _chunks():
         yield [task], {task_id: [track, bbox]}, {item_id: item}
 
@@ -301,13 +298,6 @@ async def test_video_yolo_frames_zip_writes_grid_labels_and_manifest(monkeypatch
         assert video["grid_source_frames"] == [0, 2, 4]
         assert video["frame_start_number"] == 1
         assert video["frame_output_dirs"] == ["images/clip-a"]
-
-
-# ── polygon / polyline 几何进入视频导出（打包层白名单）─────────────────────
-# 以顶点描述的几何也必须经过打包层，不能在分组时被忽略。
-#
-# 下面两个用例的几何是 test_video_yolo_frames_zip_writes_grid_labels_and_manifest
-# 的 **points 版对偶**：外接框刻意取成与那里的 bbox 完全相同，故期望输出逐字节一致。
 
 
 def _video_project_and_task(project_id, item_id, dataset_id, task_id):
@@ -457,7 +447,6 @@ async def test_polygon_geometries_reach_yolo_frames_det_as_bounding_boxes(monkey
 
     assert file_count == 3
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        # 与 bbox 版对偶用例逐字节一致 —— 证明外接框降级正确。
         assert zf.read("labels/clip-a/000001.txt").decode() == (
             "0 0.100000 0.100000 0.200000 0.200000"
         )
@@ -500,7 +489,6 @@ async def test_polyline_single_frame_reaches_yolo_frames_det(monkeypatch):
     data, _ = await _run_video_zip(project, _chunks(), ["yolo-frames-det"])
 
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
-        # 外接框 x∈[0.1,0.5] y∈[0.1,0.5] → cx=cy=0.3, w=h=0.4
         assert zf.read("labels/clip-a/000001.txt").decode() == (
             "0 0.300000 0.300000 0.400000 0.400000"
         )
@@ -528,14 +516,9 @@ async def test_polygon_track_reaches_mot_gt(monkeypatch):
         gt_name = next(n for n in zf.namelist() if n.endswith("gt/gt.txt"))
         rows = [r for r in zf.read(gt_name).decode().splitlines() if r]
         assert rows, "polygon track 必须出现在 MOT gt.txt 中"
-        # 640x360 上 frame0 外接框 (0,0,.2,.2) → 像素 (0,0,128,72)，MOT 帧号 1-based。
         assert rows[0].startswith("1,1,0.0,0.0,128.0,72.0")
-        # outside 覆盖 frame 2 → 网格帧 2 无行；frame 4 → MOT 帧 3。
         assert any(r.startswith("3,1,") for r in rows)
         assert not any(r.startswith("2,1,") for r in rows)
-
-
-# ── yolo-frames-seg：保留多边形顶点（不降级为外接框）───────────────────────
 
 
 async def test_yolo_frames_seg_keeps_polygon_vertices(monkeypatch):
@@ -548,7 +531,7 @@ async def test_yolo_frames_seg_keeps_polygon_vertices(monkeypatch):
     project, item, task = _video_project_and_task(
         project_id, item_id, dataset_id, task_id
     )
-    single = _single_frame_polygon(task_id, project_id)  # frame 2, 4 顶点矩形
+    single = _single_frame_polygon(task_id, project_id)
 
     async def _chunks():
         yield [task], {task_id: [single]}, {item_id: item}
@@ -558,11 +541,9 @@ async def test_yolo_frames_seg_keeps_polygon_vertices(monkeypatch):
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         assert "data.yaml" in zf.namelist()
         assert "fetch_frames.py" in zf.namelist()
-        # 顶点原样展平，而非 det 版的 `1 0.3 0.4 0.2 0.4` 外接框中心宽高。
         assert zf.read("labels/clip-a/000002.txt").decode() == (
             "1 0.200000 0.200000 0.400000 0.200000 0.400000 0.600000 0.200000 0.600000"
         )
-        # 其余采样帧建空 txt（YOLO 要求每张图都有 label 文件）。
         assert zf.read("labels/clip-a/000001.txt").decode() == ""
         assert zf.read("labels/clip-a/000003.txt").decode() == ""
 
@@ -577,7 +558,7 @@ async def test_yolo_frames_seg_expands_polygon_track_per_frame(monkeypatch):
     project, item, task = _video_project_and_task(
         project_id, item_id, dataset_id, task_id
     )
-    track = _polygon_track(task_id, project_id)  # kf@0 与 kf@4，outside 覆盖 2
+    track = _polygon_track(task_id, project_id)
 
     async def _chunks():
         yield [task], {task_id: [track]}, {item_id: item}
@@ -588,7 +569,7 @@ async def test_yolo_frames_seg_expands_polygon_track_per_frame(monkeypatch):
         assert zf.read("labels/clip-a/000001.txt").decode() == (
             "0 0.000000 0.000000 0.200000 0.000000 0.200000 0.200000"
         )
-        assert zf.read("labels/clip-a/000002.txt").decode() == ""  # outside
+        assert zf.read("labels/clip-a/000002.txt").decode() == ""
         assert zf.read("labels/clip-a/000003.txt").decode() == (
             "0 0.600000 0.600000 0.800000 0.600000 0.800000 0.800000"
         )
@@ -656,9 +637,6 @@ def test_clean_export_targets_rejects_yolo_frames_seg_for_image_project():
         clean_export_targets(["coco", "yolo-frames-seg"], data_type="image")
 
 
-# ── coco-frames-seg：视频逐帧 COCO instance segmentation 单文档 ───────────────
-
-
 async def test_coco_frames_seg_writes_single_coco_doc(monkeypatch):
     """单 target 时 annotations.json 落包根：像素 segmentation、空帧 image、结构契约完整。"""
     monkeypatch.setattr(
@@ -669,8 +647,8 @@ async def test_coco_frames_seg_writes_single_coco_doc(monkeypatch):
     project, item, task = _video_project_and_task(
         project_id, item_id, dataset_id, task_id
     )
-    track = _polygon_track(task_id, project_id)  # car，outside 覆盖 frame2
-    single = _single_frame_polygon(task_id, project_id)  # person@frame2
+    track = _polygon_track(task_id, project_id)
+    single = _single_frame_polygon(task_id, project_id)
 
     async def _chunks():
         yield [task], {task_id: [track, single]}, {item_id: item}
@@ -679,7 +657,7 @@ async def test_coco_frames_seg_writes_single_coco_doc(monkeypatch):
 
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         names = zf.namelist()
-        assert "annotations.json" in names  # 单 target 落包根
+        assert "annotations.json" in names
         assert "fetch_frames.py" in names
         doc = json.loads(zf.read("annotations.json"))
 
@@ -690,7 +668,6 @@ async def test_coco_frames_seg_writes_single_coco_doc(monkeypatch):
     ]
     assert [im["source_frame_index"] for im in doc["images"]] == [0, 2, 4]
 
-    # 结构契约：引用完整 + 字段齐全（等价 pycocotools createIndex 可成功）。
     img_ids = {im["id"] for im in doc["images"]}
     cat_ids = {c["id"] for c in doc["categories"]}
     for a in doc["annotations"]:
@@ -701,13 +678,11 @@ async def test_coco_frames_seg_writes_single_coco_doc(monkeypatch):
         assert isinstance(a["segmentation"], list) and a["segmentation"]
         assert isinstance(a["segmentation"][0], list)
 
-    # person 单帧 polygon → 像素坐标 segmentation（640×360）。
     person = next(a for a in doc["annotations"] if a["category_id"] == 1)
     assert person["segmentation"] == [
         [128.0, 72.0, 256.0, 72.0, 256.0, 216.0, 128.0, 216.0]
     ]
     assert person["bbox"] == [128.0, 72.0, 128.0, 144.0]
-    # car track 展开：outside frame2 省略 → 落 image_id 0（frame0）与 2（frame4）。
     car_imgs = sorted(
         a["image_id"] for a in doc["annotations"] if a["category_id"] == 0
     )

@@ -149,8 +149,6 @@ async def test_probe_subject_preserves_uncommitted_snapshot_and_rejects_rollback
         }
         assert json.loads(await _open_subject(probe, subject, registry_id)) == original
 
-        # The caller can rotate its uncommitted row after the probe snapshot. Opening
-        # the subject must use the authenticated snapshot, not a second registry read.
         await origin.execute("RESET ROLE")
         await origin.execute(
             "UPDATE public.ml_backend_registry "
@@ -208,8 +206,6 @@ async def test_probe_snapshot_does_not_lock_or_reread_rotated_registry(test_engi
         reply = await _workspace_snapshot(origin, registry_id)
         subject = reply["backend"]["probe_subject"]
 
-        # A concurrent writer can lock and rotate the row, proving the fact function
-        # did not leave a row lock while external setup I/O is pending.
         await locker_transaction.start()
         locker_started = True
         assert (

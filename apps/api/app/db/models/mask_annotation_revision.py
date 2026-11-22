@@ -64,15 +64,11 @@ class MaskAnnotationRevision(Base):
         ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=False,
     )
-    # Deliberately a soft reference: a hard annotation delete must retain its
-    # final snapshot while task/project lifecycle deletion still cascades.
     annotation_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     annotation_version: Mapped[int] = mapped_column(Integer, nullable=False)
     geometry: Mapped[dict] = mapped_column(JSONB, nullable=False)
     geometry_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     source_kind: Mapped[str] = mapped_column(String(20), nullable=False)
-    # These are optional soft references because the authoritative database
-    # trigger can observe writes that do not have an application operation row.
     operation_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )

@@ -6,18 +6,29 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { planE2ESuites, selectSuites, shadowPlan, SUITE_CONTRACT } from "./plan-e2e-suites.mjs";
+import { auditE2ERequirements } from "./audit-e2e-requirements.mjs";
+import { buildSummary } from "./summarize-e2e-results.mjs";
 
 const names = (event, paths) => planE2ESuites(event, paths).include.map(({ suite }) => suite);
 const readShadow = (cwd, outputs) =>
   JSON.parse(readFileSync(resolve(cwd, outputs.shadow_path), "utf8"));
-const core = ["default-one", "default-two", "default-three", "default-four"];
-const specialties = ["mask-readonly", "mask-native", "mask-ai-native"];
-// Legacy functional contract: the four chromium shards, the Mask matrices and
-// the dedicated point-cloud suite. The shards are chromium-only, so the
-// point-cloud project only runs as its own required entry.
-const functional = [...core, ...specialties, "pointcloud"];
+const core = Array.from(
+  { length: 16 },
+  (_, index) => `default-${String(index + 1).padStart(2, "0")}`,
+);
+const video = ["video-pipeline-1", "video-pipeline-2", "video-pipeline-3", "video-pipeline-4"];
+const pointcloud = ["pointcloud-1", "pointcloud-2", "pointcloud-3", "pointcloud-4"];
+const maskSpecialties = [
+  "mask-readonly",
+  "mask-native",
+  "mask-native-editor",
+  "mask-ai-native",
+  "mask-toolbar-native",
+];
+const specialties = [...maskSpecialties, "ai-request-worker"];
+const functional = [...core, ...specialties, ...pointcloud];
 
-test("every PR retains all four functional shards, three Mask suites and the point-cloud contract", () => {
+test("every legacy PR retains all functional shards, Mask and AI suites, and point-cloud", () => {
   assert.deepEqual(names("pull_request", []), functional);
   assert.deepEqual(
     names("pull_request", ["docs-site/user-guide/workbench/index.md", "README.md"]),
@@ -25,17 +36,154 @@ test("every PR retains all four functional shards, three Mask suites and the poi
   );
 });
 
-// Broadened §6.3 selection: smoke + full shards + every dedicated contract +
-// extended, because the chromium shards cannot execute the Mask matrices or
-// the point-cloud project.
-const broadened = [
-  "smoke",
-  ...core,
-  ...specialties,
-  "video-pipeline",
-  "pointcloud",
-  "layout-stress",
-];
+const broadened = ["smoke", ...core, ...specialties, ...video, ...pointcloud, "layout-stress"];
+
+const withWorkerReceipt = (suites) =>
+  suites.flatMap((suite) => (suite === "mask-native" ? [suite, "mask-worker"] : [suite]));
+
+test("the full gate has unique jobs with complete Chromium and video partitions", () => {
+  assert.equal(broadened.length, 32);
+  assert.equal(withWorkerReceipt(broadened).length, 33);
+  assert.equal(SUITE_CONTRACT.length, broadened.length);
+  assert.equal(new Set(SUITE_CONTRACT.map(({ suite }) => suite)).size, broadened.length);
+
+  for (const [prefix, ids, command, scope, legacyGate] of [
+    ["default-", core, "test:e2e --project=chromium --fully-parallel", "full", true],
+    [
+      "video-pipeline-",
+      video,
+      "test:e2e:video --project=chromium --fully-parallel e2e/tests/video- e2e/tests/workbench-video-",
+      "specialty",
+      false,
+    ],
+    ["pointcloud-", pointcloud, "test:e2e --project=pointcloud", "specialty", true],
+  ]) {
+    const entries = SUITE_CONTRACT.filter(({ suite }) => suite.startsWith(prefix));
+    assert.deepEqual(
+      entries.map(({ suite }) => suite),
+      ids,
+    );
+    assert.deepEqual(
+      entries.map(({ command }) => command),
+      ids.map((_, index) => `${command} --shard=${index + 1}/${ids.length}`),
+    );
+    assert.ok(
+      entries.every(
+        (entry) => entry.built && entry.scope === scope && entry.legacyGate === legacyGate,
+      ),
+      prefix,
+    );
+  }
+});
+
+test("the two strict native product groups retain their separate commands and counts", () => {
+  for (const [suite, collects] of [
+    ["mask-native", 11],
+    ["mask-native-editor", 10],
+  ]) {
+    const entry = SUITE_CONTRACT.find((entry) => entry.suite === suite);
+    assert.equal(entry.command, `test:e2e:${suite}`);
+    assert.equal(entry.built, false);
+    assert.equal(entry.legacyGate, true);
+    assert.equal(entry.scope, "specialty");
+    assert.equal(entry.runtime.collects, collects);
+    assert.equal(entry.runtime.skipped, 0);
+  }
+  for (const path of [
+    "apps/web/e2e/tests/raster-mask-native.spec.ts",
+    "apps/web/e2e/tests/mask-advanced-operations.spec.ts",
+    "apps/web/e2e/tests/mask-editor.spec.ts",
+  ]) {
+    assert.deepEqual(selectSuites("pull_request", [path]).planned, ["smoke", ...maskSpecialties]);
+  }
+});
+
+test("native AI toolbar and async AI requests have independent required launchers", () => {
+  const webPackage = JSON.parse(
+    readFileSync(new URL("../apps/web/package.json", import.meta.url), "utf8"),
+  );
+  assert.equal(
+    webPackage.scripts["test:e2e:mask-toolbar-native"],
+    "PLAYWRIGHT_RASTER_MASK_MATRIX=native PLAYWRIGHT_WEB_PREVIEW=1 playwright test --project=chromium e2e/tests/workbench-ai-toolbar-layers.spec.ts",
+  );
+  const workflow = readFileSync(
+    new URL("../.github/workflows/e2e-run.yml", import.meta.url),
+    "utf8",
+  );
+  assert.match(workflow, /^\s*max-parallel: 11$/m);
+  assert.match(workflow, /E2E_REQUIRE_ALL_TESTS:.*matrix\.requireAllTests/);
+  assert.match(
+    workflow,
+    /if \[ "\$\{\{ matrix\.suite \}\}" = "ai-request-worker" \]; then\n\s+PLAYWRIGHT_AI_REQUEST_WORKER=1 PREANNOTATE_GPU_QUEUE=ml\.cpu PREANNOTATE_CPU_QUEUE=ml\.cpu \\\n\s+pnpm dev:worktree -- exec --mode e2e --with-worker -- pnpm --filter web \$\{\{ matrix\.command \}\}/,
+  );
+  assert.equal(workflow.match(/PLAYWRIGHT_AI_REQUEST_WORKER/g)?.length, 1);
+
+  for (const [suite, spec, command, collects] of [
+    ["mask-toolbar-native", "workbench-ai-toolbar-layers", "test:e2e:mask-toolbar-native", 6],
+    [
+      "ai-request-worker",
+      "workbench-ai-inspector-phases",
+      "test:e2e --project=chromium e2e/tests/workbench-ai-inspector-phases.spec.ts",
+      4,
+    ],
+  ]) {
+    const entry = SUITE_CONTRACT.find((entry) => entry.suite === suite);
+    assert.equal(entry.command, command);
+    assert.equal(entry.built, true);
+    assert.equal(entry.legacyGate, true);
+    assert.equal(entry.scope, "specialty");
+    assert.equal(entry.requireAllTests, true);
+    assert.deepEqual(entry.runtime, { collects, skipped: 0 });
+    assert.deepEqual(selectSuites("pull_request", [`apps/web/e2e/tests/${spec}.spec.ts`]).planned, [
+      "smoke",
+      suite,
+    ]);
+  }
+  for (const path of [
+    "apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx",
+    "apps/api/app/workers/frame_preannotate.py",
+    "apps/api/app/workers/celery_app.py",
+    "apps/inference/src/yoao_inference/execution_pipeline.py",
+    "apps/preannotation-results/pyproject.toml",
+  ]) {
+    assert.ok(selectSuites("pull_request", [path]).planned.includes("ai-request-worker"), path);
+  }
+});
+
+test("required AI status receipts reject failed, skipped, or zero-case execution", () => {
+  const directory = mkdtempSync(join(tmpdir(), "e2e-required-ai-"));
+  try {
+    const entries = SUITE_CONTRACT.filter(({ requireAllTests }) => requireAllTests);
+    const requiredSuites = entries.map(({ suite }) => ({ suite, planned: true }));
+    for (const [fixture, outcome, ok] of [
+      ["passed", "success", true],
+      ["passed", "failure", false],
+      ["failed", "success", false],
+      ["skipped", "success", false],
+      ["empty", "success", false],
+    ]) {
+      const report = JSON.parse(
+        readFileSync(
+          new URL(
+            `./fixtures/e2e-summary/${fixture === "empty" ? "passed" : fixture}.json`,
+            import.meta.url,
+          ),
+          "utf8",
+        ),
+      );
+      if (fixture === "empty") report.suites = [];
+      for (const { suite, requireAllTests } of entries) {
+        const { status } = buildSummary({ suite, outcome, report, requireAllTests });
+        writeFileSync(join(directory, `${suite}.json`), JSON.stringify(status));
+      }
+      const audit = auditE2ERequirements({ requiredSuites, statusDir: directory });
+      assert.equal(audit.ok, ok, `${fixture}/${outcome}`);
+      if (!ok) assert.equal(audit.blockers.length, entries.length);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 test("runtime, dependencies and routing changes retain layout stress in the legacy gate", () => {
   for (const path of [
@@ -82,8 +230,6 @@ test("shadow selection classifies docs-only changes and proposes no app suites",
   assert.deepEqual(shadow.planned, []);
   assert.equal(shadow.classification.docsOnly, true);
   assert.deepEqual(shadow.added, []);
-  // The gate is unchanged: docs-only PRs still run the full legacy matrix
-  // until P9 switches it, and the diff records exactly that.
   assert.deepEqual(shadow.removed, functional);
 });
 
@@ -104,8 +250,6 @@ test("executable docs examples and docs build config are app code, not docs-only
   ]) {
     const shadow = shadowPlan("pull_request", [path]);
     assert.equal(shadow.classification.docsOnly, false, path);
-    // Executable content (examples, VitePress build) is unmapped app code and
-    // therefore broadens to the full conservative selection.
     assert.deepEqual(shadow.planned, broadened, path);
     assert.ok(
       shadow.classification.unmappedAppPaths.length > 0 || shadow.classification.multiDomain,
@@ -131,8 +275,6 @@ test("multi-domain changes include layout stress with recorded reasons", () => {
     "apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx",
     "apps/api/app/services/project_access.py",
   ]);
-  // Broadening selects every dedicated contract, because the chromium shards
-  // do not execute the Mask matrices or the point-cloud project.
   assert.deepEqual(shadow.planned, broadened);
   assert.equal(shadow.classification.multiDomain, true);
   assert.ok(shadow.reasons.some((reason) => /multi-domain/.test(reason.because)));
@@ -142,29 +284,41 @@ test("single-domain frontend changes select core plus triggered specialties", ()
   const shadow = shadowPlan("pull_request", [
     "apps/web/src/pages/Workbench/stage/shared/geometry/maskOperations.ts",
   ]);
-  // Core stays unconditional for app code, the Mask specialties ride along as
-  // triggered, and layout stress is omitted for this narrower change.
-  assert.deepEqual(shadow.planned, ["smoke", ...specialties]);
+  assert.deepEqual(shadow.planned, ["smoke", ...maskSpecialties]);
   assert.ok(shadow.reasons.some((reason) => /raster Mask/.test(reason.because)));
-  // Smoke itself is shadow-only, so the diff against the frozen gate shows it
-  // as an addition together with the dropped default shards, the dedicated
-  // point-cloud suite and layout stress.
   assert.deepEqual(shadow.added, ["smoke"]);
-  assert.deepEqual(shadow.removed, [...core, "pointcloud", "layout-stress"]);
+  assert.deepEqual(shadow.removed, [...core, "ai-request-worker", ...pointcloud, "layout-stress"]);
+});
+
+test("each original video trigger requires all four video shards", () => {
+  for (const path of [
+    "apps/web/e2e/tests/video-timeline-seek.spec.ts",
+    "apps/web/e2e/tests/workbench-video-tracker.spec.ts",
+    "apps/web/src/pages/Workbench/stages/video/example.ts",
+    "apps/api/app/api/v1/video.py",
+    "apps/api/app/services/video.py",
+    "apps/api/app/workers/example.py",
+  ]) {
+    const { planned, reasons } = selectSuites("pull_request", [path]);
+    const expected = /^apps\/api\/app\/(api|services)\//.test(path)
+      ? broadened
+      : ["smoke", ...video];
+    assert.deepEqual([...planned].sort(), [...expected].sort(), path);
+    assert.deepEqual(
+      reasons
+        .filter(({ suite, because }) => video.includes(suite) && /triggered by /.test(because))
+        .map(({ suite }) => suite),
+      video,
+      path,
+    );
+  }
 });
 
 test("shadow diff against the legacy gate is recorded for schedule changes", () => {
   const shadow = shadowPlan("schedule");
-  // Legacy: extended-only. Shadow proposal per §6.2: nightly full matrix.
   assert.deepEqual(shadow.legacy, ["layout-stress"]);
   assert.deepEqual(shadow.planned, broadened);
-  assert.deepEqual(shadow.added, [
-    "smoke",
-    ...core,
-    ...specialties,
-    "video-pipeline",
-    "pointcloud",
-  ]);
+  assert.deepEqual(shadow.added, ["smoke", ...core, ...specialties, ...video, ...pointcloud]);
   assert.deepEqual(shadow.removed, []);
   assert.ok(
     shadow.warnings.some((warning) => /legacy rollback gate runs extended-only/.test(warning)),
@@ -172,8 +326,6 @@ test("shadow diff against the legacy gate is recorded for schedule changes", () 
 });
 
 test("app-code changes can never produce an empty shadow selection", () => {
-  // The core suites are unconditional for app code, so this only holds
-  // structurally; the explicit throw guards future edits to the rules.
   const shadow = shadowPlan("pull_request", ["apps/api/app/services/project_access.py"]);
   assert.ok(shadow.planned.length > 0);
 });
@@ -206,8 +358,6 @@ test("CLI emits the expected suites and delegates CPU coverage by scope", () => 
         .split("\n")
         .map((line) => [line.slice(0, line.indexOf("=")), line.slice(line.indexOf("=") + 1)]),
     );
-    // Manual full dispatch triggers the delegated CPU contracts; the required
-    // manifest is the planned selection with the core forbid-flaky policy.
     assert.equal(outputs.ml_cpu, "true");
     assert.equal(readShadow(cwd, outputs).mlCpu, true);
     assert.equal(outputs.run_suites, "true");
@@ -221,11 +371,11 @@ test("CLI emits the expected suites and delegates CPU coverage by scope", () => 
       requiredManifest.suites.find((entry) => entry.suite === "smoke").flakyPolicy,
       "forbid",
     );
-    // Planned full coverage requires the dedicated point-cloud suite because
-    // the four shards are chromium-only.
-    assert.ok(
-      requiredManifest.suites.some(({ suite }) => suite === "pointcloud"),
-      "planned full selection must require the point-cloud contract",
+    assert.deepEqual(
+      requiredManifest.suites
+        .filter(({ suite }) => pointcloud.includes(suite))
+        .map(({ suite }) => suite),
+      pointcloud,
     );
     assert.deepEqual(
       JSON.parse(outputs.matrix).include.map((entry) => entry.suite),
@@ -257,8 +407,6 @@ test("CLI emits the expected suites and delegates CPU coverage by scope", () => 
       ["layout-stress"],
     );
 
-    // W1: the shadow report carries the same real ml_cpu boolean (push always
-    // triggers the delegated CPU contract suites).
     const push = run({ GITHUB_EVENT_NAME: "push" });
     assert.equal(push.status, 0, push.stderr);
     const pushOutputs = Object.fromEntries(
@@ -276,9 +424,6 @@ test("CLI emits the expected suites and delegates CPU coverage by scope", () => 
       [...broadened],
     );
 
-    // A PR touching a shared consumer/runner path triggers the CPU caller in
-    // both outputs. The fixture keeps base != HEAD: the base is captured
-    // BEFORE the shared path is added, so the diff is nonempty.
     const sharedBase = git("rev-parse", "HEAD");
     mkdirSync(join(cwd, "apps/_shared/protocol_v2/src"), { recursive: true });
     writeFileSync(join(cwd, "apps/_shared/protocol_v2/src/schemas.py"), "pass\n");
@@ -385,15 +530,13 @@ test("large PR reports use files while suite dispatch and final audit outputs st
     );
     assert.deepEqual(
       JSON.parse(outputs.required).suites.map(({ suite }) => suite),
-      broadened,
+      withWorkerReceipt(broadened),
     );
     assert.equal(
       JSON.parse(outputs.required).suites.find(({ suite }) => suite === "smoke").flakyPolicy,
       "forbid",
     );
 
-    // Execute the actual workflow report command through bash, as the runner
-    // does. Only the path enters its environment, not the oversized JSON.
     const reportCommand = ciYml.match(
       /      - name: Record shadow E2E selection\n[\s\S]*?        run: \|\n([\s\S]*?          NODE)\n/,
     );
@@ -414,8 +557,6 @@ test("large PR reports use files while suite dispatch and final audit outputs st
     assert.ok(summary.includes("ML CPU contract caller triggered: true"));
     assert.ok(summary.includes(paths[1729]));
 
-    // The final audit retains the full required manifest but no changed paths,
-    // so its existing environment-to-file transfer is bounded too.
     const transfer = spawnSync(
       "bash",
       ["-e", "-c", "printf '%s' \"$E2E_REQUIRED\" > required-suites.json"],
@@ -467,10 +608,6 @@ test("CLI handles deleted and renamed paths, and fails on an unavailable base", 
       matrixLine && legacyLine && shadowPathLine,
       "CLI must emit matrix/legacy/shadow_path lines",
     );
-    // P9 switch: the matrix is the planned selection; a rename that deletes a
-    // frontend path is app code with an unmapped destination, so it broadens
-    // to the full planned set. The frozen legacy set rides along for the
-    // comparison.
     assert.deepEqual(
       JSON.parse(matrixLine.slice("matrix=".length)).include.map(({ suite }) => suite),
       [...broadened],
@@ -502,7 +639,7 @@ test("bounded smoke runs without retries and forbids flaky passes", () => {
   );
 });
 
-test("effective gate and required manifest stay identical in every mode and event", () => {
+test("the required manifest audits every effective job and the bundled Worker in each mode", () => {
   const cwd = mkdtempSync(join(tmpdir(), "e2e-required-ids-"));
   const script = fileURLToPath(new URL("./plan-e2e-suites.mjs", import.meta.url));
   const git = (...args) =>
@@ -522,7 +659,6 @@ test("effective gate and required manifest stay identical in every mode and even
       env: {
         ...process.env,
         E2E_SELECTION_MODE: undefined,
-        // Reports must not become paths in subsequent fixture commits.
         E2E_SHADOW_PATH: join(cwd, ".git", "e2e-shadow.json"),
         ...env,
       },
@@ -569,7 +705,7 @@ test("effective gate and required manifest stay identical in every mode and even
       const expected = mode === "legacy" ? [...functional, "layout-stress"] : broadened;
       assert.equal(out.run_suites, "true");
       assert.deepEqual(ids(out.matrix), expected, `push mode=${JSON.stringify(mode)}`);
-      assert.deepEqual(requiredIds(out.required), expected);
+      assert.deepEqual(requiredIds(out.required), withWorkerReceipt(expected));
       if (mode !== "legacy") {
         const smoke = JSON.parse(out.required).suites.find(({ suite }) => suite === "smoke");
         assert.equal(smoke.flakyPolicy, "forbid");
@@ -579,34 +715,27 @@ test("effective gate and required manifest stay identical in every mode and even
     assert.notEqual(invalid.status, 0);
     assert.match(invalid.stderr, /Invalid E2E selection mode: sideways/);
 
-    // PR app code, both modes, with the empty env value GitHub renders for an
-    // unset repository variable.
     for (const mode of [undefined, "", "legacy"]) {
       const env = { GITHUB_EVENT_NAME: "pull_request" };
       if (mode !== undefined) env.E2E_SELECTION_MODE = mode;
       const out = run(env, [appBase]);
       assert.deepEqual(
-        ids(out.matrix),
         requiredIds(out.required),
+        withWorkerReceipt(ids(out.matrix)),
         `PR app mode=${JSON.stringify(mode)}`,
       );
     }
 
-    // Manual full and nightly full keep exact ID equality too.
     for (const event of ["workflow_dispatch", "schedule"]) {
       const out = run({
         GITHUB_EVENT_NAME: event,
         E2E_DISPATCH_SCOPE: "full",
         E2E_SCHEDULE_SCOPE: "full",
       });
-      assert.deepEqual(ids(out.matrix), requiredIds(out.required), event);
+      assert.deepEqual(requiredIds(out.required), withWorkerReceipt(ids(out.matrix)), event);
       assert.deepEqual(ids(out.matrix), broadened, event);
     }
 
-    // Docs-only in planned mode is an explicit allowed skip; in legacy
-    // rollback mode the frozen gate still runs its suites and requires them.
-    // The docs-only base is the commit right before the docs change, so the
-    // diff contains documentation only.
     const docsBase = git("rev-parse", "HEAD");
     mkdirSync(join(cwd, "docs-site/user-guide"), { recursive: true });
     writeFileSync(join(cwd, "docs-site/user-guide/index.md"), "# docs\n");
@@ -626,9 +755,8 @@ test("effective gate and required manifest stay identical in every mode and even
       docsBase,
     ]);
     assert.equal(docsLegacy.run_suites, "true");
-    // Docs-only paths do not affect the extended checks in the frozen gate.
     assert.deepEqual(ids(docsLegacy.matrix), [...functional]);
-    assert.deepEqual(ids(docsLegacy.matrix), requiredIds(docsLegacy.required));
+    assert.deepEqual(requiredIds(docsLegacy.required), withWorkerReceipt(ids(docsLegacy.matrix)));
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }

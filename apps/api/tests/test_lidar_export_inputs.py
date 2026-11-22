@@ -66,8 +66,6 @@ async def input_db(test_engine):
                     f'(LIKE "{source}"."{table}" INCLUDING ALL)'
                 )
             )
-        # LIKE deliberately omits foreign keys. These are the actual parent-key
-        # insert fences under test, independent of the application's writers.
         for child, column, parent in (
             ("task_dataset_item_links", "task_id", "tasks"),
             ("annotations", "task_id", "tasks"),
@@ -128,8 +126,6 @@ async def setup(db, *, direct=True, primary=True):
     for role in ("camera_front", "camera_back"):
         camera, camera_asset, camera_replica, unused_task = await dataset_rows(db)
         camera.dataset_id = dataset.id
-        # dataset_rows creates a Task as well; keep the fixture's export scope
-        # explicit and its original helper unchanged.
         await db.delete(unused_task)
         link = await add_link(db, task.id, camera.id, role=role)
         link.sensor_name = role.removeprefix("camera_")
@@ -182,7 +178,6 @@ async def attach_nuscenes(
         )
         db.add(scene)
     item.scene_id, item.frame_index = scene.id, 0
-    # Independent allocation/PUT/publish never commits pending business edits.
     await db.commit()
 
     async def create(kind, contract, data):
@@ -615,7 +610,6 @@ async def test_generated_calibration_paths_cannot_silently_overwrite_other_camer
     ) as error:
         await capture(db, project)
     assert error.value.status == 422
-    # COCO names by role/Task instead, so this naming conflict is not imposed on it.
     await capture(db, project, ("coco-multicamera",))
 
 

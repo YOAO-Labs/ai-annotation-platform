@@ -654,7 +654,6 @@ function actorEnvelope(config, scenario) {
 }
 
 async function serveNodeOwner() {
-  // Test-only opposite-direction peer for exercising the Python consumer.
   const config = validateServerConfig(await readInput());
   let scenarioIndex = 0;
   const server = createServer(async (request, response) => {

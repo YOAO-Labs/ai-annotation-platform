@@ -294,8 +294,6 @@ class Execution:
                 raise ContentError("fixture_media_child_unavailable", 503)
             await self.connection.commit()
         except BaseException as exc:
-            # The generation may already be durably born, or the binding
-            # commit may have reached PostgreSQL despite a lost response.
             raise storage_access.mark_unsettled(exc)
 
     async def record_pyramid_attempt(self, asset_id, generation, lease, output):

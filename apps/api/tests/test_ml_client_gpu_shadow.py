@@ -497,7 +497,6 @@ async def test_disabled_rollout_does_not_promote_desired_enforce() -> None:
 @pytest.mark.parametrize("state", ["enforcing", "promoting", "demoting", "blocked"])
 @pytest.mark.parametrize("rollout_enabled", [True, False])
 async def test_unregistered_smoke_denied_by_durable_rollout(state, rollout_enabled):
-    # This row need not be present in static configuration.
     data = _NativeData(
         rollouts={
             "node-b/index:1": _rollout(

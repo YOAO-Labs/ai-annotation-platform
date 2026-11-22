@@ -30,7 +30,6 @@ async def test_delete_user_redacts_audit_email(httpx_client, super_admin, db_ses
     db_session.add(target)
     await db_session.flush()
 
-    # 预先植入 3 条 audit_logs，由该用户作为 actor 发起
     for i in range(3):
         db_session.add(
             AuditLog(
@@ -44,14 +43,12 @@ async def test_delete_user_redacts_audit_email(httpx_client, super_admin, db_ses
         )
     await db_session.flush()
 
-    # 执行删除
     r = await httpx_client.delete(
         f"/api/v1/users/{uid}",
         headers={"Authorization": f"Bearer {sa_token}"},
     )
     assert r.status_code == 200, r.text
 
-    # 历史 audit_logs 行 actor_email / actor_role 应已抹除
     rows = (
         (
             await db_session.execute(
@@ -70,7 +67,6 @@ async def test_delete_user_redacts_audit_email(httpx_client, super_admin, db_ses
         assert row.actor_role is None, "脱敏后 actor_role 应为 NULL"
         assert row.actor_id == uid, "actor_id 必须保留以维持关联"
 
-    # USER_DELETE 那一行的 detail 应含 redacted_audit_rows >= 3
     delete_audit = (
         await db_session.execute(
             select(AuditLog)

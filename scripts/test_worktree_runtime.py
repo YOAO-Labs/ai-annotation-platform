@@ -196,7 +196,9 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(recovery.mode, "e2e")
         self.assertEqual(recovery.execute, ["python", "recover.py"])
         self.assertTrue(
-            runtime.parse_arguments(["recover-inference", "--finish-drain"]).finish_drain
+            runtime.parse_arguments(
+                ["recover-inference", "--finish-drain"]
+            ).finish_drain
         )
         for args in (
             ["recover-inference"],
@@ -330,25 +332,39 @@ settle_e2e_descendants({}, pathlib.Path(record), None)
 """
             runner = subprocess.Popen(
                 [
-                    sys.executable, "-c", runner_code, str(Path(__file__).parent),
-                    wrapper, grandchild, str(ready), str(release), str(wrapper_done), str(record),
+                    sys.executable,
+                    "-c",
+                    runner_code,
+                    str(Path(__file__).parent),
+                    wrapper,
+                    grandchild,
+                    str(ready),
+                    str(release),
+                    str(wrapper_done),
+                    str(record),
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
             try:
                 deadline = time.monotonic() + 8
-                while not (ready.exists() and wrapper_done.exists() and record.exists()):
+                while not (
+                    ready.exists() and wrapper_done.exists() and record.exists()
+                ):
                     if runner.poll() is not None or time.monotonic() >= deadline:
                         self.fail("detached consumer did not reach the held state")
                     time.sleep(0.02)
-                self.assertIsNone(runner.poll(), "zero wrapper exit closed the boundary")
+                self.assertIsNone(
+                    runner.poll(), "zero wrapper exit closed the boundary"
+                )
                 release.write_text("release")
                 stdout, stderr = runner.communicate(timeout=15)
                 self.assertEqual(runner.returncode, 0, (stdout, stderr))
                 boundary = json.loads(record.read_text())["descendant_boundary"]
                 self.assertEqual(boundary["state"], "settled")
-                self.assertTrue(any(item["state"] == "reaped" for item in boundary["adopted"]))
+                self.assertTrue(
+                    any(item["state"] == "reaped" for item in boundary["adopted"])
+                )
             finally:
                 release.write_text("release")
                 if runner.poll() is None:
@@ -357,7 +373,7 @@ settle_e2e_descendants({}, pathlib.Path(record), None)
 
 @unittest.skipUnless(__import__("sys").platform == "linux", "requires Linux pidfds")
 class DirectChildBoundaryTests(unittest.TestCase):
-    def test_zero_command_with_crashed_or_cooperatively_stopped_worker(self):
+    def test_acknowledged_command_with_crashed_or_cooperatively_stopped_worker(self):
         import signal
         import subprocess
         import sys
@@ -381,18 +397,31 @@ while True:
 import sys
 print("ready", flush=True)
 sys.stdin.buffer.read(1)
-sys.exit(0)
+sys.exit(int(sys.argv[1]))
 """
-        for crash in (True, False):
-            with self.subTest(crash=crash), tempfile.TemporaryDirectory() as temporary:
+        for command_exit, crash in ((0, False), (0, True), (1, False), (1, True)):
+            with (
+                self.subTest(command_exit=command_exit, crash=crash),
+                tempfile.TemporaryDirectory() as temporary,
+            ):
                 root = Path(temporary)
                 worker = subprocess.Popen(
-                    [sys.executable, "-u", "-c", worker_code, "crash" if crash else "normal"],
-                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    [
+                        sys.executable,
+                        "-u",
+                        "-c",
+                        worker_code,
+                        "crash" if crash else "normal",
+                    ],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                 )
                 supervisor = subprocess.Popen(
-                    [sys.executable, "-u", "-c", supervisor_code],
-                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    [sys.executable, "-u", "-c", supervisor_code, str(command_exit)],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                 )
                 children = [worker, supervisor]
                 try:
@@ -400,7 +429,9 @@ sys.exit(0)
                     self.assertEqual(supervisor.stdout.readline(), b"ready\n")
                     record = {"children": []}
                     for child, role in ((worker, "worker"), (supervisor, "supervisor")):
-                        runtime.register_child(record, runtime.process_handle(child.pid, str(root)), role)
+                        runtime.register_child(
+                            record, runtime.process_handle(child.pid, str(root)), role
+                        )
                     self.assertIsNone(runtime._e2e_child_status(worker))
                     if crash:
                         worker.stdin.write(b"x")
@@ -418,17 +449,26 @@ sys.exit(0)
                     if crash:
                         with self.assertRaises(runtime.WorktreeError):
                             runtime.finish_e2e_direct_children(
-                                children, record, path, orderly=True,
-                                request_stop=True, deadline=time.monotonic() + 8,
+                                children,
+                                record,
+                                path,
+                                command_exit=command_exit,
+                                request_stop=True,
+                                deadline=time.monotonic() + 8,
                             )
                     else:
                         runtime.finish_e2e_direct_children(
-                            children, record, path, orderly=True,
-                            request_stop=True, deadline=time.monotonic() + 8,
+                            children,
+                            record,
+                            path,
+                            command_exit=command_exit,
+                            request_stop=True,
+                            deadline=time.monotonic() + 8,
                         )
                     saved = read_state(path)
                     exits = {item["role"]: item for item in saved["children"]}
-                    self.assertEqual(exits["supervisor"]["exit_code"], 0)
+                    self.assertEqual(exits["supervisor"]["exit_code"], command_exit)
+                    self.assertTrue(exits["supervisor"]["command_exit_acknowledged"])
                     self.assertEqual(exits["worker"]["exit_code"], 23 if crash else 0)
                     self.assertEqual(exits["worker"]["shutdown_requested"], not crash)
                     self.assertEqual("unsettled_consumers" in saved, crash)
@@ -448,6 +488,128 @@ sys.exit(0)
                         for stream in (child.stdin, child.stdout, child.stderr):
                             if stream is not None:
                                 stream.close()
+
+    def test_canonical_exec_requires_command_and_descendant_receipts(self):
+        import json
+        import signal
+        import subprocess
+        import sys
+
+        runner = """
+from contextlib import nullcontext
+import os, pathlib, sys, types
+
+root, state, case = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), sys.argv[3]
+sys.path.insert(0, str(root / "scripts"))
+from worktree_runtime import parse_arguments, run_processes, safe_error
+
+async def no_op():
+    pass
+
+def close():
+    (state / "closed.json").write_bytes(
+        (state / ".worktree/e2e/run.json").read_bytes()
+    )
+
+def inference_owner(*args, **kwargs):
+    return types.SimpleNamespace(
+        _lifecycle_lock=nullcontext(),
+        start=lambda: None,
+        verified_selection=lambda *args, **kwargs: {},
+        supervision_ready=lambda: True,
+        process_identity_inventory=list,
+        close=close,
+    )
+
+sys.modules["fixture_inference_services"] = types.SimpleNamespace(
+    FixtureInferenceServices=inference_owner
+)
+if case == "missing":
+    root = state
+    (root / "scripts").mkdir()
+    (root / "scripts/dev-worktree.mjs").write_text(
+        "export function runIsolatedCommand() { return 0; }"
+    )
+os.environ.pop("PLAYWRIGHT_AI_REQUEST_WORKER", None)
+backend = types.SimpleNamespace(
+    resources={"root": str(state), "mode": "e2e", "owner": "test-owner"},
+    code_root=root,
+    prepare=lambda **_: None,
+    prepare_fixture_inference_database=no_op,
+    environment=lambda: {**os.environ, "HOME": str(state)},
+)
+options = parse_arguments(["exec", "--mode", "e2e", "--", sys.executable, "-c", sys.argv[4]])
+try:
+    raise SystemExit(run_processes(backend, options))
+except Exception as error:
+    print(safe_error(error), file=sys.stderr)
+    raise SystemExit(1)
+"""
+        root = Path(__file__).resolve().parents[1]
+        spawn = (
+            "import os, subprocess, sys; "
+            "child = subprocess.Popen([sys.executable, '-c', %r], start_new_session=True); "
+            "os._exit(1)"
+        )
+        killed = "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"
+        for case, command, expected_exit in (
+            ("ordinary", spawn % "pass", 1),
+            ("other-status", "raise SystemExit(23)", 23),
+            ("missing", "raise SystemExit(0)", 1),
+            ("signalled", killed, 1),
+            ("forced-descendant", spawn % killed, 1),
+        ):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temporary:
+                state = Path(temporary)
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-c",
+                        runner,
+                        str(root),
+                        str(state),
+                        case,
+                        command,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                )
+                self.assertEqual(result.returncode, expected_exit, result.stderr)
+                run_path = state / ".worktree/e2e/run.json"
+                closed_path = state / "closed.json"
+                if case in {"ordinary", "other-status"}:
+                    self.assertFalse(run_path.exists(), result.stderr)
+                    saved = json.loads(closed_path.read_text())
+                    self.assertNotIn("unsettled_consumers", saved)
+                    self.assertTrue(saved["supervisor_reaped"])
+                    boundary = saved["descendant_boundary"]
+                    self.assertEqual(boundary["state"], "settled")
+                    self.assertEqual(
+                        [item["exit_code"] for item in boundary["adopted"]],
+                        [0] if case == "ordinary" else [],
+                    )
+                else:
+                    self.assertFalse(closed_path.exists())
+                    saved = json.loads(run_path.read_text())
+                    self.assertIn("unsettled_consumers", saved)
+                    self.assertNotIn("supervisor_reaped", saved)
+                    if case == "forced-descendant":
+                        self.assertEqual(
+                            saved["unsettled_consumers"]["reason"],
+                            "descendant_boundary_unproved",
+                        )
+                        self.assertEqual(
+                            saved["descendant_boundary"]["adopted"][0]["exit_code"],
+                            -signal.SIGKILL,
+                        )
+                    else:
+                        self.assertNotIn("descendant_boundary", saved)
+                [supervisor] = saved["children"]
+                self.assertEqual(
+                    supervisor["command_exit_acknowledged"],
+                    case not in {"missing", "signalled"},
+                )
 
 
 class WorkerQueueTests(unittest.TestCase):

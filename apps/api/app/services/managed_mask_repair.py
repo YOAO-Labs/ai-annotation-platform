@@ -227,7 +227,6 @@ async def freeze_item(db, task, actor, item, request):
     item["original_annotations"] = facts
     item["original_annotation"] = facts[item["annotation_id"]]
     if item["kind"] == "rerun_local_sam":
-        # Reuse the exact declared-model and default-freezing contract.
         from app.services.reference_mask_repair import freeze_model
 
         item["original_model"] = await freeze_model(db, task, item)
@@ -305,8 +304,6 @@ async def capture_job_authority(
     from app.services.reference_mask_repair import pending_reference_items
 
     bindings = {}
-    # Completed units are skipped when resuming, but their immutable plan
-    # provenance must not be silently upgraded into a new delegation either.
     for item in (batch.plan_json or {}).get("items") or []:
         frozen = item.get("original_input")
         if not frozen:
@@ -421,7 +418,6 @@ class ManagedRepairSource:
         self.request, self.authorize, self.scope = request, authorize, scope
         self.expected = normalize_binding(expected) if expected is not None else None
         self.read_only = self.expected is None
-        # Read receipts coexist; writers retain exclusive task-edit and row locks.
         self.read_scope = scope.endswith(":read")
         if self.read_only and not self.read_scope:
             raise ContentError("repair_original_requires_new_plan")

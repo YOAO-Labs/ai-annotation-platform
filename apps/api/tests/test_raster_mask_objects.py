@@ -26,7 +26,6 @@ from tests.raster_mask_support import harness as harness
 async def test_cleanup_tracks_only_this_engine_allocations(
     harness, test_engine, test_db_url
 ):
-    # A pre-existing owner is reused; a neighbor commits while tracking is active.
     _, existing_ref, existing_data = harness.content()
     _, neighbor_ref, neighbor_data = harness.content()
     _, own_ref, own_data = harness.content()
@@ -126,7 +125,6 @@ async def test_pending_and_guard_are_durable_before_put_without_business_commit(
             )
         )
         await caller.execute(text("INSERT INTO raster_business_sentinel VALUES (7)"))
-        # The independent allocation must not reacquire the caller's content lock.
         await caller.execute(
             text("SELECT pg_advisory_xact_lock(hashtextextended(:key,0))"),
             {"key": "aap:raster-mask:" + reference["object_key"]},
@@ -512,7 +510,6 @@ async def test_unknown_commit_never_starts_later_io_or_clears_responsibility(
         nonlocal calls
         calls += 1
         await original(db)
-        # Initial allocation, acquired callback, publication are separate commits.
         if calls == (1 if stage == "pending" else 3):
             raise OSError("commit acknowledgement lost")
 
@@ -539,7 +536,6 @@ async def test_cancelled_commit_drains_acknowledgement_before_return(
 
     async def delayed_commit(db):
         nonlocal calls
-        # Independent accounting commits are not an RLE publication stage.
         if not any(isinstance(row, Object) for row in db.identity_map.values()):
             return await original(db)
         calls += 1

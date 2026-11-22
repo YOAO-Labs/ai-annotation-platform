@@ -84,7 +84,6 @@ class ManagedOriginalVerification(Base):
     expected_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     expected_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     maintenance_revision: Mapped[int] = mapped_column(nullable=False)
-    # No FK: StorageOperation is independently deleted only after actual I/O settles.
     operation_id: Mapped[uuid.UUID | None] = mapped_column(unique=True)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="pending"

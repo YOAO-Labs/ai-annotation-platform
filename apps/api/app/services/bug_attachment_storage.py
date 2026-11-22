@@ -79,7 +79,6 @@ _MESSAGES = {
 
 class BugAttachmentStorageError(ValueError):
     def __init__(self, code, *, status_code=409):
-        # Only fixed messages are exposed; provider exception text is never safe.
         super().__init__(_MESSAGES.get(code, "附件存储暂不可用"))
         self.code = code
         self.status_code = status_code
@@ -145,8 +144,6 @@ def validate_image(data, mime_type) -> None:
                 ):
                     raise ValueError
                 image.verify()
-            # JPEG verify() alone does not decode its scan data. A bounded decode
-            # also rejects truncated streams without rewriting the original bytes.
             with Image.open(io.BytesIO(data)) as image:
                 image.load()
     except (
@@ -680,7 +677,6 @@ def delete(record, *, target=None, accounting=None) -> None:
                     observation.complete(response)
             return
         with _client_context(record, target, owned=accounting is not None) as client:
-            # A null version is a mutable slot, so verify its saved bytes first.
             if (
                 version in (None, "null")
                 and _read(client, record, missing_ok=True) is None

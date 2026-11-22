@@ -11,6 +11,7 @@ import uuid
 from typing import Any, Protocol
 
 from .redis_pubsub import channel_for
+from .terminal_append_contract import TERMINAL_NOTIFICATION_TYPES
 
 log = logging.getLogger("aap_notifications.websocket")
 HEARTBEAT_INTERVAL = 30
@@ -85,8 +86,9 @@ async def notification_message_allowed(
     allow_api_keys: bool = False,
     include_migration_inventory: Callable[[NotificationSocketPrincipal], bool]
     | None = None,
+    seen_terminal_ids: set[uuid.UUID] | None = None,
 ) -> bool:
-    """Reauthenticate a frame and fail closed until its row is visible."""
+    """Reauthenticate the viewer and recheck the notification before socket delivery."""
 
     if token.startswith("ak_") and not allow_api_keys:
         return False
@@ -118,19 +120,35 @@ async def notification_message_allowed(
     except (TypeError, ValueError):
         return False
 
+    terminal = (
+        message.get("target_type") == "async_job"
+        and message.get("type") in TERMINAL_NOTIFICATION_TYPES
+    )
+    if (
+        terminal
+        and seen_terminal_ids is not None
+        and notification_id in seen_terminal_ids
+    ):
+        return False
+    attempts = 1 if terminal else _NOTIFICATION_GATE_ATTEMPTS
+
     async with open_delivery(principal) as delivery:
-        for attempt in range(_NOTIFICATION_GATE_ATTEMPTS):
+        for attempt in range(attempts):
             if await delivery.notification_by_id(notification_id) is not None:
                 if migration_inventory_visible:
-                    return await delivery.notification_deliverable(
+                    allowed = await delivery.notification_deliverable(
                         notification_id, actor_id
                     )
-                return await delivery.notification_deliverable(
-                    notification_id,
-                    actor_id,
-                    include_migration_inventory=False,
-                )
-            if attempt + 1 < _NOTIFICATION_GATE_ATTEMPTS:
+                else:
+                    allowed = await delivery.notification_deliverable(
+                        notification_id,
+                        actor_id,
+                        include_migration_inventory=False,
+                    )
+                if allowed and terminal and seen_terminal_ids is not None:
+                    seen_terminal_ids.add(notification_id)
+                return allowed
+            if attempt + 1 < attempts:
                 await asyncio.sleep(retry_seconds)
     return False
 
@@ -232,6 +250,7 @@ async def serve_notification_socket(
     await websocket.accept()
     channel = channel_for(actor_id)
     pubsub = None
+    seen_terminal_ids: set[uuid.UUID] = set()
 
     async def allow_message(data: Any) -> bool:
         return await notification_message_allowed(
@@ -239,6 +258,7 @@ async def serve_notification_socket(
             data,
             authenticate=authenticate,
             open_delivery=open_delivery,
+            seen_terminal_ids=seen_terminal_ids,
         )
 
     try:

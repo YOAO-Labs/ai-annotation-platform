@@ -76,9 +76,6 @@ async def _second_editor(db, *, email: str):
     return await create_user(db, "super_admin", email, "Second Editor")
 
 
-# ── direct annotation API ────────────────────────────────────────────
-
-
 async def test_create_records_actor_on_known_accumulator(
     httpx_client, db_session, super_admin
 ):
@@ -184,11 +181,7 @@ async def test_delete_records_the_deleting_actor_and_retains_authors(
     assert deleted.status_code == 204, deleted.text
 
     await db_session.refresh(task)
-    # Conservative: the deleted annotation's author stays an accumulator member.
     assert task.annotation_contributor_ids == sorted([str(owner.id), str(editor.id)])
-
-
-# ── submit / skip freeze and lifecycle invalidation ──────────────────
 
 
 async def test_submit_freezes_round_evidence_without_changing_first_review(
@@ -216,7 +209,6 @@ async def test_submit_freezes_round_evidence_without_changing_first_review(
     assert task.review_round_id is not None
     assert task.review_submitter_id == user.id
     assert task.review_contributor_ids == [str(user.id)]
-    # First-review performance facts are unchanged.
     assert task.first_review_contributor_ids == [str(user.id)]
 
 
@@ -288,8 +280,6 @@ async def test_withdraw_invalidates_round_but_retains_accumulator(
     owner, _ = super_admin
     user, token = annotator
     project, task = await _seed_task(db_session, owner)
-    # The submitter/withdrawer is the literal project annotator, not a manager,
-    # so withdrawing their own submission is not a self-review decision.
     await create_membership(
         db_session, project_id=project.id, user_id=user.id, role="annotator"
     )
@@ -315,9 +305,6 @@ async def test_withdraw_invalidates_round_but_retains_accumulator(
     assert task.review_contributor_ids is None
     assert task.review_submitter_id is None
     assert task.annotation_contributor_ids == [str(user.id)]
-
-
-# ── AI acceptance and import side routes ─────────────────────────────
 
 
 async def test_accept_prediction_records_actor(httpx_client, db_session, super_admin):
@@ -401,9 +388,6 @@ async def test_aap_import_records_operator(db_session, super_admin):
     assert tasks[0].annotation_contributor_ids == [str(operator.id)]
 
 
-# ── undo / restore side route ────────────────────────────────────────
-
-
 async def test_slice_commit_and_restore_record_the_actor(db_session, super_admin):
     from tests.test_annotation_slices import _payload, _restore, _seed
 
@@ -430,9 +414,6 @@ async def test_slice_commit_and_restore_record_the_actor(db_session, super_admin
 
     await db_session.refresh(task)
     assert task.annotation_contributor_ids == sorted([str(owner.id), str(editor.id)])
-
-
-# ── helper semantics with a real row lock ────────────────────────────
 
 
 async def test_new_orm_task_defaults_to_known_empty(db_session, super_admin):
@@ -478,8 +459,6 @@ async def test_same_transaction_two_actors_union(db_session, super_admin, nowait
     assert (
         await record_annotation_actor(db_session, task, first.id, nowait=nowait) is True
     )
-    # A second record in the same transaction must not discard the first: the
-    # helper flushes pending accumulator changes before the locking refresh.
     assert (
         await record_annotation_actor(db_session, task, second.id, nowait=nowait)
         is True
@@ -506,8 +485,6 @@ async def test_freeze_is_immutable_for_the_round(db_session, super_admin):
     )
     assert frozen == sorted([str(owner.id), str(writer.id)])
 
-    # A later write in the same round accumulates but must not mutate the frozen
-    # round evidence.
     await record_annotation_actor(db_session, task, late.id)
     assert task.review_contributor_ids == frozen
     assert str(late.id) in task.annotation_contributor_ids
@@ -542,7 +519,6 @@ async def test_concurrent_recorders_serialize_without_lost_update(test_engine):
             return await record_annotation_actor(session_b, task_b, user_b_id)
 
         pending = asyncio.create_task(_record_b())
-        # The second connection must block on the first connection's task row lock.
         with pytest.raises(asyncio.TimeoutError):
             await asyncio.wait_for(asyncio.shield(pending), timeout=0.5)
         assert not pending.done()
@@ -690,7 +666,6 @@ async def test_nowait_busy_lock_rolls_back_to_409(test_engine, dirty):
 
         task_b = await session_b.get(Task, fixture["task"])
         if dirty:
-            # An autoflush UPDATE must not block before the NOWAIT lock attempt.
             task_b.total_annotations = 123
         with pytest.raises(HTTPException) as caught:
             await asyncio.wait_for(
@@ -722,12 +697,10 @@ async def test_stale_phase_and_prefreeze_writer_are_refreshed(test_engine):
     review_session = maker()
     pending = None
     try:
-        # A stale annotation-phase instance is loaded while the task is editable.
         stale_task = await stale.get(Task, fixture["task"])
         assert stale_task.status == "in_progress"
         review_task = await review_session.get(Task, fixture["task"])
 
-        # A pre-freeze writer holds the task lock with uncommitted evidence.
         writer_task = await writer_session.get(Task, fixture["task"])
         assert (
             await record_annotation_actor(
@@ -753,9 +726,6 @@ async def test_stale_phase_and_prefreeze_writer_are_refreshed(test_engine):
         frozen = await asyncio.wait_for(pending, timeout=10)
         assert frozen == [str(fixture["writer"])]
 
-        # The stale instance still believes it is in the annotation phase; the
-        # recorder must refresh the committed review phase and refuse to credit
-        # the reviewer.
         assert (
             await record_annotation_actor(stale, stale_task, fixture["other"]) is False
         )
@@ -805,7 +775,6 @@ async def test_clean_task_predictions_records_actor_and_preserves_contributors(
     await db_session.refresh(ai_annotation)
 
     assert ai_annotation.is_active is False
-    # Existing contributor is preserved and the deletion actor is added.
     assert task.annotation_contributor_ids == sorted([str(owner.id), str(editor.id)])
 
 
@@ -834,6 +803,5 @@ async def test_metadata_only_prediction_cleanup_keeps_contributors(
     await db_session.refresh(task)
     await db_session.refresh(manual)
 
-    # No accepted AI content was removed, so no deletion actor is recorded.
     assert manual.is_active is True
     assert task.annotation_contributor_ids == [str(owner.id)]

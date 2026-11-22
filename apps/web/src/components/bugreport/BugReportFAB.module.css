@@ -23,7 +23,6 @@
   transform: scale(1.08);
 }
 
-/* 日常隐藏:滑出右屏外 + 淡出,不可点(光标进右下角指定区域时由父级解除）。 */
 .hidden {
   transform: translateX(150%);
   opacity: 0;

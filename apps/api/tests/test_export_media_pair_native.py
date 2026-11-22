@@ -13,8 +13,6 @@ from tests.test_video_export_media_domain import video_inputs
 
 @pytest.mark.parametrize("video", [False, True], ids=["legacy-image", "video"])
 async def test_full_head_delivery_pair_uses_saved_media_profile(test_engine, video):
-    # Delivery records intentionally survive absent business rows. These receipts
-    # describe owned metadata only; no provider I/O or committed fixture is needed.
     async with test_engine.connect() as connection:
         transaction = await connection.begin()
         try:

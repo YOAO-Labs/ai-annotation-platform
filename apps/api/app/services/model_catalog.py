@@ -85,7 +85,6 @@ def concrete_variants(model):
         ]
     if len(axes) == 1:
         return [{keys[0]: value} for value in sorted(values[0])]
-    # An undeclared multi-axis product is a model configuration, not invented weights.
     defaults = model.get("default_variants") or {}
     return (
         [defaults]
@@ -365,7 +364,6 @@ async def list_catalog(
                         operations={},
                     )
                 entries[key].placements.append(placement)
-                # Prefer a verified observation from an eligible placement.
                 if placement.ready and class_meta.verification_status == "verified":
                     entries[key].class_metadata = class_meta
                     entries[key].capabilities = capability
@@ -488,7 +486,6 @@ async def list_catalog(
                 trained_models.check_declared_compatibility(
                     backend, version, (deployment.trial or {}).get("inference_runtime")
                 )
-                # Artifact inspection is a historical fact, independent of current health.
                 class_meta.class_source = "checkpoint"
                 class_meta.verification_status = "verified"
                 class_meta.inspected_at = deployment.checked_at

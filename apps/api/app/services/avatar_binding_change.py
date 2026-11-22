@@ -85,7 +85,6 @@ async def history(db):
         )
         .scalar_subquery()
     )
-    # One statement keeps the displayed counts and missing-history decision coherent.
     row = (
         (
             await db.execute(
@@ -231,7 +230,6 @@ def decode_token(token):
 
 async def preview(db, payload, actor, *, api_key_id=None):
     _, target, _, initial = await capture(db, payload, actor, api_key_id)
-    # Never retain authority, location or binding row locks across provider I/O.
     await db.commit()
     try:
         capabilities = await storage_access.run(

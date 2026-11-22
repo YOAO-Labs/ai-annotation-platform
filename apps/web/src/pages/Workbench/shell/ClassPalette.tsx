@@ -13,23 +13,15 @@ interface ClassPaletteProps {
   classes: string[];
   recent?: string[];
   activeClass?: string | null;
-  /** 项目级 classes_config，决定每个类别的颜色覆盖。空时回落 hash。 */
   classesConfig?: ClassesConfig;
-  /** readOnly 时点击无效，仅作为图例 + 快捷键速查（左侧常驻面板用）。 */
   onPick?: (cls: string) => void;
-  /** 是否启用搜索框（默认：类别 > 9 时自动启用） */
   enableSearch?: boolean;
-  /** 高亮第 N 个（用于键盘导航；undefined = 跟随 activeClass） */
   highlightIndex?: number;
-  /** 紧凑模式（popover 内使用） */
   dense?: boolean;
-  /** 纯预览模式：行不响应点击；hover 不变色；鼠标 default。 */
   readOnly?: boolean;
-  /** 键盘导航接入：过滤结果（与查询原文）变化时回调（popover 用它驱动 Up/Down/Enter）。 */
   onFilteredChange?: (filtered: string[], query: string) => void;
 }
 
-/** 类别直选只有十个数字槽：1-9 + 0（按工具绑定单元配置顺序取前十个）。 */
 export const CLASS_SHORTCUT_SLOTS = 10;
 
 function cn(...parts: Array<string | false | null | undefined>) {
@@ -76,14 +68,12 @@ export function ClassPalette({
     onFilteredChange?.(filtered, query);
   }, [filtered, query, onFilteredChange]);
 
-  // 键盘高亮行保持在可视范围内（类别多时 popover 内部滚动）。
   useEffect(() => {
     if (typeof highlightIndex !== "number") return;
     const row = listRef.current?.children[highlightIndex] as HTMLElement | undefined;
     row?.scrollIntoView({ block: "nearest" });
   }, [highlightIndex]);
 
-  // recent 只展示当前项目存在的类别
   const visibleRecent = useMemo(
     () => recent.filter((c) => classes.includes(c)).slice(0, 5),
     [recent, classes],

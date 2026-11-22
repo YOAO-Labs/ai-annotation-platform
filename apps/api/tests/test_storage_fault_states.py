@@ -445,8 +445,6 @@ async def test_verified_cached_preview_token_recovers_only_after_final_commit(
     )
     row = generated[-1]
     captured = row._fault_observation
-    # The outer SAVEPOINT's new binding is not visible independently. Supply the
-    # actual captured binding facts for this exact cached-preview seam test.
     dependencies = captured.scopes[0].facts["dependencies"]
     monkeypatch.setattr(states, "preview_facts", AsyncMock(return_value=dependencies))
     await states.record(

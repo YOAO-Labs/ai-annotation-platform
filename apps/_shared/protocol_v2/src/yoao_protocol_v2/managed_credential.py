@@ -27,7 +27,6 @@ def _open_directory(directory: Path, *, create: bool) -> int:
         if create and os.geteuid() not in {0, info.st_uid}:
             raise CredentialFileError("Credential directory must be private and owned")
         if create:
-            # Tighten checkout-default permissions before publishing any secret.
             os.fchmod(fd, 0o700)
         elif info.st_mode & 0o077:
             raise CredentialFileError("Credential directory must be private and owned")

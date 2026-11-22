@@ -1,19 +1,18 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
+import type { ReviewClaimState } from "@/hooks/useTasks";
 import type { TaskResponse } from "@/types";
 import { useReviewMode } from "./useReviewMode";
 
 const mocks = vi.hoisted(() => ({
   approveMutate: vi.fn(),
   rejectMutate: vi.fn(),
-  claimMutate: vi.fn(),
 }));
 
 vi.mock("@/hooks/useTasks", () => ({
   useApproveTask: () => ({ mutate: mocks.approveMutate, isPending: false }),
   useRejectTask: () => ({ mutate: mocks.rejectMutate, isPending: false }),
-  useReviewClaim: () => ({ mutate: mocks.claimMutate, isPending: false }),
 }));
 
 vi.mock("@/pages/Review/ReviewerMiniPanel", () => ({
@@ -66,6 +65,13 @@ function renderReview(
     releaseTaskLock?: (taskId: string) => Promise<void>;
     resumeTaskLock?: (taskId: string) => void;
   } = {},
+  claim: ReviewClaimState = {
+    canDecide: true,
+    ownsClaim: () => true,
+    initialSettled: true,
+    message: null,
+    retry: undefined,
+  },
 ) {
   const navigateTask = vi.fn();
   const pushToast = vi.fn();
@@ -74,6 +80,7 @@ function renderReview(
     mode,
     taskId,
     task: task(overrides),
+    claim,
     navigateTask,
     pushToast,
     ...lockLifecycle,
@@ -84,7 +91,6 @@ function renderReview(
   return { ...rendered, navigateTask, pushToast, initialProps };
 }
 
-/** 结算队首 decisionDialog 并出队(等价 Host 的 settle + 退场 dispose),模拟用户按下按钮。 */
 async function settleDecisionDialog(value: boolean | string | null) {
   const head = useDecisionDialogStore.getState().queue[0];
   if (!head) throw new Error("decisionDialog 队列为空");
@@ -104,24 +110,37 @@ describe("useReviewMode", () => {
   beforeEach(() => {
     mocks.approveMutate.mockReset();
     mocks.rejectMutate.mockReset();
-    mocks.claimMutate.mockReset();
   });
 
-  // decisionDialog store 是模块级单例,清空队列避免跨测试残留(T3 store-settle 约定)。
   afterEach(() => {
     useDecisionDialogStore.setState({ queue: [] });
   });
 
-  it("claims review tasks only in review mode", () => {
-    renderReview("annotate");
-    expect(mocks.claimMutate).not.toHaveBeenCalled();
+  it("does not expose decision actions or accept A/R without a current claim", () => {
+    const releaseTaskLock = vi.fn();
+    const { result } = renderReview(
+      "review",
+      {},
+      { releaseTaskLock },
+      {
+        canDecide: false,
+        ownsClaim: () => false,
+        initialSettled: false,
+        message: null,
+        retry: undefined,
+      },
+    );
+    expect(result.current.topbarActions.onApprove).toBeUndefined();
+    expect(result.current.topbarActions.onReject).toBeUndefined();
 
-    renderReview("review");
-    expect(mocks.claimMutate).toHaveBeenCalledWith("t1", expect.any(Object));
-
-    mocks.claimMutate.mockClear();
-    renderReview("review", { status: "completed" });
-    expect(mocks.claimMutate).not.toHaveBeenCalled();
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
+    });
+    expect(releaseTaskLock).not.toHaveBeenCalled();
+    expect(mocks.approveMutate).not.toHaveBeenCalled();
+    expect(mocks.rejectMutate).not.toHaveBeenCalled();
+    expect(useDecisionDialogStore.getState().queue).toHaveLength(0);
   });
 
   it("locks retired review tasks and does not expose review decisions", () => {
@@ -432,7 +451,6 @@ describe("useReviewMode", () => {
     act(() => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "r" }));
     });
-    // 'r' 打开退回两步流的第一步（reason_type choiceDialog）
     await waitFor(() => expect(queuedTitle()).toBe("退回原因（1 个任务）"));
   });
 
@@ -447,7 +465,6 @@ describe("useReviewMode", () => {
     await act(async () => {
       result.current.topbarActions.onReject?.();
     });
-    // 第一步：skip 提示透传到 choice 描述
     const choice = useDecisionDialogStore.getState().queue[0];
     expect(choice?.request.title).toBe("退回原因（1 个任务）");
     expect(choice?.request.description).toContain("此任务被标注员跳过：no_target");
@@ -488,7 +505,6 @@ describe("useReviewMode", () => {
       result.current.topbarActions.onReject?.();
     });
     await settleDecisionDialog("wrong_geometry");
-    // async-await gap：第二步弹窗期间切到另一任务，确认后按 currentTaskIdRef 复验放弃
     rerender({ ...initialProps, taskId: "t2", task: task({ id: "t2" }) });
     await settleDecisionDialog("框不完整");
     expect(mocks.rejectMutate).not.toHaveBeenCalled();

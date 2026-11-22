@@ -156,7 +156,6 @@ def legacy_offboarding_resource_state(facts: OffboardingSnapshotFacts) -> dict:
                         "project_member_role": member_role,
                     }
                 )
-            # candidate_users retain the SQL name/email/id collation order.
             role_options[role] = options
         receivers[str(project.id)] = role_options
 
@@ -193,7 +192,6 @@ def legacy_offboarding_resource_state(facts: OffboardingSnapshotFacts) -> dict:
                 "status": batch.status,
                 "annotator_id": str(batch.annotator_id) if batch.annotator_id else None,
                 "reviewer_id": str(batch.reviewer_id) if batch.reviewer_id else None,
-                # Preserve Python ``list(raw or [])`` for historical JSON values.
                 "assigned_user_ids": list(batch.assigned_user_ids or []),
             }
             for batch in facts.batches
@@ -276,7 +274,6 @@ def _options_by_role(
                         project_member_role=member_role,
                     )
                 )
-            # candidate_users retain the SQL name/email/id collation order.
             role_map[role] = options
         result[project.id] = role_map
     return result
@@ -859,7 +856,6 @@ class OffboardingManager:
         transaction: OffboardingTransaction,
     ) -> CommitOffboardingReply:
         actor = prepared.principal
-        # Scope is checked before the preview token, matching the legacy error order.
         _assert_current_scope(actor, facts)
         preview = build_offboarding_preview(facts)
         if request.payload.preview_version != preview.preview_version:

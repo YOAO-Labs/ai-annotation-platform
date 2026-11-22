@@ -23,7 +23,6 @@ vi.mock("@/hooks/useProjectPipelines", () => ({
   }),
 }));
 
-// 用可交互的 canvas mock 触发 addStage/onSelect, 让测试不依赖 react-flow 真实 DOM.
 type CanvasProps = {
   onAddChild?: (sid: string) => void;
   onSelect?: (sid: string) => void;
@@ -135,7 +134,6 @@ describe("GlobalPipelineLibraryPage", () => {
                 supported_geometric_outputs: ["bbox"],
                 output_attribute_types: [],
                 output_attribute_schema: [],
-                // 变体轴: 源检测 model 声明 size 轴, default=m; 保存 payload 应带 model_variants.
                 supported_variants: [
                   {
                     key: "size",
@@ -177,13 +175,10 @@ describe("GlobalPipelineLibraryPage", () => {
     fireEvent.change(screen.getByPlaceholderText(/例如 detect/), {
       target: { value: "global detect attr" },
     });
-    // 源阶段选 det.
     fireEvent.change(screen.getByLabelText("源阶段模型"), {
       target: { value: "bk-global-det::det" },
     });
-    // 从画布触发 addStage(source) 给源模型 stage 挂下游子.
     fireEvent.click(screen.getByTestId("add-child-source"));
-    // 切到 stage-1 Inspector.
     fireEvent.click(screen.getByTestId("select-stage-1"));
     fireEvent.change(screen.getByLabelText("阶段 2 模型"), {
       target: { value: "bk-attr::attr" },
@@ -203,7 +198,6 @@ describe("GlobalPipelineLibraryPage", () => {
               stage: 0,
               ml_backend_id: "bk-global-det",
               model_id: "det",
-              // 源未手改变体 → 取 model default_variants (size=m).
               model_variants: { size: "m" },
             }),
             expect.objectContaining({
@@ -270,10 +264,8 @@ describe("GlobalPipelineLibraryPage", () => {
     expect(screen.getByText("公共编排 A")).toBeTruthy();
     expect(screen.getByText("组织编排 B")).toBeTruthy();
     expect(screen.queryByText(/私有编排 C/)).toBeNull();
-    // usage_count 展示.
     expect(screen.getByText(/已套用 3 次/)).toBeTruthy();
 
-    // 删除第一条.
     const [firstDeleteBtn] = screen.getAllByRole("button", { name: /删除/ });
     fireEvent.click(firstDeleteBtn);
     expect(mockDeleteProjectPipelineMutate).toHaveBeenCalledWith("pipe-1", expect.any(Object));

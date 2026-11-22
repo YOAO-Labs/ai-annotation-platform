@@ -13,9 +13,6 @@ from tests.factory import build_tool_bindings
 pytestmark = pytest.mark.asyncio
 
 
-# ── 邀请频率限流 ────────────────────────────────────────────────────────
-
-
 async def test_invitation_rate_limit_exceeded(
     httpx_client: httpx.AsyncClient, super_admin, db_session: AsyncSession
 ):
@@ -25,7 +22,6 @@ async def test_invitation_rate_limit_exceeded(
     user, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
 
-    # 临时将上限设为 2 以便测试
     original = settings.max_invitations_per_day
     settings.max_invitations_per_day = 2
 
@@ -46,9 +42,6 @@ async def test_invitation_rate_limit_exceeded(
         assert r.status_code == 429
     finally:
         settings.max_invitations_per_day = original
-
-
-# ── 会话管理 ─────────────────────────────────────────────────────────────
 
 
 async def test_logout_blacklists_token(
@@ -95,20 +88,15 @@ async def test_logout_all_invalidates_sessions(
     assert r.status_code == 200
     new_token = r.json()["access_token"]
 
-    # 旧 token B 应该失效
     r = await httpx_client.get(
         "/api/v1/auth/me", headers={"Authorization": f"Bearer {token_b}"}
     )
     assert r.status_code == 401
 
-    # 新 token 有效
     r = await httpx_client.get(
         "/api/v1/auth/me", headers={"Authorization": f"Bearer {new_token}"}
     )
     assert r.status_code == 200
-
-
-# ── 导出审计 ─────────────────────────────────────────────────────────────
 
 
 async def test_project_export_creates_audit_log(
@@ -135,8 +123,6 @@ async def test_project_export_creates_audit_log(
     db_session.add(project)
     await db_session.flush()
 
-    # 导出返回 202 并创建 async_job，审计日志仍同步写入。
-    # format → targets 多目标。
     r = await httpx_client.post(
         f"/api/v1/projects/{project.id}/export"
         "?targets=mots&video_overlap_policy=z_order&mots_frame_base=1",
@@ -155,9 +141,6 @@ async def test_project_export_creates_audit_log(
     assert audit.detail_json["targets"] == ["mots"]
     assert audit.detail_json["filter_criteria"]["video_overlap_policy"] == "z_order"
     assert audit.detail_json["filter_criteria"]["mots_frame_base"] == 1
-
-
-# ── 审计日志不可变 ───────────────────────────────────────────────────────
 
 
 async def test_audit_log_delete_denied(
@@ -227,9 +210,6 @@ async def test_gdpr_redaction_still_works(
     assert entry.actor_email is None
 
 
-# ── 最后登录追踪 ─────────────────────────────────────────────────────────
-
-
 async def test_last_login_updated_on_login(
     httpx_client: httpx.AsyncClient, db_session: AsyncSession
 ):
@@ -258,9 +238,6 @@ async def test_last_login_updated_on_login(
 
     await db_session.refresh(user)
     assert user.last_login_at is not None
-
-
-# ── 失败登录详情增强 ─────────────────────────────────────────────────────
 
 
 async def test_failed_login_user_agent_logged(

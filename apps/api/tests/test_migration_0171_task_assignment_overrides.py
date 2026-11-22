@@ -71,8 +71,6 @@ def test_assignment_override_backfill_and_roundtrip(test_db_url, apply_migration
                             )
                         )
                 elif action == "verify":
-                    # Replay only the targeted revision in a rollback-only
-                    # transaction, leaving irreversible 0174 and its data intact.
                     connection = await db.connection()
                     await connection.run_sync(_replay, migration, "downgrade")
                     await connection.run_sync(_replay, migration, "upgrade")

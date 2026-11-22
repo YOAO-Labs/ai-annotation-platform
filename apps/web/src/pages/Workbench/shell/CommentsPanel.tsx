@@ -79,9 +79,7 @@ interface Props {
   commentFocus?: DiscussionCommentFocus | null;
   onCommentFocusHandled?: (requestId: string) => void;
   annotationId: string | null;
-  /** Task context enables the authoritative mixed discussion feed. */
   taskId?: string | null;
-  /** Legacy annotation-only callers can still provide task ownership for drafts. */
   annotationTaskId?: string | null;
   projectId?: string | null;
   currentUserId?: string;
@@ -89,7 +87,6 @@ interface Props {
   imageWidth?: number | null;
   imageHeight?: number | null;
   enableCanvasDrawing?: boolean;
-  /** Image tasks may draw on the task target; video task comments stay text-only. */
   enableTaskCanvasDrawing?: boolean;
   liveCanvas?: LiveCanvas;
   commentAnchor?: AnnotationCommentAnchor | null;
@@ -98,10 +95,8 @@ interface Props {
   onSelectAnnotation?: (annotationId: string) => void;
   hideTabs?: boolean;
   forceTab?: Tab;
-  /** Coordinator can mark a selected annotation unavailable without retargeting its draft. */
   annotationAvailable?: boolean;
   annotationUnavailableReason?: string | null;
-  /** One-shot badge activation after the shell has guarded annotation selection. */
   annotationDiscussionRequest?: DiscussionAnnotationReadRequest | null;
   onAnnotationDiscussionRequestConsumed?: (requestId: string) => void;
 }
@@ -113,7 +108,6 @@ function anchorLabel(anchor: AnnotationCommentAnchor): string {
   return parts.join(" · ");
 }
 
-/** IDs from prediction/candidate/temporary selections must never reach annotation APIs. */
 function isPersistedAnnotationId(id: string | null | undefined): id is string {
   if (!id) return false;
   return !/^(?:pred(?:iction)?|temp(?:orary)?|candidate|ai)[-_:/]/i.test(id);
@@ -123,8 +117,6 @@ function annotationIsKnown(
   annotationId: string | null | undefined,
   annotationClassById: Record<string, string | undefined> | undefined,
 ): boolean {
-  // The coordinator leaves this map undefined while annotations are loading.
-  // An empty, defined map means loading completed and the id is unavailable.
   return (
     annotationClassById === undefined ||
     (annotationId !== null &&
@@ -277,8 +269,6 @@ export function CommentsPanel({
   const contentRef = useRef<HTMLDivElement | null>(null);
   const scopeOwnerRef = useRef(taskScopeKey);
   const scopeForTask = scopeOwnerRef.current === taskScopeKey ? readScope : "all";
-  // Keep the first render after a retained-panel task switch on the default
-  // task scope. The effect below commits the reset for subsequent renders.
 
   const annotationEligible =
     isPersistedAnnotationId(annotationId) &&
@@ -306,8 +296,6 @@ export function CommentsPanel({
   );
 
   const draftStore = useDiscussionDraftStore();
-  // Subscribe even though the snapshot value is not otherwise needed here:
-  // changing the persisted destination must re-render the controlled select.
   useDiscussionDraftSnapshot();
   const storedSendTarget =
     draftStore && projectId && taskId
@@ -330,8 +318,6 @@ export function CommentsPanel({
   }, [currentAnnotationTarget, draftStore, projectId, taskId, taskTarget]);
 
   useLayoutEffect(() => {
-    // Reading scope is a task-local view preference. A new task starts at the
-    // complete discussion feed even when the panel instance is retained.
     scopeOwnerRef.current = taskScopeKey;
     setReadScope("all");
     setScopeNotice(null);
@@ -423,9 +409,6 @@ export function CommentsPanel({
     taskContext && (effectiveScope !== "annotation" || readAnnotationEligible),
     projectId,
   );
-  // Standalone ReviewWorkbench has no task context and keeps its legacy bounded
-  // annotation reader. Passing null for every other case prevents candidate IDs
-  // from reaching annotation-comment endpoints.
   const legacyAnnotationQuery = useAnnotationCommentsInfinite(
     !taskContext && annotationEligible ? annotationId : null,
   );
@@ -479,7 +462,6 @@ export function CommentsPanel({
   ]);
   const total = taskContext ? taskDiscussionQuery.data?.pages[0]?.total : discussionItems.length;
 
-  // 后端按 owner → super_admin → member 去重返回，前端只负责展示标签。
   const { data: mentionCandidates } = useProjectMentionCandidates(projectId ?? "");
   const memberOptions = useMemo<UserPickerOption[]>(
     () =>
@@ -567,9 +549,6 @@ export function CommentsPanel({
 
   const activeAnnotationComposer =
     sendTarget?.kind === "annotation" && sendTarget.annotationId === annotationId;
-  // Popup drawing belongs to the explicit destination, not current selection.
-  // Restored annotation drafts remain editable when SPA return clears selection;
-  // the live stage/hover bridge retains its stricter selected-object boundary.
   const popupAnnotationComposer =
     sendTarget?.kind === "annotation" && sendTargetAnnotationAvailable !== false;
   const taskCanvasComposer =
@@ -680,9 +659,6 @@ export function CommentsPanel({
 
   const handleSubmit = useCallback<CommentSubmit>(
     (payload: DiscussionPayload, snapshot) => {
-      // Session-backed CommentInput captures the immutable target before its
-      // first await. Never retarget a late completion to the currently visible
-      // composer; legacy adapters have no snapshot and use the live target.
       const submissionTarget = snapshot?.target ?? sendTarget;
       if (!isCommentTarget(submissionTarget)) return;
       if (submissionTarget.kind === "annotation") {
@@ -712,9 +688,6 @@ export function CommentsPanel({
           throw error;
         });
       }
-      // Keep a second guard at the write owner so a legacy adapter cannot
-      // silently drop structured payload data. Image task comments may carry
-      // mentions and, when enabled, their drawing.
       if (
         payload.attachments.length > 0 ||
         (payload.canvas_drawing &&
@@ -767,8 +740,6 @@ export function CommentsPanel({
       const stateKey = `${mutationScopeKey}:${rowKey}:${storageKey}`;
       if (attachmentDownloadRequestsRef.current.has(stateKey)) return;
 
-      // Capture the owner before the first await. A retained panel may finish
-      // this flow after logout, account replacement, or a task switch.
       const capturedStore = draftStore;
       const capturedOwner = capturedStore?.getOwner() ?? null;
       const capturedUserId = currentUserId;

@@ -22,7 +22,6 @@ export interface AdminDashboardStats {
   ml_backends_connected: number;
   role_distribution: Record<string, number>;
   registration_by_day?: RegistrationDayPoint[];
-  /** pre_annotated 批次数（Sidebar 徽章 + AdminDashboard 卡片共用） */
   pre_annotated_batches?: number;
 }
 
@@ -47,10 +46,8 @@ export interface ReviewingBatchItem {
   total_tasks: number;
   review_tasks: number;
   completed_tasks: number;
-  /** 批次封面缩略图（presigned URL）+ blurhash 占位，用于卡片网格。 */
   thumbnail_url?: string | null;
   cover_blurhash?: string | null;
-  /** 这批的标注员（单值；让 reviewer 知道是谁标的） */
   annotator: UserBrief | null;
 }
 
@@ -92,9 +89,7 @@ export interface AnnotatorDashboardStats {
   weekly_target?: number;
   active_minutes_today?: number | null;
   streak_days?: number | null;
-  // 当日 0-23 时分钟数
   hour_buckets?: number[];
-  // M1 · 当前待重做退回任务数
   rejected_tasks_count?: number;
 }
 
@@ -110,7 +105,6 @@ export interface OnboardingProjectSummary {
   reviewed_task_reason: string | null;
 }
 
-// 管理员人员看板
 export interface AdminPersonItem {
   user_id: string;
   name: string;
@@ -118,7 +112,6 @@ export interface AdminPersonItem {
   role: string;
   status: string;
   project_count: number;
-  /** 头像引用(`preset:<slug>` / `upload:<token>`);空 = 回退首字母。 */
   avatar_ref?: string | null;
   main_metric: number;
   main_metric_label: string;
@@ -161,13 +154,11 @@ export interface AdminPersonDetail {
     task_display_id?: string;
     detail?: string;
   }>;
-  // 质量归因(A1)
   reject_reason_breakdown: Array<{ reason_type: string; count: number; pct: number }>;
   class_distribution: Array<{ class_name: string; count: number; pct: number }>;
   first_pass_yield: number | null;
 }
 
-// 标注员自助绩效（取经合集 §4.1 个人页）
 export interface MyPerformance {
   user_id: string;
   name: string;
@@ -181,7 +172,6 @@ export interface MyPerformance {
   duration_histogram: Array<{ upper_ms: number; count: number }>;
   p50_duration_ms: number | null;
   p95_duration_ms: number | null;
-  // 质量归因(A1)
   reject_reason_breakdown: Array<{ reason_type: string; count: number; pct: number }>;
   class_distribution: Array<{ class_name: string; count: number; pct: number }>;
   first_pass_yield: number | null;
@@ -197,21 +187,17 @@ export interface MyBatchItem {
   total_tasks: number;
   completed_tasks: number;
   review_tasks: number;
-  /** B-20：标注员已动工 (status='in_progress') 的任务数 */
   in_progress_tasks?: number;
   approved_tasks: number;
   rejected_tasks: number;
   progress_pct: number;
-  /** 批次封面缩略图（presigned URL）+ blurhash 占位，用于卡片网格。 */
   thumbnail_url?: string | null;
   cover_blurhash?: string | null;
   review_feedback: string | null;
   reviewed_at: string | null;
-  /** 这批的审核员（单值；让标注员知道谁会审） */
   reviewer: UserBrief | null;
 }
 
-// 预测成本卡片
 export interface BackendCostBreakdown {
   backend_id: string | null;
   backend_name: string | null;
@@ -227,7 +213,6 @@ export interface PredictionCostStats {
   failed_predictions: number;
   failure_rate: number;
   avg_inference_time_ms: number | null;
-  // 延迟分位数
   p50_inference_time_ms: number | null;
   p95_inference_time_ms: number | null;
   p99_inference_time_ms: number | null;
@@ -236,7 +221,6 @@ export interface PredictionCostStats {
   by_backend: BackendCostBreakdown[];
 }
 
-// Reviewer 实时 mini 仪表（在 ReviewWorkbench 右侧栏渲染）
 export interface ReviewerMiniStats {
   approved_today: number;
   rejected_today: number;
@@ -266,7 +250,6 @@ export const dashboardApi = {
   getMyRecentReviews: (limit = 20) =>
     apiClient.get<RecentReviewItem[]>(`/dashboard/me/recent-reviews?limit=${limit}`),
   getReviewerTodayMini: () => apiClient.get<ReviewerMiniStats>("/dashboard/reviewer/today-mini"),
-  // 管理员人员看板
   getAdminPeople: (
     params: {
       role?: string;
@@ -300,7 +283,6 @@ export const dashboardApi = {
       ? apiClient.get<AdminPersonDetail>(path, { signal })
       : apiClient.get<AdminPersonDetail>(path);
   },
-  // 成员绩效 CSV 导出（A2）。带 Bearer 拉 blob 触发下载，镜像 usersApi.exportUsers。
   exportPeople: async (
     params: { role?: string; project?: string; period?: string; sort?: string; q?: string } = {},
   ): Promise<void> => {
@@ -342,7 +324,6 @@ export const dashboardApi = {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   },
-  // 标注员自助绩效（取经合集 §4.1 个人页）
   getMyPerformance: (period: string = "4w") =>
     apiClient.get<MyPerformance>(`/dashboard/me/performance?period=${period}`),
 };

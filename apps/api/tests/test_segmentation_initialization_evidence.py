@@ -193,8 +193,6 @@ def source_fixture(
             return version if model is TrainedModelVersion else attempt
 
     async def routed(db, owner, purpose, callback, *args, **kwargs):
-        # Saved-owner resolution is unit-tested elsewhere; this fixture keeps
-        # the same pinned owner while the fake provider serves the objects.
         return callback(storage_service, *args, **kwargs)
 
     monkeypatch.setattr(training_storage_io, "run", routed)

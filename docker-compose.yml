@@ -20,15 +20,12 @@ services:
     ports:
       - "5432:5432"
     environment:
-      # 默认值 = dev 凭据 (docker compose up 不带 --env-file 时生效)。
-      # 生产用 --env-file .env.production 覆盖, 须与 DATABASE_URL 中的用户名/密码/库名一致。
       POSTGRES_DB: ${POSTGRES_DB:-annotation}
       POSTGRES_USER: ${POSTGRES_USER:-user}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pass}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      # 用容器内 env 展开 ($$ → $), 不写死 user/annotation, 改了凭据探针仍然有效。
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
@@ -45,16 +42,12 @@ services:
       retries: 5
 
   minio:
-    # Quay 社区镜像已下架；IBM 镜像保留相同 digest，与 CI 固定为同一版本。
-    # https://www.ibm.com/support/pages/node/7289585
     image: icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     ports:
       - "9000:9000"
       - "9001:9001"
     command: server /data --console-address ":9001"
     environment:
-      # root 凭据直接绑定后端用的 MINIO_ACCESS_KEY/SECRET_KEY (单一来源, 不会漂移):
-      # dev 默认 minioadmin; 生产经 --env-file .env.production 覆盖, 自动与后端/worker 一致。
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
     volumes:
@@ -65,15 +58,11 @@ services:
       timeout: 5s
       retries: 5
 
-  # dev SMTP 收件箱。后端 email.py 的 admin「发送测试邮件」按钮
-  # 把邮件投到这里; Web UI http://localhost:8025 直接看收到的邮件, 不外发真实邮件。
-  # 配合 .env: SMTP_HOST=localhost SMTP_PORT=1025 SMTP_FROM=noreply@local.test
-  # (API 跑 host 时连 localhost:1025; 若 API 也进 Docker 则填 SMTP_HOST=mailpit)。
   mailpit:
     image: axllent/mailpit:latest
     ports:
-      - "1025:1025" # SMTP
-      - "8025:8025" # Web UI
+      - "1025:1025"
+      - "8025:8025"
     environment:
       MP_MAX_MESSAGES: 500
     healthcheck:
@@ -82,13 +71,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # api / web 不在本文件：dev 跑宿主机 (uvicorn --reload + pnpm dev:web，见 DEV.md)；
-  # 生产以容器形态在叠加文件 docker-compose.prod.yml 定义，用
-  #   docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml up -d
-  # 拉起。区别详见 docs-site/dev/concepts/runtime-environments.md。
-
-  # Run development migrations explicitly before starting workers.
-  # Only this worker consumes owner-only maintenance tasks.
   celery-worker-maintenance:
     build:
       context: .
@@ -131,8 +113,6 @@ services:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.api
-    # 通用队列组 (非 GPU/CPU 预标)。ml/gpu 预标已拆到 celery-worker-gpu,
-    # ml.cpu 拆到 celery-worker-cpu, 实现设备感知并发隔离。
     command: celery -A app.workers.celery_app worker -l info -Q default,media,cleanup,audit --concurrency=4
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
@@ -165,30 +145,19 @@ services:
       IMAGE_PYRAMID_GC_GRACE_HOURS: ${IMAGE_PYRAMID_GC_GRACE_HOURS:-24}
       GPU_LIFECYCLE_SIGNING_KEYS_FILE: /run/secrets/gpu_lifecycle_signing_keys
       GPU_LIFECYCLE_ACTIVE_SIGNING_KID: ${GPU_LIFECYCLE_ACTIVE_SIGNING_KID:-}
-      # DuckDB 离线分析视图 (ROADMAP §1.6); host ./data/duckdb 挂到容器 /var/lib/duckdb
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
     volumes:
       - *jobs-publication-secret
-      # DuckDB 文件 bind mount, worker 写 / API 跑 host 时只读
       - ./data/duckdb:/var/lib/duckdb
-      # Paramiko RejectPolicy 需要预置信任的 SFTP host key；本地文件 gitignored。
       - ./config/ssh/known_hosts:/root/.ssh/known_hosts:ro
-      # dev 源码热挂载: 改 worker 业务码 / 加 alembic 迁移只需 docker restart, 不必 rebuild。
-      # deps 装在 /opt/venv (见 Dockerfile.api), 不在 /app 下, 挂 /app 不盖依赖;
-      # 匿名卷屏蔽 host 的 apps/api/.venv 避免泄入容器。Celery 无 --reload, 改码后仍需 restart。
       - ./apps/api:/app
       - /app/.venv
-      # Bind mount preserves the host file's 0400 mode. Compose file-backed
-      # secrets ignore uid/gid/mode and would expose the file as 0444.
       - type: bind
         source: ${GPU_LIFECYCLE_SIGNING_KEYS_FILE:-/dev/null}
         target: /run/secrets/gpu_lifecycle_signing_keys
         read_only: true
         bind:
           create_host_path: false
-    # worker 健康探针: inspect ping 自身节点 (-d 限定当前 worker, 不等其它副本)。
-    # 必须用 CMD-SHELL — exec-form 无 shell, $$HOSTNAME 不展开会 ping 字面节点名导致永远 unhealthy。
-    # start_period 留足 image 冷启 + broker 连接; SIGTERM 后给 30s warm shutdown 跑完在途任务。
     healthcheck:
       test:
         ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME -t 10"]
@@ -207,8 +176,6 @@ services:
       minio:
         condition: service_healthy
 
-  # 超大图 pyramid 独立单并发队列：libvips decode/encode 与临时磁盘预算不和普通
-  # thumbnail/video media job 争抢。不可用时只影响可选派生资产，不阻断源图与 API。
   celery-worker-image-pyramid:
     build:
       context: .
@@ -261,8 +228,6 @@ services:
       minio:
         condition: service_healthy
 
-  # ADR-0049 · 显存 repair / tombstone GC 控制面。独立队列、单并发，且是唯一持有
-  # collector 数据库凭据的应用进程；普通 API/worker 不挂载该文件。
   celery-worker-gpu-control:
     build:
       context: .
@@ -315,8 +280,6 @@ services:
       postgres:
         condition: service_healthy
 
-  # GPU 预标 worker. 消费 ml (设备=gpu/未自报的预标) + gpu (视频追踪) 队列, 低并发护显存。
-  # 配置照抄 celery-worker, 仅改 -Q 与并发 (CELERY_GPU_CONCURRENCY, 默认 2)。
   celery-worker-gpu:
     build:
       context: .
@@ -341,8 +304,6 @@ services:
       GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS: ${GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS:-30}
       GPU_LIFECYCLE_SIGNING_KEYS_FILE: /run/secrets/gpu_lifecycle_signing_keys
       GPU_LIFECYCLE_ACTIVE_SIGNING_KID: ${GPU_LIFECYCLE_ACTIVE_SIGNING_KID:-}
-      # SAM3 文本 multiplex / PVS 的单窗上限。显式透传 .env，避免 dev compose
-      # 只改宿主机变量但 GPU worker 仍使用镜像内默认值。
       VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES: ${VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES:-16}
     volumes:
       - *jobs-publication-secret
@@ -372,8 +333,6 @@ services:
       minio:
         condition: service_healthy
 
-  # CPU 预标 worker. 消费 ml.cpu (整条 pipeline 全部 device=cpu 的预标) 队列, 高并发。
-  # 配置照抄 celery-worker, 仅改 -Q 与并发 (CELERY_CPU_CONCURRENCY, 默认 4)。
   celery-worker-cpu:
     build:
       context: .
@@ -418,8 +377,6 @@ services:
       minio:
         condition: service_healthy
 
-  # 导出专用 worker. 独立 export 队列资源隔离, 导出大任务不拖累预标/媒体处理。
-  # 配置照抄 celery-worker, 仅改 -Q export --concurrency=2 与容器名。
   celery-worker-export:
     build:
       context: .
@@ -441,21 +398,13 @@ services:
       GPU_ARBITER_ROLLOUT_ENABLED: ${GPU_ARBITER_ROLLOUT_ENABLED:-false}
       GPU_ARBITER_RESOURCES_JSON: ${GPU_ARBITER_RESOURCES_JSON:-{}}
       GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS: ${GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS:-30}
-      # DuckDB 离线分析视图 (ROADMAP §1.6); host ./data/duckdb 挂到容器 /var/lib/duckdb
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
     volumes:
       - *jobs-publication-secret
       - *export-execution-secret
-      # DuckDB 文件 bind mount, worker 写 / API 跑 host 时只读
       - ./data/duckdb:/var/lib/duckdb
-      # dev 源码热挂载: 改 worker 业务码 / 加 alembic 迁移只需 docker restart, 不必 rebuild。
-      # deps 装在 /opt/venv (见 Dockerfile.api), 不在 /app 下, 挂 /app 不盖依赖;
-      # 匿名卷屏蔽 host 的 apps/api/.venv 避免泄入容器。Celery 无 --reload, 改码后仍需 restart。
       - ./apps/api:/app
       - /app/.venv
-    # worker 健康探针: inspect ping 自身节点 (-d 限定当前 worker, 不等其它副本)。
-    # 必须用 CMD-SHELL — exec-form 无 shell, $$HOSTNAME 不展开会 ping 字面节点名导致永远 unhealthy。
-    # start_period 留足 image 冷启 + broker 连接; SIGTERM 后给 30s warm shutdown 跑完在途任务。
     healthcheck:
       test:
         ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME -t 10"]
@@ -472,9 +421,6 @@ services:
       minio:
         condition: service_healthy
 
-  # Celery beat 独立 service. worker 与 beat 解耦 (worker 可 scale 多副本,
-  # beat 必须单实例避免 schedule 重复触发). 复用同一 image (Dockerfile.api).
-  # PerfHud 1s 推送 + audit partition 月度任务 + ml health 60s 等都依赖此进程.
   celery-beat:
     build:
       context: .
@@ -495,11 +441,8 @@ services:
       GPU_ARBITER_RESOURCES_JSON: ${GPU_ARBITER_RESOURCES_JSON:-{}}
       GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS: ${GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS:-30}
     volumes:
-      # dev 源码热挂载 (同 celery-worker): 改 beat schedule 只需 restart 不必 rebuild。
       - ./apps/api:/app
       - /app/.venv
-    # beat 是调度进程不响应 inspect ping, 故无 healthcheck;
-    # 仅给优雅关闭窗口让它落盘 /tmp/celerybeat-schedule 后退出。
     stop_grace_period: 30s
     depends_on:
       redis:
@@ -507,13 +450,6 @@ services:
       postgres:
         condition: service_healthy
 
-  # GPU plugins use separate opt-in docker-compose.ml-<provider>.yml overlays.
-
-  # 可观测性 stack（默认 profile=monitoring 不启动，避免 dev 多吃 ~200MB）
-  # 启动方式：`docker compose --profile monitoring up -d prometheus grafana`
-  # 注意：prometheus scrape 的 host.docker.internal 仅在 Docker Desktop（Mac/Win）
-  # 与 Linux 4.20+ docker compose 自动解析；不通时把 prometheus.yml 中 target 改成
-  # 宿主机 LAN IP 即可。
   prometheus:
     image: prom/prometheus:v2.55.0
     profiles: ["monitoring"]
@@ -527,16 +463,15 @@ services:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=14d"
     extra_hosts:
-      # Linux 上 host.docker.internal 默认未解析；显式映射到宿主机 gateway。
       - "host.docker.internal:host-gateway"
 
   grafana:
     image: grafana/grafana-oss:11.4.0
     profiles: ["monitoring"]
     ports:
-      - "3001:3000" # 避开前端 dev 3000
+      - "3001:3000"
     environment:
-      GF_SECURITY_ADMIN_PASSWORD: admin # dev-only；production 改 env
+      GF_SECURITY_ADMIN_PASSWORD: admin
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -545,8 +480,6 @@ services:
     depends_on:
       - prometheus
 
-  # 告警通知。Prometheus firing 的告警在此分组/去重后经 SMTP 发邮件。
-  # dev 投递到 mailpit（见 infra/alertmanager/alertmanager.yml）；生产换真实 SMTP。
   alertmanager:
     image: prom/alertmanager:v0.27.0
     profiles: ["monitoring"]
@@ -557,14 +490,10 @@ services:
       - alertmanager_data:/alertmanager
     command:
       - "--config.file=/etc/alertmanager/alertmanager.yml"
-    extra_hosts:
-      # dev 经 host-gateway 投递到 host 上的 mailpit:1025（端口已映射，gateway 可达）。
-      - "host.docker.internal:host-gateway"
 
 volumes:
   pgdata:
   miniodata:
-  # Model volumes are declared in their respective ML plugin overlays.
   prometheus_data:
   grafana_data:
   alertmanager_data:

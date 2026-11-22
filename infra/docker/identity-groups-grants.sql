@@ -1,10 +1,3 @@
--- Grant the exact Identity group command LOGIN after migrations and
--- module-data-grants. The restricted role must have no memberships.
--- Database provisioning revokes PUBLIC TEMP; this script changes no PUBLIC ACL.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v identity_owner=identity_code -v workspace_owner=workspace_code \
---   -v audit_owner=audit_code -v identity_group_role=yoao_identity_group_client \
---   -f infra/docker/identity-groups-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -153,7 +146,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_identity_groups_v1.execute_group_command(jsonb)
     TO :"identity_group_role";
 
--- Fail closed unless this LOGIN can reach exactly the two native group entrypoints.
 DO $$
 DECLARE
     role_oid oid;

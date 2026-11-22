@@ -135,8 +135,6 @@ def libreyolo_descriptor(spec, weights, backend, options, metrics):
     import libreyolo
     from pycocotools import cocoeval, coco, mask
 
-    # Native validation skips COCOeval when no predictions were accumulated.
-    # An absent backend is valid evidence of an incomplete evaluator identity.
     if backend is None:
         return None
     if not isinstance(backend, str) or not (

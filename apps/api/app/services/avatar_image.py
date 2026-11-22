@@ -15,20 +15,16 @@ import io
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
-# 请求体上限（与 middleware/upload_body_limits.MAX_AVATAR_FILE_BYTES 保持一致）。
 MAX_AVATAR_FILE_BYTES = 2 * 1024 * 1024
-# 解码前的像素上限：2MB 的恶意 PNG 可以解出上亿像素。
 MAX_AVATAR_PIXELS = 40_000_000
-# 低于该边长的图放大会糊，直接拒绝并让用户换图。
 MIN_AVATAR_EDGE = 32
 
 AVATAR_OUTPUT_SIZE = 256
 AVATAR_WEBP_QUALITY = 90
 
 ALLOWED_IMAGE_FORMATS = {"PNG", "JPEG", "WEBP"}
-# 客户端声明的 MIME 只作早退；空值 / octet-stream 交给 Pillow 判定。
 ALLOWED_CONTENT_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp"}
-NEUTRAL_BACKDROP = (244, 244, 245)  # 与浅色主题 --sc-muted 一致
+NEUTRAL_BACKDROP = (244, 244, 245)
 
 
 class AvatarImageError(ValueError):

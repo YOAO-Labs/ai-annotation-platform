@@ -1,17 +1,3 @@
-/**
- * 单个正交视图的 2D overlay。
- *
- * B-1 只读画框; B-2 拖边/角改 size/center; B-3 方向线柄绕 box-local 轴旋转 (yaw/pitch/roll)。
- * 数学全走 triview.ts 纯函数 (dragHandle / dragRotation), overlay 不写裸数学。
- *
- * 投影: 把框 4 角 (由实时 box 的 u/v 世界轴 + size 张成) 投进**取景参考系** (拖拽期 = 冻结
- * 起始姿态, 否则 = 框自身)。拖边/角时旋转不变 → 屏上轴对齐矩形; 拖方向线时框绕法线轴转、
- * 相机冻结 → 矩形在屏上真实倾斜、方向线扫过、点不动, 便于对齐朝向。
- *
- * 方向线沿 box-local +u 轴 (= 朝向: Top 朝 X、Side 朝 X、Front 朝 Y), 末端一个旋转柄;
- * 拖它按指针绕框心的角度增量 Δθ 旋转。每视图绕其法线轴, 屏幕 CCW→+Δθ 的手性按视图定 (ROT_SIGN)。
- * module.css → Tailwind。
- */
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 
@@ -29,7 +15,6 @@ import {
   type Psr,
 } from "./geometry/triview";
 
-/** overlay 需要的选中框信息 (size 决定矩形, color 描边)。 */
 export interface TriSelected {
   center: [number, number, number];
   size: [number, number, number];
@@ -37,8 +22,6 @@ export interface TriSelected {
   color: string;
 }
 
-// Tailwind class constants (was ThreeDWorkbench.module.css).
-// pointer-events 必须互斥下发；只读框也要接收 wheel / keyboard 视图缩放。
 const TRI_OVERLAY = "absolute inset-0 z-local-1";
 const TRI_OVERLAY_INTERACTIVE = "pointer-events-auto focus-visible:ring-2 focus-visible:ring-ring";
 const TRI_OVERLAY_INACTIVE = "pointer-events-none";
@@ -49,11 +32,8 @@ const TRI_ANGLE_VALUE = "text-ui font-bold text-brand";
 
 interface TriOrthoViewProps {
   view: TriView;
-  /** 实时 (draft) 选中框; null = 无选中。 */
   selected: TriSelected | null;
-  /** 拖拽期冻结取景参考 (= 起始姿态, 只用 center/size/rotation); null = 无拖拽。 */
   frozen: Psr | null;
-  /** 是否可编辑；false 时不画几何 handle，但仍允许只读缩放视图。 */
   editable: boolean;
   zoom: number;
   onZoomChange: (zoom: number) => void;
@@ -64,15 +44,12 @@ interface TriOrthoViewProps {
 
 type Grab = Handle | "rot";
 
-const HANDLE_TOL = 9; // 边/角命中半径 (px)
-const ROT_TOL = 10; // 旋转柄命中半径 (px)
-const HANDLE_SZ = 6; // handle 方块边长 (px)
-const KNOB_EXT = 22; // 旋转柄相对 +u 边外延 (px; 与 resize 边柄拉开距离, 好区分/好点)
-const KNOB_R = 4; // 旋转柄圆半径 (px)
-// 命中优先级: 旋转柄 > 角 > 边 (角压在两边端点上, 旋转柄在 +u 边外侧)。
+const HANDLE_TOL = 9;
+const ROT_TOL = 10;
+const HANDLE_SZ = 6;
+const KNOB_EXT = 22;
+const KNOB_R = 4;
 const RESIZE_ORDER: Handle[] = ["ne", "nw", "se", "sw", "e", "w", "n", "s"];
-// 每视图绕法线轴旋转的屏幕手性 (屏幕 CCW → +Δθ 的符号; 由 (u×v)·normal 定, 与旋转无关):
-// top: X×Y=+Z, front: Y×Z=+X → +1; side: X×Z=−Y → −1。
 const ROT_SIGN: Record<TriView, 1 | -1> = { top: 1, side: -1, front: 1 };
 const CURSOR: Record<Handle, string> = {
   e: "ew-resize",
@@ -106,10 +83,6 @@ function formatSignedDeg(rad: number, whole = false) {
   return `${deg >= 0 ? "+" : "-"}${text}°`;
 }
 
-/**
- * 把实时框投到取景参考系的屏幕坐标: 4 角 / 框心 / 8 个 resize 柄 / 方向线末端旋转柄。
- * 角由实时 box 的 u/v 世界轴张成 → 旋转时倾斜; 参考系 (ref) 决定相机基与米→px 比例。
- */
 function projectBox(
   view: TriView,
   selected: TriSelected,
@@ -132,7 +105,7 @@ function projectBox(
 
   const toScreen = (w: THREE.Vector3): [number, number] => {
     const d = w.clone().sub(refC);
-    return [cssW / 2 + d.dot(refU) * s, cssH / 2 - d.dot(refV) * s]; // 屏幕 y 朝下 → v 取负
+    return [cssW / 2 + d.dot(refU) * s, cssH / 2 - d.dot(refV) * s];
   };
   const at = (su: number, sv: number) =>
     toScreen(
@@ -160,7 +133,6 @@ function projectBox(
     n: mid(ne, nw),
     s: mid(se, sw),
   };
-  // 旋转柄: 从 +u 边中点再沿该方向外延 KNOB_EXT 像素。
   const eMid = handlePts.e;
   const dx = eMid[0] - center[0];
   const dy = eMid[1] - center[1];
@@ -195,7 +167,6 @@ export function TriOrthoView({
 }: TriOrthoViewProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [angleHud, setAngleHud] = useState<{ label: string; value: string } | null>(null);
-  // 拖拽态: resize (边/角) 用起始 PSR + 累计位移; rot 用绕框心(屏幕中心)的角度增量。用 ref 避重渲。
   const dragRef = useRef<
     | {
         kind: "resize";
@@ -251,13 +222,11 @@ export function TriOrthoView({
     ctx.stroke();
 
     if (!editable) return;
-    // resize 柄 (方块)。
     ctx.fillStyle = selected.color;
     for (const h of RESIZE_ORDER) {
       const [hx, hy] = proj.handlePts[h];
       ctx.fillRect(hx - HANDLE_SZ / 2, hy - HANDLE_SZ / 2, HANDLE_SZ, HANDLE_SZ);
     }
-    // 方向线 + 旋转柄 (圆): 框心 → +u 边 → 外延柄。
     ctx.beginPath();
     ctx.moveTo(proj.center[0], proj.center[1]);
     ctx.lineTo(proj.rotKnob[0], proj.rotKnob[1]);
@@ -279,8 +248,6 @@ export function TriOrthoView({
     return () => ro.disconnect();
   }, [draw]);
 
-  // 最新 props 放 ref, 让下面的交互 effect 用空依赖跑一次: 拖拽中 onDragMove 改 selected (draft)
-  // 不会重跑 effect、不会把 window mousemove/mouseup 监听器拆掉 (否则 mouseup 收不到 → 不提交)。
   const propsRef = useRef({
     view,
     selected,
@@ -303,7 +270,6 @@ export function TriOrthoView({
   };
   const wheelDeltaRef = useRef({ value: 0, sign: 0 });
 
-  // 拖拽: window 级 move/up。resize 用累计位移喂 dragHandle(起始 PSR); rot 用角度增量喂 dragRotation。
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -315,10 +281,10 @@ export function TriOrthoView({
       let psr: Psr;
       if (dr.kind === "resize") {
         const dU = (e.clientX - dr.startX) / dr.s0;
-        const dV = -(e.clientY - dr.startY) / dr.s0; // 屏幕 y 朝下 → v 取负
+        const dV = -(e.clientY - dr.startY) / dr.s0;
         psr = dragHandle(dr.startPsr, view, dr.handle, dU, dV);
       } else {
-        const ang = Math.atan2(-(e.clientY - dr.cyC), e.clientX - dr.cxC); // 数学系 (v 朝上)
+        const ang = Math.atan2(-(e.clientY - dr.cyC), e.clientX - dr.cxC);
         let delta = dr.sign * shortestAngleDelta(ang, dr.startAng);
         if (e.shiftKey) delta = Math.round(delta / DEG) * DEG;
         psr = dragRotation(dr.startPsr, view, delta);
@@ -353,7 +319,6 @@ export function TriOrthoView({
         rotation: selected.rotation,
       };
       if (grab === "rot") {
-        // 框心在屏幕中心 (旋转不移心), 取其 client 坐标当枢轴。
         const cxC = rect.left + proj.center[0];
         const cyC = rect.top + proj.center[1];
         const startAng = Math.atan2(-(e.clientY - cyC), e.clientX - cxC);
@@ -384,7 +349,6 @@ export function TriOrthoView({
       window.addEventListener("mouseup", onUp);
     };
 
-    // 悬停光标反馈 (非拖拽时)。
     const onHover = (e: MouseEvent) => {
       const { view, selected, editable, zoom } = propsRef.current;
       if (dragRef.current || !editable || !selected) return;
@@ -421,15 +385,7 @@ export function TriOrthoView({
         e.preventDefault();
         e.stopImmediatePropagation();
         onZoomChange(stepTriZoom(zoom, direction));
-      } else if (
-        // 0 让位给第十个类别键；聚焦视图缩放重置改为 Shift+物理 Digit0。
-        // 事件在本视图消费，不再下落到类别选择或全局视图重置。
-        e.code === "Digit0" &&
-        e.shiftKey &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey
-      ) {
+      } else if (e.code === "Digit0" && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         e.stopImmediatePropagation();
         onZoomChange(TRI_ZOOM_DEFAULT);

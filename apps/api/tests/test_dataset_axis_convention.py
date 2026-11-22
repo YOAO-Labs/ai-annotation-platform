@@ -48,7 +48,6 @@ async def test_create_dataset_without_axis_convention_defaults_to_none(
     ds_id = uuid.UUID(body["id"])
     ds = await db_session.get(Dataset, ds_id)
     assert ds is not None
-    # server_default '{}' kicks in when service 不写 metadata_。
     assert ds.metadata_ == {}
 
 
@@ -72,7 +71,6 @@ async def test_create_dataset_with_axis_convention_persists(
     assert body["axis_convention"] == "sustechpoints_demo"
 
     ds_id = uuid.UUID(body["id"])
-    # GET 也应回报该值
     get_resp = await httpx_client.get(
         f"/api/v1/datasets/{ds_id}", headers=_bearer(token)
     )
@@ -89,7 +87,6 @@ async def test_update_dataset_without_axis_field_preserves_existing(
 ):
     _, token = super_admin
     name = f"ds-keep-{uuid.uuid4().hex[:6]}"
-    # 先建一个带 apollo 的 dataset
     create_resp = await httpx_client.post(
         "/api/v1/datasets",
         headers=_bearer(token),
@@ -98,7 +95,6 @@ async def test_update_dataset_without_axis_field_preserves_existing(
     assert create_resp.status_code == 201
     ds_id = uuid.UUID(create_resp.json()["id"])
 
-    # PUT 只改 name, 不传 axis_convention
     new_name = f"{name}-renamed"
     update_resp = await httpx_client.put(
         f"/api/v1/datasets/{ds_id}",
@@ -129,7 +125,6 @@ async def test_update_dataset_explicit_none_clears_axis(
     assert create_resp.status_code == 201
     ds_id = uuid.UUID(create_resp.json()["id"])
 
-    # 显式传 null
     update_resp = await httpx_client.put(
         f"/api/v1/datasets/{ds_id}",
         headers=_bearer(token),

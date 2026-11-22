@@ -60,21 +60,18 @@ export function isVideoBbox(
   return ann.geometry.type === "video_bbox";
 }
 
-/** 单帧 polygon 判定 (非 track, 与 isVideoBbox 平行)。 */
 export function isVideoPolygon(
   ann: AnnotationResponse,
 ): ann is AnnotationResponse & { geometry: VideoPolygonGeometry } {
   return ann.geometry.type === "video_polygon";
 }
 
-/** 单帧 polyline 判定 (非 track)。 */
 export function isVideoPolyline(
   ann: AnnotationResponse,
 ): ann is AnnotationResponse & { geometry: VideoPolylineGeometry } {
   return ann.geometry.type === "video_polyline";
 }
 
-/** 单帧旋转矩形 (OBB) 判定 (非 track)。 */
 export function isVideoRotatedBbox(
   ann: AnnotationResponse,
 ): ann is AnnotationResponse & { geometry: VideoRotatedBboxGeometry } {
@@ -87,7 +84,6 @@ export function isVideoKeypoint(
   return ann.geometry.type === "video_keypoint";
 }
 
-/** 旋转矩形四角 (归一化)。cx,cy 中心, w,h 边长, angle 顺时针度。供渲染 <Line closed> / 外接盒。 */
 export function rotatedBboxCorners(g: {
   cx: number;
   cy: number;
@@ -116,14 +112,12 @@ export function isVideoTrack(
   return ann.geometry.type === "video_track_bbox";
 }
 
-/** polygon track 判定 (与 isVideoTrack 平行)。 */
 export function isVideoPolygonTrack(
   ann: AnnotationResponse,
 ): ann is AnnotationResponse & { geometry: VideoTrackPolygonGeometry } {
   return ann.geometry.type === "video_track_polygon";
 }
 
-/** polyline track 判定。 */
 export function isVideoPolylineTrack(
   ann: AnnotationResponse,
 ): ann is AnnotationResponse & { geometry: VideoTrackPolylineGeometry } {
@@ -142,13 +136,6 @@ export function isVideoMask(
   return ann.geometry.type === "video_mask";
 }
 
-/**
- * 视频几何「联合」判定 helper —— 消除管理层(选中卡 / 右键菜单 / 删除)各处
- * 散落的 bbox-only 硬编码。渲染层早已全类型覆盖(videoFrameViews),这些 helper 让选中后的
- * 信息 / 操作也覆盖 polygon / polyline / 旋转框及其 track 变体。
- */
-
-/** 任意视频单帧几何，非 track。 */
 export function isAnyVideoSingleFrame(ann: AnnotationResponse): boolean {
   return (
     isVideoBbox(ann) ||
@@ -160,14 +147,12 @@ export function isAnyVideoSingleFrame(ann: AnnotationResponse): boolean {
   );
 }
 
-/** 单帧「点集 / 旋转」几何 (polygon / polyline / rotated_bbox), 排除 bbox (bbox 有专属交互)。 */
 export function isVideoPointsSingleFrame(ann: AnnotationResponse): ann is AnnotationResponse & {
   geometry: VideoPolygonGeometry | VideoPolylineGeometry | VideoRotatedBboxGeometry;
 } {
   return isVideoPolygon(ann) || isVideoPolyline(ann) || isVideoRotatedBbox(ann);
 }
 
-/** Narrow annotations to any supported video track geometry. */
 export function isAnyVideoTrack(ann: AnnotationResponse): ann is AnnotationResponse & {
   geometry:
     | VideoTrackGeometry
@@ -218,14 +203,12 @@ export function resolveVideoMaskTrackAtFrame(
   };
 }
 
-/** 点集轨迹 (polygon / polyline track), 排除 bbox track (bbox track 有完整关键帧卡)。 */
 export function isVideoPointsTrack(ann: AnnotationResponse): ann is AnnotationResponse & {
   geometry: VideoTrackPolygonGeometry | VideoTrackPolylineGeometry;
 } {
   return isVideoPolygonTrack(ann) || isVideoPolylineTrack(ann);
 }
 
-/** 点集轨迹在某帧的顶点 (精确关键帧 / 插值 / outside→最近关键帧兜底)。供简化点集轨迹卡指标。 */
 export function resolvePointsTrackAtFrame(
   ann: AnnotationResponse & { geometry: VideoTrackPolygonGeometry | VideoTrackPolylineGeometry },
   frameIndex: number,
@@ -332,16 +315,9 @@ export function upsertKeyframe(
     ...keyframe,
   });
   const withKeyframes = { ...track, keyframes: next.sort((a, b) => a.frame_index - b.frame_index) };
-  // 新增可见关键帧时, 自动清除该帧上的 outside 标记。
   return removeOutsideFrame(withKeyframes, frameIndex);
 }
 
-/**
- * polygon/polyline track 在某帧 upsert 一个 points 关键帧(镜像 bbox 的 upsertKeyframe)。
- *
- * 编辑轨迹几何(拖顶点 / 整体平移)时把当前帧落成 manual 关键帧:精确关键帧→替换其 points;
- * 插值帧→物化为新关键帧(与 bbox 拖插值帧生成关键帧同语义)。落新可见关键帧时清该帧 outside。
- */
 export function upsertPointsKeyframe<
   G extends VideoTrackPolygonGeometry | VideoTrackPolylineGeometry,
 >(track: G, frameIndex: number, points: [number, number][]): G {
@@ -415,8 +391,6 @@ export function resolveTrackAtFrame(
   return resolved;
 }
 
-// ── polygon track 弧长参数化插值 (镜像后端 video_tracks.lerp_polygon) ──
-
 type Point = [number, number];
 export type ResolvedPolygonFrame = {
   points: Point[];
@@ -424,13 +398,11 @@ export type ResolvedPolygonFrame = {
   occluded?: boolean;
 };
 
-// round 到 6 位并把 -0 归一化为 0 (避免下游 toEqual / 序列化区分负零)。
 const round6 = (v: number) => {
   const r = Math.round(v * 1e6) / 1e6;
   return r === 0 ? 0 : r;
 };
 
-/** 把闭合多边形按弧长重采样为 n 个等距顶点 (从 index 0 起)。退化时安全回退。 */
 export function resampleClosedPolygon(points: Point[], n: number): Point[] {
   const pts = points.filter((p) => p.length >= 2);
   if (n <= 0 || pts.length < 2) return pts.map((p) => [p[0], p[1]] as Point);
@@ -457,7 +429,6 @@ export function resampleClosedPolygon(points: Point[], n: number): Point[] {
   return out;
 }
 
-/** 选 b 的循环起点使与 a 逐点距离和最小, 减少插值中途扭曲。 */
 function bestRotationOffset(a: Point[], b: Point[]): number {
   const n = a.length;
   if (n === 0 || b.length !== n) return 0;
@@ -477,7 +448,6 @@ function bestRotationOffset(a: Point[], b: Point[]): number {
   return bestOffset;
 }
 
-/** polygon 关键帧插值: 弧长重采样到公共顶点数 + 旋转对齐后逐点 lerp。 */
 export function interpolatePolygon(
   a: VideoTrackPolygonKeyframe,
   b: VideoTrackPolygonKeyframe,
@@ -499,7 +469,6 @@ export function interpolatePolygon(
   });
 }
 
-/** 解析 polygon track 在某帧的多边形 (精确关键帧 / 弧长插值 / outside → null)。 */
 export function resolveVideoPolygonTrackAtFrame(
   track: VideoTrackPolygonGeometry,
   frameIndex: number,
@@ -528,9 +497,6 @@ export function resolveVideoPolygonTrackAtFrame(
   return { points: interpolatePolygon(before, after, frameIndex), source: "interpolated" };
 }
 
-// ── polyline (开路径) track 插值 (镜像后端 lerp_polyline) ──
-
-/** 把开路径折线按弧长重采样为 n 个等距顶点 (含首尾端点, 不闭合)。退化时安全回退。 */
 export function resampleOpenPolyline(points: Point[], n: number): Point[] {
   const pts = points.filter((p) => p.length >= 2);
   if (n <= 1 || pts.length < 2) return pts.map((p) => [p[0], p[1]] as Point);
@@ -557,7 +523,6 @@ export function resampleOpenPolyline(points: Point[], n: number): Point[] {
   return out;
 }
 
-/** polyline 关键帧插值: 开路径弧长重采样到公共顶点数 + 逐点 lerp (端点固定对应, 无旋转对齐)。 */
 export function interpolatePolyline(
   a: VideoTrackPolylineKeyframe,
   b: VideoTrackPolylineKeyframe,
@@ -578,7 +543,6 @@ export function interpolatePolyline(
   });
 }
 
-/** 解析 polyline track 在某帧的折线 (精确关键帧 / 开路径插值 / outside → null)。 */
 export function resolveVideoPolylineTrackAtFrame(
   track: VideoTrackPolylineGeometry,
   frameIndex: number,
@@ -629,10 +593,6 @@ export function nearestTrackKeyframe(
     : after;
 }
 
-/**
- * polygon/polyline track 在某帧无实框时的「参考顶点」: 取最近可见关键帧的 points。
- * 与 bbox 的 nearestTrackKeyframe 对齐, 供点集轨迹的 ghost / carry-over 参考虚影使用。
- */
 export function nearestPointsTrackKeyframe(
   track: VideoTrackPolygonGeometry | VideoTrackPolylineGeometry,
   frameIndex: number,
@@ -662,27 +622,12 @@ export function nearestPointsTrackKeyframe(
 
 export interface TrackReferenceResult {
   bbox: VideoStageGeom;
-  /** true = 运动预测(linear / kalman);false = 直接取最近关键帧(回退或 mode=off)。 */
   predicted: boolean;
-  /** 预测算法:`predicted` 为 true 时区分恒速外推 / 完整卡尔曼。 */
   predictedKind?: "linear" | "kalman";
-  /** 参考来源帧:predicted 时为外推/滤波基准帧,否则为最近关键帧帧号。 */
   originFrame: number;
-  /** kalman 模式输出的位置后验标准差(归一化坐标),用于画预测不确定度误差椭圆;其它模式 undefined。 */
   uncertainty?: { sx: number; sy: number; sw: number; sh: number };
 }
 
-/**
- * 选中轨迹在当前帧无实框时的「参考框」几何。
- *
- * - `mode="off"`(现状):直接取最近关键帧的 bbox。
- * - `mode="linear"`:取当前帧**之前**最近两个可见关键帧,按恒速线性外推到当前帧
- *   (恒速卡尔曼的预测步)。
- * - `mode="kalman"`:遍历当前帧之前**所有**可见关键帧前向滤波(predict→update)得到
- *   平滑后验,再外推到当前帧;`preset` 选噪声档位(平稳 / 灵敏)。见 `videoReferenceKalman.ts`。
- *
- * 先行可见关键帧不足两个时,linear / kalman 均回退到最近关键帧(`predicted=false`)。
- */
 export function trackReferenceAtFrame(
   track: VideoTrackGeometry,
   frameIndex: number,
@@ -701,7 +646,6 @@ export function trackReferenceAtFrame(
   if (!k2 || !k1) return { bbox: nearest.bbox, predicted: false, originFrame: nearest.frame_index };
 
   if (mode === "kalman") {
-    // 当前帧之前的所有可见关键帧(升序、长度 ≥ 2,priorIndex+1 == k2 之后的切片端点)。
     const prior = keyframes.slice(0, priorIndex + 1);
     const result = runReferenceKalman(
       prior.map((kf) => ({
@@ -755,13 +699,6 @@ export function shortTrackId(trackId: string) {
   return trackId.length > 8 ? trackId.slice(0, 8) : trackId;
 }
 
-/**
- * D-2.1a 确定性派生 track_number, 不持久化。
- *
- * 按「首关键帧 frame_index 升序、并列再按 track_id 字典序」给每条 video_track 派生
- * 1..N 的显示/导出编号。改采样 / 增删 track 时编号自然重排, 符合 D2。
- * 返回 `Map<annotationId, number>`。
- */
 export function deriveTrackNumber(
   tracks: ReadonlyArray<{
     id: string;

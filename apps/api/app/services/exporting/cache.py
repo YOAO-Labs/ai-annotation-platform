@@ -92,8 +92,6 @@ async def record(db: AsyncSession, *, cache_key: str, output, batch_id):
         "expires_at": receipt.expires_at,
         "output_id": receipt.id,
     }
-    # A lost/expired Redis single-flight lease can leave two legitimate writers.
-    # Both own separate objects; retain the first still-valid cache index.
     await db.execute(
         insert(ExportArtifact)
         .values(id=uuid.uuid4(), cache_key=cache_key, **values)

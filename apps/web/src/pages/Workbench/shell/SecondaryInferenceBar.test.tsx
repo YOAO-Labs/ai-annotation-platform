@@ -1,8 +1,3 @@
-// SecondaryInferenceBar (下拉选能力 + 运行 悬浮面板) 组件测试:
-// - 无能力 / readOnly → 不渲染
-// - 有能力 → 渲染分组下拉 + 运行按钮; 运行选中能力 → 调 run + toast (几何/属性 sub)
-// - attributes-型选中且缺承接字段 → 出现补全 CTA; 运行后 warning toast
-// - 有可调参数 → ⚙ 显隐 + 展开参数面板
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, render as rtlRender, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -22,7 +17,7 @@ const capabilitiesRef: { current: SecondaryCapability[] } = { current: [] };
 vi.mock("../state/useSecondaryInference", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../state/useSecondaryInference")>();
   return {
-    ...actual, // 保留 missingAttributeFields / hasConfigurableParams / buildSecondaryInferencePayload 真实实现
+    ...actual,
     useSecondaryCapabilities: () => ({
       capabilities: capabilitiesRef.current,
       isLoading: false,
@@ -59,8 +54,6 @@ const annotation = {
   class_name: "car",
 } as AnnotationResponse;
 
-// SecondaryInferenceBar 内 useSecondaryParamPrefs 改走共享 useUserPreferences
-// (react-query), 需 QueryClientProvider。测试无登录用户 → query disabled, 不发 GET。
 let queryClient: QueryClient;
 const wrapper = ({ children }: { children: ReactNode }) =>
   createElement(QueryClientProvider, { client: queryClient }, children);
@@ -290,7 +283,7 @@ describe("SecondaryInferenceBar", () => {
 
   it("有变体轴的能力 → 渲染档位下拉; 无变体轴 → 无", () => {
     capabilitiesRef.current = [
-      attrCap(), // 无 supported_variants 的分类器
+      attrCap(),
       {
         backendId: "be-2",
         backendName: "yolo",
@@ -312,9 +305,7 @@ describe("SecondaryInferenceBar", () => {
     const { getByTestId, queryByTestId } = render(
       <SecondaryInferenceBar projectId="p" taskId="task-1" annotation={annotation} />,
     );
-    // 默认选中首个 (无变体轴的分类器) → 无档位下拉。
     expect(queryByTestId("ai-variant-size")).toBeNull();
-    // 切到有变体轴的几何能力 → 出现档位下拉。
     fireEvent.change(getByTestId("secondary-cap-select"), {
       target: { value: "be-2:det" },
     });
@@ -322,7 +313,6 @@ describe("SecondaryInferenceBar", () => {
   });
 
   it("OCR 属性能力有变体轴 → 也渲染档位下拉 (不再只认几何)", () => {
-    // rapidocr rec/e2e 是 attributes 写回, 但声明了 version/size/lang 轴, 档位下拉必须出现。
     capabilitiesRef.current = [
       attrCap({
         id: "ocr-rec",
@@ -361,11 +351,9 @@ describe("SecondaryInferenceBar", () => {
     const { getByTestId } = render(
       <SecondaryInferenceBar projectId="p" taskId="task-1" annotation={annotation} />,
     );
-    // 文本框出现, 空文本 → 运行禁用。
     const input = getByTestId("secondary-prompt") as HTMLInputElement;
     expect(input).toBeTruthy();
     expect((getByTestId("secondary-run") as HTMLButtonElement).disabled).toBe(true);
-    // 填文本 → 可运行, payload 带 prompt。
     fireEvent.change(input, { target: { value: "car . person" } });
     expect((getByTestId("secondary-run") as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(getByTestId("secondary-run"));

@@ -10,7 +10,6 @@ def test_project_schema_validates_attribute_hotkey():
     from yoao_workspace.configuration_requests import ProjectUpdate
     from pydantic import ValidationError
 
-    # ✅ valid：boolean + 数字 hotkey
     ok = ProjectUpdate.model_validate(
         {
             "attribute_schema": {
@@ -34,7 +33,6 @@ def test_project_schema_validates_attribute_hotkey():
     )
     assert ok.attribute_schema is not None
 
-    # ❌ hotkey 重复
     with pytest.raises(ValidationError):
         ProjectUpdate.model_validate(
             {
@@ -47,7 +45,6 @@ def test_project_schema_validates_attribute_hotkey():
             }
         )
 
-    # ❌ hotkey 不是 1-9
     with pytest.raises(ValidationError):
         ProjectUpdate.model_validate(
             {
@@ -59,7 +56,6 @@ def test_project_schema_validates_attribute_hotkey():
             }
         )
 
-    # ❌ hotkey 用在 text 字段上（不支持）
     with pytest.raises(ValidationError):
         ProjectUpdate.model_validate(
             {
@@ -97,7 +93,6 @@ def test_project_rendering_config_validation():
     from yoao_workspace.configuration_requests import ProjectUpdate
     from pydantic import ValidationError
 
-    # 全字段合法
     pu = ProjectUpdate.model_validate(
         {
             "rendering_config": {
@@ -118,29 +113,24 @@ def test_project_rendering_config_validation():
     assert pu.rendering_config.propagateOverwrite is False
     assert pu.rendering_config.trackerDefaultModel == "sam2_video"
 
-    # 部分字段：未提供的字段 = None（前端按 None 视作「不覆盖」）
     pu2 = ProjectUpdate.model_validate({"rendering_config": {"smoothImage": True}})
     assert pu2.rendering_config is not None
     assert pu2.rendering_config.smoothImage is True
     assert pu2.rendering_config.cssImageFilter is None
 
-    # 拒绝 extra key（防 typo）
     with pytest.raises(ValidationError):
         ProjectUpdate.model_validate({"rendering_config": {"bogus": 1}})
 
-    # controlPointsSize 越界
     with pytest.raises(ValidationError):
         ProjectUpdate.model_validate({"rendering_config": {"controlPointsSize": 1}})
     with pytest.raises(ValidationError):
         ProjectUpdate.model_validate({"rendering_config": {"controlPointsSize": 21}})
 
-    # cssImageFilter 超长
     with pytest.raises(ValidationError):
         ProjectUpdate.model_validate(
             {"rendering_config": {"cssImageFilter": "x" * 300}}
         )
 
-    # box3dDefaultSize 必须是三元正数
     with pytest.raises(ValidationError):
         ProjectUpdate.model_validate({"rendering_config": {"box3dDefaultSize": [4, 2]}})
     with pytest.raises(ValidationError):

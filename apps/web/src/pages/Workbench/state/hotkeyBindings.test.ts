@@ -78,14 +78,14 @@ describe("候选编辑冲突检查", () => {
 
   it("新组合撞上其他可编辑命令 → 拒绝并命名对方", () => {
     const conflicts = findBindingConflicts({
-      commandId: "image.tool.keypoint", // F
-      bindings: [bind("o")], // video.track.outside 同键但 image/video 域不相交 → 换一个真正冲突的
+      commandId: "image.tool.keypoint",
+      bindings: [bind("o")],
       effective,
     });
     expect(conflicts.filter((c) => !c.fixed)).toEqual([]);
     const overlap = findBindingConflicts({
       commandId: "image.tool.keypoint",
-      bindings: [bind("b")], // 图片 box 工具
+      bindings: [bind("b")],
       effective,
     });
     expect(overlap.map((c) => c.targetId)).toContain("image.tool.box");
@@ -95,7 +95,7 @@ describe("候选编辑冲突检查", () => {
   it("与 Fixed 命令重叠 → 拒绝并给出上下文说明", () => {
     const conflicts = findBindingConflicts({
       commandId: "image.tool.keypoint",
-      bindings: [bind("n")], // 智能切题（fixed.image.smartNext）
+      bindings: [bind("n")],
       effective,
     });
     expect(conflicts.map((c) => c.targetId)).toContain("fixed.image.smartNext");
@@ -106,7 +106,7 @@ describe("候选编辑冲突检查", () => {
   it("common 域命令与 3D Fixed 键重叠 → 拒绝", () => {
     const conflicts = findBindingConflicts({
       commandId: "common.task.next",
-      bindings: [bind("arrowright", "shift")], // 3D 跨帧延续
+      bindings: [bind("arrowright", "shift")],
       effective,
     });
     expect(conflicts.map((c) => c.targetId)).toContain("fixed.threed.propagate");
@@ -156,11 +156,9 @@ describe("生效绑定解析", () => {
     });
     expect(effective.get("image.tool.keypoint")?.conflictsWith).toContain("image.tool.box");
     expect(effective.get("image.tool.box")?.conflictsWith).toContain("image.tool.keypoint");
-    // 运行期匹配对冲突命令一律不命中（执行方吞掉事件，入口保留在指针操作）。
     const matcher = createCommandEventMatcher(ev({ key: "b" }), effective, "image");
     expect(matcher.match("image.tool.box")).toBe(false);
     expect(matcher.match("image.tool.keypoint")).toBe(false);
-    // 冲突仍要被识别并上报：两条覆盖互撞时不能静默丢弃事件。
     expect(matcher.conflict).toBe(true);
   });
 });
@@ -230,7 +228,6 @@ describe("录制规范化", () => {
   });
 
   it("拒绝无法持久化的命名键，与存量解析保持一致", () => {
-    // 录制若接受 F13 / Dead，写入会被保存却在重新解析时判为非法并回退默认。
     expect(normalizeRecordedEvent(ev({ key: "F13" })).reason).toBe("unsupported");
     expect(normalizeRecordedEvent(ev({ key: "Dead" })).reason).toBe("unsupported");
     expect(normalizeRecordedEvent(ev({ key: "F5" })).binding).toEqual({

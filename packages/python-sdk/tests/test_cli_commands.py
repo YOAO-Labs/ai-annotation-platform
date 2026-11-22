@@ -28,7 +28,6 @@ def _plain(text: str) -> str:
     return re.sub(r"\s+", " ", _ANSI.sub("", text))
 
 
-# 固定宽度 + 禁色, 让 rich 输出稳定可断言
 ENV = {
     "YOAO_BASE_URL": BASE,
     "YOAO_API_KEY": "ak_test",
@@ -79,14 +78,10 @@ def _job(status: str, **extra) -> dict:
 
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch, tmp_path):
-    # 隔离宿主机环境变量与真实 config.toml; 轮询不真实 sleep
     monkeypatch.delenv("YOAO_BASE_URL", raising=False)
     monkeypatch.delenv("YOAO_API_KEY", raising=False)
     monkeypatch.setattr("yoao.config.config_path", lambda: tmp_path / "config.toml")
     monkeypatch.setattr("yoao.client.time.sleep", lambda s: None)
-
-
-# ---------- projects ----------
 
 
 def test_projects_list_table(respx_mock):
@@ -116,7 +111,6 @@ def test_projects_list_json(respx_mock):
     )
     result = runner.invoke(app, ["projects", "list", "--json"], env=ENV)
     assert result.exit_code == 0
-    # 裸 JSON, 无 rich 装饰
     data = json.loads(result.stdout)
     assert data[0]["display_id"] == "P-1"
     assert data[0]["status"] == "active"
@@ -253,7 +247,7 @@ def test_projects_create(respx_mock):
     body = json.loads(route.calls.last.request.content)
     assert body["name"] == "demo"
     assert body["data_type"] == "image"
-    assert PROJECT["id"] in _plain(result.output)  # 成功输出新项目 id
+    assert PROJECT["id"] in _plain(result.output)
 
 
 def test_projects_create_json(respx_mock):
@@ -267,9 +261,6 @@ def test_projects_create_json(respx_mock):
     )
     assert result.exit_code == 0
     assert json.loads(result.stdout)["id"] == PROJECT["id"]
-
-
-# ---------- 错误路径 ----------
 
 
 def test_401_hints_login(respx_mock):
@@ -288,7 +279,7 @@ def test_401_json_mode_plain_error(respx_mock):
     )
     result = runner.invoke(app, ["projects", "list", "--json"], env=ENV)
     assert result.exit_code == 1
-    assert result.stdout.strip() == ""  # stdout 无半截 JSON
+    assert result.stdout.strip() == ""
     assert "yoao login" in result.stderr
 
 
@@ -298,9 +289,6 @@ def test_unconfigured_exits_with_hint():
     plain = _plain(result.stderr)
     assert "yoao login" in plain
     assert "YOAO_BASE_URL" in plain
-
-
-# ---------- login ----------
 
 
 def test_login_saves_config_0600(respx_mock, tmp_path):
@@ -314,11 +302,9 @@ def test_login_saves_config_0600(respx_mock, tmp_path):
     assert 'api_key = "ak_new"' in cfg.read_text()
     assert (cfg.stat().st_mode & 0o777) == 0o600
     plain = _plain(result.output)
-    # 去掉所有空白再比对: 长 tmp 路径在窄终端会被 rich 折行, _plain 把换行归一成空格,
-    # 会把 "config.toml" 拆成 "co nfig.toml", 故剥离空白还原后再断言
     nospace = plain.replace(" ", "")
-    assert "config.toml" in nospace  # 提示配置文件路径
-    assert "0600" in nospace  # 提示权限说明
+    assert "config.toml" in nospace
+    assert "0600" in nospace
 
 
 def test_login_prompts_hidden_api_key(respx_mock, tmp_path):
@@ -327,13 +313,12 @@ def test_login_prompts_hidden_api_key(respx_mock, tmp_path):
         app, ["login", "--url", BASE], input="ak_prompt\n", env=NO_AUTH_ENV
     )
     assert result.exit_code == 0
-    assert "ak_prompt" not in result.output  # 隐藏输入不回显
+    assert "ak_prompt" not in result.output
     assert 'api_key = "ak_prompt"' in (tmp_path / "config.toml").read_text()
 
 
 def test_login_prompts_url(respx_mock, tmp_path):
     respx_mock.get(f"{API}/projects").mock(return_value=httpx.Response(200, json=[]))
-    # 省略 --url / --api-key, 依次交互输入平台地址与 key
     result = runner.invoke(
         app, ["login"], input=f"{BASE}\nak_prompt\n", env=NO_AUTH_ENV
     )
@@ -363,9 +348,6 @@ def test_login_json(respx_mock, tmp_path):
     data = json.loads(result.stdout)
     assert data["base_url"] == BASE
     assert data["config_path"] == str(tmp_path / "config.toml")
-
-
-# ---------- datasets ----------
 
 
 def test_datasets_create(respx_mock):
@@ -489,7 +471,7 @@ def test_datasets_link_waits_async_job(respx_mock):
     )
     result = runner.invoke(app, ["datasets", "link", DS_ID, pid], env=ENV)
     assert result.exit_code == 0
-    assert poll.call_count == 2  # 自动 jobs.wait 轮询到终态
+    assert poll.call_count == 2
     assert "completed" in _plain(result.output)
 
 
@@ -511,9 +493,6 @@ def test_datasets_link_sync(respx_mock):
     data = json.loads(result.stdout)
     assert data["link"]["created_tasks"] == 7
     assert data["job"] is None
-
-
-# ---------- predictions ----------
 
 
 @pytest.mark.parametrize("dry_run", [True, False])
@@ -570,9 +549,6 @@ def test_predictions_import_json_dry_run(respx_mock, tmp_path):
     assert data["dry_run"] is True
 
 
-# ---------- jobs ----------
-
-
 def test_jobs_wait_success(respx_mock):
     poll = respx_mock.get(f"{API}/async-jobs/{JOB_ID}").mock(
         side_effect=[
@@ -596,7 +572,7 @@ def test_jobs_wait_json(respx_mock):
     )
     result = runner.invoke(app, ["jobs", "wait", JOB_ID, "--json"], env=ENV)
     assert result.exit_code == 0
-    data = json.loads(result.stdout)  # 无进度条干扰, stdout 可整体解析
+    data = json.loads(result.stdout)
     assert data["status"] == "completed"
     assert data["progress_pct"] == 100
 
@@ -628,9 +604,6 @@ def test_jobs_cancel_conflict(respx_mock):
     result = runner.invoke(app, ["jobs", "cancel", JOB_ID], env=ENV)
     assert result.exit_code == 1
     assert "Traceback" not in result.stderr
-
-
-# ---------- ml-backends ----------
 
 
 def _ml_backend() -> dict:
@@ -683,9 +656,6 @@ def test_ml_backends_list_json(respx_mock):
     data = json.loads(result.stdout)
     assert data[0]["state"] == "connected"
     assert data[0]["health_meta"]["model_version"] == "v1.2"
-
-
-# ---------- export ----------
 
 
 def _mock_export_flow(respx_mock, pid: str) -> None:
@@ -755,7 +725,6 @@ def test_export_project_multi_target_options(respx_mock):
     route = respx_mock.post(f"{API}/projects/{pid}/export").mock(
         return_value=httpx.Response(202, json={"job_id": JOB_ID})
     )
-    # --no-wait: 只创建, 不下载; 多 target + 选项透传到 query
     result = runner.invoke(
         app,
         [
@@ -786,7 +755,6 @@ def test_export_project_multi_target_options(respx_mock):
 def test_export_project_wait_requires_out(respx_mock):
     pid = str(uuid4())
     _mock_export_flow(respx_mock, pid)
-    # --wait (默认) 但缺 --out → BadParameter, 非 0 退出
     result = runner.invoke(app, ["export", "project", pid, "--target", "coco"], env=ENV)
     assert result.exit_code != 0
 
@@ -928,9 +896,6 @@ def test_batch_download_voc_command_streams_binary_json_result(respx_mock, tmp_p
     assert route.calls.last.request.url.params.get_list("targets") == ["voc"]
 
 
-# ---------- batches / members / me ----------
-
-
 def test_batches_list_table(respx_mock):
     pid = str(uuid4())
     respx_mock.get(f"{API}/projects/{pid}/batches").mock(
@@ -1026,9 +991,6 @@ def test_me_command(respx_mock):
     plain = _plain(result.output)
     assert "project_admin" in plain
     assert "me@x.io" in plain
-
-
-# ---------- stats / dashboard ----------
 
 
 def test_stats_command(respx_mock):

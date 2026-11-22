@@ -56,7 +56,6 @@ def _encode(stage, encode, *, inspect_dimensions):
 
 
 async def _error(db, kind, identifier, source, revision, exc):
-    # Keep Dataset's existing stable error metadata, only for the same original.
     if kind != "dataset_item" or source is None:
         return
     await db.rollback()
@@ -109,7 +108,6 @@ async def generate(
             dimensions = await dimensions_probe(db, kind, identifier)
             await db.rollback()
             if missing:
-                # Preserve the existing first-size commit, then pin its real facts.
                 current = await _current(db, kind, identifier, source, revision)
                 current.width, current.height = dimensions
                 await db.commit()
@@ -124,12 +122,15 @@ async def generate(
                 if execution is not None and execution.kind == "backfill":
                     if kind != "dataset_item":
                         raise ContentError("fixture_media_scope_mismatch")
-                    await fixture_media_execution.enqueue_pyramid(db, identifier, delegation)
+                    await fixture_media_execution.enqueue_pyramid(
+                        db, identifier, delegation
+                    )
                 else:
                     from app.workers.image_pyramid import enqueue_image_pyramid
 
                     await enqueue_image_pyramid(
-                        db, kind,
+                        db,
+                        kind,
                         identifier,
                         **({"force": True} if kind == "task" else {}),
                         delegation=delegation,
@@ -162,9 +163,6 @@ async def generate(
             input_ref={"source": thumbnail_outputs.source_facts(source)},
             body=body,
         )
-        # create() has closed its physical handles and persisted ready independently.
-        # Re-pin under NOWAIT locks only now; an unattached candidate stays durable
-        # if this final source/business check loses a race.
         row = await _current(db, kind, identifier, source, revision)
         async with original_sources._reads(db, True):
             ready = await db.scalar(
@@ -233,6 +231,8 @@ async def generate(
         if errors:
             if failure is not None:
                 errors.insert(0, failure)
-            combined = BaseExceptionGroup("Thumbnail generation and cleanup failed", errors)
+            combined = BaseExceptionGroup(
+                "Thumbnail generation and cleanup failed", errors
+            )
             storage_access.mark_unsettled(combined)
             raise combined from None

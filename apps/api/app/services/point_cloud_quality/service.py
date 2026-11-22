@@ -845,7 +845,6 @@ async def refresh_issue_staleness_bulk(
             if issue.id not in stale_ids:
                 continue
             cached = db.identity_map.get(identity_key(PointCloudQualityIssue, issue.id))
-            # Update cached identities after the owner write without ORM UPDATEs.
             for target in (issue, cached):
                 if target is not None:
                     set_committed_value(target, "status", "stale")

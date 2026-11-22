@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 
 _API_PREFIX = "/api/v1"
 _WRITE_METHODS = {"POST", "PATCH", "PUT", "DELETE"}
-# 跳过的路径：登录 body 含明文密码，注册体含密码且接口本身会显式打点
 _SKIP_PATHS = {
     "/api/v1/auth/login",
     "/api/v1/auth/register",
@@ -54,7 +53,6 @@ class AuditMiddleware(BaseHTTPMiddleware):
         try:
             payload = _build_payload(request, response.status_code)
             if settings.audit_async:
-                # selected queue delivery; broker failure falls back to sync
                 if not _enqueue_audit(payload):
                     await _persist_audit_sync(payload)
             else:

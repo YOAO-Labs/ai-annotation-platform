@@ -35,7 +35,6 @@ class NotificationPreferenceItem(BaseModel):
     type: str
     in_app: bool = True
     email: bool = False
-    # Effective popup choice: stored override, else the type's default.
     toast: bool = False
 
 
@@ -121,7 +120,6 @@ async def mark_read(
             status_code=404, detail="Notification not found or already read"
         )
     await db.commit()
-    # Commit-ordered sync: another session receiving this event reads committed state.
     await svc.publish_sync(user.id, reason="read")
     return {"ok": True}
 

@@ -1,6 +1,3 @@
-// Account-scoped shortcut preferences have one persistence owner. Runtime bindings
-// come from confirmed query data; editing previews also include pending/failed writes.
-
 import { useCallback, useEffect, useMemo, useReducer } from "react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { authApi, type UserPreferences, type UserPreferencesPatch } from "@/api/auth";
@@ -16,7 +13,6 @@ import { useUserPreferences, userPreferencesQueryKey } from "./useUserPreference
 export interface ShortcutWriteRequest {
   domain: ShortcutDomain;
   commandId: string;
-  /** null = 恢复默认；[] = 停用；非空 = 整体替换该命令的组合列表。 */
   bindings: ShortcutBinding[] | null;
 }
 
@@ -27,8 +23,6 @@ export interface ShortcutSaveFailure {
   request: ShortcutWriteRequest;
 }
 
-// Preserve the per-command in-flight barrier across hook lifetimes. A new owner
-// must wait for an already dispatched request, even after its former owner retires.
 const writeChains = new WeakMap<QueryClient, Map<string, Promise<void>>>();
 
 export function useWorkbenchShortcutPreferences() {
@@ -40,8 +34,6 @@ export function useWorkbenchShortcutPreferences() {
   const effective = useMemo(() => resolveEffectiveCommands(parsed.overrides), [parsed.overrides]);
   const loadFailed = prefs === undefined && !!error;
 
-  // Each identity owns its edits and UI state. Retired promises retain only that
-  // session; its cleanup never removes the shared in-flight request barrier.
   const session = useMemo(
     () => ({
       userId,
@@ -70,24 +62,17 @@ export function useWorkbenchShortcutPreferences() {
 
   const runWrite = useCallback(
     async (request: ShortcutWriteRequest) => {
-      // Recheck immediately before dispatch: apiClient reads the current credentials.
       if (!ownsSession() || !session.userId) return;
       const payload: UserPreferencesPatch = {
         workbench: {
           shortcuts: {
-            // Do not send schemaVersion: this targeted write must not downgrade a
-            // subtree retained from a newer client.
             [request.domain]: { [request.commandId]: request.bindings },
           },
         },
       };
       const response = await authApi.updatePreferences(payload);
-      // A completed write remains authoritative after leaving the page, provided
-      // its account still owns the credentials. Only queue/UI work needs a live session.
       if (!isCurrentAuthOwner(session.userId)) return;
       const queryKey = userPreferencesQueryKey(session.userId);
-      // A GET started while PATCH was in flight may still contain the previous key.
-      // Cancel it through the shared query lifecycle before installing confirmed data.
       await queryClient.cancelQueries({ queryKey, exact: true });
       if (!isCurrentAuthOwner(session.userId)) return;
       queryClient.setQueryData<UserPreferences>(queryKey, (previous) => {
@@ -99,8 +84,6 @@ export function useWorkbenchShortcutPreferences() {
         const saved = returned?.[request.domain]?.[request.commandId];
         if (saved === undefined) delete bucket[request.commandId];
         else bucket[request.commandId] = saved;
-        // PATCH confirms this command only. Other shortcut commands, workspace and
-        // settings may already have newer responses in the same preferences query.
         return {
           ...previous,
           workbench: {
@@ -116,7 +99,6 @@ export function useWorkbenchShortcutPreferences() {
   const saveCommand = useCallback(
     (input: ShortcutWriteRequest) => {
       if (!loaded || loadFailed || !ownsSession()) return;
-      // A distinct immutable request identity also protects retry/discard races.
       const request = {
         ...input,
         bindings:
@@ -154,7 +136,6 @@ export function useWorkbenchShortcutPreferences() {
           }
         })
         .finally(() => {
-          // An older failure must not delete the chain already waiting behind it.
           if (chains.get(chainKey) === chain) chains.delete(chainKey);
         });
       chains.set(chainKey, chain);
@@ -170,7 +151,6 @@ export function useWorkbenchShortcutPreferences() {
     [session, saveCommand],
   );
 
-  /** 放弃尚未发出的编辑；已经发出的请求仍以服务端实际结果更新生效值。 */
   const discardPending = useCallback(
     (domain: ShortcutDomain, commandId: string) => {
       if (!ownsSession()) return;
@@ -197,8 +177,6 @@ export function useWorkbenchShortcutPreferences() {
       pendingKeys: new Set(session.pending) as ReadonlySet<string>,
       failedMap: new Map(session.failures) as ReadonlyMap<string, ShortcutSaveFailure>,
     };
-    // revision publishes changes to this session's queue without sharing mutable
-    // maps with consumers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parsed.overrides, session, revision]);
 
@@ -206,9 +184,7 @@ export function useWorkbenchShortcutPreferences() {
     overrides: parsed.overrides,
     issues: parsed.issues,
     opaque: parsed.opaque,
-    /** 仅供执行：服务端已确认的命令表。 */
     effective,
-    /** 仅供编辑和冲突检查：包含待保存与保存失败的最新组合。 */
     previewEffective,
     loaded: loaded && !loadFailed,
     loadError: loadFailed ? error : null,

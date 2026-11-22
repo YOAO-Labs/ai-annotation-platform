@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from yoao_task_contract import TASK_VALUES as TASK_VALUES
 
-# `/setup.infra` / `/setup.models[].infra` 受控值. 与 capability_registry.INFRAS 同源.
 INFRA_VALUES: tuple[str, ...] = (
     "pytorch",
     "onnx",
@@ -22,7 +21,6 @@ INFRA_VALUES: tuple[str, ...] = (
     "other",
 )
 
-# `/setup.models[].supported_geometric_outputs` 受控值. 与 capability_registry.GEOMETRIES 同源.
 GEOMETRY_VALUES: tuple[str, ...] = (
     "bbox",
     "rotated_bbox",
@@ -35,8 +33,6 @@ GEOMETRY_VALUES: tuple[str, ...] = (
     "none",
 )
 
-# `/setup.supported_prompts` / `/setup.models[].supported_prompts` 受控值.
-# 协议 v2 §4.1.3 定义. `none` = 纯批量, 无交互式 prompt (yolo / ocr / layout 等).
 PROMPT_VALUES: tuple[str, ...] = (
     "none",
     "point",
@@ -50,7 +46,6 @@ PROMPT_VALUES: tuple[str, ...] = (
     "bbox",
 )
 
-# `/setup.models[].supported_inputs` 受控值. `video` 只能由 backend 显式声明, 平台不合成。
 INPUT_VALUES: tuple[str, ...] = (
     "full_image",
     "crop",
@@ -61,8 +56,6 @@ INPUT_VALUES: tuple[str, ...] = (
     "video",
 )
 
-# task → 默认几何输出 (capability_registry.TASK_DEFAULT_GEOMETRY 镜像).
-# backend 没显式声明 `supported_geometric_outputs` 时, apps/api 会合成此默认。
 TASK_DEFAULT_GEOMETRY: dict[str, tuple[str, ...]] = {
     "detect": ("bbox",),
     "obb": ("rotated_bbox",),

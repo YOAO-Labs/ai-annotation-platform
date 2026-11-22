@@ -78,7 +78,6 @@ describe("useAvatarMutation 完成时的账号归属校验", () => {
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    // 写回会把旧 token / 旧用户重新塞进 store,等于撤销登出。
     expect(useAuthStore.getState().token).toBeNull();
     expect(useAuthStore.getState().user).toBeNull();
   });
@@ -95,7 +94,6 @@ describe("useAvatarMutation 完成时的账号归属校验", () => {
     act(() => {
       void result.current.mutate("preset:pixel-01");
     });
-    // 另一个标签页已把共享凭据换成 u2。
     act(() => {
       useAuthStore.setState({ token: "t2", user: meUser("u2", null) });
       localStorage.setItem("token", "t2");

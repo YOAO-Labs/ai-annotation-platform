@@ -8,8 +8,6 @@ export async function closeRasterBrowser(server: BrowserServer): Promise<void> {
     : new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
         child.once("exit", (code, signal) => resolve({ code, signal }));
       });
-  // Playwright can resolve close() after force-killing its own browser. The
-  // exact ChildProcess outcome, not that resolved promise, is the close proof.
   await server.close();
   const { code, signal } = await outcome;
   if (alreadyExited || code !== 0 || signal !== null) {

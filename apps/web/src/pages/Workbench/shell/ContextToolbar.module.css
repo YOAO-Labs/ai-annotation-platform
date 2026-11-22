@@ -17,7 +17,6 @@
   transition-delay: 0ms;
 }
 
-/* Override the primitive's generic popover animation, retaining its presence lifecycle. */
 .panel[data-slot="popover-content"][data-state] {
   transform-origin: top left;
   visibility: hidden;
@@ -69,7 +68,6 @@
   }
 }
 
-/* Width and disclosure height share timing; both grow from the same top-left anchor. */
 .quickDisclosure {
   display: grid;
   grid-template-rows: 0fr;

@@ -85,7 +85,6 @@ class SqlAlchemyMaskGcDatabase:
         if len(arguments) != 1:
             raise c.MaskGcFailure("invalid_request")
         try:
-            # A flush/savepoint could link pending ORM objects before their permit.
             with getattr(self.db, "no_autoflush", nullcontext()):
                 raw = (
                     await self.db.execute(

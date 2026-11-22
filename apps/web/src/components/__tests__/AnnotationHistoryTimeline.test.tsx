@@ -1,6 +1,3 @@
-/**
- * AnnotationHistoryTimeline 单测：loading / empty / audit / comment / 多种 detail 格式。
- */
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { AnnotationHistoryTimeline } from "../AnnotationHistoryTimeline";

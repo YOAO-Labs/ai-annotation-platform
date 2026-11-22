@@ -85,7 +85,6 @@ export const auditUrlCodec: UrlStateCodec<AuditUrlState> = {
       if (value) params.set(urlKey, value);
       else params.delete(urlKey);
     }
-    // An empty detail value is meaningful once a detail key is selected.
     if (state.detailKey.trim()) params.set("detail_value", state.detailValue);
     else params.delete("detail_value");
     if (state.scope === "business") params.delete("scope");

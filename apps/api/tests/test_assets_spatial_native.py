@@ -404,7 +404,6 @@ async def test_axis_operator_preserves_metadata_replay_and_published_query_facts
         )
         == "empty-scene"
     )
-    # Presence is the historical JSONB predicate, including malformed values.
     item_id = uuid.uuid4()
     await db_session.execute(
         text(

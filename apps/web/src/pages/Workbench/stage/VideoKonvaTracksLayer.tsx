@@ -8,18 +8,17 @@ import { screenToWorld } from "./shared/viewport/scaleCancel";
 import { VideoKonvaTrackShape } from "./VideoKonvaTrackShape";
 import type { VideoPixelSize } from "./videoKonvaCoordinates";
 import type { VideoEntryView, VideoGhostView, VideoTrackPreviewView } from "./videoFrameViews";
+import type { VideoDragState } from "./videoStageTypes";
 import { keypointColorByIndex } from "./ImageStageShapes";
 
-// 关键帧圆点半径(世界单位,= 旧 SVG viewBox 单位 0.0038/0.0052,随画布缩放;
-// 描边走 /scale 屏幕恒定,与旧 non-scaling-stroke 一致)。
 const TRACK_KEYFRAME_DOT_RADIUS = 0.0038;
 const TRACK_OCCLUDED_DOT_RADIUS = 0.0052;
 
 interface VideoKonvaTracksLayerProps {
   entries: VideoEntryView[];
+  pointDrag?: Extract<VideoDragState, { kind: "polyMove" | "polyVertex" }> | null;
   previews: VideoTrackPreviewView[];
   ghost: VideoGhostView | null;
-  /** 跨网格帧续写参考框(非选中待续轨迹);比选中 ghost 更淡, 提示「仅参考、点选后可续」。 */
   carryOverGhosts?: VideoGhostView[];
   size: VideoPixelSize;
   scale: number;
@@ -27,16 +26,9 @@ interface VideoKonvaTracksLayerProps {
   keypointSchema?: KeypointSchema | null;
 }
 
-/**
- * 视频 track 可视层(Konva Layer "tracks")。
- *
- * 渲染:轨迹预览线(Line)+ 选中态关键帧圆点(Circle)+ 当前帧 track 框
- * (VideoKonvaTrackShape)+ 选中轨迹 ghost 参考框。坐标像素空间(归一化 × size);
- * 线宽/虚线 `/scale` 屏幕恒定(替代旧 SVG non-scaling-stroke),圆点半径世界单位
- * (随画布缩放)。轨迹层 listening=false，不处理交互。
- */
 export function VideoKonvaTracksLayer({
   entries,
+  pointDrag,
   previews,
   ghost,
   carryOverGhosts,
@@ -174,14 +166,16 @@ export function VideoKonvaTracksLayer({
             </Group>
           );
         }
+        const editing = pointDrag?.id === entry.id ? pointDrag : null;
         return (
           <VideoKonvaTrackShape
             key={entry.key}
             geom={entry.geom}
-            points={entry.points}
+            points={editing?.current ?? entry.points}
+            holes={editing?.kind === "polyMove" ? editing.currentHoles : entry.holes}
             open={entry.open}
             color={entry.color}
-            dashed={entry.dashed}
+            dashed={!!editing || entry.dashed}
             predicted={entry.predicted}
             selected={entry.selected}
             size={size}
@@ -210,8 +204,6 @@ export function VideoKonvaTracksLayer({
         (() => {
           const hex = colorToHex(ghost.color);
           const stroke = screenToWorld(strokeWidthFor(false, visual), scale);
-          // kalman 模式:在参考框外画一圈淡色误差椭圆——半轴 = 框半宽高 + 2σ(≈95% 置信),
-          // σ 随外推距离/关键帧稀疏度增长,膨胀的椭圆即「预测越不确定、椭圆越大」的视觉提示。
           const cx = (ghost.geom.x + ghost.geom.w / 2) * size.w;
           const cy = (ghost.geom.y + ghost.geom.h / 2) * size.h;
           const ellipse = ghost.uncertainty ? (
@@ -250,7 +242,6 @@ export function VideoKonvaTracksLayer({
       {(carryOverGhosts ?? []).map((g) => {
         const hex = colorToHex(g.color);
         const stroke = screenToWorld(strokeWidthFor(false, visual), scale);
-        // 点集轨迹的续写虚影按各自几何画轮廓/折线; bbox 轨迹画外接框(现状)。
         if (g.points) {
           return (
             <Line

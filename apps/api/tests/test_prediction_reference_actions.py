@@ -129,9 +129,7 @@ async def test_retry_new_authority_original_snapshot_and_atomic_candidates(
         monkeypatch,
         stages=outcome not in {"bad_metadata"},
     )
-    world.task.version += (
-        2  # A new retry freezes current legal state, not the old version.
-    )
+    world.task.version += 2
     key_id, auth = await api_key(httpx_client, super_admin, ["*"])
     dispatch = Mock()
     monkeypatch.setattr(retry.retry_failed_prediction, "apply_async", dispatch)

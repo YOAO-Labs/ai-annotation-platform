@@ -88,7 +88,6 @@ def test_registration_read_descriptors_match_the_portable_owner_contract():
         )
         == expected
     )
-    # The packaged migration descriptor keeps the historical AAP spelling.
     assert json.loads(
         (
             Path(__file__).parents[1]

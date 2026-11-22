@@ -396,8 +396,6 @@ async def test_report_read_serializes_run_deletion(test_engine, monkeypatch, mis
     def delete_prefix(_service, prefix, **_kwargs):
         deleted.append(prefix)
 
-    # Saved-target routing runs the callback on a bound service copy, so the
-    # exact physical transport contract is patched on the service class.
     monkeypatch.setattr(type(artifacts.storage), "delete_prefix", delete_prefix)
     delete_pid = None
 

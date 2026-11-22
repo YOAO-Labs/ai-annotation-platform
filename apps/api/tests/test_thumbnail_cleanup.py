@@ -70,7 +70,6 @@ async def test_saved_b_cleanup_after_return_to_a_and_location_disable(
     _, location = await switch(media_db, monkeypatch)
     output = await create(media_db)
     saved = outputs.owner(output)
-    # A separate unrelated object is outside this owner's one-file prefix.
     client.store(saved.bucket, "other/keep", b"preserve")
     clock = await retire(media_db, output, monkeypatch)
     async with async_sessionmaker(media_db.bind, expire_on_commit=False)() as current:

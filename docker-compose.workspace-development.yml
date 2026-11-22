@@ -1,4 +1,3 @@
-# Combine the existing Workspace capability/provider files; never the primary stack.
 x-workspace-runtime: &workspace-runtime
   image: ${AAP_WORKSPACE_IMAGE:?Set the accepted Workspace image}
   restart: unless-stopped

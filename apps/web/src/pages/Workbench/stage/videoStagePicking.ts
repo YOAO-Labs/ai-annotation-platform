@@ -61,9 +61,6 @@ function containsKeypoint(
   });
 }
 
-// 约束放宽到「带 geom 的对象」:命中只读 .geom,泛型保持回传原对象。
-// 让 Konva 栈用轻量 { id, geom } 视图复用同一套 z 序逆序 + padding 容差命中,
-// 不必造第二份命中实现(SVG 栈仍传完整 PickableVideoEntry,行为零变化)。
 export function pickTopVideoEntryAt<
   T extends {
     geom: VideoStageGeom;

@@ -1,6 +1,3 @@
-/**
- * zustand stores 单测：authStore / appStore / bugDrawerStore。
- */
 import { describe, it, expect, beforeEach } from "vitest";
 import { useAuthStore } from "../authStore";
 import { useAppStore } from "../appStore";

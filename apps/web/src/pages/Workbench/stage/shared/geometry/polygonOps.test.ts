@@ -159,14 +159,13 @@ describe("polygon crop helpers", () => {
     const out = cropPolygonGeometry(fullSquare, [right]);
 
     expect(out?.type).toBe("polygon");
-    // 右半被减掉,剩左半区域。
     const xs = out && out.type === "polygon" ? out.points.map(([x]) => x) : [];
     expect(Math.max(...xs)).toBeCloseTo(0.5, 5);
   });
 
   it("subtracts multiple cutters at once", () => {
     const out = cropPolygonGeometry(fullSquare, [left, right]);
-    expect(out).toBeNull(); // 左+右覆盖整块,基准被完全扣除。
+    expect(out).toBeNull();
   });
 
   it("returns null when the cutter fully covers the base", () => {

@@ -143,8 +143,6 @@ async def seed(db, owner, objects, *, count=2):
         content_digest(snapshot),
         manifest,
     )
-    # Creation already pinned the version; frozen bytes are written and read
-    # back through that saved owner only.
     from app.services import training_dataset_storage
 
     frozen_owner = training_dataset_storage.resolve(dataset)

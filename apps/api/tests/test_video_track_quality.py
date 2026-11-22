@@ -44,7 +44,6 @@ async def _boundary(db, owner_id):
 def _bind_fixture_metadata_reader(monkeypatch, item):
     from app.services import video_track_quality
 
-    # These rows belong to a rollback-only SAVEPOINT, not the independent owner.
     metadata = VideoMetadata.model_validate((item.metadata_ or {}).get("video") or {})
 
     async def read_context(db, task, **kwargs):

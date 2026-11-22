@@ -4,7 +4,7 @@ import { expect, test, type SeedAPI } from "../fixtures/seed";
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 type Prediction = { id: string; result: { class_name: string; shape_index: number }[] };
 
-async function prepare(page: Page, request: APIRequestContext, seed: SeedAPI) {
+async function seedCandidates(request: APIRequestContext, seed: SeedAPI) {
   const data = await seed.owned();
   const { task_id: taskId } = await seed.videoTask(data.project_id);
   const token = await seed.accessToken(data.admin_email);
@@ -65,21 +65,26 @@ async function prepare(page: Page, request: APIRequestContext, seed: SeedAPI) {
     };
   });
   await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
-  await seed.injectToken(page, data.annotator_email);
-  await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}&frame=0`);
-  await expect(page.getByTestId("video-konva-stage")).toBeVisible({ timeout: 30_000 });
-  await expect(page.locator('[data-testid^="box-list-item-pred-"]')).toHaveCount(2);
   return { ...data, taskId, taskDisplayId: task.display_id as string, headers, candidates };
 }
 
-/** Consumer-visible selection surface: the floating info card of the selected object. */
+async function openCandidates(
+  page: Page,
+  seed: SeedAPI,
+  data: { project_id: string; annotator_email: string; taskId: string },
+) {
+  await seed.injectToken(page, data.annotator_email);
+  await page.goto(`/projects/${data.project_id}/annotate?task=${data.taskId}&frame=0`);
+  await expect(page.getByTestId("video-konva-stage")).toBeVisible({ timeout: 30_000 });
+  await expect(page.locator('[data-testid^="box-list-item-pred-"]')).toHaveCount(2);
+}
+
 function selectionCard(page: Page) {
   return page
     .locator("[data-floating-panel]")
     .filter({ has: page.getByText("选中对象", { exact: true }) });
 }
 
-/** A selected AI candidate is the only selection whose card owns the prediction actions. */
 function predictionCard(page: Page) {
   return selectionCard(page).filter({ has: page.getByRole("group", { name: "预测操作" }) });
 }
@@ -89,20 +94,18 @@ test("A/D 按持久结果在当前帧前进，失败可重试，真实 422 补�
   request,
   seed,
 }) => {
-  const data = await prepare(page, request, seed);
+  const data = await seedCandidates(request, seed);
+  await openCandidates(page, seed, data);
   const [first, second, otherFrame] = data.candidates;
   const firstRow = page.getByTestId(`box-list-item-${first.id}`);
   await firstRow.click();
   await expect(predictionCard(page)).toContainText(first.cls);
-  // Native select type-ahead owns single letter keys even while a candidate is selected.
   const batchSelect = page
     .getByRole("combobox")
     .filter({ has: page.getByRole("option", { name: /全部批次/ }) });
   await batchSelect.press("a");
   await batchSelect.press("d");
   await expect(predictionCard(page)).toContainText(first.cls);
-  // The selected-object floating card can cover the list row. Selection already remains
-  // active, so only return focus to the workbench before dispatching the global hotkey.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   const accepted = page.waitForResponse(
     (r) =>
@@ -114,7 +117,6 @@ test("A/D 按持久结果在当前帧前进，失败可重试，真实 422 补�
   await expect(firstRow).toHaveCount(0);
   await expect(predictionCard(page)).toContainText(second.cls);
 
-  // Explicit failure injection; successful paths below use the real API.
   const rejectURL = `**/predictions/${second.predictionId}/reject?*`;
   await page.route(
     rejectURL,
@@ -188,7 +190,7 @@ test("延迟响应期间重复按键只有一项写入，切题后旧响应不�
   request,
   seed,
 }) => {
-  const data = await prepare(page, request, seed);
+  const data = await seedCandidates(request, seed);
   const [candidate] = data.candidates;
   const { task_id: targetId } = await seed.videoTask(data.project_id);
   await seed.advanceTask({
@@ -207,15 +209,13 @@ test("延迟响应期间重复按键只有一项写入，切题后旧响应不�
   });
   expect(targetResponse.ok()).toBe(true);
   const targetTask = await targetResponse.json();
-  // Refresh the queue after creating the second task, before starting any pending decision.
-  await page.reload();
+  await openCandidates(page, seed, data);
   await page.getByTestId(`box-list-item-${candidate.id}`).click();
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
   });
   let calls = 0;
-  // Delay transport only; the accepted annotation is still written by the real API.
   await page.route(`**/predictions/${candidate.predictionId}/accept?*`, async (route) => {
     calls++;
     await gate;
@@ -226,11 +226,8 @@ test("延迟响应期间重复按键只有一项写入，切题后旧响应不�
   await page.keyboard.down("a");
   await page.keyboard.up("a");
   await page.keyboard.press("a");
-  // The single pending write keeps the candidate selected: its card still owns the prediction
-  // actions, so repeated keys cannot start a second decision or advance the selection.
   await expect(predictionCard(page)).toContainText(candidate.cls);
   expect(calls).toBe(1);
-  // SPA navigation keeps the owner mounted while its task changes.
   const queue = page.getByRole("tabpanel", { name: "任务队列", exact: true });
   await queue.getByText(targetTask.display_id, { exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`task=${targetId}`));
@@ -253,8 +250,6 @@ test("延迟响应期间重复按键只有一项写入，切题后旧响应不�
   release();
   expect((await oldDecision).status()).toBe(200);
   expect(calls).toBe(1);
-  // The old task's late receipt may only land in its own task: the current selection and the
-  // current task's persisted annotations stay untouched.
   await expect(page.getByTestId("video-konva-stage")).toBeVisible();
   await expect(targetCard).toContainText("person");
   const targetAnnotations = await request.get(`${API_BASE}/api/v1/tasks/${targetId}/annotations`, {

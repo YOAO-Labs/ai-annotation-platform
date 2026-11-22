@@ -271,8 +271,6 @@ async def test_video_execution_source_pin_blocks_until_journal_retirement(
         not execution_retired
     )
 
-    # Remove the canonical task/job rows so the durable Jobs journal is the
-    # remaining source reference tested by the delete guard.
     await db_session.execute(
         text("DELETE FROM public.tasks WHERE id=:task"), {"task": task_id}
     )

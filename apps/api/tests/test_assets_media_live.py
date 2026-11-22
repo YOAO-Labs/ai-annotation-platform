@@ -927,8 +927,6 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
             assert rejected_worker_http.status_code == 403
             assert rejected_worker_http.json()["error"]["code"] == "permission_denied"
 
-            # Pause one claimed frame attempt, expire its lease, and let another
-            # restricted worker reclaim and publish the new lease's object.
             _stop_process(worker_process)
             worker_process = None
             expired_frame_index = 12
@@ -1055,8 +1053,6 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
                     == replacement_key
                 )
 
-            # A separately accepted old-source attempt is fenced after the
-            # registered raw object changes; only the owner replaces the bytes.
             worker_c_frame_index = 16
             source_change_request = {
                 **source_request,
@@ -1188,7 +1184,6 @@ async def test_real_control_and_worker_runtime_scopes_and_fences(test_engine, tm
                 )
             finally:
                 async with test_engine.begin() as owner:
-                    # Retained ledgers leave with the verifier-owned database.
                     await owner.execute(
                         text(
                             "DELETE FROM public.asset_media_timetable_staging "

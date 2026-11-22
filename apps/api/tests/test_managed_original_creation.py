@@ -72,9 +72,6 @@ _CREATION_TRIGGERS = {
 
 
 async def _clone_creation_schema(connection, schema):
-    # As in storage_migration_isolation, copy current constraints/indexes and
-    # rebind the live guards into the disposable namespace. This is the API
-    # ledger consumer contract, not a historical migration or native runtime.
     await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
     for table in _CREATION_TABLES:
         await connection.execute(
@@ -83,8 +80,6 @@ async def _clone_creation_schema(connection, schema):
                 f'(LIKE public."{table}" INCLUDING ALL)'
             )
         )
-    # The current DELETE guard uses a private transaction-local marker. Copy
-    # only its empty table, not the retirement command or shared fixture state.
     await connection.execute(
         text(
             f'CREATE TABLE "{schema}".auxiliary_retirement_guard '
@@ -122,8 +117,6 @@ async def _clone_creation_schema(connection, schema):
         **{name: name.rsplit(".", 1)[1] for name in functions},
     }
     for definition in functions.values():
-        # Only these exact ledger guards and their owned relations are rebound;
-        # never replace or recursively copy the shared native capability graph.
         for source, name in objects.items():
             definition = definition.replace(source, f'"{schema}".{name}')
         await connection.exec_driver_sql(definition)
@@ -131,8 +124,6 @@ async def _clone_creation_schema(connection, schema):
         for source, name in objects.items():
             definition = definition.replace(source, f'"{schema}".{name}')
         await connection.exec_driver_sql(definition)
-    # LIKE omits FKs. Preserve the current original-provenance and pointer
-    # constraints, without introducing business parents for independent facts.
     foreign_keys = await connection.execute(
         text(
             "SELECT child.relname, constraint_row.conname, "
@@ -164,8 +155,6 @@ async def _clone_creation_schema(connection, schema):
 
 @pytest.fixture
 async def creation_db(test_engine):
-    # The scaffold verifies a disposable current-head database. Independent
-    # commits retain immutable facts until this whole owned namespace is dropped.
     schema = "creation_test_" + uuid.uuid4().hex
     engine = None
     try:
@@ -563,8 +552,6 @@ async def test_attach_is_transactional_and_preserves_source_provenance_on_bucket
 ):
     db = creation_db
     row = await allocation(db)
-    # A current legacy NULL owner may have an immutable historical schema-one
-    # Creation; offline address changes do not rewrite that provenance.
     row = deepcopy(row)
     row["id"] = uuid.uuid4()
     row["object_key"] += "-historical"
@@ -638,8 +625,7 @@ async def test_avatar_binding_generation_does_not_invalidate_original_creation(
     db = creation_db
     original_configuration = service._configuration
     if legacy_snapshot:
-        # Allocate a real immutable ledger using the previously shipped snapshot
-        # shape, rather than rewriting its facts after allocation.
+
         async def old_configuration(db, *, lock=False):
             configuration = await original_configuration(db, lock=lock)
             avatar_binding = await db.get(StorageBinding, "avatars")
@@ -679,8 +665,6 @@ async def test_saved_original_configuration_fingerprint_is_still_verified(
 ):
     db = creation_db
     row = await allocation(db)
-    # A caller-provided ledger copy must not be able to hide tampering in a
-    # projected-away field; its original complete fingerprint is checked first.
     changed = deepcopy(row)
     changed["configuration"]["buckets"]["avatars"] = "forged-avatar-bucket"
     with pytest.raises(ContentError, match="managed_original_configuration_changed"):
@@ -764,7 +748,12 @@ async def test_current_schema_guards_preserve_immutable_allocated_fact(creation_
         {"max_bytes": 1000},
         {"status": "verified"},
         {"staging_ref": {}},
-        {"failure_evidence": {"physical_settled": True, "physical_outcome": "not_written"}},
+        {
+            "failure_evidence": {
+                "physical_settled": True,
+                "physical_outcome": "not_written",
+            }
+        },
     ):
         with pytest.raises(IntegrityError):
             async with db.begin_nested():
@@ -821,8 +810,6 @@ async def test_observed_receipt_survives_failed_independent_persistence(
     db = creation_db
     row = await allocation(db)
     client.versioned = True
-    # Reject the real writer's independent receipt transaction, not the physical
-    # response or its later evidence write. All fault DDL stays in this schema.
     async with service.storage_access.engine(db).begin() as connection:
         await connection.exec_driver_sql("""
             CREATE FUNCTION reject_test_creation_receipt() RETURNS trigger
@@ -838,7 +825,9 @@ async def test_observed_receipt_survives_failed_independent_persistence(
             FOR EACH ROW WHEN (NEW.status='written')
             EXECUTE FUNCTION reject_test_creation_receipt()
         """)
-    with pytest.raises(ContentError, match="managed_original_receipt_persistence_unknown"):
+    with pytest.raises(
+        ContentError, match="managed_original_receipt_persistence_unknown"
+    ):
         await create(db, row)
 
     await db.rollback()

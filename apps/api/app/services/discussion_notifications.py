@@ -95,8 +95,6 @@ async def _accessible_active_user_ids(
             )
             await task_access.assert_task_visible(db, task, user_id)
         except HTTPException:
-            # A transferred/hidden task is not a notification destination.  Keep
-            # the same 404-hiding behavior as the regular discussion read routes.
             continue
         visible.append(user_id)
     return visible

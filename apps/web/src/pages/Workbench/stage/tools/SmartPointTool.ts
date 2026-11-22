@@ -1,10 +1,5 @@
 import type { CanvasTool, DragInit, ToolPointerContext } from "./index";
 
-/**
- * 拆自旧 SamTool / sub-tool="point".
- * 单击产生 positive point prompt; Alt+点击 / samPolarity=negative 产生 negative.
- * requiredPrompt = "point" → 后端 /setup.supported_prompts 含 "point" 才可用.
- */
 export const SmartPointTool: CanvasTool = {
   id: "smart-point",
   hotkey: "S",

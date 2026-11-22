@@ -63,8 +63,6 @@ def _setup_locator(request: BackendProbeRequest, raw_json: str) -> BackendSetupL
         raise ValueError("backend snapshot endpoint fields are invalid")
     if endpoint["auth_token"] is not None and type(endpoint["auth_token"]) is not str:
         raise ValueError("backend snapshot credential is invalid")
-    # Keep JSONB values as stored; the existing probe boundary owns their legacy
-    # coercion and fail-open behavior.
     return BackendSetupLocator(
         id=backend_id,
         url=endpoint["url"],
@@ -109,7 +107,6 @@ class BackendProbeManager:
                 derive_modalities(capabilities) if capabilities is not None else None
             )
         except Exception:
-            # Legacy setup/capability projection failures remain fail-open.
             modalities = None
         return BackendProbeSuccess(
             schema=BACKEND_PROBE_PROTOCOL,

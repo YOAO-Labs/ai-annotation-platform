@@ -95,8 +95,6 @@ def _frame_bytes(geometry):
                 reject("expanded_bytes_budget")
         maximum = max(maximum, size)
         vertices = max(vertices, len(row.get("points") or []))
-    # Interpolation expands tiny coordinates into full float representations;
-    # indentation, field names, provenance and per-frame dictionaries add space.
     return 512 + max(maximum * 4, vertices * 64)
 
 
@@ -171,8 +169,6 @@ def check(delivery):
                 frame = keyframe["frame_index"]
                 if start <= frame <= end and not frame_is_outside(geometry, frame):
                     exact.add(frame)
-        # The manifest/source contract itself emits the absolute grid. Exact
-        # YouTube frames outside that grid add real entries rather than replacing it.
         totals["selected_frames"] += selected + (
             sum(frame % step != 0 for frame in exact) if "youtube-vos" in targets else 0
         )
@@ -199,7 +195,6 @@ def check(delivery):
                 masks[digest] = facts
                 mask_runs += _integer(mask.get("runs"), 1, 1_000_000)
                 _integer(mask.get("bytes"), 1, MAX_MASK_BYTES)
-                # A conservative indented uncompressed portable RLE envelope.
                 mask_json += mask["runs"] * 32 + 512
                 dimensions = mask.get("size")
                 if not isinstance(dimensions, (list, tuple)) or len(dimensions) != 2:

@@ -1,10 +1,3 @@
-// 项目操作 ⋮ 菜单 — 列表视图 / 网格视图共享, 统一可做的操作.
-//
-// B-47 · 「打开」「设置」已提升为行内直接按钮; 导出从独立包装器收进本菜单
-// (菜单含 导出 / 复制 / 导入 / 清理 …)。卡片为 [设置] [⋮] [打开]; 列表 ⋮ 收到末位 [设置] [打开] [⋮]。
-// 导出对任何能看到该行的人可见; 复制 / 导入 / 清理 / 导入标注 仅 canManage 可见。
-// 自管导出 / 导入向导状态与"复制"跳转, 调用方只需传 project / canManage。
-
 import { lazy, Suspense, useState, type Ref } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { useNavigate } from "react-router-dom";
@@ -87,7 +80,6 @@ export function ProjectActionsMenu({
             id: "duplicate",
             label: "复制项目配置",
             icon: "copy",
-            // 跳 Dashboard 并打开 Wizard 复制流 (携带 ?from=<id> 预填).
             onSelect: () => navigate(`/dashboard?new=1&from=${project.id}`),
           },
           { id: "div-1", divider: true, label: "" },

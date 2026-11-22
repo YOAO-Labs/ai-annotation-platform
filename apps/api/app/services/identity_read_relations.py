@@ -34,8 +34,6 @@ invitation_audit_targets = table(
 async def read_account_profiles(
     db: AsyncSession, statement: Select
 ) -> list[AccountProfile]:
-    # Core SELECT does not trigger ORM autoflush. Keep the replaced ORM read's
-    # pending-work visibility without overriding a caller no_autoflush scope.
     if db.autoflush:
         await db.flush()
     result = await db.execute(statement)

@@ -101,7 +101,8 @@ class SourceRuntime:
             )
             runtime = cls(config, database, SourceStorage(config), native)
             runtime._recovery_task = asyncio.create_task(
-                runtime._recover_import_verifications(), name="source-import-verification-recovery"
+                runtime._recover_import_verifications(),
+                name="source-import-verification-recovery",
             )
             return runtime
         except Exception:
@@ -159,15 +160,15 @@ class SourceRuntime:
         command = request.model_dump(mode="json")
         payload = await self._database.import_verification("status", command)
         if payload.get("state") == "drained":
-            payload = await self._finish_import_verification(command, payload["evidence"]["result"])
+            payload = await self._finish_import_verification(
+                command, payload["evidence"]["result"]
+            )
         return ImportVerificationReply.model_validate(payload).model_dump(mode="json")
 
     async def _finish_import_verification(self, command: dict, result) -> dict:
         try:
             return await self._database.import_verification("finish", command, result)
         except asyncpg.LockNotAvailableError:
-            # The durable drained receipt lets later status calls retry settlement
-            # without replaying the physical read or claiming a failed commit.
             return {"state": "pending"}
 
     async def _record_import_read(self, command: dict, result) -> dict:
@@ -178,13 +179,18 @@ class SourceRuntime:
 
     async def verify_import_original(self, request: ImportVerificationRequest) -> dict:
         command = request.model_dump(mode="json")
-        deadline = asyncio.get_running_loop().time() + self._config.import_verify_timeout_seconds
+        deadline = (
+            asyncio.get_running_loop().time()
+            + self._config.import_verify_timeout_seconds
+        )
         admission = {**command, "admission_id": str(uuid4())}
 
         async def settle_admission() -> None:
             while True:
                 try:
-                    recorded = await self._database.import_verification("record", admission, None)
+                    recorded = await self._database.import_verification(
+                        "record", admission, None
+                    )
                     if recorded.get("state") == "drained":
                         await self._finish_import_verification(command, None)
                     return
@@ -200,17 +206,22 @@ class SourceRuntime:
                 budget = asyncio.timeout_at(deadline)
                 try:
                     async with budget:
-                        started = await self._database.import_verification("begin", admission)
+                        started = await self._database.import_verification(
+                            "begin", admission
+                        )
                     break
                 except TimeoutError:
-                    if budget.expired() or asyncio.get_running_loop().time() >= deadline:
+                    if (
+                        budget.expired()
+                        or asyncio.get_running_loop().time() >= deadline
+                    ):
                         raise
-                    # Only this private pre-read nonce can resume an ambiguous
-                    # admission; a connection timeout is not the Source deadline.
                     uncertain = True
                 except (asyncpg.LockNotAvailableError, asyncpg.ObjectInUseError) as exc:
-                    if (isinstance(exc, asyncpg.ObjectInUseError)
-                        and exc.message != "import_verification_maintenance_unavailable"):
+                    if (
+                        isinstance(exc, asyncpg.ObjectInUseError)
+                        and exc.message != "import_verification_maintenance_unavailable"
+                    ):
                         raise
                 remaining = deadline - asyncio.get_running_loop().time()
                 if remaining <= 0:
@@ -219,19 +230,27 @@ class SourceRuntime:
             if started.get("state") != "started":
                 if uncertain:
                     await settle_admission()
-                return ImportVerificationReply.model_validate(started).model_dump(mode="json")
+                return ImportVerificationReply.model_validate(started).model_dump(
+                    mode="json"
+                )
             facts = dict(started["material"])
             image = facts.pop("file_type") == "image"
             expected_md5 = facts.pop("md5")
             material = ManagedOriginalMaterial.model_validate(facts)
-            if material.destination is None and material.bucket != self._config.datasets_bucket:
+            if (
+                material.destination is None
+                and material.bucket != self._config.datasets_bucket
+            ):
                 payload = await self._record_import_read(command, None)
-                return ImportVerificationReply.model_validate(payload).model_dump(mode="json")
+                return ImportVerificationReply.model_validate(payload).model_dump(
+                    mode="json"
+                )
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining <= 0:
-                # Admission succeeded after the budget, before any physical read.
                 payload = await self._record_import_read(command, None)
-                return ImportVerificationReply.model_validate(payload).model_dump(mode="json")
+                return ImportVerificationReply.model_validate(payload).model_dump(
+                    mode="json"
+                )
             task = asyncio.create_task(
                 self._storage.managed.verify(
                     material,
@@ -242,8 +261,6 @@ class SourceRuntime:
                 )
             )
         except (Exception, asyncio.CancelledError):
-            # No physical read has started; only this request's private nonce
-            # can settle a commit whose acknowledgement was lost.
             cleanup = asyncio.create_task(settle_admission())
             while True:
                 try:
@@ -284,7 +301,9 @@ class SourceRuntime:
                     width=dimensions[0] if dimensions else None,
                     height=dimensions[1] if dimensions else None,
                 )
-                payload = await self._record_import_read(command, receipt.model_dump(mode="json"))
+                payload = await self._record_import_read(
+                    command, receipt.model_dump(mode="json")
+                )
         if cancelled:
             raise asyncio.CancelledError
         return ImportVerificationReply.model_validate(payload).model_dump(mode="json")
@@ -347,9 +366,7 @@ class SourceRuntime:
     async def native_retirement_prefix_reference(
         self, request: NativePyramidRetirementPrefixIoRequest
     ) -> NativePyramidPrefixIoReference:
-        return await self._require_native_signer().retirement_prefix_reference(
-            request
-        )
+        return await self._require_native_signer().retirement_prefix_reference(request)
 
     def _require_native_signer(self) -> NativeStorageSigner:
         if self._native is None:

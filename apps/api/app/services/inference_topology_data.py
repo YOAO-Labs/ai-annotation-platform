@@ -491,8 +491,6 @@ class InferenceTopologyData:
     ) -> PluginInstallationResponse:
         validate_installation_command(expected_revision, action, evidence)
         if action == "retire":
-            # Inference row first, then Learning's deployment locks: the same
-            # order used by freeze and publish.  Keep both through commit.
             if await self.lock_plugin_registry(installation_id) is None:
                 raise ValueError("plugin installation not found")
             from app.services import trained_models

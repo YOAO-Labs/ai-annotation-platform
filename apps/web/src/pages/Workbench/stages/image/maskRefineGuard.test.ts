@@ -3,7 +3,6 @@ import type { AnnotationResponse } from "@/types";
 import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 import { maskRefineBlockReason, promptEmptyRasterMaskChoice } from "./useImageAnnotationActions";
 
-/** 结算当前排队的 decisionDialog 并清空队列,模拟用户点下某个选项。 */
 function settleDialog(value: boolean | string | null) {
   const head = useDecisionDialogStore.getState().queue[0];
   if (!head) throw new Error("decisionDialog 队列为空");
@@ -75,7 +74,6 @@ describe("promptEmptyRasterMaskChoice", () => {
     choice = promptEmptyRasterMaskChoice();
     settleDialog("undo");
     await expect(choice).resolves.toBe("undo");
-    // 取消 / Esc / 点遮罩 → null → 保持空白继续编辑
     choice = promptEmptyRasterMaskChoice();
     settleDialog(null);
     await expect(choice).resolves.toBe("continue");

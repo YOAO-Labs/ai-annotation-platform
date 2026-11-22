@@ -19,9 +19,8 @@ import base64
 import zlib
 from typing import Any
 
-# format 标记: 解码时校验, 未来换格式 (如 int8 量化) 可换 magic 而不误读旧串。
 _MAGIC = b"m1"
-_SIDE = 256  # SAM low-res mask 边长 (H=W=256)
+_SIDE = 256
 _RAW_BYTES = _SIDE * _SIDE * 2
 MAX_LOW_RES_MASK_INPUT_CHARS = 512 * 1024
 
@@ -34,9 +33,6 @@ def encode_low_res_mask(arr: Any) -> str:
     import numpy as np
 
     a = np.asarray(arr, dtype=np.float16)
-    # 仅剥离前导的 batch/通道维 (size-1), 不用 np.squeeze: 后者会压扁任意位置的 size-1 维
-    # (如 (256,1,256) 被悄悄压成 (256,256) 导致轴错位); 多实例 (N,256,256) 则 N!=1 停在此处,
-    # 由下面的 shape 断言显式拒绝 (见 issue 0008.4)。
     while a.ndim > 2 and a.shape[0] == 1:
         a = a[0]
     if a.shape != (_SIDE, _SIDE):

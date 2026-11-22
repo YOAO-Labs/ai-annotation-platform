@@ -56,7 +56,6 @@ async def _assert_unavailable(test_engine, monkeypatch) -> None:
 async def test_legacy_api_database_selectors_are_removed():
     from app.config import settings
 
-    # The only selector is the HTTP owner; a DSN binding must not come back.
     assert not hasattr(settings, "inference_health_observation_database_url")
     assert not hasattr(settings, "inference_health_observation_database_url_file")
 

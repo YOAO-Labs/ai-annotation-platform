@@ -38,11 +38,9 @@ class SceneFramePose(Base):
         nullable=False,
     )
     frame_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    # 主帧时钟(nuScenes 为 LIDAR_TOP 的 sample_data.timestamp,微秒);
-    # 无时钟来源的数据集可为 NULL,线性插值只依赖 frame_index。
     timestamp_us: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    ego_translation: Mapped[list] = mapped_column(JSONB, nullable=False)  # [x, y, z]
-    ego_rotation: Mapped[list] = mapped_column(JSONB, nullable=False)  # [w, x, y, z]
+    ego_translation: Mapped[list] = mapped_column(JSONB, nullable=False)
+    ego_rotation: Mapped[list] = mapped_column(JSONB, nullable=False)
     source_metadata: Mapped[dict] = mapped_column(
         JSONB, server_default="{}", nullable=False, default=dict
     )

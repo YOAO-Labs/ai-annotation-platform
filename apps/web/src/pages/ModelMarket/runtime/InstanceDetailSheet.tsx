@@ -1,15 +1,4 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-/**
- * instance detail Sheet (plan §6.2 / §10).
- *
- * Opened from a member row's "详情" button. Pushes the full model residency
- * pool, cache stats, variant catalog, raw builder/borrower/generation/gate/
- * identity fields and full diagnostics text off the main table. Also hosts
- * the warmup path via `VariantPanel` (kept live per plan).
- *
- * Plan Appendix A.1: residency axis + identity fields are display-only here;
- * the table row keeps the compact summary.
- */
 import { useMemo, type ReactNode } from "react";
 
 import type { GlobalBackendItem, ObserveTarget } from "@/api/adminMlIntegrations";
@@ -40,13 +29,9 @@ export interface InstanceDetailSheetProps {
   member: MemberViewModel;
   pool: PoolViewModel;
   topology: RuntimeTopologyViewModel | null;
-  /** Registry entry matched by registry_id (from /all). Supplies GPU claim. */
   backend: GlobalBackendItem | undefined;
-  /** Direct-probe target matched by registry_id (from /observe). */
   observe: ObserveTarget | undefined;
-  /** Project id for warmup; undefined when no project binding exists. */
   projectId?: string | null;
-  /** Warmup callback (delegated to the orchestrator which owns the hooks). */
   onWarm?: (target?: VariantWarmTarget) => void;
   isWarming?: boolean;
 }
@@ -99,7 +84,6 @@ export function InstanceDetailSheet({
 
         <ScrollArea className="flex-1">
           <div className="flex flex-col gap-4 p-4">
-            {/* Lifecycle actions (drain/resume/unload gated, health, warmup) */}
             <section className="flex flex-col gap-2">
               <SectionTitle>生命周期操作</SectionTitle>
               <LifecycleActions
@@ -116,7 +100,6 @@ export function InstanceDetailSheet({
               )}
             </section>
 
-            {/* Routing snapshot */}
             <section className="flex flex-col gap-2">
               <SectionTitle>路由与容量</SectionTitle>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
@@ -168,10 +151,8 @@ export function InstanceDetailSheet({
               </div>
             </section>
 
-            {/* GPU claim summary */}
             {backend && <GpuClaimBlock backend={backend} />}
 
-            {/* Runtime metrics (model version, gpu info, pool counts, cache) */}
             <section className="flex flex-col gap-2">
               <SectionTitle>运行时观测</SectionTitle>
               {isCpuFallback(compute) && (
@@ -188,13 +169,11 @@ export function InstanceDetailSheet({
               />
             </section>
 
-            {/* Residency detail (full builder/borrower/gate/identity) */}
             <section className="flex flex-col gap-2">
               <SectionTitle>模型驻留（residency）</SectionTitle>
               <ResidencyDetail residency={residency} gpuLoaded={gpuLoaded} trusted={trusted} />
             </section>
 
-            {/* Variant warmup panel */}
             {projectId && backend && (
               <VariantPanel
                 projectId={projectId}
@@ -207,7 +186,6 @@ export function InstanceDetailSheet({
               />
             )}
 
-            {/* Raw identity + diagnostics text */}
             <section className="flex flex-col gap-2">
               <SectionTitle>原始字段</SectionTitle>
               <RawFieldsBlock

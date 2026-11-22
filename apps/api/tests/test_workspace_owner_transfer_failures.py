@@ -118,7 +118,6 @@ async def test_owner_failure_fences_rollback_partial_effects(
                             "aap-workspace-owner-transfer/v1", "wrong/v1"
                         )
                     else:
-                        # Corrupt only the returned binding after Native has performed its write.
                         replacement = original.replace(
                             "RETURN v_result;",
                             "RETURN pg_catalog.jsonb_set(v_result, '{actor_id}', pg_catalog.to_jsonb('00000000-0000-0000-0000-000000000000'::text));",
@@ -296,9 +295,7 @@ async def test_foreign_public_invoker_function_fails_closed_after_healthy_start(
     try:
         async with AsyncExitStack() as stack:
             await _binding(stack, test_engine, binding, token)
-            healthy = await _public_transfer(
-                httpx_client, project.id, first.id, actor
-            )
+            healthy = await _public_transfer(httpx_client, project.id, first.id, actor)
             assert healthy.status_code == 200, healthy.text
             initial = await _snapshot(maker, project.id, actor.id)
             assert initial[0] == first.id

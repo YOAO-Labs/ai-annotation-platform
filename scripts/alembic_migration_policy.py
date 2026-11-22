@@ -90,7 +90,7 @@ def load_revisions(config: Config) -> tuple[dict[str, Revision], str]:
     script = ScriptDirectory.from_config(config)
     head = require_single_head(list(script.get_heads()))
     revisions: dict[str, Revision] = {}
-    for revision in script.walk_revisions():  # head -> base
+    for revision in script.walk_revisions():
         revisions[revision.revision] = Revision(
             revision=revision.revision,
             down_revision=revision.down_revision,

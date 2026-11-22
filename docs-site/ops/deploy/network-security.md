@@ -34,7 +34,7 @@ last_reviewed: 2026-10-26
 | 5432               | postgres                            |    ❌ **不发布**    | prod 叠加文件 `ports: !reset []`；api/worker 经内网 `postgres:5432` 直连 |
 | 6379               | redis                               |    ❌ **不发布**    | 同上 `redis:6379`；broker / 限流 / 黑名单                                |
 | 9000 / 9001        | MinIO API / 控制台                  |    ❌ **不发布**    | 同上 `minio:9000`；presigned URL 可达性见 §5                             |
-| 8025 / 1025        | mailpit（dev）                      |    ❌ **不发布**    | 假收件箱，**生产应禁用**，改真实 SMTP                                    |
+| 8025 / 1025        | mailpit（dev）                      |    ❌ **无服务**    | 整栈生产移除整个收件箱服务；如需发信须显式配置真实中继                   |
 | 8001–8005          | 可选 ML Backend profile             |  ⚠️ 当前发布到宿主  | 插件叠加文件不自动收紧绑定；只允许 worker 所在可信网络访问               |
 | 9090 / 3001 / 9093 | Prometheus / Grafana / Alertmanager |    ⚠️ 仅内网/VPN    | 监控 profile，默认不启动；启用时务必限内网                               |
 
@@ -181,7 +181,7 @@ export YOAO_BASE_URL=http://1.2.3.4:8000
 - [ ] `/metrics` 反代里限内网 `allow / deny`
 - [ ] `MINIO_PUBLIC_URL` 指向对外可达的 HTTPS 地址；`MINIO_USE_SSL` 与内部 `MINIO_ENDPOINT` 的实际协议一致；MinIO 默认凭据已换
 - [ ] Redis 设 `requirepass`（并同步 `REDIS_URL` 带密码）——纵深防御，即便端口不发布，共享宿主上 Redis 仍是经典横向移动目标
-- [ ] mailpit 已禁用，改真实 SMTP
+- [ ] `config --services` 和 `ps --all` 均没有生产 Mailpit；如需应用邮件或告警邮件，已分别配置真实中继
 - [ ] 远程 SDK 调用方用 `https://` base_url，API Key 走 `0600` 配置文件、定期轮换
 - [ ] 监控端口（9090/3001/9093）仅内网 / VPN 可达
 

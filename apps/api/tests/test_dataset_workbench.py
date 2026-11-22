@@ -96,8 +96,6 @@ async def test_reference_states_follow_complete_preflight_and_filter_on_server(
     assert all(
         item["availability"]["state"] == "verified" for item in original["items"]
     )
-    # A source mutation alone is not a recorded observation. Actual content
-    # reads remain strict; this query must not silently read all source files.
     (world[0] / "图片 空格.png").write_bytes(picture("green"))
     (world[0] / "gone.png").unlink()
     assert (
@@ -183,8 +181,6 @@ async def test_preview_is_independent_read_only_and_rechecks_source_authority(
                 headers=headers(super_admin),
             )
         ).status_code == 404
-        # Sanitized observations do not provide source identity or management
-        # actions to an unrelated manager, even with the exact item URL.
         hidden = (await httpx_client.get(base, headers=headers(project_admin))).json()[
             "availability"
         ]

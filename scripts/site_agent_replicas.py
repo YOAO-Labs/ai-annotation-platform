@@ -421,8 +421,6 @@ class Replicas:
         self.record("replica_route_preserves_current_scopes_and_reader_revocation")
 
     def rejected_content(self):
-        # B has higher priority; with both candidates unavailable the last error
-        # may describe A. Prove rejection, rather than pinning one candidate code.
         body, headers = self.content(expected={403, 409, 410, 422, 503, 504})
         require(
             headers.get("X-Content-SHA256") is None

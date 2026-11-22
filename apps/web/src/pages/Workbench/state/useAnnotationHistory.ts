@@ -1,6 +1,6 @@
 import { randomId } from "@/utils/id";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { isCurrentAuthOwner } from "@/stores/authStore";
+import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 import type { AnnotationResponse, VideoTrackKeyframe, VideoTrackMaskKeyframe } from "@/types";
 import type { AnnotationPayload, AnnotationUpdatePayload } from "@/api/tasks";
 import type {
@@ -34,15 +34,11 @@ export interface VideoMaskFrameState {
   manualOutside: boolean;
 }
 
-/**
- * 标注操作命令栈。每条命令记录足够 redo / undo 的状态。
- * 切任务清栈，避免误撤销另一题。
- */
 export type Command =
   | SliceCommand
   | AcceptanceCommand
   | { kind: "create"; annotationId: string; payload: AnnotationPayload }
-  | { kind: "delete"; annotation: AnnotationResponse }
+  | { kind: "delete"; annotation: AnnotationResponse; restoreRequestId?: string }
   | {
       kind: "update";
       annotationId: string;
@@ -64,28 +60,50 @@ export type Command =
       after: VideoMaskFrameState;
     }
   | { kind: "acceptPrediction"; predictionId: string; createdAnnotationIds: string[] }
-  /** 批量命令：undo 时反序应用、redo 时正序应用。子命令必须不含 batch（一层）。 */
-  | { kind: "batch"; commands: LeafCommand[] };
+  | { kind: "batch"; commands: LeafCommand[]; batchId?: string };
 
 export type LeafCommand = Exclude<Command, { kind: "batch" | "slice" | "acceptance" }>;
 
-/** 单条非 batch 命令的实际执行。导出为纯函数便于单测。
- *  注意 cmd 在 redo / delete-undo 路径会被就地 mutate（annotationId / annotation.id），与 hook 内栈引用相同。 */
+function annotationId(command: LeafCommand): string | undefined {
+  if (command.kind === "delete") return command.annotation.id;
+  if (command.kind !== "acceptPrediction") return command.annotationId;
+}
+
+function remapLeaf(command: LeafCommand, previous: string, next: string) {
+  if (command.kind === "acceptPrediction") {
+    command.createdAnnotationIds = command.createdAnnotationIds.map((id) =>
+      id === previous ? next : id,
+    );
+  } else if (annotationId(command) === previous) {
+    if (command.kind === "delete") command.annotation = { ...command.annotation, id: next };
+    else command.annotationId = next;
+  }
+}
+
+function remapHistory(record: TaskHistory, previous: string, next: string) {
+  for (const stack of [record.undo, record.redo]) {
+    for (const command of stack) {
+      if (command.kind === "batch") {
+        for (const leaf of command.commands) remapLeaf(leaf, previous, next);
+      } else if (command.kind !== "slice" && command.kind !== "acceptance") {
+        remapLeaf(command, previous, next);
+      }
+    }
+  }
+}
+
 export async function applyLeaf(cmd: LeafCommand, direction: "undo" | "redo", h: HistoryHandlers) {
   if (cmd.kind === "create") {
     if (direction === "undo") {
-      // tmpId 走纯本地分支，避免对未入库的 id 调 DELETE → 404
       if (cmd.annotationId.startsWith("tmp_") && h.removeLocalCreate) {
-        await h.removeLocalCreate(cmd.annotationId);
+        const syncedId = await h.removeLocalCreate(cmd.annotationId);
+        if (syncedId) cmd.annotationId = syncedId;
       } else {
         await h.deleteAnnotation(cmd.annotationId);
       }
-      // A redo is a new creation. Keep its identity on the command so retries
-      // replay that creation, while the next undo/redo cycle gets another key.
       cmd.payload = { ...cmd.payload, client_request_id: randomId() };
     } else {
       const fresh = await h.createAnnotation(cmd.payload);
-      // redo 重新创建会拿到新 id；后续 undo 还得知道这个 id
       cmd.annotationId = fresh.id;
     }
   } else if (cmd.kind === "delete") {
@@ -98,12 +116,16 @@ export async function applyLeaf(cmd: LeafCommand, direction: "undo" | "redo", h:
         confidence: cmd.annotation.confidence ?? undefined,
         parent_prediction_id: cmd.annotation.parent_prediction_id ?? undefined,
         lead_time: cmd.annotation.lead_time ?? undefined,
+        ...(cmd.annotation.video_segment_id
+          ? { video_segment_id: cmd.annotation.video_segment_id }
+          : {}),
+        ...(cmd.restoreRequestId ? { client_request_id: cmd.restoreRequestId } : {}),
         attributes: cmd.annotation.attributes ?? undefined,
       });
-      // 反向时新 id；后续 redo 删除以新 id 执行
       cmd.annotation = { ...cmd.annotation, id: restored.id };
     } else {
       await h.deleteAnnotation(cmd.annotation.id);
+      delete cmd.restoreRequestId;
     }
   } else if (cmd.kind === "update") {
     const target = direction === "undo" ? cmd.before : cmd.after;
@@ -134,6 +156,8 @@ export interface HistoryHandlers {
   ) => Promise<AcceptanceHistoryRestoreResponse>;
   onAcceptanceError?: (error: unknown) => void;
   onSliceError?: (error: unknown) => void;
+  onReplayError?: (message: string, error: unknown) => void;
+  resolveAnnotationId?: (annotationId: string) => Promise<string | undefined>;
   createAnnotation: (payload: AnnotationPayload) => Promise<AnnotationResponse>;
   deleteAnnotation: (annotationId: string) => Promise<unknown>;
   updateAnnotation: (annotationId: string, payload: AnnotationUpdatePayload) => Promise<unknown>;
@@ -147,17 +171,19 @@ export interface HistoryHandlers {
     frameIndex: number,
     state: VideoMaskFrameState,
   ) => Promise<unknown>;
-  /** tmpId 上的 create undo 不能走远端（必 404）。
-   *  调用方在工作台闭包内提供：从 react-query cache 删 tmpId + 从离线队列删对应 create op。 */
-  removeLocalCreate?: (annotationId: string) => Promise<void> | void;
+  removeLocalCreate?: (annotationId: string) => Promise<string | void> | void;
 }
 
-// sessionStorage 持久化（5min TTL，避免误用过期 prediction id）
 const HIST_TTL_MS = 5 * 60 * 1000;
 const HIST_KEY_PREFIX = "wb:hist:";
 
-function historyKey(taskId: string | undefined, userId?: string): string {
-  return `${HIST_KEY_PREFIX}${userId === undefined ? "" : `${userId}:`}${taskId ?? ""}`;
+function historyKey(
+  taskId: string | undefined,
+  userId?: string,
+  segmentId?: string | null,
+): string {
+  const taskKey = `${HIST_KEY_PREFIX}${userId === undefined ? "" : `${userId}:`}${taskId ?? ""}`;
+  return segmentId ? `${taskKey}:segment:${segmentId}` : taskKey;
 }
 
 interface PersistedHistory {
@@ -177,6 +203,7 @@ function readSessionStorage(): Storage | null {
 export function loadHistoryFromSession(
   taskId: string | undefined,
   userId?: string,
+  segmentId?: string | null,
 ): {
   undo: Command[];
   redo: Command[];
@@ -185,12 +212,13 @@ export function loadHistoryFromSession(
   const ss = readSessionStorage();
   if (!ss) return null;
   try {
-    const raw = ss.getItem(historyKey(taskId, userId));
+    const key = historyKey(taskId, userId, segmentId);
+    const raw = ss.getItem(key);
     if (!raw) return null;
     const data = JSON.parse(raw) as PersistedHistory;
     if (typeof data.ts !== "number") return null;
     if (Date.now() - data.ts > HIST_TTL_MS) {
-      ss.removeItem(historyKey(taskId, userId));
+      ss.removeItem(key);
       return null;
     }
     return { undo: data.undo ?? [], redo: data.redo ?? [] };
@@ -204,17 +232,19 @@ export function saveHistoryToSession(
   undo: Command[],
   redo: Command[],
   userId?: string,
+  segmentId?: string | null,
 ): void {
   if (!taskId) return;
   const ss = readSessionStorage();
   if (!ss) return;
   try {
+    const key = historyKey(taskId, userId, segmentId);
     if (undo.length === 0 && redo.length === 0) {
-      ss.removeItem(historyKey(taskId, userId));
+      ss.removeItem(key);
       return;
     }
     const payload: PersistedHistory = { undo, redo, ts: Date.now() };
-    ss.setItem(historyKey(taskId, userId), JSON.stringify(payload));
+    ss.setItem(key, JSON.stringify(payload));
   } catch {
     // sessionStorage 写失败（quota / private mode）静默忽略；history 仍在内存可用。
   }
@@ -223,28 +253,30 @@ export function saveHistoryToSession(
 interface TaskHistory {
   taskId: string | undefined;
   userId?: string;
+  segmentId?: string | null;
   undo: Command[];
   redo: Command[];
   busy: boolean;
   revision: number;
 }
 
-/** Each in-flight operation settles the history of the task that started it. */
 export function useAnnotationHistory(
   taskId: string | undefined,
   handlers: HistoryHandlers,
   userId?: string,
+  segmentId?: string | null,
 ) {
   const histories = useRef(new Map<string | undefined, TaskHistory>());
   const getHistory = useCallback(
-    (owner: string | undefined): TaskHistory => {
-      const key = historyKey(owner, userId);
+    (owner: string | undefined, segment = segmentId): TaskHistory => {
+      const key = historyKey(owner, userId, segment);
       const existing = histories.current.get(key);
       if (existing) return existing;
-      const restored = loadHistoryFromSession(owner, userId);
+      const restored = loadHistoryFromSession(owner, userId, segment);
       const created = {
         taskId: owner,
         userId,
+        segmentId: segment,
         undo: restored?.undo ?? [],
         redo: restored?.redo ?? [],
         busy: false,
@@ -253,7 +285,7 @@ export function useAnnotationHistory(
       histories.current.set(key, created);
       return created;
     },
-    [userId],
+    [segmentId, userId],
   );
   const current = useRef(getHistory(taskId));
   const [snapshot, setSnapshot] = useState(() => ({ ...current.current }));
@@ -264,11 +296,16 @@ export function useAnnotationHistory(
   });
   useLayoutEffect(() => {
     const previous = current.current;
-    if ((previous.taskId !== taskId || previous.userId !== userId) && !previous.busy)
-      histories.current.delete(historyKey(previous.taskId, previous.userId));
+    if (
+      (previous.taskId !== taskId ||
+        previous.userId !== userId ||
+        previous.segmentId !== segmentId) &&
+      !previous.busy
+    )
+      histories.current.delete(historyKey(previous.taskId, previous.userId, previous.segmentId));
     current.current = getHistory(taskId);
     setSnapshot({ ...current.current });
-  }, [taskId, getHistory, userId]);
+  }, [taskId, getHistory, userId, segmentId]);
   useLayoutEffect(() => {
     mounted.current = true;
     return () => {
@@ -277,14 +314,13 @@ export function useAnnotationHistory(
   }, []);
 
   const publish = useCallback((record: TaskHistory) => {
-    saveHistoryToSession(record.taskId, record.undo, record.redo, record.userId);
+    saveHistoryToSession(record.taskId, record.undo, record.redo, record.userId, record.segmentId);
     if (mounted.current && current.current === record) setSnapshot({ ...record });
   }, []);
 
   const push = useCallback(
-    (cmd: Command, owner = current.current.taskId) => {
+    (cmd: Command, owner = taskId) => {
       const record = getHistory(owner);
-      // A response retry may be delivered after the original receipt was handled.
       if (
         cmd.kind === "slice" &&
         [...record.undo, ...record.redo].some(
@@ -297,7 +333,7 @@ export function useAnnotationHistory(
       record.revision += 1;
       publish(record);
     },
-    [getHistory, publish],
+    [getHistory, publish, taskId],
   );
 
   const pushBatch = useCallback(
@@ -309,34 +345,12 @@ export function useAnnotationHistory(
   );
 
   const replaceAnnotationId = useCallback(
-    (tmpId: string, realId: string) => {
-      const swapLeaf = (c: LeafCommand): LeafCommand => {
-        if (c.kind === "create" && c.annotationId === tmpId) return { ...c, annotationId: realId };
-        if (c.kind === "update" && c.annotationId === tmpId) return { ...c, annotationId: realId };
-        if (c.kind === "delete" && c.annotation.id === tmpId)
-          return { ...c, annotation: { ...c.annotation, id: realId } };
-        if (c.kind === "videoKeyframe" && c.annotationId === tmpId)
-          return { ...c, annotationId: realId };
-        if (c.kind === "videoMaskFrame" && c.annotationId === tmpId)
-          return { ...c, annotationId: realId };
-        if (c.kind === "acceptPrediction" && c.createdAnnotationIds.includes(tmpId))
-          return {
-            ...c,
-            createdAnnotationIds: c.createdAnnotationIds.map((id) => (id === tmpId ? realId : id)),
-          };
-        return c;
-      };
-      const swap = (c: Command): Command => {
-        if (c.kind === "slice" || c.kind === "acceptance") return c;
-        if (c.kind === "batch") return { ...c, commands: c.commands.map(swapLeaf) };
-        return swapLeaf(c);
-      };
-      const record = current.current;
-      record.undo = record.undo.map(swap);
-      record.redo = record.redo.map(swap);
+    (tmpId: string, realId: string, owner = taskId, segment = segmentId) => {
+      const record = getHistory(owner, segment);
+      remapHistory(record, tmpId, realId);
       publish(record);
     },
-    [publish],
+    [getHistory, publish, segmentId, taskId],
   );
 
   const execute = useCallback(
@@ -350,16 +364,56 @@ export function useAnnotationHistory(
       const revision = record.revision;
       const targetIndex = record[to].length;
       const h = handlersRef.current;
+      let insertionIndex = targetIndex;
+      let completed = 0;
+      const total = cmd.kind === "batch" ? cmd.commands.length : 1;
+      const sessionId = useAuthStore.getState().sessionId;
+      const ownsSession = () =>
+        record.userId === undefined ||
+        (isCurrentAuthOwner(record.userId) && useAuthStore.getState().sessionId === sessionId);
+      const assertScope = () => {
+        if (!ownsSession() || !mounted.current || current.current !== record)
+          throw new Error("操作历史所属账号、任务或片段已切换");
+      };
+      const apply = async (leaf: LeafCommand) => {
+        let previous = annotationId(leaf);
+        if (
+          previous?.startsWith("tmp_") &&
+          h.resolveAnnotationId &&
+          !(leaf.kind === "create" && direction === "undo" && h.removeLocalCreate)
+        ) {
+          const realId = await h.resolveAnnotationId(previous);
+          assertScope();
+          if (realId) {
+            remapHistory(record, previous, realId);
+            publish(record);
+          }
+          previous = annotationId(leaf);
+        }
+        if (leaf.kind === "delete" && direction === "undo" && !leaf.restoreRequestId) {
+          leaf.restoreRequestId = randomId();
+          publish(record);
+        }
+        if (leaf.kind === "create" && direction === "redo" && !leaf.payload.client_request_id) {
+          leaf.payload = { ...leaf.payload, client_request_id: randomId() };
+          publish(record);
+        }
+        await applyLeaf(leaf, direction, h);
+        const next = annotationId(leaf);
+        if (previous && next && previous !== next) remapHistory(record, previous, next);
+      };
+      const insert = (item: Command) => {
+        record[to] = [
+          ...record[to].slice(0, insertionIndex),
+          item,
+          ...record[to].slice(insertionIndex),
+        ];
+        insertionIndex++;
+      };
       record.busy = true;
-      if (cmd.kind !== "slice" && cmd.kind !== "acceptance")
-        record[from] = record[from].slice(0, -1);
       publish(record);
       try {
-        const assertOwner = () => {
-          if (record.userId !== undefined && !isCurrentAuthOwner(record.userId))
-            throw new Error("操作历史所属账号已切换");
-        };
-        assertOwner();
+        assertScope();
         if (cmd.kind === "slice") {
           if (!h.restoreSlice || !record.taskId) throw new Error("切割恢复接口不可用");
           const target = direction === "undo" ? "before" : "after";
@@ -369,7 +423,6 @@ export function useAnnotationHistory(
               idempotencyKey: randomId().replace(/-/g, ""),
             };
           }
-          // Persist the retry key before making the request, including across reloads.
           publish(record);
           const result = await h.restoreSlice(record.taskId, cmd.operationId, {
             target,
@@ -403,42 +456,49 @@ export function useAnnotationHistory(
           delete cmd.pendingRestore;
           record[from] = record[from].filter((item) => item !== cmd);
         } else if (cmd.kind === "batch") {
-          const ordered = direction === "undo" ? [...cmd.commands].reverse() : cmd.commands;
-          if (ordered.some((sub) => sub.kind === "acceptPrediction"))
+          if (cmd.commands.some((sub) => sub.kind === "acceptPrediction"))
             throw new Error("旧的采纳历史缺少恢复凭据，无法安全撤销或重做");
-          for (const sub of ordered) {
-            try {
-              assertOwner();
-              await applyLeaf(sub, direction, h);
-            } catch {
-              /* Existing batch best effort behavior. */
+          cmd.batchId ??= randomId();
+          while (cmd.commands.length > 0) {
+            assertScope();
+            if (record.revision !== revision) throw new Error("编辑内容已变化，剩余历史未执行");
+            const index = direction === "undo" ? cmd.commands.length - 1 : 0;
+            const leaf = cmd.commands[index];
+            await apply(leaf);
+            cmd.commands.splice(index, 1);
+            completed++;
+            if (!cmd.commands.length) record[from] = record[from].filter((item) => item !== cmd);
+            if (direction === "redo" || record.revision === revision) {
+              const counterpart = record[to][insertionIndex - 1];
+              if (counterpart?.kind === "batch" && counterpart.batchId === cmd.batchId) {
+                if (direction === "undo") counterpart.commands.unshift(leaf);
+                else counterpart.commands.push(leaf);
+              } else {
+                insert({ kind: "batch", commands: [leaf], batchId: cmd.batchId });
+              }
             }
+            publish(record);
           }
+          return;
         } else {
-          await applyLeaf(cmd, direction, h);
+          await apply(cmd);
+          record[from] = record[from].filter((item) => item !== cmd);
         }
-        if ((cmd.kind !== "slice" && cmd.kind !== "acceptance") || record.revision === revision) {
-          record[to] = [...record[to], cmd];
-        } else if (direction === "redo") {
-          // New edits made during this request stay after the initiating redo.
-          record.undo = [
-            ...record.undo.slice(0, targetIndex),
-            cmd,
-            ...record.undo.slice(targetIndex),
-          ];
-        }
-        // A new edit clears redo, even if the preceding undo settles later.
+        if (direction === "redo" || record.revision === revision) insert(cmd);
       } catch (error) {
-        if (cmd.kind !== "slice" && cmd.kind !== "acceptance" && !record[from].includes(cmd))
-          record[from] = [...record[from], cmd];
-        if (mounted.current && current.current === record) {
+        if (mounted.current && current.current === record && ownsSession()) {
           if (cmd.kind === "slice") h.onSliceError?.(error);
-          if (
+          else if (
             cmd.kind === "acceptance" ||
             cmd.kind === "acceptPrediction" ||
             (cmd.kind === "batch" && cmd.commands.some((sub) => sub.kind === "acceptPrediction"))
           )
             h.onAcceptanceError?.(error);
+          else {
+            const label = direction === "undo" ? "撤销" : "重做";
+            const progress = cmd.kind === "batch" ? `（本次已完成 ${completed}/${total} 项）` : "";
+            h.onReplayError?.(`${label}未完成${progress}，可重试剩余操作`, error);
+          }
         }
       } finally {
         record.busy = false;

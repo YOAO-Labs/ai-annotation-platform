@@ -483,7 +483,6 @@ async def test_authentication_query_does_not_acquire_registration_lock(db_sessio
 async def test_rotation_waits_for_remote_responsibility_but_revoke_is_unconditional(
     httpx_client, super_admin, db_session, command_state
 ):
-    # The transport model/migration is integrated by the parent worktree.
     from app.db.models.dataset_asset import StorageLocation
     from app.db.models.site_agent_command import SiteAgentCommand
 

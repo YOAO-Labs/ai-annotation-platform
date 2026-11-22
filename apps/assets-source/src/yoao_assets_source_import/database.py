@@ -412,9 +412,7 @@ class ImportData:
             return decode_import_reply(payload, result_model)
         except ImportFailure:
             raise
-        except (
-            Exception
-        ) as exc:  # defensive: Pydantic implementation errors fail closed
+        except Exception as exc:
             raise ImportFailure("invalid_response") from exc
 
     def _parse_payload(self, raw: Any) -> object:

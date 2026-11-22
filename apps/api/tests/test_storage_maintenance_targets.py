@@ -227,7 +227,6 @@ async def target_world(db_session, super_admin):
         .where(StorageBinding.purpose == "training")
         .values(location_id=b.id, generation=2)
     )
-    # Business IDs below intentionally outlive owners wherever the model permits.
     job, owner = uuid.uuid4(), super_admin[0].id
     expected = Counter()
     rows = {}
@@ -448,7 +447,6 @@ async def target_world(db_session, super_admin):
         reference_state="present",
     )
     expected["datasets"] += 1
-    # A reference remains source lineage, not a second managed output role.
     await insert(
         db,
         "dataset_asset_locations",
@@ -869,7 +867,6 @@ async def test_all_27_families_report_saved_roles_without_io(
         == 1
     )
     assert counts["unlocated_targets"] == 0
-    # A owns the source and staging, B owns the saved outputs and cache.
     a = (await read(httpx_client, w["a"], super_admin))["counts"]
     assert a["sources"] == 1 and counts["sources"] == 0
     assert a["ready_lineage_versions"] == 1 and counts["ready_lineage_versions"] == 0
@@ -1008,7 +1005,6 @@ async def test_legacy_cache_key_identity_and_bounded_private_projection(target_w
         for key, value in before.items()
         if key.startswith("target_") or key in {"current_bindings", "unlocated_targets"}
     )
-    # A legacy cache's physical key contains sha256 even without a JSON ref.
     table = Base.metadata.tables["original_cache_entries"]
     await db.execute(update(table).values(sha256="b" * 64))
     after = await snapshot(db, w["b"])
@@ -1035,7 +1031,6 @@ async def test_shared_guide_project_and_pyramid_relationship_changes_are_fingerp
     after = await snapshot(db, w["b"])
     assert after["target_related_projects"] == 2
     assert after["dependency_fingerprint"] != before["dependency_fingerprint"]
-    # Remove a pyramid's current business owner without erasing its saved role.
     await db.execute(
         delete(ImagePyramidAsset).where(
             ImagePyramidAsset.id == w["rows"]["image_pyramid_outputs"]["asset_id"]
@@ -1066,7 +1061,6 @@ async def test_legacy_impact_is_readable_without_enabling_mutations(
     await ensure_legacy_bindings(db_session)
     where = await db_session.get(StorageLocation, LEGACY_LOCATION_ID)
     forbid_source_io(monkeypatch)
-    # Other retained owners may already reference this shared deployment location.
     baseline = (await read(httpx_client, where, super_admin))["counts"]
     token = uuid.uuid4().hex
     ref = saved_ref(where, "avatars", object_key=token + ".webp")

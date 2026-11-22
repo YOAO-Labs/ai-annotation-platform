@@ -245,7 +245,6 @@ def crop_inputs_from_boxes(
     for idx, box in enumerate(boxes):
         if not isinstance(box, Mapping):
             continue
-        # 类别路由: 不匹配目标类的父框是路由跳过 (非几何), 不计入 skipped_geometry。
         if filter_set is not None and box_class_name(box) not in filter_set:
             continue
         cache_key = (idx, round(pad, 4))
@@ -254,7 +253,6 @@ def crop_inputs_from_boxes(
             inputs.append(cached["input"])
             transforms[str(idx)] = cached["transform"]
             continue
-        # 几何门控: 非 bbox/polygon / 旋转框 / 退化框 → 无法裁 crop, 计入 skipped_geometry。
         px = _box_bbox_pixels(box, img_w, img_h, mask_objects)
         if px is None:
             skipped_geometry += 1
@@ -275,8 +273,6 @@ def crop_inputs_from_boxes(
         if crop.width <= 0 or crop.height <= 0:
             skipped_geometry += 1
             continue
-        # 嵌套裁剪越深裁得越小, 短边过小的 crop 上采样后画质崩坏; 低于阈值跳过
-        # (计 skipped_geometry), 父框靠 on_failure=keep_parent 保留。0=不守卫 (向后兼容)。
         if min_crop_side_px and (
             crop.width < min_crop_side_px or crop.height < min_crop_side_px
         ):
@@ -297,7 +293,6 @@ def crop_inputs_from_boxes(
                 "ascii"
             )
         inp = {"id": str(idx), "file_path": file_path}
-        # crop→原图仿射变换 (归一化图像空间), 供 remap_geometry_to_image 反投影。
         transform = {
             "ox": left_int / img_w,
             "oy": top_int / img_h,
@@ -357,8 +352,6 @@ def geometry_prompts_from_boxes(
             continue
         if filter_set is not None and box_class_name(box) not in filter_set:
             continue
-        # 统一支持 rectanglelabels (旋转框跳过) 与 polygonlabels (取外接框);
-        # 原生 raster-mask 父框取已校验 RLE 的精确外接框。
         pct = _box_bbox_pct(box, mask_objects)
         if pct is None:
             skipped_geometry += 1
@@ -367,7 +360,6 @@ def geometry_prompts_from_boxes(
         if w <= 0 or h <= 0:
             skipped_geometry += 1
             continue
-        # LS 百分比 0-100 → 归一化 [0,1]; 钳制到边界 (下游按图宽高还原像素)。
         x1 = min(max(x / 100.0, 0.0), 1.0)
         y1 = min(max(y / 100.0, 0.0), 1.0)
         x2 = min(max((x + w) / 100.0, 0.0), 1.0)
@@ -432,8 +424,6 @@ def _polygon_rings(value: Mapping) -> list[Sequence]:
         rings: list[Sequence] = []
         for poly in polys:
             pts = poly.get("points")
-            # 外环空 = 退化多边形 (只有洞无外环): 整体跳过, 否则会产出 points:[] 的鬼影
-            # shape, 下游 ingest 422 或渲染出「只有洞」的异常几何。
             if not (isinstance(pts, (list, tuple)) and pts):
                 continue
             rings.append(pts)
@@ -464,10 +454,6 @@ def remap_geometry_to_image(shapes: list[Mapping], transform: Mapping) -> list[d
     """
     ox, oy = transform["ox"], transform["oy"]
     sx, sy = transform["sx"], transform["sy"]
-    # 口径 (0-1 vs 0-100) 按整批 shape 一次判定: 同一 crop 的所有检出来自同一 backend、
-    # 口径一致。逐 shape 判会让"百分比口径下各分量恰好 <1 的近原点小目标"被误判成归一化
-    # (与 prediction.py:227 video_track_bbox 拒绝自动探测同因); 整批含任一 >1 分量即判
-    # 百分比, 显著降低单个小目标被带偏的概率。
     batch_values: list[float] = []
     for s in shapes:
         if not isinstance(s, Mapping):
@@ -508,9 +494,6 @@ def remap_geometry_to_image(shapes: list[Mapping], transform: Mapping) -> list[d
             value["width"] = w * sx * 100.0
             value["height"] = h * sy * 100.0
         elif btype == "polygonlabels":
-            # LS polygon 三形态 (见 services.prediction.to_internal_shape):
-            #   ① {points}  ② {points, holes}  ③ {polygons: [{points, holes?}]} (多连通)
-            # 环坐标口径按整个 shape 一次判定 (逐环判会让小环误判成归一化)。
             rings = _polygon_rings(value)
             if not rings:
                 continue
@@ -543,7 +526,6 @@ def remap_geometry_to_image(shapes: list[Mapping], transform: Mapping) -> list[d
                         ),
                     }
                     for poly in value["polygons"]
-                    # 退化多边形 (外环空) 一并丢弃, 与 _polygon_rings 口径判定保持一致。
                     if isinstance(poly.get("points"), (list, tuple))
                     and poly.get("points")
                 ]
@@ -589,7 +571,6 @@ def merge_classify_attributes(
         if not (0 <= box_idx < len(boxes)):
             continue
         shapes = cr.result or []
-        # 取置信度最高的结果项的 attributes
         best_attrs: dict = {}
         best_score = -1.0
         for s in shapes:

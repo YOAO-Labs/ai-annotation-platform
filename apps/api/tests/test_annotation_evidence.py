@@ -25,9 +25,6 @@ def _task(**kwargs) -> Task:
     return task
 
 
-# ── canonicalization ─────────────────────────────────────────────────
-
-
 def test_canonical_actor_id_accepts_uuid_and_lowercases_strings():
     value = uuid.uuid4()
     assert evidence.canonical_actor_id(value) == str(value)
@@ -75,9 +72,6 @@ def test_known_ids_malformed_is_unknown(values):
         )
         is None
     )
-
-
-# ── accumulation ─────────────────────────────────────────────────────
 
 
 def test_record_pure_policy_accumulates_canonical_actor():
@@ -151,9 +145,6 @@ def test_review_phase_adjustment_does_not_add_reviewer():
 
     assert changed is False
     assert task.annotation_contributor_ids == []
-
-
-# ── freeze ───────────────────────────────────────────────────────────
 
 
 def test_freeze_known_accumulator_includes_submitter_and_assignee():

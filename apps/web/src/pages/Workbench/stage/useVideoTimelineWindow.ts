@@ -10,7 +10,6 @@ import type { Dispatch, Ref, SetStateAction } from "react";
 import { clampWindow, type TimelineWindow } from "./timelineCoords";
 import type { VideoTimelineWindowControls } from "./videoStageControls";
 
-/** The Overlay's window owner, with source-scoped capture/restore rather than a second window. */
 export function useVideoTimelineWindow({
   sourceKey,
   maxFrame,

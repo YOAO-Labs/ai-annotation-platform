@@ -50,7 +50,6 @@ interface ZipResult {
 interface Props {
   open: boolean;
   onClose: () => void;
-  /** 若给定，则跳过新建步骤，直接向已有数据集追加文件。 */
   datasetId?: string;
   datasetName?: string;
   onUploaded?: (datasetId: string, addedCount: number) => void;
@@ -70,7 +69,6 @@ const STEP_LABELS: Record<Step, string> = {
   3: "导入完成",
 };
 
-/** 取路径末段作为数据集名候选（如 `a/b/dataset-A/` → `dataset-A`）。 */
 function lastPathSegment(path: string): string {
   return path.split("/").filter(Boolean).pop() ?? "";
 }
@@ -156,7 +154,6 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
 
   useEffect(() => {
     if (!open) {
-      // reset
       setStep(1);
       setMode("files");
       setName("");
@@ -206,7 +203,6 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
     if (!open) return;
     try {
       const records = inspectImportTextDrafts(session, datasetId);
-      // Only an unambiguous current handoff is automatic. Legacy and conflicts require a choice.
       if (session && records.length === 1 && records[0].source === "current" && records[0].draft) {
         applyDraft(records[0].draft);
         setPendingDraft(records[0]);
@@ -324,7 +320,6 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
 
   const handleSetSourcePath = (v: string) => {
     setSourcePath(v);
-    // 连接器模式、用户未手改过名字时，用路径末段自动填充数据集名（仍可在「基本信息」步改）
     if (!skipCreate && !nameTouched && mode === "connection") {
       const seg = lastPathSegment(v);
       if (seg) setName(seg);
@@ -555,7 +550,6 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
     }
   };
 
-  // 提交（开始上传/导入）所在的步：追加模式在「来源」步直接提交；新建模式在「基本信息」步提交。
   const isSubmitStep = skipCreate ? step === 1 : step === 2;
 
   const startByMode = () => {
@@ -634,8 +628,6 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
           setDescription={setDescription}
           setDataType={(v) => {
             setDataType(v);
-            // 切换数据类型时重置时序声明：时序开关仅在 image/video/point_cloud 显示，
-            // 切到 other/multimodal 后若仍残留 true 会让后端 scene 校验意外 422。
             setIsTemporal(false);
           }}
           axisConvention={axisConvention}
@@ -651,7 +643,6 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
           mode={mode}
           setMode={(m) => {
             setMode(m);
-            // 切换模式时清掉对侧选择
             if (m !== "files") setFiles([]);
             if (m !== "zip") {
               setZipFile(null);
@@ -748,8 +739,6 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
   );
 }
 
-// ── Stepper ──────────────────────────────────────────────────────────────────
-
 function Stepper({ current, steps }: { current: Step; steps: Step[] }) {
   return (
     <div className={styles.stepper}>
@@ -784,8 +773,6 @@ function Stepper({ current, steps }: { current: Step; steps: Step[] }) {
     </div>
   );
 }
-
-// ── Step 1 ───────────────────────────────────────────────────────────────────
 
 function Step1({
   name,
@@ -879,8 +866,6 @@ function Step1({
   );
 }
 
-// ── Step 2 ───────────────────────────────────────────────────────────────────
-
 function Step2({
   mode,
   setMode,
@@ -921,7 +906,6 @@ function Step2({
   const filesInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
   const [hover, setHover] = useState(false);
-  // 行内校验错误(替代原原生 alert 提示):紧贴选择区展示,选中合规文件即清除。
   const [zipError, setZipError] = useState<string | null>(null);
   const totalSize = files.reduce((sum, f) => sum + f.size, 0);
 
@@ -941,7 +925,6 @@ function Step2({
 
   return (
     <div className={styles.stackMedium}>
-      {/* mode toggle */}
       <div className={styles.modeTabs}>
         {(
           [
@@ -1198,8 +1181,6 @@ function ConnectionImportSource({
   );
 }
 
-// ── Step 3 ───────────────────────────────────────────────────────────────────
-
 function Step3({
   files,
   items,
@@ -1289,8 +1270,6 @@ function Step3({
   );
 }
 
-// ── Footer ───────────────────────────────────────────────────────────────────
-
 function Footer({
   isSubmitStep,
   showPrev,
@@ -1330,8 +1309,6 @@ function Footer({
     </div>
   );
 }
-
-// ── Step 3 (ZIP) ─────────────────────────────────────────────────────────────
 
 function Step3Zip({
   zipFile,
@@ -1433,8 +1410,6 @@ function Step3Zip({
     </div>
   );
 }
-
-// ── Step 3 (Connection) ─────────────────────────────────────────────────────
 
 function Step3Connection({
   jobId,
@@ -1571,8 +1546,6 @@ function Step3Connection({
     </div>
   );
 }
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

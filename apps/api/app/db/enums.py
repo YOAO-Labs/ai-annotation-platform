@@ -36,18 +36,12 @@ class ProjectRole(str, Enum):
     VIEWER = "viewer"
 
 
-#: Valid platform (account) roles after the employee cutover.
 PLATFORM_ROLES = frozenset(r.value for r in PlatformRole)
-#: Valid project membership roles.  Membership stays one role per project.
 PROJECT_ROLES = frozenset(r.value for r in ProjectRole)
-#: Platform managers: management authority additionally requires project ownership.
 MANAGER_PLATFORM_ROLES = frozenset(
     {PlatformRole.SUPER_ADMIN.value, PlatformRole.PROJECT_ADMIN.value}
 )
-#: Pre-cutover staff roles.  Historical/migration readers only; never an
-#: authorization source under the project-scoped model.
 LEGACY_PLATFORM_STAFF_ROLES = frozenset({"annotator", "reviewer"})
-#: Project roles that carry annotation/review work.
 WORK_PROJECT_ROLES = frozenset(
     {ProjectRole.ANNOTATOR.value, ProjectRole.REVIEWER.value}
 )
@@ -69,9 +63,6 @@ class TaskStatus(str, Enum):
     REJECTED = "rejected"
 
 
-# issue #121 · 工作台单题交互 AI 允许的任务状态 (与标注写入口径一致)。
-# 排除 uploading (对象尚未校验) 与终态 review/completed; 批量预标另按 pending-only 校验。
-# API 校验与 worker 复校验共用, 避免两处状态集合漂移。
 WORKBENCH_AI_EDITABLE_TASK_STATUSES = frozenset(
     {
         TaskStatus.PENDING.value,
@@ -84,7 +75,6 @@ WORKBENCH_AI_EDITABLE_TASK_STATUSES = frozenset(
 class BatchStatus(str, Enum):
     DRAFT = "draft"
     ACTIVE = "active"
-    # AI 文本批量预标已跑完，等待人工接管/分派；语义介于 ACTIVE 与 ANNOTATING。
     PRE_ANNOTATED = "pre_annotated"
     ANNOTATING = "annotating"
     REVIEWING = "reviewing"

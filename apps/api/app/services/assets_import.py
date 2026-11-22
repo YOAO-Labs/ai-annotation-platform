@@ -121,9 +121,6 @@ class DatasetImportCapabilities:
             """,
             {"actor_id": actor_id, "job_id": job_id},
             ImportState,
-            # actor_id is the authenticated canceller. The returned actor_id is
-            # the original accepted-job owner, so only job identity is scoped
-            # against the result here. Native code authorizes the current actor.
             scope=(job_id,),
         )
         if state.stage != "cancelled":

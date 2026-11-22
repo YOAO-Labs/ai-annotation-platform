@@ -177,7 +177,6 @@ async def accept(
             or candidate.verified_content["sha256"] != payload.candidate_sha256
         ):
             conflict("revision_selection_changed")
-        # Source serialization fences schedulers, scans and manual registrations.
         for model in (DatasetScanRun, Run):
             if await session.scalar(
                 select(model.id)
@@ -234,7 +233,6 @@ async def accept(
     )
 
     async def before_apply(session):
-        # At the final check our own unpublished head has already advanced.
         head = await session.get(Head, (run.source_id, digest), populate_existing=True)
         own = bool(head and head.current_revision_id == new_id)
         _, _, accepted = await guard(session)

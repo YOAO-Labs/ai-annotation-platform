@@ -72,8 +72,6 @@ def source(origin="direct"):
         None,
     )
     asset = original_sources.AssetFacts(content_id, item_id, "video", sha, len(RAW))
-    # Deliberately incorrect metadata dimensions are identity facts, never the
-    # trusted dimensions handed to video inference.
     item = original_sources.ItemFacts(item_id, uuid.uuid4(), key, "video", 1, 2)
     replica = original_sources.ReplicaFacts(
         content_id,
@@ -498,7 +496,6 @@ async def test_unknown_probe_process_preserves_descriptor_and_source_admission(
         world.permit.__aexit__.assert_not_awaited()
         assert not videos._slots.acquire(False)
     finally:
-        # This fake raises no real child; release its local test descriptor only.
         if captured:
             captured[0].file.close()
 

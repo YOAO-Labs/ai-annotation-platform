@@ -85,7 +85,6 @@ async def _cleanup_spatial_fixture(engine, actor_id, operation_id):
             ("DELETE FROM projects WHERE owner_id=:actor", {"actor": actor_id}),
             ("DELETE FROM async_jobs WHERE user_id=:actor", {"actor": actor_id}),
             ("DELETE FROM datasets WHERE created_by=:actor", {"actor": actor_id}),
-            # Retain actors referenced by immutable audit evidence until database teardown.
             (
                 "DELETE FROM users WHERE id=:actor AND NOT EXISTS "
                 "(SELECT 1 FROM audit_logs WHERE actor_id=:actor)",

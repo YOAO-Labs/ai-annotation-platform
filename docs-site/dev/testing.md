@@ -42,6 +42,18 @@ last_reviewed: 2026-10-26
 
 新增门禁时从一次可复现的错例开始：若能改 API 消除错误选择，优先改 API；否则在已有检查器中让错例失败、相邻的合法例通过，并给出正确入口。涉及运行状态的结论用独立的行为证据，不用搜索源码拼写代替。例如[决策弹窗](./reference/design-system#decision-dialogs)的 lint 能挡住原生弹窗调用，但不能证明用户取消删除后数据还在。
 
+### 源码注释门禁
+
+`pnpm lint:comments` 检查相对 `HEAD` 的工作区变化，包括未忽略的新文件。预提交读取真实暂存区；CI 的 `Repository quality` 对照 PR 目标或 push 前的提交。现行代码的解释性注释额度为零：即使目标分支原来有同样的文字，也不允许带回。
+
+仅冻结迁移和 Web 中确实被 ESLint `no-empty` 消费的既有空 `catch` 说明保留逐文件、逐内容、逐次数的旧额度。删掉后不能在新的基线上补回；新文件不能借用，迁移改名到现行代码也不能继承历史特权。首次遇到还没有门禁的目标提交时使用一次性原始指纹，不维护可扩充的白名单。`pnpm lint:comments --base <提交>` 检查整个分支。
+
+用 `pnpm lint:comments --inventory [目录]` 核算行数；`--jsonl` 列出每条注释的位置和保护原因，`--revision <提交>` 可复查历史快照。`tokens` 包含行尾注释；`comment_only_lines` 只统计拿掉解释性注释后没有代码的物理行。`frozen_lines` 是其中的迁移历史子集，不应通过改写已发布工件兑现。
+
+范围是本仓维护的源码、测试和可执行配置，不包括 Markdown 正文、依赖、生成物、锁文件或外部子模块。解析模板内的相关脚本／样式，以及 GitHub Actions 中可确定为 Bash／sh 的 `run: |` 块；不把普通字符串、heredoc 或 PostgreSQL dollar-quoted 内容当成宿主语言注释。Python docstring 是程序数据；`.env.example` 是环境变量文档输入。许可、shebang、类型／lint 指令、SQL 分句标记等也不作解释性注释删除。不要为新注释伪造指令。
+
+运行仓库技能 `/delete-comment [目录]` 逐条处置：重复或过时的删除；仍存在的权宜实现先登记可验收的 issue；非显而易见的约束归入对应 ADR。自动分类只用于分诊，不能代替删前核对。用 `pnpm lint:comments --test` 验证词法边界、暂存区隔离和删除后不能回填的行为。
+
 ### 分层归属与运行入口
 
 | 层级             | 保护目标                                                   | 运行入口                                                                                                                                                                                                                                                         | 真值来源                       |
@@ -174,6 +186,8 @@ uv run pytest --cov=app --cov-report=html    # 生成 HTML 覆盖率报告（输
 CI 的 `Backend tests` 检查背后是 `.github/workflows/backend-test.yml` 的四个独立分片，每个分片在自己的 GitHub runner 上拥有独立的 Postgres / Redis / MinIO。分片只决定 pytest 收集哪些用例；依赖同步、worktree 运行时与 setup 测试、服务维护测试、存储隔离验收、`alembic upgrade head`、迁移校验、OpenAPI 快照漂移、`migration policy` 纯规则测试与覆盖率上传在每个分片上都完整执行，任何分片都不会因为分片而跳过检查。
 
 后端分片固定使用 `ubuntu-24.04`，备份/还原显式选择 PostgreSQL 16 客户端，与本 Job 的 `postgres:16` 服务配套，避免浮动 runner 的新版 `pg_dump` 生成旧服务端不支持的配置。客户端缺失时安装同主版本包，不通过过滤备份语句、忽略 `pg_restore` 错误或跳过恢复场景放行迁移门禁。
+
+原件回收的五个 Native 用例必须各自在空数据库执行，不能用普通 pytest 的条件跳过代替。后端分片 0 运行 `apps/api/.venv/bin/python scripts/verify_module_data_boundary.py --reclamation-only --output reclamation-results/acceptance.json`，核对收集清单与逐项 JUnit，随分片上传结果。HTTP 用例实际登录，并验证只读观察及指定 S3 版本的删除；不借用日常数据库或桶。
 
 使用 `pg_stat_activity` 观测并发锁等待时，每次轮询先调用 `pg_stat_clear_snapshot()`，避免同一观测事务的统计快照遗漏稍后建立的连接。锁序测试仍需验证真实阻塞、取消落库和唯一终态通知，不靠增加等待时间或吞掉异常稳定用例。
 
@@ -322,7 +336,9 @@ pnpm test:coverage         # 运行并检查覆盖率阈值
 
 ### MSW 接口模拟
 
-`vitest.setup.ts` 已自动挂载 MSW Server，默认处理器位于 `src/mocks/handlers.ts`。在单测中可按需覆盖特定端点：
+Vitest 已自动挂载 MSW Server，默认处理器位于 `src/mocks/handlers.ts`。未命中处理器的 `/api/vN` 产品请求不会访问真实网络；即使应用捕获了请求错误，发起请求的用例仍会失败，并报告请求方法与路径。非产品路径不触发这项检查（查询参数里出现 `/api/vN` 也不算）。
+
+为用例实际访问的路径和方法添加 `server.use(...)`，不要用宽泛处理器兜底。用例和套件各自持有处理器覆盖；异步操作即使延续到下一用例，也不会使用下一用例的处理器。使用 `vi.stubGlobal` 提供传输替身时，应只在用例内或 `beforeEach` 安装，并核对替身收到的请求。对于只读资源，也可添加对应的非 API MSW 处理器：
 
 ```ts
 import { http, HttpResponse } from "msw";
@@ -381,6 +397,8 @@ pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e
 Playwright 在该环境内启动受限 API 和 Web。不能仅靠 `PLAYWRIGHT_E2E_DATABASE_URL`
 或 `_e2e`／`_test` 后缀证明资源归属，也不要复用日常开发库。
 
+GitHub 的 Web E2E 安装锁定的 API 运行依赖（`uv sync --project apps/api --frozen --no-dev`），不依赖 Python 测试额外使用的私有 SDK wheel。每个 runner 从自己的 Compose 项目启动 `minio`，从同一服务提取 `mc`，结束后回收项目和卷。不要用无 Compose 归属的同名容器替代：夹具必须能核对它将要清理的服务。
+
 - **何时编写 E2E**：跨页面业务流程、长链路状态收敛、涉及 WebSocket 实时推送或真实文件上传。
 - **何时不写 E2E**：单组件局部交互、纯函数或 URL 规则校验。
 
@@ -392,12 +410,15 @@ Playwright 在该环境内启动受限 API 和 Web。不能仅靠 `PLAYWRIGHT_E2
 `pnpm dev:worktree -- exec --mode e2e --` 之后从仓库根目录执行（或在内部切换到
 `apps/web`），不要在未核验资源的 shell 中直接执行。
 
-| 测试集    | 套件命令（在 `apps/web` 下）                                                       | 执行范围                                                         |
-| --------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| 功能回归  | `pnpm test:e2e --project=chromium --shard=N/4`                                     | 完整选集以四个分片执行图片、视频及其布局上下文                   |
-| Mask 矩阵 | `pnpm test:e2e:mask-readonly` / `test:e2e:mask-native` / `test:e2e:mask-ai-native` | 按套件计划选择，分别使用独立服务与隔离数据                       |
-| 点云专项  | `pnpm test:e2e --project=pointcloud`                                               | 完整选集单独执行全部 3D 点云与布局上下文，不再与四个普通分片重复 |
-| 布局压力  | `pnpm test:e2e:stress`                                                             | 相关变更、全量选集及手动 `extended`；覆盖六种上下文各 54 次重排  |
+| 测试集         | 套件命令（在 `apps/web` 下）                                                                                       | 执行范围                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
+| 功能回归       | `pnpm test:e2e --project=chromium --fully-parallel --shard=N/16`                                                   | 依用例均分 16 片；每片单 worker，覆盖图片、视频与布局                |
+| Mask 矩阵      | `pnpm test:e2e:mask-readonly` / `test:e2e:mask-native` / `test:e2e:mask-native-editor` / `test:e2e:mask-ai-native` | 按套件计划选择，分别使用独立服务与隔离数据                           |
+| 原生 AI 工具栏 | `pnpm test:e2e:mask-toolbar-native`                                                                                | 只执行 `workbench-ai-toolbar-layers.spec.ts` 的 6 个真实原生写入用例 |
+| 异步 AI 作业   | `pnpm test:e2e --project=chromium e2e/tests/workbench-ai-inspector-phases.spec.ts`                                 | 只执行 4 个真实异步阶段用例；启动器必须加 `--with-worker`            |
+| 点云专项       | `pnpm test:e2e --project=pointcloud --shard=N/4`                                                                   | 4 个分片覆盖全部点云交互与布局；保留专用渲染参数                     |
+| 视频专项       | `pnpm test:e2e:video --project=chromium --fully-parallel e2e/tests/video- e2e/tests/workbench-video- --shard=N/4`  | 4 个分片使用构建产物和可写 Mask API，执行单帧与轨迹写入              |
+| 布局压力       | `pnpm test:e2e:stress`                                                                                             | 相关变更、全量选集及手动 `extended`；覆盖六种上下文各 54 次重排      |
 
 #### 布局与画布分片策略
 
@@ -407,23 +428,27 @@ Playwright 在该环境内启动受限 API 和 Web。不能仅靠 `PLAYWRIGHT_E2
   - `workbench-layout-matrix.spec.ts`：包含图片与视频场景（运行在 `chromium` 项目，Konva 2D 画布无需 WebGL，避免软渲染在高负载下饿死主线程）。
   - 两份 spec 共用 `e2e/helpers/workbench-layout-matrix.ts` 注册用例，保持标题一致以稳定分片与套件选集。
 
-完整功能选集，以及 `E2E_SELECTION_MODE=legacy` 模式的 PR 与主分支推送，都要求四个 Chromium 分片与点云专项；两者合并覆盖原有全部 Playwright 项目，不省略用例，也不增加十五分钟进程预算。按真实 Playwright 收集集合核对覆盖等价，不用手工维护的测试数代替。
+完整功能选集与 `E2E_SELECTION_MODE=legacy` 都要求 16 个 Chromium 分片（`default-01` 至 `default-16`）、4 个点云分片（`pointcloud-1` 至 `pointcloud-4`）以及独立的 4 个视频报告（`video-pipeline-1` 至 `video-pipeline-4`）。Chromium 功能与视频按用例分片，每片仍只有一个 worker。每片须非空；同组分片的 Playwright 用例 ID 必须与未分片清单完全一致、不重复。单进程预算仍为十五分钟。
 
 #### 套件路由与必需审计
 
-- **智能路由入口（`scripts/plan-e2e-suites.mjs`）**：PR 默认运行“有界核心 smoke + 按变更路径触发的领域专项（Mask×3、`video-pipeline`、`pointcloud`）”。若触及共享依赖、运行时配置、未映射路径、空 diff、跨多域或文件重命名/删除，则保守放大为全量套件；纯文档变更（白名单 `.md`）显式跳过应用 E2E 并记录原因。设置仓库变量 `E2E_SELECTION_MODE=legacy` 可随时无代码回退至固定全量矩阵。
+- **智能路由入口（`scripts/plan-e2e-suites.mjs`）**：PR 默认运行有界核心 smoke 与变更触发的领域专项（Mask 五组、异步 AI 一组、视频四片、点云四片）。若触及共享依赖、运行时配置、未映射路径、空 diff、跨多域或文件重命名/删除，则保守放大为全量套件；纯文档变更（白名单 `.md`）显式跳过应用 E2E 并记录原因。设置仓库变量 `E2E_SELECTION_MODE=legacy` 可回退至固定功能分片和专项矩阵，仍要求两个独立 AI 专项。
 - **规划报告传输**：完整的 legacy/planned 对照、变更路径分类和原因写入 `E2E_SHADOW_PATH`（默认 `e2e-shadow.json`），CLI 仅输出 `shadow_path` 文件指针。CI 从文件生成步骤摘要，并上传 `e2e-selection-report` 产物；不要将完整报告放入步骤输出或进程环境，以免大型 PR 超过进程参数上限。矩阵、必需 manifest 和 ML CPU 调度继续使用原有有界输出。
-- **浏览器运行环境**：可复用 E2E 套件固定使用 `ubuntu-24.04`，避免 `ubuntu-latest` 切换到 Playwright 尚不支持的发行版。升级 runner 前须核对 Playwright 支持范围，并通过 Chromium 安装及实际套件运行；不跳过浏览器依赖或缩小测试选集。
+- **浏览器运行环境**：可复用 E2E 套件使用 `ubuntu-24.04`。默认功能和视频分片、原生 AI 工具栏及异步 AI 作业通过 Playwright `chrome` 通道启动 Google Chrome，并记录浏览器版本：这些用例需要真实解码 H.264 原件。其余套件保留锁文件指定的 Chromium；点云的 SwiftShader 参数不变。软件解码通过并不证明硬件加速。
 - **CI 运行身份**：可复用 E2E 工作流通过现有 `dev:worktree exec --mode e2e` 准备专属数据库、受限运行账号、Redis 和存储桶，不以初始 owner 连接直接启动普通 API。迁移及私有夹具 owner 与 API 连接分离，API 子进程清空 owner 选择变量。已构建套件仍验证并使用同一指纹的 `dist`，不以开发服务器替代；这项入口约束不改变套件选集、重试策略或验收要求。
+- **共享构建归档校验**：已构建套件只接受 `SHA256SUMS` 中一条有效记录，文件名必须字面等于 `web-e2e-dist-<指纹>.tar.gz`。先计算实际归档的 SHA-256，再从同一个已验证的文件描述符解包；路径前缀、名称后缀、重复记录、内容篡改及归档缺失都会在解包前失败。可用 `node --test scripts/unpack-e2e-build.test.mjs` 验证。
 - **视频工具准备**：后端分片与 E2E runner 先复用已有的 `ffmpeg` / `ffprobe`，缺少时才以 `--no-install-recommends` 安装 FFmpeg，避免下载无关驱动及语音模型占满 Job 预算；安装前先把 runner 的 `/etc/apt/apt-mirrors.txt` 指回 HTTPS 的 `archive.ubuntu.com`，避免区域 HTTP 镜像拖慢同一个 `apt-get`；两者版本均写入步骤日志，测试选集和超时不变。
 - **真实提供方验收**：版本、删除标记与净变化用例通过共用的 `live_provider_guard` 验证目标：本地仅允许工作树专属 `test` 桶；GitHub 托管 runner 可使用本次 Job 的临时 PostgreSQL、MinIO 与 Redis。远程存储、开发模式和非托管 runner 均拒绝，不用伪造工作树标记或跳过用例代替验收。
 - **必需套件审计（`scripts/audit-e2e-requirements.mjs`）**：核心 smoke 以 `--retries=0` 且 `flakyPolicy=forbid` 运行（重试后通过仍会阻断审计）；专项套件保留一次诊断重试并单独标记 flaky。审计脚本按计划 manifest 严格核对每个选中套件的产物，任何缺失、取消、setup 失败、套件名不匹配或核心 flaky 都会令汇总步骤失败（不会把缺失报告当作通过）。
 - **全量触发入口**：`push` 主分支与每日北京时间 03:00 的 `E2E extended` 定时工作流（`E2E_SCHEDULE_SCOPE=full`）执行全量套件；手动触发可通过 `scope` / `e2e_scope` 选择 `extended`（仅布局压力）或 `full`。修改分类或调度规则后，可运行 `node --test scripts/plan-e2e-suites.test.mjs` 自检。
+- **矩阵并发**：全量矩阵包含 32 个套件 Job、33 份必需报告，最多并行 11 个。`mask-worker` 是 `mask-native` 的独立必需报告，不额外占用 Job；两个 AI 专项各用一个 Job、一份独立报告，失败、跳过或零执行均不能满足严格审计。
+- **默认功能分片的条件跳过**：视频写入由 `test:e2e:video` 执行，原生 AI、原生 AI 工具栏及异步 AI 分别由 `mask-ai-native`、`mask-toolbar-native` 和 `ai-request-worker` 执行。以当前清单的用例身份逐项核对专项报告；默认分片中的条件跳过不能替代对应的实际执行。
 
 #### 重试策略与画布落库断言
 
 - **重试与超时护栏**：核心 smoke 不重试，完整功能与布局压力（`playwright.stress.config.ts`）最多重试 1 次，以诊断确定性损坏与高负载主线程饥饿。CI 中每个进程、测试步骤和 Job 分别限时 15 / 20 / 30 分钟，失败时自动保留 trace、截图与 `e2e-results.json`。
 - **真实落库与像素级验证**：核心绘制流程必须验证实际提交请求、数据库落库内容与页面刷新恢复；测试辅助接口仅用于构造前置状态，严禁在 UI 保存失败后靠补写后端状态掩盖缺陷。图片与视频 Konva 的隐藏/恢复验收统一使用 `e2e/fixtures/annotation-canvas-pixels.ts`，仅统计媒体背景之上的标注图层像素。
+- **审核退回**：先由标注员提交真实标注，再由审核员通过界面退回。在点击确认前监听该任务的真实退回请求，先断言 HTTP 响应，再以审核员身份读取任务并核对退回状态、结构化原因与补充说明；弹框消失不代表写入成功。
 - **构建产物验收**：CI 的产物套件使用真实 `vite preview`，在 `apps/web` 下通过 `pnpm build --mode e2e` 构建；本地也须使用所属工作树的 `e2e` 环境。常规生产构建不包含点云交互探针，不能替代 E2E 产物。浏览器侧不得靠动态导入 `/src` 修改应用 store。身份续期应走应用的真实刷新流程；网络故障注入只控制时机，刷新请求、权限重验及旧媒体许可退场仍由真实后端完成。仅限开发服务器的专门验收必须明确限制运行环境，不能混入产物套件。
 - **交互夹具的响应形状**：隔离页面交互时也要提供周边读取接口的真实结构。例如 `/projects/{id}/datasets` 返回数组，不能用通用分页对象兜底，否则页面会先进入错误边界，无法验收到目标控件。
 - **媒体尺寸夹具**：视频 Mask 的 `[height, width]` 取自当前任务真实 manifest，RLE 计数总和必须覆盖完整源帧；不能沿用历史夹具尺寸或用浏览器视口代替源媒体。
@@ -436,18 +461,15 @@ Playwright 在该环境内启动受限 API 和 Web。不能仅靠 `PLAYWRIGHT_E2
 E2E 用例通过 `apps/web/e2e/fixtures/seed.ts` 的 owner 进程通道调用夹具专用应用中的 `/api/v1/__test/seed/*` 路由，快速构造测试数据；不要求普通业务 API 获得完整 seed 清理权限：
 
 ```ts
-// apps/web/e2e/tests/auth.spec.ts
 import { test, expect } from "../fixtures/seed";
 
-test("正确凭证 → 跳转 dashboard", async ({ page, seed }) => {
-  const data = await seed.owned(); // 创建此测试私有的 fixture
-  await seed.loginViaUI(page, data.admin_email, "Test1234");
+test("正确凭证 → 跳转 dashboard", async ({ page, seed, owned }) => {
+  await seed.loginViaUI(page, owned.admin_email, "Test1234");
   await expect(page).toHaveURL(/\/dashboard/);
 });
 
-test("注入 token 跳过 UI 登录", async ({ page, seed }) => {
-  const data = await seed.owned();
-  await seed.injectToken(page, data.annotator_email); // 直接向 localStorage 注入凭据
+test("注入 token 跳过 UI 登录", async ({ page, seed, owned }) => {
+  await seed.injectToken(page, owned.annotator_email);
   await page.goto("/annotate");
 });
 ```
@@ -460,13 +482,18 @@ test("注入 token 跳过 UI 登录", async ({ page, seed }) => {
 - **专项筛选夹具**：筛选验收使用 `seed.filtering()`（或 `e2e/fixtures/filtering.ts`），它先清理自己的命名空间，再返回类型化 manifest：同对象/跨对象属性、必填条件嵌套组、检测与追踪候选组合、101 项分页、Scene 逻辑轨迹和管理列表数据；需要进入视频工作台的用例传入 `{ videoReady: true }`，在种子阶段通过真实派生 worker 入口完成并核验元数据与分块，不依赖 CI 外部 Celery worker；普通筛选用例不额外生成视频。视频预测中的最小 shape 只验证指标；工作台几何交互通过产品预测导入 API 添加有效的带帧候选。点云 fixture 包含真实 PCD 字节和可解析的相机内外参。若需在本地手动体验并保留筛选数据，可运行 `pnpm dev:worktree -- up --mode e2e --scenario filtering`（参见 [多工作树并行开发环境](./how-to/worktree-environments#手动验收筛选功能)）。
 - **Workspace 夹具**：`globalTeardown` 只清理本次 suite 已登记的子 run；规模夹具也使用独立 run 清单。对象收尾前先调用现有项目和 Jobs 退役守卫，已知未退役执行或忙锁返回冲突。未确认的存储写入、活跃读取及失败清理保留原始责任和收据；不能通过扫桶或强删 Jobs 绕过。协议与授权见 [Workspace 夹具边界](/api/guides/workspace-runtime#门控-e2e-夹具)。
 - **真实作业与导出**：推理 scope 清单查询使用调用方明确提供的 owner 会话工厂，不回退到全局普通 runtime 连接。新建私有夹具导出由原生 owner 冻结 15 分钟期限，普通导出仍为 168 小时，已有期限不变。普通调度清理不处理这些私有交付；物理清理和删除回执只能由已验证的私有 owner 会话完成，普通角色不能直接写入回执或提前退休输出。
+- **同步导入回收**：隔离库只认本次夹具的项目、操作者和作业。在同一事务内核对导入结果与关联该作业的成功审计，并确认没有异步派发，才回收已完成的标注或预测导入。只有终态、只有相近时间的审计，或缺少凭据的旧作业都不能据此删除。
 - **离线 Raster 故障**：`pnpm --filter web test:e2e:mask-native` 先在新建的独立存储中准备准确版本的损坏夹具，再启动真实消费者。Playwright 只取得无秘密 manifest 和绑定 suite 的有限 relay；API／私有 owner／Vite 在其进程树之外受监督。产品预览和源码 Worker 的 Vite 都通过私有控制管道等待真实关闭，不以进程组信号或 CLI 的信号退出码代替关闭成功；正常结束的消费者也不再向尚在自行退出的后代发信号。seed 失败前已登记的准确意图仍可进入后端核验后的清理；未排空的请求、子进程或存储责任必须保留，不能因主 `pnpm` 进程退出就删除环境。这是进程配置与能力分离，不是对同 UID 宿主用户或 Docker 管理员的 OS 沙箱。
+- **原生 Raster 编辑**：`pnpm --filter web test:e2e:mask-native-editor` 执行 8 个高级编辑用例和 2 个编辑器用例。它与仅执行 11 个 Raster 矩阵用例的 `mask-native` 使用同一个独立写入启动器、E2E 构建产物、真实 Images worker 和归属收据；编辑组不预分配故障夹具，也不执行源码 Worker。两组均不可通过跳过用例来满足审计。
+- **AI 专项**：两组均使用 E2E 构建产物和专属工作树的 `e2e` 环境。工具栏验证真实原生 Mask 写入、采纳及像素读回；异步阶段使用 API 和 Celery 的真实任务、终态、重试、取消和持久化。仅异步启动命令设置 `PLAYWRIGHT_AI_REQUEST_WORKER=1 PREANNOTATE_GPU_QUEUE=ml.cpu PREANNOTATE_CPU_QUEUE=ml.cpu`，以便 API 和 worker 继承同一队列配置；由既有 Routing、健康观测、Registry 和协议管理测试提供方。不复用日常开发服务，也不据此声明真实模型质量、GPU 或硬件解码资格。完整运行及独立 `--list` 命令见仓库的 `apps/web/e2e/README.md`。
 - **Raster 图像准备**：按 Images owner 返回的源尺寸和同一次冻结的 `ImagePolicy` 选择金字塔或缩略图，不根据旧预览路径推断。缩略图核对自身新鲜度；金字塔核对当前 profile 的 ready 代际和准确尺寸，不能要求它同时生成独立缩略图。任务、作业、源身份与代际检查对两种输出都必须成立；失败保留真实错误和原生责任，不放宽处理器对大图缩略图任务的拒绝。
 - **Raster 冷准备与业务预算**：8K 数据、原生图像准备和账号准入在独立的既有 120 秒夹具预算内完成，不占用或增加 30 秒业务断言预算。夹具不提前执行编辑、保存、刷新或重载；这些行为仍由真实页面在原业务期限内验证。准备失败照常使场景失败，未知响应／ACK 与未结算原生责任继续保留。
 - **Raster 进程身份**：Vite 必须在实际绑定端口后通过继承的私有管道完成就绪握手，单独 HTTP 200 不构成启动证明。原生／只读矩阵和源码 Worker 由本地 `BrowserServer` 持有准确浏览器进程，不连接外部浏览器；关闭 Promise 即使成功，真实信号退出、非零退出或请求关闭前已退出仍使验收失败。浏览器根进程结果不能取代启动器对其余后代、API 和原生 owner 的排空核验。
 - **账号外部引用**：夹具账号仍被非夹具数据引用时，Identity 清理返回 409 并回滚最终数据库删除；先通过数据所属模块删除已确认归属的测试数据，再清理账号。清理不会扩大命名空间或删除无关数据，其他 Identity 清理错误也不会被吞掉。
 - **并发与清理兜底**：`/seed/cleanup` 只接受明确的 suite ID。尚未完成并发资格的夹具族仍须串行，不能凭单个 owned 夹具推断整套测试并行安全。强制中断可能跳过 teardown；应保留运行清单并核对真实 owner 状态，绝不能在开发库或共享存储中运行。数据保留断言必须重新查询数据库，不能依赖未过期的 ORM identity map。
 - **页面先退场**：测试结束并记录失败证据后，seed 先关闭经 `injectToken` 绑定的准确页面，再清理它构建的命名空间，避免仍在播放的页面持续创建预取；API-only 用例不会为此启动浏览器，测试中显式调用 `cleanupOwned` 不关闭页面。关闭与清理失败都保留为测试失败。
+- **封存前的读帧请求**：关页后，夹具最多用 5 秒封住新请求并等待发布。如果已确认同一运行的 worker 正在处理准确的请求，该队列中已接单的剩余帧共用另外 10 秒。worker 提交输出租约和登记尝试之间，只有原执行仍持有该请求的数据库锁才可继续等待。这不是发布回执：每一帧都须有匹配的尝试和可核验的对象版本才能封存。队列消息、进程退出或缓存文件均不足以放行。
+- **整套夹具收尾**先核实各子运行已受理的视频请求，再在套件锁内复查子运行集合。新增子运行或仍缺发布回执时保留开放状态，不先封存再重试；原因见 [ADR 0184](./adr/archive/0184-service-boundaries-and-contract-verification)。
 - **视频晚准入收尾**：清理先退休加锁时发现的全部派生物归属、提交并释放样本锁，再排空首份快照之后准入的已登记读取。读取可完成最终核验并归还许可；等待预算不增加，超时保留归属与责任，不删除活动或未知操作。
 - **清理范围栅栏**：账号、项目的最终范围锁可有界等候本夹具尚在收尾的请求，并恢复原本的锁超时；上传 owner、存储许可及未知操作仍保持即时拒绝，等待超时仍返回冲突并保留原责任。
 - **评论附件清理**：运行级清理通过精确夹具项目找到独立上传责任，先退休已完成上传，再沿保存位置删除；所有存储 I/O 完成后才锁定并删除原夹具和已完成责任。未完成上传、活跃或未知收尾许可、保存位置不明、规范键残留和删除失败会明确失败并保留重试锚点。不要篡改 90 天期限或删访问账本来绕过；无法确认上传已结束时，核验归属后销毁整个可丢弃工作树 mode，参见[多工作树环境](./how-to/worktree-environments)。清理不按上传者反向删除其他项目的标注评论。

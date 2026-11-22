@@ -80,9 +80,6 @@ def _invoke_writer_downgrade(connection):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module.revision == "bo0283"
-    # The frozen 0283 guard names the schemas it was installed with. A current
-    # head has renamed those schemas in place, so run the frozen statements
-    # under their current spelling; the migration itself stays untouched.
     frozen_execute = module._execute
 
     def execute_current(statement: str) -> None:
@@ -769,10 +766,6 @@ async def test_nonempty_video_writer_state_survives_owned_pg_restore(
         source_before = await _snapshot(source_engine, world["job_id"])
         _assert_restorable_snapshot(source_before)
 
-        # The alembic CLI can no longer reach bo0282: the retention revisions
-        # above 0283 refuse their own downgrade. Keep that end-to-end refusal,
-        # then exercise the exact 0283 guard in a rolled-back transaction so
-        # nonempty writer state is proven unremovable at the current head.
         downgrade = _alembic(source_engine.url, "downgrade", "bo0282")
         assert downgrade.returncode != 0
 

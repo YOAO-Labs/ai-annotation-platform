@@ -41,15 +41,10 @@ class PredictionResult(BaseModel):
     score: float | None = None
     model_version: str | None = None
     inference_time_ms: int | None = None
-    # 运行时观测字段 (None = 该 backend 不支持上报)
     cache_hit: bool | None = None
     model_load_ms: int | None = None
     pool_state: PoolStateSnapshot | None = None
-    # 交互单实例精修的 256×256 low-res logits 回灌 (base64, 见 mask_codec)。
-    # 仅 multimask_output=False 的单 mask 路径返回 (规避多候选 index 歧义); 前端原样
-    # 存储、下次点击经 context.mask_input 回传。None = 本轮不回灌。
     mask_input_next: str | None = None
-    # 原生 Mask 候选的空结果 / 降级诊断；旧 backend 缺失时保持 None。
     diagnostic: MaskInteractionDiagnostic | None = None
     meta: dict[str, Any] | None = None
 
@@ -58,9 +53,6 @@ class BatchPredictResponse(BaseModel):
     """`/predict` 顶层响应. 即便单 task 也包成 results 数组, 统一交互式 + 批量路径."""
 
     results: list[PredictionResult]
-
-
-# ---------- /health.pool 统一 schema ----------
 
 
 class LoadedKey(BaseModel):
@@ -91,9 +83,6 @@ class PoolStatus(BaseModel):
     current_size: int
     loaded_keys: list[LoadedKey] = Field(default_factory=list)
     last_evict: EvictRecord | None = None
-
-
-# ---------- POST /warmup 端点 ----------
 
 
 class WarmupResponse(BaseModel):

@@ -378,8 +378,6 @@ async def test_account_lock_contention_preserves_create_transaction_semantics(
             )
             actor_id = actor.id
 
-        # The caller stages an ORM user write, so this borrowed transaction needs
-        # the schema owner; the restricted runtime role has no direct users DML.
         runtime_engine = create_async_engine(
             test_engine.url.render_as_string(hide_password=False),
             hide_parameters=True,

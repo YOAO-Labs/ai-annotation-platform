@@ -1,10 +1,4 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-// 交互工具上下文浮块 (前身 AIToolDrawer, 已退役)。
-//
-// 浮在 ImageStage container 顶部居中, 选中 AI 工具 (point/box/exemplar) 时渲染, 与 MaskToolbar
-// 互斥 (mask 非 AI 工具)。主层保留工具提示、候选决策与恢复；高级区折叠引擎、模型、权重、
-// 阈值和诊断。配置与本轮推理仍由现有上层 owner 持有，折叠仅改变显示。
-// 引擎选择持久化由上层 useAiToolModelPref (服务端 User.preferences.ai.model_by_backend) 承载。
 
 import { useEffect, useId, useState } from "react";
 import { X } from "lucide-react";
@@ -24,7 +18,6 @@ import type { SamPolarity, Tool } from "../state/useWorkbenchState";
 import type { TextOutputMode } from "../state/useInteractiveAI";
 import type { CapabilityWarning } from "../state/useCapabilityValidation";
 import { TOOL_REGISTRY, type ToolId } from "../stage/tools";
-// 共享的悬浮工具条 chrome（与视频 tracker 传播工具条共用同款外观）。
 import { TOOLBAR_FIELD_LABEL_CLASS as FIELD_LABEL_CLASS } from "./workbenchToolbarChrome";
 
 const SELECT_CLASS =
@@ -34,7 +27,6 @@ export interface InteractiveToolBarProps {
   tool: Tool;
   presentationKey?: string;
   presentationHidden?: boolean;
-  /** 解析到的交互后端名称 (来自 /setup.name); undefined → "未绑定". */
   backendName: string | undefined;
   capability: MLBackendCapability | undefined;
   samPolarity: SamPolarity;
@@ -48,9 +40,7 @@ export interface InteractiveToolBarProps {
   isRunning?: boolean;
   inferenceError?: string | null;
   candidateCount?: number;
-  /** Existing prompts can remain even when the backend returns no candidates. */
   hasPromptSession?: boolean;
-  /** Zero-based index supplied by the current inference session. */
   activeCandidateIndex?: number;
   canAcceptCandidates?: boolean;
   candidateActionPending?: boolean;
@@ -59,52 +49,33 @@ export interface InteractiveToolBarProps {
   onCancelCandidates?: () => void;
   canRetry?: boolean;
   onRetry?: () => void;
-  // exemplar 工具输出形态 (box/mask/both); 会话级状态由 WorkbenchShell 持有.
   exemplarOutputMode?: TextOutputMode;
   onSetExemplarOutputMode?: (mode: TextOutputMode) => void;
-  /** 单帧交互候选的持久几何；与 exemplar 的召回结果形态相互独立。 */
   singleFrameOutputGeometry?: "polygon" | "mask";
   onSetSingleFrameOutputGeometry?: (mode: "polygon" | "mask") => void;
   nativeMaskOutputDisabledReason?: string;
-  /** 当前已鉴权的已存 Mask 提示摘要；不携带 RLE 正文。 */
   maskPromptSourceLabel?: string;
-  // exemplar refine 会话控件 (多正负框 + text 组合 + 阈值重过滤).
-  /** 叠加的 text 概念 (PCS text + 几何示例组合); 改动即重跑当前会话。 */
   exemplarText?: string;
   onSetExemplarText?: (text: string) => void;
-  /** per-request 阈值; null=用 backend 默认。拖动即重过滤当前会话。 */
   exemplarThreshold?: number | null;
   onSetExemplarThreshold?: (thr: number | null) => void;
-  /** backend 默认阈值 (slider 在未覆盖时的展示初值, 取自 /setup.params)。 */
   exemplarThresholdDefault?: number;
-  /** 会话进行中 (已落 ≥1 框); 决定阈值/文本提示文案。 */
   exemplarSessionActive?: boolean;
-  // 能力声明协议 v2 · 多模型选择. models 长度 <= 1 时**不渲染**选择器 (向后兼容).
   models?: MLModelCapability[];
   activeModelId?: string;
   onSetActiveModelId?: (id: string) => void;
-  // active model 与项目配置的兼容性警告 (非阻断). 空数组时不渲染。
   capabilityWarnings?: CapabilityWarning[];
-  // 「采纳后该属性将丢失」警告的一键补全回调: 把 model 自报字段补进项目所有启用工具单位。
-  //   仅 warning.fillable 存在时渲染 CTA; 缺省 = 不渲染补全按钮。
   onFillAttribute?: (field: AttributeField) => void;
-  // 交互后端选择器 (能力作用域化): 只列支持当前工具 prompt 的后端, 选中值 = 实际解析后端.
-  //   <2 个候选时退化为只读显示 (无 UI 噪音), 行为 = 单后端现状.
   interactiveBackends?: Array<{ id: string; name: string }>;
   selectedInteractiveId?: string | null;
   onSelectInteractive?: (id: string) => void;
-  // 模型权重(档位)选择: 交互后端 activeModel 的 variant 轴 (series/size 等);
-  //   选择写回项目级 default_variants (与批量预标注同源)。无 variant 轴时不渲染入口。
   variantGroups?: MLBackendSupportedVariantGroup[];
   variantCombinations?: string[][];
-  /** backend 自报 + 项目偏好合并后的默认 variant 组合 (axis_key → value)。 */
   variantDefaults?: Record<string, string>;
-  /** 当前项目已选 variant slice (缺轴由 variantDefaults 兜底)。 */
   variantValue?: Record<string, string>;
   onVariantChange?: (next: Record<string, unknown>) => void;
 }
 
-// model.task → 中文分组标题. 受控 task 之外的归「其他」。
 const MODEL_TASK_LABELS: Record<string, string> = {
   detect: "检测",
   obb: "旋转框检测",
@@ -122,7 +93,6 @@ function modelTaskLabel(task: string | undefined): string {
   return MODEL_TASK_LABELS[task] ?? "其他";
 }
 
-// 按 task 把 models 分桶, 保持各 task 内的原始顺序; 返回 [task, models[]] 列表。
 function groupModelsByTask(models: MLModelCapability[]): Array<[string, MLModelCapability[]]> {
   const order: string[] = [];
   const buckets = new Map<string, MLModelCapability[]>();
@@ -223,8 +193,6 @@ export function InteractiveToolBar({
     "exemplar",
   ].includes(tool);
 
-  // 模型选择器按当前工具 prompt 过滤: 只列声明支持该交互 prompt 的图像交互 model
-  // (point → 仅 interactive_seg; tracker 属视频, 排除)。过滤后通常剩 1 个 → 选择器自动隐藏。
   const toolPrompt = TOOL_REGISTRY[tool]?.requiredPrompt;
   const modelList = models ?? [];
   const filteredModels =
@@ -238,19 +206,14 @@ export function InteractiveToolBar({
       : modelList;
   const showModelSelector = filteredModels.length > 1 && !!onSetActiveModelId;
 
-  // 当前 exemplar 工具对应的交互模型能力 (隐藏后端不支持的控件)。
-  // 优先取选中 activeModel, 回退到首个支持 exemplar 的交互模型 (单后端常态)。
   const exemplarModel =
     tool === "exemplar"
       ? (filteredModels.find((m) => m.id === activeModelId) ?? filteredModels[0])
       : undefined;
   const exCaps = exemplarModel?.exemplar_capabilities;
-  // 缺省 = 全支持 (向后兼容 sam3 旧 setup 不带本字段时不改行为)。
   const exemplarNegative = exCaps?.negative_box !== false;
   const exemplarTextCombo = exCaps?.text_combination !== false;
 
-  // 后端无负框 (YOLOE) 时强制正极性: 隐藏负极性按钮后, 防止从 smart-point 残留的负极性
-  // 让 exemplar 拖框误发 label=False (被后端剔除 → 0 结果)。
   useEffect(() => {
     if (
       !capabilityRecoveryOnly &&
@@ -262,7 +225,6 @@ export function InteractiveToolBar({
     }
   }, [tool, exemplarNegative, samPolarity, onSetSamPolarity, capabilityRecoveryOnly]);
 
-  // 交互后端选择器: ≥2 个候选 (支持当前工具 prompt 的后端) 时可切, 否则只读显示。
   const backendCands = interactiveBackends ?? [];
   const canSwitchBackend = backendCands.length >= 2 && !!onSelectInteractive;
   const warnings = capabilityWarnings ?? [];
@@ -815,7 +777,6 @@ export function InteractiveToolBar({
             </span>
             <Icon name={advancedOpen ? "chevUp" : "chevDown"} size={12} />
           </button>
-          {/* Keep configuration controls mounted so folding never resets their state or requests. */}
           <section
             id={advancedId}
             data-testid="interactive-toolbar-advanced"

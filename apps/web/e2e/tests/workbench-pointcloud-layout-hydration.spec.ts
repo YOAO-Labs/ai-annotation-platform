@@ -120,7 +120,6 @@ test("3D 本地树等待首次权威回灌，复用原生画布与 WebGL context
       .getByRole("tab", { name: "任务队列", exact: true })
       .dragTo(page.getByRole("tab", { name: "标注详情", exact: true }));
     expect(await queue.boundingBox()).toEqual(queueBounds);
-    // Give the 300 ms debounce an opportunity to expose any wrongly accepted mutation.
     await page.waitForTimeout(450);
     expect(workspaceWrites).toEqual([]);
     expect(
@@ -146,8 +145,6 @@ test("3D 本地树等待首次权威回灌，复用原生画布与 WebGL context
     await page.keyboard.press("Escape");
     const hydratedBounds = await wrapper.boundingBox();
 
-    // Expire the shared query without advancing animation/lock timers, then use
-    // a real browser reconnect to request a different tree through React Query.
     await page.clock.setFixedTime(Date.now() + 6 * 60_000);
     const refetched = page.waitForResponse(
       (response) =>

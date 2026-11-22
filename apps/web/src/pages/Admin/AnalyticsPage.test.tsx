@@ -1,9 +1,3 @@
-/**
- * AnalyticsPage 渲染冒烟测试。
- *
- * 验证 4 个面板标题渲染 + recharts/热力图 mount 不崩。jsdom 下 recharts 0 尺寸不渲染
- * 内部内容，故只断言图表容器外的文案（面板标题、热力图星期标签）。
- */
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -69,9 +63,7 @@ describe("AnalyticsPage", () => {
     expect(screen.getByText("标注耗时分布")).toBeInTheDocument();
     expect(screen.getByText("工时热力图（started_at · 星期 × 小时）")).toBeInTheDocument();
 
-    // 耗时 KPI 数据流通
     await waitFor(() => expect(screen.getByText("5")).toBeInTheDocument());
-    // 热力图星期标签（容器外文案）
     expect(screen.getByText("周一")).toBeInTheDocument();
     expect(screen.getByText("周日")).toBeInTheDocument();
     expect(screen.getByText("周六")).toBeInTheDocument();

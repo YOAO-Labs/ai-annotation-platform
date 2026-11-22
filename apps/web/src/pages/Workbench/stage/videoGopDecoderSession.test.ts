@@ -1,5 +1,3 @@
-// VideoGopDecoderSession 状态机:增量 decode、reset、timestamp waiter、generation、
-// 串行命令队列、idle/hidden 计时。用可控 fake VideoDecoder 覆盖正确性与资源释放。
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildGopPlan, type VideoGopPlan } from "./videoChunkDemux";
 import type { VideoChunkSampleEntry, VideoChunkSamplesResponse } from "@/types";
@@ -8,8 +6,6 @@ import {
   type SessionDecodeRequest,
   type VideoGopSessionIdentity,
 } from "./videoGopDecoderSession";
-
-// ── fake 基础设施 ──────────────────────────────────────────────────────────────
 
 interface RecordedChunkInit {
   type: "key" | "delta";
@@ -132,14 +128,11 @@ function fakeFrame(timestamp: number) {
 
 const lastDecoder = () => decoders[decoders.length - 1];
 
-/** 默认 decode:每个提交的 chunk 立即产生同 timestamp output。 */
 function defaultDecodeEmitChunk(): void {
   ctrl.decodeImpl = (d, chunk) => {
     d.emit(fakeFrame(chunk.timestamp));
   };
 }
-
-// ── fixtures ──────────────────────────────────────────────────────────────────
 
 function makeBytes(n: number): ArrayBuffer {
   const buf = new ArrayBuffer(n);
@@ -178,7 +171,6 @@ function makeSamples(
   };
 }
 
-/** 单 GOP(I/P,decode order == presentation order):frame 0 为 key,其余 delta。 */
 function gopPlan(frameCount: number): VideoGopPlan {
   const entries = Array.from({ length: frameCount }, (_, f) => ({
     frame: f,
@@ -218,8 +210,6 @@ function newSession(
 ) {
   return new VideoGopDecoderSession({ plan, identity: identity(plan), ...opts });
 }
-
-// ── 测试 ──────────────────────────────────────────────────────────────────────
 
 describe("VideoGopDecoderSession", () => {
   beforeEach(() => {
@@ -300,11 +290,9 @@ describe("VideoGopDecoderSession", () => {
     const session = newSession(plan);
     await session.decode(req(plan, 5));
     await session.decode(req(plan, 10));
-    // 第二次只提交 samples[6..10] = 5 个,而非重新提交 0..10。
     expect(lastDecoder().decode).toHaveBeenCalledTimes(6 + 5);
     expect(session.getStats().submits).toBe(11);
     expect(session.getStats().resets).toBe(0);
-    // flush 会把 VideoDecoder 置为下一输入必须是 key chunk；持久 session 主路径禁止调用。
     expect(lastDecoder().flush).not.toHaveBeenCalled();
   });
 
@@ -313,7 +301,7 @@ describe("VideoGopDecoderSession", () => {
     const session = newSession(plan);
     await session.decode(req(plan, 5));
     vi.mocked(lastDecoder().decode).mockClear();
-    await session.decode(req(plan, 5)); // target === cursor → hardReset + 重解 0..5
+    await session.decode(req(plan, 5));
     expect(lastDecoder().reset).toHaveBeenCalledTimes(1);
     expect(lastDecoder().decode).toHaveBeenCalledTimes(6);
     expect(session.getStats().resets).toBe(1);
@@ -324,10 +312,10 @@ describe("VideoGopDecoderSession", () => {
     const session = newSession(plan);
     await session.decode(req(plan, 10));
     vi.mocked(lastDecoder().decode).mockClear();
-    await session.decode(req(plan, 5)); // 后退
+    await session.decode(req(plan, 5));
     expect(lastDecoder().reset).toHaveBeenCalledTimes(1);
-    expect(lastDecoder().configure).toHaveBeenCalledTimes(2); // 初始 + reconfigure
-    expect(lastDecoder().decode).toHaveBeenCalledTimes(6); // 0..5
+    expect(lastDecoder().configure).toHaveBeenCalledTimes(2);
+    expect(lastDecoder().decode).toHaveBeenCalledTimes(6);
     expect(session.getStats().resets).toBe(1);
   });
 
@@ -356,13 +344,11 @@ describe("VideoGopDecoderSession", () => {
     session.dispose();
     expect(firstDecoder.close).toHaveBeenCalledTimes(1);
     expect(session.getStats().state).toBe("closed");
-    // closed 后新请求返回 disposed。
     const outcome = await session.decode(req(plan, 4));
     expect(outcome).toEqual({ ok: false, reason: "disposed" });
   });
 
   it("B 帧目标会提交 presentation lookahead,且仍按 timestamp 命中", async () => {
-    // decode order: frame0(key,pts0) → frame2(pts66) → frame1(pts33)。
     const samples = makeSamples([
       { frame: 0, pts: 0, key: true },
       { frame: 2, pts: 66, key: false },
@@ -374,22 +360,18 @@ describe("VideoGopDecoderSession", () => {
     const plan = built.plan;
     ctrl.decodeImpl = (d, chunk) => {
       if (chunk.timestamp !== 33000) return;
-      // 第三个 access unit(B,pts33)提交后，decoder 才能按 presentation order 输出到
-      // 目标 P 帧(pts66)。若只提交到目标自身 decodeIndex=1，waiter 会超时。
       d.emit(fakeFrame(0));
       d.emit(fakeFrame(33000));
       d.emit(fakeFrame(66000));
     };
     const session = newSession(plan);
-    const outcome = await session.decode(req(plan, 1)); // decodeIndex 1 = frame2(pts66)
+    const outcome = await session.decode(req(plan, 1));
     expect(outcome.ok).toBe(true);
     if (outcome.ok) expect(outcome.frame.timestamp).toBe(66000);
     expect(lastDecoder().decode).toHaveBeenCalledTimes(3);
   });
 
   it("B-frame GOP 为 reorder queue 额外提交一个有界 lookahead", async () => {
-    // 真实 x264 main 常见 decode order：0, 1, 3, 2。目标 frame1 的 access unit 已在
-    // decodeIndex1，但 Chromium AVC decoder 看到后续 frame3 才交付 frame1。
     const samples = makeSamples([
       { frame: 0, pts: 0, key: true },
       { frame: 1, pts: 33 },
@@ -417,8 +399,6 @@ describe("VideoGopDecoderSession", () => {
     ]);
     const built = buildGopPlan(makeBytes(64), samples, 0);
     if (!built.ok) throw new Error("build failed");
-    // 模拟低延迟 decoder：每个输入立即 output。frame0 请求的 B-frame lookahead 会让
-    // frame1 先被关闭；随后请求 frame1 必须 reset，不能指望 decoder 重发旧 output。
     defaultDecodeEmitChunk();
     const session = newSession(built.plan);
     expect((await session.decode(req(built.plan, 0))).ok).toBe(true);
@@ -457,7 +437,7 @@ describe("VideoGopDecoderSession", () => {
 
   it("非目标 output 立即 close", async () => {
     const plan = gopPlan(10);
-    const nonTarget = fakeFrame(0); // decodeIndex 0 的 pts=0,目标是 decodeIndex 3(pts 99→99000)
+    const nonTarget = fakeFrame(0);
     ctrl.decodeImpl = (d, chunk) => {
       if (chunk.timestamp === 0) d.emit(nonTarget);
       if (chunk.timestamp === 99000) d.emit(fakeFrame(chunk.timestamp));
@@ -541,6 +521,108 @@ describe("VideoGopDecoderSession", () => {
     expect(lastDecoder().reset).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ["timeout", "target_timestamp_missing"],
+    ["generation", "stale_request"],
+    ["dispose", "disposed"],
+  ] as const)(
+    "尾部 flush 未结算时 %s 释放队列，隔离旧 decoder 的 output 和 error",
+    async (stop, reason) => {
+      vi.useFakeTimers();
+      const plan = gopPlan(10);
+      let finishFlush!: () => void;
+      let rejectFlush!: (error: Error) => void;
+      const unresponsiveFlush = new Promise<void>((resolve, reject) => {
+        finishFlush = resolve;
+        rejectFlush = reject;
+      });
+      const remember = vi.fn((frame: VideoFrame, _index: number, isDecoderCurrent: () => boolean) =>
+        unresponsiveFlush.then(isDecoderCurrent, () => false).finally(() => frame.close()),
+      );
+      const session = newSession(plan, {
+        outputTimeoutMs: 100,
+        onSupplementalFrame: remember,
+      });
+      const initial = req(plan, 2, 1);
+      const nextRequest = req(plan, 4, stop === "generation" ? 2 : 1);
+      const converting = fakeFrame(nextRequest.targetTimestampUs);
+      ctrl.decodeImpl = (decoder, chunk) => {
+        if (chunk.timestamp !== initial.targetTimestampUs) return;
+        decoder.emit(fakeFrame(chunk.timestamp));
+        decoder.emit(converting);
+      };
+      const initialOutcome = await session.decode(initial);
+      if (!initialOutcome.ok) throw new Error("expected initial frame");
+      initialOutcome.frame.close();
+      expect(remember).toHaveBeenCalledTimes(1);
+      expect(remember.mock.calls[0][2]()).toBe(true);
+
+      const heldFrame = fakeFrame(req(plan, 9).targetTimestampUs);
+      ctrl.decodeImpl = () => undefined;
+      ctrl.flushImpl = (decoder) => {
+        if (stop !== "timeout") decoder.emit(heldFrame);
+        return unresponsiveFlush;
+      };
+      const tail = session.decode(req(plan, 9, 1));
+      await vi.advanceTimersByTimeAsync(0);
+      const abandoned = lastDecoder();
+      expect(abandoned.flush).toHaveBeenCalledTimes(1);
+
+      const next = session.decode(nextRequest);
+      if (stop === "timeout") {
+        await vi.advanceTimersByTimeAsync(99);
+        expect(abandoned.close).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+      } else if (stop === "dispose") {
+        session.dispose();
+      }
+      await expect(tail).resolves.toEqual({ ok: false, reason });
+      expect(abandoned.close).toHaveBeenCalledTimes(1);
+      if (stop !== "timeout") expect(heldFrame.close).toHaveBeenCalledTimes(1);
+
+      if (stop === "dispose") {
+        await expect(next).resolves.toEqual({ ok: false, reason: "disposed" });
+        expect(decoders).toEqual([abandoned]);
+      } else {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(lastDecoder()).not.toBe(abandoned);
+        expect(lastDecoder().decode.mock.calls.map(([chunk]) => chunk.type)).toEqual([
+          "key",
+          "delta",
+          "delta",
+          "delta",
+          "delta",
+        ]);
+        expect(lastDecoder().flush).not.toHaveBeenCalled();
+      }
+
+      const lateTarget = fakeFrame(nextRequest.targetTimestampUs);
+      const lateSupplemental = fakeFrame(req(plan, 9).targetTimestampUs);
+      abandoned.emit(lateTarget);
+      abandoned.emit(lateSupplemental);
+      abandoned.emitError(new DOMException("abandoned decoder"));
+      if (stop === "timeout") rejectFlush(new Error("late rejection"));
+      else finishFlush();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(lateTarget.close).toHaveBeenCalledTimes(1);
+      expect(lateSupplemental.close).toHaveBeenCalledTimes(1);
+      expect(remember).toHaveBeenCalledTimes(1);
+      expect(remember.mock.calls[0][2]()).toBe(false);
+      expect(converting.close).toHaveBeenCalledTimes(1);
+
+      if (stop === "dispose") {
+        expect(session.getStats()).toMatchObject({ state: "closed", errors: 0, activeDecoders: 0 });
+      } else {
+        const frame = fakeFrame(nextRequest.targetTimestampUs);
+        lastDecoder().emit(frame);
+        await expect(next).resolves.toEqual({ ok: true, frame });
+        expect(session.getStats()).toMatchObject({ state: "ready", errors: 0, liveVideoFrames: 0 });
+        frame.close();
+      }
+      session.dispose();
+    },
+  );
+
   it("dispose 结算 pending waiter；迟到 output 被释放且 dispose 幂等", async () => {
     const plan = gopPlan(10);
     ctrl.decodeImpl = () => undefined;
@@ -548,7 +630,7 @@ describe("VideoGopDecoderSession", () => {
     const pending = session.decode(req(plan, 3));
     await new Promise((resolve) => setTimeout(resolve, 0));
     session.dispose();
-    session.dispose(); // 幂等
+    session.dispose();
     await expect(pending).resolves.toEqual({ ok: false, reason: "disposed" });
     const late = fakeFrame(99000);
     lastDecoder().emit(late);
@@ -564,7 +646,6 @@ describe("VideoGopDecoderSession", () => {
     const p1 = session.decode(req(plan, 5));
     const p2 = session.decode(req(plan, 8));
     await Promise.all([p1, p2]);
-    // 第二个 decode 在第一个之后只提交增量 samples[6..8] = 3 个。
     expect(lastDecoder().decode).toHaveBeenCalledTimes(6 + 3);
     expect(session.getStats().submits).toBe(6 + 3);
   });
@@ -592,12 +673,11 @@ describe("VideoGopDecoderSession", () => {
     const session = newSession(plan);
     const first = await session.decode(req(plan, 5));
     expect(first.ok).toBe(true);
-    // 原地再解(reset)→ 新的 output frame,不是残留。
     const second = await session.decode(req(plan, 5));
     expect(second.ok).toBe(true);
     if (first.ok && second.ok) {
-      expect(second.frame).not.toBe(first.frame); // 不同 VideoFrame 实例
-      expect(vi.mocked(first.frame.close)).not.toHaveBeenCalled(); // 旧 frame 归调用方
+      expect(second.frame).not.toBe(first.frame);
+      expect(vi.mocked(first.frame.close)).not.toHaveBeenCalled();
     }
     expect(session.getStats().resets).toBe(1);
   });
@@ -620,7 +700,6 @@ describe("VideoGopDecoderSession", () => {
     const session = newSession(plan, { hiddenTimeoutMs: 1000 });
     await vi.advanceTimersByTimeAsync(999);
     expect(session.getStats().state).not.toBe("closed");
-    // 恢复可见 → 清除 hidden 计时。
     Object.defineProperty(document, "hidden", { value: false, configurable: true });
     document.dispatchEvent(new Event("visibilitychange"));
     await vi.advanceTimersByTimeAsync(2000);
@@ -629,8 +708,6 @@ describe("VideoGopDecoderSession", () => {
     Object.defineProperty(document, "hidden", { value: false, configurable: true });
   });
 });
-
-// ── benchmark:30-frame GOP 的提交计数(§12)──────────────────────────────────
 
 describe("VideoGopDecoderSession · 30-frame GOP benchmark", () => {
   beforeEach(() => {

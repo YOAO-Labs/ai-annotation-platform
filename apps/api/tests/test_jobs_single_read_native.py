@@ -37,7 +37,6 @@ async def _without_private_job_select(db_session):
     )
     assert url.database.endswith("_test")
     assert url.username == "identity_api_consumer"
-    # The test's outer transaction rolls back this ACL change with its seed rows.
     await db_session.execute(
         text("REVOKE SELECT ON public.async_jobs FROM identity_api_consumer")
     )

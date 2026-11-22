@@ -228,7 +228,6 @@ export function jobStage(job: Pick<AsyncJob, "kind" | "status" | "result" | "pay
   return JOB_STATUS_LABEL[job.status];
 }
 
-/** Missing or malformed expiry is not evidence that a signed link is still usable. */
 export function exportDownloadState(result: Record<string, unknown>, now = Date.now()) {
   const raw = jobString(result, "download_url");
   const expiresAt = jobString(result, "expires_at");

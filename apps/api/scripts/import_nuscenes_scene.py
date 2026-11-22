@@ -67,7 +67,6 @@ from typing import Literal
 
 import numpy as np
 
-# nuScenes 默认 6 相机通道(modality=camera 全收,这里仅作文档参考)。
 _NUSCENES_CAM_CHANNELS = (
     "CAM_FRONT",
     "CAM_FRONT_RIGHT",
@@ -94,9 +93,6 @@ def _derived_display_id(prefix: str, name: str) -> str:
     return f"{prefix}{name[:head_len]}-{digest}"
 
 
-# --------------------------------------------------------------------------- #
-# nuScenes JSON 读取 + 索引
-# --------------------------------------------------------------------------- #
 def _load_table(meta_dir: Path, name: str) -> list[dict]:
     """读 <meta_dir>/<name>.json(nuScenes 表都是 list[dict])。"""
     root = meta_dir.resolve(strict=True)
@@ -224,9 +220,6 @@ def _assert_source_context_compatible(
         )
 
 
-# --------------------------------------------------------------------------- #
-# 几何:四元数 wxyz → 旋转矩阵;变换矩阵组装;lidar→camera 外参链
-# --------------------------------------------------------------------------- #
 def _quat_wxyz_to_rot(q: list[float]) -> np.ndarray:
     """nuScenes rotation 是 [w, x, y, z] 四元数 → 3x3 旋转矩阵。"""
     try:
@@ -311,9 +304,6 @@ def _compute_ego_to_cam_extrinsic(
     return [float(v) for v in T_cam_from_ego.reshape(-1)]
 
 
-# --------------------------------------------------------------------------- #
-# .pcd.bin → binary PCD
-# --------------------------------------------------------------------------- #
 PCD_ENCODING = "binary_xyz_f32"
 
 
@@ -348,9 +338,6 @@ def _lidar_bin_to_binary_pcd(
     return header.encode("ascii") + pts.tobytes(order="C")
 
 
-# --------------------------------------------------------------------------- #
-# scene 遍历:沿 sample.next 链得到有序 sample 列表
-# --------------------------------------------------------------------------- #
 def _ordered_samples(scene: dict, samples_by_token: dict[str, dict]) -> list[dict]:
     """从 first_sample_token 沿 next 链得到该 scene 全部 sample(按时间顺序)。"""
     out: list[dict] = []
@@ -396,9 +383,6 @@ def _key_sample_data_by_channel(
     return out
 
 
-# --------------------------------------------------------------------------- #
-# 核心:可被 pytest 直接驱动的 async 入口
-# --------------------------------------------------------------------------- #
 async def import_nuscenes(
     db,
     *,
@@ -452,7 +436,6 @@ async def import_nuscenes(
     if not meta_dir.is_dir():
         raise FileNotFoundError(f"nuScenes 元数据目录缺失: {meta_dir}")
 
-    # 读 nuScenes 表 + 建索引
     scenes_tbl = _load_table(meta_dir, "scene")
     samples_by_token = _index_by_token(_load_table(meta_dir, "sample"))
     sample_data = _load_table(meta_dir, "sample_data")
@@ -465,7 +448,6 @@ async def import_nuscenes(
     scene_by_name = {s["name"]: s for s in scenes_tbl}
     axis_convention = "iso_8855" if frame == "ego" else "apollo"
 
-    # 1. ensure/复用 dataset(派生固定 display_id → 幂等)
     display_id = dataset_display_id or _derived_display_id("DS-NU-", dataset_name)
     assets = AssetsOperatorGateway(db)
     dataset_mutation = await assets.ensure_operator_nuscenes_dataset(
@@ -558,7 +540,6 @@ async def import_nuscenes(
     report_scenes: list[dict] = []
     total_items = 0
 
-    # 2. 逐 scene 转换 + 入库
     for scene_name in scene_names:
         scene_row = scene_by_name.get(scene_name)
         if scene_row is None:
@@ -567,9 +548,6 @@ async def import_nuscenes(
             )
 
         if scene_name in existing_scenes:
-            # 幂等:同名 scene 已建过时保留 task / annotation；旧 ASCII PCD
-            # 只原位覆盖对象并同步 DB 大小与哈希；同时为旧相机条目
-            # 回填 nuScenes sample_data 中的像素尺寸，让投影与 2D 成员有可靠坐标基准。
             samples = _ordered_samples(scene_row, samples_by_token)
             scene = existing_scenes[scene_name]
             log_row = log_by_token.get(scene_row.get("log_token"))
@@ -1011,24 +989,20 @@ async def import_nuscenes(
 
         append_entries: list[OperatorSourceEntry] = []
         source_creations: dict[uuid.UUID, uuid.UUID] = {}
-        lidar_item_ids: list[uuid.UUID] = []  # 主帧,按帧序
-        cam_frame_index: dict[uuid.UUID, int] = {}  # cam item.id -> frame_index
-        calib_item_ids: list[uuid.UUID] = []  # scene-level(frame_index=NULL)
+        lidar_item_ids: list[uuid.UUID] = []
+        cam_frame_index: dict[uuid.UUID, int] = {}
+        calib_item_ids: list[uuid.UUID] = []
         new_raw_binds: list[tuple[uuid.UUID, object]] = []
-        frame_poses: list[FramePose] = []  # 逐帧 ego pose（LIDAR_TOP 时钟）
+        frame_poses: list[FramePose] = []
         calib_written = False
 
         for frame_idx, sample in enumerate(samples):
             idx6 = f"{frame_idx:06d}"
-            # 多 scene 共用 dataset 时保留带 scene 前缀的全局唯一 storage key/file name。
-            # Task preparation 按 scene 分组,允许各 scene 内自然使用重复的 frame stem;
-            # 这里仍保留前缀以兼容既有 nuScenes 导入路径与输出名称。
             frame_stem = f"{scene_name}_{idx6}"
             by_channel = _key_sample_data_by_channel(
                 sample["token"], sample_data, cs_by_token, sensor_by_token
             )
 
-            # ---- LIDAR_TOP ----
             lidar_sd = None
             for channel, sd in by_channel.items():
                 cs = cs_by_token[sd["calibrated_sensor_token"]]
@@ -1042,7 +1016,6 @@ async def import_nuscenes(
 
             cs_lidar = cs_by_token[lidar_sd["calibrated_sensor_token"]]
             ego_lidar = ego_by_token[lidar_sd["ego_pose_token"]]
-            # 逐帧 ego pose(ego→global)+ LIDAR_TOP 时间戳,落 scene_frame_poses
             frame_poses.append(
                 FramePose(
                     frame_index=frame_idx,
@@ -1111,7 +1084,6 @@ async def import_nuscenes(
             append_entries.append(lidar_entry(lidar_key, lidar_created.sha256))
             lidar_item_ids.append(lidar_item_id)
 
-            # ---- 各 CAM(modality==camera)----
             for channel, sd in by_channel.items():
                 cs = cs_by_token[sd["calibrated_sensor_token"]]
                 if sensor_by_token[cs["sensor_token"]]["modality"] != "camera":
@@ -1158,12 +1130,10 @@ async def import_nuscenes(
                 append_entries.append(camera_entry(cam_key, cam_created.sha256))
                 cam_frame_index[cam_item_id] = frame_idx
 
-                # 首帧:算该相机外参 + 内参,写 calib/camera/<channel>.json
                 if not calib_written:
                     ego_cam = ego_by_token[sd["ego_pose_token"]]
                     intrinsic_3x3 = cs["camera_intrinsic"]
                     if not intrinsic_3x3:
-                        # 无内参的相机(理论不应出现在 CAM_*),跳过 calib
                         continue
                     if frame == "ego":
                         extrinsic = _compute_ego_to_cam_extrinsic(
@@ -1227,7 +1197,6 @@ async def import_nuscenes(
             )
         total_items += len(append_entries)
 
-        # 显式建 scene + 赋 frame_index(不依赖目录启发式 inference)
         scene_result = await spatial.create_scene(
             CreateSceneRequest(
                 operation_id=uuid.uuid4(),
@@ -1280,8 +1249,6 @@ async def import_nuscenes(
         for item_id, owner in new_raw_binds:
             await assets.bind_auxiliary_item(item_id, owner)
         await assets.bind_auxiliary_scene(scene.id, map_owner)
-        # 逐帧 ego pose 落库(幂等 upsert);已存在同名 scene 走上方
-        # skip 分支不会到这里,补历史 scene 用 scripts/backfill_frame_poses.py
         await spatial.upsert_poses(
             UpsertPosesRequest(
                 operation_id=uuid.uuid4(), scene_id=scene.id, poses=frame_poses
@@ -1290,7 +1257,6 @@ async def import_nuscenes(
         )
         report_scenes.append({"name": scene_name, "frames": len(samples)})
 
-    # 3. Build/reuse the lidar workspace, associate the dataset, and create tasks.
     project_display_id = project_display_id or _derived_display_id(
         "P-NU-", dataset_name
     )
@@ -1308,11 +1274,6 @@ async def import_nuscenes(
         "scenes": report_scenes,
         "total_items": total_items,
     }
-
-
-# --------------------------------------------------------------------------- #
-# admin / CLI
-# --------------------------------------------------------------------------- #
 
 
 async def main() -> None:

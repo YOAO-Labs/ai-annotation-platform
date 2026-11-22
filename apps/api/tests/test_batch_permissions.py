@@ -39,17 +39,12 @@ def _batch(status: str, annotator_id: uuid.UUID | None = None) -> TaskBatch:
     return TaskBatch(status=status, annotator_id=annotator_id)
 
 
-# 全部 (src, dst) 合法边,从 VALID_TRANSITIONS 展开,用于矩阵参数化。
 ALL_EDGES = [(src, dst) for src, dsts in VALID_TRANSITIONS.items() for dst in dsts]
-
-
-# ── _is_owner ──────────────────────────────────────────────────────────────
 
 
 class TestIsOwner:
     def test_super_admin_is_always_owner(self):
         user = _user(UserRole.SUPER_ADMIN)
-        # owner_id 是别人,super_admin 仍判定为 owner
         assert _is_owner(user, _project(uuid.uuid4())) is True
 
     def test_project_owner_is_owner(self):
@@ -57,16 +52,12 @@ class TestIsOwner:
         assert _is_owner(user, _project(user.id)) is True
 
     def test_non_admin_owner_is_not_owner(self):
-        # An anomalous non-administrative owner is not privileged.
         user = _user(UserRole.EMPLOYEE)
         assert _is_owner(user, _project(user.id)) is False
 
     def test_non_owner_non_admin_is_not_owner(self):
         user = _user(UserRole.EMPLOYEE)
         assert _is_owner(user, _project(uuid.uuid4())) is False
-
-
-# ── _is_reviewer ───────────────────────────────────────────────────────────
 
 
 class TestIsReviewer:
@@ -83,16 +74,12 @@ class TestIsReviewer:
         assert _is_reviewer(user, _project(uuid.uuid4()), "reviewer") is True
 
     def test_missing_project_role_fails_closed(self):
-        # A legacy global reviewer value is not an authority source.
         user = _user(UserRole.REVIEWER)
         assert _is_reviewer(user, _project(uuid.uuid4())) is False
 
     def test_plain_annotator_role_is_not_reviewer(self):
         user = _user(UserRole.EMPLOYEE)
         assert _is_reviewer(user, _project(uuid.uuid4()), "annotator") is False
-
-
-# ── _is_annotator_assigned ──────────────────────────────────────────────────
 
 
 class TestIsAnnotatorAssigned:
@@ -131,11 +118,7 @@ class TestIsAnnotatorAssigned:
         )
 
 
-# ── assert_can_transition ───────────────────────────────────────────────────
-
-
 def _assert_allowed(user, project, batch, dst, project_role=None):
-    # 不抛异常即放行
     assert (
         assert_can_transition(user, project, batch, dst, project_role=project_role)
         is None
@@ -157,14 +140,12 @@ class TestAssertCanTransitionOwner:
 
     @pytest.mark.parametrize("src,dst", ALL_EDGES)
     def test_project_owner_allows_every_valid_edge(self, src, dst):
-        # 管理型 owner 应放行所有合法边
         user = _user(UserRole.PROJECT_ADMIN)
         project = _project(user.id)
         _assert_allowed(user, project, _batch(src, user.id), dst)
 
 
 class TestAssertCanTransitionReviewer:
-    # reviewer(非 owner)仅在 reviewing → approved / rejected 放行,其余全 403。
     @pytest.mark.parametrize("src,dst", ALL_EDGES)
     def test_reviewer_matrix(self, src, dst):
         user = _user(UserRole.EMPLOYEE)
@@ -198,7 +179,6 @@ class TestAssertCanTransitionAnnotator:
 
     @pytest.mark.parametrize("src,dst", ALL_EDGES)
     def test_assigned_annotator_denied_everywhere_else(self, src, dst):
-        # 被分派标注员除 annotating → reviewing 外,其余合法边一律 403。
         if (src, dst) == (BatchStatus.ANNOTATING, BatchStatus.REVIEWING):
             pytest.skip("唯一放行边,由专门用例覆盖")
         user = _user(UserRole.EMPLOYEE)
@@ -208,7 +188,6 @@ class TestAssertCanTransitionAnnotator:
 
 
 class TestAssertCanTransitionReverse:
-    # 逆向迁移 owner-only:非 owner 一律 403,owner 放行。
     @pytest.mark.parametrize("src,dst", sorted(REVERSE_TRANSITIONS))
     def test_reverse_denied_for_reviewer(self, src, dst):
         user = _user(UserRole.EMPLOYEE)

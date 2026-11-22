@@ -35,14 +35,17 @@ class Attempt:
                 or response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
                 or not isinstance(etag, str)
                 or not etag
-                or version is not None and (not isinstance(version, str) or not version)
+                or version is not None
+                and (not isinstance(version, str) or not version)
             ):
                 raise storage_access.mark_unsettled(
                     RuntimeError("fixture_media_write_receipt_invalid")
                 )
             self.fixture_etag, self.fixture_returned_version = etag, version
             self.recorder.fixture_call(
-                self.recorder.fixture.record_version(self.fixture_version, etag, version)
+                self.recorder.fixture.record_version(
+                    self.fixture_version, etag, version
+                )
             )
 
     def verified(self, client, version):
@@ -133,8 +136,6 @@ class Recorder:
         return handle
 
     def begin(self, key, receipt):
-        # Only the owner loop touches its Engine/Session; the SDK thread waits
-        # for a durable short transaction before it may submit this exact PUT.
         coroutine = self._begin(key, receipt)
         try:
             pending = asyncio.run_coroutine_threadsafe(coroutine, self.loop)
@@ -153,7 +154,12 @@ class Recorder:
                 raise RuntimeError("fixture_media_owner_invalid")
             fixture_version = self.fixture_call(
                 self.fixture.begin_version(
-                    owner_kind, self.owner_id, self.endpoint_url, self.bucket, key, receipt
+                    owner_kind,
+                    self.owner_id,
+                    self.endpoint_url,
+                    self.bucket,
+                    key,
+                    receipt,
                 )
             )
         result = Attempt(self, handle, key, receipt, fixture_version)

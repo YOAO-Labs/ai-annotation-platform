@@ -34,8 +34,6 @@ from tests.test_reference_original_cache import (
 @pytest.fixture
 async def authority_world(referenced_cache, monkeypatch):
     world = referenced_cache
-    # The request is a real signed JWT; only the best-effort Redis transport is
-    # replaced so a generation change can be injected at an exact admission.
     monkeypatch.setattr(
         token_blacklist, "is_blacklisted", AsyncMock(return_value=False)
     )
@@ -45,8 +43,6 @@ async def authority_world(referenced_cache, monkeypatch):
     try:
         yield world
     finally:
-        # Every capture in this file is awaited to completion, and the fixture
-        # uses only bounded in-memory object handles. Clean only this location.
         async with world.factory() as db:
             remaining = await db.scalar(
                 select(func.count())
@@ -79,8 +75,6 @@ async def prepared(world, path):
     cached_id = None
     if path == "cache":
         cached_id = (await seed_cache(world)).id
-        # A cache-hit test must not silently succeed by falling back to the
-        # filesystem when admission rejects its original credentials.
         (world.content[0] / world.content[7].relative_path).unlink()
     return cached_id
 
@@ -179,8 +173,6 @@ async def test_reference_admission_rechecks_original_request_before_any_bytes(
             "reference_read",
             "original_cache_read",
         }:
-            # The durable operation really exists before the callback. The
-            # session supplied here has no business locks across this wait.
             admitted.append(purpose)
             assert len(admitted) == 1
             async with world.factory() as observer:
@@ -251,8 +243,6 @@ async def test_gate_change_after_reference_returns_rejects_and_closes_image(
             "content_binding_changed",
             "storage_maintenance_changed",
         }
-        # Check before test cleanup: a rejection must close the exact image
-        # returned by the real reference consumer itself.
         assert len(captured) == 1
         assert captured[0]._closed and captured[0].file.closed
     finally:

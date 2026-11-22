@@ -128,7 +128,6 @@ async def create(
         if existing.request_digest != digest:
             raise service.reject("request_conflict", "同一请求标识不能用于不同评估")
         return await service.output(db, existing)
-    # Qualification performs HTTP before taking any domain/authority lock.
     ref, profile = await service.qualification(
         db, project, body.model_version_id, body.deployment_id
     )

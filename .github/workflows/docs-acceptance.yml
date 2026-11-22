@@ -1,7 +1,5 @@
 name: Release readiness
 
-# Run against the selected stable branch before publishing documentation.
-# This checks the documentation build and references; it does not publish a release.
 on:
   workflow_dispatch:
 
@@ -23,7 +21,6 @@ jobs:
       - name: Install
         id: install
         run: pnpm install --frozen-lockfile
-      # Independent gates keep running after failures; a failed gate still fails the job.
       - name: Snippet anchor consistency
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: pnpm --filter docs-site check:snippets

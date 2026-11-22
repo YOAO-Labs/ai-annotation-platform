@@ -72,7 +72,6 @@ async def test_runner_guard_denies_revoked_employee_actor(
     task.assignee_id = employee.id
     await db_session.commit()
 
-    # Current membership + effective assignee: allowed.
     await _assert_tracker_actor_authority(db_session, task, employee.id)
 
     await db_session.execute(

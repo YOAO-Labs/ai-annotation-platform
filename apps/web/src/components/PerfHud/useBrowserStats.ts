@@ -1,16 +1,3 @@
-// PerfHud 浏览器侧指标采集 hook.
-//
-// 6 项指标:
-//   - fps               : rAF 1s 滑动窗口
-//   - jsHeapMB          : performance.memory.usedJSHeapSize / 1MB (Chrome only, 非 Chrome 为 null)
-//   - longtaskCount60s  : PerformanceObserver({type:"longtask"}) 累计最近 60s > 50ms 任务数
-//   - longtaskLastMs    : 最近一次 longtask 时长
-//   - apiP95Ms          : 来自 api/_metrics.ts 60s 滑动 p95
-//   - wsReconnects      : 来自 hooks/_wsMetrics.ts 累计计数
-//   - taskBoxCount      : 来自 useTaskBoxCount 当前工作台 annotation 数
-//
-// 性能 budget: rAF 1s 一次 setState; PerformanceObserver push-based; 总 overhead < 0.5% CPU.
-
 import { useEffect, useState } from "react";
 import { getApiP95Ms } from "@/api/_metrics";
 import { useWsMetricsStore } from "@/hooks/_wsMetrics";
@@ -44,7 +31,6 @@ export function useBrowserStats(enabled: boolean): BrowserStats {
   const [longtaskCount60s, setLongtaskCount60s] = useState(0);
   const [longtaskLastMs, setLongtaskLastMs] = useState<number | null>(null);
 
-  // rAF FPS loop
   useEffect(() => {
     if (!enabled) return;
     let raf = 0;
@@ -63,7 +49,6 @@ export function useBrowserStats(enabled: boolean): BrowserStats {
     return () => cancelAnimationFrame(raf);
   }, [enabled]);
 
-  // JS heap + API p95 1s sampler
   useEffect(() => {
     if (!enabled) return;
     const id = setInterval(() => {
@@ -76,10 +61,8 @@ export function useBrowserStats(enabled: boolean): BrowserStats {
     return () => clearInterval(id);
   }, [enabled]);
 
-  // longtask observer (PO is push-based, 几乎零开销)
   useEffect(() => {
     if (!enabled) return;
-    // longtask 不是所有浏览器都支持 — Safari < 16 无, Firefox 无
     if (typeof PerformanceObserver === "undefined") return;
     const supportedTypes = (
       PerformanceObserver as unknown as {
@@ -108,13 +91,10 @@ export function useBrowserStats(enabled: boolean): BrowserStats {
     return () => observer?.disconnect();
   }, [enabled]);
 
-  // 老 longtask 条目过期 — 每 5s 触发一次重算
   useEffect(() => {
     if (!enabled) return;
     const id = setInterval(() => {
-      // setLongtaskCount60s 内 cutoff 已经由 observer 维护; 这里仅触发 state 刷新
-      // (count 准确; 短期内没有新 longtask 时, count 会自然衰减到 0)
-      setLongtaskCount60s((c) => c); // no-op re-sample; observer 才是真正的源
+      setLongtaskCount60s((c) => c);
     }, 5_000);
     return () => clearInterval(id);
   }, [enabled]);

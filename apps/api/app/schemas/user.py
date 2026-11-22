@@ -38,9 +38,6 @@ class UserCreate(BaseModel):
     email: str
     name: str
     password: str
-    #: Account/platform role.  Administrator-created ordinary staff default to
-    #: ``employee``; public registration is always a viewer and does not use
-    #: this schema.  Legacy global annotator/reviewer inputs are rejected.
     role: str = "employee"
 
     @field_validator("role")
@@ -68,19 +65,13 @@ class UserOut(BaseModel):
     disabled_at: datetime | None = None
     disabled_by: UUID | None = None
     disabled_reason: str | None = None
-    # 邮箱验证时间戳；None = 未验证。仅开放注册 + 验证开关打开时作登录 gate。
     email_verified_at: datetime | None = None
     last_login_at: datetime | None = None
-    # 心跳机制：最近一次活跃时间（登录 / POST /me/heartbeat / 关键操作）
     last_seen_at: datetime | None = None
-    # 非空 = 管理员刚重置密码，前端登录后跳「强制改密」页
     password_admin_reset_at: datetime | None = None
-    # 自助注销冷静期信息（已申请时返回 scheduled_at）；未申请均为 None
     deactivation_requested_at: datetime | None = None
     deactivation_scheduled_at: datetime | None = None
-    # 标注偏好（workbench 渲染配置等）。空对象 = 用客户端默认。
     preferences: dict = Field(default_factory=dict)
-    # 头像引用（preset:<slug> / upload:<token>）；None = 首字母回退。
     avatar_ref: str | None = None
     created_at: datetime
 
@@ -195,7 +186,6 @@ class UserBrief(BaseModel):
     email: str
     role: str | None = None
     avatar_initial: str
-    # 头像引用（preset:<slug> / upload:<token>）；None = 前端回退 avatar_initial。
     avatar_ref: str | None = None
 
     class Config:
@@ -210,6 +200,4 @@ class Token(BaseModel):
 class LoginRequest(BaseModel):
     email: str
     password: str
-    # progressive CAPTCHA：同 IP 失败 ≥ 阈值后必填；前端从 401 响应头
-    # X-Login-Failed-Count 拿到当前 count，达阈值时渲染 <Captcha>。
     captcha_token: str | None = None

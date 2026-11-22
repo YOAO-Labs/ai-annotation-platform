@@ -29,14 +29,11 @@ logger = logging.getLogger("app.schemas.annotation")
 class AnnotationCreate(BaseModel):
     video_segment_id: UUID | None = None
     annotation_type: str = "bbox"
-    # 工具单位; service 层据此校验 class_name ∈ project.tool_bindings[unit].
-    # 旧调用方不传时默认 "bbox" 兼容向后.
     tool_unit_id: _ToolUnitId = "bbox"
     class_name: str
     geometry: Geometry
     confidence: float | None = None
     parent_prediction_id: UUID | None = None
-    # 父子标注: 建子框时指向父框 (仅一层, service 层校验). 缺省为顶层框。
     parent_annotation_id: UUID | None = None
     lead_time: float | None = None
     attributes: AnnotationAttributes | None = None
@@ -74,7 +71,6 @@ class AnnotationUpdate(BaseModel):
     class_name: str | None = None
     confidence: float | None = None
     attributes: AnnotationAttributes | None = None
-    # shape 状态位
     z_order: int | None = None
     is_locked: bool | None = None
     is_hidden: bool | None = None
@@ -123,15 +119,12 @@ class SecondaryInferenceRequest(BaseModel):
     write_target 决定产物归位: attributes → 写回原框; geometry → 建子框。
     """
 
-    # extra=forbid: 拒绝未声明字段, 避免前端误传的隐性字段被吞后跑出"看似成功但不生效"。
     model_config = {"extra": "forbid"}
 
     ml_backend_id: UUID
     write_target: Literal["attributes", "geometry"] = "attributes"
-    # attributes: 只取这些下游返回键 (None=全取); label 给写回键加前缀 (子命名空间)
     write_keys: list[str] | None = None
     label: str | None = None
-    # backend wire 参数 (与批量下游 build_predict_context 同义)
     model_id: str | None = None
     model_variants: dict[str, str] | None = None
     params: dict | None = None
@@ -145,7 +138,6 @@ class SecondaryInferenceRequest(BaseModel):
 
     prompt: str | None = None
     class_filter: list[int] | None = None
-    # ROI 外扩比例 (贴边小目标留边给上下文); 上下界与批量 pipeline ROI.pad 对齐 [0, 0.5]。
     pad: float = Field(default=0.08, ge=0.0, le=0.5)
 
 
@@ -175,9 +167,6 @@ class VideoTrackCompositionRequest(BaseModel):
     annotation_ids: list[UUID] = []
     frame_index: int | None = None
     delete_sources: bool = True
-    # D-2.5 join_tracks gap 填充模式; 仅 join_tracks 使用.
-    # "interpolate": gap 端点间靠现有线性插值连接, 不写 gap outside;
-    # "outside": 把 gap 区间标 outside 后合并 (与 merge_tracks 默认一致).
     gap_mode: Literal["interpolate", "outside"] = "interpolate"
 
 
@@ -202,8 +191,6 @@ class PropagateRequest(BaseModel):
 
 class PropagateResponse(BaseModel):
     annotation: "AnnotationOut"
-    # box_3d 且源/目标帧均有 ego pose 时为 True(已做运动补偿);
-    # False = 原样复制(无 pose 数据 / 非 box_3d / override_psr 显式给定)。
     motion_compensated: bool = False
 
 
@@ -242,7 +229,6 @@ class InterpolateRangeRequest(BaseModel):
 class InterpolateRangeResponse(BaseModel):
     annotations: list["AnnotationOut"] = []
     motion_compensated: bool = False
-    # 已有同 group active 标注而被幂等跳过的中间帧
     skipped_frames: list[int] = []
 
 
@@ -254,15 +240,12 @@ class AnnotationOut(BaseModel):
     user_id: UUID | None = None
     source: str
     annotation_type: str
-    # 旧记录回落默认值 "bbox" (migration 已 backfill).
     tool_unit_id: _ToolUnitId = "bbox"
     class_name: str
     geometry: Geometry
     confidence: float | None = None
     parent_prediction_id: UUID | None = None
     parent_annotation_id: UUID | None = None
-    # ADR-0045 · 跨帧同一对象的通用标识 (trk_<hex>). 前端 3D 跨帧配对/
-    # 插值/高亮据此认同一对象 (原用 group_id 高位段, 编组下线后该列已删).
     track_id: str | None = None
     scene_track_id: UUID | None = None
     sensor_dataset_item_id: UUID | None = None
@@ -277,10 +260,7 @@ class AnnotationOut(BaseModel):
     is_active: bool
     ground_truth: bool = False
     attributes: AnnotationAttributes = {}
-    # 属性级溯源 sidecar: {key: {origin, model_ref?, confidence?, at?}}.
-    # 存量行 / 无 AI 属性时为 {}; 前端据此渲染 AI 属性来源 chip。
     attributes_meta: dict = {}
-    # shape 状态位；旧记录使用默认值。
     z_order: int = 0
     is_locked: bool = False
     is_hidden: bool = False
@@ -302,8 +282,6 @@ class AnnotationOut(BaseModel):
             "video_track_polyline",
             "video_track_mask",
         }:
-            # Write schemas default new keyframes to manual. A read of legacy JSON
-            # must not turn that default into evidence of recorded provenance.
             for keyframe, output in zip(
                 geometry.keyframes, serialized["keyframes"], strict=True
             ):
@@ -334,7 +312,7 @@ class NeighborAnnotationsResponse(BaseModel):
     """
 
     scene_id: UUID | None = None
-    frame_index: int | None = None  # 中心帧 frame_index
+    frame_index: int | None = None
     frames: list[NeighborFrameAnnotations] = Field(default_factory=list)
 
 

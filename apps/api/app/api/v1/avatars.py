@@ -23,7 +23,6 @@ from app.services import avatar_uploads
 
 router = APIRouter()
 
-# 与 services/avatar.py 的 upload token 语法一致;不合法直接 404,不可能拼出其它 key。
 _TOKEN_RE = re.compile(r"[0-9a-f]{32}")
 
 

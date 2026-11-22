@@ -115,7 +115,6 @@ export function decodeCocoRle(rle: unknown): Uint8Array {
   return out;
 }
 
-/** Exact point lookup without materializing the full row-major alpha plane. */
 export function cocoRleContainsPixel(rle: CocoRle, x: number, y: number): boolean {
   const [height, width] = rle.size;
   if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= width || y >= height) {
@@ -136,7 +135,6 @@ export function cocoRleArea(rle: CocoRle): number {
   return rle.counts.reduce((area, count, index) => area + ((index & 1) === 1 ? count : 0), 0);
 }
 
-/** Exact normalized foreground bounds without allocating a dense alpha plane. */
 export function cocoRleBounds(rle: CocoRle): {
   x: number;
   y: number;
@@ -187,13 +185,6 @@ async function compressWithBrowserStream(input: Uint8Array): Promise<Uint8Array>
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
-/**
- * 为 mask-content 上传准备真实 HTTP gzip 正文。
- *
- * 返回 null 表示必须走普通 JSON：小正文、浏览器不支持 gzip、任一绝对上限超出，或
- * 展开比超过后端 reader 的 20× 安全合同。对象存储偏好与 RLE 正文编码分离，故压缩
- * 前正文仍保持 encoding=coco_rle，仅额外携带 storage_encoding=gzip。
- */
 export async function prepareCocoRleGzipUpload(
   rle: CocoRle,
   options: { minBytes?: number; compress?: GzipCompressor } = {},

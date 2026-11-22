@@ -171,7 +171,6 @@ async def apply(db, location, payload, actor, *, api_key_id=None):
     reviewed = await review(db, location, payload, actor, api_key_id)
     if any(token[key] != reviewed[key] for key in ("binding", "dependencies")):
         raise HTTPException(409, detail={"code": "storage_change_preview_changed"})
-    # The query may finish after the confirmation expires.
     decode_token(payload.impact_token)
     revision = location.config_revision
     await storage_location.update_filesystem(db, location, payload)

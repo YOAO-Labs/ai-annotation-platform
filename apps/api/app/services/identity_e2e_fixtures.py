@@ -19,8 +19,6 @@ from yoao_identity.e2e_fixture_contract import (
 )
 from app.db.models.user import User
 
-# The Identity view includes presence; separate metadata keeps it out of migrations.
-
 _fixture_registry = registry(metadata=MetaData())
 _fixture_profile = Table(
     "account_profiles",
@@ -81,8 +79,6 @@ class IdentityE2EFixtures:
         from tests.factory import make_user_dict
 
         values = make_user_dict(role, email, name)
-        # Match the old ORM helper's unconditional flush, including inside an
-        # explicit no_autoflush scope, before invoking Identity's INSERT owner.
         await self.db.flush()
         created_id = await self.db.scalar(
             text(

@@ -133,8 +133,6 @@ async def check_reads(db, output, plan, *, lock=False):
     ):
         reject()
     if plan.routes:
-        # The facade constructor validates the entire immutable context without
-        # opening a client. Reject mixed publications before provider construction.
         migration_reads.ReadClientSet(None, plan.routes)
     owner = physical.resolve(output)
     inventory = physical.validate_inventory(output)
@@ -580,10 +578,6 @@ async def thumbnail_url(db, owner_kind, owner_id, path, *, actor_id):
             from app.services.image_pyramid import native_generation
 
             if native_generation(generation):
-                # No in-scope writer publishes a saved Native output key as the
-                # common thumbnail pointer.  Saved Native overviews are read
-                # only through the Images owner's generation reference lane;
-                # never sign them with legacy physical credentials here.
                 return None
             await session.commit()
             async with reading(session, owner, generation, keys=(path,)) as output:
@@ -650,8 +644,6 @@ async def reconcile(db, storage):
         ).all()
     )
     for asset_id, number in candidates:
-        # Relock in the same asset-then-generation order as the stale pass and
-        # fail_generation, then recheck ownership before the state mutation.
         asset = await db.scalar(
             select(Asset).where(Asset.id == asset_id).with_for_update()
         )
@@ -765,8 +757,6 @@ async def reconcile(db, storage):
         output.state = "retiring"
         await db.commit()
         if published:
-            # Cascading business deletion does not timestamp the last reference.
-            # Start grace here so an already signed URL can finish its lifetime.
             continue
         receipt = snapshot(output)
         try:
@@ -797,7 +787,6 @@ async def reconcile(db, storage):
                     )
                 ):
                     reject()
-                # Unknown earlier physical operations remain a durable barrier.
                 if await db.scalar(
                     select(
                         exists().where(

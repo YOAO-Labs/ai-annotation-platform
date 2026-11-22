@@ -171,7 +171,6 @@ async def _world(test_engine, *, apply=True):
             assert {
                 row["oid"]: row["owner"] for row in after if row["oid"] in original
             } == original
-            # Preserve audited data; only this fixture LOGIN's ACLs are removed.
             assert not await db.scalar(
                 text(
                     "SELECT EXISTS(SELECT 1 FROM pg_class WHERE relowner=(SELECT oid FROM pg_roles WHERE rolname=:role))"
@@ -279,7 +278,6 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
                 "yoao_workspace_v1.project_facts",
                 "yoao_workspace_v1.project_member_facts",
             ]
-            # Keep Labeling's private write boundary and public counters intact.
             assert not await db.scalar(
                 text("SELECT has_table_privilege(current_user,'public.tasks','UPDATE')")
             )
@@ -293,7 +291,6 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
                     "SELECT has_function_privilege(current_user,'yoao_identity_v1.read_actor_facts(uuid)','EXECUTE')"
                 )
             )
-        # Reapplying the deployment profile keeps the same closed surface.
         result = await _grants(test_engine, _PROFILE, _role)
         assert result.returncode == 0, result.stderr
         async with api() as db:
@@ -343,8 +340,6 @@ async def test_lan_profile_revokes_public_mask_execution_and_keeps_runtime(test_
                         "yoao_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
                         "yoao_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
                         "yoao_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
-                        # bo0464 adds native pyramid capture/retirement to the
-                        # Assets cleanup role, revoked from PUBLIC.
                         "yoao_assets_v1.claim_native_pyramid_retirement(uuid,integer)",
                         "yoao_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)",
                         "yoao_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)",

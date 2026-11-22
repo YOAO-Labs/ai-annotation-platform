@@ -1,5 +1,3 @@
-// B4 异步可见：大 dataset(>2000 items) 关联项目后异步建 task,
-// 用 useAsyncJob 轮询 create_tasks job 并显示进度条,完成后 invalidate 相关查询。
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -11,10 +9,6 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/**
- * 轮询一个「关联建 task」异步 job 的进度。终态时 toast + invalidate,并回调清空 jobId。
- * jobId 为空时不渲染任何内容。
- */
 export function LinkJobProgress({
   jobId,
   projectId,

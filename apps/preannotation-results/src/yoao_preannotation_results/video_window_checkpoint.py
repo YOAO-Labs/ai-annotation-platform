@@ -538,8 +538,6 @@ def _validate_continuation_geometry(
     plan: VideoExecutionPlan,
     continuation: VideoContinuationPostState,
 ) -> None:
-    # An empty/outside first window retains the original accepted seed geometry,
-    # which may be a track or box even when model output is a raster Mask.
     if continuation.last_geometry and continuation.last_geometry.get("type") not in {
         "bbox",
         "video_bbox",

@@ -144,7 +144,6 @@ def test_routed_read_keeps_real_target_version_and_saved_receipt(kind):
     provider = Provider(route, data)
     reader = migration_reads.ReadClient(provider, route)
     try:
-        # Ordinary creation verification still requires the saved endpoint.
         with pytest.raises(ValueError):
             storage.read(provider, receipt)
         assert provider.calls == []
@@ -356,7 +355,6 @@ async def test_rle_dedup_and_load_use_winners_stored_gzip_and_source_guard_fact(
             reader.close()
 
     monkeypatch.setattr(migration_reads, "run", mapped_run)
-    # Same canonical RLE, different wrapper bytes: reuse the saved owner's hash.
     different_wrapper = gzip.compress(rle_facts.RAW, mtime=2)
     assert different_wrapper != data
     reference = rle.reference(receipt)

@@ -200,7 +200,6 @@ describe("useWorkbenchShortcutPreferences", () => {
       const oldView = mount();
       act(() => oldView.result.current.saveCommand(request("i")));
       await waitFor(() => expect(updatePreferencesMock).toHaveBeenCalledTimes(1));
-      // This queued edit belongs to the retiring owner and must never be sent.
       act(() => oldView.result.current.saveCommand(request("y")));
       oldView.unmount();
       const newView = mount(null, oldView.client);

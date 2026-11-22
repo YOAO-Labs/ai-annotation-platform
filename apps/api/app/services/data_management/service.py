@@ -92,8 +92,6 @@ async def _read_video_media_totals(
     frame_count = 0
     try:
         async with media_gateway(db) as gateway:
-            # Retain duplicate IDs: the former Task join counted once per matched
-            # task, even when several tasks share a source item.
             for offset in range(0, len(item_ids), VIDEO_TOTALS_BATCH_ITEMS):
                 batch = item_ids[offset : offset + VIDEO_TOTALS_BATCH_ITEMS]
                 totals = await gateway.call(
@@ -295,9 +293,6 @@ class DataManagerService:
         )
 
         attribute_summaries: list[DataManagerAttributeSummary] = []
-        # Attribute schemas are project-bounded (normally a handful of fields),
-        # so this loop is bounded by configuration rather than task/annotation
-        # cardinality. Each query aggregates the whole matched scope in SQL.
         for unit, field in _attribute_fields(project):
             key = str(field["key"])
             eligible_clause = _attribute_eligibility_clause(
@@ -567,9 +562,6 @@ class DataManagerService:
             user=user,
         )
 
-        # Matches are drawn from the exact witness sets in fixed source order.  Each
-        # source receives the remaining slice of one global offset/limit window, so
-        # prediction geometry is converted only after SQL has selected its page.
         items: list[DataManagerMatchItem] = []
         total = 0
         remaining_offset = offset

@@ -110,8 +110,6 @@ def _assert_upgraded(sync_conn, saved: dict) -> None:
     assert version == 1
     assert updated_at is not None
 
-    # The 0173-only round trip leaves the invitation as it was seeded: the
-    # project_role column is empty and the original platform role survives.
     invitation = sync_conn.execute(
         text("SELECT role, project_role FROM user_invitations WHERE id = :id"),
         {"id": saved["invitation"]},
@@ -119,8 +117,6 @@ def _assert_upgraded(sync_conn, saved: dict) -> None:
     assert invitation.role == "annotator"
     assert invitation.project_role is None
 
-    # Legacy writer: an INSERT that omits the new columns must still succeed,
-    # with server defaults applied (NULL stays unknown, not known-empty).
     legacy_member_id = uuid.uuid4()
     sync_conn.execute(
         text(
@@ -215,7 +211,6 @@ def test_0173_roundtrip_is_additive_and_preserves_legacy_rows(
                 await conn.run_sync(_assert_downgraded, saved)
                 await conn.run_sync(_replay, migration, "upgrade")
                 await conn.run_sync(_assert_upgraded, saved)
-                # Roll back so the shared test schema and rows are untouched.
                 await trans.rollback()
         finally:
             await engine.dispose()

@@ -177,6 +177,7 @@ class TaskSubmissionWorkflow:
             task_id=task_id,
             actor_id=actor_id,
             expected_access=access,
+            drain_batch_readers=True,
         )
         await task_access.assert_task_visible(self.db, task, actor.id, access=access)
         task_access.assert_effective_task_assignee(

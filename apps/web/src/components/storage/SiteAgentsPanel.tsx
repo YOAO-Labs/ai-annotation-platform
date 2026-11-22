@@ -237,7 +237,6 @@ function SiteAgentsOwner() {
     const last = Math.max(0, Math.ceil(locationData.total / locationPageSize) - 1);
     if (locationPage > last) setLocationPage(last);
   }, [locationData, locations.isFetching, locationPage, locationPageSize]);
-  // Secret-bearing responses belong to the current dialog as well as the current session.
   const act = async <T,>(request: () => Promise<T>, done: (result: T) => void) => {
     const current = capture();
     const expected = epoch.current;

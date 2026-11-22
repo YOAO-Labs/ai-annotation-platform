@@ -1,13 +1,5 @@
 import { create } from "zustand";
 
-/**
- * PerfHud 浮窗 visibility 全局 store.
- *
- * 触发方式:
- * - Ctrl+Shift+P (workbench hotkeys)
- * - TopBar gear → "性能监控"
- * 权限 gating 由消费组件做 (super_admin / project_admin), store 不关心.
- */
 interface PerfHudStore {
   visible: boolean;
   expanded: boolean;

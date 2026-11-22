@@ -3,7 +3,6 @@ import { discussionApi } from "@/api/discussion";
 import { discussionKeys } from "@/pages/Workbench/state/discussionTypes";
 import { useAuthStore } from "@/stores/authStore";
 
-/** Stable task-level summary key; mutations invalidate its task-discussion prefix. */
 export function annotationCommentCountsQueryKey(
   taskId: string,
   projectId: string | null | undefined,
@@ -17,7 +16,6 @@ export function annotationCommentCountsQueryKey(
   ] as const;
 }
 
-/** Fetch authoritative per-annotation totals in one request for image workbenches. */
 export function useAnnotationCommentCounts(
   taskId: string | null | undefined,
   projectId: string | null | undefined,

@@ -73,8 +73,6 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
     test_engine, tmp_path, record_property
 ):
     _verify_postgres(test_engine.url)
-    # An isolated source fixture permits running this same acceptance against the
-    # exact old CLI without reverting the shared checkout.
     source = Path(
         os.getenv(
             "AAP_FILTERING_CLI_FIXTURE_SOURCE", ROOT / "scripts/worktree_filtering.py"

@@ -22,7 +22,7 @@ from yoao_inference_contract.backend_endpoint import (
 
 _ENDPOINT_SCHEMA = "yoao_inference_backend_endpoint_v1"
 _MAX_ENDPOINT_JSON_BYTES = 64 * 1024
-_CAPTURE_REPLY_MAX_BYTES = BACKEND_ENDPOINT_MAX_BYTES + 256  # status/subject envelope
+_CAPTURE_REPLY_MAX_BYTES = BACKEND_ENDPOINT_MAX_BYTES + 256
 _ENDPOINT_POLICY_SQL = (
     "SELECT yoao_inference_backend_endpoint_v1.backend_endpoint_policy()"
 )

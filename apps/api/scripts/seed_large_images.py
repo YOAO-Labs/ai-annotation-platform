@@ -427,7 +427,6 @@ async def _ensure_fixture_item(
             item = rows[0]
             assert_fixture_item(item)
         binding = await ensure_legacy_bindings(db)
-        # Publish only storage bootstrap metadata before independent admission.
         await db.commit()
         stage, failure = None, None
         admission = Admission()

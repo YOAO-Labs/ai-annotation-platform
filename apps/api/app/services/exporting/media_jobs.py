@@ -6,9 +6,6 @@ from app.db.models.async_job import AsyncJob
 
 
 async def _record_dispatch(db, job_id, values):
-    # The API can return after another delivery has already claimed the Job.
-    # Never replace that winner's identity or terminal state. A held worker
-    # lock also proves that this backfill must not wait and overwrite it.
     unclaimed = (
         select(AsyncJob.id)
         .where(

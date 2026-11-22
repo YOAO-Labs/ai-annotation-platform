@@ -487,8 +487,6 @@ async def test_actual_minio_writer_seams_match_current_bytes(
             from app.workers import image_pyramid as worker
 
             def generated(source_path, output_dir, **kwargs):
-                # Prefabricated encoding isolates the real builder/upload seam
-                # from native libvips qualification.
                 root = output_dir / "tiles"
                 (root / "0").mkdir(parents=True)
                 (root / "0" / "0_0.webp").write_bytes(data)

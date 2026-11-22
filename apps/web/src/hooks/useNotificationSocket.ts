@@ -12,17 +12,9 @@ import {
   useNotificationPreferences,
 } from "@/hooks/useNotificationPreferences";
 
-// WS 鉴权过期重连。
-// 后端 /ws/notifications 鉴权失败用 1008（policy violation）关闭。
-// 标注员长会话（开着标注页面 24h+）token 过期后无需手动刷页：
-//   1) onclose code 1008/4001 → 调 /auth/refresh 拿新 token
-//   2) 成功 → 写 authStore + 用新 token 重连
-//   3) 失败 → ApiError 401 → client.ts 已自动 logout，路由层会跳 /login
 const REAUTH_CLOSE_CODES = new Set([1008, 4001]);
 
-/** 重要事件 1 秒内合并为一条 toast 的窗口。 */
 const ALERT_BATCH_WINDOW_MS = 1_000;
-/** 每账号最多记住的告警去重 ID 数。 */
 const ALERT_DEDUP_LIMIT = 200;
 
 interface IncomingNotification {
@@ -74,17 +66,6 @@ function alertText(type: string, payload: Record<string, unknown>): string {
   }
 }
 
-/**
- * 单用户通知 WS：订阅 /ws/notifications。
- * 连接随 App 生命周期保持（切换路由不拆连接），进入标注/审核工作台
- * 仍有未读角标与实时刷新；WS 断线时 useNotifications 30s 轮询兜底。
- *
- * 职责：
- * - 连接打开/重开、真实通知与 notifications.sync 事件 → invalidate 通知查询
- * - notifications.sync reason=preferences → 额外刷新偏好查询
- * - 可见标签页的瞬时重要提醒：偏好（接收+弹出）开启才弹，1s 内合并，
- *   按通知 ID 去重（最多 200 条），隐藏标签页不弹、只计数。
- */
 export function useNotificationSocket() {
   const token = useAuthStore((s) => s.token);
   const setToken = useAuthStore((s) => s.setToken);
@@ -92,15 +73,12 @@ export function useNotificationSocket() {
   const revision = useSessionRevision();
   const qc = useQueryClient();
   const pushToast = useToastStore((s) => s.push);
-  // 该查询在此 hook 保持活跃（认证会话内）；设置入口复用同一缓存。
   const preferencesQ = useNotificationPreferences();
 
-  // 事件回调在 ws.onmessage 闭包里运行，读 ref 拿到最新偏好快照。
   const preferencesRef = useRef(preferencesQ);
   preferencesRef.current = preferencesQ;
   const userIdRef = useRef(userId);
   userIdRef.current = userId;
-  // 偏好同步事件之后、新一轮拉取完成之前，缓存可能是别处已改的旧值。
   const preferencesStaleSinceRef = useRef(0);
 
   useEffect(() => {
@@ -110,9 +88,7 @@ export function useNotificationSocket() {
     let closedManually = false;
     let retryTimer: number | null = null;
     let backoff = 1000;
-    // 已对当前过期 token 触发过 refresh，避免单次过期触发多次 /auth/refresh
     let refreshing = false;
-    // 本次连接绑定的会话（token）；refresh 迟到的结果不得写回后续会话。
     const sessionToken = token;
 
     const migrationAlertAllowed = (payload: Record<string, unknown>): boolean => {
@@ -127,7 +103,6 @@ export function useNotificationSocket() {
       );
     };
 
-    // ── 告警去重 + 1s 批量合并（当前账号） ──────────────────────────
     const seenAlertIds = new Set<string>();
     const seenAlertOrder: string[] = [];
     let pendingAlerts: QueuedAlert[] = [];
@@ -149,8 +124,6 @@ export function useNotificationSocket() {
       const batch = pendingAlerts.filter((alert) => migrationAlertAllowed(alert.payload));
       pendingAlerts = [];
       if (batch.length === 0) return;
-      // 批量窗口内标签页可能已切到后台：此时丢弃这批提醒，避免回到前台
-      // 才看到不合时宜的 toast，与「隐藏标签页不弹」保持一致。
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       if (batch.length === 1) {
         pushToast({
@@ -165,20 +138,16 @@ export function useNotificationSocket() {
       });
     };
 
-    /** 偏好可用且该类型接收+弹出都开启时才允许瞬时提醒。 */
     const alertAllowedFor = (type: string): boolean => {
       const snapshot = preferencesRef.current;
       if (!userIdRef.current || !snapshot.isSuccess || snapshot.isError) return false;
-      // 偏好刚被同步事件标记失效（含本会话自己保存后的 invalidate）：
-      // 在新一轮数据落地前抑制提醒，避免用旧偏好弹出。
       if (snapshot.dataUpdatedAt <= preferencesStaleSinceRef.current) return false;
       const item = snapshot.data?.items.find((entry) => entry.type === type);
-      if (!item) return false; // 未知/未来类型默认不弹
+      if (!item) return false;
       return item.in_app && item.toast;
     };
 
     const maybeQueueAlert = (message: IncomingNotification) => {
-      // 只有可见标签页产生瞬时提醒；隐藏会话仅通过计数同步。
       if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
       const id = typeof message.id === "string" ? message.id : null;
       const type = typeof message.type === "string" ? message.type : null;
@@ -200,8 +169,6 @@ export function useNotificationSocket() {
       const t = currentToken();
       if (!t) return;
 
-      // 后端 ws_router 在 main.py:108 无 prefix 注册, 路径是 /ws/notifications
-      // host/proto 拼接由 buildWsUrl 统一处理。
       const url = buildWsUrl("/ws/notifications", { token: t });
       try {
         ws = new WebSocket(url);
@@ -212,11 +179,9 @@ export function useNotificationSocket() {
       ws.onopen = () => {
         backoff = 1000;
         refreshing = false;
-        // 重连/重开都先取一次持久化状态，避免错过断线期间的事件。
         qc.invalidateQueries({ queryKey: ["notifications"] });
       };
       ws.onmessage = (e) => {
-        // 服务端 30s 心跳 ping 帧不应触发 invalidate；非 JSON 忽略。
         let parsed: IncomingNotification | null = null;
         try {
           parsed = JSON.parse(e.data as string) as IncomingNotification;
@@ -230,13 +195,11 @@ export function useNotificationSocket() {
           qc.invalidateQueries({ queryKey: ["notifications"] });
           if (reason === "preferences") {
             const owner = userIdRef.current;
-            // 偏好已变化：旧快照在重新拉取完成前不得用于弹窗判断。
             preferencesStaleSinceRef.current = Date.now();
             if (owner) qc.invalidateQueries({ queryKey: notificationPreferencesKey(owner) });
           }
-          return; // sync 事件绝不产生 toast
+          return;
         }
-        // retry.* 进度事件触发失败预测列表 invalidate
         if (parsed.type.startsWith("failed_prediction.retry.")) {
           qc.invalidateQueries({ queryKey: ["admin", "failed-predictions"] });
         }
@@ -246,19 +209,16 @@ export function useNotificationSocket() {
             qc.invalidateQueries({ queryKey: ["admin", "failed-predictions"] });
           }
         }
-        // 真实通知：刷新计数/列表；可见标签页按偏好决定瞬时提醒。
         qc.invalidateQueries({ queryKey: ["notifications"] });
         maybeQueueAlert(parsed);
       };
       ws.onclose = (event) => {
         if (closedManually) return;
-        // 鉴权过期：尝试 refresh token 后再重连
         if (REAUTH_CLOSE_CODES.has(event.code) && !refreshing) {
           refreshing = true;
           authApi
             .refresh()
             .then((resp) => {
-              // 会话已被登出/替换（token 变化）：迟到的 refresh 结果不得写回。
               if (useAuthStore.getState().token !== sessionToken) {
                 closedManually = true;
                 return;
@@ -268,7 +228,6 @@ export function useNotificationSocket() {
               scheduleRetry();
             })
             .catch(() => {
-              // refresh 失败 → client.ts 401 拦截已 logout → 不再 retry
               closedManually = true;
             });
           return;
@@ -304,6 +263,5 @@ export function useNotificationSocket() {
         /* noop */
       }
     };
-    // Session replacement retires pending alerts even when credentials are reused.
   }, [token, userId, revision, qc, setToken, pushToast]);
 }

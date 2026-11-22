@@ -7,10 +7,7 @@ export interface PasswordRequirement {
   ok: boolean;
 }
 
-/** 与 API `validate_password_strength` 保持一致的客户端提示规则。 */
 export function getPasswordRequirements(password: string): PasswordRequirement[] {
-  // Python 的 len() 按 Unicode 码点计数；Array.from() 避免 JS UTF-16 code unit
-  // 让包含代理对的密码在客户端和服务端得到不同的长度判断。
   const codePointLength = Array.from(password).length;
   return [
     {

@@ -438,8 +438,6 @@ async def _observed_run(world: HandoffWorld, run_id: str):
                 attempt.finish_request_digest if attempt else None
             ),
             "lease_attempt_id": lease.attempt_id if lease else None,
-            # This is a resource-poll projection. Attempt ownership is asserted
-            # separately from TrainingAttempt.executor_id/boot_id and attempt_id.
             "lease_executor_projection": lease.executor_id if lease else None,
         }
 
@@ -711,8 +709,6 @@ async def test_hard_exit_holds_inherited_flock_until_recovery_and_next_claim(
             waiting = await asyncio.to_thread(replacement.read_event, timeout=10)
             assert waiting["event"] == "waiting_local_lock"
 
-            # Kill only the old supervisor. The controlled CPU child has its own
-            # process group and inherited the fsynced resource flock descriptor.
             old.process.kill()
             assert old.process.wait(timeout=5) == -signal.SIGKILL
             assert os.kill(active["child_pid"], 0) is None
@@ -721,8 +717,6 @@ async def test_hard_exit_holds_inherited_flock_until_recovery_and_next_claim(
             with pytest.raises(AssertionError, match="timed out"):
                 await asyncio.to_thread(replacement.read_event, timeout=0.25)
 
-            # The parent already died; only terminate the exact child process
-            # group reported by its owned test fixture to release the inherited lock.
             assert processes.kill_child(active["child_pid"])
             recovered = await asyncio.to_thread(
                 replacement.read_until, "next_attempt_claimed", timeout=30

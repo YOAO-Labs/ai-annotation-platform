@@ -1,9 +1,3 @@
-// evenOddFill 纯函数单测 (ADR-0052 D5)。
-//
-// 路径构造逻辑被抽到纯函数 (不依赖 Konva / DOM), 这里用 vi.fn() 桩一个 canvas-like
-// context 直接断言 subpath 数与坐标换算, 不走 jsdom canvas 渲染。
-// 覆盖: 单 polygon + holes、multi_polygon 各环 + holes、空输入退化、imgW/imgH 换算。
-
 import { describe, expect, it, vi } from "vitest";
 import {
   buildEvenOddPaths,
@@ -32,7 +26,6 @@ function makeCtx(): PathCanvasContext & {
   };
 }
 
-/** 子路径数 = closePath 次数 (每个环以 closePath 收尾)。 */
 function countSubpaths(ctx: { calls: { fn: string; args: number[] }[] }): number {
   return ctx.calls.filter((c) => c.fn === "closePath").length;
 }
@@ -51,14 +44,12 @@ describe("buildEvenOddPaths", () => {
     const n = buildEvenOddPaths(ctx, [ring], 1000, 800);
     expect(n).toBe(1);
     expect(countSubpaths(ctx)).toBe(1);
-    // moveTo 第一个点 = (0*1000, 0*800) = (0, 0)
     const moveTo0 = ctx.calls.find((c) => c.fn === "moveTo");
     expect(moveTo0?.args).toEqual([0, 0]);
-    // 第一个 lineTo 应是 (0.5*1000, 0*800) = (500, 0)
     const lineTos = ctx.calls.filter((c) => c.fn === "lineTo");
     expect(lineTos[0]?.args).toEqual([500, 0]);
-    expect(lineTos[1]?.args).toEqual([500, 400]); // (0.5, 0.5) → (500, 400)
-    expect(lineTos[2]?.args).toEqual([0, 400]); // (0, 0.5) → (0, 400)
+    expect(lineTos[1]?.args).toEqual([500, 400]);
+    expect(lineTos[2]?.args).toEqual([0, 400]);
   });
 
   it("单外环 + 1 个 hole → 2 个子路径 (外环 + 内环)", () => {
@@ -143,7 +134,6 @@ describe("buildEvenOddPaths", () => {
       100,
       100,
     );
-    // 只有第三个外环 (3 点) 被画
     expect(n).toBe(1);
     expect(countSubpaths(ctx)).toBe(1);
   });
@@ -157,10 +147,10 @@ describe("buildEvenOddPaths", () => {
         [1, 1],
         [0, 1],
       ],
-      holes: [[[0.1, 0.1]], []], // 两个退化 hole
+      holes: [[[0.1, 0.1]], []],
     };
     const n = buildEvenOddPaths(ctx, [ring], 100, 100);
-    expect(n).toBe(1); // 只外环
+    expect(n).toBe(1);
   });
 
   it("空 outerRings → 0 子路径, 无任何 ctx 调用", () => {

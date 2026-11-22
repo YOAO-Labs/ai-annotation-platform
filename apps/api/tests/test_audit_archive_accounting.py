@@ -329,7 +329,6 @@ async def test_outer_owner_finishes_only_after_file_and_actual_permit(
             "published": True
         }
     assert len(recorded) == 1
-    # The generic finisher also checks the error's unsettled marker.
     assert recorded[0][1] is (mode not in {"input_close", "permit"})
     if mode == "input_close":
         assert getattr(recorded[0][0], "storage_operation_unsettled", False)

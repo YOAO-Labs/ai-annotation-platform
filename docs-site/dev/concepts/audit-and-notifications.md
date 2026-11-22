@@ -264,7 +264,7 @@ Notifications 的纯投递策略先按需读取 Jobs 实际范围，再分别查
 
 API 在原借用 Session 中读取通知、Jobs 范围和四组授权事实，将事件及该次受信快照交给 publisher；publisher 不重新查询未提交的业务行，并再次执行同一授权策略。服务 bearer 只授予这项发布能力，不能作为用户 JWT 或 Identity 控制凭据。消息频道由收件人 UUID 生成，调用方不能指定任意 Redis channel。
 
-`notify()`／`notify_many()` 默认延后发布，调用方提交后逐条 best-effort 发布；终态通知及显式 `defer_publish=False` 保留提交前时序。`publish_by_id()` 的传输错误仍传播，使既有导入投递租约不被确认；偏好、已读和删除的同步提示仍在对应提交后 best-effort 发布。普通发布不新增 outbox 或自动重试，durable publisher 继续按原租约确认和重试。WebSocket 继续在短暂缺行时读取四次、等待三次 150ms，回滚后不可见的通知不会发送给客户端。配置见[环境变量参考](../reference/env-vars)，协议见[模块数据接口](../../api/guides/module-data#notifications-即时发布)。
+`notify()`／`notify_many()` 默认延后发布：调用方提交后逐条尽力发布，不新增通用 outbox 或重试；显式 `defer_publish=False` 的行为不变。`publish_by_id()` 仍传播传输错误，使既有导入投递租约不被误确认。偏好、已读和删除的同步提示仍在对应提交后发布。白名单作业终态使用下述持久交接；非终态通知保留原缺行短窗兼容路径。配置见[环境变量参考](../reference/env-vars)，协议见[模块数据接口](../../api/guides/module-data#notifications-即时发布)。
 
 ### 已读状态命令
 
@@ -415,16 +415,15 @@ PUT `/notification-preferences` 只合并请求出现的键（JSONB `channels ||
 | `failed`    | `job.failed`    |
 | `cancelled` | `job.cancelled` |
 
-helper 位于 `apps/api/app/services/async_job_notify.py`，由 worker / API 在各自 `mark_*`
-之后显式调用；不要把通知职责塞进 `services/async_job.py` 的状态方法。调用方保留事务所有权：
-helper 在 `mark_*` 之后、调用方 `commit()` 之前调用；`/ws/notifications` 的投递闸门会在
-自己的会话里短暂重试读取尚不可见的行，因此消息在提交落地后送达而不是被丢弃。
+`apps/api/app/services/async_job_notify.py` 仍由 worker／API 在各自 `mark_*` 之后、提交之前调用。Notifications owner 在同一事务中写入收件箱行和投递 outbox；回滚时两者一并撤销。通知追加使用保存点，追加拒绝或 SQL 故障不回滚独立的 Jobs 状态变更。
+
+既有 Notifications publisher 在提交之后领取租约、发布 Redis 提示、再确认租约。发布回执不确定或进程退出时按同一通知 ID 重试，不重复写入收件箱。通知 WebSocket 推送前重新验证身份、收件人及目标的当前可见性，并在同一连接内按终态通知 ID 去重；缺失行立即丢弃，不再等待提交。浏览器离线时仍由 REST 补齐通知，而不是回放每一帧。
 
 各作业 kind 的**领域终态账本**（`MaskQCRun` / `PointCloudQualityRun` / `MaskRepairBatch` / `MaskFormatImport` / 在线训练与评估作业）的正规更新仍在各自 worker 或内部回调路由内。兜底路径——worker 进程 crash、Celery revoke、未被 task body 捕获的异常——由 `workers/signals.py` 查作业后调用 `application/job_terminal.py`，走统一骨架（连接 → 按 `celery_task_id` 查 `async_jobs` → 落终态 → 回填领域账本 → 通知 → 提交 → 释放）；连接、提交和释放仍由信号适配器控制，HTTP 硬取消复用同一领域回填绑定。
 
-`services/async_job_terminal.py` 只定义不可变 `JobTerminal` 事实，各领域服务的 `reconcile_job_terminal` 负责自己的行锁和状态：mask 格式导入取消保留 `partial`，回滚失败保留 `rollback_failed`，修复取消按已完成分片决定 `partial` / `cancelled`。通用状态、领域账本和持久通知沿用调用方同一事务，通知发布时点没有改为提交后。评估和主动学习由各自中断处理器维护取消意图、失联状态与 attempt fencing，不经过通用终态强制转换。迟到失败不覆盖已结束作业；未知 `celery_task_id` 静默跳过，没有领域账本的 kind 仍可更新通用行，通知继续遵循自身白名单。
+`services/async_job_terminal.py` 只定义不可变 `JobTerminal` 事实，各领域服务的 `reconcile_job_terminal` 负责自己的行锁和状态：mask 格式导入取消保留 `partial`，回滚失败保留 `rollback_failed`，修复取消按已完成分片决定 `partial` / `cancelled`。通用状态、领域账本和持久通知沿用调用方同一事务。评估和主动学习由各自中断处理器维护取消意图、失联状态与 attempt fencing，不经过通用终态强制转换。迟到失败不覆盖已结束作业；未知 `celery_task_id` 静默跳过，没有领域账本的 kind 仍可更新通用行，通知继续遵循自身白名单。
 
-HTTP 取消入口委托 `application/job_cancellation.py`，领域账本写入由各自 `request_job_cancel` 持有。修复和格式导入的 pending 作业立即落取消及通知，running 作业只写取消请求，实际终态由执行者确认；评估继续保持非终态取消意图。非强制撤销通过 `JobExecutionControl` 装配 Celery 适配器，发布异常仍按原策略记录并继续相应的状态处理。通知白名单、去重、持久化和发布顺序均未改变。
+HTTP 取消入口委托 `application/job_cancellation.py`，领域账本写入由各自 `request_job_cancel` 持有。修复和格式导入的 pending 作业立即落取消及通知，running 作业只写取消请求，实际终态由执行者确认；评估继续保持非终态取消意图。非强制撤销通过 `JobExecutionControl` 装配 Celery 适配器，发布异常仍按原策略记录并继续相应的状态处理。通知白名单和收件箱去重键不变。
 
 当前白名单包括：
 

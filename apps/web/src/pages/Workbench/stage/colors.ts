@@ -1,10 +1,5 @@
 import type { ClassesConfig } from "@/api/projects";
 
-/**
- * 当前项目的 classes_config（颜色覆盖 + 排序）。WorkbenchShell 初始化项目时调用
- * setActiveClassesConfig；切项目时清空。所有 classColor() 默认查阅这里，
- * 避免每个调用点都向下传 config prop。
- */
 let _activeConfig: ClassesConfig | undefined;
 export function setActiveClassesConfig(c: ClassesConfig | undefined): void {
   _activeConfig = c;
@@ -18,17 +13,14 @@ export const CLASS_COLORS: Record<string, string> = {
   促销贴: "oklch(0.60 0.20 295)",
 };
 
-// 用户画完未指定类别时落库的 sentinel 类名，渲染为灰色框；后续可改类别。
 export const UNKNOWN_CLASS = "__unknown";
 export const UNKNOWN_CLASS_LABEL = "未分类";
 const UNKNOWN_COLOR = "oklch(0.65 0 0)";
 
-/** 类名展示函数: 把 sentinel `__unknown` 换成中文标签 `未分类`, 其他原样返回. */
 export function displayClassName(name: string): string {
   return name === UNKNOWN_CLASS ? UNKNOWN_CLASS_LABEL : name;
 }
 
-// Canvas(Konva) 用的颜色：通过浏览器 CSS 引擎把 oklch 转换成 hex，并缓存结果。
 const _canvasCache = new Map<string, string>();
 
 function directColorToHex(cssColor: string): string | null {
@@ -93,8 +85,6 @@ export function hexToRgb(hex: string): readonly [number, number, number] {
   ];
 }
 
-/** 把 CSS 变量(如 --sc-card)解析为当前主题下的 hex,供 Konva canvas fill 使用
- *  (canvas fillStyle 不解析 var())。themeKey 仅用于调用方 memo 失效。 */
 export function cssVarToHex(varName: string, _themeKey?: string): string {
   if (typeof document === "undefined") return "#888888";
   const raw = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
@@ -106,7 +96,6 @@ export function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-// FNV-1a 32-bit；输入相同输出固定，跨会话一致。
 function hashString(s: string): number {
   let h = 2166136261;
   for (let i = 0; i < s.length; i++) {
@@ -127,7 +116,6 @@ function mixHash(h: number): number {
 
 export function classColor(name: string, config?: ClassesConfig): string {
   if (name === UNKNOWN_CLASS) return UNKNOWN_COLOR;
-  // 优先级：显式传入 config > 模块级 _activeConfig（项目当前） > 内置预设 > hash 派生
   const cfg = (config ?? _activeConfig)?.[name];
   if (cfg?.color) return cfg.color;
   if (CLASS_COLORS[name]) return CLASS_COLORS[name];
@@ -135,10 +123,6 @@ export function classColor(name: string, config?: ClassesConfig): string {
   return `oklch(0.62 0.18 ${hue})`;
 }
 
-/**
- * Track 选色调色板（会话级覆盖用）。沿用 CLASS_COLORS 的 oklch 表达，
- * 与画布/类别色同源；这些是数据域颜色而非组件 CSS。
- */
 export const TRACK_COLOR_PALETTE: { label: string; value: string }[] = [
   { label: "蓝", value: "oklch(0.62 0.18 252)" },
   { label: "绿", value: "oklch(0.65 0.18 152)" },
@@ -162,10 +146,6 @@ export function defaultTrackColor(trackId: string, className: string): string {
   return `oklch(${lightness.toFixed(2)} ${chroma.toFixed(2)} ${hue.toFixed(2)})`;
 }
 
-/**
- * Track 显示色：命中 session 级覆盖则用覆盖色，否则按 trackId 派生稳定色。
- * overrides 以 trackId 为键，值为调色板中的 oklch 字符串。
- */
 export function getTrackColor(
   trackId: string,
   className: string,
@@ -176,13 +156,12 @@ export function getTrackColor(
   return defaultTrackColor(trackId, className);
 }
 
-/** 按 classes_config.order 升序排序类别名（无 order 的排末尾）。 */
 export function sortClassesByConfig(classes: string[], config?: ClassesConfig): string[] {
   if (!config) return classes;
   return classes.slice().sort((a, b) => {
     const oa = config[a]?.order ?? Number.POSITIVE_INFINITY;
     const ob = config[b]?.order ?? Number.POSITIVE_INFINITY;
     if (oa !== ob) return oa - ob;
-    return classes.indexOf(a) - classes.indexOf(b); // 同 order 时保留输入顺序
+    return classes.indexOf(a) - classes.indexOf(b);
   });
 }

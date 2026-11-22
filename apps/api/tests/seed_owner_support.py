@@ -368,8 +368,6 @@ async def private_seed_owner(*, native_suite_id: uuid.UUID | None = None):
         raise
     finally:
         if owner.failure is not None and process.returncode is None:
-            # A pending response is not physical settlement; retain this client
-            # and use a different client to recover the same authority.
             _RETAINED_SEED_CLIENTS.append(owner)
         else:
             try:

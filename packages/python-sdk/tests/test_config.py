@@ -1,9 +1,13 @@
 import json
+import os
+import tomllib
 
+import pytest
 from typer.testing import CliRunner
 
 from yoao.cli.main import app
 from yoao.config import config_path, load_config, save_config
+from yoao.errors import SDKError
 
 
 def _isolate_home(monkeypatch, tmp_path):
@@ -20,21 +24,17 @@ def test_load_config_priority(monkeypatch, tmp_path):
         'base_url = "http://file"\napi_key = "ak_file"\n'
     )
 
-    # 1. 仅文件
     assert load_config() == ("http://file", "ak_file")
 
-    # 2. env 覆盖文件
     monkeypatch.setenv("YOAO_BASE_URL", "http://env")
     monkeypatch.setenv("YOAO_API_KEY", "ak_env")
     assert load_config() == ("http://env", "ak_env")
 
-    # 3. 显式参数最高
     assert load_config(base_url="http://arg", api_key="ak_arg") == (
         "http://arg",
         "ak_arg",
     )
 
-    # Each field resolves independently.
     assert load_config(base_url="http://arg") == ("http://arg", "ak_env")
     monkeypatch.delenv("YOAO_API_KEY")
     assert load_config(base_url="http://arg") == ("http://arg", "ak_file")
@@ -57,14 +57,46 @@ def test_load_config_broken_toml(monkeypatch, tmp_path):
     assert load_config() == (None, None)
 
 
-def test_save_config_writes_0600(monkeypatch, tmp_path):
+def test_save_config_round_trips_toml_strings_in_private_file(monkeypatch, tmp_path):
     _isolate_home(monkeypatch, tmp_path)
-    p = save_config("http://h", "ak_x")
+    url = 'https://example.test/"路径"/\U00020000?q=\\a'
+    key = 'ak_"\\\t\b\f\r\n\x00\x1f\x7f'
+    p = save_config(url, key)
     assert p == config_path()
-    assert p.read_text() == 'base_url = "http://h"\napi_key = "ak_x"\n'
+    assert tomllib.loads(p.read_text(encoding="utf-8")) == {
+        "base_url": url,
+        "api_key": key,
+    }
     assert (p.stat().st_mode & 0o777) == 0o600
-    # 写完即可被 load_config 读回
-    assert load_config() == ("http://h", "ak_x")
+    assert load_config() == (url, key)
+
+
+def test_save_config_does_not_expose_new_key_to_existing_reader(monkeypatch, tmp_path):
+    _isolate_home(monkeypatch, tmp_path)
+    p = config_path()
+    p.parent.mkdir(parents=True)
+    p.write_text("old data")
+    p.chmod(0o644)
+    with p.open() as public_reader:
+        save_config("http://h", "new-credential")
+        assert public_reader.read() == "old data"
+    assert (p.stat().st_mode & 0o777) == 0o600
+    assert load_config() == ("http://h", "new-credential")
+
+
+def test_save_config_failure_keeps_previous_file_private(monkeypatch, tmp_path):
+    _isolate_home(monkeypatch, tmp_path)
+    p = save_config("http://h", "old-key")
+
+    def denied(*_):
+        raise PermissionError("cannot replace file")
+
+    monkeypatch.setattr(os, "replace", denied)
+    with pytest.raises(SDKError) as failure:
+        save_config("http://new", "never-log-this-key")
+    assert "never-log-this-key" not in str(failure.value)
+    assert load_config() == ("http://h", "old-key")
+    assert list(p.parent.iterdir()) == [p]
 
 
 def test_explicit_migration_preserves_source_and_refuses_conflicts(

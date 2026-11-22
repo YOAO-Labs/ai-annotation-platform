@@ -10,12 +10,108 @@ Covers:
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import settings
+from app.db.models.ml_backend_pool import MLBackendServicePool
+from app.db.models.ml_backend_registry import ProjectMLBackendPool
+from app.db.models.project import Project
+from app.db.models.project_member import ProjectMember
 from tests.conftest import create_registry_with_pool
+
+
+_PROJECT_COUNTS_URL = "/api/v1/admin/ml-integrations/primary-pool-project-counts"
+
+
+@pytest.mark.asyncio
+async def test_primary_pool_counts_are_authoritative_and_visibility_scoped(
+    httpx_client, db_session, super_admin, project_admin, annotator
+) -> None:
+    admin, admin_token = super_admin
+    manager, manager_token = project_admin
+    _, employee_token = annotator
+    _, populated_pool = await create_registry_with_pool(db_session, name="bound")
+    _, enabled_only_pool = await create_registry_with_pool(
+        db_session, name="enabled-only"
+    )
+    empty_pool = MLBackendServicePool(name="memberless")
+    db_session.add(empty_pool)
+    await db_session.flush()
+
+    def project(owner, pool=None):
+        return Project(
+            display_id=f"P-PC-{uuid4().hex[:8]}",
+            name="Pool count test",
+            type_label="image-det",
+            type_key="image-det",
+            owner_id=owner.id,
+            ml_backend_pool_id=pool.id if pool else None,
+        )
+
+    owned = project(manager, empty_pool)
+    member = project(admin, populated_pool)
+    hidden = project(admin, populated_pool)
+    unbound = project(manager)
+    db_session.add_all([owned, member, hidden, unbound])
+    await db_session.flush()
+    db_session.add_all(
+        [
+            ProjectMember(
+                project_id=member.id,
+                user_id=manager.id,
+                role="viewer",
+                assigned_by=admin.id,
+            ),
+            ProjectMLBackendPool(
+                project_id=unbound.id, pool_id=enabled_only_pool.id, enabled=True
+            ),
+        ]
+    )
+    await db_session.flush()
+
+    async def read_counts(token):
+        return await httpx_client.get(
+            _PROJECT_COUNTS_URL, headers={"Authorization": f"Bearer {token}"}
+        )
+
+    all_counts = await read_counts(admin_token)
+    assert all_counts.status_code == 200, all_counts.text
+    assert all_counts.json() == {
+        "counts": {str(populated_pool.id): 2, str(empty_pool.id): 1}
+    }
+    visible_counts = await read_counts(manager_token)
+    assert visible_counts.status_code == 200, visible_counts.text
+    assert visible_counts.json() == {
+        "counts": {str(populated_pool.id): 1, str(empty_pool.id): 1}
+    }
+    unauthorized = await read_counts(employee_token)
+    assert unauthorized.status_code == 403, unauthorized.text
+    overview = await httpx_client.get(
+        "/api/v1/admin/ml-integrations/overview",
+        headers={"Authorization": f"Bearer {manager_token}"},
+    )
+    assert overview.status_code == 403, overview.text
+
+
+@pytest.mark.asyncio
+async def test_primary_pool_count_read_error_is_not_an_empty_success(
+    httpx_client, auth_headers, monkeypatch
+) -> None:
+    from app.api.v1 import admin_ml_integrations
+
+    async def unavailable(*_args):
+        raise SQLAlchemyError("Workspace unavailable")
+
+    monkeypatch.setattr(
+        admin_ml_integrations, "count_visible_projects_by_primary_pool", unavailable
+    )
+    response = await httpx_client.get(_PROJECT_COUNTS_URL, headers=auth_headers)
+    assert response.status_code == 503, response.text
+    assert "counts" not in response.json()
 
 
 @pytest.mark.asyncio
@@ -47,21 +143,17 @@ async def test_topology_super_admin_sees_full_detail(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["schema_version"] == "topology.v1"
-    assert body["router_mode"] == "off"  # safe default in tests
+    assert body["router_mode"] == "off"
     pool_entry = next(p for p in body["pools"] if p["name"] == "bk")
     assert pool_entry["member_count"] == 1
-    # Super Admin sees the real routing_policy + derived fields.
     assert pool_entry["routing_policy"] == "smooth_weighted_round_robin"
     assert pool_entry["routable_instances"] == 1
     assert pool_entry["status"] in {"healthy", "degraded"}
     assert isinstance(pool_entry["status_reason_codes"], list)
     member = pool_entry["members"][0]
-    # Super Admin sees health + GPU + weight (not projected away).
     assert member["state"] is not None
     assert member["weight"] == 1
-    assert (
-        "last_checked_at" in member
-    )  # key present (value may be None if never probed)
+    assert "last_checked_at" in member
     assert "gpu_resource_id" in member
 
 
@@ -86,20 +178,16 @@ async def test_topology_project_admin_trimmed(
     assert body["schema_version"] == "topology.v1"
     if body["pools"]:
         pool_entry = body["pools"][0]
-        # Project Admin: routing_policy projected to "unknown".
         assert pool_entry["routing_policy"] == "unknown"
-        # Project Admin still sees derived availability (display hint).
         assert "routable_instances" in pool_entry
         assert "status" in pool_entry
         assert pool_entry["status_reason_codes"] == []
         if pool_entry["members"]:
             member = pool_entry["members"][0]
-            # Server-side projection: keys present, values None.
             assert member["state"] is None
             assert member["weight"] is None
             assert member["gpu_resource_id"] is None
             assert member["last_checked_at"] is None
-            # Identity + traffic_state remain (these are not sensitive).
             assert member["traffic_state"] == "active"
 
 
@@ -113,10 +201,8 @@ async def test_topology_status_derivation(
 
     _, token = super_admin
 
-    # Pool A: members flipped to disabled → offline.
     _, pool_a = await create_registry_with_pool(db_session, name="pool-a")
     await db_session.flush()
-    # The helper creates one active member; flip it to disabled.
     members_a = (
         (
             await db_session.execute(
@@ -131,7 +217,6 @@ async def test_topology_status_derivation(
     for m in members_a:
         m.traffic_state = "disabled"
 
-    # Pool B: 2 members, 1 active + 1 draining → degraded.
     caps = {"models": [{"id": "det", "task": "detection"}]}
     _, pool_b = await create_registry_with_pool(
         db_session,
@@ -161,7 +246,6 @@ async def test_topology_status_derivation(
     )
     if members_b:
         members_b[0].traffic_state = "draining"
-    # Add a second active+connected member to pool B.
     reg_b2 = MLBackendRegistry(
         name="pool-b-inst2",
         url="http://pool-b-inst2.test:9999",
@@ -187,11 +271,9 @@ async def test_topology_status_derivation(
     assert resp.status_code == 200, resp.text
     body = resp.json()
     by_name = {p["name"]: p for p in body["pools"]}
-    # Pool A: all disabled → offline + 2_disabled reason.
     assert by_name["pool-a"]["status"] == "offline"
     assert by_name["pool-a"]["routable_instances"] == 0
     assert any("disabled" in r for r in by_name["pool-a"]["status_reason_codes"])
-    # Pool B: 1 active + 1 draining → degraded + 1_draining reason + routable=1.
     assert by_name["pool-b"]["status"] == "degraded"
     assert by_name["pool-b"]["routable_instances"] == 1
     assert any("draining" in r for r in by_name["pool-b"]["status_reason_codes"])
@@ -204,7 +286,6 @@ async def test_runtime_snapshot_super_admin_only(
     """runtime-snapshot: Super Admin 200 with freshness envelope, Project Admin 403."""
     await create_registry_with_pool(db_session, name="bk")
     await db_session.flush()
-    # Super Admin OK.
     _, sa_token = super_admin
     resp = await httpx_client.get(
         "/api/v1/admin/ml-integrations/runtime-snapshot",
@@ -216,11 +297,9 @@ async def test_runtime_snapshot_super_admin_only(
     assert "router_mode" in body
     assert "observed_at" in body
     assert "pools" in body
-    # Freshness envelope (plan §6.3 / Appendix A.2).
     assert "sources" in body
     assert "partial" in body
     source_names = [s["name"] for s in body["sources"]]
-    # All five sources present.
     assert set(source_names) == {
         "topology",
         "router_ledger",
@@ -228,16 +307,13 @@ async def test_runtime_snapshot_super_admin_only(
         "gpu",
         "residency",
     }
-    # GPU and residency are marked stale because the snapshot omits those sources.
     gpu_src = next(s for s in body["sources"] if s["name"] == "gpu")
     assert gpu_src["stale"] is True
     assert gpu_src["error"] == "not_bundled_in_v0_23_3"
     residency_src = next(s for s in body["sources"] if s["name"] == "residency")
     assert residency_src["stale"] is True
-    # Since gpu/residency are always stale, partial must be True with a reason.
     assert body["partial"] is True
     assert body["partial_reason"] is not None
-    # Metrics-driven member fields present but None (plan §4.2).
     if body["pools"] and body["pools"][0]["members"]:
         m = body["pools"][0]["members"][0]
         assert m["last_selected_at"] is None
@@ -245,7 +321,6 @@ async def test_runtime_snapshot_super_admin_only(
         assert m["rejection_count_window"] is None
         assert m["p95_ms"] is None
         assert m["error_rate"] is None
-    # Project Admin forbidden.
     _, pa_token = project_admin
     resp = await httpx_client.get(
         "/api/v1/admin/ml-integrations/runtime-snapshot",

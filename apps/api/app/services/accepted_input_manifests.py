@@ -141,9 +141,6 @@ class InputManifestGateway:
         if header.status == "sealed":
             return header
 
-        # Each delivery attempts at most one bounded page of unfinished work.
-        # Completed members do not consume that budget: an arbitrarily large
-        # selection can progress on replay without storing a full Task/Input map.
         cursor, attempted = 0, 0
         while cursor < header.selected_count:
             page_request = c.ManifestPageRequest(
@@ -179,9 +176,6 @@ class InputManifestGateway:
                         self._input_request(member.input)
                     )
                 except inputs.InputFailure as exc:
-                    # The Input owner records terminal copy outcomes. Seal reads
-                    # those rows itself. Authority and source errors still stop
-                    # this operation rather than becoming readiness deferrals.
                     if not exc.code.endswith("_busy") and exc.code not in {
                         "input_not_ready",
                         "storage_unavailable",

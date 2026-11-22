@@ -33,8 +33,6 @@ jobs:
             --write=.tmp/docs-impact.json \
             --write-markdown=.tmp/docs-impact.md
 
-      # Advisory scan: emits ::warning:: annotations for changelog-style version prefixes
-      # added to narrative docs (never fails the build), and writes a hint for the Claude step.
       - name: Scan docs for version-prefixed style
         run: |
           node scripts/check-doc-version-prefix.mjs \

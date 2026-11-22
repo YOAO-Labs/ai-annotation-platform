@@ -227,7 +227,10 @@ async def test_fixture_jobs_block_cleanup_and_late_admission(
 ):
     import json
     from sqlalchemy import text
-    from app.api.v1._test_seed import _try_fixture_delete
+    from app.api.v1._test_seed import (
+        _JOBS_FIXTURE_PROJECT_DELETE_SQL,
+        _try_fixture_delete,
+    )
     from app.db.models.dataset import Dataset, ProjectDataset
     from tests.factory import create_project, create_user
     from tests.test_dataset_source_support import _creation_payload
@@ -304,7 +307,6 @@ async def test_fixture_jobs_block_cleanup_and_late_admission(
             ),
         }
 
-    # Terminal display status is not evidence that the Job's execution settled.
     original_job, neighbor_job = uuid.uuid4(), uuid.uuid4()
     await db_session.execute(insert, job_values(0, original_job, status))
     await db_session.execute(insert, job_values(1, neighbor_job, "pending"))
@@ -317,7 +319,7 @@ async def test_fixture_jobs_block_cleanup_and_late_admission(
     with pytest.raises(HTTPException) as cleanup_blocked:
         await _try_fixture_delete(
             db_session,
-            "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))",
+            _JOBS_FIXTURE_PROJECT_DELETE_SQL,
             {"pids": [projects[0].id]},
         )
     assert cleanup_blocked.value.status_code == 409
@@ -345,6 +347,223 @@ async def test_fixture_jobs_block_cleanup_and_late_admission(
             {"first": original_job, "second": neighbor_job},
         )
         == 2
+    )
+
+
+async def _synchronous_fixture_import(db, monkeypatch, kind, case):
+    import json
+
+    from sqlalchemy import text
+
+    from tests.factory import create_project, create_user
+
+    monkeypatch.setattr(settings, "environment", "development")
+    monkeypatch.setattr(settings, "e2e_seed_enabled", True)
+    run, other_run, job = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    owner = await create_user(db, "super_admin", f"{run}@imports.test", "Owner")
+    other = await create_user(db, "super_admin", f"{other_run}@imports.test", "Other")
+    project = await create_project(db, owner_id=owner.id, name="fixture-import")
+    db.add_all(
+        [FixtureRun(id=run, family="scale"), FixtureRun(id=other_run, family="scale")]
+    )
+    await db.flush()
+    for run_id, resource_kind, resource_id in (
+        (run, "project", project.id),
+        (run, "user", owner.id),
+        (other_run, "user", other.id),
+    ):
+        await ownership.reserve(
+            db,
+            run_id,
+            resource_kind,
+            resource_id,
+            logical_key=resource_kind,
+            published=True,
+        )
+
+    actor_id = other.id if case == "foreign-actor" else owner.id
+    result = {"imported": 3, "skipped": 1, "error_count": 1}
+    audit_detail = {**result, "format": "native_json"}
+    if case != "missing-job":
+        audit_detail["job_id"] = str(uuid.uuid4() if case == "wrong-job" else job)
+    if case == "mismatched-result":
+        audit_detail["imported"] = 4
+    action = (
+        "annotation.import" if kind == "annotations_import" else "predictions.import"
+    )
+    if case in {"wrong-action", "annotation-wrong-action"}:
+        action = (
+            "predictions.import"
+            if action == "annotation.import"
+            else "annotation.import"
+        )
+
+    async def write_audit():
+        await db.execute(
+            text(
+                "INSERT INTO public.audit_logs "
+                "(action, target_type, target_id, actor_id, method, status_code, detail_json) "
+                "VALUES (:action, 'project', :target, :actor, 'POST', 200, CAST(:detail AS jsonb))"
+            ),
+            {
+                "action": action,
+                "target": str(uuid.uuid4() if case == "wrong-project" else project.id),
+                "actor": other.id if case == "wrong-actor" else actor_id,
+                "detail": json.dumps(audit_detail),
+            },
+        )
+
+    if case == "manual-terminal":
+        await write_audit()
+    await db.execute(
+        text(
+            "INSERT INTO public.async_jobs (id, kind, project_id, user_id, status, "
+            "started_at, completed_at, progress_pct, payload, result) "
+            "VALUES (:job, :kind, :project, :actor, :status, "
+            "CASE WHEN :terminal THEN clock_timestamp() END, "
+            "CASE WHEN :terminal THEN clock_timestamp() END, "
+            "CASE WHEN :terminal THEN 100 ELSE 0 END, '{}'::jsonb, CAST(:result AS jsonb))"
+        ),
+        {
+            "job": job,
+            "kind": kind,
+            "project": project.id,
+            "actor": actor_id,
+            "status": "completed" if case == "manual-terminal" else "pending",
+            "terminal": case == "manual-terminal",
+            "result": json.dumps(result if case == "manual-terminal" else {}),
+        },
+    )
+
+    async def update_job(assignments, **values):
+        await db.execute(
+            text(f"UPDATE public.async_jobs SET {assignments} WHERE id=:job"),
+            {"job": job, **values},
+        )
+
+    if case not in {"pending", "manual-terminal", "skipped-running"}:
+        await update_job("status='running', started_at=clock_timestamp()")
+    if case in {"failed", "failed-then-completed"}:
+        await update_job(
+            "status='failed', completed_at=clock_timestamp(), error_message='import failed'"
+        )
+    if case == "failed-then-completed":
+        await update_job("status='running', completed_at=NULL, error_message=NULL")
+    if case == "task-bound":
+        await update_job("celery_task_id='other-executor'")
+        await update_job("celery_task_id=NULL")
+    if case == "sealed-before-completion":
+        assert await ownership.seal(db, run, family="scale") == ()
+
+    if case not in {"pending", "running", "manual-terminal", "failed"}:
+        if case == "different-audit-xmin":
+            async with db.begin_nested():
+                await write_audit()
+        else:
+            await write_audit()
+        await update_job(
+            "status='completed', started_at=COALESCE(started_at, clock_timestamp()), "
+            "completed_at=clock_timestamp(), progress_pct=100, result=CAST(:result AS jsonb)",
+            result=json.dumps(result),
+        )
+    if case == "changed-result":
+        await update_job("result=result || jsonb_build_object('imported', 4)")
+    if case == "changed-time":
+        await update_job("completed_at=completed_at + interval '1 second'")
+    if case == "dispatched":
+        await db.execute(
+            text(
+                "INSERT INTO yoao_jobs_v1.dispatch_intents "
+                "(intent_id, job_id, purpose, execution_id, envelope, natural_identity, "
+                "state, generation, attempts) VALUES "
+                "(:id, :job, 'execution', 'other-executor', '{}'::jsonb, true, 'retired', 1, 1)"
+            ),
+            {"id": uuid.uuid4(), "job": job},
+        )
+    if case != "sealed-before-completion":
+        assert await ownership.seal(db, run, family="scale") == ()
+    return project.id, job
+
+
+@pytest.mark.parametrize(
+    "kind",
+    [
+        pytest.param("annotations_import", id="annotations-import"),
+        pytest.param("predictions_import", id="predictions-import"),
+    ],
+)
+async def test_synchronous_fixture_import_proof(db_session, monkeypatch, kind):
+    from sqlalchemy import text
+
+    project, job = await _synchronous_fixture_import(
+        db_session, monkeypatch, kind, "valid"
+    )
+    await ownership.guard_project_jobs(db_session, [project])
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+            ),
+            {"ids": [project]},
+        )
+        == 1
+    )
+    assert not await db_session.scalar(
+        text("SELECT EXISTS (SELECT FROM public.async_jobs WHERE id=:job)"),
+        {"job": job},
+    )
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "pending",
+        "running",
+        "manual-terminal",
+        "skipped-running",
+        "failed",
+        "failed-then-completed",
+        "missing-job",
+        "wrong-job",
+        "wrong-action",
+        "wrong-actor",
+        "wrong-project",
+        "foreign-actor",
+        "different-audit-xmin",
+        "mismatched-result",
+        "changed-result",
+        "changed-time",
+        "task-bound",
+        "dispatched",
+        "sealed-before-completion",
+        "annotation-wrong-action",
+    ],
+)
+async def test_synchronous_fixture_import_proof_rejects(db_session, monkeypatch, case):
+    from sqlalchemy import text
+
+    from app.api.v1._test_seed import (
+        _JOBS_FIXTURE_PROJECT_DELETE_SQL,
+        _try_fixture_delete,
+    )
+
+    kind = (
+        "annotations_import"
+        if case == "annotation-wrong-action"
+        else "predictions_import"
+    )
+    project, job = await _synchronous_fixture_import(
+        db_session, monkeypatch, kind, case
+    )
+    with pytest.raises(HTTPException) as blocked:
+        await _try_fixture_delete(
+            db_session, _JOBS_FIXTURE_PROJECT_DELETE_SQL, {"pids": [project]}
+        )
+    assert blocked.value.status_code == 409
+    assert blocked.value.detail["code"] == "fixture_job_execution_unsettled"
+    assert await db_session.scalar(
+        text("SELECT EXISTS (SELECT FROM public.async_jobs WHERE id=:job)"),
+        {"job": job},
     )
 
 
@@ -700,8 +919,6 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
             "dataset",
             dataset.id,
             logical_key="dataset",
-            # The published-media proof is exercised separately; this test
-            # owns the unknown/dataset Job fences for an unpublished Dataset.
             published=run_id == second,
         )
 
@@ -729,8 +946,6 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
 
     neighbor = uuid.uuid4()
     await db_session.execute(insert, backfill_values(datasets[1].id, neighbor))
-    # An open fixture run's published Dataset cannot be a cleanup target until
-    # its media is sealed (0446); assert the neighbor job's typed scope now.
     assert await db_session.scalar(
         text(
             "SELECT yoao_jobs_v1.fixture_job_dataset_scope("
@@ -792,8 +1007,6 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
             },
         ),
     )
-    # Existing sealed fixture Datasets can reject unknown Jobs at admission.
-    # Otherwise, the Dataset cleanup guard must reject the admitted unknown Job.
     for statement, params in unknown_jobs:
         async with db_session.begin_nested() as savepoint:
             try:
@@ -824,7 +1037,6 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
             "payload": json.dumps(own_payload),
         },
     )
-    # Once this run is sealed both unknown families must be denied admission.
     assert await ownership.seal(db_session, first, family="scale") == ()
     for statement, params in unknown_jobs:
         with pytest.raises(
@@ -1033,11 +1245,8 @@ async def test_batch_predict_scope_binds_born_datasets_and_rejects_unproven(
         async with db_session.begin_nested():
             await ownership.guard_dataset_jobs(db_session, [fixture.dataset.id])
     assert blocked.value.detail["code"] == "fixture_dataset_job_unsettled"
-    # An unrelated Dataset is outside the born scope.
     await ownership.guard_dataset_jobs(db_session, [fixture.unrelated.id])
 
-    # The born binding is authoritative: a Dataset linked later neither enters
-    # the frozen set nor rewrites it, and direct rewrites are refused.
     db_session.add(
         ProjectDataset(project_id=fixture.project.id, dataset_id=fixture.unrelated.id)
     )
@@ -1066,7 +1275,6 @@ async def test_batch_predict_scope_binds_born_datasets_and_rejects_unproven(
             async with db_session.begin_nested():
                 await db_session.execute(statement, params)
 
-    # Project, actor and Task mismatches stay unknown and still block cleanup.
     assert await db_session.scalar(
         text(
             "SELECT yoao_jobs_v1.fixture_job_dataset_scope("
@@ -1107,19 +1315,16 @@ async def test_batch_predict_scope_binds_born_datasets_and_rejects_unproven(
         db_session, owner_id=fixture.owner.id, name="prediction-scope-plain"
     )
     unproven = (
-        # No Task selection: a project-wide Job cannot prove an exact Dataset set.
         {
             "project": fixture.project.id,
             "actor": fixture.owner.id,
             "payload": {"execution_scope": "bulk"},
         },
-        # A Task that belongs to another project.
         {
             "project": other_project.id,
             "actor": fixture.owner.id,
             "payload": scoped_payload,
         },
-        # A Task that does not exist.
         {
             "project": fixture.project.id,
             "actor": fixture.owner.id,
@@ -1128,7 +1333,6 @@ async def test_batch_predict_scope_binds_born_datasets_and_rejects_unproven(
                 "task_ids": [str(uuid.uuid4())],
             },
         },
-        # A project with no born fixture binding.
         {
             "project": plain_project.id,
             "actor": fixture.owner.id,
@@ -1217,7 +1421,6 @@ async def test_batch_predict_scope_retirement_releases_exact_datasets(
         )
         is True
     )
-    # Retirement never rewrites the born binding; it releases the exact proof.
     assert await db_session.scalar(
         text(
             "SELECT yoao_jobs_v1.fixture_job_dataset_scope("
@@ -1329,7 +1532,6 @@ async def test_scale_cleanup_blocks_live_admission_and_preserves_neighbor(
                     await seed_scale._purge(db, run_id)
         async with private_seed_owner() as fixture_owner:
             await fixture_owner.shutdown_authority(second)
-        # Remove only this test's retired ledger entries and support actors.
         async with sessions.begin() as db:
             await db.execute(
                 delete(FixtureRunResource).where(

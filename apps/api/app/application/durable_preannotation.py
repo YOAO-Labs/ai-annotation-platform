@@ -113,8 +113,6 @@ async def freeze_batch_members(
         ordinal = index + 1
         last = ordinal
         if ordinal <= cursor:
-            # Manifest membership is already sealed. A non-manifest selection
-            # is staged in one transaction, so it never has a partial cursor.
             continue
         frozen = (
             manifest_member.model_dump(mode="json")
@@ -236,8 +234,6 @@ async def _apply_ready_result(
                     execution.scope["job_id"] if manifest_backed else None
                 ),
             )
-            # Cancellation and publication share the guarded Job lock. A
-            # cancellation waiting behind this transaction applies next member.
             if await _cancel_requested(db, execution.scope["job_id"]):
                 await db.rollback()
                 return False
@@ -275,8 +271,6 @@ async def _apply_ready_result(
                         ],
                     },
                 )
-            # The existing Labeling Task guard runs first. This lease lock and
-            # completion proof join Prediction/Meta in that same transaction.
             await execution.call("lock_batch_result_write", db=db, **values)
             await execution.call("finish_batch_result_write", db=db, **values)
             try:
@@ -391,8 +385,6 @@ async def run_durable_batch(
         manifest_summary=result_extra.get("manifest"),
     )
     await execution.call("start_batch_result_execution")
-    # The result owner starts the Job only after selection is sealed. Image
-    # authority requires that running Job and must precede overwrite/model work.
     cancelled_before_authorization = False
     if authorize is not None:
         from app.services.content_snapshot import ContentError
@@ -508,7 +500,6 @@ async def run_durable_batch(
                         member.manifest_member,
                         member.ordinal,
                     )
-                # This precedes byte production and final Task/Job write locks.
                 await execution.capture(
                     member.ordinal, requests, stage="raw", context=context
                 )
@@ -522,7 +513,6 @@ async def run_durable_batch(
                 )
                 async with prediction_mask_producer(execution, member.ordinal):
                     requests = await normalize_batch_prediction_masks(db, requests)
-                    # Producer epoch/grace precedes the prepared result seal.
                     await db.commit()
                     await execution.capture(
                         member.ordinal, requests, stage="prepared", context=context
@@ -560,8 +550,6 @@ async def run_durable_batch(
                     )
                     continue
                 break
-            # Deterministic native rejections are not storage outages. Preserve
-            # them without turning a retained result into a member failure.
             raise
         except SQLAlchemyError:
             await db.rollback()
@@ -593,8 +581,6 @@ async def run_durable_batch(
             current_failure = (
                 failure_context(member, exc) if failure_context is not None else {}
             )
-            # An inference exception can happen after route selection. Captured
-            # results instead retain the original executed instance on replay.
             if result is None or not result.raw_complete:
                 context = {**context, **current_failure}
 

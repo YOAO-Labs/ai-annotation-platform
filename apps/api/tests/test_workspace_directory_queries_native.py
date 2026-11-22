@@ -151,11 +151,6 @@ async def test_native_directory_steps_and_manager_preserve_members_and_inactive_
             connection, mention, "mention_owner", DirectoryQueryUserId(user_id=owner.id)
         )
         assert account.user.id == owner.id and account.user.is_active
-        # ``workspace_directory_superadmins`` is a global directory: it lists
-        # every active super admin, not only this test's fixtures.  Compare the
-        # native reply with that contract instead of assuming an empty table,
-        # and keep the documented name ordering (the verifier profile shares
-        # one database with earlier files).
         super_admin_accounts = (
             await _step(connection, mention, "mention_superadmins")
         ).accounts
@@ -178,8 +173,6 @@ async def test_native_directory_steps_and_manager_preserve_members_and_inactive_
         assert [item.name for item in super_admin_accounts] == sorted(
             item.name for item in super_admin_accounts
         )
-        # This test's owner/member/inactive fixtures are not super admins, so
-        # they must never be offered as super-admin mentions.
         assert not {owner.id, member.id, inactive.id} & {
             item.id for item in super_admin_accounts
         }

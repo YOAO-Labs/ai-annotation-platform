@@ -241,7 +241,6 @@ async def test_mask_capabilities_honors_task_visibility(
     )
 
     assert response.status_code == 404
-    # No membership hides project existence with the canonical project 404.
     assert response.json()["detail"] == "项目不存在"
 
 

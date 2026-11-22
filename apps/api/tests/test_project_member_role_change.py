@@ -97,7 +97,6 @@ async def test_role_change_happy_path_and_cas(
     assert changed.json()["role"] == "reviewer"
     assert changed.json()["version"] == 2
 
-    # Same version cannot be applied twice.
     replay = await httpx_client.patch(
         f"/api/v1/projects/{project.id}/members/{member.id}/role",
         json={
@@ -131,7 +130,6 @@ async def test_stale_preview_token_conflicts(
     assert preview.status_code == 200, preview.text
     token = preview.json()["preview_token"]
 
-    # A new assignment invalidates the previewed resource snapshot.
     task = await create_task(db_session, project_id=project.id, status="in_progress")
     task.assignee_id = employee.id
     await db_session.flush()
@@ -344,7 +342,6 @@ async def test_invalid_and_self_receivers_rejected_without_counted_work(
         assigned_by=owner.id,
     )
 
-    # Self receiver is rejected even with no outstanding work.
     self_preview = await preview_role_change(
         db_session,
         project_id=project.id,
@@ -356,7 +353,6 @@ async def test_invalid_and_self_receivers_rejected_without_counted_work(
     )
     assert "self_replacement" in self_preview["blockers"]
 
-    # An incompatible platform/project receiver is rejected with no counted work.
     invalid_preview = await preview_role_change(
         db_session,
         project_id=project.id,
@@ -431,7 +427,6 @@ async def test_invalid_receiver_does_not_bypass_active_lock_blocking(
         replacement_reviewer_id=None,
     )
     assert "invalid_replacement_annotator" in invalid_replacement["blockers"]
-    # The invalid receiver must not clear the active-lock blocker.
     assert "active_locks" in invalid_replacement["blockers"]
 
 
@@ -473,8 +468,6 @@ async def test_last_reviewer_coverage_includes_unassigned_review_work(
     await db_session.flush()
     assert unassigned_review.reviewer_id is None
 
-    # With another eligible reviewer left, coverage is not lost, but the
-    # target-owned review work still needs an explicit handoff.
     with_peer = await preview_role_change(
         db_session,
         project_id=project.id,
@@ -487,7 +480,6 @@ async def test_last_reviewer_coverage_includes_unassigned_review_work(
     assert "unfinished_review_work" in with_peer["blockers"]
     assert "reviewer_coverage_lost" not in with_peer["blockers"]
 
-    # Removing the alternate reviewer makes the member the last eligible one.
     alternate = (
         await db_session.execute(
             select(ProjectMember).where(
@@ -520,7 +512,6 @@ async def test_last_reviewer_coverage_includes_unassigned_review_work(
         replacement_annotator_id=None,
         replacement_reviewer_id=other_reviewer.id,
     )
-    # The alternate membership was removed, so it is no longer a valid receiver.
     assert "invalid_replacement_reviewer" in covered["blockers"]
 
 
@@ -555,8 +546,6 @@ async def test_reviewer_coverage_checks_frozen_evidence_of_remaining_reviewer(
         assigned_by=owner.id,
     )
 
-    # Open-pool review work submitted by the remaining reviewer: their claim
-    # would be denied with self_review_denied even though the membership exists.
     unassigned = await create_task(db_session, project_id=project.id, status="review")
     unassigned.review_round_id = uuid.uuid4()
     unassigned.annotation_contributor_ids = [str(other_reviewer.id)]
@@ -581,7 +570,6 @@ async def test_reviewer_coverage_checks_frozen_evidence_of_remaining_reviewer(
     ]
     assert details and str(unassigned.id) in details[0].get("task_ids", [])
 
-    # A replacement receiver restores coverage.
     covered = await preview_role_change(
         db_session,
         project_id=project.id,
@@ -625,7 +613,6 @@ async def test_removal_ignores_target_role_pairing_and_allows_idle_admin(
     )
     assert "target_role_incompatible" in preview["blockers"]
 
-    # Removal does not change the platform role, so the idle admin is removable.
     await remove_member(
         db_session, project_id=project.id, actor_id=owner.id, member_id=member.id
     )

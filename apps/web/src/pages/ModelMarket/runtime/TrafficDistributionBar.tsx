@@ -1,10 +1,3 @@
-/**
- * compact traffic distribution segment bar.
- *
- * When real selection counts are unavailable, the entire column shows
- * "暂无路由指标". When counts exist, render a compact segment bar and
- * the numeric counts.
- */
 import type { ReactNode } from "react";
 
 import { NO_METRICS_LABEL } from "../runtimeTopology";
@@ -12,13 +5,11 @@ import { NO_METRICS_LABEL } from "../runtimeTopology";
 export interface TrafficSegment {
   instance_id: string;
   instance_name: string;
-  /** Selection count over the window; null = unknown. */
   count: number | null;
 }
 
 export interface TrafficDistributionBarProps {
   segments: TrafficSegment[];
-  /** Window total requests; null = unknown. */
   total: number | null;
 }
 
@@ -34,7 +25,6 @@ export function TrafficDistributionBar({
   segments,
   total,
 }: TrafficDistributionBarProps): ReactNode {
-  // Plan Appendix A.2: metrics absent → sentinel, never 0.
   const hasMetrics =
     total !== null && segments.length > 0 && segments.some((s) => s.count !== null);
   if (!hasMetrics) {

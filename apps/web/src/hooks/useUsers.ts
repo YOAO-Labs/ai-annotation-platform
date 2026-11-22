@@ -69,7 +69,6 @@ export function useReactivateUser() {
   });
 }
 
-// UsersPage「本周活跃」/「在线」聚合卡（基于 last_seen_at）
 export function useUsersStats(params?: {
   role?: string;
   project_id?: string;
@@ -165,13 +164,11 @@ export interface DeleteUserVariables {
 export function useDeleteUser() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (vars: DeleteUserVariables | string) => {
-      const v: DeleteUserVariables = typeof vars === "string" ? { userId: vars } : vars;
-      return usersApi.remove(
-        v.userId,
-        v.transferToUserId ? { transfer_to_user_id: v.transferToUserId } : undefined,
-      );
-    },
+    mutationFn: ({ userId, transferToUserId }: DeleteUserVariables) =>
+      usersApi.remove(
+        userId,
+        transferToUserId ? { transfer_to_user_id: transferToUserId } : undefined,
+      ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["users"] });
       qc.invalidateQueries({ queryKey: ["tasks"] });

@@ -40,7 +40,6 @@ async def _seed_project_with_two_batches(
         db, project_id=pid, user_id=annotator_id, role="annotator", assigned_by=owner_id
     )
 
-    # 创建一个真实的"别人"作为 b_other 的 annotator（FK 约束需要 user 存在）
     from app.db.models.user import User
     from app.core.security import hash_password
 
@@ -292,7 +291,6 @@ async def test_draft_batch_hidden_from_annotator_even_if_unassigned(
     assert str(t_draft.id) not in ids, "draft 批次任务不应对非特权用户可见"
     assert data["total"] == 1
 
-    # 单独 GET 也应 404
     resp = await httpx_client.get(
         f"/api/v1/tasks/{t_draft.id}",
         headers=_bearer(token),

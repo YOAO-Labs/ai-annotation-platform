@@ -109,9 +109,35 @@ it("hides platform-role editing from project administrators and points them to p
     created_at: "2026-09-09",
   });
   render(wrap(user));
-  // 平台角色预览/变更接口为 super_admin-only：项目管理员不应触发任何预览请求。
   expect(api.previewRoleChange).not.toHaveBeenCalled();
   expect(screen.queryByLabelText("角色")).not.toBeInTheDocument();
   expect(screen.getByText(/平台角色由超级管理员管理/)).toBeVisible();
   expect(screen.getByLabelText("数据组")).toBeEnabled();
+});
+
+it("disables self role changes without querying role impact", () => {
+  render(wrap({ ...user, id: "admin", role: "super_admin", is_active: true }));
+  expect(screen.getByRole("combobox", { name: /^角色/ })).toBeDisabled();
+  expect(screen.queryByText("角色影响预览")).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /删除/ })).not.toBeInTheDocument();
+  expect(api.previewRoleChange).not.toHaveBeenCalled();
+  expect(api.changeRole).not.toHaveBeenCalled();
+});
+
+it("shows a write rejection even when the role preview allowed the change", async () => {
+  api.previewRoleChange.mockImplementation(async (_id: string, role: string) => ({
+    ...preview,
+    requested_role: role,
+  }));
+  api.changeRole.mockRejectedValue(new Error("项目授权已变化，请重新预览"));
+  render(wrap(user));
+  await screen.findByText(/另涉及 2 个管理范围外/);
+  fireEvent.change(screen.getByLabelText("角色"), { target: { value: "viewer" } });
+  const save = screen.getByRole("button", { name: "保存" });
+  await waitFor(() => expect(save).toBeEnabled());
+  fireEvent.click(save);
+  expect(await screen.findByText("项目授权已变化，请重新预览")).toBeVisible();
+  expect(screen.getByRole("dialog", { name: "编辑成员 · A" })).toBeVisible();
+  expect(api.changeRole).toHaveBeenCalledTimes(1);
+  expect(api.changeRole).toHaveBeenCalledWith("a", "viewer");
 });

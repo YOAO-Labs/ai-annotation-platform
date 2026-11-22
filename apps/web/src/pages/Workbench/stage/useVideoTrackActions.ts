@@ -11,7 +11,6 @@ export type TrackMarkPatch = {
   source?: "manual" | "prediction";
 };
 
-/** useVideoTrackActions 返回形态;供右键菜单 builder(栈无关)消费。 */
 export type VideoTrackActions = ReturnType<typeof useVideoTrackActions>;
 
 interface UseVideoTrackActionsArgs {

@@ -15,8 +15,6 @@ def logical_sources(
     KITTI camera, the frozen scope deliberately has no camera binding, so path
     planning must still validate the primary frames that the report uses.
     """
-    # Packaging owns the persisted naming conventions. Import at use time so
-    # the collector and packaging can both consume this helper without a cycle.
     from app.services.exporting.lidar_frozen import _detached_item
     from app.services.exporting.packaging import (
         _camera_name,

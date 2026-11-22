@@ -105,8 +105,6 @@ export function useTransferProject(id: string) {
   });
 }
 
-// B-13 · 重命名项目类别 (后端原子改 classes_config + annotations.class_name)
-// 加 tool_unit_id 限定工具单位 (强隔离下不同 unit 同名是独立记录).
 export function useRenameClass(id: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -115,7 +113,6 @@ export function useRenameClass(id: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["project", id] });
       qc.invalidateQueries({ queryKey: ["projects"] });
-      // 重命名会迁移 annotations.class_name → 让工作台 / dashboard 数据失效重拉
       qc.invalidateQueries({ queryKey: ["annotations"] });
       qc.invalidateQueries({ queryKey: ["tasks"] });
     },
@@ -130,8 +127,6 @@ export function useProjectMembers(id: string) {
   });
 }
 
-/** 讨论区 @ 候选：负责人 + 超管 + 成员；仅需项目可见权限。
- *  挂在 `["project", id]` 下，成员增删 / 负责人转移已有的项目失效会自动带上它。 */
 export function useProjectMentionCandidates(id: string) {
   return useQuery({
     queryKey: ["project", id, "mention-candidates"],
@@ -154,10 +149,6 @@ export function useAddProjectMember(id: string) {
   });
 }
 
-/**
- * B1 · read-only role-change preview.  Returns blockers, the affected resource
- * snapshot and an opaque token that the write must echo.
- */
 export function usePreviewProjectMemberRole(id: string) {
   return useMutation({
     mutationFn: (vars: { memberId: string; payload: ProjectMemberRolePreviewPayload }) =>

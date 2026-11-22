@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import random
 import uuid
 from dataclasses import asdict
-from typing import cast
 
 import redis
 from fastapi import HTTPException
+from redis.exceptions import RedisError
 from app.config import settings
 from app.application.preannotation_contract import (
     FramePreannotationDispatchReceipt,
@@ -28,15 +29,15 @@ from app.services.jobs_lifecycle_data import job_lock_statement
 from app.workers.celery_app import celery_app
 
 _WRITE_ATTEMPTS = 5
+_RECEIPTS_FIELD = "frame_segment_receipts"
+_LEGACY_RECEIPTS_UNAVAILABLE = "frame_segment_receipts_unavailable"
+log = logging.getLogger(__name__)
 
 
 class _FrameWriteDeferred(Exception):
     def __init__(self, resume: dict):
         super().__init__("Frame prediction is waiting for a write lock")
         self.resume = resume
-
-
-# ── 纯函数: 段规划 (可单测, 不碰 IO) ────────────────────────────────────────
 
 
 def _segment_id(segment: dict) -> str:
@@ -82,9 +83,6 @@ def plan_video_task_segments(
     return segments, total
 
 
-# ── Redis 进度 (分布式段任务共享计数) ────────────────────────────────────────
-
-
 def _progress_key(job_id: str) -> str:
     return f"frame_preannotate:{job_id}:done"
 
@@ -97,83 +95,45 @@ def _segment_results_key(job_id: str) -> str:
     return f"frame_preannotate:{job_id}:segments"
 
 
-_INIT_PROGRESS_LUA = """
-local expected = tonumber(ARGV[1])
-local previous = redis.call('GET', KEYS[1])
-if previous and tonumber(previous) ~= expected then
-  return 0
-end
-redis.call('SET', KEYS[1], expected, 'EX', 86400, 'NX')
-if redis.call('EXISTS', KEYS[2]) == 0 then
-  local completed = 0
-  for _, value in ipairs(redis.call('HVALS', KEYS[3])) do
-    local stats = cjson.decode(value).stats
-    completed = completed + (tonumber(stats.frames_done) or 0)
-      + (tonumber(stats.skipped) or 0) + (tonumber(stats.failed) or 0)
-  end
-  redis.call('SET', KEYS[2], completed, 'EX', 86400, 'NX')
-end
-redis.call('EXPIRE', KEYS[1], 86400)
-redis.call('EXPIRE', KEYS[2], 86400)
-redis.call('EXPIRE', KEYS[3], 86400)
-return 1
+_CACHE_PROGRESS_LUA = """
+local done = tonumber(redis.call('GET', KEYS[1]) or '0')
+redis.call('SET', KEYS[1], math.max(done, tonumber(ARGV[1])), 'EX', 86400)
+redis.call('SET', KEYS[2], ARGV[2], 'EX', 86400)
 """
 
 
-def _init_progress(job_id: str, total: int) -> None:
-    r = redis.from_url(settings.redis_url)
+def _cache_progress(job_id: str, done: int, total: int) -> None:
     try:
-        initialized = r.eval(
-            _INIT_PROGRESS_LUA,
-            3,
-            _progress_total_key(job_id),
-            _progress_key(job_id),
-            _segment_results_key(job_id),
-            total,
-        )
-        if initialized != 1:
-            raise RuntimeError("frame progress differs from its frozen dispatch")
-    finally:
-        r.close()
+        with redis.from_url(settings.redis_url) as progress:
+            progress.eval(
+                _CACHE_PROGRESS_LUA,
+                2,
+                _progress_key(job_id),
+                _progress_total_key(job_id),
+                done,
+                total,
+            )
+    except RedisError as exc:
+        log.warning("Frame job %s progress cache write failed: %s", job_id, exc)
 
 
-def _bump_progress(job_id: str, done_delta: int) -> tuple[int, int]:
-    """已完成帧 +delta, 返回 (done, total)。"""
-    r = redis.from_url(settings.redis_url)
+def _read_progress(job_id: str) -> tuple[int, int]:
     try:
-        done = int(cast(int, r.incrby(_progress_key(job_id), max(0, done_delta))) or 0)
-        total = int(cast(bytes | None, r.get(_progress_total_key(job_id))) or 0)
-        return done, total
-    finally:
-        r.close()
+        with redis.from_url(settings.redis_url) as progress:
+            done, total = progress.mget(
+                _progress_key(job_id), _progress_total_key(job_id)
+            )
+        return int(done or 0), int(total or 0)
+    except RedisError as exc:
+        log.warning("Frame job %s progress cache read failed: %s", job_id, exc)
+        return 0, 0
 
-
-_SEGMENT_PROGRESS_LUA = """
-local segments = KEYS[1]
-local done = KEYS[2]
-local total = KEYS[3]
-local segment_id = ARGV[1]
-local delta = tonumber(ARGV[2])
-local ttl = tonumber(ARGV[3])
-local result = ARGV[4]
-local inserted = redis.call('HSETNX', segments, segment_id, result)
-if inserted == 1 then
-  redis.call('INCRBY', done, delta)
-else
-  result = redis.call('HGET', segments, segment_id)
-end
-redis.call('EXPIRE', segments, ttl)
-redis.call('EXPIRE', done, ttl)
-redis.call('EXPIRE', total, ttl)
-return {tonumber(redis.call('GET', done) or '0'), tonumber(redis.call('GET', total) or '0'), result}
-"""
 
 _SEGMENT_RESULT_MAX_FAILURE_IDS = 100
 _SEGMENT_RESULT_MAX_GPU_FAILURES = 32
 
 
 def _bounded_segment_stats(stats: dict) -> dict:
-    """Keep chord receipts small and limited to aggregate frame outcomes."""
     failed_ids = stats.get("failed_prediction_ids")
     if not isinstance(failed_ids, list):
         failed_ids = []
@@ -214,14 +174,6 @@ def _safe_segment_count(value) -> int:
     return 0
 
 
-def _serialize_segment_stats(stats: dict) -> str:
-    return json.dumps(
-        {"version": 1, "stats": _bounded_segment_stats(stats)},
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-
-
 def _deserialize_segment_stats(encoded) -> dict:
     try:
         if isinstance(encoded, bytes):
@@ -238,35 +190,6 @@ def _deserialize_segment_stats(encoded) -> dict:
         raise RuntimeError("invalid frame segment receipt in Redis") from None
 
 
-def _bump_segment_progress(
-    job_id: str, segment_id: str, done_delta: int, stats: dict
-) -> tuple[int, int, dict]:
-    """Cache one logical chord result and count its progress atomically."""
-    r = redis.from_url(settings.redis_url)
-    try:
-        done, total, result = r.eval(
-            _SEGMENT_PROGRESS_LUA,
-            3,
-            _segment_results_key(job_id),
-            _progress_key(job_id),
-            _progress_total_key(job_id),
-            segment_id,
-            max(0, done_delta),
-            86400,
-            _serialize_segment_stats(stats),
-        )
-        return (
-            int(done or 0),
-            int(total or 0),
-            _deserialize_segment_stats(result),
-        )
-    finally:
-        r.close()
-
-
-# ── 编排入口: 建段 + 派 chord (由应用层 batch command 注入调用) ────────────────
-
-
 class JobsFramePreannotationDispatcher:
     async def prepare(
         self, request: FramePreannotationDispatchRequest, *, db
@@ -274,6 +197,7 @@ class JobsFramePreannotationDispatcher:
         """Freeze the canvas with the parent's running/preparation transaction."""
         from yoao_jobs.queue_contract import encode_canvas_request
 
+        from app.services import async_job as async_job_svc
         from app.services.jobs_dispatch import jobs_dispatch_data
 
         if (
@@ -334,6 +258,7 @@ class JobsFramePreannotationDispatcher:
         lease = await jobs_dispatch_data(db).prepare(
             job_id, envelope, purpose="frame_canvas"
         )
+        await async_job_svc.update_payload(db, job_id, {_RECEIPTS_FIELD: {}})
         return PreparedFramePreannotationDispatch(
             lease=lease,
             segment_ids=tuple(_segment_id(segment) for segment in segments),
@@ -351,7 +276,7 @@ class JobsFramePreannotationDispatcher:
             return FramePreannotationDispatchReceipt(
                 dispatched=False, segments=0, total_frames=0
             )
-        _init_progress(str(lease.job_id), prepared.total_frames)
+        _cache_progress(str(lease.job_id), 0, prepared.total_frames)
         await publish_prepared_dispatch(
             db, lease, publish=lambda: publish_queue_envelope(lease.envelope)
         )
@@ -360,9 +285,6 @@ class JobsFramePreannotationDispatcher:
             segments=len(prepared.segment_ids),
             total_frames=prepared.total_frames,
         )
-
-
-# ── 阶段 A: 每视频抽全帧一次 (走 media 队列, 跨视频并行) ──────────────────────────
 
 
 @celery_app.task(
@@ -386,9 +308,6 @@ def extract_frames_task(
     return {"task_id": task_id, "requested": len(frame_indices), "extracted": 0}
 
 
-# ── 阶段 A→B 衔接: 抽帧 chord 回调派预测 chord ───────────────────────────────────
-
-
 @celery_app.task
 def launch_predict_phase(
     extract_results: list[dict],
@@ -404,9 +323,6 @@ def launch_predict_phase(
     asyncio.run(
         _fail_legacy_frame_job(job_id, "frame_job_requires_retained_video_manifest")
     )
-
-
-# ── 段任务: 逐帧 predict + 落库 ─────────────────────────────────────────────
 
 
 @celery_app.task(
@@ -452,18 +368,6 @@ def predict_video_segment(
             )
         )
     except _FrameWriteDeferred as exc:
-        # RETRY does not refresh Redis chord keys; retain completed sibling results.
-        backend = self.app.backend
-        if self.request.group and backend.expires:
-            for suffix in (".j", ".s", ".t"):
-                backend.expire(
-                    backend.get_key_for_group(self.request.group, suffix),
-                    backend.expires,
-                )
-        with redis.from_url(settings.redis_url) as progress:
-            progress.expire(_progress_key(job_id), 86400)
-            progress.expire(_progress_total_key(job_id), 86400)
-            progress.expire(_segment_results_key(job_id), 86400)
         raise self.retry(
             args=(segment,),
             kwargs={
@@ -594,11 +498,18 @@ async def _fail_frame_job_in_session(db, job_id: str, project_id: str, error: st
     job = await db.scalar(
         job_lock_statement(uuid.UUID(job_id), mode="update", populate_existing=True)
     )
-    if job is not None and job.status in {"pending", "running"}:
-        await async_job_svc.mark_failed(db, job.id, error=error)
-        await notify_job_terminal(db, job_id=job.id)
-        await db.commit()
-    done, total = _bump_progress(job_id, 0)
+    if job is None or job.status not in {"pending", "running"}:
+        return
+    receipts = (job.payload or {}).get(_RECEIPTS_FIELD)
+    await async_job_svc.mark_failed(db, job.id, error=error)
+    await notify_job_terminal(db, job_id=job.id)
+    await db.commit()
+    if receipts is None:
+        done, total = _read_progress(job_id)
+    else:
+        done = sum(_processed_frames(stats) for stats in receipts.values())
+        total = int((job.result or {}).get("frame_total", 0))
+        _cache_progress(job_id, done, total)
     _publish_frame_progress(project_id, done, total, status="failed", error=error)
 
 
@@ -682,8 +593,9 @@ async def _run_segment(
         resume["frame_ordinals"] if resume is not None else segment["frame_ordinals"]
     )
     box_cap = settings.frame_preannotate_max_boxes_per_frame
-    segment_id = resume.get("segment_id") if resume is not None else None
-    segment_id = segment_id or _segment_id(segment)
+    segment_id = _segment_id(segment)
+    if resume is not None and resume.get("segment_id") not in (None, segment_id):
+        raise ValueError("frame retry does not match its frozen segment")
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -714,16 +626,18 @@ async def _run_segment(
             async_job = await async_job_svc.get_job(
                 db, uuid.UUID(job_id), populate_existing=True
             )
+            if (
+                async_job is not None
+                and str(async_job.project_id) == project_id
+                and str(async_job.user_id) == actor_id
+            ):
+                settled = ((async_job.payload or {}).get(_RECEIPTS_FIELD) or {}).get(
+                    segment_id
+                )
+                if settled is not None:
+                    return settled
             if await _job_cancelled(db, job_id):
                 stats["skipped"] += len(frame_ordinals)
-                if async_job is None or async_job.status not in {"pending", "running"}:
-                    return await _finish_segment(
-                        stats,
-                        gpu_arbiter_failures,
-                        project_id=project_id,
-                        job_id=job_id,
-                        segment_id=segment_id,
-                    )
                 return await _finish_segment(
                     stats,
                     gpu_arbiter_failures,
@@ -827,9 +741,6 @@ async def _run_segment(
                 input_id=input_uuid,
                 plan_digest=plan_digest,
             )
-            # A broker redelivery after the original commit is a skip, even when
-            # the result list is empty. The Labeling writer repeats this check
-            # atomically under its Task lock to close the inference/write race.
             remaining_ordinals = []
             for ordinal in frame_ordinals:
                 if ordinal in done_ordinals:
@@ -1577,13 +1488,10 @@ async def _finish_segment(
             gpu_arbiter_failures
         )
 
-    # 进度推进 (已处理帧 = 成功 + 跳过 + 失败): 让分母对齐规划总帧数。
-    processed = stats["frames_done"] + stats["skipped"] + stats["failed"]
     canonical = await _write_job_progress(
         job_id,
-        processed,
+        segment_id,
         project_id,
-        segment_id=segment_id,
         segment_stats=stats,
     )
     return canonical if isinstance(canonical, dict) else stats
@@ -1591,20 +1499,16 @@ async def _finish_segment(
 
 async def _write_job_progress(
     job_id: str,
-    done_delta: int,
+    segment_id: str | None,
     project_id: str,
     *,
-    segment_id: str,
-    segment_stats: dict,
+    segment_stats: dict | None,
 ) -> dict:
-    """Publish completed segment progress while fencing terminal transitions."""
     from sqlalchemy.ext.asyncio import (
         AsyncSession,
         async_sessionmaker,
         create_async_engine,
     )
-
-    from app.services import async_job as async_job_svc
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -1612,30 +1516,51 @@ async def _write_job_progress(
     )
     try:
         async with SessionLocal() as db:
-            job = await db.scalar(
-                job_lock_statement(
-                    uuid.UUID(job_id), mode="update", populate_existing=True
-                )
+            job = await _lock_frame_job(db, job_id, project_id)
+            canonical = (
+                _bounded_segment_stats(segment_stats)
+                if segment_stats is not None
+                else {}
             )
-            active = job is not None and job.status in {"pending", "running"}
-            if active:
-                _init_progress(job_id, int((job.result or {}).get("frame_total", 0)))
-            done, total, canonical = _bump_segment_progress(
-                job_id,
-                segment_id,
-                done_delta if active else 0,
-                segment_stats,
-            )
-            if not active:
+            if job is None:
                 return canonical
-            if total > 0:
-                pct = min(99, max(int(job.progress_pct or 0), int(done * 100 / total)))
-                await async_job_svc.update_progress(db, job.id, pct)
+            if job.status not in {"pending", "running"}:
+                return ((job.payload or {}).get(_RECEIPTS_FIELD) or {}).get(
+                    segment_id, canonical
+                )
+
+            segment_ids, total = _frozen_frame_publication(job)
+            if segment_id is not None and segment_id not in segment_ids:
+                raise ValueError("segment does not belong to the frozen frame dispatch")
+            receipts = _load_frame_receipts(job, segment_ids)
+            if receipts is None:
+                await _mark_unknown_frame_job(db, job)
+                await db.commit()
+                _publish_frame_progress(
+                    project_id,
+                    0,
+                    total,
+                    status="failed",
+                    error=_LEGACY_RECEIPTS_UNAVAILABLE,
+                )
+                return canonical
+
+            if segment_id is not None:
+                canonical = receipts.setdefault(segment_id, canonical)
+            done = sum(_processed_frames(stats) for stats in receipts.values())
+            status = await _settle_frame_receipts(
+                db, job, segment_ids, receipts, done, total
+            )
+            if status == "running":
                 await db.flush()
-            _publish_frame_progress(project_id, done, total, status="running")
-            await db.commit()
-            if total > 0 and done >= total:
-                await _finalize([], project_id=project_id, job_id=job_id)
+                _cache_progress(job_id, done, total)
+                if segment_id is not None:
+                    _publish_frame_progress(project_id, done, total, status=status)
+                await db.commit()
+            else:
+                await db.commit()
+                _cache_progress(job_id, done, total)
+                _publish_frame_progress(project_id, done, total, status=status)
             return canonical
     finally:
         await engine.dispose()
@@ -1708,125 +1633,142 @@ def _publish_frame_progress(
     """逐帧 job 进度 → 项目 SSE 通道 (复用 prediction_progress.publish_progress 的 payload 形态)。"""
     from app.services.prediction_progress import publish_progress
 
-    publish_progress(project_id, current, total, status=status, error=error)
-
-
-# ── chord 回调: job 收尾 ────────────────────────────────────────────────────
+    try:
+        publish_progress(project_id, current, total, status=status, error=error)
+    except RedisError as exc:
+        log.warning("Frame progress publication failed project=%s: %s", project_id, exc)
 
 
 @celery_app.task
 def finalize_frame_job(
     segment_stats: list[dict], *, project_id: str, job_id: str
 ) -> None:
-    """段全绿后聚合各段 stats → async_job 收尾 + SSE completed。"""
-    asyncio.run(_finalize(segment_stats or [], project_id=project_id, job_id=job_id))
+    asyncio.run(_finalize(project_id=project_id, job_id=job_id))
 
 
-def _canonical_frame_segment_stats(job) -> list[dict] | None:
+async def _lock_frame_job(db, job_id: str, project_id: str):
+    job = await db.scalar(
+        job_lock_statement(uuid.UUID(job_id), mode="update", populate_existing=True)
+    )
+    return job if job is not None and str(job.project_id) == project_id else None
+
+
+def _frozen_frame_publication(job) -> tuple[list[str], int]:
     dispatch = (job.result or {}).get("frame_dispatch")
-    segment_ids = dispatch.get("segment_ids") if isinstance(dispatch, dict) else None
+    if not isinstance(dispatch, dict):
+        raise RuntimeError("frame job has no frozen segment publication")
+    segment_ids = dispatch.get("segment_ids")
+    total = dispatch.get("total_frames")
     if (
         not isinstance(segment_ids, list)
         or not segment_ids
         or any(not isinstance(value, str) for value in segment_ids)
         or len(set(segment_ids)) != len(segment_ids)
+        or type(total) is not int
+        or total <= 0
     ):
         raise RuntimeError("frame job has no frozen segment publication")
-    with redis.from_url(settings.redis_url) as progress:
-        encoded = progress.hmget(_segment_results_key(str(job.id)), segment_ids)
-    if any(value is None for value in encoded):
+    return segment_ids, total
+
+
+def _processed_frames(stats: dict) -> int:
+    return stats["frames_done"] + stats["skipped"] + stats["failed"]
+
+
+def _load_frame_receipts(job, segment_ids: list[str]) -> dict[str, dict] | None:
+    stored = (job.payload or {}).get(_RECEIPTS_FIELD)
+    if stored is not None:
+        return dict(stored)
+
+    job_id = str(job.id)
+    with redis.from_url(settings.redis_url) as progress, progress.pipeline() as pipe:
+        encoded, observed_done = (
+            pipe.hmget(_segment_results_key(job_id), segment_ids)
+            .get(_progress_key(job_id))
+            .execute()
+        )
+    imported = {
+        segment_id: _deserialize_segment_stats(value)
+        for segment_id, value in zip(segment_ids, encoded, strict=True)
+        if value is not None
+    }
+    if len(imported) == len(segment_ids):
+        return imported
+    processed = sum(_processed_frames(stats) for stats in imported.values())
+    if observed_done is None or int(observed_done) != processed:
         return None
-    stats = [_deserialize_segment_stats(value) for value in encoded]
-    processed = sum(
-        item["frames_done"] + item["skipped"] + item["failed"] for item in stats
-    )
-    if processed != dispatch["total_frames"]:
-        raise RuntimeError("frame segment receipts differ from the frozen publication")
-    return stats
+    return imported
 
 
-async def _finalize(segment_stats: list[dict], *, project_id: str, job_id: str) -> None:
-    from sqlalchemy.ext.asyncio import (
-        AsyncSession,
-        async_sessionmaker,
-        create_async_engine,
-    )
+async def _mark_unknown_frame_job(db, job) -> None:
+    from app.services import async_job as async_job_svc
+    from app.services.async_job_notify import notify_job_terminal
 
+    log.warning("Frame job %s has expired legacy segment receipts", job.id)
+    await async_job_svc.mark_failed(db, job.id, error=_LEGACY_RECEIPTS_UNAVAILABLE)
+    await notify_job_terminal(db, job_id=job.id)
+
+
+async def _finalize(*, project_id: str, job_id: str) -> None:
+    await _write_job_progress(job_id, None, project_id, segment_stats=None)
+
+
+async def _settle_frame_receipts(
+    db, job, segment_ids: list[str], receipts: dict[str, dict], done: int, total: int
+) -> str:
     from app.services import async_job as async_job_svc
     from yoao_inference.gpu.contracts import summarize_gpu_arbiter_failures
 
-    engine = create_async_engine(settings.database_url, echo=False)
-    SessionLocal = async_sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-    try:
-        async with SessionLocal() as db:
-            job = await db.scalar(
-                job_lock_statement(
-                    uuid.UUID(job_id), mode="update", populate_existing=True
-                )
-            )
-            if job is None or job.status not in {"pending", "running"}:
-                return
-            # A recovered canvas may deliver duplicate header results. Only the
-            # complete frozen logical-segment receipts can authorize completion.
-            canonical = _canonical_frame_segment_stats(job)
-            if canonical is None:
-                return
-            frames_done = sum(item["frames_done"] for item in canonical)
-            boxes = sum(item["boxes"] for item in canonical)
-            failed = sum(item["failed"] for item in canonical)
-            skipped = sum(item["skipped"] for item in canonical)
-            failed_prediction_ids = [
-                failure_id
-                for item in canonical
-                for failure_id in item.get("failed_prediction_ids", [])
-            ]
-            gpu_arbiter_failures = summarize_gpu_arbiter_failures(
-                failure
-                for item in canonical
-                for failure in item.get("gpu_arbiter_failures", [])
-            )
-            merged = dict(job.result or {})
-            merged.update(
-                {
-                    "frames_done": frames_done,
-                    "boxes": boxes,
-                    "failed": failed,
-                    "frame_failed_count": failed,
-                    "failed_prediction_ids": failed_prediction_ids,
-                    "skipped": skipped,
-                    "execution_unit": "frame",
-                }
-            )
-            if gpu_arbiter_failures:
-                merged["gpu_arbiter_failures"] = gpu_arbiter_failures
-            if (job.payload or {}).get("cancel_requested"):
-                status, error = "cancelled", None
-            elif failed > 0 and frames_done == 0 and skipped == 0:
-                status, error = "failed", "all_video_frame_predictions_failed"
-            else:
-                status, error = "completed", None
-            if status == "cancelled":
-                await async_job_svc.mark_cancelled(db, job.id, result=merged)
-            elif status == "failed":
-                await async_job_svc.mark_failed(db, job.id, error=error, result=merged)
-            else:
-                await async_job_svc.mark_complete(db, job.id, result=merged)
-            if status in {"cancelled", "failed"}:
-                from app.services.async_job_notify import notify_job_terminal
+    if len(receipts) < len(segment_ids):
+        pct = min(99, max(int(job.progress_pct or 0), done * 100 // total))
+        await async_job_svc.update_progress(
+            db, job.id, pct, extra_payload={_RECEIPTS_FIELD: receipts}
+        )
+        return "running"
+    if receipts.keys() != set(segment_ids) or done != total:
+        raise RuntimeError("frame segment receipts differ from the frozen publication")
 
-                await notify_job_terminal(db, job_id=job.id)
-            await db.commit()
-    finally:
-        await engine.dispose()
-
-    done, total = _bump_progress(job_id, 0)
-    if total <= 0:
-        total = int((job.result or {}).get("frame_total", 0))
-    _publish_frame_progress(
-        project_id,
-        min(done, total) if total else frames_done + skipped + failed,
-        total,
-        status=status,
+    canonical = [receipts[segment_id] for segment_id in segment_ids]
+    frames_done = sum(item["frames_done"] for item in canonical)
+    failed = sum(item["failed"] for item in canonical)
+    skipped = sum(item["skipped"] for item in canonical)
+    merged = {
+        **(job.result or {}),
+        "frames_done": frames_done,
+        "boxes": sum(item["boxes"] for item in canonical),
+        "failed": failed,
+        "frame_failed_count": failed,
+        "failed_prediction_ids": [
+            failure_id
+            for item in canonical
+            for failure_id in item.get("failed_prediction_ids", [])
+        ],
+        "skipped": skipped,
+        "execution_unit": "frame",
+    }
+    gpu_arbiter_failures = summarize_gpu_arbiter_failures(
+        failure
+        for item in canonical
+        for failure in item.get("gpu_arbiter_failures", [])
     )
+    if gpu_arbiter_failures:
+        merged["gpu_arbiter_failures"] = gpu_arbiter_failures
+    await async_job_svc.update_progress(
+        db, job.id, 99, extra_payload={_RECEIPTS_FIELD: receipts}
+    )
+    if (job.payload or {}).get("cancel_requested"):
+        status = "cancelled"
+        await async_job_svc.mark_cancelled(db, job.id, result=merged)
+    elif failed > 0 and frames_done == 0 and skipped == 0:
+        status = "failed"
+        await async_job_svc.mark_failed(
+            db, job.id, error="all_video_frame_predictions_failed", result=merged
+        )
+    else:
+        status = "completed"
+        await async_job_svc.mark_complete(db, job.id, result=merged)
+    if status in {"cancelled", "failed"}:
+        from app.services.async_job_notify import notify_job_terminal
+
+        await notify_job_terminal(db, job_id=job.id)
+    return status

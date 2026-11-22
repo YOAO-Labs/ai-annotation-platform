@@ -1,8 +1,10 @@
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnnotationResponse } from "@/types";
 import type { AnnotationPayload } from "@/api/tasks";
+import type { MeResponse } from "@/api/auth";
+import { useAuthStore } from "@/stores/authStore";
 import { useVideoAnnotationActions } from "./useVideoAnnotationActions";
 
 const apiMocks = vi.hoisted(() => ({
@@ -10,6 +12,12 @@ const apiMocks = vi.hoisted(() => ({
   uploadTaskContent: vi.fn(),
   saveMaskKeyframe: vi.fn(),
   updateAnnotation: vi.fn(),
+}));
+const { enqueueDurably } = vi.hoisted(() => ({ enqueueDurably: vi.fn() }));
+
+vi.mock("../../state/offlineQueue", async (original) => ({
+  ...(await original<Record<string, unknown>>()),
+  enqueueDurably,
 }));
 
 vi.mock("@/api/tasks", () => ({
@@ -48,12 +56,13 @@ const trackAnn: AnnotationResponse = {
   updated_at: null,
 };
 
-function setup() {
+function setup(context: { userId?: string; segmentId?: string } = {}) {
   const annotationsRef = { current: [trackAnn] as AnnotationResponse[] };
   const history = { push: vi.fn(), pushBatch: vi.fn() };
   const s = { setSelectedId: vi.fn() };
   const args = {
     taskId: "task-1",
+    projectId: "project-1",
     queryClient: new QueryClient(),
     history: history as never,
     s: s as never,
@@ -68,9 +77,122 @@ function setup() {
       delete: { mutate: vi.fn() },
     },
   };
-  const { result } = renderHook(() => useVideoAnnotationActions(args as never));
-  return { result, history, queryClient: args.queryClient };
+  const { result, rerender } = renderHook(
+    ({ userId, segmentId }) =>
+      useVideoAnnotationActions({
+        ...args,
+        meUserId: userId,
+        videoSegmentId: segmentId,
+        annotationQueryKey: segmentId ? ["annotations", args.taskId, segmentId] : undefined,
+      } as never),
+    { initialProps: context },
+  );
+  return { result, history, queryClient: args.queryClient, args, rerender };
 }
+
+describe("offline video edits", () => {
+  beforeEach(() => {
+    enqueueDurably.mockReset();
+    useAuthStore.getState().setAuth("owner-token", { id: "user-1" } as MeResponse);
+  });
+  afterEach(() => useAuthStore.getState().logout());
+
+  it.each(["class", "attributes"] as const)(
+    "accepts %s only after a matching segment's durable write",
+    async (edit) => {
+      const { result, history, queryClient, args } = setup({ userId: "user-1", segmentId: "a" });
+      const original = { ...trackAnn, video_segment_id: "a" };
+      const neighbor = { ...trackAnn, video_segment_id: "b" };
+      queryClient.setQueryData(["annotations", "task-1", "a"], [original]);
+      queryClient.setQueryData(["annotations", "task-1", "b"], [neighbor]);
+      let settle!: () => void;
+      enqueueDurably.mockReturnValueOnce(new Promise<void>((resolve) => (settle = resolve)));
+      act(() => {
+        if (edit === "class") result.current.handleVideoRename(original, "Truck");
+        else result.current.handleUpdateTrackAttributes(original, { checked: true });
+      });
+      const submitted = args.mutations.update.mutate.mock.calls[0];
+      expect(submitted[1].optimistic).toBe(false);
+      let pending!: Promise<void>;
+      act(() => {
+        pending = submitted[1].onError(new TypeError("offline"));
+      });
+      expect(history.push).not.toHaveBeenCalled();
+      expect(queryClient.getQueryData(["annotations", "task-1", "a"])).toEqual([original]);
+      await act(async () => {
+        settle();
+        await pending;
+      });
+      const expected =
+        edit === "class" ? { class_name: "Truck" } : { attributes: { checked: true } };
+      expect(enqueueDurably).toHaveBeenCalledWith(
+        expect.objectContaining({ videoSegmentId: "a", taskId: "task-1", payload: expected }),
+        { userId: "user-1", taskId: "task-1" },
+      );
+      expect(history.push).toHaveBeenCalledOnce();
+      expect(queryClient.getQueryData(["annotations", "task-1", "a"])).toMatchObject([expected]);
+      expect(queryClient.getQueryData(["annotations", "task-1", "b"])).toEqual([neighbor]);
+      expect(queryClient.getQueryData(["annotations", "task-1"])).toBeUndefined();
+    },
+  );
+
+  it("commits a late queue write to the original owner without repainting the next account", async () => {
+    const { result, history, args, rerender, queryClient } = setup({
+      userId: "user-1",
+      segmentId: "a",
+    });
+    let settle!: () => void;
+    enqueueDurably.mockReturnValueOnce(new Promise<void>((resolve) => (settle = resolve)));
+    act(() => result.current.handleVideoRename(trackAnn, "Truck"));
+    const onError = args.mutations.update.mutate.mock.calls[0][1].onError;
+    let pending!: Promise<void>;
+    act(() => {
+      pending = onError(new TypeError("offline"));
+    });
+    const neighbor = { ...trackAnn, class_name: "Next account" };
+    act(() => useAuthStore.getState().setAuth("next-token", { id: "user-2" } as MeResponse));
+    rerender({ userId: "user-2", segmentId: "a" });
+    queryClient.setQueryData(["annotations", "task-1", "a"], [neighbor]);
+    await act(async () => {
+      settle();
+      await pending;
+    });
+    expect(history.push).toHaveBeenCalledOnce();
+    expect(queryClient.getQueryData(["annotations", "task-1", "a"])).toEqual([neighbor]);
+    expect(args.pushToast).not.toHaveBeenCalled();
+  });
+
+  it("retries an aborted edit only after returning to its original segment", async () => {
+    const { result, history, args, rerender, queryClient } = setup({
+      userId: "user-1",
+      segmentId: "a",
+    });
+    const original = { ...trackAnn, video_segment_id: "a" };
+    queryClient.setQueryData(["annotations", "task-1", "a"], [original]);
+    enqueueDurably
+      .mockRejectedValueOnce(new Error("quota exceeded"))
+      .mockResolvedValueOnce(undefined);
+    act(() => result.current.handleVideoRename(original, "Truck"));
+    const update = args.mutations.update.mutate;
+    await act(async () => update.mock.calls[0][1].onError(new TypeError("offline")));
+    expect(history.push).not.toHaveBeenCalled();
+    const [{ retry }] = args.pushToast.mock.calls[0];
+    rerender({ userId: "user-1", segmentId: "b" });
+    expect(retry()).toBe(false);
+    expect(update).toHaveBeenCalledTimes(1);
+    rerender({ userId: "user-1", segmentId: "a" });
+    act(() => {
+      expect(retry()).toBe(true);
+      expect(retry()).toBe(false);
+    });
+    await act(async () => update.mock.calls[1][1].onError(new TypeError("offline")));
+    expect(enqueueDurably.mock.calls[0][0].id).toBe(enqueueDurably.mock.calls[1][0].id);
+    expect(queryClient.getQueryData(["annotations", "task-1", "a"])).toMatchObject([
+      { class_name: "Truck" },
+    ]);
+    expect(history.push).toHaveBeenCalledOnce();
+  });
+});
 
 describe("handleVideoComposeTracks gap_mode passthrough", () => {
   beforeEach(() => {

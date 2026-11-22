@@ -123,9 +123,6 @@ async def test_image_and_video_garbage_clients_claim_only_their_prefix_partition
     image_id, video_id = uuid.uuid4(), uuid.uuid4()
     token_worker = uuid.uuid4()
     image_prefix = f"accepted-inputs/{uuid.uuid4()}/g1/a{uuid.uuid4()}/"
-    # bo0313 retains prefixes that cannot be traced to an attempt. Seed a
-    # known, superseded attempt so this case still checks only the claim
-    # partition; the fail-closed retention path has its own coverage.
     _, _, _, _, _, input_id, claim = await _seed_prepared_video_input(db_session)
     video_prefix = claim["blob_key"][: -len("source")]
     await db_session.execute(

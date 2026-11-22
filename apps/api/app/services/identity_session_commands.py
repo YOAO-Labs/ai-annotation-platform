@@ -97,7 +97,6 @@ class IdentitySessionCommands:
                     ).execute(request)
                 except SessionFailure:
                     if not dsn:
-                        # Valid failed-login events are audited in this transaction.
                         await self.db.commit()
                     raise
                 if not dsn:

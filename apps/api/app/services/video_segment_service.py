@@ -389,8 +389,6 @@ async def submit_segment(
     if task is not None:
         from app.services.annotation_evidence import refresh_task_evidence
 
-        # A2 · lock the task (and refresh its evidence) before the segment lock
-        # so the entry into review freezes under the same task lock.
         await refresh_task_evidence(db, task)
     await _load_segment_for_update(db, ctx, segment_id, task=task)
     now = _now()
@@ -408,9 +406,6 @@ async def submit_segment(
     if not changed:
         return await _segment_out_for_context(db, ctx, row)
     if task is not None:
-        # A2 · every successful segment submitter is a contributor even when the
-        # segment kept no surviving annotation. This uses the actual actor, not
-        # the shared dataset-item segment assignee.
         from app.services.annotation_evidence import record_annotation_actor
 
         await record_annotation_actor(db, task, user.id)
@@ -433,7 +428,6 @@ async def submit_segment(
 
             labeling = LabelingTaskService(db)
             await labeling.complete_video_review(task, actor_id=user.id, now=now)
-            # A2 · freeze the round evidence when the video task enters review.
             contributor_ids = await task_contributor_snapshot(db, task)
             await labeling.freeze_review_contributor_evidence(
                 task,

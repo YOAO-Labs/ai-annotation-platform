@@ -111,7 +111,7 @@ def test_frozen_identity_admission_protocol_and_ownership_artifacts():
     assert set(schema["x-postgresql-functions"]) == functions
     assert "identity_revoked_jtis" in artifact
     assert "credential_generation bigint NOT NULL DEFAULT 0" in artifact
-    assert artifact.count("CREATE FUNCTION") == 12  # public operations + private helper
+    assert artifact.count("CREATE FUNCTION") == 12
     assert artifact.count("REVOKE ALL ON FUNCTION") == 12
     assert artifact.count("SET search_path = pg_catalog, pg_temp") == 12
     assert "identity_auth_role=yoao_identity_auth_client" in Path(__file__).parents[
@@ -310,7 +310,6 @@ async def test_api_key_usage_and_accepted_proof_can_overlap_in_both_orders(test_
                     select(ApiKey.key_hash).where(ApiKey.id == seed["key_id"])
                 ),
             }
-            # Admission still owns its uncommitted activity write when the worker checks.
             assert (await poll.scalar(confirm, params))["ok"]
             accepted = (await worker.execute(facts, params)).one()
             assert accepted.scopes == ["annotations:read", "datasets:read"]
@@ -318,7 +317,6 @@ async def test_api_key_usage_and_accepted_proof_can_overlap_in_both_orders(test_
             await poll.rollback()
             assert (await worker.scalar(activity, params)) is None
 
-            # The worker retains exactly the same fence while another admission commits.
             assert (await poll.scalar(confirm, params))["ok"]
             await poll.commit()
             assert (await worker.execute(facts, params)).one() == accepted

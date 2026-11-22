@@ -293,7 +293,6 @@ describe("WorkbenchSettingsDialog · 通知分类", () => {
     await user.click(category("通知"));
     expect(await screen.findByTestId("notification-preferences-panel")).toBeVisible();
     expect(screen.getByText("任务被退回")).toBeVisible();
-    // 渲染配置的重试按钮不吞掉通知面板
     expect(screen.getByTestId("notification-preference-task.rejected")).toBeVisible();
   });
 

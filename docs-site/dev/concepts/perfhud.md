@@ -34,8 +34,8 @@ Grounded-SAM-2、SAM 3、YOLO、ONNXTools 与 RapidOCR 等 ML Backend 运行预�
 ┌────────────────────────────────────────┐
 │ apps/api Celery beat                   │
 │  publish_ml_backend_stats (每 1s)      │
-│   1. 读 ml-backend-stats:subscribers   │
-│   2. 0 订阅者 → skip（零空闲开销）     │
+│   1. 清理过期租约，读取存活订阅数     │
+│   2. 0 个存活租约 → 跳过探活          │
 │   3. >0 → 拉活跃 backend 的 /health    │
 │   4. publish ml-backend-stats:global   │
 └────────────┬───────────────────────────┘
@@ -44,8 +44,8 @@ Grounded-SAM-2、SAM 3、YOLO、ONNXTools 与 RapidOCR 等 ML Backend 运行预�
 ┌────────────────────────────────────────┐
 │ apps/api WS /ws/ml-backend-stats       │
 │  - 仅限 super_admin / project_admin    │
-│  - 连接建立 INCR 订阅计数              │
-│  - 连接断开 DECR 订阅计数              │
+│  - 每条连接领取并定时续期独立租约      │
+│  - 断开时只释放本次订阅的租约          │
 └────────────┬───────────────────────────┘
              │ WS frame (1s 粒度)
              ▼
@@ -67,7 +67,7 @@ Grounded-SAM-2、SAM 3、YOLO、ONNXTools 与 RapidOCR 等 ML Backend 运行预�
 | **ML Backend**        | `apps/{grounded-sam2,sam3,yolo,onnxtools,rapidocr}-backend/`      | `/health` 端点调用 `sample_perfhud()`，在顶层返回 `gpu_info` 与 `host` 段        |
 | **API Schema**        | `apps/api/app/schemas/ml_backend.py`                              | 定义 `GpuInfo`、`HostInfo`、`CacheStats`、`HealthMeta`、`MLBackendStatsSnapshot` |
 | **API Client**        | `apps/api/app/services/ml_client.py`                              | `health_meta()` 抓取并透传 `gpu_info` 与 `host` 段                               |
-| **API WS**            | `apps/api/app/api/v1/ws.py`                                       | `/ws/ml-backend-stats` 鉴权与 Redis 订阅者引用计数                               |
+| **API WS**            | `apps/api/app/api/v1/ws.py`、`services/ml_stats_presence.py`      | `/ws/ml-backend-stats` 鉴权、投递前角色复核与 Redis 订阅租约                     |
 | **API Worker & Beat** | `apps/api/app/workers/ml_health.py`、`celery_app.py`              | `publish_ml_backend_stats` 任务与 1s 周期调度                                    |
 | **前端组件**          | `apps/web/src/components/PerfHud/`、`components/shell/TopBar.tsx` | 浮窗渲染、60s 环形缓冲区与实例选择切换                                           |
 
@@ -75,7 +75,7 @@ Grounded-SAM-2、SAM 3、YOLO、ONNXTools 与 RapidOCR 等 ML Backend 运行预�
 
 ## 性能开销与设计边界
 
-- **零无人订阅开销**：1s 粒度的轮询仅在 WebSocket 订阅者数量 `> 0` 时触发；无人打开浮窗时完全跳过探活。
+- **无人订阅时不探活**：1s 快照轮询只在 Redis 中还有未过期的订阅租约时触发。连接进程被强制结束时不需要清理钩子，最后一个租约最多 30s 后过期；其他连接续期互不影响。
 - **多人共享广播**：Celery Beat 单实例每秒采集一次并经 Redis Pub/Sub 广播给所有订阅客户端，不会随观察人数增加而放大后端探测压力。
 - **轻量前端渲染**：关闭浮窗即断开 WebSocket；环形缓冲区固定保留最近 60 帧，使用原生 SVG `Sparkline.tsx` 绘制，无额外图表库开销。长期历史趋势请使用 Prometheus + Grafana 看板。
 

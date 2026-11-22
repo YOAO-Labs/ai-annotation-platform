@@ -4,27 +4,15 @@ import { bumpWsReconnectCount } from "./_wsMetrics";
 export type ReconnectState = "connecting" | "open" | "reconnecting" | "closed" | "failed";
 
 interface Options {
-  /** 是否启用此连接（false 时不连/不重连）。 */
   enabled?: boolean;
-  /** 最大重试次数；用尽后停留在 `failed`。默认 8。 */
   maxRetries?: number;
-  /** 退避序列（毫秒）；超出长度则保持最后一项。 */
   backoffMs?: number[];
-  /** 服务端发来的消息回调。 */
   onMessage?: (event: MessageEvent) => void;
-  /** 连接打开时回调，可用于发送订阅消息。 */
   onOpen?: (ws: WebSocket) => void;
 }
 
 const DEFAULT_BACKOFF = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
 
-/**
- * 带指数退避自动重连的 WebSocket hook。
- *
- * - 主动 close（unmount / enabled=false）不会触发重连；
- * - 服务端断开 / 网络错误才会进入 `reconnecting` 状态；
- * - 重试用尽后停留在 `failed`，直到外部条件变化（url/enabled 改变）触发重连。
- */
 export function useReconnectingWebSocket(
   url: string | null,
   options: Options = {},
@@ -73,9 +61,7 @@ export function useReconnectingWebSocket(
         if (ws && onOpenRef.current) onOpenRef.current(ws);
       };
       ws.onmessage = (e) => onMessageRef.current?.(e);
-      ws.onerror = () => {
-        // onclose 也会触发，由其统一处理退避
-      };
+      ws.onerror = () => {};
       ws.onclose = () => {
         if (cancelled) return;
         scheduleReconnect();
@@ -92,7 +78,6 @@ export function useReconnectingWebSocket(
       attempt += 1;
       setRetries(attempt);
       setState("reconnecting");
-      // PerfHud 浏览器侧累计 WS 重连数
       bumpWsReconnectCount();
       reconnectTimer = setTimeout(connect, delay);
     };
@@ -108,7 +93,6 @@ export function useReconnectingWebSocket(
           ws.onopen = null;
           ws.close();
         } else if (ws.readyState === WebSocket.CONNECTING) {
-          // 关闭仍在握手中的 socket 浏览器会告警；改为握手完成后再静默关闭。
           const w = ws;
           w.onopen = () => w.close();
         }

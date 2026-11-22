@@ -124,10 +124,6 @@ def _evaluate_gpu_member_proof(
             residency_document=None,
         )
     if membership.state == "pending":
-        # Activation changes the Redis active domain.  A pending candidate must
-        # first activate and obtain a new challenge bound to that exact state;
-        # otherwise a post-commit activation could leave a ready pending-domain
-        # snapshot behind.
         return _invalid_gpu_proof_evaluation(
             membership,
             context,
@@ -286,9 +282,6 @@ def _evaluate_gpu_member_proof(
                     budget_mb=membership.vram_budget_mb,
                     generation=residency.generation,
                     eviction_priority=membership.eviction_priority,
-                    # The capability is challenge-bound, but declaration alone
-                    # does not prove activation or signer-key acceptance.  Keep
-                    # proof recovery non-evictable until signed promotion.
                     evictable=False,
                     max_concurrency=membership.max_concurrency,
                     reservation_lease_id=None,
@@ -550,8 +543,6 @@ async def commit_gpu_proof_reset_from_health(
             and sum(item.budget_mb for item in allocations) <= context.allocatable_mb
         )
         if not domain_matches:
-            # The prepared marker owns its original closed domain. Clear that
-            # snapshot conservatively; later legal domain evolution can reconcile.
             allocations = ()
 
         if requested_ready:
@@ -562,7 +553,6 @@ async def commit_gpu_proof_reset_from_health(
             ]
             evidence_deadline_ms = min(proof_deadlines)
         else:
-            # A not-ready rewrite grants no authority and remains restart-safe.
             evidence_deadline_ms = 0
 
         proof_fingerprint = _gpu_proof_fingerprint(

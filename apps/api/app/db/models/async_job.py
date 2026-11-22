@@ -23,13 +23,13 @@ from app.db.jobs_lifecycle import install_jobs_owner_mapping
 class AsyncJobKind(str, enum.Enum):
     """异步任务类型枚举。新加 kind 时同时更新前端 i18n 与铃铛文案。"""
 
-    BATCH_PREDICT = "batch_predict"  # 项目 / 批次预标
-    VIDEO_TRACKER = "video_tracker"  # 视频追踪
-    VIDEO_CORRECTION = "video_correction"  # 视频 Mask 纠错传播
-    AUDIT_ARCHIVE = "audit_archive"  # 审计日志月分区归档
-    PREDICTIONS_IMPORT = "predictions_import"  # 外部 prediction 导入
-    PREDICTION_RETRY = "prediction_retry"  # 失败预测重试
-    EXPORT = "export"  # 标注导出（异步化 + 目录镜像）
+    BATCH_PREDICT = "batch_predict"
+    VIDEO_TRACKER = "video_tracker"
+    VIDEO_CORRECTION = "video_correction"
+    AUDIT_ARCHIVE = "audit_archive"
+    PREDICTIONS_IMPORT = "predictions_import"
+    PREDICTION_RETRY = "prediction_retry"
+    EXPORT = "export"
     TRAINING_DATASET = "training_dataset"
     TRAINING_RUN = "training_run"
     TRAINING_PREVIEW = "training_preview"
@@ -45,17 +45,17 @@ class AsyncJobKind(str, enum.Enum):
     DATASET_QUALITY = "dataset_quality"
     DATASET_QUALITY_REVIEW = "dataset_quality_review"
     DATASET_SCAN = "dataset_scan"
-    MEDIA_BACKFILL = "media_backfill"  # dataset 存量图片/视频媒体回填
+    MEDIA_BACKFILL = "media_backfill"
     DATASET_REGISTRATION = "dataset_registration"
-    DATASET_IMPORT = "dataset_import"  # 外部连接器数据集导入
-    CREATE_TASKS = "create_tasks"  # dataset link → 建 task
-    MASK_QC = "mask_qc"  # Raster / Video Mask 异步质量扫描
-    VIDEO_TRACK_QUALITY = "video_track_quality"  # 相邻视频 segment 轨迹质量
-    MASK_REPAIR = "mask_repair"  # 可恢复的 Mask 批量修复
-    MASK_REPAIR_ROLLBACK = "mask_repair_rollback"  # 版本保护的批量回滚
-    MASK_FORMAT_IMPORT = "mask_format_import"  # staged receipt 驱动的格式导入
-    POINT_CLOUD_CROSS_FRAME = "point_cloud_cross_frame"  # 3D Scene 跨帧传播
-    POINT_CLOUD_QUALITY = "point_cloud_quality"  # 3D 点云与 SceneTrack 质量扫描
+    DATASET_IMPORT = "dataset_import"
+    CREATE_TASKS = "create_tasks"
+    MASK_QC = "mask_qc"
+    VIDEO_TRACK_QUALITY = "video_track_quality"
+    MASK_REPAIR = "mask_repair"
+    MASK_REPAIR_ROLLBACK = "mask_repair_rollback"
+    MASK_FORMAT_IMPORT = "mask_format_import"
+    POINT_CLOUD_CROSS_FRAME = "point_cloud_cross_frame"
+    POINT_CLOUD_QUALITY = "point_cloud_quality"
 
 
 class AsyncJobStatus(str, enum.Enum):
@@ -66,17 +66,10 @@ class AsyncJobStatus(str, enum.Enum):
     CANCELLED = "cancelled"
 
 
-# 终态集合（service 层与 retention 都会用到）
 ASYNC_JOB_TERMINAL_STATUSES = frozenset(
     {AsyncJobStatus.COMPLETED, AsyncJobStatus.FAILED, AsyncJobStatus.CANCELLED}
 )
 
-# The frozen ``yoao_jobs_v1.async_job_creation`` view projects neither the
-# owner-bound ``execution_snapshot_id`` nor the storage progress facts added by
-# a later revision. Evaluating ``None`` for these types keeps an unassigned
-# value out of the ORM INSERT instead of rendering an explicit NULL that the
-# closed creation relation cannot accept. Explicit writes to the snapshot
-# column are rejected by the lifecycle guards.
 _EXECUTION_SNAPSHOT_TYPE = UUID(as_uuid=True)
 _EXECUTION_SNAPSHOT_TYPE.should_evaluate_none = True
 _ABSENT_ON_CREATE_TIMESTAMP = DateTime(timezone=True)
@@ -102,7 +95,6 @@ class AsyncJob(Base):
         ForeignKey("projects.id", ondelete="SET NULL"),
         nullable=True,
     )
-    # The database trigger preserves authorization scope after project deletion.
     retained_project_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
@@ -123,9 +115,7 @@ class AsyncJob(Base):
     progress_observation: Mapped[dict | None] = mapped_column(
         _ABSENT_ON_CREATE_JSONB, nullable=True
     )
-    # 输入摘要（不要塞大对象，仅放 batch_id / 文件数等元数据）
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    # 完成后的结果摘要（success_count / failed_count / 路径等）
     result: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     celery_task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

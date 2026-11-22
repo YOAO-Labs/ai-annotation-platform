@@ -43,7 +43,6 @@ async def test_selected_assignments_survive_batch_reassignment(
     new_reviewer = await create_user(
         db_session, "employee", "new-reviewer@test.local", "New reviewer"
     )
-    # Project roles are explicit; never inferred from the literal employee account.
     for member, role in (
         (old_annotator, "annotator"),
         (old_reviewer, "reviewer"),
@@ -138,7 +137,6 @@ async def test_selected_assignments_survive_batch_reassignment(
     assert sibling.assignee_id == new_annotator.id
     assert sibling.reviewer_id == new_reviewer.id
 
-    # Clearing a task override restores inheritance for subsequent batch edits.
     await assign_selected(None, None)
     await batches.update(
         batch.id,
@@ -207,8 +205,6 @@ async def test_new_review_round_releases_previous_reviewer_override(
         actor=owner,
     )
     assert applied.succeeded == [task.id]
-    # Start from a prior round's completed or returned task, carrying the
-    # assignment intent produced by the real selected-task operation.
     task.status = "completed" if transition == "reopen" else "in_progress"
     await db_session.flush()
     response = await httpx_client.post(

@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Run the Mask product family against a fresh, owned pre-consumer fault store.
+"""Run a Mask product group against a fresh, owned Raster deployment.
 
 The outer process owns the worktree mode lock and the MinIO administration
-identity.  The inner process prepares the exact fixtures before starting any
-product listener, then passes only the scoped data-plane identity to Playwright.
+identity. The inner process prepares the suite before starting any product
+listener, then passes only the scoped data-plane identity to Playwright.
 An interrupted or failed run retains its owner journal and resources.
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import builtins
 from contextlib import closing
@@ -67,6 +68,58 @@ from worktree_runtime import (  # noqa: E402
     reject_orphans,
     run_processes,
 )
+
+PRODUCT_GROUPS = {
+    "faults": ("e2e/tests/raster-mask-native.spec.ts",),
+    "editor": (
+        "e2e/tests/mask-advanced-operations.spec.ts",
+        "e2e/tests/mask-editor.spec.ts",
+    ),
+}
+
+
+def _parse_group(arguments):
+    parser = argparse.ArgumentParser(
+        description="运行独立部署的原生 Mask E2E 用例组。", allow_abbrev=False
+    )
+    parser.add_argument(
+        "group",
+        choices=PRODUCT_GROUPS,
+        help="faults：Raster 矩阵及独立 Worker；editor：高级编辑与编辑器",
+    )
+    parser.add_argument("--workers", type=int, choices=(1,), help="产品用例保持串行")
+    parser.add_argument("--retries", type=int, help="产品用例重试次数")
+    parser.add_argument(
+        "--headed", action="store_true", help="在可见的浏览器中运行产品用例"
+    )
+    parser.add_argument(
+        "--trace",
+        choices=(
+            "on",
+            "off",
+            "on-first-retry",
+            "on-all-retries",
+            "retain-on-failure",
+            "retain-on-first-failure",
+        ),
+        help="产品用例的 trace 策略",
+    )
+    parsed = parser.parse_args(arguments)
+    if parsed.retries is not None and parsed.retries < 0:
+        parser.error("--retries 必须为非负整数")
+    return parsed
+
+
+def _playwright_diagnostics(product):
+    flags = [
+        f"--{name}={value}"
+        for name in ("workers", "retries", "trace")
+        if (value := getattr(product, name)) is not None
+    ]
+    if product.headed:
+        flags.append("--headed")
+    return flags
+
 
 _RETAINED_SEED_CLIENTS = []
 
@@ -1198,7 +1251,6 @@ def exercise_faults(owner, environment, references, suite):
 
 
 def require_no_children():
-    # Linux subreaper adoption exposes detached Playwright descendants too.
     outcomes = []
     live = False
     while True:
@@ -1400,20 +1452,7 @@ def require_only_fixture_owner(fenced):
         )
 
 
-def configured_attempts(arguments):
-    retries = 1 if os.environ.get("CI") else 0
-    for index, argument in enumerate(arguments):
-        if argument == "--retries":
-            require(index + 1 < len(arguments), "raster_retry_count_missing")
-            retries = int(arguments[index + 1])
-        elif argument.startswith("--retries="):
-            retries = int(argument.split("=", 1)[1])
-    require(retries >= 0, "raster_retry_count_invalid")
-    return retries + 1
-
-
-def inside(path, arguments):
-    # Adopt every orphaned descendant before launching any owned process.
+def inside(path, product):
     libc = ctypes.CDLL(None, use_errno=True)
     require(libc.prctl(36, 1, 0, 0, 0) == 0, "raster_subreaper_unavailable")
 
@@ -1436,12 +1475,17 @@ def inside(path, arguments):
     finally:
         os.close(devnull)
     inference = NativePhaseClient(phase_record)
-    return inside_with_inference(path, arguments, inference)
+    return inside_with_inference(path, product, inference)
 
 
-def inside_with_inference(path, arguments, inference):
+def inside_with_inference(path, product, inference):
     owner = Owner(path)
-    require(owner.data["raster"]["state"] == "born", "raster_owner_state_changed")
+    require(
+        owner.data["raster"]["state"] == "born"
+        and owner.data["product_group"] == product.group,
+        "raster_owner_state_changed",
+    )
+    faults = product.group == "faults"
     credentials = json.loads((owner.private / "runtime.json").read_text())
     restricted = {
         key: value
@@ -1472,12 +1516,15 @@ def inside_with_inference(path, arguments, inference):
             "PLAYWRIGHT_FIXTURE_RUN_ID": suite,
         }
     )
-    cases, references, fenced = request_fixtures(
-        owner, restricted, suite, configured_attempts(arguments)
-    )
+    retries = product.retries
+    if retries is None:
+        retries = int(bool(os.environ.get("CI")))
+    attempts = retries + 1 if faults else 0
+    cases, references, fenced = request_fixtures(owner, restricted, suite, attempts)
     inference.pause()
     require_only_fixture_owner(fenced)
-    exercise_faults(owner, os.environ, references, suite)
+    if faults:
+        exercise_faults(owner, os.environ, references, suite)
     selection = inference.start()
     os.environ.update(selection)
     restricted.update(selection)
@@ -1613,11 +1660,9 @@ def inside_with_inference(path, arguments, inference):
                     "playwright",
                     "test",
                     "--config=playwright.mask-product.config.ts",
-                    "e2e/tests/raster-mask-native.spec.ts",
-                    "e2e/tests/mask-advanced-operations.spec.ts",
-                    "e2e/tests/mask-editor.spec.ts",
+                    *PRODUCT_GROUPS[product.group],
                     "--project=chromium",
-                    *arguments,
+                    *_playwright_diagnostics(product),
                 ],
                 browser_environment,
                 api,
@@ -1725,38 +1770,47 @@ def inside_with_inference(path, arguments, inference):
     )
     socket_path.unlink()
     socket_dir.rmdir()
-    browser_environment.pop("PLAYWRIGHT_RASTER_FIXTURE_SOCKET")
-    try:
-        with RasterWebServer(
-            browser_environment, cwd=ROOT / "apps/web", preview=False
-        ) as web:
-            result = run_product(
-                [
-                    "pnpm",
-                    "exec",
-                    "playwright",
-                    "test",
-                    "--config=playwright.browser-integration.config.ts",
-                    "--project=chromium",
-                    *arguments,
-                ],
-                browser_environment,
-                None,
-                None,
-                cwd=ROOT / "apps/web",
-                web=web,
-            )
-        require_no_children()
-    except BaseException as error:
-        retain_unsettled("raster_final_browser_shutdown_failed")
-        errors = [error, *shutdown_failures]
-        if result:
-            errors.insert(0, RuntimeError(f"raster_consumer_exit_{result}"))
-        if len(errors) > 1:
-            raise builtins.BaseExceptionGroup(
-                "raster final browser and descendant shutdown failed", errors
-            ) from None
-        raise
+    if faults:
+        for key in (
+            "YOAO_WORKTREE_MODE",
+            "PLAYWRIGHT_FIXTURE_RUN_ID",
+            "PLAYWRIGHT_RASTER_FAULT_MANIFEST",
+            "PLAYWRIGHT_RASTER_MASK_MATRIX",
+            "PLAYWRIGHT_RASTER_OFFLINE",
+            "PLAYWRIGHT_RASTER_FIXTURE_SOCKET",
+        ):
+            browser_environment.pop(key)
+        try:
+            with RasterWebServer(
+                browser_environment, cwd=ROOT / "apps/web", preview=False
+            ) as web:
+                result = run_product(
+                    [
+                        "pnpm",
+                        "exec",
+                        "playwright",
+                        "test",
+                        "--config=playwright.browser-integration.config.ts",
+                        "--project=chromium",
+                        "e2e/browser-integration/mask-worker.spec.ts",
+                    ],
+                    browser_environment,
+                    None,
+                    None,
+                    cwd=ROOT / "apps/web",
+                    web=web,
+                )
+            require_no_children()
+        except BaseException as error:
+            retain_unsettled("raster_final_browser_shutdown_failed")
+            errors = [error, *shutdown_failures]
+            if result:
+                errors.insert(0, RuntimeError(f"raster_consumer_exit_{result}"))
+            if len(errors) > 1:
+                raise builtins.BaseExceptionGroup(
+                    "raster final browser and descendant shutdown failed", errors
+                ) from None
+            raise
     if result == 0:
         owner = Owner(path)
         owner.data["raster"]["state"] = "consumers_stopped"
@@ -1835,7 +1889,7 @@ def destroy_with_images_role(backend, owner, confirmation):
             backend._finish_prepared_destruction(prepared)
 
 
-def outer(arguments):
+def outer(product):
     libc = ctypes.CDLL(None, use_errno=True)
     require(libc.prctl(36, 1, 0, 0, 0) == 0, "raster_subreaper_unavailable")
     require(
@@ -1875,6 +1929,8 @@ def outer(arguments):
                 )
         manifest = journal_dir / uuid.uuid4().hex / "owner.json"
         owner = Owner(manifest, create=True)
+        owner.data["product_group"] = product.group
+        owner.save()
         try:
             endpoint, access, secret = provision(resources, owner)
             postgres_url = provision_postgres(resources, owner)
@@ -1940,7 +1996,8 @@ def outer(arguments):
                     str(Path(__file__).resolve()),
                     "--inside",
                     str(manifest),
-                    *arguments,
+                    product.group,
+                    *_playwright_diagnostics(product),
                 ]
             )
             from fixture_inference_services import FixtureInferenceServices
@@ -1994,8 +2051,8 @@ def outer(arguments):
 if __name__ == "__main__":
     try:
         if len(sys.argv) >= 3 and sys.argv[1] == "--inside":
-            raise SystemExit(inside(sys.argv[2], sys.argv[3:]))
-        raise SystemExit(outer(sys.argv[1:]))
+            raise SystemExit(inside(sys.argv[2], _parse_group(sys.argv[3:])))
+        raise SystemExit(outer(_parse_group(sys.argv[1:])))
     except Exception as error:
         detail = failure_evidence(error)
         if len(sys.argv) >= 3 and sys.argv[1] == "--inside":

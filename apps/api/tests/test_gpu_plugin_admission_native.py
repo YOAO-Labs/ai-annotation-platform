@@ -103,7 +103,6 @@ async def test_native_plugin_admission_and_stale_subject(
         args = {"backend_registry_id": str(backend_id), "gpu_resource_id": _RESOURCE_A}
         if not resident:
             args["expected_challenge"] = None
-        # The owner-controlled status can change without changing the runtime identity.
         ready = await _step(factory, action, args)
         assert ready["status"] == "ready"
         subject = ready["subject"]
@@ -432,9 +431,6 @@ async def test_native_terminal_intent_replay_and_full_pool_proof(
         assert (await _step(factory, "installation_terminal", verify))[
             "reason"
         ] == "terminal_proof_changed"
-        # Model the owner-validated new launch after quiescence: the old launch
-        # is stopped, its activation was removed, and the installation revision
-        # has advanced. A new boot is still fenced by the old token horizon.
         new_boot = f"new-{uuid4()}"
         async with factory.begin() as db:
             row = await db.get(MLBackendRegistry, backend_id)

@@ -1,23 +1,6 @@
 import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useListPagination } from "@/hooks/useListPagination";
-/**
- * registry "项目绑定" tab (Super Admin only).
- *
- * Plan §4.3（模型市场多 TAB UI 优化 · 阶段一）: default by-project view
- * (项目 / 关联服务池 / 可用实例 / 风险 / 项目设置) with a by-pool reverse
- * lookup toggle. The previously inferred 「主服务池」 column is gone — it was
- * derived from routable counts, not real configuration; the authoritative
- * binding stays in project settings. Every view carries the annotation
- * 「依据已启用实例关联」 so the derivation is not mistaken for configured fact.
- *
- * URL-owned state (plan §5): `project_q` search (project names in by-project
- * view, pool names in by-pool view), `binding_view`, and the removable
- * `binding_pool` scope condition.
- *
- * Alert (warning badge) when an AI-enabled project has 0 routable instances in
- * its pool. Read-only — "修改" links to /projects/:id/settings.
- */
 import { useMemo, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
@@ -66,7 +49,6 @@ export function ProjectBindingsSection({
   const projectBindings = useMemo<ProjectBinding[]>(() => {
     if (!overview) return [];
     return overview.projects.map((p) => {
-      // Find pools that contain at least one of this project's enabled backends.
       const backendIds = new Set(p.backends.map((b) => b.id));
       const pools = vm.pools.filter((pool) =>
         pool.members.some((m) => backendIds.has(m.registry_id)),

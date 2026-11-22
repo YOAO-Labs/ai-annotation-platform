@@ -1583,8 +1583,6 @@ async def test_native_member_receipt_is_registered_before_a_later_heartbeat_loss
         )
 
     names = [name for name, _request in database.calls]
-    # The receipt is durable before the lost heartbeat is observed, and the
-    # still-open permit is settled as written rather than abandoned.
     assert names == [
         "begin_native_pyramid_member",
         "submit_native_pyramid_member",
@@ -1595,7 +1593,6 @@ async def test_native_member_receipt_is_registered_before_a_later_heartbeat_loss
     assert recorded == storage.returned_receipt
     assert recorded.operation_id == database.calls[0][1].operation_id
     assert recorded.etag == '"raw-etag"'
-    # A literal returned ``null`` version stays a recorded receipt, not ``None``.
     assert recorded.version_id == "null"
     assert database.calls[-1][1].state == "written"
     assert storage.verified == []
@@ -1605,9 +1602,6 @@ async def test_native_member_receipt_is_registered_before_a_later_heartbeat_loss
 async def test_native_member_unproven_closure_is_never_registered(tmp_path):
     allocation, path, reservation = _member_write_args(tmp_path)
     database = _FakeDatabase(None)
-    # Headers may already have been observed, but a failed body/client close
-    # leaves the physical operation unproven.  Only a drained, closed PUT is a
-    # known receipt; this one must stay blocked as unknown.
     unproven = ImageFailure("storage_unavailable")
     unproven.storage_operation_unsettled = True
 

@@ -1,14 +1,3 @@
-/**
- * 悬浮相机面板(L2):把 CameraProjectionView 包一层可折叠 chrome,
- * 悬浮在主 3D 视图之上。位置由外层「按朝向分组的定位容器」决定(本组件不自带定位)。
- *
- * 展开:细标题条(收起钮)+ 相机图(自带 figcaption:名字 · 正对 · 深度)。
- * 折叠:仅留一个贴边小标签「名字 ▸」。
- *
- * 位置 / 折叠态改为受控:由壳层从 user config(preferences.workbench.layout
- * .cameraPanels)按 role 传入并回写,后端 / 管理端可一键复位。本组件不再读写 localStorage。
- * module.css → Tailwind。
- */
 import { useCallback, useMemo } from "react";
 import type { CSSProperties } from "react";
 
@@ -24,7 +13,6 @@ import { useElementStyle } from "@/components/ui/useElementStyle";
 import CameraProjectionView from "./CameraProjectionView";
 import type { SceneBox } from "./PointCloudScene";
 
-// Tailwind class constants (was ThreeDWorkbench.module.css).
 const CAM_PANEL =
   "flex flex-col w-[210px] rounded-md border border-border bg-card shadow-sm overflow-hidden";
 const CAM_PANEL_FLOATING =
@@ -37,7 +25,6 @@ const CAM_PANEL_TAB =
   "appearance-none px-2.5 py-1.5 border-0 bg-transparent text-foreground cursor-pointer text-xs whitespace-nowrap hover:text-brand";
 
 interface FloatingCameraPanelProps {
-  /** 相机 role(canonical),作 user config cameraPanels 的 key 与稳定标识。 */
   role: string;
   name: string;
   imageUrl: string | null | undefined;
@@ -48,18 +35,13 @@ interface FloatingCameraPanelProps {
   bestForSelected?: boolean;
   pointPositions?: Float32Array | null;
   showDepth?: boolean;
-  /** 点「⛶」放大该相机为大图浮层(L3)。 */
   onEnlarge?: () => void;
-  /** 相机整组切换成一个停靠图库，不修改每路位置及折叠态。 */
   onDockAll?: () => void;
   layoutDisabled?: boolean;
   autoCollapsed?: boolean;
   dragBounds?: FloatingPanelBounds | null;
-  /** 受控位置(来自 user config);null = 未拖动,用默认贴边位。 */
   position?: FloatingPanelPoint | null;
-  /** 受控折叠态(来自 user config);undefined = 跟随 autoCollapsed。 */
   collapsed?: boolean;
-  /** 拖动 / 归位回写;pos=null 表示归位(清除自定义位置)。 */
   onPositionChange: (role: string, pos: FloatingPanelPoint | null) => void;
   onCollapsedChange: (role: string, collapsed: boolean) => void;
 }
@@ -111,7 +93,6 @@ export function FloatingCameraPanel({
 
   const floatingPoint = position ?? (isDragging ? dragPosition : null);
 
-  // useElementStyle replaces style={floatingStyle} for dynamic CSS variables.
   const panelRef = useElementStyle<HTMLDivElement>(
     floatingPoint
       ? ({

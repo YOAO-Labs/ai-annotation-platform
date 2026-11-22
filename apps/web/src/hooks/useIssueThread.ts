@@ -25,22 +25,18 @@ export interface IssueThreadParentContext {
   id: string;
   body: string;
   authorName: string | null;
-  /** False while the immediate ancestor is omitted from loaded pages or unavailable. */
   available: boolean;
 }
 
 export type IssueThreadReply = AnnotationFeedback & {
-  /** Context is only populated for descendants whose parent is not the root. */
   parentContext: IssueThreadParentContext | null;
 };
 
 export interface UseIssueThreadParams {
   rootId: string | null | undefined;
   projectId: string | null | undefined;
-  /** The currently loaded task. Project scope may contain roots from other tasks. */
   taskId: string | null | undefined;
   allowProjectScope?: boolean;
-  /** Snapshot from the pin/list activator. It is displayable only after root validation. */
   rootSnapshot?: AnnotationFeedback | null;
   enabled?: boolean;
   limit?: number;
@@ -55,7 +51,6 @@ export interface UseIssueThreadResult {
   isFetchingNextPage: boolean;
   hasNextPage: boolean;
   error: unknown;
-  /** Error from loading an older page while the validated root remains available. */
   paginationError: unknown;
   loadEarlierReplies: () => Promise<unknown>;
   retryEarlierReplies: () => Promise<unknown>;
@@ -63,7 +58,6 @@ export interface UseIssueThreadResult {
   query: UseInfiniteQueryResult<InfiniteData<AnnotationFeedbackThreadPage, string | null>, Error>;
 }
 
-/** Stable root predicate shared by the query adapter and focused unit tests. */
 export function isValidIssueRoot(
   value: AnnotationFeedback | null | undefined,
   params: Pick<UseIssueThreadParams, "projectId" | "taskId" | "allowProjectScope"> & {
@@ -78,14 +72,6 @@ export function isValidIssueRoot(
   return Boolean(params.taskId && value.task_id === params.taskId);
 }
 
-/**
- * Flatten server DESC windows into one chronological conversation. The API
- * may return nested descendants while an intermediate parent is not in the
- * loaded window or is unavailable, so parent context is deliberately
- * represented as a placeholder rather than dropping the surviving child. It
- * is recomputed whenever another page arrives, allowing the context to resolve
- * when that parent becomes available.
- */
 export function flattenIssueThread(
   data: InfiniteData<AnnotationFeedbackThreadPage, string | null> | undefined,
   root: AnnotationFeedback | null,
@@ -104,16 +90,10 @@ export function flattenIssueThread(
         seen.has(item.id)
       )
         continue;
-      // The root is an Issue, but the reply endpoint writes kind=comment.
-      // The root-bound API owns ancestry; legacy descendants may retain a
-      // different kind and must not disappear from their conversation.
       seen.add(item.id);
       all.push(item);
     }
   }
-  // Each fetched window is authoritative DESC order, and pages are appended
-  // from newest to oldest. Reverse the deduplicated window instead of parsing
-  // timestamps locally, which would mishandle mixed ISO offset/precision forms.
   all.reverse();
   const byId = new Map<string, AnnotationFeedback>([[root.id, root]]);
   for (const item of all) byId.set(item.id, item);
@@ -135,7 +115,6 @@ export function flattenIssueThread(
   });
 }
 
-/** Query-key helper for focused cache/invalidation assertions. */
 export function issueThreadQueryKey(
   rootId: string,
   userId: string | null,
@@ -165,8 +144,6 @@ export function useIssueThread({
   const userId = useAuthStore((state) => state.user?.id ?? null);
   const authToken = useAuthStore((state) => state.token ?? null);
   const draftStore = useDiscussionDraftStore();
-  // The authenticated discussion provider owns the browser-tab lease. Keep
-  // its opaque session id in the key, never a bearer token.
   const authSession = draftStore?.getOwner().sessionId ?? null;
   const queryKey = rootId
     ? issueThreadQueryKey(rootId, userId, authSession, projectId ?? null, taskId ?? null)
@@ -187,10 +164,6 @@ export function useIssueThread({
     staleTime: 30_000,
     retry: false,
   });
-  // TanStack Query keeps the fetch direction on the observer result. This
-  // distinguishes a failed older-page request from a failed root refresh
-  // without introducing a second local state owner that could outlive a root
-  // or auth transition.
   const paginationError = query.isFetchNextPageError ? query.error : null;
 
   const fetchedRoot = query.data?.pages.find((page) => page.root)?.root ?? null;

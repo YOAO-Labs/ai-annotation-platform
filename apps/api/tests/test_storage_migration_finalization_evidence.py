@@ -163,8 +163,6 @@ class EvidenceTests(unittest.TestCase):
         )
         target = Target()
         with core.Checkpoint(parent_path) as parent:
-            # A retained old-only record needs no live source read; migrated
-            # historical facts are intentionally unexecuted evidence here.
             if not historical:
                 core.execute(parent, source, target)
             parent_sha = parent.evidence_digest()
@@ -337,8 +335,6 @@ class EvidenceTests(unittest.TestCase):
         ):
             with self.subTest(decision=decision):
                 bad = deepcopy(values)
-                # Keep the baseline and materialized immutable row consistent;
-                # the final validator, rather than materialize alone, must reject.
                 self.update_baseline(
                     bad, lambda state: self.rewrite_decision(state, decision)
                 )

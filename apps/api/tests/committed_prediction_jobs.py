@@ -19,8 +19,6 @@ async def committed_prediction_job_id(
     try:
         yield job_id
     finally:
-        # Consumers have exited. Run normal terminal/delete guards; never delete
-        # execution history, retry receipts or any other Job in the project.
         owned = (AsyncJob.id == job_id) & (AsyncJob.kind == kind)
         async with engine.begin() as db:
             await db.execute(

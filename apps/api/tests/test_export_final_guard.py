@@ -75,7 +75,6 @@ async def test_export_final_guard_refuses_revoked_member(
     job = await _reviewer_job(db_session, owner=owner, employee=employee, payload={})
     await db_session.commit()
 
-    # Reviewer membership + export capability: allowed.
     await _reauthorize_export_final_write(db_session, job.id, None)
 
     await db_session.execute(
@@ -102,7 +101,6 @@ async def test_export_final_guard_refuses_invisible_selected_task(
     await db_session.commit()
     await db_session.refresh(job)
 
-    # The unassigned/unbatched task is not in the reviewer's visible scope.
     with pytest.raises(ValueError):
         await _reauthorize_export_final_write(db_session, job.id, [task.id])
 

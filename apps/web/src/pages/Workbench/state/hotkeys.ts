@@ -1,12 +1,3 @@
-// Single source of truth for Workbench shortcuts.
-// useEffect 注册和 HotkeyCheatSheet 都从这里读，避免漂移。
-//
-// 快捷键面板重构：
-//  - HOTKEYS 是带稳定 `id` 的参考目录（对话框 / 提示 / 文档生成共用）；
-//  - 可编辑命令的默认组合与覆盖解析在 `state/hotkeyBindings.ts`，dispatchKey 通过
-//    `matchCommand` 按生效绑定匹配，硬编码按键分支只保留 Fixed 命令；
-//  - 项目类别直选为数字 1-9 + 0（按工具绑定单元的配置顺序取前十个），字母不再选类别。
-
 import { isWorkbenchInteractionBlocked } from "./workbenchInteractionGuards";
 import {
   createCommandEventMatcher,
@@ -14,10 +5,8 @@ import {
   resolveEffectiveCommands,
 } from "./hotkeyBindings";
 
-/** 无 overrides 时的默认生效表（模块常量；dispatchKey 直接调用 / 测试用）。 */
 const DEFAULT_EFFECTIVE = resolveEffectiveCommands(EMPTY_OVERRIDES);
 
-/** 面板左侧的用途分组（信息架构，与工作台类型正交）。 */
 export type HotkeyCategory =
   | "common"
   | "draw"
@@ -28,30 +17,20 @@ export type HotkeyCategory =
   | "task"
   | "mouse";
 
-/** 工作台类型；条目省略 `stages` 表示全部类型可用。 */
 export type HotkeyStage = "image" | "video" | "threed";
 
 export interface HotkeyDef {
-  /** 稳定命令身份：对话框、提示与绑定解析共用；不要复用 / 重命名。 */
   id: string;
-  keys: string[]; // display labels e.g. ["Ctrl", "Z"]
+  keys: string[];
   desc: string;
   category: HotkeyCategory;
-  /** 生效的工作台类型；省略 = 全部类型。 */
   stages?: HotkeyStage[];
-  /** 实际生效条件（产品语言，如「视频；已选中轨迹」）。 */
   applies?: string;
-  /** 可选的补充说明（第二行帮助文本）。 */
   note?: string;
-  /** 收录进「常用」精选视图。 */
   common?: boolean;
-  /** keys 的最后一个元素是候选项列表（「或」连接）而非组合步骤。 */
   keysAlt?: boolean;
-  /** 聚合展示标签（如数字段「1 — 9、0」），替代逐键渲染。 */
   keysLabel?: string;
-  /** 与 dispatch 出的 action.type 关联，供测试 / 文档生成核对分支。 */
   actionType?: string;
-  /** Context and target for shortcuts whose shared keys have different routes. */
   context?: "image" | "video" | "image-prediction" | "video-prediction" | "video-no-prediction";
   targetTool?: Extract<HotkeyAction, { type: "setTool" | "setVideoTool" }>["tool"];
 }
@@ -76,7 +55,6 @@ const maskControlSelector =
 const maskPopupSelector =
   '[role="menu"], [role="dialog"], [role="alertdialog"], [role="listbox"], dialog[open]';
 
-/** Image and video Mask listeners yield without swallowing a control's own key event. */
 export function isMaskHotkeyBlocked(event: KeyboardEvent): boolean {
   if (blockedMaskEvents.has(event)) return true;
   const blocked =
@@ -103,12 +81,10 @@ export function isMaskHotkeyBlocked(event: KeyboardEvent): boolean {
         }
         return true;
       }));
-  // A popup may remove itself between capture and the later background listener.
   if (blocked) blockedMaskEvents.add(event);
   return blocked;
 }
 
-/** Candidate shortcuts yield all navigation keys to native and toolbar controls. */
 export function isSamCandidateHotkeyBlocked(event: KeyboardEvent): boolean {
   return (
     isMaskHotkeyBlocked(event) ||
@@ -126,7 +102,6 @@ export function isSamCandidateHotkeyBlocked(event: KeyboardEvent): boolean {
 }
 
 export const HOTKEYS: HotkeyDef[] = [
-  // ── 绘制与工具 ────────────────────────────────────────────────────────────
   {
     id: "image.tool.select",
     keys: ["V"],
@@ -397,7 +372,6 @@ export const HOTKEYS: HotkeyDef[] = [
     stages: ["threed"],
   },
 
-  // ── 选择与编辑 ────────────────────────────────────────────────────────────
   {
     id: "image.tab.cycle",
     keys: ["Tab"],
@@ -713,7 +687,6 @@ export const HOTKEYS: HotkeyDef[] = [
     keysAlt: true,
   },
 
-  // ── 画布与视角 ────────────────────────────────────────────────────────────
   {
     id: "view.fitReset",
     keys: ["Ctrl", "0"],
@@ -783,7 +756,6 @@ export const HOTKEYS: HotkeyDef[] = [
     note: "Esc 关闭浮层",
   },
 
-  // ── AI 与审核 ─────────────────────────────────────────────────────────────
   {
     id: "image.tool.aiCycle",
     keys: ["S"],
@@ -943,7 +915,6 @@ export const HOTKEYS: HotkeyDef[] = [
     actionType: "videoPropagateTrack",
   },
 
-  // ── 播放与轨迹 ────────────────────────────────────────────────────────────
   {
     id: "video.play.toggle",
     keys: ["Space"],
@@ -1135,7 +1106,6 @@ export const HOTKEYS: HotkeyDef[] = [
     stages: ["video"],
   },
 
-  // ── 任务与系统 ────────────────────────────────────────────────────────────
   {
     id: "common.task.next",
     keys: ["Ctrl", "→"],
@@ -1194,7 +1164,6 @@ export const HOTKEYS: HotkeyDef[] = [
     actionType: "cancel",
   },
 
-  // ── 鼠标操作 ──────────────────────────────────────────────────────────────
   {
     id: "mouse.zoomCursor",
     keys: ["Ctrl", "滚轮"],
@@ -1257,7 +1226,6 @@ export const HOTKEYS: HotkeyDef[] = [
   },
 ];
 
-/** 面板导航顺序与标签（信息架构：常用为精选视图，其余按用途划分）。 */
 export const HOTKEY_CATEGORIES: HotkeyCategory[] = [
   "common",
   "draw",
@@ -1285,11 +1253,6 @@ export const HOTKEY_STAGE_LABEL: Record<HotkeyStage, string> = {
   video: "视频",
   threed: "3D / 点云",
 };
-
-// ── pure dispatch ───────────────────────────────────────────────────────────
-// 把 KeyboardEvent + 简单上下文映射为 HotkeyAction。
-// WorkbenchShell 的 useEffect 据此 switch；hotkeys.test.ts 据此覆盖分支。
-// 可编辑命令的匹配经 `matchCommand`（生效绑定解析）；Fixed 命令保留显式分支。
 
 export type HotkeyAction =
   | { type: "undo" }
@@ -1345,7 +1308,6 @@ export type HotkeyAction =
   | { type: "setClassByDigit"; idx: number }
   | { type: "setAttribute"; key: string; value: unknown }
   | { type: "deleteSelected" }
-  // shape 状态位快捷键。
   | { type: "toggleShapeFlag"; flag: "is_locked" | "is_hidden" }
   | { type: "bumpZOrder"; delta: -1 | 1 }
   | { type: "submit" }
@@ -1357,9 +1319,7 @@ export type HotkeyAction =
   | { type: "videoJogPlayback"; dir: -1 | 1 }
   | { type: "videoPausePlayback" }
   | { type: "videoSeek"; delta: number }
-  // 软网格导航：采样开启 (step>1) 时 ←/→ 走网格跳。
   | { type: "videoSeekGrid"; dir: -1 | 1 }
-  // 逃生口：±1 源帧微调 (采样开启时 Shift+←/→ 与 ,/. )。
   | { type: "videoMicroStep"; dir: -1 | 1 }
   | { type: "videoSeekKeyframe"; dir: -1 | 1 }
   | { type: "videoToggleBookmark" }
@@ -1376,51 +1336,28 @@ export type HotkeyAction =
   | { type: "imageCycleInCategory"; dir: 1 | -1 }
   | { type: "imageStepCategory"; dir: 1 | -1 };
 
-/** 属性 hotkey 解析结果（D.1）：
- * 由 WorkbenchShell 根据当前 selected box 的 class_name + project.attribute_schema 计算
- * 当某个数字键命中某个 boolean / select 字段时，dispatcher 决策接下来的下一个值。
- */
 export interface AttributeHotkeyHit {
   key: string;
   type: "boolean" | "select";
-  /** select 类型必填；boolean 忽略。 */
   options?: string[];
-  /** 当前值（用于 select 计算 next；boolean 用于反转）。 */
   currentValue?: unknown;
 }
 
 export interface DispatchCtx {
-  /** 焦点在 input/textarea/contenteditable 上时，禁用 hotkey。 */
   isInputFocused: boolean;
-  /** 是否有任意选中（决定方向键 nudge / a/d AI accept-reject 等是否激活）。 */
   hasSelection: boolean;
-  /** Selected ordinary pending prediction, already filtered to the displayed frame. */
   selectedPrediction?: { id: string } | null;
-  /** pendingDrawing | editingClass | batchChanging 中任一活跃 → 类别按键归 popover 消费。 */
   pendingActive: boolean;
-  /** D.1：选中标注且当前数字键命中某个属性 hotkey 时，返回属性元数据；否则返回 null。
-   * 实现由 WorkbenchShell 层注入（绑了项目 schema 与当前 annotation.attributes）。
-   * 仅当属性快捷键区域显式聚焦时才返回命中（见 AttributeForm 的 region 契约）。
-   */
   attributeHotkey?: (digit: string) => AttributeHotkeyHit | null;
-  /** video stage active: consume video namespace before image drawing shortcuts. */
   videoMode?: boolean;
-  /** Explicit stage ownership; 3D must never consume image command overrides. */
   stage?: HotkeyStage;
-  /** selected annotation is a video_track; used for contextual video timeline shortcuts. */
   hasSelectedVideoTrack?: boolean;
-  /** 视频采样网格生效 (step>1)：←/→ 改为网格跳，Shift/Alt 重映射。
-   *  step=1 (不采样) 时为 false，键位维持现状不变 (向后兼容)。 */
   samplingActive?: boolean;
-  /** Increment B：可编辑命令的生效绑定匹配（无 overrides 时等价默认组合）。 */
   matchCommand?: (commandId: string) => boolean;
-  /** Increment B：同一按键意外命中多条重叠命令时置位；dispatch 吞掉并上报一次。 */
   commandBindingConflict?: boolean;
-  /** Increment B：上报运行期绑定冲突（每会话每按键一次）。 */
   onCommandBindingConflict?: () => void;
 }
 
-/** Command admission is contextual; its recorded key and modifiers are owned by the matcher. */
 function dispatchEditableCommand(
   e: KeyboardEvent,
   ctx: DispatchCtx,
@@ -1467,7 +1404,6 @@ function dispatchEditableCommand(
     if (match("video.tool.polygon")) return { type: "setVideoTool", tool: "polygon" };
     return null;
   }
-  // Keep the existing alternate-tool escape hatch while the image class picker owns bare keys.
   if (ctx.pendingActive) {
     if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
       if (match("image.tool.box")) return { type: "setTool", tool: "box" };
@@ -1492,17 +1428,14 @@ function dispatchEditableCommand(
   return null;
 }
 
-/** 纯函数：解析 keydown 事件为 HotkeyAction。返回 null 表示不消费。 */
 export function dispatchKey(e: KeyboardEvent, ctx: DispatchCtx): HotkeyAction | null {
   if (ctx.isInputFocused) return null;
-  // IME 组合期 / AltGr（Windows 上 Ctrl+Alt 字符）事件不参与任何 Workbench 命令。
   if (e.isComposing || e.keyCode === 229) return null;
   if (e.altKey && (e.ctrlKey || e.metaKey) && e.key.length === 1) return null;
 
   const stage = ctx.stage ?? (ctx.videoMode ? "video" : "image");
   const match = ctx.matchCommand ?? createCommandEventMatcher(e, DEFAULT_EFFECTIVE, stage).match;
 
-  // Increment B：同键意外命中多条重叠命令 → 一律不执行并上报（保留指针入口）。
   if (ctx.commandBindingConflict) {
     ctx.onCommandBindingConflict?.();
     return null;
@@ -1511,7 +1444,6 @@ export function dispatchKey(e: KeyboardEvent, ctx: DispatchCtx): HotkeyAction | 
   const editableAction = dispatchEditableCommand(e, ctx, stage, match);
   if (editableAction) return editableAction;
 
-  // 系统级（带 Ctrl/Meta）
   if (e.ctrlKey || e.metaKey) {
     const k = e.key.toLowerCase();
     if (k === "z") return e.shiftKey ? { type: "redo" } : { type: "undo" };
@@ -1566,8 +1498,6 @@ export function dispatchKey(e: KeyboardEvent, ctx: DispatchCtx): HotkeyAction | 
       return { type: "videoJogPlayback", dir: 1 };
     }
     if (e.key === "Tab") return { type: "videoCycleInCategory", dir: e.shiftKey ? -1 : 1 };
-    // ` / Shift+` 跨类跳转(AI 待审 → 人工 → 轨迹); 紧邻 Tab、当前未占用。
-    // e.code 而非 e.key: Shift+` 的 key 在美式布局是 "~" 而非 "`", 用 key 判定会让反向(Shift)永不触发。
     if (e.code === "Backquote") return { type: "videoStepCategory", dir: e.shiftKey ? -1 : 1 };
     if (e.key === "Escape") return { type: "cancel" };
     if ((e.key === "Delete" || e.key === "Backspace") && !e.shiftKey) {
@@ -1581,15 +1511,12 @@ export function dispatchKey(e: KeyboardEvent, ctx: DispatchCtx): HotkeyAction | 
   }
 
   if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-    // Alt+→ / Alt+← 跨帧目标延续(2D / 3D 统一键; 2D 的 Shift+← / → 已被
-    //           10px nudge 占用, 故跨帧用 Alt+方向)。仅在有选中时消费。
     if (ctx.hasSelection && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
       return { type: "crossFramePropagate", dir: e.key === "ArrowRight" ? "next" : "prev" };
     }
     return null;
   }
 
-  // 方向键 nudge（仅在有选中时；上层进一步过滤是否含 user 框）
   if (ctx.hasSelection) {
     const ARR: Record<string, [number, number]> = {
       ArrowUp: [0, -1],
@@ -1608,10 +1535,8 @@ export function dispatchKey(e: KeyboardEvent, ctx: DispatchCtx): HotkeyAction | 
   if (e.key === "?") return { type: "showHotkeys" };
   if (e.key === "Escape") return { type: "cancel" };
 
-  // popover 活跃时，类别数字键归它消费
   if (ctx.pendingActive) return null;
 
-  // 有选中时 `[`/`]` 调层级（向下/向上）；无选中时维持原 threshold 行为。
   if (e.key === "[") {
     if (ctx.hasSelection) return { type: "bumpZOrder", delta: -1 };
     return { type: "thresholdAdjust", delta: -0.05 };
@@ -1621,16 +1546,10 @@ export function dispatchKey(e: KeyboardEvent, ctx: DispatchCtx): HotkeyAction | 
     return { type: "thresholdAdjust", delta: 0.05 };
   }
 
-  // SAM 子工具栏 polarity (sam-point 下生效, 由消费端 gate by tool/samSubTool).
-  // "+" 需要 Shift+=, "=" 单按 = SAM positive; "-" 单按 = SAM negative。
-  // 按产出字符匹配（"Shift 才打得出的 +" 与 "=" 都视为正向），Shift+其它字母不受影响。
   if (e.key === "+" || e.key === "=") return { type: "samPolarity", polarity: "positive" };
   if (e.key === "-") return { type: "samPolarity", polarity: "negative" };
 
-  // 图片 Tab 升级为「同类流转」(AI 待审 / 人工, 按选中对象类型环内循环),
-  // ` 跨类跳转。J/K 保留为人工框专属循环(老肌肉记忆)。
   if (e.key === "Tab") return { type: "imageCycleInCategory", dir: e.shiftKey ? -1 : 1 };
-  // e.code 而非 e.key: Shift+` 的 key 在美式布局是 "~" 而非 "`", 用 key 判定会让反向(Shift)永不触发。
   if (e.code === "Backquote") return { type: "imageStepCategory", dir: e.shiftKey ? -1 : 1 };
   if ((e.key === "j" || e.key === "J") && !e.shiftKey) {
     return { type: "cycleUser", dir: 1, loop: false };
@@ -1644,13 +1563,11 @@ export function dispatchKey(e: KeyboardEvent, ctx: DispatchCtx): HotkeyAction | 
     return { type: "smartNext", mode: "uncertain" };
   }
 
-  // C 键（无修饰）：选中态走改类别；否则不消费。a/d 同理（接 AI accept/reject）。
   if ((e.key === "c" || e.key === "C") && !e.shiftKey && ctx.hasSelection) {
     return { type: "changeClass" };
   }
 
   if ((e.key >= "1" && e.key <= "9" && !e.shiftKey) || (e.key === "0" && !e.shiftKey)) {
-    // D.1：属性快捷键区域显式聚焦时，命中属性字段优先；否则数字键切类别（0 = 第十个）。
     if (ctx.attributeHotkey) {
       const hit = ctx.attributeHotkey(e.key);
       if (hit) {

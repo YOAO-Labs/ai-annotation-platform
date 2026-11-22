@@ -34,7 +34,7 @@ class SWRRState:
 
 
 def select_swrr(
-    candidates: list[tuple[str, int]],  # (instance_uuid_hex, configured_weight)
+    candidates: list[tuple[str, int]],
     state: SWRRState,
     *,
     eligible_instance_ids: set[str] | None = None,
@@ -61,7 +61,6 @@ def select_swrr(
     if not eligible:
         return None
 
-    # Prune stale current_weights for members no longer in the pool.
     live_ids = {iid for iid, _ in eligible}
     for stale in list(state.current_weights):
         if stale not in live_ids:
@@ -69,15 +68,11 @@ def select_swrr(
 
     total_weight = sum(w for _, w in eligible)
     if total_weight <= 0:
-        # Defensive: all-zero weights → fall back to stable UUID order.
         return min(iid for iid, _ in eligible)
 
-    # Step 1: advance current_weight for every eligible member.
     for iid, w in eligible:
         state.current_weights[iid] = state.current_weights.get(iid, 0) + w
 
-    # Step 2: pick max current_weight; ties broken by ascending instance UUID hex
-    # (stable across processes — UUIDs are deterministic per registry row).
     winner = max(
         eligible,
         key=lambda iw: (
@@ -85,17 +80,12 @@ def select_swrr(
             _invert_uuid_for_min(iw[0]),
         ),
     )
-    # Tie-break: max() picks the first max on equal keys; we want lexicographically
-    # SMALLEST instance UUID to win ties, so invert the UUID in the sort key so that
-    # a smaller UUID yields a larger inverted key (and thus wins max()).
-    # Re-resolve ties explicitly for determinism:
     top_weight = state.current_weights[winner[0]]
     tied = sorted(
         iid for iid, _ in eligible if state.current_weights.get(iid, 0) == top_weight
     )
     winner_id = tied[0]
 
-    # Step 3: selected member's current_weight -= total eligible weight.
     state.current_weights[winner_id] = (
         state.current_weights.get(winner_id, 0) - total_weight
     )

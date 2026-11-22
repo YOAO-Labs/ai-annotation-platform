@@ -11,12 +11,12 @@ from yoao_identity.contract import IdentityUnavailable
 from yoao_notifications.notification_delivery_contract import (
     NOTIFICATION_DELIVERY_PROTOCOL,
     NotificationDeliveryUnavailable,
-    NotificationClaimRequest,
     NotificationFinishRequest,
-    decode_notification_claim_reply,
+    decode_claimed_deliveries,
     decode_notification_delivery_policy,
     decode_notification_finish_reply,
     native_notification_command_json,
+    notification_claim_request,
 )
 from yoao_notifications.notification_delivery_postgres import (
     NotificationDeliveryPostgresData,
@@ -31,8 +31,9 @@ from app.services.identity_session_data import _json_value
 class NotificationDeliveryData:
     """Commit the claim before Redis, using a separate session for each finish."""
 
-    def __init__(self, session_factory=async_session):
+    def __init__(self, session_factory=async_session, *, include_terminal=False):
         self.session_factory = session_factory
+        self.include_terminal = include_terminal
 
     async def _execute(self, function, request, decode):
         async with self.session_factory() as db:
@@ -64,25 +65,17 @@ class NotificationDeliveryData:
         )
 
     async def claim_deliveries(self, worker_id, *, limit=16, lease_seconds=60):
-        request = NotificationClaimRequest(
-            schema=NOTIFICATION_DELIVERY_PROTOCOL,
-            worker_id=worker_id,
+        request = notification_claim_request(
+            worker_id,
             limit=limit,
             lease_seconds=lease_seconds,
+            include_terminal=self.include_terminal,
         )
-
-        def decode(raw):
-            items = decode_notification_claim_reply(raw).data.items
-            if (
-                len(items) > request.limit
-                or len({item.id for item in items}) != len(items)
-                or len({item.lease_id for item in items}) != len(items)
-                or any(item.worker_id != request.worker_id for item in items)
-            ):
-                raise NotificationDeliveryUnavailable()
-            return items
-
-        return await self._execute("claim_identity_deliveries", request, decode)
+        return await self._execute(
+            "claim_identity_deliveries",
+            request,
+            lambda raw: decode_claimed_deliveries(request, raw),
+        )
 
     async def finish_delivery(self, lease, *, outcome, reason):
         request = NotificationFinishRequest(
@@ -108,9 +101,11 @@ async def run_identity_notifications(*, session_factory=None, redis=None):
     if not dsn and get_identity_gateway().identity_url is not None:
         return {"state": "remote"}
     data = (
-        NotificationDeliveryPostgresData(dsn)
+        NotificationDeliveryPostgresData(dsn, include_terminal=True)
         if dsn
-        else NotificationDeliveryData(session_factory or async_session)
+        else NotificationDeliveryData(
+            session_factory or async_session, include_terminal=True
+        )
     )
     owns_redis = redis is None
     if owns_redis:

@@ -47,7 +47,6 @@ const summary: DataManagerSummary = {
 
 describe("DataManagerCharts", () => {
   beforeEach(() => {
-    // Recharts measures the container when ResizeObserver exists; jsdom has no layout.
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
       new DOMRect(0, 0, 320, 160),
     );
@@ -85,7 +84,6 @@ describe("DataManagerCharts", () => {
     expect(bar).not.toBeNull();
     fireEvent.click(bar!);
 
-    // 轨迹来源图（第一张，可点）→ 点最大的一根柱 manual(7)
     expect(onSelect).toHaveBeenCalledWith("annotation.source", "manual");
   });
 
@@ -130,10 +128,8 @@ describe("DataManagerCharts", () => {
       />,
     );
 
-    // value→label 映射生效、按数量降序
     expect(screen.getByRole("img", { name: "车型：小汽车 10，卡车 5" })).toBeInTheDocument();
 
-    // 点最大的一根柱（小汽车）→ 注入的是存储值 car，非显示名
     const attrChart = container.querySelector('[aria-label^="车型"]');
     const bar = attrChart?.querySelector(".recharts-bar-rectangle");
     expect(bar).not.toBeNull();

@@ -110,7 +110,6 @@ async def test_directory_image_public_reads_restart_and_bounded_concurrency(
                 published = restarted["NetworkSettings"]["Ports"]["8177/tcp"]
                 assert len(published) == 1 and published[0]["HostIp"] == "127.0.0.1"
                 restarted_origin = f"http://127.0.0.1:{published[0]['HostPort']}"
-                # Docker may change an ephemeral host port after restart.
                 settings.workspace_directory_query_url = restarted_origin
                 deadline = time.monotonic() + 40
                 async with httpx.AsyncClient(trust_env=False, timeout=2) as readiness:

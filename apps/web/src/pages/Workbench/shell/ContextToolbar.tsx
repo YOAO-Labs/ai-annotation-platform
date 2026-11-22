@@ -33,20 +33,11 @@ interface ContextToolbarProps {
   summaryLabel: string;
   summaryTitle?: string;
   quickActions: readonly ContextToolbarAction[];
-  /** Frequent input and decisions appear in the hover disclosure, before full settings. */
   primaryContent?: ReactNode;
   panelSize?: "compact" | "wide";
   children: (close: () => void) => ReactNode;
 }
 
-/**
- * A stacked modal decision dialog owns pointer and focus interactions that land
- * inside it. Radix's outside detection can otherwise retire this toolbar
- * mid-flow: when the dialog closes between the interaction and the deferred
- * outside check, the interaction is misattributed as an outside click and the
- * expanded panel collapses (observed as the tracker review bar vanishing right
- * after a manual-keyframe override confirm on slow machines).
- */
 function isWithinModalDialog(target: EventTarget | null): boolean {
   return (
     target instanceof Element &&
@@ -54,7 +45,6 @@ function isWithinModalDialog(target: EventTarget | null): boolean {
   );
 }
 
-/** Presentation only: drafts, settings, commands and persistence stay with the tool owner. */
 export function ContextToolbar({
   id,
   label,
@@ -98,7 +88,6 @@ export function ContextToolbar({
   function prepareMotion(opening: boolean) {
     const panel = panelRef.current;
     const source = opening ? sourceRef.current : capsuleRef.current?.getBoundingClientRect();
-    // The Popper wrapper stays at the final position while its child animates.
     const target = panel?.parentElement?.getBoundingClientRect();
     if (!panel || !source || !target || !target.width || !target.height) return;
     const sourceWidth =
@@ -256,7 +245,6 @@ export function ContextToolbar({
           </div>
         </div>
       </div>
-      {/* Mount after the trigger so Radix retains the canvas anchor on first render. */}
       <PopoverAnchor asChild>
         <div className="pointer-events-none absolute left-1/2 top-3 h-0 w-0" />
       </PopoverAnchor>
@@ -284,8 +272,6 @@ export function ContextToolbar({
         }}
         onInteractOutside={(event) => {
           interactedOutsideRef.current = true;
-          // Interactions owned by a stacked modal decision dialog must not
-          // collapse the toolbar; see isWithinModalDialog for the rationale.
           if (isWithinModalDialog(event.target)) event.preventDefault();
         }}
         onCloseAutoFocus={(event) => {

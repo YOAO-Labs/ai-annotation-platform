@@ -1,35 +1,15 @@
-/**
- * 点云 RGB 上色纯函数:把相机像素颜色「喷」到点云。
- *
- * 对每个点投影到各标定相机像面(与 projection.ts 同口径:行主序 extrinsic·[x,y,z,1]
- * → 可选 rect → intrinsic·xyz → 透视除法),落在图内且在相机前方(depth>0)即候选;
- * 多候选取**归一化图像中心距最小**者(最居中 = 镜头畸变最小、最可靠,且不同分辨率可比),
- * 采样该像素 RGB。无任何相机覆盖的点 → 保留原色(高度色带或灰)。
- *
- * 提供 rasters 时按 OCCLUSION_TOL_M 容差做 z-test；未传 rasters 时
- * 不做遮挡剔除。
- * 投影单点内联展开(不走 projection.ts 的数组版),避开 1e6 点逐点建数组的分配开销。
- */
 import type { SensorCalibration } from "@/types";
 import type { DepthRaster } from "./depthmap";
 
-/**
- * 遮挡容差(米):若候选点深度比相机栅格最近深度大于该阈值,判为被前景遮挡。
- * 经验值 10cm,兼顾激光噪声 + 标定误差;不开 UI(避免用户拨错)。
- */
 export const OCCLUSION_TOL_M = 0.1;
 
-/** 一个相机的采样输入:标定 + 原图分辨率 + RGBA 像素 buffer(来自 canvas.getImageData)。 */
 export interface CameraSample {
   calib: SensorCalibration;
-  /** 原图宽高(像素);intrinsic 基于原图分辨率。 */
   width: number;
   height: number;
-  /** RGBA,长度 = width*height*4(行主序,原点左上)。 */
   data: Uint8ClampedArray;
 }
 
-/** 单点投影到相机:返回像素 (u,v) 与相机系深度(intrinsic 末行 [0,0,1] ⇒ w=z)。 */
 function projectOne(
   x: number,
   y: number,
@@ -37,7 +17,6 @@ function projectOne(
   calib: SensorCalibration,
 ): { u: number; v: number; depth: number } {
   const { extrinsic: e, intrinsic: k, rect } = calib;
-  // extrinsic 4x4 · [x,y,z,1](末行 [0,0,0,1] ⇒ 齐次 w=1,无需再除)。
   let c0 = e[0] * x + e[1] * y + e[2] * z + e[3];
   let c1 = e[4] * x + e[5] * y + e[6] * z + e[7];
   let c2 = e[8] * x + e[9] * y + e[10] * z + e[11];
@@ -49,7 +28,6 @@ function projectOne(
     c1 = r1;
     c2 = r2;
   }
-  // intrinsic 3x3 · [c0,c1,c2] → [u,v,w]。
   const uu = k[0] * c0 + k[1] * c1 + k[2] * c2;
   const vv = k[3] * c0 + k[4] * c1 + k[5] * c2;
   const ww = k[6] * c0 + k[7] * c1 + k[8] * c2;
@@ -87,20 +65,18 @@ export function colorizePoints(
     for (let c = 0; c < cameras.length; c++) {
       const cam = cameras[c];
       const { u, v, depth } = projectOne(x, y, z, cam.calib);
-      if (depth <= 0) continue; // 相机后方
-      if (u < 0 || u >= cam.width || v < 0 || v >= cam.height) continue; // 出框
-      // z-test 遮挡剔除:仅当该相机配了 raster 时执行。
+      if (depth <= 0) continue;
+      if (u < 0 || u >= cam.width || v < 0 || v >= cam.height) continue;
       const r = rasters?.[c] ?? null;
       if (r !== null) {
         const col = Math.min(r.cols - 1, Math.max(0, Math.floor(u / r.cell)));
         const row = Math.min(r.rows - 1, Math.max(0, Math.floor(v / r.cell)));
         const rasterDepth = r.depth[row * r.cols + col];
-        // 该格未命中(Infinity)⇒ 无前景参考,不判定遮挡(否则空区被误剔)。
         if (isFinite(rasterDepth) && depth - rasterDepth > OCCLUSION_TOL_M) continue;
       }
       const du = (u - cam.width / 2) / cam.width;
       const dv = (v - cam.height / 2) / cam.height;
-      const score = du * du + dv * dv; // 归一化中心距²
+      const score = du * du + dv * dv;
       if (score < bestScore) {
         bestScore = score;
         best = c;
@@ -130,10 +106,6 @@ export function colorizePoints(
   return out;
 }
 
-/**
- * 相机上色色调调整参数。中性值 = 不改色。
- * gamma > 1 提亮中间调；contrast 绕 0.5 灰点拉伸；brightness 整体平移。
- */
 export interface ColorAdjust {
   contrast: number;
   brightness: number;

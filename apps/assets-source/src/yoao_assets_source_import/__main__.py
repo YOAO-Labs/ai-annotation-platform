@@ -81,8 +81,6 @@ async def _run(*, healthcheck: bool, once: bool = False) -> None:
             except ImportFailure as exc:
                 await _handle_failure(database, state, exc)
             except Exception as exc:
-                # This can include an uncertain transaction commit; leave the lease and
-                # cursor untouched so a later worker can retry the same publication.
                 logger.warning(
                     "Dataset import stopped job=%s kind=%s",
                     state.job_id,

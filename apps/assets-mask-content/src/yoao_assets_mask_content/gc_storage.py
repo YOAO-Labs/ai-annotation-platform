@@ -102,8 +102,6 @@ class S3MaskGcStore:
                 try:
                     key_bytes = key.encode("utf-8")
                     if len(key_bytes) > gc.MAX_CURSOR_BYTES:
-                        # S3 keys are capped at 1024 UTF-8 bytes. An overlong
-                        # provider value cannot safely become the next cursor.
                         raise ValueError("physical key exceeds the cursor limit")
                     if previous is not None and key_bytes <= previous.encode("utf-8"):
                         raise ValueError("S3 scan page is not strictly ordered")
@@ -114,8 +112,6 @@ class S3MaskGcStore:
                 physical_keys.append(key)
                 previous = key
 
-                # Legacy or unrelated names are cursor progress, not deletion
-                # authority. Invalid metadata also remains safely skipped.
                 try:
                     etag = obj.get("ETag")
                     candidate = gc.GcCandidate(
@@ -172,14 +168,10 @@ class S3MaskGcStore:
                 raise gc.MaskGcFailure("storage_unavailable") from None
             if existing != request:
                 raise gc.MaskGcFailure("idempotency_conflict") from None
-            # A request marker is a one-time execution claim. A matching replay
-            # only reconciles a receipt; it never calls DeleteObject again.
             return self._status_for_claim(request, receipt_key)
         except gc.MaskGcFailure:
             raise
         except BotoCoreError:
-            # The conditional request PUT may have succeeded before its reply
-            # was lost. Leave it as a fence and never guess whether we own it.
             raise gc.MaskGcFailure("storage_unavailable") from None
         except Exception:
             raise gc.MaskGcFailure("storage_unavailable") from None
@@ -199,8 +191,6 @@ class S3MaskGcStore:
                 elif code in _PRECONDITION_FAILED or _status_code(exc) == 412:
                     outcome = "content_changed"
                 else:
-                    # A timeout or unrecognized result can follow a successful
-                    # delete. Keep the immutable request and leave it unresolved.
                     raise gc.MaskGcFailure("storage_unavailable") from None
             except BotoCoreError:
                 raise gc.MaskGcFailure("storage_unavailable") from None
@@ -234,7 +224,6 @@ class S3MaskGcStore:
                 raise gc.MaskGcFailure("invalid_response")
             return receipt
 
-        # Current object facts cannot prove an earlier in-flight delete is terminal.
         return _status(request, "indeterminate")
 
     def _inspect_payload(self, request: gc.DeleteOperationRequest) -> str:
@@ -313,8 +302,6 @@ class S3MaskGcStore:
             response = self.client.get_object(Bucket=self.bucket, Key=key)
         except ClientError as exc:
             if _error_code(exc) in _NOT_FOUND:
-                # S3 is strongly consistent; HEAD then GET disagreement is a
-                # provider/protocol failure, not a new absence result.
                 raise gc.MaskGcFailure("storage_unavailable") from None
             raise gc.MaskGcFailure("storage_unavailable") from None
         except BotoCoreError:
@@ -366,8 +353,6 @@ class S3MaskGcStore:
         except gc.MaskGcFailure:
             raise
         except BotoCoreError:
-            # Never claim the terminal status was durable when receipt PUT may
-            # have failed after the provider accepted it.
             raise gc.MaskGcFailure("storage_unavailable") from None
         except Exception:
             raise gc.MaskGcFailure("storage_unavailable") from None

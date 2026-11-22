@@ -96,9 +96,6 @@
   height: 100%;
 }
 
-/* 笔画 timeline bar (评论卡片下方迷你时间条).
-   每段 segment 颜色 = stroke 颜色, 宽度 ∝ (ended_at - started_at) / 总时长.
-   hover 段时 SVG 仅高亮对应 stroke; 移开恢复全部高亮 (CanvasDrawingPreview 内部状态). */
 .timelineWrapper {
   width: var(--canvas-drawing-preview-width, 220px);
   margin-top: 4px;

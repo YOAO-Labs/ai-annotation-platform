@@ -88,14 +88,20 @@ _RETIRED_PRODUCER_FUNCTIONS = (
     "yoao_assets_v1.reuse_fixture_screenshot_producer(uuid,uuid)",
 )
 _MEDIA_FUNCTIONS = _JOBS + _ASSETS
+_VIDEO_REQUEST_PUBLICATION = (
+    "yoao_jobs_v1.next_fixture_video_request_publication(uuid)",
+    "yoao_jobs_v1.begin_fixture_video_request_publication(uuid,uuid,uuid)",
+    "yoao_jobs_v1.finish_fixture_video_request_publication(uuid,uuid,uuid,text)",
+)
 
 
 def _receipt_functions(version):
     if type(version) is int:
+        if version == 3:
+            return _MEDIA_FUNCTIONS + _VIDEO_REQUEST_PUBLICATION
         if version == 2:
             return _MEDIA_FUNCTIONS
         if version == 1:
-            # Existing role receipts must still match their original ACL before retirement.
             return _MEDIA_FUNCTIONS + _RETIRED_PRODUCER_FUNCTIONS
     raise FixtureSetupRefused("fixture_media_secret_changed")
 
@@ -262,7 +268,7 @@ async def provision(admin_url: URL, run_id: uuid.UUID, secret_path: Path) -> URL
         receipt = _read_receipt(path)
     except FileNotFoundError:
         receipt = {
-            "schema": 2,
+            "schema": 3,
             "run_id": str(run_id),
             "database_oid": identity["database_oid"],
             "role": role_name,
@@ -330,7 +336,7 @@ async def provision(admin_url: URL, run_id: uuid.UUID, secret_path: Path) -> URL
                     f"GRANT USAGE ON SCHEMA yoao_jobs_v1,yoao_assets_v1 TO {role_sql}"
                 )
                 await connection.exec_driver_sql(
-                    f"GRANT EXECUTE ON FUNCTION {', '.join(_MEDIA_FUNCTIONS)} TO {role_sql}"
+                    f"GRANT EXECUTE ON FUNCTION {', '.join(functions)} TO {role_sql}"
                 )
                 role = await _role(connection, role_name)
             _validate_role(role, marker)
@@ -367,6 +373,22 @@ async def provision(admin_url: URL, run_id: uuid.UUID, secret_path: Path) -> URL
             ).one()
             if observed != (role_name, resources["database"]):
                 raise FixtureSetupRefused("fixture_media_role_changed")
+            if receipt["schema"] == 3:
+                denied = await connection.scalar(
+                    text(
+                        "SELECT NOT ("
+                        "pg_catalog.has_function_privilege("
+                        "'yoao_jobs_v1.begin_fixture_media_publication(uuid,uuid)','EXECUTE') OR "
+                        "pg_catalog.has_function_privilege("
+                        "'yoao_jobs_v1.finish_fixture_media_publication(uuid,uuid,text)','EXECUTE') OR "
+                        "pg_catalog.has_table_privilege("
+                        "'yoao_jobs_v1.fixture_media_deliveries','SELECT,INSERT,UPDATE,DELETE') OR "
+                        "pg_catalog.has_table_privilege("
+                        "'yoao_jobs_v1.fixture_media_publication_attempts','SELECT,INSERT,UPDATE,DELETE'))"
+                    )
+                )
+                if denied is not True:
+                    raise FixtureSetupRefused("fixture_video_publication_scope_changed")
     finally:
         await control_engine.dispose()
     return control_url
@@ -375,8 +397,8 @@ async def provision(admin_url: URL, run_id: uuid.UUID, secret_path: Path) -> URL
 async def register_native_target(
     run_id: uuid.UUID, owner, database_identity: dict
 ) -> dict:
-    """Register a physically verified output target while holding its store lock."""
-    from fixture_store import verified_native_output, verified_native_output_birth
+    """Verify and register the output target under the caller-held store lock."""
+    from fixture_store import _verified_native_output_evidence
     from fixture_suite_coordinator import _settled_thread
 
     if not isinstance(run_id, uuid.UUID):
@@ -384,8 +406,8 @@ async def register_native_target(
     owner_url, _, observed_identity = await _verified_database()
     if database_identity != observed_identity:
         raise FixtureSetupRefused("fixture_media_database_changed")
-    output = await _settled_thread(
-        verified_native_output, owner, database_identity, run_id
+    output, receipt, account = await _settled_thread(
+        _verified_native_output_evidence, owner, database_identity, run_id
     )
     if (
         not isinstance(output, dict)
@@ -417,13 +439,8 @@ async def register_native_target(
         )
     ):
         raise FixtureSetupRefused("fixture_native_cache_target_changed")
-    birth = await _settled_thread(
-        verified_native_output_birth, owner, database_identity, run_id
-    )
-    if (
-        not isinstance(birth, str)
-        or hashlib.sha256(birth.encode("utf-8")).hexdigest() != output["receipt_sha256"]
-    ):
+    birth = receipt.decode("utf-8")
+    if hashlib.sha256(receipt).hexdigest() != output["receipt_sha256"]:
         raise FixtureSetupRefused("fixture_native_birth_receipt_changed")
     from app.core.crypto import decrypt_secret, encrypt_secret
     from app.db.models.dataset_asset import StorageLocation
@@ -457,13 +474,9 @@ async def register_native_target(
                 "receipt_sha256",
             )
         )
-        or any(
-            not isinstance(reader[name], str) or not reader[name]
-            for name in ("access_key", "secret_key")
-        )
+        or any(reader[name] != account[name] for name in ("access_key", "secret_key"))
     ):
         raise FixtureSetupRefused("fixture_native_cache_target_changed")
-    account = {name: reader[name] for name in ("access_key", "secret_key")}
     connection_id = uuid.uuid5(
         uuid.NAMESPACE_URL, "fixture-native-media:" + str(run_id)
     )

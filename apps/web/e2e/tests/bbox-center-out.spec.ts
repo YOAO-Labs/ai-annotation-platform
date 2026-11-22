@@ -44,7 +44,6 @@ async function json<T>(response: APIResponse | Response): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-// Only model capability/inference responses are deterministic. Geometry and Mask writes use the API.
 const prompts = ["point", "interactive_box", "mask"];
 const inputs = ["full_image", "point_prompt", "bbox_prompt", "mask_prompt"];
 const nativeSetup = {
@@ -72,8 +71,11 @@ const nativeSetup = {
 
 const test = base.extend<{ centerCase: Case; withCandidate: boolean }>({
   withCandidate: [false, { option: true }],
-  centerCase: async ({ page, request, seed, browser, withCandidate }, provideFixture, testInfo) => {
-    const data = await seed.owned();
+  centerCase: async (
+    { page, request, seed, browser, withCandidate, owned: data },
+    provideFixture,
+    testInfo,
+  ) => {
     const taskId = data.task_ids[0];
     const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
     const project = await json<{ tool_bindings: Record<string, unknown> }>(
@@ -181,7 +183,6 @@ const test = base.extend<{ centerCase: Case; withCandidate: boolean }>({
     let passed = false;
     try {
       await provideFixture(fixture);
-      // Reload can report keepalive session telemetry as aborted after the API accepts it.
       const expectedAborts = errors.filter((error) =>
         isExpectedRequestAbort(error, imageWorkbenchAborts, objectCommentsAborts),
       );
@@ -225,8 +226,6 @@ const test = base.extend<{ centerCase: Case; withCandidate: boolean }>({
         page.removeAllListeners("requestfailed");
         page.removeAllListeners("request");
         await page.unrouteAll({ behavior: "ignoreErrors" });
-        if (!page.isClosed()) await page.goto("about:blank");
-        await seed.owned();
       }
     }
   },
@@ -295,7 +294,6 @@ async function drag(
       }, origin),
     )
     .toBe(true);
-  // Independent receipts use the real browser event coordinates, including pixel quantization.
   await page.evaluate(() => {
     const target = window as unknown as { __h1Pointer?: { down?: Point; up?: Point } };
     target.__h1Pointer = {};
@@ -457,7 +455,6 @@ test.describe("H1 center bbox creation", () => {
       saved.push(annotation);
       fixture.evidence.push({ receipt, annotation });
       if (saved.length === 1) {
-        // Collapse once: the preference persists across selections and exposes the right edge.
         const collapseSelection = page.getByRole("button", { name: "收起浮窗", exact: true });
         await collapseSelection.click();
         await expect(collapseSelection).toBeHidden();
@@ -592,8 +589,6 @@ test.describe("H1 candidate modifier compatibility", () => {
     await expect(page.getByTestId("interactive-toolbar")).toBeHidden();
     const count = page.getByTestId("interactive-candidate-count");
     await expect(count).toContainText(/1\s*\/\s*3/);
-    // The native preview owner decodes only the active mask. Modifier clicks must consume
-    // its actual foreground without adding a fresh inference prompt or bbox draft.
     await page.getByTestId("interactive-settings-trigger").hover();
     await page.getByTestId("interactive-candidate-next").click();
     await expect(count).toContainText(/2\s*\/\s*3/);

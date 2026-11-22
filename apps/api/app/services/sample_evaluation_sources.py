@@ -194,13 +194,9 @@ async def resolve_source(
             "reason": "当前源任务已删除或移出此项目；冻结样本仍保留",
         }
     async with originals.current_media(db, authority, before) as (source, media):
-        # The raw stage/permit remains owned through label work and its final
-        # checks. Its context closes every real handle before publishing JSON.
         candidate = await _compare_current(
             db, run, task_id, frozen, result, before, source, media, authority, kwargs
         )
-    # A slow physical close can outlive the label comparison. Do not publish a
-    # receipt for annotations or task state that changed while it was closing.
     final = await current_snapshot(db, run.project_id, task_id, **kwargs)
     await db.commit()
     await originals.recheck_authority(db, authority)

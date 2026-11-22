@@ -10,25 +10,19 @@ export type RasterMaskNormalizedBounds = {
 };
 
 export interface RasterMaskAlphaCrop {
-  /** Crop origin in source-image pixels. */
   x: number;
   y: number;
   width: number;
   height: number;
-  /** Row-major alpha for the cropped rectangle. */
   alpha: Uint8Array;
 }
 
 export interface RasterMaskAnalysis {
   sourceWidth: number;
   sourceHeight: number;
-  /** Number of non-zero pixels. */
   area: number;
-  /** Number of 4-connected foreground components. */
   componentCount: number;
-  /** Number of 4-connected background regions enclosed by foreground. */
   holeCount: number;
-  /** Foreground pixels touching background or the source-image edge. */
   boundaryPixelCount: number;
   bounds: RasterMaskNormalizedBounds;
   crop: RasterMaskAlphaCrop;
@@ -38,11 +32,9 @@ export interface RasterMaskPickSurface {
   sourceWidth: number;
   sourceHeight: number;
   crop: RasterMaskAlphaCrop;
-  /** Retained for exact picking when `crop.alpha` is a reduced preview. */
   rle?: CocoRle;
 }
 
-/** Shared committed-mask view model for image and video renderers. */
 export interface RasterMaskRenderRecord<
   TSource extends string = string,
 > extends RasterMaskPickSurface {
@@ -185,8 +177,6 @@ function scanRasterMaskAlpha(
       if (!activeRoots.has(root)) componentCount += 1;
     }
 
-    // Only labels represented by the current row can connect to a later row.
-    // Dropping finalized labels keeps component analysis bounded by one scanline.
     parents = new Map([...activeRoots].map((root) => [root, root]));
     previousRuns = currentRuns;
   }
@@ -203,7 +193,6 @@ function scanRasterMaskAlpha(
   };
 }
 
-/** Count 4-connected background components that do not touch the image edge. */
 function countRasterMaskHoles(alpha: Uint8Array, width: number, height: number): number {
   let nextLabel = 1;
   let holes = 0;
@@ -308,11 +297,6 @@ function normalizedBounds(
   };
 }
 
-/**
- * Analyze a row-major binary alpha plane and return its exact cropped truth.
- * Foreground connectivity defaults to 4-neighbour; hole counting remains the
- * frozen 4-neighbour contract regardless of the foreground choice.
- */
 export function analyzeRasterMaskAlpha(
   alpha: Uint8Array,
   width: number,
@@ -338,7 +322,6 @@ export function analyzeRasterMaskAlpha(
   };
 }
 
-/** Bounds-only compatibility helper for existing renderers. */
 export function rasterMaskAlphaBounds(
   alpha: Uint8Array,
   width: number,
@@ -372,7 +355,6 @@ export function buildTintedMaskRgba(alpha: Uint8Array, color: string): Uint8Clam
   return rgba;
 }
 
-/** Build a bitmap/canvas containing only the non-empty crop. */
 export async function createTintedRasterMaskImage(
   analysis: RasterMaskAnalysis,
   color: string,
@@ -387,7 +369,6 @@ export async function createTintedRasterMaskImage(
       image = await createImageBitmap(imageData);
     } catch {
       // Chromium 在大批位图并发构建或显存压力下可能暂时拒绝 createImageBitmap。
-      // 保留 Canvas2D 降级，避免整条已存 Mask 只能靠刷新恢复。
     }
   }
   if (!image) {
@@ -424,7 +405,6 @@ export function rasterMaskPreviewDimensions(
   return { width: previewWidth, height: previewHeight };
 }
 
-/** Build a max-pooled preview while preserving the exact source-space bounds. */
 export async function createTintedRasterMaskPreviewImage(
   analysis: RasterMaskAnalysis,
   color: string,
@@ -504,10 +484,6 @@ function surfaceContainsPoint(surface: RasterMaskPickSurface, point: RasterMaskP
   return crop.alpha[cropY * crop.width + cropX] > 0;
 }
 
-/**
- * Pick the highest z-order foreground pixel. Equal z-order records keep render
- * order semantics: the later input record is on top.
- */
 export function pickTopRasterMaskAt<T extends { zOrder: number }>(
   records: readonly T[],
   point: RasterMaskPoint,

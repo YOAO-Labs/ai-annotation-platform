@@ -122,9 +122,6 @@ async def _assert_inference_scope(engine, world) -> None:
         )
         assert {row["signature"] for row in rows} == {
             _FUNCTION,
-            # Inference serializes its topology writes against this Project row
-            # lock; the fix(inference) capability grant and the module-data
-            # verifier both fix project_lock as an Inference privilege.
             "yoao_workspace_v1.lock_project_reference(uuid)",
             "yoao_workspace_v1.clear_primary_backend_bindings(uuid)",
         }

@@ -89,7 +89,6 @@ def _read_boundary(call):
     @wraps(call)
     async def read(db, *args, **kwargs):
         try:
-            # Metadata reads must not flush unrelated caller-owned business work.
             with db.no_autoflush:
                 return await call(db, *args, **kwargs)
         except HTTPException as exc:
@@ -363,7 +362,6 @@ async def status(db, actor_id, claim):
 
 async def _withdraw_owner(db, actor_id, claim):
     claim = await finalizations._claim(db, actor_id, claim)
-    # Preserve the same Window -> Finalization -> Publication control order.
     await finalizations._window(db, uuid.UUID(claim["window_id"]))
     owner = await finalizations._existing(db, claim)
     if owner is None:
@@ -410,8 +408,6 @@ async def finish_withdrawal(db, actor_id, claim, expected_revision):
 
 
 async def changed_checkpoint(db, copy_id):
-    # Called with the Copy lock in the same transaction as Finalization
-    # revocation. Never reject a real ACK to preserve publication eligibility.
     await db.execute(
         update(Publication)
         .where(Publication.copy_id == copy_id, Publication.state == "active")
@@ -439,9 +435,6 @@ async def _physical(db, row, *, lock=False, expected_revision=None):
     )
     if identity != row.target:
         reject("read_publication_target_changed")
-    # This is a read snapshot inside the caller's business transaction. Avoid
-    # admission's Session.begin_nested/ensure: a savepoint would flush unrelated
-    # pending work, and durable Gate initialization belongs to the actual Permit.
     query = select(StorageMaintenanceGate.state, StorageMaintenanceGate.revision).where(
         StorageMaintenanceGate.location_id == row.target_location_id
     )
@@ -515,9 +508,6 @@ async def lookup(
         Route.object_key == object_key,
         Route.sha256 == sha256,
     ]
-    # Some frozen members retain their hash but no independent byte length.
-    # Their complete logical address and saved content hash still identify the
-    # content; the sealed mapping supplies its verified size. Never omit SHA.
     if size_bytes is not None:
         conditions.append(Route.size_bytes == size_bytes)
     if source_version_id is not ANY_VERSION:

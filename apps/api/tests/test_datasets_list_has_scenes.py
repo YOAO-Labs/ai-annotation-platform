@@ -87,10 +87,8 @@ async def test_list_datasets_data_type_filter_uses_media_kind(
     pc_ids = {item["id"] for item in pc_items}
     image_ids = {item["id"] for item in image_items}
 
-    # 查 "lidar" 与查 "point_cloud" 都命中该 point_cloud 数据集。
     assert pc_ds.id in lidar_ids
     assert pc_ds.id in pc_ids
-    # 不串到 image;image 查询也不含 point_cloud。
     assert pc_ds.id not in image_ids
     assert img_ds.id not in lidar_ids
     assert img_ds.id in image_ids

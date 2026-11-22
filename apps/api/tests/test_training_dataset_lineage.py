@@ -174,8 +174,6 @@ async def test_source_filters_page_all_frozen_members_and_reject_foreign_baselin
         identifier("source"),
         identifier("different"),
     }
-    # These IDs have never existed as live Source/Location/Task rows.
-    # Serving them proves the read is over retained frozen metadata alone.
     _, foreign = await version(db_session, owner)
     await db_session.flush()
     denied = await httpx_client.get(
@@ -295,7 +293,6 @@ def test_explicit_managed_proof_cannot_mismatch_or_expose_private_fields(bad):
 def test_managed_source_multiset_preserves_duplicates_and_mixed_reference_evidence():
     before = inputs([{"content": "same"}, {"content": "same", "task": "duplicate"}])
     attach(*before, [lineage(), lineage("another")])
-    # Keep one reference and one already frozen managed original in the same version.
     for record in before:
         record["samples"][1].pop("asset_reference", None)
         record["samples"][1].pop("source_lineage", None)

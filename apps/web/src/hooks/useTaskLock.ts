@@ -5,8 +5,6 @@ import type { TaskLockConflictDetail, TaskLockResponse } from "@/types";
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 
-// DELETE targets (task, user), not an acquisition token. Serialize even across
-// hook remounts so an old cleanup can never delete a newer same-task lock.
 const taskLockOperations = new Map<string, Promise<void>>();
 
 function enqueueLockOperation(taskId: string, operation: () => Promise<void>) {
@@ -67,8 +65,6 @@ export function useTaskLock(taskId: string | undefined, enabled = true) {
       cancelled = true;
       clearInterval(heartbeatTimer);
       clearInterval(countdownTimer);
-      // A cancelled POST may still acquire on the server. Its DELETE must finish
-      // after that POST and before a resumed session's POST, including unmount.
       releasePromise = enqueueLockOperation(tid, async () => {
         await tasksApi.releaseLockKeepalive(tid);
       });

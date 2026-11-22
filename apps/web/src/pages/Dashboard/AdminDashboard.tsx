@@ -25,7 +25,6 @@ import type { UserRole } from "@/types";
 import type { RegistrationDayPoint } from "@/api/dashboard";
 import { PageContainer } from "@/components/layout/PageContainer";
 
-// 按媒体维度 data_type 放行工作台,图像子类型(det/ocr/seg)同走图像栈,见 DashboardPage。
 const WORKBENCH_DATA_TYPES = new Set(["image", "video", "lidar"]);
 
 const CARD_HEADER_CLASS = "border-b border-border px-4 py-3.5";
@@ -45,12 +44,10 @@ export function AdminDashboard() {
   const pushToast = useToastStore((s) => s.push);
   const [searchParams, setSearchParams] = useSearchParams();
   const wizardOpen = searchParams.get("new") === "1";
-  // 从 ProjectGrid "复制项目" 跳来时携带 ?from=<id>; Wizard 据此预填.
   const wizardSourceProjectId = searchParams.get("from") || undefined;
   const [importOpen, setImportOpen] = useState(false);
 
   const recentActivity = audit?.items ?? [];
-  // The projects endpoint returns newest-created projects first.
   const recentProjects = projects.slice(0, 5);
 
   const openWizard = () => {
@@ -65,7 +62,6 @@ export function AdminDashboard() {
     setSearchParams(next, { replace: true });
   };
 
-  // B-46 · 项目行「打开」入口 — 与其它 dashboard 一致: 工作台型项目进工作台, 其余 toast 提示.
   const onOpenProject = (p: ProjectResponse) => {
     if (p.data_type && WORKBENCH_DATA_TYPES.has(p.data_type)) {
       navigate(
@@ -206,7 +202,6 @@ export function AdminDashboard() {
           <Icon name="chevRight" size={14} className="text-muted-foreground" />
         </button>
       </div>
-      {/* AI 预标注队列卡片（仅在有 pre_annotated 批次时显示） */}
       {(stats.pre_annotated_batches ?? 0) > 0 && (
         <div className="mb-3 cursor-pointer [&>*]:border [&>*]:border-border [&>*]:bg-status-info-soft">
           <Card onClick={() => navigate("/ai-pre")}>
@@ -396,7 +391,6 @@ export function AdminDashboard() {
                                 <Icon name="settings" size={13} />
                                 设置
                               </Button>
-                              {/* B-46 · 「打开」入口 — 进工作台标注界面（样式与项目总览统一） */}
                               <Button
                                 size="sm"
                                 onClick={(e) => {
@@ -593,7 +587,6 @@ function RegistrationSourceBar({ point, peak }: { point: RegistrationDayPoint; p
   );
 }
 
-// ML 后端状态 + 预测成本联合卡片
 function MLBackendsAndCostCard({
   backendsTotal,
   backendsConnected,

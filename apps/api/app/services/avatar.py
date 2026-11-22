@@ -32,12 +32,10 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID
 PRESET_PREFIX = "preset:"
 UPLOAD_PREFIX = "upload:"
 
-# 严格白名单顺带挡掉路径穿越（/ . ? #）与任意字符串进入 <img src>。
 _PRESET_SLUG_RE = re.compile(r"[a-z0-9-]{1,40}")
 _UPLOAD_TOKEN_RE = re.compile(r"[0-9a-f]{32}")
 _SAVED_VERSION = object()
 
-# 头像按 24h 强缓存；token 每次上传都是新的,故不存在 stale 问题。
 AVATAR_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800"
 
 

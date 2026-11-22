@@ -52,8 +52,6 @@ from app.services.labeling_core_read_relations import (
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
-#: Platform roles allowed to use feedback endpoints.  Project responsibility is
-#: resolved from the membership; legacy global staff roles are not allowed.
 _ALL = (
     PlatformRole.SUPER_ADMIN,
     PlatformRole.PROJECT_ADMIN,
@@ -220,7 +218,6 @@ async def list_feedbacks(
             allowed_task_ids=allowed_task_ids,
             root_only=root_only,
         )
-    # 一次解析全部 author
     author_ids = {r.author_id for r in rows}
     briefs = await resolve_briefs(db, list(author_ids))
     items: list[AnnotationFeedbackOut] = []
@@ -290,8 +287,6 @@ async def get_feedback_thread(
     if root_entry.thread_parent_id is not None:
         raise HTTPException(status_code=404, detail="feedback thread is unavailable")
     if root_entry.kind == "comment" and root_entry.anchor_type == "annotation":
-        # These rows are legacy annotation-comment mirrors.  Their source of
-        # truth remains /comments; they must never become Issue threads.
         raise HTTPException(status_code=404, detail="feedback thread is unavailable")
     workflow = AnnotationFeedbackWorkflow(db)
     try:

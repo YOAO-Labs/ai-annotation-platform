@@ -1,3 +1,2 @@
-# Shared storage for the optional inference plugin overlays.
 volumes:
   yolo_checkpoints:

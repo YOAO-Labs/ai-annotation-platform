@@ -1,9 +1,3 @@
-/**
- * ClassEditor
- *
- * 从 ClassesSection 抽出的受控组件：颜色 + 排序 + 删除 + 新增。
- * 由 ClassesSection（保存按钮的薄外壳）和 CreateProjectWizard（向导步骤）共用。
- */
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -12,32 +6,23 @@ import { classColor } from "@/pages/Workbench/stage/colors";
 import type { ClassRefLite } from "./resolveClassVisual";
 import { cn } from "@/lib/utils";
 
-// UA-safe 表单基线 + token 化(无全局 preflight)。
 const CONTROL_CLASS =
   "box-border appearance-none rounded-sm border border-border bg-muted px-2 py-1.5 text-sm text-foreground outline-none [font-family:inherit]";
 
 export interface ClassRow {
   name: string;
   color: string;
-  /** 英文 alias，供 SAM 文本预标 prompt 下拉直填。ASCII-only / max 50 字符。 */
   alias?: string;
-  /** alias_to 软关联: 链接到另一工具单位的类，继承其 color/alias。null/缺省 = 不继承。 */
   aliasTo?: ClassRefLite | null;
 }
 
 const ALIAS_PATTERN = /^[a-zA-Z0-9 ,_-]*$/;
 
-/** 与后端 ClassConfigEntry._normalize_alias 等价的前端实现.
- * blur 时规范化, 让所见即所得 + DINO 召回更稳; 后端 field_validator 兜底.
- */
 function normalizeAlias(raw: string): string {
   let s = raw.toLowerCase().trim();
   if (!s) return s;
-  // 折叠 [空白+逗号]+ 为单 ","; "a , , b" → "a,b"
   s = s.replace(/\s*,[\s,]*/g, ",");
-  // 折叠多重空格
   s = s.replace(/\s+/g, " ");
-  // 去掉首尾遗留逗号
   s = s.replace(/^,+|,+$/g, "").trim();
   return s;
 }
@@ -67,20 +52,13 @@ interface Props {
   className?: string;
   value: ClassRow[];
   onChange: (next: ClassRow[]) => void;
-  /** 限定最大数量（向导限 50 防止失误）；0 = 无限制 */
   max?: number;
   emptyHint?: string;
-  /** B-13 · 重命名类别 (会同步迁移已有 annotations); 不提供则名称只读. */
   onRename?: (oldName: string, newName: string) => void;
-  /** 外部正在跑 rename 时禁用编辑. */
   renaming?: boolean;
-  /** 删除前确认；返回 false 时取消删除。 */
   onConfirmDelete?: (row: ClassRow) => boolean | Promise<boolean>;
-  /** 可链接的跨工具单位类目标 (按 unit 分组)；为空 / 省略则不显示 alias_to 链接 UI。 */
   linkTargets?: { unitId: string; unitLabel: string; classNames: string[] }[];
-  /** 解析某 aliasTo 引用的继承 color/alias (供链接行只读预览)。 */
   resolveLinked?: (ref: ClassRefLite) => { color?: string; alias?: string };
-  /** 设置 / 清除某行链接；ref=null 清除。 */
   onLink?: (rowName: string, ref: ClassRefLite | null) => void;
 }
 
@@ -98,7 +76,6 @@ export function ClassEditor({
   onLink,
 }: Props) {
   const [classInput, setClassInput] = useState("");
-  // B-13 · 行内重命名: 记录每行的草稿名 (key 用稳定的 row.name 作 baseline; 提交时与原名比对决定是否调 onRename).
   const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({});
   const pushToast = useToastStore((s) => s.push);
 
@@ -113,7 +90,6 @@ export function ClassEditor({
   const setColor = (i: number, color: string) =>
     onChange(value.map((r, idx) => (idx === i ? { ...r, color } : r)));
   const setAlias = (i: number, raw: string) => {
-    // 输入时若含非 ASCII 提示一次 (沿用 pattern 拒绝, toast 友好提示).
     if (!ALIAS_PATTERN.test(raw)) {
       try {
         if (!sessionStorage.getItem("cfg:aliasAsciiHinted")) {
@@ -133,7 +109,6 @@ export function ClassEditor({
     onChange(value.map((r, idx) => (idx === i ? { ...r, alias } : r)));
   };
 
-  /** onBlur 触发规范化: lower / strip / 折叠空格逗号; 与后端 schema 保持一致. */
   const normalizeAliasOnBlur = (i: number) => {
     const cur = value[i]?.alias ?? "";
     if (!cur) return;
@@ -186,7 +161,6 @@ export function ClassEditor({
       )}
 
       {value.length > 0 && (
-        // Let constrained dialogs shrink the list while keeping the add controls visible.
         <div className="flex min-h-0 max-h-[1150px] flex-col gap-2.5 overflow-y-auto pr-0.5">
           {value.map((r, i) => {
             const linked = !!r.aliasTo;

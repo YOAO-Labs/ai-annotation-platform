@@ -308,8 +308,6 @@ async def _infer(execution, attempt, prepared, session_factory):
             if image_proof is not None:
                 owner = _reference_retry_owner(db, attempt, image_proof, task)
                 await owner.authorize(db)
-                # Source admission and snapshot transfer are independent I/O;
-                # no business lock is held while the backend fetches the input.
                 retained_inputs = await owner.open_inputs(task, session_factory)
                 input_url = owner.resolve_url(task)
             elif video_proof is not None:
@@ -452,9 +450,6 @@ async def _infer(execution, attempt, prepared, session_factory):
             if owner is not None and video_proof is not None:
                 await owner.finish_source(task.id)
             if owner is not None and video_proof is None:
-                # Recheck the retained source/credentials after inference and
-                # before sealing the raw snapshot. The writer session re-opens
-                # the same owner and issues the receipt it can actually apply.
                 await owner.validate(task)
             first = _one_result(output.results, task_id)
             extra = dict(thaw_json(output.extra) if output.extra is not None else {})
@@ -505,7 +500,6 @@ async def _infer(execution, attempt, prepared, session_factory):
         "gpu_arbiter_failures": [],
     }
     await execution.capture(1, (request,), stage="raw", context=raw_context)
-    # Temporary source verification failure cannot discard the completed model output.
     if owner is not None:
         return
     if prepared.accepted_video_failure is not None:
@@ -657,8 +651,6 @@ async def _apply_snapshot(execution, attempt, data, session_factory, result, req
                 )
                 await PredictionService(db).apply_prediction_result_bundle(writes)
                 if owner is not None and payload.get("video_prediction_authority"):
-                    # The video owner's credentials outlive inference; recheck
-                    # them in the transaction that publishes the result.
                     await owner.recheck_credentials()
                 finished = await call_retry(
                     SqlAlchemyPredictionRetryData(db, writer=True),

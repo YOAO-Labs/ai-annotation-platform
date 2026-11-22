@@ -330,7 +330,7 @@ def verify_pyramid_tiles(
     """Verify every expected WEBP tile and reject missing or extra grid files."""
     try:
         from PIL import Image
-    except ImportError as exc:  # Pillow is a declared API dependency
+    except ImportError as exc:
         raise ImageProcessingError("generator_unavailable") from exc
 
     levels = pyramid_levels(width, height)

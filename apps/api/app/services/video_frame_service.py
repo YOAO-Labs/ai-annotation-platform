@@ -65,9 +65,6 @@ class VideoContext:
     def task_id(self) -> uuid.UUID | None:
         return self.task.id if self.task else None
 
-    # Source facts consumed by segment and tracking workflows. They come from
-    # the same Assets public projection as the request context, never a second
-    # ORM read.
     @property
     def dataset_item_id(self) -> uuid.UUID:
         return self.item.id
@@ -241,8 +238,6 @@ async def authorize_context(db, task, actor, request) -> VideoContext:
         raise HTTPException(400, "Task is not a video task")
     authority = await originals.authorize(db, task.id, actor, request)
     item = _ensure_video_item(await _public_video_item(db, task.dataset_item_id))
-    # Legacy mutable metadata is not a prerequisite for loading an owned
-    # generation. Pure metadata-only constructors retain their existing view.
     return VideoContext(
         item=item,
         metadata=VideoMetadata(),
@@ -270,8 +265,6 @@ def _repairable(exc: Exception) -> bool:
 
 async def _metadata_preparing(db, ctx, *, force=False):
     current = await derivatives.row(db, DatasetItem, ctx.item.id)
-    # Concurrent requests reuse the existing building attempt while preserving
-    # the active metadata generation until publication.
     force = force and current.video_building_output_id is None
     output, enqueue = await derivatives.prepare(
         db, ctx.item.id, ctx.authority, "metadata", spec={"schema": 1}, force=force
@@ -341,11 +334,17 @@ async def _prepare(db, ctx, kind, spec, *, force=False):
     output, enqueue = await derivatives.prepare(
         db, ctx.item.id, ctx.authority, kind, spec=spec, force=force
     )
-    slot = await _slot(db, ctx, kind, spec)
-    slot.last_accessed_at = _now()
     if output.state == "ready":
+        slot = await derivatives._slot(
+            db, ctx.item, kind, spec, lock=True, write=True, wait=True
+        )
+        if slot is None:
+            raise ContentError("video_derivative_generation_changed")
         try:
-            output = await derivatives.ready_output(db, slot, ctx.authority)
+            output = await derivatives.ready_output(
+                db, slot, ctx.authority, expected_output_id=output.id
+            )
+            slot.last_accessed_at = _now()
         except (ContentError, physical.VideoDerivativeStorageError) as exc:
             if not _repairable(exc):
                 raise
@@ -353,12 +352,11 @@ async def _prepare(db, ctx, kind, spec, *, force=False):
             output, enqueue = await derivatives.prepare(
                 db, ctx.item.id, ctx.authority, kind, spec=spec, force=True
             )
-    return objects.snapshot(output), enqueue
+    receipt = objects.snapshot(output)
+    return receipt, enqueue and receipt.fixture_request_versions is None
 
 
 async def _replacement(db, ctx, output):
-    # A physical cache failure does not authorize replacing a different current
-    # attempt or crossing a changed source, metadata generation or Gate.
     await derivatives.check(db, output, ctx.authority)
     replacement, enqueue = await _prepare(db, ctx, output.kind, output.spec, force=True)
     return replacement, enqueue
@@ -436,8 +434,6 @@ async def _warmup_specs(db, ctx, requested):
 
 
 async def _finish_batch(db, ctx, outputs, results, queue):
-    # Earlier assets in a batch must still refer to the current generation when
-    # later verification completes. No physical operation runs under these locks.
     await derivatives.check(db, ctx.generation, ctx.authority)
     for output, result in zip(outputs, results, strict=True):
         if result.status == "ready":
@@ -455,8 +451,6 @@ async def _chunks(db, ctx, chunk_ids):
         output, enqueue = await _prepare(
             db, ctx, "chunk", derivatives.chunk_spec(ctx.generation, identifier)
         )
-        # Each durable attempt releases its Item/source locks before the next
-        # slot. The final batch fence still decides delivery and dispatch.
         await db.commit()
         requested.append(output)
         if enqueue:
@@ -505,8 +499,6 @@ async def _frames(db, ctx, indices, width, format_, *, force=False):
             derivatives.frame_spec(ctx.generation, index, width, format_),
             force=force,
         )
-        # A prefetch may contain hundreds of slots. Retain committed ownership,
-        # rather than one Item UPDATE lock, across the rest of that batch.
         await db.commit()
         outputs.append(output)
         if enqueue:
@@ -631,12 +623,16 @@ async def chunk_samples(db, ctx, chunk_id, *, expected_output_id=None):
         raise HTTPException(404, "samples_not_available")
     output, enqueue = await _prepare(db, ctx, "chunk", spec)
     if expected_output_id is not None and output.id != expected_output_id:
-        prepared = await derivatives.prepare_dispatch(db, [output.id]) if enqueue else []
+        prepared = (
+            await derivatives.prepare_dispatch(db, [output.id]) if enqueue else []
+        )
         await db.commit()
         await derivatives.publish_dispatch(prepared)
         raise ContentError("video_derivative_generation_changed")
     if output.state != "ready":
-        prepared = await derivatives.prepare_dispatch(db, [output.id]) if enqueue else []
+        prepared = (
+            await derivatives.prepare_dispatch(db, [output.id]) if enqueue else []
+        )
         await db.commit()
         await derivatives.publish_dispatch(prepared)
         raise ContentError("video_derivative_not_ready")
@@ -644,14 +640,15 @@ async def chunk_samples(db, ctx, chunk_id, *, expected_output_id=None):
     if "samples" not in diagnostics:
         raise HTTPException(404, "samples_not_available")
     await db.commit()
-    # Sample offsets describe this exact immutable chunk, including its bytes.
     try:
         await derivatives.verified(db, output, ctx.authority, relative="chunk.mp4")
     except (ContentError, physical.VideoDerivativeStorageError) as exc:
         if not _repairable(exc):
             raise
         replacement, enqueue = await _replacement(db, ctx, output)
-        prepared = await derivatives.prepare_dispatch(db, [replacement.id]) if enqueue else []
+        prepared = (
+            await derivatives.prepare_dispatch(db, [replacement.id]) if enqueue else []
+        )
         await db.commit()
         await derivatives.publish_dispatch(prepared)
         raise ContentError("video_derivative_not_ready") from None
@@ -787,12 +784,6 @@ def image_bytes_to_array(data: bytes) -> Any:
         return np.asarray(img.convert("RGB"))
 
 
-# ── 视频帧逻辑采样网格 helper (纯函数, 供导出 / 前端共用) ──────
-#
-# 采样只是项目级导航/打点网格的视图层 (决策 D1/D2): frame_index 永远是源视频
-# 帧号, 这里只从配置派生「步长 step」与「采样帧列表」。算法见计划 §1。
-
-
 def derive_step(source_fps: float | None, sampling: dict) -> int:
     """从采样配置派生网格步长 step (源帧空间), 最小为 1。
 
@@ -822,17 +813,6 @@ def derive_sampled_frames(frame_count: int, step: int) -> list[int]:
         return []
     step = max(1, int(step))
     return list(range(0, frame_count, step))
-
-
-# ── 长视频 sparse timetable helper（纯函数）──────────────────────────
-#
-# 超长视频不必给每帧都存一行 VideoFrameIndex(frame_index, pts_ms)。改成 sparse:
-# 只持久化「锚点帧」(stride 网格上的真值 pts_ms), 中间帧的 pts_ms 由相邻锚点线性
-# 插值得到; 落在锚点范围外则退化为 fps 估算 (沿用 _estimated_pts_ms 的语义)。
-#
-# 对外契约不变 (决策 D2): frame_index 永远是源视频帧号; pts_ms_for_frame 命中
-# DB 真值优先, miss 时落到 fps 估算。本 helper 只是给「无 DB 全帧表」的 sparse
-# 写入路径提供一个可单测的纯函数。锚点本身仍存进 VideoFrameIndex (无需新表)。
 
 
 def derive_anchor_frames(frame_count: int, stride: int) -> list[int]:
@@ -892,7 +872,6 @@ def resolve_pts_ms_sparse(
     first_f, first_pts = anchors[0]
     last_f, last_pts = anchors[-1]
 
-    # 范围外: 从最近端锚点按 fps 外推
     if frame_index <= first_f:
         if frame_index == first_f:
             return first_pts
@@ -906,7 +885,6 @@ def resolve_pts_ms_sparse(
             return None
         return int(round(last_pts + ((frame_index - last_f) / fps) * 1000))
 
-    # 范围内: 找到 bracketing 锚点 (lo < frame_index <= hi) 做线性插值
     lo_f, lo_pts = first_f, first_pts
     for f, pts in anchors:
         if f == frame_index:
@@ -920,9 +898,6 @@ def resolve_pts_ms_sparse(
             return int(round(lo_pts + ratio * (hi_pts - lo_pts)))
         lo_f, lo_pts = f, pts
     return last_pts
-
-
-# ── chunk warmup look-ahead 选择（纯函数）─────────────────────────────
 
 
 def warmup_chunk_ids(

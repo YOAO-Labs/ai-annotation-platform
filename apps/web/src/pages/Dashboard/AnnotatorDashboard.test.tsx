@@ -1,10 +1,3 @@
-/**
- * AnnotatorDashboard 单测：加载态 / 空项目 / hour_buckets 直方图渲染 /
- * formatMs 边界 / sortedProjects 排序。
- *
- * 用 vi.mock 拦截 hooks（useAnnotatorStats / useProjects / useMyBatches）避免
- * 引入 react-query / MSW 依赖。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -23,7 +16,6 @@ vi.mock("@/hooks/useDashboard", () => ({
 vi.mock("@/hooks/useProjects", () => ({
   useProjects: () => mockUseProjects(),
 }));
-// MyBatchesCard 内部用 useQueryClient，避免引入 QueryClientProvider，整体 mock 掉。
 vi.mock("./MyBatchesCard", () => ({
   MyBatchesCard: () => <div data-testid="my-batches-card-stub" />,
 }));
@@ -209,7 +201,6 @@ describe("AnnotatorDashboard", () => {
     mockUseProjects.mockReturnValue({ data: [] });
     const { container } = renderUI();
     expect(screen.getByText("今日专注时段分布")).toBeInTheDocument();
-    // bar 都有 borderRadius "2px 2px 0 0"
     const bars = Array.from(container.querySelectorAll("div")).filter(
       (el) => (el as HTMLElement).style.borderRadius === "2px 2px 0 0",
     );
@@ -231,12 +222,9 @@ describe("AnnotatorDashboard", () => {
     mockUseAnnotatorStats.mockReturnValue({ data: fullStats, isLoading: false });
     mockUseProjects.mockReturnValue({ data: [] });
     renderUI();
-    // 产能
     expect(screen.getByText("待标任务")).toBeInTheDocument();
     expect(screen.getByText("5")).toBeInTheDocument();
-    // 质量原创比例
     expect(screen.getByText("92.5%")).toBeInTheDocument();
-    // 投入活跃时长
     expect(screen.getByText("42m")).toBeInTheDocument();
     expect(screen.getByText("7天")).toBeInTheDocument();
   });
@@ -246,13 +234,11 @@ describe("AnnotatorDashboard", () => {
     mockUseAnnotatorStats.mockReturnValue({ data: s, isLoading: false });
     mockUseProjects.mockReturnValue({ data: [] });
     renderUI();
-    // 至少 3 个 — 占位（活跃 / streak / rejected_rate 等可能 null 的）
     const dashes = screen.getAllByText("—");
     expect(dashes.length).toBeGreaterThanOrEqual(2);
   });
 
   it("median_duration_ms < 60s → 显示 X.Xs，>= 60s → XmYYs", () => {
-    // < 60s
     let s = { ...fullStats, median_duration_ms: 45000 };
     mockUseAnnotatorStats.mockReturnValue({ data: s, isLoading: false });
     mockUseProjects.mockReturnValue({ data: [] });
@@ -260,7 +246,6 @@ describe("AnnotatorDashboard", () => {
     expect(screen.getByText("45.0s")).toBeInTheDocument();
     unmount();
 
-    // >= 60s
     s = { ...fullStats, median_duration_ms: 125000 };
     mockUseAnnotatorStats.mockReturnValue({ data: s, isLoading: false });
     mockUseProjects.mockReturnValue({ data: [] });
@@ -278,7 +263,7 @@ describe("AnnotatorDashboard", () => {
         type_label: "图像检测",
         total_tasks: 10,
         completed_tasks: 8,
-      }, // 剩 2
+      },
       {
         id: "b",
         my_project_role: "annotator",
@@ -287,7 +272,7 @@ describe("AnnotatorDashboard", () => {
         type_label: "图像检测",
         total_tasks: 10,
         completed_tasks: 0,
-      }, // 剩 10
+      },
       {
         id: "c",
         my_project_role: "annotator",
@@ -296,15 +281,15 @@ describe("AnnotatorDashboard", () => {
         type_label: "图像检测",
         total_tasks: 10,
         completed_tasks: 5,
-      }, // 剩 5
+      },
     ];
     mockUseAnnotatorStats.mockReturnValue({ data: fullStats, isLoading: false });
     mockUseProjects.mockReturnValue({ data: projects });
     renderUI();
     const rows = screen.getAllByText(/^[ABC]$/);
-    expect(rows[0].textContent).toBe("B"); // 剩 10
-    expect(rows[1].textContent).toBe("C"); // 剩 5
-    expect(rows[2].textContent).toBe("A"); // 剩 2
+    expect(rows[0].textContent).toBe("B");
+    expect(rows[1].textContent).toBe("C");
+    expect(rows[2].textContent).toBe("A");
   });
 
   it("only offers annotation entries for annotator memberships", () => {

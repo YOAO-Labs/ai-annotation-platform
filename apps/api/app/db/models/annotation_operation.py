@@ -54,8 +54,6 @@ class AnnotationOperation(Base):
         ForeignKey("tasks.id", ondelete="CASCADE"),
         nullable=False,
     )
-    # Durable soft reference: deleting/deactivating a user must not erase the
-    # idempotency and lineage ledger.
     actor_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, index=True
     )

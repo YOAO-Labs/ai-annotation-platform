@@ -70,7 +70,6 @@ class DestinationStorage:
         if target.destination is None:
             if target.bucket != self.bucket:
                 raise DestinationWriteError("destination target is not configured")
-            # The caller owns the platform client for its whole process.
             yield self._client
             return
         client = self._build_client(target)
@@ -242,7 +241,6 @@ class DestinationStorage:
         )
 
 
-
 def _writer_failure(exc: managed_original.WriterError) -> DestinationWriteError:
     error = DestinationWriteError(exc.code)
     error.outcome = exc.outcome
@@ -379,8 +377,6 @@ def _create_client(
         config=BotoConfig(
             connect_timeout=config.s3_connect_timeout_seconds,
             read_timeout=config.s3_read_timeout_seconds,
-            # One durable intent represents one submission, including when the
-            # provider loses its response. Never let the SDK repeat completion.
             retries={"total_max_attempts": 1, "mode": "standard"},
             proxies={},
         ),

@@ -25,7 +25,6 @@ class WorkspaceTemplateQueryData:
     @asynccontextmanager
     async def transaction(self):
         self._policy_checked = False
-        # The caller owns pending work, commits and rollbacks.
         yield self
 
     async def step(self, request, action, parameters=None, filters=None):

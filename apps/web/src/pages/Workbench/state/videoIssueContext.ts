@@ -7,7 +7,6 @@ const finite = (value: unknown): value is number =>
 const frame = (value: unknown): value is number =>
   finite(value) && Number.isInteger(value) && value >= 0;
 
-/** Unknown or corrupt snapshots fall back to the original pixel/source-frame anchor. */
 export function readVideoIssueContext(issue: AnnotationFeedback): FeedbackVideoContext | null {
   const value = issue.anchor_position?.video_context;
   if (issue.anchor_type !== "pixel" || !frame(issue.anchor_position?.frame)) return null;

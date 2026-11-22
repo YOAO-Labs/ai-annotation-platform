@@ -1,12 +1,3 @@
-/**
- * RegisterPage 单测：开放注册 / 邀请注册 双形态。
- * - 已登录跳 dashboard
- * - 注册未开放空态
- * - 密码强度校验各项
- * - 两次密码不一致
- * - 提交流（OpenRegister / InviteRegister）
- * - 邀请 token 失效（404 / 410）
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
@@ -157,7 +148,6 @@ describe("RegisterPage / OpenRegisterForm", () => {
     fireEvent.change(pwds[0], { target: { value: "abc" } });
     expect(screen.getByText(/✗ 至少 8 位/)).toBeInTheDocument();
     expect(screen.getByText(/✗ 含大写字母/)).toBeInTheDocument();
-    // "abc" 全小写 → lowercase ✓；length / uppercase / digit 失败
     expect(screen.getByText(/✓ 含小写字母/)).toBeInTheDocument();
     expect(screen.getByText(/✗ 含数字/)).toBeInTheDocument();
   });
@@ -189,11 +179,10 @@ describe("RegisterPage / OpenRegisterForm", () => {
   it("有效填写 → 提交调用 openRegister.mutate", () => {
     renderUI();
     const inputs = document.querySelectorAll("input");
-    fireEvent.change(inputs[0], { target: { value: "x@y.com" } }); // email
-    fireEvent.change(inputs[1], { target: { value: "Tom" } }); // name
+    fireEvent.change(inputs[0], { target: { value: "x@y.com" } });
+    fireEvent.change(inputs[1], { target: { value: "Tom" } });
     fillPwd("Abcdef12");
     fireEvent.click(screen.getByText("注册"));
-    // payload 增加 captcha_token（VITE_TURNSTILE_SITE_KEY 缺省时为 null）
     expect(mockOpenRegister.mutate).toHaveBeenCalledWith(
       {
         email: "x@y.com",
@@ -323,7 +312,7 @@ describe("RegisterPage / InviteRegisterForm", () => {
     );
     renderUI("/register?token=abc");
     const inputs = document.querySelectorAll("input");
-    fireEvent.change(inputs[0], { target: { value: "Bob" } }); // name
+    fireEvent.change(inputs[0], { target: { value: "Bob" } });
     fillPwd("Abcdef12");
     fireEvent.click(screen.getByText("完成注册并登录"));
     expect(mockRegister.mutate).toHaveBeenCalledWith(
@@ -354,7 +343,6 @@ describe("RegisterPage / InviteRegisterForm", () => {
       expires_at: "2030-01-01",
     };
     mockRegister.mutate = vi.fn((_args, opts) => {
-      // Auth adoption clears the anonymous cache; the token is now consumed.
       Object.assign(mockResolve, {
         data: undefined,
         isError: true,
@@ -392,7 +380,7 @@ describe("RegisterPage / InviteRegisterForm", () => {
       expires_at: new Date(Date.now() + 86400000).toISOString(),
     };
     renderUI("/register?token=abc");
-    fillPwd("weakpwd"); // 不合规
+    fillPwd("weakpwd");
     fireEvent.click(screen.getByText("完成注册并登录"));
     expect(mockRegister.mutate).not.toHaveBeenCalled();
   });

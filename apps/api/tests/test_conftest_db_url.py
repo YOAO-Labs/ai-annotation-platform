@@ -39,7 +39,7 @@ def _force_derived_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_explicit_env_override_wins(monkeypatch: pytest.MonkeyPatch):
     url = "postgresql+asyncpg://owner:pw@localhost:5433/yoao_wt_abcdef_test"
     monkeypatch.setenv("TEST_DATABASE_URL", url)
-    _use_broken_settings(monkeypatch, _ExplodingSettings())  # settings must not be read
+    _use_broken_settings(monkeypatch, _ExplodingSettings())
     assert _resolve_test_db_url() == url
 
 
@@ -71,7 +71,6 @@ def test_derived_url_fixes_annotation_test_and_keeps_password(
     )
     resolved = _resolve_test_db_url()
     assert resolved.endswith("annotation_test")
-    # render_as_string(hide_password=False)：派生串必须保留真实密码，否则连不上。
     assert "s3cret" in resolved
     assert "db.internal:5433" in resolved
 
@@ -95,11 +94,11 @@ def test_malformed_settings_url_raises_without_fallback(
 @pytest.mark.parametrize(
     "bad_url",
     [
-        "postgresql+asyncpg://user:pw@localhost:5432/annotation_dev",  # 非 _test 后缀
-        "postgresql+asyncpg://user:pw@localhost:5432/annotation",  # 无后缀
-        "postgresql+asyncpg://user:pw@localhost:5432/",  # 空库名
-        "sqlite+aiosqlite:///./t_test.db",  # 非 postgres 驱动
-        "postgresql+asyncpg://user:sup3rsecret@host:notaport/db_test",  # 畸形 URL
+        "postgresql+asyncpg://user:pw@localhost:5432/annotation_dev",
+        "postgresql+asyncpg://user:pw@localhost:5432/annotation",
+        "postgresql+asyncpg://user:pw@localhost:5432/",
+        "sqlite+aiosqlite:///./t_test.db",
+        "postgresql+asyncpg://user:sup3rsecret@host:notaport/db_test",
     ],
 )
 def test_invalid_targets_rejected(bad_url: str):
@@ -114,7 +113,6 @@ def test_malformed_url_error_does_not_leak_credentials():
     message = str(excinfo.value)
     assert "sup3rsecret" not in message
     assert bad not in message
-    # 异常链被抑制：traceback 不会展示含凭据的底层解析错误。
     assert excinfo.value.__suppress_context__ is True
     assert excinfo.value.__cause__ is None
 

@@ -54,7 +54,6 @@ async def test_agent_scan_preflight_confirm_and_authorized_original_share_existi
         "cache_policy": "none",
     }
     world.source.config = {**world.source.config, "cache_policy": "none"}
-    # Replace the generic fixture's synthetic probe before this real root is qualified.
     await db.execute(
         delete(StorageLocationProbe).where(
             StorageLocationProbe.location_id == location_id
@@ -83,8 +82,6 @@ async def test_agent_scan_preflight_confirm_and_authorized_original_share_existi
             async def acquired(
                 session, where, purpose, *, expected_revision=None, node_id=None
             ):
-                # A SAVEPOINT fixture cannot commit the independent operation's
-                # closure to another connection. Real admission has its own tests.
                 revision = await transport.storage_access.check(
                     session, where, expected_revision=expected_revision
                 )

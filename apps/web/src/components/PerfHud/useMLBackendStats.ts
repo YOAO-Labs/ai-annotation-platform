@@ -25,8 +25,6 @@ export interface BackendSnapshot {
     gpu_utilization_percent?: number | null;
     gpu_temperature_celsius?: number | null;
     gpu_power_watts?: number | null;
-    // 老 gsam2 backend 把 image/video pool loaded 数量注入 gpu_info 兜底;
-    // 优先使用 pool/video_pool.current_size；缺失时回退到 gpu_info。
     image_pool_loaded_variants?: unknown[] | null;
     video_pool_loaded_variants?: unknown[] | null;
   } | null;
@@ -59,7 +57,6 @@ export interface BackendSnapshot {
     active_sessions?: number | null;
     idle_seconds?: number | null;
   } | null;
-  /** 有效计算设备观测 (GPU 静默退回 CPU 告警用)。 */
   compute?: MLBackendCompute | null;
   timestamp?: string;
 }
@@ -71,7 +68,7 @@ export interface BackendHistory {
   mem: number[];
 }
 
-const RING_BUFFER_SIZE = 60; // 60 帧 * 1s = 60s window
+const RING_BUFFER_SIZE = 60;
 
 function pushRing(arr: number[], v: number): number[] {
   const next = arr.length >= RING_BUFFER_SIZE ? arr.slice(1) : arr.slice();
@@ -83,10 +80,6 @@ function snapshotKey(snap: BackendSnapshot): string {
   return snap.physical_key || snap.backend_id;
 }
 
-/**
- * PerfHud · 订阅 /ws/ml-backend-stats, 维护 60s ring buffer.
- * 仅在 PerfHud 浮窗 visible 时建连; 关闭即断 (节省后端 1s pull).
- */
 export function useMLBackendStats() {
   const token = useAuthStore((s) => s.token);
   const visible = usePerfHudStore((s) => s.visible);
@@ -102,8 +95,6 @@ export function useMLBackendStats() {
       setStatus("idle");
       return;
     }
-    // ws_router 在 main.py 无 prefix 注册, 路径直接是 /ws/ml-backend-stats (与 /ws/prediction-jobs 一致).
-    // host/proto 拼接迁到 buildWsUrl helper.
     const url = buildWsUrl("/ws/ml-backend-stats", { token });
     let ws: WebSocket | null;
     setStatus("connecting");
@@ -119,7 +110,6 @@ export function useMLBackendStats() {
         const msg = JSON.parse(e.data);
         if (msg?.type === "ping") return;
         if (!Array.isArray(msg?.backends)) return;
-        // 节流: 同一秒内多帧只取首条 (后端 1s 触发 1 次, 这层是兜底)
         const now = Date.now();
         if (now - lastTickRef.current < 500) return;
         lastTickRef.current = now;
@@ -157,9 +147,6 @@ export function useMLBackendStats() {
       }
     };
     ws.onclose = (event) => {
-      // starlette WebSocket 在 accept 前 close() 会以 HTTP 403 拒绝握手 (浏览器看到 1006).
-      // 1008 = policy violation (accept 后 close); 1006 abnormal closure (常见鉴权失败).
-      // 用 status === connecting 时收到 close 当作 auth_failed (没握手成功过).
       setStatus((s) => {
         if (event.code === 1008) return "auth_failed";
         if (s === "connecting") return "auth_failed";

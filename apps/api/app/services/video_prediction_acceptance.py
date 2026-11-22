@@ -28,8 +28,9 @@ from app.services import video_prediction_references as references
 from app.services.content_snapshot import ContentError
 from app.services.dataset_content import key_authority
 from app.services.labeling_core_read_relations import (
+    VideoTaskDecisionBusy,
     annotation_row,
-    lock_task_for_core_read,
+    lock_task_for_video_decision,
     prediction_meta_row,
     prediction_row,
 )
@@ -164,8 +165,6 @@ def _evidence(value):
 def _metadata(extra):
     if not isinstance(extra, dict):
         _reject()
-    # Retry may append its superseding candidate after publication. That field
-    # is checked as current state, while all original metadata stays frozen.
     return {
         key: value
         for key, value in extra.items()
@@ -467,6 +466,13 @@ def _without_version(binding):
     return {key: value for key, value in binding.items() if key != "version"}
 
 
+async def _lock_decision_task(db, task_id, project_id):
+    try:
+        return await lock_task_for_video_decision(db, task_id, project_id=project_id)
+    except VideoTaskDecisionBusy as exc:
+        raise ContentError("prediction_video_acceptance_busy") from exc
+
+
 async def _current(
     db, task_id, project_id, actor_id, credentials, *, binding=None, final=False
 ):
@@ -481,14 +487,7 @@ async def _current(
         await lock_task_scope(db, [task_id])
     task = await common.locked_task(db, task_id)
     if final:
-        task = await lock_task_for_core_read(
-            db,
-            task_id,
-            project_id=project_id,
-            lock_mode="update",
-            nowait=True,
-            populate_existing=True,
-        )
+        task = await _lock_decision_task(db, task_id, project_id)
     if (
         task is None
         or task.project_id != project_id
@@ -567,7 +566,6 @@ async def _segment(db, task, actor, selection, prediction, indexes, *, lock=Fals
         else None
     )
     if lock and identifier is not None:
-        # The Item also fences new Segment FKs that would change work bounds.
         if task.dataset_item_id is not None:
             await db.execute(
                 select(DatasetItem.id)
@@ -656,8 +654,6 @@ async def _mask_owner(db, reference, *, lock=False):
     from app.services.mask_content import mask_content_owner_selected
 
     if mask_content_owner_selected():
-        # Owner content is content-addressed and unpublished into saved ownership;
-        # Labeling write epochs remain the collection fence.
         return _remote_mask_fact(reference)
 
     from app.services import raster_mask_objects, raster_object_storage as physical
@@ -895,7 +891,6 @@ async def qualify_acceptance(db, task, actor, request, prediction_id):
             raise storage_access.mark_unsettled(
                 ContentError("prediction_video_source_unsettled", 503)
             )
-        # No source or independent-session handle survives into these locks.
         task, actor, current = await _current(
             db, task_id, project_id, actor_id, credentials, binding=binding, final=True
         )
@@ -1059,14 +1054,7 @@ async def qualify_rejection(db, task, actor, request, prediction_id):
     except TaskLockConflictError:
         _reject("prediction_video_acceptance_busy")
     await lock_task_scope(db, [task_id])
-    task = await lock_task_for_core_read(
-        db,
-        task_id,
-        project_id=project_id,
-        lock_mode="update",
-        nowait=True,
-        populate_existing=True,
-    )
+    task = await _lock_decision_task(db, task_id, project_id)
     if task is None or task.project_id != project_id or task.file_type != "video":
         _reject("content_binding_changed")
     await _authorize(db, task, actor)

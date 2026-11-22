@@ -140,7 +140,6 @@ async def test_create_project_with_attribute_schema(httpx_client, super_admin):
     assert fields[0]["required"] is True
     assert fields[1]["options"][0]["value"] == "red"
 
-    # GET 拉回应一致
     pid = body["id"]
     got = await httpx_client.get(f"/api/v1/projects/{pid}", headers=headers)
     assert got.status_code == 200
@@ -171,7 +170,6 @@ async def test_create_project_rejects_invalid_attribute_schema(
     _, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
 
-    # select 类型缺 options 应 422
     payload = {
         "name": "invalid attribute schema",
         "type_label": "图像-检测",
@@ -184,9 +182,6 @@ async def test_create_project_rejects_invalid_attribute_schema(
     }
     res = await httpx_client.post("/api/v1/projects", json=payload, headers=headers)
     assert res.status_code == 422, res.text
-
-
-# ── S2 · POST /batches/{id}/reset 终极重置 ─────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -220,7 +215,6 @@ async def test_reset_to_draft_from_any_status(
     assert body["status"] == "draft"
     assert body["review_feedback"] is None
 
-    # task 全部回 pending
     tasks = (
         (await db_session.execute(select(Task).where(Task.batch_id == batch.id)))
         .scalars()
@@ -228,7 +222,6 @@ async def test_reset_to_draft_from_any_status(
     )
     assert all(t.status == "pending" for t in tasks)
 
-    # annotation 全部保留
     anns = (
         (
             await db_session.execute(
@@ -241,7 +234,6 @@ async def test_reset_to_draft_from_any_status(
     assert len(anns) == 3
     assert all(a.is_active for a in anns)
 
-    # task_locks 清空
     locks = (
         (
             await db_session.execute(
@@ -253,7 +245,6 @@ async def test_reset_to_draft_from_any_status(
     )
     assert len(locks) == 0
 
-    # audit 写入 reason + from_status + affected_tasks
     audit = (
         await db_session.execute(
             select(AuditLog).where(
@@ -283,7 +274,6 @@ async def test_reset_to_draft_requires_reason(
     )
     await db_session.commit()
 
-    # 空 reason 应被 422 拦截
     r1 = await httpx_client.post(
         f"/api/v1/projects/{p.id}/batches/{batch.id}/reset",
         json={"reason": ""},
@@ -291,7 +281,6 @@ async def test_reset_to_draft_requires_reason(
     )
     assert r1.status_code == 422
 
-    # 短 reason（< 10 字）应被 422 拦截
     r2 = await httpx_client.post(
         f"/api/v1/projects/{p.id}/batches/{batch.id}/reset",
         json={"reason": "短"},
@@ -316,7 +305,6 @@ async def test_reset_to_draft_owner_only(
         n_tasks=1,
         task_status="pending",
     )
-    # Both accounts are visible project members with non-management work roles.
     await create_membership(
         db_session,
         project_id=p.id,
@@ -335,9 +323,6 @@ async def test_reset_to_draft_owner_only(
         assert res.status_code == 403, res.text
 
 
-# ── S4 · audit Celery task body 等价 ────────────────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_persist_audit_entry_task_writes_row(test_engine):
     """task body 直接写一行 audit_logs。Celery 在 test 环境不真起 broker，本测验证函数体本身正确。"""
@@ -345,10 +330,8 @@ async def test_persist_audit_entry_task_writes_row(test_engine):
 
     from app.workers.audit import _async_persist
 
-    # audit_logs.request_id is varchar(36); a bare 32-char uuid hex fits and is unique.
     request_id = uuid.uuid4().hex
     payload = {
-        # 用 None actor_id 避免 FK 约束触发（audit_logs.actor_id → users.id）
         "actor_id": None,
         "actor_role": "annotator",
         "action": "http.post",
@@ -360,8 +343,6 @@ async def test_persist_audit_entry_task_writes_row(test_engine):
     }
     await _async_persist(payload)
 
-    # 用当前测试引擎的独立 session 验证：_async_persist 自带 engine 并 commit，
-    # 而全局 app.db.base.async_session 的连接池绑定在另一事件循环上，不能在此复用。
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     try:
         async with maker() as s:
@@ -376,16 +357,12 @@ async def test_persist_audit_entry_task_writes_row(test_engine):
             assert row.status_code == 200
             assert row.actor_role == "annotator"
     finally:
-        # 审计日志的不可变 trigger 需要事务内豁免；只删除本测试的行。
         async with maker() as cleanup:
             await cleanup.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
             await cleanup.execute(
                 delete(AuditLog).where(AuditLog.request_id == request_id)
             )
             await cleanup.commit()
-
-
-# ── S5 · annotation keyset 分页 ────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -412,7 +389,6 @@ async def test_annotations_keyset_pagination(
         await db_session.execute(select(Task).where(Task.batch_id == batch.id))
     ).scalar_one()
 
-    # 清空 seed 留下的隐式 annotation，独立测试 5 条节奏
     seed_anns = (
         (
             await db_session.execute(
@@ -426,7 +402,6 @@ async def test_annotations_keyset_pagination(
         await db_session.delete(a)
     await db_session.flush()
 
-    # 种 5 条 annotation，created_at 间隔 1 秒
     base_ts = datetime.now(timezone.utc).replace(microsecond=0)
     for i in range(5):
         ann = Annotation(
@@ -439,12 +414,10 @@ async def test_annotations_keyset_pagination(
         )
         db_session.add(ann)
         await db_session.flush()
-        # 强制覆盖 created_at（默认 server_default 在 commit 时生成同一时刻）
         ann.created_at = base_ts + timedelta(seconds=i)
         await db_session.flush()
     await db_session.commit()
 
-    # 第一页
     r1 = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/annotations/page?limit=2",
         headers=_bearer(owner_token),
@@ -454,7 +427,6 @@ async def test_annotations_keyset_pagination(
     assert len(body1["items"]) == 2
     assert body1["next_cursor"] is not None
 
-    # 第二页
     r2 = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/annotations/page?limit=2&cursor={body1['next_cursor']}",
         headers=_bearer(owner_token),
@@ -463,16 +435,14 @@ async def test_annotations_keyset_pagination(
     assert len(body2["items"]) == 2
     assert body2["next_cursor"] is not None
 
-    # 第三页（最后 1 条 + 末页 cursor）
     r3 = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/annotations/page?limit=2&cursor={body2['next_cursor']}",
         headers=_bearer(owner_token),
     )
     body3 = r3.json()
     assert len(body3["items"]) == 1
-    assert body3["next_cursor"] is None  # 末页
+    assert body3["next_cursor"] is None
 
-    # 顺序：created_at DESC
     seen_ids = (
         [it["id"] for it in body1["items"]]
         + [it["id"] for it in body2["items"]]
@@ -507,9 +477,6 @@ async def test_annotations_page_invalid_cursor(
     assert res.status_code == 400
 
 
-# ── reset_to_draft 级联 prediction 清理 ────────────────
-
-
 @pytest.mark.asyncio
 async def test_reset_to_draft_cascades_predictions(
     httpx_client, db_session, super_admin, annotator
@@ -530,7 +497,6 @@ async def test_reset_to_draft_cascades_predictions(
         n_tasks=2,
         task_status="pending",
     )
-    # ADR-0044 · backend 已上提为全局注册项 (无 project_id)。
     backend = MLBackendRegistry(
         id=uuid.uuid4(),
         name="cascade-test",
@@ -565,7 +531,6 @@ async def test_reset_to_draft_cascades_predictions(
         PredictionMeta(id=uuid.uuid4(), prediction_id=pred.id, total_cost=0.001)
     )
     db_session.add(PredictionMeta(id=uuid.uuid4(), failed_prediction_id=fp.id))
-    # prediction_jobs 已收敛进 async_jobs（batch_id 进 payload）
     job = AsyncJob(
         id=uuid.uuid4(),
         kind="batch_predict",
@@ -583,7 +548,6 @@ async def test_reset_to_draft_cascades_predictions(
     db_session.add(job)
     await db_session.commit()
 
-    # 重置
     res = await httpx_client.post(
         f"/api/v1/projects/{p.id}/batches/{batch.id}/reset",
         json={"reason": "B-15 级联清理回归测试"},
@@ -592,7 +556,6 @@ async def test_reset_to_draft_cascades_predictions(
     assert res.status_code == 200, res.text
     assert res.json()["status"] == "draft"
 
-    # predictions / failed_predictions / prediction_jobs / prediction_metas 全部清空
     task_ids = [t.id for t in tasks]
     preds_after = (
         (
@@ -630,7 +593,6 @@ async def test_reset_to_draft_cascades_predictions(
     assert jobs_after == []
     assert metas_after == []
 
-    # audit detail 含 cascade counts
     audit = (
         await db_session.execute(
             select(AuditLog).where(
@@ -662,7 +624,6 @@ async def test_check_auto_transitions_pre_annotated_to_annotating(
         n_tasks=2,
         task_status="pending",
     )
-    # 模拟标注员开始标注: 把 1 个 task 改成 in_progress
     tasks = (
         (await db_session.execute(select(Task).where(Task.batch_id == batch.id)))
         .scalars()

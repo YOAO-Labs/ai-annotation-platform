@@ -151,7 +151,6 @@ describe("dataset quality review", () => {
     fireEvent.click(screen.getByRole("button", { name: "新建检测" }));
     fireEvent.click(screen.getByRole("button", { name: "开始检测" }));
     await waitFor(() => expect(datasetQualityApi.start).toHaveBeenCalled());
-    // Browser navigation is allowed while the request still belongs to its old dialog.
     fireEvent.click(screen.getByRole("button", { name: "切换运行", hidden: true }));
     await act(async () => resolve({ ...run, id: "late-run" }));
     expect(screen.getByTestId("url").textContent).toContain("quality_run=run-b");

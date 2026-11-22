@@ -68,7 +68,6 @@ type OverviewItem = {
   label: string;
   value: number | undefined;
   detail: string;
-  // 有值时该 KPI 可点，下钻为一条 `field op value` 筛选；无 → 纯展示。
   drill?: { field: string; op: string; value: string };
 };
 

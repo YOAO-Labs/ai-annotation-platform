@@ -154,9 +154,6 @@ _SORT_FIELD_MAP = {
 }
 
 
-# in 列表元素数上限，防止单请求拖慢 DB。
-
-
 def builtin_views(
     project_id: uuid.UUID, project: Project | None = None
 ) -> list[dict[str, Any]]:
@@ -355,8 +352,6 @@ def validate_sort(sort_json: list[dict[str, Any]] | None) -> None:
 
 def validate_columns(columns_json: list[str] | None) -> None:
     allowed = set(DEFAULT_COLUMNS) | {
-        # Legacy feedback column kept as a compatibility alias of the corrected
-        # unresolved-issue count for saved views that still reference it.
         "unresolved_feedback_count",
         "assignee",
         "reviewer",
@@ -686,10 +681,6 @@ class TaskViewService:
         *,
         project_role: str | None = None,
     ) -> Select:
-        # 与 tasks.list_tasks 对齐: 非特权用户 (annotator/reviewer/viewer) 通过 Data
-        # Manager 查询时只能看自己任务级/批次级可见性范围内的任务, 不能看到全项目任务。
-        # 显式分派的 unbatched task 也必须保留在这个授权关系中。
-        # ``project_role`` 是调用方解析出的成员职责; 缺失时非特权查询 fail closed。
         return apply_task_visibility(stmt, user, project, project_role=project_role)
 
     async def count_for_filter(
@@ -760,8 +751,6 @@ class TaskViewService:
         total = await self.db.scalar(count_stmt)
         requested = set(columns_json)
         if not requested:
-            # Empty columns is the legacy API shape. Keep legacy projections for
-            # older clients while explicit columns opt into selective work.
             requested = set(DEFAULT_COLUMNS) | {
                 "avg_prediction_confidence",
                 "model_versions",
@@ -782,8 +771,6 @@ class TaskViewService:
             "unresolved_issue_count" in requested
             or "unresolved_feedback_count" in requested
         ):
-            # The legacy feedback column is a compatibility alias of the
-            # corrected issue count; serialize both from one projection.
             projection.append(
                 _unresolved_issue_count_sq().label("unresolved_issue_count")
             )

@@ -63,7 +63,6 @@ describe("HotkeyCheatSheet", () => {
     mount({ shortcuts: makeShortcuts() });
     const rows = [...document.querySelectorAll("[data-hotkey-command]")];
     expect(rows.length).toBeGreaterThan(0);
-    // 每一行都预留说明行，行高不会随备注/备用组合的有无而跳变。
     for (const row of rows) {
       expect(row.querySelector("[data-hotkey-note]")).toBeTruthy();
     }
@@ -83,7 +82,6 @@ describe("HotkeyCheatSheet", () => {
     await waitFor(() =>
       expect(screen.getAllByText("撤销", { selector: "mark" }).length).toBeGreaterThan(0),
     );
-    // 未命中搜索词的行不带高亮标记
     expect(document.querySelectorAll("mark").length).toBeGreaterThan(0);
   });
 
@@ -91,8 +89,6 @@ describe("HotkeyCheatSheet", () => {
     const user = userEvent.setup();
     mount({ shortcuts: makeShortcuts(), stageKind: "video" });
     await user.click(screen.getByRole("tab", { name: "选择与编辑" }));
-    // [Ctrl, Delete, Backspace] 应展示为 Ctrl+Delete 或 Ctrl+Backspace，
-    // 而不是把 Ctrl+Backspace 误写成裸 Backspace。
     const row = document.querySelector('[data-hotkey-command="video.delete.track"]');
     expect(row?.textContent).toContain("Ctrl+Backspace");
   });
@@ -121,7 +117,6 @@ describe("HotkeyCheatSheet", () => {
       const stage = chip.getAttribute("data-hotkey-stage") ?? "";
       expect(chip).toHaveClass(classByStage[stage]);
     }
-    // 同屏内不同阶段使用不同底色
     const used = new Set(
       chips.map((chip) => classByStage[chip.getAttribute("data-hotkey-stage") ?? ""]),
     );
@@ -141,12 +136,10 @@ describe("HotkeyCheatSheet", () => {
     const user = userEvent.setup();
     mount();
     const search = screen.getByRole("textbox", { name: "搜索快捷键" });
-    // 搜索命中鼠标操作分类的手势，命中词以 <mark> 高亮
     await user.type(search, "笔刷半径");
     await waitFor(() =>
       expect(screen.getAllByText("笔刷半径", { selector: "mark" }).length).toBeGreaterThan(0),
     );
-    // 空结果状态
     await user.clear(search);
     await user.type(search, "不存在的快捷键xyz");
     expect(screen.getByText("没有匹配的快捷键")).toBeTruthy();
@@ -183,10 +176,8 @@ describe("HotkeyCheatSheet", () => {
     await user.click(screen.getByRole("tab", { name: "绘制与工具" }));
     const boxRow = document.querySelector('[data-hotkey-command="image.tool.box"]');
     expect(boxRow).toBeTruthy();
-    // 主组合按钮可点（进入录制）
     await user.click(boxRow!.querySelector("button")!);
     expect(screen.getAllByText(/按下新组合/).length).toBeGreaterThan(0);
-    // Fixed 行展示「固定」标记
     const polyRow = document.querySelector('[data-hotkey-command="image.polygon.close"]');
     expect(polyRow?.textContent).toContain("固定");
   });
@@ -199,17 +190,13 @@ describe("HotkeyCheatSheet", () => {
     const boxRow = document.querySelector('[data-hotkey-command="image.tool.box"]')!;
     await user.click(boxRow.querySelector("button")!);
 
-    // 录制捕获阶段吞掉按键：keydown 不触发任何后台行为（这里验证候选展示 + 确认调用）
     fireEvent.keyDown(window, { key: "j", bubbles: true, cancelable: true });
-    // J 命中 Fixed 的「循环人工标注」→ 展示冲突并禁止确认
     expect(screen.getByText(/与「循环人工标注」冲突/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "确认" })).toBeNull();
 
-    // Esc 取消录制，面板保持打开
     fireEvent.keyDown(window, { key: "Escape", bubbles: true, cancelable: true });
     expect(screen.queryByText(/按下新组合/)).toBeNull();
 
-    // 无冲突的组合可确认
     await user.click(boxRow.querySelector("button")!);
     fireEvent.keyDown(window, { key: "i", ctrlKey: true, bubbles: true, cancelable: true });
     await user.click(screen.getByRole("button", { name: "确认" }));
@@ -230,7 +217,6 @@ describe("HotkeyCheatSheet", () => {
         loadError: new Error("offline"),
       }),
     });
-    // 未加载成功时无「停用」入口（编辑被禁用）
     expect(screen.queryByRole("button", { name: "停用" })).toBeNull();
     expect(screen.getByRole("button", { name: "重试" })).toBeTruthy();
   });
@@ -244,7 +230,6 @@ describe("HotkeyCheatSheet", () => {
     expect(screen.getByText(/无法识别的快捷键数据/)).toBeTruthy();
     expect(screen.getByText("选择工具")).toBeTruthy();
 
-    // 非整树损坏、但存在非法条目时展示条目级提示
     mount({
       shortcuts: makeShortcuts({
         issues: [

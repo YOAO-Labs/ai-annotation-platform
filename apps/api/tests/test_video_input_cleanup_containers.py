@@ -89,8 +89,6 @@ async def test_cleanup_container_reaps_video_attempts_and_late_versions(
                 peaks.append(peak)
             _docker("stop", "--time", "45", process.container_id, timeout=60)
 
-    # Replace only the test harness launcher. The application, native functions,
-    # S3 operations and complete version/multipart assertions remain real.
     monkeypatch.setattr(video, "_start_process", start)
     monkeypatch.setattr(video, "_stop_process", stop)
     try:

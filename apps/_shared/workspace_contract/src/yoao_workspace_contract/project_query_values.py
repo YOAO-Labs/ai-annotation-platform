@@ -47,7 +47,6 @@ def _date_value(value):
         return date.max if value == "infinity" else date.min
     if type(value) is not str or _DATE_TEXT.fullmatch(value) is None:
         raise ProjectQueryUnavailable()
-    # A finite out-of-range value fails during row decoding, before foreign reads.
     if value.endswith(" BC"):
         raise ValueError("ordinal must be >= 1")
     year = int(value.split("-", 1)[0])
@@ -63,7 +62,6 @@ def decode_postgres_timestamp(value):
     if value is None:
         return None
     if value in ("infinity", "-infinity"):
-        # asyncpg's timestamp extrema are deliberately naive.
         return datetime.max if value == "infinity" else datetime.min
     if type(value) is not str or _TIMESTAMP_TEXT.fullmatch(value) is None:
         raise ProjectQueryUnavailable()
@@ -97,7 +95,6 @@ def raw_project_row(value, *, target_id=None):
         if value[field] is not None:
             if type(value[field]) is not str:
                 raise ProjectQueryUnavailable()
-            # Match the driver parser, retaining original text for lossless forwarding.
             _json_column(value[field])
     for field in _FLOAT_COLUMNS:
         if value[field] is not None:

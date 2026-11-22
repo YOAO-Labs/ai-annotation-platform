@@ -18,7 +18,6 @@ from tests.factory import create_project
 
 
 async def _seed(db, *, name: str, trackers: list[str]) -> MLBackendRegistry:
-    # ADR-0050 · 每 registry 需要 singleton pool 才能 set_enabled / 绑定项目。
     registry, _pool = await create_registry_with_pool(
         db,
         id=uuid.uuid4(),
@@ -42,18 +41,13 @@ async def test_get_tracker_backend_routes_by_capability_not_binding(
     svc = MLBackendService(db_session)
     await svc.set_enabled(proj.id, sam2.id, True)
     await svc.set_enabled(proj.id, sam3.id, True)
-    # 项目显式绑定到 sam2 (复现现网「绑定 grounded-sam2」配置)。
-    # 项目主绑定存 pool id (经 sam2 的 singleton pool 解析)。
     proj.ml_backend_pool_id = await svc.pool_id_for_registry(sam2.id)
     await db_session.flush()
 
-    # sam3_video 按能力挑 sam3-backend, 不受「项目绑定 sam2」影响 (核心回归)。
     got3 = await svc.get_tracker_backend(proj.id, "sam3_video")
     assert got3 is not None and got3.id == sam3.id
-    # sam2_video 挑 sam2 (绑定 + 支持)。
     got2 = await svc.get_tracker_backend(proj.id, "sam2_video")
     assert got2 is not None and got2.id == sam2.id
-    # 无 backend 声明 mock_bbox → None (交由 mock adapter 无需 backend 处理)。
     assert await svc.get_tracker_backend(proj.id, "mock_bbox") is None
 
 
@@ -63,7 +57,6 @@ async def test_get_tracker_backend_none_when_capable_backend_not_enabled(
 ):
     user, _ = super_admin
     proj = await create_project(db_session, owner_id=user.id)
-    # 注册但未对本项目启用 → 挑不到 (显式失败, 而非静默错投到别的 backend)。
     await _seed(db_session, name="sam3-backend", trackers=["sam3_video"])
     await db_session.flush()
     svc = MLBackendService(db_session)

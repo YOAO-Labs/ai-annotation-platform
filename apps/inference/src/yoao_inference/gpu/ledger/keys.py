@@ -51,8 +51,6 @@ def gpu_arbiter_keys(
     _validate_nonempty(resource_id, "resource_id")
     if not isinstance(namespace, str) or _NAMESPACE_RE.fullmatch(namespace) is None:
         raise ValueError("invalid GPU arbiter Redis namespace")
-    # Raw resource ids may legally contain braces today. A stable digest keeps every
-    # key for this exact resource in one brace-safe Cluster hash slot.
     resource_tag = hashlib.sha256(resource_id.encode("utf-8")).hexdigest()
     prefix = f"{namespace}:{{{resource_tag}}}"
     return GPUArbiterKeys(

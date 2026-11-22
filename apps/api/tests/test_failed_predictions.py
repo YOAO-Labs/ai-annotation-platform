@@ -65,8 +65,6 @@ async def _seed_task(
 
 
 async def _seed_backend(db: AsyncSession, project_id: uuid.UUID) -> MLBackendRegistry:
-    # ADR-0044 · backend 上提为全局注册项 (url unique); 列表/重试按 ml_backend_id
-    # join / db.get registry, 无需项目启用关联。
     b = MLBackendRegistry(
         id=uuid.uuid4(),
         name="bk",
@@ -159,7 +157,6 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     httpx_client, super_admin, db_session, controlled
 ):
     user, token = super_admin
-    # A legacy eligible retry is one without retained image/video evidence.
     proj = await _seed_project(db_session, user.id, data_type="scene")
     task = await _seed_task(db_session, proj.id, file_type="text")
     backend = await _seed_backend(db_session, proj.id)
@@ -180,7 +177,6 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     await db_session.commit()
 
     headers = {"Authorization": f"Bearer {token}"}
-    # 重试显式指定队列，使派发可以按设备路由。
     with patch(
         "app.workers.predictions_retry.retry_failed_prediction.apply_async"
     ) as mock_apply:
@@ -195,7 +191,6 @@ async def test_retry_failed_prediction_queues_celery_and_returns_202(
     mock_apply.assert_called_once()
     call_kwargs = mock_apply.call_args.kwargs
     assert call_kwargs["args"] == [str(fp.id), str(user.id)]
-    # 未自报 device 的 backend 保守落 gpu(ml)队列。
     assert call_kwargs["queue"] == ("ml.cpu" if controlled else "ml")
 
     repeated = await httpx_client.post(
@@ -392,7 +387,7 @@ async def test_retry_blocked_when_max_exceeded(httpx_client, super_admin, db_ses
         project_id=proj.id,
         task_id=task.id,
         backend_id=backend.id,
-        retry_count=3,  # 已到上限
+        retry_count=3,
     )
     await db_session.commit()
 
@@ -951,9 +946,6 @@ async def test_retry_requires_manager(httpx_client, annotator, db_session, super
     assert resp.status_code == 403
 
 
-# ─── dismiss / restore ──────────────────────────────────────────────
-
-
 async def test_dismiss_marks_failed_prediction_and_audit_logged(
     httpx_client, super_admin, db_session
 ):
@@ -975,7 +967,6 @@ async def test_dismiss_marks_failed_prediction_and_audit_logged(
     assert body["status"] == "dismissed"
     assert body["dismissed_at"] is not None
 
-    # 默认列表不再返回该行
     list_resp = await httpx_client.get(
         "/api/v1/admin/failed-predictions", headers=headers
     )
@@ -983,7 +974,6 @@ async def test_dismiss_marks_failed_prediction_and_audit_logged(
     items = list_resp.json()["items"]
     assert all(i["id"] != str(fp.id) for i in items)
 
-    # include_dismissed=true 时回归
     list_resp2 = await httpx_client.get(
         "/api/v1/admin/failed-predictions?include_dismissed=true", headers=headers
     )
@@ -1056,7 +1046,6 @@ async def test_restore_clears_dismissed_at(httpx_client, super_admin, db_session
     )
     assert len(restore_audits) == 1
 
-    # 默认列表又能看到
     list_resp = await httpx_client.get(
         "/api/v1/admin/failed-predictions", headers=headers
     )
@@ -1083,7 +1072,6 @@ async def test_dismiss_is_idempotent(httpx_client, super_admin, db_session):
     )
     assert r1.status_code == 200
     assert r2.status_code == 200
-    # dismissed_at 第二次调用不应被刷新
     assert r1.json()["dismissed_at"] == r2.json()["dismissed_at"]
     audits = (
         (

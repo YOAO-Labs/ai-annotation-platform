@@ -100,8 +100,6 @@ from app.services.labeling_core_read_relations import (
     task_row,
 )
 
-# /setup 代理结果的进程内 TTL 缓存. 工作台进入即拉, 避免 N 次 backend 探活.
-# key = backend_id (绑定改动 → 重绑后新 backend_id 自然 invalidate); 30s TTL 兜底.
 _SETUP_CACHE_TTL_SECONDS = 30.0
 _setup_cache: dict[uuid.UUID, tuple[float, dict]] = {}
 
@@ -186,18 +184,9 @@ async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
     return task
 
 
-# cap on uploaded frame bytes (predict-frame /
-# interactive-annotating-frame). Bounds memory regardless of a lying/missing
-# Content-Length header; 32 MiB comfortably fits a 4K JPEG / PNG with headroom.
 MAX_FRAME_UPLOAD_BYTES = 32 * 1024 * 1024
 MAX_INTERACTIVE_CONTEXT_BODY_BYTES = 1024 * 1024
-# streaming read stride (1 MiB) — small enough to abort
-# between chunks when the cap is exceeded, large enough to avoid per-call
-# overhead on legitimate multi-MiB frames.
 _FRAME_READ_CHUNK = 1024 * 1024
-# image format / dimension cap mirroring ADR-0048 / 0052
-# (dims ≤ 4096, pixels ≤ 16_777_216). Frames bigger than this can blow up the
-# downstream inference memory budget and are rejected before hitting the backend.
 _ALLOWED_FRAME_IMAGE_FORMATS = {"JPEG", "PNG"}
 _MAX_FRAME_DIMENSION = 4096
 _MAX_FRAME_PIXELS = _MAX_FRAME_DIMENSION * _MAX_FRAME_DIMENSION
@@ -224,7 +213,6 @@ async def _read_capped_frame(
     accepted and dimensions must respect the 4096 / 16M-pixel mask contract.
     Decode or dimension failures raise 400 (bad request), not 500.
     """
-    # 1. Pre-flight on declared size, if available.
     declared: int | None = None
     size_attr = getattr(frame, "size", None)
     if isinstance(size_attr, int) and size_attr >= 0:
@@ -250,7 +238,6 @@ async def _read_capped_frame(
             },
         )
 
-    # 2. Streaming accumulate (bypasses ``frame.read()`` which buffers fully).
     buf = bytearray()
     while True:
         chunk = await frame.read(_FRAME_READ_CHUNK)
@@ -270,7 +257,6 @@ async def _read_capped_frame(
     if not data:
         raise HTTPException(status_code=400, detail="Empty frame image")
 
-    # 3. Decode + dimension/format validation via PIL.
     try:
         from PIL import Image  # noqa: PLC0415 — Pillow is a declared dep
     except ImportError as exc:  # pragma: no cover — Pillow is in pyproject
@@ -282,8 +268,6 @@ async def _read_capped_frame(
             fmt = img.format
             width, height = img.size
             img.verify()
-        # verify() checks the stream structure but invalidates the decoder;
-        # reopen and load pixels to reject truncated images with valid headers.
         with Image.open(io.BytesIO(data)) as img:
             img.load()
     except Exception as exc:
@@ -397,8 +381,6 @@ async def create_ml_backend(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    # ADR-0044 · 「为项目添加 backend」= 按 url 复用/新建全局注册项 + 为本项目启用。
-    # 不再有 max_ml_backends_per_project 上限 (显存保护交全局行 extra_params.max_concurrency)。
     svc = MLBackendService(db)
     if has_reserved_plugin_metadata(data.extra_params):
         raise HTTPException(
@@ -417,7 +399,6 @@ async def create_ml_backend(
             extra_params=data.extra_params,
         )
     await svc.set_enabled(project_id, backend.id, enabled=True)
-    # B-5 · AI 审计 — ML backend 注册 + 项目启用
     await AuditService.log(
         db,
         actor=current_user,
@@ -578,7 +559,6 @@ async def update_ml_backend(
         raise HTTPException(status_code=404, detail="模型服务不存在")
     _setup_cache.pop(backend_id, None)
     updates = data.model_dump(exclude_unset=True)
-    # 更新作用于全局注册行 (auth/url/extra_params 等端点固有属性)。
     try:
         backend = await svc.update(backend_id, **updates)
     except GPUClaimConfigurationError as exc:
@@ -639,8 +619,6 @@ async def delete_ml_backend(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    # ADR-0044 · 项目作用域的「删除」= 为本项目停用全局 backend (不删全局注册项;
-    # 删全局项是 superadmin 的 admin 端点, 见 PR3)。
     svc = MLBackendService(db)
     if not await svc.is_enabled(project_id, backend_id):
         raise HTTPException(status_code=404, detail="模型服务不存在")
@@ -809,8 +787,6 @@ async def warmup_ml_backend(
         raise HTTPException(status_code=502, detail=f"模型服务预热失败: {exc}") from exc
     if result is None:
         raise HTTPException(status_code=404, detail="模型服务不存在")
-    # 预热会改变 backend 已加载的模型, 从而改变 /setup.models[].classes (yolo 加载后
-    # 才暴露 model.names). 失效 /setup 缓存, 让随后的 /capabilities 立即拿到新类别表 (否则最坏等 30s TTL)。
     _setup_cache.pop(backend_id, None)
     await AuditService.log(
         db,
@@ -1355,9 +1331,6 @@ async def interactive_annotating(
     if (body.context or {}).get("mask_prompt_source") is not None:
         assert_request_scopes(request, "annotations:read")
 
-    # AI 推理参数 (阈值 / 变体等) 已统一改走工作台 AI 面板: 前端按所绑定 backend 的
-    # /setup.params 动态渲染、每用户独立调整, 并随 context 透传。平台不再注入项目级 DINO
-    # 阈值 (那会把 gsam2 专属参数塞给 sam3 等不支持的后端); 各 backend 缺省值由自身 /setup 决定。
     async with reference_image_operation(
         db,
         task,
@@ -1449,8 +1422,6 @@ async def interactive_annotating(
             outcome="success",
             duration_seconds=time.monotonic() - inference_started,
         )
-        # Do not return restricted candidates from a revoked/role-changed authority:
-        # re-acquire the task row and locked membership at the response boundary.
         if image_input:
             await image_input.final()
         else:
@@ -1558,12 +1529,10 @@ async def predict_frame(
     if is_controlled(cfg.get("model_id")) or cfg.get("frozen_model_ref"):
         raise HTTPException(status_code=422, detail="受控模型当前不支持视频单帧预标注")
 
-    # DINO 阈值取项目级 override (与 worker 单阶段路径一致, 见 application/preannotation_execution.py batch prediction)。
     project = await get_workspace_project(db, actor_id=None, project_id=project_id)
     try:
         context = build_predict_context(
             prompt=cfg.get("prompt"),
-            # 单帧只要框: 文本 backend (gsam2) 输出 box; mask/polygon 非 video_bbox 会被丢弃。
             output_mode=cfg.get("output_mode") or "box",
             params=cfg.get("params"),
             model_id=cfg.get("model_id"),
@@ -1590,8 +1559,6 @@ async def predict_frame(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # bounded frame read (Content-Length + streaming cap
-    # + JPEG/PNG decode + dim/pixel limits) before any storage I/O.
     async with prediction_inputs(
         input_session_factory,
         owner_id=uuid.uuid4(),
@@ -1623,8 +1590,6 @@ async def predict_frame(
         video_shapes = to_video_bbox_result(raw_shapes, frame_index)
 
         score = next((r.score for r in results if r.score is not None), None)
-        # Final mutation boundary: re-acquire the task row and locked membership so a
-        # revocation or role change during inference cannot persist a prediction.
         await inputs.close()
         await _reacquire_write_boundary(db, task.id, current_user)
         prediction_writer: ApplyPredictionResultPort = PredictionService(db)
@@ -1726,8 +1691,6 @@ async def interactive_annotating_frame(
         frame_index=frame_index,
     )
 
-    # bounded frame read (Content-Length + streaming cap
-    # + JPEG/PNG decode + dim/pixel limits) before any storage I/O.
     async with prediction_inputs(
         input_session_factory,
         owner_id=uuid.uuid4(),
@@ -1769,8 +1732,6 @@ async def interactive_annotating_frame(
         )
         await db.commit()
 
-        # 与 interactive_annotating 一致: 不注入项目级 DINO 阈值 (那是 gsam2 专属, 塞给 sam3
-        # 等后端会出错); 推理参数由前端按 /setup.params 渲染后随 context 透传。
         max_response_bytes = (
             MAX_MASK_RESPONSE_BYTES if ctx.get("output_geometry") == "mask" else None
         )
@@ -1808,8 +1769,6 @@ async def interactive_annotating_frame(
             outcome="success",
             duration_seconds=time.monotonic() - inference_started,
         )
-        # Do not return restricted candidates from a revoked/role-changed authority:
-        # re-acquire the task row and locked membership at the response boundary.
         await inputs.close()
         await _reacquire_write_boundary(db, task.id, current_user)
         encode_started = time.monotonic()
@@ -1852,11 +1811,6 @@ async def interactive_annotating_frame(
             outcome="success",
         )
         return response_body
-
-
-# ── ADR-0050 §12.2 · 项目服务池绑定 API (pool-level) ──────────────────
-# 与上面的 /{backend_id}/* (registry-level) 端点并存: 后者继续按 registry 实例操作
-# (lifecycle / smoke)，本组按服务池操作（项目启用 / 可用清单）。
 
 
 @router.get(

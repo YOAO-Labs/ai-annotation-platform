@@ -172,7 +172,6 @@ describe("useMaskMutationWorkflows", () => {
     expect(commitMock).toHaveBeenCalledOnce();
     expect(result.current.commitError).toBe("来源 Mask 已变更，草稿已保留");
     expect(result.current.recovery).toEqual({ retry: false, refresh: true });
-    // 草稿保留：失败的提交不得撤销/清空编辑会话
     expect(editor.cancel).not.toHaveBeenCalled();
   });
 
@@ -186,7 +185,6 @@ describe("useMaskMutationWorkflows", () => {
     expect(editor.cancel).not.toHaveBeenCalled();
     expect(editor.rebaseSession).not.toHaveBeenCalled();
 
-    // 会话已切换到另一帧 + 新 generation：迟到的刷新不得触碰新会话。
     (params.maskSessionContextRef as { current: unknown }).current = {
       key: {
         taskId: "t1",

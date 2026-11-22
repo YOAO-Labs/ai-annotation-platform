@@ -1,9 +1,13 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
-import { ownedNamespaceFor, SeedAPI } from "../fixtures/seed";
+import { expect, ownedNamespaceFor, test } from "../fixtures/seed";
+
+const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 
 test("token injection preserves origin storage without booting the previous actor's app", async ({
   page,
+  request,
+  seed,
 }) => {
+  const data = await seed.owned();
   const origin = "https://seed-auth.test";
   const requests: string[] = [];
   await page.route(`${origin}/**`, async (route) => {
@@ -17,46 +21,49 @@ test("token injection preserves origin storage without booting the previous acto
           : "<!doctype html><title>Fixture page</title>",
     });
   });
-  const seed = new SeedAPI({
-    post: async (_url: string, options: { data: { email: string } }) => ({
-      ok: () => true,
-      json: async () => ({ access_token: options.data.email, user: { email: options.data.email } }),
-    }),
-    patch: async () => ({ ok: () => true }),
-  } as unknown as APIRequestContext);
 
   await page.goto(`${origin}/previous`);
   await page.evaluate(() => {
-    localStorage.setItem("token", "old-admin");
     localStorage.setItem("video.experimental.webcodecs", "1");
   });
-  for (const email of ["annotator@e2e.test", "reviewer@e2e.test"]) {
+  for (const [email, role] of [
+    [data.admin_email, "super_admin"],
+    [data.annotator_email, "employee"],
+    [data.reviewer_email, "employee"],
+  ]) {
     await seed.injectToken(page, email, origin);
     await page.goto(`${origin}/workbench`);
-    expect(await page.evaluate(() => localStorage.getItem("token"))).toBe(email);
-    expect(
-      await page.evaluate(() => JSON.parse(localStorage.getItem("auth-storage")!).state.user.email),
-    ).toBe(email);
-    expect(await page.evaluate(() => localStorage.getItem("video.experimental.webcodecs"))).toBe(
-      "1",
-    );
+    const storage = await page.evaluate(() => ({
+      token: localStorage.getItem("token"),
+      auth: JSON.parse(localStorage.getItem("auth-storage")!).state,
+      webCodecs: localStorage.getItem("video.experimental.webcodecs"),
+    }));
+    expect(storage.token).toBeTruthy();
+    expect(storage.auth.token).toBe(storage.token);
+    expect(storage.auth.user).toMatchObject({ email, role });
+    expect(storage.webCodecs).toBe("1");
+
+    const identity = await request.get(`${API_BASE}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${storage.token}` },
+    });
+    expect(identity.ok(), await identity.text()).toBe(true);
+    expect(await identity.json()).toMatchObject({ id: storage.auth.user.id, email, role });
   }
   expect(requests).toEqual([]);
-  // The temporary document interception must not mask later application requests.
   await page.goto(origin);
   await expect.poll(() => requests).toEqual(["/api/v1/dashboard/admin"]);
 });
 
-// Playwright requires destructuring even when the test uses only testInfo.
 // eslint-disable-next-line no-empty-pattern
 test("fixture namespaces retain retry identity without crossing runs", async ({}, testInfo) => {
   const previous = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
   try {
     process.env.PLAYWRIGHT_FIXTURE_RUN_ID = "8ef09c94-9b6d-4241-9f2d-6a16fc082640";
     const first = ownedNamespaceFor(testInfo);
-    expect(ownedNamespaceFor(testInfo)).toBe(first);
+    const retry = { ...testInfo, retry: testInfo.retry + 1 };
+    expect(ownedNamespaceFor(retry)).toBe(first);
     process.env.PLAYWRIGHT_FIXTURE_RUN_ID = "ef79e1fb-93a6-44b3-a03c-eafc505170ec";
-    expect(ownedNamespaceFor(testInfo)).not.toBe(first);
+    expect(ownedNamespaceFor(retry)).not.toBe(first);
   } finally {
     if (previous === undefined) delete process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
     else process.env.PLAYWRIGHT_FIXTURE_RUN_ID = previous;

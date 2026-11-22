@@ -38,15 +38,10 @@ class ProjectTemplate(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     type_label: Mapped[str] = mapped_column(String(50), nullable=False)
     type_key: Mapped[str] = mapped_column(String(30), nullable=False)
-    # 媒体维度数据类型 (image / video / lidar); 与 Project 对齐.
-    # backfill 见 alembic 0082.
     data_type: Mapped[str] = mapped_column(
         String(30), nullable=False, server_default="image"
     )
 
-    # 模板载荷 (与 CLONEABLE_PROJECT_FIELDS 对应)
-    # 工具维度类别 / 属性绑定; 与 Project 对齐. backfill 见 alembic 0073.
-    # 旧扁平 classes / classes_config / attribute_schema 列已删除.
     tool_bindings: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict
     )
@@ -77,10 +72,8 @@ class ProjectTemplate(Base):
     rendering_config: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict
     )
-    # E1 整合: 模板可携带 annotation_guide; guide_assets 不存.
     annotation_guide: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # 共享语义
     scope: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="private", default="private"
     )

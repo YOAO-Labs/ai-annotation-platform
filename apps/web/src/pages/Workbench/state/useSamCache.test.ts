@@ -102,7 +102,7 @@ describe("createSamCache", () => {
     c.set("b", [sampleCandidate("b")]);
     c.set("c", [sampleCandidate("c")]);
     expect(c.size).toBe(2);
-    expect(c.get("a")).toBeUndefined(); // a 被淘汰
+    expect(c.get("a")).toBeUndefined();
     expect(c.get("b")).toBeDefined();
     expect(c.get("c")).toBeDefined();
   });
@@ -111,9 +111,8 @@ describe("createSamCache", () => {
     const c = createSamCache(2);
     c.set("a", [sampleCandidate("a")]);
     c.set("b", [sampleCandidate("b")]);
-    // 触摸 a → b 变最早
     c.get("a");
-    c.set("c", [sampleCandidate("c")]); // 淘汰 b
+    c.set("c", [sampleCandidate("c")]);
     expect(c.get("a")).toBeDefined();
     expect(c.get("b")).toBeUndefined();
     expect(c.get("c")).toBeDefined();

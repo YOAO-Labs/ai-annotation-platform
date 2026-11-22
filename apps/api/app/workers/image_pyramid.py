@@ -348,7 +348,7 @@ def _verify_local_tiles(
 ) -> list[tuple[Path, int, int, int]]:
     try:
         from PIL import Image
-    except ImportError as exc:  # Pillow is already a declared API dependency
+    except ImportError as exc:
         raise ImagePyramidError("generator_unavailable") from exc
 
     levels = pyramid_levels(width, height)
@@ -527,7 +527,6 @@ async def _run_image_pyramid(
             if generation is None or generation.status == "ready":
                 return
             asset_id, generation_number = generation.asset_id, generation.generation
-            # A shared inflight generation retains its original initiating authority.
             authority = await originals.delegated(db, generation.auth_ref)
             await originals.check(db, authority, lock=True)
             lease_token = await acquire_generation_lease(
@@ -714,7 +713,6 @@ async def _run_image_pyramid(
         if storage_access.failure_unsettled(exc):
             raise
         code = _stable_error_code(exc)
-        # Physical output responsibility is retained for guarded GC, never guessed.
         if (
             asset_id is not None
             and generation_number is not None

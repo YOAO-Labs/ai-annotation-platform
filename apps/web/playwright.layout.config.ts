@@ -1,6 +1,5 @@
 import { defineConfig } from "@playwright/test";
 
-// Frontend fixtures exercise real styles and primitives without an API or database.
 export default defineConfig({
   testDir: "./e2e/layout",
   outputDir: "./test-results/scrollbar-layout",

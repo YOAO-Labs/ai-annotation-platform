@@ -1,29 +1,13 @@
-// Increment B · 结构化按键绑定层。
-//
-// 职责（见 docs/plans 快捷键方案）：
-//  - 可编辑命令的稳定 ID + 默认组合（与 dispatchKey 的 matchCommand 匹配）；
-//  - Fixed 命令清单：本增量内不可改，但必须参与冲突盘点；
-//  - 录制事件的规范化（KeyboardEvent.key + 显式修饰键，Mod = 平台主修饰键）；
-//  - 生效绑定解析（默认 / 覆盖 / 停用）与保守的重叠冲突检查；
-//  - 存量偏好（可能损坏 / 来自更新版本）的容错解析：损坏条目排除出执行并标记，
-//    保留原值供修正，绝不用默认值静默覆盖。
-//
-// 上下文（stage 类型 / 选中态 / 工具）由现有状态所有方持有；这里只声明与冲突
-// 判断相关的最小谓词，不构建第二棵工作台状态树。
-
 import type { HotkeyCategory, HotkeyStage } from "./hotkeys";
 
 export type ShortcutDomain = "common" | "image" | "video";
 export type ShortcutModifier = "mod" | "alt" | "shift";
 
 export interface ShortcutBinding {
-  /** 规范化 KeyboardEvent.key：单字符小写，或小写命名键（如 "arrowright"）。 */
   key: string;
-  /** 排序去重后的修饰键；匹配时要求完全一致。 */
   modifiers: ShortcutModifier[];
 }
 
-/** 冲突判断用的适用谓词（保守近似，源自各监听方的真实生效条件）。 */
 export type ShortcutWhen =
   | "any"
   | "selection"
@@ -36,11 +20,9 @@ export type ShortcutWhen =
 
 export interface EditableCommandDef {
   id: string;
-  /** 存储桶与作用域：common 命令跨工作台生效。 */
   domain: ShortcutDomain;
   label: string;
   category: HotkeyCategory;
-  /** 默认组合；主组合在前，文档化的备用组合在后。 */
   bindings: ShortcutBinding[];
   when: ShortcutWhen;
 }
@@ -49,16 +31,11 @@ export interface FixedShortcutDef {
   id: string;
   label: string;
   domain: ShortcutDomain | "threed";
-  /** Fixed 命令可声明多个物理键（如候选键 Q 或 /）。 */
   bindings: ShortcutBinding[];
   when: ShortcutWhen;
-  /** 冲突提示里展示的生效条件（产品语言）。 */
   applies: string;
-  /** Existing local capture priority for these commands’ default bindings only. */
   defaultOverlaps?: readonly string[];
 }
-
-// ── 组合速记 ─────────────────────────────────────────────────────────────────
 
 const bind = (key: string, ...modifiers: ShortcutModifier[]): ShortcutBinding => ({
   key,
@@ -71,7 +48,6 @@ const K = {
   shift: (key: string) => bind(key, "shift"),
 };
 
-/** Some local listeners deliberately ignore modifiers; reserve every combination they consume. */
 const withAllModifiers = (...keys: string[]): ShortcutBinding[] =>
   keys.flatMap((key) =>
     [
@@ -87,10 +63,7 @@ const withAllModifiers = (...keys: string[]): ShortcutBinding[] =>
   );
 const maskBindings = withAllModifiers("b", "e");
 
-// ── 可编辑命令（本增量的显式开放清单）───────────────────────────────────────
-
 export const EDITABLE_SHORTCUT_COMMANDS: EditableCommandDef[] = [
-  // 通用
   {
     id: "common.task.next",
     domain: "common",
@@ -107,7 +80,6 @@ export const EDITABLE_SHORTCUT_COMMANDS: EditableCommandDef[] = [
     bindings: [K.mod("arrowleft")],
     when: "any",
   },
-  // 图片工具
   {
     id: "image.tool.select",
     domain: "image",
@@ -180,7 +152,6 @@ export const EDITABLE_SHORTCUT_COMMANDS: EditableCommandDef[] = [
     bindings: [bind("g")],
     when: "any",
   },
-  // 图片选中态
   {
     id: "image.selection.lock",
     domain: "image",
@@ -197,7 +168,6 @@ export const EDITABLE_SHORTCUT_COMMANDS: EditableCommandDef[] = [
     bindings: [bind("h")],
     when: "selection",
   },
-  // 视频工具
   {
     id: "video.tool.select",
     domain: "video",
@@ -286,7 +256,6 @@ export const EDITABLE_SHORTCUT_COMMANDS: EditableCommandDef[] = [
     bindings: [bind("p")],
     when: "any",
   },
-  // 视频选中轨迹
   {
     id: "video.track.locked",
     domain: "video",
@@ -327,7 +296,6 @@ export const EDITABLE_SHORTCUT_COMMANDS: EditableCommandDef[] = [
     bindings: [K.mod("m")],
     when: "any",
   },
-  // 视频帧导航
   {
     id: "video.frame.next",
     domain: "video",
@@ -386,15 +354,11 @@ export function getEditableCommand(id: string): EditableCommandDef | undefined {
   return EDITABLE_SHORTCUT_COMMANDS.find((c) => c.id === id);
 }
 
-/** 命令的存储桶 / 作用域（注册表为准）。 */
 export function commandDomain(id: string): ShortcutDomain {
   return getEditableCommand(id)?.domain ?? "common";
 }
 
-// ── Fixed 命令清单（参与冲突盘点，本增量不可编辑）──────────────────────────
-
 export const FIXED_SHORTCUTS: FixedShortcutDef[] = [
-  // 通用 / 系统级
   {
     id: "fixed.undo",
     label: "撤销",
@@ -507,7 +471,6 @@ export const FIXED_SHORTCUTS: FixedShortcutDef[] = [
     when: "any",
     applies: "审核模式；R 与 Shift+R",
   },
-  // 图片
   {
     id: "fixed.image.delete",
     label: "删除选中对象",
@@ -625,7 +588,6 @@ export const FIXED_SHORTCUTS: FixedShortcutDef[] = [
     applies: "视频 Mask 编辑中；capture 监听优先接管",
     defaultOverlaps: ["video.tool.box", "video.tool.exemplar"],
   },
-  // 视频播放 / 轨迹（J/K/L 手势、删除、历史等保持 Fixed）
   {
     id: "fixed.video.jog",
     label: "反向 / 暂停播放",
@@ -730,7 +692,6 @@ export const FIXED_SHORTCUTS: FixedShortcutDef[] = [
     when: "prediction",
     applies: "视频；选中普通待决候选时",
   },
-  // 项目类别数字键（显式的项目键策略；1-9 + 0 共十个直选槽）
   {
     id: "fixed.category.digits",
     label: "项目类别直选",
@@ -750,7 +711,6 @@ export const FIXED_SHORTCUTS: FixedShortcutDef[] = [
     when: "any",
     applies: "前十个类别（按工具绑定单元配置顺序）；类别弹层打开时归弹层消费",
   },
-  // 3D / 点云工作台本地键（common 域命令改绑时必须避开）
   {
     id: "fixed.threed.gizmo",
     label: "切换 gizmo / 放置 / 测量模式",
@@ -837,8 +797,6 @@ export const FIXED_SHORTCUTS: FixedShortcutDef[] = [
   },
 ];
 
-// ── 规范化 ───────────────────────────────────────────────────────────────────
-
 const MODIFIER_ONLY_KEYS = new Set([
   "shift",
   "control",
@@ -856,7 +814,6 @@ const MODIFIER_ONLY_KEYS = new Set([
   "contextmenu",
 ]);
 
-/** 浏览器 / 操作系统保留组合：按键事件可能不会送达或语义不可抢占，禁止录制。 */
 const BROWSER_RESERVED: ReadonlySet<string> = new Set([
   "mod+t",
   "mod+shift+t",
@@ -876,14 +833,8 @@ const BROWSER_RESERVED: ReadonlySet<string> = new Set([
   "+f12",
 ]);
 
-/** 物理键位例外：产出字符随布局漂移，保持 Fixed，不开放改绑。 */
 const PHYSICAL_EXCEPTION_KEYS = new Set(["`", "~", "tab", "enter", "escape"]);
 
-/**
- * 可持久化的多字符命名键。必须与存量解析 (isValidBindingValue) 和后端
- * ShortcutBinding 契约一致：录制只接受单字符或这里的命名键，否则能确认保存
- * 却在重新加载时被判非法（如 F13 / Dead）。
- */
 const NAMED_KEYS = new Set([
   "arrowup",
   "arrowdown",
@@ -914,7 +865,6 @@ export interface BindingToken {
   modifiers: ShortcutModifier[];
 }
 
-/** 绑定的规范 token（排序修饰键），用于匹配与冲突比对。 */
 export function bindingToken(b: BindingToken): string {
   return `${[...b.modifiers].sort().join("+")}+${b.key}`;
 }
@@ -924,7 +874,6 @@ interface NormalizedEvent {
   reason?: "ime" | "modifier-only" | "browser" | "physical" | "altgr" | "unsupported";
 }
 
-/** 把 keydown 事件规范化为候选绑定；不满足契约时给出原因。 */
 export function normalizeRecordedEvent(e: KeyboardEvent): NormalizedEvent {
   if (e.isComposing || e.keyCode === 229) return { binding: null, reason: "ime" };
   const modifiers: ShortcutModifier[] = [];
@@ -936,15 +885,12 @@ export function normalizeRecordedEvent(e: KeyboardEvent): NormalizedEvent {
   if (MODIFIER_ONLY_KEYS.has(key)) return { binding: null, reason: "modifier-only" };
   if (key === "altgraph") return { binding: null, reason: "altgr" };
   const binding: ShortcutBinding = { key, modifiers: modifiers.sort() };
-  // 保留 / 物理例外的判定优先，再拒绝无法持久化的命名键（多字符键必须可解析，
-  // 否则录制与存量解析会给出不同结论，如 F13 / Dead）。
   if (BROWSER_RESERVED.has(bindingToken(binding))) return { binding, reason: "browser" };
   if (PHYSICAL_EXCEPTION_KEYS.has(key)) return { binding, reason: "physical" };
   if (key.length > 1 && !NAMED_KEYS.has(key)) return { binding: null, reason: "unsupported" };
   return { binding };
 }
 
-/** dispatchKey 运行期用：事件与绑定要求完全一致（key + 修饰键集合）。 */
 export function eventMatchesBinding(e: KeyboardEvent, b: ShortcutBinding): boolean {
   if (typeof e.key !== "string") return false;
   if (Boolean(e.ctrlKey || e.metaKey) !== b.modifiers.includes("mod")) return false;
@@ -952,8 +898,6 @@ export function eventMatchesBinding(e: KeyboardEvent, b: ShortcutBinding): boole
   if (Boolean(e.shiftKey) !== b.modifiers.includes("shift")) return false;
   return e.key.toLowerCase() === b.key;
 }
-
-// ── 谓词重叠 ─────────────────────────────────────────────────────────────────
 
 const DISJOINT_WHEN: ReadonlyArray<readonly [ShortcutWhen, ShortcutWhen]> = [
   ["selection", "noSelection"],
@@ -973,15 +917,11 @@ export function domainOverlaps(
   return a === "common" || b === "common";
 }
 
-// ── 冲突检查 ─────────────────────────────────────────────────────────────────
-
 export interface EffectiveCommandState {
   id: string;
-  /** 生效组合（默认或覆盖后）；空数组 = 停用。 */
   bindings: ShortcutBinding[];
   disabled: boolean;
   customized: boolean;
-  /** 存量冲突：该命令与哪些命令争用同一按键（执行时全部停用）。 */
   conflictsWith: string[];
 }
 
@@ -991,13 +931,11 @@ export interface StoredShortcutIssue {
   reason: "unknown-command" | "invalid-binding" | "invalid-envelope";
 }
 
-/** 每域覆盖：commandId → 组合列表 | null(恢复默认)。undefined 视为缺失。 */
 export type ShortcutOverrideMap = Partial<Record<string, ShortcutBinding[] | null>>;
 export type ShortcutOverridesByDomain = Record<ShortcutDomain, ShortcutOverrideMap>;
 
 export const EMPTY_OVERRIDES: ShortcutOverridesByDomain = { common: {}, image: {}, video: {} };
 
-/** 命令覆盖只存自己的域桶：common 命令在 common 桶，图片 / 视频命令各归各桶。 */
 function overrideBucket(
   domain: ShortcutDomain,
   overrides: ShortcutOverridesByDomain,
@@ -1005,10 +943,6 @@ function overrideBucket(
   return overrides[domain];
 }
 
-/**
- * 应用覆盖并做全量冲突复查。互相争用的命令整对停用（保留存量值供修正），
- * 默认组合之间不允许存在冲突（注册表不变式，测试覆盖）。
- */
 export function resolveEffectiveCommands(
   overrides: ShortcutOverridesByDomain,
 ): Map<string, EffectiveCommandState> {
@@ -1025,7 +959,6 @@ export function resolveEffectiveCommands(
       conflictsWith: [],
     });
   }
-  // 全对冲突复查（含默认 vs 默认；注册表不变式要求这里为空）。
   const list = [...states.values()].filter((s) => !s.disabled);
   for (let i = 0; i < list.length; i++) {
     for (let j = i + 1; j < list.length; j++) {
@@ -1064,8 +997,6 @@ function conflictsWithFixed(
     return false;
   }
   const token = bindingToken(binding);
-  // Preserve only the established default capture hand-off (e.g. B opens Box,
-  // but remains Brush while Mask owns the event); new overlaps remain conflicts.
   if (
     fixed.defaultOverlaps?.includes(command.id) &&
     command.bindings.some((defaultBinding) => bindingToken(defaultBinding) === token)
@@ -1075,7 +1006,6 @@ function conflictsWithFixed(
 }
 
 export interface BindingConflict {
-  /** 争用对象（可编辑命令 ID 或 Fixed 清单 ID）。 */
   targetId: string;
   targetLabel: string;
   binding: ShortcutBinding;
@@ -1083,10 +1013,6 @@ export interface BindingConflict {
   applies: string;
 }
 
-/**
- * 保守检查：候选编辑是否与任何可生效命令 / Fixed 清单争用同一按键。
- * 谓词可证明互斥（如「已选中」vs「未选中」）时允许共用。
- */
 export function findBindingConflicts(input: {
   commandId: string;
   bindings: ShortcutBinding[];
@@ -1137,22 +1063,17 @@ export function findBindingConflicts(input: {
   return conflicts;
 }
 
-// ── 运行期匹配（dispatchKey 消费）────────────────────────────────────────────
-
 export interface CommandEventMatcher {
   match: (commandId: string) => boolean;
-  /** 同键意外命中多条互相争用的命令：执行方应吞掉事件并上报一次。 */
   conflict: boolean;
 }
 
-/** 运行期匹配器：把事件归一到绑定后查生效表；每次 keydown 构造一个实例。 */
 export function createCommandEventMatcher(
   e: KeyboardEvent,
   effective: Map<string, EffectiveCommandState>,
   stage: HotkeyStage,
 ): CommandEventMatcher {
   const claimed = new Set<string>();
-  // 存量冲突命令仍计入 claimed 以便识别重叠并提示，但绝不进入 executable。
   const executable = new Set<string>();
   let conflict = false;
   for (const state of effective.values()) {
@@ -1185,8 +1106,6 @@ export function createCommandEventMatcher(
   };
 }
 
-// ── 存量偏好解析（严格写 + 宽容读）──────────────────────────────────────────
-
 function isValidBindingValue(value: unknown): value is ShortcutBinding[] {
   if (!Array.isArray(value) || value.length > 2) return false;
   return value.every((entry) => {
@@ -1202,14 +1121,9 @@ function isValidBindingValue(value: unknown): value is ShortcutBinding[] {
   });
 }
 
-/**
- * 宽容读：仅接受 schemaVersion 1 且结构完整的覆盖；损坏 / 更新版本的条目
- * 排除出执行并记入 issues（保留原始值，由界面标示待修正）。
- */
 export function parseStoredShortcutOverrides(raw: unknown): {
   overrides: ShortcutOverridesByDomain;
   issues: StoredShortcutIssue[];
-  /** true = 整棵子树无法识别（损坏或更新版本），界面应整体标示。 */
   opaque: boolean;
 } {
   const result: ShortcutOverridesByDomain = { common: {}, image: {}, video: {} };
@@ -1230,8 +1144,6 @@ export function parseStoredShortcutOverrides(raw: unknown): {
     }
     for (const [commandId, value] of Object.entries(bucket as Record<string, unknown>)) {
       if (value === null) {
-        // 显式重置：已知命令恢复默认；未知 / 历史条目视为已清除，不再报
-        // unknown-command（服务端合并后也会移除这类键）。
         if (EDITABLE_COMMAND_IDS.has(commandId)) result[domain][commandId] = null;
         continue;
       }
@@ -1251,8 +1163,6 @@ export function parseStoredShortcutOverrides(raw: unknown): {
   }
   return { overrides: result, issues, opaque };
 }
-
-// ── 展示格式化 ───────────────────────────────────────────────────────────────
 
 export function isMacPlatform(): boolean {
   return (
@@ -1281,7 +1191,6 @@ const KEY_LABELS: Record<string, string> = {
   end: "End",
 };
 
-/** 绑定的展示键帽序列（修饰键在前，Mod 按平台展开）。 */
 export function bindingKeyLabels(b: ShortcutBinding): string[] {
   const labels: string[] = [];
   if (b.modifiers.includes("mod")) labels.push(modLabel());

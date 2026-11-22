@@ -294,7 +294,6 @@ class AnnotationCommentService:
     ) -> AnnotationComment:
         """Mutate a row admitted and refreshed by the application workflow."""
         if body is not None:
-            # Emptying the body is allowed only while attachments or a drawing remain.
             if not body.strip():
                 has_drawing = bool(
                     comment.canvas_drawing

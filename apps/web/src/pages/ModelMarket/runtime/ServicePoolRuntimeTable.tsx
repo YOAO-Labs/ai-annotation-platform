@@ -1,18 +1,6 @@
 import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useListPagination } from "@/hooks/useListPagination";
-/**
- * service-pool runtime overview.
- *
- * 模型市场多 TAB UI 优化 · 阶段三 (plan §4.2)：池卡是两行轻量字段带——
- * 第一行身份（展开按钮 + 名称 + 短 ID/策略 + 健康、路由、新鲜度分开显示），
- * 第二行带标签的字段（可路由/总实例、并发、驻留、CPU 回退、流量）。去掉旧版
- * 四个内层小卡与悬浮位移动画；无流量指标的池只显示一条「暂无路由指标」，
- * 缺失字段不在首层冒充数值，仍保留下钻处的未知语义；驻留已知性同样取自
- * 「可信且可解析」的状态——`{state:"unknown"}`、畸形载荷或未核实来源都显示
- * 「未知」，不把显式未知的数据折算成确定的 0。正常池保持 topology 稳定
- * 顺序，不因轮询数值重排；展开成员时跨两列，成员与维护动作沿用既有组件。
- */
 import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Server } from "lucide-react";
 
@@ -46,21 +34,16 @@ import {
   residencyStateToAxis,
 } from "./parseResidency";
 
-/** Per-member lookups the orchestrator pre-computes from /all + /observe. */
 export interface MemberLookups {
   backend: GlobalBackendItem | undefined;
   observe: ObserveTarget | undefined;
-  /** Project id enabling warmup; undefined when no project binding. */
   projectId: string | undefined;
 }
 
 export interface ServicePoolRuntimeTableProps {
   topology: RuntimeTopologyViewModel;
-  /** registry_id → member lookups (backend / observe / projectId). */
   lookup: (registryId: string) => MemberLookups;
-  /** Warmup callback delegated to the orchestrator (owns the hooks). */
   onWarm?: (registryId: string, target?: VariantWarmTarget) => void;
-  /** Set of registry_ids currently warming (disables warmup buttons). */
   warming?: Set<string>;
 }
 
@@ -114,8 +97,6 @@ export function ServicePoolRuntimeTable({
           const { residency, trusted } = resolveMemberResidency(lookup(member.registry_id));
           return isActiveResidency(residency, trusted);
         }).length;
-        // 已知 = 至少一个成员给出可信且可解析的驻留状态；`{state:"unknown"}`、
-        // 畸形载荷或未核实来源都不能把「未知」折算成确定的 0（plan §4.2 / ADR-0051）。
         const residencyKnown = pool.members.some((member) => {
           const { residency, trusted } = resolveMemberResidency(lookup(member.registry_id));
           if (!trusted) return false;
@@ -171,12 +152,6 @@ export function ServicePoolRuntimeTable({
   );
 }
 
-/**
- * Resolve one member's residency payload and whether its source is trusted
- * (fresh direct probe / fresh cached health). This is the same resolution the
- * instance rows render, so pool-level counts and row-level states can never
- * disagree about what "known" means.
- */
 function resolveMemberResidency({ backend, observe }: MemberLookups): {
   residency: unknown;
   trusted: boolean;
@@ -220,7 +195,6 @@ function PoolRuntimeCard({
   cpuFallbackCount: number;
   cpuFallbackKnown: boolean;
 }): ReactNode {
-  // 健康与路由分开显示（plan §4.2 / ADR-0051 四状态轴）。
   const effectiveRouting = derivePoolEffectiveRouting(pool);
 
   return (
@@ -231,7 +205,6 @@ function PoolRuntimeCard({
       )}
     >
       <div className="flex flex-col gap-2 px-4 py-3">
-        {/* 第 1 行：身份 + 健康 / 路由 / 新鲜度（独立轴）。 */}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <Button
             variant="ghost"
@@ -262,7 +235,6 @@ function PoolRuntimeCard({
           </div>
         </div>
 
-        {/* 第 2 行：带标签的字段带（可路由 / 并发 / 驻留 / CPU 回退 / 流量）。 */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md bg-muted/35 px-3 py-2 text-xs">
           <PoolField label="可路由">
             <span className="text-status-positive">{pool.availability.routable}</span>
@@ -312,8 +284,6 @@ function PoolRuntimeCard({
             )}
           </PoolField>
           <PoolField label="流量">
-            {/* 同一池无流量指标时只显示一条「暂无路由指标」（plan §4.2），
-                不画空分布条冒充数据。 */}
             {trafficTotal != null ? (
               <TrafficDistributionBar segments={trafficSegments} total={trafficTotal} />
             ) : (

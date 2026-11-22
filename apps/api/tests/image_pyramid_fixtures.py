@@ -165,8 +165,6 @@ async def ready_generation(db, item, *, pinned=True, asset=None, generation=None
         )
         db.add(output)
         await db.flush()
-        # Exercise the same immutable-ledger state transition as publication.
-        # Inserting ready directly is forbidden by the database owner guard.
         output.inventory = inventory
         output.state = "ready"
         await db.flush()

@@ -19,15 +19,8 @@ StorageScope = Literal["global", "owner"]
 class StorageConnectionCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     kind: StorageKind
-    # 非密钥配置：见 Assets source 的 management validator 校验必填项。
-    #   s3   → {endpoint, bucket, region?, base_prefix?, use_ssl?}
-    #   sftp → {host, port?, username, base_path?, auth_type("password"|"key")}
     config: dict
-    # 明文密钥（写入即加密，绝不回吐）：
-    #   s3   → {access_key, secret_key}
-    #   sftp → {password} 或 {private_key, passphrase?}
     secret: dict
-    # scope=owner 默认归属创建者；global 仅超管可建。project_id 为历史兼容字段，不再写入。
     scope: StorageScope = "owner"
     project_id: uuid.UUID | None = None
 
@@ -36,7 +29,6 @@ class StorageConnectionUpdate(BaseModel):
     expected_revision: int = Field(ge=1)
     name: str | None = Field(default=None, min_length=1, max_length=255)
     config: dict | None = None
-    # 留空 = 不改密钥；给出则整体轮换。
     secret: dict | None = None
 
 

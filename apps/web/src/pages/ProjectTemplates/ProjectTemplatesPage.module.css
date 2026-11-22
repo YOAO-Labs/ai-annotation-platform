@@ -159,7 +159,6 @@
   color: var(--sc-brand);
 }
 
-/* TemplateEditModal tab + helper styles */
 .tabs {
   display: flex;
   gap: 8px;

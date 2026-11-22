@@ -564,8 +564,6 @@ async def _install_task_trigger(
     trigger_name = f"workspace_import_cli_fail_{suffix}_trigger"
     function = f"public.{function_name}"
     trigger = f"public.{trigger_name}"
-    # Default PostgreSQL can finish a query before noticing a dead client.
-    # Keep this artificial pause bounded; cancellation is not SQL interruption.
     action = (
         "PERFORM pg_sleep(10); "
         if marker is None

@@ -140,8 +140,6 @@ def live_group(pgid: int):
 
 
 def stop_process(process: subprocess.Popen):
-    # The process group is created by this Popen and its inherited lock remains
-    # held until every member exits. Never infer exit from heartbeat expiry.
     pgid = process.pid
     for sig, grace in ((signal.SIGINT, 10), (signal.SIGTERM, 10), (signal.SIGKILL, 10)):
         if not live_group(pgid):
@@ -249,8 +247,6 @@ class Supervisor:
     def heartbeat(self, journal, directory):
         acknowledged = 0
         last_success = time.monotonic()
-        # Use a separate transport: storage upload or preparation can block the
-        # main thread without blocking cancellation and liveness reports.
         with httpx.Client(
             base_url=self.client.base_url,
             headers=self.client.headers,
@@ -287,7 +283,6 @@ class Supervisor:
         temporary = path.with_suffix(".download")
         digest = hashlib.sha256()
         size = 0
-        # Never send the executor credential to the object store.
         with (
             httpx.stream("GET", url, timeout=60, trust_env=False) as response,
             temporary.open("wb") as target,
@@ -383,9 +378,6 @@ class Supervisor:
         return body
 
     def reject_publication(self, journal, stage, status=None):
-        # A definitive rejection proves this receipt was not accepted. The API
-        # permits failed completion without complete/valid uploaded artifacts.
-        # Preserve any frozen accounting while replacing the rejected receipt.
         previous = journal.get("finish_body", {})
         journal["outcome"] = "failed"
         journal["error"] = f"训练产物发布失败：{stage}" + (
@@ -409,8 +401,6 @@ class Supervisor:
             stage = "finish" if "finish_body" in journal else "inventory"
             try:
                 if "finish_body" in journal:
-                    # Replays never repeat authorization or modify a receipt:
-                    # the platform may have accepted it before a lost response.
                     self.save(journal)
                     self.api(self.endpoint(journal, "finish"), journal["finish_body"])
                     return True
@@ -418,8 +408,6 @@ class Supervisor:
                     journal["artifacts"] = self.inventory(journal, directory)
                     journal["phase"] = "uploading"
                     self.save(journal)
-                # The child has exited. Flush every durable event before final
-                # publication, including the last epoch inside a heartbeat gap.
                 stage = "events"
                 events = self.events(directory)
                 for offset in range(0, len(events), 100):
@@ -458,8 +446,6 @@ class Supervisor:
                         )
                     response.raise_for_status()
                 journal["finish_body"] = self.finish_body(journal)
-                # Persist on every retry: a previous save may have failed after
-                # finish_body was assigned in memory but before atomic durability.
                 self.save(journal)
                 stage = "finish"
                 self.api(self.endpoint(journal, "finish"), journal["finish_body"])
@@ -473,9 +459,6 @@ class Supervisor:
                 )
                 if 400 <= status < 500 and not transient:
                     if stage == "finish" and "publication_rejection" in journal:
-                        # No acknowledgement means no lease release or cleanup.
-                        # Stop retrying an invalid terminal request; repair the
-                        # configuration before restarting this retained journal.
                         print(
                             f"Failed terminal publication rejected (HTTP {status}); "
                             "stopping executor "
@@ -504,8 +487,6 @@ class Supervisor:
         try:
             observation.stop()
         except Exception:
-            # Keep the owner until its threads exit; do not start another optional
-            # session or let its shutdown override execution/publication truth.
             self.retiring_observation = observation
         else:
             if getattr(self, "retiring_observation", None) is observation:
@@ -563,8 +544,6 @@ class Supervisor:
         if budget_owner is not None and budget_owner.process is not None:
             process = budget_owner.process
         if process is not None:
-            # Retain the actual Popen across a failed stop/journal write, reap it,
-            # and prove every inherited-lock holder exited before publication.
             self.terminate_process(process, "recovery")
             self.freeze_accounting(journal)
             self.active_process = None
@@ -873,8 +852,6 @@ class Supervisor:
             self.freeze_accounting(journal)
             self.save(journal)
             if capture and "artifacts" not in journal:
-                # Logs are a required training artifact. Retry this packaging
-                # gate from durable segments without restarting native training.
                 redaction = capture.finish()
                 self.active_capture = None
                 if observation:
@@ -892,8 +869,6 @@ class Supervisor:
             if observation:
                 self.retire_observation(observation)
         if published:
-            # Only remove this attempt after the platform acknowledged durable
-            # publication or fenced it out in favor of a later attempt.
             import shutil
 
             shutil.rmtree(directory)
@@ -959,8 +934,6 @@ class Supervisor:
                 },
                 "phase": "claiming",
             }
-            # Persist BEFORE the HTTP request. A lost claim response can be
-            # recovered by the same request identity without an orphaned lease.
             self.save(journal)
             try:
                 if self.claim(journal):

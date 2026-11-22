@@ -1,13 +1,5 @@
-/**
- * AIPreAnnotate 共享样式常量.
- *
- * 把原 AIPreAnnotatePage.tsx 散落的 inline style 抽出来集中管理, 让子组件
- * 共用同一份字号/间距/颜色规范, 避免硬编码漂移.
- */
-
 import type { CSSProperties } from "react";
 
-/* ── 字号系统（与平台其它成熟页面对齐） ─────────────────────── */
 export const FS_XS = 11;
 export const FS_SM = 12;
 export const FS_MD = 13;
@@ -15,7 +7,6 @@ export const FS_LG = 16;
 export const FS_XL = 20;
 export const FS_HUGE = 24;
 
-/* ── 间距系统 ───────────────────────────────────────────────── */
 export const PAGE_PADDING_X = 28;
 export const PAGE_PADDING_Y = 20;
 export const CARD_PADDING = 16;
@@ -24,12 +15,10 @@ export const CARD_HEADER_PADDING_Y = 12;
 export const SECTION_GAP = 16;
 export const FIELD_GAP = 12;
 
-/* ── 模块特定常量 ───────────────────────────────────────────── */
 export const CHIPS_MAX_HEIGHT = 120;
 export const CHIPS_SHOW_SEARCH_THRESHOLD = 6;
 export const HISTORY_PAGE_SIZE = 20;
 
-/* ── 共享 inline style ───────────────────────────────────────── */
 export const labelStyle: CSSProperties = {
   display: "block",
   fontSize: FS_SM,

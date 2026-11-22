@@ -21,9 +21,8 @@ from starlette.responses import Response
 from starlette.types import ASGIApp
 
 
-_HSTS_MAX_AGE = 60 * 60 * 24 * 365  # 1 year
+_HSTS_MAX_AGE = 60 * 60 * 24 * 365
 
-# API 响应不含 HTML, script/style nonce 都不需要；直接收紧到静态来源白名单.
 _CSP_DIRECTIVES = (
     "default-src 'self'; "
     "img-src 'self' data: blob: https:; "

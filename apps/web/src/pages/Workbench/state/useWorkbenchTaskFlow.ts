@@ -1,14 +1,3 @@
-/**
- * WorkbenchShell 第三刀。
- *
- * 从 WorkbenchShell.tsx 抽出切题 + 提交流程：
- *   - navigateTask(direction)        切上/下一题，距末页 10 条预加载
- *   - smartNext(mode)                N=未标注 / U=不确定，无目标自动加载下一页 + toast
- *   - hasMissingRequired             所有 annotation 必填属性巡检
- *   - handleSubmitTask()             提交质检（必填巡检拦截 + 成功后自动切下一题）
- *
- * 本 hook 将 task flow 与 ImageStage 渲染逻辑解耦，便于单测。
- */
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { TaskResponse, AnnotationResponse } from "@/types";
 import type { AttributeSchema } from "@/api/projects";
@@ -26,23 +15,16 @@ export interface UseWorkbenchTaskFlowParams {
   isFetchingNextPage: boolean;
   fetchNextPage: () => void;
   annotationsRef: React.MutableRefObject<AnnotationResponse[]>;
-  /** 当 annotations 列表变化时触发 hasMissingRequired 重算（外部传入 query data 即可） */
   annotationsData: unknown;
-  /** Project 对象（仅读 attribute_schema），保持松类型以兼容 generated client */
   currentProject: { attribute_schema?: unknown } | undefined;
-  /** 当前工具绑定派生出的真实 schema；优先于已废弃的 project.attribute_schema。 */
   attributeSchema?: AttributeSchema | null;
-  /** 跨工具标注时按 annotation.tool_unit_id 解析其绑定 schema。 */
   getAttributeSchema?: (annotation: AnnotationResponse) => AttributeSchema | undefined;
   userBoxesCount: number;
-  /** 提交前由 shell 汇总现有写入/Mask/离线队列 owner 状态。 */
   submitBlockedReason?: string | null;
-  /** 当前用户/任务上下文仍然有效时才允许成功回调导航或写 UI。 */
   isCurrentContext?: () => boolean;
   currentUserId?: string | null;
   setCurrentTaskId: (id: string) => void | Promise<boolean>;
   setSelectedId: (id: string | null) => void;
-  /** 选中首个缺失必填属性，并在属性卡刷新后把焦点移到对应控件。 */
   focusRequiredAttribute?: (annotationId: string, fieldKey?: string) => void;
   pushToast: ToastFn;
   submitTaskMut: {
@@ -65,7 +47,6 @@ export interface SubmitBlockInputs {
   syncError?: string | null;
 }
 
-/** Keep the submit gate derived from existing owners; this does not create another save state. */
 export function resolveSubmitBlockedReason(input: SubmitBlockInputs): string | null {
   if (input.pendingWrites > 0) return "工作台写入尚未完成";
   if (input.maskSaving) return "Mask 正在保存";
@@ -149,7 +130,6 @@ export function useWorkbenchTaskFlow(p: UseWorkbenchTaskFlowParams): UseWorkbenc
       );
       if (!targetTaskId) return;
       const newIdx = tasks.findIndex((item) => item.id === targetTaskId);
-      // 距末页 10 条时预加载下一页
       if (
         direction === "next" &&
         newIdx >= tasks.length - 10 &&
@@ -177,7 +157,6 @@ export function useWorkbenchTaskFlow(p: UseWorkbenchTaskFlowParams): UseWorkbenc
     ],
   );
 
-  /** N（下一未标注）/ U（下一最不确定，total_predictions desc）。 */
   const smartNext = useCallback(
     (mode: "open" | "uncertain") => {
       if (tasks.length === 0) return;
@@ -216,7 +195,6 @@ export function useWorkbenchTaskFlow(p: UseWorkbenchTaskFlowParams): UseWorkbenc
     ],
   );
 
-  /** 计算所有 annotation 中是否有 required 属性未填（驱动提交按钮 disabled）。 */
   const missingRequired = useMemo<MissingRequiredAttribute[]>(() => {
     const fallbackSchema =
       attributeSchema ?? (currentProject?.attribute_schema as AttributeSchema | null | undefined);
@@ -232,7 +210,6 @@ export function useWorkbenchTaskFlow(p: UseWorkbenchTaskFlowParams): UseWorkbenc
       }
     }
     return missing;
-    // 当 annotations 列表变化时重算
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [annotationsData, attributeSchema, currentProject?.attribute_schema, getAttributeSchema]);
   const hasMissingRequired = missingRequired.length > 0;

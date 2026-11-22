@@ -37,10 +37,6 @@ export interface VideoTimelineDensityBin {
   from: number;
   to: number;
   density: number;
-  /**
-   * 该 bin 内各轨迹的关键帧贡献数, 按数量降序 (legacy bbox 不计入)。
-   * 用于把密度条按比例分段着色; 各 track count 之和可能小于 density (差额为 legacy bbox)。
-   */
   tracks: { trackId: string; count: number }[];
 }
 
@@ -109,7 +105,6 @@ export function buildGlobalTimelineDensity(
   const safeMaxFrame = Math.max(0, Math.floor(maxFrame));
   const binCount = Math.max(1, Math.min(Math.floor(bins), safeMaxFrame + 1 || 1));
   const counts = Array.from({ length: binCount }, () => 0);
-  // 每个 bin 记录各轨迹贡献数, 取最多者作为该 bin 的着色轨迹。
   const trackCounts: Map<string, number>[] = Array.from({ length: binCount }, () => new Map());
 
   const binOf = (frameIndex: number) => {
@@ -128,7 +123,6 @@ export function buildGlobalTimelineDensity(
     }
   }
 
-  // legacy bbox 无 track 归属: 只计入密度高度, 不参与着色轨迹的判定。
   for (const frameIndex of manualBboxFrames) {
     counts[binOf(frameIndex)] += 1;
   }
@@ -136,7 +130,6 @@ export function buildGlobalTimelineDensity(
   return counts.map((density, index) => {
     const from = Math.floor((index / binCount) * (safeMaxFrame + 1));
     const to = Math.max(from, Math.floor(((index + 1) / binCount) * (safeMaxFrame + 1)) - 1);
-    // Map 迭代序 = 插入序; sort 稳定, 故同数量按首次出现的轨迹在前。
     const trackShares = [...trackCounts[index]]
       .map(([trackId, count]) => ({ trackId, count }))
       .sort((a, b) => b.count - a.count);
@@ -151,10 +144,6 @@ export interface PredictionDensityBin {
   count: number;
 }
 
-/**
- * 预测帧集合 → bucket 化密度轨。与 buildGlobalTimelineDensity 用同一 bin 划分 (等宽 binOf),
- * 保证预测密度条与人工密度条在时间轴上逐桶对齐; 但预测无轨迹归属, 单色渲染。
- */
 export function buildPredictionDensity(
   predictedFrames: readonly number[],
   maxFrame: number,
@@ -191,23 +180,19 @@ export function nextVisibleKeyframeFrame(
   return null;
 }
 
-/** 上一个可见关键帧（不在 outside 区间）；无则 null。 */
 export function prevKeyframeFrame(track: TimelineTrack, frameIndex: number): number | null {
   return nextVisibleKeyframeFrame(track, frameIndex, -1);
 }
 
-/** 下一个可见关键帧（不在 outside 区间）；无则 null。 */
 export function nextKeyframeFrame(track: TimelineTrack, frameIndex: number): number | null {
   return nextVisibleKeyframeFrame(track, frameIndex, 1);
 }
 
-/** 轨迹首次出现（最早可见关键帧）的源帧号；无可见关键帧则 null。 */
 export function firstAppearFrame(track: TimelineTrack): number | null {
   const frames = visibleKeyframesForTimeline(track);
   return frames.length > 0 ? frames[0].frame_index : null;
 }
 
-/** 轨迹最后出现（最晚可见关键帧）的源帧号；无可见关键帧则 null。 */
 export function lastAppearFrame(track: TimelineTrack): number | null {
   const frames = visibleKeyframesForTimeline(track);
   return frames.length > 0 ? frames[frames.length - 1].frame_index : null;

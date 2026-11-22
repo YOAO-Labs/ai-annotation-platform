@@ -244,8 +244,6 @@ async def _persist_issue(
         "code": code,
         "severity": severity,
         "severity_rank": _SEVERITY_RANK[severity],
-        # Effective staleness is derived from source_versions in every read and
-        # blocking query, so a late worker never needs per-finding DB probes.
         "status": "open",
         "frame_start": frame_start,
         "frame_end": frame_end,

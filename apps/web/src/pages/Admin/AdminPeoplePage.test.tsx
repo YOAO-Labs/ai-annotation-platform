@@ -1,10 +1,5 @@
-/**
- * AdminPeoplePage 单测
- * 覆盖: 加载态 / 空列表 / 成员卡片渲染 / 筛选按钮交互 / 点击卡片打开抽屉 /
- *       抽屉加载态 / 抽屉关闭
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { Link, MemoryRouter, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/authStore";
@@ -82,8 +77,8 @@ const baseDetail = {
   project_count: 3,
   throughput: 120,
   quality_score: 90,
-  active_minutes: 480,
-  composite_score: 87,
+  active_minutes: null,
+  composite_score: 95,
   weekly_compare_pct: 10,
   trend_throughput: [100, 110, 120, 130],
   trend_quality: [85, 87, 89, 90],
@@ -94,7 +89,7 @@ const baseDetail = {
   timeline: [],
   reject_reason_breakdown: [],
   class_distribution: [],
-  first_pass_yield: null,
+  first_pass_yield: 0.9,
 };
 
 function LocationProbe() {
@@ -198,15 +193,11 @@ describe("AdminPeoplePage", () => {
     renderUI();
     expect(screen.getByText("Alice")).toBeInTheDocument();
     expect(screen.getByText("员工")).toBeInTheDocument();
-    // main_metric 渲染
     expect(screen.getByText("120")).toBeInTheDocument();
-    // project_count
     expect(screen.getByText(/3 项目/)).toBeInTheDocument();
   });
 
   it("平台角色徽章按平台身份呈现, 不把平台角色与项目职责比较", () => {
-    // 平台身份: employee 是唯一的普通员工身份; 项目职责 (annotator/reviewer)
-    // 在卡片其它位置由 main_metric_label 体现, 徽章不再据此变色.
     expect(platformRoleLabel("employee")).toBe("员工");
     expect(platformRoleLabel("viewer")).toBe("观察者");
     expect(platformRoleLabel("super_admin")).toBe("超级管理员");
@@ -214,7 +205,6 @@ describe("AdminPeoplePage", () => {
     expect(platformRoleBadgeVariant("employee")).toBe("ai");
     expect(platformRoleBadgeVariant("viewer")).toBe("default");
     expect(platformRoleBadgeVariant("super_admin")).toBe("danger");
-    // 项目职责字符串即使被误当平台角色也不应命中旧的 annotator 强调分支.
     expect(platformRoleBadgeVariant("annotator")).toBe("default");
 
     const viewer = { ...basePerson, user_id: "u2", name: "Vera", role: "viewer" };
@@ -244,10 +234,8 @@ describe("AdminPeoplePage", () => {
     });
     mockUseAdminPersonDetail.mockReturnValue({ data: undefined, isLoading: true });
     renderUI();
-    // 卡片可点击 (Card onClick)
     const card = screen.getByText("Alice").closest("[class]")!;
     fireEvent.click(card);
-    // 抽屉加载态
     expect(screen.getAllByText("加载中...").length).toBeGreaterThan(0);
   });
 
@@ -258,14 +246,43 @@ describe("AdminPeoplePage", () => {
     });
     mockUseAdminPersonDetail.mockReturnValue({ data: baseDetail, isLoading: false });
     renderUI();
-    // 点开抽屉
     const card = screen.getByText("Alice").closest("[class]")!;
     fireEvent.click(card);
     await waitFor(() => {
       expect(screen.getAllByText("产能").length).toBeGreaterThan(0);
-      expect(screen.getAllByText("质量").length).toBeGreaterThan(0);
+      expect(
+        within(screen.getByText("质量（首过率）").parentElement!).getByText("90%"),
+      ).toBeInTheDocument();
+      expect(
+        within(screen.getByText("个人综合分").parentElement!).getByText("95"),
+      ).toBeInTheDocument();
       expect(screen.getByText("4 周趋势")).toBeInTheDocument();
     });
+  });
+
+  it("shows no quality value when the member has no submissions", () => {
+    mockUseAdminPeople.mockReturnValue({
+      data: { items: [basePerson], total: 1, period: "7d" },
+      isLoading: false,
+    });
+    mockUseAdminPersonDetail.mockReturnValue({
+      data: {
+        ...baseDetail,
+        throughput: 0,
+        quality_score: 100,
+        composite_score: 0,
+        first_pass_yield: null,
+      },
+      isLoading: false,
+    });
+    renderUI();
+    fireEvent.click(screen.getByText("Alice").closest("[class]")!);
+    expect(
+      within(screen.getByText("质量（首过率）").parentElement!).getByText("—"),
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByText("个人综合分").parentElement!).getByText("0"),
+    ).toBeInTheDocument();
   });
 
   it("keeps member detail in the applied project and period", () => {
@@ -290,12 +307,10 @@ describe("AdminPeoplePage", () => {
     });
     mockUseAdminPersonDetail.mockReturnValue({ data: baseDetail, isLoading: false });
     renderUI();
-    // 打开抽屉
     const card = screen.getByText("Alice").closest("[class]")!;
     fireEvent.click(card);
     await waitFor(() => expect(screen.getByLabelText("关闭")).toBeInTheDocument());
     fireEvent.click(screen.getByLabelText("关闭"));
-    // 抽屉关闭后详情不在 DOM 中
     await waitFor(() => expect(screen.queryByText("4 周趋势")).not.toBeInTheDocument());
   });
 

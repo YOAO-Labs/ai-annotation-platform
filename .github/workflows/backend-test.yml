@@ -1,5 +1,3 @@
-# Reusable backend test workflow: one deterministic shard per call.
-
 name: Backend test shards
 
 on:
@@ -51,8 +49,6 @@ jobs:
     env:
       DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
       TEST_DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
-      # Some pytest modules import the API router during collection. Enable the
-      # guarded test-only router before the first application import.
       E2E_SEED_ENABLED: "true"
       SECRET_KEY: ci-test-secret
       REDIS_URL: redis://localhost:6379/0
@@ -60,6 +56,7 @@ jobs:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: annotations
+      BACKEND_MINIO_PROJECT: backend-minio-${{ github.run_id }}-${{ github.run_attempt }}-${{ inputs.shard-index }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,8 +66,6 @@ jobs:
           python-version: "3.11"
       - name: Install video fixture tools
         run: |
-          # Avoid the regional HTTP mirror that consumed over 20 minutes of the
-          # backend job; the HTTPS archive is the same package set.
           if [ -f /etc/apt/apt-mirrors.txt ]; then
             printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           fi
@@ -110,29 +105,18 @@ jobs:
         run: |
           uv run python ../../scripts/test_production_health_recover.py
           uv run python ../../scripts/test_development_restart.py
-      # IBM mirrors the removed Quay image with the same verified digest.
-      # https://www.ibm.com/support/pages/node/7289585
       - name: Start MinIO
         run: |
-          minio_image=icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          minio=(docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml)
           for attempt in 1 2 3; do
-            if docker pull "$minio_image"; then break; fi
+            if "${minio[@]}" pull minio; then break; fi
             if [ "$attempt" -eq 3 ]; then exit 1; fi
             sleep "$((attempt * 5))"
           done
-          docker run -d --name minio \
-            -p 9000:9000 \
-            -e MINIO_ROOT_USER=minioadmin \
-            -e MINIO_ROOT_PASSWORD=minioadmin \
-            "$minio_image" server /data
-          for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:9000/minio/health/live; then
-              exit 0
-            fi
-            sleep 1
-          done
-          docker logs minio
-          exit 1
+          if ! "${minio[@]}" up --detach --pull never --wait --wait-timeout 30 minio; then
+            "${minio[@]}" logs minio
+            exit 1
+          fi
       - name: Initialize MinIO buckets
         working-directory: apps/api
         run: uv run python -c "from app.services.storage import storage_service; storage_service.ensure_all_buckets()"
@@ -161,8 +145,28 @@ jobs:
           uv run pytest -q --cov=app --cov-report=xml --cov-report=term-missing
           --durations=30 --junitxml=pytest-results.xml
           --shard-index ${{ inputs.shard-index }} --shard-count ${{ inputs.shard-count }}
-      # P6 交接：migration policy 纯规则测试（scripts/ 下不被 apps/api pytest
-      # 收集），在此以同一 venv 显式运行。
+      - uses: pnpm/action-setup@v4
+        if: inputs.shard-index == 0
+      - uses: actions/setup-node@v4
+        if: inputs.shard-index == 0
+        with:
+          node-version: "22"
+      - name: Verify managed-original reclamation on disposable databases
+        if: inputs.shard-index == 0
+        run: |
+          mkdir -p "$RUNNER_TEMP/minio-client"
+          docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml \
+            cp minio:/usr/bin/mc "$RUNNER_TEMP/minio-client/mc"
+          chmod 700 "$RUNNER_TEMP/minio-client/mc"
+          export PATH="$RUNNER_TEMP/minio-client:$PATH"
+          postgres_image=postgres@sha256:1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857
+          docker pull --platform linux/amd64 "$postgres_image"
+          docker tag "$postgres_image" postgres:16-alpine
+          for module in workspace notifications audit jobs; do
+            pnpm --dir "apps/$module/conformance/node" install --ignore-workspace --frozen-lockfile --ignore-scripts
+          done
+          apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+            --reclamation-only --output reclamation-results/acceptance.json
       - name: Migration policy pure tests
         working-directory: apps/api
         run: uv run python ../../scripts/test_alembic_migration_policy.py
@@ -178,6 +182,8 @@ jobs:
           path: |
             apps/api/pytest-results.xml
             apps/api/script-test-results.xml
+            reclamation-results/**/*.junit.xml
+            reclamation-results/acceptance.json
           retention-days: 7
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -186,3 +192,6 @@ jobs:
           flags: backend
           fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Retire backend object store
+        if: always()
+        run: docker compose --project-name "$BACKEND_MINIO_PROJECT" --file .github/e2e-minio.yml down --volumes

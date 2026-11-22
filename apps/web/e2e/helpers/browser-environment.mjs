@@ -1,4 +1,3 @@
-// Browser processes do not need API, database, storage, or fixture authority.
 const allowed = {
   PATH: true,
   HOME: true,
@@ -22,7 +21,7 @@ const allowed = {
 
 /** @returns {Record<string, string>} */
 export function browserEnvironment({ dropForwardedDisplay = false } = {}) {
-  return Object.fromEntries(
+  const environment = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key, value]) =>
         value !== undefined &&
@@ -30,4 +29,12 @@ export function browserEnvironment({ dropForwardedDisplay = false } = {}) {
         !(dropForwardedDisplay && key === "DISPLAY" && /^localhost:\d+(?:\.\d+)?$/.test(value)),
     ),
   );
+  if (
+    process.platform === "linux" &&
+    process.env.YOAO_WORKTREE_MODE === "e2e" &&
+    process.env.PLAYWRIGHT_CHROMIUM_CHANNEL === "chrome"
+  ) {
+    environment.TMPDIR = "/tmp";
+  }
+  return environment;
 }

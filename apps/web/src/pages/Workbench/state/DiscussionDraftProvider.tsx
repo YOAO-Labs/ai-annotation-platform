@@ -22,15 +22,10 @@ import {
 } from "./discussionTypes";
 
 export interface DiscussionDraftProviderProps {
-  /** `null`/`undefined` means there is no authenticated discussion owner. */
   userId: string | null | undefined;
-  /** Optional host-provided browser-tab session ID. A fresh one is generated per login otherwise. */
   sessionId?: string | null;
-  /** Called after the in-memory owner is disposed so Workbench canvas recovery can be cleaned up. */
   onDispose?: (owner: DiscussionSessionOwner) => void;
-  /** Host auth lease. The default keeps pure/test stores usable; real App wiring should fail closed. */
   isOwnerCurrent?: (owner: DiscussionSessionOwner) => boolean;
-  /** Set false only for hosts that provide their own unload warning. */
   beforeUnload?: boolean;
   children: ReactNode;
 }
@@ -47,11 +42,6 @@ const EMPTY_SNAPSHOT: DiscussionDraftStoreSnapshot = {
   dirtyText: false,
 };
 
-/**
- * Owns discussion drafts for exactly one authenticated browser-tab session.
- * No module-level store is used: changing user (including logout/login as the
- * same user) creates a new owner and retires the old one.
- */
 export function DiscussionDraftProvider({
   userId,
   sessionId,
@@ -69,8 +59,6 @@ export function DiscussionDraftProvider({
   disposeCallbackRef.current = onDispose;
   ownerCurrentRef.current = isOwnerCurrent;
 
-  // A generated ID is keyed by the login identity. The null transition on
-  // logout ensures a subsequent login as the same user receives a new ID.
   const generatedSessionId = useMemo(() => (userId ? createDiscussionSessionId() : null), [userId]);
   const ownerSessionId = sessionId ?? generatedSessionId;
   const store = useMemo(() => {
@@ -82,9 +70,6 @@ export function DiscussionDraftProvider({
     });
   }, [ownerSessionId, userId]);
 
-  // Dispose a retiring account/session after the replacement provider has
-  // committed. Late uploads/drawing/submission completions then fail owner
-  // checks and cannot mutate the new account's drafts.
   useEffect(() => {
     if (!store) return undefined;
     const pendingDisposals = pendingDisposalsRef.current;
@@ -98,9 +83,6 @@ export function DiscussionDraftProvider({
       if (activeStoreRef.current === store) activeStoreRef.current = null;
       const timer = setTimeout(() => {
         pendingDisposals.delete(store);
-        // React StrictMode replays an effect immediately. The second setup
-        // reactivates the same store and cancels this timer; a real unmount or
-        // account replacement leaves it retired and therefore disposable.
         if (activeStoreRef.current !== store) store.dispose();
       }, 0);
       pendingDisposals.set(store, timer);
@@ -119,8 +101,6 @@ export function DiscussionDraftProvider({
       return undefined;
     }
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      // Modern browsers display their own localized message after
-      // preventDefault; returnValue keeps compatibility with older engines.
       event.preventDefault();
       event.returnValue = "";
     };
@@ -133,14 +113,12 @@ export function DiscussionDraftProvider({
   );
 }
 
-/** Returns the current session store, or null for standalone/unauthenticated callers. */
 export function useDiscussionDraftStore(): DiscussionDraftStore | null {
   return useContext(DiscussionDraftContext);
 }
 
 export const useDiscussionDraftSession = useDiscussionDraftStore;
 
-/** Subscribe to one target's structured draft without hydrating editor DOM on each edit. */
 export function useDiscussionDraft(
   target: DiscussionTarget | null | undefined,
 ): DiscussionDraft | undefined {

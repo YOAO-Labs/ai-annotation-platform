@@ -62,17 +62,12 @@ describe("trackRangesOverlap (join eligibility)", () => {
   });
 
   it("excludes outside frames so masked tails do not overlap", () => {
-    // a 关键帧到 F15, 但 F11-F15 被标记 outside, 可见区间仅到 F10。
     const a = track("a", "Car", [0, 10, 15], [{ from: 11, to: 15, source: "manual" }]);
     const b = track("b", "Car", [12, 20]);
     expect(trackRangesOverlap(a, b)).toBe(false);
   });
 });
 
-/**
- * 删除确认是异步决策:确认打开期间浏览器历史可能切到别的题或轨迹被并行删除。
- * 回归:await 之后按实时 annotations 复检归属,不再把旧题的标注交给 onDeleteTracks。
- */
 describe("VideoTrackSidebar delete ownership revalidation", () => {
   function maskTrackFixture(id: string): AnnotationResponse {
     return {
@@ -152,7 +147,6 @@ describe("VideoTrackSidebar delete ownership revalidation", () => {
     fireEvent.click(view.getByTitle("删除 Mask 轨迹"));
     await screen.findByRole("alertdialog", { name: "删除这条 Mask 轨迹？" });
 
-    // 确认尚未给出时任务已切走:当前题 annotations 变空。
     view.rerender(sidebarWith([], onDeleteTracks));
     fireEvent.click(screen.getByRole("button", { name: "删除" }));
     await flushTeardown();
@@ -278,7 +272,6 @@ describe("VideoTrackSidebar admitted video selection", () => {
     expect(view.row("First")).toHaveAttribute("aria-selected", "true");
     expect(view.row("Second")).toHaveAttribute("aria-selected", "false");
 
-    // Rejecting a command does not invoke onAdmitted; the same draft owner may retry.
     fireEvent.click(view.row("Second"));
     expect(view.onSelectionChange).toHaveBeenLastCalledWith([view.annotations[0]]);
     act(() => onSelectVideoObject.mock.calls[1][1]?.onAdmitted?.());

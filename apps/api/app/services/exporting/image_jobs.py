@@ -76,8 +76,6 @@ def _message(job, *, project_id, batch_id, targets, opts, task_ids):
             reject("image_export_scope_changed")
     elif scope is not None:
         reject("image_export_scope_changed")
-    # The original worker arguments and the saved request options must agree;
-    # storing another value in payload cannot silently replace the delegation.
     try:
         if any(
             key not in payload or not _same_json(payload[key], value)

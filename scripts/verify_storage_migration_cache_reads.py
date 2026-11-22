@@ -159,7 +159,6 @@ async def seed_caches(input_path, output_path):
                     storage_ref=reference,
                     state="building",
                 )
-                # Transport bytes are deliberately synthetic; this is not codec qualification.
                 objects = {
                     owner.key("metadata.json"): b'{"owned":"migration-cache"}',
                     owner.key("playback.mp4"): bytes(range(256)) * 8,
@@ -199,8 +198,6 @@ async def seed_caches(input_path, output_path):
                     "legacy": legacy,
                 }
             )
-        # C owns reference policy and quota, A owns the saved cache, B will own
-        # physical copied reads. The internal cache hit needs no original I/O.
         dataset_id, source_id, asset_id, item_id, location_id = (
             uuid.uuid4() for _ in range(5)
         )

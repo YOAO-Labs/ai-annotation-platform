@@ -1,37 +1,10 @@
 #!/usr/bin/env node
-/**
- * Fail-closed audit of planned E2E suites against actual result artifacts.
- *
- * Inputs:
- * - required suites JSON: array of { suite, planned: true, docsAllowedSkip? }
- *   (the planner shadow/legacy list, one entry per suite the run promised)
- * - a directory of per-suite completion artifacts written by the runner:
- *   <dir>/<suite>.json with { outcome, stats?, timings? } where outcome is
- *   "success" | "failure" | "timedout" | "cancelled" | "setup-failure".
- *
- * Verdict (exit code) is fail-closed: a required suite with a missing,
- * cancelled, setup-failure or failed artifact fails the audit. Explicit
- * docs-allowed skips (planned=false with a documented reason) never fail.
- * Reusable now as an advisory audit next to the frozen legacy gate; P9 turns
- * it into the required gate when the §6 selection switches.
- */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
-/**
- * Validate the required-suites manifest.
- *
- * Shape: either a plain array of suite entries, or
- * { classification: "docs-only" | <other>, reason: string, suites: [...] }.
- * A docs-allowed skip (`planned: false` + `docsAllowedSkip: true` + reason) is
- * only legal inside a docs-only classification, so a runner flag can never
- * bypass a required suite. Entries with `planned: true` are always required.
- */
 export function validateRequiredManifest(manifest) {
   const errors = [];
-  // Normalize BOTH shapes (array = legacy frozen gate, object = §6 manifest)
-  // into one internal form, then run the SAME validation over every entry.
   let classification = "app-code";
   let reason = "";
   let rawSuites;
@@ -147,9 +120,6 @@ export function auditE2ERequirements({ requiredSuites: requiredInput, statusDir 
         rows.push({ suite, state: "unreadable", detail: String(error) });
         continue;
       }
-      // Artifact identity: the completion artifact must name its own suite,
-      // carry a known outcome, and back a success with numeric stats (a bare
-      // {outcome:"success"} without evidence is rejected fail-closed).
       if (status.suite !== suite) {
         rows.push({ suite, state: "suite-mismatch", detail: status.suite ?? null });
         continue;

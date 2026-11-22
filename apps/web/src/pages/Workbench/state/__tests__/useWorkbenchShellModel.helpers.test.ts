@@ -1,5 +1,3 @@
-// useWorkbenchShellModel 纯函数测试守护(伴随逻辑提炼,锁定坐标公式行为)。
-// 任务导航域(scheduler/leave guards/URL 同步)的测试在 taskNavigation.test.ts。
 import { describe, it, expect } from "vitest";
 import { ApiError } from "@/api/client";
 import {
@@ -98,7 +96,6 @@ describe("resolvePinViewport", () => {
       w: 800,
       h: 600,
     });
-    // tx = 800/2 - 0.5*100*2 = 300 ; ty = 600/2 - 0.5*200*2 = 100
     expect(out).toEqual({ scale: 2, tx: 300, ty: 100 });
   });
 

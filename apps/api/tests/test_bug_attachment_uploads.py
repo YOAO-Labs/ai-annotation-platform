@@ -330,10 +330,6 @@ async def test_failed_or_unknown_put_keeps_pending(
         assert bool(objects.objects) is after_put
         assert (await uploads.cleanup(db_session))["deleted"] == 0
     finally:
-        # The unknown PUT outcome is retained as an unsettled ledger row while
-        # this test owns the only handle. The fake provider raised in-process,
-        # so its closure can be attested and the synthetic row retired instead
-        # of silently blocking unrelated physical admissions in later tests.
         assert all(body.closed for body in objects.bodies)
         await clear_closed_test_operations(
             db_session,
@@ -872,7 +868,6 @@ async def test_unknown_close_keeps_read_permit_and_blocks_cleanup(
         )
         assert response.status_code == 503, response.text
         assert len(await owned_operations(db_session, location_id, purpose)) == 1
-        # Delete retires business state, but uncertain read closure retains bytes.
         response = await httpx_client.delete(
             f"/api/v1/bug_reports/{report['id']}", headers=bearer(annotator[1])
         )
@@ -881,8 +876,6 @@ async def test_unknown_close_keeps_read_permit_and_blocks_cleanup(
         await clear_closed_test_operations(db_session, location_id, purpose)
         assert (await uploads.cleanup(db_session))["deleted"] == 1
     finally:
-        # This fake closes its BytesIO before raising. Its test alone can attest
-        # closure; a business SAVEPOINT cannot retire the independent ledger.
         assert all(body.closed for body in objects.bodies)
         await clear_closed_test_operations(db_session, location_id, purpose)
 
@@ -1003,7 +996,6 @@ async def test_download_revoked_between_snapshot_and_admission_has_no_io(
         assert not objects.reads
         assert not await owned_operations(db_session, location_id, purpose)
     finally:
-        # No handle is expected; attest closure even if that assertion failed.
         assert all(body.closed for body in objects.bodies)
         await clear_closed_test_operations(db_session, location_id, purpose)
 

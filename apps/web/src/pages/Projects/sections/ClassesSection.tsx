@@ -41,7 +41,6 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
   const { bindings, setBindings, activeUnit, setActiveUnit, dirty } =
     useProjectToolBindings(project);
   const dataType = projectDataType(project);
-  // 视频几何单位 (矩形框/多边形/折线) 均带单帧/轨迹子开关; 各单位文案不同。
   const isVideoGeoUnit =
     dataType === "video" &&
     (activeUnit === "bbox" || activeUnit === "region" || activeUnit === "polyline");
@@ -50,16 +49,12 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
     region: { box: "单帧多边形", track: "多边形轨迹" },
     polyline: { box: "单帧折线", track: "折线轨迹" },
   };
-  // 同名类跨工具单位批量重命名意图: 开启后重命名不传 tool_unit_id,
-  // 后端在所有 enabled unit 内一起改同名类 (强隔离默认仍为单 unit, 默认=现状)。
   const [renameAllUnits, setRenameAllUnits] = useState(false);
-  // 「从 ML Backend 预填配置」对话框开关，可预填类别和属性。
   const [prefillOpen, setPrefillOpen] = useState(false);
   const importInputRef = useRef<HTMLInputElement>(null);
 
   useUnsavedWarning(dirty);
 
-  // 仅当 ≥2 个启用工具单位存在同名类时, 批量开关才有意义 (否则与单 unit 等价)。
   const hasSharedClass = useMemo(() => {
     const counts = new Map<string, number>();
     for (const ub of Object.values(bindings)) {
@@ -73,8 +68,6 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
   }, [bindings]);
 
   const handleRename = (oldName: string, newName: string) => {
-    // 重命名走后端原子 endpoint, 限定 tool_unit_id 仅改本 unit 内的同名类.
-    // 勾选「同步所有工具单位」时不传 tool_unit_id, 走后端跨 unit 批量路径。
     const allUnits = renameAllUnits && hasSharedClass;
     rename.mutate(
       {
@@ -103,9 +96,6 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
 
   const activeBinding = bindings[activeUnit];
 
-  // 推荐属性字段: 从在线 backend 自报的 output_attribute_schema 取落点类属性
-  // (text/language/orientation) 的完整定义 (含 type/options), 排除当前单位已有 key。
-  // 供 AttributeSchemaEditor 一键填入, 让手建字段的 key 天然对齐协议、不被落点校验漏判。
   const { data: capInstances } = useCapabilityInstances();
   const recommendedAttrFields = useMemo(() => {
     const LANDING = new Set(["text", "language", "orientation"]);
@@ -120,7 +110,6 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
     return [...byKey.values()].filter((f) => !existing.has(f.key));
   }, [capInstances, activeBinding]);
 
-  // alias_to 链接目标: 其它启用工具单位 (≠ 当前) 且有类的 unit。
   const linkTargets = useMemo(
     () =>
       (Object.keys(bindings) as ToolUnitId[])
@@ -254,7 +243,6 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
     }));
   };
 
-  // 视频几何单位: 单帧 / 轨迹 独立开关, 作用于当前激活单位 (至少保留一个可用)。
   const onToggleVideoMode = (key: "box" | "track", next: boolean) => {
     setBindings((b) => {
       const prev = b[activeUnit];
@@ -278,8 +266,6 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
     for (const k of Object.keys(bindings) as (keyof typeof bindings)[]) {
       const ub = bindings[k];
       if (!ub) continue;
-      // 校验所有「会落库」的单位 (启用，或禁用但仍有配置)：禁用单位的属性
-      // 现在也会被持久化，半成品空 key 会被后端 (key min_length=1) 拒绝。
       const willPersist =
         ub.enabled ||
         ub.classRows.length > 0 ||
@@ -342,8 +328,6 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
     e.target.value = "";
   };
 
-  // 从 ML Backend 预填进当前工具单位: 属性同 key 覆盖、新 key 追加; 类别同名跳过、
-  // 新名追加 (自动配色)。属性与类别各走一次受控更新, setBindings 函数式叠加安全。
   const onPrefillFromBackend = ({ classes, attributes }: PrefillPicked) => {
     if (attributes.length > 0) {
       const cur = activeBinding?.attributeFields ?? [];
@@ -384,9 +368,6 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
             <Icon name="sparkles" />
             从模型服务预填
           </Button>
-          {/* 导入 / 导出只覆盖属性 schema（类别无法经 JSON 导入导出，只能 ML Backend 预填
-              或手动维护），收进下拉避免头部按钮横向堆叠。隐藏 input 留在头部，
-              菜单 onSelect 处于点击手势内，可直接唤起系统文件选择。 */}
           <input
             ref={importInputRef}
             type="file"
@@ -588,6 +569,5 @@ function projectDataType(project: ProjectResponse): ProjectDataType {
 }
 
 function unitSwitchLabel(enabled: boolean): string {
-  // 各单位名由上方 tab 呈现, 这里措辞统一为「此工具单位」(视频几何单位含单帧+轨迹两变体)。
   return `${enabled ? "已启用" : "已禁用"}此工具单位`;
 }

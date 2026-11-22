@@ -43,7 +43,6 @@
   font-size: 12px;
 }
 
-/* 复制项目时「同时复制标注指引」勾选 */
 .copyGuideToggle {
   display: inline-flex;
   align-items: center;
@@ -458,7 +457,6 @@
   border-top: 1px solid var(--sc-border);
 }
 
-/* 大 dataset 异步建 task 的进度条列表 */
 .linkProgressList {
   display: flex;
   flex-direction: column;
@@ -527,7 +525,6 @@
   border-top: 1px solid var(--sc-border);
 }
 
-/* 工具集 chip + unit tab */
 .unitChipGrid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

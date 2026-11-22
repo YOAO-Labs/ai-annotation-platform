@@ -1,12 +1,5 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect, FilterToggle } from "@/components/filters/FilterControls";
-/**
- * DiscussionPanel 的 Issue 列表。
- *
- * Issue status 由服务端过滤；首屏的 status_counts.open 是精确待处理数，
- * 绝不从当前已经加载的卡片数量推导。详情读取和图钉激活独立于当前
- * 列表页/过滤器，定位仍需用户明确点击。
- */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Button } from "@/components/ui/Button";
@@ -30,9 +23,7 @@ interface Props {
   onReplyFocusHandled?: (requestId: string) => void;
   projectId: string;
   taskId: string;
-  /** Open the task-only Issue form with an explicit task intent. */
   onCreateTaskIssue?: () => void;
-  /** Arm the canvas for an actual confirmed pixel/frame point. */
   onCreatePixelIssue?: () => void;
   allowProjectScope?: boolean;
 }
@@ -48,21 +39,18 @@ const STATUS_FILTERS: { key: FeedbackStatus | "all"; label: string }[] = [
   { key: "wont_fix", label: "搁置" },
 ];
 
-// 卡片整体减淡(已解决 / 搁置)。
 const STATUS_CARD_DIM: Record<FeedbackStatus, string> = {
   open: "",
   resolved: "opacity-60",
   wont_fix: "opacity-55",
 };
 
-// status chip:柔底 + 同色描边/文字。
 const STATUS_CHIP: Record<FeedbackStatus, string> = {
   open: "border-status-caution/60 bg-status-caution-soft text-status-caution",
   resolved: "border-status-positive/60 bg-status-positive-soft text-status-positive",
   wont_fix: "border-border bg-muted text-muted-foreground",
 };
 
-// severity chip:仅文字着色(沿用原设计,描边走默认 border)。
 const SEVERITY_CHIP: Record<FeedbackSeverity, string> = {
   info: "text-status-info-alt",
   warn: "text-status-caution",
@@ -70,9 +58,6 @@ const SEVERITY_CHIP: Record<FeedbackSeverity, string> = {
 };
 
 function feedbackActions(issue: AnnotationFeedback) {
-  // The server is authoritative. Missing capabilities are intentionally
-  // fail-closed: an old or malformed response may still be located/read, but
-  // must never expose a mutation it cannot prove is permitted.
   return {
     changeStatus: issue.actions?.change_status ?? false,
     delete: issue.actions?.delete ?? false,
@@ -138,8 +123,6 @@ export function DiscussionIssuesTab({
   const closeIssueDetail = useActiveIssueStore((s) => s.closeIssueDetail);
 
   useEffect(() => {
-    // A task replacement retires local mutation/detail UI; callbacks from the
-    // old owner must not surface an error or reopen an old root in the new task.
     setMutationError(null);
     setPendingMutation(null);
     setDeleteCandidate(null);
@@ -150,9 +133,6 @@ export function DiscussionIssuesTab({
     };
   }, [ownerKey]);
 
-  // A pin can be activated before the Issues tab mounts. Consume its scoped
-  // snapshot when the tab becomes visible, but never replay it after a
-  // task/user owner transition.
   const detailOwnerRef = useRef(ownerKey);
   useEffect(() => {
     const ownerChanged = detailOwnerRef.current !== ownerKey;
@@ -223,8 +203,6 @@ export function DiscussionIssuesTab({
     () => query.data?.pages.flatMap((page) => page.items) ?? [],
     [query.data?.pages],
   );
-  // The server applies the selected status before pagination. Never filter
-  // the loaded rows again: doing so makes a page-one-only match look absent.
   const openIssueCount = query.data?.pages[0]?.status_counts?.open;
   const countState = query.isError
     ? "error"
@@ -296,10 +274,6 @@ export function DiscussionIssuesTab({
           rootId={activeDetail.rootId}
           projectId={projectId}
           taskId={taskId}
-          // Read permission is global to the video workbench. The list scope
-          // only controls the sequence's task filter; a task-scope detail may
-          // still be opened from a project-scoped pin/deep link and offer an
-          // explicit project-scope switch when its root belongs elsewhere.
           allowProjectScope={allowProjectScope}
           listScope={scope}
           rootSnapshot={activeDetail.snapshot}

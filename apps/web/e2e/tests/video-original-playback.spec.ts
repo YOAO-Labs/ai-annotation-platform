@@ -130,7 +130,6 @@ test.describe("verified original native video", () => {
     let prepares = 0;
     let allowRenewal: (() => void) | undefined;
     await page.route(`**/api/v1/files/tasks/${data.task_id}/original-playback`, async (route) => {
-      // The interception's Node hop omits browser Fetch Metadata unless kept explicitly.
       const response = await route.fetch({
         headers: { ...(await route.request().allHeaders()), "sec-fetch-site": "same-origin" },
       });
@@ -164,9 +163,6 @@ test.describe("verified original native video", () => {
     seed,
   }) => {
     const data = await fixture(page, seed);
-    // Proxy the real notification socket, then inject the server's stale-token
-    // close code. The app must use its real POST /auth/refresh transition rather
-    // than a dev-only module import or a test-only token setter.
     const sockets: WebSocketRoute[] = [];
     await page.routeWebSocket(/\/ws\/notifications/, (socket) => {
       socket.connectToServer();
@@ -194,7 +190,6 @@ test.describe("verified original native video", () => {
         response.url().endsWith(first.split("/").at(-1)!),
     );
     try {
-      // Expire the sockets that exist now; the post-refresh reconnect is not ours to touch.
       for (const socket of [...sockets])
         await socket.close({ code: 1008, reason: "token expired" });
       const renewal = await renewed;
@@ -209,20 +204,16 @@ test.describe("verified original native video", () => {
         throw new Error("auth refresh response carried no access token");
       const nextToken = renewalBody.access_token;
       expect(nextToken).not.toBe(data.token);
-      // The refreshed credential only becomes the session owner once the store adopted it.
       await expect.poll(() => page.evaluate(() => localStorage.getItem("token"))).toBe(nextToken);
       await expect.poll(() => fetching).toBe(true);
       await expect(page.getByText("正在校验项目权限…")).toBeVisible();
       await expect(source(page)).toHaveCount(0);
-      // The retired lease is handed back before the refreshed permission settles.
       expect((await released).status()).toBe(204);
       expect(
         await page.evaluate(async (path) => (await fetch(path, { method: "HEAD" })).status, first),
       ).toBe(410);
     } finally {
       accessGate.resolve();
-      // Both waits settle so a failure above cannot leave a dangling rejection;
-      // the assertion that failed already owns the reported error.
       await Promise.allSettled([renewed, released]);
     }
     await ready(page);
@@ -248,8 +239,6 @@ test.describe("verified original native video", () => {
       { headers: { Authorization: `Bearer ${data.token}` }, data: { session_id: session } },
     );
     expect(release.status()).toBe(204);
-    // Buffered video may not perform I/O immediately; deliver the native error event
-    // after real server retirement to exercise the same scoped HEAD recovery path.
     await source(page).evaluate((node) => node.dispatchEvent(new Event("error")));
     await expect(source(page)).not.toHaveAttribute("src", first, { timeout: 20_000 });
     await ready(page);

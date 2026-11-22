@@ -73,8 +73,6 @@ def main(reports: Path) -> int:
         def run(*args, cwd=work):
             subprocess.run(args, cwd=cwd, env=env, check=True)
 
-        # These are the SDK plugins extra and the dependencies of its verified
-        # test runtime. Install wheels, never pyproject's editable path sources.
         for source in (
             SDK,
             *(

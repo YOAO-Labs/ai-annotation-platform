@@ -1,10 +1,3 @@
-/**
- * ModelMarketPage 主 TAB 行为单测（plan §3 / §5 · 阶段一）。
- *
- * 覆盖：默认目录页、深链恢复、未知枚举规范化、项目管理员角色回退（不发超管
- * 请求、不渲染运行时面板）、显式 TAB 切换 push 浏览器历史、旧书签
- * ?tab=failed 重定向、父页面全局统计卡移除后的骨架。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -65,7 +58,6 @@ describe("ModelMarketPage 主 TAB（阶段一骨架）", () => {
     renderPage();
     expect(screen.getByTestId("catalog-panel")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "模型市场" })).toBeInTheDocument();
-    // 旧三张全局统计卡已移除。
     expect(screen.queryByText("模型条目")).not.toBeInTheDocument();
     expect(screen.queryByText("使用项目")).not.toBeInTheDocument();
   });
@@ -90,7 +82,6 @@ describe("ModelMarketPage 主 TAB（阶段一骨架）", () => {
     await user.click(screen.getByRole("tab", { name: /注册管理/ }));
     expect(screen.getByTestId("registry-panel")).toBeInTheDocument();
     expect(screen.getByTestId("location-probe").dataset.search).toBe("?tab=registry");
-    // PUSH 而非 REPLACE——返回按钮可回到上一个主 TAB。
     expect(screen.getByTestId("location-probe").dataset.navigationType).toBe("PUSH");
     await user.click(screen.getByRole("tab", { name: /模型目录/ }));
     expect(screen.getByTestId("location-probe").dataset.search).toBe("");

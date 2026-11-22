@@ -82,7 +82,6 @@ async def configured_inventory(args, handling, limits):
 
     storage = None
     try:
-        # Constructing StorageService is read-free; never call ensure_all_buckets.
         storage = StorageService(
             client_config=Config(
                 connect_timeout=min(10, limits.read_timeout_seconds),
@@ -140,7 +139,6 @@ def main(argv=None):
         print(json.dumps(report, sort_keys=True))
         return 0 if report["complete"] else 1
     except (Exception, InventoryStopped) as exc:
-        # Raw SDK, SQL and OS messages can contain object keys or credentials.
         code = (
             exc.code
             if isinstance(exc, (InventoryError, InventoryStopped))

@@ -276,8 +276,6 @@ def _validate_lzf(file: BinaryIO, compressed: int, expected: int) -> None:
             length += 2
             if distance > produced:
                 _reject("pcd_lzf_invalid")
-            # A back-reference can overlap its output. Repeat the existing
-            # distance-byte pattern without retaining the decompressed body.
             seed_size = min(distance, length)
             start = (produced - distance) & _HISTORY_MASK
             first = min(seed_size, _HISTORY_BYTES - start)

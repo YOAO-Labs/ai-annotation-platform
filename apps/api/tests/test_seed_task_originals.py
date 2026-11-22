@@ -85,6 +85,4 @@ async def test_namespace_cleanup_preserves_known_and_unfinished_task_originals(
                 body.close()
         assert (await _cleanup_owned(httpx_client, run)).status_code == 200
     finally:
-        # Immutable physical responsibility is removed only by destroying the
-        # launcher's whole disposable test mode, never by bypassing its guards.
         assert (await _cleanup_owned(httpx_client, run)).status_code == 200

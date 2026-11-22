@@ -1,0 +1,5 @@
+route:
+  receiver: no-notifications
+
+receivers:
+  - name: no-notifications

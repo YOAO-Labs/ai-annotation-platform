@@ -29,9 +29,7 @@ export interface MarkdownViewProps {
   content: string;
   compact?: boolean;
   resolveImage?: MarkdownImageResolver;
-  /** Logical identity of the document/project owning asynchronous images. */
   imageScope?: string;
-  /** Optional owner dialog ref for the image preview portal. */
   modalContainerRef?: RefObject<HTMLElement | null>;
 }
 
@@ -88,13 +86,6 @@ function walkMarkdownTree(node: MarkdownAstNode, visit: (node: MarkdownAstNode) 
   node.children?.forEach((child) => walkMarkdownTree(child, visit));
 }
 
-/**
- * mdast-util-to-hast normalizes image URLs (for example, encoding Chinese
- * characters, spaces, and percent signs). Keep the source that belongs to our
- * private guide-asset protocol on the mdast node so the resolver receives the
- * storage key exactly as it was authored. This also covers reference images,
- * whose URL lives on a separate definition node.
- */
 function preserveGuideAssetSources() {
   return (tree: MarkdownAstNode) => {
     const definitions = new Map<string, string>();
@@ -273,8 +264,6 @@ function MarkdownImage({
     owner: imageOwner,
     url: isGuideAsset ? "" : source,
   }));
-  // Keep a stale URL out of the first render after a Markdown source changes;
-  // the effect below will populate a new scoped URL asynchronously.
   const isDisplayCurrent = displayState.owner === imageOwner;
   const displaySrc = isDisplayCurrent ? displayState.url : "";
   const [expiresAt, setExpiresAt] = useState<number | undefined>();
@@ -299,8 +288,6 @@ function MarkdownImage({
     async (refresh: boolean, generation: number) => {
       try {
         let result = await resolve(refresh);
-        // Do not mount a URL that the resolver already reports as expired. A
-        // forced second lookup is bounded to this load operation.
         if (!refresh && isExpired(result.expiresAt)) result = await resolve(true);
         if (isExpired(result.expiresAt)) throw new Error("resolved image URL is expired");
         if (generation !== generationRef.current) return;
@@ -368,9 +355,6 @@ function MarkdownImage({
   }, [expiresAt, imageScope, isGuideAsset, loadGuideImage, resolveImage]);
 
   const handleLoad = () => {
-    // A signed-URL refresh is considered consumed until the replacement image
-    // itself loads successfully. Resolving a URL alone must not re-arm the
-    // automatic retry loop when the storage endpoint keeps returning errors.
     automaticRefreshRef.current = false;
     setStatus("ready");
     setFailure({ kind: "unavailable" });
@@ -400,8 +384,6 @@ function MarkdownImage({
       void loadGuideImage(true, generation);
       return;
     }
-    // Remounting is enough to ask the browser to retry while preserving the
-    // exact ordinary URL (including query signatures and fragments).
     setDisplayState({ owner: imageOwner, url: source });
   };
 
@@ -478,9 +460,6 @@ function MarkdownImage({
 
 function createUrlTransform(resolveImage?: MarkdownImageResolver): UrlTransform {
   return (url, key, node) => {
-    // react-markdown's default transform intentionally rejects unknown
-    // protocols. Only image src values with an authorized resolver may retain
-    // this private scheme; hrefs and every other URL remain default-filtered.
     if (key === "src" && node.tagName === "img" && resolveImage) {
       const originalSource = originalGuideAssetSource(node.properties);
       if (originalSource) return originalSource;
@@ -503,8 +482,6 @@ export function MarkdownView({
   const imageCacheEpochRef = useRef(0);
   useEffect(
     () => () => {
-      // StrictMode replays child image effects without discarding these refs.
-      // Never let that second load inherit the hook owner's cancelled first request.
       imageCacheEpochRef.current += 1;
       imageCacheRef.current.clear();
       imageInFlightRef.current.clear();

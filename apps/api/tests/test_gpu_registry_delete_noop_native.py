@@ -227,7 +227,6 @@ async def test_scalar_registry_parameters_preserve_gpu_membership_fences(
             gpu_resource_id=f"node-scalar/GPU-{backend_id.hex[:8]}",
         )
         created = True
-        # Keep SQL NULL distinct from the JSON null used by the recorded failure.
         await owner.execute(
             "UPDATE public.ml_backend_registry SET extra_params=NULL WHERE id=$1",
             backend_id,

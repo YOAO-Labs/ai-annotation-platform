@@ -234,8 +234,6 @@ async def test_finish_rejects_measured_video_shorter_than_admitted_tracker_range
     actor, _, _, task_id, job = await _seed_tracker_job(db_session)
     _, captured = await _capture_input(db_session, actor, job)
     claim = await _prepare_and_claim(db_session, actor, task_id, captured)
-    # Sampling can produce three valid decoded rows (0, 2, 4) from five frames,
-    # but the admitted Job still requires frame 5.
     plan, entries = _plan_for_claim(claim, frame_count=5)
     _, staged = await _stage_times(db_session, claim, entries)
     assert staged.next_cursor == plan.selected_count == 3
@@ -573,7 +571,6 @@ async def test_manifest_and_tracker_claimers_progress_only_their_owner_lane(
     assert tracker_claim.claim is not None
     assert tracker_claim.claim.input.input_id == captured.input_id
 
-    # Both independent GC sweeps must progress their own terminal owner row.
     await db_session.execute(
         text("UPDATE public.async_jobs SET status='failed' WHERE id=:job"),
         {"job": manifest_job_id},
@@ -718,7 +715,6 @@ async def test_stage_and_review_apply_current_segment_context_and_lock(
         assert accepted.input.plan.plan_digest == plan.plan_digest
         segment.lock_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         await db_session.flush()
-        # Collaboration always needs the current lock, including for managers.
         if enabled:
             await _expect_error(db_session, operation, lock_request, "task_busy")
         segment.lock_expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)

@@ -115,7 +115,6 @@ function applyResizeCore(
     h = start.h - dy;
   }
 
-  // ── Shift 锁纵横比 ──────────────────────────────
   if (modifiers?.shiftKey && start.w > 0 && start.h > 0) {
     const aspect = start.w / start.h;
     const isCornerHandle =
@@ -137,13 +136,11 @@ function applyResizeCore(
     }
   }
 
-  // ── Alt 中心扩展（mirror 对称变化） ─────────────
   if (modifiers?.altKey) {
     const cx = start.x + start.w / 2;
     const cy = start.y + start.h / 2;
     if (dir.includes("e") || dir.includes("w")) {
       const dw = w - start.w;
-      // 一边变化 dw → 总宽度变 2dw
       w = start.w + 2 * dw;
       x = cx - w / 2;
     }
@@ -154,7 +151,6 @@ function applyResizeCore(
     }
   }
 
-  // 处理负向拖动（翻转）
   if (w < 0) {
     x += w;
     w = -w;
@@ -167,14 +163,6 @@ function applyResizeCore(
   return { x, y, w, h };
 }
 
-/**
- * 给定起始 box + 拖动起点 + 当前点 + 方向，返回拖动后 box（已 clamp 到 [0,1]）。
- *
- * 修饰键：
- *   - shiftKey: 锁定起始 aspect ratio（newW/newH = origW/origH）
- *   - altKey:   以 bbox 中心为 anchor 反向 mirror（拖一边等价两边对称变化）
- *   - 两键叠加：先按 aspect ratio 锁定，再以中心 mirror
- */
 export function applyResize(
   start: ResizeBox,
   startPt: Point,
@@ -184,7 +172,6 @@ export function applyResize(
 ): { x: number; y: number; w: number; h: number } {
   let { x, y, w, h } = applyResizeCore(start, startPt, curPt, dir, modifiers);
 
-  // clamp 到 [0,1]
   if (x < 0) {
     w += x;
     x = 0;

@@ -16,6 +16,31 @@ from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("strategy", ["by_scene", "random"])
+async def test_empty_split_keeps_public_400(
+    db_session: AsyncSession, super_admin, httpx_client, auth_headers, strategy
+):
+    owner, _ = super_admin
+    project = Project(
+        display_id=f"P-EMPTY-{uuid.uuid4().hex[:8]}",
+        name="empty split project",
+        type_label="图像",
+        type_key="image-det",
+        owner_id=owner.id,
+    )
+    db_session.add(project)
+    await db_session.flush()
+
+    response = await httpx_client.post(
+        f"/api/v1/projects/{project.id}/batches/split",
+        headers=auth_headers,
+        json={"strategy": strategy, "n_batches": 1, "name_prefix": "Batch"},
+    )
+    assert response.status_code == 400
+    assert response.json() == {"detail": "No unassigned tasks to split"}
+
+
+@pytest.mark.asyncio
 async def test_split_by_scene_creates_one_batch_per_scene_in_frame_order(
     db_session: AsyncSession, super_admin
 ):
@@ -151,7 +176,6 @@ async def test_split_by_scene_resolves_primary_lidar_link_path(
     db_session.add(project)
     await db_session.flush()
 
-    # 仅经 primary_lidar link 关联,task.dataset_item_id 保持 None。
     for item in items:
         task = Task(
             id=uuid.uuid4(),
@@ -183,7 +207,6 @@ async def test_split_by_scene_resolves_primary_lidar_link_path(
     assert len(batches) == 1
     assert batches[0].total_tasks == 3
 
-    # 经 link 路径反查:每个 task 的 sequence_order 必须 == 其 frame_index。
     rows = (
         await db_session.execute(
             select(Task.sequence_order, DatasetItem.frame_index)

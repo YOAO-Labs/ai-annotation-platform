@@ -566,8 +566,6 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
             directory_requests[0]
         )
         assert not revoked_directory.ok and revoked_directory.error.status_code == 401
-        # A previously admitted response readback retains its actor snapshot;
-        # it does not adopt the command owner's new current-account fence.
         assert (
             await restored_query_manager.execute(query_requests[2])
             == original_queries[2]

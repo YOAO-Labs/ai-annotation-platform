@@ -1,4 +1,3 @@
-// Independent consumer of the closed Recovery registration read protocol.
 import process from "node:process";
 
 const protocol = "aap-identity-registration-status/v1";

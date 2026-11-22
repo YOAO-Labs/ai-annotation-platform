@@ -218,8 +218,6 @@ function AnnotationGuideProjectBody({
     }
   }, []);
 
-  // The server can refresh the same project after a successful mutation. It
-  // may update a clean form, but it must never clobber an active local draft.
   useEffect(() => {
     const retainedMatchesDraft = retainedGuideDrafts.get(ownerKey)?.content === draftRef.current;
     const resourceSavePending = guideSaveChains.has(project.id);
@@ -296,10 +294,6 @@ function AnnotationGuideProjectBody({
           if (request.epoch !== projectEpochRef.current) continue;
 
           if (failure === null) {
-            // A response confirms the content it saved even when the user has
-            // edited again. Compare against the current draft only after
-            // advancing this baseline, otherwise A -> B -> A can lose its
-            // queued save when B resolves.
             savedMarkdownRef.current = request.content;
             clearRetainedGuideDraft(ownerKey, request.content);
             if (ownerActiveRef.current) {
@@ -342,9 +336,6 @@ function AnnotationGuideProjectBody({
             continue;
           }
 
-          // If a newer explicit request is already waiting, let it decide the
-          // final state. Otherwise retain the draft and expose a retryable
-          // failure.
           if (queuedSaveRef.current) continue;
           if (draftRef.current === savedMarkdownRef.current && !mustSaveRef.current) {
             discardRetainedGuideDraft(ownerKey);
@@ -467,10 +458,6 @@ function AnnotationGuideProjectBody({
     if (explicitSaveTimerRef.current !== null) {
       window.clearTimeout(explicitSaveTimerRef.current);
     }
-    // A table cell is a nested Lexical editor. Its blur handler flushes the
-    // cell into the parent editor before MDXEditor publishes the new Markdown.
-    // Read the draft on the next task so an explicit save cannot capture the
-    // pre-flush value.
     explicitSaveTimerRef.current = window.setTimeout(() => {
       explicitSaveTimerRef.current = null;
       void enqueueSave();

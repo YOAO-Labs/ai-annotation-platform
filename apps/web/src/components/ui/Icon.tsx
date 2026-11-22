@@ -120,17 +120,11 @@ import {
 } from "./annotationIcons";
 import { useElementStyle } from "./useElementStyle";
 
-/**
- * Stable icon adapter for Lucide and local annotation geometry.
- * Business surfaces consume their existing tool/navigation metadata so one meaning
- * keeps one icon across entry points. Generic actions may import Lucide directly.
- */
 const ICON_MAP = {
   activity: Activity,
   "alert-triangle": AlertTriangle,
   arrowRight: ArrowRight,
   bell: Bell,
-  // 标注指引图标
   book: BookOpen,
   bot: Bot,
   box: Box,
@@ -250,7 +244,6 @@ export type IconName = keyof typeof ICON_MAP;
 interface IconProps {
   name: IconName;
   size?: number;
-  /** 与旧手写 SVG 接口一致：默认 1.6 */
   stroke?: number;
   style?: React.CSSProperties;
   className?: string;

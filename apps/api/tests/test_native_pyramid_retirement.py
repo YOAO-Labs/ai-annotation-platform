@@ -63,8 +63,6 @@ def _storage_ref(output_id):
 async def _seed_obligation(session):
     output_id, asset_id, lease_token = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     ref = _storage_ref(output_id)
-    # The output birth trigger requires its owning pyramid asset; a random
-    # dataset item keeps this synthetic obligation outside fixture ownership.
     await session.execute(
         text(
             "INSERT INTO public.image_pyramid_assets "

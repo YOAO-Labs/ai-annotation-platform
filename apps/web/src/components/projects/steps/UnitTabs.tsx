@@ -1,6 +1,3 @@
-// 工具单位 Tab. enabled=false 的 unit 仍能切到 (展示空状态), 在 Step1
-// 的工具集 chips 区切换。只展示 available=true 的 unit，点云项目包含 lidar_box_3d。
-
 import { clsx } from "clsx";
 import { Icon } from "@/components/ui/Icon";
 import { TOOL_UNIT_GROUPS } from "@/constants/toolUnits";

@@ -56,7 +56,6 @@ async def test_one_level_depth_rejected(db_session, super_admin):
     child = await _mk_ann(db_session, task.id, user.id, parent_annotation_id=parent.id)
     await db_session.flush()
 
-    # 给 child (已有 parent) 再挂子框 → 一层约束拒绝
     with pytest.raises(HTTPException) as exc:
         await _mk_ann(db_session, task.id, user.id, parent_annotation_id=child.id)
     assert exc.value.status_code == 400
@@ -86,7 +85,6 @@ async def test_parent_cross_task_rejected(db_session, super_admin):
     parent = await _mk_ann(db_session, task_a.id, user.id)
     await db_session.flush()
 
-    # 父框在 task_a, 子框在 task_b → 父子限帧内, 拒绝
     with pytest.raises(HTTPException) as exc:
         await _mk_ann(db_session, task_b.id, user.id, parent_annotation_id=parent.id)
     assert exc.value.status_code == 400
@@ -119,7 +117,7 @@ async def test_cascade_soft_delete_children(db_session, super_admin):
     parent = await _mk_ann(db_session, task.id, user.id)
     child1 = await _mk_ann(db_session, task.id, user.id, parent_annotation_id=parent.id)
     child2 = await _mk_ann(db_session, task.id, user.id, parent_annotation_id=parent.id)
-    sibling = await _mk_ann(db_session, task.id, user.id)  # 无父, 不应被级联删
+    sibling = await _mk_ann(db_session, task.id, user.id)
     await db_session.flush()
 
     svc = AnnotationService(db_session)
@@ -132,6 +130,5 @@ async def test_cascade_soft_delete_children(db_session, super_admin):
     await db_session.refresh(sibling)
     assert sibling.is_active is True
 
-    # task 计数只剩 sibling 一条 active
     await db_session.refresh(task)
     assert task.total_annotations == 1

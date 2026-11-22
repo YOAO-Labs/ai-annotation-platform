@@ -122,7 +122,6 @@ def _runtime_endpoint():
 
 
 def storage_identity(endpoint, bucket):
-    # Exact managed_storage_identity recipe, without its global client import.
     return hashlib.sha256(
         json.dumps([endpoint.rstrip("/"), bucket]).encode()
     ).hexdigest()
@@ -537,7 +536,6 @@ def _read(
     if owner.external and not routed and written is None and pinned_version is None:
         if version is not None:
             _reject("integrity_mismatch")
-        # Suspended buckets can serve a current null version over older versions.
         require_version(client, owner, None)
     if (
         not _plain(etag, 1024)
@@ -905,7 +903,6 @@ def _versions(client, owner, expected, deadline, *, maximum):
             next_markers["VersionIdMarker"] = version_marker
         if next_markers == markers:
             _reject("integrity_mismatch")
-        # A marker may revisit an older page; a separate history catches cycles.
         marker_key = ("page", key_marker, version_marker)
         if marker_key in seen:
             _reject("integrity_mismatch")

@@ -82,8 +82,6 @@ async def test_current_labeling_query_owner_matches_all_frozen_http_samples(
             actual = []
             for frozen in reference["samples"]:
                 if frozen["label"] == "class_then_attributes_second_session_commit":
-                    # This row recreates only that frozen response for semantic
-                    # checks. Remote providers are not treated as phase evidence.
                     await add_frozen_interleave_row(test_engine, world)
                 sample = await request_sample(
                     client, world, frozen, native_rpc=_native_rpc

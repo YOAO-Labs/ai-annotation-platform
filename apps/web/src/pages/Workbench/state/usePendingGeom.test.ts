@@ -1,4 +1,3 @@
-// 提交在途几何 override 桥单测: 竞态桥、收敛、超时兜底、多条目独立。
 import { renderHook, act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -45,7 +44,6 @@ describe("usePendingGeom", () => {
     );
     act(() => result.current.markPendingGeom("a", G2));
     expect(result.current.pendingGeomMap.get("a")).toEqual(G2);
-    // 模拟 onMutate 乐观回填: annotations 里的 geometry 变成目标。
     rerender({ list: [ann("a", G2)] });
     expect(result.current.pendingGeomMap.has("a")).toBe(false);
   });
@@ -54,9 +52,6 @@ describe("usePendingGeom", () => {
     const { result } = renderHook(() => usePendingGeom([ann("a", G1)]));
     act(() => result.current.markPendingGeom("a", G2));
     expect(result.current.pendingGeomMap.has("a")).toBe(true);
-    // 主收敛路径是 (a) annotations cache 命中新几何, (b) useUpdateAnnotation.onSettled 主动
-    // clear; 兜底超时提到 10s 让慢网 mutation 也在 pending 保持内完成 (避免 <800ms 即 drop
-    // 让画面在 onError rollback 到旧几何时闪一下)。
     act(() => {
       vi.advanceTimersByTime(5000);
     });
@@ -102,8 +97,6 @@ describe("usePendingGeom", () => {
     };
     const { result } = renderHook(() => usePendingGeom([ann("a", G1)]));
     act(() => result.current.markPendingGeom("a", poly));
-    // 消费方 ImageStage.overrideGeom 只在 type==="bbox" 时返回值; type 不匹配返回 null。
-    // 这里只验 map 里存的仍是 polygon(不会被 hook 强转)。
     expect(result.current.pendingGeomMap.get("a")).toEqual(poly);
   });
 });

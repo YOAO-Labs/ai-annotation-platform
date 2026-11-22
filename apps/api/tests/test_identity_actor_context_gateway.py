@@ -123,7 +123,6 @@ async def test_embedded_actor_fence_matches_actual_legacy_http(db_session, expec
             if case == "no_autoflush":
                 with db_session.no_autoflush:
                     response = await client.get("/actor")
-                # Read-only context must not discard the caller's pending work.
                 assert user.name == "Pending profile" and user in db_session.dirty
             else:
                 response = await client.get("/actor")

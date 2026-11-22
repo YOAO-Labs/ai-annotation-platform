@@ -192,11 +192,9 @@ def _owner_refusal(exc: ImageFailure) -> HTTPException:
 
 
 _OWNER_UNAVAILABLE = {
-    # The owner cannot prove this exact generation: unproven, never drift.
     "asset_missing": "missing",
     "source_missing": "missing",
     "not_image": "not_available",
-    # The owner's own source fence rejected the pinned source.
     "source_changed": "stale",
 }
 
@@ -627,9 +625,6 @@ async def get_image_pyramid(
 
     projection = None
     if native_generation(generation):
-        # The Images owner is the only authority for a native row: it compares
-        # the current source snapshot, source generation, object identity and
-        # dimensions with the recorded generation and its publication lease.
         projection = await _owner_projection(db, task, generation, current_user.id)
         if isinstance(projection, str):
             if projection == "stale" and settings.image_pyramid_auto_generate:
@@ -699,8 +694,6 @@ async def get_image_pyramid(
 
     if native_generation(generation):
         if projection.native is not True or projection.native_output is None:
-            # A local native job id is not saved-output proof.  Refuse instead of
-            # falling back to the legacy physical route and its credentials.
             IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
                 operation="manifest", outcome="unavailable"
             ).inc()
@@ -716,9 +709,6 @@ async def get_image_pyramid(
                 height=projection.height,
                 source_snapshot=projection.source_snapshot,
             )
-        # The Images owner owns saved Native I/O: it admits the durable read
-        # permit, verifies the actual manifest/overview receipts with finite
-        # Source-issued requests and rechecks the source/generation fences.
         return await _native_ready_response(
             db,
             task,
@@ -731,9 +721,6 @@ async def get_image_pyramid(
         )
 
     if generation.output_id is None:
-        # A ready generation without saved-output ownership is unavailable.
-        # Never rewrite it as source drift, adopt it or delete its facts; the
-        # current owner may create a fresh recorded generation instead.
         if settings.image_pyramid_auto_generate:
             await db.commit()
             await _admit_native_pyramid(db, task, authority, retry=False)
@@ -827,13 +814,11 @@ async def get_image_pyramid(
     )
     IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(operation="manifest", outcome="ready").inc()
     ready_width = (
-        (projection.width if projection is not None else generation.width)
-        or owner.width
-    )
+        projection.width if projection is not None else generation.width
+    ) or owner.width
     ready_height = (
-        (projection.height if projection is not None else generation.height)
-        or owner.height
-    )
+        projection.height if projection is not None else generation.height
+    ) or owner.height
     return ImagePyramidResponse(
         task_id=task.id,
         status="ready",
@@ -917,14 +902,10 @@ async def create_image_pyramid_asset_urls(
             ).inc()
             raise HTTPException(status_code=409, detail={"reason": "asset_not_ready"})
         if projection.native is not True or projection.native_output is None:
-            # No saved-output proof: refuse instead of reading legacy physical
-            # objects for a row that claims Native admission.
             IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
                 operation="asset_urls", outcome="unavailable"
             ).inc()
-            raise HTTPException(
-                status_code=409, detail={"reason": "asset_not_ready"}
-            )
+            raise HTTPException(status_code=409, detail={"reason": "asset_not_ready"})
         if projection.status != "ready":
             if projection.status == "stale":
                 raise HTTPException(
@@ -1028,7 +1009,6 @@ def _requested_keys(generation, payload):
             level = levels.get(item.level)
             if level is None or item.x >= level["columns"] or item.y >= level["rows"]:
                 raise HTTPException(422, {"reason": "invalid_coordinate"})
-            # Only the saved output's namespace is used below; no current binding.
             suffix = f"tiles/{item.level}/{item.x}/{item.y}.webp"
             keys.append(generation.manifest_key.removesuffix("manifest.json") + suffix)
     return tuple(dict.fromkeys(keys))
@@ -1100,9 +1080,7 @@ async def _asset_urls(
                 "y": item.y,
             }
         await originals.physical(physical.verify_object, storage, output_owner, key)
-        url = physical.signed_url(
-            storage, output_owner, key, url_expiry_seconds
-        )
+        url = physical.signed_url(storage, output_owner, key, url_expiry_seconds)
         output.append(ImagePyramidAssetUrl(**output_item, url=url))
         IMAGE_PYRAMID_ASSET_URL_ITEMS_TOTAL.labels(kind=item.kind).inc()
 
@@ -1167,7 +1145,6 @@ async def retry_image_pyramid(
         ):
             raise HTTPException(status_code=409, detail={"reason": "already_ready"})
         elif generation.output_id is None:
-            # Missing ownership evidence is not evidence that the source changed.
             invalidated_stale = True
         elif asset is not None:
             await _invalidate_ready(db, asset, generation, "source_changed")

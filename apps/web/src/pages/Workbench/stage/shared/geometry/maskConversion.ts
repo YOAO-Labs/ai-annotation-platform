@@ -59,7 +59,6 @@ function pointInRing(x: number, y: number, ring: readonly Point[]): boolean {
   return inside;
 }
 
-/** Rasterize all outer rings and holes with one pixel-center/even-odd rule. */
 export function rasterizeRegionGeometry(
   geometry: RegionGeometry,
   width: number,
@@ -248,7 +247,6 @@ export function vectorGeometryToRasterPreview(
   };
 }
 
-/** Compare an edited raster result with the source region at the exact image grid. */
 export function compareRegionToRasterResult(
   geometry: RegionGeometry,
   rle: CocoRle,

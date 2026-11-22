@@ -33,7 +33,6 @@ type CompactMarkdownEditorProps = Pick<
   | "disabled"
 >;
 
-// 管理评论使用紧凑编辑器，延迟加载编辑器依赖以保持管理页首屏轻量。
 const MarkdownEditor = lazy(() =>
   import("@/components/markdown/MarkdownEditor").then((m) => ({
     default: m.MarkdownEditor,
@@ -242,7 +241,6 @@ export function BugsPage() {
     <div className={styles.page}>
       <h1 className={styles.title}>Bug 反馈管理</h1>
 
-      {/* Filters */}
       <FilterGroup label="筛选" hideLabel className={styles.filters}>
         <FilterSelect
           aria-label="问题状态"
@@ -276,7 +274,6 @@ export function BugsPage() {
         </div>
       )}
 
-      {/* List */}
       <div className={detailId ? styles.layoutWithDetail : styles.layout}>
         <div className={`${listStyles.surface} min-w-0 self-start`}>
           {loading && <div className={styles.emptyState}>加载中...</div>}
@@ -346,7 +343,6 @@ export function BugsPage() {
           />
         </div>
 
-        {/* Detail panel */}
         {detailId && detail && (
           <div className={styles.detailPanel}>
             <div className={styles.detailHeader}>
@@ -426,7 +422,6 @@ export function BugsPage() {
               </div>
             )}
 
-            {/* Status actions */}
             <div className={styles.statusActions}>
               {STATUS_OPTIONS.map((s) => (
                 <button
@@ -444,7 +439,6 @@ export function BugsPage() {
               ))}
             </div>
 
-            {/* Comments */}
             <div className={styles.commentsSection}>
               <div className={styles.sectionTitle}>评论 ({detail.comments?.length ?? 0})</div>
               {comments.items.map((c) => (

@@ -619,7 +619,6 @@ async def generation(db, parent_id, actor, body, *, api_key_id=None, request=Non
     try:
         parent_digest = await asyncio.shield(native)
     except asyncio.CancelledError:
-        # Keep the row lock until the bounded native checkpoint really closes.
         await storage_access.finish(native)
         raise
     except (CopyError, ValueError) as exc:
@@ -689,7 +688,6 @@ async def settle_dead(db, a):
             if operation.id == a.source_operation_id
             else a.scope.get("target_location_id")
         )
-        # Target ID is also saved by acquired() inside the scope.
         if (
             str(operation.location_id) != expected
             or operation.purpose != KIND
@@ -720,7 +718,6 @@ async def settle_dead(db, a):
 async def attempt(db, copy_id, actor, body, *, api_key_id=None, request=None):
     actor, proof = await authority(db, actor, api_key_id, lock=True)
     initial = await owner(db, copy_id)
-    # All authorization/connection/location locks precede owner/attempt/job locks.
     await scope(db, initial, lock=True)
     row = await owner(db, copy_id, lock=True)
     await writable(db, row)
@@ -1053,7 +1050,6 @@ async def save_delta(db, job_id, task_id, data, checksum):
     if updated_size > BASELINE_LIMIT:
         reject("copy_delta_budget")
     summary = json.loads(json.dumps(row.summary))
-    # Each first delta starts from its immutable plan state.
     previous = old.data["state"] if old else "pending"
     summary["counts"][previous] -= 1
     summary["counts"][data["state"]] += 1
@@ -1078,8 +1074,6 @@ async def save_delta(db, job_id, task_id, data, checksum):
         size,
     )
     if changed:
-        # Late physical ACKs remain durable even after cancellation or revocation.
-        # Observation has a narrower current-job/authority fence than receipts.
         try:
             async with db.begin_nested():
                 job = await db.scalar(
@@ -1100,7 +1094,6 @@ async def save_delta(db, job_id, task_id, data, checksum):
                         sequence=row.delta_sequence,
                     )
         except Exception:
-            # A telemetry failure must not discard already persisted physical truth.
             log.warning("Copy progress observation failed: job=%s", job_id)
     from app.services.storage_migration_finalizations import changed_checkpoint
 
@@ -1204,7 +1197,6 @@ def materialize(directory, values):
             if saved is None:
                 raise CopyError("copy_checkpoint_integrity")
             original = state.decode(*saved)
-            # Immutable plan identity survives every mutable row delta.
             mutable = {"state", "nonce", "receipt", "error", "content"}
             if {k: v for k, v in data.items() if k not in mutable} != {
                 k: v for k, v in original.items() if k not in mutable

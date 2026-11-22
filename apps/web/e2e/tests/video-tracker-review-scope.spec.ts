@@ -76,8 +76,6 @@ async function annotations(
       headers: auth(fixture.token),
     }),
   );
-  // Seeded rows share created_at values, so the API can reorder equal-time rows.
-  // Compare complete annotation state by stable identity, not database tie order.
   return rows.sort((left, right) => left.id.localeCompare(right.id));
 }
 
@@ -90,8 +88,7 @@ async function preview(request: APIRequestContext, fixture: ReviewCase, jobId: s
 }
 
 const test = base.extend<{ reviewCase: ReviewCase }>({
-  reviewCase: async ({ page, request, seed }, provide, testInfo) => {
-    const data = await seed.owned();
+  reviewCase: async ({ page, request, seed, owned: data }, provide, testInfo) => {
     const httpErrors: ApiFailure[] = [];
     const consoleErrors: Array<{ path: string; message: string }> = [];
     const pageErrors: string[] = [];
@@ -121,12 +118,10 @@ const test = base.extend<{ reviewCase: ReviewCase }>({
     try {
       const token = await seed.accessToken(data.admin_email);
       const { task_id: taskId } = await seed.videoTask(data.project_id);
-      // These are deterministic staged ML results, not model-quality qualification.
       const jobs = [
         await seed.trackerReview(taskId, data.admin_email),
         await seed.trackerReview(taskId, data.admin_email),
       ];
-      // Review stored candidates without contacting the seed's unreachable ML backend.
       await json(
         await request.patch(`${API_BASE}/api/v1/projects/${data.project_id}`, {
           headers: auth(token),
@@ -186,12 +181,7 @@ const test = base.extend<{ reviewCase: ReviewCase }>({
       page.off("pageerror", onPageError);
       page.off("console", onConsole);
       page.off("response", onResponse);
-      // Retire task sockets/locks before removing this test's jobs and annotations.
-      try {
-        await page.goto("about:blank");
-      } finally {
-        await seed.owned();
-      }
+      await page.close();
     }
   },
 });
@@ -215,7 +205,6 @@ async function setScope(page: Page, targets: Target[], from: number, to: number)
     const checkbox = page.getByTestId(`tracker-review-instance-${target}`);
     if (await checkbox.count()) await checkbox.setChecked(targets.includes(target));
   }
-  // Set a legal window through the controls even when the old window is disjoint.
   const fromInput = page.getByTestId("tracker-review-from-frame");
   const toInput = page.getByTestId("tracker-review-to-frame");
   if (from > Number(await toInput.inputValue())) {
@@ -266,7 +255,6 @@ async function frame(page: Page) {
 }
 
 async function seek(page: Page, target: number) {
-  // Focus only; navigation uses real keyboard input and the existing frame guard.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("k");
   let current = await frame(page);
@@ -318,9 +306,6 @@ async function candidatePixels(page: Page, source: Preview, sourceFrame: number)
   for (const row of source.results) {
     if (row.frame_index === sourceFrame) boxes[row.instance_id] = row.geometry;
   }
-  // Read the actual painted transparent Konva layers. Media and DOM attributes do
-  // not count as rendered candidates. Sample each candidate's right-hand edge,
-  // away from labels and persisted seed edges, using the existing A/B canvas colors.
   return page.getByTestId("video-konva-stage").evaluate((element, geometry) => {
     const mediaX = Number(element.getAttribute("data-media-x"));
     const mediaY = Number(element.getAttribute("data-media-y"));
@@ -465,7 +450,6 @@ test.describe("Tracker 审阅范围：真实服务与范围所有权", () => {
     await chooseJob(page, job.job_id);
     await setScope(page, ["A", "B"], 12, 15);
     await expectScope(page, job.job_id, ["A", "B"], 12, 15, 8);
-    // A second real client resolves all B rows while the browser still holds revision 1.
     const concurrent = await json<Record<string, unknown>>(
       await request.post(`${API_BASE}${decisionPath(job.job_id)}`, {
         headers: auth(fixture.token),
@@ -528,7 +512,6 @@ test.describe("Tracker 审阅范围：真实服务与范围所有权", () => {
   });
 });
 
-/** Fault injection: hold delivery only after route.fetch has received the REAL API result. */
 async function holdDecisionResponse(page: Page, jobId: string) {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
@@ -664,7 +647,6 @@ test.describe("F3-4 故障注入：延迟真实 API 响应交付", () => {
       await open(page, fixture);
       await chooseJob(page, oldJob.job_id);
       await setScope(page, ["A"], 16, 16);
-      // 覆盖确认已迁至应用内决策对话框;409 到达时上下文已切换,不应弹出任何对话框。
       const decisions: unknown[] = [];
       page.on("request", (item) => {
         if (item.method() === "POST" && path(item.url()) === decisionPath(oldJob.job_id)) {
@@ -683,7 +665,6 @@ test.describe("F3-4 故障注入：延迟真实 API 响应交付", () => {
         expect(fetched.status).toBe(409);
         expect(fetched.body).toMatchObject({ detail: { reason: "manual_keyframe_protected" } });
         if (destination === "task") {
-          // Native click triggers SPA task navigation; the pending JS owner stays alive.
           await page
             .getByRole("tabpanel", { name: "任务队列", exact: true })
             .getByText(taskDisplayId!, { exact: true })

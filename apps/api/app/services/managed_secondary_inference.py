@@ -11,13 +11,13 @@ import math
 from types import SimpleNamespace
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 
 from app.db.models.annotation import Annotation
 from app.services import prediction_originals as originals
 from app.services.content_snapshot import ContentError
 from app.services.dataset_content import key_authority
+from app.services.labeling_core_read_relations import lock_annotation_rows_for_core_read
 from app.services.managed_image_inference import (
     ManagedImageOperation,
     managed_inference_http_error,
@@ -55,13 +55,19 @@ class ManagedSecondaryOperation(ManagedImageOperation):
         await key_authority(db, actor, self.key_id, "annotations:write")
 
     async def _parent(self, db, task, *, final=False):
-        query = (
-            select(Annotation)
-            .where(Annotation.id == self.annotation_id)
-            .with_for_update(read=not final, nowait=True)
-            .execution_options(populate_existing=True)
+        project_id = (
+            self.project_id if self._parent_facts["project_id"] is not None else None
         )
-        parent = await db.scalar(query)
+        parents = await lock_annotation_rows_for_core_read(
+            db,
+            [self.annotation_id],
+            task_id=self.task_id,
+            project_id=project_id,
+            lock_mode="update" if final else "share",
+            nowait=True,
+            populate_existing=True,
+        )
+        parent = parents[0] if parents else None
         if (
             parent is None
             or parent.task_id != task.id
@@ -76,7 +82,6 @@ class ManagedSecondaryOperation(ManagedImageOperation):
             self._locked_parent = parent
 
     async def _freeze_extra(self, db, task):
-        # Compare to the selected row rather than silently adopting a newer ROI.
         await self._parent(db, task)
 
     async def _check_extra(self, db, task, *, final=False):
@@ -106,8 +111,6 @@ class ManagedSecondaryOperation(ManagedImageOperation):
             raise ContentError("secondary_crop_invalid", 422)
         self._crop_prepared = True
         await self.validate()
-        # Routing or geometry callers may have opened a read transaction after
-        # entry. Release it before decoding, encoding or target object delivery.
         await self.db.commit()
 
         def encode():

@@ -361,8 +361,6 @@ async def test_new_image_issue_rejects_unavailable_annotation_but_old_reply_surv
 def test_native_root_task_comment_schema_accepts_mentions():
     """Only native root task comments accept structured mentions."""
 
-    # The route test above exercises the real mutation. This schema assertion keeps
-    # the native root destination rule visible without requiring another database.
     payload = AnnotationFeedbackCreate(
         kind="comment",
         anchor_type="task",

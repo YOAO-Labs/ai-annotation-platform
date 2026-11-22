@@ -77,8 +77,6 @@ async def test_reopen_notifies_original_reviewer(
     )
     db_session.add_all(
         [
-            # The employee owner acts through a membership; the reviewer needs
-            # an explicit reviewer role for claim/approve.
             ProjectMember(
                 project_id=task.project_id,
                 user_id=ann_user.id,
@@ -96,7 +94,6 @@ async def test_reopen_notifies_original_reviewer(
     tid = str(task.id)
     await db_session.commit()
 
-    # submit → claim → approve → reopen
     r = await httpx_client.post(
         f"/api/v1/tasks/{tid}/submit", headers=_bearer(ann_token)
     )
@@ -115,7 +112,6 @@ async def test_reopen_notifies_original_reviewer(
     )
     assert r.status_code == 200, r.text
 
-    # reviewer 查通知中心，应能看到 task.reopened
     r = await httpx_client.get(
         "/api/v1/notifications?limit=50", headers=_bearer(rev_token)
     )

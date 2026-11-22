@@ -38,7 +38,6 @@ const STATUS_ORDER: Record<string, number> = {
   reviewing: 3,
 };
 
-/** 单根进度条；与工作台进度卡的三档配色对齐（标注中=brand / 送审=caution / 通过=positive）。 */
 function ProgressRow({
   label,
   count,
@@ -69,8 +68,6 @@ function ProgressRow({
   );
 }
 
-/** 标注工作台未选批次时的右侧批次卡片网格：项目分组 + 批次卡片，点卡直接选中批次。
- *  分组/排序与 AnnotateSidebar 对齐。 */
 export function BatchCardGrid({ batches, onSelect }: Props) {
   const groups = useMemo<Group[]>(() => {
     const m = new Map<string, Group>();
@@ -124,7 +121,6 @@ export function BatchCardGrid({ batches, onSelect }: Props) {
                   .filter((batch) => visibleIds.has(batch.batch_id))
                   .map((b) => {
                     const total = b.total_tasks;
-                    // 与工作台进度卡一致的三档累计口径。
                     const startedDone =
                       (b.in_progress_tasks ?? 0) + b.review_tasks + b.completed_tasks;
                     const reviewDone = b.review_tasks + b.completed_tasks;
@@ -142,8 +138,7 @@ export function BatchCardGrid({ batches, onSelect }: Props) {
                           <Thumbnail
                             src={b.thumbnail_url ?? undefined}
                             blurhash={b.cover_blurhash ?? undefined}
-                            width={88}
-                            height={88}
+                            fillContainer
                           />
                         </div>
                         <div className={styles.body}>

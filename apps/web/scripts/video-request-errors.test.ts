@@ -235,7 +235,6 @@ test("aborted native playback lease revokes stay a documented unload cancellatio
     for (const deeper of [`${path}/extra`, `${path}s`, `${task}/original-playback`])
       expectDenied({ ...abort, method: "DELETE", path: deeper }, videoWorkbenchAborts);
   }
-  // Retiring the task still cancels its owned original read as a GET only.
   expectDenied({ ...abort, method: "DELETE", path: `${task}/original` }, videoWorkbenchAborts);
 });
 
@@ -277,7 +276,6 @@ test("rule groups compose with fixture rules without weakening denials", () => {
   const rules = [...videoWorkbenchAborts, ...fixtureRules];
   expectAllowed({ ...abort, method: "DELETE", path: `${task}/lock` }, rules);
   expectAllowed({ ...abort, method: "GET", path: "/api/v1/projects" }, rules);
-  // Without the fixture rules these stay denied, matching the strict video preset.
   expectDenied({ ...abort, method: "DELETE", path: `${task}/lock` }, videoWorkbenchAborts);
   expectDenied({ ...abort, method: "PATCH", path: `${task}/lock` }, rules);
   expectDenied(

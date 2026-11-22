@@ -77,8 +77,6 @@ class RasterMaskRetentionWorkflow:
         expired_mask_revisions = await expire_mask_annotation_revisions(self.db)
         await self.db.commit()
         await refresh_raster_mask_active_geometries_safely(self.db)
-        # Metrics may open another read transaction. No caller connection or
-        # business lock stays borrowed while the collector contacts either owner.
         await self.db.rollback()
         storage_result = await collect_raster_masks(self.session_factory, request)
         result = {

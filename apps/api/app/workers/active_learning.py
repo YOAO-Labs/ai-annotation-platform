@@ -176,7 +176,6 @@ async def obtain_result(factory, round, row, png, attempt_id, claim_id):
         raise RoundFailure(
             "request_sealed", "原始请求已封存，不能重新推理；请新建选样轮次"
         )
-    # The committed predebit also charges conservative admission/transport failures.
     await debit(factory, attempt_id, claim_id)
     async with factory() as db:
         current, _attempt = await fenced(db, attempt_id, claim_id, check_authority=True)
@@ -197,7 +196,6 @@ async def obtain_result(factory, round, row, png, attempt_id, claim_id):
         except (TrainingDatasetError, FencedOut):
             raise
         except Exception as exc:
-            # Transport failure is never a refund or confirmation of native exit.
             try:
                 receipt = managed.checked_receipt(
                     row, await managed.remote_receipt(client, row)

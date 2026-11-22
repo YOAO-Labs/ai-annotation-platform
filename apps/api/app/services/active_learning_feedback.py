@@ -82,7 +82,6 @@ def recorded_effort(events, start, end):
             else None,
             "coverage": "partial" if groups else "unknown",
         }
-    # Qualified rows establish recorded sessions, never complete lifecycle coverage.
     return {
         **result,
         "qualified_event_count": len(retained),
@@ -299,7 +298,6 @@ async def snapshot(
             if uuid.UUID(audit.target_id) in ids
             and audit.created_at >= accepted[uuid.UUID(audit.target_id)]["accepted_at"]
         ]
-        # Clip each task's events to its own acceptance before unioning across tasks.
         arm_events = [
             event
             for event in events

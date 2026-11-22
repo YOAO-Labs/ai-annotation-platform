@@ -16,8 +16,6 @@ from tests.test_dataset_references import reference_world as reference_world
 
 
 async def linked_task(db, original, item_id, annotator, *, direct=False, path=None):
-    # Create a separate Task: immutable historical reference FKs are never
-    # rewritten to fabricate a primary-only relation.
     task = Task(
         id=uuid.uuid4(),
         project_id=original.project_id,

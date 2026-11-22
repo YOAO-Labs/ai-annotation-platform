@@ -1,0 +1,385 @@
+id	source_at_e8a4f595	related_adr	constraint_and_reason
+0185-0001	.dockerignore:1-3	-	生产 API/Web 镜像的构建上下文须排除缓存和构建产物；只删除源码并不足够，旧模块残留的 .pyc 仍可能被打进镜像。
+0185-0002	.dockerignore:22	-	凭据和持久数据须由运行时提供，不能先复制到生产 API/Web 镜像中再在后续构建步骤删除；后续删除不会清除早先镜像层中的副本。
+0185-0003	.gitignore:11,51	-	.worktree/ 的运行时身份、锁和状态只属于当前 checkout；ScheduleWakeup 的 scheduled_tasks.lock 又包含本机会话 ID、PID 和时间戳。不能把这些文件当作共享状态同步，否则会把原 checkout 或原机器的身份和锁带到另一环境。
+0185-0004	.gitignore:36-37,40-41	-	ADR 应改 docs/adr/，changelog 和 roadmap 应改根文件或 docs 下的对应分册；直接改 docs-site 镜像会被 prebuild 或 mirror-changelog.mjs 重建覆盖。此规则不适用于已跟踪的生成热键文档和 OpenAPI 快照。
+0185-0005	.gitignore:64	-	pyrightconfig.json 只供本机类型检查，不作为共享配置提交；它引用随机器而异的 .venv 路径，其他 checkout 复用时可能无法解析依赖。
+0185-0006	.npmrc:1-2	-	Node 20 停止维护后，仓库以 Node 22 LTS 为基线；pnpm install 必须拒绝不满足 engines 的运行时，仅告警仍会让安装在不受支持的 Node 版本上继续。
+0185-0007	.pre-commit-config.yaml:1-5;.prettierignore:53	-	全仓和 CI 的 pre-commit 不接管第三方镜像源码、生成物、锁文件或不可变历史；通用钩子的改写不会同步到上游或生成源。历史文件也须跳过 Prettier，否则当前格式规则会改掉原始提交的排版。
+0185-0008	.pre-commit-config.yaml:13-14	-	check-yaml 须用 --unsafe 保留语法检查；改回默认加载方式会把 Compose 合法使用的 !override、!reset 等标签误判为错误。
+0185-0009	.pre-commit-config.yaml:21	-	ruff-pre-commit 须与根 package.json 中经 uvx 运行的 Ruff 锁在同一版本，否则同一改动可能在提交钩子和根脚本中得到不同的检查结果。
+0185-0010	.pre-commit-config.yaml:52-56	-	OpenAPI 提交钩子不能只监听路由和 schema，也须覆盖 config.py；单改标题或版本就会让受版本控制的唯一快照漂移并触发契约测试。公开文档从该快照复制，不另维护一份。
+0185-0011	.pre-commit-config.yaml:65-68	-	capability-registry 的提交钩子不能只监听注册表；响应 schema 或序列化变化也须同步快照，否则前端仍会从旧快照生成受控词表。CI 契约测试兜底检查漂移。
+0185-0012	codecov.yml:1-5	-	Codecov 的 project 状态以 PR 基分支为对照并应用容差，但不能替代只衡量本次改动行的 patch 检查；否则较高的全仓覆盖率可能掩盖新增代码缺测。
+0185-0013	docker-compose.assets-cleanup.yml:1-2;docker-compose.assets-media.yml:1-2;docker-compose.assets-native.yml:1-6;docker-compose.assets-source.yml:1-2	-	Native pyramid 及调用方密钥只由 Native 叠加文件绑定；Cleanup 自带清理令牌，但仍依赖 Native 提供 Source 签名器。单独部署 Source 或使用非 Native Media 时应关闭签名器，Native 调用失败也不能回退到其他签名器或缓存凭据。
+0185-0014	docker-compose.assets-native.yml:36-37	-	使用远程 Media Control 时，不接入 API 本地图像执行器及唤醒适配器；这不意味着可以移除本地 celery-worker-image-pyramid 的 Native 写入方绑定，否则由本地 worker 执行时将无法写入。
+0185-0015	docker-compose.hostvols.yml:1-23	-	hostvols 只将命名卷改绑到 DATA_ROOT，不改已有的 DuckDB bind。切换前须预建绝对路径目录并手动迁移旧卷数据；改绑只更换挂载来源，不会把旧数据带到新目录。
+0185-0016	docker-compose.lan-prod.yml:168-169	-	LAN 部署中，选定维护对象须归现有运行时数据库角色所有，不能靠把迁移登录交给维护 worker 来补足权限；迁移凭据只交给一次性 migrate 服务。
+0185-0017	docker-compose.lan-prod.yml:215-216	-	LAN 生产栈共享模型服务时使用 observe，不挂载开发采集器凭据，也不启动第二个 enforce 控制器；否则共享服务会受到另一套控制器的主动干预。
+0185-0018	docker-compose.ml-onnxtools.yml:3;docker-compose.ml-rapidocr.yml:3-4	-	ONNXTools 和 RapidOCR 的模型文件须独立于插件镜像提供并审核，不能把镜像交付视为模型已获审核。RapidOCR 的该叠加配置请求 NVIDIA 设备，CPU 镜像不能直接复用此配置。
+0185-0019	docker-compose.ml-yolo.yml:36-37;docker-compose.training.yml:15	-	训练执行器与 YOLO Backend 同机时可共享执行器解析出的模型路径；跨主机时不能把该路径当作共享引用，须在各自主机准备目录并放置相同的不可变资产。
+0185-0020	docker-compose.prod.yml:1-18,20,133-137	-	生产叠加须用 environment 覆盖 worker 和 beat 继承的开发凭据，env_file 的优先级不够；也不能漏掉 GPU 和 CPU 预标 worker，否则它们无法访问生产依赖，预标队列将失去消费者。API/Web 无此覆盖冲突。
+0185-0021	docker-compose.prod.yml:38-42	-	生产 PG、Redis 和 MinIO 通过 Compose 服务名访问，须用 !reset 清掉从开发栈继承的宿主端口；普通覆盖不会移除这些发布端口，可能使基础设施直接暴露到公网。
+0185-0022	docker-compose.prod.yml:94-95,124-126	-	生产 API 和 Web 的宿主发布端口默认绑定回环，由外层反代承接入口并终结 TLS；直接对外发布可能绕过 ufw。反代异机时，API 的 PROXY_BIND_HOST 也只应改为内网地址。
+0185-0023	docker-compose.yml:31	-	PostgreSQL 健康探针须用 $$ 把用户名和库名推迟到容器内展开；若写死开发默认值，切换数据库配置后探针可能将正常实例判为不健康。
+0185-0024	.claude/hooks/guard-worktree-paths.mjs:2-16,78-80	-	worktree 子代理的文件编辑须限制在其工作树内，否则路径解析错误可能把改动写进主仓库；主代理不能套用同一边界，因为还要写外部记忆和全局配置。Bash 不走这道检查，以免阻断分支提交；无效输入也不阻断会话。
+0185-0025	.claude/hooks/inject-worktree.mjs:2-8	-	会修改代码的 Task 子代理必须在启动时注入 worktree 隔离，只读代理则不必承担这项开销。钩子须用 allow + updatedInput 传入修订后的参数；deny 会取消调用，而不是让任务在隔离环境中继续。
+0185-0026	.codex/hooks/session-start.mjs:153	-	事件 JSON 解析失败时仍应输出基本硬件上下文，因为采集这些信息不依赖事件载荷。若把整个启动钩子的输出都放在解析成功之后，坏载荷会一并吞掉本来可用的诊断信息。
+0185-0027	.github/workflows/backend-test.yml:113-114;docker-compose.yml:48-49	-	本地 Compose 与后端 CI 的 MinIO 须固定到同一 manifest digest，不能各自跟随镜像标签，否则 CI 验证的可能不是本地使用的制品。镜像仓库可从已下架的 Quay 切换到 IBM，但仓库迁移不应顺带更换已验证的摘要。
+0185-0028	docker-compose.yml:56-57	-	开发环境的 MinIO root 凭据与 API、worker 使用同一组 MINIO_ACCESS_KEY 和 MINIO_SECRET_KEY；若服务端与客户端各自维护一份，单边改动后客户端仍会用旧凭据认证。
+0185-0029	docker-compose.yml:68-71	-	开发环境的测试邮件应交给 Mailpit 截收，不能走会实际投递的 SMTP。宿主机上的 API 连 localhost:1025，Compose 内的 API 用服务名 mailpit；容器内照搬 localhost 会连到 API 容器自身。
+0185-0030	docker-compose.yml:90-91	-	要求数据库对象所有者权限的维护任务只由 celery-worker-maintenance 消费；并入通用队列后，任务可能被没有所有者权限的 worker 取走，并在执行维护操作时失败。
+0185-0031	docker-compose.yml:134-135,318-319	-	按设备分配的预标不能交给通用 worker 抢占：ml 由低并发 GPU worker 消费，并承接未声明设备的预标；ml.cpu 只交给 CPU worker。GPU worker 还消费视频追踪的 gpu 队列，放宽并发会使这些任务争用显存。
+0185-0032	docker-compose.yml:172,449	-	共享 DuckDB 文件只由 worker 写，运行在宿主机的 API 必须以只读方式访问；不能把共享挂载当成跨进程多写支持，否则第二个写入进程会与 worker 争抢文件锁。
+0185-0033	docker-compose.yml:174	-	启用 Paramiko RejectPolicy 时，须预置可信 SFTP 主机公钥，并将本地 known_hosts 以只读方式挂入容器；省略该文件不会自动完成首次信任，而会让未知主机的连接被拒绝。
+0185-0034	docker-compose.yml:176-178,451-453	-	业务代码和 Alembic 迁移通过 /app 挂载，改动后需重启 worker，因为 Celery 不会热重载。镜像依赖须放在挂载范围之外的 /opt/venv，并用匿名卷隔开宿主机的 .venv，否则挂载可能遮蔽镜像依赖或引入宿主机环境。
+0185-0035	docker-compose.yml:181-182	-	GPU 生命周期签名密钥须用 bind mount 保留宿主文件的 0400 权限；Compose 的文件型 secret 不会落实声明的 uid、gid、mode，替换后会以 0444 暴露密钥。
+0185-0036	docker-compose.yml:189-191,456-458	-	Celery 健康探针用 -d 限定本节点，不能让其他 worker 的响应掩盖本节点故障；探针须经 CMD-SHELL 展开 $$HOSTNAME，否则会查询字面节点名。启动宽限覆盖冷启和 broker 连接，退出时保留在途任务的收尾窗口。
+0185-0037	docker-compose.yml:210-211	-	超大图金字塔使用独占的单并发队列，不能并入缩略图或视频队列，否则会争抢 libvips 编解码资源和临时磁盘；独立队列不可用时，影响限于可选派生资产。
+0185-0038	docker-compose.yml:264-265	-	显存修复与 tombstone GC 在单并发控制队列中串行执行，不交给普通 worker 并发消费；只有 celery-worker-gpu-control 挂载 collector 数据库凭据，避免普通 API 或 worker 因合并服务而获得该凭据。
+0185-0039	docker-compose.yml:344-345	-	Compose 必须把 VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES 显式传入 GPU worker；只改宿主机的 .env 不会更新容器环境，SAM3 文本 multiplex／PVS 仍会使用镜像内的单窗上限。
+0185-0040	docker-compose.yml:421-422	-	大导出使用独立 export 队列和专用 worker，而不是只在共享 worker 上另设队列名；若仍共用执行槽，大导出就可能占满这些槽位，拖延预标和媒体处理。
+0185-0041	docker-compose.yml:475-477	-	Celery beat 必须独立于可横向扩容的 worker，并保持单实例；若随 worker 一起扩容，多个 beat 会重复触发 PerfHud 推送、审计分区维护和 ML 健康检查等周期任务。
+0185-0042	docker-compose.yml:501-502	-	Celery beat 不响应 worker 的 inspect ping，照搬该健康探针会把正常的调度进程判为故障。退出时仍须留出宽限，以便将调度状态写入 /tmp/celerybeat-schedule。
+0185-0043	docker-compose.yml:530	-	Prometheus 在 Linux Compose 中须用 host-gateway 显式映射 host.docker.internal；不能依赖该名称默认可解析，否则容器可能无法访问宿主机上的抓取目标。
+0185-0044	.github/workflows/backend-test.yml:54-55	-	backend-test 必须在 pytest 首次导入应用前设置 E2E_SEED_ENABLED；有些模块在测试收集阶段就导入 API 路由，等到用例或 fixture 执行时再设置已经太晚。
+0185-0045	.github/workflows/backend-test.yml:164-165	-	迁移策略的纯规则测试须在后端测试虚拟环境中单独调用；它们位于 scripts/，只运行 apps/api 下的 pytest 即使全绿，也没有验证这些规则。
+0185-0046	.github/workflows/ci.yml:10-12;.github/workflows/e2e-extended.yml:5-6	-	计划模式下，手动与夜间 E2E 入口都须显式传入 e2e_scope，不能用事件名代替执行范围，否则入口无法传达所需选集。legacy 回退仍只跑 extended，不按计划模式的输入重新选集。
+0185-0047	.github/workflows/ci.yml:68-70	-	pytest（Backend tests）保留原必需检查的 ID 和名称，但只汇总分片结果，不重跑用例。必须所有分片都成功才通过，否则分片跳过、取消或失败可能被一个空操作的绿灯掩盖。
+0185-0048	.github/workflows/ci.yml:400-402,405-406	-	E2E 默认采用计划选集，但须保留 E2E_SELECTION_MODE=legacy，以便不改代码就能回到冻结规则；两种选集持续对照，切换时保留 Frontend E2E 检查名，避免选集回退同时改变分支保护所依赖的检查。
+0185-0049	.github/workflows/ci.yml:487-488	-	经环境变量传递的 E2E 清单只含有界的套件 ID 和策略；变更路径和影子报告应留在清单之外，否则载荷会随变更规模增长，不再适合使用有大小限制的环境变量。
+0185-0050	.github/workflows/docs-acceptance.yml:26	-	文档验收在依赖安装成功后应跑完所有独立门禁；遇到首个失败就停止会掩盖同次变更的其他问题，但继续执行不能吞掉失败，任一门禁失败仍须让作业失败。
+0185-0051	.github/workflows/docs-validate.yml:15	-	docs-validate 的触发范围必须包含生成文档的源输入，不能只监听生成物；否则源输入变了却忘记重新生成时，负责发现这一问题的 check:codegen 反而不会运行。
+0185-0052	.github/workflows/docs-validate.yml:46	-	docs-validate 的 changelog 校验必须在检出时取得 Git 标签；只有提交内容而没有标签的快照缺少校验所需的版本基准。
+0185-0053	.github/workflows/docs-validate.yml:78-80	-	检查死链前必须同步 public/openapi.json，并从 docs/adr/ 镜像 ADR；否则检查扫描的是生成前的文件树，会把合法的 API 下载链接和开发文档中的 ADR 链接误报为死链。
+0185-0054	.github/workflows/e2e-run.yml:15-18,191-192	-	built 套件只能复用提交、构建模式、锁文件、OpenAPI 快照和 Node 版本都匹配的构建。将指纹写入制品名，不匹配就让下载失败；回退到其他制品会让套件跑在错误的构建上。
+0185-0055	.github/workflows/e2e-run.yml:82-85,118-119	-	选中 built 套件时必须先完成共享构建；构建失败则不跑套件，由 Frontend E2E 汇总判失败，以免误测旧代码。用 !cancelled() 而非 always()，让被替代的 PR 及时释放并发槽。
+0185-0056	.github/workflows/e2e-run.yml:88	-	E2E 服务实例按 runner 隔离；不能为了减少启动开销让并行 worker 共用测试 fixture，否则一个 worker 对 fixture 的修改会干扰另一个 worker。
+0185-0057	.github/workflows/e2e-run.yml:107-108	-	数据库所有者连接只交给 worktree 协调器；E2E 子进程须使用分配给自己的数据库和独立的 _app 登录角色，否则测试会绕过应用角色的权限限制。
+0185-0058	.github/workflows/e2e-run.yml:148-151	-	E2E 的 services 块不能传入 MinIO 所需的 server 子命令，因此改用 docker run；容器启动不等于服务就绪，须等健康端点通过后再启动 FastAPI。
+0185-0059	config/ssh/known_hosts.example:1-2	-	SFTP 必须在连接前将审核过的主机公钥写入不入库的 known_hosts。空文件会拒绝未知主机，不能用自动接受首次见到的密钥替代预置校验。
+0185-0060	docs-site/.vitepress/config.ts:13-14	-	ADR 侧边栏是 mirror-adr.mjs 生成的产物，不是启动前必定存在的源文件；刚克隆等情况下若产物缺失，应回退到空侧边栏，而不是让 VitePress 无法启动。
+0185-0061	docs-site/.vitepress/config.ts:48,51-52,56-57	-	死链检查须豁免文档中指向仓库源码、未渲染的 plans（含归档）及本地 CVAT 克隆的引用；这些目标不是站点页面，按站内路由校验会误报。
+0185-0062	docs-site/.vitepress/config.ts:61-62	-	Mermaid 11.x 直接引用 Day.js 的 UMD 文件，Vite 按 ESM 解析时找不到默认导出；须将该精确导入路径别名到 Day.js 的 ESM 入口。
+0185-0063	docs-site/.vitepress/config.ts:71-73	-	VitePress 的分块告警阈值设为 2048 kB，以容纳全站本地搜索索引；不能为消除这项预期告警而关闭检查，否则意外生成的数 MB 应用分块也不再告警。
+0185-0064	docs-site/.vitepress/config.ts:144-145	-	VitePress 会把 editLink.pattern 回调序列化进客户端包；回调必须自包含，不能调用闭包中的 config.ts 辅助函数，因为客户端没有这些绑定。
+0185-0065	docs-site/.vitepress/content.mjs:1-2	-	文档源文件路径不等于公开路由，VitePress 和导航检查器须共用 content.mjs 的 rewrites；各自维护映射会使导航检查与实际生成的页面路由不一致。
+0185-0066	docs-site/.vitepress/theme/docs-home.css:1-13;docs-site/.vitepress/theme/docs-theme.css:1-14,41,143	-	首页品牌规则限于首页内容根和壳层，正文阅读框架则限于默认 Layout 的 .docs-reading-page。两者共用皇家蓝，但不能全局套用同一套规则，否则首页展示样式会覆盖正文阅读 token，正文框架也会侵入首页构图。
+0185-0067	docs-site/.vitepress/theme/docs-home.css:78-80	-	首页粘性导航默认使用近不透明墨黑底，仅在 Hero 顶部透明，避免无 JS、减弱动效或滚过浅色章节时导航难以辨读。不能用 backdrop-filter 代替实底，否则滚动时逐帧模糊会拖累低端设备。
+0185-0068	docs-site/.vitepress/theme/docs-home.css:91-92	-	首页导航的快速开始按钮采用纸白底和皇家蓝字，不能与普通蓝底按钮统一；导航在 Hero 顶部透明时，蓝底按钮会融入背景。
+0185-0069	docs-site/.vitepress/theme/docs-home.css:170-171	-	首页 .grain 使用低透明度噪点，不使用 mix-blend-mode；固定全屏噪点层若参与混合，连续滚动时会逐帧触发主线程重绘。
+0185-0070	docs-site/.vitepress/theme/components/home/useHomeMotion.ts:1-15,36;docs-site/.vitepress/theme/docs-home.css:1145-1149	-	首页 .reveal 默认可见，仅在 useHomeMotion 确认可播放并加上 .home-motion-ready 后才隐藏未入视口的内容，否则无 JS 或减弱动效时内容会不可见。滚动和指针更新用 RAF 合并，避免频繁更新造成布局抖动。
+0185-0071	docs-site/.vitepress/theme/docs-home.css:1292	-	移动端 Hero 截图须同时取消 CSS 的透视、倾斜和 JS 施加的 transform；只改 CSS 仍可能留下脚本变换，使已经缩小的截图难以辨读。
+0185-0072	docs-site/.vitepress/theme/docs-theme.css:1-14	-	文档站沿用 VitePress 默认主题的 html.dark 触发暗色覆盖；若套用 apps/web 的 data-theme 选择器，VitePress 切换主题时不会命中这些样式。
+0185-0073	docs-site/.vitepress/theme/docs-theme.css:16-18	-	文档导航、原生菜单和搜索结果预留滚动条空间，避免内容进出溢出状态时布局跳动；不能全局应用这条规则，否则会改变横向代码块、表格和隐藏滚动条的目录的原有尺寸。
+0185-0074	docs-site/.vitepress/theme/docs-theme.css:112,132	-	暗色正文不能原样复用亮色主题的皇家蓝；须提亮蓝色，否则链接在墨黑底上难以辨读，实心按钮也难以辨识为蓝色。
+0185-0075	docs-site/.vitepress/theme/image-zoom.ts:1-8,11	-	截图放大仅在浏览器端通过事件委托处理，避免逐图绑定漏掉路由切换后出现的截图；用 window 标志防止 HMR 或 enhanceApp 重复注册。链接图、.no-zoom 图及小图标不接管。
+0185-0076	docs-site/.vitepress/theme/mermaid-zoom.ts:1-7,21,106,122	-	Mermaid 在客户端异步注入 SVG，且可能先插入节点再补齐 viewBox。缩放不能只做一次初扫：持续观察 DOM，遇到缺失或零宽的 viewBox 先跳过，并保留延时补扫以覆盖首屏漏检。
+0185-0077	docs-site/.vitepress/theme/mermaid-zoom.ts:42-43	-	交给 svg-pan-zoom 前，须将 Mermaid SVG 的百分比宽度和 max-width 换成与容器一致的像素尺寸，并保留 viewBox；否则控件尺寸和 fit 的计算会失真。
+0185-0078	docs-site/.vitepress/theme/mermaid-zoom.ts:55,65	-	Mermaid 缩放的加减和复位控件须用容器右上角的 HTML 按钮，不使用库内置的 SVG 控件；后者处于图表坐标系内，会随缩放放大并遮挡图表。
+0185-0079	docs-site/.vitepress/theme/platform-keys.ts:1-13,128	-	平台快捷键只在客户端随 VitePress 路由更新，并用 window 标志防止重复注册。不能无条件观察 body 并反复写入相同的 textContent，否则更新可触发自身回调，形成微任务循环并卡住页面。
+0185-0080	docs-site/.vitepress/theme/components/ApiReferenceFrame.vue:5-6	-	Scalar API Reference 须在 iframe 中加载独立静态页，直接嵌入会受 VitePress 全局 CSS 影响；iframe 地址须经 withBase 处理，否则部署到子路径时会指向错误位置。
+0185-0081	docs-site/.vitepress/theme/components/DocsVideo.vue:38	-	DocsVideo 不能把自动播放当作唯一启动方式；浏览器可能拒绝自动播放，须保留播放器控件，让用户仍能手动开始播放。
+0185-0082	docs-site/.vitepress/theme/components/ExcalidrawDiagram.vue:2-7	-	Excalidraw 图表以同一个 SVG 用于展示和再编辑，不能换成只保留绘制结果的普通 SVG；缺少内嵌 scene 就无法从该文件继续编辑，缺少 Virgil 字体则无法保证字形一致。
+0185-0083	docs-site/.vitepress/theme/components/home/useHomeMotion.ts:72	-	首页截图透视只在精细指针设备上启用，移动端 CSS 也须去掉透视。仅停用交互逻辑不足以还原静态截图，残留的倾斜会影响移动端阅读。
+0185-0084	docs-site/.vitepress/theme/components/home/useHomeMotion.ts:137	-	useHomeMotion 卸载时须主动移除页面壳层上的顶栏透明类；该类不在首页组件自身的 DOM 上，仅卸载组件会让其他路由继承首页导航样式。
+0185-0085	docs-site/dev/examples/mock-v2-backend/main.py:58-59	archive/0036-ml-backend-capability-protocol-v2-multi-model.md	variant_combinations 的元组按 supported_variants 的轴顺序解释为 [series, size]，不能用各轴枚举的笛卡尔积替代，否则会接受未开放的组合，例如 yolo12 的非 n、s、m 尺寸。
+0185-0086	docs-site/dev/examples/mock-v2-backend/main.py:66;docs-site/dev/examples/mock-v2-backend/tests/test_contract.py:74	archive/0036-ml-backend-capability-protocol-v2-multi-model.md	default_variants 必须为每个变体轴提供值，不能只列出部分轴；VariantSelector 用它初始化选择，漏掉的轴将没有契约定义的初值。
+0185-0087	docs-site/dev/examples/mock-v2-backend/main.py:411;docs-site/dev/examples/mock-v2-backend/tests/test_contract.py:163	archive/0036-ml-backend-capability-protocol-v2-multi-model.md	v2.1 兼容期内，/predict 优先使用 context.model_variants，但旧 YOLO 客户端的 context.variants 仍须进入同一归一化流程；只读新字段会丢失旧请求的变体选择。
+0185-0088	docs-site/public/diagrams/dev/reference/video-tracker-ws-flow.svg:69	-	质检审阅以是否已有候选暂存为准，不以追踪任务是否正常完成为准；若把完成状态设为前置条件，取消任务时已暂存的候选也会无法审阅。
+0185-0089	docs-site/scripts/_emit.mjs:1-4	-	CI 和 check:all 须用 --check 比对文档生成结果，不可先覆盖产物再检查；否则源文件已变而提交中的产物未更新，检查仍可能通过。
+0185-0090	docs-site/scripts/check-adr.mjs:2-6	-	check-adr 查重时必须包含 archive/，因为归档并不释放 ADR 编号；只扫描现行记录会把已占编号误判成空号，容许新记录复用。
+0185-0091	docs-site/scripts/check-changelog-version.mjs:2-3	-	CHANGELOG 版本检查以 Git tag 为比较基准；本地没有 tag 时应跳过，不能把无法比较当成版本落后，否则缺少标签的检出也会误报。
+0185-0092	docs-site/scripts/check-doc-snippets.mjs:2-9	-	文档片段校验不能只接受符号或整文件锚点；既有标记仍使用行号区间，直接收紧语法会让未改动的旧引用无法通过校验。
+0185-0093	docs-site/scripts/check-excalidraw-diagrams.mjs:2-9	-	Excalidraw 图须在同一份展示 SVG 中嵌入场景数据和 Virgil 字体；只保留渲染结果会丢失重新导入编辑的能力，依赖本机字体则无法在未安装 Virgil 的环境保留手写样式。
+0185-0094	docs-site/scripts/generate-hotkeys.mjs:2-7;docs-site/scripts/generate-settings.mjs:2-9	-	快捷键用项目的 TypeScript 解析器、设置用字面量扫描静态提取，不为生成文档执行应用源码。提取或校验失败须显式报错，否则 CI 可能发布与源码不符的参考文档。
+0185-0095	docs-site/scripts/generate-settings.mjs:26-27,116	-	设置生成器须越过赋值号再识别 WORKBENCH_SETTING_FIELDS 的数组起点，并在配平对象边界时跳过字符串和行注释；否则类型标注的方括号或非结构性的花括号会被误认成字面量边界。
+0185-0096	docs-site/scripts/generate-training-reference.py:249	-	训练参考的生成结果比较应忽略 Prettier 对 Markdown 表格的列对齐；逐字节比较会将单元格值未变的排版调整误判为产物漂移。
+0185-0097	docs-site/scripts/mirror-adr.mjs:2-11,188,197	-	ADR 正本留在 docs/adr，但 VitePress 只渲染 docs-site 内的 Markdown，因此须生成站点镜像。归档仅从侧边栏隐藏，不能省略归档镜像或索引，否则直接引用或目录链接会失去目标。
+0185-0098	docs-site/scripts/mirror-adr.mjs:29	-	ADR 镜像重建前须清空目标目录，不能仅覆盖本轮生成的文件；否则源文件删除后，旧镜像仍会留在站点。
+0185-0099	docs-site/scripts/mirror-adr.mjs:37-39;docs-site/scripts/mirror-changelog.mjs:28-35,51,54	-	ADR、变更日志和路线图镜像须禁止 Vue 编译含双花括号的行内代码，否则字面内容会被解释为插值；变更日志和路线图还须转义代码外的左尖括号，防止裸占位符被解析成未闭合标签。
+0185-0100	docs-site/scripts/mirror-changelog.mjs:2-8,121	-	路线图镜像不能随仓库归档位置变动而更改既有 /roadmap/archived-* URL；同时仍须识别源文档中带 [archived] 前缀的旧式链接，以免公开链接或现存源引用失效。
+0185-0101	docs-site/scripts/mirror-changelog.mjs:81-83,111,131,136-137,142,147	-	变更日志和路线图须按源文件所在目录解析相对引用，不能原样带入站点镜像。已发布目标改写为站点路径，未发布的 plans、research 等目标则指向 GitHub 源文件并保留锚点，避免链接落到不存在的站点页面。
+0185-0102	infra/alertmanager/alertmanager.yml:1-7	-	开发告警只投递 Mailpit，不能沿用生产收件配置而对外投递。Alertmanager 不读取 .env，生产 SMTP、收件人与服务商要求的认证和 TLS 设置须在启动时写入配置。
+0185-0103	infra/docker/Caddyfile.lan-prod:4	-	LAN 生产 Caddy 须将绑定 IP 设为默认 SNI，不能依赖客户端发送 SNI；否则省略 SNI 的 IP 客户端可能拿不到对应的受管 IP 证书。
+0185-0104	infra/docker/Caddyfile.lan-prod:9	-	LAN 生产环境须在客户端侧显式安装证书信任；Caddy 容器内自动安装无法写入客户端的信任库，不能替代客户端配置。
+0185-0105	infra/docker/Dockerfile.api:39	-	API 镜像的虚拟环境须放在 /opt/venv 而非 /app；开发 worker 将源码绑定挂载到 /app 时，会遮蔽镜像在该目录预装的依赖。
+0185-0106	infra/docker/Dockerfile.api:75	-	私有 fixture CLI 须随 API 镜像提供，不能仅留在仓库检出目录；否则不挂载源码运行镜像时，启动器无法进行元数据验证。
+0185-0107	infra/docker/Dockerfile.web:13	-	Web 构建上下文必须包含仓库根 CHANGELOG.md，不能只提供前端子目录；release-notes 插件在构建时要读取当前版本段落，否则更新提醒缺少内容来源。
+0185-0108	infra/docker/assets-catalog-grants.sql:1-4;infra/docker/assets-import-grants.sql:1-4	-	Assets 的 catalog 和 import 授权脚本依赖迁移与 module-data 授权已完成，并须由迁移角色执行；不能将它们当作可提前运行、也可由应用角色执行的初始化脚本。
+0185-0109	infra/docker/assets-catalog-grants.sql:71,175;infra/docker/assets-import-grants.sql:71,126;infra/docker/assets-operator-grants.sql:133;infra/docker/assets-source-grants.sql:153	-	Assets 的 catalog、import 重部署时先撤销旧授权，再授予各自接口；验收还须检查 catalog、import、operator 和 source 的实际可达权限。只检查本次 GRANT 会漏掉仍然生效的协议外授权。
+0185-0110	infra/docker/assets-catalog-grants.sql:105,122	-	Assets catalog 由不可登录的函数所有者读取目录事实、写入目录字段，运行时只执行固定入口。若把同样的数据权限直接授给运行时，它就能绕过函数直接读写目录。
+0185-0111	infra/docker/audit-append-grants.sql:148;infra/docker/lan-production-grants.sql:253	-	保留 API 对 audit_logs 父表的读取，以免破坏现有消费者；追加审计则在原业务事务内调用 Audit owner 函数，不再授予父表 INSERT，否则 API 可绕过追加入口。
+0185-0112	infra/docker/audit-read-grants.sql:66-68	-	Audit read 只重置本次指定 LOGIN 的访问，不以撤销 PUBLIC 表级权限代替清理该 LOGIN 的列级授权；列级授权独立生效，必须逐列撤销。
+0185-0113	infra/docker/identity-accounts-grants.sql:1-8;infra/docker/identity-auth-grants.sql:1-10;infra/docker/identity-groups-grants.sql:1-7;infra/docker/identity-keys-grants.sql:1-6;infra/docker/identity-recovery-grants.sql:1-9;infra/docker/identity-sessions-grants.sql:1-6	0116-independent-identity-key-commands.md,0117-independent-identity-session-commands.md,0119-independent-identity-recovery-and-mail.md,0120-independent-identity-group-catalog-and-assignment.md	Identity 账户、认证、组、密钥、会话及恢复相关授权不修改 PUBLIC ACL；建库时必须先撤销 PUBLIC 的 TEMP，否则 LOGIN 即使没有角色成员关系，仍可经 PUBLIC 创建临时对象。账户等常规 LOGIN 也不得有角色成员关系。
+0185-0114	infra/docker/identity-accounts-grants.sql:160;infra/docker/identity-auth-grants.sql:151;infra/docker/identity-groups-grants.sql:156;infra/docker/identity-sessions-grants.sql:137	0117-independent-identity-session-commands.md,0120-independent-identity-group-catalog-and-assignment.md	Identity 账户、认证、组和会话授权须按每个 LOGIN 实际可执行的函数验收，而非只核对预期 GRANT；额外入口也算失败，其中组只允许两个入口、会话只允许三个。
+0185-0115	infra/docker/identity-consumer-grants.sql:83	-	远程 Identity consumer 原有的直接表级和列级授权都必须撤销；NOINHERIT 不会消除角色自身的 ACL，只调整继承属性仍会留下绕过函数接口的数据访问。
+0185-0116	infra/docker/identity-consumer-grants.sql:131	-	远程 Identity consumer 在调用方事务内经只读接口复核 JWT 所需事实；不能以同时提供撤销命令的权限替代，否则负责复核的调用方也能改变撤销状态。
+0185-0117	infra/docker/identity-deactivation-grants.sql:1-10	0121-identity-self-deactivation-and-notification-delivery.md	Identity 自助停用、到期停用和 Notifications 发布分别使用无角色成员关系的独立 LOGIN NOINHERIT；共用凭据会让原本只负责其中一项的进程也能执行其余操作。
+0185-0118	infra/docker/identity-directory-grants.sql:1-7	0123-independent-identity-directory-reads.md	Identity 目录客户端通过策略和命令函数操作，数据访问及导出事务由 owner 掌管；若将底层权限交给客户端，客户端就能绕过策略入口自行读取或导出。
+0185-0119	infra/docker/identity-e2e-fixture-grants.sql:1-4;infra/docker/identity-scale-seed-grants.sql:1-4;infra/docker/identity-seed-operator-grants.sql:1-4;infra/docker/lan-production-grants.sql:414	-	Identity 的 E2E 夹具、规模种子读取和种子操作权限只在 consumer 权限之上显式授给各自受信角色。普通 API 或 worker 不得因复用凭据或数据库名带测试后缀而取得账户、清理或种子接口。
+0185-0120	infra/docker/identity-role-audit-grants.sql:1-5;infra/docker/labeling-role-audit-grants.sql:1-5	-	历史角色审计允许为单个受信 LOGIN 显式安装固定投影：Identity 可用于尚无 yoao_identity_v1 的旧库，Labeling 可用于修订 0173 前的库。不能以补跑迁移或推进版本来代替投影安装。
+0185-0121	infra/docker/identity-role-audit-grants.sql:23-24;infra/docker/labeling-role-audit-grants.sql:23	-	Identity 和 Labeling 角色审计用临时参考视图取得 PostgreSQL 反解析后的精确定义，再判断现有视图能否复用；不为核对定义而替换视图，以免改变现有 OID。
+0185-0122	infra/docker/inference-owner-grants.sql:1-5	-	Inference owner 的每个封闭权限档案使用独立 LOGIN，不复用普通 API 或 worker 凭据；否则同一凭据会同时持有常规运行权限和专用能力，权限档案不再封闭。
+0185-0123	infra/docker/jobs-dispatch-grants.sql:1-8	-	Jobs dispatch 由 API 在调用方工作单元内准备，认领、完成及状态查询只交给独立持久 relay LOGIN。不能共用凭据或改为直访私有账本，否则 API 也能执行分发操作，且可绕过账本接口。
+0185-0124	infra/docker/labeling-mask-gc-data-grants.sql:1-5	0112-durable-mask-gc-fences.md	Labeling Mask GC worker 必须使用无角色成员资格的独立 LOGIN，权限限于六个操作函数；复用带成员资格的 worker 角色，仅限制本次函数授权仍不能限定其可达权限。
+0185-0125	infra/docker/lan-production-grants.sql:61	-	不能在收紧 LAN 应用角色权限时一并撤掉 CONNECT 和 TEMPORARY；仍在运行的 Predictions 和用户绩效维护依赖这些权限，撤销会影响现有任务。
+0185-0126	infra/docker/lan-production-grants.sql:759,1071	-	嵌入式运行时只有预定的 Workspace 运维能力；配置所需的跨 owner 调用由 Workspace 的 SECURITY DEFINER 代码完成。直接向运行角色授予依赖权限或私有存储访问，会使其绕过 Workspace 入口。
+0185-0127	infra/docker/lan-production-grants.sql:910-912,979-981	-	单体 API/Celery 只经工作流、控制、Worker 和 Labeling 接口使用视频及已接受的图像输入与清单；系统清扫、输入回收仍归各自 owner，图像私有回执和固定引用辅助函数也不因进程内组合而开放。
+0185-0128	infra/docker/lan-production-grants.sql:941-942	-	发布视频运行时接口时必须保留图像 owner 已发布的接口；若用视频授权替换整套媒体接口，仍在进程内组合图像能力的 API/Celery 会失去原有入口。
+0185-0129	infra/docker/lan-production-grants.sql:1047	-	迁移后重新应用显式运行时授权，不能用默认权限批量授权来省去这一步；批授会让各域 owner 新建的私有存储也落入运行角色的访问范围。
+0185-0130	infra/docker/lan-production-grants.sql:1049-1050	-	用户绩效物化视图仍归绩效维护角色，预测分区仍归 Labeling owner。迁移角色可继承运行时角色，但不能反向授予成员资格，否则运行时可取得迁移角色的权限。
+0185-0131	infra/docker/lan-production-grants.sql:1311	-	嵌入式部署只改变 Identity 命令的调用方式，不扩大运行时的数据权限；若为省去命令调用而开放私有表，运行时就能绕过 Identity 的命令边界。
+0185-0132	infra/docker/module-data-grants.sql:153-154	-	当前认证事实和事务所需的有限自助账户投影必须由持有 User 行锁的 Identity 提供；若调用方另行读取，就不能保证读到的是该事务锁所保护的账户状态。
+0185-0133	infra/docker/module-data-grants.sql:809,960,4201	-	PostgreSQL 的行锁即使不修改数据也要求至少一列 UPDATE 权限，仅授 SELECT 会使加锁失败。Labeling 对 failed_predictions 的失败证明使用 FOR KEY SHARE，ai_mask_accept_decisions 的授权限于 id；Assets 对 storage_bindings 取 FOR SHARE 时只授 purpose，目标和代次仍只读。
+0185-0134	infra/docker/module-data-grants.sql:1128	-	Settings 检查连接器策略时须对 system_settings 取 SHARE 表锁：如果策略行不存在，行锁无对象可锁，并发事务仍可在检查后插入该策略行。
+0185-0135	infra/docker/module-data-grants.sql:1220	-	Native 健康操作必须物化完整行，并由调用方持有操作所需的锁；只开放健康状态字段的投影无法提供完整行，也不能替代调用方持锁。
+0185-0136	infra/docker/module-data-grants.sql:1247	-	Registry 配置触发器仍负责 GPU 栅栏检查；收窄 Inference 授权时若删除触发器所需的高水位访问，配置变更就无法完成该检查。
+0185-0137	infra/docker/module-data-grants.sql:1278-1279	-	跨域函数在同一个 PostgreSQL 事务中，按数据集、当前授权、关联、Jobs/Labeling 的顺序取锁；若不同调用路径各自调整顺序，并发事务可能因反向持锁而死锁。
+0185-0138	infra/docker/module-data-grants.sql:1779	-	模式由迁移角色持有，不能因代码所有者是 NOLOGIN 就给它保留常驻的模式改写权限；不能直接登录并不等于该角色无权替换模式内代码。
+0185-0139	infra/docker/module-data-grants.sql:3301	-	审计物化视图的并发刷新以固定视图所有者 audit_owner 的身份创建临时关系；只给发起刷新的登录角色授予 TEMPORARY，仍不能满足创建临时关系的权限检查。
+0185-0140	infra/docker/module-data-grants.sql:3935	-	最终视频发布必须随 Labeling 的业务事务提交；若另起事务发布，发布可能已经提交，而对应的 Labeling 业务变更随后回滚。
+0185-0141	infra/docker/module-data-grants.sql:4015	-	视频执行删除只接受针对当前运行的退役证明，不能用历史日志里的退役记录替代，否则可能把旧运行的证明误用于本次删除；删除调用方也无需读取 Jobs 执行日志。
+0185-0142	infra/docker/module-data-grants.sql:4136	-	Inference 对外发布的拓扑和调用方能力不得携带凭据；不能直接把含凭据的内部配置用作返回值，否则读取拓扑就会取得凭据。
+0185-0143	infra/docker/module-data-grants.sql:4488	-	导出执行记录和物理回执的保留不能绑定到业务 Job 的生命周期；若用随 Job 级联删除的关系管理它们，删除 Job 就会同时丢失仍须保留的两类记录。
+0185-0144	infra/docker/nginx.conf:17	-	Nginx 必须通过 Compose DNS 重新解析 API 和 MinIO 的服务地址；若只在启动时解析一次，容器替换后仍可能把请求转发到旧地址。
+0185-0145	infra/docker/nginx.conf:30-33,35-36	-	HTML 的 CSP 由 Nginx 设置，Vite 占位符须全部替换，脚本、样式和 meta 的 nonce 都用响应头中的同一逐请求 request_id，否则策略可能拦截页面资源。API 则由 FastAPI 的 SecurityHeadersMiddleware 设置无 nonce 的同源脚本和样式策略。
+0185-0146	infra/docker/nginx.conf:50-52	-	内部发现端点会返回后端地址和项目标识，必须像根路径 /metrics 一样不对外代理；内部路径的匹配须优先于通用 API 代理，否则请求会经通用规则转发。
+0185-0147	infra/docker/nginx.conf:87-88	-	Nginx 的 /minio/ 只代理本部署的存储桶；去掉公开路径前缀时不得丢弃签名查询参数或改写签名端点的 Host，否则 MinIO 收到的请求将无法通过签名校验。
+0185-0148	infra/docker/notification-append-grants.sql:1-7	-	Notifications 的仅函数追加角色须在借用的同一事务中调用既有偏好命令；若只安装追加授权而未安装偏好命令授权，追加函数执行到该调用时会因权限不足失败。
+0185-0149	infra/docker/preannotation-result-data-grants.sql:1-7	0113-durable-preannotation-results.md	预标注与重试执行角色只应获得公开结果协议权限。结果授权脚本不改 PUBLIC ACL，若建库时未先撤销 PUBLIC 的 TEMP，仅收窄这两个角色的直接授权仍无法阻止它们创建临时对象。
+0185-0150	infra/docker/workspace-e2e-fixture-grants.sql:1-4;infra/docker/workspace-scale-seed-grants.sql:1-7;infra/docker/workspace-seed-operator-grants.sql:1-4	-	Workspace 的 E2E fixture 创建与清理、六项固定种子写入和本地规模造数都是消费者授权之上的受信操作员权限；若并入普通 API/worker 授权，日常服务凭据就能执行这些操作。规模造数仍与 Identity 等域既有的操作员授权组合。
+0185-0151	infra/docker/workspace-role-audit-grants.sql:1-5	-	Workspace 历史角色审计投影须能在 Workspace 迁移 schema 尚不存在时独立安装；若依赖该 schema 或把安装并入该迁移链，尚未运行 Workspace 迁移的环境就无法单独安装审计投影。
+0185-0152	infra/prometheus/alerts.yml:1-8	-	MLBackendDown 只排除显式标记为 disconnected 的后端，带外维护也应使用该状态；若同时排除 error，真实探活故障就会漏报。用 5 分钟窗口过滤短暂抖动，而不是把 error 当成维护。
+0185-0153	infra/prometheus/alerts.yml:12-14,33	-	ml_backends.name 不保证唯一，ML 告警须同时展示 service 和 instance，以抓取目标的 host:port 区分同名后端。InferenceLatencyHigh 在计算分位数前须按 le、service、instance 聚合，否则同名后端的延迟桶会被合并。
+0185-0154	infra/prometheus/prometheus.yml:12-14,40-49	-	同网的 Prometheus 与 Alertmanager 用服务 DNS；开发容器无法解析时才经已配置的 host-gateway 访问宿主机 9093。host-gateway 不会让只监听 127.0.0.1 的宿主 API 可达；发现不可用时，静态目标也必须是容器能访问的地址。
+0185-0155	scripts/audit-e2e-requirements.mjs:22-30	-	E2E 审计只认可 docs-only 清单中显式标记且说明理由的跳过；执行器的跳过标志不能覆盖 planned: true，否则本应执行的套件会在没有运行的情况下被豁免。
+0185-0156	scripts/audit-e2e-requirements.mjs:150-152	-	E2E 完成产物须声明匹配的套件名和已知结果，防止把其他套件或无法识别的结果计入；success 还须有数值统计佐证，不能凭状态字符串判定通过。
+0185-0157	scripts/benchmark_dataset_training.py:770-771	-	训练基准的诊断文件须保持私有并限制大小，不得为便于收集而把日志或含凭据的 URL 写到标准输出，否则受文件权限保护的信息会进入输出流。
+0185-0158	scripts/benchmark_dataset_workbench.py:301-302	-	工作台基准为连接查询准备统计信息时须使用已核验的 schema owner；运行角色不拥有迁移表，改用它执行 ANALYZE 可能只产生告警并跳过，导致基准未获得预期统计信息。
+0185-0159	scripts/check-dead-links.mjs:2-24,51,255-256,277-278	-	死链检查不以冻结的计划、变更日志、ADR 归档、生成目录、临时副本或 vendor 为扫描来源，不能把固化快照的原引用当成现行链接维护；镜像却仍可作为修复候选，不能复用来源排除规则过滤目标。
+0185-0160	scripts/check-dead-links.mjs:174-175,299-305	-	死链目标按 VitePress 路由而非仓库物理路径认定：站内根相对链接以 docs-site/ 为根，并处理 .md、index.md、rewrites 和挂到站根的 public 资源。ADR、变更日志和路线图镜像还须按映射回查源文件，避免镜像未重建时误报。
+0185-0161	scripts/check-dead-links.mjs:102-103	-	extractLinks 用等长空格屏蔽围栏和行内代码，既不把示例中的链接纳入检查，也保持原文位置；直接删除整段代码会使后续链接的诊断行号偏移。
+0185-0162	scripts/check-doc-version-prefix.mjs:3-6	-	版本前缀检查须结合发布说明语境判断，注释和前置元数据也不例外；若把点分数字一律当作产品历史版本，API、依赖、模型和数据格式版本都会被误报。
+0185-0163	scripts/check-product-naming.mjs:3-4	-	产品命名检查针对创建命令、导入、界面标签和私有状态中新引入的名称；不能对历史载荷、签名声明和运维迁移说明套用同一规则，否则会把保留的旧名称误判为新增命名。
+0185-0164	scripts/check-workflow-names.mjs:3-4,23-24	-	工作流名检查只读取约定的块式工作流顶层静态 name，接受普通引号和尾注，不求值表达式、别名或折叠块；若匹配任意层级的 name，步骤名就可能被误判成工作流名。
+0185-0165	scripts/check_removed_service_modules.mjs:53-54,95-96,135	-	移除门面检查须按边界匹配完整点分路径，只扫描 import 会漏掉字符串导入和 mock 目标，裸子串匹配则会误伤其他模块。历史文档可以记载旧路径，但指向已删除文件的链接仍由独立的 --historical-links 模式检查。
+0185-0166	scripts/cutover_storage_migration.py:176-177	-	存储切换须在调用存储提供方前提交元数据事务，使准入独立持久化；取消时由 storage_access.run 等待实际收尾，不能把取消请求视为外部操作已经结束。
+0185-0167	scripts/cutover_storage_migration.py:269-270;scripts/finalize_storage_migration.py:210	-	提交报错或结果不明不能证明迁移意图未生效。收尾须保留已持久化的意图；回滚须在物理观测后才短时加锁，提交结果不明时保留回滚意图且不释放 B。
+0185-0168	scripts/cutover_storage_migration.py:315-316	-	回滚须在对 A 做任何操作前，将 B 的新证明与持久预留比对；若等到释放后才校验，才发现网关地址已变更就太晚了。
+0185-0169	scripts/cutover_storage_migration.py:366-367	-	回滚须先持久化释放 UUID，再修改外部源；即使 Journal 已记录释放，恢复应用写入前仍须重放 verify_open，不能用释放记录代替源端确已开放的验证。
+0185-0170	scripts/dataset_training_benchmark_runtime.py:102-103	-	settled_monotonic 只表示 HTTP 应用或任务作用域已返回，不能据此判定原生 I/O 已收尾；仍未完成的观测须由 incomplete_observation 单独计数。
+0185-0171	scripts/dataset_training_benchmark_runtime.py:215	-	基准流读取须在按 StreamingBody 的算法分行之前按原始块计量；若改为对分行后的内容计量，换行字节会从统计中丢失。
+0185-0172	scripts/dev-worktree.mjs:166	-	dev-worktree 退出时只尽力清理锁；若让清理异常覆盖原退出结果，调用方就无法判断实际命令是成功还是以自身错误退出。
+0185-0173	scripts/dev-worktree.mjs:282	-	dev-worktree 须等 API 和 Vite 给出成功的 HTTP 响应才判定就绪；只探测端口会在服务已监听但尚未初始化完成时过早放行。
+0185-0174	scripts/dev-worktree.mjs:463,492	-	dev-worktree 的协作式 E2E 停止信号只发给实际命令，避免波及分离运行的 fixture 管理进程及其后代；命令仍存活时既不升级信号，也不能把发出信号当成执行完成。
+0185-0175	scripts/development-restart.py:111	-	开发重启须在操作前立即重验 Docker 容器 ID，并按 ID 而非名称操作；容器名称可被复用，按名称执行可能误中核验后新建的同名容器。
+0185-0176	scripts/export_capability_registry.py:23;scripts/export_openapi.py:21-22,37	-	直接运行仓库中的能力注册表或 OpenAPI 导出脚本时，只切换到 apps/api 不会让外部脚本解析 app 导入，须显式将 apps/api 加入 sys.path；OpenAPI 导出还须从该目录运行 uv，以解析 API 项目的依赖。
+0185-0177	scripts/finalize_storage_migration.py:99-100	-	迁移收尾的纯原生命令不能走统一的应用启动流程，否则无须数据库的操作也会依赖应用配置和数据库；确需访问应用时，由现有运行时启动器提供目标数据库。
+0185-0178	scripts/finalize_storage_migration.py:174-176	-	迁移收尾须在开启事务前完成原生观测，并将应用锁持有到私有 fsync 和预留提交都完成；若提前放锁，关闭流程可能在新意图持久化且预留提交前完成。
+0185-0179	scripts/finalize_storage_migration.py:229-230	-	撤回读发布只撤回发布状态，须保留 Journal 声明和源端栅栏；不能把撤回当成原生责任移交或解除，否则 Finalization 仍负责时就可能失去源端保护。
+0185-0180	scripts/finalize_storage_migration.py:234-235	-	源端不可用后，status-reads 可以用持久发布状态恢复撤回结果，但只能据此判断已记录的结果，不能把历史记录当作当前原生状态的证明。
+0185-0181	scripts/finalize_storage_migration.py:269	-	迁移收尾须先提交失效状态，再解除 Journal 中阻止原生释放的应用绑定；顺序颠倒会让原生资源在失效状态尚未提交时就可被释放。
+0185-0182	scripts/finalize_storage_migration.py:285-286	-	原生与文件操作不受数据库事务回滚保护；取消调用不等于停止工作线程，必须等线程实际结束再释放 Journal 物理锁，否则未完成的操作仍可能与后续持锁操作并发。
+0185-0183	scripts/fixture_inference_services.py:656,829-830	-	finish 回复丢失时，只有已取得 drain 回执、原进程的 pidfd 确认退出且所属控制目录已移除，才能结算。旧 PID 被复用只说明该编号换了身份，不能替代回执。
+0185-0184	scripts/fixture_inference_services.py:1191-1193,1210	-	Server.close() 可能已移除 Unix 套接字，后续删除须容忍路径不存在，以免提前中断收尾。shutdown 信号也不能以最终回复成功送达为前提，否则回复丢失会阻断停机。
+0185-0185	scripts/fixture_media_control.py:98	-	退役已有媒体角色前须按角色回执中的原始 ACL 核验；当前权限集可能已变化，用它替代会把当前授权误当成该回执所证明的授权。
+0185-0186	scripts/fixture_native_business.py:250-256	-	检出目录中的 MinIO 端点凭据只供原生业务夹具监督进程创建每次运行的受限账户；把凭据传入子进程环境会扩大暴露范围，不能用这种方式替代监督进程读取本地配置。
+0185-0187	scripts/fixture_native_business.py:1161-1163;scripts/fixture_native_playwright.py:320	-	只有所有者的持久记录同时缺少执行者和读取者身份，才能判定整次运行没有原生参与者。单个子进程未注册只说明它未使用套件的媒体身份，其证据是否结算仍按套件的持久身份规则判断。
+0185-0188	scripts/fixture_native_playwright.py:42-44	-	Playwright 启动监督进程时，脚本目录在导入路径上并不意味着本检出的 apps/api 也在；须显式加入后者，否则夹具所有者助手延迟导入 app.* 时无法保证解析到本检出。
+0185-0189	scripts/fixture_native_playwright.py:159	-	原生 Playwright 读取端点只接受与请求匹配的签名能力凭证；浏览器自动附带的 Cookie 不能替代该凭证，因为它不证明这次读取请求本身获得授权。
+0185-0190	scripts/fixture_suite_coordinator.py:39	-	协调器的 ROOT 只定位代码检出，可丢弃资源的状态必须归单独的所有者根目录。不能用 ROOT 作为清理范围，否则会混淆可丢弃资源和代码检出。
+0185-0191	scripts/fixture_suite_coordinator.py:163	-	夹具引导核验先于 API 设置绑定所有者 DSN；此时不能靠读取 API 设置来确定所有者数据库，否则核验可能针对尚未绑定的目标。
+0185-0192	scripts/fixture_suite_coordinator.py:745	-	私有子进程退出后，须重新读取已提交的所有者日志再核验存储发布状态；退出前的内存视图可能遗漏子进程随后提交的变更。
+0185-0193	scripts/image-reference-utils.mjs:46	-	图片引用的 URL 解码失败时应保留原引用，让检查器继续将其报告为坏链；过滤掉无法解码的引用会把输入错误变成漏报。
+0185-0194	scripts/install-git-hooks.sh:2-3	-	Git 钩子安装不得成为 pnpm install 的前置条件；在 CI、缺少 pre-commit 或不在 Git 仓库时静默跳过，避免钩子不可用导致依赖安装失败。
+0185-0195	scripts/inventory_storage_migration.py:85	-	存储迁移盘点依赖 StorageService 构造时不访问存储，并且不能调用 ensure_all_buckets；否则只读盘点会变成会初始化存储资源的操作。
+0185-0196	scripts/inventory_storage_migration.py:143	-	迁移盘点不得直接输出 SDK、SQL 或操作系统异常原文；即使只是诊断失败，这些消息也可能把对象键或凭据带入输出。
+0185-0197	scripts/mask_content_s3_policy.py:47	-	屏蔽内容的 S3 策略必须显式拒绝版本访问；仅限制普通对象读取时，权限更宽的上级身份仍可能通过读取对象版本取得内容。
+0185-0198	scripts/ml-backend-runner.py:29	-	ML 后端探针应静态检查源码而不是导入模型；导入本身可能初始化 CUDA，使原本只读的探查改变运行状态。
+0185-0199	scripts/ml-backend-runner.py:135-137	-	跟踪超时不能用来终止 Docker stop 客户端；停止请求使用无限宽限期，跟踪超时不代表运行时已经排空。若始终无法排空，由操作员决定如何恢复。
+0185-0200	scripts/native_storage_acceptance.py:418	-	存储验收不能只在运行中的容器里查找归属记录；已停止的 chown 或配置辅助容器仍可确切证明资源归属，按运行状态过滤会漏掉这些记录。
+0185-0201	scripts/native_storage_identity.py:96-98	-	存储身份的元数据检查须有界分页并覆盖全部结果，不能只验首屏。权限还须显式拒绝中止上传和查看分片，以免对端借 PutObject 获得这些额外能力。
+0185-0202	scripts/native_storage_identity.py:148	-	存储身份核验客户端须保留校验和并禁用 SDK 隐式重试；关闭校验可能放过真实消费者会拒绝的响应，自动重试则可能掩盖首次请求失败。
+0185-0203	scripts/orca-worktree-setup.sh:19	-	共享 .env 初建时不写入配置值；预填即使与当前默认值相同，也会把默认行为固定为显式覆盖，而不是让应用继续采用自身默认值。
+0185-0204	scripts/orca-worktree-setup.sh:28-29,36-37	-	Orca 仅在两份检出的依赖清单相同且 pnpm 安装锁文件与仓库锁文件一致时共享依赖；只比清单无法证明已安装内容匹配。修改依赖前须解除共享链接，避免改动影响另一份检出。
+0185-0205	scripts/orca-worktree-setup.sh:60	-	Orca 的 Python 虚拟环境和生成的 API 类型必须留在各自 worktree；共享它们会使可编辑包或生成类型解析到另一份检出，而不是当前代码。
+0185-0206	scripts/plan-e2e-suites.mjs:26-27,111-112,635-639	-	共享及 ML 契约套件由 ML CPU 工作流执行；E2E 规划器复用其归属和触发路径输入，但只向 CI 提供触发信号，不重复编入矩阵，也不能用 E2E 路径规则替代其触发规则。
+0185-0207	scripts/plan-e2e-suites.mjs:54-55	-	有界 E2E 核心门禁要求首次通过，不能用重试后的成功抵消首次失败；重试仅用于非核心套件诊断。
+0185-0208	scripts/plan-e2e-suites.mjs:62-64,125-126,147,542-544;scripts/plan-e2e-suites.test.mjs:15-17,28-30,134-135,224-225	-	计划和回滚的全量矩阵不能只靠四个 Chromium 分片：Mask 矩阵需独立环境标志，pointcloud 须作为完整项目单独运行且不按文件名过滤。回滚的视频用例已由 Chromium 覆盖，不另加计划模式的专用视频套件。
+0185-0209	scripts/plan-e2e-suites.mjs:165-166,179-181	-	旧门禁对任意应用输入保留扩展检查，因为共享前端或运行时改动可波及所有界面；计划模式的布局压力套件则按实际覆盖触发，只纳入共享布局、共享运行时、工具及 CI 定义的改动。
+0185-0210	scripts/plan-e2e-suites.mjs:203-207,209-210,652-653	-	只有按白名单认定为纯文档的 PR 才能省略 ML CPU 检查；不能只看 .md 后缀，也不能默认排除新路径或未映射路径。文档站示例与开发、构建配置仍可能是可执行输入。
+0185-0211	scripts/plan-e2e-suites.mjs:288-290	-	Workbench 的共享导航、壳层与命令状态同时服务图像、视频和点云流程；这些改动须触发全量选择，只运行 Mask 会漏掉其他流程的回归。
+0185-0212	scripts/plan-e2e-suites.mjs:296-297,321	-	共享 UI、API、客户端、认证和布局模块的路径不能证明改动只影响某个领域；选集须包含所有依赖该模块的领域专项套件，否则会漏掉跨域回归。
+0185-0213	scripts/plan-e2e-suites.mjs:455-456,476-477,510-513	-	空差异、未知路径、未映射应用行为或共享依赖与运行时改动均回退到含专用契约的全量选择。仅识别出 apps/ 前缀不能证明缩小后的选集仍有覆盖。
+0185-0214	scripts/plan-e2e-suites.mjs:575-576,687-688	-	E2E 比较报告须并列保留冻结的回滚选集和计划选集，并呈现选集差异及已接入的共享 CPU 契约；只记录实际选集无法审查本次规划相对回滚增减了什么。
+0185-0215	scripts/plan-e2e-suites.mjs:627	-	PR 路径分类须用 Git 的 --no-renames 保留重命名前后的路径，避免漏判旧路径所属套件；路径用 NUL 分隔，避免含换行等特殊字符的文件名被拆错。
+0185-0216	scripts/plan-e2e-suites.mjs:660-663	-	GitHub 会把未设置的仓库变量渲染为空串，因此 E2E_SELECTION_MODE 缺失、为空或仅含空白均按 planned 处理；只拒绝去空白后仍非空的未知值。
+0185-0217	scripts/plan-e2e-suites.mjs:712-713	-	完整路径分类与警告随变更规模增长，应写入磁盘并只传递报告路径；把正文放进 GitHub 输出或进程环境会使报告受这些通道的大小限制。
+0185-0218	scripts/plan-e2e-suites.test.mjs:107-108,470-473	-	E2E 规划不能把可执行示例或 VitePress 构建代码归为纯文档，也不能只检查重命名后的路径，否则会漏掉移出前端目录的应用变更。应用变更无法映射到确定范围时，运行全量套件。
+0185-0219	scripts/plan-e2e-suites.test.mjs:417-418	-	E2E 最终审计保留完整的必跑套件清单，但不把变更路径放进经环境变量写入文件的报告，否则传输的数据量会随 diff 增长，可能超出运行器的环境变量容量。
+0185-0220	scripts/plan-e2e-suites.test.mjs:582-583	-	GitHub 会把未配置的仓库变量渲染成空字符串，因此 E2E 选择模式必须把空串当作未设置，否则工作流无法在未配置变量时走默认选择逻辑。
+0185-0221	scripts/prepare-controlled-model-assets.py:22-23	-	受控模型资产由 API 管理环境使用已有的对象存储依赖准备；不能让运行时消费者改为直接从对象存储拉取，否则就得把对象存储凭据交给消费者。
+0185-0222	scripts/prepare-controlled-model-assets.py:105	-	受控模型资产必须核验实际对象；名称、大小、ETag 或自定义元数据相符都不能代替对象核验，否则可能把内容不符的对象当成预期资产接收。
+0185-0223	scripts/prepare-controlled-model-assets.py:136,175	-	受控模型资产准备失败时只报告错误类型或资产名等诊断信息，不透传底层 HTTP 或存储异常，因为异常文本可能包含带签名凭据的 URL。
+0185-0224	scripts/production-health-recover.py:80	-	生产恢复用不依赖下游服务的路由探测 API 进程，收到任意 HTTP 响应即视为进程存活；若要求成功状态码，就可能把仍在响应的进程误判为失活。
+0185-0225	scripts/production-health-recover.py:123	-	生产恢复不干预 Docker 已在处理的容器重启，也不把暂停当成待修复故障；否则会与 Docker 自身的重启操作冲突，或改变本应保留的暂停状态。
+0185-0226	scripts/production-health-recover.py:159	-	生产恢复必须先验证 CA，再修改容器；网关已停止不是例外，否则会在信任配置尚未验证时改变容器状态。
+0185-0227	scripts/production-health-recover.py:201	-	生产恢复只累计同一实例的连续失败，观测间隔超过 300 秒就重新计数；否则替换前实例或观测中断前留下的失败记录可能误触发恢复。
+0185-0228	scripts/production-health-recover.py:228	-	生产恢复必须先持久化尝试记录再操作容器；如果顺序颠倒，恢复进程可能在操作后、写盘前中断，导致下轮漏计并反复重启容器。
+0185-0229	scripts/production-health-recover.py:236	-	容器操作后的健康验证留到下一次定时运行；立即探测可能把仍处于正常启动阶段的容器误判为恢复失败。
+0185-0230	scripts/production-health-recover.py:263	-	生产健康检查不把子进程输出直接写入系统日志；即便只是为了排查检查失败，原始输出也可能把配置内容带进日志。
+0185-0231	scripts/raster_api_process.py:57-58	-	raster API 在受控进程内接住 Uvicorn 排空后重放的停机信号；否则即使 ASGI 已成功停机，进程仍可能以信号终止，无法用退出码 0 证明停机成功。
+0185-0232	scripts/raster_consumer_process.py:19,170-171;scripts/raster_web_process.py:14	-	raster 消费者协作排空超时须保留原始 Popen 和 pidfd，Web 服务超时或关闭失败也须保留确切进程身份；这些结果既不证明进程已退出，也不授权清理。
+0185-0233	scripts/raster_consumer_process.py:108-109	-	raster 消费者在组长尚未回收时，用确切的 pidfd 逐个发信号；不能用进程组广播代替，否则成员消失后无法确认各自是否收到信号。
+0185-0234	scripts/raster_consumer_process.py:191-192	-	raster 消费者必须回收被收养子进程的真实退出状态，不能因其在发信号前已退出就略过；只有未发信号且已被原父进程回收的子进程可以缺少退出记录。
+0185-0235	scripts/raster_exclusive_provider.py:250	-	raster 独占提供者退役只请求 SIGTERM，不能用 docker stop 代替，因为后者会在超时后追加 SIGKILL，把协作退役变成强制终止。
+0185-0236	scripts/raster_fixture_relay.py:490	-	raster fixture relay 必须保留每次请求尝试的确切作用域；如果只记录成功请求，失败尝试涉及的资源就无法按原范围清理。
+0185-0237	scripts/raster_fixture_relay.py:595	-	raster fixture relay 未确认停稳时应中止后续关闭，并保留 relay 和原始 seed 句柄；继续拆除会丢失显式恢复所需的原始句柄。
+0185-0238	scripts/raster_images_process.py:151-152	-	raster images 必须在数据库提交前持久化角色 OID，否则提交后中断可能留下已创建却没有身份记录的角色。记录发布或提交结果不明确时，意图保持未决，不能擅自认定成功或失败。
+0185-0239	scripts/raster_images_process.py:170	-	raster images 删除角色时依赖 PostgreSQL 的 DROP ROLE 拒绝仍有外部依赖的角色，不能先清掉依赖来促成删除，否则会把角色退役扩大成对外部对象的清理。
+0185-0240	scripts/raster_images_process.py:352-354	-	raster images worker 持有当前 claim 和实际子进程，由自身策略限制工作；外层进程到达截止时间并不证明工作已结束，不能据此取消 worker 仍在管理的任务。
+0185-0241	scripts/raster_web_process.py:29,103	-	raster Web 禁用 Vite 在 stdin 结束时自动退出，只用显式 close 请求 Vite 自行收尾子进程；否则控制管道意外断开也会被当成正常关闭。
+0185-0242	scripts/run-ml-cpu-tests.sh:2-19	-	ML CPU 各套件在独立的一次性虚拟环境中运行，不复用解释器，否则某个套件写入 sys.modules 的 MagicMock torch 桩会被后续套件误用。
+0185-0243	scripts/run-ml-cpu-tests.sh:53-55,125	-	ML CPU 安装器须在主 shell 直接调用，并通过全局 VENV_PATH 返回路径；命令替换会让 VENV_DIRS 的登记留在子 shell，主 shell 的 EXIT trap 因而漏清理。
+0185-0244	scripts/run-ml-cpu-tests.sh:78-80,88-89	-	ML CPU 选集统一逗号和空白后用 read -a 拆分，并检查结果数组非空；未加引号的展开会把字面量 * 变成检出目录文件名，只检查原字符串则会放过纯制表符或换行符输入。
+0185-0245	scripts/run_raster_fault_e2e.py:1201,1416	-	raster 故障 E2E 必须在启动任何受管进程前设置 Linux subreaper，否则脱离的 Playwright 后代可能在成为孤儿时被别处接管，无法纳入退出检查。
+0185-0246	scripts/site_agent_recovery.py:84-85	-	站点代理恢复测试先等带有限超时的 HTTP 观察任务停止，再移除夹具拥有的容器和网络；反过来会让观察器在拆除期间继续运行。
+0185-0247	scripts/site_agent_recovery.py:212-213	-	站点代理只允许重放已记录的同一不可变结果；重复提交不得再次增加字节计数或业务计数，否则一次实际完成会被重复入账。
+0185-0248	scripts/site_agent_replicas.py:424-425	-	副本 B 优先于 A，但两者均不可用时，末次错误仍可能来自 A；内容测试应断言请求被拒绝，不能绑定 B 的错误码而误报正确的回退行为。
+0185-0249	scripts/storage_backup_bundle.py:321-322	-	S3 桶启用版本控制后，历史 null 版本仍可能是当前对象；备份清单须显式记录该源版本，不能将 null 当成未提供版本而省略。
+0185-0250	scripts/storage_backup_bundle.py:815-816;scripts/test_storage_backup_bundle.py:290-291	-	备份恢复发起零字节 PUT 时省略 Body，不能传 b''；botocore 会把空字节串包装为流并添加 Expect: 100-continue，可能卡住连接池中的下一次 PUT。
+0185-0251	scripts/storage_source_fence.py:82	-	源端围栏按物理入口绑定唯一的 journal 和锁；跨 CLI 调用也不能另选状态文件，否则同一入口会出现彼此不协调的独立围栏。
+0185-0252	scripts/storage_source_fence_state.py:428	-	应用 claim 写盘失败后，当前进程仍须阻止重开；写入失败不等于 claim 从未提出，不能仅凭磁盘上缺少记录就绕开当前进程的围栏。
+0185-0253	scripts/storage_source_fence_state.py:476	-	journal 写入 rollback claim 时必须切换 schema；沿用旧 schema 会让不认识该 claim 的旧控制器打开 journal 并忽略它，切换后旧控制器会拒绝打开。
+0185-0254	scripts/storage_source_fence_state.py:544-545,556-557	-	回执或失效标记只有经 journal 确认持久化后才能作为证明。写入失败即使回退到上次已保存状态，也须保留待定 rollback claim 以阻止重开，且不得用写入错误覆盖原有取消。
+0185-0255	scripts/summarize-e2e-results.mjs:20-25,41-42;scripts/summarize-e2e-results.test.mjs:12-14	-	按锁定的 Playwright 1.59 报告协议分类：ok 属于 spec，单次结果状态为小写。主动跳过有 skipped 结果，从未尝试则没有结果，仅看 test 的 skipped 状态会混淆两者。
+0185-0256	scripts/summarize-e2e-results.mjs:67-68	-	E2E 汇总须保留首次尝试的失败证据，即使重试后被归类为 flaky；只报告最终状态会掩盖最初的失败。
+0185-0257	scripts/summarize-e2e-results.mjs:125-126,202-203	-	准备失败导致的未运行不能计作允许跳过。计划内套件即使自报成功，缺少 Playwright 报告也必须判定汇总失败，不得发布无证据的成功产物。
+0185-0258	scripts/test-orca-worktree-setup.py:12	-	工作树依赖锁定须避免在 Python 3.12／Apple Silicon 上触发旧版 FreeType 的源码编译；不能只验证依赖能解析，就认定工作树能启动。
+0185-0259	scripts/test-orca-worktree-setup.py:112	-	不能仅凭源依赖清单一致就复用主检出的安装；清单相同并不能证明实际安装仍与当前依赖一致。
+0185-0260	scripts/test-sdk-distributions.py:76-77	-	SDK 分发验证须从 wheel 安装并验证 plugins extra 及其受测运行时依赖；以 pyproject 的 editable 路径源代替会绕过对实际分发产物的检验。
+0185-0261	scripts/test_controlled_model_assets.py:23-24	-	模型资产契约测试不得把可选存储 SDK 设为必装依赖；它属于管理员准备环境，强制安装会使测试依赖推理镜像并不提供的组件。
+0185-0262	scripts/test_raster_web_process.py:51	-	栅格 Web 进程测试只能强制终止明确归本次测试所有的合成子进程；不能把归属未确认的进程纳入清理。
+0185-0263	scripts/test_worktree_maintenance.py:35-40	-	Compose 配置测试须在沙箱副本旁提供空的 .env.production；该文件不随检出分发，而 CI 的 Compose v2 按项目目录解析 env_file，缺文件会使 config 失败。
+0185-0264	scripts/test_worktree_recovery_image_export.py:261-262,267-269	-	unittest discovery 不加载 API 的 pytest 分配夹具，图像导出传输测试须沿用 ExportMediaRecovery 的显式分配边界，不查询真实存储绑定。传输替身没有 SQL owner，原生作用域绑定须由独立的数据库验收证明。
+0185-0265	scripts/validate_migrations.py:274,304-306	-	迁移校验须在 CREATE 成功后、退出连接前登记本轮创建的库，不能等 COMMENT 写入 owner 标记后才登记；否则连接关闭、引擎释放或后续校验失败时，未标记的库可能逃过清理。
+0185-0266	scripts/verify_legacy_storage_rollback.py:156	-	旧版存储回滚验证中，CREATE ROLE 直接插值仅适用于角色名和密码均由脚本按固定字符集生成的情况；任一值改为外部输入，就不能沿用这一前提。
+0185-0267	scripts/verify_legacy_storage_rollback.py:181-182	-	创建服务账户前须记录可用于撤销的自有标识，不能等创建响应再登记；否则账户已创建但响应丢失时，便无法在不记录或猜测凭据的情况下撤销。
+0185-0268	scripts/verify_legacy_storage_rollback.py:554	-	旧应用的禁写边界须由表权限维持，不能仅靠事务默认只读；调用方覆盖事务默认值后也不得获得表写权限。
+0185-0269	scripts/verify_module_data_boundary.py:139-140	-	迁移限定的 owner 标识及经审计的调用方可以使用获准的标识，但不能据此批量改名；历史 SQL、冻结 SQL 与已签名的线协议标识必须保留原值。
+0185-0270	scripts/verify_module_data_boundary.py:2837	-	不能把 identity-role-audit 对 legacy_runtime 的临时替换当成单库操作；被替换的是集群级 LOGIN，影响不会被当前数据库隔离。
+0185-0271	scripts/verify_module_data_boundary.py:2841	-	notifications-restore 夹具不能按单个测试管理员估计影响：它会保留终态 Job，并向所有活跃管理员投递。
+0185-0272	scripts/verify_module_data_boundary.py:2847,2849	-	视频用例的夹具拆除不能假定 Job 会随 Task 清理：tracker worker 会提交未限定作用域的 Job，删除 HTTP 用例也会在 Task 删除后刻意保留取消 Job。
+0185-0273	scripts/verify_module_data_boundary.py:2851	-	预测重试的前向迁移不能在仍有在途工作或已有原生重试尝试时执行；仅满足系统已排空，不能替代对原生重试尝试不存在的检查。
+0185-0274	scripts/verify_module_data_boundary.py:2853,2855-2856	-	视频跟踪输入及 Native GC 的认领与清扫计数覆盖整个 owner lane，不能用单个 Task 隔离；Native GC 栅栏与删除顺序验证须从空的全局队列开始，会提交真实回执的在线丢响应场景应最后运行。
+0185-0275	scripts/verify_module_data_boundary.py:2861	-	不能把 Mask GC collection 的破坏性夹具当作只影响本轮对象的清理；它会推进整个存储的保留截止线，作用范围不限于夹具对象。
+0185-0276	scripts/verify_module_data_boundary.py:3630	-	准备图像导入数据时，许可范围不能只检查直接修改的行；级联或 SET NULL 外键动作也不得改动未列入许可范围的依赖行。
+0185-0277	scripts/verify_module_data_boundary.py:4240-4241	-	删除指定版本时，只有明确拒绝才能证明该版本未被删除；响应结果未知时不能把删除视为未发生，须保留待处理意图。
+0185-0278	scripts/verify_module_data_boundary.py:4640-4644,4819-4820	-	Native S3 签名身份仅可访问已保存的 Native 输出前缀，与普通 Source、四条清理通道及 worker/control 身份隔离；普通清理权限不得延伸到受管或旧版 Native 根前缀，运行时仅 Source 签名进程持有原始密钥对。
+0185-0279	scripts/verify_module_data_boundary.py:4848-4849	-	注册连接的身份只能访问其自身桶内的受管命名空间；不能将授权扩大到整个桶，也不能用该身份访问内置存储目标。
+0185-0280	scripts/verify_module_data_boundary.py:5598-5599	-	SQL 验证失败时，只能公开仓库为该 SQL 预定义的守卫文案；直接转发原始 stderr 可能泄露连接信息或回显的语句。
+0185-0281	scripts/verify_module_data_boundary.py:6034-6035	-	分区 ACL 验证须调用 owner 函数本身；仅检查授权时已存在的分区，会漏掉普通运行时及维护角色获授权之后才创建的子分区。
+0185-0282	scripts/verify_module_data_boundary.py:6896-6898	-	冻结 SQL 须在 bo0267 基座上按 bo0473 的历史名称回放；在临时事务中提前套用 bo0474 重命名，会改变回放基准，该改名只能由真实的 Alembic head 升级应用。
+0185-0283	scripts/verify_module_data_boundary.py:7310,13214	-	验证通过只采信本次完整运行的证据；旧报告不能补足本次缺失的报告，中断后留下的局部报告也不能作为发布通过结论的依据。
+0185-0284	scripts/verify_module_data_boundary.py:8614-8616	-	冻结 SQL 须在同一自有一次性容器的另一全新数据库中对比，不能靠降级已验收的 head 来构造对照；安全迁移不必恢复已作废的写能力。
+0185-0285	scripts/verify_module_data_boundary.py:10645-10646	-	作业通知探针须等两个只读消费者退出后、发布任何夹具数据集前清除；清理仅限本次创建、保持原样且从未派发的探针，不能按探针类型一并删除其他记录。
+0185-0286	scripts/verify_module_data_boundary.py:11692-11693	-	夹具后端拒绝回环地址，不能用 localhost 通告数据库；应使用验证器自有 PostgreSQL 网桥的网关，使宿主机和容器都能访问。
+0185-0287	scripts/verify_module_data_boundary.py:12237-12238	-	工作区导入 CLI 必须在导入事务内配置操作者，不能套用普通 API 角色的授权；反过来向 API 角色补授同等权限，会把受信的操作者配置能力开放给普通请求。
+0185-0288	scripts/verify_module_data_boundary.py:12566-12568	-	Source 以自身受限的 S3 身份签发有时限的 Native 授权，执行器仅持角色令牌，不能以直接交付 S3 身份替代。A→B 切换使用独立的受限身份，以免把签发方身份当成注册连接的目标身份。
+0185-0289	scripts/verify_module_data_boundary.py:13047-13048	-	仅在启动器准备前收紧旧表权限不够，因为准备阶段会重新授权；宽泛的测试授权完成后，须重新施加各 owner 的读写授权，否则验收会在过宽的权限下运行。
+0185-0290	scripts/verify_module_data_boundary.py:13220-13221,13513	-	prepare 必须在发布或变更自有资源前标记 touched，否则中途失败可能把已变更资源当成未触碰。受保护的销毁未成功时，应保留身份根及已核验的 PostgreSQL 访问，以便按原归属重试清理。
+0185-0291	scripts/verify_native_storage_contract.py:317,375	-	分段上传列表的 100 条分页边界可能切开同键的多笔上传，不能按推测的 UploadId 顺序认定自有上传在后页；须以实际首页响应确认验收确实跨页。
+0185-0292	scripts/verify_native_storage_contract.py:568	-	凭据禁用须以真实对象 I/O 被阻断为证，并在重新启用后验证同一对象可访问；只看禁用期间的失败，无法排除对象键原本就不存在。
+0185-0293	scripts/verify_native_storage_contract.py:630	-	Native 存储验证须把供应商故障详情留在私有记录；不能直接把原始错误当作公开证据，因为其中可能包含端点 URL 或凭据。
+0185-0294	scripts/verify_playwright_fixture_teardown.py:76	-	相邻 Playwright 运行的状态差异只比较持久所有权记录明确归属于这两次运行的资源；仅凭资源出现或消失来归因，会把其他运行的变化误判为本次拆除的结果。
+0185-0295	scripts/verify_playwright_fixture_teardown.py:158-159	-	须同时持有四个监听套接字，逐个预留再释放不能证明端口互异。释放后端口仍可能被抢占，须由 Playwright 禁止复用并严格检查端口，避免接入其他监听者。
+0185-0296	scripts/verify_playwright_fixture_teardown.py:326-327	-	Playwright 须在指定的 Node 进程中执行，拆除验收才能把信号直接发给被测进程；向包管理器包装进程或整个进程组发信号，不能验证相同的退出路径。
+0185-0297	scripts/verify_playwright_fixture_teardown.py:574-575	-	有时限的父级结束后，只读探针仍可能继续收尾，因此不能借用父级的变更或退役权限，否则探针可能在父级已无法监督时改变资源。
+0185-0298	scripts/verify_playwright_fixture_teardown.py:933-934	-	物理缺失须由受限读取身份对确切对象版本发起 HEAD；只查当前键不能证明旧版本已消失，用管理员或写入身份也不能证明受限读取者所见的状态。
+0185-0299	scripts/verify_playwright_fixture_teardown.py:1212-1213	-	Playwright 拆除验收的日志和路径须保持私有，公开输出不带异常原文、DSN 或凭据；结果未证实时不先清理，以免清理本身抹去待验证的状态。
+0185-0300	scripts/verify_storage_candidates.py:182,299,1098	-	存储候选验证须在创建受管资源或启动 Chromium 前持久化创建意图或会话归属，事后补记会留下崩溃后无法归属的资源。恢复时只接管与持久意图精确匹配的资源。
+0185-0301	scripts/verify_storage_candidates.py:452,1915-1916	-	候选验证以锁文件为完整配置输入，须在导入任何应用模块前清除继承的部署存储密钥，避免实际测到部署配置；只隔离外部配置，不替换应用服务，否则无法验证真实服务的存储契约。
+0185-0302	scripts/verify_storage_candidates.py:1122	-	供应商拒绝配置 CORS 并不能说明浏览器实际会如何处理请求；同源和跨源访问仍须分别实测，不能用配置错误代替访问结果。
+0185-0303	scripts/verify_storage_candidates.py:1133	-	签名 URL 本身承载访问授权，浏览器验收不能把它放进命令行参数、页面渲染文本或报告；这些位置会让本应限于请求的授权进入进程信息、页面或验收产物。
+0185-0304	scripts/verify_storage_candidates.py:1486	-	恢复实例复用网络别名前须先停止源实例，否则请求可能仍命中源实例而使恢复误判为成功；宿主机发布端口须单独分配，不能随别名一并复用。
+0185-0305	scripts/verify_storage_candidates.py:1721	-	密钥文件须保持 0600，通过 root 辅助容器复制到自有卷；不能为方便容器读取而放宽源文件权限，否则会把密钥暴露给原本无权读取的身份。
+0185-0306	scripts/verify_storage_candidates.py:1774	-	退役清单须纳入镜像声明并挂载的卷，不能只枚举显式创建的卷，否则隐式创建的持久卷会留在清理范围之外。
+0185-0307	scripts/verify_storage_candidates.py:1964	-	不同供应商的候选验证不复用卷、发布端口或凭据，否则上一轮的对象状态、监听服务或授权可能被误当成本轮候选的验证结果。
+0185-0308	scripts/verify_storage_migration_artifact_reads.py:506	-	撤回迁移产物发布只阻止新读取取得签名，不能当成对已签发 S3 URL 的即时撤销；此前的 URL 仍按原有效期生效。
+0185-0309	scripts/verify_storage_migration_cache_reads.py:202-203	-	缓存迁移中，C 的引用策略和配额不能替代 A 的缓存所有权，也不能据此决定实际读取位置，复制后对象由 B 提供。内部缓存命中不回读原件，否则缓存读取仍会因原件不可用而失败。
+0185-0310	scripts/verify_storage_migration_copy.py:170;scripts/verify_storage_source_fence.py:337-338	-	故障注入留在 owner 专用验证工具或夹具，不在操作人员使用的生产 CLI 暴露故障开关。源端封锁只在真实进程屏障之后、Controller 保存确认之前注入进程死亡，否则测不到该恢复窗口。
+0185-0311	scripts/verify_storage_migration_copy.py:559	-	迁移复制遇到外部所有者已有的目标时，不得覆盖或追加版本；仅保留旧版本并不等于未改动目标，新版本仍会改变外部对象的版本状态。
+0185-0312	scripts/verify_storage_migration_cutover.py:128-129	-	切换验收的 PUT 要显式沿用 SDK 签名的 Host：SigV4 和浏览器省略默认端口，但 urllib 自动生成的 Host 会保留显式的 :80，导致发送值与签名不一致。
+0185-0313	scripts/verify_storage_migration_finalization.py:112-113,167,204	-	Celery 会改写进程标题，最终化验收不能靠标题找回进程组；须使用稳定组首领，并凭改名前记录的 PID、出生凭据及子进程回执核对。回退扫描只匹配预先记录的完整私有脚本参数。
+0185-0314	scripts/verify_storage_migration_inventory.py:29	-	迁移清单比对不要求观测时间和报头逐字一致，否则会把采集差异当成迁移偏差；但桶、对象和上传记录的事实必须一致，不能随观测元数据一并忽略。
+0185-0315	scripts/verify_storage_migration_original_reads.py:46	-	原件读取验收的动态表查询只适用于固定表名和完全由夹具拥有的数据库；不能把这种查询复用于调用方指定的表或共享库，否则查询范围不再受夹具边界约束。
+0185-0316	scripts/verify_storage_migration_original_reads.py:271-272	-	原件读取屏障只在真实 S3 成功响应的响应体仍打开、且生产调用方仍持有持久化目标 Permit 时成立；仅看到请求成功，不能证明切换时仍有受该 Permit 约束的读取。
+0185-0317	scripts/verify_storage_migration_original_reads.py:429-430	-	原件复制验收只接受夹具自有客户端枚举出的唯一目标桶；接受其他运行时或任意输入提供的桶，会让写入落到未证实归属的目标。
+0185-0318	scripts/verify_storage_references.py:398-400	-	存储引用报告须把源键当作不透明值，URL 或路径规范化会改变含字面点段的键。MinIO 拒绝写入这类键，因此须由独立的纯报告测试覆盖，而不能用存储写入测试替代。
+0185-0319	scripts/verify_storage_references.py:555	-	存储引用验收须实际发起写入并确认被拒绝；只检查 SET TRANSACTION 语句只能确认设置步骤，不能证明该角色无法执行写操作。
+0185-0320	scripts/verify_storage_references_current.py:366	-	现有引用行的回执即使字节有效，也可能超出所属 owner 的范围；不能用字节校验替代归属校验，否则会把其他所有者的回执认作本行的有效凭据。
+0185-0321	scripts/verify_storage_source_fence.py:101-102	-	源端封锁验收不能靠 Owner.create 转交内部网络创建参数，因为它有意不转发非容器参数；须单独持久化并恢复这次确切的网络创建，不能按容器创建记录推定网络归属。
+0185-0322	scripts/verify_storage_source_fence.py:512-513	-	封锁前用同一签名能力完成另一笔分段上传来证明原本可写；不能消费待测旧 UploadId，否则封锁后的失败可能只是上传已结束，并不能证明封锁生效。
+0185-0323	scripts/verify_worktree_isolation.py:199	-	工作树隔离验收只能凭本次生成的确切身份确认销毁；归属无法确认的外部资源必须拒绝销毁，不能用工作树隔离关系代替资源归属证明。
+0185-0324	scripts/verify_worktree_managed_mask_repair.py:345-346	-	Mask 修复回滚应追加一条 QC 观测，而非改写先前的修复结果；保留已解决的问题记录，才能区分此前的修复与之后的回滚。
+0185-0325	scripts/verify_worktree_managed_predictions.py:626,678-679	-	预测验收只能凭不可变 VersionId 确认待清理版本的归属，IfMatch 仅作补充。响应无法判定时交由命名空间所有者核查；用当前 HEAD 猜版本或退回无版本删除，都可能删到后来写入的对象。
+0185-0326	scripts/verify_worktree_managed_predictions.py:877-878	-	预测准入须完整读取实物后，按实际保存位置登记标注副本；当前配置的桶不一定是副本所在的桶，用它推算会把记录指向错误位置。
+0185-0327	scripts/verify_worktree_managed_predictions.py:1240-1241;scripts/worktree_recovery_prediction_inputs.py:120,169	-	预测输入的存储客户端须凭调用方的真实输出许可构造，inputs.close 时仍须持有同用途的源或输出许可。首次 close_inputs 清理时受管源仍持有同用途读许可，立即重试不能替代等待实际重试期限。
+0185-0328	scripts/verify_worktree_managed_predictions.py:1269	-	预测输入的签名 URL 只用于受控 HTTP 请求，不得写入日志；日志读者可在签名有效期内凭该 URL 读取输入。
+0185-0329	scripts/verify_worktree_managed_predictions.py:1272-1273;scripts/verify_worktree_recovery.py:144-145	-	验收可用专用权限检查私有行，但分区 DDL、子表直查只用于离线夹具，受保护映射只用于目标验收。HTTP API 与 Celery worker 保持正常受限身份；用依赖覆盖提权会掩盖正常身份下的授权失败。
+0185-0330	scripts/verify_worktree_managed_predictions.py:1470-1471	-	重试返回 202 只表示已受理，不保证 FailedPrediction 仍存在；真实 worker 可能在独立连接查询之前就完成并删掉该行，强制断言行存在会误判成功重试。
+0185-0331	scripts/verify_worktree_managed_predictions.py:1697	-	预测验收的诊断和主机路由只在当前进程生效；写入共享 .env 会让其他进程继承本次验收的诊断或路由设置。
+0185-0332	scripts/verify_worktree_recovery.py:191,204-205,478	-	恢复验收的子进程日志可能含 SQL 或供应商细节，失败摘要只保留诊断帧和严格匹配的非机密 ContentError 代码。成功也不打印逐行物理映射或私有临时路径，避免摘要泄露内部存储位置。
+0185-0333	scripts/verify_worktree_recovery.py:237	-	恢复验收必须自行创建操作根目录，不能接收用户指定的路径，否则破坏性的恢复操作可能落到任意已有目录。
+0185-0334	scripts/verify_worktree_video_predictions.py:1343	-	复用的限界服务端在定义模块中查找 setup_contract，替换钩子必须改该模块的绑定；只改调用模块中的同名引用不会改变服务端实际调用的钩子。
+0185-0335	scripts/video_worker_fence.py:379	-	视频 worker 封锁必须在构造连接引擎前确认 PostgreSQL 端点既位于本机又归本次操作所有；仅确认可连接或仅确认在本机，都不足以防止对其他实例执行封锁。
+0185-0336	scripts/worktree_env.py:78	-	工作树身份发布发现目标已存在时，要保留并发方先发布的完整身份；覆盖会让已读取该身份的进程与后续读者对同一工作树使用不同身份。
+0185-0337	scripts/worktree_env.py:290	-	工作树前端经 Vite 同源代理接入本工作树 API；若代理指向共享检出目录，即使浏览器看到的仍是同源，也会在错误的后端执行请求。
+0185-0338	scripts/worktree_env.py:371-372,389	-	E2E 消费方使用夹具所有者的凭据，并过滤其他 Inference 所有者的私有数据库选择变量。Pydantic 按不区分大小写的方式读取变量，只过滤大写形式仍可能连到错误的库。
+0185-0339	scripts/worktree_recovery_comment_attachments.py:17	-	评论附件可以在 ready 状态下合法地保存为零字节文件；恢复验收不能用文件非空来判断附件是否存在，否则会把有效附件误报为缺失。
+0185-0340	scripts/worktree_recovery_fixture.py:96-98	-	源端完整指纹仍须覆盖所有缓存行；离线映射只剔除按类型关联到导出包的索引。ZIP 不可变，内部历史签名 URL 无法重映射，保留这些索引会把目标端指向不可迁移的包。
+0185-0341	scripts/worktree_recovery_fixture.py:109	-	恢复夹具的动态查询只从经核验的数据库目录取得表名；若接受用户提供的 SQL，夹具就不再局限于查询已核验的表。
+0185-0342	scripts/worktree_recovery_fixture.py:223	-	历史键即使与已验证上传处于同一位置且内容相同，也不能借用该上传的归属结论；字节和位置相符不能证明历史写入属于同一主体。
+0185-0343	scripts/worktree_recovery_fixture.py:313,1425;scripts/worktree_recovery_mapping.py:641-642	-	恢复只重定位当前物理地址，保留历史成功回执及辅助原件创建记录中的源契约、指针和未绑定尝试。目标端 ETag 和版本可以不同，用新观测覆盖旧记录会把迁移结果误记为源端写入证据。
+0185-0344	scripts/worktree_recovery_fixture.py:732,1332-1334,1527-1528	-	恢复字节不改写源端不可变的正反观测；源端创建尝试可以作为事实保留，但不能在目标端执行或自动派发原有 pending 尝试。需要验证目标时，对独立断言另发起验证，不能把源端尝试当成目标授权。
+0185-0345	scripts/worktree_recovery_fixture.py:1008-1009	-	恢复后，同一物理定位符下的关联断言仍各自保有策略和完整的保留历史；按定位符合并会把一条断言的保留约束错误地套用到其他断言。
+0185-0346	scripts/worktree_recovery_fixture.py:1565	-	恢复外部原件时不能把路径相同当成原件身份相同；否则路径上的替换文件会被静默地当作索引所记录的原件。
+0185-0347	scripts/worktree_recovery_guide_assets.py:111	-	共享 SVG 是否保留取决于当前引用，而非最初所属项目的路径前缀；按前缀清理会删掉仍被其他项目引用的资产。
+0185-0348	scripts/worktree_recovery_image_export.py:126-128;scripts/worktree_recovery_prediction_inputs.py:669	-	镜像导出的传输与发布分别在重新授权的独立会话中进行，启动前须提交源记录和新分配的责任记录。预测输入恢复也须先提交源记录及凭据，再开启归属和读取会话；仅 flush 不会使这些写入对独立会话可见。
+0185-0349	scripts/worktree_recovery_mapping.py:670-671	-	离线训练存储映射只允许表所有者启用范围受限的 JSON 物理映射。任一步失败都须回滚调用方的整个离线映射事务，不能提交半套映射而让记录混用源端和目标端位置。
+0185-0350	scripts/worktree_recovery_prediction_inputs.py:329	-	预测输入按固定版本 GET 后仍须 HEAD 当前对象；GET 成功只证明指定版本可读，不能发现读取之后当前对象已被替换。
+0185-0351	scripts/worktree_recovery_prediction_inputs.py:422-424	-	过期的预测输入回执必须在物理删除准备阶段拒绝，此时不能已有记账意图或删除证据。拿恢复后的当前对象补造准备观测，会让陈旧回执错误地授权删除。
+0185-0352	scripts/worktree_recovery_prediction_inputs.py:708	-	视频上传的真实探测必须使用已通过全量哈希校验的同一源文件描述符；按路径重新打开可能读到替换文件，使探测结果与已校验字节脱节。
+0185-0353	scripts/worktree_recovery_raster_objects.py:123	-	栅格恢复只重定位当前业务记录，不修改已冻结的训练快照；同步改写快照会让已冻结的训练输入随恢复操作发生变化。
+0185-0354	scripts/worktree_recovery_raster_objects.py:190	-	删除栅格任务前须显式删除关联标注，否则不会级联的任务外键会阻止删除；上传预留的外键会级联，不能据此推断标注也会自动清除。
+0185-0355	scripts/worktree_resources.py:816-818,884-885	-	工作树接入前先核验所有配置来源；doctor、stop、destroy 按保存的自有资源清单操作，避免按新配置误判旧拓扑的归属。只有显式 prepare 升级旧拓扑，新增专用输入桶只在实际启动子进程时才是前置条件。
+0185-0356	scripts/worktree_resources.py:1222-1223	-	受管原件数据库在 AUTOCOMMIT 下用会话锁串行化操作，但锁只能解决并发，不能证明所有权；仍须核验数据库所有权标记，不能把同名数据库认作自有资源。
+0185-0357	scripts/worktree_resources.py:1229-1230	-	PostgreSQL 在移除检查点之前就会将数据库标为无效。DROP 只限制取锁等待，获锁后不能用命令超时中断物理检查点，否则可能留下已失效却未完成移除的数据库。
+0185-0358	scripts/worktree_resources.py:2285-2286	-	database() 已在 postgres 库验证两个配置账号；咨询锁按数据库隔离，跨库取得同键锁并不能说明同库内的两个会话不会互相争锁。
+0185-0359	scripts/worktree_resources.py:2552-2553	-	输入与训练存储升级都可能先于其余初始化建桶，因此两项升级都只能在恢复身份已发布、清理已启用后开始；等常规初始化就绪再做这些准备，会让中途失败留下无法按本次身份清理的桶。
+0185-0360	scripts/worktree_resources.py:2605	-	运行 Alembic 前须核验物理数据库服务器和数据库的持久化创建身份。迁移版本相同不代表目标是本工作树创建的数据库，仅核对版本可能把迁移写到错误实例。
+0185-0361	scripts/worktree_resources.py:2617;scripts/worktree_runtime.py:510	-	对外只展示受控的资源与校验错误，迁移失败可附退出码，但不透传 Alembic 原始输出或第三方异常；SQLAlchemy 异常及第三方 URL 可能夹带凭据或连接参数。
+0185-0362	scripts/worktree_resources.py:2686-2687,2693	-	建桶失败时，只能补偿删除本次明确收到创建成功响应、仍无所有者标记且为空的桶；不能凭标记缺失推定归属，也不能先删对象再删桶。崩溃后保留日志供显式恢复。
+0185-0363	scripts/worktree_resources.py:3475	-	工作树销毁须在执行写入前逐一复核资源的确切所有者，不能沿用先前的归属判断。数据库不得强制 DROP，以免绕过活动连接造成的拒绝并切断仍在使用数据库的会话。
+0185-0364	scripts/worktree_runtime.py:42	-	队列校验只豁免 worker_direct 为当前节点添加的专属收件队列；不能把该例外扩大到其他未知队列，否则工作进程可能消费不属于该工作树预期范围的任务。
+0185-0365	scripts/worktree_runtime.py:98	-	释放工作树运行锁时须保留锁文件 inode；若解除链接，仍引用旧 inode 的进程和重新打开路径的进程可能分别锁住两个 inode，各自误以为独占运行权。
+0185-0366	scripts/worktree_runtime.py:444-445	-	运行控制器须在启动子进程前成为子进程收割者；若事后才设置，已脱离的后代可能被其他进程接管，既不会成为控制器的子进程，也无法沿存活祖先追溯到控制器。
+0185-0367	scripts/worktree_runtime.py:462	-	运行所有者仍存活时，须保留退出尚未确认的消费者的原始 pidfd；不能按数值 PID 重新认领，否则 PID 被复用后可能把无关进程当作原消费者。
+0185-0368	scripts/worktree_runtime.py:679-680	-	只有确认运行所有者处于独立进程组时才能向整组发信号；Node 入口会建立该组，直接调用 Python 却可能沿用用户 shell 的组，组信号会波及 shell 及同组进程。
+0185-0369	scripts/worktree_runtime.py:903	-	记录退出尚未确认的消费者时，须先持久化保守阻断标记，再扫描进程树。扫描不是原子快照，若先扫描后写标记，并发变化或中断可能让后续操作在退出尚未确认时继续。
+0185-0370	scripts/worktree_runtime.py:992	-	手动指南场景须在日志输出端限制 SQL 和 S3 调试信息；仅净化最终错误不够，因为调试日志可能在操作过程中就已写出凭据。
+0185-0371	scripts/worktree_runtime.py:1014	-	Popen 返回与子进程登记之间可能收到停止信号；登记后必须重查停止状态，否则停止处理可能已越过该子进程，使其既未纳入保留记录，也未收到停止信号。
+0185-0372	docker-compose.prod.yml:57	-	入口只有在 ALEMBIC_AUTO_UPGRADE 为 true（缺省 true）时才迁移；整栈 API 与 LAN 一次性 owner 入口不能混同。保留有条件的部署约束，不把自动迁移写为无条件。
+0185-0373	docs-site/scripts/check-orphan-images.mjs:26	-	仅允许精确路径组的规则有效；现在两张旧图已从仓库移除，不为不存在的相同字节截图建单。
+0185-0374	docs-site/scripts/generate-env-vars.mjs:2-12	-	实际脚本跳过分隔线、根据相邻标题和说明或注释式赋值组表；旧分隔线就是标题的说法不准确，但环境样例的解释约定是程序输入。
+0185-0375	infra/docker/workspace-project-query-grants.sql:1	0139-workspace-project-query-owner.md	两函数封闭 profile 仍含 policy/step 并被权限自检；示例命令中的大小写错误（第 5 行）不使该约束过时。
+0185-0376	scripts/audit-e2e-requirements.mjs:2-17	-	产物缺失、失败或未计划的 skip 语义仍有效；描述 P9 尚未切换的段落历史化，当前已由稳定 Frontend E2E gate 使用。
+0185-0377	.github/workflows/backend-test.yml:72	-	HTTPS 同包集合避免 CI 区域 mirror 耗尽时限；真实 run shell 独立注释。
+0185-0378	.github/workflows/backend-test.yml:73	-	HTTPS 同包集合避免 CI 区域 mirror 耗尽时限；真实 run shell 独立注释。
+0185-0379	.github/workflows/ci.yml:496	-	只有审计通过并带原因的 docs-only classification 允许跳过实际 suite。
+0185-0380	.github/workflows/ci.yml:497	-	只有审计通过并带原因的 docs-only classification 允许跳过实际 suite。
+0185-0381	.github/workflows/e2e-run.yml:128	-	同一 Ubuntu 包源用 HTTPS 替换拖延的区域 HTTP mirror。
+0185-0382	.github/workflows/e2e-run.yml:205	-	按实际归档字节验证的约束；清单没有可靠实现精确路径比较，另以 #179 追踪。
+0185-0383	.github/workflows/e2e-run.yml:206	-	按实际归档字节验证的约束；清单没有可靠实现精确路径比较，另以 #179 追踪。
+0185-0384	.github/workflows/e2e-run.yml:208	-	清单不得出现其它归档、也不得验证另一路径；grep/diff 不完全实现约束，另以 #179 追踪。

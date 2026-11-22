@@ -133,15 +133,11 @@ consumer 闭环验证前保持关闭；capability 响应不会把未验证 adapt
 
 ## 实时通知
 
-<ExcalidrawDiagram
-  src="/diagrams/shared/realtime/durable-notification-delivery.svg"
-  alt="普通通知默认由调用方提交后再尝试发布；终态 job 保留提交前兼容路径，WebSocket 先核验已提交行和权限再转发"
-  caption="普通通知提交后发布、终态 job 提交前兼容路径及 WebSocket 可见性门禁"
-/>
+> 白名单终态：Jobs 更新状态 → Notifications 同事务写入收件箱和 outbox → 提交 → publisher 领取租约并发布 Redis 提示 → WebSocket 核验当前权限、去重并转发 → 浏览器从 REST 读取。
 
 通知的持久化真值是 Postgres，Redis Pub/Sub 只是在线刷新提示。`NotificationService.notify()` 先通过偏好 owner 检查静音，再调用 `yoao_notifications_v1.append_notification(jsonb)`，把返回行快照合并进原 Session identity map，最后执行调用方原有的完整 flush；事务仍由调用方提交或回滚。默认 `defer_publish=True`，普通调用方在 commit 成功后再 best-effort 发布。选定的通知工作流使用 owner durable outbox / lease，但不覆盖所有通知。
 
-白名单后台 job 终态仍由 `notify_job_terminal` 在外层事务提交前写入并尝试发布，以保留既有 worker 调用顺序。通知 WS 对真实业务消息逐帧重新验证 JWT，确认通知行属于当前接收者并重验项目权限；row 尚不可见时最多查询 4 次，3 次未命中后分别等待 150ms（累计 sleep 450ms，另加查询耗时）。第四次仍未见行或事务回滚时，gate 丢弃消息，不会转发幽灵提示。若发布失败、或 gate 检查结束后事务才提交，Postgres 记录仍可由 REST 读取。
+白名单后台 job 的终态由 `notify_job_terminal` 在外层事务中追加，通知行与 outbox 同时提交或撤销。publisher 提交领取租约后才能发布；进程退出或 Redis 确认不明时重领同一 ID。通知 WS 在转发前重验身份、收件人和目标权限，跳过已在本连接送过的终态 ID；终态行不存在时不轮询。其他即时通知保留最多四次读取的缺行兼容路径。
 
 `useNotificationSocket` 为通知频道维护独立的 1s → 30s 无限重连循环，并在 `1008 / 4001` 鉴权关闭码下刷新 token。收到业务消息后它只让查询缓存失效，展示数据仍以 REST 已提交结果为准；连接打开或重开时也会失效通知查询，默认 30s REST 轮询、回到前台和网络重连继续补齐状态。
 

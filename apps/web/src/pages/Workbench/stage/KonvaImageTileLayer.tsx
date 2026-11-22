@@ -28,8 +28,6 @@ export function KonvaImageTileLayer({
       if (overviewImage) {
         context.drawImage(overviewImage, 0, 0, imageWidth, imageHeight);
       }
-      // Read live resources at draw time: eviction can close bitmaps before a
-      // pending React commit replaces this asynchronous Konva callback.
       if (scheduler) {
         for (const tile of scheduler.getTiles()) {
           context.drawImage(

@@ -14,8 +14,6 @@ from prometheus_client import Counter, Gauge, Histogram
 
 logger = logging.getLogger(__name__)
 
-# Counters accumulate across the process lifetime; the Redis ledger is the durable
-# cross-process truth (these Prometheus metrics are a per-process view for scrape).
 ROUTER_SELECTIONS = Counter(
     "ml_backend_router_selections_total",
     "Route lease acquisitions by pool/instance/outcome",
@@ -37,7 +35,6 @@ ROUTED_REQUEST_DURATION = Histogram(
     ["pool_id", "instance_id", "outcome"],
     buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0),
 )
-# Gauges are populated from the Redis snapshot (single source of truth).
 ROUTER_INFLIGHT = Gauge(
     "ml_backend_router_inflight",
     "Active route leases per pool/instance (from Redis snapshot)",

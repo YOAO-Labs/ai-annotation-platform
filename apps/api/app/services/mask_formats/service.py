@@ -171,7 +171,6 @@ async def _upload_source(db, object_key, project_id, user_id, *, lock=False):
             ) from None
         raise
     if row is None:
-        # Old upload-init returned only this logical namespace, without a row.
         owner = await staging_owner(db, object_key)
         return owner.ref, None
     if row.project_id != project_id or row.uploader_id != user_id:
@@ -262,7 +261,6 @@ def _materialize(
         with context as client:
             budget()
             if owner.ref["schema"] == 1 and reader is None:
-                # Preserve the old unversioned contract; SHA remains authoritative.
                 meta = storage_service.verify_upload(physical_key, bucket=owner.bucket)
             else:
                 meta = client.head_object(Bucket=owner.bucket, Key=physical_key)
@@ -373,7 +371,6 @@ async def materialize_staged_object(
             target = await storage_call(import_storage.io_target, reading, owner)
             revision = await storage_call(import_storage.check_location, reading, owner)
         await reading.rollback()
-        # No caller authority or batch row lock is held during physical I/O.
         with tempfile.TemporaryDirectory(prefix="mask-format-") as temp_dir:
             local_path = Path(temp_dir) / "staged-object"
             if read_route is None:
@@ -470,7 +467,6 @@ async def preflight_import(
     staging_ref, upload_facts = await _upload_source(
         db, staged_object_key, project.id, user_id
     )
-    # The dependency's initial authority transaction ends before provider I/O.
     await db.commit()
     observation = {}
     async with materialize_staged_object(

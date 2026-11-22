@@ -67,8 +67,6 @@ class DeadlineConnection(http.client.HTTPSConnection):
                     yield chunk
 
             message_body = paced_body()
-        # Request.data remains the original bounded bytes. Only the socket body
-        # is segmented; HTTP/TLS headers are outside the payload rate budget.
         return super()._send_output(message_body, encode_chunked=encode_chunked)
 
     def remaining(self):
@@ -143,7 +141,6 @@ class Client:
         self.sleep = sleep
         self.session_id = str(uuid4())
         self.bandwidth = Bandwidth(config.bandwidth_bytes_per_second, sleep=sleep)
-        # Environment proxy settings cannot redirect the independent identity.
         self.opener = opener or center_opener(config)
 
     def _post(
@@ -211,7 +208,6 @@ class Client:
                 raise ContentIncompleteError("agent_content_incomplete") from None
             if status == 429 or 500 <= status <= 599:
                 raise RetryableError("center_temporarily_unavailable") from None
-            # Do not print response bodies or exception URLs: they may hold credentials.
             raise AgentError(
                 {
                     401: "agent_unauthorized",
@@ -265,8 +261,6 @@ class Client:
         )
         endpoint = "/api/v1/site-agents/commands/" + command_id + "/result"
         try:
-            # Closure evidence remains admissible after expiry or revocation.
-            # A valid ACK avoids replaying bytes already accepted by the center.
             response = self._post(
                 endpoint, result, allow_expired_receipt=True, paced=True
             )
@@ -330,7 +324,6 @@ class Client:
 
     def step(self, runner, *, drain=False):
         self.session_id = runner.journal.poll_session(self.credentials)
-        # Replay immutable completed results before claiming additional work.
         for row in runner.journal.pending():
             result = row["result"] or runner.execute(row["command"])
             self.submit(runner, result)

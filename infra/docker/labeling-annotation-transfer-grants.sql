@@ -1,8 +1,3 @@
--- Grant a Labeling annotation transfer data LOGIN exactly one owner command.
--- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v labeling_owner=labeling_code -v annotation_transfer_role=yoao_labeling_annotation_transfer_client \
---   -f infra/docker/labeling-annotation-transfer-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

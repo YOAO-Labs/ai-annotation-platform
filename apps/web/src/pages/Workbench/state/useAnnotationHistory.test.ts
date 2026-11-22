@@ -1,8 +1,3 @@
-// 覆盖 applyLeaf 的 tmpId undo 本地分支。
-//
-// 思路：直接测从 hook 模块导出的纯函数 applyLeaf，构造 mock handlers，
-// 不需要 React 渲染环境。
-
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyLeaf,
@@ -50,7 +45,7 @@ describe("applyLeaf · create undo（tmpId 本地分支）", () => {
   });
 
   it("annotationId 是 tmpId 但 removeLocalCreate 未提供 → 退回 deleteAnnotation（向后兼容）", async () => {
-    const h = makeHandlers(); // removeLocalCreate undefined
+    const h = makeHandlers();
 
     await applyLeaf({ kind: "create", annotationId: "tmp_xyz", payload: dummyPayload }, "undo", h);
 
@@ -243,8 +238,6 @@ describe("applyLeaf · video Mask frame undo / redo", () => {
   });
 });
 
-// ── sessionStorage 持久化 ────────────────────────────────
-
 describe("history sessionStorage 持久化", () => {
   beforeEach(() => {
     if (typeof window !== "undefined") window.sessionStorage.clear();
@@ -277,7 +270,7 @@ describe("history sessionStorage 持久化", () => {
     const expired = JSON.stringify({
       undo: [sample],
       redo: [],
-      ts: Date.now() - 6 * 60 * 1000, // 6min
+      ts: Date.now() - 6 * 60 * 1000,
     });
     window.sessionStorage.setItem("wb:hist:task-old", expired);
     expect(loadHistoryFromSession("task-old")).toBeNull();

@@ -600,8 +600,6 @@ async def execute_task_pipeline(
         dropped: set[int] = set()
         new_shapes: list[dict] = []
 
-        # Native parents keep their exact RLE; verified portable objects travel
-        # with the root prediction so downstream crops/prompts use exact bounds.
         mask_objects = (getattr(root_result, "meta", None) or {}).get("mask_objects")
 
         for stage_index in range(1, len(stages)):

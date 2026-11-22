@@ -6,15 +6,10 @@ import { usePetState, type WorkbenchPetContext } from "./usePetState";
 import styles from "./pet.module.css";
 
 export interface WorkbenchPetProps {
-  /** 工作台上下文;全部由前端现有状态派生,不新增后端契约。 */
   context: WorkbenchPetContext;
-  /** 受控位置;用于让展开面板与桌宠保持锚定联动。 */
   position?: FloatingPanelPoint;
-  /** 桌宠位置变化。 */
   onPositionChange?: (position: FloatingPanelPoint) => void;
-  /** Actual selection details visibility, supplied by the panel owner. */
   detailsVisible?: boolean;
-  /** 展开选中信息卡(点击举牌态精灵时调用)。 */
   onExpand: () => void;
 }
 
@@ -41,7 +36,6 @@ export function readWorkbenchPetPosition(): FloatingPanelPoint {
   } catch {
     /* best-effort */
   }
-  // 默认落点:靠右下但避开右下角 FAB 露出热区(距右缘 > 180px),免得靠近桌宠误触露出按钮列。
   return { x: window.innerWidth - 230, y: window.innerHeight - 150 };
 }
 
@@ -53,13 +47,6 @@ export function writeWorkbenchPetPosition(position: FloatingPanelPoint): void {
   }
 }
 
-/**
- * v1 工作台桌宠(常驻像素小人,纯陪伴层,可拖动)。
- *
- * 吃掉原选中信息卡的折叠小条:折叠态时由小人举牌显类别名、点击展开。
- * 可自由拖动,位置记忆到 localStorage;拖动与点击经位移阈值区分。
- * 数据红线:本组件不触碰任何标注数据,情绪全由 props 派生。
- */
 export function WorkbenchPet({
   context,
   position: controlledPosition,
@@ -111,7 +98,6 @@ export function WorkbenchPet({
   };
 
   return (
-    // div(非 button):useDragMove 的 isInteractiveTarget 会拦掉 button 的 pointerdown。
     <div
       data-floating-panel
       data-pet-mood={mood}

@@ -75,8 +75,6 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine):
     used_id = uuid.uuid4()
 
     try:
-        # Build the actual legacy revision instead of downgrading a current
-        # database past later, intentionally irreversible migrations.
         async with admin.connect() as db:
             await db.execute(text(f'CREATE DATABASE "{clone}" TEMPLATE template0'))
             created = True

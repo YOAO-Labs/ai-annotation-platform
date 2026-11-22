@@ -363,7 +363,6 @@ export function MaskQcPanel({
       confirmLabel: verb,
     });
     if (!confirmed) return;
-    // 等待决定期间问题/候选可能已被切换或决定;重验后才提交。
     if (!activeIssue || !selectedTrackerCandidate || !canDecideTrackerRegion) return;
     setRegionDecision(decision);
     setRegionDecisionError(null);

@@ -369,7 +369,6 @@ async def test_association_container_preserves_policy_projection_and_switching(
                     for row in rows
                 )
 
-                # Project visibility applies even when the API key lacks Dataset read scope.
                 key_reply = await api.post(
                     "/api/v1/me/api-keys",
                     headers=headers("reader"),

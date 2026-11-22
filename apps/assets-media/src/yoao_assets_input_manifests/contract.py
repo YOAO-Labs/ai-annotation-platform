@@ -179,7 +179,6 @@ class ManifestMember(Value):
             ):
                 raise ValueError("preparing member requires a pending original input")
         elif self.state == "ready":
-            # The sealed outcome remains historical after the input later expires.
             if (
                 self.input is None
                 or self.input.sha256 is None

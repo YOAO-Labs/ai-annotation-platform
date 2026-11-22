@@ -22,7 +22,7 @@ from .contract import (
 
 try:
     import httpx
-except ImportError:  # The HTTP client remains an optional package extra.
+except ImportError:
     httpx = None
 
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024

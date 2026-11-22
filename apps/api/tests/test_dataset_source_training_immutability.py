@@ -198,7 +198,7 @@ async def test_managed_source_changes_preserve_ready_training_version(
         package = object_bytes(storage_service.training_bucket, version.package_key)
         assert hashlib.sha256(package).hexdigest() == version.package_sha256
         objects = frozen_objects(version_prefix)
-        assert len(objects) == 3  # Two frozen media objects and the published ZIP.
+        assert len(objects) == 3
         with zipfile.ZipFile(io.BytesIO(package)) as archive:
             manifest = json.loads(archive.read("manifest.json"))
             assert manifest == version.manifest and len(manifest["samples"]) == 2

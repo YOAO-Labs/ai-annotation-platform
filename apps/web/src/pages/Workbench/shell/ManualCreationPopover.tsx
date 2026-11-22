@@ -22,7 +22,6 @@ export interface ManualCreationPopoverProps {
   onChangeAttributes: (next: Record<string, unknown>) => void;
   onSubmit: () => void;
   onCancel: () => void;
-  /** Preserve the existing safe-mode outside action; continuous drafts omit it. */
   onOutside?: () => void;
 }
 
@@ -106,8 +105,6 @@ export function ManualCreationPopover({
   }, [id, phase, saving]);
 
   useEffect(() => {
-    // The existing class picker portals its own root and Workbench renders one
-    // pending creation picker at a time. Other phases have an owned panel ref.
     const getPanel = () =>
       panelRef.current ??
       (latestRef.current.phase === "class"
@@ -115,9 +112,6 @@ export function ManualCreationPopover({
         : null);
     const blockOutside = (event: Event) => {
       if (isWorkbenchInteractionBlocked(event)) return;
-      // Queue, tool and navigation controls must keep receiving input, including
-      // while a save is pending. Only prevent an outside click from drawing on
-      // the image canvas; the transaction owner decides when a task can change.
       if (
         !(event.target instanceof Element) ||
         !event.target
@@ -147,8 +141,6 @@ export function ManualCreationPopover({
       if (ownsTextInput(target) && !panel?.contains(target)) return;
       if (event.key === "Enter") {
         if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
-        // Native selects and pressable controls consume Enter themselves. Text
-        // fields in this draft submit their synchronously updated value.
         if (
           target instanceof HTMLElement &&
           (target.matches("select, textarea") ||

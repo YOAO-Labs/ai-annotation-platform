@@ -56,17 +56,12 @@ class MLBackendRegistry(Base):
     url: Mapped[str] = mapped_column(String(1000), nullable=False, unique=True)
     state: Mapped[str] = mapped_column(String(30), default="disconnected")
     is_interactive: Mapped[bool] = mapped_column(Boolean, default=False)
-    # 端点接入属性(上提到全局, 不做项目覆盖)
     auth_method: Mapped[str] = mapped_column(String(20), default="none")
     auth_token: Mapped[str | None] = mapped_column(String(500))
-    # Database-managed revision fences health/control observations across rotation,
-    # including rotations back to a previously used credential.
     auth_revision: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"
     )
     extra_params: Mapped[dict] = mapped_column(JSONB, default=dict)
-    # ADR-0049 · 一个 registry backend 本期只能 claim 一个稳定物理 GPU/MIG
-    # resource。CPU / 尚未完成 GPU 配置的存量行保持 null/null，不猜卡。
     gpu_resource_id: Mapped[str | None] = mapped_column(
         String(512), nullable=True, index=True
     )
@@ -74,9 +69,7 @@ class MLBackendRegistry(Base):
     eviction_priority: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
-    # 能力快照单份真值: check_health 对注册项探测、写回此行
     health_meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    # 'manual' = superadmin 在 ModelMarket 注册; 'env' = 启动钩子按 env URL 自动 upsert
     source: Mapped[str] = mapped_column(String(20), default="manual")
     error_message: Mapped[str | None] = mapped_column(String)
     last_checked_at: Mapped[datetime | None] = mapped_column(
@@ -115,16 +108,12 @@ class ProjectMLBackendPool(Base):
         ForeignKey("projects.id", ondelete="CASCADE"),
         index=True,
     )
-    # 原 registry_id 迁移为 pool_id (ADR-0050 singleton backfill)。
-    # 项目启用和主池必须一致; 禁用主池时显式清空或先换主池, 不能留悬空引用。
     pool_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("ml_backend_service_pools.id", ondelete="CASCADE"),
         index=True,
     )
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    # 项目级业务覆盖(可空)。阈值(box/text)已退役: per-backend 调参由运行时按 /setup.params
-    # 通用渲染以项目级单值 project.box_threshold 兜底；变体覆盖按服务池划分。
     default_variants: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

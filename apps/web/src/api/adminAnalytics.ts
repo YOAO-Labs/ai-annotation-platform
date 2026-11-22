@@ -1,5 +1,3 @@
-// /admin/analytics 面板 API client (ROADMAP §1.6)
-
 import { apiClient } from "./client";
 
 export type AnalyticsPanelName =

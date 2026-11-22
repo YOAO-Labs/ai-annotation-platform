@@ -80,7 +80,6 @@ it("adopts another tab's proactive logout intent (Issue #123)", () => {
   );
 
   expect(useAuthStore.getState().token).toBeNull();
-  // 其它标签页主动退出 → 本标签页兜底跳转不带 from。
   expect(isProactiveLogout()).toBe(true);
 
   unbindStorage();

@@ -16,7 +16,6 @@ import sys
 from pathlib import Path
 
 
-# 让 `python scripts/dump-openapi.py` 直接跑通：把 apps/api 加进 sys.path
 _API_ROOT = Path(__file__).resolve().parent.parent
 if str(_API_ROOT) not in sys.path:
     sys.path.insert(0, str(_API_ROOT))

@@ -12,7 +12,6 @@ import { WorkbenchSkeleton } from "./WorkbenchSkeleton";
 
 const ISSUE_FAB_CLASS =
   "fixed right-6 z-workbench-top inline-flex size-10 cursor-pointer appearance-none items-center justify-center rounded-full border border-border bg-card text-foreground shadow-lg hover:bg-muted transition-all duration-300 ease-out";
-// 日常隐藏态:滑出右屏外 + 淡出 + 不可点(光标进右下角指定区域时解除)。
 const FAB_HIDDEN_CLASS = "translate-x-[150%] opacity-0 pointer-events-none";
 
 export function WorkbenchShell({ mode = "annotate" }: { mode?: "annotate" | "review" }) {
@@ -112,7 +111,6 @@ export function WorkbenchShell({ mode = "annotate" }: { mode?: "annotate" | "rev
       />
       {model.issueSection &&
         (() => {
-          // 落点模式(armed)进行中强制保持露出,否则用户移开光标会丢失高亮指示。
           const fabShown = fabRevealed || model.issueSection.issuePinDropArmed;
           const hiddenCls = fabShown ? false : FAB_HIDDEN_CLASS;
           const count = model.issueSection.openIssueCount;

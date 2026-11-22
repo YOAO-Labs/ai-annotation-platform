@@ -200,7 +200,6 @@ async def create_bug_report(
         detail={"display_id": report.display_id, "route": route},
     )
     await bug_attachment_uploads.reauthorize(db, authority)
-    # Deadlines are checked again after report/mirror/audit and all row waits.
     for owner in owners:
         bug_attachment_uploads._ready(owner)
     await db.commit()
@@ -422,7 +421,6 @@ async def delete_bug_report(
     try:
         await bug_attachment_uploads.cleanup(db, identifiers=retired)
     except Exception:
-        # Deletion is already committed; the durable owners remain retryable.
         log.warning(
             "Bug attachment cleanup deferred after report deletion: %s", report_id
         )
@@ -448,8 +446,6 @@ async def add_bug_comment(
     if not is_admin and report.reporter_id != current_user.id:
         raise HTTPException(status_code=403, detail="只有反馈提交者或管理员可以评论")
 
-    # reopen 单独限流 5/day/user/report，避免提交者刷 reopen 计数。
-    # 60/h 整体限流仍生效；本检查只针对会触发 reopen 的评论（reporter 自己 + 已 closed 状态）。
     will_reopen = current_user.id == report.reporter_id and report.status in (
         "fixed",
         "wont_fix",
@@ -502,12 +498,10 @@ async def add_bug_comment(
             },
         )
 
-    # Notification fan-out (published after the commit below)
     notif_svc = NotificationService(db)
     snippet = data.body[:120]
     pending_notifications: list[Notification] = []
     if current_user.id == report.reporter_id:
-        # 提交者评论 → 通知 assignee；若没有则通知所有 SUPER_ADMIN
         recipient_ids: list[uuid.UUID] = []
         if report.assigned_to_id:
             recipient_ids = [report.assigned_to_id]
@@ -539,7 +533,6 @@ async def add_bug_comment(
                 },
             )
     else:
-        # 管理员评论 → 通知 reporter
         if report.reporter_id != current_user.id:
             row = await notif_svc.notify(
                 user_id=report.reporter_id,

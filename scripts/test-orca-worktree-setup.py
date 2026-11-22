@@ -9,7 +9,6 @@ import tomllib
 
 
 script = Path(__file__).with_name("orca-worktree-setup.sh").resolve()
-# Workspace startup must not compile legacy FreeType on Python 3.12 / Apple Silicon.
 lock = tomllib.loads((script.parent.parent / "apps/api/uv.lock").read_text())
 matplotlib = next(
     package for package in lock["package"] if package["name"] == "matplotlib"
@@ -57,7 +56,9 @@ def test_setup(launcher):
         (worktree / "scripts").mkdir()
         shutil.copy2(script, worktree / "scripts" / script.name)
         shutil.copy2(script.with_name("ensure-api-vendor.sh"), worktree / "scripts")
-        trackeval = worktree / "apps/api/app/vendor/TrackEval/trackeval_metrics/metrics.py"
+        trackeval = (
+            worktree / "apps/api/app/vendor/TrackEval/trackeval_metrics/metrics.py"
+        )
         trackeval.parent.mkdir(parents=True)
         trackeval.write_text("# initialized fixture\n")
         calls = base / "calls"
@@ -109,7 +110,6 @@ def test_setup(launcher):
         assert run().returncode == 0
         assert (worktree / ".env").read_text() == "WORKTREE_VALUE=preserve\n"
 
-        # Matching source manifests do not prove the primary installation is current.
         installed_lock.write_text("stale installation\n")
         previous_calls = calls.read_text()
         assert run().returncode != 0, (
@@ -124,7 +124,6 @@ def test_setup(launcher):
         installed_lock.write_text("same\n")
         assert run().returncode == 0
 
-        # A dependency change must never install through shared node_modules.
         (worktree / "pnpm-lock.yaml").write_text("different\n")
         previous_calls = calls.read_text()
         assert run().returncode != 0
@@ -134,7 +133,6 @@ def test_setup(launcher):
         assert run().returncode == 0
         assert "pnpm install --frozen-lockfile" in calls.read_text()
 
-        # A shared venv (valid or dangling) must never reach uv.
         (worktree / "pnpm-lock.yaml").write_text("same\n")
         (worktree / "apps/api/.venv").symlink_to(root / "apps/api/.venv")
         previous_calls = calls.read_text()
@@ -144,7 +142,6 @@ def test_setup(launcher):
         assert run().returncode != 0
         assert calls.read_text() == previous_calls
 
-        # Reject the primary checkout before invoking dependency tools.
         env["ORCA_WORKTREE_PATH"] = str(root)
         env["CODEX_WORKTREE_PATH"] = str(root)
         (root / "scripts").mkdir()

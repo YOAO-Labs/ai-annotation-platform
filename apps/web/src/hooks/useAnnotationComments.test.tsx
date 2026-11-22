@@ -1,7 +1,3 @@
-/**
- * useDeleteComment 乐观删除单测：验证任务级聚合缓存 ["task-comments-page", *]
- * 也被乐观剔除（PR #21 审查 #4），且失败时回滚。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/react-query";
@@ -33,8 +29,6 @@ function wrapper({ children }: { children: ReactNode }) {
 
 describe("useDeleteComment 乐观删除", () => {
   beforeEach(() => {
-    // gcTime: Infinity —— seed 的缓存无观察者，gcTime:0 会在 onSettled invalidate 后被
-    // 回收成 undefined，干扰对回滚结果的断言。
     qc = new QueryClient({
       defaultOptions: { queries: { retry: false, gcTime: Infinity } },
     });
@@ -47,7 +41,6 @@ describe("useDeleteComment 乐观删除", () => {
     mockRemove.mockResolvedValue(undefined);
     qc.setQueryData(["task-comments-page", "task-1"], seedPage([{ id: "c1" }, { id: "c2" }]));
 
-    // annotationId 为 null（未选中标注的任务级视图）
     const { result } = renderHook(() => useDeleteComment(null), { wrapper });
     await act(async () => {
       await result.current.mutateAsync("c1");

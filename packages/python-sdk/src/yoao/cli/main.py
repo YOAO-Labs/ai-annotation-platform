@@ -14,7 +14,7 @@ import typer
 
 try:
     from typer._click.exceptions import ClickException, MissingParameter
-except ImportError:  # Typer < 0.24 uses the installed Click package.
+except ImportError:
     from click.exceptions import ClickException, MissingParameter
 
 from yoao import __platform_target_version__, __version__
@@ -92,7 +92,6 @@ from yoao.cli._output import (
     sparkline,
 )
 
-# 让 -h 等价 --help (root 设置经 Click context 继承到所有子命令)
 CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
 
 
@@ -184,7 +183,6 @@ class _ErrorReportingGroup(typer.core.TyperGroup):
             raise
 
 
-# 顶层命令分组 (rich_help_panel), 顺序即面板展示顺序
 PANEL_CONFIG = "配置与交互"
 PANEL_RESOURCE = "资源管理"
 PANEL_PIPELINE = "标注流水线"

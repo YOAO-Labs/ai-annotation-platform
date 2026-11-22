@@ -81,7 +81,6 @@ async def test_predict_observes_success_histogram():
         results = await client.predict([{"id": "t1"}])
 
     assert len(results) == 1
-    # 没带 inference_time_ms 时 wall-clock 兜底 → 应是非负 int
     assert results[0].inference_time_ms is not None
     assert results[0].inference_time_ms >= 0
 
@@ -157,7 +156,6 @@ async def test_max_concurrency_semaphore_caps_in_flight_predictions():
         kwargs["transport"] = transport
         return real(*args, **kwargs)
 
-    # 用唯一 backend_id 避免被前序测试缓存的 Semaphore 污染
     bid = "11111111-2222-3333-4444-555555555555"
     backend = _backend(backend_id=bid, extra_params={"max_concurrency": 2})
     client = _transport(backend)

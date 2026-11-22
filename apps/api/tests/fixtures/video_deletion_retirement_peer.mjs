@@ -33,7 +33,6 @@ try {
     error: { code: "video_execution_not_retired" },
   });
   assert.deepEqual((await client.query(tx)).rows[0], before);
-  // A rejected business envelope must leave nothing destructive to commit.
   await client.query("COMMIT");
   process.stdout.write(raw);
 } catch (error) {

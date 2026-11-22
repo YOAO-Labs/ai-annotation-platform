@@ -198,9 +198,6 @@ async def test_generic_insert_and_update_cannot_write_the_snapshot_binding(db_se
         project_id=project.id,
     )
     await db_session.flush()
-    # A savepoint rollback expires the row it dirtied, and touching an expired
-    # attribute outside greenlet_spawn cannot refresh it. The invariant is about
-    # the stored binding, so keep the identity as a plain UUID.
     job_id = job.id
 
     update_savepoint = await db_session.begin_nested()

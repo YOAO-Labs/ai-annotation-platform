@@ -46,8 +46,6 @@ def _validated_request(model: type[RequestModel], request: object) -> RequestMod
     if type(request) is not model:
         raise MaskContentFailure("invalid_request")
     try:
-        # Revalidate from plain values so even model_construct-created objects
-        # cannot bypass the fixed key, size, or RLE constraints.
         return model.model_validate(_plain(request))
     except (TypeError, ValueError):
         raise MaskContentFailure("invalid_request") from None
@@ -177,7 +175,6 @@ class S3MaskContentStore:
                         last_modified=last_modified,
                     )
                 except (ValueError, TypeError):
-                    # Old or unrelated keys in the bucket are not Mask objects.
                     continue
                 items.append(candidate)
             next_cursor = (
@@ -216,7 +213,6 @@ class S3MaskContentStore:
         if (
             current_etag != request.etag
             or not isinstance(current_modified, datetime)
-            # HEAD uses HTTP-date seconds; LIST can include fractional seconds.
             or _utc(current_modified).replace(microsecond=0)
             != _utc(request.last_modified).replace(microsecond=0)
         ):
@@ -239,7 +235,6 @@ class S3MaskContentStore:
         return DeleteResult(object_key=key, deleted=True)
 
     def _get_raw(self, reference: MaskReference) -> bytes:
-        # Validate the complete content address before any S3 request.
         try:
             ref = MaskReference.model_validate(_plain(reference))
         except (ValueError, TypeError):
@@ -285,8 +280,6 @@ def _reference_from_key(key: str) -> MaskReference:
         encoding = "identity"
     else:
         raise ValueError("unsupported Mask key")
-    # A list item need not have full reference metadata. Validate the exact key
-    # pattern and digest before it can reach the cleanup caller.
     if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
         raise ValueError("invalid Mask digest")
     expected = (
@@ -296,8 +289,6 @@ def _reference_from_key(key: str) -> MaskReference:
     )
     if key != expected:
         raise ValueError("Mask key does not match the content digest")
-    # The minimal placeholder fields are never returned; Candidate validates
-    # the canonical key again on the way out.
     return MaskReference(
         encoding="coco_rle_ref",
         storage_encoding=encoding,

@@ -15,7 +15,6 @@ from app.utils.raster_mask_rle import decode_coco_rle, encode_coco_rle
 
 
 def example():
-    # A ring with a separate foreground part remains one instance.
     pixels = [1, 1, 1, 0, 0, 1, 0, 1, 0, 0, 1, 1, 1, 0, 1]
     rle = encode_coco_rle(pixels, 5, 3)
     data = canonical_rle_bytes(rle)

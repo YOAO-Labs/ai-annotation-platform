@@ -302,8 +302,6 @@ async def test_generation_rejects_window_source_or_target_drift(
             await storage_access.ensure(db, world.target_id)
             (await db.get(Gate, world.target_id)).state = "stopped"
         else:
-            # The immutable window cannot be tampered with: reject a caller
-            # trying to borrow its exception for a different parent instead.
             parent = await db.get(Copy, world.parent_id)
             with pytest.raises(HTTPException) as caught:
                 await copies.scope(

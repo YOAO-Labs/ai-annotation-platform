@@ -196,7 +196,6 @@ async def _new_output(db, *, asset_id=None, generation=1, old=False):
             "updated_at": service.utcnow() - timedelta(days=10),
         }
     if asset_id is None:
-        # The fixture birth trigger requires the real owner of a saved output.
         asset_id = uuid.uuid4()
         db.add(
             ImagePyramidAsset(
@@ -408,9 +407,6 @@ async def test_business_cascade_retains_physical_output_responsibility(
     output_id, asset_id, item_id = row.id, asset.id, registered.item.id
     await db_session.execute(delete(DatasetItem).where(DatasetItem.id == item_id))
     await db_session.flush()
-    # Current schema keeps the pyramid asset/generation facts after ordinary
-    # business deletion (no cascading FK); only the saved output row is the
-    # retained physical responsibility that retirement must observe.
     assert await db_session.get(ImagePyramidAsset, asset_id) is not None
     assert await db_session.get(ImagePyramidGeneration, (asset_id, 1)) is not None
     retained = await db_session.get(

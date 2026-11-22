@@ -142,9 +142,6 @@ function installGlobalDiagnostics(target: Window & DiagnosticsWindow): void {
   target.addEventListener("error", recordImageResult, true);
 }
 
-/**
- * 把 signed URL 转换成仅用于同一浏览器会话内比较的稳定指纹，诊断中不保留 URL 或文件名。
- */
 export function fingerprintPointCloudResource(value: string | null | undefined): string {
   if (!value) return "resource-none";
   let hash = 0x811c9dc5;

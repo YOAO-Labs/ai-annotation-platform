@@ -32,7 +32,6 @@ export interface TriViewClientRect extends ClientRectSnapshot {
 export interface TriViewClientLayout {
   panel: ClientRectSnapshot;
   views: TriViewClientRect[];
-  /** Disjoint client-coordinate pieces after Dockview visibility and floating occlusion. */
   visibleRegions?: readonly ClientRectSnapshot[];
 }
 
@@ -94,7 +93,6 @@ export function intersectClientRects(
     : null;
 }
 
-/** Returns disjoint pieces; overlapping occluders cannot reopen an earlier hole. */
 export function subtractClientRect(
   rect: ClientRectSnapshot,
   occluder: ClientRectSnapshot,
@@ -113,7 +111,6 @@ export function subtractClientRect(
   ].filter((piece) => piece.width > 0 && piece.height > 0);
 }
 
-/** Scissors clip visibility while the camera continues to frame the complete content rect. */
 export function clientRectToRendererScissors(
   rect: ClientRectSnapshot,
   canvasRect: ClientRectSnapshot,
@@ -127,7 +124,6 @@ export function clientRectToRendererScissors(
   });
 }
 
-/** WebGPU requires an in-bounds viewport. A view offset preserves full-rect projection at edges. */
 export function setClientCameraViewport(
   camera: THREE.PerspectiveCamera | THREE.OrthographicCamera,
   rect: ClientRectSnapshot,
@@ -155,7 +151,6 @@ export function setClientCameraViewport(
   return clientRectToRendererViewport(visible, canvasRect, backend);
 }
 
-/** Returns a CSS clip-path that exposes only the floating tri-view panel on the shared canvas. */
 export function clientRectToCanvasClipPath(
   rect: ClientRectSnapshot,
   canvasRect: ClientRectSnapshot,
@@ -170,7 +165,6 @@ export function clientRectToCanvasClipPath(
   return `inset(${top}px ${canvasWidth - right}px ${canvasHeight - bottom}px ${left}px)`;
 }
 
-/** Converts a DOM client rect into renderer logical pixels and clamps it to the main canvas. */
 export function clientRectToRendererViewport(
   rect: ClientRectSnapshot,
   canvasRect: ClientRectSnapshot,
@@ -203,7 +197,6 @@ const TRI_VIEW_PREWARM_BOX: Psr = {
   rotation: [0, 0, 0],
 };
 
-/** Orthographic point-cloud pass. Renderer, canvas and scheduling remain owned by PointCloudScene. */
 export class PointCloudTriViewPass {
   private readonly scene = new THREE.Scene();
   private readonly cameras: Record<TriView, THREE.OrthographicCamera>;

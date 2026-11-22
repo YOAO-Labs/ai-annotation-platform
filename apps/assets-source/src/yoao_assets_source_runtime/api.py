@@ -259,7 +259,6 @@ def _failure(code: str) -> dict[str, Any]:
 
 def _failure_response(code: str) -> JSONResponse:
     payload = _failure(code)
-    # Keep even validation failures on the same strict source wire contract.
     try:
         decode_source_reply(payload, UploadOutcome)
     except SourceFailure as exc:
@@ -420,9 +419,7 @@ async def _native_invoke(
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # noqa: BLE001 - never leak credentials or SQL detail
-        logger.error(
-            "Assets source native signing failed (%s)", type(exc).__name__
-        )
+        logger.error("Assets source native signing failed (%s)", type(exc).__name__)
         return _native_failure(
             "storage_unavailable", status.HTTP_503_SERVICE_UNAVAILABLE
         )

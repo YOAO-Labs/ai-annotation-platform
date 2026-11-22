@@ -1,13 +1,3 @@
-/**
- * useToolBindings 派生 classes / fallback 行为单测.
- *
- * 关键 case:
- *   - 当前 tool_unit 配置正常 → 按 order 出 classes
- *   - ai_interactive unit 为空 + bbox unit 有配 → 回落到 bbox 的 classes
- *     (兼容历史项目升级后 ai_interactive 未填充的场景)
- *   - 完全空的 tool_bindings → 走老项目 fallback (扁平 classes_config)
- */
-
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ProjectResponse } from "@/api/projects";
@@ -55,22 +45,15 @@ describe("useToolBindings", () => {
       tool_bindings: {
         bbox: {
           enabled: true,
-          classes: [
-            { name: "b", order: 2 },
-            { name: "a", order: 0 },
-            { name: "c" }, // 缺 order → 0
-          ],
+          classes: [{ name: "b", order: 2 }, { name: "a", order: 0 }, { name: "c" }],
           attribute_schema: { fields: [] },
         },
       },
     });
     const { result } = renderHook(() => useToolBindings(proj, "box" as ToolId));
-    // 0(a) — 0(c, 输入序在 a 之后) — 2(b); JS 稳定排序保留同 key 相对顺序.
     expect(result.current.classes).toEqual(["a", "c", "b"]);
   });
 
-  // AI 工具按产出几何归属单位 (ai_interactive 伪单位已退役):
-  // smart-point / smart-box / exemplar 产 polygon → region; magic-box 产 bbox → bbox.
   it("smart-point 归 region 单位 (SAM 产多边形, 与手画 polygon 同类别域)", () => {
     const proj = _proj({
       tool_bindings: {
@@ -119,7 +102,6 @@ describe("useToolBindings", () => {
           classes: [{ name: "person", order: 0 }],
           attribute_schema: { fields: [] },
         },
-        // region 完全未配
       },
     });
     const { result } = renderHook(() => useToolBindings(proj, "smart-box" as ToolId));

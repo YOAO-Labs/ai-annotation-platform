@@ -87,7 +87,7 @@ async def test_check_health_persists_capabilities_and_derives_is_interactive(
     assert caps["supported_trackers"] == ("sam2_video",)
     assert "video" in caps["modalities"]
     assert "image" in caps["modalities"]
-    assert facts.is_interactive is True  # 派生对账
+    assert facts.is_interactive is True
 
 
 @pytest.mark.asyncio
@@ -146,7 +146,6 @@ async def test_bind_failopen_when_setup_unreachable(
     await db_session.commit()
 
     async def probe(registry_id, probe_subject, *, timeout, limits):
-        # The Inference probe owner reports null modalities when /setup is unreachable.
         return None
 
     monkeypatch.setattr(
@@ -157,7 +156,7 @@ async def test_bind_failopen_when_setup_unreachable(
         json={"ml_backend_id": str(backend.id)},
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert res.status_code == 200, res.text  # fail-open
+    assert res.status_code == 200, res.text
 
 
 @pytest.mark.asyncio
@@ -166,7 +165,7 @@ async def test_bind_backend_with_empty_modalities_failopen(
 ):
     """探测成功但能力快照不含模态信号 (无 prompt/tracker) → fail-open 放行, 不误拦纯批量检测后端."""
     user, token = super_admin
-    proj = await create_project(db_session, owner_id=user.id)  # image 项目
+    proj = await create_project(db_session, owner_id=user.id)
     backend = await _seed_backend(db_session)
     await db_session.commit()
 
@@ -181,7 +180,7 @@ async def test_bind_backend_with_empty_modalities_failopen(
         json={"ml_backend_id": str(backend.id)},
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert res.status_code == 200, res.text  # 空模态 → fail-open
+    assert res.status_code == 200, res.text
 
 
 @pytest.mark.asyncio

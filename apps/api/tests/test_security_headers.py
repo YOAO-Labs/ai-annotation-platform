@@ -31,7 +31,6 @@ def test_csp_script_src_drops_unsafe_inline():
     resp = client.get("/hello")
     assert resp.status_code == 200
     csp = resp.headers["content-security-policy"]
-    # script-src 区块定位: 找 "script-src ..." 子串到下一 ";"
     script_src_idx = csp.find("script-src ")
     assert script_src_idx >= 0, csp
     script_src_end = csp.find(";", script_src_idx)
@@ -39,7 +38,6 @@ def test_csp_script_src_drops_unsafe_inline():
     assert "'unsafe-inline'" not in script_src, (
         f"script-src 仍含 unsafe-inline: {script_src}"
     )
-    # Turnstile 仍允许
     assert "https://challenges.cloudflare.com" in script_src
 
 

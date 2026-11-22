@@ -167,7 +167,6 @@ def test_full_read_and_new_signature_use_actual_target_without_mutating_owner(sc
             physical.sign_read(client, saved, relative, now=saved.created_at)
             == "https://target.test/signed-exact-version"
         )
-        # The old direct endpoints remain strict for writes and creation reads.
         with pytest.raises(physical.ExportMediaStorageError):
             physical.verify_object(client, saved, relative)
         with pytest.raises(physical.ExportMediaStorageError):

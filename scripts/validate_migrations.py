@@ -73,7 +73,6 @@ CONVERSION_REVISION = "0174"
 LEGACY_DEFAULT = "annotator"
 HEAD_DEFAULT = "employee"
 
-#: Set by ``--fail-after create`` to inject a failure between CREATE and COMMENT.
 _INJECT_CREATE_FAILURE = False
 
 
@@ -97,9 +96,6 @@ class RunState:
     phases: list[str] = field(default_factory=list)
 
 
-# --------------------------------------------------------------------------- #
-# Ownership guards
-# --------------------------------------------------------------------------- #
 def resolve_anchor(environ: dict | None = None) -> Anchor:
     environment = dict(os.environ if environ is None else environ)
     try:
@@ -210,9 +206,6 @@ async def verify_anchor(anchor: Anchor) -> None:
         raise ValidationError("base database connection resolved elsewhere")
 
 
-# --------------------------------------------------------------------------- #
-# Owned database lifecycle
-# --------------------------------------------------------------------------- #
 def _admin_engine(anchor: Anchor):
     return create_async_engine(
         anchor.url.set(database="postgres"),
@@ -271,7 +264,6 @@ def drop_action(
     if owner == expected:
         return "drop"
     if owner is None and created_by_run:
-        # Allocated by this run but failed before the COMMENT was written.
         return "drop"
     return "refuse"
 
@@ -301,9 +293,6 @@ async def create_owned_database(anchor: Anchor, state: RunState, name: str) -> N
             await connection.exec_driver_sql(
                 f'CREATE DATABASE "{name}" TEMPLATE template0'
             )
-            # Register inside the live connection block, before the fallible
-            # connection close / engine disposal: a dispose, COMMENT or verify
-            # failure must still clean up the freshly created database.
             state.created.append(name)
     finally:
         await engine.dispose()
@@ -337,9 +326,6 @@ async def drop_created_database(anchor: Anchor, name: str) -> None:
     await _drop_database(anchor, name)
 
 
-# --------------------------------------------------------------------------- #
-# SQL / Alembic helpers
-# --------------------------------------------------------------------------- #
 async def fetch_scalar(
     anchor: Anchor, database: str, sql: str, params: dict | None = None
 ):
@@ -447,12 +433,9 @@ async def assert_sentinel_columns(anchor: Anchor, database: str) -> None:
             )
 
 
-# --------------------------------------------------------------------------- #
-# pg_dump / pg_restore backends (host client when present, else the container)
-# --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class DumpBackend:
-    kind: str  # "host" | "docker"
+    kind: str
     container: str | None = None
 
 
@@ -582,9 +565,6 @@ def pg_restore_database(
         )
 
 
-# --------------------------------------------------------------------------- #
-# Phases
-# --------------------------------------------------------------------------- #
 async def phase_fresh(anchor: Anchor, state: RunState) -> None:
     database = derived_database(anchor, "fresh")
     policy = graph_policy()

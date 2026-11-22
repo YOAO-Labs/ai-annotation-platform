@@ -418,7 +418,6 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
                 raise HTTPException(
                     status_code=409, detail="执行器密钥变化，CPU 租约需要协调"
                 )
-            # A lost response/restart may only recover this exact durable claim.
             stop = bool(due_to_stop(preview))
             try:
                 await training.authority(
@@ -440,8 +439,6 @@ async def claim(db, body, *, training_authority: TrainingAuthorityPort):
                     stop = True
             return await assignment(db, preview, stop=stop)
         return None
-    # Resolve an old durable claim before qualifying a new runtime. An idle
-    # recovery must not advertise stale capabilities or acquire queued work.
     if body.recover_only:
         return None
     if not qualified_runtime(body.runtime):
@@ -926,8 +923,6 @@ async def output(preview, *, include_report=True, db):
 
 
 async def cleanup(db):
-    # Release the CPU fence before storage I/O, so unrelated cleanup cannot
-    # starve the current subprocess heartbeat.
     lease = await lock_resource(db)
     stopping = 0
     if lease.preview_id:

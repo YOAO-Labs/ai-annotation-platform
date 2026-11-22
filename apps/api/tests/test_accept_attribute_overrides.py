@@ -83,7 +83,6 @@ async def test_accept_without_overrides_keeps_predicted_attrs(
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    # 响应仅含本次新建 (单 shape → 1 条), 不再是整题全量。
     assert len(data) == 1
     ann = data[0]
     assert ann["source"] == "prediction_based"
@@ -100,15 +99,13 @@ async def test_accept_with_overrides_applies_edited_values(
     resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/predictions/{pred.id}/accept?shape_index=0",
         headers=_bearer(token),
-        # 审阅时把 color 改 blue→white; vehicle_type 保持
         json={"attribute_overrides": {"color": "white", "_shape_index": 999}},
     )
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    assert len(data) == 1  # 只返回本次新建的标注
+    assert len(data) == 1
     ann = data[0]
     assert ann["source"] == "prediction_based"
-    assert ann["attributes"]["color"] == "white"  # 改后值落库
-    assert ann["attributes"]["vehicle_type"] == "bus"  # 未改保留
-    # 内部键不被 override 干扰 (权威 _shape_index=0, 非 override 的 999)
+    assert ann["attributes"]["color"] == "white"
+    assert ann["attributes"]["vehicle_type"] == "bus"
     assert ann["attributes"]["_shape_index"] == 0

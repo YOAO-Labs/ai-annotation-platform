@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// 校验 CHANGELOG.md 顶部声明的最新版本不落后于 git tag。
-// 仅在能拿到 tag 时校验；本地环境没有 tag 时静默通过。
 
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";

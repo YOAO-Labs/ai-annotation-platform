@@ -1,5 +1,3 @@
-# Optional Native pyramid settings and secrets live in
-# docker-compose.assets-native.yml; leave them out for Source-only deployment.
 services:
   assets-source:
     build:

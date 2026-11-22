@@ -254,8 +254,6 @@ async def _close_export_cache_lock(
 
 
 async def _update_export_progress(db, job_uuid, pct):
-    # A duplicate delivery can outlive the winning publication. Serialize each
-    # progress write with completion so it cannot lower a terminal job's 100%.
     await check_cancelled(db, job_uuid, lock=True)
     await async_job_svc.update_progress(db, job_uuid, pct)
 
@@ -286,10 +284,6 @@ async def _complete_from_cache(
     task_ids: list[uuid.UUID] | None,
     batch_id: uuid.UUID | None = None,
 ) -> None:
-    # Final result/URL boundary: reauthorize current account + membership and
-    # the canonical selected-task scope immediately before the cache-hit URL.
-    # ``_assert_export_task_scope`` inside the guard compares these same worker
-    # arguments against the stored job scope and fails closed on mismatch.
     prepared = await export_outputs.prepare_download(
         db, hit.output, download_name=download_name, expected_revision=hit.gate_revision
     )
@@ -349,8 +343,6 @@ async def _emit_export_notification(
             notif_payload["expires_at"] = result.get("expires_at")
         if not ok and error:
             notif_payload["error"] = error[:200]
-        # Returned unpublished; the caller publishes after its commit so the WS
-        # delivery gate can see the committed notification row.
         return await NotificationService(db).notify(
             user_id=job.user_id,
             type="export.ready" if ok else "export.failed",
@@ -381,7 +373,6 @@ async def _publish_export_retry(task, job_id: uuid.UUID, error: Exception):
     if task.request.called_directly or task.request.retries >= 120:
         raise error
     if task.request.is_eager:
-        # Eager retry is local execution, not a broker publication receipt.
         retry_signal = task.retry(exc=error, countdown=5, max_retries=120, throw=False)
         if not isinstance(retry_signal, Retry):
             raise RuntimeError("Celery eager retry was not accepted")
@@ -457,7 +448,6 @@ async def _scope_fingerprint(
         annotation_row.was_cancelled.is_(False),
     )
     if batch_id is not None:
-        # Annotation 无 batch_id 列；与 _load_data 一致，按 task.batch_id 过滤。
         q = q.where(
             annotation_row.task_id.in_(
                 select(task_row.id).where(task_row.batch_id == batch_id)
@@ -1036,9 +1026,6 @@ async def _run_export(
                     scope_digests["task_ids"] = [
                         str(task_id) for task_id in selected_task_ids
                     ]
-                    # ponytail: share only retries of this durable job. A new
-                    # selected export must see fresh predictions/media/tracks;
-                    # cross-job reuse needs a complete content revision first.
                     scope_digests["task_export_job_id"] = async_job_id
                 if {"kitti", "nuscenes"} & set(targets):
                     scope_digests[
@@ -1061,7 +1048,6 @@ async def _run_export(
                     adapter_contracts=registry.versions(targets),
                     options_digest=canonical_digest(options_payload),
                 )
-                # media 前缀 + 友好下载名（{display_id}_{dataset?}_{job[:8]}.zip）。
                 media, dataset_name, project_display_id = await _scope_naming(
                     db, proj_uuid, batch_uuid, selected_task_ids
                 )
@@ -1098,7 +1084,6 @@ async def _run_export(
                         raise ExportBuildInProgress(
                             "another worker is building the same export cache key"
                         )
-                    # 首次 miss 与抢锁之间可能已有前驱任务完成。
                     hit = (
                         None
                         if reference_media
@@ -1118,7 +1103,6 @@ async def _run_export(
                     )
                     return
 
-                # 未命中：将 ZIP 写入临时文件，避免整包驻留 RAM。
                 await execution.assert_owned()
                 await _update_export_progress(db, job_uuid, 10)
                 await db.commit()
@@ -1179,7 +1163,6 @@ async def _run_export(
                     db, candidate, download_name=download_name
                 )
 
-                # Serialize cancellation, authority revocation and publication.
                 await check_cancelled(db, job_uuid, lock=True)
                 await execution.assert_owned()
                 await _reauthorize_export_final_write(
@@ -1195,8 +1178,6 @@ async def _run_export(
                         output=output,
                         batch_id=batch_uuid,
                     )
-                # Shared row locks prevent credential edits, but time can pass
-                # while the output/cache locks wait. Recheck expiry at signing.
                 await execution.assert_owned()
                 download_url = await _sign_export_output(
                     db,
@@ -1250,8 +1231,6 @@ async def _run_export(
                         "export database session was lost"
                     ) from exc
                 if owned_media:
-                    # The owned branch fences its exact lease before every
-                    # terminal write; the generic handler must not overwrite it.
                     if isinstance(exc, ExportCancelled):
                         return
                     if owned_terminal_guard:
@@ -1267,9 +1246,6 @@ async def _run_export(
                     raise
                 if isinstance(exc, ExportBuildInProgress):
                     raise
-                # A failed PUT, cancellation, or unknown commit outcome never
-                # authorizes deleting bytes. The independent candidate retains
-                # responsibility until its fixed deadline and explicit retirement.
                 if isinstance(exc, ExportCancelled):
                     return
                 try:

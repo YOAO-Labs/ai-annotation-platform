@@ -183,8 +183,6 @@ class ReadClient:
         try:
             metadata = response.get("Metadata", {})
             validate_response(self.route, response)
-            # Keep strict business metadata comparisons intact. Only these
-            # independently verified migration creation fields are transport facts.
             result = {
                 **response,
                 "Metadata": {

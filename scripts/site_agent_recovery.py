@@ -81,8 +81,6 @@ class Recovery:
         self.pool = ThreadPoolExecutor(max_workers=3)
 
     def close(self):
-        # HTTP requests have finite timeouts; do not leave observers running
-        # while the fixture's owned containers and networks are removed.
         self.pool.shutdown(wait=True, cancel_futures=True)
 
     def items(self):
@@ -209,8 +207,6 @@ class Recovery:
             and elapsed >= (len(expected) - self.rate) / self.rate,
             "central_bandwidth_not_enforced",
         )
-        # Exactly the recorded immutable result may be replayed; no byte or
-        # business counters are incremented by a repeated result request.
         ack = self.agent_http().call(
             "POST",
             f"/api/v1/site-agents/commands/{row['id']}/result",
@@ -241,7 +237,7 @@ class Recovery:
 
         def queued_read():
             if request.done():
-                request.result()  # Surface the actual HTTP failure, not a timeout.
+                request.result()
                 raise ValueError("read_finished_without_lost_poll_grant")
             return next(
                 (
@@ -262,8 +258,6 @@ class Recovery:
         )
         command_id = uuid.UUID(command["command_id"])
         require(command_id not in before, "lost_poll_wrong_command")
-        # Deliberately discard this real poll response before the Agent can
-        # journal it, then let the original unextended grant expire.
         request.result(timeout=70)
         current = self.command(command_id)
         require(
@@ -332,8 +326,6 @@ class Recovery:
         until(
             lambda: self.command(command["id"]), lambda value: value["closed"] is True
         )
-        # Existing resume supersedes the old attempt, retaining and validating
-        # its directory checkpoints. No fixture SQL changes a business row.
         self.http.call(
             "POST", "/api/v1/dataset-scans/" + scan["id"] + "/resume", expected=202
         )
@@ -382,7 +374,6 @@ class Recovery:
     def offline_metadata(self, original_ids, item):
         self.stop_agent()
 
-        # Expire a real heartbeat, rather than manufacturing an offline row.
         def offline_source():
             page = self.http.call(
                 "GET",

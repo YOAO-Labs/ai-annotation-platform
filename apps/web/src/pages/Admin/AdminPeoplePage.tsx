@@ -49,18 +49,12 @@ const ROLE_OPTS = [
   { v: "reviewer", label: "审核员" },
 ];
 
-/**
- * Platform account role label.  The card never renders a raw enum and never
- * compares the platform role to a project duty (that comparison is always false
- * after the employee cutover).
- */
 export function platformRoleLabel(role: string): string {
   return ROLE_LABELS[role as PlatformRole] ?? role;
 }
 
 type BadgeVariant = "default" | "accent" | "ai" | "danger";
 
-/** Badge colour by platform account role (not by project duty). */
 export const PLATFORM_ROLE_BADGE_VARIANT: Record<string, BadgeVariant> = {
   super_admin: "danger",
   project_admin: "accent",
@@ -83,7 +77,6 @@ const SORT_OPTS = [
   { v: "weekly_compare", label: "周环比↓" },
 ];
 
-// UA-safe 表单基线(无全局 preflight 期间,原生 select/input 需消浏览器默认样式)
 const FIELD_CLASS =
   "appearance-none rounded-md border border-border bg-card px-2.5 py-1.5 text-sm text-foreground";
 const SECTION_TITLE_CLASS = "border-b border-border px-3.5 py-2.5 text-xs font-semibold";
@@ -114,7 +107,6 @@ export function AdminPeoplePage() {
   const [exporting, setExporting] = useState(false);
   const pushToast = useToastStore((s) => s.push);
 
-  // (A3) · 项目级范围:project_admin 仅见自有项目且必须选定一个项目。
   const { role: userRole } = usePermissions();
   const isProjectAdmin = userRole === "project_admin";
   const { data: projects } = useProjects();
@@ -140,7 +132,6 @@ export function AdminPeoplePage() {
     patch({ q: nextQuery }, { replace: true });
   }, [debouncedQuery, filters.q, patch, queryDraft]);
 
-  // project_admin 未选项目时自动选第一个(后端对其强制项目范围,不选会 403)。
   useEffect(() => {
     if (isProjectAdmin && !project && projectOpts.length > 0) {
       patch({ project: projectOpts[0].id });
@@ -184,7 +175,6 @@ export function AdminPeoplePage() {
 
   const { data, isLoading } = useAdminPeople({
     ...peopleParams,
-    // project_admin 在自动选定项目前不发请求(避免 403 噪声)
     enabled: !(isProjectAdmin && !project),
   });
 
@@ -220,7 +210,6 @@ export function AdminPeoplePage() {
         </div>
       </div>
 
-      {/* sticky filter bar */}
       <div className="sticky top-16 z-local-5 mb-4">
         <Card>
           <div className="flex flex-wrap items-center gap-2 p-3">
@@ -252,7 +241,6 @@ export function AdminPeoplePage() {
               value={sort}
               onChange={(v: string) => patch({ sort: v as PeopleSort }, { replace: false })}
             />
-            {/* (A3) · 项目级范围下拉 */}
             <FilterGroup label="项目" compact>
               <FilterSelect
                 className="max-w-[200px]"
@@ -474,14 +462,11 @@ function PersonDrawer({
   const navigate = useNavigate();
   const { data, isLoading } = useAdminPersonDetail(userId, period, project);
 
-  // (A3) · reject/类别维度下钻:仅项目模式可下钻(tasks 查询需 project_id)。
-  // 选中一个维度值 → 内联展开该项目内本人匹配任务列表。
   const [drill, setDrill] = useState<{ type: "reject" | "class"; value: string } | null>(null);
   const toggleDrill = (type: "reject" | "class", value: string) => {
     setDrill((cur) => (cur && cur.type === type && cur.value === value ? null : { type, value }));
   };
 
-  // 项目维度下钻:跳到该项目 review 队列按本人 assignee 过滤(复用后端 assignee_id 过滤)。
   const drillToProject = (projectId: string) => {
     navigate(`/review?project=${projectId}&assignee=${userId}`);
     onClose();
@@ -520,20 +505,11 @@ function PersonDrawer({
             <div className="flex flex-col gap-4">
               <div className="grid grid-cols-[repeat(auto-fit,minmax(120px,1fr))] gap-2">
                 <KpiCell label="产能" value={data.throughput} />
-                <KpiCell label="质量" value={`${data.quality_score}%`} />
                 <KpiCell
-                  label="活跃"
-                  value={data.active_minutes == null ? "—" : `${data.active_minutes}m`}
+                  label="质量（首过率）"
+                  value={data.first_pass_yield == null ? "—" : `${data.quality_score}%`}
                 />
-                <KpiCell label="综合分" value={data.composite_score} />
-                <KpiCell
-                  label="首过率"
-                  value={
-                    data.first_pass_yield == null
-                      ? "—"
-                      : `${Math.round(data.first_pass_yield * 100)}%`
-                  }
-                />
+                <KpiCell label="个人综合分" value={data.composite_score} />
               </div>
 
               <Card>
@@ -731,7 +707,6 @@ function PersonDrawer({
   );
 }
 
-// (A3) · 下钻任务列表:项目内本人按 reject 原因 / 类别过滤的任务(只读,展示 display_id + 状态)。
 function DrillTaskList({
   projectId,
   assigneeId,

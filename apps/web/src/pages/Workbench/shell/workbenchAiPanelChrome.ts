@@ -1,5 +1,3 @@
-// 工作台 AI 单题与视频 AI 追踪共用的浮层视觉骨架。
-// 这里只收口表面、头部、图标与内容分区，定位和交互仍由各面板自行负责。
 export const AI_PANEL_SURFACE_CLASS =
   "overflow-hidden rounded-lg border border-violet-500/35 bg-card shadow-xl";
 

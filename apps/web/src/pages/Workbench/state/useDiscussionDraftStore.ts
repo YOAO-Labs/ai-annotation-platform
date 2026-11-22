@@ -13,19 +13,11 @@ import {
 } from "./discussionTypes";
 import { randomId as createId } from "@/utils/id";
 
-/**
- * The discussion composer intentionally stores data, rather than the editor's
- * DOM.  This keeps an editor remount (or a dock/float transition) from
- * becoming a second source of truth and makes the same store usable by the
- * Workbench and the bounded ReviewWorkbench adapter.
- */
 export type DiscussionDraftStatus = "idle" | "dirty" | "submitting" | "error";
 
 export interface DiscussionDraft extends DiscussionPayload {
-  /** The target is copied into a draft so an old annotation cannot follow a new selection. */
   target: DiscussionTarget;
   targetKey: string;
-  /** `text` is the editor-facing name; `body` remains the API-facing alias. */
   text: string;
   body: string;
   targetLabel: string | null;
@@ -35,13 +27,11 @@ export interface DiscussionDraft extends DiscussionPayload {
   status: DiscussionDraftStatus;
   error: string | null;
   inFlightRequestId: string | null;
-  /** Origin of the live canvas session, if one is currently active or attached. */
   canvasOrigin: DiscussionOrigin | null;
   canvasActive: boolean;
 }
 
 export type DiscussionDraftPatch = {
-  /** `text` and `body` are aliases; if both are supplied, `body` wins. */
   text?: string;
   body?: string;
   mentions?: CommentMention[];
@@ -73,7 +63,6 @@ export interface DiscussionSubmissionSnapshot {
 export interface DiscussionDraftStoreSnapshot {
   owner: DiscussionSessionOwner;
   drafts: Readonly<Record<string, DiscussionDraft>>;
-  /** Explicit send-target selection, scoped to a project/task tuple. */
   sendTargets: Readonly<Record<string, DiscussionTarget>>;
   disposed: boolean;
   dirty: boolean;
@@ -103,7 +92,6 @@ type Listener = () => void;
 type DraftStoreInput = {
   owner: DiscussionSessionOwner;
   onDispose?: (owner: DiscussionSessionOwner) => void;
-  /** Host auth lease; defaults to true for pure stores and test adapters. */
   isOwnerCurrent?: (owner: DiscussionSessionOwner) => boolean;
 };
 
@@ -154,11 +142,6 @@ function fieldIsPresent(value: unknown): boolean {
   return true;
 }
 
-/**
- * Validate before a payload reaches a mutation.  In particular, task and
- * Issue comments do not silently lose mentions, uploads, drawings or video
- * anchors when an annotation-only adapter is reused.
- */
 export function validateDiscussionPayload(
   target: DiscussionTarget,
   payload: DiscussionPayload,
@@ -273,7 +256,6 @@ export interface DiscussionDraftStore {
     drawing: CommentCanvasDrawing | null,
     options?: { active?: boolean },
   ): boolean;
-  /** Start/replace the live canvas transaction for one target. */
   startCanvasSession(origin: DiscussionOrigin, initial?: CommentCanvasDrawing | null): boolean;
   setCanvasSession(
     origin: DiscussionOrigin,
@@ -298,11 +280,6 @@ export interface DiscussionDraftStore {
   dispose(): void;
 }
 
-/**
- * Create a session-scoped store.  This function deliberately does not cache
- * the result: each authenticated provider owns its own lifetime, so a logout
- * followed by a login as the same user gets a fresh store and fresh session ID.
- */
 export function createDiscussionDraftStore({
   owner,
   onDispose,
@@ -313,7 +290,6 @@ export function createDiscussionDraftStore({
   const sendTargets = new Map<string, DiscussionTarget>();
   const selectedAnnotations = new Map<string, string | null>();
   const disposedOrigins = new Set<string>();
-  /** Latest live-drawing transaction per target; stale results are ignored. */
   const latestCanvasOrigins = new Map<string, string>();
   const listeners = new Set<Listener>();
   let disposed = false;
@@ -403,9 +379,6 @@ export function createDiscussionDraftStore({
 
   const targetFor = (origin: DiscussionOrigin): DraftInternal | undefined => {
     if (!ownerFor(origin)) return undefined;
-    // Drawing/upload completions may arrive after the composer unmounted. A
-    // valid owner/target is enough to lazily recreate that target's draft;
-    // an invalid owner or disposed origin never gets this path.
     return find(origin.target) ?? ensure(origin.target);
   };
 
@@ -431,9 +404,6 @@ export function createDiscussionDraftStore({
     getSnapshot: () => snapshot,
     getDraft: (target) => {
       if (!ownerIsCurrent()) return undefined;
-      // Read from the cached public snapshot so this method is safe as a
-      // useSyncExternalStore getSnapshot callback. Returning a fresh clone on
-      // every read would make React believe the store changed forever.
       return snapshot.drafts[targetId(target)];
     },
     ensureDraft: (target, initial) => publicDraft(ensure(target, initial)),
@@ -475,8 +445,6 @@ export function createDiscussionDraftStore({
       draft.targetAvailable = available;
       draft.unavailableReason = available ? null : (reason ?? "此讨论目标已不可访问");
       if (!available && draft.status === "submitting") {
-        // The request remains owned; its result will be ignored unless the
-        // target is made available again, and content remains recoverable.
         draft.status = hasContent(draft) ? "dirty" : "idle";
       }
       emit();
@@ -485,9 +453,6 @@ export function createDiscussionDraftStore({
     captureAnchor: (target, anchor, options) => {
       if (!anchor || disposed) return false;
       const draft = ensure(target);
-      // Callers invoke this at the first content/drawing transition. The
-      // explicit `force` form is reserved for a deliberate location update;
-      // a missing anchor can still be captured after the text patch itself.
       if (!options?.force && draft.anchor) return false;
       if (JSON.stringify(draft.anchor) === JSON.stringify(anchor)) return false;
       draft.anchor = clone(anchor);
@@ -505,8 +470,6 @@ export function createDiscussionDraftStore({
         target: clone(target),
         requestId,
       };
-      // Creating a new origin supersedes an older live canvas transaction for
-      // the same target. Older completion results must not overwrite it.
       latestCanvasOrigins.set(targetId(target), requestId);
       return origin;
     },
@@ -620,8 +583,6 @@ export function createDiscussionDraftStore({
       ) {
         return null;
       }
-      // A caller can provide a fresh serialized payload. Keep the store's
-      // structured draft in sync before taking the immutable snapshot.
       if (
         candidate.body !== draft.body ||
         JSON.stringify(candidate.mentions) !== JSON.stringify(draft.mentions) ||
@@ -708,10 +669,6 @@ export function createDiscussionDraftStore({
       const hadSelection = selectedAnnotations.has(key);
       if (selectedAnnotations.get(key) === annotationId) return;
       selectedAnnotations.set(key, annotationId);
-      // Selection changes switch drafts; their contents stay with the original target.
-      // The first null observation is only the shell's default state. Keep an
-      // existing recovery/explicit target until the user actually clears a
-      // selected annotation.
       if (!annotationId && !hadSelection) return;
       store.setSendTarget(
         projectId,

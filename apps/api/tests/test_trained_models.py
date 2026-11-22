@@ -352,8 +352,6 @@ async def test_registration_is_immutable_idempotent_and_guards_source_storage(
     from app.db.models.training_storage_deletion import TrainingStorageDeletion
     from app.services.storage import storage_service
 
-    # Physical deletion belongs to the staged cleanup owner; the retained model
-    # must block before any intent is staged or any prefix is deleted.
     delete_objects = Mock()
     monkeypatch.setattr(storage_service, "delete_prefix", delete_objects)
     deleted = await httpx_client.delete(
@@ -421,8 +419,6 @@ async def test_release_generation_idempotency_and_verified_rollback(
     owner, token = super_admin
     project, run, attempt = await seed_source(db_session, owner)
     first, _ = await register(httpx_client, token, project, run, attempt)
-    # One completed attempt feeds one version, so the second model needs its
-    # own retained source inside the same project.
     _, second_run, second_attempt = await seed_source(
         db_session, owner, project=project
     )
@@ -473,8 +469,6 @@ async def test_pending_job_replay_keeps_original_release_after_new_publication(
     owner, token = super_admin
     project, run, attempt = await seed_source(db_session, owner)
     first, _ = await register(httpx_client, token, project, run, attempt)
-    # The replayed job must observe a newer release; that newer model needs its
-    # own completed attempt within the same project.
     _, second_run, second_attempt = await seed_source(
         db_session, owner, project=project
     )
@@ -844,8 +838,6 @@ def test_backend_control_errors_preserve_status_detail_and_retry_after():
 
 
 def _controlled_segment_stage(**overrides):
-    # A stage is only in scope once it names a controlled model; these cases must
-    # exercise the controlled segmentation root guards rather than be skipped.
     stage = {
         "model_id": f"trained:{uuid.uuid4()}",
         "task": "segment",
@@ -887,8 +879,6 @@ def test_backend_download_is_absolute_with_a_relative_browser_proxy(monkeypatch)
     parsed = urlsplit(url)
     assert parsed.scheme in {"http", "https"} and parsed.netloc
     assert parsed.path.endswith("/owned/weights.pt")
-    # The saved bucket travels with the signed request; the relative browser
-    # proxy route never prefixes a backend-reachable URL.
     assert bucket in parsed.netloc or parsed.path.startswith(f"/{bucket}/")
     assert not parsed.path.startswith("/minio/")
     public_url = service.storage.generate_download_url("owned/input.png")
@@ -916,7 +906,6 @@ async def test_frozen_model_revalidates_current_project_bindings(
     extra_field["reference_digest"] = content_digest(
         {key: value for key, value in extra_field.items() if key != "reference_digest"}
     )
-    # Unknown keys are not normalized away: the whole reference is invalid.
     with pytest.raises(FreezeModelReferenceError) as unknown:
         await port.validate(
             ValidateFrozenModelReferenceRequest(
@@ -937,7 +926,6 @@ async def test_frozen_model_revalidates_current_project_bindings(
             if key != "reference_digest"
         }
     )
-    # Absent pinned release fields are an invalid reference, not a shorthand.
     with pytest.raises(FreezeModelReferenceError) as missing:
         await port.validate(
             ValidateFrozenModelReferenceRequest(

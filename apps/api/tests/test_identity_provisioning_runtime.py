@@ -259,4 +259,3 @@ async def test_real_bootstrap_cli_uses_only_operational_capabilities(
             )
             == 1
         )
-    # Immutable Audit and its actor are retained for owned verifier DB teardown.

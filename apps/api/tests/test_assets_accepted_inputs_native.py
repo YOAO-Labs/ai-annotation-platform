@@ -225,7 +225,6 @@ async def test_reservation_replay_keeps_original_source_and_scope(db_session):
     }
     assert "file_path" not in accepted and "source_identity" not in accepted
 
-    # Replays return the accepted receipt before looking at changed source facts.
     await db_session.execute(
         text("UPDATE public.dataset_items SET file_path=:path WHERE id=:item_id"),
         {"path": f"changed/{item_id}.png", "item_id": item_id},
@@ -235,7 +234,6 @@ async def test_reservation_replay_keeps_original_source_and_scope(db_session):
     assert replay["source_snapshot"] == accepted["source_snapshot"]
     assert replay["source_generation"] == accepted["source_generation"]
 
-    # The worker refuses to copy if the captured source no longer resolves.
     assert await _claim(db_session, accepted["input_id"]) is None
     current = _data(
         _reply(
@@ -265,7 +263,6 @@ async def test_reservation_replay_keeps_original_source_and_scope(db_session):
         "source_changed",
     )
 
-    # A Job cannot use a batch/bulk scope or a different actor as an input grant.
     wrong_job = uuid.uuid4()
     db_session.add(
         AsyncJob(
@@ -361,13 +358,11 @@ async def test_input_lease_finish_source_fence_and_task_workflow_version(db_sess
     assert read_work["blob"]["key"] == claim["blob_key"]
     assert read_work["source"]["source_snapshot"] == source["source_snapshot"]
 
-    # A completed origin Job can still back an authorized candidate/retry write.
     await db_session.execute(
         text("UPDATE public.async_jobs SET status='completed' WHERE id=:job_id"),
         {"job_id": job_id},
     )
 
-    # Workflow-only version and assignment changes do not change source identity.
     task.version = task.version + 1
     task.assignee_id = actor_id
     await db_session.flush()
@@ -386,7 +381,6 @@ async def test_input_lease_finish_source_fence_and_task_workflow_version(db_sess
     assert locked["input_id"] == ready["input_id"]
     assert locked["task_version"] != task.version
 
-    # A real Task source-binding change is still fenced at the final write.
     task.file_path = f"relinked/{task.id}.png"
     await db_session.flush()
     _error(
@@ -538,7 +532,6 @@ async def test_annotation_input_pins_survive_parent_clones_and_drive_gc(db_sessi
     assert retained["ok"] is True
     assert retained["data"]["referenced"] is True
 
-    # Deleting Job history cannot invalidate bytes retained by Annotation pins.
     await db_session.execute(
         text("DELETE FROM public.async_jobs WHERE id=:job_id"), {"job_id": job_id}
     )
@@ -699,7 +692,6 @@ async def test_annotation_input_pins_survive_parent_clones_and_drive_gc(db_sessi
 async def test_independent_connections_cannot_claim_one_input_twice(
     test_engine, committed_batch_job_id
 ):
-    # Commit a private test world so two independent PostgreSQL sessions can race.
     async with test_engine.connect() as setup_connection:
         async with AsyncSession(setup_connection, expire_on_commit=False) as setup:
             (
@@ -731,8 +723,6 @@ async def test_independent_connections_cannot_claim_one_input_twice(
                 )
             )["claim"]
             assert first_claim is not None
-            # The first transaction still owns the receipt lock; SKIP LOCKED
-            # makes the concurrent worker return no claim without waiting.
             second_claim = _data(
                 _reply(
                     await second.scalar(
@@ -754,7 +744,6 @@ async def test_independent_connections_cannot_claim_one_input_twice(
             if first_tx.is_active:
                 await first_tx.rollback()
 
-    # Settle the accepted-input lease before releasing the test-owned Job.
     async with test_engine.begin() as cleanup:
         await cleanup.execute(
             text("UPDATE public.async_jobs SET status='completed' WHERE id=:id"),

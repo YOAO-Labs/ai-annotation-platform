@@ -111,7 +111,6 @@ class LabelingClassQueryManager:
         for value in values:
             if isinstance(value, dict):
                 for key in value:
-                    # JSON object member names are strings.
                     if type(key) is not str:
                         raise LabelingClassQueryUnavailable()
                     result[key] = result.get(key, 0) + 1

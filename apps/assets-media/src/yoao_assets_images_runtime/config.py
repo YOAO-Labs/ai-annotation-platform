@@ -21,8 +21,6 @@ _BUCKET_ADAPTER = TypeAdapter(str)
 _BUCKET_PATTERN = re.compile(
     r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
 )
-# One operation-scoped capability token: printable ASCII, never whitespace,
-# NUL, DEL or any other control byte that a header or URL resolver could fold.
 _NATIVE_TOKEN = re.compile(r"^[\x21-\x7e]{32,}$")
 
 
@@ -221,8 +219,6 @@ def load_storage_config(
     legacy_name = "ASSETS_IMAGES_LEGACY_BUCKET"
     legacy_value = values.get(legacy_name)
     if legacy_value is None or not legacy_value.strip():
-        # Preserve the deployed annotation bucket only when its existing setting is
-        # explicitly present in the process environment.
         legacy_value = values.get("MINIO_BUCKET")
     if legacy_value is None or not legacy_value.strip():
         legacy_value = values.get("MINIO_BUCKET_ANNOTATIONS")

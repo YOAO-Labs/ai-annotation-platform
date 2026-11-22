@@ -82,8 +82,6 @@ async def _inventory(session_factory, run_id, project_ids, task_ids):
     return scopes
 
 
-# The individual private request has a 60-second transport deadline. The
-# suite caller supplies a fresh shorter deadline for each reader wait.
 _READER_DRAIN_SECONDS = 45
 _LISTENER_CLOSE_SECONDS = 0.25
 
@@ -117,8 +115,6 @@ async def wait_for_fixture_original_readers(
                 raw.add_termination_listener(disconnected)
                 subscribed = False
                 try:
-                    # asyncpg commits LISTEN outside a transaction. Subscribe
-                    # before the first fresh status snapshot.
                     await raw.add_listener(channel, notified)
                     subscribed = True
                     while True:
@@ -158,8 +154,6 @@ async def wait_for_fixture_original_readers(
                             raise FixturePredictionRetirementBlocked(
                                 "original_reader_listener_unavailable"
                             )
-                        # asyncpg updates its local listener map before the
-                        # server acknowledges UNLISTEN.
                         async with asyncio.timeout(_LISTENER_CLOSE_SECONDS):
                             await raw.remove_listener(channel, notified)
                         if raw.is_closed():
@@ -167,7 +161,6 @@ async def wait_for_fixture_original_readers(
                                 "original_reader_listener_unavailable"
                             )
                     except BaseException as close_error:
-                        # Never return an unproved subscription to the pool.
                         proxy.detach()
                         raw.terminate()
                         if failure is not None and not isinstance(

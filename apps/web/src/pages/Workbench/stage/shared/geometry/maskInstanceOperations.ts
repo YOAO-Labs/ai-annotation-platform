@@ -33,7 +33,6 @@ export interface MaskInstanceOperationPlan {
   resultAreas: number[];
   primary: Uint8Array;
   created: Uint8Array[];
-  /** UI 中用于高亮本次被复制 / 拆出 / 合并的像素，不代表提交后的单一对象。 */
   focusAlpha: Uint8Array;
   cutPath?: MaskSlicePath;
 }
@@ -68,7 +67,6 @@ export function planMaskSlice(
     for (let x = 0; x < width; x += 1) {
       const index = y * width + x;
       if (!source[index]) continue;
-      // This exact expression and >= tie rule are shared with the server.
       if (dx * ((y + 0.5) / height - ay) - dy * ((x + 0.5) / width - ax) >= 0) {
         left[index] = 255;
         leftArea += 1;

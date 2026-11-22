@@ -58,7 +58,6 @@ def test_api_coco_rle_rejects_invalid_cases(case):
 
 
 def test_coco_rle_bbox_norm_is_tight_and_empty_safe():
-    # row-major pixels: [0,1,0, 0,1,0] -> vertical 1x2 column at x=1.
     rle = encode_coco_rle([0, 1, 0, 0, 1, 0], 3, 2)
     assert coco_rle_bbox_norm(rle) == {"x": 1 / 3, "y": 0, "w": 1 / 3, "h": 1}
     assert coco_rle_bbox_norm(encode_coco_rle([0] * 6, 3, 2)) == {}

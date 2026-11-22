@@ -648,8 +648,6 @@ async def test_video_input_manifest_and_receipt_expiry_allow_unreferenced_retry(
     assert sweep["expired"] == 1
     assert await _auxiliary_guard(db_session, dataset_id, item_id) == _clear()
 
-    # The immutable sealed manifest remains as history, but the expired input
-    # receipt alone no longer prevents deleting its unreferenced source Item.
     await db_session.execute(
         text("UPDATE public.tasks SET dataset_item_id=NULL WHERE id=:task"),
         {"task": task_id},

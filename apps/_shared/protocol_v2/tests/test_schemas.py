@@ -221,9 +221,6 @@ def test_scribble_rejects_invalid_stroke(polarity, points, location) -> None:
     assert exc.value.errors()[0]["loc"] == location
 
 
-# ---------- 运行时状态与预热 ----------
-
-
 def test_prediction_result_with_cache_hit_and_pool_state() -> None:
     r = PredictionResult(
         cache_hit=True,
@@ -285,9 +282,6 @@ def test_warmup_response_with_evicted() -> None:
     )
     assert r.model_load_ms == 4500
     assert r.evicted == "yolov8/n/detection"
-
-
-# ---------- Protocol v2.1 ----------
 
 
 def test_protocol_version_constants() -> None:

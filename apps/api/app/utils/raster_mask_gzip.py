@@ -21,13 +21,6 @@ from __future__ import annotations
 import gzip
 import zlib
 
-# ADR-0052 §D6 · bounded decompress constants (module-level so tests
-# and callers can import the same source of truth).
-# NOTE: ``MAX_UNCOMPRESSED_BYTES`` mirrors ``MAX_RLE_OBJECT_BYTES`` in
-# ``app.services.raster_mask_storage`` (both 4 MiB per ADR-0048 / ADR-0052).
-# We duplicate the literal here rather than importing it to avoid a circular
-# import (raster_mask_storage imports from this module). A unit test in
-# ``tests/test_mask_gzip_transport.py`` asserts the two stay in sync.
 MAX_COMPRESSED_BYTES = 8 * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = 4 * 1024 * 1024
 MAX_EXPANSION_RATIO = 20
@@ -80,9 +73,8 @@ def decompress_mask_gzip(
         raise ValueError("gzip payload is empty")
     decompressor = zlib.decompressobj(zlib.MAX_WBITS | 16)
     try:
-        # max_length bounds allocation even for a malicious high-ratio stream.
         out = bytearray(decompressor.decompress(raw, max_uncompressed + 1))
-    except zlib.error as exc:  # malformed / not actually gzip
+    except zlib.error as exc:
         raise ValueError(f"gzip decode failed: {exc}") from exc
     if len(out) > max_uncompressed:
         raise ValueError(

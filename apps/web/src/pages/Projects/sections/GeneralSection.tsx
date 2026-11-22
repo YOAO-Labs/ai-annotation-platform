@@ -21,7 +21,6 @@ const CONTROL_CLASS =
 const PROGRESS_CHIP_CLASS =
   "rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-muted-foreground";
 
-/** 项目进度概览（只读）。计数口径与 Dashboard 项目行一致，复用同一 ProgressBar。 */
 function ProgressOverview({ project }: { project: ProjectResponse }) {
   const totalTasks = project.total_tasks ?? 0;
   const denom = totalTasks || 1;
@@ -31,7 +30,6 @@ function ProgressOverview({ project }: { project: ProjectResponse }) {
 
   const pct = Math.round((project.completed_tasks / denom) * 100);
   const aiPct = project.ai_enabled ? Math.round((aiCompleted / denom) * 100) : 0;
-  // 「已动工」副条 = (in_progress + review + completed) / total，与 Dashboard 口径一致
   const startedPct = Math.round(((inProgress + review + project.completed_tasks) / denom) * 100);
 
   const batch = project.batch_summary;
@@ -74,7 +72,6 @@ export function GeneralSection({ project }: { project: ProjectResponse }) {
   const [status, setStatus] = useState(project.status);
   const [dueDate, setDueDate] = useState(project.due_date ?? "");
 
-  // 项目名称只在 onBlur 落库，补浏览器离开提示，避免未失焦直接关 tab / 刷新丢改名。
   useUnsavedWarning(name.trim() !== "" && name.trim() !== project.name);
 
   useEffect(() => {
@@ -84,8 +81,6 @@ export function GeneralSection({ project }: { project: ProjectResponse }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project.id]);
 
-  // 自动保存：状态 / 截止日期等离散控件即时存；项目名称走文本框失焦保存。
-  // 失败弹 toast，成功静默（避免每次改动都打扰）。
   const savePatch = (patch: {
     name?: string;
     status?: string;

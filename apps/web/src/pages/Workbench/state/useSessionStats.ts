@@ -10,8 +10,6 @@ export const IDLE_TIMEOUT_MS = 5 * 60 * 1_000;
 export const IDLE_CHECK_INTERVAL_MS = 15 * 1_000;
 export const FLUSH_THRESHOLD = 20;
 export const MAX_FLUSH_BATCH_SIZE = 200;
-// ponytail: cap offline telemetry at 1,000 intervals; a durable local queue is
-// the upgrade path if outages need lossless collection.
 export const MAX_PENDING_EVENTS = 1_000;
 export const SESSION_COLLECTOR_VERSION = "session-v2";
 const MAX_FLUSH_RETRIES = 2;
@@ -71,12 +69,6 @@ function sameOwner(left: SessionOwner, right: SessionOwner): boolean {
   );
 }
 
-/**
- * Record bounded, visible Workbench intervals for ETA and the project
- * performance source. The active interval is always owned by its captured
- * task/project/account/work type; hidden and idle time is closed before a new
- * interval can start.
- */
 export function useSessionStats(
   currentTaskId: string | null,
   projectId?: string | null,
@@ -92,7 +84,6 @@ export function useSessionStats(
   const accountRef = useRef<string | null>(accountId ?? null);
   accountRef.current = accountId ?? null;
   const mountedRef = useRef(true);
-  // React StrictMode mounts effects twice; render/effect setup must restore it.
   mountedRef.current = true;
   const retryAttemptRef = useRef(0);
   const retryTimerRef = useRef<number | null>(null);
@@ -101,9 +92,6 @@ export function useSessionStats(
   const [samples, setSamples] = useState<number[]>([]);
 
   const clearPending = useCallback(() => {
-    // In-flight requests cannot be cancelled. Advancing the generation makes
-    // their eventual success/failure a no-op instead of touching a new
-    // account's queue.
     queueGenerationRef.current += 1;
     pendingRef.current = [];
     pendingAccountRef.current = null;
@@ -175,9 +163,6 @@ export function useSessionStats(
           hasMore = pendingRef.current.length > 0;
         } catch (error) {
           if (queueGenerationRef.current === generation) {
-            // A closed interval can become permanently invalid after a task is
-            // deleted or reassigned. Drop only a single such row; mixed batches
-            // receive per-row discard details from the API and resolve here.
             if (batch.length === 1 && isPermanentTaskEventError(error)) {
               const rejected = batch[0];
               pendingRef.current = pendingRef.current.filter((event) =>
@@ -190,8 +175,6 @@ export function useSessionStats(
               retryAttemptRef.current = 0;
               hasMore = pendingRef.current.length > 0;
             } else {
-              // Network, auth, throttling and server failures stay queued for
-              // a bounded retry. A later account switch clears the old queue.
               scheduleRetry(generation);
             }
           }
@@ -214,8 +197,6 @@ export function useSessionStats(
       const active = activeRef.current;
       if (!active) return;
 
-      // Never turn an idle gap into productive time, even if a browser event
-      // was delayed. A long live interval is split into bounded DB rows.
       const effectiveEndedAt = Math.min(endedAt, active.lastActivityAt + IDLE_TIMEOUT_MS);
       const events: TaskEventIn[] = [];
       let startedAt: number | null = active.startedAt;
@@ -392,7 +373,6 @@ export function useSessionStats(
   return { avgMs, samplesCount: samples.length, etaMs };
 }
 
-/** Format milliseconds as mm:ss / h:mm. */
 export function formatDuration(ms: number): string {
   if (ms < 0) return "—";
   const totalSec = Math.round(ms / 1000);

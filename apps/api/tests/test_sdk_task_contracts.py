@@ -268,7 +268,6 @@ async def test_scene_timeline_hides_selected_interval_on_unavailable_task(
         frame_indexes=[0, 1],
         assignee_id=worker.id,
     )
-    # This same-project frame exists in the scene but is not assigned to this user.
     tasks[1].assignee_id = None
     track_id = f"trk_{uuid.uuid4().hex[:12]}"
     track = SceneTrack(

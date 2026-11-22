@@ -26,7 +26,6 @@ from app.services.point_cloud_quality import service as point_cloud_quality
 _DomainReconciler = Callable[[AsyncSession, JobTerminal], Awaitable[None]]
 
 
-# Kinds without a separate domain ledger keep only the generic transition.
 async def _reconcile_dataset_quality(db: AsyncSession, terminal: JobTerminal) -> None:
     from types import SimpleNamespace
 
@@ -91,8 +90,6 @@ async def apply_signal_terminal(
         (job.payload or {}).get("video_execution_protocol")
         == "aap-video-execution-data/v1"
     ):
-        # A broker signal has no execution capability. It cannot terminalize
-        # the projection while a replacement may own the canonical tracker.
         return False
     interruption = _INTERRUPTION_HANDLERS.get(job.kind)
     if interruption is not None:
@@ -104,7 +101,6 @@ async def apply_signal_terminal(
         if job.kind == "prediction_retry" and isinstance(
             (job.payload or {}).get("prediction_retry_request_digest"), str
         ):
-            # Broker failure signals cannot prove the accepted retry lease.
             return False
         if job.status in {
             AsyncJobStatus.COMPLETED.value,

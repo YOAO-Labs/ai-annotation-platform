@@ -68,7 +68,6 @@ class LabelingWriteScope:
     expected_batch_id_known: bool
     job_id: uuid.UUID | None
     job_id_known: bool
-    # Older serialized scopes stay unknown rather than borrowing current facts.
     source_binding_known: bool = False
     task_source_generation: int | None = None
     source_dataset_item_id: uuid.UUID | None = None

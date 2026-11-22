@@ -14,7 +14,6 @@ async def test_overview_super_admin_only(httpx_client, super_admin, annotator):
     _, admin_token = super_admin
     _, anno_token = annotator
 
-    # super_admin 200
     res = await httpx_client.get(
         "/api/v1/admin/ml-integrations/overview",
         headers={"Authorization": f"Bearer {admin_token}"},
@@ -25,7 +24,6 @@ async def test_overview_super_admin_only(httpx_client, super_admin, annotator):
     assert "projects" in body
     assert body["total_backends"] == 0
 
-    # annotator 403
     res = await httpx_client.get(
         "/api/v1/admin/ml-integrations/overview",
         headers={"Authorization": f"Bearer {anno_token}"},
@@ -59,7 +57,6 @@ async def test_overview_groups_backends_by_project(
     b2, b2_pool = await create_registry_with_pool(
         db_session, name="b2", url="http://y:9000", state="disconnected"
     )
-    # ADR-0044 · overview 按项目「已启用」全局 backend 分组。
     db_session.add(
         ProjectMLBackendPool(project_id=proj.id, pool_id=b1_pool.id, enabled=True)
     )
@@ -106,9 +103,6 @@ async def test_overview_includes_ai_enabled_project_without_backend(
     assert group["project_name"] == "AI Empty"
     assert group["backends"] == []
     assert body["total_backends"] == 0
-
-
-# ── /probe + /runtime-hints ──────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -204,9 +198,6 @@ async def test_runtime_hints_null_when_not_set(httpx_client, super_admin, monkey
     assert res.json()["ml_backend_default_url"] is None
 
 
-# ── 容器直连观测 /observe + /observe/smoke-test ──────────────
-
-
 def _probe_fact(health, *, ok=True, status_code=200, error=None, latency_ms=3):
     return SimpleNamespace(
         ok=ok,
@@ -294,7 +285,6 @@ async def test_observe_returns_variant_catalog_and_registered_flag(
 
     monkeypatch.setattr(settings, "ml_backend_observe_urls", ["http://obs1:8001"])
 
-    # 全局注册表里有同 URL 的 backend → observe 应标 registered (来源标签 source)。
     from app.db.models.ml_backend_registry import MLBackendRegistry
 
     db_session.add(
@@ -392,7 +382,6 @@ async def test_observe_collects_per_model_variants(
                     "http://ocr:8005",
                     {"ok": True, "loaded": False},
                     {
-                        # Variants attached to models are merged and deduplicated.
                         "supported_variants": None,
                         "models": [
                             {
@@ -452,7 +441,7 @@ async def test_observe_collects_per_model_variants(
     t = res.json()["targets"][0]
     assert t["supports_variants"] is True
     keys = [g["key"] for g in t["supported_variants"]]
-    assert keys == ["version", "size", "lang"]  # 去重 + 保序
+    assert keys == ["version", "size", "lang"]
 
 
 @pytest.mark.asyncio

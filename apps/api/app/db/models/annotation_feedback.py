@@ -29,7 +29,6 @@ class AnnotationFeedback(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
-    # anchor_type ∈ {project, task, annotation, pixel, point_cloud}
     anchor_type: Mapped[str] = mapped_column(String(16), nullable=False)
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("projects.id"), nullable=False, index=True
@@ -40,8 +39,6 @@ class AnnotationFeedback(Base):
     annotation_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("annotations.id"), nullable=True
     )
-    # pixel anchor 携带归一化 x/y；point_cloud anchor 携带 scene/frame/质检定位器。
-    # none_as_null=True: Python None → SQL NULL (而非 JSONB 字面 null), 以匹配 CHECK 约束.
     anchor_position: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB(none_as_null=True), nullable=True
     )

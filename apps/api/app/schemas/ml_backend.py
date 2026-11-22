@@ -130,7 +130,6 @@ class MLBackendRegistryUpdate(MLBackendUpdate):
         return self
 
 
-# health_meta 子结构 (Pydantic 模型 → 前端 codegen 派生类型)
 class GpuInfo(BaseModel):
     device_name: str | None = None
     device_index: int | None = None
@@ -162,7 +161,7 @@ class CacheStats(BaseModel):
     hit_rate: float | None = None
 
     class Config:
-        extra = "allow"  # backend 可能扩展指标, 不强约束
+        extra = "allow"
 
 
 class CapabilityWarning(BaseModel):
@@ -171,7 +170,7 @@ class CapabilityWarning(BaseModel):
     由 services/ml_capabilities._collect_warnings 产出; 前端模型市场据此显示 ⚠ +
     可读原因, 把「字段拼错 / 值越界致工具静默不亮」变成可见信号。"""
 
-    level: str = "warning"  # warning | info
+    level: str = "warning"
     model_id: str | None = None
     field: str
     value: str
@@ -187,8 +186,6 @@ class BackendCapabilities(BaseModel):
     协议 v2 用 `infra` 描述后端默认基础设施，`models` 枚举模型目录；
     其余顶层字段为各模型能力的扁平并集，兼容仍读取顶层字段的调用方。"""
 
-    # backend 自报名 (如 "grounded-sam2-backend"), 用于前端能力目录展示
-    # 源 backend 名 (而非用户在项目里取的别名)。
     name: str | None = None
     version: str | None = None
     protocol_version: str = "1"
@@ -196,12 +193,8 @@ class BackendCapabilities(BaseModel):
     compat_protocol_versions: list[str] = []
     model_version: str | None = None
     weights_version: str | None = None
-    # 后端默认基础设施（协议 v2）
     infra: str = "unknown"
-    # backend 是否支持 POST /warmup (协议 §4.4). 老 backend 缺字段 = False.
     warmup_endpoint: bool = False
-    # ADR-0049 · strict canonical `/setup.managed_lifecycle`; None means the
-    # backend cannot participate in enforce promotion.
     managed_lifecycle: ManagedLifecycleCapabilities | None = None
 
     @field_validator("managed_lifecycle", mode="before")
@@ -212,17 +205,14 @@ class BackendCapabilities(BaseModel):
         return canonical_managed_lifecycle_capabilities(value)
 
     models: list[ModelCapability] = []
-    # 扁平并集 (向后兼容)
     is_interactive: bool = False
     supported_prompts: list[str] = []
     supported_inputs: list[str] = []
     supported_trackers: list[str] = []
-    # text-driven tracker (sam3_video) 子集; propagate 需 text/exemplars。
     text_driven_trackers: list[str] = []
     supported_text_outputs: list[str] = []
     supported_geometric_outputs: list[str] = []
     modalities: list[str] = []
-    # 受控词表校验诊断 (越界 task/infra/prompt/geometry); 空 = 全合法。
     warnings: list[CapabilityWarning] = []
 
 
@@ -239,7 +229,6 @@ class ComputeInfo(BaseModel):
     configured_device: str | None = None
     effective_device: str | None = None
     effective_provider: str | None = None
-    # False 表示 GPU-only，设备失效时必须显式失败，不得展示 CPU fallback。
     cpu_fallback_supported: bool | None = None
 
     class Config:
@@ -368,11 +357,8 @@ class HealthMeta(BaseModel):
     host: HostInfo | None = None
     cache: CacheStats | None = None
     model_version: str | None = None
-    # /setup 能力快照
     capabilities: BackendCapabilities | None = None
-    # 有效计算设备观测 (GPU 静默退回 CPU 告警用)。
     compute: ComputeInfo | None = None
-    # ADR-0049 · 真实 pool/session GPU 驻留，不得由 compute=cpu 推断。
     residency: ResidencyInfo | dict[str, Any] | None = None
 
     class Config:
@@ -381,8 +367,6 @@ class HealthMeta(BaseModel):
 
 class MLBackendOut(BaseModel):
     id: UUID
-    # ADR-0044 · 注册项不归属任何项目；项目端点从路径获得项目 ID。
-    # 本项目 id (表「该项目启用了此全局 backend」), 全局/admin 端点留 None。
     project_id: UUID | None = None
     name: str
     url: str
@@ -393,9 +377,6 @@ class MLBackendOut(BaseModel):
     gpu_resource_id: str | None = None
     vram_budget_mb: int | None = None
     eviction_priority: int = 0
-    # 缓存的 backend `/health` 深度指标 (gpu_info / cache / model_version);
-    # 由 services/ml_backend.check_health 写入, /admin/ml-integrations/overview 直接消费.
-    # 类型从 dict 收紧到 HealthMeta (含 host PerfHud 字段), 前端 codegen 派生.
     health_meta: HealthMeta | dict[str, Any] | None = None
     error_message: str | None
     last_checked_at: datetime | None = None
@@ -406,7 +387,6 @@ class MLBackendOut(BaseModel):
         from_attributes = True
 
 
-# WS /ws/ml-backend-stats 推送的单次快照
 class MLBackendStatsBinding(BaseModel):
     backend_id: UUID
     backend_name: str
@@ -431,7 +411,6 @@ class MLBackendStatsSnapshot(BaseModel):
     last_request_age_seconds: float | None = None
     pool: dict | None = None
     video_pool: dict | None = None
-    # 有效计算设备观测 (GPU 静默退回 CPU 告警用)。
     compute: ComputeInfo | None = None
     residency: ResidencyInfo | dict[str, Any] | None = None
     timestamp: datetime
@@ -443,7 +422,6 @@ class MLBackendHealthResponse(BaseModel):
     backend_name: str
 
 
-# ADR-0044 · 项目「启用勾选清单」: 列出全部全局 backend + 本项目启用态/覆盖。
 class ProjectMLBackendItem(BaseModel):
     """一行 = 一个全局 backend 在本项目的启用态 + 项目级覆盖。
 
@@ -466,7 +444,6 @@ class ProjectMLBackendEnablement(BaseModel):
     default_variants: dict | None = None
 
 
-# ADR-0050 §12.2 · 项目服务池绑定 API (pool-level)。
 class MLBackendPoolSummary(BaseModel):
     """服务池摘要 (项目可用清单 / 启用态)。
 
@@ -500,11 +477,9 @@ class ProjectMLBackendPoolEnablement(BaseModel):
     default_variants: dict | None = None
 
 
-# 模型市场单变体预热. 缺省时 backend 用默认变体 (保持旧 /reload 行为).
 class MLBackendReloadRequest(BaseModel):
     sam_variant: str | None = None
     dino_variant: str | None = None
-    # "image" 预热图片池 (默认), "video" 预热独立 video tracker 池 (仅认 sam_variant)
     modality: Literal["image", "video"] | None = None
 
     @model_validator(mode="before")

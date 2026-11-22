@@ -170,7 +170,6 @@ async def test_start_reuses_exact_input_and_conflicts_for_other_inputs_or_actor(
             StorageMigrationInventoryRequest(handling={"datasets": "retain"}),
         )
     assert caught.value.detail == {"code": "inventory_active_conflict"}
-    # Public handling keys are purpose names, not private bucket locators.
     payload = service.item(row).model_dump_json(exclude={"handling"})
     for private in [
         row.source["endpoint"],
@@ -222,7 +221,6 @@ async def test_binding_moved_to_b_is_reported_coverage_not_source_gate(
     db_session, super_admin
 ):
     binding = await db_session.get(StorageBinding, "datasets")
-    # A non-source binding observation does not grant access to that location.
     binding.bucket = "other-source-bucket"
     binding.generation += 1
     await db_session.flush()

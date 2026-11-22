@@ -82,7 +82,6 @@ async function selfCheck() {
   process.stdout.write("Notifications publication Node self-check passed\n");
 }
 
-// This byte-only bridge reaches the private network without importing an owner SDK.
 const bridge = `import json, sys, urllib.request, urllib.error
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, *args, **kwargs): return None

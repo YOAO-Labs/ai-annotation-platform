@@ -30,8 +30,6 @@ async def main() -> None:
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await bootstrap(db)
             async with db.begin():
-                # Keep the existing Location -> Binding lock order through
-                # provisioning so a concurrent cutover cannot redirect it.
                 location = await db.scalar(
                     select(StorageLocation)
                     .where(StorageLocation.id == LEGACY_LOCATION_ID)

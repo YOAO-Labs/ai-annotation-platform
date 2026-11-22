@@ -1,4 +1,3 @@
-// 共享值控件，个人页保持紧凑布局，工作台窗口直接展示说明。
 import { useEffect, useId, useRef, useState } from "react";
 import { HighlightText } from "@/components/ui/HighlightText";
 import { Icon } from "@/components/ui/Icon";
@@ -15,7 +14,6 @@ import type {
 
 const LOCKED_TITLE = "由项目统一配置";
 
-// 会话和独立 ui 偏好也可复用展示，不伪装成 workbench 存储字段。
 export type SettingsControlField = Pick<
   WorkbenchSettingField,
   "label" | "description" | "control"
@@ -30,7 +28,6 @@ interface SettingsFieldControlProps {
   layout?: "compact" | "settings";
   previewing?: boolean;
   onPreviewChange?: (active: boolean) => void;
-  /** 搜索结果高亮词;空串时不高亮(个人设置页不传)。 */
   highlightQuery?: string;
   onCommit: (value: WorkbenchSettingValue) => void;
 }
@@ -225,7 +222,6 @@ export function SettingsFieldControl({
   );
 }
 
-/** 标签内容按类型分段:顶部段切换(单帧/轨迹/AI),下方该段字段 Switch 列;类别名恒显标必选。 */
 function LabelContentByTypeControl({
   value,
   segments,
@@ -246,14 +242,12 @@ function LabelContentByTypeControl({
   const selected: string[] = value[active] ?? [];
   const toggle = (optValue: string) => {
     const has = selected.includes(optValue);
-    // 按 options 顺序重建当前段,其余段原样保留(提交整个对象)。
     const next = activeSeg.options
       .map((o) => o.value)
       .filter((v) => (v === optValue ? !has : selected.includes(v)));
     onCommit({ ...value, [active]: next } as LabelContentByType);
   };
   return (
-    // 保留键盘语义，避免外层分类 Tabs 的纵向 group 样式穿透嵌套列表。
     <TabsPrimitive.Root
       value={active}
       onValueChange={(next) => setActive(next as typeof active)}
@@ -296,7 +290,6 @@ function LabelContentByTypeControl({
   );
 }
 
-/** 多选 chips:点击切换;受 min 约束时已是最后一项的取消被拒绝(保序提交)。 */
 function MultiselectControl({
   value,
   options,
@@ -313,8 +306,7 @@ function MultiselectControl({
   const selected = new Set(value);
   const toggle = (optValue: string) => {
     const isOn = selected.has(optValue);
-    if (isOn && value.length <= min) return; // min 兜底:不允许低于下限
-    // 按 options 顺序重建,保证提交值稳定有序。
+    if (isOn && value.length <= min) return;
     const next = options
       .map((o) => o.value)
       .filter((v) => (v === optValue ? !isOn : selected.has(v)));
@@ -330,7 +322,6 @@ function MultiselectControl({
             key={opt.value}
             type="button"
             className={`px-2.5 py-1 appearance-none border rounded-full text-xs cursor-pointer transition-[border-color,background,color] duration-150 hover:border-brand hover:text-foreground disabled:cursor-not-allowed ${on ? "border-brand bg-brand/10 text-brand font-medium disabled:opacity-70" : "border-border bg-card text-muted-foreground"}`}
-            // chips 嵌在字段 <label> 内,显式 aria-label 兜底可达名,避免名被父 label 文本污染。
             aria-label={opt.label}
             aria-pressed={on}
             disabled={disabled || atFloor}
@@ -368,7 +359,6 @@ function SliderControl({
   max: number;
   step: number;
   disabled: boolean;
-  /** 拖动过程中每帧上报实时值(供父组件实时显示数字);不触发 commit。 */
   onLiveChange: (value: number) => void;
   onPreviewChange?: (active: boolean) => void;
   onCommit: (value: number) => void;

@@ -44,8 +44,6 @@ async def committed_rle_bindings(test_engine):
     try:
         yield
     finally:
-        # Registered before db_session: its business rollback and independent
-        # raster-owner cleanup finish before this fixture removes its own rows.
         async with sessions() as db:
             if created_purposes:
                 await db.execute(
@@ -69,8 +67,6 @@ def _require_owned_rle_bindings(request):
         == "test_reference_freeze_pins_labels_and_retains_originals_after_source_removal"
         and request.node.callspec.params["selection"].get("bridge")
     ):
-        # Resolve the async prerequisite from synchronous fixture setup, before
-        # pytest starts the test loop or any explicit business-session fixture.
         request.getfixturevalue("committed_rle_bindings")
 
 
@@ -304,7 +300,7 @@ async def test_reference_freeze_pins_labels_and_retains_originals_after_source_r
         path.unlink()
     world[5].enabled = False
     await db.commit()
-    await build(db, version)  # Completed delivery is idempotent even with no source.
+    await build(db, version)
     assert version.status == "ready" and version.snapshot == original_snapshot
     assert frozen_objects(f"projects/{project_id}/datasets/{version.id}/") == retained
     dataset_id = original_snapshot["samples"][0]["dataset_id"]
@@ -400,8 +396,6 @@ async def test_reference_partial_freeze_retries_same_snapshot_without_rereading_
     assert retry.status_code == 202 and retry.json()["id"] == str(version_id), (
         retry.text
     )
-    # The retry endpoint's xact lock lives in the fixture's outer transaction.
-    # Execute on that same owned session rather than acquiring it on another one.
     await build(db, version, execution_lock=False)
     assert version.status == "ready", version.error_message
     assert (
@@ -471,11 +465,11 @@ async def test_materialization_does_not_recapture_frozen_or_historical_lineage(
         json={},
     )
     assert report.status_code == 200 and not report.json()["ready"]
-    assert calls  # New freezes validate newly captured facts.
+    assert calls
     calls.clear()
     await build(db, version)
     assert version.status == "ready", version.error_message
-    assert not calls  # Existing freezes need content authority, not new provenance.
+    assert not calls
     assert version.snapshot == snapshot
     assert version.manifest.get("source_lineage_contract") == snapshot.get(
         "source_lineage_contract"
@@ -519,8 +513,6 @@ async def test_relocation_changes_new_lineage_but_preserves_pending_and_ready_fr
         },
     )
     assert stale.status_code == 409, stale.text
-    # Materializing an existing freeze may read the current authorized locator,
-    # but neither its retained provenance nor content identity can be rewritten.
     await build(db, old)
     assert old.status == "ready", old.error_message
     assert old.snapshot == frozen_snapshot
@@ -716,8 +708,6 @@ async def test_real_s3_reference_source_enters_training_freeze(
     monkeypatch.setattr(
         settings, "connector_encryption_key", Fernet.generate_key().decode()
     )
-    # This harness owns a loopback-only disposable MinIO. Production guards
-    # remain unchanged; permit just its local addresses in this fixture.
     blocked = connector_guard._is_hard_blocked
     monkeypatch.setattr(
         connector_guard,
@@ -834,10 +824,6 @@ async def test_real_s3_reference_source_enters_training_freeze(
             db, httpx_client, headers(super_admin), project
         )
         if overwrite:
-            # Earlier live-provider cases may already have enabled versioning on
-            # this shared datasets bucket. Overwriting the current key alone then
-            # leaves the exact version pinned by the scan readable, so revoke that
-            # version to exercise a genuinely unreadable frozen source.
             for name, object_version in originals.items():
                 key = prefix + "collection/" + name
                 storage_service.client.put_object(

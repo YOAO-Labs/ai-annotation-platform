@@ -156,21 +156,18 @@ def test_composition_passthrough_and_default():
         "name": "onnxtools-backend",
         "infra": "onnx",
         "models": [
-            # 显式 composite（一锅端：内部编排复合）。
             {
                 "id": "vehicle-attr",
                 "task": "detection",
                 "composition": "composite",
                 "supported_geometric_outputs": ["bbox"],
             },
-            # 显式 atom（纯检测原子）。
             {
                 "id": "vehicle-detect",
                 "task": "detection",
                 "composition": "atom",
                 "supported_geometric_outputs": ["bbox"],
             },
-            # 不声明 composition → 缺省 atom。
             {
                 "id": "vehicle-attr-classify",
                 "task": "classification",
@@ -181,9 +178,7 @@ def test_composition_passthrough_and_default():
     models = {m["id"]: m for m in extract_capabilities(setup)["models"]}
     assert models["vehicle-attr"]["composition"] == "composite"
     assert models["vehicle-detect"]["composition"] == "atom"
-    # 缺省回落 atom。
     assert models["vehicle-attr-classify"]["composition"] == "atom"
-    # visibility 字段已删:不应再透传。
     assert "visibility" not in models["vehicle-attr"]
 
 
@@ -196,9 +191,6 @@ def test_legacy_backend_composition_defaults_atom():
     }
     model = extract_capabilities(setup)["models"][0]
     assert model["composition"] == "atom"
-
-
-# ── 多模型 backend (YOLO 官仓: 按任务分条目) ──
 
 
 def _yolo_setup() -> dict:
@@ -232,7 +224,6 @@ def _yolo_setup() -> dict:
                 "id": "pose",
                 "task": "keypoint",
                 "model_family": "yolo",
-                # 不声明几何 → 按 task 默认补全 keypoint
             },
             {
                 "id": "obb",
@@ -259,11 +250,8 @@ def test_multi_model_parses_each_entry():
     assert set(models) == {"detect", "segment", "pose", "obb", "classify"}
     assert models["detect"]["task"] == "detect"
     assert models["detect"]["model_family"] == "yolo"
-    # infra 缺省继承 backend
     assert models["detect"]["infra"] == "pytorch"
-    # 几何未声明按 task 默认补全
     assert models["pose"]["supported_geometric_outputs"] == ["keypoint"]
-    # OCR/cls 属性输出
     assert models["classify"]["output_attribute_types"] == ["class"]
 
 
@@ -295,17 +283,14 @@ def test_classes_passthrough():
         {"index": 0, "name": "person"},
         {"index": 2, "name": "car"},
     ]
-    # 未带 classes 的 model → 空列表 (前端据此回退"不按类筛选").
     assert models["segment"]["classes"] == []
 
 
 def test_multi_model_flat_union():
     caps = extract_capabilities(_yolo_setup())
     assert caps is not None
-    # 扁平并集 (向后兼容消费方): 几何去重合并
     geo = caps["supported_geometric_outputs"]
     assert set(geo) == {"bbox", "polygon", "keypoint", "rotated_bbox", "none"}
-    # 纯批量 YOLO → image 模态
     assert caps["modalities"] == ["image"]
 
 
@@ -322,7 +307,7 @@ def test_model_infra_override():
             {
                 "id": "ppocr",
                 "task": "ocr",
-                "infra": "paddle",  # 覆盖 backend 默认
+                "infra": "paddle",
                 "supported_geometric_outputs": ["polygon"],
                 "output_attribute_types": ["text", "language"],
             },
@@ -331,12 +316,9 @@ def test_model_infra_override():
     caps = extract_capabilities(setup)
     assert caps is not None
     models = {m["id"]: m for m in caps["models"]}
-    assert models["yolo"]["infra"] == "onnx"  # 继承
-    assert models["ppocr"]["infra"] == "paddle"  # 覆盖
+    assert models["yolo"]["infra"] == "onnx"
+    assert models["ppocr"]["infra"] == "paddle"
     assert "text" in models["ppocr"]["output_attribute_types"]
-
-
-# ── 向后兼容: 老 backend 无 models[] → 合成隐式单 model ──
 
 
 def test_supported_inputs_explicit_passthrough():
@@ -452,7 +434,6 @@ def test_supported_inputs_union_and_legacy_synth():
 
 
 def test_legacy_grounded_sam2_synthesizes_single_model():
-    # grounded-sam2: 有 prompts + trackers, 无 models[] / infra
     setup = {
         "name": "grounded-sam2",
         "version": "0.10.1",
@@ -466,18 +447,15 @@ def test_legacy_grounded_sam2_synthesizes_single_model():
     }
     caps = extract_capabilities(setup)
     assert caps is not None
-    # 合成单 model
     assert len(caps["models"]) == 1
     m = caps["models"][0]
     assert m["id"] == "grounded-sam2"
-    assert m["task"] == "tracker"  # 有 trackers 优先判 tracker
-    assert m["infra"] == "unknown"  # 老 backend 不报 infra
-    # 扁平字段与升级前完全一致 (向后兼容)
+    assert m["task"] == "tracker"
+    assert m["infra"] == "unknown"
     assert caps["is_interactive"] is True
     assert caps["supported_prompts"] == ["point", "bbox", "text"]
     assert caps["supported_trackers"] == ["sam2_video"]
     assert caps["supported_text_outputs"] == ["box", "mask", "both"]
-    # image (prompts 非空) + video (trackers 非空) 双修保留
     assert caps["modalities"] == ["image", "video"]
 
 
@@ -499,7 +477,6 @@ def test_default_variants_passthrough():
             {
                 "id": "no-default",
                 "task": "detection",
-                # 不报 default_variants → 派生层应给空 dict, 不报错
             },
         ],
     }
@@ -511,18 +488,13 @@ def test_default_variants_passthrough():
 
 
 def test_legacy_detection_only_backend():
-    # echo backend: 无 prompts/trackers/models → detection 单 model, 仅展示
     setup = {"name": "echo-backend", "labels": ["demo"], "is_interactive": False}
     caps = extract_capabilities(setup)
     assert caps is not None
     assert len(caps["models"]) == 1
     assert caps["models"][0]["task"] == "detect"
     assert caps["infra"] == "unknown"
-    # 无 prompts/trackers → 扁平为空; per-model 补 image
     assert caps["modalities"] == ["image"]
-
-
-# ── 模态派生 ──
 
 
 def test_modality_video_from_tracker_task():
@@ -606,9 +578,6 @@ def test_modality_lidar_from_geometry():
 def test_derive_modalities_empty_caps():
     assert derive_modalities(None) == []
     assert derive_modalities({}) == []
-
-
-# ---------- warmup_endpoint 透传 ----------
 
 
 def test_warmup_endpoint_true_passthrough():

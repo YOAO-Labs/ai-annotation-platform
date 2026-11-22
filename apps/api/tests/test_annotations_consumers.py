@@ -382,8 +382,6 @@ async def external_b(test_engine, monkeypatch):
 
 @pytest.fixture
 async def db_session(external_b, db_session):
-    # The target predates the caller transaction; its metadata cleanup therefore
-    # runs after the caller's SAVEPOINT and outer transaction have been released.
     yield db_session
 
 

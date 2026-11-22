@@ -79,7 +79,6 @@ async def test_video_snapshot_scope_and_shared_fences(test_engine):
             )
             db.add(item)
             await db.flush()
-            # Collection freezes owner metadata only; it must not probe source bytes.
             await _register_fixture_original(db, item, b"video")
             writes = LabelingE2EFixtureWrites(db)
             tasks = await writes.insert_tasks(

@@ -919,7 +919,6 @@ class PredictionInputs:
                 try:
                     await db.commit()
                 except BaseException as exc:
-                    # An acknowledgement failure cannot prove which receipt persisted.
                     raise storage_access.mark_unsettled(exc)
 
         await _async(publish())
@@ -1097,8 +1096,7 @@ class PredictionInputs:
         ):
             reject("video_stage_invalid")
         async with self._lock:
-            # The caller retains the source permit during this borrowed FD check.
-            # Hashing and transport also drain before this method releases it.
+
             def inspect_stage():
                 from app.services.media_process import _demuxer, decoder_input
 
@@ -1244,7 +1242,6 @@ class PredictionInputs:
             await db.commit()
 
     async def close(self):
-        # Waiting for another upload's lock is also part of physical ownership.
         await _async(self._close())
 
     async def _close(self):
@@ -1407,8 +1404,6 @@ def _listed(client, record, expected, deadline, *, versions=False):
 
 
 def _prepare_delete_known(storage, record, inventory):
-    # Some S3 servers ignore conditional DELETE headers. A saved immutable
-    # version is required independently from ETag and content equality.
     if any(
         entry["state"] == "verified" and entry["version_id"] in {None, "null"}
         for entry in inventory.values()
@@ -1623,8 +1618,6 @@ async def purge_input(factory, input_id, *, storage=None):
             physical_holder["storage"],
             close=False,
         )
-        # Preserve the original lifecycle contract: publishing deleted is only
-        # allowed after the native client really closed, while its permit lives.
         await close_physical()
         await _async(fresh(lock=True))
 

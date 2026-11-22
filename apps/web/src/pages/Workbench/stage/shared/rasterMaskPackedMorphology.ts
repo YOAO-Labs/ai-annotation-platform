@@ -146,10 +146,6 @@ function tailMask(width: number): number {
   return remainder === 0 ? 0xffff_ffff : 0xffff_ffff >>> (32 - remainder);
 }
 
-/**
- * Reference implementation mirroring the existing one-pass WGSL loop.
- * It is retained for differential tests and qualification benchmarks only.
- */
 export function squareDilatePackedXorDirect(
   options: RasterMaskPackedSquareDilateOptions,
 ): RasterMaskPackedSquareDilateResult {
@@ -177,11 +173,6 @@ export function squareDilatePackedXorDirect(
   };
 }
 
-/**
- * Production candidate: horizontal expansion is computed once for every input
- * row, then vertically ORed into the core. This removes the radius-squared loop
- * while preserving the one-pass WGSL bit and tail semantics.
- */
 export function squareDilatePackedXorSeparable(
   options: RasterMaskPackedSquareDilateOptions,
 ): RasterMaskPackedSquareDilateResult {

@@ -655,7 +655,6 @@ async def test_project_class_rename_owner_container_replay_restart_and_bounded_l
     workspace_token = secrets.token_urlsafe(32)
 
     try:
-        # Preserve the fixture's original public JWTs before selecting the owner.
         world = await seed_legacy_world(test_engine, app_module, monkeypatch, tmp_path)
         lock_world = await seed_lock_world(test_engine)
         profile_project_ids = await _seed_load_projects(test_engine, world)
@@ -735,8 +734,6 @@ async def test_project_class_rename_owner_container_replay_restart_and_bounded_l
                                     ),
                                     return_exceptions=True,
                                 )
-                                # Settle every request while the container
-                                # selector and clients still belong to this test.
                                 errors = [
                                     result
                                     for result in results

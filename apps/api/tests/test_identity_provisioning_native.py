@@ -130,7 +130,6 @@ def _create_payload(
 async def _cleanup(test_engine, account_ids, emails, request_ids) -> None:
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     async with maker.begin() as session:
-        # Immutable Audit and its actor stay until the verifier destroys its DB.
         await session.execute(
             text(
                 "DELETE FROM public.users AS account "

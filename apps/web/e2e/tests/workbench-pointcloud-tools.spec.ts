@@ -1,13 +1,3 @@
-/**
- * 点云工作台工具/键盘守护(P2 第二刀)。
- *
- * 见 §1 + §5:`usePointMask` 的纠缠正源于"合并的多工具键盘 effect"(B/V/Esc/P/Delete
- * 一个监听器抢占多键)。本 spec 直接钉死这些键盘 handler 的可观测后果(GPU 无关):
- *   ② 放置:B 键切框工具 → 连续创建 20 个 box_3d，保存期拒绝重复 pointer
- *   ③ 删除:点选框 → Delete 键 → handleDeleteSelected → DELETE /annotations/:id
- * 拆 3D 整簇时若动到合并键盘 handler 的结构/次序,这两条立刻报警。
- * 由 `pointcloud` project 跑(WebGL 软渲染)。
- */
 import { test, expect } from "../fixtures/seed";
 import { waitForApiWrite } from "../helpers/api-response";
 
@@ -22,7 +12,6 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     await page.goto(`/projects/${lidar.lidar_project_id}/annotate`);
     await expect(page.getByTestId("pointcloud-stats")).toBeVisible({ timeout: 20_000 });
 
-    // 起始 1 框(seed 注入)。
     await expect(page.getByText(/·\s*1\s*框/)).toBeVisible();
 
     let releaseFirstRequest: (() => void) | null = null;
@@ -38,15 +27,13 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
       await route.continue();
     });
 
-    // B 键只激活一次，状态条必须明确当前类别、可用手势和退出方式。
-    await page.locator("body").click(); // 确保焦点不在输入框
+    await page.locator("body").click();
     await page.keyboard.press("b");
     const creationStatus = page.getByTestId("three-d-creation-status");
     await expect(creationStatus).toHaveAttribute("data-phase", "armed");
     await expect(creationStatus).toContainText(/连续建框.*点击放置.*拖框拟合.*V\/Esc 退出/);
     await expect(page.getByTestId("three-d-tool-btn-box")).toHaveAttribute("aria-pressed", "true");
 
-    // 第一次保存故意挂起；期间第二次 pointer 必须被拒绝，不能排成并发 POST。
     const canvas = page.getByTestId("pc-viewport");
     await expect(canvas).toBeVisible();
     const box = await canvas.boundingBox();
@@ -70,7 +57,6 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     expect(body.geometry?.type).toBe("box_3d");
     await expect(creationStatus).toHaveAttribute("data-phase", "armed");
 
-    // armed 期间点 viewport 内的控件不得误创建；切到 BEV 后第二个框必须走真实拖框自动拟合。
     await page.getByRole("button", { name: "俯视" }).click();
     await page.waitForTimeout(250);
     expect(boxPostCount, "点击 viewport 控件不得创建框").toBe(1);
@@ -90,7 +76,6 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     expect(fittedBody.geometry?.size).toHaveLength(3);
     await expect(creationStatus).toHaveAttribute("data-phase", "armed");
 
-    // 同一 armed 会话继续创建到 20 个；每次都等保存完成，验证串行合同。
     for (let index = 2; index < 20; index += 1) {
       const responsePromise = page.waitForResponse(
         (response) =>
@@ -104,7 +89,6 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     expect(boxPostCount).toBe(20);
     await expect(page.getByText(/·\s*21\s*框/)).toBeVisible({ timeout: 10_000 });
 
-    // 新框保持选中，V 明确退出；退出后点击只执行选择，不再创建。
     await expect(page.getByLabel("展开详情")).toBeVisible();
     await page.keyboard.press("v");
     await expect(creationStatus).toHaveCount(0);
@@ -116,7 +100,6 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     await page.waitForTimeout(250);
     expect(boxPostCount).toBe(20);
 
-    // 每个连续创建结果仍是独立 history entry。
     const firstUndoResponse = page.waitForResponse(
       (response) =>
         response.request().method() === "DELETE" &&
@@ -218,7 +201,6 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
       "saving",
     );
 
-    // SceneTimeline 会预取相邻帧 manifest；切换后可直接命中缓存，不应强制等新的网络响应。
     await page.getByText(/e2e-lidar-.*-1\.pcd/, { exact: true }).click();
     await expect.poll(() => page.url()).toContain(secondTaskId);
     await expect(page.getByTestId("pointcloud-stats")).toBeVisible({ timeout: 20_000 });
@@ -297,9 +279,8 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
 
     const card = page.locator('[data-testid^="box-list-item-"]').first();
     await expect(card).toBeVisible({ timeout: 10_000 });
-    await card.click({ position: { x: 12, y: 16 } }); // 左侧避开图标
+    await card.click({ position: { x: 12, y: 16 } });
 
-    // 选中后 Delete 键 → handleDeleteSelected → DELETE。
     const delPromise = page.waitForRequest(
       (req) => req.method() === "DELETE" && /\/annotations\/[0-9a-f-]+/.test(req.url()),
       { timeout: 10_000 },
@@ -307,16 +288,11 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     await page.keyboard.press("Delete");
     await delPromise;
 
-    // 删除后列表里该框消失(0 个 box-list-item)。
     await expect(page.locator('[data-testid^="box-list-item-"]')).toHaveCount(0, {
       timeout: 10_000,
     });
   });
 
-  // ④ point-mask polygon:守护 usePointMask 的纠缠正源 —— polygon 状态(pointMaskPolygonPoints)
-  //    在「合并的多工具键盘 effect」里随 Enter 完成 / Esc 清理。拆 usePointMask 时若动到这个
-  //    合并 handler 的结构 / 次序,这条立刻报警。
-  //    P 切 point-mask → 选「多边形」→ canvas 点 3 点 → Enter 完成 → POST point_mask_3d。
   test("P → 多边形模式 → 画 polygon → Enter → POST point_mask_3d", async ({ page, seed }) => {
     const data = await seed.owned();
     const lidar = await seed.seedLidar();
@@ -327,16 +303,13 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     await page.goto(`/projects/${lidar.lidar_project_id}/annotate`);
     await expect(page.getByTestId("pointcloud-stats")).toBeVisible({ timeout: 20_000 });
 
-    // P 键切 point-mask 工具(走合并键盘 effect:P→onSetThreeDTool("point-mask"))。
     await page.locator("body").click();
     await page.keyboard.press("p");
 
-    // 工具栏出现选点模式下拉 → 切「多边形」(pointMaskSelectMode = "polygon")。
     const modeSelect = page.getByTestId("pointmask-mode-select");
     await expect(modeSelect).toBeVisible({ timeout: 10_000 });
     await modeSelect.selectOption("polygon");
 
-    // canvas 上点 3 点围出大三角形(覆盖中心点云区,确保 selectPointMaskInScreenPolygon 命中点)。
     const canvas = page.getByTestId("pc-viewport");
     const box = await canvas.boundingBox();
     if (!box) throw new Error("canvas boundingBox 不可用");
@@ -348,8 +321,6 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     await page.mouse.click(...at(0.75, 0.3));
     await page.mouse.click(...at(0.5, 0.75));
 
-    // Enter 完成多边形(命中合并键盘 effect 的 `e.key === "Enter" && pointMaskPolygonMode` 分支)
-    // → finishPointMaskPolygon → applyPointMaskSelection → POST point_mask_3d。
     const postPromise = page.waitForRequest(
       (req) =>
         req.method() === "POST" &&
@@ -392,10 +363,6 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     ];
     await page.mouse.click(...at(0.25, 0.3));
     await page.mouse.click(...at(0.75, 0.3));
-    // Await the matching RESPONSE, not just the request: the fixture teardown
-    // must not start while the point-mask write (and its task-lock heartbeat)
-    // is still in flight, otherwise the cleanup and the write deadlock and the
-    // owned cleanup fails with a misleading residual.
     const postResponsePromise = page.waitForResponse(
       (response) =>
         response.request().method() === "POST" &&
@@ -463,7 +430,6 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
         pointIndex: number;
         position: [number, number, number];
       }> = [];
-      // MouseEvent client coordinates are integers; probe the same pixels the clicks use.
       for (
         let y = Math.ceil(bounds.top + bounds.height * 0.15);
         y <= bounds.bottom - bounds.height * 0.15;

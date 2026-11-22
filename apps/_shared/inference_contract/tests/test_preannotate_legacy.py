@@ -38,7 +38,6 @@ def test_shared_model_fields_and_request_materialization_match_legacy():
         "PreannotateRequest": PreannotateRequest.model_json_schema(),
     }
     expected = copy.deepcopy(LEGACY["schemas"])
-    # The current description replaces historical version/stage-zero prose.
     for schemas in (actual, expected):
         schemas["PipelineStage"].pop("description")
         schemas["PreannotateRequest"]["$defs"]["PipelineStage"].pop("description")

@@ -1,7 +1,3 @@
-// 画布批注工具浮条。
-//
-// 浮在 ImageStage container 右上角，绝对定位。仅当 canvasDraft.active 时渲染。
-// 颜色 swatch + 撤销 / 清空 / 取消 / 完成。
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 

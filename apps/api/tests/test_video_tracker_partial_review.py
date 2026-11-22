@@ -579,7 +579,6 @@ async def test_captured_single_source_mapping_survives_primary_slice_removal(
         to_frame=2,
         prompt={"expected_source_versions": {str(source.id): 1}},
         staged_result={
-            # Candidate rows need no source_instance_id; the captured map remains stable.
             "results": [
                 {**_candidate(1), "instance_id": "source", "primary": True},
                 {**_candidate(2), "instance_id": "new", "primary": False},

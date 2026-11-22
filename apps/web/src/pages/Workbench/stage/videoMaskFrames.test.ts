@@ -284,7 +284,6 @@ describe("useVideoMaskFrames", () => {
       );
       const existingImage = result.current[0].image;
 
-      // A pending create enters the query cache before its server ID is available.
       await act(async () => {
         rerender({ ...initial, annotations: [persisted, optimistic], selectedId: temporaryId });
       });
@@ -292,7 +291,6 @@ describe("useVideoMaskFrames", () => {
       expect(result.current.map((record) => record.id)).toEqual([persisted.id]);
       expect(result.current[0].image).toBe(existingImage);
 
-      // useCreateAnnotation keeps the render key when replacing the optimistic row.
       const saved = { ...annotation(savedId), render_key: temporaryId };
       rerender({ ...initial, annotations: [persisted, saved], selectedId: saved.id });
       await waitFor(() =>

@@ -13,7 +13,6 @@ import type {
   PredictionSourceValue,
 } from "@/types";
 
-/** 把 {x,y,w,h} 包装为 bbox geometry。常用于 commit 几何变更时。 */
 export function bboxGeom(g: { x: number; y: number; w: number; h: number }): BboxGeometry {
   return { type: "bbox", x: g.x, y: g.y, w: g.w, h: g.h };
 }
@@ -22,17 +21,14 @@ export function polygonGeom(points: [number, number][]): PolygonGeometry {
   return { type: "polygon", points };
 }
 
-/** 把顶点序列包装为 polyline geometry（不闭合）。 */
 export function polylineGeom(points: [number, number][]): PolylineGeometry {
   return { type: "polyline", points };
 }
 
-/** 把 keypoint 列表包装为 keypoint geometry。 */
 export function keypointGeom(points: Keypoint[]): { type: "keypoint"; points: Keypoint[] } {
   return { type: "keypoint", points };
 }
 
-/** 计算 polygon 顶点的轴对齐包围盒（归一化）。 */
 export function polygonBounds(points: [number, number][]): {
   x: number;
   y: number;
@@ -54,9 +50,6 @@ export function polygonBounds(points: [number, number][]): {
   return { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) };
 }
 
-/**
- * 多连通域 polygons 的合并 bounding rect（取所有 polygon 外环顶点的 union AABB）。
- */
 function multiPolygonBounds(polygons: PolygonGeometry[]): {
   x: number;
   y: number;
@@ -80,7 +73,6 @@ function multiPolygonBounds(polygons: PolygonGeometry[]): {
   return { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) };
 }
 
-/** 多 polygon 中按外环顶点数取最大者作为渲染主环（与单 polygon 编辑路径兼容）。 */
 function pickPrimaryPolygon(g: MultiPolygonGeometry): PolygonGeometry {
   let best = g.polygons[0];
   for (let i = 1; i < g.polygons.length; i++) {
@@ -89,12 +81,6 @@ function pickPrimaryPolygon(g: MultiPolygonGeometry): PolygonGeometry {
   return best;
 }
 
-/** Geometry → 用于 UI 渲染的 bounding rect + 可选 polygon 顶点 + holes / multiPolygon 透传。
- *
- * ImageStage 的多边形编辑只操作一个外环。多连通时取顶点数最多的
- * 主外环作为 `polygon` 字段，完整 polygons 数组保存在 `multiPolygon`，
- * `holes` 也从 PolygonGeometry 透传。多环和孔洞由 evenodd 路径渲染。
- */
 export function geometryToShape(g: Geometry): {
   x: number;
   y: number;
@@ -106,7 +92,6 @@ export function geometryToShape(g: Geometry): {
   multiPolygon?: { points: [number, number][]; holes?: [number, number][][] }[];
   keypoints?: Keypoint[];
 } {
-  // keypoint: bounding rect 取所有已标注 (v>0) 点的 AABB; keypoints 透传供画布渲染。
   if (g.type === "keypoint") {
     const visible = g.points.filter((p) => p.v > 0);
     if (visible.length === 0) return { x: 0, y: 0, w: 0, h: 0, keypoints: g.points };
@@ -127,7 +112,6 @@ export function geometryToShape(g: Geometry): {
     return { ...b, polygon: g.points, holes: g.holes };
   }
   if (g.type === "polyline") {
-    // 复用 polygonBounds 计算顶点 AABB（与闭合无关，仅取 min/max）。
     const b = polygonBounds(g.points);
     return { ...b, polyline: g.points };
   }
@@ -145,17 +129,14 @@ export function geometryToShape(g: Geometry): {
     return { x: g.x, y: g.y, w: g.w, h: g.h };
   }
   if (g.type === "video_polygon") {
-    // 单帧 polygon: 与图片 polygon 同样返回外接盒 + polygon 顶点 (供列表 / Minimap / 选中锚点)。
     const b = polygonBounds(g.points);
     return { ...b, polygon: g.points, holes: g.holes };
   }
   if (g.type === "video_polyline") {
-    // 单帧 polyline: 顶点 AABB + polyline 顶点。
     const b = polygonBounds(g.points);
     return { ...b, polyline: g.points };
   }
   if (g.type === "video_rotated_bbox") {
-    // 单帧 OBB: 四角旋转后 AABB + polygon 顶点 (供列表/Minimap/选中锚点)。
     const rad = (g.angle * Math.PI) / 180;
     const cos = Math.cos(rad),
       sin = Math.sin(rad);
@@ -186,7 +167,6 @@ export function geometryToShape(g: Geometry): {
     return keyframe?.bbox ?? { x: 0, y: 0, w: 0, h: 0 };
   }
   if (g.type === "video_track_polygon" || g.type === "video_track_polyline") {
-    // polygon/polyline track: 取首个可见关键帧的顶点外接盒 (供列表 / Minimap / 选中锚点)。
     const outside = g.outside ?? [];
     const isOutside = (frame: number) => outside.some((r) => frame >= r.from && frame <= r.to);
     const keyframe = g.keyframes.find((kf) => !isOutside(kf.frame_index)) ?? g.keyframes[0];
@@ -194,7 +174,6 @@ export function geometryToShape(g: Geometry): {
     return pts.length >= 2 ? polygonBounds(pts) : { x: 0, y: 0, w: 0, h: 0 };
   }
   if (g.type === "rotated_bbox") {
-    // 旋转矩形四角旋转后的轴对齐包围盒（供列表 / Minimap / 选中浮条锚点）。
     const rad = (g.angle * Math.PI) / 180;
     const cos = Math.cos(rad),
       sin = Math.sin(rad);
@@ -213,22 +192,14 @@ export function geometryToShape(g: Geometry): {
     return polygonBounds(corners);
   }
   if (g.type === "box_3d" || g.type === "point_mask_3d") {
-    // 2D 画布不会显示 3D 几何，退化为空 shape；
-    // 2D 画布消费方不画,3D 渲染走 three-d 模块(PointCloudScene)。
     return { x: 0, y: 0, w: 0, h: 0 };
   }
   if (g.type === "video_mask" || g.type === "video_track_mask" || g.type === "raster_mask") {
-    // RLE AABB 需要异步读取 mask content；同步列表适配层不猜外接框。
-    // raster_mask 同样需要异步加载，返回空外接框。
     return { x: 0, y: 0, w: 0, h: 0 };
   }
   return { x: g.x, y: g.y, w: g.w, h: g.h };
 }
 
-/**
- * 收集属性 schema 中标了 `style_occluded` 的 boolean 字段 key。
- * 这些属性为 true 时，对应标注框渲染为虚线+半透（遮挡样式）。
- */
 export const collectOccludedKeys = (fields: AttributeField[]): Set<string> =>
   new Set(fields.filter((f) => f.type === "boolean" && f.style_occluded).map((f) => f.key));
 
@@ -245,18 +216,13 @@ export function annotationToBox(a: AnnotationResponse, occludedKeys?: Set<string
     parent_prediction_id: a.parent_prediction_id,
     lead_time: a.lead_time,
     render_key: a.render_key,
-    // shape 状态位（I15）。
     z_order: a.z_order ?? 0,
     is_locked: a.is_locked ?? false,
     is_hidden: a.is_hidden ?? false,
     version: a.version ?? 1,
-    // 遮挡为渲染派生：任一 style_occluded 属性为 true 即触发。
     occluded: occludedKeys ? [...occludedKeys].some((k) => a.attributes?.[k] === true) : false,
-    // 父子标注; 透传供侧栏缩进呈现。null/undefined 为顶层框。
     parent_annotation_id: a.parent_annotation_id ?? null,
-    // 透传属性，供画布上的单帧标签渲染。
     attributes: a.attributes ?? null,
-    // 属性级溯源, 供属性面板渲染 AI 来源 chip。
     attributes_meta: a.attributes_meta ?? null,
   };
 }
@@ -292,20 +258,11 @@ export function predictionSourceLabel(source: PredictionSourceValue | undefined)
 export type AiBox = Annotation & {
   predictionId: string;
   shapeIndex: number;
-  // B-57 · 预测自身的工具单位 (如 polygon→region); 采纳选类时据此取该单位的类别集合。
-  // Annotation 基类不含此字段 (仅 AnnotationResponse 有), 故在 AiBox 上显式补。
   tool_unit_id?: string | null;
   predictionSource: PredictionSourceValue;
-  // OCR / doc_layout 候选携带的属性 (如 OCR 的 {text, language?, orientation?}).
-  // 后端 PredictionShape 协议外字段, 透传供 AIInspectorPanel 渲染文本摘要并在 accept 时带入新建标注.
   attributes?: Record<string, unknown> | null;
 };
 
-/**
- * DINO 写入的 class_name 是项目类别的英文 alias; 反查对应 tool_unit 的 classes
- * 把 alias 映射回原类别名 (镜像后端 accept_prediction 的归一, 强隔离: 仅查本 unit)。
- * 命中不到则原样返回。返回大小写敏感的原始名。
- */
 function aliasResolverForUnit(
   toolBindings: ToolBindings | undefined,
   unit: ToolUnitId,
@@ -338,14 +295,11 @@ export function predictionsToBoxes(
         toolBindings?.[unit]?.classes?.some((entry) => entry.name === shape.class_name);
       const s = geometryToShape(shape.geometry);
       const shapeIndex = typeof shape.shape_index === "number" ? shape.shape_index : i;
-      // OCR / doc_layout 的 attributes (text / language / orientation 等) 是协议外字段,
-      // 后端 PredictionShape codegen 类型未声明, 这里防御式读取透传.
       const attributes = (shape as { attributes?: Record<string, unknown> }).attributes;
       return {
         id: `pred-${p.id}-${shapeIndex}`,
         annotation_type: shape.geometry.type,
         geometry: shape.geometry,
-        // B-57 · 采纳时让选类 popover 能按预测自身的工具单位 (而非当前激活工具) 取类别集合。
         tool_unit_id: unit,
         predictionId: p.id,
         shapeIndex,

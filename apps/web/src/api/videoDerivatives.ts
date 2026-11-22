@@ -11,7 +11,6 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SHA256 = /^[0-9a-f]{64}$/;
 let credentials: { token: string | null; owner: string; revision: number } | undefined;
 
-/** Public namespace only; credentials and signed URLs never become cache keys. */
 export function videoDerivativeOwnerKey(): string | null {
   const auth = useAuthStore.getState();
   const owner = JSON.stringify([auth.user?.id ?? null, auth.sessionId]);

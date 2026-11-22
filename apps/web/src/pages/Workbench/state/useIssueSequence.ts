@@ -78,7 +78,6 @@ interface LocalState {
   ownerKey: string | null;
   loading: boolean;
   error: Error | null;
-  /** A pointer to React Query data, never a second page owner. */
   overrideData: IssueQueryData | undefined;
   overrideHasNextPage: boolean;
   overrideIsError: boolean;
@@ -124,7 +123,6 @@ function asError(value: unknown, fallback = "问题序列加载失败"): Error {
   return new Error(fallback);
 }
 
-/** Preserve PostgreSQL microsecond ordering instead of relying on Date.parse. */
 function timestampMicros(value: unknown): number | null {
   if (typeof value !== "string") return null;
   const match =
@@ -162,7 +160,6 @@ function issueOrder(item: Pick<AnnotationFeedback, "created_at" | "id">): OrderK
   return timestamp === null ? null : { timestampMicros: timestamp, id: item.id };
 }
 
-/** Negative means left is newer, matching the API's created_at/id DESC order. */
 function compareNewestFirst(left: OrderKey, right: OrderKey): number {
   if (left.timestampMicros !== right.timestampMicros) {
     return left.timestampMicros > right.timestampMicros ? -1 : 1;
@@ -289,8 +286,6 @@ function evaluateSequence(input: {
   const index = insertion < 0 ? issues.length : insertion;
   const previous = index > 0 ? (issues[index - 1]?.item ?? null) : null;
   const next = index < issues.length ? (issues[index]?.item ?? null) : null;
-  // At the loaded tail, a later page may still reveal the true insertion
-  // boundary. Keep previous unknown until that boundary is exhausted.
   const previousUnknown = index === issues.length && hasMore;
   return {
     previous,

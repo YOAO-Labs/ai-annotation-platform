@@ -33,6 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tests.identity_e2e_support import e2e_consumer as e2e_consumer
 from tests.identity_e2e_support import fenced_http as fenced_http
 from tests.identity_e2e_support import fixture_routing_owner
+from tests.native_signer_support import NativeSigner
 from tests.seed_owned_scenarios import _build_owned, _cleanup_owned
 from tests.seed_owner_support import (
     OwnedSuite,
@@ -68,8 +69,6 @@ def _transport_gate(tmp_path: Path):
     gate.mkdir()
     state = tmp_path / "original-transport-state"
     state.mkdir()
-    # Only the full original GET is gated. The ordinary worker's preceding
-    # ranged header read and every subsequent HEAD still run unmodified.
     (gate / "sitecustomize.py").write_text(
         f"""import json, os, time
 from pathlib import Path
@@ -265,7 +264,15 @@ async def _prepare(media, actor, task):
     return uuid.UUID(data["data"]["work"]["job_id"])
 
 
-def _start_worker(media, tmp_path, name, job_id, gate=None):
+def _start_worker(
+    media,
+    tmp_path,
+    name,
+    job_id,
+    gate=None,
+    *,
+    native_signer: NativeSigner | None = None,
+):
     environment = _runtime_environment(
         tmp_path=tmp_path,
         role="worker",
@@ -284,6 +291,14 @@ def _start_worker(media, tmp_path, name, job_id, gate=None):
     for suffix in ("ENDPOINT", "BUCKET", "ACCESS_KEY", "SECRET_KEY"):
         name_env = "AAP_ASSETS_ADDITIONAL_ORIGINAL_" + suffix
         environment[name_env] = os.environ[name_env]
+    if native_signer is not None:
+        native_signer.assert_running()
+        environment.update(
+            {
+                "ASSETS_IMAGES_NATIVE_STORAGE_URL": native_signer.url,
+                "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN": native_signer.writer_token,
+            }
+        )
     log = tmp_path / (name + ".log")
     process, stream = _start_process(
         [
@@ -563,9 +578,6 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
             assert (
                 await asyncio.to_thread(_read_versions, reader, versions_b) == bytes_b
             )
-            # Cancel a second real B read while its response body is still open.
-            # A signal receipt is not physical exit: both socket and permit must
-            # remain until the held synchronous read is released and drained.
             _, task_c, source_c, row_c = await _fixture_source(
                 test_engine, world_b, run_b, versions_b, index=1
             )
@@ -614,8 +626,6 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
             assert await _operations(test_engine, row_c["id"]) == []
             cancelled_job = await _read_job(test_engine, job_c)
             assert cancelled_job["status"] == "running" and cancelled_job["lease_token"]
-            # The real abandoned lease is not a physical-exit receipt and may
-            # not be rewritten; let the native claimant recover after expiry.
             async with asyncio.timeout(2250):
                 while True:
                     async with test_engine.connect() as db:
@@ -673,7 +683,7 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
 
 
 async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
-    fenced_http, e2e_consumer, test_engine, monkeypatch, tmp_path
+    fenced_http, e2e_consumer, test_engine, monkeypatch, tmp_path, native_signer
 ):
     """Both real fixture consumers wait for the original native Images reader."""
     from celery import Celery
@@ -687,8 +697,6 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
     redis = _verify_redis()
     broker = make_url(settings.effective_celery_broker)
     assert (broker.host, broker.port) == (redis.host, redis.port)
-    # fenced_http uses this short-lived API LOGIN, not the Jobs or Media
-    # executor. Compose the embedded Catalog capability on that same session.
     role = e2e_consumer.url.username
     assert (
         role
@@ -781,8 +789,6 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         secret = await fixture_media_control.receipt_path(run.run_id)
         control_url = await fixture_media_control.load_control(run.run_id, secret)
 
-        # The producer is the ordinary Images LOGIN and its ordinary output
-        # target, not a fixture execution or a fabricated source receipt.
         response = await _post(
             media.control_client,
             media.control_token,
@@ -804,10 +810,23 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         monkeypatch.setenv("AAP_IMAGE_READER_GATE_KEY", original["object_key"])
         gate, state = _transport_gate(tmp_path)
         ordinary, ordinary_stream, ordinary_log = _start_worker(
-            media, tmp_path, "ordinary-pyramid", native_job, (gate, state)
+            media,
+            tmp_path,
+            "ordinary-pyramid",
+            native_job,
+            (gate, state),
+            native_signer=native_signer,
         )
         media.image_process, media.image_stream = ordinary, ordinary_stream
         await _wait_marker(state / "entered", ordinary, ordinary_log, timeout=90)
+        marker = json.loads((state / "entered").read_text())
+        assert marker["pid"] == ordinary.pid
+        assert marker["key"] == original["object_key"]
+        assert marker["version"] == original["version_id"]
+        assert marker["socket"].startswith("socket:[")
+        assert (
+            os.readlink(f"/proc/{ordinary.pid}/fd/{marker['fd']}") == marker["socket"]
+        )
         job = await _read_job(test_engine, native_job)
         assert job["status"] == "running" and job["lease_token"]
         asset, generation = job["pyramid_asset_id"], job["pyramid_generation"]
@@ -889,6 +908,16 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
             }
 
         async with test_engine.connect() as db:
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT producer_kind FROM yoao_jobs_v1.fixture_media_deliveries "
+                        "WHERE delivery_id=:delivery AND run_id=:run"
+                    ),
+                    {"delivery": delivery, "run": run.run_id},
+                )
+                == "pyramid"
+            )
             bindings = (
                 (
                     await db.execute(
@@ -980,7 +1009,74 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
             )
             assert await db.scalar(check, evidence) is False
             assert await db.scalar(check, {**evidence, "lease": uuid.uuid4()}) is False
+            publication = {
+                "run": run.run_id,
+                "delivery": delivery,
+                "nonce": uuid.uuid4(),
+            }
+            publication_lock = text(
+                "SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended("
+                "'aap-jobs:fixture-media:' || CAST(CAST(:delivery AS uuid) AS text),0))"
+            )
+            await db.scalar(publication_lock, {"delivery": delivery})
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT yoao_jobs_v1.begin_fixture_video_request_publication("
+                        ":run,:delivery,:nonce)"
+                    ),
+                    publication,
+                )
+                is None
+            )
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT yoao_jobs_v1.finish_fixture_video_request_publication("
+                        ":run,:delivery,:nonce,'accepted')"
+                    ),
+                    publication,
+                )
+                is False
+            )
+            with pytest.raises(DBAPIError) as forbidden:
+                await db.scalar(
+                    text(
+                        "SELECT yoao_jobs_v1.begin_fixture_media_publication(:delivery,:nonce)"
+                    ),
+                    {"delivery": delivery, "nonce": publication["nonce"]},
+                )
+            assert forbidden.value.orig.sqlstate == "42501"
         await control.dispose()
+        neighbor_secret = await fixture_media_control.receipt_path(neighbor.run_id)
+        neighbor_control = create_async_engine(
+            await fixture_media_control.load_control(neighbor.run_id, neighbor_secret),
+            hide_parameters=True,
+        )
+        try:
+            async with neighbor_control.connect() as db:
+                await db.scalar(publication_lock, {"delivery": delivery})
+                assert (
+                    await db.scalar(
+                        text(
+                            "SELECT yoao_jobs_v1.next_fixture_video_request_publication(:run)"
+                        ),
+                        {"run": run.run_id},
+                    )
+                    is None
+                )
+                assert (
+                    await db.scalar(
+                        text(
+                            "SELECT yoao_jobs_v1.begin_fixture_video_request_publication("
+                            ":run,:delivery,:nonce)"
+                        ),
+                        publication,
+                    )
+                    is None
+                )
+        finally:
+            await neighbor_control.dispose()
         with closing(fixture_original_reader()) as reader:
             neighbor_bytes = await asyncio.to_thread(
                 _read_versions, reader, neighbor_versions
@@ -1026,6 +1122,13 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                 )
                 == 0
             ), _process_log(ordinary_log)
+            published = await _read_job(test_engine, native_job)
+            assert published["status"] == "ready"
+            assert published["generation"] == job["generation"]
+            assert published["last_lease_token"] == job["lease_token"]
+            assert published["last_outcome"] == "published"
+            assert published["result"]["kind"] == "pyramid"
+            assert published["result"]["source_sha256"] == original["sha256"]
             async with test_engine.connect() as db:
                 assert (
                     await db.scalar(

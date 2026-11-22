@@ -140,8 +140,6 @@ async def _inventory(test_engine, *, retained=2, orphans=7):
                 )
         for key in keys:
             s3.delete_object(Bucket=bucket, Key=key)
-        # These facts belong to this disposable verifier, whose final destruction
-        # also owns journal receipts and the native rows. Never target shared data.
         s3.close()
 
 
@@ -243,8 +241,6 @@ async def test_business_collector_previews_without_mutation_and_reconciles_bound
             assert result["errors"] == 0, result
             assert result["delete_claims"] <= 3
             assert result["deleted"] <= result["delete_claims"]
-            # Reconcile the reported counters with durable native intents
-            # completed in this cycle.
             completed = await _completed_intents_since(world, cycle_started)
             assert result["completed"] == len(completed)
             assert result["deleted"] == sum(
@@ -258,13 +254,6 @@ async def test_business_collector_previews_without_mutation_and_reconciles_bound
             foreign_keys.update(key for key, _ in completed if key not in fixture_keys)
             totals.append(result["deleted"])
             owned_cumulative.append(owned_completed)
-        # The destructive fixture advances the sweep cutoff so freshly written S3
-        # bytes become eligible, which also makes any other unreferenced Mask object
-        # in the shared verifier store eligible. `claim_mask_gc_deletes` orders by
-        # (next_check_at, object_key), so a foreign eligible object can spend a
-        # bounded delete slot before this fixture's keys. Exact owned progress is
-        # therefore only attributable when no foreign intent completed during the
-        # sweep; otherwise the shared store was not isolated and is reported.
         owned_totals = [
             owned_cumulative[0],
             *[

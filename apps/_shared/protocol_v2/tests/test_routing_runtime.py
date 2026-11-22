@@ -378,7 +378,6 @@ async def test_cancellation_keeps_work_counted_until_asgi_child_finishes():
     await asyncio.sleep(0)
     assert controller.active_requests == 1
     stream_finish.set()
-    # The endpoint remains active after its final stream chunk for awaited background work.
     await asyncio.sleep(0)
     assert controller.active_requests == 1
     background_finish.set()
@@ -605,7 +604,6 @@ async def test_gpu_unload_route_requires_managed_headers_before_endpoint_dispatc
         path="/unload",
         headers=[(b"x-yoao-route-admission", token.encode()), *headers],
     )
-    # The real lifecycle endpoint separately verifies the GPU signature and scope.
     assert status == (200 if accepted else 401)
     assert controller.active_requests == 0
 

@@ -5,7 +5,6 @@ import { PointCloudScene } from "./PointCloudScene";
 
 describe("PointCloudScene main interaction coordinates", () => {
   it("uses the main panel for ray picking, rectangle and polygon selection on a shared surface", () => {
-    // Exercise public coordinate paths without allocating a WebGL context in jsdom.
     const scene = Object.create(PointCloudScene.prototype) as PointCloudScene;
     const camera = new THREE.PerspectiveCamera(60, 2, 0.1, 100);
     camera.position.set(0, 0, 10);

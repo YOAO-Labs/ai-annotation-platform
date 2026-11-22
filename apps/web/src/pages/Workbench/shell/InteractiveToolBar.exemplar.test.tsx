@@ -1,4 +1,3 @@
-// InteractiveToolBar (前 AIToolDrawer) exemplar 能力驱动渲染: 后端无负框/无 text 叠加时隐藏对应控件。
 import { fireEvent, render as rtlRender, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 

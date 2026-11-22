@@ -93,8 +93,6 @@ class LabelingTaskAssignmentService:
         for_update: bool = False,
     ) -> dict[uuid.UUID, tuple[Task, TaskBatch | None]]:
         if for_update:
-            # Batch-before-task locks must still cover the task's current batch
-            # after waiting; a changed scope is a stale preview, not an open pool.
             expected_batches = dict(
                 (
                     await execute_core_read(
@@ -248,10 +246,6 @@ class LabelingTaskAssignmentService:
                 and payload.reviewer_id is not None
                 and task.status != "review"
             ):
-                # ``submit`` intentionally clears reviewer fields while
-                # starting a review round. Accept reviewer assignment only
-                # once a task is in review so the bulk action has durable
-                # claim semantics instead of silently losing the assignment.
                 item.reason = "reviewer_assignment_requires_review"
             else:
                 active_lock = await lock_service.active_lock(task.id)
@@ -332,8 +326,6 @@ class LabelingTaskAssignmentService:
             if not item.will_change:
                 continue
             task = loaded[item.task_id][0]
-            # No editor, including the actor, may retain stale assignment.
-            # Try the canonical fence rather than waiting task-row -> advisory.
             try:
                 await lock_service.assert_final_write_available(
                     task.id, actor.id, allow_own=False

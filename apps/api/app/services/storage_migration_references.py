@@ -310,7 +310,6 @@ class SourceIndex:
                 "CREATE TABLE objects(bucket TEXT,key TEXT,version TEXT,kind TEXT,data TEXT,matched INTEGER DEFAULT 0,PRIMARY KEY(bucket,key,version,kind))"
             )
             self.db.execute("CREATE INDEX by_key ON objects(bucket,key)")
-            # No path reopen: verification, indexing and full-file digest use this FD.
             with source_stream(source, budget.strict_closure) as stream:
                 before = os.fstat(stream.fileno())
                 if not stat.S_ISREG(before.st_mode):

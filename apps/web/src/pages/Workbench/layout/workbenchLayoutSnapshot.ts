@@ -66,7 +66,6 @@ export type WorkspaceNode =
 export type WorkspaceLayout = Omit<SerializedDockview, "grid"> & {
   grid: Omit<SerializedDockview["grid"], "root"> & {
     root: WorkspaceNode;
-    // Dockview 8.2 writes this standard grid field but omits it from SerializedDockview.
     maximizedNode?: { location: number[] };
   };
 };
@@ -123,7 +122,6 @@ export function clampWorkspaceRect(
   };
 }
 
-/** The same allowlist validates network, cache and locally serialized snapshots. */
 export function sanitizeWorkspaceSnapshot(
   value: unknown,
   bounds?: WorkspaceBounds,
@@ -222,7 +220,6 @@ export function sanitizeWorkspaceSnapshot(
     const rect = record(value);
     const w = finite(rect.width, 1),
       h = finite(rect.height, 1);
-    // Dockview can anchor a float to either side. Normalize to top-left coordinates.
     const left =
       rect.left !== undefined ? finite(rect.left, -1_000_000) : width - finite(rect.right) - w;
     const top =

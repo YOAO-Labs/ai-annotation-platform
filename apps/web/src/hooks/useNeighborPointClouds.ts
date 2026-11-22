@@ -1,11 +1,5 @@
 import { originalOwnerKey } from "@/api/originals";
 import { useOriginalAssetOwner } from "@/pages/Workbench/stages/three-d/useOriginalAssetOwner";
-/**
- * 邻帧点云叠加:按邻帧 task 拉 manifest(point_cloud_url)+ 加载下采样 PCD。
- *
- * 每个邻帧一条 query(manifest → PCD → 下采样,缓存键含目标点数 + 轴系)。K 上限由调用方
- * 控制(点云比框重,建议 ≤3)。任一帧无 url → 跳过(不叠)。enabled=false 整体短路。
- */
 import { useQueries } from "@tanstack/react-query";
 import { tasksApi } from "@/api/tasks";
 import { loadNeighborPcdPositions } from "@/pages/Workbench/stages/three-d/geometry/loadNeighborPcd";

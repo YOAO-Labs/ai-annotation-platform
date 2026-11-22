@@ -28,7 +28,6 @@ export interface CapturedRequests {
 
 export const PROJECT_ID = "p1";
 
-/** Platform employee holding project-scoped read capabilities, not a global role. */
 export const READ_CAPABILITIES: ProjectCapability[] = ["project.read", "task.read"];
 
 const PROJECT = {
@@ -254,11 +253,6 @@ export const SUMMARY: DataManagerSummary = {
   kind_metrics: {},
 };
 
-/**
- * Describe the data-manager responses at the API boundary the page already
- * uses. Register with `installDataManagerApi()` in a `beforeEach`; the global
- * afterEach resets these runtime handlers.
- */
 export function installDataManagerApi(options: DataManagerApiOptions = {}): CapturedRequests {
   const capabilities = options.capabilities ?? READ_CAPABILITIES;
   const views = options.views ?? DEFAULT_VIEWS;

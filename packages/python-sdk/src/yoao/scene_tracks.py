@@ -78,7 +78,6 @@ class SceneTracks:
     def get_track(self, task_id: IdLike, track_id: str) -> SceneTrackDetail:
         """Read a track only when all of its member tasks are visible."""
         _check_track_id(track_id)
-        # Keep the literal route placeholder name for offline API discovery.
         track_id = quote(track_id, safe="")
         response = self._http.request(
             "GET", f"/tasks/{task_id}/scene-tracks/{track_id}"

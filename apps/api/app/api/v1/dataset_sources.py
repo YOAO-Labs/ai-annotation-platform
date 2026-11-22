@@ -525,8 +525,6 @@ async def verify_scan_content(
         )
 
     try:
-        # API verification publishes a receipt. Plain GET content keeps the
-        # existing read context and remains available for archived datasets.
         await dataset_guard(db, lock=False)
         snapshot = await scan_snapshot(
             db,

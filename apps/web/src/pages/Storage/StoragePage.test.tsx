@@ -1,6 +1,3 @@
-/**
- * StoragePage 单测 — 存储桶/数据集/视频资产失败 主路径.
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, within, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -26,7 +23,6 @@ vi.mock("@/components/jobs/AsyncJobDetailModal", () => ({
   ),
 }));
 
-// --- useQueryClient ---
 vi.mock("@tanstack/react-query", async () => {
   const actual =
     await vi.importActual<typeof import("@tanstack/react-query")>("@tanstack/react-query");
@@ -38,7 +34,6 @@ vi.mock("@tanstack/react-query", async () => {
   };
 });
 
-// --- useStorage ---
 const mockUseStorageBuckets = vi.fn();
 const mockUseVideoAssetFailures = vi.fn();
 vi.mock("@/hooks/useStorage", () => ({
@@ -51,13 +46,11 @@ vi.mock("@/hooks/useStorage", () => ({
   }),
 }));
 
-// --- useDatasets ---
 const mockUseDatasets = vi.fn();
 vi.mock("@/hooks/useDatasets", () => ({
   useDatasets: () => mockUseDatasets(),
 }));
 
-// --- toast ---
 vi.mock("@/components/ui/Toast", async () => {
   const actual =
     await vi.importActual<typeof import("@/components/ui/Toast")>("@/components/ui/Toast");

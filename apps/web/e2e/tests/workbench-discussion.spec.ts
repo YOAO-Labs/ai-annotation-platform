@@ -151,8 +151,6 @@ test("讨论通知通过实时推送打开五十条之后的旧回复，并刷�
     await expect
       .poll(async () => (await notifications(page, data.token)).items[0].read_at)
       .not.toBeNull();
-    // Browser back retains the authenticated query cache; the new reply must
-    // still be fetched when a later notification opens this same conversation.
     await page.goBack();
     await expect(page.getByTestId("notifications-trigger")).toBeVisible();
     const freshReply = await replyToIssue(page, reviewerToken, root.id, "缓存建立后才发布的新回复");
@@ -170,7 +168,6 @@ test("讨论通知通过实时推送打开五十条之后的旧回复，并刷�
     expect(errors).toEqual([]);
   } finally {
     await page.close();
-    await seed.owned();
   }
 });
 
@@ -258,7 +255,6 @@ test("标注提及通知定位原评论，发送目标跟随标注，支持静�
     await expect(page).toHaveURL(sourceUrl);
   } finally {
     await page.close();
-    await seed.owned();
   }
 });
 
@@ -305,17 +301,12 @@ test("问题状态通知为审核员打开对应审核工作台并保留字段�
       .toBe("open");
   } finally {
     await page.close();
-    await seed.owned();
   }
 });
 
 test("失效讨论地址和跨项目任务不会永久加载或先显示错误画布", async ({ page, seed }) => {
   test.setTimeout(120_000);
   const data = await setup(page, seed);
-  // The foreign project below is deliberately named like the shared fixture but
-  // is owned by this namespace's admin, so it must be removed before the owned
-  // pre-clean: `projects.owner_id` would otherwise block the user delete with a
-  // misleading residual.
   let foreignProjectId: string | null = null;
   try {
     const root = await createIssue(page, data, data.task_ids[0], "校验地址问题");
@@ -329,7 +320,6 @@ test("失效讨论地址和跨项目任务不会永久加载或先显示错误�
       });
       await expect(page.getByTestId("workbench-stage")).toHaveCount(0);
     }
-    // The standard seed cleanup owns projects with this exact fixture name.
     const foreign = await json<{ id: string }>(
       await page.request.post(`${API_BASE}/api/v1/projects`, {
         headers: auth(data.token),
@@ -356,8 +346,6 @@ test("失效讨论地址和跨项目任务不会永久加载或先显示错误�
     await expect(page.getByTestId("video-konva-stage")).toHaveCount(0);
     expect(foreignCanvasReads).toEqual([]);
 
-    // Invalid history input must also preserve an already admitted canvas and
-    // its send destination, even when the URL attempts a new batch and task.
     await openTask(page, data.project_id, data.task_ids[0]);
     await editor(page).fill("无效链接不能更换当前草稿目标");
     await page.getByTestId("workbench-stage").evaluate((element) => {
@@ -383,8 +371,6 @@ test("失效讨论地址和跨项目任务不会永久加载或先显示错误�
     );
     await expect(editor(page)).toHaveText("无效链接不能更换当前草稿目标");
   } finally {
-    // Remove the foreign project and prove it completed before the owned
-    // pre-clean runs; page cleanup must still happen if that assertion fails.
     try {
       if (foreignProjectId) {
         const deleted = await page.request.delete(
@@ -395,7 +381,6 @@ test("失效讨论地址和跨项目任务不会永久加载或先显示错误�
       }
     } finally {
       await page.close();
-      await seed.owned();
     }
   }
 });
@@ -449,7 +434,6 @@ test("未选标注可发送任务留言，失败保留正文，读回原生任�
     expect(errors).toEqual([]);
   } finally {
     await page.close();
-    await seed.owned();
   }
 });
 
@@ -552,7 +536,6 @@ test("混合讨论可加载旧标注评论，阅读范围与各发送目标的�
     await expect(panel.getByTestId("comment-input-disabled")).toHaveCount(0);
   } finally {
     await page.close();
-    await seed.owned();
   }
 });
 
@@ -610,7 +593,6 @@ test("任务 A 的晚响应不清空任务 B 草稿，离开工作台再返回�
   } finally {
     releaseResponse();
     await page.close();
-    await seed.owned();
   }
 });
 
@@ -653,8 +635,6 @@ test("弹窗未保存笔触跨页签和工作台路由恢复，并提交到原�
     await page.mouse.up();
     await expect(drawing.locator("polyline")).toHaveCount(1);
     const points = await drawing.locator("polyline").getAttribute("points");
-    // Closing the modal is not the explicit Save action: its unfinished
-    // composer draft must already own this stroke before presentation unmounts.
     await page.keyboard.press("Escape");
     await expect(popup).toHaveCount(0);
     await discussion(page).getByRole("tab", { name: "历史", exact: true }).click();
@@ -666,7 +646,6 @@ test("弹窗未保存笔触跨页签和工作台路由恢复，并提交到原�
       .click();
     await expect(page.getByTestId("workbench-topbar")).toHaveCount(0);
     await page.goBack();
-    // Returning without a canvas selection shows the task draft; reopen the original target.
     await destination.selectOption(annotationTarget);
     await expect(popupButton).toContainText("1 条");
     await popupButton.click();
@@ -697,7 +676,6 @@ test("弹窗未保存笔触跨页签和工作台路由恢复，并提交到原�
     expect(errors).toEqual([]);
   } finally {
     await page.close();
-    await seed.owned();
   }
 });
 
@@ -796,7 +774,6 @@ test("任务问题完整读取旧回复和嵌套回复，失败重试后解决�
     expect(errors).toEqual([]);
   } finally {
     await page.close();
-    await seed.owned();
   }
 });
 
@@ -846,7 +823,6 @@ test("未加载且被筛掉的图钉直接打开详情，不改列表筛选", as
     await expect(panel.getByTestId("issue-open-count")).toHaveText("待处理 51");
   } finally {
     await page.close();
-    await seed.owned();
   }
 });
 
@@ -863,7 +839,7 @@ test("解决分页边界上的问题后继续下一条，返回列表保留阅�
     const panel = discussion(page);
     await panel.getByRole("tab", { name: /^问题/ }).click();
     await expect(panel.locator('[data-testid^="discussion-issue-card-"]')).toHaveCount(50);
-    const current = roots[2]; // The fiftieth item of the descending first page.
+    const current = roots[2];
     const next = roots[1];
     const last = roots[0];
     const openCurrent = panel.getByTestId(`discussion-issue-open-${current.id}`);
@@ -884,8 +860,6 @@ test("解决分页边界上的问题后继续下一条，返回列表保留阅�
     await detail.getByRole("button", { name: "上一条", exact: true }).click();
     await expect(detail).toHaveAttribute("data-issue-id", next.id);
     await detail.getByRole("button", { name: "返回问题列表", exact: true }).click();
-    // One resolved card was removed; the list restores the nearest available
-    // scroll offset instead of resetting to the top or rewinding pagination.
     await expect
       .poll(() => list.evaluate((element) => element.scrollTop))
       .toBeGreaterThan(scrollTop / 2);
@@ -893,7 +867,6 @@ test("解决分页边界上的问题后继续下一条，返回列表保留阅�
     await expect(panel.getByTestId("issue-open-count")).toHaveText("待处理 51");
   } finally {
     await page.close();
-    await seed.owned();
   }
 });
 
@@ -957,6 +930,5 @@ test("迟到的问题回复不清空另一问题或原问题的新草稿", async
   } finally {
     releaseResponse();
     await page.close();
-    await seed.owned();
   }
 });

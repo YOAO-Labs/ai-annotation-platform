@@ -262,7 +262,6 @@ class Observation:
                             _call(**kwargs)
                         except Exception:
                             self.opaque = True
-                        # Public SDK hooks can override the response when non-None.
                         return None
 
                     events.register(name, observe)

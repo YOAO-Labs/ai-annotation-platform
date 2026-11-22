@@ -3,7 +3,6 @@ import { render, screen } from "@testing-library/react";
 import { PreannotateConfigForm } from "./PreannotateConfigForm";
 import type { PreannotateConfig } from "./usePreannotateConfig";
 
-// OCR 路径走统一「模型任务」下拉的基础 cfg:可注入 selectableModels / variantGroups。
 function docCfg(over: Partial<PreannotateConfig> = {}): PreannotateConfig {
   const e2e = {
     id: "ocr-e2e",
@@ -51,7 +50,6 @@ function docCfg(over: Partial<PreannotateConfig> = {}): PreannotateConfig {
 }
 
 describe("PreannotateConfigForm", () => {
-  // OCR 路径 model-first 统一化回归。
   it("OCR 路径(单 model)展示当前模型,端到端 OCR 不再隐身", () => {
     render(<PreannotateConfigForm cfg={docCfg()} />);
     expect(screen.getByText(/端到端 OCR/)).toBeInTheDocument();

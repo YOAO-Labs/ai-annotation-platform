@@ -42,7 +42,6 @@ def _diagnostic(error):
 
 
 class WorkspaceConfigurationData:
-    # This adapter borrows the API request transaction; the caller owns commit.
     independent = False
 
     def __init__(self, db):
@@ -56,7 +55,6 @@ class WorkspaceConfigurationData:
     async def transaction(self, *, write):
         if write is not True:
             raise ConfigurationUnavailable()
-        # No commit, rollback or nested transaction: the request/caller owns it.
         yield self
 
     async def guide_step(self, request_json, action, args):
@@ -103,8 +101,6 @@ class WorkspaceConfigurationData:
 
     async def step(self, request_json, action, args, columns, values):
         if action == "begin":
-            # The legacy account-lock helper also maps a busy failure raised
-            # by its preliminary flush. Plain account reads do not do so.
             if self.db.autoflush:
                 if request_json["operation"] in {
                     "update_template",

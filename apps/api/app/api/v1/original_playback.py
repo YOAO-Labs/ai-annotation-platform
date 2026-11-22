@@ -15,6 +15,8 @@ from app.schemas.original import (
 from app.services import original_binary as originals
 from app.services import original_playback as playback
 from app.services.dataset_content import content_http_error
+from app.services.content_snapshot import ContentError
+from app.services.original_request import connected_snapshot
 
 router = APIRouter()
 COOKIE_NAME = "yoao_video_lease"
@@ -46,8 +48,6 @@ def _http_error(exc):
 
 
 def _same_origin(request):
-    # Fetch metadata describes the browser origin even when Vite's existing
-    # changeOrigin proxy rewrites Host to the API's loopback address.
     site = request.headers.get("sec-fetch-site")
     if site is not None and site not in {"same-origin", "none"}:
         raise HTTPException(403, {"code": "original_playback_origin_denied"})
@@ -68,12 +68,17 @@ def _secure_cookie(request):
 async def _prepare(resource, payload, request, response, db, actor, registry):
     _same_origin(request)
     lease = None
-    try:
+
+    async def prepare():
+        nonlocal lease
         lease = await playback.prepare(db, resource, actor, payload, request, registry)
-        # Reusing a ready stage can wait for unrelated retired files to close.
-        # The saved authority/source still must hold after that real await.
         await originals.recheck_original(db, lease.context.original, captured=True)
         registry.validate_lease(lease)
+        return lease
+
+    try:
+        if await connected_snapshot(request, prepare(), close_result=False) is None:
+            raise HTTPException(499, {"code": "original_playback_disconnected"})
         path = media_path(lease.id)
         response.set_cookie(
             COOKIE_NAME,
@@ -102,15 +107,28 @@ async def _prepare(resource, payload, request, response, db, actor, registry):
 async def _release(resource, lease_id, payload, request, db, actor, registry):
     _same_origin(request)
     try:
-        context = registry.context_for_release(lease_id)
-        if (
-            not isinstance(context, playback.PlaybackContext)
-            or context.original.resource != resource
-            or context.original.proof.actor_id != actor.id
-            or context.session_id != payload.session_id
-        ):
-            raise HTTPException(404, {"code": "original_playback_not_found"})
-        await registry.revoke_lease(lease_id)
+        try:
+            context = registry.context_for_release(lease_id)
+        except ContentError as exc:
+            if (
+                exc.status != 410
+                or exc.code != "video_playback_expired"
+                or "ignore-missing"
+                not in {
+                    preference.strip().lower()
+                    for preference in request.headers.get("prefer", "").split(",")
+                }
+            ):
+                raise
+        else:
+            if (
+                not isinstance(context, playback.PlaybackContext)
+                or context.original.resource != resource
+                or context.original.proof.actor_id != actor.id
+                or context.session_id != payload.session_id
+            ):
+                raise HTTPException(404, {"code": "original_playback_not_found"})
+            await registry.revoke_lease(lease_id)
     except Exception as exc:
         raise _http_error(exc) from None
     response = Response(status_code=204, headers={"Cache-Control": "no-store"})

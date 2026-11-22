@@ -133,8 +133,6 @@ async def test_other_deterministic_kinds_keep_exact_algebra_and_rollback(
             issue.code = "same_class_overlap"
             issue.related_annotation_ids = [parent.id, other.id]
         await db.flush()
-        # Geometry updates increment the version in PostgreSQL; freeze the
-        # actual server value in the newly produced QC evidence.
         await db.refresh(parent)
         before_version = parent.version
         issue.annotation_version = before_version
@@ -460,8 +458,6 @@ async def test_jwt_expiry_after_business_writes_rolls_back_whole_unit(
     original = ManagedRepairUnit.recheck_credentials
 
     async def revoke(owner):
-        # SQL revocation waits for the current Key lock. JWT natural expiry
-        # changes without a database write while final business locks are held.
         from app.services import prediction_originals as originals
 
         expires = datetime.fromisoformat(

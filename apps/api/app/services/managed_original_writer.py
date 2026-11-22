@@ -182,8 +182,6 @@ def _start(client, bucket, key, content_type):
             raise WriterError("creation_access_denied") from None
         raise WriterError("creation_prepare_unknown", "unknown") from None
     except BaseException:
-        # A constructor response lost before UploadId is retained cannot be
-        # reconciled by inventing an ID or scanning another writer's prefix.
         raise WriterError("creation_prepare_unknown", "unknown") from None
 
 
@@ -232,8 +230,6 @@ def prepare_stream(
     _locator(bucket, key)
     _budget(max_bytes)
     _content_type(content_type)
-    # Size parts from the actual allocation budget instead of imposing an
-    # accidental 10000 * 8MiB file limit on larger connector streams.
     mib = 1024**2
     part_bytes = max(
         PART_BYTES, ((max_bytes + MAX_PARTS - 1) // MAX_PARTS + mib - 1) // mib * mib
@@ -357,8 +353,6 @@ def _read(client, bucket, key, before, max_bytes, check):
             head.extend(chunk[: max(0, HEAD_BYTES - len(head))])
         if size != before["size"]:
             raise WriterError("creation_source_changed")
-        # Also check currentness for versioned reads: consumers of these new
-        # locators have not universally adopted immutable VersionId reads.
         check()
         final = _observation(client.head_object(Bucket=bucket, Key=key), bucket, key)
         check()
@@ -481,8 +475,6 @@ def _prepare_pinned_stream(
         finally:
             if body is not None:
                 _close(body)
-        # A version-pinned read cannot adopt a source which stopped being
-        # current while its bytes or handle were still being consumed.
         check()
         current = reader.head_object(Bucket=source_bucket, Key=source_key)
         check()
@@ -560,10 +552,6 @@ def prepare_copy(
             CopySourceIfMatch=source.etag,
         )
         if source.version_id is not None and "CopySourceVersionId" not in response:
-            # Some S3-compatible services omit the copy-source version echo.
-            # Do not infer that they copied the requested immutable version.
-            # Settle this exact MPU before preparing an independently hashed
-            # pinned stream, under the same original deadline and owner.
             abort_started = True
             _abort(client, bucket, key, upload_id)
             upload_id = None

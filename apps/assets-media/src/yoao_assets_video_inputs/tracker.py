@@ -141,8 +141,6 @@ class TrackerExecutionSpec(Value):
             or self.track_id_snapshot is None
         ):
             raise ValueError("correction snapshot omitted its exact correction frame")
-        # Reject non-JSON and non-finite nested values before an operation can
-        # serialize the request into PostgreSQL or an HTTP envelope.
         _json_bytes(self.prompt_snapshot)
         for source in self.source_annotations:
             _json_bytes(source.geometry)
@@ -866,9 +864,6 @@ def require_scope(operation: str, request: Value, result: Value) -> None:
             if not isinstance(request, e.ClaimVideoInputRequest):
                 raise ValueError("empty tracker claim escaped worker request")
             return
-        # The shared worker contract deliberately returns execution.VideoInputRecord,
-        # whose scope is represented by the canonical tracker ledger rather than
-        # duplicated into the Asset-owned receipt DTO.
         if request.input_id is not None and claim.input.input_id != request.input_id:
             raise ValueError("tracker worker claim changed its requested input")
         return

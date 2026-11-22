@@ -11,7 +11,6 @@ from raster_consumer_process import _drain_consumer, _track_consumer_descendants
 from storage_s3_contract import ContractError, require
 from worktree_runtime import http_ready
 
-# A deadline or failed close retains exact identities; it never authorizes cleanup.
 _unsettled_web_servers = []
 
 
@@ -26,7 +25,6 @@ class RasterWebServer:
             if key in environment
         }
         self.environment["PORT"] = str(self.port)
-        # Disable Vite's implicit stdin-end exit; losing our control pipe must fail.
         self.environment["CI"] = "true"
         if preview:
             api_port = int(environment["PLAYWRIGHT_ISOLATED_API_PORT"])
@@ -100,7 +98,6 @@ class RasterWebServer:
             _track_consumer_descendants(self.child.pid, self.tracked)
             requested = self.descriptor is not None and pidfd_alive(self.descriptor)
             if requested:
-                # The explicit close command lets Vite settle its own children.
                 self.child.stdin.write(b"close\n")
                 self.child.stdin.flush()
             result = _drain_consumer(self.child, self.tracked, request_stop=False)

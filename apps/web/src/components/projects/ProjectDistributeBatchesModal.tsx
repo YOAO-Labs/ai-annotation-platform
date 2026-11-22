@@ -19,7 +19,6 @@ interface Props {
   onClose: () => void;
 }
 
-/** 将批次按所选职责分配给标注员或审核员。 */
 export function ProjectDistributeBatchesModal({ projectId, batchIds, onClose }: Props) {
   const pushToast = useToastStore((s) => s.push);
   const { data: members = [], isLoading } = useProjectMembers(projectId);
@@ -292,7 +291,6 @@ function Column({
     user_name: string;
     user_email: string;
     role: string;
-    /** 头像引用；结构上是 ProjectMemberResponse 的子集，缺省 = 回退首字母。 */
     avatar_ref?: string | null;
   }[];
   selected: Set<string>;

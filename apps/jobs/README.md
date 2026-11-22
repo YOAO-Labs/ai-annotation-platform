@@ -109,8 +109,10 @@ The frozen export worker uses the immediate update fence before claiming,
 checking or publishing its exact attempt. Missing rows return no rows;
 PostgreSQL errors pass through without retries or transaction changes.
 Domain authorization remains with each caller. Ordinary API/worker profiles
-receive these functions; the strict lifecycle LOGIN keeps its existing eight
-capabilities.
+receive these functions; the strict lifecycle LOGIN does not receive any of
+the row-lock companions.
+
+API 借用 Session 时只重定向 ORM 生成的单主键、无锁列刷新，保留原投影、绑定值和其余脏字段；自定义查询／锁按原入口处理。`app/db/owner_orm_compat.py` 固定 SQLAlchemy `2.0.49` 的刷新选项与 fetch 同步，使用 owner 返回的 ID 登记缓存变化和回滚，不向数据库重新发送 UPDATE／DELETE。
 
 The API routes ordinary domain reads and supported unlocked ORM column refreshes
 through `read_job`. Partial refreshes retain their selected fields, dirty cache,
@@ -140,7 +142,8 @@ and statement order. Taking the advisory lock does not flush; the following
 mapped lookup does. The count and aggregate retain their original query flush.
 No capability commits, retries, authorizes the actor, or changes execution
 ownership. Ordinary runtime profiles require these six functions; the strict
-lifecycle LOGIN retains its existing eight capabilities. Other private reads
+lifecycle LOGIN retains the eight lifecycle functions and the three existing
+snapshot/progress capabilities required by the borrowed session. Other private reads
 and legacy edits still prevent global Jobs credential retirement.
 
 ## Action idempotency

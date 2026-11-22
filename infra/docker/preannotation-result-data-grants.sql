@@ -1,10 +1,3 @@
--- The preannotation and retry executor receives only its public result protocol.
--- Run after migrations and module-data-grants as the migration role.
--- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v jobs_owner=jobs_code -v labeling_owner=labeling_code \
---   -v result_role=yoao_preannotation_result_client \
---   -f infra/docker/preannotation-result-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

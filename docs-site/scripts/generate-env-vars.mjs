@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-/**
- * 从仓库根目录的 .env.example 自动生成 docs-site/dev/reference/env-vars.md。
- *
- * 解析规则：
- *   - 以 `# ===` 开头的行视为分组标题（提取括号内文字作为 H2 标题）
- *   - 以 `# ` 开头的普通注释行累积为下一个变量的说明
- *   - `KEY=VALUE` 行生成表格行（注释掉的 `# KEY=VALUE` 也包含，标注为可选）
- *
- * 用法：node docs-site/scripts/generate-env-vars.mjs
- *   在 package.json 中加入 "docs:gen-env-vars": "node docs-site/scripts/generate-env-vars.mjs"
- */
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -47,12 +36,10 @@ function parseEnvExample(content) {
   for (const line of lines) {
     const trimmed = line.trim();
 
-    // Section header: # ===... or # ---...
     if (/^#\s*={4,}/.test(trimmed) || /^#\s*-{4,}/.test(trimmed)) {
       continue;
     }
 
-    // Section title comment: # 数据库 (PostgreSQL)
     if (/^#\s+\S/.test(trimmed) && currentSection === null) {
       const title = trimmed.replace(/^#\s+/, "");
       currentSection = { title, rows: [] };
@@ -66,16 +53,13 @@ function parseEnvExample(content) {
       sections.push(currentSection);
     }
 
-    // New section marker
     if (/^#\s*={4,}/.test(trimmed)) {
       currentSection = null;
       pendingComments = [];
       continue;
     }
 
-    // Variable comment (accumulate for next var)
     if (/^#\s+[^=]/.test(trimmed) && !/^#\s*(=+|-+)/.test(trimmed)) {
-      // Check if it looks like a commented-out var definition
       const commentedVar = trimmed.match(/^#\s*([\w_]+)=(.*)$/);
       if (commentedVar) {
         const [, key, defaultVal] = commentedVar;
@@ -93,13 +77,11 @@ function parseEnvExample(content) {
       continue;
     }
 
-    // Empty comment line — reset pending
     if (trimmed === "#") {
       pendingComments = [];
       continue;
     }
 
-    // Variable definition
     const varMatch = trimmed.match(/^([\w_]+)=(.*)$/);
     if (varMatch) {
       const [, key, defaultVal] = varMatch;
@@ -114,7 +96,6 @@ function parseEnvExample(content) {
       continue;
     }
 
-    // Empty line — end of group, next non-# starts new section
     if (trimmed === "") {
       pendingComments = [];
       if (currentSection && currentSection.rows.length > 0) {

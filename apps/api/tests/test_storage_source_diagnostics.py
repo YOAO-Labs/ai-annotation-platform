@@ -70,8 +70,6 @@ async def evidence_world(db_session, content_world):
     world = await rescan(db, world)
     await accept_all_files(db, world)
     await ensure_legacy_bindings(db)
-    # Seeded previews must belong to this world's source; the shared test
-    # database may retain heads of unrelated sources.
     mappings = list(
         await db.scalars(
             select(DatasetSourceItem)
@@ -210,7 +208,6 @@ async def test_history_never_inherits_new_revision_preview_and_move_uses_current
     result = await revisions.accept(
         db, run.id, change["path_digest"], payload, world[2]
     )
-    # Move the new identity, retaining the immutable reference's original path.
     world, run, old, new, payload = await moved_candidate(db, world)
     moved = await revisions.accept(
         db, run.id, new["path_digest"], payload, world[2], relocate=True
@@ -364,7 +361,6 @@ async def test_active_old_runs_and_last_complete_survive_new_failure_and_job_ret
     ]
     assert not stale["scan"]["last_complete"]["matches_current_config"]
     assert not stale["preflight"]["recent"]["matches_current_config"]
-    # Once active attempts stop, the most recently created failed attempts remain visible.
     active_scan.status = active.status = "cancelled"
     await db.commit()
     recent = (await read_summary(httpx_client, world, super_admin))["items"][0][

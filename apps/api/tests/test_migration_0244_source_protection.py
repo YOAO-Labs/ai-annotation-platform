@@ -34,9 +34,6 @@ async def test_existing_source_roundtrip_remains_unrecorded(
         monkeypatch.setattr(
             migration, "op", Operations(MigrationContext.configure(sync.connection()))
         )
-        # Later migrations do not own these columns. Rolling the shared schema
-        # back would be blocked by facts other tests legitimately retain, so
-        # round-trip only this revision's own objects.
         migration.downgrade()
         migration.upgrade()
         row = sync.execute(

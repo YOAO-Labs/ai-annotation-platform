@@ -1,0 +1,144 @@
+{
+  "source": {
+    "id": "plate-detect",
+    "task": "detect",
+    "display_name": "车牌检测",
+    "supported_inputs": ["full_image"],
+    "supported_geometric_outputs": ["bbox"],
+    "supported_variants": [
+      { "key": "size", "variants": [{ "value": "small" }, { "value": "large" }] }
+    ],
+    "default_variants": { "size": "small" },
+    "classes": [
+      { "index": 4, "name": "plate" },
+      { "index": 6, "name": "car" }
+    ]
+  },
+  "recognizer": {
+    "id": "ocr-rec",
+    "task": "ocr",
+    "display_name": "车牌识别",
+    "composition": "atom",
+    "supported_inputs": ["crop"],
+    "output_attribute_types": ["text", "orientation", "language"],
+    "output_attribute_schema": [{ "key": "text", "label": "识别文本", "type": "text" }]
+  },
+  "cases": [
+    {
+      "name": "仅裁剪识别模型",
+      "sibling": null,
+      "recognition": {
+        "supported_variants": [
+          { "key": "script", "variants": [{ "value": "latin" }, { "value": "han" }] }
+        ],
+        "default_variants": { "script": "latin" },
+        "params": {
+          "type": "object",
+          "properties": { "beam_width": { "type": "integer", "default": 2 } }
+        }
+      },
+      "edit_axis": "script",
+      "edited_value": "han",
+      "params_key": "beam_width",
+      "expected_child": {
+        "model_id": "ocr-rec",
+        "task": "ocr",
+        "model_variants": { "script": "han" },
+        "params": { "beam_width": 3 },
+        "parent_class_filter": ["plate"],
+        "roi": { "mode": "crop", "pad": 0.05 },
+        "write": { "target": "attributes", "keys": ["text"] }
+      }
+    },
+    {
+      "name": "整图同胞声明不同轴、轴值与参数",
+      "sibling": {
+        "id": "ocr-e2e",
+        "task": "ocr",
+        "composition": "atom",
+        "supported_inputs": ["full_image"],
+        "supported_variants": [
+          { "key": "version", "variants": [{ "value": "e2e-v5" }] },
+          { "key": "lang", "variants": [{ "value": "universal" }] }
+        ],
+        "default_variants": { "version": "e2e-v5", "lang": "universal" },
+        "params": {
+          "type": "object",
+          "properties": { "det_db_thresh": { "type": "number", "default": 0.35 } }
+        }
+      },
+      "recognition": {
+        "supported_variants": [
+          { "key": "version", "variants": [{ "value": "rec-v1" }, { "value": "rec-v2" }] },
+          { "key": "alphabet", "variants": [{ "value": "latin" }, { "value": "multi" }] }
+        ],
+        "default_variants": { "version": "rec-v1", "alphabet": "latin" },
+        "variant_combinations": [
+          ["rec-v1", "latin"],
+          ["rec-v2", "multi"]
+        ],
+        "params": {
+          "type": "object",
+          "properties": { "beam_width": { "type": "integer", "default": 2 } }
+        }
+      },
+      "edit_axis": "version",
+      "edited_value": "rec-v2",
+      "params_key": "beam_width",
+      "expected_child": {
+        "model_id": "ocr-rec",
+        "task": "ocr",
+        "model_variants": { "version": "rec-v2", "alphabet": "multi" },
+        "params": { "beam_width": 3 },
+        "parent_class_filter": ["plate"],
+        "roi": { "mode": "crop", "pad": 0.05 },
+        "write": { "target": "attributes", "keys": ["text"] }
+      }
+    },
+    {
+      "name": "常见整图与裁剪同轴 OCR",
+      "sibling": {
+        "id": "ocr-e2e",
+        "task": "ocr",
+        "composition": "composite",
+        "supported_inputs": ["full_image"],
+        "variants_shared_across_tasks": true,
+        "supported_variants": [
+          { "key": "version", "variants": [{ "value": "v5" }] },
+          { "key": "size", "variants": [{ "value": "mobile" }] },
+          { "key": "lang", "variants": [{ "value": "universal" }, { "value": "english" }] }
+        ],
+        "default_variants": { "version": "v5", "size": "mobile", "lang": "universal" },
+        "params": {
+          "type": "object",
+          "properties": { "det_db_thresh": { "type": "number", "default": 0.35 } }
+        }
+      },
+      "recognition": {
+        "variants_shared_across_tasks": true,
+        "supported_variants": [
+          { "key": "version", "variants": [{ "value": "v5" }] },
+          { "key": "size", "variants": [{ "value": "mobile" }] },
+          { "key": "lang", "variants": [{ "value": "universal" }, { "value": "english" }] }
+        ],
+        "default_variants": { "version": "v5", "size": "mobile", "lang": "universal" },
+        "params": {
+          "type": "object",
+          "properties": { "rec_batch_size": { "type": "integer", "default": 2 } }
+        }
+      },
+      "edit_axis": "lang",
+      "edited_value": "english",
+      "params_key": "rec_batch_size",
+      "expected_child": {
+        "model_id": "ocr-rec",
+        "task": "ocr",
+        "model_variants": { "version": "v5", "size": "mobile", "lang": "english" },
+        "params": { "rec_batch_size": 3 },
+        "parent_class_filter": ["plate"],
+        "roi": { "mode": "crop", "pad": 0.05 },
+        "write": { "target": "attributes", "keys": ["text"] }
+      }
+    }
+  ]
+}

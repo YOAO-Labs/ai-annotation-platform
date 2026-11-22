@@ -428,8 +428,6 @@ async def test_guard_execution_rechecks_saved_database_bindings(
 ):
     world = execution_world
     if change == "owner":
-        # Persisted ownership is immutable; an execution captured for another
-        # owner must still fail against the actual saved database row.
         context = replace(
             world.context,
             owner_ref=saved_owner(
@@ -750,7 +748,6 @@ async def test_durable_output_operation_blocks_retry_and_delete(
     ).status == "failed"
     assert await world.db.get(StorageOperation, unresolved_output.id) is not None
     await unresolved_output.release()
-    # Another version's durable operation remains and must not block this owner.
     await datasets.lock_dataset_execution(world.db, world.version.id)
 
 

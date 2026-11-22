@@ -1016,9 +1016,6 @@ async def scenarios(backend, worker, storage, report, expected_database):
                     ] = "passed"
                     async with factory() as db:
                         row = await db.get(Annotation, uuid.UUID(accepted[0]["id"]))
-                        # A committed fixture simulates the retained annotation
-                        # after parent unlink and a legitimate manual keyframe.
-                        # This does not qualify an editor or tracker write API.
                         geometry = deepcopy(row.geometry)
                         geometry["keyframes"][1]["source"] = "manual"
                         row.geometry = geometry
@@ -1280,7 +1277,6 @@ async def scenarios(backend, worker, storage, report, expected_database):
                     await db.commit()
             checks["offline_source_can_reject_candidate"] = "passed"
 
-            # This path deliberately has no model/context selection or setup.
             for case in fixtures["cases"]:
                 backend.begin("sync-" + case["case"])
                 value = await plumbing.request(
@@ -1340,7 +1336,6 @@ def main(argv=None):
     options = parser.parse_args(argv)
     require(ROOT == plumbing.ROOT, "拒绝从另一工作树加载验收 plumbing")
     os.environ.update(DEBUG="false", LOG_LEVEL="WARNING", ML_BACKEND_STORAGE_HOST="")
-    # The reused bounded server resolves its setup function in its own module.
     plumbing.setup_contract = setup_contract
     backend = worker = storage = resources = None
     try:

@@ -1,6 +1,3 @@
-/**
- * turnstile loader 单测：site key 解析 + script inject 幂等 + 重复加载复用 promise。
- */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
 beforeEach(() => {
@@ -46,7 +43,6 @@ describe("loadTurnstileScript", () => {
       "script[src^='https://challenges.cloudflare.com/turnstile/v0/api.js']",
     );
     expect(scripts.length).toBe(1);
-    // 触发 onload 让两个 promise resolve
     (scripts[0] as HTMLScriptElement).onload?.(new Event("load"));
     await expect(p1).resolves.toBeUndefined();
     await expect(p2).resolves.toBeUndefined();

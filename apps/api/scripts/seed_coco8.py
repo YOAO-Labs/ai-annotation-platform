@@ -27,8 +27,6 @@ import zipfile
 from pathlib import Path
 from datetime import UTC, datetime
 
-# repo root。host 布局 apps/api/scripts/<this> 取 parents[3];浅布局(如容器把代码挂在
-# /app)parents[3] 会越界,退化为文件系统根 → 夹具 .exists()=False 时各 seed 优雅跳过不崩。
 _parents = Path(__file__).resolve().parents
 REPO = _parents[3] if len(_parents) > 3 else _parents[-1]
 FIXTURE = REPO / "third-party/coco8"
@@ -36,11 +34,10 @@ FIXTURE = REPO / "third-party/coco8"
 PROJECT_DISPLAY_ID = "P-COCO8"
 DATASET_DISPLAY_ID = "DS-COCO8"
 DATASET_NAME = "coco8-dev"
-DATASET_FOLDER = "coco8-dev"  # MinIO datasets 桶内前缀
+DATASET_FOLDER = "coco8-dev"
 ADMIN_EMAIL = "admin"
 ADMIN_PASSWORD = "123456"
 
-# COCO 80 类(按官方 class_idx 顺序);tool_bindings 全量内置 → YOLO class_idx 直接对位。
 COCO_NAMES = (
     "person",
     "bicycle",
@@ -124,10 +121,6 @@ COCO_NAMES = (
     "toothbrush",
 )
 
-# 额外工具单位绑定:让 P-COCO8 这一个 image-det 项目同时支持 旋转框 / 折线 / 区域(多边形)
-# 工作台,供文档站截图与 GIF 流程录制使用(各单位至少一条类别,工具才可用)。
-# 单位 key 对齐 app/schemas/_jsonb_types.py 的 ToolUnitId;tool→unit 映射见
-# apps/web/.../stage/tools/toolUnits.ts(rotated-box→rotated_bbox / polygon→region / polyline→polyline)。
 EXTRA_TOOL_BINDINGS: dict = {
     "rotated_bbox": {
         "enabled": True,
@@ -214,14 +207,13 @@ async def seed_coco8(
         select(seed_projects).where(seed_projects.display_id == PROJECT_DISPLAY_ID)
     )
     if existing:
-        # 幂等补绑定:旧 P-COCO8 只有 bbox,补齐 旋转框 / 折线 / 区域 工具单位(已存在的不覆盖)。
         tb = dict(existing.tool_bindings or {})
         added = [u for u in EXTRA_TOOL_BINDINGS if u not in tb]
         if added:
             for unit in added:
                 tb[unit] = EXTRA_TOOL_BINDINGS[unit]
             register_seed_project_projection(db, existing.id)
-            existing.tool_bindings = tb  # 重新赋值以标记 JSONB 列为 dirty
+            existing.tool_bindings = tb
             db.add(existing)
             return {"project": PROJECT_DISPLAY_ID, "added_tool_units": added}
         return None
@@ -258,7 +250,6 @@ async def seed_coco8(
     )
     bucket = storage_service.datasets_bucket
 
-    # 上传 8 张图 + 建 DatasetItem(带宽高,供 OBB / 缩略图等)。
     n_images = 0
     for split in ("train", "val"):
         for jpg in sorted((fixture / "images" / split).glob("*.jpg")):
@@ -290,15 +281,12 @@ async def seed_coco8(
     db.add(ProjectDataset(project_id=project_id, dataset_id=ds.id))
     await db.flush()
 
-    # 每图一个 Task(内部分块 commit)。
     tasks_result = await DatasetTaskCreationWorkflow(
         db
     ).create_tasks_for_linked_dataset(
         dataset_id=ds.id, project_id=project_id, actor_id=owner_id
     )
 
-    # 预标注导入:coco8 YOLO 框 → predictions(每图一条,含该图全部框),source=external_import。
-    # 走平台现成 import_yolo,按文件名 stem 匹配 task;task 仍 pending,待人工采纳。
     pred = await import_yolo(
         db,
         project_id,
@@ -326,8 +314,6 @@ async def main() -> None:
         info = await seed_coco8(db, owner_id=owner_id)
         await db.commit()
 
-        # Seed writes DatasetItem rows directly, so explicitly accept a durable
-        # image-owner backfill after those rows commit.
         from sqlalchemy import select
 
         from app.db.models.dataset import Dataset

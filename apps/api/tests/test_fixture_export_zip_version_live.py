@@ -61,7 +61,6 @@ async def test_native_fixture_retires_only_its_verified_zip_version(
             owner_url, hide_parameters=True, poolclass=NullPool
         )
         try:
-            # Refuse an owner for any database other than the verifier's database.
             assert (engine.url.host, engine.url.port or 5432, engine.url.database) == (
                 test_engine.url.host,
                 test_engine.url.port or 5432,
@@ -178,8 +177,6 @@ async def test_native_fixture_retires_only_its_verified_zip_version(
                     )
                     neighbor_version = neighbor["VersionId"]
                     assert neighbor_version != proof["version_id"]
-                # This test deliberately cancels its own unpublished Job after the
-                # output was verified and made ready, rather than inventing completion.
                 await async_job.mark_cancelled(db, job_id)
                 await db.commit()
                 await execution.finish_fixture(job_id)
@@ -243,8 +240,6 @@ async def test_native_fixture_retires_only_its_verified_zip_version(
                 response = client.get_object(**params, VersionId=neighbor_version)
                 with closing(response["Body"]) as body:
                     assert body.read() == b"independent neighboring version"
-                # The neighboring version was created by this test, not discovered
-                # by listing or adopted from another owner.
                 deleted = client.delete_object(**params, VersionId=neighbor_version)
                 assert deleted.get("VersionId") == neighbor_version
             response = await coordinator.post(

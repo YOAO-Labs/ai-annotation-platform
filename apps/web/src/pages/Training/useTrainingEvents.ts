@@ -48,7 +48,6 @@ export function trainingEventsOptions(
   };
 }
 
-/** Fetch pages for one attempt; a new attempt always starts an independent curve. */
 export function useTrainingEvents(
   projectId: string,
   runId: string,

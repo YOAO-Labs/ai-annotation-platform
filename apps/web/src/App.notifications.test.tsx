@@ -1,11 +1,3 @@
-/**
- * 通知连接的应用生命周期测试。
- *
- * useNotificationSocket 挂在 App（路由切换不拆连接）：主界面与全屏
- * 标注/审核工作台（直接进入或路由切换）共享同一次挂载；AppShell 不再
- * 单独挂载。这里用探针 mock 断言挂载/卸载次数，真实连接行为由
- * useNotificationSocket.test.tsx 覆盖。
- */
 import { useEffect } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, useNavigate } from "react-router-dom";

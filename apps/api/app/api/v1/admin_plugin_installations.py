@@ -241,8 +241,6 @@ async def activate(
         )
     except (ValueError, PluginObservationRejected):
         raise _conflict() from None
-    # Persist the inspected launch before probing: failed activation must remain
-    # recoverable and cannot authorize an unrecorded container stop.
     await _audit(db, admin, request, "launch_recorded", reserved)
     await db.commit()
     try:
@@ -268,8 +266,6 @@ async def activate(
         except ValueError:
             raise _conflict() from None
         await _audit(db, admin, request, "qualification_approved", reserved)
-    # Both owners must see the committed reservation without a Registry
-    # transaction remaining open during authenticated backend control.
     await db.commit()
     routing_id = _operation_id(
         installation_id, data.receipt.container_id, evidence["boot_id"], "bind-routing"
@@ -415,8 +411,6 @@ async def quiesce(
         return PluginQuiesceResponse(
             **installation.model_dump(), safe_to_stop=True, launch=launch
         )
-    # Release the owner lock before remote drain. The Native quiesce command
-    # repeats the check under its Registry lock before issuing safe-to-stop.
     await db.commit()
     pool = await topology.pool_for_registry(installation.registry_id)
     if pool is not None:
@@ -443,8 +437,6 @@ async def quiesce(
         raise HTTPException(
             status_code=409, detail={"error_code": "plugin_endpoint_mismatch"}
         ) from None
-    # The long drain is fenced by the recorded launch and final revision CAS,
-    # never by a Registry row lock held over remote I/O.
     await db.commit()
     operation_id = _operation_id(
         installation_id, launch.container_id, evidence["boot_id"], "quiesce"

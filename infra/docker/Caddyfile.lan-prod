@@ -1,12 +1,10 @@
 {
 	admin off
 	auto_https disable_redirects
-	# IP clients commonly omit SNI; select the managed IP certificate explicitly.
 	default_sni {$LAN_BIND_IP}
 	servers {
 		protocols h1 h2
 	}
-	# Client trust is installed explicitly; a container cannot configure clients.
 	skip_install_trust
 }
 

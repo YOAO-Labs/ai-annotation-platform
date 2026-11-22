@@ -8,10 +8,6 @@ test.describe("trusted LiDAR export", () => {
     const lidar = await seed.seedLidar();
     await seed.injectToken(page, data.admin_email);
 
-    // seed.owned() scopes this fixture to the test namespace, so the lidar
-    // project's display name is namespaced as well. Resolve that exact
-    // project through the API boundary and target its own list row, rather
-    // than matching a prefix shared with neighboring owned fixtures.
     const token = await seed.accessToken(data.admin_email);
     const projectResponse = await request.get(
       `${API_BASE}/api/v1/projects/${lidar.lidar_project_id}`,

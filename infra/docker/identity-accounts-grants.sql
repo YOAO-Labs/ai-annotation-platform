@@ -1,11 +1,3 @@
--- Grant the exact self-account and presence function surfaces after migrations
--- and module-data-grants. The restricted LOGIN roles must have no memberships.
--- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v identity_owner=identity_code \
---   -v identity_account_role=yoao_identity_account_client \
---   -v identity_presence_role=yoao_identity_presence_client \
---   -f infra/docker/identity-accounts-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -157,7 +149,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)
     TO :"identity_presence_role";
 
--- Fail closed unless each LOGIN has exactly its designated function surface.
 DO $$
 DECLARE
     role_entry record;

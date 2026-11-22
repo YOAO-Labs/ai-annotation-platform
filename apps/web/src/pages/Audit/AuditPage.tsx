@@ -106,7 +106,6 @@ export function AuditPage() {
       previous.detailKey !== filters.detailKey && detailKeyDraft !== filters.detailKey;
     const syncDetailValue =
       previous.detailValue !== filters.detailValue && detailValueDraft !== filters.detailValue;
-    // Rehydrating one field must not suspend a pending edit in another field.
     if (previous.targetId !== filters.targetId) {
       syncingTextDrafts.current.targetId = syncTargetId;
       if (syncTargetId) setTargetIdDraft(filters.targetId);
@@ -231,8 +230,6 @@ export function AuditPage() {
     if (page > lastPage) patch({ page: lastPage }, { replace: true });
   }, [data, isFetching, total, pageSize, page, patch]);
 
-  // 按 request_id 分组：同一 HTTP 请求的 metadata 行 + 业务 detail 行折叠为单行 + ▸ 展开
-  // 折叠状态 sessionStorage 持久化（30min TTL），刷新页面后自动恢复最近展开的 request_id。
   const [expandedReqIds, setExpandedReqIds] = useState<Set<string>>(() => {
     if (typeof window === "undefined") return new Set();
     try {
@@ -273,7 +270,6 @@ export function AuditPage() {
     });
     return ordered.map((key) => {
       const rows = buckets.get(key)!;
-      // 选 leader：优先非 http.* 的业务行；否则用 http.* 元数据行
       const business = rows.find((r) => !r.action.startsWith("http."));
       const leader = business ?? rows[0];
       const children = rows.filter((r) => r.id !== leader.id);
@@ -281,7 +277,6 @@ export function AuditPage() {
     });
   }, [items]);
 
-  // 平铺成 virtualizable rows：[group-leader, ...expanded-children]*
   type FlatRow =
     | { kind: "leader"; group: Group }
     | { kind: "child"; group: Group; row: AuditLogResponse };
@@ -354,7 +349,6 @@ export function AuditPage() {
 
       <Card>
         <div className={styles.filters}>
-          {/* 标签自解释（选项即范围），hideLabel 避免纯装饰文案把下拉挤到第二行导致面板错位。 */}
           <FilterGroup label="事件范围" hideLabel compact>
             <FilterSelect
               aria-label="审计事件范围"
@@ -568,7 +562,6 @@ export function AuditPage() {
           </div>
         )}
 
-        {/* 按 request_id 折叠为单行 + ▸ 展开；virtualized 容器 */}
         <div className={styles.tableHeader}>
           {["", "时间", "操作人", "动作", "对象", "IP", "状态", ""].map((h, i) => (
             <div key={i} className={styles.headerCell}>

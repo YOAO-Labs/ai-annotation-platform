@@ -297,7 +297,6 @@ async def test_falsy_prompt_seed_defaults_match_legacy_mapping(db_session):
 
 async def test_late_jobs_finish_rejection_rolls_back_job_publication(db_session):
     job, proof = await _claimed_running_job(db_session)
-    # Refuse only the downstream finish; the other real authority checks remain.
     definition = await db_session.scalar(
         text(
             "SELECT pg_catalog.pg_get_functiondef("

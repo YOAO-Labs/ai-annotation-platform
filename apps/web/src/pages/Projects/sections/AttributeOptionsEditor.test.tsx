@@ -1,10 +1,3 @@
-/**
- * AttributeOptionsEditor 单测
- *
- * 1. 解析/序列化纯函数：含冒号的 label、空 value、去重、幂等往返
- * 2. chip 模式：渲染 / 新增（回车、粘贴多个）/ 删除 / 退格删末尾 / 就地编辑
- * 3. 批量模式：本地缓冲不吞输入（旧实现的 `filter(Boolean)` 回归）、非法行提示
- */
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import {
@@ -171,7 +164,6 @@ describe("<AttributeOptionsEditor /> 批量模式", () => {
     render(<AttributeOptionsEditor value={OPTS} onChange={() => {}} />);
     toBulk();
     const ta = screen.getByLabelText("批量编辑选项");
-    // 用户敲下回车准备写第三行：textarea 必须保留这个尾随换行。
     fireEvent.change(ta, { target: { value: "car:小车\ntruck:卡车\n" } });
     expect(ta).toHaveValue("car:小车\ntruck:卡车\n");
   });

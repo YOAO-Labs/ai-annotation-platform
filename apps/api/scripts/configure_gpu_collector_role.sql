@@ -1,9 +1,5 @@
 \set ON_ERROR_STOP on
 
--- Required psql variables:
---   application_role: ordinary API/Celery login role
---   collector_role: dedicated login role used only by gpu.control
--- Both roles must already exist. Run this as the schema owner after migrations.
 \if :{?application_role}
 \else
 \echo 'missing -v application_role=<role>'

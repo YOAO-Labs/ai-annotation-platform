@@ -74,9 +74,6 @@ def _connection_request(model: type[BaseModel], **values):
         raise HTTPException(status_code=422, detail="连接器请求无效") from None
 
 
-# ---- 主机白名单（仅 super_admin）。先于 /{conn_id} 注册避免被路径吞掉。----
-
-
 @router.get("/allowlist", response_model=ConnectorAllowlistOut)
 async def get_allowlist(
     db: AsyncSession = Depends(get_db),
@@ -144,9 +141,6 @@ async def get_deployment_sftp_preset(
     return ConnectorDeploymentSftpPresetOut(
         enabled=bool(host), host=host or None, port=22
     )
-
-
-# ---- 连接器 CRUD ----
 
 
 @router.get(

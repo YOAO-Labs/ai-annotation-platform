@@ -73,9 +73,6 @@ async def _store_rle(
     if existing is not None:
         return existing
 
-    # This guarded producer renews the content-write epoch before storing bytes.
-    # Keep its permit in the caller transaction; committing here would also commit
-    # unrelated workflow state and would split the checkpoint's atomic boundary.
     reference = await store_generated_mask_content(db, rle)
     if reference.get("object_key") != object_key:
         raise ValueError("generated Mask storage changed its content address")

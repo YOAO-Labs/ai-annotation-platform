@@ -1,10 +1,4 @@
 <script setup lang="ts">
-/**
- * 文档站内嵌 Excalidraw 图表。
- *
- * SVG 同时是展示文件和可编辑源：导出时必须内嵌 Excalidraw scene
- * 与 Virgil 字体。资产合同由 check-excalidraw-diagrams.mjs 校验。
- */
 import { computed } from "vue";
 import { withBase } from "vitepress";
 

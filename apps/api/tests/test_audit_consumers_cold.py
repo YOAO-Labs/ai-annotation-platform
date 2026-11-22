@@ -460,7 +460,6 @@ async def test_current_cold_audit_api_worker_queries_exports_and_restore(
                     },
                 )
             )
-        # Narrow only this owned fixture's API consumer; held Learning compatibility stays intact.
         await db.execute(
             text("REVOKE SELECT ON public.audit_logs FROM identity_api_consumer")
         )
@@ -644,7 +643,6 @@ async def test_current_cold_audit_api_worker_queries_exports_and_restore(
                 ).status_code == 422
                 async with asyncio.timeout(20):
                     while True:
-                        # The worker connection starts after the first activity snapshot.
                         await control.execute(text("SELECT pg_stat_clear_snapshot()"))
                         if await control.scalar(
                             text(

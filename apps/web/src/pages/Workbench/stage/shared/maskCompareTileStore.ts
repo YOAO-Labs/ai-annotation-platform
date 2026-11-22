@@ -95,7 +95,6 @@ function tileKey(tileX: number, tileY: number): string {
   return `${tileY}:${tileX}`;
 }
 
-/** Bounded dual-session tile store; it never materializes a full-frame alpha or RGBA plane. */
 export class MaskCompareTileStore {
   readonly width: number;
   readonly height: number;

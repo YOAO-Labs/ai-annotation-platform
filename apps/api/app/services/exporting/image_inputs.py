@@ -170,8 +170,6 @@ async def _rows(
     order=None,
     lock_query=None,
 ):
-    # Reuse the same-statement MVCC size guard. The shared helper meters full
-    # stored rows conservatively; only consumed facts enter the image snapshot.
     try:
         rows = await lidar_inputs._rows(
             db,
@@ -485,8 +483,6 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
     item_index = {item.id: item for item in items}
     if set(item_index) != item_ids:
         reject()
-    # Lock every relevant annotation, including inactive/cancelled rows, so a
-    # restore/reclassification cannot enter the exported set after the check.
     all_annotations = (
         await _rows(
             db,

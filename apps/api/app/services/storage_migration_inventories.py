@@ -210,8 +210,6 @@ async def history(db, actor, *, api_key_id=None, limit=20, offset=0):
 async def start(db, actor, request_body=None, *, api_key_id=None, request=None):
     body = request_body or StorageMigrationInventoryRequest()
     actor, proof = await authority(db, actor, api_key_id, lock=True)
-    # A transaction advisory lock serializes starts without retaining a source
-    # lock across native reads. The partial unique index independently fences it.
     await db.execute(text("SELECT pg_advisory_xact_lock(8592650717001)"))
     source = await source_scope(db, lock=True)
     window_revision = None
@@ -569,8 +567,6 @@ async def signal_interrupted(db, job_id, task_id, *, cancelled):
     )
     if not matches(row, job):
         return False
-    # Signals are not evidence of a native handle closing. Keep the independent
-    # operation receipt; never publish a downloadable report from this fallback.
     return await finish(
         db,
         row,

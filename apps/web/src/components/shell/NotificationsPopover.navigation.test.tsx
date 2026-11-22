@@ -477,7 +477,6 @@ describe("通知入口角标与工作台导航回调", () => {
     expect(navigateExternal).toHaveBeenCalledWith(
       "/projects/p1/annotate?batch=b1&task=t1&returnTo=%2Fdashboard",
     );
-    // 回调路径不改路由
     expect(screen.getByTestId("location")).toHaveTextContent("/dashboard");
   });
 
@@ -486,7 +485,6 @@ describe("通知入口角标与工作台导航回调", () => {
     renderUI(navigateExternal);
     await clickTaskNotification();
     await waitFor(() => expect(navigateExternal).toHaveBeenCalledTimes(1));
-    // 取消后不静默关闭：保留弹窗并给出可重试说明。
     expect(await screen.findByRole("alert")).toHaveTextContent("跳转已取消");
     expect(screen.getByRole("dialog", { name: "打开通知目标" })).toBeVisible();
     expect(screen.getByTestId("location")).toHaveTextContent("/dashboard");

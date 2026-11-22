@@ -345,7 +345,6 @@ async def test_owned_fixture_builds_complete_namespaced_workbench(
     scope = run.scope()
     body = await _build_owned(httpx_client, run)
 
-    # Response shape matches SeedData so existing spec call sites keep working.
     assert body["admin_email"] == scope.admin_email
     assert body["annotator_email"] == scope.annotator_email
     assert body["reviewer_email"] == scope.reviewer_email
@@ -455,7 +454,6 @@ async def test_owned_fixture_builds_complete_namespaced_workbench(
     )
     assert binding is not None and binding.enabled is True
 
-    # Login works for the namespace's own accounts through the normal route.
     login = await httpx_client.post(
         "/api/v1/__test/seed/login", json={"email": body["annotator_email"]}
     )
@@ -1015,8 +1013,6 @@ async def test_owned_cleanup_propagates_controlled_abort_and_skips_rest(
                 await _cleanup_owned_e2e_fixtures(db_session, run.scope())
             assert caught.value is abort
 
-        # Cleanup's rollback preserves the project, its tasks, and its users;
-        # later owner deletions must not have taken effect.
         assert (
             await db_session.scalar(select(Project.id).where(Project.id == project_id))
             == project_id

@@ -10,7 +10,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
-# Keep the migration's copy independent from application imports.
 AVATAR_STORAGE_REF_CHECK = """
 (COALESCE((
     jsonb_typeof(storage_ref) = 'object'
@@ -102,7 +101,6 @@ class AvatarUpload(Base):
     )
 
     token: Mapped[str] = mapped_column(String(32), primary_key=True)
-    # No user FK: an account purge must not discard physical cleanup evidence.
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     storage_ref: Mapped[dict] = mapped_column(JSONB(none_as_null=True), nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)

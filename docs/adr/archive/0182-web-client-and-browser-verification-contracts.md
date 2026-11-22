@@ -1,0 +1,71 @@
+# 0182 — Web 客户端边界与浏览器验证证据
+
+- **Status:** Accepted
+- **Date:** 2026-11-21
+- **Deciders:** Web 应用、Identity／Workspace／Labeling／Assets／Inference API、浏览器验证与部署维护者
+- **Supersedes:** 无；补充既有领域决策的 Web 消费与验收边界
+
+## Context
+
+同一套 SPA 同时运行在独立浏览器、嵌入浏览器及生产 CSP 下；它要处理认证轮换、迟到响应、可选设备能力和多种数据所有者。界面上可见或可点击的控件、服务端的授权或事实、测试替身模拟的行为、真实浏览器取得的证据，是不同层次。把它们合并会让旧页面写进新会话、让未知状态显示成零，或让通过的测试为未执行的路径背书。
+
+本记录整理 `apps/web` 公共层、页面、构建及浏览器验证的现行取舍。不替代工作台内部状态设计、后端权限或事务所有权，也不宣布任何未运行的用例或硬件通过资格。
+
+## Decision
+
+[按源码路径查阅局部决策与理由](../evidence/0182-decisions.tsv)。编号对应原始实现位置，相关 ADR 仍拥有其领域合同。
+
+### 样式：一个主题源，分层使用，不从调用点补偿内部结构
+
+- Web 设计系统维护者以 [Tailwind v4 与 shadcn 决策](0042-tailwind-shadcn-design-system.md) 和[设计系统参考](../../../docs-site/dev/reference/design-system.md)为规范。`src/styles/shadcn.css` 导入全局 Tailwind preflight，`:root` 与 `[data-theme="dark"]` 定义 `--sc-*`，`@theme inline` 把变量接到语义工具类，`dark:` 也按同一属性工作，不依赖 `.dark`。通用表面、文字、焦点、状态以及图片／视频／点云工作区颜色具有独立语义；业务类别配色不冒充系统状态，图表从主题变量取色。局部 CSS module 用实际 `--sc-*`，不引用 Tailwind 生成物作变量真源；颜色、间距、字号和层级优先使用现有 token。旧局部 preflight 的注释不再决定全站范围，有显式控件样式时仍需保存其视觉合同。
+- 先复用受控共享组件，再选 `src/components/shadcn/ui` 原语及语义工具类；复杂布局、响应式状态和可复用选择器用 CSS module。`src/components/ui` 是应用兼容层，迁移不能顺手变更 Button 尺寸/ref、Card 无隐式 padding、TabRow 的筛选语义、Icon 轮廓或 Sonner 的单一提示队列。命令输入应保持外部焦点恢复；菜单的自定义内容由调用方声明可访问名称和焦点，标准菜单跟踪稳定项 ID，Tab/Esc 归还触发器。Dialog 无可见标题仍提供隐藏标题；关闭嵌套窗口不能把延迟外部事件传给底下的窗口。用真实浏览器区分焦点和迭代时机，不从 jsdom 的布局推断。设置中仅锁局部控件时仍须保留读态，不用整段禁用代替逐项能力。
+- 真实几何、虚拟列表偏移等数据驱动值可通过 CSS custom property 或 `useElementStyle` 写入 DOM；后者跟随实际 DOM 节点挂载、写入前后维护属性集合，节点被替换或晚挂载也要重设。不重新开放 JSX `style` 或扩大 CSP 例外。Vite 在产物 HTML 插入 nonce 占位及 meta，生产入口按请求替换，与 CSP 响应头匹配；动态脚本读取同一 meta，开发占位不代表生产启用 `unsafe-inline`（[CSP](0010-security-headers-middleware.md)）。`check-tw-tokens.mjs` 和 Web ESLint 分别约束颜色／token 与 JSX；手写状态颜色或特殊字号的告警不是放开任意颜色的理由。滚动保留稳定 gutter；Radix 锁 body 时不再额外补一次根 gutter；表格横滚和页面纵滚仍有各自所有者。
+- 批次封面布局的尺寸应由容器决定，BlurHash 解码的数值尺寸是另一项约束；当前两个批次卡对缩略图根的 `!important` 依赖已登记在 [#171](https://github.com/YOAO-Labs/ai-annotation-platform/issues/171)。普通固定尺寸缩略图支持异步图像、BlurHash、失败占位；图片头像和纯首字母共用尺寸与底色，失败按 URL 而非布尔值记忆，换 URL 即重新尝试，避免重复播报用户名。默认入口不为此引入另一个头像库；生成的内置目录及资产许可由 manifest／SVG 交付，后端只核验引用，不猜浏览器显示名。
+
+### API、会话和跨页面读写
+
+- Web API 维护者按 [OpenAPI 客户端生成](0003-openapi-client-codegen.md) 从跟踪快照生成类型，能力受控词汇从独立 registry snapshot 生成，正常构建不依赖常驻 API；`OPENAPI_URL` 是显式输入覆盖。生成类型不替代 `src/api/client.ts` 所有者的请求、鉴权、空响应和错误转换。multipart 不预设 JSON Content-Type；进度和取消要求由相应传输适配器承担。成功 transport、操作受理、出队及最终状态是不同事实。性能采样是非关键路径，失败不能改变业务请求结果。
+- 会话判定使用发起时的账号与会话代次（必要时含 token），回调中再核对；只比较用户 ID 不足以隔离同账号重登。认证变更时取消在途查询并清理由用户或会话拥有的缓存，查询键用用户／项目或不透明会话身份，不放 bearer。401 只失效实际发起请求的凭据。主动登出在任何可先触发 401 的 await 之前标记，不给下一账号留下 `state.from`；会话过期保留已校验的站内返回意图，[#123](https://github.com/YOAO-Labs/ai-annotation-platform/issues/123) 的回归要求同一次退出多次重渲染仍不恢复旧地址。登出不能销毁有主人的持久离线草稿，更不能用后来登录的用户重放；恢复网络时后端逐项复核真实项目权限，403/404 保留记录而不是冒充成功。乐观创建用临时行衔接重拉，只把真实 ID 作为业务身份；回滚不覆盖其他在途写，只有持久入队成功才可释放调用方草稿。
+- 平台身份不授予项目标注或质检职责，应用级 `usePermissions` 不代替 `useProjectAccess`。后者仅以当前用户、当前项目、最新成功且可用的结果放行受保护子树；请求禁用、重拉失败、旧响应均不授权。Identity 的 [目录读模型](../0123-independent-identity-directory-reads.md)、[平台角色](../0125-independent-identity-platform-role-commands.md)、[离职](../0128-independent-identity-offboarding-commands.md) 和 [删除](../0127-independent-identity-deletion-commands.md) 区分可见、账号可管理与可交接三件事：名单的 `is_managed` 不能代替 `is_lifecycle_managed`，后一个投影还要覆盖目标成员、工作、任务锁及项目所有权涉及的范围。平台角色预览/修改只向超管开放，项目管理员只在项目成员入口变更项目职责；管理自己及最后一个超管有服务端硬门。预览须绑定所选角色／目标；成员写入附版本及不透明预览 token。`UserOut` 已声明生命周期字段，`UserPageItem` 另声明两种权限投影；不能把旧类型快照差异当实时 API 合同。编辑弹窗的旧删除支路与目录门控分歧另见 [#170](https://github.com/YOAO-Labs/ai-annotation-platform/issues/170)，不改变服务端拒绝的权威。
+- 应用级通知 socket 采用同源根 `/ws/notifications`（不是 `/api/v1`），`buildWsUrl` 决定协议、代理或显式主机。登录 hydration 后才连；鉴权关闭对同一个过期凭据合并刷新，新会话不得接收旧刷新结果；参考 [WS 鉴权重连](0011-websocket-token-reauth.md)。断线由轮询收敛，回前台即时补拉。重连与同步刷新持久数据；toast 只在前台且偏好已知并允许时加入带上限的账号级去重/合批队列，后台不补弹。通知跳转须读当前任务和实际项目权限；审核任务不可退化成可写标注入口。工作台宿主提供离开守卫时，通知、反馈和恢复链接都经它路由，拒绝时原界面及操作保留。项目 batch 迁移和改派共用同一 WS 频道，改派改变未分配 draft 的预标资格，即使状态没变仍需同时失效批次和项目计数。不把订阅延迟解读为没有工作；任务铃独立轮询历史与不发事件的作业，终态本地隐藏不是删除，进行中不可隐藏。heartbeat 仅前台在会话内发送，历史活跃和当前在线是两种指标。
+- `decisionDialog` 是用户决策队列，不是 mutation：危险操作优先焦点取消，用户点击即时结算，等退场后再交给下一窗，应用退出或会话替换取消队列。工作台使用模态标记隔离全局热键；嵌入浏览器可能禁止原生 `confirm`／`alert`／`prompt`，改用应用对话框或行内错误。远端写入仍由调用方管理 pending、当前所有者和失败重试。未保存设置在浏览器路由监听前截获离开意图，取消 back/forward 需先把历史回弹，确认后重放原遍历，不凭空 push 一个副本；跨文档 `beforeunload` 保持同步原生语义。
+- 主题首屏用本机缓存，登录后以有值的账号偏好为准，未知用 system，登出不清本机主题。通知偏好与新版本已读按账号所有；失败只撤销相关字段，迟到的新版本确认不能覆盖新主题，已读值单调。自动更新提醒只认存活应用内的登录边沿（含跨标签页），持久会话刷新和同账号重拉不弹，实际打开后才登记防重复；关闭不等于确认，下次真实登录可再提醒。
+
+### 业务页面：把可用性和所有权落在具体边界上
+
+- Workspace 与 Labeling 的表单、列表和工作台分别消费权威 API；URL codec 是已提交的筛选、排序、游标和子视图入口，不是每个输入草稿。共享筛选只管理可复用表达式和输出值，不替页面选查询键；文本 debounce 后一起重置页，旧 URL 别名仅在读时规范化，不回写存量。Data Manager 的 task/object/track grain 见 [独立读模型](0047-data-manager-entity-read-model.md)：关键词只可从直接合取条件提取，不把 OR 子树拆平；显式视图缺失与未指定视图不同。虚拟行跟随页面纵滚，首贴表头留在同一横滚容器，摘要移动或画廊切换要重新测量；schema 错误保留可手动重试的分支，不反复重挂观察器。只读预览延迟加载画布，按版本和权限获取媒体，重试时即使地址相同也要重新加载；缺页不能冒充不存在。跨来源讨论页按服务端游标顺序及来源和 ID 去重，旧页可加载但不从浏览器时区重排；置顶候选先核实根，批次提交或作品审核的写入不从聊天缓存推断。
+- 新建项目、复制和应用模板不共享普通草稿；复制与模板是互斥方式，不复制成员、任务、数据集、批次、截止日期等运行态（[模板与克隆](0023-project-template-vs-clone.md)）。复制的指南及资源走 owner 能力；项目和模板都按 `tool_unit_id` 保留各自类别／属性，停用单位保留配置且仍校验将写入的数据 ([工具单位](0026-tool-unit-class-and-attribute-binding.md)、[类别重命名](../0143-workspace-project-class-rename-owner.md))。只有显式选择跨单位重命名才省略工具 ID；避开修订冲突不能靠本地循环替换历史标注。属性 option 批量文本按换行、chip 可按逗号，冒号只切首个，空/重复 value 不落库，保留标签文字及次序；骨骼点的重排/删除同步更新边的索引。视频采样选择即时提交、数字编辑失焦提交且无效草稿不写；显示覆盖 `null` 表示继承个人偏好，不拿默认值假装项目覆盖。分批按原项目媒体类型让后端统一准入；异步建题完成前不能把待生成项当已切批次。`by_scene` 项目的后补任务也必须按 scene；卡片与看板只预检服务端批次状态机，`admin_locked` 是独立安全位 ([批次锁](0008-batch-admin-locked-status.md))，删除需要 force 的 409 单独确认并保存点击时目标。
+- 指南资产由 Workspace／Assets 决定读/写、克隆、清理和关联（[指南资产](../0144-workspace-guide-assets-owner.md)）；Web 按登录/项目/文档身份拒绝过期图、上传、保存回调。授权 SVG 预览置于不透明文档，Blob URL 直到对应的拥有者退役才释放。Markdown 编辑器的表格单元格是嵌套编辑器，显式保存等失焦将值发布到外层，粘贴/拖放必须归属发生动作的编辑器而非落后的全局焦点。上传的占位标记只存在于编辑恢复状态；对外发布的 Markdown 不得含 pending marker，重试以真实节点/锚点和当下文档身份为准。合法候选及原稿须在可恢复失败时保留；保存回执仅推进实际确认版本，再与当前文本比较，不能吞掉 A→B→A。链接字段必须有可访问名称，现有依赖私有 DOM 的补偿见 [#176](https://github.com/YOAO-Labs/ai-annotation-platform/issues/176)。截图使用支持 OKLCH 的 html2canvas-pro，视口 PNG 的证据不等同整个页面，不纳入反馈抽屉/触发器/toast；反馈附件和诊断对当前报告及会话归属进行验证。
+- 训练和学习页把可编辑配方、数据冻结、训练执行、评估及发布分开（[受控模型身份](0076-controlled-trained-model-identity.md)、[训练初始化](0081-controlled-training-initialization.md)、[冻结逐样本评估](0079-frozen-sample-evaluation.md)、[参数搜索](0082-budgeted-training-studies.md)、[人工主动学习](0083-human-reviewed-active-learning.md)）。保留数字和列表的原始草稿直到校验，不把数字空串隐式转 0；向导区分尝试 ID、草稿 owner/revision 和幂等请求 ID，输入/初始化 provenance 一变就不能复用旧提交。已知完成的操作可以显示确定状态，未知、正在恢复或证据不足不能呈现成功；旧浏览器会话的请求不能销毁新草稿。增强预览用 CPU 预览凭据，不声明训练资格 ([增强预览](0077-native-augmentation-preview-cpu-ownership.md))；实时日志、脱敏下载及固定历史副本是不同证据 ([执行观测](0078-attempt-observability-and-redacted-logs.md))。评估区分 box／mask 指标、真零和缺值，比较分页/图表的数据按同一冻结尝试与参数来源归属。
+- 原图、派生物、授权媒体与原片播放租约分别处理，不能把位置或渲染能力当业务身份（[不可变图像金字塔](0062-immutable-image-pyramid-assets.md)、[图像派生交付](../0106-independent-image-media-owner.md)、[原片段交付](../0107-scoped-native-video-stages.md)）。取消请求不等于服务端已释放字节读取的槽位；替代读取可排队，但实时交互不能让旧结果越过任务或登录代次。原片在页内用专用 XHR 观察释放的无正文 204；离页 keepalive 是尽力补投，使用开租时的认证，不误清新会话，无法回收时由时限与 reaper 收敛。浏览器原生播放错误未必带 HTTP 状态，区分到期与媒体错误要查当前租约；不用代理 URL 猜租约身份。精确视频 manifest v2 按能力附加，不取代 v1 回退。所见 `<video>` 像素和请求的精确帧号要分别核实。视频单帧注解绑 `frame_index`，不是轨迹；开放折线与闭合轮廓不能共用插值拓扑；洞和多域按偶奇显示，编辑范围不能被描述为所有环可编辑。逐帧属性只覆盖 mutable 键，Re-ID 文本不是 Track 主键（[跨帧身份](0045-track-id-as-annotation-column.md)、[Scene Track](0069-scene-track-domain-and-lifecycle.md)）。
+
+### 预标注编排与模型运行：区分选择、准入、派发、执行和驻留
+
+- [多阶段预标](0043-staged-preannotation-pipeline.md)、[Pipeline 库](0046-project-pipeline-library-and-scopes.md)、[命名管线 owner](../0146-inference-named-pipeline-owner.md) 与[冻结管线](0088-model-catalog-and-frozen-pipelines.md)约束项目表单、全局检查器及 API 的共同语义。编排根由 `parent_stage == null` 判定，不以编号 0 判根；输入节点和首个模型是不同概念。重接父边后检查循环、深度和父输出；属性叶节点不能提供下游几何。批量 `active` 或完全未分派 `draft` 与当前题授权不同，不能混用；前端只预检，后端派发后再次验证编辑权、锁和批次。没有阶段照旧走单阶段；父类不匹配只跳过该下游。判定能力看具体 model，不把池级或 backend 摘要当模型合同。
+- 整图选项不能把只收 crop 的识别模型当作可整图执行；下游只用符合输入/输出的非交互原子，排除 composite。框提示分割以全图+父框投递，crop detection 用裁图并回映坐标，classification/识别以 crop 写属性。`model_variants` 的轴和 `params` 来源于实际模型声明；父类别过滤和模型自身原生类别索引空间不同，不能相互透传。几何类下游可作父节点，属性冲突默认不派发，显式允许末位覆盖才可继续；全局模板无项目类表，上下文依模型能力推导，未知候选可保留已选择文本，项目套用和运行时仍要有有效 schema。`StageCard` 的 OCR 整图同胞耦合不是协议要求，归 [#172](https://github.com/YOAO-Labs/ai-annotation-platform/issues/172)。批量请求受理不证明完成、缓存命中或驻留，本地已热推测归 [#174](https://github.com/YOAO-Labs/ai-annotation-platform/issues/174)；历史表与终态以当前 job 和服务端读回为准，最后一个 job 的逐阶段统计不代表其它批次。
+- 全局注册、项目启用、主服务池和实例是不同资源（[全局注册](0044-global-ml-backend-registry-and-project-enablement.md)、[池与路由](0050-ml-backend-service-pools-and-request-routing.md)、[Workspace 主池绑定](../0147-inference-pool-policy-and-workspace-bindings.md)）。`registry_id` 是实例，`pool_id` 是路由目的；URL 可显示及为兼容观测关联使用，不可成为路由或授权身份。同实例可有多个投影；能力目录枚举协议/模型/运行时支持，不声明 checkpoint 已加载。运行观测的配置态、健康、有效路由、资源驻留等独立，缺失、过期、角色裁剪不能转成正常／零／空闲；router off/observe 不代表 enforce。未知指标不借共享计数补值；相对单调时钟和 ISO `last_used_at` 意义不同。主池项目数必须来自权威绑定而不是 registry 交集，现有显示近似见 [#169](https://github.com/YOAO-Labs/ai-annotation-platform/issues/169)。
+- 按[模型市场观测](0051-model-market-observability-information-architecture.md)，前端仅在 draining 且有足够新鲜的 router ledger、无开放工作等门成立时提供普通卸载请求；缺 ledger、状态不确定、无快照或仍可路由均不可操作。最终以 API 对当前拓扑和未结束执行的核验为准，409 与 503 表达不同原因；API 接受卸载仍需等待实际驻留证据，不添加无后端合同的强卸载按钮。实例详情集中呈现项目作用域预热/变体，不在紧凑表格重复选择器。维护操作后刷新 topology/runtime-snapshot/observe 和仍在消费的旧 registry 查询；多个状态轴和诊断即使源部分失败也分别标记新鲜度，不因一个成功请求全绿。
+
+### 浏览器、夹具和基准：测量实际发生的事
+
+- **测试所有者与证据层次。** 参考[测试指南](../../../docs-site/dev/testing.md)和 [Web E2E 手册](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/apps/web/e2e/README.md)。Vitest/RTL 锁定解析、状态与 HTTP 消费，MSW 只有显式 handler 才是已核对的接口响应；补齐未处理产品 API 请求的强制失败边界见 [#175](https://github.com/YOAO-Labs/ai-annotation-platform/issues/175)。独立布局套件用实际控件和样式，无数据库真实性声明；`e2e/browser-integration` 可用 Vite 源码直接验证 Worker，产品 E2E 通过已构建的应用、真实浏览器和 API，不动态导入 `/src/` 或在页面写状态来替代交互。重试、夹具选择和分片由配置与标签决定，不由注释驱动。`eslint-test-contracts.mjs` 检查裸 expect 和响应筛选：等待应凭动作、资源及方法匹配，再单独断言状态，不能把真实失败变成等不到 2xx 的超时。环境对渲染能力有限时标不适用或 inconclusive，而不是替失败分支给成功标记。
+- **造数与清理。** `e2e/fixtures/seed.ts`、`seed-request.py` 及 `seed-owner-transport.mjs` 使用按 run/测试身份确定的 namespace，显示名同样需唯一；同一 run 重试复用，跨 run 隔离。准备要求被授权的专用测试环境；受控 provider 必须是实际承接待测推理的同一 provider。仅回收已登记的自有资源，先阻止注入身份页面继续发媒体／帧预取，再删记录；先保存失败证据，清理错误显式失败。测试进程不把 DB/存储/fixture 凭据传给浏览器；进程 guard 持有到确切退出，恢复读取/确认原有收据而不重投动作。Mask GC 使用单独受控桶和真实可删对象以证明实际清理，不能将共享桶的扫描或仅更改 DB 记录当 GC 证据。清理、生成前置状态和产品行为的预算要分开。
+- **全链路写入与取消。** `review-{approve,feedback}-loop.spec.ts` 的待审核任务来自真实标注提交，不能用 `advanceTask` 伪造冻结的作者和贡献者证据；审批读回 `completed` 并核对作者通知，退回分别核对结构化原因、补充说明及 `rejected`。决定弹窗退场不等于写入完成，固定时间等待遗留见 [#173](https://github.com/YOAO-Labs/ai-annotation-platform/issues/173)。角色/撤权用实际 API 和分开的身份验证，提交后合法失去可见性时由仍有权限的身份读回；离线写还需并验浏览器持久副本与服务端未写入。`request-errors.ts` 只允许在特定生命周期内相应方法和路径的 `net::ERR_ABORTED`，分别列出媒体读、读形预取 POST、无业务记录的卸载遥测及离页 lease 回收等；不允许吞业务写、HTTP 失败或未知取消。故障注入明确是提交前延迟、已真实提交但响应丢失，或仅破坏浏览器可见的媒体；这些证据不能互换。
+- **交互和真实像素。** 不把 `page.goto`、导航后的 DOM、工具 ready、mock 回调或 canvas 标签当成功。交互前等当前媒体/宿主、焦点和动画收敛；用于明确前置位置的 range 输入只能证明数值映射，经窗口范围及 round-trip 对帧；真实指针回归走浮层捕获阶段与 actionability，禁止强点/键盘补救遮挡。端点才可按整数物理像素量化给约定容差，内部仍要求目标帧和迟到结果不回写。像素证据只跳过确知是媒体的首层，实际标注层不可读取即失败；判断视频帧用已知梯度/标记并考虑裁剪、letterbox 和缩放。Raster 存储证据用独立 RLE 路径和持久读取，不用同一编解码自证。浏览器 zoom 用临时 Chromium profile 的原生 tabs zoom，不拿 CSS zoom、DPR 模拟或外框尺寸充当内容 viewport；各次导航重设，长临时路径可能让 Linux DevTools socket 启动失败，短目录要完整清理。`@stress` 重复长循环与普通复现分开，保存布局应等待最后一条防抖持久命令，读真实组而不是 Dockview 私有映射。
+- **性能是带资格的信息。** 图片基准计划与实测分开：`image:bench` 写计划；默认 Playwright 只跑标准夹具 smoke；独立的图片测量在交互前核对实际托管原图、浏览器解码与舞台坐标系的尺寸、同一任务的 API 几何与舞台标注数。不匹配不出数，未执行的矩阵不能用于性能结论（[#159](https://github.com/YOAO-Labs/ai-annotation-platform/issues/159)）。Raster CPU、Worker 和 WebGPU 微基准须记录实际输入密度/ROI、内存口径、backend 与明确回退；产品编辑、持久写及交互流畅度分别验收（[大画布](0054-raster-mask-large-canvas-memory-and-tiles.md)、[WebGPU packed XOR](0057-raster-mask-webgpu-packed-xor-contract.md)、[能力门禁](0060-default-enable-capability-gated-client-acceleration.md)）。同一基准的候选和参照保留等价输入及操作，不能把冷初始化算进暖读或只给平均值。缺 WebGPU/Long Tasks 证据时明确标记，不从零样本算零延迟。
+- **精确视频和点云分别取得环境、呈现与资源证据。** `scripts/video-bench/precise-frame-runner.mjs` 以实际目标帧 Konva draw 结算 seek 延迟，播放计数从上次预取静默后开始；资源账本另观察尾部收敛，不能将短时在途帧当 leak。冷首开、同 GOP 暖 seek、chunk 切换与稳定长跑分开；CDP media log 的单条 `kLoad` 不是实际 decoder 身份，缺成对证据/稳定能力应 inconclusive；headless 侦测能力不证明 GPU 或硬解 SLA。Worker 决策测具名同步规划段而不是把全操作的 event-loop 阻塞当成候选。`scripts/benchmark-pointcloud-renderer.mjs` 留两条延迟：点击到导航、导航至真实呈现；没有相应 history/navigation 证据的样本不入统计。冷、邻帧、完全暖分别出数，暖读要核实各缓存阶段命中；首次与再次打开三视图分开，GPU API 要从同一应用安全 origin、浏览器和启动参数读取实际 adapter，厂商字符串或一次性能样本不等于严格功能资格。严格 WebGPU 套件要求生产运行时报告所选 backend 并真实编辑/播放（[点云 WebGPU](0068-experimental-webgpu-pointcloud-renderer.md)、[点云单 context](0070-single-context-pointcloud-four-view-rendering.md)）。报告带版本、fixture、浏览器/设备、viewport/DPR、采样数、冷暖和回退情况；不把显示 PCD 当原始传感器数据，也不把插值帧或多相机当新地面真值样本。
+
+### 构建、部署与机器输入
+
+- 并行 worktree 可共享依赖，不共享 Vite optimizer cache；Vite 用可分配的 API 代理端口与根环境配置，IPv4 绑定的本机 API 不走可能解析到 `::1` 的 localhost。开发浏览器从同源代理取媒体，MinIO 转发要保持 S3 canonical 资源路径。Bundle 检查在 Vite build 后按实际 `dist/assets` 单文件预算判定，禁止以仅审核源码文件大小替代。发布说明从构建版本选 CHANGELOG 段落、只在打开时懒加载并缓存，缺内容有明确提示而非把整个日志塞主包。测试在构建、开发和受控浏览器配置中各自验证所属产物。
+- 保留 shebang、TypeScript triple-slash、`@ts-expect-error`、ESLint 有效指令等机器输入。当前 TypeScript/TSX 的 `no-empty` 不读取文字意思，但确实读取空语句块内部是否有注释；逐块保留一个原 token，不把全局关闭规则或插入空操作当成清理。此规则不把空函数体纳入判断；普通 JSDoc 链接及测试步骤说明无已知生成器/测试读取依赖。主题检查丢弃注释再验语义类，CSP 入口替换的是活动占位字符串不是解释；不要误删有效代码来修正历史叙述。
+
+## Consequences
+
+- **正向：** Web 团队能改主题或组件实现而不扩大 CSP，不改变弹窗及焦点职责；后端团队可以演进域实现而不授权浏览器自己推断跨域权限、项目池绑定或驻留；测试人员能从目标行为找到相应可复查的 HTTP、存储、交互、像素或设备凭据。
+- **负向：** 守卫、查询和轮询不能仅为减少请求形式而合并，晚挂载和会话换代需要独立覆盖；真实浏览器、专有样本及某些 GPU 尚未具备时，只能报告范围内事实。上述工单跟踪已确认绕路，不表示实现已修复。
+
+## Alternatives Considered
+
+- 直接使用 UI 组件库默认 theme、交互和权限展示：组件更短，但不可跨嵌入式 CSP/焦点与应用适配验证，也无法承担服务端权限判定。
+- 将派发成功、HTTP 模拟、DOM 就绪和单机跑分折叠为一个通过结果：运行成本低，却漏过写入/清理、真实指针、帧身份或能力回退。保留分层证据，以明确未测范围换取可复验结论。

@@ -18,7 +18,6 @@ from app.services.data_management.views import (
     validate_sort,
 )
 
-# (field, op, value) tuples that must compile for every supported field branch.
 _SUPPORTED_RULES = [
     ("task.status", "in", ["pending", "review"]),
     ("task.status", "eq", "pending"),
@@ -90,7 +89,7 @@ def test_compile_filter_nested_and_or():
         {"op": "and", "rules": [{"field": "task.raw_sql", "op": "eq", "value": "1"}]},
         {"op": "xor", "rules": []},
         {"op": "and", "rules": "not-a-list"},
-        {"op": "and", "rules": [{"op": "eq", "value": "x"}]},  # missing field
+        {"op": "and", "rules": [{"op": "eq", "value": "x"}]},
         {"op": "and", "rules": [{"field": "task.status", "op": "bogus", "value": "x"}]},
         {"op": "and", "rules": [{"field": "task.status", "op": "in", "value": "x"}]},
     ],

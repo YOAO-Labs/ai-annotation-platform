@@ -1,9 +1,3 @@
-// 协议能力列表视图: groupBy=task 时与协议卡片共享同一份 protocolView 数据。
-//
-// 模型市场多 TAB UI 优化 · 阶段二 (plan §4.1)：行保持紧凑——能力、输入/输出、
-// 接入数量、模型名称摘要和「查看全部 N 个模型」；该入口实际展开剩余模型（替换
-// 旧不可点击的「+N 个模型」文字）。未接入能力显示一行说明和接入入口，推荐后端
-// 在展开区域列出。
 import { Fragment, useState, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -80,7 +74,6 @@ export function ProtocolCapabilityListTable({
                       {task.summary}
                     </div>
                   </td>
-                  {/* 输入/输出合并为一列：默认模态 → 默认几何。 */}
                   <td className="min-w-[150px]">
                     <div className="flex flex-col gap-1">
                       <div className="flex flex-wrap gap-1">
@@ -181,7 +174,6 @@ export function ProtocolCapabilityListTable({
                     </div>
                   </td>
                 </tr>
-                {/* 展开区：实际渲染全部（含剩余）模型的摘要卡。 */}
                 {expanded && mounted.length > 3 && (
                   <tr className="bg-muted/20">
                     <td colSpan={5}>

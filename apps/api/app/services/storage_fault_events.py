@@ -50,7 +50,6 @@ def classify(exc, *, preview=False):
         return "preview_failed", "preview_generation_failed"
     category = getattr(exc, "storage_fault_category", None)
     if category in CATEGORIES:
-        # Provider details remain private, including rejected access keys.
         return category, category
     code = getattr(exc, "code", None)
     category = FAULT_CODES.get(code)
@@ -58,8 +57,6 @@ def classify(exc, *, preview=False):
 
 
 async def _persist(db, detail, actor_id, request_id):
-    # Use this caller's engine: API and each Worker may serve different modes.
-    # An observation must neither commit nor roll back the business transaction.
     async with storage_access.engine(db).begin() as connection:
         await connection.execute(text("SET LOCAL lock_timeout = '250ms'"))
         await connection.execute(text("SET LOCAL statement_timeout = '1s'"))
@@ -108,7 +105,6 @@ async def report(
         async with asyncio.timeout(2):
             await _persist(db, detail, actor_id, request_id)
     except Exception:
-        # Do not log exception text, paths or provider responses on this path.
         log.warning("Storage fault observation could not be persisted")
 
 

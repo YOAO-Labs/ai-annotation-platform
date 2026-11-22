@@ -41,7 +41,6 @@ async def _seed(db, owner_id, *, box=0.4, text=0.3):
     db.add(proj)
     await db.flush()
 
-    # ADR-0044 · 全局注册项 + 为项目启用 (交互端点授权读 ProjectMLBackendPool.enabled)。
     backend, pool = await create_registry_with_pool(
         db,
         name="dino-sam2",

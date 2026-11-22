@@ -68,7 +68,6 @@ async def test_set_local_exemption_allows_update_and_delete(
     """SET LOCAL 豁免后 UPDATE / DELETE 成功；事务结束自动失效。"""
     rid = await _insert_row(db_session, action="test.exempt")
 
-    # 在 SAVEPOINT 内开启豁免（SET LOCAL 仅作用于当前事务）
     await db_session.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
     res = await db_session.execute(
         text("UPDATE audit_logs SET action='test.exempt.modified' WHERE id=:id"),
@@ -98,7 +97,6 @@ async def test_set_local_exemption_does_not_leak_across_savepoint(
     finally:
         await sp.rollback()
 
-    # SAVEPOINT 回滚后再 UPDATE，应被重新阻断
     with pytest.raises(Exception) as exc:
         await db_session.execute(
             text("UPDATE audit_logs SET action='test.leak.tampered' WHERE id=:id"),
@@ -117,7 +115,7 @@ async def test_copy_bypasses_row_trigger(db_session: AsyncSession):
     """
     raw = await db_session.connection()
     asyncpg_conn = await raw.get_raw_connection()
-    pg_conn = asyncpg_conn.driver_connection  # asyncpg.Connection
+    pg_conn = asyncpg_conn.driver_connection
 
     from datetime import datetime, timezone
 
@@ -130,7 +128,6 @@ async def test_copy_bypasses_row_trigger(db_session: AsyncSession):
         columns=("action", "created_at"),
     )
 
-    # 验证写入成功（COPY 路径不被阻断）
     res = await db_session.execute(
         text("SELECT count(*) FROM audit_logs WHERE action='test.copy.row'")
     )

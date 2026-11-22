@@ -41,8 +41,6 @@ async def dispatch(db, job):
     try:
         await asyncio.wait_for(asyncio.to_thread(_publish, job_id, task_id), 3)
     except Exception:
-        # An uncertain publish can still arrive. The same task ID and durable
-        # pending->running claim make explicit redispatch safe without a TTL.
         log.warning("Managed original verification dispatch unavailable job=%s", job_id)
 
 
@@ -67,8 +65,6 @@ async def execute(db, job_id, task_id):
         await notify_job_terminal(db, job_id=job_id)
         await db.commit()
         return False
-    # Import only at execution: the shared reader owns SDK timeouts and byte
-    # budgets, not image decoding or arbitrary historical endpoint construction.
     from app.services.managed_original_probe import ProbeInput, run_probe
 
     verification_id, revision = row.id, row.maintenance_revision
@@ -103,8 +99,6 @@ async def execute(db, job_id, task_id):
     except Exception as exc:
         failure = safe_error(exc)
 
-    # A failed callback may still own a short transaction. Do not publish from
-    # its old snapshot or retain any of its locks across the final fence.
     async def finalize():
         await db.rollback()
         changed = await service.publish(

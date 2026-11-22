@@ -10,11 +10,6 @@ import { useAuthStore } from "@/stores/authStore";
 
 export const TASK_DISCUSSION_PAGE_LIMIT = 50;
 
-/**
- * Fetch the server-ordered mixed task discussion feed. Pagination is owned by
- * the endpoint, so this hook never combines independently paged annotation and
- * feedback lists in the browser.
- */
 export function useTaskDiscussion(
   taskId: string | null | undefined,
   scope: DiscussionReadScope = "all",
@@ -25,8 +20,6 @@ export function useTaskDiscussion(
   const effectiveAnnotationId = scope === "annotation" ? annotationId : null;
   const userId = useAuthStore((state) => state.user?.id ?? null);
   return useInfiniteQuery({
-    // Keep the frozen C0 family prefix for mutation invalidation, then isolate
-    // the user/project-sensitive action projection from another auth/project.
     queryKey: taskDiscussionQueryKey(taskId ?? "", scope, effectiveAnnotationId, projectId, userId),
     queryFn: ({ pageParam, signal }) =>
       discussionApi.listTaskDiscussion(
@@ -46,7 +39,6 @@ export function useTaskDiscussion(
   });
 }
 
-/** Query-key helper for mutation owners that need to invalidate a feed. */
 export function taskDiscussionQueryKey(
   taskId: string,
   scope: DiscussionReadScope = "all",
@@ -66,12 +58,6 @@ export function taskDiscussionQueryKey(
   ] as const;
 }
 
-/**
- * Flatten pages while retaining the server order and source-aware identity.
- * React Query can briefly expose a previous page during refetch; the identity
- * guard keeps a row from rendering twice without collapsing equal UUIDs from
- * the two authoritative source tables.
- */
 export function flattenTaskDiscussion(
   data: InfiniteData<TaskDiscussionPage> | undefined,
 ): TaskDiscussionItem[] {

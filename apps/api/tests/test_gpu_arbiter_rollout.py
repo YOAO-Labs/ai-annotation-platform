@@ -389,8 +389,6 @@ async def test_rollout_global_boundary_includes_transitions_and_enforcing(
         UnusedNativeData(),
         config=disabled,
     )
-    # Other tests may leave durable rows, so assert the local transition makes
-    # the boundary active instead of requiring a globally empty table.
     resource_id = _resource_id()
     cleanup_gpu_rollouts(resource_id)
     await _begin_rollout(factory, resource_id, GPUArbiterMode.ENFORCE)

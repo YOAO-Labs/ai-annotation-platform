@@ -112,7 +112,6 @@ def test_maximum_root_leaves_exact_space_for_zip():
     )
     with pytest.raises(storage.ExportStorageError):
         targets.managed_prefix(base + "x")
-    # The old spelling was one byte shorter. Its largest saved key remains readable.
     old_root = base + "x/_aap_managed/export/"
     assert len((old_root + KEY).encode()) == 1024
     assert (
@@ -324,7 +323,6 @@ async def test_historical_maximum_base_does_not_invalidate_other_bindings(extern
     base = "x" * (904 - len("/_aap_managed/export/"))
     connection.config = {**connection.config, "base_prefix": base}
     await db.flush()
-    # Other purposes still see their pinned platform location.
     datasets = await ensure_legacy_bindings(db)
     assert datasets.location_id == LEGACY_LOCATION_ID
     with pytest.raises(storage.ExportStorageError):
@@ -545,7 +543,6 @@ async def test_mapped_legacy_zip_prepares_and_rechecks_actual_target(routed_zip)
         case.receipt.size_bytes,
     )
     case.recheck.assert_awaited_once_with(db, case.route, lock=True)
-    # Publication recheck locks and validates the actual target Gate itself.
     case.gate.assert_not_awaited()
     case.direct.assert_not_awaited()
     assert case.receipt.storage_ref == saved

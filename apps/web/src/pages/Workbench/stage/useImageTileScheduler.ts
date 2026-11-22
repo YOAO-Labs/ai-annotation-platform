@@ -85,8 +85,6 @@ export function useImageTileScheduler(
       clearImageTileDiagnostics(source.generation);
       if (schedulerRef.current?.scheduler === scheduler) schedulerRef.current = null;
     };
-    // A pyramid identity is immutable. Presigned overview URL refreshes must not
-    // recreate the scheduler or discard already-decoded tiles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     budget.concurrency,

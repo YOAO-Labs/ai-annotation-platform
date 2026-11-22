@@ -3,7 +3,7 @@
 from datetime import datetime
 import uuid
 
-from sqlalchemy import CheckConstraint, DateTime, Index, String, func
+from sqlalchemy import CheckConstraint, DateTime, FetchedValue, Index, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -82,6 +82,11 @@ class VideoDerivativeOutput(Base):
     auth_ref: Mapped[dict] = mapped_column(JSONB(none_as_null=True), nullable=False)
     metadata_output_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     storage_ref: Mapped[dict] = mapped_column(JSONB(none_as_null=True), nullable=False)
+    fixture_request_versions: Mapped[dict | None] = mapped_column(
+        JSONB(none_as_null=True),
+        server_default=FetchedValue(),
+        server_onupdate=FetchedValue(),
+    )
     state: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="building"
     )

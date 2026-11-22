@@ -1,13 +1,7 @@
-/**
- * 视频 Konva 栈容器(VideoKonvaStage)konva-mock 测试。
- *
- * 验证容器层装配:渲染隐藏 `<video>` 解码源 + media-bg Layer + Konva.Image(world 尺寸按
- * manifest 固有宽高),并经转发的 VideoStageControls 暴露播放控制(供工作台热键驱动)。
- * 真实 canvas 渲染 / 播放重绘交给 Playwright,本测试只验装配与 props(决策 C)。
- */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createRef } from "react";
 import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
+import { rasterMasksApi } from "@/api/rasterMasks";
 import { DEFAULT_ANNOTATION_VISUAL } from "./annotationVisual";
 import { VideoKonvaStage } from "./VideoKonvaStage";
 import type {
@@ -149,7 +143,6 @@ const manifest: TaskVideoManifestResponse = {
 
 describe("VideoKonvaStage · konva mock", () => {
   beforeEach(() => {
-    // The viewport hook uses observer notifications, not window resize, when available.
     vi.stubGlobal(
       "ResizeObserver",
       class {
@@ -211,7 +204,6 @@ describe("VideoKonvaStage · konva mock", () => {
     expect(image).not.toBeNull();
     expect(image!.getAttribute("data-width")).toBe("1000");
     expect(image!.getAttribute("data-height")).toBe("500");
-    // data-video-frame-source 暴露当前显示来源(webcodecs / native bitmap / video element),供 E2E 与诊断。
     const stage = document.querySelector('[data-testid="video-konva-stage"]') as HTMLElement;
     expect(["webcodecs", "native-bitmap", "video"]).toContain(
       stage.getAttribute("data-video-frame-source"),
@@ -565,13 +557,123 @@ describe("VideoKonvaStage · konva mock", () => {
     },
   );
 
+  it("restores a selected manual outside Mask with a clean editor and reloads held pixels", async () => {
+    const keyframes = [0, 10].map((frame_index) => ({
+      frame_index,
+      source: frame_index === 0 ? ("manual" as const) : ("prediction" as const),
+      mask: {
+        encoding: "coco_rle_ref" as const,
+        size: [2, 3] as [number, number],
+        object_key: `raster-masks/sha256/aa/aa/${"a".repeat(64)}.json`,
+        sha256: "a".repeat(64),
+        runs: 3,
+        bytes: 64,
+      },
+    }));
+    const outside = {
+      ...contextAnnotation("video_track_bbox"),
+      version: 2,
+      annotation_type: "video_track_mask",
+      geometry: {
+        type: "video_track_mask",
+        track_id: "trk_context",
+        keyframes,
+        outside: [{ from: 5, to: 5, source: "manual" }],
+      },
+    } satisfies AnnotationResponse;
+    const held = { ...outside, version: 1, geometry: { ...outside.geometry, outside: [] } };
+    const toggleCurrentOutside = vi.fn();
+    const ref = createRef<VideoStageControls>();
+    const props = {
+      ref,
+      manifest,
+      annotations: [outside],
+      selectedId: outside.id,
+      frameIndex: 5,
+      videoTool: "mask-track" as const,
+      maskEditor: makeMaskEditor({ dirty: false, phase: "ready" }),
+      maskKeyframeActions: {
+        clipboardLabel: null,
+        hasClipboard: false,
+        busy: false,
+        copyCurrent: vi.fn(),
+        pasteSameTrack: vi.fn(),
+        pasteNewTrack: vi.fn(),
+        deleteCurrentKeyframe: vi.fn(),
+        toggleCurrentOutside,
+        splitCurrentComponents: vi.fn(),
+      },
+    };
+    const load = vi.spyOn(rasterMasksApi, "annotationVideoMaskContent").mockResolvedValue({
+      encoding: "coco_rle",
+      size: [2, 3],
+      counts: [1, 2, 3],
+    });
+    try {
+      const view = render(<VideoKonvaStage {...props} annotations={[held]} />);
+      const bar = within(screen.getByTestId("video-track-context-bar"));
+      expect(bar.getByTestId("video-track-context-state")).toHaveAttribute("data-state", "held");
+      fireEvent.click(bar.getByRole("button", { name: "标记 outside" }));
+      expect(toggleCurrentOutside).toHaveBeenCalledWith(held);
+      expect(load).toHaveBeenCalledWith(held.id, 5);
+      toggleCurrentOutside.mockClear();
+      load.mockClear();
+      view.rerender(<VideoKonvaStage {...props} />);
+      expect(bar.getByTestId("video-track-context-state")).toHaveAttribute("data-state", "outside");
+      expect(load).not.toHaveBeenCalled();
+
+      const predictionOutside: AnnotationResponse = {
+        ...outside,
+        geometry: {
+          ...outside.geometry,
+          outside: [{ from: 5, to: 5, source: "prediction" }],
+        },
+      };
+      for (const blocked of [
+        { readOnly: true },
+        { annotations: [{ ...outside, is_locked: true }] },
+        { lockedTrackIds: new Set(["trk_context"]) },
+        { maskEditor: makeMaskEditor() },
+        { maskKeyframeActions: { ...props.maskKeyframeActions, busy: true } },
+        {
+          segmentRange: { coreStartFrame: 0, coreEndFrame: 4, workStartFrame: 0, workEndFrame: 4 },
+        },
+        { annotations: [predictionOutside] },
+      ]) {
+        view.rerender(<VideoKonvaStage {...props} {...blocked} />);
+        expect(bar.queryByRole("button", { name: "恢复显示" })).toBeNull();
+        act(() => ref.current?.toggleSelectedTrackOutside());
+      }
+      expect(toggleCurrentOutside).not.toHaveBeenCalled();
+      expect(load).not.toHaveBeenCalled();
+
+      view.rerender(<VideoKonvaStage {...props} />);
+      fireEvent.click(bar.getByRole("button", { name: "恢复显示" }));
+      expect(toggleCurrentOutside).toHaveBeenCalledTimes(1);
+      expect(toggleCurrentOutside).toHaveBeenCalledWith(outside);
+
+      const restored: AnnotationResponse = {
+        ...outside,
+        version: 3,
+        geometry: { ...outside.geometry, outside: [] },
+      };
+      await act(async () => view.rerender(<VideoKonvaStage {...props} annotations={[restored]} />));
+      expect(bar.getByTestId("video-track-context-state")).toHaveAttribute("data-state", "held");
+      expect(bar.getByTestId("video-track-context-source")).toHaveTextContent("保持自 F0");
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(load).toHaveBeenCalledWith(outside.id, 5);
+    } finally {
+      load.mockRestore();
+    }
+  });
+
   it("转发的 VideoStageControls 暴露播放控制(togglePlayback 触发 video.play)", () => {
     const ref = createRef<VideoStageControls>();
     render(<VideoKonvaStage ref={ref} manifest={manifest} />);
     expect(typeof ref.current?.togglePlayback).toBe("function");
     expect(typeof ref.current?.seekToFrameReady).toBe("function");
     expect(typeof ref.current?.focusRegion).toBe("function");
-    expect(ref.current?.deleteSelectedTrackKeyframe()).toBe(false); // 轨迹类 no-op
+    expect(ref.current?.deleteSelectedTrackKeyframe()).toBe(false);
     playMock.mockClear();
     act(() => ref.current?.togglePlayback());
     expect(playMock).toHaveBeenCalled();
@@ -639,7 +741,6 @@ describe("VideoKonvaStage · konva mock", () => {
       const hint = screen.getByTestId("video-creation-scope-hint");
       expect(hint).toHaveTextContent(track ? "新建轨迹，从当前源帧开始" : "仅当前源帧");
       expect(hint).toHaveAttribute("data-source-frame-index", "4");
-      // A declined scope command only reads the bridge; it does not reconstruct the draft.
       expect(ref.current?.getDrawingDraft?.()).toEqual({ kind: "points", tool, frameIndex: 4 });
       pointer(stage, "pointerdown", 300, 300);
       fireEvent.keyDown(window, { key: "Enter" });
@@ -1029,7 +1130,7 @@ describe("VideoKonvaStage · konva mock", () => {
       );
       const stage = drawingSurface();
       pointer(stage, "pointerdown", 100, 100);
-      expect(ref.current?.getDrawingDraft?.()).toBeNull(); // Mask retains its existing navigation owner.
+      expect(ref.current?.getDrawingDraft?.()).toBeNull();
       const text = tool === "mask-track" ? "新建轨迹，从当前源帧开始" : "仅当前源帧";
       expect(screen.getByTestId("video-creation-scope-hint")).toHaveTextContent(text);
       view.rerender(

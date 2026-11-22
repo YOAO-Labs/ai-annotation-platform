@@ -992,8 +992,6 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                     ).frame_results
                 ]
                 assert staged["results"] == canonical_results
-                # Legacy JSONB normalizes signed zero; the receipt hashes the
-                # pre-storage candidate bytes preserved by canonical windows.
                 staged_bytes = json.dumps(
                     {**staged, "results": canonical_results},
                     ensure_ascii=False,

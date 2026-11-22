@@ -558,10 +558,6 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                 is None
             )
 
-        # The checked-in grant installers revoke PUBLIC on module functions.
-        # This controlled legacy-only fixture models that PUBLIC hardening so
-        # the shared function-only verifier can prove the retired role's exact
-        # global inventory before the cutover.
         async with scratch.begin() as connection:
             await connection.execute(
                 text(

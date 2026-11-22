@@ -1,9 +1,4 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-/**
- * tiny shared presentational helpers used by every registry
- * section. Kept in one file to avoid a sprawl of one-off micro-components
- * (plan §10: "不为每个字段创建组件").
- */
 import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -12,12 +7,10 @@ import { Icon } from "@/components/ui/Icon";
 import { ActiveFilterChip } from "@/components/filters/ActiveFilterChip";
 import type { UrlStateIssue } from "@/hooks/useUrlFilterState";
 
-/** Inline "未声明" / "—" sentinel. */
 export function NullCell({ children = "—" }: { children?: ReactNode }): ReactNode {
   return <span className="text-xs text-muted-foreground">{children}</span>;
 }
 
-/** Loading placeholder used inside section bodies. */
 export function LoadingState({ label = "加载中…" }: { label?: string }): ReactNode {
   return (
     <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
@@ -27,7 +20,6 @@ export function LoadingState({ label = "加载中…" }: { label?: string }): Re
   );
 }
 
-/** Empty-state block with an icon + message + optional hint. */
 export function EmptyState({
   icon = "bot",
   message,
@@ -46,7 +38,6 @@ export function EmptyState({
   );
 }
 
-/** Error block with a retry button — partial failures must not nuke the page. */
 export function ErrorState({
   message,
   onRetry,
@@ -70,7 +61,6 @@ export function ErrorState({
   );
 }
 
-/** A compact "N 个受影响" chip used by Issue Center / pool / GPU rows. */
 export function AffectedCountChip({ count }: { count: number }): ReactNode {
   if (count <= 0) return null;
   return (
@@ -80,11 +70,6 @@ export function AffectedCountChip({ count }: { count: number }): ReactNode {
   );
 }
 
-/**
- * Visible hint for invalid URL filter enums (plan §5: 非法枚举给可见提示和移除
- * 入口，不静默丢掉非法值扩大结果)。Codec already fell back to the default, so
- * results stay correct; the chip explains why and offers removal.
- */
 export function UrlIssueChips({
   issues,
   onDismiss,

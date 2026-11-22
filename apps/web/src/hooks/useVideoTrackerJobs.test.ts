@@ -32,8 +32,6 @@ vi.mock("@/api/videoTracker", () => ({
   },
 }));
 
-// jsdom 不提供 WebSocket。用最小 mock 捕获 connect() 的 URL 与 close() 调用,
-// 以断言运行中任务的重连 (#10) 与切任务时旧 socket 的关闭 (#9)。
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
   url: string;
@@ -157,7 +155,6 @@ beforeEach(() => {
   vi.resetAllMocks();
   MockWebSocket.instances = [];
   vi.stubGlobal("WebSocket", MockWebSocket);
-  // 两路拉取默认空,单测按需覆盖其一。
   vi.mocked(videoTrackerApi.reviewable).mockResolvedValue([]);
   vi.mocked(videoTrackerApi.active).mockResolvedValue([]);
   vi.mocked(videoTrackerApi.get).mockResolvedValue(reviewableJob);
@@ -468,7 +465,6 @@ describe("TrackerJobStore.restoreReviewable · 切任务 scope 清理 (#9)", () 
     await store.restoreReviewable("task-1");
     expect(snapshot.candidates["job-1"]).toBeDefined();
 
-    // 切到 task-2 (两路皆空) → 旧任务的 job/candidate 应被清掉。
     vi.mocked(videoTrackerApi.reviewable).mockResolvedValue([]);
     await store.restoreReviewable("task-2");
 
@@ -509,7 +505,6 @@ describe("TrackerJobStore.restoreReviewable · 切任务 scope 清理 (#9)", () 
     await store.restoreReviewable("task-1", "tok-abc");
 
     expect(snapshot.jobs["job-run-1"]?.status).toBe("running");
-    // connect 内有 sockets.has 去重, 不应重复建连。
     expect(MockWebSocket.instances).toHaveLength(1);
     expect(MockWebSocket.instances[0].closed).toBe(false);
   });
@@ -524,15 +519,11 @@ describe("TrackerJobStore.restoreReviewable · 切任务 scope 清理 (#9)", () 
       snapshot = next;
     });
 
-    // task-1 的恢复卡在 reviewable 上 (不 await)。
     const inflight = store.restoreReviewable("task-1");
-    // 用户切到 task-2 (currentTaskId 变更 + scope 清理)。
     await store.restoreReviewable("task-2");
-    // 现在放行 task-1 的迟到结果。
     gate.resolve([reviewableJob]);
     await inflight;
 
-    // 护栏应丢弃 task-1 的结果, 不污染 task-2。
     expect(snapshot.jobs["job-1"]).toBeUndefined();
     expect(snapshot.candidates["job-1"]).toBeUndefined();
   });

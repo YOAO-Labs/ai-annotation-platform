@@ -685,7 +685,6 @@ def test_upload_files_three_step_flow(client, respx_mock, tmp_path, upload_url, 
     put_req = put.calls.last.request
     assert put_req.content == b"jpegdata"
     assert put_req.headers["Content-Type"] == "image/jpeg"
-    # 预签名 PUT 不应携带平台 auth
     assert "Authorization" not in put_req.headers
     assert complete.called
     phase_keys = [

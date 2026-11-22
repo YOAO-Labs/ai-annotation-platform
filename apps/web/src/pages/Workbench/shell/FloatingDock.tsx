@@ -12,11 +12,6 @@ interface FloatingDockProps {
   showHistory?: boolean;
 }
 
-/**
- * 画布右下角悬浮工具岛。
- * 承载撤销 / 重做 / 缩放-100%-放大 / 适应。
- * 与 Konva viewport 贴合，不占 Topbar 横向空间。
- */
 export function FloatingDock({
   scale,
   canUndo,

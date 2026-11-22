@@ -17,21 +17,10 @@ import type {
   VideoTrackConversionOptions,
 } from "./videoStageTypes";
 
-/**
- * 视频右键上下文菜单条目构建(纯函数,栈无关)。
- *
- * 从旧 SVG 栈 VideoStage 的内联 `contextMenuItems` useMemo 原样抽出(逐项对齐),
- * 供 SVG `VideoStage` 与新 Konva `VideoKonvaStage` 共用——消除「同一份菜单两栈各写一遍」。
- * 命中/选中/trackActions 由各栈自备(SVG 用 SVG CTM 命中,Konva 用像素空间命中),
- * 本函数只把已解析的上下文映射成 DropdownItem[],无 DOM / 无副作用。
- */
 export interface VideoContextMenuCtx {
-  /** 右键命中的标注(可能与当前选中不同,如多选 bbox 聚合)。 */
   contextMenuAnnotation: AnnotationResponse | null;
-  /** 当前选中标注(track 菜单分支以它为准)。 */
   selectedAnnotation: AnnotationResponse | null;
   contextMenuTargetId: string | null;
-  /** 当前多选的 video_bbox(供「聚合为轨迹」)。 */
   selectedVideoBboxes: AnnotationResponse[];
   readOnly: boolean;
   frameIndex: number;
@@ -48,7 +37,6 @@ export interface VideoContextMenuCtx {
   onPropagateTrack?: (annotation: VideoTrackAnnotation) => void;
   onToggleHiddenTrack?: (trackId: string) => void;
   onToggleLockedTrack?: (trackId: string) => void;
-  /** 点集轨迹显隐/锁定标签需当前状态翻转 (bbox 轨迹走 trackActions, 点集轨迹走这两个集合)。 */
   hiddenTrackIds?: Set<string>;
   lockedTrackIds?: Set<string>;
   maskKeyframeActions?: VideoMaskKeyframeActionHandlers;
@@ -122,8 +110,6 @@ export function buildVideoContextMenuItems(ctx: VideoContextMenuCtx): DropdownIt
     ];
   }
 
-  // 单帧点集/旋转几何 (polygon / polyline / rotated_bbox): 改类 + 删除
-  // (此前落到空菜单)。键于 contextMenuAnnotation (命中即建, 不依赖异步选中态)。
   if (
     contextMenuAnnotation &&
     (isVideoPointsSingleFrame(contextMenuAnnotation) || isVideoMask(contextMenuAnnotation))
@@ -234,8 +220,6 @@ export function buildVideoContextMenuItems(ctx: VideoContextMenuCtx): DropdownIt
     ];
   }
 
-  // 点集轨迹 (polygon / polyline track): 改类 + 显隐 + 锁定 + 删整条
-  // 此菜单不含关键帧级操作或 AI 追踪。
   if (contextMenuAnnotation && isVideoPointsTrack(contextMenuAnnotation)) {
     const trackId = contextMenuAnnotation.geometry.track_id;
     const locked = lockedTrackIds?.has(trackId) ?? false;

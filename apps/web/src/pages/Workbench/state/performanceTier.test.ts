@@ -41,7 +41,6 @@ describe("workbench performance tiers", () => {
     const lightBudget = WORKBENCH_PERFORMANCE_TIERS.light.videoDecoderBitmapCacheBytes;
     const lru = new ByteLru<string, number>(standardBudget);
     const dispose = vi.fn();
-    // 每张 1080p bitmap ≈ 8 MiB(1920*1080*4)。
     const frameBytes = 1920 * 1080 * 4;
     const filled = Math.floor(standardBudget / frameBytes);
     for (let i = 0; i < filled; i++) {

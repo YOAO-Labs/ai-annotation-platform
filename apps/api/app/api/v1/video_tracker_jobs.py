@@ -59,8 +59,10 @@ from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_read_relations import project_facts, project_rows
 
 from app.services.labeling_core_read_relations import (
+    VideoTaskDecisionBusy,
     get_core_row,
     lock_task_for_core_read,
+    lock_task_for_video_decision,
     task_row,
 )
 
@@ -94,7 +96,6 @@ class VideoTrackerJobCounts(BaseModel):
     completed: int = 0
     failed: int = 0
     cancelled: int = 0
-    # 候选/接受流状态计数。
     pending_review: int = 0
     partially_reviewed: int = 0
     accepted: int = 0
@@ -197,12 +198,11 @@ async def _lock_visible_job_task_row(
     user: User | IdentityActorFacts,
     *,
     require_annotation_write: bool = True,
+    candidate_decision: bool = False,
 ) -> tuple[Task, SimpleNamespace, ProjectAccess]:
     """Lock and refresh the job's task at the mutation boundary.
 
-    Account-first, then the membership ``FOR SHARE``, then the refreshed task row
-    ``NOWAIT``: a busy resource returns a retryable 409 instead of blocking, and
-    the route preflight no longer relies on an unlocked ``db.get`` snapshot.
+    Account-first, then the membership ``FOR SHARE``, then the refreshed task.
 
     ``require_annotation_write=False`` (cancellation) skips the annotation-write
     and review-evidence guards: cancelling obsolete compute only needs active
@@ -226,7 +226,15 @@ async def _lock_visible_job_task_row(
     access = await task_access.resolve_task_access(
         db, task, user.id, lock_membership=True
     )
-    task = await _lock_task_nowait(db, row.task_id)
+    if candidate_decision:
+        task_access.assert_annotation_write_allowed(task, access)
+        await task_access.assert_task_visible(db, task, user.id, access=access)
+        await _assert_can_decide(db, task, row, user, access)
+    task = await _lock_task_for_job_mutation(
+        db,
+        row.task_id,
+        decision_project_id=task.project_id if candidate_decision else None,
+    )
     if require_annotation_write:
         task_access.assert_annotation_write_allowed(task, access)
         await task_access.assert_review_adjustment_evidence(db, task, user.id, access)
@@ -234,11 +242,23 @@ async def _lock_visible_job_task_row(
     return task, row, access
 
 
-async def _lock_task_nowait(db: AsyncSession, task_id: uuid.UUID) -> Task:
+async def _lock_task_for_job_mutation(
+    db: AsyncSession,
+    task_id: uuid.UUID,
+    *,
+    decision_project_id: uuid.UUID | None = None,
+) -> Task:
     try:
-        task = await lock_task_for_core_read(
-            db, task_id, nowait=True, populate_existing=True
-        )
+        if decision_project_id is None:
+            task = await lock_task_for_core_read(
+                db, task_id, nowait=True, populate_existing=True
+            )
+        else:
+            task = await lock_task_for_video_decision(
+                db, task_id, project_id=decision_project_id
+            )
+    except VideoTaskDecisionBusy as exc:
+        raise HTTPException(409, detail={"reason": "task_busy"}) from exc
     except DBAPIError as exc:
         if getattr(exc.orig, "sqlstate", None) in {"55P03", "40P01", "40001"}:
             raise HTTPException(
@@ -623,7 +643,9 @@ async def decide_video_tracker_candidates(
 ):
     """Accept or reject an instance/window or QC issue region selector."""
 
-    task, visible, access = await _lock_visible_job_task_row(db, job_id, current_user)
+    task, visible, access = await _lock_visible_job_task_row(
+        db, job_id, current_user, candidate_decision=True
+    )
     await _assert_can_decide(db, task, visible, current_user, access)
     staged = visible.staged_result or {}
     output_geometry = str(staged.get("output_geometry") or "unknown")
@@ -682,7 +704,6 @@ async def decide_video_tracker_candidates(
                 **last_decision,
             },
         )
-    # The review mutation and its mandatory audit row share this transaction.
     try:
         await db.commit()
     except Exception:

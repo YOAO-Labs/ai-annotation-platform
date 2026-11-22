@@ -1,22 +1,3 @@
-/**
- * 全局编排页阶段 Inspector。
- *
- * 与项目侧 StageCard 对齐, 字段分两类:
- *   ① 手配 (用户填): 模型选择 / 模型变体 (version/size/lang 轴) / 类别 (源 class_filter、
- *      下游 parent_class_filter) / 写回属性键 write.keys / 子物体命名 label / ROI pad。
- *      候选真源全部取 CapabilityInstanceModel 现有字段 (classes / output_attribute_schema /
- *      supported_variants), 与项目侧同源; 项目侧那条"回落 projectClasses / 项目 attr schema"
- *      的候选链全局侧不需要 (编排与项目解耦)。
- *   ② 内生 (选完 model 自动派生, 不给下拉): roi.mode / input.mode / write.target ——
- *      由下游 model 的 task/prompts/composition 定死 (与 StageCard 派生逻辑逐条一致):
- *        - 检测 (detection 非交互):    roi=crop,     input=crop, write=geometry
- *        - 分割 (segmentation+bbox):    roi=geometry,             write=geometry
- *        - 识别 (ocr 原子) / 分类:      roi=crop,                 write=attributes
- *      只读展示"阶段类型 + 投递/写回", 让用户看清将发生什么, 但不能选出 model 不支持的组合。
- *
- * 不做: params (推理阈值) —— 后端刻意不下发到 /instances (schema 注释"不暴露 params 等运维信息"),
- *   全局侧无数据源; 编排 copy-on-write 套用到项目后由项目侧 StageCard 拉 /setup 配 (见 plan)。
- */
 import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
@@ -45,26 +26,17 @@ export interface GlobalModelOption {
 
 interface Props {
   kind: "source" | "stage";
-  /** 阶段号 (源=0, 下游 1..N). 组装 payload 时用. */
   stageIndex: number;
-  /** 下游卡才有; 源留 undefined. */
   parentStageIndex?: number;
   pool: GlobalModelOption[];
-  /** 下游卡专用: 上游(父)阶段选中 model 的 classes.name 列表, 供父框类别 chip 候选; 空=只能自由文本. */
   parentClasses?: string[];
-  /** 当前 payload (null=未选中 model, canvas 会渲染 "未就绪" 提示). */
   value: PipelineStagePayload | null;
   onChange: (payload: PipelineStagePayload | null) => void;
   onCaps?: (caps: StageCaps | null) => void;
-  /** 下游卡才有; 源不可删. */
   onRemove?: () => void;
-  /** 顶部 warning (容器侧从 stageWarning() 派生). */
   warning?: string | null;
-  /** 键冲突时命中的 keys (容器传, 用于标红提示). */
   conflictKeys?: Set<string>;
-  /** 检查器多张常挂载, 非选中 hidden. */
   hidden?: boolean;
-  /** 显示标号 (源=1, 下游=2..N; 与项目侧 StageCard displayIndex 语义一致). */
   displayIndex: number;
 }
 
@@ -99,29 +71,22 @@ export function GlobalStageInspector({
   hidden,
   displayIndex,
 }: Props) {
-  // ── 手配表单 state ─────────────────────────────────────
   const [modelKey, setModelKey] = useState<string>("");
   const [roiPad, setRoiPad] = useState<string>("0.05");
   const [writeKeysSet, setWriteKeysSet] = useState<Set<string>>(new Set());
   const [label, setLabel] = useState<string>("");
   const [parentClassSet, setParentClassSet] = useState<Set<string>>(new Set());
-  // 源字段: class_filter 存 model 原生 class index (数字), UI 用 Set<string> 承载 chip 选中态,
-  //   落 payload 前 Number() 转回. 空集=全部类别 (不下发 class_filter, 与项目侧一致).
   const [sourceClassIdxSet, setSourceClassIdxSet] = useState<Set<string>>(new Set());
-  // 模型变体轴 (version/size/lang/series...): 源与下游共用. 数据取自 model 自报的 supported_variants
-  //   (全局 /instances 已下发, 与项目侧同源); 空对象=未选, VariantSelector 按 default/recommended 回落.
   const [variantValue, setVariantValue] = useState<Record<string, unknown>>({});
 
   const optionByKey = useMemo(() => new Map(pool.map((o) => [o.key, o])), [pool]);
   const selectedOption = modelKey ? (optionByKey.get(modelKey) ?? null) : null;
 
-  // 下游阶段的内生形态 (roi/input/write); 源阶段恒 null (源吃整图、恒产几何、不写属性)。
   const shape = useMemo<DownstreamShape | null>(
     () => (kind === "stage" && selectedOption ? deriveDownstreamShape(selectedOption.model) : null),
     [kind, selectedOption],
   );
 
-  // 该 model 的变体轴 (顺序即 supported_variants 顺序); 组装 model_variants 时按此过滤.
   const variantGroups = useMemo<MLBackendSupportedVariantGroup[]>(
     () => (selectedOption?.model.supported_variants ?? []) as MLBackendSupportedVariantGroup[],
     [selectedOption],
@@ -132,7 +97,6 @@ export function GlobalStageInspector({
     [selectedOption],
   );
 
-  // 派生候选 chip 列表 (源类别/下游属性键).
   const sourceClassOptions = useMemo(() => {
     if (kind !== "source") return [];
     const classes = selectedOption?.model.classes ?? [];
@@ -153,7 +117,6 @@ export function GlobalStageInspector({
     return (parentClasses ?? []).map((name) => ({ value: name, label: name }));
   }, [kind, parentClasses]);
 
-  // 上抛 payload + caps.
   useEffect(() => {
     if (!selectedOption || selectedOption.disabled) {
       onChange(null);
@@ -162,8 +125,6 @@ export function GlobalStageInspector({
     }
     onCaps?.(stageCapsFromModel(selectedOption.model));
 
-    // model_variants: 只保留本 model 声明的轴 (与项目侧 StageCard 语义一致). 每轴取值优先级
-    //   用户显式选 > model 自报 default_variants; 都无=该轴不下发, 后端按启动默认解析. 空=整个不下发.
     const modelVariants: Record<string, string> = {};
     for (const k of variantAxisKeys) {
       const picked =
@@ -190,7 +151,6 @@ export function GlobalStageInspector({
       });
       return;
     }
-    // 下游: roi/input/write 由 shape 内生; pad/write.keys/label/parent_class_filter 手配。
     if (!shape) return;
     const parsedPad = Number(roiPad);
     const pad = Number.isFinite(parsedPad) ? parsedPad : 0.05;
@@ -212,7 +172,6 @@ export function GlobalStageInspector({
       ...(shape.isAttributes && label.trim() ? { label: label.trim() } : {}),
       ...(parentClassesArr.length > 0 ? { parent_class_filter: parentClassesArr } : {}),
     });
-    // 明确列出依赖 — 保证任一字段变更都重算 payload 并上抛.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     modelKey,
@@ -231,9 +190,6 @@ export function GlobalStageInspector({
     defaultVariants,
   ]);
 
-  // 反向同步: value 从外部载入 (加载编辑某条命名编排时) → 回填手配字段.
-  // 只在 modelKey 空且 value 有 ml_backend_id/model_id 时匹配一次, 避免与用户键入互撞.
-  // roi.mode/input.mode/write.target 内生, 不回填 (选中 model 后自动派生一致)。
   useEffect(() => {
     if (modelKey || !value?.ml_backend_id || !value?.model_id) return;
     const key = `${value.ml_backend_id}::${value.model_id}`;
@@ -253,8 +209,6 @@ export function GlobalStageInspector({
     }
   }, [modelKey, value, optionByKey, kind]);
 
-  // 源模型阶段标题按 model.task 派生 (不 hardcode「检测」): 目标检测 / 视频追踪 参数。
-  //   (输入节点已收敛为独立纯数据源, 此处是其子源模型 stage。)
   const roleLabel =
     kind === "source"
       ? `源模型 · ${sourceNodeShape(undefined, selectedOption?.model).role.label}参数`
@@ -347,7 +301,6 @@ export function GlobalStageInspector({
         </div>
       ) : (
         <>
-          {/* 阶段类型 + 内生 roi/input/write (只读; 由选中 model 派生, 不可手选)。 */}
           {shape && (
             <div className={styles.field}>
               <span className={styles.fieldLabel}>阶段类型（由模型能力自动派生）</span>

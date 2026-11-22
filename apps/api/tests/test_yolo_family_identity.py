@@ -82,7 +82,6 @@ async def test_source_pin_and_public_schema_resolve_source_version_and_family(
     )
     rows = iter([version, run, dataset])
     db = SimpleNamespace(scalar=AsyncMock(side_effect=lambda _: next(rows)))
-    # Reuse the complete source attempt, not a serving installation.
     attempt = await DB().get(None, None)
     db.get = AsyncMock(return_value=attempt)
     pin, _ = await initialization.source_pin(db, project, version.id)
@@ -286,7 +285,6 @@ async def test_cross_version_initialization_fails_before_reading_source_storage(
     )
     assert not eligibility["eligible"]
     assert any("跨版本" in reason for reason in eligibility["reasons"])
-    # An accepted historical pin validates against its own immutable runtime.
     assert (
         await initialization.validate_accepted(
             DB(), project, pin, "ultralytics", "yolo11n-seg"

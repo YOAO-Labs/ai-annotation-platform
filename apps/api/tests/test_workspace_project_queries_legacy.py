@@ -745,8 +745,6 @@ async def test_capture_legacy_project_query_and_projection_samples(
             )
             assert target_projection["owner_name"] == actors["project_admin"].name
             assert target_projection["member_count"] == 3
-            # The legacy project projection counts active cancelled AI rows;
-            # ProjectStats excludes them from annotation totals and rates.
             assert target_projection["ai_completed_tasks"] == 2
             assert target_projection["my_project_role"] is None
             assert employee_target["my_project_role"] == "annotator"
@@ -966,7 +964,6 @@ async def test_capture_legacy_project_query_and_projection_samples(
             assert created_body["member_count"] == 0
             assert created_body["classes"] == ["truck"]
             assert created_body["classes_config"]["truck"]["color"] == "#123456"
-            # ProjectCreate ignores these extra configuration fields.
             assert created_body["label_config"] == {}
             assert created_body["annotation_guide"] is None
 

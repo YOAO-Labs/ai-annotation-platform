@@ -1,0 +1,1104 @@
+id	source_at_e8a4f595	related_adr	constraint_and_reason
+0184-0001	apps/_shared/filesystem_read/src/yoao_filesystem_read/roots.py:261;apps/_shared/filesystem_read/src/yoao_filesystem_read/stage.py:145-146	archive/0094-verified-request-content-snapshots.md	打开的目录描述符只能固定对象，不能证明原路径仍指向该对象；打开后须按预期锚点重新解析以发现目录替换。即使文件已读完，也要等源上下文退出、文件与目录检查通过后才交付字节。
+0184-0002	apps/_shared/filesystem_read/src/yoao_filesystem_read/roots.py:366	archive/0094-verified-request-content-snapshots.md	列举探测最多取一条，且只能证明 list 成功；不能用它替代文件读取探测，否则仅有列举权限也会被判为可读。
+0184-0003	apps/_shared/identity_admission/src/yoao_identity_admission/client.py:25	0115-identity-admission-and-durable-revocation.md	将 httpx 保留为可选安装项；改成必装依赖会迫使不使用 HTTP 客户端的调用方也安装它。
+0184-0004	apps/_shared/inference_contract/src/yoao_inference_contract/execution_client.py:121-122	-	before_dispatch 在 owner 等待传输准入之前运行，只能作为预检；若用其结果替代 owner 内部的发送授权，等待期间发生的授权变化就不会在实际发送时生效。
+0184-0005	apps/_shared/inference_contract/src/yoao_inference_contract/health_observation_outcome.py:117	-	健康观测结果编码后复用接收端的解码校验，避免发送端生成自己认为合法、接收端却拒绝的结果；其中长度按 UTF-8 字节数而非字符数计算。
+0184-0006	apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.py:19-20	archive/0043-staged-preannotation-pipeline.md	PipelineStage 必须在校验期以 422 拒绝未知键，而非让它们原样写入 preannotate_pipeline JSONB；前端 PipelineStagePayload 须对齐同一键集，否则会提交服务端不接受的配置。
+0184-0007	apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.py:47,51-52,100,200-202	archive/0043-staged-preannotation-pipeline.md	属性写回须声明 write.keys，并按 worker 实际写入的最终键检查并行冲突：有 label 时加命名空间，缺省保留旧键，geometry 与 intermediate 不参与。冲突默认返回 422，仅显式 last_wins 才按阶段顺序覆盖。
+0184-0008	apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.py:49	archive/0043-staged-preannotation-pipeline.md	下游失败默认用 keep_parent 保留上游框，仅不填属性；不能把属性推理失败等同于上游检测无效，只有显式选择 drop_box 才丢弃父框。
+0184-0009	apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.py:66-68	archive/0043-staged-preannotation-pipeline.md	不能用同一准入条件处理 bulk 和 workbench：bulk 默认只接受 pending、active 批次且无有效编辑锁；workbench 按当前用户的单题编辑权限允许 in_progress 和 draft，但不绕过管理员锁、他人锁或终态保护。
+0184-0010	apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.py:70-71	archive/0043-staged-preannotation-pipeline.md	前端须按所选 backend 解析并显式提交 /setup.params，合入 /predict context 时让所选参数优先于项目级阈值；反过来会使用户选择被兜底值覆盖。
+0184-0011	apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.py:73-74	archive/0043-staged-preannotation-pipeline.md	重复预标默认跳过已预标任务，避免无意叠加预测；overwrite 必须先清除旧预测，只有显式选择 append 才保留旧预测并追加。
+0184-0012	apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.py:89-91	archive/0043-staged-preannotation-pipeline.md	model_variants 非空时必须使用包含变体映射、嵌套 params 和几何 task 的 v2 context；复用 gsam2 的扁平文本路径会发出 YOLO 以 422 拒绝的 type=text。
+0184-0013	apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.py:93-94	archive/0043-staged-preannotation-pipeline.md	class_filter 使用模型原生类别索引并传给 YOLO 的 /predict context.classes；不能先映射为项目标签，因为推理端会按模型类别解释这些值，导致筛错类别。
+0184-0014	apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.py:113-114	archive/0043-staged-preannotation-pipeline.md	多阶段预标只以唯一源阶段确定 backend，顶层 ml_backend_id 由它派生以兼容旧接口；若另采项目主 backend 或顶层请求值，两处不一致时就会产生相互冲突的模型路由。
+0184-0015	apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.py:126-129	archive/0043-staged-preannotation-pipeline.md	预标树深度最多为 3，父阶段必须已定义、序号更小且产出 geometry 或 intermediate。仅检查父编号存在不能防止环，也不能保证有可供下游消费的几何；旧请求的 parent_stage=0 仍有效。
+0184-0016	apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.py:157-159	archive/0043-staged-preannotation-pipeline.md	drop_box 只能用于直接以源阶段为父的下游；深层父框的下标指向中间几何，不对应 root_boxes，按该下标删除会静默移除无关根框。
+0184-0017	apps/_shared/inference_contract/src/yoao_inference_contract/preannotate.py:191-193	archive/0043-staged-preannotation-pipeline.md	下游 input.mode 只接受 crop 和 geometry；放行 worker 不支持的 full_image 不会按整图处理，而会静默回退到按 write.target 推断输入，因此须在校验期拒绝。
+0184-0018	apps/_shared/inference_contract/src/yoao_inference_contract/routing_client.py:217-218,247-249,281-282	-	routing 观测和绑定 proof 的视频状态查询均为只读，响应无效或丢失时报不可用，不套用写回执恢复。scope retirement 则可能已持久化但丢失回执，只按不可变标识查询一次结果，不重发命令。
+0184-0019	apps/_shared/inference_contract/src/yoao_inference_contract/video_execution.py:270-271	-	VideoRouteIntent 须按 JSON 模式校验：直接按 Python 对象做严格校验会拒绝线上 UUID 字符串，整体放宽校验又会丢掉其他整数和标量字段的严格约束。
+0184-0020	apps/_shared/inference_contract/src/yoao_inference_contract/video_execution.py:292-293	-	acquisition 退役后，status 可保留 bound intent，但不能为此一并返回 scope，否则可能暴露其他 realm 的能力凭证；退役由 Jobs 独立验证。
+0184-0021	apps/_shared/mail_transport/src/yoao_mail_transport/transport.py:102-104,142-143	-	SMTP 部分收件人被拒时应报告结果未知，允许重试并接受已接收者可能收到重复邮件。相反，标头序列化和地址解析失败发生在 DATA 前，即使由 send_message 抛出也属于确定的消息无效。
+0184-0022	apps/_shared/protocol_v2/pyproject.toml:20	-	numpy 仅在 mask_codec 编解码时惰性导入，不能提到公共导入路径，否则只用 schema 或 vocab 的调用方也会被迫安装它；仓库在 test extra 中声明该依赖。
+0184-0023	apps/_shared/protocol_v2/src/yoao_protocol_v2/managed_credential.py:30	-	发布托管凭证秘密前须先将凭证目录收紧至 0700；沿用默认检出权限或先发布后收紧，都会让秘密在目录仍可被其他用户访问时出现。
+0184-0024	apps/_shared/protocol_v2/src/yoao_protocol_v2/mask_codec.py:37-39	-	mask_codec 只剥离前导的单元素批次或通道维；通用 squeeze 会一并压掉空间轴，可能把错位输入伪装成有效形状。错位空间轴和多实例输入应由形状检查拒绝。
+0184-0025	apps/_shared/protocol_v2/src/yoao_protocol_v2/routing_runtime.py:289-290,367-369	0155-durable-inference-routing-authority.md	scope 准入及工作登记须与退役共用控制锁，保证工作先计数或在退役后被拒。ASGI lease 关闭后仍可能登记，必须使用当前 scope 计数器，否则会把工作记到已清理的旧计数器上。
+0184-0026	apps/_shared/protocol_v2/src/yoao_protocol_v2/routing_runtime.py:505-506,572-574	0155-durable-inference-routing-authority.md	scope 准入墓碑须同时等到令牌高水位加重放时钟偏差的窗口结束、且已计数工作归零才可清理，否则旧令牌仍可能重放。不可变退役标识还须保留到 epoch 替换完成、所有旧准入令牌失效。
+0184-0027	apps/_shared/protocol_v2/src/yoao_protocol_v2/routing_runtime.py:568	0155-durable-inference-routing-authority.md	scope 活跃计数为负说明跟踪已损坏，必须记录异常并报控制冲突；按空闲处理会让退役检查在工作状态已不可信时仍然通过。
+0184-0028	apps/_shared/protocol_v2/src/yoao_protocol_v2/routing_runtime.py:718-719	0155-durable-inference-routing-authority.md	路由请求头只选择托管端点分支，不能作为授权凭据；GPU owner 仍须检查签名、身份、generation、scope、owner 和排空状态，否则进入该分支就可能绕过准入。
+0184-0029	apps/_shared/protocol_v2/src/yoao_protocol_v2/routing_runtime.py:871-872,883,886-887,897	0155-durable-inference-routing-authority.md	完整 HTTP 响应是执行结算证据；最后非空响应块和计数票据须等 ASGI handler、流及所等待的后台任务结束后才释放。只扣住空的最终消息挡不住按 Content-Length 提前读完，取消也不能提前报告后端空闲。
+0184-0030	apps/_shared/protocol_v2/src/yoao_protocol_v2/schemas.py:48-50	-	交互精修仅在 multimask_output=False 时返回 base64 编码的 256×256 low-res logits，避免多候选时无法确定应回传哪组 logits；前端须原样保存并在下次点击经 context.mask_input 回传。
+0184-0031	apps/_shared/protocol_v2/src/yoao_protocol_v2/vocab.py:15,25	-	协议 v2 的 backend、model 两级 infra 词表应取自 `capability_registry.INFRAS`，`/setup.models[].supported_geometric_outputs` 则取自 `capability_registry.GEOMETRIES`；各自维护副本会使协议校验与能力注册表接受不同的值。
+0184-0032	apps/_shared/protocol_v2/src/yoao_protocol_v2/vocab.py:53,64-65	-	`video` 必须由 backend 显式声明，不能从任务默认值推得。`apps/api` 只在 backend 未声明几何输出时，才按与能力注册表一致的任务映射补齐；不能把已有声明当作待补全的列表。
+0184-0033	apps/_shared/task_contract/src/yoao_task_contract/__init__.py:20	-	任务别名只用于输入归一化；对外输出必须使用规范任务名，否则同一任务会以别名和规范名分别发布，被下游当成不同任务。
+0184-0034	apps/_shared/training_contract/training_contract/dataset.py:125	-	训练数据集的方向判定遇到接近零的浮点结果时须回退到精确算术；直接按容差置零会把极小但有效的边误判为共线接触。
+0184-0035	apps/_shared/training_contract/training_contract/dataset.py:397-398	-	训练分割只将校验通过的简单多边形送入多边形栅格化路径；带孔或多部件几何须用原生栅格掩码，否则按单一简单轮廓处理会丢掉孔洞或部件。
+0184-0036	apps/_shared/training_contract/training_contract/inference_runtime.py:11	-	`LIBRE_CUDA_RUNTIME` 只判定当前执行环境是否合格，不能参与制品身份判定；否则仅切换执行环境就会让同一制品被识别为另一制品。
+0184-0037	apps/_shared/training_contract/training_contract/validation.py:332	-	核对 Ultralytics 的 `device` 时须按字符串比较；原生解析可能把整数 GPU 索引保留为字符串，直接按类型和值比较会把同一设备误判为不一致。
+0184-0038	apps/_shared/workspace_contract/src/yoao_workspace_contract/access.py:46,48	0075-platform-identity-vs-project-authority.md	整项目、批次和选定任务的 Workspace 标注导出沿用同一权限边界，标注员和查看者均无此权。绩效详情与 CSV 必须另查 `performance.read`，不能让已有的标注导出权限间接开放绩效数据。
+0184-0039	apps/_shared/workspace_contract/src/yoao_workspace_contract/member_values.py:84-85;apps/_shared/workspace_contract/src/yoao_workspace_contract/project_query_values.py:50,66	-	Project 行解码应当场拒绝有限但越界的日期；项目成员时间戳沿用该语义，有限年份越界时保留 `OverflowError`。正负无穷时间戳则按 asyncpg 约定解为无时区的 `datetime` 极值，不能与有限越界合并处理。
+0184-0040	apps/_shared/workspace_contract/src/yoao_workspace_contract/project_query_contract.py:575-576	-	两种 Workspace 行读取动作共用封闭的 `rows_json` 结构，Pydantic 也会把 `access_member_rows` 的负载解析成 `ProjectQueryRowsFacts`。不能以该运行时类型区分动作，否则会拒绝合法的成员行读取。
+0184-0041	apps/_shared/workspace_contract/src/yoao_workspace_contract/project_query_values.py:100	-	Project 查询的 JSON 列须按驱动解析规则校验，但转发时保留原始文本；解析后再序列化无法保留原文本中的全部信息，不能当作无损替换。
+0184-0042	apps/_shared/workspace_contract/src/yoao_workspace_contract/projections.py:13	-	解析 `alias_to` 时须限制引用遍历深度；只检查是否成环仍挡不住异常长的无环链，而不设上限会让环或长链拖垮递归。
+0184-0043	apps/_shared/workspace_contract/src/yoao_workspace_contract/projections.py:55-59	-	`alias_to` 对目标类颜色和别名的继承不受目标单元启用状态限制；`derive_classes_config` 才只投影已启用绑定。把投影过滤套到引用解析会使仍有效的别名失去继承值，单侧修改还会造成前后端解析不一致。
+0184-0044	apps/_shared/workspace_contract/src/yoao_workspace_contract/read_relations.py:30-31	-	Workspace 安全屏障视图只能在已有列之后追加新列，本次变更将 `guide_assets_revision` 放在末尾；插入或重排已有列会使 `CREATE OR REPLACE` 无法原地更新，失去借此保留所有者和 ACL 的条件。
+0184-0045	apps/api/tests/_owned_s3.py:20	-	S3 测试代理须在每次调用时从底层对象取方法；提前绑定会继续调用旧方法，绕过测试后来装上的阻塞点或错误注入。
+0184-0046	apps/api/tests/committed_prediction_jobs.py:22-23	-	清理已提交的预测 Job 须等消费者退出，避免与仍在执行的消费流程并发删除。仅对本用例拥有的 Job 走正常终态及删除守卫，不得以批量删除代替而抹去执行历史、重试回执或其他 Job。
+0184-0047	apps/api/tests/conftest.py:59-60	-	Seed 开关必须在首次导入 app 前设置，导入后再开不会补挂路由。fixture 绑定一次性测试库不能替代 Seed 路由自身的库名后缀校验，两者约束的入口不同。
+0184-0048	apps/api/tests/conftest.py:223-224,264-265	-	API savepoint 测试的原生调用和发布路径借用尚未提交的生产者连接，能看到独立连接看不到的数据；验证独立发布者或跨进程结算必须使用已提交环境。
+0184-0049	apps/api/tests/conftest.py:337-339	-	每个 API 测试结束后都须清理进程级服务缓存，并让清理失败显现；数据库 savepoint 回滚不会撤销缓存中的 PATCH 值，后续用例仍可能读到旧状态。
+0184-0050	apps/api/tests/conftest.py:535-537	-	项目启用关联和主后端绑定引用的是池 ID，不是 registry ID。测试必须通过有活跃成员的池建立关联，否则会混淆注册项和项目绑定所引用的实体。
+0184-0051	apps/api/tests/factory.py:138	-	项目类配置以 `tool_bindings` 为唯一存储真值；工厂接收的 `classes` 须转成绑定，不能另存一份，否则两份配置可能在后续更新时分叉。
+0184-0052	apps/api/tests/identity_e2e_support.py:357-358,385-386	-	Identity 已提交测试只把本会话的 ORM 插入纳入清理所有权，并保留实例引用排除回滚 ID；原生 SQL 或其他会话的行不能据此删除。清理仅针对本例保留行，且须先验证产品清理未误删常规数据。
+0184-0053	apps/api/tests/identity_e2e_support.py:414	-	Identity 测试共用固定 Seed 命名空间，必须串行执行；精确清理只能避免事后误删，不能防止并发运行在 Seed 阶段争用同一命名空间。
+0184-0054	apps/api/tests/identity_role_audit_helpers.py:173,180	-	Identity owner 权限安装器必须同时撤销既有表级和列级授权；两种授权可独立生效，只清除其中一种仍可能给旧角色留下访问权限。
+0184-0055	apps/api/tests/image_pyramid_fixtures.py:168-169	-	图像金字塔 fixture 必须通过发布账本的状态迁移取得 `ready` 记录；直接插入看似等价的终态会绕过发布转换，并被数据库 owner 守卫拒绝。
+0184-0056	apps/api/tests/jobs_video_tracker_module_helpers.py:1300	-	视频跟踪恢复须重新绑定原来的确切后端实例，即使其作用域已退役；换成当前可用的同类后端，并不能恢复原实例上的跟踪状态。
+0184-0057	apps/api/tests/legacy_video_fence_helpers.py:330-331	-	前置观测不能替代 `WorkspaceCeleryWorker.stop` 在移除前对容器 ID 和验收标签的复核，否则可能操作已替换的容器。网络拆除也只限该容器的私有连接，不得波及其他连接。
+0184-0058	apps/api/tests/legacy_video_fence_helpers.py:399-400	-	只保留 owner 的 `LOGIN` 这一收敛动作仅能在验证器拥有的单次运行 PostgreSQL 容器内执行；复用于共享实例会撤销其他使用者的角色登录权限。
+0184-0059	apps/api/tests/managed_prediction_worker_fixtures.py:63-64	-	旧 ORM 审计夹具的私有表不能隔离 API 的原生审计路径；验证后者须使用用例自有数据库，否则用例写入或清理会改动共享审计历史。
+0184-0060	apps/api/tests/managed_prediction_worker_fixtures.py:76-77	-	托管预测 worker 夹具须跨回滚保留实例引用，不能把 flush 后取得的 ID 当成提交凭据；会话关闭时未提交的行可能已回滚，不应纳入已提交行的清理范围。
+0184-0061	apps/api/tests/managed_prediction_worker_fixtures.py:127-128	-	托管预测 worker 夹具只替换原件的原生读取边界；若连原件解析一起替换，测试即使通过，也不能证明已保存定位符、摘要和持久化许可实际参与了读取。
+0184-0062	apps/api/tests/raster_mask_isolation.py:56-57,93-94,129-130	-	栅格夹具只以单条带显式 ID 的实际插入认领许可，冲突未插入、upsert 更新和混合多行写入均不算。提交事件早于 DBAPI COMMIT，失败只撤销本次登记；清理只按登记的操作和发布 ID，复用 owner 不代表拥有其余 guard。
+0184-0063	apps/api/tests/raster_mask_support.py:179-180	-	栅格掩码夹具须按本例拥有的对象流和精确回执清理，故意让 `close` 失败也不能省略这项责任；扫描共享桶前缀无法区分归属，可能删掉其他用例的对象。
+0184-0064	apps/api/tests/raster_mask_support.py:285-287	-	栅格掩码夹具默认把 owner 记为标注者；验证管理员审核时必须显式传入不同的标注者 ID，否则冻结的轮次证据会把审核人记成标注者。
+0184-0065	apps/api/tests/sample_evaluation_fixtures.py:146-147	-	样本评估的数据集版本在创建时即已固定，冻结字节的写入和读回都须使用已保存的存储 owner；重新按当前绑定选址，会在绑定变更后把固定版本的读写指向另一存储归属。
+0184-0066	apps/api/tests/seed_owner_support.py:371-372	-	seed 客户端返回 pending 不是底层操作的结束信号。只要原客户端仍在运行，就保留它并用另一客户端恢复同一 authority，不能把 pending 当成终态而关闭原客户端。
+0184-0067	apps/api/tests/storage_migration_isolation.py:24-25,104-106,133-136	-	迁移夹具须在私有 schema 中克隆控制面表和全范围观测涉及的全部已注册业务根表，并让迁移连接与夹具会话优先解析该 schema，否则查询可能回落到 public，降级也可能误删共享对象。owner capability 的 search_path 仅含 pg_catalog，guard 中显式指向 public 的引用还须单独改写。
+0184-0068	apps/api/tests/storage_migration_isolation.py:108	-	迁移夹具用 PostgreSQL LIKE 克隆表后必须重建外键；仅克隆表不会复制 SET NULL 或 CASCADE，删除测试就无法覆盖生产中的置空或级联行为。
+0184-0069	apps/api/tests/test_accepted_inputs_api_bridge.py:85-86	-	应用必须在进入 accepted-input 原生源围栏前独立校验当前 Labeling 范围；任务工作流变化不属于围栏识别的源变化，单靠围栏会放过已经脱离该范围的任务。
+0184-0070	apps/api/tests/test_accepted_inputs_live.py:484-485	-	固定输入只保证模型继续使用已选定的原件字节，不能替代最终源校验。原件随后被覆盖时，即使两个模型的固定输入均未变化，也必须拒绝写入。
+0184-0071	apps/api/tests/test_accepted_inputs_live.py:541-542	-	回执和尝试记录是不可变的溯源证据，验证结束后不能按普通测试行逐条删除。应销毁该次验证独占的数据库和版本化桶，在资源级完成清理。
+0184-0072	apps/api/tests/test_active_learning_source_originals.py:320	archive/0083-human-reviewed-active-learning.md	主动学习原件读取只要跨越维护周期就失效，不能只在读取结束时检查维护是否仍在进行；维护已结束也不能使跨周期的读取重新有效。
+0184-0073	apps/api/tests/test_active_learning_worker.py:325,432	archive/0083-human-reviewed-active-learning.md	主动学习 worker 必须在每次实际原生派发前持久化扣减额度。即使是重发同一个已绑定请求，也不能沿用上次扣减，否则实际派发次数会超过计入额度的次数。
+0184-0074	apps/api/tests/test_agent_dataset_content.py:57	-	真实数据集根目录的准入不能沿用通用夹具的合成探测记录；准入前必须替换该记录，否则判定通过也不能证明实际根目录经过探测。
+0184-0075	apps/api/tests/test_agent_dataset_content.py:86-87	-	依赖独立连接读取已提交数据的真实准入不能在 SAVEPOINT 夹具中验证：释放保存点不会让外层事务的数据对另一连接可见。该场景应由独立准入测试覆盖。
+0184-0076	apps/api/tests/test_ai_mask_accept.py:474-475	-	AI 蒙版采纳决策仍有效时，仅供重放的内容引用也必须阻止垃圾回收，否则可以重放的决策会失去所需内容。决策过期后则应停止扫描该快照，避免继续保留这些内容。
+0184-0077	apps/api/tests/test_ai_mask_accept.py:917-919;apps/api/tests/test_annotation_shape_metadata.py:39	-	employee 的全局身份或项目持有关系不能替代显式项目 annotator 成员关系，也不授予管理权限。重放场景还须通过任务分派取得可见性，否则请求无法到达幂等所有者校验。
+0184-0078	apps/api/tests/test_alembic_drift.py:44-46,50-51	-	Alembic 漂移检查须排除 audit_logs 和 predictions 的月子分区以及 predictions 的默认分区；ORM 只登记父表，纳入这些 PostgreSQL 物理分区会把正常结构误报为漂移。
+0184-0079	apps/api/tests/test_annotation_comments_paged.py:66-67	-	评论分页测试必须显式递增 created_at，不能指望逐次调用 func.now() 拉开时间差；同一 SAVEPOINT 外层事务中的调用会得到相同时间戳，无法构造确定的按时间倒序样本。
+0184-0080	apps/api/tests/test_annotation_contributor_recording.py:187,509-510	-	任务贡献者累加记录保存曾经参与的人，删除标注不能抹去原作者。同轮后续标注仍应更新累加记录，但不能回填已冻结的本轮审核证据，否则会篡改审核时认定的贡献者范围。
+0184-0081	apps/api/tests/test_annotation_contributor_recording.py:481-482,693	-	record_annotation_actor 加锁刷新前须保全同一事务中待刷写的贡献者变更，否则第二次记录可能覆盖第一次。NOWAIT 路径不能让自动刷写先发出会阻塞的 UPDATE，否则无法立即报告锁冲突。
+0184-0082	apps/api/tests/test_annotation_contributor_recording.py:545,730,756-758	-	贡献者冻结须等待持有任务行锁、尚未提交证据的写入者，避免漏掉本轮贡献。record_annotation_actor 在等待式加锁后须刷新已提交的任务阶段，不可沿用旧 Task 实例，否则转入审核后仍可能给审核者记功。
+0184-0083	apps/api/tests/test_annotation_feedbacks.py:297,355,400	-	BugReportService.create 必须在同一事务写入 bug_reports 和反馈镜像；统一视图同时呈现两边的数据，绕过服务直写旧表会留下没有对应镜像的记录，造成对账漂移。
+0184-0084	apps/api/tests/test_annotation_migration_reads.py:147	-	迁移读取是兼容路径，不能因此放宽普通创建时的 storage.read 校验；普通创建仍须使用回执保存的端点，否则会接受并非该回执所绑定的读取端点。
+0184-0085	apps/api/tests/test_annotation_migration_reads.py:359	-	规范 RLE 相同而压缩封装字节不同时，迁移读取须复用已保存归属对象的哈希；按新封装重算会仅因编码字节变化而改变同一归属对象的标识。
+0184-0086	apps/api/tests/test_annotation_propagate.py:142,149	-	跨帧传播只以 track_id 标识同一条链，不能改用 group_id。源标注已有 track_id 时必须沿用，重新分配会把传播结果从原轨迹中切开。
+0184-0087	apps/api/tests/test_annotation_propagate.py:595	-	同一源帧与目标帧间的补偿式批量传播须共享一次坐标轴约定查询和两次位姿查询；改为逐框调用会重复读取同一组帧级数据，使查询量随框数增长。
+0184-0088	apps/api/tests/test_annotation_propagate.py:644-645,672	-	有自车位姿时，区间插值须先统一到世界坐标系求框中心，再转回各目标帧的自车坐标系；直接混合不同帧的自车坐标会把自车运动误算为框的位移。
+0184-0089	apps/api/tests/test_annotation_shape_metadata.py:113	-	修改形状元数据也必须递增标注 version；若将其视为不影响版本的附属更新，持有旧版本的并发写入就无法发现这次变更。
+0184-0090	apps/api/tests/test_annotations_import.py:296	-	导入须先建立主 3D SceneTrack，再处理依赖它的相机成员，不能用载荷顺序代替依赖顺序；否则相机成员排在前面时就没有已建立的主轨迹可关联。
+0184-0091	apps/api/tests/test_annotations_import.py:415-416	-	append 模式保留主标注的追加语义，但该语义不能扩展成对相机成员无条件追加，否则会在同一相机下产生第二个活跃成员，违反逐相机唯一性。
+0184-0092	apps/api/tests/test_annotations_import.py:1078-1079	-	标注导入要求项目管理权限，项目可见不等于有权导入。对能看见项目但无管理权限的 annotator，应返回 403，而不是用 404 将权限不足误报为项目不可见。
+0184-0093	apps/api/tests/test_api_keys.py:41-42	-	登出只接受 JWT，必须在认证阶段以 401 拒绝 API key；将 API key 交给 JWT 解码器会把凭据类型不符变成内部错误。
+0184-0094	apps/api/tests/test_api_keys.py:180	-	读取任务标注时，必须先用 require_scopes 检查 API key，再查找任务。反过来会让权限不足的调用在任务不存在时收到 404，而非一致的 403。
+0184-0095	apps/api/tests/test_asset_association_runtime.py:372	-	资产关联读取必须独立检查项目可见性；缺少 Dataset 读取 scope 不能替代该检查，否则会把数据集读取权限误当成项目可见性的判据。
+0184-0096	apps/api/tests/test_asset_storage_cleanup_runtime.py:106-107	-	清理运行测试中可能含敏感信息的命令参数和输出只能写入权限为 0600 的证据文件；把这些内容放入共享 JUnit 报告或控制台失败消息会扩大披露范围。
+0184-0097	apps/api/tests/test_asset_storage_cleanup_runtime.py:475-476	-	Native 清理必须通过真实的 Source 签名器取得清理角色令牌。用空操作或直接传入 bucket 会绕过签名及清理角色授权，无法验证这条必测通道。
+0184-0098	apps/api/tests/test_asset_storage_cleanup_runtime.py:1316-1318	-	清理 worker 按 bucket 领取任务，但测试判空必须限定在自身拥有的前缀；按整个 bucket 判空会把其他套件留下的已提交任务误判成本测试清理失败。
+0184-0099	apps/api/tests/test_assets_accepted_inputs_native.py:228,238	-	已受理输入的重放必须返回原回执，不能因源事实后来变化而重新裁决；回执也不保证源仍可执行，已捕获的源无法解析时，worker 不得领取复制任务。
+0184-0100	apps/api/tests/test_assets_accepted_inputs_native.py:268	-	Job 输入授权必须匹配该 Job 和当前操作者；以 batch/bulk scope 或其他操作者的授权代替，会放行并未获得该输入授权的写入。
+0184-0101	apps/api/tests/test_assets_accepted_inputs_native.py:364	-	来源 Job 完成不等于撤销输入授权；若把运行状态当作授权有效期，完成后的合法候选写入及写入重试就会被错误拒绝。
+0184-0102	apps/api/tests/test_assets_accepted_inputs_native.py:370,389	-	Task 的工作流版本或指派变化不等于源身份变化。最终写入必须检查实际源绑定；拿版本变化代替源校验会误拒源未变的写入，也会漏掉真正的换源。
+0184-0103	apps/api/tests/test_assets_accepted_inputs_native.py:541	-	Annotation pin 的有效性不能依赖 Job 历史字节的保留；若把两者的保留期绑在一起，清理 Job 历史就会使仍被 pin 的内容失效。
+0184-0104	apps/api/tests/test_assets_accepted_inputs_native.py:734-735	-	领取回执必须使用 SKIP LOCKED；首个事务仍持有回执行锁时，并发 worker 应立即返回未领取，用等待行锁代替会阻塞本可立即结束的领取。
+0184-0105	apps/api/tests/test_assets_catalog_gateway.py:886-887	-	退役回填只能结算或删除属于该回填的工作。两个回填夹具共用数据库，同库不是归属依据；按库处理会误结算或删除普通 Job。
+0184-0106	apps/api/tests/test_assets_catalog_runtime.py:278	-	仅运行 API 的 Catalog 环境没有前端 /s3 反向代理，公开存储 URL 必须直指 MinIO 端点；沿用前端代理路径会得到无法访问对象的 URL。
+0184-0107	apps/api/tests/test_assets_catalog_runtime.py:421	-	Catalog 原件读取必须经鉴权 API，缩略图读取则使用签名存储 URL；不能把缩略图的存储签名当作原件授权，也不能以原件 API 鉴权替代缩略图签名。
+0184-0108	apps/api/tests/test_assets_catalog_runtime.py:470	-	Docker 容器重启后必须重新解析 Catalog 地址；动态分配的宿主机端口可能变化，沿用重启前的地址可能连不到当前实例。
+0184-0109	apps/api/tests/test_assets_connections_runtime.py:353;apps/api/tests/test_assets_media_live.py:1191	-	Connections 的审计记录和不可变回执、媒体实测的台账，应保留到销毁经验证归测试所有的数据库；逐项清理会提前删除本应保留的运行证据。
+0184-0110	apps/api/tests/test_assets_images_containers.py:169	0106-independent-image-media-owner.md	采集容器中 worker 的日志不能只读取 stdout；Docker 将该进程的 Python 日志转发到 stderr，只读 stdout 会漏掉这些日志。
+0184-0111	apps/api/tests/test_assets_images_control.py:190-191	0106-independent-image-media-owner.md	捕获策略改变时，新请求必须等旧的已受理工作终止，不能让两者并行；旧工作终止后仍须用新请求自己的回执重放，不能复用旧回执。
+0184-0112	apps/api/tests/test_assets_images_execution.py:280	0106-independent-image-media-owner.md	发布响应丢失时允许重放请求，但不能把未收到响应当成未发布；同一图像作业租约不得再次发布，否则重放会造成重复发布。
+0184-0113	apps/api/tests/test_assets_images_execution.py:1217	0106-independent-image-media-owner.md	图像执行租约只认分配给它的那一个已保存输出；仅凭另一个输出也已保存就接受替换，会把未分配给该租约的产物错误地归入本次执行。
+0184-0114	apps/api/tests/test_assets_images_execution.py:1251-1252	0106-independent-image-media-owner.md	reconcile_image_media 会扫描全库的过期 Job，外层测试事务不等于扫描边界；回滚型测试必须暂时推迟其他已提交租约的到期时间，避免误处理非自有 Job。
+0184-0115	apps/api/tests/test_assets_images_live.py:1484-1486	0106-independent-image-media-owner.md	解除链接后，旧进程即使完成本地编码，也不能把已取消的受理尝试恢复为成功；同时须保留不可变前缀的墓碑，否则延迟垃圾清扫将失去定位依据。
+0184-0116	apps/api/tests/test_assets_images_migration_guards.py:117	0106-independent-image-media-owner.md	迁移守卫测试删库时，只有尚未打标且创建未完成的数据库可以缺少所有权注释；把缺少注释普遍视为可删除，会让未确认归属的数据库进入清理范围。
+0184-0117	apps/api/tests/test_assets_images_migration_guards.py:246-247	0106-independent-image-media-owner.md	验证迁移切换时，只能处置排空契约覆盖的旧工作；删除前向守卫或依赖对象虽然可能使切换通过，却绕过了测试本应验证的迁移约束。
+0184-0118	apps/api/tests/test_assets_input_manifests_migration.py:161-163	-	待处理批量 Job 的载荷没有冻结模型配方，不能据此安全缩小排空范围；切换前必须排空非场景图像项目中所有 pending 或 running 的批量 Job。
+0184-0119	apps/api/tests/test_assets_input_manifests_native.py:150	-	输入清单摘要须与 API 写入的摘要一致，并与 Job 在调用方事务内一并写入；单独提交会在调用方回滚时留下与 Job 不一致的清单状态。
+0184-0120	apps/api/tests/test_assets_input_manifests_native.py:217-218	-	捕获 Task 后，工作流或状态变化只能使对应成员终态失败；回退到实时 URL 会用未冻结的来源替换已选定的 Task，改变本次执行的输入。
+0184-0121	apps/api/tests/test_assets_media_live.py:1058-1059	-	注册的原始对象发生变化后，针对旧源单独受理的尝试不得发布；受理回执不能作为跨源变更的发布许可，否则会发布基于旧原件的产物。
+0184-0122	apps/api/tests/test_assets_media_peer.py:56	-	Media peer 夹具写入前必须核对 PostgreSQL 容器归验证器所有，并检查回环绑定；连接成功只说明实例可达，不能防止夹具写错数据库。
+0184-0123	apps/api/tests/test_assets_media_peer.py:118	-	媒体暂存 SQL 必须留在调用方事务中，不能自行提交；否则调用方回滚时已暂存的媒体仍会留下，打破调用方对暂存的回滚边界。
+0184-0124	apps/api/tests/test_assets_operator_native.py:782-786	-	Operator 不负责派生媒体失效；file_size 或 content_hash 变化须由 Assets 触发器推进源代次并清除旧缩略图，否则原件变化后仍可能读到过期缩略图。
+0184-0125	apps/api/tests/test_assets_operator_peer.py:366-368	-	Operator LOGIN 的授权不能只保留注册入口及其参数契约；还须保留 create_item_original 实际调用的辅助原件和存储权限，否则合法注册会在内部调用处失败。
+0184-0126	apps/api/tests/test_assets_operator_runtime.py:371-372	-	旧行可能超过新的写入字节上限，因此 Operator 即使已记录源观测，也须在后段发现响应超限时拒绝并不提交该观测，避免失败响应留下已提交副作用。
+0184-0127	apps/api/tests/test_assets_source_runtime.py:565	-	Source 的旧版完成流程必须保留历史上传者未知的状态；给缺少历史上传者的记录补造归属，会把未知事实变成错误的上传者记录。
+0184-0128	apps/api/tests/test_assets_source_runtime.py:808	-	Source 复制出的对象已可见，并不证明服务收到 SQL 完成回复或 COMMIT 确认；两者之间可能崩溃，恢复时不能以对象存在替代数据库完成信号。
+0184-0129	apps/api/tests/test_assets_spatial_calibration_native.py:625-626	0102-assets-spatial-state.md	仅追加的摘要必须记录写入前的原始规范输入；PostgreSQL JSONB 会把 -0.0 归一为 0.0，从落库值重建无法保留原输入的区别。
+0184-0130	apps/api/tests/test_assets_spatial_concurrency.py:120;apps/api/tests/test_assets_spatial_runtime.py:88	0102-assets-spatial-state.md	空间校准测试不能单独清理仍被不可变审计记录引用的操作者，否则会破坏历史引用；应随验证器拥有的测试数据库一起清理。
+0184-0131	apps/api/tests/test_assets_spatial_concurrency.py:156-157;apps/api/tests/test_assets_spatial_native_peer.py:186-187	0102-assets-spatial-state.md	空间校准测试须先核验 PostgreSQL 容器的验证器归属、身份标签和回环端口，再提交夹具或打开受限 Catalog 会话；peer 路径在写入或执行 Docker exec 前还要核对名称和镜像，避免操作误指向其他实例。
+0184-0132	apps/api/tests/test_assets_spatial_native.py:407	0102-assets-spatial-state.md	空间字段的存在性必须沿用历史 JSONB 谓词；若改为以格式校验是否通过来判断，已有但格式错误的值就会被错误归类为缺失。
+0184-0133	apps/api/tests/test_async_jobs.py:225-226	-	异步导出的结果和 URL 仅向有 reviewer 或 manager 权限的成员开放；撤权测试若未先建立访问权限，撤权后的拒绝无法证明原有访问确实被收回。
+0184-0134	apps/api/tests/test_async_jobs.py:416-417	-	按项目列出异步 Job 时须检查调用方当前的项目管理权限；以项目所有者身份替代权限检查，会放行拥有项目但不具备当前管理权限的调用方。
+0184-0135	apps/api/tests/test_attribute_audit.py:40	-	普通员工写入标注属性必须具有显式的项目 annotator 成员关系；仅凭员工身份授权，会让未获该项目标注权限的账号也能写入。
+0184-0136	apps/api/tests/test_audit_archive_partitions.py:628-629	archive/0007-audit-log-partitioning.md	归档校验不能以行数和规范化字节长度相等代替内容比对；恢复后的源分区即使保持这两个值不变，历史行也可能已经被改写。
+0184-0137	apps/api/tests/test_audit_archive_partitions.py:868	archive/0007-audit-log-partitioning.md	归档读取必须先关闭自身游标，再删除源分区；即使读取已完成，只要还有活动 portal，PostgreSQL 就会以 55006 拒绝 DROP TABLE。
+0184-0138	apps/api/tests/test_audit_archive_reads.py:172;apps/api/tests/test_avatar_uploads.py:486-487	-	测试清理 StorageOperation 账目不能充当操作关闭的证据：归档读取须先确认本用例的合成句柄实际关闭；头像上传中故意悬而未决的操作，只能清理本夹具自有的账目，不能据此认定操作已关闭。
+0184-0139	apps/api/tests/test_audit_archive_reads.py:180-181	-	归档发布测试应以发布前的清单为基线；分区用例的永久所有权记录会保留到临时数据库销毁，用全量清单断言会把既有记录误算为本次新增。
+0184-0140	apps/api/tests/test_audit_archive_storage.py:354	-	独立的压缩对象收据只能证明压缩字节与收据相符，不能代替归档内容校验；即使哈希和长度均吻合，畸形内容仍必须拒绝。
+0184-0141	apps/api/tests/test_audit_archive_storage.py:422-423	-	归档解压的协作式时间预算必须覆盖可选文件名头的扫描；若只在产生解压输出时检查预算，扫描可能在找到文件名终止符之前就已超时。
+0184-0142	apps/api/tests/test_audit_archive_worker.py:325;apps/api/tests/test_audit_consumers_cold.py:647	-	轮询 PostgreSQL 活动视图等待 worker 时，必须刷新统计快照；在同一快照上反复查询，会一直看不到首次查询之后建立的连接。
+0184-0143	apps/api/tests/test_audit_maintenance_module_live.py:171	-	Docker 测试清理须使用本次 docker run 返回的不可变容器 ID，而不是按名称删除；名称可能被复用，清理时匹配到的未必是本次创建的容器。
+0184-0144	apps/api/tests/test_audit_maintenance_module_live.py:435	-	审计维护集成测试不能在涉及 users 的分区 DDL 之前留下未提交的用户夹具事务；该事务会阻塞 DDL，导致测试无法执行到目标场景。
+0184-0145	apps/api/tests/test_audit_metadata_delivery_live.py:178	-	审计元数据投递测试在 Alembic 运行后须重新启用中间件日志器；沿用迁移前的日志配置会漏掉尽力投递失败的原因，因为 Alembic 会禁用已有日志器。
+0184-0146	apps/api/tests/test_audit_metadata_delivery_live.py:249	-	审计入队故障测试必须处理 CELERY_BROKER_WRITE_URL 的优先级；只替换 Celery 构造器中的 broker，写端仍可能连接环境配置的地址，而不是预期的故障地址。
+0184-0147	apps/api/tests/test_audit_metadata_delivery_live.py:381	-	审计投递中断后，显式重放可以补回缺失记录；不能把重放后的记录恢复视为 broker 自动重投的证据。
+0184-0148	apps/api/tests/test_audit_partition.py:21	archive/0007-audit-log-partitioning.md	分区表断言须将 PostgreSQL 的内部 char 类型 relkind 归一化后再比较；asyncpg 可能返回字节串，直接与文本比较会把正确的分区表判为不匹配。
+0184-0149	apps/api/tests/test_audit_partition.py:50-51	archive/0007-audit-log-partitioning.md	分区 ensure 的幂等性应通过再次调用不新增分区来验证；首次新增数量取决于迁移已预建的月份分区，固定首次数量会把正常的初始差异判为失败。
+0184-0150	apps/api/tests/test_auxiliary_originals.py:124-125	-	辅助原件的删除资格由原生退役命令建立，不能从无引用推导；否则即使所有权已经核验，也会绕过独立的 DELETE 保护而删除记录。
+0184-0151	apps/api/tests/test_avatar_uploads.py:525-526;apps/api/tests/test_batch_delete_reset.py:224-225	-	头像所有者发布和强制删批后的持久化结果须通过刷新或直接查询列值验证；原生 SQL 不会同步已加载的 ORM 实例，沿用实例可能把更新前状态当作提交结果。
+0184-0152	apps/api/tests/test_axis_sniffer.py:150-152,188,216	-	轴向推断的 dataset_item 回退只能把 image 当作相机候选，也不能只按 created_at 取最早图像；带 front 路径及 lidar→ego 外参的点云或更早入库的侧前相机，都可能压过正前图像而导致误判。
+0184-0153	apps/api/tests/test_batch_delete_force.py:137	-	强制删批后必须刷新项目级物化计数，不能以 B-DEFAULT 存在为前提；新项目即使没有默认批次，也会因跳过刷新而继续显示删除前的快照。
+0184-0154	apps/api/tests/test_batch_delete_force.py:154	-	受影响任务数须按任务去重，不能相加 non_pending 与 predicted；处于 review 且已有预标的同一任务属于两个集合，直接相加会重复计算。
+0184-0155	apps/api/tests/test_batch_delete_reset.py:173-174	-	批次重置为 draft 时，应清空指向已离开项目成员的物化任务指派，使任务重新继承批次默认值；不能把这类残留值当成手工覆盖，也不能一并清除真正的覆盖。
+0184-0156	apps/api/tests/test_batch_delete_reset.py:237-239	-	强制删批的标注与预标计数须限定在本项目；对共享测试库做全局计数会混入其他用例提交的行，无法反映本项目的删除结果。
+0184-0157	apps/api/tests/test_batch_lifecycle.py:70	-	批次标注员以单值 annotator_id 为准；assigned_user_ids 是派生字段，把它当作独立的多标注员指派，会将派生结果误作批次的权威指派。
+0184-0158	apps/api/tests/test_batch_lifecycle.py:79-80	-	任务进入 review 时须冻结本轮实际贡献者与提交者的证据；若在审核时改用当前指派推算，后续指派变化就可能改写本轮归因。
+0184-0159	apps/api/tests/test_batch_lifecycle.py:209-210	-	批次从 reviewing 转为 approved 时，须按解析出的项目角色鉴权；账号角色不能代表调用方在该项目内是否有权批准。
+0184-0160	apps/api/tests/test_batch_lifecycle.py:444	-	驳回批次时，require_roles 先于 assert_can_transition 执行；无权请求的 403 只说明鉴权拦截，不能用来证明非法状态迁移已被检查。
+0184-0161	apps/api/tests/test_batch_lifecycle.py:548-553	-	撤回任务引起 reviewing 回退到 annotating 时，须由 withdraw 端点执行；check_auto_transitions 只负责正向推进，不能看到 pending 任务就自行回退。
+0184-0162	apps/api/tests/test_batch_lifecycle.py:583	-	审核员查看批次不要求出现在 assigned_user_ids 中；把指派名单用作查看权限过滤，会挡住未被指派到该批次但有权审核的用户。
+0184-0163	apps/api/tests/test_batch_lifecycle.py:1091	-	批次操作历史分页仍返回原有数组，改成分页包装对象会破坏既有调用方的解析；排序须同时使用时间和 ID，否则同一时间的记录没有确定的分页顺序。
+0184-0164	apps/api/tests/test_batch_preannotation_listing.py:39	-	批次列表支持多状态筛选后，省略 status 仍表示不按状态过滤；若将省略解释为默认状态集合，原有未传参的调用方会漏掉其他状态的批次。
+0184-0165	apps/api/tests/test_batch_predict_idempotency.py:138-139	-	预标注请求返回已受理时，作业 ID 必须已能从持久化作业端点查到；若等 worker 启动后才使作业可查，调用方拿到 ID 后会在排队期间查不到作业。
+0184-0166	apps/api/tests/test_batch_result_consumers_native.py:782;apps/api/tests/test_batch_result_worker_live.py:377-378	-	broker 投递只能定位已获准的预标注 Job，不能替代执行授权；未绑定的消息不得自行创建预测重试。经正常准入的失败则不能因实际 worker 丢失而失去恢复资格。
+0184-0167	apps/api/tests/test_bug_attachment_uploads.py:333-336,875,884-885;apps/api/tests/test_content_snapshot.py:264	archive/0094-verified-request-content-snapshots.md	附件物理操作账本独立于业务 SAVEPOINT：PUT 结果未知或源句柄未确认全关时，保留未结算记录（storage_operation_unsettled），不能用业务回滚清账。报告可先结束业务状态，但读取句柄是否关闭未明时不得回收字节。
+0184-0168	apps/api/tests/test_comment_attachment_storage_migration.py:480	-	评论附件迁移按创建后 2160 小时计算过期，而不是按日历天推算；跨夏令时切换时，日历天算法会改变回执的实际有效时长。
+0184-0169	apps/api/tests/test_comment_attachment_uploads.py:260-261	-	评论上传回执只能由原上传者认领；参与该标注讨论的权限不能替代回执归属，否则同项目的成员可将他人上传的附件绑定到自己的评论。
+0184-0170	apps/api/tests/test_comment_attachment_uploads.py:585	-	评论上传的提交后检查必须使用提交前冻结的事实；若提交后才从 ORM 对象取值，字段可能已失效，检查就不能可靠地依据本次提交的事实。
+0184-0171	apps/api/tests/test_comment_attachment_uploads.py:721	-	回执过期只限制评论附件的首次绑定；一旦绑定已提交，就不能再按回执的当前有效期判断该绑定，否则原本有效的附件会在回执到期后失效。
+0184-0172	apps/api/tests/test_comment_polish.py:105	-	评论提及按被提及者的项目成员资格校验；super_admin 的全项目可见权限不能代替成员关系，否则可见但未加入项目的人也会被当作可提及成员。
+0184-0173	apps/api/tests/test_comment_polish.py:348,355	-	评论附件下载先校验项目访问权，再检查存储对象；对非项目成员且非 owner 的标注员统一返回 404，不让对象存在与否反映在响应差异中。
+0184-0174	apps/api/tests/test_compat_facades.py:992-994	-	兼容 facade 可导入供测试打补丁的下划线私有符号，但这些符号不属于 __all__ 的公开导入契约；不能把模块内可访问的名称一律视为公开导出。
+0184-0175	apps/api/tests/test_conftest_db_url.py:74	-	派生测试数据库连接 URL 时须用 render_as_string(hide_password=False) 保留真实密码；默认的脱敏字符串可用于展示，却不能作为带密码的连接地址。
+0184-0176	apps/api/tests/test_conftest_db_url.py:117	-	测试数据库 URL 解析失败时须抑制底层异常链；只清理外层错误消息还不够，内层解析异常的 traceback 仍可能暴露原始 URL 中的凭据。
+0184-0177	apps/api/tests/test_connector_crypto_guard.py:21-22	-	Fernet 明文泄露断言须使用足够长且独特的标记；随机 IV 使 Base64 密文可能偶然包含短标记，导致并未泄露明文的测试间歇性失败。
+0184-0178	apps/api/tests/test_connector_crypto_guard.py:177-178	-	连接器的域名白名单不能代替对解析结果的检查：只允许全局可路由 IP，命中白名单但解析到内网仍须拒绝，否则 DNS 重绑定可绕过网络访问限制。
+0184-0179	apps/api/tests/test_content_snapshot.py:235	archive/0094-verified-request-content-snapshots.md	内容快照遇到取消时，哪怕外层任务连续两次收到取消，也要等底层实际 Future 完成；外层取消不证明底层已停止，不能据此提前认定存储操作结束。
+0184-0180	apps/api/tests/test_controlled_segmentation.py:18	-	受控分割不能用前景连通性替代实例归属；带孔环形区域和与它不连通的前景区域仍可能属于同一实例，按连通分量切分会将其误拆。
+0184-0181	apps/api/tests/test_create_tasks_worker.py:78	-	创建任务的 worker 只能依赖已提交的 ProjectDataset 关联；生产者事务内的 flush 不会让该关联对 worker 可见，提前派发会使其读不到创建任务的前提。
+0184-0182	apps/api/tests/test_cross_frame_born_dataset_scope.py:393	-	跨帧 Job 的范围证明依赖规范来源关联；唯一的规范关联被删除后，Job 仍存在也不能当作其结构已获证明，否则会按已不存在的来源关系认定范围。
+0184-0183	apps/api/tests/test_cross_frame_born_dataset_scope.py:523,710,812,817-818	-	跨帧 Job 的出生回执不可变，既有 Job 不得以不同身份或类型重新登记。当前范围扩到新数据集时，执行器须在写入前拒绝该 Job，而非扩大原回执或让旧 Job 妨碍新数据集清理。
+0184-0184	apps/api/tests/test_cross_frame_dispatch.py:82-83	-	跨帧派发的生产者超时只意味着未收到应答，不证明代理未接收；worker 可能已在应答丢失前认领，不能把超时当作无人接手的投递失败。
+0184-0185	apps/api/tests/test_dashboard_admin_people_export.py:71	-	管理看板的人员 CSV 保留 UTF-8 BOM；仅输出无 BOM 的 UTF-8 虽是有效 CSV，但 Excel 可能误判编码，导致人员文本乱码。
+0184-0186	apps/api/tests/test_dashboard_people_project_scope.py:111	-	管理看板按项目列出标注员时，以该项目的成员关系为准；仅凭标注产出推断成员资格，会把有产出但并非成员的标注员纳入项目人员名单。
+0184-0187	apps/api/tests/test_dashboard_people_project_scope.py:176,228	-	人员仪表盘对项目管理员检查项目所有权，不能用 ProjectMember 关系替代；越权访问返回 404 而非 403，避免调用方据此判断项目是否存在。
+0184-0188	apps/api/tests/test_data_manager.py:933-935,999-1000	-	任务筛选中的空 AND、OR 组都视为真；若只靠空组解释命中，详情抽屉用任务上下文作为见证。若 AND 已有实体分支解释命中，空组不能再把见证扩大到任务范围。
+0184-0189	apps/api/tests/test_data_manager_entities.py:99-100	-	历史问题只有与锚定标注同属一个任务，才能成为该标注的根问题；仅检查项目一致会把同项目下其他任务的问题错误挂到该标注。
+0184-0190	apps/api/tests/test_data_manager_entities.py:145-146	-	场景轨迹只要有一个成员命中就入选，但筛选不能裁剪轨迹的出现次数统计；即使 eq=0 由无问题成员命中，也须保留整条轨迹的计数。
+0184-0191	apps/api/tests/test_data_manager_filter_contract.py:77	-	Data Manager 的反馈筛选只读取已发布事实，不能让未发布反馈改变任务是否命中；契约约束读取的关系，而不是关联子查询的具体 SQL 写法。
+0184-0192	apps/api/tests/test_data_manager_task_actions.py:387-388	-	Data Manager 任务动作尚待发布时，重试应复用同一持久化 Job；已运行的 Job 不再派发，以免重复执行。请求内容变化则返回冲突，不能当成原动作的重试。
+0184-0193	apps/api/tests/test_dataset_archive_managed.py:416-417	-	即使归档发生在创建任务的 worker 提交一个分块之后、开始下一块之前，恢复数据集也不能使旧请求重新生效；仅检查当前是否归档会让旧请求在恢复后继续创建任务。
+0184-0194	apps/api/tests/test_dataset_archive_managed.py:573-574	-	为已有训练数据集打包时仍须校验当前项目权限；不可变快照不是永久访问授权，但也不能把源数据集归档视为撤销已生成快照。
+0184-0195	apps/api/tests/test_dataset_import_delivery_native.py:69-70	-	导入投递的新租约从实际领取时刻计算，而不是从事务开始时计算；长期运行的事务会使后者得到的租约在领取时已被缩短，甚至已经过期。
+0184-0196	apps/api/tests/test_dataset_import_native.py:525-526	-	已受理的导入 Job 保留所有者的取消资格；若按当前经理角色重新推导，所有者在角色被移除后将无法取消先前已受理的导入。
+0184-0197	apps/api/tests/test_dataset_import_runtime.py:1519	-	导入恢复扫描不能将仍存活且仍是当前发布的记录判为孤儿；否则恢复流程会接管或处置仍有效的发布，干扰正常导入。
+0184-0198	apps/api/tests/test_dataset_import_runtime.py:2937	-	导入恢复不能把未收到 worker 回复当成预留未提交：worker 可能在事务提交后、收到回复前退出。恢复时须识别已落库的预留，不能按未预留重新处理。
+0184-0199	apps/api/tests/test_dataset_link.py:169	-	重复调用 link_project 时须保留原关联 ID，但不能直接返回仍绑定 ORM 会话的关联行；复用的是业务关联，不是要求调用方继续依赖原会话。
+0184-0200	apps/api/tests/test_dataset_project_statistics.py:123-124,138-139	-	项目数据集统计以主数据集关联为依据，按任务去重；同一任务的多条链接不能重复计数，仅相机角色的链接也不足以证明归属。原始文件路径和文件名不能替代缺失的关联。
+0184-0201	apps/api/tests/test_dataset_project_statistics.py:287	-	项目数据集统计须按数据库中的当前 ProjectMember 角色授权，不能沿用已加载的 ORM 对象；角色变更后，旧对象可能仍会给出原来的授权结果。
+0184-0202	apps/api/tests/test_dataset_quality_review.py:406	-	数据集质量审查预览须校验当前请求者是否为发起人，不能只校验数据集管理权限；否则同一数据集的另一位经理也能使用不属于自己的预览。
+0184-0203	apps/api/tests/test_dataset_reference_replicas.py:159,642	-	副本 B 是独立授权对象，不能用原任务 ID 或原任务的授权访问 B 的引用快照。操作资格须按 B 当前的启用状态和请求者当前的管理范围判定，发布时的资格不能沿用。
+0184-0204	apps/api/tests/test_dataset_references.py:303-304	-	数据集引用写入须先取得 dispatch 使用的范围锁，再锁 Task；反向加锁会在 dispatch 插入带 Task 外键的 TaskLock 时形成循环等待。
+0184-0205	apps/api/tests/test_dataset_scene_filters.py:214	-	恢复保存视图时保留已失效的 scene_id，由条目查询返回 404；静默删除筛选条件会扩大结果集，把失效视图伪装成可用视图。
+0184-0206	apps/api/tests/test_dataset_source_access.py:680	-	启用上传暂存隔离后，缺少新暂存布局不能单独作为拒绝完成上传的理由；否则切换前已签发的上传 URL 即使成功上传，也无法完成对应的上传流程。
+0184-0207	apps/api/tests/test_dataset_source_auto_sync.py:72;apps/api/tests/test_dataset_source_sync.py:225	-	数据集源同步发布仍处于待处理状态时须允许重放，否则 LostWakeup 会让已有扫描失去发布机会。自动同步重放 broker 发布时须复用原异步 Job，不能把补发记成第二次尝试。
+0184-0208	apps/api/tests/test_dataset_source_aux_retention.py:651-652	-	不能把不可变封存清单当作源 DatasetItem 的存活引用；输入回执过期且无其他引用时，仅因清单仍记载该条目而阻止删除，会把保留历史变成保留源条目。
+0184-0209	apps/api/tests/test_dataset_source_changes.py:166,189	-	预检须使用不受并发直接接受操作影响的基线，否则比较结果会随接受动作改写。变更信息也不能依赖短期 AsyncJob 历史，删除作业后仍须可读。
+0184-0210	apps/api/tests/test_dataset_source_deletion.py:1072-1073	-	获取多场景围栏若中途失败，须在返回前释放此前取得的全部 KEY SHARE 锁；不能让一次失败的获取继续占锁，直到调用方提交或回滚。
+0184-0211	apps/api/tests/test_dataset_source_guards.py:427-428	-	整库删除须由 Dataset 协调器显式撤销关联和作业，不能用标注 guard 代替；该 guard 只保护单个源 Item，不负责整库删除的撤销范围。
+0184-0212	apps/api/tests/test_dataset_source_relocations.py:74,141	-	源路径迁移后不能按各路径的局部修订号排序，否则旧路径的高编号会覆盖较晚到达、编号为 1 的 B 路径修订。旧路径再次出现时须视为新业务样本，不能夺回已随原样本迁移的 locator。
+0184-0213	apps/api/tests/test_dataset_source_revalidation.py:60	-	普通注册即使返回已有条目，也不能据此刷新旧引用；把命中已有条目视为可续期，会让不具备续期权限的调用方更新引用。
+0184-0214	apps/api/tests/test_dataset_source_support.py:194	-	不能把 AsyncJob 当作判定任务创建执行已完成的必要凭据；同步接受不会生成 AsyncJob，由此判定会把同步完成误报为未完成。
+0184-0215	apps/api/tests/test_dataset_upload_native.py:721-722;apps/api/tests/test_dataset_upload_s3_runtime.py:242-243	-	同一待完成上传意图的重试须沿用初始化分配的 publication_id；若每次重试重新分配，就无法复用该意图原有的不可变发布目标。
+0184-0216	apps/api/tests/test_dataset_upload_s3_runtime.py:203-205;apps/api/tests/test_datasets_upload_zip.py:85	-	托管发布须固定已观测的暂存对象身份，ZIP 导入也不能只凭对象键。流式发布读取使用 IfMatch，若对象在观测后被同键替换就中止写入，不能发布未固定的字节。
+0184-0217	apps/api/tests/test_dataset_views.py:129-130,151	-	员工保存目录数据集个人视图的权限不能被当成数据写入或源选择权限。删除失效视图也不能先要求选择其源，否则失去源访问权的员工将无法清理自己的视图。
+0184-0218	apps/api/tests/test_dataset_workbench.py:99-100	-	工作台查询须以已记录的观测为准，不能遍读源文件，把尚未记录的变化直接当成状态更新。真正读取内容时仍须严格校验，不能用工作台状态替代内容校验。
+0184-0219	apps/api/tests/test_dataset_workbench.py:186-187	-	脱敏观测及准确的 Item URL 都不能作为源授权凭据；即使请求者是管理员，若不在该源的授权范围内，也不能因此看到源身份或执行管理操作。
+0184-0220	apps/api/tests/test_dataset_write_targets.py:135	-	目标注册表行锁须在调用 provider 前释放，不能把持锁范围扩到外部调用；否则需要独立取得同一批行锁的 provider 调用会被调用方自己的锁阻塞。
+0184-0221	apps/api/tests/test_dataset_write_targets.py:176	-	解析写入目标时，凭证用当前修订，地址和分配仍用已保存的确切修订。若把三者一并切到最新版本，凭证轮换就可能改变既定写入目标。
+0184-0222	apps/api/tests/test_datasets_upload_zip.py:580-583	-	ZIP 导入的 group_frames 须按 .pcd 后缀识别激光雷达帧，不能只依赖 file_type；mimetypes 未识别时该文件会被归为 other，仅按类型筛选会漏帧。
+0184-0223	apps/api/tests/test_deleted_project_job_scope.py:127,150,164,208	-	AsyncJob 的保留项目作用域须由数据库维护，调用方不能伪造、改绑或给全局作业补设。无论直接清空 project_id，还是外键 ON DELETE SET NULL，都不能丢失原项目作用域。
+0184-0224	apps/api/tests/test_discussion_notifications.py:475-476	-	讨论回复和通知须以当前 Identity 数据为准，不能复用此前加载的 ORM 对象；身份数据变更后，缓存对象仍可能让回复或通知使用旧数据。
+0184-0225	apps/api/tests/test_domain_package_architecture.py:121,123-124	-	领域包的应用内依赖须受 allowed_app_imports 限制；确需使用框架数据适配器时只为该适配器开例外，不能放宽整个契约包，否则其他传输层依赖也会被放行。
+0184-0226	apps/api/tests/test_domain_package_architecture.py:686-688	-	构建导入图时，from 导入既要记录模块路径，也要记录拼接导入名后的候选路径，否则会漏掉以导入名指代的子模块；只在解析时排除实际为符号的候选路径。
+0184-0227	apps/api/tests/test_domain_package_architecture.py:1022-1025	-	gpu_arbitration 根包可以重导出稳定的叶子符号，但不能为方便调用方而急切导入 dispatch、membership 或 rollout，否则仅导入根包就会触发这些模块的初始化。
+0184-0228	apps/api/tests/test_email_verification.py:231	-	重发验证邮件时，无论账号是否存在都返回 202；若改为按查找结果返回不同状态，调用方就能据此枚举账号。
+0184-0229	apps/api/tests/test_export_artifact_formats.py:22-23	-	导出格式迁移必须保留所有者为 NULL 的旧索引元数据；这些索引早于制品独立归属，不能以缺少所有者为由跳过或丢弃。
+0184-0230	apps/api/tests/test_export_cache_worker.py:177-178	-	导出缓存键必须包含冻结输入摘要，不能只按项目、目标格式和标注数量命中；即使标注数量不变，原件、业务事实或探测回执变化后也不能复用旧产物。
+0184-0231	apps/api/tests/test_export_location_bindings.py:115	-	已保存的旧托管导出键应按旧前缀判断长度。旧前缀短一个字节，若套用新建键的限制，会拒绝使用旧前缀时恰好达到 1024 字节的合法键。
+0184-0232	apps/api/tests/test_export_media_bundle_images.py:496	-	媒体包的发布锁存一旦生效便不可解除；显式转入退役也不是例外，否则可通过改变生命周期状态绕过发布限制。
+0184-0233	apps/api/tests/test_export_media_pair_native.py:16-17	-	交付记录须独立于业务行保留，配对以已归属的回执元数据为准；若把记录的存续绑定到业务行，业务行移除后就会失去既有交付的配对依据。
+0184-0234	apps/api/tests/test_export_output_authority.py:199-200	-	reference 导出还要求 tasks:read；凭据有效且对象可见并不等于具备读取任务的权限，不能用这两项检查替代该 scope 校验。
+0184-0235	apps/api/tests/test_export_packaging.py:149	-	relative_path_from_file_path 只在首段与 dataset_name 匹配时剥离该段；无条件去掉首段会把真实目录当成数据集前缀，改变导出的相对路径。
+0184-0236	apps/api/tests/test_export_packaging.py:176	-	图像项目请求视频导出目标时必须在派发前拒绝；把兼容性检查留给后台处理，会让不兼容的目标进入作业并导致整批导出失败。
+0184-0237	apps/api/tests/test_export_packaging.py:306-310;apps/api/tests/test_export_video.py:254,268	-	视频打包分组须保留 polygon 和 polyline 的顶点，让目标格式决定如何表示；MOT、KITTI 等只接收框的目标由 track_grid_rows 取顶点外接框生成像素框，不能因目标不支持顶点就丢弃几何。
+0184-0238	apps/api/tests/test_export_packaging.py:565	-	yolo-frames-seg 对无标注的采样帧也须写出空 txt；省略空文件会破坏每张导出图像都有对应标签文件的约定。
+0184-0239	apps/api/tests/test_export_packaging.py:693	-	coco-frames-seg 必须提供完整的索引字段，并保证每条标注引用的图像和类别均存在；省略字段或留下悬空引用会使 pycocotools 的 createIndex 无法构建完整、有效的索引。
+0184-0240	apps/api/tests/test_export_reference_media.py:102	-	导出请求的准入须等到已接受用量完成提交；若把密钥认证成功当作准入完成，就可能在用量尚未提交时继续处理请求。
+0184-0241	apps/api/tests/test_export_reference_media.py:304-306	-	托管副本的 URL 须按已保存的传输方式签名；提供方的占位值不能当作签名链接，因为包内 fetcher 会校验托管回执中的 URL。
+0184-0242	apps/api/tests/test_export_reference_media.py:320	-	冻结导出的每轮处理都须使用同一任务集合；若后续打包重新枚举当前任务，首轮之后新增的任务就会混入原有快照。
+0184-0243	apps/api/tests/test_export_reference_media.py:555-556,587-588	-	密钥确认绑定验证器修订：修订变化后，即使同一明文仍可认证，也不能用旧确认生成导出证明。密钥被接受后至请求事务提交证明前须防止其他所有方轮换，避免确认在提交前失效。
+0184-0244	apps/api/tests/test_export_reference_media.py:653	-	引用媒体导出须从图像源取图，不能把可选的原图缓存当成必备输入；否则未缓存的原图即使仍能从源读取，也无法导出。
+0184-0245	apps/api/tests/test_export_reference_media.py:719-721	-	自有产物的物理操作前后须用新会话校验权限，不能沿用写入前的判定。最终边界可能在 ZIP PUT 成功后拒绝，此时对象已经写入，仍须保留对该写入的责任。
+0184-0246	apps/api/tests/test_export_streaming.py:154-155	-	流式导出须用显式 ORDER BY 保证顺序；复合索引扫描碰巧产生的顺序不是查询契约，执行计划换用其他扫描方式就可能改变输出顺序。
+0184-0247	apps/api/tests/test_export_video.py:699	-	视频 COCO 导出对相同输入须保持 JSON 序列化结果稳定；只保证解析后等价仍会使内容未变的产物产生下游文本差异。
+0184-0248	apps/api/tests/test_failed_predictions.py:68-69	-	失败预测的列表与重试都以 ml_backend_id 关联按 URL 唯一的全局 MLBackendRegistry，不以项目当前启用的后端为准；否则项目停用后端会使既有失败记录失去正确关联或无法定位重试目标。
+0184-0249	apps/api/tests/test_failed_predictions.py:162	-	只有未保留图像或视频证据的失败预测才可考虑走旧版重试路径；已有证据时不能退回不以该证据为准的路径。
+0184-0250	apps/api/tests/test_failed_predictions.py:183,198	-	失败预测重试须显式按设备指定队列；后端未自报设备时使用 GPU 队列 ml，而不是把未知设备当作 CPU 路由到 ml.cpu。
+0184-0251	apps/api/tests/test_fixture_backend_lifecycle.py:307-308	-	Routing 预检的存续不受单个读取方等待时限或原传输时限支配；后续读取方应有自己的等待窗口，不能继承已耗尽的计时而立即超时。
+0184-0252	apps/api/tests/test_fixture_export_original_read_live.py:60-61	-	独立的 Media 许可可以提交自己的工作，但不能顺带提交调用方的事务；否则许可的提交会让调用方尚未决定提交的临时状态提前持久化。
+0184-0253	apps/api/tests/test_fixture_export_owner_native.py:77-78	-	ZIP 退役的两条路径都须执行所有者检查，不能只等待最终的 ACL 迁移；迁移前遗留的授权仍可能存在，单凭它们会放行非所有者。
+0184-0254	apps/api/tests/test_fixture_export_worker_live.py:265-266	-	同一 Dataset 下，是否存在 Job 不能作为触及 Dataset 围栏的依据；即使待处理的兄弟运行没有 Job，也须先等导出兄弟运行的原生工作退役，避免过早触及围栏。
+0184-0255	apps/api/tests/test_fixture_image_readers_live.py:566-568,617-618;apps/api/tests/test_fixture_run_ownership.py:307	-	取消信号、Job 终态展示字段和遗留租约都不是原生读取已退出的回执；须等阻塞读取解除并排空，才可释放响应套接字和原生读取许可。遗留租约不由验证方改写，而是自然到期后由原生认领方恢复。
+0184-0256	apps/api/tests/test_fixture_inference_retirement_live.py:84,498-499,1122-1123,1201-1203	-	原生推理是否退出尚未确认时，只能协作式取消，不能用强杀工作器、伪造结果或改写租约来收尾。即使 pytest 已退出，也要保留私有 owner、原进程和管道句柄，不清理队列或退役源版本，留给验证方检查和恢复。
+0184-0257	apps/api/tests/test_fixture_inference_retirement_live.py:196-197	-	推理附着后的最终 ACK 只能定案原先附着的记录，不能确认期间被替换或改动的记录；恢复前须还原原记录，避免把先前的确认套用到不同内容。
+0184-0258	apps/api/tests/test_fixture_inference_retirement_live.py:446-448	-	普通推理工作器不能沿用环境默认值启动：app.config 会从检出目录的绝对路径读取 .env，可能带入所有者或存储凭据。启动时须显式覆盖凭据和角色，只给工作器实际所需的权限。
+0184-0259	apps/api/tests/test_fixture_inference_retirement_live.py:888-890	-	原提供方仍阻塞时，若已提交的 owned fixture 变更丢失响应，须重连同一权威服务并按原操作身份恢复。无法确认结果时不得重执行，否则可能重复提交已生效的变更。
+0184-0260	apps/api/tests/test_fixture_inference_retirement_live.py:1009-1010	-	后续推理提供方忙碌只能成为拒绝准入的依据，不能证明此前的工作已静止；必须保留先前提供方的实际确认，不能用当前忙碌状态替代。
+0184-0261	apps/api/tests/test_fixture_media_readers_live.py:359-360	-	验证 UNLISTEN 套接字在执行响应上阻塞时，须在 Parse/Describe 完成后才暂停读取；更早暂停会卡住预备阶段，并未覆盖实际执行响应受阻的边界。
+0184-0262	apps/api/tests/test_fixture_media_readers_live.py:762-763	-	共享 Location 的维护不能仅凭本次运行的读取已经结束而放行；只要相邻运行仍有活跃读取，维护就必须继续等待，否则会越过仍在使用该 Location 的读取方。
+0184-0263	apps/api/tests/test_fixture_native_media_admissions.py:107	-	原生 Media 准入必须核验当前会话所在的数据库后端持有操作锁；仅确认同一操作的锁已存在不够，否则另一后端持有的锁会被错误地用来授权当前会话。
+0184-0264	apps/api/tests/test_fixture_run_ownership.py:732-733	-	开放的 fixture run 所发布的 Dataset，在该 run 的媒体封存前不得成为清理目标；发布不能替代封存作为清理门槛，否则媒体尚未封存的 Dataset 会被提前纳入清理。
+0184-0265	apps/api/tests/test_fixture_run_ownership.py:795-796,1069,1110	-	项目、执行者或 Task 不匹配，或项目级 Job 未选定 Task 时，不能推定精确的 Dataset 范围。对已封存的 fixture Dataset，可在准入时拒绝这类 Job；若它已获准入，清理守卫仍须阻止清理。
+0184-0266	apps/api/tests/test_fixture_run_ownership.py:1039-1040,1220	-	fixture Job 的 Dataset 作用域以创建时冻结的绑定为准，不能从项目当前关联重算，否则后来链接的 Dataset 会被误纳入。run 退役时只释放精确的作用域证明，不改写冻结绑定。
+0184-0267	apps/api/tests/test_frame_preannotate_persistence.py:281-282	-	已接受的视频回执是不可变的审计记录，不能像普通测试数据一样逐条删除；持久化测试应保留这些回执，直到一次性测试数据库销毁。
+0184-0268	apps/api/tests/test_frame_preannotate_persistence.py:410-412	-	验证 Task 写入的 NOWAIT 边界时，须先提交基准预测以释放权限校验持有的锁，再单独锁住 Task 行；否则写入会先在作用域锁上发生争用，无法验证 Task 行的行为。
+0184-0269	apps/api/tests/test_frame_predict_video_bbox.py:62	-	视频帧预测的第一阶段只接受具有对应单帧表示的检测框；多边形、旋转框等没有对应的单帧几何表示，应跳过而不是按普通检测框持久化。
+0184-0270	apps/api/tests/test_frame_upload_cap.py:114-116,119,280-281	-	帧上传不能依赖 Content-Length 或 PIL 解码来执行上限：缺少长度时，_read_capped_frame 必须在解码前通过流式读取拒绝超限。伪报超限长度时，multipart 的 400 和上限检查的 413 都须早于上传与执行。
+0184-0271	apps/api/tests/test_gpu_arbiter_proof_recovery.py:1812-1813	-	GPU 仲裁写入 Redis 后崩溃，即使注册表条目随后被删除，接手 worker 也须凭原 Redis 回执收尾；冻结的健康状态不能替代该次写入的回执。
+0184-0272	apps/api/tests/test_gpu_arbiter_proof_recovery.py:2248-2249	-	令牌有效期推进后重新出具证明的要求只适用于 GPU 证明恢复，不能套用于普通工作负载准入，否则有效期推进本身就会触发不必要的重新证明。
+0184-0273	apps/api/tests/test_gpu_arbiter_proof_recovery.py:3564-3565,4161	-	并发准备可能消耗一个从未对 Redis 暴露的持久代次，不能把代次空档当作异常。取消从当前代次高水位推进，但仍绑定原 Redis drain，不能用旧代次作为推进基准。
+0184-0274	apps/api/tests/test_gpu_arbiter_redis.py:5692	-	请求代次过时不能成为拒绝释放该请求自身 GPU 租约的理由；若把代次校验同样用于拒绝释放，旧请求就无法归还自己持有的租约。
+0184-0275	apps/api/tests/test_gpu_arbiter_redis.py:9065-9066	-	GPU 仲裁回收不能只依赖队列计数镜像，即使计数自洽也不代表目标票据不存在；若票据仍在同一张卡的其他后端队列中，回收必须被阻止。
+0184-0276	apps/api/tests/test_gpu_arbiter_redis.py:9318	-	finish_installation_drain 完成前，调用方须提供独立核验的最新证据，并覆盖所有池；沿用旧证据或只核验部分池，都不能证明整个安装的 drain 已完成。
+0184-0277	apps/api/tests/test_gpu_arbiter_redis.py:9763	-	原生 GPU drain 在终结阶段仍须用最初持久化意图中的源代次校验；改用后续状态会把终结校验套到不同的源代次，而不是原 drain 针对的代次。
+0184-0278	apps/api/tests/test_gpu_membership_activation.py:1160-1161,1186-1187	-	验证 GPU 成员激活时，资源 B 须保持锁定，直到写入方尝试第二次更新，否则该更新会与晋升重试竞态。用数据库端 lock_timeout 隔离锁等待，避免冷连接和客户端调度干扰；阻塞触发器返回 55P03，而非 40001。
+0184-0279	apps/api/tests/test_gpu_plugin_admission_native.py:106	-	GPU 插件的运行时身份不能作为所有者控制状态未变的证明；所有者可以不更换身份就更新状态，按身份沿用旧状态会漏掉这些变化。
+0184-0280	apps/api/tests/test_gpu_plugin_admission_native.py:435-437	-	旧 GPU 实例停止、激活记录移除、安装修订版推进，都不能替代旧令牌的有效期约束；即使新启动已通过所有者验证，也不能据此跳过该约束。
+0184-0281	apps/api/tests/test_gpu_registry_delete_noop_native.py:230	-	GPU 注册表原生删除的空操作须与已记录的失败区分：SQL NULL 不是失败记录中的 JSON null，若将两者统一解释为缺值，就会把已有失败误判为空操作。
+0184-0282	apps/api/tests/test_grant_namespace_security.py:241-242,286-288	-	授权安装器对已分类表执行表级撤权时，SQL 会一并撤销列 ACL，因此不必仅因这些列 ACL 拒绝执行。分类外的列 ACL 不会随之清除，必须由独立列权限清单识别并拒绝。
+0184-0283	apps/api/tests/test_grant_namespace_security.py:401,414-415,491	-	授权安装器的守卫拒绝时，权限修复与显式撤权必须一并回滚；任一部分先提交都会让失败的安装改变原有权限缺口或显式授权。
+0184-0284	apps/api/tests/test_grant_namespace_security.py:480-483,626,705-708	-	Identity Briefs 允许名单校验在撤销显式角色 ACL 后进行；只查 SECURITY DEFINER 或显式 ACL，会漏掉仍可经 PUBLIC EXECUTE 调用的 SECURITY INVOKER 函数。模块前缀补查仅限 Identity，不得套用到其他命名空间。
+0184-0285	apps/api/tests/test_grant_namespace_security.py:575-578	-	授权验证撤销 PUBLIC 的 CONNECT 后，须为临时测试角色显式授予 CONNECT；否则请求在登录层就会被拒绝，无法判断实际 API 角色所需的对象权限是否正确。
+0184-0286	apps/api/tests/test_grant_namespace_security.py:755-757	-	开发运行时先应用 lan-production-grants，再安装新 API/worker 授权配置；所需存储必须在 LAN 安装器运行前建好，不能等后续授权步骤补建，否则前置授权缺少目标对象。
+0184-0287	apps/api/tests/test_grant_namespace_security.py:876-877	-	Workspace 撤权只能覆盖本模块的命名空间，不能把采用新前缀当成清理依据，否则会连带撤销其他命名空间的授权。
+0184-0288	apps/api/tests/test_guide_asset_lifecycle.py:42,66,79	-	Guide 资产回收不能用上传状态或历史 JSON 代替有效引用判断：中断的 PUT 可能给 pending 分配留下字节，级联或直接删除也可能让 ready 对象失去引用。历史 JSON 不保活，不能阻止最后一个有效引用撤销后的退役。
+0184-0289	apps/api/tests/test_guide_asset_lifecycle.py:236	-	Guide 资产比较必须保留 JSON 类型差异，不能使用会把布尔值与整数判为相等的比较，否则 true 与 1 等不同的元数据会被误判为同一值。
+0184-0290	apps/api/tests/test_guide_asset_lifecycle.py:577-578	-	Guide 旧资产列表只能用唯一且精确匹配的已留存所有者条目修复；历史 JSON 中出现过并不证明元数据可信，否则伪造条目也会被保留下来。
+0184-0291	apps/api/tests/test_identity_accepted_api_key_native.py:187-188	0115-identity-admission-and-durable-revocation.md	原生 API Key 须在锁等待结束后按当时的时间判定过期，不能用事务起始时间 now()；否则调用方在过期前开事务、过期后才拿到锁，仍会被错误放行。
+0184-0292	apps/api/tests/test_identity_accounts_live.py:512-513	0118-independent-identity-account-commands.md	账户偏好沿用原有 AI 参数映射对任意元数据的兼容性，不得套用会话请求或 Admission 响应的大小上限，否则原本合法的偏好会因无关接口的限制而被拒绝。
+0184-0293	apps/api/tests/test_identity_accounts_native.py:911-912	0118-independent-identity-account-commands.md	账户发布重试应由操作凭据返回已验证的结果，不能重新执行发布；否则即使最终状态看起来相同，也会重复执行状态迁移并产生额外审计事件。
+0184-0294	apps/api/tests/test_identity_admin_password_live.py:302-303,399-400,420-421	0124-independent-identity-admin-password-reset.md	首次确认丢失后，即使 Identity owner 重启，密码重置也应重放原密文对应的密码而不是再写一次。重放须同时核对当前 bcrypt 状态和时间戳：后续写入只改变其中一项，也足以使旧凭据失效。
+0184-0295	apps/api/tests/test_identity_admin_password_live.py:458-459	0124-independent-identity-admin-password-reset.md	项目管理员可重置任一活跃员工的密码；较低权限角色仅可重置在其当前拥有的项目中有过成员记录的员工。用同一作用域会扩大后者的权限，或错误收窄项目管理员的权限。
+0184-0296	apps/api/tests/test_identity_admin_password_live.py:531-532	0124-independent-identity-admin-password-reset.md	密码重置须按 UUID 顺序对操作者和目标行取 NOWAIT 锁，以免角色互换时出现反向取锁。任一行被占用都返回同一有界重试响应，不能只锁目标或改为阻塞等待。
+0184-0297	apps/api/tests/test_identity_admin_password_live.py:558-559	0124-independent-identity-admin-password-reset.md	管理员密码重置只更换密码，不推进凭据代际；若把重置等同于推进代际，会提前使现有 JWT 失效。令牌撤销仍由显式推进常规代际栅栏完成。
+0184-0298	apps/api/tests/test_identity_auth_native.py:313,321	-	Admission 的已受理事实可先于活动写入被 worker 读取，不能把受理视为活动写入已提交。其他 Admission 事务提交也不能替换 worker 已持有的栅栏，否则会把不同事务的状态混为一谈。
+0184-0299	apps/api/tests/test_identity_challenges_migration.py:78-79	-	挑战迁移测试须从真实旧 revision 建库，不能用当前库降级代替；后续存在刻意不可逆的迁移，降级无法可靠重建旧版起点。
+0184-0300	apps/api/tests/test_identity_deactivation_live.py:323	-	账户停用重放只返回早先冻结的成功结果，不能恢复当时的停用状态，否则会回退在该结果之后已受理的停用请求。
+0184-0301	apps/api/tests/test_identity_deactivation_live.py:335	-	账户停用须先校验当前凭据是否已撤销，再判断能否重放历史操作凭据；若凭据命中即返回，已被撤销的调用方就能绕过当前校验。
+0184-0302	apps/api/tests/test_identity_deactivation_live.py:420	-	停用请求因不变量锁竞争被拒时不生成操作凭据；若把竞争失败固化为可重放结果，即使持锁方已提交，同一请求也无法正常重试。
+0184-0303	apps/api/tests/test_identity_deactivation_live.py:435-436	-	到期停用须先校正仅含三个历史字段的待处理记录，不能按新格式直接丢弃或处理。旧记录与新记录都不能绕过至多处理一个最终超级管理员的限制。
+0184-0304	apps/api/tests/test_identity_deactivation_live.py:733-735	-	停用通知的接管验证须覆盖租约已经提交、发布者却在 Redis 握手期间退出的窗口。模拟到期只能调整测试自有租约，否则会使无关发布任务被提前接管。
+0184-0305	apps/api/tests/test_identity_deactivation_native.py:180-182	-	停用通知的接收人数须按全库活跃超级管理员冻结；只统计本次新建或直接涉及的账户，会漏掉同样应收到通知的既有管理员。
+0184-0306	apps/api/tests/test_identity_deletions_native.py:911-912	0127-independent-identity-deletion-commands.md	删除操作的超级管理员保护须统计全库未被预留的超级管理员；只看操作双方会误判剩余人数，把已预留的管理员计入则会高估可保留的人数。
+0184-0307	apps/api/tests/test_identity_directory_api_live.py:119-120	-	旧用户目录列表的项目管理员可见性与查询、统计、导出不同；不能把两套规则合并成同一过滤条件，否则至少一组接口会改变原有的可见范围。
+0184-0308	apps/api/tests/test_identity_directory_api_live.py:245	-	超级管理员用户目录的列表和分页响应不能套用通用响应体大小上限，否则即使请求符合目录自身的分页规则，合法结果仍可能被截断。
+0184-0309	apps/api/tests/test_identity_e2e_live.py:84,137	-	Identity 端到端测试的固定非 root 绑定挂载只传不含凭据的源码；环境文件由运行器在挂载范围外以 0600 创建，不能随源码挂载，否则会让凭据进入原本无凭据的挂载面。
+0184-0310	apps/api/tests/test_identity_e2e_live.py:101-102	-	私有 Identity 进程须在启动前继承同一签名密钥，否则签发与验证可能使用不同密钥。已安装的 API 只接收已签发的员工令牌，不能用 owner 数据库 DSN 代替调用方凭据。
+0184-0311	apps/api/tests/test_identity_e2e_native.py:385	-	端到端测试的 owner 清理只能认领本场景实际创建的记录；仅加载或修改既有记录不会转移其归属，否则清理可能删掉原有数据。
+0184-0312	apps/api/tests/test_identity_embedded_acl.py:204	-	验证未设置 Identity 连接选择器的嵌入式 HTTP 路径时，须使用真实调用方的数据库 LOGIN；换成专用客户端角色，测到的会是另一套 ACL，无法验证默认路径。
+0184-0313	apps/api/tests/test_identity_groups_live.py:402,433	0120-independent-identity-group-catalog-and-assignment.md	组改名与分配须统一按 Group 后 User 的顺序取锁，不能反向加锁而引入死锁。组删除与分配也须在实际 owner 行上串行化，否则分配可能基于正在删除的组继续执行。
+0184-0314	apps/api/tests/test_identity_groups_live.py:726	0120-independent-identity-group-catalog-and-assignment.md	用户组分配须与项目所有权转移共用 Workspace 的项目锁；只在 Identity 内加锁无法阻止所有权并发变化，可能按已失效的项目归属完成分配。
+0184-0315	apps/api/tests/test_identity_groups_live.py:755	0120-independent-identity-group-catalog-and-assignment.md	用户组分配曾经成功不等于调用方永久可见目标；重放成功凭据仍须检查当前成员资格，否则已失去资格的调用方仍能从旧结果获知目标。
+0184-0316	apps/api/tests/test_identity_invitations_api_live.py:175-176	0122-independent-identity-invitations-and-mail-v2.md	受邀账户注册与所请求的项目、组关联须原子提交；若先提交账户再补关联，关联失败会留下已注册却缺少邀请所要求关联的账户。
+0184-0317	apps/api/tests/test_identity_invitations_api_live.py:230-231	0122-independent-identity-invitations-and-mail-v2.md	批量邀请预览须回滚写入，不能留下正式邀请；正式应用则按条处理，不能用整批回滚替代逐条报错，否则一个无效地址就会撤销其他有效邀请。
+0184-0318	apps/api/tests/test_identity_invitations_api_live.py:298-299	0122-independent-identity-invitations-and-mail-v2.md	邀请撤销与重发是独立命令；重发只轮换令牌，不得隐式加入邮件队列，否则仅更新凭证也会触发投递。只有显式发送路由负责排队。
+0184-0319	apps/api/tests/test_identity_invitations_live.py:1077-1078	0122-independent-identity-invitations-and-mail-v2.md	邀请撤销和重发按原邀请者记录授权，不能改查当前项目所有者，否则项目转移会错误改变既有邀请的管理权限。轮换后旧令牌必须不再解析，不能与新令牌并行有效。
+0184-0320	apps/api/tests/test_identity_invitations_live.py:1385-1386,1533-1535;apps/api/tests/test_identity_module_assembly_live.py:591	0122-independent-identity-invitations-and-mail-v2.md	独立邮件 worker 领取邀请时必须重验有效性，入队时有效不能阻止已接受或撤销的邀请被误发。Recovery V1 只领取账户恢复邮件；停用 Mail V2 不会把邀请转交给它。
+0184-0321	apps/api/tests/test_identity_invitations_live.py:1567-1568;apps/api/tests/test_identity_module_assembly_live.py:742	0122-independent-identity-invitations-and-mail-v2.md	SMTP 已接收 DATA 但发布器在收到 250 前退出时，不能仅凭进程退出判定投递失败或成功。接管者应重试已持久化的同一 outbox 行，沿用原 Message-ID，而不是另建待发记录。
+0184-0322	apps/api/tests/test_identity_keys_live.py:115	0116-independent-identity-key-commands.md	API Key 轮换已提交但响应体丢失时，应凭原操作凭据恢复已提交的结果；重新发起轮换会再次改变密钥，而不是取回第一次轮换的结果。
+0184-0323	apps/api/tests/test_identity_keys_live.py:339	0116-independent-identity-key-commands.md	Identity 未启用 API Key 命令能力时，相关请求必须拒绝；Admission 可独立运行，但其可用性不能替代缺失的命令能力而放行请求。
+0184-0324	apps/api/tests/test_identity_module_assembly_live.py:634	-	邀请验收应直接请求带令牌的能力 URL，不经证据调用账本；否则账本会持久保存可直接使用的邀请链接，而不只是记录一次调用。
+0184-0325	apps/api/tests/test_identity_offboarding_native.py:638-639;apps/api/tests/test_identity_platform_roles_native.py:446-447,662-663;apps/api/tests/test_identity_suspension_live.py:574-575;apps/api/tests/test_identity_suspensions_native.py:1174-1175	0125-independent-identity-platform-role-commands.md,0126-independent-identity-suspension-commands.md,0128-independent-identity-offboarding-commands.md	最后一名未预留超级管理员的守卫按全库计算，并排除已有待处理自我停用预留的管理员；把预留者也算作可用后备，会错误放行对仅剩未预留管理员的暂停。
+0184-0326	apps/api/tests/test_identity_platform_role_live.py:647-648	0125-independent-identity-platform-role-commands.md	平台角色消费者按当前 API Key 状态准入，并使用实时 Principal，但目标角色仍取操作记录中的历史值；用当前角色覆盖它会把过去的操作解释成另一项变更。
+0184-0327	apps/api/tests/test_identity_platform_role_live.py:755-756,825	0125-independent-identity-platform-role-commands.md	平台角色无变化请求只受理一次并冻结回执，不写 Audit，也不锁定目标拥有的 Project 行；套用实际变更路径会制造审计记录和锁竞争，但实际改为管理角色仍须锁定 Project 所有权。
+0184-0328	apps/api/tests/test_identity_platform_role_live.py:1068	0125-independent-identity-platform-role-commands.md	平台角色变更若同时触发工作阻塞和最后一名未预留超级管理员守卫，须报告工作阻塞；调换检查顺序虽同样拒绝写入，却会改变调用方收到的拒绝原因。
+0184-0329	apps/api/tests/test_identity_platform_role_live.py:1261-1262	0125-independent-identity-platform-role-commands.md	重放已受理的平台角色操作仍须核对签名密钥世代，世代不符即拒绝；不能把历史受理当作继续执行的授权，覆写目标当前角色或追加 Audit。
+0184-0330	apps/api/tests/test_identity_recovery.py:485-486	0119-independent-identity-recovery-and-mail.md	恢复克隆不能把普通 pg_dump 保留的模式、表和函数 ACL 当作完整权限快照；数据库级 ACL 属于建库层，须另行保留，否则克隆可能改变源库的数据库访问边界。
+0184-0331	apps/api/tests/test_identity_recovery_live.py:144-145	0119-independent-identity-recovery-and-mail.md	User、发件箱租约和 Audit 必须在等待 SMTP 确认前提交；把 SMTP DATA 等待放在该事务内，会让外部邮件服务的延迟延长 User 行锁的持有时间。
+0184-0332	apps/api/tests/test_identity_sessions_live.py:241	0117-independent-identity-session-commands.md	API Key 可以作为 logout-all 的操作者，但不能调用针对单会话的 logout；不能把两者当作同一权限的不同作用范围，否则会放行不允许 API Key 调用的单会话命令。
+0184-0333	apps/api/tests/test_identity_sessions_live.py:305	0117-independent-identity-session-commands.md	重新认证可以恢复旧 claims，但不能恢复原会话的 presence、generation 或 JTI；恢复身份声明不等于恢复原会话实例，不能因此让旧会话标识重新有效。
+0184-0334	apps/api/tests/test_identity_suspension_live.py:1148-1149,1247-1248;apps/api/tests/test_identity_suspensions_native.py:1081-1082,1140	0126-independent-identity-suspension-commands.md	项目管理员对活跃目标操作须核对完整派生项目范围：自有成员关系不能掩盖批次引用的外部 Labeling 项目。空范围可允许暂停却不足以授权重新激活，跨范围拒绝也不得留下持久回执。
+0184-0335	apps/api/tests/test_identity_suspension_live.py:1164-1165	0126-independent-identity-suspension-commands.md	重新激活的冻结回执不能替代重放时的范围授权；若派生范围内的 Project 已易主，即使操作曾受理，也须等项目管理员的管理范围恢复后才能重放。
+0184-0336	apps/api/tests/test_identity_suspension_live.py:1268;apps/api/tests/test_identity_suspensions_native.py:942-944	0126-independent-identity-suspension-commands.md	暂停先处理已停用目标并冻结无操作回执，而非先按当前目标角色和项目范围判定。目标后来重新激活时，重放该回执须先报冲突，不能按新暂停请求套用角色策略。
+0184-0337	apps/api/tests/test_identity_suspensions_native.py:722-723	0126-independent-identity-suspension-commands.md	重新激活只向 PostgreSQL 传递该输入是否存在，不传原值；公开 Python 路径接受 U+0000，而将含该字符的原值交给 jsonb 会在数据库边界失败。
+0184-0338	apps/api/tests/test_identity_write_fences_worker_live.py:172-173	0115-identity-admission-and-durable-revocation.md	Worker 每次派发都须经 Identity 校验操作者；成功任务还须经 Identity 校验源和目标范围。直接读取 User ORM 不能替代这些判定，否则用户行存在会被误当作派发已获授权。
+0184-0339	apps/api/tests/test_image_delivery.py:60-61	-	图像交付解析器须从存储重读冻结的 Task 绑定来授权，测试替身也应执行同一检查；借用调用方的数据库会话不能代替对持久绑定的验证。
+0184-0340	apps/api/tests/test_image_export_dispatch.py:76-77	-	图像导出派发回填须跳过 worker 正在领取但尚未提交的锁行；若等待锁释放后再更新，回填就可能覆写 worker 刚持久化的派发标识。
+0184-0341	apps/api/tests/test_image_export_scope_native.py:133	-	图像导出作用域的嵌套创建凭据不能用作用域表的直接 UPDATE 权限替代；能改写作用域行不等于获准嵌套创建，否则表写权限就能伪造创建凭据。
+0184-0342	apps/api/tests/test_image_export_worker.py:333,357	-	图像导出 worker 须校验包含 Dataset 身份的来源绑定，而不能只接受消息中的 bundle；否则携带另一 Job 的 bundle 的迟到消息可能取得当前 Job 的作用域。
+0184-0343	apps/api/tests/test_image_import_identity_profile.py:336-337	-	图像导入须在 Dataset 实际插入边界核验 SQL 登录身份；独立探针只能证明探针连接用了哪个身份，不能证明写入连接的身份，也不应为此另授消费者表访问权。
+0184-0344	apps/api/tests/test_image_pyramid.py:140-141	-	图像金字塔可在不替换已验证的不可变内容的情况下纠正尺寸，但不得同步改写旧 Job 的尺寸回执；否则旧 Job 的精确输入会被后来更正的值替换。
+0184-0345	apps/api/tests/test_image_pyramid.py:343	-	图像金字塔重新准入须新建 generation，即使旧输出尚未固定也要保留旧 generation；复用旧记录会使原准入与本次准入共用同一代记录。
+0184-0346	apps/api/tests/test_image_pyramid_http.py:126-127,146-148	-	图像金字塔输出账本独立于业务级联删除；即使 HTTP 用例未创建真实对象，也须按单向结算和删除规则清理本用例的记录与残留 Permit，不能禁用触发器绕过这些约束。
+0184-0347	apps/api/tests/test_image_pyramid_http.py:248	-	校验轮换后的 API 密钥时，不能以 ID、权限范围和到期时间相同代替密钥材料比对；这些元数据可以保持不变，旧密钥材料却已失效。
+0184-0348	apps/api/tests/test_image_pyramid_http.py:364-366	-	图像金字塔库存元数据无效时，应保留 validate_inventory 的 ContentError，不能归为 ImagePyramidStorageError，否则会把内容校验失败误判为物理传输失败。
+0184-0349	apps/api/tests/test_image_pyramid_native_reads.py:191	-	图像金字塔原生读取的 pending/building 投影必须以 Data 为准；改查本地 ORM 行会在两处状态不一致时返回错误的构建状态。
+0184-0350	apps/api/tests/test_image_pyramid_outputs.py:411-413	-	普通业务删除不会通过级联外键清除金字塔资产和代次，因此不能把业务行删除当作物理清理已完成；退役判断以仍保留的已保存输出行界定清理责任。
+0184-0351	apps/api/tests/test_image_raster_mask_api.py:205	-	栅格掩码标注编辑或恢复后可以沿用原 URL，但像素可能已变；以 URL 相等判定像素版本相同，会误用旧像素。
+0184-0352	apps/api/tests/test_image_worker_compatibility.py:29	-	同一 Celery 进程内，asyncio.run 创建的新事件循环不会重新加载 Python 模块；把循环重建当成状态重置，会让后续调用沿用模块里的旧状态。
+0184-0353	apps/api/tests/test_inference_backend_dependency_reads_restore.py:200-202	0148-inference-backend-transport-and-deletion-dependencies.md	恢复后验证后端依赖读取隔离时，不能撤销 Routing 执行范围所有者既有的 async_jobs 读取授权，否则会同时切断其合法的 Jobs 生命周期读取。
+0184-0354	apps/api/tests/test_inference_backend_dependency_reads_restore.py:288-291	0148-inference-backend-transport-and-deletion-dependencies.md	前向切换前须释放连接池，切换后再重连；只停当前请求不够，能访问源 schema 或调用转移函数的空闲池会话仍会被视为活跃写入者。
+0184-0355	apps/api/tests/test_inference_backend_probe_containers.py:268	0149-credential-owning-workspace-backend-probe.md	Workspace 探测所用的指定提供方不可用时，不能回退到本地凭据路径；否则探测可能在未使用该提供方的情况下成功，掩盖其不可用。
+0184-0356	apps/api/tests/test_inference_backend_probe_native.py:152-153	0149-credential-owning-workspace-backend-probe.md	后端探测 subject 应从已认证的快照打开，而不是重新读取注册表；调用方可在捕获后修改同一未提交行，重读会使用未被该快照认证的内容。
+0184-0357	apps/api/tests/test_inference_backend_probe_native.py:211-212	0149-credential-owning-workspace-backend-probe.md	探测事实函数等待外部 setup I/O 时不能继续持有注册表行锁，否则并发写入者在此期间无法取得行锁并完成轮换。
+0184-0358	apps/api/tests/test_inference_backend_probe_restore.py:173	0149-credential-owning-workspace-backend-probe.md	恢复会保留探测密钥，但密钥相同不代表探测 subject 可跨库使用；恢复库仍须拒绝源库中尚处于活跃状态的 subject。
+0184-0359	apps/api/tests/test_inference_health_observation_containers.py:273	0152-credential-owning-health-observations.md	Docker 容器重启后应重新解析访问地址，不能复用先前解析出的临时宿主机端口；端口重新分配后，原地址可能已无法访问该容器。
+0184-0360	apps/api/tests/test_inference_health_observation_native.py:254-255	0152-credential-owning-health-observations.md	Native 健康观测须原样传回含 NaN、Infinity 等非标准数字的 JSON 文本；在传输层重编码会提前处理这些值，改变旧解码器接手时的行为。
+0184-0361	apps/api/tests/test_inference_health_observation_native.py:268-269,290-291	0152-credential-owning-health-observations.md	健康观测打开端点快照依赖普通 API 调用方的捕获事务存活到打开时；若捕获已回滚，即使观测来源事务仍存活也不能代为打开。
+0184-0362	apps/api/tests/test_inference_health_observation_native.py:322	0152-credential-owning-health-observations.md	健康观测必须使用已封存的端点快照；打开时若改用当前凭据，捕获后的凭据轮换就会改变本次观测所绑定的端点快照。
+0184-0363	apps/api/tests/test_inference_health_observation_native.py:384-385	0152-credential-owning-health-observations.md	健康观测响应只能由原始事务消费；事务仍打开并不等于拥有该响应，另一个并行打开的事务也不能代为消费。
+0184-0364	apps/api/tests/test_inference_health_observation_restore.py:161-162	0152-credential-owning-health-observations.md	健康观测 subject 绑定源数据库；即使恢复库持有相同密钥且源事务仍存活，也不能接受源库签发的 subject。
+0184-0365	apps/api/tests/test_inference_pipeline_authority.py:194	0146-inference-named-pipeline-owner.md	管线执行借用 API 会话时，需要回滚的失败由 API 边界处理；若执行方自行回滚，会改动它并不拥有的调用方事务。
+0184-0366	apps/api/tests/test_inference_pipeline_native.py:252-253	0146-inference-named-pipeline-owner.md	管线回执绑定的读取必须保留调用方事务或保存点，才能投影其中的未提交结果；不能用全局状态读取替代，也不能把该投影视为已提交状态。
+0184-0367	apps/api/tests/test_inference_pipeline_native.py:374-375	0146-inference-named-pipeline-owner.md	READ COMMITTED 下，管线删除若先在可见性快照中看到该行，随后因并发删除而匹配零行，仍可接受；强制要求删除一行会把旧 ORM 允许的竞态变成失败。
+0184-0368	apps/api/tests/test_inference_registry_legacy.py:597-598	-	重置合成注册表夹具时，围栏触发器的变更与清理语句必须在同一事务中；拆开提交会使清理失败后的回滚无法一并恢复触发器。
+0184-0369	apps/api/tests/test_inference_route_supersession.py:154	-	路由迁移前创建的 scope 可能没有捕获的资格修订；若把该字段当作历史记录必有，就会把有效的迁移前 scope 误判为不完整。
+0184-0370	apps/api/tests/test_inference_route_supersession.py:367-368	-	同一路由 scope 仍开启时，已取消且从未发出的尝试不能计入物理发送次数；按尝试记录计数会把之后真正的第一次发送误判为第二次。
+0184-0371	apps/api/tests/test_inference_routing_owner_integration.py:729-730	0155-durable-inference-routing-authority.md	路由 Native 的 open/begin 需要捕获源事务仍存活，但实际后端计算不依赖该事务；把存活条件延长到计算阶段，会无谓地绑定调用方事务与远程执行。
+0184-0372	apps/api/tests/test_inference_routing_owner_integration.py:802-803	0155-durable-inference-routing-authority.md	标准 API 网关经远程执行提供方和路由所有者执行时，调用方未提交的业务更新仍由调用方管理；不能把远程执行当作一并接管这些更新的事务交接。
+0184-0373	apps/api/tests/test_inference_routing_owner_integration.py:881-882;apps/api/tests/test_inference_scope_retirement_live.py:295	0155-durable-inference-routing-authority.md,0156-scoped-inference-retirement.md	破坏性管理请求结果未知时须保留 hold，恢复应沿用同一控制 ID 并等待实际后端工作结束；数据库计数归零或 scope 租约过期都不能证明工作已停止。
+0184-0374	apps/api/tests/test_inference_routing_pool_wait.py:56-57	0155-durable-inference-routing-authority.md	路由准入遇锁争用时，只回滚所有者已取得的部分锁，不回滚调用方事务；否则调用方在争用解除后无法沿用原事务重试。
+0184-0375	apps/api/tests/test_inference_routing_process.py:156-157	0155-durable-inference-routing-authority.md	显式选择 HTTP 路由所有者后，所有者停机应报失败；即使本地引擎可用，回退也会绕过所选所有者并创建替代 scope。
+0184-0376	apps/api/tests/test_inference_routing_restore.py:613-614,633,731-733	0155-durable-inference-routing-authority.md	恢复后的路由密钥仍绑定源库，隔离期间须关闭公开所有者就绪和数据绑定；核心 Native 读取仅供检查，不暴露复制回执，复制来的未定 hold 也须在后端回调前拒绝，不能据此重绑或恢复。
+0184-0377	apps/api/tests/test_inference_routing_video.py:342-343	0155-durable-inference-routing-authority.md	推理后端传输配置变更后，旧健康观测不再适用于当前配置；沿用旧结果会把对原传输配置的观测误当成当前状态，须经既有所有者重新观测。
+0184-0378	apps/api/tests/test_inference_routing_video.py:507-508	0155-durable-inference-routing-authority.md	只有提交结果不明时才可回退查询状态；若路由预检已确定操作过期或进入终态，再走该回退会把旧成功误报为本次结果。
+0184-0379	apps/api/tests/test_inference_topology_concurrency.py:865	-	拓扑写入方等待 Project 锁时，已在进行的 Workspace 操作仍须能取得 Pool 锁；若写入方在等待期间先占住 Pool 锁，就会阻塞本应继续推进的 Workspace 操作。
+0184-0380	apps/api/tests/test_initial_task_creation_contract.py:370	-	初始任务创建完成准备后即冻结快照，重试必须复用该快照；若用重试时的新输入替换，实际创建所用的数据就不再是准备阶段确认的数据。
+0184-0381	apps/api/tests/test_input_manifests_live.py:274-275	-	批量操作中的 Input 必须经过不可变清单成员的准备授权；若允许通用 Input accept 路由直接新建 Input，就会绕过这道授权检查。
+0184-0382	apps/api/tests/test_input_manifests_live.py:517-518,618-619	-	输入清单定稿后，缺失来源的成员须固定为失败，同批次后来新增的 Task 也不得补入，即使批次仍活跃。保留的单项失败在 Task 常规版本变更或原始 Job 清理后仍可重试，但不能用当前来源 URL 替换清单中的来源。
+0184-0383	apps/api/tests/test_interactive_annotating_frame.py:242,313	-	视频交互帧的对象键必须同时含 Task ID 和帧索引：同任务同帧的连续点击复用对象，省去帧索引会让不同帧互相覆盖，省去 Task ID 则不能隔离不同任务的同号帧。
+0184-0384	apps/api/tests/test_interactive_annotating_frame.py:401,466	-	视频交互必须在读帧前完成交互校验和 context JSON 解析；否则本应拒绝的请求可能调用后端，畸形 JSON 也可能先触发无用的对象存储上传。
+0184-0385	apps/api/tests/test_interactive_threshold_inject.py:44	-	交互端点须以 ProjectMLBackendPool.enabled 判定项目能否使用后端；全局注册仅表明后端存在，把注册当作授权会让未启用的项目也能调用后端。
+0184-0386	apps/api/tests/test_internal_metrics_targets.py:56-57	-	指标发现从按 URL 唯一的全局后端注册项出发，不按项目拆分；采集目标仍须按解析后的 host:port 去重，否则指向同一端点的不同 URL 会造成重复采集。
+0184-0387	apps/api/tests/test_jobs_domain_queries_native.py:314-315;apps/api/tests/test_jobs_row_locks_native.py:119;apps/api/tests/test_jobs_single_read_native.py:40	-	Job 域查询验证若需让独立登录的 Node 和 API 看见撤权，必须提交，并在普通角色供后续用例使用前恢复权限。行锁和单次读取用例的撤权留在各自的外层测试事务内，才能由夹具回滚恢复。
+0184-0388	apps/api/tests/test_jobs_lifecycle_native.py:417	-	SQLAlchemy 的 fetch 同步不会加载原先未加载的可空属性；若后续判断依赖该属性，必须重新读取，不能把同步后的 ORM 实例当作已完整加载的行。
+0184-0389	apps/api/tests/test_jobs_snapshot_rows.py:201-203	-	验证 Job 的持久化绑定时，应在保存点回滚前取出普通 UUID；回滚会使保存点内改过的实例过期，在 greenlet_spawn 之外再从实例取值无法触发刷新。
+0184-0390	apps/api/tests/test_jsonb_strong_types.py:193	-	VideoModesConfig 不允许同时关闭单帧和轨迹模式；单独关闭任一模式仍有另一种绘制方式，两者都关闭则会让启用的几何单元无从绘制。
+0184-0391	apps/api/tests/test_labeling_annotation_maintenance_native.py:83	-	标注维护接口须接受原生客户端提交的合法大写 UUID；若把 Python 规范化后的形式当成请求前提，就会误拒未先转成小写的合法标识。
+0184-0392	apps/api/tests/test_labeling_class_query_compatibility.py:85-86;apps/api/tests/test_labeling_class_query_restore.py:219-220	-	类别查询的冻结重放只用已提交行验证响应语义，不能把远端提供方的参与当作阶段证据；重放不覆盖事务交错，实际并发须由独立的门控探针验证。
+0184-0393	apps/api/tests/test_labeling_class_query_restore.py:489-490	-	Labeling 私有投影信任 API 协调器，停用账号应由 Workspace 按当前权限状态拒绝；不能把拒绝责任交给投影层，否则授权判断就不再由掌握当前权限的一侧完成。
+0184-0394	apps/api/tests/test_labeling_export_core_locks_native.py:323-324	-	Labeling 导出只能锁定精确作用域内且未超限的行；先锁较大的集合再筛选，会让本不属于此次导出的行也参与锁竞争。
+0184-0395	apps/api/tests/test_labeling_project_counter_owner_native.py:60-62,273	-	旧版批次查询没有 ORDER BY，返回后批次对象也可能因弱引用被释放，不能断言哪个批次最后变脏。计数测试应比较已持久化与待写入数据的合并结果及延迟行数。
+0184-0396	apps/api/tests/test_labeling_task_workflow_native.py:199	-	任务工作流必须先排斥同批次的第二个写入者；若容许两个事务先各自持有 SHARE 锁，再升级同一个 Batch 锁，两者就会相互等待。
+0184-0397	apps/api/tests/test_labeling_video_writer_containers.py:483	0159-independent-labeling-video-writer.md	容器恢复探针须使用 Docker 实际启动后分配的宿主端口；临时端口可能在启动时重新分配，沿用启动前的值可能连不到待验证的容器。
+0184-0398	apps/api/tests/test_labeling_video_writer_live.py:995-996	0159-independent-labeling-video-writer.md	视频写入回执的哈希须使用 canonical windows 保留的入库前候选字节；旧版 JSONB 会抹去零的符号，从回读值重算不能保证得到原候选的哈希。
+0184-0399	apps/api/tests/test_labeling_video_writer_restore.py:83-85,772-775	0159-independent-labeling-video-writer.md	降级到 bo0282 被后续保留迁移拒绝，并不能证明 0283 守卫本身会阻止移除非空写入状态。须在可回滚事务中按现 schema 名单独执行冻结的守卫语句；旧名已因原地改名失效，不改历史迁移。
+0184-0400	apps/api/tests/test_legacy_image_runtime_live.py:180-181	-	旧图像运行时验证仅在建夹具时使用所有者身份；能力调用须以 API 与普通 Celery worker 共用的 LOGIN 执行，否则所有者权限会掩盖普通运行角色的授权缺口。
+0184-0401	apps/api/tests/test_legacy_video_fence_live.py:843-844	-	旧视频栅栏验证用原 worker 的真实 Celery 重试作为过期投递；broker 仍共享，探测 worker 只能消费这条投递所在的专用队列，否则可能误领其他工作。
+0184-0402	apps/api/tests/test_lidar_export_inputs.py:69-70	-	LiDAR 导出测试不能只用 PostgreSQL 的 LIKE 复制表，因为它不会复制外键；须显式重建父键约束，否则脱离应用写入器做插入时，测试无法验证这层隔离。
+0184-0403	apps/api/tests/test_lidar_export_inputs.py:185	-	LiDAR 导出的独立分配、PUT 和发布不会替调用方提交待处理的业务修改；依赖这些修改的步骤须等调用方显式提交，否则独立操作不能以这些修改已可见为前提。
+0184-0404	apps/api/tests/test_lidar_export_inputs.py:618	-	COCO 多相机导出以角色和 Task 区分输出路径，不能沿用其他格式的路径冲突限制，否则会误拒在 COCO 输出中本可区分的相机条目。
+0184-0405	apps/api/tests/test_lidar_media_packaging.py:285	-	LiDAR 打包只对选中的相机签名和检查；若先预读全部相机再筛选，就会让本次未选中的相机也进入读取或检查范围。
+0184-0406	apps/api/tests/test_lidar_media_packaging.py:659-660	-	LiDAR 媒体内容完全相同时可以共用副本，但不同 Task 的标签不能共用生成帧路径；底层媒体相同并不表示标注相同，共用标签路径会混淆各自的结果。
+0184-0407	apps/api/tests/test_lidar_pcd_contract.py:66	-	压缩 PCD 的数据体须按字段连续存放，每个字段内保持原始点序；若改为逐点交错写入，按字段解码的读取方就会把字节归到错误的字段或点。
+0184-0408	apps/api/tests/test_lidar_pcd_contract.py:108	-	PCD 标签按输入记录的位置对齐，含 NaN 的点仍须占一个标签槽；若跳过该槽，后续标签就会前移并与错误的点配对。
+0184-0409	apps/api/tests/test_managed_creation_staging_contract.py:130-131;apps/api/tests/test_managed_original_creation.py:682-683	-	托管原件 Creation 必须先按完整的已保存配置核验原始指纹，再投影当前写入依赖。若只核验投影结果，调用方就能改动不再参与依赖解析的桶字段而不被发现。
+0184-0410	apps/api/tests/test_managed_image_inference.py:377	-	精确重放以已保存的 Decision 为准，不能再要求原候选仍然有效；否则候选一过期，已经持久化的决定也会变得无法重放。
+0184-0411	apps/api/tests/test_managed_image_inference.py:686-687	-	点提示候选仍须遵循同一签名原生契约，并显式指定 refine 目标；但目标不是源 Mask，不能套用源 Mask 的读取权限检查，否则会拒绝不读取源 Mask 的请求。
+0184-0412	apps/api/tests/test_managed_mask_repair_lifetimes.py:136-137;apps/api/tests/test_mask_repair_execution.py:163-164	-	Mask 修复写后必须刷新 Annotation，再固定新 QC 证据或序列化写后事实。几何版本由 PostgreSQL 递增，沿用内存中的写前值会把新证据绑定到旧版本，也可能输出过时的服务端列。
+0184-0413	apps/api/tests/test_managed_mask_repair_lifetimes.py:463-464	-	持有最终业务锁时，SQL 撤销须等待当前 Key 锁，JWT 却可在不写数据库的情况下自然过期。因此不能把锁阻止撤销等同于凭证在持锁期间仍然有效。
+0184-0414	apps/api/tests/test_managed_original_creation.py:75-77,86-87,125-126,134-135	-	Creation 临时 schema 只隔离当前 API 消费的账本：重绑指定守卫及所属关系，DELETE 守卫只带事务局部标记的空表，不递归克隆共享原生能力图。PostgreSQL LIKE 不复制外键，须补回现行溯源与指针约束，也不能给独立事实增设业务父项。
+0184-0415	apps/api/tests/test_managed_original_creation.py:566-567,641-642	-	旧版 Creation 的配置快照和溯源是分配时固定的事实，验证旧格式须用曾发布的结构分配账本，不能事后改写。即使当前 owner 为 NULL，离线改址也不能抹去已有的 schema-one Creation 关联。
+0184-0416	apps/api/tests/test_managed_original_reader.py:481-482,634-635	-	原件读取遇到畸形响应时，调用方可能根本拿不到实际流。不能把这种失败视为流已关闭并据此释放持久未决许可或槽位；测试能关闭假提供方的流，不代表生产调用方也能做到。
+0184-0417	apps/api/tests/test_managed_original_reclaim.py:326	-	原生删除回调一旦提交 delete_started 检查点，就以该持久事实为准；即使原生返回仍为 delete_started=False，也不能据此把删除判回未开始。
+0184-0418	apps/api/tests/test_managed_original_reclaim.py:650	-	历史存储 ACK 可以缺少不可变版本，因此回收预览不能把 ACK 等同于精确版本已锁定，否则会把尚未确定具体版本的原件误判为已锁定。
+0184-0419	apps/api/tests/test_managed_original_reclaim_fences.py:288-289	-	原件回收围栏的短会话必须使用调用方已验证的数据库引擎，而不能从传输或当前绑定推断。检查结果须在对象 I/O 前返回，否则可能依据另一数据库的状态执行对象操作。
+0184-0420	apps/api/tests/test_managed_original_reclamation.py:168	-	原件退役预览按断言计数，不按对象键去重。同一对象键可对应多条独立断言，去重会少算断言，直接把断言数当作物理对象数也会失真。
+0184-0421	apps/api/tests/test_managed_original_retention.py:480-483	-	跨会话串行化验证不能指望提交后只删 actor 就清掉夹具：ON DELETE SET NULL 仍会尝试更新不可变审计行。应将审计成功与回滚留在事务内验证，避免跨会话夹具留下无法这样清理的审计记录。
+0184-0422	apps/api/tests/test_managed_original_retirement.py:203-204	-	托管原件退役必须按引用实际所属的命名空间识别定位符，不能用默认角色补足错误标记；否则非托管引用也会被误认成托管退役断言。
+0184-0423	apps/api/tests/test_managed_secondary_inference.py:415;apps/api/tests/test_mask_capabilities.py:244	-	项目访问失败应保留标准项目 404：Mask 能力接口的非成员请求如此，托管二级推理执行中失去项目可见性也如此。不能用推理统一错误覆盖访问解析结果，否则会让原本不可见的项目变得可区分。
+0184-0424	apps/api/tests/test_management_consistency.py:182-183	-	平台角色预览须先做管理范围鉴权，再生成项目详情；只在最后拒绝请求仍不够，因为拒绝响应本身可能泄露项目管理员无权查看的信息。
+0184-0425	apps/api/tests/test_mask_content_live.py:812-813	-	条件 GET 必须重新核验精确的 Mask 根对象版本是否仍在存储中。版本已经删除时，旧状态不足以支持返回 304，也不能作为继续返回对象字节的依据。
+0184-0426	apps/api/tests/test_mask_content_upload.py:314-318	-	Mask 内容上传只创建尚未关联的引用，因此仍检查任务级可编辑性，但不检查标注级 is_locked。标注锁须在 POST/PATCH 实际关联引用时检查，上传时的状态不能代替关联时的授权。
+0184-0427	apps/api/tests/test_mask_formats_m7.py:417	-	规范 RLE 不能用 YOLO 多边形无损替代：YOLO 多边形无法表示环形 Mask 的内孔，因此从导出结果重建的像素不保证与原 RLE 一致。
+0184-0428	apps/api/tests/test_mask_content_live.py:758-759;apps/api/tests/test_mask_gc_collection_live.py:143-144	0112-durable-mask-gc-fences.md	Mask GC 在共享环境中扫描全局对象，不能把进了扫描范围当作夹具所有权。其他所有者的记录只能锁住让 SKIP LOCKED 跳过，不能推进其过期时间，或将其对象、日志回执与原生记录纳入清理。
+0184-0429	apps/api/tests/test_mask_gc_collection_live.py:261-267	0112-durable-mask-gc-fences.md	推进 Mask GC 截止时间也会放行外部孤儿，它们会按 next_check_at、object_key 排序并占用认领限额。若有外部意图完成，就不能把该轮结果精确归因于夹具，应判定隔离失效。
+0184-0430	apps/api/tests/test_mask_gc_cutover_peer.py:402-403	0112-durable-mask-gc-fences.md	GC 回执须按实际扫描到的对象身份核对，保留 ListObjects 给出的时间戳精度。不能用 HTTP HEAD 的时间戳替代，因为它可能舍入到秒，使同一对象的身份对不上。
+0184-0431	apps/api/tests/test_mask_gc_live.py:246-247	0112-durable-mask-gc-fences.md	GC 丢包验证须区分物理删除已返回但 HTTP 回包丢失，与物理调用仍未返回；后者仍占用删除 owner，提前丢回包无法验证前一种故障。
+0184-0432	apps/api/tests/test_mask_gzip_transport.py:50-51	-	raster_mask_gzip 单独定义 MAX_UNCOMPRESSED_BYTES 以避免循环导入，但该上限必须与 MAX_RLE_OBJECT_BYTES 同步，否则 gzip 解压与 RLE 对象校验会对同一份内容执行不同的大小边界。
+0184-0433	apps/api/tests/test_mask_repair_execution.py:830,979-980	-	发布响应丢失或迟到的未知回复不能推翻更确定的状态：修复作业已被认领或结算时，以 worker 的结果为准；交付仍有效时，不得降级已确认的 Tracker 子任务发布，也不得重发已结算候选项。
+0184-0434	apps/api/tests/test_mask_repair_execution.py:850-851	-	修复 API 只能在准备发布时持有调用方工作单元，实际发布前必须释放；否则发布唤起的并发 worker 可能拿不到认领作业所需的行锁。
+0184-0435	apps/api/tests/test_mask_repair_execution.py:955-958	-	修复 owner 台账将未知回复记为 accepted=False，并按 2^attempts 秒退避，首次为 2 秒。恢复时须等原信封到期才能重发；待处理意图是已安排的重试，不能当作一次新发布。
+0184-0436	apps/api/tests/test_mask_repair_execution.py:1120-1121	-	修复回滚续跑时须按当前管理权确定写入身份；若管理权已转移，应由新管理者写入，不能继续借用原请求人或源标注作者的身份。
+0184-0437	apps/api/tests/test_mask_repair_m5.py:92-93	-	M5 审核任务须冻结一名实际参与标注且不同于修复 owner 的贡献者；若用 owner 的身份代替，owner 的质检修复就会变成自审。
+0184-0438	apps/api/tests/test_me_avatar.py:96	-	头像归一化须先把透明区域合成到中性底色，再输出 RGB；直接从 RGBA 转为 RGB 会丢弃透明度，使原本透明的区域呈现黑底。
+0184-0439	apps/api/tests/test_me_preferences.py:243,277	-	宽屏展开单个相机时，只移除 cameraPanels 中对应的 role，以该键缺省表示展开；传感器融合布局重置才提交空映射，否则单相机操作会一并清除其他 role 的布局。
+0184-0440	apps/api/tests/test_me_preferences.py:944-946	-	0105 未执行、灰度或回滚后，偏好中仍可能残留旧像素键。GET/PATCH 必须先剥离 workbench.layout 的 leftWidth/rightWidth，再做严格校验，否则旧偏好会因未知字段被拒绝。
+0184-0441	apps/api/tests/test_me_preferences.py:1037,1074,1087,1090	-	0105 按 1440px 基准换算边栏宽度，升级时取整并限幅至 10%～35%，降级时限幅至 200～560px。两向转换并非互逆，不能把降级当作原像素宽度的精确恢复。
+0184-0442	apps/api/tests/test_me_preferences.py:1114	-	迁移旧版 labelContent 默认列表时，AI 段须补回 source，否则会丢失原有前缀并改变图片呈现；轨迹段沿用自身默认值，不照搬 AI 段的补项。
+0184-0443	apps/api/tests/test_me_preferences.py:1628-1630	-	namedPresets PATCH 须先检查修订号，再解析条目；否则旧请求中已从最新映射删除、又不符合当前 schema 的条目会先触发校验错误，掩盖应提示客户端重新拉取的修订冲突。
+0184-0444	apps/api/tests/test_me_preferences.py:2421-2422,2608	-	shortcuts 读取时，未知命令即使导致子树校验失败，也须原样返回，由客户端逐条过滤，避免丢掉有效配置。写入 null 时，未知命令须删键以免读取继续报错；已知命令则恢复默认。
+0184-0445	apps/api/tests/test_media_cache_evidence.py:298-299	-	媒体缓存候选查询以数据库事务时钟判定过期，而非查询执行时刻；expires_at 即使早于查询，只要晚于事务起点，就不会在该事务中被判为过期。
+0184-0446	apps/api/tests/test_media_cache_response.py:814-815,858-859	-	现有回收器和 Thumbnail GC 即使在排他 owner 锁下排除了自身操作，最终元数据检查提交后也不能释放 permit；须持有到物理删除结束，防止读取不返回 busy 却撞上删除中的对象。
+0184-0447	apps/api/tests/test_media_chunk_samples.py:18	-	含 B 帧的分片不能用包的解码顺序推导展示帧号：按解码顺序遍历时 PTS 可能回退，直接按包编号会把帧映射到错误的展示位置。
+0184-0448	apps/api/tests/test_media_seed_identity_live.py:398-399	-	媒体种子 live 测试即使启动失败，也须等有界 SQL 门控任务结束后再调用 close()；否则清理线程与仍在运行的任务可能竞相移除同一个自有容器。
+0184-0449	apps/api/tests/test_metrics_celery.py:47-48	-	/health/celery 缺少某个 worker 的 Redis 心跳键时，须把心跳新鲜度视为未知；用 0 秒代替会把没有观测到心跳的 worker 表示成刚刚发过心跳。
+0184-0450	apps/api/tests/test_migration_0116_retire_ai_interactive.py:47-48,106	-	0116 退役 ai_interactive 时，将共享调色板中的缺失类别并入 bbox 和 region，同名类别保留目标配色，避免覆盖已有颜色。两者均不存在时用禁用的 bbox 承接配置，避免迁移意外启用工具。
+0184-0451	apps/api/tests/test_migration_0118_compact_track_identity.py:95-97	-	0118 的 run_sync 原始 SQL 不更新 ORM identity map，_reload 须用 populate_existing 刷新 track_id 和 geometry；若改成 expire 后同步读属性，可能触发异步懒加载并报 MissingGreenlet。
+0184-0452	apps/api/tests/test_migration_0132_ml_backend_service_pools.py:294	-	0132 降级只恢复历史上实际存在的 project_ml_backend_registry_id_fkey；补建原本不存在的 projects.ml_backend_id 外键会让降级后的约束比原版本更严格。
+0184-0453	apps/api/tests/test_migration_0173_project_role_preparation.py:122-123	-	0173 须以数据库默认值兼容省略新增列的旧写入方，不能指望旧客户端补值。也不能用已知为空替代 NULL，因为 NULL 表示旧记录的值未知。
+0184-0454	apps/api/tests/test_migration_0220_training_dataset_storage.py:166	-	0220 的训练数据集存储只接受 SQL NULL 表示历史记录缺少定位符；不能把 JSON null 当作等价占位，否则会把无效的 JSON 值当成存储定位符。
+0184-0455	apps/api/tests/test_migration_0224_export_output_storage.py:71-72	-	0224 不得仅凭旧缓存行回填导出存储关联：缓存行的存在不能证明关联已建立，缺少证据时须保留 SQL NULL，避免把推测写成已确认的关联。
+0184-0456	apps/api/tests/test_migration_0230_managed_original_task_scope.py:112-113	-	0230 用常量列默认值兼容旧写入形态，而不通过 UPDATE 回填已终态记录；后者会被视为改写终态历史，触发历史守卫。
+0184-0457	apps/api/tests/test_migration_0262_storage_migration_finalizations.py:42-43;apps/api/tests/test_migration_0263_storage_migration_read_publications.py:44-45	-	迁移 0262 和 0263 的模式往返必须在真实 public 模式中验证。降级按名称删除索引和约束，LIKE 创建的隔离副本会改名，不能用来验证这些删除操作。
+0184-0458	apps/api/tests/test_ml_backend_limit_and_setup.py:162	-	服务池激活与项目绑定触发器分别推进 routing_generation 栅栏；即使两步属于同一配置流程，也不能合并成一次推进，否则其中一次拓扑变更就没有独立的栅栏更新。
+0184-0459	apps/api/tests/test_ml_backend_project_scope.py:146-147	-	非所有者的项目管理员若仅凭工作角色成员资格看见项目，只获得该成员资格明确授予的能力。不能把项目可见性当作管理授权，否则本应返回 403 的管理请求会被放行。
+0184-0460	apps/api/tests/test_ml_backend_project_scope.py:181-187,316	-	共享物理 ML 后端的 unload/reload 仅限 super_admin，防止项目所有者驱逐或替换其他项目正在使用的显存权重。用于预标和交互推理的 warmup 不受此限制，仍可由项目所有者发起。
+0184-0461	apps/api/tests/test_ml_backend_tracker_routing.py:56,66	-	需要 ML 后端的 tracker 只能路由到项目已启用的匹配后端；仅有已注册但未启用的匹配项时应明确失败，不能静默改投。mock_bbox 由独立的 mock adapter 处理，路由返回 None 不需要补选后端。
+0184-0462	apps/api/tests/test_ml_backend_warmup_proxy.py:94	-	warmup 代理遇到不存在的 backend_id 时应直接返回隐藏式 404，不能把判定交给 MLBackendService.warmup 或后端网络调用，否则无效标识会越过代理的拒绝边界。
+0184-0463	apps/api/tests/test_ml_capabilities.py:298	-	能力模型未声明 classes 时，返回的空列表表示前端应关闭类别筛选；不能按空白名单解释，否则会把未声明类别限制的模型变成拒绝所有类别。
+0184-0464	apps/api/tests/test_ml_capabilities.py:305,339,475	-	extract_capabilities 为未声明 models 的旧后端合成单个模型，但不能用逐模型能力取代扁平字段。扁平几何输出须取各模型输出的去重并集，否则旧消费方会漏掉受支持的输出类型。
+0184-0465	apps/api/tests/test_ml_client_gpu_shadow.py:500	-	GPU shadow 的 smoke 准入以持久化 rollout 为约束，不能以静态配置是否列出该记录判定。否则会把未写入静态配置但已持久化的 rollout 错误排除，或仅凭静态配置绕过持久化约束。
+0184-0466	apps/api/tests/test_ml_registry_admin_and_enablement.py:68	-	常规创建 ML registry 时一并建立 singleton pool，延续 Alembic 0132 对存量 registry 的回填语义。若只创建 registry，新记录就缺少 set_enabled 和项目绑定所依赖的服务池。
+0184-0467	apps/api/tests/test_ml_routing_admin_pool_api.py:124-126;apps/api/tests/test_ml_routing_router.py:57-58	0155-durable-inference-routing-authority.md	进程外 owner 看不到 API 请求保存点中未提交的拓扑，验证真实 drain 拒绝时须使用独立夹具提交的拓扑。不能靠提交请求保存点来共享数据，清理也只处理该拓扑夹具持有的记录。
+0184-0468	apps/api/tests/test_ml_routing_admin_pool_api.py:855	0155-durable-inference-routing-authority.md	能力快照不能再做一次规范化后用来计算原始能力的指纹：二次规范化会丢失模型的 batchable 信息，即使哈希已持久化，也不能据此判断原始能力是否相同。
+0184-0469	apps/api/tests/test_ml_routing_ledger.py:369	0155-durable-inference-routing-authority.md	RoutingLedger 在后续 acquire 时清扫过期租约并回收并发名额；若只在持有方主动释放时归还名额，持有方崩溃后就会持续占用并发容量。
+0184-0470	apps/api/tests/test_ml_routing_ledger.py:382	0155-durable-inference-routing-authority.md	RoutingLedger 的 ml-router Redis 键必须与 gpu-arbiter 的键空间隔离，不能把两者视为可复用的同一本账，否则路由账本与 GPU 仲裁可能读写彼此的状态。
+0184-0471	apps/api/tests/test_ml_routing_router.py:243	0155-durable-inference-routing-authority.md	MLBackendRouter 的 OBSERVE 模式仍按 OFF 模式的旧实例路径派发请求。观察阶段选出的候选只能用于观察，若交由候选实际派发，就会改变线上请求的去向。
+0184-0472	apps/api/tests/test_ml_routing_topology.py:91,102	0155-durable-inference-routing-authority.md	项目管理员可看到派生可用性作为展示提示，成员标识和 traffic_state 也不在敏感字段之列。不能为展示可用性而返回未经裁剪的拓扑，否则会暴露受限的路由和成员细节。
+0184-0473	apps/api/tests/test_ml_routing_topology.py:231,237	0155-durable-inference-routing-authority.md	运行快照未纳入 GPU 和 residency 数据时，两者都应标记为 stale，整份快照也须标记为 partial 并说明原因；其余来源可用不代表这两部分数据是完整或新鲜的。
+0184-0474	apps/api/tests/test_module_data_roles.py:29	-	核验模块数据角色的 EXECUTE 权限时，应使用 pg_catalog 中的函数 OID。按名称解析还要求对目标所有者的私有 schema 有 USAGE，会把名称解析失败混同为没有执行权限。
+0184-0475	apps/api/tests/test_named_pipeline_legacy.py:1713-1714	-	命名流水线的 stages 显式为 null 时必须在持久化前拒绝；不能等到生成响应时才报错，否则 JSON null 已经提交，即使请求最后返回 500 也不会消除这笔写入。
+0184-0476	apps/api/tests/test_named_pipeline_legacy.py:1739	-	命名流水线的回归比对只归一化数据库快照的行序，公开响应中的数组仍按原顺序比较；若同时给响应数组排序，就会掩盖调用方可见的顺序变化。
+0184-0477	apps/api/tests/test_native_pyramid_lifecycle_live.py:641;apps/api/tests/test_native_pyramid_saved_targets.py:334	0106-independent-image-media-owner.md	Native 金字塔成员回执须保留 S3 返回的字面版本 ID「null」；只有 S3 未返回版本 ID 时才存 SQL NULL。合并两者会把已返回的版本标识误记成未返回。
+0184-0478	apps/api/tests/test_native_pyramid_lifecycle_live.py:828;apps/api/tests/test_native_pyramid_saved_targets.py:589-590,699	0106-independent-image-media-owner.md	Native 读取和已保存分配均以原登记目标为准：用途绑定从 A 切到 B 后，旧输出仍从 A 读取；连接配置中的桶变更若与保存目标不符，应拒绝而不是重定向到新桶。
+0184-0479	apps/api/tests/test_native_pyramid_lifecycle_live.py:855-857,934,949,991	0106-independent-image-media-owner.md	Native 成员的 I/O 结果未知时必须保持操作许可开放并阻止回收，重复关闭或释放作业租约都不能解除屏障。若要放弃，只能在确认 I/O 已排空且未发生写入后结清。
+0184-0480	apps/api/tests/test_native_pyramid_lifecycle_live.py:1042	0106-independent-image-media-owner.md	Native 清理验证须让真实进程使用受限 SQL 角色和清理令牌。若借用所有者权限，清理成功也不能证明实际运行时使用的角色和令牌具备所需权限。
+0184-0481	apps/api/tests/test_native_pyramid_lifecycle_live.py:1178-1179	0106-independent-image-media-owner.md	Native 清理遇到前缀拒绝时，只结清该 I/O 分页，不释放认领租约。恢复必须等已记录的租约到期；手动清除会让同一清理工作在原认领仍有效时被重新认领。
+0184-0482	apps/api/tests/test_native_pyramid_read_permits.py:69-70	0106-independent-image-media-owner.md	Native 读取开始时先查已结清操作的墓碑，再检查源访问权限。墓碑是该操作不可重新开许可的依据，不能因调用者本来也会被权限检查拒绝而忽略结清状态。
+0184-0483	apps/api/tests/test_native_pyramid_saved_targets.py:263-264	0106-independent-image-media-owner.md	关闭已写入的 Native 成员时保留写入回执，并且只结清该成员自己的物理操作许可；批量替其他成员结清会把尚未确认结束的操作也标为已完成。
+0184-0484	apps/api/tests/test_native_pyramid_saved_targets.py:314-316	0106-independent-image-media-owner.md	作业租约和源访问权限即使都已失效，仍可登记已获准且完全排空的 PUT 的已知结果。不能把记录既成写入与授权新 I/O 混为一谈，否则会漏记已经发生的写入。
+0184-0485	apps/api/tests/test_native_pyramid_saved_targets.py:992-993	0106-independent-image-media-owner.md	已知夹具金字塔键缺少已验证回执时，解析必须显式拒绝。返回 NULL 会把缺少证据误判为对象不存在，还可能触发本不该走的回退路径。
+0184-0486	apps/api/tests/test_native_pyramid_saved_targets.py:1061,1097-1098,1186-1187,1245-1246	0106-independent-image-media-owner.md	旧收集器不得把业务作业或 Native 代的消失当作修改授权：保存前由 work link 标记 Native 代已获准处理，保存后即使两者均已消失，也要按输出中不可变的 attempt 排除该物理目标。这不妨碍 Native 专用回收独立认领。
+0184-0487	apps/api/tests/test_neighbor_annotations_endpoint.py:284	-	邻帧接口应为标注员保留他人批次的帧占位，但不能附带标注框；邻接关系不授予标注读取权限，否则可借查询相邻帧看到无权读取的标注。
+0184-0488	apps/api/tests/test_notification_append_boundary.py:60-61	-	不能把旧 ORM 在同一次 flush 中插入通知视为通知已保留：若该 flush 随后删除接收者，外键的 ON DELETE CASCADE 会连刚插入的通知一并删除。
+0184-0489	apps/api/tests/test_notifications.py:183-184,335-336	-	旧 ORM 的 synchronize_session="auto" 不能用来确认通知的数据库更新：identity map 中的状态可能在数据库无匹配行时仍被判为匹配；对象状态字典缺少 read_at 时，数据库更新也可能未反映到该对象。
+0184-0490	apps/api/tests/test_notifications_module_assembly_live.py:108-109	-	通知 socket 的 ping 是传输控制帧，不能计入通知投递；SDK 和 Web 客户端都会忽略它，收到 ping 只能说明连接有活动，不能证明通知已送达。
+0184-0491	apps/api/tests/test_nuscenes_owned_importer.py:139-140	-	nuScenes owned import 只单独提交物理创建责任，Dataset 及关联归属仍须随调用方事务提交或回滚；否则调用方回滚时会留下已经提交的业务或归属记录。
+0184-0492	apps/api/tests/test_nuscenes_owned_importer.py:312-313	-	nuScenes 历史导入仅有元数据凭据而缺少规范归属登记时，不得借用另一批导入的所有权；元数据能提供导入线索，却不能证明该批次拥有对应对象。
+0184-0493	apps/api/tests/test_nuscenes_owned_importer.py:361	-	不能用派生 PCD 相同来判定 nuScenes LiDAR 原始输入未变：PCD 仅由 XYZ 派生，忽略的信息可以变化而不改变 PCD，因此仍须以原始输入的字节凭证为准。
+0184-0494	apps/api/tests/test_original_cache.py:737	-	original_cache 的可选 NOWAIT 发布不能以取得快照槽位为前提；否则所有槽位被占用时，发布就会等待槽位释放，失去其独立于快照容量的非等待语义。
+0184-0495	apps/api/tests/test_original_cache_removal_accounting.py:111-112	-	缓存条目用于删除记账的已保存地址不得就地改写，否则账目会指向与原记录不同的位置。需要覆盖历史地址时直接插入历史行，不为此放宽生产 UPDATE 触发器。
+0184-0496	apps/api/tests/test_original_content_reads.py:79-80,311-312	-	原件读取的独立不可变证据及其对应字节不能随业务回滚一同补偿删除；恢复时应写回原字节，而不是改写凭据来匹配替换内容。
+0184-0497	apps/api/tests/test_original_dto_contract.py:22-23,29-31	-	DTO 只可用已验证的保存归属解析视频海报等有限信息；旧版或未知媒体缺少此类归属时返回无 URL，不能猜测归属后签名。即使归属存在，序列化也不能预签名原始字节或据此声称对象已验证或仍为最新。
+0184-0498	apps/api/tests/test_original_physical_read_consumers.py:224	-	原件物理读取的 Permit 随接管图像的生命周期持有，直到图像关闭才释放；capture 返回只是交接完成，若此时释放，图像仍在使用却已失去读取许可的保护。
+0184-0499	apps/api/tests/test_original_playback_registry.py:418-419	-	播放注册表由 capture 的 owner 撤销其上下文；撤销应退役上下文、阻止为正在销毁的上下文签发新租约，而不是取消已经在途的 capture。
+0184-0500	apps/api/tests/test_original_relation_native.py:141	-	resolve_task_relation 成功取得的共享锁必须保留到调用方事务结束；若在解析返回时释放，调用方尚在使用解析结果时，受锁保护的关系就可能被改动。
+0184-0501	apps/api/tests/test_original_relation_native.py:153	-	原件关系的紧凑锁定默认只覆盖选中的相机，只有显式要求才扩大范围；无条件锁住其他相机会阻塞与本次解析无关的并发操作。
+0184-0502	apps/api/tests/test_original_relation_native.py:206	-	任务直接关联与 primary link 指向不同对象时，原件解析必须拒绝两者；任选其一作为回退都会把互相矛盾的关联当成可信身份，可能解析到错误原件。
+0184-0503	apps/api/tests/test_original_source_export_resolution.py:339,801-802	-	原件导出的有界查询须在查询边界内限制 storage_ref 和 ETag，不能先取全值再裁剪；超限不能靠接受截断 ETag 来补救，也不能用当前桶定位符替换保存值，否则解析的就不再是保存的身份。
+0184-0504	apps/api/tests/test_pipeline_validation.py:95,98,102	archive/0043-staged-preannotation-pipeline.md	裁剪准入只要求已声明类型中至少一种可裁，混合输出的不可裁部分留给运行期；未声明不等于不可裁。旋转框不计作可裁类型，因为运行期 _box_bbox_pct 会跳过它，仅凭旋转框放行会使准入与实际处理不一致。
+0184-0505	apps/api/tests/test_plugin_installation_native.py:460-461	-	Native 安装须等对应 scope 的物理退役完成后才能禁用并授权后续停止检查；仅逻辑关闭 scope 并不代表物理退役完成，不能据此提前放行。
+0184-0506	apps/api/tests/test_point_cloud_quality_source_originals.py:377-378,426-427	-	点云质量发布不能沿用准入时的授权结论：API Key 在发布途中到期时，必须在终态校验拒绝整笔事务。即使重扫发现的是同一问题，发布失败也不能留下部分更新的证据。
+0184-0507	apps/api/tests/test_pointcloud_import.py:424	-	点云导入匹配帧时必须同时区分 scene 和帧 stem；不同 scene 可以复用帧号，只按 stem 匹配会覆盖其他 scene 的帧，导致漏建任务。
+0184-0508	apps/api/tests/test_pointcloud_import.py:480-481	-	KITTI 标定允许省略 rect 矩阵，但不能把长度无效的矩阵当成未提供；准备阶段须跳过整份源标定，否则会留下来自无效标定的部分矩阵。
+0184-0509	apps/api/tests/test_preannotate_text.py:62	-	选择预标注后端池不能代替当前项目的启用校验；还须确认项目与后端池的关联已启用，否则会放行该项目尚未启用的后端。
+0184-0510	apps/api/tests/test_preannotate_workbench_scope.py:183	-	工作台单题预标注必须先持久化 AsyncJob，再交给 worker；若延后到 worker 校验通过才建作业，早期校验失败就没有记录可写入终态。
+0184-0511	apps/api/tests/test_preannotate_workbench_scope.py:412	-	工作台不能用 active_lock 的首条记录判定是否存在他人锁；本人锁可能因过期时间更晚而排在首位，但其后仍有效的他人锁必须阻止操作。
+0184-0512	apps/api/tests/test_predict_context_builder.py:107	-	文本预测阈值必须保留在上下文顶层，不能移入嵌套配置；后端只从顶层读取阈值，嵌套后调用方指定的值不会生效。
+0184-0513	apps/api/tests/test_prediction_commit_boundary.py:429-430	-	覆盖式预测不能在启动推理时先清除旧候选或已接受的 AI 标注；耗时推理尚未产出替代结果，提前清除会让已有结果在等待期间丢失。
+0184-0514	apps/api/tests/test_prediction_commit_boundary.py:635-636	-	取消竞态须以 PostgreSQL 中实际出现的行锁等待者确认取消请求已到达同步点；固定休眠只表明时间已过，不能证明测试进入了目标竞态。
+0184-0515	apps/api/tests/test_prediction_cost_stats.py:59-60;apps/api/tests/test_prediction_jobs_worker.py:91	-	预测 worker 和成本统计都应通过后端 ID 读取按 URL 唯一的全局 MLBackendRegistry，不应以项目启用关联为查询前提，否则会漏读没有该关联的已登记后端。
+0184-0516	apps/api/tests/test_prediction_cost_stats.py:309	-	预测延迟分位数采用 PERCENTILE_CONT 的线性插值，结果可以落在两个观测值之间；改为只选取实际样本值会改变统计口径。
+0184-0517	apps/api/tests/test_prediction_execution.py:632-633	-	来源的实际 I/O 许可关闭前，close_inputs 仍承担清理责任；不能把发起关闭当成清理已经完成，否则下一轮到期清除可能与尚未结束的 I/O 重叠。
+0184-0518	apps/api/tests/test_prediction_input_accounting.py:288-289	-	删除较新的对象版本不能据此冲减当前对象数：被删版本的空间虽已释放，但较旧版本会重新成为当前对象，该键仍有当前对象。
+0184-0519	apps/api/tests/test_prediction_input_migration.py:73-74	-	降级迁移须将排他锁持有到事务结束，不能在确认空表后提前释放；否则并发写入可在检查通过后进入，并随降级操作被丢弃。
+0184-0520	apps/api/tests/test_prediction_input_owner.py:81-82;apps/api/tests/test_prediction_inputs.py:590-591,602-604	-	PUT 回执绑定该次写入的不可变版本，不能改绑到收到回执时的当前版本，即使字节相同。恢复迟到写入时，只有尚未发布的计划意图可按获准对象及写入 nonce 验证候选；同前缀的其他键不归该意图，不能扫除。
+0184-0521	apps/api/tests/test_prediction_input_owner.py:185-186,1134-1135,1172;apps/api/tests/test_prediction_inputs.py:193	-	MinIO 的 DELETE 会忽略 IfMatch，预测输入只能用精确、不可变的 VersionId 删除，测试替身也不能把 IfMatch 模拟成保护条件。只有 null 版本时须保持待清理，即使发生退役或桶重映射也不能发起删除。
+0184-0522	apps/api/tests/test_prediction_input_owner.py:391-392	-	预测输入须沿用已保存的存储桶绑定；默认桶变化不能使现有租约失效，也不能把该绑定下的后续分配导向新默认桶。
+0184-0523	apps/api/tests/test_prediction_inputs.py:109-110	-	S3 测试替身必须原子地执行条件创建的检查和写入，否则两个请求可能同时通过检查；请求同步门须设在临界区外，否则首个请求会挡住测试需要观察的第二个请求。
+0184-0524	apps/api/tests/test_prediction_inputs.py:368	-	预测输入的恢复记录必须在 PUT 完成前提交，不能等对象写入返回再提交；否则写入仍在进行时，独立数据库连接查不到恢复所需的记录。
+0184-0525	apps/api/tests/test_prediction_raster_mask_content.py:100	-	已接受标注的栅格掩码不能与原始预测候选共享可变像素；否则编辑标注时会连带改写原始候选，不再保留模型输出。
+0184-0526	apps/api/tests/test_prediction_reference_actions.py:133	-	创建重试时须重新按当时的资格条件冻结状态，不能复用上一次的快照；否则重试可能仍使用已不符合条件的版本，或漏掉此时已符合条件的版本。
+0184-0527	apps/api/tests/test_prediction_reference_delivery.py:224-225	-	几何与 ROI 必须基于推理前捕获的图像，不能在推理结束后重新读取登记路径；若路径内容期间被替换，几何计算与模型实际看到的图像就会不一致。
+0184-0528	apps/api/tests/test_predictions_import.py:1857-1858	-	导入预测须校验项目管理权限，不能把项目可见性当作授权；项目可见但调用者无权导入时返回 403，隐藏不可见项目时才使用 404。
+0184-0529	apps/api/tests/test_project_access.py:180	-	判定项目工作成员资格时不能只看成员记录；平台 viewer 即使已有对应记录也不具备工作成员资格，否则残留记录就会绕过平台角色限制。
+0184-0530	apps/api/tests/test_project_access_predicates.py:30-31	-	平台管理权限须默认拒绝，不能把非 viewer 或旧 staff 值视作管理员；employee、viewer、旧 staff 及未知角色均不得因兼容或兜底分支取得管理权限。
+0184-0531	apps/api/tests/test_project_aggregate_access.py:188;apps/api/tests/test_project_role_entry_routes.py:562	0075-platform-identity-vs-project-authority.md	项目授权须在实际访问或写入时重新判定：异步任务的所有权不能替代当前项目访问权，标注预检通过也不能替代最终写入授权，否则撤权后仍能读取任务或写入标注。
+0184-0532	apps/api/tests/test_project_aggregate_access.py:238-239	-	异步任务处理器与测试共用 ORM 会话时，序列化前须显式刷新服务端更新的列；直接读取会触发异步懒加载，而不是可靠地取得更新后的值。
+0184-0533	apps/api/tests/test_project_aggregate_scope.py:119-120;apps/api/tests/test_project_class_rename_legacy.py:627-628	-	项目身份以成员记录中的角色为准，账号角色只校验是否属于已知平台角色。若把平台 owner 当作项目角色别名，身为项目成员的 employee 会仅凭 owner 字段取得受管写入权限。
+0184-0534	apps/api/tests/test_project_attribute_schema_and_batch_reset.py:363-364	-	验证 _async_persist 的提交结果须用当前测试引擎另开会话；该函数用自有引擎提交，而全局 app.db.base.async_session 的连接池绑定在另一事件循环，不能拿来复查。
+0184-0535	apps/api/tests/test_project_attribute_schema_and_batch_reset.py:379;apps/api/tests/test_project_member_concurrency.py:176-177	-	清理受不可变触发器保护的审计记录时，只在清理事务内用 SET LOCAL 豁免，并限定删除本用例写入的行。须先删这些审计行再删操作者，否则外键 SET NULL 会触发不可变保护。
+0184-0536	apps/api/tests/test_project_backend_modality.py:149,184;apps/api/tests/test_project_preannotate_pipeline.py:285	-	模态能力未知不等于能力不足：Inference 的 /setup 不可达时返回 null，探测成功但缺少 prompt 或 tracker 信号时也不能拒绝项目模态，否则会误拒纯批量检测后端。预标注保存遇到旧后端没有能力快照时不告警。
+0184-0537	apps/api/tests/test_project_class_rename_owner.py:99-101	0143-workspace-project-class-rename-owner.md	类重命名快照按稳定的种子别名对齐后逐行比较完整内容；若按新生成 UUID 的排序逐项比较，会把内部顺序误当成公开契约。
+0184-0538	apps/api/tests/test_project_labeling_delete_contract.py:222-223	-	项目标注删除必须加入调用方事务，不能独立提交；否则调用方回滚时无法恢复所有受影响的行，也可能留下本应撤销的冻结结果。
+0184-0539	apps/api/tests/test_project_labeling_delete_contract.py:331-332	-	项目删除时由 Labeling 清理自身持有 Project 外键的记录，不能把清理扩大到不可变的创建和追加回执；这些回执没有 Project 外键，不随项目删除。
+0184-0540	apps/api/tests/test_project_member_concurrency.py:707;apps/api/tests/test_project_role_migration.py:127	-	annotation_contributor_ids 的空列表表示已知无贡献者，可据此验证审阅交接资格；NULL 表示历史未知，不能视作无人贡献，也不能拿当前分派回填历史贡献者。
+0184-0541	apps/api/tests/test_project_member_concurrency.py:795-796	-	对同一版本的成员变更以先取得成员行锁的一方为准，另一方须因忙碌或版本过期退出；若排队后仍按旧版本写入，就会覆盖已生效的变更。
+0184-0542	apps/api/tests/test_project_member_concurrency.py:934-935	-	成员交接不能把终态任务纳入必须取得的行锁范围，否则另一写入者只锁住终态历史，也能阻塞当前交接。
+0184-0543	apps/api/tests/test_project_member_role_change.py:558-559	-	开放池审阅覆盖不能只看剩余成员是否具备审阅资格；若其也是该任务的标注贡献者，认领会被 self_review_denied 拒绝，名义上的覆盖并不能接手任务。
+0184-0544	apps/api/tests/test_project_member_role_change.py:628	-	移除项目成员不改变其平台角色，不能套用变更到项目目标角色时的兼容性检查；否则即使管理员没有待交接工作，也会被错误阻止移除。
+0184-0545	apps/api/tests/test_project_owner_profiles.py:26-27	-	项目负责人资料的阈值比较须以新请求读到的持久化 REAL 值为准；沿用种子会话身份映射中缓存的 Python 默认值，会绕过数据库精度差异。
+0184-0546	apps/api/tests/test_project_performance_http.py:368-369	-	绩效的 retained_objects 按保留标注记录计数，与来源、类别和几何分布同粒度；按可复用的轨迹 ID 去重会合并不同记录，使总数与分布口径不一致。
+0184-0547	apps/api/tests/test_project_performance_http.py:559-561,1533-1534	-	绩效事件声明的项目须与任务实际所属项目一致，不能凭客户端归属纳入跨项目任务；快照证据还须同时匹配项目、任务及审阅轮次，避免借用其他范围的早期保留记录。
+0184-0548	apps/api/tests/test_project_performance_http.py:582-584	-	collection_source 为 legacy 的记录即使标成 qualified，也不得新增绩效名单身份或计入证据；仅检查 coverage 会让误标的旧记录进入统计。
+0184-0549	apps/api/tests/test_project_performance_http.py:676-677	-	绩效计数和日趋势须先在数据库聚合再交给 Python，单成员页和 CSV 也不例外；先拉取逐次提交会让传输量和应用侧处理量随提交次数增长，而非随聚合结果增长。
+0184-0550	apps/api/tests/test_project_performance_http.py:708-709	-	绩效测试发请求前须对 tasks、task_events 和 audit_logs 显式执行 ANALYZE；未提交的批量夹具无法由 autovacuum 收集统计信息，不能假定查询规划器已有部署环境通常具备的统计。
+0184-0551	apps/api/tests/test_project_performance_http.py:1502-1503	-	仅审阅绩效须独立判断审阅决定和耗时证据是否完整；若沿用标注证据的降级条件，缺失标注轮次或旧版视频提交就会连带降级证据完整的审阅。
+0184-0552	apps/api/tests/test_project_preannotate_pipeline.py:40;apps/api/tests/test_projects_clone.py:47-48,192	-	预标注编排、项目克隆和绑定复用全局 registry ID，不把项目启用关联 ID 当成后端身份。后端注册项不归单个项目所有，按项目另建 backend 行会与 URL 全局唯一约束冲突。
+0184-0553	apps/api/tests/test_project_preannotate_pipeline.py:254	-	预标注编排保存与 dispatch 共用能力判据，但保存只返回 capability_warnings，dispatch 才以 422 拒绝；把执行门槛直接用于保存，会阻止本应允许写入的配置。
+0184-0554	apps/api/tests/test_project_role_migration.py:303	-	项目角色迁移开放后，不得把降级至 0173 当作故障恢复手段；该降级具有破坏性，不能作为保留现有数据的回退路径。
+0184-0555	apps/api/tests/test_project_task_datasets.py:504-505	-	项目任务数据集测试可替换准备步骤，但不能省略调用者授权上下文；否则替身会绕过真实路由检查权限时点的逻辑，使测试无法验证该约束。
+0184-0556	apps/api/tests/test_project_templates.py:414	-	复制项目模板时须深拷贝 JSONB 内容，不能仅复制外层容器；若嵌套值仍共享引用，修改副本就可能连带修改源模板。
+0184-0557	apps/api/tests/test_project_transfer.py:133	-	项目所有权转移测试须真实提交变更；保存点释放不会让另一连接上的所有者看到新状态，不能替代提交验证跨连接可见性。
+0184-0558	apps/api/tests/test_project_transfer.py:227-228	-	先执行降级若因仍拥有项目而被阻塞，须保留当次捕获的阻塞原因且不生成回执；否则会把未完成的降级记作已完成，破坏转移所有权后重试同一操作的语义。
+0184-0559	apps/api/tests/test_projects_clone.py:233	-	克隆接口必须以 assert_project_visible 校验源项目；对 project_admin 不可见的非本人项目返回 404，而不是用不同响应区分无权访问和项目不存在。
+0184-0560	apps/api/tests/test_pytest_sharding.py:123	-	分片子进程须固定 pytest rootdir，使 nodeid 保持 test_shard_XX.py::… 的形式；若让 pytest 随启动环境推断根目录，同一用例的分片键可能改变。
+0184-0561	apps/api/tests/test_pytest_sharding.py:147,155	-	分片子进程不能沿用父进程的 coverage 配置或自动加载第三方 pytest 插件；最小套件只加载仓库插件，避免同一套件因本机环境不同而表现不同。
+0184-0562	apps/api/tests/test_raster_mask_gc.py:180	-	光栅掩码 GC 不能只查 Job 的当前事实：Job 更新后，旧对象键可能只保留在已接受的作用域中，漏查会把仍受引用的对象当成垃圾。
+0184-0563	apps/api/tests/test_raster_mask_object_gc.py:83-84	-	光栅掩码 GC 的调用方保护记录须独立提交；不能用调用方曾提交过无关进度来代替这次提交，否则后续回滚仍可能撤掉保护。
+0184-0564	apps/api/tests/test_raster_mask_objects.py:129	-	光栅掩码的独立分配事务不得重取调用方已持有的同一内容事务锁；分配会等待调用方释放锁，而调用方正在等分配完成。
+0184-0565	apps/api/tests/test_raster_mask_objects.py:515,542	-	光栅掩码 RLE 的初始分配、取到对象后的回调和发布属于不同提交边界；模拟发布提交的确认丢失时，不能把独立记账提交当作发布提交。
+0184-0566	apps/api/tests/test_raster_mask_publication_callers.py:370-371	-	QC 的 _persist_issue 因 run 不存在而写入所有者记录失败时，不能认定区域字节未落盘；字节可先独立写入，所有者记录的外键失败不会撤销这次写入。
+0184-0567	apps/api/tests/test_raster_mask_write_gate.py:449-450	-	光栅掩码写入路径自身必须拒绝不合格的 ml_backend 视频任务，不能只依赖上游整视频资格校验；未经过上游的调用仍须受同一限制。
+0184-0568	apps/api/tests/test_reference_background_native_live.py:110;apps/api/tests/test_reference_original_cache_prediction_live.py:145	-	ML backend 改址后，旧端点的健康观测不能用于新端点；实连测试须为新地址重新记录健康状态，否则会把旧地址的可用性当成新地址的证据。
+0184-0569	apps/api/tests/test_reference_content_authority.py:82-83	-	验证引用内容缓存命中时须排除原始文件回退；否则即使原凭据在缓存准入时被拒绝，文件系统仍可能返回相同内容，让测试误通过。
+0184-0570	apps/api/tests/test_reference_content_authority.py:182-183	-	引用内容准入回调开始前，持久化操作必须已经存在；等待回调期间，传入的会话不得继续持有业务锁，以免把准入等待变成业务记录的持锁等待。
+0184-0571	apps/api/tests/test_reference_image_inference.py:360	-	引用图像推理的 PUT 结果未知时须保留恢复记录七天，不能按确认失败立即删除；写入可能已经生效，提前清除会丢失用于恢复的记录。
+0184-0572	apps/api/tests/test_reference_mask_repair.py:745-746	-	引用掩码修复以原始内容和确切的源标注确认来源，不能改用当前 Task.version；正常分配也会改变版本，从而误判仍然有效的来源。
+0184-0573	apps/api/tests/test_reference_primary_relation.py:19-20	-	历史引用的 Task 外键不能为了构造仅有主关联的场景而改写；应另建 Task，否则会改变旧引用所指向的历史任务。
+0184-0574	apps/api/tests/test_rejected_task_rework_visibility.py:19;apps/api/tests/test_sdk_quality_scope.py:266-267	-	员工的项目角色以显式项目成员关系授予的能力为准，不能从平台 project_admin 身份推导；旧成员记录也不能把仅有 viewer 能力的调用者提升为项目管理员。
+0184-0575	apps/api/tests/test_retry_born_dataset_scope.py:322-323,357-358,428-429	-	重试 Job 的数据集范围以创建时的来源证据为准：后来更换 Task 来源不能扩张范围，已证明无关的范围仍为空。展示元数据、协作取消或交付终态均不能替代来源证据；batch_result_members 也可能已在当前事务中被合法删除。
+0184-0576	apps/api/tests/test_retry_born_dataset_scope.py:491-493	-	迁移不回填 prediction_retry_attempts.birth_xid；模拟迁移前记录时须保留 NULL，并避开同事务插入触发器，以免给本无出生证据的记录制造新证据。
+0184-0577	apps/api/tests/test_sample_evaluation_originals.py:466-467	archive/0079-frozen-sample-evaluation.md	样本评估原件存储的关闭结果未知时，不得将操作记为已收尾；即使测试能另行关闭实际描述符，也不能把测试清理当作生产路径已确认关闭。
+0184-0578	apps/api/tests/test_sample_evaluation_worker.py:263	archive/0079-frozen-sample-evaluation.md	样本评估 worker 执行原生 I/O 时不得继续持有领域记录的锁；否则即使此时没有数据库更新，第二个数据库连接也无法取得该行。
+0184-0579	apps/api/tests/test_sample_evaluations.py:216	archive/0079-frozen-sample-evaluation.md	样本评估报告即使通过存储校验和检查，仍须通过 verify_report；校验和匹配只能确认字节一致，不能证明报告语义有效。
+0184-0580	apps/api/tests/test_scene_track_commands.py:102	-	场景 Track 命令以相同命令和幂等键重放时，不能用当前修订号拒绝重放；首次执行本身就可能推进修订号，使合法重试看起来像陈旧请求。
+0184-0581	apps/api/tests/test_scheduler_scene_preference.py:206	-	场景优先调度不能把通过预过滤视为取得任务锁；其他用户可能在预过滤与 acquire 之间抢锁，只有实际取得锁后才能分配下一帧。
+0184-0582	apps/api/tests/test_sdk_quality_scope.py:78-79	-	标注可见性必须按 task.project_id 判定；使用标注上冗余的项目字段会在两者不一致时选错授权项目，为 NULL 时也不能省略任务所属项目的检查。
+0184-0583	apps/api/tests/test_sdk_quality_scope.py:149-150	-	Bug PATCH 显式传入 null 仍是在尝试写入管理员专属字段；无权调用时须拒绝整份补丁，不能把 null 当作未传或先更新有权修改的标题。
+0184-0584	apps/api/tests/test_sdk_quality_scope.py:167-168	-	Bug 管理权限对平台 project_admin 全局有效，不能额外要求其为报告作者或项目所有者；有权调用者传入 status: null 时应保留现有状态。
+0184-0585	apps/api/tests/test_secondary_inference.py:302-303	-	二级推理须将缺少 attributes_meta 条目的现有属性视为人工值，只更新标有 origin=ai 的旧结果；不能把元数据缺失当成可覆盖的依据。
+0184-0586	apps/api/tests/test_secondary_inference.py:535-536	-	能将 polyline 转为 LS 形状不代表 _box_bbox_pct 能提取裁剪框；无法取框时须在读图或裁剪前返回 400，不能用形状转换成功替代裁剪资格校验。
+0184-0587	apps/api/tests/test_secondary_inference.py:654	-	模型未声明 text_outputs 时，二级推理须采用协议默认值 mask；不能把缺省声明当作不支持，否则不报告该能力的旧后端将无法沿用默认行为。
+0184-0588	apps/api/tests/test_seed_comment_attachments.py:737	-	请求取消不等于对象响应体已经关闭；种子清理在无法确认关闭时须保留不确定状态并返回 409，不能仅凭取消就认定可以清理。
+0184-0589	apps/api/tests/test_seed_online_training.py:250	-	在线训练种子的源数据阶段独立持久化，掩码标注则属于调用方事务；不能把两阶段视为原子操作，因为调用方回滚只会撤销其事务内的写入。
+0184-0590	apps/api/tests/test_seed_online_training.py:264-265	-	在线训练种子的测试清理只能处理本次调用实际产生的候选或发布记录，失败写入也须追踪；按共享绑定扫除会误删其他所有者的保护记录。
+0184-0591	apps/api/tests/test_seed_online_training.py:565	-	在线训练后续迭代以初始分区为准，不能按当前默认参数重新划分；否则默认值一变，已有样本就可能在迭代之间换组。
+0184-0592	apps/api/tests/test_seed_online_training.py:683-684	-	在线训练测试不能用仍持有重试锁的外层事务模拟 CLI 已提交的状态；即使另一个会话提交，锁也不会解除。应直接调用构建器，覆盖 CLI 提交后的执行阶段。
+0184-0593	apps/api/tests/test_seed_parent_operator_live.py:498-499	-	父级操作器实测须等最长维持 10 秒的 SQL 闸门任务结束后再调用 close()；即使 Docker 在启动前就失败，也不能抢先关闭，否则两个线程可能同时移除闸门。
+0184-0594	apps/api/tests/test_seed_parent_operator_native.py:218-219	-	父级原生桥接刷新失败时，不能只撤销出错的那一行；即使调用方捕获异常后提交，此前成功的行和该次刷新中调用方的待写入内容也都不能落库。
+0184-0595	apps/api/tests/test_seed_router.py:29-30	-	独立的栅格分配只能读到已提交的静态绑定，因此须先提交绑定，再在业务 SAVEPOINT 内固定种子图像的身份；仅在该 SAVEPOINT 内写入绑定，对分配方仍不可见。
+0184-0596	apps/api/tests/test_seed_task_originals.py:88-89	-	种子任务原件的物理不可变约束不能通过单独清理原件来解除；只有销毁启动器创建的整个一次性测试环境，才能在不绕过保护机制的前提下解除该约束。
+0184-0597	apps/api/tests/test_seed_webcodecs.py:48	-	WebCodecs 夹具的 frame_index 按呈现顺序解释，前端按时间戳定位目标帧；若把该索引当成解码位置，呈现与解码顺序不同时就会选错帧。
+0184-0598	apps/api/tests/test_segmentation_online_loop.py:770	-	未分批任务不能把项目 reviewer 成员身份当作任务级授权；只有显式指派的任务审核者才能看见该任务，否则未获指派的成员也会获得访问权限。
+0184-0599	apps/api/tests/test_segmentation_online_loop.py:806	-	分割在线循环必须在构建任何候选项之前拒绝来自另一桥接的过期基线；若推迟到候选构建之后，构建过程就已使用了不属于当前桥接的基线。
+0184-0600	apps/api/tests/test_small_object_accounting.py:298	-	复用已就绪的 RLE 对象时，须先验证胜出的对象，再直接复用；不能只凭就绪状态信任对象，也不能以再次 PUT 代替对现有对象的验证。
+0184-0601	apps/api/tests/test_smoke.py:121	-	rendering_config 中省略的字段须保留为 None，因为前端用它表示不覆盖；若由后端为缺省字段填入具体值，前端就会把它当作新的覆盖值。
+0184-0602	apps/api/tests/test_smoke.py:127	-	ProjectUpdate 必须拒绝 rendering_config 中的未知键，不能按忽略多余字段处理；否则拼错的配置会被静默丢弃，更新看似成功却没有生效。
+0184-0603	apps/api/tests/test_staged_pipeline_worker.py:270,1084;apps/api/tests/test_staged_roi.py:82	-	预标注 crop 的结果 ID 须保留直接父阶段输出中父框的原始下标；按过滤后的顺序重编号，或在深层阶段沿用根检测框下标，都会让结果写回错误的父框。
+0184-0604	apps/api/tests/test_staged_pipeline_worker.py:727;apps/api/tests/test_staged_roi.py:126,133	-	共享 ROI 裁图缓存时，兄弟阶段只有处理同一批父框且 pad 相同才可复用产物；忽略 pad 会拿到边界不同的裁图，按阶段隔离缓存则会重复编码和上传。
+0184-0605	apps/api/tests/test_staged_pipeline_worker.py:979	-	intermediate 阶段的多边形只能供后续阶段消费，不能像普通几何输出一样追加到最终预测；否则内部几何会被误当作预测结果，原父框仍须保留。
+0184-0606	apps/api/tests/test_staged_preannotate_endpoint.py:57,755-756	-	源阶段和下游 backend 都必须在当前项目启用；全局注册只能证明 backend 存在，不能替代项目启用检查，否则项目可调用未启用的 backend。未启用时返回 404。
+0184-0607	apps/api/tests/test_staged_preannotate_endpoint.py:239-240	-	三层链路的父阶段都产出几何，只能证明结构合法，不能证明中间阶段能力可达；worker 路由时仍须校验，不能凭端点的结构校验结果放行。
+0184-0608	apps/api/tests/test_staged_preannotate_endpoint.py:532-534	-	属性键冲突只在实际写入 attributes 的阶段之间检查；geometry 阶段不写属性，把它纳入检查会将不存在的写入冲突误判为配置错误。
+0184-0609	apps/api/tests/test_staged_preannotate_endpoint.py:701	-	预标注端点不能在交给 worker 时丢弃阶段 label；子物体属性键以前缀区分，而该前缀依赖 label，省略它会使属性键无法按配置生成。
+0184-0610	apps/api/tests/test_staged_preannotate_endpoint.py:775-776,813	-	drop_box 只允许直接以 root 为父的阶段使用，其他阶段须返回 422；worker 的丢弃索引对应 root_boxes，传入深层父框下标会误删无关的根框。
+0184-0611	apps/api/tests/test_staged_preannotate_endpoint.py:826-827	-	分阶段预标必须在校验时拒绝 input.mode=full_image；worker 只处理 crop 和 geometry，若接受该配置，指定的输入模式会被静默忽略。
+0184-0612	apps/api/tests/test_staged_preannotate_endpoint.py:851,900	-	批量预标须把模型自报的 batchable=false 视为硬限制，并同时检查源阶段和下游；只检查源模型仍可能把交互式或有状态的下游模型交给批处理。
+0184-0613	apps/api/tests/test_staged_preannotate_endpoint.py:919,956	-	写入 attributes 时，模型若显式声明的 output_attribute_types 不含 class，须拒绝，否则属性会一直为空；旧后端未声明该字段时，不能把缺省当成明确不支持。
+0184-0614	apps/api/tests/test_staged_preannotate_endpoint.py:1015,1028	-	队列按整条预标流水线选择：任一阶段需要 GPU 就走 ml，仅看 CPU 源阶段会把下游送到 ml.cpu。旧后端未声明设备时不能推定为 CPU，仍走默认 ml。
+0184-0615	apps/api/tests/test_staged_preannotate_endpoint.py:1081	-	仅输出关键点的源模型不能作为下游 ROI 阶段的父框来源；关键点不等于源模型提供了外接框，按可用父框放行会让裁剪缺少所需输入。
+0184-0616	apps/api/tests/test_staged_roi.py:357,376	-	ROI 坐标回映不能把只有洞的多边形当成有效区域；若没有任何有效外环，应丢弃整个形状，而不是向下游传递 points 为空的结果。
+0184-0617	apps/api/tests/test_storage_access.py:76	-	StorageAccess.acquire 必须能在调用方已持有 Gate SHARE、且业务位置尚未提交的同一事务内完成；若要求外层事务先提交，调用方就无法在保留事务边界的情况下完成获取。
+0184-0618	apps/api/tests/test_storage_connection_updates.py:297-298	-	审计夹具只能在清理事务中用 SET LOCAL 启用所有者认可的变更豁免；若将豁免扩大到该事务之外，其他路径就可能避开不可变触发器。
+0184-0619	apps/api/tests/test_storage_connection_updates.py:393-396	-	并发更新测试须以实际发布的存储连接修订号为基准，因为 Main 的更新触发器会推进修订号；用硬编码版本无法区分正常推进与被拒候选意外推进。
+0184-0620	apps/api/tests/test_storage_connection_updates.py:627-628	-	更新存储连接前须先取出所有者 ID；拒绝候选会回滚调用方的工作单元并使已加载的连接实例过期，不能假定失败后仍可从该实例直接读取原值。
+0184-0621	apps/api/tests/test_storage_connections_api.py:61	0103-assets-connection-administration.md	身份准入与 Source 操作使用独立连接，测试须先提交角色身份；仅在夹具事务中写入或刷新不够，另一连接读不到未提交的身份。
+0184-0622	apps/api/tests/test_storage_connections_native.py:323,493	0103-assets-connection-administration.md	仅改名或无实质变更的原生更新不读取 Settings，也不要求策略摘要，否则会给非策略变更附加策略前置条件。需要判定策略时，已有的当前 Settings 记录优先，不能退回旧环境配置或旧数据库策略。
+0184-0623	apps/api/tests/test_storage_connections_native.py:334	0103-assets-connection-administration.md	重放按所有者作用域创建存储连接的请求时，执行身份取当前创建者，作用域则沿用已保存的值；按当前角色重算作用域会让角色变更改变原请求的作用范围。
+0184-0624	apps/api/tests/test_storage_job_progress_boundaries.py:87-89,117	-	async_jobs 的进度列由关系所有者写入，应用 flush 不得改写。降级须在 DDL 前拒绝移除任何已写入值，即使它不是有效观测；拒绝后调用方事务仍须可查询。
+0184-0625	apps/api/tests/test_storage_location_change.py:104-105	-	存储位置变更的审计须保留完整评审快照，预览 API 只返回范围受限的投影；用预览响应充当审计证据会丢失评审上下文，直接返回快照又会突破预览披露边界。
+0184-0626	apps/api/tests/test_storage_maintenance.py:101	-	维护协议的发布守卫只限制 UI/API 操作的开放，不能下沉为底层持久化条件，否则在界面或接口尚未开放时，底层操作也会失去应有的持久记录。
+0184-0627	apps/api/tests/test_storage_maintenance_impact.py:201	-	维护影响摘要的输出大小不得随保留来源数或页数增长，查询也不得逐来源或逐页发出；只压缩响应而保留循环查询，仍会让摘要的数据库请求数随规模增长。
+0184-0628	apps/api/tests/test_storage_maintenance_impact.py:283	-	维护影响的数据集计数以条目为去重单位，不按修订、不可变引用或定位器计数；这些记录指向同一条目时分别累加，会高估受影响的数据集条目数。
+0184-0629	apps/api/tests/test_storage_maintenance_impact.py:326	-	维护影响的项目范围必须计入由当前任务建立的关联；若只通过 ProjectDataset 筛选，便会漏掉虽无该关联记录、但已有当前任务受影响的项目。
+0184-0630	apps/api/tests/test_storage_maintenance_impact.py:483	-	缓存配额归属不能从对象的物理落点或仍存在的 source_id 推断；这两者不足以证明对象应计入哪个配额，直接据此聚合会把字节归错账。
+0184-0631	apps/api/tests/test_storage_maintenance_impact.py:534	-	维护影响视图按持久化的输入租约状态计数；过期只构成清理依据，不能在读取时直接归为待清理，否则摘要会显示尚未发生的状态转换。
+0184-0632	apps/api/tests/test_storage_maintenance_impact.py:601,615	-	就绪冻结版本对存储位置的保护跨项目生效，冻结关联也不取决于来源当前是否启用或仍关联数据集；按项目或来源现状过滤会漏掉仍受冻结保护的位置。
+0184-0633	apps/api/tests/test_storage_maintenance_readers.py:84	-	缺少 maintenance_revision 的历史委托在维护纪元仍为初始值 1 时可锁定引用绑定；一律判无效会拒绝初始纪元的有效委托，也不能把这项例外延用到换代之后。
+0184-0634	apps/api/tests/test_storage_maintenance_sources.py:131	-	来源维护换代后，新请求必须显式重新验证 worker；复用上一代的验证结果会把旧纪元的通过结论当成当前纪元的有效验证。
+0184-0635	apps/api/tests/test_storage_maintenance_targets.py:451	-	维护目标统计把引用归入来源谱系，不额外计为受管输出角色；把同一引用再算作输出，会重复反映它的影响并夸大输出角色数。
+0184-0636	apps/api/tests/test_storage_maintenance_targets.py:1011	-	旧缓存缺少 JSON 引用时，物理对象键中的 sha256 仍是区分对象的依据；仅在有 JSON 引用时检查哈希，会漏掉旧缓存对象的哈希变化。
+0184-0637	apps/api/tests/test_storage_maintenance_targets.py:1038	-	金字塔已保存的输出角色不以当前业务所有者仍存在为前提；若随所有者删除清除角色，或仅从现有所有者推导角色，维护统计会漏掉该保留输出。
+0184-0638	apps/api/tests/test_storage_migration_copy_worker.py:602	-	迁移复制对已验证对象复用现有证据，仅对新增对象执行 HEAD→GET→HEAD；对全部对象重复探测会重读已有证据覆盖的对象，而对新增对象沿用旧证据则无法证明该对象已验证。
+0184-0639	apps/api/tests/test_storage_migration_copy_worker.py:612	-	父、子复制计划的保留不随原始清单或复制尝试 AsyncJob 的保留周期变化；将计划绑定到这些记录的清理会使临时记录过期时连带删除计划。
+0184-0640	apps/api/tests/test_storage_migration_copy_worker.py:649;apps/api/tests/test_storage_migration_finalizations.py:625	-	冻结父复制计划须由父路径自身拒绝执行，迟到的 pending 投递也不得认领；若以存在后继计划作为拒绝条件，尚无后继时仍可能执行已冻结的父计划。
+0184-0641	apps/api/tests/test_storage_migration_finalization_evidence.py:166-167	-	迁移终结验证对仅保留在旧侧的记录接受迁入的历史事实作为未重新执行的证据；强制读取实时来源会把这类记录错误地判为证据不足。
+0184-0642	apps/api/tests/test_storage_migration_inventories.py:173	-	迁移清单公开的 handling 键使用用途名称，不能用私有存储桶定位信息作键，否则即使不单独返回定位字段，清单仍会泄露私有位置。
+0184-0643	apps/api/tests/test_storage_migration_inventories.py:225	-	迁移清单观测到非来源绑定，不等于获得访问其位置的权限；把清单中的观测当作授权，会将可见的元数据错误地转化为底层访问权限。
+0184-0644	apps/api/tests/test_storage_migration_window_tasks.py:305-306	-	不可变迁移窗口的例外授权只对绑定的父计划有效；即便是同一调用方，也不能把它借给另一个父计划，否则会绕开该计划自身的窗口限制。
+0184-0645	apps/api/tests/test_storage_source_summary.py:27	-	来源摘要的作业范围按所有可见来源计算，不受当前来源页限制；以分页结果筛作业，会让较旧来源的作业仅因被挤到其他页而从摘要中消失。
+0184-0646	apps/api/tests/test_storage_usage.py:174	-	存储用量观测证据须独立于 AsyncJob 的保留周期；随作业级联清理会删掉已取得的观测，把执行历史过期错误地变成用量证据丢失。
+0184-0647	apps/api/tests/test_storage_usage.py:316	-	存储用量任务的完成状态不能被上一尝试迟到的失败信号覆盖；若按消息到达顺序更新，成功重试的任务会被错误地退回失败状态。
+0184-0648	apps/api/tests/test_storage_usage_categories.py:496	-	恢复训练存储归属应使用既有离线恢复开关，而非改写创建历史；后者会把归属修复伪装成创建时就存在的事实，破坏历史的不可变性。
+0184-0649	apps/api/tests/test_storage_usage_categories.py:529	-	存储用量按实际列出的对象字节计算；业务记录被删除或已有待执行的删除意图，都不能作为物理删除的证据，否则会提前扣减仍占用的字节。
+0184-0650	apps/api/tests/test_task_assignment_overrides.py:46;apps/api/tests/test_task_lock.py:51;apps/api/tests/test_task_lock_dedup.py:40-41	-	employee 账号的项目权限来自显式成员记录；用账号角色代替项目成员关系，会把全局身份错当成该项目内的标注或审核授权。
+0184-0651	apps/api/tests/test_task_assignment_visibility.py:357-359	-	成员仍有未完成任务时须先转交再移除，不能让任务继续挂在已离开项目的人名下。转交并移除后，旧任务 URL 不得绕过当前成员资格继续授予读写权限。
+0184-0652	apps/api/tests/test_task_assignment_visibility.py:616-617,725;apps/api/tests/test_task_event_ingestion.py:548-549	-	领取审核和提交审核决定都须以冻结的轮次贡献者证据确认该轮由另一名实际标注者提交。提交者不明时应直接拒绝，不能让指派或预留校验替代独立审核所需的身份确认。
+0184-0653	apps/api/tests/test_task_dataset_backfill.py:86	-	回填须在未保存游标的情况下仍可安全重跑；重新扫描时应沿用已发放的编号，不能按本轮扫描顺序重新分配，否则同一任务数据集的编号会改变。
+0184-0654	apps/api/tests/test_task_discussion_drawings.py:270;apps/api/tests/test_task_discussion_page.py:252	-	讨论流和评论计数须以正式评论记录为准，不能把标注反馈镜像当作独立评论；否则镜像会抬高总数，过期副本也可能把旧正文带回正式讨论流。
+0184-0655	apps/api/tests/test_task_event_ingestion.py:477-478,498	-	删除 TaskLock 前须保留其服务端创建时间，否则后到的缓冲事件失去准入校验所需的时间基准。采集器在页面渲染时即启动，不能仅因事件起点略早于锁创建就将其拒绝。
+0184-0656	apps/api/tests/test_task_event_ingestion.py:509;apps/api/tests/test_task_event_ingestion_concurrency.py:103-104,232	-	事件去重须覆盖独立数据库会话同时查无记录后并发写入的情形，不能只靠进程内预检。入队失败的回退也须沿用访问策略和落库比对规则：同内容重试不产生写入，冲突内容永久丢弃。
+0184-0657	apps/api/tests/test_task_event_ingestion.py:695	-	任务事件须按用户在该项目中的成员角色归类工作类型；账号角色不是本次项目工作的依据，用它替代会把事件归到错误的工作类型。
+0184-0658	apps/api/tests/test_task_lock_dedup.py:257-259	-	管理权限赋予任务可见性，却不等同于实际受派身份。任务指派给他人时，管理员获取锁仍须走冲突路径，否则会取得只应由受派人使用的强制接管权限。
+0184-0659	apps/api/tests/test_task_reopen_notification.py:80-81;apps/api/tests/test_task_skip.py:141-142	-	普通员工的任务所有权不能替代项目授权：领取审核和批准须显式具备 reviewer 角色，跳过须有 annotator 成员写权限；未指派任务也只有在活跃的开放领取批次中才对其可见、可领。
+0184-0660	apps/api/tests/test_task_views.py:208-209	-	任务列表计数须与 Workbench 评论流使用同一保留口径；不能因标注已软删除就排除其仍有效的评论，否则讨论流仍可见的评论会从列表计数中消失。
+0184-0661	apps/api/tests/test_tracker_input_live.py:124	-	跟踪器应从已关联的 Assets 对象解析输入位置，不能要求 Task 再存一份路径；否则仅缺少重复路径、但资产定位仍有效的任务会被误判为没有可读输入。
+0184-0662	apps/api/tests/test_tracker_running_mask_roots_native.py:106-107	-	用合成清单探测 GC 时，须回滚探测期间暂存的清理意图；仅丢弃合成清单并不够，下一轮真实扫描仍可能把留下的意图当作待处理工作。
+0184-0663	apps/api/tests/test_trained_model_routing.py:37-38	-	路由配置变更会使现有健康观测失效，新观测须在配置事务提交后写入；否则新观测可能随配置变更一起失效，不能代表已生效配置的健康状态。
+0184-0664	apps/api/tests/test_trained_model_routing.py:71-72,75-76,78-79	-	精确路由按指定物理后端判定准入：目标满载就拒绝，不能换用同池空闲成员。off/observe 只允许 legacy 成员，指定其他成员时也须拒绝，而非回退到 legacy 或判作整池耗尽。
+0184-0665	apps/api/tests/test_trained_model_routing.py:124-125	-	能力指纹要求按物理池的活跃成员数判断；精确目标筛选只缩小候选集，不能把两个活跃成员的池当成单成员池，否则缺少能力指纹也会被错误放行。
+0184-0666	apps/api/tests/test_trained_models.py:355-356	-	模型仍受保留约束时，须在写入清理意图或删除任何物理前缀前拒绝；不能把这项校验推迟到分阶段清理之后，否则受保留对象已被排入删除流程或已丢失。
+0184-0667	apps/api/tests/test_trained_models.py:424-425	-	已完成的训练尝试只能作为一个模型版本的注册依据；同项目注册第二个版本须使用另一次已完成且仍保留的尝试，不能把一次训练产出重复登记为两个版本。
+0184-0668	apps/api/tests/test_trained_models.py:890-891	-	后端签名下载 URL 须使用已保存的 bucket；浏览器专用的相对 /minio/ 代理路径不能替代它，否则后端下载不再按记录指向原存储桶。
+0184-0669	apps/api/tests/test_training_dataset_analysis.py:129-130;apps/api/tests/test_training_dataset_insight_adapters.py:191-192	-	兼容历史数据时，只调整派生解释，不改写冻结输入：历史分割契约只更新适配器配置，保留多边形标签及来源凭据；正框宽被旧桥接舍入为零时，保留冻结字节和已知标签，但将框几何记为未知。
+0184-0670	apps/api/tests/test_training_dataset_lineage.py:177-178;apps/api/tests/test_training_dataset_references.py:307	-	血缘读取和已完成交付的重放须以保留的冻结元数据、快照和对象为准；重新查询在线 Source、Location 或 Task，或重新取源，会让本已完成的交付在来源不可用时无法重放。
+0184-0671	apps/api/tests/test_training_dataset_original_boundaries.py:431-432	-	数据集执行须以数据库中不可变的所有者记录为准；捕获的执行上下文不能覆盖它，否则为其他所有者捕获的上下文可能被用于执行当前数据集。
+0184-0672	apps/api/tests/test_training_dataset_original_boundaries.py:753	-	数据集执行锁须按版本隔离，不能把其他版本尚未解决的持久操作视为当前版本的锁冲突，否则无关版本的遗留操作会阻止当前版本执行。
+0184-0673	apps/api/tests/test_training_dataset_originals.py:772-773	-	解码器的资源归属未确认时，须继续隔离完整消费者容量；借用的采集阶段已独立关闭，并不证明解码器已释放资源，此时归还容量会使同一容量被重复分配。
+0184-0674	apps/api/tests/test_training_dataset_preparation.py:179	-	数据集准备须把业务锁和来源锁的持有范围限制在物理作业之外；不能为覆盖整个准备流程而跨物理作业持锁，否则并发编辑会被作业阻塞。
+0184-0675	apps/api/tests/test_training_dataset_references.py:474,478,522-523	-	新冻结须验证本次捕获的来源事实；物化既有冻结则验证对应内容的读取授权，可使用当前获授权的定位地址。不能将定位地址变化写回冻结记录，否则会改写已保留的来源信息或内容身份。
+0184-0676	apps/api/tests/test_training_dataset_signals.py:279-280	-	训练数据集信号的回退路径须与 worker 一样先锁 Version 再锁 Job；若先锁 Job，就可能与已持有 Version 并等待 Job 的 worker 互相等待而死锁。
+0184-0677	apps/api/tests/test_training_datasets.py:148,762	-	所选绑定中的活动标注含不支持的几何时，须让验证失败；不能跳过该标注后继续导出，否则原本有标注的样本会被静默转换成负样本。
+0184-0678	apps/api/tests/test_training_datasets.py:611	-	ZIP 上传成功不等于数据集已发布；若取消在上传后、发布前生效，必须丢弃本次尝试的 ZIP，否则已取消的尝试会留下被误认为已发布的产物。
+0184-0679	apps/api/tests/test_training_executor_handoff.py:441-442	-	资源轮询租约中的 executor_id 只是投影，不能据此判定尝试归属；交接时须按 attempt_id 找到 TrainingAttempt，再核对 executor_id 和 boot_id，以免把旧进程的尝试认给新进程。
+0184-0680	apps/api/tests/test_training_executor_handoff.py:714-715,724-725	-	旧 supervisor 退出不代表资源 flock 已释放：独立进程组中的子进程继承了锁描述符，仍可持锁。交接测试若把父进程退出当作释放，就会漏掉旧执行进程仍占用资源的情形。
+0184-0681	apps/api/tests/test_training_input_membership.py:85	-	恢复发布应沿用已有租约，而不是重新执行仅适用于启动时的输入资格检查；否则启动后发生的资格变化会阻断已获准尝试的发布恢复。
+0184-0682	apps/api/tests/test_training_previews.py:458	archive/0077-native-augmentation-preview-cpu-ownership.md	持久化预览的领取结果不能由 worker 是否收到应答来判定；首次应答丢失后必须允许重试，否则已成功领取的预览会被误判为从未领取。
+0184-0683	apps/api/tests/test_training_saved_target_consumers.py:609-610;apps/api/tests/test_training_storage_consumers.py:729-730	-	持久写入记账必须使用独立数据库事务；物理传输成功或保存的输出归属正确，都不能证明账本已提交，不能用这两类断言替代对记账事务的验证。
+0184-0684	apps/api/tests/test_training_storage_adoption.py:152	-	生产数据集接管只能使用留存的 RLE，包括 gzip 引用；回读当前掩码来源会让接管结果取决于来源的后续状态，而不再对应原尝试留存的输入。
+0184-0685	apps/api/tests/test_training_storage_deletion.py:176	-	存储清理必须删除已提交意图所记录的桶里的对象；若执行时改用当前桶配置，配置变更会把既有删除意图重定向到另一个桶。
+0184-0686	apps/api/tests/test_training_storage_deletion.py:220	-	清理须先提交持久意图，再执行物理删除，最后另行提交结果确认。确认提交失败时，删除可能已经发生，但账本尚未确认，不能把两者视为同一结果。
+0184-0687	apps/api/tests/test_training_write_owners.py:123-124	-	认证下载必须保持只读，不能为旧版缓存助手的写入记账而让下载 API 触发写入；缓存助手的独立记账契约应直接在助手边界验证。
+0184-0688	apps/api/tests/test_training_write_owners.py:303-304	-	避免重复写入是所有者通过读取留存副本实现的，并非原始写入器会跳过已有对象。再次调用原始写入器仍会覆盖，不能把它当作只读复用。
+0184-0689	apps/api/tests/test_upload_retry_migration.py:442-444,627-628	-	命名空间迁移的排空检查把同库其他连接视为活跃调用方，不会豁免旧连接池；升级前不释放这些连接，会先触发排空拒绝，掩盖共享键历史导致的拒绝。
+0184-0690	apps/api/tests/test_upload_retry_migration.py:515-516,571-572	-	上传重试只能在前次尝试的结算提交后获准；同一未提交事务不能替代这个边界。只有结算明确证明未写入，才可释放两个存储定位键；仍活跃、结果不明或可能已写入时，两键继续占用。
+0184-0691	apps/api/tests/test_upload_retry_migration.py:602-603	-	上传结算只能处理本次尝试持有的许可及其记账窗口；不能释放另一活跃写入者持有的具体许可，也不能改写对方尚未结清的窗口。
+0184-0692	apps/api/tests/test_user_lifecycle_guards.py:75-77	-	交接后的自审判定须依据当轮冻结的贡献者记录，而不是当前评审人身份；否则未参与当轮贡献的接任者会仅因接手评审而被误判为自审。
+0184-0693	apps/api/tests/test_user_lifecycle_guards.py:192	-	用户删除防护不能以请求内 ORM 身份映射仍有对象来证明用户存在；映射可能早于实际删除，继续信任它会把数据库中已删除的用户当作仍存在。
+0184-0694	apps/api/tests/test_user_lifecycle_guards.py:225	-	离职命令失败时，回滚边界只包括命令自身的写入；不能用恢复旧状态的方式撤销请求前已经提交的竞争变更。
+0184-0695	apps/api/tests/test_users_role_matrix.py:93-95	-	超级管理员守卫统计数据库中所有未被预留的超级管理员，先前已提交的账号也计入；只统计当前操作涉及的账号会得出错误的守卫判定。
+0184-0696	apps/api/tests/test_users_visibility_scope.py:222	-	项目管理员能看见某个账号，不代表能看见该账号在辖区外项目的成员关系；按外部项目筛选也不能成为旁路，否则筛选结果会暴露该关系。
+0184-0697	apps/api/tests/test_users_visibility_scope.py:447,449,501	-	账号可管理性不能代替生命周期操作的项目范围检查；未分配员工确无派生项目时可放行，但存在辖区外关联时，即使没有 ProjectMember 行也必须拦截。
+0184-0698	apps/api/tests/test_users_visibility_scope.py:563-564	-	删除用户并交接待办任务时，接收人必须是受影响项目的成员；账号已启用且可管理并不能替代项目成员资格，否则任务会被交给项目外人员。
+0184-0699	apps/api/tests/test_users_visibility_scope.py:658-659	-	平台角色变更预览仅向超级管理员开放；对越出作用域的项目管理员须先拒绝，再停止处理，不能为了构造预览或拒绝响应而先披露目标用户详情。
+0184-0700	apps/api/tests/test_users_visibility_scope.py:708,719	-	项目管理员查询活跃用户时，只有显式指定 role=employee 才为分配弹窗纳入跨作用域候选；未指定 role 时须保持严格可见范围，否则转交接收人等选择器也会暴露这些候选。
+0184-0701	apps/api/tests/test_video_deletion_retirement_native.py:1021-1022	-	执行日志过期不等于已退役，仍可能引用输入 ID；不可变的 ready 计划只能指向第 2 代，不能因旧日志仍有输入引用就回指已废弃的对象根路径。
+0184-0702	apps/api/tests/test_video_derivative_seeds.py:221-222,347-348	-	派生种子收集器在有界 drain 中排除自己的许可，但等待结束后仍须确认它是唯一剩余许可；确认还有其他工作未结束就必须拒绝，不能反复重试以掩盖未排空。
+0184-0703	apps/api/tests/test_video_execution_checkpoints_native.py:254;apps/api/tests/test_video_execution_native.py:1003	-	有效执行租约优先于退役条件，检查点 claim 此时仍须返回 execution_busy。普通心跳 TTL 到期也不能单独证明工作已停止，否则仍在执行的任务会被误判为不存在。
+0184-0704	apps/api/tests/test_video_export_core_read_native.py:82;apps/api/tests/test_video_export_scope.py:198-199	-	视频导出入队和收集阶段只处理并冻结 owner 元数据，不探测或读取源文件字节；历史来源须使用经验证的定位符，不能用当前对象键推断，否则可能选错原始文件。
+0184-0705	apps/api/tests/test_video_export_inputs.py:507-508	-	首次聚合在其 MVCC 视图中看到的 JSON 大小，不能作为后续受保护加载的大小保证；两条语句之间字段可能变大，沿用旧检查会漏掉后一次读取的超限值。
+0184-0706	apps/api/tests/test_video_export_scope.py:288-289	-	可变的历史 Item JSON 不能作为源帧范围的授权依据；视频导出 Worker 必须在分配帧前核验所选原始文件的探测结果，否则可能分配超出实际源文件范围的帧。
+0184-0707	apps/api/tests/test_video_frame_service.py:253-254	-	剩余分段提交完成后开启新一轮审核，批量分配不得沿用上一轮选定的审核员作为限制，否则本轮合格的审核员会被上一轮的选择错误排除。
+0184-0708	apps/api/tests/test_video_frame_service.py:285-286,310-311	-	分段标识在数据集条目级共享，按分段受派人推导贡献者会把其他项目的人员算进当前任务。应将最后一个分段的实际提交人计为贡献者，并随审核轮次冻结。
+0184-0709	apps/api/tests/test_video_frame_service.py:714	-	帧顺位必须按呈现顺序确定；含 B 帧时，解码与呈现的先后不同，用解码顺位会把帧对应到错误的播放位置。
+0184-0710	apps/api/tests/test_video_frame_service.py:1352-1353	-	原生命令被拒绝后，回滚由调用方负责。跨请求复用 Session 的测试必须显式回滚，因为真实请求结束时的作用域清理在这里不会发生。
+0184-0711	apps/api/tests/test_video_frame_service.py:1443-1444	-	轨迹传播入口必须在检查分段锁之前以 400 拒绝 polyline，不能要求先认领分段再交给 runner；runner 会把它静默改写成空的 bbox 轨迹。
+0184-0712	apps/api/tests/test_video_input_ledger_migration.py:57	-	bo0225 的冻结产物须保留安装时的命名。契约测试应将当前文档转成历史拼写再比对；改写产物会让测试不再验证已安装版本的契约。
+0184-0713	apps/api/tests/test_video_input_ledger_retention.py:126-128	-	bo0313 只能按已知尝试判断前缀是否符合清扫条件；无法追溯到具体尝试的前缀必须保留，不能把归属未知当成尝试已被取代。
+0184-0714	apps/api/tests/test_video_input_selection_roles.py:72	-	输入清单返回的游标名必须先按协议规定的标识符格式校验，再作为 FETCH 的标识符使用；不能把返回值直接交给 SQL 解析。
+0184-0715	apps/api/tests/test_video_preannotation_live.py:423	-	预标注即使没有生成任何结果，也必须持久化完成回执；否则无法仅凭空输出区分正常完成与尚未完成。
+0184-0716	apps/api/tests/test_video_prediction_originals.py:75-76	-	原始视频 Item 的元数据尺寸只用于标识来源，不能作为推理尺寸；沿用该字段会把来源记录中的尺寸误当成实际视频尺寸。
+0184-0717	apps/api/tests/test_video_prediction_results.py:524	-	已保存声明通过预检，不能证明原始模型输出有效；即使其形状通过保存结果校验，也须单独验证原始输出的掩码，否则无效掩码仍可能通过。
+0184-0718	apps/api/tests/test_video_prediction_routes.py:509	-	检查视频预测任务锁时，找到调用者自己的锁不能提前放行；另一成员仍可能持有有效锁，提前放行会绕过该锁。
+0184-0719	apps/api/tests/test_video_prediction_routes.py:729-730	-	视频预测在部分写入后失败时，必须回滚本次事务中已插入的形状；仅阻止后续写入会让失败请求留下不完整的结果。
+0184-0720	apps/api/tests/test_video_prepare_lock_windows.py:321-322	-	每个样本块必须仅凭本块字节覆盖其声明范围内的全部帧，不能依赖相邻块补帧；固定为 60 帧时，第 0 块必须独立覆盖帧 0 至 59。
+0184-0721	apps/api/tests/test_video_prepare_lock_windows.py:352-353	-	标注写入先锁 Task 再更新 Project 计数，样本读取栅栏不能按相反顺序获取两者的锁，否则读写事务可能互相等待。
+0184-0722	apps/api/tests/test_video_prepare_lock_windows.py:450-451	-	暂存响应时的逐项校验不能替代最终的批次栅栏；后续项的 owner 一旦变化，必须拒绝整批交付，不能发送先前已通过校验的响应。
+0184-0723	apps/api/tests/test_video_prepare_lock_windows.py:527-528	-	收集器等待许可释放时不得持有 Item 写栅栏，否则许可持有方会被挡在最后一次读取上，无法完成读取并释放许可。
+0184-0724	apps/api/tests/test_video_restore_live.py:568-569,593-594	0160-coordinated-video-restore.md	恢复必须向实时 HTTP 控制器核对 epoch 和工作状态，不能只信备份快照；pg_dump 后准入的工作不会出现在恢复库里，却仍由控制器计入。
+0184-0725	apps/api/tests/test_video_restore_live.py:648-649	0160-coordinated-video-restore.md	读取隔离状态下的策略也会持有共享屏障；恢复必须等该读事务结束后才能提交恢复栅栏，不能因读取对象处于隔离状态而跳过等待。
+0184-0726	apps/api/tests/test_video_restore_live.py:712-714	0160-coordinated-video-restore.md	即使物理绑定和 record_bound 已完成，后续 owner 侧失败也必须回滚操作员事务；不能据此提交完成状态，而应保留原 prepared 回执和复制的 Job 事实供同一命令重试。
+0184-0727	apps/api/tests/test_video_restore_live.py:785	0160-coordinated-video-restore.md	已完成的退役记录不能随当前 epoch 更新而被覆盖或删除；后续合法轮换不是撤销退役，不能让已经完成的退役事实消失。
+0184-0728	apps/api/tests/test_video_restore_live.py:818-819	0160-coordinated-video-restore.md	恢复时必须轮换并使复制来的 bearer 凭证失效；复用同一数据库集群不构成例外，否则恢复前仍有效的旧令牌可能继续通过授权。
+0184-0729	apps/api/tests/test_video_restore_live.py:991-992	0160-coordinated-video-restore.md	重放已完成的恢复命令时，只返回其不可变回执，不再访问后端；完成前的安全状态读取也不能重做，否则重放会依赖事后状态。
+0184-0730	apps/api/tests/test_video_restore_native.py:297-299	0160-coordinated-video-restore.md	绑定密钥的 Native 授权须拒绝使用固定快照的隔离级别，包括 Serializable；这些事务在 realm 轮换后仍可能看到恢复前的授权状态。
+0184-0731	apps/api/tests/test_video_sparse_timetable.py:116	-	select_sparse_anchor_rows 除采样网格和末帧外还须保留网格外的关键帧；只留下规则采样点会让 smart-copy 丢失用于判断对齐的关键帧。
+0184-0732	apps/api/tests/test_video_sync_inference.py:319	-	冻结的原始输入必须保留其来源 owner 绑定；即使另一 owner 持有字节完全相同的视频，也不能按内容等价替换来源。
+0184-0733	apps/api/tests/test_video_sync_inference.py:369-370	-	MLBackendClient 的传输层必须使用已复制的请求事实和已捕获的 revision，不能在发送时再读取 ORM 注册记录；回滚可能已使该记录过期。
+0184-0734	apps/api/tests/test_video_tracker_input_lifecycle.py:237-238	0110-retained-tracker-video-inputs.md	必须独立核对输入是否覆盖已准入的 Job 范围，不能以采样行全部有效代替；五帧输入可合法采出 0、2、4，却仍缺少 Job 要求的第 5 帧。
+0184-0735	apps/api/tests/test_video_tracker_input_lifecycle.py:576	0110-retained-tracker-video-inputs.md	两套 GC 各自清扫归本 owner 所有的终态行，不能以另一套清扫已推进作为跳过依据；否则本 owner 的终态行仍会遗留。
+0184-0736	apps/api/tests/test_video_tracker_input_lifecycle.py:721	0110-retained-tracker-video-inputs.md	协作操作必须持有当前有效的锁，管理员身份不能替代持锁；否则管理员可在未获锁或锁已失效时执行受锁保护的操作。
+0184-0737	apps/api/tests/test_video_tracker_input_native.py:118-119	0110-retained-tracker-video-inputs.md	准入后可以重新路由执行后端，但不能重算已接受的提示词、种子、范围、来源或采样网格；否则改路由会改变已准入的工作内容。
+0184-0738	apps/api/tests/test_video_tracker_input_native.py:299-300	0110-retained-tracker-video-inputs.md	旧版批处理领取入口不能仅凭精确的 input ID 就消费 tracker 所有的输入行；否则会绕过所有权边界，抢先消费应由 tracker 专用入口领取的输入。
+0184-0739	apps/api/tests/test_video_tracker_input_roles.py:46-47	0110-retained-tracker-video-inputs.md	保留判定由 Assets 的清扫器通过 Labeling 内部投影取得，不能改由 Media 登录角色直接调用 Labeling；那会把内部保留查询暴露给不负责该清扫的角色。
+0184-0740	apps/api/tests/test_video_tracker_input_roles.py:145-147	0110-retained-tracker-video-inputs.md	供视频控制读写的列权限应授予承载 Native 函数和视图的 Labeling owner；不能为共享访问向其他模块 owner 开放 Celery 标识符，否则会暴露内部执行标识。
+0184-0741	apps/api/tests/test_video_tracker_jobs_list.py:493	-	discard 必须允许重复调用，不能把 staged_result 仍存在作为重试前提；首次成功丢弃就已清空该字段，按此判定会拒绝合法重试。
+0184-0742	apps/api/tests/test_video_tracker_multi_instance.py:123	-	没有 primary 标记时，_partition_results_by_instance 必须按数值比较数字 instance_id；按字符串排序会把「10」排在「2」之前，从而选错主实例。
+0184-0743	apps/api/tests/test_video_tracker_multi_instance.py:348	-	manual 表示几何来自人工种子，而不是该帧在轨迹中的位置。自动发现的实例即使刚建立轨迹，首帧也是 prediction，否则会把模型输出误记为人工标注。
+0184-0744	apps/api/tests/test_video_tracker_multi_instance.py:870,886,1014	-	text-multiplex 的窗口局部 ID 可在相邻窗口互换，不能充当全局身份。_associate_multiplex_window 遇到空窗或整窗 outside 且无几何时须保留上次可用边界，否则同一物体在下一窗重现时可能被另建轨迹。
+0184-0745	apps/api/tests/test_video_tracker_multi_instance.py:1225	-	原本要回填既有源标注的多源跟踪候选，若在接受前失去源关联，不能静默改为创建轨迹；新建并不等价于回填，会改变审阅操作的写入目标。
+0184-0746	apps/api/tests/test_video_tracker_multi_instance.py:1603;apps/api/tests/test_video_tracker_partial_review.py:582	-	部分审阅须依赖任务创建时捕获的源标注版本映射，不能从候选行的 source_instance_id 重建。旧任务缺少该快照时，即便仍可读取当前源标注，也无法判断它在建单后是否变更。
+0184-0747	apps/api/tests/test_video_tracker_multi_instance.py:1679-1680	-	review 阶段接受追踪结果时，须先验证冻结的审阅证据，再检查旧状态锁。两项检查不能交换：旧任务的贡献者无法确定时，应先返回 review_contributors_unknown。
+0184-0748	apps/api/tests/test_video_tracker_region_review.py:552-554	-	区域追踪的接受路由先检查阶段能力，不能把授权判断推迟到服务层状态检查。否则已完成且调用方缺少 annotation.write 的任务会返回状态锁错误，而非权限不足的 403。
+0184-0749	apps/api/tests/test_video_tracker_worker.py:231-232	-	追踪事件消费者只能依赖 JSON 载荷中的证据，不能回读 worker 内部的冻结映射；未写入事件的数据不会随事件跨过进程边界。
+0184-0750	apps/api/tests/test_video_tracker_worker.py:392-393	-	TrackerAdapter.propagate 的调用方通过一次 await 取得完整传播结果。即使异步生成器能产出同样的数据，也不能直接替换该方法，因为异步生成器须迭代，不能按此协议 await。
+0184-0751	apps/api/tests/test_video_tracker_worker.py:760,985	-	追踪 runner 按后端显式声明的 supported_trackers 匹配能力；不能以已配置后端代替支持声明，否则会把未声明支持目标追踪器的后端当作可派发实例。
+0184-0752	apps/api/tests/test_video_tracker_worker.py:764,989,1867	-	get_project_backend 优先考虑 project.ml_backend_pool_id，但配置池 ID 不等于为项目启用该池。enforce 模式必须验证项目与池的关联已启用，否则会给尚未对项目开放的池发放追踪路由。
+0184-0753	apps/api/tests/test_video_tracker_worker.py:1263	-	async_jobs 的终态须从追踪专表的最终状态同步，不能在两个写入点各自推导；独立判定可能让同一作业在两张表中呈现不同结局。
+0184-0754	apps/api/tests/test_video_tracker_worker.py:1572	-	可重试的追踪原始结果必须保留模型推断所得的 RLE。只保存转换后的持久化几何虽然足够写入标注，却会丢掉供重试使用的原始模型输出。
+0184-0755	apps/api/tests/test_video_tracker_worker.py:1840-1841	-	observe 模式的路由结果只用于记录选择证据，不能据此阻止派发或替换目标；实际执行仍使用旧逻辑按能力选出的实例，否则观察模式会改变执行行为。
+0184-0756	apps/api/tests/test_video_tracker_worker.py:2171-2172	-	固定运行时身份的 owner 不可用时，应保留重试机会，不派发、不改选实例，也不记录最终失败；改选会绕开身份绑定，终结作业则会把暂时不可用当成最终结局。
+0184-0757	apps/api/tests/test_video_window_journal_native.py:329	0158-video-window-journals-and-replay.md	接受部分取消的追踪结果只改变审核状态，不能把写入方记录的 cancelled 改为 accepted；认可已产出的结果并不表示写入执行已正常完成。
+0184-0758	apps/api/tests/test_video_window_recovery_live.py:1066-1067	0158-video-window-journals-and-replay.md	追踪任务重复投递时，既不能重开已结算的执行，也不能以本次回执覆盖原始写入方回执；重投不构成一次新的结算。
+0184-0759	apps/api/tests/test_video_workbench.py:991-992	-	已登记原件缺少当前 generation 时仍属准备中，不能与不受支持的独立旧版 Task 原件共用缺代处理；后者须返回 409，而不是表现为仍可等待就绪。
+0184-0760	apps/api/tests/test_video_workbench.py:1350-1352	-	相邻 outside 区间只有在来源相同时才能合并；跨来源合并会抹去 manual 与 prediction 的边界，恢复人工区间时可能连模型预测区间一起删掉。
+0184-0761	apps/api/tests/test_worker_signals.py:267-268,441	-	Celery 信号没有任务 ID 时，两个处理器都须在访问数据库前返回；有 ID 但找不到 async_job 时，失败信号也须静默结束。ml_health、cleanup 等任务本就可能没有对应记录，不能因此抛错或补造通知。
+0184-0762	apps/api/tests/test_workspace_access_reads_legacy.py:960	-	有效的旧平台角色令牌只证明账户身份，不证明当前工作区权限；若继续按令牌中的旧角色授权，会暴露账户已失去访问权的资源，此时应返回 404。
+0184-0763	apps/api/tests/test_workspace_backend_bindings_native.py:153	-	Workspace Native 绑定写入以调用方提交为可见性边界，不能在绑定操作内部提前提交；否则其他连接会提前看到变更，调用方之后回滚也无法保留原状态。
+0184-0764	apps/api/tests/test_workspace_class_rename_native.py:240-241	-	class_rename_apply 不能假定前序动作已经完成检查；直接调用时也须重新取得当前权限及配置的并发保护，否则会基于过期授权或已变化的配置改名。
+0184-0765	apps/api/tests/test_workspace_class_rename_native.py:380-381	-	0268 调用方序列化时须使用 0261 的精确键集合；替换成当前序列器会额外要求 guide_assets_revision，把旧调用契约误按新契约校验。
+0184-0766	apps/api/tests/test_workspace_class_rename_native.py:447-448	-	类名变更的初始 KEY SHARE 可与现有锁共存，只有后续升级排他锁才应返回 409。不能提前争用排他锁，否则锁冲突会掩盖本应先暴露的驱动整行解码错误。
+0184-0767	apps/api/tests/test_workspace_configuration_restore.py:569-570	0136-workspace-configuration-command-owner.md	已获准的 Workspace 响应回读须沿用原操作者快照；若套用命令所有方新增的当前账户校验，就会用新的校验条件重新裁定历史上已获准的回读。
+0184-0768	apps/api/tests/test_workspace_configuration_semantics.py:381-382	0136-workspace-configuration-command-owner.md	配置语义测试借用的事务包含调用方暂存的 ORM 用户写入，须使用模式所有者连接；若改用受限运行角色，该事务会因无权直接修改 users 而失败。
+0184-0769	apps/api/tests/test_workspace_consumer_profile_native.py:174	-	清理 Workspace 消费者测试的 LOGIN 角色时，应只撤除针对它的 ACL；不能用会连带删除其对象或转移所有权的清理方式，否则会改动受审计数据或现有对象归属。
+0184-0770	apps/api/tests/test_workspace_cross_frame_worker_live.py:185-187	-	跨帧 Worker 的验证须从实际生产入口创建 Job；用旧版最小消息代替，会绕过从 Scene、Task 和源数据事实生成不可变 Dataset 回执的路径。
+0184-0771	apps/api/tests/test_workspace_dataset_unlink_native.py:77	-	数据集解绑测试中的不可变审计及图关系记录不做逐行清理；以销毁专用临时数据库作为清理边界，避免为测试收尾而改写应保持不变的记录。
+0184-0772	apps/api/tests/test_workspace_directory_query_containers.py:113	0140-workspace-directory-query-owner.md	目录查询容器重启后的就绪探测必须重新读取宿主端口；Docker 可能重新分配临时端口，沿用重启前的地址无法验证当前容器是否就绪。
+0184-0773	apps/api/tests/test_workspace_e2e_native.py:354	-	Workspace 的合成 started 跟踪历史只证明有启动记录，不提供退役证据；不能仅凭该状态解除阻塞，否则会把未经证实的退役当成既成事实。
+0184-0774	apps/api/tests/test_workspace_export_worker_live.py:468-469	-	验证导出 Worker 两处投递记录均已消失前，应等待 broker 最终确认；活跃消费者可立即重新插入同一投递标签，提前观察到的删除不代表最终清理完成。
+0184-0775	apps/api/tests/test_workspace_export_worker_live.py:687	-	导出 Worker 测试请求终止后端后，退出过程仍可能短暂保有 advisory lock。轮询必须允许重试，不能把这段过渡期的锁争用当成恢复失败。
+0184-0776	apps/api/tests/test_workspace_export_worker_live.py:1285;apps/api/tests/test_workspace_import_cli_live.py:567-568	-	客户端断开不等于 PostgreSQL 已中断 SQL；受阻查询可能要到恢复执行才察觉断开。导出 Worker 测试须先解除阻塞再等后端退出，导入 CLI 测试注入的暂停则须有时限。
+0184-0777	apps/api/tests/test_workspace_member_authority_migration.py:62-63	-	重放冻结的 0262 迁移须匹配它当时引用的模式名；临时改名与迁移副作用须在同一事务内回滚，不能让为重放准备的名称或迁移改动留在当前模式中。
+0184-0778	apps/api/tests/test_workspace_member_authority_temporals.py:90-91	-	Directory 和 Project 的完整成员读取须沿用旧版顺序：先解码两个时间戳，再检查权限。若提前鉴权，时间戳解码与权限检查均会失败时，调用方将收到不同的结果。
+0184-0779	apps/api/tests/test_workspace_module_assembly_live.py:771-772	-	认证后的 Guide 传输由 API 存储所有方处理对象字节，发布与 CAS 仍由 Workspace 执行；取得字节传输权限并不意味着可以绕过 Workspace 更新发布状态。
+0184-0780	apps/api/tests/test_workspace_module_assembly_live.py:847-848	-	指定的 Workspace HTTP 所有方不可用时须返回 503；不能退回 ORM 写入，也不能改走其他 Workspace 服务，否则会绕过该操作的所有权边界。
+0184-0781	apps/api/tests/test_workspace_module_assembly_live.py:914-915,960-961	-	事务内的 Native Project 读取与维护接口的 Native 所有权检查都不依赖 Workspace HTTP 服务。改走 HTTP 会使本应在这些服务停机时仍可执行的操作随之失效。
+0184-0782	apps/api/tests/test_workspace_owner_transfer_live.py:183-184	0134-workspace-project-owner-transfer.md	所有权转移提供方重启后，同一操作 UUID 的重放须从 Native 不可变回执恢复已提交结果；若只在进程内去重，重启后便可能再次执行转移。
+0184-0783	apps/api/tests/test_workspace_project_access_query_compatibility.py:91-92;apps/api/tests/test_workspace_project_query_runtime.py:123	0141-workspace-project-access-query.md	API 的访问查询使用 Identity actor 快照，project_stats 和 project_readiness 则不读取所有者展示资料。为这些查询引入 profile 或 Briefs 调用，会让本来不需要这些资料的操作受资料服务可用性影响。
+0184-0784	apps/api/tests/test_workspace_project_access_step_restore.py:125-127	0141-workspace-project-access-query.md	Inference 拓扑写入须以 Project 行锁串行化，能力授权和模块数据验证器都应将 project_lock 归于 Inference；省去该锁会让同一 Project 的并发拓扑写入失去串行保证。
+0184-0785	apps/api/tests/test_workspace_project_query_compatibility.py:61-62	-	独立 Project 查询 provider 使用另一条连接，不能看到调用方事务中尚未提交的改动；不能用默认调用方事务中的探针结果证明这种跨连接读取具有相同的可见性。
+0184-0786	apps/api/tests/test_workspace_project_query_consumers_compatibility.py:33-35	-	非超管成员搜索没有 ORDER BY，等更新时间的 Project 或 Task 应按无序结果比较；补 UUID 次排序会把未约定的顺序变成契约。超管按名称排序的契约仍须保留。
+0184-0787	apps/api/tests/test_workspace_project_query_temporal_compatibility.py:56-57	-	Project 查询绑定可以采用不同 SQL 或内部异常包装，但不能改变公开状态码、内容类型或响应体；成功返回的 infinity 值同样必须保持兼容，不能因替换绑定而被改写。
+0184-0788	apps/api/tests/test_workspace_project_query_transfer_phases.py:128-129	-	Project 转移受理后，即使 actor 随后失去原角色，也应生成投影；再次鉴权会让已接受的操作无法返回投影，而复用受理快照会返回错误读取阶段的行内容。
+0184-0789	apps/api/tests/test_worktree_identity_runtime_role_native.py:484	-	恢复 worktree 所属数据库时须保留全局运行时 LOGIN 及其凭据侧车；数据库恢复不等于重置全局身份，否则现有运行时连接可能无法再用原凭据登录。
+0184-0790	apps/api/tests/test_yolo_family_identity.py:85	-	YOLO 初始化须复用完整的源训练尝试，不能以 serving 安装代替；仅有可供推理的安装并不满足以源训练尝试初始化的要求。
+0184-0791	apps/api/tests/test_yolo_family_identity.py:289	-	已受理的历史 YOLO pin 须按它绑定的不可变运行时验证；若套用当前运行时的新受理资格，后续资格变化就可能使原本有效的历史 pin 被拒绝。
+0184-0792	apps/api/tests/tracker_input_test_ports.py:614	-	Tracker journal 的 finish 只 flush，提交由调用方业务事务控制；若 finish 自行 commit，调用方随后就不能把 journal 变更与业务变更一并回滚。
+0184-0793	apps/api/tests/training_original_fixtures.py:93-94	-	登记训练源会切换代际并使旧图像摘要失效，因此须在切换完成后发布由本次源字节计算的宽高；提前发布可能让新宽高随旧摘要失效。
+0184-0794	apps/api/tests/video_derivative_fixtures.py:50-52	-	重新登记视频源会刷新不可变收据中的 replica.verified_at；后续夹具应读取已登记的源，不能把重新登记当成无副作用的读取，否则会改变后续观察所依据的源事实。
+0184-0795	apps/api/tests/workspace_import_cli_helpers.py:895	-	Workspace 导入 CLI 在单 CPU、64 PID 的容器中将 OpenBLAS 限为单线程；继承宿主机的线程配置可能耗尽容器的 PID 配额，导致线程或进程无法创建。
+0184-0796	apps/api/tests/workspace_import_cli_helpers.py:982	-	Workspace 导入夹具必须在 coordinator 有机会提交运行之前取得清理权限；若等提交后再取得，夹具可能留下自己无权清理的运行。
+0184-0797	apps/api/tests/workspace_worker_assembly_helpers.py:234-235	-	Worker 组装夹具须从宿主机访问固定的对象存储桥接地址；不能改为加入存储网络来获得连通性，否则会破坏夹具的单 peer 归属。
+0184-0798	apps/api/tests/workspace_worker_assembly_helpers.py:267	-	Worker 组装时，连接依赖服务不能以切换已发布套接字的网关为代价；这些套接字仍依赖原网关，改走新网关可能使已发布端点失去连通性。
+0184-0799	apps/api/tests/workspace_worker_assembly_helpers.py:624	-	Worker 使用 host 网络时与宿主机共用地址；不能用数据库观测到的客户端地址归属单个 worker，否则多个进程会被误认为同一来源。
+0184-0800	apps/api/tests/fixtures/identity_seed_selection_probe.py:17-18	-	Seed 选择探针不能只依赖早期守卫阻止写入；数据库地址必须指向不可达的本地端点，否则守卫回归时，探针可能实际执行 Seed 并写入数据库。
+0184-0801	apps/api/tests/fixtures/workspace_dataset_unlink_peer.mjs:75;apps/api/tests/fixtures/workspace_project_deletion_peer.mjs:21	-	Workspace 数据集解绑和项目删除的 JS peer 应原样转发 PostgreSQL 的 JSON 文本；若先解析再序列化，审计 ID 或回执中的大整数可能经 JavaScript Number 舍入。
+0184-0802	apps/api/tests/fixtures/workspace_membership_peer.mjs:1132	-	Workspace 成员旧版采样在同一事务内共用时间戳；跨端比较不能依赖同时间戳记录的返回顺序，否则会把合法的并列项重排误判为差异。
+0184-0803	apps/assets-catalog/src/yoao_assets_catalog/object_signer.py:227-228	0097-independent-assets-catalog.md	对象 URL 必须直接按外部 origin 做 SigV4 预签名；Host 属于规范请求，先对内部地址签名再替换主机，会使客户端发出的请求无法通过验签。
+0184-0804	apps/assets-catalog/src/yoao_assets_catalog/object_signer.py:307-309	0097-independent-assets-catalog.md	预签名不发起网络 I/O，不能把签名成功视为源可读；实际源读取须用指向固定 datasets origin 的独立客户端，并限制 I/O 和重试，避免已受理的导入无限等待。
+0184-0805	apps/assets-catalog/src/yoao_assets_catalog/spatial_workflow.py:485-486	0102-assets-spatial-state.md	新操作遇到无效的当前校准事实时，由 Native 写入端拒绝；同一稳定操作已有已提交收据时仍须按收据重放，否则事后失效的校准会把已提交结果变成错误。
+0184-0806	apps/assets-cleanup/src/yoao_assets_cleanup/native_gc.py:216	0096-assets-source-deletion-and-cleanup.md	不能用 httpx 响应的关闭标志判断响应流已妥善收尾；httpx 可能先设置标志，再在关闭流时失败，只看标志会把关闭失败当成成功。
+0184-0807	apps/assets-cleanup/src/yoao_assets_cleanup/native_gc.py:345-346;apps/assets-media/src/yoao_assets_images/native_storage_contract.py:778-779	0096-assets-source-deletion-and-cleanup.md,0106-independent-image-media-owner.md	某些 S3 对端把 multipart Prefix 当作完整对象名，按前缀列举会漏项；应在已捕获的桶内逐页有界扫描上传元数据，再由 Cleanup 按保存的前缀筛选，不终止范围外的上传。
+0184-0808	apps/assets-cleanup/src/yoao_assets_cleanup/native_gc.py:647	0096-assets-source-deletion-and-cleanup.md	清理页在签名准备阶段尚未执行对象 I/O；此时取消须按未开工处理，释放该页并保留上一游标，不能推进游标跳过尚未清理的页。
+0184-0809	apps/assets-mask-content/src/yoao_assets_mask_content/client.py:115-116;apps/assets-media/src/yoao_assets_images/client.py:96-97;apps/assets-media/src/yoao_assets_images/native_storage_client.py:114-115	0106-independent-image-media-owner.md,0111-independent-mask-content.md	Mask Content、图像和 Native 存储客户端不能只按 HTTP 状态或只按信封判定结果：非成功状态下须保留合法错误信封中的稳定错误码或类型化错误，但若收到成功信封，则判为协议错误。
+0184-0810	apps/assets-mask-content/src/yoao_assets_mask_content/codec.py:35-36;apps/assets-mask-content/src/yoao_assets_mask_content/storage.py:49-50	0111-independent-mask-content.md	Mask 存储入口和 RLE 编解码边界不能把 Pydantic 实例视为已校验；model_construct 可绕过验证，必须从普通值重验，避免固定键、大小或 RLE 约束失效。
+0184-0811	apps/assets-mask-content/src/yoao_assets_mask_content/gc_storage.py:105-106	0112-durable-mask-gc-fences.md	Mask GC 不能直接把提供方返回的超长键用作下一页游标；游标受 S3 键的 1024 个 UTF-8 字节上限约束，按字符数检查会放过超限的多字节键。
+0184-0812	apps/assets-mask-content/src/yoao_assets_mask_content/gc_storage.py:117-118;apps/assets-mask-content/src/yoao_assets_mask_content/storage.py:288-289,299-300	0111-independent-mask-content.md,0112-durable-mask-gc-fences.md	Mask GC 不把可推进游标的键当作删除授权：旧格式键、无关键及元数据无效的条目不得成为候选。LIST 缺少完整引用元数据本身不构成拒绝理由，但须核对精确键格式和摘要，输出前再校验规范键。
+0184-0813	apps/assets-mask-content/src/yoao_assets_mask_content/gc_storage.py:175-176,181-182	0112-durable-mask-gc-fences.md	Mask GC 的条件 PUT 标记授予一次性删除执行权；应答丢失时保留可能已写入的标记，不推定自己已获权。同一请求重放只核对回执，不再调用 DeleteObject。
+0184-0814	apps/assets-mask-content/src/yoao_assets_mask_content/gc_storage.py:202-203,237	0112-durable-mask-gc-fences.md	Mask GC 删除超时或返回无法识别的结果时，删除仍可能已成功；须保留不可变请求并维持未决，不能用当前对象状态推断先前在途的删除已经终结。
+0184-0815	apps/assets-mask-content/src/yoao_assets_mask_content/gc_storage.py:316-317	0112-durable-mask-gc-fences.md	按 S3 强一致性契约，Mask GC 在 HEAD 成功后若 GET 报不存在，应判为提供方或协议故障；不能把这组矛盾响应当成已确认的新缺失。
+0184-0816	apps/assets-mask-content/src/yoao_assets_mask_content/gc_storage.py:369-370	0112-durable-mask-gc-fences.md	Mask GC 的回执 PUT 失败可能发生在提供方接受写入之后，因而既不能据此认定未写入，也不能在写入结果未确认时宣称终态已持久化。
+0184-0817	apps/assets-mask-content/src/yoao_assets_mask_content/storage.py:219	0111-independent-mask-content.md	Mask 删除前须以 UTC 秒精度比较修改时间；HEAD 的 HTTP 日期不含小数秒，而 LIST 可能包含，直接全精度比较会把同一次修改误判为不匹配。
+0184-0818	apps/assets-mask-content/src/yoao_assets_mask_content_runtime/api.py:105,189,223	0111-independent-mask-content.md	Mask 内容与 GC 共用准入槽，须在读取、解析请求体前占槽，因为字节数受限的请求解析后仍可能显著膨胀。调用取消不代表在途 S3 工作停止，须等工作返回再释放槽位。
+0184-0819	apps/assets-mask-content/src/yoao_assets_mask_content_runtime/api.py:203	0111-independent-mask-content.md	Mask API 不应把存储提供方的异常原文作为客户端错误返回；即使错误类型可公开，原文也可能泄露对象键或凭据。
+0184-0820	apps/assets-media/src/yoao_assets_images/contract.py:534	0106-independent-image-media-owner.md	Pyramid 状态的 source_snapshot 必须来自所选 generation 捕获的源；若改读当前源快照，源更新后就会把旧 generation 的产物错误归到新源。
+0184-0821	apps/assets-media/src/yoao_assets_images/contract.py:893	0106-independent-image-media-owner.md	内部缩略图读取可从 progress 取得与源绑定的发布证明；公开进度不能直接复用该内部结构，须剥离证明，避免把内部读取所用的发布凭据暴露给调用方。
+0184-0822	apps/assets-media/src/yoao_assets_images/contract.py:1235-1238;apps/assets-media/src/yoao_assets_images_runtime/native_media.py:42	0106-independent-image-media-owner.md	Native 成员的原始 HTTP 回执须沿用 NativePyramidIoMember 的边界：保留带引号的 ETag（3–1024）及精确版本值（存在时 1–1024）；不能把字面值「null」归一为版本缺省。
+0184-0823	apps/assets-media/src/yoao_assets_images/contract.py:1244-1247	0106-independent-image-media-owner.md	PyramidMemberAbandon 的 written 只适用于已有完整精确回执的已写入成员；须保留状态及回执，只关闭该成员自身未关闭的存储操作，不能用它把 unknown 当成已确认写入。
+0184-0824	apps/assets-media/src/yoao_assets_images_runtime/config.py:24-25	0106-independent-image-media-owner.md	Native 单次操作的能力令牌仅允许可打印的非空白 ASCII；若接受空白或控制字符，请求头或 URL 解析器可能折叠这些字符，改变实际传递的令牌。
+0184-0825	apps/assets-media/src/yoao_assets_images_runtime/control.py:63-64	0106-independent-image-media-owner.md	冻结的 Native URL 策略寿命按 SQL 正整数范围保存；SigV4 的 604800 秒上限仅适用于实际发出的 URL，套到策略存值会拒绝本可保存的配置。
+0184-0826	apps/assets-media/src/yoao_assets_images_runtime/control.py:367-368	0106-independent-image-media-owner.md	Native 源在存储 I/O 后须重新核对属主授权，不能沿用 I/O 前的检查结果，因为授权可能在等待期间变化。对象身份已由属主观测时，只重读源记录，不再获取写入栅栏。
+0184-0827	apps/assets-media/src/yoao_assets_images_runtime/control.py:1218-1221	0106-independent-image-media-owner.md	属主缩略图入口仅分派旧式 overview；范围内没有写入方会把保存的 Native 键发布为属主缩略图指针，经此入口读取保存产物会依赖不存在的指针，须改用 generation 或 asset 引用。
+0184-0828	apps/assets-media/src/yoao_assets_images_runtime/control.py:1350	0106-independent-image-media-owner.md	保存的 Native 产物必须依据持久化读许可访问；普通 ready manifest 表示产物已就绪，不能替代该许可，复用其读取路径会绕过 Native 产物的授权边界。
+0184-0829	apps/assets-media/src/yoao_assets_images_runtime/control.py:1563-1564	0106-independent-image-media-owner.md	Native 读取缺少进程内签名器时应返回存储不可用；配置的缓存桶或其他签发方不能替代 Native 读取的存储和签发作用域。
+0184-0830	apps/assets-media/src/yoao_assets_images_runtime/control.py:1590-1592;apps/assets-media/tests/test_image_native_consumers.py:1122-1123	0105-independent-video-media-owner.md,0106-independent-image-media-owner.md	只有证实 Native 读取的 HTTP 响应及响应体均已关闭，才可结清持久读许可；逻辑完成不能代替物理关闭。无法证实关闭时保留许可作为屏障，且不得发布 URL。
+0184-0831	apps/assets-media/src/yoao_assets_images_runtime/control.py:1700-1701	0106-independent-image-media-owner.md	夹具读属主只按已保存产物的精确前缀授予读取；旧式 overview 键族或按命名规则重建的键不能证明对象属于该产物。
+0184-0832	apps/assets-media/src/yoao_assets_images_runtime/database.py:89-91;apps/assets-media/src/yoao_assets_images_runtime/worker.py:1243-1244	0106-independent-image-media-owner.md	普通和夹具 Native 尝试都只能写入分配时保存的前缀；成员身份须由执行器分配作用域及 SQL 中与准入操作精确匹配的回执证明。无法匹配时保留 unknown，不按键名补造回执。
+0184-0833	apps/assets-media/src/yoao_assets_images_runtime/database.py:158-159;apps/assets-media/src/yoao_assets_images_runtime/storage.py:625-626	0106-independent-image-media-owner.md	Native 源捕获必须与 worker SQL 状态转换锁定同一尝试，但捕获连接须独立于 worker 单槽池。只将带栅栏的捕获纳入 SQL 串行通道，避免物理 PUT 和精确版本回读占住该通道而失去重叠机会。
+0184-0834	apps/assets-media/src/yoao_assets_images_runtime/native_media.py:375-376	0106-independent-image-media-owner.md	Native 读取收到格式不合法的观测信息时，只将本次读取判为无效响应；不能用这份无效信息裁定写入验证结果。
+0184-0835	apps/assets-media/src/yoao_assets_images_runtime/native_media.py:433-434;apps/assets-media/src/yoao_assets_images_runtime/storage.py:553-554,566-568;apps/assets-media/src/yoao_assets_images_runtime/worker.py:1230-1232,1271-1272,1274-1275,1303	0106-independent-image-media-owner.md	Native PUT 可能已落盘；确认写入或收到响应头都不足以证明操作关闭。未证实 PUT、验证、响应体及客户端 I/O 均已收尾，或成员登记失败时，保留许可阻止退役；已收尾且已登记的 written 可结清，但不等于验证通过或对象不存在。
+0184-0836	apps/assets-media/src/yoao_assets_images_runtime/storage.py:878	0106-independent-image-media-owner.md	Native 根路径成员必须由 Native 退役流程结算；旧式 generation 清理不得接管，否则会绕过 Native 成员的结算边界。
+0184-0837	apps/assets-media/src/yoao_assets_images_runtime/worker.py:1247-1249	0106-independent-image-media-owner.md	回读或验证失败不等于 Native 成员未落盘，退役仍须结算已保存的成员。验证精确版本时应比对该次写入记录的 HTTP ETag，而不是源对象的 ETag。
+0184-0838	apps/assets-media/src/yoao_assets_images_runtime/worker.py:1367-1368	0106-independent-image-media-owner.md	Native 退役先准备有界候选批次，但不因选中而推进游标，以免把尚未观测的成员视为已处理；S3 观测在事务锁之外执行，不让远端等待延长持锁时间。
+0184-0839	apps/assets-media/src/yoao_assets_images_runtime/worker.py:1945	0106-independent-image-media-owner.md	libvips 子进程运行时，原子发布可能使扫描刚看到的临时瓦片消失；这不是最终瓦片缺失，不能据此判定网格错误。
+0184-0840	apps/assets-media/src/yoao_assets_input_manifests/contract.py:182	0105-independent-video-media-owner.md	封存 manifest 的成员结论记录封存时的结果，而非关联输入的当前状态；事后过期不能成为改写历史结论的依据。
+0184-0841	apps/assets-media/src/yoao_assets_inputs/client.py:117	0105-independent-video-media-owner.md	访问 S3 对象 URL 是对存储端点发起的请求，不得转发控制面凭据，也不得继承借用 HTTP 客户端中的 Cookie，以免把控制面会话交给对象端点。
+0184-0842	apps/assets-media/src/yoao_assets_inputs_runtime/storage.py:379-380	0105-independent-video-media-owner.md	部分 S3 对端在中止 multipart 上传后会使分页标记失效；清理已退役的尝试前缀时应重新列举首页，不能依赖旧标记继续扫描。
+0184-0843	apps/assets-media/src/yoao_assets_inputs_runtime/storage.py:382-383	0105-independent-video-media-owner.md	部分 S3 对端把 multipart Prefix 当作完整对象键，按前缀列举可能漏项。可改列整个桶，但中止操作仍必须限于属主签发的本次尝试前缀。
+0184-0844	apps/assets-media/src/yoao_assets_inputs_runtime/storage.py:441	0105-independent-video-media-owner.md	输入清理必须逐版本发出删除请求，不能替换为批量删除，以保留 MinIO 按对象版本施加的 IAM 条件。
+0184-0845	apps/assets-media/src/yoao_assets_inputs_runtime/worker.py:141	0105-independent-video-media-owner.md	输入 worker 丢失租约只证明不再持有租约，不证明 claim 已结算；未结算标记必须保留，不能随租约丢失而清除。
+0184-0846	apps/assets-media/src/yoao_assets_inputs_runtime/worker.py:200-202	0105-independent-video-media-owner.md	输入 worker 用受限能力复核当前源对象，但其观察不能替代 finish 在 SQL 中执行的权威属主与源栅栏；不为完成尝试而扩大 worker 的控制面或系统权限。
+0184-0847	apps/assets-media/src/yoao_assets_inputs_runtime/worker.py:235-236	0105-independent-video-media-owner.md	持久化短暂繁忙时，输入 worker 应用同一已验证 Blob 重试登记；重新复制当前源或再上传会让同一次尝试指向未经这次验证的版本。
+0184-0848	apps/assets-media/src/yoao_assets_media_runtime/control.py:69-70	0105-independent-video-media-owner.md	媒体任务是否已接受以持久化结果为准；消息代理唤醒失败只表示未能发出通知，不能把已接受请求改判为拒绝或处理失败。
+0184-0849	apps/assets-media/src/yoao_assets_media_runtime/control.py:254	0105-independent-video-media-owner.md	任务元数据读取不依赖缓存海报可用；对象存储故障使海报无法签名时只省略海报，不能让附属对象阻断元数据返回。
+0184-0850	apps/assets-media/src/yoao_assets_media_runtime/control.py:375	0105-independent-video-media-owner.md	force 是一次性强制选择命令，不是对象缺失修复应继承的选项；重新确保媒体时须清除 force，避免把修复变成命令重放。
+0184-0851	apps/assets-media/src/yoao_assets_media_runtime/control.py:406-407	0105-independent-video-media-owner.md	此前的失效处理不能保证对象仍在；若与对象再次消失发生竞态，第二次确认缺失时应返回可重试的 object_missing，而非已知失效的 URL。
+0184-0852	apps/assets-media/src/yoao_assets_media_runtime/fixture_native_outputs.py:307-308	0105-independent-video-media-owner.md	fixture-native 即使轮询时未指定任务，也必须有仍有效且绑定 PID 的业务认领准入；未指定任务不能成为绕过执行者绑定的入口。
+0184-0853	apps/assets-media/src/yoao_assets_media_runtime/original_read.py:108-109	0105-independent-video-media-owner.md	原始对象读取只有在提供方句柄确认收尾后才能结算持久操作记录；本地取消或进程退出不能证明远端已收尾，即使此后无法补做结算也要保留记录。
+0184-0854	apps/assets-media/src/yoao_assets_media_runtime/processing.py:765	0105-independent-video-media-owner.md	WebCodecs 包级诊断不是视频分块可播放的前提；不能把诊断采集失败当作编码失败而阻断可播放分块的产出。
+0184-0855	apps/assets-media/src/yoao_assets_video_inputs/authority.py:185	0105-independent-video-media-owner.md	TaskVideoBinding 的 task_version 只记录工作流来源；纳入源身份比较会把工作流版本变化误判为换源。
+0184-0856	apps/assets-media/src/yoao_assets_video_inputs/client.py:101-102;apps/assets-media/src/yoao_assets_video_inputs/tracker_client.py:100	0105-independent-video-media-owner.md	视频输入及 Tracker 客户端的公开异常和日志不得透传请求 URL、授权头或请求体；否则客户端报错可能泄露凭据或仍可使用的已签名源 URL。
+0184-0857	apps/assets-media/src/yoao_assets_video_inputs/http_contract.py:22-24;apps/assets-media/src/yoao_assets_video_inputs/tracker_http.py:21	0105-independent-video-media-owner.md	视频输入与 Tracker 的 HTTP 路由名是线协议值，必须用独立于原生操作表的白名单；直接从原生表派生会对外暴露采集、worker 工作事实、租约、隔离控制或清理等内部操作。
+0184-0858	apps/assets-media/src/yoao_assets_video_inputs/http_contract.py:117-118	0105-independent-video-media-owner.md	video.actor_id 标识准入 Job 的主体，request.actor_id 标识当前读取者；二者职责不同，作用域校验若要求相等，会拒绝主体不同但处于合法读取作用域的请求。
+0184-0859	apps/assets-media/src/yoao_assets_video_inputs/tracker.py:144-145	0105-independent-video-media-owner.md	Tracker 须在 PostgreSQL 或 HTTP 序列化之前递归拒绝非 JSON 值和非有限数值；只检查外层会使嵌套数据绕过校验，到持久化或编码时才失败。
+0184-0860	apps/assets-media/src/yoao_assets_video_inputs_runtime/processing.py:17	0105-independent-video-media-owner.md	视频解码只能消费已留存的输入字节；接受播放列表或外部取流协议会让解码器另取未留存的内容，脱离该次输入的字节边界。
+0184-0861	apps/assets-media/src/yoao_assets_video_inputs_runtime/worker.py:372-373	0105-independent-video-media-owner.md	响应丢失或发生竞争不能作为另开视频输入尝试的依据；应沿用原尝试及其实际测得的输出，避免换读其他源或生成另一版本。
+0184-0862	apps/assets-media/tests/test_image_native_consumers.py:1296-1297	0105-independent-video-media-owner.md	Native 引用的冻结策略以 SQL 正整数保存；签发 URL 时取当前策略、冻结策略与 604800 秒的最小值，防止策略收紧后仍按旧上限签发，也防止策略放宽后突破冻结上限。
+0184-0863	apps/assets-media/tests/test_image_native_saved_target_contract.py:274	0105-independent-video-media-owner.md	PyramidMemberReceipt 与可移植契约 NativePyramidIoMember 的字段长度上限须同为 1024；单边放宽或收紧会使同一成员回执在写入与契约校验时得到不同的判定。
+0184-0864	apps/assets-media/tests/test_image_worker.py:1586-1587	0105-independent-video-media-owner.md	Native 金字塔成员回执若已持久化，随后发现心跳丢失时，仍开放的写许可须按 written 结算；按放弃处理会把已有持久写入证据的许可记成未写入。
+0184-0865	apps/assets-media/tests/test_image_worker.py:1608-1610;apps/assets-source/src/yoao_assets_source_import/workflow.py:573;apps/assets-source/src/yoao_assets_source_runtime/workflow.py:484-485	0105-independent-video-media-owner.md	I/O 句柄收尾前不得结算：Native PUT 收到响应头不算完成，响应体须排空并成功关闭，否则回执仍未知且须阻塞。导入结算前须排空源流，原件创建结算还要求源端、请求体和目标端句柄均排空并关闭。
+0184-0866	apps/assets-source/src/yoao_assets_source/archive.py:86	-	归档校验须按 ZipFile._RealGetContents 的 ZIP64 归一化算法计算中央目录偏移；直接采用记录中的偏移，可能使校验定位到与实际读取不同的位置。
+0184-0867	apps/assets-source/src/yoao_assets_source/connections_workflow.py:355-359,396-398	0103-assets-connection-administration.md	连接发布须携带由所有者重验的策略摘要；配置未变虽不触发探测或位置修订，也不能绕过门控，获准编辑仍推进连接修订号。探测不持行锁，结束后须重读操作者和发布快照，否则并发重命名、删除、停用或降权可能无法阻止发布。
+0184-0868	apps/assets-source/src/yoao_assets_source/connections_workflow.py:405-406	0103-assets-connection-administration.md	连接编辑指定 API 密钥时须提供接受证明，并绑定密钥当前的完整权限范围、到期时间和已存验证器修订号；只证明密钥身份会让证明在权限或验证状态变化后仍被沿用。
+0184-0869	apps/assets-source/src/yoao_assets_source/connections_workflow.py:482;apps/assets-source/src/yoao_assets_source_runtime/workflow.py:494-495	0103-assets-connection-administration.md	调用返回失败不能代替收尾确认：连接传输未确认收尾时须保留台账行，原件物理写入结束但账本转换结果未知时也须保留创建责任，否则会提前结清尚未确认的责任。
+0184-0870	apps/assets-source/src/yoao_assets_source/connectors/probe.py:89-90	-	AnyIO 与连接器 SDK 须延迟到运行时加载；若在模块顶层引入，只使用可移植契约的应用也会在导入时被迫安装连接器执行依赖。
+0184-0871	apps/assets-source/src/yoao_assets_source/connectors/sftp.py:307	-	SFTP 列举须保留符号链接和特殊文件的可见性，但列举成功不代表可作为源对象打开；若复用列举资格作为打开资格，就会把链接或特殊文件当成普通源对象读取。
+0184-0872	apps/assets-source/src/yoao_assets_source/managed_original.py:183-185;apps/assets-source/tests/test_ingest_storage.py:345-347	-	固定身份读取或条件写入因自身前置条件不成立而被拒，或对象已消失，应判为源已变更，而非未知存储故障。条件创建冲突表示预留目标已不再为空，应将该目标记为 source_changed 并保留原有字节。
+0184-0873	apps/assets-source/src/yoao_assets_source/managed_original.py:232-233	-	创建分段上传的响应若在 UploadId 留存前丢失，准备结果须保持未知；编造 ID 或扫描其他写入方的前缀，都不能证明找到的是本次上传。
+0184-0874	apps/assets-source/src/yoao_assets_source/managed_original.py:429-430,564-565	-	即使读取固定 VersionId，也须在消费完字节并结束句柄后确认该版本仍是当前版本；下游并未普遍按不可变版本读取，否则后续可能读到与本次验证不同的字节。
+0184-0875	apps/assets-source/src/yoao_assets_source/managed_original.py:650-651	-	复制请求指定源版本时，响应缺少 CopySourceVersionId 就须中止；部分 S3 兼容服务不会回显该字段，仅凭请求参数不能确认实际复制的是指定版本。
+0184-0876	apps/assets-source/src/yoao_assets_source/upload_contract.py:46	-	上传相对路径须按 UTF-8 字节而非字符数限制为 897；这个预算为 UUID 发布路径留出了空间，否则相对路径通过校验后，最终 S3 对象键仍可能超长。
+0184-0877	apps/assets-source/src/yoao_assets_source_import/__main__.py:84-85	-	导入发布可能已提交但结果未知时，不得释放租约或推进游标；保留二者才能让后续 worker 重试同一次发布，而不是跳过尚未确认的发布。
+0184-0878	apps/assets-source/src/yoao_assets_source_import/storage.py:73;apps/assets-source/src/yoao_assets_source_runtime/managed_storage.py:74	-	导入存储和托管存储只借用由调用方按进程生命周期持有的平台客户端；单次物理操作结束时关闭客户端，会使共享它的后续操作失去可用客户端。
+0184-0879	apps/assets-source/src/yoao_assets_source_import/storage.py:382-383;apps/assets-source/src/yoao_assets_source_import/verification.py:180	-	导入中每条持久意图只允许一次提交：提供方响应丢失时不得让 SDK 自动重试完成操作，验证恢复也只能查询原操作状态；重新提交可能重复执行已经生效的操作。
+0184-0880	apps/assets-source/src/yoao_assets_source_import/workflow.py:84-85	-	导入清单除五万文件上限外还须受 16 MiB 传输预算约束；只限制文件数时，大量接近长度上限的连接器路径仍可能耗尽 worker 资源。
+0184-0881	apps/assets-source/src/yoao_assets_source_import/workflow.py:243	-	导入工作流遇到传输或未知错误时须以所有权未确认停止；继续执行可能在已失去租约后推进工作，直接判定丢失也会把未确认的传输结果当成所有权结论。
+0184-0882	apps/assets-source/src/yoao_assets_source_import/workflow.py:468-469	-	失败读取已消耗的源字节只在当前 worker 的租约被重新认领前计为尝试开销，不得写入持久 committed_bytes，否则会把没有成功提交的读取计为持久进度。
+0184-0883	apps/assets-source/src/yoao_assets_source_runtime/api.py:262	-	Source API 的校验失败也须遵守严格的上传响应契约；另用宽松的错误格式会使按上传契约解析响应的调用方无法一致处理校验失败。
+0184-0884	apps/assets-source/src/yoao_assets_source_runtime/database.py:498	-	连接池已注册 JSON/JSONB 编解码器，绑定 JSONB 参数须直接传对象；预先序列化会让编解码器再次编码文本，写入 JSON 字符串而不是预期的对象。
+0184-0885	apps/assets-source/src/yoao_assets_source_runtime/database.py:512-513	-	需要独立持久化的账本与栅栏写入须另取池连接；若复用调用方的操作事务，调用方回滚时会一同抹去本应保留的记录。
+0184-0886	apps/assets-source/src/yoao_assets_source_runtime/database.py:1259	-	准入 begin 的插入须放在显式事务里；若依赖自动提交，准入调用被取消后插入仍可能持久化，留下调用方未确认的准入。
+0184-0887	apps/assets-source/src/yoao_assets_source_runtime/managed_storage.py:624-625	-	取消期间须等物理任务结束再离开句柄作用域，否则仍在运行的任务可能访问已关闭的句柄；若任务最终失败，应传播实际失败而不是用取消掩盖它。
+0184-0888	apps/assets-source/src/yoao_assets_source_runtime/native_storage.py:110-111;apps/assets-source/src/yoao_assets_source_runtime/storage.py:64-65	-	SigV4 预签名须直接使用公网源站的 Host，不能对内部地址签名后再改写 URL。原生 S3 URL 还须采用 Botocore 签名时的小写主机名，否则执行器生成的 Host 可能与签名不匹配。
+0184-0889	apps/assets-source/src/yoao_assets_source_runtime/native_storage.py:165-166,610-611	-	原生 S3 签发能力以首次准入的截止时间为上限，不能因心跳续租而延后。计算 URL 有效期时须预留一秒，避免 Botocore 稍后取签名时间而使实际到期点越过该上限。
+0184-0890	apps/assets-source/src/yoao_assets_source_runtime/native_storage.py:640-641	-	原生存储从媒体缓存绑定取得已保存的桶，但须从注册连接校验端点身份和托管键命名空间；仅凭绑定选桶不能确认端点或键命名空间正确。
+0184-0891	apps/assets-source/src/yoao_assets_source_runtime/runtime.py:169-170	-	物理读取完成后，状态查询应凭持久回执重试结算；遇锁先返回 pending，不能重新读取，也不能把尚未确认提交的结算报为成功。
+0184-0892	apps/assets-source/src/yoao_assets_source_runtime/runtime.py:208-209,245-246	-	准入提交回执丢失后，只能用本请求在物理读取前生成的私有 nonce 恢复并结算该次准入；连接超时不能证明 Source 已截止，也不能替代该请求的恢复凭据。
+0184-0893	apps/assets-source/src/yoao_assets_source_runtime/workflow.py:194-195	-	独立持久化的责任记录须使用发布意图已经冻结的发布身份；若另行重读意图，独立事务可能看不到调用方尚未提交的记录。
+0184-0894	apps/assets-source/tests/test_import_storage.py:391-392	-	导入对象身份须去掉 ETag 的外层引号，但验证证据须保留提供方返回的原始 ETag；若复用归一化后的值作为证据，所有者的严格比对可能拒绝本来匹配的结果。
+0184-0895	apps/audit/conformance/node/query_provider.mjs:50	-	审计 Node 查询可用 Date 归一化时区偏移，但须单独保留亚毫秒位；仅靠 Date 转换会把 PostgreSQL 的微秒精度截到毫秒，使不同时间戳变成同一个值。
+0184-0896	apps/audit/conformance/node/read_provider.mjs:251	-	审计 Node 读取须把 PostgreSQL DATE 保留为日历值，而不是转成时间点；否则同一日期可能因运行环境的时区不同而显示成前一天或后一天。
+0184-0897	apps/identity/src/yoao_identity/account_manager.py:316-319	0118-independent-identity-account-commands.md	头像上传须以写入字节前冻结的头像引用为发布基准，明确无头像也算预期值；若在写完后重读基准，可能覆盖 I/O 期间的并发修改。预设或清除没有这段竞态，未指定预期时可用刚读到的账户值。
+0184-0898	apps/identity/src/yoao_identity/briefs_client.py:81-82	-	Briefs 客户端须与 IdentityGateway 一样，只在 URL 为空时选本地数据路径；非空 URL 已选定 HTTP 所有者，调用失败也不能回退，否则会由未选定的所有者处理请求。
+0184-0899	apps/identity/src/yoao_identity/briefs_manager.py:74-75	-	合法的 Core Briefs 请求应能生成合法的原生命令；若原生所有者仍拒绝，应按 IdentityUnavailable 处理，不能把所有者契约或配置不一致误报为调用方输入错误。
+0184-0900	apps/identity/src/yoao_identity/deactivation_postgres.py:276;apps/identity/src/yoao_identity/deletion_manager.py:135	0127-independent-identity-deletion-commands.md	停用到期和删除都须在提交前校验实际公开响应投影，原生回复通过不代表公开线协议也通过。删除还须在提交前校验所有者原生回复，以免状态已提交才发现任一响应不合法。
+0184-0901	apps/identity/src/yoao_identity/deletion_contract.py:85	0127-independent-identity-deletion-commands.md	删除原生命令必须显式携带 transfer_to_user_id，即使值为 null；公开适配器须把缺失请求体或字段归一化为该形式，不能把公开层允许的省略直接传给原生所有者。
+0184-0902	apps/identity/src/yoao_identity/invitation_contract.py:1566	0122-independent-identity-invitations-and-mail-v2.md	邀请预览可返回确定性的邀请 ID，但不能用令牌材料充当该标识；预览需要标识邀请，不应同时暴露可用于兑现邀请的凭据。
+0184-0903	apps/identity/src/yoao_identity/key_contract.py:424	0116-independent-identity-key-commands.md	创建密钥须先补齐默认值再确定回执作用域；若按原始请求区分，省略默认值与显式提交相同值的等价请求会落入不同作用域，无法共用回执。
+0184-0904	apps/identity/src/yoao_identity/offboarding_contract.py:110	0128-independent-identity-offboarding-commands.md	离职提交不能自行收紧公开契约对 preview_version 的长度限制；该值可能在 CAS 过期错误中回显，新增长度校验会让本应进入 CAS 检查的请求提前被拒绝。
+0184-0905	apps/identity/src/yoao_identity/offboarding_contract.py:391-393	0128-independent-identity-offboarding-commands.md	离职私有写入成功必须带有效的 Audit 行 ID；不能沿用旧公开响应允许 null 的规则，否则缺少必需审计事件的部分结果也可能被提交。
+0184-0906	apps/identity/src/yoao_identity/offboarding_contract.py:707-708;apps/identity/src/yoao_identity/offboarding_manager.py:159,279	0128-independent-identity-offboarding-commands.md	离职组装保留数据库行序：ProjectMember.role 沿用旧库排序，候选接收人沿用 SQL 的姓名、邮箱、ID 顺序。按角色文本重排事实或在构造角色选项时重排候选，都会改变旧接口的顺序。
+0184-0907	apps/identity/src/yoao_identity/offboarding_manager.py:862	0128-independent-identity-offboarding-commands.md	离职提交须先检查当前作用域，再校验预览令牌；两者同时不满足时，交换检查顺序会返回令牌错误，而不是旧接口优先返回的作用域错误。
+0184-0908	apps/identity/src/yoao_identity/preference_models.py:55-56,129,135	-	快捷键覆盖须按前端热键注册表的稳定命令 ID 及所属域放行，否则可能保存生效表不会读取的配置。显式 null 可重置未知命令 ID，以免严格校验让损坏的历史条目无法清除。
+0184-0909	apps/identity/src/yoao_identity/preference_models.py:114-115;apps/identity/src/yoao_identity/preferences.py:102,159-160,481-482	-	快捷键覆盖按命令条目合并，写入只接受支持的 schema；读取时原样保留损坏或较新子树，否则客户端无法识别、保留原覆盖，较新配置还可能被静默停用。识别损坏条目不能只看绑定结构，还须检查命令 ID 和绑定数量上限。
+0184-0910	apps/identity/src/yoao_identity/preference_models.py:221,223-225	-	右栏属性区等折叠态不能只随当前选框保存；需要跨设备恢复的 AI 待审、人工分组和讨论区折叠态须在严格偏好模型中声明，否则 PATCH 会返回 422，刷新后回到默认展开。
+0184-0911	apps/identity/src/yoao_identity/preference_models.py:311,313	-	旧偏好缺少邻帧叠加开关时按 crossFrameOverlayK>0 推导，才能保留原先的开关状态。帧数 0 只兼容旧关闭值，新界面关闭叠加应改独立开关，而非把帧数改成 0。
+0184-0912	apps/identity/src/yoao_identity/preference_models.py:318;apps/identity/src/yoao_identity/preferences.py:86	-	工作台边栏宽度按工作台宽度的百分比保存，不能把旧像素宽度当成比例。读取时须清除历史 JSONB 中的 leftWidth/rightWidth，不能因模型已移除字段就假定存量数据不再含它们。
+0184-0913	apps/identity/src/yoao_identity/preference_models.py:321-322	-	图片和视频共用 annotationVisual.ts 消费的视觉偏好，标签字号只保存基准像素；若保存某一模态缩放后的字号，另一模态读取后再执行自己的缩放就会得到错误字号。
+0184-0914	apps/identity/src/yoao_identity/preference_models.py:326,348-350	-	旧扁平 labelContent 须在模型校验前迁移，不能复制到所有类别：旧勾选只给图片 single/ai，ai 补 source 保留 ✦；视频 track 用 id/state 保留原显示，恒显的 class 不迁移。
+0184-0915	apps/identity/src/yoao_identity/preference_models.py:417	-	邻帧点云必须先用 ego 轨迹补偿自车运动再叠加；直接叠加会把不同帧的自车坐标系当成同一个，导致同一静态物体在相邻帧中错位。
+0184-0916	apps/identity/src/yoao_identity/preference_models.py:419	-	邻帧点云不能沿用邻帧框的帧数设置；点云叠加开销更高，共用设置会绕开点云自身的开销约束，因此 neighborPointOverlayK 独立限制为 1–3 帧。
+0184-0917	apps/identity/src/yoao_identity/preference_models.py:461-463	-	交互后端偏好迁至服务端以跨设备同步；引擎按项目、模型与参数按后端分桶，三张映射须深合并，否则更新单个项目或后端时会覆盖其他分桶。
+0184-0918	apps/identity/src/yoao_identity/preference_models.py:465-467	-	单框二次推理的 params/variants 须按 backendId:modelId 隔离，仅按后端保存会让同一后端的不同模型串用档位或阈值。平台不按模型 schema 强校验，旧键可忽略。
+0184-0919	apps/identity/src/yoao_identity/preference_models.py:506-507	-	构建版本与 changelog_seen_version 须按语义化版本比较，不能用字符串顺序判断新旧，空串表示从未确认。只有用户确认后才写回服务端，既不会把展示当成确认，也不会在其他设备重复提醒已确认版本。
+0184-0920	apps/identity/src/yoao_identity/preference_models.py:520-521;apps/identity/src/yoao_identity/preferences.py:92,532	-	workspace.namedPresets 须整图替换，递归合并会保留已删除的预设；整图写入以不透明 CAS 令牌防止旧快照覆盖。首次受保护写入前令牌为「0」，成功后使用 UUID 十六进制值；旧客户端仅在未存修订时可无令牌写入。
+0184-0921	apps/identity/src/yoao_identity/preferences.py:54	-	滚动发布期间须继续接收已知的扁平工作台更新键；仅接受新格式会拒绝尚未刷新的旧标签页发出的更新，即使这些键仍是已知偏好。
+0184-0922	apps/identity/src/yoao_identity/preferences.py:136-138	-	快捷键兼容转换须保留提交的元数据和字段存在性；若把省略与显式 null 一并抹平，会把无写入与显式提交混为一谈，并让 null 或畸形元数据绕过请求模型校验。
+0184-0923	apps/identity/src/yoao_identity/preferences.py:167-168	-	快捷键绑定写入前须补齐 modifiers 等默认字段，否则 exclude_unset 会把结构不完整的绑定存入 JSONB；无法归一化的原值仍须交给整模型校验。
+0184-0924	apps/identity/src/yoao_identity/preferences.py:195-196,199-202,345-346	-	不透明偏好按浏览器 JSON 往返结果判等，允许 Infinity 变 null 与 binary64 舍入，但布尔值不等同于数字。校验通过后须恢复库中原值，否则一次往返就会把浏览器归一化造成的损失写回数据库。
+0184-0925	apps/identity/src/yoao_identity/preferences.py:284-285	-	仅更新 namedPresets 且省略 engine 时，dockview@8 只用于通过模型校验，不能作为实际更新写入外层 engine，否则会把已存的较新布局降级。
+0184-0926	apps/identity/src/yoao_identity/preferences.py:300-302	-	预设兼容路径只允许原有超限清单向修复方向变更，不能借此新增键。不满足兼容条件时把原图交给模型校验，由模型返回数量超限的 422，不能先裁剪再放行。
+0184-0927	apps/identity/src/yoao_identity/preferences.py:317-320	-	预设重名兼容按冲突组判断：允许已有重名组缩为真子集，以便逐条删除修复；不能仅因原清单已有重名就放行新冲突，与不透明条目的冲突也不能忽略。
+0184-0928	apps/identity/src/yoao_identity/preferences.py:544-545	-	PreferenceValidationError 只以稳定的字段位置和消息作为可移植契约；不能直接转发 Pydantic 错误，否则原始输入和库特有的上下文也会进入对外结果。
+0184-0929	apps/identity/src/yoao_identity/recovery_manager.py:144-145	0119-independent-identity-recovery-and-mail.md	RecoveryManager 在构造时校验显式配置的邮件密钥；配置无效就让部署失败，不能回退到派生密钥，否则部署会在配置错误未被发现的情况下使用另一把密钥。
+0184-0930	apps/identity/src/yoao_identity/recovery_manager.py:172-173	0119-independent-identity-recovery-and-mail.md	RecoveryManager 的本地失败和原生 SQL 失败都经恢复响应解码器处理；本地分支若直接构造并返回错误，就会绕过按恢复操作区分的安全错误规则。
+0184-0931	apps/identity/src/yoao_identity/recovery_manager.py:240-241	0119-independent-identity-recovery-and-mail.md	原生 apply 必须绑定刚校验过的确切密码哈希，而不是对同一密码再做一次 bcrypt；新盐会产生不同哈希，导致应用的值不是通过前置校验的那个值。
+0184-0932	apps/identity/src/yoao_identity/workbench_workspace.py:218	-	布局树遍历必须有独立限额，不能用序列化字节预算代替；输出字节数不约束遍历工作量，只检查字节数不能拒绝遍历成本超限的输入。
+0184-0933	apps/identity/src/yoao_identity/workbench_workspace.py:321-322	-	整图替换允许分别省略 contexts 和 namedPresets；若要求两者同时提交，只负责预设或实时布局的写入方也必须重提交自己不负责维护的另一部分。
+0184-0934	apps/identity/src/yoao_identity_runtime/api.py:1486-1487;apps/identity/tests/test_offboarding_runtime.py:108-109	0128-independent-identity-offboarding-commands.md	私有离职路由须为旧版 stale 响应原样回显预览版本，包括任意长度和 NUL。不能加 64 KiB 请求体上限，否则本应解码后再检查 owner 可用性的请求会提前变成 400。
+0184-0935	apps/identity/src/yoao_identity_runtime/mail_worker.py:100-101,438-439;apps/identity/src/yoao_identity_runtime/mail_worker_v2.py:85	-	邮件令牌派生失败对外只返回 derivation_unavailable；两个邮件 worker 的轮询重试也不记录驱动或 SMTP 异常细节，避免把密文、密钥、令牌或连接凭据带入响应和日志。
+0184-0936	apps/identity/src/yoao_identity_runtime/mail_worker.py:250-251	-	SMTP 进入阻塞的 DATA 阶段后不能安全取消；令牌到期或续租失败时让发送结束，但不写完成状态，不能让失去数据库租约的 worker 确认完成。
+0184-0937	apps/identity/src/yoao_identity_runtime/mail_worker.py:344-345	-	构造邮件后即释放 worker 持有的原始 bearer 令牌引用；SMTP 发送只需临时消息，继续持有原始引用会让凭据在消息之外多保留一份。
+0184-0938	apps/inference/src/yoao_inference/backend_endpoint.py:119-120	-	SQL 端点快照必须记录捕获当时的 auth_revision，仅进程内测试替身可以省略。不能事后用注册表当前值回填，否则凭据轮换后会把旧快照归到新代次。
+0184-0939	apps/inference/src/yoao_inference/backend_probe_manager.py:66-67,112	0149-credential-owning-workspace-backend-probe.md	探测快照保留 JSONB 原值，旧格式只在既有探测边界转换。配置或能力投影失败不能推翻成功的探测，否则无法投影的后端会被误报为不可用。
+0184-0940	apps/inference/src/yoao_inference/backend_transport.py:243	0148-inference-backend-transport-and-deletion-dependencies.md	mask_input_next 是后端下一轮精修用的 base64 低分辨率 logits，不是可重建的显示掩码；平台只透传，前端原样回带，否则下一轮收到的精修输入就变了。
+0184-0941	apps/inference/src/yoao_inference/backend_transport.py:300	0148-inference-backend-transport-and-deletion-dependencies.md	旧协议的 task→type 转换只在传输层进行；若把转换提前到持久化，旧后端的线缆格式就会进入规范 context，使读取方不得不再兼容两种格式。
+0184-0942	apps/inference/src/yoao_inference/backend_transport.py:312-313	0148-inference-backend-transport-and-deletion-dependencies.md	托管凭据由 API 所有方在捕获端点快照前解析；传输层收到的 managed:<provider> 对应值必须已可直接发送，不能把尚待解析的引用当作令牌发给后端。
+0184-0943	apps/inference/src/yoao_inference/backend_transport.py:399-405,421	0148-inference-backend-transport-and-deletion-dependencies.md	健康探测保留 compute 供总览和 PerfHud 识别静默回退 CPU，但不能据此推断 residency；后者反映各池和会话的实际驻留，用配置意图代替会把未驻留误报为已驻留。
+0184-0944	apps/inference/src/yoao_inference/backend_transport.py:475	0148-inference-backend-transport-and-deletion-dependencies.md	评估请求已完成时，后续 seal 必须返回该请求冻结的响应；不能重新生成响应，否则重复封存可能让调用方拿到与同一请求既有结果不同的内容。
+0184-0945	apps/inference/src/yoao_inference/backend_transport.py:562	0148-inference-backend-transport-and-deletion-dependencies.md	批量推理有可用的 inference_time_ms 时应采用后端值，不能一律用端到端计时，否则会把 I/O 算成推理耗时；仅在后端值不可用时回退。
+0184-0946	apps/inference/src/yoao_inference/backend_transport.py:640-641	0148-inference-backend-transport-and-deletion-dependencies.md	连接错误和超时必须在退出 dispatch 上下文后才转换为 502；过早转换会遮蔽 authority 所需的原始异常，使其无法识别执行结果不确定的请求。
+0184-0947	apps/inference/src/yoao_inference/capabilities.py:26-28;apps/inference/src/yoao_inference/capability_registry.py:337-338,370-372,465	-	能力归一化与 GET /v1/ml-capabilities/protocol 共用 capability_registry 的词表和任务几何默认值，避免接受值与公布值分叉。模态词表只反映 derive_modalities 的实际产出，不提前公布 text 或 point_cloud。
+0184-0948	apps/inference/src/yoao_inference/capabilities.py:61-62,158-159,259	-	supported_inputs 与 supported_prompts 分开声明，不能用 prompt 类型覆盖后端明确支持的投递形态。只有缺报时才合成兼容默认值；含 requires_input 的 prompt 时不默认投递 crop。
+0184-0949	apps/inference/src/yoao_inference/capabilities.py:168-169	-	对 text_driven_trackers（如 sam3_video），不能把种子框视为足够的 propagate 输入；还需要文本或 exemplars，因此前端不能沿用仅提供种子框的交互。
+0184-0950	apps/inference/src/yoao_inference/capabilities.py:171-172	-	max_window_frames 必须公布平台与后端限制的交集；只取一侧会让前端提供另一侧不允许的窗口，用户选中后仍会在创建作业时被拒绝。
+0184-0951	apps/inference/src/yoao_inference/capabilities.py:186-187	-	VariantSelector 只在用户未选且项目未设 default_variants 时采用后端默认值；若无条件按后端声明初始化，就会覆盖已有选择或项目默认值。
+0184-0952	apps/inference/src/yoao_inference/capabilities.py:191-192	-	协议 v2.2 缺省 composition 为 atom，但自管复合模型须显式声明；下游只组合 atom，不能把已包含内部编排的模型当作一个原子阶段再次组合。
+0184-0953	apps/inference/src/yoao_inference/capabilities.py:195-196	-	闭集检测器的原生类别表要等对应任务模型经 warmup 或 predict 加载后才由 /setup 提供；不能把冷模型未返回类别表解释为没有可用类别。
+0184-0954	apps/inference/src/yoao_inference/capabilities.py:198-200	-	前端按显式 exemplar_capabilities 限制控件，例如不为 YOLOE 显示负框；缺报则按全支持兼容旧声明，不能把未声明等同于明确禁用。
+0184-0955	apps/inference/src/yoao_inference/capabilities.py:215	-	权重制品身份必须同时依据明确的 weights_release_id 和有效的 weights_sha256；旧版权重版本标签不能证明具体制品，仅凭标签会把未证实相同的权重视为同一制品。
+0184-0956	apps/inference/src/yoao_inference/capabilities.py:367-368	-	ModelCapability 对额外字段保持宽容，但归一化须在模型市场用 info 诊断暴露未知键；硬拒绝会破坏兼容性，静默忽略则会让拼写错误看起来已被接受。
+0184-0957	apps/inference/src/yoao_inference/capabilities.py:454-455	-	服务池成员是否可互换只比较稳定的兼容性字段与模型身份字段；不能比较整份声明，否则运行时或展示元数据变化也会把等价成员判为不兼容。
+0184-0958	apps/inference/src/yoao_inference/capabilities.py:472-473	-	受管后端的全部冻结字段必须由远端显式声明；不能用 Pydantic 默认值补齐，否则部分或旧版声明会被误认为已明确满足受管条件。
+0184-0959	apps/inference/src/yoao_inference/capability_registry.py:480-481	-	prompt 是否需要输入与是否走交互路由不能共用一个分类；text 需要输入但不走交互路由，而预留的 scribble、sketch、mask 属于交互路由。
+0184-0960	apps/inference/src/yoao_inference/execution_pipeline.py:603-604	-	执行编排保留 Native 父标注的原始 RLE，并随根预测传递已验证的可移植掩码；若只传预测结果而丢弃掩码，下游裁剪或构造 prompt 就失去精确边界。
+0184-0961	apps/inference/src/yoao_inference/health.py:161-162	-	off 和 observe 模式仍按 legacy 实例分派；实例漂移时先停用服务池，显式选定等价 legacy 实例后再恢复，不能把漂移当成自动切换分派目标的授权。
+0184-0962	apps/inference/src/yoao_inference/health.py:242,256-257,270	-	health_meta 的冻结快照用于模型谱系取证，证据时间戳须覆盖同一次 /health 与 /setup 观测。设备探测失败或缺报时不沿用旧设备快照，避免把历史设备状态当作本次证据。
+0184-0963	apps/inference/src/yoao_inference/health.py:328-329	-	健康写入按 registry → resource → try-global → membership 加锁，成员晋升也保持 resource → try-global 的相对顺序；反转共用锁的顺序会使两条路径互相等待。
+0184-0964	apps/inference/src/yoao_inference/health.py:335	-	健康写入提交时按探测开始时间判定新旧，仅在缺失时使用观测时间；若按完成顺序写入，较早开始但较慢的 /setup 会覆盖与之重叠的较新观测。
+0184-0965	apps/inference/src/yoao_inference/health_data_postgres.py:249-250,392	-	即使健康读取最终使用身份映射中的缓存值，Native 也不能跳过整行物化；asyncpg 未注册 codec 时，仍须解码整行的 JSON/JSONB 文本，否则缓存命中会掩盖原 ORM 读取会遇到的解码错误。
+0184-0966	apps/inference/src/yoao_inference/health_data_postgres.py:300-301	-	健康快照序列化须保持能力指纹的规范排序，不能随输入次序变化；NaN/Infinity 的 JSONB 序列化须留到 Native flush，提前编码会把失败移出原有的 flush 边界。
+0184-0967	apps/inference/src/yoao_inference/health_data_postgres.py:446	-	写入 health_meta 时，Python None 须按 SQLAlchemy 的 JSONB 默认语义编码为 JSON null；直接绑定为 SQL NULL 会改变列值的空值语义。
+0184-0968	apps/inference/src/yoao_inference/health_observation_manager.py:136-137	0152-credential-owning-health-observations.md	健康观测不能把有限的零或负超时提前判为配置错误；这类值须交给 httpx 传输层处理，否则会把传输层行为改成观测入口的拒绝。
+0184-0969	apps/inference/src/yoao_inference/health_observation_manager.py:155-156	0152-credential-owning-health-observations.md	健康观测中的 JSON 整数转换失败须在构造阶段以普通 ValueError 抛出；延迟到发起健康 I/O 后处理，会改变调用方观察到的失败阶段。
+0184-0970	apps/inference/src/yoao_inference/model_capability.py:40	-	不能仅凭 supported_trackers 就按普通 tracker 的输入发起 propagate；列在 text_driven_trackers 中的能力必须提供 text 或 exemplars，否则请求缺少传播所需输入。
+0184-0971	apps/inference/src/yoao_inference/model_capability.py:46	-	多轴 variant 的合法域不是笛卡尔积时，后端必须用 variant_combinations 显式列举；前端自行组合各轴会在目录中展示后端不支持的变体。
+0184-0972	apps/inference/src/yoao_inference/model_capability.py:54	-	协议 v2.2 须把未声明 composition 的后端视为 atom；若缺省解释为内部编排，未更新的旧后端也会被当成编排能力。
+0184-0973	apps/inference/src/yoao_inference/model_execution.py:217	-	调用方的 before_dispatch 必须先于传输信号量和 GPU 准入；否则本应被预检拒绝的请求会先排队或占用执行配额。
+0184-0974	apps/inference/src/yoao_inference/pipeline_client.py:296	0146-inference-named-pipeline-owner.md	关闭 Pipeline 客户端属于清理，不能改变主操作的结果；关闭失败不得把已取得的成功结果改报为失败，也不得掩盖主操作的原始异常。
+0184-0975	apps/inference/src/yoao_inference/pipeline_contract.py:374-375;apps/inference/src/yoao_inference/pipeline_values.py:79-80	0146-inference-named-pipeline-owner.md	Pipeline 时间解码须接受共享 PostgreSQL 解码器输出的无时区 datetime 极值；字符串仅接受对应的无偏移精确 ISO 拼写，不能把带 UTC 偏移的形式当作等价哨兵。
+0184-0976	apps/inference/src/yoao_inference/pipeline_manager.py:146,172-173;apps/inference/src/yoao_inference/pipeline_server.py:179-180;apps/inference/src/yoao_inference/pipeline_values.py:51-52	0146-inference-named-pipeline-owner.md	Pipeline 事务所有者须在命令物化阶段保留旧驱动的通用 500 边界，包括超长 JSON 整数触发的 ValueError；不能仅凭值是 JSON null、标量或已被驱动解码，就绕过原会失败的命令处理。
+0184-0977	apps/inference/src/yoao_inference/pipeline_manager.py:187-188,201-202;apps/inference/src/yoao_inference/pipeline_postgres.py:375	0146-inference-named-pipeline-owner.md	仅当事务体已完成、本方负责提交且退出时失去提交确认，才应通过状态 RPC 查明结果，因为 COMMIT 可能已到达 PostgreSQL。进入或执行步骤失败仍属不可用，已确认的提交或回滚不是未知结果。
+0184-0978	apps/inference/src/yoao_inference/pipeline_manager.py:461-462	0146-inference-named-pipeline-owner.md	清除同项目的默认项后，脏字段比较须把已加载行的 is_default 视为 false；若仍用清除前的 true 作基准，显式设回 true 会被误判成无变化而漏写。
+0184-0979	apps/inference/src/yoao_inference/pipeline_manager.py:898-899	0146-inference-named-pipeline-owner.md	Pipeline 在阶段校验后须直接遍历存储的 stages；把 JSON null 归一化为空列表会吞掉原有的 TypeError，把存储异常误作没有阶段。
+0184-0980	apps/inference/src/yoao_inference/pipeline_manager.py:948-949	0146-inference-named-pipeline-owner.md	Pipeline 的 pool 查询保留无序结果，完整解码后才取首项；追加排序会改变选中项，只解码首项则会掩盖其余返回行原本会触发的解码错误。
+0184-0981	apps/inference/src/yoao_inference/pipeline_manager.py:1031-1032;apps/inference/src/yoao_inference/pipeline_postgres.py:223-224	0146-inference-named-pipeline-owner.md	Pipeline 的 port 保留驱动原始返回值，由 manager 在采信数据前解码并绑定步骤信封；外层信封已解码不代表存储的 JSONB 子字段已物化，不能据此跳过内层解码。
+0184-0982	apps/inference/src/yoao_inference/pipeline_postgres.py:364	0146-inference-named-pipeline-owner.md	Pipeline 事务体失败时尚未尝试 COMMIT，回滚只是清理；若用回滚错误替换原异常，调用方会丢失导致事务中止的真正原因。
+0184-0983	apps/inference/src/yoao_inference/pipeline_server.py:350	0146-inference-named-pipeline-owner.md	Pipeline 服务端关闭监听后须先让出一次事件循环，再检查并等待处理器集合；否则已接收但尚未登记的回调可能不被纳入等待。
+0184-0984	apps/inference/src/yoao_inference/pipeline_server.py:412	0146-inference-named-pipeline-owner.md	Pipeline 服务端的通用 500 不得携带驱动、请求或凭据诊断；直接透传底层异常会把内部细节甚至凭据暴露给调用方。
+0184-0985	apps/inference/src/yoao_inference/pool_capability.py:28-31,56-58,271-272	-	Pool 路由指纹从规范化的 models 读取白名单字段，扁平分支只用于旧快照；否则新快照可能被算成空能力，运行期或展示变动也可能误改指纹。未声明托管兼容集合时保留旧指纹，非空集合须纳入，因为它改变可服务的检查点范围。
+0184-0986	apps/inference/src/yoao_inference/probe.py:35;apps/inference/src/yoao_inference/registry_ingress.py:204	0154-registry-ingress-and-environment-sync-owner.md	setup 探测须在发请求前复现 MLBackendClient 的 URL 与并发配置转换；Registry ingress 只容忍探测失败，若把构造也纳入容错，就会放行原本无法构造客户端的配置。
+0184-0987	apps/inference/src/yoao_inference/request_tracking.py:60-61	-	路由结算未获确认时，只能视为持久化工作尚未结清，不能认定推理未执行；应保留已收到的推理结果，不得为补结算而重发 HTTP 请求。
+0184-0988	apps/inference/src/yoao_inference/request_tracking.py:110	-	请求跟踪的准入钩子须在调用方的请求钩子之后运行；若先认证，后续钩子仍可改写方法或路径，导致认证的不是最终发送的请求。
+0184-0989	apps/inference/src/yoao_inference/request_tracking.py:140	-	同一次 dispatch 一旦通过准入，后续重定向被拒也不能把它判为从未发送；重定向失败并不能否定初始请求已发出。
+0184-0990	apps/inference/src/yoao_inference/restore.py:205-206	-	restore 的 prepare 确认可在提交时丢失，恢复查询只能采信 restore ID 与命令摘要均匹配的公开状态；只按 ID 查找可能把其他命令的状态误认作本次提交。
+0184-0991	apps/inference/src/yoao_inference/restore.py:271-272	-	restore 的 prepared 是跨调用生效的持久化全局写入屏障；下次显式调用须复用全部已持久化的控制 ID，不能把续作当成一次全新的 prepare。
+0184-0992	apps/inference/src/yoao_inference/restore.py:275-277	-	持久化的 bound 上下文只记录历史观测；Native 原子收尾前须重新读取每个目标控制器，否则冷启动或路由变更后可能拿过期的退役证明完成收尾。
+0184-0993	apps/inference/src/yoao_inference/restore_postgres.py:58	-	restore 的 PostgreSQL 端口须在连接前编码实际传输的 JSON 并检查限界；只检查输入对象或推迟校验，会让无法编码或超限的命令先尝试建立数据库连接。
+0184-0994	apps/inference/src/yoao_inference/roi.py:278-279	-	深层 ROI 裁剪可能只剩极小图块，上采样后画质仍差；短边低于阈值须计入 skipped_geometry，由 on_failure=keep_parent 保留父框，阈值为 0 时不启用该筛选。
+0184-0995	apps/inference/src/yoao_inference/roi.py:435-436	-	ROI 多边形的外环为空时须整项丢弃，即便仍有洞也不能保留；空 points 可能触发下游 ingest 422，或渲染成只有洞的异常形状。
+0184-0996	apps/inference/src/yoao_inference/roi.py:467-470,511-513	-	ROI 按整个裁剪批次判定框的坐标口径，按整个 shape 判定多边形各环的口径；任一分量大于 1 即按百分比解释。逐框或逐环判断会把同一口径下靠近原点的小框或小环误当成归一化坐标。
+0184-0997	apps/inference/src/yoao_inference/routing.py:85-87,1369-1371;apps/inference/tests/test_routing.py:63-64	-	Native 准入快照冻结完整注册表行，包括数据库维护的认证轮换版本 auth_revision。解码时若把它当作无关附加列忽略，就无法校验准入绑定的是哪一版认证配置。
+0184-0998	apps/inference/src/yoao_inference/routing.py:329-330	-	video_acquire 的成功回执只能在校验当前 claim 后重放。竞争重试沿用同一 scope 标识，因此仅凭标识命中旧回执，不能证明重试方仍持有当前 claim。
+0184-0999	apps/inference/src/yoao_inference/routing.py:945-946	-	Native 必须在取得持久控制占用的同一 XID 内复查拓扑，不能用事务外的读取代替；同时保留显式前置读取，否则 API 原本在取得控制前报告的拓扑错误会移到获取占用的阶段。
+0184-1000	apps/inference/src/yoao_inference/routing.py:1052;apps/inference/src/yoao_inference/routing_backend_control.py:304-305	-	路由状态未知或后端控制传输失败都不能作为释放 Native 持久控制占用的依据，传输失败时命令仍可能已送达。未知状态可用新命令 ID 查询并续办；传输失败则用原命令 ID 对账。
+0184-1001	apps/inference/src/yoao_inference/routing_postgres.py:305-306	-	Postgres 视频 scope 适配器须在调用方提交事务前校验回复，不能只交给 manager 校验，否则无效回复可能到提交后才被发现。适配器还须保留原始信封，供 manager 独立验证。
+0184-1002	apps/inference/src/yoao_inference/routing_runtime.py:114-115	-	路由与 scope retirement 的 owner API 必须挂在同一已配置运行时上。不能只在 HTTP 包装层接入 retirement，因为服务可能直接接收底层 routing manager，绕过该包装层。
+0184-1003	apps/inference/src/yoao_inference/scope_retirement_manager.py:310-312,355-356	-	Scope retirement 的 prepare 确认可能在提交时丢失，后端异常也不意味着回复未被接受。恢复只读一次 status 并返回持久化的公开阶段，不就地重发后端控制；需要续办时，由下一次显式 execute 从 prepare 继续。
+0184-1004	apps/inference/src/yoao_inference/gpu/client.py:62	-	GPU 客户端会重新序列化响应正文，并经另一条 HTTP 连接发出响应。只对上游正文或连接有效的响应头不能原样转发，否则声明的正文长度或连接语义可能与实际响应不符。
+0184-1005	apps/inference/src/yoao_inference/gpu/control_preparation.py:271-272,342-343	-	GPU 成员激活或控制 epoch、令牌有效范围推进前，包括产生新的 reset 或 mode 意图，必须先撤销该卡缓存的就绪声明。撤销失败就不能持久化变更，否则旧声明会在控制范围改变后继续可见。
+0184-1006	apps/inference/src/yoao_inference/gpu/dispatch.py:1433	-	GPU dispatch 的每次控制发送都须独占一条新的持久化路由尝试记录，重试也不例外。复用前一次记录会把两次独立发送混在同一次尝试中，无法分别对账。
+0184-1007	apps/inference/src/yoao_inference/gpu/dispatch.py:3060-3061	-	GPU runtime 未就绪可能源于探测之后另一池才完成加载，因此 dispatch 只刷新一次健康观测。刷新是为了纠正过时观测，不能据此重放执行或放宽任何证明要求。
+0184-1008	apps/inference/src/yoao_inference/gpu/installation_quiescence.py:226-227	-	安装静默恢复时，Redis 可能已丢失 generation，而 Native 仍保有安装意图。隔离应以账本实际观测到的状态为准，并保留持久化意图供验证，不能把 Redis 缺项当作意图已消失。
+0184-1009	apps/inference/src/yoao_inference/gpu/proofs.py:2270-2272,2730-2732	-	未对外暴露的并发准备可使持久化高水位合法领先；活动转换仍须精确匹配 Redis 的 owner、generation 及新鲜健康证明，高水位仅在落后时判为过期。旧冷态 generation 的例外须由 Native 核验精确且已锁定的安装终态意图，不能从高水位领先推断。
+0184-1010	apps/inference/src/yoao_inference/gpu/reconciliation.py:127-130	-	GPU pending 成员必须先激活，再获取绑定到激活后 Redis 域的新挑战。沿用 pending 域的证明会使激活提交后仍可能留下属于旧域的就绪快照。
+0184-1011	apps/inference/src/yoao_inference/gpu/reconciliation.py:289-291	-	绑定挑战的 GPU 恢复能力声明不能证明成员已激活或签名密钥已获接受。在签名证明确认晋升前，不得仅凭该声明驱逐恢复中的驻留。
+0184-1012	apps/inference/src/yoao_inference/gpu/reconciliation.py:553-554	-	GPU reconciliation 的 prepared 标记只覆盖准备时封闭的域。域不匹配时应清空原快照，将后续合法的域演进交给对账，而不是把旧标记的效力延伸到新域。
+0184-1013	apps/inference/src/yoao_inference/gpu/ledger/keys.py:54-55	-	GPU 账本使用资源 ID 的稳定摘要作为 Redis Cluster 哈希标签。资源 ID 可含花括号，直接嵌入会干扰标签解析，无法保证同一资源的键落入同一槽。
+0184-1014	apps/inference/tests/test_gpu_installation_activation.py:392	-	GPU 安装激活校验的自有端点摘要必须纳入插件生命周期元数据。只按端点地址识别，会把地址不变但插件生命周期已变化的端点误当作同一端点。
+0184-1015	apps/inference/tests/test_pipeline_contract.py:96-97	0146-inference-named-pipeline-owner.md	Pipeline 的公共 schema 与阶段规则由路由边界统一执行。不透明 wire codec 不应再独立套用这些策略，否则两处规则分歧时，同一消息可能在路由层通过却被编解码层拒绝。
+0184-1016	apps/inference/tests/test_pipeline_server.py:127	0146-inference-named-pipeline-owner.md	Pipeline 传输断开不等于请求工作已结束或已交接。未完成的工作仍归请求处理器所有，不能因断连就假定已有其他处理方接管。
+0184-1017	apps/jobs/src/yoao_jobs/queue_client.py:81	-	Queue client 识别底层套接字错误时，除异常的 __cause__ 链外，还要检查 httpcore 异常唯一的位置参数；只遍历异常链会漏掉仅通过该参数封装的原始错误。
+0184-1018	apps/labeling-mask-gc/src/yoao_labeling_mask_gc/coordinator.py:149-150,421-422	0112-durable-mask-gc-fences.md	Mask GC 的 not_found 不证明字节尚未认领，可用原稳定 ID 重试，由字节 owner 的条件式认领防止重复认领。finish 确认丢失也不证明未提交，须保留 claim 栅栏，让下一 worker 用原 ID 重放。
+0184-1019	apps/labeling-mask-gc/src/yoao_labeling_mask_gc/coordinator.py:300-301	0112-durable-mask-gc-fences.md	Mask GC 盘点失败时不能推进持久游标，否则可能跳过未盘点的数据；但本轮仍须对账已暂存的操作，不能让扫描失败阻断已有操作的恢复。
+0184-1020	apps/labeling-mask-gc/src/yoao_labeling_mask_gc/coordinator.py:341-342	0112-durable-mask-gc-fences.md	Mask GC 的预览计数不参与操作提交。若把计数成功设为前提，观察性统计故障就会阻断持久暂存或重放，因此计数失败不能拦截这两条路径。
+0184-1021	apps/labeling-mask-gc/src/yoao_labeling_mask_gc_runtime/__main__.py:134;apps/labeling-mask-gc/src/yoao_labeling_mask_gc_runtime/api.py:163	0112-durable-mask-gc-fences.md	Mask GC 的连接、provider 或数据库诊断可能含凭据或密钥。意外退出日志只记异常类型，API 也不回传底层异常详情，避免秘密通过日志或响应泄露。
+0184-1022	apps/labeling/src/yoao_labeling/video_writer.py:80-81;apps/labeling/src/yoao_labeling/video_writer_client.py:198-199	0159-independent-labeling-video-writer.md	Video Writer 的不可用错误或畸形错误响应都不能证明事务未提交；客户端只把格式正确的预定义拒绝视为最终结果。结果不明时用同一操作 ID 和摘要查询，Writer 不重试推理。
+0184-1023	apps/labeling/src/yoao_labeling/video_writer.py:141-142;apps/labeling/src/yoao_labeling/video_writer_api.py:97	0159-independent-labeling-video-writer.md	Video Writer 对外只返回预定义失败，不透传 mask 客户端或 provider 的诊断；这些详情可能携带对象路径或 owner 凭据，不能作为公开错误正文。
+0184-1024	apps/labeling/src/yoao_labeling/video_writer.py:229-230	0159-independent-labeling-video-writer.md	崩溃后的重投由 Native owner 依据冻结计划推导可接受输入，不能要求调用方补齐原 worker 的本地事实，否则 worker 丢失本地状态就会使操作无法恢复。
+0184-1025	apps/labeling/src/yoao_labeling/video_writer.py:276-277	0159-independent-labeling-video-writer.md	Video Writer 取消时只发布冻结且已封存的连续前缀；不能跳过缺失的检查点再拼接后续记录，否则会把有缺口的结果发布为连续前缀。
+0184-1026	apps/labeling/src/yoao_labeling/video_writer_contract.py:54	0159-independent-labeling-video-writer.md	Video Writer 的 Native 消息上限为 129 MiB，以容纳 JSON 转义后的消息。若按转义前的体积设限，原本可接受的输入可能仅因序列化膨胀而被拒绝。
+0184-1027	apps/labeling/src/yoao_labeling/video_writer_contract.py:157-158,537-539	0159-independent-labeling-video-writer.md	Video Writer 应逐行调用公共归一化器补齐并校验候选身份，不能用其分支排序重排输出；同一次纠正可同时包含前向和后向分支，重排会改变执行器收到的方向与交错顺序。
+0184-1028	apps/labeling/src/yoao_labeling/video_writer_contract.py:996-997	0159-independent-labeling-video-writer.md	选择单实例来源时，主分区的首行必须按无标签行已并入主分区的规则确定；若先滤掉无标签行，就可能改用后续行的来源。
+0184-1029	apps/media-probe/tests/replacement/node_peer.mjs:43	0091-independent-media-probe-contract.md	Media Probe 的 Node 对端不能用 Math.round 替代 Python 的取整语义：Python 在中点取偶数，Math.round 则朝正无穷取整，例如 2.5 会分别得到 2 和 3。
+0184-1030	apps/notifications/src/yoao_notifications/delivery_read.py:103-104	0121-identity-self-deactivation-and-notification-delivery.md	投递读取以实际作业类型为准，仅在作业行因保留期被清理后回退到载荷；始终查作业行会在清理后丢失原私有类型，始终用载荷则会绕过仍存在的作业记录。
+0184-1031	apps/notifications/src/yoao_notifications/delivery_read.py:176;apps/notifications/src/yoao_notifications/delivery_read_postgres.py:83	0121-identity-self-deactivation-and-notification-delivery.md	通知鉴权不能把各 owner 的读取合并或重排成看似等价的查询；原求值顺序决定读取时点，Postgres 适配器须通过 ORM 投影保留每次读取触发 autoflush 的行为。
+0184-1032	apps/notifications/src/yoao_notifications/delivery_worker.py:88-89,208	0121-identity-self-deactivation-and-notification-delivery.md	重试登记不可用时，投递由租约到期后的重新认领恢复；重试登记与轮询的失败日志均不得输出驱动异常正文，以免其中的 Redis URL 或 DSN 泄露连接凭据。
+0184-1033	apps/notifications/src/yoao_notifications/delivery_worker.py:98-99;apps/notifications/src/yoao_notifications/publication_runtime.py:133	0121-identity-self-deactivation-and-notification-delivery.md	通知投递与即时发布都将 Redis PUBLISH 返回 0 视为成功：它表示当时没有订阅者，不表示发布被拒绝；投递的收件箱记录已持久化，客户端仍可稍后读取。
+0184-1034	apps/notifications/src/yoao_notifications/delivery_worker.py:102-103,113-114	0121-identity-self-deactivation-and-notification-delivery.md	传输中取消或发布后无法登记完成，都不能证明 Redis 未投递；租约到期后可重试，但必须沿用稳定通知 ID，否则客户端无法将两次投递识别为同一通知。
+0184-1035	apps/notifications/src/yoao_notifications/notification_delivery_postgres.py:204-205	0121-identity-self-deactivation-and-notification-delivery.md	通知认领或完成事务必须在提交前验证完整的 owner 回复及其与请求的绑定；若提交后才验证，畸形或错配的回复已无法阻止该次状态变更落库。
+0184-1036	apps/notifications/src/yoao_notifications/preferences_postgres.py:27	0121-identity-self-deactivation-and-notification-delivery.md	通知偏好命令由 API 持有事务，同步通知只能在提交后发布；在事务内提前发布会让订阅者看到变更通知，即使该变更最终被回滚。
+0184-1037	apps/preannotation-results/src/yoao_preannotation_results/video_execution_journal.py:141-142	0158-video-window-journals-and-replay.md	视频执行日志仅接受封闭集合内的原生错误；若直接持久化数据库或供应商的任意错误文本，公开 Job 错误可能暴露内部详情或私有证明。
+0184-1038	apps/preannotation-results/src/yoao_preannotation_results/video_execution_journal.py:191	0158-video-window-journals-and-replay.md	视频执行日志在序列化前必须重新校验嵌套的可变几何和模型副本；外层请求类型通过校验，并不能阻止后来被修改成无效状态的嵌套内容落库。
+0184-1039	apps/preannotation-results/src/yoao_preannotation_results/video_window_checkpoint.py:541-542	0113-durable-preannotation-results.md	首个视频窗口为空或越界时，检查点须保留已接受的种子几何，不能按模型输出类型重建；即使输出为栅格 Mask，原种子也可能是轨迹或框。
+0184-1040	apps/preannotation-results/src/yoao_preannotation_results_runtime/database.py:89-90	0113-durable-preannotation-results.md	预标注原生操作须在提交前校验结果信封、全部作用域和请求回显字段；只验信封形状或提交后再比对，都可能让与本次请求不符的结果对应的变更落库。
+0184-1041	apps/storage-agent/storage_agent/client.py:70-71	-	存储代理须保留 Request.data 中原始的有界字节，只在套接字发送请求体时分段限速；将限速移到整条连接会把 HTTP/TLS 头混入载荷预算。
+0184-1042	apps/storage-agent/storage_agent/client.py:146	-	存储代理的独立身份连接不得继承环境代理设置，否则进程环境中的代理配置就能把原应直连的请求重定向。
+0184-1043	apps/storage-agent/storage_agent/client.py:214	-	存储代理的诊断输出不得包含中心响应体，也不得转录异常中的 URL；两者都可能携带凭据，不能当作普通错误上下文记录。
+0184-1044	apps/storage-agent/storage_agent/client.py:268-269;apps/storage-agent/storage_agent/runner.py:103	-	本地 I/O 成功不能延长中心授权，完成时命令已过期就不得报告成功；但过期或撤销不能阻断关闭凭证的提交，有效 ACK 可避免重传中心已接受的字节。
+0184-1045	apps/storage-agent/storage_agent/client.py:333	-	存储代理应先重放已完成但尚待提交的不可变结果，再领取新任务；不能以领取新任务代替恢复提交，否则已有结果仍未交付，代理却已开始处理新工作。
+0184-1046	apps/storage-agent/storage_agent/journal.py:206,224	-	中心拒绝租约不证明远端物理 I/O 已关闭；关闭未确认时，拒绝 ACK 不得终结日志记录。可确认的 ACK 也须先持久化再删除暂存字节，否则崩溃后可能既无 ACK 记录，也无可重发数据。
+0184-1047	apps/storage-agent/storage_agent/runner.py:124-125	-	本地有效的清单若超出线上结果信封上限，须把已关闭的失败结果持久化；仅让发送失败而不记结果，会使代理重启后反复执行同一工作。
+0184-1048	apps/storage-agent/storage_agent/runner.py:143	-	暂存空间预算须同时计入已校验的临时文件和持久待发送文件；两者可以并存，若视为互斥阶段，只为其中一份预留，就会低估峰值占用。
+0184-1049	apps/workspace/src/yoao_workspace/configuration.py:634-635	0136-workspace-configuration-command-owner.md	Workspace 配置命令应在 begin 之后才校验不透明载荷的规范格式和选择器一致性；提前解码会让载荷错误抢在隐藏资源处理和初始权限判定之前返回。
+0184-1050	apps/workspace/src/yoao_workspace/configuration.py:1469	0136-workspace-configuration-command-owner.md	创建项目时，显式为 null 的 box_threshold 和 text_threshold 应从写入中省略；把 NULL 直接写入并不等同于省略列，数据库默认值不会因此生效。
+0184-1051	apps/workspace/src/yoao_workspace/configuration_contract.py:880-881	0136-workspace-configuration-command-owner.md	Workspace 持久化配置值沿用原有 JSON 限制，不能复用小型请求信封的深度上限，否则原本合法的深层嵌套配置会因信封约束被拒绝。
+0184-1052	apps/workspace/src/yoao_workspace/configuration_postgres.py:218-220	0136-workspace-configuration-command-owner.md	Workspace 配置事务提交或回滚后的连接关闭失败不得覆盖命令结果；否则既可能掩盖原拒绝，也可能把已提交的创建报成失败，诱发重试并创建重复资源。
+0184-1053	apps/workspace/src/yoao_workspace/configuration_video.py:125-126	0136-workspace-configuration-command-owner.md	Workspace 视频配置按整批决定错误优先级，缺失来源优先于元数据未就绪和采样失败；遇到首个错误就返回，会使同一批次的错误随输入顺序改变。
+0184-1054	apps/workspace/src/yoao_workspace/directory_queries.py:126,179	0140-workspace-directory-query-owner.md	成员目录须先解码全部持久化字段（含时间戳）再发起 Identity I/O；提及查询也须先解码全部九列，再按 UUID 去重，非活跃行不例外。否则可能先发起外部读取，或因去重而漏掉坏行。
+0184-1055	apps/workspace/src/yoao_workspace/directory_query_values.py:179	0140-workspace-directory-query-owner.md	目录层须保留未知的已存角色值，交由公开 API 模型拒绝；若解码时就按已知角色集拦截，同一个值会提前变成目录读取失败，而非 API 模型校验失败。
+0184-1056	apps/workspace/src/yoao_workspace/owner_transfer_postgres.py:152-153	0134-workspace-project-owner-transfer.md	所有权转移的策略门禁与实际转移须使用同一数据库连接和事务；拆开执行会让门禁所依据的就绪状态在实际转移前失效。
+0184-1057	apps/workspace/src/yoao_workspace/project_deletion_contract.py:60	0165-workspace-caller-transaction-project-deletion.md	项目删除合同不能将失败码限制为当前已知集合；否则较新的原生函数返回新增的稳定错误码时，旧调用端会拒绝本应可传递的失败结果。
+0184-1058	apps/workspace/src/yoao_workspace/template_queries.py:91	-	非超管的 Workspace 模板查询必须先读取组织范围，再解码不透明筛选字符串；若提前解码，筛选格式错误就可能抢在组织范围读取失败之前返回。
+0184-1059	apps/workspace/tests/test_owner_transfer_postgres.py:191-193	0134-workspace-project-owner-transfer.md	独立 asyncpg 所有者在失败时必须回滚自有事务，不受 rollback 标志控制，否则可能留下未结束的事务；借用调用方会话时则遵循该标志，不能擅自回滚调用方的工作。
+0184-1060	packages/python-sdk/api-coverage.toml:30	-	两种来源删除均返回无响应体的 204；若响应丢失，应使用原 UUID Idempotency-Key 重发，换用新键就不能让服务端将其识别为同一删除请求。
+0184-1061	packages/python-sdk/pyproject.toml:22-23;packages/python-sdk/src/yoao/tui/ml_stats_ws.py:79	-	核心 HTTP 客户端使用 httpx，websockets 仅随公开流或 TUI 的可选依赖安装。ML 统计在 run 中才导入 websockets，避免只安装核心 SDK 的用户在导入模块时就因缺少该包而失败。
+0184-1062	packages/python-sdk/src/yoao/_plugin_docker.py:155;packages/python-sdk/src/yoao/plugins.py:34	0180-installable-inference-plugins.md	Docker 命令输出可能含环境变量值，插件准备接口的错误详情也可能回显只写凭据，因此 SDK 不透传这两类原始内容。插件准备失败仍保留错误类型和状态码，供调用方区分失败。
+0184-1063	packages/python-sdk/src/yoao/batch_operation_models.py:87	-	批量分派预览必须同时提交标注员和审核员两个目标字段。清除某个角色时应显式发送 null，不能靠省略字段表达，否则请求不满足预览接口的要求。
+0184-1064	packages/python-sdk/src/yoao/bug_report_models.py:61	-	缺陷报告的 project_id 和 task_id 只用于诊断定位，不能作为访问相应项目或任务的授权依据；是否允许访问仍由 API 判定。
+0184-1065	packages/python-sdk/src/yoao/client.py:200	-	即使序列化时排除未显式设置的字段，也必须发送 scope.selection 的默认 kind；服务端依靠该判别字段选择联合类型分支，缺失时不能按预期识别选择范围。
+0184-1066	packages/python-sdk/src/yoao/comment_models.py:104-105	-	更新标注评论时，null 表示保留原正文，不能用来清空。只有更新后仍保留附件或绘图时，才能用空字符串清除正文。
+0184-1067	packages/python-sdk/src/yoao/models.py:46	-	SDK 模型将 Pydantic 的受保护前缀收窄到 model_validate 和 model_dump；沿用旧版对整个 model_ 前缀的保护会误拦合法的 API 字段。
+0184-1068	packages/python-sdk/src/yoao/models.py:454	-	读取反馈时完整保留原始 anchor_position，不能用旧版模型筛除未知字段；否则新版 schema 的位置数据会在 SDK 读取时被丢弃。
+0184-1069	packages/python-sdk/src/yoao/models.py:697-698	-	avatar_ref 不是可直接加载的 URL：调用方须区分 preset:<slug> 和 upload:<32位十六进制串> 并解析对应头像地址；缺省时回退到 avatar_initial。
+0184-1070	packages/python-sdk/src/yoao/models.py:787-788	-	当前账号权限以 /auth/me 返回的 PlatformRole 为准。历史 DTO 中的全局 annotator、reviewer 仅用于解释旧记录，不能拿来判定当前账号是否有权操作。
+0184-1071	packages/python-sdk/src/yoao/plugin_deployment.py:643-644	0180-installable-inference-plugins.md	必须在 Docker 可能创建容器之前持久化 launch_attempted；若等到 Docker 调用返回才记录，期间崩溃会让可能已启动的部署被误判为可取消的预留。
+0184-1072	packages/python-sdk/src/yoao/plugin_deployment.py:915-917	0180-installable-inference-plugins.md	旧部署回执缺少 started_at 时，须先校验并持久化观测到的进程启动时间，再请求证明。即使所有者确认部署已静止，也不能以该确认代替对原始激活启动实例的验证。
+0184-1073	packages/python-sdk/src/yoao/project_performance.py:82	-	项目绩效 CSV 导出沿用筛选条件，但不能复用列表请求的 cursor 或 limit；否则导出会受列表分页限制，漏掉符合筛选条件的成员。
+0184-1074	packages/python-sdk/src/yoao/scene_tracks.py:81	-	scene_tracks 的请求路径模板必须保留字面占位符名 track_id；即便改名不影响实际 URL，离线 API 发现也无法按原占位符识别该路径。
+0184-1075	packages/python-sdk/src/yoao/streams.py:30	-	SDK 流式连接必须禁用套接字日志及其传播；仅移除本地日志处理器仍可能让上级记录器输出传输层调试信息，泄露握手 URI 中的令牌。
+0184-1076	packages/python-sdk/src/yoao/streams.py:230	-	退出流时仍要关闭套接字，但应抑制普通的关闭异常；否则清理失败可能掩盖消费者原本抛出的异常或取消。
+0184-1077	packages/python-sdk/src/yoao/task_workflow_models.py:90	-	shape_index 指向原始持久化数组的偏移。即使形状已过滤或排序，也必须传原始偏移；使用展示结果的序号可能指向另一形状。
+0184-1078	packages/python-sdk/src/yoao/cli/_output.py:39	-	进度条和 spinner 写入 stderr，不能与命令结果混写到 stdout；否则下游管道会把瞬态进度文本当作输出数据读取。
+0184-1079	packages/python-sdk/src/yoao/cli/_output.py:306	-	CLI 只能把 SDK 编写的固定提示直接展示给用户，不能因为异常属于 SDKError 就透传其文本；其他错误文本可能包含标识符或服务端数据。
+0184-1080	packages/python-sdk/src/yoao/cli/main.py:17	-	兼容 Typer 0.24 以下版本时，CLI 必须从独立安装的 Click 导入异常类型；这些版本实际使用该包，从别处导入同名类型不能保证捕获其异常。
+0184-1081	packages/python-sdk/src/yoao/tui/app.py:118-119	-	TUI 的作业导出入口不应照搬后端接受的格式值：VOC 同步返回，不走作业流程；YOLO 应列出细分变体，不能用后端仍接受的裸 yolo 代替。
+0184-1082	packages/python-sdk/src/yoao/tui/app.py:149	-	TUI 全员绩效看板需要 super_admin 的全局可见性。project_admin 不能用同一入口跨项目查询，应通过 yoao dashboard people --project 限定项目。
+0184-1083	packages/python-sdk/src/yoao/tui/app.py:226	-	恒定数据的折线图须在该值上下各留出余量；直接用最小值和最大值作纵轴边界会形成零跨度，无法将平线清楚地画在中央。
+0184-1084	packages/python-sdk/src/yoao/tui/app.py:504	-	确认框不能统一默认聚焦确认：破坏性操作默认聚焦取消，防止用户直接按回车误执行；良性操作才默认聚焦确认。
+0184-1085	packages/python-sdk/src/yoao/tui/app.py:2024	-	TUI 以最近一次成功渲染的时间表示数据新鲜度，而非轮询发起时间；请求仍在进行或失败时，不能让旧画面看起来已经更新。
+0184-1086	packages/python-sdk/src/yoao/tui/app.py:2305,2365,2607	-	TUI 在 UI 线程调度刷新，但角色查询和刷新中的阻塞网络请求须交给线程 worker，避免卡住界面；结果通过 call_from_thread 交还 UI 线程处理。
+0184-1087	packages/python-sdk/src/yoao/tui/app.py:2895	-	Project 的 total_tasks 和 completed_tasks 由 extra="allow" 透传，并非必有字段；TUI 不能把它们当作固定属性读取，否则服务端省略扩展计数时会失败。
+0184-1088	packages/python-sdk/src/yoao/tui/app.py:2962	-	轮询重建作业表时须先保存光标和滚动位置，重建后再恢复；若直接清表重填，每次刷新都可能把正在查看的内容弹回顶部。
+0184-1089	packages/python-sdk/src/yoao/tui/ml_stats_ws.py:48;packages/python-sdk/tests/test_ml_stats_ws.py:66	-	ML 统计 WebSocket 须逐条校验帧内快照；某个 backend 条目缺少 state 等必需字段时，只丢弃该条，不能因单条无效快照而丢掉同帧的有效数据。
+0184-1090	packages/python-sdk/src/yoao/tui/ml_stats_ws.py:101	-	ML 统计 WebSocket 将关闭码 1008 视为鉴权失败并停止重连；沿用普通断线的重试策略只会用同一凭据再次请求，不能解决权限问题。
+0184-1091	packages/python-sdk/tests/test_cli_commands.py:317-318	-	登录 CLI 测试匹配配置路径前须归一化折行产生的空白；窄终端下 Rich 可能在 config.toml 中间换行，而 _plain 会把换行变成空格，导致直接匹配误报。
+0184-1092	packages/python-sdk/tests/test_docs_snippets.py:33	-	文档片段测试必须独立断言 quickstart.md 和 cookbook.md 存在；仅依赖片段发现来生成参数化用例，页面缺失时会让用例静默变空。
+0184-1093	packages/python-sdk/tests/test_ml_backends.py:73-74	-	MLBackend 的 project_id 必须允许省略或为 None；将项目归属设为必填，会拒绝全局或管理员注册表中合法的无项目 backend。
+0184-1094	packages/python-sdk/tests/test_ml_stats_ws.py:22	-	build_ws_url 必须对查询参数 token 进行 URL 编码，不能把含 / 或 + 的值原样拼接；尤其是 + 可能被查询解析器解码为空格，改变鉴权令牌。
+0184-1095	packages/python-sdk/tests/test_plugin_deployment.py:36-37	0180-installable-inference-plugins.md	旧 CPU 容器缺少 GPU 可见性隔离时仍须允许检查和排空；但不能把这项兼容例外用于新启动，否则新容器会静默沿用未隔离的环境。
+0184-1096	packages/python-sdk/tests/test_predictions.py:39	-	预测导入默认保留已有结果，因此 SDK 必须显式发送 overwrite_existing=false；省略该字段并不等价，后端默认 true，会覆盖已有结果。
+0184-1097	packages/python-sdk/tests/test_projects.py:98	-	调用方未提供 type_label 时，SDK 必须用 type_key 补齐；直接省略会因缺少后端 ProjectCreate 的必填字段而使创建请求被拒绝。
+0184-1098	packages/python-sdk/tests/test_projects.py:273	-	SDK 的 Project 响应模型须接受未知字段；若改为拒绝额外字段，服务端仅新增响应字段也会导致旧版 SDK 无法解析项目。
+0184-1099	packages/python-sdk/tests/test_tui_app.py:48	-	TUI 异步测试须显式标记，当前通过模块级 pytest.mark.asyncio 实现；pyproject 未启用 asyncio_mode=auto，仅声明 async 测试函数不能让 pytest 按异步测试执行。
+0184-1100	packages/python-sdk/tests/test_tui_app.py:187-188	-	同一全局 backend 可被多个项目启用，而各项目端点返回相同的 registry ID。TUI 须按该 ID 合并为一行并显示启用项目数；逐项目插入会因 DataTable 行键重复而崩溃。
+0184-1101	packages/python-sdk/tests/test_tui_app.py:220-221	-	只有 base_url 而没有 api_key 时，不应尝试启动 WebSocket：服务地址不能代替认证凭据。此时保留 REST 静态详情，并明确提示实时功能不可用。
+0184-1102	packages/python-sdk/tests/test_tui_app.py:651	-	批次接口不是项目详情页的必需依赖：旧后端不支持该接口或调用缺少权限时，只将批次表降级为空；若把该错误作为整页加载失败，会连带阻断详情和成员表。
+0184-1103	packages/python-sdk/tests/test_tui_app.py:780	-	旧后端无法调用 me() 时，TUI 应将角色视为未知并跳过绩效请求；猜测角色可能发出无权限的请求，而将角色查询设为必需又会阻断主流程。

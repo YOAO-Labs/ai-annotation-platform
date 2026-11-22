@@ -28,7 +28,6 @@ def _period_window(period: str) -> tuple[datetime, datetime]:
         return today - timedelta(days=30), now
     if period == "4w":
         return today - timedelta(days=28), now
-    # default: 7d / week
     return today - timedelta(days=6), now
 
 

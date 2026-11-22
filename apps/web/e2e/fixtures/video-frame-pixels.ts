@@ -30,12 +30,6 @@ export interface FrameExpectations {
   frames: FrameExpectation[];
 }
 
-/**
- * 刷新/任务切换等真实导航可能在属性断言与像素采样之间替换文档，裸
- * `page.evaluate` 会以 "Execution context was destroyed" 失败。限定该错误
- * 进行有界重试：重试仍在**当前**文档上采样，帧身份断言（背景亮度 + 角位/
- * 中心位）逐帧特异，采错帧会照常失败，不会把导航竞态放大成假通过。
- */
 async function evaluateSurvivingNavigation<T>(page: Page, read: () => Promise<T>): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -143,7 +137,6 @@ export async function expectVideoFramePixels(
   }
 }
 
-/** Sample the long fixture through the actual media transform, including crop and zoom. */
 export async function sampleVideoContextFrameMarkers(page: Page, expectations: FrameExpectations) {
   const regions = expectations.sample_regions.center_bits;
   expect(

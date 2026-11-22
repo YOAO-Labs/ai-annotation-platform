@@ -257,7 +257,6 @@ def build_training_package(
         validation_fraction=snapshot["validation_fraction"],
         parent_manifest=parent_manifest,
     )
-    # Preserve every grouping identity before deduplicating automatic inputs.
     history_manifest = {
         "split_history": split_history(parent_manifest),
         "samples": [
@@ -298,7 +297,6 @@ def build_training_package(
                     **({"instances": sample["instances"]} if segmentation else {}),
                 }
             )
-        # No `path` key: Ultralytics resolves these relative to this YAML file.
         yaml = (
             "train: images/train\nval: images/val\nnames: "
             + json.dumps(dict(enumerate(classes)), ensure_ascii=False)

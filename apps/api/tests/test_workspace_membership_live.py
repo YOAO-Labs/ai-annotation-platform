@@ -128,7 +128,6 @@ async def _node_public(
 
 async def _seed_membership_world(test_engine, legacy):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
-    # Preserve frozen UUID sort order without sharing rows between bindings.
     prefix = secrets.randbits(96) << 32
     identifiers = {
         alias: uuid.UUID(int=prefix + index, version=4)
@@ -719,7 +718,6 @@ async def test_node_membership_owner_and_native_same_transaction_consumers(
         )["reply"]
         assert removed["ok"] is True and removed["data"]["removed"] is True
 
-        # Exercise the restricted SQL client through prepare and apply in one psql transaction.
         native_request = request(
             "add_member",
             {"target_user_id": str(native_target.id), "project_role": "annotator"},

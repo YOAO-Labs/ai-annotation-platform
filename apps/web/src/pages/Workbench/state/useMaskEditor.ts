@@ -1,5 +1,3 @@
-// 图片 / 视频共用的 Mask 编辑器状态层：二值 Buffer、pointer tool、operation preview 与 history。
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MaskBuffer, type MaskBrushShape } from "../stage/shared/geometry/maskBuffer";
 import { maskToPolygon } from "../stage/shared/geometry/maskToPolygon";
@@ -92,7 +90,6 @@ export interface UseMaskEditorOptions {
   height: number;
   initialRadius?: number;
   workerPool?: RasterMaskWorkerPool;
-  /** Test/SSR override; omitted values read navigator.deviceMemory. */
   deviceMemory?: number | null;
   historyMaxBytes?: number;
   tileMaxBytes?: number;

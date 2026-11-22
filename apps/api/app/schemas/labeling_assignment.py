@@ -38,7 +38,6 @@ class DataManagerTaskAssignmentItem(BaseModel):
     after_annotator_id: UUID | None = None
     before_reviewer_id: UUID | None = None
     after_reviewer_id: UUID | None = None
-    # Keep raw task overrides separate from their effective batch fallbacks.
     effective_before_annotator_id: UUID | None = None
     effective_after_annotator_id: UUID | None = None
     effective_before_reviewer_id: UUID | None = None

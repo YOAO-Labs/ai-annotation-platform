@@ -51,7 +51,6 @@ def test_compensate_world_position_invariant():
     assert cw_j == pytest.approx(cw_i, abs=1e-9)
     assert rw_j == pytest.approx(rw_i, abs=1e-9)
     assert psr_j["size"] == _PSR["size"]
-    # 车前进 5m → 静止物在新 ego 系里应"后退"(x 变小),不是原样复制
     assert psr_j["center"][0] < _PSR["center"][0]
 
 
@@ -74,7 +73,7 @@ def test_compensate_missing_pose_degrades_to_identity():
 def test_interpolate_midpoint_world_center():
     """t=0.5 的世界中心 = 两端世界中心的中点;尺寸线性插值。"""
     pose_a, pose_b = _pose(0, x=0.0), _pose(2, x=10.0)
-    pose_m = _pose(1, x=4.0)  # 中间帧 ego 不在正中,验证投影正确性
+    pose_m = _pose(1, x=4.0)
     psr_a = {
         "center": [10.0, 0.0, 0.0],
         "size": [4.0, 2.0, 1.5],
@@ -90,7 +89,6 @@ def test_interpolate_midpoint_world_center():
         psr_a, psr_b, 0.5, pose_a=pose_a, pose_b=pose_b, pose_mid=pose_m
     )
     assert compensated is True
-    # 世界中心:a=(10,0,0), b=(14,0,0) → 中点 (12,0,0);pose_m 平移 4 → ego x=8
     cw_m, _ = box_ego_to_world(psr_m, pose_m)
     assert cw_m == pytest.approx((12.0, 0.0, 0.0))
     assert psr_m["center"] == pytest.approx([8.0, 0.0, 0.0])
@@ -148,6 +146,5 @@ def test_slerp_takes_shortest_arc():
     qb = _mat3_to_quat_wxyz(_euler_xyz_to_mat3(0, 0, -a))
     q_mid = _slerp_wxyz(qa, qb, 0.5)
     m = _quat_wxyz_to_mat3(q_mid)
-    # 中点朝向应为 ±180°(cos≈-1),长弧中点会是 0°(cos≈+1)
     forward = _mat_vec(m, (1.0, 0.0, 0.0))
     assert forward[0] == pytest.approx(-1.0, abs=1e-6)

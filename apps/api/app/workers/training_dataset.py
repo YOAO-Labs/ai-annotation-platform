@@ -331,8 +331,6 @@ def materialize_image(
             snapshot_digest=snapshot_digest,
         )
     if sample.get("raster_contract"):
-        # Independently retained training object, under the same version prefix
-        # and deletion owner as the original frozen media.
         payload = instance_rle_payload(sample, sample["classes"], width, height)
         mask_path = directory / f"{sample['task_id']}.json"
         with storage_access.closing_registered(mask_path.open("w")) as target:
@@ -506,7 +504,6 @@ async def build_dataset(
     node_id: str | None = None,
     celery_task_id: str | None = None,
 ) -> None:
-    # Keep the connection checked out across domain transaction commits.
     async with session_factory() as session:
         bind = session.bind
         engine = bind.engine if isinstance(bind, AsyncConnection) else bind
@@ -819,7 +816,6 @@ async def _build_dataset_contents(
             if owner is not None and prefix and not published and not unsettled:
                 cleanup = False
                 try:
-                    # A commit acknowledgement can fail after publication succeeded.
                     referenced_key = await db.scalar(
                         select(TrainingDatasetVersion.package_key).where(
                             TrainingDatasetVersion.id == version_id

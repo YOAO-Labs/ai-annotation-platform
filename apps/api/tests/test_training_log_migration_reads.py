@@ -229,7 +229,6 @@ async def test_corrupt_log_is_rejected_before_any_content_response(world, change
         world.attempt.artifacts["train.log"]["size_bytes"] = (
             api.observations.LOG_BYTES + 1
         )
-    # Keep copied-header evidence valid so this exercises the log's own checks.
     world.route = replace(
         world.route,
         target_content_sha256=copy.digest(copy.content_target(world.response)),

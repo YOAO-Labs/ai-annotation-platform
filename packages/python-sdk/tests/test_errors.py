@@ -65,7 +65,6 @@ def test_non_json_body_falls_back_to_text(client, respx_mock):
     respx_mock.get(f"{API}/projects").mock(
         return_value=httpx.Response(502, text="Bad Gateway")
     )
-    # 502 是可重试状态, 3 次后仍失败 → APIStatusError
     client._http.retry_backoff = 0
     with pytest.raises(APIStatusError) as ei:
         client.projects.list()

@@ -1,5 +1,3 @@
-# The current cleanup worker requires Native saved-output settings. This overlay
-# mounts its cleanup token; the Source signer lives in docker-compose.assets-native.yml.
 services:
   assets-cleanup:
     build:

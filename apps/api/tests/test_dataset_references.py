@@ -294,14 +294,11 @@ async def test_write_checks_content_after_task_lock(
 
     async def lock_after_external_change(statement, *args, **kwargs):
         nonlocal changed
-        # Simulate a source overwrite while this write is queued for Task.
         if (
             not changed
             and getattr(statement, "_for_update_arg", None) is not None
             and str(statement).startswith("SELECT tasks.")
         ):
-            # Dispatch holds this scope before inserting TaskLock's Task FK.
-            # Taking Task first here would form a cycle with that insert.
             assert advisory_acquired
             changed = True
             (world[0] / "图片 空格.png").write_bytes(b"replaced while waiting for lock")

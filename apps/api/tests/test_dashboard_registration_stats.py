@@ -19,7 +19,6 @@ async def test_registration_by_day_aggregates_invite_vs_open(
     actor, token = super_admin
 
     now = datetime.now(timezone.utc)
-    # 造 3 条邀请 + 2 条开放注册的 user.register audit
     db_session.add_all(
         [
             AuditLog(
@@ -73,9 +72,7 @@ async def test_registration_by_day_aggregates_invite_vs_open(
     assert res.status_code == 200, res.text
     body = res.json()
     series = body.get("registration_by_day", [])
-    # 30 天序列
     assert len(series) == 30
-    # 今天那一行应有 3 + 2
     today_iso = now.date().isoformat()
     today_row = next((r for r in series if r["date"] == today_iso), None)
     assert today_row is not None

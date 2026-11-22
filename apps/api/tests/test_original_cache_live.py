@@ -21,7 +21,6 @@ from app.services import original_cache as cache
 from tests.test_original_cache import cache_world as cache_world, fill, record
 from tests.storage_migration_isolation import migration_engine
 
-# The real global sweep must not consume another test's committed due entries.
 test_engine = migration_engine
 
 _STORAGE = cache.make_storage
@@ -192,7 +191,6 @@ async def test_actual_minio_copy_read_and_worker_recovery(
             stdout=output,
             stderr=subprocess.STDOUT,
         )
-        # The result deadline covers only the task, never a cold worker import.
         deadline = time.monotonic() + 60
         while time.monotonic() < deadline:
             registered = await asyncio.to_thread(
@@ -238,7 +236,6 @@ async def test_actual_minio_copy_read_and_worker_recovery(
         app.close()
         output.close()
         log_path.unlink(missing_ok=True)
-        # Failure paths also remove only this test's durable exact-key intents.
         storage = _STORAGE()
         try:
             async with world.factory() as db:

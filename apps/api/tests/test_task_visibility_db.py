@@ -145,7 +145,6 @@ async def test_viewer_own_batch_foreign_explicit_assignee_is_denied(
     task.assignee_id = foreign.id
     await db_session.flush()
 
-    # Task-level override filtering must agree: SQL and object both deny.
     assert (
         await _sql_visible(
             db_session, project_id=project.id, viewer=viewer, task_id=task.id

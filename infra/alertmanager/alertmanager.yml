@@ -1,12 +1,5 @@
-# Alertmanager 配置。Prometheus firing 的告警在此分组/去重后经 SMTP 发邮件。
-#
-# dev：投递到 docker-compose 的 mailpit（host.docker.internal:1025，不外发真实邮件，
-#      Web UI http://localhost:8025 查看）。alertmanager 容器已配 extra_hosts host-gateway。
-# 生产：把 smtp_smarthost / smtp_from / 收件人换成真实 SMTP（多数需 smtp_require_tls: true
-#      + smtp_auth_username/password）。alertmanager 不读 .env，如需 env 注入用启动期
-#      envsubst 或在 compose 的 environment 透传后改写 config。
 global:
-  smtp_smarthost: "host.docker.internal:1025"
+  smtp_smarthost: "mailpit:1025"
   smtp_from: "alertmanager@local.test"
   smtp_require_tls: false
 

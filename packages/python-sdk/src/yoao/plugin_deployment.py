@@ -640,8 +640,6 @@ class LocalPluginDeployment:
                     receipt.get("launch"), receipt.get("started_at"), inspected
                 )
             else:
-                # Record intent before Docker can create a container; a crash must
-                # not turn a possible launch into a cancellable reservation.
                 receipt["launch_attempted"] = True
                 self.store.save(receipt)
                 inspected = (
@@ -912,9 +910,6 @@ class LocalPluginDeployment:
         launch = receipt.get("launch")
         started_at = receipt.get("started_at")
         if started_at is None and launch:
-            # Older receipts predate start-time recording. Persist the observed
-            # process before requesting a proof; the owner still authenticates
-            # the original activation boot when it establishes quiescence.
             self._verify_process(launch, inspected["started_at"], inspected)
             receipt["started_at"] = inspected["started_at"]
             self.store.save(receipt)

@@ -369,7 +369,9 @@ class NativeReadDatabase:
         raise AssertionError(f"unexpected image operation {operation}")
 
 
-def native_read_reader(state, raw, *, tile_bodies=None, public_origin="https://cdn.local"):
+def native_read_reader(
+    state, raw, *, tile_bodies=None, public_origin="https://cdn.local"
+):
     output = state.pyramid.native_output
     bodies = {"manifest.json": raw, "overview.webp": b"overview-bytes"}
     bodies.update(tile_bodies or {})
@@ -561,9 +563,7 @@ async def test_native_media_put_returns_the_actual_raw_receipt_only():
             "x-amz-meta-sha256": "f" * 64,
         },
     )
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(handler)
-    ) as http:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as http:
         receipt = await native_media.put_member(
             http,
             signed,
@@ -576,7 +576,6 @@ async def test_native_media_put_returns_the_actual_raw_receipt_only():
     assert seen["headers"]["if-none-match"] == "*"
     assert receipt.etag == '"put-etag"'
     assert receipt.version_id == "v9"
-    # Only the one admitted unversioned equivalence is real.
     assert native_media.same_version("null", None)
     assert native_media.same_version(None, None)
     assert not native_media.same_version(None, "v-current")
@@ -586,9 +585,7 @@ async def test_native_media_put_returns_the_actual_raw_receipt_only():
     def precondition(_request):
         return httpx.Response(412, headers={"etag": '"other"'})
 
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(precondition)
-    ) as http:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(precondition)) as http:
         with pytest.raises(native_media.NativeWriteRefused):
             await native_media.put_member(
                 http,
@@ -604,9 +601,7 @@ async def test_native_media_put_returns_the_actual_raw_receipt_only():
             200, headers={"etag": '"put-etag"', "x-amz-version-id": "null"}
         )
 
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(literal_null)
-    ) as http:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(literal_null)) as http:
         null_receipt = await native_media.put_member(
             http,
             signed,
@@ -615,15 +610,12 @@ async def test_native_media_put_returns_the_actual_raw_receipt_only():
             size_bytes=3,
             sha256="f" * 64,
         )
-    # A literal returned ``null`` version is a receipt, not an absent one.
     assert null_receipt.version_id == "null"
 
     def no_version(_request):
         return httpx.Response(200, headers={"etag": '"put-etag"'})
 
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(no_version)
-    ) as http:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(no_version)) as http:
         absent_receipt = await native_media.put_member(
             http,
             signed,
@@ -637,9 +629,7 @@ async def test_native_media_put_returns_the_actual_raw_receipt_only():
     def unquoted(_request):
         return httpx.Response(200, headers={"etag": "weak", "x-amz-version-id": "v9"})
 
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(unquoted)
-    ) as http:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(unquoted)) as http:
         with pytest.raises(c.ImageFailure, match="upload_verification_failed"):
             await native_media.put_member(
                 http,
@@ -659,15 +649,11 @@ async def test_native_media_saved_version_readback_proves_exact_bytes():
 
     async with saved_http_client({member.relative_key: body}) as http:
         assert (
-            await native_media.get_member(
-                http, signed, member=member, limit=len(body)
-            )
+            await native_media.get_member(http, signed, member=member, limit=len(body))
             == body
         )
 
-    async with saved_http_client(
-        {member.relative_key: body + b"x"}
-    ) as http:
+    async with saved_http_client({member.relative_key: body + b"x"}) as http:
         with pytest.raises(c.ImageFailure, match="invalid_response"):
             await native_media.get_member(
                 http, signed, member=member, limit=len(body) + 1
@@ -684,13 +670,9 @@ async def test_native_media_saved_version_readback_proves_exact_bytes():
             body=body,
         )
 
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(wrong_version)
-    ) as http:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(wrong_version)) as http:
         with pytest.raises(c.ImageFailure, match="invalid_response"):
-            await native_media.get_member(
-                http, signed, member=member, limit=len(body)
-            )
+            await native_media.get_member(http, signed, member=member, limit=len(body))
 
 
 @pytest.mark.asyncio
@@ -706,9 +688,7 @@ async def test_native_media_unversioned_receipt_admits_only_an_omitted_header():
             body=body,
         )
 
-    async with httpx.AsyncClient(
-        transport=httpx.MockTransport(without_header)
-    ) as http:
+    async with httpx.AsyncClient(transport=httpx.MockTransport(without_header)) as http:
         assert (
             await native_media.get_member(
                 http, signed, member=unversioned, limit=len(body)
@@ -896,8 +876,6 @@ async def test_ordinary_member_write_executes_source_put_then_reads_back(tmp_pat
                 receipt = await storage.upload_pyramid_member(
                     path, allocation, reservation
                 )
-                # The port returns the durable receipt itself, with the raw
-                # quoted ETag and the raw version, never a normalized identity.
                 assert receipt == c.PyramidMemberReceipt(
                     operation_id=reservation.operation_id,
                     etag='"put-etag"',
@@ -984,7 +962,6 @@ async def test_native_generation_reference_settles_its_permit_and_uses_receipts(
     assert len(database.closed) == 1
     assert database.closed[0].operation_id == database.begun[0].operation_id
     assert database.closed[0].token == database.begun[0].token
-    # Native bytes never touch the configured cache bucket or its URL signer.
     assert storage.head_cache_calls == []
     assert storage.read_cache_calls == []
     assert storage.signed_cache == []
@@ -1022,8 +999,6 @@ async def test_native_generation_reference_defaults_and_refuses_too_long_request
     finally:
         await http.aclose()
         await control.close()
-    # Only the admitted read owns a permit; the refused explicit lifetime is
-    # rejected before a permit could be opened.
     assert len(database.begun) == 1
     assert len(database.closed) == 1
 
@@ -1119,8 +1094,6 @@ async def test_unproven_native_response_closure_keeps_the_read_permit(monkeypatc
 
     assert failure.value.storage_operation_unsettled is True
     assert len(database.begun) == 1
-    # The durable read permit is not completed when the actual response/body
-    # closure was not proved, and no public URL can escape the failed read.
     assert database.closed == []
 
 
@@ -1206,9 +1179,7 @@ async def test_native_asset_references_publish_only_inspected_tile_receipts():
 @pytest.mark.asyncio
 async def test_native_fixture_outputs_use_the_fixture_owner_without_a_permit():
     current = source()
-    state, raw, _manifest, output = native_projection(
-        current, fixture_owned=True
-    )
+    state, raw, _manifest, output = native_projection(current, fixture_owned=True)
     prefix = output.storage_ref.prefix
     database = NativeReadDatabase(current, state)
     storage = FakeStorage(fixture_values={prefix + "manifest.json": raw})
@@ -1223,7 +1194,6 @@ async def test_native_fixture_outputs_use_the_fixture_owner_without_a_permit():
         await control.close()
     assert result.expires_in == 300
     assert result.overview_url.startswith("https://fixture.local/cache/")
-    # The fixture owner is asked only for the exact saved member keys.
     assert storage.fixture_read_calls == [(prefix + "manifest.json", 1024 * 1024)]
     assert storage.fixture_head_calls == [prefix + "overview.webp"]
     assert storage.fixture_sign_calls == [(prefix + "overview.webp", 300)]
@@ -1293,8 +1263,6 @@ async def test_native_frozen_url_policy_above_the_sigv4_limit_is_capped():
     finally:
         await http.aclose()
         await control.close()
-    # The frozen policy is a positive SQL integer; only the issued URL is
-    # capped by min(current policy, frozen policy, 604800).
     assert default.expires_in == 900
     assert explicit.expires_in == 300
     assert len(database.begun) == 2
@@ -1318,12 +1286,8 @@ def test_native_writer_signer_configuration_is_explicit_and_complete():
     values = _worker_environment()
     assert load_config(values).native_storage is None
     with pytest.raises(ConfigurationError, match="ASSETS_IMAGES_NATIVE_STORAGE_URL"):
-        load_config(
-            {**values, "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN": "t" * 40}
-        )
-    with pytest.raises(
-        ConfigurationError, match="ASSETS_IMAGES_NATIVE_STORAGE_TOKEN"
-    ):
+        load_config({**values, "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN": "t" * 40})
+    with pytest.raises(ConfigurationError, match="ASSETS_IMAGES_NATIVE_STORAGE_TOKEN"):
         load_config(
             {
                 **values,
@@ -1374,7 +1338,6 @@ def test_native_signer_configuration_treats_all_blank_settings_as_unconfigured()
     url_name = "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL"
     token_name = "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN"
     blank = {url_name: "", token_name: "", f"{token_name}_FILE": ""}
-    # Rendered-but-empty optional settings are the ordinary default deployment.
     assert load_native_storage_config(blank, url_name, token_name) is None
     with pytest.raises(ConfigurationError, match=token_name):
         load_native_storage_config(

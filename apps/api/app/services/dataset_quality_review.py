@@ -47,7 +47,6 @@ EVIDENCE_FIELDS = (
 
 
 def evidence(row):
-    # JSON conversion is stable for UUIDs/timestamps and never includes locators.
     return json.loads(
         json.dumps({k: getattr(row, k) for k in EVIDENCE_FIELDS}, default=str)
     )
@@ -251,7 +250,7 @@ async def execute_preview(
     if batch.scope_digest != payload.scope_digest:
         raise HTTPException(409, "Review scope digest does not match")
     if batch.status != "preview":
-        return batch, False  # A repeated confirmation never creates another attempt.
+        return batch, False
     if batch.expires_at <= now():
         raise HTTPException(409, "Review preview expired; create a new preview")
     if not batch.actionable_count:
@@ -414,7 +413,6 @@ async def process_member(db, batch, actor, run):
         member.state = "applied"
         member.applied_revision = value["review_revision"]
     member.processed_at = now()
-    # Decision, audit and checkpoint are committed together by the worker.
     await db.flush()
     await summarize(db, batch)
     return True

@@ -184,10 +184,10 @@ def test_geometry_equal_area_uses_centroid_and_supports_vertex_crossings_and_clo
 @pytest.mark.parametrize(
     "geometry,path",
     [
-        (SQUARE, [[0, 0.4], [0.2, 0.2], [0, 0]]),  # tangent vertex
-        (SQUARE, [[0, 0.2], [1, 0.2]]),  # boundary overlap
-        (CONCAVE, [[0, 0.3], [1, 0.3], [1, 0.6], [0, 0.6]]),  # four crossings
-        (SQUARE, [[0.5, 0.5], [1, 0.5]]),  # begins inside
+        (SQUARE, [[0, 0.4], [0.2, 0.2], [0, 0]]),
+        (SQUARE, [[0, 0.2], [1, 0.2]]),
+        (CONCAVE, [[0, 0.3], [1, 0.3], [1, 0.6], [0, 0.6]]),
+        (SQUARE, [[0.5, 0.5], [1, 0.5]]),
         (SQUARE, [[0, 0], [1, 1], [0, 1], [1, 0]]),
         (SQUARE, [[0, 0.5], [1, 0.5], [0, 0.5]]),
         (SQUARE, [[0, 0], [0, 0]]),
@@ -619,8 +619,6 @@ def test_request_limits(field, value):
 async def test_concurrent_replay_and_child_creation_wait_for_restore(
     test_engine, monkeypatch
 ):
-    # This committed-session test checks locks and idempotency. Other transaction
-    # tests exercise real audit writes; avoid immutable audit rows in its cleanup.
     monkeypatch.setattr(AuditService, "log", AsyncMock(return_value=None))
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker() as db:

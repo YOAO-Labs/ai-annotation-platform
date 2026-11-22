@@ -15,7 +15,6 @@ import { Modal } from "@/components/ui/Modal";
 import { Icon } from "@/components/ui/Icon";
 import { useToastStore } from "@/components/ui/Toast";
 
-// 多选选项卡 / 单选帧模式卡共用的基线（UA-safe：消原生 button 默认样式）。
 const OPTION_BUTTON_CLASS =
   "flex min-w-0 cursor-pointer appearance-none flex-row items-start gap-2.5 rounded-md border border-border bg-muted px-3 py-2.5 text-left text-xs font-normal leading-snug text-foreground hover:border-border hover:bg-muted";
 const OPTION_BUTTON_ACTIVE_CLASS = "border-brand bg-brand/10 font-semibold text-brand";
@@ -32,7 +31,6 @@ interface TargetOption {
   disabled?: boolean;
 }
 
-// 图像多目标导出：COCO／原生 JSON 单选卡与可多选的 YOLO 几何变体。
 type ImageOption =
   | ({ kind: "single" } & TargetOption)
   | { kind: "group"; label: string; description: string; members: TargetOption[] };
@@ -158,7 +156,6 @@ const FRAME_MODES: { value: VideoFrameMode; label: string; description: string }
   { value: "all_frames", label: "所有帧", description: "按相邻有效关键帧线性插值展开。" },
 ];
 
-/** 导出 Modal，支持多目标多选。受控开关，供独立触发器或 ⋮ 菜单复用。 */
 export function ExportModal({
   open,
   onClose,
@@ -182,7 +179,6 @@ export function ExportModal({
   );
 }
 
-/** 多选选项卡（带勾选方块）。 */
 function CheckCard({
   option,
   active,
@@ -267,7 +263,6 @@ function ExportForm({
   const [lossyConfirmed, setLossyConfirmed] = useState(false);
   const pushToast = useToastStore((s) => s.push);
 
-  // 帧模式仅对 Video JSON 有意义（MOT/KITTI 走采样网格，原生 JSON 保留源帧）。
   const showFrameMode = isVideoProject && targets.includes("video_json");
 
   useEffect(() => {

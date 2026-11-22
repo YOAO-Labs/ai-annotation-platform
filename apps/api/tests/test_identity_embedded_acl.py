@@ -157,7 +157,6 @@ async def test_unremovable_privilege_bypass_rolls_back_the_grant_transaction(
             )
         )
         async with test_engine.connect() as db:
-            # The earlier broad public-table GRANT must also have rolled back.
             assert not await db.scalar(
                 text("SELECT has_table_privilege('legacy_runtime',:table,'SELECT')"),
                 {"table": f"public.{table}"},
@@ -201,7 +200,6 @@ async def test_fixture_capability_still_borrows_and_rolls_back_the_caller_transa
 
 @asynccontextmanager
 async def embedded_http(app, engine, monkeypatch):
-    # Exercise unset selectors on the real caller LOGIN, never dedicated clients.
     for name in type(settings).model_fields:
         if name.startswith("identity_") and (
             name.endswith("database_url") or name.endswith("database_url_file")

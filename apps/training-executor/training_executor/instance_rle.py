@@ -254,7 +254,6 @@ class InstanceRLEDataset(Dataset):
                     vanished_count += 1
                     if len(vanished) < 1000:
                         vanished.append(identity)
-                # This is the actual pinned SegmentationValidator target resize.
                 target = torch.nn.functional.interpolate(
                     torch.from_numpy(mask)[None, None].float(),
                     (self.imgsz // 4, self.imgsz // 4),

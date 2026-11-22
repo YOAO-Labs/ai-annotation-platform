@@ -31,7 +31,6 @@ class ContractTests(unittest.TestCase):
     def test_current_immutable_inputs(self):
         lock = load_lock(ROOT / "scripts/storage_s3_candidates.lock.json", ROOT)
         self.assertEqual(len(lock["candidates"]), 2)
-        # Seaweed's upstream file deliberately has no trailing LF.
         self.assertFalse(
             (ROOT / lock["candidates"][0]["license_file"]).read_bytes().endswith(b"\n")
         )

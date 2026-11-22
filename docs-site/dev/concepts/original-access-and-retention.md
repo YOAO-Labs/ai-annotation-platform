@@ -25,7 +25,7 @@ last_reviewed: 2026-10-26
 
 严格图片内容入口（单进程预算 `256 MiB`、独立四槽）与数据集质量检查使用 `original_sources` 冻结当前关系及保存位置。Task 直接 Item 与 `primary_lidar` 必须一致；Dataset 选择唯一 `present` 托管原件，不把缓存纳入候选，也不要求历史核验记录已有 Creation。物理读取前、取得耐久读取许可后及响应前，分别重核当前权限、原凭证、关系、位置和维护修订；业务行锁不跨物理读取。原地引用的来源读取与完整缓存命中同样在许可取得后复核原凭证，响应前比较完整引用 context 并锁定同一 Gate 代次；撤权不把合格缓存误记损坏，也不会回退读源。
 
-图片派生任务的受理只读取 Task 来源及当前可见权，使用 Task SHARE/NOWAIT 围栏；媒体作业和受理回执按自身所有者串行化，仍阻止并发来源或权限变更。来源观测、缩略图发布和失效仍使用写入围栏。可选缩略图准备遇到来源忙时不将它当作已受理；原件引用仍在响应前重新核对权限与来源，不签发失效缩略图。
+基于 Task 的图片派生任务受理使用 Task 与关联 Item 的 `FOR SHARE NOWAIT` 围栏，允许原件身份与派生受理读取同一来源，同时阻止来源或权限变更。媒体作业和受理回执仍按自身所有者串行化；来源观测、缩略图发布和失效仍使用写入围栏。可选缩略图准备遇到来源忙时不将它当作已受理；原件引用仍在响应前重新核对权限与来源，不签发失效缩略图。
 
 `managed_original_reader` 只接受端点、保存桶/键、完整 SHA 和大小，以及调用者显式预算。它建立独立客户端，从目标当前 HEAD 取得条件，验证错误 `If-Match` 确实失败，完整读取并核对摘要、EOF 及最终 HEAD，再真实关闭 Body 和客户端。历史写入 `VersionId` 不参与目标 GET。返回的 `BinaryStage` 拥有临时文件和对应准入名额，取消和超时等待实际 I/O 退出；关闭无法确认时保留未收尾许可。图片适配器在同一文件上解码并移交给响应，不重新下载或复制。
 
@@ -37,7 +37,9 @@ last_reviewed: 2026-10-26
 
 ### 认证通用原件交付（`512 MiB`）
 
-浏览器公共读取模块 `apps/web/src/api/originals.ts` 只构造 Task/Item/精确 camera link 的认证请求，核对身份中的完整下载路径，不给任意 URL 附加 Bearer。原件下载共用两路可取消排队，覆盖完整响应体，前景可提升预取；只有明确容量不足才有限重试。资源 owner 按账号/session 划分，同 session 令牌刷新后在途旧凭据结果最多重试一次，不能覆盖新凭据；跨账号、session 及不完整的跨标签凭据停止读取。
+浏览器公共读取模块 `apps/web/src/api/originals.ts` 只构造 Task/Item/精确 camera link 的认证请求，核对身份中的完整下载路径，不给任意 URL 附加 Bearer。原件下载共用两路可取消排队，覆盖完整响应体，前景可提升预取。字节 GET 仅对 `429 snapshot_capacity_exceeded` 和 `409 content_busy` 有限重试，沿用同一内容 UUID、SHA 与下载路径；权限或内容身份变化不因此重试。资源 owner 按账号/session 划分，同 session 令牌刷新后在途旧凭据结果最多重试一次，不能覆盖新凭据；跨账号、session 及不完整的跨标签凭据停止读取。
+
+图片审核工作台在当前任务、账号及会话的首次认领请求结束后，才启动当前原图的身份查询和读取。认领回执在数据库提交后返回，包括已由他人认领的情况。回执代表本次认领不再持有批次和任务锁，不授予原图读取权限；身份查询和字节交付仍各自验证权限与版本。
 
 `original_binary` 按 Task、精确相机 link 或 `DatasetItem` 冻结来源；`originals` 路由提供零物理 I/O 的身份（`/api/v1/files/tasks/{id}/original-identity`）及绑定 content UUID/SHA 的完整下载。相机只借当前 Task 可见性读取其明确 `camera_` 链接；Item 入口要求 Dataset 管理权限并校验 `dataset_id`。
 
@@ -46,6 +48,10 @@ last_reviewed: 2026-10-26
 ### 视频原件临时表示与范围租约
 
 `original_binary.authorize_original / recheck_original / capture_authorized` 为完整下载与视频准备共用原 Authority 和保存来源合同。`original_playback` 只接托管 video，Bearer 准备完整核验；`original_playback_registry` 按 Authority/session/资源/完整来源保存进程内匿名 stage 及独立短租约。能力秘密只在准确路径的 `HttpOnly/SameSite=Strict` Cookie 中发送，JSON 与 `media_path` 不含秘密，不保存原 JWT/API Key。
+
+Task 视频清单的请求准入与已就绪元信息校验在同一 `DatasetItem` 的 `FOR SHARE` 围栏内读取；单次取锁最多等待一秒，不扩大调用方更短的限时。短时尺寸等派生更新提交后可继续读取；已登记原件或派生代次变化仍须拒绝，取锁超时仍返回 `storage_original_busy`。权威、保存地址及维护代次的复核不变，业务锁不跨物理 I/O，准备与发布的写入围栏也不变。
+
+持有输出租约的衍生 Worker 在构建前后执行只读校验时，也对同一 Item 使用上述有界共享锁；短暂的行更新不再使已构建的预览帧跳过发布。输出认领和最终发布仍使用原写入围栏，并复核同一租约、原件和元数据代次。
 
 每次 native GET/HEAD 先取得响应 pin，重核原凭证、当前 User/Key/scope、Task 可见性或 Dataset 管理权限、同一源和 Gate，再同步重核租约仍有效，才返回 200/206/HEAD/范围错误。浏览器同源判断同时采用 Fetch Metadata；跨站与同站异源媒体请求拒绝。`original_playback_response` 用 `os.pread` 独立偏移，各响应取消后 drain 真实线程再 unpin，不关闭其他消费者的文件。完整 SHA 证明来自准备时的全量捕获。
 
@@ -167,6 +173,8 @@ GET 分页历史只读；显式 POST 创建或复用活动任务，要求当前�
 `ManagedOriginalReclaimAttempt`（迁移 0260）固定退休锚点、Creation、保存目标、准确非 `null` `VersionId`、SHA/大小、操作者/Key、Gate 修订和原因。`ManagedOriginalReclaimClaim` 按完整 `bucket/key` 保守互斥；认领在首个 SDK 请求前提交，可能发出 DELETE 后永久保留 tombstone，Job 过期不移除责任。独立最近引用核对状态记录每日或显式 DB 重查的计数、未知覆盖和有界差异，不给执行授权。
 
 引用发布先取得既有业务锁，再取同组共享事务栅栏并检查 claim，持有至引用事务提交；回收取得组独占锁，只以 MVCC 重查保护，不反向等待 Dataset/Task 锁。保护查询支持当前训练和主动学习的原件凭据，并检查 `TaskOriginal`、`DatasetReference` 及 `ScanEntry` 的保存地址。未知历史保持阻断，当前 Binding 不替换旧物理目标。
+
+公开预演和执行复查各自在单条 SQL 的快照内使用同一套引用与保留事实。公开预演先汇总全部断言，再对结果分页；执行先按退休 ID 选定目标，只对准确桶与键相同的完整组计算保留要求。不能归属到具体对象的未知训练与主动学习历史仍按全库统计，选定单条退休断言不会移除这些阻断。引用核对按每个准确桶与键汇总，未登记任何退休断言时仍报告未知覆盖。GET 不认领回收任务，也不签发删除权。
 
 逻辑位置停止和真实 Operation 归零用于读取排空。同物理 S3 端点/桶的已登记位置合并检查；原件读取在登记 Permit 后、SDK 前，以独立短事务检查 claim。回收专用 Permit 只绑定当前 attempt、task、准确目标及 stopped Gate 修订；活动责任阻止 resume 和关窗。
 

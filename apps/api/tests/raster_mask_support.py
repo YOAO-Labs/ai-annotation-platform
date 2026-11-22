@@ -176,8 +176,6 @@ async def harness(test_engine, monkeypatch):
     try:
         yield result
     finally:
-        # Every body and exact receipt is owned by this fixture, including the
-        # deliberately failed-close cases. Never scan a shared bucket prefix.
         for body in blobs.bodies:
             io.BytesIO.close(body)
         await result.rows()
@@ -282,9 +280,6 @@ async def _seed_mask(
     annotator_id: uuid.UUID | None = None,
 ) -> tuple[Project, Task, Annotation, dict]:
     suffix = uuid.uuid4().hex[:8]
-    # The annotation author/effective annotator defaults to the owner; callers
-    # testing a manager review pass a distinct literal annotator so the frozen
-    # round evidence never names the reviewing actor.
     worker_id = annotator_id or owner_id
     project = Project(
         display_id=f"P-QC-{suffix}",

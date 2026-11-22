@@ -98,8 +98,6 @@ it("authorizes each queued op by its project and retains denied drafts", async (
     classifyError: (error: unknown) => "denied" | "missing" | "retry";
   };
   expect(options.classifyError(new ApiError(403, "x"))).toBe("denied");
-  // 404 after a successful access preflight means the target is gone, not that
-  // authority was revoked.
   expect(options.classifyError(new ApiError(404, "x"))).toBe("missing");
   expect(options.classifyError(new Error("network"))).toBe("retry");
   client.clear();

@@ -8,30 +8,20 @@ interface SidebarDrawerProps {
   open: boolean;
   onClose: () => void;
   children: ReactNode;
-  /** 抽屉宽度，默认 240px。 */
   width?: number;
 }
 
-/**
- * 窄屏 hamburger 抽屉：
- * - 从左侧滑入；
- * - 遮罩点击 / Esc / 路由变化自动关闭；
- * - body 滚动锁定；
- * - 通过 Portal 渲染到 document.body，避免 grid 布局影响。
- */
 export function SidebarDrawer({ open, onClose, children, width = 240 }: SidebarDrawerProps) {
   const location = useLocation();
   const panelRef = useElementStyle<HTMLElement>({
     "--sidebar-drawer-width": width,
   } as CSSProperties);
 
-  // 路由变化关闭抽屉
   useEffect(() => {
     if (open) onClose();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
-  // Esc 关闭
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -41,7 +31,6 @@ export function SidebarDrawer({ open, onClose, children, width = 240 }: SidebarD
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // body 滚动锁
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -53,7 +42,6 @@ export function SidebarDrawer({ open, onClose, children, width = 240 }: SidebarD
 
   return createPortal(
     <>
-      {/* 遮罩 */}
       <div
         onClick={onClose}
         aria-hidden="true"
@@ -61,7 +49,6 @@ export function SidebarDrawer({ open, onClose, children, width = 240 }: SidebarD
           open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
         }`}
       />
-      {/* 抽屉本体 */}
       <aside
         ref={panelRef}
         role="dialog"

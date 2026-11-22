@@ -304,8 +304,6 @@ async def test_suite_reader_budget_does_not_expire_between_children(
                 "/api/v1/__test/seed/owned", json=first.payload()
             )
             assert late.status_code == 409, late.text
-            # Real Routing preflight outlasts both the reader wait and the former
-            # whole-suite transport limit; later readers still get their own wait.
             with pytest.raises(TimeoutError):
                 await asyncio.wait_for(asyncio.Event().wait(), 5.1)
             release_preflight.set()

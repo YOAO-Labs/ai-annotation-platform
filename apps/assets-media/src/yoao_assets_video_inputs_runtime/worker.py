@@ -369,8 +369,6 @@ class VideoInputExecutor:
                 finish = await (self._original if kind == "input" else self._frame)(
                     claim, lease, Path(directory)
                 )
-                # Keep the exact measured output and attempt across response loss
-                # and contention; never read another source or create a new version.
                 return await self._persist(
                     lease, "finish_accepted_video_" + kind, finish
                 )

@@ -1,6 +1,3 @@
-/**
- * useNeighborAnnotations 单测:批量端点 + enabled 短路 + byTask 展开。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

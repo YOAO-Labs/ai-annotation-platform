@@ -51,7 +51,6 @@ export interface MaskPrimaryActionsInput {
   instanceCanRetry?: boolean;
   instanceCanRefresh?: boolean;
   instanceCommitBlocked?: boolean;
-  /** Includes RLE preparation and class selection before the session save begins. */
   savePending?: boolean;
   saveLabel?: string;
   saveHint?: string;
@@ -77,7 +76,6 @@ const WRITE_LOCK_REASONS = new Set<MaskEditBlockReason>([
   "segment_locked",
 ]);
 
-/** Derives presentation and dispatch targets without owning editor state or mutations. */
 export function resolveMaskPrimaryActions(input: MaskPrimaryActionsInput): MaskPrimaryActions {
   const region = input.operationPreview;
   const instance = input.instanceOperationPreview;
@@ -153,7 +151,6 @@ export function resolveMaskPrimaryActions(input: MaskPrimaryActionsInput): MaskP
     });
   }
 
-  // Conflicting or stale previews must never fall through to ordinary pixel saving.
   if (region && instance) {
     return result("recover_operation", "清除冲突预览", "区域与实例预览冲突，请清除后重新生成。", {
       secondary: cancelPreview,

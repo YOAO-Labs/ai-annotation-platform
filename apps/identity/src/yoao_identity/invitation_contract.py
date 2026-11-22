@@ -1563,7 +1563,6 @@ class InvitationNativeResult(ClosedModel):
             ):
                 raise IdentityUnavailable()
             if self.preview and any(item.ok for item in self.items):
-                # Preview may include the deterministic invitation id, but never token material.
                 pass
         elif operation == "list_invitations":
             if self.invitations is None:

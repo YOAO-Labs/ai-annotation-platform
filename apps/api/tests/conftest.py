@@ -56,13 +56,9 @@ if os.environ.get("YOAO_WORKTREE_MODE") == "dev":
     )
 
 
-# 必须在首次 import app 前开启；否则 app.api.v1.router 不会挂载测试 Seed router。
-# 数据库名仍由下方 fixture 固定到一次性测试库，router 自身会再做后缀校验。
 os.environ["E2E_SEED_ENABLED"] = "true"
 
 
-# 可选测试分片钩子（--shard-index / --shard-count）。两个参数都不给时不改变任何
-# 收集/执行行为；实现与分区算法见 tests/pytest_sharding.py。
 def pytest_addoption(parser):
     pytest_sharding.pytest_addoption(parser)
 
@@ -177,7 +173,6 @@ def apply_migrations(test_db_url: str):
     alembic_cfg.set_main_option("sqlalchemy.url", test_db_url)
     command.upgrade(alembic_cfg, "head")
     yield
-    # 迁移保留，便于失败时检查
 
 
 @pytest.fixture
@@ -220,8 +215,6 @@ async def db_session(test_engine, monkeypatch, raster_owner_registry):
     maker = async_sessionmaker(conn, class_=AsyncSession, expire_on_commit=False)
     session = maker()
 
-    # API fixtures are uncommitted savepoints. Keep native calls on that
-    # connection; independent-process acceptance uses committed worlds instead.
     from app.services.assets_images import (
         SqlAlchemyImageDatabase,
         _IndependentImageDatabase,
@@ -261,8 +254,6 @@ async def db_session(test_engine, monkeypatch, raster_owner_registry):
 
     monkeypatch.setattr(_IndependentInputDatabase, "call", input_call)
 
-    # Savepoint API tests borrow their already-uncommitted producer transaction.
-    # They do not qualify independent publisher/process settlement.
     from sqlalchemy import text
     from yoao_jobs import publication_postgres
 
@@ -334,9 +325,6 @@ async def db_session(test_engine, monkeypatch, raster_owner_registry):
         await session.close()
         await trans.rollback()
         await conn.close()
-        # 模块级进程缓存的服务（如 SystemSettingsService）需在每 test 清理，
-        # 否则上一个测试的 PATCH 值会泄漏到下一个测试（DB SAVEPOINT 已回滚但缓存未失效）。
-        # cleanup 失败必须可见，不能用静默 except 掩盖缓存污染。
         from app.services.system_settings_service import SystemSettingsService
 
         SystemSettingsService.invalidate()
@@ -479,9 +467,6 @@ async def httpx_client(
         app_module.dependency_overrides.pop(get_db, None)
 
 
-# ── 用户 Fixtures ────────────────────────────────────────────────────
-
-
 def _make_user(role: str, email: str, name: str) -> dict:
     from tests.factory import make_user_dict
 
@@ -532,9 +517,6 @@ def auth_headers(super_admin) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-# ADR-0050 · 测试辅助: 创建 registry + 其 singleton 服务池 + active 成员。
-# 项目启用关联 / 项目主绑定都基于 pool id (ProjectMLBackendPool.pool_id / Project.ml_backend_pool_id)。
-# 测试不再直接 new ProjectMLBackend(project_id, registry_id); 改用本 helper 得到 pool 再建关联。
 async def create_registry_with_pool(
     db: AsyncSession,
     *,

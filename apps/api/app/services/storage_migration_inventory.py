@@ -208,8 +208,6 @@ class _Writer:
         self.bytes += len(data)
 
     def finish(self, summary):
-        # Seal the outcome as well as object records. The tail duplicates it for
-        # convenient bounded consumption, but cannot change it independently.
         self.emit({"type": "summary", **summary})
         tail = {
             "type": "tail",
@@ -267,7 +265,6 @@ class _Inventory:
                     }
                 )
             except Exception:
-                # Observation is not part of report validity or read admission.
                 pass
 
     def issue(self, operation, bucket, exc):
@@ -424,9 +421,6 @@ class _Inventory:
         if response.get("ETag") != etag:
             raise InventoryError("etag_changed")
         actual = response.get("VersionId")
-        # Null versions are explicitly requested, but compatible servers can
-        # omit the response header for that mutable slot. A non-null version
-        # must always be echoed exactly; ETag and both HEADs still fence null.
         if (
             (version not in (None, "null") and actual != version)
             or (version == "null" and actual not in (None, "null"))

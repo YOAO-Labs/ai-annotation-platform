@@ -1,6 +1,4 @@
-# Optional official plugin overlay; combine with docker-compose.ml.yml.
 services:
-  # Official ONNXTools plugin; supply reviewed model files separately.
   onnxtools-backend:
     image: ${ONNXTOOLS_IMAGE:?Set the accepted ONNXTools image repository}@${ONNXTOOLS_IMAGE_DIGEST:?Set the ONNXTools manifest digest}
     labels:

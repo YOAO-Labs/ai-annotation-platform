@@ -252,7 +252,7 @@ def test_embedded_gateway_closes_each_short_session_before_smtp(monkeypatch):
     assert result["state"] == "finished"
     assert sent[0][0] == "smtp.example.test"
     assert sent[0][1] == f"<aap.{DELIVERY_ID}.invitation@aap.invalid>"
-    assert len(factory.sessions) == 4  # settings, claim, renew, finish
+    assert len(factory.sessions) == 4
     assert all(session.closed for session in factory.sessions)
     assert all(
         session.commits == 1 and session.rollbacks == 0 for session in factory.sessions

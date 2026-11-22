@@ -1,14 +1,5 @@
-/**
- * 正文图片点击放大（轻量 lightbox）。
- *
- * 让 `.vp-doc` 内的截图可点击放大到全屏查看，避免很高/很宽的截图在正文里被
- * 压成不可读细条。用事件委托，跨路由持续生效；只在浏览器端初始化。
- *
- * 跳过：已被 <a> 包裹的图、显式标记 `.no-zoom` 的图、以及很小的图标类图片。
- */
 export function setupImageZoom(): void {
   if (typeof window === "undefined" || typeof document === "undefined") return;
-  // 防止重复初始化（HMR / 多次 enhanceApp）
   if ((window as unknown as { __docsImageZoom?: boolean }).__docsImageZoom) return;
   (window as unknown as { __docsImageZoom?: boolean }).__docsImageZoom = true;
 
@@ -49,9 +40,9 @@ export function setupImageZoom(): void {
     const target = e.target as HTMLElement | null;
     if (!(target instanceof HTMLImageElement)) return;
     if (!target.closest(".vp-doc")) return;
-    if (target.closest("a")) return; // 已是链接的图不拦截
+    if (target.closest("a")) return;
     if (target.classList.contains("no-zoom")) return;
-    if (target.naturalWidth && target.naturalWidth < 80) return; // 跳过图标
+    if (target.naturalWidth && target.naturalWidth < 80) return;
     e.preventDefault();
     open(
       target.currentSrc || target.src,

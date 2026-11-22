@@ -25,7 +25,6 @@ describe("UserPicker", () => {
         onClose={onClose}
       />,
     );
-    // 代表 React 根节点上编辑器的 onKeyDown（Enter 提交）。
     const editorKeydown = vi.fn();
     document.addEventListener("keydown", editorKeydown);
 
@@ -64,7 +63,6 @@ describe("UserPicker", () => {
         onClose={vi.fn()}
       />,
     );
-    // 代表编辑器 / 输入法：组合中的按键必须继续传播，不能被浮层吞掉。
     const downstream = vi.fn();
     document.addEventListener("keydown", downstream);
 
@@ -78,7 +76,7 @@ describe("UserPicker", () => {
     });
 
     expect(onPick).not.toHaveBeenCalled();
-    expect(composingEnter).toBe(true); // 未 preventDefault
+    expect(composingEnter).toBe(true);
     expect(legacyImeKey).toBe(true);
     expect(downstream).toHaveBeenCalledTimes(2);
 
@@ -113,7 +111,6 @@ describe("UserPicker", () => {
       />,
     );
 
-    // spaceBelow=30 不足以容纳 220px 列表；向上展开：250 - 220 - 4 = 26。
     expect(screen.getByRole("listbox").style.getPropertyValue("--user-picker-top")).toBe("26px");
   });
 });

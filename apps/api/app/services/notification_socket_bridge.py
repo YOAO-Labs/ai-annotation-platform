@@ -13,7 +13,6 @@ from websockets.frames import Close
 
 
 log = logging.getLogger(__name__)
-# Match the SDK transport: handshake debug logs contain the credential-bearing URI.
 _TRANSPORT_LOG = logging.Logger(
     "aap.notification_socket.transport", logging.CRITICAL + 1
 )
@@ -23,7 +22,6 @@ _TRANSPORT_LOG.propagate = False
 
 class _OwnerConnect(connect):
     def process_redirect(self, error):
-        # Keep the credential at the configured owner endpoint.
         return error
 
 

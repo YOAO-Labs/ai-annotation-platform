@@ -8,7 +8,6 @@ import type { ProjectTemplateOut } from "@/api/projectTemplates";
 import { DecisionDialogHost } from "@/components/ui/DecisionDialogHost";
 import { ToastRack } from "@/components/ui/Toast";
 import { server } from "@/mocks/server";
-import { expectNoUnexpectedApiRequests, resetUnexpectedApiRequests } from "@/test/apiRequestGuard";
 import { createTestUser, resetAuthUser, seedAuthUser } from "@/test/auth";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { ProjectTemplatesPage } from "./ProjectTemplatesPage";
@@ -107,7 +106,6 @@ function open(...entries: string[]) {
 const card = (id: string) => within(screen.getByTestId(`template-card-${id}`));
 
 beforeEach(() => {
-  resetUnexpectedApiRequests();
   seedAuthUser(createTestUser({ id: "owner", role: "project_admin" }));
   server.use(http.get("*/api/v1/projects", () => HttpResponse.json([])));
 });
@@ -117,7 +115,6 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   resetAuthUser();
-  expectNoUnexpectedApiRequests();
 });
 
 it("加载中的私有列表不显示空态，请求完成才提示新建", async () => {

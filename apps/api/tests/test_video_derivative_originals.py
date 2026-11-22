@@ -66,7 +66,6 @@ async def reads(*_):
 def authority(monkeypatch):
     state = SimpleNamespace(source=original(), actor=SimpleNamespace(id=uuid.uuid4()))
     state.key_id = uuid.uuid4()
-    # Existing video reads have no additional explicit read scope.
     state.key = ("private-hash", (), datetime.now(timezone.utc) + timedelta(hours=1))
     state.proof = SimpleNamespace(actor_id=state.actor.id, key_id=state.key_id)
     state.capture = AsyncMock(return_value=state.proof)

@@ -108,7 +108,6 @@ async def seed_guide_assets(db, *, actor, project, storage, now):
             ContentType=row.mime_type,
         )
         owners[case] = row
-    # Current references, not original project prefixes, retain the shared SVG.
     for target, cases in (
         (project, ("jpeg", "webp", "svg")),
         (copied_project, ("svg",)),
@@ -131,7 +130,6 @@ async def seed_guide_assets(db, *, actor, project, storage, now):
         ContentType="image/svg+xml",
     )
     await db.flush()
-    # These rows really existed. Deletion must leave independent owner snapshots.
     await db.delete(original_project)
     await db.flush()
     await db.delete(original_actor)

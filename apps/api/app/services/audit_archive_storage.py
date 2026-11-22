@@ -631,7 +631,6 @@ def _gzip_lines(fileobject, row, deadline):
             output = decoder.decompress(data, CHUNK_BYTES)
             _budget(deadline)
             if decoder.unused_data:
-                # Empty members and zero padding are still extra physical bytes.
                 _reject()
             expanded += len(output)
             if expanded > expected:
@@ -653,7 +652,6 @@ def _gzip_lines(fileobject, row, deadline):
             data = decoder.unconsumed_tail
             if not data and not output:
                 break
-            # Empty input drains any bounded output still buffered by zlib.
 
 
 def _semantic(fileobject, row, limit, offset, deadline):

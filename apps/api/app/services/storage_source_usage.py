@@ -25,8 +25,6 @@ from app.db.models.dataset_source import (
 from app.services.dataset_source_access import source_scope_clause
 
 
-# All address handling stays in PostgreSQL; neither paths nor per-file rows are
-# returned to the application. S3 keys deliberately retain repeated separators.
 AGGREGATE = r"""
 WITH facts AS (
     SELECT c.*, snapshot->'anchor' AS anchor,
@@ -207,7 +205,6 @@ async def read_usage_page(db, locations, actor):
         .where(source_scope_clause(actor))
         .cte("usage_candidates")
     )
-    # Page identity/kind are bound values, never interpolated provider addresses.
     query = text(AGGREGATE)
     usage = query.columns(
         location_id=Uuid,

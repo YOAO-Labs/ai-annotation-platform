@@ -139,7 +139,6 @@ async def test_collect_spatial_pages_rejects_scope_snapshot_and_cursor_drift(
         complete=False,
         total=2,
     )
-    # The second-page mutation must be observed before any accumulated rows escape.
     second = _page(
         rows[1:],
         cursor="a",

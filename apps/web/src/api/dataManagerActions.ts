@@ -59,7 +59,6 @@ export type DataManagerTaskPreannotationPayload = Record<string, unknown> & {
 };
 
 export interface DataManagerActionRequestOptions {
-  /** Reuse the same key when a network retry must not enqueue a second job. */
   idempotencyKey?: string;
 }
 

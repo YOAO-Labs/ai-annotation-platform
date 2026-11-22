@@ -19,8 +19,6 @@ async def test_multi_target_metadata_survives_guarded_format_migration(
 ):
     project = await create_project(db_session, owner_id=super_admin[0].id)
     targets = "aap_json,binary-png,coco,indexed-png,label-studio-brush,yolo-det,yolo-obb,yolo-seg"
-    # This migration predates independent output ownership. Retain a legacy
-    # NULL-owner index to exercise its original metadata preservation contract.
     artifact = ExportArtifact(
         cache_key=uuid.uuid4().hex,
         project_id=project.id,

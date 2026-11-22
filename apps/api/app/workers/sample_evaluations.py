@@ -132,7 +132,6 @@ async def obtain_result(factory, run, row, png, attempt_id, claim_id):
     async with factory() as db:
         client = await private_client(db, run)
         await db.commit()
-    # Read cached evidence first, including when a previous GPU grant is uncertain.
     for _ in range(120):
         try:
             receipt = await remote_receipt(client, row)
@@ -174,7 +173,6 @@ async def obtain_result(factory, run, row, png, attempt_id, claim_id):
         except (TrainingDatasetError, FencedOut):
             raise
         except Exception as exc:
-            # A transport error is not proof that native work has stopped.
             try:
                 receipt = await remote_receipt(client, row)
                 if receipt.get("state") == "completed":
@@ -254,7 +252,6 @@ async def cleanup_candidate(factory, run_id, attempt_id, artifact, *, storage_re
                 and run.status in {"running", "cancelling"}
             ):
                 return
-            # This attempt can never become the current active writer again.
             await db.commit()
         async with factory() as db:
             await service.storage_io.run(
@@ -266,7 +263,6 @@ async def cleanup_candidate(factory, run_id, attempt_id, artifact, *, storage_re
                 ),
             )
     except Exception:
-        # Retain uncertain candidates under the evaluation's cleanup prefix.
         log.warning("Evaluation report cleanup deferred attempt=%s", attempt_id)
 
 
@@ -482,7 +478,6 @@ async def settle_cancel(factory, run_id):
             try:
                 storage_ref = service.owners.resolve(current).ref
             except TrainingDatasetError:
-                # Confirming remote stop must not require a retained output owner.
                 report = None
         await db.commit()
     artifact = None
@@ -506,7 +501,6 @@ async def settle_cancel(factory, run_id):
     candidate = artifact
     try:
         async with factory() as db:
-            # Stop confirmation survives revoked authority; report publication does not.
             try:
                 if artifact:
                     await service.authority(db, current)

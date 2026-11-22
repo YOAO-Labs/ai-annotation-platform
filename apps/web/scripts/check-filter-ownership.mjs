@@ -2,8 +2,6 @@ import { dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
-// Presentation ownership gate: every audited surface must opt into the shared
-// controls explicitly. Page interaction suites continue to own query semantics.
 const surfaces = [
   ["project administrator", "pages/Dashboard/DashboardPage.tsx", "FilterGroup"],
   ["super administrator", "pages/Dashboard/AdminProjectsDashboard.tsx", "FilterGroup"],

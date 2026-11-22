@@ -260,7 +260,6 @@ function TrainingDraftGate({
     return () => {
       active.current = false;
     };
-    // This gate is remounted on owner or session changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const choose = async (records: TrainingDraftRecords, choice: "legacy" | "target" | "ignore") => {
@@ -584,7 +583,6 @@ function TrainingCreateContent({
     queryFn: () => trainingDatasetsApi.get(projectId, draft.datasetId),
     enabled: !!draft.datasetId,
   });
-  // Older drafts infer their task from the pinned dataset/model without rewriting it.
   const inferredTask =
     selectedTask ??
     selectedDataset.data?.task ??
@@ -684,7 +682,6 @@ function TrainingCreateContent({
     ) {
       state.update({ initialization: initializationReference(pin) });
     }
-    // Only complete an explicit unpinned selection. Refetches never rewrite a pin or pending body.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialization.source.data, initialization.source.isFetching, locked, checking]);
   const sourceCurrent =
@@ -917,7 +914,6 @@ function TrainingCreateContent({
           setDatasetHandoffBusy(false);
       }
     })();
-    // Each route intent is read once; edits require an explicit retry against the new draft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     datasetIntent,
@@ -1241,7 +1237,6 @@ function TrainingCreateContent({
         )
           setError(reasonMessage(reason));
       });
-    // The intent is captured once; accepting or cancelling removes it from the URL.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     cloneRun,

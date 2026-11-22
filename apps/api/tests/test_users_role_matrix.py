@@ -90,9 +90,6 @@ class TestRoleMatrix:
             "Last unreserved admin",
         )
         target_id = target.id
-        # The guard counts every unreserved super admin in the database; park
-        # the committed rows left by earlier tests inside this savepoint (the
-        # fixture teardown rolls the parking back).
         await park_foreign_super_admins_in_savepoint(
             db_session, keep_ids=[actor_id, target_id]
         )
@@ -100,8 +97,6 @@ class TestRoleMatrix:
         actor.deactivation_requested_at = now
         actor.deactivation_scheduled_at = now + timedelta(days=7)
         await db_session.flush()
-        # Persist the fixture inside the outer test savepoint. The denied owner
-        # command can roll back its nested transaction without deleting it.
         await db_session.commit()
 
         response = await httpx_client.patch(
@@ -139,14 +134,11 @@ class TestRoleMatrix:
         """project_admin 不能将 employee 提升为 project_admin。"""
         _, token = project_admin
         user, _ = annotator
-        # project_admin 需要 target 在其项目内，先用 super_admin 覆盖
-        # 当前简化：验证 403 来自角色限制而非成员限制
         r = await httpx_client.patch(
             f"/api/v1/users/{user.id}/role",
             json={"role": "project_admin"},
             headers={"Authorization": f"Bearer {token}"},
         )
-        # 期望 403（project_admin 不能设置 super_admin / project_admin 角色）
         assert r.status_code in (403, 404)
 
     async def test_employee_cannot_change_roles(
@@ -207,7 +199,7 @@ class TestRoleMatrix:
             json={"role": "employee"},
             headers={"Authorization": f"Bearer {token}"},
         )
-        assert r.status_code == 400  # 不能修改自己
+        assert r.status_code == 400
 
     async def test_nonexistent_user_returns_404(self, httpx_client, super_admin):
         """不存在的用户返回 404。"""
@@ -225,8 +217,6 @@ class TestRoleMatrix:
         """角色变更产生审计日志。"""
         _, token = super_admin
         user, _ = annotator
-        # The fixture account is already ``employee``; use a different platform
-        # role so this exercises a real change rather than a no-op.
         r = await httpx_client.patch(
             f"/api/v1/users/{user.id}/role",
             json={"role": "project_admin"},

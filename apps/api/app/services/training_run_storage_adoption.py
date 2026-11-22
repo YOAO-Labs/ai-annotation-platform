@@ -100,7 +100,6 @@ def _verify(reader, state, maximum):
     before = reader.inventory()
     if not required <= set(before):
         reject("legacy_storage_required_copy_missing")
-    # Derived logs must be explained by a published, independently verified log.
     derived = {}
     for key in sorted(set(before) - set(expected)):
         relative = key[len(reader.owner.prefix) :].split("/")
@@ -322,8 +321,6 @@ async def pin(db, run_id, actor, project, key_id):
         return run, state
 
     try:
-        # No API Key row lock is held through physical IO; final authority uses
-        # a share lock so a completed revocation cannot race pin publication.
         await lock_actor_project_authority(db, actor.id, project.id)
         _, access = await resolve_project_access_by_id(
             db, actor_id=actor.id, project_id=project.id

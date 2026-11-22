@@ -47,8 +47,6 @@ _FUNCTIONS = (
     f"{_SCHEMA}.sync_result(uuid,text)",
     f"{_SCHEMA}.record_sync_result(uuid,text,integer)",
 )
-# The eleven fixed functions the ingress LOGIN may execute. Plugin installation
-# wraps four of them and keeps the renamed implementations in the same schema.
 _CLIENT_FUNCTIONS = (
     f"{_SCHEMA}.registry_ingress_policy()",
     f"{_SCHEMA}.registry_by_url(text)",

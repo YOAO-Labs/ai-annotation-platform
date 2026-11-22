@@ -63,7 +63,6 @@ def cloud(mode="ascii"):
     elif mode == "binary":
         body = b"".join(struct.pack("<Bfff", *row) for row in ROWS)
     else:
-        # PCD compressed bodies are field-major; they retain each field's point order.
         expanded = b"".join(
             struct.pack("<" + code * len(ROWS), *(row[index] for row in ROWS))
             for index, code in enumerate(("B", "f", "f", "f"))
@@ -105,7 +104,6 @@ def test_three_formats_preserve_reordered_fields_nonfinite_rows_and_borrowed_cur
         source_point_count=info.point_count,
         category_map={"car": 1, "truck": 2},
     )
-    # NaN at original record 1 still occupies its label slot; record 2 never shifts.
     assert struct.unpack("<3I", labels) == (0, 1, 2)
 
 
@@ -301,14 +299,14 @@ def test_compressed_parser_handles_short_reads_and_bounds_each_read():
 @pytest.mark.parametrize(
     "encoded",
     [
-        b"\x0b" + bytes(11),  # incomplete literal
-        b"\x20\x00",  # back-reference before the start
-        b"\xe0",  # missing extended length
-        b"\xe0\x00",  # missing distance
-        literal(b"\0"),  # incomplete output
-        literal(bytes(13)),  # output exceeds the record body
-        literal(bytes(12)) + b"\x00",  # unconsumed malformed trailing control
-        literal(b"\0") + backref(2, 11),  # distance reaches before output start
+        b"\x0b" + bytes(11),
+        b"\x20\x00",
+        b"\xe0",
+        b"\xe0\x00",
+        literal(b"\0"),
+        literal(bytes(13)),
+        literal(bytes(12)) + b"\x00",
+        literal(b"\0") + backref(2, 11),
     ],
 )
 def test_compressed_body_requires_valid_complete_lzf_input_and_output(encoded):
@@ -397,7 +395,7 @@ def test_lzf_large_expansion_retains_constant_memory():
         _, peak = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
-    assert peak < 1024 * 1024  # The expanded stream exceeds 5 MiB.
+    assert peak < 1024 * 1024
 
 
 def test_pointmask_uses_exact_record_space_and_caller_order_without_stride_expansion():

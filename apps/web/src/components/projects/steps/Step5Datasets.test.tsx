@@ -89,7 +89,6 @@ describe("Step5Datasets", () => {
 
     render(<Harness />);
 
-    // 传项目原始 data_type "lidar";后端按 media kind 归一同时命中 point_cloud。
     expect(mockUseDatasets).toHaveBeenCalledWith({
       data_type: "lidar",
       has_scenes: true,

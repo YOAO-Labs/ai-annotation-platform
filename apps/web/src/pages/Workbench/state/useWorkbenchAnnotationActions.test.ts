@@ -1,5 +1,3 @@
-// Manual creation transactions, durable acceptance, and task ownership regressions.
-
 import { QueryClient } from "@tanstack/react-query";
 import { act, renderHook } from "@testing-library/react";
 import { useState } from "react";
@@ -13,7 +11,6 @@ const { enqueueDurably } = vi.hoisted(() => ({
   enqueueDurably: vi.fn<typeof import("./offlineQueue").enqueueDurably>(async () => {}),
 }));
 vi.mock("./offlineQueue", () => ({
-  enqueue: vi.fn(),
   enqueueDurably,
   isOfflineCandidate: (error: unknown) =>
     error instanceof TypeError ||
@@ -195,7 +192,6 @@ describe("continuous creation admission", () => {
       expect(hook.result.current.beginBboxDrawing(geom)).toBe(false);
       hook.result.current.submitManualDrawing();
     });
-    // A failed read remains blocked until a successful retry admits its bytes.
     hook.rerender({ ...target, mediaBlocked: true });
     expect(hook.result.current.intent).toEqual(continuous);
     act(() => expect(hook.result.current.beginBboxDrawing(geom)).toBe(false));

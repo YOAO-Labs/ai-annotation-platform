@@ -40,10 +40,6 @@ NODE_PEER = Path(__file__).parent / "fixtures" / "mask_gc_cutover_peer.mjs"
 _SCHEMA = "aap-labeling-mask-gc/v1"
 _PAGE_OBJECTS = byte.MAX_GC_PAGE + 1
 _MAX_LIST_PAGES = 100
-# The owned S3 client is single-attempt with an 8 second read timeout. A single
-# bulk DELETE for the whole 1001-object dry-run fixture can outlive that under
-# verifier load and leave the shared annotations store contaminated for later
-# fixtures, so cleanup keeps each request's work small and confirms every key.
 _CLEANUP_DELETE_BATCH = 100
 
 pytestmark = [
@@ -399,8 +395,6 @@ async def test_node_http_run_deletes_staged_old_orphan_and_new_upload_is_retaine
             "cleanup", bucket=bucket, credentials=cleanup, tmp_path=tmp_path
         )
         dsn = _postgres_dsn(test_engine)
-        # The GC protocol preserves ListObjects' timestamp precision; HTTP HEAD
-        # can round it to seconds. Compare the receipt to its actual scan identity.
         byte_client = MaskGcClient(content_origin, content_token)
         observed = await asyncio.to_thread(
             byte_client.scan, byte.GcScanRequest(after_key=cursor, limit=1)

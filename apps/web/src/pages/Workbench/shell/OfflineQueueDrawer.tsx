@@ -7,7 +7,7 @@ import { useToastStore } from "@/components/ui/Toast";
 import {
   type OfflineOp,
   getAll,
-  removeById,
+  removeDurablyById,
   drain,
   subscribe,
   type DrainOptions,
@@ -17,15 +17,10 @@ import {
 interface OfflineQueueDrawerProps {
   open: boolean;
   onClose: () => void;
-  /** 当前题，用于「当前题」筛选和默认展开当前题分组。 */
   currentTaskId?: string;
-  /** Current account scope. Legacy rows without an owner are intentionally excluded. */
   queueScope?: OfflineQueueScope;
-  /** 单条同步：执行远端请求；抛错 = 不弹出，调用方 toast 错误。成功后 drawer 自己 removeById。 */
   onFlushOne: (op: OfflineOp) => Promise<void>;
-  /** 全部同步：drain 整个队列，调用方负责 invalidate cache + 提示。 */
   onFlushAll: () => Promise<void>;
-  /** 与 drain 相同的错误分类：delete 的 404 = 目标已不存在（视为已同步）。 */
   classifyError?: DrainOptions["classifyError"];
 }
 
@@ -51,7 +46,6 @@ function kindClassName(kind: OfflineOp["kind"]): string {
   return "text-status-danger";
 }
 
-/** retry_count 颜色阈值。0 灰，1-2 黄（已有失败但不严重），≥3 红。*/
 function retryBadgeClassName(rc: number): string {
   if (rc >= 3) return "bg-rose-500/20 text-rose-700 dark:text-rose-400";
   if (rc >= 1) return "bg-amber-500/20 text-amber-700 dark:text-amber-400";
@@ -82,7 +76,6 @@ export function OfflineQueueDrawer({
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const pushToast = useToastStore((s) => s.push);
 
-  // 实时订阅队列变化
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -108,18 +101,14 @@ export function OfflineQueueDrawer({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  // 应用筛选
   const filtered = useMemo(() => {
     return items.filter((op) => {
-      // A current-task filter with no current task must remain empty. Treating
-      // that state as "all" could retry or discard another task's work.
       if (taskFilter === "current" && (!currentTaskId || op.taskId !== currentTaskId)) return false;
       if (retryFilter === "failed" && (op.retry_count ?? 0) < 3) return false;
       return true;
     });
   }, [items, taskFilter, retryFilter, currentTaskId]);
 
-  // 按 taskId 分组（保持时间顺序）
   const grouped = useMemo(() => {
     const order: string[] = [];
     const buckets: Record<string, OfflineOp[]> = {};
@@ -133,7 +122,6 @@ export function OfflineQueueDrawer({
     return { order, buckets };
   }, [filtered]);
 
-  // 跨题统计
   const taskCount = grouped.order.length;
   const currentTaskItemCount = useMemo(() => {
     if (!currentTaskId) return 0;
@@ -151,8 +139,6 @@ export function OfflineQueueDrawer({
             userId: queueScope?.userId ?? "",
             operationId: op.id,
           },
-          // Same classification as the drain: a 404 on a delete means the
-          // target is already gone server-side and the op leaves the queue.
           classifyError ? { classifyError } : undefined,
         );
         if ((result.deferred ?? 0) > 0) {
@@ -179,8 +165,11 @@ export function OfflineQueueDrawer({
     async (op: OfflineOp) => {
       setBusyId(op.id);
       try {
-        await removeById(op.id, queueScope);
-        pushToast({ msg: "已从队列删除", kind: "success" });
+        await removeDurablyById(op.id, queueScope);
+        if (queueScope?.isCurrent?.()) pushToast({ msg: "已从队列删除", kind: "success" });
+      } catch (error) {
+        if (queueScope?.isCurrent?.())
+          pushToast({ msg: "未能删除离线操作，请重试", sub: String(error), kind: "error" });
       } finally {
         setBusyId(null);
       }
@@ -190,8 +179,6 @@ export function OfflineQueueDrawer({
 
   const handleClearAll = useCallback(async () => {
     if (items.length === 0) return;
-    // 确认对话框是异步的:等待期间失败的保存可能把新操作入队。
-    // 只丢弃用户确认时看到的那批 ID,新入队的未保存编辑不经同意不得清除。
     const confirmedIds = items.map((op) => op.id);
     const confirmed = await confirmDialog({
       tone: "danger",
@@ -199,9 +186,14 @@ export function OfflineQueueDrawer({
       description: "此操作不可撤销。",
       confirmLabel: "丢弃全部",
     });
-    if (!confirmed) return;
-    await Promise.all(confirmedIds.map((id) => removeById(id, queueScope)));
-    pushToast({ msg: "队列已清空", kind: "warning" });
+    if (!confirmed || !queueScope?.isCurrent?.()) return;
+    const results = await Promise.allSettled(
+      confirmedIds.map((id) => removeDurablyById(id, queueScope)),
+    );
+    if (!queueScope.isCurrent?.()) return;
+    const failed = results.filter((result) => result.status === "rejected").length;
+    if (failed) pushToast({ msg: `${failed} 条离线操作未能删除，请重试`, kind: "error" });
+    else pushToast({ msg: "队列已清空", kind: "warning" });
   }, [items, pushToast, queueScope]);
 
   const handleFlushAll = useCallback(async () => {
@@ -217,7 +209,6 @@ export function OfflineQueueDrawer({
 
   return createPortal(
     <>
-      {/* 背景遮罩，仅供点击关闭，不阻塞画布交互 */}
       <div onClick={onClose} className="fixed inset-0 z-drawer-backdrop bg-black/25" />
       <aside
         role="dialog"
@@ -246,7 +237,6 @@ export function OfflineQueueDrawer({
           </button>
         </header>
 
-        {/* 筛选 chip */}
         {items.length > 0 && (
           <FilterGroup
             label="筛选"
@@ -303,7 +293,7 @@ export function OfflineQueueDrawer({
             grouped.order.map((tid) => {
               const opsInTask = grouped.buckets[tid];
               const isCurrent = tid === currentTaskId;
-              const isCollapsed = collapsed[tid] ?? !isCurrent; // 默认展开当前题，其余折叠
+              const isCollapsed = collapsed[tid] ?? !isCurrent;
               return (
                 <div key={tid} className="border-b border-border">
                   <button

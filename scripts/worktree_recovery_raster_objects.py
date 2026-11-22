@@ -120,7 +120,6 @@ async def seed_raster_objects(db, *, actor, project, storage, now):
         )
     )
 
-    # Frozen training snapshots already exist. Only current business rows change.
     task = await db.scalar(
         select(Task).where(Task.project_id == project.id).order_by(Task.id)
     )
@@ -187,7 +186,6 @@ async def seed_raster_objects(db, *, actor, project, storage, now):
     )
     db.add(detached_annotation)
     await db.flush()
-    # Annotation task FKs do not cascade; upload reservations do.
     await db.delete(detached_annotation)
     await db.flush()
     await db.delete(detached)

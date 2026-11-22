@@ -25,7 +25,6 @@ class ProcessBudget:
     def launch(self, factory):
         self.started = time.monotonic()
         self.process = factory()
-        # Retain the actual handle before starting threads, capture or durable IO.
         self.thread = threading.Thread(
             target=self.watch, name="native-budget", daemon=True
         )
@@ -54,7 +53,6 @@ class ProcessBudget:
                         self.stop_process(self.process)
                     self.confirm_exit()
             except Exception as exc:
-                # Keep stopping independently even if the main owner is stuck in IO.
                 self.stop_error = exc
                 self.done.wait(0.2)
 

@@ -141,8 +141,6 @@ def fixture(
     scoped = backend.environment()
     environment = application_environment(scoped)
     if action in {"seed", "inspect", "verify"}:
-        # Offline fixtures own partition DDL and direct child-table inspection;
-        # target verification owns guarded mapping. No API/worker receives it.
         from sqlalchemy.engine import make_url
 
         owner_url = scoped["MIGRATION_DATABASE_URL"]
@@ -188,7 +186,6 @@ def fixture(
             timeout=240,
         )
     if result.returncode:
-        # Child output is private and may contain SQL details. Report frames only.
         import re
 
         diagnostic = log.read_text(errors="replace")
@@ -201,8 +198,6 @@ def fixture(
             ),
             ("child", "unknown"),
         )
-        # ContentError codes are deliberately non-secret. Preserve only the
-        # strict code, never a SQL/provider message from the private child log.
         codes = re.findall(
             r"^app\.services\.content_snapshot\.ContentError: ([a-z][a-z0-9_]{0,127})$",
             diagnostic,
@@ -234,7 +229,6 @@ def rehearse(options):
         pg_restore_database,
     )
 
-    # No user-supplied root can turn this command into a destructive restore tool.
     root = Path(tempfile.mkdtemp(prefix="aap-recovery-"))
     backends = []
     timings = {}
@@ -278,7 +272,6 @@ def rehearse(options):
         external = root / "external-originals"
         stage, before = "source", time.monotonic()
         source.prepare()
-        # Ensure the all-purpose manifest includes every bucket, including empty ones.
         for role, bucket in source.resources["buckets"].items():
             source.s3.put_object(
                 Bucket=bucket,
@@ -306,7 +299,6 @@ def rehearse(options):
         dump_backend = detect_dump_backend(anchor)
         dump = root / "source.dump"
         dump.touch(mode=0o600, exist_ok=False)
-        # Fresh synthetic row budget and no clients bound the existing dump helper.
         pg_dump_database(dump_backend, anchor, source.resources["database"], dump)
         os.chmod(dump, 0o600)
         limits = Limits()
@@ -475,7 +467,6 @@ def rehearse(options):
             report["cleanup"] = "verified"
     if options.report:
         atomic_json(Path(options.report), report)
-    # Do not print the row-by-row physical mapping or private temporary paths on success.
     print(
         json.dumps(
             {key: value for key, value in report.items() if key != "application"},

@@ -126,8 +126,6 @@ async def normalize_video_export_scope(
     except ContentError:
         raise ValueError("video export source relation is unavailable") from None
     item_id = relation.item_id
-    # Source extent is checked against the completely verified video's actual
-    # probe receipt by the Worker, before any frame or track expansion.
 
     selection = request.selection
     if isinstance(selection, VideoExportFrameSelection):

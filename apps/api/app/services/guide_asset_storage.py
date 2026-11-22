@@ -80,7 +80,6 @@ _MESSAGES = {
 
 class GuideAssetStorageError(ValueError):
     def __init__(self, code, status_code=409):
-        # Only fixed messages are exposed; provider exception text is never safe.
         super().__init__(_MESSAGES.get(code, "指南图片存储暂不可用"))
         self.code = code
         self.status_code = status_code
@@ -261,7 +260,6 @@ def resolve(record) -> Owner:
     return resolve_ref(getattr(record, "storage_ref", None), expected_key=key)
 
 
-# A copied locator must never be mutable through a frozen receipt's attributes.
 _Snapshot = make_dataclass(
     "GuideAssetSnapshot",
     [(name, object) for name in _FACTS] + [("_ref_json", str)],
@@ -333,7 +331,6 @@ def run_io(target, client, operation, record, *args, **kwargs):
     ):
         _reject()
     if target.location_id == LEGACY_LOCATION_ID:
-        # Keep the existing explicit legacy-client injection for local callers.
         target = replace(target, _legacy_client=client)
     try:
         context = target.client(

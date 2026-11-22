@@ -83,7 +83,6 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
     from app.db.models.task_batch import TaskBatch
     from app.db.models.user import User
 
-    # Ordinary rows that no fixture scope may ever match.
     keeper_user_id = uuid.uuid4()
     keeper_project_id = uuid.uuid4()
     keeper_backend_id = uuid.uuid4()
@@ -132,7 +131,6 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
     assert second.status_code == 200, second.text
     assert first.json() == {"ok": True} == second.json()
 
-    # Namespace A is fully gone, by every exact selector.
     assert (
         await db_session.scalar(
             select(func.count())
@@ -174,7 +172,6 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
         == 0
     )
 
-    # Neighbouring namespace B survives intact, as does ordinary data.
     assert (
         await db_session.scalar(
             select(func.count())
@@ -211,7 +208,6 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
             == 1
         )
 
-    # A can be rebuilt after its cleanup, and B still converges afterwards.
     rebuilt_run = httpx_client.owner_suite.new_run(A)
     rebuilt = await _build_owned(httpx_client, rebuilt_run)
     assert rebuilt["project_id"] not in (body_a["project_id"], body_b["project_id"])
@@ -260,7 +256,6 @@ async def owned_rebuild_is_retry_safe(httpx_client, db_session: AsyncSession):
     assert len(rebuilt_task_ids) == 5
     assert rebuilt_task_ids.isdisjoint(stale_task_ids)
 
-    # The retired attempt is gone and cannot be resurrected.
     assert await db_session.get(Project, stale_project_id) is None
     assert (
         await db_session.scalar(
@@ -389,7 +384,6 @@ async def owned_filtering_fixture_is_namespaced_and_converges(
         )
         == 0
     )
-    # Neighbour B: all of its fixture projects survive cleanup of A.
     surviving = [
         uuid.UUID(manifest_b[section]["project_id"])
         for section in ("image", "video", "paging", "lidar")

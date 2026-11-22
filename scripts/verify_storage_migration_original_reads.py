@@ -43,7 +43,6 @@ async def business_facts(db):
         "task_originals",
         "managed_original_creations",
     ):
-        # These are closed table names and an entirely fixture-owned database.
         rows = (
             (
                 await db.execute(
@@ -268,8 +267,6 @@ async def worker_hold(fixture_path):
                 def pause(http_response, parsed, **kwargs):
                     if parsed.get("Body") is None:
                         return
-                    # A real successful S3 response is open while its production
-                    # caller still owns the durable target Permit.
                     private_write(value["read_started"], b"owned")
                     deadline = time.monotonic() + 40
                     try:
@@ -426,8 +423,6 @@ class OriginalReads:
                 else None
             )
             if bucket is None:
-                # Copy target is one owned bucket; obtain it from the fixture's
-                # own client, never from another runtime or an arbitrary input.
                 owned = target.list_buckets()["Buckets"]
                 require(len(owned) == 1, "owned_target_bucket_changed")
                 bucket = owned[0]["Name"]
@@ -464,7 +459,6 @@ class OriginalReads:
             http.call("GET", identity["download_path"], binary=True) == self.raw,
             "http_item_bytes_changed",
         )
-        # The production HTTP boundary must still require a current credential.
         token, http.token = http.token, None
         try:
             http.call("GET", identity["download_path"], expected=401)

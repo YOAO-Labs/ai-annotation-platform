@@ -495,7 +495,6 @@ class NativeConnectionProbeData(_NativeData):
         for argument, kind in zip(arguments, kinds, strict=True):
             value = getattr(request, argument)
             if kind == "jsonb":
-                # The pool registers json/jsonb codecs, so bind objects not text.
                 values.append(
                     value.model_dump(mode="json")
                     if hasattr(value, "model_dump")
@@ -509,8 +508,6 @@ class NativeConnectionProbeData(_NativeData):
         if self._pool is None:
             raw = await self._connection.fetchval(statement, *values)
         else:
-            # Independently durable ledger/fence: a fresh pool transaction, not
-            # the caller's operation transaction.
             async with self._pool.acquire() as connection:
                 raw = await connection.fetchval(statement, *values)
         try:
@@ -1256,7 +1253,6 @@ class SourceDatabase:
                 (request, result) if operation in {"record", "finish"} else (request,)
             )
             if operation == "begin":
-                # The insert must not autocommit while admission is cancelled.
                 async with connection.transaction():
                     raw = await connection.fetchval(statements[operation], *arguments)
                     payload = _NativeData(

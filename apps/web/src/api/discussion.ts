@@ -50,13 +50,6 @@ function buildQuery(params: ListTaskDiscussionParams): string {
   return query ? `?${query}` : "";
 }
 
-/**
- * Authoritative mixed-source task discussion read model.
- *
- * This is deliberately a separate client from feedbacksApi. The feed endpoint
- * owns ordering, totals and source provenance; independently paged source
- * lists must never be merged in the browser.
- */
 export const discussionApi = {
   listTaskDiscussion: (
     taskId: string,
@@ -73,10 +66,8 @@ export const discussionApi = {
     ),
 };
 
-/** Compatibility alias for callers that name the resource explicitly. */
 export const taskDiscussionApi = discussionApi;
 
-/** Stable source-aware identity. Equal UUIDs in the two source tables are valid. */
 export function discussionItemKey(item: Pick<TaskDiscussionItem, "source" | "data">): string {
   return `${item.source}:${item.data.id}`;
 }

@@ -38,8 +38,6 @@ from app.workers.media_codec import (
     _webcodecs_codec_string as _webcodecs_codec_string,
 )
 
-# Re-export decoder helpers for existing callers and test patch targets.
-# Physical output publication belongs exclusively to media_derivatives.
 from app.workers.media_chunks import (
     FFMPEG_CHUNK_TIMEOUT_SECONDS as FFMPEG_CHUNK_TIMEOUT_SECONDS,
     extract_video_chunk as extract_video_chunk,
@@ -119,8 +117,6 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
                     "Image probe and native cleanup failed", [failure, cleanup]
                 )
     if failure is not None:
-        # An exception raised inside a libvips method may retain its image in
-        # traceback frames. Export only the stable error after those frames end.
         raise failure
     return dimensions
 
@@ -333,10 +329,6 @@ async def _backfill_media(
                     missing_metadata = (
                         not isinstance(video, dict) or video.get("frame_count") is None
                     )
-                    # poster(缩略图)缺失也需回填:seed 同步填了 video metadata
-                    # (frame_count 非空)但从未生成 poster,thumbnail_path 仍为 NULL,
-                    # 仅按 frame_count 判定会漏掉这类视频。_generate_video_metadata
-                    # 幂等(重建 timetable + poster),重复回填安全。
                     if (
                         missing_metadata
                         or row.thumbnail_path is None
@@ -636,10 +628,16 @@ async def _refresh_video_asset_bytes(db) -> None:
     VIDEO_FRAME_ASSET_BYTES.labels(asset_type="chunk").set(chunk_bytes)
 
 
-async def _dispatch_independent_media(task_name, delivery_id, queue, args, kwargs, run, *, soft_time_limit=None):
+async def _dispatch_independent_media(
+    task_name, delivery_id, queue, args, kwargs, run, *, soft_time_limit=None
+):
     from app.services import fixture_media_execution
 
-    if isinstance(queue, str) and queue.startswith("aap_workspace_worker_") and queue.endswith("_media"):
+    if (
+        isinstance(queue, str)
+        and queue.startswith("aap_workspace_worker_")
+        and queue.endswith("_media")
+    ):
         async with fixture_media_execution.admitted_independent(
             delivery_id, task_name, queue, args, kwargs, soft_time_limit=soft_time_limit
         ) as started:
@@ -654,31 +652,52 @@ async def _dispatch_independent_media(task_name, delivery_id, queue, args, kwarg
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, queue="media")
 def generate_thumbnail(self, item_id: str) -> None:
     from app.services.fixture_media_execution import request_soft_limit
-    asyncio.run(_dispatch_independent_media(
-        "app.workers.media.generate_thumbnail", self.request.id,
-        self.request.delivery_info.get("routing_key"), [item_id], {},
-        lambda: _generate_thumbnail(item_id), soft_time_limit=request_soft_limit(self.request),
-    ))
+
+    asyncio.run(
+        _dispatch_independent_media(
+            "app.workers.media.generate_thumbnail",
+            self.request.id,
+            self.request.delivery_info.get("routing_key"),
+            [item_id],
+            {},
+            lambda: _generate_thumbnail(item_id),
+            soft_time_limit=request_soft_limit(self.request),
+        )
+    )
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, queue="media")
 def generate_video_metadata(self, item_id: str, delegation=None) -> None:
     from app.services.fixture_media_execution import request_soft_limit
-    asyncio.run(_dispatch_independent_media(
-        "app.workers.media.generate_video_metadata", self.request.id,
-        self.request.delivery_info.get("routing_key"), [item_id], {"delegation": delegation},
-        lambda: _generate_video_metadata(item_id, delegation=delegation), soft_time_limit=request_soft_limit(self.request),
-    ))
+
+    asyncio.run(
+        _dispatch_independent_media(
+            "app.workers.media.generate_video_metadata",
+            self.request.id,
+            self.request.delivery_info.get("routing_key"),
+            [item_id],
+            {"delegation": delegation},
+            lambda: _generate_video_metadata(item_id, delegation=delegation),
+            soft_time_limit=request_soft_limit(self.request),
+        )
+    )
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, queue="media")
 def generate_task_thumbnail(self, task_id: str) -> None:
     from app.services.fixture_media_execution import request_soft_limit
-    asyncio.run(_dispatch_independent_media(
-        "app.workers.media.generate_task_thumbnail", self.request.id,
-        self.request.delivery_info.get("routing_key"), [task_id], {},
-        lambda: _generate_task_thumbnail(task_id), soft_time_limit=request_soft_limit(self.request),
-    ))
+
+    asyncio.run(
+        _dispatch_independent_media(
+            "app.workers.media.generate_task_thumbnail",
+            self.request.id,
+            self.request.delivery_info.get("routing_key"),
+            [task_id],
+            {},
+            lambda: _generate_task_thumbnail(task_id),
+            soft_time_limit=request_soft_limit(self.request),
+        )
+    )
 
 
 async def _dispatch_media_backfill(job_id, delivery_id, queue):
@@ -736,10 +755,18 @@ async def _dispatch_video_outputs(delivery_id, queue, output_ids, soft_time_limi
     from app.services import fixture_media_execution
     from app.workers.media_derivatives import run_outputs
 
-    if isinstance(queue, str) and queue.startswith("aap_workspace_worker_") and queue.endswith("_media"):
+    if (
+        isinstance(queue, str)
+        and queue.startswith("aap_workspace_worker_")
+        and queue.endswith("_media")
+    ):
         async with fixture_media_execution.admitted_independent(
-            delivery_id, "app.workers.media.generate_video_derivatives", queue,
-            [output_ids], {}, soft_time_limit=soft_time_limit,
+            delivery_id,
+            "app.workers.media.generate_video_derivatives",
+            queue,
+            [output_ids],
+            {},
+            soft_time_limit=soft_time_limit,
         ) as started:
             if started:
                 await run_outputs(output_ids, propagate_failure=True)
@@ -755,7 +782,11 @@ async def _dispatch_video_outputs(delivery_id, queue, output_ids, soft_time_limi
 def generate_video_derivatives(self, output_ids: list[str]) -> None:
     from app.services.fixture_media_execution import request_soft_limit
 
-    asyncio.run(_dispatch_video_outputs(
-        self.request.id, self.request.delivery_info.get("routing_key"),
-        output_ids, request_soft_limit(self.request),
-    ))
+    asyncio.run(
+        _dispatch_video_outputs(
+            self.request.id,
+            self.request.delivery_info.get("routing_key"),
+            output_ids,
+            request_soft_limit(self.request),
+        )
+    )

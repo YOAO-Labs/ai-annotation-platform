@@ -28,7 +28,6 @@ from app.services.training_dataset_bridge import content_digest
 
 @pytest.fixture(autouse=True)
 def legacy_transport_boundary(monkeypatch):
-    # These pre-existing unit cases isolate business ownership from admission.
     from app.services import training_storage_io
     from app.services.storage import storage_service
 
@@ -284,7 +283,6 @@ def test_initialization_verifies_source_owner_not_current_or_target(
     from app.services import training_runs
 
     def verify(key, spec, attempt_id, *, bucket, transport=None):
-        # The run-flow owner separately tests the whole streaming verifier.
         response = world.client.get_object(Bucket=bucket, Key=key)
         try:
             raw = response["Body"].read()

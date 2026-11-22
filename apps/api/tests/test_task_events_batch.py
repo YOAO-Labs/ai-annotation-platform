@@ -71,7 +71,6 @@ async def test_task_events_batch_sync_fallback(httpx_client, annotator, db_sessi
     finally:
         settings.task_events_async = True
 
-    # 行落库（同 SAVEPOINT 可见）
     n = (
         await db_session.execute(
             select(func.count())
@@ -121,7 +120,6 @@ async def test_admin_people_list_returns_users(httpx_client, super_admin, annota
     emails = [it["email"] for it in body["items"]]
     assert "admin@test.local" in emails
     assert "anno@test.local" in emails
-    # 每张卡片需要的字段
     for it in body["items"]:
         for k in [
             "user_id",
@@ -170,7 +168,6 @@ async def test_annotator_dashboard_active_minutes_streak_from_task_events(
 
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    # 当日两条事件 → active_minutes_today = (60_000 + 120_000) / 60_000 = 3
     db_session.add_all(
         [
             TaskEvent(
@@ -197,7 +194,6 @@ async def test_annotator_dashboard_active_minutes_streak_from_task_events(
                 annotation_count=2,
                 was_rejected=False,
             ),
-            # 昨天也有事件 → streak_days = 2
             TaskEvent(
                 id=uuid.uuid4(),
                 task_id=task.id,
@@ -210,7 +206,6 @@ async def test_annotator_dashboard_active_minutes_streak_from_task_events(
                 annotation_count=1,
                 was_rejected=False,
             ),
-            # 前天没事件 → streak 在第 3 天断开（总 streak = 2）
         ]
     )
     await db_session.flush()
@@ -256,7 +251,6 @@ async def test_admin_people_activity_score_from_task_events(
     await db_session.flush()
 
     now = datetime.now(timezone.utc)
-    # annotator 7d 内 30 分钟活跃，super_admin 0 → annotator 分位 > super_admin
     db_session.add(
         TaskEvent(
             id=uuid.uuid4(),
@@ -280,7 +274,6 @@ async def test_admin_people_activity_score_from_task_events(
     assert r.status_code == 200, r.text
     body = r.json()
     by_email = {it["email"]: it for it in body["items"]}
-    # 活跃用户 activity_score 严格 > 非活跃用户
     assert (
         by_email["anno@test.local"]["activity_score"]
         > by_email["admin@test.local"]["activity_score"]
@@ -311,6 +304,11 @@ async def test_admin_people_detail_ok(httpx_client, super_admin, annotator):
     assert "trend_throughput" in body
     assert len(body["trend_throughput"]) == 4
     assert "duration_histogram" in body
+    assert body["throughput"] == 0
+    assert body["quality_score"] == 100
+    assert body["first_pass_yield"] is None
+    assert body["active_minutes"] is None
+    assert body["composite_score"] == 0
 
 
 @pytest.mark.asyncio
@@ -343,7 +341,6 @@ async def test_annotator_dashboard_hour_buckets(httpx_client, annotator, db_sess
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # 当日 09:xx 三条共 5 分钟、14:xx 一条 2 分钟、昨日一条（不应入桶）
     db_session.add_all(
         [
             TaskEvent(
@@ -382,7 +379,6 @@ async def test_annotator_dashboard_hour_buckets(httpx_client, annotator, db_sess
                 annotation_count=1,
                 was_rejected=False,
             ),
-            # 昨天 → 不进当日 buckets
             TaskEvent(
                 id=uuid.uuid4(),
                 task_id=task.id,
@@ -408,10 +404,8 @@ async def test_annotator_dashboard_hour_buckets(httpx_client, annotator, db_sess
     buckets = body["hour_buckets"]
     assert isinstance(buckets, list)
     assert len(buckets) == 24
-    # 9 时 = (120 + 180) / 60 = 5 分钟；14 时 = 120 / 60 = 2 分钟
     assert buckets[9] == 5
     assert buckets[14] == 2
-    # 其他位均为 0
     assert sum(buckets) == 7
     for h, v in enumerate(buckets):
         if h not in (9, 14):

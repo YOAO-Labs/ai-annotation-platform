@@ -75,7 +75,6 @@ async def policy_claim_allowed(db, run):
             populate_existing=True,
         )
         return project.status == "in_progress"
-    # Claim already owns resource/run locks. Never acquire a policy lock here.
     row = (
         await db.execute(
             select(LearningPolicy, LearningTrigger)

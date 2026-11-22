@@ -8,7 +8,6 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-# Each convention describes the source frame mapped to the platform ISO frame.
 LidarAxisConvention = Literal[
     "iso_8855",
     "ros_rep103",
@@ -37,7 +36,6 @@ class SensorCalibration(BaseModel):
 class FramePose(BaseModel):
     frame_index: int = Field(..., ge=0)
     timestamp_us: int | None = None
-    # ego→global:translation [x,y,z],rotation 四元数 [w,x,y,z](nuScenes 原样)
     ego_translation: list[float] = Field(..., min_length=3, max_length=3)
     ego_rotation: list[float] = Field(..., min_length=4, max_length=4)
     source_metadata: dict = Field(default_factory=dict)

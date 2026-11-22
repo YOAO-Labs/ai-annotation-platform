@@ -621,8 +621,6 @@ async def acquired(db, verification_id, permit):
         or operation.purpose != KIND
     ):
         reject("verification_operation_mismatch")
-    # The permit is already durable; serialize its read against exact-key
-    # reclaim before the worker starts physical I/O.
     from app.services.managed_original_reclaim_fence import shared
 
     await shared(db, row.anchor["bucket"], row.anchor["object_key"])

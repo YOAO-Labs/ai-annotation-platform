@@ -6,7 +6,7 @@ import json
 import math
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated, Literal, TypeAlias
+from typing import Annotated, Any, Literal, TypeAlias
 
 from pydantic import (
     BaseModel,
@@ -19,6 +19,7 @@ from pydantic import (
 )
 
 NOTIFICATION_DELIVERY_PROTOCOL = "aap-notifications-delivery/v1"
+NOTIFICATION_MIXED_CLAIM_PROTOCOL = "aap-notifications-delivery/v2"
 NOTIFICATION_DELIVERY_POLICY_PROTOCOL = "aap-notifications-delivery-policy/v1"
 NOTIFICATION_DELIVERY_POLICY = "aap-notifications-delivery/v1"
 NOTIFICATION_TYPES = (
@@ -126,6 +127,13 @@ class NotificationClaimRequest(ClosedModel):
     lease_seconds: int = Field(ge=1, le=300, strict=True)
 
 
+class NotificationMixedClaimRequest(ClosedModel):
+    protocol: Literal["aap-notifications-delivery/v2"] = Field(alias="schema")
+    worker_id: uuid.UUID
+    limit: int = Field(ge=1, le=100, strict=True)
+    lease_seconds: int = Field(ge=1, le=300, strict=True)
+
+
 class NotificationFinishRequest(ClosedModel):
     protocol: Literal["aap-notifications-delivery/v1"] = Field(alias="schema")
     notification_id: uuid.UUID
@@ -176,7 +184,7 @@ class NotificationCompletedPayload(ClosedModel):
 class _NotificationLeaseBase(ClosedModel):
     id: uuid.UUID
     user_id: uuid.UUID
-    target_type: Literal["user"]
+    target_type: Literal["user", "async_job"]
     target_id: uuid.UUID
     created_at: datetime
     worker_id: uuid.UUID
@@ -197,17 +205,37 @@ class _NotificationLeaseBase(ClosedModel):
 
 
 class NotificationRequestedLease(_NotificationLeaseBase):
+    target_type: Literal["user"]
     type: Literal["user.deactivation_requested"]
     payload: NotificationRequestedPayload = Field(repr=False)
 
 
 class NotificationCompletedLease(_NotificationLeaseBase):
+    target_type: Literal["user"]
     type: Literal["user.deactivation_completed"]
     payload: NotificationCompletedPayload = Field(repr=False)
 
 
 NotificationLease: TypeAlias = Annotated[
     NotificationRequestedLease | NotificationCompletedLease,
+    Field(discriminator="type"),
+]
+
+
+class NotificationTerminalLease(_NotificationLeaseBase):
+    type: Literal["job.completed", "job.failed", "job.cancelled"]
+    target_type: Literal["async_job"]
+    payload: dict[str, Any] = Field(repr=False)
+
+    @model_validator(mode="after")
+    def status_matches_type(self) -> NotificationTerminalLease:
+        if self.payload.get("status") != self.type.removeprefix("job."):
+            raise ValueError("terminal payload status must match notification type")
+        return self
+
+
+NotificationDeliveryLease: TypeAlias = Annotated[
+    NotificationRequestedLease | NotificationCompletedLease | NotificationTerminalLease,
     Field(discriminator="type"),
 ]
 
@@ -227,6 +255,16 @@ class NotificationClaimReply(ClosedModel):
         if type(value) is not bool or value is not True:
             raise ValueError("Successful notification claim requires boolean true")
         return value
+
+
+class NotificationMixedClaimData(ClosedModel):
+    items: list[NotificationDeliveryLease] = Field(max_length=100)
+
+
+class NotificationMixedClaimReply(ClosedModel):
+    protocol: Literal["aap-notifications-delivery/v2"] = Field(alias="schema")
+    ok: Literal[True]
+    data: NotificationMixedClaimData
 
 
 class NotificationFinishData(ClosedModel):
@@ -256,6 +294,7 @@ class NotificationFinishReply(ClosedModel):
 _POLICY = TypeAdapter(NotificationDeliveryPolicyReply)
 _CLAIM_REQUEST = TypeAdapter(NotificationClaimRequest)
 _CLAIM_REPLY = TypeAdapter(NotificationClaimReply)
+_MIXED_CLAIM_REPLY = TypeAdapter(NotificationMixedClaimReply)
 _FINISH_REQUEST = TypeAdapter(NotificationFinishRequest)
 _FINISH_REPLY = TypeAdapter(NotificationFinishReply)
 _SCHEMA_ADAPTER = TypeAdapter(
@@ -296,6 +335,38 @@ def decode_notification_claim_reply(
     payload: dict | bytes | str,
 ) -> NotificationClaimReply:
     return _decode_success(_CLAIM_REPLY, payload)
+
+
+def decode_notification_mixed_claim_reply(
+    payload: dict | bytes | str,
+) -> NotificationMixedClaimReply:
+    return _decode_success(_MIXED_CLAIM_REPLY, payload)
+
+
+def notification_claim_request(
+    worker_id: uuid.UUID, *, limit: int, lease_seconds: int, include_terminal: bool
+) -> NotificationClaimRequest | NotificationMixedClaimRequest:
+    fields = {"worker_id": worker_id, "limit": limit, "lease_seconds": lease_seconds}
+    if include_terminal:
+        return NotificationMixedClaimRequest(
+            schema=NOTIFICATION_MIXED_CLAIM_PROTOCOL, **fields
+        )
+    return NotificationClaimRequest(schema=NOTIFICATION_DELIVERY_PROTOCOL, **fields)
+
+
+def decode_claimed_deliveries(request, payload) -> list[NotificationDeliveryLease]:
+    if isinstance(request, NotificationMixedClaimRequest):
+        items = decode_notification_mixed_claim_reply(payload).data.items
+    else:
+        items = decode_notification_claim_reply(payload).data.items
+    if (
+        len(items) > request.limit
+        or len({item.id for item in items}) != len(items)
+        or len({item.lease_id for item in items}) != len(items)
+        or any(item.worker_id != request.worker_id for item in items)
+    ):
+        raise NotificationDeliveryUnavailable()
+    return items
 
 
 def decode_notification_finish_reply(

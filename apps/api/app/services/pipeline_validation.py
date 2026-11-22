@@ -57,7 +57,6 @@ def check_capability_violations(
 
     if writes_attributes:
         types = list(caps.get("output_attribute_types") or [])
-        # task=ocr 是识别阶段 (产 text 非 class), 不套「分类下游须产 class」判据。
         is_ocr = caps.get("task") == "ocr"
         if types and "class" not in types and not is_ocr:
             violations.append(
@@ -74,9 +73,7 @@ def check_capability_violations(
     return violations
 
 
-# Native parents supply tight foreground bounds from verified portable RLE.
 _ROI_CAPABLE_GEOMETRIES = frozenset({"bbox", "polygon", "raster_mask"})
-# sam3 等老 backend 用了受控词表外的输出几何别名, 归一化后再判可裁性 (否则漏判)。
 _GEO_ALIAS = {"box": "bbox", "mask": "polygon"}
 
 

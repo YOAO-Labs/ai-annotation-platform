@@ -93,8 +93,6 @@ async def test_new_account_acceptance_creates_project_member_atomically(
         )
     )
     assert user is not None
-    # A project invitation normalises the platform role to employee while the
-    # membership keeps the requested project responsibility.
     assert user.role == "employee"
     assert member is not None
     assert member.role == "annotator"

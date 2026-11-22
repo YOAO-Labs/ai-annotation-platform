@@ -51,9 +51,6 @@ def test_preferences_read_model_accepts_opaque_workspace():
     assert parsed_null.workbench.layout.workspace is None
 
 
-# ── 1. PATCH 子树合并 ────────────────────────────────────────────────
-
-
 async def test_patch_image_subtree_only_touches_submitted_field(
     httpx_client, annotator
 ):
@@ -66,7 +63,6 @@ async def test_patch_image_subtree_only_touches_submitted_field(
     assert resp.status_code == 200
     wb = resp.json()["workbench"]
     assert wb["image"]["controlPointsSize"] == 10
-    # 其余字段保持默认值（回归红线：默认值 = 拆分前现状值）
     assert wb["image"]["smoothImage"] is True
     assert wb["image"]["cssImageFilter"] == ""
     assert wb["image"]["snapToGrid"] is False
@@ -78,7 +74,6 @@ async def test_patch_image_subtree_only_touches_submitted_field(
     assert wb["common"]["longTaskSampleRate"] == 0.05
     assert wb["common"]["confirmDelete"] == "never"
     assert wb["common"]["recentClassesLimit"] == 5
-    # 标注视觉默认值(= 统一后基准)
     assert wb["common"]["labelFontSize"] == 12
     assert wb["common"]["labelVisibility"] == "always"
     assert wb["common"]["labelContent"] == {
@@ -90,7 +85,6 @@ async def test_patch_image_subtree_only_touches_submitted_field(
     assert wb["common"]["fillOpacity"] == 0.07
     assert wb["common"]["fillOpacitySelected"] == 0.12
 
-    # GET 读回同形态
     resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
     assert resp.status_code == 200
     assert resp.json()["workbench"]["image"]["controlPointsSize"] == 10
@@ -125,7 +119,6 @@ async def test_patch_ai_subtree_deep_merges_params_and_model(httpx_client, annot
     _, token = annotator
     bid = "11111111-1111-1111-1111-111111111111"
 
-    # 1) 先写参数偏好 (模拟 useAiToolParamPrefs)。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"ai": {"params_by_backend": {bid: {"score_threshold": 0.3}}}},
@@ -133,7 +126,6 @@ async def test_patch_ai_subtree_deep_merges_params_and_model(httpx_client, annot
     )
     assert resp.status_code == 200
 
-    # 2) 再写模型选择偏好 (模拟 useAiToolModelPref) — 不应冲掉上一步的参数。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"ai": {"model_by_backend": {bid: "detect-yoloe"}}},
@@ -144,7 +136,6 @@ async def test_patch_ai_subtree_deep_merges_params_and_model(httpx_client, annot
     assert ai["params_by_backend"] == {bid: {"score_threshold": 0.3}}
     assert ai["model_by_backend"] == {bid: "detect-yoloe"}
 
-    # 3) 反向: 再改参数, 模型选择仍在。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"ai": {"params_by_backend": {bid: {"score_threshold": 0.9}}}},
@@ -155,7 +146,6 @@ async def test_patch_ai_subtree_deep_merges_params_and_model(httpx_client, annot
     assert ai["params_by_backend"] == {bid: {"score_threshold": 0.9}}
     assert ai["model_by_backend"] == {bid: "detect-yoloe"}
 
-    # GET 读回一致。
     resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
     assert resp.json()["ai"]["model_by_backend"] == {bid: "detect-yoloe"}
 
@@ -168,7 +158,6 @@ async def test_patch_workbench_layout_deep_merges_new_collapse_flags(
     分别以单键 PATCH 写入，不覆盖其他字段。"""
     _, token = annotator
 
-    # 1) 先展开状态改一次 attrPanelCollapsed。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"workbench": {"layout": {"attrPanelCollapsed": True}}},
@@ -176,7 +165,6 @@ async def test_patch_workbench_layout_deep_merges_new_collapse_flags(
     )
     assert resp.status_code == 200
 
-    # 2) 再单独提交 aiSectionCollapsed — 不应冲掉 attrPanelCollapsed。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"workbench": {"layout": {"aiSectionCollapsed": True}}},
@@ -187,8 +175,6 @@ async def test_patch_workbench_layout_deep_merges_new_collapse_flags(
     assert layout["attrPanelCollapsed"] is True
     assert layout["aiSectionCollapsed"] is True
 
-    # 3) 单独提交 manualSectionCollapsed + trackSectionCollapsed + discussionCollapsed
-    #    - 前两键仍在。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={
@@ -240,7 +226,6 @@ async def test_patch_camera_panels_replaces_role_map(httpx_client, annotator):
     )
     assert resp.status_code == 200
 
-    # 宽屏下点「展开相机」会删掉该 role，用缺省值表示展开。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={
@@ -263,7 +248,6 @@ async def test_patch_camera_panels_replaces_role_map(httpx_client, annotator):
         "camera_CAM_BACK": {"x": 120.0, "y": 80.0, "collapsed": True}
     }
 
-    # 未提交 cameraPanels 的其他 layout 单键 PATCH 仍须保留当前 map。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"workbench": {"layout": {"attrPanelCollapsed": True}}},
@@ -274,7 +258,6 @@ async def test_patch_camera_panels_replaces_role_map(httpx_client, annotator):
         "camera_CAM_BACK": {"x": 120.0, "y": 80.0, "collapsed": True}
     }
 
-    # 「传感器融合 / 重置相机布局」用空 map 清掉所有 role。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"workbench": {"layout": {"cameraPanels": {}}}},
@@ -293,7 +276,6 @@ async def test_patch_ai_secondary_by_model_deep_merges_per_backend_bucket(
     b1 = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
     b2 = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
 
-    # 1) 先写 backend1 的桶。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={
@@ -305,7 +287,6 @@ async def test_patch_ai_secondary_by_model_deep_merges_per_backend_bucket(
     )
     assert resp.status_code == 200
 
-    # 2) 单独写 backend2 的桶 — 不应冲掉 backend1 的桶。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={
@@ -320,7 +301,6 @@ async def test_patch_ai_secondary_by_model_deep_merges_per_backend_bucket(
     assert sbm[b1] == {"model-a": {"params": {"threshold": 0.3}}}
     assert sbm[b2] == {"model-b": {"params": {"threshold": 0.5}}}
 
-    # 3) 反向: 再改 backend1 桶里某 model 参数 — backend2 仍在。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={
@@ -343,13 +323,11 @@ async def test_patch_ui_subtree_deep_merges_theme_and_secondary_bar(
     (二次推理面板显隐) 由不同 writer 各自只提交自己那半键, 互不冲掉。"""
     _, token = annotator
 
-    # 1) 先写主题 (模拟 useTheme)。
     resp = await httpx_client.patch(
         PREFS_URL, json={"ui": {"theme": "dark"}}, headers=_bearer(token)
     )
     assert resp.status_code == 200
 
-    # 2) 再写二次推理面板显隐 — 不应冲掉主题。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"ui": {"secondary_bar_hidden": True}},
@@ -360,7 +338,6 @@ async def test_patch_ui_subtree_deep_merges_theme_and_secondary_bar(
     assert ui["theme"] == "dark"
     assert ui["secondary_bar_hidden"] is True
 
-    # 3) 反向: 再改主题, 显隐仍在。
     resp = await httpx_client.patch(
         PREFS_URL, json={"ui": {"theme": "light"}}, headers=_bearer(token)
     )
@@ -375,12 +352,10 @@ async def test_patch_ui_changelog_seen_version_roundtrip(httpx_client, annotator
     不冲掉同子树其它键, 可独立更新(换设备各确认一次的场景)。"""
     _, token = annotator
 
-    # 1) 未写过 ui 时默认空串 = 从未确认过任何版本。
     resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
     assert resp.status_code == 200
     assert resp.json()["ui"]["changelog_seen_version"] == ""
 
-    # 2) 先写主题 (模拟 useTheme), 再确认版本 — 不冲掉主题。
     resp = await httpx_client.patch(
         PREFS_URL, json={"ui": {"theme": "dark"}}, headers=_bearer(token)
     )
@@ -395,7 +370,6 @@ async def test_patch_ui_changelog_seen_version_roundtrip(httpx_client, annotator
     assert ui["theme"] == "dark"
     assert ui["changelog_seen_version"] == "9.9.9"
 
-    # 3) 再确认更高版本 — 版本键独立更新, 主题仍在。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"ui": {"changelog_seen_version": "10.0.0"}},
@@ -414,7 +388,6 @@ async def test_patch_ai_interactive_backend_independent(httpx_client, annotator)
     bid = "22222222-2222-2222-2222-222222222222"
     pid = "33333333-3333-3333-3333-333333333333"
 
-    # 先写 model + params。
     await httpx_client.patch(
         PREFS_URL,
         json={"ai": {"model_by_backend": {bid: "detect"}}},
@@ -426,7 +399,6 @@ async def test_patch_ai_interactive_backend_independent(httpx_client, annotator)
         headers=_bearer(token),
     )
 
-    # 再写交互后端选择 (模拟 useInteractiveBackendPref) — 不冲掉前两者。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"ai": {"interactive_backend_by_project": {pid: bid}}},
@@ -438,14 +410,10 @@ async def test_patch_ai_interactive_backend_independent(httpx_client, annotator)
     assert ai["model_by_backend"] == {bid: "detect"}
     assert ai["params_by_backend"] == {bid: {"score_threshold": 0.5}}
 
-    # GET 读回三键齐全。
     resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
     ai = resp.json()["ai"]
     assert ai["interactive_backend_by_project"] == {pid: bid}
     assert ai["model_by_backend"] == {bid: "detect"}
-
-
-# ── 2. legacy 平铺键提升器 ───────────────────────────────────────────
 
 
 async def test_patch_legacy_flat_keys_promoted_to_subtrees(httpx_client, annotator):
@@ -486,30 +454,24 @@ async def test_patch_legacy_and_new_keys_new_subtree_wins(httpx_client, annotato
 
 async def test_patch_unknown_keys_still_422(httpx_client, annotator):
     _, token = annotator
-    # 子树内未知键
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"workbench": {"image": {"bogusKey": 1}}},
         headers=_bearer(token),
     )
     assert resp.status_code == 422
-    # workbench 顶层未知键（提升器只认 5 个已知旧键，不放松 forbid）
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"workbench": {"bogusFlat": True}},
         headers=_bearer(token),
     )
     assert resp.status_code == 422
-    # 提升后的值仍走 pydantic 约束（越界 422）
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"workbench": {"controlPointsSize": 99}},
         headers=_bearer(token),
     )
     assert resp.status_code == 422
-
-
-# ── 3. 图片子树 + common 首批 ────────────────────────────────
 
 
 async def test_patch_image_workbench_settings_fields(httpx_client, annotator):
@@ -547,13 +509,11 @@ async def test_patch_image_workbench_settings_fields(httpx_client, annotator):
     assert wb["image"]["zoomStepFactor"] == 1.15
     assert wb["image"]["fadedOpacity"] == 0.5
     assert wb["image"]["maskOverlayOpacity"] == 0.6
-    # 标注视觉字段(common 共享)
     assert wb["common"]["labelVisibility"] == "selected"
     assert wb["common"]["labelFontSize"] == 16
     assert wb["common"]["strokeWidth"] == 2.5
     assert wb["common"]["fillOpacity"] == 0.2
     assert wb["common"]["fillOpacitySelected"] == 0.4
-    # 未提交字段保持默认值。
     assert wb["image"]["smoothImage"] is True
     assert wb["common"]["longTaskSampleRate"] == 0.05
     assert wb["common"]["labelContent"] == {
@@ -579,7 +539,6 @@ async def test_patch_image_workbench_range_and_enum_violations_422(
         {"image": {"fadedOpacity": 0.9}},
         {"image": {"maskOverlayOpacity": 0.1}},
         {"image": {"maskOverlayOpacity": 0.9}},
-        # 标注视觉字段范围 / 枚举越界
         {"common": {"labelFontSize": 7}},
         {"common": {"labelFontSize": 25}},
         {"common": {"labelVisibility": "hover"}},
@@ -596,9 +555,6 @@ async def test_patch_image_workbench_range_and_enum_violations_422(
             headers=_bearer(token),
         )
         assert resp.status_code == 422, bad_subtree
-
-
-# ── 4. 视频子树 ───────────────────────────────────────────────
 
 
 async def test_patch_video_subtree_fields(httpx_client, annotator):
@@ -620,7 +576,6 @@ async def test_patch_video_subtree_fields(httpx_client, annotator):
     assert video["defaultPlaybackRate"] == 0.5
     assert video["largeFrameStep"] == "grid"
 
-    # GET 读回同形态,未提交字段不丢默认。
     resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
     assert resp.status_code == 200
     assert resp.json()["workbench"]["video"] == {
@@ -645,9 +600,6 @@ async def test_patch_video_range_and_enum_violations_422(httpx_client, annotator
             headers=_bearer(token),
         )
         assert resp.status_code == 422, bad_video
-
-
-# ── 5. 点云子树 + common.crossFrameOverlayK ──────────────────
 
 
 async def test_patch_pointcloud_subtree_fields(httpx_client, annotator):
@@ -693,7 +645,6 @@ async def test_patch_pointcloud_subtree_fields(httpx_client, annotator):
     assert wb["pointcloud"]["neighborPointOverlay"] is True
     assert wb["pointcloud"]["neighborPointOverlayK"] == 2
     assert wb["pointcloud"]["neighborPointCull"] == "align"
-    # 未提交字段保持默认值（默认值 = 现状红线）
     assert wb["pointcloud"]["showAxisGizmo"] is True
     assert wb["pointcloud"]["cameraDamping"] == 0.1
     assert wb["common"]["crossFrameOverlayEnabled"] is True
@@ -721,17 +672,17 @@ async def test_patch_pointcloud_camera_layout_snapshot(httpx_client, annotator):
 async def test_patch_pointcloud_range_and_enum_violations_422(httpx_client, annotator):
     _, token = annotator
     for bad_subtree in (
-        {"pointcloud": {"pointSize": 0.5}},  # > 0.3
-        {"pointcloud": {"pointSize": 0.001}},  # < 0.01
-        {"pointcloud": {"colorizeContrast": 0.1}},  # < 0.5
-        {"pointcloud": {"colorizeBrightness": 0.8}},  # > 0.5
-        {"pointcloud": {"colorizeGamma": 4}},  # > 3
-        {"pointcloud": {"cameraDamping": 0.01}},  # < 0.05
-        {"pointcloud": {"pointMaskSelectMode": "circle"}},  # 非法枚举
-        {"pointcloud": {"neighborPointOverlayK": 4}},  # 点云最多前后 3 帧
-        {"pointcloud": {"neighborPointCull": "ghost"}},  # 只允许 keep/cull/align
-        {"common": {"crossFrameOverlayK": 2}},  # 档位只允许 0/1/3/5/7
-        {"common": {"performanceTier": "max"}},  # 只允许 light/standard/aggressive
+        {"pointcloud": {"pointSize": 0.5}},
+        {"pointcloud": {"pointSize": 0.001}},
+        {"pointcloud": {"colorizeContrast": 0.1}},
+        {"pointcloud": {"colorizeBrightness": 0.8}},
+        {"pointcloud": {"colorizeGamma": 4}},
+        {"pointcloud": {"cameraDamping": 0.01}},
+        {"pointcloud": {"pointMaskSelectMode": "circle"}},
+        {"pointcloud": {"neighborPointOverlayK": 4}},
+        {"pointcloud": {"neighborPointCull": "ghost"}},
+        {"common": {"crossFrameOverlayK": 2}},
+        {"common": {"performanceTier": "max"}},
     ):
         resp = await httpx_client.patch(
             PREFS_URL,
@@ -741,14 +692,10 @@ async def test_patch_pointcloud_range_and_enum_violations_422(httpx_client, anno
         assert resp.status_code == 422, bad_subtree
 
 
-# ── 5b. UI 主题子树 ─────────────────────────────────────────
-
-
 async def test_patch_ui_theme_persists_and_isolated_from_workbench(
     httpx_client, annotator
 ):
     _, token = annotator
-    # 先写一个 workbench 字段,确认随后 PATCH ui 不会清掉它(顶层子树合并)。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"workbench": {"image": {"controlPointsSize": 9}}},
@@ -764,10 +711,8 @@ async def test_patch_ui_theme_persists_and_isolated_from_workbench(
     assert resp.status_code == 200
     body = resp.json()
     assert body["ui"]["theme"] == "dark"
-    # workbench 子树不受影响。
     assert body["workbench"]["image"]["controlPointsSize"] == 9
 
-    # GET 读回同形态。
     resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
     assert resp.status_code == 200
     assert resp.json()["ui"]["theme"] == "dark"
@@ -776,27 +721,21 @@ async def test_patch_ui_theme_persists_and_isolated_from_workbench(
 
 async def test_patch_ui_theme_default_and_invalid(httpx_client, annotator):
     _, token = annotator
-    # 默认主题为 system(未写过 ui 时)。
     resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
     assert resp.status_code == 200
     assert resp.json()["ui"]["theme"] == "system"
-    # 非法枚举 422。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"ui": {"theme": "sepia"}},
         headers=_bearer(token),
     )
     assert resp.status_code == 422
-    # 子树内未知键仍 422(forbid)。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"ui": {"bogus": 1}},
         headers=_bearer(token),
     )
     assert resp.status_code == 422
-
-
-# ── 6. 0103 迁移 SQL ────────────────────────────────────────────────
 
 
 async def _store_raw_preferences(db_session, user, value):
@@ -860,7 +799,6 @@ async def test_migration_0103_up_down_and_idempotency(db_session):
     mod = _load_migration_0103()
     await _legacy_preferences_table(db_session, LEGACY_FLAT_PREFS)
 
-    # up：平铺键搬入子树，layout / ai 不动
     res = await db_session.execute(
         sa.text(mod.UP_BATCH_SQL), {"batch_size": mod.BATCH_SIZE}
     )
@@ -886,19 +824,16 @@ async def test_migration_0103_up_down_and_idempotency(db_session):
     assert preferences["ai"] == LEGACY_FLAT_PREFS["ai"]
     UserPreferences.model_validate(preferences)
 
-    # 幂等：再跑一遍不命中任何行
     res = await db_session.execute(
         sa.text(mod.UP_BATCH_SQL), {"batch_size": mod.BATCH_SIZE}
     )
     assert res.rowcount == 0
 
-    # down：逆映射回平铺，值还原
     res = await db_session.execute(
         sa.text(mod.DOWN_BATCH_SQL), {"batch_size": mod.BATCH_SIZE}
     )
     assert res.rowcount == 1
     assert await _legacy_preferences(db_session) == LEGACY_FLAT_PREFS
-    # down 幂等
     res = await db_session.execute(
         sa.text(mod.DOWN_BATCH_SQL), {"batch_size": mod.BATCH_SIZE}
     )
@@ -941,11 +876,6 @@ async def test_migration_0103_skips_rows_without_flat_keys(db_session):
     }
 
 
-# ── 7. 运行期剥离已移除的 layout 像素键（leftWidth/rightWidth）─────
-#   边栏宽度迁到 common 百分比后，WorkbenchLayoutPreferences(extra="forbid") 删了这两个
-#   旧键；存量残留时 GET/PATCH 必须先剥离再校验，否则 422（0105 迁移未跑 / 灰度 / 回滚场景）。
-
-
 async def test_get_preferences_strips_removed_layout_px_keys(
     httpx_client, annotator, db_session
 ):
@@ -966,8 +896,7 @@ async def test_get_preferences_strips_removed_layout_px_keys(
     wb = resp.json()["workbench"]
     assert "leftWidth" not in wb["layout"]
     assert "rightWidth" not in wb["layout"]
-    assert wb["layout"]["leftOpen"] is True  # 合法键不动
-    # strip 不补 pct，common 走 schema 默认 15。
+    assert wb["layout"]["leftOpen"] is True
     assert wb["common"]["leftWidthPct"] == 15.0
     assert wb["common"]["rightWidthPct"] == 15.0
 
@@ -1008,9 +937,6 @@ async def test_patch_workbench_layout_with_removed_keys_not_422(
     assert layout["rightOpen"] is True
 
 
-# ── 8. 0105 边栏像素↔百分比迁移（纯函数转换 + round-trip）─────────────
-
-
 def _load_migration_0105():
     path = (
         Path(__file__).resolve().parents[1]
@@ -1034,25 +960,22 @@ def test_migration_0105_upgrade_px_to_pct_and_strip():
         }
     )
     assert out is not None
-    # 720/1440*100=50 → clamp 上限 35；360/1440*100=25。
     assert out["workbench"]["common"]["leftWidthPct"] == 35
     assert out["workbench"]["common"]["rightWidthPct"] == 25
-    # 旧键剥离，layout 合法键保留。
     assert "leftWidth" not in out["workbench"]["layout"]
     assert "rightWidth" not in out["workbench"]["layout"]
     assert out["workbench"]["layout"]["leftOpen"] is True
-    # 产物可过新 schema（forbid 不破）。
     UserPreferences.model_validate(out)
 
 
 def test_migration_0105_upgrade_skips_rows_without_legacy_px():
     mod = _load_migration_0105()
     for prefs in (
-        {"workbench": {"common": {"leftWidthPct": 20}}},  # 已是新形态
-        {"workbench": {"layout": {"leftOpen": True}}},  # layout 无旧 px
-        {"ui": {"theme": "dark"}},  # 无 workbench
-        {"workbench": "nope"},  # workbench 非 dict
-        "not-a-dict",  # 行本身非 dict
+        {"workbench": {"common": {"leftWidthPct": 20}}},
+        {"workbench": {"layout": {"leftOpen": True}}},
+        {"ui": {"theme": "dark"}},
+        {"workbench": "nope"},
+        "not-a-dict",
     ):
         assert mod._upgrade_prefs(copy.deepcopy(prefs)) is None
 
@@ -1071,10 +994,8 @@ def test_migration_0105_downgrade_pct_to_px_and_strip():
         }
     )
     assert out is not None
-    # 35/100*1440=504 → clamp(200,560)=504；25/100*1440=360。
     assert out["workbench"]["layout"]["leftWidth"] == 504
     assert out["workbench"]["layout"]["rightWidth"] == 360
-    # pct 剥离，其他 common 字段保留。
     assert "leftWidthPct" not in out["workbench"]["common"]
     assert "rightWidthPct" not in out["workbench"]["common"]
     assert out["workbench"]["common"]["longTaskSampleRate"] == 0.1
@@ -1084,10 +1005,8 @@ def test_migration_0105_roundtrip_lossy_at_clamp_bounds():
     """up→down 非双射：pct 下限 10 + px 下限 200 把过小的宽度截断放大。"""
     mod = _load_migration_0105()
     up = mod._upgrade_prefs({"workbench": {"layout": {"leftWidth": 100}}})
-    # 100/1440*100=6.94 → round 7 → clamp 下限 10。
     assert up["workbench"]["common"]["leftWidthPct"] == 10
     down = mod._downgrade_prefs(up)
-    # 10/100*1440=144 → clamp 下限 200 ≠ 原始 100。
     assert down["workbench"]["layout"]["leftWidth"] == 200
 
 
@@ -1100,9 +1019,6 @@ def test_migration_0105_upgrade_idempotent():
     assert mod._upgrade_prefs(once) is None
 
 
-# ── 9. 标注视觉字段 + 0106 showBoxLabels→labelVisibility 迁移 ──────
-
-
 def test_label_content_migrates_legacy_flat_list():
     """旧扁平 labelContent list 迁移为按标注类型分段对象。"""
 
@@ -1111,13 +1027,11 @@ def test_label_content_migrates_legacy_flat_list():
             {"workbench": {"common": {"labelContent": value}}}
         ).workbench.common.labelContent
 
-    # 旧默认 ["class","score"] → 图片观感不变（ai 补 source 保前缀），track 用默认。
     migrated = parse(["class", "score"])
     assert migrated.single == []
     assert migrated.track == ["id", "state"]
     assert migrated.ai == ["source", "score"]
 
-    # 旧值带 id/attrs → single/ai 分发，class 丢弃，非法 token 过滤。
     migrated2 = parse(["class", "id", "attrs", "bogus"])
     assert migrated2.single == ["id", "attrs"]
     assert migrated2.ai == ["source", "id", "attrs"]
@@ -1136,8 +1050,8 @@ def test_label_content_object_dedups_and_rejects_unknown_token():
             }
         }
     ).workbench.common.labelContent
-    assert parsed.ai == ["score", "source"]  # 去重保序
-    assert parsed.track == ["id", "state"]  # 缺省段补默认
+    assert parsed.ai == ["score", "source"]
+    assert parsed.track == ["id", "state"]
     assert parsed.single == []
 
     with pytest.raises(ValidationError):
@@ -1166,7 +1080,6 @@ def test_migration_0106_upgrade_false_to_none_and_strip():
     )
     assert out is not None
     assert out["workbench"]["common"]["labelVisibility"] == "none"
-    # 旧键剥离，image 其他键保留。
     assert "showBoxLabels" not in out["workbench"]["image"]
     assert out["workbench"]["image"]["fadedOpacity"] == 0.5
     UserPreferences.model_validate(out)
@@ -1177,7 +1090,6 @@ def test_migration_0106_upgrade_true_strips_without_writing_visibility():
     out = mod._upgrade_prefs({"workbench": {"image": {"showBoxLabels": True}}})
     assert out is not None
     assert "showBoxLabels" not in out["workbench"]["image"]
-    # showBoxLabels=True → 不写 common（schema 默认 "always" 覆盖）。
     assert "labelVisibility" not in out["workbench"].get("common", {})
     UserPreferences.model_validate(out)
 
@@ -1185,9 +1097,9 @@ def test_migration_0106_upgrade_true_strips_without_writing_visibility():
 def test_migration_0106_upgrade_skips_rows_without_key():
     mod = _load_migration_0106()
     for prefs in (
-        {"workbench": {"common": {"labelVisibility": "none"}}},  # 已是新形态
-        {"workbench": {"image": {"smoothImage": True}}},  # image 无 showBoxLabels
-        {"ui": {"theme": "dark"}},  # 无 workbench
+        {"workbench": {"common": {"labelVisibility": "none"}}},
+        {"workbench": {"image": {"smoothImage": True}}},
+        {"ui": {"theme": "dark"}},
         {"workbench": "nope"},
         "not-a-dict",
     ):
@@ -1209,9 +1121,7 @@ def test_migration_0106_downgrade_visibility_to_bool_and_strip_new_keys():
         }
     )
     assert out is not None
-    # none → showBoxLabels False
     assert out["workbench"]["image"]["showBoxLabels"] is False
-    # 本版新增 common 键全部剥离，旧字段保留。
     assert "labelVisibility" not in out["workbench"]["common"]
     assert "labelFontSize" not in out["workbench"]["common"]
     assert "strokeWidth" not in out["workbench"]["common"]
@@ -1402,7 +1312,6 @@ async def test_workspace_round_trip_versions_and_context_atomic_replace(
         == envelope
     )
 
-    # A whole context replaces removed groups, return descriptors and optional keys.
     old = copy.deepcopy(envelope)
     old["snapshot"]["layout"]["floatingGroups"] = [
         {
@@ -1519,7 +1428,6 @@ async def test_named_presets_survive_live_layout_writes_and_delete_by_omission(
     revision = response.json()["namedPresetsRevision"]
     assert await _saved_presets(httpx_client, token) == presets
 
-    # 直播布局 PATCH 不带 namedPresets，两条预设必须原样留存。
     live = _workspace_envelope(5)
     response = await httpx_client.patch(
         PREFS_URL, json=_workspace_patch(live), headers=_bearer(token)
@@ -1529,7 +1437,6 @@ async def test_named_presets_survive_live_layout_writes_and_delete_by_omission(
     assert workspace["namedPresets"] == presets
     assert workspace["contexts"]["annotate:image"] == live
 
-    # 预设 PATCH 不带 contexts，当前布局必须原样留存；省略某条即为删除。
     response = await httpx_client.patch(
         PREFS_URL,
         json=_named_presets_patch({"p2": presets["p2"]}, revision),
@@ -1558,7 +1465,6 @@ async def test_named_presets_cap_at_five_per_user(httpx_client, annotator):
     assert response.status_code == 422
     assert await _current_preferences(httpx_client, token) == previous
 
-    # 先删一条即可腾出名额。
     freed = {key: value for key, value in five.items() if key != "p0"}
     response = await httpx_client.patch(
         PREFS_URL,
@@ -1625,9 +1531,6 @@ async def test_named_presets_stale_revision_precedes_map_validation(
     assert response.status_code == 200, response.text
     current_revision = response.json()["namedPresetsRevision"]
 
-    # This entry is invalid to the current schema and no longer exists in the latest
-    # map. The stale precondition must win over content validation so clients can
-    # reliably follow the conflict/refetch path.
     stale_opaque_map = {
         "future": {
             "name": "新版布局",
@@ -1736,7 +1639,6 @@ async def test_named_presets_round_trip_stored_opaque_entries_without_engine_dow
     assert workspace["engine"] == "dockview@9"
     assert workspace["namedPresets"] == {**stored, "p1": current}
 
-    # Omission remains deletion even for an entry the current schema cannot parse.
     response = await httpx_client.patch(
         PREFS_URL,
         json=_named_presets_only_patch({"future.id": future, "p1": current}, revision),
@@ -2017,7 +1919,6 @@ def test_named_preset_reuses_live_snapshot_grammar():
     root["data"][1]["data"]["views"].append("tri-view")
     with pytest.raises(ValidationError, match="3D panels require parking"):
         UserPreferences.model_validate(_named_presets_patch({"p1": broken}))
-    # 同一份快照在 3D 上下文里合法。
     broken["context"] = "annotate:3d"
     UserPreferences.model_validate(_named_presets_patch({"p1": broken}))
 
@@ -2041,8 +1942,6 @@ async def test_workspace_overflow_number_returns_422_without_writing(
 ):
     user, token = annotator
     previous = await _current_preferences(httpx_client, token)
-    # A valid JSON exponent overflows Python's float. Send raw HTTP JSON so the
-    # client's own finite-number encoder cannot reject it before reaching the API.
     body = json.dumps(_workspace_patch(_workspace_envelope())).replace(
         '"width": 1440', '"width": 1e309'
     )
@@ -2228,7 +2127,6 @@ async def test_workspace_concurrent_context_writes_refresh_locked_identity(test_
                 "annotate:image",
                 "review:video",
             }
-            # The second identity remains stale while the first upgrades a context.
             await write_a(_workspace_patch(_workspace_envelope(3)))
             with pytest.raises(HTTPException) as caught:
                 await write_b(_workspace_patch(_workspace_envelope()))
@@ -2303,9 +2201,6 @@ async def test_named_presets_concurrent_writes_allow_only_one_stale_map(test_eng
         async with maker() as cleanup:
             await cleanup.execute(sa.delete(User).where(User.id == user_id))
             await cleanup.commit()
-
-
-# ── workbench.shortcuts：定向写入 / 无关 PATCH 保留 / opaque 兜底 ──
 
 
 @pytest.fixture
@@ -2418,8 +2313,6 @@ async def test_shortcut_validation_resets_invalid_entry_explicitly(
 
     response = await write({"image": {"legacy.command": None}})
 
-    # 未知命令的 null 重置会被真正移除：键不再落库，读路径不会继续报
-    # unknown-command（已知命令的 null 仍保留「恢复默认」语义）。
     assert user.preferences["workbench"]["shortcuts"] == {"image": {}}
     assert json.loads(response.body)["workbench"]["shortcuts"]["image"] == {}
 
@@ -2497,7 +2390,6 @@ async def test_shortcut_patch_writes_entry_and_get_round_trips(httpx_client, ann
     assert shortcuts["schemaVersion"] == 1
     assert shortcuts["image"]["image.tool.box"][0]["key"] == "k"
 
-    # 显式恢复默认：提交 null 后该条目被移除语义的 null 落库
     resp = await httpx_client.patch(
         PREFS_URL,
         json={
@@ -2530,7 +2422,6 @@ async def test_unrelated_preference_patch_preserves_stored_shortcuts(
     )
     assert resp.status_code == 200
 
-    # 无关偏好 PATCH（不带 shortcuts 子树）不得影响存量快捷键
     resp = await httpx_client.patch(
         PREFS_URL,
         json={"workbench": {"common": {"confirmDelete": "always"}}},
@@ -2594,7 +2485,6 @@ async def test_preferences_get_tolerates_corrupt_shortcut_subtree(
     assert resp.status_code == 200
     assert resp.json()["workbench"]["shortcuts"] == corrupt
 
-    # 混合形态：合法桶正常回显，未知命令条目保留原值
     mixed = {
         "schemaVersion": 1,
         "image": {
@@ -2605,7 +2495,6 @@ async def test_preferences_get_tolerates_corrupt_shortcut_subtree(
     await _store_raw_preferences(db_session, user, {"workbench": {"shortcuts": mixed}})
     resp = await httpx_client.get(PREFS_URL, headers=_bearer(token))
     assert resp.status_code == 200
-    # 整棵子树校验失败（存在未知命令）→ 原样透出；客户端宽容解析按条目排除。
     assert resp.json()["workbench"]["shortcuts"] == mixed
 
 
@@ -2630,7 +2519,6 @@ async def test_shortcut_patch_preserves_untouched_invalid_entries(
         },
     )
 
-    # 同桶内改一条合法命令：未触碰的非法存量条目原样保留。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={
@@ -2643,7 +2531,6 @@ async def test_shortcut_patch_preserves_untouched_invalid_entries(
     assert shortcuts["image"]["image.tool.select"] == [{"key": "n", "modifiers": []}]
     assert shortcuts["image"]["legacy.command"] == [{"key": "k", "modifiers": []}]
 
-    # 显式把非法条目重置为 null：通过严格校验并从存量中清除。
     resp = await httpx_client.patch(
         PREFS_URL,
         json={

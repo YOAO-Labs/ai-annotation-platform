@@ -92,6 +92,8 @@ task_locks (
 
 `TaskStatus` 枚举（`apps/api/app/db/enums.py:19`）：`uploading | pending | in_progress | review | completed`。状态机迁移由具体路由按角色显式驱动，每次迁移写 `audit_logs.action = task.{submit,withdraw,review_claim,approve,reject,reopen}`。
 
+单题送审会修改任务、审核轮次和批次计数，不能以共享行锁代替写锁。同批次原件读取只持共享锁，因此送审先以批次级事务预约排除第二个升级者，再用 `FOR SHARE NOWAIT` 区分已存在的编辑者，最后在同一事务内短暂等待升级为 `FOR UPDATE`。等待不超过一秒，也不延长调用方设置的更短期限。获得写锁后仍重验任务所属批次、权限及轮次；拒绝竞争的提交不能留下计数、审计或质检任务。这些事务锁不替代工作台的编辑租约。
+
 角色权限矩阵（节选自 `apps/api/app/api/v1/tasks.py`）：
 
 | 操作 | super_admin | project_admin | reviewer | annotator | viewer |

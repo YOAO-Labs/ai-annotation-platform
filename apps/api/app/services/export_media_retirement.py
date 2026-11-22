@@ -253,8 +253,6 @@ async def lock_owner(db, identifier, *, inventory=False):
         .options(load_only(*(getattr(Bundle, name) for name in fields)))
         .where(
             Bundle.id == identifier,
-            # The same database clock enforces the final state transition. Do
-            # not let a fast worker clock remove bytes before that transition.
             or_(
                 Bundle.published_at.is_(None),
                 Bundle.expires_at <= func.clock_timestamp(),
@@ -448,7 +446,6 @@ async def _cleanup_one(db, identifier):
         return False
     if row.state != "retiring":
         row.state, row.retired_at = "retiring", now()
-    # Retiring is durable before metadata validation, client construction or I/O.
     await db.commit()
     receipt = snapshot(row)
     await _physical_delete(db, receipt)

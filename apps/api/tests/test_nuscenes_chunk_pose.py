@@ -98,12 +98,10 @@ async def test_primary_lidar_item_prefers_link_over_task_fallback(
     resolved = _primary_lidar_item(task, links_by_task, dataset_items)
     assert resolved is not None and resolved.id == link_item.id
 
-    # 无 primary_lidar link 时回退 task.dataset_item_id
     links_by_task_wo_link = await _load_lidar_link_items(svc, [])
     resolved_fallback = _primary_lidar_item(task, links_by_task_wo_link, dataset_items)
     assert resolved_fallback is not None and resolved_fallback.id == fallback_item.id
 
-    # 两者皆缺时返回 None
     assert _primary_lidar_item(task, {}, {}) is None
 
 

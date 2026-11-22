@@ -263,8 +263,6 @@ async def test_pending_dispatch_recovery_reuses_attempt_and_overlapping_check_is
     p, parent, policy, path, body = await setup_policy(
         db_session, httpx_client, owner, token
     )
-    # A second connection owns the coordination key even before any policy rows
-    # are visible outside this test's enclosing rollback transaction.
     other_project, other_parent = await ready_dataset(db_session, owner)
     other_policy = LearningPolicy(
         project_id=other_project.id,
@@ -339,7 +337,6 @@ async def test_failure_retains_baseline_and_val_only_change_cannot_retry_gpu(
     )
     assert r2 is None and t2.status == "skipped" and "失败" in t2.message
     assert policy.baseline == saved
-    # An explicit save advances revision and permits a deliberate retry.
     r = await httpx_client.put(
         path,
         json={**body, "expected_revision": 1},
@@ -536,7 +533,6 @@ async def test_identical_snapshot_is_not_packaged_again_and_policy_delete_keeps_
         await db_session.scalar(select(func.count()).select_from(LearningTrigger)) == 1
     )
     assert policy.state == "waiting"
-    # Explicit revision permits the candidate; its run then preserves the audit.
     await httpx_client.put(
         path,
         json={**body, "expected_revision": 1, "min_changed_samples": 1},

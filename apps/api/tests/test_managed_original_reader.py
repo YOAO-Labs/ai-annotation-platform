@@ -478,8 +478,6 @@ async def test_malformed_stream_result_keeps_unknown_resource_responsibility(pro
             await capture()
         assert caught.value.storage_operation_unsettled and provider.closed == 1
     finally:
-        # The malformed fake hid a real stream from its caller. This cleanup is
-        # test-owned; production correctly retains its durable unknown permit.
         for body in provider.bodies:
             body.close()
 
@@ -511,8 +509,6 @@ async def test_interruption_drains_thread_before_return_and_releases_own_slot(
 ):
     entered, release = threading.Event(), threading.Event()
     monkeypatch.setattr(service, "_slots", threading.BoundedSemaphore(1))
-    # Keep the thread deadline stable; expire the real loop timer only after
-    # the provider blocks, so executor startup cannot win the timeout race.
     monkeypatch.setattr(service, "time", SimpleNamespace(monotonic=lambda: 0.0))
     timers = []
 
@@ -631,8 +627,6 @@ async def test_explicit_capacity_retains_unknown_provider_responsibility(
             await capture(admission=admission)
         assert denied.value.status == 429 and len(provider.calls) == calls
     finally:
-        # A malformed fake can hide a stream from the caller. Retiring the fake
-        # is test cleanup, not evidence that production may reclaim its slot.
         for body in provider.bodies:
             body.close()
 
@@ -670,7 +664,7 @@ async def test_explicit_capacity_retains_unknown_temporary_close(
     assert files and all(file.closed for file in files)
     assert admission._value == 0 and service._slots._value == 4
     if transferred:
-        stage.close()  # A second retirement cannot release the retained slot.
+        stage.close()
         assert admission._value == 0
 
 

@@ -1227,9 +1227,6 @@ class ImageExecutor:
                 reservation,
             )
         except BaseException as exc:
-            # An observed receipt is never returned unless the storage port
-            # proved the physical operation closed; anything else stays
-            # unknown so it keeps blocking retirement.
             state = (
                 "unknown"
                 if getattr(exc, "storage_operation_unsettled", False)
@@ -1240,13 +1237,8 @@ class ImageExecutor:
         if not isinstance(receipt, PyramidMemberReceipt) or (
             receipt.operation_id != operation_id
         ):
-            # The port must hand back the exact admitted receipt; never invent
-            # one for a write whose identity is unclear.
             await self._abandon_pyramid_member(operation_id, "unknown")
             raise ImageFailure("invalid_response")
-        # The bytes may already exist from here on; retirement must settle the
-        # saved members even if the readback or verification fails.
-        # Exact-version readers compare the recorded HTTP ETag, not the source.
         await self._register_native_member_receipt(receipt)
         try:
             if interruption is not None:
@@ -1268,11 +1260,7 @@ class ImageExecutor:
             )
         except BaseException as exc:
             if getattr(exc, "storage_operation_unsettled", False):
-                # PUT/verify/body/client I/O is not proven drained.  Keep the
-                # durable permit open so retirement stays blocked.
                 raise
-            # Every physical operation drained.  Close the registered written
-            # member without claiming verification or physical absence.
             await self._close_written_native_member(operation_id)
             raise
         return Artifact(key=key, byte_size=size_bytes, sha256=sha256)
@@ -1300,7 +1288,6 @@ class ImageExecutor:
                 PyramidMemberAbandon(operation_id=operation_id, state=state),
             )
         except BaseException:
-            # An unrecorded submission stays open and blocks retirement.
             return
 
     async def _finish_native_pyramid(
@@ -1364,8 +1351,6 @@ class ImageExecutor:
     async def _advance_backfill(
         self, claim: ImageClaim, heartbeat: _LeaseHeartbeat
     ) -> ImageWorkOutcome:
-        # The native call first prepares a bounded candidate batch without moving
-        # its cursor. S3 observations then happen without transaction-held locks.
         previous_cursor: tuple[str, int] | None = None
         private_fixture = bool(
             os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE")
@@ -1942,7 +1927,6 @@ def _directory_size(directory: Path, limit: int, *, child_running: bool = False)
                 except FileNotFoundError:
                     if not child_running:
                         raise
-                    # libvips atomically publishes temporary tiles during encoding.
                     continue
                 if not stat.S_ISREG(info.st_mode):
                     raise ImageFailure("tile_grid_mismatch")

@@ -237,8 +237,6 @@ async def test_class_rename_native_retains_atomic_caller_control_and_no_receipts
             assert denied["error"]["status_code"] == 403
         assert await _snapshot(maker, world["project_id"]) == before
 
-        # Calling the typed effect action directly must still acquire live
-        # authority/configuration fences instead of trusting earlier actions.
         async with connection.transaction():
             applied = await _step(
                 connection, direct, "class_rename_apply", _apply_args()
@@ -275,8 +273,6 @@ async def test_class_rename_rolls_back_annotation_when_project_update_fails(
     connection = None
     try:
         before = await _snapshot(maker, world["project_id"])
-        # The exact owned row alone fails after the Labeling effect. Observing
-        # Truck here proves the failure is between the two business writes.
         async with test_engine.begin() as owner:
             await owner.exec_driver_sql(
                 f"""CREATE FUNCTION {function}() RETURNS trigger
@@ -377,8 +373,6 @@ async def test_class_rename_replacement_retains_live_oid_acl_and_function_owners
                 assert metadata["owner"] == "workspace_code"
                 assert metadata["security_definer"] is True
                 assert "search_path=pg_catalog, pg_temp" in metadata["settings"]
-            # The 0268 caller uses the 0261 exact-key serializer, not the
-            # current one, which also requires guide_assets_revision.
             for filename, function in (
                 ("0257_workspace_configuration.sql", f"{_SCHEMA}.configuration_step"),
                 (
@@ -444,8 +438,6 @@ async def test_full_project_decode_precedes_the_changed_exclusive_upgrade(
                     text("SELECT id FROM public.projects WHERE id=:id FOR KEY SHARE"),
                     {"id": world["project_id"]},
                 )
-                # Initial KEY SHARE is compatible; the later exclusive upgrade
-                # would fail409. Full-row driver decoding must fail first.
                 manager = ConfigurationManager(
                     ConfigurationPostgresData(_configuration_dsn(test_engine))
                 )

@@ -1,16 +1,9 @@
-// useMaskEditorSession 单测 — 覆盖 A1 / A2 / A7 复现场景。
-//
-// A1 视频"加载中落笔后被迟到 GET 覆盖": sessionKey 切换后旧 generation 的 loadRle 不得回写。
-// A2 图片保存失败后 Buffer 被清空: save reject → phase=error, editor.buffer 仍在, 可 retry。
-// A7 重复 Enter / 双击确认并发上传: save 单飞, 重复调用合并为同一 Promise。
-
 import { describe, expect, it, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
 import { promptMaskLeaveChoice, useMaskEditorSession } from "./useMaskEditorSession";
 import type { MaskSessionKey } from "./useMaskEditorSession";
 
-/** 结算当前排队的 decisionDialog 并清空队列,模拟用户点下某个选项。 */
 function settleDialog(value: boolean | string | null) {
   const head = useDecisionDialogStore.getState().queue[0];
   if (!head) throw new Error("decisionDialog 队列为空");
@@ -104,27 +97,23 @@ describe("useMaskEditorSession · A1 迟到 GET 不得覆盖当前 Buffer", () =
 
   it("sessionKey 切换后旧 generation 的 loadRle 静默丢弃", async () => {
     const { result, rerender } = renderSession({ sessionKey: KEY_A });
-    // session A 进入 loading → loadBlank 让它 ready
     await act(async () => {
       result.current.loadBlank(result.current.generation);
     });
     expect(result.current.phase).toBe("ready");
     const genA = result.current.generation;
 
-    // 切到 session B
     rerender({
       sessionKey: KEY_B,
       onLeaveDirty: vi.fn(() => Promise.resolve("discard" as const)),
     });
     await act(async () => {
-      // 让微任务跑完 (onLeaveDirty)
       await Promise.resolve();
     });
     const genB = result.current.generation;
     expect(genB).toBeGreaterThan(genA);
     expect(result.current.phase).toBe("loading");
 
-    // session B 自己先 loadBlank, 得到一个已知状态的 buffer (全 0)
     await act(async () => {
       result.current.loadBlank(result.current.generation);
     });
@@ -132,11 +121,9 @@ describe("useMaskEditorSession · A1 迟到 GET 不得覆盖当前 Buffer", () =
     const bufferBeforeLateGet = result.current.buffer;
     const countBeforeLateGet = result.current.buffer?.countSet() ?? 0;
 
-    // 旧 session A 的迟到 GET 回包: 用 genA 调 loadRle —— 必须被丢弃
     act(() => {
       result.current.loadRle(genA, RLE_DIFFERENT);
     });
-    // phase 不应被旧回包改回 loading; buffer 引用与内容不变 (迟到回包被丢弃)
     expect(result.current.phase).toBe("ready");
     expect(result.current.buffer).toBe(bufferBeforeLateGet);
     expect(result.current.buffer?.countSet()).toBe(countBeforeLateGet);
@@ -148,12 +135,10 @@ describe("useMaskEditorSession · A1 迟到 GET 不得覆盖当前 Buffer", () =
       result.current.loadBlank(result.current.generation);
     });
     const before = result.current.buffer?.countSet() ?? 0;
-    // 用当前 generation 重新 load 一个有内容的 RLE
     act(() => {
       result.current.loadRle(result.current.generation, RLE_DIFFERENT);
     });
     expect(result.current.phase).toBe("ready");
-    // RLE_DIFFERENT = [200,200] → 第二段 200 个前景 → countSet === 200
     expect(result.current.buffer?.countSet()).toBe(200);
     expect(result.current.buffer?.countSet()).not.toBe(before);
   });
@@ -220,7 +205,6 @@ describe("useMaskEditorSession · dirty leave guard", () => {
     choice = promptMaskLeaveChoice();
     settleDialog("discard");
     await expect(choice).resolves.toBe("discard");
-    // 取消 / Esc / 点遮罩 → null → 继续编辑
     choice = promptMaskLeaveChoice();
     settleDialog(null);
     await expect(choice).resolves.toBe("continue");
@@ -296,7 +280,6 @@ describe("useMaskEditorSession · A2 保存失败后 Buffer 保留 + 可 retry",
     await act(async () => {
       result.current.loadBlank(result.current.generation);
     });
-    // 画一笔让 dirty=true
     act(() => {
       result.current.paintAt(10, 10);
     });
@@ -304,7 +287,6 @@ describe("useMaskEditorSession · A2 保存失败后 Buffer 保留 + 可 retry",
     expect(result.current.phase).toBe("dirty");
     const bufferBeforeSave = result.current.buffer;
 
-    // 第一次 save 失败 (模拟 409 / 网络错误)
     const failingCommit = vi.fn(async () => ({
       ok: false,
       retryable: true,
@@ -317,17 +299,14 @@ describe("useMaskEditorSession · A2 保存失败后 Buffer 保留 + 可 retry",
     expect(firstResult!.ok).toBe(false);
     expect(result.current.phase).toBe("error");
     expect(result.current.lastSaveError).toBeInstanceOf(Error);
-    // Buffer 保留 (不丢稿)
     expect(result.current.buffer).toBe(bufferBeforeSave);
     expect(result.current.buffer?.countSet()).toBeGreaterThan(0);
 
-    // recover 回到 dirty
     act(() => {
       result.current.recoverFromError();
     });
     expect(result.current.phase).toBe("dirty");
 
-    // retry 成功
     const okCommit = vi.fn(async () => ({ ok: true, retryable: false }));
     let retryResult: { ok: boolean } | undefined;
     await act(async () => {
@@ -357,7 +336,6 @@ describe("useMaskEditorSession · A7 重复 Enter / 双击单飞去重", () => {
         }),
     );
 
-    // 连续触发两次 save (模拟双击 Enter / 重复按键)
     let p1: Promise<{ ok: boolean }> | undefined;
     let p2: Promise<{ ok: boolean }> | undefined;
     act(() => {
@@ -365,9 +343,7 @@ describe("useMaskEditorSession · A7 重复 Enter / 双击单飞去重", () => {
       p2 = result.current.save(commit);
     });
     expect(result.current.saveInFlight).toBe(true);
-    // 单飞: 两个 Promise 是同一引用
     expect(p1).toBe(p2);
-    // commit 只被调用一次
     expect(commit).toHaveBeenCalledTimes(1);
 
     await act(async () => {
@@ -400,7 +376,6 @@ describe("useMaskEditorSession · A7 重复 Enter / 双击单飞去重", () => {
     });
     expect(result.current.phase).toBe("saving");
 
-    // 切到 session B (旧 save 仍在 in-flight)
     rerender({
       sessionKey: KEY_B,
       onLeaveDirty: vi.fn(() => Promise.resolve("discard" as const)),
@@ -409,9 +384,8 @@ describe("useMaskEditorSession · A7 重复 Enter / 双击单飞去重", () => {
       await Promise.resolve();
     });
     expect(result.current.generation).toBeGreaterThan(0);
-    expect(result.current.phase).toBe("loading"); // 新 session
+    expect(result.current.phase).toBe("loading");
 
-    // 旧 save 现在 resolve —— 不得把新 session 的 phase 改成 ready/error
     await act(async () => {
       resolveOld({ ok: true, retryable: false });
       await oldPromise;

@@ -63,7 +63,6 @@ interface ContinuousCreationGuardOptions {
   onInvalidBinding: (error: string) => void;
 }
 
-/** Media admission pauses writes without retiring a project-scoped creation intent. */
 export function useContinuousCreationGuard({
   intent,
   setIntent,
@@ -118,11 +117,9 @@ export function useContinuousCreationGuard({
     bindings,
     onInvalidBinding,
   ]);
-  // Fence the changing owner's render before the layout effect clears its old intent.
   return businessLocked || mediaBlocked || (ownerChanged && !!intent) || !ownerKey;
 }
 
-/** Every object starts with its own defaults, including false and zero. */
 export function creationAttributeDefaults(schema: AttributeSchema, className: string) {
   const values: Record<string, unknown> = {};
   for (const field of schema.fields ?? []) {

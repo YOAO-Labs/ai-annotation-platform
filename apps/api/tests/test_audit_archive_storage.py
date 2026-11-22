@@ -351,7 +351,6 @@ def test_full_semantic_verification_rejects_corruption_outside_page(storage, dam
         row.source_sha256 = "0" * 64
     elif damage == "source-size":
         row.source_size_bytes += 1
-    # Even an independent compressed receipt cannot excuse malformed contents.
     row.sha256, row.size_bytes = hashlib.sha256(raw).hexdigest(), len(raw)
     storage.client.raw = raw
     with pytest.raises(owners.AuditArchiveStorageError) as rejected:
@@ -419,8 +418,6 @@ def test_long_gzip_header_obeys_compressed_chunk_deadline(monkeypatch):
             return chunk
 
     with ProgressFile(raw) as source:
-        # Reading two compressed chunks exhausts the cooperative time window,
-        # before the optional filename terminator or any output can be reached.
         monkeypatch.setattr(
             owners.time,
             "monotonic",

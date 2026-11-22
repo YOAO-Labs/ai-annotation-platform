@@ -90,8 +90,6 @@ _DECISION_ACTIONS = {
     AuditAction.TASK_APPROVE.value,
     AuditAction.TASK_REJECT.value,
 }
-# A skip starts a review round and must remain available for round snapshots,
-# but it is not a successful annotation submission.
 _ROUND_START_ACTIONS = {
     AuditAction.TASK_SUBMIT.value,
     AuditAction.TASK_SKIP.value,
@@ -189,9 +187,6 @@ def resolve_scope(
         raise HTTPException(
             status_code=422, detail="performance interval must be non-empty"
         )
-    # Scope length is measured in complete local calendar days.  This keeps a
-    # 90-day date-only range stable across DST transitions and also accepts the
-    # equal-duration instant range used by the UI's previous-period query.
     local_start = start.astimezone(zone).replace(tzinfo=None)
     local_end = end.astimezone(zone).replace(tzinfo=None)
     if (local_end - local_start).days > _MAX_CALENDAR_DAYS:
@@ -239,8 +234,6 @@ def _annotation_source_label(source: Any, imported: Any) -> str:
 
 
 def _project_audit_filter(project_id: UUID):
-    # ``contains`` works on PostgreSQL JSONB and is also understood by the
-    # SQLite test dialect used by the API unit suite.
     return audit_event.detail_json.contains({"project_id": str(project_id)})
 
 
@@ -254,10 +247,6 @@ async def resolve_performance_access(
     project = await get_workspace_project(db, project_id=project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
-    # Project performance stays manager-only: a super administrator or an owner
-    # whose current platform role is administrative.  Ownership alone or a
-    # foreign-project platform administrator is not enough; the account role is
-    # never used as a project grant.
     from app.services.project_access import is_privileged_for_project
 
     if is_privileged_for_project(user, project):
@@ -438,10 +427,6 @@ async def _load_submission_coverage(
                     task_row.submitted_at >= scope.start,
                     task_row.submitted_at < scope.end,
                 ),
-                # Legacy rounds have no durable submission timestamp. Once
-                # withdraw/reopen clears it, their history cannot prove that
-                # this interval is complete, even if the transition audit was
-                # archived too. Do not guess a count or use mutable ownership.
                 and_(
                     task_row.submitted_at.is_(None),
                     task_row.first_review_eligible.is_(None),
@@ -480,7 +465,6 @@ async def _load_qualified_time(
             user_clause = " AND te.user_id = :user_id"
             params["user_id"] = next(iter(user_ids))
         else:
-            # The list is the filtered roster, never an unbounded event list.
             user_clause = " AND te.user_id = ANY(:user_ids)"
             params["user_ids"] = list(user_ids)
 
@@ -1150,8 +1134,6 @@ def _member_metrics(
             denominator=acc.first_review_total,
             coverage="partial" if acc.first_review_partial else "complete",
         ),
-        # Only qualified TaskEvent rows contribute to duration.  Legacy rows
-        # remain evidence but are not silently treated as measured work.
         recorded_time_minutes=_metric(
             acc.recorded_time_minutes,
             "minutes",
@@ -1402,8 +1384,6 @@ async def _aggregate(
         accumulators[user_id].retained_objects = retained_objects
         accumulators[user_id].contributed_tasks = contributed_tasks
         accumulators[user_id].annotated_images = annotated_images
-    # Project totals aggregate independently instead of summing member rows:
-    # several members may have saved objects on the same image.
     total_retained_objects, total_annotated_images = await _annotation_totals(
         db, project.id, scope
     )

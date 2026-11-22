@@ -182,7 +182,6 @@ def json_bytes(value) -> bytes:
 def source_binding_matches(
     expected: TaskVideoBinding, current: TaskVideoBinding
 ) -> bool:
-    # Workflow versions are provenance, not a new source identity.
     return expected.model_dump(exclude={"task_version"}) == current.model_dump(
         exclude={"task_version"}
     )

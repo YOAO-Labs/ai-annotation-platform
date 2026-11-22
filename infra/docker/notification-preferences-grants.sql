@@ -1,9 +1,3 @@
--- Grant the preference command to the existing API LOGIN and a function-only peer.
--- Run after module-data-grants.sql as the migration role.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v notifications_owner=notifications_code -v api_role=legacy_runtime \
---   -v preference_role=yoao_notification_preferences_client \
---   -f infra/docker/notification-preferences-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

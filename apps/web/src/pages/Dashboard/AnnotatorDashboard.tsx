@@ -201,7 +201,6 @@ export function AnnotatorDashboard() {
         </Button>
       </div>
 
-      {/* M1 · 退回待重做提示 */}
       {(stats.rejected_tasks_count ?? 0) > 0 && (
         <div className="mb-4 flex items-center gap-3 rounded-md border border-rose-500/30 bg-status-danger-soft px-4 py-3">
           <Icon name="warning" size={16} className="shrink-0 text-status-danger" />
@@ -226,7 +225,6 @@ export function AnnotatorDashboard() {
         </div>
       )}
 
-      {/* 产能 */}
       <SectionDivider label="产能" hint="完成数 / 单题耗时" />
       <div className={STATS_GRID_FOUR}>
         <StatCard icon="flag" label="待标任务" value={stats.assigned_tasks} />
@@ -247,7 +245,6 @@ export function AnnotatorDashboard() {
         />
       </div>
 
-      {/* 质量 */}
       <SectionDivider label="质量" hint="原创比例 / 退回率 / 重审次数" />
       <div className={STATS_GRID_THREE}>
         <StatCard icon="sparkles" label="原创比例" value={`${stats.personal_accuracy}%`} />
@@ -265,7 +262,6 @@ export function AnnotatorDashboard() {
         />
       </div>
 
-      {/* 投入：来自任务事件与当前账号的真实活动记录。 */}
       <SectionDivider label="投入" hint="活跃时长 / 连续天数" />
       <div className={STATS_GRID_THREE}>
         <StatCard
@@ -283,7 +279,6 @@ export function AnnotatorDashboard() {
         <StatCard icon="layers" label="累计标注" value={stats.total_completed} />
       </div>
 
-      {/* 24-bar 当日专注时段分布 */}
       <div className="mt-4">
         <Card>
           <div className={CARD_HEADER_PLAIN}>

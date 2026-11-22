@@ -117,7 +117,6 @@ async def build_topology(db: AsyncSession, *, super_admin: bool) -> TopologyResp
             key=lambda member: member.registry.name,
         )
         member_models: list[TopologyMemberInstance] = []
-        # (traffic_state, registry_connected) tuples for status derivation.
         member_states: list[tuple[str, bool, bool, bool]] = []
         singleton_without_fingerprint = (
             pool.capability_fingerprint is None and len(member_rows) == 1
@@ -262,7 +261,6 @@ async def build_runtime_snapshot(
                     route_inflight=inflight,
                     circuit_open=circuit_open,
                     gpu_resource_id=registry.gpu_resource_id,
-                    # Metrics-driven fields stay None (plan §4.2 / Appendix A.2).
                 )
             )
         pool_snapshots.append(
@@ -275,7 +273,6 @@ async def build_runtime_snapshot(
             )
         )
 
-    # ── freshness envelope (plan Appendix A.2) ────────────────────────────
     sources: list[SourceFreshness] = []
     sources.append(
         SourceFreshness(
@@ -292,7 +289,6 @@ async def build_runtime_snapshot(
             error=routing_error,
         )
     )
-    # health: stale if any member's last_checked_at exceeds the freshness window.
     sources.append(
         SourceFreshness(
             name="health",
@@ -301,7 +297,6 @@ async def build_runtime_snapshot(
             error=None if not any_health_stale else "some_member_health_stale",
         )
     )
-    # GPU and residency data are not included; mark both sources stale.
     sources.append(
         SourceFreshness(
             name="gpu",

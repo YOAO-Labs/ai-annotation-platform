@@ -83,8 +83,6 @@ class FeedbackService:
         mentions: list[dict] | None = None,
     ) -> AnnotationFeedback:
         if anchor_position and anchor_position.get("video_context") is not None:
-            # A reply copies a persisted anchor, including future versions or a
-            # reference whose object/media has since changed. It never edits it.
             parent = (
                 await self.get(thread_parent_id)
                 if kind == "comment" and thread_parent_id is not None
@@ -232,7 +230,6 @@ class FeedbackService:
                     status_code=422,
                     detail="Feedback annotation does not belong to task",
                 )
-            # annotation_version is the captured version, not an optimistic-lock precondition.
 
         from app.services.video_frame_service import build_context_from_task
 
@@ -306,18 +303,8 @@ class FeedbackService:
         assert result.feedback is not None
         return await self._attach(result.feedback)
 
-    # ------------------------------------------------------------------
-    # ADR-0027 · 旧反馈来源的同事务镜像写入
-    #
-    # 设计: 各 helper 接受 legacy 模型实例, 提取字段构造 AnnotationFeedback INSERT
-    # 在同一 session/事务中执行. 调用方在 legacy 写后立刻调, db.commit() 时一起落库;
-    # 任一失败 → 整体回滚, 不留半边写.
-    # ------------------------------------------------------------------
-
     async def mirror_bug_report(self, bug_report) -> AnnotationFeedback:
         """legacy bug_reports.INSERT 后镜像写入 annotation_feedbacks (kind=bug)."""
-        # project_id NOT NULL in annotation_feedbacks; bug_reports.project_id may be null
-        # 无项目归属的反馈只保存在 bug_reports；常见于登录页等无项目上下文。
         if bug_report.project_id is None:
             logger.debug(
                 "[ADR-0027] skip mirror bug_report=%s (project_id is null)",
@@ -717,8 +704,6 @@ class FeedbackService:
 
         af = annotation_feedback_facts
         if root_only:
-            # A root has no ancestry to traverse. Keep current-task badges and
-            # pin pagination independent of unrelated replies in the project.
             q = select(af).where(
                 af.project_id == project_id,
                 af.is_active.is_(True),
@@ -957,8 +942,6 @@ def _same_anchor_scope_clause(left: AnnotationFeedback, right: AnnotationFeedbac
 def _valid_root_clause(root: AnnotationFeedback):
     """Reject malformed roots that point at another task/project annotation."""
 
-    # Aliased tables keep the anti-orphan checks independent of any outer
-    # Task/Annotation in correlated contexts (Data Manager counts).
     root_task = alias_core_row(task_row, name="root_task")
     root_annotation = alias_core_row(annotation_row, name="root_annotation")
     task_ok = (

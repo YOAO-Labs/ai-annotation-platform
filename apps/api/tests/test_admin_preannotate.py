@@ -51,7 +51,6 @@ async def test_preannotate_queue_returns_pre_annotated_batches(
     )
     assert res.status_code == 200
     items = res.json()["items"]
-    # 仅 pre_annotated 的 batch 入队列, active 的不入
     assert len(items) == 1
     item = items[0]
     assert item["batch_name"] == "batch-pre"
@@ -98,9 +97,6 @@ async def test_preannotate_queue_project_filter_and_offset_cover_all_batches(
     assert invalid.status_code == 422
 
 
-# ── 批量清理 ────────────────────────────────────────────────────────
-
-
 async def _seed_batch_with_predictions(
     db, project_id, *, status: str = "pre_annotated"
 ):
@@ -111,8 +107,6 @@ async def _seed_batch_with_predictions(
 
     batch = await create_batch(db, project_id=project_id, status=status)
     task = await _create_task(db, project_id=project_id, batch_id=batch.id)
-    # ADR-0044 · 全局注册项 + 项目启用关联 (url 全局唯一, 故每次造唯一 url)。
-    # 不设 state → registry 默认 disconnected (summary 期望非 connected 状态)。
     backend, pool = await create_registry_with_pool(
         db, name="bk", url=f"http://x-{uuid.uuid4().hex[:8]}/", state="disconnected"
     )
@@ -125,7 +119,6 @@ async def _seed_batch_with_predictions(
             result={"shapes": []},
         )
     )
-    # prediction_jobs 已收敛进 async_jobs（batch_id 进 payload）
     db.add(
         AsyncJob(
             kind="batch_predict",
@@ -189,7 +182,6 @@ async def test_bulk_clear_predictions_only_resets_to_active(
     assert body["skipped"] == []
     assert body["failed"] == []
 
-    # batch 状态从 pre_annotated 回 active
     from app.db.models.task_batch import TaskBatch
 
     batches = (
@@ -203,7 +195,6 @@ async def test_bulk_clear_predictions_only_resets_to_active(
     )
     assert all(b.status == "active" for b in batches)
 
-    # predictions / batch_predict async_jobs 全清
     from app.db.models.async_job import AsyncJob
     from app.db.models.prediction import Prediction
 
@@ -406,7 +397,6 @@ async def test_bulk_clear_skips_other_owners_batches_for_project_admin(
     super_user, _ = super_admin
     pa_user, pa_token = project_admin
 
-    # super_admin 持有的项目, project_admin 想清里面的 batch
     proj = await create_project(db_session, owner_id=super_user.id, name="other-owned")
     b1, _ = await _seed_batch_with_predictions(db_session, proj.id)
     await db_session.commit()
@@ -517,9 +507,6 @@ async def test_preannotate_reads_are_scoped_to_project_admin_owner(
     assert foreign_batch.id != owned_batch.id
 
 
-# ── /admin/preannotate-summary ───────────────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_preannotate_summary_filters_to_projects_with_ml_backend(
     httpx_client, db_session, super_admin
@@ -527,9 +514,7 @@ async def test_preannotate_summary_filters_to_projects_with_ml_backend(
     user, token = super_admin
     p_with_bk = await create_project(db_session, owner_id=user.id, name="with-ml")
     p_without = await create_project(db_session, owner_id=user.id, name="no-ml")
-    # p_with_bk 加 backend + 1 个 PRE_ANNOTATED batch
     await _seed_batch_with_predictions(db_session, p_with_bk.id, status="pre_annotated")
-    # p_without 仅有 batch, 无 backend
     await create_batch(db_session, project_id=p_without.id, status="active")
     await db_session.commit()
 
@@ -545,9 +530,7 @@ async def test_preannotate_summary_filters_to_projects_with_ml_backend(
     item = next(it for it in items if it["project_name"] == "with-ml")
     assert item["ready_batches"] == 1
     assert item["ml_backend_state"] in ("disconnected", "ready", "mismatch")
-    assert (
-        item["ml_backend_max_concurrency"] is None
-    )  # 未配 extra_params.max_concurrency
+    assert item["ml_backend_max_concurrency"] is None
 
 
 @pytest.mark.asyncio
@@ -581,7 +564,7 @@ async def test_preannotate_summary_includes_all_modalities_with_data_type(
     items = res.json()["items"]
     by_name = {it["project_name"]: it for it in items}
     assert "img-proj" in by_name
-    assert "video-proj" in by_name  # 不再被过滤
+    assert "video-proj" in by_name
     assert by_name["img-proj"]["data_type"] == "image"
     assert by_name["video-proj"]["data_type"] == "video"
 
@@ -627,7 +610,6 @@ async def test_preannotate_summary_counts_active_and_unassigned_draft(
     item = next(
         it for it in res.json()["items"] if it["project_name"] == "eligible-proj"
     )
-    # active(1) + 未分派 draft(2); 已分派 draft 与 archived 不计入
     assert item["active_batches"] == 3
 
 

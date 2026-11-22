@@ -156,7 +156,6 @@ async def test_feedback_reply_events_cover_generic_and_dedicated_routes(
     assert dedicated.status_code == 200, dedicated.text
     dedicated_id = UUID(dedicated.json()["id"])
 
-    # The root author replying to their own Issue is excluded from the event.
     own_reply = await httpx_client.post(
         f"/api/v1/feedbacks/{root_id}/replies",
         json={"body": "author reply"},
@@ -301,7 +300,6 @@ async def test_feedback_status_event_reaches_all_active_descendant_authors(
     )
     await db_session.flush()
 
-    # A descendant status change is not a root Issue status change.
     descendant_patch = await httpx_client.patch(
         f"/api/v1/feedbacks/{many_replies[0].id}",
         json={"status": "resolved"},
@@ -310,7 +308,6 @@ async def test_feedback_status_event_reaches_all_active_descendant_authors(
     assert descendant_patch.status_code == 200, descendant_patch.text
     assert published == []
 
-    # A no-op root status request is not a status transition and must not emit.
     noop_patch = await httpx_client.patch(
         f"/api/v1/feedbacks/{root_id}",
         json={"status": "open"},
@@ -381,7 +378,6 @@ async def test_annotation_mentions_notify_original_comment_only_and_filter_acces
     ):
         await _add_member(db_session, project.id, user, role, owner.id)
     inactive.is_active = False
-    # The reviewer owns the active batch, so the annotator recipient is assigned away.
     batch.annotator_id = qa.id
     annotation = Annotation(
         id=uuid4(),
@@ -472,8 +468,6 @@ async def test_annotation_mentions_notify_original_comment_only_and_filter_acces
     )
     assert response.status_code == 201, response.text
     assert response.json()["author_name"] == locked_actor_name
-    # The current Identity fact controls the response and notification; a
-    # fixture's cached ORM object is not part of that contract.
     assert (
         await db_session.scalar(select(User.name).where(User.id == owner.id))
         == locked_actor_name
@@ -503,7 +497,6 @@ async def test_annotation_mentions_notify_original_comment_only_and_filter_acces
     }
     assert [user_id for user_id, _message in published] == [qa.id]
 
-    # The source comment and its mirror coexist, but only the source target got an event.
     mirrors = list(
         (
             await db_session.execute(
@@ -615,8 +608,6 @@ async def test_deferred_notification_publish_is_default(
     await service.publish_committed(deferred_many)
     assert len(messages) == 2
 
-    # Publication is deferred by default: the row is written but nothing is
-    # pushed until the caller publishes after its commit.
     default_deferred = await service.notify(
         user_id=user.id,
         type="legacy.type",
@@ -628,7 +619,6 @@ async def test_deferred_notification_publish_is_default(
     await service.publish_committed([default_deferred])
     assert len(messages) == 3
 
-    # Legacy explicit opt-in still publishes immediately.
     immediate = await service.notify(
         user_id=user.id,
         type="legacy.type",

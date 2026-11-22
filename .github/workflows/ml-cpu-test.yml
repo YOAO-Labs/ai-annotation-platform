@@ -1,5 +1,3 @@
-# The registry in scripts/test-suites.json owns the selectable CPU suite list.
-# Each suite uses an isolated environment; CPU success is not GPU qualification.
 name: ML CPU tests
 
 on:

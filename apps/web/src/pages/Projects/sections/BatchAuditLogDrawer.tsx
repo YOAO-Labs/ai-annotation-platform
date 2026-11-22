@@ -101,7 +101,6 @@ function Entry({ log }: { log: BatchAuditLogEntry }) {
   const role = log.actor_role ?? "";
   const actionLabel = ACTION_LABEL[log.action] ?? log.action;
 
-  // 状态变更：detail.before / detail.after / detail.reverse / detail.reason
   const detail = log.detail ?? {};
   const before = (detail as { before?: string }).before;
   const after = (detail as { after?: string }).after;

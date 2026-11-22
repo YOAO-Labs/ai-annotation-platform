@@ -41,8 +41,6 @@ type TimelineViewTransitionDocument = Document & {
   startViewTransition?: (update: () => void) => unknown;
 };
 
-// 密度柱最大像素高度。人工/AI 两条 lane 共用同一 max 计数与同一柱高上限,
-// 柱高才能跨 lane 直接反映数量占比 (见 densityScaleMax)。
 const DENSITY_BAR_MAX_PX = 9;
 export type VideoLargeFrameStep = 5 | 10 | 30 | "grid";
 const DEFAULT_CHAPTER_COLORS = [
@@ -66,12 +64,6 @@ export interface VideoSegmentTimelineRange {
   workEndFrame: number;
 }
 
-/**
- * 时间轴区间刷选的用途。决定松手后 {from,to} 交给谁、草稿带用什么样式渲染。
- * - `loop`: 循环播放区间 (原行为, 零回归)。
- * - `chapter-draft`: 圈一段预填章节表单 (WS2)。
- * - `propagate-range`: 圈一段喂给 AI 传播对话框。
- */
 export type TimelineRangePurpose = "loop" | "chapter-draft" | "propagate-range";
 
 interface TimelineRangeDraft {
@@ -79,11 +71,6 @@ interface TimelineRangeDraft {
   purpose: TimelineRangePurpose;
 }
 
-/**
- * 章节 × 时间轴联动的一组控制器, 从 shell 经 StageHost / VideoWorkbench 透传到本组件。
- * 分批填充: WS2 刷选建章节 (rangeSelectPurpose + onRangeSelect); WS3 章节条 resize (onResizeChapter);
- * WS4 双向 hover (hoveredChapterId + onHoverChapter)。非视频任务不传。
- */
 export interface VideoTimelineChapterControls {
   rangeSelectPurpose: TimelineRangePurpose;
   onRangeSelect: (purpose: TimelineRangePurpose, region: VideoLoopRegion) => void;
@@ -104,34 +91,25 @@ interface VideoPlaybackOverlayProps {
   onViewInteraction?: () => void;
   frameIndex: number;
   maxFrame: number;
-  /** 采样网格步长 (源帧空间)。>1 时在时间轴渲染网格刻度；1 时不画。 */
   samplingStep?: number;
-  /** 时间轴聚焦时 Shift+←/→ 的大步进策略。 */
   largeFrameStep?: VideoLargeFrameStep;
   timebase: FrameTimebase;
   isPlaying: boolean;
   playbackRateLabel?: string;
   selectedTrackTimeline?: VideoTrackTimeline | null;
-  /** 选中轨迹的显示色 (oklch 字符串); 关键帧点用它着色, 与画布框/侧栏同源。 */
   trackColor?: string | null;
   globalTimelineDensity?: VideoTimelineDensityBin[];
-  /** AI 预测密度轨 (bucket 化, 单 violet 色); 与人工密度条独立叠加。 */
   predictionDensity?: PredictionDensityBin[];
-  /** 跳到下一个/上一个有预测的帧; undefined 时不渲染导航按钮 (无预测帧)。 */
   onSeekPredicted?: (dir: -1 | 1) => void;
-  /** 会话级轨迹色覆盖; 密度条按各 bin 的主导轨迹着色时用它解析颜色。 */
   trackColorOverrides?: Record<string, string>;
   loopRegion?: VideoLoopRegion | null;
-  /** AI 传播对话框打开时在时间轴高亮「将影响哪段帧」(受控静态带, 非刷选草稿)。 */
   propagateRange?: VideoLoopRegion | null;
   trackerReview?: TrackerReviewProjection | null;
   onSeekReviewFrame?: (frameIndex: number) => void;
   segmentRange?: VideoSegmentTimelineRange | null;
-  /** 时间轴刷选产物的用途 (默认 "loop", 原行为)。非 loop 时松手走 onRangeSelect。 */
   rangeSelectPurpose?: TimelineRangePurpose;
   bookmarks?: VideoBookmark[];
   chapters?: VideoTimelineChapter[];
-  /** 含 pixel-anchored issue 的帧 (时间轴上加标记, 单击跳转)。 */
   issueFrames?: number[];
   onSeekIssueFrame?: (frameIndex: number) => void;
   hoverPreview?: VideoFramePreview | null;
@@ -147,12 +125,9 @@ interface VideoPlaybackOverlayProps {
   onSeekBookmark?: (frameIndex: number) => void;
   onHoverFrameChange?: (frameIndex: number | null) => void;
   onSeekChapter?: (chapterId: string, frameIndex: number) => void;
-  /** 非 loop 用途的区间刷选提交 (松手时按 rangeSelectPurpose 分派)。 */
   onRangeSelect?: (purpose: TimelineRangePurpose, region: VideoLoopRegion) => void;
-  /** 时间轴章节条 ↔ 侧栏行双向 hover 联动。 */
   hoveredChapterId?: string | null;
   onHoverChapter?: (chapterId: string | null) => void;
-  /** 章节色条边界 resize 提交 (拖动松手, debounce PATCH 在 shell)。 */
   onChapterResize?: (chapterId: string, region: VideoLoopRegion) => void;
 }
 
@@ -167,7 +142,6 @@ function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-// 密度条半透明色: 轨迹色 (oklch) 或 accent token 兑入透明, 避免密度条过抢眼。
 function densityTint(color: string) {
   return `color-mix(in oklch, ${color} 68%, transparent)`;
 }
@@ -180,10 +154,6 @@ export function resolveLargeFrameStep(
   return samplingStep > 1 ? samplingStep : 10;
 }
 
-/**
- * 按比例分级着色: 把一个密度 bin 按各轨迹关键帧占比, 自底向上堆叠成彩色渐变 (类似堆叠柱状),
- * 占比 = 该轨迹 count / bin 总 density; 差额 (legacy bbox, 无轨迹归属) 用 accent 兜底补满。
- */
 export function densityBinGradient(
   bin: VideoTimelineDensityBin,
   overrides?: Record<string, string>,
@@ -281,10 +251,8 @@ export function VideoPlaybackOverlay({
   onChapterResize,
 }: VideoPlaybackOverlayProps) {
   const [hoverFrame, setHoverFrame] = useState<number | null>(null);
-  // 播放组件折叠/展开。折叠 (默认) = 紧凑单轨浮层；展开 = 分行轨道 + 单层底栏。
   const [expanded, setExpanded] = useState(false);
   const [rangeDraft, setRangeDraft] = useState<TimelineRangeDraft | null>(null);
-  // 章节条边界 resize 的本地预览 (拖动中不落库, 松手才 onChapterResize → debounce PATCH)。
   const [chapterResizePreview, setChapterResizePreview] = useState<{
     id: string;
     startFrame: number;
@@ -312,9 +280,6 @@ export function VideoPlaybackOverlay({
     if (hoverFrame === null) return null;
     return `F ${hoverFrame} · ${formatTime(frameToTime(hoverFrame, timebase))}`;
   }, [hoverFrame, timebase]);
-  // 人工关键帧密度与 AI 候选密度共用同一计数基准, 使两条 lane 的柱高可以直接横向比较。
-  // 否则各自独立归一化会让「1 个关键帧」和「8 个候选」都撑满各自 lane, 把 1:8 的真实比例
-  // 画成等高甚至倒挂 (关键帧反而更高)。共享 max 后, 柱高才真实反映数量占比。
   const densityScaleMax = useMemo(
     () =>
       Math.max(
@@ -332,7 +297,6 @@ export function VideoPlaybackOverlay({
     );
     return Math.max(MIN_VISIBLE_SPAN, densityBinSpan * 6);
   }, [globalTimelineDensity, predictionDensity]);
-  // This remains the Overlay's only window state. Equal-length task/media changes reset it too.
   const { timelineWindow, timelineWindowRef, setTimelineWindow } = useVideoTimelineWindow({
     sourceKey,
     maxFrame,
@@ -340,12 +304,8 @@ export function VideoPlaybackOverlay({
     controlsRef: windowControlsRef,
     onInteraction: onViewInteraction,
   });
-  // 采样网格刻度：step>1 时在时间轴渲染网格帧 tick。
-  // 网格点过密时 (>200) 按比例抽稀，避免长视频生成海量 DOM 节点。
   const gridTicks = useMemo(() => {
     if (samplingStep <= 1 || maxFrame <= 0) return [];
-    // 按可见窗口重算 + 抽稀: 只渲染窗口内采样帧, 抽稀基于可见帧数 (放大后同一像素带
-    // 内网格才不过密)。全窗口 [0,maxFrame] 时 firstI=0、lastI=floor(maxFrame/step), 与旧结果一致。
     const from = Math.max(0, Math.floor(timelineWindow.from));
     const to = Math.min(maxFrame, Math.ceil(timelineWindow.to));
     const firstI = Math.ceil(from / samplingStep);
@@ -360,8 +320,6 @@ export function VideoPlaybackOverlay({
     }
     return ticks;
   }, [maxFrame, samplingStep, timelineWindow]);
-  // 尺子刻度标签: 按"整齐"步长在可见窗口内取帧号标签 (随缩放重排)。首尾贴边的标签
-  // (pct<4 或 >96) 跳过, 避免文字溢出轨道两端。空视频 (maxFrame<=0) 不渲染。
   const rulerTicks = useMemo(() => {
     if (maxFrame <= 0) return [] as number[];
     const span = timelineWindow.to - timelineWindow.from;
@@ -398,12 +356,9 @@ export function VideoPlaybackOverlay({
     ? `窗口：F${Math.round(timelineWindow.from)}–${Math.round(timelineWindow.to)}`
     : `窗口：全部 · F0–${maxFrame}`;
   const resetTimelineWindow = () => setTimelineWindow({ from: 0, to: maxFrame });
-  // 可发现的缩放入口: 控制条 +/− 以窗口中心为锚缩放 (factor<1 放大, >1 缩小)。
   const zoomTimeline = (factor: number) =>
     setTimelineWindow((win) => zoomWindow(win, maxFrame, 0.5, factor, minTimelineSpan));
 
-  // 概览导航条: 始终代表整段 [0,maxFrame], 窗口方块标出可见 [from,to]。
-  // 拖窗口体=平移、拖左/右边=缩放该侧、点窗口外=把窗口挪过去 (再拖即平移)。
   const navRef = useRef<HTMLDivElement | null>(null);
   const navDragRef = useRef<{
     mode: "pan" | "left" | "right";
@@ -428,7 +383,6 @@ export function VideoPlaybackOverlay({
     else if (Math.abs(px - rightPx) <= EDGE) mode = "right";
     else if (px >= leftPx && px <= rightPx) mode = "pan";
     else {
-      // 点窗口外: 保跨度把窗口居中到点击帧, 再切 pan 让本次拖动继续平移。
       const span = timelineWindow.to - timelineWindow.from;
       const clickedFrame = (px / rect.width) * maxFrame;
       startWin = clampWindow(
@@ -477,8 +431,6 @@ export function VideoPlaybackOverlay({
     const ratio = rect.width > 0 ? (pointerX - rect.left) / rect.width : 0;
     return pctToFrame(ratio, timelineWindow);
   };
-  // 章节条边界 resize。命中区: 章节条左右边缘各一把手 (data-chapter-resize),
-  // 拖动改起/止帧, 松手才 onChapterResize (shell debounce PATCH); 中间仍点选 seek。
   const beginChapterResize = (
     e: ReactPointerEvent<HTMLElement>,
     chapter: VideoTimelineChapter,
@@ -537,8 +489,6 @@ export function VideoPlaybackOverlay({
   const rangeStyle = (from: number, to: number): CSSVars => {
     const rawLeft = frameToPct(from, timelineWindow);
     const rawRight = frameToPct(to, timelineWindow);
-    // 完全落在窗口外 → 宽度 0 (不显示); 否则 clamp 到 [0,100] 裁掉窗口外部分。
-    // 全窗口态 from/to 本就在 [0,100] 内, clamp 为空操作 → 零回归 (loop/传播/草稿/章节/轨迹段共用)。
     if (rawRight <= 0 || rawLeft >= 100) {
       return { "--timeline-left": "0%", "--timeline-width": "0%" };
     }
@@ -549,11 +499,9 @@ export function VideoPlaybackOverlay({
       "--timeline-width": `${Math.max(0.5, right - left)}%`,
     };
   };
-  // 点位标记是否落在可见窗口内 (无 overflow 裁剪, 窗口外书签/issue/关键帧/离网格标记须跳过)。
   const frameInWindow = (frame: number) =>
     frame >= timelineWindow.from && frame <= timelineWindow.to;
   const reviewRangeStyle = (from: number, to: number): CSSVars => {
-    // An inclusive review window can contain only the first or last source frame.
     if (from === to && frameInWindow(from)) {
       return {
         "--timeline-left": `${Math.min(99.5, frameToPct(from, timelineWindow))}%`,
@@ -562,7 +510,6 @@ export function VideoPlaybackOverlay({
     }
     return rangeStyle(from, to);
   };
-  // 密度 bin 按其帧区间 [from, to] 经窗口映射 (替代 index/binCount 等宽), 完全窗口外返回 null。
   const binWindowStyle = (from: number, to: number): CSSVars | null => {
     const rawLeft = frameToPct(from, timelineWindow);
     const rawRight = frameToPct(to + 1, timelineWindow);
@@ -613,15 +560,15 @@ export function VideoPlaybackOverlay({
 
   const isInteractive = visible && interactive;
 
-  // 时间轴交互 shell 的指针/键盘 handler 抽为具名函数, 供折叠态 (紧凑轨道) 与展开态
-  // (分行面板的 scrubber 行) 复用同一套 seek / 刷选 / scrub 逻辑。所有几何以 e.currentTarget 的
-  // rect 换算, 故挂到哪个元素都对。
   const handleShellKeyDown = (e: ReactKeyboardEvent<HTMLElement>) => {
     stepTimelineByKey(e, e.currentTarget);
   };
   const handleShellPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    // 章节条 resize 把手自行处理 pointer, 不走 shell 的 seek/刷选。
-    if ((e.target as HTMLElement)?.closest?.("[data-chapter-resize]")) return;
+    if (
+      e.target instanceof Element &&
+      e.target.closest("[data-chapter-resize], [data-workbench-issue-navigation]")
+    )
+      return;
     e.preventDefault();
     e.stopPropagation();
     const rect = e.currentTarget.getBoundingClientRect();
@@ -629,8 +576,6 @@ export function VideoPlaybackOverlay({
     focusTimelineShell(e.currentTarget);
     const brushEnabled =
       rangeSelectPurpose === "loop" ? Boolean(onLoopRegionChange) : Boolean(onRangeSelect);
-    // 手势区分: chapter-draft 有显式「圈选」按钮臂选, 普通拖即圈选; loop / propagate-range
-    // 保留普通拖 seek/scrub (传播对话框开着时仍能拖动预览帧), 用 Shift+拖 才圈选。
     const plainDragBrushes = rangeSelectPurpose === "chapter-draft";
     const wantsBrush = brushEnabled && (plainDragBrushes || e.shiftKey);
     if (!wantsBrush) {
@@ -648,10 +593,11 @@ export function VideoPlaybackOverlay({
     e.currentTarget.setPointerCapture?.(e.pointerId);
   };
   const handleShellPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const draft = rangeDraftRef.current;
+    if (e.buttons > 0 && !seekDragRef.current && !draft) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const frame = frameFromPointer(e.clientX, rect);
     updateHoverFrame(frame);
-    const draft = rangeDraftRef.current;
     if (draft) {
       e.preventDefault();
       const next: TimelineRangeDraft = {
@@ -697,14 +643,9 @@ export function VideoPlaybackOverlay({
     updateHoverFrame(null);
   };
   const handleShellDoubleClick = () => {
-    // 双击时间轴复位到全窗口 (与控制条「适配全部」等价)。
     if (isZoomed) resetTimelineWindow();
   };
 
-  // Ctrl/⌘+滚轮以指针帧为锚缩放; 已放大时普通滚轮横向平移 (全窗口放行页面滚动)。
-  // 监听挂在整个播放组件 (overlay) 而非仅时间轴 shell —— Ctrl+滚轮在控制条/status/导航条
-  // 任意处都能缩放时间轴; 缩放锚点仍以 shell (时间轴轨道) 的横向几何换算, 保证锚在指针所指帧。
-  // 原生非被动监听才能 preventDefault (React onWheel 被动); 窗口从 ref 读, 避免每次缩放重挂监听。
   useEffect(() => {
     const root = overlayRef.current;
     const shell = timelineShellRef.current;
@@ -720,7 +661,7 @@ export function VideoPlaybackOverlay({
         return;
       }
       const win = timelineWindowRef.current;
-      if (isFullWindow(win, maxFrame)) return; // 全窗口: 不劫持, 放行页面滚动
+      if (isFullWindow(win, maxFrame)) return;
       e.preventDefault();
       const span = win.to - win.from;
       const panPx = e.deltaX !== 0 ? e.deltaX : e.deltaY;
@@ -729,8 +670,6 @@ export function VideoPlaybackOverlay({
     };
     root.addEventListener("wheel", onWheel, { passive: false });
     return () => root.removeEventListener("wheel", onWheel);
-    // expanded: 展开/折叠切到不同的外层 div, overlayRef 指向新节点, 必须重挂监听
-    // (cleanup 用闭包捕获的旧 root 解绑旧节点, 不会解错)。
   }, [expanded, isInteractive, maxFrame, minTimelineSpan, setTimelineWindow, timelineWindowRef]);
 
   const playbackRateText = playbackRateLabel ?? "1x";
@@ -806,7 +745,6 @@ export function VideoPlaybackOverlay({
     </Button>
   );
 
-  // 展开态紧凑控件组：并入底部状态栏，避免独立大号控件区占用画布。
   const transportControls = (
     <div
       data-testid="video-playback-controls"
@@ -932,7 +870,6 @@ export function VideoPlaybackOverlay({
     </div>
   );
 
-  // 展开态单层底栏：紧凑播放控件 + 帧 / 时间 / 速率 / 循环区间 / 可见窗口 / 标注数。
   const statusBar = (
     <div data-testid="video-timeline-bottom-bar" className={cn("mono", styles.expandedStatus)}>
       {transportControls}
@@ -1034,7 +971,6 @@ export function VideoPlaybackOverlay({
           data-testid="video-timeline-details"
           className={styles.laneStack}
         >
-          {/* 贯穿各行的竖向对齐网格线 (与标尺主刻度同帧位) */}
           <div className={styles.gridlines} aria-hidden>
             {rulerTicks.map((frame) => (
               <TimelineSpan
@@ -1048,7 +984,6 @@ export function VideoPlaybackOverlay({
               vars={{ "--timeline-left": frameLeft(frameIndex) }}
             />
           </div>
-          {/* 标尺 */}
           <div className={styles.laneRow}>
             <span className={styles.laneLabel} />
             <div className={styles.rulerBody}>
@@ -1076,7 +1011,6 @@ export function VideoPlaybackOverlay({
             </div>
           </div>
 
-          {/* scrubber (交互 seek/刷选面) */}
           <div className={styles.laneRow}>
             <span className={styles.laneLabel} />
             <div
@@ -1160,7 +1094,6 @@ export function VideoPlaybackOverlay({
             </div>
           </div>
 
-          {/* 章节 */}
           {showChapterLane && (
             <div data-testid="video-timeline-lane-chapters" className={styles.laneRow}>
               <span className={styles.laneLabel}>章节</span>
@@ -1244,7 +1177,6 @@ export function VideoPlaybackOverlay({
             </div>
           )}
 
-          {/* 书签 */}
           {bookmarks.length > 0 && (
             <div data-testid="video-timeline-lane-bookmarks" className={styles.laneRow}>
               <span className={styles.laneLabel}>书签</span>
@@ -1274,7 +1206,6 @@ export function VideoPlaybackOverlay({
             </div>
           )}
 
-          {/* 问题 */}
           {issueFrames.length > 0 && (
             <div data-testid="video-timeline-lane-issues" className={styles.laneRow}>
               <span className={styles.laneLabel}>问题</span>
@@ -1305,7 +1236,6 @@ export function VideoPlaybackOverlay({
             </div>
           )}
 
-          {/* AI 预测密度 */}
           {hasPredictionDensity && (
             <div data-testid="video-timeline-lane-predictions" className={styles.laneRow}>
               <span className={styles.laneLabel}>AI 预测密度</span>
@@ -1332,7 +1262,6 @@ export function VideoPlaybackOverlay({
             </div>
           )}
 
-          {/* 标注密度 */}
           <div data-testid="video-timeline-lane-density" className={styles.laneRow}>
             <span className={styles.laneLabel}>标注密度</span>
             <div
@@ -1358,7 +1287,6 @@ export function VideoPlaybackOverlay({
             </div>
           </div>
 
-          {/* 所选轨迹 */}
           {selectedTrackTimeline && (
             <div data-testid="video-timeline-lane-track" className={styles.laneRow}>
               <span className={styles.laneLabel}>所选轨迹</span>
@@ -1414,7 +1342,6 @@ export function VideoPlaybackOverlay({
             </div>
           )}
 
-          {/* 采样网格 */}
           {gridTicks.length > 0 && (
             <div className={styles.laneRow}>
               <span className={styles.laneLabel}>采样网格</span>
@@ -1431,7 +1358,6 @@ export function VideoPlaybackOverlay({
             </div>
           )}
 
-          {/* AI 影响范围 */}
           {showSegmentLane && segmentRange && (
             <div data-testid="video-timeline-lane-segment" className={styles.laneRow}>
               <span className={styles.laneLabel}>协同分段</span>
@@ -1493,7 +1419,6 @@ export function VideoPlaybackOverlay({
             </div>
           )}
 
-          {/* 循环区间 */}
           {showLoopLane && (
             <div data-testid="video-timeline-lane-loop" className={styles.laneRow}>
               <span className={styles.laneLabel}>循环区间</span>
@@ -1590,8 +1515,6 @@ export function VideoPlaybackOverlay({
           aria-label="视频帧时间轴"
           type="range"
           min={0}
-          // range 映射到可见窗口 (0..10000 = 窗口 0..100%*100), 原生 accent 进度填充随缩放
-          // 正确落点。全窗口时 value=frameIndex/maxFrame*10000, 与旧 value/max 比例一致 → 零回归。
           max={10000}
           tabIndex={-1}
           value={Math.round(frameToPct(frameIndex, timelineWindow) * 100)}
@@ -1678,8 +1601,6 @@ export function VideoPlaybackOverlay({
                   chapterResizePreview?.id === chapter.id ? chapterResizePreview : null;
                 const startFrame = preview ? preview.startFrame : chapter.startFrame;
                 const endFrame = preview ? preview.endFrame : chapter.endFrame;
-                // 章节条改走 rangeStyle (窗口映射 + 裁剪), 顺带修正既有 left/width 分母
-                // 不一致 (旧 left 用 /maxFrame、width 用 /(maxFrame+1))。把手按窗口定位, 窗口外则不渲染。
                 const leftPct = frameToPct(startFrame, timelineWindow);
                 const rightPct = frameToPct(endFrame, timelineWindow);
                 const chapterStyle: CSSVars = {
@@ -1780,8 +1701,6 @@ export function VideoPlaybackOverlay({
             <div data-testid="video-timeline-density" className={styles.densityTrack}>
               {globalTimelineDensity.map((bin) => {
                 if (bin.density <= 0) return null;
-                // 按 bin 帧区间 [from, to] 经窗口映射 (替代 index/binCount 等宽), 与网格/
-                // 关键帧点回到同一坐标基准; 完全落在可见窗口外的 bin 跳过。
                 const pos = binWindowStyle(bin.from, bin.to);
                 if (!pos) return null;
                 const binStyle: CSSVars = {
@@ -1795,12 +1714,10 @@ export function VideoPlaybackOverlay({
               })}
             </div>
           )}
-          {/* AI 预测密度轨 (独立 violet lane, 有预测时显示; 与人工密度条不同层)。 */}
           {hasPredictionDensity && (
             <div data-testid="video-timeline-prediction-density" className={styles.predictionTrack}>
               {predictionDensity.map((bin) => {
                 if (bin.count <= 0) return null;
-                // 同人工密度: 按 bin 帧区间经窗口映射, 与之逐桶对齐; 窗口外 bin 跳过。
                 const pos = binWindowStyle(bin.from, bin.to);
                 if (!pos) return null;
                 const binStyle: CSSVars = {

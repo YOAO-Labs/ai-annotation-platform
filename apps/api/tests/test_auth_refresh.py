@@ -73,7 +73,6 @@ async def test_refresh_swaps_expired_token_for_new_one(
     httpx_client: httpx.AsyncClient, db_session: AsyncSession
 ):
     user = await _seed_user(db_session)
-    # 5 分钟前过期
     expired_token = _make_token_with_exp(
         user.id, user.role, datetime.now(timezone.utc) - timedelta(minutes=5)
     )
@@ -86,7 +85,6 @@ async def test_refresh_swaps_expired_token_for_new_one(
     new_token = r.json()["access_token"]
     assert new_token != expired_token
 
-    # 新 token 可用
     me = await httpx_client.get(
         "/api/v1/auth/me", headers={"Authorization": f"Bearer {new_token}"}
     )
@@ -111,7 +109,6 @@ async def test_refresh_rejects_grace_expired(
     httpx_client: httpx.AsyncClient, db_session: AsyncSession
 ):
     user = await _seed_user(db_session)
-    # 8 天前过期，超过 7 天 grace
     expired = _make_token_with_exp(
         user.id, user.role, datetime.now(timezone.utc) - timedelta(days=8)
     )
@@ -148,11 +145,9 @@ async def test_refresh_rejects_when_generation_outdated(
     from app.core.token_blacklist import increment_user_generation
 
     user = await _seed_user(db_session)
-    # gen=0 token
     expired = _make_token_with_exp(
         user.id, user.role, datetime.now(timezone.utc) - timedelta(minutes=1), gen=0
     )
-    # 把 user.gen 提到 1
     await increment_user_generation(str(user.id), db=db_session)
     await db_session.commit()
 

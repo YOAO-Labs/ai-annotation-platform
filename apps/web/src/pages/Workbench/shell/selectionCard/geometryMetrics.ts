@@ -1,42 +1,33 @@
 import type { Geometry, Keypoint } from "@/types";
 
-/**
- * 选中信息卡 · 单条几何指标。
- * label 为短中文名(次要色),value 为主数据(主色),hint 为可选补充(更次要)。
- */
 export interface Metric {
   label: string;
   value: string;
   hint?: string;
 }
 
-/** 千分位分组(整数四舍五入),供大像素面积/周长读数。 */
 function group(n: number): string {
   return Math.round(n)
     .toString()
     .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-/** 把归一化分量渲染为百分比文本;<1% 时保留两位小数,避免被舍成 0.0%。 */
 function pctText(frac: number): string {
   const v = frac * 100;
   if (v > 0 && v < 1) return `${v.toFixed(2)}%`;
   return `${v.toFixed(1)}%`;
 }
 
-/** 单维分量(宽 / 高 / 坐标)在缺像素维度时的相对值文本。 */
 function dim(frac: number): string {
   return `${(frac * 100).toFixed(1)}%`;
 }
 
-/** 宽高比,统一约成「长边 : 1」或「1 : 长边」,避免出现 0.56 : 1 这类难读形式。 */
 function aspectText(wpx: number, hpx: number): string {
   if (hpx === 0) return "—";
   const r = wpx / hpx;
   return r >= 1 ? `${r.toFixed(2)} : 1` : `1 : ${(1 / r).toFixed(2)}`;
 }
 
-/** 多边形归一化面积(鞋带公式,返回 [0,1] 占图比,坐标已归一化)。 */
 export function shoelaceArea(points: [number, number][]): number {
   const n = points.length;
   if (n < 3) return 0;
@@ -49,7 +40,6 @@ export function shoelaceArea(points: [number, number][]): number {
   return Math.abs(sum) / 2;
 }
 
-/** 多边形 / 折线像素周长。closed=true 时计入闭合边,折线 false 不闭合。 */
 export function polylinePerimeterPx(
   points: [number, number][],
   imgW: number,
@@ -229,19 +219,12 @@ function rasterMaskMetrics(mask: {
   ];
 }
 
-/**
- * 把选中几何展开为结构化指标数组,取代旧单行 geometrySummary 字符串。
- * 纯函数,带单测(面积 / 周长 / 占图比)。无 imgW/imgH 时降级为相对值并省略需要像素的指标
- * (面积 px² / 周长 / 宽高比)。video_track_bbox / 3D 几何不在此列(各有专属面板),返回空数组。
- */
 export function geometryMetrics(
   geometry: Geometry,
   imgW: number | null,
   imgH: number | null,
 ): Metric[] {
   switch (geometry.type) {
-    // 视频单帧几何 (video_bbox/rotated/polygon/polyline) 与图片同形状几何载荷一致,
-    // 直接直落到对应图片 case 复用同一套指标 (case 间无中间语句, 满足 no-fallthrough)。
     case "bbox":
     case "video_bbox":
       return bboxMetrics(geometry.x, geometry.y, geometry.w, geometry.h, imgW, imgH);

@@ -1,7 +1,5 @@
 name: aap-audit-summary-experiment
 
-# Experimental only. This service is intentionally separate from the default
-# development and production Compose files.
 services:
   audit-summary:
     profiles: ["audit-summary-experiment"]

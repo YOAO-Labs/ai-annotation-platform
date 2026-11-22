@@ -1,7 +1,3 @@
--- Compose after identity-consumer-grants.sql only for a trusted seed operator.
--- Ordinary API/worker credentials do not receive these two fixed functions.
--- psql -v expected_database=... -v migration_role=... -v identity_owner=...
---      -v consumer_role=... -f identity-seed-operator-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;

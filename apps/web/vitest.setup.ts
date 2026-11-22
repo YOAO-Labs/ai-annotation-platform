@@ -1,18 +1,9 @@
 import "@testing-library/jest-dom/vitest";
 import { configure } from "@testing-library/react";
-import { afterAll, afterEach, beforeAll, vi } from "vitest";
-import { handleUnhandledRequest } from "./src/test/apiRequestGuard";
-import { server } from "./src/mocks/server";
+import { afterEach, vi } from "vitest";
 
-// A loaded CI runner occasionally needs longer than testing-library's default 1s
-// waitFor for a react-query resolve → render → interaction chain (for example a
-// capabilities request before ProjectDetailPanel's OCR case). 5s is a shared
-// safety net for the not-yet-migrated suites, not a substitute for fixing a bad
-// mock or an unawaited timer; new integration tests keep waits local to the
-// operation they exercise. waitFor still returns as soon as the condition holds.
 configure({ asyncUtilTimeout: 5000 });
 
-// Radix tooltips observe their anchor size; jsdom has no layout observer.
 if (!globalThis.ResizeObserver) {
   globalThis.ResizeObserver = class {
     observe() {}
@@ -38,15 +29,8 @@ if (!window.matchMedia) {
   });
 }
 
-// react-konva renders every canvas component as a DOM stand-in carrying
-// data-konva / data-testid so existing RTL interaction and prop assertions work.
-// Limitation: this verifies component interaction and props only, never real
-// canvas rendering — pixel, focus and pointer regressions stay with Playwright.
 vi.mock("react-konva", () => import("./src/test/konvaMock"));
 
-// jsdom served from an opaque origin does not provide localStorage /
-// sessionStorage, which breaks zustand persist with
-// "storage.setItem is not a function". Provide an in-memory implementation.
 function createMemoryStorage(): Storage {
   const map = new Map<string, string>();
   return {
@@ -86,10 +70,3 @@ afterEach(() => {
   globalThis.localStorage?.clear();
   globalThis.sessionStorage?.clear();
 });
-
-// One MSW server per suite. Override an endpoint with `server.use(http.get(...))`.
-// Unhandled target API requests are recorded so an integration suite can fail on
-// them via expectNoUnexpectedApiRequests; other traffic keeps a warning.
-beforeAll(() => server.listen({ onUnhandledRequest: handleUnhandledRequest }));
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());

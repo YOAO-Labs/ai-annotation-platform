@@ -1,10 +1,5 @@
 import type { UserRole, PageKey } from "@/types";
 
-/**
- * Platform-level page reach.  Project-scoped actions (management, export,
- * assignment) are additionally gated by {@link useProjectAccess} capabilities,
- * not by this table.
- */
 export const ROLE_PAGE_ACCESS: Record<UserRole, PageKey[]> = {
   super_admin: [
     "dashboard",
@@ -41,8 +36,6 @@ export const ROLE_PAGE_ACCESS: Record<UserRole, PageKey[]> = {
     "admin-people",
     "my-performance",
   ],
-  // employees can reach both work entry points; the server filters the
-  // actual work by project membership.  No fabricated global current role.
   employee: ["dashboard", "annotate", "review", "datasets", "settings", "my-performance"],
   viewer: ["dashboard", "datasets", "settings"],
 };
@@ -122,8 +115,6 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     "ai.trigger",
     "ml-backend.manage",
   ],
-  // Employees may both annotate and review; each capability is only meaningful
-  // inside a project whose membership grants it (server authoritative).
   employee: ["task.annotate", "task.review", "task.approve", "task.reject"],
   viewer: [],
 };

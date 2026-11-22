@@ -1396,8 +1396,6 @@ async def test_original_source_request_retries_admission_lock_contention(
                         .mappings()
                         .one()
                     )
-                # Leave the killed worker's 30s lease to expire. Source must
-                # settle its real PUT before teardown removes the import Job.
                 settled = await _wait_unstarted_write_settlement(
                     stack, job, data, timeout=45
                 )
@@ -1516,7 +1514,6 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
             worker = _start_importer(stack, "stale-no-source-begin", values=values)
             assert await asyncio.to_thread(accepted.wait, 15)
             if replacement is True:
-                # A live current publication is not an orphan.
                 await asyncio.sleep(1.2)
                 async with stack.world.maker() as observer:
                     assert (
@@ -1743,8 +1740,6 @@ async def test_stale_unstarted_write_is_settled_and_late_source_begin_is_fenced(
                     {"job": job},
                 )
                 if replacement is True:
-                    # Claim and replace the publication before recovery can see
-                    # the expired lease, using the real restricted owner API.
                     await owner.execute(text("SET LOCAL ROLE yoao_asset_import_client"))
                     claimed = await owner.scalar(
                         text(
@@ -1935,8 +1930,6 @@ async def test_stale_started_write_keeps_permits_until_source_records_drain(
                     ),
                     {"job": job},
                 )
-            # Exercise the Source recovery scan at this creation, rather than
-            # spending the record call's finite SQL timeout sleeping.
             cursor = {
                 "kind": "creation",
                 "creation_id": str(UUID(int=receipt["creation_id"].int - 1)),
@@ -1974,8 +1967,6 @@ async def test_stale_started_write_keeps_permits_until_source_records_drain(
                     )
                     == 2
                 )
-            # The gate must still hold the original Source record call, not a
-            # request that already timed out and left ownership unsettled.
             async with asyncio.timeout(1):
                 await wait_for_gate()
             await release()
@@ -2934,7 +2925,6 @@ async def test_unstarted_read_cancellation_and_current_lease_publication_fence(
                     headers={"Authorization": f"Bearer {stack.verifier_token}"},
                 )
             assert late.status_code == 200 and late.json()["state"] == "fenced"
-            # Simulate a worker that commits a reservation and dies before retaining its reply.
             lost_scope = {**scope, "reservation_id": str(uuid4())}
             async with restricted.begin() as client:
                 await client.execute(
@@ -3640,7 +3630,6 @@ async def test_import_notification_reaches_channel_and_image_work_is_accepted(
                 await channel.subscribe(f"notify:{stack.world.actor_id}")
                 await channel.get_message(timeout=2)
                 totals = await _relay_pending()
-                # The relay drains both shared queues, not just this import.
                 assert totals["deferred"] == 0
                 async with asyncio.timeout(5):
                     while True:

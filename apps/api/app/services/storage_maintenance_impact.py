@@ -183,9 +183,7 @@ def dependencies(location_id, *, with_fingerprint=False):
     counts.update(target_counts)
     columns = [value.label(name) for name, value in counts.items()]
     if with_fingerprint:
-        # Hash semantic row identities in SQL. The application receives a fixed-size
-        # proof, even for large retained histories. Heartbeats/access times are not
-        # maintenance dependencies. This snapshot does not fence all owner writes.
+
         def digest(value):
             return func.encode(func.sha256(func.convert_to(value, "UTF8")), "hex")
 

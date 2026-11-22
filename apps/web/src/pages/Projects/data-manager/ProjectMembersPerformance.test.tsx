@@ -318,12 +318,10 @@ describe("ProjectMembersPerformance", () => {
 
   it("shows saved content before submission counts in the annotation view", () => {
     renderPage();
-    // Project summary exposes the two saved-content totals.
     expect(screen.getAllByText("已标注图片").length).toBeGreaterThan(1);
     expect(screen.getAllByText("保留标注").length).toBeGreaterThan(1);
     expect(screen.getByText("15 张图片")).toBeInTheDocument();
     expect(screen.getByText("60 条标注")).toBeInTheDocument();
-    // Member rows place the image/object columns before submission counts.
     const headerCells = screen.getAllByRole("columnheader").map((cell) => cell.textContent);
     expect(headerCells.indexOf("已标注图片")).toBeGreaterThan(0);
     expect(headerCells.indexOf("已标注图片")).toBeLessThan(headerCells.indexOf("提交任务"));
@@ -331,7 +329,6 @@ describe("ProjectMembersPerformance", () => {
     const adaRow = screen.getByRole("button", { name: /Ada Lovelace/ }).closest("tr");
     expect(adaRow).toHaveTextContent("9");
     expect(adaRow).toHaveTextContent("42");
-    // Member detail shows the image count alongside retained content.
     fireEvent.click(screen.getByRole("button", { name: /Ada Lovelace/ }));
     const retained = screen.getByLabelText("保留内容");
     expect(retained).toHaveTextContent("9 张");
@@ -405,8 +402,6 @@ describe("ProjectMembersPerformance", () => {
           "members_selected",
         ),
       ).toBeNull();
-      // 关闭详情的渲染与 setEventsCursor(null) 的重渲染可能不在同一次 act 内
-      // 完成;等待最终调用收敛到重置后的参数,避免断言落在中间渲染上。
       await waitFor(() =>
         expect(mocks.events).toHaveBeenLastCalledWith(
           "p1",

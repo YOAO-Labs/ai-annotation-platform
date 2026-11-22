@@ -1,8 +1,3 @@
--- Grant a Inference Pool reference data LOGIN exactly one fixed Pool read.
--- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v inference_owner=inference_code -v pool_reference_role=yoao_inference_pool_reference_client \
---   -f infra/docker/inference-pool-reference-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

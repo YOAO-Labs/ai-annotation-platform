@@ -988,8 +988,6 @@ async def test_video_manifest_returns_503_when_metadata_not_ready(
     db_session.add(task)
     await db_session.flush()
 
-    # A registered original without a current generation is preparing, while
-    # unsupported standalone legacy Task originals remain an explicit 409.
     dataset = Dataset(
         display_id=f"D-VID-{uuid.uuid4().hex[:6]}",
         name="videos",
@@ -1245,7 +1243,6 @@ async def test_video_project_export_returns_video_tracks_json(
     db_session,
     super_admin,
 ):
-    # 导出已异步化 (POST→job); 内容正确性直接断言 ExportService。
     user, _ = super_admin
     project, _, _ = await _create_video_export_fixture(db_session, user)
 
@@ -1347,9 +1344,6 @@ async def test_video_export_preserves_and_applies_outside_ranges(
     user, _ = super_admin
     project, _, _ = await _create_video_export_fixture(db_session, user)
     _, track = await _video_fixture_task_and_track(db_session, project)
-    # frame 4 关键帧仍消失 (沿用 fixture 的 {4,4} manual outside);
-    # 再叠加 {1,1} manual 与 {5,6} prediction。不同来源的相邻区间不合并，
-    # 避免恢复 manual outside 时意外删除 prediction 范围。
     track.geometry = {
         **track.geometry,
         "outside": [
@@ -1558,8 +1552,6 @@ async def test_video_track_convert_requires_task_visibility(
     annotator_user, annotator_token = annotator
     project, _, _ = await _create_video_export_fixture(db_session, user)
     task, track = await _video_fixture_task_and_track(db_session, project)
-    # Valid membership so the account passes project access, while the
-    # unassigned task must still be hidden from this annotator.
     await create_membership(
         db_session,
         project_id=project.id,
@@ -1938,8 +1930,6 @@ async def test_video_track_composition_merge_rejects_overlap_and_mixed_classes(
 
 
 async def _add_car_tail_track(db_session, task, project, user, *, frame_index=6):
-    # trk_car 已有 keyframes [0, 2, 4]; 这里造一条帧号在后、与之不重叠的同 class track,
-    # 形成 gap [5..frame_index-1] 供 join 测试.
     tail = Annotation(
         task_id=task.id,
         project_id=project.id,
@@ -1971,8 +1961,6 @@ async def test_video_track_composition_join_interpolate_no_gap_outside(
     user, token = super_admin
     project, _, _ = await _create_video_export_fixture(db_session, user)
     task, first = await _video_fixture_task_and_track(db_session, project)
-    # fixture 的 car track 自带 {4,4} outside (frame4 消失); join 测试聚焦 gap 行为,
-    # 先清空使 [0,2,4] 全可见, 与 "gap [5..5]" 断言对齐。
     first.geometry = {**first.geometry, "outside": []}
     await db_session.flush()
     tail = await _add_car_tail_track(db_session, task, project, user)
@@ -1994,7 +1982,6 @@ async def test_video_track_composition_join_interpolate_no_gap_outside(
     merged = body["updated_annotations"][0]
     assert merged["id"] == str(first.id)
     assert [kf["frame_index"] for kf in merged["geometry"]["keyframes"]] == [0, 2, 4, 6]
-    # interpolate 模式: gap [5..5] 不写 outside, 靠现有线性插值连接.
     assert merged["geometry"]["outside"] == []
     await db_session.refresh(tail)
     assert tail.is_active is False
@@ -2026,7 +2013,6 @@ async def test_video_track_composition_join_outside_marks_gap(
     body = resp.json()
     merged = body["updated_annotations"][0]
     assert [kf["frame_index"] for kf in merged["geometry"]["keyframes"]] == [0, 2, 4, 6]
-    # outside 模式: gap [5..5] 标 outside 后合并 (与 merge_tracks 一致).
     assert {"from": 5, "to": 5, "source": "manual"} in merged["geometry"]["outside"]
     await db_session.refresh(tail)
     assert tail.is_active is False
@@ -2173,8 +2159,6 @@ async def test_video_track_composition_requires_task_visibility(
     annotator_user, annotator_token = annotator
     project, _, _ = await _create_video_export_fixture(db_session, user)
     task, track = await _video_fixture_task_and_track(db_session, project)
-    # Valid membership so the account passes project access, while the
-    # unassigned task must still be hidden from this annotator.
     await create_membership(
         db_session,
         project_id=project.id,

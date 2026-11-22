@@ -150,7 +150,6 @@ test("视频 Mask 关键帧复制、outside、删除撤销与组件拆轨保持�
   );
   await toolbar.getByTestId("mask-primary-action").click();
   expect((await materialized).status()).toBe(200);
-  // 网络响应先于保存成功后的会话清理；等 UI 真正回到选择态再发起下一项操作。
   await expect(page.getByTestId("mask-tool-capsule")).toHaveCount(0, { timeout: 10_000 });
 
   const copiedAtOne = page.waitForResponse((response) =>
@@ -207,13 +206,10 @@ test("视频 Mask 关键帧复制、outside、删除撤销与组件拆轨保持�
   await expect(page.getByTestId("video-track-context-state")).toHaveAttribute("data-state", "held");
   await expect(page.getByTestId("video-track-context-source")).toContainText("保持自 F0");
 
-  // The context bar intentionally owns its own keyboard controls; return focus to the
-  // workbench before sending the global undo shortcut.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   const undone = page.waitForResponse((response) =>
     isKeyframeResponse(response, taskId, source.id, 1, "PUT"),
   );
-  // Deleting the keyframe reloads the held Mask. Its loading guard consumes undo.
   await openMaskSettings(page);
   await expect(toolbar).toContainText("就绪");
   await closeMaskSettings(page);

@@ -183,6 +183,32 @@ def generated(tmp_path, provider):
     return row, path
 
 
+@pytest.mark.parametrize("changed", [None, "version_id", "etag", "missing"])
+def test_fixture_member_reads_only_the_verified_version(provider, generated, changed):
+    row, path = generated
+    key = storage.resolve(row).key("frame.webp")
+    data = path.read_bytes()
+    observed = provider.metadata(data)
+    version = {"version_id": observed["VersionId"], "etag": observed["ETag"]}
+    if changed in version:
+        version[changed] = "unexpected"
+    row.fixture_request_versions = {} if changed == "missing" else {key: version}
+    provider.calls.clear()
+
+    if changed is None:
+        assert storage.read_bytes(Storage(provider), row, key) == data
+        assert [operation for operation, _ in provider.calls] == ["head", "get", "head"]
+        assert all(
+            request["VersionId"] == version["version_id"]
+            for _, request in provider.calls
+        )
+        assert provider.calls[1][1]["IfMatch"] == version["etag"]
+    else:
+        with pytest.raises(storage.VideoDerivativeStorageError):
+            storage.read_bytes(Storage(provider), row, key)
+        assert not any(operation == "get" for operation, _ in provider.calls)
+
+
 def test_saved_owner_ignores_current_bucket_and_returns_copies(provider):
     row = output()
     owner = storage.resolve(row)

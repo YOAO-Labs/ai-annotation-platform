@@ -197,7 +197,6 @@ describe("useFrameClock", () => {
     act(() => {
       first = result.current.seekToAsync(17);
     });
-    // Fault injection: the browser consumed both callbacks without delivering either.
     native.callbacks.clear();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
@@ -259,7 +258,6 @@ describe("useFrameClock", () => {
     expect(result.current.isSeeking).toBe(true);
     const oldCallbacks = [...native.callbacks.values()];
 
-    // The browser clock already reached frame 0, so the new owner will not seek again.
     rerender({ sourceTimebase: timebase });
     expect(await pending).toEqual({ status: "cancelled", frameIndex: 0, source: null });
     expect(result.current.isSeeking).toBe(false);

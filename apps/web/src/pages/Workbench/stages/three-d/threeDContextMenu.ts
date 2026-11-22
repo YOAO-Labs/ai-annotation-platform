@@ -1,14 +1,3 @@
-/**
- * 3D 点云工作台画布右键菜单项构建。
- *
- * 两套上下文敏感菜单(对标 2D 的 imageStageContextMenu):
- * - 命中框(buildThreeDBoxContextMenuItems): 针对右键选中的 box_3d。
- * - 空白(buildThreeDEmptyContextMenuItems): 当前帧整体的帧级操作。
- *
- * 通用操作(改类别/锁定/隐藏/复制/粘贴/删除)复用画布内部已有回调,与右栏标注列表
- * (AIInspectorPanel)同源(同走 is_locked/is_hidden 字段 + 同一 mutation),行为一致。
- * 延续/批量延续仅在 scene 任务(canPropagate)下出现。
- */
 import type { DropdownItem } from "@/components/ui/DropdownMenu";
 
 export interface ThreeDBoxContextMenuArgs {
@@ -16,9 +5,7 @@ export interface ThreeDBoxContextMenuArgs {
   locked: boolean;
   hidden: boolean;
   hasClipboard: boolean;
-  /** scene 任务才有邻帧,可延续。 */
   canPropagate: boolean;
-  /** 选中框已建跨帧链(track_id != null)才能插值填充。 */
   canInterpolate: boolean;
   onPropagateNext: () => void;
   onPropagatePrev: () => void;
@@ -33,7 +20,6 @@ export interface ThreeDBoxContextMenuArgs {
 }
 
 export function buildThreeDBoxContextMenuItems(a: ThreeDBoxContextMenuArgs): DropdownItem[] {
-  // 形变/删除类(改类别 / 隐藏 / 删除)在只读或锁定时禁用,与 2D 一致。
   const mutationDisabled = a.readOnly || a.locked;
   const items: DropdownItem[] = [];
 

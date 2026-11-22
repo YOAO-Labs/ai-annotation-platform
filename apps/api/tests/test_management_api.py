@@ -306,7 +306,6 @@ async def test_bulk_group_assignment_scope_and_role_impact_preview(
     await db_session.refresh(managed)
     assert managed.group_id == group.id
 
-    # Platform-role preview is super-admin only (plan AUTH-04).
     impact = await httpx_client.get(
         f"/api/v1/users/{managed.id}/role/preview?role=employee",
         headers=_headers(project_admin),

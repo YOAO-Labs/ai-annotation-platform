@@ -74,7 +74,6 @@ async def _world(test_engine):
         yield fixture, connection
     finally:
         await connection.close()
-        # Immutable audit and graph fixtures leave with the owned disposable DB.
 
 
 def _command(fixture):

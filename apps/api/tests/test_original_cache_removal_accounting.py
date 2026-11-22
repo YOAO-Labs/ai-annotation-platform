@@ -108,8 +108,6 @@ async def current_entry(world):
 
 
 async def historical_entry(world, **overrides):
-    # Saved addresses are immutable. Insert a historical row directly rather
-    # than weakening the production UPDATE trigger to fabricate legacy data.
     async with world.factory() as db:
         entry = await db.get(Entry, world.entry.id)
         values = {
@@ -485,8 +483,6 @@ async def test_actual_minio_production_purge_keeps_original_versions_and_current
     world, storage = removal_world, REAL_STORAGE()
     client, bucket, key = storage.client, world.bucket, world.key
     if not versioned:
-        # Keep this owned bucket unversioned even when another case has already
-        # enabled the cache bucket. Historical A rows may retain their bucket.
         bucket = settings.minio_import_bucket
         entry = await historical_entry(
             world,

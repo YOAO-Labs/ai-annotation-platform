@@ -97,8 +97,6 @@ class MembershipManager:
                                 else:
                                     reply = applied
                 else:
-                    # `prepare_membership_command` must return facts, a frozen
-                    # replay, or a failure; an applied result is out of phase.
                     raise MembershipUnavailable()
         except MembershipCommandFailure as exc:
             deferred_error = exc.error

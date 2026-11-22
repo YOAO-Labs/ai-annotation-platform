@@ -11,7 +11,6 @@ export interface ApiKey {
   created_at: string;
 }
 
-/** 创建 / 轮换响应：plaintext 仅此一次返回。 */
 export interface ApiKeyCreated extends ApiKey {
   plaintext: string;
 }
@@ -19,14 +18,12 @@ export interface ApiKeyCreated extends ApiKey {
 export interface ApiKeyCreatePayload {
   name: string;
   scopes: string[];
-  /** 有效期天数；省略 / null = 永不过期。 */
   expires_in_days?: number | null;
 }
 
 export interface ApiKeyUpdatePayload {
   name?: string;
   scopes?: string[];
-  /** 显式 null = 改回永不过期；省略 = 不改有效期。 */
   expires_in_days?: number | null;
 }
 

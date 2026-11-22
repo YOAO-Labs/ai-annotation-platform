@@ -12,7 +12,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, aliased, attributes, object_session
 from sqlalchemy.orm.exc import StaleDataError
 from sqlalchemy.sql import visitors
-from sqlalchemy.sql.elements import BindParameter, BinaryExpression
+
+from app.db.owner_orm_compat import copy_refresh_options, plain_refresh_primary_key
 
 _TRACE = "aap_jobs_lifecycle_commands"
 _SNAPSHOT_COLUMN = "execution_snapshot_id"
@@ -81,7 +82,6 @@ def observe_job_changes(row, operation: str, arguments: Mapping):
     try:
         yield _ObservedRow(row, command)
     finally:
-        # Retain the successful prefix even if the original operation raises.
         if command["written_fields"]:
             command["arguments"] = _snapshot(arguments)
             values = command["values"]
@@ -189,40 +189,10 @@ def _retarget_job_column_load(execute_state):
         return
 
     statement = execute_state.statement
-    # shortcut: rebaseline this SQLAlchemy 2.0 refresh-Select shape on ORM upgrades.
-    if (
-        getattr(statement, "_for_update_arg", None) is not None
-        or statement._with_options
-        or statement._order_by_clauses
-        or statement._group_by_clauses
-        or statement._having_criteria
-        or statement._limit_clause is not None
-        or statement._offset_clause is not None
-        or statement.get_final_froms() != [table]
-    ):
-        return
-
     parameters = execute_state.parameters
     if not isinstance(parameters, Mapping) or not parameters:
         return
-    primary_keys = mapper.primary_key
-    where = statement.whereclause
-    if len(primary_keys) != 1 or where is None:
-        return
-
-    primary_key = primary_keys[0]
-    primary_key_bind = None
-    for expression in visitors.iterate(where):
-        if (
-            isinstance(expression, BinaryExpression)
-            and getattr(expression.left, "table", None) is table
-            and getattr(expression.left, "key", None) == primary_key.key
-            and isinstance(expression.right, BindParameter)
-            and expression.right.key in parameters
-        ):
-            if primary_key_bind is not None:
-                return
-            primary_key_bind = expression.right
+    primary_key_bind = plain_refresh_primary_key(statement, mapper, parameters)
     if primary_key_bind is None:
         return
 
@@ -252,10 +222,6 @@ def _retarget_job_column_load(execute_state):
         )
         .alias("progress")
     )
-    # The frozen read_job projection intentionally omits the owner-bound
-    # snapshot and the storage progress facts, so the refresh supplies them
-    # from the dedicated Jobs capabilities in the same statement instead of
-    # reading the private async_jobs row.
     source = (
         select(
             *(read_job.c[column_.name] for column_ in read_columns),
@@ -278,13 +244,12 @@ def _retarget_job_column_load(execute_state):
             return getattr(entity, expression.key)
         return None
 
-    adapted_where = visitors.replacement_traverse(where, {}, adapt_column)
-    rewritten = select(entity).where(adapted_where)
-    rewritten._compile_options = statement._compile_options
-    execution_options = statement.get_execution_options()
-    if execution_options:
-        rewritten = rewritten.execution_options(**execution_options)
-    execute_state.statement = rewritten
+    adapted_where = visitors.replacement_traverse(
+        statement.whereclause, {}, adapt_column
+    )
+    execute_state.statement = copy_refresh_options(
+        statement, select(entity).where(adapted_where)
+    )
 
 
 def _retarget_job_insert(connection, cursor, statement, parameters, context, many):

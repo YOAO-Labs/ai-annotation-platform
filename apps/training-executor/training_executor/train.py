@@ -24,6 +24,7 @@ from training_contract.observability import (
 )
 from .observability import NativeProgress
 from .native_identity import validate_architecture
+from .ultralytics_adapter import UltralyticsAttemptTrainer, configure_offline_fonts
 
 
 def record_native_configuration(spec, output, observed, runtime_options, evidence=None):
@@ -102,7 +103,6 @@ class UltralyticsTrainingEvaluation:
         import numpy as np
         import torch
 
-        # Evaluation must not advance the optimizer's augmentation/random stream.
         python_state, numpy_state = random.getstate(), np.random.get_state()
         devices = [trainer.device.index] if trainer.device.type == "cuda" else []
         try:
@@ -132,7 +132,6 @@ class UltralyticsTrainingEvaluation:
             if self.membership is not None:
                 self.membership.observe("train", validator.dataloader.dataset.im_files)
             self.validator = validator
-        # A separate validator preserves validation fitness, best selection and reports.
         return {
             f"train/{key}": value
             for key, value in metrics_of(self.validator(trainer=trainer)).items()
@@ -330,8 +329,6 @@ def ultralytics_train(spec: dict, output: Path, progress=None, membership=None):
 
     membership = membership_for(spec, output, membership)
     progress = progress or NativeProgress(spec, output)
-    # The framework checks the parent before creating its config subdirectory.
-    # Materialize our writable state directory before importing it.
     config_directory = Path(
         os.environ.setdefault("YOLO_CONFIG_DIR", str(output / "ultralytics"))
     )
@@ -340,23 +337,13 @@ def ultralytics_train(spec: dict, output: Path, progress=None, membership=None):
     from ultralytics import YOLO, settings
     from ultralytics.models.yolo.detect import DetectionTrainer
     from ultralytics.models.yolo.segment import SegmentationTrainer
-    from ultralytics.utils import USER_CONFIG_DIR
 
     if ultralytics.__version__ != spec["frozen_config"]["framework_version"]:
         raise NativeRuntimeMismatch("Unexpected Ultralytics runtime")
+    configure_offline_fonts()
     settings.update(
         {"sync": False, "wandb": False, "mlflow": False, "tensorboard": False}
     )
-    # Validation's font check must not download assets from the network.
-    import shutil
-
-    USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    for font in ("Arial.ttf", "Arial.Unicode.ttf"):
-        if not (USER_CONFIG_DIR / font).exists():
-            shutil.copyfile(
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                USER_CONFIG_DIR / font,
-            )
 
     segmentation = config_task(spec["frozen_config"]) == SEGMENTATION
     native_task = "segment" if segmentation else "detect"
@@ -368,7 +355,7 @@ def ultralytics_train(spec: dict, output: Path, progress=None, membership=None):
         trainer_class = InstanceRLETrainer
         atomic_json(output / "rle-consumer.json", consumer_evidence())
 
-    class FixedBatchTrainer(trainer_class):
+    class AttemptTrainer(UltralyticsAttemptTrainer, trainer_class):
         def preprocess_batch(self, batch):
             result = super().preprocess_batch(batch)
             self._platform_batch_images = int(result["img"].shape[0])
@@ -383,15 +370,6 @@ def ultralytics_train(spec: dict, output: Path, progress=None, membership=None):
             finally:
                 self._platform_final_eval = False
 
-        def check_resume(self, overrides):
-            super().check_resume(overrides)
-            if self.resume:
-                # Relocate the same immutable inputs and outputs into this attempt;
-                # upstream restores the previous attempt's project/name/data paths.
-                for field in ("project", "name", "data", "exist_ok"):
-                    setattr(self.args, field, overrides[field])
-                self.args.save_dir = str(output / "framework")
-
     checkpoints = UltralyticsCheckpoints(spec, output)
     evaluate_train = (
         spec["frozen_config"]
@@ -404,8 +382,6 @@ def ultralytics_train(spec: dict, output: Path, progress=None, membership=None):
     )
 
     def epoch_end(trainer):
-        # The pinned final_eval temporarily increments epoch before invoking this
-        # callback. Its final best-model metrics are written separately below.
         if (
             not getattr(trainer, "_platform_final_eval", False)
             and 0 <= trainer.epoch < trainer.epochs
@@ -503,11 +479,6 @@ def ultralytics_train(spec: dict, output: Path, progress=None, membership=None):
 
     model.add_callback("on_val_start", validating)
     model.add_callback("on_val_end", lambda validator: progress.phase("training"))
-    # Upstream resets its OOM counter after on_train_start. Set it at epoch start
-    # so an OOM propagates instead of silently changing this fixed batch size.
-    model.add_callback(
-        "on_train_epoch_start", lambda trainer: setattr(trainer, "_oom_retries", 3)
-    )
     model.add_callback("on_model_save", checkpoints.saved)
     model.add_callback("on_fit_epoch_end", epoch_end)
     arguments = {
@@ -524,7 +495,7 @@ def ultralytics_train(spec: dict, output: Path, progress=None, membership=None):
         "amp": False,
         "deterministic": True,
         "optimizer": "SGD",
-        "resume": bool(spec.get("resume_path")),
+        "resume": spec.get("resume_path") or False,
     }
     if spec["frozen_config"]["adapter_revision"] == 2:
         arguments = {
@@ -535,7 +506,7 @@ def ultralytics_train(spec: dict, output: Path, progress=None, membership=None):
             "exist_ok": False,
             "resume": spec.get("resume_path") or False,
         }
-    result = model.train(trainer=FixedBatchTrainer, **arguments)
+    result = model.train(trainer=AttemptTrainer, **arguments)
     best = output / "framework/weights/best.pt"
     if not best.is_file() or checkpoints.checkpoint is None:
         raise RuntimeError(

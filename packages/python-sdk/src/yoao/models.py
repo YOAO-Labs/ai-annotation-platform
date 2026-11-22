@@ -22,11 +22,8 @@ from pydantic import (
 
 T = TypeVar("T")
 
-#: 账号级平台角色 (GET /auth/me 等账户 DTO 的 ``role`` 字段)。
 PlatformRole = Literal["super_admin", "project_admin", "employee", "viewer"]
-#: 项目级角色 (project_members.role; 一个员工可在不同项目拥有不同角色)。
 ProjectRole = Literal["annotator", "reviewer", "viewer"]
-#: 固定项目能力集 (GET /projects/{id}/access)。
 ProjectCapability = Literal[
     "project.read",
     "project.manage",
@@ -38,12 +35,10 @@ ProjectCapability = Literal[
     "export.annotations",
     "performance.read",
 ]
-#: 项目访问来源: 超管 / 项目负责人 / 普通成员。
 ProjectAccessKind = Literal["super_admin", "owner", "member"]
 
 
 class _SDKModel(BaseModel):
-    # Older Pydantic reserves every model_ name, including legitimate API fields.
     model_config = ConfigDict(
         extra="allow", protected_namespaces=("model_validate", "model_dump")
     )
@@ -66,7 +61,6 @@ class Project(_SDKModel):
     type_key: str
     data_type: str = "image"
     status: str
-    #: 当前账号在该项目中的项目角色; 负责人 / 超管或无成员身份时为 None。
     my_project_role: ProjectRole | None = None
     created_at: datetime | None = None
 
@@ -451,7 +445,6 @@ class AnnotationFeedback(_SDKModel):
     project_id: UUID
     task_id: UUID | None = None
     annotation_id: UUID | None = None
-    # Keep the complete raw anchor so newer schema versions survive older SDK reads.
     anchor_position: dict[str, Any] | None = None
     status: FeedbackStatus
     severity: FeedbackSeverity | None = None
@@ -694,8 +687,6 @@ class UserBrief(_SDKModel):
     email: str | None = None
     role: str | None = None
     avatar_initial: str | None = None
-    # 头像引用: `preset:<slug>` (内置像素头像) / `upload:<32位hex>` (上传);
-    # None = 客户端回退 avatar_initial。URL 由前端/调用方按引用自行解析。
     avatar_ref: str | None = None
 
 
@@ -784,8 +775,6 @@ class Me(_SDKModel):
     id: UUID
     email: str
     name: str
-    #: 实时账号契约: 服务端 `/auth/me` 返回平台角色 (`PlatformRole`), 不是
-    #: 历史全局 `annotator` / `reviewer`; 历史值只出现在历史记录 DTO 中。
     role: PlatformRole
 
 

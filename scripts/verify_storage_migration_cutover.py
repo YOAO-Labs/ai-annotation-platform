@@ -125,8 +125,6 @@ def put_target_staging(url, data):
         parsed.scheme == "http" and parsed.port == 80 and parsed.hostname is not None,
         "cutover_upload_endpoint_changed",
     )
-    # SigV4 and browsers omit the default port in Host. urllib's automatic Host
-    # keeps an explicit :80, so preserve the SDK's signed authority explicitly.
     return request(
         url,
         method="PUT",

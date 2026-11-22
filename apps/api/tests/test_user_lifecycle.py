@@ -187,7 +187,6 @@ async def test_preview_commit_transfers_active_and_rejected_tasks(
         )
     ) is None
 
-    # The receiver can use the existing project/task read path immediately.
     receiver_response = await httpx_client.get(
         f"/api/v1/tasks?project_id={project.id}&batch_id={batch.id}",
         headers=_headers(receiver),

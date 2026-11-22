@@ -32,7 +32,6 @@ async def fetch_backend_setup(locator: BackendSetupLocator, *, timeout: float) -
 
 
 def _validate_setup_client_configuration(locator: BackendSetupLocator) -> None:
-    # Match MLBackendClient construction before its setup request (URL and concurrency coercion).
     locator.url.rstrip("/")
     if locator.id:
         str(locator.id)

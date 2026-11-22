@@ -36,7 +36,6 @@ type Tree = (
 ) & { visible?: boolean };
 const opposite = (axis: Axis): Axis => (axis === "HORIZONTAL" ? "VERTICAL" : "HORIZONTAL");
 
-/** Hidden parking takes no space; unary engine wrappers do not change a layout. */
 function treeFromNode(node: WorkspaceNode, axis: Axis, includeHidden = false): Tree | null {
   if (!includeHidden && node.visible === false) return null;
   const visibility = node.visible === false ? { visible: false } : {};
@@ -52,7 +51,6 @@ function treeFromNode(node: WorkspaceNode, axis: Axis, includeHidden = false): T
     return { ...children[0], size: node.size ?? children[0].size, ...visibility };
   return { axis, children, size: node.size ?? 1, ...visibility };
 }
-/** Serialized hidden nodes retain their last visible extent on the parent axis. */
 function gridSizes(snapshot: WorkspaceSnapshot): Map<string, WorkspaceBounds> {
   const sizes = new Map<string, WorkspaceBounds>();
   function visit(node: WorkspaceNode, axis: Axis, box: WorkspaceBounds) {
@@ -264,7 +262,6 @@ export interface WorkbenchLayoutExecutor {
   isVisible(id: PanelId): boolean;
 }
 
-/** The only runtime layout controller. No panel is closed, removed or recreated. */
 export function createWorkbenchLayoutExecutor(
   api: DockviewApi,
   getBounds: () => WorkspaceBounds,
@@ -323,9 +320,6 @@ export function createWorkbenchLayoutExecutor(
         maximumWidth: floating ? 720 : Number.POSITIVE_INFINITY,
         maximumHeight: floating ? 900 : Number.POSITIVE_INFINITY,
       });
-      // Constraint changes resize the nested grid, but not a native floating window's
-      // outer bounds. Apply them before capture so replay cannot enlarge the window.
-      // Dockview also emits layout before updating its explicit group constraints.
       if (floating) {
         const rect = group.element.closest(".dv-resize-container")?.getBoundingClientRect();
         if (rect) {
@@ -428,8 +422,6 @@ export function createWorkbenchLayoutExecutor(
         api.removeGroup(group);
   }
   function rawSnapshot(bounds: WorkspaceBounds = getBounds()): WorkspaceSnapshot {
-    // Dockview's serializer exits/reenters maximization and loses nested split sizes.
-    // Serialize the corrected desktop grid, then put the canvas back immediately.
     const maximized = api.hasMaximizedGroup();
     if (maximized) exitCanvasMaximized();
     let layout: WorkspaceSnapshot["layout"];
@@ -439,8 +431,6 @@ export function createWorkbenchLayoutExecutor(
       if (maximized) maximizeCanvas();
     }
     if (maximized) layout.grid.maximizedNode = { location: [] };
-    // Dockview can leave a zero-sized empty branch after moving the last legacy sibling.
-    // Normalize engine output only; imported snapshots still use the strict parser.
     function prune(node: typeof layout.grid.root) {
       if (node.type !== "branch") return;
       node.data.forEach(prune);
@@ -449,8 +439,6 @@ export function createWorkbenchLayoutExecutor(
       );
     }
     prune(layout.grid.root);
-    // Hiding stacked groups one by one resizes the remaining siblings. Preserve
-    // the pre-collapse extents instead of serializing those intermediate sizes.
     function restoreHiddenExtents(node: WorkspaceNode, axis: Axis): WorkspaceBounds {
       if (node.type === "leaf") {
         const size = hiddenSizes.get(node.data.id);
@@ -596,7 +584,6 @@ export function createWorkbenchLayoutExecutor(
   function setFloat(item: DockviewGroupPanel | IDockviewPanel, position: WorkspaceRect) {
     if (item.id === "canvas" || item.id === "parking")
       throw new Error("Reserved group cannot float");
-    // Float panels directly: a temporary grid group redistributes the docked columns.
     api.addFloatingGroup(item, {
       x: position.left,
       y: position.top,
@@ -757,8 +744,6 @@ export function createWorkbenchLayoutExecutor(
     if (!tree) throw new Error("Empty workspace tree");
     exitCanvasMaximized();
     setPresentation(snapshot);
-    // Media-query layout effects can run before Dockview's ResizeObserver.
-    // Release temporary replay constraints against the current host, not its old compact size.
     api.layout(bounds.width, bounds.height);
     for (const id of PANEL_IDS) if (id !== "canvas") move(id, ensureParking());
     removeEmptyGroups(["parking"]);
@@ -931,8 +916,6 @@ export function createWorkbenchLayoutExecutor(
             : getGroup(node.group.id)!.api[dimension])
         );
       const alongAxis = (node.axis === "HORIZONTAL") === (dimension === "width");
-      // Stacking into an existing column/row inherits its cross-axis size, not
-      // the moved group's temporary size after Dockview redistributes the grid.
       const retained = alongAxis ? [] : node.children.filter(hasPreviousSize);
       const values = (retained.length ? retained : node.children).map((child) =>
         extent(child, dimension),
@@ -967,8 +950,6 @@ export function createWorkbenchLayoutExecutor(
         minimum.reduce((sum, size) => sum + size, 0),
       );
       const canvasIndex = node.children.findIndex(containsCanvas);
-      // A newly stacked pair shares its column equally; the retained panel's
-      // pre-drop full height must not outweigh the incoming panel's split height.
       const splitColumn =
         previous &&
         axis === "height" &&
@@ -1000,7 +981,6 @@ export function createWorkbenchLayoutExecutor(
           available -= sideSpace;
         }
       }
-      // Redistribute only space left after a child hits its registry constraint.
       while (fixed.size < node.children.length) {
         const weight = node.children.reduce(
           (sum, _child, index) => sum + (fixed.has(index) ? 0 : weights[index]),
@@ -1045,8 +1025,6 @@ export function createWorkbenchLayoutExecutor(
         },
       };
     });
-    // A leaf setSize only bubbles two levels in Dockview. Fixed leaf constraints
-    // aggregate through every ancestor, so deep splits restore without private APIs.
     try {
       for (const { group, rect } of constraints) {
         group.api.setConstraints({
@@ -1059,8 +1037,6 @@ export function createWorkbenchLayoutExecutor(
       }
     } finally {
       for (const { group, previous } of constraints) group.api.setConstraints(previous);
-      // Constraint events fire before Dockview updates the group's explicit limits.
-      // Refresh every split after all temporary fixed sizes have been released.
       for (const { group, rect } of constraints)
         group.api.setSize({ width: rect.width, height: rect.height });
     }
@@ -1071,7 +1047,6 @@ export function createWorkbenchLayoutExecutor(
       )
         throw new Error("Workspace replay exceeded one pixel tolerance");
       const actual = group.api.boundingBox;
-      // jsdom has no client rectangles; the real browser gate also checks position.
       if (
         actual &&
         actual.width > 0 &&
@@ -1187,14 +1162,11 @@ export function createWorkbenchLayoutExecutor(
         if (api.hasMaximizedGroup()) exitCanvasMaximized();
         else maximizeCanvas();
       } else {
-        // Presets own their complete topology, including the canvas position.
         replay(createWorkspacePreset(preset, getBounds()));
       }
     },
     enterCompact() {
       if (desktop) return;
-      // The host may already be narrow while Dockview still contains the desktop tree.
-      // Latch floating/return rectangles in that tree's coordinate space before projecting it.
       desktop = rawSnapshot({ width: api.width, height: api.height });
       pendingShows.clear();
       compactCameraIntent = undefined;
@@ -1207,7 +1179,6 @@ export function createWorkbenchLayoutExecutor(
       if (!desktop) return false;
       const saved = desktop;
       const cameraChange = compactCameraIntent;
-      // Keep the latch if replay throws: the caller enters read-only recovery and never writes the projection.
       replay(saved);
       desktop = null;
       const changed = pendingShows.size > 0 || cameraChange !== undefined;

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any, Protocol
@@ -191,8 +192,6 @@ def _upload_original_request(
     staging_etag: str | None = None,
     staging_version_id: str | None = None,
 ) -> dict[str, Any]:
-    # The caller's intent already holds the frozen publication identity. Allocate
-    # durable responsibility without re-reading that uncommitted intent.
     publication_id = intent.publication_id
     file_path = intent.file_path
     staging: dict[str, Any] = {"key": staging_key}
@@ -481,8 +480,6 @@ class UploadWorkflow:
                         target, "write", "storage_unavailable", exc
                     )
                     raise SourceFailure("storage_unavailable") from None
-                # Every source, body and destination handle has been drained and
-                # closed before the owner may settle this creation.
                 try:
                     await self._upload_data.original_verified(
                         target.creation_id,
@@ -491,8 +488,6 @@ class UploadWorkflow:
                 except ManagedOriginalFailure as exc:
                     raise SourceFailure(_original_failure(exc.code)) from None
                 except Exception:
-                    # The write is physically settled but its ledger transition is
-                    # unknown: retain responsibility instead of pretending success.
                     raise SourceFailure("storage_unavailable") from None
                 file_size = written.file_size
                 content_hash = written.content_hash
@@ -726,7 +721,9 @@ class UploadWorkflow:
             target.creation_id,
             "unknown"
             if not evidence["physical_settled"]
-            else "conflict" if getattr(exc, "outcome", None) == "conflict" else "failed",
+            else "conflict"
+            if getattr(exc, "outcome", None) == "conflict"
+            else "failed",
             _safe_error_code("upload_" + code),
             evidence,
         )

@@ -7,7 +7,6 @@ export interface ThreeDLayoutActions {
   resetCameras(): void;
 }
 
-/** The 3D owner portals its auxiliary views into stable Dockview content hosts. */
 export const Workbench3DLayoutContext = createContext<{
   renderSurface: HTMLDivElement | null;
   targets: Record<ThreeDPanelId, HTMLDivElement | null>;

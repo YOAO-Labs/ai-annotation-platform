@@ -66,7 +66,6 @@ async def test_task_event_derives_project_and_is_idempotent(
     user, token = annotator
     project = _project(user.id, "P-TE-TRUST")
     task = _task(project.id, "T-TE-TRUST")
-    # Explicit unbatched assignment makes the task visible to its annotator.
     task.assignee_id = user.id
     db_session.add_all([project, task, _member(project.id, user.id, "annotator")])
     await db_session.flush()
@@ -474,8 +473,6 @@ async def test_buffered_chunks_survive_submit_and_skip(
     lock = (
         await db_session.execute(select(TaskLock).where(TaskLock.task_id == task.id))
     ).scalar_one()
-    # Advance the elapsed work time without waiting an hour. The lifecycle must
-    # preserve this server-side lock timestamp before deleting the actual lock.
     lock.created_at = started
     await db_session.flush()
     response = await httpx_client.post(
@@ -495,7 +492,6 @@ async def test_buffered_chunks_survive_submit_and_skip(
         await db_session.refresh(batch)
         assert batch.status == "reviewing"
 
-    # The collector starts when the task renders, just before lock admission.
     events = _buffered_events(task, started_at=started - timedelta(seconds=1))
 
     @asynccontextmanager
@@ -506,7 +502,6 @@ async def test_buffered_chunks_survive_submit_and_skip(
     assert (
         await _async_persist([_worker_payload(event, user.id) for event in events]) == 2
     )
-    # Broker failure uses the same persisted-event comparison and access policy.
     monkeypatch.setattr(settings, "task_events_async", True)
     monkeypatch.setattr("app.api.v1.me._enqueue_task_events", lambda _: False)
     response = await httpx_client.post(
@@ -545,8 +540,6 @@ async def test_buffered_review_chunks_survive_real_claim_and_decision(
     project = _project(owner.id, "P-TE-BUFFERED-REVIEW")
     task = _task(project.id, "T-TE-BUFFERED-REVIEW")
     task.status = "review"
-    # A distinct literal annotator submitted the round; the reviewer's decision
-    # is authorized against that frozen contributor evidence.
     writer = await create_user(
         db_session,
         "employee",
@@ -692,7 +685,6 @@ async def test_buffered_chunks_keep_actor_and_time_boundaries(
     elif invalid == "different_actor":
         task.assignee_id = task.reviewer_id = owner.id
     elif invalid == "wrong_role":
-        # The project membership role, not the account role, decides the work type.
         membership.role = "annotator" if kind == "review" else "reviewer"
     await db_session.flush()
     event = _buffered_events(task, started_at=event_start, kind=kind)[0]

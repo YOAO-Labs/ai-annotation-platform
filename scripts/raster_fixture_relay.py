@@ -198,7 +198,8 @@ class RasterFixtureRelay:
                                         response.get("status") is not None
                                         or response.get("owner_error")
                                     )
-                                    and response.get("owner_error") not in {
+                                    and response.get("owner_error")
+                                    not in {
                                         "OperationOutcomeUnresolved",
                                         "OperationIdentityConflict",
                                     }
@@ -244,7 +245,9 @@ class RasterFixtureRelay:
                                     action == "ack"
                                     and response.get("state") == "acknowledged"
                                 ):
-                                    if not entry["acknowledged"] and entry.get("preparation_succeeded"):
+                                    if not entry["acknowledged"] and entry.get(
+                                        "preparation_succeeded"
+                                    ):
                                         relay.prepared.add(payload["data"]["run_id"])
                                     entry["acknowledged"] = True
                             if (
@@ -473,7 +476,13 @@ class RasterFixtureRelay:
         operation = path[len(PREFIX) :]
         data = request.get("data")
         require(isinstance(data, dict), "raster_relay_invalid_data")
-        if operation in {"owned", "owned-prepare", "owned-cleanup", "raster-fault-verify", "cleanup"}:
+        if operation in {
+            "owned",
+            "owned-prepare",
+            "owned-cleanup",
+            "raster-fault-verify",
+            "cleanup",
+        }:
             require(
                 data.get("suite_id") == self.suite_id, "raster_relay_suite_mismatch"
             )
@@ -482,12 +491,12 @@ class RasterFixtureRelay:
                 self._identity(run_id, namespace)
                 if operation == "owned" and run_id in self.prepared:
                     require(
-                        self.intents.get(run_id) == namespace, "raster_relay_namespace_mismatch"
+                        self.intents.get(run_id) == namespace,
+                        "raster_relay_namespace_mismatch",
                     )
                     self.prepared.remove(run_id)
                 else:
                     require(run_id not in self.intents, "raster_fixture_run_reused")
-                    # Preserve attempted scopes for exact cleanup after a failed request.
                     self.intents[run_id] = namespace
                 return
             if operation == "owned-cleanup":
@@ -501,7 +510,9 @@ class RasterFixtureRelay:
                         not entry["acknowledged"]
                         and (
                             entry["payload"].get("data", {}).get("run_id")
-                            or self.tasks.get(entry["payload"].get("data", {}).get("task_id"))
+                            or self.tasks.get(
+                                entry["payload"].get("data", {}).get("task_id")
+                            )
                         )
                         == run_id
                         for entry in self.operations.values()
@@ -592,7 +603,6 @@ class RasterFixtureRelay:
             except BaseException as error:
                 journal_failure = error
         if self.unsettled:
-            # Leave the relay and exact seed handles available for explicit recovery.
             fail_shutdown("raster_fixture_relay_unsettled")
         with self.connection_condition:
             self.stopping = True

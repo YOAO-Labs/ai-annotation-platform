@@ -5689,7 +5689,6 @@ async def test_generation_cas_and_active_lease_guard_transitions(redis_stores) -
     )
     assert guarded.status == "active_leases"
 
-    # A request from the old generation may still release its own lease.
     assert (
         await first.release_lease(
             resource_id,
@@ -8184,8 +8183,6 @@ async def test_card_fifo_and_resource_shards_are_independent(redis_stores) -> No
     )
     assert out_of_order.status == "card_queued"
 
-    # Card A and card B do not share ledger keys. The Redis service itself remains
-    # a common infrastructure failure and latency domain.
     admitted_b = await second.admit(
         resource_b,
         require_resident=True,
@@ -9062,8 +9059,6 @@ async def test_retiring_collection_shrinks_exact_domain_and_receipt_replays(
     evidence_deadline_ms = int(time.time() * 1000) + 120_000
     retirement_id = str(uuid.uuid4())
 
-    # A target ticket hidden under a sibling queue must block collection even
-    # when all queue-count mirrors are internally consistent.
     keys = first.keys(resource_id)
     sibling_queue = keys.backend_queue("backend-active")
     await first._redis.rpush(
@@ -9315,7 +9310,6 @@ async def test_installation_drain_settles_exact_generation_and_keeps_fence(
         )
     ).status == "busy"
     terminal = {key: value for key, value in args.items() if key != "source_generation"}
-    # The caller supplies independently verified fresh all-pool evidence before finish.
     assert (
         await first.finish_installation_drain(resource, **terminal)
     ).status == "settled"
@@ -9760,7 +9754,6 @@ async def test_terminal_recovery_keeps_native_intent_after_ledger_generation_los
             assert operation == "installation_terminal"
             if payload["phase"] in {"reserve", "authorize"}:
                 return {"status": "prepared", "preparation": preparation.copy()}
-            # Native verification still requires the originally persisted intent.
             assert payload["ledger_source_generation"] == "7"
             assert payload["preparation"]["source_generation"] == "7"
             assert self.terminal

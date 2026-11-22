@@ -38,7 +38,6 @@ interface WebGpuPointCloudLayerOptions {
   opacity?: number;
   depthWrite?: boolean;
   selection?: boolean;
-  /** WebGPURenderer (含 WebGL2 fallback) 只通过 ClippingGroup 消费局部裁剪面。 */
   clipping?: boolean;
 }
 
@@ -70,11 +69,6 @@ function ensureSelectionAttribute(geometry: THREE.BufferGeometry, count: number)
   return attribute;
 }
 
-/**
- * WebGPU point primitives are fixed to one pixel. A counted Sprite renders one
- * camera-facing quad per input point while keeping the source BufferGeometry as
- * the CPU truth shared by the main and orthographic renderers.
- */
 export function createWebGpuPointCloudLayer(
   geometry: THREE.BufferGeometry,
   options: WebGpuPointCloudLayerOptions,

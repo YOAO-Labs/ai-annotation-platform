@@ -1,9 +1,3 @@
--- Grant one client the versioned append command without table/sequence access.
--- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v audit_owner=audit_code -v api_role=api_runtime \
---   -v append_client=yoao_audit_append_client \
---   -f infra/docker/audit-append-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -145,7 +139,6 @@ BEGIN
     END IF;
 END $$;
 
--- Keep the parent read used by existing consumers; Audit writes use owner functions.
 REVOKE INSERT ON TABLE public.audit_logs FROM :"api_role";
 DO $$
 DECLARE

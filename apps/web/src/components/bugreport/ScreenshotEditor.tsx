@@ -1,12 +1,3 @@
-/**
- * BugReportDrawer 截图 + 涂抹遮罩。
- *
- * 流程：父组件传 imageBlob (html2canvas 输出) → 本组件画到 canvas → 用户拖拽
- * 黑色矩形遮挡敏感区 → 点「确认」回写合并后的 dataUrl + blob 给父。
- *
- * 为避免引入额外画布库，直接用 2D context drawRect。仅支持单方向拖拽矩形，
- * 多于一条 → 维护 rects 数组并按顺序绘制。
- */
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/ui/Icon";
 import styles from "./ScreenshotEditor.module.css";
@@ -32,7 +23,6 @@ export function ScreenshotEditor({ imageBlob, onConfirm, onCancel }: Props) {
   const [drag, setDrag] = useState<{ x0: number; y0: number; cur: Rect } | null>(null);
   const [previewSize, setPreviewSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
 
-  // 加载 blob → image
   useEffect(() => {
     const url = URL.createObjectURL(imageBlob);
     const img = new Image();
@@ -46,7 +36,6 @@ export function ScreenshotEditor({ imageBlob, onConfirm, onCancel }: Props) {
     return () => URL.revokeObjectURL(url);
   }, [imageBlob]);
 
-  // 绘制：背景 + 已落地矩形 + 当前拖拽矩形
   useEffect(() => {
     if (!bgImage || !canvasRef.current) return;
     const cv = canvasRef.current;

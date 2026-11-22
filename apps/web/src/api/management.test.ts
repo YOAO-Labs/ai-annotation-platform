@@ -27,7 +27,7 @@ async function expectRequest(
   const expectedBody = structuredClone(body);
   const requests: Request[] = [];
   server.use(
-    http.all("*", ({ request }) => {
+    http[method === "GET" ? "get" : "post"](`*${pathname}`, ({ request }) => {
       requests.push(request.clone());
       return new HttpResponse(null, { status: 204 });
     }),

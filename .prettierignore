@@ -1,4 +1,3 @@
-# Dependencies, virtual environments, caches, and build outputs
 **/node_modules/
 **/.venv/
 **/.ruff_cache/
@@ -16,13 +15,11 @@
 .claude/skills/
 .hermes/
 
-# Third-party source mirrors
 .agents/
 **/vendor/
 **/third-party/
 **/third_party/
 
-# Generated sources and documentation
 apps/web/src/api/generated/
 apps/api/openapi.snapshot.json
 apps/api/capability-registry.snapshot.json
@@ -39,7 +36,6 @@ docs-site/user-guide/workbench/settings.generated.md
 **/*.generated.*
 **/*golden*.json
 
-# Package-manager and machine-owned files
 pnpm-lock.yaml
 skills-lock.json
 **/uv.lock
@@ -50,7 +46,6 @@ docs/research/data/
 infra/grafana/dashboards/
 data/backend-manager/
 
-# Immutable history; keep its original authored formatting
 apps/api/alembic/sql/*.schema.json
 apps/_shared/inference_contract/src/yoao_inference_contract/backend_probe.schema.json
 apps/api/tests/fixtures/workspace_template_queries_legacy/*.json

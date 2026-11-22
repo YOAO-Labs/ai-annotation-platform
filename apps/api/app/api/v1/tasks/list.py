@@ -67,7 +67,6 @@ def _build_task_query(
     """Build the one authorized task relation used by page and count queries."""
     query = select(task_row).where(task_row.project_id == project_id)
 
-    # B-16: retain the scheduler's exact non-privileged batch visibility policy.
     if not access.is_manager:
         query = query.outerjoin(batch_row, task_row.batch_id == batch_row.id).where(
             task_visibility_clause(
@@ -93,7 +92,6 @@ def _build_task_query(
             )
         )
 
-    # Unbatched keeps precedence over an explicitly supplied batch_id.
     if unbatched:
         query = query.where(task_row.batch_id.is_(None))
     elif batch_id:
@@ -134,8 +132,6 @@ async def list_tasks(
         class_name=class_name,
     )
     if dataset_id is not None:
-        # Assets publishes item-to-dataset facts; list_tasks never joins the
-        # private dataset_items table itself.
         filtered = filtered.where(
             task_row.dataset_item_id.in_(
                 select(spatial_item_references.c.item_id).where(
@@ -156,19 +152,12 @@ async def list_tasks(
             filters = DatasetItemFilters.model_validate_json(dataset_filter)
         except ValidationError:
             raise HTTPException(422, "无效的数据集筛选条件") from None
-        # Assets revalidates the project link and applies its own item
-        # predicates; the task page never joins private dataset tables.
         item_ids = await project_filtered_item_ids(
             db, project_id, dataset_id, filters, user
         )
         filtered = filtered.where(task_row.dataset_item_id.in_(item_ids))
     count_q = select(func.count()).select_from(filtered.order_by(None).subquery())
 
-    # 首屏和游标分支使用同一排序和 next_cursor，避免翻页重复或漏项。
-    # 因首屏拿不到 next_cursor 而判定 hasNextPage=false 卡在 100 条的 BUG。
-    # 排序主键改为 sequence_order(点云 scene 按帧时序分包时,同 scene 的 task 是同一刻批量
-    # 创建的、created_at 全相同,旧的 (created_at, id) 排序退化为按随机 UUID id 乱序)。
-    # 非序列任务 sequence_order 为 NULL → coalesce 到哨兵,排序退回 (created_at, id),行为不变。
     q = filtered
     seq_key = func.coalesce(task_row.sequence_order, _SEQ_NULL_SENTINEL)
     if cursor:
@@ -189,16 +178,11 @@ async def list_tasks(
     if not cursor and offset:
         q = q.offset(offset)
     tasks = list((await db.execute(q)).scalars().all())
-    # 仅首页(无 cursor 且 offset=0)做精确全表 COUNT；后续页(cursor 翻页)
-    # 返回 None，前端复用首页值，避免无限滚动逐页重复全表 COUNT(大表 O(N) 放大)。
     is_first_page = cursor is None and offset == 0
     total = ((await db.execute(count_q)).scalar() or 0) if is_first_page else None
     dims = await _attach_dimensions_batch(db, tasks)
     source_references = await _linked_source_references(db, tasks, actor_id=user.id)
-    pyramids = await _attach_image_pyramids_batch(
-        db, tasks, dims, actor_id=user.id
-    )
-    # 一次 IN 查询解析所有 assignee_id / reviewer_id → UserBrief
+    pyramids = await _attach_image_pyramids_batch(db, tasks, dims, actor_id=user.id)
     user_ids = {t.assignee_id for t in tasks if t.assignee_id} | {
         t.reviewer_id for t in tasks if t.reviewer_id
     }
@@ -338,7 +322,6 @@ async def get_task_neighbors(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     if result is None:
-        # 与"首末帧"对调用方一致:返回空 prev/next 不要 404,避免前端做无用区分
         return NeighborsResponse(
             scene_id=None,
             scene_name=None,

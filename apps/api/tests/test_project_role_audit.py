@@ -39,8 +39,6 @@ from tests.factory import create_project, create_task, create_user
 
 _API_ROOT = Path(__file__).resolve().parents[1]
 _SENSITIVE_KEYS = {"password_hash", "token", "email", "invite_url", "signed_url"}
-# Unique text embedded in seeded emails/tokens/names: none of it may appear in
-# the serialized report, unlike the report's own run id.
 _EMAIL_SENTINEL = "email-sentinel-probe"
 _TOKEN_SENTINEL = "token-sentinel-probe"
 _NAME_SENTINEL = "NameSentinelProbe"
@@ -71,7 +69,6 @@ def _item_user_ids(section: dict) -> set[str]:
 async def _readonly_report(engine, **kwargs) -> dict:
     async with read_only_audit_session(engine) as db:
         report = await collect_report(db, **kwargs)
-        # Prove the transaction is genuinely read-only: a write must fail.
         raised = None
         try:
             await db.execute(
@@ -124,7 +121,6 @@ async def _seed_full(engine) -> dict:
             assigned_by=owner.id,
         )
 
-        # Legacy mismatch: global annotator with a reviewer membership.
         legacy_user = await make_user("annotator", "legacy")
         legacy_member = ProjectMember(
             project_id=project.id,
@@ -133,7 +129,6 @@ async def _seed_full(engine) -> dict:
             assigned_by=owner.id,
         )
 
-        # Post-conversion diversity: employee annotating in A and reviewing in B.
         employee_user = await make_user("employee", "employee")
         employee_member_a = ProjectMember(
             project_id=project.id,
@@ -172,7 +167,6 @@ async def _seed_full(engine) -> dict:
         inactive_project = await create_project(db, owner_id=inactive_owner.id)
         projects.append(inactive_project.id)
 
-        # Assignment gaps: explicit, inherited batch and overridden batch.
         assignee = await make_user("annotator", "assignee")
         task_missing = await create_task(db, project_id=project.id)
         task_missing.assignee_id = assignee.id
@@ -181,7 +175,6 @@ async def _seed_full(engine) -> dict:
         task_missing_reviewer = await create_task(db, project_id=project.id)
         task_missing_reviewer.reviewer_id = reviewer.id
 
-        # Inherited: no task assignee, the batch default is a non-member.
         batch_annotator = await make_user("annotator", "batchnonmember")
         batch_inherited = TaskBatch(
             project_id=project.id,
@@ -194,9 +187,6 @@ async def _seed_full(engine) -> dict:
         task_inherited = await create_task(db, project_id=project.id)
         task_inherited.batch_id = batch_inherited.id
 
-        # Override: the batch default is a valid annotator member, but the task
-        # explicitly points at a non-member.  Effective assignment must be the
-        # task value, so this is flagged.
         batch_override = TaskBatch(
             project_id=project.id,
             display_id=f"B-AUDIT-{uuid.uuid4().hex[:8]}",
@@ -269,7 +259,6 @@ async def _seed_full(engine) -> dict:
         )
         db.add_all([deleted_invitation, legacy_project_invitation, account_invitation])
 
-        # Review evidence cases.
         task_complete = await create_task(db, project_id=project.id, status="completed")
         task_complete.review_round_id = uuid.uuid4()
         task_complete.review_submitter_id = assignee.id
@@ -292,7 +281,6 @@ async def _seed_full(engine) -> dict:
         task_malformed_object.review_contributor_ids = {"not": "an-array"}
         task_malformed_object.annotation_contributor_ids = [str(assignee.id)]
 
-        # Numeric and non-UUID string elements are invalid, not complete.
         task_invalid_number = await create_task(
             db, project_id=project.id, status="review"
         )
@@ -317,7 +305,6 @@ async def _seed_full(engine) -> dict:
         task_unknown_accumulator.review_contributor_ids = [str(assignee.id)]
         task_unknown_accumulator.annotation_contributor_ids = None
 
-        # Valid arrays, but the frozen set does not contain the submitter.
         task_missing_contributors = await create_task(
             db, project_id=project.id, status="review"
         )
@@ -430,9 +417,6 @@ async def _seed_manager_cases(engine) -> dict:
             ]
         )
 
-        # A manager may still carry a member row: the assignment must not be
-        # re-reported as a wrong-role gap.  An ordinary employee with a
-        # mismatched membership stays a finding.
         super_admin_membership = ProjectMember(
             project_id=work_project.id,
             user_id=super_admin_member.id,
@@ -448,8 +432,6 @@ async def _seed_manager_cases(engine) -> dict:
         db.add_all([super_admin_membership, wrong_employee_membership])
         await db.flush()
 
-        # Positive: explicit and inherited manager assignments resolve without a
-        # membership, including a manager whose member row has another role.
         task_super_reviewer = await create_task(db, project_id=work_project.id)
         task_super_reviewer.reviewer_id = super_admin.id
 
@@ -485,8 +467,6 @@ async def _seed_manager_cases(engine) -> dict:
         )
         task_inherited_admin_assignee.batch_id = batch_admin_assignee.id
 
-        # The explicit task value wins: a non-member batch default must not mask
-        # the manager override.
         batch_employee_default = TaskBatch(
             project_id=work_project.id,
             display_id=f"B-AUDIT-{uuid.uuid4().hex[:8]}",
@@ -499,12 +479,6 @@ async def _seed_manager_cases(engine) -> dict:
         task_override_manager.batch_id = batch_employee_default.id
         task_override_manager.assignee_id = super_admin.id
 
-        # Adversarial non-managers: a foreign-project admin, an ordinary
-        # employee (explicit and inherited) and a non-administrative owner all
-        # keep their findings.  The inactive administrator owns the project it
-        # is assigned in and the inactive super administrator would manage any
-        # project, so those two only stay findings when the active-account
-        # check is present.
         task_foreign_admin = await create_task(db, project_id=work_project.id)
         task_foreign_admin.assignee_id = foreign_admin.id
 
@@ -630,8 +604,6 @@ async def test_audit_flags_expected_discrepancies(
     assert str(ids["legacy_member"]) in _item_ids(
         roles["legacy_global_member_mismatches"]
     )
-    # The employee with annotator/reviewer memberships is diversity, not a
-    # legacy global/member mismatch.
     assert str(ids["employee_user"]) in _item_user_ids(
         roles["cross_project_role_diversity"]
     )
@@ -647,8 +619,6 @@ async def test_audit_flags_expected_discrepancies(
 
     gaps = report["findings"]["assignment_membership_gaps"]
     assert str(ids["task_missing"]) in _item_ids(gaps["annotator_missing_membership"])
-    # Inherited batch default and explicit task override both resolve through
-    # the effective-assignment CTE.
     assert str(ids["task_inherited"]) in _item_ids(gaps["annotator_missing_membership"])
     assert str(ids["task_override"]) in _item_ids(gaps["annotator_missing_membership"])
     assert str(ids["task_missing_reviewer"]) in _item_ids(
@@ -702,8 +672,6 @@ async def test_audit_flags_expected_discrepancies(
     assert reconciliation["memberships"]["total"] >= 4
     assert reconciliation["tasks"]["total"] >= 6
 
-    # Privacy: seeded email/token/name sentinels and the DSN must not appear,
-    # and the malformed payloads must not be echoed.
     rendered = json.dumps(report, default=_json_default)
     assert _EMAIL_SENTINEL not in rendered
     assert _TOKEN_SENTINEL not in rendered
@@ -730,9 +698,6 @@ async def test_audit_recognizes_active_managers_without_membership(
 
     gaps = report["findings"]["assignment_membership_gaps"]
 
-    # Active super administrators and administrative owners are valid effective
-    # reviewers/annotators without a membership row, whether the assignment is
-    # explicit or inherited from the batch default.
     for key in (
         "task_super_reviewer",
         "task_manager_wrong_role",
@@ -752,9 +717,6 @@ async def test_audit_recognizes_active_managers_without_membership(
             gaps["annotator_wrong_membership_role"]
         ), key
 
-    # Adversarial non-managers keep their findings: a foreign-project
-    # administrator, ordinary employees (explicit and inherited), a
-    # non-administrative owner and an ordinary wrong-role member.
     assert str(ids["task_foreign_admin"]) in _item_ids(
         gaps["annotator_missing_membership"]
     )
@@ -769,11 +731,6 @@ async def test_audit_recognizes_active_managers_without_membership(
         gaps["annotator_wrong_membership_role"]
     )
 
-    # Inactive managers are never privileged: the missing-membership finding
-    # and the inactive-account check both stay.  The inactive administrator owns
-    # the project it is assigned in and the inactive super administrator would
-    # manage any project, so these rows only survive when the active-account
-    # check is present.
     assert str(ids["task_inactive_admin"]) in _item_ids(
         gaps["annotator_missing_membership"]
     )
@@ -793,8 +750,6 @@ async def test_audit_recognizes_active_managers_without_membership(
         gaps["inactive_accounts_with_unfinished_work"]
     )
 
-    # Suppressing the assignment gap does not hide the administrative
-    # membership from the role reconciliation.
     roles = report["findings"]["role_discrepancies"]
     assert str(ids["super_admin_member"]) in _item_user_ids(
         roles["administrator_memberships"]
@@ -897,8 +852,6 @@ async def test_audit_runs_before_0173_migration(test_engine) -> None:
 def test_cli_smoke_against_isolated_database(test_db_url, apply_migrations) -> None:
     """Run the documented CLI against the isolated DB without a DSN argument."""
     env = os.environ.copy()
-    # The CLI reads settings.database_url; provide the isolated test URL through
-    # the environment, never on the command line or in output.
     env["DATABASE_URL"] = test_db_url
     result = subprocess.run(
         [

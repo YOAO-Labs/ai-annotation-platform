@@ -75,7 +75,6 @@ async def world(test_engine, monkeypatch):
     try:
         yield result
     finally:
-        # This suite intentionally commits rows; remove every owned dependency.
         async with maker() as db:
             pid, uid, registry = fixture.project.id, owner.id, fixture.backend.id
             for model, condition in (
@@ -260,7 +259,6 @@ async def test_execution_reuses_checkpoint_and_lost_remote_receipt_on_new_attemp
 
     async def infer(factory, run, row, _png, _attempt_id, _claim_id):
         nonlocal lost_once
-        # A second connection can acquire the domain row during native IO.
         async with factory() as db:
             assert (
                 await db.scalar(

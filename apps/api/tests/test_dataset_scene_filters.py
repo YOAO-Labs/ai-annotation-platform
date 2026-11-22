@@ -211,7 +211,6 @@ async def test_saved_scene_view_is_dynamic_and_deletion_stays_fail_closed(
     assert (
         await httpx_client.get(base + "/items", params=query, headers=auth)
     ).status_code == 404
-    # Restore retains the dead ID for the item query to reject, never drops it.
     assert (await httpx_client.get(base + "/saved-views", headers=auth)).json()[
         "items"
     ][0]["query"]["scene_id"] == query["scene_id"]

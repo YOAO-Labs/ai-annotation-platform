@@ -1,4 +1,3 @@
-# Optional official Grounded-SAM-2 plugin; combine with docker-compose.ml.yml.
 services:
   grounded-sam2-backend:
     image: ${GSAM2_IMAGE:?Set the accepted Grounded-SAM-2 image repository}@${GSAM2_IMAGE_DIGEST:?Set the Grounded-SAM-2 manifest digest}

@@ -39,8 +39,6 @@ def _shape_models(caps: dict | None) -> list[dict]:
         return []
     out: list[dict] = []
     for m in caps.get("models") or []:
-        # 守卫:某个 backend 自报 "models": [null] / [str] 等非 dict 元素时,m.get(...)
-        # 会抛 AttributeError 直接逃出本路由,/instances 仍然整体 500。在源头跳过即可。
         if not isinstance(m, dict):
             continue
         out.append(
@@ -52,8 +50,6 @@ def _shape_models(caps: dict | None) -> list[dict]:
                 "infra": m.get("infra"),
                 "is_interactive": bool(m.get("is_interactive")),
                 "supported_prompts": list(m.get("supported_prompts") or []),
-                # 透传一等输入契约 + 资源画像, 让走 /instances 的消费方
-                # (模型市场 instances / 全局编排选择器) 与项目级 /capabilities 拿到同一字段集。
                 "supported_inputs": list(m.get("supported_inputs") or []),
                 "default_input_type": m.get("default_input_type"),
                 "resource_profile": dict(m.get("resource_profile") or {}),
@@ -61,11 +57,8 @@ def _shape_models(caps: dict | None) -> list[dict]:
                     m.get("supported_geometric_outputs") or []
                 ),
                 "supported_trackers": list(m.get("supported_trackers") or []),
-                # 协议③ · 属性输出类型 + schema 自描述, 供前端「从 backend 导入属性」.
                 "output_attribute_types": list(m.get("output_attribute_types") or []),
                 "output_attribute_schema": list(m.get("output_attribute_schema") or []),
-                # 透传 backend 自报的类别清单 (yolo COCO 等), 供前端「从 backend
-                # 预填配置」一键导入类别。extract_capabilities 早已保留, 此前在本层被裁掉。
                 "classes": list(m.get("classes") or []),
                 "modality": m.get("modality"),
                 "supported_variants": list(m.get("supported_variants") or []),
@@ -73,9 +66,7 @@ def _shape_models(caps: dict | None) -> list[dict]:
                 "variants_shared_across_tasks": bool(
                     m.get("variants_shared_across_tasks", False)
                 ),
-                # backend 自报的默认 variant 组合, 供前端 VariantSelector 取初值.
                 "default_variants": dict(m.get("default_variants") or {}),
-                # 协议 v2.2 · 原子 vs 内部编排维度（缺省 atom）。编排下游 stage 据此过滤。
                 "composition": m.get("composition") or "atom",
             }
         )

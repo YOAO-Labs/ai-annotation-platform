@@ -112,7 +112,6 @@ def receipt(source):
         or source.maintenance_revision < 1
     ):
         _reject("original_input_unsupported", 409)
-    # Validate the saved locator, never infer one from today's purpose buckets.
     reader.ObjectSpec(
         source.endpoint_url,
         source.bucket,
@@ -121,8 +120,6 @@ def receipt(source):
         source.size_bytes,
     )
     try:
-        # HTTP Task relations are checked separately. This lets the same original
-        # be reloaded by its canonical DatasetItem derivative owner in a worker.
         binding = _digest(asdict(replace(source, relation=None)))
     except (TypeError, ValueError):
         _reject("original_input_unsupported", 409)
@@ -226,8 +223,6 @@ async def check(db, authority, *, lock=False):
         _reject()
     if not isinstance(authority.mode, str) or authority.mode not in {"http", "system"}:
         _reject()
-    # Credential helpers lock User/Key even during read-only checks. A connection
-    # savepoint keeps NOWAIT conflicts from poisoning or flushing caller work.
     async with original_sources._reads(db, True):
         if authority.mode == "http":
             if authority.owner_kind != "task" or authority.actor_id is None:
@@ -259,8 +254,6 @@ async def authorize(db, task_id, actor, request):
         proof = await access.capture_credentials(db, actor, request)
         if proof is None or proof.actor_id != actor.id:
             _reject()
-        # Pin only after the existing Task read rule succeeds. Never demand Dataset
-        # management or writable lifecycle state for an authorized Task derivative.
         fresh_actor, key = await access.actor_and_key(
             db, actor.id, proof.key_id, "annotations:read", proof
         )
@@ -448,7 +441,6 @@ async def _fresh(db, authority, source, guard):
         if guard is not None:
             await guard()
         clock(authority)
-    # The owned read-only transaction closes before any physical operation.
 
 
 async def _capture(plan, admission, **read_options):
@@ -466,16 +458,15 @@ async def _capture(plan, admission, **read_options):
     try:
         return await asyncio.shield(pending)
     except BaseException as interrupted:
-        # A Celery soft time limit is an ordinary exception, not task cancellation.
-        # Ask the reader to stop, then drain its physical handles just as for an
-        # asyncio timeout. The outer task must never abandon an unobserved stage.
         pending.cancel()
         try:
             late_stage = await storage_access.finish(pending)
         except BaseException as late:
             if storage_access.failure_unsettled(late) and late is not interrupted:
                 _raise_drain_failure(
-                    interrupted, late, "Image capture interrupted and reader drain failed"
+                    interrupted,
+                    late,
+                    "Image capture interrupted and reader drain failed",
                 )
         else:
             try:
@@ -483,7 +474,9 @@ async def _capture(plan, admission, **read_options):
             except BaseException as closing:
                 if storage_access.failure_unsettled(closing):
                     _raise_drain_failure(
-                        interrupted, closing, "Image capture interrupted and stage close failed"
+                        interrupted,
+                        closing,
+                        "Image capture interrupted and stage close failed",
                     )
         raise
 
@@ -493,14 +486,18 @@ async def _read_media(db, authority, source, guard, plan, fixture_options=None):
     async with AsyncExitStack() as permits:
         async with _session(db) as owned:
             permit = await storage_access.acquire(
-                owned, plan.location_id, original_sources.media_permit_purpose(source, "image"),
+                owned,
+                plan.location_id,
+                original_sources.media_permit_purpose(source, "image"),
                 expected_revision=plan.maintenance_revision,
             )
         await permits.enter_async_context(permit)
         if plan.read_route is not None:
             async with _session(db) as owned:
                 migration = await storage_access.acquire(
-                    owned, plan.location_id, plan.read_route.purpose,
+                    owned,
+                    plan.location_id,
+                    plan.read_route.purpose,
                     expected_revision=plan.maintenance_revision,
                 )
             await permits.enter_async_context(migration)

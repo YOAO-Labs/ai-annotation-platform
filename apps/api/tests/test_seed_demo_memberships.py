@@ -113,7 +113,6 @@ async def test_demo_membership_contract_covers_every_seeded_project():
         "qa": "reviewer",
         "viewer": "viewer",
     }
-    # Managers never appear as members: they act through ownership / super admin.
     assert not {"pm", "admin"} & {email for email, _ in DEMO_PROJECT_MEMBERS}
 
 
@@ -135,8 +134,6 @@ async def test_every_seeded_project_gets_its_documented_duties(db_session):
     for member in members:
         by_project.setdefault(str(member.project_id), []).append(member)
 
-    # Every demo fixture project is reachable exactly as documented, and the
-    # unrelated project gets nothing.
     assert set(by_project) == {str(p.id) for p in projects.values()}
     expected = {users[email].id: duty for email, duty in TEST_MEMBERS}
     for display_id, project in projects.items():
@@ -145,7 +142,6 @@ async def test_every_seeded_project_gets_its_documented_duties(db_session):
         )
     assert not by_project.get(str(decoy.id))
 
-    # Managers act through ownership / super admin, never through a member row.
     manager_ids = {users["seed-pm"].id, users["seed-admin"].id}
     assert all(m.user_id not in manager_ids for m in members)
 
@@ -172,7 +168,6 @@ async def test_reconciliation_is_idempotent_and_repairs_role_drift(db_session):
         == 0
     )
 
-    # A drifted duty is repaired instead of duplicated.
     drifted = next(
         member
         for member in await _members_in(db_session, [target])

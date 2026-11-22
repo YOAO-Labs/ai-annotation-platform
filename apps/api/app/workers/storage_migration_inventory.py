@@ -175,7 +175,6 @@ class _Progress:
     def __call__(self, event):
         if self.stop.is_set():
             return
-        # Only primitives enter the loop, never report records or SDK handles.
         safe = {
             "sequence": event["sequence"],
             "unit": event["unit"],
@@ -208,7 +207,6 @@ class _Progress:
             await self.wake.wait()
             self.wake.clear()
             if self.last_sent is not None and not self.closed:
-                # Closing wakes the throttle immediately to flush the last fact.
                 try:
                     await asyncio.wait_for(
                         self.closing.wait(),
@@ -232,8 +230,6 @@ class _Progress:
                 self.wake.set()
 
     async def close(self):
-        # Native/permit drain precedes this call. Take the last native slot before
-        # the first await so even an immediately arriving cancellation closes it.
         with self.incoming_lock:
             self.accepting = False
             event, self.incoming = self.incoming, None
@@ -315,8 +311,6 @@ async def execute(db, job_id, task_id):
                     "source_quiescence_proven": False,
                 },
             }
-        # No transaction or Session crosses the native thread. The fresh checks
-        # each use their own short, read-only session on this event loop.
         await db.rollback()
         if window_id is not None:
             read = source_read.run(

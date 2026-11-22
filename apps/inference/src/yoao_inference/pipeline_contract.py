@@ -371,8 +371,6 @@ class PipelineRow(_PipelineWireModel):
         if value is None or isinstance(value, datetime):
             return value
         if type(value) is str:
-            # PostgreSQL infinity is normalized to these naive extrema by the
-            # shared decoder. Their JSON ISO representation has no UTC offset.
             if value == datetime.max.isoformat():
                 return datetime.max
             if value == datetime.min.isoformat():

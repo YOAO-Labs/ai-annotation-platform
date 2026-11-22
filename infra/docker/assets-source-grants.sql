@@ -1,7 +1,3 @@
--- Run after migrations and module-data-grants as the migration role.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v assets_owner=assets_code -v asset_source_role=yoao_asset_source_client
---   -f infra/docker/assets-source-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -68,7 +64,6 @@ END $$;
 REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_source_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_source_role";
 
--- Remove any stale grants before applying the narrow source surface.
 REVOKE ALL ON SCHEMA public FROM :"asset_source_role";
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"asset_source_role";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"asset_source_role";
@@ -102,7 +97,6 @@ END $$;
 REVOKE ALL ON SCHEMA yoao_assets_v1 FROM :"asset_source_role";
 GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"asset_source_role";
 
--- The runtime can execute only Source and verified-original capabilities.
 GRANT EXECUTE ON FUNCTION yoao_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,text,text),
     yoao_assets_v1.begin_import_original_verification(jsonb),
     yoao_assets_v1.record_import_original_read(jsonb,jsonb),
@@ -150,7 +144,6 @@ GRANT EXECUTE ON FUNCTION yoao_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,t
     yoao_assets_v1.read_legacy_dataset_upload(uuid,uuid,uuid,uuid)
     TO :"asset_source_role";
 
--- Fail closed if the runtime role can access anything beyond the exact protocol.
 DO $$
 DECLARE
     role_oid oid := (

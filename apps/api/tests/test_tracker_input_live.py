@@ -121,7 +121,6 @@ async def _seed_tracker(runtime, body, *, backend_url=None, output_geometry="bbo
                 "height": 48,
             }
         }
-        # A linked Task need not duplicate the Assets object's locator.
         task = await db.get(Task, task_id)
         task.file_path = ""
         if backend_url is not None:

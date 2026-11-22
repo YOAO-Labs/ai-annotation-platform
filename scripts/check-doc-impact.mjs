@@ -69,8 +69,6 @@ function loadMap() {
 
 const globCache = new Map();
 
-// 支持三种 matcher：目录前缀（以 `/` 结尾）、`*` / `**` 通配、精确文件路径。
-// `*` 只跨路径段内字符，`**` 跨 `/`。这样文件改名 / 拆分后 map 不易失效。
 function globToRegExp(glob) {
   let regexp = globCache.get(glob);
   if (regexp) return regexp;

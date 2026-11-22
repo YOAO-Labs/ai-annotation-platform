@@ -42,8 +42,6 @@ _READ_CALIBRATIONS = text(
     "CAST(:after_item_id AS uuid), CAST(:after_revision AS integer), "
     "CAST(:page_size AS integer))"
 )
-# Keep the frozen argument order explicit: new canonical document, then the
-# current document captured with the row snapshot.
 _UPDATE_CALIBRATION = text(
     "SELECT yoao_assets_v1.update_spatial_calibration("
     "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), "
@@ -117,7 +115,6 @@ async def _cleanup_fixture(
             {"project_id": fixture["project"].id},
         )
         await owner.execute(
-            # The verifier drops the owned database with immutable audit evidence.
             text(
                 "DELETE FROM public.users WHERE id=:actor_id "
                 "AND NOT EXISTS (SELECT 1 FROM public.audit_logs WHERE actor_id=:actor_id)"
@@ -153,8 +150,6 @@ async def test_calibration_concurrent_writers_observe_busy_then_revision_conflic
     if owner_database != catalog_url.database or not owner_database.endswith("_test"):
         pytest.fail("owner connection did not target the Catalog test database")
 
-    # Validate the exact verifier-owned container, identity labels, and loopback
-    # port before committing fixtures or opening restricted Catalog sessions.
     _verify_postgres(catalog_url)
 
     operation_a, operation_b = uuid4(), uuid4()

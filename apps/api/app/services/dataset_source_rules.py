@@ -133,8 +133,6 @@ async def apply(db, source_id, payload, actor, api_key_id=None):
         )
         schedule.revision += 1
         schedule.dispatch_token = schedule.dispatch_expires_at = None
-        # Old domain runs remain in history. Re-enabling must start a new
-        # configuration cycle rather than adopt their completed review gate.
         schedule.scan_id = schedule.registration_id = None
     await AuditService.log(
         db,

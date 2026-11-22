@@ -38,10 +38,8 @@ import type {
   ImagePyramidResponse,
 } from "@/pages/Workbench/stage/imagePyramid";
 
-/** 选中框单框二次推理请求: 在选中框 ROI 上跑一个能力。 */
 export interface SecondaryInferenceRequest {
   ml_backend_id: string;
-  /** attributes → 写回原框; geometry → 建子框。 */
   write_target?: "attributes" | "geometry";
   write_keys?: string[] | null;
   label?: string | null;
@@ -54,36 +52,29 @@ export interface SecondaryInferenceRequest {
   pad?: number;
 }
 
-/** 二次推理响应: 更新后的原框 + 新建子框(几何型)。 */
 export interface SecondaryInferenceResponse {
   annotation: AnnotationResponse;
   created_children: AnnotationResponse[];
 }
 
-/** 跨帧 propagate 响应: 复制到目标 task 的新 annotation。 */
 export interface PropagateResponse {
   annotation: AnnotationResponse;
-  /** true=已按 ego pose 做运动补偿; false=原样复制(scene 无轨迹等)。 */
   motion_compensated: boolean;
 }
 
-/** 批量跨帧延续响应。 */
 export interface PropagateBatchResponse {
   items: { source_annotation_id: string; annotation: AnnotationResponse }[];
   motion_compensated: boolean;
 }
 
-/** 区间插值响应。 */
 export interface InterpolateRangeResponse {
   annotations: AnnotationResponse[];
   motion_compensated: boolean;
-  /** 已有同 group 标注而被幂等跳过的中间帧。 */
   skipped_frames: number[];
 }
 
 export interface TaskListResponse {
   items: TaskResponse[];
-  // 仅首页返回精确总数；cursor 翻页时为 null（前端复用首页值）。
   total: number | null;
   limit: number;
   offset: number;
@@ -96,9 +87,7 @@ export interface TaskListParams {
   status?: string;
   assignee_id?: string;
   batch_id?: string;
-  // true = 只返回 batch_id IS NULL（未归类）任务
   unbatched?: boolean;
-  // (A3) · 绩效页 reject/类别维度下钻过滤
   reject_reason_type?: string;
   class_name?: string;
   limit?: number;
@@ -107,11 +96,9 @@ export interface TaskListParams {
 }
 
 export interface AnnotationPayload {
-  /** Offline mutation identity; stripped from JSON and sent as Idempotency-Key. */
   client_request_id?: string;
   video_segment_id?: string | null;
   annotation_type?: string;
-  /** 工具维度绑定; service 层据此校验 class_name 在对应 unit 类别集内. */
   tool_unit_id?: string;
   class_name: string;
   geometry: Geometry;
@@ -126,7 +113,6 @@ export interface AnnotationUpdatePayload {
   class_name?: string;
   confidence?: number;
   attributes?: Record<string, unknown>;
-  // shape 状态位（I15）。
   z_order?: number;
   is_locked?: boolean;
   is_hidden?: boolean;
@@ -151,7 +137,6 @@ export interface VideoTrackCompositionPayload {
   annotation_ids: string[];
   frame_index?: number;
   delete_sources?: boolean;
-  // join: gap 填充模式 (interpolate 线性过渡 / outside 标记 gap 区为消失)。
   gap_mode?: "interpolate" | "outside";
 }
 
@@ -366,8 +351,6 @@ export const tasksApi = {
   getVideoManifest: (id: string, init?: RequestInit) =>
     apiClient.silentGet<TaskVideoManifestResponse>(`/tasks/${id}/video/manifest`, init),
 
-  // manifest v2:精确帧 pipeline(WebCodecs)激活时增量查询 chunk_size_frames / dataset_item_id。
-  // 实验链路失败会静默回退,不弹全局 toast;signal 让切 task / 卸载能取消旧请求。
   getVideoManifestV2: (id: string, init?: RequestInit) =>
     apiClient.silentGet<VideoManifestV2Response>(`/tasks/${id}/video/manifest-v2`, init),
 
@@ -450,7 +433,6 @@ export const tasksApi = {
       { headers: { "Idempotency-Key": idempotencyKey } },
     ),
 
-  // scene 内前后 k 个邻居 task(跨帧导航 backing)。
   getNeighbors: (id: string, k = 1, init?: RequestInit) =>
     apiClient.get<NeighborsResponse>(`/tasks/${id}/neighbors?k=${k}`, init),
 
@@ -469,8 +451,6 @@ export const tasksApi = {
     return apiClient.silentGet<SceneTimelineResponse>(`/tasks/${id}/scene-timeline?${query}`, init);
   },
 
-  // 一次性拉 ±k 帧邻帧标注(替代 2k 条并发 getAnnotations + client 过滤)。
-  // trackId 给定 → 服务端只回该 track(scope=selected);省略 → 回全部(scope=all)。
   getNeighborAnnotations: (id: string, k = 1, trackId?: string | null, init?: RequestInit) => {
     const q = trackId != null ? `?k=${k}&track_id=${encodeURIComponent(trackId)}` : `?k=${k}`;
     return apiClient.get<NeighborAnnotationsResponse>(
@@ -479,15 +459,12 @@ export const tasksApi = {
     );
   },
 
-  // 选中框单框二次推理: 在选中框 ROI 上同步跑一个能力, 产物落库
-  // (属性写回原框 / 几何建子框, 带 AI 溯源)。
   secondaryInference: (taskId: string, annotationId: string, body: SecondaryInferenceRequest) =>
     apiClient.post<SecondaryInferenceResponse>(
       `/tasks/${taskId}/annotations/${annotationId}/secondary-inference`,
       body,
     ),
 
-  // 把源 annotation 跨帧 propagate 到目标 task(同 project 同 scene)。
   propagateToTask: (
     taskId: string,
     annotationId: string,
@@ -499,16 +476,12 @@ export const tasksApi = {
       { target_task_id: targetTaskId, override_psr: overridePsr ?? null },
     ),
 
-  // 批量跨帧延续: 源 task 的多个(annotationIds 给定)或全部
-  // (undefined → 全部 active box_3d)运动补偿 propagate 到目标 task。
   propagateBatch: (taskId: string, targetTaskId: string, annotationIds?: string[]) =>
     apiClient.post<PropagateBatchResponse>(`/tasks/${taskId}/annotations/propagate-batch`, {
       target_task_id: targetTaskId,
       annotation_ids: annotationIds ?? null,
     }),
 
-  // 关键帧区间插值: 路径 task = 起点帧, 同 track 链两端框之间的
-  // 中间帧自动生成插值框 (source="interpolated")。按 track_id 串链 (ADR-0045)。
   interpolateRange: (taskId: string, trackId: string, toTaskId: string) =>
     apiClient.post<InterpolateRangeResponse>(`/tasks/${taskId}/annotations/interpolate-range`, {
       track_id: trackId,
@@ -562,11 +535,6 @@ export const tasksApi = {
     return apiClient.get<AnnotationResponse[]>(`/tasks/${id}/annotations${query}`, init);
   },
 
-  /**
-   * Keyset-paged saved annotations (200 per page). Read-only surfaces such as
-   * the Data Manager preview use this instead of the one-shot list so large
-   * tasks can render progressively; `init` carries the AbortSignal.
-   */
   getAnnotationsPage: (
     id: string,
     params: { cursor?: string | null; limit?: number } = {},
@@ -678,7 +646,6 @@ export const tasksApi = {
 
   submit: (id: string) => apiClient.post<SubmitResponse>(`/tasks/${id}/submit`),
 
-  // 任务跳过
   skip: (
     id: string,
     body: {
@@ -725,11 +692,6 @@ export const tasksApi = {
 
   releaseLock: (taskId: string) => apiClient.delete<void>(`/tasks/${taskId}/lock`),
 
-  /**
-   * unmount / 页面跳转期间 release 必须在请求被取消前送达。
-   * 用 fetch keepalive 而非常规 client（client 走 fetch 但未开 keepalive，浏览器会在 unload 时取消）。
-   * sendBeacon 不支持 Bearer header，所以走 keepalive。
-   */
   releaseLockKeepalive: (taskId: string) => {
     const token = localStorage.getItem("token");
     return fetch(`/api/v1/tasks/${taskId}/lock`, {

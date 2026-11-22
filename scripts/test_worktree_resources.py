@@ -63,8 +63,6 @@ class BucketUpgradeTests(unittest.TestCase):
         }
         self.versioning = {}
         self._bind_backend(self.backend)
-        # Bucket unit tests stop at the private store owner boundary. Its real
-        # provisioning and reader lifecycle have separate disposable tests.
         self.enterContext(
             patch(
                 "fixture_suite_coordinator.prepare_worktree_store",
@@ -1014,7 +1012,9 @@ class FinishedBootstrapRetirementTests(unittest.TestCase):
                 inherited=os.environ,
             )
 
-    def test_retirement_requires_existing_manifest_and_matching_endpoint_and_bridge(self):
+    def test_retirement_requires_existing_manifest_and_matching_endpoint_and_bridge(
+        self,
+    ):
         self.manifest_path.unlink()
         with self.assertRaises(WorktreeError):
             self.backend(retirement=True)
@@ -1054,13 +1054,16 @@ class FinishedBootstrapRetirementTests(unittest.TestCase):
 
         for command in ("init", "reset", "up"):
             with self.subTest(command=command), self.assertRaises(SystemExit):
-                parse_arguments([command, "--mode", "test", "--retire-finished-bootstrap"])
+                parse_arguments(
+                    [command, "--mode", "test", "--retire-finished-bootstrap"]
+                )
         with self.assertRaises(SystemExit):
             parse_arguments(["destroy", "--mode", "e2e", "--retire-finished-bootstrap"])
         for command in ("doctor", "destroy"):
             self.assertTrue(
-                parse_arguments([command, "--mode", "test", "--retire-finished-bootstrap"])
-                .retire_finished_bootstrap
+                parse_arguments(
+                    [command, "--mode", "test", "--retire-finished-bootstrap"]
+                ).retire_finished_bootstrap
             )
 
 

@@ -188,8 +188,6 @@ describe("ImageStageCommentBadges", () => {
       vp: view,
       viewportSize: { w: 120, h: 80 },
     });
-    // The upper-right corner is (120, 52); the centered 40px target is moved
-    // to the upper-left side so its right/bottom edges remain 8px away.
     expect(models[0].left).toBeCloseTo(92);
     expect(models[0].top).toBe(24);
     expect(models[0].left + 20).toBeLessThanOrEqual(120);

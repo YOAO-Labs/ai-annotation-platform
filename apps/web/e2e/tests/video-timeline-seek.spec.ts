@@ -4,22 +4,6 @@ import { randomUUID } from "node:crypto";
 import { expect, test as base, type SeedData } from "../fixtures/seed";
 import { rangeValueForFrame, timelineClickX } from "../helpers/video-timeline-seek";
 
-// 真实指针时间轴定位回归（default-two 偶发失败修复的阶段 C）。
-//
-// `video-issue-context.spec.ts` 的持久化前置定位已改为确定性的 range 输入通路，
-// 它不能证明真实鼠标点击路径没有产品缺陷。本 spec 用 `video-timeline-shell`
-// 定位器 + `locator.click({ position })` 走应用真实指针路径（shell capture 阶段
-// 的 frameFromPointer → onSeek），Playwright 的 hit-target 检查会让被浮层吞掉的
-// 点击显式失败，而不是像裸 `mouse.click` 一样静默丢失。约定：
-// - 不使用 `force: true`、不全局关动画、不用键盘/程序化输入补救失败点击；
-// - `setFrameByRange` 仅用于建立起始帧前置条件，不是被测行为；
-// - 浮层可交互是真实点击的合法前置：真实用户移动指针到画布即唤出浮层，
-//   这里用同一真实指针移动建立（video-konva-stage onPointerMove →
-//   showPlaybackOverlay），并断言 shell 的 pointerEvents 恢复 auto。
-// 慢媒体/连续导航的旧请求覆盖顺序由组件级单测
-// （useVideoPlaybackController.stale-seek.test.ts，Issue #114）与 G2 套件的
-// 延迟媒体用例覆盖，此处不重复构造全局媒体阻断。
-
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 const MAIN_FIXTURE = "h264-issue-context";
 const MAX_FRAME = 179;
@@ -37,8 +21,7 @@ interface SeekCase {
 }
 
 const test = base.extend<{ seekCase: SeekCase }>({
-  seekCase: async ({ page, request, seed }, provide) => {
-    const data = await seed.owned();
+  seekCase: async ({ page, request, seed, owned: data }, provide) => {
     const video = await seed.videoWebCodecs(data.project_id, { fixture: MAIN_FIXTURE });
     const token = await seed.accessToken(data.admin_email);
     await expectSeededChunks(request, token, video.task_id);
@@ -60,11 +43,6 @@ const test = base.extend<{ seekCase: SeekCase }>({
     await page.evaluate(() => localStorage.setItem("video.experimental.webcodecs", "1"));
     await page.setViewportSize({ width: 1440, height: 1000 });
     await provide({ data, taskId: video.task_id, token });
-    try {
-      if (!page.isClosed()) await page.goto("about:blank");
-    } finally {
-      await seed.owned();
-    }
   },
 });
 
@@ -92,7 +70,6 @@ async function expectSeededChunks(request: APIRequestContext, token: string, tas
 }
 
 async function openWorkbench(page: Page, seekCase: SeekCase) {
-  // 冷媒体响应可能被延迟；DOMContentLoaded 不等待它。
   await page.goto(`/projects/${seekCase.data.project_id}/annotate?task=${seekCase.taskId}`, {
     waitUntil: "domcontentloaded",
   });
@@ -111,8 +88,6 @@ async function readTimeline(page: Page): Promise<{ from: number; to: number }> {
 }
 
 async function expectPaintSettled(page: Page) {
-  // 精确取帧异步完成，负载高时会迟到；等绘制帧号追上选中帧号再继续。
-  // 原生 <video> 回退不经精确管线，无需等待。
   await expect
     .poll(
       () =>
@@ -128,7 +103,6 @@ async function expectPaintSettled(page: Page) {
     .toBe(true);
 }
 
-/** 起始帧前置条件：走确定性 range 输入通路（被测行为是真实指针点击，见文件头）。 */
 async function setFrameByRange(page: Page, frame: number) {
   const window = await readTimeline(page);
   const input = page.getByLabel("视频帧时间轴", { exact: true });
@@ -142,7 +116,6 @@ async function setFrameByRange(page: Page, frame: number) {
   await expectPaintSettled(page);
 }
 
-/** 真实用户路径的前置：指针移动到画布唤出浮层，并确认 shell 可接收指针事件。 */
 async function revealTimeline(page: Page) {
   const box = (await stage(page).boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2, { steps: 4 });
@@ -151,7 +124,6 @@ async function revealTimeline(page: Page) {
     .toBe("auto");
 }
 
-/** 真实单击：shell 定位器 + 几何换算与组件 frameFromPointer 一致（见 helper）。 */
 async function clickTimelineFrame(page: Page, frame: number) {
   const window = await readTimeline(page);
   expect(
@@ -167,8 +139,6 @@ async function clickTimelineFrame(page: Page, frame: number) {
 }
 
 async function expectNavigated(page: Page, frame: number, tolerance = 0) {
-  // tolerance>0 仅用于端点落点：输入量化到整数像素给最边缘点击带来 ±1 帧
-  // 的固有不确定性（真实用户相同），且 pctToFrame 保证不越出窗口端点。
   await expect(async () => {
     const value = Number(await stage(page).getAttribute("data-video-frame-index"));
     expect(Number.isInteger(value) && Math.abs(value - frame)).toBeLessThanOrEqual(tolerance);
@@ -218,7 +188,6 @@ test.describe("视频时间轴真实指针定位", () => {
   }) => {
     await openWorkbench(page, seekCase);
     await setFrameByRange(page, 93);
-    // 真实表单创建 F93 Issue；提交成功后表单关闭（原始故障即发生在下一步）。
     const size = page.viewportSize()!;
     await page.mouse.move(size.width - 12, size.height - 12);
     await page.getByTestId("issue-pin-fab").click();
@@ -260,9 +229,6 @@ test.describe("视频时间轴真实指针定位", () => {
     await modal(page).getByRole("button", { name: "提交", exact: true }).click();
     expect((await saved).ok()).toBe(true);
     await expect(modal(page)).toBeHidden();
-    // 原失败链路：提交后指针已离开画布，浮层自动隐藏后裸坐标点击被静默吞掉。
-    // 真实用户会把指针移回时间轴（浮层随之恢复可交互）；此处复现同一前置后
-    // 单次点击，不允许任何键盘补偿。
     await revealTimeline(page);
     await clickTimelineFrame(page, 120);
     await expectNavigated(page, 120);
@@ -273,7 +239,6 @@ test.describe("视频时间轴真实指针定位", () => {
     await page.getByTestId("video-timeline-toggle").click();
     await expect(page.getByTestId("video-timeline-details")).toBeVisible();
     await page.getByTestId("video-timeline-zoom-in").click();
-    // 等窗口状态实际更新后再换算点击几何，不复用缩放前的窗口。
     await expect
       .poll(async () => {
         const window = await readTimeline(page);
@@ -286,8 +251,6 @@ test.describe("视频时间轴真实指针定位", () => {
     await revealTimeline(page);
     await clickTimelineFrame(page, mid);
     await expectNavigated(page, mid);
-    // 回全窗口后点击首末帧（端点在 helper 中内缩 2px；落点量化带来 ±1 帧
-    // 固有不确定性，断言端点 ±1 帧且不越界，内部帧场景仍精确断言）。
     await page.getByTestId("video-timeline-zoom-reset").click();
     await expect.poll(async () => (await readTimeline(page)).to).toBe(MAX_FRAME);
     await revealTimeline(page);

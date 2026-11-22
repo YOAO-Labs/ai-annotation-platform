@@ -1,4 +1,3 @@
-// popover「运行当前题（按项目编排）」载荷构造的纯函数守护。
 import { describe, it, expect } from "vitest";
 import {
   buildPipelineRunPayload,
@@ -50,8 +49,6 @@ describe("buildPipelineRunPayload", () => {
     expect(buildPipelineRunPayload(STAGES, "")).toBeNull();
   });
 
-  // claude[bot] P1 #5 · 编排引用的 backend 必须都在 availableBackendIds 集合里, 否则 null
-  // (避免默默发请求换通用 422)。
   it("availableBackendIds 含全部引用 backend → 正常返回 payload", () => {
     const known = new Set(["be-detect", "be-classify", "be-other"]);
     expect(buildPipelineRunPayload(STAGES, "T-1", known)).not.toBeNull();
@@ -71,7 +68,6 @@ describe("buildPipelineRunPayload", () => {
     const dup: PipelineStagePayload[] = [...STAGES, { ...STAGES[1]!, stage: 2 }];
     expect(missingBackendIdsForStages(dup, new Set(["be-detect"]))).toEqual(["be-classify"]);
     expect(missingBackendIdsForStages(STAGES, new Set(["be-detect", "be-classify"]))).toEqual([]);
-    // 空集合 / 空 stages 守卫。
     expect(missingBackendIdsForStages([], new Set())).toEqual([]);
     expect(missingBackendIdsForStages(STAGES, null)).toEqual([]);
   });

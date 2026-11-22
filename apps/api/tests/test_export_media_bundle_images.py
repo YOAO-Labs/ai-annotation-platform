@@ -23,7 +23,6 @@ from tests.test_export_media_bundles import (
     fake_allocation_boundary as fake_allocation_boundary,
 )
 
-# Pure fakes model only the bundle contract; allocation belongs to real sessions.
 pytestmark = pytest.mark.usefixtures("fake_allocation_boundary")
 
 owned_db = models.owned_db
@@ -373,7 +372,6 @@ async def test_all_tasks_and_each_reference_count_toward_limits_while_managed_co
     monkeypatch,
 ):
     project, frozen, logical = image_inputs(managed=2, references=2)
-    # Two aliases of one managed original plus two separately embedded declarations.
     monkeypatch.setattr(bundles, "MAX_IMAGE_BYTES", 11 + 7 + 7)
     receipt = await bundles.allocate(
         FakeDB(),
@@ -493,7 +491,6 @@ async def test_database_image_scopes_publish_exact_zip_pair_atomically(
     client = retirement_tests.objects(monkeypatch, row)
     assert (await retirement.cleanup(db))["deleted"] == 0
     assert not client.calls
-    # Even an explicit retirement cannot bypass the permanent publication latch.
     row.state, row.retired_at = "retiring", bundles.now()
     await db.commit()
     with pytest.raises(IntegrityError):

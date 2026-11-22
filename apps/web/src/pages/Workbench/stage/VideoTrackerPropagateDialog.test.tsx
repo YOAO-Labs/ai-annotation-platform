@@ -69,7 +69,6 @@ describe("VideoTrackerPropagateDialog", () => {
   });
 
   it("已绑真实后端 (preferNonMockModel) 时下拉隐藏 mock_bbox, 默认落真实模型", () => {
-    // 即便用户记忆里残留 mock_bbox, 绑后端项目也不应复现它。
     window.localStorage.setItem(
       videoDialogMemoryStorageKey("u1", "trackerPropagate"),
       JSON.stringify({
@@ -112,12 +111,9 @@ describe("VideoTrackerPropagateDialog", () => {
         onSubmit={vi.fn()}
       />,
     );
-    // 默认 forward + 30 帧 → F50 → F80。
     expect(onRangeChange).toHaveBeenLastCalledWith({ startFrame: 50, endFrame: 80 });
-    // 切「向前」→ F20 → F50。
     fireEvent.click(screen.getByTestId("tracker-direction-backward"));
     expect(onRangeChange).toHaveBeenLastCalledWith({ startFrame: 20, endFrame: 50 });
-    // 关闭 → 清空。
     rerender(
       <VideoTrackerPropagateDialog
         {...baseProps}
@@ -200,11 +196,9 @@ describe("VideoTrackerPropagateDialog", () => {
         onSubmit={onSubmit}
       />,
     );
-    // 默认 forward + 30 帧 → F50 → F80。
     expect(screen.getByText("F50 → F80")).toBeTruthy();
     expect(screen.queryByTestId("tracker-range-custom")).toBeNull();
 
-    // 刷选 F10→F42 回填 → 覆盖为自定义范围, 上报高亮 + 提交都用它。
     rerender(
       <VideoTrackerPropagateDialog
         {...baseProps}
@@ -223,7 +217,6 @@ describe("VideoTrackerPropagateDialog", () => {
       expect.objectContaining({ from_frame: 10, to_frame: 42 }),
     );
 
-    // 改预设 → 清自定义, 回派生范围。
     fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "60" } });
     expect(screen.getByText("F50 → F110")).toBeTruthy();
     expect(screen.queryByTestId("tracker-range-custom")).toBeNull();
@@ -298,7 +291,6 @@ describe("VideoTrackerPropagateDialog", () => {
         onSubmit={onSubmit}
       />,
     );
-    // 默认 forward + 30 帧 → F50 → F80
     expect(screen.getByText("30 帧")).toBeTruthy();
     expect(screen.getByText("F50 → F80")).toBeTruthy();
     fireEvent.click(screen.getByText("开始延展"));
@@ -332,7 +324,6 @@ describe("VideoTrackerPropagateDialog", () => {
         onSubmit={onSubmit}
       />,
     );
-    // 默认 30 格 · step=10 → ≈300 帧, forward: F100 → F400, G10 → G40
     expect(screen.getByText("30 格 (≈300 帧)")).toBeTruthy();
     expect(screen.getByText("G10 → G40 (F100 → F400)")).toBeTruthy();
     fireEvent.click(screen.getByText("开始延展"));
@@ -352,7 +343,6 @@ describe("VideoTrackerPropagateDialog", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("tracker-direction-backward"));
-    // 30 格 · step=10 → 300 帧, backward: F200 → F500
     expect(screen.getByText("G20 → G50 (F200 → F500)")).toBeTruthy();
     fireEvent.click(screen.getByText("开始延展"));
     expect(onSubmit).toHaveBeenCalledWith(
@@ -445,12 +435,9 @@ describe("VideoTrackerPropagateDialog", () => {
     );
     const modelSelect = screen.getAllByRole("combobox")[1] as HTMLSelectElement;
     expect(modelSelect.value).toBe("sam2_video");
-    // sam2_video → 尺寸(SAM2 档位)选择器可见。
     expect(screen.queryByText("尺寸")).toBeTruthy();
-    // 切到 sam3 点框交互 → 尺寸选择器消失(sam3 用各自权重, 无 SAM2 档位)。
     fireEvent.change(modelSelect, { target: { value: "sam3_video_interactive" } });
     expect(screen.queryByText("尺寸")).toBeNull();
-    // 提交(sam3)→ payload 不带 sam_variant。
     fireEvent.click(screen.getByText("开始延展"));
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ model_key: "sam3_video_interactive" }),
@@ -515,16 +502,13 @@ describe("VideoTrackerPropagateDialog", () => {
         onSubmit={onSubmit}
       />,
     );
-    // sam3_video 已声明 → 不灰置, 默认选中它 → text 框出现。
     expect((screen.getAllByRole("combobox")[1] as HTMLSelectElement).value).toBe("sam3_video");
     expect(screen.getByRole("option", { name: /SAM3 GPU/ })).toBeInTheDocument();
     const textInput = screen.getByTestId("tracker-text-input") as HTMLInputElement;
     expect(textInput).toBeTruthy();
-    // 空 text 提交被拦。
     fireEvent.click(screen.getByText("开始发现"));
     expect(onSubmit).not.toHaveBeenCalled();
     expect(screen.getByText("文本驱动追踪需填写文本描述")).toBeTruthy();
-    // 填 text → 提交带 text。
     fireEvent.change(textInput, { target: { value: "the red car" } });
     fireEvent.click(screen.getByText("开始发现"));
     await waitFor(() =>
@@ -561,14 +545,11 @@ describe("VideoTrackerPropagateDialog", () => {
         onToggleSeedCollecting={vi.fn()}
       />,
     );
-    // 默认 mock_bbox → 无种子入口。
     expect(screen.queryByTestId("tracker-seed-toggle")).toBeNull();
-    // 切 sam3_video_interactive → 出现。
     fireEvent.change(screen.getAllByRole("combobox")[1], {
       target: { value: "sam3_video_interactive" },
     });
     expect(screen.getByTestId("tracker-seed-toggle")).toBeTruthy();
-    // 切到 sam2_video 后仍显示：grounded-sam2 也支持多目标点/框 seeds[]。
     fireEvent.change(screen.getAllByRole("combobox")[1], {
       target: { value: "sam2_video" },
     });
@@ -592,7 +573,6 @@ describe("VideoTrackerPropagateDialog", () => {
     expect(toggle.textContent).toContain("落点选目标");
     fireEvent.click(toggle);
     expect(onToggle).toHaveBeenCalled();
-    // 采集态 + 已落 2 点。
     rerender(
       <VideoTrackerPropagateDialog
         {...seedProps}
@@ -706,12 +686,9 @@ describe("VideoTrackerPropagateDialog", () => {
     const comboOption = Array.from(modelSelect.options).find(
       (o) => o.value === "sam3_video_combo",
     ) as HTMLOptionElement;
-    // 双能力就绪 → combo 可选。
     expect(comboOption.disabled).toBe(false);
     fireEvent.change(modelSelect, { target: { value: "sam3_video_combo" } });
-    // 文本框 (文本驱动) 出现并填写。
     fireEvent.change(screen.getByTestId("tracker-text-input"), { target: { value: "car" } });
-    // 目标类别选择器 (发现即新建) 默认首个 car。
     expect((screen.getByTestId("tracker-target-class") as HTMLSelectElement).value).toBe("car");
     fireEvent.click(screen.getByText("开始发现"));
     expect(onSubmit).toHaveBeenCalledWith(
@@ -761,9 +738,7 @@ describe("VideoTrackerPropagateDialog", () => {
         onToggleSeedCollecting={vi.fn()}
       />,
     );
-    // 默认 forward + 30 帧 → F0→F30 = 31 帧 → ceil(31/16) = 2 窗。
     expect(screen.getByTestId("tracker-window-estimate").textContent).toContain("≈2 窗");
-    // 切到 10 帧 → F0→F10 = 11 帧 → ceil(11/16) = 1 窗 → 不显。
     fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "10" } });
     expect(screen.queryByTestId("tracker-window-estimate")).toBeNull();
   });
@@ -779,13 +754,10 @@ describe("VideoTrackerPropagateDialog", () => {
       onChangeSeedMode: onChangeMode,
     };
     const { rerender } = render(<VideoTrackerPropagateDialog {...seedProps} seedMode="point" />);
-    // 点「框」→ onChangeSeedMode("box")。
     fireEvent.click(screen.getByTestId("tracker-seed-mode-box"));
     expect(onChangeMode).toHaveBeenCalledWith("box");
-    // box 模式 → toggle 文案变「画框选目标」。
     rerender(<VideoTrackerPropagateDialog {...seedProps} seedMode="box" />);
     expect(screen.getByTestId("tracker-seed-toggle").textContent).toContain("画框选目标");
-    // 点 1 + 框 2 → 计数含「1 点」与「2 框」。
     rerender(
       <VideoTrackerPropagateDialog
         {...seedProps}
@@ -885,7 +857,6 @@ describe("VideoTrackerPropagateDialog", () => {
     expect(screen.getByTestId("tracker-progress").textContent).toContain("正在延展轨迹");
     expect(screen.queryByText("开始延展")).toBeNull();
     expect(screen.queryByRole("combobox")).toBeNull();
-    // 对话框本体仍在 (仅内容切换)。
     expect(screen.getByTestId("video-tracker-propagate-dialog")).toBeInTheDocument();
     expect(screen.getByTestId("tracker-panel-header").className).toContain("from-violet-500/10");
   });

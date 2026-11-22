@@ -53,9 +53,6 @@ from tests.raster_mask_support import harness as harness
 pytestmark = pytest.mark.asyncio
 
 
-# ── helpers ──────────────────────────────────────────────────────────
-
-
 async def _seed_project_with_tasks(
     db: AsyncSession,
     owner_id: uuid.UUID,
@@ -265,9 +262,6 @@ async def _seed_yolo_project(
     return project, tasks
 
 
-# ── AAP JSON happy paths ─────────────────────────────────────────────
-
-
 async def test_import_aap_json_bbox_happy(
     httpx_client: httpx.AsyncClient,
     super_admin,
@@ -312,7 +306,6 @@ async def test_import_aap_json_bbox_happy(
     assert result["errors"] == []
     assert result["dry_run"] is False
 
-    # 验证写入: source='external_import', ml_backend_id=None
     rows = (
         (
             await db_session.execute(
@@ -327,10 +320,101 @@ async def test_import_aap_json_bbox_happy(
     assert pred.source == "external_import"
     assert pred.ml_backend_id is None
     assert pred.model_version == "ext-yolo-v1"
-    # result 列存 LS shape 数组
     assert isinstance(pred.result, list)
     assert pred.result[0]["type"] == "rectanglelabels"
     assert pred.result[0]["value"]["rectanglelabels"] == ["car"]
+
+
+async def test_owned_prediction_import_cleanup(
+    httpx_client: httpx.AsyncClient,
+    super_admin,
+    db_session: AsyncSession,
+    monkeypatch,
+):
+    from sqlalchemy import text
+
+    from app.db.models.async_job import AsyncJob
+    from app.db.models.fixture_run import FixtureRun
+    from app.services import fixture_run_ownership as ownership
+
+    monkeypatch.setattr(settings, "environment", "development")
+    monkeypatch.setattr(settings, "e2e_seed_enabled", True)
+    user, token = super_admin
+    project, tasks = await _seed_project_with_tasks(db_session, user.id, n_tasks=1)
+    suite, run = uuid.uuid4(), uuid.uuid4()
+    db_session.add(FixtureRun(id=suite, family="owned"))
+    await db_session.flush()
+    db_session.add(
+        FixtureRun(
+            id=run, parent_run_id=suite, scope_key="prediction-import", family="owned"
+        )
+    )
+    await db_session.flush()
+    for kind, resource in (("project", project), ("user", user)):
+        await ownership.reserve(
+            db_session, run, kind, resource.id, logical_key=kind, published=True
+        )
+    payload = _aap_envelope(
+        [
+            {
+                "task_match": {"display_id": tasks[0].display_id},
+                "annotations": [],
+                "predictions": [
+                    {
+                        "geometry": {
+                            "type": "bbox",
+                            "x": 0.1,
+                            "y": 0.2,
+                            "w": 0.3,
+                            "h": 0.4,
+                        },
+                        "class_name": "car",
+                        "confidence": 0.9,
+                        "model_version": "external-v1",
+                    }
+                ],
+            }
+        ]
+    )
+    url = f"/api/v1/projects/{project.id}/predictions/import"
+    headers = {"Authorization": f"Bearer {token}"}
+    jobs = select(AsyncJob).where(
+        AsyncJob.project_id == project.id, AsyncJob.kind == "predictions_import"
+    )
+    audits = select(AuditLog).where(
+        AuditLog.target_id == str(project.id), AuditLog.action == "predictions.import"
+    )
+
+    dry_run = await httpx_client.post(
+        url, params={"dry_run": True}, files=_upload_files(payload), headers=headers
+    )
+    assert dry_run.status_code == 200, dry_run.text
+    assert dry_run.json()["imported"] == 1
+    assert (await db_session.scalars(jobs)).all() == []
+    assert (await db_session.scalars(audits)).all() == []
+
+    committed = await httpx_client.post(
+        url, files=_upload_files(payload), headers=headers
+    )
+    assert committed.status_code == 200, committed.text
+    assert committed.json()["imported"] == 1
+    job = (await db_session.scalars(jobs)).one()
+    audit = (await db_session.scalars(audits)).one()
+    assert job.status == "completed"
+    assert audit.detail_json["job_id"] == str(job.id)
+    assert job.result == {"imported": 1, "skipped": 0, "error_count": 0}
+    assert await ownership.seal(db_session, run, family="owned") == ()
+    await ownership.guard_project_jobs(db_session, [project.id])
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+            ),
+            {"ids": [project.id]},
+        )
+        == 1
+    )
+    assert (await db_session.scalars(jobs)).all() == []
 
 
 async def test_import_aap_json_polygon(
@@ -1067,9 +1151,6 @@ async def test_prediction_import_rotated_bbox_round_trip(angle: int):
     assert got["angle"] == pytest.approx(float(angle), abs=1e-6)
 
 
-# ── schema_version 守门 ─────────────────────────────────────────────
-
-
 async def test_import_aap_json_future_version_rejected(
     httpx_client: httpx.AsyncClient,
     super_admin,
@@ -1090,9 +1171,6 @@ async def test_import_aap_json_future_version_rejected(
     assert "schema_version" in r.json()["detail"]
 
 
-# ── task_match 行为 ──────────────────────────────────────────────────
-
-
 async def test_import_aap_json_file_path_match(
     httpx_client: httpx.AsyncClient,
     super_admin,
@@ -1102,7 +1180,6 @@ async def test_import_aap_json_file_path_match(
     project, tasks = await _seed_project_with_tasks(db_session, user.id)
     headers = {"Authorization": f"Bearer {token}"}
 
-    # 仅给 file_path, 不给 display_id
     payload = _aap_envelope(
         [
             {
@@ -1198,7 +1275,6 @@ async def test_import_aap_json_relative_path_match_nested(
     assert r.status_code == 200, r.text
     assert r.json()["imported"] == 1
 
-    # 命中 cat, 未误匹配 dog.
     cat_count = (
         await db_session.execute(
             select(func.count(Prediction.id)).where(Prediction.task_id == cat_task.id)
@@ -1267,8 +1343,6 @@ async def test_import_aap_json_cross_project_display_id_not_matched(
     project_b, _ = await _seed_project_with_tasks(db_session, user.id)
     headers = {"Authorization": f"Bearer {token}"}
 
-    # 用 project_b 的 display_id 但导入到 project_a; 应 fallback 到 file_path,
-    # 但 file_path 也只在 project_b 下, 故对 project_a miss.
     payload = _aap_envelope(
         [
             {
@@ -1299,9 +1373,6 @@ async def test_import_aap_json_cross_project_display_id_not_matched(
     body = r.json()
     assert body["imported"] == 0
     assert body["skipped"] == 1
-
-
-# ── dry_run ──────────────────────────────────────────────────────────
 
 
 async def test_import_aap_json_dry_run_not_persisted(
@@ -1353,9 +1424,6 @@ async def test_import_aap_json_dry_run_not_persisted(
     assert count == 0
 
 
-# ── overwrite_existing ───────────────────────────────────────────────
-
-
 async def test_import_aap_json_default_overwrite_replaces_external_only(
     httpx_client: httpx.AsyncClient,
     super_admin,
@@ -1397,7 +1465,6 @@ async def test_import_aap_json_default_overwrite_replaces_external_only(
         ]
     )
 
-    # 第一次: 无旧 external_import, 只写入新导入.
     r = await httpx_client.post(
         f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
@@ -1405,7 +1472,6 @@ async def test_import_aap_json_default_overwrite_replaces_external_only(
     )
     assert r.status_code == 200, r.text
 
-    # 第二次不传 overwrite_existing，验证默认替换同源 external_import 结果。
     r = await httpx_client.post(
         f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
@@ -1709,9 +1775,6 @@ async def test_purge_predictions_by_source_scope_counts_and_audits(
     assert audit.detail_json["counts"]["total"] == 1
 
 
-# ── 未知几何 kind 不让整批挂 ────────────────────────────────────────
-
-
 async def test_import_aap_json_unknown_kind_in_errors(
     httpx_client: httpx.AsyncClient,
     super_admin,
@@ -1726,13 +1789,11 @@ async def test_import_aap_json_unknown_kind_in_errors(
             {
                 "task_match": {"display_id": tasks[0].display_id},
                 "predictions": [
-                    # 1 个不支持
                     {
                         "geometry": {"type": "ellipse", "cx": 0.5, "cy": 0.5},
                         "class_name": "car",
                         "confidence": 0.5,
                     },
-                    # 1 个 ok
                     {
                         "geometry": {
                             "type": "bbox",
@@ -1842,9 +1903,6 @@ async def test_import_aap_json_entry_shapes_merge_into_one_prediction(
     assert pred.result[1]["score"] == 0.61
 
 
-# ── 权限 ────────────────────────────────────────────────────────────
-
-
 async def test_import_aap_json_forbidden_for_annotator(
     httpx_client: httpx.AsyncClient,
     super_admin,
@@ -1854,8 +1912,6 @@ async def test_import_aap_json_forbidden_for_annotator(
     user, _ = super_admin
     project, tasks = await _seed_project_with_tasks(db_session, user.id)
     _annotator_user, annotator_token = annotator
-    # Visible project member with the annotator role: import stays a management
-    # capability, so the denial must be 403 rather than an invisible 404.
     await create_membership(
         db_session, project_id=project.id, user_id=_annotator_user.id, role="annotator"
     )
@@ -1872,9 +1928,6 @@ async def test_import_aap_json_forbidden_for_annotator(
         headers=headers,
     )
     assert r.status_code == 403
-
-
-# ── COCO importer ──────────────────────────────────────────────────
 
 
 async def test_import_coco_happy(
@@ -1933,7 +1986,6 @@ async def test_import_coco_happy(
     )
     assert len(rows) == 1
     bbox = rows[0].result[0]["value"]
-    # 192/1920=0.1, 108/1080=0.1, 576/1920=0.3, 432/1080=0.4 -> *100
     assert bbox["x"] == pytest.approx(10.0, rel=0.01)
     assert bbox["width"] == pytest.approx(30.0, rel=0.01)
 
@@ -2144,9 +2196,6 @@ async def test_import_coco_rle_respects_create_flag(
     create.assert_not_awaited()
 
 
-# ── YOLO zip importer ────────────────────────────────────────────────
-
-
 async def test_import_yolo_det_zip_happy(
     httpx_client: httpx.AsyncClient,
     super_admin,
@@ -2305,9 +2354,6 @@ async def test_import_yolo_ambiguous_leaf_stem_is_error(
     assert body["imported"] == 0
     assert body["skipped"] == 1
     assert "ambiguous task file stem" in body["errors"][0]["reason"]
-
-
-# ── 老 prediction 默认 source ────────────────────────────────────────
 
 
 async def test_existing_predictions_have_default_source(

@@ -125,8 +125,6 @@ async def test_accepted_transfer_projection_rereads_after_commit_without_reautho
             )
             await caller.commit()
         async with maker.begin() as observer:
-            # The accepted transfer remains projectable after the actor loses
-            # the original role, while row contents still come from this phase.
             await observer.execute(
                 text("UPDATE public.users SET role='employee' WHERE id=:id"),
                 {"id": actor.id},

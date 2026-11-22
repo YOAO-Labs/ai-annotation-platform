@@ -52,7 +52,7 @@ def test_session_savepoint_release_keeps_the_replay_receipt():
         gateway = AssetsOperatorGateway(session)
         gateway._remember_receipt(creation_id, digest, 3)
 
-        session.commit()  # releases the caller's savepoint, not the connection
+        session.commit()
 
         replay = AssetsOperatorGateway(session)
         assert replay._same_uow_receipt(creation_id) == (digest, 3)

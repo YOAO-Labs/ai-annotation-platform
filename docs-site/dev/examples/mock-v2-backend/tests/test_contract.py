@@ -52,7 +52,6 @@ def test_setup_models_catalog() -> None:
     for m in models:
         assert m["task"]
         assert m["supported_geometric_outputs"]
-    # infra 覆盖: yolo→pytorch, ppocr→paddle (backend 默认 onnx)。
     by_id = {m["id"]: m for m in models}
     assert by_id["yolo-detect"]["infra"] == "pytorch"
     assert by_id["ppocr"]["infra"] == "paddle"
@@ -71,13 +70,10 @@ def test_setup_models_catalog() -> None:
 def test_setup_yolo_entries_carry_v2_1_variant_fields() -> None:
     models = client.get("/setup").json()["models"]
     detect = next(m for m in models if m["id"] == "yolo-detect")
-    # default_variants (协议 §4.1.6): 轴必须给齐。
     assert detect["default_variants"] == {"series": "yolo11", "size": "s"}
-    # variant_combinations: 非全笛卡尔积 (yolo12 只有 n/s/m)。
     combos = detect["variant_combinations"]
     assert ["yolo11", "x"] in combos
     assert ["yolo12", "l"] not in combos
-    # 每个组合都落在两轴枚举内。
     axes = {
         a["key"]: [v["value"] for v in a["variants"]]
         for a in detect["supported_variants"]
@@ -102,7 +98,6 @@ def test_predict_batch_shape_with_runtime_observability() -> None:
     r = resp.json()["results"][0]
     assert r["task"] == "t1"
     assert r["result"][0]["type"] == "rectanglelabels"
-    # 首次推理 = 冷启动 (协议 §4.2)。
     assert r["cache_hit"] is False
     assert r["model_load_ms"] > 0
     assert set(r["pool_state"]) == {"current_size", "cap"}
@@ -160,7 +155,6 @@ def test_predict_video_tracker_returns_frame_geometry() -> None:
 
 
 def test_predict_legacy_context_variants_normalized() -> None:
-    # 兼容期旧字段 context.variants (协议 §10) 仍被接受。
     resp = client.post(
         "/predict",
         json={
@@ -195,7 +189,6 @@ def test_predict_invalid_variant_value_returns_422() -> None:
 
 
 def test_predict_invalid_combination_returns_422() -> None:
-    # yolo12 + l: 两轴各自合法, 但组合不在 variant_combinations 内。
     resp = client.post(
         "/predict",
         json={
@@ -214,7 +207,6 @@ def test_predict_invalid_combination_returns_422() -> None:
 
 
 def test_predict_size_x_returns_503_model_unavailable() -> None:
-    # mock 约定: size=x 视为权重未下载, 演示 503 + Retry-After (协议 §6)。
     resp = client.post(
         "/predict",
         json={

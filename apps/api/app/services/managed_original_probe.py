@@ -121,7 +121,6 @@ def _client(endpoint):
             ),
         )
     except BaseException as exc:
-        # A failed constructor is not evidence that no physical handle escaped.
         raise mark_unsettled(exc)
 
 
@@ -268,8 +267,6 @@ def run_probe(candidate: ProbeInput, *, client_context=None) -> ProbeResult:
                 observed_sha256, observed_size = digest.hexdigest(), size
                 if size != candidate.size_bytes:
                     _reject("changed", "managed_original_size_mismatch")
-                # This HEAD intentionally has no VersionId or IfMatch. Re-reading
-                # an old pinned version cannot prove that it is still current.
                 after = _observation(client.head_object(**params), candidate)
                 check_deadline()
                 observation["final"] = after

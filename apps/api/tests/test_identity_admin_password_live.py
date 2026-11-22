@@ -299,8 +299,6 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
             signing_secret, super_admin_id, operation_id, fingerprint
         )
 
-        # The first confirmation is intentionally discarded. A restarted owner
-        # must return the same operation-bound secret without a second write.
         lost_reply = await asyncio.to_thread(
             _node, identity, control, signing_secret, request, discard=True
         )
@@ -396,8 +394,6 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
             "same frozen reply; no repeated update or Audit",
         )
 
-        # A frozen timestamp alone cannot make a reset receipt return a password
-        # after another password writer supersedes the stored hash.
         superseding_hash = await asyncio.to_thread(
             hash_password, "SupersedingPassword1!"
         )
@@ -417,8 +413,6 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
         assert (await _target_state(maker, employee.id))[1] == first_reset_at
         assert await _audit_count(maker, first_receipt["audit_id"]) == 1
 
-        # A timestamp-only change also retires a frozen receipt, even if the
-        # bcrypt state is unchanged.
         second_target = reviewer_owned
         second_operation = uuid.uuid4()
         operation_ids.append(second_operation)
@@ -455,8 +449,6 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
         assert (await _target_state(maker, second_target.id))[0] == second_hash
         assert await _audit_count(maker, second_receipt["audit_id"]) == 1
 
-        # Project admins may reset any active employee; lower-ranked roles
-        # require a historical membership in a project they currently own.
         global_employee = await asyncio.to_thread(
             _node,
             identity,
@@ -528,8 +520,6 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
         assert self_reset["ok"] is False
         assert self_reset["error"]["code"] == "self_reset"
 
-        # Both rows are acquired NOWAIT in UUID order. A held actor or target
-        # lock must fail closed with the same bounded retry response.
         for locked_id in (super_admin_id, employee.id):
             connection = await test_engine.connect()
             transaction = await connection.begin()
@@ -555,8 +545,6 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
                 await transaction.rollback()
                 await connection.close()
 
-        # Existing JWTs remain current until the normal generation fence is
-        # explicitly advanced; this feature itself does not advance it.
         async with maker() as db:
             generation = await db.scalar(
                 text("SELECT credential_generation FROM public.users WHERE id=:id"),
@@ -564,8 +552,6 @@ async def test_installed_admin_password_replay_restart_scope_and_fencing(
             )
         assert generation == 0
 
-        # Finite host-process qualification only. The separate container gate
-        # owns image resource-boundary evidence.
         load_operation_ids = [uuid.uuid4() for _ in load_targets]
         operation_ids.extend(load_operation_ids)
         load_requests = [

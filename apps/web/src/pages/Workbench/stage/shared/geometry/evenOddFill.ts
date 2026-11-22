@@ -1,18 +1,3 @@
-// KonvaPolygon holes / multi_polygon 渲染地基 (ADR-0052 D5 / D8)。
-//
-// transforms.geometryToShape 透传 holes / multiPolygon。
-// 本模块用 canvas 2D 子路径和 evenodd 填充处理多环和镂空。
-// 路径构造是纯函数，供 KonvaPolygon 的 <Line sceneFunc> 调用。
-//
-// 设计原则:
-//   1. 纯函数, 只依赖一个 duck-typed 的 canvas-like context
-//      (具备 beginPath / moveTo / lineTo / closePath 即可), 不耦合 Konva / DOM,
-//      便于在 vitest + jsdom 下用 vi.fn() 直接断言路径构造 (见 evenOddFill.test.ts)。
-//   2. 归一化坐标 [0,1] * (imgW, imgH) → 像素坐标, 与 KonvaPolygon 其余渲染一致。
-//   3. 不负责 fill / stroke 调用本身; 调用方决定用 ctx.fillStrokeShape(shape)
-//      (honors Konva shape 的 fillRule="evenodd" 属性) 还是 native ctx.fill('evenodd')。
-
-/** Konva Context 或原生 CanvasRenderingContext2D 的最小子集 (duck-typed)。 */
 export interface PathCanvasContext {
   beginPath(): void;
   moveTo(x: number, y: number): void;
@@ -25,13 +10,11 @@ export interface FillStrokePathContext<TShape> extends PathCanvasContext {
   strokeShape(shape: TShape): void;
 }
 
-/** 单个外环 + 可选内环 (holes)。归一化坐标 [0,1]。 */
 export interface PolygonRing {
   points: ReadonlyArray<readonly [number, number]>;
   holes?: ReadonlyArray<ReadonlyArray<readonly [number, number]>>;
 }
 
-/** 归一化顶点 (x, y) → 像素坐标 (x*imgW, y*imgH)。 */
 function moveToPx(
   ctx: PathCanvasContext,
   px: number,
@@ -52,9 +35,6 @@ function lineToPx(
   ctx.lineTo(px * imgW, py * imgH);
 }
 
-/**
- * 在 ctx 上画一个闭合环 (归一化坐标 → 像素)。ring.length < 2 时静默跳过 (空环不污染 path)。
- */
 function traceRing(
   ctx: PathCanvasContext,
   ring: ReadonlyArray<readonly [number, number]>,
@@ -108,10 +88,6 @@ export function buildEvenOddPaths(
   return subpaths;
 }
 
-/**
- * 用同一组真实边界完成 even-odd 填充与描边。第二遍描边必须继续包含 holes：孔洞边缘也是
- * 实际对象边界，若只描外环，缩放或低透明度下会难以辨认镂空范围。
- */
 export function drawEvenOddShape<TShape>(
   ctx: FillStrokePathContext<TShape>,
   shape: TShape,
@@ -129,19 +105,6 @@ export function drawEvenOddShape<TShape>(
   return { fillSubpaths, strokeSubpaths };
 }
 
-/**
- * 便利封装:把单个 polygon (一个外环 + holes[]) 与可选 multi_polygon 数组合并成
- * buildEvenOddPaths 期望的 outerRings 列表。
- *
- * - 传 multiPolygon 时, 它已包含外环 + 各自 holes, 主 polygon (label/anchor 用) 不重复加入。
- * - 否则, 主 polygon 作为唯一外环, 附带其 holes。
- *
- * 这层合并放在纯函数里 (而非 KonvaPolygon 内联), 是为了:
- *   1. KonvaPolygon 的 sceneFunc 只剩 ~3 行, 易读;
- *   2. 合并逻辑可在 jsdom 下用 vi.fn() 直接断言 (见 evenOddFill.test.ts),
- *      不依赖 Konva 渲染栈;
- *   3. holes / multiPolygon 同时存在时 (理论上不会, 但防御式) 取 multi_polygon 优先。
- */
 export function collectOuterRings(opts: {
   primaryPoints?: ReadonlyArray<readonly [number, number]>;
   holes?: ReadonlyArray<ReadonlyArray<readonly [number, number]>>;

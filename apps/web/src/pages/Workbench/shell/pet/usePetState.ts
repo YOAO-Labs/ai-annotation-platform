@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MILESTONES, pickLine, type PetMood } from "./petLines";
 
-const IDLE_MS = 45_000; // 久坐阈值:无上下文干扰多久后冒泡
-const TALK_HOLD_MS = 6_000; // 一句话停留时长
+const IDLE_MS = 45_000;
+const TALK_HOLD_MS = 6_000;
 const CELEBRATE_MS = 3_400;
 const AI_RUNNING_MIN_MS = 800;
 
@@ -49,7 +49,6 @@ export interface PetStateResult {
 
 interface UsePetStateArgs {
   context: WorkbenchPetContext;
-  /** 点击计数:每 +1 触发一句「戳一下」彩蛋。 */
   poke: number;
 }
 
@@ -147,13 +146,6 @@ function deriveContextState(
   return { mood: "idle", message: null, priority: 0 };
 }
 
-/**
- * 工作台桌宠状态机：
- * - 标注里程碑仍是 transient 最高优先级。
- * - 普通标注 +1 不触发气泡/姿态切换,避免高频标注时视觉闪烁。
- * - 常态状态全部从 WorkbenchPetContext 纯前端派生。
- * - 久坐闲聊只在没有工作上下文时出现。
- */
 export function usePetState({ context, poke }: UsePetStateArgs): PetStateResult {
   const [transient, setTransient] = useState<{
     mood: "celebrate";
@@ -163,7 +155,6 @@ export function usePetState({ context, poke }: UsePetStateArgs): PetStateResult 
   const [heldAiRunning, setHeldAiRunning] = useState(context.ai.running);
   const aiStartedAt = useRef<number | null>(context.ai.running ? Date.now() : null);
 
-  // 标注里程碑 → 短暂庆祝。普通 +1 不再触发气泡/姿态切换,避免连续标注时视觉闪烁。
   const prevCount = useRef(context.counts.annotationCount);
   useEffect(() => {
     const prev = prevCount.current;
@@ -185,7 +176,6 @@ export function usePetState({ context, poke }: UsePetStateArgs): PetStateResult 
     return () => window.clearTimeout(t);
   }, [transient]);
 
-  // AI running 至少展示 800ms,避免极快请求导致桌宠状态一闪而过。
   useEffect(() => {
     if (context.ai.running) {
       aiStartedAt.current = Date.now();
@@ -200,7 +190,6 @@ export function usePetState({ context, poke }: UsePetStateArgs): PetStateResult 
     return () => window.clearTimeout(t);
   }, [context.ai.running, heldAiRunning]);
 
-  // 戳一下 → 随机彩蛋。若当前有更高优先级状态,彩蛋会被自然压住。
   useEffect(() => {
     if (poke === 0) return;
     setIdleTalk(pickLine("poke"));
@@ -213,7 +202,6 @@ export function usePetState({ context, poke }: UsePetStateArgs): PetStateResult 
     [context, heldAiRunning],
   );
 
-  // 久坐检测(仅无上下文时;有选中 / AI / warning / offline 代表在干活,不打扰)。
   useEffect(() => {
     if (!canIdleTalk) {
       setIdleTalk(null);

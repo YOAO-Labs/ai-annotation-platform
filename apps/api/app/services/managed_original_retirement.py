@@ -7,9 +7,8 @@ physical deletion. Configuration agreement is not exclusive ownership proof.
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
 
 from app.config import settings
@@ -145,7 +144,6 @@ async def _saved_assertion(db, row):
             "identity_error_code": None,
         }
     except ValueError:
-        # Failed identity evidence must not prevent legitimate logical deletion.
         pass
     return _assertion(row, evidence)
 
@@ -260,9 +258,7 @@ async def capture_managed_original_retirements(
                         or classification != "qualified"
                     ):
                         raise ContentError("fixture_original_retirement_unqualified")
-                    # This is the initial policy for a fresh fixture Creation,
-                    # never a change to an existing historical assertion.
-                    assertion["retain_until"] = datetime.now(timezone.utc)
+                    assertion["retain_until"] = func.statement_timestamp()
             await db.execute(
                 insert(ManagedOriginalRetirement)
                 .values(assertions)
@@ -414,7 +410,7 @@ async def capture_fixture_auxiliary_retirements(db, *, dataset_id, fixture_run_i
                 etag=owner.etag,
                 verified_at=creation.readback_at,
                 dataset_lifecycle_revision=dataset.lifecycle_revision,
-                retain_until=datetime.now(timezone.utc),
+                retain_until=func.statement_timestamp(),
             )
             .on_conflict_do_nothing(index_elements=["assertion_digest"])
         )

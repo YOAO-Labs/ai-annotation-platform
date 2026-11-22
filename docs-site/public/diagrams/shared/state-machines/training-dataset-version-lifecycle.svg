@@ -7,79 +7,65 @@
 <text x="44" y="52" font-family="Virgil, Segoe UI Emoji" font-size="28px" fill="#1e1e1e" text-anchor="start" style="white-space:pre" direction="ltr">TrainingDatasetVersion lifecycle</text>
 <text x="44" y="80" font-family="Virgil, Segoe UI Emoji" font-size="15px" fill="#64748b" text-anchor="start" style="white-space:pre" direction="ltr">Immutable dataset snapshot, Celery export worker materialization, integrity verification &amp; ZIP publishing</text>
 
-<!-- Start Dot -->
 <ellipse cx="65" cy="290" rx="14" ry="14" fill="#1e1e1e" stroke="#1e1e1e" stroke-width="2"/>
 <path d="M 79 290 L 150 290" fill="none" stroke="#475569" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="148,284 158,290 148,296" fill="#475569"/>
 <text x="75" y="270" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#64748b" text-anchor="start">校验参数创建快照</text>
 
-<!-- pending node -->
 <rect x="150" y="240" width="230" height="100" rx="16" fill="#fef3c7" stroke="#d97706" stroke-width="2.4"/>
 <text x="265" y="278" font-family="Virgil, Segoe UI Emoji" font-size="24px" fill="#d97706" text-anchor="middle">pending</text>
 <text x="265" y="308" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#b45309" text-anchor="middle">已创建快照 · 等待 worker 领用</text>
 
-<!-- pending -> running -->
 <path d="M 380 290 L 520 290" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="518,284 528,290 518,296" fill="#2563eb"/>
 <rect x="390" y="260" width="120" height="26" rx="8" fill="#ffffff" opacity="0.95"/>
 <text x="450" y="278" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#2563eb" text-anchor="middle">Export worker 领用</text>
 
-<!-- running node -->
 <rect x="520" y="240" width="250" height="100" rx="16" fill="#dbeafe" stroke="#2563eb" stroke-width="2.4"/>
 <text x="645" y="278" font-family="Virgil, Segoe UI Emoji" font-size="24px" fill="#2563eb" text-anchor="middle">running</text>
 <text x="645" y="308" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#1d4ed8" text-anchor="middle">物化图片与标签至 MinIO</text>
 
-<!-- running -> ready -->
 <path d="M 770 290 L 920 290" fill="none" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="918,284 928,290 918,296" fill="#16a34a"/>
 <rect x="785" y="260" width="120" height="26" rx="8" fill="#ffffff" opacity="0.95"/>
 <text x="845" y="278" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#16a34a" text-anchor="middle">校验通过 · ZIP 发布</text>
 
-<!-- ready node -->
 <rect x="920" y="240" width="250" height="100" rx="16" fill="#dcfce7" stroke="#16a34a" stroke-width="2.4"/>
 <text x="1045" y="278" font-family="Virgil, Segoe UI Emoji" font-size="24px" fill="#16a34a" text-anchor="middle">ready</text>
 <text x="1045" y="308" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#15803d" text-anchor="middle">素材就绪 · 开放训练/分析/下载</text>
 
-<!-- running -> failed (down) -->
 <path d="M 610 340 L 610 480" fill="none" stroke="#dc2626" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="604,478 610,488 616,478" fill="#dc2626"/>
 <rect x="535" y="395" width="150" height="26" rx="8" fill="#ffffff" opacity="0.95"/>
 <text x="610" y="413" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#dc2626" text-anchor="middle">素材损坏 / 几何校验不通过</text>
 
-<!-- failed -> running (retry up) -->
 <path d="M 680 480 L 680 340" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
 <polygon points="674,342 680,332 686,342" fill="#2563eb"/>
 <rect x="690" y="395" width="165" height="26" rx="8" fill="#ffffff" opacity="0.95"/>
 <text x="772" y="413" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#2563eb" text-anchor="middle">重试构建（复用已拉取原图）</text>
 
-<!-- failed node -->
 <rect x="520" y="480" width="250" height="95" rx="16" fill="#fee2e2" stroke="#dc2626" stroke-width="2.4"/>
 <text x="645" y="518" font-family="Virgil, Segoe UI Emoji" font-size="24px" fill="#dc2626" text-anchor="middle">failed</text>
 <text x="645" y="546" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#b91c1c" text-anchor="middle">物化失败 · 保留快照允许重试</text>
 
-<!-- running -> cancelled (down-right) -->
 <path d="M 740 340 L 935 480" fill="none" stroke="#475569" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="926,477 942,485 935,468" fill="#475569"/>
 <rect x="765" y="380" width="160" height="26" rx="8" fill="#ffffff" opacity="0.95"/>
 <text x="845" y="398" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#475569" text-anchor="middle">取消构建（图片边界安全退出）</text>
 
-<!-- pending -> cancelled (curved down-right) -->
 <path d="M 265 340 Q 265 528 920 528" fill="none" stroke="#475569" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 6"/>
 <polygon points="918,522 928,528 918,534" fill="#475569"/>
 <rect x="330" y="445" width="130" height="26" rx="8" fill="#ffffff" opacity="0.95"/>
 <text x="395" y="463" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#475569" text-anchor="middle">排队期间直接取消</text>
 
-<!-- cancelled -> running (retry curved up-left) -->
 <path d="M 920 500 Q 820 460 760 340" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
 <polygon points="767,344 756,334 755,348" fill="#2563eb"/>
 <text x="860" y="440" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#2563eb" text-anchor="middle">重试构建</text>
 
-<!-- cancelled node -->
 <rect x="920" y="480" width="250" height="95" rx="16" fill="#f1f5f9" stroke="#475569" stroke-width="2.4"/>
 <text x="1045" y="518" font-family="Virgil, Segoe UI Emoji" font-size="24px" fill="#475569" text-anchor="middle">cancelled</text>
 <text x="1045" y="546" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#334155" text-anchor="middle">已取消 · 清理临时半包</text>
 
-<!-- Storage &amp; Deletion Rules Card (Right) -->
 <rect x="1220" y="240" width="340" height="335" rx="16" fill="#faf5ff" stroke="#7c3aed" stroke-width="2" stroke-dasharray="8 6"/>
 <text x="1390" y="275" font-family="Virgil, Segoe UI Emoji" font-size="20px" fill="#7c3aed" text-anchor="middle">存储与清理语义约束</text>
 
@@ -95,7 +81,6 @@
 <text x="1245" y="495" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#475569" text-anchor="start">• 两阶段对象清理：</text>
 <text x="1260" y="515" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#64748b" text-anchor="start">写入 training_storage_deletions 意图表重试</text>
 
-<!-- Bottom Key Principles Bar -->
 <rect x="44" y="620" width="1516" height="85" rx="14" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.8"/>
 <text x="70" y="652" font-family="Virgil, Segoe UI Emoji" font-size="16px" fill="#1e293b" text-anchor="start">架构约束与保护原则：</text>
 <text x="70" y="682" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#64748b" text-anchor="start">1. 语句级数据库读取隔离：单 SQL 语句读取标注真值、素材引用与审核状态，消除部分提交竞态。</text>

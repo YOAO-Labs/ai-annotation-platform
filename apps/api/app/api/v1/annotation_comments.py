@@ -56,9 +56,6 @@ from app.services.labeling_core_read_relations import annotation_row
 
 router = APIRouter(dependencies=[Depends(require_active_task_actor)])
 
-#: Platform roles allowed to read/write task discussion.  The legacy global
-#: annotator/reviewer account roles are historical and are not an authorization
-#: source; project responsibility comes from the resolved membership.
 _ALL_ANNOTATORS = (
     PlatformRole.SUPER_ADMIN,
     PlatformRole.PROJECT_ADMIN,
@@ -160,8 +157,6 @@ async def list_task_discussion_page(
 
     task = await require_visible_task(db, task_id, actor_id)
     if scope == "annotation":
-        # Resolve the persisted annotation against the requested task.  This also
-        # intentionally permits soft-deleted annotations for historical comments.
         await require_visible_annotation(
             db,
             annotation_id,
@@ -467,7 +462,6 @@ async def comment_attachment_download(
     """返回原评论已绑定且完整核验的文件字节；as_json仅保留参数兼容。"""
     from urllib.parse import quote
 
-    # Keep the existing wrong-annotation-prefix rejection before any storage I/O.
     if not key.startswith(f"{ATTACHMENT_KEY_PREFIX}{annotation_id}/"):
         raise HTTPException(400, detail="invalid attachment key")
     receipt, data = await attachment_uploads.read(

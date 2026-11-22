@@ -415,7 +415,6 @@ def verified_native_provider(owner_path, owner_digest, resources):
             "{{.ID}}",
         ]
     )
-    # The stopped chown/config helpers are also exact records of this owner.
     allowed_users = {
         item["id"] for item in owner.data["resources"] if item["kind"] == "container"
     }

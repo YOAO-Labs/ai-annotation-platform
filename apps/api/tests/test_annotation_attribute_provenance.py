@@ -132,7 +132,6 @@ async def test_accept_prediction_marks_ai_attributes(db_session, super_admin):
         "model_id": "cls",
     }
     assert ann.attributes_meta["vehicle_type"]["origin"] == "ai"
-    # _shape_index 内部键不进 meta
     assert "_shape_index" not in ann.attributes_meta
 
 
@@ -143,7 +142,6 @@ async def test_accept_prediction_label_prefix(db_session, super_admin):
     task = await create_task(db_session, project_id=proj.id)
     await db_session.flush()
 
-    # label='sub' + write_keys=['color'] → 富集键 'sub_color' (与 tasks.py 前缀逻辑一致)
     pred = await _create_prediction_with_pipeline(
         db_session,
         project_id=proj.id,
@@ -192,7 +190,6 @@ async def test_accept_prediction_human_override_not_ai(db_session, super_admin):
         ],
     )
 
-    # 采纳前人工把 color 改成 white → color 视为 human 认领, 不标 ai
     anns = await _accept_candidate(
         db_session, task, user, pred.id, attribute_overrides={"color": "white"}
     )
@@ -214,7 +211,7 @@ async def test_accept_prediction_no_pipeline_no_meta(db_session, super_admin):
         project_id=proj.id,
         task_id=task.id,
         result=[_bbox_shape("car", {"color": "blue"})],
-        stages=None,  # 无 PredictionMeta
+        stages=None,
     )
 
     anns = await _accept_candidate(db_session, task, user, pred.id)
@@ -362,25 +359,19 @@ async def test_accept_prediction_source_change_fails_before_business_fence(
     )
 
 
-# ── update / bulk_update meta 键同步 ─────────────────────────────────────────
-
-
 def test_sync_meta_helper():
     old_attrs = {"color": "blue", "vehicle_type": "sedan"}
     old_meta = {
         "color": {"origin": "ai", "model_ref": {"model_id": "cls"}},
         "vehicle_type": {"origin": "ai", "model_ref": {"model_id": "cls"}},
     }
-    # 改 color、保留 vehicle_type、删无关: color 掉 meta, vehicle_type 保留
     new = _sync_attributes_meta(
         old_attrs, old_meta, {"color": "red", "vehicle_type": "sedan"}
     )
     assert "color" not in new
     assert new["vehicle_type"]["origin"] == "ai"
-    # 删除 vehicle_type 键 → meta 一并消失
     new2 = _sync_attributes_meta(old_attrs, old_meta, {"color": "blue"})
     assert new2 == {"color": {"origin": "ai", "model_ref": {"model_id": "cls"}}}
-    # 内部键跳过
     new3 = _sync_attributes_meta(
         old_attrs,
         old_meta,
@@ -405,14 +396,12 @@ async def test_update_flips_ai_to_human_on_change(db_session, super_admin):
         geometry={"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
         attributes={"color": "blue", "vehicle_type": "sedan"},
     )
-    # 手动模拟 AI 溯源 (accept 后的状态)
     ann.attributes_meta = {
         "color": {"origin": "ai", "model_ref": {"model_id": "cls"}},
         "vehicle_type": {"origin": "ai", "model_ref": {"model_id": "cls"}},
     }
     await db_session.flush()
 
-    # 人工改 color、保留 vehicle_type
     updated = await svc.update(
         ann.id, attributes={"color": "white", "vehicle_type": "sedan"}
     )
@@ -440,4 +429,4 @@ async def test_bulk_update_syncs_meta(db_session, super_admin):
     await db_session.flush()
 
     rows = await svc.bulk_update([ann.id], attributes={"color": "green"})
-    assert rows[0].attributes_meta == {}  # color 改值 → 掉 AI 溯源
+    assert rows[0].attributes_meta == {}

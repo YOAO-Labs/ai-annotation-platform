@@ -251,7 +251,6 @@ async def test_terminal_release_and_replay_require_all_owner_artifacts_closed(
         "worker_id": str(uuid.uuid4()),
         "lease_seconds": 30,
     }
-    # An extant lease always wins even over otherwise complete retirement.
     busy = await _step(db_session, "claim", request)
     assert busy["reason"] == "execution_busy"
     proof = {

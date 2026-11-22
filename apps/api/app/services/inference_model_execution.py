@@ -212,7 +212,6 @@ class _ModelExecutionGateway(ModelExecutionPort):
                     try:
                         ledger = make_ledger_from_settings()
                     except Exception:
-                        # Circuit hints cannot replace durable execution admission.
                         ledger = None
                 router = MLBackendRouter(
                     self.db, ledger=ledger, mode=mode, authority=authority
@@ -329,7 +328,6 @@ class _ModelExecutionGateway(ModelExecutionPort):
                 ),
             )
             try:
-                # The caller's preflight precedes the owner's transport admission.
                 result = await client.execute(bound, before_dispatch=before_dispatch)
             except ModelExecutionError as error:
                 self._observe(error.failure.observation)
@@ -356,7 +354,6 @@ class _ModelExecutionGateway(ModelExecutionPort):
                     else:
                         await router.cancel(lease)
                 except Exception:
-                    # An unresolved HTTP attempt must retain its durable scope.
                     logger.warning(
                         "model_execution_scope_close_unacknowledged", exc_info=True
                     )

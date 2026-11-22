@@ -145,34 +145,23 @@ class Annotation(Base):
     )
     source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
     annotation_type: Mapped[str] = mapped_column(String(30), default="bbox")
-    # 标注所属工具单位; 校验 class_name ∈ project.tool_bindings[unit].classes.
-    # 默认 bbox 兼容旧数据; migration backfill 按 annotation_type 反推 (polygon/mask → region).
     tool_unit_id: Mapped[str] = mapped_column(
         String(30), nullable=False, server_default="bbox", default="bbox"
     )
     class_name: Mapped[str] = mapped_column(String(100), nullable=False)
     geometry: Mapped[dict] = mapped_column(JSONB, nullable=False)
     confidence: Mapped[float | None] = mapped_column(Float)
-    # ADR-0006 · predictions 按月分区；此列是软引用，不设数据库外键。
-    # 业务侧已手动管理（删 prediction 前先 NULL），大表上重建复合 FK 收益低、锁表代价高。
     parent_prediction_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     parent_annotation_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("annotations.id")
     )
-    # ADR-0045 · 跨帧同一对象的通用标识 (几何类型无关), 格式 trk_<uuid.hex>.
-    # 权威落点 (原分裂: video geometry 内 track_id + box_3d 借 group_id>=1e9, 编组下线后
-    # group_id 列已删). 单一工厂 _new_track_id() 产出; propagate/interpolate/导出/3D 前端统一读本列.
     track_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    # ADR-0069 · 3D Scene member 的权威 Track 外键。track_id 继续冗余为兼容外部键；
-    # 非 Scene / compact video / 迁移异常链保持 NULL。
     scene_track_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("scene_tracks.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    # ADR-0071 · LiDAR SceneTrack 的多相机人工成员上下文。
-    # 这些列要么同时为 NULL（普通/3D Annotation），要么同时完整。
     sensor_dataset_item_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("dataset_items.id", ondelete="RESTRICT"),
@@ -183,7 +172,6 @@ class Annotation(Base):
     sensor_visibility: Mapped[str | None] = mapped_column(String(16), nullable=True)
     calibration_revision: Mapped[int | None] = mapped_column(Integer, nullable=True)
     calibration_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    # source 表示来源，temporal_role 表示成员在时序模型中的角色，两者正交。
     temporal_role: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="sample", default="sample"
     )
@@ -194,14 +182,9 @@ class Annotation(Base):
     attributes: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict
     )
-    # 属性级溯源 sidecar: 每个 attribute key 的来源标记
-    # {key: {origin: "ai"|"human", model_ref?: {...}, confidence?: float, at?: iso}}.
-    # 独立列 (不塞进 attributes 内, 避免污染值空间). 存量行为 {} → 读作全 human.
-    # key 必须与 attributes 同步 (增删属性联动 meta), 见 AnnotationService。
     attributes_meta: Mapped[dict] = mapped_column(
         JSONB, nullable=False, server_default="{}", default=dict
     )
-    # CVAT 风格的 shape 状态位。
     z_order: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )

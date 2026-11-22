@@ -273,7 +273,6 @@ async def test_foreign_source_and_target_class_order_are_rejected(
     denied = await eligibility(httpx_client, annotator[1], project, dataset, model)
     assert denied.status_code == 404
     pin, _ = await source.source_pin(db_session, project.id, model.id)
-    # Use an independently ready target rather than rewriting the immutable source.
     target = TrainingDatasetVersion(
         project_id=project.id,
         creator_id=owner.id,

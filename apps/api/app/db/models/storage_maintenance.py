@@ -21,8 +21,6 @@ from app.db.base import Base
 class StorageMaintenanceGate(Base):
     __tablename__ = "storage_maintenance_gates"
 
-    # Intentionally no business-location FK: independent admission must not wait
-    # for a caller's uncommitted location or lose unresolved access responsibility.
     location_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
     state: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="active"

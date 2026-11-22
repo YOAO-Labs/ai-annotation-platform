@@ -329,7 +329,6 @@ def verify_native(config, observed, runtime_options):
     differences = []
     for key, value in expected.items():
         actual = normalized(observed.get(key))
-        # Native device parsing can preserve integer GPU indexes as strings.
         if key == "device" and config["framework"] == "ultralytics":
             actual, value = str(actual), str(value)
         if key not in observed or actual != normalized(value):

@@ -237,7 +237,6 @@ onBeforeUnmount(() => {
   reducedMotionQuery?.removeEventListener("change", onReducedMotionChange);
 });
 
-/** 复用现有 VitePress local search：优先点击导航栏搜索按钮，回退到 ⌘K 快捷键。 */
 function openSearch(): void {
   const btn = document.querySelector<HTMLElement>(
     ".VPNavBarSearch button, .VPNavBarSearchButton, button.DocSearch-Button",

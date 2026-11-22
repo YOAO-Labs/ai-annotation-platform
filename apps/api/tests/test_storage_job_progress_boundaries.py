@@ -84,9 +84,6 @@ async def test_downgrade_preserves_any_new_observation_fact(db_session, field):
     from datetime import datetime, timezone
 
     job = await running(db_session)
-    # The retained fact is written as the relation owner: an application flush
-    # cannot reach these columns, and the downgrade guard must still protect
-    # any stored value even when it is not a valid observation.
     if field == "last_progress_at":
         await db_session.execute(
             text(
@@ -114,7 +111,6 @@ async def test_downgrade_preserves_any_new_observation_fact(db_session, field):
 
     with pytest.raises(RuntimeError, match="keep schema"):
         await db_session.run_sync(downgrade)
-    # The rejection precedes DDL, and the transaction remains usable.
     assert (
         await db_session.execute(
             select(AsyncJob.last_progress_at, AsyncJob.progress_observation).where(
@@ -152,7 +148,6 @@ async def test_restricted_api_records_progress_without_private_relation_rights(
     ).one()
     assert grants == (True, True)
 
-    # The owner test transaction restores this ACL change during fixture rollback.
     await db_session.execute(
         text("REVOKE SELECT, UPDATE ON public.async_jobs FROM identity_api_consumer")
     )

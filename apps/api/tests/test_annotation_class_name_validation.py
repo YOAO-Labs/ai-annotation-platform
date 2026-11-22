@@ -85,7 +85,7 @@ async def test_create_class_name_not_in_allowed_raises_422(db_session, super_adm
             task_id=task.id,
             user_id=user.id,
             annotation_type="bbox",
-            class_name="cat",  # 不在 allowed=["person"] 内
+            class_name="cat",
             geometry={"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
             tool_unit_id="bbox",
         )
@@ -152,15 +152,11 @@ async def test_create_wrong_unit_does_not_match(db_session, super_admin):
         task_id=task.id,
         user_id=user.id,
         annotation_type="bbox",
-        class_name="anything",  # 不在 bbox 的 allowed 内
+        class_name="anything",
         geometry={"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
-        tool_unit_id="region",  # 但走的是未配置的 region unit
+        tool_unit_id="region",
     )
-    # region 未配置, allowed=[], 放行.
     assert ann.tool_unit_id == "region"
-
-
-# ── accept_prediction ──────────────────────────────────────────────────────
 
 
 async def _create_prediction(
@@ -189,7 +185,6 @@ async def test_accept_prediction_alias_scoped_to_prediction_unit(
     """
     user, _ = super_admin
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
-    # bbox unit: person.alias = 'person_ext'; region unit: person.alias = 'object'
     proj.tool_bindings = {
         "bbox": {
             "enabled": True,
@@ -209,7 +204,6 @@ async def test_accept_prediction_alias_scoped_to_prediction_unit(
     task = await create_task(db_session, project_id=proj.id)
     await db_session.flush()
 
-    # prediction 来自 region (例如 SAM 候选), class_name="object" (alias) → 应回查到 person.
     pred = await _create_prediction(
         db_session,
         project_id=proj.id,
@@ -219,7 +213,7 @@ async def test_accept_prediction_alias_scoped_to_prediction_unit(
             {
                 "type": "rectanglelabels",
                 "geometry": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
-                "class_name": "object",  # region unit 的 alias
+                "class_name": "object",
                 "tool_unit_id": "region",
             }
         ],
@@ -237,7 +231,6 @@ async def test_accept_prediction_raises_when_class_not_in_unit(db_session, super
     """共享校验: accept_prediction 也必须过 _validate_class_name."""
     user, _ = super_admin
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
-    # bbox unit 仅有 "person", 没有 "ghost".
     proj.tool_bindings = _tb("bbox", [{"name": "person", "order": 0}])
     task = await create_task(db_session, project_id=proj.id)
     await db_session.flush()
@@ -251,7 +244,7 @@ async def test_accept_prediction_raises_when_class_not_in_unit(db_session, super
             {
                 "type": "rectanglelabels",
                 "geometry": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
-                "class_name": "ghost",  # 不在 bbox unit 内
+                "class_name": "ghost",
                 "tool_unit_id": "bbox",
             }
         ],
@@ -274,7 +267,6 @@ async def test_accept_prediction_override_class_name_lands_project_label(
     task = await create_task(db_session, project_id=proj.id)
     await db_session.flush()
 
-    # YOLO 输出原生类名 "person" (不在项目标签 "行人"、且无 alias) → 直接采纳会 422.
     pred = await _create_prediction(
         db_session,
         project_id=proj.id,
@@ -361,9 +353,6 @@ async def test_accept_prediction_no_match_pass_through_class_name(
     assert anns is not None and len(anns) == 1
     ann = anns[0]
     assert ann.class_name == "person"
-
-
-# ── update (PATCH 改类) ─────────────────────────────────────────────────────
 
 
 async def _make_annotation(

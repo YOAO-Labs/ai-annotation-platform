@@ -156,7 +156,6 @@ async def test_same_sha_is_not_authority_and_publication_preserves_both_identiti
     finally:
         snapshot.close()
     assert (await httpx_client.get(base, headers=headers(annotator))).status_code == 403
-    # The original task cannot be reused to authorize B as a separate business item.
     with pytest.raises(HTTPException) as error:
         await references.reference_snapshot(
             db_session, w.replica_item_id, annotator[0], task_id=w.task.id
@@ -639,7 +638,6 @@ async def test_offline_workbench_retains_explicit_replica_read_attempt_only(
     assert "read_original" not in await current()
     link = await publish(db_session, w)
     assert "read_original" in await current()
-    # B's enabled state and current manager scope control the attempt action.
     w.other[5].enabled = False
     await db_session.commit()
     assert "read_original" not in await current()

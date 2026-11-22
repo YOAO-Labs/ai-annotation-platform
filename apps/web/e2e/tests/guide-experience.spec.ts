@@ -147,8 +147,6 @@ test("workbench guide opens from the topbar into a settings-sized reader and pre
     return probe.style.backgroundColor;
   });
   await expect(dialog).toHaveCSS("background-color", cardColor);
-  // A nested image dialog must sit above the reader, and its first Esc must
-  // close only the image, leaving the guide open.
   await dialog.getByRole("button", { name: /放大.*边界示例/ }).click();
   const imageDialog = page.getByRole("dialog", { name: "边界示例", exact: true });
   await expect(imageDialog).toBeVisible();
@@ -164,8 +162,6 @@ test("workbench guide opens from the topbar into a settings-sized reader and pre
     )
     .toBe(true);
   await page.keyboard.press("Escape");
-  // Wait for the closing layer's actual removal; a closing Radix dialog can
-  // be aria-hidden before its exit animation releases the Escape handler.
   await expect(page.locator(`[id="${imageDialogId}"]`)).toHaveCount(0);
   await expect(dialog).toBeVisible();
   await dialog.focus();
@@ -214,7 +210,6 @@ test("workbench guide opens from the topbar into a settings-sized reader and pre
   await expect(dialog.getByRole("button", { name: "已确认阅读", exact: true })).toBeInViewport();
   await dialog.getByRole("button", { name: "关闭指引", exact: true }).click();
   await expect(trigger).toBeFocused();
-  // The existing app shell blocks workbench interaction below 768 px.
   await page.setViewportSize({ width: 375, height: 812 });
   await expect(page.getByRole("heading", { name: "请切换到桌面端" })).toBeVisible();
   await expect(dialog).toHaveCount(0);

@@ -1,11 +1,3 @@
-// Mask 编辑器的 Konva 渲染层。
-// MaskBuffer.consumeDirty() 返回脏矩形，用于增量 putImageData，
-// toAlphaImageDataRect(rect) 只切片对应区域，避免大画布每笔全量拷贝（8K 图 ~256MB Uint8）。
-// 首次激活时强制走一次全图（rect = 全图），保证 canvas 与 buffer 初态一致。
-//
-// 仍以 useMaskEditor.revision 作为「需要重画」的通知信号；脏区数据不进 React state。
-// 颜色跟随当前类别，alpha 复用工作台通用「选中填充透明度」。
-
 import { useEffect, useMemo, useRef } from "react";
 import { Layer, Image as KonvaImage } from "react-konva";
 import type Konva from "konva";
@@ -21,7 +13,6 @@ interface MaskOverlayLayerProps {
   imgH: number;
   opacity?: number;
   color?: readonly [number, number, number];
-  /** 仅 mask 工具激活且 active 为 true 时挂载。 */
   visible: boolean;
 }
 
@@ -42,8 +33,6 @@ export function MaskOverlayLayer({
     return c;
   }, [imgW, imgH]);
   const imageRef = useRef<Konva.Image | null>(null);
-  // buffer 实例首次见到时强制全量重绘一次（保险：忽略 buffer 已积累的脏区状态，
-  // 直接画当前像素到 canvas）。后续都按 consumeDirty 增量。
   const seenBufferRef = useRef<MaskBuffer | null>(null);
   const opacityByte = Math.round(Math.max(0, Math.min(1, opacity)) * 255);
   const lastOpacityByteRef = useRef<number | null>(null);
@@ -56,13 +45,11 @@ export function MaskOverlayLayer({
     seenBufferRef.current = buffer;
     const opacityChanged = lastOpacityByteRef.current !== opacityByte;
     lastOpacityByteRef.current = opacityByte;
-    // 首次看到该 buffer → 全图；后续 → 取脏区，无脏区直接 skip
     const rect =
       isFirstSight || opacityChanged
         ? { x0: 0, y0: 0, x1: buffer.width, y1: buffer.height }
         : buffer.consumeDirty();
     if (!rect) return;
-    // 首次全量时也把 buffer 内部脏区一并清空，避免下一笔被首次全量「吃掉」
     if (isFirstSight || opacityChanged) buffer.consumeDirty();
     const w = rect.x1 - rect.x0;
     const h = rect.y1 - rect.y0;

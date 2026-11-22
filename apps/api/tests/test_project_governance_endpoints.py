@@ -53,7 +53,6 @@ async def _seed_project(
 
     annotator_ids: list[uuid.UUID] = []
     reviewer_ids: list[uuid.UUID] = []
-    # 先把所有 User 插入并 flush，再插 ProjectMember（避免 FK 顺序问题）
     for i in range(n_annotators):
         u = User(
             id=uuid.uuid4(),
@@ -118,9 +117,6 @@ async def _seed_project(
     return p, batches, all_tasks, annotator_ids, reviewer_ids
 
 
-# ── 1. 项目级 batch 分派（一 batch 一人） ─────────────────────────────
-
-
 class TestProjectDistributeBatches:
     @pytest.mark.asyncio
     async def test_round_robin_assigns_one_per_batch(
@@ -152,18 +148,15 @@ class TestProjectDistributeBatches:
         body = resp.json()
         assert body["distributed_batches"] == 7
 
-        # 每个 batch 都拿到 1 个 annotator + 1 个 reviewer
         for b in batches:
             await db_session.refresh(b)
             assert b.annotator_id is not None
             assert b.reviewer_id is not None
-            # assigned_user_ids 派生为 [annotator_id, reviewer_id]
             assert set(map(str, b.assigned_user_ids)) == {
                 str(b.annotator_id),
                 str(b.reviewer_id),
             }
 
-        # 圆周：7 batch / 3 annotator → 计数 [3, 2, 2]
         annotator_counts: dict[str, int] = {}
         for b in batches:
             annotator_counts[str(b.annotator_id)] = (
@@ -171,14 +164,12 @@ class TestProjectDistributeBatches:
             )
         assert sorted(annotator_counts.values(), reverse=True) == [3, 2, 2]
 
-        # task 联动：所有 task.assignee_id 必须等于其 batch.annotator_id
         for t in tasks:
             await db_session.refresh(t)
             owner_batch = next(b for b in batches if b.id == t.batch_id)
             assert t.assignee_id == owner_batch.annotator_id
             assert t.reviewer_id == owner_batch.reviewer_id
 
-        # audit_logs 中应有项目级 batch.distribute_even 一条
         audits = (
             (
                 await db_session.execute(
@@ -210,7 +201,6 @@ class TestProjectDistributeBatches:
             n_batches=4,
             tasks_per_batch=1,
         )
-        # 预设 batch[0] 已分派给 annotator[0]
         batches[0].annotator_id = annotator_ids[0]
         await db_session.flush()
 
@@ -224,15 +214,10 @@ class TestProjectDistributeBatches:
             headers=_bearer(token),
         )
         assert resp.status_code == 200
-        # 只有 3 个未分派 batch 被改写
         assert resp.json()["distributed_batches"] == 3
 
         await db_session.refresh(batches[0])
-        # batch[0] 保持原标注员
         assert batches[0].annotator_id == annotator_ids[0]
-
-
-# ── 2. annotation audit ───────────────────────────────────────────────
 
 
 class TestAnnotationAuditTrail:
@@ -253,7 +238,6 @@ class TestAnnotationAuditTrail:
         )
         task = tasks[0]
 
-        # create
         resp = await httpx_client.post(
             f"/api/v1/tasks/{task.id}/annotations",
             json={
@@ -266,7 +250,6 @@ class TestAnnotationAuditTrail:
         assert resp.status_code == 201, resp.text
         ann_id = resp.json()["id"]
 
-        # PATCH 会校验项目标签集；"person" 合法，"truck" 会被 422 拒绝。
         resp = await httpx_client.patch(
             f"/api/v1/tasks/{task.id}/annotations/{ann_id}",
             json={"class_name": "person"},
@@ -274,14 +257,12 @@ class TestAnnotationAuditTrail:
         )
         assert resp.status_code == 200, resp.text
 
-        # delete
         resp = await httpx_client.delete(
             f"/api/v1/tasks/{task.id}/annotations/{ann_id}",
             headers=_bearer(token),
         )
         assert resp.status_code == 204
 
-        # 检查 audit_logs
         audits = (
             (
                 await db_session.execute(
@@ -300,9 +281,6 @@ class TestAnnotationAuditTrail:
         assert "annotation.create" in actions
         assert "annotation.update" in actions
         assert "annotation.delete" in actions
-
-
-# ── 3. /search ─────────────────────────────────────────────────────────
 
 
 class TestGlobalSearch:
@@ -325,9 +303,6 @@ class TestGlobalSearch:
         assert resp.status_code == 200
         body = resp.json()
         assert any("governance" in p["name"] for p in body["projects"])
-
-
-# ── 4. annotation history ─────────────────────────────────────────────
 
 
 class TestAnnotationHistoryEndpoint:
@@ -371,5 +346,5 @@ class TestAnnotationHistoryEndpoint:
         assert resp.status_code == 200, resp.text
         body = resp.json()
         kinds = [e["kind"] for e in body["entries"]]
-        assert "audit" in kinds  # at least annotation.create
+        assert "audit" in kinds
         assert "comment" in kinds

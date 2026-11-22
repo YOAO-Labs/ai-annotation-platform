@@ -14,19 +14,17 @@ export interface PasswordChangePayload {
   new_password: string;
 }
 
-// 工作台耗时事件批量上报（效率看板源数据）
 export interface TaskEventIn {
   client_id?: string;
   task_id: string;
   project_id: string;
   kind: "annotate" | "review";
-  started_at: string; // ISO
-  ended_at: string; // ISO
+  started_at: string;
+  ended_at: string;
   duration_ms: number;
   annotation_count?: number;
   was_rejected?: boolean;
   collector_version?: "session-v2";
-  /** Set by the bounded client queue after local events were evicted. */
   collection_coverage?: "qualified" | "partial";
 }
 
@@ -47,19 +45,9 @@ export const meApi = {
     apiClient.patch<MeResponse>("/auth/me", payload),
   changePassword: (payload: PasswordChangePayload) =>
     apiClient.post<void>("/auth/me/password", payload),
-  /**
-   * 头像：选择内置像素头像（`preset:<slug>`）或恢复默认（`avatar_ref: null`）。
-   * 上传头像不能走这里——`upload:` 前缀由后端上传端点独占写入。
-   */
   setAvatarRef: (avatar_ref: string | null) =>
     apiClient.patch<MeResponse>("/auth/me/avatar", { avatar_ref } satisfies AvatarRefPayload),
   clearAvatar: () => apiClient.delete<MeResponse>("/auth/me/avatar"),
-  /**
-   * 上传自定义头像（≤2 MB，PNG/JPEG/WebP）。
-   *
-   * 走 XHR 而不是 `apiClient`：后者固定 `Content-Type: application/json`，multipart 必须
-   * 交给浏览器自己带 boundary。顺带拿到上传进度（与 datasets.uploadZip 同一套写法）。
-   */
   uploadAvatar: (file: File, onProgress?: (percent: number) => void): Promise<MeResponse> =>
     new Promise((resolve, reject) => {
       const token = localStorage.getItem("token");
@@ -94,12 +82,10 @@ export const meApi = {
       form.append("file", file);
       xhr.send(form);
     }),
-  // 自助注销冷静期
   requestDeactivation: (reason: string) =>
     apiClient.post<MeResponse>("/auth/me/deactivation-request", { reason }),
   cancelDeactivation: () => apiClient.delete<MeResponse>("/auth/me/deactivation-request"),
   submitTaskEvents: (events: TaskEventIn[], init?: RequestInit) =>
     apiClient.post<TaskEventBatchOut>("/auth/me/task-events:batch", { events }, init),
-  // 在线状态心跳：前端 30s 周期触发，刷新 last_seen_at + status='online'。
   heartbeat: () => apiClient.post<void>("/auth/me/heartbeat"),
 };

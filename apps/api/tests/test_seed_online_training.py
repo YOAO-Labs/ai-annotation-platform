@@ -63,8 +63,6 @@ def coco8(tmp_path, monkeypatch):
             }
         )
         expected[name] = split
-    # Synthetic test bytes have their own deterministic split; production uses
-    # seed 4 for the pinned COCO8 asset and verifies it before touching storage.
     seed = next(
         seed
         for seed in range(10000)
@@ -128,8 +126,6 @@ def memory_storage(monkeypatch):
             )
 
     client = Client()
-    # Owned conditional writes build a per-call transport from the saved client
-    # config, so that seam must forward to this same in-memory provider.
     patch_owned_client(monkeypatch, client)
     monkeypatch.setattr(storage_service, "client", client)
     monkeypatch.setattr(reader, "create_client", lambda **kwargs: client)
@@ -247,7 +243,6 @@ async def test_fresh_initial_segmentation_exposes_sources_to_independent_mask_ow
             )
             dataset = await caller.get(Dataset, dataset_id)
             assert fixture_seed.SEGMENTATION_MARKER in dataset.metadata_
-            # The source phase is durable; mask annotations remain caller-owned.
             await caller.rollback()
     finally:
         async with factory() as cleanup:
@@ -261,8 +256,6 @@ async def test_fresh_initial_segmentation_exposes_sources_to_independent_mask_ow
             await cleanup.execute(delete(Project).where(Project.id == project_id))
             await cleanup.execute(delete(Dataset).where(Dataset.id == dataset_id))
             await cleanup.execute(delete(User).where(User.id.in_(user_ids)))
-            # Track actual candidates/publications from this call, including a
-            # failed write. Never sweep shared bindings or other owners' guards.
             purposes = [
                 f"raster_object_{operation}_{identifier.hex}"
                 for identifier in owned
@@ -393,7 +386,6 @@ async def test_segmentation_extends_existing_fixture_without_replacing_detection
         for sample in version.manifest["samples"]:
             assert len(json.loads(archive.read(sample["label_path"]))["instances"]) == 1
 
-    # A completed extension never repairs later human edits or deleted masks.
     frozen = version.snapshot
     masks[0].version += 1
     await db_session.delete(masks[1])
@@ -562,7 +554,6 @@ async def test_fixture_materializes_reviewed_input_and_preserves_edits(
                 hashlib.sha256(archive.read(sample["image_path"])).hexdigest()
                 == sample["sha256"]
             )
-    # Later iterations inherit the original partitions even with other defaults.
     assert (
         assign_splits(
             [{**s, "labels": ""} for s in version.manifest["samples"]],
@@ -644,7 +635,6 @@ async def test_baseline_rerun_recovers_unfinished_build(
         await db_session.refresh(version)
         assert version.status == "failed"
         assert version.error_code == "temporary_failure"
-        # The test shares the worker session; its rollback expires this caller.
         await db_session.refresh(project)
     else:
         version.status = status
@@ -680,8 +670,6 @@ async def test_baseline_rerun_recovers_unfinished_build(
         == 1
     )
 
-    # The test's outer transaction retains the retry lock across session commits.
-    # Exercise the builder directly, as after the CLI commits its transaction.
     writes = memory_storage.writes
     package_key = f"{saved_owner['prefix']}attempts/{retried.attempt_id}/dataset.zip"
     memory_storage.objects[trap_bucket, package_key] = (b"current bucket trap", {})

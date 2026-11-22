@@ -1,6 +1,3 @@
-# Build context hygiene for production API/web images.
-# Keeps cached bytecode, virtualenvs, coverage and build artifacts out of the
-# image layer so removed legacy modules cannot survive as stale .pyc.
 **/__pycache__/
 **/*.py[cod]
 **/*.pyi
@@ -19,7 +16,6 @@ apps/web/node_modules/
 .git/
 **/.git
 
-# Credentials and persistent data are supplied at runtime, never in build layers.
 **/.env
 **/.env.*
 **/*.key

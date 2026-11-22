@@ -97,7 +97,6 @@ async def preview_dataset_unlink(
 
 
 def _invalidate_unlink_cache(db: AsyncSession, receipt: DatasetUnlinkReceipt) -> None:
-    # Native owner writes bypass this assembly's ORM identity map.
     for row in list(db.sync_session.identity_map.values()):
         state = inspect(row)
         if isinstance(row, Project) and state.identity == (receipt.project_id,):

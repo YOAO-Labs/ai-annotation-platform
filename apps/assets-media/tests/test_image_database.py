@@ -422,7 +422,6 @@ async def test_nonworker_operation_is_rejected_before_acquiring_connection():
     with pytest.raises(PermissionError):
         await database.call(
             "read_image_source",
-            # The operation/request pair itself is valid; only its role is wrong.
             ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=uuid4()),
         )
 

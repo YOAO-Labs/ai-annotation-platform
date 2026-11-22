@@ -320,8 +320,6 @@ async def test_export_locks_scope_limit_modes_and_rollback(test_engine):
                         await client.fetch(statement, *args)
                 assert await client.fetch(statement, *args)
 
-            # A conflicting row beyond the limit or outside the exact scope
-            # must not be locked by the function.
             for statement, args, owner_sql, owner_args in (
                 (
                     pred,

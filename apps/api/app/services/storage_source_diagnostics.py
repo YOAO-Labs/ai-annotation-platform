@@ -108,8 +108,6 @@ async def reference_evidence(db, source_ids, actor):
     obs = observations(
         None, actor, reference_source_ids=source_ids, cache_entry_ids=cache_ids
     )
-    # Match by current business identity, allowing an explicitly accepted move.
-    # EXISTS keeps one count per retained reference even if several heads match.
     record = (
         select(DatasetSourcePreview.measured_at)
         .join(

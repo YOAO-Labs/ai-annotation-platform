@@ -159,8 +159,6 @@ class FrozenLidar:
             ):
                 latest.setdefault(row.dataset_item_id, row)
             states = {}
-            # Match the existing COCO consumer: only manual camera bboxes need
-            # current calibration facts. Negative images need no calibration.
             camera_ids = {
                 item.id
                 for linked in self.links_by_task.values()

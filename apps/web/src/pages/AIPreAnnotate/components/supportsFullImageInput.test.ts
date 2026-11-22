@@ -1,9 +1,3 @@
-/**
- * 整图预标注 model 选择:必须排除 crop-only 的识别原子(如 rapidocr 的 ocr-rec)。
- *
- * 回归:此前 OCR 选择用 `.find(m => m.task === "ocr")` 取第一个,rapidocr 自报顺序
- * [ocr-det, ocr-rec, ocr-e2e] 会先命中 crop 输入的 ocr-rec → 整图喂进识别原子、画布无框。
- */
 import { describe, it, expect } from "vitest";
 import { supportsFullImageInput } from "./usePreannotateConfig";
 import type { MLModelCapability } from "@/api/ml-backends";

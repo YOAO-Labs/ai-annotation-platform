@@ -1,14 +1,3 @@
-/**
- * 跨帧延续 / 区间插值的「目标帧」选择器。
- *
- * 替代 CrossFrameInterpolateBar 的裸数字输入:
- * - Layer 1:回显当前 / 目标帧在 scene 内的位置 + 语义步进(+5 / +10 / 到末帧)+ 数字兜底;
- *   目标 task 经 neighbors(k=20) 反查,超 ±20 帧给出不可达提示。
- * - Layer 2:相机图缩略图条(±5 邻帧),点缩略图即设目标帧;无相机图的帧降级为占位,
- *   整条无图时不渲染(回落纯 Layer 1)。
- * 由 3D 画布右键菜单的「延续到指定帧 / 向后插值填充」触发,fixed 定位在鼠标点。
- * module.css → Tailwind。
- */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrameNeighbors } from "@/hooks/useFrameNeighbors";
 import { Button } from "@/components/ui/Button";
@@ -17,7 +6,6 @@ import { useNeighborFrameThumbs } from "./useNeighborFrameThumbs";
 
 export type FramePickerMode = "propagate" | "interpolate";
 
-// Tailwind class constants (was FramePicker.module.css).
 const POPOVER =
   "fixed left-[var(--frame-picker-left)] top-[var(--frame-picker-top)] z-workbench-modal w-[280px] max-w-[90vw] p-3 flex flex-col gap-2.5 bg-card border border-border rounded-lg shadow-lg text-sm text-foreground";
 const TITLE = "font-semibold text-sm text-foreground";
@@ -64,7 +52,6 @@ export function FramePicker({
   pushToast,
 }: FramePickerProps) {
   const ref = useRef<HTMLDivElement>(null);
-  // 展开即拉 k=20 邻帧(目标帧 → task 反查表)。
   const { data: neighbors } = useFrameNeighbors(taskId, 20);
   const taskByFrame = useMemo(() => {
     const m = new Map<number, string>();
@@ -73,7 +60,6 @@ export function FramePicker({
     return m;
   }, [neighbors]);
 
-  // Layer 2 · 相机图缩略图条(±5 邻帧;无相机图时整条不渲染,回落纯 Layer 1)。
   const thumbs = useNeighborFrameThumbs(taskId, frameIndex, 5, true);
 
   const maxFrame = sceneTotalFrames != null ? sceneTotalFrames - 1 : null;
@@ -83,7 +69,6 @@ export function FramePicker({
   const targetValid = target != null && Number.isInteger(target);
   const reachable = targetValid && target !== frameIndex && taskByFrame.has(target);
 
-  // fixed 定位 + 视口边界回拉(参考 ClassPickerPopover 的 fixed clamp)。
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -99,7 +84,6 @@ export function FramePicker({
     el.style.setProperty("--frame-picker-top", `${t}px`);
   }, [anchor]);
 
-  // Esc / 点击外部取消(延迟绑定 mousedown,避免捕获到打开这一次的点击)。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCancel();

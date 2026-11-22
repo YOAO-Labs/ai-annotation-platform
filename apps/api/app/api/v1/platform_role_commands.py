@@ -76,7 +76,6 @@ def _reject_platform_role_error(error: PlatformRoleFailure):
 async def execute_platform_role(
     request, credentials, commands, operation, user_id, role
 ):
-    # Preserve role validation before target lookup, including malformed path IDs.
     if role not in PLATFORM_ROLES:
         raise HTTPException(status_code=400, detail=f"非法平台角色: {role}")
     try:

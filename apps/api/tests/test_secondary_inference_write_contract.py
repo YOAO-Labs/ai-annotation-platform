@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import replace
 from types import SimpleNamespace
@@ -10,25 +11,40 @@ import httpx
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import delete, event, func, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.security import create_access_token
 from app.db.models.annotation import Annotation
 from app.db.models.audit_log import AuditLog
+from app.db.models.ml_backend_registry import ProjectMLBackendPool
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
+from app.deps import get_db
+from app.services.annotation import AnnotationService
 from app.services.audit import AuditAction, AuditService
 from app.services.audit_origin_contract import AuditOriginContext
+from app.services.identity_contracts import IdentityActorFacts
+from app.services.labeling_core_read_relations import (
+    annotation_row,
+    get_core_row,
+    task_row,
+)
 from app.services.labeling_write_scope import capture_labeling_write_scope
 from app.services.secondary_inference_result import (
     SecondaryInferenceResult,
 )
-from yoao_inference_contract.execution import (
-    ExecutionProvenance,
-    freeze_json,
-)
+from yoao_inference_contract.execution import ModelTaskResult, freeze_json, thaw_json
+from tests.conftest import create_registry_with_pool
 from tests.factory import create_project, create_task, create_user
+from tests.inference_execution_test_ports import FakeModelExecutionPort
+from tests.managed_image_inference_fixtures import (
+    attach_managed,
+    input_world as input_world,
+    sync_world as sync_world,
+)
+from tests.test_workspace_project_authority_locking import _api_url
 
 
 @pytest.mark.parametrize(
@@ -89,166 +105,142 @@ async def test_secondary_inference_rejects_cross_bound_scope_before_sql(
         assert statements == []
 
 
+async def _seed_secondary_world(sessions, *, managed):
+    async with sessions() as db:
+        actor = await create_user(
+            db,
+            "project_admin",
+            f"secondary-inference-{uuid.uuid4().hex}@test.local",
+            "Secondary inference owner",
+        )
+        project = await create_project(db, owner_id=actor.id)
+        task = await create_task(db, project_id=project.id, status="in_progress")
+        if managed:
+            await attach_managed(db, project, actor, task=task, size=(128, 128))
+        annotation = await AnnotationService(db).create(
+            task_id=task.id,
+            user_id=actor.id,
+            annotation_type="bbox",
+            class_name="car",
+            geometry={"type": "bbox", "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
+            tool_unit_id="bbox",
+        )
+        await db.commit()
+        return SimpleNamespace(
+            sessions=sessions,
+            actor_id=actor.id,
+            project_id=project.id,
+            task_id=task.id,
+            annotation_id=annotation.id,
+            initial_version=annotation.version,
+            initial_count=task.total_annotations,
+        )
+
+
 @pytest.fixture
-async def committed_secondary_inference_world(
-    test_db_url, apply_migrations, app_module
-):
-    """Give each route request a real Session and observe commits independently."""
+async def committed_secondary_inference_world(test_engine):
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False)
+    world = await _seed_secondary_world(sessions, managed=False)
+    try:
+        yield world
+    finally:
+        async with sessions.begin() as db:
+            await db.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
+            await db.execute(
+                delete(AuditLog).where(AuditLog.actor_id == world.actor_id)
+            )
+            await db.execute(
+                delete(Annotation).where(Annotation.task_id == world.task_id)
+            )
+            await db.execute(delete(Task).where(Task.id == world.task_id))
+            await db.execute(delete(Project).where(Project.id == world.project_id))
+            await db.execute(delete(User).where(User.id == world.actor_id))
 
-    from app.deps import get_db
-    from app.services.annotation import AnnotationService
 
-    engine = create_async_engine(test_db_url, echo=False)
-    sessions = async_sessionmaker(engine, expire_on_commit=False)
-    actor_id = project_id = task_id = annotation_id = None
-    app = app_module
-    old_overrides = app.dependency_overrides.copy()
-    route_sessions = []
+@pytest.fixture
+async def controlled_secondary_inference(monkeypatch, sync_world, app_module):
+    world = await _seed_secondary_world(sync_world.factory, managed=True)
+    async with world.sessions.begin() as db:
+        backend, pool = await create_registry_with_pool(
+            db,
+            name="secondary-" + uuid.uuid4().hex[:8],
+            enabled_pool=True,
+            health_meta={
+                "capabilities": {
+                    "task_contract_revision": 1,
+                    "models": [
+                        {
+                            "id": "cls",
+                            "task": "classify",
+                            "supported_inputs": ["crop"],
+                            "output_attribute_types": ["class"],
+                            "supported_geometric_outputs": [],
+                            "resource_profile": {"device": "cpu", "batchable": True},
+                        },
+                        {
+                            "id": "det",
+                            "task": "detect",
+                            "supported_inputs": ["crop"],
+                            "supported_geometric_outputs": ["bbox"],
+                            "resource_profile": {"device": "cpu", "batchable": True},
+                        },
+                    ],
+                }
+            },
+        )
+        db.add(
+            ProjectMLBackendPool(
+                project_id=world.project_id, pool_id=pool.id, enabled=True
+            )
+        )
+        world.backend_id = backend.id
+        world.pool_id = pool.id
+
+    def predict(operation, task_input):
+        if thaw_json(operation.context)["model_id"] == "cls":
+            result = [{"attributes": {"color": "blue"}, "score": 0.9}]
+        else:
+            result = [
+                {
+                    "type": "rectanglelabels",
+                    "value": {
+                        "x": 20.0,
+                        "y": 20.0,
+                        "width": 40.0,
+                        "height": 40.0,
+                        "rectanglelabels": ["car"],
+                    },
+                    "score": 0.9,
+                }
+            ]
+        return ModelTaskResult(task_id=thaw_json(task_input)["id"], result=result)
+
+    monkeypatch.setattr(
+        "app.services.inference_model_execution.model_execution_port",
+        lambda _db: FakeModelExecutionPort(predict),
+    )
+    world.app = app_module
+    world.route_sessions = []
+    world.token = create_access_token(subject=str(world.actor_id), role="project_admin")
 
     async def committed_get_db():
-        async with sessions() as db:
-            route_sessions.append(db)
+        async with world.sessions() as db:
+            world.route_sessions.append(db)
             yield db
 
-    app.dependency_overrides[get_db] = committed_get_db
-    try:
-        async with sessions() as db:
-            actor = await create_user(
-                db,
-                "project_admin",
-                f"secondary-inference-{uuid.uuid4().hex}@test.local",
-                "Secondary inference owner",
-            )
-            actor_id = actor.id
-            project = await create_project(db, owner_id=actor.id)
-            project_id = project.id
-            task = await create_task(db, project_id=project.id, status="in_progress")
-            task_id = task.id
-            annotation = await AnnotationService(db).create(
-                task_id=task.id,
-                user_id=actor.id,
-                annotation_type="bbox",
-                class_name="car",
-                geometry={"type": "bbox", "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
-                tool_unit_id="bbox",
-            )
-            annotation_id = annotation.id
-            initial_version = annotation.version
-            initial_count = task.total_annotations
-            await db.commit()
-
-        yield SimpleNamespace(
-            app=app,
-            sessions=sessions,
-            route_sessions=route_sessions,
-            actor_id=actor_id,
-            project_id=project_id,
-            task_id=task_id,
-            annotation_id=annotation_id,
-            initial_version=initial_version,
-            initial_count=initial_count,
-            token=create_access_token(subject=str(actor_id), role="project_admin"),
-            backend_id=uuid.uuid4(),
-            pool_id=uuid.uuid4(),
-        )
-    finally:
-        app.dependency_overrides.clear()
-        app.dependency_overrides.update(old_overrides)
-        if any(value is not None for value in (actor_id, project_id, task_id)):
-            async with sessions() as db:
-                await db.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
-                if actor_id is not None:
-                    await db.execute(
-                        delete(AuditLog).where(AuditLog.actor_id == actor_id)
-                    )
-                if task_id is not None:
-                    await db.execute(
-                        delete(Annotation).where(Annotation.task_id == task_id)
-                    )
-                    await db.execute(delete(Task).where(Task.id == task_id))
-                if project_id is not None:
-                    await db.execute(delete(Project).where(Project.id == project_id))
-                if actor_id is not None:
-                    await db.execute(delete(User).where(User.id == actor_id))
-                await db.commit()
-        await engine.dispose()
-
-
-@pytest.fixture
-def controlled_secondary_inference(monkeypatch, committed_secondary_inference_world):
-    from app.api.v1.tasks import annotations as annotations_api
-    from app.api.v1 import projects
-
-    world = committed_secondary_inference_world
-
-    class _FakeMLBackendService:
-        def __init__(self, _db):
-            pass
-
-        async def get_registry(self, backend_id):
-            return SimpleNamespace(id=backend_id, health_meta=None)
-
-        async def is_enabled(self, _project_id, _backend_id):
-            return True
-
-        async def pool_id_for_registry(self, _backend_id):
-            return world.pool_id
-
-    async def run_controlled(_db, *, write_target, **_kwargs):
-        provenance = ExecutionProvenance(
-            requested_registry_id=world.backend_id,
-            requested_pool_id=world.pool_id,
-            registry_id=world.backend_id,
-            pool_id=world.pool_id,
-            instance_id=world.backend_id,
-            route_scope_id=uuid.uuid4(),
-            attempt_id=uuid.uuid4(),
-        )
-        if write_target == "attributes":
-            return SecondaryInferenceResult(
-                write_target="attributes",
-                model_ref=(("model_id", "test-classifier"),),
-                attributes=(("color", freeze_json("blue")),),
-                geometry_shapes=(),
-                execution_provenance=provenance,
-            )
-        return SecondaryInferenceResult(
-            write_target="geometry",
-            model_ref=(("model_id", "test-detector"),),
-            attributes=(),
-            geometry_shapes=(
-                freeze_json(
-                    {
-                        "type": "bbox",
-                        "class_name": "car",
-                        "geometry": {
-                            "type": "bbox",
-                            "x": 0.3,
-                            "y": 0.2,
-                            "w": 0.4,
-                            "h": 0.3,
-                        },
-                        "confidence": 0.9,
-                    }
-                ),
-            ),
-            execution_provenance=provenance,
-        )
-
-    monkeypatch.setattr(annotations_api, "MLBackendService", _FakeMLBackendService)
-    monkeypatch.setattr(projects, "_stage_model", lambda *_args: {})
-    monkeypatch.setattr(
-        annotations_api, "check_capability_violations", lambda *_args, **_kwargs: []
-    )
-    monkeypatch.setattr(annotations_api, "run_secondary_inference", run_controlled)
-    return world
+    monkeypatch.setitem(app_module.dependency_overrides, get_db, committed_get_db)
+    yield world
 
 
 async def _post_secondary_inference(world, client, write_target):
     return await client.post(
         f"/api/v1/tasks/{world.task_id}/annotations/{world.annotation_id}/secondary-inference",
         headers={"Authorization": f"Bearer {world.token}"},
-        json={"ml_backend_id": str(world.backend_id), "write_target": write_target},
+        json={
+            "ml_backend_id": str(world.backend_id),
+            "write_target": write_target,
+            "model_id": "cls" if write_target == "attributes" else "det",
+        },
     )
 
 
@@ -413,3 +405,124 @@ async def test_secondary_inference_http_rolls_back_write_and_audit_after_apply(
             )
             == 0
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the owned module-data verifier and actual API LOGIN",
+)
+@pytest.mark.parametrize("write_target", ["attributes", "geometry"])
+async def test_secondary_result_commits_with_restricted_api_login(
+    committed_secondary_inference_world, test_engine, write_target
+):
+    from app.application.annotation_secondary_inference import (
+        _AnnotationSecondaryInferenceSqlAdapter,
+    )
+
+    world = committed_secondary_inference_world
+    async with world.sessions() as observer:
+        user = await observer.get(User, world.actor_id)
+        actor = IdentityActorFacts(
+            user.id, user.name, user.email, user.role, user.is_active
+        )
+
+    restricted = create_async_engine(_api_url(test_engine), hide_parameters=True)
+    sessions = async_sessionmaker(restricted, expire_on_commit=False)
+    try:
+        async with sessions() as db:
+            assert (
+                await db.scalar(text("SELECT current_user")) == "identity_api_consumer"
+            )
+            for table in ("tasks", "annotations"):
+                for statement in (
+                    f"SELECT id FROM public.{table} LIMIT 1",
+                    f"UPDATE public.{table} SET version = 1 WHERE false",
+                ):
+                    with pytest.raises(DBAPIError) as denied:
+                        async with db.begin_nested():
+                            await db.execute(text(statement))
+                    assert denied.value.orig.sqlstate == "42501"
+
+            task = await get_core_row(db, task_row, world.task_id)
+            parent = await get_core_row(db, annotation_row, world.annotation_id)
+            scope = capture_labeling_write_scope(
+                task,
+                actor_id=actor.id,
+                actor_known=True,
+                operation="secondary_inference",
+                execution_scope=None,
+                execution_scope_known=True,
+                job_id=None,
+                job_id_known=True,
+                source_annotation=parent,
+            )
+            writes_attributes = write_target == "attributes"
+            result = SecondaryInferenceResult(
+                write_target=write_target,
+                model_ref=(("model_id", "secondary-test"),),
+                attributes=(("color", freeze_json("blue")),)
+                if writes_attributes
+                else (),
+                geometry_shapes=(
+                    ()
+                    if writes_attributes
+                    else (
+                        freeze_json(
+                            {
+                                "type": "bbox",
+                                "class_name": "car",
+                                "geometry": {
+                                    "type": "bbox",
+                                    "x": 0.2,
+                                    "y": 0.2,
+                                    "w": 0.3,
+                                    "h": 0.4,
+                                },
+                            }
+                        ),
+                    )
+                ),
+            )
+            response = await _AnnotationSecondaryInferenceSqlAdapter(
+                db, task=task, annotation=parent, actor=actor
+            ).apply_secondary_inference(
+                write_scope=scope,
+                result=result,
+                write_target=write_target,
+                audit_origin=AuditOriginContext(
+                    method="POST", path="/fixture", ip=None
+                ),
+            )
+    finally:
+        await restricted.dispose()
+
+    async with world.sessions() as observer:
+        parent = await observer.get(Annotation, world.annotation_id)
+        task = await observer.get(Task, world.task_id)
+        if writes_attributes:
+            assert response.created_children == []
+            assert parent.version == world.initial_version + 1
+            assert parent.attributes == {"color": "blue"}
+            assert parent.attributes_meta["color"]["origin"] == "ai"
+            assert task.total_annotations == world.initial_count
+        else:
+            assert len(response.created_children) == 1
+            child = await observer.get(Annotation, response.created_children[0].id)
+            assert child.parent_annotation_id == parent.id
+            assert child.task_id == task.id
+            assert child.project_id == world.project_id
+            assert child.user_id == world.actor_id
+            assert (child.source, child.version) == ("prediction_based", 1)
+            assert parent.version == world.initial_version
+            assert task.total_annotations == world.initial_count + 1
+        audit = (
+            await observer.scalars(
+                select(AuditLog).where(
+                    AuditLog.actor_id == world.actor_id,
+                    AuditLog.target_id == str(parent.id),
+                    AuditLog.action == AuditAction.ANNOTATION_UPDATE.value,
+                )
+            )
+        ).one()
+        assert audit.detail_json["write_target"] == write_target

@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
-import type { ReviewClaimResponse, TaskLockConflictDetail, TaskResponse } from "@/types";
+import type { ReactNode } from "react";
+import type { TaskLockConflictDetail, TaskResponse } from "@/types";
 
 const BANNER_BASE = "flex items-center gap-1.5 border-b border-border px-3.5 py-1.5 text-xs";
 
@@ -11,7 +12,7 @@ interface WorkbenchBannersProps {
   onRetryContent?: () => unknown;
   lockError: string | null;
   lockConflict?: TaskLockConflictDetail | null;
-  claimInfo: ReviewClaimResponse | null;
+  modeBanner?: ReactNode;
   canWithdraw: boolean;
   isWithdrawing: boolean;
   isReopening: boolean;
@@ -34,7 +35,7 @@ export function WorkbenchBanners({
   onRetryContent,
   lockError,
   lockConflict,
-  claimInfo,
+  modeBanner,
   canWithdraw,
   isWithdrawing,
   isReopening,
@@ -61,15 +62,7 @@ export function WorkbenchBanners({
         </div>
       )}
 
-      {mode === "review" && claimInfo && !claimInfo.is_self && (
-        <div
-          className={`${BANNER_BASE} border-amber-500/40 bg-status-caution-soft text-amber-700 dark:text-amber-300`}
-        >
-          <Icon name="warning" size={13} />
-          已被其他审核员认领（{new Date(claimInfo.reviewer_claimed_at).toLocaleString("zh-CN")}
-          ），仍可接力处理
-        </div>
-      )}
+      {modeBanner}
       {mode === "review" && task?.skip_reason && (
         <div
           className={`${BANNER_BASE} border-violet-500/40 bg-status-info-soft text-violet-700 dark:text-violet-300`}

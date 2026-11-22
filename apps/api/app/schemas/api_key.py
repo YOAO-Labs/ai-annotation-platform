@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field, model_validator
 class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     scopes: list[str] = Field(default_factory=list)
-    # 有效期天数；None=永不过期。后端换算为绝对 expires_at（避免客户端时钟漂移）
     expires_in_days: int | None = Field(default=None, ge=1, le=3650)
 
 

@@ -1,6 +1,3 @@
-/**
- * pipelineGraph 纯函数单测: 派生 / 布局 / 受限改父校验。
- */
 import { describe, it, expect } from "vitest";
 
 import {
@@ -43,7 +40,6 @@ const attr = (keys?: string[], label?: string): PipelineStagePayload =>
     write: { target: "attributes", keys },
     label,
   }) as PipelineStagePayload;
-// 输入节点 entry (parentSid=null); 新模型 root 常驻 stagesGraph, 夹具须含它。
 const R: StageEntry = { sid: ROOT_SID, parentSid: null };
 
 describe("派生", () => {
@@ -53,12 +49,7 @@ describe("派生", () => {
   });
 
   it("depthBySid: 顺序无关 —— 子排在父之前 (改父后) 仍算对深度", () => {
-    // 改父常导致子在数组中排在新父之前; 不能依赖数组顺序。
-    const g: StageEntry[] = [
-      { sid: "b", parentSid: "a" }, // 子先出现
-      { sid: "a", parentSid: ROOT_SID }, // 父后出现
-      R,
-    ];
+    const g: StageEntry[] = [{ sid: "b", parentSid: "a" }, { sid: "a", parentSid: ROOT_SID }, R];
     expect(depthBySid(g)).toEqual({ root: 0, a: 1, b: 2 });
   });
 
@@ -71,7 +62,6 @@ describe("派生", () => {
   });
 
   it("canAddChild: 乱序下 depth-max 节点仍不可加子 (防造超深)", () => {
-    // 输入→a→x→b (深度 0/1/2/3), 但数组乱序。b 为 depth-3=MAX_DEPTH, 不可再加子。
     const g: StageEntry[] = [
       { sid: "b", parentSid: "x" },
       { sid: "x", parentSid: "a" },
@@ -112,7 +102,6 @@ describe("派生", () => {
 });
 
 describe("下游归类 classifyDownstream / deriveDownstreamShape", () => {
-  // 项目侧 StageCard 与全局侧 GlobalStageInspector 共用的单一判据; 锁死四类映射。
   const detect = { task: "detect", is_interactive: false };
   const boxSeg = { task: "segment", supported_prompts: ["bbox"], is_interactive: false };
   const segNoBbox = { task: "segment", supported_prompts: [], is_interactive: false };
@@ -234,7 +223,6 @@ describe("sourceNodeShape 从 source 元数据读取源类型和执行单位", (
   });
 
   it("角色随 model.task, 源类型随 source.data_type (二者解耦)", () => {
-    // data_type=video 但 model 是 detection → 视频源 + 目标检测 (逐帧检测场景)。
     const s = sourceNodeShape(
       { kind: "dataset", data_type: "video", execution_unit: "frame" },
       {
@@ -257,7 +245,6 @@ describe("加子门控", () => {
     expect(canAddChild(g, payloads, "a")).toBe(true);
   });
   it("分类阶段不可加子 (不产几何)", () => {
-    // 分类阶段是下游 (父=源模型 stage), 非源式; producesGeometry(attr)=false → 不可加子。
     const g: StageEntry[] = [
       R,
       { sid: "src", parentSid: ROOT_SID },
@@ -266,7 +253,6 @@ describe("加子门控", () => {
     expect(canAddChild(g, payloads, "b")).toBe(false);
   });
   it("depth-3 几何阶段不可加子 (超深)", () => {
-    // 输入(0)→a(1)→mid(2)→c(3); c 为 MAX_DEPTH, 不可再加。
     const g: StageEntry[] = [
       R,
       { sid: "a", parentSid: ROOT_SID },
@@ -278,7 +264,6 @@ describe("加子门控", () => {
 });
 
 describe("改父校验 canReparent", () => {
-  // a=源式检测(父=输入节点, 恒几何); b/c=a 的下游分类 (非几何)。
   const g: StageEntry[] = [
     R,
     { sid: "a", parentSid: ROOT_SID },
@@ -305,7 +290,6 @@ describe("改父校验 canReparent", () => {
     expect(r.reason).toMatch(/几何/);
   });
   it("超深被拒: 把含两层子树挂到 depth-2 几何阶段", () => {
-    // 输入(0)→p(1)→a2(2, 几何); 把 a(高度2: a→b) 挂到 a2 → a 新 d3 + 高度2-1 = d4 > 3。
     const g2: StageEntry[] = [
       R,
       { sid: "a", parentSid: ROOT_SID },
@@ -443,30 +427,21 @@ describe("buildFlow 派生 + 分层布局", () => {
     const { nodes } = buildFlow(models, null);
     expect(nodes.find((n) => n.id === ROOT_SID)!.type).toBe("stage");
     expect(nodes.find((n) => n.id === "a")!.type).toBe("stage");
-    // 输入节点 parentSid=null (组件据此不渲染入 handle)。
     expect(
       (nodes.find((n) => n.id === ROOT_SID)!.data as { parentSid: string | null }).parentSid,
     ).toBeNull();
   });
 
-  // claude[bot] P2 · DAG 三个已修回归此前只覆盖 "新建节点 depth>3"; 补两条:
-  // - "加第三阶段全部消失" 真因是 react-flow 受控模式漏 onNodesChange 致零尺寸 fitView 坍缩,
-  //   pipelineGraph 层无法直接复现; 但纯函数层的下限是: 3 节点输入仍能产 3 节点 + 2 边的拓扑,
-  //   不丢节点 / 不丢边。
-  // - "快捷键删除假删除" 真因在 PipelineGraphCanvas 的 onNodesDelete 回写真值源; 这里至少断言
-  //   ROOT_SID 不该被 buildFlow 派生为可删 (源节点不可删, 删它会级联清空整棵树)。
   it("3 节点 (root→a→b) 输入完整出 3 节点 + 2 边 (加第三阶段不丢节点)", () => {
     const { nodes, edges } = buildFlow(models, null);
     expect(nodes.map((n) => n.id).sort()).toEqual([ROOT_SID, "a", "b"].sort());
     expect(edges).toHaveLength(2);
     expect(edges.map((e) => e.id).sort()).toEqual(["a->b", "root->a"]);
-    // 三层各自打 col=0/1/2, 不会因为顺序乱掉就坍缩到同一列。
     const x = (id: string) => nodes.find((n) => n.id === id)!.position.x;
     expect(new Set([x(ROOT_SID), x("a"), x("b")]).size).toBe(3);
   });
 
   it("源节点不可删: ROOT_SID 视作不可作为删除目标 (canDelete 用 sid !== ROOT_SID 判定)", () => {
-    // 这是 onNodesDelete 守卫的纯函数对偶: 删 ROOT_SID 会清空整棵树, 不允许。
     const canDeleteSid = (sid: string) => sid !== ROOT_SID;
     expect(canDeleteSid(ROOT_SID)).toBe(false);
     expect(canDeleteSid("a")).toBe(true);

@@ -504,7 +504,6 @@ async def test_verified_final_reports_rank_only_within_compatible_identity_and_c
     objects = {}
     for index in range(2):
         run = (await studies.children(db_session, study.id))[-1]
-        # Select by trial ordinal because UUID order is intentionally unrelated.
         trial = await db_session.scalar(
             select(TrainingTrial).where(
                 TrainingTrial.study_id == study.id, TrainingTrial.ordinal == index + 1

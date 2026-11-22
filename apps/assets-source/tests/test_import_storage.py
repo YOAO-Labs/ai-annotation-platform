@@ -211,24 +211,34 @@ def _target(entry: ImportEntry, *, max_bytes: int | None = None):
         file_path=entry.file_path,
     )
 
+
 def _verify_from_store(store, entry, payload):
     async def verify(_expected):
         obj = store._object("datasets", entry.file_path, None)
         receipt = managed_original.WriteReceipt(obj["etag"], obj["version"], None, {})
         try:
             result = managed_original.verify(
-                store, "datasets", entry.file_path, receipt,
+                store,
+                "datasets",
+                entry.file_path,
+                receipt,
                 sha256=hashlib.sha256(payload).hexdigest(),
-                size_bytes=len(payload), max_bytes=len(payload),
+                size_bytes=len(payload),
+                max_bytes=len(payload),
             )
         except managed_original.WriterError as exc:
             raise DestinationWriteError(exc.code) from None
         return ImportVerificationResult(
-            sha256=result.sha256, md5=result.md5, size_bytes=result.size_bytes,
-            etag=receipt.etag, version_id=receipt.version_id,
-            observation=result.observation, physical_settled=True,
+            sha256=result.sha256,
+            md5=result.md5,
+            size_bytes=result.size_bytes,
+            etag=receipt.etag,
+            version_id=receipt.version_id,
+            observation=result.observation,
+            physical_settled=True,
             current_head_matches=True,
         )
+
     return verify
 
 
@@ -388,8 +398,6 @@ async def test_image_identity_comes_from_the_verified_saved_version() -> None:
         on_verify=_verify_from_store(store, entry, b"data"),
     )
 
-    # Identity is normalized (no surrounding quotes); the saved evidence keeps
-    # the provider ETag verbatim for the owner's strict comparison.
     assert result.object_identity == ObjectIdentity(
         etag=result.proof.verification["etag"].strip('"'),
         byte_size=4,

@@ -247,8 +247,6 @@ def run_reclaim(
             }
             checkpoint("read_verified", verified)
             check_deadline()
-            # From this callback onward the durable owner conservatively treats
-            # DELETE as possibly issued, including a failure before SDK returns.
             checkpoint("delete_started", verified)
             delete_started = True
             check_deadline()

@@ -17,7 +17,7 @@ import uuid
 import asyncpg
 import httpx
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import websockets
 
@@ -28,10 +28,6 @@ from yoao_notifications.notification_delivery_contract import (
     decode_notification_claim_reply,
 )
 from yoao_notifications.realtime_event_contract import notification_sync_message
-from yoao_notifications.websocket import (
-    _NOTIFICATION_GATE_ATTEMPTS,
-    _NOTIFICATION_GATE_RETRY_SECONDS,
-)
 from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.db.models.user import User
@@ -105,8 +101,6 @@ async def _assert_no_published(pubsub, *, timeout=0.5):
         assert not (message and message.get("type") == "message")
 
 
-# The socket owner emits this transport control frame every 30 seconds; the SDK
-# and web clients ignore it, so it is not a notification delivery.
 _HEARTBEAT_FRAME = {"type": "ping"}
 
 
@@ -256,7 +250,6 @@ asyncio.run(main())
 
 
 async def _run_in_api_image(stack, source, *args, timeout=45):
-    # These standalone consumers must not share the serving API's memory budget.
     return await asyncio.to_thread(
         stack._compose,
         "run",
@@ -276,6 +269,42 @@ async def _run_in_api_image(stack, source, *args, timeout=45):
 
 async def _run_terminal_in_api(stack, job_id, *, commit, delay):
     await _run_in_api_image(stack, _terminal_script(job_id, commit=commit, delay=delay))
+
+
+async def _publish_terminal_then_exit(stack, job_id):
+    source = """import asyncio, json, os, sys
+from redis.asyncio import Redis
+from yoao_notifications.delivery_config import NotificationPublisherSettings
+from yoao_notifications.delivery_worker import run_once
+
+class ExitWithoutBrokerAck(Redis):
+    async def publish(self, channel, message):
+        if json.loads(message)["target_id"] != sys.argv[1]:
+            raise RuntimeError("unexpected delivery")
+        await super().publish(channel, message)
+        os._exit(0)
+
+settings = NotificationPublisherSettings()
+redis = ExitWithoutBrokerAck.from_url(settings.redis_url.get_secret_value())
+asyncio.run(run_once(settings, redis=redis))
+raise RuntimeError("terminal relay never reached its finish boundary")
+"""
+    await asyncio.to_thread(
+        stack._compose,
+        "run",
+        "--rm",
+        "--no-deps",
+        "--pull",
+        "never",
+        "--entrypoint",
+        "python",
+        "-T",
+        "identity-notification-publisher",
+        "-c",
+        source,
+        str(job_id),
+        timeout=45,
+    )
 
 
 async def _append_deferred_notification_in_api(stack, *, user_id, issue_id, project_id):
@@ -799,42 +828,49 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         await _assert_no_published(owner_subscriber, timeout=0.6)
                         await _assert_no_socket_delivery(socket, timeout=0.6)
 
-                        commit_job_id = uuid.uuid4()
-                        rollback_job_id = uuid.uuid4()
+                        (
+                            commit_job_id,
+                            rollback_job_id,
+                            replay_job_id,
+                            denied_job_id,
+                            disabled_job_id,
+                        ) = (uuid.uuid4() for _ in range(5))
                         terminal_jobs = [
                             _batch_predict_terminal_job(
                                 job_id, user_id=actor.id, project_id=project.id
                             )
-                            for job_id in (commit_job_id, rollback_job_id)
+                            for job_id in (
+                                commit_job_id,
+                                rollback_job_id,
+                                replay_job_id,
+                                denied_job_id,
+                                disabled_job_id,
+                            )
                         ]
                         assert all(
                             job.project_id == project.id for job in terminal_jobs
                         )
                         async with seed.begin() as db:
                             db.add_all(terminal_jobs)
-                        precommit_started = asyncio.get_running_loop().time()
                         await _run_terminal_in_api(
-                            stack, commit_job_id, commit=True, delay=0.20
+                            stack, commit_job_id, commit=True, delay=0.75
                         )
                         terminal_event = await _next_published(owner_subscriber)
                         terminal_frame = await _next_socket_delivery(socket)
                         assert terminal_event == terminal_frame
                         assert terminal_event["type"] == "job.completed"
                         assert terminal_event["target_id"] == str(commit_job_id)
-                        assert (
-                            asyncio.get_running_loop().time() - precommit_started
-                            >= 0.18
+                        terminal_outbox = await _wait_for_delivery_state(
+                            seed, commit_job_id, "done"
                         )
-                        assert _NOTIFICATION_GATE_ATTEMPTS == 4
-                        assert _NOTIFICATION_GATE_RETRY_SECONDS == 0.15
+                        assert len(terminal_outbox) == 1
 
                         await _run_terminal_in_api(
                             stack, rollback_job_id, commit=False, delay=0.65
                         )
-                        rollback_event = await _next_published(owner_subscriber)
-                        assert rollback_event["type"] == "job.completed"
-                        assert rollback_event["target_id"] == str(rollback_job_id)
+                        await _assert_no_published(owner_subscriber, timeout=0.6)
                         await _assert_no_socket_delivery(socket, timeout=0.3)
+                        assert await _delivery_rows(seed, rollback_job_id) == []
                         async with seed() as db:
                             assert (
                                 await db.scalar(
@@ -843,6 +879,97 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                     )
                                 )
                                 is None
+                            )
+
+                        await stack.stop_service("identity-notification-publisher")
+                        for _ in range(2):
+                            await _run_terminal_in_api(
+                                stack, replay_job_id, commit=True, delay=0
+                            )
+                        await _assert_no_published(owner_subscriber, timeout=0.6)
+                        await _publish_terminal_then_exit(stack, replay_job_id)
+                        first = await _next_published(owner_subscriber)
+                        assert first["target_id"] == str(replay_job_id)
+                        assert await _next_socket_delivery(socket) == first
+                        lost_ack_rows = await _delivery_rows(seed, replay_job_id)
+                        assert len(lost_ack_rows) == 1
+                        assert lost_ack_rows[0]["state"] == "pending"
+                        assert lost_ack_rows[0]["attempt"] == 1
+                        assert lost_ack_rows[0]["lease_id"] is not None
+                        await _expire_dead_leases(seed, replay_job_id, 1)
+                        await stack.start_service("identity-notification-publisher")
+                        assert await _next_published(owner_subscriber) == first
+                        delivered_rows = await _wait_for_delivery_state(
+                            seed, replay_job_id, "done"
+                        )
+                        assert len(delivered_rows) == 1
+                        assert delivered_rows[0]["attempt"] == 2
+                        await _assert_no_socket_delivery(socket, timeout=0.6)
+                        async with seed() as db:
+                            assert list(
+                                await db.scalars(
+                                    select(Notification.id).where(
+                                        Notification.target_id == replay_job_id
+                                    )
+                                )
+                            ) == [uuid.UUID(first["id"])]
+
+                        await stack.stop_service("identity-notification-publisher")
+                        await _run_terminal_in_api(
+                            stack, denied_job_id, commit=True, delay=0
+                        )
+                        async with seed.begin() as db:
+                            await db.execute(
+                                text(
+                                    "DELETE FROM project_members "
+                                    "WHERE project_id=:project_id AND user_id=:user_id"
+                                ),
+                                {"project_id": project.id, "user_id": actor.id},
+                            )
+                        await _publish_terminal_then_exit(stack, denied_job_id)
+                        denied_terminal = await _next_published(owner_subscriber)
+                        assert denied_terminal["target_id"] == str(denied_job_id)
+                        await _assert_no_socket_delivery(socket, timeout=0.6)
+                        await _expire_dead_leases(seed, denied_job_id, 1)
+                        await stack.start_service("identity-notification-publisher")
+                        assert (
+                            await _next_published(owner_subscriber) == denied_terminal
+                        )
+                        await _assert_no_socket_delivery(socket, timeout=0.6)
+                        async with seed.begin() as db:
+                            await create_membership(
+                                db,
+                                project_id=project.id,
+                                user_id=actor.id,
+                                role="reviewer",
+                                assigned_by=owner_id,
+                            )
+
+                        await stack.stop_service("identity-notification-publisher")
+                        await _run_terminal_in_api(
+                            stack, disabled_job_id, commit=True, delay=0
+                        )
+                        async with seed.begin() as db:
+                            await db.execute(
+                                update(User)
+                                .where(User.id == actor.id)
+                                .values(is_active=False)
+                            )
+                        await _publish_terminal_then_exit(stack, disabled_job_id)
+                        disabled_terminal = await _next_published(owner_subscriber)
+                        assert disabled_terminal["target_id"] == str(disabled_job_id)
+                        await _assert_no_socket_delivery(socket, timeout=0.6)
+                        await _expire_dead_leases(seed, disabled_job_id, 1)
+                        await stack.start_service("identity-notification-publisher")
+                        assert (
+                            await _next_published(owner_subscriber) == disabled_terminal
+                        )
+                        await _assert_no_socket_delivery(socket, timeout=0.6)
+                        async with seed.begin() as db:
+                            await db.execute(
+                                update(User)
+                                .where(User.id == actor.id)
+                                .values(is_active=True)
                             )
 
                         await socket.close()
@@ -1136,9 +1263,10 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                     "notification_read_delete_and_sync": True,
                                     "current_scope_revocation": True,
                                     "ordinary_failure_best_effort_no_outbox": True,
-                                    "precommit_terminal_publication": True,
-                                    "terminal_rollback_dropped_by_gate": True,
-                                    "gate_attempts": _NOTIFICATION_GATE_ATTEMPTS,
+                                    "postcommit_terminal_publication": True,
+                                    "terminal_rollback_did_not_publish": True,
+                                    "terminal_relay_exit_recovered_and_socket_deduped": True,
+                                    "terminal_viewer_rechecked_after_enqueue": True,
                                     "restored_durable_ids": [
                                         str(value) for value in notification_ids
                                     ],

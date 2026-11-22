@@ -9,23 +9,6 @@ import { ActiveFilterChip } from "@/components/filters/ActiveFilterChip";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
-/**
- * registry "问题中心" tab (Super Admin only).
- *
- * Plan §4.3 / §5（模型市场多 TAB UI 优化 · 阶段一）: same
- * `code + subject_type + subject_id` renders only ONE primary record; affected
- * objects are listed under it with readable names and can jump to their
- * registry sub-view via the object focus keys (`pool_id` / `instance_id` /
- * `gpu_id`), which stay separate from the issue filter keys. When the source
- * data has no matching record the summary stays non-interactive — no disabled
- * pseudo-links.
- *
- * Filters are URL-owned: `issue_q` (code text search, independent of the exact
- * `issue_code` filter), `issue_severity` quick filter and the attached
- * pool/instance/gpu/code conditions. Filter options prefer readable object
- * names, appending short ids only on name collisions; the applied value is
- * always the stable id. 清除条件 keeps the text search.
- */
 import { useMemo, useState, type ReactNode } from "react";
 
 import { Input } from "@/components/shadcn/ui/input";
@@ -74,7 +57,6 @@ export function IssueCenter({ scope, url, patchUrl, urlIssues }: RegistrySection
     `${url.issueQ}|${url.issueSeverity}|${JSON.stringify(filter)}`,
   );
 
-  // Distinct codes + subjects for filter dropdowns.
   const codes = useMemo(() => Array.from(new Set(sorted.map((d) => d.code))).sort(), [sorted]);
   const poolIds = useMemo(
     () => Array.from(new Set(sorted.flatMap((d) => d.affected_service_pool_ids))).sort(),
@@ -111,7 +93,6 @@ export function IssueCenter({ scope, url, patchUrl, urlIssues }: RegistrySection
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Severity summary */}
       <div className="flex flex-wrap items-center gap-2">
         <SummaryBadge label="阻断" count={counts.blocker} variant="danger" />
         <SummaryBadge label="严重" count={counts.critical} variant="danger" />
@@ -122,7 +103,6 @@ export function IssueCenter({ scope, url, patchUrl, urlIssues }: RegistrySection
         </span>
       </div>
 
-      {/* Filter bar — belongs to this view only (plan §4.3). */}
       <div className="flex flex-wrap items-center gap-2">
         <Input
           aria-label="按 code 搜索"
@@ -229,7 +209,6 @@ export function IssueCenter({ scope, url, patchUrl, urlIssues }: RegistrySection
         }}
       />
 
-      {/* Diagnostic list */}
       {filtered.length === 0 ? (
         <EmptyState
           icon="checkCircle"
@@ -257,8 +236,6 @@ export function IssueCenter({ scope, url, patchUrl, urlIssues }: RegistrySection
   );
 }
 
-// ── 名称解析（plan §4.3：可读名称优先，短 ID 辅助） ─────────────────────────
-
 type FocusKind = "pool" | "instance" | "gpu";
 
 function objectExists(kind: FocusKind, id: string, scope: RegistrySectionProps["scope"]): boolean {
@@ -281,7 +258,6 @@ function displayNameForKind(
   return displayNameFor(kind, id, scope);
 }
 
-/** Readable label for a stable id: 名称优先，重名/无名时附短 ID。 */
 function displayNameFor(kind: FocusKind, id: string, scope: RegistrySectionProps["scope"]): string {
   if (kind === "pool") {
     const pool = scope.vm.pools.find((p) => p.id === id);
@@ -299,7 +275,6 @@ function displayNameFor(kind: FocusKind, id: string, scope: RegistrySectionProps
   return formatShortId(id);
 }
 
-/** 重名时给选项补短 ID，实际筛选值仍是稳定 ID（plan §4.3）。 */
 function disambiguatedName(
   kind: FocusKind,
   id: string,
@@ -311,8 +286,6 @@ function disambiguatedName(
   const sameNamed = allIds.filter((other) => displayNameFor(kind, other, scope) === base);
   return sameNamed.length > 1 ? `${base}（${formatShortId(id)}）` : base;
 }
-
-// ── 行渲染 ───────────────────────────────────────────────────────────────────
 
 function DiagnosticRow({
   diagnostic,
@@ -349,9 +322,6 @@ function DiagnosticRow({
   return (
     <li className={`${listStyles.row} flex flex-col gap-1.5`}>
       <div className="flex flex-wrap items-center gap-2">
-        {/* Severity badge: icon + label only. The full message is rendered
-            in the body below — we must NOT duplicate it here (plan §7.1:
-            one primary record per code+subject). */}
         <Badge variant={sevToken.variant}>
           <Icon name={sevToken.icon} size={11} />
           <span>{sevToken.label}</span>
@@ -415,10 +385,6 @@ function DiagnosticRow({
   );
 }
 
-/**
- * 影响对象：显示可读名称并可跳转到对应子页定位；源数据没有可匹配记录时只给
- * 非交互摘要，不制造禁用的伪跳转（plan §4.3）。
- */
 function AffectedGroup({
   kind,
   label,
@@ -475,7 +441,6 @@ function AffectedGroupOverflow({
   onNavigate: (kind: FocusKind, id: string) => void;
 }): ReactNode {
   const [open, setOpen] = useState(false);
-  // 溢出对象默认折叠；展开即平铺全部名称按钮，避免首屏被长列表撑开。
   if (!open) {
     return (
       <button

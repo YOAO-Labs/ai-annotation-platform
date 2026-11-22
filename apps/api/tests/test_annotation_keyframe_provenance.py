@@ -51,7 +51,6 @@ def test_annotation_json_keeps_only_recorded_keyframe_sources(kind):
             "created_at": datetime.now(timezone.utc),
         }
     )
-    # FastAPI serializes through the response adapter, including nested list responses.
     output = TypeAdapter(list[AnnotationOut]).dump_python([annotation], mode="json")[0]
     keyframes = output["geometry"]["keyframes"]
     assert "source" not in keyframes[0]

@@ -304,8 +304,6 @@ async def native_job_candidates(database, family):
 async def native_execution(database, family, job_id):
     """Hold a private execution until its real worker and heartbeat have returned."""
     if not os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"):
-        # The business claim gates this marker: fixture-native jobs require a
-        # live PID-bound admission, including during untargeted polling.
         token = _execution.set((_ORDINARY, None, family, job_id))
         try:
             yield True

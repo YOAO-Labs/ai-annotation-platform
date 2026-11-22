@@ -249,8 +249,6 @@ async def test_inference_pipeline_owner_receipts_projection_and_closed_actions(
                 "pipeline_get",
                 {"pipeline_id": str(pipeline_id)},
             )
-            # Receipt-bound reads retain caller-owned/savepoint transactions;
-            # unlike status, a projection does not claim global commit.
             assert json.loads(pending_projection["facts"]["row_json"])["id"] == str(
                 pipeline_id
             )
@@ -371,8 +369,6 @@ async def test_inference_pipeline_delete_retains_success_after_selected_row_disa
                 assert json.loads(selected["facts"]["row_json"])["id"] == str(
                     pipeline_id
                 )
-                # The legacy ORM DELETE accepts zero matched rows after its
-                # visibility snapshot; READ COMMITTED retains that outcome.
                 async with maker.begin() as db:
                     await db.execute(
                         delete(ProjectPipeline).where(ProjectPipeline.id == pipeline_id)

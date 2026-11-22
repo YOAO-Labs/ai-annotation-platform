@@ -191,10 +191,8 @@ it("normalizes the project role when the account role switches to viewer", async
   fireEvent.change(screen.getByLabelText("邮箱清单"), {
     target: { value: "v@test.local" },
   });
-  // Pick a project first: 项目职责 defaults to 标注员 and becomes visible.
   fireEvent.change(screen.getByLabelText("目标项目"), { target: { value: "p1" } });
   expect(screen.getByLabelText("项目职责")).toHaveValue("annotator");
-  // Switch the account role to viewer: the stale annotator must not be sent.
   fireEvent.change(screen.getByLabelText("默认账号角色"), { target: { value: "viewer" } });
   expect(screen.getByLabelText("项目职责")).toHaveValue("viewer");
   fireEvent.click(screen.getByRole("button", { name: "预览邀请" }));

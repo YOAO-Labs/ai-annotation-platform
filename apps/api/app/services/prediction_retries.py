@@ -201,7 +201,6 @@ async def resolve_retry_target(
     queue = _queue(devices)
 
     if "accepted_video_input" in extra:
-        # Retained video frame evidence owns its own input and result receipts.
         return RetryTarget(queue=queue, legacy=False, evidence="video_retained")
     if _whole_video(project, task, snapshot, extra):
         video_input = extra.get("original_video_input")
@@ -258,8 +257,6 @@ async def resolve_retry_target(
         )
 
     if "accepted_input_manifest" in extra or "accepted_input" in extra:
-        # The accepted input owner retained the exact bytes; the retry worker
-        # reloads them through that owner instead of the current source URL.
         if task is None:
             raise _original_requires_new_request()
         return RetryTarget(

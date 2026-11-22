@@ -367,7 +367,6 @@ async def test_generic_accept_prepare_and_chunk_receipt_survive_client_restart(
     assert prepared["ok"] is True
     assert prepared["data"]["state"] == "running"
     assert prepared["data"]["total"] == 3
-    # A prepared snapshot is frozen; a retry cannot replace it with new input.
     assert await _prepare(db_session, operation_id, {}) == prepared
 
     first = await _advance(db_session, operation_id, 0)

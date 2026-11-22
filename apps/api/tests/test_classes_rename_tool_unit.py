@@ -70,7 +70,6 @@ async def test_rename_class_scoped_to_one_unit_leaves_other_intact(
     bbox_names = [c["name"] for c in out["tool_bindings"]["bbox"]["classes"]]
     region_names = [c["name"] for c in out["tool_bindings"]["region"]["classes"]]
     assert bbox_names == ["pedestrian"]
-    # region unit 的 person 不受影响 (强隔离).
     assert region_names == ["person"]
 
 
@@ -110,7 +109,6 @@ async def test_rename_class_unknown_unit_returns_404(httpx_client, super_admin):
 @pytest.mark.asyncio
 async def test_rename_class_conflict_within_unit_returns_409(httpx_client, super_admin):
     _, token = super_admin
-    # 单 bbox unit, 两个类 person + pedestrian, 然后 rename person → pedestrian → 409.
     body = {
         "name": "rename-conflict",
         "type_label": "图像-检测",
@@ -181,7 +179,6 @@ async def test_rename_class_no_op_when_old_eq_new(httpx_client, super_admin):
         json={"old_name": "person", "new_name": "person"},
     )
     assert res.status_code == 200
-    # tool_bindings 应保持不变 (API 返回值反映当前状态).
     out = res.json()
     assert out["tool_bindings"]["bbox"]["classes"][0]["name"] == "person"
 

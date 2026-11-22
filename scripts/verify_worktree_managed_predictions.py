@@ -623,7 +623,6 @@ def lifecycle_and_versions(storage, run_id, resources):
             raise WorktreeError("已删除的准确版本仍可读取")
 
     def delete(identity):
-        # IfMatch is supplementary; immutable VersionId supplies ownership.
         storage.client.delete_object(
             Bucket=expected_bucket,
             Key=key,
@@ -675,8 +674,6 @@ def lifecycle_and_versions(storage, run_id, resources):
         absent(second)
         require(not listed(), "探针仍存在版本或删除标记")
     finally:
-        # Retain unknown responses for namespace-owner inspection; never infer a
-        # version from current HEAD and never use an unversioned DELETE fallback.
         rows = listed()
         require(
             {row["VersionId"] for row in rows} <= set(versions),
@@ -874,8 +871,6 @@ async def seed(factory, storage, backend, run_id, *, roi_marker=False):
                 content_id = owner.id
                 task.status = "pending"
             else:
-                # Admission records the actual saved annotations replica, after
-                # a complete physical read; it does not infer the current bucket.
                 put = await asyncio.to_thread(
                     storage.client.put_object,
                     Bucket=binding.bucket,
@@ -1237,8 +1232,6 @@ async def cleanup_inputs(factory, storage, worker, jobs, backend):
                 (row.next_cleanup_at for row in rows if row.state != "deleted"),
                 default=None,
             )
-        # Managed sources deliberately still held the same-purpose read permit
-        # during close_inputs' first purge. Wait the real retry deadline.
         if due is not None and due > datetime.now(timezone.utc):
             await asyncio.sleep(
                 min(1, (due - datetime.now(timezone.utc)).total_seconds())
@@ -1266,11 +1259,8 @@ async def qualify(backend, worker, storage, report, *, expected_database):
     from app.db.models.task import Task
     from app.main import app
 
-    # Signed input URLs belong only to the controlled HTTP request, not logs.
     logging.getLogger("httpx").setLevel(logging.WARNING)
     require(not app.dependency_overrides, "验收拒绝 ASGI dependency override")
-    # Fixtures and assertions may inspect private rows; HTTP and Celery retain
-    # the ordinary restricted runtime identity without dependency overrides.
     engine = create_async_engine(
         os.environ["TEST_DATABASE_URL"], poolclass=NullPool, hide_parameters=True
     )
@@ -1467,8 +1457,6 @@ async def qualify(backend, worker, storage, report, *, expected_database):
                 )
                 await request(client, "POST", path, headers=auth, status=202)
                 async with factory() as db:
-                    # The real worker may finish and delete FailedPrediction
-                    # before this independent connection observes the response.
                     retry = await db.scalar(
                         select(AsyncJob).where(
                             AsyncJob.project_id == fixtures["project_id"],
@@ -1572,8 +1560,6 @@ async def qualify(backend, worker, storage, report, *, expected_database):
                     "真实来源漂移门控未触发",
                 )
                 async with factory() as db:
-                    # Rebind to the other existing verified DatasetItem, with
-                    # no mutation of immutable Asset/Replica facts.
                     task = await db.get(Task, direct["task_id"])
                     linked = await db.scalar(
                         text(
@@ -1694,7 +1680,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report", type=Path, required=True)
     options = parser.parse_args()
-    # Process-local diagnostic/host routing only; never write shared .env files.
     os.environ.update(DEBUG="false", LOG_LEVEL="WARNING", ML_BACKEND_STORAGE_HOST="")
     backend = worker = resources = storage = None
     try:

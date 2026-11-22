@@ -137,8 +137,6 @@ async def test_probe_preserves_client_constructor_coercion_before_http(setup_cli
     assert await probe_backend_capabilities(locator, timeout=1.0) is None
     assert AsyncClient.calls == []
 
-    # The direct transport remains an HTTP operation and does not apply the
-    # higher-level MLBackendClient constructor's concurrency setting.
     assert await fetch_backend_setup(locator, timeout=1.0) == AsyncClient.value
     assert len(AsyncClient.calls) == 1
 

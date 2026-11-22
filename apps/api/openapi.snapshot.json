@@ -39968,6 +39968,26 @@
         "title": "PreviewUploadsResponse",
         "type": "object"
       },
+      "PrimaryPoolProjectCountsResponse": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "Visible projects grouped by primary pool UUID. Omitted pools have zero visible bindings.",
+            "propertyNames": {
+              "format": "uuid"
+            },
+            "title": "Counts",
+            "type": "object"
+          }
+        },
+        "required": [
+          "counts"
+        ],
+        "title": "PrimaryPoolProjectCountsResponse",
+        "type": "object"
+      },
       "ProbeRequest": {
         "properties": {
           "auth_method": {
@@ -70953,6 +70973,42 @@
         "summary": "Retire",
         "tags": [
           "admin-plugin-installations"
+        ]
+      }
+    },
+    "/api/v1/admin/ml-integrations/primary-pool-project-counts": {
+      "get": {
+        "description": "Count visible projects by their Workspace primary pool binding.",
+        "operationId": "get_primary_pool_project_counts_api_v1_admin_ml_integrations_primary_pool_project_counts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrimaryPoolProjectCountsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "403": {
+            "description": "Project or super administrator with full-access credentials required"
+          },
+          "503": {
+            "description": "Project bindings unavailable"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Primary Pool Project Counts",
+        "tags": [
+          "admin-ml-integrations"
         ]
       }
     },

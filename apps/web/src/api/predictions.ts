@@ -1,7 +1,6 @@
 import { apiClient } from "./client";
 import type { PredictionResponse, AnnotationResponse } from "@/types";
 
-/** 外部预测导入端点响应 (与后端 ImportResult 对齐). */
 export interface PredictionImportError {
   task_match: Record<string, unknown>;
   reason: string;
@@ -59,11 +58,6 @@ export const predictionsApi = {
     return apiClient.get<PredictionResponse[]>(`/tasks/${taskId}/predictions${qs}`, init);
   },
 
-  /**
-   * 采纳预测.
-   * - shapeIndex 给定: 仅采纳指定 shape (画布单点采纳, 避免波及同 prediction 下其它框).
-   * - 不传:           采纳整条 prediction 的所有 shape ("全部采纳"按钮).
-   */
   accept: (
     taskId: string,
     predictionId: string,
@@ -76,10 +70,8 @@ export const predictionsApi = {
     const qp = new URLSearchParams();
     if (shapeIndex !== undefined) qp.set("shape_index", String(shapeIndex));
     if (videoSegmentId) qp.set("video_segment_id", videoSegmentId);
-    // 采纳时选类: 预测类名不在项目标签集 (会 422) 时, 带上人选的项目标签重试.
     if (overrideClassName) qp.set("override_class_name", overrideClassName);
     const qs = qp.toString();
-    // 采纳前在工作台审阅候选属性时改过的值, 经 body.attribute_overrides 原子落库.
     const body =
       attributeOverrides && Object.keys(attributeOverrides).length > 0
         ? { attribute_overrides: attributeOverrides }
@@ -91,23 +83,11 @@ export const predictionsApi = {
     );
   },
 
-  /**
-   * B-37 · 驳回预测 shape, 持久化到后端 (rejected_shape_indexes 数组),
-   * 避免刷新后 AI 待审框重新出现.
-   * - shapeIndex 给定: 仅驳回指定 shape.
-   * - 不传:           驳回整条 prediction 的全部 shape.
-   */
   reject: (taskId: string, predictionId: string, shapeIndex?: number) => {
     const qs = shapeIndex !== undefined ? `?shape_index=${shapeIndex}` : "";
     return apiClient.post<void>(`/tasks/${taskId}/predictions/${predictionId}/reject${qs}`);
   },
 
-  /**
-   * 导入外部模型预测：原生 JSON、COCO 或 YOLO ZIP。
-   * - 走 multipart/form-data, 不用 apiClient (其默认 Content-Type=application/json).
-   * - dryRun=true: 仅校验不入库; 用于 Wizard 第 2 步预览.
-   * - overwriteExisting=true: 替换 task 已有 source='external_import' 的 predictions.
-   */
   import: async (
     projectId: string,
     format: PredictionImportFormat,
@@ -155,11 +135,6 @@ export const predictionsApi = {
     },
   ) => apiClient.post<PredictionPurgeResult>(`/projects/${projectId}/predictions/purge`, payload),
 
-  /**
-   * 导入原生 JSON 的 annotations[] (ADR-0028).
-   * - 仅支持 native_json; geometry 透传内部格式。
-   * - overwrite=true: 只清该 task 之前导入的标注 (attributes._imported), 不碰人工标注。
-   */
   importAnnotations: async (
     projectId: string,
     file: File,

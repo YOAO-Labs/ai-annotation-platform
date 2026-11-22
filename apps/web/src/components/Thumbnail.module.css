@@ -9,6 +9,11 @@
   background: var(--sc-muted);
 }
 
+.fillContainer {
+  position: absolute;
+  inset: 0;
+}
+
 .placeholderIcon {
   color: var(--sc-muted-foreground);
 }

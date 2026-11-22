@@ -79,8 +79,6 @@ async def history(db):
         "comment_attachments": CommentAttachmentUpload,
         "guide_assets": GuideAssetUpload,
     }
-    # These are independent responsibility records, including every saved state.
-    # A Creation can also have a published TaskOriginal; do not sum them as objects.
     counts = []
     for name, model in models.items():
         query = select(func.count()).select_from(model)
@@ -214,7 +212,6 @@ def decode_token(token):
 
 async def preview(db, payload, actor, *, api_key_id=None):
     _, target, _, initial = await capture(db, payload, actor, api_key_id)
-    # Never retain authority, location or binding row locks across provider I/O.
     await db.commit()
     try:
         capabilities = await storage_access.run(

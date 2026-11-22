@@ -585,7 +585,6 @@ def check_install_runtime(version, deployment, receipt):
     if pinned is not None and runtime != pinned:
         raise PinnedRuntimeConflict("已固定运行时不可原地更改，请使用新部署")
     if deployment.receipt and pinned is None and runtime is not None:
-        # A legacy trial without a profile has CPU semantics, not a GPU trial.
         if (
             version.framework == "libreyolo"
             and runtime.get("qualification", {}).get("device") != "cpu"

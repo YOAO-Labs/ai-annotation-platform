@@ -19,8 +19,6 @@ class SmtpConfigError(Exception):
 
 async def _load_smtp_config(db: AsyncSession) -> dict[str, Any]:
     keys = ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from"]
-    # Host, credentials and sender must come from one saved configuration,
-    # including immediately after a different API process changed SMTP.
     out = await SystemSettingsService.get_many(db, keys, bypass_cache=True)
     if not out["smtp_host"] or not out["smtp_port"] or not out["smtp_from"]:
         raise SmtpConfigError("SMTP 未完整配置（host / port / from 必填）")

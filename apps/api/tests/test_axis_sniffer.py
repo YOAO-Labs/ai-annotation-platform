@@ -147,9 +147,6 @@ async def test_sniff_axis_convention_skips_non_image_items(
     httpx_client,
     super_admin,
 ):
-    # 回归: 点云 item(file_type=point_cloud)即便 metadata 带 lidar→ego 外参,也不应被
-    # 当相机喂给 sniff 污染推断(fallback 只看 file_type=="image")。这里点云项路径含 front
-    # (若不过滤会被排到最前), 外参指向 sustechpoints_demo; image 项指向 apollo。
     user, token = super_admin
     ds = Dataset(
         display_id=f"DS-SKIP-{uuid.uuid4().hex[:6]}",
@@ -185,7 +182,6 @@ async def test_sniff_axis_convention_skips_non_image_items(
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    # 只看到 image item → apollo; 若回归(未过滤 file_type)则会变成 sustechpoints_demo。
     assert body["best"] == "apollo"
     assert body["source"] == "dataset_item"
     assert body["camera_item_id"] == str(image_item.id)
@@ -213,7 +209,6 @@ async def test_sniff_axis_convention_picks_canonical_front_not_front_side(
     db_session.add(ds)
     await db_session.flush()
 
-    # 先建侧前相机(更早 created_at)——旧实现会优先取它而判错。
     front_right = DatasetItem(
         dataset_id=ds.id,
         file_name="000001.jpg",

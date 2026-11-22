@@ -109,7 +109,6 @@ async def _run(
             except ValueError as exc:
                 logger.error("dataset=%s failed: %s", did, exc)
                 error_count += 1
-                # 单个失败不阻塞其他;但脚本最终退出码非 0
                 await db.rollback()
                 continue
             _print_result(res)

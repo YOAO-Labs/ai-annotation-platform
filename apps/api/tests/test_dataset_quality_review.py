@@ -403,7 +403,6 @@ async def test_job_and_parent_access_and_preview_visibility(
             base.replace(str(ds.id), str(uuid.uuid4())) + f"/{batch.id}", headers=auth
         )
     ).status_code == 404
-    # A second manager of the dataset still cannot consume another person's preview.
     from app.db.models.user import User
 
     other = User(

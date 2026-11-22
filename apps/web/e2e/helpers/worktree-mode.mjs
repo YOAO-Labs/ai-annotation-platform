@@ -1,4 +1,3 @@
-// A legacy shell must not fall through to the standalone CI fixture defaults.
 export function worktreeMode(environment = process.env) {
   if (
     Object.keys(environment).some(

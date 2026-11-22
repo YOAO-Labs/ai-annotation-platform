@@ -36,7 +36,6 @@ async def _seed(db_session, ann_user):
     )
     db_session.add(project)
     await db_session.flush()
-    # Literal employee: annotator authority comes from this explicit membership.
     await create_membership(
         db_session, project_id=project.id, user_id=ann_user.id, role="annotator"
     )
@@ -105,12 +104,10 @@ async def test_patch_shape_metadata_persists(httpx_client, db_session, annotator
     assert body["is_locked"] is True
     assert body["is_hidden"] is True
 
-    # DB 持久化
     await db_session.refresh(ann)
     assert ann.z_order == 3
     assert ann.is_locked is True
     assert ann.is_hidden is True
-    # version 应递增（乐观并发）
     assert ann.version >= 2
 
 
@@ -119,7 +116,6 @@ async def test_patch_shape_metadata_partial(httpx_client, db_session, annotator)
     ann_user, ann_token = annotator
     _, task, ann = await _seed(db_session, ann_user)
 
-    # 单独切 is_locked，其它字段保持默认。
     r = await httpx_client.patch(
         f"/api/v1/tasks/{task.id}/annotations/{ann.id}",
         json={"is_locked": True},
@@ -128,5 +124,5 @@ async def test_patch_shape_metadata_partial(httpx_client, db_session, annotator)
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["is_locked"] is True
-    assert body["z_order"] == 0  # 未指定字段保持原值
+    assert body["z_order"] == 0
     assert body["is_hidden"] is False

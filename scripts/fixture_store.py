@@ -653,6 +653,21 @@ _NATIVE_OUTPUT_PREFIXES = (
     "_aap_managed/media-cache/video-derivatives/objects/",
 )
 _NATIVE_OUTPUT_OWNER_TAG = "aap-fixture-native-owner"
+_NATIVE_OUTPUT_IAM_COMMANDS = {
+    "policy_attach": ("policy", "attach"),
+    "user_info": ("user", "info"),
+    "policy_info": ("policy", "info"),
+}
+_NATIVE_OUTPUT_IAM_PROVIDER_FAILURES = {
+    "AccessDenied": "access_denied",
+    "InvalidAccessKeyId": "invalid_access_key",
+    "SignatureDoesNotMatch": "signature_mismatch",
+    "XMinioAdminNoSuchPolicy": "no_such_policy",
+    "XMinioAdminNoSuchUser": "no_such_user",
+    "XMinioIAMNotInitialized": "iam_not_initialized",
+    "XMinioServerNotInitialized": "server_not_initialized",
+}
+_NATIVE_OUTPUT_IAM_OUTPUT_LIMIT = 1024 * 1024
 
 
 def _native_output_policy(bucket, *, role):
@@ -811,6 +826,60 @@ def _native_output_paths(owner, run_id):
     }
 
 
+def _native_output_iam(mc_env, operation, *args):
+    argv = [
+        "mc",
+        "--json",
+        "admin",
+        *_NATIVE_OUTPUT_IAM_COMMANDS[operation],
+        "fixture",
+        *args,
+    ]
+    failure = f"fixture_native_iam_{operation}"
+    try:
+        result = subprocess.run(argv, env=mc_env, capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        raise ContractError(f"{failure}_timeout") from None
+    except OSError:
+        raise ContractError(f"{failure}_launch_failed") from None
+    if result.returncode < 0:
+        raise ContractError(f"{failure}_signal_{-result.returncode}")
+
+    bounded = len(result.stdout) <= _NATIVE_OUTPUT_IAM_OUTPUT_LIMIT
+    if result.returncode == 0:
+        require(bounded, f"{failure}_output_budget")
+        if operation == "policy_attach":
+            return None
+
+    payload = None
+    if bounded and result.returncode in (0, 1):
+        try:
+            payload = json.loads(result.stdout)
+        except (ValueError, RecursionError):
+            pass
+    if result.returncode:
+        error = (
+            payload.get("error")
+            if isinstance(payload, dict) and payload.get("status") == "error"
+            else None
+        )
+        cause = (
+            error.get("cause")
+            if isinstance(error, dict) and error.get("type") == "fatal"
+            else None
+        )
+        detail = cause.get("error") if isinstance(cause, dict) else None
+        code = detail.get("Code") if isinstance(detail, dict) else None
+        reason = (
+            _NATIVE_OUTPUT_IAM_PROVIDER_FAILURES.get(code)
+            if isinstance(code, str)
+            else None
+        )
+        raise ContractError(f"{failure}_{reason or 'nonzero'}")
+    require(isinstance(payload, dict), f"{failure}_response_invalid")
+    return payload
+
+
 def _native_output_accounts(owner, store, entry, paths):
     accounts = json.loads(_private_bytes(paths["seed"]))
     require(
@@ -875,26 +944,8 @@ def _native_output_accounts(owner, store, entry, paths):
             json.loads(_private_bytes(paths[role + "_policy"]))
         )
         name = entry[role + "_policy"]
-        info = json.loads(
-            command(
-                [
-                    "mc",
-                    "--json",
-                    "admin",
-                    "user",
-                    "info",
-                    "fixture",
-                    account["access_key"],
-                ],
-                env=mc_env,
-            )
-        )
-        observed = json.loads(
-            command(
-                ["mc", "--json", "admin", "policy", "info", "fixture", name],
-                env=mc_env,
-            )
-        )
+        info = _native_output_iam(mc_env, "user_info", account["access_key"])
+        observed = _native_output_iam(mc_env, "policy_info", name)
         require(
             policy == expected
             and info.get("status") == "success"
@@ -980,8 +1031,10 @@ def _native_output_provider(owner, store):
     }
 
 
-def verified_native_output(owner: Owner, database_identity: dict, run_id: uuid.UUID):
-    """Reverify a completed target; the caller must hold the fixture store lock."""
+def _verified_native_output_evidence(
+    owner: Owner, database_identity: dict, run_id: uuid.UUID
+) -> tuple[dict[str, str], bytes, dict[str, str]]:
+    """Read target, exact birth bytes and verified reader credentials under the lock."""
     require(
         owner.data.get("cleaned") is False and "fixture_teardown" not in owner.data,
         "fixture_native_owner_unavailable",
@@ -1044,26 +1097,28 @@ def verified_native_output(owner: Owner, database_identity: dict, run_id: uuid.U
             value == {"schema": _NATIVE_OUTPUT_SCHEMA, **public, **accounts[role]},
             "fixture_native_target_file_changed",
         )
-    return {
-        **public,
-        "writer_file": str(paths["writer_file"]),
-        "reader_file": str(paths["reader_file"]),
-        "cleanup_file": str(paths["cleanup_file"]),
-    }
-
-
-def verified_native_output_birth(
-    owner: Owner, database_identity: dict, run_id: uuid.UUID
-) -> str:
-    """Return exact private birth bytes after verification under fixture-store.lock."""
-    verified_native_output(owner, database_identity, run_id)
-    return _private_bytes(_native_output_paths(owner, run_id)["receipt"]).decode(
-        "utf-8"
+    return (
+        {
+            **public,
+            "writer_file": str(paths["writer_file"]),
+            "reader_file": str(paths["reader_file"]),
+            "cleanup_file": str(paths["cleanup_file"]),
+        },
+        receipt,
+        accounts["reader"],
     )
 
 
-def provision_native_output(owner: Owner, database_identity: dict, run_id: uuid.UUID):
-    """Create a fresh per-run target under the caller-held fixture store lock."""
+def verified_native_output(owner: Owner, database_identity: dict, run_id: uuid.UUID):
+    """Reverify a completed target; the caller must hold the fixture store lock."""
+    target, _, _ = _verified_native_output_evidence(owner, database_identity, run_id)
+    return target
+
+
+def provision_native_output(
+    owner: Owner, database_identity: dict, run_id: uuid.UUID
+) -> None:
+    """Create and record an empty target under the caller-held fixture store lock."""
     require(
         owner.data.get("cleaned") is False and "fixture_teardown" not in owner.data,
         "fixture_native_owner_unavailable",
@@ -1196,18 +1251,12 @@ def provision_native_output(owner: Owner, database_identity: dict, run_id: uuid.
             ],
             env=mc_env,
         )
-        command(
-            [
-                "mc",
-                "admin",
-                "policy",
-                "attach",
-                "fixture",
-                entry[role + "_policy"],
-                "--user",
-                account["access_key"],
-            ],
-            env=mc_env,
+        _native_output_iam(
+            mc_env,
+            "policy_attach",
+            entry[role + "_policy"],
+            "--user",
+            account["access_key"],
         )
     accounts, evidence = _native_output_accounts(owner, store, entry, paths)
     _native_output_bucket(owner, store, entry, require_empty=True)
@@ -1247,7 +1296,6 @@ def provision_native_output(owner: Owner, database_identity: dict, run_id: uuid.
         )
     entry["state"] = "ready"
     owner.save()
-    return verified_native_output(owner, database_identity, run_id)
 
 
 def _native_retirement_receipt(entry, run_id, receipt):
@@ -1347,12 +1395,12 @@ def _native_physical_retirement_receipt(owner, run_id, proof):
 
 
 def _retire_native_output_physical(owner, database_identity, run_id, proof):
-    store, _ = verified_store(owner, database_identity)
     paths = _native_output_paths(owner, run_id)
     entry = owner.data["fixture_native_outputs"][run_id.hex]
     _native_retirement_receipt(entry, run_id, proof)
     if entry["state"] == "ready":
         verified_native_output(owner, database_identity, run_id)
+        store = owner.data["fixture_store"]
         _native_output_bucket(owner, store, entry, require_empty=True)
         entry["retirement"] = {
             "schema": "aap-fixture-native-target-physical-retirement/v1",
@@ -1370,6 +1418,8 @@ def _retire_native_output_physical(owner, database_identity, run_id, proof):
         }
         entry["state"] = "retiring"
         owner.save()
+    else:
+        store, _ = verified_store(owner, database_identity)
     require(
         entry["state"] in {"retiring", "retired"}, "fixture_native_retirement_state"
     )
@@ -1662,7 +1712,6 @@ def probe_reader(owner, store):
             capture_output=True,
             timeout=30,
         )
-        # mc admin info reports this denial in JSON even when its exit code is zero.
         try:
             denial = json.loads(result.stdout)
         except (ValueError, UnicodeError):

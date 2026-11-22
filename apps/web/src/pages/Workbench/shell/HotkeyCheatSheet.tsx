@@ -1,11 +1,3 @@
-// 工作台快捷键面板（Increment A 参考界面 + Increment B 账号级自定义）。
-//
-// 与工作台设置 / 标注指引同一套对话框几何（md: 1120×min(820px,85dvh)，220px 导航列，
-// 仅右内容区滚动）；分类为用途导向，工作台类型用显式过滤器（当前工作台 / 全部类型）。
-// 可编辑命令经 useWorkbenchShortcutPreferences 读写账号偏好；Fixed 命令展示并参与
-// 冲突盘点（见 state/hotkeyBindings.ts）。挂载期记住选中分类；查询词关闭即清空，
-// 不写入账号偏好。
-
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, RotateCcw, Search, X } from "lucide-react";
 import type { AttributeSchema } from "@/api/projects";
@@ -44,8 +36,6 @@ import {
 
 const KBD_CLASS =
   "whitespace-nowrap rounded-[3px] border border-b-2 border-border bg-muted px-1.5 py-px font-mono text-xs leading-normal text-foreground";
-// 每行固定为「主行 + 说明/操作行」两级内容槽，说明行即使为空也占位，
-// 且两级统一 min-h-5 / leading-5，使所有命令的行高与分隔线间距完全一致。
 const ROW_CLASS = "flex items-start justify-between gap-3 border-b border-border py-2 text-sm";
 const PRIMARY_STACK_CLASS = "flex min-h-12 min-w-0 flex-col gap-1";
 const PRIMARY_LINE_CLASS =
@@ -55,7 +45,6 @@ const NOTE_LINE_CLASS =
 const KEYS_LINE_CLASS = "flex min-h-5 min-w-0 flex-wrap items-center justify-end gap-1";
 const ACTIONS_LINE_CLASS = "flex min-h-5 items-center justify-end gap-1";
 const NAME_CLASS = "min-w-0 leading-5 text-foreground [overflow-wrap:anywhere]";
-// 跨阶段视图(全部类型 / 搜索)按图片 / 视频 / 点云着色,便于快速区分适用范围。
 const STAGE_CHIP_CLASS: Record<HotkeyStage, string> = {
   image: "bg-stage-image-soft text-stage-image",
   video: "bg-stage-video-soft text-stage-video",
@@ -72,11 +61,8 @@ const SECTION_TITLE_CLASS =
 interface HotkeyCheatSheetProps {
   open: boolean;
   onClose: () => void;
-  /** 项目级属性 schema：含 hotkey 的字段在「选择与编辑」内以专属分组展示。 */
   attributeSchema?: AttributeSchema;
-  /** 当前工作台类型：驱动「当前工作台」过滤与常用视图范围。 */
   stageKind?: "image" | "video" | "3d";
-  /** Increment B · 账号级快捷键偏好（生效表 + 写路径）；未提供时仅展示参考。 */
   shortcuts?: WorkbenchShortcutPreferencesState;
 }
 
@@ -90,17 +76,13 @@ function rowStages(h: HotkeyDef): HotkeyStage[] {
   return h.stages ?? ["image", "video", "threed"];
 }
 
-/** keys 数组里的修饰键标签（与 bindingKeyLabels / modLabel 一致）。 */
 const MODIFIER_KEY_LABELS = new Set(["Ctrl", "Cmd", "⌘", "Shift", "Alt"]);
 
-/** keys 数组的展示键帽（最后一个元素为「或」候选项时按 keysAlt 拆分）。 */
 function staticKeyGroups(h: HotkeyDef): string[][] {
   if (h.keysLabel) return [[h.keysLabel]];
   if (h.keysAlt && h.keys.length > 1) {
     const head = h.keys.slice(0, -1);
     const alts = h.keys[-1 + h.keys.length];
-    // 共享的前导修饰键要在候选项上重复，否则 [Ctrl, Delete, Backspace] 会写成
-    // 「Ctrl+Delete 或 Backspace」，把 Ctrl+Backspace 误述成裸 Backspace。
     const shared: string[] = [];
     for (const key of head) {
       if (!MODIFIER_KEY_LABELS.has(key)) break;
@@ -130,7 +112,6 @@ interface BindingCellProps {
   disabled: boolean;
 }
 
-/** 生效组合展示：主组合与备用组合用「或」连接；停用显示专用键帽。 */
 function BindingCell({ bindings, disabled }: BindingCellProps) {
   if (disabled) {
     return (
@@ -170,7 +151,6 @@ export function HotkeyCheatSheet({
   shortcuts,
 }: HotkeyCheatSheetProps) {
   const [query, setQuery] = useState("");
-  // 挂载期记住选中分类（关闭不清空）；查询词在重新打开时清空。
   const [category, setCategory] = useState<string>("common");
   const [stageFilter, setStageFilter] = useState<StageFilter>("current");
   const [modifiedOnly, setModifiedOnly] = useState(false);
@@ -216,7 +196,6 @@ export function HotkeyCheatSheet({
     }
   }, [open]);
 
-  // 录制监听：capture 阶段吞掉按键，录制中的组合不触发任何后台动作。
   useEffect(() => {
     if (!recording || candidate) return;
     const onKey = (e: KeyboardEvent) => {
@@ -292,8 +271,6 @@ export function HotkeyCheatSheet({
 
   const visibleRows = (targetCategory: string): HotkeyDef[] => {
     let rows = HOTKEYS.filter((h) => matchesStage(h) && matchesQuery(h));
-    // 项目类别数字键在选择分类下由专属「项目类别与属性」分组渲染，避免重复；
-    // 搜索模式下回到通用结果流。
     if (!q)
       rows = rows.filter((h) => h.id !== "image.category.digit" && h.id !== "video.category.digit");
     if (targetCategory === "common") rows = rows.filter((h) => h.common);
@@ -341,7 +318,7 @@ export function HotkeyCheatSheet({
     const next =
       recording.slot === 0 ? [candidate, ...current.slice(1)] : [...current.slice(0, 1), candidate];
     const conflicts = conflictingTargets(recording.commandId, next);
-    if (conflicts.length > 0) return; // 确认按钮已被禁用；保守拦截
+    if (conflicts.length > 0) return;
     shortcuts.saveCommand({
       domain: commandDomain(recording.commandId),
       commandId: recording.commandId,
@@ -408,7 +385,6 @@ export function HotkeyCheatSheet({
     onClose();
   };
 
-  // 候选组合的冲突（录制中实时展示；确认按钮据此禁用）。
   const candidateConflicts = useMemo(() => {
     if (!recording || !candidate || !effective) return [];
     const state = effectiveState(recording.commandId);
@@ -728,7 +704,6 @@ export function HotkeyCheatSheet({
         data-workbench-hotkeys=""
         className={WORKBENCH_DIALOG_CONTENT_CLASS}
         overlayProps={{
-          // 点云(3D)画布不模糊遮罩,避免软件渲染下拖慢合成清理。
           className: workbenchDialogOverlayClass(stageKind !== "3d"),
           "data-testid": "workbench-hotkeys-overlay",
           "data-workbench-hotkeys": "",
@@ -740,7 +715,6 @@ export function HotkeyCheatSheet({
               event.preventDefault();
               event.stopPropagation();
               overlayPointerRef.current = false;
-              // 未确认的录制先取消，不关闭面板；已确认写入由偏好写路径负责。
               if (recording) {
                 setRecording(null);
                 setCandidate(null);
@@ -785,7 +759,6 @@ export function HotkeyCheatSheet({
             event.preventDefault();
             return;
           }
-          // 录制中 Esc 只取消录制，面板保持打开。
           if (recording) {
             event.preventDefault();
             setRecording(null);
@@ -816,7 +789,6 @@ export function HotkeyCheatSheet({
                 aria-hidden="true"
                 className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
               />
-              {/* React 18 的 Input 组件不转发 ref；搜索框要吃 onOpenAutoFocus 的程序化聚焦，用原生 input。 */}
               <input
                 ref={searchRef}
                 aria-label="搜索快捷键"
@@ -976,7 +948,6 @@ export function HotkeyCheatSheet({
                   </div>
                 </div>
               ) : q ? (
-                // 搜索跨所选类型范围内的全部分类，并展示分类上下文；常用为精选聚合，搜索时按各自归属分类去重。
                 <>
                   {HOTKEY_CATEGORIES.flatMap((cat) => {
                     if (cat === "common") return [];

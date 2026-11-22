@@ -126,7 +126,6 @@ class BugAttachmentUpload(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    # Snapshots have no FK: account/report deletion must retain physical facts.
     owner_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     storage_ref: Mapped[dict] = mapped_column(JSONB(none_as_null=True), nullable=False)
     object_version_id: Mapped[str | None] = mapped_column(String(1024), nullable=True)

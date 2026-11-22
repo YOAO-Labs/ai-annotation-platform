@@ -22,8 +22,6 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.managed_original_retirement import managed_storage_identity
 
 
-# Keep this migration test on the historical schema. The current ORM also has
-# the 0234 media association, whose separate migration is qualified elsewhere.
 class ExportOutput:
     pass
 
@@ -68,8 +66,6 @@ async def owned_db(test_engine):
     )
     try:
         async with engine.begin() as connection:
-            # Only the predecessor column touched by this migration is needed.
-            # A legacy cache row must remain an unproven NULL association.
             await connection.execute(
                 text("CREATE TABLE export_artifacts (id uuid PRIMARY KEY)")
             )

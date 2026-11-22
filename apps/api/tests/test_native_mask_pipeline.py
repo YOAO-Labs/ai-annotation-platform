@@ -18,7 +18,6 @@ from tests.inference_execution_test_ports import run_client_task_pipeline
 def native_shape(*, name="object", index=0, shifted=False):
     width, height = 128, 96
     pixels = [0] * (width * height)
-    # A hollow region and a disconnected part belong to the same instance.
     for y in range(17, 73):
         for x in range(11, 85):
             if x < 15 or x >= 81 or y < 21 or y >= 69:

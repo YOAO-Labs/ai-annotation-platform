@@ -2,9 +2,6 @@ import { describe, it, expect } from "vitest";
 import { DEFAULT_WORKBENCH_PREFERENCES } from "@/api/auth";
 import { sanitizeForPersist } from "./useWorkbenchConfig";
 
-// 后端 FloatingPanelState / FloatingSelectionState / TriViewFloatState 的 x/y/w/h 是
-// 整数（Pydantic int）；前端浮窗坐标来自 getBoundingClientRect / 指针位移，可能带小数，
-// 直接 PATCH 会被 int_from_float 拒（422）。sanitizeForPersist 在持久化前就地取整。
 describe("sanitizeForPersist", () => {
   it("excludes workspace from every legacy writer without deleting its in-memory copy", () => {
     const wb = {

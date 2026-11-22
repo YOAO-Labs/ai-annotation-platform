@@ -32,7 +32,7 @@ def _publish_heartbeat(worker_name: str) -> None:
         r = redis.Redis.from_url(settings.redis_url, socket_connect_timeout=3)
         r.setex(f"{HEARTBEAT_KEY_PREFIX}{worker_name}", ttl, now)
         r.close()
-    except Exception as e:  # 心跳写失败不应影响 worker 正常消费任务
+    except Exception as e:
         log.warning("publish_worker_heartbeat failed: %s", e)
 
 

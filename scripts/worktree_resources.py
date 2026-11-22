@@ -769,7 +769,7 @@ def migration_graph(code_root: Path) -> tuple[list[str], list[str]]:
     with warnings.catch_warnings():
         warnings.simplefilter("error", UserWarning)
         scripts = ScriptDirectory.from_config(config)
-        list(scripts.walk_revisions())  # Validate missing ancestors/cycles too.
+        list(scripts.walk_revisions())
         heads = list(scripts.get_heads())
     validate_revisions(revisions, heads, [], skip=False)
     return revisions, heads
@@ -813,9 +813,6 @@ class LocalResources:
         self._retire_finished_bootstrap = retire_finished_bootstrap
         self._fixture_inference_prepared = False
         self._destroy_preparation = None
-        # Validate every source before connecting or writing. Old manifests remain
-        # inspectable by doctor/stop/destroy; only an actual child process requires
-        # the new dedicated input bucket, after explicit prepare has upgraded it.
         if retire_finished_bootstrap:
             _validate_environment_sources(
                 self.resources,
@@ -881,8 +878,6 @@ class LocalResources:
                     raise WorktreeError(
                         "基础设施目标与已有资源清单不一致；先用原配置销毁旧环境"
                     )
-                # Inspection/destruction use exactly the saved owned inventory.
-                # Only explicit preparation upgrades this known old topology.
                 self.manifest = saved
                 self.resources = saved["resources"]
         scheme = "https" if settings.minio_use_ssl else "http"
@@ -1219,15 +1214,11 @@ class LocalResources:
                 or proof["database_oid"] <= 0
             ):
                 raise WorktreeError("受管原件数据库身份不明确；保留资源")
-        # Same session-lock / AUTOCOMMIT pattern as apps/api/scripts/prepare_e2e_db.py;
-        # additionally require a database ownership marker rather than adopting by name.
         engine = create_async_engine(
             self.url.set(database="postgres"),
             isolation_level="AUTOCOMMIT",
             poolclass=NullPool,
             hide_parameters=True,
-            # PostgreSQL marks a database invalid before its removal checkpoint.
-            # Bound lock acquisition, not the physical checkpoint after admission.
             connect_args={
                 "timeout": 5,
                 "command_timeout": None if action == "drop" else 10,
@@ -2282,8 +2273,6 @@ class LocalResources:
         engine = create_async_engine(self.url, poolclass=NullPool, hide_parameters=True)
         try:
             async with engine.begin() as connection:
-                # database() verified both configured logins on the postgres database;
-                # advisory locks are database-scoped and cannot be compared here.
                 database = (
                     (
                         await connection.execute(
@@ -2549,8 +2538,6 @@ class LocalResources:
         current = asyncio.run(self.revisions()) if inventory["database"] else []
         validate_revisions(revisions, heads, current, skip=skip_migrations)
         asyncio.run(self.owned_runtime_role("check_create"))
-        # The input/training upgrades can create buckets before the remaining
-        # setup. Publish recovery identity and arm cleanup before either runs.
         self.touched = True
         path = state_path(self.root, self.resources["mode"], "resources.json")
         if not path.exists():
@@ -2602,7 +2589,6 @@ class LocalResources:
         if os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER"):
             from fixture_suite_coordinator import _verified_database
 
-            # Verify the physical server and its durable database birth before Alembic.
             asyncio.run(_verified_database(self.environment()))
         if not skip_migrations and set(current) != set(heads):
             result = subprocess.run(
@@ -2614,7 +2600,6 @@ class LocalResources:
                 timeout=180,
             )
             if result.returncode:
-                # SQLAlchemy exceptions can contain credentials/parameters. Do not relay raw output.
                 raise WorktreeError(
                     f"独立数据库迁移失败，退出码 {result.returncode}；共享数据库未被迁移"
                 )
@@ -2683,14 +2668,12 @@ class LocalResources:
                     },
                 )
             except Exception:
-                # This invocation received a successful creation response. Compensate
-                # only that new, still untagged empty bucket; never delete its objects.
                 current = self.bucket_info(name)
                 if current is not None and current.get("owner") is None:
                     try:
                         self.s3.delete_bucket(Bucket=name)
                     except Exception:
-                        pass  # Keep the journal for explicit recovery after a crash.
+                        pass
                     else:
                         journal.unlink(missing_ok=True)
                 raise
@@ -3472,7 +3455,6 @@ class LocalResources:
             )
             prepared.raster_owner.save()
         prepared.phase = "database_intent"
-        # Recheck each exact owner at the write boundary; never force DROP.
         if prepared.storage == "raster_provider_retired":
             asyncio.run(self._database("drop", raster_prepared=prepared))
         elif prepared.legacy_original_retirement is not None:
@@ -3578,7 +3560,6 @@ class LocalResources:
         state_path(self.root, self.resources["mode"], "resources.json").unlink(
             missing_ok=True
         )
-        # A completed, verified destruction also ends this controller's birth proof.
         self.manifest["postgres"].pop("database_oid", None)
         self.target_manifest["postgres"].pop("database_oid", None)
         print(

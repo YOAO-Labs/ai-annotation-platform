@@ -76,7 +76,6 @@ function roleLabel(scope: StorageConnectionScope) {
 }
 
 function sameConfig(a: Record<string, unknown>, b: Record<string, unknown>) {
-  // Optional defaults are serialized by the form even for historical connections.
   const normalized = (value: Record<string, unknown>) =>
     Object.entries(value)
       .filter(

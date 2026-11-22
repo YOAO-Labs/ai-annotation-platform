@@ -1,8 +1,3 @@
--- Grant a Labeling Mask edit data LOGIN exactly three owner commands.
--- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v labeling_owner=labeling_code -v mask_edit_role=yoao_labeling_mask_edit_client \
---   -f infra/docker/labeling-mask-edit-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

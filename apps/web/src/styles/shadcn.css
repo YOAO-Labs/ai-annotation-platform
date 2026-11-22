@@ -1,21 +1,9 @@
-/* ============================================================
-   Tailwind v4 + shadcn —— global preflight
-   ------------------------------------------------------------
-   设计基调：Geist 风(克制中性色 + 工具型蓝)。
-
-   全量迁移完成,preflight 转全局,不再需要局部 reset。
-   旧 token 文件退役(变量已全迁入 --sc-*),全站 Tailwind 化。
-   暗色由 `<html data-theme="dark">` 驱动,经由 `dark:` variant 重定向。
-   ============================================================ */
-
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "./scrollbars.css";
 
-/* 暗色走 data-theme，而非 shadcn 默认的 .dark class */
 @custom-variant dark ([data-theme="dark"] &);
 
-/* shadcn token → Tailwind 工具类映射(@theme inline：保持运行时随主题切换) */
 @theme inline {
   --color-background: var(--sc-background);
   --color-foreground: var(--sc-foreground);
@@ -37,7 +25,6 @@
   --color-input: var(--sc-input);
   --color-ring: var(--sc-ring);
 
-  /* Geist 强调蓝 + 状态色 */
   --color-brand: var(--sc-brand);
   --color-brand-foreground: var(--sc-brand-foreground);
   --color-positive: var(--sc-positive);
@@ -53,11 +40,9 @@
   --color-status-info-alt: var(--sc-status-info-alt);
   --color-status-info-alt-soft: var(--sc-status-info-alt-soft);
 
-  /* 搜索命中高亮(设置 / 快捷键等列表搜索) */
   --color-mark: var(--sc-mark);
   --color-mark-foreground: var(--sc-mark-foreground);
 
-  /* 工作台阶段色(图片/视频/点云):跨阶段视图区分用,语义独立于状态色 */
   --color-stage-image: var(--sc-stage-image);
   --color-stage-image-soft: var(--sc-stage-image-soft);
   --color-stage-video: var(--sc-stage-video);
@@ -65,13 +50,11 @@
   --color-stage-threed: var(--sc-stage-threed);
   --color-stage-threed-soft: var(--sc-stage-threed-soft);
 
-  /* recharts / 图表取色 */
   --color-chart-1: var(--sc-chart-1);
   --color-chart-2: var(--sc-chart-2);
   --color-chart-3: var(--sc-chart-3);
   --color-chart-4: var(--sc-chart-4);
 
-  /* 紧凑字号标尺:等价替换原散落 text-[Npx] 档位 */
   --text-3xs: 8px;
   --text-3xs--line-height: inherit;
   --text-micro: 9px;
@@ -97,7 +80,6 @@
   --radius-xl: calc(var(--sc-radius) + 6px);
 }
 
-/* —— Geist 调色板 · 浅色(雾白画布 / 近黑字) —— */
 :root {
   color-scheme: light;
 
@@ -110,7 +92,6 @@
   --sc-popover: #ffffff;
   --sc-popover-foreground: #18181b;
 
-  /* 主操作 = 实心近黑(浅色态),与工具型 SaaS CTA 一致 */
   --sc-primary: #18181b;
   --sc-primary-foreground: #ffffff;
 
@@ -142,11 +123,9 @@
   --sc-status-info-alt: var(--color-sky-600);
   --sc-status-info-alt-soft: color-mix(in oklab, var(--color-sky-500) 10%, transparent);
 
-  /* 搜索命中高亮:实心暖色 + 深色字,保证浅/深色下都醒目(非状态色) */
   --sc-mark: #fde047;
   --sc-mark-foreground: #422006;
 
-  /* 工作台阶段色(图片/视频/点云):仅用于跨阶段视图区分,不代表状态 */
   --sc-stage-image: var(--color-sky-600);
   --sc-stage-image-soft: color-mix(in oklab, var(--color-sky-500) 12%, transparent);
   --sc-stage-video: var(--color-violet-600);
@@ -154,7 +133,6 @@
   --sc-stage-threed: var(--color-amber-600);
   --sc-stage-threed-soft: color-mix(in oklab, var(--color-amber-500) 12%, transparent);
 
-  /* 居中悬浮面板/模态遮罩的统一背景模糊程度 */
   --sc-overlay-blur: 4px;
 
   --sc-z-local-1: 1;
@@ -188,7 +166,6 @@
   --sc-chart-3: #b45309;
   --sc-chart-4: #6d5bd0;
 
-  /* 画布棋盘格(画布叠加层专属,无 Tailwind 等价) */
   --sc-canvas-checker-a: #e9e9ec;
   --sc-canvas-checker-b: #f3f3f5;
   --sc-code-bg: #ececef;
@@ -204,7 +181,6 @@
   --shadow-lg: 0 16px 40px rgba(24, 24, 27, 0.1), 0 2px 6px rgba(24, 24, 27, 0.06);
 }
 
-/* —— Geist 调色板 · 深色(墨色画布 / 近白字,主场) —— */
 [data-theme="dark"] {
   color-scheme: dark;
 
@@ -215,7 +191,6 @@
   --sc-popover: #111113;
   --sc-popover-foreground: #ededed;
 
-  /* 主操作 = 反白(白底黑字),即所选预览的观感 */
   --sc-primary: #ededed;
   --sc-primary-foreground: #0a0a0a;
 
@@ -259,7 +234,6 @@
   --sc-chart-3: #d29922;
   --sc-chart-4: #a78bfa;
 
-  /* 画布棋盘格(深色) */
   --sc-canvas-checker-a: #1e1e23;
   --sc-canvas-checker-b: #2a2a30;
   --sc-code-bg: #2e2e33;
@@ -274,10 +248,6 @@
     box-sizing: border-box;
   }
 
-  /* Tailwind v4 leaves an unset border color at `currentColor`, so a bare
-     `border` / `border-t` / `divide-*` inherits the text color: near-white on
-     the dark theme, near-black on light. Restore the semantic border token as
-     the global default; explicit `border-*` color utilities still win. */
   *,
   ::before,
   ::after {
@@ -324,9 +294,6 @@
   }
 }
 
-/* Native select prompts are display-only options. Keep this outside layers so
-   field text utilities and CSS modules cannot make a selected prompt look like
-   a real value. Empty business values (all/none/reset) remain ordinary options. */
 select:has(> option[disabled][hidden]:checked) {
   color: var(--sc-muted-foreground);
 }

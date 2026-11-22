@@ -465,8 +465,6 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         "module-data verifier must provide the restricted routing LOGIN DSN"
     )
 
-    # Verify the runtime URL logs in as the provisioned function-only identity. The
-    # runtime below receives this URL unchanged; it never emulates the role with SET ROLE.
     restricted_probe = await asyncpg.connect(
         routing_dsn.replace("postgresql+asyncpg://", "postgresql://", 1),
         timeout=5,
@@ -566,8 +564,6 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
                         cause = error
                         while cause.__context__ is not None:
                             cause = cause.__context__
-                        # Fixed action names and database error types only; never
-                        # record subjects, SQL arguments, credentials or replies.
                         native_trace.append(
                             (
                                 action,
@@ -726,8 +722,6 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
             if key.lower() == ROUTE_ADMISSION_HEADER
         )
 
-        # The captured source transaction remains alive through Native open/begin,
-        # then rolls back before the actual backend compute request starts.
         await borrowed_transaction.rollback()
         borrowed_transaction = None
         await borrowed.close()
@@ -799,8 +793,6 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
         assert closed.result.closed is True
         assert closed.result.state == "finished"
 
-        # The canonical API gateway uses the remote execution provider and routing
-        # owner while preserving this caller's uncommitted business update.
         from app.config import GPUArbiterMode, settings
         from app.services.inference_model_execution import model_execution_port
         from yoao_inference_contract.execution import FrozenModelOperation
@@ -878,8 +870,6 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
                 )
             )
             receipt_ids.extend(after_api_receipts - before_api_receipts)
-        # An unknown destructive response retains its hold. Recovery reuses that
-        # exact control ID and waits for actual backend work, not database zero.
         await owner.execute(
             "UPDATE public.ml_backend_pool_members SET traffic_state='draining' WHERE registry_id=$1",
             world["registry_id"],

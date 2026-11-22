@@ -36,7 +36,6 @@ def test_rectanglelabels_0_1_to_video_bbox():
 
 
 def test_percent_coords_normalized_to_0_1():
-    # backend 返回 0-100 百分比时须归一到 0-1(复用 to_internal_shape 的 _percent_scale)。
     raw = [
         {
             "type": "rectanglelabels",
@@ -59,7 +58,6 @@ def test_percent_coords_normalized_to_0_1():
 
 
 def test_non_bbox_shapes_skipped():
-    # Phase 1 scope = 检测框; polygon / 旋转框等无对应单帧几何, 跳过。
     raw = [
         {
             "type": "polygonlabels",

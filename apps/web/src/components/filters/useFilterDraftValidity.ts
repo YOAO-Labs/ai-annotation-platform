@@ -2,7 +2,6 @@ import { useCallback, useRef, useState } from "react";
 
 import type { FilterDraftValidityChange } from "./FilterValueEditor";
 
-/** Track invalid editors for one mounted filter owner. */
 export function useFilterDraftValidity(owner: string) {
   const ownerRef = useRef(owner);
   const [draftState, setDraftState] = useState(() => ({

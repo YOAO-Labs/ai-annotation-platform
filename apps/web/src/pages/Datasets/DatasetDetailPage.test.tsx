@@ -401,7 +401,6 @@ describe("Dataset detail workbench", () => {
     await user.click(screen.getByRole("button", { name: "保存为新视图" }));
     await user.type(screen.getByRole("textbox", { name: "视图名称" }), "old scope");
     await user.click(screen.getByRole("button", { name: "保存视图" }));
-    // Browser history can change while a modal owns focus.
     fireEvent.click(screen.getByRole("button", { name: "切换筛选条件", hidden: true }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await act(async () =>
@@ -480,7 +479,6 @@ describe("Dataset detail workbench", () => {
     await user.click(screen.getByRole("button", { name: "保存为新视图" }));
     await user.type(screen.getByRole("textbox", { name: "视图名称" }), "late");
     await user.click(screen.getByRole("button", { name: "保存视图" }));
-    // Route navigation happens outside the modal to exercise owner retirement.
     cleanup();
     mount("/datasets/dataset-two");
     await screen.findByRole("heading", { name: /第二目录/ });

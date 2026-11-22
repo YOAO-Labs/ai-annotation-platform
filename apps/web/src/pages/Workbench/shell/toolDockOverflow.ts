@@ -14,7 +14,6 @@ export interface ToolDockMetrics {
   padding: number;
 }
 
-/** Mirrors the rendered flex groups; every size comes from the dock's actual CSS. */
 export function toolDockHeight(
   tools: ToolDockEntry[],
   video: boolean,
@@ -54,7 +53,6 @@ export function toolDockHeight(
   return padding + stack(rows);
 }
 
-/** Keep selection/current tools, then fill remaining space in the established order. */
 export function splitToolDock(
   tools: ToolDockEntry[],
   activeId: string,

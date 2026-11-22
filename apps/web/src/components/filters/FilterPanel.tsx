@@ -22,7 +22,6 @@ type FilterPanelProps = {
   footer?: ReactNode;
   align?: "start" | "center" | "end";
   responsive?: boolean;
-  /** Desktop panel geometry; mobile always uses the viewport-wide bottom sheet. */
   className?: string;
 };
 

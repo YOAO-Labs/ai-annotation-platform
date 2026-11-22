@@ -74,8 +74,6 @@ class LogCapture:
                     try:
                         self.write(chunk)
                     except Exception as exc:
-                        # Keep draining on a failed optional spool/disk write;
-                        # native stdout must never block behind observation.
                         self.error = type(exc).__name__
                 self.write(b"", final=True)
             except Exception as exc:

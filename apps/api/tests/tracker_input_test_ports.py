@@ -185,8 +185,6 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
 
     @asynccontextmanager
     async def claim_captured_unit_input(db, job_id, **kwargs):
-        # These unit ports declare the input already accepted. Supply its
-        # minimal Native claim scope; full input admission is tested separately.
         present = await db.scalar(
             text(
                 "SELECT 1 FROM public.video_tracker_input_scopes WHERE tracker_job_id=:job"
@@ -391,8 +389,6 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
                         if job.model_key == "sam3_video_combo"
                         else [job.model_key]
                     )
-                    # Direct fake adapters declare a test registry, without
-                    # claiming a weight artifact or real backend qualification.
                     _, pool = await create_registry_with_pool(
                         db_session,
                         name="tracker unit provider",
@@ -611,11 +607,9 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
             self.closed_spans.add(span_digest)
 
         async def finish(self, _outcome):
-            # Finish participates in the business transaction; only flush here.
             await self.db.flush()
 
         async def retire(self):
-            # ORM-focused runner tests do not qualify physical Native retirement.
             return None
 
     monkeypatch.setattr(runner, "TrackerWindowJournal", InMemoryTrackerWindowJournal)
@@ -931,13 +925,11 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
     monkeypatch.setattr(writer.settings, "labeling_video_writer_database_url_file", "")
 
     async def _unit_mask_verifier(_staged):
-        # Unit adapters do not qualify independent Mask-content verification.
         return None
 
     monkeypatch.setattr(writer, "_verify_candidate_masks", _unit_mask_verifier)
 
     async def _unit_scope_retirement(_db, _job_id, **_kwargs):
-        # Native retirement is covered by its owner tests, not this test port.
         return None
 
     monkeypatch.setattr(recovery, "retire_tracker_scope", _unit_scope_retirement)

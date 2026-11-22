@@ -202,7 +202,6 @@ async def test_safe_source_path_rejects_cross_platform_escape(filename):
         _safe_source_path(filename)
 
 
-# Controlled transport and independent ledgers live in one disposable namespace.
 class _FakeS3Client(Client):
     def __init__(self):
         super().__init__()
@@ -258,17 +257,12 @@ async def _frozen_test_delivery(db, project_id, client):
     return ReceiptView(captured.snapshot)
 
 
-# --------------------------------------------------------------------------- #
-# fake nuScenes 根目录构造
-# --------------------------------------------------------------------------- #
 _IDENTITY_QUAT = [1.0, 0.0, 0.0, 0.0]
 _ZERO_TRANS = [0.0, 0.0, 0.0]
 _INTRINSIC = [[1000.0, 0.0, 800.0], [0.0, 1000.0, 450.0], [0.0, 0.0, 1.0]]
 
-# 两个 sensor:LIDAR_TOP + CAM_FRONT
 _LIDAR_SENSOR = "sensor-lidar"
 _CAM_SENSOR = "sensor-cam-front"
-# 两个 calibrated_sensor(token 复用 sensor 名 + 后缀)
 _CS_LIDAR = "cs-lidar"
 _CS_CAM = "cs-cam-front"
 
@@ -327,7 +321,6 @@ def _write_fake_nuscenes(
         }
     ]
 
-    # 造极小 lidar bin(3 点,每点 5 float)+ 1x1 jpg
     lidar_dir = root / "samples" / "LIDAR_TOP"
     cam_dir = root / "samples" / "CAM_FRONT"
     lidar_dir.mkdir(parents=True)
@@ -369,8 +362,6 @@ def _write_fake_nuscenes(
             )
             ego_lidar = f"ego-lidar-{s_i}-{i}"
             ego_cam = f"ego-cam-{s_i}-{i}"
-            # 每帧 ego 沿 x 直线前进 2m(造一段可断言差分的轨迹);
-            # 同 sample 的 lidar/cam ego 取同值,首帧 calib 外参计算不受影响
             ego_translation = [(s_i * 100 + i) * 2.0, 0.0, 0.0]
             ego_pose_tbl.append(
                 {
@@ -468,7 +459,6 @@ async def test_import_nuscenes_two_scenes(
         tool_bindings={"lidar_box_3d": {"enabled": True}},
     )
 
-    # 1. 跑通,报告自洽
     assert len(result["scenes"]) == 2
     assert all(s["frames"] == 3 for s in result["scenes"])
     dataset_id = result["dataset_id"]
@@ -542,7 +532,6 @@ async def test_import_nuscenes_two_scenes(
         for item in camera_items
     )
 
-    # 2. DB 里 2 个 Scene 行,name 对应
     scenes = (
         (
             await db_session.execute(
@@ -565,7 +554,6 @@ async def test_import_nuscenes_two_scenes(
         for s in scenes
     )
 
-    # 3. 每个 scene 的 lidar items frame_index = 0/1/2,scene_id 正确
     for scene in scenes:
         lidar_rows = (
             (
@@ -582,8 +570,6 @@ async def test_import_nuscenes_two_scenes(
         assert [r.frame_index for r in lidar_rows] == [0, 1, 2]
         assert all(r.scene_id == scene.id for r in lidar_rows)
 
-    # 3.5 每 scene 落 3 行 ego pose:frame_index 对齐、timestamp 单调、
-    # translation 差分 = 设定步长(2m/帧)
     from app.services import scene_pose as scene_pose_svc
 
     for scene in scenes:
@@ -596,7 +582,6 @@ async def test_import_nuscenes_two_scenes(
         assert xs[2] - xs[1] == pytest.approx(2.0)
         assert all(p.ego_rotation == [1.0, 0.0, 0.0, 0.0] for p in traj)
 
-    # 4. 跨 scene neighbors 不串:scene A 末帧 task 的 next 为空
     from app.db.models.task import Task
 
     scene_a = scenes[0]
@@ -620,7 +605,7 @@ async def test_import_nuscenes_two_scenes(
     assert neighbors is not None
     assert neighbors.scene_total_frames == 3
     assert neighbors.frame_index == 2
-    assert neighbors.next == []  # 不串到 scene B 首帧
+    assert neighbors.next == []
     assert len(neighbors.prev) == 1
     assert neighbors.prev[0].frame_index == 1
 
@@ -824,7 +809,6 @@ async def test_backfill_frame_poses_restores_deleted_rows(
     assert [p.frame_index for p in traj] == [0, 1, 2]
     assert [p.ego_translation[0] for p in traj] == [0.0, 2.0, 4.0]
 
-    # display_id 引用同样可用,且 upsert 幂等(重跑不翻倍)
     report2 = await backfill_frame_poses(
         db_session, dataset_ref="DS-NU-nu-lite-bf", nuscenes_root=root
     )

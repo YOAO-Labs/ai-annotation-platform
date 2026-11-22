@@ -52,8 +52,6 @@ def _legacy_reader(tmp_path):
         == reference["source"]["runtime_source_sha256"][relative]
     )
     path = tmp_path / "frozen_legacy_project_access.py"
-    # The frozen implementation keeps its original hash; only the import of
-    # the byte-identical relocated policy changes for this executable probe.
     assert raw.count(b"from aap_workspace.access_contract import") == 1
     path.write_bytes(
         raw.replace(

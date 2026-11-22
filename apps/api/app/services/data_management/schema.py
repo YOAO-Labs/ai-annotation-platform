@@ -57,8 +57,6 @@ _BASE_COLUMNS = [
     ("pending_tracker_job_count", "AI 追踪待审", "AI 待审", True, True),
     ("unresolved_issue_count", "未解决问题", "质量", True, True),
     ("comment_count", "评论", "讨论", True, True),
-    # Legacy feedback column kept as a compatibility alias of the corrected
-    # unresolved-issue count for saved views that still reference it.
     ("unresolved_feedback_count", "反馈（兼容）", "质量", False, True),
     ("annotation_source_counts", "来源", "标注", True, True),
     ("track_count", "轨迹", "标注", True, True),

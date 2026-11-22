@@ -205,6 +205,56 @@ async def test_missing_row_gets_four_looks_and_three_fixed_waits(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_terminal_rows_are_checked_once_and_only_authorized_delivery_is_deduped(
+    monkeypatch,
+):
+    actor_id, notification_id = uuid.uuid4(), uuid.uuid4()
+    delivery = _Delivery()
+    seen = set()
+    raw = json.dumps(
+        {
+            "id": str(notification_id),
+            "type": "job.completed",
+            "target_type": "async_job",
+        }
+    )
+
+    async def authenticate(_token):
+        return _principal(actor_id)
+
+    @asynccontextmanager
+    async def open_delivery(_principal):
+        yield delivery
+
+    async def fail_on_wait(_delay):
+        pytest.fail("terminal delivery must not wait for transaction visibility")
+
+    monkeypatch.setattr("yoao_notifications.websocket.asyncio.sleep", fail_on_wait)
+
+    async def allowed():
+        return await notification_message_allowed(
+            "jwt",
+            raw,
+            authenticate=authenticate,
+            open_delivery=open_delivery,
+            seen_terminal_ids=seen,
+        )
+
+    assert not await allowed()
+    assert delivery.lookups == [notification_id]
+    assert not seen
+    delivery.allowed = False
+    delivery.rows = [object(), object()]
+    assert not await allowed()
+    assert not seen
+    delivery.allowed = True
+    assert await allowed()
+    assert seen == {notification_id}
+    assert not await allowed()
+    assert delivery.lookups == [notification_id] * 3
+
+
+@pytest.mark.asyncio
 async def test_first_notification_read_errors_propagate():
     actor_id, notification_id = uuid.uuid4(), uuid.uuid4()
     failure = RuntimeError("database failure")

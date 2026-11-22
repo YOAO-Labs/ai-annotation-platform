@@ -73,7 +73,6 @@ def _batch_to_out(batch, briefs: dict | None = None) -> BatchOut:
     out = BatchOut.model_validate(batch)
     out.progress_pct = pct
     if briefs is not None:
-        # 单值语义 — 直接按 annotator_id / reviewer_id 拿 brief
         if batch.annotator_id is not None:
             out.annotator = briefs.get(str(batch.annotator_id))
         if batch.reviewer_id is not None:
@@ -284,7 +283,6 @@ async def delete_batch(
     if not batch or batch.project_id != project_id:
         raise HTTPException(status_code=404, detail="Batch not found")
     affected = batch.total_tasks
-    # 含进行中成果/已预标时 svc.delete 会抛 409 requires_force；force=true 走强制清理删除
     await svc.delete(batch_id, force=force, actor_id=current_user.id)
     await AuditService.log(
         db,
@@ -320,7 +318,6 @@ async def transition_batch(
     if not batch or batch.project_id != project_id:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    # 按 (from, to) 校验角色（403 携带可读 detail）
     assert_can_transition(
         current_user,
         project,
@@ -329,7 +326,6 @@ async def transition_batch(
         project_role=access.project_role,
     )
 
-    # 逆向迁移强制 reason（schema 层面 reason 是可选，这里按方向决定是否必填）
     is_reverse = (batch.status, data.target_status) in REVERSE_TRANSITIONS
     if is_reverse and not data.reason:
         raise HTTPException(
@@ -353,7 +349,6 @@ async def transition_batch(
         detail=audit_detail,
     )
 
-    # 逆向迁移按方向分发通知
     notif_recipients: list[uuid.UUID] = []
     notif_type: str | None = None
     if (old_status, batch.status) == (BatchStatus.ARCHIVED, BatchStatus.ACTIVE):
@@ -585,7 +580,6 @@ async def reject_batch(
     if not batch or batch.project_id != project_id:
         raise HTTPException(status_code=404, detail="Batch not found")
 
-    # 复用 transition 鉴权矩阵（reviewing → rejected 的角色门）
     assert_can_transition(
         current_user,
         project,
@@ -611,7 +605,6 @@ async def reject_batch(
         detail={"affected_tasks": affected, "feedback": data.feedback},
     )
 
-    # 单值语义：只通知该批次的标注员（reviewer 是 actor 本人无需通知）
     pending_notifications = []
     if batch.annotator_id is not None:
         notif_svc = NotificationService(db)
@@ -635,9 +628,6 @@ async def reject_batch(
     batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
-
-
-# ── Reset → draft 终极重置 ───────────────────────────────────────
 
 
 @router.post("/{batch_id}/reset", response_model=BatchOut)
@@ -687,9 +677,6 @@ async def reset_batch_to_draft(
     batch = await _refresh_batch(db, batch)
     briefs = await _briefs_for_batches(db, project_id, [batch])
     return _batch_to_out(batch, briefs)
-
-
-# ── ADR-0008 · Admin Lock/Unlock ─────────────────────────────────
 
 
 @router.post("/{batch_id}/admin-lock", response_model=BatchOut)
@@ -808,9 +795,6 @@ async def admin_unlock_batch(
     return _batch_to_out(batch, briefs)
 
 
-# ── 多选批量操作 ─────────────────────────────────────────────────
-
-
 def _bulk_audit_detail(payload: dict, summary: dict) -> dict:
     return {
         "batch_ids": [str(x) for x in payload.get("batch_ids", [])],
@@ -862,7 +846,6 @@ async def bulk_delete_batches(
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BatchService(db)
-    # force=false 时含进行中成果/已预标的批次进 failed(reason=requires_force)
     summary = await svc.bulk_delete(
         project_id, data.batch_ids, force=force, actor_id=current_user.id
     )
@@ -1014,7 +997,6 @@ async def bulk_reject_batches(
         status_code=200,
         detail=audit_detail,
     )
-    # 通知各批次的标注员
     pending_notifications = []
     if summary["succeeded"]:
         loaded = await svc._list_batches_in_project(project_id, summary["succeeded"])
@@ -1187,8 +1169,6 @@ async def export_batch(
         require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
     ),
 ):
-    # 导出异步化：创建 async_job(kind=export) + 派发 run_export，返回 {job_id}。
-    # 多目标（方案 B）。VOC 仅可单选，走同步 blob；不删避免破坏 API 契约。
     from app.services.audit import AuditService, AuditAction, export_detail
     from app.services.exporting.packaging import clean_export_targets
 

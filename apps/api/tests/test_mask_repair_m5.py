@@ -79,8 +79,6 @@ async def _seed_repair_issue(
     )
     db.add(item)
     await db.flush()
-    # Request qualification freezes real registered source facts. Physical image
-    # reads belong to the committed managed-owner integration tests.
     output = io.BytesIO()
     with Image.new("RGB", (item.width, item.height), "red") as image:
         image.save(output, "PNG")
@@ -89,8 +87,6 @@ async def _seed_repair_issue(
     await register_item_asset(
         db, item, sha256=hashlib.sha256(raw).hexdigest(), size_bytes=len(raw)
     )
-    # The review task carries a distinct literal annotator as its frozen round
-    # contributor, so the owner's QC repair is not a self-review of own work.
     author = await create_user(
         db, "employee", f"rpr-author-{suffix}@test.local", "Repair Author"
     )

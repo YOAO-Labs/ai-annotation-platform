@@ -280,7 +280,6 @@ async def recover_pending():
                     await db.commit()
                     continue
                 if run.status == "running":
-                    # Invalidate a crashed/expired chunk before replaying its file.
                     run.generation += 1
                     run.lease_token = None
                     run.status = job.status = "pending"

@@ -55,8 +55,6 @@ async def owned_db(test_engine):
                 lambda sync: _migration(sync, "0224_export_output_storage").upgrade()
             )
             await connection.run_sync(lambda sync: _migration(sync).upgrade())
-            # This fixture exercises the historical migration in a private schema;
-            # the current ORM also projects the later fixture retention columns.
             await connection.execute(
                 text(
                     "ALTER TABLE export_media_bundles "

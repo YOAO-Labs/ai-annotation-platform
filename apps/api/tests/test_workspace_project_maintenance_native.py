@@ -223,7 +223,6 @@ async def test_import_defaults_match_legacy_orm_and_rollback_retains_reference(
             actor_id,
             json.dumps(bindings),
         )
-        # The pre-change creator's ORM defaults are the compatibility reference.
         async with maker.begin() as db:
             legacy = Project(
                 id=uuid.uuid4(),
@@ -254,7 +253,6 @@ async def test_import_defaults_match_legacy_orm_and_rollback_retains_reference(
             for field in ("id", "display_id", "created_at", "updated_at"):
                 row.pop(field)
         assert rows[0] == rows[1]
-        # A lookup of an existing display ID remains a reference-only read.
         before = await owner.fetchval(
             "SELECT to_jsonb(p) FROM projects p WHERE id=$1", native_id
         )

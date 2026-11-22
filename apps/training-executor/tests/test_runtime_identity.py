@@ -120,6 +120,4 @@ def test_runtime_reports_only_locally_verified_base_assets(
     path.chmod(0o644)
     path.write_bytes(b"corrupt")
     assert runtime_identity()["base_asset_sha256"] == []
-    # Heartbeats use this previously frozen runtime object; no asset transfer or
-    # global readiness is inferred from a later change on disk.
     assert initial["base_asset_sha256"] == [reference.sha256]

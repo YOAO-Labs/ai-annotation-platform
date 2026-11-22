@@ -37,7 +37,6 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
     )
     db.add(proj)
     await db.flush()
-    # ADR-0044 · 全局注册项 + 项目启用关联 (编排阶段引用 registry id)。
     detect, detect_pool = await create_registry_with_pool(
         db,
         name="detect",
@@ -153,7 +152,6 @@ async def test_patch_omit_keeps_pipeline(httpx_client, super_admin, db_session):
         headers=_bearer(token),
         json={"preannotate_pipeline": stages},
     )
-    # 不传 preannotate_pipeline, 改别的字段 → 编排保持不变。
     resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
@@ -211,7 +209,7 @@ async def test_patch_rejects_duplicate_stage(httpx_client, super_admin, db_sessi
     await db_session.commit()
 
     stages = _stages(detect.id, classify.id)
-    stages[1]["stage"] = 0  # 重复 stage 序号
+    stages[1]["stage"] = 0
     resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
@@ -229,7 +227,7 @@ async def test_patch_rejects_no_root_stage(httpx_client, super_admin, db_session
     owner, token = super_admin
     proj, detect, classify = await _seed(db_session, owner.id)
     stages = _stages(detect.id, classify.id)
-    stages[0]["parent_stage"] = 1  # 无 parent_stage=None 的源阶段
+    stages[0]["parent_stage"] = 1
     resp = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
         headers=_bearer(token),
@@ -251,9 +249,6 @@ async def test_patch_rejects_bad_uuid(httpx_client, super_admin, db_session):
     assert resp.status_code == 422, resp.text
 
 
-# ---------- 保存路径能力软提示 (不挡, 与 dispatch 422 同判据) ----------
-
-
 async def _set_caps(db: AsyncSession, backend, models: list[dict]):
     backend.health_meta = {"capabilities": {"models": models}}
     db.add(backend)
@@ -264,7 +259,6 @@ async def _set_caps(db: AsyncSession, backend, models: list[dict]):
 async def test_patch_emits_capability_warnings_not_blocked(
     httpx_client, super_admin, db_session
 ):
-    # 源模型自报 batchable=false → 保存仍 200 (软提示), 响应回带 capability_warnings。
     owner, token = super_admin
     proj, detect, classify = await _seed(db_session, owner.id)
     await _set_caps(
@@ -282,7 +276,6 @@ async def test_patch_emits_capability_warnings_not_blocked(
 
 @pytest.mark.asyncio
 async def test_patch_no_warnings_when_capable(httpx_client, super_admin, db_session):
-    # 零退化: 无能力快照 (老 backend) → 保存 200 且 capability_warnings 为空。
     owner, token = super_admin
     proj, detect, classify = await _seed(db_session, owner.id)
     resp = await httpx_client.patch(

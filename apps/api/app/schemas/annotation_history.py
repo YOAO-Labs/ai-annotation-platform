@@ -21,16 +21,13 @@ class HistoryEntry(BaseModel):
     kind: str
     timestamp: datetime
     actor: UserBrief | None = None
-    # audit 字段
     action: str | None = None
     detail: dict[str, Any] | None = None
-    # comment 字段
     comment_id: UUID | None = None
     body: str | None = None
 
 
 class AnnotationHistoryResponse(BaseModel):
-    # I4 · task 级时间线 (GET /tasks/{id}/audit-history) 时 annotation_id=None.
     annotation_id: UUID | None = None
     task_id: UUID
     entries: list[HistoryEntry]

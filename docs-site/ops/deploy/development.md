@@ -43,7 +43,9 @@ last_reviewed: 2026-10-20
 docker compose up -d
 ```
 
-默认（不带 `--profile`）拉起 10 个容器：postgres / redis / minio / mailpit / celery-worker / celery-worker-gpu-control / celery-worker-gpu / celery-worker-cpu / celery-worker-export / celery-beat。五个 ML backend profile（`gpu` / `gpu-sam3` / `gpu-yolo` / `gpu-onnxtools` / `gpu-rapidocr`）与监控（`monitoring`）默认不启动，按需单独开。
+默认（不带 `--profile`）启动 PostgreSQL、Redis、MinIO、Mailpit、各队列 worker 和 beat。五个 ML backend profile（`gpu` / `gpu-sam3` / `gpu-yolo` / `gpu-onnxtools` / `gpu-rapidocr`）与监控（`monitoring`）默认不启动，按需单独开。
+
+Mailpit 仅收信、不外发。可单独执行 `docker compose up -d mailpit`，在 `http://localhost:8025` 查看收件箱；宿主机 API 配 `SMTP_HOST=localhost`、`SMTP_PORT=1025`、`SMTP_FROM=noreply@local.test`，同一开发 Compose 网络内将 `SMTP_HOST` 改为 `mailpit`。仅启动开发监控服务时也需启动 `mailpit`，开发 Alertmanager 通过该内部服务投递。整栈生产不会启动 Mailpit，配置方式见[生产邮件与告警](./docker-compose#production-mail)。
 
 ### 2.2 跑数据库迁移
 

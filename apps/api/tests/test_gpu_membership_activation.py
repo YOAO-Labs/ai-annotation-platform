@@ -1157,8 +1157,6 @@ async def test_multi_resource_writer_and_promotion_do_not_deadlock(
     writer_task = asyncio.create_task(update_two_resources())
     try:
         await asyncio.wait_for(writer_has_global.wait(), timeout=2)
-        # Keep resource B locked until the writer has attempted its second
-        # update. Releasing promotion earlier lets its retry race that update.
         with pytest.raises(DBAPIError) as writer_error:
             await asyncio.wait_for(writer_task, timeout=2)
         assert _is_serialization_failure(writer_error.value)
@@ -1183,8 +1181,6 @@ async def test_trigger_writers_fail_fast_when_global_promotion_barrier_is_busy(
         write: Callable[[AsyncSession], Awaitable[None]],
     ) -> None:
         async with factory.begin() as holder, factory() as writer:
-            # Bound database lock waits independently of cold connections and
-            # client scheduling. A blocking trigger returns 55P03, not 40001.
             await writer.execute(text("SET LOCAL lock_timeout = '500ms'"))
             await holder.execute(
                 text(

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runReferenceKalman, type ReferenceKalmanKeyframe } from "./videoReferenceKalman";
 
-/** 恒速线性外推(现状算法),仅用末两个关键帧,作为卡尔曼的对照基线。 */
 function linearExtrapolateCx(keyframes: ReferenceKalmanKeyframe[], targetFrame: number): number {
   const k2 = keyframes[keyframes.length - 1];
   const k1 = keyframes[keyframes.length - 2];
@@ -10,19 +9,16 @@ function linearExtrapolateCx(keyframes: ReferenceKalmanKeyframe[], targetFrame: 
   return k2.cx + ((k2.cx - k1.cx) / span) * dt;
 }
 
-/** 确定性伪随机(LCG),避免 Math.random 让测试不可复现。 */
 function makeNoise(seed: number) {
   let s = seed >>> 0;
   return () => {
     s = (s * 1664525 + 1013904223) >>> 0;
-    return (s / 0xffffffff - 0.5) * 2; // [-1, 1)
+    return (s / 0xffffffff - 0.5) * 2;
   };
 }
 
 describe("runReferenceKalman", () => {
   it("线性运动 + 噪声:卡尔曼平均误差比两点外推更小(平滑降方差)", () => {
-    // 真值:cx 在 vx=0.01/帧 上恒速;两点外推只用末两个噪声样本估速度,方差大。
-    // 单一种子上两点外推可能恰好走运,故对多种子求平均绝对误差对比(正确的统计论断)。
     const target = 24;
     const truth = 0.1 + 0.01 * target;
     let kfErr = 0;
@@ -46,14 +42,12 @@ describe("runReferenceKalman", () => {
       keyframes.push({ frame: f, cx: 0.2 + 0.02 * f, cy: 0.4 - 0.01 * f, w: 0.15, h: 0.15 });
     }
     const kf = runReferenceKalman(keyframes, 15, "stable");
-    // 真值:cx = 0.2 + 0.02*15 = 0.5;cy = 0.4 - 0.01*15 = 0.25。
     expect(kf.cx).toBeCloseTo(0.5, 2);
     expect(kf.cy).toBeCloseTo(0.25, 2);
     expect(kf.w).toBeCloseTo(0.15, 2);
   });
 
   it("阶跃突变:灵敏档比平稳档更紧跟最新关键帧", () => {
-    // 前段稳定在 0.3,最后一个关键帧突跳到 0.5。
     const keyframes: ReferenceKalmanKeyframe[] = [
       { frame: 0, cx: 0.3, cy: 0.5, w: 0.2, h: 0.2 },
       { frame: 1, cx: 0.3, cy: 0.5, w: 0.2, h: 0.2 },
@@ -62,7 +56,6 @@ describe("runReferenceKalman", () => {
     ];
     const stable = runReferenceKalman(keyframes, 4, "stable");
     const agile = runReferenceKalman(keyframes, 4, "agile");
-    // 灵敏档信观测 → 更靠近 0.5;平稳档信模型 → 更被历史拖住。
     expect(agile.cx).toBeGreaterThan(stable.cx);
   });
 
@@ -75,7 +68,6 @@ describe("runReferenceKalman", () => {
     const far = runReferenceKalman(keyframes, 30, "stable");
     expect(near.sx).toBeGreaterThan(0);
     expect(near.sy).toBeGreaterThan(0);
-    // 离最后一个关键帧越远,位置后验不确定度越大(Q 累积)。
     expect(far.sx).toBeGreaterThan(near.sx);
   });
 
@@ -85,7 +77,6 @@ describe("runReferenceKalman", () => {
       { frame: 1, cx: 0.9, cy: 0.5, w: 0.2, h: 0.2 },
     ];
     const kf = runReferenceKalman(keyframes, 10, "agile");
-    // 恒速 0.1/帧外推到 frame 10 必然 > 1,函数本身不 clamp。
     expect(kf.cx).toBeGreaterThan(1);
   });
 });

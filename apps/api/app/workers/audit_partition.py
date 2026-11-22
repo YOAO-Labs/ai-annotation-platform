@@ -75,7 +75,6 @@ async def _archive_async(retain_months: int, celery_task_id: str | None = None) 
             if len(previous) > 1:
                 raise RuntimeError("audit_archive_job_identity_conflict")
             if previous:
-                # A redelivery cannot prove the original physical attempt ended.
                 job = previous[0]
                 result = {
                     **(job.result or {}),
@@ -97,8 +96,6 @@ async def _archive_async(retain_months: int, celery_task_id: str | None = None) 
 
         async def terminal(*, error=None, cancelled=False, completed=None):
             await db.rollback()
-            # Notifications take a users FK lock. Match cancellation's User ->
-            # Job order before locking a historically user-owned archive job.
             owner_id = await db.scalar(
                 select(AsyncJob.user_id).where(AsyncJob.id == job_id)
             )
@@ -137,8 +134,6 @@ async def _archive_async(retain_months: int, celery_task_id: str | None = None) 
             )
             result = await terminal(completed=result)
         except asyncio.CancelledError:
-            # Source I/O has already drained; repeated cancellation cannot abandon
-            # the transaction that records which months actually committed.
             await storage_access.finish(asyncio.create_task(terminal(cancelled=True)))
             raise
         except Exception as exc:

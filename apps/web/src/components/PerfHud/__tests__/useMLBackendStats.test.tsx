@@ -1,9 +1,3 @@
-/**
- * useMLBackendStats WS smoke 测试 (PerfHud).
- *
- * 验证 URL 路径 /ws/ml-backend-stats?token=... 拼接正确, visible+token 才建连,
- * 收 backends 帧后 ring buffer 行为, 卸载清理.
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useAuthStore } from "@/stores/authStore";

@@ -1,4 +1,3 @@
-/** Interpret verified bytes for display without changing the original content. */
 async function readBlob(blob: Blob, signal?: AbortSignal): Promise<ArrayBuffer> {
   signal?.throwIfAborted();
   return new Promise((resolve, reject) => {
@@ -58,7 +57,6 @@ export async function createOriginalImageAddress(blob: Blob, signal?: AbortSigna
   const typed = await typedOriginalImageBlob(blob, signal);
   signal?.throwIfAborted();
   if (typed.type === "image/svg+xml") {
-    // A data URL keeps SVG documents opaque even if opened outside the image element.
     const url = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       const abort = () => reader.abort();

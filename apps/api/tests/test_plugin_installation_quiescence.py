@@ -115,7 +115,6 @@ async def test_stop_refuses_unretired_tracker_even_after_logical_close(
     )
     assert disabled.status_code == 200
 
-    # Model a pre-migration disabled installation with no physical proof.
     await db_session.execute(
         text(
             "DELETE FROM yoao_inference_routing_v1.scope_retirements WHERE scope_id=:scope"
@@ -237,7 +236,6 @@ async def test_revision_change_during_drain_never_authorizes_stop(
 
     class RacingControl:
         async def terminal_drain(self, registry_id, *, boot_id, operation_id):
-            # Another administrator commits a terminal proof before this reply.
             proof = {
                 **receipt,
                 "endpoint": payload(UUID(receipt["installation_id"]))["url"],

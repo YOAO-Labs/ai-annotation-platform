@@ -588,8 +588,6 @@ async def test_cleanup_continues_past_bad_owner_and_uses_exact_saved_bucket(
     bad = await seed_output(db_session, export_objects, expired=True)
     good = await seed_output(db_session, export_objects, expired=True)
     saved = (good.storage_ref["bucket"], good.storage_ref["object_key"])
-    # The malformed runtime identity is isolated to this snapshot, without
-    # inventing or migrating ownership of any existing object.
     original = export_storage.resolve
     bad_id = bad.id
 
@@ -682,8 +680,6 @@ async def test_unknown_body_close_retains_read_receipt_and_defers_cleanup(
         assert (await export_outputs.cleanup(db_session))["outputs_deleted"] == 0
         assert not export_objects.deleted
     finally:
-        # Test-only evidence resolution: close real in-memory bodies and remove
-        # this test's independently committed uncertain read permit.
         for body in export_objects.bodies:
             io.BytesIO.close(body)
         async with storage_access.engine(db_session).begin() as connection:
@@ -828,8 +824,6 @@ async def test_worker_unknown_final_commit_never_deletes_candidate(
     from tests.test_lidar_export_inputs import setup
     from tests.test_lidar_export_worker import Harness, request, state
 
-    # All supported media now share this publication transaction. Keep the
-    # original uncertainty test on real Bundle/ZIP rows, not a legacy bypass.
     db = worker_db
     project, *_ = await setup(db)
     harness = Harness(db, monkeypatch)

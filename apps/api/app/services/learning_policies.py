@@ -354,8 +354,6 @@ async def reconcile(db, policy, trigger):
             policy.baseline = semantic_partitions(dataset.manifest)
             policy.baseline_dataset_id = dataset.id
             policy.blocked_train_digest = None
-            # The parent pointer advances with success even if source content
-            # does not. Avoid repackaging only for that pointer change.
             snapshot = {
                 **dataset.snapshot,
                 "selection": {
@@ -612,9 +610,6 @@ async def check_policy(
             "自动学习策略的父数据版本任务或桥接不匹配，请重新保存策略",
         )
         return
-    # This durable scheduling claim releases all business locks before physical
-    # reads. Compare every persisted field on return so an editor or a newer
-    # checker, including one that found unchanged input, always wins.
     await db.flush()
     context = _policy_context(policy)
     await db.commit()
@@ -793,7 +788,6 @@ async def check_project(
 
 
 async def dispatch_pending(db, policy_id, *, dispatcher: TrainingDatasetDispatcher):
-    # Durable pending identity closes a crash between commit and broker publish.
     trigger = await db.scalar(
         select(LearningTrigger).where(
             LearningTrigger.policy_id == policy_id, LearningTrigger.status == "building"

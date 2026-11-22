@@ -24,14 +24,9 @@ function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-/**
- * 批量改派 modal。
- * 标注员 / 审核员各一栏：保留不变 / 清空 / 选某成员，三种语义。
- */
 export function BulkReassignModal({ projectId, count, onClose, onSubmit, pending }: Props) {
   const { data: members = [], isLoading } = useProjectMembers(projectId);
 
-  // 「保留不变」= 不发送该字段；「清空」= 发送 null；选成员 = user_id
   const [annotatorChoice, setAnnotatorChoice] = useState<string | Sentinel>("__keep__");
   const [reviewerChoice, setReviewerChoice] = useState<string | Sentinel>("__keep__");
 
@@ -102,7 +97,6 @@ function Column({
     user_name: string;
     user_email: string;
     role: string;
-    /** 头像引用；结构上是 ProjectMemberResponse 的子集，缺省 = 回退首字母。 */
     avatar_ref?: string | null;
   }[];
   choice: string | Sentinel;

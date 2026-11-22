@@ -26,13 +26,11 @@ export interface DiscussionIssueDetailProps {
   projectId: string;
   taskId: string;
   allowProjectScope?: boolean;
-  /** Current list scope. Project scope is only passed by the video Workbench. */
   listScope?: "task" | "project";
   rootSnapshot?: AnnotationFeedback | null;
   onBack: () => void;
   onOpenIssue: (issue: AnnotationFeedback) => void;
   onLocate?: (issue: AnnotationFeedback) => void;
-  /** Optional bridge for switching the surrounding list to project scope. */
   onRequestProjectScope?: () => void;
 }
 
@@ -174,8 +172,6 @@ export function DiscussionIssueDetail({
     onReplyFocusHandled?.(replyFocus.requestId);
   }, [replyFocus, rootId, thread.state, replyCount, onReplyFocusHandled]);
 
-  // Preserve the reader's distance from the bottom while an older page is
-  // prepended. This keeps the currently visible reply anchored in place.
   useLayoutEffect(() => {
     const pendingRestore = restoreDistanceRef.current;
     const element = threadScrollRef.current;

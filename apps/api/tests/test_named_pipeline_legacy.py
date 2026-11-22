@@ -1073,7 +1073,6 @@ async def _run_scenarios(client, maker, world) -> list[dict]:
         sample = world["samples"][-1]
         assert sample["database_before"] == sample["database_after"]
 
-    # Explicit null stages rejects without changing any persisted pipeline row.
     await _request(
         client,
         maker,
@@ -1710,8 +1709,6 @@ async def test_replay_legacy_named_pipeline_http_and_database(
     )
     expected_samples = fixture.get("samples")
     assert isinstance(expected_samples, list)
-    # A null stages update now rejects before persistence rather than returning
-    # 500 after committing JSON null. Keep the historical capture immutable.
     assert (
         sum(
             sample.get("label") == _SUPERSEDED_NULL_STAGES
@@ -1736,7 +1733,6 @@ async def test_replay_legacy_named_pipeline_http_and_database(
         application_name="named-pipeline-legacy-replay",
     )
 
-    # Normalize snapshot row order; public response array order stays exact.
     def view(sample):
         result = {
             **sample,

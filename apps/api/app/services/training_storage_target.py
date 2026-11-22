@@ -152,8 +152,6 @@ def _probe(client, target):
             if not shared.version_matches(
                 params.get("VersionId"), head.get("VersionId")
             ):
-                # No exact write receipt exists for this observed version. Keep
-                # it for reconciliation instead of creating a delete marker.
                 receipts.remove(params)
                 raise storage_access.mark_unsettled(
                     shared.error(PURPOSE, "invalid_receipt")

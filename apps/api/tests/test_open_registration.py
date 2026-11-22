@@ -129,7 +129,6 @@ async def test_open_register_captcha_required_when_enabled(
                 "email": "captcha-miss@test.com",
                 "name": "X",
                 "password": "Abcd1234",
-                # captcha_token 缺失
             },
         )
         assert resp.status_code == 400
@@ -149,9 +148,6 @@ async def test_open_register_captcha_token_valid_passes(
             return_value=True,
         ),
     ):
-        # 注：上面 patch verify_turnstile_token 是直接替换 service 函数，
-        # 但 auth.py 是 from app.services.captcha_service import verify_turnstile_token，
-        # 所以要 patch 路由模块的引用。
         with patch("app.api.v1.auth.verify_turnstile_token", return_value=True):
             resp = await httpx_client.post(
                 "/api/v1/auth/register-open",

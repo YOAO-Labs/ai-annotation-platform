@@ -49,16 +49,45 @@ function decisionResponse(response: Response) {
 test("Tracker 可按目标/帧窗局部接受拒绝并二次确认人工帧", async ({
   page,
   request,
+  owned: data,
   seed,
 }, testInfo) => {
   test.setTimeout(90_000);
-  const data = await seed.owned();
   try {
     const video = await seed.videoTask(data.project_id);
     const fixture = await seed.trackerReview(video.task_id, data.admin_email);
     const token = await seed.accessToken(data.admin_email);
     const before = await annotations(request, video.task_id, token);
-    // Staged tracker results are deterministic fixtures; no inference is requested.
+    const previewUrl = `${API_BASE}/api/v1/video-tracker-jobs/${fixture.job_id}/preview`;
+    const initial = await request.get(previewUrl, { headers: auth(token) });
+    expect(initial.ok(), await initial.text()).toBe(true);
+    const initialPreview = await initial.json();
+    expect(initialPreview).toMatchObject({
+      status: "pending_review",
+      candidate_total: 20,
+      candidate_pending: 20,
+      candidate_accepted: 0,
+      candidate_rejected: 0,
+      expected_source_versions: Object.fromEntries(
+        fixture.source_annotation_ids.map((id) => [
+          id,
+          before.find((row) => row.id === id)?.version,
+        ]),
+      ),
+    });
+    expect(initialPreview.job_revision).toBeGreaterThan(0);
+    expect(initialPreview.results).toHaveLength(20);
+    for (const [index, instance] of ["A", "B"].entries()) {
+      const candidates = initialPreview.results.filter(
+        (row: { instance_id: string }) => row.instance_id === instance,
+      );
+      expect(candidates.map((row: { frame_index: number }) => row.frame_index)).toEqual(
+        Array.from({ length: 10 }, (_, offset) => 10 + offset),
+      );
+      expect(
+        candidates.map((row: { source_annotation_id: string }) => row.source_annotation_id),
+      ).toEqual(Array<string>(10).fill(fixture.source_annotation_ids[index]));
+    }
     const configured = await request.patch(`${API_BASE}/api/v1/projects/${data.project_id}`, {
       headers: auth(token),
       data: { ai_enabled: false, ai_interactive_enabled: false, ml_backend_id: null },
@@ -120,7 +149,6 @@ test("Tracker 可按目标/帧窗局部接受拒绝并二次确认人工帧", as
     expect(reviewBounds).not.toBeNull();
     expect(reviewBounds!.y).toBeGreaterThanOrEqual(contextBounds!.y + contextBounds!.height);
 
-    // 仅接受 A 的 F10-F15；B 与窗口外必须保持不变。
     await page.getByTestId("tracker-review-instance-B").uncheck();
     await setWindow(page, 10, 15);
     const decisionPath = `/video-tracker-jobs/${fixture.job_id}/decisions` as const;
@@ -146,14 +174,12 @@ test("Tracker 可按目标/帧窗局部接受拒绝并二次确认人工帧", as
       before.find((item) => item.id === fixture.source_annotation_ids[0])?.geometry.keyframes?.[0],
     );
 
-    // 部分状态可跨刷新恢复。
     await page.reload();
     await openContextToolbar(page, "tracker-review");
     await expect(review).toBeVisible({ timeout: 20_000 });
     await page.getByTestId("tracker-review-job").selectOption(fixture.job_id);
     await expect(review).toContainText("已审 6/20");
 
-    // 仅拒绝 B 的 F10-F15；annotation 保持字节语义不变。
     await page.getByTestId("tracker-review-instance-A").uncheck();
     await page.getByTestId("tracker-review-instance-B").check();
     await setWindow(page, 10, 15);
@@ -179,9 +205,7 @@ test("Tracker 可按目标/帧窗局部接受拒绝并二次确认人工帧", as
         ?.geometry.keyframes?.map((item) => item.frame_index),
     ).toEqual([9]);
 
-    // A/F16 是人工关键帧：第一次 409，确认后同 selector 以 override=true 成功。
     await page.getByTestId("tracker-review-instance-B").uncheck();
-    // F3 retains explicit targets after revision; selecting A is a separate intent.
     await page.getByTestId("tracker-review-instance-A").check();
     await setWindow(page, 16, 16);
     const statuses: number[] = [];
@@ -200,20 +224,21 @@ test("Tracker 可按目标/帧窗局部接受拒绝并二次确认人工帧", as
     expect(overridden?.geometry.keyframes?.find((item) => item.frame_index === 16)?.source).toBe(
       "prediction",
     );
-
-    const preview = await request.get(
-      `${API_BASE}/api/v1/video-tracker-jobs/${fixture.job_id}/preview`,
-      { headers: auth(token) },
-    );
+    const preview = await request.get(previewUrl, { headers: auth(token) });
     expect(preview.ok(), await preview.text()).toBe(true);
     const finalPreview = await preview.json();
     expect(finalPreview).toMatchObject({
+      candidate_total: 20,
       status: "partially_reviewed",
       candidate_pending: 7,
       candidate_accepted: 7,
       candidate_rejected: 6,
     });
     expect(decisions).toHaveLength(4);
+    expect(decisions[0]).toMatchObject({
+      job_revision: initialPreview.job_revision,
+      expected_source_versions: initialPreview.expected_source_versions,
+    });
     expect(decisions[2]).toMatchObject({
       instance_ids: ["A"],
       from_frame: 16,
@@ -258,10 +283,6 @@ test("Tracker 可按目标/帧窗局部接受拒绝并二次确认人工帧", as
       ),
     });
   } finally {
-    try {
-      await page.goto("about:blank");
-    } finally {
-      await seed.owned();
-    }
+    await page.close();
   }
 });

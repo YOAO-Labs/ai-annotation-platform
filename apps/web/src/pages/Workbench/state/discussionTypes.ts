@@ -5,7 +5,6 @@ import type {
   CommentMention,
 } from "@/api/comments";
 
-/** Data-only contracts: safe to import above lazy Workbench routes. */
 export interface DiscussionActions {
   edit: boolean;
   change_status: boolean;
@@ -55,7 +54,6 @@ export function discussionTargetKey(target: DiscussionTarget): string {
   ]);
 }
 
-/** Prefixes remain compatible with existing query invalidation. */
 export const discussionKeys = {
   task: (taskId: string) => ["task-discussion", taskId] as const,
   feed: (taskId: string, scope: DiscussionReadScope, annotationId?: string | null, limit = 50) =>

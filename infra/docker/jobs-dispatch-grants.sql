@@ -1,11 +1,3 @@
--- Grant caller-UOW preparation to API and claim/finish/status only to the
--- separately configured durable-dispatch relay LOGIN. Neither role can touch
--- the private ledger table directly.
--- Run after migrations and module-data-grants.sql as the migration role.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v jobs_owner=jobs_code -v api_role=api_runtime \
---   -v dispatch_relay_role=jobs_dispatch_relay \
---   -f infra/docker/jobs-dispatch-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

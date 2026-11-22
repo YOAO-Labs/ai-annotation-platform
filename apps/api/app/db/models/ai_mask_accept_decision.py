@@ -43,8 +43,6 @@ class AiMaskAcceptDecision(Base):
     request_digest: Mapped[str] = mapped_column(String(64), nullable=False)
     candidate_id: Mapped[str] = mapped_column(String(71), nullable=False)
     content_digest: Mapped[str] = mapped_column(String(64), nullable=False)
-    # Prediction is range-partitioned by created_at and uses a composite primary key.
-    # Keep the exact pair as a durable soft reference, matching Annotation lineage.
     prediction_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), nullable=False, index=True
     )

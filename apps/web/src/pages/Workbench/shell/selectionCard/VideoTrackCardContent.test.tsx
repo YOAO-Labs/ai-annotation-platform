@@ -73,7 +73,6 @@ describe("VideoTrackCardContent", () => {
     renderCard();
     expect(screen.getByText("轨迹整体")).toBeTruthy();
     expect(screen.getByText("当前帧")).toBeTruthy();
-    // 关键帧层:导航按钮唯一标识(纯文本"关键帧"会与当前帧状态值重名)。
     expect(screen.getByTitle("上一可见关键帧")).toBeTruthy();
     expect(screen.getByTitle("下一可见关键帧")).toBeTruthy();
   });
@@ -137,8 +136,6 @@ describe("VideoTrackCardContent", () => {
     expect(onDeleteTrack).toHaveBeenCalled();
   });
 
-  // 转框族锁语义: 锁定轨迹时「转独立框」全入口 (下拉触发 + 关键帧表行) 应禁用
-  // —— 转框会删/改源轨迹, 锁定即冻结。回归此前浮卡入口只看 readOnly、绕过轨迹锁的 bug。
   it("锁定轨迹时「转换为独立框」下拉触发钮禁用", () => {
     renderCard({ selectedTrackLocked: true, onConvertToBboxes: vi.fn() });
     expect((screen.getByLabelText("转换为独立框") as HTMLButtonElement).disabled).toBe(true);

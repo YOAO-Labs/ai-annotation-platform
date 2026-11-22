@@ -1,6 +1,3 @@
-/**
- * transforms 单测：bbox / polygon 几何转换 + AnnotationResponse / Prediction 映射。
- */
 import { describe, it, expect } from "vitest";
 import {
   bboxGeom,
@@ -130,7 +127,6 @@ describe("annotationToBox", () => {
     expect(annotationToBox(ann).conf).toBe(1);
   });
 
-  // 遮挡为渲染派生：style_occluded 属性为 true 时 occluded=true。
   it("不传 occludedKeys → occluded 默认 false", () => {
     const ann = {
       id: "a3",
@@ -278,8 +274,8 @@ describe("predictionsToBoxes", () => {
       },
     ] as any;
     const boxes = predictionsToBoxes(preds, toolBindings);
-    expect(boxes[0].cls).toBe("汽车"); // alias 大小写不敏感命中 → 原名
-    expect(boxes[1].cls).toBe("tree"); // 无 alias 配置 → 原样保留
+    expect(boxes[0].cls).toBe("汽车");
+    expect(boxes[1].cls).toBe("tree");
   });
 
   it("无 toolBindings 时保持 class_name 原样 (向后兼容)", () => {
@@ -299,12 +295,6 @@ describe("predictionsToBoxes", () => {
   });
 });
 
-/**
- * predictionsToBoxes 黄金样本 — 锁定后端 to_internal_shape 写入 DB 后
- * 前端消费契约. 后端 PredictionService 负责 LabelStudio 标准 → 内部 shape 的
- * 转换 (apps/api/app/services/prediction.py to_internal_shape), 这里假设输入
- * 已是内部 shape, 覆盖空 / 多 / polygon / 缺字段 4 类边界.
- */
 describe("predictionsToBoxes 黄金样本（schema 边界）", () => {
   it("空 result 数组 → 空 box 列表", () => {
     const preds = [{ id: "empty", result: [] }] as any;
@@ -400,13 +390,6 @@ describe("predictionsToBoxes 黄金样本（schema 边界）", () => {
   });
 });
 
-/**
- * multi_polygon / hole 几何映射 — mask→polygon 协议升级后, 后端
- * to_internal_shape (apps/api/app/services/prediction.py) 在 mask 多连通或带 hole
- * 时分别输出 polygon+holes / multi_polygon 两类, 前端 transforms 必须正确解析.
- * 当前编辑路径只识别单环 polygon, 多连通时降级取主外环, 完整 polygons 透传到
- * multiPolygon 字段，供多环渲染使用。
- */
 describe("mask 多连通域 / 空洞", () => {
   it("polygon + holes → polygon 字段是外环, holes 字段透传", () => {
     const s = geometryToShape({
@@ -429,7 +412,6 @@ describe("mask 多连通域 / 空洞", () => {
     expect(s.polygon).toHaveLength(4);
     expect(s.holes).toHaveLength(1);
     expect(s.holes![0]).toHaveLength(4);
-    // bounding rect 跟外环一致
     expect(s.x).toBe(0);
     expect(s.w).toBe(10);
   });
@@ -438,7 +420,6 @@ describe("mask 多连通域 / 空洞", () => {
     const s = geometryToShape({
       type: "multi_polygon",
       polygons: [
-        // 小三角
         {
           type: "polygon",
           points: [
@@ -447,7 +428,6 @@ describe("mask 多连通域 / 空洞", () => {
             [0.5, 1],
           ],
         },
-        // 大五边形 (顶点最多, 选作主环)
         {
           type: "polygon",
           points: [
@@ -469,9 +449,8 @@ describe("mask 多连通域 / 空洞", () => {
       ],
     });
     expect(s.polygon).toHaveLength(5);
-    expect(s.holes).toHaveLength(1); // 来自主环的 hole
+    expect(s.holes).toHaveLength(1);
     expect(s.multiPolygon).toHaveLength(2);
-    // bounding rect 应覆盖所有 polygon
     expect(s.x).toBe(0);
     expect(s.w).toBeCloseTo(13);
     expect(s.h).toBeCloseTo(14);

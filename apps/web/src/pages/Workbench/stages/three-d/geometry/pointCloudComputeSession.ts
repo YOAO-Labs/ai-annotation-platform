@@ -59,7 +59,6 @@ function cloneSample(sample: CameraSample): CameraSample {
   return { ...sample, data: sample.data.slice() };
 }
 
-/** One worker per workbench page instead of one worker per frame/colorization. */
 export class PointCloudComputeSession {
   private worker: Worker | null = null;
   private nextRequestId = 1;
@@ -260,7 +259,6 @@ function getPointCloudDecodeSession(lane: PointCloudDecodeLane): PointCloudCompu
   return getPointCloudComputeSession();
 }
 
-/** Read-only worker counters used by the local renderer benchmark. */
 export function getPointCloudComputeDiagnostics(): {
   workerActive: boolean;
   pendingRequests: number;

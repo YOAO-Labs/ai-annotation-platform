@@ -1,14 +1,17 @@
+import { WORKBENCH_LOCAL_DEFAULTS } from "../../state/workbenchLocalDefaults";
+
 export const POINT_CLOUD_WEBGPU_STORAGE_KEY = "aap.experiment.pointCloudWebGpuRenderer";
 
 export type PointCloudRendererMode = "legacy" | "webgpu-experimental";
 
 export function readPointCloudWebGpuExperiment(): boolean {
-  if (typeof window === "undefined") return false;
+  const fallback = WORKBENCH_LOCAL_DEFAULTS["experiment.pointCloudWebGpuRenderer"];
+  if (typeof window === "undefined") return fallback;
   try {
     const raw = window.localStorage.getItem(POINT_CLOUD_WEBGPU_STORAGE_KEY);
-    return raw === "1" || raw === "true";
+    return raw === null ? fallback : raw === "1" || raw === "true";
   } catch {
-    return false;
+    return fallback;
   }
 }
 

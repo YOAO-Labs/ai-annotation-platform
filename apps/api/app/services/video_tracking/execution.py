@@ -61,7 +61,6 @@ _CURRENT: ContextVar[_Execution | None] = ContextVar("tracker_execution", defaul
 
 
 async def _call(db: AsyncSession, action: str, request: Any) -> dict:
-    # Do not autoflush a stale ORM mutation before the owner validates the claim.
     try:
         with db.no_autoflush:
             raw = await db.scalar(
@@ -72,7 +71,6 @@ async def _call(db: AsyncSession, action: str, request: Any) -> dict:
     except (VideoExecutionFailure, asyncio.CancelledError):
         raise
     except Exception:
-        # Database exceptions can retain the private SQL parameter dictionary.
         raise VideoExecutionFailure("storage_unavailable") from None
 
 
@@ -158,17 +156,13 @@ async def tracker_execution(
                     raise
                 except VideoExecutionFailure as exc:
                     if exc.code == "execution_busy":
-                        # An explicit NOWAIT refusal made no renewal mutation.
                         await asyncio.sleep(0.2)
                         continue
                     if exc.code == "job_not_active":
-                        # Native checked this proof and lease before the Job's
-                        # terminal state; retain it for fenced physical cleanup.
                         return
                     current.lost = True
                     return
                 except Exception:
-                    # No optimistic continuation after a lost renewal response.
                     current.lost = True
                     return
 
@@ -181,8 +175,6 @@ async def tracker_execution(
             with suppress(asyncio.CancelledError):
                 await heartbeat
             if not current.lost:
-                # Native releases a terminal claim only after the journal and
-                # every retained route have positive settlement proof.
                 try:
                     async with factory() as cleanup:
                         await _call(

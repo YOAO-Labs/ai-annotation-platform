@@ -311,8 +311,6 @@ async def _prepare_retry_input(
                     except (TypeError, ValueError) as exc:
                         terminal_error = exc
             elif "reference_input" in extra or "original_input" in extra:
-                # The admitted Job carries the owner proof; _infer opens that
-                # owner's retained input instead of the current source URL.
                 if task is None:
                     terminal_error = ValueError("retry authority task is unavailable")
             elif "accepted_video_input" in extra:

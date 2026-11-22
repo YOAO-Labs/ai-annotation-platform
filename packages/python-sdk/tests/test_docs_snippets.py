@@ -30,6 +30,5 @@ def test_docs_python_snippet_compiles(name: str, idx: int, code: str):
 
 
 def test_docs_sdk_pages_exist():
-    # cookbook/quickstart 等页面缺失时上面的参数化会静默变空, 这里显式守底
     assert (DOCS_SDK_DIR / "quickstart.md").is_file()
     assert (DOCS_SDK_DIR / "cookbook.md").is_file()

@@ -10,14 +10,8 @@ interface MinimapProps {
   setVp: React.Dispatch<React.SetStateAction<Viewport>>;
   thumbnailUrl: string | null;
   fileUrl: string | null;
-  /**
-   * 视频栈:当前帧的可绘制源(暂停态 ImageBitmap / 播放态 `<video>`)。提供时用 `<canvas>`
-   * 实时绘制当前帧, 取代静态 `<img>`——避免把 `.mp4` 地址塞进 `<img>` 导致的空白破图。
-   */
   frameSource?: CanvasImageSource | null;
-  /** 帧内容版本(如 frameIndex):变化时重绘一次暂停帧。 */
   frameVersion?: number;
-  /** 播放中:开 rAF 循环持续 blit `frameSource`。 */
   isLive?: boolean;
   currentFrameIndex?: number;
   maxFrame?: number;
@@ -103,10 +97,6 @@ function ViewportRect({
   );
 }
 
-/**
- * 缩略图导航。仅当图像放大到容器尺寸 1.5× 以上才显示。
- * 点击 minimap 任意位置，把视口中心移到该位置。
- */
 export function Minimap({
   imgW,
   imgH,
@@ -131,7 +121,6 @@ export function Minimap({
   const pendingPointRef = useRef<{ clientX: number; clientY: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  // 是否需要 minimap：图像在视口里需要滚动才看完
   const visibleW = vpSize.w / (imgW * vp.scale);
   const visibleH = vpSize.h / (imgH * vp.scale);
   const needsMinimap = visibleW < 0.85 || visibleH < 0.85;
@@ -145,7 +134,6 @@ export function Minimap({
     return { mw: MINIMAP_MAX_H * aspect, mh: MINIMAP_MAX_H };
   }, [imgW, imgH]);
 
-  // 视口在 minimap 中的相对矩形
   const rectX = (-vp.tx / (imgW * vp.scale)) * mw;
   const rectY = (-vp.ty / (imgH * vp.scale)) * mh;
   const rectW = visibleW * mw;
@@ -167,7 +155,6 @@ export function Minimap({
       const r = ref.current.getBoundingClientRect();
       const cx = Math.max(0, Math.min(mw, clientX - r.left));
       const cy = Math.max(0, Math.min(mh, clientY - r.top));
-      // 把图像 (cx/mw, cy/mh) 这点移到容器中心
       const imgPxX = (cx / mw) * imgW * vp.scale;
       const imgPxY = (cy / mh) * imgH * vp.scale;
       setVp({ scale: vp.scale, tx: vpSize.w / 2 - imgPxX, ty: vpSize.h / 2 - imgPxY });
@@ -206,8 +193,6 @@ export function Minimap({
     };
   }, []);
 
-  // 把 frameSource(bitmap/<video>)blit 进 minimap canvas。mw/mh 已按视频宽高比算好,
-  // 故直接拉伸铺满即可, 无需 letterbox。source 未就绪(readyState 低)时 drawImage 可能抛,吞掉。
   const drawFrame = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas || !frameSource) return;
@@ -225,14 +210,10 @@ export function Minimap({
     }
   }, [frameSource, mw, mh]);
 
-  // 暂停态 / 帧切换:重绘一次当前帧。needsMinimap 必须在依赖里——minimap 隐藏时组件仍挂载
-  // 但 canvas 未渲染(canvasRef 为空), 缩放触发 needsMinimap false→true 使 canvas 首次挂载时,
-  // 若 frameSource/frameVersion 未变则本 effect 不会重跑, canvas 永不被绘制(空白框根因)。
   useEffect(() => {
     drawFrame();
   }, [drawFrame, frameVersion, needsMinimap]);
 
-  // 播放态:rAF 循环持续拾取 <video> 新解码帧(react 不会因 video 内容变化自动重绘)。
   useEffect(() => {
     if (!isLive || !frameSource || !needsMinimap) return;
     let raf = 0;

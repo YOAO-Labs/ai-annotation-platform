@@ -31,8 +31,7 @@ async function json<T>(response: APIResponse | Response): Promise<T> {
 }
 
 const test = base.extend<{ boundaryCase: Case }>({
-  boundaryCase: async ({ page, request, seed, browser }, provideFixture, testInfo) => {
-    const data = await seed.owned();
+  boundaryCase: async ({ page, request, seed, browser, owned: data }, provideFixture, testInfo) => {
     const taskId = data.task_ids[0];
     const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
     const project = await json<{ tool_bindings: Record<string, unknown> }>(
@@ -117,7 +116,6 @@ const test = base.extend<{ boundaryCase: Case }>({
     let passed = false;
     try {
       await provideFixture(fixture);
-      // Reload can report keepalive session telemetry as aborted after the API accepts it.
       const expectedAborts = errors.filter((error) =>
         isExpectedRequestAbort(error, imageWorkbenchAborts),
       );
@@ -157,8 +155,6 @@ const test = base.extend<{ boundaryCase: Case }>({
         page.removeAllListeners("requestfailed");
         page.removeAllListeners("request");
         await page.unrouteAll({ behavior: "ignoreErrors" });
-        if (!page.isClosed()) await page.goto("about:blank");
-        await seed.owned();
       }
     }
   },
@@ -313,8 +309,6 @@ test("H3-2 wraps closure, snaps near vertices, deduplicates joins and cancels pr
 }) => {
   const source = await createSource(request, fixture, { type: "polygon", points: square });
   await open(page, fixture);
-  // Ordinary snapping chooses the nearest edge/vertex. Approach from outside
-  // the corner so pixel rounding cannot make an interior edge projection nearer.
   await clickPoint(page, square[3], [-2, 2]);
   await count(page, 1);
   await controls(page).getByRole("button", { name: "沿已有边界", exact: true }).click();

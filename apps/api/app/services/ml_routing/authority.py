@@ -269,7 +269,6 @@ async def lifecycle_control(db, registry_id, kind, *, expected_topology=None):
                 },
             )
         except Exception:
-            # Unresolved actual HTTP attempts retain the persistent hold.
             import logging
 
             logging.getLogger(__name__).warning("backend_control_hold_retained")

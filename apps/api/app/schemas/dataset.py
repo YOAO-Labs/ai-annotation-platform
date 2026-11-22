@@ -18,14 +18,12 @@ class DatasetCreate(BaseModel):
     description: str = ""
     data_type: str = Field(default="image", max_length=30)
     is_temporal: bool = False
-    # 点云数据集 lidar 坐标系约定，写进 Dataset.metadata_["axis_convention"]。
     axis_convention: LidarAxisConvention | None = None
 
 
 class DatasetUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     description: str | None = None
-    # 未传 = 不改；显式 None = 清除；具体值 = 覆盖。
     axis_convention: LidarAxisConvention | None = None
 
 
@@ -44,7 +42,6 @@ class DatasetOut(BaseModel):
     archived_at: datetime | None = None
     archived_by: UUID | None = None
     lifecycle_revision: int = 1
-    # 派生自 metadata_["axis_convention"]，None = 视作 iso_8855。
     axis_convention: LidarAxisConvention | None = None
     created_at: datetime
     updated_at: datetime
@@ -95,7 +92,6 @@ class DatasetItemOut(BaseModel):
     content_hash: str | None = None
     width: int | None = None
     height: int | None = None
-    # 结构化视图: calibration 仅点云相机项有, extra="allow" 保留其它 key。
     metadata: DatasetItemMetadata = Field(default_factory=DatasetItemMetadata)
     file_url: str | None = None
     original_identity_path: str | None = None

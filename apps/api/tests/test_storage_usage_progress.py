@@ -87,7 +87,6 @@ async def test_real_minio_capacity_page_and_progress_commit_together(
         assert await worker.process_page(
             db, job.id, job.celery_task_id, inventory.generation
         )
-        # A fresh ORM read sees the same accepted page's checkpoint and observation.
         await db.refresh(job)
         assert job.progress_observation["unit"] == "pages"
         assert job.progress_observation["completed"] == 1

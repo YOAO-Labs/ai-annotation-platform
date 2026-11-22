@@ -81,7 +81,6 @@ async def test_installed_api_consumes_owner_prepared_project_roles(
     source_root.mkdir(mode=0o700)
     probe = source_root / "identity_e2e_probe.py"
     probe.write_text(_PROBE_SOURCE, encoding="utf-8")
-    # Only credential-free source crosses the fixed non-root bind mount.
     probe.chmod(0o444)
     source_root.chmod(0o755)
     cli = WorkspaceImportCli(
@@ -98,8 +97,6 @@ async def test_installed_api_consumes_owner_prepared_project_roles(
             os.environ["AAP_MODULE_DATA_IDENTITY_AUTH_URL"]
         ),
     )
-    # The private process must inherit the same signing key before it starts.
-    # Only signed employee tokens, never the owner DSN, go to the installed API.
     monkeypatch.setenv("SECRET_KEY", cli.secret_key)
     suite = await seed_owner_stack.enter_async_context(private_owned_suite())
     fixture = suite.owner
@@ -134,7 +131,6 @@ async def test_installed_api_consumes_owner_prepared_project_roles(
         with closing(fixture_original_reader()) as reader:
             _read_versions(reader, first_versions)
             neighbor_bytes = _read_versions(reader, neighbor_versions)
-        # The runner creates this outside the source mount with mode 0600.
         with cli.environment_file.open("a", encoding="utf-8") as stream:
             stream.write("AAP_E2E_CONSUMER_FIXTURES=" + json.dumps(manifests) + "\n")
         result = await _probe(cli, "consume", record_property)

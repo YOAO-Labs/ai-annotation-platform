@@ -115,7 +115,7 @@ async def test_step_rejects_unknown_actions_and_transaction_replacement(monkeypa
     data = await _bind(monkeypatch, connection)
     with pytest.raises(RoutingUnavailable):
         await data.step("arbitrary_sql", {})
-    assert len(connection.calls) == 2  # policy and bound XID only
+    assert len(connection.calls) == 2
 
     connection.transaction_id = "42"
     with pytest.raises(RoutingUnavailable):

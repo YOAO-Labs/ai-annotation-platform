@@ -135,7 +135,6 @@ def test_transcoded_chunk_keeps_rounded_start_frame(video, tmp_path):
     ]
     for index in range(count):
         frame = actual_pixels[index * frame_size : (index + 1) * frame_size]
-        # H.264 re-encoding is lossy; identify the nearest decoded source frame.
         errors = [
             sum((a - b) ** 2 for a, b in zip(frame, reference))
             for reference in references

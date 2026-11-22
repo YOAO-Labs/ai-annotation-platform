@@ -86,7 +86,6 @@ function TiledMaskImage({
   );
 }
 
-/** Overlay composed only from a bounded overview and <=512px materialized tile canvases. */
 export function TiledMaskOverlayLayer({
   tiles,
   overview,

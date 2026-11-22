@@ -74,7 +74,6 @@ def test_read_relation_descriptors_match_the_installed_portable_contract():
         )
         == expected
     )
-    # The packaged migration descriptor keeps the historical AAP spelling.
     assert json.loads(
         (
             _ROOT / "apps/api/alembic/sql/0286_identity_read_relations.schema.json"
@@ -214,7 +213,6 @@ def _grants(test_engine, filename, **variables):
 async def restricted_identity_consumer(test_engine):
     if os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
         pytest.skip("requires the verifier-owned database and LOGIN roles")
-    # Exercise removal of column ACLs as well as the broad compatibility grants.
     _postgres_tool(
         test_engine,
         [
@@ -236,7 +234,6 @@ async def restricted_identity_consumer(test_engine):
             identity_owner="identity_code",
             consumer_role="legacy_runtime",
         )
-        # Reapplication must remain safe on the same existing deployment role.
         _grants(
             test_engine,
             "identity-consumer-grants.sql",
@@ -246,7 +243,6 @@ async def restricted_identity_consumer(test_engine):
         yield engine
     finally:
         await engine.dispose()
-        # Other suites still exercise the supported embedded Identity binding.
         _grants(
             test_engine,
             "lan-production-grants.sql",

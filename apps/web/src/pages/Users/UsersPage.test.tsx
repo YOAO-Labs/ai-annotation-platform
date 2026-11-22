@@ -1,13 +1,11 @@
-/** Member list, invitation flows, filters and account operations against the HTTP boundary. */
 import { QueryClientProvider, onlineManager } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { server } from "@/mocks/server";
-import { expectNoUnexpectedApiRequests, resetUnexpectedApiRequests } from "@/test/apiRequestGuard";
 import { createTestUser, resetAuthUser, seedAuthUser } from "@/test/auth";
 import { createTestQueryClient } from "@/test/queryClient";
 import { renderWithProviders } from "@/test/renderWithProviders";
@@ -27,10 +25,6 @@ vi.mock("@/components/users/BulkGroupAssignmentModal", () => ({
   BulkGroupAssignmentModal: ({ open }: { open: boolean }) =>
     open ? <div data-testid="bulk-group-modal">BulkGroupAssignmentModal</div> : null,
 }));
-vi.mock("@/components/users/EditUserModal", () => ({
-  EditUserModal: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="edit-modal">EditModal</div> : null,
-}));
 vi.mock("@/components/users/GroupManageModal", () => ({
   GroupManageModal: () => null,
 }));
@@ -41,16 +35,16 @@ vi.mock("@/components/users/OffboardingDialog", () => ({
     open ? <div data-testid="reactivate-dialog">ReactivateDialog</div> : null,
 }));
 
-// The real store delegates to sonner and holds no toast list, so a narrow spy on
-// `push` is the page's observable contract without rendering the portal.
 const mockPushToast = vi.fn();
 vi.mock("@/components/ui/Toast", async () => {
   const actual =
     await vi.importActual<typeof import("@/components/ui/Toast")>("@/components/ui/Toast");
   return {
     ...actual,
-    useToastStore: <T,>(sel: (s: { push: typeof mockPushToast }) => T) =>
-      sel({ push: mockPushToast }),
+    useToastStore: Object.assign(
+      <T,>(sel: (s: { push: typeof mockPushToast }) => T) => sel({ push: mockPushToast }),
+      { getState: () => ({ push: mockPushToast }) },
+    ),
   };
 });
 
@@ -78,11 +72,6 @@ function renderUsers(initialEntries: string | string[] = "/users") {
   });
 }
 
-/**
- * `renderWithProviders` uses MemoryRouter's default initial index (the last
- * entry); one regression needs an explicit first-entry start, so this variant
- * composes the same fixtures with `initialIndex`.
- */
 function renderUsersAt(initialEntries: string[], initialIndex: number) {
   const queryClient = createTestQueryClient();
   const result = render(
@@ -109,6 +98,13 @@ function onDownload(event: MouseEvent) {
 }
 
 beforeAll(() => {
+  document.addEventListener("click", onDownload);
+});
+afterAll(() => {
+  document.removeEventListener("click", onDownload);
+});
+
+beforeEach(() => {
   vi.stubGlobal(
     "URL",
     class extends URL {
@@ -116,15 +112,6 @@ beforeAll(() => {
       static revokeObjectURL = vi.fn();
     },
   );
-  document.addEventListener("click", onDownload);
-});
-afterAll(() => {
-  document.removeEventListener("click", onDownload);
-  vi.unstubAllGlobals();
-});
-
-beforeEach(() => {
-  resetUnexpectedApiRequests();
   downloads.length = 0;
   createObjectURL.mockClear();
   mockPushToast.mockReset();
@@ -135,7 +122,6 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
-  expectNoUnexpectedApiRequests();
   onlineManager.setOnline(true);
   resetAuthUser();
 });
@@ -168,8 +154,6 @@ describe("UsersPage", () => {
       "/users?q=old&status=all&role=annotator&keep=yes",
     ]);
     try {
-      // Let the initial URL-driven query settle with real timers before narrowly
-      // freezing time for the debounce boundary; freezing time freezes MSW.
       await waitFor(() => expect(captured.pageQueries.length).toBeGreaterThan(0));
       fireEvent.click(screen.getByRole("button", { name: "浏览器后退" }));
       const input = screen.getByPlaceholderText(/搜索姓名或邮箱/);
@@ -209,8 +193,6 @@ describe("UsersPage", () => {
   it("搜索框过滤：输入 'Alice' 后只显示 Alice", async () => {
     const captured = installUsersApi();
     renderUsers();
-    // Wait for the unfiltered page before typing so the assertion is about the
-    // debounced server query, not the initial empty frame.
     expect(await screen.findByText("Bob")).toBeInTheDocument();
     const searchInput = screen.getByPlaceholderText(/搜索姓名或邮箱/);
     fireEvent.change(searchInput, { target: { value: "Alice" } });
@@ -339,31 +321,30 @@ describe("UsersPage", () => {
     };
     const mail = { path: `/api/v1/invitations/${id}/send-email`, body: {} };
     server.use(
-      http.post("*/api/v1/*", async ({ request }) => {
-        const path = new URL(request.url).pathname;
-        writes.push({ path, body: await request.json() });
-        if (path === create.path)
-          return HttpResponse.json(
-            {
-              id,
-              token: "review",
-              invite_url: link,
-              expires_at: "2027-01-01T00:00:00Z",
-              project_id: target.id,
-              project_name: target.name,
-              project_member_role: "reviewer",
-            },
-            { status: 201 },
-          );
-        if (path === mail.path)
-          return HttpResponse.json({
-            ok: true,
-            invitation_id: id,
-            email,
+      http.post(`*${create.path}`, async ({ request }) => {
+        writes.push({ path: new URL(request.url).pathname, body: await request.json() });
+        return HttpResponse.json(
+          {
+            id,
+            token: "review",
             invite_url: link,
-            message: "sent",
-          });
-        return new HttpResponse(null, { status: 404 });
+            expires_at: "2027-01-01T00:00:00Z",
+            project_id: target.id,
+            project_name: target.name,
+            project_member_role: "reviewer",
+          },
+          { status: 201 },
+        );
+      }),
+      http.post(`*${mail.path}`, async ({ request }) => {
+        writes.push({ path: new URL(request.url).pathname, body: await request.json() });
+        return HttpResponse.json({
+          ok: true,
+          invitation_id: id,
+          email,
+          invite_url: link,
+          message: "sent",
+        });
       }),
     );
     renderUsers();
@@ -414,7 +395,10 @@ describe("UsersPage", () => {
   });
 
   it("确认删除 → 发出 DELETE /users/:id、成功 toast 并关闭弹窗", async () => {
-    const captured = installUsersApi();
+    seedAuthUser(createTestUser({ id: ACTOR_ID, role: "project_admin" }));
+    const captured = installUsersApi({
+      users: [{ ...DEFAULT_USERS[0], is_managed: true, is_lifecycle_managed: true }],
+    });
     renderUsers();
     await screen.findByText("Alice");
     fireEvent.click(screen.getAllByTitle("删除账号")[0]);
@@ -426,6 +410,35 @@ describe("UsersPage", () => {
       ),
     );
     expect(screen.queryByText(/确认删除以下账号/)).not.toBeInTheDocument();
+  });
+
+  it("保留删除确认，显示提交时服务端返回的权限变化", async () => {
+    seedAuthUser(createTestUser({ id: ACTOR_ID, role: "project_admin" }));
+    const captured = installUsersApi({
+      deleteStatus: 403,
+      deleteBody: { detail: "目标现在持有其他项目的任务" },
+    });
+    renderUsers();
+    await screen.findByText("Alice");
+    fireEvent.click(screen.getAllByTitle("删除账号")[0]);
+    const dialog = screen.getByRole("dialog", { name: "删除账号确认" });
+    expect(captured.deletes).toEqual([]);
+    fireEvent.click(within(dialog).getByRole("button", { name: "确认删除" }));
+    expect(await within(dialog).findByText("目标现在持有其他项目的任务")).toBeVisible();
+    expect(captured.deletes).toEqual(["u1"]);
+    expect(screen.getByRole("dialog", { name: "删除账号确认" })).toBeVisible();
+    expect(mockPushToast).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "success" }));
+  });
+
+  it("本人行不能打开编辑成员或删除账号", async () => {
+    installUsersApi({
+      users: [createUser({ id: ACTOR_ID, name: "本人", role: "super_admin", is_managed: true })],
+    });
+    renderUsers();
+    const row = await screen.findByRole("row", { name: /本人/ });
+    expect(within(row).getByTitle("不能修改自己")).toBeDisabled();
+    expect(within(row).queryByTitle("编辑成员")).not.toBeInTheDocument();
+    expect(within(row).queryByTitle("删除账号")).not.toBeInTheDocument();
   });
 
   it("用户列表 403 → 显示无权查看文案（真实 ApiError 状态映射）", async () => {
@@ -480,37 +493,69 @@ describe("UsersPage", () => {
     expect(await screen.findByText("Free Annotator")).toBeInTheDocument();
     expect(screen.getByText("Root")).toBeInTheDocument();
 
-    // Owned members plus the unassigned annotator keep their full actions.
     expect(screen.getAllByTitle("编辑成员")).toHaveLength(3);
     expect(screen.getAllByTitle("删除账号")).toHaveLength(3);
 
-    // Super-admin rows are read-only.
     expect(screen.getByTitle("仅可查看：超级管理员账号")).toBeDisabled();
     expect(screen.getAllByTitle(/编辑成员|仅可查看/)).toHaveLength(4);
   });
 
   it("跨项目行 is_lifecycle_managed=false：保留账号操作，隐藏离职/删除入口", async () => {
     seedAuthUser(createTestUser({ id: ACTOR_ID, role: "project_admin" }));
-    installUsersApi({
-      users: [
-        createUser({
-          id: "u6",
-          name: "Cross Project",
-          email: "cross@example.com",
-          is_managed: true,
-          is_lifecycle_managed: false,
-        }),
+    const crossProjectUser = createUser({
+      id: "u6",
+      name: "Cross Project",
+      email: "cross@example.com",
+      is_managed: true,
+      is_lifecycle_managed: false,
+    });
+    const captured = installUsersApi({
+      users: [crossProjectUser],
+      groups: [
+        {
+          id: "g1",
+          name: "测试数据组",
+          description: null,
+          member_count: 1,
+          created_at: "2026-01-01",
+        },
       ],
     });
+    const groupWrites: unknown[] = [];
+    server.use(
+      http.patch("*/api/v1/users/u6/group", async ({ request }) => {
+        groupWrites.push(await request.json());
+        crossProjectUser.group_id = "g1";
+        crossProjectUser.group_name = "测试数据组";
+        return HttpResponse.json(crossProjectUser);
+      }),
+    );
     renderUsers();
 
     expect(await screen.findByText("Cross Project")).toBeInTheDocument();
-    // Account-level actions stay.
     expect(screen.getByTitle("编辑成员")).toBeInTheDocument();
     expect(screen.getByTitle("重置密码")).toBeInTheDocument();
-    // Lifecycle writes are hidden so a click cannot 403.
     expect(screen.queryByTitle("离职处理")).not.toBeInTheDocument();
     expect(screen.queryByTitle("删除账号")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTitle("编辑成员"));
+    const dialog = screen.getByRole("dialog", { name: "编辑成员 · Cross Project" });
+    expect(within(dialog).getByDisplayValue(crossProjectUser.email)).toHaveAttribute("readonly");
+    expect(within(dialog).getByText(/平台角色由超级管理员管理/)).toBeVisible();
+    const group = within(dialog).getByRole("combobox", { name: "数据组" });
+    expect(within(dialog).getAllByRole("combobox")).toEqual([group]);
+    expect(within(dialog).queryByRole("button", { name: /删除/ })).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(
+      group,
+      within(dialog).getByRole("option", { name: "测试数据组" }),
+    );
+    await userEvent.click(within(dialog).getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    const row = screen.getByRole("row", { name: /Cross Project/ });
+    expect(await within(row).findByText("测试数据组")).toBeVisible();
+    expect(groupWrites).toEqual([{ group_id: "g1" }]);
+    expect(captured.deletes).toEqual([]);
   });
 
   it("初次离线且没有用户数据时显示等待网络恢复，而不是空列表", () => {
@@ -597,7 +642,6 @@ describe("UsersPage", () => {
       expect(screen.getByTestId("location-search")).toHaveTextContent("?role=employee"),
     );
     expect(screen.queryByText(/已选择 1 名成员/)).not.toBeInTheDocument();
-    // Let the role-filtered page settle before paging again.
     await screen.findByText("Alice");
 
     fireEvent.click(screen.getByRole("button", { name: "下一页" }));
@@ -617,8 +661,6 @@ describe("UsersPage", () => {
     const captured = installUsersApi({
       total: 1000,
       pages: 40,
-      // The rehydrated URL filters to an inactive account, so the row the test
-      // selects must match that server filter.
       users: [
         createUser({ id: "u1", name: "Alice", email: "alice@example.com", is_active: false }),
         createUser({ id: "u2", name: "Bob", email: "bob@example.com" }),

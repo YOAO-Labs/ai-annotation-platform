@@ -257,7 +257,6 @@ def _rows(index, state, choices, counts, budget):
 
 
 def _build(values, window_id, window_revision):
-    # Import lazily: the domain owner also imports this pure evidence projection.
     from app.db.models.storage_migration_copy import (
         BASELINE_LIMIT,
         CATALOG_LIMIT,
@@ -458,5 +457,4 @@ def build_final_evidence(values, *, window_id, window_revision):
     except FinalizationEvidenceError:
         raise
     except Exception:
-        # Native cancellation remains propagated; private input never enters errors.
         raise FinalizationEvidenceError("finalization_evidence_invalid") from None

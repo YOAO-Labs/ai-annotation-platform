@@ -81,8 +81,6 @@ async def history(db):
         "active_learning_rounds": ActiveLearningRound,
         "deletion_intents": TrainingStorageDeletion,
     }
-    # Independent responsibility records include unknown and every saved state.
-    # They are not an additive physical-object count or an adoption gate.
     return dict(
         (
             await db.execute(
@@ -226,7 +224,6 @@ def decode_token(token):
 
 async def preview(db, payload, actor, *, api_key_id=None):
     _, target, _, initial = await capture(db, payload, actor, api_key_id)
-    # Never retain authority, location or binding row locks across provider I/O.
     await db.commit()
     try:
         capabilities = await storage_access.run(

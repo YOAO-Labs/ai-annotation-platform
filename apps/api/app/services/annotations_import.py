@@ -50,10 +50,8 @@ from app.utils.raster_mask_rle import coco_rle_area
 
 logger = logging.getLogger(__name__)
 
-# source 允许集合（D2）
 _ALLOWED_SOURCES = {"manual", "prediction_based", "interpolated"}
 
-# geometry.type → tool_unit_id 派生映射（参照 predictions_import / prediction.py）
 _GEOMETRY_TO_TOOL_UNIT: dict[str, str] = {
     "polyline": "polyline",
     "rotated_bbox": "rotated_bbox",
@@ -78,9 +76,6 @@ def _derive_tool_unit(geometry_type: str | None) -> str:
     if geometry_type is None:
         return "bbox"
     return _GEOMETRY_TO_TOOL_UNIT.get(geometry_type, "bbox")
-
-
-# ── overwrite 语义: 清理该 task 下 _imported==true 的 annotations ──────
 
 
 async def _purge_imported_annotations(db: AsyncSession, task_id: uuid.UUID) -> None:
@@ -171,7 +166,6 @@ async def import_native_json_annotations(
     dry_run_primary_tracks: set[tuple[uuid.UUID, str]] = set()
     dry_run_camera_members: set[tuple[uuid.UUID, str, str]] = set()
 
-    # 预先查好 project，以便 class_name 软校验（避免逐条 db.get）
     project = await get_workspace_project(db, project_id=project_id)
     project_tool_bindings: dict[str, Any] = (
         project.tool_bindings or {} if project else {}
@@ -181,7 +175,6 @@ async def import_native_json_annotations(
 
     for block in envelope.tasks:
         match_dict = block.task_match.model_dump(exclude_none=True)
-        # 兜底兼容: task block 顶层 file_path
         if "file_path" not in match_dict and block.file_path:
             match_dict["file_path"] = block.file_path
 
@@ -201,18 +194,13 @@ async def import_native_json_annotations(
             continue
 
         if not dry_run:
-            # A2 · an import envelope may visit tasks in any order, so acquire the
-            # task row with NOWAIT before the overwrite purge / inserts: a busy
-            # lock rolls back to a retryable 409 instead of forming a wait cycle.
             from app.services.annotation_evidence import lock_tasks_for_evidence
 
             await lock_tasks_for_evidence(db, [task.id], nowait=True)
 
-        # 先建主标注/SceneTrack，再挂同轨迹的相机成员；交换格式不要求调用方排序。
         for entry in sorted(
             block.annotations, key=lambda item: item.sensor_role is not None
         ):
-            # 1. class_name 缺失检查
             if not entry.class_name:
                 result.errors.append(
                     ImportErrorEntry(
@@ -223,7 +211,6 @@ async def import_native_json_annotations(
                 result.skipped += 1
                 continue
 
-            # 2. geometry 有效性检查
             if not isinstance(entry.geometry, dict) or not entry.geometry.get("type"):
                 result.errors.append(
                     ImportErrorEntry(
@@ -279,12 +266,10 @@ async def import_native_json_annotations(
                 result.skipped += 1
                 continue
 
-            # 3. tool_unit_id 派生
             tool_unit_id = entry.tool_unit_id or _derive_tool_unit(
                 entry.geometry.get("type")
             )
 
-            # 4. class_name 软校验（失败不让整批失败，累计 errors[] + skip）
             allowed = lookup_classes_for_tool_unit(project_tool_bindings, tool_unit_id)
             if (
                 allowed
@@ -303,18 +288,14 @@ async def import_native_json_annotations(
                 result.skipped += 1
                 continue
 
-            # 5. source 语义（D2）: 保留原值，不在允许集合则默认 manual
             source = entry.source if entry.source in _ALLOWED_SOURCES else "manual"
 
-            # 6. attributes（D1+D2）: 在 entry.attributes 基础上合并溯源标记
             attributes: dict[str, Any] = dict(entry.attributes or {})
             attributes["_imported"] = True
             if entry.user_id is not None:
                 attributes["_imported_user_id"] = str(entry.user_id)
 
             if not dry_run:
-                # 只在首条通过基础校验的 entry 即将写入时执行 overwrite，保持
-                # 正式导入既有的清理顺序；dry-run 在下方查询中模拟这次清理。
                 if overwrite and task.id not in purged_tasks:
                     await _purge_imported_annotations(db, task.id)
                     purged_tasks.add(task.id)
@@ -411,7 +392,6 @@ async def import_native_json_annotations(
                     result.skipped += 1
                     continue
 
-            # 7. dry_run: 完成关系校验后只计数不入库
             if dry_run:
                 if entry.sensor_role is not None:
                     dry_run_camera_members.add((task.id, track_id, entry.sensor_role))
@@ -420,7 +400,6 @@ async def import_native_json_annotations(
                 result.imported += 1
                 continue
 
-            # D5: preserve an imported timestamp; the Labeling owner supplies its default otherwise.
             scene_id = None
             frame_index = None
             if entry.sensor_role is None and geometry.get("type") == "box_3d":
@@ -474,7 +453,6 @@ async def import_native_json_annotations(
             affected_tasks.add(task.id)
             result.imported += 1
 
-    # D6: 循环结束后批量更新受影响 task 统计，抑制 batch 自动流转
     if affected_tasks and not dry_run:
         await db.flush()
         await _apply_imported_scene_tracks(
@@ -487,9 +465,6 @@ async def import_native_json_annotations(
         from app.services.annotation import AnnotationService
         from app.services.annotation_evidence import record_annotation_actors_for_tasks
 
-        # D1 · every imported annotation is attributed to the operator, including
-        # camera members and scene-track members. Recording is conservative:
-        # a legacy task with an unknown accumulator stays unknown.
         await record_annotation_actors_for_tasks(
             db, affected_tasks, operator_user_id, nowait=True
         )

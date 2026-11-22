@@ -236,6 +236,14 @@ async def tracker_video_input_gateway(*, session_factory=None):
             yield TrackerVideoInputGateway(client)
         return
 
+    async with embedded_tracker_video_input_gateway(
+        session_factory=session_factory
+    ) as gateway:
+        yield gateway
+
+
+@asynccontextmanager
+async def embedded_tracker_video_input_gateway(*, session_factory=None):
     from yoao_assets_video_inputs_runtime.tracker_control import (
         TrackerVideoInputControl,
     )

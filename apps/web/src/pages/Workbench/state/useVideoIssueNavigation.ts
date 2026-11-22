@@ -32,7 +32,6 @@ interface Request {
 
 const idle: IssueNavigation = { status: "idle", frameIndex: null };
 
-/** Polls live React/Stage ownership; abort and deadline always detach their resources. */
 function waitUntil(check: () => boolean, signal: AbortSignal, timeout = 15_000) {
   return new Promise<boolean>((resolve) => {
     let handle = 0;
@@ -54,7 +53,6 @@ function waitUntil(check: () => boolean, signal: AbortSignal, timeout = 15_000) 
   });
 }
 
-/** A navigation intent spans the expected task transition, but never owns live view state. */
 export function useVideoIssueNavigation(options: Options) {
   const latest = useRef(options);
   latest.current = options;
@@ -97,7 +95,6 @@ export function useVideoIssueNavigation(options: Options) {
     if (options.requestedTaskId === target) request.enteredTargetUrl = true;
     const unexpected = (id: string | null | undefined, entered: boolean) =>
       id && id !== target && (entered || id !== request.originTaskId);
-    // A temporary unresolved task is normal while a direct target is loading.
     if (
       unexpected(options.taskId, request.enteredTarget) ||
       unexpected(options.requestedTaskId, request.enteredTargetUrl)
@@ -145,7 +142,6 @@ export function useVideoIssueNavigation(options: Options) {
       };
       try {
         subscribe(initial.controlsRef.current);
-        // A fresh permission check precedes any navigation, pause, selection or viewport mutation.
         const target = await tasksApi.get(input.task_id, { signal });
         if (!current()) return;
         if (target.project_id !== initial.projectId || target.file_type !== "video") {
@@ -223,7 +219,6 @@ export function useVideoIssueNavigation(options: Options) {
           publish({ status: "unavailable", frameIndex: frame });
           return;
         }
-        // The lease suppresses selection focus before the selection commit reaches the Stage.
         latest.current.selectObject(selectedId);
         const captured = controls.captureIssueView?.();
         const fallbackViewport = {

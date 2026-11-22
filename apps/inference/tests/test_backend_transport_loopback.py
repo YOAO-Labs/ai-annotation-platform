@@ -206,7 +206,6 @@ def _owned_loopback_backend():
 async def test_backend_transport_uses_real_loopback_tcp_for_health_setup_and_predict(
     monkeypatch,
 ):
-    # Keep the request on its owned loopback listener even when CI configures a proxy.
     monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
     monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
     events: list[tuple] = []

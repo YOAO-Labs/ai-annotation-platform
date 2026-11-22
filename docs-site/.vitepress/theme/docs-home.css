@@ -1,17 +1,3 @@
-/**
- * 文档站首页品牌层（Editorial Data Atlas）—— token + 完整样式，单一来源。
- *
- * 上半部分是首页“品牌 token”：皇家蓝 / 纸张白 / 墨黑 / 荧光绿与展示 serif。
- * 这些强品牌 token 仅供首页品牌组件消费，不覆盖普通正文的阅读 token
- * （正文阅读层见 docs-theme.css）。荧光绿 (--home-acid) 只用于 AI / 标注节点
- * 和极少量状态强调，不进入正文。
- *
- * 下半部分是首页布局与动效样式，全部作用域收敛在 `.docs-home`（内容根）与
- * `.docs-home-page`（VitePress 页面壳层），避免泄漏到其他文档页。
- *
- * 视觉合同：.hermes/prototypes/docs-premium-demo-v2/index.html
- */
-
 :root {
   --home-blue: #172cff;
   --home-blue-deep: #0d18b9;
@@ -20,15 +6,10 @@
   --home-acid: #b8ff5a;
   --home-line: rgba(244, 241, 232, 0.38);
 
-  /* 首页字体复用共享字体栈（定义于 docs-theme.css），保持两层字体同源 */
   --home-font-serif: var(--docs-font-serif);
   --home-font-sans: var(--docs-font-sans);
   --home-font-mono: var(--docs-font-mono);
 }
-
-/* ============================================================
- * 一、VitePress 页面壳层：首页全宽铺满 + 隐藏页脚 + 墨黑半透导航
- * ============================================================ */
 
 .docs-home-page .VPPage,
 .docs-home-page .VPContent,
@@ -52,18 +33,14 @@
   overflow-x: hidden;
 }
 
-/* 组件自带品牌收尾 wordmark，隐藏 VitePress 页脚 */
 .docs-home-page .VPFooter {
   display: none;
 }
 
-/* 首页导航：墨黑半透磨砂，悬浮在皇家蓝 Hero 上方，滚动到任何章节都可读。
-   Task 2 会把它进一步统一为 V2 编辑式透明导航；此处先做稳定可读的过渡态。 */
 .docs-home-page .VPNav {
   --vp-c-text-1: var(--home-paper);
   --vp-c-text-2: rgba(244, 241, 232, 0.72);
 }
-/* The expanded menu uses a reading surface, independent of the hero header. */
 .docs-home-page .VPNavScreen {
   --vp-c-text-1: var(--docs-text-1);
   --vp-c-text-2: var(--docs-text-2);
@@ -75,9 +52,6 @@
   padding: 24px 0 96px !important;
 }
 .docs-home-page .VPNavBar {
-  /* 默认实心墨黑半透底：no-JS / reduced-motion / 已滚动到 paper 章节时都可读。
-     （不用 backdrop-filter：sticky 元素上的实时模糊每帧重算，拖累低端设备。）
-     只有 useHomeMotion 确认位于 Hero 顶部时才叠加 .home-nav-transparent 透明态。 */
   background-color: rgba(17, 18, 23, 0.9) !important;
   border-bottom: 1px solid rgba(244, 241, 232, 0.14) !important;
   transition:
@@ -88,8 +62,6 @@
   background-color: rgba(13, 24, 185, 0.24) !important;
   border-bottom-color: transparent !important;
 }
-/* 首页「快速开始」CTA 改纸张白底 + 皇家蓝字：皇家蓝 Hero 上的蓝药丸会融进背景，
-   纸张药丸与 Hero 主 CTA「打开使用文档」同款，在透明/墨黑两种 nav 态下都醒目。 */
 .docs-home-page .VPNavBarMenu > .VPNavBarMenuLink:last-child {
   display: flex;
   align-items: center;
@@ -122,7 +94,6 @@
 .docs-home-page .VPNavBarMenuLink.active {
   color: var(--home-paper) !important;
 }
-/* 搜索按钮：改为半透明纸张色药丸，贴合墨黑导航 */
 .docs-home-page .DocSearch-Button {
   background: rgba(244, 241, 232, 0.1) !important;
   border: 1px solid rgba(244, 241, 232, 0.18) !important;
@@ -134,10 +105,6 @@
 .docs-home-page .DocSearch-Button .DocSearch-Search-Icon {
   color: rgba(244, 241, 232, 0.72) !important;
 }
-
-/* ============================================================
- * 二、首页内容层（.docs-home）—— 全部作用域收敛于此
- * ============================================================ */
 
 .docs-home {
   --home-pad: clamp(22px, 5vw, 78px);
@@ -161,14 +128,11 @@
   cursor: pointer;
 }
 
-/* —— 材质与全局装饰 —— */
 .docs-home .grain {
   position: fixed;
   inset: 0;
   z-index: 100;
   pointer-events: none;
-  /* 不用 mix-blend-mode：fixed 全屏混合层在连续滚动时每帧主线程重绘、造成掉帧。
-     改用普通低透明度噪点叠加，保留纸张材质感但把滚动开销降为一次合成。 */
   opacity: 0.05;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.8'/%3E%3C/svg%3E");
 }
@@ -188,7 +152,6 @@
   background: var(--home-acid);
 }
 
-/* —— Hero —— */
 .docs-home .hero {
   min-height: 100svh;
   position: relative;
@@ -535,7 +498,6 @@
   letter-spacing: 0.16em;
 }
 
-/* —— 能力 Marquee —— */
 .docs-home .marquee {
   height: 54px;
   background: var(--home-paper);
@@ -561,7 +523,6 @@
   padding: 0 18px;
 }
 
-/* —— Product Proof（墨黑）—— */
 .docs-home .proof {
   background: var(--home-ink);
   position: relative;
@@ -922,7 +883,6 @@
   animation: home-spin 18s linear infinite;
 }
 
-/* —— Documentation Paths（纸张白）—— */
 .docs-home .paper {
   background: var(--home-paper);
   color: var(--home-blue);
@@ -1035,7 +995,6 @@
   transform: rotate(0);
 }
 
-/* —— Data Production Loop（皇家蓝）—— */
 .docs-home .flow {
   background: var(--home-blue);
   padding: 110px var(--home-pad) 150px;
@@ -1089,7 +1048,6 @@
   max-width: 490px;
 }
 
-/* —— Final CTA + wordmark（纸张白收尾）—— */
 .docs-home .final {
   background: var(--home-paper);
   color: var(--home-ink);
@@ -1142,11 +1100,6 @@
   transform: translateY(9%);
 }
 
-/* ============================================================
- * 三、Reveal —— 渐进增强：无 JS / reduced-motion 时默认可见，
- *     只有 useHomeMotion 确认动效可用后加 .home-motion-ready，
- *     才把未进入视口的 .reveal 切到隐藏待显态。
- * ============================================================ */
 .docs-home .reveal {
   opacity: 1;
   transform: none;
@@ -1163,9 +1116,6 @@
   transform: none;
 }
 
-/* ============================================================
- * 四、关键帧
- * ============================================================ */
 @keyframes home-draw {
   to {
     stroke-dashoffset: 0;
@@ -1199,9 +1149,6 @@
   }
 }
 
-/* ============================================================
- * 五、响应式
- * ============================================================ */
 @media (max-width: 900px) {
   .docs-home .hero {
     grid-template-columns: 1fr;
@@ -1285,11 +1232,9 @@
     height: 440px;
     min-height: 0;
   }
-  /* 移动端取消 Hero 数据图谱越界，避免横向溢出 */
   .docs-home .hero-atlas {
     inset: -4% -28%;
   }
-  /* 移动端取消截图容器透视/倾斜，避免缩放后不可读（JS 侧同步不再施加 transform） */
   .docs-home .hero-figure {
     left: 0;
     right: 0;
@@ -1472,9 +1417,6 @@
   }
 }
 
-/* ============================================================
- * 六、PC 桌面端整屏 16:9 画布节奏与滚动对齐
- * ============================================================ */
 @media (min-width: 1024px) {
   html.docs-home-page,
   .docs-home-page body {
@@ -1482,7 +1424,6 @@
     scroll-behavior: smooth;
   }
 
-  /* 统一五大屏幕为 100vh 满屏呈现 */
   .docs-home .hero-screen,
   .docs-home .proof,
   .docs-home .paper,
@@ -1497,7 +1438,6 @@
     overflow: hidden;
   }
 
-  /* 第一屏：Hero + 底部跑马灯能力栏 */
   .docs-home .hero-screen {
     display: flex;
     flex-direction: column;
@@ -1517,7 +1457,6 @@
     background: var(--home-acid);
   }
 
-  /* 第二屏：Product Proof（多模态标注基准） */
   .docs-home .proof {
     padding: clamp(60px, 7vh, 80px) var(--home-pad) clamp(20px, 2.8vh, 32px);
     display: flex;
@@ -1610,7 +1549,6 @@
     right: -20px;
   }
 
-  /* 第三屏：Documentation Paths（探索与学习路径） */
   .docs-home .paper {
     padding: clamp(60px, 7vh, 80px) var(--home-pad) clamp(24px, 3vh, 36px);
     display: flex;
@@ -1672,7 +1610,6 @@
     left: 24px;
   }
 
-  /* 第四屏：Data Production Loop（数据飞轮闭环） */
   .docs-home .flow {
     padding: clamp(60px, 7vh, 80px) var(--home-pad) clamp(24px, 3vh, 36px);
     display: flex;
@@ -1702,7 +1639,6 @@
     line-height: 1.5;
   }
 
-  /* 第五屏：Final CTA（Build Better Data） */
   .docs-home .final {
     padding: clamp(64px, 8vh, 88px) var(--home-pad) 20px;
     min-height: 640px;
@@ -1733,9 +1669,6 @@
   }
 }
 
-/* ============================================================
- * 六、reduced-motion：停止所有品牌动效，内容静态完整呈现
- * ============================================================ */
 @media (prefers-reduced-motion: reduce) {
   .docs-home .hero-atlas *,
   .docs-home .marquee-track,

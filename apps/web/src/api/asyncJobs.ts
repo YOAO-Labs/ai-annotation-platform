@@ -1,5 +1,3 @@
-// async_jobs API client (ROADMAP §1.7)
-
 import { apiClient } from "./client";
 
 export type AsyncJobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
@@ -19,7 +17,6 @@ export type AsyncJobKind =
   | "point_cloud_cross_frame"
   | string;
 
-/** 仅展示 worker 实际支持协作取消的作业。 */
 export const CANCELLABLE_ASYNC_JOB_KINDS = new Set<AsyncJobKind>([
   "create_tasks",
   "export",
@@ -103,7 +100,6 @@ export interface AsyncJobListParams {
   search?: string;
   limit?: number;
   offset?: number;
-  /** React Query cancellation for filter/page changes. Not serialized. */
   signal?: AbortSignal;
 }
 

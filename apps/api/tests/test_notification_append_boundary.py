@@ -57,8 +57,6 @@ async def test_notify_preserves_pending_recipient_delete_flush_order(
             target_id=uuid.uuid4(),
         )
 
-    # The legacy same-flush ORM path inserts before deleting the recipient;
-    # the user's ON DELETE CASCADE then removes the notification row.
     assert row is not None
     assert (
         await db_session.scalar(

@@ -147,7 +147,6 @@ async def test_capture_replay_pages_and_seal_preserve_selected_bytes_and_failure
     assert first["candidate_count"] == first["selected_count"] == 2
     assert first["prepared_count"] == 0
 
-    # Persist the same digest the API writes in the caller-owned Job transaction.
     job = await db_session.get(AsyncJob, job_id)
     job.payload = {
         **job.payload,
@@ -214,8 +213,6 @@ async def test_capture_replay_pages_and_seal_preserve_selected_bytes_and_failure
     assert observed["member"]["state"] == "preparing"
     assert observed["member"]["input"]["status"] == "pending"
 
-    # A Task workflow/status change after capture becomes one terminal member
-    # failure; it cannot replace the frozen selected Task with a live URL.
     tasks_by_id = {str(task.id): task for task in tasks}
     tasks_by_id[selected[1]["task_id"]].status = "in_progress"
     await db_session.flush()

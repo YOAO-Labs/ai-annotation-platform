@@ -93,8 +93,6 @@ async def prepare(db, receipt, *, guard) -> Delivery:
 
         async def object_guard(owned, bindings=tuple(bindings)):
             await guard(owned)
-            # The transfer independently checks the first binding too. All
-            # duplicate uses must remain authorized before and after real I/O.
             for binding in bindings:
                 await video_inputs.check_source(owned, binding)
 

@@ -38,14 +38,11 @@ def test_merge_keeps_target_unit_class_on_name_conflict():
         },
         "region": {
             "enabled": True,
-            # region 也有 car (不同色) -> 与来源冲突, 保留 region 的 #22c55e。
             "classes": [{"name": "car", "color": "#22c55e", "order": 0}],
             "attribute_schema": {"fields": []},
         },
         "ai_interactive": {
             "enabled": True,
-            # car 与 bbox / region 均同名 -> 各自保留目标单位配色, 来源被跳过;
-            # prompt 两个目标都没有 -> 折进 region + bbox (退役前是共享调色板)。
             "classes": [
                 {"name": "car", "color": "#a855f7", "order": 0},
                 {"name": "prompt", "color": "#a855f7", "order": 1},
@@ -58,12 +55,10 @@ def test_merge_keeps_target_unit_class_on_name_conflict():
     out = mod.merge_ai_interactive_binding(tb)
 
     assert "ai_interactive" not in out
-    # 同名 car 保留各目标单位自己的配色, 来源被跳过; prompt 折进两者。
     bbox_by_name = {c["name"]: c["color"] for c in out["bbox"]["classes"]}
     assert bbox_by_name == {"car": "#0ea5e9", "prompt": "#a855f7"}
     region_by_name = {c["name"]: c["color"] for c in out["region"]["classes"]}
     assert region_by_name == {"car": "#22c55e", "prompt": "#a855f7"}
-    # attribute 折进两者。
     assert [f["key"] for f in out["bbox"]["attribute_schema"]["fields"]] == ["note"]
     assert [f["key"] for f in out["region"]["attribute_schema"]["fields"]] == ["note"]
 
@@ -89,7 +84,7 @@ def test_merge_attribute_key_conflict_keeps_target():
     out = mod.merge_ai_interactive_binding(tb)
     fields = out["bbox"]["attribute_schema"]["fields"]
     assert len(fields) == 1
-    assert fields[0]["label"] == "kept"  # 目标单位的保留, 来源同 key 跳过
+    assert fields[0]["label"] == "kept"
 
 
 def test_merge_fallback_bbox_when_no_geometry_unit():
@@ -103,7 +98,6 @@ def test_merge_fallback_bbox_when_no_geometry_unit():
     }
     out = mod.merge_ai_interactive_binding(tb)
     assert "ai_interactive" not in out
-    # 无 region/bbox -> 回落到 disabled bbox 承接, 不给项目凭空加激活工具。
     assert out["bbox"]["enabled"] is False
     assert [c["name"] for c in out["bbox"]["classes"]] == ["prompt"]
 
@@ -112,7 +106,7 @@ def test_merge_noop_without_ai_interactive_key():
     mod = _load_migration_0116()
     tb = {"bbox": {"enabled": True, "classes": [{"name": "car"}]}}
     out = mod.merge_ai_interactive_binding(tb)
-    assert out is tb  # 无该 key 时原样返回 (同一对象)
+    assert out is tb
 
 
 def test_merge_does_not_mutate_input():
@@ -130,6 +124,5 @@ def test_merge_does_not_mutate_input():
         },
     }
     mod.merge_ai_interactive_binding(tb)
-    # 入参不被就地改写。
     assert [c["name"] for c in tb["bbox"]["classes"]] == ["car"]
     assert "ai_interactive" in tb

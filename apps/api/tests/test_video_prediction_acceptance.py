@@ -975,7 +975,9 @@ async def test_offline_rejection_has_current_write_auth_but_cannot_be_used_to_ac
         "managed_binding",
         AsyncMock(side_effect=AssertionError("no owner needed")),
     )
-    current.db.scalar = AsyncMock(return_value=current.task)
+    monkeypatch.setattr(
+        accept, "lock_task_for_video_decision", AsyncMock(return_value=current.task)
+    )
     receipt = await accept.qualify_rejection(
         current.db, current.task, current.actor, current.request, current.prediction.id
     )

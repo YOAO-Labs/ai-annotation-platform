@@ -27,7 +27,6 @@ watched_tags = ["*"]
 "DELETE /api/v1/admin/ml-integrations/registry/{registry_id}" = { status = "covered" }
 "DELETE /api/v1/admin/ml-integrations/service-pools/{pool_id}" = { status = "covered" }
 "DELETE /api/v1/admin/ml-integrations/service-pools/{pool_id}/members/{registry_id}" = { status = "covered" }
-# Both source deletes return an empty 204; callers can reuse a UUID Idempotency-Key after a lost response.
 "DELETE /api/v1/datasets/{dataset_id}" = { status = "covered" }
 "DELETE /api/v1/datasets/{dataset_id}/items/{item_id}" = { status = "covered" }
 "DELETE /api/v1/datasets/{dataset_id}/link/{project_id}" = { status = "covered" }
@@ -42,6 +41,7 @@ watched_tags = ["*"]
 "GET /api/v1/admin/ml-integrations/gpu-resources" = { status = "covered" }
 "GET /api/v1/admin/ml-integrations/observe" = { status = "covered" }
 "GET /api/v1/admin/ml-integrations/overview" = { status = "covered" }
+"GET /api/v1/admin/ml-integrations/primary-pool-project-counts" = { status = "uncovered", reason = "not-implemented" }
 "GET /api/v1/admin/ml-integrations/runtime-hints" = { status = "covered" }
 "GET /api/v1/admin/ml-integrations/runtime-snapshot" = { status = "covered" }
 "GET /api/v1/admin/ml-integrations/service-pools" = { status = "covered" }
@@ -133,7 +133,6 @@ watched_tags = ["*"]
 "POST /api/v1/datasets/{dataset_id}/backfill-dimensions" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/backfill-media" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/import-from-connection" = { status = "covered" }
-# Synchronous source ingest accepts an optional caller UUID; SDK and CLI never retry it automatically.
 "POST /api/v1/datasets/{dataset_id}/items/scan" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/items/upload-complete/{item_id}" = { status = "covered" }
 "POST /api/v1/datasets/{dataset_id}/items/upload-init" = { status = "covered" }
@@ -243,7 +242,6 @@ watched_tags = ["*"]
 "PUT /api/v1/projects/{project_id}/ml-backends/{backend_id}/enablement" = { status = "covered" }
 "PUT /api/v1/tasks/{task_id}/video/tracks/{annotation_id}/mask-keyframes/{frame_index}" = { status = "covered" }
 
-# Public project learning workflows; trusted executor operations remain excluded.
 "GET /api/v1/projects/{project_id}/task-datasets" = { status = "covered" }
 "GET /api/v1/projects/{project_id}/task-datasets/unrecognized-versions" = { status = "covered" }
 "POST /api/v1/projects/{project_id}/training-datasets:preflight" = { status = "covered" }
@@ -684,12 +682,10 @@ watched_tags = ["*"]
 "POST /api/v1/storage-locations/{location_id}/change-preview" = { status = "uncovered", reason = "not-implemented" }
 "GET /api/v1/storage-locations/{location_id}/maintenance-impact" = { status = "uncovered", reason = "not-implemented" }
 "GET /api/v1/dataset-sources/{source_id}/active-registration" = { status = "uncovered", reason = "not-implemented" }
-# Personal dataset browsing preferences; application UI only.
 "GET /api/v1/datasets/{dataset_id}/saved-views" = { status = "uncovered", reason = "not-implemented" }
 "POST /api/v1/datasets/{dataset_id}/saved-views" = { status = "uncovered", reason = "not-implemented" }
 "PUT /api/v1/datasets/{dataset_id}/saved-views/{view_id}" = { status = "uncovered", reason = "not-implemented" }
 "DELETE /api/v1/datasets/{dataset_id}/saved-views/{view_id}" = { status = "uncovered", reason = "not-implemented" }
-# Dataset quality review currently belongs to the web workbench.
 "GET /api/v1/datasets/{dataset_id}/quality-runs" = { status = "uncovered", reason = "not-implemented" }
 "POST /api/v1/datasets/{dataset_id}/quality-runs" = { status = "uncovered", reason = "not-implemented" }
 "GET /api/v1/datasets/{dataset_id}/quality-runs/{run_id}" = { status = "uncovered", reason = "not-implemented" }
@@ -759,7 +755,6 @@ watched_tags = ["*"]
 "GET /api/v1/storage-locations/bindings/training/candidates" = { status = "uncovered", reason = "not-implemented" }
 "POST /api/v1/storage-locations/bindings/training/change-preview" = { status = "uncovered", reason = "not-implemented" }
 "PATCH /api/v1/storage-locations/bindings/training" = { status = "uncovered", reason = "not-implemented" }
-# Independent Agent protocol and administrator registry; no SDK consumer yet.
 "GET /api/v1/site-agents/agents" = { status = "uncovered", reason = "not-implemented" }
 "GET /api/v1/site-agents/sites" = { status = "uncovered", reason = "not-implemented" }
 "POST /api/v1/site-agents/agents/{agent_id}/drain" = { status = "uncovered", reason = "not-implemented" }
@@ -772,7 +767,6 @@ watched_tags = ["*"]
 "POST /api/v1/site-agents/sites" = { status = "uncovered", reason = "not-implemented" }
 "POST /api/v1/site-agents/sites/{site_id}/agents" = { status = "uncovered", reason = "not-implemented" }
 "POST /api/v1/storage-locations/agent" = { status = "uncovered", reason = "not-implemented" }
-# Reference replica administration remains available through the platform API/UI.
 "GET /api/v1/dataset-items/{item_id}/reference-replicas" = { status = "uncovered", reason = "not-implemented" }
 "GET /api/v1/dataset-items/{item_id}/reference-replica-candidates" = { status = "uncovered", reason = "not-implemented" }
 "POST /api/v1/dataset-items/{item_id}/reference-replicas" = { status = "uncovered", reason = "not-implemented" }

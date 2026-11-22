@@ -101,10 +101,6 @@ async def _object(db, capability, *, permit=None):
     if row is None or row.state not in {"ready", "retiring"}:
         _missing()
     if permit is not None and row.state == "retiring":
-        # Collectors hold this owner's exclusive row lock while rechecking all
-        # exact-purpose operations. A new read must also exclude a collector
-        # that passed that check before this permit was inserted. Conservatively
-        # reject other retiring reads too; ready reads remain concurrent.
         if await db.scalar(
             select(
                 exists().where(
@@ -145,9 +141,14 @@ async def _object(db, capability, *, permit=None):
 
             receipt = validate_inventory(row).get(key)
         else:
-            from app.services.video_derivative_storage import validate_inventory
+            from app.services.video_derivative_storage import (
+                cache_version,
+                validate_inventory,
+            )
 
             receipt = validate_inventory(row).get(key)
+            version_id, saved_etag = cache_version(row, key)
+            source_version_id = version_id
         if receipt != {
             "sha256": capability.sha256,
             "size_bytes": capability.size_bytes,
@@ -245,7 +246,6 @@ class Transfer:
                 f"bytes={selected.start}-{selected.start + selected.length - 1}"
             )
         result = self.client.get_object(**(params | condition))
-        # Assign before validating, so malformed responses still have an owner.
         self.body = result.get("Body")
         if self.route is not None:
             artifact_reads.validate_response(
@@ -343,8 +343,6 @@ async def _metadata(capability):
                 _purpose(capability),
                 expected_revision=revision,
             )
-            # Refresh current credentials and Gate after durable admission. No
-            # business row lock or metadata transaction survives into the client.
             if await _object(db, capability, permit=permit) != pinned:
                 _missing()
             if route is None:

@@ -619,7 +619,6 @@ def decode_deactivation_due_policy(
         raise IdentityUnavailable() from None
 
 
-# Short aliases keep the operator names aligned with the user-facing API port.
 decode_due_request = decode_deactivation_due_request
 decode_due_reply = decode_deactivation_due_reply
 decode_native_due_reply = decode_native_deactivation_due_reply

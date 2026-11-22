@@ -66,7 +66,6 @@ function multiPolygonArea(polygons: MultiPolygon): number {
   );
 }
 
-/** Boolean oracle for the preview; the server independently reconstructs the cut. */
 export function validatePolygonPartition(
   source: PolygonGeometry,
   parts: [PolygonGeometry, PolygonGeometry],
@@ -120,8 +119,6 @@ function multiPolygonToGeometry(multiPolygon: MultiPolygon): JoinGeometry | null
   return { type: "multi_polygon", polygons };
 }
 
-// 稳定序列化: 递归按 key 排序, 使属性相同但 key 顺序不同的对象判定为相等
-// (否则 polygon Join 会因 key 顺序差异误判为不同, 清空共享 attributes)。
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
@@ -168,11 +165,6 @@ export function joinPolygonGeometries(geometries: readonly Geometry[]): JoinGeom
   }
 }
 
-/**
- * 裁切重叠区：从 base 几何里减去所有 cutters 与之重叠的区域（布尔差集）。
- * base 作被减数（右键基准框），cutters 不被改动，仅用于扣除。
- * 返回 null 表示：base 不可用 / 无有效 cutter / 几何异常 / 结果为空（base 被完全覆盖）。
- */
 export function cropPolygonGeometry(
   base: Geometry,
   cutters: readonly Geometry[],
@@ -187,8 +179,6 @@ export function cropPolygonGeometry(
     const result = polygonClipping.difference(baseMp, ...cutterMps);
     return multiPolygonToGeometry(result);
   } catch (err) {
-    // polygon-clipping 对自相交 / 退化环 / 数值噪声会抛错；warn 一次便于
-    // 从 BUG 反馈区分「几何病态」与「裁切意图本身不可行」，对外仍返回 null。
     console.warn("[cropPolygonGeometry] polygon-clipping difference 失败:", err);
     return null;
   }

@@ -1,6 +1,3 @@
-/**
- * SettingsPage 单测 — 加载态 / 个人资料 / 系统设置 / 标注偏好 / 通知偏好 主路径.
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -10,7 +7,6 @@ import { DecisionDialogHost } from "@/components/ui/DecisionDialogHost";
 
 const mockPushToast = vi.fn();
 
-// --- auth store ---
 const mockSettingsUser = vi.hoisted(() => ({
   id: "u1",
   name: "Alice",
@@ -35,7 +31,6 @@ vi.mock("@/stores/authStore", () => {
   return { useAuthStore };
 });
 
-// --- permissions ---
 vi.mock("@/hooks/usePermissions", () => ({
   usePermissions: () => ({
     role: "super_admin",
@@ -46,7 +41,6 @@ vi.mock("@/hooks/usePermissions", () => ({
   }),
 }));
 
-// --- useMe mutations ---
 const mockUpdateProfile = { mutate: vi.fn(), isPending: false, isError: false };
 const mockChangePassword = { mutate: vi.fn(), isPending: false, isError: false };
 const mockRequestDeactivation = { mutate: vi.fn(), isPending: false, isError: false };
@@ -64,13 +58,11 @@ vi.mock("@/hooks/useMe", () => ({
   useUploadAvatar: () => mockUploadAvatar,
 }));
 
-// --- session control ---
 const mockLogoutAll = { mutate: vi.fn(), isPending: false };
 vi.mock("@/hooks/useAuth", () => ({
   useLogoutAll: () => mockLogoutAll,
 }));
 
-// --- system settings ---
 const mockSystemSettingsData = {
   environment: "development",
   allow_open_registration: false,
@@ -96,20 +88,21 @@ vi.mock("@/hooks/useSystemSettings", () => ({
   useTestSmtp: () => mockTestSmtp,
 }));
 
-// --- workbench config ---
-// 偏好四分树形态(common/image/video/pointcloud 子树)。
 const mockWorkbenchConfig = structuredClone(DEFAULT_WORKBENCH_PREFERENCES);
 const mockWorkbenchUpdate = vi.fn();
+const mockRetryWorkbenchLoad = vi.fn();
+const mockWorkbenchLoad = { error: null as Error | null };
 vi.mock("@/pages/Workbench/state/useWorkbenchConfig", () => ({
   useWorkbenchConfig: () => ({
     config: mockWorkbenchConfig,
-    loaded: true,
+    loaded: !mockWorkbenchLoad.error,
+    loadError: mockWorkbenchLoad.error,
+    retryLoad: mockRetryWorkbenchLoad,
     saving: false,
     update: mockWorkbenchUpdate,
   }),
 }));
 
-// --- bug reports API ---
 const mockListMine = vi.hoisted(() => vi.fn().mockResolvedValue({ items: [] }));
 vi.mock("@/api/bug-reports", () => ({
   bugReportsApi: {
@@ -117,7 +110,6 @@ vi.mock("@/api/bug-reports", () => ({
   },
 }));
 
-// --- notifications API ---
 vi.mock("@/api/notifications", () => ({
   notificationsApi: {
     getPreferences: vi.fn().mockResolvedValue({
@@ -135,7 +127,6 @@ vi.mock("@/api/notifications", () => ({
   },
 }));
 
-// --- 通知偏好共享面板（真实组件在 NotificationPreferencesPanel.test 覆盖）---
 const preferencesMock = vi.hoisted(() => ({
   data: null as { items: { type: string; in_app: boolean; email: false; toast: boolean }[] } | null,
   isPending: false,
@@ -148,7 +139,6 @@ vi.mock("@/hooks/useNotificationPreferences", () => ({
   useUpdateNotificationPreference: () => ({ mutateAsync: vi.fn().mockResolvedValue({ ok: true }) }),
 }));
 
-// --- toast ---
 vi.mock("@/components/ui/Toast", async () => {
   const actual = await vi.importActual<any>("@/components/ui/Toast");
   return {
@@ -168,8 +158,6 @@ vi.mock("./MLBackendOperationsSection", () => ({
 import { SettingsPage } from "./SettingsPage";
 
 function renderUI(initialEntry = "/settings") {
-  // 头像选择器读取内置头像目录（react-query），因此页面必须有 QueryClientProvider；
-  // 线上由 App 根提供，这里补上同一层。
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
@@ -200,6 +188,8 @@ describe("SettingsPage", () => {
     mockResetSystemSettings.mutate.mockReset();
     mockTestSmtp.mutate.mockReset();
     mockWorkbenchUpdate.mockReset().mockResolvedValue(undefined);
+    mockRetryWorkbenchLoad.mockClear();
+    mockWorkbenchLoad.error = null;
     mockUseSystemSettings.mockReturnValue({
       data: mockSystemSettingsData,
       isLoading: false,
@@ -297,7 +287,6 @@ describe("SettingsPage", () => {
 
   it("修改密码：两次密码不一致时显示错误提示", () => {
     renderUI();
-    // 按 label 定位（页面里还有头像的文件选择框，不能用「空值 input」的下标选择）。
     fireEvent.change(screen.getByLabelText("原密码"), { target: { value: "oldpass" } });
     fireEvent.change(screen.getByLabelText(/^新密码/), { target: { value: "newpass1" } });
     fireEvent.change(screen.getByLabelText("再次输入新密码"), {
@@ -348,7 +337,6 @@ describe("SettingsPage", () => {
   it("系统设置 - 修改 open registration 后保存触发 mutation", () => {
     renderUI();
     fireEvent.click(screen.getByRole("button", { name: /系统设置/ }));
-    // toggle the checkbox to dirty the form
     const checkbox = screen.getByLabelText(/已关闭.*仅邀请注册/);
     fireEvent.click(checkbox);
     fireEvent.submit(checkbox.closest("form")!);
@@ -378,6 +366,17 @@ describe("SettingsPage", () => {
     expect(screen.queryAllByTestId(/^setting-field-experiment\./)).toHaveLength(0);
   });
 
+  it("标注偏好首次读取失败时不显示可写的默认值，并支持重试", () => {
+    mockWorkbenchLoad.error = new Error("offline");
+    renderUI();
+    fireEvent.click(screen.getByRole("button", { name: "标注偏好" }));
+    expect(screen.getByText("无法加载标注偏好")).toBeInTheDocument();
+    expect(screen.queryAllByTestId(/^setting-field-/)).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+    expect(mockRetryWorkbenchLoad).toHaveBeenCalledOnce();
+    expect(mockWorkbenchUpdate).not.toHaveBeenCalled();
+  });
+
   it("点击「通知偏好」tab → 显示共享偏好面板（每类接收+弹出两开关）", async () => {
     preferencesMock.data = {
       items: [
@@ -397,7 +396,6 @@ describe("SettingsPage", () => {
     expect(screen.getByText("问题收到新回复")).toBeInTheDocument();
     expect(screen.getByText("标注评论提到了你")).toBeInTheDocument();
     expect(screen.getByText("后台任务完成")).toBeInTheDocument();
-    // 两开关 + 接收关闭时弹出禁用
     expect(screen.getByRole("checkbox", { name: "批次被驳回 接收通知" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "批次被驳回 弹出提示" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "BUG 反馈：状态变更 接收通知" })).not.toBeChecked();

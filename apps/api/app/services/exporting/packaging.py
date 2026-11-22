@@ -133,9 +133,7 @@ VIDEO_EXPORT_FORMATS = {
     "mot",
     "kitti",
     "yolo-frames-det",
-    # 逐帧 YOLO 分割：保留多边形顶点（bbox-only 的 det 只能给外接框）。
     "yolo-frames-seg",
-    # 逐帧 COCO 分割：同源多边形，编码为标准 COCO instance segmentation 单文档。
     "coco-frames-seg",
     "davis",
     "youtube-vos",
@@ -164,7 +162,6 @@ LIDAR_EXPORT_TARGETS = {
     "pointmask",
 }
 
-# 多目标导出：图像目标（yolo 旧值=yolo-det）+ 视频目标 + voc（仅同步单目标）。
 IMAGE_EXPORT_TARGETS = {
     "coco",
     "yolo",
@@ -208,7 +205,6 @@ def clean_export_targets(targets: list[str], data_type: str | None = None) -> li
     return seen
 
 
-# 预签名 URL / 桶 lifecycle 对齐 7 天。
 PRESIGN_EXPIRES_SECONDS = 7 * 24 * 3600
 
 
@@ -282,8 +278,6 @@ def _yolo_lines(
     return lines, attrs_per_line
 
 
-# YOLO 变体写入器（det/obb/seg）。det=bbox，obb=rotated_bbox 四角，
-# seg=polygon/multi_polygon 归一化多边形。坐标均归一化 [0,1]；obb 在像素空间旋转再归一化。
 YOLO_TARGETS = {"yolo", "yolo-det", "yolo-obb", "yolo-seg"}
 
 
@@ -351,7 +345,6 @@ def _yolo_target_lines(
             produced = 1
         elif target == "yolo-seg":
             rings = _seg_rings_norm(g)
-            # 行格式与视频侧 yolo-frames-seg 共用 yolo_seg_line，避免两份实现漂移。
             lines.extend(yolo_seg_line(cid, ring) for ring in rings)
             produced = len(rings)
         if produced and include_attributes:
@@ -359,9 +352,6 @@ def _yolo_target_lines(
     return lines, attrs
 
 
-# 流式导出：打包函数消费 (tasks, ann_by_task, dataset_items) 的异步分块
-# 迭代器（生产由 ExportService.iter_export_chunks 流式产出，测试可喂内存 chunk），ZIP 落盘
-# tempfile 而非 io.BytesIO 攒整包，内存与 task 数解耦。
 ExportChunkIter = AsyncIterator[
     tuple[list[Task], dict[uuid.UUID, list[Annotation]], dict[uuid.UUID, SpatialItem]]
 ]
@@ -597,7 +587,6 @@ async def build_export_zip(
                 pass
             return tmp_path, 0, _export_size(tmp_path)
 
-        # 视频项目走独立组装（manifest + 视频回源脚本 + 多格式）。
         if project.data_type == "video":
             needs_ann = bool(
                 {
@@ -670,8 +659,6 @@ async def build_export_zip(
             if target not in {"coco", "native_json", *custom_mask_targets}:
                 raise UnsupportedExportError(f"unsupported export target: {target}")
         has_yolo = bool(yolo_targets)
-        # COCO 需 DatasetItem 真值尺寸算像素坐标；仅在请求 coco 时累积全量 items
-        # （coco 本身单文档全量物化，O(N) items 不额外恶化）。纯 YOLO 不累积，保持流式。
         dataset_items_all: dict[uuid.UUID, SpatialItem] | None = (
             {} if "coco" in targets else None
         )
@@ -694,7 +681,6 @@ async def build_export_zip(
             zf.writestr(
                 "data_contract.json", json.dumps(metadata, ensure_ascii=False, indent=2)
             )
-            # 共享产物（格式无关）：类别清单 + 属性 schema。
             zf.writestr("classes.txt", "\n".join(classes_list))
             if include_attributes:
                 zf.writestr(
@@ -702,7 +688,6 @@ async def build_export_zip(
                     json.dumps(attribute_schema, ensure_ascii=False, indent=2),
                 )
 
-            # Pass 1（仅 YOLO 目标）：流式写镜像 labels（需 annotation）。
             if yolo_targets:
                 async for tasks, ann_by_task, dataset_items in svc.iter_export_chunks(
                     project_id, batch_id, with_annotations=True
@@ -761,7 +746,6 @@ async def build_export_zip(
                     prefix = f"{target}/" if multi else ""
                     zf.writestr(f"{prefix}data.yaml", _build_data_yaml(classes_list))
 
-            # Spool the manifest outside ZIP: only one ZIP write handle may be open.
             try:
                 manifest = tempfile.TemporaryFile(mode="w+b", prefix="export-manifest-")
             except BaseException as exc:
@@ -808,7 +792,6 @@ async def build_export_zip(
                             zf._check_entry(
                                 reference_media.bindings[t.id]["reference"]["size"]
                             )
-                            # Reserve the strict reader's full bound before allocating its file.
                             zf._check_temporary(mf.tell() + MAX_BYTES)
                             snapshot = await reference_media.snapshot(t)
                             try:
@@ -896,7 +879,6 @@ async def build_export_zip(
             if check_cancel:
                 await check_cancel()
 
-            # 单文档目标（coco/native_json）由 svc 自加载落包根/子目录。
             for target in other_targets:
                 if target in custom_mask_targets:
                     continue
@@ -910,7 +892,7 @@ async def build_export_zip(
                         dataset_items=dataset_items_all or {},
                         axis_frame=axis_frame,
                     )
-                else:  # native_json
+                else:
                     content = await svc.export_native_json(
                         project_id,
                         batch_id=batch_id,
@@ -965,7 +947,6 @@ async def build_export_zip(
                     )
 
             zf.writestr("fetch_images.py", _FETCH_IMAGES_TEMPLATE)
-            # 单个非 YOLO 图片目标也在包根提供 data.yaml，保留原有目录布局。
             if not multi and not has_yolo:
                 zf.writestr("data.yaml", _build_data_yaml(classes_list))
 
@@ -1035,9 +1016,6 @@ def _build_video_yolo_data_yaml(classes_list: list[str]) -> str:
         "names:\n"
         f"{names}\n"
     )
-
-
-# ── LiDAR 标准训练格式导出 ─────────────────────────────────
 
 
 def _lidar_frame_key(task: Task, item: SpatialItem | None) -> str:
@@ -1355,9 +1333,6 @@ async def _build_lidar_export_zip(
             scenes_by_id: dict[uuid.UUID, SpatialScene] = {}
             poses_by_frame: dict[tuple[uuid.UUID, int], FramePose] = {}
             if "nuscenes" in targets:
-                # pose 查询按 chunk 内主点云的 (scene, frame) 对过滤:
-                # 大 scene 跨多个 1000-task chunk 时,逐 chunk 全量拉 scene pose
-                # 会造成 ~N²/1000 行的重复加载;精确对过滤让每帧 pose 只取一次。
                 chunk_pose_pairs: set[tuple[uuid.UUID, int]] = set()
                 chunk_scene_ids: set[uuid.UUID] = set()
                 for task in tasks:
@@ -1918,8 +1893,6 @@ async def _build_lidar_export_zip(
     return tmp_path, file_count, _export_size(tmp_path)
 
 
-# ── 视频导出组装 ──────────────────────────────────
-
 _FETCH_VIDEOS_TEMPLATE = (
     FETCH_IMAGES_TEMPLATE.replace(
         'MANIFEST = "images_manifest.json"', 'MANIFEST = "manifest.json"'
@@ -2164,7 +2137,6 @@ async def _build_video_export_zip(
     classes_list = derive_classes_list(project.tool_bindings)
     attribute_schema = derive_attribute_schema(project.tool_bindings)
     cat_map = {name: i for i, name in enumerate(classes_list)}
-    # coco-frames-seg 是单文档：跨 task 累积每序列的帧/几何，chunk 循环后一次性写 annotations.json。
     coco_seq_records: list[dict] = []
     davis_sequences: list[str] = []
     davis_sequence_owners: dict[str, uuid.UUID] = {}
@@ -2222,12 +2194,10 @@ async def _build_video_export_zip(
                     f"{prefix}data.yaml", _build_video_yolo_data_yaml(classes_list)
                 )
 
-        # 逐 task = sequence（按 chunk 流式）：写 MOT/KITTI/yolo-frames 逐序列文件 + 收集 manifest。
         file_count = 0
         total_tasks = 0
         async for tasks, ann_by_task, dataset_items in chunks:
             total_tasks += len(tasks)
-            # 本块内按 task 分组：轨迹几何 → tracks，单帧几何 → bboxes。
             tracks_by_task: dict[uuid.UUID, list[Annotation]] = {}
             bboxes_by_task: dict[uuid.UUID, list[Annotation]] = {}
             for anns in ann_by_task.values():
@@ -2600,7 +2570,6 @@ async def _build_video_export_zip(
                         **mots_meta,
                     }
 
-                # manifest 视频条目（含网格帧号供 fetch_frames.py 抽帧）。
                 dataset_name = _dataset_name_for_task(t, item)
                 video_source = (
                     svc.video_source(project, t, item, vmeta, video_scope)
@@ -2742,7 +2711,6 @@ async def _build_video_export_zip(
                         "sampling": sampling,
                         "step": step,
                         "grid_source_frames": selected_source_frames,
-                        # 帧号 base：MOT/YOLO 取 1（1-based），KITTI-only 取 0。
                         "frame_start_number": frame_start_number,
                         "frame_output_dirs": frame_output_dirs,
                         "frame_outputs": frame_outputs,

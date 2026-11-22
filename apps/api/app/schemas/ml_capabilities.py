@@ -16,8 +16,8 @@ class SuggestedBackendItem(BaseModel):
     repo_url: str
     summary: str
     research_link: str | None = None
-    infra: str | None = None  # 与受控 INFRAS 对齐 (pytorch / onnx / ...)
-    builtin: bool = False  # True = 平台 docker-compose 自带; False = 外部推荐
+    infra: str | None = None
+    builtin: bool = False
 
 
 class ProtocolTaskItem(BaseModel):
@@ -50,8 +50,6 @@ class ProtocolGeometryItem(BaseModel):
 
 
 class ProtocolPromptItem(BaseModel):
-    # prompt 受控词表对外暴露 (供前端 codegen + 运行时同源)。
-    # requires_input/interactive_route 双维度见 capability_registry.PromptSpec。
     id: str
     label: str
     summary: str
@@ -60,7 +58,6 @@ class ProtocolPromptItem(BaseModel):
 
 
 class ProtocolInputItem(BaseModel):
-    # supported_inputs 受控词表对外暴露 (供前端 codegen + 判据同源)。
     id: str
     label: str
     summary: str
@@ -105,40 +102,21 @@ class InstanceModelItem(BaseModel):
     infra: str | None = None
     is_interactive: bool = False
     supported_prompts: list[str] = []
-    # 输入契约 (full_image|crop|bbox_prompt|point_prompt) 和资源画像
-    # (device / batchable) 供全局编排选择器读取。
     supported_inputs: list[str] = []
-    # 源阶段默认输入类型; backend 未声明时由 supported_inputs[0] 兜底。
     default_input_type: str | None = None
     resource_profile: dict = {}
     supported_geometric_outputs: list[str] = []
     supported_trackers: list[str] = []
-    # text-driven tracker (sam3_video) 子集; 前端选中该 tracker 时显 text 框。
     text_driven_trackers: list[str] = []
     max_window_frames: int | None = Field(default=None, gt=0)
-    # 协议③ · 属性输出类型 + schema 自描述 (含 select options), 供「从 backend 导入属性」.
     output_attribute_types: list[str] = []
     output_attribute_schema: list[dict] = []
-    # backend 自报的类别清单 (yolo COCO 等)。供前端「从 backend 预填配置」一键
-    # 导入类别——此前本字段在 /instances 被裁掉, 类别只能手抄。缺省 [] 向后兼容。
-    # 形态与 MLModelCapability.classes (ml_backend.py) 一致: [{index,name}], 不是 string[] ——
-    # 此前误标 list[str] 导致任何自报非空 classes 的 backend (yolo/onnxtools) 校验 80+ 个
-    # ValidationError, 整条 backend 被 /instances 路由层静默 catch 掉, 能力目录整体丢失该 backend。
     classes: list[dict] = []
     modality: str | None = None
     supported_variants: list[InstanceVariantGroup] = []
     variant_combinations: list[list[str]] = []
-    # True 表示同 backend 内多个 task 共享同一份物理权重 (如 gsam2 的 SAM2
-    # 权重同时被 segmentation / interactive_seg / tracker 用). 前端列表据此把跨 task
-    # 的同 variant 合并到一行, 而不是为每个 task 重复显示。yolo 每 task 独立权重
-    # (yolov8n-det.pt vs yolov8n-obb.pt), 缺省 False 保持「每 task 一行 + 任务后缀」。
     variants_shared_across_tasks: bool = False
-    # backend 自报的默认 variant 组合 (dict[axis_key, value]).
-    # 前端 VariantSelector 在用户未选时取此作初值; 优先级链:
-    # 项目级 project.default_variants[backend_id] > 本字段 > backend 启动 env 默认.
     default_variants: dict[str, str] = {}
-    # 协议 v2.2 · 原子 vs 内部编排维度：atom=单次推理原子；composite=内部编排多原子。
-    # 缺省 atom 向后兼容。编排下游 stage 据此过滤（只组合 atom）。
     composition: str = "atom"
 
 
@@ -158,8 +136,6 @@ class CapabilityInstanceItem(BaseModel):
     source: str
     name: str
     infra: str = "unknown"
-    # backend 是否支持 POST /warmup (协议 §4.4); 前端模型市场"⚡ 预热"
-    # 按钮据此置灰. 老 backend 缺字段 = False.
     warmup_endpoint: bool = False
     models: list[InstanceModelItem] = []
 
@@ -181,7 +157,5 @@ class ProtocolCapabilitiesResponse(BaseModel):
     infras: list[ProtocolInfraItem]
     modalities: list[ProtocolModalityItem]
     geometries: list[ProtocolGeometryItem]
-    # prompt 受控词表 (第五张; 此前仅内部消费, 现对外暴露供前端 codegen)。
     prompts: list[ProtocolPromptItem] = []
-    # input 受控词表 (第六张; supported_inputs 合法值)。
     inputs: list[ProtocolInputItem] = []

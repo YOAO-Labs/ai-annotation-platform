@@ -1,10 +1,3 @@
-/**
- * single-axis status badge.
- *
- * Renders one of the four status axes (health / routing / capacity / residency)
- * or a diagnostic severity as a Badge with an icon + label. Never color-only
- * (design-system rule §6).
- */
 import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -46,7 +39,6 @@ function tokenFor(axis: AxisKind, value: string): AxisToken {
 export interface RuntimeStatusBadgeProps {
   axis: AxisKind;
   value: HealthAxis | RoutingAxis | CapacityAxis | ResidencyAxis | Severity;
-  /** Optional prefix label, e.g. "路由" → "路由: 可路由". */
   prefix?: string;
   className?: string;
 }

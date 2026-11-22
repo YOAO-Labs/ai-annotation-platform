@@ -1,42 +1,25 @@
 {
-  "version": 1,
-  "_doc": "Image benchmark fixture matrix: 3 sizes × 3 densities = 9 scenarios.",
+  "version": 2,
   "fixtures": [
     {
-      "id": "image-2k",
-      "label": "2K (2048×2048 渐变)",
-      "imageSize": "2k",
-      "widthPx": 2048,
-      "heightPx": 2048
+      "id": "image-720p",
+      "imageCanvas": "720p",
+      "widthPx": 1280,
+      "heightPx": 720
     },
     {
-      "id": "image-8k",
-      "label": "8K (8192×8192 渐变)",
-      "imageSize": "8k",
-      "widthPx": 8192,
-      "heightPx": 8192
-    },
-    {
-      "id": "image-polygon-dense",
-      "label": "Polygon-dense (2K 复杂边界)",
-      "imageSize": "polygon-dense",
-      "widthPx": 2048,
-      "heightPx": 2048
+      "id": "image-5k",
+      "imageCanvas": "5k",
+      "widthPx": 5120,
+      "heightPx": 2880
     }
   ],
   "annotationDensities": [
-    { "id": "shapes-10", "count": 10 },
-    { "id": "shapes-100", "count": 100 },
-    { "id": "shapes-500", "count": 500 }
+    { "id": "boxes-10", "count": 10 },
+    { "id": "boxes-100", "count": 100 }
   ],
-  "scenarios": [
-    "open-image-workbench",
-    "pan-stage-2s",
-    "zoom-cycle-ctrl-wheel",
-    "select-all-iterate"
-  ],
+  "actions": ["pan-5-drags", "zoom-4-steps-in-and-out", "select-all"],
   "budgets": {
-    "_doc": "Soft performance budgets for the image benchmark.",
     "longTaskMaxMs": 200,
     "longTaskCountUpper": 5
   },

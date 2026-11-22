@@ -31,9 +31,6 @@ describe("useVideoFramePreview", () => {
     });
     api.getVideoFrame.mockReset();
     api.prefetchVideoFrames.mockReset();
-    // Scrub prefetch fires alongside every preview cache miss; default to a
-    // benign empty response so individual tests only need to override when they
-    // assert on prefetch behavior.
     api.prefetchVideoFrames.mockResolvedValue({
       dataset_item_id: "item-1",
       task_id: "task-1",
@@ -210,7 +207,6 @@ describe("useVideoFramePreview", () => {
     );
 
     act(() => result.current.previewFor(2));
-    // previewFor coalesces network calls into the next animation frame.
     await act(async () => {
       vi.advanceTimersByTime(16);
       await Promise.resolve();
@@ -261,8 +257,6 @@ describe("useVideoFramePreview", () => {
     act(() => result.current.previewFor(6));
     act(() => result.current.previewFor(6));
 
-    // previewFor coalesces repeated hover events into one rAF; wait for the
-    // network call to flush before asserting the in-flight state.
     await waitFor(() => expect(api.getVideoFrame).toHaveBeenCalledTimes(1));
     expect(result.current.preview?.status).toBe("pending");
 

@@ -83,7 +83,6 @@ type CompactMarkdownEditorProps = Pick<
   | "disabled"
 >;
 
-// BUG 表单使用紧凑编辑器，保持 MDXEditor 不进入抽屉首屏 bundle。
 const MarkdownEditor = lazy(() =>
   import("@/components/markdown/MarkdownEditor").then((m) => ({
     default: m.MarkdownEditor,
@@ -123,25 +122,21 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
   const [detail, setDetail] = useState<BugReportDetail | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // create/edit form
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [severity, setSeverity] = useState<string>("medium");
   const [submitting, setSubmitting] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
 
-  // detail-view comment composer
   const [commentBody, setCommentBody] = useState("");
   const [postingComment, setPostingComment] = useState(false);
   const detailRequestRef = useRef(0);
   const activeDetailIdRef = useRef<string | null>(null);
   const commentRequestRef = useRef(0);
 
-  // 截图状态
   const [screenshotBlob, setScreenshotBlob] = useState<Blob | null>(null);
   const [screenshotEditing, setScreenshotEditing] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
-  // 上传失败 retry 状态
   const [screenshotUploadFail, setScreenshotUploadFail] = useState<string | null>(null);
   const revision = useSessionRevision();
   const captureSession = useSessionGuard();
@@ -193,7 +188,6 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
     }
   }, [open, view, revision]);
 
-  // 从通知中心点击「我的反馈」类通知跳转时，自动定位到该条详情
   useEffect(() => {
     if (open && focusBugId) {
       loadDetail(focusBugId);
@@ -386,7 +380,6 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
           setScreenshotUploadFail(null);
         } catch (e) {
           if (!current()) return;
-          // 失败不再静默降级，停在表单让用户选 retry / skip / cancel
           console.error("Bug screenshot upload failed", e);
           setScreenshotUploadFail("请稍后重试，或跳过截图继续提交。");
           return;
@@ -402,7 +395,6 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
       if (rasterResourceDiagnosticsEntry) {
         recentConsoleErrors.unshift(rasterResourceDiagnosticsEntry);
       }
-      // 附 workbench longtask 快照，便于 BUG 排查时定位卡顿点。
       const perf = readWorkbenchPerfSnapshot();
       if (perf.longTaskCount > 0) {
         recentConsoleErrors.unshift({
@@ -450,7 +442,6 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
     if (!current()) return;
     pushToast({ msg: "正在截图…" });
     try {
-      // 关闭 drawer 短暂时间让 html2canvas 截到完整页面（可选简化：用 ignoreElements）
       const blob = await captureScreenshot();
       if (!current()) return;
       setScreenshotBlob(blob);
@@ -590,7 +581,6 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
     <>
       <div data-bug-drawer className={styles.overlay} onClick={handleClose} />
       <div data-bug-drawer className={styles.drawer}>
-        {/* Header */}
         <div className={styles.header}>
           <span className={styles.title}>
             {view === "list"
@@ -620,7 +610,6 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
           </div>
         </div>
 
-        {/* Content */}
         <div className={styles.content}>
           {view === "list" && (
             <div>
@@ -965,7 +954,6 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
                   <div className={styles.emptyComments}>暂无评论</div>
                 )}
 
-                {/* 评论输入框 */}
                 <div className={styles.commentComposer}>
                   {["fixed", "wont_fix", "duplicate"].includes(detail.status) && (
                     <div className={styles.reopenNotice}>

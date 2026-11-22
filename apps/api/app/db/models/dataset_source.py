@@ -416,7 +416,6 @@ class DatasetSourceChange(Base):
     baseline_run_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("dataset_scan_runs.id", ondelete="RESTRICT")
     )
-    # Historical IDs survive explicit business item deletion.
     before_item_id: Mapped[uuid.UUID | None] = mapped_column()
     before_revision_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("dataset_source_revisions.id", ondelete="RESTRICT")

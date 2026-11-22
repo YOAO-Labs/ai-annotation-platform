@@ -66,8 +66,6 @@ class MediaControl:
             try:
                 await self.wakeup(job_id, generation)
             except Exception:
-                # Acceptance is already durable. A broker failure must not turn
-                # it into a rejected request or a processing failure.
                 log.warning("Media work accepted; execution wakeup unavailable")
 
     async def call(self, operation: str, request: BaseModel) -> BaseModel:
@@ -251,7 +249,6 @@ class MediaControl:
                         if await self.storage.head_cache(key) is not None:
                             poster = await self.storage.sign_cache(key, self.expires_in)
                     except c.MediaFailure:
-                        # Task metadata remains readable during object outages.
                         poster = None
         return SourceReference(
             original_url=original,
@@ -372,7 +369,6 @@ class MediaControl:
                 **self._locator(asset),
             )
         if missing:
-            # A forced selection is a one-time command, not a repeatable read.
             selection = request.selection.model_copy(update={"force": False})
             state = await self.call(
                 "ensure_video_media",
@@ -403,8 +399,6 @@ class MediaControl:
             if asset.status == "ready":
                 cache_key(state.source, asset.storage_key)
                 if await self.storage.head_cache(asset.storage_key) is None:
-                    # A second disappearance races the previous invalidation;
-                    # return a retryable failure, never a URL known to be dead.
                     raise c.MediaFailure("object_missing")
                 asset = asset.model_copy(
                     update={

@@ -19,14 +19,10 @@ import { splitToolDock, type ToolDockEntry, type ToolDockMetrics } from "./toolD
 
 const ROOT_CLASS =
   "relative flex flex-col items-center gap-1.5 border-r border-border bg-card px-1 py-2.5";
-// 仅布局 / 边框宽度，不含颜色 utility —— 颜色按 active / idle 互斥下发，
-// 否则朴素 cn() (非 tailwind-merge) 下基础色类会因 CSS 源顺序覆盖激活色类，导致高亮失效。
 const TOOL_BTN_CLASS =
   "relative flex size-[38px] shrink-0 cursor-pointer appearance-none items-center justify-center rounded-md border transition-colors";
-// 非激活态中性配色 (边框 / 底 / 图标)。
 const TOOL_BTN_IDLE = "border-transparent bg-transparent text-muted-foreground";
 const TOOL_BTN_HOVER = "hover:bg-muted hover:text-foreground";
-// 激活态：实心品牌底 + 白色图标 + 投影，醒目可辨。
 const TOOL_BTN_ACTIVE = "border-brand bg-brand text-brand-foreground shadow-sm";
 const TOOL_BTN_DISABLED = "cursor-not-allowed opacity-40";
 const HOTKEY_BADGE_CLASS =
@@ -45,44 +41,19 @@ interface ToolDockProps {
   videoTool?: VideoTool;
   onSetVideoTool?: (t: VideoTool) => void;
   videoToolScope?: VideoToolScope;
-  /** Admission belongs to the Shell; the dock never changes scope before this callback. */
   onSetVideoToolScope?: (scope: VideoToolScope) => void;
-  /** 由 useMLCapabilities 注入. tool.requiredPrompt 不在 supported 集合 → 置灰. */
   isPromptSupported?: (type: string) => boolean;
-  /** 工作台上下文门控（例如 scribble 必须先选中已存 Mask）。 */
   toolDisabledReasons?: Partial<Record<ToolId, string>>;
-  /** capability 加载中: AI 工具组半透 + 不可点 (避免误用回退到的 fallback). */
   capabilitiesLoading?: boolean;
-  /** M2 · review 模式下只显示 Hand 工具. */
   reviewMode?: boolean;
-  /** 视频工作台分离单帧 bbox 与 track 工具. */
   videoMode?: boolean;
-  /**
-   * 项目已启用的 tool_unit 集合 (来自 project.tool_bindings[unit].enabled)。
-   * 过滤所有持有几何的工具 (含 AI 工具, 按其产出几何归属的单位): 未启用的隐藏。
-   * null = 老项目无 tool_bindings 配置 → 视为全部启用, 不隐藏任何工具 (向后兼容)。
-   */
   enabledToolUnits?: Set<string> | null;
-  /**
-   * 项目级「交互式 AI 工具」总开关 (project.ai_interactive_enabled, 项目设置「ML 模型」)。
-   * false → AI 工具 (requiredPrompt) 整组隐藏。undefined = 未加载 → 不隐藏 (向后兼容)。
-   */
   aiInteractiveEnabled?: boolean;
-  /**
-   * 视频工具可用性谓词 (按几何单位 enabled + 单帧/轨迹子开关判定, 见 stage/videoToolUnits)。
-   * undefined = 全部显示 (向后兼容 / 非视频)。
-   */
   isVideoToolEnabled?: (t: VideoTool) => boolean;
-  /** 未配置骨骼节点时保留入口但禁用，避免创建无语义的关键点数组。 */
   videoKeypointNodeCount?: number;
-  /** 点云 3D 台:渲染 select / box 两个 3D 工具(双栈隔离,不走 2D ToolId)。 */
   threeDMode?: boolean;
   threeDTool?: ThreeDTool;
   onSetThreeDTool?: (t: ThreeDTool) => void;
-  /**
-   * Increment B · 可编辑工具命令的生效组合（含备用），按命令 ID 索引；
-   * null = 该命令已停用（角标清空）。未提供的命令沿用静态提示。
-   */
   toolHotkeys?: Record<string, { label: string; alt?: string } | null>;
 }
 
@@ -95,24 +66,19 @@ function imageToolIcon(id: ToolId): IconName {
   return ALL_TOOLS.find((tool) => tool.id === id)?.icon ?? "cursor";
 }
 
-/** Tooltip + Alt+digit 副 hotkey. */
 const TOOL_DESCRIPTORS: Record<ToolId, ToolDescriptor> = {
   select: { desc: "点选 / 移动已有标注与预标注 · ESC 回退到它", altDigit: 4 },
   box: { desc: "拖鼠标画矩形框", altDigit: 1 },
   "rotated-box": { desc: "拖框 → 顶部手柄旋转 (OBB)" },
   polygon: { desc: "逐点画多边形 (Enter 闭合)", altDigit: 2 },
-  // 折线（开放、不闭合）。Enter / 双击结束（≥2 点）。
   polyline: { desc: "逐点画折线 (Enter 结束, 不闭合)" },
-  // 关键点: 按 schema 依次落点 (Alt 遮挡, 右键跳过), 放满自动提交.
   keypoint: { desc: "依次落关键点 · Alt=遮挡, 右键=跳过" },
-  // Mask 编辑器：空白笔刷或精修 AI polygon 候选 (B/E 切笔刷/橡皮, 滚轮调半径)。
   mask: { desc: "Mask 笔刷 · B/E 切模式, 滚轮调半径, Enter 执行当前阶段主动作" },
   "smart-point": { desc: "单击 = 正向点；Alt+点 = 负向点", altDigit: 3 },
   "smart-box": { desc: "拖框作为 SAM 提示" },
   "smart-scribble": { desc: "在选中 Mask 上画正向笔迹；Alt = 负向笔迹" },
   "text-prompt": { desc: "文本召回 (右侧 AI 面板输入)" },
   exemplar: { desc: "拖框示例 → 全图相似实例 (SAM 3)" },
-  // Magic Box: 粗框 → SAM 收紧到对象紧凑外接矩形 → 落 bbox.
   "magic-box": { desc: "Magic Box · 粗框 → SAM 收紧 → 落 bbox" },
   hand: { desc: "拖拽平移画布", altDigit: 4 },
   canvas: { desc: "评论批注 (内部, 不展示)" },
@@ -123,15 +89,9 @@ const VIDEO_TOOLS: Array<{
   label: string;
   icon: IconName;
   desc: string;
-  /**
-   * 角标与 tooltip 只写**真实绑定**的键(见 hotkeys.ts 的 videoMode 分支)。
-   * 之前 polygon 标 G、polyline 标 L 都没绑 —— 而视频 L 是播放 jog, 按下去会快进, 不是「没反应」。
-   */
   hotkey?: string;
-  /** 视频侧 Alt+数字只绑到 3; 其余工具没有备用数字键, 故可选。 */
   altDigit?: number;
   group: "select" | "frame" | "sam" | "track";
-  /** 非空 = AI 工具: 受项目总开关(隐藏) + 后端能力(置灰) 双层管控, 对齐图片侧。 */
   requiredPrompt?: string;
 }> = [
   {
@@ -168,7 +128,6 @@ const VIDEO_TOOLS: Array<{
     desc: "按骨骼模板依次落点 · Alt 遮挡 · 右键跳过",
     group: "frame",
   },
-  // 单帧 polygon/polyline (点击落点, Enter/双击闭合, Esc 取消)。
   {
     id: "polygon",
     hotkey: "P",
@@ -184,7 +143,6 @@ const VIDEO_TOOLS: Array<{
     desc: "点击落点画当前帧折线 · Enter/双击结束",
     group: "frame",
   },
-  // 交互式 SAM 单帧工具; requiredPrompt 决定后端能力门控 (不支持则置灰)。
   {
     id: "smart-point",
     hotkey: "S",
@@ -230,7 +188,6 @@ const VIDEO_TOOLS: Array<{
     altDigit: 2,
     group: "track",
   },
-  // polygon/polyline 轨迹关键帧 (原 polygon/polyline, 拆分后 -track 后缀)。
   {
     id: "polygon-track",
     label: "多边形轨迹",
@@ -262,7 +219,6 @@ const VIDEO_TOOLS: Array<{
   },
 ];
 
-// 点云 3D 工具:select 拾取选中 / box 点地面放置 / point-mask 框选分割。
 const THREE_D_TOOLS: Array<{
   id: ThreeDTool;
   hotkey: string;
@@ -316,7 +272,6 @@ const GROUP_LABELS: Record<ToolDockEntry["group"], string> = {
   track: "轨迹工具",
 };
 
-/** Increment B · 工具 → 可编辑命令 ID（生效组合提示的数据源）。 */
 const IMAGE_TOOL_COMMAND: Partial<Record<ToolId, string>> = {
   select: "image.tool.select",
   box: "image.tool.box",
@@ -364,7 +319,6 @@ function AdaptiveToolDock({
     : { visibleIds: tools.map((tool) => tool.id), overflowIds: [], scroll: false };
   const visibleTools = tools.filter((tool) => allocation.visibleIds.includes(tool.id));
   const overflowTools = tools.filter((tool) => allocation.overflowIds.includes(tool.id));
-  // A scope projection can change only overflow items while selection stays in the main rail.
   const signature = `${tools.map((tool) => tool.id).join("|")}:${allocation.visibleIds.join("|")}`;
   const previousSignature = useRef(signature);
 
@@ -416,7 +370,6 @@ function AdaptiveToolDock({
     previousSignature.current = signature;
     if (open) {
       setOpen(false);
-      // Radix restores focus after removing its focus trap, via onCloseAutoFocus below.
     } else if (
       lastFocusedId.current &&
       !(lastFocusedId.current === "more"
@@ -425,7 +378,6 @@ function AdaptiveToolDock({
     ) {
       restoreFocus();
     }
-    // Only a capacity/tool change should restore focus, never a normal menu interaction.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature]);
 
@@ -490,7 +442,6 @@ function AdaptiveToolDock({
           lastFocusedId.current = null;
       }}
     >
-      {/* Non-interactive samples share exact CSS with the visible geometry; no duplicate tools. */}
       <div
         ref={measureRef}
         aria-hidden
@@ -631,19 +582,6 @@ function AdaptiveToolDock({
   );
 }
 
-/**
- * 左侧垂直工具栏 (Prompt-first 重构).
- *
- * 工具分组:
- *   普通绘制: box, polygon
- *   ─── 分隔 ───
- *   AI 工具 (按 prompt 范式): smart-point, smart-box, text-prompt, exemplar
- *     每个工具声明 requiredPrompt; backend 不支持时按钮置灰 + tooltip 提示.
- *     引擎/参数浮块 (InteractiveToolBar) 已移到画布顶部居中 (由 stage overlays 渲染),
- *     不再贴 ToolDock 右侧; ToolDock 只负责工具按钮本身。
- *   ─── 分隔 ───
- *   视图: hand
- */
 export function ToolDock({
   tool,
   onSetTool,
@@ -665,7 +603,6 @@ export function ToolDock({
   onSetThreeDTool,
   toolHotkeys,
 }: ToolDockProps) {
-  // Increment B · 工具角标 / tooltip 优先读生效组合；命令停用时清空角标。
   const effectiveHotkey = (
     commandId: string | undefined,
   ): { label: string; alt?: string } | null => {
@@ -716,13 +653,9 @@ export function ToolDock({
   }
   if (videoMode) {
     const scope = videoToolScope ?? videoToolScopeForTool(videoTool) ?? "frame";
-    // 视频显示选择 + 创建工具；平移走右键/Space 手势, 不占工具按钮。
-    // 三层门控与图片侧同构: 项目总开关(隐藏 AI 组) → 后端能力(置灰) → 产出几何单位(隐藏)。
     const visibleVideoTools = VIDEO_TOOLS.filter((t) => {
       if (t.id === "select") return true;
-      // 层 1: AI 工具受项目总开关控制 (undefined = 未加载, 不隐藏)。
       if (t.requiredPrompt && aiInteractiveEnabled === false) return false;
-      // 层 3: 产出几何所属单位 / 变体未启用 → 隐藏 (AI 工具已登记进 VIDEO_TOOL_TARGET)。
       if (!isVideoToolEnabled) return true;
       return isVideoToolEnabled(t.id);
     });
@@ -795,25 +728,15 @@ export function ToolDock({
     );
   }
 
-  // 三层门控 (每层语义单一):
-  //   1. 项目总开关 project.ai_interactive_enabled 关 → AI 工具整组隐藏。
-  //   2. 后端能力 isPromptSupported 不支持 → 置灰 + tooltip (见下方 disabled 计算)。
-  //   3. 产出几何单位未启用 → 隐藏。AI 工具按产出几何归属单位 (smart-* → region,
-  //      magic-box → bbox), 故与手画工具同一套过滤: 项目没开 region 单位时,
-  //      smart-point 画出的 polygon 无类别可归, 本就该跟随 region 一起隐藏。
   const visibleTools = reviewMode
     ? ALL_TOOLS.filter((t) => t.id === "select")
     : ALL_TOOLS.filter((t) => {
-        // select 是选择工具, 不持有几何, 恒显示。
         if (t.id === "select") return true;
-        // 层 1: AI 工具受项目总开关控制 (undefined = 未加载, 不隐藏)。
         if (t.requiredPrompt && aiInteractiveEnabled === false) return false;
-        // 层 3: 老项目无 tool_bindings → enabledToolUnits 为 null → 全显示 (向后兼容)。
         if (!enabledToolUnits) return true;
         return enabledToolUnits.has(toolUnitForTool(t.id));
       });
 
-  // 分组分隔: 普通绘制 → AI 工具 → 视图工具
   const isAITool = (t: CanvasTool) => !!t.requiredPrompt;
   const groupOf = (t: CanvasTool): "select" | "draw" | "ai" | "view" =>
     t.id === "select" ? "select" : t.id === "hand" ? "view" : isAITool(t) ? "ai" : "draw";

@@ -1,6 +1,5 @@
 import { expect, type Page } from "@playwright/test";
 
-/** Select the exact annotation and use its selected-object card to edit the Mask. */
 export async function openSelectedMaskEditor(page: Page, annotationId: string): Promise<void> {
   const row = page.getByTestId(`box-list-item-${annotationId}`);
   await expect(row).toHaveCount(1);

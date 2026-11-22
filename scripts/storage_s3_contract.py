@@ -30,7 +30,6 @@ CATEGORIES = (
     "frozen_versions",
     "operations",
 )
-# Explicit original-matrix coverage remains visible even after a successful PoC.
 CASES = {
     "basic": ("basic_objects", "PUT/GET/HEAD, metadata and raw application keys"),
     "prefix_pagination": ("basic_objects", "Stable prefix pagination and deletion"),

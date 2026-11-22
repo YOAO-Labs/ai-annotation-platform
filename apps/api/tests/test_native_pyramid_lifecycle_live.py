@@ -613,7 +613,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         assert target_a.bucket == cache_bucket
         assert target_a.key_prefix == ""
         assert target_a.prefix == f"image-pyramids/objects/{allocation_a.output_id}/"
-        # Every saved member was read back under its exact recorded version.
         for relative, (receipt, head) in executor.receipts.items():
             params = {
                 "Bucket": cache_bucket,
@@ -638,10 +637,8 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             ).all()
         assert stored and all(row.state == "verified" for row in stored)
         for row in stored:
-            # Literal "null" is stored verbatim; an omitted version is SQL NULL.
             assert (row.version_id is None) or isinstance(row.version_id, str)
 
-        # Independent Images read through the real control process and permit.
         read = await _post(
             control_client,
             control_token,
@@ -699,7 +696,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             for row in permits
         )
 
-        # A settled read permit never reopens or accepts a different token.
         permit_operation, permit_token = uuid4(), uuid4()
         permit = await control_db.call(
             "begin_native_pyramid_read",
@@ -750,8 +746,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             )
         assert tombstone.value.code == "operation_conflict"
 
-        # Binding switch A -> B uses the reviewed owner operation; the control
-        # process and worker configuration are never restarted or rewritten.
         connection_id, location_id = await _create_connection(
             sessions,
             actor_id=actor_id,
@@ -817,15 +811,12 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         saved_keys.extend(
             (target_b.bucket, key) for key in _layout_keys(target_b.prefix)
         )
-        # No endpoint/bucket/secret reconfiguration: B comes from the reviewed
-        # binding and carries the registered connection coordinates.
         assert target_b.bucket == native_signer.connection_bucket
         assert target_b.key_prefix == (
             native_signer.connection_prefix + "/_aap_managed/media-cache/"
         )
         assert target_b.bucket != target_a.bucket
         assert allocation_b.output_id != allocation_a.output_id
-        # Old saved read still resolves A while the current binding is B.
         stale_read = await _post(
             control_client,
             control_token,
@@ -852,9 +843,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         )
         await _assert_generation_reference(control_client, new_read, claim_b, target_b)
 
-        # Unknown I/O never retires: its own admitted operation stays open, so
-        # retirement can never claim these members.  A drained not-written
-        # outcome is the only abandonment that may settle that barrier.
         third = await _prepare(
             control_client, control_token, actor_id, item_id, force=True
         )
@@ -931,7 +919,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 ),
                 {"output": allocation_c.output_id},
             )
-        # The same closure is idempotent and never deletes the unknown permit.
         await worker_db.call(
             "abandon_native_pyramid_member",
             c.PyramidMemberAbandon(operation_id=unknown_operation, state="unknown"),
@@ -946,7 +933,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 )
                 == 1
             )
-        # A drained no-write reservation is the bounded outcome that settles it.
         drained_operation = uuid4()
         await worker_db.call(
             "begin_native_pyramid_member",
@@ -988,7 +974,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 )
             ).all()
         assert retirements and retirements[0].closed_at is None
-        # Release C's job lease, not its unknown physical-operation barrier.
         failed_c = await worker_db.call(
             "fail_image_media",
             c.FailImageMediaRequest(
@@ -1039,7 +1024,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             message="saved A output did not become claimable after its reader closed",
         )
 
-        # Cleanup: real process, restricted SQL role, cleanup token only.
         foreign_uploads = []
         for index in range(120):
             upload = owner_s3.create_multipart_upload(
@@ -1175,8 +1159,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                     {"output": allocation_a.output_id},
                 )
 
-        # A refused prefix settles its I/O page, not its claim lease. Keep the
-        # production lease and wait for its recorded expiry before recovery.
         async with test_engine.connect() as owner:
             remaining_lease = await owner.scalar(
                 text(
@@ -1209,7 +1191,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 .all()
             )
         assert page_outcomes and page_outcomes[-1] == "prefix_absent"
-        # B (still the active generation) and every foreign upload remain.
         for key in _layout_keys(target_b.prefix):
             owner_s3.head_object(Bucket=target_b.bucket, Key=key)
         remaining_uploads = {
@@ -1221,8 +1202,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         }
         assert set(foreign_uploads) <= remaining_uploads
 
-        # Publishing another B output makes the previous B output retireable
-        # without changing or restarting either physical executor.
         accepted_d = await _prepare(
             control_client, control_token, actor_id, item_id, force=True
         )
@@ -1345,8 +1324,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             if original_failure is not None:
                 close_errors.insert(0, original_failure)
             raise BaseExceptionGroup("Native proof closure failed", close_errors)
-        # A failed proof leaves its database and objects for inspection. The
-        # outer verifier's retention policy owns disposal, not this test.
         if proof_succeeded:
             for bucket, key, upload_id in uploads:
                 owner_s3.abort_multipart_upload(
@@ -1355,9 +1332,6 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             for bucket, key in created_objects + saved_keys:
                 _delete_all_versions(owner_s3, bucket, key)
             async with sessions() as db:
-                # This injected unknown operation never issued physical I/O.
-                # Remove only that test permit after proving it blocked GC;
-                # its unknown member receipt is not rewritten as successful.
                 removed = await db.execute(
                     text(
                         "DELETE FROM public.storage_operations AS operation "

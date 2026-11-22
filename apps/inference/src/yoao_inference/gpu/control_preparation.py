@@ -268,8 +268,6 @@ async def prepare_gpu_backend_legacy_ack(
         ):
             raise GPUAuthorityUnavailable()
         if not preparation.proof_ready:
-            # Activating a member or advancing its control epoch/token horizon must
-            # never become durable while cached readiness still advertises this card.
             if readiness_demoter is None:
                 raise GPULegacyAckBlockedError("readiness_demotion_unavailable")
             await readiness_demoter(gpu_resource_id)
@@ -339,8 +337,6 @@ async def prepare_gpu_backend_rollout_control(
             preparation.action == "issue"
             and preparation.reason != "control_intent_replay"
         ):
-            # A fresh reset/mode intent advances the control epoch and token horizon;
-            # cached readiness must be revoked before that change becomes durable.
             if readiness_demoter is None:
                 raise GPURolloutControlBlockedError("readiness_demotion_unavailable")
             await readiness_demoter(gpu_resource_id)

@@ -392,8 +392,6 @@ async def test_db_oversized_task_json_is_rejected_before_hydration(
     project, _, _, _, _, task, _ = await setup(db)
     await db.execute(update(Task).where(Task.id == task.id).values(tags=["x" * 4096]))
     await db.commit()
-    # Exercise the shared MVCC guard using a small test limit, without creating
-    # hundreds of MiB of data in the disposable test database.
     monkeypatch.setattr(inputs.lidar_inputs, "MAX_JSON_BYTES", 2048)
     with pytest.raises(ContentError, match="input_budget_exceeded"):
         await inputs.collect(db, project.id, None, ["coco"], {})

@@ -241,7 +241,7 @@ last_reviewed: 2026-10-26
      `deps.get_batch_prediction_dispatcher` → `workers/batch_prediction_dispatch.py`；
      原 `workers.tasks.batch_predict` 参数/任务名保留，批量及分阶段状态机在
      `application/preannotation_execution.py`。帧元数据在同 Session 读取，ID/帧数事实
-     经注入端口交给 `workers/frame_preannotate.py` 规划与派发 chord。
+     经注入端口交给 `workers/frame_preannotate.py` 规划并派发预测段，按冻结段 ID 持久结算。
    - 质量：`app/services/quality_job_dispatch.py::QualityJobDispatcher` →
      `app/deps.py::get_quality_job_dispatcher` 装配
      `app/workers/quality_dispatch.py::CeleryQualityJobDispatcher`；

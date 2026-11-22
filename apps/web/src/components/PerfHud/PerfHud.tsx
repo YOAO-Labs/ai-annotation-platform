@@ -11,14 +11,6 @@ import { useBrowserStats } from "./useBrowserStats";
 import { usePerfHudStore } from "./usePerfHudStore";
 import styles from "./PerfHud.module.css";
 
-/**
- * PerfHud GPU MVP 浮窗.
- *
- * 触发: Ctrl+Shift+P (workbench) / TopBar gear → "性能监控" / programmatic open.
- * 权限 gating: super_admin / project_admin only (其他角色 store 即便 open 也不渲染).
- * 数据源: /ws/ml-backend-stats, 1s 粒度. 关闭即断, 后端 Celery beat skip.
- */
-
 function colorFor(pct: number | null | undefined): string {
   if (pct == null) return "var(--sc-muted-foreground)";
   if (pct >= 90) return "var(--sc-destructive)";
@@ -69,8 +61,6 @@ function formatIdleAge(seconds: number | null | undefined): string | null {
 }
 
 function getLoadLabel(snap: BackendSnapshot): string | null {
-  // 优先读 PoolStatus.current_size / loaded_keys; fallback 到老 loaded_variants
-  // 与 gsam2 注入的 gpu_info.*_pool_loaded_variants.
   const imageLoaded =
     snap.pool?.current_size ??
     snap.pool?.loaded_keys?.length ??
@@ -148,7 +138,6 @@ function BackendPanel({
       <div className={styles.backendMeta}>
         {bindings.length > 0 ? <span>{bindings.map(formatBinding).join(" · ")}</span> : null}
         {snap.gpu_info?.device_name ? <span>{snap.gpu_info.device_name}</span> : null}
-        {/* GPU 静默退回 CPU 指示；torch / ORT 共用同一判定。 */}
         {isCpuFallback(snap.compute) && (
           <span className="text-status-caution" title="GPU 配置但已退回 CPU">
             · ⚠ CPU
@@ -290,7 +279,6 @@ export function PerfHud() {
             {status === "idle" ? "未连接" : null}
           </div>
         )}
-        {/* 浏览器侧指标; 与后端连接无关, 始终展示 */}
         <BrowserPanel enabled={visible} />
       </div>
     </ShellPopover>

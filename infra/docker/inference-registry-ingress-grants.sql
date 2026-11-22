@@ -1,9 +1,3 @@
--- Grant the Registry ingress LOGIN only its eleven fixed capabilities.
--- Apply module-data-grants.sql first in the same explicitly named database.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v inference_owner=inference_code
---   -v inference_registry_ingress_role=yoao_inference_registry_ingress_client
---   -f infra/docker/inference-registry-ingress-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

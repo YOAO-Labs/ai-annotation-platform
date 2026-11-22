@@ -330,7 +330,6 @@ async def test_unbound_image_delivery_and_changed_source_never_start_io(
     harness = ImageHarness(db, monkeypatch)
     job_id, receipt, args = await request(db, project)
 
-    # A late delivery with another Job's bundle cannot acquire this scope.
     other_job, other_receipt, _ = await request(db, project)
     owner_id = project.owner_id
     job = await db.get(AsyncJob, job_id)
@@ -354,7 +353,6 @@ async def test_unbound_image_delivery_and_changed_source_never_start_io(
         await worker.run_owned(db, **{**args, "async_job_id": str(legacy.id)})
     assert harness.prepares == 0
 
-    # The Dataset identity is part of the checked source, not just a Job field.
     from app.db.models.dataset import Dataset
 
     replacement = Dataset(

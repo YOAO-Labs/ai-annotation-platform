@@ -20,7 +20,6 @@ import {
 import { useDataManagerObjectDetail, useDataManagerTrackDetail } from "@/hooks/useTaskViews";
 import { buildWorkbenchUrl } from "@/utils/workbenchNavigation";
 
-// Lazy: opening the Data list must not initialize a workbench canvas stack.
 const DataManagerAnnotationPreview = lazy(() =>
   import("./DataManagerAnnotationPreview").then((m) => ({ default: m.default })),
 );

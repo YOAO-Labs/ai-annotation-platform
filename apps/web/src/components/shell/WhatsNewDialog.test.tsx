@@ -1,10 +1,3 @@
-/**
- * WhatsNewDialog 单测:
- * - 登录瞬间自动弹出(刷新恢复会话不弹) / 「知道了」写入已读版本 / 关闭=下次登录再提醒
- * - 顶栏版本号手动打开:与已读状态无关,随时可看
- * - 单调写回:已确认更高版本的旧前端不回退跨设备标记
- * - 响应竞态:只并入已读版本,账号切换后不写回
- */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -75,7 +68,7 @@ describe("WhatsNewDialog", () => {
   });
 
   it("登录瞬间(user 从无到有)→ 自动弹出并展示要点;「知道了」写入已读版本", async () => {
-    render(<WhatsNewDialog />); // 挂载时未登录(登录页场景)
+    render(<WhatsNewDialog />);
     act(() => signIn({ ui: { changelog_seen_version: "" } }));
 
     expect(await screen.findByText("v2.0.0")).toBeTruthy();
@@ -97,7 +90,6 @@ describe("WhatsNewDialog", () => {
     render(<WhatsNewDialog />);
     expect(screen.queryByText("v2.0.0")).toBeNull();
 
-    // 登出 → 再登录:仍未确认当前版本,重新弹出。
     act(() => useAuthStore.getState().logout());
     act(() => signIn({ ui: { changelog_seen_version: "" } }));
     expect(await screen.findByText(/v2.0.0/)).toBeTruthy();
@@ -119,7 +111,6 @@ describe("WhatsNewDialog", () => {
     await waitFor(() => expect(screen.queryByText("v2.0.0")).toBeNull());
     expect(mockUpdatePreferences).not.toHaveBeenCalled();
 
-    // 同一登录态内 user 对象被重取替换(如主题同步 setUser)→ 不再自动弹。
     act(() =>
       useAuthStore.getState().setUser({
         id: "u1",
@@ -138,7 +129,6 @@ describe("WhatsNewDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     await waitFor(() => expect(screen.queryByText("v2.0.0")).toBeNull());
 
-    // 会话结束再登录:不能因缓存的「用户+版本」键而吞掉提醒。
     act(() => useAuthStore.getState().logout());
     act(() => signIn({ ui: { changelog_seen_version: "" } }));
     expect(await screen.findByText(/v2.0.0/)).toBeTruthy();
@@ -158,8 +148,6 @@ describe("WhatsNewDialog", () => {
   });
 
   it("StrictMode 双调用 effect(回归:登录路径弹窗不被吞)→ 弹窗正常打开", async () => {
-    // app 全局开 React.StrictMode,dev 下 mount effect 走 setup-cleanup-setup;
-    // 曾因 shownRef 提前登记 + cleanup 使加载失效导致弹窗永不打开。
     render(
       <React.StrictMode>
         <WhatsNewDialog />
@@ -189,7 +177,6 @@ describe("WhatsNewDialog", () => {
     render(<WhatsNewDialog />);
     act(() => signIn({ ui: { changelog_seen_version: "" } }));
     await screen.findByText(/v2.0.0/);
-    // 先关掉登录自动弹窗,再手动打开,隔离手动入口。
     fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     await waitFor(() => expect(screen.queryByText(/v2.0.0/)).toBeNull());
 
@@ -242,7 +229,6 @@ describe("WhatsNewDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: "知道了" }));
     await waitFor(() => expect(mockUpdatePreferences).toHaveBeenCalled());
 
-    // PATCH 在途时用户改了主题(乐观更新,useTheme 不回读响应)。
     const inFlightUser = useAuthStore.getState().user as MeResponse;
     act(() =>
       useAuthStore.getState().setUser({

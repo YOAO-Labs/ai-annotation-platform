@@ -82,7 +82,6 @@ _DETAILS: dict[str, tuple[int, str | None]] = {
 
 class DeletionPayload(ClosedModel):
     target_user_id: uuid.UUID
-    # Required even when null; the public adapter normalizes a missing body/field.
     transfer_to_user_id: uuid.UUID | None
 
 

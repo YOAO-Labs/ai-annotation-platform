@@ -101,8 +101,6 @@ async def test_preview_is_read_only_offline_and_apply_records_reviewed_changes(
         .order_by(AuditLog.id.desc())
     )
     assert audit.detail_json["changes"] == review["changes"]
-    # The audit keeps the full reviewed snapshot; the preview response exposes
-    # only its bounded public projection.
     assert review["impact"]["counts"].items() <= audit.detail_json["counts"].items()
     assert audit.detail_json["counts"]["sources"] == 1
     assert audit.detail_json["previous_revision"] == 1
@@ -334,7 +332,6 @@ async def test_new_recorded_dependencies_invalidate_confirmation(
         db.add(entry)
         await db.flush()
         if relation == "lease":
-            # Re-review the entry so only its read lease is new.
             await db.commit()
             review = await preview(httpx_client, where, super_admin)
             db.add(

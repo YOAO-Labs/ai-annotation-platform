@@ -24,8 +24,6 @@ const STATUS_COLOR: Record<string, "accent" | "warning" | "danger" | "outline"> 
   rejected: "danger",
 };
 
-/** 标注工作台左侧栏：项目→批次的两级树（与 ReviewSidebar 对位）。
- *  仅展示我手里的批次（active / annotating / rejected / reviewing）。 */
 export function AnnotateSidebar({ batches, selectedBatchId, onSelect }: Props) {
   const groups = useMemo<Group[]>(() => {
     const m = new Map<string, Group>();

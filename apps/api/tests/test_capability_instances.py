@@ -208,7 +208,6 @@ async def test_instances_uses_snapshot_without_live_probe(
     insts = r.json()["instances"]
     assert len(insts) == 1
     assert insts[0]["source"] == "manual"
-    # 快照已含 models → 不应做 live 探测。
     probe.assert_not_called()
 
 
@@ -223,7 +222,6 @@ async def test_instances_live_probe_when_snapshot_missing(
     """
     from app.services import capability_instances as svc
 
-    # mock live 探测返回协议 v2 多 model setup
     fake_live_setup = {
         "name": "gsam2",
         "infra": "pytorch",
@@ -248,7 +246,6 @@ async def test_instances_live_probe_when_snapshot_missing(
     probe = AsyncMock(return_value=fake_live_setup)
     monkeypatch.setattr(svc, "_probe_setup", probe)
 
-    # 注册 backend 但 health_meta 是协议 v1 时代的快照 (无 capabilities)
     db_session.add(
         MLBackendRegistry(
             id=uuid.uuid4(),
@@ -259,7 +256,7 @@ async def test_instances_live_probe_when_snapshot_missing(
             auth_method="none",
             extra_params={},
             source="manual",
-            health_meta={"gpu_info": {"memory_used_mb": 100}},  # 没 capabilities
+            health_meta={"gpu_info": {"memory_used_mb": 100}},
         )
     )
     await db_session.flush()
@@ -323,9 +320,6 @@ async def test_instances_no_sensitive_fields_leaked(
     assert "12345" not in body
 
 
-# ---------- warmup_endpoint 在 instances 中暴露 ----------
-
-
 @pytest.mark.asyncio
 async def test_instances_warmup_endpoint_true(httpx_client, auth_headers, db_session):
     """backend 自报 warmup_endpoint=true 时, instances 响应应带 true."""
@@ -379,7 +373,6 @@ async def test_instances_warmup_endpoint_false_when_missing(
             health_meta={
                 "capabilities": {
                     "infra": "pytorch",
-                    # 没有 warmup_endpoint 字段
                     "models": [
                         {
                             "id": "detect",
@@ -398,9 +391,6 @@ async def test_instances_warmup_endpoint_false_when_missing(
     )
     data = r.json()
     assert data["instances"][0]["warmup_endpoint"] is False
-
-
-# ---------- supported_inputs + resource_profile 透传 ----------
 
 
 @pytest.mark.asyncio
@@ -482,9 +472,6 @@ async def test_instances_passthrough_supported_inputs_and_resource_profile(
     assert legacy["resource_profile"] == {}
 
 
-# ---------- 健壮性: 单个 backend 自报不合规应跳过而非整体 500 ----------
-
-
 @pytest.mark.asyncio
 async def test_instances_skips_malformed_backend_without_500(
     httpx_client, auth_headers, db_session
@@ -514,7 +501,6 @@ async def test_instances_skips_malformed_backend_without_500(
                                 "id": "ocr-rec",
                                 "task": "ocr",
                                 "supported_geometric_outputs": ["polygon"],
-                                # variant 选项缺必填 value (错写成 {key,title})
                                 "supported_variants": [
                                     {
                                         "key": "size",
@@ -559,11 +545,7 @@ async def test_instances_skips_malformed_backend_without_500(
     )
     assert r.status_code == 200
     names = {inst["name"] for inst in r.json()["instances"]}
-    # 合规的 backend 仍在; 不合规的被跳过。
     assert names == {"good"}
-
-
-# ---------- classes 透传 (供前端「从 backend 预填配置」导入类别) ----------
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,3 @@
-/**
- * useTheme 服务端偏好持久化单测:
- * 登出态只写 localStorage;登录态 PATCH 服务端 + 乐观写 authStore;服务端主题采纳为真值源。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
@@ -66,7 +62,7 @@ describe("useTheme", () => {
 
   it("登录后服务端主题到达 → 采纳(post-mount hydration)", () => {
     const { result } = renderHook(() => useTheme());
-    expect(result.current.theme).toBe("system"); // 初始本地默认
+    expect(result.current.theme).toBe("system");
     act(() => useAuthStore.setState({ token: "t", user: fakeUser("dark") }));
     expect(result.current.theme).toBe("dark");
   });

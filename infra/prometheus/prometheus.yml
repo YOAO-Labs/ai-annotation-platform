@@ -1,17 +1,9 @@
-# Prometheus scrape 配置（dev / staging）。
-# Production 部署用各自的 prometheus 实例，把这份文件作为参考即可。
-#
-# 启动：`docker compose --profile monitoring up -d prometheus grafana`
-
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
   external_labels:
     env: development
 
-# 告警：规则在 alerts.yml，firing 后推给 alertmanager（monitoring profile）。
-# alertmanager target 用 service DNS（生产/同网正确）；dev 本环境若 service DNS 不解析，
-# 改成 host.docker.internal:9093（prometheus 已配 extra_hosts host-gateway）。
 alerting:
   alertmanagers:
     - static_configs:
@@ -20,7 +12,6 @@ rule_files:
   - "/etc/prometheus/alerts.yml"
 
 scrape_configs:
-  # FastAPI 应用 metrics（apps/api 在 host 上跑）
   - job_name: anno-api
     metrics_path: /metrics
     static_configs:
@@ -29,26 +20,11 @@ scrape_configs:
         labels:
           service: anno-api
 
-  # ML backend 自动发现：从 anno-api 的 /internal/metrics-targets 拉
-  # target 列表，真相源是 ml_backends 表 —— 新 backend 在超管注册即被抓取，无需改本文件。
-  # backend 的 /metrics（grounded-sam2 8001 / sam3 8002）暴露 GPU/推理/cache 指标，免鉴权。
-  # service / backend_id label 由端点注入，Grafana 按 service 区分多个 backend。
   - job_name: ml-backends
     http_sd_configs:
       - url: http://host.docker.internal:8000/api/v1/internal/metrics-targets
         refresh_interval: 30s
-    # dev 前提：http_sd 要求 prometheus 能访问 host 上的 anno-api。若 dev 的 uvicorn 绑
-    # 127.0.0.1，prometheus 容器（经 host-gateway 172.17.0.1）访问不到，需把 api 绑
-    # 0.0.0.0（见部署 §4.2）。仍不通 / backend 在独立 GPU 机时，注释掉上面的
-    # http_sd_configs，改用手填 static（target 用 prometheus 视角可达地址；本机 docker 用
-    # bridge gateway 172.17.0.1:<host 映射端口>，注意 dev 下 backend 的 service DNS 未必解析）：
-    # static_configs:
-    #   - targets: ["172.17.0.1:8001"]
-    #     labels: { service: grounded-sam2 }
-    #   - targets: ["172.17.0.1:8002"]
-    #     labels: { service: sam3 }
 
-  # 自身（Prometheus 也暴露 /metrics）
   - job_name: prometheus
     static_configs:
       - targets:

@@ -8,6 +8,7 @@ membership by calling the filtering implementation under test.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,6 +20,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from yoao_labeling.e2e_fixture_contract import TaskBatchFixturePatch, TaskFixturePatch
 
+from app.db.models.dataset import DatasetItem
 from app.services.workspace_e2e_fixtures import (
     create_fixture_project as _create_project,
     create_fixture_templates,
@@ -27,11 +29,11 @@ from app.services.seed_membership_data import SeedMembershipWrites
 from app.services.labeling_e2e_fixture_writes import LabelingE2EFixtureWrites
 from app.services.workspace_seed_data import register_seed_project_projection
 
+_StageVideoOutputs = Callable[
+    [DatasetItem, str, list[dict[str, Any]] | None], Awaitable[list[UUID]]
+]
 
-# Owned-namespace display ids for every fixed identifier below. Bases keep the
-# legacy literal so `build_filtering_seed` stays readable; owned values are
-# sized to the column limits (projects/datasets/scenes/templates/bugs ≤ 20,
-# batches/tasks ≤ 30) and stay exact-matchable for owned cleanup.
+
 _FILTER_OWNED_IDS: dict[str, str] = {
     "P-E2E-FILTER-IMAGE": "P-FI-I-{ns}",
     "P-E2E-FILTER-VIDEO": "P-FI-V-{ns}",
@@ -65,7 +67,6 @@ _FILTER_OWNED_IDS: dict[str, str] = {
     "BUG-E2E-FILTER-B": "BUGFI-B-{ns}",
 }
 
-# Parametric task ids: `{0}` is the numeric suffix, `{ns}` the namespace.
 _FILTER_OWNED_PARAMETRIC: dict[str, str] = {
     "T-E2E-FILTER-V-{0}": "T-FI-V-{0}-{ns}",
     "T-E2E-FILTER-L-{0}": "T-FI-L-{0}-{ns}",
@@ -101,8 +102,6 @@ class _FilterIds:
         return f"{base} {self.namespace}"
 
     def display_name(self, base: str) -> str:
-        # Token-prefixed, so a namespace-unique search key (`[ns] Prefix`)
-        # stays a substring of every derived display name.
         return f"[{self.namespace}] {base}"
 
 
@@ -163,8 +162,6 @@ class FilteringOperationsManifest(BaseModel):
     job_ids: list[str]
     bug_ids: list[str]
     audit_ids: list[str]
-    # Namespace-unique display values, so global list endpoints can be
-    # searched without cross-fixture contamination between namespaces.
     display_names: dict[str, str]
     invitation_emails: dict[str, str]
     search_keys: dict[str, str]
@@ -372,7 +369,6 @@ async def _create_item(
     metadata: dict[str, Any] | None = None,
     original_payload: bytes,
 ):
-    from app.db.models.dataset import DatasetItem
     from app.services import fixture_run_ownership as ownership
 
     item_id = uuid.uuid4()
@@ -851,24 +847,16 @@ async def _create_seed_prediction(
     )
 
 
-async def _materialize_filtering_video(db: AsyncSession, item_ids: list[UUID]) -> None:
-    """Complete real derivative owners for filtering videos inside the API process.
-
-    The E2E deployment runs the API without a celery worker. Lazily requested
-    manifests would therefore stay in ``video_metadata_preparing`` forever. Each
-    output is built by the same worker entry point a broker delivery would use,
-    and the fixture fails loudly when an output did not become ready.
-    """
+async def _materialize_filtering_video(
+    db: AsyncSession, item: DatasetItem, stage_video_outputs: _StageVideoOutputs
+) -> None:
     from fastapi import HTTPException
 
     from app.config import settings
-    from app.db.models.dataset import DatasetItem
     from app.db.models.video_derivative import VideoDerivativeOutput
-    from app.services import video_derivative_originals as originals
     from app.services import video_derivatives as derivatives
-    from app.workers import media_derivatives as worker
 
-    async def require_ready(identifier: UUID) -> None:
+    async def require_ready(identifier: UUID) -> VideoDerivativeOutput:
         output = await db.get(VideoDerivativeOutput, identifier, populate_existing=True)
         if output is None or output.state != "ready":
             code = output.error_code if output is not None else "missing"
@@ -876,39 +864,18 @@ async def _materialize_filtering_video(db: AsyncSession, item_ids: list[UUID]) -
                 500,
                 detail=f"filtering video derivative {identifier} not ready: {code}",
             )
+        return output
 
-    await db.commit()
-    for item_id in item_ids:
-        source = await originals.pin(db, "dataset_item", item_id)
-        authority = await originals.delegated(
-            db, originals.system_authorization("dataset_item", item_id, source)
-        )
-        metadata, _ = await derivatives.prepare(db, item_id, authority, "metadata")
-        metadata_id = metadata.id
-        await db.commit()
-        await worker.run_outputs([str(metadata_id)], propagate_failure=True)
-        await require_ready(metadata_id)
-        item = await db.get(DatasetItem, item_id, populate_existing=True)
-        source = await originals.pin(db, "dataset_item", item_id)
-        metadata = await derivatives.metadata(db, item, source)
-        info, _ = derivatives.metadata_result(metadata)
-        size = max(1, settings.video_chunk_size_frames)
-        specs = [
-            derivatives.chunk_spec(metadata, chunk_id)
-            for chunk_id in range((info.frame_count + size - 1) // size)
-        ]
-        chunk_ids: list[UUID] = []
-        for spec in specs:
-            output, _ = await derivatives.prepare(
-                db, item_id, authority, "chunk", spec=spec
-            )
-            chunk_ids.append(output.id)
-            await db.commit()
-        await worker.run_outputs(
-            [str(identifier) for identifier in chunk_ids], propagate_failure=True
-        )
-        for identifier in chunk_ids:
-            await require_ready(identifier)
+    [metadata_id] = await stage_video_outputs(item, "metadata", None)
+    metadata = await require_ready(metadata_id)
+    info, _ = derivatives.metadata_result(metadata)
+    size = max(1, settings.video_chunk_size_frames)
+    specs = [
+        derivatives.chunk_spec(metadata, chunk_id)
+        for chunk_id in range((info.frame_count + size - 1) // size)
+    ]
+    for identifier in await stage_video_outputs(item, "chunk", specs):
+        await require_ready(identifier)
 
 
 async def _seed_video_review(
@@ -917,7 +884,7 @@ async def _seed_video_review(
     users: dict[str, Any],
     video_payload: bytes,
     *,
-    video_ready: bool = False,
+    stage_video_outputs: _StageVideoOutputs | None,
 ) -> FilteringVideoManifest:
     from app.db.models.annotation import Annotation
     from app.db.models.video_tracker_job import VideoTrackerJob, VideoTrackerJobStatus
@@ -969,7 +936,6 @@ async def _seed_video_review(
     )
     names = ["detection_only", "tracker_only", "both", "neither"]
     tasks: dict[str, Any] = {}
-    video_item_ids: list[UUID] = []
     for index, name in enumerate(names):
         item = await _create_item(
             db,
@@ -982,15 +948,22 @@ async def _seed_video_review(
             height=720,
             original_payload=video_payload,
             metadata={
+                **(
+                    {"_e2e_video_fixture": "filtering"}
+                    if stage_video_outputs is not None
+                    else {}
+                ),
                 "video": {
                     "duration_ms": 9600,
                     "fps": 25,
                     "frame_count": 240,
                     "width": 1280,
                     "height": 720,
-                }
+                },
             },
         )
+        if stage_video_outputs is not None:
+            await _materialize_filtering_video(db, item, stage_video_outputs)
         tasks[name] = await _create_task(
             db,
             ids=ids,
@@ -1003,13 +976,8 @@ async def _seed_video_review(
             file_type="video",
             sequence_order=index,
         )
-        video_item_ids.append(item.id)
     fixture_writes = LabelingE2EFixtureWrites(db)
     await fixture_writes.patch_batch(batch, total_tasks=len(tasks))
-    if video_ready:
-        await _materialize_filtering_video(db, video_item_ids)
-    # ponytail: metric-only candidate payloads omit render geometry; Workbench coverage
-    # imports valid framed shapes through the product API when geometry is required.
     predictions: dict[str, Any] = {}
     predictions["low"] = await _create_seed_prediction(
         db,
@@ -1073,8 +1041,6 @@ async def _seed_video_review(
             to_frame=1,
             prompt={"fixture": "filtering"},
             staged_result={
-                # Source-less discovery: there are no source annotation IDs.
-                # This fixture supports preview, not tracker result acceptance.
                 "source_instance_map": {},
                 "results": [
                     {
@@ -1829,7 +1795,7 @@ async def build_filtering_seed(
     *,
     run_id: UUID,
     admission_id: UUID,
-    video_ready: bool = False,
+    stage_video_outputs: _StageVideoOutputs | None = None,
 ) -> FilteringSeedManifest:
     """Build all filtering scenarios for one owned namespace."""
     ids = _FilterIds(namespace, run_id, admission_id)
@@ -1844,7 +1810,7 @@ async def build_filtering_seed(
     video_payload = video_source.read_bytes()
     image = await _seed_image_semantics(db, ids, users, image_svg)
     video = await _seed_video_review(
-        db, ids, users, video_payload, video_ready=video_ready
+        db, ids, users, video_payload, stage_video_outputs=stage_video_outputs
     )
     paging = await _seed_paging(db, ids, users, image_svg)
     lidar = await _seed_lidar(db, ids, users)

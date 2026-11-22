@@ -1,6 +1,8 @@
 from typing import Annotated
+from contextlib import asynccontextmanager, suppress
 import uuid
 from datetime import datetime, timezone
+from tempfile import SpooledTemporaryFile
 from typing import Literal
 from yoao_assets_media.contract import (
     MediaFailure,
@@ -17,9 +19,8 @@ from fastapi import (
     Request,
     Response,
 )
-from starlette.formparsers import MultiPartException, MultiPartParser
-from starlette.datastructures import FormData, UploadFile as StarletteUploadFile
-from starlette.requests import parse_options_header
+from python_multipart import MultipartParser
+from python_multipart.multipart import parse_options_header
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -90,6 +91,7 @@ from app.application.dataset_deletion import (
 from app.services.assets_source import (
     AssetsSourceGateway,
     encode_ingest_public_result,
+    run_zip_file_io,
 )
 from app.services.assets_media import media_gateway, media_http_error
 from app.services.assets_import import DatasetImportCapabilities
@@ -118,8 +120,6 @@ async def directory_dataset_write_access(
         dataset_id = uuid.UUID(str(request.path_params["dataset_id"]))
     except ValueError:
         raise HTTPException(422, "Invalid dataset ID") from None
-    # A committed whole-Dataset deletion may have removed the row. Only an
-    # explicitly keyed replay can proceed to the owner's exact receipt check.
     allow_missing = (
         request.scope.get("endpoint") is delete_dataset
         and request.headers.get("Idempotency-Key") is not None
@@ -149,12 +149,8 @@ router = APIRouter(dependencies=[Depends(directory_dataset_write_access)])
 
 _MANAGERS = (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 
-# Allow room for multipart boundaries, per-part headers, and the closing delimiter.
 _ZIP_MULTIPART_OVERHEAD_BYTES = 64 * 1024
-
-
-class _ZipMultipartBodyTooLarge(MultiPartException):
-    pass
+_ZIP_SPOOL_MEMORY_BYTES = 1024 * 1024
 
 
 def _zip_too_large_error() -> HTTPException:
@@ -168,10 +164,11 @@ def _zip_too_large_error() -> HTTPException:
     )
 
 
-async def _parse_bounded_zip_form(request: Request):
-    content_type, _ = parse_options_header(request.headers.get("content-type"))
+@asynccontextmanager
+async def _bounded_zip_file(request: Request):
+    content_type, options = parse_options_header(request.headers.get("content-type"))
     if content_type != b"multipart/form-data":
-        return FormData()
+        raise HTTPException(422, detail="Field required: file")
 
     max_body_bytes = ZIP_MAX_BYTES + _ZIP_MULTIPART_OVERHEAD_BYTES
     content_length = request.headers.get("content-length")
@@ -183,36 +180,108 @@ async def _parse_bounded_zip_form(request: Request):
         ):
             raise _zip_too_large_error()
 
-    async def bounded_stream():
+    try:
+        boundary = options[b"boundary"]
+    except KeyError:
+        raise HTTPException(400, detail="Missing boundary in multipart.") from None
+    charset = options.get(b"charset", b"utf-8").decode("latin-1")
+    spool: SpooledTemporaryFile[bytes] | None = None
+    field_name = ""
+    part_complete = False
+    envelope_complete = False
+    header_field = bytearray()
+    header_value = bytearray()
+    content_disposition = b""
+
+    def on_part_begin():
+        nonlocal content_disposition
+        content_disposition = b""
+
+    def on_header_field(data, start, end):
+        header_field.extend(memoryview(data)[start:end])
+
+    def on_header_value(data, start, end):
+        header_value.extend(memoryview(data)[start:end])
+
+    def on_header_end():
+        nonlocal content_disposition
+        if header_field.lower() == b"content-disposition":
+            content_disposition = bytes(header_value)
+        header_field.clear()
+        header_value.clear()
+
+    def on_headers_finished():
+        nonlocal field_name, spool
+        _, parameters = parse_options_header(content_disposition)
+        name = parameters.get(b"name")
+        if name is None:
+            raise HTTPException(
+                400,
+                detail='The Content-Disposition header field "name" must be provided.',
+            )
+        if b"filename" not in parameters:
+            raise HTTPException(
+                400, detail="Too many fields. Maximum number of fields is 0."
+            )
+        if spool is not None:
+            raise HTTPException(
+                400, detail="Too many files. Maximum number of files is 1."
+            )
+        try:
+            field_name = name.decode(charset)
+        except (UnicodeDecodeError, LookupError):
+            field_name = name.decode("latin-1")
+        spool = SpooledTemporaryFile(max_size=_ZIP_SPOOL_MEMORY_BYTES)
+
+    def on_part_data(data, start, end):
+        assert spool is not None
+        spool.write(memoryview(data)[start:end])
+
+    def on_part_end():
+        nonlocal part_complete
+        part_complete = True
+
+    def on_end():
+        nonlocal envelope_complete
+        envelope_complete = True
+
+    parser = MultipartParser(
+        boundary,
+        {
+            "on_part_begin": on_part_begin,
+            "on_header_field": on_header_field,
+            "on_header_value": on_header_value,
+            "on_header_end": on_header_end,
+            "on_headers_finished": on_headers_finished,
+            "on_part_data": on_part_data,
+            "on_part_end": on_part_end,
+            "on_end": on_end,
+        },
+    )
+    try:
         body_bytes = 0
         async for chunk in request.stream():
             body_bytes += len(chunk)
             if body_bytes > max_body_bytes:
-                raise _ZipMultipartBodyTooLarge("ZIP multipart request is too large")
-            yield chunk
-
-    parser = MultiPartParser(
-        request.headers,
-        bounded_stream(),
-        max_files=1,
-        max_fields=0,
-    )
-    try:
-        try:
-            return await parser.parse()
-        except BaseException:
-            # Starlette closes these files for MultiPartException only; disconnects
-            # and task cancellation can otherwise leave the partially parsed ZIP open.
-            for file in parser._files_to_close_on_error:
-                try:
-                    file.close()
-                except BaseException:
-                    pass
-            raise
-    except _ZipMultipartBodyTooLarge as exc:
-        raise _zip_too_large_error() from exc
-    except MultiPartException as exc:
-        raise HTTPException(400, detail=exc.message) from exc
+                raise _zip_too_large_error()
+            if chunk:
+                await run_zip_file_io(parser.write, chunk)
+        parser.finalize()
+        if spool is None or not part_complete or field_name != "file":
+            raise HTTPException(422, detail="Field required: file")
+        if spool.tell() > ZIP_MAX_BYTES:
+            raise _zip_too_large_error()
+        if not envelope_complete:
+            raise HTTPException(400, detail="Incomplete multipart.")
+        spool.seek(0)
+        yield spool
+    except BaseException:
+        if spool is not None:
+            with suppress(BaseException):
+                spool.close()
+        raise
+    else:
+        spool.close()
 
 
 def _deletion_audit_context(request: Request) -> ProjectDeletionAuditContext:
@@ -351,8 +420,6 @@ async def update_dataset(
 ):
     await recheck_directory_write(request, db, dataset_id)
     svc = DatasetService(db)
-    # 用 model_fields_set 区分「字段未传」与「显式传 None」(后者清除
-    # metadata_["axis_convention"])。未传时不进 kwargs，让 service 走 _UNSET。
     update_kwargs: dict = {}
     if "axis_convention" in data.model_fields_set:
         update_kwargs["axis_convention"] = data.axis_convention
@@ -365,9 +432,6 @@ async def update_dataset(
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
     await db.commit()
-    # 在 commit 后 ds 各属性进入 expired 状态; get_with_project_count
-    # 复用 identity map 中的同一对象, 直接访问 .updated_at 会触发 sync lazy reload
-    # 在 async session 下抛 MissingGreenlet。显式 refresh 重读, 复刻 POST 的做法。
     await db.refresh(ds)
     result = await svc.get_with_project_count(dataset_id)
     return result
@@ -453,9 +517,6 @@ async def delete_dataset(
     if not gateway.is_remote:
         await db.commit()
     response.headers["Idempotency-Key"] = str(receipt.operation_id)
-
-
-# ── Items ───────────────────────────────────────────────────────────────────
 
 
 @router.get(
@@ -661,9 +722,6 @@ async def import_from_connection(
         for pattern in (payload.include_globs or [])
         if pattern and pattern.strip()
     ]
-    # Capture both import budgets in the same committed request snapshot.  The
-    # worker must never re-read global settings while enumerating files: queued
-    # jobs retain the limits accepted here even after an admin changes them.
     import_limits = await SystemSettingsService.get_import_limits_snapshot(
         db, registration_default=registration_default
     )
@@ -834,8 +892,6 @@ async def _ingest_authority(request, db, actor_id):
         or (admitted.credential_type == "jwt" and key_id is not None)
     ):
         raise HTTPException(403, detail={"code": "access_revoked"})
-    # Router admission has performed only reads and may hold a credential fence.
-    # Release it before the shared helper's independently authenticated proof.
     await db.commit()
     try:
         proof = await capture_request_key_proof(db, actor_id=actor_id, request=request)
@@ -910,16 +966,8 @@ async def upload_zip(
     )
     try:
         gateway = AssetsSourceGateway(db)
-        form = await _parse_bounded_zip_form(request)
-        try:
-            file = form.get("file")
-            if not isinstance(file, StarletteUploadFile):
-                raise HTTPException(422, detail="Field required: file")
-            if file.size is not None and file.size > ZIP_MAX_BYTES:
-                raise _zip_too_large_error()
-            receipt = await gateway.ingest_zip(command, file.file)
-        finally:
-            await form.close()
+        async with _bounded_zip_file(request) as file:
+            receipt = await gateway.ingest_zip(command, file)
     except Exception:
         await db.rollback()
         raise
@@ -1032,14 +1080,14 @@ async def _schedule_media_backfill(
         await lock_idempotency_key(
             db,
             action="media_backfill",
-            project_id=None,  # dataset-scoped action; the owner accepts NULL
+            project_id=None,
             actor_id=actor.id,
             key=key,
         )
         existing = await find_idempotent_job(
             db,
             kind=AsyncJobKind.MEDIA_BACKFILL.value,
-            project_id=None,  # dataset-scoped action; the owner accepts NULL
+            project_id=None,
             actor_id=actor.id,
             key=key,
         )
@@ -1101,8 +1149,6 @@ async def _schedule_media_backfill(
         options={"queue": queue},
     )
     await recheck_directory_write(request, db, dataset_id)
-    # The worker must see the durable row before Celery can start. A concurrent
-    # retry with the same Idempotency-Key reuses the same job and envelope.
     await db.commit()
     await publish_prepared_dispatch(
         db,
@@ -1313,9 +1359,6 @@ async def delete_item(
     response.headers["Idempotency-Key"] = str(receipt.operation_id)
 
 
-# ── Project linking ─────────────────────────────────────────────────────────
-
-
 @router.post(
     "/{dataset_id}/link",
     dependencies=[Depends(require_scopes("datasets:write"))],
@@ -1331,9 +1374,6 @@ async def link_project(
     ds = await svc.get(dataset_id)
     if not ds:
         raise HTTPException(status_code=404, detail="Dataset not found")
-    # Linking materializes this project's tasks: it is a project-management
-    # action, not a platform-catalog action.  A project administrator without
-    # ownership of the target project receives no management authority.
     _project, access = await resolve_project_access_by_id(
         db, actor_id=current_user.id, project_id=data.project_id
     )
@@ -1363,8 +1403,6 @@ async def link_project(
     await recheck_directory_write(request, db, dataset_id, project_id=data.project_id)
     await db.commit()
 
-    # enqueue-after-commit：大 dataset 的建 task 走 Celery，必须在 commit
-    # 之后再 delay，否则 worker 可能先于 link / async_job 行可见而读不到。
     if link_result.async_job_id is not None:
         from app.workers.create_tasks import run_create_tasks
 

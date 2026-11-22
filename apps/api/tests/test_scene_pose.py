@@ -55,7 +55,6 @@ def _pose(fi: int, x: float = 0.0, ts: int | None = None) -> FramePose:
 
 async def test_upsert_and_get_trajectory_ordered(db_session, super_admin):
     scene = await _make_scene(db_session, super_admin[0].id)
-    # 乱序写入,读出按 frame_index 升序
     result = await AssetsSpatialGateway(db_session).upsert_poses(
         UpsertPosesRequest(
             operation_id=uuid.uuid4(),
@@ -87,7 +86,6 @@ async def test_upsert_idempotent_updates_in_place(db_session, super_admin):
         ),
         same_session_native=True,
     )
-    # 同 (scene_id, frame_index) 重写 → 更新,不产生重复行
     await gateway.upsert_poses(
         UpsertPosesRequest(
             operation_id=uuid.uuid4(), scene_id=scene.id, poses=[_pose(0, x=9.0, ts=42)]
@@ -138,7 +136,6 @@ async def test_trajectory_api(db_session, httpx_client, super_admin):
     headers = {"Authorization": f"Bearer {token}"}
     scene = await _make_scene(db_session, user.id)
 
-    # 无位姿 scene → 200 + poses=[]
     resp = await httpx_client.get(
         f"/api/v1/scenes/{scene.id}/trajectory", headers=headers
     )
@@ -162,7 +159,6 @@ async def test_trajectory_api(db_session, httpx_client, super_admin):
     assert body["poses"][1]["ego_translation"] == [5.0, 0.0, 0.0]
     assert body["poses"][1]["ego_rotation"] == [1.0, 0.0, 0.0, 0.0]
 
-    # 不存在的 scene → 404
     resp = await httpx_client.get(
         f"/api/v1/scenes/{uuid.uuid4()}/trajectory", headers=headers
     )

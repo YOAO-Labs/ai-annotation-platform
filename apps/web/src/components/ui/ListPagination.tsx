@@ -11,7 +11,6 @@ export function listPageSize(value: unknown, fallback = DEFAULT_LIST_PAGE_SIZE) 
 
 export interface ListPaginationProps {
   label: string;
-  /** Zero-based page index; cursor owners keep their own cursor history. */
   page: number;
   pageSize: number;
   total?: number;

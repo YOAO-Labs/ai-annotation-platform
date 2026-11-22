@@ -299,7 +299,6 @@ class WorkspaceImportCli:
             return
         self._write_environment_file()
         if self.host_network:
-            # Preserve the saved original endpoint without enrolling a new store peer.
             self.network_id = "host"
             self._assert_transport()
             return
@@ -892,7 +891,6 @@ class WorkspaceImportCli:
             "PYTHONPATH": "/app",
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",
-            # Match the one-CPU/64-PID container, not the host's BLAS thread count.
             "OPENBLAS_NUM_THREADS": "1",
             "HOME": "/tmp",
             "REDIS_URL": self.redis_url,
@@ -979,7 +977,6 @@ class WorkspaceImportCli:
                     "Private fixture metadata is not an exact regular file"
                 )
             self.fixture_metadata[path] = hashlib.sha256(path.read_bytes()).hexdigest()
-        # Establish cleanup authority before the coordinator can commit any run.
         self.network_id = "host"
         self._write_environment_file()
         environment = dict(os.environ)

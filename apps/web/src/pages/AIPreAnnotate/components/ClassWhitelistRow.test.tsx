@@ -1,6 +1,3 @@
-/**
- * ClassWhitelistRow: 静态类别表 chip 勾选 + 文本输入按类名快速勾选 (index 制)。
- */
 import { describe, it, expect, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 
@@ -25,7 +22,7 @@ describe("ClassWhitelistRow 文本输入", () => {
     const input = screen.getByPlaceholderText("输入类名快速勾选，如 person");
     fireEvent.change(input, { target: { value: "CAR" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(onChange).toHaveBeenCalledWith(new Set([2])); // car → index 2
+    expect(onChange).toHaveBeenCalledWith(new Set([2]));
   });
 
   it("输入未知类名 → 不勾选 (闭集只能选模型认识的类)", () => {
@@ -41,7 +38,7 @@ describe("ClassWhitelistRow 文本输入", () => {
     const onChange = vi.fn();
     render(<ClassWhitelistRow classes={CLASSES} selected={new Set()} onChange={onChange} />);
     const input = screen.getByPlaceholderText("输入类名快速勾选，如 person");
-    fireEvent.change(input, { target: { value: "ar" } }); // 子串命中 car
+    fireEvent.change(input, { target: { value: "ar" } });
     fireEvent.click(screen.getByTitle("勾选 [2] car"));
     expect(onChange).toHaveBeenCalledWith(new Set([2]));
   });

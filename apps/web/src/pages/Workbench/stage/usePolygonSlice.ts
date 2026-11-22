@@ -27,7 +27,6 @@ interface Options {
   commit?: CommitPolygonSlice;
 }
 
-/** Only the cut and preview live in Stage; the task owner records persistence and history. */
 export function usePolygonSlice(options: Options) {
   const [session, setSession] = useState<Session | null>(null);
   const current = useRef(session),
@@ -47,8 +46,6 @@ export function usePolygonSlice(options: Options) {
       publish(null);
       return;
     }
-    // Once sent, retain the immutable payload for a possibly committed request's
-    // idempotent retry. A source refetch must not replace its original version.
     if (draft.request || draft.invalid) return;
     const source = options.annotations.find((item) => item.id === draft.source.id);
     if (

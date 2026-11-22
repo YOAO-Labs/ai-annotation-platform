@@ -127,8 +127,6 @@ async def test_validation_rejects_tampered_unconsumed_bucket_from_saved_digest(
         "location_id": uuid.uuid4(),
         "maintenance_revision": 1,
     }
-    # The stored snapshot digest covers the complete saved configuration,
-    # including purposes this writer no longer resolves as dependencies.
     row["configuration"]["buckets"]["import"] = "forged-old-bucket"
     with pytest.raises(ContentError, match="managed_original_configuration_changed"):
         await creation._validate(None, row)

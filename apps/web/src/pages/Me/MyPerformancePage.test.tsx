@@ -1,9 +1,3 @@
-/**
- * MyPerformancePage 渲染冒烟测试。
- *
- * 重点：验证 recharts（首次引入本仓）能正常 mount + 数据流通到 hero KPI，
- * 不抛运行时错误。图表在 jsdom 下 0 尺寸不渲染内部内容，故只断言图表容器外的文案。
- */
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -62,14 +56,11 @@ describe("MyPerformancePage", () => {
     renderPage();
 
     expect(await screen.findByText("我的绩效")).toBeInTheDocument();
-    // hero KPI 数据流通
     await waitFor(() => expect(screen.getByText("128")).toBeInTheDocument());
     expect(screen.getByText("+12.5%")).toBeInTheDocument();
-    // 图表卡片标题（容器外文案）
     expect(screen.getByText("产出趋势 · 我 vs 团队均线（近 4 周）")).toBeInTheDocument();
     expect(screen.getByText("标注耗时分布")).toBeInTheDocument();
-    // 质量归因块
-    expect(screen.getByText("82%")).toBeInTheDocument(); // 首过率
+    expect(screen.getByText("82%")).toBeInTheDocument();
     expect(screen.getByText("Reject 原因分布")).toBeInTheDocument();
     expect(screen.getByText(/类别覆盖/)).toBeInTheDocument();
   });

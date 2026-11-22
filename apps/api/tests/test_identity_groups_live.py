@@ -399,7 +399,6 @@ async def test_installed_group_owner_node_all_operations_restart_and_revocation(
         assert count == 2
         _assert_group_sync(group, members)
 
-        # Rename and assignment contend through the same Group -> User lock order.
         rename_race = _command(
             "update_group",
             token,
@@ -430,7 +429,6 @@ async def test_installed_group_owner_node_all_operations_restart_and_revocation(
         group = await _assert_tracked_group_sync(maker, group_id, target_ids)
         assert group is not None
 
-        # Delete and assignment also serialize under the real owner row locks.
         delete_race = _command("delete_group", token, {"group_id": str(group_id)})
         delete_race_id = uuid.UUID(delete_race["operation_id"])
         operation_ids.append(delete_race_id)
@@ -484,7 +482,6 @@ async def test_installed_group_owner_node_all_operations_restart_and_revocation(
                 == 1
             )
 
-        # Drop the response body after commit, restart the owner, and replay.
         lost_name = f"LostReply-{suffix[:12]}"
         lost_request = _command(
             "create_group", token, {"name": lost_name, "description": None}
@@ -723,7 +720,6 @@ async def test_project_admin_group_scope_rechecks_workspace_and_hides_targets(
         assert hidden_item["email"] is None and hidden_item["name"] is None
         assert preview["data"]["items"][2]["ok"] is True
 
-        # An owner transfer races an assignment through Workspace's project lock.
         owner_race = _command(
             "assign_user_group",
             pa_token,
@@ -752,7 +748,6 @@ async def test_project_admin_group_scope_rechecks_workspace_and_hides_targets(
         assert owner_replay["ok"] is False
         assert owner_replay["error"]["code"] == "target_not_found"
 
-        # A successful receipt cannot reveal the target after membership revocation.
         owned_b_request = next(
             request for user_id, request in successful_requests if user_id == owned_b.id
         )

@@ -1,12 +1,3 @@
-/**
- * CommentInput.serialize 单元测试。
- *
- * 覆盖 ROADMAP 列出的 4 类边界：
- *  - chip 紧邻 chip：两个 mention 直接相连，offset 不能错位
- *  - chip 在 block 元素首尾：div / p 包裹时换行注入正确
- *  - 普通文本 + chip 混合：base 路径
- *  - 仅文本（无 chip）：mentions 为空
- */
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { afterEach, describe, it, expect, vi } from "vitest";
@@ -114,7 +105,6 @@ describe("CommentInput.serialize", () => {
   it("mention chip data-mention-name 缺失时回退到 textContent", () => {
     const root = makeRoot('<span data-mention-uid="u1">@fallback</span>');
     const { body, mentions } = serialize(root);
-    // textContent = "@fallback"，name = "@fallback"，导出 text = "@@fallback"
     expect(mentions[0].userId).toBe("u1");
     expect(mentions[0].displayName).toBe("@fallback");
     expect(body.startsWith("@@fallback")).toBe(true);
@@ -248,12 +238,10 @@ describe("CommentInput session composer", () => {
       <CommentInput target={textTask} draftStore={store} members={[]} onSubmit={vi.fn()} />,
     );
     const input = editor(view.container);
-    // 组合中：不同步草稿，避免 React/store 更新打断输入法。
     fireEvent.compositionStart(input);
     input.textContent = "中";
     fireEvent.input(input);
     expect(store.getDraft(textTask)?.body ?? "").toBe("");
-    // 组合结束：补一次同步，拿到最终文本。
     fireEvent.compositionEnd(input);
     await waitFor(() => expect(store.getDraft(textTask)?.body).toBe("中"));
   });
@@ -280,7 +268,6 @@ describe("CommentInput session composer", () => {
   });
 
   it("picking a mention with Enter inserts the chip without submitting the comment", () => {
-    // jsdom 不实现 Range.getBoundingClientRect；@ 触发需要光标矩形。
     Object.defineProperty(Range.prototype, "getBoundingClientRect", {
       configurable: true,
       value: () => ({
@@ -316,7 +303,6 @@ describe("CommentInput session composer", () => {
     expect(onSubmit).not.toHaveBeenCalled();
     expect(input.querySelector('[data-mention-uid="u1"]')).not.toBeNull();
 
-    // 再次 Enter 才算真正发送。
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSubmit).toHaveBeenCalledTimes(1);
   });
@@ -613,8 +599,6 @@ describe("CommentInput session composer", () => {
     canvasHarness.onDraftChange?.(drawing);
     expect(store.getDraft(annotationA)?.canvas_drawing).toEqual(drawing);
 
-    // A target change closes the popup, but the store retains its composed
-    // drawing. Returning and opening a fresh popup hydrates the saved shape.
     view.rerender(
       <CommentInput
         target={annotationB}

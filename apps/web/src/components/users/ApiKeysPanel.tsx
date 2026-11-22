@@ -48,13 +48,12 @@ function isExpired(iso: string | null) {
   return !!iso && new Date(iso).getTime() < Date.now();
 }
 
-/** 把表单的有效期模式换算为提交给后端的 expires_in_days（undefined = 不发送该字段）。 */
 function expiryToDays(mode: ExpiryMode, customDays: number): number | null | undefined {
   switch (mode) {
     case "keep":
-      return undefined; // PATCH 时不改有效期
+      return undefined;
     case "never":
-      return null; // 显式改回永不过期
+      return null;
     case "custom":
       return customDays > 0 ? customDays : undefined;
     default:
@@ -62,11 +61,6 @@ function expiryToDays(mode: ExpiryMode, customDays: number): number | null | und
   }
 }
 
-/**
- * API 密钥管理主体：新建 / 编辑 / 轮换（一次性明文）/ 列表 / 吊销。
- * 同时被 ApiKeysModal（用户页弹窗）与个人设置页「API 密钥」分区复用。
- * active 控制列表查询的 enabled 与表单状态重置（弹窗关闭 / 切走分区时归位）。
- */
 export function ApiKeysPanel({ active }: { active: boolean }) {
   const { data: keys = [], isLoading } = useApiKeys(active);
   const pagination = useListPagination(keys, String(active));
@@ -76,7 +70,6 @@ export function ApiKeysPanel({ active }: { active: boolean }) {
   const revokeKey = useRevokeApiKey();
   const pushToast = useToastStore((s) => s.push);
 
-  // editing: null=未开表单; {id:null}=新建; {id}=编辑既有 key
   const [editing, setEditing] = useState<{ id: string | null } | null>(null);
   const [name, setName] = useState("");
   const [fullAccess, setFullAccess] = useState(false);
@@ -152,7 +145,7 @@ export function ApiKeysPanel({ active }: { active: boolean }) {
         scopes: effectiveScopes,
       };
       const days = expiryToDays(expiryMode, customDays);
-      if (days !== undefined) payload.expires_in_days = days; // keep 时不带该字段
+      if (days !== undefined) payload.expires_in_days = days;
       updateKey.mutate(
         { id: editing.id, payload },
         {

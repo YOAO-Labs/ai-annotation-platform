@@ -109,8 +109,6 @@ class LiveOwner(FixtureOwner):
     def start_process(self, role, arguments, environment, cwd):
         script = self.private / (role + "-runner.py")
         child_receipt = self.private / (role + "-child.json")
-        # Keep a stable group leader while Celery may change its process title.
-        # Its child receipt makes the exact group recoverable after harness death.
         source = f"""
 import os, signal, subprocess, sys
 sys.path.insert(0, {str(ROOT / "scripts")!r})
@@ -164,7 +162,6 @@ raise SystemExit(child.wait())
         )
         value = json.loads(path.read_bytes())
         handle = value["handle"]
-        # The PID and birth receipt predate a possible Celery title update.
         current = process_handle(handle["pid"], record["script"])
         require(
             current
@@ -201,7 +198,6 @@ raise SystemExit(child.wait())
                 ):
                     handles.append((current, value["pgid"]))
             if not record.get("handle"):
-                # Recover only a pre-recorded, exact private script argument.
                 for directory in Path("/proc").iterdir():
                     if not directory.name.isdigit():
                         continue

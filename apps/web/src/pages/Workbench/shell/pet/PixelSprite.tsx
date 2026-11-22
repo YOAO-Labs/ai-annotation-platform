@@ -1,8 +1,6 @@
 import type { PetMood } from "./petLines";
 import styles from "./pet.module.css";
 
-// 颜色作为 SVG fill / stroke 属性内联(不写进 className,故不受颜色门禁约束);
-// 紫色史莱姆 + 白眼,亮/暗画布上都成立。样式后期慢慢打磨。
 const BODY = "#8b5cf6";
 const BODY_DARK = "#6d28d9";
 const EYE_WHITE = "#ffffff";
@@ -30,20 +28,16 @@ export function PixelSprite({ mood, size = 56 }: PixelSpriteProps) {
       aria-hidden="true"
       role="img"
     >
-      {/* 落地阴影 */}
       <ellipse cx="12" cy="21.5" rx="6" ry="1.4" fill={BODY_DARK} opacity="0.25" />
 
-      {/* 身体 */}
       <path
         d="M12 3.5C7.6 3.5 4.5 7 4.5 11.8c0 4.6 2.9 8 7.5 8s7.5-3.4 7.5-8C19.5 7 16.4 3.5 12 3.5Z"
         fill={BODY}
         stroke={BODY_DARK}
         strokeWidth="1"
       />
-      {/* 高光 */}
       <ellipse cx="9" cy="8" rx="1.6" ry="1" fill={HILIGHT} opacity="0.7" />
 
-      {/* 腮红(开心时) */}
       {happy && (
         <>
           <circle cx="7.4" cy="14" r="1.2" fill={BLUSH} opacity="0.85" />
@@ -51,7 +45,6 @@ export function PixelSprite({ mood, size = 56 }: PixelSpriteProps) {
         </>
       )}
 
-      {/* 眼睛 */}
       {happy ? (
         <g stroke={EYE_DARK} strokeWidth="1.4" strokeLinecap="round" fill="none">
           <path d="M8 12c.7-1.1 2-1.1 2.7 0" />
@@ -66,7 +59,6 @@ export function PixelSprite({ mood, size = 56 }: PixelSpriteProps) {
         </g>
       )}
 
-      {/* 嘴 */}
       {happy ? (
         <path d="M10 14.6c1.2 1.6 2.8 1.6 4 0Z" fill={MOUTH} />
       ) : (
@@ -79,10 +71,8 @@ export function PixelSprite({ mood, size = 56 }: PixelSpriteProps) {
         />
       )}
 
-      {/* 庆祝火花 */}
       {celebrate && (
         <g fill={SPARKLE}>
-          {/* 错峰由 CSS .sparkle:nth-of-type 控制(避免内联 style)。 */}
           <path className={styles.sparkle} d="M4 5l.6 1.4L6 7l-1.4.6L4 9l-.6-1.4L2 7l1.4-.6Z" />
           <path className={styles.sparkle} d="M20 4l.6 1.4L22 6l-1.4.6L20 8l-.6-1.4L18 6l1.4-.6Z" />
           <path

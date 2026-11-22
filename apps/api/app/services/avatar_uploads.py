@@ -147,7 +147,6 @@ async def capture_authority(db, execute, principal, *, expected=None):
     authority = Authority(
         actor_id, account.get("avatar_ref"), _principal_key(principal)[0], proof
     )
-    # Image normalization is CPU work and must not hold the key's SHARE fence.
     if proof is not None:
         await db.commit()
     return authority
@@ -249,8 +248,6 @@ async def apply_ref(db, execute, new_ref, principal):
         raise HTTPException(400, str(exc)) from None
     proof = await capture_key_proof(db, principal.actor_id, principal)
     if proof is not None:
-        # The owner command re-reads the facts in its own transaction; the
-        # API-side SHARE fence must not span that independent binding.
         await db.commit()
     result = await execute(
         "set_avatar_ref",
@@ -269,10 +266,6 @@ async def upload(db, execute, data, *, principal, authority=None):
     import hashlib
 
     authority = authority or await capture_authority(db, execute, principal)
-    # Re-authenticate and re-read the expected reference after normalization but
-    # before the immutable target is allocated. A credential rotation, scope
-    # rewrite or account change during image work must not create pending
-    # ownership.
     current = await capture_authority(db, execute, principal, expected=authority)
     if current.previous_ref != authority.previous_ref:
         raise http_error(ContentError("avatar_reference_changed", 409))
@@ -346,15 +339,7 @@ async def upload(db, execute, data, *, principal, authority=None):
             )
         except ContentError as exc:
             raise http_error(exc) from None
-        # Release the maintenance gate and row reads before the owner's own
-        # transaction: the owner re-verifies this pending receipt atomically, so
-        # no API-held lock may span a separately configured Identity connection.
         await db.commit()
-        # The owner re-authenticates the original credential, verifies that the
-        # frozen previous reference is still current, checks this pending
-        # receipt byte-for-byte, rechecks the exact accepted-key proof, then
-        # atomically sets users.avatar_ref, retires the old owned upload and
-        # marks this one ready in one transaction.
         result = await execute(
             "set_avatar_ref",
             {
@@ -462,8 +447,6 @@ async def _cleanup_one(db, token):
         return False
     receipt_row = _snapshot(row)
     row.last_attempted_at = now()
-    # Retired state cannot be reactivated, and user routes cannot select a token.
-    # Release business locks before an independently registered physical delete.
     await db.commit()
     target = await avatar_storage.io_target(db, receipt_row)
     recorder = removal.recorder(
@@ -545,8 +528,6 @@ async def cleanup(db, *, token=None, limit=100):
         except Exception:
             await db.rollback()
             result["failed"] += 1
-            # Storage exceptions can include credentials. Keep only the public
-            # random token, never driver messages or signed request details.
             logger.warning(
                 "Avatar retirement retained after cleanup failure: %s", candidate
             )

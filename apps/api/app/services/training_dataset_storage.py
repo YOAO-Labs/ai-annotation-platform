@@ -219,7 +219,6 @@ def _resolve_ref(ref, *, purpose, expected_prefix=None) -> Owner:
     ] != managed_storage_identity(endpoint, ref["bucket"]):
         _reject()
     try:
-        # Reject non-JSON/non-finite evidence instead of returning mutable data.
         value = json.loads(json.dumps(ref, allow_nan=False))
     except (TypeError, ValueError, OverflowError, RecursionError):
         _reject()

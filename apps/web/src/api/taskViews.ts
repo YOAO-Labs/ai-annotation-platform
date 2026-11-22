@@ -77,7 +77,6 @@ export interface DataManagerTask extends TaskResponse {
   prediction_count: number;
   avg_prediction_confidence: number | null;
   unresolved_issue_count: number;
-  /** Legacy alias of {@link unresolved_issue_count}. */
   unresolved_feedback_count: number;
   comment_count: number;
   model_versions: string[];

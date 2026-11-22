@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import tempfile
 import tomllib
 from pathlib import Path
 
@@ -69,14 +71,25 @@ def migrate_legacy_config() -> Path:
     return target
 
 
+def _toml_basic_string(value: str) -> str:
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", r"\u007f")
+
+
 def save_config(base_url: str, api_key: str) -> Path:
-    """写 config.toml (chmod 0600, api_key 是敏感凭据)。"""
+    """以仅本人可读写的 TOML 文件原子替换登录配置。"""
     p = config_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    # 手写两行 toml, 避免引入写依赖; 值为 URL / token, 无需转义。
-    # O_CREAT 0600 原子创建, 避免「先写后 chmod」窗口期 api_key 可被他人读取
-    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(f'base_url = "{base_url}"\napi_key = "{api_key}"\n')
-    p.chmod(0o600)  # 覆盖已存在文件时同样收紧权限
+    try:
+        p.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(dir=p.parent)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+                os.fchmod(stream.fileno(), 0o600)
+                stream.write(f"base_url = {_toml_basic_string(base_url)}\n")
+                stream.write(f"api_key = {_toml_basic_string(api_key)}\n")
+            os.replace(temporary, p)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
+    except (OSError, UnicodeError):
+        raise SDKError("Unable to save configuration.") from None
     return p

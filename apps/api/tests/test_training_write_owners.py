@@ -76,8 +76,6 @@ def target_for(provider, value):
 
 
 def active_call(monkeypatch, caller, value, provider, events, *, stage_failure=False):
-    # The full owner and actual native/permit transport run; only source admission
-    # is deterministic here, with a real closeable source stage.
     sample = {
         "ordinal": 0,
         "sha256": "a" * 64,
@@ -120,8 +118,6 @@ def log_call(monkeypatch, caller, value):
     value.attempt.status = "failed"
     value.attempt.artifacts = {"train.log": {**value.artifact, "role": "log"}}
 
-    # Authenticated downloads are pure reads. Keep exercising the explicit
-    # legacy-cache helper's existing write accounting independently of that API.
     def cached(physical):
         result = observations.redacted_log(
             value.row,
@@ -224,7 +220,7 @@ async def test_actual_async_owner_retains_facts_after_physical_drain(
         await task
     final = await facts(caller)
     if kind == "log" and failure == "body_close":
-        assert not final  # Original input failed before any PUT.
+        assert not final
         return
     (fact,) = final
     assert fact.owner_id == value.row.id and fact.producer == PRODUCERS[kind]
@@ -238,7 +234,6 @@ async def test_actual_async_owner_retains_facts_after_physical_drain(
     if kind == "active" and failure in {None, "revoke", "cancel", "publish"}:
         assert events == ["source_close"]
     if kind == "active" and failure is None:
-        # Retained lookup is an ordinary read and adds no second intent.
         shared = transport.storage_service.client
         shared.head_object = provider.head_object
         shared.get_object = provider.get_object
@@ -300,8 +295,6 @@ async def test_real_pg_minio_owned_overwrites_and_net_zero(caller, monkeypatch, 
             value.data
         )
         assert first.evidence["final_send_count"] == 1
-        # The original writer itself remains an overwrite operation, even for
-        # owners whose retained-read path normally avoids a second write.
         from app.services import training_write_accounting as accounting
 
         await transport.run(

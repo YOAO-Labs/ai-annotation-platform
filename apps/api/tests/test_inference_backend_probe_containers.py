@@ -265,7 +265,6 @@ async def test_public_api_uses_restricted_workspace_and_inference_containers_wit
                         assert calls == [
                             ("/container/setup", "Bearer snapshot-secret", "no-cache")
                         ]
-                        # Stop only this owned provider; the Workspace cannot switch to a local credential path.
                         _docker("stop", "--time", "5", probe_id)
                         failed = await httpx_client.post(
                             "/api/v1/projects",

@@ -785,7 +785,6 @@ async def test_modern_nuscenes_allocates_all_sources_and_deduplicates_shared_map
         input_digest=digest(frozen),
         logical_sources=logical,
     )
-    # Shared image and main PCD, two independent raw originals and one map.
     assert receipt.object_count == 5
     keys = bundles.source_objects(receipt, logical)
     maps = [row for row in frozen["media"] if row["role"] == "map"]

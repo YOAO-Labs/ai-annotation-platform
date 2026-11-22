@@ -201,7 +201,6 @@ async def _probe_backend(
     backend: RegistryRow,
     client_factory: Callable[[RegistryRow], RegistryProbeClient],
 ) -> BackendProbe:
-    # The legacy client constructor is outside the fail-open probe handler.
     client = client_factory(backend)
     try:
         healthy, health_meta = await client.health_meta()

@@ -88,8 +88,6 @@ async def execute(db, job_id, task_id):
         future = asyncio.run_coroutine_threadsafe(
             service.checkpoint(db, attempt_id, task_id, phase, payload), loop
         )
-        # This callback is part of the physical thread. It must settle before
-        # that thread can proceed or finish, including while its owner cancels.
         future.result()
 
     def native(options):
@@ -112,7 +110,6 @@ async def execute(db, job_id, task_id):
         )
         permit = await service.acquire(db, attempt_id, task_id)
 
-        # Use the saved target, not an expired ORM row after rollback.
         class Saved:
             pass
 

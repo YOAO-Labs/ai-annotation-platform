@@ -26,7 +26,6 @@ export interface CameraDockPanelProps {
   visible?: boolean;
   loading?: boolean;
   error?: string | null;
-  /** 恢复相机排列时递增；仅复位图库滚动位置。 */
   resetKey?: number;
 }
 

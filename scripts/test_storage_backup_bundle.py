@@ -287,8 +287,6 @@ class BundleTests(unittest.TestCase):
         original_put = self.s3.put_object
 
         def compatible_put(**kwargs):
-            # Botocore wraps even b'' into a stream and adds Expect: 100-continue.
-            # Empty PUTs must omit Body to keep the next pooled request usable.
             if kwargs["ContentLength"] == 0 and "Body" in kwargs:
                 raise OSError("Empty Expect/continue transport is unsupported")
             return original_put(**kwargs)

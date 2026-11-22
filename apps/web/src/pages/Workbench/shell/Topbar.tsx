@@ -13,7 +13,6 @@ import type { GuardedNavigate } from "@/utils/workbenchNavigation";
 import type { WorkspaceSide, WorkspaceSideState } from "../layout/workbenchLayoutExecutor";
 import { workbenchAiScopeLabel } from "../layout/workbenchPanelRegistry";
 
-// 与主界面 TopBar 共用同一懒加载通知入口；工作台传入自己的导航回调。
 const NotificationsPopover = lazy(() =>
   import("@/components/shell/NotificationsPopover").then((m) => ({
     default: m.NotificationsPopover,
@@ -21,23 +20,19 @@ const NotificationsPopover = lazy(() =>
 );
 
 interface TopbarProps {
-  /** 项目名 + 展示 ID（如 P-0001）；显示在左侧 task id 前作为项目上下文。 */
   projectName: string;
   projectDisplayId: string;
   task: TaskResponse | undefined;
   taskIdx: number;
   taskTotal: number;
   aiRunning: boolean;
-  /** 当前任务所属批次状态;pre_annotated 时显示「AI 预标已就绪」紫徽章. */
   batchStatus?: string;
   isSubmitting: boolean;
-  /** 当前置信度阈值（0~1）；变化时短暂浮出反馈，给 [ ] 盲调用。 */
   confThreshold?: number;
   onShowHotkeys: () => void;
   onBack?: () => void;
   onToggleSide?: (side: WorkspaceSide) => void;
   sides?: Record<WorkspaceSide, WorkspaceSideState>;
-  /** 工作台标注指引入口；由布局层按当前项目作用域提供。 */
   guideSlot?: React.ReactNode;
   layoutMenuSlot?: React.ReactNode;
   layoutDisabled?: boolean;
@@ -46,7 +41,6 @@ interface TopbarProps {
   aiDisabled?: boolean;
   aiDisabledReason?: string;
   isVideoTask?: boolean;
-  /** 视频任务的画布级 AI 追踪入口。 */
   onToggleTracker?: () => void;
   trackerOpen?: boolean;
   trackerRunning?: boolean;
@@ -58,34 +52,25 @@ interface TopbarProps {
   submitDisabled?: boolean;
   onSmartNextOpen?: () => void;
   onSmartNextUncertain?: () => void;
-  /** 齿轮图标直接打开设置窗口;缺省不渲染该项。 */
   onOpenWorkbenchSettings?: () => void;
-  /** 状态机：审核中可撤回 / 已通过可重开。 */
   canWithdraw?: boolean;
   canReopen?: boolean;
   isWithdrawing?: boolean;
   isReopening?: boolean;
   onWithdraw?: () => void;
   onReopen?: () => void;
-  // 任务跳过；缺省时不渲染按钮
   isSkipping?: boolean;
   onSkip?: (reason: SkipReason, note?: string) => void;
-  /** M2 · review 模式专属操作 */
   mode?: "annotate" | "review";
   onApprove?: () => void;
   onReject?: () => void;
   isApproving?: boolean;
   isRejecting?: boolean;
-  /** M2 · review 模式下 Topbar 左侧附加插槽（ReviewerMiniPanel chip） */
   reviewInfoSlot?: React.ReactNode;
   videoSegments?: VideoSegment[];
   activeVideoSegmentId?: string | null;
   onSelectVideoSegment?: (segmentId: string | null) => void;
   submitLabel?: string;
-  /**
-   * 通知面板导航回调：工作台在真正改路由前跑视频/Mask 离开检查。
-   * 缺省时不渲染通知入口（测试/故事用 Topbar 时保持原行为）。
-   */
   onNotificationNavigate?: GuardedNavigate;
 }
 
@@ -93,14 +78,6 @@ function cn(...xs: Array<string | false | null | undefined>): string {
   return xs.filter(Boolean).join(" ");
 }
 
-/**
- * Topbar 的三个区域：
- * - 左：标题 / 索引（task.display_id · file_name · n / total）
- * - 中：上一题 / 提交 / 下一题 / ⌄ 智能切题
- * - 右：阈值反馈浮 + AI + 主题 + ⋯ 溢出菜单（? 帮助 + 设置）
- *
- * 工具切换 → ToolDock（左侧垂直）；撤销/重做/缩放/适应 → FloatingDock（画布右下）。
- */
 export function Topbar({
   projectName,
   projectDisplayId,
@@ -157,12 +134,10 @@ export function Topbar({
 }: TopbarProps) {
   const { resolved, setTheme } = useTheme();
   const openBugDrawer = useBugDrawerStore((state) => state.openDrawer);
-  // 跳过任务 modal 状态
   const [skipOpen, setSkipOpen] = useState(false);
   const status = task?.status;
   const isReview = status === "review";
   const isCompleted = status === "completed";
-  // 阈值变化时浮出 1.5s 数值反馈（[ ] 键盲调反馈）
   const [showThr, setShowThr] = useState(false);
   const lastThrRef = useRef<number | undefined>(confThreshold);
   useEffect(() => {
@@ -203,7 +178,6 @@ export function Topbar({
       value={activeVideoSegmentId ?? ""}
       onChange={(event) => onSelectVideoSegment(event.target.value || null)}
       onKeyDown={(event) => {
-        // Keep native select keys out of the overflow menu's item navigation.
         if (["ArrowUp", "ArrowDown", "Home", "End", "Enter", " "].includes(event.key)) {
           event.stopPropagation();
         }
@@ -239,7 +213,6 @@ export function Topbar({
       className="@container shrink-0 min-w-0 bg-card border-b border-border"
     >
       <div className="relative flex items-center gap-3 px-4 py-2 @max-[700px]:gap-1 @max-[700px]:px-2">
-        {/* 左：标题段 — display_id 主、文件名次、索引徽章右贴 */}
         <div className="flex flex-initial items-center gap-2.5 min-w-0 max-w-[360px] @max-[1100px]:flex-none @max-[1100px]:gap-0">
           <div className="flex shrink-0 items-center gap-0.5">
             {onBack && (
@@ -283,9 +256,6 @@ export function Topbar({
           </span>
         </div>
 
-        {/* 中：任务标识 + 任务导航 + 状态相关主操作（整体居中）。
-             `min-w-max` 让中段永不压缩到内容以下；空间不足时由左侧项目名先收缩，
-             避免 shrink-0 的元数据/按钮溢出压到相邻控件（见 workbench-topbar.spec）。 */}
         <div className="flex flex-1 min-w-max items-center justify-center gap-1.5 [&>button]:shrink-0 @max-[1000px]:[&>button]:w-7 @max-[1000px]:[&>button]:p-0 @max-[700px]:gap-0.5">
           <div className="flex items-center gap-2.5 min-w-0 @max-[700px]:hidden">
             <span className="mono shrink-0 text-xs text-muted-foreground @max-[1400px]:hidden">
@@ -307,9 +277,7 @@ export function Topbar({
               </span>
             )}
             <div className="flex shrink-0 items-center gap-2.5 @max-[1400px]:hidden">
-              {/* 仅 pre_annotated 时显示徽章, 标注员一眼知道「先看 AI 候选」 */}
               {batchStatus === "pre_annotated" && <BatchStatusBadge status="pre_annotated" />}
-              {/* 责任人胶囊：标注员 / 审核员（list_tasks/get_task 已 populate） */}
               {(task?.assignee || task?.reviewer) && (
                 <span className="shrink-0 w-px h-4 bg-border" />
               )}
@@ -452,7 +420,6 @@ export function Topbar({
             </Button>
           </div>
         </div>
-        {/* 右：AI 主操作（annotate）或 ReviewerMini chip（review）+ 溢出菜单 */}
         <div className="relative flex shrink-0 items-center justify-end gap-1.5 [&>button]:shrink-0 [&>button]:whitespace-nowrap @max-[700px]:gap-0.5">
           <div className="@max-[1100px]:hidden">{reviewInfoSlot}</div>
           {showThr && confThreshold !== undefined && (

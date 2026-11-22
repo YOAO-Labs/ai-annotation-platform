@@ -62,8 +62,6 @@ export function useElementStyle<T extends HTMLElement | SVGElement>(
   style: CSSProperties | undefined,
   forwardedRef?: Ref<T>,
 ) {
-  // element 用 state 持有：当元素延迟挂载（如 Modal/Drawer 打开时才进 DOM）后，
-  // 需要重新跑下面的 effect 把样式写上去；只用 ref 不会触发 effect，会漏设。
   const [element, setElement] = useState<T | null>(null);
   const appliedKeysRef = useRef<Set<string>>(new Set());
 

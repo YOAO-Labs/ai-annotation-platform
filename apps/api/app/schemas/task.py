@@ -53,7 +53,6 @@ class TaskOut(BaseModel):
     tags: list = []
     status: str
     assignee_id: UUID | None = None
-    # 责任人可视化
     assignee: UserBrief | None = None
     reviewer: UserBrief | None = None
     is_labeled: bool = False
@@ -68,14 +67,12 @@ class TaskOut(BaseModel):
     blurhash: str | None = None
     image_pyramid: ImagePyramidSummary | None = None
     video_metadata: VideoMetadata | None = None
-    # 状态机锁定相关
     submitted_at: datetime | None = None
     reviewer_id: UUID | None = None
     reviewer_claimed_at: datetime | None = None
     reviewed_at: datetime | None = None
     reject_reason: str | None = None
     reject_reason_type: str | None = None
-    # 任务跳过
     skip_reason: str | None = None
     skipped_at: datetime | None = None
     reopened_count: int = 0
@@ -164,13 +161,10 @@ class TaskPointCloudManifestResponse(BaseModel):
     cameras: list[PointCloudCameraOut]
     expires_in: int
     axis_convention: LidarAxisConvention | None = None
-    # 跨 task 帧序列定位字段。全 None 表示历史未 backfill,
-    # 前端按"无 scene"兜底(不渲染跨帧导航)。
     scene_id: UUID | None = None
     scene_name: str | None = None
     frame_index: int | None = None
     scene_total_frames: int | None = None
-    # 本帧 ego pose(ego→global)透出;无 scene / 无位姿行 → None。
     ego_pose: FramePose | None = None
 
 
@@ -203,7 +197,6 @@ class TaskLockResponse(BaseModel):
 
 class TaskListResponse(BaseModel):
     items: list[TaskOut]
-    # 仅首页返回精确总数；cursor 翻页时为 None（前端复用首页值）。
     total: int | None = None
     limit: int
     offset: int

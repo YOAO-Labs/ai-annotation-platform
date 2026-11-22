@@ -47,8 +47,6 @@ def test_constants_match_adr_0052_d6():
     assert MAX_COMPRESSED_BYTES == 8 * 1024 * 1024
     assert MAX_UNCOMPRESSED_BYTES == 4 * 1024 * 1024
     assert MAX_EXPANSION_RATIO == 20
-    # MAX_UNCOMPRESSED_BYTES must mirror MAX_RLE_OBJECT_BYTES (duplicated in
-    # raster_mask_gzip to avoid a circular import — guard against drift).
     assert MAX_UNCOMPRESSED_BYTES == MAX_RLE_OBJECT_BYTES
 
 
@@ -68,7 +66,6 @@ def test_decompress_mask_gzip_roundtrip():
     gz = compress_mask_gzip(canonical)
     out = decompress_mask_gzip(gz)
     assert out == canonical
-    # Real gzip framing (not raw zlib) — first two bytes are the gzip magic.
     assert gz[:2] == b"\x1f\x8b"
 
 
@@ -89,9 +86,8 @@ def test_decompress_mask_gzip_rejects_over_compressed():
     to exercise the compressed-byte counter directly — the protection that
     bounds how many bytes we ever read from a hostile/lying input stream.
     """
-    data = b"x" * (2 * 1024 * 1024)  # 2 MiB → compresses well under 1 MiB
+    data = b"x" * (2 * 1024 * 1024)
     gz = compress_mask_gzip(data)
-    # Tighten max_compressed below len(gz) so the compressed counter trips.
     with pytest.raises(ValueError, match="MAX_COMPRESSED_BYTES"):
         decompress_mask_gzip(gz, max_compressed=len(gz) - 1)
 
@@ -105,7 +101,7 @@ def test_decompress_mask_gzip_rejects_bomb_high_ratio():
     """
     bomb = b"\x00" * (1024 * 1024)
     bomb_gz = compress_mask_gzip(bomb)
-    assert len(bomb_gz) < MAX_COMPRESSED_BYTES  # compressed side is tiny
+    assert len(bomb_gz) < MAX_COMPRESSED_BYTES
     with pytest.raises(ValueError, match="MAX_EXPANSION_RATIO"):
         decompress_mask_gzip(bomb_gz)
 
@@ -145,15 +141,12 @@ async def test_store_coco_rle_gzip_content_addressed(db_session, owned_mask_stor
     assert reference["encoding"] == "coco_rle_ref"
     assert reference["storage_encoding"] == "gzip"
     assert reference["object_key"].endswith(f"{reference['sha256']}.json.gz")
-    # sha256 is over the uncompressed canonical bytes (ADR-0052 §D6).
     canonical = canonical_rle_bytes(RLE)
     assert reference["sha256"] == hashlib.sha256(canonical).hexdigest()
-    # bytes = uncompressed canonical length (NOT the gzipped length).
     assert reference["bytes"] == len(canonical)
     assert reference["runs"] == 4
     assert reference["size"] == [2, 3]
 
-    # put_object was called with the gzipped body (smaller than canonical).
     put_kwargs = storage.client.put_object.call_args.kwargs
     assert put_kwargs["ContentType"] == "application/gzip"
     owner = await mask_owner_for(db_session, reference)
@@ -161,7 +154,6 @@ async def test_store_coco_rle_gzip_content_addressed(db_session, owned_mask_stor
     assert put_kwargs["Key"] == f"raster-masks/objects/{owner.id}.json.gz"
     assert put_kwargs["Key"] != reference["object_key"]
     stored_body = put_kwargs["Body"]
-    # The stored body is gzip bytes (magic header) and decompresses to canonical.
     assert stored_body[:2] == b"\x1f\x8b"
     assert decompress_mask_gzip(stored_body) == canonical
 
@@ -219,8 +211,6 @@ async def test_load_coco_rle_gzip_rejects_digest_mismatch(
     """gzip path still enforces the digest check over decompressed canonical."""
     storage = owned_mask_storage()
     reference = await store_coco_rle_gzip(RLE, storage=storage, db=db_session)
-    # Swap in a gzip body whose decompressed canonical has a different counts
-    # array → its sha256 won't match the reference.
     other = {"encoding": "coco_rle", "size": [2, 3], "counts": [6]}
     other_canonical = canonical_rle_bytes(other)
     stream = BytesIO(compress_mask_gzip(other_canonical))
@@ -254,10 +244,8 @@ def test_canonical_rle_bytes_gzip_pairs_match_reference():
     the digest / bytes recorded in build_rle_gzip_reference."""
     canonical, gzip_bytes = canonical_rle_bytes_gzip(RLE)
     digest = hashlib.sha256(canonical).hexdigest()
-    # The two are consistent: decompressing gzip_bytes gives canonical.
     assert decompress_mask_gzip(gzip_bytes) == canonical
     assert len(canonical) <= MAX_UNCOMPRESSED_BYTES
-    # The digest is deterministic.
     assert digest == hashlib.sha256(canonical_rle_bytes(RLE)).hexdigest()
 
 
@@ -270,11 +258,9 @@ def test_load_and_store_coco_rle_are_coroutines():
 
 def test_decompress_mask_gzip_respects_custom_limits():
     """callers can tighten the limits (used by load path with MAX_RLE_OBJECT_BYTES)."""
-    data = b"hello world" * 100  # ~1100 bytes
+    data = b"hello world" * 100
     gz = compress_mask_gzip(data)
-    # Tight uncompressed cap below len(data) → rejected.
     with pytest.raises(ValueError, match="MAX_UNCOMPRESSED_BYTES"):
         decompress_mask_gzip(gz, max_uncompressed=100)
-    # Tight ratio cap → rejected (compressed ~30 bytes, decompressed 1100).
     with pytest.raises(ValueError, match="MAX_EXPANSION_RATIO"):
         decompress_mask_gzip(gz, max_ratio=2)

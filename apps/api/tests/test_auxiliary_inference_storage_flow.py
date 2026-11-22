@@ -119,7 +119,6 @@ def world(monkeypatch):
     def provider_client(self, **_kwargs):
         self.client = client
 
-    # Exclusive accounting transports use the same in-memory provider, not S3.
     monkeypatch.setattr(StorageService, "__init__", provider_client)
     monkeypatch.setattr(storage_service, "client", client)
     monkeypatch.setattr(storage_service, "training_bucket", "new-current-bucket")
@@ -484,9 +483,6 @@ def png_context(world, monkeypatch, db):
     monkeypatch.setattr(rounds.originals, "delegated", AsyncMock(return_value=context))
     monkeypatch.setattr(rounds.originals, "check", AsyncMock())
     monkeypatch.setattr(rounds.originals.access, "check_clock", Mock())
-
-    # Admission, target preparation, migration lookup, accounting and bounded
-    # threads remain real; only delegated source authorization is out of scope.
 
     @asynccontextmanager
     async def source(*_a, **_k):

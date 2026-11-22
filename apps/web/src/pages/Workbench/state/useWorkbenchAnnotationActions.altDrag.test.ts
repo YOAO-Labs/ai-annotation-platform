@@ -1,10 +1,3 @@
-// Alt 拖动父子联动: handleCommitMove 的 batch 命令内容 / 顺序单测。
-// 守护父子 Alt 拖动的两条不变量：
-//   1. 单次 pushBatch 承担父+子, 一次撤销回到全部原位置。
-//   2. Leaf 顺序 = [父, 子1, 子2, ...], undo/redo 按此顺序回放。
-// 前端 render 时的 userBoxes 冻结问题 (Med#6) 在 ImageStage 侧构造 childMoves, 本层
-// 只负责把 childMoves 原样折进 batch, 因此本单测钉的是"折入 batch 的形状"。
-
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -82,7 +75,6 @@ describe("useWorkbenchAnnotationActions · Alt 拖动父子联动", () => {
       ]);
     });
 
-    // Persisted acceptance owns history; responses may finish out of order.
     expect(pushBatch).not.toHaveBeenCalled();
     act(() => {
       updateMutate.mock.calls[2][1].onSuccess();
@@ -91,13 +83,11 @@ describe("useWorkbenchAnnotationActions · Alt 拖动父子联动", () => {
     expect(pushBatch).not.toHaveBeenCalled();
     act(() => updateMutate.mock.calls[1][1].onSuccess());
 
-    // 单次 pushBatch, 不逐条 push。
     expect(pushBatch).toHaveBeenCalledOnce();
     expect(push).not.toHaveBeenCalled();
 
     const leaves = pushBatch.mock.calls[0][0];
     expect(leaves).toHaveLength(3);
-    // 顺序钉死: 父先, 子按传入顺序在后。
     expect(leaves[0]).toMatchObject({
       kind: "update",
       annotationId: "P1",
@@ -111,16 +101,12 @@ describe("useWorkbenchAnnotationActions · Alt 拖动父子联动", () => {
     expect(leaves[2].before.geometry).toEqual(c2Before);
     expect(leaves[2].after.geometry).toEqual(c2After);
 
-    // update.mutate 各 leaf 一次, 参数 annotationId 顺序也是父 → 子1 → 子2。
     expect(updateMutate).toHaveBeenCalledTimes(3);
     expect(updateMutate.mock.calls[0][0].annotationId).toBe("P1");
     expect(updateMutate.mock.calls[1][0].annotationId).toBe("C1");
     expect(updateMutate.mock.calls[2][0].annotationId).toBe("C2");
 
-    // toast: 联动数以 childMoves.length 报数。
-    expect(pushToast).toHaveBeenCalledWith(
-      expect.objectContaining({ msg: expect.stringContaining("2 个子框") }),
-    );
+    expect(pushToast).toHaveBeenCalledWith(expect.objectContaining({ msg: "已移动 3/3 个标注" }));
   });
 
   it("handleCommitMove 无 childMoves (未按 Alt) 走单 update, 不进 batch", () => {

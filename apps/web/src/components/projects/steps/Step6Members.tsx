@@ -1,7 +1,3 @@
-// CreateProjectWizard 第 6 步: 项目成员选择 (annotator / reviewer).
-// 从 CreateProjectWizard.tsx 抽出.
-// 候选人统一为平台员工，项目职责（标注员 / 质检员）在选中后单独选择。
-
 import { useMemo, useState } from "react";
 import { clsx } from "clsx";
 import { UserAvatar } from "@/components/ui/UserAvatar";
@@ -33,8 +29,6 @@ export function Step6Members({
 }) {
   const pushToast = useToastStore((s) => s.push);
   const addMember = useAddProjectMember(project.id);
-  // Assignment candidates are ordinary active employees; the project role is
-  // chosen per selected member (server rechecks compatibility on write).
   const employeesQuery = useUsers({ role: "employee" });
   const isLoading = employeesQuery.isLoading;
   const users = useMemo(

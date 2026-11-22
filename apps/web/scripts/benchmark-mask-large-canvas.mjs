@@ -380,8 +380,6 @@ const result = await page.evaluate(
       };
     });
 
-    // Implementation exit gates. Keep the baseline above intact so the same run reports a
-    // directly comparable before/after pair on one browser and machine.
     await yieldToBrowser();
     globalThis.gc?.();
     await yieldToBrowser();

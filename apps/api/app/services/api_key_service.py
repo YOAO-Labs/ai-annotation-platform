@@ -35,7 +35,6 @@ class _CommandAuthenticator:
             bound.principal.credential_type == "api_key"
             and self.identity.uses_caller_session(self.db)
         ):
-            # Record usage and release admission locks before bcrypt issuance.
             await self.db.commit()
         return bound
 

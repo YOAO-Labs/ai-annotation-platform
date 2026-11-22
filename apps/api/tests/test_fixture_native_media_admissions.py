@@ -104,7 +104,6 @@ async def test_native_admission_requires_exact_family_scope_and_operation_lock(
     lock = text("SELECT pg_advisory_xact_lock(hashtextextended(:key,0))")
 
     assert await db_session.scalar(query, scope) is False
-    # A different backend holding the exact operation lock cannot lend its authority.
     async with test_engine.connect() as other:
         await other.execute(lock, {"key": prefix[family] + str(operation)})
         assert await db_session.scalar(query, scope) is False
@@ -297,8 +296,6 @@ async def test_native_video_receipt_rejects_stale_and_neighbor_evidence(
             is None
         )
 
-    # Each change is rolled back independently, so a rejection cannot be explained
-    # by another stale field. Immutable ledger facts are not modified by the test.
     for sql, params in (
         (
             "UPDATE public.dataset_items SET media_materialized_generation=0 WHERE id=:item",

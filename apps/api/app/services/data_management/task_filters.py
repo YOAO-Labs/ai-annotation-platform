@@ -74,7 +74,6 @@ _EXISTS_OPS = {"exists", "eq", "in"}
 
 _TASK_FIELD_MAP = {
     "task.status": task_row.status,
-    # Filters also run in privileged queries without a TaskBatch join.
     "task.assignee": func.coalesce(
         task_row.assignee_id,
         select(batch_row.annotator_id)
@@ -180,7 +179,6 @@ def _compile_node(
     value = node.get("value")
     if not isinstance(field, str) or not isinstance(op, str):
         raise HTTPException(status_code=422, detail="Filter rule needs field and op")
-    # 防止单请求用超长 in 列表拖慢 DB（所有走 .in_() 的字段在此统一收口）。
     if op == "in" and isinstance(value, list) and len(value) > _MAX_IN_VALUES:
         validate_in_value(value, max_values=_MAX_IN_VALUES)
     return _compile_rule(field, op, value, project=project, user=user)
@@ -244,7 +242,6 @@ def _compile_rule(
     if field == "prediction.avg_confidence":
         return _compare_scalar(_avg_prediction_confidence_sq(), op, value, _NUMERIC_OPS)
     if field == "feedback.unresolved_count":
-        # Compatibility alias: corrected to count unresolved root issues.
         return _compare_scalar(_unresolved_feedback_count_sq(), op, value, _NUMERIC_OPS)
     if field == "issue.unresolved_count":
         return _compare_scalar(_unresolved_issue_count_sq(), op, value, _NUMERIC_OPS)
@@ -1093,8 +1090,6 @@ def _avg_prediction_confidence_sq() -> ColumnElement[float | None]:
 
 
 def _unresolved_issue_count_sq() -> ColumnElement[int]:
-    # Owned by ``FeedbackService``'s root relation so Data Manager counts match
-    # the Workbench issue totals (root issues only; replies never count).
     return unresolved_issue_count_sq()
 
 
@@ -1104,8 +1099,6 @@ def _unresolved_feedback_count_sq() -> ColumnElement[int]:
 
 
 def _comment_count_sq() -> ColumnElement[int]:
-    # Owned by the task discussion read model so counts match the Workbench
-    # comment-feed total (annotation comments + native task comments).
     return task_comment_count_sq()
 
 

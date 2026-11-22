@@ -481,7 +481,6 @@ async def test_same_owner_child_prepare_http_and_destroy_use_owned_runtime_login
         await runtime_engine.dispose()
         await owner_engine.dispose()
         await reopened.owned_runtime_role("check_drop")
-        # Preserve the global LOGIN and its sidecar while restoring its owned DB.
         await reopened.database("drop")
         assert hmac.compare_digest(
             reopened._runtime_credentials(required=True)["password"], previous_password

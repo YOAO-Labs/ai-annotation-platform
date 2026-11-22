@@ -8,7 +8,6 @@ def ids_clause(column, identities):
     identities = list(identities)
     if len(identities) <= 1000:
         return column.in_(identities)
-    # A whole-project selection may exceed asyncpg's bind-parameter limit.
     return column == any_(bindparam(None, identities, type_=ARRAY(UUID(as_uuid=True))))
 
 

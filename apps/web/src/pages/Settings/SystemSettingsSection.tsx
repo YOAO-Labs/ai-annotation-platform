@@ -377,7 +377,6 @@ function integerString(value: unknown): string | null {
   return null;
 }
 
-/** Convert a byte count to a terminating, exact base-10 GiB string. */
 export function bytesToGib(value: number | string | bigint): string {
   const bytes = integerString(value);
   if (bytes == null) throw new Error("字节数必须是非负整数");
@@ -386,7 +385,6 @@ export function bytesToGib(value: number | string | bigint): string {
   let remainder = integer % BYTES_PER_GIB;
   if (remainder === 0n) return whole.toString();
 
-  // 2^30 has a finite decimal expansion with at most 30 fractional digits.
   let fraction = "";
   for (let i = 0; i < 30 && remainder !== 0n; i += 1) {
     remainder *= 10n;
@@ -396,7 +394,6 @@ export function bytesToGib(value: number | string | bigint): string {
   return `${whole.toString()}.${fraction.replace(/0+$/, "")}`;
 }
 
-/** Convert a decimal GiB input into an integer byte count without Number rounding. */
 export function gibToBytes(value: string): number {
   const normalized = value.trim();
   const match = /^(\d+)(?:\.(\d+))?$/.exec(normalized);
@@ -652,8 +649,6 @@ export function SystemSettingsSection({ onDirtyChange }: SystemSettingsSectionPr
       ) ||
         !sameSmtpDraft(smtpDraftRef.current, smtpBaselineRef.current));
 
-    // Query refreshes update the readback/provenance surface, but never replace a
-    // draft the user is actively editing. A clean form follows the latest server data.
     if (isDirty) {
       if (data.version !== baselineVersionRef.current) setConflict(true);
       return;
@@ -841,8 +836,6 @@ export function SystemSettingsSection({ onDirtyChange }: SystemSettingsSectionPr
       setSaveError(null);
       updateMut.mutate(patch, {
         onSuccess: (saved) => {
-          // The server response is the source of truth: in particular it only
-          // exposes password_set, never the password that was submitted.
           applyServerData(saved, true, undefined, group);
           pushToast({
             msg: `${GROUPS.find((item) => item.key === group)?.label ?? "设置"}已保存`,

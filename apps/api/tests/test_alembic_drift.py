@@ -41,14 +41,9 @@ async def test_models_match_database(test_engine, apply_migrations):
         if missing_in_model:
             drift.append(f"`{tbl_name}`：库有但模型没的列 {sorted(missing_in_model)}")
 
-    # 反向：库中表多于模型（可能是 alembic_version / 历史遗留 / 未注册到 __init__.py 的模型）
-    # 排除 audit_logs 月分区子表（audit_logs_y2026m04 等），它们是 PG RANGE PARTITION
-    # 的物理子分区，不在 ORM 模型层注册（用 audit_logs 父表即可）。
     audit_partitions = {
         t for t in reflected.tables if t.startswith("audit_logs_y") and len(t) >= 18
     }
-    # 排除 predictions 月 RANGE 分区子表（predictions_y2026m05 / predictions_default
-    # 等），同 audit_logs 子分区，是 PG 物理分区不在 ORM 模型层注册（用 predictions 父表即可）。
     prediction_partitions = {
         t
         for t in reflected.tables

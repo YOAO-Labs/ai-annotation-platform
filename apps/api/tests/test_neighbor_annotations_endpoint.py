@@ -104,7 +104,6 @@ async def test_neighbor_annotations_scope_all(db_session, httpx_client, super_ad
     project, _, scene, tasks = await _seed_scene_with_n_tasks(
         db_session, owner_id=user.id, n=5
     )
-    # 每帧各放两个框
     for t in tasks:
         await _add_box(db_session, task=t, project=project, user_id=user.id)
         await _add_box(db_session, task=t, project=project, user_id=user.id)
@@ -117,12 +116,9 @@ async def test_neighbor_annotations_scope_all(db_session, httpx_client, super_ad
     body = resp.json()
     assert body["scene_id"] == str(scene.id)
     assert body["frame_index"] == 2
-    # k=1 → 前后各一帧,prev 在前(就近)
     frames = body["frames"]
     assert [f["frame_index"] for f in frames] == [1, 3]
-    # 不含中心帧 2
     assert all(f["frame_index"] != 2 for f in frames)
-    # 每帧两个框
     assert all(len(f["annotations"]) == 2 for f in frames)
     assert frames[0]["task_id"] == str(tasks[1].id)
 
@@ -244,7 +240,6 @@ async def test_neighbor_annotations_filters_cross_batch(
     frame 占位但 annotations=[],不外泄其几何(与旧逐 task getAnnotations 链路同口径)。"""
     admin, _ = super_admin
     anno, anno_token = annotator
-    # 项目 owner 为 admin(非 annotator),否则 annotator 成 owner 即特权全可见。
     project, _, scene, tasks = await _seed_scene_with_n_tasks(
         db_session, owner_id=admin.id, n=3
     )
@@ -255,14 +250,13 @@ async def test_neighbor_annotations_filters_cross_batch(
         role="annotator",
         assigned_by=admin.id,
     )
-    # 中心帧(1)与后邻帧(2)在 annotator 自己的 active batch;前邻帧(0)在别人的 batch。
     other_anno = await create_user(
         db_session, "employee", f"anno2-{uuid.uuid4().hex[:6]}@test.local", "Anno2"
     )
     mine = await create_batch(db_session, project_id=project.id, status="active")
     mine.annotator_id = anno.id
     other = await create_batch(db_session, project_id=project.id, status="active")
-    other.annotator_id = other_anno.id  # 分派给别人
+    other.annotator_id = other_anno.id
     await db_session.flush()
     tasks[0].batch_id = other.id
     tasks[1].batch_id = mine.id
@@ -281,7 +275,5 @@ async def test_neighbor_annotations_filters_cross_batch(
     assert body["scene_id"] == str(scene.id)
     frames = {f["frame_index"]: f for f in body["frames"]}
     assert set(frames) == {0, 2}
-    # 前邻帧 0 在他人 batch → 占位但无框(不外泄)
     assert frames[0]["annotations"] == []
-    # 后邻帧 2 在自己 batch → 正常返回框
     assert len(frames[2]["annotations"]) == 1

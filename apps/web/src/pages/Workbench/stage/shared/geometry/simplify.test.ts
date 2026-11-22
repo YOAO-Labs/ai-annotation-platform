@@ -10,7 +10,7 @@ describe("simplifyPolygon", () => {
       [0.5, 1],
     ];
     expect(simplifyPolygon(tri, 0.1)).toEqual(tri);
-    expect(simplifyPolygon(tri, 0.1)).not.toBe(tri); // copy
+    expect(simplifyPolygon(tri, 0.1)).not.toBe(tri);
 
     const sq: Pt[] = [
       [0, 0],
@@ -22,15 +22,14 @@ describe("simplifyPolygon", () => {
   });
 
   it("drops near-collinear midpoints under threshold", () => {
-    // 5 顶点近似正方形：中间多一个几乎共线点
     const pts: Pt[] = [
       [0, 0],
-      [0.5, 0.001], // 与 (0,0)-(1,0) 几乎共线
+      [0.5, 0.001],
       [1, 0],
       [1, 1],
       [0, 1],
     ];
-    const r = simplifyPolygon(pts, 0.01); // epsilon > 0.001
+    const r = simplifyPolygon(pts, 0.01);
     expect(r.length).toBe(4);
     expect(r).toContainEqual([0, 0]);
     expect(r).toContainEqual([1, 0]);
@@ -41,7 +40,7 @@ describe("simplifyPolygon", () => {
   it("keeps midpoints that deviate beyond threshold", () => {
     const pts: Pt[] = [
       [0, 0],
-      [0.5, 0.2], // 偏离 0.2，超过 epsilon=0.05
+      [0.5, 0.2],
       [1, 0],
       [1, 1],
       [0, 1],
@@ -51,7 +50,6 @@ describe("simplifyPolygon", () => {
   });
 
   it("preserves a polygon at least 3 points wide", () => {
-    // 即便全部点都几乎共线，最终结果不能少于 3 个点
     const pts: Pt[] = [
       [0, 0],
       [0.1, 0],

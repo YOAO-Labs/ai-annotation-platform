@@ -33,20 +33,12 @@ interface VideoKeyframesPropagateDialogProps {
   open: boolean;
   frameIndex: number;
   userId?: string | null;
-  /** 采样网格步长 (源帧). >1 时 count 以网格格子为单位; 缺省 1 = 现状 (按源帧). */
   samplingStep?: number;
   overwriteOverride?: boolean | null;
   onCancel: () => void;
   onSubmit: (payload: VideoKeyframesPropagateSubmit) => void;
 }
 
-/**
- * 关键帧 Propagate 对话框 (纯前端, 区别于 AI 版 VideoTrackerPropagateDialog)。
- * 把当前帧的框复制到后续 / 向前 N 帧, overwrite 控制是否覆盖目标帧已有关键帧。
- *
- * §A: 采样开启 (samplingStep>1) 时, count 以网格格子为单位, 与 ←/→ 网格导航统一;
- * 提交时换算回源帧 count (count * samplingStep), 底层 D2 (propagateKeyframes) 仍逐源帧不变。
- */
 export function VideoKeyframesPropagateDialog({
   open,
   frameIndex,
@@ -73,7 +65,6 @@ export function VideoKeyframesPropagateDialog({
 
   const grid = Math.max(1, Math.round(samplingStep));
   const dir = direction === "backward" ? -1 : 1;
-  // count 是网格格子数; 采样开启时换算成源帧跨度。
   const sourceCount = count * grid;
   const target = Math.max(0, frameIndex + dir * sourceCount);
   const overwriteLocked = overwriteOverride !== null && overwriteOverride !== undefined;
@@ -128,7 +119,6 @@ export function VideoKeyframesPropagateDialog({
                   direction === d ? "border-brand bg-brand/10" : "border-border",
                 )}
               >
-                {/* 消歧, 与 AI 追踪对话框方向标签统一 */}
                 {d === "forward" ? "更晚帧 →" : "← 更早帧"}
               </button>
             ))}

@@ -262,7 +262,6 @@ async def record_annotation_actor(
                     },
                 ) from exc
             raise
-        # Mixed-order producers acquire both locks without flushing first.
         await refresh_task_evidence(db, task, nowait=nowait)
     from app.services.labeling_tasks import LabelingTaskService
     from app.application.task_workflow_errors import TaskWorkflowError

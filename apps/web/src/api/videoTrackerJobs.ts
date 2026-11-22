@@ -1,8 +1,5 @@
 import { apiClient } from "./client";
 
-/** /video-tracker-jobs — 视频追踪任务聚合监控.
- *
- * 后端返回任务执行态与候选审阅态。 */
 export type VideoTrackerJobStatus =
   | "queued"
   | "running"
@@ -49,7 +46,6 @@ export interface ListVideoTrackerJobsParams {
   model_key?: string;
   cursor?: string;
   limit?: number;
-  /** React Query cancellation for filter/cursor changes. Not serialized. */
   signal?: AbortSignal;
 }
 

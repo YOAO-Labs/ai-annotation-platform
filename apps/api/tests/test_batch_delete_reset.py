@@ -148,15 +148,12 @@ async def test_reset_rebinds_materialized_assignment_of_departed_member(
         .all()
     )
     tasks[0].status = "completed"
-    # Handoff-style materialization: explicit old-user assignment, not an
-    # override, on history past the editable annotation phase.
     tasks[0].assignee_id = old_annotator.id
     tasks[0].assignee_is_override = False
     tasks[1].assignee_id = replacement.id
     tasks[1].assignee_is_override = True
     await db_session.flush()
 
-    # The old annotator leaves the project; only the replacement remains.
     await db_session.execute(
         delete(ProjectMember).where(
             ProjectMember.project_id == project.id,
@@ -165,17 +162,21 @@ async def test_reset_rebinds_materialized_assignment_of_departed_member(
     )
     await db_session.flush()
 
-    batch_out, affected, _ = await BatchService(db_session).reset_to_draft(batch_id)
-    # Only the completed task needed a status reset.
+    _, affected, _ = await BatchService(db_session).reset_to_draft(batch_id)
     assert affected == 1
     await db_session.refresh(tasks[0])
     await db_session.refresh(tasks[1])
-    # The departed member's materialized assignment inherits the batch default
-    # again; the genuine manual override is preserved.
     assert tasks[0].status == "pending"
     assert tasks[0].assignee_id is None
-    assert batch_out.annotator_id is None or True  # default untouched by reset
+    assert tasks[0].assignee_is_override is False
+    persisted_default = (
+        await db_session.execute(
+            select(TaskBatch.annotator_id).where(TaskBatch.id == batch_id)
+        )
+    ).scalar_one()
+    assert persisted_default == old_annotator.id
     assert tasks[1].assignee_id == replacement.id
+    assert tasks[1].assignee_is_override is True
 
 
 async def _make_batch(db: AsyncSession, project: Project) -> uuid.UUID:
@@ -201,7 +202,6 @@ async def test_delete_resets_nonpending_and_clears_ai(
         .scalars()
         .all()
     )
-    # t0: review + manual + AI annotation + prediction;  t1: completed + prediction
     t0, t1 = tasks[0], tasks[1]
     t0.status = "review"
     t0.total_predictions = 1
@@ -221,8 +221,6 @@ async def test_delete_resets_nonpending_and_clears_ai(
 
     await BatchService(db_session).delete(batch_id, force=True)
 
-    # 1. 所有 task 回 pending 且解绑（新项目无 B-DEFAULT → batch_id=NULL）
-    # 直接 select 列值读 DB 实时值（物化字段经 raw SQL UPDATE 改写，ORM 对象会陈旧）
     rows = (
         await db_session.execute(
             select(Task.status, Task.batch_id, Task.total_predictions).where(
@@ -234,9 +232,6 @@ async def test_delete_resets_nonpending_and_clears_ai(
     assert all(r.batch_id is None for r in rows)
     assert all(r.total_predictions == 0 for r in rows)
 
-    # 2. 人工标注保留 active；AI 标注软删
-    # 批次删除只影响本项目的标注/预标；计数限定在本次夹具项目内，避免把
-    # 共享测试库中其他用例已提交的行当成自己的结果。
     manual = (
         await db_session.execute(
             select(func.count())
@@ -262,7 +257,6 @@ async def test_delete_resets_nonpending_and_clears_ai(
     assert manual == 1
     assert ai_active == 0
 
-    # 3. prediction 行被删
     pred_count = (
         await db_session.execute(
             select(func.count())
@@ -272,7 +266,6 @@ async def test_delete_resets_nonpending_and_clears_ai(
     ).scalar()
     assert pred_count == 0
 
-    # 4. t0 仍有存活人工标注 → is_labeled 重算为 True；t1 无人工标注 → False
     labeled = dict(
         (
             await db_session.execute(
@@ -303,7 +296,6 @@ async def test_delete_then_resplit_no_counter_pollution(
 
     svc = BatchService(db_session)
     await svc.delete(batch_id, force=True)
-    # 重分包到新批次：计数应干净（无 completed/review 污染）
     new_batches = await svc.split(
         project.id,
         BatchSplitRequest(strategy="random", n_batches=1, name_prefix="B2"),
@@ -348,7 +340,6 @@ async def test_bulk_delete_also_resets(db_session: AsyncSession, super_admin):
         )
     ).scalar()
     assert pred_count == 0
-    # 无 B-DEFAULT 时 bulk_delete 也要同步 project 物化列
     await db_session.refresh(project)
     assert project.review_tasks == 0
     assert project.completed_tasks == 0

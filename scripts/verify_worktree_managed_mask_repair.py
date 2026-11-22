@@ -45,8 +45,6 @@ class MediaWorker(plumbing.Worker):
 
 class RepairBackend(native.InteractiveBackend):
     def respond(self, payload):
-        # This performs a real version-pinned HTTP GET, exact bytes/SHA/size
-        # and non-square image/pixel validation before returning controlled RLE.
         result = super().respond(payload)
         require("task" in payload, "修复必须使用同步原生 Mask 协议")
         if self.mode == "repair_failure":
@@ -342,8 +340,6 @@ async def qualify(backend, worker, storage, report, expected_database):
                 task = await db.get(Task, case["task_id"])
                 annotation = await db.get(Annotation, case["annotation_id"])
                 previous = await db.get(MaskQCIssue, case["issue_id"])
-                # A new QC observation follows rollback; retain the resolved
-                # issue as history instead of rewriting its repair outcome.
                 issue = MaskQCIssue(
                     project_id=project.id,
                     task_id=task.id,

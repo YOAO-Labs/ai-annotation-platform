@@ -53,7 +53,6 @@ export function observationOptions<P extends Page>(
         signal.throwIfAborted();
         assertOwner?.(signal);
       };
-      // Terminal transitions explicitly request the latest retained tail.
       let window = poll ? client.getQueryData<ObservationWindow<P>>(key) : undefined;
       let after = window?.next_cursor;
       for (let index = 0; index < (poll ? 3 : 1); index++) {

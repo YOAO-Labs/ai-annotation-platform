@@ -4,7 +4,6 @@ import { useAuthStore } from "@/stores/authStore";
 export const TEST_USER_ID = "u1";
 export const TEST_TOKEN = "test-token";
 
-/** A realistic current-platform identity: employee, not the retired annotator role. */
 export function createTestUser(overrides: Partial<MeResponse> = {}): MeResponse {
   return {
     id: TEST_USER_ID,
@@ -18,11 +17,6 @@ export function createTestUser(overrides: Partial<MeResponse> = {}): MeResponse 
   };
 }
 
-/**
- * Seed the real auth store and token storage the way a completed `/auth/me`
- * handshake would, so API hooks resolve an owner id and the client attaches the
- * matching bearer token.
- */
 export function seedAuthUser(user: MeResponse = createTestUser(), token = TEST_TOKEN): MeResponse {
   localStorage.setItem("token", token);
   useAuthStore.setState({ user, token });

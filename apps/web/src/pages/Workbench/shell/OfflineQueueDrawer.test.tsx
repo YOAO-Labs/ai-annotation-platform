@@ -5,8 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getAll: vi.fn(),
   subscribe: vi.fn(() => () => undefined),
-  clearAll: vi.fn().mockResolvedValue(undefined),
-  removeById: vi.fn().mockResolvedValue(undefined),
+  removeDurablyById: vi.fn().mockResolvedValue(undefined),
   drain: vi.fn().mockResolvedValue({ ok: 1, failed: 0 }),
   toast: vi.fn(),
 }));
@@ -14,8 +13,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../state/offlineQueue", () => ({
   getAll: mocks.getAll,
   subscribe: mocks.subscribe,
-  clearAll: mocks.clearAll,
-  removeById: mocks.removeById,
+  removeDurablyById: mocks.removeDurablyById,
   drain: mocks.drain,
 }));
 
@@ -45,13 +43,13 @@ const operations = [
   },
 ] as const;
 
-function renderDrawer(currentTaskId?: string) {
+function renderDrawer(currentTaskId?: string, isCurrent?: () => boolean) {
   return render(
     <OfflineQueueDrawer
       open
       onClose={vi.fn()}
       currentTaskId={currentTaskId}
-      queueScope={{ userId: "user-1" }}
+      queueScope={{ userId: "user-1", ...(isCurrent ? { isCurrent } : {}) }}
       onFlushOne={vi.fn().mockResolvedValue(undefined)}
       onFlushAll={vi.fn().mockResolvedValue(undefined)}
     />,
@@ -93,5 +91,24 @@ describe("OfflineQueueDrawer", () => {
     expect(screen.getByText(/2 条/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "当前题" }));
     expect(mocks.drain).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed discard and leaves the operation available to retry", async () => {
+    const user = userEvent.setup();
+    mocks.removeDurablyById.mockRejectedValueOnce(new Error("quota exceeded"));
+    renderDrawer("task-a", () => true);
+    const discard = (await screen.findAllByRole("button", { name: "丢弃" }))[0];
+    await user.click(discard);
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenCalledWith(
+        expect.objectContaining({ msg: "未能删除离线操作，请重试", kind: "error" }),
+      ),
+    );
+    expect(discard).toBeEnabled();
+    await user.click(discard);
+    await waitFor(() =>
+      expect(mocks.toast).toHaveBeenLastCalledWith({ msg: "已从队列删除", kind: "success" }),
+    );
+    expect(mocks.removeDurablyById).toHaveBeenCalledTimes(2);
   });
 });

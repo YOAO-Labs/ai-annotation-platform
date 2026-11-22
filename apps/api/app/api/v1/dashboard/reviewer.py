@@ -95,9 +95,6 @@ async def _reviewing_batches(
         current_user, workspace_projects.c.project_id
     )
     claim_scope = _reviewable_claim_clause(current_user, workspace_projects)
-    # 批次级聚合 — 列出处于 reviewing 状态的批次（reviewer 跨批次审核）。
-    # 包含 reviewing 批次以及任意 review_tasks > 0 的批次，让单任务级提交质检
-    # 也能在 ReviewPage 的批次树里看到，避免 reviewer 找不到入口。
     actionable_review = select(task_row.id).where(
         task_row.batch_id == batch_row.id,
         task_row.status == TaskStatus.REVIEW,
@@ -128,7 +125,6 @@ async def _reviewing_batches(
             .limit(limit)
         )
     ).all()
-    # 单值语义 — 一 batch 一标注员，直接 IN 查询 user
     project_user_map: dict = {}
     for b, _ in batch_rows:
         if b.annotator_id is not None:
@@ -137,9 +133,6 @@ async def _reviewing_batches(
     for pid, uids in project_user_map.items():
         briefs_by_project[pid] = await resolve_briefs_with_project_role(db, pid, uids)
 
-    # 批次封面缩略图：每个 batch 取最早一张「有缩略图」的任务作封面（DISTINCT ON）。
-    # 缩略图口径与 tasks/_shared.py 一致：dataset 导入的任务缩略图存在 DatasetItem 上，
-    # Task.thumbnail_path 为空，故需 LEFT JOIN + COALESCE。
     cover_map: dict = {}
     cover_batch_ids = [b.id for b, _ in batch_rows]
     if cover_batch_ids:
@@ -305,7 +298,6 @@ async def reviewer_dashboard(
         (total_completed / total_all_reviewed * 100) if total_all_reviewed > 0 else 0.0
     )
 
-    # 24h 滚动通过率：只统计当前审核员实际处理且在可见项目内的任务。
     cutoff_24h = now - timedelta(hours=24)
     rate_24h_result = await db.execute(
         select(
@@ -361,8 +353,6 @@ async def reviewer_dashboard(
 
     reviewing_batches = await _reviewing_batches(db, current_user)
 
-    # 效率看板 L2 扩展
-    # 平均审核耗时（中位） = reviewed_at - reviewer_claimed_at（自己审过的任务）
     review_duration_row = (
         await db.execute(
             select(
@@ -396,8 +386,6 @@ async def reviewer_dashboard(
         else None
     )
 
-    # 二次返修率：自己 approve 的 task（task.reviewer_id == me 且 status==completed）
-    # 后又被 reopen（reopened_count > 0）的比例
     reopen_after_row = (
         await db.execute(
             select(
@@ -429,7 +417,6 @@ async def reviewer_dashboard(
         else None
     )
 
-    # 7 日审核数 sparkline
     daily_review_counts: list[int] = []
     for i in range(6, -1, -1):
         ds = today_start - timedelta(days=i)
@@ -453,7 +440,6 @@ async def reviewer_dashboard(
         ).scalar() or 0
         daily_review_counts.append(int(n))
 
-    # 周环比
     week_start_r = today_start - timedelta(days=today_start.weekday())
     last_week_start_r = week_start_r - timedelta(days=7)
     this_week_n = (
@@ -532,9 +518,6 @@ async def reviewer_today_mini(
         current_user, workspace_projects.c.project_id
     )
 
-    # reject 流程：task.status 落回 in_progress，但 task.reject_reason 有值。
-    # approve 流程：task.status = completed。
-    # 当日审核耗时按 (reviewed_at - reviewer_claimed_at) 平均。
     counts = (
         await db.execute(
             select(

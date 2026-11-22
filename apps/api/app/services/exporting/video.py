@@ -28,10 +28,6 @@ from app.services.video_tracks import resolve_track_at_frame
 
 logger = logging.getLogger("app.services.exporting.video")
 
-# 视频导出的几何白名单（唯一真源，export.py / export_packaging.py 共用）。
-# polygon / polyline 的单帧几何与轨迹都参与导出。
-# MOT、KITTI 和 YOLO-frames-det 只支持 bbox，使用顶点外接框；
-# video_json 和 native_json 保留 ``points``。
 VIDEO_TRACK_GEOMETRY_TYPES = frozenset(
     {
         "video_track_bbox",
@@ -52,10 +48,8 @@ VIDEO_LOSSLESS_SINGLE_FRAME_GEOMETRY_TYPES = frozenset(
 VIDEO_BBOX_COMPATIBLE_SINGLE_FRAME_GEOMETRY_TYPES = frozenset(
     {"video_bbox", "video_polygon", "video_polyline"}
 )
-# 兼容旧 facade；新调用方应按“保真”或“bbox-compatible”显式选择集合。
 VIDEO_SINGLE_FRAME_GEOMETRY_TYPES = VIDEO_LOSSLESS_SINGLE_FRAME_GEOMETRY_TYPES
 
-# DatasetItem.width/height 缺失时的回退（与 export.py IMG_W/IMG_H 一致）。
 FALLBACK_W, FALLBACK_H = 1920, 1280
 
 
@@ -168,9 +162,6 @@ def track_grid_rows(
     return rows
 
 
-# ── YOLO frame detection dataset ──────────────────────────────────────
-
-
 def yolo_seg_line(class_id: int, ring: list) -> str:
     """YOLO-seg label 行：``cls x1 y1 x2 y2 …``（归一化顶点展平，6 位小数）。
 
@@ -252,9 +243,6 @@ def build_yolo_frame_det_labels(
     return labels
 
 
-# ── YOLO frame segmentation dataset ──────────────────────────────────
-
-
 def build_yolo_frame_seg_labels(
     tracks: list[tuple[str | None, dict, dict]],
     bboxes: list[tuple[str | None, dict, dict]],
@@ -318,9 +306,6 @@ def build_yolo_frame_seg_labels(
                 attrs.append(attributes or {})
 
     return labels
-
-
-# ── COCO frame segmentation dataset ──────────────────────────────────
 
 
 def _coco_ring_px(points: list, w: int, h: int) -> list[float]:
@@ -562,9 +547,6 @@ def build_coco_frames_seg(
     }
 
 
-# ── MOT 16/17/20 ─────────────────────────────────────────────────────
-
-
 def build_mot_gt(
     tracks: list[tuple[int, str | None, dict]],
     *,
@@ -593,7 +575,7 @@ def build_mot_gt(
             source_frames=source_frames,
             checkpoint=checkpoint,
         ):
-            frame = row["grid_index"] + 1  # MOT 1-based
+            frame = row["grid_index"] + 1
             lines.append(
                 (
                     frame,
@@ -636,9 +618,6 @@ def build_mot_seqinfo(
     )
 
 
-# ── KITTI Tracking 2D ─────────────────────────────────────────────────
-
-
 def build_kitti_labels(
     tracks: list[tuple[int, str | None, dict]],
     *,
@@ -669,7 +648,7 @@ def build_kitti_labels(
             source_frames=source_frames,
             checkpoint=checkpoint,
         ):
-            frame = row["grid_index"]  # KITTI 0-based
+            frame = row["grid_index"]
             x1 = row["left"]
             y1 = row["top"]
             x2 = round(x1 + row["w"], 2)

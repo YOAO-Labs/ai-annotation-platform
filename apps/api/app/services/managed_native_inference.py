@@ -53,8 +53,6 @@ async def qualify_native_acceptance(db, task, actor, request, data):
     existing = await _find_decision(
         db, task_id=task.id, idempotency_key=data.idempotency_key
     )
-    # A completed Decision has its own lifetime. Its exact request and current
-    # original must still match, but an expired candidate need not be re-signed.
     claims = (
         None
         if existing
@@ -73,7 +71,6 @@ async def qualify_native_acceptance(db, task, actor, request, data):
         await owner.open_for_acceptance(
             annotations_read=owner.prompt_source is not None
         )
-        # No source handle or permit remains open while final business locks are held.
         await owner.final()
         current = await _find_decision(
             db, task_id=task.id, idempotency_key=data.idempotency_key, lock=True

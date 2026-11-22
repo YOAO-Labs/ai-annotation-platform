@@ -509,8 +509,6 @@ async def test_account_container_concurrency_and_large_preference_round_trip(
             started = time.monotonic()
             await asyncio.gather(*(read() for _ in range(32)))
             duration = time.monotonic() - started
-            # This metadata is valid in the original arbitrary AI-parameter map;
-            # neither the session request cap nor admission response cap applies.
             value = "x" * (16 * 1024 * 1024 + 1)
             large = _command(
                 "patch_preferences",

@@ -1,18 +1,3 @@
-/**
- * §C.8-B 邻帧点云动态点剔除。
- *
- * 邻帧点云用 ego-only 刚体补偿对齐到当前帧后,静止背景重合加密、动态目标留拖影
- * 。本函数把落在「当前帧 tracked box」内的邻帧点剔除,只留静止背景——
- * 动态目标的拖影点随之消失。仅对已标注目标有效(未标注动态物无框可判,仍留拖影)。
- *
- * 判定在「当前帧 ego 系」做:邻帧点是 ISO ego(邻帧系)坐标,先经 relMatrix
- * (= inv(T_当前)·T_邻帧,与渲染 GPU 端同一刚体变换)对齐到当前帧 ego 系,再做
- * point-in-OBB。保留的点返回**原始 ISO ego 坐标**(GPU 仍按 relMatrix 渲染,
- * 不改变原有渲染路径)。
- *
- * 纯几何,可在 jsdom 下单测。OBB 测试用投影法(点-中心 在框三条世界轴上的投影
- * 绝对值 ≤ 半边长 + margin),复用 box3d.boxAxisWorldDir,无矩阵求逆。
- */
 import * as THREE from "three";
 
 import { boxAxisWorldDir } from "./box3d";
@@ -24,9 +9,7 @@ export interface CullBox {
 }
 
 export interface CullResult {
-  /** 剔除动态点后保留的邻帧点(原始 ISO ego 坐标,GPU 仍施加 relMatrix)。 */
   kept: Float32Array;
-  /** 被剔除(对齐到当前帧后落在某 box 内)的点数。 */
   culledCount: number;
 }
 
@@ -47,7 +30,6 @@ export function cullPointsInBoxes(
   if (boxes.length === 0) return { kept: positions, culledCount: 0 };
   const margin = opts?.margin ?? 0;
 
-  // 预计算每框:中心向量 + 三条世界轴单位向量 + 半边长(含 margin)。
   const precomp = boxes.map((b) => ({
     center: new THREE.Vector3(b.center[0], b.center[1], b.center[2]),
     axes: [
@@ -69,7 +51,7 @@ export function cullPointsInBoxes(
     const x = positions[i * 3];
     const y = positions[i * 3 + 1];
     const z = positions[i * 3 + 2];
-    p.set(x, y, z).applyMatrix4(relMatrix); // 邻帧 ISO ego → 当前帧 ego 系
+    p.set(x, y, z).applyMatrix4(relMatrix);
     let inside = false;
     for (let b = 0; b < precomp.length; b++) {
       const box = precomp[b];
@@ -87,7 +69,6 @@ export function cullPointsInBoxes(
       culled++;
       continue;
     }
-    // 保留:写回原始 ISO ego 坐标(渲染仍走 relMatrix)。
     kept[write * 3] = x;
     kept[write * 3 + 1] = y;
     kept[write * 3 + 2] = z;

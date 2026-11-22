@@ -36,8 +36,6 @@ from training_contract.dataset import instance_rle_evidence
 
 @pytest.fixture(autouse=True)
 def legacy_transport_boundary(monkeypatch):
-    # These unit cases isolate business ownership from database admission and
-    # from the separately tested current-target credential/transport routing.
     async def run(db, owner, purpose, callback, *args, **kwargs):
         return callback(storage_service, *args, **kwargs)
 
@@ -714,8 +712,6 @@ async def test_worker_package_and_attempt_cleanup_keep_the_saved_owner(
         else None
     )
     monkeypatch.setattr(worker, "require_authority", AsyncMock(side_effect=authority))
-    # This isolated test proves saved output ownership. Real execution/authority
-    # fences and durable permits are exercised by the database worker suites.
     monkeypatch.setattr(worker, "guard_execution", AsyncMock(return_value=version))
     monkeypatch.setattr(worker.originals, "delegated", AsyncMock(return_value=object()))
     monkeypatch.setattr(worker.originals, "check", AsyncMock())
@@ -726,8 +722,6 @@ async def test_worker_package_and_attempt_cleanup_keep_the_saved_owner(
         AsyncMock(side_effect=lambda *args, **kwargs: OutputPermit()),
     )
     monkeypatch.setattr(worker.storage_access, "check", AsyncMock())
-    # Durable write accounting needs its own database transaction; this case
-    # proves the saved output owner while the accounting suites cover the ledger.
     monkeypatch.setattr(
         worker.training_write_accounting, "recorder", lambda *args, **kwargs: None
     )

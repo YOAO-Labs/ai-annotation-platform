@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-/**
- * 前端 bundle size budget。
- *
- * 在 `vite build` 之后运行：扫描 `dist/assets/*.js`，按 `.size-limit.json`
- * 中的 glob 规则匹配并对比 max 字节数。任何文件超出 → 进程非零退出 →
- * CI 阻断 PR。不依赖第三方工具，只用 Node std lib。
- *
- * .size-limit.json 形如：
- *   [
- *     { "name": "main", "pattern": "index-*.js", "max": "500 KB" },
- *     { "name": "konva", "pattern": "vendor-konva-*.js", "max": "300 KB" }
- *   ]
- *
- * 单位支持：B / KB / MB（1024 进制）。
- */
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,7 +25,6 @@ export function fmt(bytes) {
 }
 
 export function globMatch(pattern, name) {
-  // 仅支持 `*` 通配（满足当前所有 budget 模式）
   const re = new RegExp(
     "^" + pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$",
   );
@@ -92,7 +76,6 @@ function main() {
   console.log("\n[size-limit] ✓ all bundles within budget");
 }
 
-// 仅在直接执行时运行主流程；被单测 import 时只暴露纯函数，不触发副作用。
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main();
 }

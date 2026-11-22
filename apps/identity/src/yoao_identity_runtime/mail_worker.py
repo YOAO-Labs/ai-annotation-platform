@@ -97,8 +97,6 @@ class MailExecutor:
                 return None
             return token
         except Exception:
-            # Ciphertext, key and token material are secrets; callers only receive
-            # the closed `derivation_unavailable` outcome.
             return None
 
     @staticmethod
@@ -247,8 +245,6 @@ class MailExecutor:
             renewal_window = min(float(self.lease_seconds), token_remaining)
             renewal_timeout = max(0.05, min(10.0, renewal_window - 0.1))
             if token_remaining <= 0 or not await self._renew(lease, renewal_timeout):
-                # A blocking SMTP call cannot be safely cancelled mid-DATA. Let it
-                # finish, but abandon completion so the database fence owns truth.
                 try:
                     await asyncio.shield(send_task)
                 except Exception:
@@ -341,8 +337,6 @@ class MailExecutor:
                 accepted=accepted,
             )
         finally:
-            # Drop the raw bearer token reference as soon as message construction
-            # finishes; it remains only in the transient message sent to SMTP.
             token = ""
 
         result, lease_lost = await self._send_with_renewal(lease, policy, message)
@@ -435,8 +429,6 @@ def create_app(
             except IdentityUnavailable:
                 await asyncio.sleep(settings.poll_interval_seconds)
             except Exception:
-                # Driver and SMTP exceptions can contain connection details or
-                # credentials; the durable queue is retried without logging them.
                 await asyncio.sleep(settings.poll_interval_seconds)
 
     app = FastAPI(

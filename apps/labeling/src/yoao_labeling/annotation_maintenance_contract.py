@@ -100,7 +100,6 @@ class MaintenanceDraft(_ClosedModel):
 
 
 class CleanupAnnotation(CrossFrameAnnotationSnapshot):
-    # Cleanup also accepts legacy non-object JSON without rewriting it.
     geometry: object
     attributes: object
     attributes_meta: object

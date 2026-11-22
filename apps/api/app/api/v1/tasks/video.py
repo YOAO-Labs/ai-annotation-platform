@@ -197,7 +197,6 @@ async def get_point_cloud_manifest(
 
     links = await get_linked_items(db, task_id)
 
-    # One public Assets projection covers every linked item; no core ORM read.
     items_by_id = await media_item_reads.read_items(
         db, [link.dataset_item_id for link in links]
     )
@@ -221,7 +220,6 @@ async def get_point_cloud_manifest(
             calibration_revision = state.revision
             calibration_digest = state.digest
         except SpatialFailure:
-            # 无标定相机仍可展示原图；投影与人工成员写入按显式空值降级。
             logger.warning(
                 "task %s %s: stored calibration unavailable, returning null",
                 task_id,
@@ -246,17 +244,12 @@ async def get_point_cloud_manifest(
 
     cameras.sort(key=lambda c: c.name)
 
-    # 取主点云所在 Dataset 的 axis_convention,前端用它把 PCD positions 与各相机
-    # extrinsic 旋转归一化到 ISO 8855。无 primary_lidar item / 无 metadata key → None,
-    # 前端按 "iso_8855" (= identity) 处理,保持向后兼容。
     axis_convention = None
     if primary_link is not None:
         primary_item = items_by_id.get(primary_link.dataset_item_id)
         if primary_item is not None:
             axis_convention = primary_item.axis_convention
 
-    # scene 字段透出:仅当 primary_lidar item 有 scene_id 时挂上,
-    # 前端用做跨帧导航的合法 backing(本期不消费 UX,仅显示在调试面板)。
     scene_id_out: uuid.UUID | None = None
     scene_name_out: str | None = None
     frame_index_out: int | None = None
@@ -283,7 +276,6 @@ async def get_point_cloud_manifest(
                     if row.scene_id == scene.scene_id and row.frame_index is not None
                 }
             )
-            # 本帧 ego pose 透出;无位姿行(历史/非 nuScenes) → None
             if primary_item.frame_index is not None:
                 ego_pose_out = await scene_pose_svc.get_frame_pose(
                     db,
@@ -543,9 +535,6 @@ async def submit_video_segment(
             _raise_quality_error(exc)
         if not was_in_review:
             contributor_ids = await task_contributor_snapshot(
-                # Segments belong to dataset items shared by projects.
-                # Only this task's authors and actual submitter establish
-                # project contribution; global segment assignees do not.
                 db,
                 task,
                 extra_user_ids=(current_user.id,),
@@ -1251,7 +1240,6 @@ async def track_video(
             "annotation_id": str(payload.source_annotation_id)
             if payload.source_annotation_id
             else None,
-            # M · 多选批量: 记录批量延展的源轨迹 ids (多源时 annotation_id 为 None)。
             "source_annotation_ids": [str(a) for a in payload.source_annotation_ids]
             if payload.source_annotation_ids
             else None,

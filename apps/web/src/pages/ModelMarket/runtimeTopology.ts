@@ -1,22 +1,3 @@
-/**
- * pure view-model layer for the model-market registry/runtime pages.
- *
- * Plan §9.2: this module is the only place that joins topology + runtime
- * snapshot + GPU resources into page view models. It is:
- *   - pure (no React, no query, no network);
- *   - type-safe against generated OpenAPI types (no drifting hand-written DTOs);
- *   - truth-preserving: unknown / stale / partial are kept as-is and never
- *     smoothed into 0 / healthy / idle.
- *
- * Routing availability, pool health and drain safety come from the server-side
- * read models (topology.status, runtime route_inflight, etc.). This module only
- * *displays* them — it does not copy router judgment (plan §3.4 / §9.2).
- *
- * Metrics-driven fields (last_selected_at, selection_count_window,
- * rejection_count_window, p95_ms, error_rate) are null when metrics are unavailable
- * (plan §4.2 forbids wiring shared route counters). Callers MUST surface the
- * "暂无路由指标" sentinel rather than 0 — see {@link METRICS_AVAILABLE}.
- */
 import type {
   GPUArbiterResourceItem,
   RuntimeMemberSnapshot,
@@ -28,9 +9,6 @@ import type {
   TopologyResponse,
 } from "@/api/generated/types.gen";
 
-// ── shared leaf types ──────────────────────────────────────────────────────
-
-/** Four independent status axes (plan Appendix A.1). */
 export type HealthAxis = "healthy" | "degraded" | "offline" | "unknown";
 export type RoutingAxis = "routable" | "draining" | "bypassed" | "blocked" | "unknown";
 export type CapacityAxis = "idle" | "serving" | "saturated" | "unknown";
@@ -38,11 +16,9 @@ export type ResidencyAxis = "empty" | "loading" | "resident" | "draining" | "unl
 
 export type Severity = "info" | "warning" | "critical" | "blocker";
 
-/** Stable dedup key — same code+subject_type+subject_id → one record (§7.1). */
 export type DiagnosticSubjectType = "service_pool" | "instance" | "gpu_resource" | "model_pool";
 
 export interface Diagnostic {
-  /** Stable id = `${code}:${subject_type}:${subject_id}` (16-char sha-free form). */
   id: string;
   code: string;
   severity: Severity;
@@ -57,31 +33,25 @@ export interface Diagnostic {
   source: "topology" | "runtime_snapshot" | "gpu_resources";
 }
 
-// ── unified page view model ───────────────────────────────────────────────
-
 export interface MemberViewModel {
   registry_id: string;
   name: string;
   traffic_state: TopologyMemberInstance["traffic_state"];
-  // From topology (may be null for Project Admin).
   weight: number | null;
   state: string | null;
   last_checked_at: string | null;
   gpu_resource_id: string | null;
-  // From runtime snapshot (super-admin only; absent for Project Admin).
   runtime?: {
     health_fresh: boolean;
     route_inflight: number | null;
     circuit_open: boolean | null;
     registry_state: string;
-    // Counts are null when routing metrics are unavailable.
     last_selected_at: string | null;
     selection_count_window: number | null;
     rejection_count_window: number | null;
     p95_ms: number | null;
     error_rate: number | null;
   };
-  // Derived axes (display hints from server-side fields).
   routing: RoutingAxis;
   capacity: CapacityAxis;
 }
@@ -99,7 +69,6 @@ export interface PoolViewModel {
   status: TopologyPoolEntry["status"];
   status_reason_codes: string[];
   members: MemberViewModel[];
-  // Derived rollups.
   availability: {
     routable: number;
     total: number;
@@ -111,7 +80,6 @@ export interface PoolViewModel {
     limit: number | null;
     saturated: boolean;
   };
-  /** True when any metrics-driven field is null (→ "暂无路由指标" sentinel). */
   metrics_available: boolean;
 }
 
@@ -131,11 +99,8 @@ export interface RuntimeTopologyViewModel {
   partial: boolean;
   partial_reason: string | null;
   sources: FreshnessViewModel[];
-  /** True if runtime snapshot is unavailable (Project Admin / load failure). */
   runtime_available: boolean;
 }
-
-// ── constants ──────────────────────────────────────────────────────────────
 
 export const METRICS_AVAILABLE = false as const;
 
@@ -149,15 +114,6 @@ export const FRESHNESS_LABELS: Record<SourceFreshness["name"], string> = {
 
 export const NO_METRICS_LABEL = "暂无路由指标";
 
-// ── pure helpers ───────────────────────────────────────────────────────────
-
-/**
- * Merge topology + runtime snapshot into page view models, joined by stable IDs.
- *
- * Plan §9.2 / Appendix A.4: join by pool_id + registry_id; URL is display-only.
- * If runtime snapshot is null (Project Admin, or load failure), members still
- * render from topology alone with `runtime` undefined — never faked.
- */
 export function mergeTopologyAndSnapshot(
   topology: TopologyResponse,
   snapshot: RuntimeSnapshotResponse | null,
@@ -181,8 +137,6 @@ export function mergeTopologyAndSnapshot(
     partial_reason: snapshot?.partial_reason ?? null,
     sources,
     runtime_available: snapshot !== null,
-    // topology alone has no partial flag; if snapshot absent we can't claim fresh
-    // for router_ledger/gpu/residency — surface as partial with explicit reason.
     ...(snapshot === null
       ? {
           partial: true,
@@ -210,7 +164,6 @@ function toPoolViewModel(pool: TopologyPoolEntry, snap: RuntimePoolSnapshot | nu
     snap && runtimeInflight.every((value) => value != null)
       ? runtimeInflight.reduce((sum, value) => sum + (value ?? 0), 0)
       : null;
-  // The backend contract does not supply max_concurrency, so the limit is unknown.
   const limit = null;
   const saturated = snap ? (snap.members ?? []).some((m) => m.circuit_open) : false;
 
@@ -234,8 +187,6 @@ function toPoolViewModel(pool: TopologyPoolEntry, snap: RuntimePoolSnapshot | nu
       offline: disabled,
     },
     capacity: { inflight, limit, saturated },
-    // The backend reports metrics_available globally; retain the per-pool
-    // for forward compat — when metrics land, only pools with data flip true.
     metrics_available: METRICS_AVAILABLE,
   };
 }
@@ -245,8 +196,6 @@ function toMemberViewModel(
   snap: RuntimeMemberSnapshot | null,
   pool: TopologyPoolEntry,
 ): MemberViewModel {
-  // Routing axis derived from configured traffic_state + runtime evidence (§A.1).
-  // Project Admin sees routing_policy="unknown" → effective routing unknown.
   const routing = deriveMemberRouting(m.traffic_state, snap, pool.routing_policy);
 
   return {
@@ -275,29 +224,18 @@ function toMemberViewModel(
   };
 }
 
-/**
- * Derive the effective routing axis from configured state + runtime evidence.
- *
- * Plan Appendix A.1: configured active/draining/disabled + effective
- * routable/draining/bypassed/blocked/unknown. Off/observe modes may retain
- * legacy backend selection, but draining still blocks new routed work.
- */
 export function deriveMemberRouting(
   trafficState: TopologyMemberInstance["traffic_state"],
   snap: RuntimeMemberSnapshot | null,
   routingPolicy: string,
 ): RoutingAxis {
-  // Project Admin projection: routing_policy === "unknown" → we cannot state
-  // routability; the server trimmed it. Do NOT infer.
   if (routingPolicy === "unknown") return "unknown";
   if (trafficState === "disabled") return "blocked";
   if (trafficState === "draining") return "draining";
-  // active: if circuit_open, the instance is temporarily not selectable.
   if (snap?.circuit_open) return "blocked";
   return "routable";
 }
 
-/** Capacity axis: unknown without a runtime snapshot; the limit may be unavailable. */
 export function deriveMemberCapacity(snap: RuntimeMemberSnapshot | null): CapacityAxis {
   if (!snap || snap.route_inflight == null || snap.circuit_open == null) return "unknown";
   if (snap.circuit_open) return "saturated";
@@ -315,14 +253,6 @@ function toFreshness(s: SourceFreshness): FreshnessViewModel {
   };
 }
 
-// ── diagnostics aggregation (plan §7) ──────────────────────────────────────
-
-/**
- * Collect deduplicated diagnostics from topology + runtime + GPU resources.
- *
- * Dedup key = `${code}:${subject_type}:${subject_id}`. Same key across sources
- * collapses into one record with merged affected_*_ids (plan §7.1).
- */
 export function collectDiagnostics(
   topology: TopologyResponse,
   snapshot: RuntimeSnapshotResponse | null,
@@ -331,7 +261,6 @@ export function collectDiagnostics(
   const byKey = new Map<string, Diagnostic>();
   const now = new Date().toISOString();
 
-  // From topology: per-pool offline / degraded states.
   for (const pool of topology.pools ?? []) {
     if (pool.status === "offline") {
       pushDiagnostic(byKey, {
@@ -365,7 +294,6 @@ export function collectDiagnostics(
     }
   }
 
-  // From runtime: per-instance circuit_open + health stale.
   if (snapshot) {
     for (const pool of snapshot.pools ?? []) {
       for (const m of pool.members ?? []) {
@@ -403,7 +331,6 @@ export function collectDiagnostics(
         }
       }
     }
-    // Source-level freshness diagnostics (e.g. router_ledger stale).
     for (const s of snapshot.sources ?? []) {
       if (s.stale && s.name === "router_ledger") {
         pushDiagnostic(byKey, {
@@ -424,7 +351,6 @@ export function collectDiagnostics(
     }
   }
 
-  // From GPU resources: per-resource status >= warning.
   if (gpuResources) {
     for (const r of gpuResources) {
       if (r.status === "critical" || r.status === "blocker") {
@@ -470,7 +396,6 @@ function pushDiagnostic(map: Map<string, Diagnostic>, d: Diagnostic): void {
     map.set(d.id, d);
     return;
   }
-  // Same key → merge affected IDs (dedup), keep highest severity, earliest observed_at.
   const sevRank: Record<Severity, number> = {
     info: 0,
     warning: 1,
@@ -498,31 +423,18 @@ function dedup(xs: string[]): string[] {
   return Array.from(new Set(xs));
 }
 
-// ── drain → observed idle → unload request gate (plan §8.1) ───────────────
-
 export interface UnloadRequestGate {
-  /** True iff the member has not entered the exact draining state. */
   blocked_routable: boolean;
-  /** True iff observed open execution scopes remain. */
   blocked_inflight: boolean;
-  /** True iff the execution-state reading is stale (cannot trust the count). */
   blocked_stale: boolean;
   /** @deprecated Always false; draining is enforced in every router mode. */
   blocked_shadow_mode: false;
-  /** Whether the UI may offer an unload request based on this observation. */
   can_request_unload: boolean;
   /** @deprecated Compatibility alias for can_request_unload; server decides acceptance. */
   can_unload: boolean;
-  /** Human-readable block reasons (empty if an unload request may be offered). */
   reasons: string[];
 }
 
-/**
- * Evaluate whether the UI may offer an unload request for a member.
- *
- * A fresh zero count is only an observation. The server independently checks
- * execution state before accepting an unload request.
- */
 export function evaluateUnloadGate(
   member: MemberViewModel,
   /** @deprecated Retained for callers; router mode does not change drain gating. */
@@ -555,8 +467,6 @@ export function evaluateUnloadGate(
   };
 }
 
-// ── sorting / filtering helpers ────────────────────────────────────────────
-
 const SEVERITY_RANK: Record<Severity, number> = {
   blocker: 0,
   critical: 1,
@@ -564,7 +474,6 @@ const SEVERITY_RANK: Record<Severity, number> = {
   info: 3,
 };
 
-/** Sort diagnostics blocker → critical → warning → info, then by stable id. */
 export function sortDiagnostics(list: Diagnostic[]): Diagnostic[] {
   return [...list].sort((a, b) => {
     const sev = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
@@ -591,7 +500,6 @@ export function filterDiagnostics(list: Diagnostic[], filter: DiagnosticFilter):
   });
 }
 
-/** Sort pools: degraded/offline first, then by name. */
 export function sortPoolsBySeverity(pools: PoolViewModel[]): PoolViewModel[] {
   const rank: Record<TopologyPoolEntry["status"], number> = {
     offline: 0,
@@ -606,18 +514,11 @@ export function sortPoolsBySeverity(pools: PoolViewModel[]): PoolViewModel[] {
   });
 }
 
-/**
- * Pool-level effective routing axis, derived from member routing rollup.
- *
- * Plan §4.2（阶段三）：健康与路由是两条独立状态轴，运行时池卡与注册服务池行
- * 共用同一推导，保证两处口径一致。
- */
 export function derivePoolEffectiveRouting(
   pool: PoolViewModel,
 ): "routable" | "draining" | "blocked" | "bypassed" | "unknown" {
   if (pool.routing_policy === "unknown") return "unknown";
   if (pool.availability.routable > 0) {
-    // If some routable + some draining, the pool is routable.
     return "routable";
   }
   if (pool.availability.draining > 0 && pool.availability.routable === 0) return "draining";

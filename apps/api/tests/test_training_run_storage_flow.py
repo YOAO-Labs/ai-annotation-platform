@@ -27,7 +27,6 @@ from app.services.training_dataset_bridge import content_digest
 
 @pytest.fixture(autouse=True)
 def legacy_transport_boundary(monkeypatch):
-    # These pre-existing unit cases isolate business ownership from admission.
     from app.services import training_storage_io
     from app.services.storage import storage_service
 

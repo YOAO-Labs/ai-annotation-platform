@@ -131,8 +131,6 @@ def receipt(source):
         source.sha256,
         source.size_bytes,
     )
-    # A metadata publication writes these dimensions itself. They cannot also
-    # serve as immutable input facts without invalidating its own publication.
     pinned = replace(
         source,
         relation=None,
@@ -183,7 +181,9 @@ def _task_binding(source):
     return digest(asdict(source.relation)) if source.relation is not None else None
 
 
-async def pin(db, kind, identifier, *, lock=False):
+async def pin(
+    db, kind, identifier, *, lock=False, wait_for_task=False, wait_for_item=False
+):
     if (
         not isinstance(kind, str)
         or kind not in {"dataset_item", "task"}
@@ -192,11 +192,13 @@ async def pin(db, kind, identifier, *, lock=False):
         reject("video_derivative_input_unrecorded", 409)
     if kind == "task":
         relation = await original_sources.resolve_task_relation(
-            db, identifier, lock=lock
+            db, identifier, lock=lock, wait_for_task=wait_for_task
         )
         if relation.direct_item_id is None or relation.file_type != "video":
             reject("video_derivative_requires_item", 409)
-        source = await original_sources.resolve_task(db, identifier, lock=lock)
+        source = await original_sources.resolve_task(
+            db, identifier, lock=lock, wait_for_item=wait_for_item
+        )
     else:
         source = await original_sources.resolve_item(db, identifier, lock=lock)
     if await owns_media(db, source.item_id):
@@ -231,8 +233,6 @@ def clock(authority):
 
 
 async def _actor_and_key(db, actor_id, key_id, proof=None):
-    # Video read endpoints intentionally have no additional read scope. Initial
-    # route dependencies remain authoritative; exact key facts still bind work.
     try:
         actor = (
             await credentials.reauthorize(db, proof)
@@ -247,7 +247,7 @@ async def _actor_and_key(db, actor_id, key_id, proof=None):
 
 async def _policy(db, policy, kind, identifier, actor, *, lock=False):
     if policy == "task" and kind == "task":
-        await access.visible_task(db, identifier, actor, lock=lock)
+        await access.visible_task(db, identifier, actor, lock=lock, wait_for_task=lock)
         return None, None
     if kind != "dataset_item" or policy not in {"dataset", "storage"}:
         reject()
@@ -291,8 +291,6 @@ async def _policy(db, policy, kind, identifier, actor, *, lock=False):
     if lock:
         query = query.with_for_update(read=True, nowait=True)
     tasks = (await db.execute(query)).all()
-    # Workspace owns the project owner fact; KEY SHARE fences an ownership
-    # transfer for the same rows the caller is about to bind.
     owners = {}
     for project_id in sorted({row.project_id for row in tasks}, key=str):
         if lock:
@@ -308,7 +306,7 @@ async def _policy(db, policy, kind, identifier, actor, *, lock=False):
     return digest([list(row) for row in rows]), None
 
 
-async def check(db, authority, *, lock=False):
+async def check(db, authority, *, lock=False, wait_for_item=False):
     if (
         not isinstance(authority, Authority)
         or not isinstance(authority.mode, str)
@@ -339,7 +337,14 @@ async def check(db, authority, *, lock=False):
                 reject("video_derivative_authority_changed", 409)
         elif authority.policy != "system":
             reject()
-        source = await pin(db, authority.owner_kind, authority.owner_id, lock=lock)
+        source = await pin(
+            db,
+            authority.owner_kind,
+            authority.owner_id,
+            lock=lock,
+            wait_for_task=lock and authority.mode == "system",
+            wait_for_item=lock and wait_for_item and authority.policy == "task",
+        )
         if (
             receipt(source) != validate_receipt(authority.original)
             or _task_binding(source) != authority.task_binding
@@ -369,7 +374,9 @@ async def authorize_policy(db, policy, identifier, actor, request):
         scope, lifecycle = await _policy(
             db, policy, kind, identifier, fresh_actor, lock=True
         )
-        source = await pin(db, kind, identifier, lock=True)
+        source = await pin(
+            db, kind, identifier, lock=True, wait_for_item=kind == "task"
+        )
     authority = Authority(
         "http",
         policy,
@@ -534,8 +541,6 @@ async def drain(pending):
         try:
             await asyncio.shield(pending)
         except BaseException:
-            # A second interruption can arrive while the first is draining.
-            # Reading result() before done would erase physical uncertainty.
             continue
     return pending.result()
 
@@ -602,7 +607,6 @@ async def _fresh(db, authority, source, guard):
         if guard is not None:
             await guard()
         clock(authority)
-    # The owned read-only transaction closes before any physical operation.
 
 
 async def _capture(plan, admission, **read_options):
@@ -620,16 +624,15 @@ async def _capture(plan, admission, **read_options):
     try:
         return await asyncio.shield(pending)
     except BaseException as interrupted:
-        # A Celery soft time limit is an ordinary exception, not task cancellation.
-        # Ask the reader to stop, then drain its physical handles just as for an
-        # asyncio timeout. The outer task must never abandon an unobserved stage.
         pending.cancel()
         try:
             late_stage = await drain(pending)
         except BaseException as late:
             if storage_access.failure_unsettled(late) and late is not interrupted:
                 _raise_drain_failure(
-                    interrupted, late, "Video capture interrupted and reader drain failed"
+                    interrupted,
+                    late,
+                    "Video capture interrupted and reader drain failed",
                 )
         else:
             try:
@@ -637,7 +640,9 @@ async def _capture(plan, admission, **read_options):
             except BaseException as closing:
                 if storage_access.failure_unsettled(closing):
                     _raise_drain_failure(
-                        interrupted, closing, "Video capture interrupted and stage close failed"
+                        interrupted,
+                        closing,
+                        "Video capture interrupted and stage close failed",
                     )
         raise
 
@@ -647,14 +652,18 @@ async def _read_media(db, authority, source, guard, plan, fixture_options=None):
     async with AsyncExitStack() as permits:
         async with _session(db) as owned:
             permit = await storage_access.acquire(
-                owned, plan.location_id, original_sources.media_permit_purpose(source, "video"),
+                owned,
+                plan.location_id,
+                original_sources.media_permit_purpose(source, "video"),
                 expected_revision=plan.maintenance_revision,
             )
         await permits.enter_async_context(permit)
         if plan.read_route is not None:
             async with _session(db) as owned:
                 migration = await storage_access.acquire(
-                    owned, plan.location_id, plan.read_route.purpose,
+                    owned,
+                    plan.location_id,
+                    plan.read_route.purpose,
                     expected_revision=plan.maintenance_revision,
                 )
             await permits.enter_async_context(migration)

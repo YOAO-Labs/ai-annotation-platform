@@ -9,11 +9,6 @@ interface Props {
   children: ReactNode;
 }
 
-/**
- * 在进入 `/projects/:id/...` 类受限页面之前，先确认当前用户对该项目可见。
- * 后端 `GET /projects/:id` 已按成员资格过滤，403/404 直接弹回项目列表，
- * 让用户在跳转前就拿到提示，而不是进到工作台后才被服务端 403。
- */
 export function RequireProjectMember({ children }: Props) {
   const { id } = useParams<{ id: string }>();
   const projectId = id ?? "";

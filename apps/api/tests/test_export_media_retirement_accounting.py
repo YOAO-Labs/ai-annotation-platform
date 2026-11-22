@@ -457,7 +457,6 @@ async def test_real_minio_bundle_retires_versions_through_production_owner(
     gc_db, monkeypatch
 ):
     values = retirement_tests.model_tests._values()
-    # The launcher owns this bucket and all database/Redis resources in test mode.
     ref = physical.make_ref(values["id"], bucket=settings.minio_export_bucket)
     values["storage_ref"] = ref
     row = Bundle(**values)

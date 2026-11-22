@@ -24,7 +24,6 @@ class TestNewTrackId:
     def test_prefix_and_valid_uuid(self):
         tid = _new_track_id()
         assert tid.startswith("trk_")
-        # 后缀是合法 uuid4，非法会抛 ValueError
         uuid.UUID(tid.removeprefix("trk_"))
 
     def test_unique_each_call(self):

@@ -117,7 +117,9 @@ class _S3:
         self.calls.append(("create", kwargs))
         upload_id = f"upload-{uuid4()}"
         self.uploads[upload_id] = {
-            "bucket": kwargs["Bucket"], "key": kwargs["Key"], "parts": {}
+            "bucket": kwargs["Bucket"],
+            "key": kwargs["Key"],
+            "parts": {},
         }
         return {"UploadId": upload_id, "ResponseMetadata": {"HTTPStatusCode": 200}}
 
@@ -139,9 +141,7 @@ class _S3:
         if self._current(kwargs["Bucket"], kwargs["Key"]) is not None:
             raise self._error("PreconditionFailed", 412, "CompleteMultipartUpload")
         upload = self.uploads.pop(kwargs["UploadId"])
-        body = b"".join(
-            part for _, part in sorted(upload["parts"].items())
-        )
+        body = b"".join(part for _, part in sorted(upload["parts"].items()))
         value = self._store(
             upload["bucket"], upload["key"], body, "application/octet-stream"
         )
@@ -289,9 +289,10 @@ async def test_scan_admits_verified_images_across_batches_without_publication_id
         assert request["operation_namespace"] == planned.entry_id
         assert request["file_path"] == planned.source_key == planned.file_path
         assert request["file_size"] == len(body)
-        assert request["content_hash"] == hashlib.md5(
-            body, usedforsecurity=False
-        ).hexdigest()
+        assert (
+            request["content_hash"]
+            == hashlib.md5(body, usedforsecurity=False).hexdigest()
+        )
         assert request["object_identity"] == ObjectIdentity(
             etag=request["content_hash"],
             byte_size=len(body),
@@ -342,9 +343,6 @@ async def test_zip_publication_conflict_never_overwrites_existing_bytes() -> Non
             expected_size=4,
             expected_hash=hashlib.md5(b"data", usedforsecurity=False).hexdigest(),
         )
-    # A conditional creation conflict means the reserved target is no longer the
-    # empty locator the owner allocated; the stable per-entry outcome is a source
-    # change, and the pre-existing bytes stay untouched.
     assert caught.value.code == "source_changed"
     assert s3._current("datasets", key)["body"] == b"old"
 
@@ -464,9 +462,7 @@ async def test_copy_uses_the_source_identity_for_reads_and_target_identity_for_w
         if call[0] in {"head", "get"}
     )
     assert all(
-        call[1].get("VersionId") == "v1"
-        for call in source.calls
-        if call[0] == "get"
+        call[1].get("VersionId") == "v1" for call in source.calls if call[0] == "get"
     )
 
 
@@ -581,7 +577,9 @@ async def test_managed_readback_uses_its_operation_budget_not_the_socket_timeout
             return response
 
     body = b"bounded bytes"
-    storage = SourceStorage(_config(), internal_client=SlowHead(), public_signer=_Signer())
+    storage = SourceStorage(
+        _config(), internal_client=SlowHead(), public_signer=_Signer()
+    )
     written = await storage.managed.publish_stream(
         BytesIO(body),
         _target("published.dat", max_bytes=len(body), mode="write"),

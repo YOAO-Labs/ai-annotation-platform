@@ -47,8 +47,6 @@ async def test_http_minio_native_reference_generation_content_and_acceptance(
 ):
     w = native_world
     await ensure_versioned_import_bucket()
-    # The worker reuses the business transaction; mask owners still commit
-    # through the real independent factory, not its pass-through substitute.
     monkeypatch.setattr(raster_mask_objects, "async_sessionmaker", async_sessionmaker)
     monkeypatch.setattr(masks, "store_coco_rle", _STORE)
     monkeypatch.setattr(masks, "load_coco_rle", _LOAD)
@@ -59,7 +57,6 @@ async def test_http_minio_native_reference_generation_content_and_acceptance(
         urlsplit(storage_service.client.meta.endpoint_url).netloc,
     )
     expected = response_for(w)
-    # Worker writes expire caller instances; retain only immutable identifiers.
     project_id, task_id = w.project.id, w.task.id
     seen, inputs = [], []
     key = w.mask["object_key"]
@@ -107,7 +104,6 @@ async def test_http_minio_native_reference_generation_content_and_acceptance(
     try:
         w.backend.url = f"http://127.0.0.1:{server.server_port}"
         await w.db.commit()
-        # Updating the endpoint deliberately invalidates the previous health record.
         await w.db.refresh(w.backend)
         w.backend.health_meta = {
             "capabilities": {"task_contract_revision": 1},

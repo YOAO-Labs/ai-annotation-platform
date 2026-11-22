@@ -49,7 +49,6 @@ def _build_async_job_query(
     )
 
     if current_user.role != PlatformRole.SUPER_ADMIN.value:
-        # Resolve membership in SQL so page and count scopes need no per-job read.
         project_scope = project_scope_clause(
             current_user, project_scope_id, project_roles=()
         )

@@ -193,8 +193,6 @@ async def require_task_review_write(
     return access
 
 
-# sequence_order 为 NULL 的非序列任务(图像标注等)用该哨兵参与排序,稳定排在
-# 序列任务(点云 scene 帧)之后。取 int32 上限,真实帧序号不可能触及。
 _SEQ_NULL_SENTINEL = 2147483647
 
 
@@ -216,7 +214,6 @@ def _decode_task_cursor(cursor: str):
         seq_str, ts_str, id_hex = parts
         seq = int(seq_str)
     else:
-        # 兼容旧 2 段游标((created_at, id) 时代):seq 取哨兵,降级为按时间/ id 续翻。
         ts_str, id_hex = parts
         seq = _SEQ_NULL_SENTINEL
     ts = datetime.fromisoformat(ts_str)
@@ -315,7 +312,6 @@ def _task_with_url(
             except Exception:
                 pass
     elif thumbnail_path:
-        # thumbnails/* 走 media-cache 桶,其它(如旧路径)按 helper 默认走 datasets
         thumb_bucket = storage_service.bucket_for_cache_key(
             thumbnail_path, default=bucket
         )
@@ -332,7 +328,6 @@ def _task_with_url(
             thumbnail_url = checked[1]
         blurhash = None
     elif thumbnail_path:
-        # The asynchronous sidecar checks the exact active owner and path.
         for name in ("_image_pyramid_thumbnail", "_media_cache_thumbnail"):
             checked = getattr(task, name, None)
             if checked is not None and checked[0] == thumbnail_path:
@@ -474,9 +469,7 @@ async def _attach_image_pyramids_batch(
             ) or path.startswith("image-pyramids/"):
                 task._image_pyramid_thumbnail = (
                     path,
-                    await thumbnail_url(
-                        db, "task", task.id, path, actor_id=actor_id
-                    ),
+                    await thumbnail_url(db, "task", task.id, path, actor_id=actor_id),
                 )
             else:
                 task._media_cache_thumbnail = (

@@ -176,8 +176,6 @@ def _model_bytes(reply: Any) -> bytes:
             separators=(",", ":"),
         ).encode("ascii")
     except (TypeError, ValueError, UnicodeError, RecursionError):
-        # Preserve the owner’s generic 500 phase, including legacy materializer
-        # errors such as an integer exceeding Python's JSON conversion limit.
         raise RuntimeError("Invalid Inference pipeline reply") from None
 
 
@@ -305,7 +303,9 @@ class PipelineHttpServer:
         self._close_task: asyncio.Task | None = None
         self._lifecycle_lock = asyncio.Lock()
 
-    def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    def _accept(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         task = asyncio.create_task(self._handle(reader, writer))
         self._handlers.add(task)
         task.add_done_callback(self._handlers.discard)
@@ -347,7 +347,6 @@ class PipelineHttpServer:
             if server is not None:
                 server.close()
                 await server.wait_closed()
-        # Let already accepted callbacks register before checking the handler set.
         await asyncio.sleep(0)
         while self._handlers:
             batch = tuple(self._handlers)
@@ -409,7 +408,6 @@ class PipelineHttpServer:
                     _json_bytes({"detail": "Inference pipeline owner unavailable"}),
                 )
             except Exception:
-                # Do not expose driver, request, or credential diagnostics.
                 status, response_body = (
                     500,
                     _json_bytes({"detail": "Internal Server Error"}),
@@ -576,7 +574,6 @@ class PipelineHttpServer:
                 token is not None and manager is not None
                 for _, token, manager in other_capabilities
             ):
-                # Preserve the pipeline-only failure phase.
                 capability_readiness["pipelines"] = (
                     await self.data.readiness() if pipeline_configured else False
                 )

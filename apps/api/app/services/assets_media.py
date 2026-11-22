@@ -163,8 +163,6 @@ def media_storage(*, control: bool = False):
     endpoint = f"{scheme}://{settings.minio_endpoint}"
     public_endpoint = settings.minio_public_url or endpoint
     if public_endpoint.startswith("/") and not public_endpoint.startswith("//"):
-        # The API's browser proxy restores the signed upstream host and path.
-        # Portable owner references remain absolute for workers and exports.
         public_endpoint = endpoint
     return S3MediaStorage(
         endpoint=endpoint,

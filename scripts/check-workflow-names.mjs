@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-// Dependency-free naming check for the block-style workflows documented in CLAUDE.md.
-// Advisory by default; CI and pre-commit use --strict.
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,8 +18,6 @@ function checkWord(word, index) {
   return `"${word}" has mixed casing`;
 }
 
-// Names are intentionally static scalars, not expressions, aliases, or folded blocks.
-// Support ordinary YAML quoting and trailing comments without reading step names.
 function scalar(raw) {
   const match = raw.match(/^(?:"([^"\\]*)"|'((?:[^']|'')*)'|([^'"#][^#]*?))(?:\s+#.*)?\s*$/);
   return match ? (match[1] ?? match[2]?.replaceAll("''", "'") ?? match[3]).trim() : "";

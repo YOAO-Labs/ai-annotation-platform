@@ -158,7 +158,6 @@ def test_repeated_baseexception_during_probe_and_wait_drains_native_child(interr
         policy,
         patch.object(probe.selectors.BaseSelector, "select", side_effect=interruption),
     ):
-        # DefaultSelector overrides select; interrupt its actual implementation.
         with patch.object(
             probe.selectors.DefaultSelector, "select", side_effect=interruption
         ):

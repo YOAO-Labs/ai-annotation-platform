@@ -20,8 +20,6 @@ const baseCtx: DispatchCtx = {
   pendingActive: false,
 };
 
-// 鸭子类型：dispatchKey 只读 key / code / *Key 修饰键，构造一个兼容 shape 即可，
-// 避免依赖 jsdom 等 DOM 环境。
 type FakeEvent = Pick<KeyboardEventInit, "ctrlKey" | "metaKey" | "shiftKey" | "altKey"> & {
   key?: string;
   code?: string;
@@ -72,11 +70,9 @@ describe("dispatchKey · 单键", () => {
     expect(dispatch({ key: "b" })).toEqual({ type: "setTool", tool: "box" });
     expect(dispatch({ key: "v" })).toEqual({ type: "setTool", tool: "select" });
     expect(dispatch({ key: "p" })).toEqual({ type: "setTool", tool: "polygon" });
-    // S → "ai-cycle" (具体进入哪个 AI 工具由消费层据 capabilities 决定).
     expect(dispatch({ key: "s" })).toEqual({ type: "setTool", tool: "ai-cycle" });
     expect(dispatch({ key: "S" })).toEqual({ type: "setTool", tool: "ai-cycle" });
   });
-  // G 单键直达 Magic Box (跳过 ai-cycle).
   it("G → setTool magic-box", () => {
     expect(dispatch({ key: "g" })).toEqual({ type: "setTool", tool: "magic-box" });
     expect(dispatch({ key: "G" })).toEqual({ type: "setTool", tool: "magic-box" });
@@ -90,7 +86,6 @@ describe("dispatchKey · 单键", () => {
     expect(dispatch({ key: "3", shiftKey: true })).toBeNull();
   });
   it("Alt+1/2/3/4 → 备用工具快捷键", () => {
-    // Alt+2 → polygon, Alt+3 → ai-cycle (4 个 AI 工具循环).
     expect(dispatch({ key: "1", altKey: true })).toEqual({ type: "setTool", tool: "box" });
     expect(dispatch({ key: "2", altKey: true })).toEqual({ type: "setTool", tool: "polygon" });
     expect(dispatch({ key: "3", altKey: true })).toEqual({ type: "setTool", tool: "ai-cycle" });
@@ -120,7 +115,6 @@ describe("dispatchKey · 单键", () => {
       type: "imageCycleInCategory",
       dir: -1,
     });
-    // Shift+` 在美式布局 key 是 "~" 而非 "`"，故按物理键位 code 判定；测试用 code 模拟真实事件。
     expect(dispatch({ code: "Backquote" })).toEqual({ type: "imageStepCategory", dir: 1 });
     expect(dispatch({ code: "Backquote", shiftKey: true })).toEqual({
       type: "imageStepCategory",
@@ -194,11 +188,9 @@ describe("dispatchKey · 上下文相关", () => {
 
   it("popover 活跃时类别字母不消费", () => {
     expect(dispatch({ key: "f" }, { pendingActive: true })).toBeNull();
-    // 但 Ctrl+Z 等系统级仍消费
     expect(dispatch({ key: "z", ctrlKey: true }, { pendingActive: true })).toEqual({
       type: "undo",
     });
-    // Esc 也仍消费
     expect(dispatch({ key: "Escape" }, { pendingActive: true })).toEqual({ type: "cancel" });
   });
 
@@ -314,7 +306,6 @@ describe("dispatchKey · video mode", () => {
   });
 
   it("Shift + ArrowLeft / ArrowRight 不再顺延为逐帧 seek（修饰键必须完全匹配）", () => {
-    // Shift+←/→ 是「源帧微调」专用组合，仅采样开启时生效；非采样下不命中任何命令。
     expect(dispatch({ key: "ArrowRight", shiftKey: true }, videoCtx)).toBeNull();
     expect(dispatch({ key: "ArrowLeft", shiftKey: true }, videoCtx)).toBeNull();
   });
@@ -381,7 +372,6 @@ describe("dispatchKey · video mode", () => {
   });
 
   it("` / Shift+` → videoStepCategory (跨类跳转)", () => {
-    // Shift+` 在美式布局 key 是 "~" 而非 "`"，故按物理键位 code 判定；测试用 code 模拟真实事件。
     expect(dispatch({ code: "Backquote" }, videoCtx)).toEqual({
       type: "videoStepCategory",
       dir: 1,
@@ -402,11 +392,9 @@ describe("dispatchKey · video mode", () => {
       type: "setVideoTool",
       tool: "track",
     });
-    // 视频交互式 SAM: S/D 直达 (图片侧 S 是「AI 工具循环」, 视频只有两个 AI 工具)。
     expect(dispatch({ key: "s" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "smart-point" });
     expect(dispatch({ key: "D" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "smart-box" });
     expect(dispatch({ key: "e" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "exemplar" });
-    // G / P 与图片侧同键 (图片: G=magic-box, P=polygon)。
     expect(dispatch({ key: "G" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "magic-box" });
     expect(dispatch({ key: "p" }, videoCtx)).toEqual({ type: "setVideoTool", tool: "polygon" });
     expect(dispatch({ key: "w" }, videoCtx)).toEqual({
@@ -479,7 +467,6 @@ describe("dispatchKey · video sampling grid", () => {
     const offCtx: Partial<DispatchCtx> = { videoMode: true, samplingActive: false };
     expect(dispatch({ key: "ArrowRight" }, offCtx)).toEqual({ type: "videoSeek", delta: 1 });
     expect(dispatch({ key: "ArrowLeft" }, offCtx)).toEqual({ type: "videoSeek", delta: -1 });
-    // Shift 变体不再顺延为逐帧 seek（Shift+←/→ 仅在采样开启时是源帧微调）。
     expect(dispatch({ key: "ArrowRight", shiftKey: true }, offCtx)).toBeNull();
     expect(dispatch({ key: "." }, offCtx)).toBeNull();
   });
@@ -501,7 +488,6 @@ describe("dispatchKey · 属性 hotkey 绑定 (D.1)", () => {
       key: "occluded",
       value: true,
     });
-    // current=true 时 toggle 为 false
     const lookupTrue = (digit: string) =>
       digit === "2" ? { key: "occluded", type: "boolean" as const, currentValue: true } : null;
     expect(dispatch({ key: "2" }, { hasSelection: true, attributeHotkey: lookupTrue })).toEqual({
@@ -587,7 +573,6 @@ describe("shape 状态位快捷键", () => {
     expect(dispatch({ key: "h" })).toBeNull();
     expect(dispatch({ key: "o" })).toBeNull();
   });
-  // 无选中 L → 折线工具（与选中态 L=lock 互补）。
   it("无选中 L → setTool polyline", () => {
     expect(dispatch({ key: "l" })).toEqual({ type: "setTool", tool: "polyline" });
   });

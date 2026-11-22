@@ -63,15 +63,9 @@
 }
 
 .cover {
+  position: relative;
   width: 88px;
   flex-shrink: 0;
-}
-
-/* Thumbnail 组件只暴露 width/height 数值 prop（内联宽高），无 className；
-   用 !important 覆盖其内联尺寸，让封面拉满卡片全高（卡片 align-items 默认 stretch）。 */
-.cover > div {
-  width: 100% !important;
-  height: 100% !important;
 }
 
 .body {

@@ -389,7 +389,6 @@ def test_full_epoch_resume_retains_exact_historical_best_without_later_improveme
     second.mkdir()
     resumed = CheckpointCallbacks(s, second, committed)
     resumed.commit_resume(first / callback.checkpoint["name"])
-    # Cancellation before the next epoch still has an identical resumable artifact.
     pointer = json.loads((second / "checkpoint.json").read_text())
     assert pointer["epoch"] == 1 and pointer["role"] == "checkpoint"
     assert (second / pointer["name"]).read_bytes() == (

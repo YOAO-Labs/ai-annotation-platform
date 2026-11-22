@@ -314,10 +314,6 @@ async def _collect_registered(db, project_id, batch_id, targets, options):
     from app.services.exporting.lidar_frozen import FrozenLidar
     from app.services.exporting.lidar_inputs import collect
 
-    # Preflight must still advertise the roles this project can export. The
-    # fresh snapshot keeps every Task link, so the report discovers camera
-    # roles from registered scope while remaining blocked until the user picks
-    # one. Export jobs never set this flag and keep rejecting a missing role.
     pending_kitti_camera = "kitti" in targets and not (
         options and options.kitti_camera_role
     )

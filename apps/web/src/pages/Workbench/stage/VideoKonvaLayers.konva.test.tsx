@@ -1,9 +1,3 @@
-/**
- * 视频标注 Konva 层渲染测试(konva-mock)。
- *
- * 断言几何(像素空间 = 归一化 × size)、线宽 /scale 屏幕恒定、dash、选中/插值/遮挡态切换、
- * 标签 Konva Label/Text、issue pin 按帧显隐。真实 canvas 渲染交给 Playwright(决策 C)。
- */
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { VideoKonvaTrackShape } from "./VideoKonvaTrackShape";
@@ -46,13 +40,13 @@ describe("VideoKonvaTrackShape", () => {
       />,
     );
     const rect = document.querySelector('[data-konva="Rect"]')!;
-    expect(rect.getAttribute("data-x")).toBe("100"); // 0.1*1000
-    expect(rect.getAttribute("data-width")).toBe("300"); // 0.3*1000
-    expect(rect.getAttribute("data-y")).toBe("100"); // 0.2*500
-    expect(rect.getAttribute("data-height")).toBe("200"); // 0.4*500
-    expect(rect.getAttribute("data-strokewidth")).toBe("1.5"); // strokeWidthFor(false)=1.5 /scale 1
+    expect(rect.getAttribute("data-x")).toBe("100");
+    expect(rect.getAttribute("data-width")).toBe("300");
+    expect(rect.getAttribute("data-y")).toBe("100");
+    expect(rect.getAttribute("data-height")).toBe("200");
+    expect(rect.getAttribute("data-strokewidth")).toBe("1.5");
     expect(rect.getAttribute("data-fill")).toMatch(/^rgba\(/);
-    expect(rect.hasAttribute("data-dash")).toBe(false); // 非虚线
+    expect(rect.hasAttribute("data-dash")).toBe(false);
   });
 
   it("选中加粗 + 缩放 /scale", () => {
@@ -67,7 +61,6 @@ describe("VideoKonvaTrackShape", () => {
         visual={DEFAULT_ANNOTATION_VISUAL}
       />,
     );
-    // (1.5 + 0.5) / scale 2 = 1
     expect(document.querySelector('[data-konva="Rect"]')!.getAttribute("data-strokewidth")).toBe(
       "1",
     );
@@ -109,7 +102,6 @@ describe("VideoKonvaTrackShape", () => {
     );
     expect(document.querySelector('[data-konva="Rect"]')).toBeNull();
     const line = document.querySelector('[data-konva="Line"]')!;
-    // 归一化 × size 展平: [0.1*1000,0.2*500, 0.4*1000,0.2*500, 0.4*1000,0.6*500]
     expect(line.getAttribute("data-points")).toBe(JSON.stringify([100, 100, 400, 100, 400, 300]));
     expect(line.getAttribute("data-closed")).toBe("true");
   });
@@ -134,7 +126,6 @@ describe("VideoKonvaTrackShape", () => {
     const line = document.querySelector('[data-konva="Line"]')!;
     expect(line.getAttribute("data-closed")).toBe("false");
     expect(line.getAttribute("data-points")).toBe(JSON.stringify([100, 100, 400, 100]));
-    // 开路径不填充。
     expect(line.hasAttribute("data-fill")).toBe(false);
   });
 
@@ -184,9 +175,9 @@ describe("VideoKonvaTracksLayer", () => {
     expect(document.querySelector('[data-konva="Layer"]')!.getAttribute("data-testid")).toBe(
       "tracks",
     );
-    expect(document.querySelectorAll('[data-konva="Line"]').length).toBe(1); // 预览线
-    expect(document.querySelectorAll('[data-konva="Circle"]').length).toBe(0); // 未选中无圆点
-    expect(document.querySelectorAll('[data-konva="Rect"]').length).toBe(1); // track 框
+    expect(document.querySelectorAll('[data-konva="Line"]').length).toBe(1);
+    expect(document.querySelectorAll('[data-konva="Circle"]').length).toBe(0);
+    expect(document.querySelectorAll('[data-konva="Rect"]').length).toBe(1);
 
     rerender(
       <VideoKonvaTracksLayer
@@ -198,7 +189,7 @@ describe("VideoKonvaTracksLayer", () => {
         visual={DEFAULT_ANNOTATION_VISUAL}
       />,
     );
-    expect(document.querySelectorAll('[data-konva="Circle"]').length).toBe(2); // 2 关键帧圆点
+    expect(document.querySelectorAll('[data-konva="Circle"]').length).toBe(2);
   });
 
   it("预览线点 = 归一化中心 × size(展平)", () => {
@@ -261,11 +252,9 @@ describe("VideoKonvaOverlayLayer", () => {
     );
     const draft = document.querySelector('[data-testid="video-pending-draft"]')!;
     expect(draft.getAttribute("data-dash")).toBe(JSON.stringify([6, 4]));
-    // 标签 Label + Text 文本透传(供 getByText)
     expect(document.querySelector('[data-konva="Label"]')).not.toBeNull();
     const text = document.querySelector('[data-konva="Text"]')!;
     expect(text.getAttribute("data-text")).toBe("car · 插值");
-    // 字号 = labelFontSize / scale = 12
     expect(text.getAttribute("data-fontsize")).toBe("12");
   });
 

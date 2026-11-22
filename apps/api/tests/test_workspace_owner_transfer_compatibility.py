@@ -65,7 +65,6 @@ async def pending_write_model(test_engine, binding):
         __table_args__ = {"schema": "public"}
         id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
 
-    # Observe caller autoflush without granting writes to private Identity rows.
     async with test_engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
         await connection.execute(
@@ -172,10 +171,6 @@ async def test_owner_transfer_matches_actual_legacy(
     persist_http_audit = audit_middleware.append_http_metadata
 
     async def observe_http_audit(db, payload):
-        # The post-response HTTP audit row references the acting account, so its
-        # insert waits while a competing account lock is held. Observe the
-        # middleware at the persistence boundary, before the row is written, and
-        # then let the real write proceed.
         http_audit_started.set()
         return await persist_http_audit(db, payload)
 
@@ -397,7 +392,9 @@ async def test_owner_transfer_matches_actual_legacy(
                     await caller.rollback()
                     await holder.rollback()
                     async with maker() as observer:
-                        assert await observer.get(pending_write_model, pending_id) is None
+                        assert (
+                            await observer.get(pending_write_model, pending_id) is None
+                        )
                     transactions[phase + "_busy"] = state
 
             for autoflush in (False, True):
@@ -425,7 +422,9 @@ async def test_owner_transfer_matches_actual_legacy(
                         assert (
                             await observer.get(Project, projects["direct"].id)
                         ).owner_id == users["old_owner"].id
-                        assert await observer.get(pending_write_model, pending_id) is None
+                        assert (
+                            await observer.get(pending_write_model, pending_id) is None
+                        )
                         for table, key in (
                             (User, users["actor"].id),
                             (User, users["receiver"].id),
@@ -446,16 +445,13 @@ async def test_owner_transfer_matches_actual_legacy(
                 Path(__file__).parent / "fixtures/workspace_owner_transfer_legacy.json"
             ).read_text()
         )
-        # The current projection also exposes the persisted guide-assets
-        # revision; owner transfer must leave that unrelated state unchanged.
         for name in ("success", "same_owner_noop"):
-            frozen["responses"][name]["body"]["guide_assets_revision"] = (
-                projects["main"].guide_assets_revision
-            )
+            frozen["responses"][name]["body"]["guide_assets_revision"] = projects[
+                "main"
+            ].guide_assets_revision
         assert responses == frozen["responses"]
         if binding == "caller":
             assert transactions == frozen["caller_transactions"]
-        # Counts are round trips at the API SQLAlchemy boundary, not database work/capacity.
         evidence = {
             "api_sqlalchemy_round_trips": counts,
             "counter_scope": frozen["counter_scope"],

@@ -59,7 +59,7 @@ last_reviewed: 2026-10-25
 
 ### AI / ML
 
-- `predictions.import` / `predictions.purge`
+- `predictions.import` / `predictions.purge`。核对正式导入时，可用 `predictions.import` 详情中的 `job_id` 对照对应的导入作业；预检不会产生这条记录。
 - `failed_prediction.dismissed` / `failed_prediction.restored`
 - `video_tracker_job.create` / `video_tracker_job.cancel` / `video_tracker_job.accept` / `video_tracker_job.discard` / `video_tracker_job.decision`
 - `video_correction_job.create` / `video_correction_job.cancel`（人工 Mask 纠错传播创建 / 取消）

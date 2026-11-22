@@ -357,8 +357,6 @@ async def test_model_selection_does_not_block_independent_health_settlement(
 
     class HealthSettlingClient:
         async def predict(self, inputs, context=None):
-            # The model response waits for a different owner's real row lock,
-            # as a cold GPU result does before terminal health settlement.
             async with world.factory() as health:
                 await health.execute(text("SET LOCAL lock_timeout = '500ms'"))
                 await health.get(MLBackendRegistry, world.backend, with_for_update=True)
@@ -426,8 +424,6 @@ async def test_result_transaction_keeps_or_replaces_the_whole_task(
     async def pipeline(_task, *args, **kwargs):
         nonlocal inferences
         inferences += 1
-        # Old candidates and accepted AI annotations must survive the long
-        # inference period, even in overwrite mode.
         async with world.factory() as db:
             assert (
                 await db.scalar(select(Prediction.id).where(Prediction.id == world.old))
@@ -632,8 +628,6 @@ async def test_cancel_rechecks_terminal_state_after_waiting_for_final_lock(
         pid = []
         cancellation = asyncio.create_task(cancel(world, pid=pid))
 
-        # Observe the actual PostgreSQL waiter, rather than assuming a timed
-        # sleep establishes that the cancellation has reached its row lock.
         async def wait_for_lock():
             while True:
                 if pid:
@@ -674,7 +668,6 @@ async def test_cancel_between_claim_and_metadata_merge_is_not_lost(
     from app.services.task_lock import TaskLockService
 
     world = commit_world
-    # Capture request authority before injecting the worker admission race.
     await prepare(world)
     original = TaskLockService.active_locks
     cancelled = False

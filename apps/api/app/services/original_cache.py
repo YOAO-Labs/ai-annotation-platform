@@ -283,7 +283,6 @@ def _saved_owner(record):
 
 
 async def _legacy_target(db, record, *, require_enabled=True):
-    # NULL is the historical A address, independent of today's binding.
     if record.location_id != LEGACY_LOCATION_ID or record.binding_generation != 1:
         raise saved_storage.MediaCacheStorageError()
     location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
@@ -417,7 +416,6 @@ async def reserve(factory, source_id, asset_id, storage, *, expected_revision=No
                 expected_revision=expected_revision,
             )
         await budget_lock(db, configured.location_id)
-        # Re-read after waiting for another reservation's transaction.
         if await scope(db, source_id, asset_id) != configured:
             return None, "configuration_changed"
         existing = await db.scalar(
@@ -467,7 +465,7 @@ async def reserve(factory, source_id, asset_id, storage, *, expected_revision=No
         record._maintenance_revision = configured.maintenance_revision
         await prepare_target(db, record)
         db.add(record)
-        await db.commit()  # Independent durable ownership before the first PUT.
+        await db.commit()
         return record, "reserved"
 
 
@@ -539,8 +537,6 @@ def _stored_object(record, context, settled=None, *, observed=None):
 
 
 def verify_stored(record):
-    # The input Snapshot already proves image decoding and dimensions. Equality
-    # of complete stored bytes needs no second snapshot/admission or decoder.
     digest, size = hashlib.sha256(), 0
     deadline = time.monotonic() + snapshots.COPY_SECONDS
     observed = []
@@ -576,7 +572,6 @@ async def bound_destination(db, record):
 
 
 async def detach(db, record):
-    # A retired generation cannot remove a newer locator or another role.
     await db.execute(
         delete(DatasetAssetLocation).where(
             DatasetAssetLocation.asset_id == record.asset_id,
@@ -627,8 +622,6 @@ async def retire(factory, identity, *, uncertain=None):
 
 async def publish(factory, record, storage):
     async with factory() as db:
-        # Retention is optional; a caller may itself own a business row lock.
-        # Never wait indefinitely for that same caller to finish its transaction.
         await db.execute(text("SET LOCAL lock_timeout = '1s'"))
         configured = await scope(db, record.source_id, record.asset_id, lock=True)
         current = await db.scalar(
@@ -650,7 +643,6 @@ async def publish(factory, record, storage):
         locator = await db.get(
             DatasetAssetLocation, (record.asset_id, record.location_id, record.bucket)
         )
-        # Never replace a managed original or an unowned existing locator.
         if locator is not None:
             return False
         checked = now()
@@ -883,8 +875,6 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
                 await on_acquired()
             except BaseException:
                 admission_failed = True
-                # No physical stream was started; its temporary read lease can
-                # be removed without waiting for an SDK handle to settle.
                 settled.set()
                 raise
 
@@ -938,8 +928,6 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
             async with factory() as permit_db:
 
                 async def capture():
-                    # C remains the canonical authority/quota scope. Only the
-                    # saved cache transport is redirected from A to actual B.
                     return await snapshots.capture_from_location(
                         permit_db,
                         configured.location_id,
@@ -957,8 +945,6 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
                         read_purpose(identity),
                         on_acquired=target_admitted,
                     ) as admission:
-                        # Admission rechecks open a metadata transaction; no
-                        # SQL owner or publication locks survive into SDK I/O.
                         await permit_db.commit()
                         snapshot = await capture()
                 else:
@@ -978,7 +964,6 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
                 or exc.code.startswith("storage_")
                 or exc.code.startswith("read_publication_")
             ):
-                # Admission/deadline pressure does not prove a corrupt object.
                 raise
             damaged = True
             return None
@@ -1001,7 +986,6 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
             snapshot.close()
         raise
     finally:
-        # Bounded capture now waits for the SDK thread and handle to settle.
         if identity and settled.is_set():
             try:
                 async with factory() as db:

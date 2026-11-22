@@ -156,7 +156,6 @@ describe("videoToolEnabled", () => {
 
   it("单位未启用 → 工具不可用", () => {
     const tb: ToolBindings = { bbox: { enabled: true, classes: [] } };
-    // region 未配置 → 多边形不可用
     expect(videoToolEnabled("polygon", tb)).toBe(false);
     expect(videoToolEnabled("box", tb)).toBe(true);
   });
@@ -165,10 +164,10 @@ describe("videoToolEnabled", () => {
     const tb: ToolBindings = {
       region: { enabled: true, classes: [], video_modes: { box: false, track: true } },
     };
-    expect(videoToolEnabled("polygon", tb)).toBe(false); // 单帧关
-    expect(videoToolEnabled("polygon-track", tb)).toBe(true); // 轨迹开
-    expect(videoToolEnabled("mask", tb)).toBe(false); // Mask 是当前帧工具
-    expect(videoToolEnabled("mask-track", tb)).toBe(true); // Mask 轨迹走轨迹变体
+    expect(videoToolEnabled("polygon", tb)).toBe(false);
+    expect(videoToolEnabled("polygon-track", tb)).toBe(true);
+    expect(videoToolEnabled("mask", tb)).toBe(false);
+    expect(videoToolEnabled("mask-track", tb)).toBe(true);
   });
 
   it("video_modes 为 null → 单帧/轨迹均可用", () => {
@@ -178,8 +177,6 @@ describe("videoToolEnabled", () => {
   });
 });
 
-// 交互式 SAM 工具必须登记进 VIDEO_TOOL_TARGET，否则 videoToolEnabled 的
-// 「未知工具 → true」会静默放行、绕过全部 tool_bindings 门控（本 epic 头号陷阱）。
 describe("videoToolUnits · 交互式 SAM 工具", () => {
   it("smart-point / smart-box / exemplar 按产出几何归 region 单位", () => {
     expect(videoToolUnit("smart-point")).toBe("region");

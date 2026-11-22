@@ -11,7 +11,6 @@ export function VerifyEmailPage() {
 
   const [phase, setPhase] = useState<Phase>("verifying");
   const [error, setError] = useState("");
-  // StrictMode 下 effect 会跑两次；token 一次性消费，用 ref 防止第二次请求报「已使用」
   const started = useRef(false);
 
   useEffect(() => {

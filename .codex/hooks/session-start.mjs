@@ -149,9 +149,7 @@ process.stdin.on("end", () => {
   let event = {};
   try {
     event = JSON.parse(input || "{}");
-  } catch {
-    // Keep the hook fail-open: basic hardware context is still useful.
-  }
+  } catch {}
 
   process.stdout.write(
     JSON.stringify({

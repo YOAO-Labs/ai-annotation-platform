@@ -46,7 +46,6 @@ _VERIFY = text(
 
 async def _scalar(db, statement, arguments=None):
     try:
-        # Capture and evidence verification borrow the existing caller UOW.
         with db.no_autoflush:
             return await db.scalar(statement, arguments or {})
     except SQLAlchemyError:

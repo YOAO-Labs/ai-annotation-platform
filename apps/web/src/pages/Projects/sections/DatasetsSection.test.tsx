@@ -1,9 +1,3 @@
-/**
- * DatasetsSection 单测 — 项目-数据集关联视图.
- *
- * 覆盖: 加载态 / 空 linked / 已关联表渲染 / 「关联数据集」按钮 + modal 候选列表 / 取消关联
- * 预览、确认和幂等键在重试与重新确认时的作用域.
- */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";

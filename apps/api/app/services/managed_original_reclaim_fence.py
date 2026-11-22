@@ -283,8 +283,6 @@ async def require_source_readable(db, source):
         )
         .limit(1)
     )
-    # Keep any older attempt's unresolved physical receipt, even if a later
-    # attempt became current. A receipt without a surviving target is unknown.
     unsettled = await db.scalar(
         select(Attempt.id)
         .where(

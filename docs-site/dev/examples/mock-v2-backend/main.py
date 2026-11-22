@@ -25,7 +25,6 @@ from pydantic import BaseModel
 app = FastAPI()
 
 
-# series × size 两轴变体 (复用平台 supported_variants 多轴结构)。
 _YOLO_VARIANTS = [
     {
         "key": "series",
@@ -55,15 +54,12 @@ _YOLO_VARIANTS = [
     },
 ]
 
-# 多轴非全笛卡尔积演示: mock 约定 yolo12 只有 n/s/m 三档,
-# 其余 series 全 5 档。inner array 顺序与 supported_variants 轴顺序一致 [series, size]。
 _YOLO_COMBINATIONS = [
     [series, size]
     for series in ("yolov8", "yolo11")
     for size in ("n", "s", "m", "l", "x")
 ] + [["yolo12", size] for size in ("n", "s", "m")]
 
-# 各 model 自报的默认 variant 组合 (前端 VariantSelector 初值, 协议 §4.1.6)。
 _YOLO_DEFAULT_VARIANTS = {"series": "yolo11", "size": "s"}
 
 
@@ -225,7 +221,6 @@ def health() -> dict:
 
 @app.get("/setup")
 def setup() -> dict:
-    # 协议 v2.1: backend 默认 infra=onnx, 各 model 条目可覆盖 (yolo→pytorch, ppocr→paddle)。
     return {
         "name": "mock-v2-backend",
         "version": "0.1.0",
@@ -245,8 +240,6 @@ def versions() -> dict:
     return {"versions": ["mock-v2"]}
 
 
-# ---------- variants 校验 (协议 §2.2 / §6 错误形态演示) ----------
-
 _AXIS_ALLOWED = {
     axis["key"]: [v["value"] for v in axis["variants"]] for axis in _YOLO_VARIANTS
 }
@@ -262,7 +255,6 @@ def _resolve_variants(variants: dict) -> dict:
     for axis, allowed in _AXIS_ALLOWED.items():
         value = resolved[axis]
         if value not in allowed:
-            # 422: 值不在该轴枚举内。
             raise HTTPException(
                 status_code=422,
                 detail={
@@ -273,7 +265,6 @@ def _resolve_variants(variants: dict) -> dict:
                 },
             )
     if [resolved["series"], resolved["size"]] not in _YOLO_COMBINATIONS:
-        # 422: 两轴各自合法但组合不在 variant_combinations 内 (如 yolo12 + l)。
         allowed_sizes = [c[1] for c in _YOLO_COMBINATIONS if c[0] == resolved["series"]]
         raise HTTPException(
             status_code=422,
@@ -285,7 +276,6 @@ def _resolve_variants(variants: dict) -> dict:
             },
         )
     if resolved["size"] == "x":
-        # 503 演示: mock 约定 size=x 视为「权重未下载」→ model_unavailable + Retry-After。
         key = f"{resolved['series']}/{resolved['size']}"
         raise HTTPException(
             status_code=503,
@@ -385,7 +375,6 @@ def _demo_shapes(context: dict) -> list[dict]:
                 "score": 0.88,
             },
         ]
-    # detection 等几何任务默认: 单个 demo bbox。
     return [
         {
             "type": "rectanglelabels",
@@ -401,21 +390,18 @@ def _demo_shapes(context: dict) -> list[dict]:
     ]
 
 
-# /warmup 预热过的 variant key 集合 (mock 仅内存标记, 演示 cache_hit 翻转)。
 _warmed: set[str] = set()
 
 
 @app.post("/predict")
 def predict(req: PredictRequest) -> dict:
     ctx = req.context or {}
-    # v2.1 通用 axis dict; 兼容期继续接受旧字段 context.variants (yolo 风格) 并 normalize。
     variants = ctx.get("model_variants") or ctx.get("variants") or {}
     resolved = _resolve_variants(variants)
     shapes = _demo_shapes(ctx)
     key = f"{resolved['series']}/{resolved['size']}"
     cache_hit = key in _warmed
     _warmed.add(key)
-    # 运行时观测字段 (协议 §4.2): cache_hit / model_load_ms / pool_state, 均为演示值。
     meta = {
         "score": 0.9,
         "model_version": f"mock-{key.replace('/', '-')}",
@@ -424,10 +410,8 @@ def predict(req: PredictRequest) -> dict:
         "model_load_ms": 0 if cache_hit else 120,
         "pool_state": {"current_size": min(len(_warmed), 4), "cap": 4},
     }
-    # 交互式单条 (无外层 results 数组)。
     if req.task is not None and not req.tasks:
         return {"result": shapes, **meta}
-    # 批量。
     results = [{"task": t.id, "result": shapes, **meta} for t in req.tasks]
     return {"results": results}
 

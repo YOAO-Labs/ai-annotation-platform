@@ -1,5 +1,3 @@
-/* 受限树形流水线 DAG 画布 (react-flow 容器 + 自定义节点)。 */
-
 .canvas {
   width: 100%;
   height: 340px;
@@ -9,7 +7,6 @@
   overflow: hidden;
 }
 
-/* react-flow 默认变量覆盖到设计系统 token (避免裸色)。 */
 .canvas :global(.react-flow__edge-path) {
   stroke: var(--sc-border);
   stroke-width: 1.5;
@@ -31,9 +28,8 @@
   fill: var(--sc-foreground);
 }
 
-/* 节点卡: 卡面 + 圆角描边; 选中 ring; 冲突 danger 描边。 */
 .node {
-  position: relative; /* 供状态圆点绝对定位到右上角 */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -52,11 +48,9 @@
 .nodeConflict {
   border-color: var(--sc-destructive);
 }
-/* 未配置就绪: 虚线描边。 */
 .nodeUnconfigured {
   border-style: dashed;
 }
-/* 拖拽改父时: 合法落点高亮 / 非法变淡。 */
 .nodeDropOk {
   border-color: var(--sc-chart-2);
   box-shadow: 0 0 0 2px var(--sc-chart-2);
@@ -65,7 +59,6 @@
   opacity: 0.45;
 }
 
-/* 副标题: backend 名 + 待配置徽标。 */
 .nodeSubtitle {
   display: flex;
   align-items: center;
@@ -77,7 +70,6 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* 父框过滤芯片。 */
 .nodeChip {
   width: fit-content;
   max-width: 100%;
@@ -91,12 +83,10 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* 警示标。 */
 .nodeWarn {
   color: var(--sc-destructive);
 }
 
-/* hover 浮层正文 (全量信息) + 警示行。 */
 .tipBody {
   display: flex;
   flex-direction: column;
@@ -110,17 +100,17 @@
 .nodeHeader {
   display: flex;
   align-items: center;
-  flex-wrap: wrap; /* 徽标过多 (输入节点: 源类型 + 执行单位) 时换行, 不挤压标题 */
+  flex-wrap: wrap;
   gap: 6px;
   row-gap: 4px;
-  padding-right: 12px; /* 给右上角状态圆点留位, 避免首行内容与其相撞 */
+  padding-right: 12px;
 }
 .nodeIcon {
   color: var(--sc-muted-foreground);
 }
 .nodeName {
   font-weight: 600;
-  white-space: nowrap; /* CJK 标题不再被挤成逐字竖排 */
+  white-space: nowrap;
 }
 .nodeDetail {
   color: var(--sc-muted-foreground);
@@ -161,7 +151,6 @@
   background: var(--sc-muted);
 }
 
-/* 运行态圆点 (绝对定位到节点右上角, 不再靠 nodeName flex 撑开)。 */
 .dot {
   position: absolute;
   top: 10px;

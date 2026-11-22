@@ -1,9 +1,3 @@
-/**
- * marketUrlState 单测（plan §5 键表）。
- *
- * 覆盖：缺失默认值、枚举回退 + issue、codec 只写自身键、清除条件保留文本
- * 搜索、对象定位键与问题筛选键互不覆盖、默认值不写入 URL。
- */
 import { describe, expect, it } from "vitest";
 
 import {
@@ -48,7 +42,6 @@ describe("marketTabCodec", () => {
     const current = new URLSearchParams("tab=registry&registry_view=instances&foo=1");
     const next = marketTabCodec.encode(current, { tab: "models" });
     expect(next.get(MARKET_URL_KEYS.tab)).toBeNull();
-    // registry_view 与外部键不被触碰。
     expect(next.get(MARKET_URL_KEYS.registryView)).toBe("instances");
     expect(next.get("foo")).toBe("1");
   });
@@ -159,12 +152,10 @@ describe("registryUrlCodec.clear", () => {
     );
     const next = registryUrlCodec.clear?.(current, REGISTRY_URL_DEFAULTS);
     if (!next) throw new Error("clear must be implemented");
-    // 保留
     expect(next.get(MARKET_URL_KEYS.poolQ)).toBe("sam");
     expect(next.get(MARKET_URL_KEYS.instanceQ)).toBe("bk");
     expect(next.get(MARKET_URL_KEYS.issueQ)).toBe("circuit");
     expect(next.get(MARKET_URL_KEYS.instanceId)).toBe("bk-9");
-    // 清除
     expect(next.get(MARKET_URL_KEYS.poolHealth)).toBeNull();
     expect(next.get(MARKET_URL_KEYS.instanceHealth)).toBeNull();
     expect(next.get(MARKET_URL_KEYS.instancePool)).toBeNull();
@@ -173,8 +164,6 @@ describe("registryUrlCodec.clear", () => {
     expect(next.get(MARKET_URL_KEYS.issueCode)).toBeNull();
   });
 });
-
-// ── 能力目录 codec（plan §5 catalog_* 键表） ────────────────────────────────
 
 describe("catalogUrlCodec.parse", () => {
   it("搜索往返保留输入空白", () => {

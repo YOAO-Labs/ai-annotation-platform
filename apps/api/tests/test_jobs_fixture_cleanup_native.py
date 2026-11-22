@@ -540,7 +540,6 @@ async def test_fixture_cleanup_rejects_unretired_video_without_changing_rows(
             await savepoint.rollback()
             assert await _video_fixture_snapshot(owner, fixture) == before
         finally:
-            # Bound legacy execution cannot be retired without real route proof.
             await transaction.rollback()
         after = await _video_fixture_snapshot(owner, fixture)
         assert all(not rows for rows in after.values())

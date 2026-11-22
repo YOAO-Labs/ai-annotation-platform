@@ -1,4 +1,3 @@
-/** Retained data is useful after network failures, but never after access is revoked. */
 export function storageAccessDenied(error: unknown): boolean {
   return (
     !!error &&

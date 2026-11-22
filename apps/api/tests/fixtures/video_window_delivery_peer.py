@@ -63,9 +63,6 @@ def _ready(**_kwargs):
 
 
 if __name__ == "__main__":
-    # Keep the actual registered task/decorator and Celery parent/prefork child.
-    # Only its async business entry is replaced; execution recovery has separate
-    # real-owner SIGKILL tests and is not asserted by this delivery-only probe.
     video_tracker._run_video_tracker_job = _delivery_probe
     celery_app.conf.include = []
     worker_ready.connect(_ready, weak=False)

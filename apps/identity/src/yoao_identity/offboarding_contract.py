@@ -107,7 +107,6 @@ class PreviewOffboardingPayload(ClosedModel):
 
 class CommitOffboardingPayload(ClosedModel):
     target_user_id: uuid.UUID
-    # Publicly unbounded by design; this value can be echoed in a stale-CAS error.
     preview_version: str = Field(strict=True)
     reason: str = Field(max_length=500, strict=True)
     mode: OffboardingMode
@@ -388,9 +387,6 @@ class OffboardingResultRecord(ClosedModel):
     transfers: list[OffboardingTransfer]
     unresolved: list[OffboardingUnresolved]
     revoked_api_key_ids: list[uuid.UUID]
-    # A successful private write must have a typed Audit row. The public legacy
-    # response remains nullable, but accepting null here could commit a partial
-    # result after the owner failed to record its required Audit event.
     audit_id: int = Field(ge=1, le=_INT64_MAX, strict=True)
 
 
@@ -704,8 +700,6 @@ class OffboardingSnapshotFacts(ClosedModel):
         batch_order = [(batch.project_id, batch.id) for batch in self.batches]
         if batch_order != sorted(batch_order):
             raise ValueError("Offboarding batch facts must retain source order")
-        # ProjectMember.role ordering comes from the legacy database collation.
-        # Preserve that row order instead of re-sorting role text in Python.
         if any(
             task.project_id is not None and task.project_id not in scope_ids
             for task in self.tasks

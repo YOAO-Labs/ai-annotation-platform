@@ -89,8 +89,6 @@ def _probe_writer(client, target, payload, *, purpose="datasets"):
         if getattr(exc, "outcome", None) == "unknown":
             storage_access.mark_unsettled(exc)
         if prepared is not None:
-            # An exact unfinished MPU can be aborted even when its completion
-            # response was lost; this never proves the final object absent.
             try:
                 writer.abort_prepared(client, target.bucket, key, prepared)
             except BaseException:
@@ -99,7 +97,6 @@ def _probe_writer(client, target, payload, *, purpose="datasets"):
     finally:
         for receipt in reversed(receipts):
             if unknown_final and receipt.version_id is None:
-                # A newer unreceipted write could now own this current key.
                 continue
             params = shared.object_params(target.bucket, key, receipt.version_id)
             try:

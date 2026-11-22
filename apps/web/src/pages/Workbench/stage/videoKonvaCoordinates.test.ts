@@ -54,7 +54,6 @@ describe("clientToVideoNorm / videoNormToClient", () => {
 
   it("与图片 toImg 公式同构:(client-left-tx)/scale/size", () => {
     const vp: Viewport = { scale: 1, tx: 0, ty: 0 };
-    // 容器内 (left+960, top+540) 应落在归一化中心 (0.5,0.5)。
     const norm = clientToVideoNorm(rect.left + 960, rect.top + 540, rect, vp, size);
     expect(norm).toEqual({ x: 0.5, y: 0.5 });
   });

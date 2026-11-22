@@ -243,7 +243,6 @@ async def test_sftp_probe_pins_hosts_credentials_timeout_and_sample_limit(
         for event in events
         if isinstance(event, tuple) and event[0] == "connect"
     )
-    # Pinned identity and credential use, not the connector SDK's wire shape.
     assert (connect["hostname"], connect["port"], connect["username"]) == (
         "8.8.8.8",
         2222,

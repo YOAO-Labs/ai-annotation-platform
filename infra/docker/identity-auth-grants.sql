@@ -1,13 +1,3 @@
--- Grant the narrow Identity LOGIN surfaces after migrations and
--- module-data-grants. Roles must already exist and have no memberships.
--- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v identity_owner=identity_code \
---   -v identity_auth_role=yoao_identity_auth_client \
---   -v identity_command_role=yoao_identity_command_client \
---   -v identity_fence_role=yoao_identity_fence_client \
---   -v identity_operator_role=yoao_identity_session_operator \
---   -f infra/docker/identity-auth-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -148,7 +138,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_identity_v1.purge_expired_revocations(integer)
     TO :"identity_operator_role";
 
--- Fail closed unless each LOGIN has only its exact Identity operation surface.
 DO $$
 DECLARE
     role_entry record;

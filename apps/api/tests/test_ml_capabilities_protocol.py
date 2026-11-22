@@ -28,7 +28,6 @@ async def test_protocol_returns_full_catalog(httpx_client, auth_headers):
     assert [p["id"] for p in data["prompts"]] == list(reg.PROMPT_VALUES)
     assert [i["id"] for i in data["inputs"]] == list(reg.INPUT_VALUES)
 
-    # task id 与 SSOT 一致, 顺序保留
     assert [t["id"] for t in data["tasks"]] == list(reg.TASK_VALUES)
     assert [i["id"] for i in data["infras"]] == list(reg.INFRA_VALUES)
     assert [m["id"] for m in data["modalities"]] == list(reg.MODALITY_VALUES)
@@ -46,7 +45,7 @@ async def test_protocol_task_metadata_shape(httpx_client, auth_headers):
     assert detection["protocol_notes"]
     assert detection["default_geometry"] == ["bbox"]
     assert isinstance(detection["suggested_backends"], list)
-    assert detection["suggested_backends"]  # detection 必有推荐
+    assert detection["suggested_backends"]
     s0 = detection["suggested_backends"][0]
     assert s0["name"] and s0["repo_url"].startswith("https://")
 

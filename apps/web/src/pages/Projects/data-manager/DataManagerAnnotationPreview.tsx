@@ -1,16 +1,3 @@
-/**
- * Data Manager 只读标注预览。
- *
- * 在 TaskMatchesSheet / EntityDetailSheet 内渲染当前任务的正式保存标注
- * (boxes / 旋转框 / 带 holes 与 multi-part 的多边形 / 折线 / 关键点骨架 /
- * 像素掩码)，几何与图像像素共用同一 scale + offset（含 letterbox）。
- *
- * 只读约束：不挂任何 move/resize/rotate/mutation handler；编辑入口仍是
- * 工作台链接。读取仅限当前任务：任务媒体走任务读 API，标注走既有的
- * `/tasks/{id}/annotations/page` (200/页) 游标分页，请求带 AbortSignal，
- * 关闭/切换任务时取消过期请求。配色与骨骼配置按项目显式传入，不依赖
- * Workbench 上次写入的全局类别色。
- */
 import {
   useCallback,
   useEffect,
@@ -62,7 +49,6 @@ const PREVIEW_VISUAL = {
 export interface DataManagerAnnotationPreviewProps {
   projectId: string;
   taskId: string;
-  /** 高亮的已保存标注 (对象视图选中的 annotation_id)。 */
   highlightAnnotationId?: string | null;
   className?: string;
 }
@@ -76,8 +62,6 @@ function previewToolUnit(annotation: AnnotationResponse) {
 function previewProjectConfig(toolBindings: Record<string, unknown> | null | undefined) {
   const configs: Record<string, ClassesConfig> = {};
   const schemas: Record<string, KeypointSchema> = {};
-  // 遮挡样式 key 跨工具单位并集（含禁用单位），与工作台/复核
-  // annotationToBox 的输入一致，保证预览的虚线+半透遮挡视觉与工作台相同。
   const occludedKeys = new Set<string>();
   for (const [unit, raw] of Object.entries(toolBindings ?? {})) {
     if (!raw || typeof raw !== "object") continue;
@@ -130,9 +114,6 @@ export default function DataManagerAnnotationPreview({
   });
   const task = taskQ.data;
 
-  // Saved annotations only: pending AI/tracker candidates are never rendered
-  // here; they stay in the separately labelled match list. Non-image media
-  // never triggers annotation reads.
   const annotationsQ = useInfiniteQuery({
     queryKey: ["dm-preview-annotations", projectId, taskId, ownerScope, tokenEpoch],
     queryFn: ({ pageParam, signal }) =>
@@ -162,9 +143,6 @@ export default function DataManagerAnnotationPreview({
     setSelectedId(highlightAnnotationId);
   }, [highlightAnnotationId]);
 
-  // Keep walking annotation pages until the highlighted object is found (or
-  // the task's pages are exhausted); absence on the first page never implies
-  // deletion.
   useEffect(() => {
     if (!highlightAnnotationId || !hasNextPage) return;
     if (annotations.some((item) => item.id === highlightAnnotationId)) return;
@@ -202,12 +180,8 @@ export default function DataManagerAnnotationPreview({
   const refreshImageSource = imageSource.refresh;
   const refreshMedia = useCallback(async () => {
     await Promise.all([refetchTask(), refreshImageSource()]);
-    // Signed URLs may intentionally be stable across reads. A fresh attempt
-    // must still load the pixels after a transient image-network failure.
     setImageAttempt((value) => value + 1);
   }, [refetchTask, refreshImageSource]);
-  // A failed media URL may be an expired signature: refetch task metadata once
-  // for a fresh URL, then keep an actionable retry.
   const refreshedOnceRef = useRef(false);
   useEffect(() => {
     if (imageStatus !== "failed" || refreshedOnceRef.current) return;
@@ -255,12 +229,8 @@ export default function DataManagerAnnotationPreview({
     [visibleAnnotations, occludedKeys],
   );
 
-  // Mask content fetches are owned by this preview and cancelled when the
-  // task/account scope changes or the sheet closes.
   const maskScopeKey = JSON.stringify([ownerScope, tokenEpoch, projectId, taskId]);
   const maskAbortRef = useRef<AbortController | null>(null);
-  // Register before useRasterMaskRecords: its layout effects can immediately
-  // start a cached annotation's content request on this same commit.
   useLayoutEffect(() => {
     maskAbortRef.current?.abort();
     const controller = new AbortController();
@@ -343,8 +313,6 @@ export default function DataManagerAnnotationPreview({
     );
   }
   if (task.file_type !== "image") {
-    // Videos, trajectories and point clouds keep their metadata and the
-    // Workbench link; dense overlays are out of scope for this preview.
     return null;
   }
   if (imageSource.source?.kind === "pyramid-pending") {

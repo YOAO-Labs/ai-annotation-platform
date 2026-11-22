@@ -210,8 +210,6 @@ async def test_list_rows_preserve_visibility_and_legacy_filter_phases(test_engin
     template_ids: list[uuid.UUID] = []
     try:
         async with maker.begin() as session:
-            # Existing public templates are visible to this new actor; only a
-            # super-admin may also see the other preexisting private templates.
             existing = (
                 await session.execute(
                     text("SELECT id, scope FROM public.project_templates")

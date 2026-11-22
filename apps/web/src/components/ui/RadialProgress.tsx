@@ -1,9 +1,5 @@
 import { cn } from "@/lib/utils";
 
-/**
- * RadialProgress —— 圆环进度。SVG 单环,不引图表库。
- * 颜色走 SVG stroke,默认读取 shadcn runtime token。
- */
 interface RadialProgressProps {
   value: number;
   max?: number;

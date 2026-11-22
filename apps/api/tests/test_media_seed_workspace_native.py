@@ -54,8 +54,6 @@ async def media_world(test_engine):
                 role,
             )
             assert result.returncode == 0, result.stderr
-            # Other-domain seed operations keep their existing privileges; this
-            # fixture measures only the Project boundary.
             async with test_engine.begin() as db:
                 signatures = (
                     await db.scalars(

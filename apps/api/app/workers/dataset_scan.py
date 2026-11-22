@@ -27,8 +27,6 @@ async def dispatch(db, run_id):
         )
     except Exception:
         await db.rollback()
-        # An uncertain publish may already have reached the worker. The same
-        # task id remains fenced; a future resume supersedes it atomically.
         _, _, current, current_job = await svc.run_context(db, run_id)
         if (
             current_job
@@ -178,7 +176,7 @@ async def execute_scan(run_id, task_id, node_id):
                 )
                 await db.commit()
     except HTTPException:
-        pass  # Deleted/retired contracts cannot be revived by a queued message.
+        pass
     finally:
         await engine.dispose()
 
@@ -190,12 +188,10 @@ async def retire_agent_receipt(db, receipt, code):
     try:
         from app.services import agent_transport
 
-        # Rollback expires ORM attributes, including the physical-close evidence.
         await db.refresh(receipt)
         if receipt.closed is not True:
             return
         await agent_transport.acknowledge(db, receipt, accepted=False, code=code)
         await db.commit()
     except Exception:
-        # The owner failure remains primary; the receipt retains its durable state.
         await db.rollback()

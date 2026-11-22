@@ -246,8 +246,6 @@ def _uuid(value: Any, *, nullable: bool = False) -> UUID | None:
 
 def _jsonb(value: Any) -> Any:
     if type(value) in {str, bytes}:
-        # asyncpg returns JSON/JSONB in its wire text form unless a codec has
-        # been registered; decode every field from the full Native row.
         return json.loads(value)
     return value
 
@@ -297,8 +295,6 @@ def _copy_row(target: Any, source: Any) -> None:
 
 
 def _canonical_snapshot_json(snapshot: dict[str, Any]) -> str:
-    # Match canonical capability fingerprint ordering and preserve the old JSONB
-    # serialization phase for NaN/Infinity at the deferred Native flush.
     return json.dumps(
         snapshot,
         sort_keys=True,
@@ -389,7 +385,6 @@ class HealthDataPostgresData:
         row = await self._backend_row(backend_id, for_update=False)
         if row is None:
             return None
-        # ORM SELECT materializes the full row even when identity-map values win.
         cached = self._backends.get(backend_id)
         if cached is not None:
             return cached
@@ -443,7 +438,6 @@ class HealthDataPostgresData:
             raise HealthDataUnavailable()
         state = values["state"]
         observed_at = values["last_checked_at"]
-        # SQLAlchemy's JSONB serializer encodes Python None as JSON null by default.
         health_meta_json = json.dumps(values["health_meta"])
         has_interactive = "is_interactive" in values
         interactive = values["is_interactive"] if has_interactive else False

@@ -17,26 +17,16 @@ import {
 } from "./issuePinVisuals";
 
 interface VideoKonvaIssueLayerProps {
-  /** 仅 kind=issue + anchor_type=pixel + 含 anchor_position 的 feedback 行。 */
   pixelIssues: AnnotationFeedback[];
   frameIndex: number;
   size: VideoPixelSize;
   scale: number;
   highlightId?: string | null;
-  /** 单击图钉 → onPinClick(id)(Shell 据此高亮 + 切到 DiscussionPanel issues tab)。 */
   onPinClick?: (id: string) => void;
   dropArmed?: boolean;
   onDrop?: (x: number, y: number, frame: number) => void;
 }
 
-/**
- * 视频 issue 图钉层(Konva Layer "issue",render-only)。
- *
- * 旧 VideoIssueLayer(SVG)的 Konva 对应物:只渲染 anchor_position.frame === 当前帧 的图钉,
- * 坐标像素空间(归一化 × size),status/severity 配色复用 shadcn tokens。
- * 提供 onPinClick 时图钉可点击(Layer/Circle listening);pointerdown 用 cancelBubble 阻止
- * 冒泡到 Stage(避免误触发画框/取消选中),click 触发回调(对齐旧 SVG 栈 onPinClick)。
- */
 export function VideoKonvaIssueLayer({
   pixelIssues,
   frameIndex,

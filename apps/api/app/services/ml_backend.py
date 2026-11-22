@@ -138,7 +138,6 @@ class MLBackendService:
 
             raise MLBackendQuiescenceError(exc.error_code, str(exc)) from exc
 
-    # ── 全局注册表 ───────────────────────────────────────────────────────────
     async def create_registry(
         self, name: str, url: str, source: str = "manual", **kwargs
     ):
@@ -156,8 +155,6 @@ class MLBackendService:
             extra_params=kwargs.get("extra_params"),
             config=settings,
         )
-        # Managed first-party credentials stay resolved by the API owner; the
-        # Inference owner only ever receives a materialized token.
         env_managed_default = False
         if "auth_method" not in kwargs:
             from app.services.managed_inference_auth import provider_for_url
@@ -182,7 +179,6 @@ class MLBackendService:
             self._topology().create_registry(name, url, source=source, **kwargs)
         )
 
-    # ── ADR-0050 §12.1 · Super Admin pool/member management ──────────
     async def create_pool(
         self, name: str, *, legacy_instance_id: uuid.UUID | None = None
     ):
@@ -331,7 +327,6 @@ class MLBackendService:
         if managed_provider(next_method) is not None and (
             "auth_method" in kwargs or "url" in kwargs or "auth_token" in kwargs
         ):
-            # Resolve the handshake before the durable write (and its row lock).
             from app.services.managed_inference_auth import initialize_managed_auth
 
             kwargs["auth_token"] = await initialize_managed_auth(
@@ -372,10 +367,6 @@ class MLBackendService:
                 registry_id, expected_topology=expected_topology
             )
         )
-
-    # ── 项目启用关联（ADR-0050，经服务池层）────────────────────────────────
-    # Project associations use service-pool IDs; Registry adapters resolve their
-    # physical IDs through the topology coordinator.
 
     async def pool_id_for_registry(self, registry_id: uuid.UUID) -> uuid.UUID | None:
         return await self._topology().pool_id_for_registry(registry_id)
@@ -419,7 +410,6 @@ class MLBackendService:
             self._topology().set_enabled(project_id, registry_id, enabled, **overrides)
         )
 
-    # ── client 操作 (按 registry id) ─────────────────────────────────────────
     async def unload(
         self, registry_id: uuid.UUID, *, expected_topology=None
     ) -> dict | None:

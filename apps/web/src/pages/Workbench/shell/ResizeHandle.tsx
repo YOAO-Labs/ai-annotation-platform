@@ -1,24 +1,14 @@
 import { useCallback, useRef, useState } from "react";
 
 interface ResizeHandleProps {
-  /** "right" = handle 贴在容器右沿，往右拖增大宽度（左侧栏用）。
-   *  "left"  = handle 贴在容器左沿，往左拖增大宽度（右侧栏用）。
-   *  "top" = handle 贴在容器顶沿，往上拖增大高度（下方面板用）。
-   *   "bottom" = handle 贴在容器底沿，往下拖增大高度（上下分段用）。 */
   side: "left" | "right" | "top" | "bottom";
-  /** 当前尺寸（受控）：水平方向是宽度，垂直方向（side="bottom"）是高度。 */
   width: number;
   onResize: (next: number) => void;
   min?: number;
   max?: number;
-  /** 双击恢复的默认尺寸（不传时按 side 取内置默认）。 */
   resetTo?: number;
 }
 
-/**
- * VS Code 风格 拖拽条：默认透明，hover/拖拽中显示 accent 高亮。
- * 绝对定位贴在容器边沿外侧，不占容器内布局空间。
- */
 export function ResizeHandle({
   side,
   width,
@@ -65,7 +55,6 @@ export function ResizeHandle({
 
   const active = hover || dragging;
 
-  // 容器贴边定位 + 命中区方向；grip 高亮条用子 span 呈现（原 ::after）。
   const containerClass =
     side === "right"
       ? "inset-y-0 right-0 w-3.5 cursor-col-resize"

@@ -89,13 +89,10 @@ async function openTask(page: Page, seed: SeedAPI, data: SeedData, taskId: strin
 }
 
 async function beginEdit(page: Page, annotationId: string): Promise<void> {
-  // Dismiss the selected card through its normal keyboard path before selecting a row.
   await page.keyboard.press("Escape");
   await openSelectedMaskEditor(page, annotationId);
   await openMaskSettings(page);
   await expect(page.getByTestId("mask-toolbar")).toContainText("就绪", { timeout: 15_000 });
-  // 就绪 ≠ 画布可交互：等媒体与 Konva 画布真正可见后再让用例做指针操作，
-  // 否则 fitted 前的合成指针事件被丢弃, 笔迹无声丢失。
   const stage = page.getByTestId("workbench-stage");
   await expect(stage).toHaveAttribute("data-image-ready", "true", { timeout: 15_000 });
   await expect(stage.locator("canvas").first()).toBeVisible({ timeout: 15_000 });
@@ -121,8 +118,6 @@ async function clickPixel(page: Page, x: number, y: number): Promise<void> {
 }
 
 async function waitToastsGone(page: Page): Promise<void> {
-  // sonner toast 挂在页面右上 (section[aria-live])，beginEdit 的提示 toast 会盖住
-  // 画布上部区域的笔迹落点，mousedown 被 toast 截获 → 整笔无声丢失。
   await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, { timeout: 10_000 });
 }
 
@@ -281,8 +276,6 @@ test.describe("Mask 高级编辑用例", { tag: "@mask-native" }, () => {
     await beginEdit(page, fixture.annotation_id);
     const toolbar = page.getByTestId("mask-toolbar");
 
-    // 真实用户链路保留代表性组合；擦除命中排列由 maskOperations.test.ts 的
-    // 连通性用例在低层穷举，8 邻域选择器接线仍需一条真实 UI 断言。
     await chooseAdvanced(page, "保留命中组件");
     await clickPixel(page, 20, 20);
     await expect(toolbar).toContainText("面积 32→16");
@@ -328,9 +321,6 @@ test.describe("Mask 高级编辑用例", { tag: "@mask-native" }, () => {
     await beginEdit(page, fixture.annotation_id);
     const toolbar = page.getByTestId("mask-toolbar");
 
-    // 真实用户链路：填孔预览 → 离开守卫 → 丢弃 → 持久内容不变。
-    // 「去小组件阈值」「保留命中组件」的多组件排列由 maskOperations.test.ts
-    // 的 donut-and-islands 用例在低层穷举。
     await chooseAdvanced(page, "填充命中孔洞");
     await clickPixel(page, 10, 10);
     await expect(toolbar).toContainText("面积 612→676");
@@ -507,13 +497,9 @@ test.describe("Mask 高级编辑用例", { tag: "@mask-native" }, () => {
     const toolbar = page.getByTestId("mask-toolbar");
     const radiusSlider = toolbar.getByTestId("mask-radius-slider");
     await radiusSlider.fill("2");
-    // 显式锁定笔刷形状 (默认即圆形): 与用例 1 相同的交互节奏, 让 slider/形状菜单的
-    // 渲染在画笔落下前完成, 避免过渡帧里 stage 几何与 Konva vp 不一致导致笔迹落空。
     await expect(radiusSlider).toHaveValue("2");
     await radiusSlider.blur();
     await chooseAdvancedRadio(page, "圆形硬边");
-    // 起笔点 (50,8) 在浮动选择面板 (fixed, 默认停靠右上, 覆盖画布图片内 x>=51 区域)
-    // 之外: 落点被浮层截获时 mousedown 不会到达画布, 整笔无声丢失且不置 dirty。
     await paintStroke(page, [50, 8], [55, 13]);
     const saved = waitForApiWrite(
       page,

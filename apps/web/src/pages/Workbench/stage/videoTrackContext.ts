@@ -39,7 +39,6 @@ function recordedSource(source: unknown): VideoTrackContext["source"] {
     : "unknown";
 }
 
-/** Derive display metadata without inferring provenance from renderer defaults. */
 export function deriveVideoTrackContext(
   track: VideoContextTrackGeometry,
   frameIndex: number,
@@ -52,8 +51,6 @@ export function deriveVideoTrackContext(
     previousFrame: prevKeyframeFrame(track, frameIndex),
     nextFrame: nextKeyframeFrame(track, frameIndex),
   };
-  // Resolvers select the first stored keyframe at an exact duplicate frame.
-  // Timeline navigation independently retains its existing last-entry rule.
   const exact = track.keyframes.find((keyframe) => keyframe.frame_index === frameIndex);
 
   if (isFrameOutside(track, frameIndex)) {
@@ -97,6 +94,5 @@ export function deriveVideoTrackContext(
         ? resolveVideoPolygonTrackAtFrame(track, frameIndex)
         : resolveVideoPolylineTrackAtFrame(track, frameIndex);
 
-  // Computed interpolation has no raw keyframe at the current source frame.
   return resolved ? { ...context, state: "interpolated" } : context;
 }

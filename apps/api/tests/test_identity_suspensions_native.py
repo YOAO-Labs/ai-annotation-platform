@@ -719,8 +719,6 @@ async def test_reactivate_reason_presence_uses_python_unicode_strip_semantics(
         )
         assert suspended.data.user.is_active is False
 
-        # U+0000 was accepted by the public Python path but cannot be passed in
-        # PostgreSQL jsonb. The manager must project only this presence bit.
         reactivated = await manager.execute(
             _request(
                 "reactivate_account",
@@ -939,9 +937,6 @@ async def test_inactive_suspend_noop_precedes_pa_role_and_scope_and_is_receipted
                 == 0
             )
 
-        # The accepted no-op freezes its inactive result. If another lifecycle
-        # writer activates the target afterward, the old receipt must conflict
-        # before PA target-role policy can reject it as a fresh request.
         async with maker.begin() as session:
             await session.execute(
                 text(
@@ -1078,8 +1073,6 @@ async def test_pa_empty_scope_rules_and_all_derived_labeling_scope(test_engine):
         )
         batch_ids.append(batch_id)
 
-        # A membership in one owned project cannot hide a foreign Labeling
-        # reference from a batch assignment.
         with pytest.raises(SuspensionFailure) as foreign_batch:
             await empty_manager.execute(
                 _request(
@@ -1137,7 +1130,6 @@ async def test_pa_empty_scope_rules_and_all_derived_labeling_scope(test_engine):
         )
         assert resumed.data.user.is_active is True
 
-        # Suspend also checks the complete derived set for an active target.
         batch_id = await _add_batch(
             test_engine, foreign_project_id, target_id, owner_id
         )
@@ -1171,8 +1163,6 @@ async def test_last_unreserved_super_admin_is_preserved(test_engine):
     actor_id = fixture["actor_id"]
     target_id, _ = await _add_user(test_engine, "super_admin")
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-    # The guard counts every unreserved super admin in the database; park the
-    # rows left by earlier files so this test controls the premise.
     parked = await park_foreign_super_admins(
         test_engine, keep_ids=[actor_id, target_id]
     )

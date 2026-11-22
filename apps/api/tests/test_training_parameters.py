@@ -372,7 +372,6 @@ def test_legacy_image_mapping_is_explicit_one_way_and_requires_v1_support(monkey
     ):
         candidate = {**runtime, **changed}
         if changed == {"image_digest": old}:
-            # Exact frozen image remains valid; the allowlist is unnecessary.
             assert service.runtime_compatible(config, candidate)
         else:
             assert not service.runtime_compatible(config, candidate)

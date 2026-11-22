@@ -427,7 +427,6 @@ export function OffboardingDialog({ open, user, onClose }: OffboardingDialogProp
     setStale(false);
     setResult(null);
     offboard.reset();
-    // Reset only when the target changes or a new dialog is opened.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, userId]);
 

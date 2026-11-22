@@ -74,7 +74,6 @@ def _assert_422(callable_, *args, **kwargs) -> None:
 
 
 def test_data_manager_feedback_reads_use_published_facts():
-    # Guard the relation boundary, independent of how SQL renders correlation.
     project = _project()
     reads = {
         field: compile_filter(

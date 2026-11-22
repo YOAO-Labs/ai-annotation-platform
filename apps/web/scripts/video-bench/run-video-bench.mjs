@@ -138,12 +138,6 @@ function buildMatrix(config) {
   return matrix;
 }
 
-/**
- * §8 · WebCodecs 精确帧性能资格矩阵。生成结构化 manifest(§8.2 分辨率 × 场景)、
- * §8.3 退出门 budget 与 §9 Dedicated Worker 决策结论。真实 warm seek / long task / 内存
- * 测量需有 VideoDecoder 的有头 Chrome / GPU runner;headless 仅记录环境与 capability,
- * 不以一台开发机数字宣称硬件 SLA(§8.3)。
- */
 function buildPreciseFrameManifest(config, args, runId, measurement) {
   const pf = config.preciseFrame;
   if (!pf) throw new Error("fixtures.json missing preciseFrame config");
@@ -262,9 +256,7 @@ async function runPreciseFrame(config, args, runId) {
     throw new Error("--seed cannot be combined with VIDEO_BENCH_TASK_*_URL values");
   }
   const namespace = args.seed ? randomBytes(6).toString("hex") : null;
-  const scope = namespace
-    ? { namespace, suite_id: randomUUID(), run_id: randomUUID() }
-    : null;
+  const scope = namespace ? { namespace, suite_id: randomUUID(), run_id: randomUUID() } : null;
   const errors = [];
   let measurement;
   try {
@@ -277,7 +269,6 @@ async function runPreciseFrame(config, args, runId) {
     errors.push(error);
   } finally {
     if (namespace) {
-      // Reconnect to the same authority if the client transport failed.
       try {
         await closeFixtureTransport();
       } catch (error) {

@@ -70,7 +70,6 @@ function wrapper({ children }: { children: ReactNode }) {
       mutations: { retry: false },
     },
   });
-  // useLogout 主动退出后会 navigate("/login"),hook 需要 Router 上下文。
   return (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={["/"]}>{children}</MemoryRouter>
@@ -186,7 +185,6 @@ describe("useLogin", () => {
 describe("useLogout", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    // 主动退出标记是模块级状态,测试间复位。
     clearProactiveLogout();
     useAuthStore.getState().setAuth("jwt", fakeUser);
     mockOfflineQueue.count.mockResolvedValue(0);
@@ -279,6 +277,7 @@ describe("useLogout", () => {
       userId: fakeUser.id,
       annotationId: "ann-1",
       payload: { class_name: "car" },
+      etag: '"v3"',
       ts: 1,
     };
     mockOfflineQueue.drain.mockImplementation(async (handler) => {
@@ -296,9 +295,12 @@ describe("useLogout", () => {
       await result.current.confirmLogout("sync");
     });
 
-    expect(mockTasksApi.updateAnnotation).toHaveBeenCalledWith("task-1", "ann-1", {
-      class_name: "car",
-    });
+    expect(mockTasksApi.updateAnnotation).toHaveBeenCalledWith(
+      "task-1",
+      "ann-1",
+      { class_name: "car" },
+      '"v3"',
+    );
     expect(mockOfflineQueue.drain).toHaveBeenCalledWith(
       expect.any(Function),
       expect.objectContaining({ userId: fakeUser.id }),
@@ -406,14 +408,11 @@ describe("useLogout", () => {
     await waitFor(() =>
       expect(container.querySelector("[data-testid='probe-loc']")?.textContent).toBe("/login"),
     );
-    // 不带 state.from,登录页不再把 /unauthorized 当作返回目标。
     expect(container.querySelector("[data-testid='probe-state']")?.textContent).toBe("null");
     expect(useAuthStore.getState().user).toBeNull();
   });
 
   it("退出请求返回 401 已清空凭证后仍完成干净跳转 (Issue #123)", async () => {
-    // 模拟 API 客户端在 logout 收到 401 时清空本地凭证,completeLogout 的
-    // 令牌校验随后不再通过,但主动退出仍应把用户带到 /login 且不带 from。
     mockAuthApi.logout.mockImplementation(async () => {
       useAuthStore.getState().logout();
       throw new Error("401 Unauthorized");

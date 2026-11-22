@@ -320,7 +320,6 @@ async def test_installed_owner_node_replay_current_revocation_and_no_reason_echo
             "deactivation_scheduled_at"
         ]
 
-        # A frozen earlier success must never rewind a later accepted request.
         frozen_first = await asyncio.to_thread(_node, identity, control, first_request)
         frozen_cancel = await asyncio.to_thread(_node, identity, control, cancel)
         assert frozen_first == accepted and frozen_cancel == cancelled
@@ -332,7 +331,6 @@ async def test_installed_owner_node_replay_current_revocation_and_no_reason_echo
         assert await _operation_count(maker, first_id) == 1
         assert await _operation_count(maker, cancel_id) == 1
 
-        # Current credential revocation is checked before receipt replay.
         async with maker.begin() as db:
             await db.execute(
                 text(
@@ -417,7 +415,6 @@ async def test_super_admin_requests_race_and_due_never_removes_final_admin(
         assert len(accepted) == 1
         rejected = results[0] if not results[0]["ok"] else results[1]
         if rejected["error"]["code"] == "invariant_busy":
-            # Lock contention has no receipt; retry after the successful owner commits.
             request = first_request if not first_result["ok"] else second_request
             retried = await asyncio.to_thread(_node, identity, control, request)
             assert retried["ok"] is False
@@ -432,8 +429,6 @@ async def test_super_admin_requests_race_and_due_never_removes_final_admin(
                 "其余超级管理员均已申请注销，请先让其他管理员撤销申请或指定继任者"
             )
 
-        # Also seed a legacy pending row with only the historical three fields.
-        # Due processing must reconcile it and process at most one final SA.
         past = datetime.now(UTC) - timedelta(days=8)
         due_at = datetime.now(UTC) - timedelta(seconds=1)
         async with maker.begin() as db:
@@ -730,9 +725,6 @@ async def test_deactivation_outbox_commits_and_publisher_death_is_recovered(
         )
         second_notification_ids = [row["id"] for row in second_rows]
 
-        # Let the real publisher commit a lease, then kill it while its Redis
-        # handshake is blocked. Expire only those test-owned leases to model
-        # the dead publisher's abandoned lease without waiting sixty seconds.
         async def _serve_blackhole():
             nonlocal blackhole
             blackhole = await asyncio.start_server(

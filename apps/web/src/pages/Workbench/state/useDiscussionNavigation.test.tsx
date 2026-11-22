@@ -211,8 +211,6 @@ describe("Workbench discussion URL navigation", () => {
           event.action.type === "success" &&
           JSON.stringify(event.query.queryKey) === JSON.stringify(key)
         ) {
-          // An existing visible reader is invalidated just after the refreshed
-          // first page arrives, before navigation requests the older page.
           background = env.client.refetchQueries(
             { queryKey: key, exact: true },
             { cancelRefetch: false },

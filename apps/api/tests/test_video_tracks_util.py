@@ -37,7 +37,6 @@ def test_derive_track_number_breaks_ties_by_track_id():
         ("z", _track("trk_z", 0)),
         ("a", _track("trk_a", 0)),
     ]
-    # 首关键帧帧号并列 -> 按 track_id 字典序: trk_a < trk_z
     assert derive_track_number(tracks) == {"a": 1, "z": 2}
 
 
@@ -55,11 +54,8 @@ def test_derive_track_number_unsorted_keyframes_use_min_frame():
         ],
     }
     other = _track("trk_y", 5)
-    # trk_x 首帧应取 min=3, 排在 trk_y(5) 前
     assert derive_track_number([("x", geometry), ("y", other)]) == {"x": 1, "y": 2}
 
-
-# ── polygon track 插值 ─────────────────────────────────
 
 _SQUARE_A = [[0.0, 0.0], [0.2, 0.0], [0.2, 0.2], [0.0, 0.2]]
 _SQUARE_B = [[0.4, 0.0], [0.6, 0.0], [0.6, 0.2], [0.4, 0.2]]
@@ -75,7 +71,6 @@ def test_resample_closed_polygon_square_to_4_returns_vertices():
 
 
 def test_resample_closed_polygon_degenerate():
-    # 顶点<2 或周长 0 不抛异常。
     assert _resample_closed_polygon([[0.1, 0.1]], 4) == [[0.1, 0.1]]
     assert _resample_closed_polygon([[0.1, 0.1], [0.1, 0.1]], 3) == [
         [0.1, 0.1],
@@ -85,7 +80,6 @@ def test_resample_closed_polygon_degenerate():
 
 
 def test_lerp_polygon_equal_vertices_midpoint():
-    # 同朝向等顶点数的两个方块, ratio=0.5 → x 平移 0.2。
     out = lerp_polygon({"points": _SQUARE_A}, {"points": _SQUARE_B}, 0.5)
     assert out == [[0.2, 0.0], [0.4, 0.0], [0.4, 0.2], [0.2, 0.2]]
 
@@ -96,7 +90,6 @@ def test_lerp_polygon_endpoints():
 
 
 def test_lerp_polygon_unequal_vertex_count_resamples():
-    # 三角形(3) vs 方块(4): 重采样到公共 n=4, 不抛异常, 输出 4 点。
     tri = [[0.0, 0.0], [0.4, 0.0], [0.2, 0.4]]
     out = lerp_polygon({"points": tri}, {"points": _SQUARE_B}, 0.5)
     assert len(out) == 4
@@ -109,11 +102,9 @@ def test_resolve_polygon_track_exact_and_interpolated():
             {"frame_index": 10, "points": _SQUARE_B},
         ]
     )
-    # 精确关键帧: 返回 points。
     exact = resolve_track_at_frame(geom, 0)
     assert exact is not None and exact["points"] == _SQUARE_A
     assert "bbox" not in exact
-    # 中间帧: 弧长插值 (frame 5 = ratio 0.5)。
     mid = resolve_track_at_frame(geom, 5)
     assert mid is not None and mid["source"] == "interpolated"
     assert mid["points"] == [[0.2, 0.0], [0.4, 0.0], [0.4, 0.2], [0.2, 0.2]]
@@ -131,8 +122,6 @@ def test_resolved_track_frames_polygon_keyframes_mode():
     assert all("points" in r and "bbox" not in r for r in rows)
 
 
-# ── polyline (开路径) track 插值 ─────────────────────────
-
 _LINE_A = [[0.0, 0.0], [0.2, 0.0], [0.4, 0.0]]
 _LINE_B = [[0.0, 0.2], [0.2, 0.2], [0.4, 0.2]]
 
@@ -142,9 +131,7 @@ def _polyline_track(keyframes: list[dict]) -> dict:
 
 
 def test_resample_open_polyline_keeps_endpoints():
-    # 开路径重采样到 3 点 = 原顶点 (等距三点线)。
     assert _resample_open_polyline(_LINE_A, 3) == _LINE_A
-    # 重采样到 5 点: 首尾端点保持, 中间插值。
     out = _resample_open_polyline([[0.0, 0.0], [0.4, 0.0]], 5)
     assert out[0] == [0.0, 0.0]
     assert out[-1] == [0.4, 0.0]
@@ -177,7 +164,6 @@ def test_resolve_polyline_track_exact_and_interpolated():
 
 
 def test_polyline_uses_open_resample_not_closed():
-    # polyline 与 polygon 对同一组点插值结果不同 (开 vs 闭路径参数化)。
     tri = [[0.0, 0.0], [0.4, 0.0], [0.2, 0.4]]
     quad = [[0.0, 0.2], [0.4, 0.2], [0.4, 0.5], [0.0, 0.5]]
     line = lerp_polyline({"points": tri}, {"points": quad}, 0.5)
@@ -186,7 +172,6 @@ def test_polyline_uses_open_resample_not_closed():
 
 
 def test_bbox_track_resolve_unchanged_regression():
-    # 存量 bbox track 行为零回归: 仍走 bbox 分支。
     geom = {
         "type": "video_track_bbox",
         "track_id": "b1",

@@ -148,7 +148,6 @@ async def test_workspace_configuration_dependencies_only_expose_typed_functions(
             not row["table_access"] and not row["column_access"] for row in privileges
         )
 
-    # Exercise every function under the intended Workspace NOLOGIN code role.
     org_id = uuid.uuid4()
     actor_id = uuid.uuid4()
     project_id = uuid.uuid4()

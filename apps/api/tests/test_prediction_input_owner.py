@@ -78,8 +78,6 @@ class Storage:
             version=self.world.headers.get("VersionId")
             or ("null" if "VersionId" in self.world.headers else None),
         )
-        # The PUT response belongs to this write, even if another version becomes
-        # current before the caller receives the acknowledgement.
         written = self._head(Bucket, Key, version)
         self.world.puts.append((Bucket, Key))
         if self.world.after_put:
@@ -182,8 +180,6 @@ class Storage:
         }
 
     def delete_object(self, *, Bucket, Key, VersionId, IfMatch):
-        # Model the observed MinIO behavior: IfMatch is deliberately ignored.
-        # Exact immutable VersionId, rather than this header, fences deletion.
         self._value(Bucket, Key, VersionId)
         self.world.deleted.append((Bucket, Key))
         versions = self.world.versions.get((Bucket, Key), {})
@@ -388,8 +384,6 @@ async def test_changed_default_bucket_does_not_redirect_existing_lease(
     monkeypatch.setattr(settings, "minio_import_bucket", saved_bucket + "-other")
     await current.upload_crop(SimpleNamespace(id=current.record.task_id), 1, b"crop")
     assert world.puts[0][0] == saved_bucket
-    # Allocation follows the saved binding; a changed default is inert rather
-    # than a reason to reject the existing lease or redirect new inputs.
     replacement = await inputs(world)
     assert replacement.record.bucket == saved_bucket
     await replacement.close()
@@ -777,7 +771,6 @@ async def test_412_requires_prior_durable_lease_and_nonce_not_just_same_sha(
 
 @pytest.mark.parametrize("field", ["ETag", "VersionId"])
 async def test_full_readback_publishes_maximum_ascii_header_receipt(world, field):
-    # Exercise the actual migration trigger, including PostgreSQL's ARE parser.
     world.headers[field] = "a" * 1024
     current = await inputs(world)
     await current.upload_crop(SimpleNamespace(id=current.record.task_id), 0, b"crop")
@@ -1107,7 +1100,6 @@ async def test_historical_null_receipt_retires_and_remaps_without_any_delete(
         metadata,
         version="null",
     )
-    # A real prior migration state, never trigger disabling or receipt adoption.
     async with world.factory() as db:
         connection = await db.connection()
         await connection.run_sync(
@@ -1131,8 +1123,6 @@ async def test_historical_null_receipt_retires_and_remaps_without_any_delete(
     row = await lease(world, current.record.id)
     assert row.state == "cleanup_pending" and row.inventory == value
     assert row.error_code == "prediction_input_immutable_version_required"
-    # The fake provider ignores IfMatch; reaching DELETE would destroy the null
-    # object. Neither retirement nor bucket remapping may grant that operation.
     assert world.objects and not world.deleted
     async with world.factory() as db:
         row = await db.get(Lease, current.record.id)
@@ -1169,7 +1159,6 @@ async def test_delete_targets_saved_version_when_current_changes_and_ifmatch_is_
     def concurrent_replace(client, **kwargs):
         assert kwargs["VersionId"] == entry["version_id"]
         replacement.append(Storage.seed(world, *key, b"concurrent-current", {}))
-        # Model the real server's ignored conditional header explicitly.
         return delete(client, **{**kwargs, "IfMatch": '"wrong-etag"'})
 
     monkeypatch.setattr(Storage, "delete_object", concurrent_replace)

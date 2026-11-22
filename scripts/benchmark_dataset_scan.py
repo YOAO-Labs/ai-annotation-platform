@@ -123,7 +123,6 @@ def build_tree(root: Path, count: int, *, flat=False):
             root if flat else root / f"组-{group:03}" / Path(*(["深层"] * (group % 3)))
         )
         parent.mkdir(parents=True, exist_ok=True)
-        # Equal basenames in distinct directories are intentional.
         suffix = ".tmp" if index % 100 == 0 else ".png"
         payload = b"damaged image" if index % 101 == 0 else output.getvalue()
         (parent / f"同名-{index if flat else ordinal:04}{suffix}").write_bytes(payload)
@@ -567,7 +566,6 @@ async def run_benchmark(directory, sizes):
                     raise AssertionError(
                         "Metadata Worker read source content or retained descriptors"
                     )
-                # Exercise the actual list handler with an observer that rejects any physical walk.
                 from app.api.v1.dataset_sources import list_entries
                 from app.services import filesystem_storage as fs
 

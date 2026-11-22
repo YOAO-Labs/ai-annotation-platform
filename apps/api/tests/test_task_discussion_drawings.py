@@ -267,7 +267,6 @@ async def test_annotation_comment_counts_are_sparse_authoritative_and_exact(
             is_active=True,
         )
     )
-    # A feedback mirror for an annotation comment must never affect authoritative counts.
     db_session.add(
         AnnotationFeedback(
             id=uuid.uuid4(),

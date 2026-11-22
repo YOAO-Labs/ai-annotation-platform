@@ -187,8 +187,6 @@ async def test_shared_image_read_repairs_do_not_collide_across_actors_or_policy(
         == 1
     )
 
-    # A changed captured policy must defer behind the old accepted work, while
-    # its distinct receipt remains replayable after that work terminates.
     changed = ImageControl(
         SqlAlchemyImageDatabase(db_session, commit=False),
         SourceStorage(),

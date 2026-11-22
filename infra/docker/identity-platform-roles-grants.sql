@@ -1,10 +1,3 @@
--- Grant only the Identity platform-role policy and command to its dedicated
--- LOGIN consumer. User and owner tables remain inaccessible to this role.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v identity_owner=identity_code -v workspace_owner=workspace_code
---   -v labeling_owner=labeling_code -v audit_owner=audit_code
---   -v identity_platform_role_role=yoao_identity_platform_role_client
---   -f infra/docker/identity-platform-roles-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

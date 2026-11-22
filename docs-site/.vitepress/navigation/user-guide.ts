@@ -1,6 +1,5 @@
 import type { DefaultTheme } from "vitepress";
 
-// Organize the sidebar by user workflow, with online learning as a dedicated chapter.
 export const userGuideSidebar: DefaultTheme.SidebarItem[] = [
   {
     text: "开始使用",

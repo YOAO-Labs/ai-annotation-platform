@@ -437,7 +437,6 @@ export async function settledTrainingDraft(records: TrainingDraftRecords): Promi
   );
 }
 
-// Called only while holding the owner's Web Lock after explicit user choice.
 export async function upgradeTrainingDraft(
   owner: string,
   seen: TrainingDraftRecords,

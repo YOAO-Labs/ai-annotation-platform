@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from uuid import UUID, uuid4
 
 import pytest
@@ -434,11 +435,14 @@ async def test_verified_replay_reads_back_before_settling_its_read_permit() -> N
 
 
 @pytest.mark.asyncio
-async def test_unknown_close_keeps_responsibility_instead_of_claiming_settlement() -> (
-    None
-):
-    from yoao_assets_source.contract import SourceFailure
-
+@pytest.mark.parametrize(
+    "error",
+    [SourceFailure("storage_unavailable"), asyncio.CancelledError()],
+    ids=["provider-error", "caller-cancelled"],
+)
+async def test_unknown_close_keeps_responsibility_instead_of_claiming_settlement(
+    error,
+) -> None:
     actor_id, dataset_id, item_id = uuid4(), uuid4(), uuid4()
     request = _complete_request(actor_id, dataset_id, item_id)
     events = []
@@ -447,7 +451,6 @@ async def test_unknown_close_keeps_responsibility_instead_of_claiming_settlement
     intent = _intent(actor_id, dataset_id, item_id)
     uploads.intent = intent
     uploads.acceptance = _acceptance(intent)
-    error = SourceFailure("storage_unavailable")
     error.storage_operation_unsettled = True
     storage.publish_error = error
 
@@ -458,7 +461,7 @@ async def test_unknown_close_keeps_responsibility_instead_of_claiming_settlement
         await original_fail(creation_id, outcome, error_code, evidence)
 
     uploads.fail_original = record_fail
-    with pytest.raises(SourceFailure):
+    with pytest.raises(type(error)):
         await workflow.complete_upload(request)
 
     assert len(failures) == 1

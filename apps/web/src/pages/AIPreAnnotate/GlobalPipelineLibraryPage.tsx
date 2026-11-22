@@ -1,18 +1,6 @@
 import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useListPagination } from "@/hooks/useListPagination";
-/**
- * 全局编排库 UI。
- *
- * 从全局 backend/model 池搭一条**多层 DAG** 编排, 存为公共/组织命名编排, 后续在项目预标入口
- * 「套用为项目默认」与 ProjectDetailPanel 共用 usePipelineComposer 状态机：
- * 加子/改父/键冲突判据全在 hook 里, 两页保持结构一致.
- *
- * Inspector 走精简版 GlobalStageInspector — 三格候选与项目侧同源: 源类别取 model.classes,
- * 父框类别取上游 model.classes.name, 写回属性键取 model.output_attribute_schema; 缺的是
- * 项目类别 / 项目 attribute schema 那条"最后回落"(全局侧本就无项目上下文, 也不该有). variant /
- * params 留白, 项目套用后由项目侧 StageCard 拉 backend setup schema 后补齐.
- */
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from "react";
 
 import { useCapabilityInstances } from "@/api/mlCapabilities";
@@ -59,13 +47,10 @@ export default function GlobalPipelineLibraryPage() {
   const createProjectPipeline = useCreateProjectPipeline();
   const capabilityInstancesQ = useCapabilityInstances();
   const [pipelineName, setPipelineName] = useState("");
-  // 当前加载进画布的命名编排 id: 用作源 Inspector 的 key, 切换编排时强制 remount 重新回填。
-  // 否则源 Inspector 内部 modelKey 已被上一条编排设过、reverse-sync 短路 → 以新名存旧配置。
   const [loadedPipelineId, setLoadedPipelineId] = useState<string | null>(null);
   const [pipelineScope, setPipelineScope] =
     useState<Extract<ProjectPipelineScope, "public" | "organization">>("public");
 
-  // 全局池: 所有 backend × 所有 model 展平 (backend state=error 保留展示但禁用).
   const globalModelOptions = useMemo<GlobalModelOption[]>(() => {
     const out: GlobalModelOption[] = [];
     for (const inst of capabilityInstancesQ.data?.instances ?? []) {
@@ -82,8 +67,6 @@ export default function GlobalPipelineLibraryPage() {
     return out;
   }, [capabilityInstancesQ.data]);
 
-  // 下游可用 backend 数 = 全局池 unique backends (源恒可选, 下游须用不同于源 backend).
-  // 复用 usePipelineComposer 的 canAddChildAt 判据 — <2 时源节点上 + 号被禁.
   const uniqueBackendCount = useMemo(() => {
     const set = new Set<string>();
     for (const o of globalModelOptions) if (!o.disabled) set.add(o.backendId);
@@ -122,9 +105,7 @@ export default function GlobalPipelineLibraryPage() {
     onCascadeDelete: (n) => pushToast({ msg: "已删除阶段", sub: `连带移除 ${n} 个子阶段` }),
   });
 
-  // 源阶段 payload (Inspector 独立管).
   const [sourcePayload, setSourcePayload] = useState<PipelineStagePayload | null>(null);
-  // 加载编辑用: 初次 mount 时 Inspector 会读 value 反向初始化; 用户改字段后 downstreamPayloads 覆盖.
   const [loadedSourceSeed, setLoadedSourceSeed] = useState<PipelineStagePayload | null>(null);
   const [loadedDownstreamSeedBySid, setLoadedDownstreamSeedBySid] = useState<
     Record<string, PipelineStagePayload>
@@ -132,7 +113,6 @@ export default function GlobalPipelineLibraryPage() {
   const onSourceChange = useCallback((payload: PipelineStagePayload | null) => {
     setSourcePayload(payload);
   }, []);
-  // 源模型 caps 挂 SOURCE_SID (源模型 stage); 借 composer 的 onStageCaps。
   const onSourceCaps = useCallback(
     (caps: Parameters<typeof onStageCaps>[1]) => onStageCaps(SOURCE_SID, caps),
     [onStageCaps],
@@ -143,9 +123,6 @@ export default function GlobalPipelineLibraryPage() {
     [globalModelOptions],
   );
 
-  // 再修正 · 下游"父框类别"候选取上游 model.classes.name (与项目侧 parentClassOptions 同源).
-  //   父 sid → 查父 payload → (backendId, modelId) → 全局池 model.classes → name[]. 无候选=空数组,
-  //   Inspector 里 ChipMultiSelect 走自由文本兜底.
   const classesForSid = useCallback(
     (sid: string): string[] => {
       const payload =
@@ -161,8 +138,6 @@ export default function GlobalPipelineLibraryPage() {
     [sourcePayload, downstreamPayloads, stagesGraph, globalModelOptions],
   );
 
-  // 输入节点显式声明数据源：
-  //   全局库无项目, 用户自顶向下选数据类型 + 执行单位, 据此过滤可选源模型。
   const [srcDataType, setSrcDataType] = useState<"image" | "video">("image");
   const [srcExecUnit, setSrcExecUnit] = useState<"video" | "frame">("video");
   const isVideoTracking = srcDataType === "video" && srcExecUnit === "video";
@@ -174,7 +149,6 @@ export default function GlobalPipelineLibraryPage() {
     }),
     [srcDataType, srcExecUnit],
   );
-  // 源模型下拉按声明过滤: 整段序列 → 只 tracker; 图像 / 逐帧 → 图像检测 (GEOMETRIC_TASKS, 非 tracker)。
   const sourcePool = useMemo(
     () =>
       globalModelOptions.filter((o) =>
@@ -183,31 +157,27 @@ export default function GlobalPipelineLibraryPage() {
     [globalModelOptions, isVideoTracking],
   );
 
-  // 汇总所有 warning (源 + 下游), 顶部条展示.
   const allWarnings = useMemo(() => {
     const out: string[] = [];
     const srcWarn = stageWarning(sourcePayload, stageCapsRef.current[SOURCE_SID]);
     if (srcWarn) out.push(`源: ${srcWarn}`);
     stagesGraph.forEach((e, i) => {
-      if (e.parentSid == null || e.sid === SOURCE_SID) return; // 输入节点/源模型由 srcWarn 覆盖
+      if (e.parentSid == null || e.sid === SOURCE_SID) return;
       const w = stageWarning(downstreamPayloads[i], stageCapsRef.current[e.sid]);
       if (w) out.push(`阶段 ${i - 1}: ${w}`);
     });
     return out;
   }, [sourcePayload, stagesGraph, downstreamPayloads, stageCapsRef]);
 
-  // graphNodes: 组装源 + 下游节点给画布. 与项目侧结构等价, 缺"运行态" (全局侧不跑).
   const graphNodes = useMemo<GraphNodeModel[]>(() => {
     const srcOption = sourcePayload
       ? globalModelOptions.find(
           (o) => o.key === `${sourcePayload.ml_backend_id}::${sourcePayload.model_id}`,
         )
       : null;
-    // 输入节点=纯数据源; 源模型 stage(SOURCE_SID)=sourcePayload 承接的整图检测/tracker。
     const srcShape = sourceNodeShape(srcMeta, srcOption?.model);
     return stagesGraph.map<GraphNodeModel>((e, i) => {
       if (e.parentSid == null) {
-        // 输入节点: 纯数据源 (数据类型 + 执行单位徽标, 无模型)。
         return {
           sid: e.sid,
           parentSid: null,
@@ -224,7 +194,6 @@ export default function GlobalPipelineLibraryPage() {
         };
       }
       if (e.sid === SOURCE_SID) {
-        // 源模型 stage: sourcePayload 配置的整图检测/tracker, 后端 stage 0。
         return {
           sid: e.sid,
           parentSid: e.parentSid,
@@ -261,7 +230,6 @@ export default function GlobalPipelineLibraryPage() {
         variantInfo: variantText(p),
       };
     });
-    // stageCapsRef.current 是 ref, 靠 composer 内部 tick 通过 downstreamPayloads 回传时触发重算.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     sourcePayload,
@@ -274,7 +242,6 @@ export default function GlobalPipelineLibraryPage() {
     globalModelOptions,
   ]);
 
-  // sid → 后端 stage 号 = 数组索引-1 (SOURCE_SID index1→0, 下游 index k→k-1; 输入节点不计).
   const stageNumberBySid = useMemo(() => {
     const m: Record<string, number> = {};
     stagesGraph.forEach((e, i) => {
@@ -283,10 +250,8 @@ export default function GlobalPipelineLibraryPage() {
     return m;
   }, [stagesGraph]);
 
-  // 有无 StageCard 下游卡 (父=模型 stage, 非源模型 SOURCE_SID)。
   const hasDownstreamCards = stagesGraph.some((e) => e.parentSid != null && e.sid !== SOURCE_SID);
 
-  // 保存: 组装 pipeline_stages (源 + N 下游, 按 sid 序号) → POST /project-pipelines (scope=public).
   const savePipeline = async () => {
     const name = pipelineName.trim();
     if (!name) {
@@ -310,8 +275,6 @@ export default function GlobalPipelineLibraryPage() {
       return;
     }
 
-    // 输入节点不入后端; 源模型 stage(SOURCE_SID) → stage 0 (sourcePayload + source 描述);
-    // 下游 → stage i-1。
     const stages: PipelineStagePayload[] = stagesGraph.flatMap<PipelineStagePayload>((e, i) => {
       if (e.parentSid == null) return [];
       if (e.sid === SOURCE_SID)
@@ -354,14 +317,12 @@ export default function GlobalPipelineLibraryPage() {
     }
   };
 
-  // 若选中的 stage 被删 → 回落源模型 stage (由 composer removeStage 内部已处理; effect 兜底).
   useEffect(() => {
     if (!stagesGraph.some((e) => e.sid === selectedSid)) {
       setSelectedSid(SOURCE_SID);
     }
   }, [selectedSid, stagesGraph, setSelectedSid]);
 
-  // ── 命名编排库: 列出 public / organization; 加载编辑; 删除 ─────────────────
   const projectPipelinesQ = useProjectPipelines(undefined);
   const deleteProjectPipeline = useDeleteProjectPipeline();
   const libraryPipelines = useMemo(
@@ -384,11 +345,8 @@ export default function GlobalPipelineLibraryPage() {
       }
       const stages = p.stages ?? [];
       if (stages.length === 0) return;
-      // 源模型 stage (后端 stage=0): 落 loadedSourceSeed 与 sourcePayload 双写, 避免 Inspector 未及回填时保存空.
       setLoadedSourceSeed(stages[0]);
       setSourcePayload(stages[0]);
-      // 输入节点(纯数据源) + 源模型 stage(SOURCE_SID) 常驻; 下游: parent_stage=0 → SOURCE_SID;
-      // 否则 loaded-<parent_stage>。
       const newGraph: StageEntry[] = [
         { sid: ROOT_SID, parentSid: null },
         { sid: SOURCE_SID, parentSid: ROOT_SID },
@@ -528,7 +486,6 @@ export default function GlobalPipelineLibraryPage() {
           </div>
 
           <div className={styles.editorInspector}>
-            {/* 输入节点: 显式声明数据源形态 (取代反推), 据此过滤源模型池; 选中时显示。 */}
             <div hidden={selectedSid !== ROOT_SID}>
               <strong className={styles.sectionTitle}>输入节点 · 数据源</strong>
               <label className={styles.field}>
@@ -563,7 +520,6 @@ export default function GlobalPipelineLibraryPage() {
                     : "源模型只列图像检测；下游对检出框富集。"}
               </div>
             </div>
-            {/* 源模型 stage (SOURCE_SID, 后端 stage 0): 选中时显示; 池按数据源声明过滤。 */}
             <GlobalStageInspector
               key={loadedPipelineId ?? "source-new"}
               kind="source"
@@ -575,7 +531,6 @@ export default function GlobalPipelineLibraryPage() {
               hidden={selectedSid !== SOURCE_SID}
               displayIndex={1}
             />
-            {/* 下游卡: 输入节点/源模型不出卡 (走上方)。 */}
             {stagesGraph.map((e, i) =>
               e.parentSid == null || e.sid === SOURCE_SID ? null : (
                 <GlobalStageInspector

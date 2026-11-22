@@ -240,7 +240,6 @@ async def test_mark_failed_marks_job_and_notifies_once(signal_world):
     assert job.completed_at is not None
     assert await signal_world.notification_types(user_id) == ["job.failed"]
 
-    # A second late signal for the same task id is a no-op, not a duplicate.
     await signals._mark_failed(task_id, "RuntimeError: boom")
     assert await signal_world.notification_types(user_id) == ["job.failed"]
 
@@ -264,8 +263,6 @@ async def test_mark_failed_never_overwrites_terminal_job(signal_world):
 
 
 async def test_mark_failed_unknown_task_id_is_silent(signal_world):
-    # No matching async_job is the common case for ml_health/cleanup tasks; the
-    # fallback must not raise and must not fabricate a notification.
     await signals._mark_failed("does-not-exist", "boom")
 
 
@@ -279,7 +276,6 @@ async def test_mark_failed_unknown_kind_marks_generic_without_notification(
 
     job = await signal_world.scalar_job(job_id)
     assert job.status == AsyncJobStatus.FAILED.value
-    # create_tasks is not a user-visible terminal kind: state changes, no notice.
     assert await signal_world.notification_types(user_id) == []
 
 
@@ -438,7 +434,6 @@ async def test_rollback_cancel_signal_preserves_checkpoint(signal_world):
 
 
 async def test_signal_handlers_ignore_missing_task_id(signal_world):
-    # Neither handler may raise or touch the database when Celery supplies no id.
     async with signal_world.maker() as db:
         before = await db.scalar(select(func.count()).select_from(Notification))
 

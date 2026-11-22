@@ -130,7 +130,6 @@ def create_app(
             return reply(False)
 
         try:
-            # Keep the legacy immediate API encoder and treat PUBLISH(0) as success.
             await request.app.state.redis.publish(
                 channel_for(publication.user_id),
                 json.dumps(publication.message),

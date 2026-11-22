@@ -50,14 +50,11 @@ function message(error: unknown): string {
   return "原视频播放准备失败，请检查连接后重试";
 }
 
-/** Owns a lease independently of the native decoder node and React's source rendering. */
 class VideoSession {
   snapshot: Snapshot = idle;
   video: HTMLVideoElement | null = null;
   private lease: OriginalVideoLease | null = null;
-  /** Leases handed to retirement whose in-page request has not settled yet. */
   private retiring = new Set<OriginalVideoLease>();
-  /** The document is leaving; only keepalive retirement can still be delivered. */
   private closing = false;
   private disposed = false;
   private operation: Promise<void> | null = null;
@@ -90,7 +87,7 @@ class VideoSession {
     document.addEventListener("visibilitychange", this.foreground);
   }
   private alive(): boolean {
-    return !this.disposed && isOriginalOwnerCurrent(this.owner);
+    return !this.disposed && !this.closing && isOriginalOwnerCurrent(this.owner);
   }
   private checkOwner = (): void => {
     if (!this.alive()) {
@@ -134,16 +131,12 @@ class VideoSession {
     this.retiring.add(lease);
     void lease.release().finally(() => this.retiring.delete(lease));
   }
-  /**
-   * A document that is really leaving never unmounts React, so this is the only
-   * owner that can hand the lease back before the server stage is exhausted.
-   * Back/forward-cache entries keep their lease because the page can resume.
-   */
   private onPageHide = (event: PageTransitionEvent): void => {
-    if (event.persisted) return;
+    if (event.persisted || this.closing) return;
     this.closing = true;
     this.request?.abort();
     this.probeRequest?.abort();
+    detach(this.video, this.lease?.mediaPath);
     const leases = this.lease ? [...this.retiring, this.lease] : [...this.retiring];
     this.lease = null;
     this.retiring.clear();
@@ -268,7 +261,6 @@ class VideoSession {
     this.probeRequest = controller;
     const tokenChanged = this.preparedToken !== useAuthStore.getState().token;
     const operation = (async () => {
-      // Always yield before referring to the registered operation in finally.
       await Promise.resolve();
       try {
         this.assertCurrent(controller.signal);
@@ -406,7 +398,6 @@ export function useOriginalVideoPlayback({
       if (session.current === owned) session.current = null;
       owned.dispose();
     };
-    // Resource identity is canonicalized; a caller's new object or native node does not own the lease.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   const value = rendered.key === key && enabled ? rendered.value : idle;

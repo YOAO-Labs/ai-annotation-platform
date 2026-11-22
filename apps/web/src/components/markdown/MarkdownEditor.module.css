@@ -16,9 +16,6 @@
   color: var(--mdx-editor-foreground);
 }
 
-/* MDXEditor ships a Radix color palette on .editorRoot. Bind that public
-   palette to the app tokens so both the editor and its overlay portal follow
-   the active [data-theme] value. */
 .root .mdxEditor,
 .root :global(.mdxeditor-popup-container) {
   --accentBase: var(--sc-background);
@@ -181,9 +178,6 @@
   line-height: 1.7;
 }
 
-/* MDXEditor applies contentEditableClassName to both the editor and its
-   placeholder. Keep the authoring surface foreground on the actual editable
-   node so the placeholder can retain its muted color. */
 .contentEditable:global([contenteditable="true"]) {
   color: var(--mdx-editor-foreground);
 }
@@ -315,6 +309,115 @@
 
 .root :global(.mdxeditor-popup-container) {
   color: var(--mdx-editor-foreground);
+}
+
+.linkAnchor {
+  position: fixed;
+  top: var(--link-anchor-top);
+  left: var(--link-anchor-left);
+  width: var(--link-anchor-width);
+  height: var(--link-anchor-height);
+  pointer-events: none;
+}
+
+.linkPopover {
+  z-index: var(--sc-z-popover);
+  max-width: min(24rem, var(--radix-popover-content-available-width));
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius);
+  background: var(--sc-popover);
+  color: var(--sc-popover-foreground);
+  padding: 8px;
+  font-size: 13px;
+}
+
+.linkForm {
+  display: grid;
+  gap: 6px;
+  width: 18rem;
+  max-width: 100%;
+}
+
+.linkForm input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--sc-input);
+  border-radius: var(--sc-radius);
+  background: var(--sc-background);
+  color: inherit;
+}
+
+.linkSuggestions {
+  max-height: 10rem;
+  overflow: auto;
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius);
+}
+
+.linkSuggestions [role="option"] {
+  padding: 4px 8px;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.linkSuggestions [role="option"]:hover,
+.linkSuggestions [aria-selected="true"],
+.linkActions button:hover {
+  background: var(--sc-accent);
+}
+
+.linkActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.linkForm .linkActions {
+  justify-content: flex-end;
+}
+
+.linkActions a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+  color: var(--sc-brand);
+}
+
+.linkActions a span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.linkActions button {
+  flex-shrink: 0;
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius);
+  padding: 4px 8px;
+}
+
+.linkActions button[type="submit"] {
+  background: var(--sc-primary);
+  color: var(--sc-primary-foreground);
+}
+
+.linkActions svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.linkCopyStatus {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--sc-border);
+  border-radius: var(--sc-radius);
+  background: var(--sc-popover);
 }
 
 .parseError {

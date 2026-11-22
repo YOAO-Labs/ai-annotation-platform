@@ -1,23 +1,5 @@
-/**
- * pure parser for the defensive ML Backend residency payload.
- *
- * Extracted from the legacy `RuntimeObservePanel.tsx` (P4) so the new
- * `InstanceDetailSheet` and any future diagnostic surface can consume the same
- * normalized shape. Parsing behavior is unchanged (malformed-field detection,
- * `gpu_loaded=false` handling, pool normalization, identity extraction).
- *
- * The residency payload comes from `/observe` (a per-URL direct probe) and is
- * untrusted: backends may omit fields, send nested objects of the wrong shape,
- * or return partial payloads on degraded probes. This module normalizes them
- * into a stable {@link NormalizedResidency} (or `null` when the top-level
- * shape is unrecognizable) and flags malformed leaves via `malformed: true`
- * so the UI can render a caution note instead of inferring "GPU empty".
- *
- * Plan §A.1 (residency axis) + §A.2: never smooth unknown into healthy/empty.
- */
 import type { ResidencyAxis } from "../runtimeTopology";
 
-/** States reported by `/observe` residency.state. */
 const RESIDENCY_STATES = new Set([
   "unloaded",
   "loading",
@@ -35,7 +17,6 @@ export type ResidencyState =
   | "unloading"
   | "unknown";
 
-/** Map a raw residency.state string → the 4-axis residency token value. */
 export function residencyStateToAxis(state: ResidencyState): ResidencyAxis {
   switch (state) {
     case "resident":
@@ -71,29 +52,14 @@ export interface NormalizedResidency {
   generation: string | null;
   identityResourceId: string | null;
   pools: NormalizedResidencyPool[];
-  /**
-   * Strict empty: gpu_loaded=false AND builders=0 AND borrowers=0 AND every
-   * pool reports resident=false. Used to safely conclude "GPU empty" only
-   * when the whole payload agrees.
-   */
   strictEmpty: boolean;
-  /** True iff any leaf field had an unexpected type (coerced to null). */
   malformed: boolean;
 }
 
-/** Object (non-array) guard for defensive parsing. */
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-/**
- * Parse the raw `/observe` residency payload into a normalized shape.
- *
- * Returns `null` only when the top-level value is not a record or `state`
- * is missing/unknown — i.e. we cannot even identify what the backend meant.
- * Malformed leaves are kept and flagged via `malformed: true`; the caller
- * decides whether to trust them.
- */
 export function parseResidency(value: unknown): NormalizedResidency | null {
   if (!isRecord(value)) return null;
   const state = value.state;
@@ -205,14 +171,6 @@ export function parseResidency(value: unknown): NormalizedResidency | null {
   };
 }
 
-/**
- * Derive the effective "GPU loaded" truth from a normalized residency + a
- * trusted flag (fresh direct probe vs stale cached health).
- *
- * - trusted + gpu_loaded=true → true
- * - trusted + (no malformed) + strictEmpty → false
- * - otherwise → null (unknown; do not infer empty)
- */
 export function effectiveGpuLoaded(
   residency: NormalizedResidency,
   trusted: boolean,
@@ -222,11 +180,6 @@ export function effectiveGpuLoaded(
   return null;
 }
 
-/**
- * Whether a trusted residency reading proves that the instance is occupying,
- * acquiring, or releasing residency resources. Empty and unknown readings do
- * not contribute to pool-level resident counts.
- */
 export function isActiveResidency(value: unknown, trusted: boolean): boolean {
   if (!trusted) return false;
   const residency = parseResidency(value);
@@ -235,13 +188,6 @@ export function isActiveResidency(value: unknown, trusted: boolean): boolean {
   return axis === "resident" || axis === "loading" || axis === "draining";
 }
 
-/**
- * Whether cached `state === "connected"` health is fresh enough to trust as a
- * residency source. Mirrors the legacy panel's 3-minute freshness window.
- *
- * Reusable across any "is this cached health reading still trustworthy?" call
- * site (registry list, runtime snapshot fallback, …).
- */
 export function isFreshCachedHealth(
   state: string,
   lastCheckedAt: string | null,

@@ -742,8 +742,6 @@ async def test_sam_candidate_accepts_through_real_api(
     prediction = predictions[0]
     async with w.factory() as db:
         (await db.get(MaskRepairBatch, w.batch_id)).status = parent_status
-        # Current task version may change during normal assignment. Original
-        # content and the exact source annotation remain authoritative.
         task = await db.get(Task, w.task_id)
         task.version += 1
         await db.commit()

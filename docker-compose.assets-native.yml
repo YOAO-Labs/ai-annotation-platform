@@ -1,9 +1,3 @@
-# Optional Native pyramid storage signing and caller bindings.
-# Combine this file with docker-compose.assets-source.yml,
-# docker-compose.assets-media.yml and docker-compose.assets-cleanup.yml.
-# Source-only and non-Native media deployments omit this file and keep the
-# signer disabled; Native callers never fall back to another signer or to
-# configured cache credentials.
 services:
   assets-source:
     environment:
@@ -33,8 +27,6 @@ services:
     secrets:
       - assets_images_native_storage_token
 
-  # API-local image executor and wake-up adapter; unused while remote media
-  # control is selected, but it must hold the writer binding when it executes.
   celery-worker-image-pyramid:
     environment:
       ASSETS_IMAGES_NATIVE_STORAGE_URL: http://assets-source:8767

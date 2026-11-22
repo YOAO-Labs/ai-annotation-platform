@@ -79,7 +79,6 @@ const modal = (page: Page) => page.getByRole("dialog").filter({ hasText: "标记
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 const pathOf = (url: string) => new URL(url).pathname;
 
-/** Fixture-specific cancellations beyond the shared workbench policy. */
 function fixtureAbortRules(fixture: IssueCase): AbortAllowRule[] {
   const rules: AbortAllowRule[] = [];
   if (fixture.mediaLatency) {
@@ -164,7 +163,6 @@ async function graphicsEvidence(browser: Browser, page: Page) {
         ...browserInfo,
         graphicsDevices: info.gpu.devices,
         graphicsFeatures: info.gpu.featureStatus,
-        // Adapter metadata is evidence about rendering, not proof of hardware video decoding.
         hardwareVideoDecoderQualified: false,
       };
     } finally {
@@ -181,8 +179,11 @@ async function graphicsEvidence(browser: Browser, page: Page) {
 
 const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
   videoFixture: [MAIN_FIXTURE, { option: true }],
-  issueCase: async ({ page, request, seed, browser, videoFixture }, provideFixture, testInfo) => {
-    const data = await seed.owned();
+  issueCase: async (
+    { page, request, seed, browser, videoFixture, owned: data },
+    provideFixture,
+    testInfo,
+  ) => {
     const video = await seed.videoWebCodecs(data.project_id, { fixture: videoFixture });
     const token = await seed.accessToken(data.admin_email);
     if (videoFixture === MAIN_FIXTURE) await expectSeededChunks(request, token, video);
@@ -259,7 +260,6 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
     });
     page.on("response", (response) => {
       if (response.status() < 400 || !relevant(response.url())) return;
-      // Read the body immediately: Playwright Response handles can expire on reload.
       pending.push(
         (async () => {
           const entry: RequestErrorSignal = {
@@ -286,7 +286,6 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
     try {
       await provideFixture(fixture);
       await Promise.all(pending);
-      // Feedback/annotation writes are never allowlisted. Navigation may cancel lock cleanup.
       const rules = [...videoWorkbenchAborts, ...fixtureAbortRules(fixture)];
       const expectedAborts = errors.filter((error) => isExpectedRequestAbort(error, rules));
       const expectedHttp = errors.filter(
@@ -360,19 +359,13 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
         page.removeAllListeners("pageerror");
         page.removeAllListeners("console");
         for (const release of fixture.releaseMedia) release();
-        try {
-          await page.unrouteAll({ behavior: "ignoreErrors" });
-          if (!page.isClosed()) await page.goto("about:blank");
-        } finally {
-          await seed.owned();
-        }
+        await page.unrouteAll({ behavior: "ignoreErrors" });
       }
     }
   },
 });
 
 async function open(page: Page, fixture: IssueCase) {
-  // A cold media response may intentionally be held; DOMContentLoaded does not await it.
   await page.goto(`/projects/${fixture.data.project_id}/annotate?task=${fixture.taskId}`, {
     waitUntil: "domcontentloaded",
   });
@@ -387,9 +380,6 @@ async function key(page: Page, value: string) {
 }
 
 async function expectPaintSettled(page: Page) {
-  // 时间轴点击触发的精确取帧是异步完成的：负载高时会迟到，并盖掉随后键盘
-  // 步进已到达的帧号（实测把 F120 拽回 F105）。等绘制帧号追上选中帧号再继
-  // 续；原生 <video> 回退不经精确管线，无需等待。
   await expect
     .poll(
       () =>
@@ -406,9 +396,6 @@ async function expectPaintSettled(page: Page) {
 }
 
 async function seekNavigationSnapshot(page: Page, frame: number, value: number, phase: string) {
-  // 只读快照（计划 D）：不改变事件传播、焦点或播放器状态，仅在导航失败时作为
-  // 附件帮助区分「目标未写入 / 事件未处理 / 呈现未完成」。收集自身异常降级为
-  // 字段占位，绝不覆盖原始断言错误。
   const info = test.info();
   const snapshot: Record<string, unknown> = {
     phase,
@@ -450,8 +437,6 @@ async function seek(page: Page, frame: number) {
   if (invalid) throw new Error(invalid);
   await test.step(`定位视频时间轴到 F${frame}`, async () => {
     await key(page, "k");
-    // 建立包含目标的有效窗口；缩放复位后等窗口状态实际更新再复用，
-    // 不沿用更新之前的窗口数据。零跨度（单帧素材）显式拒绝。
     const ensureWindow = async (forceReset = false) => {
       let current = await readTimeline(page);
       if (!forceReset && frame >= current.from && frame <= current.to) return current;
@@ -471,9 +456,6 @@ async function seek(page: Page, frame: number) {
     let window = await ensureWindow();
     if (window.to - window.from <= 0)
       throw new Error(`时间轴窗口 [${window.from}, ${window.to}] 退化；本辅助函数只服务多帧素材`);
-    // range 0..10000 的归一化粒度必须能精确还原目标帧（与 pctToFrame 反向映射
-    // 一致）；本套件 180 帧素材在任意合法窗口下逐帧可表达，长素材不可表达时
-    // 回全窗口复核，仍不可表达则立即失败，不静默接受近似帧。
     let mapping = rangeValueForFrame(frame, window);
     if (!mapping.expressible) {
       window = await ensureWindow(true);
@@ -489,14 +471,10 @@ async function seek(page: Page, frame: number) {
     let phase = "request-target";
     try {
       await test.step(`经 range 输入通路写入 value=${mapping.value}`, async () => {
-        // 应用既有输入路径：range onChange → onSeek。不写内部状态，也不依赖
-        // 播放浮层可交互（fill 无命中检查，浮层隐藏时裸坐标点击会被静默吞掉）。
         await input.fill(String(mapping.value));
         await expect(stage(page)).toHaveAttribute("data-video-frame-index", String(frame));
       });
       phase = "paint-settled";
-      // 先断言选择帧到达目标（上一步），再等绘制帧追上；最后复核选择帧未被
-      // 迟到结果覆盖——应用层 Issue #114 单调栅栏保留为冗余防护。
       await test.step("确认呈现完成且选择帧未被迟到结果覆盖", async () => {
         await expectPaintSettled(page);
         await expect(stage(page)).toHaveAttribute("data-video-frame-index", String(frame));
@@ -551,8 +529,6 @@ async function clickPoint(page: Page, point: Point) {
     (receipt!.x - bounds.x) / bounds.width,
     (receipt!.y - bounds.y) / bounds.height,
   ];
-  // Browser input is quantized to screen pixels; preserve the actual clicked
-  // point. The read-only location summary rounds only its display.
   expect(Math.abs(normalized[0] - point[0])).toBeLessThanOrEqual(1.1 / bounds.width);
   expect(Math.abs(normalized[1] - point[1])).toBeLessThanOrEqual(1.1 / bounds.height);
   return { x: normalized[0], y: normalized[1] };
@@ -570,8 +546,6 @@ async function videoMediaBounds(page: Page) {
     };
     if (!Object.values(media).every(Number.isFinite) || media.width <= 0 || media.height <= 0)
       throw new Error("Video media transform unavailable");
-    // Konva maps browser input through DOM scale, including fractional CSS
-    // dimensions whose clientWidth/clientHeight are rounded to integers.
     const contentBounds = content.getBoundingClientRect();
     const scaleX = contentBounds.width / content.clientWidth;
     const scaleY = contentBounds.height / content.clientHeight;
@@ -588,7 +562,6 @@ async function expectReady(page: Page, fixture: IssueCase, frame: number) {
   await expect(navigation(page)).toHaveAttribute("data-status", "ready", { timeout: 12_000 });
   await expect(navigation(page)).toHaveAttribute("data-frame-index", String(frame));
   await expect(stage(page)).toHaveAttribute("data-video-frame-index", String(frame));
-  // No capability skip: both WebCodecs and native fallback must display the real target pixels.
   await expectVideoContextFramePixels(page, fixture.expectations, frame);
   fixture.evidence.push({
     frame,
@@ -704,7 +677,6 @@ async function holdMedia(page: Page, fixture: IssueCase) {
       expect(response.ok()).toBe(true);
       expect(bytes).toBeGreaterThan(100);
       await gate;
-      // Only latency is injected; status, headers and bytes are the actual storage response.
       await route.fulfill({ response });
     })();
     deliveries.push(delivery);
@@ -751,7 +723,6 @@ async function observeNavigation(page: Page) {
       attributes: true,
       attributeFilter: ["data-status", "data-frame-index"],
     });
-    // This is observational telemetry only; it never calls application state or dispatches events.
     Object.defineProperty(window, "__g2NavigationObservation", {
       value: { entries, observer },
       configurable: true,
@@ -814,7 +785,6 @@ async function expectViewport(page: Page, expected: Viewport) {
     expect(actual.center_y).toBeCloseTo(expected.center_y, 5);
     expect(actual.zoom).toBeCloseTo(expected.zoom, 5);
   }).toPass({ timeout: 5000 });
-  // Independent geometry check: the same view must be applied to the rendered media transform.
   const rendered = await stage(page).evaluate((node) => {
     const content = node.querySelector<HTMLElement>(".konvajs-content")!;
     const rect = content.getBoundingClientRect();
@@ -976,10 +946,39 @@ async function createPolygonDraft(page: Page) {
     [0.55, 0.4],
   ] as Point[]) {
     await clickPoint(page, point);
-    // Separate actual clicks beyond Konva's double-click interval.
     await page.waitForTimeout(450);
   }
   await expect(stage(page)).toHaveAttribute("data-video-draft-point-count", "2");
+}
+
+async function expectOriginalVideoReady(page: Page) {
+  const outcome = await page.waitForFunction(
+    () => {
+      const source = document.querySelector<HTMLVideoElement>('[data-testid="video-konva-source"]');
+      const failed = document.querySelector('[data-testid="video-original-error"]') !== null;
+      const ready =
+        source !== null &&
+        source.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+        !!source.currentSrc &&
+        !source.error;
+      if (!ready && !failed) return false;
+      return {
+        ready,
+        h264: document.createElement("video").canPlayType('video/mp4; codecs="avc1.4D400B"'),
+      };
+    },
+    undefined,
+    { timeout: 25_000 },
+  );
+  try {
+    expect(
+      await outcome.jsonValue(),
+      "讨论链接必须打开可实际解码的 H.264 原视频；请使用具备 H.264 解码能力的 Chromium",
+    ).toMatchObject({ ready: true });
+  } finally {
+    await outcome.dispose();
+  }
+  await expect(stage(page)).toBeVisible();
 }
 
 test.describe("video Issue persisted context", () => {
@@ -1000,10 +999,9 @@ test.describe("video Issue persisted context", () => {
           headers: auth(fixture.token),
         }),
       );
-      await page.goto(
-        `/projects/${fixture.data.project_id}/annotate?task=${fixture.taskId}&discussion=issues&issue=${issue.id}`,
-      );
-      await expect(stage(page)).toBeVisible({ timeout: 25_000 });
+      const issueUrl = `/projects/${fixture.data.project_id}/annotate?task=${fixture.taskId}&discussion=issues&issue=${issue.id}`;
+      await page.goto(issueUrl, { waitUntil: "domcontentloaded" });
+      await expectOriginalVideoReady(page);
       await expect(page.getByTestId("discussion-issue-detail")).toHaveAttribute(
         "data-issue-id",
         issue.id,
@@ -1109,8 +1107,6 @@ test.describe("video Issue persisted context", () => {
     await expect(page).toHaveURL(new RegExp(`task=${other.task_id}(?:&|$)`));
     await expect(page.getByTestId("issue-open-count")).toHaveText("待处理 0");
     await page.getByRole("tab", { name: "历史", exact: true }).click();
-    // Use the tab itself: the FAB intentionally starts a fresh list request
-    // and would clear the stale activation, masking this remount regression.
     await page.getByRole("tab", { name: /^问题/ }).click();
     await page.evaluate(
       () =>
@@ -1121,8 +1117,6 @@ test.describe("video Issue persisted context", () => {
     await expect(page.getByTestId("issue-open-count")).toHaveText("待处理 0");
     await expect(page.getByTestId("discussion-issue-detail")).toHaveCount(0);
 
-    // An explicit project-scope activation remains available in the new task,
-    // and opening it still does not move the canvas or switch the task.
     await page.getByTestId("issue-list-scope").selectOption("project");
     await page.getByTestId(`discussion-issue-open-${originalIssue.id}`).click();
     await expect(page.getByTestId("discussion-issue-detail")).toHaveAttribute(
@@ -1201,7 +1195,6 @@ test.describe("video Issue persisted context", () => {
       .click();
     await locate(page, fixture, issue);
     await expect(trackRow(page, original.id)).toHaveAttribute("aria-selected", "true");
-    // A second native seek finishes after selection/render effects and would reveal a late auto-focus overwrite.
     await seek(page, 121);
     await expectVideoContextFramePixels(page, fixture.expectations, 121);
     await expectContext(page, context);
@@ -1456,7 +1449,6 @@ test.describe("video Issue persisted context", () => {
     await page.getByTestId("issue-list-scope").selectOption("project");
     await page.getByTestId(`discussion-issue-locate-${issueB.id}`).click();
     await expect(page).toHaveURL(new RegExp(`task=${other.task_id}(?:&|$)`));
-    // Cross-task Stage ownership already has a 15s deadline, separate from the 3s pixel wait.
     await expect(navigation(page)).toHaveAttribute("data-status", "timeout", { timeout: 18_000 });
     await expect(navigation(page)).toHaveAttribute("data-frame-index", "143");
     await expect(modal(page)).toBeHidden();
@@ -1481,8 +1473,6 @@ test.describe("video Issue persisted context", () => {
     const annotator = users.find((user) => user.email === fixture.data.annotator_email)!;
     const inviter = users.find((user) => user.email === fixture.data.admin_email);
     if (!inviter) throw new Error("Owned fixture inviter is missing");
-    // Predeclare the exact owned invitation before the real product operations;
-    // Identity binds the created invitation and new account in their own transaction.
     const takeoverEmail = fixture.data.admin_email.replace(/^admin-/, "takeover-");
     const takeover = await seed.withOwnedInvitation(
       fixture.data.project_id,

@@ -111,13 +111,9 @@ def _owned_resources(test_engine):
 def _s3_endpoint() -> str:
     scheme = "https" if settings.minio_use_ssl else "http"
     endpoint = httpx.URL(f"{scheme}://{settings.minio_endpoint}")
-    if (
-        _shared_bootstrap_minio(
-            settings, container_id=os.environ.get("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
-        )
-        is None
-        and endpoint.host not in {"localhost", "127.0.0.1", "::1"}
-    ):
+    if _shared_bootstrap_minio(
+        settings, container_id=os.environ.get("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
+    ) is None and endpoint.host not in {"localhost", "127.0.0.1", "::1"}:
         pytest.fail("Mask runtime S3 endpoint must be loopback or verified bootstrap")
     return str(endpoint).rstrip("/")
 
@@ -531,7 +527,9 @@ async def test_live_mask_api_preserves_current_authority_and_roots(
     ) = _owned_resources(test_engine)
     consumer_url = make_url(settings.database_url)
     assert (consumer_url.host, consumer_url.port, consumer_url.database) == (
-        test_engine.url.host, test_engine.url.port, test_engine.url.database
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
     ), "Mask consumer must use the verifier-owned disposable database"
     monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
     monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
@@ -543,6 +541,7 @@ async def test_live_mask_api_preserves_current_authority_and_roots(
     user_ids = []
 
     async with sessions() as db:
+
         async def override_db():
             yield db
 
@@ -574,16 +573,13 @@ async def test_live_mask_api_preserves_current_authority_and_roots(
             recent_rle, root_rle, orphan_rle, unauthorized_rle, quota_rle = (
                 _rle(uuid4().hex) for _ in range(5)
             )
-            # Age only these allocations, not the collector's global clock.
             aged = datetime.now(timezone.utc) - timedelta(days=2)
             with monkeypatch.context() as clock:
                 clock.setattr(raster_mask_objects, "now", lambda: aged)
                 recent_ref = await store_coco_rle(
                     recent_rle.model_dump(mode="json"), db=db
                 )
-                root_ref = await store_coco_rle(
-                    root_rle.model_dump(mode="json"), db=db
-                )
+                root_ref = await store_coco_rle(root_rle.model_dump(mode="json"), db=db)
                 orphan_ref = await store_coco_rle(
                     orphan_rle.model_dump(mode="json"), db=db
                 )
@@ -626,13 +622,15 @@ async def test_live_mask_api_preserves_current_authority_and_roots(
                 )
             )
             await db.flush()
-            assert await raster_mask_objects.bind_publications(
-                db, [recent_ref, root_ref, orphan_ref]
-            ) == 3
+            assert (
+                await raster_mask_objects.bind_publications(
+                    db, [recent_ref, root_ref, orphan_ref]
+                )
+                == 3
+            )
             annotation_id = annotation.id
             await db.commit()
 
-            # Release only this fixture's orphan reservation after publication.
             await db.execute(
                 delete(RasterMaskUpload).where(
                     RasterMaskUpload.task_id == task.id,
@@ -679,16 +677,22 @@ async def test_live_mask_api_preserves_current_authority_and_roots(
             )
             assert denied.status_code in {403, 404}
             unauthorized_key = codec.build_rle_reference(unauthorized_rle).object_key
-            assert await db.scalar(
-                select(RasterMaskObject.id).where(
-                    RasterMaskObject.logical_key == unauthorized_key
+            assert (
+                await db.scalar(
+                    select(RasterMaskObject.id).where(
+                        RasterMaskObject.logical_key == unauthorized_key
+                    )
                 )
-            ) is None
-            assert await db.scalar(
-                select(RasterMaskUpload.id).where(
-                    RasterMaskUpload.object_key == unauthorized_key
+                is None
+            )
+            assert (
+                await db.scalar(
+                    select(RasterMaskUpload.id).where(
+                        RasterMaskUpload.object_key == unauthorized_key
+                    )
                 )
-            ) is None
+                is None
+            )
 
             fetched = await httpx_client.get(
                 f"/api/v1/annotations/{annotation_id}/mask-content", headers=headers
@@ -743,20 +747,24 @@ async def test_live_mask_api_preserves_current_authority_and_roots(
             assert quota.status_code == 422
             assert quota.json()["detail"]["reason"] == "mask_quota_exceeded"
             quota_key = codec.build_rle_reference(quota_rle).object_key
-            assert await db.scalar(
-                select(RasterMaskObject.id).where(
-                    RasterMaskObject.logical_key == quota_key
+            assert (
+                await db.scalar(
+                    select(RasterMaskObject.id).where(
+                        RasterMaskObject.logical_key == quota_key
+                    )
                 )
-            ) is None
-            assert await db.scalar(
-                select(RasterMaskUpload.id).where(
-                    RasterMaskUpload.object_key == quota_key
+                is None
+            )
+            assert (
+                await db.scalar(
+                    select(RasterMaskUpload.id).where(
+                        RasterMaskUpload.object_key == quota_key
+                    )
                 )
-            ) is None
+                is None
+            )
             await db.rollback()
 
-            # The collector is global. Lock all neighboring owners out of its
-            # SKIP LOCKED scan and refuse to expire anyone else's reservation.
             async with sessions() as neighbors:
                 await neighbors.scalars(
                     select(RasterMaskObject.id)
@@ -809,8 +817,6 @@ async def test_live_mask_api_preserves_current_authority_and_roots(
                 owner_s3, orphan_location.bucket, orphan_location.object_key
             )
 
-            # Remove the observed exact root version, then a conditional GET
-            # must revalidate storage rather than return a stale 304 or bytes.
             _, location, head = receipts[root_ref["object_key"]]
             current_head = owner_s3.head_object(
                 Bucket=location.bucket, Key=location.object_key
@@ -832,7 +838,6 @@ async def test_live_mask_api_preserves_current_authority_and_roots(
             assert missing.json()["detail"]["retryable"] is True
         finally:
             await db.rollback()
-            # Capture independently committed allocations even if setup failed.
             async with sessions() as observer:
                 for row in (
                     await observer.scalars(
@@ -847,9 +852,7 @@ async def test_live_mask_api_preserves_current_authority_and_roots(
                     if address not in owned_versions and _object_exists(
                         owner_s3, *address
                     ):
-                        head = owner_s3.head_object(
-                            Bucket=address[0], Key=address[1]
-                        )
+                        head = owner_s3.head_object(Bucket=address[0], Key=address[1])
                         owned_versions[address] = head.get("VersionId")
             for (object_bucket, key), version in owned_versions.items():
                 args = {"Bucket": object_bucket, "Key": key}
@@ -890,7 +893,9 @@ async def test_live_mask_api_preserves_current_authority_and_roots(
                 )
                 await db.execute(delete(Task).where(Task.project_id == project_id))
                 await db.execute(
-                    delete(ProjectDataset).where(ProjectDataset.project_id == project_id)
+                    delete(ProjectDataset).where(
+                        ProjectDataset.project_id == project_id
+                    )
                 )
                 await db.execute(delete(Project).where(Project.id == project_id))
                 await db.execute(delete(DatasetItem).where(DatasetItem.id == item_id))

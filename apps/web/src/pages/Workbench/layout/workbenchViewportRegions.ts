@@ -11,7 +11,6 @@ export function intersectRect(a: Rect, b: Rect): Rect | null {
   return width > 0 && height > 0 ? { left, top, width, height } : null;
 }
 
-/** Disjoint pieces prevent overlapping occluders from punching holes back into the mask. */
 export function subtractRects(rect: Rect, occluders: readonly Rect[]): Rect[] {
   return occluders.reduce<Rect[]>(
     (pieces, occluder) =>
@@ -55,7 +54,6 @@ export function viewportRegionClipPath(rects: readonly Rect[], origin: Rect): st
     .join(" ")}")`;
 }
 
-/** One geometry snapshot drives DOM occlusion and GPU scissor regions. */
 export function createWorkbenchViewportRegions(api: DockviewApi, host: HTMLElement) {
   const masks = new Map<HTMLElement, string>();
   const occlusion = new Map<string, Rect[]>();

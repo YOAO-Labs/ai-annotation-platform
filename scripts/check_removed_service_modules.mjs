@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-// scripts/check_removed_service_modules.mjs
-//
-// Reject references to removed service facades in active code, tests, scripts,
-// configuration and current documentation, including string-based imports.
-//
-// Usage:
-//   node scripts/check_removed_service_modules.mjs                 # active scan
-//   node scripts/check_removed_service_modules.mjs --historical-links  # also check
-//                                                                   # markdown links
-//                                                                   # to deleted files
-//
-// Exit code: 0 if clean, 1 if violations found.
 
 import { readFileSync } from "node:fs";
 import { dirname, resolve, relative } from "node:path";
@@ -20,9 +8,6 @@ import { execSync } from "node:child_process";
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(here, "..");
 
-// ---------------------------------------------------------------------------
-// Manifest: the 23 removed service modules and their exact dotted paths.
-// ---------------------------------------------------------------------------
 const manifestPath = resolve(REPO, "apps/api/tests/_fixtures/removed_service_modules.json");
 const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
 const REMOVED_DOTTED = manifest.modules.map((m) => m.facade_module);
@@ -34,11 +19,6 @@ const REMOVED_FILE_PATHS = new Set(
   }),
 );
 
-// ---------------------------------------------------------------------------
-// Allowlist: files that may legitimately reference removed modules.
-// ---------------------------------------------------------------------------
-// These are the ONLY active-tree files allowed to contain removed-module
-// strings. Everything else is deny-by-default.
 const ALLOWED_FILES = new Set([
   "apps/api/tests/test_compat_facades.py",
   "apps/api/tests/test_domain_package_architecture.py",
@@ -50,8 +30,6 @@ const ALLOWED_FILES = new Set([
   "apps/api/scripts/check_removed_service_modules.py",
 ]);
 
-// Historical directories may contain old path facts but NOT links to deleted
-// files (checked separately in --historical-links mode).
 const HISTORICAL_DIRS = [
   "docs/plans/",
   "docs/changelogs/",
@@ -63,9 +41,6 @@ const HISTORICAL_DIRS = [
   "CHANGELOG.md",
 ];
 
-// ---------------------------------------------------------------------------
-// Scan helpers.
-// ---------------------------------------------------------------------------
 function getTrackedFiles() {
   const out = execSync("git ls-files -z", { cwd: REPO, encoding: "utf-8" });
   return out
@@ -82,18 +57,13 @@ function isAllowed(relPath) {
   return ALLOWED_FILES.has(relPath) || isHistorical(relPath) || isFacadeFile(relPath);
 }
 
-// The 23 facade files themselves reference their own path in docstrings; they
-// are deleted in D2–D6, after which this check becomes moot.
 function isFacadeFile(relPath) {
   return REMOVED_FILE_PATHS.has(relPath);
 }
 
-// Patterns that constitute a "reference" to a removed module.
 function findReferences(text, relPath) {
   const hits = [];
   for (const dotted of REMOVED_DOTTED) {
-    // 1. Dotted path as a substring (catches imports, strings, mock targets).
-    //    Use word-boundary-like check to avoid partial matches.
     const escaped = dotted.replace(/\./g, "\\.");
     const re = new RegExp(`(^|[^\\w.])${escaped}([^\\w]|$)`, "g");
     let m;
@@ -105,9 +75,6 @@ function findReferences(text, relPath) {
   return hits;
 }
 
-// ---------------------------------------------------------------------------
-// Main scan.
-// ---------------------------------------------------------------------------
 function main() {
   const checkHistoricalLinks = process.argv.includes("--historical-links");
   const files = getTrackedFiles();
@@ -119,10 +86,9 @@ function main() {
     try {
       text = readFileSync(absPath, "utf-8");
     } catch {
-      continue; // binary or unreadable
+      continue;
     }
 
-    // Active-scope check: deny references outside allowlist.
     if (!isAllowed(relPath)) {
       const refs = findReferences(text, relPath);
       for (const ref of refs) {
@@ -132,13 +98,10 @@ function main() {
       }
     }
 
-    // Historical-link check: even historical docs must not LINK to deleted files.
     if (checkHistoricalLinks && relPath.endsWith(".md")) {
       for (const filePath of REMOVED_FILE_PATHS) {
         const name = filePath.split("/").pop();
         const baseName = name.replace(/\.py$/, "");
-        // Check for markdown links to the deleted .py file or its bare name
-        // as a link target.
         const linkRe = new RegExp(`\\]\\(.*${baseName}\\.py[\\s)]`, "g");
         if (linkRe.test(text)) {
           offenders.push(`${relPath}: links to deleted file '${filePath}'`);

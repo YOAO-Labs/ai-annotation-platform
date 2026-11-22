@@ -61,7 +61,6 @@ export function isOriginalOwnerCurrent(owner: OriginalOwner | null): boolean {
   return !!owner && current?.userId === owner.userId && current?.sessionId === owner.sessionId;
 }
 
-/** Public cache namespace; never includes a bearer token or credential receipt. */
 export function originalOwnerKey(): string {
   const auth = useAuthStore.getState();
   return JSON.stringify([auth.user?.id ?? null, auth.sessionId]);
@@ -206,7 +205,6 @@ function pump(): void {
   }
 }
 
-/** A shared consumer may promote its queued private fetch without duplicating it. */
 export function promoteOriginalRead(signal: AbortSignal): void {
   for (const job of downloads) if (job.parent === signal) job.priority = "active";
   pump();
@@ -254,16 +252,13 @@ async function fetchBinary(
         apiClient.silentGetBlob(path, { signal, cache: "no-store" }),
       );
     } catch (error) {
-      const detail = error instanceof ApiError ? error.detailRaw : null;
+      if (attempt >= 3 || abandoned() || !(error instanceof ApiError)) throw error;
+      const { detailRaw: detail, status } = error;
       const code = detail && typeof detail === "object" && "code" in detail ? detail.code : null;
-      if (
-        attempt >= 3 ||
-        abandoned() ||
-        !(error instanceof ApiError) ||
-        error.status !== 429 ||
-        code !== "snapshot_capacity_exceeded"
-      )
-        throw error;
+      const retryable =
+        (status === 429 && code === "snapshot_capacity_exceeded") ||
+        (status === 409 && code === "content_busy");
+      if (!retryable) throw error;
       await delay(signal, 250 * 2 ** attempt);
     }
   }
@@ -291,15 +286,11 @@ export async function readOriginalBytes(
       draining: false,
       cancel() {
         if (job.canceled) {
-          // Owner retirement must never leave a stale credential in flight.
           if (job.draining && !isOriginalOwnerCurrent(owner)) controller.abort();
           return;
         }
         job.canceled = true;
         if (job.running && job.priority === "prefetch" && isOriginalOwnerCurrent(owner)) {
-          // The server admits at most two physical original reads. An aborted
-          // prefetch can still hold its admission until the transport settles,
-          // so keep the client slot instead of racing a replacement into it.
           job.draining = true;
           options.signal?.removeEventListener("abort", job.cancel);
           reject(aborted());

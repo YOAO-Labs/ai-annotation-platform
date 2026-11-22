@@ -71,7 +71,6 @@ def _capture(command, descriptors):
                 reject("timeout")
             process.wait(timeout=remaining)
         if process.returncode != 0 or captured["stderr"]:
-            # Native stderr can contain sensitive container metadata or paths.
             reject("failed")
         result = bytes(captured["stdout"])
     except BaseException as exc:

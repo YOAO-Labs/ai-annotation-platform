@@ -550,8 +550,6 @@ class S3ImageStorage:
         except (ImageFailure, asyncio.CancelledError) as exc:
             failure = exc
             if not isinstance(exc, native_media.NativeWriteRefused):
-                # The request may have reached the saved location; only the
-                # recorded receipt can prove otherwise.
                 exc.storage_operation_unsettled = True
             raise
         except Exception:
@@ -563,9 +561,6 @@ class S3ImageStorage:
                 await body.aclose()
             except BaseException as close_error:
                 if not isinstance(failure, native_media.NativeWriteRefused):
-                    # Observed response headers are not closure proof: the
-                    # client/body operation may still be open.  Never register
-                    # this receipt and never report it as not_written.
                     failure = failure or ImageFailure("storage_unavailable")
                     failure.storage_operation_unsettled = True
                     raise failure from close_error
@@ -622,8 +617,6 @@ class S3ImageStorage:
 
     async def _native_context(self, call, request):
         try:
-            # Only the fenced capture shares the worker's SQL lane. Physical
-            # PUTs and exact-version readbacks stay outside it and may overlap.
             async with self._native_capture_lane:
                 return await call(request)
         except asyncio.CancelledError:
@@ -875,7 +868,6 @@ class S3ImageStorage:
                 if modified.tzinfo is None or modified.utcoffset() is None:
                     raise ImageFailure("invalid_response")
                 if _NATIVE_ROOT_MEMBER.fullmatch(key):
-                    # Native retirement owns this member; it is not a legacy generation.
                     continue
                 match = _IMAGE_GENERATION_KEY.fullmatch(key)
                 if match is None:

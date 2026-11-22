@@ -20,14 +20,12 @@ import json
 import sys
 from pathlib import Path
 
-# cwd=apps/api 时 sys.path 不含 cwd; 显式添加确保 `from app...` 能解析 (同 export_openapi.py)。
 _API_DIR = Path(__file__).resolve().parents[1] / "apps" / "api"
 if str(_API_DIR) not in sys.path:
     sys.path.insert(0, str(_API_DIR))
 
 
 def _render() -> str:
-    # 延迟 import: 复用 GET /protocol 的同一序列化, registry → ProtocolCapabilitiesResponse。
     from app.api.v1.ml_capabilities import _build_payload
 
     schema = _build_payload().model_dump(mode="json")

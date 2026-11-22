@@ -6,7 +6,6 @@ const OPEN_EVENT = "shell:popover-open";
 export const SHELL_POPOVER_HEADER_CLASS =
   "flex h-11 shrink-0 items-center gap-2 border-b border-border px-3.5 text-xs";
 
-/** Common geometry and dismissal for the three top-bar information panels. */
 export function ShellPopover({
   id,
   label,
@@ -47,7 +46,6 @@ export function ShellPopover({
       if ((event as CustomEvent<HTMLElement>).detail !== panel) closeRef.current();
     };
 
-    // A keyboard-opened performance panel also replaces the currently open panel.
     document.addEventListener(OPEN_EVENT, onAnotherOpen);
     document.addEventListener("pointerdown", onPointerDown, true);
     document.addEventListener("keydown", onKeyDown);

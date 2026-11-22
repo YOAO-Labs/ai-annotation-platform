@@ -75,7 +75,6 @@ function normalizeRecord(value: CanvasRecoveryRecord): CanvasRecoveryRecord {
   return value.schemaVersion === 2 ? { ...value, targetKind: "annotation" } : value;
 }
 
-/** Reload recovery never guesses the owner of the old task-only storage format. */
 export function readCanvasDraftRecovery(scope: CanvasRecoveryScope): CanvasRecoveryRecord[] {
   try {
     const legacyKey = `canvas_draft:${scope.taskId}`;
@@ -168,7 +167,6 @@ export function clearCanvasDraftRecovery(origin: DiscussionOrigin): void {
   }
 }
 
-/** Logout removes only this user's scoped recovery, never ownerless legacy data. */
 export function clearUserCanvasDraftRecovery(userId: string): void {
   try {
     for (const key of storageKeys()) {

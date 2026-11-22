@@ -77,7 +77,7 @@ async def test_mount_only_loads_projects_jobs_and_principal():
         app.query_one("#tabs", TabbedContent).active = "tab-projects"
         app.query_one("#tabs", TabbedContent).active = "tab-datasets"
         await pilot.pause()
-        assert calls["datasets"] == 1  # 返回缓存，不重复请求
+        assert calls["datasets"] == 1
 
 
 async def test_dataset_error_preserves_rows_and_jobs_refresh_does_not_clear_it():

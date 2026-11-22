@@ -133,8 +133,6 @@ def _load_subject_snapshot(raw_text: str) -> tuple[str, str | None, float]:
         raise BackendHealthObservationUnavailable() from None
     if not math.isfinite(numeric_timeout):
         raise BackendHealthObservationUnavailable()
-    # Zero and negative settings intentionally reach the existing httpx transport:
-    # its legacy behavior owns how those configurations fail.
     return backend_json, challenge, numeric_timeout
 
 
@@ -152,8 +150,6 @@ def _backend_from_json(backend_json: str):
     try:
         endpoint = json.loads(backend_json, parse_constant=_reject_json_constant)
     except ValueError as error:
-        # Python's JSON integer conversion errors were historically raised before
-        # the health I/O phase; preserve them as the same generic constructor error.
         raise ValueError(str(error)) from None
     if not isinstance(endpoint, dict) or set(endpoint) != _BACKEND_FIELDS:
         raise BackendHealthObservationUnavailable()

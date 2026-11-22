@@ -12,7 +12,6 @@ interface CursorQuery<T> {
   fetchNextPage: () => Promise<unknown>;
 }
 
-/** Show one actual cursor page while retaining fetched pages as backward history. */
 export function useInfiniteListPagination<T>(
   scope: string,
   query: CursorQuery<T>,

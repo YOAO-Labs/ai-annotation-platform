@@ -190,8 +190,6 @@ async def test_real_owner_keeps_physical_facts_and_drains_before_finish(
     shared, _ = transport(monkeypatch, kind, provider)
     service = SimpleNamespace(client=shared)
     patch_service(monkeypatch, kind, service)
-    # Avatar allocation uses its configured bucket while all annotation producers
-    # resolve their existing purpose binding through the ordinary allocation path.
     service.avatars_bucket = settings.minio_avatars_bucket
     call, data = await operation(kind, caller, service)
     original_check = storage_access.check
@@ -295,7 +293,6 @@ async def test_real_owner_keeps_physical_facts_and_drains_before_finish(
         assert provider.closed
         if failure != "body_and_settle":
             assert all(body.closed for body in provider.bodies)
-        # A ready RLE reuse verifies the winner without inventing another PUT.
         if kind == "raster" and failure is None:
             assert await call()
             assert provider.puts == 1

@@ -1,10 +1,5 @@
 #!/usr/bin/env node
 
-// Report release-history annotations in current documentation, including comments and frontmatter.
-// API, dependency, model and data-format versions can be part of a working example. Match the
-// surrounding release-note syntax rather than treating every dotted number as product history.
-// Advisory unless --strict is passed.
-
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -13,9 +8,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
 
-// Docs where a version prefix is an anti-pattern.
 const SCAN = [/^docs-site\/.*\.md$/, /^README\.md$/, /^DEV\.md$/];
-// Places where version-prefixed content is legitimate (changelog / ADRs / generated / build output).
 const EXEMPT = [
   /^CHANGELOG\.md$/,
   /^docs\/adr\//,
@@ -86,10 +79,8 @@ function changedDocFiles(opts) {
     .filter(isDoc);
 }
 
-// Return added lines with their new-file line numbers for one file.
 function addedLines(file, opts) {
   if (opts.files.length > 0) {
-    // Ad-hoc mode: scan the whole working-tree file.
     let text;
     try {
       text = readFileSync(resolve(repoRoot, file), "utf8");
@@ -117,7 +108,6 @@ function addedLines(file, opts) {
       added.push({ line: newLine, content: raw.slice(1) });
       newLine++;
     }
-    // deletions / metadata lines do not advance the new-file counter
   }
   return added;
 }

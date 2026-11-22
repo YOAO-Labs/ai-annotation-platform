@@ -180,8 +180,6 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         min_value=0,
         dynamic_max=True,
     ),
-    # The connector allowlist has a dedicated API, but is retained here for
-    # compatibility with its existing service and DB/env fallback semantics.
     "connector_host_allowlist": SettingSpec(
         "connector_host_allowlist",
         "json",
@@ -190,7 +188,6 @@ SETTING_SPECS: dict[str, SettingSpec] = {
     ),
 }
 
-# Compatibility exports used by existing connector code and tests.
 EDITABLE_KEYS: dict[str, str] = {
     key: spec.value_type for key, spec in SETTING_SPECS.items()
 }
@@ -244,8 +241,6 @@ def _coerce(value_type: str, raw: Any) -> Any:
 
 def _validate_stored_value(spec: SettingSpec, raw: Any) -> Any:
     if raw is None:
-        # NULL is retained only for historical inherit-env rows.  The API does
-        # not create such rows; reset is the explicit way to remove an override.
         return None
     value = _coerce(spec.value_type, raw)
     if spec.value_type == "int":
@@ -269,8 +264,6 @@ def _cache_get(key: str) -> tuple[bool, Any]:
 
 
 def _cache_set(key: str, value: Any, read_started_at: float) -> None:
-    # A slow read may finish after another process commits. Its TTL starts
-    # before the query, so it cannot extend the propagation window.
     _cache[key] = (read_started_at, value)
 
 
@@ -305,8 +298,6 @@ def _version(
         sort_keys=True,
         separators=(",", ":"),
     )
-    # Include deployment changes in concurrency checks without exposing an
-    # unkeyed fingerprint that could be used to guess an SMTP password.
     digest = hmac.new(
         settings.secret_key.encode(), encoded.encode(), hashlib.sha256
     ).hexdigest()
@@ -391,19 +382,10 @@ class SystemSettingsService:
             value = deployment_default
             if row is not None and row.value_json is not None:
                 try:
-                    # Existing rows are decoded strictly but deliberately not
-                    # range-validated: a deployment/override created before a
-                    # narrower UI range must remain visible and be marked
-                    # ``in_range=false`` in metadata.
                     value = _coerce(spec.value_type, row.value_json)
                 except (TypeError, ValueError):
-                    # Keep a malformed historical row from crashing every read;
-                    # type-invalid data falls back to the deployment value.
                     value = deployment_default
             values[key] = value
-            # A transaction can see its own uncommitted overrides. They must
-            # never become a process-wide effective value, including after a
-            # nested commit followed by an outer rollback.
             if (
                 not bypass_cache
                 and not db.sync_session.info.get(_CHANGED_KEYS_INFO)
@@ -525,8 +507,6 @@ class SystemSettingsService:
                 try:
                     _coerce(spec.value_type, row.value_json)
                 except (TypeError, ValueError):
-                    # A malformed historical override already falls back to
-                    # this effective value; writing it still repairs the row.
                     pass
                 else:
                     continue
@@ -583,8 +563,6 @@ class SystemSettingsService:
         changed_keys: set[str] = set()
         for key in selected:
             row = current.rows.get(key)
-            # Explicit reset also invalidates a potentially stale local cache
-            # when another worker already removed the row.
             changed_keys.add(key)
             if row is None:
                 continue

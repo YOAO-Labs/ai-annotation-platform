@@ -81,7 +81,6 @@ async def test_persistent_reference_resumes_but_old_binding_cannot_publish(
                 **task_binding(world.task),
                 "reference": await reference_binding(db, world.task),
             }
-            # A historical delegation still works at initial epoch 1.
             old["reference"].pop("maintenance_revision")
             await lock_reference_bindings(db, [old], "test")
             await db.rollback()
@@ -421,7 +420,7 @@ def test_asyncio_shutdown_waits_for_physical_read_before_settlement(monkeypatch)
         )
         assert await asyncio.to_thread(entered.wait, 1)
         timer.start()
-        return task  # asyncio.run cancels this Task in its shutdown sweep.
+        return task
 
     try:
         pending = asyncio.run(main())

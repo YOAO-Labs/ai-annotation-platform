@@ -31,9 +31,6 @@ export function DataManagerFrame({
   children: ReactNode;
 }) {
   const navigate = useNavigate();
-  // The Data section uses the frame root as the page-level scroll owner so the
-  // natural-height task/entity results can flow past the viewport. Overview and
-  // Members keep their own constrained scroll containers.
   const pageScrolling = section === "data";
 
   return (

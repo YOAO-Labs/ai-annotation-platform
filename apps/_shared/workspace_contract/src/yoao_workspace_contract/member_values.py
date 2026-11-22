@@ -81,8 +81,6 @@ def _integer(value, *, optional=False) -> int | None:
 def _timestamp(value) -> datetime | None:
     if value is not None and type(value) is not str:
         raise ProjectMemberRowsUnavailable()
-    # Keep the established Project timestamp behavior, including OverflowError for
-    # finite years outside Python's datetime range.
     from .project_query_values import decode_postgres_timestamp
     from .project_query_contract import ProjectQueryUnavailable
 

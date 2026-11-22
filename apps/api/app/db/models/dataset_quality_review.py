@@ -52,7 +52,6 @@ class DatasetQualityReviewMember(Base):
     batch_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("dataset_quality_review_batches.id", ondelete="CASCADE")
     )
-    # The original identity survives disappearance of live quality evidence.
     result_id: Mapped[uuid.UUID] = mapped_column(UUID)
     snapshot: Mapped[dict] = mapped_column(JSONB)
     state: Mapped[str] = mapped_column(String(20), default="pending")

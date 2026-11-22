@@ -37,8 +37,6 @@ def headers(user):
 
 
 async def seed_handoff(db, actor, role="annotator", project_count=2):
-    # Post-cutover staff are platform employees; the project role is carried by
-    # the membership only.  Owner retains the administrative identity.
     account_role = "project_admin" if role == "owner" else "employee"
     target = await create_user(
         db, account_role, f"leaving-{uuid.uuid4()}@test.local", "Leaving"
@@ -72,9 +70,6 @@ async def seed_handoff(db, actor, role="annotator", project_count=2):
                 task, "assignee_id" if role == "annotator" else "reviewer_id", target.id
             )
         if role == "reviewer":
-            # A reviewable post-cutover task carries frozen contributor evidence.
-            # The outgoing reviewer submitted the round; the receiver is not a
-            # contributor, so the handoff decision is not a self-review.
             task.review_round_id = uuid.uuid4()
             task.annotation_contributor_ids = []
             task.review_contributor_ids = [str(target.id)]
@@ -189,7 +184,7 @@ async def test_legacy_lifecycle_cannot_overwrite_a_concurrent_deletion(
         )
         .execution_options(synchronize_session=False)
     )
-    assert target.is_active  # The request's identity map predates the deletion.
+    assert target.is_active
     path = f"/api/v1/users/{target.id}"
     auth = {"Authorization": f"Bearer {token}"}
     response = await (
@@ -222,7 +217,6 @@ async def test_preview_changes_never_partially_transfer(
         )
     else:
         tasks[-1].version += 1
-    # The competing change precedes the command and must survive its rollback.
     await db_session.commit()
     response = await httpx_client.post(
         f"/api/v1/users/{target.id}/offboarding",
@@ -329,7 +323,6 @@ async def test_legacy_delete_requires_handoff_for_rejected_work(
     target, _, _, _, tasks = await seed_handoff(db_session, actor, project_count=1)
     tasks[0].status = "rejected"
     target_id, task_id = target.id, tasks[0].id
-    # Persist setup so rejection rolls back only the command's work.
     await db_session.commit()
     response = await httpx_client.delete(
         f"/api/v1/users/{target_id}", headers=headers(actor)

@@ -368,10 +368,8 @@ describe("DataManagerAnnotationPreview", () => {
     expect(solid).not.toBeNull();
     expect(occluded).not.toBeNull();
     expect(flagOff).not.toBeNull();
-    // Occluded matches the Workbench visual: dashed stroke + half opacity.
     expect(occluded!.hasAttribute("data-dash")).toBe(true);
     expect(Number(occluded!.getAttribute("data-opacity"))).toBeCloseTo(0.5);
-    // Without the occluding attribute (or with it false) boxes stay solid.
     expect(solid!.hasAttribute("data-dash")).toBe(false);
     expect(solid!.getAttribute("data-opacity")).toBe("1");
     expect(flagOff!.hasAttribute("data-dash")).toBe(false);
@@ -389,8 +387,6 @@ describe("DataManagerAnnotationPreview", () => {
     await screen.findByText("已保存标注 1 条");
     first.unmount();
 
-    // A saved deletion in the Workbench must be visible even within the
-    // previous preview's cache freshness window.
     renderPreview(props, client);
     await waitFor(() => expect(state.getAnnotationsPage).toHaveBeenCalledTimes(2));
     await screen.findByText("已保存标注 0 条");
@@ -472,8 +468,6 @@ describe("DataManagerAnnotationPreview", () => {
     async (strict) => {
       const client = createClient();
       const mask = maskAnnotation(`cached-mask-${strict}`);
-      // Warm the actual query cache through the same read path, with the mask
-      // hidden so reopening is the first mask-content request.
       state.getAnnotationsPage.mockResolvedValue({
         items: [{ ...mask, is_hidden: true }],
         next_cursor: null,
@@ -618,12 +612,9 @@ describe("DataManagerAnnotationPreview", () => {
     await screen.findByText("已保存标注 6 条");
     const section = screen.getByLabelText("标注预览");
 
-    // Image pixels and geometry share one transform: Stage width/height follow
-    // the fitted image box.
     const stage = section.querySelector("[data-konva='Stage']") as HTMLElement | null;
     expect(stage).not.toBeNull();
 
-    // Vector shapes carry the explicit project class color, not a global one.
     const rectNodes = section.querySelectorAll("[data-konva='Rect']");
     expect(rectNodes.length).toBeGreaterThan(0);
     const withCarColor = Array.from(rectNodes).filter(
@@ -631,22 +622,18 @@ describe("DataManagerAnnotationPreview", () => {
     );
     expect(withCarColor.length).toBeGreaterThan(0);
 
-    // Polygon holes use the even-odd branch.
     expect(section.querySelector("[data-fillrule='evenodd']")).not.toBeNull();
 
-    // Rotated box keeps its angle on the rotating group itself.
     const rotated = Array.from(section.querySelectorAll("[data-konva='Group']")).find(
       (node) => node.getAttribute("data-rotation") === "30",
     );
     expect(rotated).toBeTruthy();
 
-    // Keypoint skeleton edges come from the project binding.
     const edgeLines = Array.from(section.querySelectorAll("[data-konva='Line']"));
     expect(edgeLines.some((line) => (line.getAttribute("data-points") ?? "").includes("160"))).toBe(
       true,
     );
 
-    // Mask content is fetched through the cancellable adapter.
     await waitFor(() => expect(state.maskContent).toHaveBeenCalled());
     expect(state.maskContent.mock.calls[0][0]).toBe("mask-1");
     expect(state.maskContent.mock.calls[0][1]).toMatchObject({ signal: expect.anything() });
@@ -668,7 +655,6 @@ describe("DataManagerAnnotationPreview", () => {
 
     fireEvent.click(within(section).getByRole("button", { name: /隐藏标注/ }));
     await waitFor(() => expect(section.querySelectorAll("[data-konva='Rect']").length).toBe(0));
-    // The image itself stays visible.
     expect(within(section).getByRole("button", { name: /显示标注/ })).toBeInTheDocument();
   });
 
@@ -703,8 +689,6 @@ describe("DataManagerAnnotationPreview", () => {
       .mockResolvedValueOnce(pageResponse(state.pages[1]));
 
     renderPreview({ highlightAnnotationId: "wanted" });
-    // Second page is fetched automatically because the highlight is absent
-    // from the first page.
     await waitFor(() => expect(state.getAnnotationsPage).toHaveBeenCalledTimes(2));
     await screen.findByText("已保存标注 2 条");
     expect(screen.queryByText(/未找到选中的对象/)).not.toBeInTheDocument();
@@ -724,7 +708,6 @@ describe("DataManagerAnnotationPreview", () => {
 
     const { container } = renderPreview();
     await waitFor(() => expect(state.getTask).toHaveBeenCalled());
-    // Wait for the query state to settle before asserting absence.
     await waitFor(() => expect(container.querySelector("[aria-label='标注预览']")).toBeNull());
     expect(state.getAnnotationsPage).not.toHaveBeenCalled();
   });
@@ -732,14 +715,12 @@ describe("DataManagerAnnotationPreview", () => {
   it("offers an actionable retry after a media failure and refreshes once", async () => {
     state.pages = [{ items: [{ id: "box-1" }], next_cursor: null }];
     state.getAnnotationsPage.mockResolvedValue(pageResponse(state.pages[0]));
-    // Force the media load to fail by removing every media URL.
     state.task = { ...state.task, file_url: null, thumbnail_url: null };
     state.getTask.mockResolvedValue(state.task);
 
     renderPreview();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("原件读取失败");
-    // The retry refetches task metadata for a fresh signed URL.
     fireEvent.click(screen.getByRole("button", { name: "重新加载预览" }));
     await waitFor(() => expect(state.getTask.mock.calls.length).toBeGreaterThanOrEqual(2));
   });

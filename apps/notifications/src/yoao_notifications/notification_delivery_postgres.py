@@ -11,15 +11,15 @@ from uuid import UUID
 from .notification_delivery_contract import (
     NOTIFICATION_DELIVERY_POLICY,
     NOTIFICATION_DELIVERY_PROTOCOL,
+    NotificationDeliveryLease,
     NotificationDeliveryUnavailable,
-    NotificationClaimRequest,
     NotificationDeliveryPolicyReply,
     NotificationFinishRequest,
-    NotificationLease,
-    decode_notification_claim_reply,
+    decode_claimed_deliveries,
     decode_notification_delivery_policy,
     decode_notification_finish_reply,
     native_notification_command_json,
+    notification_claim_request,
 )
 
 _DELIVERY_CAPABILITIES = {
@@ -38,10 +38,12 @@ class NotificationDeliveryPostgresData:
         *,
         connect_timeout: float = 5,
         command_timeout: float = 10,
+        include_terminal: bool = False,
     ):
         self.dsn = dsn
         self.connect_timeout = connect_timeout
         self.command_timeout = command_timeout
+        self.include_terminal = include_terminal
 
     async def _open(self):
         import asyncpg
@@ -201,8 +203,6 @@ class NotificationDeliveryPostgresData:
                     f"SELECT yoao_notifications_v1.{function}($1::jsonb)", encoded
                 )
                 value = self._decode_json(raw)
-                # Validate the complete owner reply and its request binding before
-                # the claim/finish transaction is allowed to commit.
                 result = decode(value)
                 return result
         except NotificationDeliveryUnavailable:
@@ -226,35 +226,26 @@ class NotificationDeliveryPostgresData:
         *,
         limit: int = 16,
         lease_seconds: int = 60,
-    ) -> list[NotificationLease]:
+    ) -> list[NotificationDeliveryLease]:
         try:
-            request = NotificationClaimRequest(
-                schema=NOTIFICATION_DELIVERY_PROTOCOL,
-                worker_id=worker_id,
+            request = notification_claim_request(
+                worker_id,
                 limit=limit,
                 lease_seconds=lease_seconds,
+                include_terminal=self.include_terminal,
             )
         except (ValueError, TypeError):
             raise NotificationDeliveryUnavailable() from None
 
-        def decode(value):
-            reply = decode_notification_claim_reply(value)
-            items = reply.data.items
-            if len(items) > request.limit:
-                raise NotificationDeliveryUnavailable()
-            ids = [item.id for item in items]
-            lease_ids = [item.lease_id for item in items]
-            if len(ids) != len(set(ids)) or len(lease_ids) != len(set(lease_ids)):
-                raise NotificationDeliveryUnavailable()
-            if any(item.worker_id != request.worker_id for item in items):
-                raise NotificationDeliveryUnavailable()
-            return items
-
-        return await self._call("claim_identity_deliveries", request, decode)
+        return await self._call(
+            "claim_identity_deliveries",
+            request,
+            lambda raw: decode_claimed_deliveries(request, raw),
+        )
 
     async def finish_delivery(
         self,
-        lease: NotificationLease,
+        lease: NotificationDeliveryLease,
         *,
         outcome: str,
         reason: str,

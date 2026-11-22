@@ -363,9 +363,6 @@ async def test_operator_psql_login_executes_operator_capabilities_and_rolls_back
     assert lines[1] == "t"
     capabilities = json.loads(lines[2])
     by_name = {entry["name"]: entry["args"] for entry in capabilities}
-    # The operator LOGIN legitimately also holds the auxiliary-original and
-    # storage-operation capabilities that create_item_original calls; the
-    # registration surface below is the exact contract this LOGIN must keep.
     assert set(OPERATOR_NATIVE_ARGUMENTS) <= set(by_name)
     for name, arguments in OPERATOR_NATIVE_ARGUMENTS.items():
         assert by_name[name] == list(arguments)

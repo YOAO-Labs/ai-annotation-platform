@@ -83,7 +83,6 @@ async def test_backfill_batches_preserve_identities_append_late_history_and_resu
     )
     first, _ = await backfill_batch(db_session, project.id, mode="apply", batch_size=2)
     assert first["associated"] == 2
-    # Restart without a saved cursor; previously issued numbers do not change.
     resumed, cursor = await backfill_batch(
         db_session, project.id, mode="apply", batch_size=3
     )

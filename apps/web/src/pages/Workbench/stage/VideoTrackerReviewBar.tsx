@@ -102,8 +102,6 @@ export function VideoTrackerReviewBar({
     try {
       const outcome = await decide(selection);
       if (decision === "accept" && outcome.reason === "manual_keyframe_protected" && isCurrent()) {
-        // 覆盖受保护的人工关键帧是破坏性决定;确认前后都以 isCurrent 重验,
-        // 等待期间审阅上下文已切换则放弃 override。
         const override = await confirmDialog({
           tone: "danger",
           title: "用追踪候选覆盖受保护的人工关键帧？",

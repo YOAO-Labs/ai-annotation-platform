@@ -15,7 +15,6 @@ class StorageFaultState(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     scope_key: Mapped[str] = mapped_column(String(64), unique=True)
-    # No parent FK: the bounded observer must not wait on a caller's parent locks.
     location_id: Mapped[uuid.UUID] = mapped_column(index=True)
     source_id: Mapped[uuid.UUID | None] = mapped_column(nullable=True, index=True)
     category: Mapped[str] = mapped_column(String(24))

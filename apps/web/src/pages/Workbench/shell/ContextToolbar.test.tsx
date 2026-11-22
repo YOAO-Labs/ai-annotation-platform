@@ -1,11 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { once } from "node:events";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ContextToolbar } from "./ContextToolbar";
 import { isWorkbenchInteractionBlocked } from "../state/workbenchInteractionGuards";
 
-// A second, non-Mask consumer verifies the shell has no editing or persistence assumptions.
+async function whenFocused(element: HTMLElement): Promise<void> {
+  if (element.ownerDocument.activeElement !== element) await once(element, "focus");
+}
+
 describe("ContextToolbar", () => {
   it("reveals required input on hover and guards its keys without opening full settings", async () => {
     const user = userEvent.setup();
@@ -40,30 +44,49 @@ describe("ContextToolbar", () => {
     }
     render(<Owner />);
     const blocked = vi.fn();
-    const keyListener = (event: KeyboardEvent) => blocked(isWorkbenchInteractionBlocked(event));
-    window.addEventListener("keydown", keyListener);
+    const keyListener = (event: KeyboardEvent) => {
+      blocked(event.key, isWorkbenchInteractionBlocked(event));
+    };
+    window.addEventListener("keydown", keyListener, true);
     try {
+      const summary = screen.getByTestId("primary-settings-trigger");
       expect(screen.queryByRole("textbox", { name: "目标" })).toBeNull();
-      await user.hover(screen.getByTestId("primary-settings-trigger"));
-      await user.type(screen.getByRole("textbox", { name: "目标" }), "car");
-      expect(blocked.mock.calls.every(([value]) => value)).toBe(true);
+      await user.hover(summary);
+      const quickPrompt = screen.getByRole("textbox", { name: "目标" });
+      await user.click(quickPrompt);
+      expect(quickPrompt).toHaveFocus();
+      await user.unhover(quickPrompt);
+      await user.keyboard("car . persn{ArrowLeft}o");
+      fireEvent.keyDown(quickPrompt, { key: "Escape", isComposing: true });
+      expect(screen.getByRole("textbox", { name: "目标" })).toHaveValue("car . person");
+      expect(quickPrompt).toHaveFocus();
+      expect(blocked.mock.calls).toEqual(
+        [..."car . persn", "ArrowLeft", "o", "Escape"].map((key) => [key, true]),
+      );
       expect(screen.queryByTestId("primary-toolbar")).toBeNull();
+
       await user.click(screen.getByRole("button", { name: "更多 示例 工具" }));
-      expect(screen.getByRole("textbox", { name: "目标" })).toHaveValue("car");
-      await user.type(screen.getByRole("textbox", { name: "目标" }), " . person");
-      fireEvent.keyDown(screen.getByRole("textbox", { name: "目标" }), {
+      const panel = screen.getByTestId("primary-toolbar");
+      await whenFocused(panel);
+      await user.tab();
+      const fullPrompt = within(panel).getByRole("textbox", { name: "目标" });
+      expect(fullPrompt).toHaveFocus();
+      expect(fullPrompt).toHaveValue("car . person");
+      await user.keyboard("{End} . bike");
+      fireEvent.keyDown(fullPrompt, {
         key: "Escape",
         isComposing: true,
       });
-      expect(screen.getByTestId("primary-toolbar")).toBeInTheDocument();
-      await user.click(screen.getByRole("button", { name: "收起" }));
-      await user.hover(screen.getByTestId("primary-settings-trigger"));
-      expect(screen.getByRole("textbox", { name: "目标" })).toHaveValue("car . person");
+      expect(panel).toBeInTheDocument();
+      await user.click(within(panel).getByRole("button", { name: "收起" }));
+      await whenFocused(summary);
+      await user.hover(summary);
+      expect(screen.getByRole("textbox", { name: "目标" })).toHaveValue("car . person . bike");
       expect(command).not.toHaveBeenCalled();
       await user.click(screen.getByRole("button", { name: "运行" }));
       expect(command).toHaveBeenCalledOnce();
     } finally {
-      window.removeEventListener("keydown", keyListener);
+      window.removeEventListener("keydown", keyListener, true);
     }
   });
 
@@ -94,7 +117,6 @@ describe("ContextToolbar", () => {
       await user.click(screen.getByRole("button", { name: "更多 示例 工具" }));
       const panel = screen.getByTestId("closing-toolbar");
       await waitFor(() => expect(panel).toHaveAttribute("data-motion-ready", "true"));
-      // Preserve Radix's exit presence in jsdom, whose CSS animations are disabled.
       panel.style.animationName = "toolbarCollapse";
       await user.click(screen.getByRole("button", { name: "收起" }));
       expect(panel.style.getPropertyValue("--toolbar-target")).toBe(
@@ -259,9 +281,6 @@ describe("ContextToolbar", () => {
           >
             {() => <p>工具提供的内容</p>}
           </ContextToolbar>
-          {/* Stacked decision dialogs mark themselves with data-modal; Radix can
-              reach the outside check after such a dialog already closed, so the
-              toolbar must ignore interactions owned by it. */}
           <div role="alertdialog" data-modal>
             <button type="button">覆盖</button>
           </div>
@@ -274,7 +293,6 @@ describe("ContextToolbar", () => {
     expect(screen.getByText("工具提供的内容")).toBeVisible();
     fireEvent.pointerDown(screen.getByRole("button", { name: "覆盖" }));
     await waitFor(() => expect(screen.queryByTestId("guarded-toolbar")).not.toBeNull());
-    // Genuine outside interactions still collapse the panel.
     fireEvent.pointerDown(document.body);
     await waitFor(() => expect(screen.queryByTestId("guarded-toolbar")).toBeNull());
   });

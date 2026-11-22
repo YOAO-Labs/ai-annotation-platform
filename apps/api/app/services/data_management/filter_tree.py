@@ -8,13 +8,10 @@ from typing import Any
 from fastapi import HTTPException
 
 
-# These are application safeguards rather than configurable deployment settings.
 _MAX_FILTER_DEPTH = 32
 _MAX_FILTER_NODES = 4096
 _MAX_IN_VALUES = 200
 
-# Keep named public aliases available to callers that need to generate boundary
-# cases without coupling themselves to the private spelling.
 MAX_FILTER_DEPTH = _MAX_FILTER_DEPTH
 MAX_FILTER_NODES = _MAX_FILTER_NODES
 

@@ -1,5 +1,3 @@
-// useVideoPreciseFrame pipeline 编排:manifest v2 → chunk 轮询 → samples → bytes → decode。
-// query 层 mock tasksApi/videoApi/fetch;decode 层用真实 useVideoChunkDecoder + stub WebCodecs。
 import { createElement } from "react";
 import { createHash, webcrypto } from "node:crypto";
 import { useAuthStore } from "@/stores/authStore";
@@ -24,8 +22,6 @@ vi.mock("@/api/videos", () => ({
 const getManifestV2 = vi.mocked(tasksApi.getVideoManifestV2);
 const getChunk = vi.mocked(videoApi.getChunk);
 const getSamples = vi.mocked(videoApi.getChunkSamples);
-
-// ── WebCodecs 替身(真实走 useVideoChunkDecoder.decodePlan → 持久 GOP session)────────
 
 function fakeFrame(timestamp: number) {
   const close = vi.fn();
@@ -82,7 +78,6 @@ class FakeEncodedVideoChunk {
   copyTo(): void {}
 }
 
-/** 默认 decode:每个 access unit 产生同 timestamp output。 */
 function defaultDecodeEmitChunk() {
   decoderCtrl.decodeImpl = (d, chunk) => {
     d.emit(fakeFrame(chunk.timestamp).frame);
@@ -122,8 +117,6 @@ function identity(chunkId = 0, size = 64) {
       .digest("hex"),
   };
 }
-
-// ── fixtures ──────────────────────────────────────────────────────────────────
 
 function manifest(chunkSize = 10): VideoManifestV2Response {
   return {
@@ -187,7 +180,6 @@ function samples(frame = 5, ptsMs = 166, chunkId = 0): VideoChunkSamplesResponse
   };
 }
 
-/** 多帧单 GOP samples:frame 0 为 key,其余 delta;decode order == frame order。 */
 function multiSamples(frameCount = 10): VideoChunkSamplesResponse {
   const arr = Array.from({ length: frameCount }, (_, f) => ({
     frame_index: f,
@@ -349,7 +341,7 @@ describe("useVideoPreciseFrame", () => {
   );
 
   it("flag 关闭(decoder inactive)→ manifest/chunk/samples/bytes 零请求,sourceState=disabled", async () => {
-    vi.unstubAllGlobals(); // jsdom 无 WebCodecs → decoder inactive
+    vi.unstubAllGlobals();
     const { result } = renderPrecise({
       taskId: "t1",
       frameIndex: 5,
@@ -360,7 +352,6 @@ describe("useVideoPreciseFrame", () => {
     });
     expect(result.current.sourceState).toBe("disabled");
     expect(result.current.active).toBe(false);
-    // 等 React Query 空转稳定。
     await waitFor(() => expect(getManifestV2).not.toHaveBeenCalled());
     expect(getChunk).not.toHaveBeenCalled();
     expect(getSamples).not.toHaveBeenCalled();
@@ -436,7 +427,6 @@ describe("useVideoPreciseFrame", () => {
       prefetchFrames: 0,
     });
     await waitFor(() => expect(result.current.fallbackReason).toBe("samples_unavailable"));
-    // retry:false → 只请求一次。
     expect(getSamples).toHaveBeenCalledTimes(1);
   });
 
@@ -574,7 +564,6 @@ describe("useVideoPreciseFrame", () => {
   it("换帧 demux 失败时立即清空上一帧的 GOP / PTS / codec 诊断", async () => {
     getManifestV2.mockResolvedValue(manifest());
     getChunk.mockResolvedValue(readyChunk());
-    // samples 只有 frame 5；切到 frame 6 后 buildGopPlan 必须失败。
     getSamples.mockResolvedValue(samples(5, 166));
     vi.mocked(global.fetch).mockResolvedValue({
       ok: true,
@@ -834,8 +823,6 @@ describe("useVideoPreciseFrame", () => {
       prefetchFrames: 0,
     });
     await waitFor(() => expect(result.current.bitmap?.frameIndex).toBe(5));
-    // 快速 seek 到 frame 6:即便旧 frame 5 的 bitmap 仍在 decoder 缓存,frameIndex 守卫确保它
-    // 不被当作当前帧显示(bitmap.frameIndex 必须严格匹配当前 frameIndex)。
     act(() => {
       rerender({
         taskId: "t1",
@@ -867,7 +854,6 @@ describe("useVideoPreciseFrame", () => {
     });
     await waitFor(() => expect(result.current.bitmap?.frameIndex).toBe(3));
     expect(result.current.performance.prefetchRequests).toBe(0);
-    // 前进 3 → 4:方向 +1,预取同 GOP(frame0 key)的 5、6。
     await act(async () => {
       rerender({
         taskId: "t1",
@@ -880,7 +866,6 @@ describe("useVideoPreciseFrame", () => {
     });
     await waitFor(() => expect(result.current.bitmap?.frameIndex).toBe(4));
     await waitFor(() => expect(result.current.performance.prefetchRequests).toBe(2));
-    // 导航到预取过的 6 → 命中预取缓存。
     await act(async () => {
       rerender({
         taskId: "t1",
@@ -966,8 +951,7 @@ describe("useVideoPreciseFrame", () => {
       });
     });
     await waitFor(() => expect(result.current.bitmap?.frameIndex).toBe(4));
-    expect(result.current.performance.prefetchRequests).toBe(0); // light 不预取
-    // 切到播放态:即便 prefetchFrames=2 也不预取(enabled=false → pipelineEnabled=false)。
+    expect(result.current.performance.prefetchRequests).toBe(0);
     await act(async () => {
       rerender({
         taskId: "t1",
@@ -1242,8 +1226,4 @@ describe("useVideoPreciseFrame", () => {
     expect(getManifestV2).toHaveBeenCalledTimes(2);
     expect(getSamples.mock.calls.map((call) => call[3])).toEqual([identity().output_id, output]);
   });
-
-  // latest-request-wins decode 竞态(decode 进行中切帧/task):由 decode effect 的 `cancelled`
-  // cleanup + `latestRef.{taskId,frameIndex,enabled}` 检查实现;同类竞态(task 切换丢弃旧
-  // bitmap、staleResults 计数)已在 useVideoChunkDecoder.test.ts 覆盖。
 });

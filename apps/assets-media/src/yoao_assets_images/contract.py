@@ -531,7 +531,6 @@ class ImagePyramidSummary(Value):
     status: PyramidStatus
     required: StrictBool
     generation: PyramidGeneration | None
-    # The selected generation's own captured source, not the current source.
     source_snapshot: Digest | None
     building_generation: PyramidGeneration | None
     building_status: Literal["pending", "building"] | None
@@ -890,7 +889,6 @@ class ImageWorkStatusRequest(Value):
 class ImageWorkStatus(Value):
     work: ImageWorkReference
     spec: ImageWorkSpec
-    # Internal thumbnail reads may carry a source-bound publication proof here; public progress strips it.
     progress: JsonObject
     error_code: Annotated[StrictStr, Field(max_length=64)] | None
     error_detail: Annotated[StrictStr, Field(max_length=2000)] | None
@@ -1232,19 +1230,11 @@ class PyramidMemberOperation(Value):
 
 
 class PyramidMemberReceipt(PyramidMemberOperation):
-    # The Native-only receipt keeps the raw quoted HTTP ETag and the exact
-    # recorded version; its bounds agree with the portable NativePyramidIoMember
-    # (quoted etag >= 3, version >= 1, both <= 1024).  A literal "null" version
-    # is a real recorded value, distinct from an omitted version.
     etag: Annotated[StrictStr, Field(min_length=3, max_length=1024)]
     version_id: Annotated[StrictStr, Field(min_length=1, max_length=1024)] | None = None
 
 
 class PyramidMemberAbandon(PyramidMemberOperation):
-    # "written" is the bounded physical-closure outcome: it is accepted only
-    # for an already written member with a complete exact receipt, keeps that
-    # receipt and state, and closes only the member's own open storage
-    # operation.  It never closes an unknown member.
     state: Literal["written", "not_written", "unknown"]
 
 

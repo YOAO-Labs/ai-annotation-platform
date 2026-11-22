@@ -195,7 +195,6 @@ class _BackendControlHandle:
 
 
 async def backend_control_handle(db, model_ref, *, session_factory):
-    # Disabled inference must still permit stop-confirmation of old requests.
     from app.services.ml_backend import MLBackendService
 
     registry_id = uuid.UUID(model_ref["registry_id"])

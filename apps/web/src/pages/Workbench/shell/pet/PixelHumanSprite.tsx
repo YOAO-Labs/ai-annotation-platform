@@ -26,10 +26,6 @@ interface PixelHumanSpriteProps {
   size?: number;
 }
 
-/**
- * Pixel-styled annotator helper. Keep all shapes on integer coordinates so the
- * 56px default stays crisp without image assets.
- */
 export function PixelHumanSprite({ mood, size = 56 }: PixelHumanSpriteProps) {
   const happy = mood === "happy" || mood === "celebrate";
   const celebrate = mood === "celebrate";
@@ -95,13 +91,11 @@ export function PixelHumanSprite({ mood, size = 56 }: PixelHumanSpriteProps) {
       )}
 
       <g transform={`translate(0 ${bodyLift})`}>
-        {/* Legs */}
         <rect x="10" y="21" width="3" height="4" fill={APRON} />
         <rect x="15" y="21" width="3" height="4" fill={APRON} />
         <rect x="9" y="24" width="5" height="2" fill={BOOT} />
         <rect x="14" y="24" width="5" height="2" fill={BOOT} />
 
-        {/* Arms */}
         {raisedArms ? (
           <g>
             <rect x="5" y="12" width="3" height="6" fill={SHIRT_DARK} />
@@ -125,14 +119,12 @@ export function PixelHumanSprite({ mood, size = 56 }: PixelHumanSpriteProps) {
           </g>
         )}
 
-        {/* Body */}
         <rect x="9" y="14" width="10" height="8" fill={SHIRT} />
         <rect x="10" y="17" width="8" height="5" fill={APRON} />
         <rect x="11" y="15" width="2" height="3" fill={APRON_LIGHT} />
         <rect x="15" y="15" width="2" height="3" fill={APRON_LIGHT} />
         <rect x="13" y="18" width="2" height="1" fill={BOARD} opacity="0.9" />
 
-        {/* Head */}
         <rect x="8" y="5" width="12" height="9" fill={SKIN} />
         <rect x="8" y="12" width="12" height="2" fill={SKIN_SHADE} opacity="0.35" />
         <rect x="7" y="4" width="14" height="4" fill={HAIR} />

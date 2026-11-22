@@ -141,8 +141,6 @@ class RecoveryManager:
         self.mail_key = (
             mail_key if mail_key is not None else mail_key_from_secret(secret)
         )
-        # Validate the key at construction, so a bad explicit key is an
-        # unavailable deployment and never silently falls back to another key.
         self.mail_encryption_id = mail_encryption_id(self.mail_key)
         self.email_verification_required = email_verification_required
         self.allow_open_registration = allow_open_registration
@@ -169,8 +167,6 @@ class RecoveryManager:
 
     @staticmethod
     def _raise_failure(request: RecoveryRequest, failure: RecoveryFailure) -> None:
-        # The round-trip applies the same operation-specific safe-error policy
-        # to failures generated locally and failures returned by native SQL.
         try:
             decode_recovery_reply(request, recovery_failure_reply(failure))
         except RecoveryFailure as checked:
@@ -237,8 +233,6 @@ class RecoveryManager:
                                 "operation_conflict", 409, "operation_conflict"
                             ),
                         )
-                    # Bind the following native apply to the exact password hash
-                    # that was checked, rather than making a new bcrypt hash.
                     replay_password_hash = data.password_hash
                 replay_token_hash = (
                     command.args.token_hash

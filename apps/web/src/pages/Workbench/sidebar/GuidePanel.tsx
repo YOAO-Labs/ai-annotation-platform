@@ -24,11 +24,8 @@ export interface GuidePanelProps {
   projectId: string;
   userId?: string | null;
   guideVersion?: string;
-  /** 项目级 Markdown 原文; null/空字符串 → 不渲染入口. */
   content: string | null | undefined;
-  /** 顶栏提供的当前项目名称，用于对话框上下文。 */
   projectName?: string;
-  /** 关闭遮罩背景模糊(3D / 点云工作台,见 workbenchDialogClasses)。 */
   backdropBlur?: boolean;
 }
 
@@ -42,12 +39,6 @@ export function guidePanelScopeKey({
   return `${userId ?? "anonymous"}:${projectId}:${version}`;
 }
 
-/**
- * Workbench 标注指引入口与阅读对话框。
- *
- * 阅读状态只在用户点击确认后写入；关闭窗口、切换项目和版本都不会误记为已读。
- * scope key 同时作为布局层的 React key，避免异步图片和保存响应串到下一份指南。
- */
 export function GuidePanel({
   projectId,
   userId,

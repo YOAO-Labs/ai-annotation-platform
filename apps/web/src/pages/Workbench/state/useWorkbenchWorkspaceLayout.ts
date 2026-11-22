@@ -33,7 +33,6 @@ interface WorkspaceSession {
   needsThreeDMigration: boolean;
 }
 
-// A route remount must also wait for the previous owner's request to finish.
 let activeWorkspaceRequest: { userId: string; promise: Promise<UserPreferences> } | null = null;
 
 export function workspaceStorageKey(userId: string, context: WorkspaceContext): string {
@@ -48,7 +47,7 @@ function readLocal(userId: string | undefined, context: WorkspaceContext): unkno
     try {
       return JSON.parse(raw);
     } catch {
-      return false; // Malformed JSON follows the invalid remote snapshot recovery path.
+      return false;
     }
   } catch {
     return undefined;
@@ -71,8 +70,6 @@ function contextEnvelope(workspace: unknown, context: WorkspaceContext): unknown
   if (workspace === undefined) return undefined;
   if (!workspace || typeof workspace !== "object" || Array.isArray(workspace)) return false;
   const value = workspace as Record<string, unknown>;
-  // An account that only saved named presets has no live snapshot yet; that is a
-  // missing context to seed, not a corrupt wrapper.
   const contexts = value.contexts === undefined ? {} : value.contexts;
   if (
     value.engine !== "dockview@8" ||
@@ -83,7 +80,6 @@ function contextEnvelope(workspace: unknown, context: WorkspaceContext): unknown
   )
     return false;
   if (!Object.prototype.hasOwnProperty.call(contexts, context)) return undefined;
-  // A present-but-empty envelope is corrupt, not a missing context to migrate over.
   return (contexts as Record<string, unknown>)[context] ?? false;
 }
 
@@ -129,7 +125,6 @@ function isSchemaDowngrade(error: unknown): boolean {
   );
 }
 
-/** Owns only the active workspace envelope; snapshot is a restore input, not a live tree. */
 export function useWorkbenchWorkspaceLayout(
   context: WorkspaceContext,
   fallbackSnapshot: WorkspaceSnapshot,
@@ -138,7 +133,6 @@ export function useWorkbenchWorkspaceLayout(
 ) {
   const userId = useAuthStore((state) => state.user?.id);
   const queryClient = useQueryClient();
-  // Same key and stale time as useUserPreferences: React Query shares its GET and cache.
   const query = useQuery({
     queryKey: userPreferencesQueryKey(userId),
     queryFn: () => authApi.getPreferences(),
@@ -213,7 +207,6 @@ export function useWorkbenchWorkspaceLayout(
       try {
         const response = await request;
         if (candidate.userId !== useAuthStore.getState().user?.id) return;
-        // Update only this context: another preferences writer may have changed siblings.
         queryClient.setQueryData<UserPreferences>(
           userPreferencesQueryKey(candidate.userId),
           (previous) => {
@@ -229,7 +222,6 @@ export function useWorkbenchWorkspaceLayout(
                 layout: {
                   ...previous.workbench.layout,
                   workspace: {
-                    // Saved presets live beside contexts and have their own writer.
                     ...previous.workbench.layout.workspace,
                     engine: "dockview@8",
                     contexts: {
@@ -342,7 +334,6 @@ export function useWorkbenchWorkspaceLayout(
           schedule(session);
         }
       } else if (!session.readOnlyReason) {
-        // No context on the server yet: persist the initial legacy conversion once.
         const snapshot = session.needsThreeDMigration
           ? migrateThreeDWorkspace(session.snapshot, query.data?.workbench ?? {}, context)
           : session.snapshot;

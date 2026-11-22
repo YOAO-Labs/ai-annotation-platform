@@ -149,8 +149,6 @@ class OwnerTransferPostgresData:
         try:
             connection = await self._connect()
             async with connection.transaction(readonly=False):
-                # The execution gate and the operation share this exact
-                # connection/transaction, so readiness cannot go stale.
                 await self._verify_policy(connection)
                 yield OwnerTransferPostgresTransaction(connection)
         except OwnerTransferUnavailable:

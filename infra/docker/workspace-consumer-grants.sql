@@ -1,7 +1,3 @@
--- Apply after owner and legacy application grants to an ordinary API/worker LOGIN.
--- Explicit seed operators retain their own profile. No service/connection is added.
--- psql -v expected_database=... -v migration_role=... -v workspace_owner=...
---      -v consumer_role=... -f workspace-consumer-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;

@@ -184,8 +184,6 @@ async def test_final_training_authority_waits_then_rechecks_the_current_key(
             await blocker.execute(
                 update(ApiKey).where(ApiKey.id == key_id).values(**values)
             )
-            # Fix the caller transaction's timestamp before expiry; now() would
-            # incorrectly authorize it after the key lock finally becomes free.
             await caller.scalar(text("SELECT CURRENT_TIMESTAMP"))
             pid = await caller.scalar(text("SELECT pg_backend_pid()"))
             pending = asyncio.create_task(

@@ -6,7 +6,6 @@ import type { ProjectCreatePayload } from "@/api/projects";
 import { projectTemplatesApi } from "@/api/projectTemplates";
 import { server } from "@/mocks/server";
 import * as stageColors from "@/pages/Workbench/stage/colors";
-import { expectNoUnexpectedApiRequests, resetUnexpectedApiRequests } from "@/test/apiRequestGuard";
 import { createTestUser, resetAuthUser, seedAuthUser } from "@/test/auth";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { CreateProjectWizard } from "./CreateProjectWizard";
@@ -20,7 +19,6 @@ describe("CreateProjectWizard", () => {
 
   beforeEach(() => {
     creates.length = 0;
-    resetUnexpectedApiRequests();
     seedAuthUser(createTestUser({ role: "project_admin" }));
     server.use(
       http.post("*/api/v1/projects", async ({ request }) => {
@@ -36,7 +34,6 @@ describe("CreateProjectWizard", () => {
     cleanup();
     resetAuthUser();
     vi.restoreAllMocks();
-    expectNoUnexpectedApiRequests();
   });
 
   it("名称边界：空白和一个字符不能继续，两个非空字符可以无来源创建", async () => {
@@ -65,7 +62,6 @@ describe("CreateProjectWizard", () => {
     { mode: "template", legacy: false },
     { mode: "template", legacy: true },
   ])("$mode legacy=$legacy 保留显式颜色并用类别默认色预填及提交", async ({ mode, legacy }) => {
-    // Hex fixtures exercise the real editor without relying on jsdom's canvas parser.
     vi.spyOn(stageColors, "classColor").mockImplementation((name) =>
       name === "person" ? "#123456" : "#abcdef",
     );

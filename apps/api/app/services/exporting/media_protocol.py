@@ -22,8 +22,6 @@ class MediaProtocol:
 
 
 def protocol(kind="lidar"):
-    # Import on selection, so an unrelated format does not need its adapter or
-    # mutate a process-global protocol while another attempt is running.
     if kind == "lidar":
         from app.services.exporting import lidar_inputs, lidar_jobs
         from app.services.exporting.lidar_delivery import prepare

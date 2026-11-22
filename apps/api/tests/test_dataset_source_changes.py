@@ -163,7 +163,6 @@ async def test_frozen_baseline_changed_unseen_excluded_and_errors(
         and entries["blocked.png"]["kind"] == "excluded"
     )
     assert await db.scalar(select(func.count()).select_from(DatasetItem)) == 4
-    # Concurrent direct acceptance must not rewrite this preflight's baseline.
     fresh = await register_entry(
         db,
         world[6].id,
@@ -186,7 +185,6 @@ async def test_frozen_baseline_changed_unseen_excluded_and_errors(
     assert (await changes.page(db, run, "changed", 20, 0))["items"][0][
         "before_item_id"
     ] == original["图片 空格.png"]["item_id"]
-    # Short-lived job history can disappear without losing the baseline.
     await db.delete(job)
     await db.commit()
     assert (await changes.page(db, run, None, 20, 0))["total"] == 6

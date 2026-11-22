@@ -1,7 +1,6 @@
 import { useAuthStore } from "@/stores/authStore";
 import type { ProjectResponse } from "@/api/projects";
 
-/** Only platform administrators can manage a project through ownership. */
 export function useIsProjectOwner(project?: ProjectResponse | null): boolean {
   const user = useAuthStore((s) => s.user);
   if (!user || !project) return false;

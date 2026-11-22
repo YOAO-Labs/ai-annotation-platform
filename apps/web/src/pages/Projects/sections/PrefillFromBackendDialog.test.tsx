@@ -1,10 +1,3 @@
-/**
- * 固化「从 backend 导入/推荐的属性字段 key == backend 自报的语义名」。
- *
- * 落点校验 (useCapabilityValidation) 对 language/orientation 按 key 具名匹配，所以导入/推荐
- * 路径必须原样保留 backend 自报的 key（text/language/orientation），否则手建/导入的字段会
- * 漏判承接位。本测试钉住 itemToField 的 key 透传，防止未来重构悄悄破坏对齐。
- */
 import { describe, it, expect } from "vitest";
 import { itemToField } from "./PrefillFromBackendDialog";
 

@@ -79,14 +79,11 @@ async def test_split_into_single_batch_injects_all_unclassified(
 
     assert len(batches) == 1
     batch = batches[0]
-    # n=1 直接用名称本身，不加 " 1" 后缀
     assert batch.name == "第 1 批"
-    # 6 个未归类 task 全部注入这一个新批次
     rows = (
         await db_session.execute(select(Task.id).where(Task.batch_id == batch.id))
     ).all()
     assert len(rows) == 6
-    # 没有残留未归类任务
     leftover = (
         await db_session.execute(
             select(Task.id).where(
@@ -122,7 +119,6 @@ async def test_sequential_split_preserves_creation_order(
     )
     assert len(batches) == 2
 
-    # 顺序切分：第 1 批是前 3 个、第 2 批是后 3 个（与创建顺序一致，未打乱）
     first = [
         r[0]
         for r in (
@@ -176,7 +172,6 @@ async def test_assign_tasks_chunks_assign_all(
     db_session.add(batch)
     await db_session.flush()
 
-    # 7 不整除 30 → 末块更短，确认边界处理无遗漏
     monkeypatch.setattr(batch_service_mod, "ASSIGN_CHUNK_SIZE", 7)
     assigned = await BatchService(db_session)._assign_tasks(batch.id, task_ids)
     assert assigned == 30

@@ -96,7 +96,6 @@ async def test_access_capability_matrix(
     assert "review.write" in rev["capabilities"]
     assert "export.annotations" in rev["capabilities"]
     assert "annotation.write" not in rev["capabilities"]
-    # Performance stays owner/super-admin only.
     assert "performance.read" not in rev["capabilities"]
 
     view = (await _access(httpx_client, project.id, viewer)).json()
@@ -140,7 +139,6 @@ async def test_membership_refresh_beats_stale_identity_map(
     assert first.project_role == "annotator"
     assert first.membership_version == 1
 
-    # Change the row out-of-band so the identity map still holds the old role.
     await db_session.execute(
         update(ProjectMember)
         .where(ProjectMember.id == member.id)
@@ -177,7 +175,6 @@ async def test_viewer_with_work_membership_fails_closed(
     viewer = await create_user(
         db_session, "viewer", f"acc-bad-{uuid.uuid4()}@test.local", "Bad"
     )
-    # Inconsistent row: a platform viewer must never hold a work membership.
     await _add_member(
         db_session,
         project_id=project.id,

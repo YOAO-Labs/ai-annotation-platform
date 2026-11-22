@@ -5,11 +5,6 @@ import {
   type OfflineQueueScope,
 } from "@/pages/Workbench/state/offlineQueue";
 
-/**
- * 监听 navigator online/offline + 离线队列长度。
- *
- * 注：autoflush 由调用方注册到 online 事件；这个 hook 仅暴露状态。
- */
 export function useOnlineStatus(scope?: OfflineQueueScope) {
   const [online, setOnline] = useState<boolean>(
     typeof navigator !== "undefined" ? navigator.onLine : true,
@@ -32,7 +27,6 @@ export function useOnlineStatus(scope?: OfflineQueueScope) {
 
   useEffect(() => {
     let active = true;
-    // Do not render the previous account's queue while the new scope is being read.
     setQueueCount(0);
     setQueueReady(false);
     setQueueReadError(null);

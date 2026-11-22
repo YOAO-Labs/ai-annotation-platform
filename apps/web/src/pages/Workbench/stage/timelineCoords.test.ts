@@ -24,7 +24,6 @@ describe("frameToPct / pctToFrame", () => {
     expect(frameToPct(40, win)).toBe(0);
     expect(frameToPct(50, win)).toBe(50);
     expect(frameToPct(60, win)).toBe(100);
-    // 窗口外帧映射到域外 (调用方据此裁剪)
     expect(frameToPct(30, win)).toBeLessThan(0);
     expect(frameToPct(70, win)).toBeGreaterThan(100);
   });
@@ -38,17 +37,15 @@ describe("frameToPct / pctToFrame", () => {
     expect(pctToFrame(0, FULL)).toBe(0);
     expect(pctToFrame(0.5, FULL)).toBe(50);
     expect(pctToFrame(1, FULL)).toBe(100);
-    // 越界比例被 clamp 到窗口端点
     expect(pctToFrame(-0.2, FULL)).toBe(0);
     expect(pctToFrame(1.3, FULL)).toBe(100);
-    // 四舍五入
     expect(pctToFrame(0.333, { from: 0, to: 9 })).toBe(3);
   });
 
   it("round-trips within a sub-window", () => {
     const win = { from: 20, to: 40 };
     const frame = 33;
-    const pct = frameToPct(frame, win); // 0..100
+    const pct = frameToPct(frame, win);
     expect(pctToFrame(pct / 100, win)).toBe(frame);
   });
 });
@@ -71,7 +68,6 @@ describe("clampWindow", () => {
   });
 
   it("shifts (not shrinks) a window that overflows the right edge, preserving span", () => {
-    // span 60, from 60 → 越界, 整体左移到 [40,100]
     expect(clampWindow({ from: 60, to: 120 }, 100, MIN_VISIBLE_SPAN)).toEqual({
       from: 40,
       to: 100,
@@ -102,23 +98,22 @@ describe("clampWindow", () => {
 describe("zoomWindow", () => {
   it("keeps the anchor frame at the same pointer ratio (zoom in)", () => {
     const win = { from: 0, to: 100 };
-    const anchorRatio = 0.5; // 指针在中点 → 锚定帧 50
+    const anchorRatio = 0.5;
     const next = zoomWindow(win, 100, anchorRatio, 0.5, MIN_VISIBLE_SPAN);
-    expect(next.to - next.from).toBeCloseTo(50); // span 减半
-    // 锚定帧 50 仍在中点
+    expect(next.to - next.from).toBeCloseTo(50);
     expect(frameToPct(50, next)).toBeCloseTo(50);
   });
 
   it("anchors at the pointer even off-center", () => {
     const win = { from: 0, to: 100 };
-    const anchorRatio = 0.25; // 锚定帧 25
+    const anchorRatio = 0.25;
     const next = zoomWindow(win, 100, anchorRatio, 0.5, MIN_VISIBLE_SPAN);
     expect(frameToPct(25, next)).toBeCloseTo(25);
   });
 
   it("clamps zoom-out to the full window", () => {
     const win = { from: 40, to: 60 };
-    const next = zoomWindow(win, 100, 0.5, 100, MIN_VISIBLE_SPAN); // 大幅缩小 → 满窗
+    const next = zoomWindow(win, 100, 0.5, 100, MIN_VISIBLE_SPAN);
     expect(next).toEqual({ from: 0, to: 100 });
   });
 

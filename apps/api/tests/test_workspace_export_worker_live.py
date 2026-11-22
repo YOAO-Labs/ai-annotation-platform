@@ -465,8 +465,6 @@ def _restore_owned_unacked_export(sender: Celery, worker, task_id: str) -> dict:
             leftmost=True,
         )
         client = channel.client
-        # A live consumer may immediately reinsert this same delivery tag.
-        # The eventual broker ACK below verifies both entries are gone.
         return {
             **evidence,
             "restored": True,
@@ -684,7 +682,6 @@ async def _wait_export_recovery(
             "REVOKED",
         }:
             return latest
-        # A short advisory-lock retry can occur while the killed backend exits.
         await asyncio.sleep(0.25)
     return latest
 
@@ -1282,7 +1279,6 @@ async def test_export_recovers_after_worker_loss(
         gate_tx = None
         await gate.close()
         gate = None
-        # A blocked backend may not notice its dead client until the query wakes.
         await _wait_backend_gone(test_engine, backend_pid)
         observation["lost_backend_gone_after_gate_release"] = True
         observation[

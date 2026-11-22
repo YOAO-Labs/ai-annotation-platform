@@ -309,7 +309,6 @@ class RunnerTests(unittest.TestCase):
         service.client.close()
 
     def test_module_import_does_not_load_application_config(self):
-        # A fresh Python process importing the CLI must not initialize settings.
         import subprocess
         import sys
 

@@ -22,7 +22,6 @@ function check(owner: OriginalOwner | null, signal?: AbortSignal) {
     throw new DOMException("Original owner changed", "AbortError");
 }
 
-/** Only typed, exact resources may replace the deliberately empty wire URLs. */
 export async function hydratePointCloudOriginals(
   manifest: TaskPointCloudManifestResponse,
   taskId: string,

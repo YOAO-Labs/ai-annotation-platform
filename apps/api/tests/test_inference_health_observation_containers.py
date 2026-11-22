@@ -270,7 +270,6 @@ async def test_public_health_uses_observer_image_survives_restart_and_fails_with
                 before = _inspect_docker(container_id)["State"]["StartedAt"]
                 record["origin_before_restart"] = origin
                 _docker("restart", "--time", "5", container_id)
-                # Docker may reassign an ephemeral host port on restart.
                 origin = _origin(container_id)
                 record["origin_after_restart"] = origin
                 monkeypatch.setattr(

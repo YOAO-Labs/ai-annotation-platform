@@ -20,7 +20,6 @@ export interface RasterMaskWorkerSession {
   runEnds: Uint32Array;
 }
 
-/** Exact whole-mask metrics by merging immutable RLE runs without dense pixels. */
 export function compareRasterMaskSessionMetrics(
   current: RasterMaskWorkerSession,
   baseline: RasterMaskWorkerSession,
@@ -278,11 +277,6 @@ function checkedCpuBytes(values: readonly number[]): number {
   return total;
 }
 
-/**
- * Conservative application-owned peak derived from the current morphology
- * implementation. It intentionally includes the dense source, operation
- * workspaces and a worst-case packed history patch plane.
- */
 export function estimateRasterMaskDenseCpuBytes(
   request: RasterMaskMorphologyRuntimeRequest,
 ): RasterMaskDenseCpuByteEstimate {
@@ -292,21 +286,17 @@ export function estimateRasterMaskDenseCpuBytes(
     request.operation.operation === "open" || request.operation.operation === "close";
   let workspaceBytes: number;
   if (request.operation.kernelShape === "square") {
-    // source + horizontal + output; two-pass retains the original source while
-    // the second pass owns its intermediate source.
     workspaceBytes = sourceBytes * (isTwoPass ? 3 : 2);
   } else if (request.operation.operation === "erode") {
     const paddedWidth = request.input.width + 2;
     const paddedHeight = request.input.height + 2;
     const paddedPixels = paddedWidth * paddedHeight;
-    // padded background + Uint32 vertical + Uint8 result + two Float64 rows.
     workspaceBytes = checkedCpuBytes([
       paddedPixels * 6,
       paddedWidth * Float64Array.BYTES_PER_ELEMENT * 2,
       isTwoPass ? sourceBytes : 0,
     ]);
   } else {
-    // features + Uint32 vertical + Uint8 result + two Float64 rows.
     workspaceBytes = checkedCpuBytes([
       sourceBytes * 6,
       request.input.width * Float64Array.BYTES_PER_ELEMENT * 2,
@@ -1008,7 +998,6 @@ function markSessionBoundaryCells(
   const [sourceHeight, sourceWidth] = session.size;
   const rectEndY = rect.y + rect.height;
 
-  // Vertical foreground run endpoints are exact top/bottom boundary pixels.
   for (let sourceX = rect.x; sourceX < rect.x + rect.width; sourceX += 1) {
     const columnStart = sourceX * sourceHeight;
     const columnEnd = columnStart + sourceHeight;
@@ -1049,9 +1038,6 @@ function markSessionBoundaryCells(
     }
   }
 
-  // Merge adjacent columns as intervals, marking only the foreground side of
-  // each horizontal transition. Include transitions just outside the tile so
-  // a boundary pixel on the tile edge is still rendered.
   const firstRightX = Math.max(1, rect.x);
   const lastRightX = Math.min(sourceWidth - 1, rect.x + rect.width);
   for (let rightX = firstRightX; rightX <= lastRightX; rightX += 1) {
@@ -1156,11 +1142,6 @@ function boundaryAt(
   return false;
 }
 
-/**
- * Compare two immutable sessions into a compact 2-bit tile: bit 0 is baseline,
- * bit 1 is current. Boundary mode decodes a clipped one-pixel halo so adjacent
- * tiles produce the same edges as a single larger tile.
- */
 export function compareRasterMaskSessionTile(
   current: RasterMaskWorkerSession,
   baseline: RasterMaskWorkerSession,
@@ -1246,7 +1227,6 @@ interface TileColumnInterval {
   localX: number;
 }
 
-/** Merge sparse tile overrides without materializing the untouched base plane. */
 export function mergeRasterMaskSessionTiles(
   session: RasterMaskWorkerSession,
   tiles: readonly RasterMaskTileOverride[],

@@ -32,6 +32,7 @@ from yoao_inference.gpu.policy import strict_gpu_loaded_evidence
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import AnyHttpUrl, BaseModel, Field, TypeAdapter
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -41,7 +42,7 @@ from app.application.ml_registry_deletion import (
 from app.config import settings
 from app.db.enums import UserRole
 from app.db.models.project import Project
-from app.deps import get_db, require_roles
+from app.deps import get_db, require_roles, require_scopes
 from app.schemas.ml_backend import (
     ComputeInfo,
     GPUBackendConfigStatus,
@@ -58,6 +59,7 @@ from app.schemas.ml_backend import (
     ResidencyInfo,
 )
 from app.schemas.ml_routing import (
+    PrimaryPoolProjectCountsResponse,
     RuntimeSnapshotResponse,
     TopologyResponse,
 )
@@ -83,6 +85,7 @@ from app.services.ml_backend import (
     MLBackendService,
     MLBackendURLConflict,
 )
+from app.services.project_aggregates import count_visible_projects_by_primary_pool
 from app.services.workspace_read_relations import project_rows
 
 router = APIRouter()
@@ -109,9 +112,6 @@ def _control_http_error(error: BackendControlOperationError) -> HTTPException:
     )
 
 
-# gsam2 image pool key 形如 "sam=<sv>/dino=<dv>" (协议 §4.3 loaded_keys[].key
-# 由 backend 自定义命名). admin 试启动只在 message / loaded_variant 字段中沿用旧
-# {sam_variant, dino_variant} 形态展示, 这里 parse 还原, 失败则不还原.
 _GSAM2_IMAGE_KEY_RE = re.compile(r"^sam=(.+?)/dino=(.+)$")
 
 
@@ -153,9 +153,6 @@ async def get_overview(
         (await read_usage(db)).model_dump()
     )
 
-    # ADR-0044 · backend 注册项是全局资源；项目列表按「已启用」关联分组，
-    # (project_ml_backend_pool join pool member join registry)。total/connected
-    # 统计按全局注册表去重。项目启用通过服务池层（ADR-0050）。
     topology = InferenceTopologyData(db)
     project_alias = aliased(Project, project_rows(), adapt_on_names=True)
     projects_result = await db.execute(
@@ -205,9 +202,6 @@ async def get_overview(
             1 for backend in registry_facts if backend.state == "connected"
         ),
     )
-
-
-# ── /probe + /runtime-hints ──────────────────────────────────
 
 
 _HTTP_BASE_URL = TypeAdapter(AnyHttpUrl)
@@ -344,9 +338,6 @@ async def runtime_hints(
         ml_backend_default_url=settings.ml_backend_default_url or None,
         managed_backend_urls=settings.ml_managed_backend_urls,
     )
-
-
-# ─── 全局 backend 列表 ────────────────────────────────────────
 
 
 ManagedProvider = Literal["gsam2", "sam3", "yolo", "onnxtools", "rapidocr"]
@@ -731,8 +722,6 @@ async def list_gpu_resources(
 ) -> GPUArbiterResourcesResponse:
     """Return typed physical resources and static claim diagnostics; no side effects."""
 
-    # Drop any caller-owned transaction before the authority performs its bounded
-    # diagnostics and runtime observations.
     await db.rollback()
     try:
         authority = gpu_authority_client()
@@ -942,14 +931,6 @@ async def list_gpu_resources(
     )
 
 
-# ─── ADR-0044 · superadmin 全局注册表 CRUD ──────────────────────────
-#
-# backend 是全局资源 (一物理 backend = 一 registry 行 = 一能力快照 = 一并发闸)。
-# 增删改全局项是 superadmin 职责 (ModelMarket 注册管理), 与「项目启用」(PUT
-# /projects/{id}/ml-backends/{rid}/enablement) 解耦。删除走 service 的 running-job
-# 守卫 + projects/predictions FK SET NULL 级联。
-
-# Python's default 422 phrase varies by interpreter; keep the public schema stable.
 _REGISTRY_VALIDATION_RESPONSE = {
     "model": GPUConfigErrorResponse | RequestValidationErrorResponse,
     "description": "Unprocessable Content",
@@ -1220,13 +1201,6 @@ async def unload_registry_backend(
     return MLBackendUnloadResponse.model_validate(result)
 
 
-# ─── 容器直连观测 (与项目注册解耦) ──────────────────────────────
-#
-# 即使没有任何项目注册 backend, 运维也能直连 env 配的 ML_BACKEND_OBSERVE_URLS
-# Read-only discovery uses registered authentication when present. Only deployment-
-# pinned, unregistered first-party targets may use an existing local credential.
-
-
 def _observe_urls() -> list[str]:
     """配置的观测 URL; 留空时回退 [ml_backend_default_url] (若非空)。去重保序。"""
     urls = list(settings.ml_backend_observe_urls or [])
@@ -1256,15 +1230,13 @@ class ObserveTarget(BaseModel):
     gpu_info: dict | None = None
     model_version: str | None = None
     pool: dict | None = None
-    video_pool: dict | None = None  # 视频追踪显存池
+    video_pool: dict | None = None
     cache: dict | None = None
     compute: ComputeInfo | None = None
     residency: ResidencyInfo | dict | None = None
     variant_catalog: VariantCatalog | None = None
     supported_variants: list[dict] = []
-    supported_trackers: list[
-        str
-    ] = []  # /setup 暴露的 video tracker model_key 列表
+    supported_trackers: list[str] = []
     supports_variants: bool = False
     registered: bool = False
     registered_label: str | None = None
@@ -2202,9 +2174,6 @@ async def accept_pool_member_capability_drift(
     return await _pool_to_admin_item(db, pool)
 
 
-# ── ADR-0050 §12.3 · topology / runtime-snapshot ────────────────────────
-
-
 @router.get("/topology", response_model=TopologyResponse)
 async def get_topology(
     db: AsyncSession = Depends(get_db),
@@ -2217,11 +2186,38 @@ async def get_topology(
     projected to ``unknown``/``None`` server-side per plan Appendix A.6)."""
     from app.services.ml_routing.diagnostics import build_topology
 
-    # role may be stored as enum or string; normalize to compare against SUPER_ADMIN.
     role_val = admin.role.value if hasattr(admin.role, "value") else admin.role
     return await build_topology(
         db, super_admin=(role_val == UserRole.SUPER_ADMIN.value)
     )
+
+
+@router.get(
+    "/primary-pool-project-counts",
+    response_model=PrimaryPoolProjectCountsResponse,
+    dependencies=[Depends(require_scopes("*"))],
+    responses={
+        401: {"description": "Authentication required"},
+        403: {
+            "description": "Project or super administrator with full-access credentials required"
+        },
+        503: {"description": "Project bindings unavailable"},
+    },
+)
+async def get_primary_pool_project_counts(
+    db: AsyncSession = Depends(get_db),
+    admin: IdentityActorFacts = Depends(
+        require_roles(UserRole.PROJECT_ADMIN, UserRole.SUPER_ADMIN)
+    ),
+) -> PrimaryPoolProjectCountsResponse:
+    """Count visible projects by their Workspace primary pool binding."""
+    try:
+        counts = await count_visible_projects_by_primary_pool(db, admin)
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=503, detail="主服务池项目绑定统计暂不可用"
+        ) from exc
+    return PrimaryPoolProjectCountsResponse(counts=counts)
 
 
 @router.get("/runtime-snapshot", response_model=RuntimeSnapshotResponse)
@@ -2251,6 +2247,4 @@ async def get_runtime_snapshot(
             try:
                 await ledger.aclose()
             except Exception:
-                # Snapshot data already records Redis freshness; a client-close
-                # failure must not replace that typed partial response with 500.
                 pass

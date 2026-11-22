@@ -635,8 +635,6 @@ async def test_reserved_active_super_admin_does_not_allow_stopping_last_unreserv
     actor_id, _ = await _add_user(test_engine, "super_admin")
     target_id, _ = await _add_user(test_engine, "super_admin")
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-    # The offboarding scope check counts every unreserved super admin in the
-    # database; park the rows left by earlier files so the premise is local.
     parked = await park_foreign_super_admins(
         test_engine, keep_ids=[actor_id, target_id]
     )

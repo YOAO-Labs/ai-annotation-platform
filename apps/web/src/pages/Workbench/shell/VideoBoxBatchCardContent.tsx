@@ -9,11 +9,8 @@ const HINT_CLASS = "text-xs text-muted-foreground";
 
 export interface VideoBoxBatchCardContentProps {
   count: number;
-  /** 任务级锁定(review/completed)→ 改类 / 锁定 / 聚合 / 删除 只读。 */
   readOnly: boolean;
-  /** 选中全部已锁定 → 显示「解锁」语义。 */
   allLocked: boolean;
-  /** 选中全部已隐藏 → 显示「显示」语义。 */
   allHidden: boolean;
   onChangeClass: () => void;
   onToggleLock: () => void;
@@ -23,12 +20,6 @@ export interface VideoBoxBatchCardContentProps {
   onClear: () => void;
 }
 
-/**
- * 选中信息卡的视频「单帧框(video_bbox)」多选内容,对齐图片批量卡的能力
- * (改类 / 锁定 / 隐藏 / 删除),并补一个视频专属动作「聚合为轨迹」。复用图片端
- * 既有批量 handler(按 id 通用操作),聚合走 handleVideoComposeTracks。改类弹
- * ClassPicker(视频用固定屏幕锚点,与单帧改类一致)。
- */
 export function VideoBoxBatchCardContent({
   count,
   readOnly,

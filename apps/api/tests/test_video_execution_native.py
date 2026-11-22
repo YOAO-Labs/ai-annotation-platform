@@ -1000,7 +1000,6 @@ async def test_successful_acquire_receipt_cannot_recover_a_superseded_generation
         ),
         {"scope": route["scope_id"]},
     )
-    # Active work does not disappear when its ordinary heartbeat TTL elapses.
     assert (await _routing_step(db_session, "command_status", arguments))[
         "status"
     ] == "ok"

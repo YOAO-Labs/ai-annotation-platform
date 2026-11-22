@@ -238,7 +238,6 @@ async def test_session_replay_restart_and_current_authority_with_scoped_redis(
                     ).hexdigest()
                 )
                 assert (await _verdict(client, identity, control, token))["ok"]
-                # An API key remains a valid actor for logout-all, but not logout.
                 created = await client.post(
                     identity.origin + "/v1/identity/api-keys/execute",
                     headers={"Authorization": f"Bearer {control}"},
@@ -302,7 +301,6 @@ async def test_session_replay_restart_and_current_authority_with_scoped_redis(
                 assert not (await _verdict(client, identity, control, replacement))[
                     "ok"
                 ]
-                # Reauthentication may recover old claims, without restoring presence/gen/JTI.
                 assert (await _call(client, identity, control, all_out))["data"][
                     "access_token"
                 ] == replacement

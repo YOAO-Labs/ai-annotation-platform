@@ -8,12 +8,6 @@ import type {
   AnnotationCommentCreate,
 } from "./generated/types.gen";
 
-// ── 类型再导出（向后兼容旧 import 名） ─────────────────────────────
-//
-// mentions / attachments / canvas_drawing 使用结构化模型。
-// codegen 为 Mention / Attachment / CanvasDrawing 生成强类型，
-// 下面按旧名称再导出以兼容现有调用方。
-
 export type CommentMention = Mention;
 export type CommentAttachment = Attachment;
 export type AnnotationCommentAnchor = CommentAnchor;
@@ -21,7 +15,6 @@ export type CommentCanvasDrawing = CanvasDrawing;
 export type AnnotationCommentResponse = AnnotationCommentOut;
 export type CreateCommentPayload = AnnotationCommentCreate;
 
-// keyset 分页响应（base64-urlsafe cursor）
 export interface AnnotationCommentListPage {
   items: AnnotationCommentResponse[];
   next_cursor: string | null;
@@ -31,7 +24,6 @@ export const commentsApi = {
   listByAnnotation: (annotationId: string) =>
     apiClient.get<AnnotationCommentResponse[]>(`/annotations/${annotationId}/comments`),
 
-  // keyset 分页：单标注 100+ 评论时按需「加载更早」，避免初始化卡顿。
   listByAnnotationKeyset: (
     annotationId: string,
     params?: { limit?: number; cursor?: string },
@@ -47,7 +39,6 @@ export const commentsApi = {
     );
   },
 
-  // I4 · 任务级评论 — DiscussionPanel 在未选中标注时降级展示, 聚合 task 下所有 annotation 的评论.
   listByTaskKeyset: (taskId: string, params?: { limit?: number; cursor?: string }) => {
     const search = new URLSearchParams();
     if (params?.limit) search.set("limit", String(params.limit));
@@ -66,7 +57,6 @@ export const commentsApi = {
 
   remove: (id: string) => apiClient.delete<void>(`/comments/${id}`),
 
-  /** The authenticated response is the saved per-file receipt, including empty files. */
   attachmentUpload: (annotationId: string, file: File, signal?: AbortSignal) =>
     apiClient.silentPost<CommentAttachment>(
       `/annotations/${annotationId}/comment-attachments/upload?file_name=${encodeURIComponent(file.name)}`,
@@ -74,7 +64,6 @@ export const commentsApi = {
       { body: file, headers: { "Content-Type": file.type || "application/octet-stream" }, signal },
     ),
 
-  /** The API authorizes and verifies the complete file before returning its bytes. */
   attachmentDownload: (annotationId: string, storageKey: string, signal?: AbortSignal) =>
     apiClient.silentGetBlob(
       `/annotations/${annotationId}/comment-attachments/download?key=${encodeURIComponent(storageKey)}`,

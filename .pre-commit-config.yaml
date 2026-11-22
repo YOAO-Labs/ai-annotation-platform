@@ -1,8 +1,3 @@
-# Pre-commit hooks: Python 用 Ruff，其他文本用 Prettier，前端再跑 ESLint + tsc。
-# 首次安装：uv tool install "pre-commit==4.6.1" && pre-commit install
-#
-# 全仓手动 / CI 复核不处理 vendor、生成物、锁文件和不可变历史；这些路径分别由
-# 上游来源、专用生成器或独立契约检查维护。
 exclude: ^(\.agents/|\.claude/(settings\.local\.json$|skills/|worktrees/)|\.hermes/|(?:.*/)?(?:vendor|third-party|third_party)/|apps/web/src/api/generated/|apps/api/(openapi|capability-registry)\.snapshot\.json$|docs-site/(dev/adr/|changelog/|roadmap/|api/guides/_routes\.generated\.md$|dev/reference/env-vars\.md$|user-guide/workbench/(hotkeys|settings)\.generated\.md$|public/(openapi\.json|llms(-full)?\.txt)$)|docs/(adr/archive/|changelogs/|plans/(archive/|_spike-results/)|benchmarks/|research/data/)|infra/grafana/dashboards/|ROADMAP/archive/|pnpm-lock\.yaml$|skills-lock\.json$|(?:.*/)?(?:uv|yarn)\.lock$|.*\.generated\..*$|.*golden.*\.json$)
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -10,15 +5,12 @@ repos:
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
-      # --unsafe: 仍校验 YAML 语法, 但不拒绝 docker-compose override 里的自定义标签
-      # (如 `!override` / `!reset` 强制替换列表字段)。
       - id: check-yaml
         args: ["--unsafe"]
       - id: check-added-large-files
         args: ["--maxkb=2048"]
       - id: check-merge-conflict
 
-  # 与根 package.json 的 uvx 版本保持一致。
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.22
     hooks:
@@ -49,11 +41,6 @@ repos:
         files: ^apps/web/.+\.(ts|tsx)$
         pass_filenames: false
 
-      # 修改 schema/路由/auth 时自动重新生成 OpenAPI snapshot 并 git add，
-      # 避免 CI test_openapi_contract.py 红灯 + 让 PR 作者忘记 export 的事变成
-      # 提交即修复唯一版本化 snapshot；docs build 再复制到 public/openapi.json。
-      # config.py 也纳入 files: openapi info.version/title 源自 app_version 等 config 字段,
-      # 纯版本 bump(只改 config.py)若不触发, snapshot info.version 会滞后 → test_openapi_contract 红灯。
       - id: regen-openapi-snapshot
         name: Regenerate OpenAPI snapshot (apps/api)
         entry: bash -c 'cd apps/api && uv run python ../../scripts/export_openapi.py && cd ../.. && git add apps/api/openapi.snapshot.json 2>/dev/null || true'
@@ -62,10 +49,6 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
-      # 改 capability registry 受控词表(或其响应 schema/序列化)时, 重导
-      # capability-registry snapshot 并 git add。前端 codegen 读此 snapshot 生成受控词表
-      # 常量(apps/web/scripts/gen-capability-vocab.mjs); CI test_capability_registry_contract
-      # 兜底。把"忘了重导致前端 stale"变成提交即修复(与 regen-openapi-snapshot 同思路)。
       - id: regen-capability-registry-snapshot
         name: Regenerate capability registry snapshot (apps/api)
         entry: bash -c 'cd apps/api && uv run python ../../scripts/export_capability_registry.py && cd ../.. && git add apps/api/capability-registry.snapshot.json 2>/dev/null || true'
@@ -74,20 +57,14 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
-      # 改快捷键 / 工作台设置定义源或 API 路由时,自动重新生成对应的 .generated.md 并 git add,
-      # 把"忘了重新生成导致文档漂移"变成提交即修复(与 regen-openapi-snapshot 同思路)。
-      # CI 侧另有 docs-site `check:codegen`(--check)作为兜底闸门。
       - id: regen-doc-codegen
         name: Regenerate tracked docs (hotkeys + settings + API routes)
         entry: bash -c 'node docs-site/scripts/generate-hotkeys.mjs && node docs-site/scripts/generate-settings.mjs && node docs-site/scripts/generate-api-index.mjs && git add docs-site/user-guide/workbench/hotkeys.generated.md docs-site/user-guide/workbench/settings.generated.md docs-site/api/guides/_routes.generated.md 2>/dev/null || true'
         language: system
-        files: ^(apps/web/src/(pages/Workbench/state/(hotkeys|workbenchSettingsFields)|api/auth)\.ts|apps/api/app/api/v1/.*\.py)$
+        files: ^(apps/web/src/(pages/Workbench/state/(hotkeys|workbenchSettingsFields|workbenchLocalDefaults)|api/auth)\.ts|apps/api/app/api/v1/.*\.py)$
         pass_filenames: false
         stages: [pre-commit]
 
-      # 文档写法提醒(仅提醒, 不阻塞): 标记把代码改动写成 changelog 式版本前缀
-      # (如 `v1.2.3: ...` / `## v1.2.3`)的叙述性文档, 建议改为融入正文或放进 HTML 注释。
-      # verbose 让提醒在提交时始终显示; 脚本永远 exit 0, 不会拦截提交。
       - id: doc-version-prefix
         name: Check docs for version-prefixed style (advisory)
         entry: node scripts/check-doc-version-prefix.mjs --staged
@@ -97,6 +74,13 @@ repos:
         pass_filenames: false
         verbose: true
 
+      - id: comment-ratchet
+        name: Reject new explanatory comments
+        entry: uv run --script scripts/check_comments.py --staged
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
       - id: product-naming
         name: Check newly introduced product names
         entry: node scripts/check-product-naming.mjs --staged
@@ -104,7 +88,6 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
 
-      # Enforce workflow filenames, workflow names, and unique job display names.
       - id: workflow-names
         name: Check workflow naming
         entry: node scripts/check-workflow-names.mjs --strict

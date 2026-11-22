@@ -48,10 +48,10 @@ from yoao_preannotation_results.video_window_checkpoint import (
 LABELING_VIDEO_WRITER_PROTOCOL = "aap-labeling-video-writer/v1"
 LABELING_VIDEO_WRITER_DATA_SCHEMA = "aap-labeling-video-writer-data/v1"
 VIDEO_WRITER_FUNCTION = "yoao_labeling_v1.video_writer_step(text,text)"
-MAX_VIDEO_WRITER_REQUEST_BYTES = 68_157_440  # 65 MiB, decimal by protocol.
-MAX_VIDEO_WRITER_STAGED_BYTES = 67_108_864  # Existing 64 MiB candidate cap.
+MAX_VIDEO_WRITER_REQUEST_BYTES = 68_157_440
+MAX_VIDEO_WRITER_STAGED_BYTES = 67_108_864
 MAX_VIDEO_WRITER_RESPONSE_BYTES = 2 * 1024 * 1024
-MAX_VIDEO_WRITER_NATIVE_BYTES = 135_266_304  # 129 MiB for escaped Native JSON.
+MAX_VIDEO_WRITER_NATIVE_BYTES = 135_266_304
 VIDEO_WRITER_OPERATION_NAME = "aap-labeling-video-writer-finalize/v1"
 _RECEIPT_STATUSES = {"pending_review", "cancelled", "failed"}
 _ERROR_CODES = {
@@ -154,8 +154,6 @@ class VideoWriterCommand(_WriterValue):
     def results_are_ordered_array(cls, value: Any):
         if type(value) not in (list, tuple) or len(value) > MAX_VIDEO_RESULT_ROWS:
             raise ValueError("frame results must be a bounded array")
-        # Keep the executor's direction/interleaving order intact. In
-        # particular, a correction can contain backward and forward branches.
         return tuple(value)
 
     @model_validator(mode="after")
@@ -534,9 +532,6 @@ def make_video_writer_command(
                 if type(row) is VideoFrameResultRow
                 else row
             )
-            # The public normalizer adds and verifies the existing candidate
-            # identity. A one-row batch avoids its branch sort changing the
-            # executor's whole-job order.
             normalized.append(
                 normalize_video_frame_results([raw_row], branch="forward")[0]
             )
@@ -993,8 +988,6 @@ def _primary_instance_id(rows: Sequence[VideoFrameResultRow]) -> str | None:
     primary_id = marked or min(
         ids, key=lambda value: (0, int(value)) if value.isdigit() else (1, value)
     )
-    # Unlabelled rows join the primary partition in the existing acceptance
-    # policy; its first row can therefore still select the singleton source.
     return next(
         row.instance_id
         for row in rows

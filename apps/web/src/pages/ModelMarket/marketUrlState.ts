@@ -1,22 +1,4 @@
-/**
- * 模型市场页面局部 URL 状态 codec（plan §5）。
- *
- * 两个 codec 各只写自己的键，互不覆盖：
- *   - `marketTabCodec`   → `tab=catalog|runtime|registry`（主 TAB）。
- *   - `registryUrlCodec` → 注册子 TAB（`registry_view`）、五个子视图各自的
- *     筛选/搜索键，以及对象定位键 `instance_id` / `gpu_id` / `pool_id`。
- *
- * 约定：
- *   - 缺失即默认值；encode 时默认值不写入 URL（保持深链简洁）。
- *   - 未知主 TAB / 子 TAB 枚举回退默认页并返回 issue（调用方负责规范化 URL）。
- *   - 筛选枚举非法时回退默认值并返回 issue（调用方显示可见提示与移除入口，
- *     不静默扩大结果范围）。
- *   - 问题筛选键（issue_*）与对象定位键（*_id）分开，不相互覆盖。
- *   - 文本搜索条件（*_q）在“清除条件”时保留（plan §5 键表）。
- */
 import type { UrlStateCodec, UrlStateIssue } from "@/hooks/useUrlFilterState";
-
-// ── 枚举 ─────────────────────────────────────────────────────────────────────
 
 export type MarketTab = "models" | "protocol" | "runtime" | "registry";
 export const MARKET_TAB_VALUES = ["models", "protocol", "runtime", "registry"] as const;
@@ -24,7 +6,6 @@ export const MARKET_TAB_VALUES = ["models", "protocol", "runtime", "registry"] a
 export type RegistryView = "pools" | "instances" | "gpu" | "projects" | "issues";
 export const REGISTRY_VIEW_VALUES = ["pools", "instances", "gpu", "projects", "issues"] as const;
 
-/** 项目管理员可见的注册子视图（服务端裁剪后的只读集合）。 */
 export const PROJECT_ADMIN_REGISTRY_VIEWS: readonly RegistryView[] = ["pools", "instances"];
 
 export type RegistryHealthFilter = "all" | "healthy" | "degraded" | "offline" | "unknown";
@@ -35,8 +16,6 @@ export const ISSUE_SEVERITY_VALUES = ["all", "blocker", "critical", "warning", "
 
 export type BindingView = "by-project" | "by-pool";
 export const BINDING_VIEW_VALUES = ["by-project", "by-pool"] as const;
-
-// ── URL 键名 ─────────────────────────────────────────────────────────────────
 
 export const MARKET_URL_KEYS = {
   tab: "tab",
@@ -67,8 +46,6 @@ export const MARKET_URL_KEYS = {
   catalogFamily: "catalog_family",
   catalogInfra: "catalog_infra",
 } as const;
-
-// ── 主 TAB codec ─────────────────────────────────────────────────────────────
 
 export interface MarketTabUrlState {
   tab: MarketTab;
@@ -121,32 +98,20 @@ export const marketTabCodec: UrlStateCodec<MarketTabUrlState> = {
   },
 };
 
-// ── 注册管理 codec ───────────────────────────────────────────────────────────
-
 export interface RegistryUrlState {
   registryView: RegistryView;
-  /** 服务池子视图：搜索池名/池 ID/策略/成员名与成员 ID。 */
   poolQ: string;
   poolHealth: RegistryHealthFilter;
-  /** 实例子视图：搜索名称/ID/URL/来源项目。 */
   instanceQ: string;
   instanceHealth: RegistryHealthFilter;
-  /** 实例子视图的池定位条件（来自服务池“查看实例”跳转）。 */
   instancePool: string;
-  /** 实例详情定位键（深链直接打开详情 Sheet）。 */
   instanceId: string;
-  /** 服务池行展开定位键。 */
   poolId: string;
-  /** GPU 子视图：搜索资源 ID/节点/设备令牌。 */
   gpuQ: string;
-  /** GPU 行展开定位键。 */
   gpuId: string;
-  /** 项目绑定子视图：按项目视图搜项目，按服务池视图搜池。 */
   projectQ: string;
   bindingView: BindingView;
-  /** 项目绑定子视图的池限定条件，可单独移除。 */
   bindingPool: string;
-  /** 问题中心：code 文本搜索（独立于精确 code 筛选）。 */
   issueQ: string;
   issueSeverity: IssueSeverityFilter;
   issuePool: string;
@@ -245,7 +210,6 @@ export function parseRegistryUrlWithIssues(search: string | URLSearchParams): {
   };
 }
 
-/** Encode only the registry-owned keys; `tab` and foreign keys stay untouched. */
 function encodeRegistryUrl(current: URLSearchParams, state: RegistryUrlState): URLSearchParams {
   const next = new URLSearchParams(current);
   const setOrDelete = (key: string, value: string, fallback: string) => {
@@ -286,11 +250,6 @@ function encodeRegistryUrl(current: URLSearchParams, state: RegistryUrlState): U
   return next;
 }
 
-/**
- * “清除条件”范围（plan §5 键表）：清掉各子视图的枚举筛选、池限定与问题附着
- * 筛选；文本搜索（*_q）与对象定位键（*_id）保留——搜索是用户输入的上下文，
- * 定位键由详情关闭动作自己负责。
- */
 function clearRegistryUrl(current: URLSearchParams, _defaults: RegistryUrlState): URLSearchParams {
   const next = new URLSearchParams(current);
   for (const key of [
@@ -315,8 +274,6 @@ export const registryUrlCodec: UrlStateCodec<RegistryUrlState> = {
   clear: clearRegistryUrl,
 };
 
-// ── 能力目录 codec ───────────────────────────────────────────────────────────
-
 export type CatalogView = "cards" | "list";
 export const CATALOG_VIEW_VALUES = ["cards", "list"] as const;
 
@@ -324,11 +281,9 @@ export type CatalogGroup = "task" | "backend" | "infra" | "none";
 export const CATALOG_GROUP_VALUES = ["task", "backend", "infra", "none"] as const;
 
 export interface CatalogUrlState {
-  /** 搜索模型名 / ID / 模型族 / 任务 / 来源。 */
   catalogQ: string;
   catalogGroup: CatalogGroup;
   catalogView: CatalogView;
-  /** 多选轴使用重复键（plan §5 键表）。 */
   catalogTask: string[];
   catalogModality: string[];
   catalogFamily: string[];
@@ -431,9 +386,6 @@ function setOrDeleteKey(
   else params.set(key, value);
 }
 
-/**
- * 目录「清除条件」只清多选轴；搜索、分组、显示方式保留（plan §5 键表）。
- */
 function clearCatalogUrl(current: URLSearchParams, _defaults: CatalogUrlState): URLSearchParams {
   const next = new URLSearchParams(current);
   for (const key of [
@@ -453,18 +405,11 @@ export const catalogUrlCodec: UrlStateCodec<CatalogUrlState> = {
   clear: clearCatalogUrl,
 };
 
-/** 目录子视图自己的 URL 键（issue 提示归属）。 */
 export const CATALOG_URL_ISSUE_KEYS: readonly string[] = [
   MARKET_URL_KEYS.catalogView,
   MARKET_URL_KEYS.catalogGroup,
 ];
 
-// ── 导航辅助 ─────────────────────────────────────────────────────────────────
-
-/**
- * 构造“跳到目标子视图并定位一个对象”的 patch（plan §5：问题影响对象通过目标
- * 子页的定位键进入具体对象）。互斥键会被清空，避免旧定位残留。
- */
 export function focusPatchFor(
   kind: "instance" | "gpu" | "pool",
   id: string,
@@ -475,23 +420,16 @@ export function focusPatchFor(
     gpuId: kind === "gpu" ? id : "",
     poolId: kind === "pool" ? id : "",
     instancePool: "",
-    // Clear only destination filters that could hide the requested object.
     ...(kind === "instance" ? { instanceQ: "", instanceHealth: "all" as const } : {}),
     ...(kind === "gpu" ? { gpuQ: "" } : {}),
     ...(kind === "pool" ? { poolQ: "", poolHealth: "all" as const } : {}),
   };
 }
 
-/**
- * 服务池 → 实例 的跳转 patch：切到实例子视图并按池过滤（plan §5
- * `registry_view=instances&instance_pool=<id>`，替代旧的 registry:focus-tab
- * 自定义事件，刷新/前进后退可恢复）。
- */
 export function instancesForPoolPatch(poolId: string): Partial<RegistryUrlState> {
   return { ...focusPatchFor("instance", ""), instancePool: poolId };
 }
 
-/** 每个 issue 键回到默认值所需的 patch，供“移除无效条件”入口使用。 */
 export function issueResetPatch(key: string): Partial<RegistryUrlState> | null {
   switch (key) {
     case MARKET_URL_KEYS.registryView:
@@ -509,7 +447,6 @@ export function issueResetPatch(key: string): Partial<RegistryUrlState> | null {
   }
 }
 
-/** 各子视图自己的 URL 键；issue 提示只在其所属子视图显示。 */
 export const REGISTRY_VIEW_URL_KEYS: Record<RegistryView, readonly string[]> = {
   pools: [MARKET_URL_KEYS.poolQ, MARKET_URL_KEYS.poolHealth, MARKET_URL_KEYS.poolId],
   instances: [
@@ -530,7 +467,6 @@ export const REGISTRY_VIEW_URL_KEYS: Record<RegistryView, readonly string[]> = {
   ],
 };
 
-/** 过滤出某个子视图需要展示的 URL issue（plan §5：非法枚举在所属视图提示）。 */
 export function urlIssuesForView(issues: UrlStateIssue[], view: RegistryView): UrlStateIssue[] {
   const owned = REGISTRY_VIEW_URL_KEYS[view];
   return issues.filter((issue) => owned.includes(issue.key));

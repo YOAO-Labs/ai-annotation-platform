@@ -302,8 +302,6 @@ class RoutingPostgresData:
             await self._assert_transaction()
             raw = await self._connection.fetchval(_VIDEO_STEP_SQL, action, request_json)
             reply = _json_object(raw, max_bytes=ROUTING_REPLY_MAX_BYTES)
-            # Validation happens before the caller's transaction can commit.
-            # Preserve the envelope for the manager's independent validation.
             try:
                 decode_video_scope_data(action, dict(arguments), reply)
             except VideoScopeRejected:

@@ -42,11 +42,8 @@ interface Decision {
   promise?: Promise<PredictionDecisionResult>;
 }
 
-/** Own ordinary prediction writes, class retries and the selection they may advance. */
 export function usePredictionDecisions(args: Args) {
   const { taskId, projectId, videoSegmentId, meUserId, s } = args;
-  // A task may be revisited before its write or canonical query finishes. Include the
-  // project and account so a retained task id cannot reuse another owner's decisions.
   const taskDecisions = useRef(new Map<string, Map<string, Decision>>());
   const ownerKey = JSON.stringify([
     taskId ?? null,
@@ -62,7 +59,6 @@ export function usePredictionDecisions(args: Args) {
     }
     return { taskId, projectId, videoSegmentId, meUserId, active: true, decisions };
   }, [meUserId, ownerKey, projectId, taskId, videoSegmentId]);
-  // Identity changes even when the user leaves and returns to the same selection/frame/task.
   const selection = useMemo(
     () => ({ owner, id: s.selectedId, frame: s.videoFrameIndex }),
     [owner, s.selectedId, s.videoFrameIndex],
@@ -80,7 +76,6 @@ export function usePredictionDecisions(args: Args) {
         (args.acceptedShapeKeys.has(id) ||
           args.acceptedShapeKeys.has(`pred-${decision.box.predictionId}-*`))
       ) {
-        // Canonical query data has consumed it; a later undo can make it reviewable again.
         owner.decisions.delete(id);
       }
       if (
@@ -199,7 +194,6 @@ export function usePredictionDecisions(args: Args) {
           currentSelection()
         ) {
           decision.status = "awaiting-class";
-          // Mutation notifications can render the old picker state before setEditingClass commits.
           decision.pickerSeen = false;
           s.setEditingClass({
             annotationId: "",
@@ -270,7 +264,6 @@ export function usePredictionDecisions(args: Args) {
         return Promise.resolve({ status: "ignored" });
       const scoped = args.aiBoxes.filter((b) => bulk || aiBoxOnFrame(b, s.videoFrameIndex));
       const index = scoped.findIndex((b) => b.id === box.id);
-      // Explicit all-frame list buttons retain their scope; hotkeys provide current-frame boxes.
       if (!args.aiBoxes.some((b) => b.id === box.id)) return Promise.resolve({ status: "ignored" });
       const decision: Decision = {
         box,
@@ -301,7 +294,6 @@ export function usePredictionDecisions(args: Args) {
     async (boxes: AiBox[]) => {
       if (!isCurrentOwner()) return null;
       const results: PredictionDecisionResult[] = [];
-      // These writes share one task's lock and annotation version.
       for (const box of boxes) {
         if (!isCurrentOwner()) return null;
         results.push(await decide(box, "accept", undefined, true));

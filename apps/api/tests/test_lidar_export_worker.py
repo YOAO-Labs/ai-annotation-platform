@@ -273,7 +273,6 @@ async def test_real_zip_publication_then_verified_cache_preserves_original_deadl
     assert harness.prepares == 1 and len(harness.objects) == 1
     assert len(harness.notices) == 2
     assert all(not path.exists() for path in harness.built_paths)
-    # This HTTP attempt's unused inventory is never falsely published.
     unused = await state(db, ExportMediaBundle, new_receipt.id)
     assert unused.state == "building" and unused.published_at is None
 

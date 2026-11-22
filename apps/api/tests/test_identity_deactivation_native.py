@@ -177,9 +177,6 @@ async def test_self_request_cancel_and_replay_are_frozen_and_atomic(test_engine)
                 )
             )
 
-        # The request fans a notification out to every active super admin;
-        # park the rows left by earlier files so this test's receiver is the
-        # only one addressed and the frozen count stays meaningful.
         parked = await park_foreign_super_admins(test_engine, keep_ids=[admin_id])
 
         accepted = await execute(request)

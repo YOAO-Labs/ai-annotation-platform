@@ -455,8 +455,6 @@ async def test_cold_notifications_owner_behind_api_bridge(
                 admission_token=admission_token,
             )
             try:
-                # Seed setup leaves idle owner connections in the pool. Close
-                # them before the stack changes the PostgreSQL network.
                 await test_engine.dispose()
                 await stack.start()
                 evidence = stack.inspection_evidence
@@ -958,14 +956,12 @@ async def test_cold_notifications_owner_behind_api_bridge(
                 try:
                     record_property("runtime_diagnostics", stack.capture_diagnostics())
                 except Exception:
-                    # Diagnostic failures must not replace the native test failure.
                     pass
                 raise
             finally:
                 try:
                     await stack.stop()
                 finally:
-                    # Fixture teardown must not reuse sockets across detachment.
                     await test_engine.dispose()
     finally:
         inbox.close()

@@ -491,9 +491,6 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
             drivername="postgresql+asyncpg", database=source_database
         )
 
-        # Validate the verifier's bucket and PostgreSQL ownership against its
-        # original database, then permit the existing Media helper to bind
-        # control/worker LOGINS to the separately marked source/target clones.
         from tests.test_asset_storage_cleanup_runtime import (
             _verified_resource_manifest,
         )

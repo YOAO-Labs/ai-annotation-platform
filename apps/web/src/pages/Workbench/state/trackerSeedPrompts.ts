@@ -1,16 +1,3 @@
-/**
- * Pure transformation for tracker PVS seed collection: groups collected point
- * and box seeds into multi-frame prompt structures for the propagation/
- * correction payload.
- *
- * - Seeds are grouped by target (obj, 1-based) then by frame; each frame's
- *   prompt can carry points and a bbox simultaneously.
- * - Point polarity: 1 = positive, 0 = negative (Alt).
- * - Box seeds are normalized xyxy and converted to backend {x,y,w,h}.
- * - Both levels are sorted numerically so payloads are deterministic
- *   (idempotency keys must not depend on collection order).
- */
-
 export type TrackerSeedPoint = {
   pt: [number, number];
   polarity: 1 | 0;

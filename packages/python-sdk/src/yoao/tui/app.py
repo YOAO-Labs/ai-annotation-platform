@@ -55,7 +55,6 @@ from yoao.models import (
     ProjectStats,
 )
 
-# job 状态 → 着色 (pending 灰 / running 黄 / completed 绿 / failed 红 / cancelled 暗)
 _STATUS_STYLE = {
     "pending": "grey50",
     "preparing": "yellow",
@@ -68,13 +67,10 @@ _STATUS_STYLE = {
     "cancelled": "dim",
 }
 
-# running/pending → completed 翻转时的整行高亮样式
 _FLIP_STYLE = "bold black on green"
 
-# ML Backend state → 着色 (connected 绿 / error 红)
 _ML_STATE_STYLE = {"connected": "green", "error": "red"}
 
-# 仅 pending/running 的 job 可在 TUI 发起取消 (其余终态后端必拒, 不发请求)
 _CANCELLABLE_STATUS = frozenset({"pending", "running"})
 _PAGE_SIZE = 50
 _TRAINING_PAGE_SIZE = 20
@@ -115,8 +111,6 @@ def _brief(value: Any, limit: int = 180) -> str:
     return text if len(text) <= limit else f"{text[: limit - 1]}…"
 
 
-# 导出格式目录: data_type → [(target_id, 中文标签)]; 与 web ExportModal / 后端 export_packaging 对齐。
-# voc 走后端同步返回 (非 job), TUI 不暴露; 裸 "yolo" 后端接受但 web/TUI 用细分变体。
 _EXPORT_TARGETS: dict[str, list[tuple[str, str]]] = {
     "image": [
         ("coco", "COCO"),
@@ -139,16 +133,13 @@ _EXPORT_TARGETS: dict[str, list[tuple[str, str]]] = {
         ("pointmask", "Point Mask"),
     ],
 }
-# 默认勾选项 (对齐 web): image→coco / video→video_json / lidar→native_json
 _EXPORT_DEFAULT: dict[str, str] = {
     "image": "coco",
     "video": "video_json",
     "lidar": "native_json",
 }
 
-# 全员绩效看板需 super_admin 全局可见 (project_admin 须按项目切分, 用 CLI yoao dashboard people --project)
 _PEOPLE_ROLE = "super_admin"
-# RadioSet pressed_index → 参数值
 _FRAME_MODES = ["keyframes", "all_frames"]
 _AXIS_FRAMES = ["iso", "source"]
 
@@ -188,7 +179,6 @@ def _spark_text(values: list[int]) -> str:
     return "".join(_SPARK_CHARS[min(last, int((v - lo) / span * last))] for v in nums)
 
 
-# braille 2x4 点阵: [子行][子列] → 点位 bit (基址 0x2800)
 _BRAILLE_DOTS = ((0x01, 0x08), (0x02, 0x10), (0x04, 0x20), (0x40, 0x80))
 
 
@@ -201,7 +191,6 @@ def _fmt_axis(v: float, unit: str) -> str:
     return f"{v:.0f}"
 
 
-# 折线图配色 (GitHub 深色主题, 在 nord 背景上清晰好看): 标签柔灰 / 轴线灰
 _CHART_LABEL = "#8b949e"
 _CHART_AXIS = "#6e7681"
 
@@ -223,13 +212,13 @@ def _render_axis_chart(
     if not data or width < 12 or height < 4:
         return Text("等待数据…", style="dim")
     lo, hi = min(data), max(data)
-    if hi - lo < 1e-9:  # 平线: 上下留余量, 折线居中可见
+    if hi - lo < 1e-9:
         pad = abs(hi) * 0.1 or 1.0
         hi, lo = hi + pad, lo - pad
     lab_hi, lab_lo = _fmt_axis(max(data), unit), _fmt_axis(min(data), unit)
     gutter = max(len(lab_hi), len(lab_lo))
-    plot_w = width - gutter - 1  # 1 = 纵轴线 │
-    plot_rows = height - 2  # 末两行留给横轴线 + 横轴标签
+    plot_w = width - gutter - 1
+    plot_rows = height - 2
     if plot_w < 4 or plot_rows < 1:
         return Text("等待数据…", style="dim")
     sub_w, sub_h = plot_w * 2, plot_rows * 4
@@ -244,7 +233,7 @@ def _render_axis_chart(
     for sx in range(sub_w):
         if n == 1:
             val = data[0]
-        else:  # 子列 → data 浮点索引, 线性插值取值
+        else:
             t = sx / (sub_w - 1) * (n - 1)
             i0 = int(t)
             i1 = min(i0 + 1, n - 1)
@@ -377,7 +366,6 @@ def _ml_backend_detail(b: MLBackend) -> str:
     return "\n".join(lines)
 
 
-# 模态共用样式: 居中盒子 + 确认/取消按钮栏 (三个子类共享同一套, 故类型选择器并列)
 _MODAL_CSS = """
 ConfirmModal, ExportConfigModal, PathInputModal {
     align: center middle;
@@ -450,7 +438,7 @@ class _ConfirmCancelModal(ModalScreen):
                 yield Button("取消", id="modal-cancel", variant="default")
 
     def compose_body(self) -> ComposeResult:
-        return iter(())  # 子类覆盖
+        return iter(())
 
     def _result(self) -> Any:
         return True
@@ -501,7 +489,6 @@ class ConfirmModal(_ConfirmCancelModal):
         yield Static("[b]y[/b] 确认 · [b]n[/b] / [b]esc[/b] 取消", classes="modal-hint")
 
     def on_mount(self) -> None:
-        # 破坏性动作默认聚焦「取消」, 良性默认聚焦「确认」, 回车=默认动作降低误触
         self.query_one(
             "#modal-cancel" if self._destructive else "#modal-ok", Button
         ).focus()
@@ -594,7 +581,7 @@ class ExportConfigModal(_ConfirmCancelModal):
     def action_confirm(self) -> None:
         cfg = self._result()
         if cfg is None:
-            return  # 空选: 不关闭, 已 bell + 边框提示
+            return
         self.dismiss(cfg)
 
 
@@ -677,7 +664,6 @@ def _job_detail(job: Job) -> str:
     return "\n".join(lines)
 
 
-# 详情子屏共用样式: 面包屑 dock 顶, 正文可滚占 1fr, 动作栏 + Footer 包进 dock 底容器
 _DETAIL_CSS = """
 .breadcrumb {
     dock: top;
@@ -1083,7 +1069,7 @@ class MlBackendDetailScreen(Screen[None]):
 
     BINDINGS = [Binding("escape", "back", "返回"), Binding("q", "back", "返回")]
     CSS = _ML_LIVE_CSS
-    _WINDOW = 60  # 滚动曲线保留最近 N 个 1s 采样点
+    _WINDOW = 60
 
     def __init__(self, backend: MLBackend, base_url: str, api_key: str):
         super().__init__()
@@ -1937,7 +1923,6 @@ class TuiApp(App[None]):
     TITLE = "YOAO"
     SUB_TITLE = "监控面板"
     HORIZONTAL_BREAKPOINTS = [(0, "-compact"), (100, "-wide")]
-    # 内置 nord 主题做基线配色, 不自造调色板; 全程走主题变量 ($accent/$panel/$text-muted)
     theme = "nord"
     CSS = """
     DataTable {
@@ -2021,18 +2006,13 @@ class TuiApp(App[None]):
         self._api_key = api_key
         self._poll_interval = poll_interval
         self._hint = f"{base_url} · jobs 每 {poll_interval:g}s 轮询"
-        # 最近一次成功渲染的时刻 (状态栏展示), 给「数据是否新鲜」的反馈
         self._last_refresh = ""
-        # row key (str(id)) → 模型, 供下钻详情查找
         self._projects: dict[str, Project] = {}
         self._datasets: dict[str, Dataset] = {}
         self._jobs: dict[str, Job] = {}
         self._ml_backends: dict[str, MLBackend] = {}
-        # 上一轮 job 状态, 用于检测 → completed 翻转
         self._job_prev: dict[str, str] = {}
-        # 各表当前高亮行 key (table id → key), 供动作键定位选中行
         self._cursor: dict[str, str] = {}
-        # 当前主体角色 (me() 解析), 用于绩效 tab 门控; None = 未知/降级
         self._role: str | None = None
         self._loaded_tabs: set[str] = set()
         self._last_success: dict[str, datetime] = {}
@@ -2262,7 +2242,6 @@ class TuiApp(App[None]):
                 yield DataTable(
                     id="people-table", cursor_type="row", zebra_stripes=True
                 )
-        # 底栏: status-bar(动态信息) 在上, Footer(上下文感知按键) 在下
         with Vertical(id="bottom-bar"):
             yield Static(self._hint, id="status-bar")
             yield Footer()
@@ -2302,15 +2281,11 @@ class TuiApp(App[None]):
             self._refresh_projects()
         if not self.query_one("#tab-jobs", TabPane).loading:
             self._refresh_jobs()
-        # 解析角色 → 决定绩效 tab 是否拉数 (网络调用须在 thread worker, 不可在 UI 线程直跑)
         self.run_worker(self._load_principal, thread=True, exclusive=True, group="me")
         self.set_interval(self._poll_interval, self._refresh_jobs)
 
-    # ---- 上下文感知按键: e 仅 Projects / c 仅 Jobs, 否则 Footer 灰掉 ----
-
     def check_action(self, action: str, _parameters: tuple[object, ...]) -> bool | None:
         """Textual 钩子: 返回 False 时该 binding 在 Footer 不展示且不触发。"""
-        # 子屏 (详情路由) 激活时, 主屏动作键不该出现在子屏 footer, 也不该触发
         if len(self.screen_stack) > 1 and action in (
             "refresh",
             "open",
@@ -2343,7 +2318,6 @@ class TuiApp(App[None]):
         return True
 
     def on_tabbed_content_tab_activated(self) -> None:
-        # 首次激活才加载；之后展示缓存，r 明确刷新。
         self.refresh_bindings()
         active = self.query_one("#tabs", TabbedContent).active
         if (
@@ -2361,8 +2335,6 @@ class TuiApp(App[None]):
             }[active]()
         else:
             self._set_status("")
-
-    # ---- 刷新调度 (UI 线程发起, 网络调用在 thread worker) ----
 
     def action_refresh(self) -> None:
         """r: 刷新当前激活 tab。"""
@@ -2604,8 +2576,6 @@ class TuiApp(App[None]):
             self._load_ml_backends, thread=True, exclusive=True, group="ml-backends"
         )
 
-    # ---- thread workers: 阻塞网络调用, 结果经 call_from_thread 回 UI ----
-
     def _load_projects(self, search: str | None, request: int) -> None:
         try:
             projects = self._client.projects.list(search=search)
@@ -2808,8 +2778,6 @@ class TuiApp(App[None]):
             return
         self.call_from_thread(self._render_my_performance, mine)
 
-    # ---- 渲染 (UI 线程) ----
-
     def _hint_line(self) -> str:
         try:
             active = self.query_one("#tabs", TabbedContent).active
@@ -2892,7 +2860,6 @@ class TuiApp(App[None]):
         self._projects = {str(p.id): p for p in projects}
         table.clear()
         for p in projects:
-            # total_tasks/completed_tasks 是服务端附加字段 (extra="allow"), 可能缺失
             total = getattr(p, "total_tasks", None)
             done = getattr(p, "completed_tasks", None)
             progress = f"{done}/{total}" if total is not None else "-"
@@ -2950,7 +2917,6 @@ class TuiApp(App[None]):
             return
         jobs = page.items
         table = self.query_one("#jobs-table", DataTable)
-        # running/pending → completed 翻转的行整行高亮
         flipped = {
             str(j.id)
             for j in jobs
@@ -2959,7 +2925,6 @@ class TuiApp(App[None]):
         }
         self._job_prev = {str(j.id): j.status for j in jobs}
         self._jobs = {str(j.id): j for j in jobs}
-        # 轮询重建前存光标/滚动, 重建后还原 —— 否则每 3s clear() 把视图弹回顶部
         table.clear()
         for j in jobs:
             key = str(j.id)
@@ -3119,8 +3084,6 @@ class TuiApp(App[None]):
         self.query_one(f"#{prefix}-prev", Button).disabled = offset == 0
         self.query_one(f"#{prefix}-next", Button).disabled = offset + page_size >= total
 
-    # ---- 下钻: 打开选中行的详情子路由 (回车 / o / 「打开」按钮) ----
-
     def action_open(self) -> None:
         """o: 对当前激活 tab 的高亮行 push 详情子屏。"""
         active = self.query_one("#tabs", TabbedContent).active
@@ -3236,8 +3199,6 @@ class TuiApp(App[None]):
                 self.action_previous_page()
             else:
                 self.action_next_page()
-
-    # ---- 动作: 导出 (Projects) / 取消 (Jobs), 均经二次确认 ----
 
     def action_export(self) -> None:
         """e: 对 Projects tab 选中项目打开导出配置。"""
@@ -3365,8 +3326,6 @@ class TuiApp(App[None]):
     def _refresh_jobs_with_status(self, message: str) -> None:
         self._after_jobs_refresh = message
         self._refresh_jobs()
-
-    # ---- 行高亮跟踪 (供动作键定位) + 行选中 (回车/点击) → 下钻详情 ----
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         if event.control.id is not None and event.row_key.value is not None:

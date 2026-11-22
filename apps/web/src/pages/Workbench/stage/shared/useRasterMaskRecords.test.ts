@@ -249,7 +249,6 @@ describe("useRasterMaskRecords", () => {
     expect(view.result.current.statusById.size).toBe(0);
     expect(view.result.current.records).toEqual([]);
 
-    // The create mutation keeps render_key stable while replacing only the API identity.
     view.rerender({ annotation: { ...annotation, id: "persisted-mask", version: 1 } });
     await flushAsync();
 
@@ -457,7 +456,6 @@ describe("useRasterMaskRecords", () => {
     const lateLoad = deferred<CocoRle>();
     const lateItem = makeDescriptor("mask", { revision: 2, load: vi.fn(() => lateLoad.promise) });
     const latestItem = makeDescriptor("mask", { revision: 3 });
-    // Keep the content digest stable so revision alone invalidates each cache key.
     lateItem.descriptor.ref = firstItem.descriptor.ref;
     latestItem.descriptor.ref = firstItem.descriptor.ref;
     const view = renderHook(

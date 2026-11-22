@@ -50,8 +50,6 @@ class Dataset(Base):
     lifecycle_revision: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
     )
-    # 数据集级 jsonb 扩展点 (结构化视图见 schemas._jsonb_types.DatasetMetadata)。
-    # 当前已知 key: axis_convention (lidar 坐标系约定，前端加载时做 ISO 8855 归一化)。
     metadata_: Mapped[dict] = mapped_column(
         "metadata", JSONB, server_default="{}", nullable=False, default=dict
     )
@@ -168,7 +166,6 @@ class DatasetItem(Base):
     media_source_drifted: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="false"
     )
-    # 跨 task 帧序基地;FK 到 scenes,SET NULL 容忍历史数据 / scene 删除
     scene_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("scenes.id", ondelete="SET NULL"),

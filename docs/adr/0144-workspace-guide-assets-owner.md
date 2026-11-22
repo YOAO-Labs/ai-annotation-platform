@@ -33,6 +33,12 @@ actor and permission booleans are not request fields. The bucket is fixed by
 deployment configuration. The byte endpoint is trusted service-to-service I/O;
 it neither grants public project access nor independently updates Project data.
 
+When cloning a guide, the API captures the source owner, Markdown, asset metadata,
+revision and sorted upload references in one database snapshot. Project metadata
+comes from Workspace's published `project_facts` relation, not the private
+`projects` table. This observation is not write authority: `guide_assets_copy`
+still locks and rechecks the source, actor and references before publishing.
+
 `ASSETS_SOURCE_MODE` selects `source` (the unchanged default), `guide-only`, or
 `source-and-guide`. Guide-only starts the same binary without a PostgreSQL
 connection or source-operation credentials and does not register the Source or

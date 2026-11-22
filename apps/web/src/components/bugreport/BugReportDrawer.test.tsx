@@ -356,7 +356,6 @@ describe("BugReportDrawer", () => {
     expect(payload.description).toContain("preciseFrame");
     expect(payload.description).toContain('"codec": "avc1.42E01E"');
     expect(payload.description).toContain('"fallbackReason": "codec_unsupported"');
-    // 数据最小化:typed snapshot 不可能携带 signed URL / chunk bytes / base64 description。
     expect(payload.description).not.toContain("https://");
     expect(payload.description).not.toContain("base64");
     expect(payload.recent_console_errors[0].msg).toBe("[video-workbench-diagnostics]");

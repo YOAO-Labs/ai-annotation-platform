@@ -22,9 +22,7 @@ export function BlurhashLayer({ hash }: { hash: string }) {
         imageData.data.set(pixels);
         ctx.putImageData(imageData, 0, 0);
       })
-      .catch(() => {
-        /* ignore */
-      });
+      .catch(() => {});
     return () => {
       cancelled = true;
     };

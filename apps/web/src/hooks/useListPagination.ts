@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/components/ui/ListPagination";
 
-/** Pagination for a complete, already filtered and sorted collection. */
 export function useListPagination<T>(
   items: readonly T[],
   resetKey: string | number = "",

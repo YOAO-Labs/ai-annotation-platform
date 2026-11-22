@@ -119,8 +119,6 @@ describe.each([
 
 describe("decision dialog modal boundary", () => {
   it("an open decision dialog blocks canvas shortcuts through its data-modal marker", () => {
-    // DecisionDialogHost 的 AlertDialogContent 挂 data-modal;复检守卫的两条识别路径:
-    // 事件源自对话框内部(composedPath)与文档里存在 open 态对话框(querySelector)。
     const content = document.createElement("div");
     content.setAttribute("data-modal", "");
     content.setAttribute("data-state", "open");
@@ -133,14 +131,12 @@ describe("decision dialog modal boundary", () => {
     );
     option.addEventListener("keydown", inside);
 
-    // review 流的 A 键在对话框聚焦选项按钮时必须被拦截。
     option.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
     expect(inside).toHaveBeenCalledOnce();
     expect(isWorkbenchInteractionBlocked(new KeyboardEvent("keydown", { key: "Delete" }))).toBe(
       true,
     );
 
-    // 退场动画期间 data-state="closed":文档级识别解除,事件仍源自节点内部则继续拦截。
     content.dataset.state = "closed";
     expect(isWorkbenchInteractionBlocked(new KeyboardEvent("keydown", { key: "Delete" }))).toBe(
       false,

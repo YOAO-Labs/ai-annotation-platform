@@ -786,8 +786,6 @@ async def test_due_historical_tracker_tombstone_is_rechecked_before_gc_delete(
     job.started_at = now
     job.completed_at = now
     await db_session.flush()
-    # Recreate the persisted result of the pre-0312 tracker sweep with a real
-    # accepted input, attempt prefix, and owner-created garbage tombstone.
     prefix = await _queue_historical_tracker_input_root(db_session, fixture)
 
     deletion = await _delete(db_session, "project", fixture)
@@ -1018,8 +1016,6 @@ async def test_retained_first_page_does_not_starve_superseded_attempt_cleanup(
         },
     )
     assert current_run["status"] == "ok", current_run
-    # A stale unretired journal can retain the input ID, but the immutable
-    # ready plan now points only at generation 2, never the abandoned root.
     await db_session.execute(
         text(
             "INSERT INTO yoao_jobs_v1.video_execution_journals "
@@ -1611,9 +1607,6 @@ async def test_downgrade_refuses_to_drop_committed_clearance_evidence(test_engin
     migration = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(migration)
 
-    # The frozen downgrade keeps the AAP spelling it was installed with; 0474
-    # renamed those schemas to YOAO in place. Translate only the statements this
-    # historical guard executes, so the refusal still runs against the live DB.
     frozen_execute = migration._execute
 
     def execute_current(statement):

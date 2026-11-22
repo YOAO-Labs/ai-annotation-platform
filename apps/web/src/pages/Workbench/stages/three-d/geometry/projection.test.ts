@@ -3,15 +3,6 @@ import type { SensorCalibration } from "@/types";
 import { psrToCorners } from "./box3d";
 import { projectPoints, unprojectPixelAtDepth, BOX_EDGES } from "./projection";
 
-/* ──────────────────────────────────────────────────────────────────────
- * 参考 oracle: 逐字移植 SUSTechPOINTS 的投影算术作为独立对拍基准。
- *   util.js#matmul (行主序; ret^T = m·x^T)
- *   image.js#points3d_homo_to_image2d (extrinsic → [rect] → vector4to3 → intrinsic)
- *   util.js#vector3_nomalize (透视除法 u/w, v/w)
- * 这里只复刻单点路径, 不做 image 范围过滤 (accept_partial)。
- * ────────────────────────────────────────────────────────────────────── */
-
-/** SUSTech util.js#matmul: m (rows×vl) · 单个 vl 维行向量, 返回 rows 维向量。 */
 function refMatmul(m: number[], x: number[], vl: number): number[] {
   const ret: number[] = [];
   const resL = m.length / vl;
@@ -24,7 +15,6 @@ function refMatmul(m: number[], x: number[], vl: number): number[] {
   return ret;
 }
 
-/** oracle: 单个世界点 → { pixel, visible }, 复刻 SUSTech 投影链。 */
 function refProject(
   p: readonly [number, number, number],
   calib: SensorCalibration,
@@ -34,20 +24,13 @@ function refProject(
   if (calib.rect) {
     imgpos = refMatmul(calib.rect as number[], imgpos, 4);
   }
-  // vector4to3: 丢弃每 4 个里的 w。
   const imgpos3 = [imgpos[0], imgpos[1], imgpos[2]];
   const imgpos2 = refMatmul(calib.intrinsic as unknown as number[], imgpos3, 3);
   const w = imgpos2[2];
-  // vector3_nomalize: [u/w, v/w]。
   const pixel: [number, number] = [imgpos2[0] / w, imgpos2[1] / w];
   return { pixel, visible: w > 0 };
 }
 
-/* ──────────────────────────────────────────────────────────────────────
- * 真实标定: third-party/SUSTechPOINTS/data/example/calib/camera/front.json
- * extrinsic (行主 4x4, 16 数, 按文件顺序) / intrinsic (行主 3x3, 9 数)。
- * 硬编码进测试常量, 测试不读文件系统。
- * ────────────────────────────────────────────────────────────────────── */
 const FRONT_CALIB: SensorCalibration = {
   extrinsic: [
     -0.9994466143126584, 0.033033376071303994, -0.003906559137689193, 0.20487898588180542,
@@ -60,11 +43,6 @@ const FRONT_CALIB: SensorCalibration = {
   ] as unknown as SensorCalibration["intrinsic"],
 };
 
-/**
- * yaw-only 真实框, 取自 third-party/SUSTechPOINTS/data/example/label/000950.json
- * obj_id "27" (Car): rotation.x==0 && rotation.y==0 ⇒ box3d.ts "XYZ" 与
- * SUSTech "ZYX" 退化为同一 Rz, 角点一致, 可做 PSR→像素端到端对拍。
- */
 const BOX27 = {
   center: [36.659412470409734, -34.404139500162444, 0.8085990000000003] as const,
   size: [4.5, 1.8, 1.5] as const,
@@ -82,7 +60,6 @@ describe("projectPoints — SUSTechPOINTS oracle 对拍", () => {
       expect(got.pixels[i][1]).toBeCloseTo(ref.pixel[1], 4);
       expect(got.visible[i]).toBe(ref.visible);
     });
-    // 该框整体在相机前方, 8 角点应全部可见。
     expect(got.visible.every((v) => v)).toBe(true);
   });
 
@@ -90,7 +67,7 @@ describe("projectPoints — SUSTechPOINTS oracle 对拍", () => {
     const pts: ReadonlyArray<readonly [number, number, number]> = [
       [10, 0, 0],
       [5, -3, 1.2],
-      [-8, 4, 2], // 大概率在相机后方 (extrinsic 主要看 +x)
+      [-8, 4, 2],
       [0, 0, 0],
       [36.66, -34.4, 0.8],
     ];
@@ -111,11 +88,9 @@ describe("projectPoints — SUSTechPOINTS oracle 对拍", () => {
 
 describe("projectPoints — behind-camera 剔除 (identity extrinsic + 简单 intrinsic)", () => {
   const SIMPLE_CALIB: SensorCalibration = {
-    // identity 4x4 (行主)。
     extrinsic: [
       1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
     ] as unknown as SensorCalibration["extrinsic"],
-    // fx=fy=1000, cx=cy=500。
     intrinsic: [1000, 0, 500, 0, 1000, 500, 0, 0, 1] as unknown as SensorCalibration["intrinsic"],
   };
 
@@ -124,15 +99,13 @@ describe("projectPoints — behind-camera 剔除 (identity extrinsic + 简单 in
     const back: [number, number, number] = [1, 2, -5];
     const got = projectPoints([front, back], SIMPLE_CALIB);
 
-    // front: [fx*x/z+cx, fy*y/z+cy] = [1000*1/5+500, 1000*2/5+500] = [700, 900]
     expect(got.visible[0]).toBe(true);
     expect(got.pixels[0][0]).toBeCloseTo(700, 6);
     expect(got.pixels[0][1]).toBeCloseTo(900, 6);
 
-    // back: z<0 ⇒ w<0 ⇒ visible=false (像素仍按 u/w,v/w 计算)。
     expect(got.visible[1]).toBe(false);
-    expect(got.pixels[1][0]).toBeCloseTo((1000 * 1) / -5 + 500, 6); // 300
-    expect(got.pixels[1][1]).toBeCloseTo((1000 * 2) / -5 + 500, 6); // 100
+    expect(got.pixels[1][0]).toBeCloseTo((1000 * 1) / -5 + 500, 6);
+    expect(got.pixels[1][1]).toBeCloseTo((1000 * 2) / -5 + 500, 6);
   });
 });
 
@@ -174,7 +147,6 @@ describe("projectPoints — rect 处理", () => {
   });
 
   it("(d2) 非平凡 rect 结果与 oracle 一致", () => {
-    // 一个非平凡 (但仍末行 [0,0,0,1]) 的矫正矩阵: 含小角度旋转 + 平移。
     const rect = [
       0.999, -0.01, 0.005, 0.02, 0.01, 0.9998, -0.002, -0.01, -0.005, 0.002, 1.0, 0.03, 0, 0, 0, 1,
     ];
@@ -265,7 +237,6 @@ describe("BOX_EDGES", () => {
       expect(b).toBeGreaterThanOrEqual(0);
       expect(b).toBeLessThanOrEqual(7);
     }
-    // 竖棱连接底面 i 与顶面 i+4。
     expect(BOX_EDGES.slice(8)).toEqual([
       [0, 4],
       [1, 5],

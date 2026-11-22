@@ -23,7 +23,6 @@ const input = createInterface({ input: process.stdin, terminal: false });
 let closed = false;
 for await (const command of input) {
   if (command !== "close") throw new Error("Unknown Raster Vite owner command");
-  // Only the actual Vite close promise authorizes a successful owner exit.
   await server.close();
   closed = true;
   break;

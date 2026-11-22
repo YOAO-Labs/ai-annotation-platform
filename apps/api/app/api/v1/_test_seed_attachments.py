@@ -50,19 +50,6 @@ class CleanupPlan:
         )
 
 
-# Account and project rows are scope fences, not destruction owners: live
-# authenticated fixture requests can hold share locks on these rows for their
-# entire request. Closing their page does not wait for server-side completion.
-# Fence them before the NOWAIT owner preflight as well as the final deletion.
-#
-# ``SET LOCAL lock_timeout`` is the established bounded-authority convention
-# (storage_access, guides, task_originals all use ``1s`` for user-facing
-# fast-fail). Teardown keeps the same mechanism but a larger bound: the fixture
-# client allows 60s, and the wait must outlast an in-flight object read whose
-# share lock is held across MinIO I/O. A holder that outlives it still ends in
-# ``e2e_seed_attachment_cleanup_busy``. Every ownership anchor (upload rows,
-# receipt operations, storage permits, video outputs) keeps its fail-closed
-# ``NOWAIT`` checks.
 FENCE_LOCK_TIMEOUT = "5s"
 
 
@@ -127,8 +114,6 @@ async def owners(db, scope, *, lock=False):
 
 
 async def validate_context(db, row):
-    # Missing historical children do not discard an immutable project snapshot.
-    # An existing child in another actual project is not a fixture-owned target.
     task = await db.get(Task, row.task_id, populate_existing=True)
     annotation = await db.get(Annotation, row.annotation_id, populate_existing=True)
     if task is not None and task.project_id != row.project_id:

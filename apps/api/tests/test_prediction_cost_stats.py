@@ -56,8 +56,6 @@ async def _seed_task(db: AsyncSession, project_id: uuid.UUID) -> Task:
 async def _seed_backend(
     db: AsyncSession, project_id: uuid.UUID, name: str
 ) -> MLBackendRegistry:
-    # ADR-0044 · backend 上提为全局注册项 (url unique); cost-stats 按 ml_backend_id
-    # join registry 取 backend_name, 无需项目启用关联。
     b = MLBackendRegistry(
         id=uuid.uuid4(),
         name=name,
@@ -149,7 +147,6 @@ async def test_prediction_cost_stats_aggregates_with_data(
     backend_a = await _seed_backend(db_session, proj.id, "alpha")
     backend_b = await _seed_backend(db_session, proj.id, "beta")
 
-    # 3 success on backend_a
     for _ in range(3):
         await _seed_prediction(
             db_session,
@@ -160,7 +157,6 @@ async def test_prediction_cost_stats_aggregates_with_data(
             tokens=100,
             inference_ms=200,
         )
-    # 2 success on backend_b
     for _ in range(2):
         await _seed_prediction(
             db_session,
@@ -171,7 +167,6 @@ async def test_prediction_cost_stats_aggregates_with_data(
             tokens=200,
             inference_ms=400,
         )
-    # 2 failed on backend_a
     for _ in range(2):
         await _seed_failed(
             db_session,
@@ -189,16 +184,11 @@ async def test_prediction_cost_stats_aggregates_with_data(
     data = resp.json()
     assert data["total_predictions"] == 5
     assert data["failed_predictions"] == 2
-    # 5 / (5 + 2) = 0.2857 → fail_rate = 2/7
     assert abs(data["failure_rate"] - (2 / 7)) < 1e-3
-    # 3*0.10 + 2*0.25 = 0.80
     assert abs(data["total_cost"] - 0.80) < 1e-6
-    # 3*100 + 2*200 = 700
     assert data["total_tokens"] == 700
-    # avg_inference_time_ms = (3*200 + 2*400) / 5 = 280
     assert abs(data["avg_inference_time_ms"] - 280.0) < 1.0
 
-    # by_backend
     by = {b["backend_name"]: b for b in data["by_backend"]}
     assert by["alpha"]["predictions"] == 3
     assert by["alpha"]["failures"] == 2
@@ -215,7 +205,6 @@ async def test_prediction_cost_stats_range_7d_excludes_old_rows(
     task = await _seed_task(db_session, proj.id)
     backend = await _seed_backend(db_session, proj.id, "gamma")
 
-    # 1 row 5 days ago — 在 7d 内
     await _seed_prediction(
         db_session,
         project_id=proj.id,
@@ -226,7 +215,6 @@ async def test_prediction_cost_stats_range_7d_excludes_old_rows(
         inference_ms=100,
         created_at=datetime.now(timezone.utc) - timedelta(days=5),
     )
-    # 1 row 20 days ago — 7d 之外, 30d 内
     await _seed_prediction(
         db_session,
         project_id=proj.id,
@@ -286,7 +274,6 @@ async def test_prediction_cost_stats_p50_p95_p99(
     task = await _seed_task(db_session, proj.id)
     backend = await _seed_backend(db_session, proj.id, "perc")
 
-    # 100 个预测，inference_ms 从 10 到 1000 step 10
     for ms in range(10, 1010, 10):
         await _seed_prediction(
             db_session,
@@ -306,7 +293,6 @@ async def test_prediction_cost_stats_p50_p95_p99(
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["total_predictions"] == 100
-    # 100 个均匀样本：P50 ≈ 505，P95 ≈ 955，P99 ≈ 991（PERCENTILE_CONT 线性插值）
     assert abs(data["p50_inference_time_ms"] - 505.0) <= 5.0
     assert abs(data["p95_inference_time_ms"] - 955.0) <= 5.0
     assert abs(data["p99_inference_time_ms"] - 991.0) <= 5.0

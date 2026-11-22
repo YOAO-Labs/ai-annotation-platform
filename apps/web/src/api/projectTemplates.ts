@@ -1,8 +1,3 @@
-// ProjectTemplate API 客户端.
-//
-// 列表 / 创建 / 详情 / 更新 / 删除 / 克隆.
-// 与后端 apps/api/app/api/v1/project_templates.py 路由对齐.
-
 import { apiClient } from "./client";
 import type {
   AttributeSchema,
@@ -20,13 +15,11 @@ export interface ProjectTemplateOut {
   description: string | null;
   type_label: string;
   type_key: string;
-  // 媒体维度数据类型 (image / video / lidar).
   data_type?: string;
 
   classes: string[];
   classes_config: ClassesConfig;
   attribute_schema: AttributeSchema;
-  // 工具维度类别 / 属性绑定 (后端 schema 与 Project 对齐).
   tool_bindings?: ToolBindings;
   label_config: Record<string, unknown>;
   ai_enabled: boolean;
@@ -58,7 +51,6 @@ export interface ProjectTemplateCreatePayload {
   classes?: string[];
   classes_config?: ClassesConfig | null;
   attribute_schema?: AttributeSchema | null;
-  // 工具维度类别 / 属性绑定; 优先于扁平 classes_config / attribute_schema.
   tool_bindings?: ToolBindings | null;
   label_config?: Record<string, unknown> | null;
   ai_enabled?: boolean;

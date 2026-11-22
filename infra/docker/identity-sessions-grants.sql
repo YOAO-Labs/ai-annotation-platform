@@ -1,9 +1,3 @@
--- Grant the exact native session surface after migrations and module-data-grants.
--- The restricted LOGIN must already exist and have no memberships.
--- Database provisioning must revoke PUBLIC TEMP first; this script changes no PUBLIC ACL.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v identity_owner=identity_code -v identity_session_role=yoao_identity_session_client \
---   -f infra/docker/identity-sessions-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -134,7 +128,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_identity_sessions_v1.execute_session_command(jsonb)
     TO :"identity_session_role";
 
--- Fail closed unless the LOGIN can reach only its three public capabilities.
 DO $$
 DECLARE
     role_name text := current_setting('yoao.identity_session_role');

@@ -10,9 +10,7 @@ export interface VideoChapter {
   title: string;
   color: string | null;
   metadata: Record<string, unknown>;
-  // 该章节内建议的逐帧步长 (源帧空间); 旧章节无此键时为 null。
   frame_step: number | null;
-  // 章节来源: 手动建 (manual) 还是由采样网格派生 (sampled)。
   source: VideoChapterSource;
   created_by: string | null;
   created_at: string;

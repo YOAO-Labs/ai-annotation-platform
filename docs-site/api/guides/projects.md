@@ -73,6 +73,8 @@ POST /api/v1/projects
 
 `template_id` 与 `source_project_id` 互斥。使用可见模板／源项目时可省略 type_label 和类型字段，由服务器继承；明确给出 type_key 或 data_type 时，另一项按明确类型推导，配置明确字段优先。普通创建仍要求 type_label。copy_annotation_guide 仅用于源项目；模板继承指引文本但不复制 guide-assets。任务、标注、数据集、成员和批次不复制。
 
+复制指引时，服务端同时读取源指引、修订和实际图片引用，在发布目标前重新核对权限与这些源事实。源指引已变化返回 `409`，不留下部分创建的副本。
+
 模板库提供 `GET/POST /project-templates`、`GET/PATCH/DELETE /project-templates/{template_id}` 和无正文的 `POST /project-templates/{template_id}/duplicate`。创建模板可通过 source_project_id 省略 name/type_label/type_key，普通创建必须提供这些字段；明确 null 不能代替省略。列表是未分页数组，支持 scope、重复 type_key 和 search；PATCH 没有 revision 条件，duplicate 产生当前用户的 private 副本。权限与 SDK 用法见 [视频、模板与存储运维](../../dev/sdk/video-and-templates)。
 
 ## 配置

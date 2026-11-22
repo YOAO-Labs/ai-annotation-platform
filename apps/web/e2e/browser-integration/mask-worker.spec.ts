@@ -1,7 +1,6 @@
 import { expect } from "@playwright/test";
 import { test } from "../fixtures/raster-browser";
 
-// Browser runtime integration: direct Vite source imports, not built-product E2E.
 test.describe("Mask Worker browser integration", () => {
   test("4. 1080p 实际 Worker 可完成、可取消且失败不修改输入", async ({ page }) => {
     test.setTimeout(90_000);

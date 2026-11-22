@@ -106,8 +106,6 @@ class MemoryStorage:
             self.world.put_started.set()
             if not self.world.put_release.wait(5):
                 raise TimeoutError("test gate expired")
-        # Match S3's atomic conditional creation even when native I/O runs in
-        # separate threads. The external gate still observes both requests.
         with self.world.conditional_put_lock:
             if (Bucket, Key) in self.world.objects:
                 raise ClientError(
@@ -190,7 +188,6 @@ class MemoryStorage:
 
     def delete_object(self, *, Bucket, Key, VersionId, IfMatch):
         assert not self.closed
-        # Current MinIO ignores IfMatch on DELETE; the exact version must fence it.
         self._value(Bucket, Key, VersionId)
         if self.world.fail_delete:
             raise OSError("synthetic private storage failure")
@@ -280,8 +277,6 @@ async def input_storage_world(engine, monkeypatch):
 
 @pytest.fixture
 async def input_world(test_engine, monkeypatch):
-    # Input-only tests do not need business-owner functions, so a private schema
-    # remains sufficient. Committed business flows supply a whole database.
     schema = "prediction_inputs_" + uuid.uuid4().hex
     async with test_engine.begin() as connection:
         source = await connection.scalar(text("SELECT current_schema()"))
@@ -365,7 +360,6 @@ async def test_original_put_has_independently_committed_intent_and_closes_snapsh
     pending = asyncio.create_task(inputs.upload_snapshot(snapshot))
     try:
         assert await asyncio.to_thread(world.put_started.wait, 3)
-        # A different committed connection sees recovery before PUT can finish.
         record = await get_record(world, inputs.record.id)
         assert record.state == "active" and record.task_id == world.task_id
         entry = next(iter(record.inventory["objects"].values()))
@@ -587,8 +581,6 @@ async def test_uncertain_or_crashed_put_retains_recovery_for_late_objects(
         with pytest.raises(ContentError, match="prediction_input_upload_failed"):
             await inputs.upload_crop(task, 0, b"crop")
         world.fail_put = False
-    # A late completion has to be the exact admitted object and write nonce.
-    # An arbitrary new key is foreign and must never be swept by prefix.
     identity, raw = next(iter(world.objects.items()))
     ownership = deepcopy(world.metadata[identity])
     if not lost:
@@ -599,9 +591,6 @@ async def test_uncertain_or_crashed_put_retains_recovery_for_late_objects(
     monkeypatch.setattr(service, "now", lambda: checked)
     assert (await service.maintain(world.factory))["retained"] == 1
     assert not world.objects
-    # A later PUT creates a distinct immutable version, even for the same bytes.
-    # Only an unpublished planned intent may prove that later candidate by nonce;
-    # a verified receipt can never be rewritten to adopt the new generation.
     MemoryStorage.seed(world, *identity, raw, ownership)
     record = await get_record(world, inputs.record.id)
     checked = record.next_cleanup_at + timedelta(seconds=1)

@@ -9,11 +9,8 @@ const HINT_CLASS = "text-xs text-muted-foreground";
 
 export interface ImageBatchCardContentProps {
   count: number;
-  /** 任务级锁定(review/completed)→ 改类 / 合并 / 锁定 / 删除 只读。 */
   readOnly: boolean;
-  /** 选中全部已锁定 → 显示「解锁」语义。 */
   allLocked: boolean;
-  /** 选中全部已隐藏 → 显示「显示」语义。 */
   allHidden: boolean;
   onChangeClass: () => void;
   onJoin: () => void;
@@ -24,11 +21,6 @@ export interface ImageBatchCardContentProps {
   onConvert?: () => void;
 }
 
-/**
- * 选中信息卡的图片端多选(批量)内容。取代退役的贴框浮条 SelectionOverlay 批量分支,
- * 把改类 / 合并 / 锁定 / 隐藏 / 删除 收进浮卡,与单选卡共用 ActionBar 设计系统积木。
- * 逻辑复用模型既有批量 handler,不重写。
- */
 export function ImageBatchCardContent({
   count,
   readOnly,

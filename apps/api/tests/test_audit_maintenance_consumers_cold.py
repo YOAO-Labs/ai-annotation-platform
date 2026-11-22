@@ -429,7 +429,6 @@ async def test_installed_beat_maintenance_consumers_recover_archive_after_restor
                 ),
                 {"id": event_id, "action": daily_action, "created": created},
             )
-        # Narrow this fixture only; held Learning/Training reads keep their normal grants.
         await db.execute(
             text(
                 "REVOKE SELECT ON public.audit_logs,public.async_jobs FROM identity_api_consumer"

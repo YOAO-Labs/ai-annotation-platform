@@ -116,8 +116,6 @@ async def prepare_batch_prediction_dispatch(
 async def _acknowledge_dispatch(
     db: AsyncSession, lease: DispatchLease, *, accepted: bool
 ) -> None:
-    # The publisher's reply and the durable acknowledgement are different facts.
-    # A lost acknowledgement leaves the exact envelope recoverable after its lease.
     sessions = async_sessionmaker(
         db.bind,
         expire_on_commit=False,

@@ -1,4 +1,3 @@
-/** Copy the original value, retaining the fallback for browsers without Clipboard API access. */
 export async function copyToClipboard(value: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {

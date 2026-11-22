@@ -287,7 +287,6 @@ async def test_one_large_mask_response_exceeds_16mib_and_transfers_pending_roots
                 reference["object_key"]
                 for reference in collect_mask_references(prepared[0].result)
             }
-            # Verify the prepared snapshot obtains the current content epoch.
             async with world.owner_factory() as owner:
                 await owner.execute(
                     text(
@@ -779,7 +778,6 @@ async def test_only_an_admitted_job_can_resume_its_captured_result(
         )
         monkeypatch.setattr(execution, "_run_task_pipeline", model)
         job_id = world.execution.scope["job_id"]
-        # The broker delivery identifies the existing job but cannot authorize it.
         with pytest.raises(ValueError, match="admitted Job"):
             await execution.run_preannotation(
                 replace(world.request, async_job_id=None), execution_id=str(job_id)

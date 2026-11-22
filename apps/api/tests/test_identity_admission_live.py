@@ -688,7 +688,6 @@ async def test_installed_identity_and_node_observe_current_state_after_restart(
                 assert reply["ok"] is True
                 return time.monotonic() - started
 
-            # A bounded local smoke; these timings do not qualify production capacity.
             durations = []
             for _ in range(4):
                 durations.extend(await asyncio.gather(*(sample() for _ in range(8))))
@@ -773,7 +772,6 @@ async def test_installed_identity_and_node_observe_current_state_after_restart(
     finally:
         if identity:
             identity.stop()
-        # Always restore the exact AUTH surface if an assertion interrupted the probe.
         async with maker.begin() as db:
             await db.execute(
                 text(

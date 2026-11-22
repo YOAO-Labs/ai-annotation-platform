@@ -179,10 +179,9 @@ class Owner:
             "state": "creation_intent",
         }
         self.data["resources"].append(item)
-        self.save()  # durable intent precedes resource creation
+        self.save()
         if kind == "container":
             cmd = ["docker", "create", "--name", name, *self.labels(), *args, image]
-            # Container commands follow the image; callers supply them separately.
             if isinstance(image, tuple):
                 raise ContractError("image_must_be_digest")
         else:
@@ -296,7 +295,7 @@ class Owner:
                     item["state"] = "absent"
                     self.save()
                     continue
-                if item["id"] is None:  # recover only a durable exact creation intent
+                if item["id"] is None:
                     item["id"] = (
                         observed.get("Name")
                         if item["kind"] == "volume"
@@ -449,7 +448,6 @@ def app_storage(endpoint, credentials, buckets, budget):
         **dict(zip(BUCKET_FIELDS, buckets, strict=True)),
     }
     sys.path.insert(0, str(ROOT / "apps/api"))
-    # Disable only external settings sources; no application service is replaced.
     with (
         patch.dict(os.environ, storage_env, clear=True),
         patch(
@@ -609,7 +607,6 @@ def proxy_setup(owner, lock, network, endpoint):
         site / "index.html",
         b"<!doctype html><meta charset=utf-8><title>S3 local contract</title><p>Isolated local S3 contract</p>",
     )
-    # Binding a private test site needs no application port or runtime.
     handler = functools.partial(QuietHandler, directory=str(site))
     owner.data["local_origin"] = {
         "host": "127.0.0.1",
@@ -635,7 +632,6 @@ def proxy_setup(owner, lock, network, endpoint):
         "INTERNAL", internal_host
     )
     private_write(config, text.encode())
-    # Image's nginx worker can read only this harmless static file.
     (site / "index.html").chmod(0o644)
     config.chmod(0o644)
     item = owner.container(
@@ -694,7 +690,6 @@ def basic_cases(recorder, client, bucket, budget, saved):
                 metadata=metadata,
             )
             saved.append((bucket, key, result.get("VersionId"), body, metadata))
-        # Application path guards are asserted directly, without normalizing a key.
         require("raw/../literal".split("/")[1] == "..", "raw_key_normalized")
         evidence.update(
             objects=4,
@@ -1095,7 +1090,7 @@ def browser_cases(
 ):
     session = {"name": "e07-" + owner.data["nonce"], "closed": False}
     owner.data["browser_sessions"].append(session)
-    owner.save()  # persist session ownership before launching Chromium
+    owner.save()
     bucket = service.datasets_bucket
     data = media["image.png"][0]
     try:
@@ -1119,7 +1114,6 @@ def browser_cases(
             },
         )
     except Exception as exc:
-        # Browser attempts remain required even if configuration is unsupported.
         recorder.cases["browser_cross_origin"]["cors_setup_error"] = safe_error(exc)
     for same in (True, False):
         name = "browser_same_origin" if same else "browser_cross_origin"
@@ -1130,7 +1124,6 @@ def browser_cases(
                 key, content_type="image/png", bucket=bucket
             )
             download = service.generate_download_url(key, bucket=bucket, align=False)
-            # Never place signed URLs in CLI argv, rendered page text or a report.
             request = {
                 "put": upload,
                 "get": download,
@@ -1184,7 +1177,6 @@ def browser_cases(
             result = parsed.get("data", {}).get("result", parsed.get("result"))
             require(isinstance(result, dict), "browser_result_shape")
             evidence.update(result)
-            # Reserve successful object payloads; the bounded PNG response is known.
             budget.consume("upload", len(data), (bucket, key))
             budget.consume(
                 "download",
@@ -1214,7 +1206,6 @@ def browser_cases(
                 and not result["errors"],
                 "browser_rejection_retry",
             )
-            # A newly signed retry uses the current application signer.
             fresh = service.generate_download_url(
                 key, bucket=bucket, expires_in=121, align=False
             )
@@ -1264,7 +1255,6 @@ def browser_cases(
 
 def lifecycle_case(recorder, service):
     with recorder.case("lifecycle_configuration") as evidence:
-        # Seed the two legacy application-owned rules to exercise actual removal.
         for bucket, rule in (
             (service.bucket, "comment-attachments-90d"),
             (service.import_bucket, "import-artifacts-7d"),
@@ -1483,7 +1473,6 @@ def volume_restore(
         args, cmd = candidate_args(
             candidate["name"], owner.private, env_file, target, network
         )
-        # Source is stopped before alias reuse; restore gets its own published port.
         restored = owner.container(candidate["image"], args=args, cmd=cmd)
         owner.start(restored)
         endpoint = "http://127.0.0.1:" + str(host_port(owner, restored, 9000))
@@ -1718,7 +1707,6 @@ def start_candidate(
                 "configuration_sha256": sha256(filer),
                 "foundationdb_instance": False,
             }
-            # Secret stays 0600; copy via a root helper into this owned volume.
             owner.helper(
                 lock["proxy"]["image"],
                 args=[
@@ -1771,7 +1759,6 @@ def start_candidate(
             client = client_for(endpoint, credentials, budget)
         stage = "candidate_readiness"
         ready(client, budget)
-        # Image-declared volumes must not escape the explicit retirement manifest.
         mounted_volumes = {
             mount["Name"]
             for item in owner.data["resources"][resource_offset:]
@@ -1912,8 +1899,6 @@ def main(argv=None):
         require(not args.report.exists(), "report_exists")
         lock = load_lock(ROOT / "scripts/storage_s3_candidates.lock.json", ROOT)
         owner = Owner(args.manifest, create=True)
-        # The command's complete input is the lock; inherited deployment secrets
-        # are discarded before any application module can be imported.
         for key in list(os.environ):
             if key.startswith(("MINIO_", "ML_BACKEND_STORAGE_", "AWS_")):
                 del os.environ[key]
@@ -1961,7 +1946,6 @@ def main(argv=None):
         for candidate in lock["candidates"]:
             result = candidate_run(owner, lock, candidate)
             report["candidates"].append(result)
-            # Separate providers reuse no volumes, ports or credentials.
             good = owner.cleanup()
             result["cleanup_verified"] = good
             if not good:

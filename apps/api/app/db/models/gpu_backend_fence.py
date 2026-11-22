@@ -49,28 +49,18 @@ class GPUBackendFence(Base):
         UUID(as_uuid=True),
         primary_key=True,
     )
-    # Zero is a durable "not issued yet" sentinel. Wire values remain canonical
-    # positive int64 decimal strings.
     generation_high_water: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"
     )
     control_epoch_high_water: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"
     )
-    # Zero means this backend has never entered an enforce runtime epoch. Once
-    # positive, direct claim/endpoint mutation is blocked until managed retirement.
     runtime_epoch_high_water: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"
     )
-    # Maximum expiry of any signed GPU capability, persisted before token signing.
-    # Redis continuity loss may recover only after this horizon and post-horizon
-    # live-idle evidence (or a stronger signed reset).
     token_expiry_high_water: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    # Exact latest rollout control intent.  Keeping the operation beside the
-    # monotonic high-water lets a restarted worker replay reset/mode with the
-    # same epoch and distinguish a reset ACK from an older legacy-mode ACK.
     rollout_control_operation: Mapped[str | None] = mapped_column(
         String(16), nullable=True
     )

@@ -215,9 +215,6 @@ class ConfigurationPostgresData:
                     OSError,
                     TimeoutError,
                 ):
-                    # Commit/rollback has already completed. Reporting a close
-                    # failure as a failed create could provoke a duplicate on a
-                    # new public request, and could mask an earlier rejection.
                     connection.terminate()
                     _logger.warning("Workspace configuration connection cleanup failed")
 

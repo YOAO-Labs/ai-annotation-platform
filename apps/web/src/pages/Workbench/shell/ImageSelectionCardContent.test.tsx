@@ -1,8 +1,3 @@
-// ImageSelectionCardContent 单测:
-// - 渲染 改类/隐藏/锁定/删除 操作 + 结构化指标网格(bbox 像素 / polygon 顶点)
-// - 各操作回调透传正确的 annotationId / flag / value
-// - 有属性 schema 时渲染 AttributeForm,改值经 onUpdateAttributes 上抛
-
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import type { AnnotationResponse } from "@/types";
@@ -40,9 +35,8 @@ describe("ImageSelectionCardContent", () => {
         onUpdateAttributes={noop}
       />,
     );
-    // 0.25*1920=480, 0.2*1080=216
     expect(getByText("480×216 px")).not.toBeNull();
-    expect(getByText("5.0%")).not.toBeNull(); // 占图 0.25*0.2
+    expect(getByText("5.0%")).not.toBeNull();
   });
 
   it("polygon 指标网格显示顶点数", () => {
@@ -308,7 +302,6 @@ describe("ImageSelectionCardContent", () => {
     );
     const input = getByDisplayValue("red") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "blue" } });
-    // 防抖路径:同步标 draft,400ms 后 flush(此处只验证渲染 + 受控值更新即可)
     expect(input.value).toBe("blue");
   });
 

@@ -9,9 +9,6 @@ import test from "node:test";
 import { buildSummary, main } from "./summarize-e2e-results.mjs";
 import { auditE2ERequirements } from "./audit-e2e-requirements.mjs";
 
-// Fixtures are REAL Playwright JSON reports (locked 1.59.1 contract), generated
-// from tiny controlled runs: scripts/fixtures/e2e-summary/*.json. See the
-// generation commands in docs/research/36 §3.
 const fixtureDir = new URL("./fixtures/e2e-summary/", import.meta.url);
 const loadFixture = (name) => JSON.parse(readFileSync(new URL(`${name}.json`, fixtureDir), "utf8"));
 

@@ -23,12 +23,10 @@ const FRAME_CHIP_CLASS =
 const FRAME_TIME_CLASS = "text-brand/75";
 
 export interface VideoPointsTrackCardContentProps {
-  /** geometry.type 必为 video_track_polygon / video_track_polyline(点集轨迹)。 */
   annotation: AnnotationResponse;
   frameIndex: number;
   imageWidth: number | null;
   imageHeight: number | null;
-  /** 视频帧率,用于把帧号换算成时间;缺省时只显示帧号。 */
   fps: number | null;
   readOnly: boolean;
   hidden: boolean;
@@ -44,7 +42,6 @@ export interface VideoPointsTrackCardContentProps {
   maskActions?: VideoMaskKeyframeActionHandlers;
 }
 
-/** 秒 → 紧凑时间码 m:ss。 */
 function formatTimecode(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return "0:00";
   const m = Math.floor(sec / 60);
@@ -52,14 +49,6 @@ function formatTimecode(sec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/**
- * 选中「点集轨迹」(video_track_polygon / video_track_polyline)的浮动卡内容。
- *
- * 此卡不负责逐关键帧编辑（顶点对应、参数化插值、关键帧表）。
- * 本卡显示当前帧几何指标、类别和帧位置，并提供
- * 改类、显隐、锁定和删除整条轨迹。不复用
- * VideoTrackCardContent，因为 bbox 轨迹卡依赖 keyframe.bbox。
- */
 export function VideoPointsTrackCardContent({
   annotation,
   frameIndex,

@@ -141,8 +141,6 @@ async def original_db(test_engine):
                 await connection.run_sync(
                     lambda sync, number=number: migration(sync, number).upgrade()
                 )
-            # The current writer also carries the independently tested staging
-            # reference; these scope fixtures keep the historical owner guards.
             await connection.execute(
                 text(
                     "ALTER TABLE managed_original_creations ADD COLUMN staging_ref jsonb"

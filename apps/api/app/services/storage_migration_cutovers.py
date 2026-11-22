@@ -420,7 +420,6 @@ async def _control(db, actor_id, cutover_id, *, exclusive_bindings=False):
     )
     bindings = await _bindings(db, exclusive=exclusive_bindings)
     window = await windows.owner(db, initial.window_id, lock=True, exclusive=True)
-    # Match the established Window control order, source Gate before target Gate.
     gates = {}
     for location_id in (initial.source_location_id, initial.target_location_id):
         gate = await finals._lock(

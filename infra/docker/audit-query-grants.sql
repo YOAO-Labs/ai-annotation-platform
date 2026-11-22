@@ -1,9 +1,3 @@
--- Grant one restricted client the fixed Audit read command only.
--- Run after migrations and module-data-grants.sql.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v audit_owner=audit_code -v identity_owner=identity_code \
---   -v api_role=api_runtime -v query_client=yoao_audit_query_client \
---   -f infra/docker/audit-query-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -60,7 +54,6 @@ BEGIN
 END;
 $guard$;
 
--- A query LOGIN gets only the fixed owner function, no public-table or append access.
 REVOKE ALL ON SCHEMA yoao_audit_v1 FROM :"query_client";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_audit_v1 FROM :"query_client";
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"query_client";

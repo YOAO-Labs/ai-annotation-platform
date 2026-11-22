@@ -8,7 +8,6 @@ __pycache__/
 .env
 .env.local
 .env.production
-# Owned local worktree runtime identity, locks, and state (never copy between checkouts).
 .worktree/
 *.egg-info/
 .venv/
@@ -19,7 +18,6 @@ apps/web/node_modules
 .DS_Store
 *.tsbuildinfo
 
-# 测试与覆盖率产物
 .coverage
 coverage.xml
 htmlcov/
@@ -33,38 +31,27 @@ test-results/
 .pytest_cache/
 .ruff_cache/
 
-# docs-site/dev/adr 由 mirror-adr.mjs 在 prebuild 时从 docs/adr/ 重建
-# （hotkeys.generated.md 与 openapi snapshot 历史上已 track，不在此处忽略以保持 surgical）
 docs-site/dev/adr/
+docs-site/public/dev/adr/evidence/
 
-# docs-site/changelog 与 docs-site/roadmap 由 mirror-changelog.mjs 从根 CHANGELOG.md /
-# ROADMAP.md 与 docs/changelogs/ / ROADMAP/ 重建
 docs-site/changelog/
 docs-site/roadmap/
 
-# DuckDB 离线分析视图文件（ROADMAP §1.6, Celery worker 写 / API 只读）
 data/duckdb/
 apps/api/data/duckdb/
 
-# Claude Code 子代理 worktree 临时副本（subagent 隔离运行时落盘，与本仓库无关）
 .claude/worktrees/
-# Claude Code 运行时锁（ScheduleWakeup 维护；含 sessionId/pid/时间戳，因机器而异）
 .claude/scheduled_tasks.lock
 
-# npm 锁文件（本项目用 pnpm，禁止 npm 误生成的 package-lock.json 入库）
 package-lock.json
 
-# 第三方开源仓库源码（仅供本地源码级调研，不纳入版本管理）
 third-party/
 .hermes/
 
-# Independent plugin repository checkout; versioned in YOAO-Labs/YOAO-Plugins.
 /plugins/YOAO-plugins/
 
-# Pyright/IDE 本地类型检查配置（指向本机 .venv 路径，因机器而异，不入库）
 pyrightconfig.json
 
-# 中间产物输出文件夹
 output/
 outputs/
 # >>> orca-dag planning artifacts (managed)

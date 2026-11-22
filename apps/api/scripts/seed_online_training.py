@@ -43,7 +43,6 @@ DATASET_ID = uuid.uuid5(uuid.NAMESPACE_URL, f"aap:seed:{SEED_MARKER}:dataset")
 BASELINE_REQUEST_ID = uuid.uuid5(PROJECT_ID, "baseline")
 SEGMENTATION_REQUEST_ID = uuid.uuid5(PROJECT_ID, "baseline:segment:instance-rle")
 SEGMENTATION_MARKER = "coco8-seg-instance-rle"
-# For the manifest-pinned COCO8 bytes, seed 4 preserves the original 4/4 split.
 SPLIT_SEED = 4
 
 
@@ -217,8 +216,6 @@ async def seed_online_training(
         )
         db.add(item)
         await db.flush()
-        # Only this successful write's bytes establish a new managed identity;
-        # existing fixtures and arbitrary legacy paths are never adopted here.
         await register_item_asset(
             db,
             item,
@@ -264,8 +261,6 @@ async def seed_online_training(
             )
     await db.flush()
     if segmentation_fixture is not None:
-        # Raster owners bootstrap storage in an independent transaction. Publish
-        # the complete source phase before that transaction reads its bindings.
         await db.commit()
         await db.execute(
             select(func.pg_advisory_xact_lock(func.hashtextextended(SEED_MARKER, 0)))
@@ -515,8 +510,6 @@ async def prepare_baseline(
         task=task,
         **({"bridge": "ultralytics-instance-rle-1"} if task == "segment" else {}),
     )
-    # The owned preparation session must observe all newly seeded source rows,
-    # and physical reads must not retain the seed transaction's locks.
     project_id, actor_id = project.id, project.owner_id
     await db.flush()
     await db.commit()
@@ -526,7 +519,6 @@ async def prepare_baseline(
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project_id), 0)))
     )
-    # A concurrent seed may have published the fixed request while preparing.
     existing = await db.scalar(
         select(TrainingDatasetVersion).where(
             TrainingDatasetVersion.project_id == project_id,
@@ -572,8 +564,6 @@ async def _reuse_baseline(db, existing):
         except TrainingDatasetError as exc:
             raise SeedAssetError(str(exc)) from exc
         await db.refresh(existing, with_for_update=True)
-        # A live builder holds this execution lock until its writes finish.
-        # A running version without the lock belongs to an interrupted build.
         if existing.status == "running":
             await jobs.mark_failed(
                 db, existing.async_job_id, error="种子构建已中断，重新构建同一快照"

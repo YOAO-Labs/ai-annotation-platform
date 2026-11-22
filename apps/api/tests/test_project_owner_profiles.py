@@ -23,8 +23,6 @@ _RESPONSES = {item["phase"]: item["response"] for item in _FIXTURE["records"]}
 def _persisted_response(phase):
     expected = json.loads(json.dumps(_RESPONSES[phase]))
     rows = expected if isinstance(expected, list) else expected.get("items", [])
-    # The old seed session retained Python defaults in its ORM identity map.
-    # Compare the persisted REAL values that a fresh public request reads.
     for row in rows:
         for field in ("box_threshold", "text_threshold"):
             row[field] = struct.unpack("!f", struct.pack("!f", row[field]))[0]

@@ -1,9 +1,3 @@
--- Grant the routing LOGIN only its fixed Native routing capabilities.
--- Apply module-data-grants.sql first in the same explicitly named database.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v inference_owner=inference_code
---   -v inference_routing_role=yoao_inference_routing_client
---   -f infra/docker/inference-routing-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

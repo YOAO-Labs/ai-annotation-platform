@@ -36,7 +36,6 @@ async def start_inventory(
         request=request,
     )
     response = StorageMigrationInventoryStart(item=service.item(row), reused=reused)
-    # Reuse is observational. Only explicit redispatch retries uncertain publish.
     if not reused:
         await dispatch(db, job)
     return response

@@ -1,7 +1,3 @@
-/**
- * AdminDashboard 单测：加载态 / 主要卡片 / 状态分布 / role_distribution /
- * ML backend 0/n 分支 / 注册来源空 vs 有数据 / 项目列表空态 / wizard 入口 toggle。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -12,7 +8,6 @@ const mockUseAuditLogs = vi.fn();
 
 vi.mock("@/hooks/useDashboard", () => ({
   useAdminStats: () => mockUseAdminStats(),
-  // 新加成本卡片 hook，单测下返回空态即可
   usePredictionCostStats: () => ({ data: undefined, isLoading: false }),
 }));
 vi.mock("@/hooks/useProjects", () => ({
@@ -21,7 +16,6 @@ vi.mock("@/hooks/useProjects", () => ({
 vi.mock("@/hooks/useAudit", () => ({
   useAuditLogs: (...args: unknown[]) => mockUseAuditLogs(...args),
 }));
-// 重 wizard 子组件 stub（避免它们的 react-query / form 复杂度）
 vi.mock("@/components/projects/CreateProjectWizard", () => ({
   CreateProjectWizard: ({ open }: any) => (open ? <div data-testid="cp-wizard" /> : null),
 }));
@@ -88,11 +82,11 @@ describe("AdminDashboard", () => {
     mockUseAdminStats.mockReturnValue({ data: baseStats, isLoading: false });
     renderUI();
     expect(screen.getByRole("heading", { name: "平台概览" })).toBeInTheDocument();
-    expect(screen.getByText("25")).toBeInTheDocument(); // total_users
+    expect(screen.getByText("25")).toBeInTheDocument();
     expect(screen.getByText("8 在线")).toBeInTheDocument();
-    expect(screen.getByText("10")).toBeInTheDocument(); // total_projects
-    expect(screen.getByText("1,234")).toBeInTheDocument(); // total_tasks
-    expect(screen.getByText("5,678")).toBeInTheDocument(); // total_annotations
+    expect(screen.getByText("10")).toBeInTheDocument();
+    expect(screen.getByText("1,234")).toBeInTheDocument();
+    expect(screen.getByText("5,678")).toBeInTheDocument();
   });
 
   it("后台刷新失败时保留统计和已打开向导，重试成功后更新统计", () => {
@@ -138,9 +132,7 @@ describe("AdminDashboard", () => {
     const s = { ...baseStats, ml_backends_total: 3, ml_backends_connected: 2 };
     mockUseAdminStats.mockReturnValue({ data: s, isLoading: false });
     renderUI();
-    // 「ML 后端 · 预测成本」联合卡片，Badge 文案为 X / Y 在线
     expect(screen.getByText("2 / 3 在线")).toBeInTheDocument();
-    // 4 mini-stat 标题应渲染
     expect(screen.getByText("本期调用数")).toBeInTheDocument();
     expect(screen.getByText("总成本")).toBeInTheDocument();
   });
@@ -194,7 +186,6 @@ describe("AdminDashboard", () => {
     renderUI();
     expect(screen.getByText("Demo")).toBeInTheDocument();
     expect(screen.getByText("Alice")).toBeInTheDocument();
-    // 「进行中」在 StatusBar 与项目状态徽章都出现，这里只断言出现至少 1 次
     expect(screen.getAllByText("进行中").length).toBeGreaterThan(0);
   });
 

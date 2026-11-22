@@ -457,8 +457,6 @@ async def test_plugin_stop_requires_physical_tracker_retirement(
                 payload.installation_id, 3, "disable"
             )
 
-    # A completed exact Native retirement, not logical scope closure, permits
-    # disabling and subsequently authorizes the stop check.
     await db_session.execute(
         text(
             "UPDATE yoao_inference_routing_v1.scopes SET state='reconciled',closed=true "
@@ -869,8 +867,6 @@ async def test_plugin_registry_fence_allows_routing_but_blocks_disable(test_engi
             assert subject.registry_id == registry_id
             assert subject.request_id == request_id
 
-            # Roll back the real reservation after proving admission so the
-            # separate route lifecycle cannot itself fence the later disable.
             route_tx = client.transaction()
             await route_tx.start()
             try:

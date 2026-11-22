@@ -565,8 +565,6 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
             restored_before["execution"]["realm"] == source_before["execution"]["realm"]
         )
 
-        # Change the controller epoch after the backup. The restore must observe
-        # the live HTTP controller state instead of trusting the copied snapshot.
         retired_source = await source_runtime.retire_scope(
             {
                 "schema": "aap-inference-scope-retirement/v1",
@@ -590,8 +588,6 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
         assert current_live_status["backend_incarnation"] == old_incarnation
         assert current_live_status["authority_epoch"] != old_backend_epoch
 
-        # This admission is created after pg_dump, so it is absent from the
-        # restored database. The real backend controller still counts its work.
         (
             post_backup_scope,
             post_backup_attempt,
@@ -645,8 +641,6 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
         identity = await manager.inspect()
         command = _command(identity, dump)
 
-        # Even quarantined policy reads retain the shared transaction barrier.
-        # Restore must wait for that transaction before committing its fence.
         barrier_connection = await asyncpg.connect(
             execution_dsn, timeout=5, command_timeout=15
         )
@@ -709,9 +703,6 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
         )
         assert backend_controller.active_requests == 0
 
-        # Inject a late owner-side failure after physical bind/record_bound.
-        # The operator transaction must roll back, leaving the same prepared
-        # receipt and copied Job facts available for the same command to retry.
         async with restored_engine.begin() as connection:
             await connection.execute(
                 text(
@@ -782,7 +773,6 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
         assert after_restore["execution"]["run_id"] == str(old_proof.run_id)
         assert after_restore["execution"]["generation"] == old_proof.generation
 
-        # A later legitimate epoch change must not erase a completed retirement.
         old_scope_id = after_restore["old_route_scope"]["id"]
         async with restored_engine.connect() as connection:
             assert (
@@ -815,8 +805,6 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
                 is True
             )
 
-        # Rotation invalidates the copied bearer proof even when a database
-        # restore reused the same cluster and the old token was otherwise live.
         old_role_connection = await asyncpg.connect(
             execution_dsn, timeout=5, command_timeout=10
         )
@@ -834,9 +822,6 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
         finally:
             await old_role_connection.close()
 
-        # The same run now obtains a normal fresh claim, observes the global
-        # retirement proof, enters recovery_ready, seals the remaining canonical
-        # windows, and publishes through the independent Labeling owner.
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as routing_listener:
             routing_listener.bind(("127.0.0.1", 0))
             routing_port = routing_listener.getsockname()[1]
@@ -988,8 +973,6 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
         assert json.loads(label_receipt)["operation_id"] == str(receipt.operation_id)
         assert json.loads(label_receipt)["outcome"] == "completed"
 
-        # A completed restore replays as an immutable receipt and makes no new
-        # backend request, including the pre-finish safety status reads.
         backend_control_counts = (
             counter.paths[ROUTE_STATUS_PATH],
             counter.paths["/v1/yoao-routing/control"],

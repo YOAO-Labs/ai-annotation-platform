@@ -74,8 +74,6 @@ def _json(value: Any) -> str:
     return json.dumps(_json_value(value), ensure_ascii=False, allow_nan=False)
 
 
-# The owner emits managed-original codes; the operator contract has its own frozen
-# vocabulary. Map one to the other instead of parsing or widening either shape.
 _MANAGED_ORIGINAL_FAILURES = {
     "creation_missing": "operation_conflict",
     "creation_scope_mismatch": "source_changed",
@@ -152,7 +150,6 @@ class AssetsOperatorGateway:
 
     def __init__(self, db: AsyncSession):
         self.db = db
-        # Verified receipts proved by this gateway inside one caller transaction.
         self._receipt_transaction = None
         self._verified_receipts: dict[UUID, tuple[str, int]] = {}
 
@@ -232,8 +229,6 @@ class AssetsOperatorGateway:
         except (TypeError, ValueError, UnicodeError):
             raise OperatorFailure("invalid_request") from None
         try:
-            # Preserve pending changes in the same outer transaction before a
-            # text-only native call, which does not trigger ORM autoflush.
             await self.db.flush()
             result = await self.db.execute(
                 text(f"SELECT yoao_assets_v1.{name}({placeholders})"), parameters
@@ -704,8 +699,6 @@ class AssetsOperatorGateway:
                 max_bytes=len(data),
             )
             if receipt.version_id not in {None, "", "null"}:
-                # Attribution needs an observed current HEAD equal to the pinned
-                # version, probed while this operation still owns the client.
                 from app.services import storage_usage_accounting as accounting
 
                 head_matches = accounting.current_matches(
@@ -718,7 +711,6 @@ class AssetsOperatorGateway:
         except BaseException as exc:
             failure = exc
             if client_context is not None and client is None:
-                # A failed context entry may have acquired a physical handle.
                 unknown = True
             if not completion_started and prepared is not None:
                 try:
@@ -754,7 +746,6 @@ class AssetsOperatorGateway:
                     {"creation_id": "uuid", "verification": "jsonb"},
                 )
             except BaseException as exc:
-                # Every handle is drained; keep the native phase failure.
                 failure = exc
         if failure is not None:
             completion_unknown = (
@@ -768,8 +759,6 @@ class AssetsOperatorGateway:
             if not settled:
                 physical_outcome = "unknown"
             elif receipt is not None:
-                # The write receipt is known and every handle drained: the bytes
-                # exist even though the later ledger transition did not answer.
                 physical_outcome = "written"
             else:
                 physical_outcome = "not_written"
@@ -1104,8 +1093,6 @@ class AssetsOperatorGateway:
             creation_id = UUID(material["creation_id"])
             remembered = self._same_uow_receipt(creation_id)
             if remembered is not None:
-                # This caller transaction already proved the receipt for this
-                # creation; reuse it without a second read or permit.
                 if remembered != (sha256, size):
                     raise ValueError(
                         "existing scene source drift for auxiliary original"
@@ -1190,8 +1177,6 @@ class AssetsOperatorGateway:
         if created.sha256 != sha256 or created.size_bytes != size:
             raise ValueError("nuScenes auxiliary source changed during creation")
         self._remember_receipt(created.creation_id, created.sha256, created.size_bytes)
-        # Business publication belongs to the caller's own transaction so its
-        # dataset scope and the caller's bindings commit or roll back together.
         owner = await self._managed_original_data(
             "yoao_assets_v1.publish_operator_auxiliary",
             {"creation_id": creation_id},

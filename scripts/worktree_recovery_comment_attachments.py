@@ -14,7 +14,6 @@ def identifier(kind, state):
 
 
 def content_for(state):
-    # Empty ready files are an existing supported business input.
     return {
         "pending": b"pending\x00opaque-input",
         "ready": b"",

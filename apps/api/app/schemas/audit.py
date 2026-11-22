@@ -24,7 +24,7 @@ class AuditLogOut(BaseModel):
 
     @field_validator("ip", mode="before")
     @classmethod
-    def _ip_to_str(cls, v):  # PostgreSQL INET → ipaddress.IPv4Address/IPv6Address
+    def _ip_to_str(cls, v):
         return str(v) if v is not None else None
 
     class Config:

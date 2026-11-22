@@ -79,8 +79,6 @@ async def test_unknown_dispatch_result_does_not_overwrite_a_claimed_job(monkeypa
         requests.append(request)
         assert db.commits == 1
         assert job.celery_task_id == request["execution_id"]
-        # Model the broker accepting the task and the worker claiming it before
-        # the producer receives an ambiguous timeout.
         job.status = AsyncJobStatus.RUNNING.value
         raise TimeoutError("reply lost after broker acceptance")
 

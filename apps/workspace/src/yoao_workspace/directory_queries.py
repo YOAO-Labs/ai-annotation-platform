@@ -123,7 +123,6 @@ class DirectoryQueryManager:
             "member_rows",
             DirectoryQueryProjectId(project_id=request.target_id),
         )
-        # Decode every persisted field (including timestamps) before Identity I/O.
         members = decode_directory_member_rows(
             facts.rows_json, target_id=request.target_id
         )
@@ -176,7 +175,6 @@ class DirectoryQueryManager:
             "mention_members",
             DirectoryQueryProjectId(project_id=request.target_id),
         )
-        # Decode all nine member columns before UUID dedupe, including inactive users.
         members = decode_directory_mention_member_rows(
             members_facts.rows_json, target_id=request.target_id
         )

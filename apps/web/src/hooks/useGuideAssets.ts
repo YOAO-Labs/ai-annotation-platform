@@ -45,7 +45,6 @@ function retire(owner: ImageOwner) {
   owner.keyVersions.clear();
 }
 
-/** Preserve SVG bytes in an opaque-origin data URL, never a same-origin Blob document. */
 function svgAddress(blob: Blob, signal: AbortSignal): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -70,7 +69,6 @@ function svgAddress(blob: Blob, signal: AbortSignal): Promise<string> {
   });
 }
 
-/** One mounted login/project owner retains every image address until its scope retires. */
 export function useGuideAssets(projectId: string | undefined) {
   const userId = useAuthStore((state) => state.user?.id ?? null);
   const sessionId = useAuthStore((state) => state.sessionId);
@@ -78,7 +76,6 @@ export function useGuideAssets(projectId: string | undefined) {
   const identity = JSON.stringify([instanceId, userId, sessionId, projectId]);
   const ownerRef = useRef<ImageOwner | null>(null);
   if (ownerRef.current?.identity !== identity) {
-    // Fence late work during render, before child effects can resolve a new image.
     if (ownerRef.current) {
       ownerRef.current.active = false;
       ownerRef.current.epoch += 1;
@@ -99,8 +96,6 @@ export function useGuideAssets(projectId: string | undefined) {
   }
   const owner = ownerRef.current;
   useLayoutEffect(() => {
-    // Become live before child preview effects, including StrictMode's second setup.
-    // Old requests retain the earlier epoch after cleanup.
     owner.active = true;
     return () => retire(owner);
   }, [owner]);
@@ -149,7 +144,6 @@ export function useGuideAssets(projectId: string | undefined) {
           }
           const svg = blob.type === "image/svg+xml";
           const url = svg ? await svgAddress(blob, controller.signal) : URL.createObjectURL(blob);
-          // SVG conversion is asynchronous. A retired result must not escape or enter a cache.
           if (
             !isCurrent() ||
             epoch !== owner.epoch ||
@@ -219,7 +213,6 @@ export function useGuideAssets(projectId: string | undefined) {
         owner.keyVersions.set(key, (owner.keyVersions.get(key) ?? 0) + 1);
         owner.cache.delete(key);
         owner.inFlight.delete(key);
-        // Other images and an enlarged preview may still use an earlier address.
       } catch (error) {
         assertCurrent(epoch);
         throw error;

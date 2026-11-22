@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/components/ui/ListPagination";
 
-/** Cursor history belongs to one filter, account and page-size scope. */
 export function useCursorListPagination(scope: string) {
   const [state, setState] = useState({
     scope,

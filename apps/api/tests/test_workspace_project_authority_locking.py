@@ -105,7 +105,6 @@ async def _world(test_engine, *, retain_audited=False):
                     ).all()
                     assert after == before
         finally:
-            # Audit rows stay immutable; audited fixtures leave with the owned database.
             if not retain_audited:
                 await _cleanup(owner, world)
 

@@ -2,10 +2,6 @@ import { useAuthStore } from "@/stores/authStore";
 import { ROLE_PAGE_ACCESS, ROLE_PERMISSIONS, type Permission } from "@/constants/permissions";
 import type { PlatformRole, PageKey } from "@/types";
 
-/**
- * Platform-level authorization only.  Use {@link useProjectAccess} for anything
- * scoped to a project (management, export, annotation/review capability).
- */
 export function usePermissions() {
   const user = useAuthStore((s) => s.user);
   const role = (user?.role ?? "viewer") as PlatformRole;

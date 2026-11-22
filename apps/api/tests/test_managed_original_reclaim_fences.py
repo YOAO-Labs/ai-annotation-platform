@@ -8,10 +8,12 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
+from app.services import async_job as jobs
 from app.services import managed_original_reclamation as observation
 from app.services import managed_original_reclaim_fence as fence
 from tests.test_managed_original_reclamation import (
     assertion,
+    declared_hold,
     recorded_statements,
     version,
 )
@@ -24,6 +26,8 @@ from tests.test_storage_migration_windows import (
 from tests.storage_migration_isolation import (
     db_session as db_session,
     migration_engine as migration_engine,
+    native_reclaim_db as native_reclaim_db,
+    native_reclaim_only,
 )
 
 
@@ -77,6 +81,81 @@ async def test_group_observation_peer_and_declared_hold_are_not_pagination_scope
     assert (await observation.reconciliation_observe(db_session))["counts"][
         "physical_groups"
     ] == 1
+
+
+@native_reclaim_only
+async def test_selected_group_and_global_pages_share_facts_but_not_scope(
+    native_reclaim_db,
+):
+    db_session, actor = native_reclaim_db
+    cutoff = expired()
+    first = await assertion(db_session, retired_at=cutoff, retain_until=cutoff)
+    peer = await assertion(
+        db_session,
+        object_key=first.object_key,
+        retired_at=cutoff + timedelta(seconds=1),
+        retain_until=cutoff,
+    )
+    other = await assertion(
+        db_session,
+        object_key=first.object_key + "/other",
+        retired_at=cutoff + timedelta(seconds=2),
+        retain_until=cutoff,
+    )
+    project = await create_project(db_session, owner_id=actor.id)
+    await version(
+        db_session,
+        project.id,
+        [{"source_bucket": other.bucket, "source_key": other.object_key}],
+        schema=99,
+    )
+
+    for selected in (first, peer):
+        proof = await observation.observe(db_session, selected.id)
+        assert proof["anchor"]["id"] == str(selected.id)
+        assert proof["group"]["peer_assertions"] == 2
+        assert proof["roots"]["training_versions"] == 0
+        assert proof["unknown"]["unknown_training_versions"] == 1
+        assert proof["blockers"] == ["unknown_training_versions"]
+    with pytest.raises(HTTPException) as missing:
+        await observation.observe(db_session, uuid.uuid4())
+    assert missing.value.status_code == 404
+
+    early = await observation.preview(db_session, actor, limit=1)
+    late = await observation.preview(db_session, actor, limit=1, offset=2)
+    assert early.counts == late.counts
+    assert early.counts.total_assertions == 3
+    assert early.counts.unknown_training_versions == 1
+    assert early.counts.policy_candidate_assertions == 0
+    assert early.items[0].id == first.id and early.has_more
+    assert early.items[0].peer_assertions == 2
+    assert "unsupported_training_snapshot" in early.items[0].blockers
+    assert late.items[0].id == other.id and not late.has_more
+    assert late.items[0].peer_assertions == 1
+    assert late.items[0].roots.training_versions == 1
+    assert not early.execution_permission and not late.execution_permission
+
+    summary = await observation.reconciliation_observe(db_session)
+    assert summary["counts"] == {
+        "total_assertions": 3,
+        "physical_groups": 2,
+        "protected_groups": 1,
+        "retained_groups": 0,
+        "blocked_groups": 1,
+        "unreferenced_groups": 0,
+    }
+    assert summary["unknown"]["unknown_training_versions"] == 1
+
+    await declared_hold(db_session, peer, actor)
+    selected = await observation.observe(db_session, first.id)
+    assert selected["group"]["declared_backup_holds"] == 1
+    assert "declared_backup_holds" in selected["blockers"]
+    assert (await observation.observe(db_session, other.id))["group"][
+        "declared_backup_holds"
+    ] == 0
+    updated = await observation.preview(db_session, actor, limit=1)
+    assert updated.items[0].declared_backup_holds == 1
+    assert "declared_backup_hold" in updated.items[0].blockers
 
 
 async def test_current_training_receipt_survives_item_cascade_and_unknown_is_explicit(
@@ -188,16 +267,14 @@ async def claim(
     attempt_id, task_id = uuid.uuid4(), str(uuid.uuid4())
     job = None
     if with_job:
-        from app.db.models.async_job import AsyncJob
-
-        job = AsyncJob(
+        job = await jobs.create_job(
+            db,
             kind="managed_original_reclaim",
-            status="running",
             user_id=actor_id,
             celery_task_id=task_id,
             payload={"reclaim_id": str(attempt_id), "retirement_id": str(row.id)},
         )
-        db.add(job)
+        await jobs.mark_running(db, job.id)
         await db.flush()
     attempt = ManagedOriginalReclaimAttempt(
         id=attempt_id,
@@ -285,8 +362,6 @@ async def test_legacy_read_options_checks_claim_after_real_admission(
     from unittest.mock import AsyncMock
     from app.services import original_sources
 
-    # The owned short session uses the caller's verified disposable engine, not
-    # a transport or today's binding. Its result must propagate before I/O.
     marker = AsyncMock(
         side_effect=HTTPException(
             409, detail={"code": "managed_original_reclaim_claimed"}
@@ -301,24 +376,27 @@ async def test_legacy_read_options_checks_claim_after_real_admission(
     marker.assert_awaited_once()
 
 
+@native_reclaim_only
 async def test_reconciliation_unknown_coverage_survives_empty_retirement_table(
-    db_session, super_admin
+    native_reclaim_db,
 ):
-    project = await create_project(db_session, owner_id=super_admin[0].id)
+    db_session, actor = native_reclaim_db
+    project = await create_project(db_session, owner_id=actor.id)
     await version(db_session, project.id, [], schema=99)
     result = await observation.reconciliation_observe(db_session)
     assert result["counts"]["physical_groups"] == 0
     assert result["unknown"]["unknown_training_versions"] == 1
 
 
+@native_reclaim_only
 async def test_only_valid_current_attempt_can_exclude_its_exact_operation(
-    db_session, super_admin
+    native_reclaim_db,
 ):
-    from app.db.models.async_job import AsyncJob
+    db_session, actor = native_reclaim_db
 
-    row, attempt, _ = await claim(db_session, actor_id=super_admin[0].id, with_job=True)
+    row, attempt, _ = await claim(db_session, actor_id=actor.id, with_job=True)
     before = await observation.observe(db_session, row.id)
-    job = await db_session.get(AsyncJob, attempt.async_job_id)
+    job = await jobs.get_job(db_session, attempt.async_job_id)
     await stopped_gate(db_session, row.location_id)
     operation = StorageOperation(
         location_id=row.location_id,
@@ -334,7 +412,7 @@ async def test_only_valid_current_attempt_can_exclude_its_exact_operation(
     valid = await observation.observe(db_session, row.id, reclaim_attempt_id=attempt.id)
     assert valid["roots"]["operations"] == 0
     assert valid["fingerprint"] == before["fingerprint"]
-    job.celery_task_id = str(uuid.uuid4())
+    jobs.bind_execution_id(job, str(uuid.uuid4()))
     await db_session.flush()
     rejected = await observation.observe(
         db_session, row.id, reclaim_attempt_id=attempt.id

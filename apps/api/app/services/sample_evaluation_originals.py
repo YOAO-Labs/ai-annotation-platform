@@ -195,8 +195,6 @@ async def current_media(db, authority, snapshot):
             except Exception as exc:
                 if getattr(exc, "storage_operation_unsettled", False):
                     raise
-                # Failed content/decoding remains a comparison result, never a
-                # successful current-source receipt or a fallback object read.
             yield source, media
         except BaseException as exc:
             failure = exc

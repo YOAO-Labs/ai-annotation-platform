@@ -1,9 +1,3 @@
--- Grant Notifications fixed delivery reads to an API and function-only LOGIN.
--- Run after current migrations and module-data-grants.sql as the migration role.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v notifications_owner=notifications_code -v api_role=api_runtime \
---   -v query_client=yoao_notification_delivery_read_client \
---   -f infra/docker/notification-delivery-read-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

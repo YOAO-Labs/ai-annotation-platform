@@ -257,8 +257,6 @@ async def test_binding_requires_exact_once_only_server_receipt(
         }[change]
         values[0][field] = changed
     elif change == "foreign":
-        # A current project member can discuss the annotation but cannot claim
-        # another uploader's receipt.
         db_session.add(
             ProjectMember(
                 project_id=discussion[0].id,
@@ -582,7 +580,6 @@ async def test_read_rechecks_frozen_expiry_after_each_real_commit_wait(
         commits += 1
         await original_commit()
         if commits == commit_number:
-            # A post-commit check must use frozen facts, even if ORM fields expire.
             db_session.expire(row, ["expires_at"])
             monkeypatch.setattr(uploads, "now", lambda: receipt.expires_at)
 
@@ -639,7 +636,6 @@ async def test_upload_rechecks_frozen_expiry_after_pending_acquired_and_final_co
 
     async def captured(*args, **kwargs):
         result = await capture(*args, **kwargs)
-        # Only count the three owner commits, after the body preflight's commit.
         monkeypatch.setattr(db_session, "commit", commit)
         return result
 
@@ -718,7 +714,6 @@ async def test_binding_last_wait_expiry_preserves_the_committed_comment_and_owne
             bound = row.bound_comment_id is not None
             await original_commit()
             if bound:
-                # Preserve the committed first binding; expiry cannot undo it.
                 db_session.expire(row, ["expires_at"])
                 expire()
 

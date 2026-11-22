@@ -12,21 +12,15 @@ const SELECT_CLASS =
 
 export interface VideoTrackBatchCardContentProps {
   count: number;
-  /** 任务级锁定(review/completed)→ 改类 / 锁定 / 合并 / 跳连 / 删除 只读。 */
   readOnly: boolean;
   classes?: string[];
-  /** 恰好选中 2 条同类轨迹。 */
   canMerge: boolean;
-  /** 恰好选中 2 条同类且可见帧区间不重叠的轨迹。 */
   canJoin: boolean;
   mergeDisabledReason?: string | null;
   joinDisabledReason?: string | null;
-  /** 选中的轨迹是否全部已锁定 / 已隐藏 —— 决定切换按钮的图标与文案。 */
   allLocked: boolean;
   allHidden: boolean;
   onChangeClass: (className: string) => void;
-  /** M2 · 批量 AI 追踪: 对选中的 ≥2 条轨迹一次发起多源追踪 (单 job 各回填各自源)。
-   *  只读 (review/completed) 或未接线时省略 → 按钮灰置。 */
   onBatchTrack?: () => void;
   onToggleHidden: () => void;
   onToggleLock: () => void;
@@ -36,15 +30,6 @@ export interface VideoTrackBatchCardContentProps {
   onClear: () => void;
 }
 
-/**
- * 选中信息卡的「多选轨迹」批量内容。此前多选 ≥2 条轨迹时浮卡只显示最后选中那条的单卡,
- * 批量操作只能去右栏 roster —— 同一交互对象从 1 选到 2 选操作整片换位。此卡把 roster 批量条
- * (改类 / 显隐 / 锁 / 合并 / 跳连 / 删除)搬到浮卡, 与 roster 对等、同一批 shell handler。
- * 跳连沿用 VideoTrackComposeDialog 选 gap 模式。
- *
- * 显隐 / 锁定各占一个**切换**按钮 (图标与文案随 allHidden / allLocked 翻转), 与图片工作台
- * 及视频单帧的批量卡一致 —— 而不是显示/隐藏/锁定/解锁四个并排按钮。
- */
 export function VideoTrackBatchCardContent({
   count,
   readOnly,

@@ -24,8 +24,6 @@ async def prepare(db, owner, *, require_enabled=True):
 
 class _Storage(StorageService):
     def generate_download_url(self, *args, **kwargs):
-        # Deployment proxy/ML origins describe A. A registered B signs its own
-        # endpoint; rewriting that URL through A would change its physical owner.
         if not self._legacy:
             kwargs["audience"] = "internal"
         return super().generate_download_url(*args, **kwargs)

@@ -1,5 +1,3 @@
-// IdentityHeader 单测:类名 + 来源徽章 + 置信度 pill;来源派生 + 置信度分档。
-
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import type { AnnotationResponse } from "@/types";
@@ -35,7 +33,6 @@ describe("IdentityHeader", () => {
     const { getByText, container } = render(<IdentityHeader className="car" source="manual" />);
     expect(getByText("car")).not.toBeNull();
     expect(getByText("手动")).not.toBeNull();
-    // 无 % 文本
     expect(container.textContent).not.toMatch(/%/);
   });
 

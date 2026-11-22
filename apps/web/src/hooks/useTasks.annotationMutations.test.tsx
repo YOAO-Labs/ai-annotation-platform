@@ -156,8 +156,6 @@ describe("annotation update mutation offline ownership", () => {
     });
     const trackedRequest = track(request);
     authState.user = { id: "user-b" };
-    // Account switching while the optimistic lifecycle is awaiting its owner
-    // must prevent the request from using the new account's credentials.
     await waitFor(() => expect(enqueueDurablyMock).toHaveBeenCalledTimes(1));
     rerender(B);
     await expect(trackedRequest).rejects.toMatchObject({
@@ -169,6 +167,7 @@ describe("annotation update mutation offline ownership", () => {
       expect.objectContaining({
         kind: "update",
         taskId: A.taskId,
+        videoSegmentId: A.videoSegmentId,
         annotationId: oldA.id,
         payload,
       }),
@@ -181,8 +180,6 @@ describe("annotation update mutation offline ownership", () => {
     expect(client.getQueryData(queryKey(B))).toEqual([oldB]);
     expect(isOfflineMutationQueued(settledError)).toBe(true);
 
-    // A fresh hook does not consume the durable operation; the queue owner
-    // remains responsible for restoration after a refresh.
     const fresh = setupUpdate(A);
     expect(enqueueDurablyMock).toHaveBeenCalledTimes(1);
     fresh.unmount();
@@ -338,7 +335,12 @@ describe("annotation delete mutation offline ownership", () => {
     await expect(request).rejects.toBe(error);
     expect(deleteAnnotationMock).toHaveBeenCalledWith(A.taskId, current.id);
     expect(enqueueDurablyMock).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: "delete", taskId: A.taskId, annotationId: current.id }),
+      expect.objectContaining({
+        kind: "delete",
+        taskId: A.taskId,
+        videoSegmentId: A.videoSegmentId,
+        annotationId: current.id,
+      }),
       { userId: "user-a" },
     );
     expect(client.getQueryData(queryKey(A))).toEqual([]);

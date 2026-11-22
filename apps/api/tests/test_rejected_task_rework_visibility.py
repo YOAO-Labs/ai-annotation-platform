@@ -16,7 +16,6 @@ async def test_assignee_can_resume_rejected_task_while_peers_remain_in_review(
     review_user, review_token = reviewer
     admin, _ = super_admin
     project = await create_project(db_session, owner_id=admin.id)
-    # Literal employees: project roles are explicit, never derived from account role.
     for user, role in ((assignee, "annotator"), (review_user, "reviewer")):
         await create_membership(
             db_session, project_id=project.id, user_id=user.id, role=role

@@ -8,7 +8,6 @@ interface ContextToolbarEligibility {
   capabilityRecovery: boolean;
 }
 
-/** Presentation only. Background review arrival cannot retire a live editing owner. */
 export function resolveContextToolbar(eligibility: ContextToolbarEligibility) {
   if (eligibility.maskActive) return "mask";
   if (eligibility.seedCollecting) return null;

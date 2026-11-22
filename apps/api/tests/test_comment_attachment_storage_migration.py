@@ -477,7 +477,6 @@ async def test_fixed_hours_retention_survives_database_daylight_saving_timezone(
     row = await create(owned_db)
     await owned_db.refresh(row)
     assert row.expires_at - row.created_at == timedelta(hours=2160)
-    # Calendar-day arithmetic crosses DST and must not redefine the fixed deadline.
     with pytest.raises(IntegrityError):
         async with owned_db.begin_nested():
             await create(owned_db, expires_at=CREATED + timedelta(hours=2159))

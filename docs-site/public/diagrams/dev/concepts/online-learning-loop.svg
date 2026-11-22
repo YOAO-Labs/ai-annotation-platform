@@ -7,85 +7,72 @@
 <text x="44" y="52" font-family="Virgil, Segoe UI Emoji" font-size="28px" fill="#1e1e1e" text-anchor="start" style="white-space:pre" direction="ltr">Online learning closed loop architecture</text>
 <text x="44" y="80" font-family="Virgil, Segoe UI Emoji" font-size="15px" fill="#64748b" text-anchor="start" style="white-space:pre" direction="ltr">End-to-end continuous learning: annotations → dataset version → training → evaluation → model return</text>
 
-<!-- Step 1: Annotations Source -->
 <rect x="70" y="160" width="440" height="150" rx="16" fill="#f8fafc" stroke="#475569" stroke-width="2.4"/>
 <text x="290" y="200" font-family="Virgil, Segoe UI Emoji" font-size="22px" fill="#1e293b" text-anchor="middle">1. 审核标注与版本流</text>
 <text x="95" y="235" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#475569" text-anchor="start">• 版本流：按项目与任务固定数据版本归属</text>
 <text x="95" y="260" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#475569" text-anchor="start">• 范围固定：仅纳准已审核且符合工具规范的活跃标注</text>
 <text x="95" y="285" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#475569" text-anchor="start">• 任务契约：严格校验检测框或简单多边形几何</text>
 
-<!-- 1 -> 2 Arrow -->
 <path d="M 510 235 L 620 235" fill="none" stroke="#d97706" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="618,229 628,235 618,241" fill="#d97706"/>
 <rect x="525" y="212" width="80" height="22" rx="6" fill="#ffffff" opacity="0.95"/>
 <text x="565" y="227" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#d97706" text-anchor="middle">创建快照</text>
 
-<!-- Step 2: TrainingDatasetVersion Materialization -->
 <rect x="620" y="160" width="440" height="150" rx="16" fill="#fef3c7" stroke="#d97706" stroke-width="2.4"/>
 <text x="840" y="200" font-family="Virgil, Segoe UI Emoji" font-size="22px" fill="#d97706" text-anchor="middle">2. 冻结快照与数据物化</text>
 <text x="645" y="235" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#78350f" text-anchor="start">• 语句级一致性：单 SQL 读取标注与素材引用，杜绝脏读</text>
 <text x="645" y="260" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#78350f" text-anchor="start">• Export Worker：流式下载、SHA-256 核验、连通分组划分</text>
 <text x="645" y="285" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#78350f" text-anchor="start">• 存储发布：构建规范 ZIP 并上传至 MinIO training 存储桶</text>
 
-<!-- 2 -> 3 Arrow -->
 <path d="M 1060 235 L 1170 235" fill="none" stroke="#2563eb" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="1168,229 1178,235 1168,241" fill="#2563eb"/>
 <rect x="1075" y="212" width="80" height="22" rx="6" fill="#ffffff" opacity="0.95"/>
 <text x="1115" y="227" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#2563eb" text-anchor="middle">实验入队</text>
 
-<!-- Step 3: Standalone Executor Training -->
 <rect x="1170" y="160" width="440" height="150" rx="16" fill="#dbeafe" stroke="#2563eb" stroke-width="2.4"/>
 <text x="1390" y="200" font-family="Virgil, Segoe UI Emoji" font-size="22px" fill="#2563eb" text-anchor="middle">3. 独立拉取式受控训练</text>
 <text x="1195" y="235" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#1e3a8a" text-anchor="start">• 架构隔离：脱离普通 Celery 队列，拉取式执行器守护</text>
 <text x="1195" y="260" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#1e3a8a" text-anchor="start">• 协作文件锁：共享资源锁文件，子进程继承描述符</text>
 <text x="1195" y="285" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#1e3a8a" text-anchor="start">• 框架支持：原生适配 Ultralytics YOLO &amp; LibreYOLO</text>
 
-<!-- 3 -> 4 Down Arrow -->
 <path d="M 1390 310 L 1390 420" fill="none" stroke="#7c3aed" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="1384,418 1390,428 1396,418" fill="#7c3aed"/>
 <rect x="1335" y="352" width="110" height="22" rx="6" fill="#ffffff" opacity="0.95"/>
 <text x="1390" y="367" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#7c3aed" text-anchor="middle">上传最佳权重</text>
 
-<!-- Step 4: Sample Evaluation &amp; Model Registration -->
 <rect x="1170" y="420" width="440" height="150" rx="16" fill="#ede9fe" stroke="#7c3aed" stroke-width="2.4"/>
 <text x="1390" y="460" font-family="Virgil, Segoe UI Emoji" font-size="22px" fill="#7c3aed" text-anchor="middle">4. 产物评估与质量核验</text>
 <text x="1195" y="495" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#4c1d95" text-anchor="start">• 原生验证：最佳权重与冻结验证集核验</text>
 <text x="1195" y="520" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#4c1d95" text-anchor="start">• 产物证据：核验权重 SHA-256、配置参数与最终指标</text>
 <text x="1195" y="545" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#4c1d95" text-anchor="start">• 候选登记：负责人注册权重并保存标记与说明</text>
 
-<!-- 4 -> 5 Left Arrow -->
 <path d="M 1170 495 L 1060 495" fill="none" stroke="#16a34a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="1062,489 1052,495 1062,501" fill="#16a34a"/>
 <rect x="1080" y="472" width="70" height="22" rx="6" fill="#ffffff" opacity="0.95"/>
 <text x="1115" y="487" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#16a34a" text-anchor="middle">发布回流</text>
 
-<!-- Step 5: Model Return &amp; Preannotation -->
 <rect x="620" y="420" width="440" height="150" rx="16" fill="#dcfce7" stroke="#16a34a" stroke-width="2.4"/>
 <text x="840" y="460" font-family="Virgil, Segoe UI Emoji" font-size="22px" fill="#16a34a" text-anchor="middle">5. 预标注动态回流与应用</text>
 <text x="645" y="495" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#14532d" text-anchor="start">• 动态部署：/managed-models 端点动态挂载自训模型</text>
 <text x="645" y="520" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#14532d" text-anchor="start">• 收据验证：校验框架家族、类别映射顺序与运行时资格</text>
 <text x="645" y="545" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#14532d" text-anchor="start">• 项目应用：人工发布后用于单阶段整图检测</text>
 
-<!-- 5 -> 6 Left Arrow -->
 <path d="M 620 495 L 510 495" fill="none" stroke="#db2777" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="512,489 502,495 512,501" fill="#db2777"/>
 <rect x="530" y="472" width="70" height="22" rx="6" fill="#ffffff" opacity="0.95"/>
 <text x="565" y="487" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#db2777" text-anchor="middle">持续选样</text>
 
-<!-- Step 6: Active Learning &amp; Auto Trigger -->
 <rect x="70" y="420" width="440" height="150" rx="16" fill="#fce7f3" stroke="#db2777" stroke-width="2.4"/>
 <text x="290" y="460" font-family="Virgil, Segoe UI Emoji" font-size="22px" fill="#db2777" text-anchor="middle">6. 主动学习与自动触发闭环</text>
 <text x="95" y="495" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#831843" text-anchor="start">• 人工主动选样：启发式挖掘高不确定性难例图片</text>
 <text x="95" y="520" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#831843" text-anchor="start">• 预算控制：按请求预扣推理预算，人工接纳受上限约束</text>
 <text x="95" y="545" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#831843" text-anchor="start">• 自动触发策略：LearningPolicy 增量数据触发重训</text>
 
-<!-- 6 -> 1 Up Arrow (Completing the Loop!) -->
 <path d="M 290 420 L 290 310" fill="none" stroke="#db2777" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="284,312 290,302 296,312" fill="#db2777"/>
 <rect x="220" y="352" width="140" height="22" rx="6" fill="#ffffff" opacity="0.95"/>
 <text x="290" y="367" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#db2777" text-anchor="middle">推送新标注任务包</text>
 
-<!-- Bottom Architecture Highlights Box -->
 <rect x="70" y="620" width="1540" height="260" rx="16" fill="#f8fafc" stroke="#94a3b8" stroke-width="2"/>
 <text x="100" y="655" font-family="Virgil, Segoe UI Emoji" font-size="20px" fill="#1e293b" text-anchor="start">系统设计精髓与安全边界总结：</text>
 

@@ -54,7 +54,6 @@ function ProgressFill({ pct, color }: { pct: number; color: string }) {
 
 function TaskRow({ task, onOpen }: { task: TaskResponse; onOpen: () => void }) {
   const isLocked = task.status === "review" || task.status === "completed";
-  // 与工作台任务队列 (TaskQueuePanel) 的标签 + 配色保持一致
   const statusLabel =
     task.status === "completed"
       ? "已完成"
@@ -283,8 +282,6 @@ export function AnnotatePage() {
     );
   };
 
-  // B-20：分三档进度 — 已动工 / 送审 / 已通过；提交按钮不再以 allDone 强制门禁，
-  // 让标注员能整批提交（剩余 pending 由 confirm 二次确认）。
   const inProgress = selectedBatch?.in_progress_tasks ?? 0;
   const startedDone = selectedBatch
     ? inProgress + selectedBatch.review_tasks + selectedBatch.completed_tasks
@@ -296,8 +293,6 @@ export function AnnotatePage() {
   const reviewPct = totalTasks ? Math.round((reviewDone / totalTasks) * 1000) / 10 : 0;
   const approvedPct = totalTasks ? Math.round((approvedDone / totalTasks) * 1000) / 10 : 0;
   const pendingTasks = Math.max(0, totalTasks - startedDone);
-  // 可整批送审 = 尚未提交质检的任务（pending + in_progress）。rejected 需先重做，
-  // 因此不计入；按钮按“是否还有未送审任务”显示，而不是只看批次状态。
   const rejectedTasks = selectedBatch?.rejected_tasks ?? 0;
   const unsubmittedTasks = Math.max(
     0,
@@ -308,7 +303,6 @@ export function AnnotatePage() {
     unsubmittedTasks > 0 &&
     (selectedBatch.status === "annotating" || selectedBatch.status === "reviewing");
 
-  // 与 Dashboard MyBatchesCard 的提交确认同一 tone/voice(计划 Group B 要求)。
   const confirmSubmitBatch = async (batch: MyBatchItem, pendingCount: number) => {
     if (
       !(await confirmDialog({

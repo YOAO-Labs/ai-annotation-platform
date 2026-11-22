@@ -216,7 +216,6 @@ def redis_relay(bind, target):
             try:
                 self.forward()
             except (ConnectionResetError, BrokenPipeError):
-                # Fixture containers can close a connection during teardown.
                 return
 
         def forward(self):

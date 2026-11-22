@@ -311,8 +311,6 @@ def _sqlstate(error: BaseException) -> str | None:
 
 @asynccontextmanager
 async def _without_api_private_job_access(test_engine):
-    # The verifier owns this entire database; separate Node/API LOGINs need a
-    # committed denial, restored before another case can use the ordinary role.
     from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 
     _verify_postgres(test_engine.url)

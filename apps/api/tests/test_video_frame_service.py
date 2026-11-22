@@ -250,8 +250,6 @@ async def test_submitted_video_segment_stays_completed_after_refresh_and_release
     assert refreshed.json()["segments"][0]["status"] == "completed"
     assert released.json()["status"] == "completed"
 
-    # Completing the remaining segments starts a fresh review round; a prior
-    # round's selected reviewer must not pin subsequent batch assignments.
     for segment in listed.json()["segments"][1:]:
         submitted = await httpx_client.post(
             f"/api/v1/tasks/{task.id}/video/segments/{segment['id']}:submit",
@@ -282,8 +280,6 @@ async def test_video_submit_does_not_credit_shared_item_segment_assignees(
     segment_ids = [uuid.UUID(row["id"]) for row in listed.json()["segments"]]
     assert len(segment_ids) == 2
     first = await db_session.get(VideoSegment, segment_ids[0])
-    # Segment identity is global to the dataset item; this assignee does not
-    # establish any contribution to this project's task.
     first.status = "completed"
     first.assignee_id = foreign_user.id
     await db_session.flush()
@@ -307,8 +303,6 @@ async def test_video_submit_does_not_credit_shared_item_segment_assignees(
     assert str(owner.id) in audit.detail_json["contributor_ids"]
     assert str(foreign_user.id) not in audit.detail_json["contributor_ids"]
 
-    # A2 · the last segment submitter is recorded as a contributor and frozen
-    # with the round; the shared dataset-item segment assignee is not credited.
     await db_session.refresh(task)
     assert task.status == "review"
     assert task.review_submitter_id == owner.id
@@ -711,7 +705,6 @@ async def test_video_chunk_samples_returns_description_and_stored_order(
     )
     user, token = super_admin
     _, item = await _make_video_task(db_session, user.id)
-    # Decode order differs from presentation rank for B frames.
     samples = [
         {
             "frame_index": index,
@@ -787,7 +780,6 @@ async def test_video_chunk_samples_404_when_item_invisible(
     owner, _ = project_admin
     _other_user, token = annotator
     _task, item = await _make_video_task(db_session, owner.id)
-    # 资源真实存在，但当前用户既不是所有者，也不是项目成员。
     resp = await httpx_client.get(
         f"/api/v1/videos/{item.id}/chunks/0/samples",
         headers={"Authorization": f"Bearer {token}"},
@@ -1053,7 +1045,6 @@ async def test_video_asset_retry_accepts_any_managed_linked_project(
     owner, token = project_admin
     owned_task, item = await _make_video_task(db_session, owner.id)
 
-    # Second project owned by someone else, linking the same dataset item.
     from tests.factory import create_user
 
     other_user = await create_user(
@@ -1144,8 +1135,6 @@ async def test_video_asset_retry_rejects_unmanaged_linked_projects_only(
     )
     await db_session.flush()
 
-    # Re-point the first task at a fresh item so the shared item is only linked
-    # to the unmanaged project.
     await db_session.execute(
         update(Task)
         .where(
@@ -1349,8 +1338,6 @@ async def test_video_tracker_job_create_get_cancel(
             headers={"Authorization": f"Bearer {outsider_token}"},
         )
         assert denied.status_code == 404, denied.text
-        # The shared test Session spans requests; a rejected Native command
-        # leaves its transaction to the caller, as the real request scope does.
         await db_session.rollback()
 
     cancel_resp = await httpx_client.delete(
@@ -1440,8 +1427,6 @@ async def test_video_tracker_job_requires_current_segment_lock(
 async def test_video_tracker_job_rejects_polyline_track(
     db_session, httpx_client, project_admin, annotator
 ):
-    # polyline 轨迹传播暂不支持: runner 会把它静默改写成空 bbox 轨迹, 故入口必须 400 拒绝
-    # (且早于段锁校验, 无需 claim segment 即返回 400)。
     owner, _ = project_admin
     user, token = annotator
     task, item = await _make_video_task(db_session, owner.id)
@@ -1649,7 +1634,6 @@ async def _concurrent_video_prepare(test_engine, kind):
         identifiers = await asyncio.gather(
             *(worker() for _ in range(4)), return_exceptions=True
         )
-        # Settle every competing connection before teardown, even on a failure.
         for result in identifiers:
             if isinstance(result, BaseException):
                 raise result
@@ -1703,7 +1687,6 @@ async def test_ensure_segments_concurrent_insert_does_not_raise(
     )
 
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-    # frame_count=90 + segment_size=45 → 2 个 segment
     item_id, dataset_id, user_id = await _make_committed_video_item(maker)
     try:
         barrier = asyncio.Barrier(4)

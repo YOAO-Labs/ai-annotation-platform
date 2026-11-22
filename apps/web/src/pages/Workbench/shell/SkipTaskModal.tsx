@@ -1,9 +1,3 @@
-/**
- * 标注员跳过任务 modal。
- *
- * 4 项预设原因（image_corrupt / no_target / unclear / other）+ 可选 note。
- * 确认后 POST /tasks/{id}/skip，由父组件触发 invalidate + 切下一题。
- */
 import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";

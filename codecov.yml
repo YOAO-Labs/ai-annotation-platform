@@ -1,9 +1,3 @@
-# Codecov 配置
-#
-# 失败语义：
-#   project status 比对当前 PR 与 base 分支总覆盖率，低于 (target - threshold) 即红
-#   patch status 仅检查本 PR 新增 / 修改行的覆盖率，鼓励新代码带测试
-
 coverage:
   status:
     project:

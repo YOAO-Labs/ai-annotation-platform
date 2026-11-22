@@ -1,16 +1,3 @@
-/**
- * Task navigation domain: the latest-wins scheduler, the leave-guard runner
- * and the local URL-sync decision. These rules answer "which task switch may
- * commit, when, and against which owner" — navigation callers (shell model,
- * task flow, notification routing) must reuse them instead of re-deriving
- * admission rules inline.
- *
- * AbortController is a cancellation mechanism only: admission still requires
- * the caller's guards to pass and the signal to still be live at commit time
- * (see `commitAfterNavigationGuard`).
- */
-
-/** All task, batch and external-route entry points use the same leave checks. */
 export async function runWorkbenchLeaveGuards(
   videoGuard: (isCurrent: () => boolean) => Promise<boolean>,
   maskGuard: () => Promise<boolean>,
@@ -44,10 +31,6 @@ interface PendingTaskNavigation {
   resolve: (allowed: boolean) => void;
 }
 
-/**
- * 首次任务导航立即执行；冷却窗口内的连续输入只保留最后一个目标。
- * 普通单击无额外延迟，高速点选则从“每次都加载”降为“首次 + 最终”。
- */
 export class LatestTaskNavigationScheduler {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private pending: PendingTaskNavigation | null = null;
@@ -118,7 +101,6 @@ export class LatestTaskNavigationScheduler {
   }
 }
 
-/** 高速点选的冷却窗口：首次立即执行，窗口内只保留最后一个目标。 */
 export const TASK_NAVIGATION_SETTLE_MS = 160;
 
 export interface LocalTaskUrlSyncDecision {
@@ -126,9 +108,6 @@ export interface LocalTaskUrlSyncDecision {
   clearPendingTarget: boolean;
 }
 
-/**
- * 判定 URL 中的 task 是外部导航意图，还是本地切题后尚未追上的旧值。
- */
 export function resolveLocalTaskUrlSync(
   requestedTaskId: string | null,
   pendingLocalTaskId: string | null,

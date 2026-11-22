@@ -137,7 +137,7 @@ yoao learning policies disable --project "$PROJECT_ID" --expected-revision 2 --y
 yoao login --url <平台地址> [--api-key <key>] [--json]
 ```
 
-验证凭据并写入 `~/.config/yoao/config.toml`。省略 `--api-key` 时交互式隐藏输入。写盘前会先用给定凭据调一次轻量 GET 验证连通,**验证失败不落盘**。
+`yoao login` 先用给定凭据发送一次 GET；验证失败不写盘，也不覆盖已有配置。成功后以权限 **0600** 的新文件原子替换 `~/.config/yoao/config.toml`。即使旧文件可被其他用户读取，新凭据也不会写入旧文件。省略 `--api-key` 可隐藏输入。
 
 ```bash
 yoao login --url http://localhost:8000 --api-key ak_...

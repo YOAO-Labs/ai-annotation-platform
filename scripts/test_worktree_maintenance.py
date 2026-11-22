@@ -32,12 +32,6 @@ class MaintenanceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             env_file = root / "compose.env"
-            # Run inside a sandbox copy of the compose files: Compose v2 (the
-            # version CI runners ship) resolves `env_file:` against the project
-            # directory and fails the whole `config` command when the file is
-            # missing, while newer versions only warn. The production overlays
-            # reference .env.production, which is gitignored and never present
-            # in a fresh checkout, so stage an empty fixture beside the copies.
             for name in (
                 "docker-compose.yml",
                 "docker-compose.prod.yml",
@@ -184,7 +178,6 @@ class MaintenanceTests(unittest.TestCase):
                 supervisor = MagicMock(pid=103, returncode=0)
                 supervisor.poll.return_value = 0
                 if failure == "worker_exit":
-                    # Alive through readiness, then dies while the command is running.
                     workers[1].poll.side_effect = [None, 1, 1]
                     supervisor.poll.side_effect = [None, 0]
                 names = [

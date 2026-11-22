@@ -137,8 +137,6 @@ async def test_prepare_generation_is_singleflight_and_fences_metadata_rebinding(
         is first
     )
 
-    # Dimensions may be corrected without replacing immutable verified content.
-    # They are still part of the exact input receipt owned by an earlier job.
     item.width += 1
     await db_session.flush()
     replacement_owner = await pyramids.owner_for_dataset_item(db_session, item)
@@ -304,7 +302,6 @@ async def test_unpinned_legacy_ready_is_unavailable_without_invalidation(
     )
     response = await httpx_client.get(route, headers=headers)
     assert response.status_code == 200
-    # Missing saved-output ownership is unavailable, never source drift.
     assert response.json()["status"] == "missing"
     assert response.json()["retryable"] is True
     assert "error_code" not in response.json() or response.json()["error_code"] is None
@@ -340,7 +337,6 @@ async def test_unpinned_legacy_ready_retry_admits_a_fresh_native_attempt(
     assert admitted == [(task.id, True, True, "http")]
     await db_session.refresh(asset)
     await db_session.refresh(generation)
-    # The old unpinned generation is preserved; admission creates a fresh one.
     assert generation.output_id is None and generation.status == "ready"
     assert asset.active_generation == generation.generation
 

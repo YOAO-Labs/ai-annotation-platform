@@ -78,7 +78,6 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
         payload={"project_id": str(deleted_project_id)},
         result={},
     )
-    # Represents a pre-0200 required-kind job with no authoritative scope.
     orphan_job = AsyncJob(
         kind="create_tasks",
         user_id=actor_id,
@@ -86,7 +85,6 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
         payload={"project_id": str(surviving_project_id)},
         result={"error": "legacy orphan"},
     )
-    # Even an administrator can search precisely this fixture in a populated history.
     marker = f"scope-{deleted_project_id}"
     jobs = [deleted_job, detached_job, surviving_job, global_job, orphan_job]
     for job in jobs:
@@ -124,7 +122,6 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
         assert notice is not None
         invalid_export_ids[recipient_id] = notice.id
 
-    # Retained scope is database-owned: callers cannot forge or replace it.
     with pytest.raises(IntegrityError):
         async with db_session.begin_nested():
             db_session.add(
@@ -147,7 +144,6 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
     await db_session.refresh(global_job)
     assert global_job.retained_project_id is None
 
-    # A live scope cannot move to another project or be assigned to a global job.
     await _assert_update_rejected(
         db_session,
         update(AsyncJob)
@@ -161,7 +157,6 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
         .values(project_id=deleted_project_id),
     )
 
-    # A direct SET NULL preserves the still-live project's current scope.
     await db_session.execute(
         update(AsyncJob).where(AsyncJob.id == detached_job_id).values(project_id=None)
     )
@@ -205,7 +200,6 @@ async def test_deleted_and_unresolved_project_job_scopes_stay_restricted(
             )
         }
 
-    # The FK's ON DELETE SET NULL also runs the retention trigger.
     await db_session.execute(delete(Project).where(Project.id == deleted_project_id))
     db_session.expire_all()
     await db_session.refresh(deleted_job)

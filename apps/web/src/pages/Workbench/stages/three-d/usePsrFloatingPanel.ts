@@ -1,5 +1,3 @@
-// 选中标注 PSR 面板 UI hook：渐进展开 + 整体拖动。
-// 独立浮层记忆本地偏移；提供共享锚点时，拖动改为更新锚点位置。
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import {
@@ -49,7 +47,6 @@ export function usePsrFloatingPanel(
   const [psrDragging, setPsrDragging] = useState(false);
   const onPsrHeaderPointerDown = useCallback((e: ReactPointerEvent) => {
     if (e.button !== 0) return;
-    // 拖柄落在交互控件(类别下拉 / 锁 / 删 / 展开钮)上时不起拖,保持可点。
     if ((e.target as HTMLElement).closest("button, select, input, a")) return;
     const anchor = linkedAnchorRef.current;
     psrDragRef.current = anchor

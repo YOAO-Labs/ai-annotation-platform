@@ -114,7 +114,6 @@ async def image_cutover_database(test_engine):
                         {"name": name},
                     )
                     assert marker == ownership or (not tagged and marker is None)
-                    # Only an untagged partial CREATE may lack our comment.
                     await connection.execute(text(f'DROP DATABASE "{name}"'))
         finally:
             await admin.dispose()
@@ -243,8 +242,6 @@ async def test_upgrade_refuses_legacy_writers_atomically(
     async with historical.begin() as connection:
         assert await _schema_state(connection) == before_schema
         assert await _source_rows(connection) == before_rows
-        # Resolve exactly the legacy work covered by the cutover's drain
-        # contract; no forward guard or dependent object is removed.
         if legacy in {"pending", "building"}:
             await connection.execute(
                 text("UPDATE public.image_pyramid_generations SET status='failed'")

@@ -1,6 +1,8 @@
+import asyncio
 import json
 import io
 import tempfile
+from threading import Event
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID
@@ -687,171 +689,266 @@ async def test_remote_ingest_preserves_archive_failure_and_maps_bad_reply(monkey
     db.scalar.assert_not_awaited()
 
 
-async def test_zip_route_rejects_large_content_length_without_reading_body(monkeypatch):
+@pytest.fixture
+def zip_spools(monkeypatch):
+    spools = []
+
+    class TrackedSpool(tempfile.SpooledTemporaryFile):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.written = 0
+            self.close_calls = 0
+            spools.append(self)
+
+        def write(self, data):
+            written = super().write(data)
+            self.written += written
+            return written
+
+        def close(self):
+            self.close_calls += 1
+            super().close()
+
+    monkeypatch.setattr(dataset_routes, "SpooledTemporaryFile", TrackedSpool)
+    monkeypatch.setattr(dataset_routes, "_ZIP_SPOOL_MEMORY_BYTES", 1)
+    return spools
+
+
+@pytest.fixture
+def zip_route(monkeypatch):
     monkeypatch.setattr(
         dataset_routes,
         "_ingest_authority",
         AsyncMock(return_value=_ingest_command().authority),
     )
+    ingest = AsyncMock()
+
+    class Gateway:
+        is_remote = False
+        ingest_zip = ingest
+
+    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
+    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+
+    async def upload(request):
+        return await dataset_routes.upload_zip(
+            DATASET, request, db, SimpleNamespace(id=ACTOR), idempotency_key=OPERATION
+        )
+
+    return upload, ingest, db
+
+
+async def test_zip_route_rejects_large_content_length_without_reading_body(
+    monkeypatch, zip_route, zip_spools
+):
+    upload, ingest, db = zip_route
     monkeypatch.setattr(dataset_routes, "ZIP_MAX_BYTES", 16)
     monkeypatch.setattr(dataset_routes, "_ZIP_MULTIPART_OVERHEAD_BYTES", 8)
     receive_calls = []
     request = _multipart_request(
-        b"unused",
-        content_length=25,
-        receive_calls=receive_calls,
+        b"unused", content_length=25, receive_calls=receive_calls
     )
-    ingest = AsyncMock()
-
-    class Gateway:
-        is_remote = False
-        ingest_zip = ingest
-
-    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
-    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
 
     with pytest.raises(HTTPException) as raised:
-        await dataset_routes.upload_zip(
-            DATASET,
-            request,
-            db,
-            SimpleNamespace(id=ACTOR),
-            idempotency_key=OPERATION,
-        )
+        await upload(request)
 
     assert raised.value.status_code == 413
+    assert raised.value.detail == dataset_routes._zip_too_large_error().detail
     assert receive_calls == []
+    assert zip_spools == []
     ingest.assert_not_awaited()
     db.rollback.assert_awaited_once()
 
 
-async def test_zip_route_stops_chunked_body_and_parser_closes_spooled_file(monkeypatch):
-    monkeypatch.setattr(
-        dataset_routes,
-        "_ingest_authority",
-        AsyncMock(return_value=_ingest_command().authority),
-    )
-    boundary = b"assets-ingest-test"
-    part_headers = (
-        b"--" + boundary + b"\r\n"
-        b'Content-Disposition: form-data; name="file"; filename="scene.zip"\r\n'
-        b"Content-Type: application/zip\r\n\r\n"
-    )
-    first_chunk = part_headers + b"first"
-    monkeypatch.setattr(dataset_routes, "ZIP_MAX_BYTES", len(first_chunk) + 4)
+_ZIP_PART = (
+    b"--assets-ingest-test\r\n"
+    b'Content-Disposition: form-data; name="file"; filename="scene.zip"\r\n'
+    b"Content-Type: application/zip\r\n\r\n"
+)
+_ZIP_END = b"\r\n--assets-ingest-test--\r\n"
+
+
+def _assert_closed_zip_spool(spools, *, written):
+    assert len(spools) == 1
+    assert spools[0].written == written
+    assert spools[0].closed and spools[0].close_calls == 1
+
+
+@pytest.mark.parametrize("declared", [False, True])
+async def test_zip_route_rejects_streamed_413_after_spooling(
+    monkeypatch, zip_route, zip_spools, declared
+):
+    upload, ingest, db = zip_route
+    first_chunk = _ZIP_PART + b"first"
+    limit = len(first_chunk) + 4
+    monkeypatch.setattr(dataset_routes, "ZIP_MAX_BYTES", limit)
     monkeypatch.setattr(dataset_routes, "_ZIP_MULTIPART_OVERHEAD_BYTES", 0)
     receive_calls = []
     request = _multipart_request(
         b"unused",
+        content_length=limit if declared else None,
         chunks=[first_chunk, b"12345", b"unread tail"],
         receive_calls=receive_calls,
     )
-    real_spooled_file = tempfile.SpooledTemporaryFile
-    spooled_files = []
-
-    def tracked_spooled_file(*args, **kwargs):
-        file = real_spooled_file(*args, **kwargs)
-        spooled_files.append(file)
-        return file
-
-    monkeypatch.setattr(
-        "starlette.formparsers.SpooledTemporaryFile", tracked_spooled_file
-    )
-    ingest = AsyncMock()
-
-    class Gateway:
-        is_remote = False
-        ingest_zip = ingest
-
-    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
-    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
 
     with pytest.raises(HTTPException) as raised:
-        await dataset_routes.upload_zip(
-            DATASET,
-            request,
-            db,
-            SimpleNamespace(id=ACTOR),
-            idempotency_key=OPERATION,
-        )
+        await upload(request)
 
     assert raised.value.status_code == 413
+    assert raised.value.detail == dataset_routes._zip_too_large_error().detail
     assert len(receive_calls) == 2
-    assert len(spooled_files) == 1
-    assert spooled_files[0].closed
+    _assert_closed_zip_spool(zip_spools, written=len(b"first"))
     ingest.assert_not_awaited()
     db.rollback.assert_awaited_once()
 
 
-async def test_zip_route_closes_parser_spool_and_preserves_disconnect(monkeypatch):
-    monkeypatch.setattr(
-        dataset_routes,
-        "_ingest_authority",
-        AsyncMock(return_value=_ingest_command().authority),
+async def test_zip_route_rejects_declared_body_with_oversize_zip_part(
+    monkeypatch, zip_route, zip_spools
+):
+    upload, ingest, db = zip_route
+    payload = b"large zip"
+    overall_size = len(_ZIP_PART) + len(payload) + len(_ZIP_END)
+    monkeypatch.setattr(dataset_routes, "ZIP_MAX_BYTES", len(payload) - 1)
+
+    with pytest.raises(HTTPException) as raised:
+        await upload(_multipart_request(payload, content_length=overall_size))
+
+    assert raised.value.status_code == 413
+    assert raised.value.detail == dataset_routes._zip_too_large_error().detail
+    _assert_closed_zip_spool(zip_spools, written=len(payload))
+    ingest.assert_not_awaited()
+    db.rollback.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("second_part", "detail"),
+    [
+        (
+            b'form-data; name="other"; filename="other.zip"',
+            "Too many files. Maximum number of files is 1.",
+        ),
+        (b'form-data; name="other"', "Too many fields. Maximum number of fields is 0."),
+        (
+            b'form-data; filename="other.zip"',
+            'The Content-Disposition header field "name" must be provided.',
+        ),
+    ],
+)
+async def test_zip_route_rejects_multipart_validation_errors_after_spooling(
+    zip_route, zip_spools, second_part, detail
+):
+    upload, ingest, db = zip_route
+    payload = b"existing zip"
+    request = _multipart_request(
+        b"unused",
+        chunks=[
+            _ZIP_PART + payload,
+            b"\r\n--assets-ingest-test\r\nContent-Disposition: "
+            + second_part
+            + b"\r\n\r\nextra"
+            + _ZIP_END,
+        ],
     )
-    boundary = b"assets-ingest-test"
-    first_chunk = (
-        b"--" + boundary + b"\r\n"
-        b'Content-Disposition: form-data; name="file"; filename="scene.zip"\r\n'
-        b"Content-Type: application/zip\r\n\r\n"
-        b"partial zip bytes"
+
+    with pytest.raises(HTTPException) as raised:
+        await upload(request)
+
+    assert (raised.value.status_code, raised.value.detail) == (400, detail)
+    _assert_closed_zip_spool(zip_spools, written=len(payload))
+    ingest.assert_not_awaited()
+    db.rollback.assert_awaited_once()
+
+
+async def test_zip_route_rejects_incomplete_second_part(zip_route, zip_spools):
+    upload, ingest, db = zip_route
+    payload = b"valid first part"
+    request = _multipart_request(
+        b"unused", chunks=[_ZIP_PART + payload + b"\r\n--assets-ingest-test\r\n"]
     )
-    receive_calls = []
+
+    with pytest.raises(HTTPException) as raised:
+        await upload(request)
+
+    assert (raised.value.status_code, raised.value.detail) == (
+        400,
+        "Incomplete multipart.",
+    )
+    _assert_closed_zip_spool(zip_spools, written=len(payload))
+    ingest.assert_not_awaited()
+    db.rollback.assert_awaited_once()
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+async def test_zip_route_closes_spool_on_disconnect_or_cancel(
+    zip_route, zip_spools, cancel
+):
+    upload, ingest, db = zip_route
+    received_partial = asyncio.Event()
+    payload = b"partial zip bytes"
 
     async def receive():
-        receive_calls.append(1)
-        if len(receive_calls) == 1:
-            return {"type": "http.request", "body": first_chunk, "more_body": True}
+        if not zip_spools:
+            return {
+                "type": "http.request",
+                "body": _ZIP_PART + payload,
+                "more_body": True,
+            }
+        received_partial.set()
+        if cancel:
+            await asyncio.Future()
         return {"type": "http.disconnect"}
 
-    request = Request(
-        {
-            "type": "http",
-            "method": "POST",
-            "path": "/api/v1/datasets/items/upload-zip",
-            "headers": [
-                (b"content-type", b"multipart/form-data; boundary=" + boundary)
-            ],
-        },
-        receive,
-    )
-    real_spooled_file = tempfile.SpooledTemporaryFile
-    spooled_files = []
+    request = Request(_multipart_request(b"unused").scope, receive)
+    if cancel:
+        task = asyncio.create_task(upload(request))
+        try:
+            await asyncio.wait_for(received_partial.wait(), timeout=5)
+        finally:
+            task.cancel("cancelled after spooling")
+        with pytest.raises(asyncio.CancelledError, match="cancelled after spooling"):
+            await task
+    else:
+        with pytest.raises(ClientDisconnect):
+            await upload(request)
+        db.rollback.assert_awaited_once()
 
-    def tracked_spooled_file(*args, **kwargs):
-        file = real_spooled_file(*args, **kwargs)
-        spooled_files.append(file)
-        return file
-
-    monkeypatch.setattr(
-        "starlette.formparsers.SpooledTemporaryFile", tracked_spooled_file
-    )
-    ingest = AsyncMock()
-
-    class Gateway:
-        is_remote = False
-        ingest_zip = ingest
-
-    monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
-    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
-
-    with pytest.raises(ClientDisconnect):
-        await dataset_routes.upload_zip(
-            DATASET,
-            request,
-            db,
-            SimpleNamespace(id=ACTOR),
-            idempotency_key=OPERATION,
-        )
-
-    assert len(receive_calls) == 2
-    assert len(spooled_files) == 1
-    assert spooled_files[0].closed
+    assert received_partial.is_set()
+    _assert_closed_zip_spool(zip_spools, written=len(payload))
     ingest.assert_not_awaited()
-    db.rollback.assert_awaited_once()
 
 
-async def test_zip_route_closes_parsed_form_when_gateway_fails(monkeypatch):
+async def test_zip_route_drains_running_spool_write_before_cancel_closes_file(
+    monkeypatch, zip_route, zip_spools
+):
+    upload, ingest, _ = zip_route
+    spool_factory = dataset_routes.SpooledTemporaryFile
+    loop = asyncio.get_running_loop()
+    writing = asyncio.Event()
+    release = Event()
+
+    class BlockingSpool(spool_factory):
+        def write(self, data):
+            loop.call_soon_threadsafe(writing.set)
+            assert release.wait(timeout=5)
+            return super().write(data)
+
+    monkeypatch.setattr(dataset_routes, "SpooledTemporaryFile", BlockingSpool)
+    payload = b"zip while writing"
+    task = asyncio.create_task(upload(_multipart_request(payload)))
+    try:
+        await asyncio.wait_for(writing.wait(), timeout=5)
+        task.cancel("cancelled during write")
+        await asyncio.sleep(0)
+        assert not zip_spools[0].closed and not task.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError, match="cancelled during write"):
+        await task
+    _assert_closed_zip_spool(zip_spools, written=len(payload))
+    ingest.assert_not_awaited()
+
+
+async def test_zip_route_closes_spool_when_gateway_fails(monkeypatch):
     monkeypatch.setattr(
         dataset_routes,
         "_ingest_authority",
@@ -864,15 +961,19 @@ async def test_zip_route_closes_parsed_form_when_gateway_fails(monkeypatch):
 
         async def ingest_zip(self, _command, source):
             streams.append(source)
+            assert source.read() == b"zip bytes"
             raise HTTPException(503, detail="source unavailable")
 
     monkeypatch.setattr(dataset_routes, "AssetsSourceGateway", lambda _db: Gateway())
     db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+    body = _ZIP_PART + b"zip bytes" + _ZIP_END
 
     with pytest.raises(HTTPException) as raised:
         await dataset_routes.upload_zip(
             DATASET,
-            _multipart_request(b"zip bytes"),
+            _multipart_request(
+                b"unused", chunks=[body[:29], body[29:47], body[47:-5], body[-5:]]
+            ),
             db,
             SimpleNamespace(id=ACTOR),
             idempotency_key=OPERATION,

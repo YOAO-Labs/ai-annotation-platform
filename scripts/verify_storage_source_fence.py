@@ -98,8 +98,6 @@ class FixtureOwner(Owner):
         ]
 
     def resource(self, kind, role, *, args=()):
-        # Owner.create deliberately does not forward non-container arguments.
-        # Persist and recover this exact internal-network creation ourselves.
         self.role = role
         self.counter += 1
         item = {
@@ -334,8 +332,6 @@ def fence_cli(
         arguments += ["--operation-id", operation]
     invocation = [sys.executable, str(ROOT / "scripts/storage_source_fence.py")]
     if crash:
-        # Only the fixture injects death, after a real process barrier and before
-        # Controller can save its acknowledgement. There is no CLI fault switch.
         wrapper = """
 import json, os, sys
 sys.path.insert(0, sys.argv.pop(1))
@@ -509,8 +505,6 @@ def writable_probes(s3, ordinary, endpoint, bucket):
     )
     version = put_http(anonymous, b"anonymous-before-fence")
     s3.delete_object(Bucket=bucket, Key="anonymous-probe", VersionId=version)
-    # A companion completion proves this same signing capability was writable;
-    # the old pending UploadId below must remain unconsumed until sealing.
     completed_key = "probes/completed-before-fence"
     upload, etag = multipart(s3, bucket, completed_key, part=True)
     signed = s3.generate_presigned_url(

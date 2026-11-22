@@ -247,13 +247,6 @@ def _backend(environment, resources):
     values = {key.lower(): environment[key] for key in fields if environment.get(key)}
     missing = [key for key in fields if key.lower() not in values]
     if missing:
-        # The ordinary worktree launcher hands every exec child the isolated
-        # database, endpoint and buckets but never exports the checkout's
-        # MinIO endpoint credentials; the product API and workers load them
-        # from .env themselves. This private supervisor is the only process
-        # that needs them (to create the per-run scoped MinIO accounts), so it
-        # reads the same checkout configuration instead of widening any child
-        # environment or the Playwright/server topology.
         from app.config import settings as checkout
 
         _require(
@@ -1158,9 +1151,6 @@ async def _require_native_retired(owner_url, suite_id, targets):
                     {"run": row.id},
                 )
                 target = targets.get(row.id.hex)
-                # A child that registered no native participant never used the
-                # suite's media identities; the same durable-identity rule as
-                # suite settlement decides whether its own evidence is settled.
                 _require(
                     _business_run_settled(row.state, row.id, executor, reader, target),
                     "fixture_native_business_run_unsettled",

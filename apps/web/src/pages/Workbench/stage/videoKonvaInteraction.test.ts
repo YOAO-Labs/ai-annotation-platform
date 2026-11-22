@@ -1,10 +1,3 @@
-/**
- * 视频 Konva 交互状态机纯函数测试。
- *
- * advanceDrag(拖拽推进)/ resolveDragCommit(松手提交)是栈无关纯函数,与旧 SVG 栈
- * VideoStage 的 onPointerMove/finishDrag 语义对齐。真实 Konva 事件/命中由 konva-mock
- * 与 Playwright 兜底(决策 C)。
- */
 import { describe, expect, it } from "vitest";
 import type { AnnotationResponse, VideoBboxGeometry, VideoTrackGeometry } from "@/types";
 import {
@@ -107,7 +100,6 @@ const baseCtx: ResolveDragCommitCtx = {
   videoTool: "box",
   selectedTrack: null,
   lockedTrackIds: new Set(),
-  // 默认帧 10:与 track() 唯一关键帧(frame 0)不同帧, 使「延展」用例走跨帧路径。
   frameIndex: 10,
 };
 
@@ -127,6 +119,7 @@ describe("advanceDrag", () => {
     const drag: VideoDragState = {
       kind: "polyVertex",
       id: "p1",
+      frameIndex: 0,
       vidx: 1,
       start: { x: 0.4, y: 0.1 },
       origin,
@@ -138,32 +131,44 @@ describe("advanceDrag", () => {
       [0.1, 0.1],
       [1, 0.2],
       [0.25, 0.4],
-    ]); // 顶点 1 移动且 x clamp 到 1
+    ]);
   });
 
-  it("polyMove → 整体平移所有顶点 (clamp [0,1])", () => {
+  it("polyMove → 到达边界时所有环共享同一位移", () => {
     const origin: [number, number][] = [
-      [0.1, 0.1],
-      [0.4, 0.1],
-      [0.25, 0.4],
+      [0.125, 0.125],
+      [0.5, 0.125],
+      [0.3125, 0.5],
+    ];
+    const holes: [number, number][][] = [
+      [
+        [0.25, 0.1875],
+        [0.375, 0.1875],
+        [0.3125, 0.25],
+      ],
     ];
     const drag: VideoDragState = {
       kind: "polyMove",
       id: "p1",
+      frameIndex: 0,
       start: { x: 0.2, y: 0.2 },
       origin,
       current: origin,
+      originHoles: holes,
+      currentHoles: holes,
+      translationBounds: { minX: -0.125, minY: -0.125, maxX: 0.5, maxY: 0.5 },
     };
-    const next = advanceDrag(drag, { x: 0.3, y: 0.3 }); // dx=0.1, dy=0.1
+    const next = advanceDrag(drag, { x: 1.2, y: -0.2 });
     if (next?.kind !== "polyMove") throw new Error("expected polyMove");
-    const rounded = next.current.map(([x, y]) => [
-      Math.round(x * 100) / 100,
-      Math.round(y * 100) / 100,
+    expect(next.current).toEqual([
+      [0.625, 0],
+      [1, 0],
+      [0.8125, 0.375],
     ]);
-    expect(rounded).toEqual([
-      [0.2, 0.2],
-      [0.5, 0.2],
-      [0.35, 0.5],
+    expect(next.currentHoles?.[0]).toEqual([
+      [0.75, 0.0625],
+      [0.875, 0.0625],
+      [0.8125, 0.125],
     ]);
   });
 
@@ -361,7 +366,7 @@ describe("resolveDragCommit", () => {
   });
 
   it("track 工具 + 选中轨迹未锁 + 当前帧无关键帧 draw → 延展该轨迹(落新关键帧)", () => {
-    const t = track("trk-1"); // 唯一关键帧在 frame 0;baseCtx.frameIndex 为 10 → 跨帧
+    const t = track("trk-1");
     const out = resolveDragCommit(
       draw({ x: 0.1, y: 0.1 }, { x: 0.4, y: 0.4 }),
       { x: 0.4, y: 0.4 },
@@ -376,7 +381,7 @@ describe("resolveDragCommit", () => {
   });
 
   it("track 工具 + 选中轨迹未锁 + 当前帧已有关键帧 draw → 新建轨迹(不吞旧框)", () => {
-    const t = track("trk-1"); // 关键帧在 frame 0
+    const t = track("trk-1");
     const out = resolveDragCommit(
       draw({ x: 0.5, y: 0.5 }, { x: 0.7, y: 0.7 }),
       { x: 0.7, y: 0.7 },
@@ -384,7 +389,7 @@ describe("resolveDragCommit", () => {
         ...baseCtx,
         videoTool: "track",
         selectedTrack: t as AnnotationResponse & { geometry: VideoTrackGeometry },
-        frameIndex: 0, // 同帧:选中轨迹在 frame 0 已有关键帧 → 判为「标第二个物体」
+        frameIndex: 0,
       },
     );
     expect(out).toMatchObject({ type: "draw", kind: "video_track_bbox" });
@@ -432,7 +437,7 @@ describe("resolveDragCommit", () => {
     expect(out).toMatchObject({ type: "track" });
   });
 
-  it("polyVertex/polyMove → poly 提交带新 points", () => {
+  it("单个外环顶点编辑只提交 points，且不能跨帧写入", () => {
     const ann = polygon("p1", [
       [0.1, 0.1],
       [0.4, 0.1],
@@ -446,14 +451,17 @@ describe("resolveDragCommit", () => {
     const drag: VideoDragState = {
       kind: "polyVertex",
       id: "p1",
+      frameIndex: 0,
       vidx: 1,
       start: { x: 0.4, y: 0.1 },
       origin: ann.geometry.type === "video_polygon" ? ann.geometry.points : [],
       current: moved,
     };
-    const out = resolveDragCommit(drag, { x: 0.5, y: 0.15 }, { ...baseCtx, annotations: [ann] });
-    expect(out).toMatchObject({ type: "poly" });
-    if (out.type === "poly") expect(out.points).toEqual(moved);
+    const finalPt = { x: 0.5, y: 0.15 };
+    const ctx = { ...baseCtx, frameIndex: 0, annotations: [ann] };
+    const out = resolveDragCommit(drag, finalPt, ctx);
+    expect(out).toEqual({ type: "poly", ann, points: moved });
+    expect(resolveDragCommit(drag, finalPt, { ...ctx, frameIndex: 1 })).toEqual({ type: "none" });
   });
 
   it("polyVertex 命中 polygon track → poly 提交 (commit 再据类型 upsert 关键帧)", () => {
@@ -474,6 +482,7 @@ describe("resolveDragCommit", () => {
     const drag: VideoDragState = {
       kind: "polyVertex",
       id: "tp1",
+      frameIndex: baseCtx.frameIndex,
       vidx: 0,
       start: { x: 0.1, y: 0.1 },
       origin: [
@@ -492,6 +501,7 @@ describe("resolveDragCommit", () => {
     const drag: VideoDragState = {
       kind: "polyMove",
       id: "missing",
+      frameIndex: baseCtx.frameIndex,
       start: { x: 0, y: 0 },
       origin: [],
       current: [[0.2, 0.2]],
@@ -501,6 +511,7 @@ describe("resolveDragCommit", () => {
     const drag2: VideoDragState = {
       kind: "polyMove",
       id: "b1",
+      frameIndex: baseCtx.frameIndex,
       start: { x: 0, y: 0 },
       origin: [],
       current: [[0.2, 0.2]],
@@ -535,7 +546,6 @@ describe("resolveDragCommit", () => {
   });
 });
 
-// 交互式 SAM 提示 (smart-point / smart-box)
 describe("samProbe · 交互式 SAM 提示", () => {
   const probe = (
     mode: "point" | "bbox",
@@ -587,7 +597,7 @@ describe("samProbe · 交互式 SAM 提示", () => {
   it("bbox 拖拽小于最小阈值 → 不提交（误点不该喂退化框给后端）", () => {
     const commit = resolveDragCommit(
       probe("bbox", { x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 }),
-      { x: 0.502, y: 0.502 }, // 0.002 < SAM_MIN_DRAG(0.005)
+      { x: 0.502, y: 0.502 },
       { ...baseCtx, videoTool: "smart-box" },
     );
     expect(commit).toEqual({ type: "none" });
@@ -605,7 +615,6 @@ describe("samProbe · 交互式 SAM 提示", () => {
   });
 });
 
-// PR2 · exemplar (视觉示例框): 同为拖框, 但派发到 runExemplar 而非 runBbox。
 describe("samProbe · exemplar", () => {
   const probe = (
     mode: "point" | "bbox" | "exemplar",

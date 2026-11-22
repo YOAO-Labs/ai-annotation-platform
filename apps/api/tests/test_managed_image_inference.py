@@ -374,7 +374,6 @@ async def test_native_create_refine_and_expired_candidate_replay_preserve_proven
     assert not {"bucket", "endpoint_url", "object_key", "facts", "file_path"} & set(
         metadata.extra["original_input"]
     )
-    # The Decision owns exact replay even when its original candidate expires.
     unsigned = {
         name: value for name, value in claims.items() if name not in {"v", "iat", "exp"}
     }
@@ -645,7 +644,6 @@ async def test_unknown_source_close_retains_cross_location_cleanup_responsibilit
             )
             assert all(row.uncertain_write for row in leases)
     finally:
-        # No ledger is falsely settled; teardown destroys this owned schema.
         world.sources.source_close_hook = None
 
 
@@ -683,8 +681,6 @@ async def test_native_refine_only_requires_annotation_read_for_a_source_prompt(
             MLBackendServicePool.legacy_instance_id == world.backend_id,
         )
     )
-    # Mint the same signed native contract, with an explicit refine target. A
-    # point-only candidate has no source-Mask prompt and needs no read scope.
     body = _body(
         world.task, world.backend, pool, rle=rle, source=source, class_name="car"
     )
@@ -866,8 +862,6 @@ async def test_jwt_logout_during_mask_storage_rolls_back_every_business_write(
     from app.db.models.ai_mask_accept_decision import AiMaskAcceptDecision
     from app.db.models.audit_log import AuditLog
 
-    # Commit revocation in the same disposable database as the request's guards.
-    # The global application session factory targets a different database.
     world = managed_world
     world.mask = True
     claims = decode_access_token(super_admin[1])

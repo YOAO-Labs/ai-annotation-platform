@@ -1,14 +1,3 @@
-// 从 WorkbenchShell 拆出的键盘快捷键接线层。
-//
-// 集中管理：
-//  - polygon 专用键（Enter / Esc / Backspace，capture 阶段拦截）
-//  - 主 keydown 通过 dispatchKey 路由所有 action
-//  - keyup 释放空格 / 方向键时 flush nudge
-//  - 方向键 nudge 临时几何 override（state 与 ref 共用）
-//
-// 不在这里管的：dispatchKey 自身（state/hotkeys.ts，纯函数不动）、
-// AnnotationActions handler（state/useWorkbenchAnnotationActions.ts）。
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PolygonDraftHandle } from "../stage/tools";
 import { isWorkbenchInteractionBlocked } from "./workbenchInteractionGuards";
@@ -73,24 +62,19 @@ export interface UseWorkbenchHotkeysArgs {
   currentProject: ProjectAttributeSchemaLite | null | undefined;
   annotationsRef: { current: AnnotationResponse[] };
   batchChanging: boolean;
-  /** SAM and other class pickers that keep their draft outside ordinary editingClass. */
   classPickerActive?: boolean;
   setBatchChanging: React.Dispatch<React.SetStateAction<boolean>>;
   cancelPendingDrawing?: () => void;
   showHotkeys: boolean;
 
-  // navigation / task helpers
   navigateTask: (dir: "next" | "prev") => void;
   smartNext: (mode: "open" | "uncertain") => void;
   setFitTick: React.Dispatch<React.SetStateAction<number>>;
-  // 跨帧目标延续 (Alt+→ / Alt+←); 未提供则该键无动作。
   onCrossFramePropagate?: (dir: "next" | "prev") => void;
 
-  // class / attribute / annotation actions
   recordRecentClass: (cls: string) => void;
   handleDeleteBox: (id: string) => void;
   handleBatchDelete: () => void;
-  /** shape 状态位字段级 PATCH（lock/hidden/z_order）。 */
   handlePatchShapeFlag?: (
     id: string,
     flag: "z_order" | "is_locked" | "is_hidden",
@@ -104,62 +88,43 @@ export interface UseWorkbenchHotkeysArgs {
   handleUpdateAttributes: (id: string, attrs: Record<string, unknown>) => void;
   handleVideoSetSelectedClass?: (className: string) => boolean;
 
-  // ai
   aiBoxes: AiBox[];
 
-  // ui state setters
   setShowHotkeys: React.Dispatch<React.SetStateAction<boolean>>;
 
-  // clipboard
   clipboard: ClipboardLike;
 
-  // toast
   pushToast: (toast: ToastInput) => void;
 
-  // stage geom for nudge calc
   stageGeom: { imgW: number; imgH: number };
 
-  // polygon hookup（来自 AnnotationActions hook）
   polygonDraftPoints: [number, number][];
   polygonDraft?: PolygonDraftHandle;
   setPolygonDraftPoints: React.Dispatch<React.SetStateAction<[number, number][]>>;
   submitPolygon: (points: [number, number][]) => void;
-  // polyline 复用同一草稿 state，Enter 阈值为 2 顶点。
   submitPolyline: (points: [number, number][]) => void;
   cancelManualDrawing?: () => boolean;
 
-  // nudge 提交所用 mutation
   updateMutation: UpdateMutationLike;
 
-  // 切题（清 nudge）
   taskId: string | undefined;
 
   disabled?: boolean;
   ignoredKeys?: Set<string>;
   videoMode?: boolean;
-  /** Actual stage, so image overrides cannot reach a 3D selection. */
   stage?: HotkeyStage;
   requestVideoTool?: (tool: VideoTool) => void;
-  /** 视频采样网格生效 (step>1) 时改写 ←/→ 键位；step=1 维持现状。 */
   samplingActive?: boolean;
   videoControlsRef?: React.RefObject<VideoStageControls | null>;
-  /** 由 useMLCapabilities 透传; S 键循环 AI 工具时用来跳过置灰. */
   isPromptSupported?: (type: string) => boolean;
-  /** 项目级「交互式 AI 工具」总开关; false 时 AI 工具 hotkey no-op (与 ToolDock 隐藏一致)。 */
   aiInteractiveEnabled?: boolean;
-  /** 与 ToolDock 共用的 Mask 禁用原因；存在时 M 热键不进入 Mask。 */
   maskToolDisabledReason?: string;
-  /** mask 工具激活时的 B/E/Enter/Esc 上下文键由这组 callback 消费。 */
   maskEditor?: UseMaskEditorReturn;
   onMaskPrimaryAction?: () => void;
   onMaskSecondaryAction?: () => void;
-  /** task 级只读 (review/completed 锁), 供 canEditMask 判定 B/E 是否可用。 */
   maskTaskReadOnly?: boolean;
-  /** 分块缓存超预算时停止像素编辑，但保留已有草稿的保存入口。 */
   maskPixelReadOnly?: boolean;
-  /** 证据对比期间冻结所有 Mask 编辑快捷键，包括取消草稿。 */
   maskInteractionFrozen?: boolean;
-  /** Increment B · 账号级快捷键覆盖解析出的生效命令表（含默认值）。 */
   shortcutsEffective?: Map<string, EffectiveCommandState>;
 }
 
@@ -192,7 +157,6 @@ export function isWorkbenchInputFocused(el: EventTarget | null): boolean {
   );
 }
 
-/** AI 工具 (requiredPrompt) 的 hotkey 目标 id; 项目关闭交互式 AI 时这些 hotkey no-op。 */
 const AI_TOOL_HOTKEY_IDS = new Set(["smart-point", "smart-box", "magic-box", "exemplar"]);
 
 export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbenchHotkeysReturn {
@@ -259,7 +223,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
   const videoSpaceDraggedRef = useRef(false);
   const [nudgeMap, setNudgeMap] = useState<Map<string, Geom>>(new Map());
   const nudgeOrigRef = useRef<Map<string, Geom>>(new Map());
-  // Increment B · 运行期绑定冲突每会话每按键只上报一次。
   const reportedConflictsRef = useRef(new Set<string>());
 
   const reportBindingConflict = useCallback(
@@ -282,7 +245,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
     if (videoSpaceDownRef.current) videoSpaceDraggedRef.current = true;
   }, []);
 
-  // 切题清空 nudge
   useEffect(() => {
     setNudgeMap(new Map());
     nudgeOrigRef.current = new Map();
@@ -321,7 +283,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
     nudgeOrigRef.current = new Map();
   }, [nudgeMap, updateMutation, history]);
 
-  // Disabled listeners cannot receive the held key's release. Settle it before detaching.
   useEffect(() => {
     if (!disabled) return;
     setSpacePan(false);
@@ -330,9 +291,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
     flushNudges();
   }, [disabled, flushNudges]);
 
-  // polygon / polyline 专用键：Enter / Esc / Backspace
-  // 两者共用 polygonDraftPoints 草稿；polygon Enter 需 ≥3 顶点（闭合），
-  //            polyline Enter 需 ≥2 顶点（不闭合），分别走 submitPolygon / submitPolyline。
   useEffect(() => {
     if (disabled) return;
     if (s.tool !== "polygon" && s.tool !== "polyline") return;
@@ -387,9 +345,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
     setPolygonDraftPoints,
   ]);
 
-  // Mask 工具专用键（capture 阶段，先于主 dispatchKey 抢键）：
-  //   B → brush 模式  · E → erase 模式  · Enter/Esc → 当前阶段主/次动作
-  // 仅 tool === "mask" 且 maskEditor 注入时生效；输入聚焦 / pending popover 时让位。
   useEffect(() => {
     if (disabled) return;
     if (s.tool !== "mask") return;
@@ -398,9 +353,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
       if (isMaskHotkeyBlocked(e)) return;
       if (maskInteractionFrozen) return;
       if (s.pendingDrawing || s.editingClass || classPickerActive) return;
-      // B/E 模式切换也经 canEditMask: 锁定对象连切笔刷都不允许,
-      // 与 pointer 入口 (MaskTool) 一道关闭锁定绕过。readOnly 来自 task 级 (调用方传入),
-      // is_locked 读当前选中 annotation。
       const sel = s.selectedId ? annotationsRef.current.find((a) => a.id === s.selectedId) : null;
       const maskEditable = canEditMask({
         taskReadOnly: !!maskTaskReadOnly || !!maskPixelReadOnly,
@@ -468,7 +420,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
     annotationsRef,
   ]);
 
-  // 主 keydown / keyup
   useEffect(() => {
     if (disabled) return;
     const applyArrowNudge = (dx: number, dy: number) => {
@@ -523,8 +474,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
       const modifiedToken = hotkeyIgnoreToken(e);
       if (ignoredKeys?.has(e.key) || (modifiedToken && ignoredKeys?.has(modifiedToken))) return;
       const attributeHotkey = (digit: string) => {
-        // Increment B · 属性快捷键只在显式聚焦的属性快捷键区域内生效；
-        // 仅选中标注不再把画布数字键改成属性编辑。
         const active = document.activeElement;
         if (!(active instanceof Element && active.closest("[data-attribute-shortcut-region]"))) {
           return null;
@@ -549,7 +498,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
         return null;
       };
 
-      // Increment B · 生效绑定匹配器（每事件一次；未挂载偏好时走 dispatchKey 默认表）。
       const matcher = shortcutsEffective
         ? createCommandEventMatcher(e, shortcutsEffective, stage)
         : null;
@@ -601,8 +549,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
           return;
         case "crossFramePropagate":
           e.preventDefault();
-          // 阻断按住 Alt+→ 的 auto-repeat: 否则连发多个 propagate POST,
-          // 在目标帧造出共享同一新 track_id 的重复 annotation。
           if (e.repeat) return;
           onCrossFramePropagate?.(action.dir);
           return;
@@ -683,8 +629,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
             const trackId =
               selected && "track_id" in selected.geometry ? selected.geometry.track_id : null;
             if (selected?.is_locked || (trackId && s.lockedVideoTrackIds.has(trackId))) return;
-            // Mask 与 bbox 都委托舞台控制器删除关键帧。Mask 控制器会进一步走
-            // 专用 PATCH 合同，保留 segment/task lock、审计与 frame history 语义。
             if (selected?.geometry.type === "video_track_mask") {
               videoControlsRef?.current?.deleteSelectedTrackKeyframe();
               return;
@@ -692,7 +636,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
             if (selected?.geometry.type === "video_track_bbox") {
               const deleted = videoControlsRef?.current?.deleteSelectedTrackKeyframe();
               if (deleted) return;
-              // Delete 永远是关键帧级；最后一帧也不隐式退化为删整轨。
               return;
             }
           }
@@ -766,7 +709,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
             setBatchChanging(false);
             return;
           }
-          // 分层取消：每按一次 ESC 只做一件事（草稿 → 编辑类别 → 选中）。
           if (s.pendingDrawing) {
             if (cancelPendingDrawing) cancelPendingDrawing();
             else s.setPendingDrawing(null);
@@ -786,7 +728,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
             s.setSelectedId(null);
             return;
           }
-          // 无草稿 / 无选中可取消时回选择工具；视频只退到 select, 不再回 hidden hand。
           if (videoMode) (requestVideoTool ?? s.setVideoTool)("select");
           else s.setTool("select");
           return;
@@ -798,7 +739,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
           );
           return;
 
-        // 切换选中 shape 状态位（lock/hidden/occluded）。
         case "toggleShapeFlag": {
           if (!handlePatchShapeFlag) return;
           const id = s.selectedId;
@@ -811,7 +751,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
           return;
         }
 
-        // 调整选中 shape 的 z_order。
         case "bumpZOrder": {
           if (!handlePatchShapeFlag) return;
           const id = s.selectedId;
@@ -839,8 +778,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
           return;
         }
 
-        // 图片「同类流转」(Tab) / 「跨类跳转」(`): 类别 = AI 待审(aiBoxes) + 人工(annotations),
-        // 无轨迹。数组序循环(与 cycleUser 一致, 无需坐标)。焦点联动由 ImageWorkbench 的选中 effect 处理。
         case "imageCycleInCategory": {
           e.preventDefault();
           const cats = {
@@ -878,23 +815,17 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
         }
 
         case "setTool": {
-          // 工具命令可被改绑到 F1/F5/Home/PageDown 等带浏览器默认行为的键，
-          // 命中后必须吞掉事件，避免同时切工具又刷新 / 滚动页面。
           e.preventDefault();
           if (action.tool === "mask" && maskToolDisabledReason) {
             pushToast({ msg: maskToolDisabledReason, kind: "warning" });
             return;
           }
-          // 项目关闭交互式 AI 总开关时, AI 工具 hotkey 应 no-op (与 ToolDock 隐藏按钮契约一致)。
           if (
             aiInteractiveEnabled === false &&
             (action.tool === "ai-cycle" || AI_TOOL_HOTKEY_IDS.has(action.tool))
           ) {
             return;
           }
-          // S / Alt+3 → "ai-cycle"：在 AI 工具（含 magic-box）间循环，
-          // 跳过置灰的; 末位再按退回 box. capabilities 通过 props 传入 isPromptSupported.
-          // text-prompt 已归批量线 (从工具栏摘除), 不再进循环。
           if (action.tool === "ai-cycle") {
             const cycle: Array<"smart-point" | "smart-box" | "magic-box" | "exemplar"> = [
               "smart-point",
@@ -902,8 +833,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
               "magic-box",
               "exemplar",
             ];
-            // smart-box / magic-box 的 prompt key 改名 interactive_box (与后端
-            // supported_prompts 对齐); 否则按旧 "bbox" 比对 → 工具被错误置灰.
             const requiredOf = (t: (typeof cycle)[number]) =>
               (
                 ({
@@ -941,7 +870,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
         }
 
         case "setVideoTool":
-          // 同 setTool：改绑到 F1/F5/Home 等键时不要让浏览器默认行为同时生效。
           e.preventDefault();
           if (aiInteractiveEnabled === false && AI_TOOL_HOTKEY_IDS.has(action.tool)) {
             return;
@@ -950,7 +878,6 @@ export function useWorkbenchHotkeys(args: UseWorkbenchHotkeysArgs): UseWorkbench
           return;
 
         case "samPolarity": {
-          // smart-point 点与 refine 会话的 exemplar 框共享正负极性。
           if (s.tool === "smart-point" || s.tool === "smart-scribble" || s.tool === "exemplar") {
             s.setSamPolarity(action.polarity);
           }

@@ -1,0 +1,1043 @@
+id	source_at_e8a4f595	related_adr	constraint_and_reason
+0181-0001	apps/web/src/pages/Workbench/components/SettingsFieldControl.tsx:18	-	SettingsControlField 不要求工作台持久化字段的结构；若让共享控件直接依赖该结构，独立 UI 偏好就得伪装成工作台字段才能复用。
+0181-0002	apps/web/src/pages/Workbench/components/SettingsFieldControl.tsx:256	-	LabelContentByTypeControl 直接使用 TabsPrimitive；复用外层分类 Tabs 会让纵向 group 样式影响嵌套列表，而改用普通按钮又不能直接保留标签页的键盘操作语义。
+0181-0003	apps/web/src/pages/Workbench/components/SettingsFieldControl.tsx:333	-	MultiselectControl 的选项按钮嵌在字段标签内，因此用选项文案显式设置 aria-label；依赖隐式命名会把父字段的标签文字混入按钮的可访问名称。
+0181-0004	apps/web/src/pages/Workbench/components/SchemaForm/SchemaForm.test.tsx:1-4;apps/web/src/pages/Workbench/components/SchemaForm/index.tsx:1-3	-	SchemaForm 仅实现核心工具参数所需的 Draft-07 子集，不为当前不支持的数组和嵌套对象引入约 50 KB 的 @rjsf/core。
+0181-0005	apps/web/src/pages/Workbench/components/SchemaForm/index.tsx:22,40-43,79-80	-	SchemaForm 与 deriveDefaults 不把只读信息或会话级模型变体当作工具参数：仅禁用只读控件仍会让默认值进入 aiToolParams；在工具抽屉暴露变体则会与 AI 面板重复配置。
+0181-0006	apps/web/src/pages/Workbench/layout/WorkbenchDockWorkspace.module.css:67-68	-	Dockview 分割容器用 overflow: clip 裁剪布局树，滚动由面板内容承担；改用仍允许程序化滚动的 overflow: hidden，聚焦子元素时可能滚动网格并移动坐标原点。
+0181-0007	apps/web/src/pages/Workbench/layout/WorkbenchDockWorkspace.module.css:73	-	Dockview 分隔条须限制在工作台的局部浮层层级；保留默认 z-index: 99 会让分隔条盖住挂载到 body 的应用菜单。
+0181-0008	apps/web/src/pages/Workbench/layout/WorkbenchDockWorkspace.module.css:100	-	画布的 Dockview 渲染层不能沿用 contain 和 transform；这会改变固定定位的参照系，使 PSR 和相机浮层不再按视口定位。
+0181-0009	apps/web/src/pages/Workbench/layout/WorkbenchDockWorkspace.module.css:114-119;apps/web/src/pages/Workbench/layout/WorkbenchDockWorkspace.tsx:623-630,634-636	-	画布布局中，Dockview 转发的 HTML5 拖放不会激活目标组；仅在非 Shift 的工作台停靠拖放期间让浮层穿透，使目标组直接收到 dragover/drop，而不影响画布交互和 Shift+指针浮动手势。
+0181-0010	apps/web/src/pages/Workbench/layout/WorkbenchDockWorkspace.tsx:112,541;apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:267	-	整树恢复仅用于冷启动和初始权威布局确定时；常规调整由 WorkbenchLayoutExecutor 迁移现有面板并复用稳定的内容门户，否则换组也会重建面板内容实例。
+0181-0011	apps/web/src/pages/Workbench/layout/WorkbenchDockWorkspace.tsx:294;apps/web/src/pages/Workbench/layout/workbenchLayoutPresets.ts:231,290	-	旧布局只在当前账号的权威偏好加载完成后单向迁移一次；本地存储读失败时仍用账户偏好初始化。旧偏好不再与当前布局并行生效，也不被改写，以免回滚前端时失去可读的旧布局。
+0181-0012	apps/web/src/pages/Workbench/layout/WorkbenchDockWorkspace.tsx:347;apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:431-432	-	最大化画布直接识别为 focus，不能为识别预设而采集快照并触发布局事件。确需保存时，rawSnapshot 先退出最大化，采集修正后的桌面网格，再立即恢复最大化，否则 Dockview 序列化会丢失嵌套分割尺寸。
+0181-0013	apps/web/src/pages/Workbench/layout/WorkbenchDockWorkspace.tsx:695-696,734	-	根边缘投放会在布局变更事件前创建网格分支，等事件到达再取尺寸已不是原网格。恢复投放前的尺寸前还须重申 parking 的保留组约束，否则重组可能让该组重新占据网格。
+0181-0014	apps/web/src/pages/Workbench/layout/WorkbenchDockWorkspace.tsx:723	-	dropOverlays 的尺寸模型须在拖放事件回调内同步写入；Dockview 在事件结束后、绘制前就会读取，延后更新会让这次投放使用旧尺寸。
+0181-0015	apps/web/src/pages/Workbench/layout/WorkbenchDockWorkspace.tsx:754	-	不能只靠 window 的 dragend 清除拖动态；移动标签页时拖动源可能先被移除，事件到不了 window，因此还须在捕获阶段监听 drop。
+0181-0016	apps/web/src/pages/Workbench/layout/WorkbenchLayoutSettings.tsx:30	-	无法解析的命名布局预设仍须计数并原样保留；可渲染列表不是完整的预设集合，不能据此重算总数或重写存储。
+0181-0017	apps/web/src/pages/Workbench/layout/WorkbenchLayoutSettings.tsx:372	-	预设缩略图的文字和边框放在绝对定位层；若让它们参与 flex 尺寸计算，装饰本身就会改变缩略图所表达的布局比例。
+0181-0018	apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.test.ts:768;apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:760-761	-	退出紧凑模式时，React 媒体查询可能先于 Dockview 的 ResizeObserver 更新；回放前须按当前宿主尺寸调用 layout，否则临时约束会按旧的紧凑尺寸解除。
+0181-0019	apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:39;apps/web/src/pages/Workbench/layout/workbenchLayoutPresets.ts:24	-	布局比较不能把隐藏的 parking 或单子节点的引擎包装层视为布局差异；预设识别只比较可见拓扑，否则组 ID、当前聚焦标签或用户调整的尺寸也会让同一预设被误判。
+0181-0020	apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:55,452-453	-	序列化网格中，隐藏节点的 size 是上次可见时沿父分割轴的长度，不是当前占用。逐个隐藏堆叠组会改变剩余组的尺寸，因此快照须保留折叠前的值，而非逐组折叠时的中间值。
+0181-0021	apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:326-328	-	采集快照前须钳制原生浮窗外框；Dockview 的布局事件早于组显式约束更新，且约束只缩放内部网格，若据此读取外框，回放时浮窗可能变大。
+0181-0022	apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:442-443	-	移走最后一个旧布局兄弟组可能让 Dockview 留下零尺寸空分支；只修剪引擎输出中的这类残留，不能把同样的容错用于导入，否则畸形快照会绕过严格解析。
+0181-0023	apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:599	-	浮动组须直接创建；先建临时网格组再转为浮动会参与网格分配，改变已经停靠的列宽。
+0181-0024	apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:934-935,970-971	-	堆叠到既有行列时，交叉轴沿用目标行列的尺寸，不能采用 Dockview 重分配后的临时尺寸。新建两面板堆叠时均分列高，否则按旧尺寸加权会让原面板的整列高度压过新面板。
+0181-0025	apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:1048-1049,1062-1063	-	深层分割不能靠叶节点 setSize 回放，因为它只向上传递两层；须用可逐级汇总的固定叶约束。约束事件早于组显式限制更新，因此先解除全部临时固定尺寸，再逐组重设尺寸以刷新分割。
+0181-0026	apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:1074	-	回放的一像素容差须在真实浏览器中同时校验位置和尺寸；jsdom 无法提供有效的客户端矩形，仅比尺寸会漏掉尺寸正确但位置偏移的情况。
+0181-0027	apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:1190	-	应用预设时连同画布位置回放完整预设；若保留原画布位置，就会把旧拓扑混进目标布局，而不是恢复所选预设。
+0181-0028	apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:1196-1197	-	进入紧凑模式时，宿主可能已经变窄，但 Dockview 仍保留桌面树；须在投影前按桌面树坐标保存浮窗和返回位置的矩形，否则会用紧凑坐标记录桌面位置。
+0181-0029	apps/web/src/pages/Workbench/layout/workbenchLayoutExecutor.ts:1210	-	桌面布局回放抛错时，执行器保留桌面快照，调用方转入只读恢复；此时若写入紧凑投影，会覆盖仍可用于恢复的桌面布局。
+0181-0030	apps/web/src/pages/Workbench/layout/workbenchLayoutPresets.ts:277	-	三维工作台迁移插入面板后，画布在布局树中的路径可能改变；最大化状态应在水合完成后恢复，不能直接沿用迁移前的节点路径。
+0181-0031	apps/web/src/pages/Workbench/layout/workbenchLayoutSnapshot.ts:126	archive/0072-workbench-dockable-layout.md	网络、缓存和本地序列化的快照都须经过 sanitizeWorkspaceSnapshot 的同一允许列表；本地来源不是免检依据，否则同一布局内容会因读取路径不同而得到不同的校验结果。
+0181-0032	apps/web/src/pages/Workbench/layout/workbenchLayoutSnapshot.ts:225	archive/0072-workbench-dockable-layout.md	Dockview 浮窗快照须先把任意侧锚点换算成左上角坐标；直接读取左、上偏移会把仅提供右侧或底部偏移的浮窗记到错误位置。
+0181-0033	apps/web/src/pages/Workbench/layout/workbenchPanelRegistry.tsx:197	-	停靠面板的最小宽度必须容得下预设侧栏；套用浮窗组的最小宽度会使侧栏无法按预设宽度布局。浮窗组仍保留自身尺寸限制。
+0181-0034	apps/web/src/pages/Workbench/layout/workbenchViewportRegions.ts:14	-	subtractRects 必须逐次从当前互不重叠的剩余区域扣除遮挡；若分别对原区域计算后再合并，遮挡矩形重叠时可能把已经扣除的区域重新算作可见。
+0181-0035	apps/web/src/pages/Workbench/layout/workbenchViewportRegions.ts:58	-	工作台的 DOM 遮挡和 GPU 裁剪必须取自同一次几何快照；分别采样可能在布局变化时取到不同边界，使 GPU 裁剪与实际遮挡错位。
+0181-0036	apps/web/src/pages/Workbench/modes/useReviewMode.test.tsx:110	-	useReviewMode 测试不能把组件卸载当成弹窗队列清理：decisionDialog store 是模块级单例，每例结束须清空队列，否则未结算的弹窗会进入下一例。
+0181-0037	apps/web/src/pages/Workbench/modes/useReviewMode.tsx:59-60,127,147	-	打开退回对话框或释放锁前须先占用本次决策，避免会话还有效时重复进入决策；成功后保留占用，直至导航使会话退役。完成状态可能先于成功回调，不能据此提前退役，否则回调无法导航；审核重新可用时再退役。
+0181-0038	apps/web/src/pages/Workbench/modes/useReviewMode.tsx:94	-	自动认领 effect 不应依赖 claimMut 对象本身；对象引用变化不等于审核任务变化，把它当作重跑依据会对同一任务重复发起认领。
+0181-0039	apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx:49;apps/web/src/pages/Workbench/shell/AttributeForm.tsx:50-55	-	数字属性键仅由图片选中卡在焦点位于非编辑区域时显式接管，视频不启用；焦点离开后须交还画布类别键，且不能拦截原生输入控件自身的按键行为。
+0181-0040	apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx:54-56,1224-1225	-	AI 待审和人工大组的折叠偏好由 workbench.layout 独立持久化，不与 BoxesList 的 collapsedGroups 共用状态；否则切换外层分组会串改人工子组的展开偏好。
+0181-0041	apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx:138-139	-	右栏拖宽只由 WorkbenchLayout 的全高 .rightSplit 接管；AIInspectorPanel 即使仍接收宽度相关参数，也不能据此再渲染手柄，为同一分隔线提供两套拖拽入口。
+0181-0042	apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx:207-208,213-214	-	候选属性是本地草稿，空属性对象也不能跳过项目必填校验。采纳须通过 onAcceptPrediction 的 attributeOverrides 将草稿与标注原子写入；先采纳原值再补写会留下已采纳但仍是模型原值的窗口。
+0181-0043	apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx:219	-	候选草稿按候选 ID 重置，而不随可见性重置；候选临时隐藏或缺席时清空会丢掉未提交编辑，切到不同 ID 却不重置则会把草稿带给另一候选。
+0181-0044	apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx:229-232,265	-	选中项工具栏和列表行共用属性覆写入口，未编辑时传 undefined；有草稿时，后台 A/D 监听须让侧栏处理，否则快捷键可能绕过草稿。ImageStage 的画布贴框采纳仍走单参数入口，只采纳原值。
+0181-0045	apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx:526-527,530	-	预测弹层只对当前题执行 /ai-pre 中已保存的项目编排，不就地编辑；若引用的后端缺失，须提示并禁用运行，不能把无法完整执行的编排当作可运行配置。
+0181-0046	apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx:545-546,663-664	-	variant 热状态以 sessionStorage 中持久化的 isVariantHot 为准，仅旧调用方按当前配置推断冷启动。已归属请求以不可变摘要和上报进度为准，不能让后续配置编辑改变在途请求的判定。
+0181-0047	apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx:925	-	预测弹层切换显示阶段时只能隐藏表单，不应卸载重建；否则回到该阶段时会丢掉同一表单实例中的预设和未提交草稿。
+0181-0048	apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx:1267-1268	-	视频列表默认限当前帧，避免在全帧视图里误操作其他帧的标注；图片没有当前帧索引，不适用这一默认筛选，仍显示全部且不提供帧筛选。
+0181-0049	apps/web/src/pages/Workbench/shell/AIInspectorPanel.tsx:1350	-	BoxesList 须按过滤后的结果重建父子层级；父标注被跨帧等筛选排除时，仍匹配的子标注应回到顶层，否则筛选会连带隐藏本应显示的子项。
+0181-0050	apps/web/src/pages/Workbench/shell/AttributeForm.test.tsx:182;apps/web/src/pages/Workbench/shell/AttributeForm.tsx:135,193-194,202-204	-	普通 400 ms 防抖在焦点离开表单时立即冲刷，让提交或切题能通过上层 mutation pending 门禁等待最后一笔。若卸载时仍未冲刷，须用最新 onChange 补交最新草稿一次，避免快速关闭丢稿；已冲刷或 dirty 模式不补交。
+0181-0051	apps/web/src/pages/Workbench/shell/AttributeForm.tsx:19	-	创建草稿若要供紧接着发生的提交或取消读取，应使用 immediate；沿用普通防抖会让调用方在定时器到期前仍读到修改前的值。
+0181-0052	apps/web/src/pages/Workbench/shell/AttributeForm.tsx:44-48	-	AI 属性标记须依据字段级来源元数据，而不是标注整体是否源于 AI；人工保存修改后由后端移除对应字段的元数据，避免刷新后仍把人工值标成 AI 生成。
+0181-0053	apps/web/src/pages/Workbench/shell/AttributeForm.tsx:442-445	-	DescriptionPopover 可渲染 GFM，但不能启用 rehype-raw 或解析描述里的原始 HTML，否则描述内容可能在工作台中引入 XSS。
+0181-0054	apps/web/src/pages/Workbench/shell/ClassPickerPopover.tsx:100-102	-	ClassPickerPopover 只对 fixed 模式做视口约束，避免列表按钮旁的弹层溢出右侧或底部，必要时翻到锚点上方；image 模式不套用该钳制，以免弹层偏离画布框锚点。
+0181-0055	apps/web/src/pages/Workbench/shell/ClassPickerPopover.tsx:124	-	ClassPickerPopover 的全局快捷键须忽略输入法组合事件，包括 keyCode 229；否则用户确认输入法候选时，也会误确认弹层中的类别。
+0181-0056	apps/web/src/pages/Workbench/shell/ClassPickerPopover.tsx:203-206	-	弹层须延后在 document 捕获 pointerdown，既不把打开弹层的那次按下当作外部点击，也不依赖冒泡或兼容 mousedown；Konva 可能截断传播或抑制后者。
+0181-0057	apps/web/src/pages/Workbench/shell/ClassPickerPopover.tsx:260	-	fixed 弹层须挂到 document.body；仅在舞台内设为 fixed 不能脱离舞台和选中卡片的堆叠上下文，按视口定位的弹层仍可能被遮挡。
+0181-0058	apps/web/src/pages/Workbench/shell/CommentInput.tsx:64	-	画布批注须沿用原图宽高比；固定使用 600×400 会拉伸批注，使其在 16:9、4:3 等比例的图像上无法保持原有形状。
+0181-0059	apps/web/src/pages/Workbench/shell/CommentInput.tsx:84;apps/web/src/pages/Workbench/shell/CommentsPanel.tsx:101	-	标注或讨论目标不可用时，保留原目标下可恢复的草稿；协调器报告不可用并不等于授权换目标，自动回退会把原草稿带到无关讨论。
+0181-0060	apps/web/src/pages/Workbench/shell/CommentInput.tsx:148	-	序列化 contenteditable 时须保留块级元素之间的换行；浏览器可能用 DIV 或 P 分隔段落，仅提取并拼接文本会把相邻段落并到同一行。
+0181-0061	apps/web/src/pages/Workbench/shell/CommentInput.tsx:192-193	-	插入提及 chip 后，须把光标放进其后的空格文本节点；停在父节点的子节点边界会让部分中文输入法无法在不可编辑的 chip 旁开始组合，直接提交首字母。
+0181-0062	apps/web/src/pages/Workbench/shell/CommentInput.tsx:354-356,414	-	编辑器身份由认证租约所有者和讨论目标共同确定；即使目标不变，新租约也不能继承旧草稿。初始化和可用性同步还须处理渲染与 effect 之间的租约更换，避免沿用旧 provider 的作用域。
+0181-0063	apps/web/src/pages/Workbench/shell/CommentInput.tsx:369-371,885-887	-	提交防重不能只依赖下一次渲染可见的状态；须按提交时的编辑器身份同步登记请求，补足 draft.inFlight，覆盖旧适配器并拦住渲染前的连点，且不阻塞切换后的其他目标。
+0181-0064	apps/web/src/pages/Workbench/shell/CommentInput.tsx:239,431-432	-	仅在编辑器身份变化或编辑 DOM 新挂载时回填内容；平时的草稿修订只写 store，不能反向重写正在编辑的 DOM，否则键入时光标会跳动。
+0181-0065	apps/web/src/pages/Workbench/shell/CommentInput.tsx:457-458,617-618,636-637	-	切换目标时关闭绘图弹窗仍不足以隔离旧回调；onSave 须绑定打开时的会话、身份和来源，并复核当前身份，否则 React 迟到交付的回调可能改写切换后的任务、标注或账号。
+0181-0066	apps/web/src/pages/Workbench/shell/CommentInput.tsx:589,597-598	-	输入法组合期间不做草稿和 @ 查询同步，以免打断组词；须在 compositionend 主动同步最终文本，不能假定浏览器随后一定补发 input。
+0181-0067	apps/web/src/pages/Workbench/shell/CommentInput.tsx:671-672,712-713	-	带 origin 的 ImageStage 绘图结果须经会话 store 校验所有者和目标，不能按当前可见目标认领，否则迟到结果可能串到别的草稿；只有无 origin 的旧适配器可走兼容路径。
+0181-0068	apps/web/src/pages/Workbench/shell/CommentInput.tsx:676-677,957-959	-	实时绘图须在调用宿主 onStart 前同步占用画布，否则 active 尚未更新时连点会产生两个所有者；取消没有绘图结果，必须在所属 stage 报告会话不再活跃时释放占用。
+0181-0069	apps/web/src/pages/Workbench/shell/CommentInput.tsx:698-699	-	归属校验通过的迟到绘图可写回原目标的内存草稿，但原目标不再活跃时不得附上当前播放帧，否则会把当前上下文中的帧混入旧草稿。
+0181-0070	apps/web/src/pages/Workbench/shell/CommentInput.tsx:708-709	-	实时绘图结果须按 resultId 通知消费，由根桥接层判定该 ID 是否仍可清除；不能无条件清空结果槽，否则旧结果的迟到消费会清掉新结果。
+0181-0071	apps/web/src/pages/Workbench/shell/CommentInput.tsx:783-784	-	上传以启动时的目标和认证租约为准：仅切换目标不应中断仍有效的上传，文件仍归原目标；租约失效后不得再启动下一文件，不能沿用已退役的认证继续队列。
+0181-0072	apps/web/src/pages/Workbench/shell/CommentInput.tsx:830-832	-	登录路由上的 Provider 草稿 store 在认证缺失或过期时须拒绝提交，不能隐式回退到无认证模式；独立测试和 ReviewWorkbench 须显式传入 draftStore 适配器。
+0181-0073	apps/web/src/pages/Workbench/shell/CommentInput.tsx:893-894	-	提交成功后不能直接清空编辑器；只有 store 确认草稿仍与提交快照一致时才可清空，否则等待期间新增的编辑会被一并删除。
+0181-0074	apps/web/src/pages/Workbench/shell/CommentsPanel.tsx:92,715-717	-	须在写入处复核任务评论能力，不能只靠界面隐藏控件，否则旧适配器可能静默丢弃结构化内容。任务评论可带提及但不接收附件；只有启用绘图的图像任务可带画布，视频任务不可。
+0181-0075	apps/web/src/pages/Workbench/shell/CommentsPanel.tsx:116,426-428	-	无任务上下文的独立 ReviewWorkbench 可走旧标注评论读取，但查询只接受合格的持久标注 ID；预测、候选和临时 ID 不能作为已持久化标注交给接口。
+0181-0076	apps/web/src/pages/Workbench/shell/CommentsPanel.tsx:126-127	-	annotationClassById 未定义表示加载尚未完成；只有映射已定义且缺少该 ID（包括空映射）才表示标注不可用。把未定义当成空映射会在加载期间误判目标失效。
+0181-0077	apps/web/src/pages/Workbench/shell/CommentsPanel.tsx:280-281,333-334	-	阅读范围须按当前任务解释；复用面板切换任务时，首帧就应显示完整讨论流。若只靠布局 effect 重置，首次渲染仍会拿旧任务的范围筛选新讨论。
+0181-0078	apps/web/src/pages/Workbench/shell/CommentsPanel.tsx:309-310	-	即使 CommentsPanel 不直接读取草稿快照的值，也须保持订阅；否则 store 中已持久化的发送目标变更不会触发重渲染，受控选择框仍显示旧目标。
+0181-0079	apps/web/src/pages/Workbench/shell/CommentsPanel.tsx:570-572	-	弹窗绘图以显式发送目标为准，不能依赖当前选中态，否则 SPA 返回后将无法编辑恢复的标注草稿；实时画布和悬停桥接仍要求对应标注处于选中状态。
+0181-0080	apps/web/src/pages/Workbench/shell/CommentsPanel.tsx:683-685	-	提交须使用 CommentInput 在首次等待前锁定的发送目标，不能在异步完成时读取当前编辑器的目标，否则切换后会把评论发错位置；仅无快照的旧适配器走实时目标路径。
+0181-0081	apps/web/src/pages/Workbench/shell/CommentsPanel.tsx:770-771	-	附件下载须在首次等待前捕获所属 store、所有者和用户身份；不能在完成时按当前面板认领结果，因为同一面板可能已经跨过登出、换号或任务切换。
+0181-0082	apps/web/src/pages/Workbench/shell/ContextToolbar.test.tsx:262-264;apps/web/src/pages/Workbench/shell/ContextToolbar.tsx:42-49,287-288	-	带 data-modal 的决策对话框内的指针和焦点事件不算工具栏外部交互；Radix 延迟判定时对话框可能已关闭，若按此时的层级判定，确认操作会误收起工具栏。
+0181-0083	apps/web/src/pages/Workbench/shell/ContextToolbar.tsx:101	-	动画以 Popper 外壳计算出的最终位置为目标，只移动子面板；若直接给外壳施加位移动画，动画位移会干扰负责锚定的定位。
+0181-0084	apps/web/src/pages/Workbench/shell/ContextToolbar.tsx:259	-	PopoverAnchor 须在触发器之后挂载，让 Radix 首次渲染就保留显式画布锚点；反过来挂载会让触发器成为初始定位参考。
+0181-0085	apps/web/src/pages/Workbench/shell/DiscussionIssueDetail.tsx:177-178	-	前插较早的回复页后须恢复距滚动底部的距离，而不是沿用原 scrollTop；新增内容在视口上方，沿用原偏移会让读者正在看的回复跳出原位置。
+0181-0086	apps/web/src/pages/Workbench/shell/DiscussionIssuesTab.tsx:3-9,226-227	-	Issue 列表须由服务端先按状态筛选再分页；在已加载页上补筛会漏掉尚未加载的匹配项，卡片数也只是局部计数。待处理总数取首屏的 status_counts.open。
+0181-0087	apps/web/src/pages/Workbench/shell/DiscussionIssuesTab.tsx:73-75	-	Issue 修改操作须由服务端 actions 明确授权，不能用可读或可定位来推定可修改；旧响应或异常响应缺少该字段时，保留读取和定位，但不开放修改。
+0181-0088	apps/web/src/pages/Workbench/shell/DiscussionIssuesTab.tsx:141-142	-	切换任务时须退役旧任务的修改和详情界面，且迟到回调不能再更新当前界面；否则旧请求可能在新任务中报错或重新打开旧 Issue。
+0181-0089	apps/web/src/pages/Workbench/shell/DiscussionIssuesTab.tsx:153-155;apps/web/src/pages/Workbench/shell/DiscussionPanel.tsx:172-173	-	Issue 详情激活由 DiscussionPanel 持有，不能依附于按需挂载的 Issues 标签，否则会丢掉标签挂载前的图钉请求。标签可见时只消费同任务、同用户的快照；清理详情激活不能连带清除独立归属的草稿。
+0181-0090	apps/web/src/pages/Workbench/shell/DiscussionIssuesTab.tsx:299-302	-	视频工作台的任务范围只约束 Issue 列表，不是详情读取的边界；否则项目图钉或深链会因列表范围而打不开。根 Issue 属于其他任务时提供显式切换到项目范围的入口，不自动定位。
+0181-0091	apps/web/src/pages/Workbench/shell/DiscussionPanel.tsx:24-26	-	DiscussionPanel 标签的中性态与激活态须分别设置边框和文字颜色，不能叠加两套颜色类，否则同时生效时会相互覆盖。
+0181-0092	apps/web/src/pages/Workbench/shell/DiscussionPanel.tsx:168-169	-	DiscussionPanel 的评论数表示完整讨论流，而非当前标签或阅读筛选的结果；因此复用完整讨论流的缓存总数和写入失效机制，不能用当前可见条目重算。
+0181-0093	apps/web/src/pages/Workbench/shell/DiscussionPanel.tsx:190-192	-	卸载清理推迟到微任务，避免 StrictMode 的立即重新激活被误当成真正卸载。实际清理也只针对当时捕获的详情请求，不能撤销替代 Workbench 随后发出的导航。
+0181-0094	apps/web/src/pages/Workbench/shell/DiscussionPanel.tsx:272-273,287,299-300	-	导航按所属请求触发：详情用 owner 的 navigationState，IssueLayer 切页用 tabRequestTick，显式 QC 导航按活跃问题 ID 打开 Mask QC。收起状态和回调变化不是新请求，否则展开面板或替换回调就会重放导航。
+0181-0095	apps/web/src/pages/Workbench/shell/FloatingPanelShell.tsx:35	-	FloatingPanelShell 收起不等于卸载内容，但也不能只做视觉隐藏；收起的外壳必须退出输入交互和无障碍访问，避免不可见的控件仍能被操作。
+0181-0096	apps/web/src/pages/Workbench/shell/HotkeyCheatSheet.test.tsx:66;apps/web/src/pages/Workbench/shell/HotkeyCheatSheet.tsx:47-48	-	快捷键行即使没有说明也保留说明／操作行的高度，不能按内容有无省略占位，否则备注或备用组合会改变行高和分隔线间距。
+0181-0097	apps/web/src/pages/Workbench/shell/HotkeyCheatSheet.test.tsx:202;apps/web/src/pages/Workbench/shell/HotkeyCheatSheet.tsx:219	-	录制快捷键时须在捕获阶段拦截按键，否则候选组合可能同时触发后台命令；仅验证候选展示和确认回调，不能证明后台操作已隔离。
+0181-0098	apps/web/src/pages/Workbench/shell/HotkeyCheatSheet.tsx:1-7	-	快捷键冲突检查不能只枚举可编辑绑定：固定命令虽不允许修改，仍占用组合键，漏检会允许把同一组合绑定到另一条命令。
+0181-0099	apps/web/src/pages/Workbench/shell/HotkeyCheatSheet.tsx:102-103	-	staticKeyGroups 展示备选组合时须为每个备选键重复共享修饰键；只在首项展示修饰键会把 Ctrl+Backspace 误标为裸 Backspace。
+0181-0100	apps/web/src/pages/Workbench/shell/HotkeyCheatSheet.tsx:295-296,979	-	项目类别数字键在普通视图只进专属分组，但搜索不能将其排除。搜索限定在所选工作台类型内，按命令原属分类展示，并跳过聚合的“常用”，避免同一命令重复出现。
+0181-0101	apps/web/src/pages/Workbench/shell/HotkeyCheatSheet.tsx:731	-	3D 点云工作台不使用快捷键面板的遮罩模糊；不能直接沿用其他工作台的遮罩效果，否则软件渲染会拖慢合成清理。
+0181-0102	apps/web/src/pages/Workbench/shell/HotkeyCheatSheet.tsx:743	-	遮罩点击须先取消未确认的快捷键录制而不关闭面板，不能把取消候选当成关闭。已确认的保存由偏好写入路径处理，不以关闭面板为提交时机。
+0181-0103	apps/web/src/pages/Workbench/shell/HotkeyCheatSheet.tsx:819	-	onOpenAutoFocus 须聚焦可通过 ref 取得的原生 input；现有 Input 在 React 18 下不转发 ref，换用它会使打开时的程序化聚焦失效。
+0181-0104	apps/web/src/pages/Workbench/shell/ImageSelectionCardContent.tsx:65	-	置信度只对 AI 采纳或导入的标注展示，不能仅凭后端存有数值就显示；手动框存为 1 也不代表模型有满置信度。
+0181-0105	apps/web/src/pages/Workbench/shell/InteractiveToolBar.tsx:2-7,818	-	高级区收起只改变呈现，不能卸载其中的控件，否则会重置控件状态或请求；配置和本轮推理仍由上层持有，不随高级区的可见性切换。
+0181-0106	apps/web/src/pages/Workbench/shell/InteractiveToolBar.tsx:51	-	不能以候选数量判断提示会话是否存在；后端返回零候选时，已有提示仍可能保留，把零候选当成会话结束会丢掉有效的会话状态。
+0181-0107	apps/web/src/pages/Workbench/shell/InteractiveToolBar.tsx:62,65	-	exemplar 的会话级召回输出可选框、Mask 或两者，不能复用单帧交互候选入库时的多边形或 Mask 几何设置；两者绑定会让一方的设置错误地改变另一方的输出。
+0181-0108	apps/web/src/pages/Workbench/shell/InteractiveToolBar.tsx:78	-	exemplar 阈值没有覆盖值时，滑块初值须取后端 /setup.params 声明的默认值；另设前端默认值会让界面显示与后端实际采用的默认阈值不一致。
+0181-0109	apps/web/src/pages/Workbench/shell/InteractiveToolBar.tsx:88-89	-	模型自报属性会在采纳时丢失，并不意味着它可以自动补入；只有警告提供 fillable 才开放一键补全，且补全范围是项目中所有已启用的工具单元。
+0181-0110	apps/web/src/pages/Workbench/shell/InteractiveToolBar.tsx:91-92,226-227	-	交互后端和模型都须按当前工具的提示能力筛选，不能把同类模型视为可互换：图像点提示不能选视频 tracker。后端选择器须显示实际解析到的后端，而不是不适用的偏好值。
+0181-0111	apps/web/src/pages/Workbench/shell/InteractiveToolBar.tsx:96-97	-	交互档位按当前模型的 variant 轴选择并写入项目级 default_variants；另存工具栏偏好会让交互推理和批量预标注对同一项目使用不同的默认档位。
+0181-0112	apps/web/src/pages/Workbench/shell/InteractiveToolBar.tsx:248,252-253	-	缺少 exemplar 能力声明不等于不支持，否则旧版 SAM3 会被误禁用负框或文本组合。明确不支持负框时，除隐藏入口外还须纠正 smart-point 遗留的负极性，否则新框以 label=False 发出后会被剔除，导致零候选。
+0181-0113	apps/web/src/pages/Workbench/shell/IssueCreateModal.tsx:11	-	IssueCreateModal 的文本输入须有局部样式基线，不能假定全局 preflight 已加载，否则在未加载它的宿主中会退回浏览器默认样式。
+0181-0114	apps/web/src/pages/Workbench/shell/IssueCreateModal.tsx:30	-	创建 Issue 后须失效 useFeedbacks 当前订阅参数对应的缓存键；用另一组列表参数失效只会刷新别的查询，当前列表仍可能显示旧数据。
+0181-0115	apps/web/src/pages/Workbench/shell/IssueCreateModal.tsx:32,34,74-76	-	每次打开或换题都隔离表单和变更观察器（含 A→B→A），并在打开时快照创建意图及已确认锚点。像素问题需归一化点位，视频还需已确认源帧；不能在提交时读取父级实时值，否则迟到更新会改掉点位或把任务问题变成像素问题。
+0181-0116	apps/web/src/pages/Workbench/shell/ManualCreationPopover.tsx:109-110	-	类别选择器通过 Portal 渲染，不能一律用自身面板引用判定外部点击，否则 Portal 内的点击会被误判。通过 Portal 根节点判定只在 Workbench 同时挂一个待创建选择器时成立，其他阶段使用自身面板引用。
+0181-0117	apps/web/src/pages/Workbench/shell/ManualCreationPopover.tsx:118-120	-	ManualCreationPopover 的外部点击拦截只用于防止画布误绘，不能在保存期间扩大到队列、工具和导航；否则弹层会越过事务所有者，替它拒绝本可放行的换题操作。
+0181-0118	apps/web/src/pages/Workbench/shell/ManualCreationPopover.tsx:150-151	-	ManualCreationPopover 不统一接管 Enter，否则会抢走原生选择器和可按控件的键盘操作；草稿文本字段触发提交时，则须读取同步更新后的值，避免提交更新前的草稿。
+0181-0119	apps/web/src/pages/Workbench/shell/MaskQcPanel.tsx:366	-	MaskQcPanel 在区域决定确认返回后须重新核对当前问题、候选及是否已有决定；确认只代表用户同意当时的操作，直接提交可能把决定写到已切换的对象或覆盖已有决定。
+0181-0120	apps/web/src/pages/Workbench/shell/MaskRepairSheet.tsx:68	-	MaskRepairSheet 的 dry-run 结果必须与发起时的父级 ownerKey 匹配；仅凭请求成功不能应用结果，否则切换作用域后迟到的旧结果会被用到新作用域。
+0181-0121	apps/web/src/pages/Workbench/shell/OfflineQueueDrawer.tsx:22	-	OfflineQueueDrawer 只纳入明确归属当前账号的操作；不能把无所有者的旧记录默认认领给当前账号，否则可能向当前账号暴露或重放归属不明的操作。
+0181-0122	apps/web/src/pages/Workbench/shell/OfflineQueueDrawer.tsx:28,154-155	-	OfflineQueueDrawer 的单条同步须与批量 drain 一样，把删除返回的 404 视为目标已不存在并出队；若按普通错误保留，已达到删除目的的操作仍会被重试。
+0181-0123	apps/web/src/pages/Workbench/shell/OfflineQueueDrawer.tsx:114-115	-	OfflineQueueDrawer 没有当前题时，「当前题」筛选必须返回空集，不能回退到全部；否则重试或丢弃可能波及用户没有选中的其他题。
+0181-0124	apps/web/src/pages/Workbench/shell/OfflineQueueDrawer.tsx:193-194	-	OfflineQueueDrawer 批量丢弃只作用于弹出确认前快照中的操作 ID；若确认后按实时队列重算，等待期间因保存失败而新入队的编辑也会被未经授权地丢弃。
+0181-0125	apps/web/src/pages/Workbench/shell/SecondaryInferenceBar.tsx:1-2,127,252	-	二次推理的紧凑区和完整设置须共用每模型配置，单项编辑不能替换整份配置，否则会丢失其他默认值或已编辑项；异步返回的偏好只填尚未触碰的参数与变体，不能覆盖当前编辑。
+0181-0126	apps/web/src/pages/Workbench/shell/SecondaryInferenceBar.tsx:38,198	-	二次推理的属性写回成功不代表属性面板可见：项目缺少对应字段时，面板不会显示该属性。运行后应提示补齐字段，否则用户可能把不可见误判为写回失败。
+0181-0127	apps/web/src/pages/Workbench/shell/SecondaryInferenceBar.tsx:48	-	旧模型缺少平台角色声明时，SecondaryInferenceBar 只按已知置信度键回退；把任意无角色参数当作置信度，会让阈值控件修改不相关的模型参数。
+0181-0128	apps/web/src/pages/Workbench/shell/SecondaryInferenceBar.tsx:121,124	-	开集提示词是按能力保存的临时目标查询，不能随用户偏好跨标注框或设备复用；可复用的是参数与变体，并须按 backendId:modelId 隔离，避免不同后端的同名模型串用设置。
+0181-0129	apps/web/src/pages/Workbench/shell/SelectedAnnotationCard.tsx:176-177	-	折叠胶囊不能直接换成原生 button，因为 useDragMove 会拦截按钮的 pointerdown，影响拖动。使用带 tabIndex 的 div 保留键盘可达性，同时不让拖动触发展开。
+0181-0130	apps/web/src/pages/Workbench/shell/SelectionCardContent.tsx:50,365-366	-	批量删除轨迹须在确认后用装配层最新的活跃标注过滤原目标，仅在还有目标时提交；直接重用确认前的列表，会因等待期间已有轨迹被删除而报错。
+0181-0131	apps/web/src/pages/Workbench/shell/SelectionCardContent.tsx:253-254	-	视频单帧标注不属于轨迹，复用轨迹面板会在筛选时把它排除。单帧标注需要独立卡片，否则无法从该面板定位所在帧或查看指标与属性。
+0181-0132	apps/web/src/pages/Workbench/shell/TaskQueuePanel.tsx:67-70	-	2D 色板仅作图例，类别由落框弹窗或数字键选择；3D 点云没有落框弹窗，新框直接读取 activeClass，因此不能沿用只读色板，须允许点击设置类别。
+0181-0133	apps/web/src/pages/Workbench/shell/TaskQueuePanel.tsx:322-324	-	收起左栏会卸载 TaskQueuePanel，须由 useElementStyle 向每次挂载的节点写入 --left-palette-height。若只依赖 paletteHeight 变化触发 effect，同值重挂时新节点会回退到默认高度。
+0181-0134	apps/web/src/pages/Workbench/shell/TaskQueuePanel.tsx:382,397	-	没有批次时，当前显示的 100 条不能当作完整任务清单；TaskQueuePanel 应引导 owner 配置批次，并提示非 owner 联系管理员分配，而不是让截断列表看起来像全部任务。
+0181-0135	apps/web/src/pages/Workbench/shell/ToolDock.test.tsx:544;apps/web/src/pages/Workbench/shell/ToolDock.tsx:798-803	-	ToolDock 按最终产出几何而非提示方式过滤 AI 工具：smart-* 受 region 门控，否则产出的多边形无类别可归；Magic Box 虽从 SAM 多边形起步，最终写入外接矩形，须受 bbox 门控。
+0181-0136	apps/web/src/pages/Workbench/shell/ToolDock.test.tsx:713-714;apps/web/src/pages/Workbench/shell/ToolDock.tsx:126-129	-	视频工具角标和提示只展示 hotkeys.ts 实际分派给该工具的绑定，不能照搬其他视图的键位；例如把 L 标给折线并非只是无效，按下它会让视频快进。
+0181-0137	apps/web/src/pages/Workbench/shell/ToolDock.tsx:22-23	-	ToolDock 的基础按钮类不设颜色，空闲与激活配色须互斥；cn() 不会消解冲突的 Tailwind 类，叠加基础色可能因 CSS 源顺序盖掉激活高亮。
+0181-0138	apps/web/src/pages/Workbench/shell/ToolDock.tsx:48	-	视频工具作用域须由 Shell 决定是否切换；ToolDock 只通过 onSetVideoToolScope 发出请求，不能先行更新，否则 Shell 拒绝时界面已切到未获准的作用域。
+0181-0139	apps/web/src/pages/Workbench/shell/ToolDock.tsx:54,66-69,723,809	-	AI 能力加载中应禁用工具，避免按临时回退配置运行；但项目开关 aiInteractiveEnabled 未加载时不能当作关闭，只有明确为 false 才隐藏工具组。
+0181-0140	apps/web/src/pages/Workbench/shell/ToolDock.tsx:60-64,811	-	enabledToolUnits 为 null 表示没有配置几何单位过滤，而不是启用集合为空；把两者等同会让未配置 tool_bindings 的旧项目丢失原本可用的工具。
+0181-0141	apps/web/src/pages/Workbench/shell/ToolDock.tsx:76	-	视频关键点工具在未配置骨骼节点时须保留入口但禁用；不能把缺少节点配置视作允许创建，否则会生成没有节点语义的关键点数组。
+0181-0142	apps/web/src/pages/Workbench/shell/ToolDock.tsx:367	-	ToolDock 的布局签名须同时包含工具全集与主栏分配；切换作用域时可能只变更溢出菜单项，只比较主栏或当前选中项会漏掉这类布局变化。
+0181-0143	apps/web/src/pages/Workbench/shell/ToolDock.tsx:419,428	-	ToolDock 只在容量或工具集合变化时主动恢复焦点，避免打断正常菜单操作；溢出菜单仍打开时须等 Radix 的 onCloseAutoFocus，在焦点陷阱解除后再恢复。
+0181-0144	apps/web/src/pages/Workbench/shell/ToolDock.tsx:493	-	ToolDock 的容量测量样本须与可见按钮使用相同 CSS，但不可交互；另做简化样式会使容量判断偏离实际尺寸，直接复制可操作按钮又会增加一套工具入口。
+0181-0145	apps/web/src/pages/Workbench/shell/Topbar.test.tsx:94-96	-	Topbar 的 items 菜单收到 Tab 时须关闭并把焦点还给触发器，页脚原生 select 内也不例外；否则位于 body 末尾的 portal 可能让焦点离开文档，而菜单仍开着。
+0181-0146	apps/web/src/pages/Workbench/shell/Topbar.tsx:16,85-88	-	工作台复用 NotificationsPopover 时须注入自己的导航回调，不能沿用主界面的直接跳转，否则会绕过视频和 Mask 的离开检查；没有该回调就不显示通知入口。
+0181-0147	apps/web/src/pages/Workbench/shell/Topbar.tsx:34,165	-	Topbar 在阈值变化后短暂回显数值，不能只在操作阈值控件时显示；用 [ 和 ] 快捷键调整时，标注员否则无法从界面确认调整后的阈值。
+0181-0148	apps/web/src/pages/Workbench/shell/Topbar.tsx:206	-	视频分段的原生下拉框须截住方向键、Home、End、Enter 和空格，不让事件冒泡到溢出菜单；否则菜单会把下拉框的操作键当成菜单项导航。
+0181-0149	apps/web/src/pages/Workbench/shell/Topbar.tsx:286-288	-	Topbar 空间不足时应先收缩左侧项目名，并保留中段内容所需的最小宽度；若让中段一起收缩，无法继续压缩的任务元数据和按钮会溢出并盖住相邻控件。
+0181-0150	apps/web/src/pages/Workbench/shell/VideoTrackBatchCardContent.test.tsx:42	-	轨迹批量卡的显隐和锁定按钮须用 aria-pressed 暴露切换状态；仅替换图标虽然能更新视觉反馈，却不会让读屏用户知道按钮当前是否按下。
+0181-0151	apps/web/src/pages/Workbench/shell/WorkbenchLayout.tsx:160;apps/web/src/pages/Workbench/shell/workbenchDialogClasses.ts:20-24	-	3D／点云工作台的遮罩只压暗，不沿用图片和视频的 backdrop-filter 模糊；SwiftShader 等软件渲染环境下，模糊会拖慢合成清理，可能使后续浏览器上下文初始化超时。
+0181-0152	apps/web/src/pages/Workbench/shell/WorkbenchOverlays.test.tsx:186;apps/web/src/pages/Workbench/shell/WorkbenchOverlays.tsx:18,26-30	-	视频待绘制框和 SAM 选类弹层须用画布已换算的屏幕锚点做 fixed 定位；WorkbenchOverlays 拿不到视频画布的视口，不能套用无锚点图片路径的几何与视口换算。
+0181-0153	apps/web/src/pages/Workbench/shell/WorkbenchOverlays.tsx:39,41	-	选类范围须按对象的工具单位确定：采纳预测取预测自身的类别，批量改类取所选对象的类别；不同工具单位混选时须在打开弹层前拦截，不能共用同一类别范围。
+0181-0154	apps/web/src/pages/Workbench/shell/WorkbenchOverlays.tsx:48,50	-	改类弹层只有在纯改类时才选定即关闭；若弹层还承载内联属性编辑，提交类别后须保持打开，否则会中断同一次属性编辑。
+0181-0155	apps/web/src/pages/Workbench/shell/WorkbenchSettingsDialog.tsx:78	-	关闭设置弹窗时须保留 useWorkbenchConfig 挂载，不能随弹窗一起卸载；否则防抖计时中尚未发出的保存会被取消。
+0181-0156	apps/web/src/pages/Workbench/shell/WorkbenchSettingsDialog.tsx:93,336	-	通知偏好须独立于渲染配置加载和重试，不能以渲染配置成功作为前提；否则渲染配置报错时，原本可独立读取的通知偏好也无法加载或重试。
+0181-0157	apps/web/src/pages/Workbench/shell/WorkbenchSettingsDialog.tsx:238	-	原生下拉菜单打开时，须在 Radix 捕获阶段阻止 Esc 的默认处理，让这次按键只关闭下拉菜单并保留控件焦点；否则 Esc 会被当成关闭整个设置弹窗。
+0181-0158	apps/web/src/pages/Workbench/shell/WorkbenchShell.tsx:115	-	问题落点模式启动后，按钮的可见性不能再只由唤出热区决定；否则光标移出热区去选落点时，模式仍然生效，高亮提示却会消失。
+0181-0159	apps/web/src/pages/Workbench/shell/WorkbenchStageHost.tsx:54	-	ThreeDWorkbench 须按需加载，不宜改成主入口的静态依赖；否则约 600 KB 的 three 会进入主包，未打开 LiDAR 任务的用户也要加载它。
+0181-0160	apps/web/src/pages/Workbench/shell/WorkbenchStageHost.tsx:123	-	Scene 时间轴切帧须经 onNavigateSceneFrame 进入壳层的任务导航，而非另走本地切帧路径；否则时间轴可以绕过切换任务时的保存保护。
+0181-0161	apps/web/src/pages/Workbench/shell/WorkbenchStageHost.tsx:231	-	ImageStage 翻页时，若任务记录已有图片宽高，应同步计算适配；仍等图片 onload 会把本来可立即确定的布局推迟到加载完成。
+0181-0162	apps/web/src/pages/Workbench/shell/WorkbenchStageHost.tsx:238	-	几何提交尚未完成时，usePendingGeom 须用 pendingGeomMap 覆盖旧几何；若松手后直接绘制已提交的数据，标注会短暂闪回调整前的尺寸。
+0181-0163	apps/web/src/pages/Workbench/shell/__tests__/CommentInput.test.tsx:251	-	CommentInput 在输入法组合期间不得向草稿 store 同步中间值；若把组字过程当作普通输入同步，React 或 store 更新可能打断尚未完成的组字。
+0181-0164	apps/web/src/pages/Workbench/shell/annotationFrameScope.test.ts:1-6;apps/web/src/pages/Workbench/shell/annotationFrameScope.ts:1-7	-	当前帧筛选与列表跳转须识别视频单帧及轨迹几何，不能只处理矩形；否则多边形和折线会落入默认可见分支，firstTrackFrame 也无法提供跳转帧。
+0181-0165	apps/web/src/pages/Workbench/shell/annotationFrameScope.test.ts:132	-	轨迹的 outside 区间必须切断跨区间插值，不能只隐藏区间内的帧；否则即使区间内不可见，两侧仍会出现推算出的几何，而受影响处应只显示关键帧本身。
+0181-0166	apps/web/src/pages/Workbench/shell/toolDockOverflow.ts:17	-	toolDockHeight 须和工具坞 CSS 使用一致的尺寸与分组间距；独立估值会使溢出阈值偏离实际占用高度，导致工具尚未溢出就被收起，或放不下时仍留在坞内。
+0181-0167	apps/web/src/pages/Workbench/shell/useDragMove.ts:127-129	-	useDragMove 只在窗口 resize 时校正并持久化位置，不因挂载或 bounds 变化写回；否则热重载时边界从空值变为视口，或重测产生亚像素抖动，都可能使保存位置漂移。
+0181-0168	apps/web/src/pages/Workbench/shell/workbenchToolbarChrome.tsx:1-9,19,23	-	SAM 与视频 tracker 工具条只共用内部样式，不共用外层定位；SAM 需要锚定 stage，而 tracker 固定在上方是为了给底部时间轴留出空间。
+0181-0169	apps/web/src/pages/Workbench/shell/workbenchToolbarChrome.tsx:11	-	工具条字段标签不能随 Flex 收缩或换行，应由面板随内容加宽；否则空间紧张时标签会被挤到逐字竖排。
+0181-0170	apps/web/src/pages/Workbench/shell/pet/PixelHumanSprite.tsx:29-32	-	PixelHumanSprite 在默认 56 px 尺寸下采用整数坐标；若改用分数坐标，像素边缘可能落在像素之间而被抗锯齿软化。
+0181-0171	apps/web/src/pages/Workbench/shell/pet/PixelSprite.tsx:4-5	-	PixelSprite 的图形颜色须写在 SVG 的 fill 和 stroke 属性中，不能等价地搬到 className；后者受颜色门禁约束。
+0181-0172	apps/web/src/pages/Workbench/shell/pet/WorkbenchPet.tsx:11	-	当展开的选中信息卡需要跟随桌宠时，WorkbenchPet 的位置须可由外部控制；若拖动位置只保存在桌宠内部，信息卡就无法随它移动并保持锚定。
+0181-0173	apps/web/src/pages/Workbench/shell/pet/WorkbenchPet.tsx:44	-	桌宠默认落点虽靠右下，但须与右缘保持超过 180 px 的距离；若像普通角标一样贴边，用户靠近桌宠时就可能误触 FAB 按钮列。
+0181-0174	apps/web/src/pages/Workbench/shell/pet/WorkbenchPet.tsx:114	-	WorkbenchPet 的拖动根节点不能换成 button；useDragMove 的 isInteractiveTarget 会拦截来自 button 的 pointerdown，导致桌宠无法从根节点起拖。
+0181-0175	apps/web/src/pages/Workbench/shell/pet/pet.module.css:1-2	-	桌宠动效只在 prefers-reduced-motion: no-preference 时启用；若把动画声明为无条件生效，选择减少动态效果的用户仍会看到桌宠动画。
+0181-0176	apps/web/src/pages/Workbench/shell/pet/usePetState.ts:150-156,166	-	usePetState 让里程碑庆祝优先于其他瞬态反馈，但普通标注加一不弹气泡也不换姿态；若把每次加一都作为动效触发，连续标注会造成视觉闪烁。
+0181-0177	apps/web/src/pages/Workbench/shell/pet/usePetState.ts:188	-	AI 运行态至少展示 800 毫秒，不能在请求结束时立即收起，否则极快的请求会让桌宠状态一闪而过。
+0181-0178	apps/web/src/pages/Workbench/shell/pet/usePetState.ts:203,216	-	随机点击彩蛋不能盖过优先级更高的状态；久坐闲聊的门槛更严格，有选中项、AI 状态、警告或离线状态时均不触发，避免在用户仍有工作上下文时打扰。
+0181-0179	apps/web/src/pages/Workbench/shell/selectionCard/AIPredictionCardContent.tsx:27	-	AI 预测浮卡须遵守任务级锁：任务处于 review 或 completed 时，采纳、精修和忽略都禁用，不能因操作入口移到浮卡就绕过任务只读限制。
+0181-0180	apps/web/src/pages/Workbench/shell/selectionCard/ActionBar.tsx:12-16	-	卡底动作区须保留 data-floating-panel-no-drag；只复用按钮和布局样式而不保留该标记，会让按钮操作误触浮卡拖动。
+0181-0181	apps/web/src/pages/Workbench/shell/selectionCard/VideoFrameBoxCardContent.tsx:47-53	-	视频单帧几何不是轨迹，右栏轨迹面板会过滤它。不能把帧定位和几何编辑只留给右栏，否则选中单帧标注时会失去这些入口。
+0181-0182	apps/web/src/pages/Workbench/shell/selectionCard/VideoPointsTrackCardContent.tsx:55-62	-	点轨迹不能套用依赖 keyframe.bbox 的框轨迹卡。卡片只显示当前帧并提供整轨操作，不把框轨迹的关键帧编辑模型套到需要处理顶点对应和插值的点轨迹上。
+0181-0183	apps/web/src/pages/Workbench/shell/selectionCard/VideoTrackCardContent.test.tsx:140-141	-	转独立框可能修改或删除源轨迹，因此下拉触发器和关键帧表行都必须检查轨迹锁；仅检查任务 readOnly 会让已锁轨迹仍可被转换。
+0181-0184	apps/web/src/pages/Workbench/shell/selectionCard/VideoTrackCardContent.tsx:98	-	轨迹色块须与列表、画布读取同一会话内的逐轨迹颜色覆盖；若卡片单独按类别或默认色取值，同一条轨迹改色后会在不同视图显示不同颜色。
+0181-0185	apps/web/src/pages/Workbench/shell/selectionCard/geometryMetrics.ts:20	-	pctText 对大于 0 且小于 1% 的占比保留两位小数，避免统一保留一位时把部分非零占比舍入成 0.0%。
+0181-0186	apps/web/src/pages/Workbench/sidebar/GuidePanel.tsx:45-50	-	指南仅在用户明确确认后记为已读，关闭面板或切换项目、版本不算确认。布局以 scope key 隔离指南实例，避免上一份指南的异步图片或保存响应串到下一份。
+0181-0187	apps/web/src/pages/Workbench/stage/BlurhashLayer.module.css:1-2;apps/web/src/pages/Workbench/stage/BoxRenderer.module.css:1;apps/web/src/pages/Workbench/stage/DrawingPreview.module.css:1-2;apps/web/src/pages/Workbench/stage/ImageBackdrop.module.css:1-2;apps/web/src/pages/Workbench/stage/ImageStage.module.css:1	-	画布叠加层的像素布局与层叠顺序留在 CSS，颜色使用白名单内的 --sc-* 变量；不能把 BlurhashLayer、DrawingPreview 或 ImageBackdrop 改回依赖内联样式，否则收紧 CSP style-src 后这些样式可能被拦截。
+0181-0188	apps/web/src/pages/Workbench/stage/BoxListItem.tsx:174-176	-	BoxListItem 没有项目属性 schema，AI 候选行只能把原始标量当作预览，不能将枚举值冒充显示标签；中文标签由持有 options 的 AttributeForm 解析。
+0181-0189	apps/web/src/pages/Workbench/stage/BoxListItem.tsx:200	-	dataset_items 的宽高可能尚未回填，BoxListItem 应将缺失的像素尺寸显示为「—」，不能以 0 等数值代替未知尺寸。
+0181-0190	apps/web/src/pages/Workbench/stage/BoxRenderer.tsx:15	-	diff 模式下依据 parent_prediction_id 淡化已采纳的 AI 预测，而不是将预测和最终标注等强度叠画；两者重叠时，否则难以辨认最终标注。
+0181-0191	apps/web/src/pages/Workbench/stage/CanvasDrawingLayer.tsx:1-15	-	自由绘制几何随 Stage 使用归一化图坐标，但线宽须按缩放倒数补偿，否则缩放会改变屏幕线宽。只读时不监听，编辑时由 ImageStage 确认空白命中才起笔，已有线条不截获事件。
+0181-0192	apps/web/src/pages/Workbench/stage/ImageStage.helpers.ts:58-59	-	只在恰好选中一个父框时高亮其直接子框；多选时不能合并各父框的高亮，因为同一套高亮环无法再说明子框归属哪个父框。
+0181-0193	apps/web/src/pages/Workbench/stage/ImageStage.helpers.ts:70;apps/web/src/pages/Workbench/stage/ImageStage.tsx:337	-	raster_mask 标注和 SAM 原生掩膜候选都按像素掩膜渲染，不能落入 KonvaBox 或矢量候选分支；SAM 原生掩膜使用共享栅格渲染器解码。
+0181-0194	apps/web/src/pages/Workbench/stage/ImageStage.module.css:71;apps/web/src/pages/Workbench/stage/ImageStage.tsx:252,778-779	-	翻页优先用任务已有的源尺寸同步计算 fit，缺失时才取自然尺寸，且图像与标注必须共用同一组尺寸。fit 未就绪时只显示 blurhash 并隐藏 Konva，避免标注按旧变换或默认变换闪现。
+0181-0195	apps/web/src/pages/Workbench/stage/ImageStage.tsx:274-278	-	松手到 mutate 回填之间，pendingGeomMap 须保留完整几何，防止标注闪回旧位置。渲染按 drag > nudgeMap > pendingGeomMap > 持久几何取值，避免等待回填的几何盖过当前操作。
+0181-0196	apps/web/src/pages/Workbench/stage/ImageStage.tsx:132,309-312	-	SAM exemplar 可以复用 bbox 的绘制手势，但松手时必须派发独立 kind 以路由到 runExemplar；按普通框提示提交会把样例框交给错误的处理器。
+0181-0197	apps/web/src/pages/Workbench/stage/ImageStage.tsx:326-330	-	box、mask 和 both 模式共用候选展示时，必须按标签类型取几何：rectanglelabels 读 bbox，polygonlabels 读 points，不能按当前模式统一假定候选载荷。
+0181-0198	apps/web/src/pages/Workbench/stage/ImageStage.tsx:339	-	SAM 掩膜候选仅在显式使用修饰键时按 alpha 命中选取，且选取结果不进入标注选区；否则普通点选可能被尚未确认的候选截获。
+0181-0199	apps/web/src/pages/Workbench/stage/ImageStage.tsx:357,677-678,1433-1434	-	Alt 拖动父框须在松手时从 userBoxesRef 读取最新父子关系，避免 PATCH 已删除或移出的子框，或漏掉新加入的子框。childMoves 上送各子框同位移后的新旧几何，使父子移动能一次撤销。
+0181-0200	apps/web/src/pages/Workbench/stage/ImageStage.tsx:370	-	ImageStage 的 overlay 须在画布容器内绝对定位，与 SelectionOverlay 使用同一坐标系；改用图像坐标会令叠加内容在视口缩放或平移后与选区错位。
+0181-0201	apps/web/src/pages/Workbench/stage/ImageStage.tsx:424-426	-	SAM 待确认轮廓的 rAF 虚线动画须留在独立候选组件内；若由 ImageStage 持有逐帧更新状态，少量候选的动画也会让整个画布重渲染。
+0181-0202	apps/web/src/pages/Workbench/stage/ImageStage.tsx:626-627	-	selSet 的复用应按排序后的选中 ID 签名判定，而不是按输入引用或顺序判定，否则选中成员未变也会让下游记忆化失效。
+0181-0203	apps/web/src/pages/Workbench/stage/ImageStage.tsx:645-650	-	绘制模式通常不点选已有标注，但在非只读、非连续创建时须保留单选可编辑人工标注的手柄交互。若一律屏蔽，用户画完就得切回选择工具才能调整；空白处仍可起画。
+0181-0204	apps/web/src/pages/Workbench/stage/ImageStage.tsx:712-713	-	任务重取换发预签名 URL 时，只要不可变媒体标识不变，就保留已加载的 URL；签名变化不代表媒体变化，按 URL 判定会无谓地替换图源。
+0181-0205	apps/web/src/pages/Workbench/stage/ImageStage.tsx:801-803	-	图像加载失败也须结束尺寸等待；无可用尺寸时以 900×600 回退。若只在加载成功时令 fitted 就绪，画布会一直隐藏，笔刷和框选也无法交互。
+0181-0206	apps/web/src/pages/Workbench/stage/ImageStage.tsx:836-837	-	可见人工标注按 z_order 排序，但同值必须保留输入顺序，不能拿选中状态打破平局，否则切换选中项会改变同层标注的遮挡关系。
+0181-0207	apps/web/src/pages/Workbench/stage/ImageStage.tsx:889-890,2644-2645;apps/web/src/pages/Workbench/stage/ImageStageShapes.tsx:101-102	-	仅在恰好选中一个父框时，用固定色细点线标出直接子框，避免多选时归属不清，也不与类别色虚线的 AI 框混淆。子框 bbox 外扩 6px，使点线不被外扩 4px 的组虚线盖住。
+0181-0208	apps/web/src/pages/Workbench/stage/ImageStage.tsx:937-938,1204-1205,1383	-	绘框以松手坐标为准，画布笔迹同步写入 dragRef；经 rAF 合并的 React 状态只用于预览。松手可能早于最后一次回绘，从预览提交会取到旧框，或把有效笔迹当成单点丢弃。
+0181-0209	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1028-1030,1081-1083	-	以媒体标识划定 fit 边界，切图先隐藏画布，在布局阶段用新尺寸重算视口并于浏览器绘制前同步 draw。渲染期重置可能在连续切图时丢失；只等 react-konva 的 rAF 批绘则可能在揭开画布的首帧露出旧视口。
+0181-0210	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1052-1053	-	切割会话变化后要在布局效应里同步刷新 Konva 命中图；React 提交 listening 不等于命中图已更新，若只等批绘，取消切割后的第一次点击可能选不中标注。
+0181-0211	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1093-1097	-	Mask 滚轮调半径按所选工具判断，不依赖 maskEditor.active，否则缓冲区未初始化时无法在第一笔之前调径。只响应纵向为主的滚动，以免触控板横滑误改笔径。
+0181-0212	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1137-1139	-	父级光标回调可能随每次移动生成新引用，重绑 window 监听器不能顺手取消已排队的帧，否则进行中的手势会丢掉尚未处理的更新；只在手势结束或组件卸载时取消。
+0181-0213	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1315	-	Mask 笔刷以半个半径为步长在相邻采样点之间补点，且不对落笔采样做 rAF 节流；直接盖采样点或按帧丢弃中间输入，会在快速移动时留下断笔。
+0181-0214	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1367-1368	-	旋转框必须先把指针位移换算为图像像素再求方位角，以匹配 Konva 的可见角度；非正方形图像的归一化横纵轴尺度不同，直接求角会产生偏差。
+0181-0215	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1386-1387	-	只有宽、高都不足 3 个图像像素的拖框才按误点静默丢弃；其余交由 guardDrawnBox 判断。若在手势层提前拦掉细长框或越界框，会绕过统一校验及提示。
+0181-0216	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1427-1428,2611	-	Alt 联动在起拖时锁定，仅让直接子框跟随父框限位后的实际位移，并批量提交为一次撤销。不用指针原始位移，否则父框撞到边界后子框仍会多走；未按 Alt 起拖则只移动父框。
+0181-0217	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1508-1510	-	Mask 松手只结束单笔撤销记录，不能同时提交标注；否则多笔就无法在同一缓冲区累积。与视频画布一致，由 Enter 或 MaskToolbar 显式将缓冲区提交为多边形。
+0181-0218	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1519-1520	-	拖拽收尾在 window 捕获阶段处理，不能依赖 Konva 或 canvas 将移动和松手事件冒泡上来，否则画布吞掉事件时手势可能无法结束。仍需保留 mouse 监听，以接住只发送鼠标事件的远程桌面与自动化输入。
+0181-0219	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1685-1686	-	闭合多边形只接受同一屏幕位置的两次普通点击，不能仅凭 Konva 双击事件闭合；同一 Stage 上的 Shift 拖动或相距较远的点击也可能被计为双击，导致误闭合。
+0181-0220	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1741,3236	-	Mask 笔径以图像为尺度，不能用固定屏幕尺寸的系统光标表示，否则缩放后所见圆圈与实际落笔范围不符。用 Konva 圆圈随图像缩放，移动时直接更新节点，React 只处理进出图像时的显隐。
+0181-0221	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1798-1800,1810,1819,1825	-	按几何类型从 usePendingGeom 读取松手时的形状，覆盖拖拽状态已清除而 onMutate 尚未回填缓存的间隙；此时若直接读缓存，标注会短暂跳回提交前的形状。
+0181-0222	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1832-1834	-	评论徽标虽在 Konva 外，仍须用形状渲染器正在使用的实时几何定位；若改用缓存中的已提交几何，拖拽顶点时徽标就不会跟随形状。
+0181-0223	apps/web/src/pages/Workbench/stage/ImageStage.tsx:1915	-	ContextMenu 在 onSelect 返回后才关闭 Portal，画布聚焦须延至下一帧；在选择回调里立即聚焦仍处于菜单关闭之前，不能保证关闭后焦点留在画布。
+0181-0224	apps/web/src/pages/Workbench/stage/ImageStage.tsx:2040-2042	-	右键拖拽一般复用平移管线，但关键点工具必须保留 Konva 的右键处理；若也将其截为平移，当前节点就无法用右键标为跳过（v=0）。
+0181-0225	apps/web/src/pages/Workbench/stage/ImageStage.tsx:2249-2250	-	AI 层只在选择工具下参与点击命中并允许采纳，与人工层的选择边界一致；绘制工具下不能沿用 AI 命中，否则落笔可能被当作选中预标注。
+0181-0226	apps/web/src/pages/Workbench/stage/ImageStage.tsx:2506-2508	-	带孔或多分量的多边形可以查看和选择，但不得用 points-only 编辑器改顶点、插点或整体拖动；该提交路径无法原子保留完整几何，编辑会把标注降级为无孔单环。
+0181-0227	apps/web/src/pages/Workbench/stage/ImageStage.tsx:2518	-	拖动单顶点时只有与该顶点相邻的边发生变化，可用 O(n) 增量检查而不必每次移动都做 O(n²) 全量检测；静止时仍需全检，以覆盖不涉及当前顶点的自交。
+0181-0228	apps/web/src/pages/Workbench/stage/ImageStage.tsx:2748-2749	-	CanvasDrawingLayer 的批注必须用归一化图像坐标 [0,1] 并共享 ImageStage 视口；按屏幕坐标保存看似可绘，缩放或平移后红圈和箭头却会偏离原先指向的图像内容。
+0181-0229	apps/web/src/pages/Workbench/stage/ImageStage.tsx:3322-3324	-	Magic Box 候选只有 bbox，不是 mask；不能把它接入 SAM mask 精修入口，否则会把检测框当成该入口所需的掩膜候选。
+0181-0230	apps/web/src/pages/Workbench/stage/ImageStageShapes.holes.test.tsx:1-11;apps/web/src/pages/Workbench/stage/ImageStageShapes.konva.test.tsx:1-10	-	Konva mock 中的 fillRule=evenodd 只能证明选中了多环分支，不能证明 sceneFunc 执行或像素正确。路径构造由纯函数测试检查，真实画布回归须用 Playwright 验证。
+0181-0231	apps/web/src/pages/Workbench/stage/ImageStageShapes.holes.test.tsx:130	-	即使用自定义路径绘制多环，KonvaPolygon 仍须透传外环 points；仅保留绘制路径会丢掉标签定位、锚点和命中检测所用的点列。
+0181-0232	apps/web/src/pages/Workbench/stage/ImageStageShapes.tsx:33-34,286	-	Douglas–Peucker 简化仅用于既不可编辑也未选中的多边形，容差约一个屏幕像素；选中或编辑时保留原顶点，否则简化会删掉用户要操作的顶点。
+0181-0233	apps/web/src/pages/Workbench/stage/ImageStageShapes.tsx:86-89,222-225,486-489,663-666,852-855	-	Data Manager 只读预览等独立渲染面必须显式传入当前项目的 colorConfig；省略后会回退到 Workbench 的模块级配置，可能把上一个项目的配色用在当前项目。
+0181-0234	apps/web/src/pages/Workbench/stage/ImageStageShapes.tsx:241-244,246-250,307-310,334,345-347	-	显式 holes、multiPolygon 优先于标注字段，避免覆盖几何被旧值遮蔽。复杂形状通过 Konva Context.fill 向原生 Canvas 转发 evenodd（分量互不相交），内外环都描边，不能把孔仅当填充扣除；普通单环保留 Line 路径。
+0181-0235	apps/web/src/pages/Workbench/stage/KonvaImageTileLayer.tsx:31-32	-	KonvaImageTileLayer 必须在实际绘制时向调度器读取当前瓦片，不能捕获 React 渲染时的快照：淘汰可能先于提交替换异步 Konva 回调，旧回调会拿到已关闭的位图。
+0181-0236	apps/web/src/pages/Workbench/stage/RasterMaskVisual.tsx:21	-	RasterMaskVisual 选中时沿实际像素轮廓增亮，不能用 AABB 虚线框代替；包围盒会把不规则掩膜的选中边界误读成一个矩形标注。
+0181-0237	apps/web/src/pages/Workbench/stage/ResizeHandles.module.css:1-2;apps/web/src/pages/Workbench/stage/SelectionOverlay.module.css:1;apps/web/src/pages/Workbench/stage/VideoKonvaStage.module.css:1	-	画布叠加层的像素定位和层叠顺序留在 CSS，配色使用门禁白名单中的 --sc-* 变量；不要把 ResizeHandles 的定位搬回内联样式，否则收紧 CSP style-src 后这些样式可能被拦截。
+0181-0238	apps/web/src/pages/Workbench/stage/ResizeHandles.test.ts:35	-	applyResize 在 Shift 锁定比例时，将角点位移投影到起始宽高比的对角线；不能让单轴位移直接决定等比缩放量，否则纯水平拖动会被过度放大。
+0181-0239	apps/web/src/pages/Workbench/stage/SelectionOverlay.tsx:17-20;apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:292	-	贴框 SelectionOverlay 只为 AI 单选候选提供采纳和忽略，视频候选复用图片工作台的处理入口。用户标注无论单选还是多选，都由浮动选中卡提供操作，避免同一选中项出现两套操作入口。
+0181-0240	apps/web/src/pages/Workbench/stage/VideoAttributesEditor.tsx:11,14,21-30,42	-	逐帧属性只覆盖当前帧，未覆盖时回退到轨迹默认值；只有当前帧存在可写关键帧才可保存覆盖，消失帧不可写。轨迹创建后，非 mutable 字段不能通过逐帧覆盖绕过轨迹默认值的写入限制。
+0181-0241	apps/web/src/pages/Workbench/stage/VideoChapterSidebar.tsx:32,37,134	-	章节圈选由 Shell 持有臂选态，圈选完成即解除。侧栏仅在 draftRange 变化时消费并通知 Shell 清空，遇空值直接返回；保留已消费的范围会让同一区间无法再次触发，清空本身也不能触发重入。
+0181-0242	apps/web/src/pages/Workbench/stage/VideoKeyframesPropagateDialog.tsx:43-49	-	采样模式下，关键帧传播跨度按网格格数输入，与左右键导航一致；提交时必须换算为源帧跨度，不能让 propagateKeyframes 按格处理，否则会跳过采样格之间的源帧。
+0181-0243	apps/web/src/pages/Workbench/stage/VideoKeyframesPropagateDialog.tsx:131	-	关键帧传播和 AI 追踪都用「更早帧／更晚帧」标明方向，不用「向前／向后」；后者可能指播放方向，也可能指时间先后，容易选反传播区间。
+0181-0244	apps/web/src/pages/Workbench/stage/VideoKonvaAiLayer.tsx:23,28	-	视频与图片 AI 框共用标签配置和文本构造，但类别名不属于 AI 附加字段；不能用附加字段开关控制整个标签，否则关闭附加信息时也会丢失类别名。
+0181-0245	apps/web/src/pages/Workbench/stage/VideoKonvaAiLayer.tsx:20,42-52;apps/web/src/pages/Workbench/stage/VideoKonvaInteractionLayer.tsx:65-74;apps/web/src/pages/Workbench/stage/VideoKonvaIssueLayer.tsx:32-39	-	普通形状由 Stage 统一做几何命中，区分画框与移动，缩放句柄拦截 pointerdown。AI 候选仅在选择工具下接收点选并阻止冒泡，否则会被 Stage 空击立即取消；可点击的 issue 图钉也须截断 pointerdown，避免触发画框或取消选中。
+0181-0246	apps/web/src/pages/Workbench/stage/VideoKonvaMediaLayer.tsx:8,50-59,76-77,82;apps/web/src/pages/Workbench/stage/VideoKonvaStage.module.css:27	-	解码用的 video 留在 DOM 中但不可见、不截事件，视频帧由独立的 media-bg 合成，避免播放时重绘标注层。react-konva 不会随解码自动重绘，播放时由绑定到该层的 Konva.Animation 排入 batchDraw，tick 不必再请求一次。
+0181-0247	apps/web/src/pages/Workbench/stage/VideoKonvaMediaLayer.tsx:21-24,90-97	-	viewport 变化只触发暂停时补画，不决定世界尺寸。首次测量和窗口缩放会清空 Stage 画布，即使帧源没变也要补画；只监听帧源可能让首帧一直黑到用户拖动定位。
+0181-0248	apps/web/src/pages/Workbench/stage/VideoKonvaMediaLayer.tsx:128-129	-	缺少 rVFC 或 WebCodecs 时可回退到可见的原生 video，但原生事件只用于请求重绘；不能据此返回就绪，否则会把尚未确认呈现的精确帧当作已呈现。
+0181-0249	apps/web/src/pages/Workbench/stage/VideoKonvaOverlayLayer.tsx:19-26	-	视频框标签的字号除以 Stage scale，避免缩放视口时改变屏幕上的文字大小；字体须传入字面量 BOX_LABEL_FONT_FAMILY，不能改用 Canvas 无法解析的 CSS 变量。
+0181-0250	apps/web/src/pages/Workbench/stage/VideoKonvaStage.module.css:7-8	-	视频画布的留黑区固定为旧 VideoStage 的 #050507，不使用随主题变化的 UI 表面色，否则同一视频的新旧画布栈会出现不同的边缘像素。
+0181-0251	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:171	-	VideoKonvaStage 的空集合默认值必须复用稳定引用；若在参数解构中写 = []，缺省参数会在每次渲染时产生新引用，使 frameViews 的 memo 无法复用。
+0181-0252	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:269	-	交互式 SAM 候选在采纳前只作为瞬态数据，采纳才创建标注；不能在候选生成时直接落库，否则未获采纳的候选也会成为持久标注。
+0181-0253	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:502	-	选中轨迹应从标注集合解析，不能从当前帧的渲染条目反查；轨迹在当前帧没有可见几何时没有对应条目，但不应因此丢失选中身份。
+0181-0254	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:1112-1114	-	控制器先以空条目确定 frameIndex，不计算重叠分，避免它与 currentFrameEntries 循环依赖。VideoKonvaStage 随后用含几何和类别的 frameViews.entries 计算警告，保持旧 SVG 栈的 QC 口径。
+0181-0255	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:1010-1014	-	Tab 同类轮转必须把跨网格待续轨迹和选中轨迹的参考虚影纳入轨迹组；只轮转当前可见实体、漏掉选中虚影时，轮转会在两条轨迹间来回跳。
+0181-0256	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:1063,1079,1090	-	focusObject 不应每次都居中并缩放：对象已在视口内且屏幕尺寸足够时保持视口不动，出视口时优先平移居中，仅在对象太小时放大，避免定位时丢失原有视野。
+0181-0257	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:1282-1283	-	视频 mask 的指针落点必须经过 canEditMask，同时检查任务只读、选中轨迹锁及标注 is_locked；只在界面禁用控件或只检查其中一种锁，都可能让指针入口绕过其余限制。
+0181-0258	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:1506-1507	-	顶点草稿属于起草帧，换帧后保留会让提交落到新帧。用 draftFrameRef 确认真正发生帧索引变化才取消，不能把 pointsDraft 引用变化当成换帧，否则同帧重渲染也会清掉草稿。
+0181-0259	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:1725-1726	-	track 工具选中轨迹时，stickyTrackHint 显示轨迹编号，并以当前帧是否已有关键帧区分延展和同帧新建；只显示选中编号会让用户误以为下一次拖框总是延展该轨迹。
+0181-0260	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:1921	-	即使 VideoPlaybackOverlay 嵌在 stage 容器里，stage 也必须跳过来自浮层的滚轮事件；否则滚动时间轴、控制条或概览导航时，会同时触发画布的滚轮处理。
+0181-0261	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:1978-1979	-	裸 0 保留给第十个类别，恢复实际尺寸用 Shift+Digit0。必须按 e.code 匹配物理键，不能按字符匹配，否则 Shift+0 在不同键盘布局下可能无法触发。
+0181-0262	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:2476	-	需要携带路径范围内 Cookie 并保持 Canvas 可读时，原生视频请求应保持同源；不能把 crossOrigin="anonymous" 当作剥离凭据的办法，它仍会发送适用于该请求的同源 Cookie。
+0181-0263	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:2743-2744	-	在插值帧编辑多边形或折线的顶点时，必须先将当前帧物化为关键帧，不能把插值结果当作可直接修改的关键帧。顶点编辑按形状类型判断，不能仅凭 entry.points 放行，否则 OBB 也会误入点集编辑。
+0181-0264	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:2800	-	交互式 SAM 候选和点会话只能作为瞬态预览，不得写成持久化标注。预览即使置顶也不能参与画布命中，否则会拦截本该交给画布的交互。
+0181-0265	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:2882-2883	-	Konva 没有旧 SVG overlay 可供测量，因此用不可见的 data-video-overlay 提供随视口平移和缩放更新的当前帧屏幕矩形；若改用固定容器矩形，改类和批量改类弹窗会在视口变换后定位偏移。
+0181-0266	apps/web/src/pages/Workbench/stage/VideoKonvaStage.tsx:2966-2967	-	显式跳转到目标帧前，应以 snapToGrid: false 暂停。默认吸附会先发起一个随后被目标 seek 取消的网格 seek，在高负载下徒增竞态窗口。
+0181-0267	apps/web/src/pages/Workbench/stage/VideoKonvaTrackShape.tsx:31-37;apps/web/src/pages/Workbench/stage/VideoKonvaTracksLayer.tsx:13-14,30-37	-	Konva 在视频像素空间绘制，不能把 SVG 的 non-scaling-stroke 直接搬过来；线宽和虚线长度须除以 scale，否则会随画布缩放。关键帧圆点只反算描边，半径仍随画布缩放。
+0181-0268	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.module.css:81-84,136	-	用 .controls.interactive 和 .timelineShell.interactive 恢复指针事件，不能只写 .interactive；单类选择器与禁用规则同特异性，会让可见控件能否点击取决于 CSS Modules 的拼接顺序。
+0181-0269	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.module.css:255-258	-	紧凑时间轴只把原生 range 的 thumb 缩为零，不能去掉原生外观，否则会丢失进度填充。这样既不让滑块遮住密度标记，又能由 timelineShell 接管拖动、由 range 的 onChange 保留键盘操作。
+0181-0270	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.module.css:338-339	-	循环区间用内阴影画高亮边界，不给区间盒加边框；否则边框会改变按帧范围计算的盒宽，使高亮边界不再准确对应区间端点。
+0181-0271	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.module.css:410	-	.chapterEntry 用 display: contents 保持无布局盒，让绝对定位的章节缩放把手继续以 chaptersTrack 为基准；若给条目建立定位容器，把手就会改按条目盒定位。
+0181-0272	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.module.css:529-530;apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:183-186	-	densityBinGradient 按各轨迹计数占桶总密度的比例自底向上堆叠；无轨迹归属的旧版 bbox 仍计入总量，差额用 accent 补齐。若按已知轨迹重新归一化，就会把未归属的密度误记给已知轨迹。
+0181-0273	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.module.css:816,1192;apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:565,1783-1784,1803	-	展开时间轴各行共享同一可见窗口的帧到百分比映射；人工和 AI 密度桶都按实际帧区间摆放，不能按桶序号等宽铺开，否则会与采样网格和关键帧点错位。贯穿各行的网格放在 laneRow 下方，不遮盖内容。
+0181-0274	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.test.tsx:585	-	传播对话框打开时，仅 Shift+拖动可刷选 propagate-range，普通拖动仍用于 seek；若把普通拖动也改为刷选，用户就无法用原来的拖动手势继续预览帧。
+0181-0275	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.test.tsx:919-920;apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:44-45,315-317	-	人工关键帧和 AI 候选密度共用 densityScaleMax 和 9px 柱高上限；若分别归一化，1:8 的计数也可能画成等高，甚至让数量较少的一方看起来更高。
+0181-0276	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:125	-	传播对话框打开时，影响范围高亮以外部控制的 propagateRange 为准，不能复用未提交的本地刷选草稿，否则拖动中的临时区间会被误显示为对话框当前的影响范围。
+0181-0277	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:155,287,480-481	-	章节边界拖动期间只更新本地预览，松手才调用 onChapterResize，由 shell 对 PATCH 防抖；不能把防抖当作提交边界，否则拖动尚未结束时也可能把中间区间写入库。
+0181-0278	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:335	-	可见窗口由 useVideoTimelineWindow 统一持有，任务或媒体切换时必须重置。不能只监听 maxFrame，否则切到帧数相同的视频时会沿用上一个视频的缩放和可见范围。
+0181-0279	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:343-344,347-348	-	gridTicks 按当前可见窗口重算，只在窗口内采样点超过 200 个时按比例抽稀；按全片统一抽稀虽能限制 DOM，却会在放大后继续漏掉本可显示的采样点。
+0181-0280	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:552	-	时间轴没有 overflow 裁剪，因此书签、issue、关键帧和离网格标记必须在渲染前按可见窗口过滤；仅计算百分比位置会让窗口外的标记溢出轨道。
+0181-0281	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:556	-	reviewRangeStyle 必须按包含端点的语义显示审阅区间；起止帧相同仍表示一帧，不能按零宽隐藏，否则只覆盖源视频首帧或尾帧的审阅范围也会消失。
+0181-0282	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:616-618	-	折叠轨与展开 scrubber 共用定位、刷选和拖动预览处理器时，坐标换算须以事件 currentTarget 为准；若固定取某一种布局的容器，另一种布局会用错边界或宽度，导致指针位置映射到错误帧。
+0181-0283	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:623	-	章节边界把手独占指针手势，时间轴 shell 必须跳过命中把手的事件；否则同一次拖动会同时调整章节边界并触发时间轴定位或刷选。
+0181-0284	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:632-633	-	章节草稿从显式圈选入口进入后，普通拖动即刷选；循环与传播则保留普通拖动逐帧预览，只用 Shift+拖动刷选。否则传播弹窗开启时，查看帧的动作也会改写选区。
+0181-0285	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:704-707,732-733	-	滚轮监听覆盖整个 Overlay，但 Ctrl/⌘ 缩放仍按轨道几何锚定指针下的帧；用原生非被动监听才能阻止默认行为，从 ref 读窗口以免逐次重绑。展开或折叠会替换根节点，须重绑并清理闭包捕获的旧 root。
+0181-0286	apps/web/src/pages/Workbench/stage/VideoPlaybackOverlay.tsx:1593-1594,1681-1682	-	缩放后，原生 range 的填充进度（0–10000）、章节条两端和把手都以可见帧窗口为准。用全视频进度会使填充偏离当前帧，用 maxFrame 算左偏移却用 maxFrame+1 算宽度也会使条段与把手错位。
+0181-0287	apps/web/src/pages/Workbench/stage/VideoSamCandidateOverlay.tsx:1-10	-	视频 SAM 候选是当前帧的瞬态预览，应独立于批量 Prediction 绘制；若写入 Prediction 的帧级去重源，未采纳的候选也会参与持久预测的去重。
+0181-0288	apps/web/src/pages/Workbench/stage/VideoSamCandidateOverlay.tsx:19-20,58-61,212	-	PVS 种子的描边颜色和编号按 obj_id 区分对象，填充仍以绿正红负表达极性，不能让同一套颜色兼任两种含义。已落下的框种子用实线，AI 候选用虚线，避免把候选误认成种子。
+0181-0289	apps/web/src/pages/Workbench/stage/VideoSamCandidateOverlay.tsx:48-51,130	-	视频和图片的 Magic Box 都以候选多边形的紧致外接矩形作为预览和采纳几何；若预览仍画多边形轮廓，用户看到的形状就与最终保存的框不一致。
+0181-0290	apps/web/src/pages/Workbench/stage/VideoTrackPanel.tsx:85-89,104	-	KeyframeSourceStrip 将帧区间压到最多 40 个桶，避免 DOM 节点随大量关键帧增长；连续桶用 flex 等分，不逐桶定位，以满足文件内不使用内联样式的约束。
+0181-0291	apps/web/src/pages/Workbench/stage/VideoTrackPanel.tsx:181-182,506	-	行操作默认只常驻「更多操作」，悬停时向左展开；点击还可钉住工具条，不能只靠悬停，否则触屏等无悬停环境无法保持操作按钮可用。
+0181-0292	apps/web/src/pages/Workbench/stage/VideoTrackPanel.tsx:252	-	批量操作只在「当前帧」视图开放；若在全局清单沿用同一入口，用户可能把多选删除当成只删当前帧，实际却删掉整条跨帧轨迹。
+0181-0293	apps/web/src/pages/Workbench/stage/VideoTrackSidebar.test.tsx:72-75;apps/web/src/pages/Workbench/stage/VideoTrackSidebar.tsx:190-191,461-462,471-472,812	-	删除确认不能沿用打开弹窗时的轨迹快照：等待期间可能切题或已有并行删除。确认后从实时 annotations ref 复检，仅提交仍属当前题的轨迹，无剩余则不提交；批量删除另由上层复滤。
+0181-0294	apps/web/src/pages/Workbench/stage/VideoTrackSidebar.test.tsx:281	-	轨迹选择命令只有被接纳后才调用 onAdmitted；拒绝也触发该回调会把未成功的选择当成已接纳，使原草稿所有者失去重试机会。
+0181-0295	apps/web/src/pages/Workbench/stage/VideoTrackSidebar.tsx:68,235-236,403	-	只有轨迹清单实例持有批量选择并向 shell 上报，单轨迹浮卡不参与，全局选择也只接收主选轨迹。否则单轨迹视图可能覆盖批量浮卡所依赖的选择集合。
+0181-0296	apps/web/src/pages/Workbench/stage/VideoTrackSidebar.tsx:100	-	传播对话框的 count 在采样步长大于 1 时按采样网格计数，不能直接用原始帧数；否则显示的数量会把被跳过的帧也算进去。
+0181-0297	apps/web/src/pages/Workbench/stage/VideoTrackSidebar.tsx:310	-	锁定轨迹按已确认处理，侧栏不再提供参考框；若仍给出参考框，就会和画布对同一轨迹撤下 ghost 提示的规则冲突。
+0181-0298	apps/web/src/pages/Workbench/stage/VideoTrackSidebar.tsx:427-428	-	仅当选择非空且所有轨迹均隐藏或均锁定时，才显示对应的反向操作；混合选择仍显示正向操作。不能只用 every 判定，因为空选择也会返回 true，导致操作方向误翻转。
+0181-0299	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:55-56,62-64,337	-	模型可执行性由按项目后端能力过滤的 modelOptions 决定，不能从是否显示文本输入推断。sam3_video_interactive 需要后端声明相应能力，以点框种子运行 PVS；combo 先按文本发现、再逐对象追踪，须同时声明 sam3_video 和 sam3_video_interactive。
+0181-0300	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:81-82	-	追踪方向用时间轴上的「更晚帧／更早帧」配合箭头表示；只写「向后追踪」无法明确目标是哪个帧方向，还容易被误读为倒放。
+0181-0301	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:89-91	-	SAM3 每窗 16 帧、其余每窗 300 帧只是后端默认值，部署可通过环境变量覆盖。前端只能据此提示可能分多窗，不能把估算窗数当成实际窗数或据此推算耗时。
+0181-0302	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.test.tsx:450;apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:104-106	-	尺寸档位只选择 sam2_video 的 checkpoint；SAM3 的 multiplex、PVS 和 combo 使用各自的权重，不消费这一档位。向 SAM3 展示选择器会让用户误以为修改档位能改变所用权重。
+0181-0303	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:111-113,324-326	-	mock_bbox 仅供未绑定真实后端的开发环境验证流程，生产构建即使未绑定后端也不展示，避免生成假框。默认模型须从过滤后的列表解析，避免已记忆的 mock_bbox 绕过过滤；被排除后回退到首个真实模型。
+0181-0304	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:220	-	传播后端只识别 polygon 和 bbox，不能把 polyline 当作同样可传播的轨迹；对话框须禁用该动作，以免提交后端不支持的几何。
+0181-0305	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:225,227	-	传播预览只在对话框可见时发布，隐藏时撤下时间轴预览但不清空设置。每次 Shift 刷选都要传新的 brushedRange 对象，使重复刷选也能生效；显式刷选优先于预设和方向推导。
+0181-0306	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:233,245	-	采集期间画布工具必须与点框模式同步，在 smart-point 与 smart-box 间即时切换，否则落下的种子几何会与所选模式不符。退出采集时恢复原工具，避免后续画布操作仍被当成种子输入。
+0181-0307	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:340,523	-	文本驱动追踪必须提供目标描述并拒绝去掉首尾空白后为空的输入。sam3_video_combo 即使从已选源进入，发现阶段仍按文本检测；已有源不能代替逐帧检测所需的描述。
+0181-0308	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:346-347,533	-	无源检测和 sam3_video_combo 的发现阶段都会为新对象建轨，不能沿用已有轨迹来确定类别。因此即使 combo 从已选源入口打开，也必须选择有效类别并在请求中携带 target。
+0181-0309	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:400-401	-	无源目标类别应在打开对话框时单独重置为首个可选类别；不能把引用不稳定的 availableClasses 加入主初始化 effect，否则重渲染可能覆盖用户已选的方向和范围。
+0181-0310	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:407	-	每次 Shift 拖刷都必须传入新的 brushedRange 对象，不能原地修改后复用引用；对话框按引用变化接收刷选，否则新的区间不会覆盖预设的自定义范围。
+0181-0311	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:487	-	追踪面板退到后台时应保留设置，但必须清除时间轴范围预览；沿用可见时的预览会让隐藏面板继续在时间轴上显示范围。
+0181-0312	apps/web/src/pages/Workbench/stage/VideoTrackerPropagateDialog.tsx:544	-	sam_variant 只允许随 sam2_video 请求发送，它表示 SAM2 的尺寸档位；切换到 SAM3 时不能复用携带该字段的请求，否则会发送 SAM3 不使用的残留档位。
+0181-0313	apps/web/src/pages/Workbench/stage/VideoTrackerReviewBar.test.tsx:95	-	decisionDialog store 是模块级单例，不能靠卸载审阅栏隔离测试；每例结束后须清空队列，否则未结算的确认请求会残留到下一例。
+0181-0314	apps/web/src/pages/Workbench/stage/VideoTrackerReviewBar.tsx:105-106	-	覆盖受保护的人工关键帧前后都须用 isCurrent 校验审阅上下文。仅在弹出确认前检查不够：等待用户确认期间若上下文已切换，必须放弃覆盖。
+0181-0315	apps/web/src/pages/Workbench/stage/aiBoxFrames.ts:1-5,95-98	-	侧栏、画布和时间轴应共用 aiBoxFrames 的帧作用域及去重规则；offset 分页重取可能使相邻页包含同一形状，须以 predictionId 和 shapeIndex 组成的候选 ID 去重，否则待审计数或预测密度可能重复计入。
+0181-0316	apps/web/src/pages/Workbench/stage/aiBoxFrames.ts:53-59	-	轨迹候选顶层的坐标只代表某个关键帧，不能直接拿来绘制当前帧。resolveAiBoxAtFrame 必须用当前帧解出的框替换它，否则画布可能把另一个帧的框画到当前帧。
+0181-0317	apps/web/src/pages/Workbench/stage/annotationVisual.ts:1-4,54	-	annotationVisual 在已解析的 common 配置上统一视觉规则，但不能在共享层统一换算线宽：图片 Konva 需除以缩放倍数，否则描边会随画面缩放；视频 SVG/DOM 已按屏幕像素绘制，不应再做这层补偿。
+0181-0318	apps/web/src/pages/Workbench/stage/boxVisual.ts:20-23;apps/web/src/pages/Workbench/stage/colors.ts:96-97	-	不能把 CSS var() 原样交给 Canvas 2D：Konva 标签须用对齐全局字体 token 的字面字体栈，否则 font 会回退到默认 10px；fillStyle 则须先将当前主题变量解析为 hex，并在主题切换时使缓存失效。
+0181-0319	apps/web/src/pages/Workbench/stage/drawGuard.ts:19	-	guardDrawnBox 与 resize 提交必须共用最小归一化边长门槛；若各自设值，同尺寸的框就可能在新绘时被接受、缩放提交时却被拒绝，或反过来。
+0181-0320	apps/web/src/pages/Workbench/stage/drawGuard.ts:41	-	guardDrawnBox 的疑似重复拦截只看几何重叠，不按类别豁免；否则几乎完全重叠的误画框只因类别不同就能绕过拦截。
+0181-0321	apps/web/src/pages/Workbench/stage/frameObjectCycle.ts:1-7	-	同帧同类对象环须按 y、x、id 稳定排序，不能直接沿用候选来源的顺序；否则即使对象集合不变，来源顺序变化也会改变 Tab 的下一项。
+0181-0322	apps/web/src/pages/Workbench/stage/frameObjectCycle.ts:47-51	-	当前帧没有实框时，选中轨迹的参考虚影仍须进入轨迹环；否则 nextInCategory 找不到所属类，会忽略方向并回退到首个非空类的首项，使其余待续轨迹不可达。
+0181-0323	apps/web/src/pages/Workbench/stage/imageStageContextMenu.test.ts:199;apps/web/src/pages/Workbench/stage/imageStageContextMenu.ts:108	-	多边形裁切不能沿用合并的同类限制：前景轮廓可以作为裁刀扣除背景标注的遮挡区域，要求裁刀与基准标注同类会阻断这种跨类裁切。
+0181-0324	apps/web/src/pages/Workbench/stage/iou-index.ts:1-11	-	IoU 索引只能用于排除不可能相交的候选，不能用索引命中代替精确判定；未被索引排除并不等于实际相交，更不等于满足 IoU 门槛。
+0181-0325	apps/web/src/pages/Workbench/stage/iou-index.ts:80-83	-	buildVertexIndex 的视口查询必须使用与多边形顶点相同的 [0,1] 归一化坐标；直接传像素包围盒会在不同坐标系里查询，无法正确选出视口内的顶点。
+0181-0326	apps/web/src/pages/Workbench/stage/iou.ts:55	-	IoU 面积必须遵守 polygon-clipping 的环顺序：每个多边形的首环是外环，后续环是要扣除的孔；若把各环面积都相加，带孔结果的面积就会算错。
+0181-0327	apps/web/src/pages/Workbench/stage/timelineCoords.test.ts:27;apps/web/src/pages/Workbench/stage/timelineCoords.ts:1-5	-	时间轴的点位、刷选范围和密度条都须按可见帧窗口换算，否则缩放后仍会按全片定位。frameToPct 必须保留窗口外的百分比；提前夹紧会让调用方无法区分越界点与窗口边界。
+0181-0328	apps/web/src/pages/Workbench/stage/timelineCoords.ts:32-33	-	时间轴缩放和平移应保留分数帧窗口，仅在 pctToFrame 输出时取整；若每次更新窗口都先取整，连续缩放或平移会累积偏移。
+0181-0329	apps/web/src/pages/Workbench/stage/timelineCoords.ts:35	-	时间轴须用 MIN_VISIBLE_SPAN 保留至少 48 帧的可见跨度；继续放大不会提高聚合密度桶的数据分辨率，反而会让桶值看起来像精确的单帧数据。
+0181-0330	apps/web/src/pages/Workbench/stage/useFrameClock.ts:28,227-228,235,240	-	FrameSeekResult 只是原生解码侧的定位结果；seeked/currentTime 可结束普通定位，暂停态 timeupdate 只报告时钟，都不能单独证明目标像素已呈现。后续媒体事件可以采信 seeking 期间已收到的精确 rVFC 回执。
+0181-0331	apps/web/src/pages/Workbench/stage/useFrameClock.ts:44,360	-	useFrameClock 的回调归属须包含任务与媒体标识，并按 epoch 隔离，避免 A→B→A 时复用旧回调。渲染时可能还没有 video，提交阶段首次绑定 ref 时也只能更新匹配 epoch 的所有者。
+0181-0332	apps/web/src/pages/Workbench/stage/useFrameClock.ts:168-169	-	useFrameClock 的 0.501 毫秒容差只用于吸收 ffprobe PTS 存为整数毫秒的量化误差；目标源帧索引仍须精确匹配，不能因为时间戳落在容差内就接受另一帧。
+0181-0333	apps/web/src/pages/Workbench/stage/useFrameClock.ts:264	-	定位必须先登记 resolver，再分发帧变更；若目标帧已呈现，分发时就可能立即完成，事后登记会错过完成通知。
+0181-0334	apps/web/src/pages/Workbench/stage/useFrameClock.ts:345-346	-	旧所有者清理时只取消定位而不发布状态，因此新所有者即使无需再 seek，也必须解除遗留的 seeking 门控；否则媒体已在目标位置却仍会被视为定位中。
+0181-0335	apps/web/src/pages/Workbench/stage/useImageTileScheduler.ts:88-89	-	瓦片调度器应按不可变的图像金字塔身份复用，不能把概览预签名 URL 当作身份；续签只更新访问地址，用它重建调度器会丢弃已解码的瓦片。
+0181-0336	apps/web/src/pages/Workbench/stage/usePolygonAutoPoints.ts:105	-	usePolygonAutoPoints 必须以鼠标释放位置为手势终点，不能沿用最后一次移动事件的坐标；若末次移动事件未送达，沿用旧坐标会截短手势。
+0181-0337	apps/web/src/pages/Workbench/stage/usePolygonSlice.ts:50-51	archive/0074-atomic-annotation-slice-restore.md	切割请求一经发出，幂等重试必须沿用不可变载荷和原始源版本。首次请求可能已经提交，重新拉取的源版本不能替换原版本，否则重试不再是同一次操作。
+0181-0338	apps/web/src/pages/Workbench/stage/useVideoBitmapCache.test.ts:54;apps/web/src/pages/Workbench/stage/useVideoBitmapCache.ts:138-143;apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:315-316,758-761,801	-	同一所有者重复捕获同一帧时复用位图并更新 active；showFrame 须把活动位图移出 LRU，待新画面提交后才回收旧帧。重抓或提前淘汰都可能关闭 Konva 异步绘制仍引用的位图，导致黑屏或位图分离错误。
+0181-0339	apps/web/src/pages/Workbench/stage/useVideoBitmapCache.ts:27	-	VideoBitmapCaptureProof 须同时确认捕获来自确切观测到的源帧、且对应导航请求仍有效；帧号相同不能证明像素来源正确，也不能排除请求已被取代。
+0181-0340	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.test.ts:391	-	持久 WebCodecs 会话须由 decode 驱动帧交付；不能把 flush 作为出帧条件，否则正常持续解码时，目标帧可能一直得不到交付。
+0181-0341	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:10-28	-	暂停、逐帧和稳定 seek 用 WebCodecs 按时间戳取帧，不能用原生 seek 的位置代替精确帧，否则可能显示邻帧。连续播放或精确解码不可用时仍走原生路径。
+0181-0342	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:55	-	isSecureContext 仅用于 WebCodecs 诊断，不单独决定是否解码；本地环境对安全上下文的实现不同，仅凭该标志拦截可能拒绝实际可用的解码器。
+0181-0343	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:76	-	诊断须记录最近一次前台请求实际走过的路径；缓存命中时不能沿用上一次解码的阶段耗时，否则会把本次未执行的工作归到本次请求。
+0181-0344	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:92	-	解码器的 resourceKey 必须取不可变的服务端产物标识；签名 URL 会轮换，用作身份会把同一产物误判为不同资源。
+0181-0345	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:159	-	读取 localStorage 失败时，WebCodecs 开关须回到默认值；不能假设偏好读取总能成功，否则隐私模式下的读取异常会中断开关解析。
+0181-0346	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:212-213	-	有 VideoDecoder 静态探测结果时，用其规范化配置执行 configure；缺少探测方法时仍尝试 configure，不能把缺少探测接口误判为不支持解码。
+0181-0347	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:237-238	-	无状态解码通过 wantedRef 读取回调交付的目标帧；改用局部 let 会因 TypeScript 不追踪回调赋值，使 flush 后的目标帧被误收窄为 never。
+0181-0348	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:273	-	无状态解码不能以 flush 成功判定取帧成功；即使 flush 正常结束，收到解码错误或未命中目标时间戳仍须判失败，不在该路径循环重试。
+0181-0349	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:325-326	-	GOP session 交付后虽已清空 pendingTarget，VideoFrame 在 createImageBitmap 完成前仍由 hook 持有；只数 pendingTarget 会漏掉仍存活的帧。
+0181-0350	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:328	-	同一帧键须共享在途 Promise，使并发调用者都能等待同一解码结果；仅用 Set 标记在途只能拒绝重复请求，不能把结果交给后来的调用者。
+0181-0351	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:421,499	-	LRU 外只允许暂留一个超预算的前台位图，等待 showFrame 接管；预取不能走此例外，否则快速请求可绕过字节预算并持续积累位图。
+0181-0352	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:501	-	后台预取若必须重置 GOP decoder 才能重解，应跳过该次预取；否则推测性的后台工作会破坏前台仍可复用的解码会话。
+0181-0353	apps/web/src/pages/Workbench/stage/useVideoChunkDecoder.ts:654,716,847	-	卸载时先使在途代次失效，异步解码结束后还须复核位图归属；若任务已切换或组件已卸载，直接关闭迟到位图，防止写回已清空的缓存。
+0181-0354	apps/web/src/pages/Workbench/stage/useVideoFramePreview.ts:350-352	-	待提取的预览先短间隔轮询，随后按指数退避，并参考服务端提示和上限。固定长间隔会拖迟已快速完成的帧，固定短间隔则会持续催促慢 worker。
+0181-0355	apps/web/src/pages/Workbench/stage/useVideoFramePreview.ts:556,630-631	-	快速拖动的预览请求按动画帧合并，避免每次指针移动都发请求；执行队列时须重新查缓存，因为窗口预取可能已补齐调度时未命中的帧。
+0181-0356	apps/web/src/pages/Workbench/stage/useVideoFramePreview.ts:615-617	-	拖动中预览未命中时保留上一张已就绪的图，只有无图可留时才显示等待占位；否则相邻帧会在预览和加载提示之间反复闪烁。
+0181-0357	apps/web/src/pages/Workbench/stage/useVideoIssueView.ts:185	-	恢复句柄只能终止其所属来源创建的租约；句柄可能比来源所有者活得更久，不能用旧句柄取消新所有者发起的恢复。
+0181-0358	apps/web/src/pages/Workbench/stage/useVideoIssueView.ts:314	-	恢复就绪须以聚焦选中对象之后的视口提交为准；聚焦本身可能改变视口，提前结算会把尚未呈现最终视口的恢复报为完成。
+0181-0359	apps/web/src/pages/Workbench/stage/useVideoPlaybackController.stale-seek.test.ts:1-5	-	迟到 seek 回归测试须同时保留真实 useFrameClock 和播放控制器；整套替换帧钟会漏掉积压 seek、连续步进与迟到 seeked/rVFC 交错时的旧帧回写。
+0181-0360	apps/web/src/pages/Workbench/stage/useVideoPlaybackController.test.ts:1050-1051	-	受控帧回归测试须保持宿主的 videoRef 对象稳定；每次渲染换成内联 ref 会反复触发首帧预热、刷新导航目标，从而掩盖迟到回报越过栅栏的问题。
+0181-0361	apps/web/src/pages/Workbench/stage/useVideoPlaybackController.stale-seek.test.ts:261,266;apps/web/src/pages/Workbench/stage/useVideoPlaybackController.ts:286-289,358-361,851-852	-	seekFrameAsync 须在媒体 seek 与乐观写入前登记导航目标，渲染时再向已提交帧收敛，以覆盖播放和宿主直接改帧。暂停时按请求身份拒绝旧回报，避免覆盖步进；栅栏不拦播放、不取消媒体 seek，ready 也不能以乐观帧号结算。
+0181-0362	apps/web/src/pages/Workbench/stage/useVideoPlaybackController.ts:433-434	-	Konva、Minimap 和 JPEG 抓帧须共用显示源选择：播放用原生 video，暂停只接受与 frameIndex 严格匹配的位图。各自选源或接受邻帧会使画面、标注与 AI 输入串帧。
+0181-0363	apps/web/src/pages/Workbench/stage/useVideoPlaybackController.ts:436	-	抓帧句柄通过 displayBitmapRef 读取最新位图；把位图加入 controls 的 memo 依赖虽也能读到新值，却会随帧重建控制句柄。
+0181-0364	apps/web/src/pages/Workbench/stage/useVideoPlaybackController.ts:470-471,1235	-	回执对象未变不代表可绘制性未变：原生 seek 可能晚于 rVFC 回执完成，无 rVFC 时也可能没有新帧回执。渲染时须复查，原生就绪事件也须触发复查。
+0181-0365	apps/web/src/pages/Workbench/stage/useVideoPlaybackController.ts:697,709	-	选中轨迹时仍保留全局标注密度和预测密度，轨迹行只补充所选轨迹的细节；替换全局层或停算预测密度会让审阅者失去全局分布上下文。
+0181-0366	apps/web/src/pages/Workbench/stage/useVideoPlaybackController.test.ts:1-3;apps/web/src/pages/Workbench/stage/useVideoPlaybackController.ts:1052-1053,1078-1079,1277-1278	-	严格 QC 的 ready 须有实际绘制回执并复核当前源帧；估算对齐只够普通播放，mock 回执也不能代替浏览器像素验证。原生 seek 超时不能截断仍可能成功的精确解码等待，普通导航则取消等待。
+0181-0367	apps/web/src/pages/Workbench/stage/useVideoPlaybackController.ts:1300-1305	-	隐藏的 video 可能停在 HAVE_NOTHING，既不发 loadedmetadata 也不发 error；只等事件会让画布一直黑屏。看门狗轮询元数据，限次调用 load() 中止卡住的请求并重新选源，耗尽后才走恢复或报错。
+0181-0368	apps/web/src/pages/Workbench/stage/useVideoPlaybackController.ts:1395-1396	-	首个 manifest 到达时不能清除选中对象：候选和标注可能先于播放态就绪，已有选择仍属于当前题。只有上一题的播放态已经建立且确实换题时才清除。
+0181-0369	apps/web/src/pages/Workbench/stage/useVideoPlaybackController.ts:1512-1513	-	captureCurrentFrameJpeg 必须与舞台使用同一帧源；精确位图未命中而原生 video 已能显示当前帧时，应从 video 取图，否则会把用户已看到的帧误判为未就绪。
+0181-0370	apps/web/src/pages/Workbench/stage/useVideoPreciseFrame.ts:29,427	-	精确帧的派生资源和位图不得跨主 manifest 的元数据代次复用；samples 的包偏移还必须绑定到所属的不可变 chunk 输出，否则即使目标帧相同，也可能从另一份输出读取错误的字节范围。
+0181-0371	apps/web/src/pages/Workbench/stage/useVideoPreciseFrame.ts:32,34,666-667	-	暂停后，命中缓存的精确帧可在原生 seek 稳定前展示，但仍须先生成与画面同帧的 GOP／PTS 诊断；只有缓存未命中才等待 seek 稳定后启动 WebCodecs，不能让缓存命中也承担这段等待。
+0181-0372	apps/web/src/pages/Workbench/stage/useVideoPreciseFrame.ts:54,56	-	精确帧诊断应分别报告 WebCodecs 能力和实验开关；合并成一个启用状态会让全局诊断无法区分浏览器不支持与用户主动关闭。
+0181-0373	apps/web/src/pages/Workbench/stage/useVideoPreciseFrame.ts:119,783,795-796	-	可见帧与阶段计时以 Konva 绘制回执为准，位图就绪不代表已经显示。draw 可能迟到，markFramePainted 必须通过 liveFrameIndexRef 核对当前帧，否则闭包里的旧帧号可能让过期回执生效。
+0181-0374	apps/web/src/pages/Workbench/stage/useVideoPreciseFrame.ts:141,588-590;apps/web/src/pages/Workbench/stage/videoChunkDemux.ts:9-12	-	查询与解码分别归责，manifest、chunk、samples 和 bytes 的请求错误归查询阶段；chunk_pending 只是过渡态，不得计失败。回退原因是 E2E、诊断和缺陷附件共用的稳定枚举，只记本地诊断，不向普通用户弹错。
+0181-0375	apps/web/src/pages/Workbench/stage/useVideoPreciseFrame.ts:188,197,707	-	异步解码只有在单调请求令牌仍是最新、目标仍与当前状态匹配时才可激活位图；不能按完成先后提交，否则迟到的旧请求会覆盖当前显示帧。
+0181-0376	apps/web/src/pages/Workbench/stage/useVideoPreciseFrame.ts:349,375,546-547	-	chunk pending 按服务端提示轮询，ready 后也须定期刷新输出身份和租约，因为续租可能换输出。同一目标访问遇到 403 只刷新一次，换输出则重取偏移和字节；再次 403 回退为 chunk_fetch_failed。
+0181-0377	apps/web/src/pages/Workbench/stage/useVideoPreciseFrame.ts:466-467,473-476,532	-	chunk 字节按不可变输出而非签名 URL 标识，避免续租让同一输出失去复用。React Query 无观察者即释放引用，跨目标只由预算内、TTL 为 60 秒的 byte-LRU 保留已验证字节；档位变化可立即裁剪，不影响查询仍持有的 buffer。
+0181-0378	apps/web/src/pages/Workbench/stage/useVideoPreciseFrame.ts:811,843-844	-	预取只在暂停、页面可见且方向已知时沿最近方向在同一 chunk 和 GOP 内少量进行，不在播放或 seek 时追加请求。切换解码任务要清空统计和方向记忆，但首次挂载不能重置，以免抹掉初始方向。
+0181-0379	apps/web/src/pages/Workbench/stage/useVideoTimelineWindow.ts:13	-	时间线窗口只由 Overlay 持有；useVideoTimelineWindow 按视频来源保存和恢复同一窗口，不另设一份可独立更新的状态，否则切源时保存的窗口可能与实际显示不一致。
+0181-0380	apps/web/src/pages/Workbench/stage/useWorkbenchImageSource.ts:205-206	-	图像查询结果必须按会话归属校验，不能只核对 Task；登录切换后查询可能短暂保留旧对象，即使 Task 相同，也不得将上一会话的结果交给新会话。
+0181-0381	apps/web/src/pages/Workbench/stage/videoByteLru.ts:1-10,82-85,98-101	-	ByteLru 按位图编码宽×高×4 或 chunk 字节数计预算，固定项数会掩盖分辨率差异。活动位图用 take 移出缓存以免被淘汰关闭；超预算单项拒收，若仍作活动帧展示则由调用方管理其生命周期。
+0181-0382	apps/web/src/pages/Workbench/stage/videoChunkDemux.ts:1-5	-	videoChunkDemux 以后端 ffprobe 包清单为准，不在前端重解析 MP4。B 帧使包解码顺序与 PTS 展示顺序不同，必须按包顺序送解码、按输出时间戳选帧，不能拿全局帧号当输出下标。
+0181-0383	apps/web/src/pages/Workbench/stage/videoChunkDemux.ts:87	-	解码计划找不到位于目标帧或其之前的关键帧时必须回退；把首个 delta 样本标成关键帧并不能补齐它依赖的参考帧，不能据此启动解码。
+0181-0384	apps/web/src/pages/Workbench/stage/videoChunkDemux.ts:116-117	-	MP4 chunk 的样本是 AVCC／HVCC；缺少 avcC／hvcC description 时须回退。按 Annex-B 猜测会用错误的格式解释样本，不能靠猜测或前端 NALU 转换替代缺失的配置。
+0181-0385	apps/web/src/pages/Workbench/stage/videoChunkDemux.ts:127-128	-	用 Uint8Array 视图直接引用 chunkBytes，不先 slice；否则前端会多复制一份样本，而 EncodedVideoChunk 构造器仍可能自行复制，使用视图并不承诺端到端零拷贝。
+0181-0386	apps/web/src/pages/Workbench/stage/videoChunkDemux.ts:152-154,200-204,220-223	-	完整 GOP 计划支持前进时只提交未解码块；后退或跨 GOP 才重置重解，并按 timestampUs 选帧。不能逐目标 flush 破坏增量解码；用 optimizeForLatency 请求尽早输出，避免硬件 AVC 把已解出的帧留到下一访问单元或 flush。
+0181-0387	apps/web/src/pages/Workbench/stage/videoChunkDemux.ts:174-178	-	decoder 复用以 codec、编码尺寸、硬件加速偏好和 description 字节的指纹为界；指纹变了必须重建，不能让已配置实例继续使用旧配置。签名 URL、目标帧或请求 ID 变化本身不构成重建理由。
+0181-0388	apps/web/src/pages/Workbench/stage/videoChunkDemux.ts:182	-	description 的指纹读取依赖 atob 产物从偏移 0 开始且独占缓冲区；若来源改为共享缓冲区的切片，必须按视图范围取字节，否则会把配置以外的字节计入指纹。
+0181-0389	apps/web/src/pages/Workbench/stage/videoContextMenuItems.ts:20-27	-	SVG 与 Konva 共用不访问 DOM 的菜单规则，避免相同操作在两栈产生不同条目；命中与选中态、trackActions 仍由各栈解析，不能把 SVG CTM 的坐标规则套到 Konva 像素空间。
+0181-0390	apps/web/src/pages/Workbench/stage/videoContextMenuItems.ts:125-126	-	单帧点集和旋转框的右键菜单应直接采用 contextMenuAnnotation；若等异步选中态更新，菜单生成时即使命中了对象，也可能缺少改类和删除选项。
+0181-0391	apps/web/src/pages/Workbench/stage/videoFrameViews.test.ts:405-407	-	outside 回归须选在两个关键帧间本可插值的位置；仅测末关键帧后的 ghost 会产生假通过，因为即使区间过滤失效，该处也不会有实框。
+0181-0392	apps/web/src/pages/Workbench/stage/videoFrameViews.ts:52	-	OBB 的渲染和命中须保留原始中心、尺寸及角度；用外接轮廓替代原始旋转几何，会丢掉确定实际框边界所需的信息。
+0181-0393	apps/web/src/pages/Workbench/stage/videoFrameViews.ts:62	-	prediction 关键帧须有独立的 AI 视觉标记，不能复用表示插值的虚线，否则用户无法区分 AI 生成的关键帧与两关键帧之间的插值结果。
+0181-0394	apps/web/src/pages/Workbench/stage/videoFrameViews.ts:109-112	-	上一网格帧恰有关键帧、当前未画且未锁定的非焦点轨迹须能通过 carryOverGhosts 在当前帧命中，否则只能回上一帧或从侧栏选取；焦点轨迹已有 ghost 提示，不走这条路径。
+0181-0395	apps/web/src/pages/Workbench/stage/videoFrameViews.ts:120-123,125,167	-	多选时只有主选中的 selectedId 决定参考虚影和关键帧写入目标；selectedIds 仅用于高亮，不能拿集合顺序决定编辑焦点，否则可能把关键帧写进另一条轨迹。
+0181-0396	apps/web/src/pages/Workbench/stage/videoFrameViews.ts:128,351-352	-	选中轨迹在当前帧无实形时，舞台与 VideoTrackSidebar.selectedTrackGhost 必须给出一致的参考提示；锁定轨迹视为已确认，两边都不应再提示逐帧续写。
+0181-0397	apps/web/src/pages/Workbench/stage/videoFrameViews.ts:174	-	deriveTrackNumber 对跨帧几何使用同一编号序列，Mask 也不能单独起号，否则舞台标签与侧栏轨迹编号会错位。
+0181-0398	apps/web/src/pages/Workbench/stage/videoFrameViews.ts:388-389,451-452	-	polygon/polyline 的选中虚影和跨网格续写虚影都取最近关键帧的顶点；它们与 bbox 共用续写资格，但不能以外接框代替或叠加，否则舞台会把轮廓或折线误呈现为待续写的矩形。
+0181-0399	apps/web/src/pages/Workbench/stage/videoFrameViews.ts:422-424	-	续写虚影只提示恰在上一采样网格帧有关键帧、且未选中、未锁定、未隐藏的轨迹；当前帧已有实形时，插值也算，不再提示。选中轨迹走独立 ghost，避免同一目标收到两套续写提示。
+0181-0400	apps/web/src/pages/Workbench/stage/videoGopDecoderSession.test.ts:307;apps/web/src/pages/Workbench/stage/videoGopDecoderSession.ts:1-11,371-373	-	同一 GOP 内复用解码会话并增量提交，避免逐帧从关键样本重解造成平方级重复。不能逐目标 flush：只在 GOP 已送完且目标仍未输出时才 flush，后续必须重置并从关键块起步，否则直接提交增量块会触发 DataError。
+0181-0401	apps/web/src/pages/Workbench/stage/videoGopDecoderSession.test.ts:377-378,391-392;apps/web/src/pages/Workbench/stage/videoGopDecoderSession.ts:307-309,319-322	-	B 帧流不能只提交到目标的解码索引：后解码但更早呈现的访问单元也要提交，AVC 即使启用 optimizeForLatency 仍可能需要再送几块才出帧。额外前瞻以 GOP 内解码排名与呈现排名的最大位移加一为限，I/P 流仍按需增量提交。
+0181-0402	apps/web/src/pages/Workbench/stage/videoGopDecoderSession.test.ts:420-421;apps/web/src/pages/Workbench/stage/videoGopDecoderSession.ts:147,342-344	-	目标未命中缓存时，若所需提交位置已被游标覆盖，或目标 PTS 不晚于已输出的最高 PTS，就必须从关键样本重解。前瞻可能已输出并关闭该帧，继续等不会让解码器重发。
+0181-0403	apps/web/src/pages/Workbench/stage/videoGopDecoderSession.test.ts:600;apps/web/src/pages/Workbench/stage/videoGopDecoderSession.ts:97-100,495-498	-	每个请求只把当前 generation 中首张 PTS 精确匹配的 VideoFrame 交给调用方关闭，重解或重置不得收回。前瞻帧若交由 onSupplementalFrame，则由其负责关闭，且位图确实可从调用方缓存读取时才返回 true；未转交的帧立即关闭。
+0181-0404	apps/web/src/pages/Workbench/stage/videoGopDecoderSession.ts:15	-	VideoGopSessionIdentity 任一字段变化都必须销毁旧会话并新建；不能把旧解码器状态和提交游标当作新身份下仍有效的增量起点。
+0181-0405	apps/web/src/pages/Workbench/stage/videoGopDecoderSession.ts:30	-	后台预取使用 allowReset=false；若目标需要回退或重置就跳过，不能让预取触发的 GOP 重解占住串行队列、阻塞前台绘制。
+0181-0406	apps/web/src/pages/Workbench/stage/videoGopDecoderSession.ts:91	-	目标输出默认最多等 5 秒，不能无期限等待目标 PTS；损坏码流可能始终不产出目标帧，使后续解码和重置命令都卡在串行队列里。
+0181-0407	apps/web/src/pages/Workbench/stage/videoGopDecoderSession.ts:155	-	解码和重置必须进入同一条 Promise 链；若各自排队，重置可能在一次解码尚未完成时改写其正在使用的解码器状态。
+0181-0408	apps/web/src/pages/Workbench/stage/videoGopDecoderSession.ts:202-205	-	doDecode 等待 ensureReady 或 hardReset 后必须用 getState 重新读取状态；错误回调可能在等待期间将状态置为 failed，沿用 await 前的类型窄化会把故障会话当成就绪。
+0181-0409	apps/web/src/pages/Workbench/stage/videoGopDecoderSession.ts:467-470	-	hardReset 必须用新 generation 使旧等待者失效；VideoDecoder.reset 会清除配置，不能把它当成仍可继续接收块的清队列操作，须用原配置重新 configure，再从 GOP 关键样本开始。
+0181-0410	apps/web/src/pages/Workbench/stage/videoKonvaCoordinates.ts:3-14	-	视频标注仍按归一化坐标存储，不能因 Konva 改用固有像素渲染和命中就改写存储单位，否则既有标注需要迁移。屏幕坐标按 Konva 的平移缩放逆变换，不再查询 SVG CTM。
+0181-0411	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:60,253	-	视频 SAM 框提示和图片侧一样按图幅比例判定：任一边不超过对应图幅的 0.5% 就不派发，不能只检查面积或非零尺寸，否则误点或细长拖动可能把退化框送给后端。
+0181-0412	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:68-71,80	-	magic-box 复用 interactive_box 请求，但只返回一个候选并直接打开类别选择器，不进入 Tab 切换或 Enter 采纳流程。协议复用不等于复用提交几何：采纳时须收紧为候选的外接框。
+0181-0413	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:215-216,401-404	-	视频 onSamPrompt 与图片侧共享归一化坐标契约，框传 [x1,y1,x2,y2]，不能直接传 Konva 固有像素。松手仅在当前帧请求候选，若此时就建标注，会在用户采纳前写入未经确认的结果。
+0181-0414	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.test.ts:608;apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:218	-	不能仅因输入都是拖框就统一派发 interactive_box；exemplar 框是视觉示例，须调用 runExemplar，否则会把示例区域误当成直接框提示。
+0181-0415	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:231,262-265	-	track 工具仅在选中轨迹未锁且当前帧无关键帧时延展该轨迹，以保留跨帧插值；同帧已有关键帧时应另建轨迹，否则 upsertKeyframe 会静默覆盖首框。
+0181-0416	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:363	-	已提交的视频掩码必须按解码后的 alpha 判定命中，不能用外接框近似，否则点击框内的透明区域也会误选掩码。
+0181-0417	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:367-370	-	点击 carryOverGhosts 只选中待续轨迹，不写关键帧，实际续写须再画框或拖动选中后的 ghost。命中时实框和已选轨迹的 ghost 优先，避免续写提示抢走编辑目标。
+0181-0418	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:417	-	Konva 缩放句柄必须在 pointerdown 上设置 cancelBubble；仅在句柄内处理缩放而放任事件冒泡，会让同一次按下又触发 Stage 的交互处理。
+0181-0419	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:450-453	-	window 拖拽监听只在跟踪开始和结束时装卸，处理器通过 ref 读取最新输入；若把逐帧变化的拖拽值列为监听依赖，每次更新都会拆装监听，若只保留闭包则会读到旧值。
+0181-0420	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:476,835;apps/web/src/pages/Workbench/stage/videoStageControls.ts:84	-	discardDrawingDraft 只撤销未完成的创建，并须同步释放事件所有权，否则尾随的 pointerup 仍可能提交。正常松手也要先释放再调用提交回调，因为回调可能已经选中另一条轨迹。
+0181-0421	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:496-497,712,807;apps/web/src/pages/Workbench/stage/videoStageTypes.ts:119-120,131-134	-	SAM 探针由工具栏三层门控，不复用 creationEnabled 或已有标注的命中拦截，否则会挡住对现有标注区域的提示。画布只向 shell 发送归一化点框提示，候选经采纳后才成为标注。
+0181-0422	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:550-551,790;apps/web/src/pages/Workbench/stage/videoStageGeometry.ts:339-344	-	点集轨迹的顶点编辑或整体平移只写入当前源帧的手动关键帧：已有关键帧则替换顶点，插值帧则新建，并清除该帧的 outside。不能回写参与插值的关键帧，否则会把当前帧的修改传播到其他帧。
+0181-0423	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:595	-	单帧多边形和折线的顶点句柄必须拦截按下事件的冒泡；否则 Stage 会把已由句柄接管的同一次按下再次解释为整体平移或选择。
+0181-0424	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:708,821	-	右键和中键发起的平移由容器层独占，不进入 useVideoKonvaInteraction 的 window 拖拽跟踪，否则一次视图平移手势会同时被画布编辑逻辑跟踪。
+0181-0425	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:722-723;apps/web/src/pages/Workbench/stage/videoStagePicking.ts:64-66	-	Konva 与 SVG 共用只依赖 geom、返回原条目的容差拾取规则，避免同一重叠位置选中不同对象。pickTop 逆序取首个命中，因此待续 ghost 放在普通标注之前，选中 ghost 放在最后，待续占位才不会抢走两者的命中。
+0181-0426	apps/web/src/pages/Workbench/stage/videoKonvaInteraction.ts:738	-	点选待续轨迹 ghost 只改变选中状态，不物化关键帧；只有随后画框或拖动 ghost 才续写，否则一次查看或选中就会被保存成几何修改。
+0181-0427	apps/web/src/pages/Workbench/stage/videoMaskFrames.ts:131-134	-	videoMaskFrames 必须先提交新 records，再到后续动画帧关闭旧 ImageBitmap；同步关闭会让 Konva 读到宽度为零的位图并中断绘制，使同队列的标签、AI 和交互层卡在 waitingForDraw。
+0181-0428	apps/web/src/pages/Workbench/stage/videoMaskFrames.ts:155	-	不向 tmp_ 乐观记录请求持久化蒙版；创建返回真实 ID 之前，这类记录没有对应的内容端点，不能把临时 ID 当作可查询的记录 ID。
+0181-0429	apps/web/src/pages/Workbench/stage/videoMaskFrames.ts:366	-	审核范围切换时须立即淘汰旧的暂存可视结果；若等新任务解码完再替换，解码期间会在新范围内继续展示上一任务的结果。
+0181-0430	apps/web/src/pages/Workbench/stage/videoReferenceKalman.ts:1-10,96-100	-	参考框外推须按帧号升序滤过目标帧之前的全部可见关键帧，不能只取末两帧估速，否则单段噪声会被放大。runReferenceKalman 接收已中心化的样本，不足两个时由调用方保持最近关键帧框。
+0181-0431	apps/web/src/pages/Workbench/stage/videoReferenceKalman.ts:39,45	-	参考框滤波不能把平稳抗噪和快速跟随当作同一档：低过程噪声与观测噪声之比会拖慢对突变的响应，灵敏档须提高该比值；宽高的过程噪声低于中心坐标，避免尺寸和位置同样易抖。
+0181-0432	apps/web/src/pages/Workbench/stage/videoReferencePredict.ts:32	-	videoReferencePredict 必须复用未变更配置的解析结果，仅在写入时使缓存失效；每次读取都重新解析成新对象，会违反 useSyncExternalStore 对稳定快照引用的要求。
+0181-0433	apps/web/src/pages/Workbench/stage/videoSamplingGrid.ts:1-4,44-48;apps/web/src/pages/Workbench/stage/videoStageControls.ts:92	-	采样网格锚定源视频第 0 帧，采样只改变导航，不能把采样序号写成 frame_index。gridNext 越界时留在原帧，不跳到网格外的 maxFrame，以免尾端导航反复落在同一帧；尾段用 Shift 逐源帧微调。
+0181-0434	apps/web/src/pages/Workbench/stage/videoStageControls.ts:34	-	VideoIssueRestoreLease.restore 必须等选中状态、初始适配和恢复后的视图全部提交才兑现；仅派发恢复命令就返回，会让后续操作在旧选中状态或视图上继续。
+0181-0435	apps/web/src/pages/Workbench/stage/videoStageControls.ts:54,96	-	seekToFrameReady 不以定位完成为就绪信号：必须由媒体层使用该请求持有的帧源画出目标源帧的精确像素，否则帧号已更新时仍可能读到上一帧或其他帧源的画面。
+0181-0436	apps/web/src/pages/Workbench/stage/videoStageControls.ts:72	-	VideoStageControls.isSourceReady 要同时验证当前原始源租约和原生媒体可绘制；只检查其中一项，会在另一项尚不能供帧时提前放行。
+0181-0437	apps/web/src/pages/Workbench/stage/videoStageControls.ts:74	-	subscribeIssueNavigationInterrupt 只转发用户发起的视图或帧命令；若把内部校验定位和恢复也作为中断，问题导航会被自己的步骤取消。
+0181-0438	apps/web/src/pages/Workbench/stage/videoStageControls.ts:110-118	-	fixed 视频选择器锚点须由舞台用当前容器矩形、视口和视频像素尺寸经 normToClient 换算，未挂载时返回 null；复用图片侧换算会用错坐标基准，导致选择器偏离视频目标。
+0181-0439	apps/web/src/pages/Workbench/stage/videoStageControls.ts:126-129,131	-	选中对象仅在出视口或过小时才自动居中，否则键盘循环、侧栏或画布点选都会打断已可见的视图。显式的 QC 区域 focusRegion 不套用这一偏好，否则指定区域可能得不到适配。
+0181-0440	apps/web/src/pages/Workbench/stage/videoStageGeometry.test.ts:144,259;apps/web/src/pages/Workbench/stage/videoStageGeometry.ts:418,427,460,531	-	前端须镜像后端的 lerp_polygon 与 lerp_polyline；闭合多边形用距离最小的循环起点配对，不能照原索引硬配，也不能把循环配对用于开放折线。round6 保留六位小数并将负零归零，避免相等比较和序列化分歧。
+0181-0441	apps/web/src/pages/Workbench/stage/videoStageGeometry.ts:145-149	-	选中卡、右键菜单和删除须共用联合几何判定，不能各自只识别 bbox；否则已能渲染的多边形、折线、旋转框及其适用轨迹会失去管理入口。
+0181-0442	apps/web/src/pages/Workbench/stage/videoStageGeometry.ts:163,221	-	isVideoPointsSingleFrame 和 isVideoPointsTrack 不能因 bbox 也能表示成点集就纳入它：单帧 bbox 会走错专属编辑交互，bbox 轨迹则会被分到简化点集卡而失去完整关键帧卡。
+0181-0443	apps/web/src/pages/Workbench/stage/videoStageGeometry.ts:758-764	-	track_number 仅作为显示和导出的派生序号，不作持久化身份。它按首关键帧及同帧轨迹 ID 编排，采样变化或轨迹增删后允许重排，不能用旧序号稳定指代同一轨迹。
+0181-0444	apps/web/src/pages/Workbench/stage/videoToolUnits.test.ts:181-182;apps/web/src/pages/Workbench/stage/videoToolUnits.ts:36-39	-	新增视频 AI 工具必须按采纳后的几何登记到 VIDEO_TOOL_TARGET；漏登记会让 videoToolEnabled 按未知工具放行，绕过全部 tool_bindings 门控，同时使 videoToolUnit 返回 null，影响类别选择。
+0181-0445	apps/web/src/pages/Workbench/stage/videoToolUnits.ts:1-8,113-117,121	-	旧项目未回填工具配置时不能按显式禁用处理：已启用单位的 video_modes 为 null 时保留单帧和轨迹两种变体；tool_bindings 缺失或为空时，videoToolEnabled 放行并由工作台其他兜底继续判断。
+0181-0446	apps/web/src/pages/Workbench/stage/videoToolUnits.ts:43	-	magic-box 采纳后只产出候选区域的外接矩形 video_bbox，工具归属必须按产出判为 bbox；若沿用 smart-* 或 exemplar 的 region 归属，就会把矩形产出归到区域工具。
+0181-0447	apps/web/src/pages/Workbench/stage/videoToolUnits.ts:53,61	-	resolveVideoScopeTransition 只配对同一手工几何的单帧和轨迹变体；按工具归属配对会误把同属 region 的 polygon 与 Mask 当成可互换，也不能用 AI 工具补齐缺失变体。
+0181-0448	apps/web/src/pages/Workbench/stage/videoTrackContext.ts:42	-	deriveVideoTrackContext 不能拿渲染器的默认值补足帧来源；默认值只决定如何显示，拿它生成来源元数据会把没有来源证据的帧标成已有来源。
+0181-0449	apps/web/src/pages/Workbench/stage/videoTrackContext.ts:55-56	-	同一源帧有重复关键帧时，轨迹解析按存储顺序取第一条，时间轴导航则取最后一条；不能共用同一去重结果，否则会改变当前帧判定或导航命中。
+0181-0450	apps/web/src/pages/Workbench/stage/videoTrackOutside.ts:50-53,90-91	-	outside 区间助手只约束 outside 字段结构，不能把参数收窄为 bbox 轨迹；否则 polygon 和 polyline 即使具备相同字段，也无法复用区间读取和落定可见关键帧时的清除逻辑。
+0181-0451	apps/web/src/pages/Workbench/stage/videoTrackTimeline.ts:40-43,131	-	时间轴桶的高度与着色使用不同口径：无轨迹归属的 legacy bbox 只增加密度高度，着色按各轨迹的关键帧贡献数分段，不能用桶内总密度替代贡献数之和。
+0181-0452	apps/web/src/pages/Workbench/stage/videoTrackTimeline.ts:154-157	-	buildPredictionDensity 必须沿用 buildGlobalTimelineDensity 的等宽分桶，否则预测与人工密度条的同一列可能代表不同帧段；预测没有轨迹归属，不做按轨迹分色。
+0181-0453	apps/web/src/pages/Workbench/stage/image/IssueLayer.tsx:1-18	-	IssueLayer 必须位于 ImageStage 的 Stage 内且高于形状层，否则图钉可能被标注遮住；透明层只在等待落点时截获点击，平时仅图钉参与命中，避免底层工具收不到空白处的点击。
+0181-0454	apps/web/src/pages/Workbench/stage/image/IssueLayer.tsx:43,78,184	-	IssueLayer 的图钉尺寸须除以视口缩放倍率，否则会随图像缩放；落点则须先把 Stage 容器坐标逆变换到图像局部，再按图像尺寸归一化，否则视口变换后会把图钉存到错误位置。
+0181-0455	apps/web/src/pages/Workbench/stage/overlays/MaskOverlayLayer.tsx:1-7	-	MaskOverlayLayer 首次接入缓冲区须全量同步，否则已有像素可能未被绘制；后续由 revision 通知重绘，脏区不进入 React state，只拷贝脏矩形，避免每笔都复制大图。
+0181-0456	apps/web/src/pages/Workbench/stage/overlays/TiledMaskOverlayLayer.tsx:89	-	TiledMaskOverlayLayer 只合成尺寸有上界的概览和不超过 512 像素的已物化瓦片画布；不能以整帧画布替代这些来源，否则会失去分块合成对画布尺寸的约束。
+0181-0457	apps/web/src/pages/Workbench/stage/shared/Minimap.tsx:13-16,235	-	视频 Minimap 不能把 MP4 地址交给 img，否则会破图；canvas 暂停时画 ImageBitmap，播放时用 rAF 从 video 取帧，因为新解码的画面不会触发 React 重绘。
+0181-0458	apps/web/src/pages/Workbench/stage/shared/Minimap.tsx:228-230	-	Minimap 的暂停帧重绘须依赖 needsMinimap：隐藏时组件仍挂载，但 canvas 不存在；只监听帧变化会让暂停期间缩放后首次出现的画布保持空白。
+0181-0459	apps/web/src/pages/Workbench/stage/shared/maskCompareTileStore.ts:98	-	MaskCompareTileStore 用有界瓦片支撑双会话对比，不能改成先构建整帧 alpha 或 RGBA 平面，否则即使只比较局部视口，也会承担随整帧尺寸增长的内存开销。
+0181-0460	apps/web/src/pages/Workbench/stage/shared/maskHistory.ts:180-183	-	MaskHistoryCheckpoint 只在一次交互首次触及瓦片时捕获基线，重复捕获会把已编辑的像素误作撤销起点；finish 即使没有生成改动也要释放基线。
+0181-0461	apps/web/src/pages/Workbench/stage/shared/rasterMaskPackedMorphology.ts:149-152,180-184;apps/web/src/pages/Workbench/stage/shared/rasterMaskWebGpuSeparableQualification.ts:245	archive/0065-keep-one-pass-raster-mask-webgpu-kernel.md	squareDilatePackedXorSeparable 复用各输入行的横向扩张，避免半径平方级循环，同时保留单遍 WGSL 的位与尾部语义。Direct 和独立资格验证 provider 仅作对照，不应因此替换生产路径的 rasterMaskWebGpu.ts 导入。
+0181-0462	apps/web/src/pages/Workbench/stage/shared/rasterMaskRender.ts:41	-	RasterMaskPickSurface 遇到降采样的 crop.alpha 时须保留源 RLE 做精确拾取；预览不能可靠表示源像素的覆盖情况，直接命中预览会误选或漏选。
+0181-0463	apps/web/src/pages/Workbench/stage/shared/rasterMaskRender.ts:188-189	-	连通分量扫描只需保留当前行仍使用的标签：已经离开当前行的分量不可能再连接后续行，继续保留会让标签状态随已扫描区域增长，而非受单行约束。
+0181-0464	apps/web/src/pages/Workbench/stage/shared/rasterMaskRender.ts:311-315	-	analyzeRasterMaskAlpha 的前景邻接可切换，但孔洞计数固定用四邻接；复用前景选项计算孔洞，会在切换前景口径时连带改变孔洞的定义。
+0181-0465	apps/web/src/pages/Workbench/stage/shared/rasterMaskRender.ts:390	-	已保存的遮罩在 createImageBitmap 失败时须回退到 Canvas2D；Chromium 在并发构建位图或显存紧张时可能暂时拒绝创建，直接报失败会让遮罩只能靠刷新恢复显示。
+0181-0466	apps/web/src/pages/Workbench/stage/shared/rasterMaskRender.ts:507-510	-	pickTopRasterMaskAt 的同层裁决必须与渲染顺序一致：多个记录以相同 zOrder 命中时选后输入者，否则可能选中被上方遮罩盖住的记录。
+0181-0467	apps/web/src/pages/Workbench/stage/shared/rasterMaskWorkerRuntime.ts:23	-	compareRasterMaskSessionMetrics 直接归并不可变 RLE 游程；全图比较仍然精确，不必把两个会话都展开成稠密像素平面并承担整帧内存开销。
+0181-0468	apps/web/src/pages/Workbench/stage/shared/rasterMaskWorkerRuntime.ts:281-285,295-296	-	稠密 CPU 峰值须计入应用同时持有的源平面、形态学工作区和打包历史补丁；方形核双遍计算到了第二遍仍持有原源平面，只按中间源计账会低估峰值。
+0181-0469	apps/web/src/pages/Workbench/stage/shared/rasterMaskWorkerRuntime.ts:1052-1054,1159-1163	-	分块比较不能在瓦片边缘截断邻接信息，否则边界会与整块渲染不一致：游程比较计入外侧紧邻列的跃迁且只标前景侧，会话瓦片的边界模式则解码裁剪后的一像素外圈。
+0181-0470	apps/web/src/pages/Workbench/stage/shared/rasterMaskWorkerRuntime.ts:1249	-	mergeRasterMaskSessionTiles 合并稀疏覆盖时保留未修改的基础像素表示；先展开基础平面会让局部修改也产生整帧稠密分配。
+0181-0471	apps/web/src/pages/Workbench/stage/shared/useRasterMaskRecords.ts:80	-	useRasterMaskRecords 用尺寸和摘要识别不可变内容，不能强制依赖 object_key；内联 AI 候选没有对象键，否则这类记录无法按内容识别。
+0181-0472	apps/web/src/pages/Workbench/stage/shared/useRasterMaskRecords.ts:85	-	类别的渲染颜色变更时，调用方须同步更新 colorRevision；只改 color 不会使旧的渲染结果失效，遮罩可能继续显示旧颜色。
+0181-0473	apps/web/src/pages/Workbench/stage/shared/useRasterMaskRecords.ts:91	-	加载器自行管理可取消的生命周期时须关闭 deduplicateLoad；参与全局请求共享会把独立加载的取消边界耦合到同一个请求上。
+0181-0474	apps/web/src/pages/Workbench/stage/shared/useRasterMaskRecords.ts:148	-	RasterResourceCoordinator 按任务聚合资源准入，记录加载、后台、编辑与 Worker 共用额度；分别准入会让各方单独看都未超限，却使合计用量突破额度。
+0181-0475	apps/web/src/pages/Workbench/stage/shared/useRasterMaskRecords.ts:274-275	-	相同内容可共享成功加载，但权限或对象不存在的失败属于来源而非内容；共享请求失败后，不同来源须用自身端点确认，避免把可访问的内容误判为不可用。
+0181-0476	apps/web/src/pages/Workbench/stage/shared/useRasterMaskRecords.ts:885	-	过滤掉的遮罩仍可普通缓存以供复用，但不能保留选中或编辑状态带来的固定保留待遇，否则退出当前记录集后仍会占用受保护的缓存空间。
+0181-0477	apps/web/src/pages/Workbench/stage/shared/useRasterMaskWorkerPool.ts:5-11	-	按任务共享的 Worker 池应延迟一个微任务释放，给 StrictMode 清理后立即重跑的 effect 留出续租机会；同步释放会销毁仍要复用的池，真正卸载或切换任务则不再续租。
+0181-0478	apps/web/src/pages/Workbench/stage/shared/useViewportTransform.ts:53-59	-	useElementSize 用回调 ref 随实际 DOM 节点换绑 ResizeObserver；加载页或错误页切回、任务切换及清单迟到都可能替换节点，只读取一次 ref.current 会漏绑新节点或继续观察旧节点。
+0181-0479	apps/web/src/pages/Workbench/stage/shared/useViewportTransform.ts:79,84	-	useElementSize 在订阅时同步读取有效尺寸，避免首次 ResizeObserver 回调前一直使用初始的 0×0；节点脱离文档或暂时隐藏时报告的 0×0 不应覆盖上一有效尺寸。
+0181-0480	apps/web/src/pages/Workbench/stage/shared/useWorkbenchPerf.ts:37-41,44	-	启用性能采集后，先初始化 window.__workbenchPerf，再决定是否启用昂贵的 longtask 观测器；若采样同时控制初始化，BugReport 和端到端基准在未采样的挂载中就读不到计数。
+0181-0481	apps/web/src/pages/Workbench/stage/shared/geometry/bbox.ts:38	-	tightenBboxFromPolygon 不能直接返回 SAM 顶点的坐标极值：SAM 偶尔给出略越界的点，须裁剪外接框以免产出超出图像范围的归一化框。
+0181-0482	apps/web/src/pages/Workbench/stage/shared/geometry/evenOddFill.ts:111-114	-	drawEvenOddShape 的描边应保留填充路径中的孔洞边界；只描外环虽然不改变镂空填充，但在缩放或低透明度下会使孔洞轮廓难以辨认。
+0181-0483	apps/web/src/pages/Workbench/stage/shared/geometry/evenOddFill.ts:132-144	-	collectOuterRings 在存在 multiPolygon 时不再加入主 polygon；此时后者仅用于标签或锚点，重复入径会改变奇偶填充的结果。
+0181-0484	apps/web/src/pages/Workbench/stage/shared/geometry/geometryEditPolicy.ts:3-6	-	带孔或多外环的多边形在画布中保持只读；顶点编辑器只提交一组 points，不能原子地更新各环，开放编辑会把完整几何覆盖成无孔的单环 polygon。
+0181-0485	apps/web/src/pages/Workbench/stage/shared/geometry/geometryEditPolicy.ts:18-21	-	方向键微移只允许 bbox，因为暂存和提交结构只有 x/y/w/h；把 polygon 转成外接框走同一路径，会以矩形覆盖原有顶点几何。
+0181-0486	apps/web/src/pages/Workbench/stage/shared/geometry/maskBuffer.ts:20-23,262-268	-	MaskBuffer 用 consumeDirty 的半开像素矩形驱动增量 putImageData，避免一次局部笔画触发整图转换；传给 toAlphaImageDataRect 前必须裁到画布内，否则只会得到空缓冲。
+0181-0487	apps/web/src/pages/Workbench/stage/shared/geometry/maskInstanceOperations.ts:36	-	focusAlpha 只表示本次复制、拆出或合并后需要高亮的像素，不代表提交后的单个对象；不能用它替代实例操作的提交结果。
+0181-0488	apps/web/src/pages/Workbench/stage/shared/geometry/maskInstanceOperations.ts:71	-	Mask 实例切分须与服务端复用同一归一化像素中心叉积表达式，并以 >= 0 归左；代数等价改写或变更等号归属都可能使两端给边界像素分到不同侧。
+0181-0489	apps/web/src/pages/Workbench/stage/shared/geometry/maskOperations.ts:458	-	Mask 孔洞检测固定按背景像素的 4 邻域判连通，不复用分量或填充操作的可选 connectivity；否则改变这些操作的参数也会改变仅靠对角相接的背景是否算孔。
+0181-0490	apps/web/src/pages/Workbench/stage/shared/geometry/maskRle.ts:118,139	-	cocoRleContainsPixel 和 cocoRleBounds 直接从 RLE 游程精确查询命中与归一化前景边界；先解码并非等价替换，会让局部查询也分配整幅稠密 alpha 平面。
+0181-0491	apps/web/src/pages/Workbench/stage/shared/geometry/maskRle.ts:190-196	-	mask-content 过小、不支持 gzip、超过任一绝对上限或展开比超过后端 20 倍限制时回退普通 JSON；HTTP gzip 不改变 encoding=coco_rle，存储压缩另用 storage_encoding=gzip。
+0181-0492	apps/web/src/pages/Workbench/stage/shared/geometry/maskToPolygon.test.ts:99-100,122;apps/web/src/pages/Workbench/stage/shared/geometry/maskToPolygon.ts:1-16,42-47,255,314-315	-	maskToPolygon 可继续返回最大外环以兼容旧调用，但单外环落库无法保留其他分量或孔洞；droppedComponents 不计主分量，commitMaskAsPolygon 必须检查 lossy 并阻止有损提交、提示用户。
+0181-0493	apps/web/src/pages/Workbench/stage/shared/geometry/maskToPolygon.ts:174-180	-	maskToPolygon 的 countBackgroundHoles 对前景用 4 邻域、对背景用 8 邻域；若背景也用 4 邻域，只经对角开口连到画布外缘的区域会被误判为单外环无法保留的孔洞。
+0181-0494	apps/web/src/pages/Workbench/stage/shared/geometry/polygon.ts:30-33,53-60	-	加载已有多边形用 isSelfIntersecting 全量检查；实时编辑可用增量版，但它只查移动顶点关联的两条边，会漏掉未改动边间的交叉，因此只能在已知无自交时依赖它，或在提交时全量复检。
+0181-0495	apps/web/src/pages/Workbench/stage/shared/geometry/polygonBoundaryTrace.ts:38	-	pickBoundary 的顶点优先判定和线段投影都以 CSS 像素计算；直接比较归一化距离会在非方形图像上混淆两轴的屏幕尺度，导致拾取范围和投影位置与画面不符。
+0181-0496	apps/web/src/pages/Workbench/stage/shared/geometry/polygonOps.ts:69;apps/web/src/pages/Workbench/stage/shared/geometry/polygonSlice.ts:145	archive/0074-atomic-annotation-slice-restore.md	slicePolygon 预览须满足双交点约束，并用 validatePolygonPartition 检查布尔分割是否守恒；预览通过也不能代替服务端独立重建，客户端预览不是提交几何的权威来源。
+0181-0497	apps/web/src/pages/Workbench/stage/shared/geometry/polygonOps.ts:123-124	-	polygon Join 在比较共享 attributes 前递归排序对象键；若直接比较未规范化的序列化结果，键顺序不同但内容相同的属性也会被误判不一致并清空。
+0181-0498	apps/web/src/pages/Workbench/stage/shared/geometry/polygonOps.ts:190-191	-	cropPolygonGeometry 遇到自交、退化环或数值噪声导致的差集异常仍返回 null，但应记录警告；静默返回会让几何求值失败与裁切意图本身不可行无法区分。
+0181-0499	apps/web/src/pages/Workbench/stage/shared/geometry/simplify.ts:1-2,89-92	-	简化仅作用于渲染，以屏幕 1 像素按视口比例及图像尺寸换算归一化容差；编辑仍须使用原始顶点，否则可编辑的几何会随缩放级别变化。
+0181-0500	apps/web/src/pages/Workbench/stage/shared/geometry/simplify.ts:67	-	simplifyPolygon 以距首点最远的顶点作第二切分锚点，再对闭环分段简化；直接把首尾重合的闭环当开放折线处理，会让首尾基线退化。
+0181-0501	apps/web/src/pages/Workbench/stage/shared/viewport/scaleCancel.ts:1-10	-	Konva 节点已随 Stage 缩放，图片与视频画布应先将屏幕量换算为世界量；直接用固定世界值设置线宽、字号、控制点或虚线，会让它们随画面一起变粗或变大。
+0181-0502	apps/web/src/pages/Workbench/stage/shared/viewport/zoom.ts:22-25	-	fitAwareScaleRange 在完整适配比例低于默认 20% 时须放宽下限；固定使用默认下限会让大图在放大后再也缩不回完整可见的状态。
+0181-0503	apps/web/src/pages/Workbench/stage/shared/viewport/zoom.ts:43-47	-	zoomAtPoint 限幅后若比例未变，应复用原视口对象；在缩放上下限继续滚动时，返回新对象会把无变化的缩放当成视口更新，引起抖动。
+0181-0504	apps/web/src/pages/Workbench/stage/tools/KeypointTool.ts:3-13;apps/web/src/pages/Workbench/stage/tools/index.ts:117-120	-	KeypointTool 必须按类别 schema 顺序保留节点槽位：COCO 遮挡点保留坐标，跳过点也占位，否则后续点会错配节点；没有 schema 时不能落点。
+0181-0505	apps/web/src/pages/Workbench/stage/tools/MaskTool.ts:11	-	MaskTool 的指针入口也须调用 canEditMask，检查任务只读与标注锁定；若只在工具栏限制可用性，直接落笔仍可能绕过锁定并修改缓冲。
+0181-0506	apps/web/src/pages/Workbench/stage/tools/MaskTool.ts:30-31	-	MaskTool 将未提供 phase 的裸 useMaskEditor 视为 ready，保留首次按下创建空白缓冲的能力；显式 loading 或 saving 不可同样放行，未声明阶段与会话忙碌并不等价。
+0181-0507	apps/web/src/pages/Workbench/stage/tools/MaskTool.ts:90-91	-	图片 Mask 以按下时的 beginStroke 和松手时的 endStroke 划定历史边界；若按每次指针移动记历史，一笔就会拆成多次撤销，与 VideoKonvaStage 的逐笔粒度不一致。
+0181-0508	apps/web/src/pages/Workbench/stage/tools/PolylineTool.ts:3-11	-	PolylineTool 可以复用 polygonDraft 存点，但不能复用多边形的近首点闭合判定：折线靠近首点仍可能是合法的开放路径，应以至少两点和 closed:false 提交。
+0181-0509	apps/web/src/pages/Workbench/stage/tools/SmartBoxTool.ts:3-7;apps/web/src/pages/Workbench/stage/tools/SmartPointTool.ts:3-7;apps/web/src/pages/Workbench/stage/tools/index.ts:48-49;apps/web/src/pages/Workbench/stage/tools/toolUnits.ts:1-14	-	交互 AI 的可用性由项目的 ai_interactive_enabled 和后端 /setup.supported_prompts 共同决定，不能从几何类别推断。点击提示须协商 point，单框单 Mask 须协商 interactive_box；沿用旧 bbox 名会把几何类型误当成提示能力。
+0181-0510	apps/web/src/pages/Workbench/stage/tools/SmartScribbleTool.ts:3-6;apps/web/src/pages/Workbench/stage/tools/index.ts:140	-	在已保存的 Mask 上追加正负笔迹时保留该标注的选中态，使服务端能按标注 ID 和版本解析种子。笔迹只是提示，不能直接改写像素；返回的候选须经显式采纳才成为标注。
+0181-0511	apps/web/src/pages/Workbench/stage/tools/index.ts:63-67	-	SAM 拖框的 mode 必须由子工具显式指定，ImageStage 松手时据此派发 exemplar；框尺寸不能区分提示意图，按尺寸猜测会把合法拖框送入错误的提示分支。
+0181-0512	apps/web/src/pages/Workbench/stage/tools/index.ts:109	-	图片多边形的拖动批次虽复用现有草稿，autoPoints.append 仍须校验批次预期的快照；若直接追加到当下的草稿，迟到的一批点可能混入已替换的草稿。
+0181-0513	apps/web/src/pages/Workbench/stage/tools/index.ts:156-159;apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:1177-1178	-	Mask 落笔和提交都须独立通过 canEditMask，同时检查 readOnly 和对象锁。只在指针或 Enter 快捷键层拦截，会让另一条入口绕过限制，修改或写入本不允许编辑的标注。
+0181-0514	apps/web/src/pages/Workbench/stage/tools/toolUnits.ts:1-14	-	ToolUnitId 须与后端 JSONB 类型对齐，采纳 AI 结果时按产出几何落入与手绘相同的 region 或 bbox；若另设 ai_interactive 单位，同一几何的类别域会因标注来源而割裂。
+0181-0515	apps/web/src/pages/Workbench/stages/image/ImageWorkbench.tsx:54;apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:154	-	松手后、持久化结果接管前，应优先渲染 pendingGeomMap 中的几何。若直接读尚未更新的已保存记录，拖拽或缩放后的图形会先闪回原位置或尺寸。
+0181-0516	apps/web/src/pages/Workbench/stages/image/ImageWorkbench.tsx:283-285	-	启用选中联动时，定位 effect 只随 selectedId 变化触发，并通过 ref 读取最新盒集和几何；若把盒集引用也列为依赖，同一对象仍被选中时，数据刷新就可能再次移动视口。
+0181-0517	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.test.ts:22	-	decisionDialog store 是模块级单例，测试结束须显式清空队列；只卸载当前用例的组件不会清掉未结算弹窗，下一用例可能读到上一用例留下的弹窗。
+0181-0518	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.test.ts:248,287	-	预测采纳在写入返回后就须阻止同一候选再次写入，不能等查询刷新或假定类别选择器已更新。mutation 通知可能先触发渲染，此时旧候选仍在查询结果中，不能据此重新采纳。
+0181-0519	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:111,313-314,1183-1184,1330	-	Mask 提交须将路由租约与标注版本分开校验：A→B→A 不继承旧租约，两次转换确认返回后都要重验 owner 和 session，写入前还须核对缓冲区 generation。本次保存刷新版本不等于租约失效，语义租约仍有效时应允许原提交收尾。
+0181-0520	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:130-133,1615-1616	-	图片落框只检查当前工具自身的 unit 是否有类别；若没有，直接存为 __unknown。借用 bbox 或 region 的类别弹窗会把其他单位的类别当成当前工具的有效选择。
+0181-0521	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:152	-	Mask 的 native 或 legacy 写入路径只能由任务能力握手确定；能力未知或握手失败时须阻断提交，不能把缺少确认当作 legacy 支持，否则可能向任务不支持的路径写入。
+0181-0522	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:193	-	预测审阅优先用 accept_prediction 写入的 _shape_index 按形状过滤，避免采纳其中一个形状就隐藏同条预测中其余待审形状；旧标注没有该字段时才回退到整条预测粒度。
+0181-0523	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:225-228	-	擦空 Mask 后应在一次对话框中区分删除对象、撤销擦空和继续编辑；取消、Esc 或点击遮罩都只保留空白草稿并继续编辑，不能把关闭弹窗解释成确认删除或恢复旧内容。
+0181-0524	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:427-428	-	allAiBoxes 须在汇总源头按 ID 去重，因为 offset 分页重取可能使相邻页重叠。只在列表渲染时去重，仍会让重复候选影响待审计数和时间轴密度。
+0181-0525	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:620	-	取消 Magic Box 的选类时须同时清空唯一候选；只关弹窗而保留候选，会让监听候选的 effect 再次打开同一个选类框。
+0181-0526	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:639	-	SAM 的 R 键精修通过 ref 调用；若快捷键 effect 的依赖数组直接引用尚未初始化的 handleRefineSamCandidate，渲染会在注册快捷键之前因访问未初始化变量而失败。
+0181-0527	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:1383-1384	-	离开已保存的 Mask 会话前须先接纳本次写入返回的版本；若先 cancel，未保存离开守卫可能仍按旧版本判断并恢复刚退出的 Mask 工具。
+0181-0528	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:1438	-	保存后开始下一张空白 Mask 时须清除结果选中态；只重置草稿会让编辑器根据残留的选中项重新载入刚保存的标注，而不是打开空白编辑态。
+0181-0529	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:1453-1456	-	多连通分量或孔洞无法无损转为多边形时，应阻断提交并保留 Mask 编辑态供清理后重试。只保留最大外环会丢失几何，而改存 raster_mask 则会擅自改变目标类型。
+0181-0530	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:1582	-	批量采纳须排除与同类人工框的 IoU 超过去重阈值而被淡化的 AI 框；若淡化只影响显示、不影响写入，同一个已有对象仍会被重复入库。
+0181-0531	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:1654-1658	-	单项改类弹层不能依赖视频具备图像变换或栅格边界已同步；需固定定位时，优先取当前帧可见的视频框，其次用调用方锚点，两者都不可用才退到右上角。
+0181-0532	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:1682-1683	-	预测选类是通过 override_class_name 采纳预测，不是给已有标注改类；即使所选类名等于模型原生类名，也不能按未改类提前返回，否则预测不会被采纳。
+0181-0533	apps/web/src/pages/Workbench/stages/image/useImageAnnotationActions.ts:1717-1720	-	带属性的改类须即时提交、保持弹层打开并按新类刷新属性，不能将连续切换积到关窗时才提交，否则撤销会跳过中间改类。提交失败须同时回滚 editingClass 和 activeClass，避免界面与服务端分叉。
+0181-0534	apps/web/src/pages/Workbench/stages/image/usePredictionDecisions.ts:48-49	-	预测决策缓存不能只用任务 ID 作键，还须按项目和账号隔离；写入或权威查询未完成时，即使返回了相同任务 ID，也不能沿用其他归属方的决策。
+0181-0535	apps/web/src/pages/Workbench/stages/image/usePredictionDecisions.ts:65	-	预测决策须为每轮选中态分配独立身份，不能用任务、帧或选中项的值代替；离开再返回时这些值可以相同，但旧请求完成后不得推进当前选择。
+0181-0536	apps/web/src/pages/Workbench/stages/image/usePredictionDecisions.ts:83	-	权威查询确认预测已采纳后，须清除本地决策记录，不能长期保留已处理标记；否则撤销采纳后，本地记录仍会挡住该预测重新进入待审。
+0181-0537	apps/web/src/pages/Workbench/stages/image/usePredictionDecisions.ts:202	-	预测改类进入等待态时先将 pickerSeen 置为 false，须等选择器实际出现后才能判定关闭；mutation 通知可能先于 setEditingClass 生效，此时未显示不等于已关闭。
+0181-0538	apps/web/src/pages/Workbench/stages/image/usePredictionDecisions.ts:273	-	预测列表的显式全帧按钮保留全帧范围，快捷键只提交当前帧候选；共用处理逻辑不能统一按当前帧裁剪，否则按钮会漏处理其他帧。
+0181-0539	apps/web/src/pages/Workbench/stages/image/usePredictionDecisions.ts:304	-	同一任务内批量采纳预测须逐条等待写入，不能并发提交；各次写入共享任务锁与标注版本，并发会争用同一把锁，并可能基于同一旧版本写入。
+0181-0540	apps/web/src/pages/Workbench/stages/three-d/CameraProjectionView.tsx:1-11,59-62,66,520,867	-	相机内参与 projectPoints 输出、深度栅格和种框统一使用原图像素；绘制时缩放到显示尺寸，onSeedBox 提交前反向换算并带上本相机标定，否则上层会按错误的视锥取点拟合 3D 框。
+0181-0541	apps/web/src/pages/Workbench/stages/three-d/CameraProjectionView.tsx:51,91,913	-	相机投影命中至少要求三个可见角点，不能仅凭包围盒相交选中擦过画面边缘的框；多个投影包围盒包含点击点时取面积最小者，避免较大的重叠框抢占较小的前景投影。
+0181-0542	apps/web/src/pages/Workbench/stages/three-d/CameraProjectionView.tsx:64	-	相机种框保存期间须阻止新的指针交互，不能把重复手势当成可并行的操作，否则前一次保存未完成就会发起另一笔种框写入。
+0181-0543	apps/web/src/pages/Workbench/stages/three-d/CameraProjectionView.tsx:70,72,74	-	相机内拖框只更新共享 PSR 草稿，正常松手才提交一次；Esc、pointercancel 或拖出画布须恢复原值而不提交，避免取消后仍留下修改。标定不可逆等编辑异常只提示，不改动草稿。
+0181-0544	apps/web/src/pages/Workbench/stages/three-d/CameraProjectionView.tsx:94,858-859	-	相机种框按显示坐标的对角位移判定误点：小于 5 像素视为点击，与 ThreeDWorkbench 的 DRAG_CLICK_TOL 口径一致；不能逐边设限，否则细长框会被误判为点击。
+0181-0545	apps/web/src/pages/Workbench/stages/three-d/CameraProjectionView.tsx:234,247	-	种框拖动用 ref 保存瞬时矩形并直接重绘，不把每次指针更新写进 React state；深度栅格变化才因深度数据重绘，悬停读数不作 draw 依赖，否则只移动指针也会触发画布重绘。
+0181-0546	apps/web/src/pages/Workbench/stages/three-d/FloatingCameraPanel.tsx:1-11,53	-	浮层位置和折叠态由壳层按相机 role 写回 user config，不存 localStorage，否则后端或管理端无法统一复位。onDockAll 只切换到停靠图库，不覆盖各路浮层配置，以免切回时丢失原布局。
+0181-0547	apps/web/src/pages/Workbench/stages/three-d/FramePicker.tsx:1-11	-	FramePicker 以 ±20 帧邻居表反查目标帧对应的 task，超出范围须提示不可达，不能把帧号直接当成可导航的任务；缺缩略图不等于缺任务，整条无图也须保留基础帧选择。
+0181-0548	apps/web/src/pages/Workbench/stages/three-d/FramePicker.tsx:102	-	FramePicker 须延迟注册外部 mousedown 关闭监听，不能在打开弹层时立即启用，否则触发打开的同一次点击可能又把弹层关闭。
+0181-0549	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:61-62,64-65,218-219,1441-1447	-	邻帧 ISO ego 点云用 inv(T_cur)·T_nbr 作为对象矩阵交给 GPU，不直接叠加各帧局部坐标，也不在 CPU 逐点变换。对齐后静态背景重合，动态拖影用过去冷蓝、未来暖橙并按帧距淡出，避免与当前帧着色混淆。
+0181-0550	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:105,209-210,1394-1398	-	邻帧 ReferenceBox 只供时序对照，不得加入当前帧的 boxGroups；否则 pickBox 会把参考框当成当前标注，允许误选或拖动。
+0181-0551	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:148	-	PointCloudScene 须在异步解析完成后通过 shouldCommit 重新核对帧是否仍可提交，不能只在启动解析时检查；较早请求可能更晚完成并覆盖新帧。
+0181-0552	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:150	-	启用相机上色时，须隐藏点云直到 RGB 就绪后再显示，不能先用高度色占位，否则等待上色期间会露出本不应显示的配色。
+0181-0553	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:203-205	-	框顶文字精灵按框 ID 复用，在独立图层中以世界坐标定位，不作为框的子对象继承变换；否则框的非均匀缩放与 Z 轴旋转会使文字发生剪切变形。
+0181-0554	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:227-228,740-742,751-755	-	resetView 的前向取 front 相机光轴的水平投影，不能写死为雷达前向，否则两者不一致时会朝错方向。投影近零时保留原方向（默认 +Y），有效的新方向到下次取景才应用。
+0181-0555	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:251,1699	-	gizmo 拖拽结束后，shouldIgnoreClick 只吞掉额外触发的那一次 click；不拦截会在松手时误换选中框，持续拦截则会吞掉后续正常点击。
+0181-0556	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:297,1224	-	共享画布只负责渲染，指针输入始终由主视口接收；setRenderSurface 移动画布不应重建渲染器、场景、几何或交互宿主，以免切换显示位置时连带重置场景与输入。
+0181-0557	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:352,905	-	拖动 gizmo 或执行屏幕框选期间须暂停 OrbitControls，不能让相机控制器同时消费该手势，否则同一次拖拽会既编辑或框选，又旋转相机。
+0181-0558	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:406-408,421	-	WebGPURenderer（含 WebGL2 回退）延迟提交清屏和 scissor，单独清某个 pass 可能清掉整个画布。任一可见 pass 变化时须在同一 RAF 内全幅清一次，先重画主场景再叠三视图，避免主视口黑屏。
+0181-0559	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:436	-	Three 的点大小衰减以整张画布高度为基准，而不是主视口高度；主 pass 须乘以主视口与画布的高度比，否则两者高度不同时点会显示得偏大。
+0181-0560	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:630-637,1115	-	loadPcd 在入口将源雷达点原地转为 ISO 8855（+X 前、+Y 左、+Z 上），源点已符合约定时不再旋转。不能只在绘制时纠正朝向，否则色带、取景、地面估计仍读取源坐标，投影点也可能与标定不同系。
+0181-0561	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:765-769	-	bevView 沿 −Z 俯看时，以水平车头方向作为相机 up；若沿用竖直 up，它会与视线共线，无法确定画面朝向。这样也使车头始终朝屏幕上方。
+0181-0562	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:804-811	-	collectPointsInScreenRect 应将相机前方的实际点投影到屏幕，再按选区筛点拟合框；若先把选区投到地面，离地目标会随观察角度产生选点偏移。
+0181-0563	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:1095-1097	-	跨帧恢复视角前须关闭 OrbitControls 阻尼并清除旋转和平移残量，否则下一次 update 会把相机推离刚写入的目标视角；清理过程不应回调中间态。
+0181-0564	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:1123	-	相机上色允许只覆盖部分点，未覆盖点沿用载帧时保留的高度色带；不能把逐点都有相机颜色作为上色前提，否则局部缺色会阻断其余点的上色。
+0181-0565	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:1128	-	正常换帧由 loadPcd 原子替换点缓冲，不先调用 clearPointCloud，否则加载期间会出现空白；仅在目标帧无点云或加载失败时清除旧缓冲，避免继续显示上一帧。
+0181-0566	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:1145	-	已认证的点云所有者退役时，retirePointCloud 须释放归属该所有者的全部原始点缓冲；仅移除可见点云会留下未在画面中显示的原始数据。
+0181-0567	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:1271-1274,1759-1760,1767	-	普通框的单位几何和参考框的 unitEdges 均由场景持有，移除单框只释放其材质，否则会影响其他仍在使用共享几何的框。邻帧点云层独占几何和材质，移除时两者都释放。
+0181-0568	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:1428	-	邻帧参考框使用虚线材质时必须调用 computeLineDistances；只换材质而不计算沿线距离，渲染器就没有生成虚线段所需的数据。
+0181-0569	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:1504-1507	-	标注框的轮廓不按普通场景几何参与深度遮挡：框线关闭深度测试并在点云之后绘制，否则远视角下轮廓可能被点云遮没。
+0181-0570	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:1568	-	pickPoint 只返回实际命中的渲染点，未命中则返回空；不能借用放框操作的地平面回退，否则测量会把没有点云回波的位置当成实测结果。
+0181-0571	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:1638-1649	-	placeOnGround 优先按最近的点云命中贴合框底，仅未命中时才用估计地平面，否则斜视时可能埋框，或把高处目标压到地面。取点容差用 0.3 米而非默认 1 米，以免吸附到背景。
+0181-0572	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:1722	-	缩放 gizmo 可以拖过零点并使几何翻转，因此回写框尺寸时取绝对值，并设 0.05 米下限；不能直接保存带符号的缩放量，否则会得到负尺寸或零尺寸。
+0181-0573	apps/web/src/pages/Workbench/stages/three-d/PointCloudScene.ts:1785-1788	-	销毁场景时须主动触发 WebGL context loss；仅调用 renderer.dispose() 仍要等垃圾回收释放上下文，StrictMode 重复挂载或反复热更新可能耗尽浏览器配额，导致新渲染器创建失败。
+0181-0574	apps/web/src/pages/Workbench/stages/three-d/PointCloudTriViewPass.ts:97	-	subtractClientRect 每次只从当前可见区域扣除遮挡，并返回互不重叠的碎片；不能对每个浮窗分别从原矩形计算后合并，否则后一次结果可能重新露出前一次已扣除的区域。
+0181-0575	apps/web/src/pages/Workbench/stages/three-d/PointCloudTriViewPass.ts:116,130	-	三视图用 scissor 裁掉不可见区域，不能把可见碎片当作新的相机取景。边缘裁切时，WebGPU 的 viewport 必须留在边界内，需用视图偏移保留完整内容矩形的投影。
+0181-0576	apps/web/src/pages/Workbench/stages/three-d/SceneTimeline.tsx:54	-	时间轴只对人工点选做 160 毫秒防抖，快速连点时提交停手后的最终帧；自动播放不经过这层防抖，否则连续的播放请求也会被当成一次手动选帧合并。
+0181-0577	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.helpers.ts:17	-	相机中可见目标但种框视锥内没有 LiDAR 回波时，不能将无回波当作不可放框；此时沿中央射线在估计深度 12 米处放置默认框，该深度不是点云测量结果。
+0181-0578	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.helpers.ts:134-136	-	PSR 面板须与三视图方向线采用同一朝向约定：yaw 绕 Z、pitch 绕 Y、roll 绕 X。不能只按平面航向回写旋转，否则数值编辑会抹掉已有的俯仰或横滚。
+0181-0579	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.helpers.ts:209-210	-	resetView 优先以前相机光轴在水平面的投影对准车头；只有缺少标定或投影退化时才用默认 +Y，否则复位朝向可能与标定给出的车头方向不一致。
+0181-0580	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.helpers.ts:236	-	放大相机的方向键处理只能接管未被任务导航或跨帧延续占用的按键；若在放大视图中无条件截获方向键，相应的任务快捷键就会失效。
+0181-0581	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:270	-	任务锁定或 viewer 角色只禁止修改，不禁止选框查看数值；不能用禁用选择代替只读控制，也不能因允许选择就开放放置、表单编辑或 gizmo。
+0181-0582	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:275,508	-	标注列表、右栏与 3D 高亮、gizmo 和数值面板须共用壳层的选框状态；若视图另存选择，面板显示的对象可能与 gizmo 实际编辑的对象不一致。
+0181-0583	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:292	-	Scene 时间轴切帧必须走壳层导航，不能直接切换当前任务；否则会绕过壳层对未保存修改的保护。
+0181-0584	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:343	-	播放期间须先于渲染器和壳层快捷键捕获编辑手势；第一次手势只暂停播放，不得继续传给编辑处理器，否则一次暂停操作也会修改标注。
+0181-0585	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:403-404	-	点云和相机外参须按数据集声明一起转换到 ISO 8855（+X 前、+Y 左、+Z 上），且只转换一次；无声明时按该约定解释。只转换一方或在上层重复转换都会使点云与相机投影错位。
+0181-0586	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.helpers.ts:15;apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:475-476	-	邻帧点云去拖影时，align 按目标把邻帧点移到当前帧位置，结果已在当前 ego 坐标系，渲染再变换会错位；cull 则删除落在当前帧框内的邻帧点，不移动点。
+0181-0587	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:524	-	场景拖拽回调只注册一次，但每次触发都须通过 ref 读取最新的 mutate；若闭包固定捕获注册时的函数，后续拖拽仍可能调用已经过时的更新函数。
+0181-0588	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:530	-	新建 3D 标注的类别必须取自当前工具单位的绑定，而不能从项目类别中任意选择；后端按 tool_bindings 校验 class_name，未绑定的类别会被拒绝。
+0181-0589	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:533-534	-	点云质检入口须与后端授权一致：项目负责人和超级管理员由 isManager 放行，其余质检员须具备当前项目的 review.write。用全局角色替代项目能力会误判该项目的写权限。
+0181-0590	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:702-703	-	PSR 输入暂存原始字符串，不能逐键强制转为数值，否则空值和单独的负号等中间态无法正常输入；只有表单有效后才防抖提交 PATCH。
+0181-0591	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:706	-	主视图或三视图的 gizmo 拖动时，选中框以本地 PSR 草稿为准，否则其他投影视图会在提交前一直显示旧位置；提交后清除草稿，避免其继续覆盖已保存值。
+0181-0592	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:760-761	-	渲染和初始化 PSR 面板时将尺寸取绝对值；历史数据或缩放翻转可能留下负尺寸，直接沿用会让框翻转，或使提交被 size > 0 校验拒绝。
+0181-0593	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:782-783,2716-2717	-	主 gizmo 已直接修改 Three.js group，其 PSR 草稿只供三视图和相机投影读取，回灌主场景会在 objectChange 时重挂 TransformControls，把一次拖动拆成多次提交。三视图拖拽则用草稿驱动主视图，松手走同一 PATCH 管线，待乐观缓存更新后清除草稿。
+0181-0594	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:1018-1019	-	跨帧延续快捷键只响应首次 keydown，忽略自动重复；否则长按会连续发出 propagate POST，在目标帧创建多个共用同一新 track_id 的标注。
+0181-0595	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:1024-1026	-	Shift+左右一旦命中跨帧快捷键，即使没有选中框或选中项不是 box_3d，也要拦截；放行会让壳层 arrowNudge 误处理，并向 nudgeMap 写入 NaN。
+0181-0596	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:1089	-	切换 taskId 时递增建框修订号，使旧任务尚未返回的创建响应失效；只切换任务状态而不作废在途响应，会让迟到的结果在新任务中被当作有效结果处理。
+0181-0597	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:1104-1105	-	仅在进入建框工具时清除旧选择，不能在放置状态持续激活期间反复清除；连续建框不会退出该状态，反复清理会让刚创建的框失去选中。
+0181-0598	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:1176,1182	-	以选中 ID 而非服务端框值变化为 PSR 表单的初始化边界，否则普通回写会打断字段编辑。撤销或重做时例外：没有拖拽草稿才从乐观缓存同步框值。
+0181-0599	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:1382-1384	-	3D 台不会触发全局 dispatchKey，Delete/Backspace 须由壳层通过 threeDOwnedKeys 交给本地处理；焦点在输入框时仍保留原行为，避免删字变成删框。
+0181-0600	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:1483-1486	-	拖框按屏幕投影筛选真实点，再用世界坐标 AABB 建框；把矩形投到地面会因点的高度和观察视角产生视差。未超过拖动阈值时仍按点击放置默认框。
+0181-0601	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:1509-1511,1527	-	放大相机图上的矩形只用于按标定选取视锥，以最近点簇拟合 box_3d，不保存为 2D 框。空簇或点数不足时不强行拟合，改沿中心射线在固定估计深度放置默认框，并提示微调。
+0181-0602	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:1694,1900,1907,1942	-	OrbitControls 转视角后仍可能发出 click，普通点击和右键菜单都须按按下至松开的像素位移过滤，避免误选或在右键平移后弹出菜单。gizmo 拖拽结束后的 click 另由场景的 shouldIgnoreClick 拦截。
+0181-0603	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:1711-1712	-	主视图只接受来自交互宿主自身或独立模式 canvas 的事件，不能把冒泡到 viewport 的事件都视作画布输入；共享画布在覆盖控件下方，控件事件也会冒泡并误触发场景操作。
+0181-0604	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:1724,1733,1778-1779	-	框选期间禁用 OrbitControls，并在 window 监听移动和松手，否则指针离开视口后可能无法结束框选。Esc 或右键取消须立即清除起点、预览和场景拖拽状态，不等 mouseup，以免预览残留。
+0181-0605	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:2026-2027	-	相机列表在交给下游前统一归一化外参，不能让前向判定、相机锚点、点投影和样本加载分别解释原始外参，否则各处可能采用不同坐标约定。
+0181-0606	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:2181	-	等待确认期间相机成员或轨迹修订可能变化，确认后须重验写权限和提交前提，并带修订号做乐观锁提交；仅依赖弹窗前的检查无法阻止过期写入。
+0181-0607	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:2222-2223	-	resetView 的默认前向取 front 相机光轴而非固定 LiDAR 轴；前向须同步设定在 loadPcd 获取数据后首次调用 frameView 之前，否则首次取景会使用错误前向。
+0181-0608	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:2256	-	相机深度栅格须使用载帧完成后的点坐标；以 stats 变化作为换帧信号重新取点，不能沿用上一帧的坐标生成当前帧的深度。
+0181-0609	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:2262-2263	-	Legacy 路径用常驻 Worker 生成颜色属性，实验渲染器直接采样 ImageBitmap 纹理，不复用需要 Canvas 像素读回和逐点 RGB 回传的路径。两路都在相机色就绪前显示高度色，不隐藏点云。
+0181-0610	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:2423-2424	-	框或点云叠加任一开启就请求邻帧和轨迹；拉取可共用两者的最大窗口，但渲染须各自切片，否则调大一方窗口会扩大另一方的可见范围。
+0181-0611	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:2438-2439,2530-2532	-	框叠加的 selected 范围传 track_id 由服务端过滤，all 传 null，不受当前选择影响。逐目标 align 仅在启用时单独按 scope=all 请求，不受 overlayK 限制，否则会漏掉按 track_id 匹配所需的邻帧框。
+0181-0612	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:2449-2450,2521	-	有 ego 位姿轨迹时将邻帧参考框变换到当前帧 ego 系，使静止物对齐；无轨迹时参考框仍可按原坐标叠加，但邻帧点云仅在场景 ID 和轨迹齐备时启用，否则不同帧的点无法正确对齐。
+0181-0613	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:2562,2614-2616	-	neighborBoxesByTask 须保留邻帧原始 ego 系 PSR，align 的目标搬运矩阵已含 ego 补偿，不能预对齐。cull 在 ego 对齐后剔除框内点，align 搬运框内点而其余点只做 ego 对齐；两者输出均用单位矩阵渲染，避免二次变换。
+0181-0614	apps/web/src/pages/Workbench/stages/three-d/ThreeDWorkbench.tsx:3303	-	类别下拉不能只从当前配置生成选项；历史标注所用类别即使已从配置移除，也须保留为当前可显示的选项，否则已有类别会在编辑界面丢失。
+0181-0615	apps/web/src/pages/Workbench/stages/three-d/TriOrthoView.tsx:1-14,109-112	-	三视图拖拽时用实时框生成角点，但投影沿用拖拽起始时冻结的相机基与像素比例；若相机基随框更新，旋转时点云也会跟着转，无法看清框相对点云的倾斜。
+0181-0616	apps/web/src/pages/Workbench/stages/three-d/TriOrthoView.tsx:40-41,56	-	三视图只读模式只禁用几何编辑柄，不能对整个视图关闭指针交互；应保持 pointer-events 类互斥，避免禁用编辑时连滚轮和键盘缩放也失效。
+0181-0617	apps/web/src/pages/Workbench/stages/three-d/TriOrthoView.tsx:70,72	-	旋转柄从 +u 边向外留距，避免与缩放边柄混淆；命中先判旋转柄，再判角，最后判边，否则角点与两条边的端点重叠时，缩放边柄会抢占角柄。
+0181-0618	apps/web/src/pages/Workbench/stages/three-d/TriOrthoView.tsx:74-75	-	ROT_SIGN 按 (u×v)·normal 将屏幕逆时针增量映射到法线旋转方向：top、front 为正，side 为负。不能统一取同一符号或随框姿态改变符号，否则拖动方向会与旋转方向不符。
+0181-0619	apps/web/src/pages/Workbench/stages/three-d/TriOrthoView.tsx:282-283,306	-	TriOrthoView 用 propsRef 读取最新草稿，拖拽期间保持 window 的 move/up 监听不变。若随 selected 草稿更新拆装监听，可能漏接 mouseup，导致本次编辑未提交。
+0181-0620	apps/web/src/pages/Workbench/stages/three-d/TriOrthoView.tsx:425-426	-	正交视图聚焦时，仅用 Shift+物理 Digit0 重置缩放，并在视图内消费该事件。裸 0 保留给第十个类别，重置手势也不能同时触发类别选择或全局重置。
+0181-0621	apps/web/src/pages/Workbench/stages/three-d/TriViewPanel.tsx:1-13,58,125	-	三视图只向 PointCloudScene 注册点云渲染 pass 和 client rect，由唯一 renderer 按主 canvas 的坐标统一换算 viewport；另建点云 canvas 或 context 会脱离这套共用的绘制和坐标边界。
+0181-0622	apps/web/src/pages/Workbench/stages/three-d/TriViewPanel.tsx:64,165,178-179;apps/web/src/pages/Workbench/stages/three-d/usePointCloudScene.ts:50	-	三视图 DOM 重测由 ResizeObserver 和 layoutKey 驱动：fixed 浮窗只移动时观察器不会通知，Dockview 须完成测量与裁剪后再更新 layoutKey。PSR 草稿只更新相机和裁剪面，否则对象引用刷新可能把 0.5px 的测量抖动放大成渲染循环。
+0181-0623	apps/web/src/pages/Workbench/stages/three-d/TriViewPanel.tsx:189	-	只在 PointCloudScene 实例更换或组件卸载时清空选中框；selected 引用刷新但 PSR 未变时，若先写入 null 再恢复，三视图仍会短暂闪断。
+0181-0624	apps/web/src/pages/Workbench/stages/three-d/TriViewPanel.tsx:195	-	拖拽期间只冻结相机的取景参考，避免视野随编辑中的框一起移动；裁剪面仍须跟随实时框，否则三视图会继续显示按旧框裁剪的点云。
+0181-0625	apps/web/src/pages/Workbench/stages/three-d/pointCloudAssetCache.ts:218	-	非原件 URL 仅允许用于匿名渲染测试，且不得附带凭据；不能沿用原件请求的带凭据路径，否则凭据可能被发往非原件地址。
+0181-0626	apps/web/src/pages/Workbench/stages/three-d/pointCloudAssetCache.ts:332,344	-	正式加载须先加入共享请求，再取消预取消费者；工作台卸载也只取消预取消费者。反序交接或直接取消底层请求，可能中断正式读取仍需使用的加载。
+0181-0627	apps/web/src/pages/Workbench/stages/three-d/pointCloudAssetCache.ts:386	-	Chromium 的 SVG 路径须使用已解码的 Image，但不能为满足解码条件而改用使 SVG 文档获得非不透明源的原件地址；解码就绪不改变源隔离要求。
+0181-0628	apps/web/src/pages/Workbench/stages/three-d/pointCloudTiming.ts:27,45-49	-	资源阶段与绘制标记须记入同一条性能轨迹，绘制标记必须等场景或材质更新跨过浏览器绘制边界再发出；在更新时立即打点会把尚未绘制记作已绘制。
+0181-0629	apps/web/src/pages/Workbench/stages/three-d/threeDContextMenu.ts:1-11	-	3D 右键菜单与 AIInspectorPanel 必须共用标注回调和 mutation，以同一 is_locked、is_hidden 表示锁定和隐藏；另存菜单状态会让两个入口对同一标注的判断不一致。
+0181-0630	apps/web/src/pages/Workbench/stages/three-d/threeDContextMenu.ts:19	-	延续操作只在有邻帧的 scene 任务中提供；若单帧任务也显示该操作，就没有可承接标注的目标帧。
+0181-0631	apps/web/src/pages/Workbench/stages/three-d/threeDContextMenu.ts:21	-	插值填充要求选中框已有非空 track_id；仅处于多帧场景还不够，未入链的框没有可供插值关联的跨帧轨迹。
+0181-0632	apps/web/src/pages/Workbench/stages/three-d/threeDContextMenu.ts:36	-	3D 框菜单不能绕过 2D 编辑入口的限制：只读或锁定时不仅禁止改类别和删除，也禁止隐藏，否则仍能从右键菜单修改受限标注。
+0181-0633	apps/web/src/pages/Workbench/stages/three-d/useCameraPanels.ts:1-5	-	面板位置只从当前账号偏好读取，并按 role 写回，不能跨账号或角色共用布局。测量沿用壳层的 viewportWrapRef，否则面板定位可能和工具栏、三视图浮窗使用不同的容器边界。
+0181-0634	apps/web/src/pages/Workbench/stages/three-d/useCameraPanels.ts:25-26	-	每次拖动写回前都从 ref 读取最新的整份 role 布局；若从回调捕获的旧 props 合并，连续拖动不同面板时，后一次写回可能覆盖前一次的位置。
+0181-0635	apps/web/src/pages/Workbench/stages/three-d/useNeighborFrameThumbs.ts:3-11	-	邻帧缩略图和 usePointCloudManifest 共用按所有者隔离的查询键；分开建键会重复请求当前帧，也无法在切到已预取的邻帧时复用元数据，而省略所有者会混用不同所有者的缓存。
+0181-0636	apps/web/src/pages/Workbench/stages/three-d/useNeighborFrameThumbs.ts:25	-	邻帧缩略图沿用主视图 frontCameraForward 的前向判定（cameraAnchor 为 top），仅在前向图不可用时才取首张可用图；按列表顺序直接取首图可能与切帧后的主视图朝向不同。
+0181-0637	apps/web/src/pages/Workbench/stages/three-d/useOriginalAssetOwner.ts:5;apps/web/src/pages/Workbench/stages/three-d/usePointCloudScene.ts:249	-	原件所有者命名空间在令牌刷新时保持不变，重新登录时切换。退役须独立于普通载帧：切换所有者时取消旧请求并清空载帧状态，避免旧结果留到新会话，也不能在每次换帧时都执行退役。
+0181-0638	apps/web/src/pages/Workbench/stages/three-d/usePointCloudManifest.ts:94	-	短时复用 manifest 元数据不能代替原件版本校验；每次二进制缓存未命中仍须校验版本，否则可能用缓存的旧元数据读取已变更的原件。
+0181-0639	apps/web/src/pages/Workbench/stages/three-d/usePointCloudScene.ts:3-12,85,87;apps/web/src/pages/Workbench/stages/three-d/usePsrPatchPipeline.ts:1-7	-	gizmo 拖动只更新本地 PSR 供三视图和相机投影预览，结束才回写表单并 PATCH，不能把中间值写入变更历史。表单仍由壳层供各编辑入口共享，usePsrPatchPipeline 只承担 handleField 的防抖提交。
+0181-0640	apps/web/src/pages/Workbench/stages/three-d/usePointCloudScene.ts:48	-	即使 canvas 挂到工作区级 renderSurface，输入和投影仍须以 viewportRef 为坐标基准；若改用挂载面的边界，画布与视口不重合时拾取和投影都会偏移。
+0181-0641	apps/web/src/pages/Workbench/stages/three-d/usePointCloudScene.ts:69	-	启用相机上色时，新点云必须等 RGB 就绪再显示；先显示再补色会让用户短暂看到并非当前模式的临时高度色。
+0181-0642	apps/web/src/pages/Workbench/stages/three-d/usePointCloudScene.ts:71	-	continuityKey 优先用 scene_id，使同一场景内切任务能延续视角；无 scene 的单帧任务退回 taskId，不能共用空场景键，否则无关任务会继承彼此的运行时视角。
+0181-0643	apps/web/src/pages/Workbench/stages/three-d/usePointCloudScene.ts:92,97	-	壳层以 stats 变化识别点云换帧，因此须用 loadedPointCloudUrl 标识这份 stats 对应的精确 URL；不能用最新 manifest 的 URL 代替，因为 manifest 可能先于点缓冲更新。
+0181-0644	apps/web/src/pages/Workbench/stages/three-d/usePointCloudScene.ts:362-363	-	PCD 解码后须按调用方传入的 axisConvention 将点坐标转换为 ISO，不能假定原始坐标已符合下游约定，否则点云与用 ISO 坐标解释的框会错位。
+0181-0645	apps/web/src/pages/Workbench/stages/three-d/usePsrPatchPipeline.ts:38,55-56,75	-	卸载或切换选中对象时，要同步 flush 已校验的待发 PSR 编辑，否则在 250 ms 防抖窗口内离开会同时丢失几何 PATCH 和撤销历史。flush 与定时器须通过 ref 共用待提交回调，避免同一编辑重复落库。
+0181-0646	apps/web/src/pages/Workbench/stages/three-d/usePsrPatchPipeline.ts:67-68	-	PSR 表单一有新输入就必须作废已排队的旧有效值，即使新输入未通过校验；否则定时器或清理时的 flush 仍可能提交表单已不再显示的几何。
+0181-0647	apps/web/src/pages/Workbench/stages/three-d/useScenePlayback.test.ts:271	-	播放重启不能只检查 atEnd；场景尾部缺帧时，最后一个可访问任务可能早于 sceneEnd，只查 atEnd 会在已无下一帧时漏掉重启。
+0181-0648	apps/web/src/pages/Workbench/stages/three-d/useScenePlayback.ts:21,125	-	播放会话不能把待解析状态当成离场：sceneId 为 undefined 是临时占位，只有 null 才确认当前任务无场景；解析分页范围外的任务时，Shell 的 taskId 暂空也不能单独作为离场依据。
+0181-0649	apps/web/src/pages/Workbench/stages/three-d/geometry/autofit.ts:28-31	-	autofit 必须与 box3d.ts 和 triview.ts 共用 Z-up、PSR size 表示全边长及 XYZ 欧拉顺序的约定；单独改用半边长或其他旋转顺序，会让拟合的框内判定与已有框几何不一致。
+0181-0650	apps/web/src/pages/Workbench/stages/three-d/geometry/autofit.ts:42-45	-	collectInsidePoints 用逆四元数取得米制 box-local 坐标，不能直接复用带缩放的 worldToBox；后者给出的 AABB 跨度已经归一化，不能直接写成米制框尺寸。
+0181-0651	apps/web/src/pages/Workbench/stages/three-d/geometry/autofit.ts:64	-	按总点数预分配坐标缓冲区，收集结束后再裁至实际点数；若为精确分配先统计框内点数，就要在收集坐标时再扫描一遍点云。
+0181-0652	apps/web/src/pages/Workbench/stages/three-d/geometry/autofit.ts:104-114	-	fitSize 的框内判定须与 box3d.boxLocalClipPlanes 一致；框内点分布不对称时，缩框必须同时把中心移到局部 AABB 中心，否则按新尺寸保留旧中心可能裁掉本应保留的点。
+0181-0653	apps/web/src/pages/Workbench/stages/three-d/geometry/autofit.ts:158-169	-	fitBottom 只在 pitch、roll 均为 0 的直立框上用框内点的世界最低 Z 对齐下沿；倾斜后，下沿的世界高度不能再按直立框计算，否则会贴错高度。
+0181-0654	apps/web/src/pages/Workbench/stages/three-d/geometry/autofit.ts:25,187-198,292-294	-	Q 键只调用 fitSizeAndBottom，不顺带运行 fitYaw；世界 XY 上的 PCA 只能确定轴线，不能区分相差 180° 的朝向。框内不足 20 点时保留原朝向，避免稀疏样本让拟合轴偏转。
+0181-0655	apps/web/src/pages/Workbench/stages/three-d/geometry/autofit.ts:253-260;apps/web/src/pages/Workbench/stages/three-d/geometry/frustum.ts:113-120	-	psrFromPoints 直接包围框选命中的世界点，因为屏幕矩形本身不能确定深度；无命中时才由上层沿 centralRay 按估计深度放框。反投影时光心用逆刚体变换求得，方向只做逆旋转并归一化，不能加平移。
+0181-0656	apps/web/src/pages/Workbench/stages/three-d/geometry/axisConvention.ts:1-15,20-23,160-170	-	加载时将点云和相机外参统一到 ISO 8855（+X 前、+Y 左、+Z 上），否则投影会混用两套轴；raw 即使同为单位矩阵，也不保证源数据符合 ISO。外参右乘轴变换的逆，不能旋转以相机坐标表示的平移列。
+0181-0657	apps/web/src/pages/Workbench/stages/three-d/geometry/axisConvention.ts:229	-	mat3ToThree 按行把元素传给 THREE.Matrix3.set；列主序只描述 Three.js 的内部存储，不能据此预先转置输入，否则会把转置后的变换交给调用方。
+0181-0658	apps/web/src/pages/Workbench/stages/three-d/geometry/axisConvention.ts:236-246,269-272	-	导出用 unapplyConventionToPsr 恢复源系；更换轴约定时也须先撤销旧约定，再应用新约定，不能把已归一化的 PSR 当作源数据重复换基。size 是框局部全边长，换基时不交换分量。
+0181-0659	apps/web/src/pages/Workbench/stages/three-d/geometry/axisConvention.ts:302-305	-	sniffConventionFromForward 在有完整外参时应接收 fz；省略它只适用于旧的二维调用，因为只看 XY 分量无法识别 KITTI/OpenCV 的 +Z 前向。
+0181-0660	apps/web/src/pages/Workbench/stages/three-d/geometry/box3d.ts:1-18	-	线框与图像投影都显式使用 THREE.Euler 的 XYZ 顺序，并把 size 解释为全边长；任何一侧采用不同旋转次序或把全长当成半长，都会使投影角点与线框错位。
+0181-0661	apps/web/src/pages/Workbench/stages/three-d/geometry/box3d.ts:23-34	-	若不把 boxToMatrix4 的结果烘入几何，而是直接赋给 mesh.matrix，就必须关闭 matrixAutoUpdate；否则 Three.js 会从对象的变换属性重算矩阵，覆盖手写结果。
+0181-0662	apps/web/src/pages/Workbench/stages/three-d/geometry/box3d.ts:81-84	-	boxAxisWorldDir 只旋转框的局部轴，为三视图拖边和裁剪面提供同一世界系单位方向；不能用带中心偏移和尺寸缩放的点变换代替，否则结果不再是单位轴。
+0181-0663	apps/web/src/pages/Workbench/stages/three-d/geometry/cameraAnchor.test.ts:55,57;apps/web/src/pages/Workbench/stages/three-d/geometry/cameraAnchor.ts:1-15,29,76-79	-	cameraAnchor 先用 role，缺失才用显示名，并先匹配 front_left 等组合方位，避免被单方位截获。标识无法识别才用外参，否则 SUSTech 示例 front 的原始光轴会被分到 right 而非 top；仍无法判断则进 overflow。
+0181-0664	apps/web/src/pages/Workbench/stages/three-d/geometry/cameraAnchor.ts:68	-	cameraAnchor 用外参推断方位时，LiDAR 轴须已标准化；行主序 world→camera 旋转的第三行才是世界系中的相机 +Z 光轴，取第三列会读成世界 +Z 在相机系中的方向。
+0181-0665	apps/web/src/pages/Workbench/stages/three-d/geometry/colorize.ts:1-12	-	colorizePoints 用按图像尺寸归一化的中心距比较候选相机；直接比像素距离会偏向低分辨率图像。热路径内联与 projection.ts 同口径的投影算式，以免对百万级点云逐点分配数组。
+0181-0666	apps/web/src/pages/Workbench/stages/three-d/geometry/colorize.ts:16-19,98;apps/web/src/pages/Workbench/stages/three-d/geometry/depthmap.ts:31,109-112	-	上色遮挡只在有最近深度的格中判定，候选比它深超过 0.10 米才剔除，避免把测距或标定偏差当成遮挡。CPU 的 Infinity 表示无前景证据；WebGPU 上传的栅格用有限哨兵表示空格，不能当成实测深度。
+0181-0667	apps/web/src/pages/Workbench/stages/three-d/geometry/colorize.ts:25,28	-	CameraSample 的宽高必须与内参标定用的原图分辨率对应；不能直接拿显示或缩放后的尺寸索引像素，否则同一投影坐标会读到错误位置。
+0181-0668	apps/web/src/pages/Workbench/stages/three-d/geometry/colorize.ts:32,40;apps/web/src/pages/Workbench/stages/three-d/geometry/depthmap.ts:38	-	depthmap 与 colorize 必须共用相机系 z 作深度，不能改用到光心的距离，否则会用不同量比较遮挡。projectOne 省略外参齐次除法依赖末行为 [0,0,0,1]；内参末行为 [0,0,1] 时，透视分母正是相机系 z。
+0181-0669	apps/web/src/pages/Workbench/stages/three-d/geometry/cullDynamicPoints.ts:1-15,27,90	-	只补偿 ego 运动会留下动态拖影；cullPointsInBoxes 用与 GPU 相同的 relMatrix 把邻帧点临时对齐后再判当前帧标注框，保留点仍返回邻帧 ISO ego 坐标，避免 GPU 二次变换。未标注目标不在剔除范围内。
+0181-0670	apps/web/src/pages/Workbench/stages/three-d/geometry/egoAlign.ts:1-8,22,27-31,40-43	-	邻帧框和点云共用 inv(T_cur)·T_nbr，因为后端 pose 是 ego→global，不能颠倒相对变换。后端欧拉角按 Three.js XYZ 解释，wxyz 四元数须重排为 xyzw；否则两帧的静止物也会错位。
+0181-0671	apps/web/src/pages/Workbench/stages/three-d/geometry/frustum.ts:1-15	-	frustum 复用 projectPoints，让框选与叠框、上色和深度栅格遵循同一投影口径，而不是另写一套视锥判定。框选边界须按 sx/sy 还原到原图像素，否则显示缩放后会选中错误的点。
+0181-0672	apps/web/src/pages/Workbench/stages/three-d/geometry/ground.ts:1-15	-	placeOnGround 优先用点云命中，空处才用 estimateGroundZ 的近似中位数平面；改用低分位容易被车顶 LiDAR 的低端噪声拉低，使框埋地，因此回退宁可让框略浮。
+0181-0673	apps/web/src/pages/Workbench/stages/three-d/geometry/perObjectAlign.ts:1-19,101,124	-	逐目标对齐先用原邻帧框在邻帧 ego 系判归属，配对点用 M_cur·inv(M_nbr)，背景才走 ego 变换；输出已在当前 ego 系，不得再变换。cull 回退丢弃命中但无配对的点，避免把它们当背景留下拖影。
+0181-0674	apps/web/src/pages/Workbench/stages/three-d/geometry/projection.test.ts:6-12	archive/0033-3d-to-2d-projection-overlay.md	projection.test 独立使用 SUSTechPOINTS 的单点投影算式，不复用被测实现，以免相同的错误在预期值和实际值中互相抵消；基准不做图像边界过滤，以便直接核对投影算术。
+0181-0675	apps/web/src/pages/Workbench/stages/three-d/geometry/projection.ts:1-40	-	SUSTechPOINTS 标定数组按行主序解释，不能原样写入列主序的 THREE.Matrix4.elements，否则投影会使用转置后的矩阵。
+0181-0676	apps/web/src/pages/Workbench/stages/three-d/geometry/projection.ts:49-52,188-193	-	unprojectPixelAtDepth 必须使用内参对应的原图像素和 projectPoints 返回的透视除数 w，否则反投影不能还原原点。frustum.depthGate 也使用该深度；只有内参末行为 [0,0,1] 时，才能将其当作以米计的相机系 z。
+0181-0677	apps/web/src/pages/Workbench/stages/three-d/geometry/projection.ts:56-59	-	BOX_EDGES 必须与 box3d.ts 的角点编号同步：底面为 0–3，顶面为 4–7，且上下角点一一对应。只改角点顺序会让 overlay 把错误的顶点连成框边。
+0181-0678	apps/web/src/pages/Workbench/stages/three-d/geometry/projection.ts:166	-	projectPoints 在应用内参前可以丢弃外参和可选 rect 变换后的齐次 w，因为两者的末行均为 [0,0,0,1]，保持 w=1。若改用不保持 w=1 的矩阵，继续跳过归一化会算错像素坐标。
+0181-0679	apps/web/src/pages/Workbench/stages/three-d/geometry/triview.test.ts:176	-	三视图旋转往返应比较四元数表示的朝向，而不是逐项比较 XYZ 欧拉角；同一朝向有多组欧拉表示，逐项比较会把等价结果误判为旋转错误。
+0181-0680	apps/web/src/pages/Workbench/stages/three-d/geometry/triview.ts:1-12,153-156,164	-	三视图的 PSR 尺寸沿用 box3d 的全边长，按 SUSTechPOINTS 的半边长解释会让尺寸差一倍。旋转拖拽右乘视图法线对应的局部增量四元数，再分解回 XYZ；改成左乘或直接加欧拉分量，已倾斜的框就不能正确绕自身轴转动。
+0181-0681	apps/web/src/pages/Workbench/stages/three-d/geometry/triview.ts:34	-	三视图拖拽应在写入几何时把全边长限制为至少 0.05 米，而不是只在渲染时修正；否则手柄拖过对边后，标注中仍可能留下负尺寸。
+0181-0682	apps/web/src/pages/Workbench/stages/three-d/geometry/triview.ts:37	-	三视图的正交取景和裁剪都在框外保留 0.6 米；若任一处紧贴框边，就会遮掉需要用来判断框是否贴合的外侧点云轮廓。
+0181-0683	apps/web/src/pages/Workbench/stages/three-d/geometry/triview.ts:58-65	-	PointCloudTriViewPass 和 TriOrthoView 必须用同一 frameOrtho 取景范围做米到像素换算；否则即使两层使用同一套框坐标，二维叠层也会与 WebGL 点云错位。
+0181-0684	apps/web/src/pages/Workbench/stages/three-d/geometry/triview.ts:118-121	-	Handle 的 n、s 是屏幕方位，但三视图的 v 轴向上，因此 n 操作局部 +v 边，s 操作 −v 边。若直接套用屏幕纵坐标的符号，拖拽会改到对边。
+0181-0685	apps/web/src/pages/Workbench/stages/three-d/geometry/viewFraming.ts:38-43	-	framePerspectiveBox 在保留观察方向时，按包围球同时满足水平和垂直 FOV 的限制。若只用垂直 FOV 算相机距离，窄视口中框可能在水平方向被裁掉。
+0181-0686	apps/web/src/pages/Workbench/stages/three-d/rendering/cameraTextureResources.ts:126-127	-	释放深度纹理时要立即清除其 CPU 栅格引用，不能只调用 dispose；Three.js WebGPU 的渲染对象缓存可能继续持有纹理包装对象，使 CPU 栅格也被留住。
+0181-0687	apps/web/src/pages/Workbench/stages/three-d/rendering/pointCloudRenderScheduler.ts:10-13	-	主视图与三视图共享 swapchain，三视图清屏可能使主画面失效。有可见更新时要先恢复主视图再绘制三视图，不能只重画发生变化的三视图。
+0181-0688	apps/web/src/pages/Workbench/stages/three-d/rendering/webgpuPointCloudLayer.ts:41	-	WebGPURenderer 的局部裁剪面须通过 ClippingGroup 提供，不能用传统局部裁剪设置替代；即使实际回退到 WebGL2，也不能绕开这一限制。
+0181-0689	apps/web/src/pages/Workbench/stages/three-d/rendering/webgpuPointCloudLayer.ts:73-77	-	WebGPU 原生点图元固定为一像素，不能靠设置点大小得到所需的屏幕尺寸；因此用实例化 Sprite 为每个源点绘制一个面向相机的四边形。
+0181-0690	apps/web/src/pages/Workbench/stages/video/VideoWorkbench.tsx:238-239	-	视频会话以任务是否切换为界，不能把 manifest 暂时缺失当成任务切换；查询缓存刷新可能短暂移除元数据，重建会话会丢掉同一任务的舞台和草稿。
+0181-0691	apps/web/src/pages/Workbench/stages/video/useVideoAnnotationActions.ts:198	-	视频多边形归 region，折线归 polyline，与图片工作台使用相同的工具单位。不能因两者都由点集表示就合并归类，否则类别与属性的配置不再隔离。
+0181-0692	apps/web/src/pages/Workbench/stages/video/useVideoAnnotationActions.ts:900-901	-	视频快捷改类复用只写 class_name 的 handleVideoRename，不应按框几何筛选入口；改类不依赖几何类型，按框筛选会让多边形和折线的快捷改类静默失效。
+0181-0693	apps/web/src/pages/Workbench/stages/video/useVideoAnnotationActions.ts:921	-	转换操作在用户确认后须重新检查目标轨迹是否仍存在。等待确认期间轨迹可能已被删除，不能凭等待前的快照继续转换。
+0181-0694	apps/web/src/pages/Workbench/state/DiscussionDraftProvider.tsx:31,50-54,72-73,85-87,166	-	讨论草稿 store 按已认证的标签页会话隔离，不用模块级单例或用户 ID 复用 owner，同一用户登出再登录也换 owner。宿主须用当前认证租约校验，无法确认即拒绝写入；租约可能在渲染与 effect 之间失效，迟到的上传、绘图或提交结果不能写进新会话。
+0181-0695	apps/web/src/pages/Workbench/state/DiscussionDraftProvider.tsx:33	-	只有宿主已接管离页警告时，才关闭 DiscussionDraftProvider 的 beforeUnload 处理；否则用户离页时将失去未保存草稿的提醒。
+0181-0696	apps/web/src/pages/Workbench/state/DiscussionDraftProvider.tsx:101-103	-	effect 清理时将旧草稿 store 的释放延迟到下一轮，允许 React StrictMode 立即重跑 effect 时重新激活同一 store 并取消释放；同步销毁会把这次重跑误当成真正卸载。
+0181-0697	apps/web/src/pages/Workbench/state/canEditMask.ts:1-6,46-52	-	工具栏、快捷键、指针、右键菜单和提交共用 canEditMask，避免入口各自判断时漏掉只读或任一层级的锁。只有 ready 或 dirty 可写；idle 无缓冲区，loading、saving 尚未结束，error 则须先恢复。
+0181-0698	apps/web/src/pages/Workbench/state/canEditMask.ts:57-60	-	Enter 提交不能只看会话是否 active；canCommitMask 还要求编辑器处于 ready 或 dirty 且确有改动，否则一次空提交也会把沿用的关键帧物化。
+0181-0699	apps/web/src/pages/Workbench/state/crossFrameTarget.ts:20-21	-	resolveCrossFrameTarget 只以 neighbors.scene_id 为 null 识别无场景或单帧；全零 UUID 已不是后端哨兵，改查空串或零帧也会漏掉该分支。
+0181-0700	apps/web/src/pages/Workbench/state/discussionCanvasRecovery.ts:78,171	-	登出时只清理键可明确归属当前用户的画布恢复记录。旧的仅任务键和畸形键无法证明所有权，不能猜测归属或改写这些记录，否则可能误删他人的草稿。
+0181-0701	apps/web/src/pages/Workbench/state/discussionTypes.ts:8	-	discussionTypes 必须保持为纯数据契约，不能反向依赖 Workbench 路由实现；否则路由之外的消费者导入契约时也会拉入本应懒加载的实现。
+0181-0702	apps/web/src/pages/Workbench/state/discussionTypes.ts:58	-	discussionKeys 须保留既有查询键前缀；即使新键仍能唯一标识查询，换前缀也会让依赖旧前缀的缓存失效规则漏掉讨论数据。
+0181-0703	apps/web/src/pages/Workbench/state/geometryTranslate.test.ts:77-79;apps/web/src/pages/Workbench/state/geometryTranslate.ts:1-3,18-19	-	粘贴偏移和父子 Alt 拖动共用 translateGeometry 的贴边语义：computeClampedShift 限制整组顶点的公共位移。逐点裁边会让先触边的顶点停下、其余顶点继续移动，从而改变形状。
+0181-0704	apps/web/src/pages/Workbench/state/geometryTranslate.ts:6-9	-	粘贴偏移和父子联动须显式跳过 raster_mask；它没有可同步平移的矢量几何，套用 bbox 兼容分支不能搬动实际掩码。
+0181-0705	apps/web/src/pages/Workbench/state/geometryTranslate.ts:50-51,66,78-79,114	-	贴边平移必须先为整组限幅，再由 applyShift 复用同一位移：polygon 只以外环限幅，孔洞随行；multi_polygon 以合并外环限幅；keypoint 的隐藏和遮挡节点也随行。逐组或逐点限幅会改变各部分的相对位置。
+0181-0706	apps/web/src/pages/Workbench/state/hotkeyBindings.test.ts:159,163;apps/web/src/pages/Workbench/state/hotkeyBindings.ts:1008-1011,1144,1155;apps/web/src/pages/Workbench/state/hotkeys.ts:1417,1419,1505	-	存量绑定相互争用时，resolveEffectiveCommands 停用双方并保留覆盖值，不任选胜者；默认组合不得冲突。运行期冲突仍计入 claimed，执行方吞掉该键、按会话和按键只报一次，不执行命令，也不封锁指针入口。
+0181-0707	apps/web/src/pages/Workbench/state/hotkeyBindings.test.ts:233;apps/web/src/pages/Workbench/state/hotkeyBindings.ts:882-886,939-940	-	录制器允许的多字符命名键必须与存量解析及后端 ShortcutBinding 一致；F13、Dead 等不受支持的键在录制时就拒绝，否则用户能录出重载时无法识别的绑定。
+0181-0708	apps/web/src/pages/Workbench/state/hotkeyBindings.ts:1-12,1205-1208,1212	-	只有 schemaVersion 1 中结构合法的覆盖项可执行；异常值保留原样供修正，整棵子树损坏或版本不受支持时以 opaque 整体标示。静默替换为默认值会掩盖异常并丢失待修正的原值。
+0181-0709	apps/web/src/pages/Workbench/state/hotkeyBindings.ts:26,74,753,1086-1089	-	冲突检查须保守覆盖可编辑与 Fixed 命令的生效范围，只有能证明互斥才可共键。忽略修饰键的本地监听器要用 withAllModifiers 预留全部组合；common 改绑也须检查 3D／点云，否则会漏掉实际被本地监听器消费的键。
+0181-0710	apps/web/src/pages/Workbench/state/hotkeyBindings.ts:57,1067-1068	-	fixed.defaultOverlaps 只豁免指定命令的默认组合，以保留既有本地捕获优先级，例如 Mask 接管时 B 仍是画笔键。不能把豁免扩展到改绑产生的重叠，否则新冲突会被当成既有行为放行。
+0181-0711	apps/web/src/pages/Workbench/state/hotkeyBindings.ts:859	-	录制时拒绝浏览器和操作系统保留组合；即使绑定能够保存，运行时按键事件也可能不送达，或系统动作无法由工作台接管。
+0181-0712	apps/web/src/pages/Workbench/state/hotkeyBindings.ts:879;apps/web/src/pages/Workbench/state/hotkeys.test.ts:123,384;apps/web/src/pages/Workbench/state/hotkeys.ts:1569-1570,1633	-	图像和视频的跨类跳转保留 Fixed，用 e.code 的 Backquote 匹配而非按字符改绑。字符随布局和修饰键变化，例如美式布局下 Shift 使 e.key 变为波浪号，按反引号字符匹配会漏掉反向跳转。
+0181-0713	apps/web/src/pages/Workbench/state/hotkeyBindings.ts:1233-1234	-	存量覆盖中的 null 是显式重置，不是损坏值：已知命令恢复默认，未知或历史命令视为已清除，与服务端合并时移除该键一致。若把 null 当成异常，会将已清除的历史项误报为待修正。
+0181-0714	apps/web/src/pages/Workbench/state/hotkeys.ts:1-8	-	Workbench 的注册、面板、提示与文档共用 HOTKEYS；可编辑命令的有效绑定由 hotkeyBindings 解析，不在各入口复制默认键，否则改绑后展示与实际响应可能不一致。
+0181-0715	apps/web/src/pages/Workbench/state/hotkeys.ts:35	-	HotkeyDef.id 是对话框、提示和绑定解析共用的稳定命令标识，不得改名或复用；否则存量覆盖会失去原命令，或被错误地应用到另一条命令。
+0181-0716	apps/web/src/pages/Workbench/state/hotkeys.ts:79,111	-	图像和视频的 Mask 监听遇到控件占用的键必须让出；SAM 候选切换也须将导航键让给原生控件和工具栏，否则工作台会吞掉控件自身的键盘操作。
+0181-0717	apps/web/src/pages/Workbench/state/hotkeys.ts:106	-	isMaskHotkeyBlocked 须按事件保留捕获阶段的拦截结果，不能在后台监听器运行时仅重查当前弹层；弹层可能已被同一次按键移除，重查会让该键误触后台命令。
+0181-0718	apps/web/src/pages/Workbench/state/hotkeys.ts:1360,1362,1412-1413	-	视频采样步长大于 1 时，左右键沿采样网格跳转，但须保留逐源帧微调入口（Shift+左右键或逗号／句点），否则无法用这些快捷键定位网格间的帧；步长为 1 时保持原键位。
+0181-0719	apps/web/src/pages/Workbench/state/hotkeys.ts:1397	-	DispatchCtx.selectedPrediction 必须是当前显示帧上选中的普通待审预测；不能直接传入未经显示帧过滤的选中项，否则分派可能把其他帧的预测当成当前操作对象。
+0181-0720	apps/web/src/pages/Workbench/state/hotkeys.ts:1399,1611	-	绘制待确认、单项类别编辑或批量改类时，类别数字键由弹层独占；若工作台同时执行类别直选，同一次按键会越过弹层改变工作台的当前类别。
+0181-0721	apps/web/src/pages/Workbench/state/hotkeys.ts:1401-1404,1653	-	WorkbenchShell 仅在 AttributeForm 属性区显式聚焦且数字键命中按项目 schema 解析出的字段时优先改属性；否则仍作类别直选，避免仅因选中了带属性的标注就抢走数字键。
+0181-0722	apps/web/src/pages/Workbench/state/hotkeys.ts:1406,1408	-	按显式 stage 确定命令归属：视频先查视频命名空间，再考虑图像绘制命令；3D 不套用图像绑定覆盖。否则共享分派路径会使图像改绑劫持其他舞台上的按键。
+0181-0723	apps/web/src/pages/Workbench/state/hotkeys.ts:1470	-	图像类别选择器接管裸键时仍须保留仅带 Alt 的备用工具切换键；若按弹层是否打开一律拦截，会连未被选择器接管的入口也封掉。
+0181-0724	apps/web/src/pages/Workbench/state/hotkeys.ts:1498	-	dispatchKey 必须排除 IME 组合事件（含 keyCode 229）及 AltGr 字符输入；若仅凭普通键值和修饰键匹配，输入文字时也可能触发工作台命令。
+0181-0725	apps/web/src/pages/Workbench/state/hotkeys.ts:1584-1585	-	2D 和 3D 的跨帧目标延续统一用 Alt+左右键，仅在有选中项时消费；不能改用 Shift+左右键，因为 2D 已用该组合做 10 像素微移。
+0181-0726	apps/web/src/pages/Workbench/state/hotkeys.ts:1624-1626	-	SAM 极性按产出字符匹配：等号和 Shift 产生的加号为正，减号为负；不必为加号放宽其他 Shift 组合，以免误收无关键，且消费端只在 sam-point 生效。
+0181-0727	apps/web/src/pages/Workbench/state/imageRasterMaskDescriptors.ts:12	-	图像栅格掩码的 tmp_ 标注不生成加载描述符；内容上传成功不等于临时标注已有可读端点，此时按标注发起加载仍会访问不可读的资源。
+0181-0728	apps/web/src/pages/Workbench/state/imageRasterMaskDescriptors.ts:49	-	预测掩码候选须逐项加载，不以合并请求替代；每个候选都要独立通过任务、预测和形状层面的授权，不能用一个候选的授权结果覆盖其他候选。
+0181-0729	apps/web/src/pages/Workbench/state/manualImageCreation.ts:66	-	媒体准入受阻时，useContinuousCreationGuard 暂停写入但保留项目范围内的连续创建意图；若直接清除意图，临时阻塞解除后也无法按原意图继续创建。
+0181-0730	apps/web/src/pages/Workbench/state/manualImageCreation.ts:121	-	手动建图的 owner 变化后，只要旧 intent 尚未清理，渲染阶段就必须阻断操作；若等到布局 effect 才处理，新 owner 的渲染仍可能短暂允许用旧 intent 操作。
+0181-0731	apps/web/src/pages/Workbench/state/maskMutationPolicy.ts:1-18,25,89;apps/web/src/pages/Workbench/state/maskPrimaryActions.ts:156	-	Mask 原子提交及重试必须沿用预览捕获的成员版本，换成刷新后的版本会让旧预览绕过冲突检查。版本、锁或范围冲突以服务端为准，须刷新范围并重算预览，不得盲重试或回退到普通像素保存；422 是调用错误，不提供刷新或重试，其余沿用传输层判定。
+0181-0732	apps/web/src/pages/Workbench/state/notificationWorkbenchNavigation.ts:1-8,45-46;apps/web/src/pages/Workbench/state/taskNavigation.ts:1-11,13	-	切题、切批次和外部路由共用离开守卫；AbortController 只负责取消，提交前既要通过守卫，也要确认 signal 未中止。同项目同模式的讨论通知只改路由，由 URL 水合检查并在取消时还原，入口重复检查会弹出两次确认。
+0181-0733	apps/web/src/pages/Workbench/state/offlineQueue.ts:16,28,42,57,121-123,383-384	-	缺少 userId 的旧队列项可以保留，但不得归给当前账号。读取 IndexedDB 期间可能登出或切换账号，故 drain 必须在发请求前重查 isCurrent，避免旧任务借用新账号凭据或作用到已失效的界面。
+0181-0734	apps/web/src/pages/Workbench/state/offlineQueue.ts:33	-	离线回放条件几何更新须带上入队时的 etag；改用回放时的新版本会让原本应报版本冲突的旧操作通过检查，覆盖离线期间的更新。
+0181-0735	apps/web/src/pages/Workbench/state/offlineQueue.ts:69	-	离线队列须沿用原 idb-keyval 数据库和对象仓库；仅切换存储位置而不迁移记录，会让已有待同步操作无法被读取和回放。
+0181-0736	apps/web/src/pages/Workbench/state/offlineQueue.ts:76-78	-	支持 Web Locks 时，跨标签页和重叠范围的回放共用一把锁，从发请求一直持有到持久化确认；提前释放会让其他回放读到尚未确认的操作。标签页关闭后锁会释放，响应或确认丢失后的重复请求仍须由服务端幂等处理。
+0181-0737	apps/web/src/pages/Workbench/state/offlineQueue.ts:187-188,267	-	计数展示和抽屉可退回内存快照或空列表，但读取失败不能缓存为空队列，也不能据此写入。提交和登出须用 countDurably：读不出来表示待同步项数量未知，不能按零项放行。
+0181-0738	apps/web/src/pages/Workbench/state/offlineQueue.ts:201-202	-	mutateQueue 必须在发起读取前监听事务结果；不能直接依赖 idb-keyval 6.2.2 的 update，因为它只挂 get.onsuccess，读取失败时等待可能一直不结束。
+0181-0739	apps/web/src/pages/Workbench/state/offlineQueue.ts:245	-	保存确认只能使用 enqueueDurably，并等到 IndexedDB 事务提交；put 成功后事务仍可能失败。兼容入口 enqueue 不传播写入失败，不能用它的返回判断操作已持久入队。
+0181-0740	apps/web/src/pages/Workbench/state/offlineQueue.ts:247	-	enqueueDurably 必须在等待前序队列操作之前捕获调用方载荷；若等到真正写入时才取值，调用方在等待期间修改对象就会改变本次入队内容。
+0181-0741	apps/web/src/pages/Workbench/state/offlineQueue.test.ts:309;apps/web/src/pages/Workbench/state/offlineQueue.ts:292-293	-	离线 create 成功后，调用方更新缓存，drain 消费 create 项；队列只把后续 update/delete 中的 tmpId 换成真实 ID，否则这些操作会用临时 ID 请求服务端并收到 404。
+0181-0742	apps/web/src/pages/Workbench/state/offlineQueue.ts:316-321,324-335,368-369,391-392,426-427,433-434	-	明确无权时保留并跳过该项，让其他获准操作继续，403 不消耗重试次数；授权未知或检查抛错时保留为 deferred 并停止本轮，不能按拒绝跳过。目标不存在只对 delete 等价于成功，create/update 仍须记失败并停止。
+0181-0743	apps/web/src/pages/Workbench/state/offlineQueue.ts:416,458-459	-	调用网络 handler 时不得持有 accessTail，否则 handler 再次入队或替换 ID 时会等住自己。成功后须在写事务内重读队列再删除已完成项，用请求前快照回写会覆盖期间的入队或 ID 替换。
+0181-0744	apps/web/src/pages/Workbench/state/samTextOutput.ts:1-12,79-83	-	SAM 文本输出优先用会话显式选择，再用该用户在当前项目的历史偏好，最后按项目类型回退：image-det 直用 DINO 框，其余默认掩码。不再读取项目级默认覆盖工具栏偏好；both 要用 Tab 切换活跃几何，只能由用户主动开启。
+0181-0745	apps/web/src/pages/Workbench/state/sessionVariantCache.ts:1-13,18-20,75-78	-	variant 热度只供界面提示：异步触发和批量预标成功只能推定为热，同步预测以实测 cache_hit 覆盖推定，未命中恢复冷提示。只持久化热项，未知默认冷；会话存储不可用或配额耗尽不算推理失败。
+0181-0746	apps/web/src/pages/Workbench/state/taskNavigation.ts:47-50,121	-	任务导航首跳立即执行，随后 160 毫秒内只保留最后一个待切目标；统一延后会拖慢普通单击，逐项执行则会让快速点选触发一串中间加载。
+0181-0747	apps/web/src/pages/Workbench/state/taskNavigation.ts:129-131	-	resolveLocalTaskUrlSync 必须区分外部切题意图与本地切题后尚未同步的 URL；若把滞后的 task 值当成新请求，就会把刚完成的本地切题拉回旧任务。
+0181-0748	apps/web/src/pages/Workbench/state/trackerSeedPrompts.ts:1-12	-	Tracker PVS 的传播和纠正提示按目标、帧号分组，同帧须能同时保留点和框；两级都按数值排序，否则相同提示仅因采集顺序不同就会生成不同的幂等键。
+0181-0749	apps/web/src/pages/Workbench/state/transforms.test.ts:302-307	-	predictionsToBoxes 消费的是入库后的内部 shape，而非原始 LabelStudio 格式；归一化由后端 PredictionService.to_internal_shape 负责，前端再按外部格式转换会误读已归一的数据。
+0181-0750	apps/web/src/pages/Workbench/state/transforms.test.ts:403-409;apps/web/src/pages/Workbench/state/transforms.ts:83,92-97	-	ImageStage 只能编辑单外环，因此以顶点最多的外环作为兼容编辑形状；不能把它当成完整渲染几何，否则会填掉 polygon+holes 的孔洞或丢掉 multi_polygon 的其他连通域。渲染须保留全量环并使用 evenodd。
+0181-0751	apps/web/src/pages/Workbench/state/transforms.ts:216-217	-	geometryToShape 在 2D 适配层对 box_3d 和 point_mask_3d 返回空 shape；临时投影会把三维标注误呈现为 2D 几何，真实几何由 PointCloudScene 渲染。
+0181-0752	apps/web/src/pages/Workbench/state/transforms.ts:221-222	-	geometryToShape 是同步列表适配层，而 RLE 与 raster mask 的真实外接框须在异步加载掩码后才能确定；返回空外接框比用猜测尺寸冒充几何范围更可靠。
+0181-0753	apps/web/src/pages/Workbench/state/transforms.ts:295-296,304-308,348	-	AiBox 须保留预测的 tool_unit_id：采纳时的选类以及 DINO 英文 class_name 的反查都限定在预测所属工具单元，用当前激活工具会取错类别。反查与后端采纳归一一致，命中返回保留大小写的原名，未命中保留输入。
+0181-0754	apps/web/src/pages/Workbench/state/transforms.ts:299-300,341-342	-	OCR 和 doc_layout 候选的 attributes 虽未列入生成的 PredictionShape 类型，适配层仍须防御式读取并透传；按类型字段裁剪会让 AIInspectorPanel 丢失摘要，采纳时也无法把属性写入新标注。
+0181-0755	apps/web/src/pages/Workbench/state/useActiveIssueStore.ts:1-13,28,31,91	-	详情激活与画布定位须分别计数，避免打开详情时移动视口，并让重复点击同一图钉仍产生新请求。通用 Issues 页签或 FAB 请求不代表选中了图钉；FAB 只切页签并清除旧目标，避免重放上次详情或定位。
+0181-0756	apps/web/src/pages/Workbench/state/useActiveIssueStore.ts:37,115-119	-	useActiveIssueStore 不持有讨论会话租约，发出详情请求时须捕获认证 owner，让消费端拒绝旧会话请求。身份变化时同步作废激活快照，防止重新挂载后重放旧用户的图钉；同一用户续签不清除快照。
+0181-0757	apps/web/src/pages/Workbench/state/useAiToolModelPref.ts:7-22;apps/web/src/pages/Workbench/state/useAiToolParamPrefs.ts:7-18	-	模型和参数偏好按用户、后端隔离：各后端的模型选项和 /setup 参数 schema 不同，同项目标注员也不共享调参。模型以本次显式选择优先，无偏好才用后端默认；服务端在 ai 内合并，单写 model_by_backend 不覆盖参数偏好。
+0181-0758	apps/web/src/pages/Workbench/state/useAiToolModelPref.ts:49-50	-	卸载时应提交尚未写回的模型选择，不能只等节流定时器；否则用户刚切换模型就离开工作台时，最后一次选择可能丢失。
+0181-0759	apps/web/src/pages/Workbench/state/useAnnotationHistory.ts:37-40,232	-	撤销和重做栈按任务隔离，在途操作也只结算到发起任务的栈；若按响应到达时的当前任务结算，切换任务就会把历史写到别的任务，导致后续误撤销。
+0181-0760	apps/web/src/pages/Workbench/state/useAnnotationHistory.ts:72-73,88,103	-	重做创建或撤销删除后，applyLeaf 要用新分配的标注 ID 原地更新栈中命令；保留原 ID 会让下一次反向操作指向已不存在的对象。
+0181-0761	apps/web/src/pages/Workbench/state/useAnnotationHistory.ts:77,150-151	-	撤销尚未入库的 tmp_ 标注时，由工作台回调同时移除查询缓存中的临时标注和离线队列中的创建操作；对临时 ID 发 DELETE 只会得到 404，也不能取消排队的创建。
+0181-0762	apps/web/src/pages/Workbench/state/useAnnotationHistory.ts:83-84,372	-	同一次创建的重试沿用命令中的请求键；成功撤销后才换键，让下一轮重做真正新建。restoreSlice 必须先持久化键再发请求，否则页面重载后的重试无法沿用原键。
+0181-0763	apps/web/src/pages/Workbench/state/useAnnotationHistory.ts:155	-	撤销与重做的 sessionStorage 快照只可在五分钟内恢复；不能把它当长期历史，否则恢复的命令可能引用已经过期的 prediction ID。
+0181-0764	apps/web/src/pages/Workbench/state/useAnnotationHistory.ts:287	-	切片回执因重试再次送达时，即使原回执已处理完毕，也要在登记前查撤销栈和重做栈，避免同一切片操作在历史中出现两次。
+0181-0765	apps/web/src/pages/Workbench/state/useAnnotationHistory.ts:423,430	-	撤销或重做在途时仍允许新编辑，但历史顺序不能由响应到达顺序决定：新编辑要排在先发起的重做之后，迟到的撤销结果不能恢复已被新编辑清空的重做栈。
+0181-0766	apps/web/src/pages/Workbench/state/useAuthenticatedDiscussionSession.ts:29-30;apps/web/src/pages/Workbench/state/useDiscussionDraftStore.ts:301-305	-	认证 Provider 逐次监听认证 store 的转换，不以 React 渲染判断会话边界；同账号登出再登录可能被合为一次渲染。重新登录必须取得新的草稿 store 和会话 ID，不能沿用旧会话。
+0181-0767	apps/web/src/pages/Workbench/state/useBackendRouting.ts:1-11	-	交互工具按所需 prompt 能力选择后端，不能把所有工具都交给一个当前后端，否则该后端可能接不了某些工具的请求；批量任务独立使用 batchBackendId。
+0181-0768	apps/web/src/pages/Workbench/state/useBackendRouting.ts:18-23	-	交互 prompt 词表从后端 capability_registry 生成，避免前端手抄的清单与后端漂移；注册新词本身不代表工具已可用，没有后端支持时仍保持禁用。
+0181-0769	apps/web/src/pages/Workbench/state/useBackendRouting.ts:34,41	-	交互请求的 prompt、输入和输出组合须由同一模型支持；视频纠错所需的追踪能力也须由该模型提供。不能把多个模型的能力取并集，否则会放行没有单个模型能完成的请求。
+0181-0770	apps/web/src/pages/Workbench/state/useBackendRouting.ts:127	-	解析旧式单模型 /setup 响应时，应读取顶层能力并把缺失的 is_interactive 当作 true；若套用新结构或将缺省当作 false，会把旧后端误判为不可交互。
+0181-0771	apps/web/src/pages/Workbench/state/useBackendRouting.ts:173-177,358-360	-	capIndex 的依赖应包含查询状态和 /setup 能力指纹；只看查询数组引用会无谓重建，只看查询状态又会漏掉两次成功响应之间的能力变化。
+0181-0772	apps/web/src/pages/Workbench/state/useBackendRouting.ts:242-246,283-286,377-378,388	-	交互后端偏好按项目存服务端，换设备仍可读取。偏好后端须可达且至少支持一种 prompt；对当前 prompt，仅在支持它的候选中优先用偏好，否则依次回退到项目默认和注册序首项。
+0181-0773	apps/web/src/pages/Workbench/state/useBatchBackendSelection.ts:1-15	-	批量后端一旦手选，就在当前项目会话内保留，不因其他标签页修改默认值或列表重排而改变。切换项目才重置手选；未手选时跟随默认，无默认才取首项。
+0181-0774	apps/web/src/pages/Workbench/state/useCanvasDraftPersistence.ts:16	-	恢复画布草稿前要区分 annotationIds 未加载（undefined）与已加载但为空；把未加载当作空列表，会在目标标注尚未核对时就作出恢复判断。
+0181-0775	apps/web/src/pages/Workbench/state/useCanvasDraftPersistence.ts:33-34,67	-	画布草稿只能写回事务的原始目标，输入区隐藏或卸载也不能改用当前任务，否则切换后会写错目标。空绘图没有可恢复内容，不应继续占用画布。
+0181-0776	apps/web/src/pages/Workbench/state/useCanvasDraftPersistence.ts:39,119-121	-	存储快照只作限定作用域、五分钟有效的刷新恢复后备，不是待续接队列。恢复的事务独占画布直到显式完成或取消；释放画布也不意味着可以自动接入另一个目标。
+0181-0777	apps/web/src/pages/Workbench/state/useCanvasDraftPersistence.ts:85	-	画布恢复 effect 必须在旧任务的画布释放 effect 之后运行；若先恢复，新任务刚恢复的草稿可能被旧任务的清理清掉。
+0181-0778	apps/web/src/pages/Workbench/state/useCapabilityValidation.ts:6-16	-	能力协议 v2 的项目兼容性检查只提示、不阻断：几何检查提示项目工具能否承接输出，属性检查提示采纳后哪些值会丢失，不能把缺少属性落点等同于整个输出不可用。
+0181-0779	apps/web/src/pages/Workbench/state/useCapabilityValidation.ts:23-28,155-156	-	只有模型自报 schema 中存在同名属性，才为落点警告提供补全入口；以该定义转换成项目 AttributeField 并补入所有启用工具单位，不能仅凭警告推造字段。
+0181-0780	apps/web/src/pages/Workbench/state/useCapabilityValidation.ts:36-38	-	协议 v2 的几何名不能和 ToolUnitId 做一对一等值比较；一种几何可由多个工具单位承接，检查应匹配整个映射集合，否则会误报已有承接工具的项目。
+0181-0781	apps/web/src/pages/Workbench/state/useCapabilityValidation.ts:75-76,130-131	-	属性落点检查不把 class 当普通模型属性验证；项目通常已有类别体系，要求再提供同名属性落点会制造不必要的告警。
+0181-0782	apps/web/src/pages/Workbench/state/useCapabilityValidation.ts:91,93,113,118	-	不能把信息缺失当成不兼容：旧式单模型后端或能力未取到时，缺 activeModel 不告警；旧项目未显式配置工具单位时跳过几何检查，协议几何名未知时也不报不兼容。
+0181-0783	apps/web/src/pages/Workbench/state/useCapabilityValidation.ts:139,144-147	-	OCR 识别文本可落入任意 text 类型字段，但 language、orientation 是协议具名属性，不能用同类型字段替代 key 匹配；方向也可由旋转框承接。
+0181-0784	apps/web/src/pages/Workbench/state/useConflictResolution.ts:1-3	-	conflictCbRef 由主工作台持有，因为更早初始化的 useUpdateAnnotation 就需要该引用；useConflictResolution 后续接入弹层处理器，不能等它初始化后才创建引用。
+0181-0785	apps/web/src/pages/Workbench/state/useDirtyTracker.ts:6-21	-	AttributeForm 按标注累积脏字段，在 blur 或 pointerup 时用 useDirtyTracker.flush 合并成一次 PATCH；逐字段发送会把一轮编辑放大成大量请求。
+0181-0786	apps/web/src/pages/Workbench/state/useDiscussionDraftStore.ts:16-21	-	讨论草稿以 store 中的数据为准，不以编辑器 DOM 为准；重挂载或在停靠与浮动间切换时不能生成第二份状态，Workbench 和受限的 ReviewWorkbench 适配器也应读取同一数据源。
+0181-0787	apps/web/src/pages/Workbench/state/useDiscussionDraftStore.ts:25	-	DiscussionDraft 保存起草时的目标副本，不能在提交时再从当前选择取目标；否则用户切换标注后，旧草稿可能被送到新选中的标注。
+0181-0788	apps/web/src/pages/Workbench/state/useDiscussionDraftStore.ts:157-161	-	讨论草稿在 mutation 前须同时校验目标和载荷；任务或 Issue 评论若误走仅支持标注的适配器，提及、上传、绘图或视频锚点可能被静默丢弃。
+0181-0789	apps/web/src/pages/Workbench/state/useDiscussionDraftStore.ts:316,508-509	-	画布事务按草稿目标判定先后，只接纳该目标最新事务的结果；不能按完成顺序写入，否则先发后到的旧结果会覆盖新内容。
+0181-0790	apps/web/src/pages/Workbench/state/useDiscussionDraftStore.ts:406-408	-	编辑器卸载不等于绘图或上传结果失效；异步完成后，仅当 owner 和原目标仍有效且 origin 未处置时，才可为原目标重建草稿，避免已失效的编辑来源重新写入。
+0181-0791	apps/web/src/pages/Workbench/state/useDiscussionDraftStore.ts:434-436	-	getDraft 应返回引用稳定的公开快照，不能在每次读取时克隆；否则即使草稿未变，useSyncExternalStore 也会持续把新引用判为状态变更。
+0181-0792	apps/web/src/pages/Workbench/state/useDiscussionDraftStore.ts:478-479	-	提交期间目标变得不可用，不等于提交归属失效或草稿应被丢弃；保留请求归属与草稿内容，但目标未恢复可用时，不应用请求结果。
+0181-0793	apps/web/src/pages/Workbench/state/useDiscussionDraftStore.ts:488-490	-	草稿锚点以首次输入或绘图的位置为准，文本补丁后只补录缺失值；只有明确更新位置时才用 force 覆盖，避免普通编辑把草稿锚到后来所在的位置。
+0181-0794	apps/web/src/pages/Workbench/state/useDiscussionDraftStore.ts:623-624	-	提交方提供新序列化内容时，先用它同步存储中的结构化草稿，再生成不可变提交快照；否则快照会锁定更新前的旧稿。
+0181-0795	apps/web/src/pages/Workbench/state/useDiscussionDraftStore.ts:711-714	-	切换标注只切换所见草稿，不迁移内容归属。首次观察到空选中是初始化信号，不能清掉恢复或显式指定的发送目标；只有用户清除已有标注选择才清掉目标。
+0181-0796	apps/web/src/pages/Workbench/state/useDiscussionNavigation.ts:83-88	-	讨论 URL 由 Workbench 激活，不以 dock 或页签已挂载为前提。取消导航只停止后续查找，不能中止可见列表也在等待的共享请求；直接访问校验可独立中止。
+0181-0797	apps/web/src/pages/Workbench/state/useDiscussionNavigation.ts:105-106,348-349	-	讨论导航按路由和请求归属绑定查询方法，不能把进度渲染产生的新观察器或回调当成新任务。归属变化后旧导航失效，离开再返回同一路由也须作为新任务。
+0181-0798	apps/web/src/pages/Workbench/state/useDiscussionNavigation.ts:165-166	-	讨论导航在微任务中确认 effect 仍有效后才派发 API；若在 effect 内立即派发，StrictMode 随即清理的那一轮也会发出请求。
+0181-0799	apps/web/src/pages/Workbench/state/useDiscussionNavigation.ts:179-180,184-185	-	查找通知指向的回复前必须刷新，因为未过 staleTime 的首屏缓存也可能早于通知。若已有导航开始前发出的共享请求，先等它完成再刷新，不取消其他读者的请求。
+0181-0800	apps/web/src/pages/Workbench/state/useDiscussionNavigation.ts:219-220	-	只有返回的 pageParams 包含某游标，才将其记为已用；发起请求不代表实际翻页，共享后台刷新可能只更新原页，提前记账会误判游标重复。
+0181-0801	apps/web/src/pages/Workbench/state/useDiscussionNavigation.ts:272-273	-	标注评论导航按原始评论身份查找，不能用反馈镜像代替。旧评论可能位于首个窗口之后，首屏未命中不能作为不可访问的依据。
+0181-0802	apps/web/src/pages/Workbench/state/useDiscussionNavigation.ts:297-298	-	打开标注评论时，列表应由可见评论流自己的查询填充，并采用服务端返回的 actions；用旧版评论记录重建列表会丢失这些权限信息，不能靠客户端推断补回。
+0181-0803	apps/web/src/pages/Workbench/state/useInteractiveAI.test.ts:881-883;apps/web/src/pages/Workbench/state/useInteractiveAI.ts:238-239,409-410,445-446,471,816-817	-	推理被取代或会话取消时，除 abort 外还须推进请求序号，缓存命中也不例外，以挡住迟到响应。缓存命中和取消须显式清除 isRunning，因为旧请求的 finally 已无权复位。
+0181-0804	apps/web/src/pages/Workbench/state/useInteractiveAI.test.ts:1237-1238;apps/web/src/pages/Workbench/state/useInteractiveAI.ts:120-124,852-856	-	视频帧索引须纳入 cacheScope；切换项目、任务、后端或帧时须 cancel 并清空候选，不能只重置会话，否则旧结果仍可能被接纳。点会话与 mask_input 绑定推理图像，不能跨帧延用。
+0181-0805	apps/web/src/pages/Workbench/state/useInteractiveAI.test.ts:1296	-	simplifyCandidateRing 的容差须随目标尺度变化，不能固定为图像像素数；同样的 5 像素容差可简化大目标轮廓，却可能抹掉同图中的小目标形状。
+0181-0806	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:68,89-92	-	原生 Mask 接纳须保留 COCO RLE 与服务端签名的接纳血缘；简化轮廓仅供展示，不能以提环或多边形近似替代 RLE，否则接纳的掩码将不再是原推理结果。
+0181-0807	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:73	-	接纳视频候选时须以服务端签名的推理帧为准，不能读取接纳时的当前播放帧；播放进度可能已移动，导致候选被写入错误帧。
+0181-0808	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:85	-	已存 Mask 的精修结果必须按 refineSource 指向的原标注及源版本原位更新；另建标注不是等价接纳，会留下未更新的原标注和额外副本。
+0181-0809	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:98-105	-	图片 transport 可只传 task_id，由服务端按任务 URL 取图；视频 URL 指向整段 MP4，不能照搬取图方式，须由前端解出推理帧并通过 JPEG multipart 发送。
+0181-0810	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:150-153,170-173,298-301,668-669	-	PCS exemplar 后端不保存会话，每次须重发全部正负框及当前文本、阈值和输出配置，否则会丢失既有召回或排除条件。无新框重跑也须沿用上次输出配置及附加参数。
+0181-0811	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:189-193,833-835,847	-	warmup 按任务和后端用中心虚拟点预热编码，但不能走 dispatch，否则预热会影响真实候选或请求序号；视频仍须通过 transport 附帧，不支持点提示或预热失败不阻止真实交互。
+0181-0812	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:198-199,314,693-694	-	连续修改文本或阈值时，较重的 exemplar 推理应防抖至末值，执行时从 ref 读取当前参数，避免投递过时条件；新拖框或切换输出是明确操作，应立即投递。
+0181-0813	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:244-246,577	-	点提示后端不保存精修会话，runPoint 每轮须重发同一对象的全部正负点；只发新增点会丢失之前的约束，使本轮不再是对同一对象的累积精修。
+0181-0814	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:248-249	-	runPoint 组装请求须从 pointSessionRef 同步读取并累加提示点；sessionPoints 只是画布订阅用的镜像，依赖它会在渲染尚未追上时漏掉已加入的点。
+0181-0815	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:253-254,587-589,612	-	mask_input 只能承接可确定来源的单 Mask logits，普通点会话首击的 multimask 不能回灌。已存 Mask 的同一次精修可跨点、框、笔迹回灌，但接纳、取消或切任务、帧、模型时须释放。
+0181-0816	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:327-330,541-542	-	模型变体是否切换须按后端以上次成功预测的签名为准，不能在选择变体或发出请求时就标记成功；否则失败后的重试会被误认成已完成切换，不再提示可能的冷启动。
+0181-0817	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:427-428	-	携带 mask_input 的原生 Mask 请求须绕过候选缓存，而不是仅从键中删掉 token；否则同样的提示可能命中未使用该轮 logits 的候选，把不等价的推理当成同一个结果。
+0181-0818	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:450-452	-	推理在途或网络失败不代表上一批已签名候选失效，应保留供修改或重试；成功返回空结果才表示本轮无候选，必须清退旧结果，不能继续显示为本轮输出。
+0181-0819	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:492	-	候选缓存只写入非空结果；把一次瞬时空响应也缓存起来，会让同样的提示在重试时继续命中空值，无法重新向后端求值。
+0181-0820	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:683-684	-	纯框召回仅在本次请求使用旧版几何封装，不能套用原生 Mask 校验，否则会拒绝合法框结果；该覆盖不能改写用户偏好，使下一次分割意外停用 Mask。
+0181-0821	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:773-774	-	consume 须区分备选与实例：点和交互框给出同一对象的备选 Mask，采纳一个就清整组并重置点会话，防止重复采纳；文本和 exemplar 给出不同实例，只移除已采纳项。
+0181-0822	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:988,1112-1114	-	解析 `_rings_to_polygon_label` 时须同时处理单环的 `points` 和多区域的 `polygons`，只读 `points` 会静默漏掉多环候选。候选、预览和落库都只支持单环，因此多环结果取面积最大的外环。
+0181-0823	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:1110	-	多边形解析只接受缺省 `type` 的历史结果和显式 `polygonlabels`；不能把其他 `type` 也当作多边形，否则新增结果类型会被错误解释。
+0181-0824	apps/web/src/pages/Workbench/state/useInteractiveAI.ts:1139-1149	-	SAM 候选以外接框对角线的 0.3% 为简化阈值，而不是用固定像素值；足以去除大物体锯齿的固定阈值可能改坏小物体轮廓。
+0181-0825	apps/web/src/pages/Workbench/state/useInteractiveBackendPref.ts:7-23	-	交互后端选择按项目存入服务端用户偏好，留在 `localStorage` 无法跨设备同步。模型与参数仍按后端分桶，独立写入依赖服务端对 `ai` 子树多合并一层，否则局部更新可能覆盖同级偏好。
+0181-0826	apps/web/src/pages/Workbench/state/useInteractiveBackendPref.ts:33-34	-	同步本地后端选择时依赖 React Query 的结构共享，仅在服务端交互后端映射引用变化时同步；若监听整份偏好，其他子键更新可能覆盖尚未落库的乐观选择。
+0181-0827	apps/web/src/pages/Workbench/state/useInteractiveBackendPref.ts:39-40	-	`userId` 为空时须清空项目映射并取消待写入项；只重置 `loaded` 会让下一用户在自己的偏好加载前仍能读到上一用户的后端选择。
+0181-0828	apps/web/src/pages/Workbench/state/useInteractiveBackendPref.ts:53-54	-	卸载时须发出节流窗口内尚未发送的偏好写入，不等待响应；若直接取消定时任务，用户切换后端后立即离开工作台就会丢失最后一次选择。
+0181-0829	apps/web/src/pages/Workbench/state/useIssuePins.ts:84,411-413	-	`selectImageAnnotation` 只在定位请求已失效时返回 `false`，阻止继续恢复视口。标注不可用但请求仍有效时须返回 `true`，否则已持久化的像素锚点也无法定位。
+0181-0830	apps/web/src/pages/Workbench/state/useIssuePins.ts:105,394-395	-	图像和 3D 的 Issue 定位须匹配当前项目与任务，避免迟到的全局高亮把旧坐标应用到新画布。`owner` 还须区分每次任务访问，仅用任务 ID 会让离开后重返同一任务时误接纳上次的请求。
+0181-0831	apps/web/src/pages/Workbench/state/useIssuePins.ts:264-267,289-291,335-337	-	画布与徽标共用当前任务查询：画布须拉完所有页以免漏钉，徽标只信首页 `status_counts`，不能从已加载行推算。刷新失败可保留钉和卡片，但计数须置为未知，直至新首页返回。
+0181-0832	apps/web/src/pages/Workbench/state/useIssueSequence.ts:127,165	-	Issue 分页定位须与 API 的 `created_at`、`id` 降序一致；不能用 `Date.parse` 比较时间，否则 PostgreSQL 微秒精度丢失后，同一毫秒内的记录可能被排错。
+0181-0833	apps/web/src/pages/Workbench/state/useIssueSequence.ts:292-293	-	插入点位于已加载列表末尾且仍有下一页时，前一项须保持未知；未加载页仍可能提供真正相邻的记录，不能把当前页边界当作全局边界。
+0181-0834	apps/web/src/pages/Workbench/state/useMLCapabilities.ts:11-20,116	-	解释 `/setup` 时，有目录以当前模型声明为准，无目录才读旧版顶层字段；仅缺失提示声明才用 grounded-sam2 默认值。显式空 `supported_prompts` 表示不接受提示，不能回退；拉取失败须禁用 AI 工具。
+0181-0835	apps/web/src/pages/Workbench/state/useMLCapabilities.ts:62-64,106	-	会话选择优先于按后端保存的模型偏好，但两者都须在当前模型目录中才可采用；若无条件复用旧选择，已移除的模型会挡住有效的回退选项。
+0181-0836	apps/web/src/pages/Workbench/state/useMLCapabilities.ts:88	-	多模型选择器不能按提示能力过滤模型目录，否则会隐藏本可由用户主动选用的 `composite`；是否可选与选中后能接受哪些提示应分开判断。
+0181-0837	apps/web/src/pages/Workbench/state/useMaskEditor.test.ts:171	-	Mask 落笔后须用 `revision` 通知 `MaskOverlayLayer` 重绘；像素可以在同一 Buffer 内变化，只监听 Buffer 引用会漏掉这些更新。
+0181-0838	apps/web/src/pages/Workbench/state/useMaskEditorSession.ts:1-17	-	Mask 会话加载或保存期间须禁止指针写入，避免落笔与未完成的操作交错；保存失败不能按会话结束清理，须保留草稿和精修上下文供重试。
+0181-0839	apps/web/src/pages/Workbench/state/useMaskEditorSession.ts:41,112	-	`MaskSessionKey` 须包含服务端乐观锁版本，`annotationVersion` 已变化时不能沿用旧会话。外部刷新已确认新版本时用 `rebaseSession` 接纳新键，避免再发起一轮常规加载。
+0181-0840	apps/web/src/pages/Workbench/state/useMaskEditorSession.ts:47-50,213	-	关闭离开确认（取消、Esc 或点遮罩）一律视为继续编辑；只有明确返回 `discard` 才由会话清 Buffer。`save` 表示调用方已完成保存，不应再执行丢弃清理。
+0181-0841	apps/web/src/pages/Workbench/state/useMaskEditorSession.ts:94-97,99,101;apps/web/src/pages/Workbench/state/useMaskMutationWorkflows.ts:91	-	Mask 加载须按 generation 隔离，刷新还须核对 session key，并在异步返回后重验当前上下文，防止迟到结果写入或取消新会话。只有 404 可进入空白加载，其他错误不能当作没有 Mask。
+0181-0842	apps/web/src/pages/Workbench/state/useMaskEditorSession.ts:103	-	精修入口已初始化 Buffer 时，须用当前 generation 调用 `markReady`；再走初始化会覆盖入口已准备好的像素内容。
+0181-0843	apps/web/src/pages/Workbench/state/useMaskEditorSession.ts:148	-	会话切换 effect 只随 `sessionId` 运行，所需的最新状态通过 refs 读取；把随渲染变化的状态加入触发条件，会在没有换会话时反复执行切换逻辑。
+0181-0844	apps/web/src/pages/Workbench/state/useMaskMutationWorkflows.ts:1-26	-	Mask 提交和重试沿用预览捕获的项目、任务、帧、片段、作用域和成员版本；重拉替换会把同一意图套到新上下文。新预览须换幂等键，提交与转场须互斥，不能在写入中途切换任务。
+0181-0845	apps/web/src/pages/Workbench/state/useMaskMutationWorkflows.ts:110	-	提交与刷新共用的在途标记须由装配层持有；若放进 Mask 会话，离开守卫在会话创建前就无法读取该标记。
+0181-0846	apps/web/src/pages/Workbench/state/useMaskMutationWorkflows.ts:480	-	启动 Mask 实例操作前须先登记原子草稿 owner；同步生成的预览可能立即渲染草稿详情，事后登记就来不及为首次渲染提供归属。
+0181-0847	apps/web/src/pages/Workbench/state/useMaskMutationWorkflows.ts:626-627	-	视频 Mask 粘贴在用户确认后须重新检查目标是否存在；确认前的检查不能覆盖等待期间发生的删除，不能继续向已删除的目标粘贴。
+0181-0848	apps/web/src/pages/Workbench/state/useMaskMutationWorkflows.ts:1457-1460	-	Mask 失败恢复须先解除失败编辑器绑定并退出错误阶段，再发布重拉的标注版本；顺序反过来，预期的版本变化会被当成一次未保存离开，再弹确认。
+0181-0849	apps/web/src/pages/Workbench/state/useMaskPrimaryActionOwner.ts:96	-	Mask 主操作须区分应用选区、错误恢复和保存成功；前两者不代表已经持久化，不能因主操作完成就上报保存成功。
+0181-0850	apps/web/src/pages/Workbench/state/usePendingGeom.test.ts:57-59;apps/web/src/pages/Workbench/state/usePendingGeom.ts:25-28,77-78	-	`usePendingGeom` 在缓存匹配目标几何或 `useUpdateAnnotation.onSettled` 时清除覆盖，10 秒仅作兜底；过早清除会在慢网回滚前闪回旧几何，不清除则可能长期遮住真实几何。
+0181-0851	apps/web/src/pages/Workbench/state/usePolygonDraftPoints.ts:4	-	多边形草稿点须由同一 owner 协调；同步编辑要在 React 渲染前使已排队的指针批次失效，否则旧批次稍后执行会覆盖新编辑。
+0181-0852	apps/web/src/pages/Workbench/state/usePredictionPropagation.ts:37-38	-	跨帧传播须拒绝按键自动重复或快速连按触发的并发 POST，否则目标帧可能生成多条共享同一新 `track_id` 的重复标注。
+0181-0853	apps/web/src/pages/Workbench/state/usePredictionPropagation.ts:42-44,50-51	-	传播落库后，只有起始任务仍是当前任务才导航并预约补选；用户已切走时只失效缓存，不能让迟到的成功回调抢回当前视图。
+0181-0854	apps/web/src/pages/Workbench/state/usePredictionPropagation.ts:122	-	传播后不能只失效目标帧的标注缓存：源框也可能在落库时刚获分配 track_id，不刷新源任务会让本帧高亮仍按旧数据计算。
+0181-0855	apps/web/src/pages/Workbench/state/useSamCache.ts:1-17,56-59	-	后端 embedding 命中仍有 HTTP 往返，因此前端另缓存提示结果；键区分任务、后端和提示类型，视频还必须带 frameIndex，否则相同提示会复用别帧候选。参数排序、坐标保留四位小数以减少抖动导致的未命中，原生 RLE 另受内存和时效限制。
+0181-0856	apps/web/src/pages/Workbench/state/useSecondaryBarHiddenPref.ts:7-13	-	二次推理面板显隐以服务端用户偏好为准，否则本机切换无法同步到其他设备。保存时只 PATCH 对应的 ui 字段，依靠后端深合并保留同层的 theme，不能整块覆盖 ui。
+0181-0857	apps/web/src/pages/Workbench/state/useSecondaryInference.ts:39	-	后端没有提供可识别的标准 task 时，应按声明的输出形态确定写回目标；仅按 task 名筛选会丢掉输出形态可识别、仍能写回的能力。
+0181-0858	apps/web/src/pages/Workbench/state/useSecondaryInference.ts:151-158,173-176	-	几何能力即使没有变体轴也要传非 null 的 model_variants，否则走旧扁平协议会丢失 class_filter；属性能力仅在声明变体轴时走 v2，用户选择逐轴覆盖模型默认值。空 params 应省略，交由后端使用默认值。
+0181-0859	apps/web/src/pages/Workbench/state/useSecondaryInference.ts:166	-	attributes 仅列模型声明的输出属性键；未声明时要传 null 表示请求全量，不能以空数组代替，因为后端会按空集合过滤掉全部属性。
+0181-0860	apps/web/src/pages/Workbench/state/useSecondaryInference.ts:193-196,234-238	-	二次推理成功后直接合并实际写入的属性并去重追加子框，不覆盖原框几何；重拉整份标注可能盖掉 useUpdateAnnotation 未完成的乐观修改，只标 stale 又不会让工作台的持续订阅立即读到产物。
+0181-0861	apps/web/src/pages/Workbench/state/useSecondaryInference.ts:229-230	-	useRunSecondaryInference 不能把组件已挂载当成 taskId 存在的保证；缺失时应在发请求前报错并提示，否则会请求 /tasks/undefined 并静默得到 404。
+0181-0862	apps/web/src/pages/Workbench/state/useSecondaryParamPrefs.ts:7-19	-	二次推理的 params 和 variants 必须按 backendId:modelId 同桶保存，不能只按后端分桶，否则同一后端的模型会串用参数或选档。偏好保存失败时仍用组件状态，不阻断推理。
+0181-0863	apps/web/src/pages/Workbench/state/useSessionStats.ts:74-79	-	计时区间按开始时捕获的任务、项目、账号和工作类型归属，不能在结束时读取当前上下文，否则切换后会把旧区间记给新归属。隐藏或空闲时先结束旧区间，再允许开启新区间。
+0181-0864	apps/web/src/pages/Workbench/state/useSessionStats.ts:95	-	React StrictMode 会在清理后重新设置 effect；useSessionStats 必须恢复 mountedRef，不能把上一轮清理留下的卸载标记沿用到仍挂载的实例。
+0181-0865	apps/web/src/pages/Workbench/state/useSessionStats.ts:104-106,193-194	-	暂时性请求故障保留遥测记录并有限重试，但换号必须清除旧队列，不能跨账号补发。已发请求无法取消，清队列时还要推进 generation，阻止旧请求迟到的成功或失败回调改动新账号的队列。
+0181-0866	apps/web/src/pages/Workbench/state/useSessionStats.ts:178-180	-	任务删除或重新分配后，已关闭的遥测区间仍可能永久失效；只有单条批次可仅凭永久错误丢弃。混合批次必须按 API 的逐行明细剔除，不能因一条失效而丢掉有效记录。
+0181-0867	apps/web/src/pages/Workbench/state/useSessionStats.ts:217-218	-	浏览器空闲事件可能迟到，计时应截断在最后活动时间加空闲阈值，而非事件送达时刻，否则延迟期间的空闲会被计作产出。
+0181-0868	apps/web/src/pages/Workbench/state/useToolBindings.ts:27-31,38,46,50-53,65-69	-	bbox 或 region 的兜底类别只用于展示，hasOwnClasses 须在兜底前判定；创建仍写入激活工具的 tool_unit_id，自身无类时用 __unknown，不弹选择窗。显式 overrideUnit（如 lidar_box_3d）和采纳预测时均不借类，避免跨单位提交类别。
+0181-0869	apps/web/src/pages/Workbench/state/useToolBindings.ts:74	-	编辑已落库标注时，须按该标注自身的工具单位读取类别和属性 schema，不能沿用当前激活工具的配置，否则切换工具后会用其他单位的定义编辑同一条标注。
+0181-0870	apps/web/src/pages/Workbench/state/useTrackerSeedCollection.ts:95-97	-	视频工具失去 video_modes 准入时通常回到 select，但 PVS 种子采集期间必须保留临时工具。画布 samProbe 只看当前工具值，提前回收会使未绑定交互工具的项目无法落种子。
+0181-0871	apps/web/src/pages/Workbench/state/useTrackerSeedCollection.ts:106-107,234-235	-	任务级 track 涉及至少两条源轨迹时，用 source_annotation_ids 提交一个 job，由后端逐源构造种子并回填。不能指定单一 annotation_id 作为归属，也不能按单条标注承接审阅；此时应按 job 审阅。
+0181-0872	apps/web/src/pages/Workbench/state/useTrackerSeedCollection.ts:159	-	追踪后端不可用时，已隐藏或仍运行的传播会话只能重新显示面板，不能重新初始化；否则一次离线重开就可能清掉尚存的会话。
+0181-0873	apps/web/src/pages/Workbench/state/useTrackerSeedCollection.ts:1-19,199-200,267-269	-	追踪提交后清理种子但保留对话框，按它发起的 jobId 显示进度，避免串到其他任务或在审阅条接手前失去反馈。仅在所属 job 出候选、失败或被清理时收起；windowProgress 更新不等于可交接。
+0181-0874	apps/web/src/pages/Workbench/state/useUserPreferences.ts:5-16	-	共享用户偏好查询必须按 userId 隔离，换号时消费者还应清除旧账号的本地覆盖；只复用 GET 缓存而不区分账号，会把旧偏好带进新会话。
+0181-0875	apps/web/src/pages/Workbench/state/useVideoIssueNavigation.ts:35,57,100	-	视频问题导航可跨预期任务切换，目标暂未解析不算切错；出现非预期任务才取消。waitUntil 必须轮询实时 React/Stage 归属，不能拿发起时的快照判断切换是否完成；取消或超时均须释放等待资源。
+0181-0876	apps/web/src/pages/Workbench/state/useVideoIssueNavigation.ts:148	-	视频问题导航必须重新请求目标任务校验访问权限，不能把已有任务信息当成当前授权。校验通过前不得跳转、暂停、改变选区或调整视口，以免无权导航仍改变工作台状态。
+0181-0877	apps/web/src/pages/Workbench/state/useVideoIssueNavigation.ts:226	-	自动聚焦抑制租约必须在选区提交到 Stage 前生效；提交选区本身就可能触发聚焦，事后再拦截已无法阻止这次视口变化。
+0181-0878	apps/web/src/pages/Workbench/state/useVideoMaskCorrection.ts:1-12	-	视频 Mask 校正以开窗时捕获的标注、帧、会话和片段为准，commitVideoMask 须复核任务、帧、工具、选区、模式、路径及锁，拒绝失去归属的迟到提交。须先保存再交给 tracker 传播，不能让传播读取未确认的校正。
+0181-0879	apps/web/src/pages/Workbench/state/useVideoMaskCorrection.ts:230-231	-	Mask 保存须在同一 session 内合并重复 Enter 或双击，避免为一次确认发起多个 mutation。保存失败应保留 buffer 和编辑历史并允许重试，不能清空尚未落库的校正。
+0181-0880	apps/web/src/pages/Workbench/state/useVideoMaskCorrection.ts:250-252	-	Mask 保存回包先更新查询缓存，再用确认版本重设 session 基线；若仍沿用旧版本，切回 select 会被守卫误判为离开保存会话，恢复旧工具却不激活 Mask 工具栏。
+0181-0881	apps/web/src/pages/Workbench/state/useVideoToolCommands.ts:120	-	显式视频命令以最新意图为准；新命令取代仍在等确认或 Mask 保存的旧命令，不能让旧操作晚到的结果再切换工具。
+0181-0882	apps/web/src/pages/Workbench/state/useVideoToolCommands.ts:166	-	Tracker 种子采集借用 AI 工具只为交互入口，准入仍须检查 Tracker 自身的后端能力；沿用 AI 工具的判定会把两种能力误当成可互换。
+0181-0883	apps/web/src/pages/Workbench/state/useVideoToolCommands.ts:85,212	-	命令层只做准入，不复制 Stage 或 Mask 的草稿状态。原生 Mask 的待选类别持有在途保存的 resolver，按普通视频待提交草稿处理会脱离原保存流程。
+0181-0884	apps/web/src/pages/Workbench/state/useVideoToolCommands.ts:215,238-239	-	Stage 续画已有轨迹时，本帧由原更新方在松手时提交，松手前须拒绝切换。确认框打开期间松手可能让同一草稿变为待提交项，每次 await 后须复核归属，不能误丢后来出现的无关草稿。
+0181-0885	apps/web/src/pages/Workbench/state/useVideoToolCommands.ts:300	-	播放器用 task-reset 清空选择是在结束旧任务的选择状态，不是用户发起的切换；若走显式命令准入，任务清理可能被旧草稿的确认或保存阻塞。
+0181-0886	apps/web/src/pages/Workbench/state/useVideoToolCommands.ts:311,353-354	-	绑定 owner 的导航须等待现有选择命令完成准入；帧导航须在 Stage 改写 ownerKey 的帧部分前完成准入。准入通过不代表结果仍有效，调用方还须核对任务／意图令牌，Stage 须核对请求代次。
+0181-0887	apps/web/src/pages/Workbench/state/useWorkbenchAiRequest.ts:36,127,171	-	普通预测不随 Inspector 显隐转移归属；显式取消排队请求须先定位作业，而退出 AI 视图只清理查找，不发服务端取消。退出时仅对还没有 Celery 任务 ID 且可中止的请求执行本地 abort。
+0181-0888	apps/web/src/pages/Workbench/state/useWorkbenchAiRequest.ts:267	-	AI 作业查找以首个有效分页响应的 total 固定本轮扫描边界；若每页都采用最新 total，翻页期间新增的作业会不断推远扫描终点。
+0181-0889	apps/web/src/pages/Workbench/state/useWorkbenchAiRequest.ts:360	-	调用执行器前须先占有 ownerRef；视频取帧可能在执行器内等待，等取帧后才登记会让已开始的请求在等待期间没有归属。
+0181-0890	apps/web/src/pages/Workbench/state/useWorkbenchAnnotationActions.altDrag.test.ts:1-6;apps/web/src/pages/Workbench/state/useWorkbenchAnnotationActions.ts:1206-1207	-	Alt 拖动以 ImageStage 渲染时的 userBoxes 算出 childMoves，写入层不按后续列表重算。父子几何各自提交并沿用离线兜底，但历史必须合成一个批次，否则一次撤销不能还原整组。
+0181-0891	apps/web/src/pages/Workbench/state/useWorkbenchAnnotationActions.ts:88	-	标注动作须在执行时从 WorkbenchShell 的 annotationsRef 读取当前列表；复用渲染闭包中的列表会让延后调用的动作基于过期标注执行。
+0181-0892	apps/web/src/pages/Workbench/state/useWorkbenchAnnotationActions.ts:94,955	-	当前工具没有可选类别时以 unknown 提交，避免打开空类别弹层。unknown 仅是未选类的提交兜底，不覆盖 activeClass，也不进入最近使用类别。
+0181-0893	apps/web/src/pages/Workbench/state/useWorkbenchAnnotationActions.ts:98-101,879	-	几何提交须同步登记 pending override：拖拽状态在松手时清除，而 onMutate 还没回填缓存，只依赖缓存更新会让画面短暂闪回旧几何。
+0181-0894	apps/web/src/pages/Workbench/state/useWorkbenchAnnotationActions.ts:353-354	-	手工新建遭业务拒绝时须保留草稿；传输或临时服务端故障仅在离线操作持久入队后才算已接受，否则清除草稿会丢掉未保存的编辑。
+0181-0895	apps/web/src/pages/Workbench/state/useWorkbenchConfig.sanitize.test.ts:5-7;apps/web/src/pages/Workbench/state/useWorkbenchConfig.ts:86-89,99,324-325	-	浮窗 x/y/w/h 在 PATCH 前须取整，宽限于 48–720、高限于 120–900；小数或单个面板越界都可能使整份 PATCH 返回 422。相机面板 x/y 和点云相机遵循浮点契约，不一并取整。
+0181-0896	apps/web/src/pages/Workbench/state/useWorkbenchConfig.ts:78-79	-	设置抽屉与 ImageStage 各持有配置实例，滑块拖动时须广播内存态；若仅靠保存后的响应同步，画布就无法预览尚未保存的调整。
+0181-0897	apps/web/src/pages/Workbench/state/useWorkbenchConfig.ts:106-107	-	旧偏好 PATCH 须排除 workspace、triViewFloat 和 shortcuts；停靠布局快照及快捷键有独立写入方，整份回写会用旧响应中的快照覆盖它们的新值。
+0181-0898	apps/web/src/pages/Workbench/state/useWorkbenchConfig.ts:189-190	-	布局的 localStorage 缓存按账号隔离，未登录才用无账号前缀的键；共用同一键会在同浏览器切换账号时显示前一账号的首帧布局，也会使缓存互相覆盖。
+0181-0899	apps/web/src/pages/Workbench/state/useWorkbenchConfig.ts:202-203,263,311,417-419	-	分组折叠和讨论区收起最终以服务端为准，但首帧先用本地缓存，避免打开任务后先展开再收起。属性区只在选中标注后渲染，不走这一缓存路径。
+0181-0900	apps/web/src/pages/Workbench/state/useWorkbenchConfig.ts:506-511,536-542	-	项目 rendering_config 保留扁平协议，仅将非空字段映射到 image 并标记项目锁定。Settings 不传项目配置，否则会把项目覆盖值显示成用户偏好；工作台画布则须使用覆盖后的值。
+0181-0901	apps/web/src/pages/Workbench/state/useWorkbenchConfig.ts:563-565,720	-	偏好读取成功前不接受 setFields，避免把本地默认值写到远端；首次或换账号时用远端值初始化，但同账号刷新不能重置本地态，否则会抹掉防抖窗口内尚未提交的改动。
+0181-0902	apps/web/src/pages/Workbench/state/useWorkbenchConfig.ts:645	-	卸载时立即提交防抖窗口内的改动，并从 store 取当前账号。成功后用 PATCH 返回的完整 preferences 回填共享查询，否则路由切回时可能在缓存新鲜期内读到保存前的值。
+0181-0903	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:76	-	快捷键层须单独接收 classPickerActive；SAM 等类别选择器的草稿不在 editingClass 中，只看 editingClass 会把已经打开的选择器误判为未激活。
+0181-0904	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:140	-	热键绑定按实际舞台解析，不能跨舞台复用；否则为图片舞台配置的自定义快捷键可能作用于当前的 3D 选区。
+0181-0905	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:148,150,195,888	-	键盘工具入口不能绕过 ToolDock 准入：项目关闭交互式 AI 时，AI 热键和循环命令均不执行；Mask 的 M 热键也须使用工具栏的禁用原因。
+0181-0906	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:158,160	-	Mask 分块缓存超预算只限制像素编辑，已有草稿仍可保存；证据对比则冻结所有 Mask 编辑快捷键，连取消草稿也不例外，不能套用超预算的限制范围。
+0181-0907	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:324	-	禁用 Workbench 热键前须结束空格平移并提交待处理微移；如果先移除监听，已按下的键不会再收到释放事件，这些操作就无法正常收尾。
+0181-0908	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:390-392	-	仅在 Mask 工具激活且已注入编辑器时，才在捕获阶段处理其上下文键，避免主分发先接管；输入框聚焦或待处理浮窗存在时须让位，不能抢占其按键。
+0181-0909	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:401-403	-	Mask 的 B/E 模式切换与指针入口须共用 canEditMask；若只在指针入口设守卫，任务只读或选中标注锁定时仍可从键盘进入编辑模式。
+0181-0910	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:526-527	-	数字属性快捷键以焦点进入显式标记的属性区域为准，不能用标注已选中代替；否则选中标注后，画布仍应接收的数字键会被属性编辑截走。
+0181-0911	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:604-605	-	跨帧传播须忽略长按 Alt+→ 产生的重复键盘事件；否则同一操作会重复 POST，在目标帧创建多条共用同一新 track_id 的标注。
+0181-0912	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:686-687,695	-	视频 Delete 只删关键帧，最后一帧也不能升级为整轨删除。Mask 和 bbox 均交由舞台控制器处理，Mask 须走专用 PATCH，不能用普通删除替代其 segment/task 锁、审计与帧历史语义。
+0181-0913	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:881-882,944	-	图片和视频的工具命令命中后须阻止浏览器默认行为；否则改绑到 F1、F5 或 Home 时，一次按键会同时执行工具命令和打开帮助、刷新或滚动。
+0181-0914	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:895-897	-	text-prompt 属于批量处理，不应纳入工具栏 AI 热键循环；否则用于切换画布交互工具的快捷键会选中不能在画布上直接使用的批处理入口。
+0181-0915	apps/web/src/pages/Workbench/state/useWorkbenchHotkeys.ts:905-906;apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:459-460	-	交互后端按各注册后端 /setup 公布的提示类型选择，不能按工具的几何名称匹配 supported_prompts。smart-box 与 magic-box 均须查 interactive_box；查 bbox 会把实际支持该交互的后端误判为不可用。
+0181-0916	apps/web/src/pages/Workbench/state/useWorkbenchNamedPresets.ts:24-35,41,183-184	archive/0072-workbench-dockable-layout.md	namedPresets 由命名预设 hook 独写，布局 hook 只写当前 contexts 项；命名表按 revision 原子替换，旧 revision 被拒后须刷新，不能省略不识别的条目。不可恢复预设只能删除，不能应用、改名或同名覆盖，以免旧客户端改写新版快照。
+0181-0917	apps/web/src/pages/Workbench/state/useWorkbenchNamedPresets.ts:92,129-130,132	archive/0072-workbench-dockable-layout.md	命名预设沿用 useUserPreferences 的查询键和 stale time；PATCH 成功后先取消同键 GET，再仅合并 namedPresets。否则在途旧 GET 可能盖过写入结果，整份响应回填也可能覆盖布局 hook 更新的 contexts。
+0181-0918	apps/web/src/pages/Workbench/state/useWorkbenchOfflineQueue.test.tsx:101-102;apps/web/src/pages/Workbench/state/useWorkbenchOfflineQueue.ts:60-65,108,216-217;apps/web/src/pages/Workbench/state/useWorkbenchShellModel.helpers.ts:22-28	-	404 须按阶段解释：项目预检的 404 与 403 都是明确拒绝；预检通过后，操作的 404 是目标缺失，若删除已达成则出队，403 才判为拒绝。单条重试与 drain 共用分类，不把这两类响应当网络故障，也不把传输或 5xx 当撤权。
+0181-0919	apps/web/src/pages/Workbench/state/useWorkbenchOfflineQueue.ts:1-6	-	离线队列只接管远端重放，不能把乐观创建和常规历史也移入队列；乐观创建依赖 WorkbenchShell 当下的任务、项目、账号和选中状态，不能用之后重放时的上下文替代。
+0181-0920	apps/web/src/pages/Workbench/state/useWorkbenchOfflineQueue.ts:44,86-92,134-135,242-243,259-261	-	每条重放操作都须从 ref 取最新授权器，按操作所属任务和项目预检，不能沿用 drain 启动时的授权。明确拒绝只保留受影响的草稿，不阻断其他已授权项目；暂态预检故障延后重试。
+0181-0921	apps/web/src/pages/Workbench/state/useWorkbenchOfflineQueue.ts:84,190-191	-	同账号的队列允许跨任务重放，但只有账号仍匹配且操作属于当前任务时才能回写界面和历史；不能把远端重放成功当成回写当前工作台的许可。
+0181-0922	apps/web/src/pages/Workbench/state/useWorkbenchOfflineQueue.ts:200	-	离线创建成功后须将后续排队操作引用的 tmpId 换成服务端 ID；仅更新创建结果而不改队列，会使后续更新或删除请求仍指向临时 ID 并收到 404。
+0181-0923	apps/web/src/pages/Workbench/state/useWorkbenchOfflineQueue.ts:272-274	-	drain 延后或遇到可重试故障时须安排有上限的退避重试；暂态授权查询故障不一定改变在线状态或队列计数，只监听这些变化可能让待重放操作一直搁置。
+0181-0924	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.helpers.ts:48	-	暂停传播仅保留会话配置，不保留对交互的优先权；若仍以传播会话存在为由截获操作，用户显式开启的章节圈选就会被暂停会话抢占。
+0181-0925	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.helpers.ts:153-161	-	当前题编排请求的顶层后端有源阶段时取源阶段，否则取首阶段，不能任取后端而违反服务端校验。若已提供可用后端集合，发送前须检查所有阶段的引用，以明确指出失效项，而非只收到通用 422。
+0181-0926	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.helpers.ts:179	-	当前题编排须以 workbench 执行范围提交；不能换用不准入未完成批次的范围，否则处于 in_progress 或 draft 的批次将无法运行。
+0181-0927	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.helpers.ts:231-235	-	图片和视频的 SAM 选类浮层共用定位几何：矩形直接取框，多边形取外接框；顶点不足以成面时不能仅因算得出外接框就弹出选类浮层。
+0181-0928	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.helpers.ts:283-287	-	原生 Mask 候选可先用后端多边形预览并延迟解码，但采纳必须使用未改动的原始 RLE，不能把供矢量叠加显示的轮廓当作最终掩码。
+0181-0929	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:329-331	-	不能假定后端 instance_id 都是数字串；配色和目标标号对数字串直接取值，其余用稳定正整数哈希，否则非数字 ID 可能丢失描边或显示 NaN。
+0181-0930	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:355-356	-	讨论深链只有在原评论和有效标注均通过校验后才能应用焦点；不能同时运行通用 Data Manager 聚焦，否则通用入口可能覆盖已校验的讨论目标。
+0181-0931	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:379	-	离开守卫由工作台装配层持有并注入变更流程，不能等 Mask 编辑会话创建时才提供；切换流程可能先读取守卫，依赖会话初始化会使这一读取拿不到守卫。
+0181-0932	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:430-431	-	项目访问查询未决或失败时不能先挂载可编辑工作台，不能把尚无拒绝当作已授权；撤销成员资格后也不能继续通过离线队列提交此前积累的操作。
+0181-0933	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:469-470	-	Tracker 能力须在各自已启用、已连接且可达的后端内判定，并保留提供方归属；全局求并集会把不同后端的原子能力拼成没有任何后端能执行的组合。
+0181-0934	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:518-519,734,1102-1103	-	工作台仍挂载时，浏览器历史变化只表示切换意图；须先通过既有视频与 Mask 切换流程，才能应用目标批次并转移查询和布局归属。URL 发起的切换获准后保留已校验的目标地址，不再改写它。
+0181-0935	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:568,616-618	-	点云没有对应二维工具，tool_unit 须由当前三维工具显式选定。采纳预测且预测带有 tool_unit 时，须按预测单位列类，否则可能把当前工具的类别配给不兼容几何并触发 422；其他情况仍按当前工具列类。
+0181-0936	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:672-673,736	-	评审和已解析的通知、深链目标不保证在当前队列或批次内，不能用队列成员关系代替准入；等待目标任务的权限结果时，当前已准入任务的查询仍是权威，不能提前移交查询归属。
+0181-0937	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:916-917	-	轨迹多选只由 VideoTrackSidebar 持有；批量浮卡可读取上报的选择镜像，但不能回写或维护第二份可写选择，否则两处都能改动选择，浮卡的操作目标可能与侧栏不一致。
+0181-0938	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:924,935	-	传播对话框打开时，时间轴 Shift 拖选须用新对象回填自定义范围；对话框按引用变化触发，重选相同帧范围若复用旧对象，本次选择就不会触发回填。
+0181-0939	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:943-944	-	章节缩放须按 chapterId 防抖；共用计时器会在 200ms 内先后调整不同章节时取消前一章的 PATCH，使尚未落库的调整在重新拉取后被覆盖。
+0181-0940	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:971-976	-	PVS 借用 smart-point 采集时不能被常规工具禁用逻辑回收；点须按目标和帧归组，1 号目标回填原轨迹，其余另建轨迹。传播范围锚定首个落点帧，不能让之后的跨帧纠偏改写起点。
+0181-0941	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:1073-1074,1448	-	清理和补选 effect 共用 usePredictionPropagation 返回的稳定 ref，但不能直接把下方才声明的 ref 放进依赖数组；数组会在渲染时立即求值，在 ref 初始化前读取会报错。
+0181-0942	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:1145-1146,1243-1247	-	通知导航沿用同项目任务和批次的准入规则；讨论 URL 单独做一次性准入，格式错误也不能回退到未经守卫的通用任务水合。跨项目或离开工作台前先过视频与 Mask 检查，每次 await 后复核账号归属，避免旧会话的结果推动新会话导航。
+0181-0943	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:1382-1383	-	松手后仍用待提交几何渲染，直到 onMutate 更新缓存；若清除拖拽状态后立即改读缓存，标注会在这段空档闪回原尺寸。
+0181-0944	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:1400-1401	-	类别孤儿判定须排除 __unknown：它是合法的未分类哨兵，不要求出现在项目类别表中，否则会把未分类标注误报为类别已删除。
+0181-0945	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:1452-1454	-	Data Manager 深链的 focus、track、frame 须在成功水合后只应用一次；若每次重新拉取标注都重放深链，会把用户后来选中的标注或帧拉回 URL 指定的位置。
+0181-0946	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:1516-1518	-	userBoxes 涵盖所有工具单位，遮挡样式须取全部绑定中布尔型 style_occluded 键的并集；只读取当前工具的属性模式，切换工具时就会丢失其他单位标注的遮挡样式。
+0181-0947	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:1679	-	讨论关联的标注已删除或不可见时，仍应允许按像素位置定位；若把选中关联标注作为前提，用户就无法跳转到仍有位置记录的讨论。
+0181-0948	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:1819-1821	-	Celery 预标 mutation 成功仅表示任务已派发，当前任务的预测缓存应等进度 WebSocket 报告 completed 再失效；派发成功就重拉可能读到生成前的旧预测。
+0181-0949	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:1943,2443	-	交互工具按 routing 中各后端的能力并集门控，不能因单个后端不支持某类 prompt 就禁用它。非交互工具回落到点提示后端仅为查询能力，不代表进入交互模式，不能据此触发预热。
+0181-0950	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:2001-2002	-	原生 Mask 的能力检查、model_id 和候选 receipt 必须对应请求前选定的同一模型；若响应后再按工具栏推断，期间切换模型就会把候选误归给另一模型。
+0181-0951	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:2117-2118,4335-4336	-	视频任务的 file_path 或 task URL 指向整段 MP4，不能像图片任务那样仅凭任务引用取得当前帧。交互 SAM 与视频单题 AI 都须发送客户端捕获的当前帧 JPEG，交互 SAM 使用 multipart，图片仍沿用原传输。
+0181-0952	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:2146	-	SAM 候选缓存和点会话须按帧隔离，切帧即失效；mask_input 的 logits 绑定生成它的图像，即使工具和提示类型不变，也不能用于另一帧。
+0181-0953	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:2251-2254	-	PVS 种子采集只能由传播对话框显式开启；采集期间点击只记录当前目标与帧的种子，若仍走普通点提示处理，就会误触发单帧 SAM。
+0181-0954	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:2266	-	exemplar 每次请求都重发全量示例框；只发送新增框会让本次推理丢掉先前的正例以及用于排除误检的 Alt 负例。
+0181-0955	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:2307-2311,2328-2329,2332	-	applyAttributeFields 会直接修改项目属性 schema，须经应用内确认后才写入。确认返回后用缓存中的最新 tool_bindings 重建载荷，仅合并启用单位的 schema，避免覆盖等待期间的变更或改写禁用、未配置单位。
+0181-0956	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:2394-2396,2401-2404	-	工作台「当前题 AI」走批量预标后端而非交互后端；视频只按 frame 选图像检测模型，经 /predict-frame 生成 video_bbox。不能按视频媒介直接路由到整段 tracker，后者用于 Ctrl+B 种子追踪或批量页的 video 模式。
+0181-0957	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:2424-2426	-	切工具时以 prompt 种类是否变化决定是否取消交互会话，切入非 AI 或文本工具也适用；否则旧点位和 mask_input 会残留到不兼容的工具中，同类 prompt 则可复用会话。
+0181-0958	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:2470	-	门控 effect 应依赖实际门控状态，而非 sam、s 聚合对象的引用；这些对象可因无关壳层状态变化而换引用，导致门控未变时也重复执行。
+0181-0959	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:2737-2741,2748,2754-2755	-	离线队列逐操作查所属项目的实时权限，核对回包的项目和用户，并在 await 后复核账号，避免沿用旧授权。撤权时保留草稿，不阻塞同账号其他获准项目；网络或服务失败按权限未定退避重试，不视为撤权。
+0181-0960	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:2860-2861,3617-3619	-	Mask 会话按题、帧、选区和标注版本定界，上下文切换时递增 generation。loadRle 和 loadBlank 只接收仍匹配发起代次的回包，否则迟到加载可能覆盖新会话中的笔迹。
+0181-0961	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:2892-2893,2921,2932,3032-3033	-	离开未保存的 Mask 会话须先取得明确决定，再推进 generation；确认返回时若代次已变，丢弃旧决定。选择保存或继续编辑都先恢复旧题、帧、工具和选区，避免把旧缓冲区用于当前上下文。
+0181-0962	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:3351	-	开始编辑 Mask 时只把目标提升为主选，不能用它替换 Shift 多选集合；join 预览仍依赖原集合，清空会丢掉参与合并的其他标注。
+0181-0963	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:3437	-	项目编排须按各阶段实际引用的后端判断能否执行；若拿当前单题 AI 选中的后端作统一门槛，就可能错误拦截由其他后端支撑的编排。
+0181-0964	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:3943-3945,4003,4112	-	视频 SAM 的 Enter 先选类，不直接落库；弹层以换算后的候选外接框底边作屏幕锚点，不套用图片定位。候选清空、切工具或切帧时关弹层；取消 magic-box 选类还须结束会话，否则残留的唯一候选会让弹层自动重开。
+0181-0965	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:4056-4057	-	点或框提示的候选采纳后结束会话；exemplar 是多实例会话，只移除已采纳项，否则采纳一个实例就会丢掉其余仍可采纳的候选。
+0181-0966	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:4122	-	视频原生 Mask 选类须限定在当前 region 工具单位；候选自带类别和当前所选类别都可能沿自上一工具单位，未经校验就用作默认值会写入不适用的类别。
+0181-0967	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:4210-4212	-	没有调用方 onError 兜底时，mutation hook 须持久化因传输失败而入队的编辑，收到入队确认后才记入历史；提前记账会把存储失败、仍需重试的编辑当成已入队。
+0181-0968	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:4365	-	视频单帧 AI 重试须复用首次捕获的 JPEG；若按重试时的控件状态重新抓帧，用户期间切帧就会让重试处理另一张图像。
+0181-0969	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:4484-4485	-	显式开启章节范围选择时须压过仍保留的追踪会话；重新打开追踪时先撤销章节选择，否则旧的范围模式会截获本应交给当前模式的选择。
+0181-0970	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:4563	-	视频改类弹层只写 mutable 属性的轨迹默认值，不写逐帧覆盖；两者作用范围不同，混写会把轨迹级修改落到单帧，逐帧覆盖应由侧栏编辑器处理。
+0181-0971	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:4620	-	画布讨论的指针操作完成时须复核发起时的渲染任务和画布事务；若把迟到回调当作当前操作，切题或切事务后就可能把讨论落到错误上下文。
+0181-0972	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:4641	-	账号级快捷键偏好的写入不能绑在设置面板的生命周期上；否则保存尚未完成时关闭面板，就可能丢失刚提交的修改。
+0181-0973	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:4661-4665	-	3D 台须在本地接管 V/B、W/E/R 和 Delete/Backspace：走全局 2D 通路会把 E 当成提交质检，删除键则不会生效。Ctrl+方向键、? 和 Esc 仍由全局处理。
+0181-0974	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:4819	-	预测框的采纳和拒绝由卡片按钮与快捷键共用的处理器在成功后更新选区。入口不能先清空或切换选区，否则操作失败时，候选仍在但用户已丢失原选区。
+0181-0975	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:4926	-	审阅权限可以允许人工修正，但不能据此开放二次推理配置；该入口须同时满足标注模式和 task.annotate，否则只具备审阅权限的用户也能配置推理。
+0181-0976	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:4931-4932,5008	-	只有追踪面板可见时才临时折叠选中卡片，且不写回用户偏好；否则关闭面板后仍会沿用临时折叠态。停放的会话只保留配置，不能继续阻挡标注。
+0181-0977	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:5200-5201	-	待处理的讨论徽标请求属于发起账号，而不是可跨账号保留的工作台壳层。切换账号时须撤销旧请求，避免旧账号的请求在接替用户的界面中兑现。
+0181-0978	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:5299-5300	-	从通知打开视频标注讨论只授予讨论读取路径，不认领其他标注员的分段，也不改变租约；目标不在当前分段时不能将其载入选区，以免只读跳转变成跨段编辑入口。
+0181-0979	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:5506-5508	-	视频「当前题 AI」待审数须与列表一样限定在当前帧，并从已按 ID 去重的 aiBoxes 计算；跨帧汇总会与当前列表不符，从分页结果取数又会随翻页改变。
+0181-0980	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:5879-5882,6671	-	只有 sam3_video_interactive 的传播对话框开放 PVS 点框种子采集。采集复用 smart-point 落点但不发起帧级 SAM 分割，并隐藏 InteractiveToolBar，避免一次落点触发两种操作、两套控件相互遮挡。
+0181-0981	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:5990	-	SAM 候选类选择器的定位输入按媒体类型互斥：图片几何须经视口换算，视频锚点则直接用于 fixed 定位。混用会漏做图片换算，或对视频锚点重复换算。
+0181-0982	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:6088-6091	-	PVS 复用帧级 SAM overlay，但传播对话框打开时只绘制当前帧的归一化种子点和框，避免把别帧提示画到本帧。点框合计涉及至少两个目标才传 obj 分色编号；单目标保留白边、不编号。
+0181-0983	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:6191-6193	-	交互档位按交互后端合并项目 default_variants 和后端默认值，不能由批量后端决定。阈值等 preCfg.paramsValue 仅在两个后端相同时复用，避免把批量后端的参数带给不同的交互后端。
+0181-0984	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:6202	-	Exemplar 的 refine 每轮发送完整提示集，不能把请求当作只追加最新框的增量提交，否则本轮请求会缺失此前用于扩召回的普通框或用于排除误检的 Alt 负框。
+0181-0985	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:6314,6317,6623	-	属性区、AI 待审与人工分组及讨论区的折叠态属于服务端 workbench.layout，而非当前选框或页面会话；随选框重置会展开用户已折叠的属性区，仅存本地则无法跨设备沿用。
+0181-0986	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:6414,6429	-	视频「当前题 AI」须由客户端提供当前单帧给图像后端，不能借用任务级触发来代替指定帧输入。图片仍走 triggerPreannotation。
+0181-0987	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:6434	-	已保存的编排不等于当前可运行；「当前题 AI」弹层须检查编排引用的后端是否仍存在，缺失时禁用入口并说明原因，避免把不可执行的编排交给用户触发。
+0181-0988	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:6588-6590	-	讨论批注的 liveCanvas 只交给 ImageWorkbench。视频没有消费实时绘图层和工具栏的入口，启用后会留下无法完成的草稿，因此仍用弹窗和帧锚点。
+0181-0989	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:6632-6633	-	PVS 传播范围在放下首个种子后锚定该帧，不能继续随播放头移动，否则跨帧补纠偏点会挪动传播范围；只有尚无种子时才跟随当前帧。
+0181-0990	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:6651-6652	-	不能用是否选中单条轨迹来判断传播有无来源。多源批量传播的每个来源都自带几何和类别，即使没有单条选中轨迹也不能退回无源检测。
+0181-0991	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:6751-6752	-	Issue FAB 打开 DiscussionPanel 的 issues 页签时，仅在讨论面板仍嵌在右栏时展开右栏；无条件展开会把用户已经分离的标注详情重新并回。
+0181-0992	apps/web/src/pages/Workbench/state/useWorkbenchShortcutPreferences.ts:1-2	-	快捷键偏好以账号为持久化所有者，运行时只采用服务端已确认的绑定。待保存或保存失败的绑定仅供预览和冲突检查，不能让未提交成功的按键接管实际命令。
+0181-0993	apps/web/src/pages/Workbench/state/useWorkbenchShortcutPreferences.ts:30-31,43-44,157	-	同一快捷键命令的在途写入屏障由 QueryClient 跨 hook 生命周期保留，新会话也须等待。只有仍登记为链尾的请求才能清理屏障，否则旧请求收尾会抹掉后继等待链。
+0181-0994	apps/web/src/pages/Workbench/state/useWorkbenchShortcutPreferences.ts:73,85-86,173	-	快捷键写入发出前须重验会话归属，因 apiClient 使用发送时的凭据，不能沿用入队身份。放弃只撤销未发编辑；已发请求在凭据仍属原账号时可更新确认值，但队列和 UI 更新仍要求原会话存活。
+0181-0995	apps/web/src/pages/Workbench/state/useWorkbenchShortcutPreferences.ts:78-79	-	快捷键定向 PATCH 不携带 schemaVersion；修改一条绑定时若带上当前客户端的版本，可能把由较新客户端保留的偏好子树降级。
+0181-0996	apps/web/src/pages/Workbench/state/useWorkbenchShortcutPreferences.ts:89-90	-	合入快捷键 PATCH 的确认值前，须通过共享查询生命周期取消该账号的偏好 GET，否则写入期间启动的读取可能晚返回，用旧绑定覆盖已确认的新绑定。
+0181-0997	apps/web/src/pages/Workbench/state/useWorkbenchShortcutPreferences.ts:102-103	-	快捷键 PATCH 响应只合并它确认的那条命令，不能替换整份偏好；响应里的其他命令、工作区或设置可能早于已合入的更新，全量替换会回滚它们。
+0181-0998	apps/web/src/pages/Workbench/state/useWorkbenchShortcutPreferences.ts:119	-	每次快捷键编辑都要分配独立、不可变的请求身份，不能仅以命令识别请求，否则同一命令的重试与放弃交错时，旧操作可能被误认成新请求。
+0181-0999	apps/web/src/pages/Workbench/state/useWorkbenchSidebarSizing.ts:30	-	useWorkbenchSidebarSizing 给 JS 的宽度必须遵守 CSS 栅格相同的 180–600 px 夹取规则；若仍以未经夹取的宽度计算偏移，AI 面板会与实际侧栏边缘错开。
+0181-1000	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:14-16,64-67,73	-	四种 AI 提示范式分别由 Tool 表示，samSubTool 从 tool 派生，非 AI 工具返回 null；若另存一份子工具状态，切换主工具后既有消费者可能仍读到旧的 SAM 模式。
+0181-1001	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:34	-	Magic Box 的 bbox 提示只用于请求 SAM，落库的是返回掩码的紧凑外接矩形；直接保存提示框会丢掉分割对范围的修正，直接保存掩码则不再是 bbox 标注。
+0181-1002	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:38-44	-	视频 SAM 虽沿用图片的点框交互，但推理只输入当前帧 JPEG，采纳也只创建单帧多边形；不能因其处在视频工具栈就把单帧结果写成跨帧轨迹。
+0181-1003	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:106	-	绘图结果必须交回 CanvasDraft.origin 绑定的评论编辑器，不能在完成时按当前选中项重新查找接收者；绘制期间切换选中项会把附件交给错误的编辑器。
+0181-1004	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:108	-	CanvasDraft 的提交确认必须匹配待交付结果的 resultId，不能只凭当前存在待处理结果就确认；否则旧消费者的确认可能清掉并非交给它的结果。
+0181-1005	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:110	-	取消 CanvasDraft 的实时编辑必须还原进入编辑前已有的绘图附件，不能把取消统一实现为清空附件，否则放弃一次修改反而会删除原图。
+0181-1006	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:160,163-166	-	类别域由操作对象自身的 toolUnitId 决定，不能取当前激活工具，否则用矩形工具时可能选不到多边形类别。已保存标注走更新，预测改类采纳则调用 accept(override_class_name)，不能当成已有标注更新。
+0181-1007	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:214,216-217	-	随工具切换重置的 aiToolParams 只管理 /setup.params 声明的工具参数；sam_variant、dino_variant 属于 AI 面板会话设置，经 useInteractiveAI.extraParams 在运行时合入 context，否则切换工具会丢掉面板选型。
+0181-1008	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:220-223	-	activeClass 只用于绘制颜色预览和类别弹窗预选，不能直接作为落库类别；它可能只是上一次使用的类别，最终值须由绘制完成后的 ClassPickerPopover 确认。
+0181-1009	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:231-236	-	多选人工框时仍须保留属于 selectedIds 的 selectedId，供浮动操作和单体快捷键确定目标；不能只保留无主选的集合，也不能把人工框的多选规则用于 AI 待审框。
+0181-1010	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:239-241	-	confThreshold 只筛选已有预测的前端展示，批量采纳也只处理筛选后可见的框，不能把隐藏框一并采纳。若要改变 DINO 的模型召回，应调整项目 AI 配置的 box_threshold 或 text_threshold，而不是改展示阈值。
+0181-1011	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:458-459	-	endCanvasDraft 把笔触移交给 pendingResult 时必须立即清空 shapes，不能仅把 active 设为 false；CanvasDrawingLayer 不检查 active，已提交笔触会继续显示在题图上。
+0181-1012	apps/web/src/pages/Workbench/state/useWorkbenchState.ts:493	-	生命周期 owner 必须先挂起原草稿，再调用 releaseCanvasDraft；不能把释放当成隐式挂起，否则交还控制权时原草稿并未得到保留。
+0181-1013	apps/web/src/pages/Workbench/state/useWorkbenchTaskFlow.ts:33,35	-	跨工具标注的必填校验应先按 annotation.tool_unit_id 解析绑定 schema，不能直接套用当前工具，否则会错报或漏报必填项。找不到自身绑定时，先回退到当前工具的绑定 schema，再用旧项目级 attribute_schema。
+0181-1014	apps/web/src/pages/Workbench/state/useWorkbenchTaskFlow.ts:38,68	-	提交门禁必须从 WorkbenchShell 汇总的现有写入、Mask 保存和离线队列状态推导，不能另设独立的已保存标志，否则可能在其中一条写入路径尚未完成时放行。
+0181-1015	apps/web/src/pages/Workbench/state/useWorkbenchTaskFlow.ts:40	-	提交成功不等于仍有权更新当前界面；只有发起时的用户与任务上下文仍有效，回调才能导航或更新界面，否则迟到的响应会作用到切换后的任务或用户。
+0181-1016	apps/web/src/pages/Workbench/state/useWorkbenchTaskFlow.ts:45	-	必填校验要定位首个缺失项时，先选中对应标注，再等属性卡刷新后聚焦控件；若在选中变更时立即聚焦，目标控件可能尚未挂载，或仍属于上一条标注。
+0181-1017	apps/web/src/pages/Workbench/state/useWorkbenchWorkspaceLayout.ts:36	-	布局路由重挂载不意味着上一任 owner 的写请求已结束；新 owner 必须等它结束，不能并发发起写入。失败由发起请求的 owner 报告，等待方不把失败当作重试信号。
+0181-1018	apps/web/src/pages/Workbench/state/useWorkbenchWorkspaceLayout.test.tsx:103;apps/web/src/pages/Workbench/state/useWorkbenchWorkspaceLayout.ts:51,74-75,86,345	-	仅有命名预设而无 contexts 是合法缺失，可初始化；已存在但为空的上下文封装或无法解析的快照须按损坏恢复，不能当作缺失来迁移覆盖。旧布局仅在服务端没有当前上下文且会话可写时持久化一次。
+0181-1019	apps/web/src/pages/Workbench/state/useWorkbenchWorkspaceLayout.ts:132	-	布局 snapshot 只用于恢复，不能用来读取当前的实时布局树；持久化封装并不跟踪树的每次变动，把快照当成实时状态会读到旧布局。
+0181-1020	apps/web/src/pages/Workbench/state/useWorkbenchWorkspaceLayout.ts:141	-	useWorkbenchWorkspaceLayout 应沿用 useUserPreferences 的查询键和缓存新鲜期；若为布局另建查询或单独设定新鲜期，就不能按同一缓存策略复用偏好 GET。
+0181-1021	apps/web/src/pages/Workbench/state/useWorkbenchWorkspaceLayout.ts:216,232	-	布局持久化只写当前上下文，不能把读到的整份偏好连同命名预设写回；其他写入方可能已更新相邻上下文或由其独立维护的预设，整份回写会覆盖这些更新。
+0181-1022	apps/web/src/pages/Workbench/state/videoIssueContext.ts:10	-	视频问题的上下文快照未知或损坏时，不能继续按该快照换算坐标或帧位置；应保留原始像素与源帧锚点，避免把问题定位到错误位置。
+0181-1023	apps/web/src/pages/Workbench/state/videoSelectionCommand.ts:9	-	VideoSelectionCommand 的选中项变更与可选切帧必须由同一道草稿守卫共同放行；分开判断可能只执行其中一半，留下选中项与所在帧不一致的状态。
+0181-1024	apps/web/src/pages/Workbench/state/videoTrackCommands.ts:173-176	-	关键帧传播必须以一条 update 撤销命令记录前后的完整 geometry，撤销和重做均整次回放；若拆成逐帧命令，一次撤销只会还原传播的一部分。
+0181-1025	apps/web/src/pages/Workbench/state/workbenchAiAvailability.ts:19	-	AI 入口是否开放只按项目判断，不能再要求模型或提示词已配置；这些配置在面板内完成，以它们为入口门槛会让尚未配置的用户进不了配置面板。
+0181-1026	apps/web/src/pages/Workbench/state/workbenchContextToolbar.ts:11	-	上下文工具栏的展示可以随后台复检结果变化，但复检不能据此结束用户仍在进行的编辑或转移其交互控制权；展示变化不能当作编辑会话结束的信号。
+0181-1027	apps/web/src/pages/Workbench/state/workbenchInteractionGuards.ts:1,8,27-31	-	菜单守卫须从 portal 挂载前的触发器事件开始保护，只让后台监听器跳过事件，不吞掉事件；关闭时标记可能在后续 window 监听器执行前已移除，不能只查此刻的文档状态。Escape 由 ShellPopover 处理，关闭并归还焦点后才恢复画布快捷键。
+0181-1028	apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts:1-3,748	-	标注偏好的字段定义和展示顺序由同一注册表提供，不能由 Workbench 设置、搜索结果和个人设置页分别维护；否则同一字段的增删或调整可能只在部分入口生效。
+0181-1029	apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts:40	-	标签内容开关按标注类型分段展示，但写入单位仍是完整的 LabelContentByType；不能把一个分段当作独立补丁提交，否则写入会遗漏其他类型的设置。
+0181-1030	apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts:69	-	可锁定偏好的项目覆盖应从 ProjectRenderingConfig 的同名平铺字段读取，不能按用户偏好的分类子树取值；否则已配置的项目覆盖不会生效。
+0181-1031	apps/web/src/pages/Workbench/state/workbenchSettingsFields.test.ts:143;apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts:91-92	-	Workbench 设置的用途分组只影响导航，不能用它代替 category 决定偏好子树，否则重新分组就会改变写入位置。通知由共享通知偏好面板处理，不注册为字段，也不走 buildFieldPatch 或 useWorkbenchConfig。
+0181-1032	apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts:422,743	-	统一设置用字段隐藏标记决定可见性，不能按当前任务筛选，也不能把已注册等同于可展示。snapToGrid 注册是为保留项目级覆盖入口，不应因此在用户设置中出现。
+0181-1033	apps/web/src/pages/Workbench/state/__tests__/buildPipelineRunPayload.test.ts:53-54	-	构造编排运行载荷时，所有引用的后端都必须属于 availableBackendIds；任一不可用就返回 null，不能把无效引用交给服务端，否则只会得到通用的 422。
+0181-1034	apps/web/src/pages/Workbench/state/__tests__/useBackendRouting.test.ts:34-35,75	-	GSAM2 2.1 的后端路由不能仅凭 bbox 字段匹配图像交互提示：只有 interactive_seg 接收点和交互框，tracker 的 bbox 是视频追踪种子，应排除；detection/seg 支持的是文本提示。
+0181-1035	apps/web/src/pages/Workbench/stages/three-d/CameraProjectionView.tsx:378	-	0033 已明确保留简洁投影叠层与包围盒命中；projection.ts:180 的 visible 仅为 w>0，并非屏幕内，382–386 仅省去近裁面求交，画布自身裁出边界。
+0181-1036	apps/web/src/pages/Workbench/state/sessionVariantCache.ts:91-97	-	保留明确 true/false 与未提供的不写语义；所谓未接入已过时，useInteractiveAI.ts:484–488 传真实响应，useInteractiveAI.test.ts:783 验证。
+0181-1037	apps/web/src/pages/Workbench/state/videoTrackCommands.ts:4	-	仅 schema mutable 的键可作帧覆盖，其他取轨迹默认。VideoAttributesEditor.tsx 和 videoTrackCommands.test.ts 核对帧覆盖；不是类型缺失。
+0181-1038	apps/web/src/pages/Workbench/shell/AttributeForm.tsx:27-31	-	图片忽略 mutable 的约束仍在；视频已走 VideoAttributesEditor 帧覆盖，不是未来计划。
+0181-1039	apps/web/src/pages/Workbench/shell/AttributeForm.tsx:33-38	-	保留 dirty tracker 表单级退出保存及普通防抖；172–204 和测试证明不是每次 dirty 编辑都调用 onChange。
+0181-1040	apps/web/src/pages/Workbench/state/useWorkbenchShellModel.tsx:6647	-	保留能力守卫。API jobs.py:1335,1354 实际返回 400；旧记述的静默 bbox 改写不是可达行为。#56 的维护者结论明确不承诺通用传播。
+0181-1041	apps/web/src/pages/Workbench/stages/three-d/geometry/autofit.ts:1-17	-	保留局部米制/全边长/独立拟合动作等约束；fitSize 按局部 AABB 重新居中，fitBottom 可以升或降，注释旧摘要不适用。
+0181-1042	apps/web/src/pages/Workbench/stage/overlays/MaskOverlayLayer.tsx:59	-	持续保留增量绘制理由，同时记录 opacity 字节改变也触发全画。

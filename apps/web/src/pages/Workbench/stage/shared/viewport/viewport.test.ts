@@ -5,20 +5,18 @@ import { dashToWorld, screenToWorld } from "./scaleCancel";
 
 describe("fitToCanvas", () => {
   it("内容比视口宽 → 取宽度比,水平贴边、垂直居中", () => {
-    // 视口 800×600,内容 1000×500:scale = min(800/1000, 600/500) = 0.8
     const vp = fitToCanvas(800, 600, 1000, 500);
     expect(vp).not.toBeNull();
     expect(vp!.scale).toBeCloseTo(0.8);
-    expect(vp!.tx).toBeCloseTo(0); // 800 - 1000*0.8 = 0
-    expect(vp!.ty).toBeCloseTo(100); // (600 - 500*0.8)/2 = 100
+    expect(vp!.tx).toBeCloseTo(0);
+    expect(vp!.ty).toBeCloseTo(100);
   });
 
   it("内容比视口高 → 取高度比,垂直贴边、水平居中", () => {
-    // 视口 800×600,内容 400×1200:scale = min(800/400, 600/1200) = 0.5
     const vp = fitToCanvas(800, 600, 400, 1200);
     expect(vp!.scale).toBeCloseTo(0.5);
-    expect(vp!.tx).toBeCloseTo(300); // (800 - 400*0.5)/2 = 300
-    expect(vp!.ty).toBeCloseTo(0); // 600 - 1200*0.5 = 0
+    expect(vp!.tx).toBeCloseTo(300);
+    expect(vp!.ty).toBeCloseTo(0);
   });
 
   it("任一尺寸为 0(未就绪)→ 返回 null,调用方保留当前 vp", () => {
@@ -57,11 +55,9 @@ describe("zoomAtPoint", () => {
     const vp = { scale: 1, tx: 0, ty: 0 };
     const cx = 200;
     const cy = 150;
-    // 缩放前光标 (200,150) 对应的世界点
     const worldBefore = { x: (cx - vp.tx) / vp.scale, y: (cy - vp.ty) / vp.scale };
     const next = zoomAtPoint(vp, cx, cy, 2);
     expect(next.scale).toBe(2);
-    // 缩放后同一世界点应仍落在屏幕同一像素位置
     const screenX = worldBefore.x * next.scale + next.tx;
     const screenY = worldBefore.y * next.scale + next.ty;
     expect(screenX).toBeCloseTo(cx);

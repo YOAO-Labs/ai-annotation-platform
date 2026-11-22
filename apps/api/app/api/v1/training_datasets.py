@@ -121,7 +121,6 @@ async def create_version(
     ),
 ):
     request_digest = content_digest(body.canonical_payload())
-    # Serialize before taking share locks, avoiding share-to-exclusive upgrades.
     await db.execute(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
     )
@@ -145,8 +144,6 @@ async def create_version(
             fail(exc)
         await db.commit()
         return await task_datasets.attach_read_metadata(db, existing)
-    # The following preparation owns only read phases. Release this request's
-    # idempotency/authority locks before any source I/O, then serialize again.
     await db.commit()
     try:
         prepared = await connected_preparation(
@@ -273,7 +270,6 @@ async def list_versions(
     if end is not None:
         stmt = stmt.where(TrainingDatasetVersion.created_at <= end)
     if task is not None:
-        # Frozen contract, not membership, is authoritative during rolling deploy.
         stmt = stmt.where(task_datasets.recognized_task_expression() == task)
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
     rows = (

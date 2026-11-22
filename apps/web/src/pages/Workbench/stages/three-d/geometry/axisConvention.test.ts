@@ -12,12 +12,6 @@ import {
   type Mat3,
 } from "./axisConvention";
 
-/* ──────────────────────────────────────────────────────────────────────
- * axisConvention 纯几何单测。8 种 convention 的合法性 / 退化 /
- * 数学契约 / SUSTechPOINTS 实测回归。所有比较都用 toBeCloseTo (浮点)。
- * ────────────────────────────────────────────────────────────────────── */
-
-/** 全部支持的 convention (与 LidarAxisConvention union 完全对齐, 漏一个 ts 会报)。 */
 const ALL_CONVENTIONS: readonly LidarAxisConvention[] = [
   "iso_8855",
   "ros_rep103",
@@ -29,14 +23,12 @@ const ALL_CONVENTIONS: readonly LidarAxisConvention[] = [
   "raw",
 ] as const;
 
-/** identity 语义的三个 convention (R = I)。 */
 const IDENTITY_CONVENTIONS: readonly LidarAxisConvention[] = [
   "iso_8855",
   "ros_rep103",
   "raw",
 ] as const;
 
-/** 行主序 3x3 矩阵向量乘法: out = M · v。 */
 function mul3(m: Mat3, v: readonly [number, number, number]): [number, number, number] {
   return [
     m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
@@ -45,12 +37,10 @@ function mul3(m: Mat3, v: readonly [number, number, number]): [number, number, n
   ];
 }
 
-/** 行主序 3x3 矩阵转置。 */
 function transpose3(m: Mat3): Mat3 {
   return [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]];
 }
 
-/** 行主序 3x3 矩阵乘法: out = A · B。 */
 function mm3(a: Mat3, b: Mat3): Mat3 {
   const r = new Array<number>(9);
   for (let i = 0; i < 3; i += 1) {
@@ -63,7 +53,6 @@ function mm3(a: Mat3, b: Mat3): Mat3 {
   return r as unknown as Mat3;
 }
 
-/** det(M) 3x3 行主序。 */
 function det3(m: Mat3): number {
   return (
     m[0] * (m[4] * m[8] - m[5] * m[7]) -
@@ -72,7 +61,6 @@ function det3(m: Mat3): number {
   );
 }
 
-/** Frobenius 范数: sqrt(Σ (a-b)^2) 比较两 3x3。 */
 function frobDiff(a: Mat3, b: Mat3): number {
   let s = 0;
   for (let i = 0; i < 9; i += 1) {
@@ -113,7 +101,6 @@ describe("applyConventionToPositions · 退化", () => {
 
 describe("applyConventionToPositions · 非 identity 旋转", () => {
   it("apollo: src (1,0,0) → ISO (0,-1,0); src (0,1,0) → ISO (1,0,0)", () => {
-    // apollo: src+X = 车右 = ISO-Y; src+Y = 车前 = ISO+X。
     const positions = new Float32Array([1, 0, 0, 0, 1, 0]);
     applyConventionToPositions(positions, "apollo");
     expect(positions[0]).toBeCloseTo(0, 6);
@@ -125,7 +112,6 @@ describe("applyConventionToPositions · 非 identity 旋转", () => {
   });
 
   it("sustechpoints_demo: src (0,1,0) (车后) → ISO (-1,0,0) (车后)", () => {
-    // sustechpoints_demo: src+Y = 车后 = ISO-X。
     const positions = new Float32Array([0, 1, 0]);
     applyConventionToPositions(positions, "sustechpoints_demo");
     expect(positions[0]).toBeCloseTo(-1, 6);
@@ -134,19 +120,16 @@ describe("applyConventionToPositions · 非 identity 旋转", () => {
   });
 });
 
-/** 从一个 3x3 行主序旋转 R 和一个平移 t 构造 4x4 行主序 extrinsic。 */
 function makeExtrinsic(R: Mat3, t: readonly [number, number, number]): number[] {
   return [R[0], R[1], R[2], t[0], R[3], R[4], R[5], t[1], R[6], R[7], R[8], t[2], 0, 0, 0, 1];
 }
 
-/** 从 4x4 行主序 extrinsic 取旋转块 (3x3 行主序)。 */
 function rotBlock(E: readonly number[]): Mat3 {
   return [E[0], E[1], E[2], E[4], E[5], E[6], E[8], E[9], E[10]];
 }
 
 describe("applyConventionToExtrinsic · 数学契约", () => {
   it("apollo: 返回值 = E_src · diag(R_normᵀ, 1), 平移不变, 末行 [0,0,0,1]", () => {
-    // 取一个非 identity 的合法旋转块 (绕 Z 转 30°) + 任意平移。
     const a = Math.PI / 6;
     const c = Math.cos(a);
     const s = Math.sin(a);
@@ -156,18 +139,15 @@ describe("applyConventionToExtrinsic · 数学契约", () => {
 
     const Eiso = applyConventionToExtrinsic(Esrc, "apollo");
 
-    // ① 旋转块 = Rsrc · R_normᵀ
     const Rnorm = rotationMatrixFor("apollo");
     const expectRot = mm3(Rsrc, transpose3(Rnorm));
     const gotRot = rotBlock(Eiso);
     expect(frobDiff(gotRot, expectRot)).toBeLessThan(1e-6);
 
-    // ② 平移列原样保留
     expect(Eiso[3]).toBeCloseTo(t[0], 6);
     expect(Eiso[7]).toBeCloseTo(t[1], 6);
     expect(Eiso[11]).toBeCloseTo(t[2], 6);
 
-    // ③ 末行 = [0, 0, 0, 1]
     expect(Eiso[12]).toBeCloseTo(0, 6);
     expect(Eiso[13]).toBeCloseTo(0, 6);
     expect(Eiso[14]).toBeCloseTo(0, 6);
@@ -191,13 +171,9 @@ describe("applyConventionToExtrinsic · 数学契约", () => {
 
 describe("applyConventionToExtrinsic · SUSTechPOINTS 实测回归", () => {
   it("front.json row 2 ≈ (-0.033, -0.999, 0.042); 归一化后 row 2 应 ≈ (1, 0, 0)", () => {
-    // 实测 SUSTechPOINTS 示例 front 相机 R(row-major) row 2 = src 系下 forward。
-    // 构造一个完整正交 R_src: row 2 用实测值, row 0/1 通过叉乘补成右手正交。
     const row2: [number, number, number] = [-0.033, -0.999, 0.042];
-    // 归一化 row2 (避免微浮点污染叉乘正交性)。
     const n = Math.hypot(row2[0], row2[1], row2[2]);
     const r2: [number, number, number] = [row2[0] / n, row2[1] / n, row2[2] / n];
-    // 取一个不与 r2 共线的向量当 row0 的种子, 再 Gram-Schmidt。
     const seed: [number, number, number] = [1, 0, 0];
     const dot = seed[0] * r2[0] + seed[1] * r2[1] + seed[2] * r2[2];
     const r0Raw: [number, number, number] = [
@@ -207,7 +183,6 @@ describe("applyConventionToExtrinsic · SUSTechPOINTS 实测回归", () => {
     ];
     const r0n = Math.hypot(r0Raw[0], r0Raw[1], r0Raw[2]);
     const r0: [number, number, number] = [r0Raw[0] / r0n, r0Raw[1] / r0n, r0Raw[2] / r0n];
-    // row1 = r2 × r0 (右手系)。
     const r1: [number, number, number] = [
       r2[1] * r0[2] - r2[2] * r0[1],
       r2[2] * r0[0] - r2[0] * r0[2],
@@ -217,8 +192,6 @@ describe("applyConventionToExtrinsic · SUSTechPOINTS 实测回归", () => {
     const Esrc = makeExtrinsic(Rsrc, [0, 0, 0]);
     const Eiso = applyConventionToExtrinsic(Esrc, "sustechpoints_demo");
 
-    // 归一化后 row 2 应 ≈ ISO 系下 +X (车前 = (1, 0, 0))。
-    // 实测距离 ≈ 0.053 (示例数据本身就带 ~3° 安装俯仰偏), 容差给 0.1。
     const got: [number, number, number] = [Eiso[8], Eiso[9], Eiso[10]];
     expect(got[0]).toBeCloseTo(1, 1);
     expect(got[1]).toBeCloseTo(0, 1);
@@ -250,7 +223,6 @@ describe("unapplyConventionToPsr · 行为", () => {
   });
 
   it("apollo 反向: ISO 中心 (2,0,0) (= ISO+X 车前) → src (0,2,0) (= src+Y 方向)", () => {
-    // ISO+X 是车前方向; 在 apollo src 系下车前 = src+Y, 故反映射保模长 2 落到 src+Y 轴。
     const psr: Psr = {
       center: [2, 0, 0],
       size: [4, 1.8, 1.5],
@@ -260,14 +232,12 @@ describe("unapplyConventionToPsr · 行为", () => {
     expect(out.center[0]).toBeCloseTo(0, 6);
     expect(out.center[1]).toBeCloseTo(2, 6);
     expect(out.center[2]).toBeCloseTo(0, 6);
-    // size 不变。
     expect(out.size[0]).toBeCloseTo(psr.size[0], 6);
     expect(out.size[1]).toBeCloseTo(psr.size[1], 6);
     expect(out.size[2]).toBeCloseTo(psr.size[2], 6);
   });
 
   it("unapply 实际就是 R_normᵀ · center (对一般 convention 也成立)", () => {
-    // 手算验证 sustechpoints_demo 的 R_normᵀ 作用到 ISO center。
     const psr: Psr = {
       center: [1, 2, 3],
       size: [1, 1, 1],

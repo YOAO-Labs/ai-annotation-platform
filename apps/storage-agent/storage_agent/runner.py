@@ -100,7 +100,6 @@ class Runner:
                 )
             elif operation == "read":
                 result["result"], stage_name = self._read(command, spec, args)
-            # No successful local I/O can extend a central grant.
             if self.clock() >= command["expires_at"]:
                 raise AgentError("command_expired")
         except (AgentError, FilesystemStorageError, OSError) as exc:
@@ -121,8 +120,6 @@ class Runner:
                 (self.journal.stages / stage_name).unlink(missing_ok=True)
                 self.journal.sync_stages()
                 stage_name = None
-            # A locally valid manifest can exceed the bounded wire envelope.
-            # Persist a closed failure instead of re-executing forever on restart.
             result = validate_result(
                 {
                     **result,
@@ -140,7 +137,6 @@ class Runner:
         )
         if remaining <= 0:
             raise AgentError("command_expired")
-        # A temporary verified stage and the durable outgoing file can coexist.
         metadata_size = sum(
             path.stat().st_size
             for path in self.journal.directory.iterdir()

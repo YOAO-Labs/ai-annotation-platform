@@ -1,11 +1,8 @@
-/* 画布叠加层:像素/z-index 编排保留 CSS,色彩走 --sc-*(门禁白名单) */
 .root {
   flex: 1;
   min-height: 0;
   position: relative;
   overflow: hidden;
-  /* 画布 letterbox 底色:与旧 VideoStage 同一字面值,保证新旧栈底图四周像素一致
-     (主题无关的画布背景，非 UI 表面)。 */
   background: #050507;
 }
 
@@ -13,8 +10,6 @@
   cursor: grabbing;
 }
 
-/* 工具模式光标反馈:画框/轨迹→十字,Space 平移→可抓。命中 resize 句柄时
-   由交互层覆盖 Konva 容器 cursor,未命中则继承此处。平移中由 .rootPanning 接管。 */
 .toolCrosshair {
   cursor: crosshair;
 }
@@ -24,7 +19,6 @@
 }
 
 .hiddenVideo {
-  /* A1:`<video>` 退居解码源,不再显示。保留在 DOM 内继续解码/播放,但不可见、不拦事件。 */
   position: absolute;
   width: 1px;
   height: 1px;
@@ -37,7 +31,6 @@
   inset: 0;
 }
 
-/* 不可见帧矩形标记:仅供 [data-video-overlay] 锚定弹窗,不参与命中/绘制。 */
 .frameMarker {
   position: absolute;
   left: var(--frame-left);

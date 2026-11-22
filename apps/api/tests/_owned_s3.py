@@ -17,7 +17,6 @@ class _Owned:
         )
 
     def __getattr__(self, name):
-        # Resolve at invocation so blocking/error injection still applies.
         return getattr(self._client, name)
 
     def close(self):

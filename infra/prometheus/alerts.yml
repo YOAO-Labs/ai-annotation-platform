@@ -1,17 +1,6 @@
-# ML backend 告警规则。Prometheus 周期 evaluate，满足 for: 时长后 firing，
-# 推给 alertmanager（见 prometheus.yml alerting 段）。
-#
-# 误报防护：MLBackendDown 只覆盖 job="ml-backends" 的 target，而该 job 由 http_sd 从
-# ml_backends 表（state != "disconnected"）生成 —— 只有显式 disconnected 的 backend
-# 被排除；state="error"（health 探活失败）仍在 target 列表里，5m 后会触发告警（这是
-# 设计意图，探活失败本就该被发现）。运维带外维护时请把 backend 置 disconnected，
-# 否则将触发 MLBackendDown。for: 再挡瞬时抖动。
 groups:
   - name: ml-backends
     rules:
-      # 注：summary/description 同时带 service + instance(host:port)。`ml_backends.name`
-      # 没有 unique 约束，同名 backend 出现时 service label 会撞车；instance 由
-      # Prometheus 从 http_sd target 自动注入，是唯一定位 SRE 用得上的物理标识。
       - alert: MLBackendDown
         expr: up{job="ml-backends"} == 0
         for: 5m
@@ -30,7 +19,6 @@ groups:
           summary: "{{ $labels.service }} ({{ $labels.instance }}) 显存占用 >90% 持续 10m"
           description: "GPU 显存占用 {{ $value | humanizePercentage }}（used/total），可能触发 OOM 或显存排队。"
 
-      # sum by 显式带 instance，避免同名 backend 的延迟桶被合并。
       - alert: InferenceLatencyHigh
         expr: histogram_quantile(0.95, sum by (le, service, instance) (rate(inference_latency_seconds_bucket[5m]))) > 10
         for: 10m

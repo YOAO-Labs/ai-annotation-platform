@@ -16,7 +16,7 @@ from uuid import uuid4
 
 import pytest
 
-from app.api.v1._test_seed import _parse_owned_namespace
+from app.db.models.fixture_run import FixtureRun, FixtureRunResource
 from app.db.models.annotation import Annotation
 from tests.factory import create_project, create_task, create_user
 
@@ -245,34 +245,47 @@ async def test_lifecycle_rejects_foreign_resources_before_database_access(
     monkeypatch.setenv("YOAO_WORKTREE_MODE", "e2e")
     reason = "inside this checkout" if foreign_root else "manifest does not match"
     with pytest.raises(GuardError, match=reason):
-        await _module.run("gc", str(uuid4()), str(uuid4()), "fixture1")
+        await _module.run("gc", str(uuid4()), str(uuid4()), str(uuid4()))
 
 
 @pytest.mark.asyncio
 async def test_annotations_must_belong_to_selected_owned_fixture(db_session):
+    suite_id, other_suite, run_id, other_run = (uuid4() for _ in range(4))
     namespace = uuid4().hex[:10]
-    other_namespace = uuid4().hex[:10]
-    scope = _parse_owned_namespace(namespace)
-    other_scope = _parse_owned_namespace(other_namespace)
+    for root in (suite_id, other_suite):
+        db_session.add(FixtureRun(id=root, family="owned"))
+    await db_session.flush()
+    for parent, child in ((suite_id, run_id), (other_suite, other_run)):
+        db_session.add(
+            FixtureRun(
+                id=child, parent_run_id=parent, scope_key=namespace, family="owned"
+            )
+        )
+    await db_session.flush()
     user = await create_user(
         db_session, "employee", f"{namespace}@test.invalid", "Mask guard"
     )
-    project = await create_project(
-        db_session, owner_id=user.id, name=scope.project_name
-    )
-    other_project = await create_project(
-        db_session, owner_id=user.id, name=other_scope.project_name
-    )
-    task = await create_task(
-        db_session,
-        project_id=project.id,
-        display_id=f"{scope.task_display_prefix}000001",
-    )
-    other_task = await create_task(
-        db_session,
-        project_id=other_project.id,
-        display_id=f"{other_scope.task_display_prefix}000001",
-    )
+    project = await create_project(db_session, owner_id=user.id)
+    other_project = await create_project(db_session, owner_id=user.id)
+    task = await create_task(db_session, project_id=project.id)
+    other_task = await create_task(db_session, project_id=other_project.id)
+    for child, owned_project, owned_task in (
+        (run_id, project, task),
+        (other_run, other_project, other_task),
+    ):
+        for kind, resource, key in (
+            ("project", owned_project, "workbench"),
+            ("task", owned_task, "workbench-1"),
+        ):
+            db_session.add(
+                FixtureRunResource(
+                    run_id=child,
+                    kind=kind,
+                    resource_id=resource.id,
+                    logical_key=key,
+                    state="published",
+                )
+            )
     annotations = [
         Annotation(
             task_id=owner.id,
@@ -289,15 +302,23 @@ async def test_annotations_must_belong_to_selected_owned_fixture(db_session):
     await db_session.flush()
     source, created, foreign = (annotation.id for annotation in annotations)
     await _module.require_fixture_annotations(
-        db_session, task.id, source, created, scope
+        db_session, task.id, source, created, run_id, suite_id
     )
-    for selected_task, first, second, selected_scope in (
-        (task.id, source, foreign, scope),
-        (other_task.id, source, created, scope),
-        (task.id, source, created, other_scope),
-        (task.id, source, source, scope),
+    for selected_task, first, second, run, suite in (
+        (task.id, source, foreign, run_id, suite_id),
+        (other_task.id, source, created, run_id, suite_id),
+        (task.id, source, created, other_run, other_suite),
+        (task.id, source, created, run_id, other_suite),
+        (task.id, source, source, run_id, suite_id),
     ):
         with pytest.raises(GuardError, match="selected fixture"):
             await _module.require_fixture_annotations(
-                db_session, selected_task, first, second, selected_scope
+                db_session, selected_task, first, second, run, suite
             )
+    published = await db_session.get(FixtureRunResource, (run_id, "task", task.id))
+    published.state = "retired"
+    await db_session.flush()
+    with pytest.raises(GuardError, match="selected fixture"):
+        await _module.require_fixture_annotations(
+            db_session, task.id, source, created, run_id, suite_id
+        )

@@ -11,8 +11,6 @@ import type {
 import { expect, test } from "../fixtures/seed";
 
 const DESKTOP = { width: 1440, height: 900 };
-// 每次运行都新起 dev server，首屏要现编译整张模块图：本机实测 4.9–5.7s，
-// 超过 expect 的 5s 默认预算。首屏之后的断言不需要这个宽限。
 const FIRST_PAINT = { timeout: 20_000 };
 const panel = (page: Page, id: string) => page.locator(`[data-workbench-panel="${id}"]`);
 
@@ -39,7 +37,6 @@ function groupFor(node: WorkspaceNode, id: PanelId): string | undefined {
   return node.data.map((child) => groupFor(child, id)).find(Boolean);
 }
 
-// Ignore floating-point arithmetic noise while retaining subpixel geometry checks.
 const preciseSnapshot = (snapshot: WorkspaceSnapshot | undefined) =>
   snapshot &&
   JSON.parse(
@@ -48,7 +45,6 @@ const preciseSnapshot = (snapshot: WorkspaceSnapshot | undefined) =>
     ),
   );
 
-/** Compare actual DOM objects, including the Konva media canvas, after every rearrangement. */
 async function rememberCanvas(page: Page, stageId: string) {
   const wrapper = panel(page, "canvas");
   const stage = page.getByTestId(stageId);
@@ -99,7 +95,6 @@ test("AI 候选和多选不会作为标注身份查询隐藏讨论面板", async
         }),
       );
     }
-    // A deterministic candidate exercises selection identity; no ML service is needed.
     const prediction = await seed.injectPrediction({
       taskId,
       projectId: data.project_id,
@@ -149,8 +144,6 @@ test("AI 候选和多选不会作为标注身份查询隐藏讨论面板", async
     const candidate = page.getByTestId(`box-list-item-pred-${prediction.prediction_id}-0`);
     await candidate.click();
     await expect(candidate).toHaveClass(/border-brand/);
-    // Hidden Dockview panels remain mounted. Assert their settled task-comment state,
-    // rather than relying on a delay or accepting the absence of every comment request.
     await expect(readScope).toHaveValue("task");
     await expect(editor).toHaveCount(1);
     await layoutCommand(page, "讨论");
@@ -179,7 +172,6 @@ test("AI 候选和多选不会作为标注身份查询隐藏讨论面板", async
     ).toBe(true);
   } finally {
     await page.close();
-    await seed.owned();
   }
 });
 
@@ -205,7 +197,6 @@ test("图片布局预设、面板隐藏和浮动保留画布及未发送讨论�
   await layoutCommand(page, "标准标注布局");
   const sameCanvas = await rememberCanvas(page, "workbench-stage");
 
-  // Keep a persisted selection while layout changes preserve the task composer.
   const stage = page.getByTestId("workbench-stage");
   await expect(stage).toHaveAttribute("data-image-ready", "true", FIRST_PAINT);
   await page.getByTestId(`box-list-item-${annotation.id}`).click();
@@ -310,7 +301,6 @@ test("图片布局预设、面板隐藏和浮动保留画布及未发送讨论�
   await sameCanvas();
   await sameDraft();
 
-  // Native tab regrouping persists once and a rejected canvas-center drop preserves the tree.
   await page.waitForTimeout(650);
   const dragWrites: string[] = [];
   const businessWrites: string[] = [];
@@ -383,12 +373,6 @@ test("a root-edge queue dock keeps the reserved group collapsed and the saved tr
     FIRST_PAINT,
   );
 
-  // Leave a merged tab group plus a floating group, then exercise the queue
-  // docks one at a time and assert each actually lands: right of the canvas,
-  // then below it (leaving the canvas at the workspace left edge), then the
-  // final left drop inside Dockview's root-edge band. On the pre-fix build all
-  // of these drags were no-ops because the queue already started on the left,
-  // so each geometry assertion below fails without the real dock.
   const dockedGroups = async () => (await renderedGroups(page)).filter((group) => !group.floating);
   const rectFor = (groups: Awaited<ReturnType<typeof dockedGroups>>, tab: string) =>
     groups.find((group) => group.tabs.includes(tab))?.rect;
@@ -432,8 +416,6 @@ test("a root-edge queue dock keeps the reserved group collapsed and the saved tr
     })
     .toBe(true);
 
-  // Root-edge precondition: after the bottom dock the canvas starts at the
-  // workspace left, so the next 8px-from-left target is inside the root-edge band.
   const workspaceBox = await workspace(page).boundingBox();
   await expect
     .poll(async () => {
@@ -466,8 +448,6 @@ test("a root-edge queue dock keeps the reserved group collapsed and the saved tr
     })
     .toEqual({ merged: true, floating: true });
 
-  // The reserved parking group must consume no docked grid space: the docked
-  // groups must still cover the workspace edges with no blank reserved column.
   await expect
     .poll(async () => {
       const docked = (await renderedGroups(page)).filter((group) => !group.floating);
@@ -479,8 +459,6 @@ test("a root-edge queue dock keeps the reserved group collapsed and the saved tr
     })
     .toBeLessThanOrEqual(2);
 
-  // Cleanup acceptance: once the dock drags finish, the workspace must not keep
-  // the overlay passthrough class, so ordinary canvas pointer input is restored.
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -519,9 +497,6 @@ test("a root-edge queue dock keeps the reserved group collapsed and the saved tr
   const restored = await savedSnapshot(page, "annotate:image");
   expect(groupFor(restored!.layout.grid.root, "discussion")).toBe(mergedDiscussionGroup);
 
-  // Bounded native-cancel acceptance: start a real native tab drag, prove the
-  // overlay passthrough is active, cancel with Escape, then verify the class is
-  // reset and the canvas still answers a real pointer hit-test.
   const passthroughActive = () =>
     page.evaluate(() =>
       (document.querySelector("[data-workbench-workspace]")?.className.split(/\s+/) ?? []).some(
@@ -550,7 +525,6 @@ test("任务队列突出当前任务，切换工作台主题后保留任务", as
   const data = await seed.owned();
   await seed.injectToken(page, data.admin_email);
   const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
-  // Compare the active queue entry with the task's public display ID.
   const taskResponse = await page.request.get(`/api/v1/tasks/${data.task_ids[0]}`, { headers });
   expect(taskResponse.ok(), await taskResponse.text()).toBe(true);
   const taskDisplayId = ((await taskResponse.json()) as { display_id: string }).display_id;
@@ -595,7 +569,6 @@ test("命名布局预设随账号保存，可跨刷新应用与删除", async ({
     .toEqual(["无讨论精简"]);
   await dialog.getByRole("button", { name: "关闭设置", exact: true }).click();
 
-  // 换成内置预设，再从保存的预设套回来。
   await layoutCommand(page, "标准标注布局");
   await expect(panel(page, "discussion")).toHaveAttribute("aria-hidden", "false");
   await page.reload();
@@ -604,7 +577,6 @@ test("命名布局预设随账号保存，可跨刷新应用与删除", async ({
     "true",
     FIRST_PAINT,
   );
-  // 重载会重建 DOM；套用预设不应再动画布实例。
   const sameCanvas = await rememberCanvas(page, "workbench-stage");
   dialog = await openLayoutSettings(page);
   await expect(dialog.getByText("无讨论精简")).toBeVisible();
@@ -689,7 +661,6 @@ test("视频紧凑布局禁止桌面写入，退出后恢复浮窗与非零帧�
       timeout: 20_000,
     })
     .toBeGreaterThanOrEqual(2);
-  // Focus the selectable canvas, away from the contextual capsule at its top-left edge.
   await page.getByTestId("video-tool-btn-select").click();
   await stage.click();
   for (let frame = 1; frame <= 3; frame += 1) {
@@ -704,7 +675,6 @@ test("视频紧凑布局禁止桌面写入，退出后恢复浮窗与非零帧�
       ),
     )
     .toBe(true);
-  // Drain the 300 ms writer before observing the negative compact-mode write contract.
   await page.waitForTimeout(650);
   const before = await savedSnapshot(page, "annotate:video");
   const discussion = panel(page, "discussion");

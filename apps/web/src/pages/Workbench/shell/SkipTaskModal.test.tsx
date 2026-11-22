@@ -1,9 +1,3 @@
-/**
- * SkipTaskModal 单测：
- * - 默认选中 image_corrupt → 提交按钮可用 → onConfirm 触发
- * - 选中 other 时 textarea 出现，note 空时禁用提交
- * - 选中 other 后填 note → 提交透传 (other, note)
- */
 import { describe, it, expect, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import { SkipTaskModal } from "./SkipTaskModal";
@@ -21,7 +15,6 @@ describe("SkipTaskModal", () => {
   it("选 other 不填 note 时提交禁用", () => {
     const onConfirm = vi.fn();
     const { getByTestId } = render(<SkipTaskModal open onClose={() => {}} onConfirm={onConfirm} />);
-    // 选 other（点击 label 内的 radio input）
     const otherInput = getByTestId("skip-reason-other").querySelector("input")!;
     fireEvent.click(otherInput);
     const confirm = getByTestId("skip-confirm") as HTMLButtonElement;

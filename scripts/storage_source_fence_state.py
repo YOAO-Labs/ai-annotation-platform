@@ -202,7 +202,6 @@ class Journal:
         if self._directory is not None:
             raise FenceError("journal_already_open")
         try:
-            # Do not follow a symlink even in an ancestor of the private directory.
             for component in self.path.parent.parents:
                 if stat.S_ISLNK(component.lstat().st_mode):
                     raise FenceError("journal_permissions")
@@ -425,7 +424,6 @@ class Journal:
             }:
                 raise FenceError("application_claim_conflict")
             return
-        # A failed write cannot grant permission to reopen in this process.
         self.data["application_claim"] = claim
         self.save()
 
@@ -473,7 +471,6 @@ class Journal:
             if json.loads(self._saved).get("rollback_claim") != existing:
                 self.save()
             return
-        # Older controllers must reject this journal instead of ignoring its claim.
         self.data.update(schema=ROLLBACK_SCHEMA, rollback_claim=claim)
         self.save()
 
@@ -541,8 +538,6 @@ class Controller:
         self.journal.save()
 
     def _uncertain(self, failure):
-        # Unacknowledged receipts cannot grant proof. A pending rollback claim
-        # must still prevent reopening after a failed journal write.
         pending_rollback = deepcopy(self.journal.data.get("rollback_claim"))
         self.journal.data = json.loads(self.journal._saved)
         if pending_rollback is not None:
@@ -553,8 +548,6 @@ class Controller:
         try:
             self.journal.save()
         except Exception:
-            # A failed journal cannot grant proof. Preserve cancellation even if
-            # the durable invalidation itself cannot be acknowledged.
             if isinstance(failure, Exception):
                 raise FenceError("journal_write_failed") from None
 

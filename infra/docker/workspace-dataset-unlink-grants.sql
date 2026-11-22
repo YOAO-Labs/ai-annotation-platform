@@ -1,8 +1,3 @@
--- Grant the Workspace dataset-unlink LOGIN only its two coordinator functions.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v workspace_owner=workspace_code
---   -v workspace_dataset_unlink_role=yoao_workspace_dataset_unlink_client
---   -f infra/docker/workspace-dataset-unlink-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

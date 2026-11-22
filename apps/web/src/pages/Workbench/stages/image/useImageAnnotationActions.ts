@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { isSamCandidateHotkeyBlocked } from "../../state/hotkeys";
 import { choiceDialog, confirmDialog } from "@/components/ui/decisionDialog";
 import type { QueryClient } from "@tanstack/react-query";
@@ -7,6 +7,7 @@ import type { AnnotationPayload, AnnotationUpdatePayload } from "@/api/tasks";
 import { ApiError } from "@/api/client";
 import { rasterMasksApi } from "@/api/rasterMasks";
 import type { ToolBindings } from "@/api/projects";
+import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 import { usePredictionDecisions } from "./usePredictionDecisions";
 import { useAcceptPrediction, useRejectPrediction } from "@/hooks/usePredictions";
 import type { useAcceptNativeMaskCandidate } from "@/hooks/useAcceptNativeMaskCandidate";
@@ -76,11 +77,6 @@ type PendingRefine =
 type Geom = { x: number; y: number; w: number; h: number };
 type StageGeometry = { imgW: number; imgH: number; vpSize: { w: number; h: number } };
 
-/**
- * 视频改类时，把选中框在「当前帧」的归一化 bbox 转成屏幕坐标，
- * 让改类悬浮框锚到画布上的框（而非贴顶部）。帧矩形标记由 VideoKonvaStage 打上 `data-video-overlay`。
- * 框在当前帧不可见（如 track 在该帧被标消失）时返回 undefined，由调用方回落到其它锚点。
- */
 function videoBoxScreenAnchor(
   ann: AnnotationResponse,
   frameIndex: number,
@@ -108,7 +104,6 @@ interface ToastInput {
 interface UseImageAnnotationActionsArgs {
   taskId: string | undefined;
   videoSegmentId?: string | null;
-  /** Route identity is separate from annotation versions refreshed by a successful save. */
   maskRouteKey?: string;
   maskSessionKey?: MaskSessionKey;
   projectId: string | undefined;
@@ -125,17 +120,10 @@ interface UseImageAnnotationActionsArgs {
   stageGeom: StageGeometry;
   iouDedupThreshold: number;
   classes: string[];
-  /** 项目 tool_bindings；用于把 AI 预测 class_name 的英文 alias 归一回原类别名。 */
   toolBindings?: ToolBindings;
-  /**
-   * 当前激活工具「自身的 unit」是否定义了类别。false 时落框直接以 __unknown 落库,
-   * 不弹选类别窗 (修复老项目用无类别工具仍弹窗的 BUG)。来自 useToolBindings.hasOwnClasses。
-   */
   activeToolHasOwnClasses?: boolean;
-  /** 当前 keypoint 单元 schema 节点数，透传给 useWorkbenchAnnotationActions。 */
   keypointNodeCount?: number;
   sam: UseInteractiveAIReturn;
-  /** Decoded transient native candidates, kept separate from committed annotations. */
   samMaskRecords?: readonly RasterMaskRenderRecord<"interactive">[];
   acceptNativeMask: ReturnType<typeof useAcceptNativeMaskCandidate>;
   createAnnotationAsync: (payload: AnnotationPayload) => Promise<AnnotationResponse>;
@@ -147,11 +135,8 @@ interface UseImageAnnotationActionsArgs {
   mutations: AnnotationMutations;
   enqueueOnError: (err: unknown, fallback: () => void) => void;
   isLocked?: boolean;
-  /** 由 WorkbenchShell 注入；mask 编辑器状态层。空时 refine/commitMask 返回 false。 */
   maskEditor?: UseMaskEditorSessionReturn;
-  /** 任务能力握手决定的图片 Mask 持久化路径；未知/失败必须 blocked。 */
   maskPersistenceMode?: "native" | "legacy" | "blocked";
-  /** 桥接松手闪回, 见 usePendingGeom。 */
   markPendingGeom?: (id: string, geom: import("@/types").Geometry) => void;
 }
 
@@ -190,7 +175,6 @@ function acceptedPredictionShapeKeys(annotations: AnnotationResponse[] | undefin
   const set = new Set<string>();
   for (const ann of annotations ?? []) {
     if (!ann.parent_prediction_id) continue;
-    // _shape_index 由后端 accept_prediction 写入 attributes；旧数据可能缺失 → 退回 prediction 维度过滤。
     const idx = (ann.attributes as { _shape_index?: number } | undefined)?._shape_index;
     if (typeof idx === "number") {
       set.add(`pred-${ann.parent_prediction_id}-${idx}`);
@@ -222,10 +206,6 @@ export function maskRefineBlockReason(
 
 export type EmptyRasterMaskChoice = "delete" | "undo" | "continue";
 
-/**
- * 应用内三选一决策对话框 (decision-dialog 计划 Group C): 删除对象 / 撤销擦空 / 继续编辑,
- * 取代原先两段连续 window.confirm; 取消 / Esc / 点遮罩 = 保持空白并继续编辑。
- */
 export async function promptEmptyRasterMaskChoice(): Promise<EmptyRasterMaskChoice> {
   const key = await choiceDialog({
     title: "Mask 已被擦空",
@@ -273,8 +253,28 @@ export function useImageAnnotationActions({
   maskPersistenceMode = "blocked",
   markPendingGeom,
 }: UseImageAnnotationActionsArgs) {
+  const sessionId = useAuthStore((state) => state.sessionId);
+  const owner = useMemo(
+    () => JSON.stringify([sessionId, meUserId, projectId, taskId, videoSegmentId]),
+    [meUserId, projectId, sessionId, taskId, videoSegmentId],
+  );
+  const activeOwner = useRef<string | null>(owner);
+  useLayoutEffect(() => {
+    activeOwner.current = owner;
+    return () => {
+      activeOwner.current = null;
+    };
+  }, [owner]);
+  const ownsBatchUi = useCallback(
+    () =>
+      activeOwner.current === owner &&
+      useAuthStore.getState().sessionId === sessionId &&
+      (!meUserId || isCurrentAuthOwner(meUserId)),
+    [meUserId, owner, sessionId],
+  );
   const annotationActions = useWorkbenchAnnotationActions({
     taskId,
+    videoSegmentId,
     projectId,
     meUserId,
     queryClient,
@@ -296,7 +296,6 @@ export function useImageAnnotationActions({
   const acceptPredictionMut = useAcceptPrediction(taskId ?? "", videoSegmentId);
   const rejectPredictionMut = useRejectPrediction(taskId ?? "");
   const [batchChanging, setBatchChanging] = useState(false);
-  // 视频几何无 image 定位,批量改类弹窗用固定屏幕锚点(锚到首个选中框,与单改类同源)。
   const [batchChangeAnchor, setBatchChangeAnchor] = useState<
     { left: number; top: number } | undefined
   >(undefined);
@@ -310,8 +309,6 @@ export function useImageAnnotationActions({
       : s.selectedId;
   const selectedMaskLocked = !!annotationsRef.current.find((ann) => ann.id === maskTargetId)
     ?.is_locked;
-  // Keep a distinct lease after A -> B -> A. Annotation versions are intentionally
-  // checked separately: our own successful mutation may refresh that version.
   const maskCommitOwner = useMemo(
     () => ({
       taskId,
@@ -424,8 +421,6 @@ export function useImageAnnotationActions({
     () => acceptedPredictionShapeKeys(annotationsData),
     [annotationsData],
   );
-  // 按 id 去重: offset 分页重取期相邻页 shape 可能重叠, 不去重会让待审计数瞬时冲高
-  //   (100→500→100)。在源头去重, 下游 (reviewableAiBoxes / aiBoxes / 计数 / 时间轴密度) 全继承唯一 id。
   const allAiBoxes = useMemo(
     () => dedupeAiBoxesById(predictionsToBoxes(predictionsData, toolBindings)),
     [predictionsData, toolBindings],
@@ -504,19 +499,15 @@ export function useImageAnnotationActions({
     return base ? { ...base, anchor: batchChangeAnchor } : null;
   }, [s.selectedIds, userBoxes, batchChangeAnchor]);
 
-  const samPendingGeom = useMemo<Geom | null>(
-    // 与视频侧共用同一份几何解析 (见 useWorkbenchShellModel.helpers)。
-    () => {
-      if (!samPendingAccept) return null;
-      const candidate = sam.candidates[samPendingAccept.idx];
-      return (
-        samCandidateGeom(candidate) ??
-        samMaskRecords.find((record) => record.id === candidate?.id)?.bounds ??
-        null
-      );
-    },
-    [samPendingAccept, sam.candidates, samMaskRecords],
-  );
+  const samPendingGeom = useMemo<Geom | null>(() => {
+    if (!samPendingAccept) return null;
+    const candidate = sam.candidates[samPendingAccept.idx];
+    return (
+      samCandidateGeom(candidate) ??
+      samMaskRecords.find((record) => record.id === candidate?.id)?.bounds ??
+      null
+    );
+  }, [samPendingAccept, sam.candidates, samMaskRecords]);
 
   const samDefaultClass = resolveSamCandidateClass(
     samPendingAccept ? sam.candidates[samPendingAccept.idx]?.label : undefined,
@@ -588,8 +579,6 @@ export function useImageAnnotationActions({
         void acceptNativeMaskCandidate(pending.idx, cls);
         return;
       }
-      // Magic Box: bbox prompt → polygon → 紧凑外接矩形落 bbox.
-      // 不论候选 type 都收紧到 bbox, 跳过 polygon 创建路径.
       if (s.tool === "magic-box") {
         let tight: { x: number; y: number; w: number; h: number } | null = null;
         if (cand.type === "rectanglelabels" && cand.bbox) {
@@ -601,7 +590,6 @@ export function useImageAnnotationActions({
         if (tight) createBboxWithClass(tight, cls);
         return;
       }
-      // 按 type 分发: rectanglelabels 走 bbox 创建路径，polygonlabels 走 polygon 创建路径。
       if (cand.type === "rectanglelabels" && cand.bbox) {
         createBboxWithClass(
           { x: cand.bbox.x, y: cand.bbox.y, w: cand.bbox.width, h: cand.bbox.height },
@@ -617,12 +605,9 @@ export function useImageAnnotationActions({
 
   const handleSamCancelClass = useCallback(() => {
     setSamPendingAccept(null);
-    // Magic Box 仅有单个候选, 取消后直接清空, 避免 effect 重新弹出 popover.
     if (s.tool === "magic-box") sam.cancel();
   }, [s.tool, sam]);
 
-  // Magic Box · SAM 返回候选后弹出类别选择 popover (复用 samPendingAccept),
-  // 用户选定类别再收紧成 bbox; 默认类沿用 s.activeClass (见 samDefaultClass).
   useEffect(() => {
     if (s.tool !== "magic-box") return;
     if (sam.isRunning) return;
@@ -636,7 +621,6 @@ export function useImageAnnotationActions({
     if (!sam.canAcceptCandidates && samPendingAccept) setSamPendingAccept(null);
   }, [sam.canAcceptCandidates, samPendingAccept]);
 
-  // R 键精修走 ref 间接调用,避免在 useEffect 依赖里前向引用未定义的 handleRefineSamCandidate.
   const refineSamRef = useRef<(idx: number) => void>(() => {});
 
   const requestSamAccept = useCallback(() => {
@@ -648,7 +632,6 @@ export function useImageAnnotationActions({
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (isSamCandidateHotkeyBlocked(e)) return;
-      // sam 拆分后, Tab/Enter 候选导航在任一 AI 工具激活下都启用.
       const isAIActive =
         s.tool === "smart-point" ||
         s.tool === "smart-box" ||
@@ -678,7 +661,6 @@ export function useImageAnnotationActions({
         sam.cycle(e.shiftKey ? -1 : 1);
         return;
       }
-      // R 键精修当前 SAM 候选 → Mask 编辑器。仅 polygonlabels 类型有效。
       if (e.key === "r" || e.key === "R") {
         if (!sam.canAcceptCandidates) return;
         e.preventDefault();
@@ -712,11 +694,11 @@ export function useImageAnnotationActions({
       let succeeded = 0,
         failed = 0;
       const cmds: { kind: "delete"; annotation: AnnotationResponse }[] = [];
-      targets.forEach((ann) => {
+      targets.forEach((ann, index) => {
         mutations.delete.mutate(ann.id, {
           onSuccess: () => {
             succeeded++;
-            cmds.push({ kind: "delete", annotation: ann });
+            cmds[index] = { kind: "delete", annotation: ann };
           },
           onError: () => {
             failed++;
@@ -724,7 +706,8 @@ export function useImageAnnotationActions({
           onSettled: () => {
             pending--;
             if (pending === 0) {
-              if (cmds.length > 0) history.pushBatch(cmds);
+              history.pushBatch(cmds.filter(Boolean));
+              if (!ownsBatchUi()) return;
               pushToast({
                 msg: `已删除 ${succeeded}/${targets.length} 个标注`,
                 sub:
@@ -742,11 +725,9 @@ export function useImageAnnotationActions({
         });
       });
     },
-    [s, annotationsRef, isLocked, mutations.delete, history, pushToast],
+    [s, annotationsRef, isLocked, mutations.delete, history, ownsBatchUi, pushToast],
   );
 
-  // 批量切换 is_locked / is_hidden:聚合语义 = 选中全部已开 → 全部关,否则 → 全部开;
-  // 只对需要变更的标注发 PATCH,与 handleBatchDelete 一致走 mutation 循环 + history.pushBatch。
   const handleBatchPatchFlag = useCallback(
     (flag: "is_locked" | "is_hidden") => {
       const targets = s.selectedIds
@@ -766,7 +747,7 @@ export function useImageAnnotationActions({
         before: Record<string, boolean>;
         after: Record<string, boolean>;
       }[] = [];
-      pendingTargets.forEach((ann) => {
+      pendingTargets.forEach((ann, index) => {
         const before = { [flag]: read(ann) };
         const after = { [flag]: nextValue };
         mutations.update.mutate(
@@ -774,7 +755,7 @@ export function useImageAnnotationActions({
           {
             onSuccess: () => {
               succeeded++;
-              cmds.push({ kind: "update", annotationId: ann.id, before, after });
+              cmds[index] = { kind: "update", annotationId: ann.id, before, after };
             },
             onError: () => {
               failed++;
@@ -782,7 +763,8 @@ export function useImageAnnotationActions({
             onSettled: () => {
               pending--;
               if (pending === 0) {
-                if (cmds.length > 0) history.pushBatch(cmds);
+                history.pushBatch(cmds.filter(Boolean));
+                if (!ownsBatchUi()) return;
                 const verb =
                   flag === "is_locked"
                     ? nextValue
@@ -802,7 +784,7 @@ export function useImageAnnotationActions({
         );
       });
     },
-    [s, annotationsRef, mutations.update, history, pushToast],
+    [s, annotationsRef, mutations.update, history, ownsBatchUi, pushToast],
   );
 
   const handleJoinSelectedPolygons = useCallback(() => {
@@ -843,13 +825,18 @@ export function useImageAnnotationActions({
           Parameters<typeof history.pushBatch>[0][number],
           { kind: "batch" }
         >[] = [{ kind: "create", annotationId: created.id, payload: result.payload }];
+        if (!ownsBatchUi()) {
+          history.pushBatch(commands);
+          return;
+        }
         let pending = result.sourceAnnotations.length;
         let deleted = 0;
         let failed = 0;
         const finish = () => {
           pending--;
           if (pending > 0) return;
-          history.pushBatch(commands);
+          history.pushBatch(commands.filter(Boolean));
+          if (!ownsBatchUi()) return;
           s.setSelectedId(created.id);
           pushToast({
             msg: `已合并 ${deleted}/${result.sourceAnnotations.length} 个多边形`,
@@ -857,24 +844,33 @@ export function useImageAnnotationActions({
             kind: failed ? "warning" : "success",
           });
         };
-        for (const source of result.sourceAnnotations) {
-          const snapshot = annotationsRef.current.find((ann) => ann.id === source.id);
+        result.sourceAnnotations.forEach((source, index) => {
+          const snapshot = joinable.find((ann) => ann.id === source.id);
           mutations.delete.mutate(source.id, {
             onSuccess: () => {
               deleted++;
-              if (snapshot) commands.push({ kind: "delete", annotation: snapshot });
+              if (snapshot) commands[index + 1] = { kind: "delete", annotation: snapshot };
             },
             onError: () => {
               failed++;
             },
             onSettled: finish,
           });
-        }
+        });
       })
       .catch((err) => {
-        pushToast({ msg: "多边形合并失败", sub: String(err), kind: "error" });
+        if (ownsBatchUi()) pushToast({ msg: "多边形合并失败", sub: String(err), kind: "error" });
       });
-  }, [annotationsRef, createAnnotationAsync, history, isLocked, mutations.delete, pushToast, s]);
+  }, [
+    annotationsRef,
+    createAnnotationAsync,
+    history,
+    isLocked,
+    mutations.delete,
+    ownsBatchUi,
+    pushToast,
+    s,
+  ]);
 
   const handleCropSelectedPolygons = useCallback(
     (baseId: string) => {
@@ -887,7 +883,6 @@ export function useImageAnnotationActions({
         pushToast({ msg: "基准需为未锁定多边形", kind: "warning" });
         return;
       }
-      // 基准框作被减数,其余选中多边形作裁刀(原样保留,不删除)。
       const cutters = s.selectedIds
         .filter((id) => id !== baseId)
         .map((id) => annotationsRef.current.find((ann) => ann.id === id))
@@ -944,8 +939,6 @@ export function useImageAnnotationActions({
       });
       return;
     }
-    // 视频几何和无可用外接框的图片几何走固定屏幕锚点；其余图片用
-    // geom + vp 定位。
     const firstAnn = annotationsRef.current.find((a) => a.id === ids[0]);
     setBatchChangeToolUnitId(
       firstAnn?.tool_unit_id ??
@@ -971,9 +964,11 @@ export function useImageAnnotationActions({
       setBatchChangeAnchor(undefined);
       setBatchChangeToolUnitId(undefined);
       if (!cls) return;
-      const ids = s.selectedIds.filter((id) => annotationsRef.current.some((a) => a.id === id));
-      if (ids.length === 0) return;
-      let pending = ids.length;
+      const targets = s.selectedIds
+        .map((id) => annotationsRef.current.find((ann) => ann.id === id))
+        .filter((ann): ann is AnnotationResponse => !!ann && ann.class_name !== cls);
+      if (targets.length === 0) return;
+      let pending = targets.length;
       let succeeded = 0,
         failed = 0;
       const cmds: {
@@ -982,12 +977,8 @@ export function useImageAnnotationActions({
         before: { class_name: string };
         after: { class_name: string };
       }[] = [];
-      ids.forEach((id) => {
-        const ann = annotationsRef.current.find((a) => a.id === id);
-        if (!ann || ann.class_name === cls) {
-          pending--;
-          return;
-        }
+      targets.forEach((ann, index) => {
+        const id = ann.id;
         const before = { class_name: ann.class_name };
         const after = { class_name: cls };
         mutations.update.mutate(
@@ -995,7 +986,7 @@ export function useImageAnnotationActions({
           {
             onSuccess: () => {
               succeeded++;
-              cmds.push({ kind: "update", annotationId: id, before, after });
+              cmds[index] = { kind: "update", annotationId: id, before, after };
             },
             onError: () => {
               failed++;
@@ -1003,7 +994,8 @@ export function useImageAnnotationActions({
             onSettled: () => {
               pending--;
               if (pending === 0) {
-                if (cmds.length > 0) history.pushBatch(cmds);
+                history.pushBatch(cmds.filter(Boolean));
+                if (!ownsBatchUi()) return;
                 s.setActiveClass(cls);
                 recordRecentClass(cls);
                 pushToast({
@@ -1016,9 +1008,8 @@ export function useImageAnnotationActions({
           },
         );
       });
-      if (pending === 0) setBatchChanging(false);
     },
-    [s, annotationsRef, mutations.update, history, pushToast, recordRecentClass],
+    [s, annotationsRef, mutations.update, history, ownsBatchUi, pushToast, recordRecentClass],
   );
 
   const handleCancelBatchChange = useCallback(() => {
@@ -1048,9 +1039,6 @@ export function useImageAnnotationActions({
   });
   const handleAcceptPrediction = predictionDecisions.acceptPrediction;
   const handleRejectPrediction = predictionDecisions.rejectPrediction;
-
-  // Mask 精修：候选/已存 polygon → mask 编辑 → commit 路径按 kind 分流。
-  // 扩三种 kind：prediction（AI 预标 polygon 行）/ sam（SAM 交互候选，未 Enter）/ user（已落库 polygon，update 替换 geometry）。
 
   const initMaskFromNormalizedPoints = useCallback(
     (normPoints: [number, number][]): boolean => {
@@ -1112,8 +1100,6 @@ export function useImageAnnotationActions({
     [initMaskFromNormalizedPoints, pushToast, s],
   );
 
-  // (A) · SAM 交互候选精修：候选未 Enter 时，直接从 sam.candidates[idx] 启动 mask 编辑。
-  // commit 时 sam.consume(samIdx) 清候选 + submitPolygon 落库（候选 label 优先；无 label 用工具栏当前 label）。
   const handleRefineSamCandidate = useCallback(
     (idx: number = sam.activeIdx) => {
       const cand = sam.candidates[idx];
@@ -1143,7 +1129,6 @@ export function useImageAnnotationActions({
     refineSamRef.current = handleRefineSamCandidate;
   }, [handleRefineSamCandidate]);
 
-  // (B) · 已落库 user polygon 精修：commit 时走 update mutation 替换原 geometry（in-place）。
   const handleRefineUserPolygon = useCallback(
     (annotationId: string) => {
       const ann = annotationsRef.current.find((a) => a.id === annotationId);
@@ -1174,14 +1159,10 @@ export function useImageAnnotationActions({
 
   const commitMaskAsPolygon = useCallback(async () => {
     if (!maskEditor) return Promise.resolve({ ok: false, retryable: false });
-    // 提交边界 defense-in-depth: 即便 Enter hotkey 漏判, commit 本身也
-    // 经 canEditMask 拦截锁定对象 (task 只读 / 选中 annotation is_locked)。
     const refine = pendingRefineRef.current;
     const generation = maskEditor.generation;
     const sessionId = maskEditor.sessionId;
     const staleResult = { ok: false, retryable: false };
-    // Before writing, require the original buffer generation. After our mutation,
-    // the semantic lease still owns completion even if its saved version rebased.
     const isCurrentOwner = (checkSession = true) => {
       const current = currentMaskCommitRef.current;
       const targetId = refine?.kind === "user" ? refine.annotationId : s.selectedId;
@@ -1327,7 +1308,6 @@ export function useImageAnnotationActions({
       }
       if (refine) {
         const report = compareRegionToRasterResult(refine.sourceGeometry, rle);
-        // 两个确认对话框之间都重验 owner/session,防止等待期间会话切换后旧稿件落库。
         const saveConfirmed = await confirmDialog({
           title: "将精修结果保存为原生 Mask？",
           description: formatMaskConversionReport(report),
@@ -1380,8 +1360,6 @@ export function useImageAnnotationActions({
               committedAnnotation = await createAnnotationAsync(createdPayload);
             }
             if (!isCurrentOwner(false)) return staleResult;
-            // Accept our own version before leaving the saved session. Otherwise
-            // the dirty-leave guard can restore the old Mask tool after cancel.
             if (
               maskSessionKey?.selectionKey === committedAnnotation.id &&
               committedAnnotation.version != null
@@ -1435,7 +1413,6 @@ export function useImageAnnotationActions({
           pendingRefineRef.current = null;
           maskEditor.cancel();
           maskEditor.beginBlank();
-          // A selected result would be reloaded for editing instead of starting the next Mask.
           s.setSelectedId(null);
           pushToast({
             msg: updateTarget ? "已更新原生 Mask" : "已创建原生 Mask",
@@ -1450,10 +1427,6 @@ export function useImageAnnotationActions({
       pushToast({ msg: "Mask 为空,无可提交几何", kind: "warning" });
       return Promise.resolve({ ok: false, retryable: false });
     }
-    // mask 含多连通分量或孔时，多边形转换有损 (ADR-0052 D5/P4)。
-    // 禁止静默取最大环落库。阻断本次提交, 弹 warning toast 说明原因, 保留 mask 编辑态
-    // (不 cancel)，让用户用橡皮擦掉小分量后重试。
-    // 多边形提交路径不会创建 raster_mask 标注。
     if (out.lossy) {
       const dropped = out.droppedComponents ? ` (丢弃 ${out.droppedComponents} 个连通分量)` : "";
       pushToast({
@@ -1464,7 +1437,6 @@ export function useImageAnnotationActions({
       return Promise.resolve({ ok: false, retryable: false });
     }
     const { imgW, imgH } = stageGeom;
-    // maskToPolygon 输出像素坐标 → 归一化 [0,1]。
     const normPoints: [number, number][] = out.points.map(([x, y]) => [x / imgW, y / imgH]);
 
     const geometry = { type: "polygon", points: normPoints } as const;
@@ -1544,8 +1516,6 @@ export function useImageAnnotationActions({
         s.setSelectedId(null);
         return result;
       });
-    // multipleComponents 的「仅落最大外环」toast 已移除: lossy 转换在
-    // 上游被阻断 (见函数开头 out.lossy 早退分支), 走到这里的一定是单连通无损 mask。
   }, [
     maskEditor,
     maskCommitOwner,
@@ -1579,7 +1549,6 @@ export function useImageAnnotationActions({
         pushToast({ msg: "无可采纳的 AI 框", sub: `${aiBoxes.length} 个与人工框重复已跳过` });
       return;
     }
-    // 跳过被同类人工框覆盖 (IoU 高于去重阈值) 而淡化的 AI 框，避免采纳出重复标注。
     const target = batchEligibleAiBoxes;
     const skipped = aiBoxes.length - target.length;
     const results = await predictionDecisions.acceptAll(target);
@@ -1601,7 +1570,6 @@ export function useImageAnnotationActions({
 
   const handleCommitDrawing = useCallback(
     (geo: Geom) => {
-      // 会话级落框守卫：越界 clamp / 过小 / 疑似重复（拦截时已 toast）。
       const g = guardDrawnBox(geo, userBoxes, pushToast);
       if (!g) return;
       if (s.tool === "box") {
@@ -1612,8 +1580,6 @@ export function useImageAnnotationActions({
         annotationActions.beginBboxDrawing(g, reuseClass || undefined);
         return;
       }
-      // 当前工具自身的 unit 没有类别定义 → 不弹选类别窗, 直接以 __unknown 落库。
-      // 修复老项目用无类别工具落框仍弹窗 (借 bbox/region 类) 的 BUG。
       if (!activeToolHasOwnClasses) {
         annotationActions.createBboxWithClass(g, UNKNOWN_CLASS);
         return;
@@ -1633,7 +1599,6 @@ export function useImageAnnotationActions({
     [s, activeToolHasOwnClasses, annotationActions, userBoxes, pushToast],
   );
 
-  // 旋转框工具拖出的轴对齐矩形（angle=0）走同一组守卫后再交给 createRotatedBbox。
   const handleCommitRotatedBbox = useCallback(
     (geo: Geom) => {
       const g = guardDrawnBox(geo, userBoxes, pushToast);
@@ -1651,11 +1616,6 @@ export function useImageAnnotationActions({
       const isVideoGeometry = ann.geometry.type.startsWith("video_");
       const needsFixedAnchor = isVideoGeometry || !hasUsableImageBounds(geom);
       const fallbackAnchor = defaultFixedClassPickerAnchor();
-      // 视频几何无法走 image 定位（侧栏/快捷键无 stage transform），需 fixed anchor：
-      // 优先锚到画布上的框（overlay 屏幕矩形 + 当前帧 bbox），覆盖所有触发入口；
-      // 框在当前帧不可见时退回调用方传入的锚点（如侧栏按钮），再不行才贴右上角兜底。
-      // Raster bounds arrive asynchronously; the class picker uses a fixed
-      // anchor rather than treating an object reference as synchronous geometry.
       const resolvedAnchor = needsFixedAnchor
         ? ((isVideoGeometry ? videoBoxScreenAnchor(ann, s.videoFrameIndex) : null) ??
           anchor ??
@@ -1679,8 +1639,6 @@ export function useImageAnnotationActions({
         s.setEditingClass(null);
         return;
       }
-      // 采纳模式: 带 override_class_name 采纳预测 (而非改已存标注的类). 不因
-      // cls===currentClass 早返 — 这里 currentClass 是模型原生类名, cls 是人选的项目标签.
       if (editing.accept) return predictionDecisions.commitClass(cls);
       if (cls === editing.currentClass) {
         s.setEditingClass(null);
@@ -1714,10 +1672,6 @@ export function useImageAnnotationActions({
     s.setEditingClass(null);
   }, [s, predictionDecisions]);
 
-  // 改类悬浮框含属性时，点类别即时提交但不关闭悬浮框
-  // （更新 currentClass 让悬浮框内属性按新类别联动刷新可见字段）。
-  // 失败时必须回滚 editingClass / activeClass，否则连点 A→B→C 中 B 失败会让
-  // popover 显示 C 而服务端仍是 A，且历史栈缺中间步使 undo 跳步。
   const handleChangeClassKeepOpen = useCallback(
     (cls: string) => {
       const editing = s.editingClass;
@@ -1784,7 +1738,6 @@ export function useImageAnnotationActions({
     cancelMaskEdit,
     handleAcceptAll,
     handleCommitDrawing,
-    // 覆盖 ...annotationActions 里的裸 createRotatedBbox，套上会话级落框守卫。
     createRotatedBbox: handleCommitRotatedBbox,
     handleStartChangeClass,
     handleCommitChangeClass,

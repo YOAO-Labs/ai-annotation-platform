@@ -90,6 +90,4 @@ class IndependentBatchResultData:
                 raise
             except SQLAlchemyError:
                 await db.rollback()
-                # The commit acknowledgement can be lost. Immutable calls and
-                # reads of their receipt resolve it on the next delivery.
                 raise BatchResultFailure("storage_unavailable") from None

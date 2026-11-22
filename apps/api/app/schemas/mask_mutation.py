@@ -157,8 +157,6 @@ class MaskMutationCommitRequest(BaseModel):
     source_frame_index: int | None = Field(default=None, ge=0)
     cut_path: list[SlicePoint] | None = Field(default=None, min_length=2, max_length=2)
     scope_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
-    # Keep request parsing permissive enough for the service to return the
-    # stable 428 expected_versions_missing contract for an omitted/empty list.
     expected_versions: list[MaskExpectedVersion] = Field(
         default_factory=list, max_length=1000
     )

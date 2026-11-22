@@ -17,6 +17,10 @@ from training_contract.catalog import digest
 from training_contract.models import model_spec
 from training_executor.train import UltralyticsCheckpoints
 from training_executor.native_identity import validate_architecture
+from training_executor.ultralytics_adapter import (
+    UltralyticsAttemptTrainer,
+    configure_offline_fonts,
+)
 
 
 class Interrupted(Exception):
@@ -58,8 +62,6 @@ def detection_fixture(root):
 
 def qualify_managed_return(path, base_model, root):
     """Use the actual HTTP installer and native inspection, with task-owned storage."""
-    # Resolve the validation helper from the installed official wheel, not
-    # from a neighbouring checkout or the platform's own scripts package.
     helper_path = importlib.metadata.distribution("yolo-backend").locate_file(
         "scripts/controlled_segmentation_validation.py"
     )
@@ -97,7 +99,6 @@ def qualify_managed_return(path, base_model, root):
         ),
     }
     if framework == "libreyolo":
-        # The official LibreYOLO distribution is installed in the qualification environment.
         from yoao_backend_runtime.managed_models import ManagedModelStore
         from yoao_libreyolo_plugin.install import (
             inspect,
@@ -142,6 +143,10 @@ def qualify_detection(base, temporary, base_model):
     from ultralytics import YOLO, __version__
     from ultralytics.models.yolo.detect import DetectionTrainer
 
+    class AttemptTrainer(UltralyticsAttemptTrainer, DetectionTrainer):
+        pass
+
+    configure_offline_fonts()
     spec_model = model_spec("ultralytics", base_model)
     root = Path(temporary)
     data = detection_fixture(root / "data")
@@ -204,7 +209,7 @@ def qualify_detection(base, temporary, base_model):
         nms=False if spec_model.end2end else None,
     )
     try:
-        native.train(**options)
+        native.train(trainer=AttemptTrainer, **options)
     except Interrupted:
         pass
     assert callbacks.checkpoint["epoch"] == 1
@@ -215,15 +220,8 @@ def qualify_detection(base, temporary, base_model):
     resumed.add_callback("on_train_start", resumed_callbacks.started)
     resumed.add_callback("on_model_save", resumed_callbacks.saved)
 
-    class RelocatedTrainer(DetectionTrainer):
-        def check_resume(self, overrides):
-            super().check_resume(overrides)
-            for field in ("project", "name", "data", "exist_ok"):
-                setattr(self.args, field, overrides[field])
-            self.args.save_dir = str(second / "framework")
-
     result = resumed.train(
-        trainer=RelocatedTrainer,
+        trainer=AttemptTrainer,
         **{**options, "project": str(second), "resume": str(checkpoint)},
     )
     best = second / "framework/weights/best.pt"

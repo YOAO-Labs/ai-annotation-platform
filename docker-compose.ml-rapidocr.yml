@@ -1,7 +1,4 @@
-# Optional official plugin overlay; combine with docker-compose.ml.yml.
 services:
-  # Official RapidOCR plugin; supply reviewed model files separately.
-  # This profile requests an NVIDIA device; CPU images require a separate launch.
   rapidocr-backend:
     image: ${RAPIDOCR_IMAGE:?Set the accepted RapidOCR image repository}@${RAPIDOCR_IMAGE_DIGEST:?Set the RapidOCR manifest digest}
     labels:

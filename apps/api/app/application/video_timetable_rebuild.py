@@ -157,8 +157,6 @@ class VideoTimetableRebuildWorkflow:
             job_id = accepted.work.job_id
 
             while True:
-                # Local mode runs one accepted job. In remote mode this returns False;
-                # the independently deployed owner continues the durable work.
                 await run_media_job(job_id)
                 status = await gateway.call(
                     "read_video_work", WorkStatusRequest(job_id=job_id)

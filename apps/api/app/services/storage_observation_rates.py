@@ -140,7 +140,6 @@ async def finish(db, attempt: Attempt | None, outcome: Outcome | None) -> bool:
             await _persist(db, attempt, outcome)
         return True
     except Exception:
-        # No retry: a lost commit reply must not duplicate the same observation.
         log.warning("Storage rate observation could not be persisted")
         return False
 

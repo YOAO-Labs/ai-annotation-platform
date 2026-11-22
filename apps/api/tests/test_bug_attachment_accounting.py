@@ -376,7 +376,6 @@ async def caller(db_session, annotator, monkeypatch):
     finally:
         owned = await owned_facts()
         for row in owned:
-            # Synthetic close/settle failures own no live SDK handles after return.
             await clear_closed_test_operations(
                 db_session,
                 physical.LEGACY_LOCATION_ID,

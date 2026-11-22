@@ -94,7 +94,6 @@ class AssetsMaskContentVerifier:
         except _PermanentMaskContentFailure:
             raise VideoWriterRejected("mask_content_invalid") from None
         except Exception:
-            # Keep owner credentials and provider diagnostics out of this API.
             raise VideoWriterUnavailable() from None
 
 

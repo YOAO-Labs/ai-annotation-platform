@@ -38,7 +38,6 @@ class PreviewSupervisor:
             os.environ.get("TRAINING_NODE_ID", "local") + "/augmentation-preview/cpu-0"
         )
         self.shutdown = training.shutdown
-        # Never share training's cancellation, heartbeat, journal or flock.
         self.stop_training = threading.Event()
         self.heartbeat_done = threading.Event()
         self.stop_reason = None
@@ -50,8 +49,6 @@ class PreviewSupervisor:
             trust_env=False,
         )
         self.lock = None
-        # Retain the Popen handle even when persisting its PID fails. Holding a
-        # flock across a same-boot retry does not prove the child has exited.
         self.process = None
         self.process_exited = True
         self.publication_blocked = False
@@ -170,8 +167,6 @@ class PreviewSupervisor:
             stage = "finish" if "finish_body" in journal else "inventory"
             try:
                 if "finish_body" in journal:
-                    # A previous save may have failed after freezing the receipt.
-                    # Persist again before every replay, without authorizing uploads.
                     self.save(journal)
                     self.api(self.endpoint(journal, "finish"), journal["finish_body"])
                     return True
@@ -231,8 +226,6 @@ class PreviewSupervisor:
                 )
                 if 400 <= status < 500 and not transient:
                     if stage == "finish" and "publication_rejection" in journal:
-                        # This CPU slot cannot release an unacknowledged lease.
-                        # Halt only preview processing; GPU training is independent.
                         print(
                             f"Failed CPU preview terminal publication rejected (HTTP {status}); "
                             "stopping CPU preview supervisor and retaining its journal "
@@ -248,7 +241,6 @@ class PreviewSupervisor:
                     self.reject_publication(journal, stage)
                     continue
             except Exception:
-                # Keep the CPU lease and receipt through transport outages.
                 pass
             self.shutdown.wait(2)
         return False
@@ -295,8 +287,6 @@ class PreviewSupervisor:
         process = None
         try:
             if recovery:
-                # A new boot reacquires the inherited flock. Same-boot retries
-                # must additionally pass confirm_exit before entering here.
                 journal.setdefault("outcome", "failed")
                 journal.setdefault("error", "执行器重启；已确认旧 CPU 预览进程退出")
             else:
@@ -373,7 +363,6 @@ class PreviewSupervisor:
                             pass_fds=(self.lock.fileno(),),
                         )
                     except Exception:
-                        # Popen reaps a child whose exec fails before returning.
                         self.process_exited = True
                         raise
                     journal["process"] = {

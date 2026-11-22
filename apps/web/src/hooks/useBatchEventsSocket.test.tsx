@@ -1,9 +1,3 @@
-/**
- * issue #124 · useBatchEventsSocket 事件处理单测.
- *
- * 守护: batch.status_changed 与 batch.assignment_changed 都 invalidate
- * ["batches", projectId] / ["projects"]; 其它帧 (ping / 未知类型 / 非法 JSON) 不触发。
- */
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
@@ -52,7 +46,6 @@ describe("useBatchEventsSocket", () => {
 
     expect(spy).toHaveBeenCalledWith({ queryKey: ["batches", "p1"] });
     expect(spy).toHaveBeenCalledWith({ queryKey: ["projects"] });
-    // 每个事件各触发一次 batches + projects
     expect(spy).toHaveBeenCalledTimes(4);
   });
 

@@ -200,8 +200,6 @@ async def test_capture_is_idempotent_and_excludes_other_roles_and_reference_item
     record = await db.scalar(select(Retirement))
     assert record.object_key == item.file_path and record.role == "managed_original"
     await db.execute(delete(Retirement))
-    # Use the actual reference namespace; a mislabeled reference locator must not
-    # become a managed retirement assertion merely because its role is defaulted.
     from app.services.reference_keys import PREFIX
 
     item.file_path = f"{PREFIX}{item.id}/{'a' * 64}"

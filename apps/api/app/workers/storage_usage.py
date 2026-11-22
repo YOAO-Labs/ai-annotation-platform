@@ -128,7 +128,6 @@ async def process_page(db, job_id, task_id, generation):
     checkpoint.setdefault("started_at", page_started.isoformat())
     inventory.checkpoint = checkpoint
     await db.commit()
-    # No database lock is held while waiting for the provider. Publication is fenced again.
     error, page, page_categories = None, None, None
     if checkpoint.get("pages", 0) >= svc.MAX_PAGES:
         error = "inventory_budget_exceeded"

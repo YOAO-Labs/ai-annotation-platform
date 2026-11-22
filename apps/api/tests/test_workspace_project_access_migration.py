@@ -55,8 +55,6 @@ async def test_access_upgrade_and_downgrade_preserve_oid_owner_and_grant_chain(
     async with test_engine.connect() as connection:
         transaction = await connection.begin()
         try:
-            # Replay the frozen 0264 migration against the matching historical
-            # schema name. The rename and every migration side effect roll back.
             if await connection.scalar(
                 text(
                     "SELECT to_regnamespace('yoao_workspace_project_query_v1') IS NOT NULL"

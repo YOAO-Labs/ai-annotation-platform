@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-/**
- * Reports rendered Markdown pages that cannot be reached from a sidebar or
- * another rendered Markdown page. It is warning-only by default; use
- * --strict once an intentional-exemption list has been reviewed.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,8 +19,6 @@ const SKIP_ROOTS = new Set([
   "roadmap",
   "scripts",
 ]);
-// Pages that deliberately remain directly addressable but are not discoverable
-// in navigation. Add a reason here instead of silently accepting an orphan.
 const EXEMPT_ROUTES = new Map([
   ["/user-guide/projects/annotation-guide", "legacy URL redirects to the current projects guide"],
 ]);

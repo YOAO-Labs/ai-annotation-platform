@@ -142,8 +142,6 @@ async function selfCheck() {
     readFile(path.join(frozenRoot, "0326_jobs_list_query.sql"), "utf8"),
   ]);
   const schema = JSON.parse(schemaText);
-  // Preserve the frozen wire contract; only the display title and the current
-  // owner namespaces changed. Historical installation SQL stays intact.
   const expectedSchema = JSON.parse(currentNames(frozenSchemaText));
   expectedSchema.title = "YOAO Jobs async-job list query";
   assert.deepEqual(schema, expectedSchema);

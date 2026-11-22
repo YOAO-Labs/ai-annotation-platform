@@ -53,6 +53,7 @@ packages = ["src/yoao_notifications"]
 "src/yoao_notifications/sql/0324_notifications_inbox_query.sql" = "yoao_notifications/sql/0324_notifications_inbox_query.sql"
 "src/yoao_notifications/sql/0325_notifications_delivery_read.sql" = "yoao_notifications/sql/0325_notifications_delivery_read.sql"
 "src/yoao_notifications/sql/0421_notification_job_scope.sql" = "yoao_notifications/sql/0421_notification_job_scope.sql"
+"src/yoao_notifications/sql/0484_notifications_terminal_outbox.sql" = "yoao_notifications/sql/0484_notifications_terminal_outbox.sql"
 "src/yoao_notifications/preferences.schema.json" = "yoao_notifications/preferences.schema.json"
 "src/yoao_notifications/preferences.policy.json" = "yoao_notifications/preferences.policy.json"
 "src/yoao_notifications/append.schema.json" = "yoao_notifications/append.schema.json"

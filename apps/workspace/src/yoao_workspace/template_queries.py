@@ -88,7 +88,6 @@ class TemplateQueryManager:
             )
             organization_ids = facts.facts.organization_ids
 
-        # Keep the filter string opaque until after the non-super-admin org read.
         filters = decode_template_query_filters(request)
         facts = await self._step(
             request,

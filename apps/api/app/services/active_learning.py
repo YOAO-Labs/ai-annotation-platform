@@ -539,8 +539,6 @@ async def prepare_image(db, round, sample, *, guard=None):
             await originals.check(db, context, guard=guard)
 
             def retained_or_missing(transport):
-                # Classify the exact provider result before S3Access translates it.
-                # A failed client close still raises before any fallback can begin.
                 try:
                     return read_retained_png(round, sample, transport=transport)
                 except ClientError as exc:
@@ -789,7 +787,6 @@ async def read_report(db, round, attempt):
         or not attempt.report
     ):
         raise reject("report_pending", "此执行尝试尚无完整的已核验选样结果")
-    # The dispatch counter is frozen in the report; later recovery never rewrites it.
     expected = await build_report(db, round, attempt)
     if attempt.report != expected:
         raise reject("report_corrupt", "选样报告未通过完整性检查")

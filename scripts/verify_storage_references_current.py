@@ -363,7 +363,6 @@ class Fixture:
             "version_id": result["VersionId"],
             "state": "present",
         }
-        # Existing rows may contain a valid-byte receipt outside their owner scope.
         self.claim("image_pyramid_outputs", neighbor, "unlocated")
         self.add(
             "image_pyramid_outputs",
@@ -416,7 +415,6 @@ class Fixture:
                 kind=kind,
                 **scope,
             )
-            # Standalone Task creations use the existing direct-upload contract.
             if kind == "task":
                 row = self.rows[-1][1]
                 staging = self.root("import") + f"__aap_upload_staging__/{identifier}/"

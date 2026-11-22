@@ -5,13 +5,6 @@ import { describe, expect, it } from "vitest";
 
 import { resolveAvatarUrl } from "./avatar";
 
-/**
- * 内置像素头像是**提交进仓库的生成产物**，manifest 与 SVG 文件必须严格一一对应：
- * 多一个 / 少一个 / id 重复都会让某个已入库的 `users.avatar_ref` 变成破图。
- *
- * 用 `process.cwd()`（vitest 的根目录即 apps/web）而不是 `import.meta.url`：本仓所有
- * 测试都在 jsdom 环境下跑，`import.meta.url` 是 http URL，无法定位文件系统。
- */
 const PIXEL_DIR = path.resolve(process.cwd(), "public/avatars/pixel");
 
 interface PresetManifest {

@@ -19,6 +19,8 @@ pin 包含模型／实验／尝试／数据身份、受控对象 key／SHA／大
 
 独立执行器声明初始化策略能力，下载分离的权重文件并在反序列化前验证摘要。原生训练创建新 trainer，首批次前核对实际模型、全部状态张量指纹、epoch 零，以及新 optimizer／scheduler／scaler／EMA／best 状态。`native-config.json` 保存独立证据，服务端成功提交再次核验。后续恢复使用本实验自己的检查点，保留原 pin 和恢复模式回执。
 
+项目初始化权重文件随后即使不可读，续训也不再读取它；实验自己的不可变检查点才是恢复输入（`initialization.py` 的 `validate_input`、`prepare`）。`ultralytics_adapter.py` 的 `UltralyticsAttemptTrainer.check_resume` 先恢复原生检查点配置，再核对冻结 batch 并将指向上一次尝试的输入／输出路径重绑到本次尝试；重定位不重置原生训练状态。`tools/qualify_instance_rle.py` 使用同一适配层核验 RLE 续训。
+
 配置来源 `origin`、初始化权重和 checkpoint 恢复保持独立。配方、克隆、策略固定同一 pin；解除配置来源不清除初始化，也不隐式选择被克隆实验的新产物。前端用会话单调代次、草稿修订、URL 意图和查询作用域拒绝 ABA 结果，未确认创建只重试原始 body。YAML 格式 2 携带来源 ID／摘要，旧格式仅替换参数。增强预览只验证数据变换。
 
 ## Consequences

@@ -10,7 +10,6 @@ export type DataManagerSection = "overview" | "data" | "members";
 export type DataManagerLayout = "list" | "gallery";
 
 export interface DataManagerUrlState {
-  /** The project section. Missing on legacy URLs, which intentionally open Data. */
   section?: DataManagerSection;
   lens: DataManagerEntityScope;
   view: string | null;
@@ -19,7 +18,6 @@ export interface DataManagerUrlState {
   sort: TaskSortItem[] | null;
   columns: string[] | null;
   selected: string | null;
-  /** Explicit task IDs selected for task operations; never more than 200. */
   selectedTasks?: string[] | null;
   layout?: DataManagerLayout;
 }
@@ -72,14 +70,6 @@ function isSortItem(value: unknown): value is TaskSortItem {
   );
 }
 
-/**
- * Normalize restored Data Manager task columns.
- *
- * The legacy `unresolved_feedback_count` column is a server-side alias of the
- * corrected `unresolved_issue_count` count, so an explicitly saved old column
- * list is normalized to the new column at restore time. Saved views in the
- * database are never rewritten.
- */
 export function normalizeDataManagerColumns(columns: readonly string[]): string[] {
   const normalized: string[] = [];
   for (const column of columns) {
@@ -171,22 +161,16 @@ export function hasFilterUrlOverrides(search: string | URLSearchParams) {
   );
 }
 
-/**
- * Stable key for a saved/builtin task view. A saved view is identified by its
- * id, a builtin one by its key; the two never collide because of the prefix.
- */
 export function dataManagerViewKey(view: Pick<ProjectTaskView, "id" | "key">): string {
   return view.id ? `saved:${view.id}` : `builtin:${view.key}`;
 }
 
-/** The task view named by the URL; anything else falls back to the builtin all view. */
 export function requestedDataManagerViewKey(
   state: Pick<DataManagerUrlState, "lens" | "view">,
 ): string {
   return state.lens === "tasks" && state.view ? state.view : "builtin:all";
 }
 
-/** Find the view whose key the URL requested, or null when it no longer exists. */
 export function findDataManagerView(
   views: readonly ProjectTaskView[],
   requestedKey: string,
@@ -194,11 +178,6 @@ export function findDataManagerView(
   return views.find((view) => dataManagerViewKey(view) === requestedKey) ?? null;
 }
 
-/**
- * The first view a caller should select when the URL names a view that is gone.
- * Null when the project has no views yet, so callers must keep their requested
- * key until the list arrives instead of inventing a builtin that may not exist.
- */
 export function resolveDataManagerViewKey(
   requestedKey: string,
   views: readonly ProjectTaskView[],
@@ -207,12 +186,6 @@ export function resolveDataManagerViewKey(
   return views.length ? dataManagerViewKey(views[0]) : null;
 }
 
-/**
- * Whether per-URL filter overrides (keyword, filter, sort, columns, selection,
- * layout) outrank a saved view's stored query. The URL only wins for the task
- * lens and the currently selected view; another view's stale overrides must not
- * leak into the freshly selected one.
- */
 export function shouldUseDataManagerUrlOverrides(
   state: Pick<DataManagerUrlState, "lens" | "view">,
   search: string | URLSearchParams,

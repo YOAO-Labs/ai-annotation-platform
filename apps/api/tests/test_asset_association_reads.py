@@ -18,8 +18,6 @@ from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
 
-# ADR-0102 adds twenty-two spatial capabilities to the catalog LOGIN; the
-# catalog-native module owns the exact installed surface.
 from tests.test_assets_catalog_native import _CATALOG_LOGIN_FUNCTIONS
 
 pytestmark = pytest.mark.asyncio

@@ -125,7 +125,6 @@ async def test_mark_inactive_offline_flips_stale_users(db_session: AsyncSession)
         await _set_presence(db_session, user.id, status, seen)
 
     result = await mark_inactive_offline_with_session(db_session)
-    # stale + null_seen 应被翻；fresh / already_offline 不动
     assert result["affected"] >= 2
 
     assert (await _presence(db_session, stale.id)).status == "offline"
@@ -265,6 +264,5 @@ async def test_users_stats_endpoint_weekly_active(
     assert res.status_code == 200, res.text
     body = res.json()
     assert "weekly_active" in body
-    assert body["weekly_active"] >= 1  # recent
-    # old 不应计入；total / online 字段也得在
+    assert body["weekly_active"] >= 1
     assert "total" in body and "online" in body

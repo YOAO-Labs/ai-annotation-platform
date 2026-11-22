@@ -145,11 +145,6 @@ async def test_feedback_patch_status_sets_resolved_at(db_session, super_admin):
     assert reopened.resolved_by_id is None
 
 
-# ----------------------------------------------------------------------
-# ADR-0027 · 统一视图和旧记录的镜像写入
-# ----------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_mirror_bug_report_creates_feedback(db_session, super_admin):
     """BugReportService.create 同事务 mirror 到 annotation_feedbacks (kind=bug)."""
@@ -278,7 +273,6 @@ async def test_view_unions_sources(db_session, super_admin):
     task = await create_task(db_session, project_id=proj.id)
     await db_session.flush()
 
-    # 1. annotation_feedbacks 直接源 (kind=issue)
     svc = FeedbackService(db_session)
     await svc.create(
         author_id=user.id,
@@ -294,7 +288,6 @@ async def test_view_unions_sources(db_session, super_admin):
         attachments=[],
         thread_parent_id=None,
     )
-    # 2. bug_reports → 同事务 mirror feedback (此处 view 应同时映出旧表行 + mirror 行)
     await BugReportService(db_session).create(
         reporter_id=user.id,
         user_role="super_admin",
@@ -306,7 +299,6 @@ async def test_view_unions_sources(db_session, super_admin):
         severity="medium",
         status="new",
     )
-    # 3. tasks reject (legacy 字段直接设, 同时调 mirror)
     task.status = "rejected"
     task.reject_reason = "标错了"
     task.reject_reason_type = "wrong_label"
@@ -326,17 +318,9 @@ async def test_view_unions_sources(db_session, super_admin):
         )
     ).all()
     counts = {r[0]: r[1] for r in rows}
-    # annotation_feedbacks: 3 行 (issue + bug mirror + reject mirror)
     assert counts.get("annotation_feedbacks") == 3
-    # bug_reports: 1 行
     assert counts.get("bug_reports") == 1
-    # tasks_reject: 1 行 (task.status=rejected + reject_reason 非空)
     assert counts.get("tasks_reject") == 1
-
-
-# ----------------------------------------------------------------------
-# ADR-0027 · 双写一致性对账 cron 测试
-# ----------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -352,7 +336,6 @@ async def test_compute_feedback_drift_zero_when_mirrored(db_session, super_admin
     task = await create_task(db_session, project_id=proj.id)
     await db_session.flush()
 
-    # bug → BugReportService.create 同事务 mirror
     await BugReportService(db_session).create(
         reporter_id=user.id,
         user_role="super_admin",
@@ -364,7 +347,6 @@ async def test_compute_feedback_drift_zero_when_mirrored(db_session, super_admin
         severity="medium",
         status="new",
     )
-    # reject → 设字段 + mirror
     task.status = "rejected"
     task.reject_reason = "标错了"
     task.reject_reason_type = "wrong_label"
@@ -376,7 +358,6 @@ async def test_compute_feedback_drift_zero_when_mirrored(db_session, super_admin
     assert sum(len(v["missing_ids"]) for v in drift.values()) == 0
     assert drift["bug_reports"]["missing_ids"] == []
     assert drift["tasks_reject"]["missing_ids"] == []
-    # bug_reports expected/actual 对齐：1 旧表行 ↔ 1 mirror 行
     assert drift["bug_reports"]["expected"] == 1
     assert drift["bug_reports"]["actual"] == 1
 
@@ -397,7 +378,6 @@ async def test_reconcile_detects_drift_and_notifies(
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
     await db_session.flush()
 
-    # 直接插旧表行，跳过 BugReportService.create 的双写 → 制造漂移
     db_session.add(
         BugReport(
             id=_uuid.uuid4(),
@@ -420,7 +400,6 @@ async def test_reconcile_detects_drift_and_notifies(
     assert drift["bug_reports"]["expected"] == 1
     assert drift["bug_reports"]["actual"] == 0
 
-    # run_reconcile：drift>0 应写 audit + 调 notify_many 通知 superadmin
     calls: list[dict] = []
     orig = NotificationService.notify_many
 
@@ -456,7 +435,6 @@ async def test_drift_detects_under_mirrored_duplicates(db_session, super_admin):
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
     await db_session.flush()
 
-    # 两条业务字段完全相同的 bug（同 project/title/description/reporter）
     for i in range(2):
         db_session.add(
             BugReport(
@@ -473,7 +451,6 @@ async def test_drift_detects_under_mirrored_duplicates(db_session, super_admin):
                 status="new",
             )
         )
-    # 只 mirror 了其中 1 条
     db_session.add(
         AnnotationFeedback(
             id=_uuid.uuid4(),

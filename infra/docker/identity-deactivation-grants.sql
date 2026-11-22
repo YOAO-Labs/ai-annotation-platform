@@ -1,13 +1,3 @@
--- Grant the exact Identity self/due and Notifications publisher LOGIN surfaces.
--- Run after migrations and module-data-grants as the migration role. Each client
--- must be a distinct LOGIN NOINHERIT role with no memberships.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v identity_owner=identity_code -v audit_owner=audit_code \
---   -v notifications_owner=notifications_code \
---   -v identity_deactivation_role=yoao_identity_deactivation_client \
---   -v identity_deactivation_operator_role=yoao_identity_deactivation_operator \
---   -v notification_publish_role=yoao_notification_publish_client \
---   -f infra/docker/identity-deactivation-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -233,7 +223,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_notifications_v1.finish_identity_delivery(jsonb)
     TO :"notification_publish_role";
 
--- Verify exact function allowlists and deny direct table/foreign-schema access.
 DO $$
 DECLARE
     role_name text;

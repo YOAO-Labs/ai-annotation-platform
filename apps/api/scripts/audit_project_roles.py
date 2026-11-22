@@ -65,9 +65,6 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-# Keep the script runnable directly as `python scripts/audit_project_roles.py`
-# from apps/api: sys.path[0] is the scripts directory, so add the API root
-# before any `app.*` import (matching dump-openapi.py / cleanup scripts).
 _API_ROOT = Path(__file__).resolve().parent.parent
 if str(_API_ROOT) not in sys.path:
     sys.path.insert(0, str(_API_ROOT))
@@ -76,9 +73,6 @@ if str(_API_ROOT) not in sys.path:
 AUDIT_REPORT_VERSION = "project-role-audit/2"
 DEFAULT_MAX_ROWS = 1000
 
-# Fixed role vocabularies.  ``employee`` is recognized for post-conversion
-# reconciliation while the legacy annotator/reviewer values stay distinct so a
-# pre-migration mismatch is not mistaken for project-role diversity.
 PLATFORM_ROLES = (
     "super_admin",
     "project_admin",
@@ -101,8 +95,6 @@ _ADMIN_PLATFORM_ROLES_SQL = "('super_admin','project_admin')"
 
 PLAN_DOCUMENT = "docs/plans/1789807315_project-scoped-employee-roles.md"
 
-# Columns introduced by revision 0173.  Their presence is inspected, never
-# assumed, so the same report runs on a pre-0173 production schema.
 PREPARATION_COLUMNS: dict[str, tuple[str, ...]] = {
     "project_members": ("version", "updated_at"),
     "user_invitations": ("project_role",),
@@ -118,8 +110,6 @@ _REVIEW_ACTIVITY_SQL = (
     "OR reviewed_at IS NOT NULL OR status IN ('review','completed')"
 )
 
-# Effective task assignment: an explicit task value wins over the inherited
-# batch default, matching existing business semantics.
 _EFFECTIVE_ASSIGNMENT_CTE = """
 WITH effective AS (
     SELECT t.id AS task_id,
@@ -175,11 +165,6 @@ def active_manager_predicate(user_alias: str) -> str:
 
 class AuditError(RuntimeError):
     """Raised when the audit cannot produce a trustworthy report."""
-
-
-# ---------------------------------------------------------------------------
-# Schema capability inspection
-# ---------------------------------------------------------------------------
 
 
 async def detect_schema_capabilities(db: AsyncSession) -> dict[str, bool]:
@@ -251,8 +236,6 @@ def project_role_backfill_filter(capabilities: dict[str, bool]) -> str:
     return ""
 
 
-# Canonical UUID text, case-insensitive; used to reject non-string or malformed
-# contributor elements without echoing the raw array.
 _UUID_TEXT_REGEX = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 
 
@@ -303,7 +286,6 @@ def review_evidence_predicates(capabilities: dict[str, bool]) -> dict[str, str]:
     activity = f"({_REVIEW_ACTIVITY_SQL})"
     has_round = "review_round_id IS NOT NULL"
     has_submitter = f"({submitter}) IS NOT NULL"
-    # Valid = a JSON array whose every element is a non-NULL UUID string.
     review_valid = _uuid_array_valid(review_array)
     accumulator_valid = _uuid_array_valid(accumulator)
     contains_all = (
@@ -374,11 +356,6 @@ def review_evidence_columns(capabilities: dict[str, bool]) -> dict[str, str]:
     }
 
 
-# ---------------------------------------------------------------------------
-# Query helpers
-# ---------------------------------------------------------------------------
-
-
 async def _fetch(db: AsyncSession, sql: str, **params: Any) -> list[dict]:
     result = await db.execute(text(sql), params)
     return [dict(row) for row in result.mappings().all()]
@@ -413,11 +390,6 @@ async def _count_and_rows(
     return _limited(rows, total, max_rows)
 
 
-# ---------------------------------------------------------------------------
-# Baseline
-# ---------------------------------------------------------------------------
-
-
 def script_heads() -> list[str]:
     """Return the Alembic head revisions declared by the checked-in graph."""
     from alembic.config import Config
@@ -448,11 +420,6 @@ async def audit_schema_baseline(
     }
 
 
-# ---------------------------------------------------------------------------
-# Role discrepancies
-# ---------------------------------------------------------------------------
-
-
 async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
     unknown_platform_roles = await _count_and_rows(
         db,
@@ -480,8 +447,6 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
         ),
         max_rows=max_rows,
     )
-    # Legacy mismatch: the account's global annotator/reviewer role disagrees
-    # with this membership.  Distinct from true cross-project diversity below.
     legacy_mismatches = await _count_and_rows(
         db,
         count_sql=(
@@ -500,8 +465,6 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
         ),
         max_rows=max_rows,
     )
-    # Post-conversion diversity: one account holding different project roles in
-    # different projects.  Legitimate, reported separately.
     role_diversity = await _count_and_rows(
         db,
         count_sql=(
@@ -516,8 +479,6 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
         ),
         max_rows=max_rows,
     )
-    # A platform viewer may only hold viewer memberships; anything else is a
-    # genuine inconsistency rather than a legitimate mixed role.
     viewer_conflicts = await _count_and_rows(
         db,
         count_sql=(
@@ -535,8 +496,6 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
         ),
         max_rows=max_rows,
     )
-    # Administrators derive authority from ownership/platform role, not from an
-    # ordinary employee membership.  Surface the rows for migration review.
     administrator_memberships = await _count_and_rows(
         db,
         count_sql=(
@@ -553,8 +512,6 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
         ),
         max_rows=max_rows,
     )
-    # An employee/unknown owner is a migration blocker: administrative
-    # privilege requires a valid admin platform role plus ownership.
     invalid_owners = await _count_and_rows(
         db,
         count_sql=(
@@ -594,11 +551,6 @@ async def audit_role_discrepancies(db: AsyncSession, *, max_rows: int) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Assignment / membership gaps
-# ---------------------------------------------------------------------------
-
-
 async def audit_assignment_gaps(db: AsyncSession, *, max_rows: int) -> dict:
     def count_sql(predicate: str) -> str:
         return (
@@ -609,8 +561,6 @@ async def audit_assignment_gaps(db: AsyncSession, *, max_rows: int) -> dict:
         )
 
     def rows_sql(predicate: str) -> str:
-        # The rows query needs the same CTE as the count query, otherwise
-        # ``FROM effective`` does not resolve on a nonempty result.
         return (
             _EFFECTIVE_ASSIGNMENT_CTE
             + _EFFECTIVE_ASSIGNMENT_SELECT
@@ -674,11 +624,6 @@ async def audit_assignment_gaps(db: AsyncSession, *, max_rows: int) -> dict:
         "assignment_to_inactive_account": inactive_assignments,
         "inactive_accounts_with_unfinished_work": inactive_unfinished,
     }
-
-
-# ---------------------------------------------------------------------------
-# Invitations
-# ---------------------------------------------------------------------------
 
 
 async def audit_invitations(
@@ -752,9 +697,6 @@ async def audit_invitations(
         ),
         max_rows=max_rows,
     )
-    # Legacy pending project invitations keep their project role in the platform
-    # ``role`` column; the migration must move it before converting.  Without
-    # the 0173 column every pending project invitation needs the backfill.
     project_role_to_backfill = await _scalar(
         db,
         "SELECT count(*) FROM yoao_identity_audit_v1.invitation_facts WHERE project_id IS NOT NULL "
@@ -788,11 +730,6 @@ async def audit_invitations(
         "pending_project_role_to_backfill": {"total": project_role_to_backfill},
         "account_invitation_with_project_role": account_invitation_with_project_role,
     }
-
-
-# ---------------------------------------------------------------------------
-# Review evidence
-# ---------------------------------------------------------------------------
 
 
 async def audit_review_evidence(
@@ -840,8 +777,6 @@ async def audit_review_evidence(
             "missing_contributors",
         )
     }
-    # A task without review activity has no evidence to freeze yet; NULL there
-    # is expected, not a defect (no default marks a legacy writer's row known).
     no_review_activity = await _scalar(
         db,
         "SELECT count(*) FROM yoao_labeling_audit_v1.task_facts WHERE NOT ("
@@ -854,11 +789,6 @@ async def audit_review_evidence(
         "incomplete_reasons": incomplete_reasons,
         "no_review_activity": {"total": no_review_activity},
     }
-
-
-# ---------------------------------------------------------------------------
-# Reconciliation totals
-# ---------------------------------------------------------------------------
 
 
 async def audit_reconciliation(db: AsyncSession) -> dict:
@@ -1002,11 +932,6 @@ async def audit_reconciliation(db: AsyncSession) -> dict:
     }
 
 
-# ---------------------------------------------------------------------------
-# Report assembly
-# ---------------------------------------------------------------------------
-
-
 def build_summary(
     *,
     baseline: dict,
@@ -1135,12 +1060,6 @@ async def collect_report(
     }
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-# REPEATABLE READ gives totals and detail rows one stable audit snapshot;
-# READ ONLY is enforced by PostgreSQL, not only by this module.
 _READ_ONLY_TRANSACTION_SQL = (
     "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY"
 )

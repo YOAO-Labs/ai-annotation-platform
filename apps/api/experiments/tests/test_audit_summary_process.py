@@ -110,7 +110,6 @@ async def test_go_peer_lost_response_inflight_shutdown_restart_and_exact_replay(
                 "POST", f"http://{address}/v1/audit/monthly-summary", json=request
             ) as abandoned:
                 assert abandoned.status_code == 200
-                # The peer computed a reply; the caller deliberately loses its body.
         result = await query()
         assert result.model_dump(mode="json") == public_counts(expected)
         host, port = address.rsplit(":", 1)

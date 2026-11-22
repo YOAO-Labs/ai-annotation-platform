@@ -1548,7 +1548,6 @@ __all__ = [
     "ProjectPipelineCreate",
     "ProjectPipelineUpdate",
     "VisualTaskName",
-    # 异常
     "SDKError",
     "APIStatusError",
     "AuthenticationError",
@@ -1558,7 +1557,6 @@ __all__ = [
     "ValidationError",
     "JobFailedError",
     "JobTimeoutError",
-    # 模型
     "Annotation",
     "AnnotationBulkUpdateResult",
     "AnnotationFeedback",

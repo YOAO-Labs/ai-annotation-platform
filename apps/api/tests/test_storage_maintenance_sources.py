@@ -59,8 +59,6 @@ async def connection(httpx_client, super_admin, monkeypatch):
 
 
 async def gate(db, location_id, state, revision):
-    # Owner tests use the caller's isolated transaction. Control concurrency and
-    # committed receipt behavior are exercised separately below and by core tests.
     await storage_access.check(db, location_id, lock=True)
     await db.execute(
         update(Gate)
@@ -128,7 +126,6 @@ async def test_resume_does_not_replay_old_scan_or_sync_delegation(
     assert renewed.snapshot["maintenance_revision"] == 4
     assert renewed.scan_id is None and renewed.registration_id is None
     assert renewed.state == "idle"
-    # A new request must explicitly verify the worker again in the new generation.
     probe = await db_session.get(
         StorageLocationProbe, (location.id, "worker:content@test")
     )
@@ -285,7 +282,6 @@ async def test_cancelled_location_io_retains_receipt_until_thread_closes(
             with suppress(asyncio.CancelledError, Exception):
                 await task
         async with test_engine.begin() as connection:
-            # No business location exists; this test owns only its independent gate.
             await connection.execute(
                 delete(Gate).where(Gate.location_id == location_id)
             )

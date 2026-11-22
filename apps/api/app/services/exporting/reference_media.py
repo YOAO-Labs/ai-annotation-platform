@@ -108,8 +108,6 @@ async def authorize_export_job(
             )
             if present != scoped_id:
                 raise ValueError("video export task scope is no longer valid")
-            # This only narrows the reference refusal. The project/batch export
-            # capability above retains its existing authorization semantics.
             reference_ids = [scoped_id]
         query = task_query(project_id, batch_id, reference_ids).where(
             task_row.file_path.startswith(PREFIX, autoescape=True)
@@ -131,9 +129,6 @@ async def _capture_export_authority(
             (await db.scalars(task_query(project.id, batch_id, task_ids))).all()
         )
     else:
-        # New image jobs have already measured and locked their bounded scope.
-        # Reuse those facts; neither Task JSON nor source/connection credentials
-        # need full ORM hydration merely to capture this separate authority.
         selected = sorted(str(v) for v in task_ids) if task_ids is not None else None
         if (
             type(frozen_snapshot) is not dict
@@ -240,7 +235,6 @@ class ReferenceExportMedia:
         for task_id, binding in self.bindings.items():
             ref = binding.get("reference")
             if ref:
-                # Stable IDs prevent collisions even for multiple Tasks of one Item.
                 filename = binding["file_name"].replace("\\", "/").rsplit("/", 1)[-1]
                 stem, separator, extension = filename.rpartition(".")
                 if not separator or extension.lower() not in {
@@ -289,7 +283,6 @@ class ReferenceExportMedia:
     async def validate(self, *, final=False):
         actor = await self.authorize()
         if final:
-            # Short publication transaction only; no original I/O under these locks.
             from app.services.project_write_guard import (
                 lock_actor_project_authority,
                 lock_actor_scope,
@@ -301,8 +294,6 @@ class ReferenceExportMedia:
             await lock_reference_bindings(
                 self.db, list(self.bindings.values()), self.node_id
             )
-            # Re-check after the business locks: Identity retains the accepted
-            # key's SHARE fence until this publication transaction ends.
             await self.authorize()
         tasks = list(
             (
@@ -363,6 +354,7 @@ class ReferenceExportMedia:
                 storage_access.close_registered(snapshot)
             except BaseException as closing:
                 raise BaseExceptionGroup(
-                    "Reference validation and snapshot close failed", [original, closing]
+                    "Reference validation and snapshot close failed",
+                    [original, closing],
                 ) from None
             raise

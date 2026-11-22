@@ -1,9 +1,5 @@
 import { UserAvatar } from "@/components/ui/UserAvatar";
 
-/**
- * AssigneeAvatarStack —— 责任人头像组。
- * 复用迁好的 Avatar;头像叠放用负 margin + 同色描边环。
- */
 export interface AssigneeBrief {
   id: string;
   name: string;
@@ -17,9 +13,7 @@ interface Props {
   users: AssigneeBrief[];
   max?: number;
   size?: "sm" | "md";
-  /** 标签前缀,例如「标注员」「审核员」;不传不渲染 */
   label?: string;
-  /** 0 用户时是否显示「未分派」灰条 */
   emptyHint?: string;
   title?: string;
 }

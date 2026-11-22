@@ -98,10 +98,8 @@ describe("videoWorkbenchDiagnostics precise-frame producer", () => {
     publishVideoPreciseFrameDiagnostics(TASK_A, baseSnapshot({ frameIndex: 1 }), "/annotate/a");
     vi.advanceTimersByTime(50);
     publishVideoPreciseFrameDiagnostics(TASK_A, baseSnapshot({ frameIndex: 2 }), "/annotate/a");
-    // 50ms < 200ms 间隔 → 第二次被节流,仍显示旧值
     expect(readStore()?.byTask?.[TASK_A]?.preciseFrame?.frameIndex).toBe(1);
     vi.advanceTimersByTime(200);
-    // trailing 定时器补发最后一次
     expect(readStore()?.byTask?.[TASK_A]?.preciseFrame?.frameIndex).toBe(2);
   });
 
@@ -152,7 +150,6 @@ describe("videoWorkbenchDiagnostics precise-frame producer", () => {
   });
 
   it("typed snapshot never carries sensitive media fields", () => {
-    // producer 只接受 typed 字段;构造时无法混入 url / bytes / description。
     const snap = baseSnapshot();
     const keys = Object.keys(snap).sort();
     expect(keys).toEqual(

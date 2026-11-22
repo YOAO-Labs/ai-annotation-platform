@@ -59,8 +59,6 @@ async def test_member_temporal_migration_preserves_client_acl_and_hides_impl(
     async with test_engine.connect() as connection:
         transaction = await connection.begin()
         try:
-            # Replay the frozen 0262 migration against the matching historical
-            # schema name. The rename and every migration side effect roll back.
             if await connection.scalar(
                 text(
                     "SELECT to_regnamespace('yoao_workspace_project_query_v1') IS NOT NULL"
@@ -72,8 +70,6 @@ async def test_member_temporal_migration_preserves_client_acl_and_hides_impl(
                         "RENAME TO aap_workspace_project_query_v1"
                     )
                 )
-            # The downgrade is intentionally run after ownership and client grants,
-            # exercising the deployed path that a fresh-schema check cannot cover.
             await connection.execute(
                 text(
                     f"GRANT EXECUTE ON FUNCTION {_STEP} TO {_CLIENT} WITH GRANT OPTION"

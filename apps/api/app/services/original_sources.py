@@ -12,7 +12,7 @@ import re
 from urllib.parse import urlsplit
 import uuid
 
-from sqlalchemy import Text, case, cast, func, select
+from sqlalchemy import Text, case, cast, func, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -131,6 +131,7 @@ class OriginalSource:
     location_facts: LocationFacts | None
     read_route: ReadRoute | None = None
 
+
 def media_permit_purpose(source, family):
     """Bind a physical reader to its canonical content rather than a shared bucket."""
     if (
@@ -144,11 +145,8 @@ def media_permit_purpose(source, family):
     return f"media_{family}_{kind}_{source.content_id.hex}"
 
 
-
 @asynccontextmanager
 async def _reads(db, lock):
-    # Session.begin_nested() flushes even inside no_autoflush. A connection
-    # savepoint recovers NOWAIT errors without flushing or ending caller work.
     with db.no_autoflush:
         if not lock:
             yield
@@ -170,10 +168,22 @@ async def _reads(db, lock):
             await savepoint.commit()
 
 
-def _statement(statement, lock):
+def _statement(statement, lock, *, nowait=True):
     if lock:
-        statement = statement.with_for_update(read=True, nowait=True)
+        statement = statement.with_for_update(read=True, nowait=nowait)
     return statement.execution_options(populate_existing=True)
+
+
+async def lock_task_for_original_read(db, task_id, *, project_id=None, wait=False):
+    return await lock_task_for_core_read(
+        db,
+        task_id,
+        project_id=project_id,
+        lock_mode="share",
+        nowait=not wait,
+        populate_existing=True,
+        bounded=wait,
+    )
 
 
 async def _relation(
@@ -185,13 +195,10 @@ async def _relation(
     compact_relation=False,
     link_id=None,
     max_links=None,
+    wait_for_task=False,
 ):
-    # Scalar rows avoid rehydrating unrelated JSON or expiring the caller's
-    # already-budgeted ORM state through populate_existing/load_only.
     if lock:
-        task = await lock_task_for_core_read(
-            db, task_id, lock_mode="share", nowait=True, populate_existing=True
-        )
+        task = await lock_task_for_original_read(db, task_id, wait=wait_for_task)
     else:
         task = await get_core_row(db, task_row, task_id, populate_existing=True)
     if task is None:
@@ -223,8 +230,6 @@ async def _relation(
     )
     has_links = bool(links)
     if compact_relation and task.original_id is not None and not has_links:
-        # A non-primary link still conflicts with an independent TaskOriginal.
-        # EXISTS avoids hydrating unrelated camera facts in an object guard.
         has_links = bool(
             await db.scalar(
                 select(
@@ -263,10 +268,14 @@ async def _relation(
     )
 
 
-async def resolve_task_relation(db, task_id, *, lock=False, max_links=None):
+async def resolve_task_relation(
+    db, task_id, *, lock=False, max_links=None, wait_for_task=False
+):
     """Resolve direct/primary/standalone ownership; never infer from a path."""
     async with _reads(db, lock):
-        return await _relation(db, task_id, lock, max_links=max_links)
+        return await _relation(
+            db, task_id, lock, max_links=max_links, wait_for_task=wait_for_task
+        )
 
 
 def _platform_location(location, *, bounded=False):
@@ -347,8 +356,6 @@ async def saved_location(
             or location.config_revision < 1
         ):
             raise ValueError
-        # This captures metadata only. DNS, decryption and client construction
-        # stay inside the caller's existing registered physical operation.
         await storage.target_for_ref(db, storage_ref)
         parsed = urlsplit(saved.endpoint_url)
         facts = LocationFacts(
@@ -437,9 +444,6 @@ async def read_options(db, source, *, read_timeout=30):
     """Keep legacy transport and old callback signatures unchanged."""
     from app.services.managed_original_reclaim_fence import protect_source
 
-    # The caller has already registered its physical Permit. If GC won before
-    # admission this rejects its claim; if this check wins, that durable operation
-    # protects the subsequent I/O even after the business relation is unlinked.
     async with AsyncSession(
         bind=storage_access.engine(db), expire_on_commit=False, autoflush=False
     ) as owned:
@@ -509,8 +513,6 @@ async def _gate_state(db, location_id, lock, *, bounded=False):
         if bounded
         else await db.scalar(_statement(statement, lock))
     )
-    # Admission creates a durable Gate before any physical operation. Metadata
-    # lookup may see no row and follows storage_access.state's initial revision.
     return (
         {"state": gate.state, "revision": gate.revision}
         if gate is not None
@@ -527,8 +529,6 @@ async def _gate(db, location_id, lock, *, bounded=False):
 async def _read_route(db, source, lock, *, bounded=False):
     from app.services import storage_migration_read_publications as publications
 
-    # Capture logical A's Gate before route lookup. A stopped Gate cannot reject
-    # admission to an independently active published target B.
     gate = await _gate_state(db, source.location_id, lock, bounded=bounded)
     route = await publications.lookup(
         db,
@@ -547,8 +547,6 @@ async def _read_route(db, source, lock, *, bounded=False):
 
 async def _locations(db, location_ids, lock, *, bounded=False):
     if bounded:
-        # Exact JSONB equality rejects unknown keys and numeric "booleans"
-        # without transferring a possibly unbounded configuration value.
         statement = select(
             StorageLocation.id,
             StorageLocation.kind,
@@ -622,22 +620,40 @@ def _safe_locator(bucket, key):
         raise ContentError("no_readable_original")
 
 
-async def _item(db, item_id, lock, *, bounded=False):
-    item = (
-        await db.execute(
-            _statement(
-                select(
-                    DatasetItem.id,
-                    DatasetItem.dataset_id,
-                    DatasetItem.file_path,
-                    DatasetItem.file_type,
-                    DatasetItem.width,
-                    DatasetItem.height,
-                ).where(DatasetItem.id == item_id),
-                lock,
-            )
-        )
-    ).one_or_none()
+async def _bounded_item_read(db, statement):
+    """Bound just the Item lock, without extending a shorter caller timeout."""
+    previous = await db.scalar(
+        text("SELECT setting FROM pg_catalog.pg_settings WHERE name = 'lock_timeout'")
+    )
+    if 0 < int(previous) <= 1000:
+        return await db.execute(statement)
+    await db.execute(text("SET LOCAL lock_timeout = '1s'"))
+    result = await db.execute(statement)
+    await db.execute(
+        text("SELECT set_config('lock_timeout', :timeout, true)"),
+        {"timeout": previous + "ms"},
+    )
+    return result
+
+
+async def _item(db, item_id, lock, *, bounded=False, wait_for_item=False):
+    wait = lock and wait_for_item
+    statement = _statement(
+        select(
+            DatasetItem.id,
+            DatasetItem.dataset_id,
+            DatasetItem.file_path,
+            DatasetItem.file_type,
+            DatasetItem.width,
+            DatasetItem.height,
+        ).where(DatasetItem.id == item_id),
+        lock,
+        nowait=not wait,
+    )
+    result = (
+        await _bounded_item_read(db, statement) if wait else await db.execute(statement)
+    )
+    item = result.one_or_none()
     if item is None:
         raise ContentError("item_removed")
     statement = (
@@ -702,8 +718,6 @@ async def _item(db, item_id, lock, *, bounded=False):
             None,
             None,
         )
-    # Location precedes replica locks, including when rejecting ambiguity. Do
-    # not filter by today's purpose bucket or require a historical Creation.
     candidates = await _replicas(db, asset.id, False, bounded=bounded)
     if not candidates:
         raise ContentError("no_readable_original")
@@ -776,13 +790,19 @@ async def resolve_item(db, item_id, *, lock=False):
         return await _item(db, item_id, lock)
 
 
-async def _task_source(db, relation, lock, *, source=None, bounded=False):
+async def _task_source(
+    db, relation, lock, *, source=None, bounded=False, wait_for_item=False
+):
     if relation.original_id is None:
         if relation.item_id is None:
             raise ContentError("no_readable_original")
         if source is None:
             source = await _item(
-                db, relation.item_id, lock, **({"bounded": True} if bounded else {})
+                db,
+                relation.item_id,
+                lock,
+                **({"bounded": True} if bounded else {}),
+                **({"wait_for_item": True} if wait_for_item else {}),
             )
         if (
             relation.file_path != source.object_key
@@ -849,14 +869,17 @@ async def _task_source(db, relation, lock, *, source=None, bounded=False):
     return await _read_route(db, source, lock, bounded=bounded)
 
 
-async def resolve_task(db, task_id, *, lock=False, compact_relation=False):
+async def resolve_task(
+    db, task_id, *, lock=False, compact_relation=False, wait_for_item=False
+):
     """Freeze a TaskOriginal or the exact direct/primary DatasetItem source.
 
     Compact guards retain only primary links; the default freezes every link.
+    Task video reads can wait on the same Item SHARE fence within one second.
     """
     async with _reads(db, lock):
         relation = await _relation(db, task_id, lock, compact_relation=compact_relation)
-        return await _task_source(db, relation, lock)
+        return await _task_source(db, relation, lock, wait_for_item=wait_for_item)
 
 
 def _camera_link(selected):
@@ -950,7 +973,6 @@ class CachedResolver:
                     source=self._items.get(relation.item_id),
                     bounded=self.max_links is not None,
                 )
-        # Never retain observations whose savepoint failed or rolled back.
         self._remember_relation(source.relation)
         self._tasks[task_id] = source
         if source.item_id is not None:

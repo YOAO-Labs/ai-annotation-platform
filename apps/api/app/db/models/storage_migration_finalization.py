@@ -73,7 +73,6 @@ class StorageMigrationFinalization(Base):
     copy_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("storage_migration_copies.id", ondelete="RESTRICT")
     )
-    # Historical UUID, deliberately independent of AsyncJob/report retention.
     inventory_job_id: Mapped[uuid.UUID | None]
     token: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     evidence: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))

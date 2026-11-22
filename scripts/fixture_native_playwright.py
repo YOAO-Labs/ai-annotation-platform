@@ -39,9 +39,6 @@ from worktree_env import application_environment, atomic_json, state_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-# The fixture owner helpers import ``app.*`` lazily. Playwright starts this
-# supervisor from apps/api with the script directory on sys.path, so the
-# checkout's API package must be importable here as well.
 sys.path.insert(0, str(ROOT / "apps/api"))
 
 
@@ -156,7 +153,6 @@ def _proxy_child(listener_fd, stopped_fd):
     from app.services.fixture_native_output_proxy import create_app
 
     app = create_app()
-    # The exact signed capability authorizes reads, never ambient browser cookies.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -317,7 +313,6 @@ async def _suite_settled(environment, suite_id, directory):
                     "fixture_native_run_unsettled",
                 )
                 if execution is None and reader is None:
-                    # The owner's durable records prove no native participants.
                     continue
                 settled.append(row)
             return sorted(str(row.id) for row in settled)

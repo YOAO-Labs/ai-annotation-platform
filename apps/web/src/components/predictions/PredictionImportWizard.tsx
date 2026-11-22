@@ -1,9 +1,4 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-// 外部预测导入向导.
-//
-// 三步: ①选格式 + 文件 + 默认模型版本 ② dry-run 预览 ③确认提交.
-// 端点: POST /projects/{id}/predictions/import?format=&dry_run=
-// 入库的 prediction 行 source='external_import', ml_backend_id=NULL.
 
 import { useState, type DragEvent } from "react";
 import { clsx } from "clsx";
@@ -22,14 +17,12 @@ import styles from "./PredictionImportWizard.module.css";
 
 type WizardStep = "select" | "preview" | "done";
 
-// 导入对象: 预测 (predictions[]) 或标注 (annotations[], ADR-0028).
 export type ImportTarget = "predictions" | "annotations";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   projectId: string;
-  /** 打开时预设的导入对象 (菜单两个入口分别预设 预测 / 标注)。 */
   initialTarget?: ImportTarget;
   onComplete?: (result: PredictionImportResult) => void;
 }
@@ -136,7 +129,6 @@ export function PredictionImportWizard({
       modelVersion: modelVersion || undefined,
       overwriteExisting,
     };
-    // COCO 默认尺寸仅对「预测 + COCO」生效; 标注导入只走 native_json。
     if (target !== "predictions") return base;
     if (format === "yolo") return { ...base, yoloVariant };
     if (format !== "coco") return base;

@@ -86,10 +86,6 @@ async def lock_project_row(
     if project is None:
         return await merge_project_snapshot(db, Project, values)
 
-    # A normal ORM SELECT refreshes expired/unloaded fields but leaves loaded and
-    # locally dirty fields alone unless populate_existing was requested. The
-    # complete row has already been decoded above, so hydrate only those fields
-    # without issuing a second SELECT or disturbing dirty attributes.
     unloaded = inspect(project).unloaded
     for key, value in values.items():
         if key in unloaded:
@@ -176,8 +172,6 @@ async def create_import_project(
 ) -> uuid.UUID:
     """Create the import project in the caller's transaction and return its ID."""
     project_id = uuid.uuid4()
-    # The ORM creator explicitly flushed all pending work, including within
-    # no_autoflush. Keep that ordering before the owner function call.
     await db.flush()
     raw = await db.scalar(
         text(
@@ -211,10 +205,6 @@ async def set_point_cloud_quality_config(
 ) -> datetime:
     """Write through Workspace while synchronizing this transaction's ORM row."""
     project_id = project.id
-    # The former final ORM flush persisted this Project change together with
-    # the evaluation update and any other caller-owned pending work. Flush the
-    # pre-existing unit before the native write; the workflow still flushes the
-    # evaluation update afterward, within the same transaction.
     await db.flush()
     raw = await db.scalar(
         text(
@@ -242,8 +232,6 @@ async def create_point_cloud_seed_project(
 ) -> uuid.UUID:
     """Insert the directory seed with its original non-scene defaults."""
     project_id = uuid.uuid4()
-    # The original seed flushed the pending Dataset with the new Project,
-    # including inside no_autoflush, before spatial setup or object writes.
     await db.flush()
     raw = await db.scalar(
         text(

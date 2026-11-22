@@ -29,14 +29,10 @@ interface VideoChapterSidebarProps {
   timebase?: FrameTimebase;
   canEdit: boolean;
   onSeekFrame?: (frameIndex: number) => void;
-  /** 时间轴「圈选建章节」臂选态 (由 shell 管理, 圈一段后自动解除)。 */
   timelineDraftArmed?: boolean;
   onToggleTimelineDraft?: () => void;
-  /** 时间轴刷选产物 (start/end 帧); 一变化即打开新建表单并预填范围。 */
   draftRange?: { startFrame: number; endFrame: number } | null;
-  /** 消费完 draftRange 后通知 shell 清空, 使同一区间可再次触发。 */
   onConsumeDraftRange?: () => void;
-  /** 时间轴章节条 ↔ 侧栏行双向 hover 联动。 */
   hoveredChapterId?: string | null;
   onHoverChapter?: (chapterId: string | null) => void;
 }
@@ -118,7 +114,6 @@ export function VideoChapterSidebar({
     setError(null);
   }, [editing?.chapterId]);
 
-  // 时间轴刷选产物到达 → 打开新建表单并预填起止帧 (只剩填标题 / 选色), 随即通知 shell 清空。
   useEffect(() => {
     if (!draftRange) return;
     const start = Math.max(0, Math.min(draftRange.startFrame, draftRange.endFrame));
@@ -131,7 +126,6 @@ export function VideoChapterSidebar({
       color: defaultChapterColor(chapters.length),
     });
     onConsumeDraftRange?.();
-    // 仅在 draftRange 变化时触发; 消费后 shell 会把它清空, guard 提前返回避免重入。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftRange]);
 
@@ -467,7 +461,6 @@ export function pickChapterTargetFrame(
     }
     return null;
   }
-  // prev：若处于章节内部（非起点），跳回当前章节起点；否则去上一章
   for (let i = sorted.length - 1; i >= 0; i--) {
     const c = sorted[i];
     if (currentFrame > c.start_frame && currentFrame <= c.end_frame) {

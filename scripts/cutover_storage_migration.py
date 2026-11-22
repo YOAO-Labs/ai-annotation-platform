@@ -173,8 +173,6 @@ async def probe_targets(session, context):
             target = await managed_s3_target.target_for(db, location, purpose=purpose)
             if target.facts != facts:
                 raise FenceError("cutover_targets_changed")
-            # No metadata transaction survives provider I/O. Admission is an
-            # independent durable operation, and run drains real cancellation.
             await db.commit()
             capabilities[purpose] = await storage_access.run(
                 db,
@@ -266,8 +264,6 @@ async def execute(args, source=None, target=None):
     if args.command == "bind-rollback":
         existing = journal_b.data.get("rollback_claim")
         if existing is None:
-            # The physical observation is complete before a short DB lock. An
-            # unknown commit retains this durable intent and never releases B.
             async with session() as db:
                 context = await service.rollback_preflight(
                     db, actor, cutover_id, args.expected_revision
@@ -312,8 +308,6 @@ async def execute(args, source=None, target=None):
         key: value for key, value in claim_b.items() if key != "reserved"
     } != {key: value for key, value in saved_b.items() if key != "reserved"}:
         raise FenceError("rollback_claim_changed")
-    # Compare this fresh B proof with its durable reservation before any A
-    # action, so a changed gateway address cannot be discovered after release.
     current = await call(
         service.bind_rollback,
         actor,
@@ -363,8 +357,6 @@ async def execute(args, source=None, target=None):
             raise FenceError("finalization_unsettled")
     if journal_a.data.get("application_claim") is not None:
         journal_a.unbind_application(args.cutover_id, claim_a["reservation_nonce"])
-    # The saved UUID precedes all external source mutation. Even a released
-    # Journal replays verify_open before application writes may resume.
     await settled_io(
         Controller(journal_a, adapter_a).release, journal_a.data["revision"], release_id
     )

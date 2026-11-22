@@ -69,7 +69,7 @@ async def test_pure_additions_automatic_and_pending_publish_recovery(
     )
     assert calls and set(calls) == {"worker:content@test"}
     job_id = run.async_job_id
-    await wake(db, row)  # broker publication replay, never creates a second attempt
+    await wake(db, row)
     assert run.async_job_id == job_id
     job = await db.get(AsyncJob, job_id)
     await registrations.claim(db, run.id, job.celery_task_id, "content@test")
@@ -77,7 +77,7 @@ async def test_pure_additions_automatic_and_pending_publish_recovery(
     await db.commit()
     await wake(db, row)
     assert run.async_job_id != job_id
-    await finish_preflight(db, row)  # same drain handles formal registration
+    await finish_preflight(db, row)
     await wake(db, row)
     assert (
         row.state == "idle"
@@ -183,7 +183,6 @@ async def test_pause_during_automatic_confirmation_fences_attempt(
     async def pause(*args, **kwargs):
         nonlocal calls
         calls += 1
-        # The first probe belongs to the coordinator, the second to confirmation.
         if barrier == "snapshot" or calls == 2:
             if change == "key_rotation":
                 key.key_hash = "rotated"

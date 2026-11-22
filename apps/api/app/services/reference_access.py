@@ -77,7 +77,7 @@ async def reference_task_guard(
                 return
             ids = [uuid.UUID(str(v)) for v in payload.get("ids", [])]
         except (TypeError, ValueError):
-            return  # The endpoint's schema owns validation errors.
+            return
         task = await db.scalar(
             select(task_row)
             .join(annotation_row, annotation_row.task_id == task_row.id)
@@ -103,7 +103,7 @@ async def reference_task_guard(
         try:
             data = AiMaskAcceptRequest.model_validate(await request.json())
         except (ValidationError, ValueError):
-            return  # The endpoint owns request-schema errors.
+            return
         try:
             setattr(
                 request.state,
@@ -169,8 +169,6 @@ async def reference_task_guard(
             except Exception as exc:
                 raise content_http_error(exc) from None
             return
-        # Only the owned repair-candidate write enters this managed dispatcher.
-        # Ordinary managed predictions and non-image operations keep their path.
         if (
             task.file_type == "image"
             and request.method == "POST"
@@ -216,7 +214,7 @@ async def reference_task_guard(
         try:
             prediction_id = uuid.UUID(str(request.path_params["prediction_id"]))
         except (ValueError, TypeError):
-            return  # Route parameter validation owns malformed UUIDs.
+            return
 
         try:
             request.state.reference_acceptance = await qualify_acceptance(
@@ -275,7 +273,6 @@ async def reference_task_guard(
     await task_access.resolve_task_access(db, task, actor.id, lock_membership=True)
     from app.services.task_lock import TaskLockService
 
-    # Dispatch also takes this advisory lock before TaskLock's Task FK lock.
     await TaskLockService(db)._lock_task_scope(task.id)
     task = await lock_task_for_core_read(db, task.id, populate_existing=True)
     if task is None:
@@ -284,7 +281,6 @@ async def reference_task_guard(
     if await key_authority(db, actor, key_id, scope) != key_proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     path = request.url.path
-    # Releasing an edit lease must remain possible when its source goes offline.
     if request.method == "DELETE" and path.endswith("/lock"):
         return
     manual = re.fullmatch(
@@ -319,8 +315,6 @@ async def reference_task_guard(
 
         ref = await db.get(DatasetReference, item_id)
         source = await db.get(DatasetSource, ref.source_id)
-        # A lifecycle commit cannot overtake an already verified write. Never
-        # wait while holding Task: source writers may be creating linked tasks.
         try:
             async with db.begin_nested():
                 await db.execute(

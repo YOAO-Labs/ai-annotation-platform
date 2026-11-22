@@ -121,9 +121,6 @@ async def test_member_mutation_projects_cached_pool_after_commit(
     headers = {"Authorization": f"Bearer {token}"}
     path = f"/api/v1/admin/ml-integrations/service-pools/{pool_id}/members/{backend_id}"
     if operation == "remove":
-        # The savepoint world is intentionally invisible to the out-of-process
-        # owner; the real drain refusal is exercised by
-        # test_remove_managed_member_requires_real_drain over a committed world.
         from yoao_inference.topology import RegistryTopologySnapshot
         from app.services.ml_routing import safety
 
@@ -158,11 +155,9 @@ async def test_member_mutation_projects_cached_pool_after_commit(
         )
     assert response.status_code == 200, response.text
     body = response.json()
-    # Route responses come from a fresh public pool projection after commit.
     fresh_pool = await MLBackendService(db_session).get_pool(pool_id)
     assert fresh_pool is not None
     assert fresh_pool.updated_at >= previous_updated_at
-    # The wire contract uses "Z"; compare instants, not timestamp formatting.
     assert (
         datetime.fromisoformat(body["updated_at"].replace("Z", "+00:00"))
         == fresh_pool.updated_at
@@ -239,7 +234,6 @@ async def test_add_member_seeds_fingerprint_and_legacy(
 ) -> None:
     """First member seeds pool capability_fingerprint + legacy_instance_id (§7.3)."""
     _, token = super_admin
-    # Bare registry WITHOUT a singleton pool (admin pool member mgmt starts from scratch).
     from app.db.models.ml_backend_registry import MLBackendRegistry
 
     backend = MLBackendRegistry(
@@ -252,7 +246,6 @@ async def test_add_member_seeds_fingerprint_and_legacy(
     db_session.add(backend)
     await db_session.flush()
 
-    # Create empty pool.
     resp = await httpx_client.post(
         "/api/v1/admin/ml-integrations/service-pools",
         json={"name": "sam3-pool"},
@@ -260,7 +253,6 @@ async def test_add_member_seeds_fingerprint_and_legacy(
     )
     pool_id = resp.json()["id"]
 
-    # Add member.
     resp = await httpx_client.put(
         f"/api/v1/admin/ml-integrations/service-pools/{pool_id}/members/{backend.id}",
         json={"weight": 1},
@@ -280,7 +272,6 @@ async def test_add_member_capability_mismatch_409(
 ) -> None:
     """Adding a member with a divergent fingerprint → 409 capability_mismatch (D3)."""
     _, token = super_admin
-    # Two registries with DIFFERENT capabilities.
     from app.db.models.ml_backend_registry import MLBackendRegistry
 
     b1 = MLBackendRegistry(
@@ -300,7 +291,6 @@ async def test_add_member_capability_mismatch_409(
     db_session.add_all([b1, b2])
     await db_session.flush()
 
-    # Pool seeded with sam3.
     resp = await httpx_client.post(
         "/api/v1/admin/ml-integrations/service-pools",
         json={"name": "sam3-pool"},
@@ -313,7 +303,6 @@ async def test_add_member_capability_mismatch_409(
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    # Add yolo (different fingerprint) → 409.
     resp = await httpx_client.put(
         f"/api/v1/admin/ml-integrations/service-pools/{pool_id}/members/{b2.id}",
         json={"weight": 1},
@@ -397,14 +386,12 @@ async def test_drain_then_resume_member(httpx_client, db_session, super_admin) -
         json={"weight": 1},
         headers={"Authorization": f"Bearer {token}"},
     )
-    # Drain.
     resp = await httpx_client.post(
         f"/api/v1/admin/ml-integrations/service-pools/{pool_id}/members/{backend.id}/drain",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200
     assert resp.json()["members"][0]["traffic_state"] == "draining"
-    # Resume.
     resp = await httpx_client.post(
         f"/api/v1/admin/ml-integrations/service-pools/{pool_id}/members/{backend.id}/resume",
         headers={"Authorization": f"Bearer {token}"},
@@ -852,7 +839,6 @@ async def test_fingerprint_only_drift_requires_review_and_repairs_baseline(
     assert pool.capability_snapshot == corrected
     assert pool.capability_fingerprint == capability_fingerprint(caps)
 
-    # Reproduce the previously persisted hash of the second, lossy normalization.
     old_snapshot = canonicalize_capability(caps)
     old_snapshot["models"][0]["batchable"] = False
     bad_fingerprint = capability_fingerprint(old_snapshot)

@@ -7,19 +7,11 @@ import type { ProjectCapability } from "@/api/projects";
 import styles from "./RequireProjectMember.module.css";
 
 interface Props {
-  /** Capability/capabilities the route requires before it may mount. */
   capability: ProjectCapability | ProjectCapability[];
   children: ReactNode;
-  /** Where to send a denied/errored request.  Defaults to the dashboard. */
   redirectTo?: string;
 }
 
-/**
- * Project-scoped route guard.  While access is unresolved (or failed) it never
- * mounts the children, so an editable Workbench cannot appear before the
- * server-authoritative capability is known.  A capability denial redirects with
- * a toast instead of rendering a broken editor.
- */
 export function RequireProjectAccess({ capability, children, redirectTo = "/dashboard" }: Props) {
   const { id } = useParams<{ id: string }>();
   const projectId = id ?? "";

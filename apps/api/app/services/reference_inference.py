@@ -116,8 +116,6 @@ class ReferenceImageOperation:
             "reference": await reference_binding(self.db, task),
         }
         self.context = await self._context(task, actor)
-        # Entry-point dependencies may have locked membership while authorizing
-        # mask prompts. No such lock may span original reads or object/ML I/O.
         await self.db.commit()
         self.snapshot = await reference_snapshot(
             self.db,
@@ -300,7 +298,6 @@ async def reference_image_operation(
             ) from None
         raise content_http_error(exc) from None
     finally:
-        # Release response locks before cleanup's independent transaction and I/O.
         with anyio.CancelScope(shield=True):
             try:
                 await db.rollback()

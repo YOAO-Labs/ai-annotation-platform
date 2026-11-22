@@ -1,17 +1,3 @@
-/**
- * RegisteredBackendsTab 单测。
- *
- * 重构后 RegisteredBackendsTab 是一个编排壳：
- *   - topology / runtime-snapshot / gpu-resources / overview / all 五个查询；
- *   - mergeTopologyAndSnapshot 把 topology+snapshot 合并成 view-model；
- *   - collectDiagnostics 给问题中心去重；
- *   - 超管 5 个 tab（服务池 / 实例 / GPU / 项目绑定 / 问题中心），
- *     项目管理员只有前 2 个只读 tab；
- *   - 行操作收到 DropdownMenu，卸载/删除走 AlertDialog。
- *
- * 覆盖 (plan §12.2): loading/empty/error/partial-fail · 角色门控 · mutation
- * flows（drain/resume/delete/health）· 问题中心诊断去重 · 窄屏无 min-w-[980px]。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -19,14 +5,11 @@ import { createMemoryRouter, RouterProvider, useLocation } from "react-router-do
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { type ReactNode } from "react";
 
-// Radix Tabs switches on pointerdown. userEvent.click() fires the full
-// pointer + mouse + click sequence, which reliably triggers the switch in jsdom.
 async function switchTab(name: RegExp): Promise<void> {
   const tab = await screen.findByRole("tab", { name: name as never });
   await userEvent.click(tab);
 }
 
-// ── Toast mock ───────────────────────────────────────────────────────────────
 const mockPushToast = vi.fn();
 vi.mock("@/components/ui/Toast", async () => {
   const actual = await vi.importActual<any>("@/components/ui/Toast");
@@ -36,8 +19,8 @@ vi.mock("@/components/ui/Toast", async () => {
   };
 });
 
-// ── adminMlIntegrationsApi mock ───────────────────────────────────────────────
 const mockTopology = vi.fn();
+const mockPrimaryPoolProjectCounts = vi.fn();
 const mockRuntimeSnapshot = vi.fn();
 const mockListAll = vi.fn();
 const mockGpuResources = vi.fn();
@@ -47,6 +30,7 @@ const mockListServicePools = vi.fn();
 vi.mock("@/api/adminMlIntegrations", () => ({
   adminMlIntegrationsApi: {
     topology: () => mockTopology(),
+    primaryPoolProjectCounts: () => mockPrimaryPoolProjectCounts(),
     runtimeSnapshot: () => mockRuntimeSnapshot(),
     listAll: () => mockListAll(),
     gpuResources: () => mockGpuResources(),
@@ -55,7 +39,6 @@ vi.mock("@/api/adminMlIntegrations", () => ({
   },
 }));
 
-// ── mutation hooks mock ──────────────────────────────────────────────────────
 const mockDeleteRegistryMutate = vi.fn();
 const mockHealthMutate = vi.fn();
 const mockUnloadMutate = vi.fn();
@@ -98,13 +81,11 @@ vi.mock("./useGlobalRegistry", () => ({
   }),
 }));
 
-// ── GlobalBackendFormModal mock ──────────────────────────────────────────────
 vi.mock("./GlobalBackendFormModal", () => ({
   GlobalBackendFormModal: ({ open }: { open: boolean }) =>
     open ? <div data-testid="global-backend-form-modal">modal</div> : null,
 }));
 
-// ── usePermissions mock (角色可切) ───────────────────────────────────────────
 let mockRole = "super_admin";
 vi.mock("@/hooks/usePermissions", () => ({
   usePermissions: () => ({ role: mockRole }),
@@ -116,8 +97,6 @@ import type {
   TopologyPoolEntry,
   RuntimeSnapshotResponse,
 } from "@/api/generated/types.gen";
-
-// ── fixture builders ─────────────────────────────────────────────────────────
 
 function makeTopologyPool(overrides: Partial<TopologyPoolEntry> = {}): TopologyPoolEntry {
   return {
@@ -328,7 +307,9 @@ function currentSearch(): string {
   return screen.getByTestId("registry-location-probe").dataset.search ?? "";
 }
 
-// ── tests ────────────────────────────────────────────────────────────────────
+function projectCountCell(poolName: RegExp) {
+  return within(screen.getByRole("row", { name: poolName })).getAllByRole("cell")[4];
+}
 
 describe("RegisteredBackendsTab · 服务池和成员", () => {
   beforeEach(() => {
@@ -345,6 +326,7 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
     mockCapabilityPreview.mockReset();
     mockAcceptCapabilityMutate.mockReset();
     mockTopology.mockReset();
+    mockPrimaryPoolProjectCounts.mockReset();
     mockRuntimeSnapshot.mockReset();
     mockListAll.mockReset();
     mockGpuResources.mockReset();
@@ -353,6 +335,7 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
     mockRole = "super_admin";
 
     mockTopology.mockResolvedValue(makeTopology());
+    mockPrimaryPoolProjectCounts.mockResolvedValue({ counts: {} });
     mockRuntimeSnapshot.mockResolvedValue(makeSnapshot());
     mockListAll.mockResolvedValue({ items: [] });
     mockGpuResources.mockResolvedValue(makeGpuResources([]));
@@ -394,9 +377,7 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       mockRuntimeSnapshot.mockRejectedValue(new Error("snapshot 503"));
       mockListAll.mockResolvedValue({ items: [makeBackend()] });
       renderUI();
-      // 服务池 tab 内容仍在
       expect(await screen.findByText("grounded-sam2-pool")).toBeInTheDocument();
-      // 顶部出现运行时快照加载失败的 partial 告警
       await waitFor(() => {
         expect(screen.getByText("运行时快照加载失败")).toBeInTheDocument();
       });
@@ -409,8 +390,6 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
     });
 
     it("实例列表查询失败且无缓存 → 实例 tab 计数显示 ? 而不是 0", async () => {
-      // 回归（PR #103 Codex P2）：/all 失败时旧代码回落 0，把失败的列表
-      // 冒充成空注册表；应与 GPU / 项目计数一致地显示未知。
       mockListAll.mockRejectedValue(new Error("all 503"));
       renderUI();
       const instancesTab = await screen.findByRole("tab", { name: /实例/ });
@@ -418,9 +397,43 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
         expect(instancesTab.textContent).toContain("?");
       });
     });
+
+    it.each([403, 503])("项目统计返回 %s 时显示不可用，不显示 0", async (status) => {
+      mockPrimaryPoolProjectCounts.mockRejectedValue(new Error(`counts ${status}`));
+      renderUI();
+      await waitFor(() => {
+        expect(projectCountCell(/grounded-sam2-pool/)).toHaveTextContent(/^不可用$/);
+      });
+    });
   });
 
   describe("Super Admin", () => {
+    it("项目列使用主池绑定统计，不受共用实例、空池或总览失败影响", async () => {
+      mockTopology.mockResolvedValue(
+        makeTopology({
+          pools: [
+            makeTopologyPool({ id: "primary", name: "主池" }),
+            makeTopologyPool({ id: "shared", name: "共用实例池" }),
+            makeTopologyPool({
+              id: "empty",
+              name: "空成员池",
+              members: [],
+              member_count: 0,
+              routable_instances: 0,
+            }),
+          ],
+        }),
+      );
+      mockPrimaryPoolProjectCounts.mockResolvedValue({ counts: { primary: 2, empty: 1 } });
+      mockOverview.mockRejectedValue(new Error("overview 503"));
+      renderUI();
+      await waitFor(() => {
+        expect(projectCountCell(/主池/)).toHaveTextContent(/^2$/);
+        expect(projectCountCell(/共用实例池/)).toHaveTextContent(/^0$/);
+        expect(projectCountCell(/空成员池/)).toHaveTextContent(/^1$/);
+      });
+    });
+
     it("默认显示 5 个 tab，默认在服务池 tab", async () => {
       renderUI();
       expect(await screen.findByRole("tab", { name: /服务池/ })).toBeInTheDocument();
@@ -439,9 +452,7 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       await userEvent.click(screen.getByRole("button", { name: "复制服务池 ID" }));
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("pool-1"));
       expect(screen.queryByText("grounded-sam2", { exact: true })).not.toBeInTheDocument();
-      // routing_policy 超管可见
       expect(screen.getByText(/平滑加权轮询/)).toBeInTheDocument();
-      // 操作按钮
       expect(screen.getAllByTitle("服务池操作").length).toBeGreaterThan(0);
     });
 
@@ -572,22 +583,17 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       Object.assign(navigator, { clipboard: { writeText } });
       mockListAll.mockResolvedValue({ items: [makeBackend()] });
       renderUI();
-      // 切到实例 tab（Radix Tabs 用 pointerdown 切换）
       await switchTab(/实例/);
       await screen.findByText("grounded-sam2");
-      // URL 收进名称副行，完整值仍可通过 title 查看
       expect(screen.getByTitle("http://172.17.0.1:8001")).toBeInTheDocument();
       expect(screen.queryByText("bk-1", { exact: true })).not.toBeInTheDocument();
       await userEvent.click(screen.getByRole("button", { name: "复制实例 ID" }));
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("bk-1"));
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-      // GPU claim 摘要列显示完整资源 ID（带 GPU 前缀），title 带预算
       expect(screen.getByText("GPU node-a/index:0")).toBeInTheDocument();
       expect(screen.getByTitle(/node-a\/index:0 · 8192 MiB/)).toBeInTheDocument();
-      // 详情 + 操作按钮存在
       expect(screen.getAllByTitle("详情").length).toBeGreaterThan(0);
       expect(screen.getAllByTitle("实例操作").length).toBeGreaterThan(0);
-      // 主表不再有独立的 URL / 来源 / 权重 / GPU 列（列数收敛为 6）
       const header = screen.getByText("所属服务池").closest("tr");
       expect(header?.querySelectorAll("th").length).toBe(6);
     });
@@ -612,7 +618,6 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       expect(within(summary).getByText("全局期望模式")).toBeInTheDocument();
       expect(within(summary).getByText("Observe 就绪")).toBeInTheDocument();
       expect(within(summary).getByText("Enforce 未就绪")).toBeInTheDocument();
-      // 身份列保留设备序号 + 节点；资源 ID 通过复制按钮提供完整值。
       expect(await screen.findByText("index:0")).toBeInTheDocument();
       expect(screen.getByText("节点 · node-a")).toBeInTheDocument();
       expect(screen.getByText("配置 · observe")).toBeInTheDocument();
@@ -620,9 +625,7 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       await userEvent.click(screen.getByRole("button", { name: "复制 GPU 资源 ID" }));
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("node-a/index:0"));
       expect(screen.getByRole("button", { name: /展开受影响实例/ })).toBeInTheDocument();
-      // committed 运行时占用的数值
       expect(screen.getByText(/4,096 MiB/)).toBeInTheDocument();
-      // 静态声明的数值
       expect(screen.getByText(/8,192 MiB/)).toBeInTheDocument();
     });
 
@@ -659,7 +662,6 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       renderUI();
       await switchTab(/项目绑定/);
       expect(await screen.findByText("My AI Project")).toBeInTheDocument();
-      // 切换到按服务池视图
       fireEvent.click(screen.getByRole("button", { name: "按服务池" }));
       expect(await screen.findByText("grounded-sam2-pool")).toBeInTheDocument();
     });
@@ -732,7 +734,6 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
     });
 
     it("服务池行不显示 routing_policy、无 GPU 列、无操作按钮", async () => {
-      // 项目管理员：服务端把 routing_policy 投影成 "unknown"
       mockTopology.mockResolvedValue(
         makeTopology({
           pools: [
@@ -755,20 +756,17 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       );
       renderUI();
       await screen.findByText("grounded-sam2-pool");
-      // routing_policy 标签不出现（"策略 · ..." 仅超管可见）
       expect(screen.queryByText(/策略 ·/)).not.toBeInTheDocument();
-      // 无服务池操作菜单
       expect(screen.queryByTitle("服务池操作")).not.toBeInTheDocument();
-      // 无"注册实例"按钮
       expect(screen.queryByRole("button", { name: /注册实例/ })).not.toBeInTheDocument();
     });
 
     it("不触发超管专属查询（runtime-snapshot / gpu-resources / overview）", async () => {
+      mockPrimaryPoolProjectCounts.mockResolvedValue({ counts: { "pool-1": 1 } });
       renderUI();
       await screen.findByText("grounded-sam2-pool");
-      // 等一拍让所有 effect 跑完
       await waitFor(() => {
-        expect(mockTopology).toHaveBeenCalled();
+        expect(projectCountCell(/grounded-sam2-pool/)).toHaveTextContent(/^1$/);
       });
       expect(mockRuntimeSnapshot).not.toHaveBeenCalled();
       expect(mockGpuResources).not.toHaveBeenCalled();
@@ -782,9 +780,7 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       renderUI();
       await switchTab(/实例/);
       await screen.findByText("grounded-sam2");
-      // 打开操作菜单
       fireEvent.click(screen.getByTitle("实例操作"));
-      // 点健康检查
       await waitFor(() => {
         expect(screen.getByRole("menuitem", { name: /健康检查/ })).toBeInTheDocument();
       });
@@ -813,7 +809,6 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
     });
 
     it("实例 resume → 调用 resumePoolMember", async () => {
-      // 成员当前处于 draining 状态，resume 才可点
       mockTopology.mockResolvedValue(
         makeTopology({
           pools: [
@@ -914,10 +909,8 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
         expect(screen.getByRole("menuitem", { name: /删除/ })).toBeInTheDocument();
       });
       fireEvent.click(screen.getByRole("menuitem", { name: /删除/ }));
-      // AlertDialog 打开
       const dialog = await screen.findByText(/确认删除实例/);
       expect(dialog).toBeInTheDocument();
-      // 点确认删除
       fireEvent.click(screen.getByRole("button", { name: /确认删除/ }));
       await waitFor(() => {
         expect(mockDeleteRegistryMutate).toHaveBeenCalledWith("bk-1", expect.anything());
@@ -927,10 +920,6 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
 
   describe("Issue Center · 诊断去重", () => {
     it("同一 code+subject_type+subject_id 在问题中心只渲染一次", async () => {
-      // 构造一个 pool_offline 的池子（topology 来源），其成员还处于 circuit_open（runtime 来源）。
-      // collectDiagnostics 会把 pool_offline 单独成条，circuit_open 单独成条——
-      // 二者 subject_type 不同（service_pool vs instance），所以各算一条。
-      // 我们要断言的是：不会出现两条 pool_offline 主文案。
       mockTopology.mockResolvedValue(
         makeTopology({
           pools: [
@@ -988,11 +977,9 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
       );
       renderUI();
       await switchTab(/问题中心/);
-      // pool_offline 主文案只出现一次
       await waitFor(() => {
         expect(screen.getAllByText(/无可路由实例/).length).toBe(1);
       });
-      // 问题中心 tab 上的计数 badge = 2（pool_offline + circuit_open）
       const issueTab = screen.getByRole("tab", { name: /问题中心/ });
       expect(issueTab.querySelector(".bg-status-danger-soft, [class*='danger']")).not.toBeNull();
     });
@@ -1051,7 +1038,6 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
     it("?registry_view=instances 深链直接落到实例子视图", async () => {
       mockListAll.mockResolvedValue({ items: [makeBackend()] });
       renderUI("/model-market?tab=registry&registry_view=instances");
-      // 无需点击，实例试图直接渲染。
       expect(await screen.findByText("grounded-sam2")).toBeInTheDocument();
     });
 
@@ -1082,7 +1068,6 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
         expect(search).toContain("instance_pool=pool-1");
         expect(search).not.toMatch(/instance_(q|health|id)=/);
       });
-      // 实例行被池条件过滤后仍可见（bk-1 属于 pool-1）。
       expect(await screen.findByText("grounded-sam2")).toBeInTheDocument();
       expect(screen.getByText(/仅显示服务池「grounded-sam2-pool」的实例/)).toBeInTheDocument();
       expect(screen.queryByText("unmanaged")).not.toBeInTheDocument();
@@ -1103,7 +1088,6 @@ describe("RegisteredBackendsTab · 服务池和成员", () => {
     it("表格容器不使用旧的 min-w-[980px] 类", async () => {
       const { container } = renderUI();
       await screen.findByText("grounded-sam2-pool");
-      // 整个 DOM 中不应再出现 min-w-[980px] 类
       expect(container.querySelector(".min-w-\\[980px\\]")).toBeNull();
     });
   });

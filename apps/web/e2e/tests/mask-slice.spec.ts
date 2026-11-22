@@ -10,8 +10,7 @@ import {
   type RequestErrorSignal,
 } from "../helpers/request-errors";
 import type { APIRequestContext, APIResponse, Page, Response } from "@playwright/test";
-import { expect, test as base, ownedNamespaceFor, type SeedData } from "../fixtures/seed";
-import { runMaskSliceLifecycle } from "../helpers/seed-owner-transport.mjs";
+import { expect, test as base, type SeedAPI, type SeedData } from "../fixtures/seed";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 type Point = [number, number];
@@ -51,7 +50,7 @@ interface Case {
   allowedErrors: Set<string>;
   data: SeedData;
   taskId: string;
-  namespace: string;
+  seed: SeedAPI;
   headers: Record<string, string>;
   writes: Array<{ method: string; path: string; body: unknown }>;
   evidence: unknown[];
@@ -65,9 +64,7 @@ async function json<T>(response: APIResponse | Response): Promise<T> {
 }
 
 const test = base.extend<{ sliceCase: Case }>({
-  sliceCase: async ({ page, request, seed, browser }, provideFixture, testInfo) => {
-    const namespace = ownedNamespaceFor(testInfo);
-    const data = await seed.owned(namespace);
+  sliceCase: async ({ page, request, seed, browser, owned: data }, provideFixture, testInfo) => {
     const taskId = data.task_ids[0];
     const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
     const project = await json<{ tool_bindings: Record<string, unknown> }>(
@@ -115,7 +112,7 @@ const test = base.extend<{ sliceCase: Case }>({
     const fixture: Case = {
       data,
       taskId,
-      namespace,
+      seed,
       headers,
       writes: [],
       evidence: [],
@@ -161,7 +158,6 @@ const test = base.extend<{ sliceCase: Case }>({
     let passed = false;
     try {
       await provideFixture(fixture);
-      // Reload can report keepalive session telemetry as aborted after the API accepts it.
       const expectedAborts = errors.filter((error) =>
         isExpectedRequestAbort(error, imageWorkbenchAborts, objectCommentsAborts, maskEditorAborts),
       );
@@ -205,8 +201,6 @@ const test = base.extend<{ sliceCase: Case }>({
         page.removeAllListeners("requestfailed");
         page.removeAllListeners("request");
         await page.unrouteAll({ behavior: "ignoreErrors" });
-        if (!page.isClosed()) await page.goto("about:blank");
-        await seed.owned();
       }
     }
   },
@@ -436,18 +430,6 @@ async function commit(page: Page, fixture: Case, keyboard = false) {
   expect(response.slice_restore).toBeTruthy();
   return response;
 }
-function lifecycle(
-  fixture: Case,
-  action: "gc" | "drop_revision" | "expire_revision",
-  operationId: string,
-) {
-  return runMaskSliceLifecycle({
-    action,
-    task_id: fixture.taskId,
-    operation_id: operationId,
-    namespace: fixture.namespace,
-  });
-}
 async function checkPartition(
   request: APIRequestContext,
   fixture: Case,
@@ -539,8 +521,6 @@ test("H4b-2 native center cuts, reversed endpoints, equal-area identity and zero
     source = await seedMask(request, fixture, original);
   await open(page, fixture);
   const fitNativePixelCenters = async () => {
-    // Reload restores panel proportions, so re-establish the pixel-center
-    // precondition before every cut instead of reusing the previous viewport.
     await page.setViewportSize({ width: 1440, height: 1200 });
     await page.waitForTimeout(400);
     for (let attempt = 0; attempt < 8; attempt += 1) {
@@ -613,7 +593,6 @@ test("H4b-3 repeated button and held Enter submit one transaction", async ({
     release = resolve;
   });
   let requests = 0;
-  // Explicit latency injection holds the real commit while native input repeats.
   await page.route("**/annotations/mask-mutations:commit", async (route) => {
     requests += 1;
     await gate;
@@ -688,7 +667,7 @@ test("H4b-4 undo deactivates the new mask; real GC retains its pixels for browse
   expect(
     ledger(fixture).annotations.find((row) => row.id === receipt.created_annotation_id)?.is_active,
   ).toBe(false);
-  const gc = await lifecycle(fixture, "gc", receipt.operation_id);
+  const gc = await fixture.seed.maskSliceLifecycle(fixture.taskId, "gc", receipt.operation_id);
   fixture.evidence.push({ explicitGcAgeFixture: gc });
   expect(gc.orphan_deleted).toBe(true);
   await reloadAndRead(page, request, fixture);
@@ -720,7 +699,13 @@ for (const failure of ["expired", "missing_revision", "peer_edit"] as const) {
     const receipt = (await commit(page, fixture)).slice_restore;
     if (failure === "expired") ledger(fixture, "expire", receipt.operation_id);
     else if (failure === "missing_revision")
-      fixture.evidence.push(await lifecycle(fixture, "drop_revision", receipt.operation_id));
+      fixture.evidence.push(
+        await fixture.seed.maskSliceLifecycle(
+          fixture.taskId,
+          "drop_revision",
+          receipt.operation_id,
+        ),
+      );
     else {
       const peer = await playwright.request.newContext({
         extraHTTPHeaders: {
@@ -843,7 +828,6 @@ test("H4b-3 discard on task switch retires the mask slice preview without writes
   await open(page, fixture);
   await begin(page, source.id);
   await preview(page);
-  // Chromium may report keepalive release as aborted during navigation; verify the DB release below.
   fixture.allowedErrors.add(`request:/api/v1/tasks/${fixture.taskId}/lock:net::ERR_ABORTED`);
   const dialogs: string[] = [];
   const leaveDialog = page.getByRole("alertdialog");

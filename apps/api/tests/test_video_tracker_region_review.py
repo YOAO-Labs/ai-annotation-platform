@@ -500,8 +500,6 @@ async def test_claimed_reviewer_can_decide_job_created_by_annotator(
     task.status = "review"
     task.reviewer_id = reviewer_user.id
     task.reviewer_claimed_at = datetime.now(timezone.utc)
-    # Frozen review evidence: the reviewer is not a contributor, so the
-    # self-review guard admits a legitimate claimed-reviewer decision.
     task.annotation_contributor_ids = [str(owner.id)]
     task.review_round_id = uuid.uuid4()
     task.review_contributor_ids = [str(owner.id)]
@@ -549,9 +547,6 @@ async def test_claimed_reviewer_can_decide_job_created_by_annotator(
         json=payload,
         headers=_bearer(reviewer_token),
     )
-    # The entry route's phase capability guard rejects a completed task before
-    # the service status guard, so the response is 403 with the canonical
-    # missing-capability detail (annotation.write).
     assert response.status_code == 403, response.text
     assert "annotation.write" in str(response.json()["detail"]), response.text
 

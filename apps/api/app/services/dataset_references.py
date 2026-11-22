@@ -63,8 +63,6 @@ async def register_entry(
         if before_apply is not None:
             await before_apply(current_db)
 
-    # Reject an archived or superseded lifecycle before binding/source I/O. The
-    # final callback locks Dataset only after scan_context has locked its Source.
     from app.services import dataset_source_access as access
 
     initial_scan = await access.require_run(db, DatasetScanRun, run_id, actor)
@@ -72,7 +70,6 @@ async def register_entry(
     await scans.require_dataset_write(
         db, initial_source, snapshot=initial_scan.snapshot, lock=False
     )
-    # Binding initialization precedes the Location/Source lock order.
     await originals.bootstrap(db)
 
     key_proof = await key_authority(db, actor, api_key_id, "datasets:write")
@@ -91,8 +88,6 @@ async def register_entry(
     )
     observation, initial_sha = dict(snapshot.observation), snapshot.sha256
     snapshot.close()
-    # Repeat the existing exact source capture outside business locks. Its own
-    # short post-I/O check commits before any target allocation or provider write.
     final = await scan_snapshot(
         db,
         run_id,
@@ -156,7 +151,6 @@ async def register_entry(
         prepared_preview = await previews.prepare(
             db, unlocked_source, unlocked_entry, final
         )
-        # Only current source, authority and publication facts are locked here.
         location, source, run, entry, node, anchor = await scan_context(
             db, run_id, path_digest, actor, lock=True, node_id=node_id
         )
@@ -426,7 +420,6 @@ async def register_entry(
             ):
                 raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
 
-        # A historical replay must not republish its bytes as the current preview.
         preview = (
             None
             if historical_replay
@@ -491,8 +484,6 @@ async def register_entry(
         await previews.delete_owned(retired)
         return result
     except BaseException:
-        # A lost commit acknowledgement is not proof that the owned object is
-        # unpublished. Leave it for reconciliation rather than deleting data.
         if not committing:
             await previews.delete_owned(uploaded)
         raise
@@ -541,7 +532,6 @@ async def prepare_copy(
                 await sources.recheck_read_route(db, canonical)
                 options = await sources.read_options(db, canonical)
                 if not options:
-                    # Keep the saved legacy owner's operation-local client.
                     target = await sources.read_target(db, canonical)
                     options = {"client_context": target.client}
                 stored = await reader.capture(
@@ -591,7 +581,6 @@ async def prepare_copy(
         requested_by=requested_by,
         authority=authority,
     )
-    # Naming locks do not span target I/O. Publication rechecks eligibility.
     await db.commit()
     snapshot.file.seek(0)
     creation = await originals.create_stream(
@@ -633,8 +622,6 @@ async def apply_copy(
             raise snapshots.ContentError("managed_original_creation_input_changed")
         return {"item_id": existing.id, "created": False, "sha256": snapshot.sha256}
     if existing is not None:
-        # Another registration won after sealing. Retain this exact independent
-        # Creation and let a fresh attempt recheck the winner outside SQL locks.
         raise snapshots.ContentError("managed_original_creation_input_changed")
     service = DatasetService(db)
     allocation, creation = candidate["allocation"], candidate["created"]
@@ -814,8 +801,6 @@ async def _reference_binding_state(db, item_id, *, task=None):
         or original_entry.verified_content["size_bytes"] != asset.size_bytes
     ):
         raise snapshots.ContentError("content_binding_changed")
-    # The original reference remains immutable. Only an explicit accepted
-    # receipt for this exact business asset can renew its read observation.
     accepted = await db.scalar(
         select(DatasetSourceRevision)
         .where(
@@ -943,8 +928,6 @@ async def _physical_reference_context(db, state, *, node_id=None):
         raise snapshots.ContentError(
             "worker_read_not_verified" if node_id else "api_read_not_verified"
         )
-    # The pinned anchor and actual per-request verified read are this node's
-    # capability proof; probe expiry does not authorize a new anchor or locator.
     same_host = run.snapshot.get("scan_host_id") == fs.host_identity()
     expected = (
         receipt["observation"]
@@ -1210,7 +1193,6 @@ async def reference_snapshot(
                     or getattr(exc, "code", None) == "snapshot_capacity_exceeded"
                 ):
                     raise
-                # A lost original grant or API key can never be repaired by B.
                 await validate_business()
                 if selected_route == routes[-1]:
                     raise
@@ -1246,8 +1228,6 @@ async def reference_snapshot(
 def _cache_factory(db):
     from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
-    # Never commit a caller-managed Connection/outer transaction. Production
-    # sessions bind to an Engine; resource transactions get their own connection.
     return (
         async_sessionmaker(db.bind, expire_on_commit=False)
         if isinstance(db.bind, AsyncEngine)

@@ -513,12 +513,10 @@ function validatePolicyDetail(request, statusCode, detail, source, spans) {
     if (statusCode === 422n && Array.isArray(detail)) {
       validatePreferenceErrors(detail, source, spans, request);
     } else if (statusCode === 422n && detail === "named_presets_revision_read_only") {
-      // Frozen public policy detail.
     } else if (
       statusCode === 409n &&
       (detail === "layout_engine_downgrade" || detail === "layout_schema_downgrade")
     ) {
-      // Frozen public policy detail.
     } else if (statusCode === 409n && isRecord(detail)) {
       const required = ["code", "message"];
       const fields = Object.keys(detail);

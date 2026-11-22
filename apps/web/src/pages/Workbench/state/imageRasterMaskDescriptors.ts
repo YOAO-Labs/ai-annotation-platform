@@ -9,7 +9,6 @@ export function buildImageRasterMaskDescriptors(
   selectedIds: ReadonlySet<string>,
 ): RasterMaskRecordDescriptor<"annotation">[] {
   return annotations.flatMap((annotation) => {
-    // Optimistic creates have uploaded content, but no readable annotation endpoint yet.
     if (annotation.geometry.type !== "raster_mask" || annotation.id.startsWith("tmp_")) return [];
     const color = classColorForCanvas(annotation.class_name);
     return [
@@ -46,7 +45,6 @@ export function buildImagePredictionMaskDescriptors(
         colorRevision: color,
         zOrder: index,
         selected: selectedIds.has(candidate.id),
-        // Each candidate checks its own Task/Prediction/shape authorization.
         deduplicateLoad: false,
         load: () =>
           rasterMasksApi.predictionRasterMaskContent(

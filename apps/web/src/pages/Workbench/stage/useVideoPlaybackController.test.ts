@@ -1,8 +1,7 @@
-// 视频播放控制器单测(子 hook 全 mock):聚焦确定性 state ——
-// 播放浮层 show/2s 自动隐藏、loopRegion 规范化/清除、书签开合、派生 maxFrame。
-// Source/draw admission uses explicit child-hook receipts; actual pixels remain a browser gate.
 import { act, renderHook } from "@testing-library/react";
 import { useState } from "react";
+import { tasksApi } from "@/api/tasks";
+import { useAuthStore } from "@/stores/authStore";
 import type { TaskVideoManifestResponse, TaskVideoFrameTimetableResponse } from "@/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -115,9 +114,6 @@ vi.mock("./useVideoPreciseFrame", () => ({
     }
   ),
 }));
-vi.mock("./useVideoFramePreview", () => ({
-  useVideoFramePreview: () => ({ preview: null, previewFor: vi.fn(), prefetch: vi.fn() }),
-}));
 vi.mock("./useVideoTrackActions", () => ({
   useVideoTrackActions: () => ({
     selectedTrackLocked: false,
@@ -134,6 +130,7 @@ vi.mock("@/utils/imageBitmapToJpeg", () => ({
 }));
 
 import type { VideoFrameSeekResult } from "./videoStageControls";
+import type { VideoTrackAnnotation } from "./videoStageTypes";
 import {
   useVideoPlaybackController,
   VIDEO_FRAME_READY_TIMEOUT_MS,
@@ -145,7 +142,6 @@ const MANIFEST = {
   metadata: { fps: 30, frame_count: 100 },
 } as TaskVideoManifestResponse;
 
-/** 最小可用的 <video> 替身:满足 hook 各 effect 挂监听 / 读 readyState / 调 load()。 */
 function mockVideo(readyState = 0) {
   return {
     readyState,
@@ -270,6 +266,117 @@ describe("useVideoPlaybackController", () => {
     expect(videoHookMocks.preciseOptions.mock.lastCall?.[0].metadataGenerationId).toBe(
       nextGeneration,
     );
+  });
+
+  it("prefetches new keyframes after the annotation write settles without restarting unchanged windows", async () => {
+    const { token, sessionId, user } = useAuthStore.getState();
+    const prefetch = vi.spyOn(tasksApi, "prefetchVideoFrames").mockImplementation(
+      (_taskId, _frames, _params, options) =>
+        new Promise((_, reject) => {
+          options?.signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    prefetch.mockResolvedValueOnce({
+      dataset_item_id: "video",
+      task_id: MANIFEST.task_id,
+      frames: [0, 10].map((frame_index) => ({
+        frame_index,
+        width: 320,
+        format: "webp",
+        status: "pending",
+        url: null,
+        retry_after: 3,
+        error: null,
+      })),
+    });
+    function track(frames: number[], version: number, x: number): VideoTrackAnnotation {
+      return {
+        id: "track",
+        task_id: MANIFEST.task_id,
+        project_id: null,
+        user_id: null,
+        source: "manual",
+        annotation_type: "video_track_bbox",
+        class_name: "person",
+        geometry: {
+          type: "video_track_bbox",
+          track_id: "track",
+          keyframes: frames.map((frame_index) => ({
+            frame_index,
+            bbox: { x, y: 0.2, w: 0.2, h: 0.2 },
+            source: "manual",
+          })),
+        },
+        confidence: null,
+        parent_prediction_id: null,
+        parent_annotation_id: null,
+        lead_time: null,
+        is_active: true,
+        ground_truth: false,
+        version,
+        created_at: "",
+        updated_at: null,
+      };
+    }
+    const overrides = {
+      manifest: MANIFEST,
+      selectedTrack: track([0, 10], 1, 0.2),
+      annotationWritesPending: false,
+    };
+    localStorage.setItem("token", "video-test-token");
+    useAuthStore.setState({
+      token: "video-test-token",
+      sessionId: "video-test-session",
+      user: { id: "video-test-user" } as NonNullable<typeof user>,
+    });
+    const { rerender, unmount } = setup(undefined, overrides);
+    const renderTrack = (selectedTrack: VideoTrackAnnotation, annotationWritesPending: boolean) => {
+      Object.assign(overrides, { selectedTrack, annotationWritesPending });
+      rerender();
+    };
+    try {
+      expect(prefetch.mock.calls.map((call) => call[1])).toEqual([[0, 10]]);
+      await act(async () => renderTrack(track([0, 10], 1, 0.21), false));
+      renderTrack(track([0, 7, 10], 1, 0.22), true);
+      renderTrack(track([0, 10], 1, 0.21), false);
+      expect(prefetch).toHaveBeenCalledTimes(1);
+      renderTrack(track([0, 5, 10], 1, 0.22), true);
+      renderTrack(track([0, 5, 10], 2, 0.22), true);
+      expect(prefetch).toHaveBeenCalledTimes(1);
+
+      renderTrack(track([0, 5, 10], 2, 0.22), false);
+      expect(prefetch.mock.calls.map((call) => call[1])).toEqual([
+        [0, 10],
+        [0, 5, 10],
+      ]);
+      const signal = prefetch.mock.calls[1][3]?.signal;
+      renderTrack(track([0, 5, 10], 2, 0.23), true);
+      renderTrack(track([0, 5, 10], 3, 0.23), false);
+      renderTrack(track([0, 10], 3, 0.21), true);
+      renderTrack(track([0, 10], 4, 0.21), false);
+      expect(prefetch).toHaveBeenCalledTimes(2);
+      expect(signal?.aborted).toBe(false);
+
+      overrides.manifest = {
+        ...MANIFEST,
+        metadata_generation_id: "10000000-0000-4000-8000-000000000002",
+      };
+      rerender();
+      expect(signal?.aborted).toBe(true);
+      expect(prefetch.mock.calls.map((call) => call[1])).toEqual([
+        [0, 10],
+        [0, 5, 10],
+        [0, 10],
+      ]);
+    } finally {
+      unmount();
+      prefetch.mockRestore();
+      useAuthStore.setState({ token, sessionId, user });
+    }
   });
 
   it("ignores an old timetable and recaptures when this generation's PTS table arrives", () => {
@@ -618,13 +725,12 @@ describe("useVideoPlaybackController", () => {
     expect(result.current.playbackOverlayVisible).toBe(true);
 
     act(() => result.current.schedulePlaybackOverlayHide());
-    expect(result.current.playbackOverlayVisible).toBe(true); // 尚未到点
+    expect(result.current.playbackOverlayVisible).toBe(true);
     act(() => vi.advanceTimersByTime(2000));
     expect(result.current.playbackOverlayVisible).toBe(false);
 
     act(() => result.current.showPlaybackOverlay());
     expect(result.current.playbackOverlayVisible).toBe(true);
-    // show 已清掉隐藏计时器:再推进时间不应又隐藏。
     act(() => vi.advanceTimersByTime(5000));
     expect(result.current.playbackOverlayVisible).toBe(true);
   });
@@ -657,7 +763,6 @@ describe("useVideoPlaybackController", () => {
     expect(video.load).toHaveBeenCalledTimes(2);
     act(() => vi.advanceTimersByTime(5000));
     expect(video.load).toHaveBeenCalledTimes(3);
-    // 达到 MAX_RETRIES 后不再重踢(避免无限重试)。
     act(() => vi.advanceTimersByTime(15000));
     expect(video.load).toHaveBeenCalledTimes(3);
   });
@@ -665,7 +770,7 @@ describe("useVideoPlaybackController", () => {
   it("加载卡死看门狗:期间拿到元数据(readyState≥HAVE_METADATA)则不再重踢", () => {
     const video = mockVideo(0);
     setup({ current: video });
-    video.readyState = HTMLMediaElement.HAVE_METADATA; // 加载恢复
+    video.readyState = HTMLMediaElement.HAVE_METADATA;
     act(() => vi.advanceTimersByTime(15000));
     expect(video.load).not.toHaveBeenCalled();
   });
@@ -999,25 +1104,19 @@ describe("useVideoPlaybackController", () => {
     const video = mockVideo(HTMLMediaElement.HAVE_METADATA);
     const { result } = setup({ current: video });
 
-    // 时间轴点击 seek：导航目标 = 17，乐观写落地。
     act(() => result.current.controls.seekToFrame(17));
     expect(result.current.frameIndex).toBe(17);
 
-    // 高负载交错下迟到的旧帧回报（时间轴点击量化帧、被步进超越）：必须被栅栏丢弃。
     act(() => videoHookMocks.onFrameChange?.(9));
     expect(result.current.frameIndex).toBe(17);
-    // 非导航来源的任意新帧同样不允许改写暂停态选中帧。
     act(() => videoHookMocks.onFrameChange?.(18));
     expect(result.current.frameIndex).toBe(17);
-    // 导航目标回声照常接受（幂等）。
     act(() => videoHookMocks.onFrameChange?.(17));
     expect(result.current.frameIndex).toBe(17);
 
-    // 新的显式导航（键盘步进）正常推进。
     act(() => result.current.controls.seekToFrame(18));
     expect(result.current.frameIndex).toBe(18);
 
-    // 播放态逐帧推进不受栅栏限制。
     act(() => result.current.controls.togglePlayback());
     expect(result.current.isPlaybackActive).toBe(true);
     act(() => videoHookMocks.onFrameChange?.(25));
@@ -1028,7 +1127,6 @@ describe("useVideoPlaybackController", () => {
     const video = mockVideo(HTMLMediaElement.HAVE_METADATA);
     const { result } = setup({ current: video });
 
-    // 纯净评审序列:seek 17(此后无任何新导航)→ 播放推进到 25 → 暂停。
     act(() => result.current.controls.seekToFrame(17));
     expect(result.current.frameIndex).toBe(17);
 
@@ -1040,15 +1138,12 @@ describe("useVideoPlaybackController", () => {
     act(() => result.current.controls.togglePlayback());
     expect(result.current.isPlaybackActive).toBe(false);
 
-    // 暂停后,导航目标 17 的迟到回报不得把帧号拽回旧帧。
     act(() => videoHookMocks.onFrameChange?.(17));
     expect(result.current.frameIndex).toBe(25);
   });
 
   it("host 外部改写受控帧后，旧导航目标的迟到回报不得拽回旧帧（PR #118 评审跟进）", () => {
     const video = mockVideo(HTMLMediaElement.HAVE_METADATA);
-    // ref 对象必须稳定:内联字面量会让「首帧预热」效应每次渲染重跑并顺手刷新导航目标,
-    // 掩盖真实的栅栏缺口(真实宿主的 ref 是稳定对象)。
     const videoRef = { current: video };
     let controlled = 0;
     const onFrameIndexChange = vi.fn((frame: number) => {
@@ -1072,17 +1167,14 @@ describe("useVideoPlaybackController", () => {
       }),
     );
 
-    // seek 17:登记导航目标并乐观写 17,受控 prop 跟进。
     act(() => result.current.controls.seekToFrame(17));
     expect(result.current.frameIndex).toBe(17);
     expect(controlled).toBe(17);
 
-    // 宿主外部跳转(章节/段落/任务恢复)直接改受控帧,不经 seekFrameAsync。
     controlled = 40;
     rerender();
     expect(result.current.frameIndex).toBe(40);
 
-    // 旧导航目标 17 的迟到回报:必须被栅栏丢弃,受控帧不得回写。
     const writesBefore = onFrameIndexChange.mock.calls.length;
     act(() => videoHookMocks.onFrameChange?.(17));
     expect(result.current.frameIndex).toBe(40);

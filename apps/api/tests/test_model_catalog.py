@@ -181,7 +181,6 @@ async def test_project_membership_does_not_grant_global_management(
     owner, _ = super_admin
     member, token = project_admin
     project = await create_project(db_session, owner_id=owner.id)
-    # Project administrators can be ordinary members elsewhere, never managers there.
     await create_membership(
         db_session, project_id=project.id, user_id=member.id, role="viewer"
     )

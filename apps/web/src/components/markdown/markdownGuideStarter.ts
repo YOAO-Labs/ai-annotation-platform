@@ -1,4 +1,3 @@
-/** Explicit starter text for a new annotation guide. */
 export const ANNOTATION_GUIDE_STARTER = `## 类别定义
 
 说明每个类别代表什么，以及需要标注的对象范围。

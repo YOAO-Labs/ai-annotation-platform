@@ -71,7 +71,6 @@ async def test_relocation_restores_same_task_and_labels_across_path_local_number
     )
     assert r.status_code == 201
     annotation_id = r.json()["id"]
-    # A high path-local number must not override a later B revision numbered 1.
     for _ in range(2):
         world, run, change, payload = await candidate(db, world, "red")
         await revisions.accept(
@@ -138,7 +137,6 @@ async def test_multiple_same_sha_choices_require_explicit_choice_and_returning_p
     assert (await revisions.move_candidates(db, run, before["path_digest"], 20, 0))[
         "total"
     ] == 0
-    # A returning former path is a new business sample; it cannot steal the moved locator.
     (world[0] / "图片 空格.png").write_bytes(world[1])
     world = await rescan(db, world)
     run = await preflight(db, world)

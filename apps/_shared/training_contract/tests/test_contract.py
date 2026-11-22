@@ -175,7 +175,6 @@ def test_historical_task_identities_and_digests_are_immutable():
                 "yolo11n" if identity["framework"] == "ultralytics" else "LibreYOLO9t"
             )
         )
-        # The frozen identity selects its exact historical schema before validation.
         assert (
             schema_identity(
                 definition_for_identity(identity["framework"], base, identity)

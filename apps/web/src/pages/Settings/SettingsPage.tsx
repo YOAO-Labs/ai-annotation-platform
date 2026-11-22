@@ -18,7 +18,6 @@ import {
 } from "@/hooks/useMe";
 import { UserAvatar } from "@/components/ui/UserAvatar";
 
-// 选择器(含内置头像目录请求)只在用户点开时按需加载,避免给入口 chunk 增加预算压力。
 const AvatarPickerDialog = lazy(() =>
   import("@/components/users/AvatarPickerDialog").then((module) => ({
     default: module.AvatarPickerDialog,
@@ -50,7 +49,6 @@ import { useUnsavedSettingsGuard } from "./useUnsavedSettingsGuard";
 
 type SectionKey = "profile" | "workbench" | "apikeys" | "feedback" | "notifications" | "system";
 
-// 共用类
 const FORM_CLASS = "flex flex-col gap-3.5 p-4";
 const LABEL_CLASS = "mb-[5px] text-xs font-medium text-muted-foreground";
 const GROUP_LABEL_CLASS = "mb-2 text-xs font-medium text-muted-foreground";
@@ -123,7 +121,6 @@ export function SettingsPage() {
           </Card>
         </nav>
 
-        {/* grid 1fr 列默认 min-width:auto，会被内部宽表格(API 密钥)撑超页宽；min-w-0 让超宽表格由内部 overflow-x 滚动 */}
         <div className="min-w-0">
           {section === "profile" && <ProfileSection />}
           {section === "workbench" && <WorkbenchPreferencesSection />}
@@ -173,9 +170,6 @@ function ProfileSection() {
       {
         onSuccess: () => {
           pushToast({ msg: "密码已修改", kind: "success" });
-          // /auth/me/password 返回 204；同步清除登录态里的临时密码标记，
-          // 否则刷新前会继续把用户送回强制改密入口。
-          // 回调可能晚于账号切换到达，先确认 store 仍属于提交者。
           const latestUser = useAuthStore.getState().user;
           if (latestUser?.id === user.id) {
             setUser({ ...latestUser, password_admin_reset_at: null });
@@ -468,22 +462,30 @@ function DangerZoneCard() {
 }
 
 function WorkbenchPreferencesSection() {
-  const { config, loaded, saving, update } = useWorkbenchConfig();
-  const pushToast = useToastStore((s) => s.push);
+  const { config, loaded, loadError, retryLoad, saving, update } = useWorkbenchConfig();
 
-  if (!loaded) {
+  if (!loaded || loadError) {
     return (
       <Card>
         <SectionHeader title="标注偏好" />
-        <div className="p-5 text-sm text-muted-foreground">加载中…</div>
+        <div className="p-5 text-sm text-muted-foreground">
+          {loadError ? (
+            <>
+              <p role="alert">无法加载标注偏好</p>
+              <button type="button" className={INPUT_BUTTON_CLASS} onClick={retryLoad}>
+                重试
+              </button>
+            </>
+          ) : (
+            "加载中…"
+          )}
+        </div>
       </Card>
     );
   }
 
   const commit = (field: WorkbenchSettingField, value: WorkbenchSettingValue) => {
-    update(buildFieldPatch(field, value)).catch(() =>
-      pushToast({ msg: "保存失败", kind: "warning" }),
-    );
+    void update(buildFieldPatch(field, value)).catch(() => undefined);
   };
 
   const groups = groupWorkbenchSettings(
@@ -695,13 +697,8 @@ function ReadOnly({
   );
 }
 
-/** 头像可通过的 MIME 与上限，与后端 services/avatar_image.py 保持一致。 */
 const AVATAR_ACCEPT = "image/png,image/jpeg,image/webp";
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
-/**
- * 客户端声明的类型白名单。空串 / `application/octet-stream` 表示浏览器无从判断，
- * 后端会按字节真实格式校验，因此这里放行而不是把合法图片挡在门前。
- */
 const AVATAR_DECLARED_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -710,12 +707,6 @@ const AVATAR_DECLARED_TYPES = new Set([
   "application/octet-stream",
 ]);
 
-/**
- * 头像：预览 + 上传 / 选择内置像素头像 / 恢复默认。
- *
- * 客户端只做「格式与大小」的早退提示，真正的校验与方形裁剪在服务端完成；三个动作共用
- * hooks 里的成功处理（写回 auth store），因此顶栏与预览会一起更新。
- */
 function AvatarField() {
   const user = useAuthStore((s) => s.user);
   const pushToast = useToastStore((s) => s.push);
@@ -736,7 +727,6 @@ function AvatarField() {
 
   const handleFile = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    // 清空 value，否则连续选择同一个文件不会触发 change。
     event.target.value = "";
     if (!file) return;
     if (!AVATAR_DECLARED_TYPES.has(file.type)) {
@@ -747,7 +737,6 @@ function AvatarField() {
       pushToast({ msg: "图片不能超过 2 MB", kind: "warning" });
       return;
     }
-    // 三个动作共享同一处错误横幅，开始新一轮前清掉旧动作的陈旧报错。
     setAvatarRef.reset();
     clearAvatar.reset();
     setProgress(0);

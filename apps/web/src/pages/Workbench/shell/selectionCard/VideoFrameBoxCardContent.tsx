@@ -16,15 +16,9 @@ const FRAME_CHIP_CLASS =
 const FRAME_TIME_CLASS = "text-brand/75";
 
 export interface VideoFrameBoxCardContentProps {
-  /**
-   * 视频单帧标注(不属任何轨迹): video_bbox / video_polygon / video_polyline /
-   * video_rotated_bbox / video_keypoint / video_mask。
-   * 支持单帧几何的帧定位、指标、属性、改类和删除。
-   */
   annotation: AnnotationResponse;
   imageWidth: number | null;
   imageHeight: number | null;
-  /** 视频帧率,用于把帧号换算成时间;缺省时只显示帧号。 */
   fps: number | null;
   attributeSchema: AttributeSchema | undefined;
   readOnly: boolean;
@@ -36,7 +30,6 @@ export interface VideoFrameBoxCardContentProps {
   onEditMask?: () => void;
 }
 
-/** 秒 → 紧凑时间码 m:ss(帧定位 chip 用,不带毫秒)。 */
 function formatTimecode(sec: number): string {
   if (!Number.isFinite(sec) || sec < 0) return "0:00";
   const m = Math.floor(sec / 60);
@@ -44,13 +37,6 @@ function formatTimecode(sec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/**
- * 选中视频「单帧标注」的浮动卡内容。
- * 单帧几何不属任何轨迹,会被右栏轨迹面板过滤掉而「啥也不显示」;这里补齐帧定位
- * (F{n} · 时间)+ 结构化指标 + 属性 + 跳到该帧 / 改类 / 删除。
- * 支持 video_bbox、video_polygon、video_polyline 和 video_rotated_bbox
- * (指标由 geometryMetrics 按几何类型给出: 顶点数 / 面积 / 周长 / 旋转角等)。
- */
 export function VideoFrameBoxCardContent({
   annotation,
   imageWidth,

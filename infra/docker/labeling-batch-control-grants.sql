@@ -1,8 +1,3 @@
--- Grant a Labeling batch control LOGIN exactly one owner command.
--- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v labeling_owner=labeling_code -v batch_control_role=yoao_labeling_batch_control_client \
---   -f infra/docker/labeling-batch-control-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

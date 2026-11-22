@@ -53,7 +53,6 @@ async def test_restricted_worker_login_uses_native_state_without_table_access(
         if await owner.scalar(text("SELECT current_database()")) != worker_url.database:
             pytest.fail("owner connection did not target the worker test database")
 
-    # Verify the exact verifier-owned container and loopback binding before seeding.
     _verify_postgres(worker_url)
 
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -115,7 +114,6 @@ async def test_restricted_worker_login_uses_native_state_without_table_access(
             assert claim.job_id == job_id and claim.source is not None
             await worker.commit()
 
-            # The SQL call owns no commit: staging is rolled back by this caller.
             transaction = await worker.begin()
             staged = await worker.scalar(
                 text(

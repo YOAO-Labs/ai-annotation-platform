@@ -316,9 +316,7 @@ async def test_gate_change_between_preview_and_create_cannot_publish_a_round(cur
             == uuid.UUID(snapshot["original"]["location_id"])
         )
     )
-    gate.revision += (
-        2  # A completed maintenance cycle still retires this in-flight read.
-    )
+    gate.revision += 2
     await current.db.flush()
     body = RoundCreate(
         **current.world.selection.model_dump(),

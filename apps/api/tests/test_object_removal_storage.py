@@ -237,7 +237,6 @@ async def test_key_only_and_null_actual_calls_have_unknown_windows(
     assert world.client.calls == [expected]
     assert world.client.closed == 1
     if kind == "bug" and version is None and schema == 1:
-        # This legacy shortcut never read or proved absence in the old business path.
         assert world.client.gets == []
     world.service.delete_object.assert_not_called()
 

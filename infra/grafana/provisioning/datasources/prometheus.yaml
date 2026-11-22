@@ -1,5 +1,3 @@
-# Grafana auto-provision datasource。
-# Grafana 启动时自动注册，无需 admin 手动创建。
 apiVersion: 1
 
 datasources:

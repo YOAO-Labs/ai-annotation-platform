@@ -1,10 +1,3 @@
-/**
- * WebCodecs 精确帧浏览器合同：
- * - flag off 覆盖首次挂载到 reload 的完整请求生命周期；
- * - flag on 必须收敛到 ready、稳定 fallback 或明确的原语能力缺失；
- * - 有解码能力时从 Konva media canvas 读取确定性 H.264 帧标记；
- * - pending 必须经真实浏览器轮询自动恢复，unsupported/malformed 必须稳定降级。
- */
 import type { Page } from "@playwright/test";
 import { test, expect } from "../fixtures/seed";
 import type { SeedAPI } from "../fixtures/seed";

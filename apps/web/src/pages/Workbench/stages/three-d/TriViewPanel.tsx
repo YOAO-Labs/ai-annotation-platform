@@ -1,16 +1,3 @@
-/**
- * 三正交视图面板 (主 3D 视图右栏)。B-1: 只读渲染基建; B-2: 拖边/角精修。
- *
- * 结构:纵向 3 行 (top/side/front),每行一个 2D overlay (TriOrthoView) + 标题。点云底图由
- * PointCloudScene 的唯一 renderer 直接画进主 canvas 对应区域；本组件只量出 client rect 并下发，
- * 不创建第二块 canvas/context。
- *
- * 拖拽: 任一视图开拖 → frozen 记下起始姿态, 期间相机冻结 (setCameraRef) 让框在屏上真实
- * 长/移; 拖拽中 onEditPsr(psr,false) 走 draft 实时四方同步, 松手 onEditPsr(psr,true) 落 PATCH。
- *
- * 生命周期:挂载时注册三视图布局与状态，卸载时从 PointCloudScene 注销。
- * module.css → Tailwind。
- */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { PointCloudScene } from "./PointCloudScene";
@@ -18,7 +5,6 @@ import type { PointCloudVisibleRegions } from "./PointCloudTriViewPass";
 import { TriOrthoView, type TriSelected } from "./TriOrthoView";
 import type { TriView, Psr } from "./geometry/triview";
 
-// Tailwind class constants (was ThreeDWorkbench.module.css).
 const TRI_PANEL = "relative flex-1 flex min-h-0 flex-col gap-0 bg-transparent p-0";
 const TRI_ROW = "relative flex-1 min-h-0 border border-border overflow-hidden";
 const TRI_CAPTION =
@@ -55,21 +41,14 @@ const AXIS_LABEL: Record<"x" | "y" | "z", string> = {
 };
 
 interface TriViewPanelProps {
-  /** 主点云 Scene；三视图只注册 render pass 状态，不拥有 renderer。 */
   scene: PointCloudScene | null;
-  /** 当前选中框 (PSR + 色); null = 无选中。拖拽中由上层下发 draft。 */
   selected: TriSelected | null;
-  /** 是否可编辑 (任务非只读 且 框未锁定); false → 只读, overlay 不画 handle、不收事件。 */
   editable: boolean;
-  /** 浮窗位置/尺寸变化键；fixed 浮窗移动不会触发 ResizeObserver。 */
   layoutKey: string | number;
   getVisibleRegions?: PointCloudVisibleRegions;
-  /** 折叠时注销可见 pass，展开后恢复。 */
   active?: boolean;
-  /** 当前对象按视图记忆的缩放倍数。 */
   zoomByView: Record<TriView, number>;
   onZoomChange: (view: TriView, zoom: number) => void;
-  /** 拖拽中 (commit=false, draft) / 松手 (commit=true, PATCH) 回写选中框 PSR。 */
   onEditPsr: (psr: Psr, commit: boolean) => void;
 }
 
@@ -119,10 +98,8 @@ export function TriViewPanel({
     side: null,
     front: null,
   });
-  // 拖拽期冻结取景参考 (起始姿态); null = 无拖拽。
   const [frozen, setFrozen] = useState<Psr | null>(null);
 
-  // 量出 panel / 3 行的 client rect，由 PointCloudScene 相对主 canvas 统一换算 viewport。
   const layout = useCallback(() => {
     const panel = panelRef.current;
     if (!panel || !scene) return;
@@ -147,7 +124,6 @@ export function TriViewPanel({
     });
   }, [active, getVisibleRegions, scene]);
 
-  // 挂载注册布局；浮窗 resize 与窗口 resize 重测，卸载恢复主 canvas 旧区域。
   useEffect(() => {
     const panel = panelRef.current;
     if (!panel || !scene) return;
@@ -162,7 +138,6 @@ export function TriViewPanel({
     };
   }, [layout, scene]);
 
-  // fixed 浮窗拖动只改位置，不触发 ResizeObserver；父层每次位置/尺寸变化后同步重测。
   useLayoutEffect(() => layout(), [layout, layoutKey]);
 
   useEffect(() => {
@@ -175,8 +150,6 @@ export function TriViewPanel({
     scene?.setTriViewZoomByView(zoomByView);
   }, [scene, zoomByView]);
 
-  // 选中框 PSR 变化 (含拖拽 draft): 只更新裁剪面/相机。DOM 布局由上方的
-  // ResizeObserver / layoutKey 负责，避免业务对象引用刷新把 0.5px 测量抖动放大成渲染循环。
   useEffect(() => {
     if (!scene) return;
     scene.setTriViewBox(
@@ -186,13 +159,11 @@ export function TriViewPanel({
     );
   }, [scene, selected]);
 
-  // 只在 Scene owner 变化或卸载时清理；selected 引用刷新但 PSR 未变时不能制造一次 null 闪断。
   useEffect(() => {
     if (!scene) return;
     return () => scene.setTriViewBox(null);
   }, [scene]);
 
-  // 拖拽期冻结相机取景 (裁剪面仍随实时 box)。
   useEffect(() => {
     if (!scene) return;
     scene.setTriViewCameraRef(frozen);

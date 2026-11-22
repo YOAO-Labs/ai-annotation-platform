@@ -1,4 +1,3 @@
-/** Compact member panel shown inside an expanded service pool. */
 import { useState, type ReactNode } from "react";
 import { Clock3, Gauge, Server, Waypoints, type LucideIcon } from "lucide-react";
 
@@ -74,7 +73,6 @@ export function BackendInstanceRow({
               </h5>
               <RuntimeStatusBadge axis="routing" value={member.routing} />
               {member.weight != null && <Badge variant="outline">权重 {member.weight}</Badge>}
-              {/* 容量 / 驻留在首层以带标签字段呈现（plan §4.2 成员四条独立信息）。 */}
               <span className="inline-flex items-center gap-1 text-2xs text-muted-foreground">
                 并发
                 <span className="font-medium text-foreground tabular-nums">
@@ -183,10 +181,6 @@ export function BackendInstanceRow({
 
 type HealthBadgeVariant = "success" | "warning" | "danger" | "outline";
 
-/**
- * 驻留首层摘要：可信驻留显示状态，未知如实显示「未知」，
- * 不把缺失画成空闲（plan §4.2 / ADR-0051）。
- */
 function ResidencyInline({
   backend,
   observe,

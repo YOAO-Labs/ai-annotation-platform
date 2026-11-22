@@ -1,6 +1,3 @@
-/**
- * releaseNotes 单测:changelog 段落解析 / semver 比较 / 展示判定 / 真实文件连通性。
- */
 import { describe, expect, it } from "vitest";
 import { version as pkgVersion } from "../../package.json";
 import {
@@ -110,8 +107,6 @@ describe("shouldShowReleaseNotes", () => {
 
 describe("loadCurrentReleaseNotes", () => {
   it("真实 CHANGELOG 能解析出 package.json 当前版本的段落", async () => {
-    // 发布流程(yoao-release)同步 bump 版本与 changelog;该断言守护虚拟模块注入路径
-    // 与「版本已 bump 但 changelog 缺段」的漂移。
     expect(appVersion).toBe(pkgVersion);
     const notes = await loadCurrentReleaseNotes();
     expect(notes?.version).toBe(pkgVersion);

@@ -35,7 +35,6 @@ function downloadError(error: unknown) {
   return "下载失败，请重试";
 }
 
-/** Keep downloaded bytes and UI feedback inside their report and login lifetime. */
 export function useBugAttachmentDownload(reportId: string | null, lifecycle?: unknown) {
   const revision = useSessionRevision();
   const generation = useRef(0);

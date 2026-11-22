@@ -82,8 +82,6 @@ async def test_native_receipts_parse_and_annotation_pins_share_caller_rollback(
     work = await native.call("read_accepted_image_input_work", identity)
     assert ready.status == "ready" and work.input == ready
     assert work.blob.version_id == "native-bridge-version"
-    # Workflow changes are not source changes; the current Labeling scope is
-    # independently checked by the application before this native source fence.
     task.version += 1
     await db_session.flush()
     assert (

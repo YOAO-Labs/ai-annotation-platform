@@ -1,6 +1,3 @@
-/**
- * HistoryTable 多选 + 批量重激活/重置测试 (BUG B-16).
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -134,7 +131,6 @@ describe("HistoryTable 多选", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "确认" }));
 
-    // 等结果视图渲染 (data-testid="bulk-result")
     const resultView = await screen.findByTestId("bulk-result", {}, { timeout: 2000 });
     expect(resultView).toBeInTheDocument();
     expect(resultView.textContent ?? "").toContain("RuntimeError: boom");

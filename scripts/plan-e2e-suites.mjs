@@ -2,29 +2,6 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-/**
- * E2E suite selection for CI.
- *
- * Two layers live here:
- *
- * 1. The LEGACY gate selection (`planE2ESuites`) used by the documented
- *    `E2E_SELECTION_MODE=legacy` rollback. Full functional coverage includes
- *    the dedicated pointcloud project outside the chromium-only shards.
- * 2. The PLANNED selection (`selectSuites`/`shadowPlan`) implementing plan §6:
- *    explicit core/specialty/extended scopes with reasons, docs-only
- *    whitelist, fail-closed diff classification (empty diff, unknown paths,
- *    multiple domains, rename/delete pairs, unsupported events), and a
- *    machine-readable diff against the legacy gate so the planning job can
- *    record what a future switch would change without changing it.
- *
- * Every suite entry documents its scope, trigger paths and reason. Runtime
- * numbers (`collects`/`skips`) come from measured P7 evidence
- * (docs/research/31 §4.1) so collection and runtime-skip differences stay
- * visible alongside the selection.
- */
-
-// The CPU runner and this planner share ownership and path inputs. E2E path
-// rules remain independent; these entries describe the delegated CPU workflow.
 const cpuSuites = JSON.parse(
   readFileSync(new URL("./test-suites.json", import.meta.url), "utf8"),
 ).ml_cpu;
@@ -51,52 +28,68 @@ const smoke = [
       "test:e2e --retries=0 e2e/tests/auth.spec.ts e2e/tests/annotation.spec.ts e2e/tests/employee-project-roles.spec.ts e2e/tests/mask-session-guard.spec.ts --grep '健康检查|正确凭证|错密码|未登录访问|annotator 登录|bbox 真实绘制、选类、落库并刷新恢复|same employee annotates A|opposite project actions are denied|切工具离开 dirty session'",
     built: true,
     scope: "smoke",
-    // §6.7: the bounded core must pass on the first attempt; retries stay a
-    // diagnostic tool for non-core suites only.
     flakyPolicy: "forbid",
     reason:
       "bounded real chain (reviewer-owned membership: 9 tests / 4 existing files): UI login, real canvas save+refresh, annotator submit→review→complete across two projects, permission denial, dirty-session switch guard",
   },
 ];
 
-// Full coverage partitions the chromium project into four shards and runs the
-// pointcloud project once separately. Planned full selection and legacy
-// rollback retain the same complete project union.
+function shardSuite(entry, total) {
+  return Array.from({ length: total }, (_, offset) => {
+    const index = offset + 1;
+    return {
+      ...entry,
+      suite: `${entry.suite}-${String(index).padStart(String(total).length, "0")}`,
+      command: `${entry.command} --shard=${index}/${total}`,
+    };
+  });
+}
+
+const maskTriggers = [
+  "apps/web/e2e/tests/mask-",
+  "apps/web/e2e/tests/raster-mask-",
+  "apps/api/app/api/v1/mask_",
+  "apps/api/app/services/",
+  "apps/web/src/pages/Workbench/state/mask",
+  "apps/web/src/pages/Workbench/stage/shared/geometry/",
+  "apps/web/src/pages/Workbench/stage/shared/rasterMask",
+];
+
 const functional = [
-  ...["one", "two", "three", "four"].map((name, index) => ({
-    suite: `default-${name}`,
-    command: `test:e2e --project=chromium --shard=${index + 1}/4`,
-    built: true,
-    legacyGate: true,
-    scope: "full",
-    reason: "whole chromium functional shard; pointcloud runs once in its dedicated suite",
-  })),
-  ...["readonly", "native", "ai-native"].map((name) => ({
+  ...shardSuite(
+    {
+      suite: "default",
+      command: "test:e2e --project=chromium --fully-parallel",
+      built: true,
+      legacyGate: true,
+      scope: "full",
+      reason: "whole Chromium functional shard; point-cloud cases run in their dedicated project",
+    },
+    16,
+  ),
+  ...["readonly", "native", "native-editor", "ai-native"].map((name) => ({
     suite: `mask-${name}`,
     command: `test:e2e:mask-${name}`,
     built: false,
     legacyGate: true,
     scope: "specialty",
-    triggers: [
-      "apps/web/e2e/tests/mask-",
-      "apps/web/e2e/tests/raster-mask-",
-      "apps/api/app/api/v1/mask_",
-      "apps/api/app/services/",
-      "apps/web/src/pages/Workbench/state/mask",
-      "apps/web/src/pages/Workbench/stage/shared/geometry/",
-      "apps/web/src/pages/Workbench/stage/shared/rasterMask",
-    ],
+    triggers: maskTriggers,
     reason: `raster Mask ${name} matrix contract`,
     runtime: {
       "mask-readonly": {
-        collects: 13,
-        skipped: 11,
-        note: "readonly describe executes; native write matrix skipped",
+        collects: 2,
+        skipped: 0,
+        note: "read-only and closed-gate cases; native writes run in their own suite",
       },
       "mask-native": {
-        collects: 22,
-        skipped: 2,
-        note: "native write + advanced execute; readonly describe skipped",
+        collects: 11,
+        skipped: 0,
+        note: "Raster native product matrix; separate real Worker receipt after retirement",
+      },
+      "mask-native-editor": {
+        collects: 10,
+        skipped: 0,
+        note: "eight advanced editing and two editor cases on the isolated Raster write deployment",
       },
       "mask-ai-native": {
         collects: 7,
@@ -105,11 +98,39 @@ const functional = [
       },
     }[`mask-${name}`],
   })),
+  {
+    suite: "mask-toolbar-native",
+    command: "test:e2e:mask-toolbar-native",
+    built: true,
+    legacyGate: true,
+    scope: "specialty",
+    requireAllTests: true,
+    triggers: [...maskTriggers, "apps/web/e2e/tests/workbench-ai-toolbar-layers.spec.ts"],
+    reason: "native Mask workbench AI toolbar writes and recovery",
+    runtime: { collects: 6, skipped: 0 },
+  },
+  {
+    suite: "ai-request-worker",
+    command: "test:e2e --project=chromium e2e/tests/workbench-ai-inspector-phases.spec.ts",
+    built: true,
+    legacyGate: true,
+    scope: "specialty",
+    requireAllTests: true,
+    triggers: [
+      "apps/web/e2e/tests/workbench-ai-inspector-phases.spec.ts",
+      "apps/web/src/pages/Workbench/shell/AIInspectorPanel",
+      "apps/api/app/workers/frame_preannotate.py",
+      "apps/api/app/workers/predictions_retry.py",
+      "apps/api/app/workers/celery_app.py",
+      "apps/inference/",
+      "apps/preannotation-results/",
+    ],
+    reason: "real async AI request, retry, cancellation and tracker review",
+    runtime: { collects: 4, skipped: 0 },
+  },
 ];
 
 function sharedContractEntries() {
-  // All shared/ML contract suites execute via the delegated ml-cpu workflow;
-  // triggeredSpecialties skips wired:false entries so this returns [].
   return [];
 }
 
@@ -122,48 +143,50 @@ const layoutStress = {
   reason: "long-horizon layout stress (54 rearrangements)",
 };
 
-// The focused video suite is planned-only; legacy covers its specs through
-// chromium. Both full matrices require the separate pointcloud project.
 const domainSpecialties = [
-  {
-    suite: "video-pipeline",
-    command: "test:e2e e2e/tests/video-*.spec.ts e2e/tests/workbench-video-*.spec.ts",
-    built: true,
-    legacyGate: false,
-    scope: "specialty",
-    triggers: [
-      "apps/web/e2e/tests/video-",
-      "apps/web/e2e/tests/workbench-video-",
-      "apps/web/src/pages/Workbench/stages/video/",
-      "apps/api/app/api/v1/video",
-      "apps/api/app/services/video",
-      "apps/api/app/workers/",
-    ],
-    reason:
-      "video pipeline specialty: manifest/chunk playback, tracker jobs, keyframe and Issue chains",
-  },
-  {
-    suite: "pointcloud",
-    // The project owns the complete 3D selection; no extra filename filter.
-    command: "test:e2e --project=pointcloud",
-    built: true,
-    legacyGate: true,
-    scope: "specialty",
-    triggers: [
-      "apps/web/e2e/tests/workbench-pointcloud-",
-      "apps/web/src/pages/Workbench/stages/three-d/",
-      "apps/api/app/api/v1/lidar",
-      "apps/api/app/services/point",
-    ],
-    reason: "point-cloud specialty under the SwiftShader software-rendering project",
-  },
+  ...shardSuite(
+    {
+      suite: "video-pipeline",
+      command:
+        "test:e2e:video --project=chromium --fully-parallel e2e/tests/video- e2e/tests/workbench-video-",
+      built: true,
+      legacyGate: false,
+      scope: "specialty",
+      triggers: [
+        "apps/web/e2e/tests/video-",
+        "apps/web/e2e/tests/workbench-video-",
+        "apps/web/src/pages/Workbench/stages/video/",
+        "apps/api/app/api/v1/video",
+        "apps/api/app/services/video",
+        "apps/api/app/workers/",
+      ],
+      reason:
+        "video pipeline specialty: manifest/chunk playback, tracker jobs, keyframe and Issue chains",
+    },
+    4,
+  ),
+  ...shardSuite(
+    {
+      suite: "pointcloud",
+      command: "test:e2e --project=pointcloud",
+      built: true,
+      legacyGate: true,
+      scope: "specialty",
+      triggers: [
+        "apps/web/e2e/tests/workbench-pointcloud-",
+        "apps/web/src/pages/Workbench/stages/three-d/",
+        "apps/api/app/api/v1/lidar",
+        "apps/api/app/services/point",
+      ],
+      reason: "point-cloud specialty under the SwiftShader software-rendering project",
+    },
+    4,
+  ),
 ];
 
 export const SUITE_CONTRACT = [...smoke, ...functional, ...domainSpecialties, layoutStress];
 const allSuites = SUITE_CONTRACT;
 
-// Legacy gate rule (frozen): shared frontend/runtime changes can affect every
-// surface, so any app input proposes the extended checks.
 function affectsExtended(path) {
   return (
     ["apps/web/", "apps/api/", "packages/"].some((prefix) => path.startsWith(prefix)) ||
@@ -176,9 +199,6 @@ function affectsExtended(path) {
   );
 }
 
-// Shadow rule (plan §6.3 narrowing proposal): layout stress targets shared
-// layout surfaces, so only those inputs (plus shared runtime, tooling and CI
-// definitions) propose it. P9 evaluates the diff before any switch.
 function affectsExtendedShadow(path) {
   return (
     ["apps/web/src/styles/", "apps/web/index.html", "apps/web/e2e/tests/workbench-layout"].some(
@@ -200,14 +220,7 @@ function affectsExtendedShadow(path) {
 const legacyInclude = (eventName, paths) =>
   planE2ESuites(eventName, paths).include.map(({ suite }) => suite);
 
-// Docs-only is a whitelist, never a fallback. Only genuine documentation
-// qualifies, and executable content is excluded explicitly: anything under
-// apps/, packages/, scripts/ or a test-fixture path stays app code even when
-// it ends in .md, and docs-site executable surfaces (dev/examples and the
-// VitePress build config) stay app code.
 const DOCS_ONLY = [
-  // File-type requirement (.md) keeps CI workflows, actions, configs, data
-  // files and package manifests out of the docs-only classification.
   /^README\.md$/,
   /^CHANGELOG\.md$/,
   /^CONTRIBUTING\.md$/,
@@ -285,16 +298,11 @@ function classifyPaths(paths) {
   };
 }
 
-// Shared Workbench shell/state owners (task navigation, shell model,
-// commands): a change here can affect image, video and point-cloud flows at
-// once, so it broadens to the full selection instead of claiming Mask-only.
 const SHARED_WORKBENCH_TRIGGERS = [
   "apps/web/src/pages/Workbench/state/",
   "apps/web/src/pages/Workbench/shell/",
 ];
 
-// Shared UI/API/client/auth/layout dependencies fan out to every domain that
-// consumes them: a change here is not observable from the module path alone.
 const SHARED_DEPENDENCY_TRIGGERS = [
   "apps/web/src/api/",
   "apps/web/src/lib/",
@@ -318,7 +326,6 @@ function triggeredSpecialties(appCode) {
         because: `${suite.reason} (triggered by ${hit})`,
       });
   }
-  // Shared dependencies select every domain-consuming specialty.
   const sharedHit = SHARED_DEPENDENCY_TRIGGERS.find((prefix) =>
     appCode.some((path) => path.startsWith(prefix)),
   );
@@ -341,15 +348,8 @@ function triggeredSharedContracts(appCode) {
   );
 }
 
-/**
- * Shadow selection per plan §6.2/§6.3. Never drives the gate: the caller keeps
- * using `planE2ESuites` for the matrix and records the diff for P9.
- */
 export function selectSuites(eventName, paths, options = {}) {
   if (eventName === "schedule") {
-    // §6.7-5: the scheduled entry states its scope explicitly. Full is the
-    // default nightly contract; an explicit extended-only nightly is possible
-    // but must be requested and is reported as such.
     const scope = process.env.E2E_SCHEDULE_SCOPE ?? "full";
     if (!["extended", "full"].includes(scope))
       throw new Error(`Invalid nightly E2E scope: ${scope} (expected extended or full)`);
@@ -406,9 +406,6 @@ export function selectSuites(eventName, paths, options = {}) {
     };
   }
   if (eventName === "workflow_dispatch") {
-    // Plan §6.7-5: manual entry states its scope explicitly. The planned
-    // selection honours the requested scope; the legacy rollback gate keeps
-    // its extended-only behavior.
     const scope = options.dispatchScope ?? "extended";
     if (!["extended", "full"].includes(scope))
       throw new Error(`Invalid manual E2E scope: ${scope} (expected extended or full)`);
@@ -452,8 +449,6 @@ export function selectSuites(eventName, paths, options = {}) {
   const planned = [];
   const reasons = [];
   const warnings = [];
-  // App behaviour paths that no domain specialty maps to (§6.3: recognized
-  // apps/ prefixes alone never prove coverage).
   classification.unmappedAppPaths = (() => {
     const specialtyPrefixes = allSuites
       .filter(({ scope, triggers }) => scope === "specialty" && triggers)
@@ -473,8 +468,6 @@ export function selectSuites(eventName, paths, options = {}) {
       because: "docs-only change (whitelisted markdown/docs-site paths); no app E2E required",
     });
   } else {
-    // Fail-closed conservative defaults: an empty diff or unrecognized paths
-    // must broaden, never narrow.
     if (classification.emptyDiff)
       warnings.push(
         "empty diff cannot be classified; falling back to the full conservative selection",
@@ -507,10 +500,6 @@ export function selectSuites(eventName, paths, options = {}) {
           "docker-compose.yml",
         ].includes(path) || /^docker-compose[^/]*\.ya?ml$/.test(path),
     );
-    // Fail-closed (§6.3): unmapped app behaviour paths, shared
-    // dependencies/runtime and empty or unrecognized diffs broaden to the
-    // full selection with every dedicated contract; a recognized apps/ prefix
-    // alone never proves coverage.
     const broaden =
       classification.emptyDiff ||
       classification.unknownPaths.length > 0 ||
@@ -539,9 +528,6 @@ export function selectSuites(eventName, paths, options = {}) {
     for (const suite of allSuites.filter(({ scope }) => scope === "smoke"))
       addPlanned(suite.suite, suite.reason);
     if (broaden) {
-      // The default shards only run the chromium project, and the Mask
-      // matrices need their own env flags, so broadening selects every
-      // dedicated contract instead of relying on the shards.
       for (const suite of allSuites.filter(({ scope }) => scope === "full"))
         addPlanned(
           suite.suite,
@@ -572,8 +558,6 @@ export function selectSuites(eventName, paths, options = {}) {
   return { planned, classification, reasons, warnings };
 }
 
-/** Full shadow report: legacy gate suites vs the §6 selection, with the diff
- * and the newly-wired shared CPU contract suites surfaced for P9 review. */
 export function shadowPlan(eventName, paths, options = {}) {
   const { planned, classification, reasons, warnings } = selectSuites(eventName, paths, options);
   const legacy = legacyInclude(eventName, paths);
@@ -604,8 +588,6 @@ export function shadowPlan(eventName, paths, options = {}) {
   };
 }
 
-// Conservative rollback selection comes from the contract's legacyGate flags.
-// Full functional coverage includes the dedicated pointcloud project.
 export function planE2ESuites(eventName, paths) {
   const legacy = SUITE_CONTRACT.filter((suite) => suite.legacyGate);
   if (["schedule", "workflow_dispatch"].includes(eventName))
@@ -624,7 +606,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   if (eventName === "pull_request") {
     const base = process.argv[2];
     if (!/^[a-f0-9]{40}$/.test(base ?? "")) throw new Error("A full PR base SHA is required");
-    // --no-renames includes both deleted and added paths; NUL handles unusual filenames.
     paths = execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", base, "HEAD", "--"], {
       encoding: "utf8",
     })
@@ -632,11 +613,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       .filter(Boolean);
   }
   const dispatchScope = process.env.E2E_DISPATCH_SCOPE;
-  // P6 handoff wiring: the ml-cpu workflow owns execution; this flag triggers
-  // the ci.yml caller. Semantics are explicit per event — never silently off:
-  //   pull_request: run when shared/ML paths (or their workflow/runner/deps)
-  //   changed; push: always (post-merge full verification); workflow_dispatch:
-  //   full scope runs them, extended-only does not; schedule: always.
   const mlCpuTriggers = [
     ...Object.values(SHARED_CONTRACT_SUITES).flatMap((suite) => suite.triggers),
     "scripts/test-suites.json",
@@ -649,18 +625,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     mlCpu = (process.env.E2E_DISPATCH_SCOPE ?? "extended") === "full";
   else if (eventName === "pull_request") {
     const changed = paths ?? [];
-    // A new or unmapped source path can add a suite or alter a shared input.
-    // Only the existing documentation-only classification is safe to omit.
     mlCpu =
       changed.length === 0 ||
       changed.some((path) => mlCpuTriggers.some((prefix) => path.startsWith(prefix))) ||
       !classifyPaths(changed).docsOnly;
   } else throw new Error(`Unsupported E2E event for ml-cpu wiring: ${eventName}`);
 
-  // The documented rollback retains pointcloud outside the chromium-only shards.
-  // GitHub renders an unset repository variable as an empty string, so
-  // absent/empty/whitespace all mean the default planned mode; only a
-  // non-empty unknown value is rejected.
   const selectionMode = (process.env.E2E_SELECTION_MODE ?? "").trim() || "planned";
   if (!["planned", "legacy"].includes(selectionMode))
     throw new Error(`Invalid E2E selection mode: ${selectionMode}`);
@@ -672,20 +642,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     .filter(Boolean);
   const plannedGate = { include: plannedEntries };
   const gate = selectionMode === "legacy" ? legacyGate : plannedGate;
-  // Require only suites in the effective matrix: legacy includes pointcloud,
-  // not planned-only smoke/video-pipeline; docs-only skips need planned mode.
-  const requiredSuites =
-    selectionMode === "legacy"
-      ? legacyGate.include.map((entry) => ({ suite: entry.suite, planned: true }))
-      : plannedEntries.map((entry) => ({
-          suite: entry.suite,
-          planned: true,
-          ...(entry.flakyPolicy ? { flakyPolicy: entry.flakyPolicy } : {}),
-        }));
+  const requiredSuites = gate.include.flatMap(({ suite, flakyPolicy }) => [
+    {
+      suite,
+      planned: true,
+      ...(selectionMode !== "legacy" && flakyPolicy ? { flakyPolicy } : {}),
+    },
+    ...(suite === "mask-native" ? [{ suite: "mask-worker", planned: true }] : []),
+  ]);
   const docsOnlySkip = selectionMode !== "legacy" && selection.classification.docsOnly;
   console.log(`matrix=${JSON.stringify(gate)}`);
-  // The comparison document always records the frozen legacy set next to the
-  // planned set, so every run leaves old/new evidence behind.
   console.log(`legacy=${JSON.stringify(legacyGate)}`);
   console.log(
     `required=${JSON.stringify(
@@ -709,8 +675,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   );
   console.log(`run_suites=${gate.include.length > 0}`);
   console.log(`selection_mode=${selectionMode}`);
-  // Changed-path classifications and warnings grow with the diff. Keep the
-  // complete report on disk, never in a GitHub output or process environment.
   const shadowPath = process.env.E2E_SHADOW_PATH || "e2e-shadow.json";
   writeFileSync(shadowPath, `${JSON.stringify(shadow)}\n`);
   console.log(`shadow_path=${shadowPath}`);

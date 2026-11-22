@@ -198,7 +198,7 @@ ML backend（grounded-sam2 / sam3 / 后续接入的任意 backend）的 `/metric
 
 ## 4. 告警
 
-**ML backend GPU 告警**：`infra/prometheus/alerts.yml` 提供 `MLBackendDown`（`up==0` 持续 5m）/ `GPUMemoryHigh`（显存 >90% 持续 10m）/ `InferenceLatencyHigh`（P95 >10s 持续 10m）三条规则，随 `monitoring` profile 的 `alertmanager`（9093）经 SMTP 发邮件 —— dev 投递到 mailpit（见 `infra/alertmanager/alertmanager.yml`），生产换真实 SMTP。`MLBackendDown` 只覆盖 `ml-backends` job 的 target（由 http_sd 从 `state != disconnected` 的 backend 生成），主动 disconnect 的 backend 不会误报。排查见 [ML Backend 不可用 runbook](/ops/runbooks/ml-backend-down)。
+**ML backend GPU 告警**：`infra/prometheus/alerts.yml` 提供 `MLBackendDown`（`up==0` 持续 5m）/ `GPUMemoryHigh`（显存 >90% 持续 10m）/ `InferenceLatencyHigh`（P95 >10s 持续 10m）三条规则，由 `monitoring` profile 的 `alertmanager`（9093）接收。开发配置经 Compose 内网投递到 Mailpit；整栈生产默认不发送通知，须按[生产邮件与告警](/ops/deploy/docker-compose#production-mail)配置中继才会发邮件。`MLBackendDown` 只覆盖 `ml-backends` job 的 target（由 http_sd 从 `state != disconnected` 的 backend 生成），主动 disconnect 的 backend 不会误报。排查见 [ML Backend 不可用 runbook](/ops/runbooks/ml-backend-down)。
 
 其余 HTTP / Celery / Sentry 相关不在仓库内强制产出（不同团队偏好不一），下面是建议规则：
 
@@ -367,19 +367,19 @@ Prometheus Gauge 当作 API `/metrics` 可见的跨进程指标。
 
 ## 6. 关键文件索引
 
-| 主题                              | 路径                                                                                |
-| --------------------------------- | ----------------------------------------------------------------------------------- |
-| Metrics 定义                      | `apps/api/app/observability/metrics.py`                                             |
-| Raster Mask 活跃量巡检            | `apps/api/app/observability/raster_mask.py`                                         |
-| ML backend 指标埋点               | [官方插件仓](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference) |
-| ML backend http_sd 端点           | `apps/api/app/api/v1/` → `GET /api/v1/internal/metrics-targets`                     |
-| ML backend 告警规则               | `infra/prometheus/alerts.yml`                                                       |
-| Alertmanager 配置                 | `infra/alertmanager/alertmanager.yml`                                               |
-| FastAPI `/metrics` 挂载           | `apps/api/app/main.py:108-130`                                                      |
-| Sentry 初始化                     | `apps/api/app/main.py:22-45`                                                        |
-| Grafana dashboard JSON            | `infra/grafana/dashboards/anno-overview.json`                                       |
-| Grafana provisioning              | `infra/grafana/provisioning/`                                                       |
-| Prometheus scrape                 | `infra/prometheus/prometheus.yml`                                                   |
-| docker-compose monitoring profile | `docker-compose.yml`                                                                |
-| 超管系统健康聚合端点              | `apps/api/app/api/v1/admin_system_health.py`                                        |
-| GPU/ML backend 实时浮窗 (PerfHud) | [concepts/perfhud](/dev/concepts/perfhud)                                           |
+| 主题                              | 路径                                                                                                              |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Metrics 定义                      | `apps/api/app/observability/metrics.py`                                                                           |
+| Raster Mask 活跃量巡检            | `apps/api/app/observability/raster_mask.py`                                                                       |
+| ML backend 指标埋点               | [官方插件仓](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference)                               |
+| ML backend http_sd 端点           | `apps/api/app/api/v1/` → `GET /api/v1/internal/metrics-targets`                                                   |
+| ML backend 告警规则               | `infra/prometheus/alerts.yml`                                                                                     |
+| Alertmanager 配置                 | `infra/alertmanager/alertmanager.yml`（开发）、`infra/alertmanager/alertmanager.production.yml`（生产默认不通知） |
+| FastAPI `/metrics` 挂载           | `apps/api/app/main.py:108-130`                                                                                    |
+| Sentry 初始化                     | `apps/api/app/main.py:22-45`                                                                                      |
+| Grafana dashboard JSON            | `infra/grafana/dashboards/anno-overview.json`                                                                     |
+| Grafana provisioning              | `infra/grafana/provisioning/`                                                                                     |
+| Prometheus scrape                 | `infra/prometheus/prometheus.yml`                                                                                 |
+| docker-compose monitoring profile | `docker-compose.yml`                                                                                              |
+| 超管系统健康聚合端点              | `apps/api/app/api/v1/admin_system_health.py`                                                                      |
+| GPU/ML backend 实时浮窗 (PerfHud) | [concepts/perfhud](/dev/concepts/perfhud)                                                                         |

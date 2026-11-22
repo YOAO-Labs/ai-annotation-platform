@@ -167,7 +167,10 @@ async def test_release_requires_exact_actor_resource_session_then_retires(
     lease = response.json()
     path = prepare_path(video_world) + "/" + lease["lease_id"]
     wrong = await httpx_client.request(
-        "DELETE", path, headers=headers(reviewer), json={"session_id": str(session)}
+        "DELETE",
+        path,
+        headers={**headers(reviewer), "Prefer": "ignore-missing"},
+        json={"session_id": str(session)},
     )
     assert wrong.status_code == 404
     wrong = await httpx_client.request(
@@ -184,15 +187,43 @@ async def test_release_requires_exact_actor_resource_session_then_retires(
         json={"session_id": str(session)},
     )
     assert wrong.status_code == 404
-    done = await httpx_client.request(
-        "DELETE",
-        path,
-        headers=headers(project_admin),
-        json={"session_id": str(session)},
+    pin = registry.pin(
+        uuid.UUID(lease["lease_id"]), response.cookies["yoao_video_lease"]
     )
-    assert done.status_code == 204 and "Max-Age=0" in done.headers["set-cookie"]
-    expired = await httpx_client.get(lease["media_path"])
-    assert expired.status_code == 410
+    try:
+        done = await httpx_client.request(
+            "DELETE",
+            path,
+            headers=headers(project_admin),
+            json={"session_id": str(session)},
+        )
+        assert done.status_code == 204 and "Max-Age=0" in done.headers["set-cookie"]
+        missing = await httpx_client.request(
+            "DELETE",
+            path,
+            headers=headers(project_admin),
+            json={"session_id": str(session)},
+        )
+        assert missing.status_code == 410
+        assert missing.json()["detail"]["code"] == "video_playback_expired"
+        retried = await httpx_client.request(
+            "DELETE",
+            path,
+            headers={**headers(project_admin), "Prefer": "ignore-missing"},
+            json={"session_id": str(session)},
+        )
+        assert (
+            retried.status_code == 204 and "Max-Age=0" in retried.headers["set-cookie"]
+        )
+        expired = await httpx_client.get(lease["media_path"])
+        assert expired.status_code == 410
+        assert registry.diagnostics()["leases"] == 0
+        assert registry.diagnostics()["response_pins"] == 1
+        assert registry.diagnostics()["stages"] == 1
+        assert not pin.stage.file.closed
+    finally:
+        await registry.release_pin(pin)
+    assert pin.stage.file.closed
     assert registry.diagnostics()["stages"] == 0
 
 
@@ -283,7 +314,6 @@ async def test_wrong_identity_and_non_video_are_rejected_before_capture(
         prepare_path(video_world), headers=headers(project_admin), json=wrong
     )
     assert denied.status_code == 409
-    # The original image DatasetItem still exists even after the Task is bound to video.
     image = await httpx_client.post(
         f"/api/v1/datasets/{video_world[1].dataset_id}/items/{stored_world[1].dataset_item_id}/original-playback",
         headers=headers(project_admin),

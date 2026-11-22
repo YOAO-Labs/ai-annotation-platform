@@ -19,13 +19,9 @@ ASGIApp = Callable[
 ]
 
 MAX_FRAME_FILE_BYTES = 32 * 1024 * 1024
-# Raw multipart includes boundaries and small form fields in addition to the file.
 MAX_FRAME_MULTIPART_BODY_BYTES = MAX_FRAME_FILE_BYTES + 1024 * 1024
-# 头像:与 services/avatar_image.MAX_AVATAR_FILE_BYTES 对齐,另留 multipart 头部余量。
 MAX_AVATAR_FILE_BYTES = 2 * 1024 * 1024
 MAX_AVATAR_MULTIPART_BODY_BYTES = MAX_AVATAR_FILE_BYTES + 256 * 1024
-# Inline RLE can consume the full canonical object budget; leave bounded room for
-# receipt, lineage, prompt summary, and JSON field names before Pydantic parsing.
 MAX_AI_MASK_ACCEPT_BODY_BYTES = MAX_UNCOMPRESSED_BYTES + 1024 * 1024
 MAX_INTERACTIVE_CONTEXT_BODY_BYTES = 1024 * 1024
 MAX_MASK_MUTATION_BODY_BYTES = 12 * 1024 * 1024
@@ -195,7 +191,6 @@ class UploadBodyLimitMiddleware:
             await self.app(scope, receive, send)
             return
 
-        # 各受管路径互不重叠,按上表顺序取第一个命中的上限;都不命中时回退 mask 压缩体量。
         limit = next(
             (
                 candidate

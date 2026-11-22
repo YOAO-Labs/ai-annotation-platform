@@ -1,6 +1,4 @@
 #!/usr/bin/env node
-// 把 apps/api/openapi.snapshot.json 同步到 docs-site/public/openapi.json。
-// 在 docs:dev / docs:build 之前自动执行。
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -195,8 +195,6 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
     ]
     db_session.add_all([task, *segments])
     await db_session.flush()
-    # This is an API metadata-only fixture: a real verified historical locator,
-    # never a guessed current key. No original bytes are read while enqueuing.
     await ensure_legacy_bindings(db_session)
     asset = DatasetAsset(
         id=uuid.uuid4(),
@@ -285,8 +283,6 @@ async def test_normalize_segment_scope_resolves_contiguous_effective_range(
             "selection": {"kind": "frames", "from_frame": 8, "to_frame": 10},
         }
     )
-    # Mutable historical Item JSON does not authorize a source frame extent.
-    # The Worker checks the exact original's probe before allocating frames.
     deferred = await normalize_video_export_scope(
         db_session,
         project=project,

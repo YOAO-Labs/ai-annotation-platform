@@ -186,8 +186,6 @@ async def export_data_manager_tasks(
             },
         )
 
-    # Data Manager actions are explicitly scoped; preserve the exact selection in
-    # both the job payload and worker arguments so a retry cannot widen the scope.
     options = payload.model_dump(
         mode="json",
         exclude={"task_ids", "targets", "scope"},
@@ -221,9 +219,6 @@ async def export_data_manager_tasks(
             assert_idempotent_request_matches(existing, digest=request_key_digest)
             if existing.status != "pending":
                 return {"job_id": str(existing.id), "status": existing.status}
-            # A client may retry after the API committed the pending row but
-            # before it published to Celery. Reuse that row and republish; the
-            # export worker keeps the same job/cache scope.
             job = existing
 
     task_ids_in_order = [str(task_id) for task_id in payload.task_ids]
@@ -295,9 +290,6 @@ async def export_data_manager_tasks(
         args=dispatch_args,
         kwargs=dispatch_kwargs,
     )
-    # The worker must see the durable row before Celery can start. This also
-    # makes a concurrent retry return the same job instead of dispatching twice
-    # when an Idempotency-Key is supplied.
     await db.commit()
     await AuditService.log(
         db,

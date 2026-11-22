@@ -123,9 +123,6 @@ async def _new_job(db, *, state, project, actor, storage, expected):
     async_job.bind_execution_id(job, attempt_identifier(state))
     await db.flush()
     _assert_input(receipt.input_snapshot, expected)
-    # The physical transfer and publisher use independent, freshly authorized
-    # sessions. Every source row and newly allocated responsibility must exist
-    # outside this transaction before they start.
     await db.commit()
     return receipt
 
@@ -203,8 +200,6 @@ async def _interrupt_after_pending_zip(db, receipt):
         )
         await guard(db)
         await image_inputs.check(db, claimed.input_snapshot, lock=True)
-        # Intentionally retain a real running attempt and verified pending ZIP.
-        # There is no publish latch, completed Job, signed ZIP or cache index.
         await db.commit()
     finally:
         if path is not None:

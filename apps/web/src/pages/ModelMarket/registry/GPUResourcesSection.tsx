@@ -1,21 +1,6 @@
 import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useFocusedListPagination } from "./useFocusedListPagination";
-/**
- * registry "GPU 资源" tab (Super Admin only).
- *
- * Plan §4.3（模型市场多 TAB UI 优化 · 阶段一）: columns collapse to 资源身份 /
- * 静态声明与预算 / 运行时 committed / 队列与租约 / 模式 / 最高诊断. The static
- * (claimed vs allocatable) and runtime (committed) readings stay TWO separate
- * bars — static oversell percentage is never presented as physical VRAM
- * utilization; an unknown budget renders text instead of a fake 0% bar.
- *
- * Identity rows prefer the physical device token / node and show the full
- * gpu_resource_id only as a short id + copy (完整值在 tooltip/详情)。No device
- * serial → no invented "GPU 0/1" naming. `gpu_id` deep-links expand + scroll
- * to the row; unknown ids get an explicit note. A `gpu_q` search matches
- * resource id / node / device token and lives in this view's toolbar.
- */
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -90,7 +75,6 @@ export function GPUResourcesSection({
     });
   };
 
-  // gpu_id 定位键（plan §5）：资源存在 → 展开受影响实例并滚动到该行。
   const focusGpuId = url.gpuId;
   const resources = gpuResources ?? [];
   const focusGpuExists = resources.some((r) => r.gpu_resource_id === focusGpuId);
@@ -254,14 +238,11 @@ function GpuResourceRow({
   const claimed = resource.claimed_budget_mb;
   const committed = resource.runtime?.committed_mb ?? null;
   const budgetKnown = allocatable > 0;
-  // 静态超售百分比只描述「声明 / 可分配预算」，绝不冒充物理显存实时利用率；
-  // 预算未知时不画空进度条冒充 0%（plan §4.3）。
   const staticPct = budgetKnown ? (claimed / allocatable) * 100 : null;
   const runtimePct =
     committed != null && budgetKnown ? Math.min(100, (committed / allocatable) * 100) : null;
   const maxDiagnostic = pickMaxSeverityGpuDiagnostic(resource.gpu_resource_id, scope.diagnostics);
   const affectedInstances = collectAffectedInstances(resource.gpu_resource_id, scope);
-  // 不凭空命名：有设备序号用设备序号，否则显示短 ID。
   const deviceToken = resource.physical_device_token?.trim() || "";
 
   return (
@@ -339,7 +320,6 @@ function GpuResourceRow({
                 <span className="mono">{committed.toLocaleString()} MiB</span>
                 <span>{Math.round(runtimePct)}%</span>
               </div>
-              {/* Separate bar from static — plan §6.1 mandates two. */}
               <Progress value={runtimePct} />
             </div>
           ) : committed != null ? (
@@ -426,8 +406,6 @@ function AffectedInstancesSubRow({
   );
 }
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
 function fmtQueue(n: number | null | undefined): string {
   if (n == null) return "—";
   return String(n);
@@ -467,5 +445,4 @@ function collectAffectedInstances(
   return out;
 }
 
-// Re-export the queue formatter for callers that want consistent labels.
 export const _gpuQueueLabel = fmtQueue;

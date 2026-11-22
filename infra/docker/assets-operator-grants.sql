@@ -1,7 +1,3 @@
--- Run after migrations, module-data-grants and assets-catalog-grants as the migration role.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v assets_owner=assets_code -v asset_operator_role=yoao_asset_operator_client
---   -f infra/docker/assets-operator-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -130,7 +126,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.read_operator_items(uuid,uuid,integer)
     TO :"asset_operator_role";
 
--- Fail closed if the operator LOGIN can access anything beyond the exact protocol.
 DO $$
 DECLARE
     role_oid oid := (

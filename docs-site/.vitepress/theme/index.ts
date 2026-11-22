@@ -1,7 +1,3 @@
-/**
- * VitePress 自定义主题入口。
- * 继承默认主题，注册全局组件，加载文档站视觉基线。
- */
 import DefaultTheme from "vitepress/theme";
 import DocsLayout from "./DocsLayout.vue";
 import ExcalidrawDiagram from "./components/ExcalidrawDiagram.vue";
@@ -12,7 +8,6 @@ import DocsVideo from "./components/DocsVideo.vue";
 import { setupMermaidZoom } from "./mermaid-zoom";
 import { setupImageZoom } from "./image-zoom";
 import { setupPlatformKeys } from "./platform-keys";
-// 全局阅读基线优先于其他样式加载：先建立正文阅读 token，再叠加首页品牌 token
 import "./docs-theme.css";
 import "./docs-home.css";
 import "./mermaid-zoom.css";

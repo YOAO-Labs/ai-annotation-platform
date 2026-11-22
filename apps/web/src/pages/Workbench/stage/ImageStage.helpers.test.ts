@@ -1,4 +1,3 @@
-// 第 2 批 · ImageStage 纯几何函数测试守护(伴随从 toImg 提炼,锁定逆变换公式)。
 import { describe, it, expect } from "vitest";
 import {
   imageBoxFromDrag,
@@ -109,7 +108,6 @@ describe("shouldRenderImageAnnotationShape", () => {
 
 describe("normalizeImageCoordinate", () => {
   it("逆 viewport 平移/缩放后归一为图坐标", () => {
-    // x = (230 - 10 - 20)/2/100 = 200/200 = 1
     const out = normalizeImageCoordinate(
       230,
       0,
@@ -151,8 +149,8 @@ describe("resolveSnapMatch", () => {
     const m = resolveSnapMatch(
       P(0.5, 0.5),
       {
-        points: [{ point: P(0.51, 0.5) }], // 1px
-        segments: [{ a: P(0.5, 0.6), b: P(0.6, 0.6) }], // 10px
+        points: [{ point: P(0.51, 0.5) }],
+        segments: [{ a: P(0.5, 0.6), b: P(0.6, 0.6) }],
       },
       20,
       SNAP_T,

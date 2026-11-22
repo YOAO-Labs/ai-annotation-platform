@@ -16,7 +16,6 @@ const newLease = (auth: AuthState): AuthLease => ({
   sessionId: randomId(),
 });
 
-/** Auth metadata only. The provider remains the sole owner of all draft data. */
 export function useAuthenticatedDiscussionSession() {
   const [lease, setLease] = useState(() => newLease(useAuthStore.getState()));
   const leaseRef = useRef(lease);
@@ -26,8 +25,6 @@ export function useAuthenticatedDiscussionSession() {
     activeRef.current = true;
     const synchronize = (auth: AuthState, previous: AuthState) => {
       if (authUserId(auth) === authUserId(previous) && !(!auth.token && previous.token)) return;
-      // This fires for each store transition, even when React batches a logout
-      // and login of the same account into a single render.
       if (previous.user?.id) clearUserCanvasDraftRecovery(previous.user.id);
       const next = newLease(auth);
       leaseRef.current = next;

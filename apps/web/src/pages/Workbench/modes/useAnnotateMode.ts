@@ -178,8 +178,6 @@ export function useAnnotateMode({
 
   return {
     isLocked: task?.status === "review" || task?.status === "completed",
-    banners: null,
-    claimInfo: null,
     topbarActions,
     bannerActions:
       mode === "annotate"

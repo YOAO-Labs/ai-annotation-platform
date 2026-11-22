@@ -1,7 +1,3 @@
-// WorkbenchLayout focused render tests.
-// 验证布局 shell 把七个稳定面板交给工作区,
-// 可选模块 (deleteConfirm / guidePanel) 不传时不渲染.
-
 import { act, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createRef, forwardRef } from "react";
@@ -160,7 +156,6 @@ describe("WorkbenchLayout", () => {
     expect(screen.getByTestId("workbench-settings-dialog")).toBeTruthy();
     expect(screen.getByTestId("conflict")).toBeTruthy();
 
-    // 可选项缺省时不渲染
     expect(screen.queryByTestId("delete-confirm-modal")).toBeNull();
     expect(screen.queryByTestId("guide-panel")).toBeNull();
   });

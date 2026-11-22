@@ -31,7 +31,6 @@
 }
 
 .bounded {
-  /* ReviewWorkbench is a compact, bounded caller outside the dock fill layout. */
   max-height: 240px;
   overflow-y: auto;
   scrollbar-gutter: stable;

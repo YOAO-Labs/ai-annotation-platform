@@ -174,8 +174,6 @@ def test_owned_video_cache_key_uses_full_frozen_input_digest():
         )
 
     first = receipt("1" * 64)
-    # Equal project, targets and annotation counts cannot alias changed originals,
-    # business facts, or probe receipts represented in the frozen input digest.
     assert owned_worker._cache_key(first) != owned_worker._cache_key(receipt("2" * 64))
     assert owned_worker._cache_key(first) == owned_worker._cache_key(receipt("1" * 64))
     assert owned_worker._cache_key(first) != owned_worker._cache_key(

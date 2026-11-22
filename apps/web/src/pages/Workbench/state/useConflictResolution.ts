@@ -1,6 +1,3 @@
-// 从 useWorkbenchShellModel.tsx 抽出的版本冲突弹层逻辑。
-// conflictCbRef 由主 hook 创建(因 useUpdateAnnotation 在更早处即需引用它),作为参数传入;
-// 本 hook 负责把 handleConflict 接到该 ref、管理弹层开合与 reload/overwrite。行为零变化。
 import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 

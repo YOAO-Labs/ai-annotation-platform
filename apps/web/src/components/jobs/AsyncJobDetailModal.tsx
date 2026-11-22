@@ -65,7 +65,6 @@ function isCurrentOwner(owner: AuthOwner): boolean {
   );
 }
 
-/** Shared by job history, notifications and the background-job list. */
 export function AsyncJobDetailModal({
   jobId,
   onClose,

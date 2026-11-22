@@ -88,7 +88,6 @@ async def get_predictions(
     svc = PredictionService(db)
     predictions = await svc.list_by_task(task_id, model_version=model_version)
 
-    # 一次性 join PredictionMeta 取 cost / inference_time_ms（单条费用透传）
     pred_ids = [p.id for p in predictions]
     meta_map: dict[uuid.UUID, tuple[int | None, float | None]] = {}
     if pred_ids:
@@ -103,11 +102,6 @@ async def get_predictions(
             if pred_id is not None:
                 meta_map[pred_id] = (ms, cost)
 
-    # 第一步：LabelStudio → 内部 schema 适配 + min_confidence 过滤
-    # DB 以 LabelStudio {type, value, score} 存储，供导出等路径直接读取。
-    # 在读取路径适配为 {type, class_name, geometry, confidence}。
-    # PredictionOut.result 只接受 PredictionShape，
-    # 因此先转换，再构造 PredictionOut。
     from app.services.prediction import to_internal_shape
 
     def _build_out(p, shapes: list[dict]) -> PredictionOut:
@@ -130,13 +124,10 @@ async def get_predictions(
             }
         )
 
-    base: list[tuple[Any, list[dict]]] = []  # (raw prediction, internal shapes)
+    base: list[tuple[Any, list[dict]]] = []
     for p in predictions:
-        # 交互式候选只在前端待决；采纳时生成的 Prediction 仅保存审计与模型溯源，
-        # 即使对应 Annotation 后续被删除，也不能重新进入 AI 待审。
         if p.source == INTERACTIVE_ACCEPT_PREDICTION_SOURCE:
             continue
-        # B-37 · 跳过被驳回的 shape 下标; 防止刷新后 AI 待审框重现.
         rejected_set = set(p.rejected_shape_indexes or [])
         shapes = []
         for shape_index, raw_shape in enumerate(p.result or []):
@@ -153,7 +144,6 @@ async def get_predictions(
     if limit is None and offset == 0:
         return [_build_out(p, shapes) for p, shapes in base]
 
-    # 第二步：跨 Prediction 按置信度排序 + offset/limit 截取
     flat: list[tuple[int, dict]] = []
     for idx, (_, shapes) in enumerate(base):
         for s in shapes:
@@ -161,7 +151,6 @@ async def get_predictions(
     flat.sort(key=lambda x: x[1].get("confidence", 0.0), reverse=True)
     sliced = flat[offset : (offset + limit) if limit else None]
 
-    # 第三步：按原 Prediction 顺序重组
     grouped: dict[int, list[dict]] = {}
     for idx, s in sliced:
         grouped.setdefault(idx, []).append(s)
@@ -440,9 +429,6 @@ async def accept_prediction(
             detail=exc.detail,
             headers=exc.headers,
         ) from exc
-    # 契约: None → 404 (prediction 不存在 / shape_index 越界); 成功 →
-    # 仅返回本次新建的 annotation 列表。原实现另跑 list_by_task 返回整题全量,
-    # 前端把全量当"刚新建"逐条 PATCH 合并 AI 候选属性 → 污染人工标注 (改动 1 根因)。
     if anns is None:
         raise HTTPException(
             status_code=404,

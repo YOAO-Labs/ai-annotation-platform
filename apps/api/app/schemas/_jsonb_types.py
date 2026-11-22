@@ -33,9 +33,6 @@ from yoao_assets_catalog.spatial_values import LidarAxisConvention, SensorCalibr
 from app.utils.raster_mask_rle import MAX_IMAGE_MASK_DIMENSION
 
 
-# ── Geometry discriminated union ────────────────────────────────────
-
-
 class BboxGeometry(BaseModel):
     type: Literal["bbox"] = "bbox"
     x: float
@@ -43,7 +40,7 @@ class BboxGeometry(BaseModel):
     w: float
     h: float
 
-    model_config = ConfigDict(extra="allow")  # 允许 width/height 等历史别名
+    model_config = ConfigDict(extra="allow")
 
 
 class VideoBboxGeometry(BaseModel):
@@ -145,9 +142,6 @@ class VideoTrackKeyframe(BaseModel):
     bbox: VideoTrackBbox
     source: Literal["manual", "interpolated", "prediction"] = "manual"
     occluded: bool = False
-    # mutable attribute 的逐帧覆盖。仅承载 schema 里
-    # `mutable=true` 的属性键值；为 None 时表示该帧用 annotation.attributes
-    # （track 默认值）。前端 PATCH 时只动这一字段，不污染 track 整体 attributes。
     attributes: dict[str, Any] | None = None
 
     model_config = ConfigDict(extra="forbid")
@@ -170,8 +164,6 @@ class VideoTrackGeometry(BaseModel):
 
     type: Literal["video_track_bbox"] = "video_track_bbox"
     track_id: str = Field(min_length=1, max_length=64)
-    # 2.1 用户可编辑的语义标签 (如 "car_3"), 仅作跨任务 Re-ID 心智,
-    # 不参与主键、不强制唯一。track_number 由 derive_track_number 确定性派生, 不持久化。
     semantic_label: str | None = None
     keyframes: list[VideoTrackKeyframe] = Field(min_length=1)
     outside: list[VideoTrackOutsideRange] = Field(default_factory=list)
@@ -190,7 +182,6 @@ class VideoTrackPolygonKeyframe(BaseModel):
     points: list[list[float]] = Field(min_length=3)
     source: Literal["manual", "interpolated", "prediction"] = "manual"
     occluded: bool = False
-    # 与 VideoTrackKeyframe.attributes 同义: mutable 属性的逐帧覆盖。
     attributes: dict[str, Any] | None = None
 
     model_config = ConfigDict(extra="forbid")
@@ -448,9 +439,6 @@ class MultiPolygonGeometry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# ── rotated_bbox / polyline / keypoint 几何（坐标归一化 [0,1]） ──
-
-
 class RotatedBboxGeometry(BaseModel):
     """旋转矩形。cx,cy 为中心点，w,h 为边长，angle 为顺时针旋转角度（度，[0,360)）。"""
 
@@ -519,9 +507,6 @@ class VideoKeypointGeometry(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-# ── 点云 3D 几何（box_3d / point_mask_3d） ──────────────────
-
-
 class Box3DGeometry(BaseModel):
     """LiDAR 3D 框。center/size/rotation 各为长度 3 的列表
     (x,y,z 米 / 长宽高 / 绕各轴弧度)。extra="allow" 容纳标定/属性等扩展字段。"""
@@ -539,8 +524,6 @@ class PointMaskGeometry(BaseModel):
     """3D 点云语义/实例分割掩码。point_indices 为指向点云的整数索引列表。"""
 
     type: Literal["point_mask_3d"] = "point_mask_3d"
-    # 上界防止单条标注 geometry 膨胀到几 MB（jsonb / 列表序列化 / AAP 导出都会被放大）。
-    # 前端渲染抽稀到 DECIMATE_THRESHOLD=500k 点，全选最多 ~500k 索引，600k 留足余量。
     point_indices: list[int] = Field(default_factory=list, max_length=600_000)
     convention_at_create: LidarAxisConvention | None = None
     decimate_stride: int | None = Field(default=None, ge=1)
@@ -595,14 +578,9 @@ def normalize_legacy_geometry(g: Any) -> Any:
     return g
 
 
-# ── Annotation attributes（属性键值） ───────────────────────────────
-
-# 属性值类型受限：基础标量 + None + 字符串列表（multiselect）
 AnnotationAttributeValue = str | int | float | bool | None | list[str]
 AnnotationAttributes = dict[str, AnnotationAttributeValue]
 
-
-# ── 评论：mentions / attachments / canvas_drawing ──────────────────
 
 ATTACHMENT_KEY_PREFIX = "comment-attachments/"
 
@@ -641,8 +619,6 @@ class CanvasShape(BaseModel):
     type: CanvasShapeType
     points: list[float] = Field(min_length=2)
     stroke: str | None = None
-    # 笔画 timeline. 全 Optional, 旧记录缺字段时 UI 降级不渲染时间条.
-    # id: client uuid; started_at/ended_at: ms epoch.
     id: str | None = None
     started_at: float | None = None
     ended_at: float | None = None
@@ -669,9 +645,6 @@ class CommentAnchor(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
-# ── AuditLog detail_json ────────────────────────────────────────────
-
-
 class AuditDetail(BaseModel):
     """通用审计 detail：所有 23 种 action 的 detail_json shape。
 
@@ -684,13 +657,11 @@ class AuditDetail(BaseModel):
 
     request_id: str | None = None
 
-    # AnnotationAttributeChange（高频）
     task_id: str | None = None
     field_key: str | None = None
     before: Any | None = None
     after: Any | None = None
 
-    # UserProfileUpdate
     old_name: str | None = None
     new_name: str | None = None
 

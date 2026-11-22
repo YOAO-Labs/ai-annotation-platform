@@ -376,11 +376,7 @@ class S3InputStorage:
                     break
                 if not uploads:
                     raise c.InputFailure("invalid_response")
-                # Re-list the first page: aborting invalidates upload markers on
-                # some S3 peers, and this exact attempt prefix is already retired.
             if not saw_scoped_upload:
-                # Some peers interpret a multipart Prefix as one complete key.
-                # Bucket listing still deletes only this owner-issued attempt.
                 marker = None
                 while True:
                     _check_stop(stop)
@@ -438,7 +434,6 @@ class S3InputStorage:
                     objects.append({"Key": obj["Key"], "VersionId": obj["VersionId"]})
                 for obj in objects:
                     _check_stop(stop)
-                    # Per-version requests retain MinIO's version-scoped IAM condition.
                     self._client.delete_object(
                         Bucket=self.config.inputs_bucket,
                         Key=obj["Key"],

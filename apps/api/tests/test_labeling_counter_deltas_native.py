@@ -87,7 +87,6 @@ async def test_native_counter_function_contract_and_exact_privileges(test_engine
     async with _restricted(test_engine) as (owner, _api, _world, _url, _batches):
         async with owner() as db:
             for function in manifest["functions"]:
-                # The packaged migration descriptor keeps the historical spelling.
                 signature = current(function["signature"])
                 row = (
                     await db.execute(

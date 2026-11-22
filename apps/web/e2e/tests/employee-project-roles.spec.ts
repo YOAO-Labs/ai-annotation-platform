@@ -1,18 +1,3 @@
-/**
- * Project-scoped employee roles — browser acceptance (B6).
- *
- * One platform employee (`employee@e2e.test`) must be able to annotate in
- * project A and review in project B in the same browser session, while the
- * inverse actions and an unrelated project C stay denied.  Authority comes from
- * real project memberships and the real application APIs — permissions are
- * never stubbed with `page.route`.
- *
- * The review task in B is deliberately *not* seeded with `seed.advance_task`
- * (which bypasses the workflow and leaves contributor evidence unknown).
- * Instead the fixture task carries a known-empty accumulator and the spec
- * submits it through the real annotation + submit APIs as the actual peer
- * author, so the frozen round has a complete contributor set and submitter.
- */
 import { expect, test, SeedAPI, type ProjectRolesSeedData } from "../fixtures/seed";
 import type { APIRequestContext, Page } from "@playwright/test";
 
@@ -49,7 +34,6 @@ async function submitPeerAnnotation(
   expect(submitted.status(), await submitted.text()).toBe(200);
 }
 
-/** Draw one real bbox and pick the `car` class, matching the proven image flow. */
 async function drawAndSaveBbox(page: Page): Promise<void> {
   const stage = page.getByTestId("workbench-stage");
   await expect(stage).toHaveAttribute("data-image-ready", "true", { timeout: 20_000 });
@@ -89,7 +73,6 @@ async function drawAndSaveBbox(page: Page): Promise<void> {
   await picker.locator("span").filter({ hasText: /^car$/ }).click();
 }
 
-/** Read the durable offline queue straight from IndexedDB (deterministic). */
 async function readOfflineQueue(
   page: Page,
 ): Promise<Array<{ taskId?: string; projectId?: string; userId?: string }>> {
@@ -132,7 +115,6 @@ test.describe("project-scoped employee roles", () => {
     await seed.injectToken(page, data.employee_email);
     await page.setViewportSize({ width: 1440, height: 900 });
 
-    // Tab 1: project A annotate — annotation controls only.
     await page.goto(
       `/projects/${data.projects.a.project_id}/annotate?task=${data.annotation_task_id}`,
     );
@@ -143,8 +125,6 @@ test.describe("project-scoped employee roles", () => {
     await expect(page.getByTestId("workbench-submit")).toBeVisible();
     await expect(page.getByTestId("review-approve")).toHaveCount(0);
 
-    // Tab 2 (same browser context / same account): project B review — review
-    // controls only, while tab 1 keeps its annotation identity.
     const reviewTab = await context.newPage();
     await reviewTab.setViewportSize({ width: 1440, height: 900 });
     const claimResponse = reviewTab.waitForResponse(
@@ -166,7 +146,6 @@ test.describe("project-scoped employee roles", () => {
     await expect(page.getByTestId("workbench-submit")).toBeVisible();
     await expect(page.getByTestId("review-approve")).toHaveCount(0);
 
-    // A: real UI save then submit.
     await drawAndSaveBbox(page);
     await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-user-box-count", "1");
     const [submitted] = await Promise.all([
@@ -179,7 +158,6 @@ test.describe("project-scoped employee roles", () => {
     ]);
     expect(submitted.status(), await submitted.text()).toBe(200);
 
-    // B: UI approve after the auto-claim.
     await reviewTab.bringToFront();
     const [approved] = await Promise.all([
       reviewTab.waitForResponse(
@@ -192,10 +170,6 @@ test.describe("project-scoped employee roles", () => {
     ]);
     expect(approved.status(), await approved.text()).toBe(200);
 
-    // Server truth for both projects.
-    // Read final state through the legitimate project managers: an annotator
-    // loses batch visibility for a task that left the annotation phase, so the
-    // employee's own GET can legitimately 404 even though the submit succeeded.
     const aOwnerTask = await request.get(`${API_BASE}/api/v1/tasks/${data.annotation_task_id}`, {
       headers: auth(await seed.accessToken(data.owner_email_a)),
     });
@@ -221,20 +195,17 @@ test.describe("project-scoped employee roles", () => {
     const token = await seed.accessToken(data.employee_email);
     const headers = auth(token);
 
-    // The A annotator may not claim/review A work.
     const claimA = await request.post(
       `${API_BASE}/api/v1/tasks/${data.annotation_task_id}/review/claim`,
       { headers },
     );
     expect(claimA.status(), await claimA.text()).toBe(403);
 
-    // The B reviewer may not submit the peer's annotation work.
     const submitB = await request.post(`${API_BASE}/api/v1/tasks/${data.review_task_id}/submit`, {
       headers,
     });
     expect(submitB.status(), await submitB.text()).toBe(403);
 
-    // C: an explicit task assignment alone grants nothing.
     const cAccess = await request.get(
       `${API_BASE}/api/v1/projects/${data.projects.c.project_id}/access`,
       { headers },
@@ -246,7 +217,6 @@ test.describe("project-scoped employee roles", () => {
     );
     expect([403, 404]).toContain(annotateC.status());
 
-    // UI deep links fail closed instead of mounting a writable editor.
     await seed.injectToken(page, data.employee_email);
     await page.setViewportSize({ width: 1440, height: 900 });
     for (const url of [
@@ -269,7 +239,6 @@ test.describe("project-scoped employee roles", () => {
     const ownerToken = await seed.accessToken(data.owner_email_a);
     const ownerHeaders = auth(ownerToken);
 
-    // Viewer memberships are explicit and viewer-only.
     const viewerAsAnnotator = await request.post(
       `${API_BASE}/api/v1/projects/${data.projects.a.project_id}/members`,
       {
@@ -287,7 +256,6 @@ test.describe("project-scoped employee roles", () => {
     );
     expect(viewerAsViewer.status(), await viewerAsViewer.text()).toBe(201);
 
-    // Real UI management flow on an idle member.
     await seed.injectToken(page, data.owner_email_a);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/projects/${data.projects.a.project_id}/settings`);
@@ -312,7 +280,6 @@ test.describe("project-scoped employee roles", () => {
       page.getByRole("row").filter({ hasText: data.spare_email }).getByText("标注员"),
     ).toBeVisible();
 
-    // CAS: the preview is single-use; replaying it against the new version 409s.
     const membersResponse = await request.get(
       `${API_BASE}/api/v1/projects/${data.projects.a.project_id}/members`,
       { headers: ownerHeaders },
@@ -364,10 +331,6 @@ test.describe("project-scoped employee roles", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     const dAccessPath = `/api/v1/projects/${data.projects.d.project_id}/access`;
 
-    // Load D's open-pool workbench while online, then go offline so the save
-    // fails as a real network error and becomes a durable local draft.  Staying
-    // offline also prevents the pre-revocation drain from succeeding before the
-    // membership is removed.
     await page.goto(
       `/projects/${data.projects.d.project_id}/annotate?task=${data.open_pool_task_id}`,
     );
@@ -380,8 +343,6 @@ test.describe("project-scoped employee roles", () => {
       .poll(async () => (await readOfflineQueue(page)).length, { timeout: 15_000 })
       .toBeGreaterThan(0);
 
-    // Release the task lock so the membership is idle, then revoke through the
-    // real API. D is an open pool, so no handoff blocker applies.
     const token = await seed.accessToken(data.employee_email);
     const released = await request.delete(
       `${API_BASE}/api/v1/tasks/${data.open_pool_task_id}/lock`,
@@ -406,10 +367,6 @@ test.describe("project-scoped employee roles", () => {
     const revokedAccess = await request.get(dAccessPath, { headers: auth(token) });
     expect([403, 404]).toContain(revokedAccess.status());
 
-    // Going back online drains the account queue.  The B4 drain re-checks each
-    // operation's project authority first: with D revoked it must observe an
-    // HTTP 403/404 access denial and retain the op, not perform a forbidden
-    // annotation write.
     const drainAccessCheck = page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname === dAccessPath && response.request().method() === "GET",
@@ -426,7 +383,6 @@ test.describe("project-scoped employee roles", () => {
       )
       .toBe(true);
 
-    // No D write was persisted; the draft only exists locally.
     const dAnnotations = await request.get(
       `${API_BASE}/api/v1/tasks/${data.open_pool_task_id}/annotations`,
       { headers: ownerHeaders },
@@ -434,7 +390,6 @@ test.describe("project-scoped employee roles", () => {
     expect(dAnnotations.status(), await dAnnotations.text()).toBe(200);
     expect(await dAnnotations.json()).toEqual([]);
 
-    // The unrelated authorized project B still works end to end.
     await page.goto(`/projects/${data.projects.b.project_id}/review?task=${data.review_task_id}`);
     await expect(page.getByTestId("review-approve")).toBeVisible({ timeout: 20_000 });
     const [approved] = await Promise.all([
@@ -458,8 +413,6 @@ test.describe("project-scoped employee roles", () => {
     const data = await seed.projectRoles();
     await submitPeerAnnotation(request, seed, data);
 
-    // The fixture projects carry namespaced names; resolve the exact names from
-    // the API instead of assuming the retired shared-fixture values.
     const projectName = async (key: "a" | "b" | "c" | "d") => {
       const response = await request.get(
         `${API_BASE}/api/v1/projects/${data.projects[key].project_id}`,
@@ -480,10 +433,6 @@ test.describe("project-scoped employee roles", () => {
     await page.goto("/dashboard");
     await expect(page.getByTestId("employee-tab-annotate")).toBeVisible({ timeout: 20_000 });
 
-    // Annotate pane shows only the employee's annotator projects (A and D);
-    // review-only B must not appear, and C is not visible at all.  The project
-    // name also shows up inside sub-headers and batch labels, so match the
-    // project card text exactly instead of by substring.
     await expect(page.getByText(names.a, { exact: true })).toBeVisible({
       timeout: 20_000,
     });
@@ -491,9 +440,6 @@ test.describe("project-scoped employee roles", () => {
     await expect(page.getByText(names.b, { exact: true })).toHaveCount(0);
     await expect(page.getByText(names.c, { exact: true })).toHaveCount(0);
 
-    // Review pane shows B's pending review work and no annotator project.  The
-    // project name also appears inside the priority/batch labels, so match the
-    // pending task's project badge exactly instead of using a substring match.
     await page.getByTestId("employee-tab-review").click();
     await expect(page.getByText(names.b, { exact: true })).toBeVisible({
       timeout: 20_000,
@@ -519,7 +465,6 @@ test.describe("project-scoped employee roles", () => {
       { timeout: 15_000 },
     );
     await expect(page.getByText("Data Manager · 项目工作面")).toBeVisible({ timeout: 20_000 });
-    // A viewer reaches the read-only surface: no editor and no management actions.
     await expect(page.getByTestId("workbench-stage")).toHaveCount(0);
     await expect(page.getByTestId("data-manager-task-actions")).toHaveCount(0);
   });

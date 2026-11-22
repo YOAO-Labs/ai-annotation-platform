@@ -12,10 +12,6 @@ permissions:
   contents: read
 
 jobs:
-  # Plan §6.6: one build per exact fingerprint (commit + build mode + lockfile
-  # + OpenAPI snapshot + Node version), reused by every `built` matrix entry.
-  # The fingerprint names the artifact, so a different lockfile or snapshot can
-  # only fail the download, never silently reuse another build.
   build:
     name: Frontend E2E build
     runs-on: ubuntu-latest
@@ -71,7 +67,7 @@ jobs:
         with:
           name: web-e2e-dist-${{ steps.fingerprint.outputs.fingerprint }}
           path: |
-            web-e2e-dist-*.tar.gz
+            web-e2e-dist-${{ steps.fingerprint.outputs.fingerprint }}.tar.gz
             SHA256SUMS
           retention-days: 3
 
@@ -79,15 +75,11 @@ jobs:
     name: Frontend E2E suites
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # Fail-closed via the needs dependency: a failed shared build skips every
-    # suite (the aggregate Frontend E2E then fails on the skipped result);
-    # `skipped` is only legitimate when no built suite was selected at all.
-    # Unlike always(), !cancelled() lets superseded PRs release workflow concurrency.
     needs: [build]
     if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
-    # Each runner owns its services; never parallelize workers against shared fixtures.
     strategy:
       fail-fast: false
+      max-parallel: 11
       matrix: ${{ fromJSON(inputs.matrix) }}
     services:
       postgres:
@@ -104,77 +96,82 @@ jobs:
         ports:
           - 5432:5432
     env:
-      # Only the worktree coordinator receives this owner connection.
-      # Its child environment supplies the owned database and distinct _app LOGIN.
       DATABASE_URL: postgresql+asyncpg://user:pass@127.0.0.1:5432/postgres
       SECRET_KEY: ci-test-secret
-      MINIO_ENDPOINT: localhost:9000
+      MINIO_ENDPOINT: 127.0.0.1:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       ENVIRONMENT: development
+      UV_FROZEN: "1"
+      PLAYWRIGHT_CHROMIUM_CHANNEL: ${{ (startsWith(matrix.suite, 'default-') || startsWith(matrix.suite, 'video-pipeline-') || matrix.suite == 'mask-toolbar-native' || matrix.suite == 'ai-request-worker') && 'chrome' || '' }}
+      E2E_MINIO_PROJECT: e2e-minio-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
     steps:
       - name: Record prep start
         run: echo "E2E_PREP_START=$(date +%s)" >> "$GITHUB_ENV"
-      # Fail-closed: a built entry never runs without its fingerprinted build,
-      # and a build failure skips the suites instead of testing stale code.
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install video fixture tools
+      - name: Install native runtime dependencies
         run: |
-          # Avoid the regional HTTP mirror that consumed the suite's entire deadline.
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          fi
+          packages=()
           if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            packages+=(ffmpeg)
+          fi
+          if ! command -v vips >/dev/null; then
+            packages+=(libvips-tools)
+          fi
+          if [ ! -f /usr/share/color/icc/sRGB.icc ] && [ ! -f /usr/share/color/icc/sRGB.icm ] &&
+             [ ! -f /usr/share/color/icc/colord/sRGB.icc ]; then
+            packages+=(icc-profiles-free)
+          fi
+          if ! docker compose version >/dev/null 2>&1; then
+            packages+=(docker-compose-v2)
+          fi
+          if [ "${#packages[@]}" -gt 0 ]; then
+            if [ -f /etc/apt/apt-mirrors.txt ]; then
+              printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            fi
             sudo apt-get update
-            sudo apt-get install -y --no-install-recommends ffmpeg
+            sudo apt-get install -y --no-install-recommends "${packages[@]}"
           fi
           ffmpeg -version
           ffprobe -version
+          vips --version
+          docker compose version
       - name: Install uv
         run: pip install uv
-      - name: Stage verified Plugin-SDK artifacts
-        env:
-          PLUGIN_SDK_MANIFEST: ${{ vars.YOAO_SDK_MANIFEST }}
-          PLUGIN_SDK_SHA256: ${{ vars.YOAO_SDK_MANIFEST_SHA256 }}
-        run: python scripts/fetch-python-artifacts.py --manifest "$PLUGIN_SDK_MANIFEST" --sha256 "$PLUGIN_SDK_SHA256" --output .artifacts/python/plugin-sdk --package yoao-backend-runtime --package yoao-mask-utils
       - name: Sync API deps
-        working-directory: apps/api
-        run: uv sync --extra test
-      # The services block cannot pass MinIO's `server` subcommand, so start the
-      # pinned image with docker run and wait for its health endpoint; this
-      # keeps FastAPI startup from racing the container's readiness window.
-      # IBM mirror preserves the digest: https://www.ibm.com/support/pages/node/7289585
+        run: uv sync --project apps/api --frozen --no-dev --python 3.11
       - name: Start MinIO
+        id: minio
         run: |
-          minio_image=icr.io/fusion-open/minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+          minio=(docker compose --project-name "$E2E_MINIO_PROJECT" --file .github/e2e-minio.yml)
           for attempt in 1 2 3; do
-            if docker pull "$minio_image"; then break; fi
+            if "${minio[@]}" pull minio; then break; fi
             if [ "$attempt" -eq 3 ]; then exit 1; fi
             sleep "$((attempt * 5))"
           done
-          docker run -d --name minio \
-            -p 9000:9000 \
-            -e MINIO_ROOT_USER=minioadmin \
-            -e MINIO_ROOT_PASSWORD=minioadmin \
-            "$minio_image" server /data
-          for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:9000/minio/health/live; then exit 0; fi
-            sleep 1
-          done
-          docker logs minio
-          exit 1
+          if ! "${minio[@]}" up --detach --pull never --wait --wait-timeout 30 minio; then
+            "${minio[@]}" logs minio
+            exit 1
+          fi
       - name: Prepare pinned MinIO client
         run: |
           mkdir -p "$RUNNER_TEMP/minio-client"
-          docker cp minio:/usr/bin/mc "$RUNNER_TEMP/minio-client/mc"
+          docker compose --project-name "$E2E_MINIO_PROJECT" --file .github/e2e-minio.yml \
+            cp minio:/usr/bin/mc "$RUNNER_TEMP/minio-client/mc"
           chmod 700 "$RUNNER_TEMP/minio-client/mc"
           "$RUNNER_TEMP/minio-client/mc" --version
           echo "$RUNNER_TEMP/minio-client" >> "$GITHUB_PATH"
+      - name: Cache native raster PostgreSQL image
+        if: matrix.suite == 'mask-native' || matrix.suite == 'mask-native-editor'
+        run: |
+          postgres_image=postgres@sha256:1d5b02d3a9941fbd52437db4107f8c52d6297dac553ca1e5c299ebb3756b4857
+          docker pull --platform linux/amd64 "$postgres_image"
+          docker tag "$postgres_image" postgres:16-alpine
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -188,8 +185,6 @@ jobs:
         env:
           OPENAPI_URL: ${{ github.workspace }}/apps/api/openapi.snapshot.json
         run: pnpm codegen
-      # Fail-closed: the download only succeeds for the exact fingerprint
-      # because the artifact name embeds it.
       - uses: actions/download-artifact@v4
         if: matrix.built == true
         with:
@@ -200,27 +195,22 @@ jobs:
         working-directory: shared-build
         env:
           FINGERPRINT: ${{ needs.build.outputs.fingerprint }}
-        run: |
-          set -euo pipefail
-          # SHA256SUMS is produced by the build job from the real archive bytes;
-          # fail if it does not name exactly the requested fingerprinted archive.
-          grep -F "web-e2e-dist-$FINGERPRINT.tar.gz" SHA256SUMS | sha256sum -c -
-          # Adversarial extra: reject a checksums file naming any other archive.
-          if ! diff <(grep -F "web-e2e-dist-$FINGERPRINT.tar.gz" SHA256SUMS) SHA256SUMS; then
-            echo "::error::checksum manifest names archives beyond the requested fingerprint"
-            exit 1
-          fi
-          tar -xzf "web-e2e-dist-$FINGERPRINT.tar.gz" -C "$GITHUB_WORKSPACE/apps/web"
-      - name: Install Playwright browsers
+        run: node "$GITHUB_WORKSPACE/scripts/unpack-e2e-build.mjs" "$FINGERPRINT" "$GITHUB_WORKSPACE/apps/web"
+      - name: Install Playwright browser
         working-directory: apps/web
-        run: pnpm exec playwright install --with-deps chromium
+        run: |
+          pnpm exec playwright install --with-deps "${PLAYWRIGHT_CHROMIUM_CHANNEL:-chromium}"
+          if [ "$PLAYWRIGHT_CHROMIUM_CHANNEL" = chrome ]; then google-chrome --version; fi
       - name: Run E2E suite
         id: e2e
         timeout-minutes: 20
         run: |
           echo "E2E_PREP_SECONDS=$(( $(date +%s) - E2E_PREP_START ))" >> "$GITHUB_ENV"
           echo "E2E_RUN_START=$(date +%s)" >> "$GITHUB_ENV"
-          if [ "${{ matrix.suite }}" = "mask-native" ]; then
+          if [ "${{ matrix.suite }}" = "ai-request-worker" ]; then
+            PLAYWRIGHT_AI_REQUEST_WORKER=1 PREANNOTATE_GPU_QUEUE=ml.cpu PREANNOTATE_CPU_QUEUE=ml.cpu \
+              pnpm dev:worktree -- exec --mode e2e --with-worker -- pnpm --filter web ${{ matrix.command }}
+          elif [ "${{ matrix.suite }}" = "mask-native" ] || [ "${{ matrix.suite }}" = "mask-native-editor" ]; then
             pnpm --filter web ${{ matrix.command }}
           else
             pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web ${{ matrix.command }}
@@ -228,21 +218,26 @@ jobs:
       - name: Record execution seconds
         if: always() && steps.e2e.outcome != 'skipped'
         run: echo "E2E_RUN_SECONDS=$(( $(date +%s) - E2E_RUN_START ))" >> "$GITHUB_ENV"
+      - name: Retire E2E MinIO
+        if: always() && steps.minio.outcome != 'skipped'
+        run: docker compose --project-name "$E2E_MINIO_PROJECT" --file .github/e2e-minio.yml down --volumes
       - name: Summarize E2E results
         if: always()
         env:
           E2E_SUITE: ${{ matrix.suite }}
           E2E_OUTCOME: ${{ steps.e2e.outcome }}
           E2E_BUILD_SECONDS: ${{ needs.build.outputs.build-seconds }}
-          E2E_REQUIRE_ALL_TESTS: ${{ (matrix.suite == 'mask-native' || matrix.suite == 'mask-readonly') && '1' || '0' }}
+          E2E_REQUIRE_ALL_TESTS: ${{ (matrix.requireAllTests || matrix.suite == 'mask-native' || matrix.suite == 'mask-native-editor' || matrix.suite == 'mask-readonly') && '1' || '0' }}
           E2E_STATUS_OUT: apps/web/suite-status/${{ matrix.suite }}.json
         run: |
           mkdir -p apps/web/suite-status
-          node scripts/summarize-e2e-results.mjs "$E2E_SUITE" "$E2E_OUTCOME" apps/web/e2e-results.json
+          status=0
+          node scripts/summarize-e2e-results.mjs "$E2E_SUITE" "$E2E_OUTCOME" apps/web/e2e-results.json || status=$?
           if [ "$E2E_SUITE" = "mask-native" ]; then
             E2E_REQUIRE_ALL_TESTS=1 E2E_STATUS_OUT=apps/web/suite-status/mask-worker.json \
-              node scripts/summarize-e2e-results.mjs mask-worker "$E2E_OUTCOME" apps/web/e2e-browser-integration-results.json
+              node scripts/summarize-e2e-results.mjs mask-worker "$E2E_OUTCOME" apps/web/e2e-browser-integration-results.json || status=$?
           fi
+          exit "$status"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

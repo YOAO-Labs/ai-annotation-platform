@@ -86,8 +86,6 @@ class AsyncpgBatchResultDatabase:
                         *arguments,
                         timeout=self._timeout,
                     )
-                    # Validate the envelope and all scope/echo fields before the
-                    # transaction context can commit.
                     result = validate_native_result(operation, request, raw)
             return result
         except asyncio.CancelledError:

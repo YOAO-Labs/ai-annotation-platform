@@ -23,7 +23,6 @@ JOB_ID = uuid4()
 
 
 def _project() -> Project:
-    # total_tasks / completed_tasks 是服务端附加字段, 靠 extra="allow" 透传
     return Project(
         id=uuid4(),
         display_id="P-1",

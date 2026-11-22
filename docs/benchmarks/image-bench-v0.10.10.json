@@ -1,5 +1,6 @@
 {
-  "_doc": "v0.10.10 · I8.2 · image-bench 基准首版占位。真实数据待 pnpm --filter web image:bench 首跑产出后回填本文件。",
+  "kind": "historical-unmeasured-plan",
+  "_doc": "v0.10.10 原始矩阵占位，未记录任何测量。",
   "version": "v0.10.10",
   "generatedAt": null,
   "matrix": [
@@ -14,7 +15,7 @@
     { "id": "image-polygon-dense-shapes-500", "longTaskCount": null, "longTaskMaxMs": null, "fps": null }
   ],
   "notes": [
-    "由 v0.10.10 落地，矩阵契约 + spec + orchestrator 完工；首次真实跑数仍依赖 _test_seed 加 ?image_size= / ?annotation_density= 参数支持。",
-    "首跑产出后，把每场景 longTaskCount/longTaskMaxMs/fps 回填到 matrix；之后版本对比 diff 本文件。"
+    "此历史矩阵不是可执行夹具清单，不代表浏览器实际加载过这些场景。",
+    "当前计划和独立 Playwright 实测命令见 apps/web/e2e/README.md。"
   ]
 }

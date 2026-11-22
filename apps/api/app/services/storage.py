@@ -33,10 +33,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# presigned URL 的 Expires 对齐到 10 分钟网格, 使同一对象在一个窗口内签出的 URL 逐字节相同。
-# 不对齐时 Expires 逐秒递增, 签名随之改变: MinIO 不下发 Cache-Control, 浏览器只能按
-# 完整 URL (含签名) 做缓存 key, 于是每次 task 列表 refetch 都会让全部缩略图/原图缓存失效并重下。
-# 代价是实际有效期在 [expires_in, expires_in + _PRESIGN_ALIGN_WINDOW] 之间浮动。
 _PRESIGN_ALIGN_WINDOW = 600
 TRUSTED_NUSCENES_PREFIX = "__aap_trusted_nuscenes__"
 
@@ -202,11 +198,6 @@ class StorageService:
 
     def _ensure_cache_lifecycle(self) -> None:
         self._remove_import_artifact_lifecycle()
-        # 只过期「可按需重新抽取」的帧图 / 分块缓存(videos/<id>/frames|chunks)。
-        # playback/(非 h264 视频的浏览器播放代理) 与 thumbnails/(海报) 是 DB 元数据
-        # 持久引用、入库时一次性生成、不会惰性重建,必须随原视频同寿命——绝不能进过期规则。
-        # 历史教训:旧规则 Prefix="" 把整桶都按 30 天过期,playback 代理 30 天后被删而
-        # DB 仍指向它,<video> 取预签名 URL 命中 404 → 浏览器报 MEDIA_ELEMENT_ERROR: Format error。
         media_cache_rules = [
             {
                 "ID": "media-cache-frames-chunks-30d",
@@ -225,7 +216,6 @@ class StorageService:
                 "Failed to set bucket lifecycle on %s: %s", self.media_cache_bucket, exc
             )
 
-        # Import objects require owner-driven cleanup, including unresolved I/O.
         for short_lived_bucket, rule_id in (
             (self.export_bucket, "export-artifacts-7d"),
         ):
@@ -247,11 +237,6 @@ class StorageService:
                 logger.warning(
                     "Failed to set bucket lifecycle on %s: %s", short_lived_bucket, exc
                 )
-
-        # audit-archive 桶不挂 lifecycle:合规要求永久保留。运维可单独开 object lock。
-        # avatars 桶同样不挂 lifecycle:头像是不可重生的持久身份数据,由 users.avatar_ref
-        # 持久引用;一旦过期就会出现"DB 指向已删对象"的破图(与上面 playback 同类故障)。
-        # 修改头像时由 API 显式删除旧对象,不依赖 lifecycle。
 
     def put_bytes(
         self,
@@ -327,7 +312,6 @@ class StorageService:
         *,
         audience: storage_presigning.Audience = "browser",
     ) -> str:
-        # download_name 经 ResponseContentDisposition 给浏览器一个友好文件名。
         reject_reference(key)
         params: dict = {"Bucket": bucket or self.bucket, "Key": key}
         if version_id is not None:
@@ -336,8 +320,6 @@ class StorageService:
             params["ResponseContentDisposition"] = (
                 f'attachment; filename="{download_name}"'
             )
-        # align=True (默认) 把 Expires 对齐到 10 分钟网格以复用浏览器缓存 (缩略图/原图);
-        # 非缓存类、要求严格短有效期的调用者 (如评论附件私链) 传 align=False 走精确 expires_in。
         return storage_presigning.generate_url(
             self.client,
             "get_object",
@@ -489,9 +471,6 @@ class StorageService:
             self.avatars_bucket,
         ]
 
-    # 派生媒体缓存按 key 前缀路由到 media-cache 桶。
-    # 老数据若仍在 datasets 桶,运维可用 mc mirror 一次性搬迁,期间无下行兼容
-    # (派生缓存可重生)。前缀清单覆盖现有缩略图、点云金字塔和 Assets media key。
     MEDIA_CACHE_PREFIXES: tuple[str, ...] = (
         "thumbnails/",
         "videos/",

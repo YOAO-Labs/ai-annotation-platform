@@ -7,105 +7,84 @@
 <text x="44" y="52" font-family="Virgil, Segoe UI Emoji" font-size="28px" fill="#1e1e1e" text-anchor="start" style="white-space:pre" direction="ltr">TrainingRun &amp; TrainingAttempt lifecycle</text>
 <text x="44" y="80" font-family="Virgil, Segoe UI Emoji" font-size="15px" fill="#64748b" text-anchor="start" style="white-space:pre" direction="ltr">Standalone pull executor, cooperative resource lock, checkpoint resume &amp; artifact publishing</text>
 
-<!-- Start Dot -->
 <ellipse cx="50" cy="237" rx="14" ry="14" fill="#1e1e1e" stroke="#1e1e1e" stroke-width="2"/>
 <path d="M 64 237 L 120 237" fill="none" stroke="#475569" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="118,231 128,237 118,243" fill="#475569"/>
 <text x="50" y="215" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#64748b" text-anchor="start">提交配置入队</text>
 
-<!-- 1. queued -->
 <rect x="120" y="190" width="190" height="95" rx="16" fill="#fef3c7" stroke="#d97706" stroke-width="2.4"/>
 <text x="215" y="232" font-family="Virgil, Segoe UI Emoji" font-size="24px" fill="#d97706" text-anchor="middle">queued</text>
 <text x="215" y="260" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#b45309" text-anchor="middle">参数锁定 · 独立队列排队</text>
 
-<!-- queued -> preparing -->
 <path d="M 310 237 L 380 237" fill="none" stroke="#4f46e5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="378,231 388,237 378,243" fill="#4f46e5"/>
 <rect x="318" y="212" width="60" height="22" rx="6" fill="#ffffff" opacity="0.95"/>
 <text x="348" y="227" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#4f46e5" text-anchor="middle">Claim</text>
 
-<!-- 2. preparing -->
 <rect x="380" y="190" width="210" height="95" rx="16" fill="#e0e7ff" stroke="#4f46e5" stroke-width="2.4"/>
 <text x="485" y="232" font-family="Virgil, Segoe UI Emoji" font-size="24px" fill="#4f46e5" text-anchor="middle">preparing</text>
 <text x="485" y="260" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#3730a3" text-anchor="middle">取得 GPU flock · 拉包</text>
 
-<!-- preparing -> training -->
 <path d="M 590 237 L 660 237" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="658,231 668,237 658,243" fill="#2563eb"/>
 <text x="625" y="227" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#2563eb" text-anchor="middle">拉起子进程</text>
 
-<!-- 3. training -->
 <rect x="660" y="190" width="220" height="95" rx="16" fill="#dbeafe" stroke="#2563eb" stroke-width="2.4"/>
 <text x="770" y="232" font-family="Virgil, Segoe UI Emoji" font-size="24px" fill="#2563eb" text-anchor="middle">training</text>
 <text x="770" y="260" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#1d4ed8" text-anchor="middle">原生进程训练 · 实时采样</text>
 
-<!-- training -> evaluating -->
 <path d="M 880 237 L 950 237" fill="none" stroke="#7c3aed" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="948,231 958,237 948,243" fill="#7c3aed"/>
 <text x="915" y="227" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#7c3aed" text-anchor="middle">轮次完成</text>
 
-<!-- 4. evaluating -->
 <rect x="950" y="190" width="210" height="95" rx="16" fill="#ede9fe" stroke="#7c3aed" stroke-width="2.4"/>
 <text x="1055" y="232" font-family="Virgil, Segoe UI Emoji" font-size="24px" fill="#7c3aed" text-anchor="middle">evaluating</text>
 <text x="1055" y="260" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#5b21b6" text-anchor="middle">加载最佳权重 · 最终评估</text>
 
-<!-- evaluating -> uploading -->
 <path d="M 1160 237 L 1230 237" fill="none" stroke="#ca8a04" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="1228,231 1238,237 1228,243" fill="#ca8a04"/>
 <text x="1195" y="227" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#ca8a04" text-anchor="middle">产物固化</text>
 
-<!-- 5. uploading -->
 <rect x="1230" y="190" width="200" height="95" rx="16" fill="#fef9c3" stroke="#ca8a04" stroke-width="2.4"/>
 <text x="1330" y="232" font-family="Virgil, Segoe UI Emoji" font-size="24px" fill="#ca8a04" text-anchor="middle">uploading</text>
 <text x="1330" y="260" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#854d0e" text-anchor="middle">上传权重与产物清单</text>
 
-<!-- uploading -> succeeded -->
 <path d="M 1430 237 L 1490 237" fill="none" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="1488,231 1498,237 1488,243" fill="#16a34a"/>
 <text x="1460" y="227" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#16a34a" text-anchor="middle">SHA 验过</text>
 
-<!-- 6. succeeded -->
 <rect x="1490" y="190" width="160" height="95" rx="16" fill="#dcfce7" stroke="#16a34a" stroke-width="2.4"/>
 <text x="1570" y="232" font-family="Virgil, Segoe UI Emoji" font-size="24px" fill="#16a34a" text-anchor="middle">succeeded</text>
 <text x="1570" y="260" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#15803d" text-anchor="middle">发布就绪 · 待注册</text>
 
-<!-- Interruption branches -->
-<!-- training -> cancelling -->
 <path d="M 770 285 L 770 390" fill="none" stroke="#ef4444" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="764,388 770,398 776,388" fill="#ef4444"/>
 <text x="770" y="340" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#ef4444" text-anchor="middle">用户请求停止</text>
 
-<!-- cancelling node -->
 <rect x="660" y="390" width="220" height="85" rx="16" fill="#fee2e2" stroke="#ef4444" stroke-width="2.4"/>
 <text x="770" y="426" font-family="Virgil, Segoe UI Emoji" font-size="22px" fill="#ef4444" text-anchor="middle">cancelling</text>
 <text x="770" y="452" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#b91c1c" text-anchor="middle">向进程组发信号等待退出</text>
 
-<!-- cancelling -> cancelled -->
 <path d="M 880 432 L 950 432" fill="none" stroke="#475569" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="948,426 958,432 948,438" fill="#475569"/>
 <text x="915" y="420" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#475569" text-anchor="middle">确认退出</text>
 
-<!-- cancelled node -->
 <rect x="950" y="390" width="210" height="85" rx="16" fill="#f1f5f9" stroke="#475569" stroke-width="2.4"/>
 <text x="1055" y="426" font-family="Virgil, Segoe UI Emoji" font-size="22px" fill="#475569" text-anchor="middle">cancelled</text>
 <text x="1055" y="452" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#334155" text-anchor="middle">释放 GPU 锁 · 可续训</text>
 
-<!-- training -> lost -->
 <path d="M 700 285 Q 500 320 485 390" fill="none" stroke="#ea580c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="479,388 485,398 491,388" fill="#ea580c"/>
 <text x="560" y="340" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#ea580c" text-anchor="middle">心跳超时（保留 GPU 租约）</text>
 
-<!-- lost node -->
 <rect x="380" y="390" width="210" height="85" rx="16" fill="#ffedd5" stroke="#ea580c" stroke-width="2.4"/>
 <text x="485" y="426" font-family="Virgil, Segoe UI Emoji" font-size="22px" fill="#ea580c" text-anchor="middle">lost</text>
 <text x="485" y="452" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#c2410c" text-anchor="middle">失联锁定 · 待确认重连</text>
 
-<!-- lost -> preparing (reconnect) -->
 <path d="M 430 390 L 430 285" fill="none" stroke="#4f46e5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
 <polygon points="424,287 430,277 436,287" fill="#4f46e5"/>
 <text x="400" y="340" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#4f46e5" text-anchor="middle">恢复重连</text>
 
-<!-- preparing -> failed &amp; training -> failed -->
 <path d="M 700 285 Q 670 420 700 530" fill="none" stroke="#dc2626" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="694,528 700,538 706,528" fill="#dc2626"/>
 
@@ -113,19 +92,16 @@
 <polygon points="656,543 667,554 653,556" fill="#dc2626"/>
 <text x="580" y="490" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#dc2626" text-anchor="middle">OOM / 环境错误</text>
 
-<!-- failed node -->
 <rect x="660" y="530" width="220" height="85" rx="16" fill="#fee2e2" stroke="#dc2626" stroke-width="2.4"/>
 <text x="770" y="566" font-family="Virgil, Segoe UI Emoji" font-size="22px" fill="#dc2626" text-anchor="middle">failed</text>
 <text x="770" y="592" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#b91c1c" text-anchor="middle">异常退出 · 保存错误回执</text>
 
-<!-- failed &amp; cancelled resume to queued (curved back arrows) -->
 <path d="M 660 572 Q 100 572 170 285" fill="none" stroke="#4f46e5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 6"/>
 <polygon points="163,288 172,277 177,289" fill="#4f46e5"/>
 <text x="180" y="470" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#4f46e5" text-anchor="middle">从不可变检查点续训 (新增 Attempt)</text>
 
 <path d="M 1055 475 Q 1055 520 880 572" fill="none" stroke="#4f46e5" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 6"/>
 
-<!-- Bottom Principles and Architecture Notes -->
 <rect x="44" y="660" width="1592" height="150" rx="16" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.8"/>
 <text x="70" y="695" font-family="Virgil, Segoe UI Emoji" font-size="18px" fill="#1e293b" text-anchor="start">训练执行与算力租约核心机制：</text>
 

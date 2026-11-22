@@ -24,7 +24,6 @@ async function toggle(page: Page, long: boolean) {
 }
 
 test.beforeEach(async ({ page }) => {
-  // The fixtures must remain independent of API, auth and mutable seed data.
   await page.route("**/api/**", (route) => route.abort());
 });
 
@@ -34,7 +33,6 @@ test("native panels and textareas keep content width when scrolling starts and s
   await page.goto(fixture);
   await expect(page.getByTestId("utility-y")).toBeVisible();
   const initial = await Promise.all(nativePanels.map((id) => geometry(page.getByTestId(id))));
-  // A real classic scrollbar is required; hidden/overlay bars cannot reproduce the defect.
   expect(initial[0].lane).toBeGreaterThan(0);
   await toggle(page, true);
   for (const [index, id] of nativePanels.entries()) {
@@ -80,6 +78,8 @@ test("standalone document width stays stable with root scrolling and modal scrol
 }) => {
   await page.goto(`${fixture}?surface=document`);
   const document = page.getByTestId("document");
+  const body = page.locator("body");
+  const dialog = page.getByRole("dialog");
   await expect(document).toBeVisible();
   const before = await geometry(document);
   await toggle(page, true);
@@ -87,7 +87,7 @@ test("standalone document width stays stable with root scrolling and modal scrol
   expect((await geometry(document)).x).toBe(before.x);
   await toggle(page, false);
   await page.getByRole("button", { name: "打开弹窗", exact: true }).click();
-  await expect(page.locator("body")).toHaveAttribute("data-scroll-locked", "1");
+  await expect(body).toHaveAttribute("data-scroll-locked", "1");
   expect((await geometry(document)).width).toBe(before.width);
   expect((await geometry(document)).x).toBe(before.x);
   const modalBefore = await geometry(page.getByTestId("modal-content"));
@@ -100,17 +100,17 @@ test("standalone document width stays stable with root scrolling and modal scrol
     modalBefore.clientWidth,
   );
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(dialog).toBeHidden();
+  await expect(body).not.toHaveAttribute("data-scroll-locked");
   expect((await geometry(document)).width).toBe(before.width);
   expect((await geometry(document)).x).toBe(before.x);
-  // Reopen after the document itself has grown. Radix now measures an actual
-  // root scrollbar, rather than the zero gap of the initial short document.
   await page.getByRole("button", { name: "打开弹窗", exact: true }).click();
-  await expect(page.locator("body")).toHaveAttribute("data-scroll-locked", "1");
+  await expect(body).toHaveAttribute("data-scroll-locked", "1");
+  await expect(dialog.getByRole("button", { name: "关闭", exact: true })).toBeFocused();
   expect((await geometry(document)).width).toBe(before.width);
   expect((await geometry(document)).x).toBe(before.x);
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toBeHidden();
+  await expect(dialog).toBeHidden();
 });
 
 for (const surface of ["shell", "workbench"] as const) {

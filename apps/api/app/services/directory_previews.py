@@ -38,7 +38,7 @@ async def finish_io(call, *args, **kwargs):
             except Exception:
                 break
         if not task.cancelled():
-            task.exception()  # Consume an I/O failure without masking cancellation.
+            task.exception()
         raise
 
 
@@ -76,8 +76,6 @@ async def delete_owned(objects):
         try:
             await finish_io(storage_service.delete_object, key, bucket=bucket)
         except Exception:
-            # Retain the original failure. Failed cleanup requires operator
-            # reconciliation; never broaden deletion to another owner prefix.
             import logging
 
             logging.getLogger(__name__).warning(
@@ -206,8 +204,6 @@ async def prepare(db, source, entry, snapshot):
             rate_attempt=prepared.rate_attempt,
         )
     except Exception as exc:
-        # The verified original can still be registered. The durable output owns
-        # any uncertain physical write independently of this business transaction.
         if (
             getattr(exc, "storage_operation_unsettled", False)
             or isinstance(
@@ -419,7 +415,6 @@ async def generate(
         row.sha256, row.size_bytes = output.sha256, output.size_bytes
         row.state, row.error_code = "ready", None
     except Exception:
-        # A derivative failure does not roll back an already verified original.
         if fault_validate is not None:
             try:
                 await fault_validate()
@@ -491,8 +486,6 @@ async def preview_identity(db, source_id, path_digest, actor):
         raise ContentError("preview_binding_changed")
     else:
         await storage_access.check(db, LEGACY_LOCATION_ID)
-    # This deliberately does not touch the external source or its probe: the
-    # derivative names an old SHA and is only a read-only management preview.
     return (
         row.bucket,
         row.object_key,

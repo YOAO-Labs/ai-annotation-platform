@@ -134,7 +134,7 @@ def test_semantic_target_budget_fails_before_native_work():
             key: configuration["effective_values"][key] for key in CANONICAL
         },
     }
-    verify_frozen(config)  # 2 images × 50 classes × 800² = 64,000,000 elements.
+    verify_frozen(config)
     config["classes"].append("50")
     with pytest.raises(ValueError, match="64000000"):
         verify_frozen(config)

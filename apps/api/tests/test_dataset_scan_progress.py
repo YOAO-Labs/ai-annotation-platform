@@ -156,8 +156,6 @@ async def test_s3_accepted_pages_advance_without_percentage_and_stale_page_rejec
 async def test_actual_minio_scan_page_is_accepted_with_checkpoint_progress(
     db_session, super_admin, monkeypatch
 ):
-    # Only the local test endpoint bypasses the connector's loopback prohibition.
-    # All S3 calls, parsing, saved owner facts and scan fences remain production.
     client = storage_usage._client()
     endpoint = client.meta.endpoint_url.rstrip("/")
     bucket = settings.minio_datasets_bucket

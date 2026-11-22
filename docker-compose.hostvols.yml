@@ -1,27 +1,3 @@
-# 叠加文件 · 把所有命名卷重定向到宿主机统一前缀 ${DATA_ROOT} 下的子目录。
-#
-# 不挂这个文件时, docker-compose.yml 里的命名卷保持原样 (Docker 托管,
-# 落在 /var/lib/docker/volumes/<project>_<vol>)。挂上后, 每个卷变成 bind mount,
-# 数据集中落在 ${DATA_ROOT} 下, 便于统一备份 / 迁移 / 放到指定磁盘。
-#
-# 用法:
-#   # 默认 (命名卷, 行为不变)
-#   docker compose up -d
-#
-#   # 启用宿主机统一前缀 (DATA_ROOT 必须是已存在的绝对路径)
-#   export DATA_ROOT=/srv/annotation-data
-#   mkdir -p "$DATA_ROOT"/{pgdata,minio,gsam2-checkpoints,gsam2-hf-cache,sam3-checkpoints,sam3-hf-cache,prometheus,grafana}
-#   docker compose -f docker-compose.yml -f docker-compose.hostvols.yml up -d
-#
-#   # 想固化成默认 (免每次敲 -f): 在 shell / .env 设
-#   #   COMPOSE_FILE=docker-compose.yml:docker-compose.hostvols.yml
-#
-# 注意:
-# - bind 的 device 目录必须预先存在, 否则容器启动报错 (Docker 不会自动 mkdir)。
-# - DATA_ROOT 建议用绝对路径; 相对路径相对的是 daemon 而非当前目录, 易踩坑。
-# - 已是 bind mount 的 ./data/duckdb 不在此处 (它本就不是命名卷)。
-# - 切换前后数据不会自动迁移: 从命名卷转 bind, 需先把旧卷数据 cp 到新目录。
-
 volumes:
   pgdata:
     driver_opts:

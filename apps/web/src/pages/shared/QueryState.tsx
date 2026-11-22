@@ -5,11 +5,6 @@ export type QueryStateLike = {
   isPaused?: boolean;
 };
 
-/**
- * TanStack Query reports an offline query as pending/paused. In that state
- * `isLoading` is false, so page-level empty states must inspect the pause
- * marker explicitly.
- */
 export function isQueryPaused(query: QueryStateLike): boolean {
   return query.isPaused === true || query.fetchStatus === "paused";
 }

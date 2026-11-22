@@ -17,6 +17,7 @@ const leaseId = "55555555-5555-5555-5555-555555555555";
 const digest = "a".repeat(64);
 const path = `/api/v1/files/tasks/${taskId}/original`;
 const mediaPath = `/api/v1/media/original-playback/${leaseId}`;
+const retirementPrefix = "yoao:original-video-retirement:";
 const resource: VideoOriginalResource = { kind: "task", taskId };
 const fetchMock = vi.fn();
 function identity(overrides: Partial<OriginalIdentity> = {}): OriginalIdentity {
@@ -69,11 +70,6 @@ function deferred<T>() {
 const tick = async () => {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 };
-/**
- * Lease retirement is XHR, not fetch: Chromium reports a completed fetch whose
- * response has no body as `net::ERR_ABORTED`. The fake keeps every release
- * observable and completes it like the browser's bodyless 204 would.
- */
 class FakeXHR {
   static requests: FakeXHR[] = [];
   static hold = false;
@@ -105,6 +101,7 @@ class FakeXHR {
   }
 }
 beforeEach(() => {
+  sessionStorage.clear();
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock);
   FakeXHR.requests = [];
@@ -269,6 +266,7 @@ it.each(["account", "session", "abort"])(
       identity: identity(),
       signal: controller.signal,
     }).catch((error: unknown) => error);
+    expect(fetchMock.mock.calls[0][1].signal).toBeUndefined();
     if (change === "account")
       useAuthStore.getState().setAuth("bob-token", { id: "bob" } as MeResponse);
     else if (change === "session") useAuthStore.setState({ sessionId: crypto.randomUUID() });
@@ -346,7 +344,6 @@ it("release is idempotent, bounded and leaves renewed account credentials alone"
     body: JSON.stringify({ session_id: lease.owner.sessionId }),
     headers: { "Content-Type": "application/json", Authorization: "Bearer private-token" },
   });
-  // Document teardown before the in-page request settles re-delivers it keepalive.
   lease.retireOnUnload();
   expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
     `${path}-playback`,
@@ -360,10 +357,109 @@ it("release is idempotent, bounded and leaves renewed account credentials alone"
   FakeXHR.requests[0].finish(401);
   await release;
   expect(useAuthStore.getState().token).toBe("bob-token");
-  // A settled release already revoked this lease; teardown must not repeat it.
   lease.retireOnUnload();
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
+
+it("keeps an unacknowledged unload retirement without persisting credentials", async () => {
+  const receipt = deferred<Response>();
+  fetchMock.mockResolvedValueOnce(prepared()).mockReturnValueOnce(receipt.promise);
+  const lease = await prepareOriginalVideo(resource, { identity: identity() });
+  lease.retireOnUnload();
+  const key = `${retirementPrefix}${leaseId}`;
+  const record = {
+    ...lease.owner,
+    resource,
+    expiresAt: lease.expiresAt,
+  };
+  expect(JSON.parse(sessionStorage.getItem(key)!)).toEqual(record);
+  receipt.reject(new TypeError("connection closed"));
+  await tick();
+  expect(JSON.parse(sessionStorage.getItem(key)!)).toEqual(record);
+});
+
+it("settles exactly one inherited retirement before concurrent prepares for its owner", async () => {
+  const owner = captureOriginalOwner()!;
+  const retired = crypto.randomUUID();
+  const key = `${retirementPrefix}${retired}`;
+  sessionStorage.setItem(
+    key,
+    JSON.stringify({ ...owner, resource, expiresAt: Date.now() + 300_000 }),
+  );
+  FakeXHR.hold = true;
+  fetchMock.mockImplementation(() => Promise.resolve(prepared()));
+  const first = prepareOriginalVideo(resource, { identity: identity() });
+  const second = prepareOriginalVideo(resource, { identity: identity() });
+  expect(FakeXHR.requests).toHaveLength(1);
+  expect(FakeXHR.requests[0]).toMatchObject({
+    method: "DELETE",
+    url: `${path}-playback/${retired}`,
+    body: JSON.stringify({ session_id: owner.sessionId }),
+    headers: expect.objectContaining({
+      Authorization: "Bearer private-token",
+      Prefer: "ignore-missing",
+    }),
+  });
+  expect(fetchMock).not.toHaveBeenCalled();
+  FakeXHR.requests[0].finish(204);
+  await Promise.all([first, second]);
+  expect(sessionStorage.getItem(key)).toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+it("does not replay or wait for another account or session's unacknowledged retirement", async () => {
+  const owner = captureOriginalOwner()!;
+  const record = { ...owner, resource, expiresAt: Date.now() + 300_000 };
+  const key = `${retirementPrefix}${crypto.randomUUID()}`;
+  const otherSessionKey = `${retirementPrefix}${contentId}`;
+  const expiredKey = `${retirementPrefix}${crypto.randomUUID()}`;
+  const malformedKey = `${retirementPrefix}${crypto.randomUUID()}`;
+  sessionStorage.setItem(key, JSON.stringify(record));
+  sessionStorage.setItem(otherSessionKey, JSON.stringify({ ...record, sessionId: taskId }));
+  sessionStorage.setItem(expiredKey, JSON.stringify({ ...record, expiresAt: Date.now() - 1 }));
+  sessionStorage.setItem(
+    malformedKey,
+    JSON.stringify({ ...record, resource: { kind: "task", taskId: "https://other.test/" } }),
+  );
+  FakeXHR.hold = true;
+  const stale = prepareOriginalVideo(resource, { identity: identity() }).catch(
+    (error: unknown) => error,
+  );
+  expect(FakeXHR.requests).toHaveLength(1);
+  useAuthStore.getState().setAuth("bob-token", { id: "bob" } as MeResponse);
+  fetchMock.mockResolvedValueOnce(prepared());
+  const current = await prepareOriginalVideo(resource, { identity: identity() });
+  expect(current.owner.userId).toBe("bob");
+  expect(FakeXHR.requests).toHaveLength(1);
+  expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer bob-token");
+  FakeXHR.requests[0].finish(0);
+  expect(await stale).toMatchObject({ name: "AbortError" });
+  expect(sessionStorage.getItem(key)).not.toBeNull();
+  expect(sessionStorage.getItem(otherSessionKey)).not.toBeNull();
+  expect(sessionStorage.getItem(expiredKey)).toBeNull();
+});
+
+it("preserves a failed inherited retirement and surfaces genuine stage capacity", async () => {
+  vi.useFakeTimers();
+  const key = `${retirementPrefix}${crypto.randomUUID()}`;
+  sessionStorage.setItem(
+    key,
+    JSON.stringify({ ...captureOriginalOwner(), resource, expiresAt: Date.now() + 300_000 }),
+  );
+  FakeXHR.hold = true;
+  const detail = { code: "video_playback_capacity_exceeded" };
+  fetchMock.mockImplementation(() => Promise.resolve(json({ detail }, 429)));
+  const pending = prepareOriginalVideo(resource, { identity: identity() }).catch(
+    (error: unknown) => error,
+  );
+  FakeXHR.requests[0].finish(0);
+  await vi.advanceTimersByTimeAsync(7000);
+  expect(await pending).toMatchObject({ status: 429, detailRaw: detail });
+  expect(fetchMock).toHaveBeenCalledTimes(4);
+  expect(FakeXHR.requests).toHaveLength(1);
+  expect(sessionStorage.getItem(key)).not.toBeNull();
+});
+
 it.each([
   "video_playback_preparing",
   "video_playback_capacity_exceeded",

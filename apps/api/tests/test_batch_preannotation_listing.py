@@ -31,12 +31,10 @@ async def test_list_batches_multi_status_filter(httpx_client, db_session, super_
     assert multi.status_code == 200, multi.text
     assert sorted(b["name"] for b in multi.json()) == ["act", "drf"]
 
-    # 单状态行为不变
     single = await httpx_client.get(f"{url}?status=active", headers=_bearer(token))
     assert single.status_code == 200, single.text
     assert [b["name"] for b in single.json()] == ["act"]
 
-    # 无 status 仍返回全部 (向后兼容)
     all_batches = await httpx_client.get(url, headers=_bearer(token))
     assert all_batches.status_code == 200, all_batches.text
     assert len(all_batches.json()) == 3

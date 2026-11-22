@@ -504,8 +504,6 @@ async def test_quality_projection_same_statement_guard_blocks_enlarged_facts(
             result = await original_execute(statement, *args, **kwargs)
             queries.append(statement)
             if len(queries) == 1:
-                # Grow a consumed JSON field after the first aggregate's MVCC
-                # view, before the next statement's guarded hydration.
                 await other.execute(
                     update(VideoTrackQualityRun)
                     .where(VideoTrackQualityRun.id == run_id)

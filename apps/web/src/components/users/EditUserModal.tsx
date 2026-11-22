@@ -4,7 +4,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { useToastStore } from "@/components/ui/Toast";
-import { useAssignUserGroup, useChangeUserRole, useDeleteUser } from "@/hooks/useUsers";
+import { useAssignUserGroup, useChangeUserRole } from "@/hooks/useUsers";
 import { useGroups } from "@/hooks/useGroups";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -20,9 +20,6 @@ interface Props {
   onClose: () => void;
 }
 
-// 矩阵：actor.role × target.role → 允许 actor 把 target 改成的平台角色集。
-// 平台角色预览/变更接口仅超级管理员可用（AUTH-04）：项目管理员在这里没有
-// 可选的平台角色，项目职责（标注员/质检员/观察者）请走项目成员管理。
 const ASSIGNABLE_ROLES_BY_ACTOR: Record<PlatformRole, PlatformRole[]> = {
   super_admin: ["super_admin", "project_admin", "employee", "viewer"],
   project_admin: [],
@@ -30,34 +27,28 @@ const ASSIGNABLE_ROLES_BY_ACTOR: Record<PlatformRole, PlatformRole[]> = {
   viewer: [],
 };
 
-// 哪些 target.role 允许 actor 删除（不含 actor 自己 / 最后一名 super_admin）。
-// 后端项目管理员生命周期路径仅接受 employee 目标（_PA_ASSIGNABLE_ROLES），
-// 观察者行不展示删除等生命周期操作。
-const DELETABLE_TARGET_ROLES_BY_ACTOR: Record<PlatformRole, PlatformRole[]> = {
-  super_admin: ["super_admin", "project_admin", "employee", "viewer"],
-  project_admin: ["employee"],
-  employee: [],
-  viewer: [],
-};
-
 export function EditUserModal({ open, user, onClose }: Props) {
   const { role: actorRole } = usePermissions();
   const allowedRoles = ASSIGNABLE_ROLES_BY_ACTOR[actorRole] ?? [];
-  const deletableRoles = DELETABLE_TARGET_ROLES_BY_ACTOR[actorRole] ?? [];
-  // 平台角色编辑仅超级管理员可用（后端预览/变更接口同样仅 super_admin）。
   const canManagePlatformRoles = allowedRoles.length > 0;
 
   const { data: groups = [] } = useGroups(open);
   const changeRole = useChangeUserRole();
   const assignGroup = useAssignUserGroup();
-  const deleteUser = useDeleteUser();
   const pushToast = useToastStore((s) => s.push);
 
   const ownerId = useAuthStore((state) => state.user?.id);
+  const targetRole = user?.role as PlatformRole | undefined;
+  const canEditRole =
+    !!ownerId &&
+    !!user &&
+    ownerId !== user.id &&
+    user.is_managed !== false &&
+    targetRole !== undefined &&
+    allowedRoles.includes(targetRole);
   const [previewRevision, setPreviewRevision] = useState(0);
   const [roleVal, setRoleVal] = useState<PlatformRole>("employee");
   const [groupId, setGroupId] = useState<string>("");
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [rolePreview, setRolePreview] = useState<RoleImpactPreview | null>(null);
   const [rolePreviewPending, setRolePreviewPending] = useState(false);
   const [rolePreviewError, setRolePreviewError] = useState<string | null>(null);
@@ -66,10 +57,8 @@ export function EditUserModal({ open, user, onClose }: Props) {
     if (open && user) {
       setRoleVal(user.role as PlatformRole);
       setGroupId(user.group_id ?? "");
-      setConfirmDelete(false);
       changeRole.reset();
       assignGroup.reset();
-      deleteUser.reset();
       setRolePreview(null);
       setRolePreviewError(null);
     }
@@ -77,8 +66,7 @@ export function EditUserModal({ open, user, onClose }: Props) {
   }, [open, user?.id]);
 
   useEffect(() => {
-    // 平台角色影响预览为 super_admin-only；项目管理员打开弹窗不发预览请求。
-    if (!open || !user || !ownerId || !canManagePlatformRoles) return;
+    if (!open || !user || !ownerId || !canEditRole) return;
     let alive = true;
     setRolePreview(null);
     setRolePreviewPending(true);
@@ -98,23 +86,16 @@ export function EditUserModal({ open, user, onClose }: Props) {
     return () => {
       alive = false;
     };
-  }, [open, user?.id, ownerId, roleVal, previewRevision, canManagePlatformRoles]);
+  }, [open, user?.id, ownerId, roleVal, previewRevision, canEditRole]);
 
-  if (!user) return null;
-
-  // 不能改/删自己
-  const isSelf = false; // EditUserModal 入口已经隐藏自己；保留位以避免 UI 错配
-  const targetRole = user.role as PlatformRole;
-
-  const canEditRole = !isSelf && allowedRoles.includes(targetRole); // 当前角色必须在 actor 可改的集合内才能允许改
-  const canDelete = !isSelf && deletableRoles.includes(targetRole);
+  if (!user || targetRole === undefined) return null;
 
   const dirtyRole = canEditRole && roleVal !== user.role;
   const dirtyGroup = (groupId || null) !== (user.group_id ?? null);
   const dirty = dirtyRole || dirtyGroup;
 
   const loadRolePreview = () => setPreviewRevision((value) => value + 1);
-  const busy = changeRole.isPending || assignGroup.isPending || deleteUser.isPending;
+  const busy = changeRole.isPending || assignGroup.isPending;
   const currentPreview =
     rolePreview?.user_id === user.id && rolePreview.requested_role === roleVal ? rolePreview : null;
 
@@ -153,23 +134,8 @@ export function EditUserModal({ open, user, onClose }: Props) {
     }
   };
 
-  const handleDelete = async () => {
-    try {
-      await deleteUser.mutateAsync(user.id);
-      pushToast({ msg: `已删除账号 ${user.name}`, kind: "success" });
-      onClose();
-    } catch (err) {
-      pushToast({
-        msg: "删除失败",
-        sub: err instanceof Error ? err.message : String(err),
-        kind: "error",
-      });
-    }
-  };
+  const error = changeRole.error || assignGroup.error;
 
-  const error = changeRole.error || assignGroup.error || deleteUser.error;
-
-  // 角色下拉里允许出现的选项 = 当前角色 + actor 可指派集合（去重）
   const roleOptions: PlatformRole[] = Array.from(
     new Set<PlatformRole>([targetRole, ...allowedRoles]),
   );
@@ -319,29 +285,6 @@ export function EditUserModal({ open, user, onClose }: Props) {
         )}
 
         <div className={styles.footer}>
-          <div>
-            {canDelete && user.is_active && !confirmDelete && (
-              <Button type="button" variant="danger" onClick={() => setConfirmDelete(true)}>
-                <Icon name="trash" size={12} /> 删除账号
-              </Button>
-            )}
-            {canDelete && confirmDelete && (
-              <div className={styles.confirmDelete}>
-                <span className={styles.dangerText}>确认删除？该用户将无法登录</span>
-                <Button
-                  type="button"
-                  variant="danger"
-                  onClick={handleDelete}
-                  disabled={deleteUser.isPending}
-                >
-                  {deleteUser.isPending ? "删除中…" : "确认删除"}
-                </Button>
-                <Button type="button" onClick={() => setConfirmDelete(false)}>
-                  取消
-                </Button>
-              </div>
-            )}
-          </div>
           <div className={styles.actions}>
             <Button type="button" disabled={busy} onClick={onClose}>
               取消
@@ -349,14 +292,9 @@ export function EditUserModal({ open, user, onClose }: Props) {
             <Button
               type="submit"
               variant="primary"
-              disabled={
-                !dirty ||
-                changeRole.isPending ||
-                assignGroup.isPending ||
-                (dirtyRole && (!rolePreview || !rolePreview.can_change))
-              }
+              disabled={!dirty || busy || (dirtyRole && !currentPreview?.can_change)}
             >
-              {changeRole.isPending || assignGroup.isPending ? "保存中…" : "保存"}
+              {busy ? "保存中…" : "保存"}
             </Button>
           </div>
         </div>

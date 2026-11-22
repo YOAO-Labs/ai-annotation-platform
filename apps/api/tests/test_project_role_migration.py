@@ -124,7 +124,6 @@ def test_0174_converts_and_downgrade_refuses(test_db_url, apply_migrations):
                     saved["task"] = task.id
                     task.batch_id, task.assignee_id = batch.id, active_anno.id
                     task.reviewer_id = inactive_rev.id
-                    # NULL evidence is unknown history, never an invitation to backfill.
                     task.annotation_contributor_ids = None
                     task.review_contributor_ids = None
                     ended = datetime.now(timezone.utc)
@@ -168,7 +167,6 @@ def test_0174_converts_and_downgrade_refuses(test_db_url, apply_migrations):
                         invited_by=owner.id,
                         project_id=uuid.uuid4(),
                     )
-                    # Already populated project_role must be preserved.
                     populated = _invitation(
                         email=f"0174-populated-{uuid.uuid4()}@test.local",
                         role="reviewer",
@@ -199,7 +197,6 @@ def test_0174_converts_and_downgrade_refuses(test_db_url, apply_migrations):
                     )
                     await db.commit()
                 elif action == "convert":
-                    # Re-run the migration's conversion on a fresh connection.
                     async with engine.begin() as conn:
                         await conn.run_sync(_apply_upgrade, migration)
                 elif action == "verify":
@@ -250,7 +247,6 @@ def test_0174_converts_and_downgrade_refuses(test_db_url, apply_migrations):
                     assert populated.project_role == "annotator"
                     assert populated.role == "employee"
 
-                    # Accepted / historical invitations are not rewritten.
                     accepted = await db.scalar(
                         select(UserInvitation).where(
                             UserInvitation.id == saved["accepted"]
@@ -300,7 +296,6 @@ def test_0174_converts_and_downgrade_refuses(test_db_url, apply_migrations):
         finally:
             await engine.dispose()
 
-    # Post-opening recovery must refuse the destructive downgrade.
     with pytest.raises(RuntimeError):
         command.downgrade(config, "0173")
 

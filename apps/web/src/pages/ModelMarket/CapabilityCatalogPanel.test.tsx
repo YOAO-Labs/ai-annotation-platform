@@ -227,8 +227,6 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
         {
           backend_id: "gsam2-registry-id",
           state: "connected",
-          // 后端 /instances 真实透传 ml_backend_registry.source = "env" | "manual"
-          // (不是 "env_only"); 目录侧「平台内置 vs 已注册」由是否进 overview 决定。
           source: "env",
           name: "gsam2",
           infra: "pytorch",
@@ -262,19 +260,13 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
     renderUI();
     await screen.findByText("Grounded-SAM 2 · 文本检测");
     expect(screen.getByText("Grounded-SAM 2 · 视频追踪")).toBeInTheDocument();
-    // env-only model 复用 ModelCard 渲染, 来源行展示「平台内置 · <backend名>」
     expect(screen.getAllByText(/平台内置/).length).toBeGreaterThan(0);
-    // detection / tracker 协议卡都不再是「暂无接入」
     const undeployedCount = screen.queryAllByText("暂无接入").length;
-    // 9 张卡里只剩 7 张暂无接入 (detection / tracker 各挂了 1 个 model)
     expect(undeployedCount).toBe(7);
-    // 0 backend 横幅不应再出现
     expect(screen.queryByText(/支持 9 类 AI 标注能力/)).not.toBeInTheDocument();
   });
 
   it("overview 为空但有 env 实例时, groupBy=backend 也能看到平台内置 backend (回归: 非协议分组不再空白)", async () => {
-    // BUG: overview 只含「项目已启用」的 backend; 项目未启用 backend 时非协议分组
-    // (backend/infra/none) 曾因 env 兜底分支比错 source 字段而变死代码, 显示「暂无可用模型条目」。
     mockGetInstances.mockResolvedValue({
       instances: [
         {
@@ -293,8 +285,6 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
               supported_prompts: [],
               supported_geometric_outputs: ["bbox"],
               supported_trackers: [],
-              // gsam2 / yolo 只报旧版扁平 output_attribute_types (schema 为空);
-              // instances 路径须透传它, 否则「输出属性」行空成「—」。
               output_attribute_types: ["class"],
               output_attribute_schema: [],
               modality: "image",
@@ -306,16 +296,12 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
     renderUI();
     const select = (await screen.findByRole("combobox")) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "backend" } });
-    // 非协议分组下 env backend 的 model 应渲染, 而非退回空态。
     expect(await screen.findByText("YOLOv8 · 目标检测")).toBeInTheDocument();
-    // 「输出属性」行透传 backend 自报的 output_attribute_types (而非只看空 schema)。
-    // 阶段二后属性行在卡片详情展开区内，先展开再断言。
     fireEvent.click(screen.getByRole("button", { name: /详情/ }));
     expect(await screen.findByText("class")).toBeInTheDocument();
   });
 
   it("同 URL 跨多项目注册时, groupBy=backend 只渲染一组 + 注册状态列聚合项目名", async () => {
-    // backendRefs 按 URL 去重 (避免重复 fetch + 重复显示).
     const sharedBackend = (projectId: string) => ({
       id: `${projectId}-bk`,
       project_id: projectId,
@@ -359,21 +345,15 @@ describe("CapabilityCatalogPanel · 协议双层视图", () => {
       ],
     });
     renderUI();
-    // 切到 backend 分组 + 列表视图 (一旦 overview 解析完, 这俩会触发 capability fetch + rerender).
     const select = (await screen.findByRole("combobox")) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: "backend" } });
     fireEvent.click(screen.getByTitle("列表视图"));
-    // 注册状态列聚合显示: "项目甲 +2"
     await screen.findByText("项目甲 +2");
-    // capabilities API 只调用一次 (按 URL 去重) — 而非 3 次.
     expect(mlBackendsApi.capabilities).toHaveBeenCalledTimes(1);
-    // 同 backendName 的 group 只出现一次 (按 URL 合并)
-    expect(screen.getAllByText("shared-yolo").length).toBe(2); // group header + 来源列
+    expect(screen.getAllByText("shared-yolo").length).toBe(2);
   });
 
   it("backend 上报越界字段 → capabilities.warnings → ModelCard 显示 ⚠ 徽标", async () => {
-    // 协议契约校验: backend 上报越界 prompt「boxes」, 平台 /capabilities 带 warnings,
-    // 模型市场该 model 卡显示 ⚠ + 可读原因 (按 model_id 关联)。
     mockOverview.mockResolvedValue({
       projects: [
         {

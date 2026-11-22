@@ -1,12 +1,3 @@
-/**
- * AnnotationGuideSection 单测 — 共享编辑器接入 / 保存 mutation 主路径.
- *
- * 覆盖:
- * - 渲染共享编辑器 + 加载初值
- * - 空指引显式插入 starter 模板
- * - 修改 markdown → "保存" 触发 useUpdateProject.mutateAsync({ annotation_guide })
- * - 已上传 guide_assets 列表渲染 + 删除按钮调 useGuideAssets.deleteAsset
- */
 import { StrictMode } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -52,7 +43,6 @@ vi.mock("@/components/ui/Toast", async () => {
       sel({ push: mockPushToast }),
   };
 });
-// 避免在 jsdom 加载 CodeMirror; 用简单 textarea 模拟编辑器交互
 vi.mock("@/components/markdown/MarkdownEditor", () => ({
   MarkdownEditor: ({
     value,

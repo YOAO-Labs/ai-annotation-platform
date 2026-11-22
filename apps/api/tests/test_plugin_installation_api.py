@@ -623,7 +623,6 @@ async def test_gpu_activation_checks_observed_physical_device_and_runtime(monkey
         "qualification": signed_report(ort_report),
     }
     verify_endpoint_observation(ort_installation, receipt, **ort_kwargs)
-    # Exercise the owner transport's real HTTP projection at the admission boundary.
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     from threading import Thread
     from types import SimpleNamespace

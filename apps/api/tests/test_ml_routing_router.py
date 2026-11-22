@@ -54,8 +54,6 @@ async def committed_routes(test_engine):
         finally:
             await db.rollback()
             try:
-                # Every row belongs to this fixture's committed world. Never
-                # commit the API request/savepoint fixture to expose topology.
                 for registry_id in registry_ids:
                     await _cleanup(
                         owner, {"registry_id": registry_id, "pool_id": pool_id}
@@ -126,7 +124,6 @@ async def _seed_pool_with_two_members(
     db, project_id: uuid.UUID
 ) -> tuple[MLBackendServicePool, MLBackendRegistry, MLBackendRegistry]:
     """Seed a pool with two connected, fingerprint-matched active members for routing tests."""
-    # Two registries with identical capability → interchangeable.
     caps = {
         "capabilities": {"model_ids": ["sam3"], "supported_trackers": ["sam3_video"]}
     }
@@ -199,7 +196,6 @@ async def test_off_mode_returns_legacy_instance_with_durable_scope(
 async def test_off_mode_respects_project_enablement(routing_admission) -> None:
     """D4: a pool not enabled for the project is rejected even in off mode."""
     db_session, proj, pool, _, _ = routing_admission
-    # Remove the enablement row.
     await db_session.execute(
         delete(ProjectMLBackendPool).where(ProjectMLBackendPool.pool_id == pool.id)
     )
@@ -240,10 +236,8 @@ async def test_observe_returns_legacy_but_records_would_select(
         sel = await router.acquire(
             pool.id, owner="test", operation="predict", project_id=proj.id
         )
-        # Actual instance is still the legacy (off-mode dispatch preserved).
         assert sel.instance_id == legacy.id
         assert sel.lease.scope.mode == "observe"
-        # would_select evidence is recorded.
         assert sel.would_select is not None
         assert sel.diagnostics.get("eligible_count") == 2
         assert await router.cancel(sel.lease)
@@ -258,7 +252,6 @@ async def test_observe_does_not_break_when_ledger_unavailable(
     """observe ledger failure must never break actual dispatch (ADR-0050 §14)."""
     db_session, proj, pool, legacy, _ = routing_admission
 
-    # ledger=None but mode=OBSERVE → would-select is skipped, legacy dispatch still works.
     router = MLBackendRouter(db_session, ledger=None, mode=RouterMode.OBSERVE)
     sel = await router.acquire(
         pool.id, owner="test", operation="predict", project_id=proj.id
@@ -322,7 +315,6 @@ async def test_unhealthy_member_excluded_from_would_select(
     ns = f"ml-router-test:{uuid.uuid4().hex[:8]}"
     ledger = RoutingLedger.from_url(settings.redis_url, namespace=ns)
     db_session, proj, pool, r1, r2 = routing_admission
-    # Make r2's health stale (older than max age).
     stale = datetime.now(UTC) - timedelta(
         seconds=settings.ml_backend_router_health_max_age_seconds + 10
     )
@@ -334,7 +326,6 @@ async def test_unhealthy_member_excluded_from_would_select(
         sel = await router.acquire(
             pool.id, owner="test", operation="predict", project_id=proj.id
         )
-        # Only r1 is health-fresh → would_select must be r1.
         assert sel.would_select == r1.id
         assert sel.diagnostics.get("eligible_count") == 1
         assert await router.cancel(sel.lease)

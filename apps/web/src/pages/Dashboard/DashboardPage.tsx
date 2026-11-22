@@ -39,18 +39,13 @@ import { PageContainer } from "@/components/layout/PageContainer";
 import { useUrlFilterState } from "@/hooks/useUrlFilterState";
 import { useDashboardQuerySync } from "./useDashboardQuerySync";
 
-// 列表图标改读媒体维度 data_type (image / video / lidar).
 const DATA_TYPE_ICONS: Record<string, IconName> = {
   image: "image",
   video: "video",
   lidar: "cube",
 };
-// 按媒体维度 data_type 放行工作台:image / video / lidar 各有对应渲染栈
-// (stageKind: lidar→3D, video→视频, 其余→图像)。图像子类型 det/ocr/seg 同走图像栈,
-// 不再按 type_key 细分,避免新增图像子类型(如 OCR)漏进白名单。
 const WORKBENCH_DATA_TYPES = new Set(["image", "video", "lidar"]);
 
-// 表格单元(列表视图)共用类
 const TD_CLASS = "border-b border-border p-3 align-middle";
 const TH_CLASS =
   "border-b border-border bg-muted px-3 py-2.5 text-left text-xs font-medium text-muted-foreground whitespace-nowrap first:pl-4 last:pr-4";
@@ -70,9 +65,7 @@ function ProjectRow({
 }) {
   const total = p.total_tasks || 1;
   const pct = Math.round((p.completed_tasks / total) * 100);
-  // aiPct = AI 派生标注覆盖的任务数 / 总任务数。
   const aiPct = p.ai_enabled ? Math.round(((p.ai_completed_tasks ?? 0) / total) * 100) : 0;
-  // 「已动工」副条 = (in_progress + review + completed) / total，让 0 完成但有进度的项目可见
   const startedPct = Math.round(
     (((p.in_progress_tasks ?? 0) + p.review_tasks + p.completed_tasks) / total) * 100,
   );
@@ -257,9 +250,7 @@ export function DashboardPage() {
     ],
   );
   const wizardOpen = searchParams.get("new") === "1";
-  // 从 ProjectGrid "复制项目" 跳来时携带 ?from=<id>; Wizard 据此预填.
   const wizardSourceProjectId = searchParams.get("from") || undefined;
-  // B-35 · list/grid 切换使用独立的 layout 参数，避免占用页面级 view 参数。
   const viewMode: "list" | "grid" = searchParams.get("layout") === "grid" ? "grid" : "list";
   const setViewMode = (mode: "list" | "grid") => {
     const next = dashboardUrlCodec.encode(searchParams, {

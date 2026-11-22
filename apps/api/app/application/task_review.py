@@ -52,6 +52,7 @@ class TaskReviewWorkflow:
             task_id=task_id,
             actor_id=actor_id,
             expected_access=access,
+            wait_for_rows=True,
         )
         assert_capability(access, ProjectCapability.REVIEW_WRITE.value)
         await task_access.assert_task_visible(self.db, task, actor.id, access=access)
@@ -156,14 +157,15 @@ class TaskReviewWorkflow:
                     "contributor_ids": await task_contributor_snapshot(self.db, task),
                 },
             )
-            await self.db.commit()
 
-        return {
+        receipt = {
             "task_id": task.id,
             "reviewer_id": task.reviewer_id,
             "reviewer_claimed_at": task.reviewer_claimed_at,
             "is_self": task.reviewer_id == actor.id,
         }
+        await self.db.commit()
+        return receipt
 
     async def approve_task(
         self,

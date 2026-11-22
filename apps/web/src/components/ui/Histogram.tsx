@@ -1,14 +1,8 @@
-/**
- * Histogram —— 直方图，由 flex 容器和命令式动态高度、颜色组成。
- * 柱色走命令式 style.background;默认使用 --sc-brand。
- */
 interface HistogramProps {
   values: number[];
   height?: number;
   color?: string;
-  /** 可选:在某 index 处渲染竖向标注线(如 p50 / p95) */
   markers?: Array<{ index: number; label: string }>;
-  /** 横轴标签(可选,长度需与 values 一致) */
   xLabels?: string[];
 }
 
@@ -39,8 +33,6 @@ export function Histogram({
                 if (!element) return;
                 element.style.height = `${h}px`;
                 element.style.background = color;
-                // borderRadius 命令式写在元素上(而非 Tailwind class):Histogram 单测靠
-                // style.borderRadius 识别 bar(区分 marker 竖线),保持该选择器可用。
                 element.style.borderRadius = "2px 2px 0 0";
               }}
               className="min-h-px flex-1"

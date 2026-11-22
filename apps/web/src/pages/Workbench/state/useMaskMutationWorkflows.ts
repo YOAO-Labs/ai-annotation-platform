@@ -1,29 +1,3 @@
-/**
- * Native Mask mutation workflows: one domain owner for the atomic instance
- * operations (join / overlap / split / copy / slice), the video Mask
- * clipboard and the per-frame keyframe operations.
- *
- * Async ownership contract (plan §4.4 last paragraph):
- * - Owner: the draft snapshots `projectId/taskId/frame/segment/scope` at
- *   preview time (`PendingMaskAtomicDraft.members`); commit and retry must
- *   use the captured versions, never a later refetch.
- * - Cancel: a new preview resets the idempotency key; the preview-cleared
- *   effect drops the draft; single-flight refs (`transition/commit`) prevent
- *   overlapping commits from switching tasks mid-write.
- * - Stale results: `refreshMaskInstanceOperation` stamps every run with a
- *   token and asserts the Mask session context (task/frame/tool/selection
- *   key + generation) after every await; a switched session rejects the
- *   late result instead of rebasing an old buffer onto the new task.
- * - Draft retention: commit/refresh failures keep the editor buffer and the
- *   pending draft (masked "草稿已保留" toasts); only an explicit refresh or
- *   cancel discards them.
- * - Cleanup: the session owner (`useMaskEditorSession`) clears the editor on
- *   context change; this module clears draft/idempotency state when the
- *   preview disappears.
- *
- * Pure error policy lives in `maskMutationPolicy.ts`; geometry planning in
- * `stage/shared/geometry/maskInstanceOperations` + `maskMutationDraft`.
- */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import { ApiError } from "@/api/client";
@@ -74,7 +48,6 @@ import {
 export interface UseMaskMutationWorkflowsParams {
   taskId: string | undefined;
   isVideoTask: boolean;
-  /** 工作台状态中本域实际消费的选中/工具/帧字段与命令。 */
   s: Pick<
     WorkbenchState,
     | "selectedId"
@@ -88,7 +61,6 @@ export interface UseMaskMutationWorkflowsParams {
   >;
   currentVideoSegment: { id: string } | null;
   maskEditor: UseMaskEditorSessionReturn;
-  /** 会话身份快照 (session key + generation),刷新时用来拒绝迟到结果。 */
   maskSessionContextRef: { readonly current: { key: MaskSessionKey; generation: number } };
   currentTaskIdRef: { readonly current: string | null | undefined };
   annotationsRef: { current: AnnotationResponse[] };
@@ -107,14 +79,9 @@ export interface UseMaskMutationWorkflowsParams {
   queryClient: QueryClient;
   sliceWriteOwner: { readonly current: { taskId: string | null | undefined; canWrite: boolean } };
   maskEditorSize: { width: number; height: number };
-  /** 提交/刷新在途标记;离开守卫在会话创建前读取,由装配层持有。 */
   transitionInFlightRef: { current: boolean };
 }
 
-/**
- * 拥有原生 Mask 全部变更工作流。返回值供装配 model 接到
- * MaskToolbar / 审阅对话框 / 关键帧操作卡与离开守卫上。
- */
 export function useMaskMutationWorkflows({
   taskId,
   isVideoTask,
@@ -198,6 +165,9 @@ export function useMaskMutationWorkflows({
         return rasterMasksApi.annotationRasterMaskContent(annotation.id);
       }
       if (annotation.geometry.type === "video_track_mask") {
+        if (!resolveVideoMaskTrackAtFrame(annotation.geometry, s.videoFrameIndex)) {
+          return Promise.reject(new Error("当前帧没有可加载的 Mask"));
+        }
         return rasterMasksApi.annotationVideoMaskContent(annotation.id, s.videoFrameIndex);
       }
       return Promise.reject(new Error("对象不是原生 Mask"));
@@ -477,7 +447,6 @@ export function useMaskMutationWorkflows({
         members: snapshotMaskMembers(members),
         operationSpec,
       };
-      // Publish the owner before the synchronous preview can render its details.
       pendingMaskAtomicDraftRef.current = draft;
       const previewed = await maskEditor.runInstanceOperation(name, operationSpec);
       if (!previewed) {
@@ -623,8 +592,6 @@ export function useMaskMutationWorkflows({
           confirmLabel: "覆盖",
         });
         if (!overwrite) return;
-        // 等待决定期间目标可能已被删除;粘贴意图要求目标仍存在 (generation 隔离由
-        // pendingVideoMaskIntent 加载流程自理)。
         if (!annotationsRef.current.some((ann) => ann.id === annotation.id)) return;
       }
       setPendingVideoMaskIntent({
@@ -1454,10 +1421,6 @@ export function useMaskMutationWorkflows({
       }
     };
     try {
-      // Fully detach the failed editor before publishing refetched annotation
-      // versions. This guarantees a non-error phase and lets an expected
-      // primary-version change advance the session without a second dirty
-      // leave decision.
       resetStarted = true;
       maskEditor.cancel();
       maskAtomicIdempotencyRef.current = null;
@@ -1557,7 +1520,6 @@ export function useMaskMutationWorkflows({
   ]);
 
   return {
-    /** 离开守卫与 AI 运行入口读取的在途标记。 */
     transitionInFlightRef: maskInstanceTransitionInFlightRef,
     transitionBusy: maskInstanceTransitionBusy,
     committing: maskInstanceCommitting,

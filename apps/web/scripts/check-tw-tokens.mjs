@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/**
- * Tailwind className 颜色规范检查 (blocking 模式) — Tailwind 时代的暗色护栏.
- *
- * 随 UI 全量迁移到 shadcn/Tailwind,颜色逐步从 *.module.css 移到 *.tsx 的 className.
- * 本脚本扫 className 和残留 CSS,对齐设计规范禁则:
- *   1. 裸色: className 里出现 #hex / rgb() / rgba() / hsl() / oklch() / oklab() / color()
- *   2. 任意色值: bg-[#...] / text-[rgb(...)] / border-[hsl(...)] 等 Tailwind arbitrary color value
- *   3. (建议级) 暗色配对: 语义色 text/bg/border-<hue>-600 应伴随 dark:...-<hue>-400 (设计规范 §2.2)
- *   4. (warning) 状态色应走 text-status-* / bg-status-*-soft,不再手写状态 hue + dark: 对.
- *   5. (warning) 任意字号 text-[Npx] 应走紧凑字号 scale.
- *   6. (warning) 裸数字 z-index 应走语义 z-* utility.
- *
- * 中性色/表面/边框走 shadcn 的 --sc-* token (bg-background / text-foreground / border-border ...),
- * 语义彩色走固定调色板 (sky/emerald/violet/amber/rose) + 柔底 /10 + 暗色提亮. 不在 className 里写裸色.
- *
- * 有发现时 exit 1,阻断 CI。
- *
- * 唯一可信来源: docs-site/dev/reference/design-system.md.
- */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, resolve, dirname } from "node:path";
@@ -28,7 +9,6 @@ const ROOT = resolve(__dirname, "..");
 const SCAN_DIR = join(ROOT, "src");
 const CI = !!process.env.GITHUB_ACTIONS;
 
-// 设计规范 §2.2 的固定语义色相 + 常见基础色相 (限定范围, 降噪).
 const SEMANTIC_HUES = [
   "sky",
   "emerald",
@@ -60,16 +40,12 @@ function walkSourceFiles(dir, predicate, out = []) {
   return out;
 }
 
-// 去掉行注释 // ... 与块注释 /* ... */ (避免注释里举例的色值误报), 用空格替换保留行号.
 function stripComments(text) {
   return text
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
     .replace(/\/\/[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
 }
 
-// 抽取所有 className=... 的值块. 支持:
-//   className="..."  className='...'  className={ ...任意表达式(cn(), 模板串)... }
-// 返回 [{ value, index }] (index 为值块在原文中的起始偏移, 用于定位行号).
 function extractClassNameChunks(text) {
   const chunks = [];
   const re = /className\s*=\s*/g;
@@ -78,7 +54,6 @@ function extractClassNameChunks(text) {
     let i = m.index + m[0].length;
     const ch = text[i];
     if (ch === '"' || ch === "'" || ch === "`") {
-      // 引号字符串 (className="..." 或模板串字面)
       const quote = ch;
       let j = i + 1;
       while (j < text.length && text[j] !== quote) {
@@ -88,7 +63,6 @@ function extractClassNameChunks(text) {
       chunks.push({ value: text.slice(i + 1, j), index: i + 1 });
       re.lastIndex = j + 1;
     } else if (ch === "{") {
-      // 表达式块 className={ ... } — 平衡括号扫描
       let depth = 0;
       let j = i;
       for (; j < text.length; j++) {
@@ -114,9 +88,7 @@ function lineOf(text, index) {
   return line;
 }
 
-// 裸色字面: #hex (3/4/6/8 位) / rgb( / rgba( / hsl( / hsla( / oklch( / oklab( / color(
 const BARE_COLOR_RE = /#[0-9a-fA-F]{3,8}\b|(?:rgba?|hsla?|oklch|oklab|color)\s*\(/;
-// Tailwind 任意色值: <util>-[<color>]  (color = #hex / rgb()/hsl()/oklch() / var(--...))
 const ARBITRARY_COLOR_RE =
   /\b(?:bg|text|border|ring|ring-offset|fill|stroke|from|via|to|outline|shadow|decoration|caret|accent|divide)-\[\s*(#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?|oklch|oklab|color)\s*\(|var\(--)/;
 const STATUS_CLASS_BY_HUE = {
@@ -153,8 +125,6 @@ function checkChunk(value) {
     issues.push({ kind: "arbitrary-color", detail: hit[0].trim() });
   }
 
-  // 暗色配对: 对每个 (text|bg|border)-<hue>-600 检查同 className 是否有 dark:(...)-<hue>-400.
-  // 修正匹配 — 容许 `!` 修饰符 + 中间变体前缀(hover:/focus: 等).
   const hueRe = new RegExp(`\\b(!)?(text|bg|border)-(${SEMANTIC_HUES.join("|")})-600\\b`, "g");
   let hm;
   while ((hm = hueRe.exec(value)) !== null) {

@@ -2,9 +2,6 @@ import type { Locator } from "@playwright/test";
 
 export function annotationPaintedPixels(stage: Locator) {
   return stage.locator(".konvajs-content > canvas").evaluateAll((canvases) => {
-    // ImageStage and VideoKonvaStage put media in the first Konva layer.
-    // It may be cross-origin and is not annotation paint. Keep all remaining
-    // layers in the measurement; unreadable annotation layers must still fail.
     const annotationCanvases = canvases.slice(1);
     if (!annotationCanvases.length) throw new Error("annotation canvas is not ready");
     let painted = 0;

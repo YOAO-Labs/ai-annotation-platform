@@ -34,7 +34,6 @@ export function variantLabel(entry: CatalogEntry): string {
   );
 }
 
-/** Display groups preserve the concrete selection and the service-pool boundary. */
 export function groupModelDirectory(entries: CatalogEntry[]): ModelDirectoryGroup[] {
   const groups = new Map<string, ModelDirectoryGroup>();
   for (const entry of entries) {

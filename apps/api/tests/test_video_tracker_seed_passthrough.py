@@ -17,7 +17,6 @@ from yoao_inference.tracker import TrackerFrameResult
 from app.services.video_tracking.runner import run_tracker_job
 from tests.tracker_input_test_ports import tracker_fake_propagation
 
-# 复用多实例测试里的视频 task/dataset 建置, 避免重复 ~40 行 fixture。
 from tests.test_video_tracker_multi_instance import _make_video_task
 
 
@@ -86,7 +85,6 @@ async def _run_with_capture(db_session, super_admin, monkeypatch, *, direction: 
     db_session.add(job)
     await db_session.commit()
 
-    # 窗口 2 帧 → (0,1)(2,3) 两窗。
     monkeypatch.setattr(settings, "video_tracker_sam3_window_size_frames", 2)
     adapter = _CaptureAdapter()
     monkeypatch.setattr(
@@ -107,19 +105,17 @@ async def test_seeds_only_on_seed_window_forward(db_session, super_admin, monkey
     adapter, seeds = await _run_with_capture(
         db_session, super_admin, monkeypatch, direction="forward"
     )
-    # forward: 迭代顺序 (0,1)(2,3); 种子窗 = 首窗 (0,1)。
     assert [(w[0], w[1]) for w in adapter.windows] == [(0, 1), (2, 3)]
-    assert adapter.windows[0][2] == seeds  # 种子窗带 points
-    assert adapter.windows[1][2] is None  # 后续窗不重发
+    assert adapter.windows[0][2] == seeds
+    assert adapter.windows[1][2] is None
 
 
 async def test_seeds_only_on_seed_window_backward(db_session, super_admin, monkeypatch):
     adapter, seeds = await _run_with_capture(
         db_session, super_admin, monkeypatch, direction="backward"
     )
-    # backward: 窗口列表反转, 首个迭代窗 = 含种子帧(to_frame=3)的 (2,3)。
     assert [(w[0], w[1]) for w in adapter.windows] == [(2, 3), (0, 1)]
-    assert adapter.windows[0][2] == seeds  # 种子窗(含 to_frame)带 points
+    assert adapter.windows[0][2] == seeds
     assert adapter.windows[1][2] is None
 
 
@@ -314,16 +310,14 @@ async def test_multi_instance_continuation_reseeds_each_instance(
     await db_session.refresh(job)
     assert job.status == "pending_review"
 
-    # 两窗 (0,1)(2,3); 首窗下发原始点种子。
     assert [(w[0], w[1]) for w in adapter.windows] == [(0, 1), (2, 3)]
     assert adapter.windows[0][2] == seeds
-    # 后续窗对每个实例各续一条种子 (obj_id 1/2), 各带其上一窗末帧 (f1) 几何。
     cont = adapter.windows[1][2]
     assert cont is not None
     by_obj = {s["obj_id"]: s for s in cont}
     assert set(by_obj) == {1, 2}
-    assert by_obj[1]["geometry"]["x"] == pytest.approx(1.0)  # obj1 末帧 (f1) x=1
-    assert by_obj[2]["geometry"]["x"] == pytest.approx(101.0)  # obj2 末帧 x=101
+    assert by_obj[1]["geometry"]["x"] == pytest.approx(1.0)
+    assert by_obj[2]["geometry"]["x"] == pytest.approx(101.0)
 
 
 async def test_no_seeds_prompt_passes_none(db_session, super_admin, monkeypatch):

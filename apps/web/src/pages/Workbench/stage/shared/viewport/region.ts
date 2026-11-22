@@ -8,7 +8,6 @@ export interface NormalizedRegion {
   y1: number;
 }
 
-/** Resolve a normalized region into a centered viewport without reading DOM state. */
 export function fitNormalizedRegion(
   current: Viewport,
   region: NormalizedRegion,

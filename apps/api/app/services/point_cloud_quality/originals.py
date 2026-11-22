@@ -485,8 +485,6 @@ async def publication(db, run, context, observed):
     current, _job = await guard(db, context, lock=True)
     task_ids = [uuid.UUID(v) for v in context.scope["task_ids"]]
     scene_ids = [uuid.UUID(v) for v in context.scope["scene_ids"]]
-    # Existing writers serialize Task -> Scene/Track/Annotation mutations. The
-    # canonical resolver below additionally locks Item/Asset/Location/Gate facts.
     statements = [
         select(Scene.id).where(Scene.id.in_(scene_ids)).order_by(Scene.id),
         select(Annotation.id)

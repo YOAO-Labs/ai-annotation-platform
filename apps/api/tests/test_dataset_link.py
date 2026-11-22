@@ -166,7 +166,6 @@ async def test_link_project_idempotent(db_session: AsyncSession, super_admin):
     workflow = DatasetTaskCreationWorkflow(db_session)
     link1 = await workflow.link_project(ds.id, project.id, actor_id=user.id)
     link2 = await workflow.link_project(ds.id, project.id, actor_id=user.id)
-    # Replays retain the association identity without returning a live ORM row.
     assert link1.link_id == link2.link_id, "重复 link 应返回同一关联"
 
     count = (
@@ -269,7 +268,6 @@ async def test_link_project_no_default_batch(db_session: AsyncSession, super_adm
         ds.id, project.id, actor_id=user.id
     )
 
-    # 不应有任何 batch 自动生成
     batches = (
         (
             await db_session.execute(
@@ -283,7 +281,6 @@ async def test_link_project_no_default_batch(db_session: AsyncSession, super_adm
     )
     assert len(batches) == 0
 
-    # task 全部 batch_id=NULL（未归类）
     unclassified = (
         await db_session.execute(
             select(func.count())
@@ -310,7 +307,6 @@ async def test_unlink_cascades_user_split_batches(
     await DatasetTaskCreationWorkflow(db_session).link_project(
         ds.id, project.id, actor_id=user.id
     )
-    # link 不再自建 batch，task 全部 batch_id=NULL；用户随后调 split
 
     tasks = (
         (await db_session.execute(select(Task).where(Task.project_id == project.id)))
@@ -338,7 +334,6 @@ async def test_unlink_cascades_user_split_batches(
     for i, t in enumerate(tasks):
         t.batch_id = sub_a.id if i % 2 == 0 else sub_b.id
 
-    # 同时再加一个空草稿（与 dataset 无关），不应被误删
     manual_empty = TaskBatch(
         id=uuid.uuid4(),
         project_id=project.id,

@@ -853,6 +853,7 @@ class IdentityModuleStack:
             "name": details["Name"],
             "image_id": image_id,
             "host_port": endpoint.port,
+            "host_binding": dict(bindings[0]),
             "service_port": 9000,
             "shared": shared is not None,
             "endpoint": settings.minio_endpoint,

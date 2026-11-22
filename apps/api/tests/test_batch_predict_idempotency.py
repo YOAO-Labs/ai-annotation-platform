@@ -135,13 +135,12 @@ async def test_unkeyed_bulk_returns_durable_job_before_dispatch(
     assert job is not None
     assert job.celery_task_id == str(job_id)
 
-    # The dispatch mock does not start the worker: the returned id is already
-    # readable through the durable job endpoint at acceptance time.
     readable = await httpx_client.get(
         f"/api/v1/async-jobs/{job_id}", headers=_bearer(token)
     )
     assert readable.status_code == 200, readable.text
     assert readable.json()["id"] == str(job_id)
+
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(
@@ -154,13 +153,17 @@ async def test_unkeyed_execution_id_binding_uses_native_jobs_owner(test_engine):
     from tests.factory import create_project, create_user
     from tests.test_jobs_lifecycle_native import _jobs_lifecycle_url
 
-    strict_engine = create_async_engine(_jobs_lifecycle_url(test_engine), hide_parameters=True)
+    strict_engine = create_async_engine(
+        _jobs_lifecycle_url(test_engine), hide_parameters=True
+    )
     owner_sessions = async_sessionmaker(test_engine, expire_on_commit=False)
     strict_sessions = async_sessionmaker(strict_engine, expire_on_commit=False)
     try:
         async with owner_sessions() as setup:
             actor = await create_user(
-                setup, "project_admin", f"jobs-bind-{uuid.uuid4().hex}@test.local",
+                setup,
+                "project_admin",
+                f"jobs-bind-{uuid.uuid4().hex}@test.local",
                 "Jobs binding actor",
             )
             project = await create_project(setup, owner_id=actor.id)
@@ -168,7 +171,10 @@ async def test_unkeyed_execution_id_binding_uses_native_jobs_owner(test_engine):
             actor_id, project_id = actor.id, project.id
         async with strict_sessions() as strict:
             job = await async_job_svc.create_job(
-                strict, kind="batch_predict", user_id=actor_id, project_id=project_id,
+                strict,
+                kind="batch_predict",
+                user_id=actor_id,
+                project_id=project_id,
                 payload={"execution_scope": "bulk"},
             )
             job_id = job.id
@@ -181,7 +187,6 @@ async def test_unkeyed_execution_id_binding_uses_native_jobs_owner(test_engine):
             assert saved.celery_task_id == str(job_id)
     finally:
         await strict_engine.dispose()
-
 
 
 @pytest.mark.asyncio
@@ -232,7 +237,6 @@ async def test_project_bulk_cancel_before_start_retains_scoped_count(
 
     owner, token = super_admin
     project, backend, _batch, tasks = await _seed(db_session, owner.id)
-    # Foreign pending tasks must not inflate the hint.
     await _seed(db_session, owner.id)
     tasks[0].total_predictions = 1
     tasks[1].status = "completed"
@@ -286,7 +290,6 @@ async def _seed(db: AsyncSession, owner_id: uuid.UUID):
         state="connected",
     )
     proj.ml_backend_pool_id = pool.id
-    # ADR-0044 · 预标校验项目「已启用」, 为该 backend 建启用关联
     db.add(ProjectMLBackendPool(project_id=proj.id, pool_id=pool.id, enabled=True))
     await db.flush()
 
@@ -377,7 +380,6 @@ async def test_skip_hint_excludes_predicted(
 ):
     owner, token = super_admin
     proj, backend, batch, tasks = await _seed(db_session, owner.id)
-    # 一个 task 标记已预标
     tasks[0].total_predictions = 1
     await db_session.commit()
 
@@ -387,7 +389,6 @@ async def test_skip_hint_excludes_predicted(
         json={"ml_backend_id": str(backend.id), "batch_id": str(batch.id)},
     )
     assert resp.status_code == 200, resp.text
-    # skip 模式：3 个 pending 里排除 1 个已预标 → hint=2
     assert resp.json()["total_tasks"] == 2
 
 
@@ -434,7 +435,6 @@ async def test_clean_task_predictions_removes_ai_keeps_manual(
     assert counts["predictions"] == 1
     assert counts["ai_annotations_deactivated"] == 1
 
-    # 人工标注保留 active，AI 标注软删
     manual_active = (
         await db_session.execute(
             select(func.count())
@@ -469,7 +469,6 @@ async def test_clean_task_predictions_removes_ai_keeps_manual(
     ).scalar()
     assert pred_count == 0
 
-    # total_predictions 归 0；仍有存活人工标注 → is_labeled True
     row = (
         await db_session.execute(
             select(Task.total_predictions, Task.is_labeled).where(Task.id == t.id)

@@ -4,8 +4,6 @@
 def canonical_identity(source):
     identity = {**source, "relation": None}
     if source.get("owner_kind") == "dataset_auxiliary":
-        # Shared maps retain a separate fresh Task/Item/Scene binding per use.
-        # Only immutable owner and saved physical facts determine its copy.
         identity["item_id"] = None
         identity["item_facts"] = None
     return identity

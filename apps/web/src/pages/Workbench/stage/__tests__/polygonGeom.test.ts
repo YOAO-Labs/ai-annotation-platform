@@ -1,6 +1,3 @@
-/**
- * polygonGeom 几何工具单测。
- */
 import { describe, it, expect } from "vitest";
 import {
   isSelfIntersecting,
@@ -63,18 +60,17 @@ describe("isSelfIntersectingIncremental", () => {
       [0, 0],
       [1, 0],
       [1, 1],
-      [0.6, 0.5], // 顶点 3 拖到内部，但相邻边仍不交叉
+      [0.6, 0.5],
     ];
     const r = isSelfIntersectingIncremental(sq, 3);
     expect(r.ok).toBe(true);
   });
 
   it("拖顶点到对边内侧形成蝴蝶结 → 触发", () => {
-    // 正方形 → 把右上顶点 (1,1) 拖到左下角，触发对边交叉
     const pts: Pt[] = [
       [0, 0],
       [1, 0],
-      [-0.5, 0.5], // 顶点 2 拖到左侧导致 (1,0)-(-0.5,0.5) 与 (0,1)-(0,0) 相交
+      [-0.5, 0.5],
       [0, 1],
     ];
     const r = isSelfIntersectingIncremental(pts, 2);
@@ -107,7 +103,6 @@ describe("isSelfIntersectingIncremental", () => {
   });
 
   it("增量与全量对相邻边触发一致", () => {
-    // 蝴蝶结：相邻于顶点 1 的边 (0,1) 和 (1,2) 都参与冲突
     const bowtie: Pt[] = [
       [0, 0],
       [1, 1],
@@ -150,7 +145,6 @@ describe("nearestEdge", () => {
     ];
     const r = nearestEdge(sq, [0.5, -0.5]);
     expect(r).not.toBeNull();
-    // 离上边 (y=0) 最近
     expect(r!.proj[1]).toBeCloseTo(0);
   });
 

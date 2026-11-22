@@ -14,7 +14,7 @@
 ## 何时**不**写
 
 - 单个 bug 修复 → CHANGELOG 即可
-- 临时方案、技术债 → 在代码里加 TODO + issue 链接
+- 临时方案、技术债 → 在仓库 issue 中记录现状、风险和验收条件；不在源码里另留 TODO。
 - 可被 git log 解释清楚的小重构
 
 ## 命名
@@ -79,6 +79,11 @@
 
 ### 已采纳（Accepted，归档）
 
+- [0181](archive/0181-workbench-interaction-and-rendering-contracts.md) — 工作台交互、帧身份与渲染边界
+- [0182](archive/0182-web-client-and-browser-verification-contracts.md) — Web 客户端与浏览器验证证据
+- [0183](archive/0183-api-orchestration-and-storage-invariants.md) — API 装配、调用方事务与存储责任
+- [0184](archive/0184-service-boundaries-and-contract-verification.md) — 独立服务、原生能力与客户端取证
+- [0185](archive/0185-delivery-and-tooling-input-contracts.md) — 交付工具输入、运行身份与失败边界
 - [0001](archive/0001-record-architecture-decisions.md) — Record architecture decisions
 - [0002](archive/0002-backend-stack-fastapi-sqlalchemy-alembic.md) — 后端选型：FastAPI + SQLAlchemy 2.0 async + Alembic
 - [0003](archive/0003-openapi-client-codegen.md) — 前端 OpenAPI 客户端生成方案：@hey-api/openapi-ts

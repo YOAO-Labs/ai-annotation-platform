@@ -48,7 +48,6 @@ def scenario_rle_bindings(request):
 @pytest.fixture
 async def e2e_consumer(test_engine):
     async with _world(test_engine, apply=True) as (_owner, consumer, role, _url):
-        # These are ordinary spatial product capabilities, not fixture writes.
         async with test_engine.begin() as db:
             await db.execute(
                 text(
@@ -354,8 +353,6 @@ async def owner_fault_http(test_engine, monkeypatch):
 
 @asynccontextmanager
 async def _committed_owner(engine, fixture_http):
-    # Track only ORM insertions by this session, not raw SQL or other sessions.
-    # Retain object references so rollback can discard the corresponding IDs.
     created = {}
     models = (User, Project, MLBackendRegistry)
 
@@ -382,8 +379,6 @@ async def _committed_owner(engine, fixture_http):
                     )
     finally:
         await fixture_http.owner_suite.finish()
-        # Keeper rows prove product cleanup preserves ordinary data. The test
-        # owner removes only the exact rows this case created after that proof.
         added = {
             model: [id_ for cls, id_ in created.values() if cls is model]
             for model in models
@@ -411,6 +406,5 @@ async def _committed_owner(engine, fixture_http):
 
 @pytest.fixture
 async def committed_owner(fixture_and_fenced_http, test_engine):
-    # Fixed seed namespaces remain serial-only even with exact keeper cleanup.
     async with _committed_owner(test_engine, fixture_and_fenced_http) as db:
         yield db

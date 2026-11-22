@@ -61,8 +61,6 @@ class SourceStorage:
             region_name=config.s3_region,
             config=client_config,
         )
-        # A presigned URL binds the Host header in SigV4. Sign directly against
-        # the public origin instead of rewriting an internally signed URL.
         self._public_signer = public_signer or boto3.client(
             "s3",
             endpoint_url=config.s3_public_endpoint,

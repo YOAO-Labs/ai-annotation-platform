@@ -189,7 +189,6 @@ def _spec(source, *, maximum=physical.MAX_OBJECT_BYTES):
 
 
 def _object_record(snapshot, relative):
-    # Copy one prevalidated entry, never the entire inventory for every object.
     inventory = getattr(snapshot, "_inventory", None)
     if inventory is None:
         inventory = snapshot.inventory
@@ -503,7 +502,6 @@ async def copy_source(
         def capture_version(value):
             nonlocal version
             if value is not None:
-                # A signing or client-close failure does not undo a verified PUT.
                 asyncio.run_coroutine_threadsafe(persist_version(value), loop).result()
                 version = value
 
@@ -588,7 +586,6 @@ async def copy_source(
                             f"Storage permit settlement failed: {closing!r}"
                         )
                         _uncertainty(failure, closing)
-                    # A known late success may continue closing the remaining permits.
                     if storage_access.failure_unsettled(failure):
                         break
         if admission is not None:

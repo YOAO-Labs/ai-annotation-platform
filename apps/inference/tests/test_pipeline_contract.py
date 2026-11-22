@@ -93,8 +93,6 @@ def test_command_wire_preserves_omission_explicit_null_and_saved_payload_values(
     assert omitted.payload_ascii == "{}"
     assert explicit_null.payload_ascii == '{"name":null}'
 
-    # Public schema/stage rules have already run at the route boundary; this
-    # opaque wire codec does not silently apply a second, different policy.
     saved = pipeline_command_request(
         "create_pipeline",
         actor_id=actor_id,

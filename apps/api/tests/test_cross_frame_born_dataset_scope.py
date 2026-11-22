@@ -390,7 +390,6 @@ async def test_primary_lidar_and_related_links_stay_in_scope(
         is None
     )
 
-    # Removing the only canonical source relation leaves the shape unproven.
     await db_session.execute(
         text(
             "DELETE FROM public.task_dataset_item_links "
@@ -520,7 +519,6 @@ async def test_payload_fields_cannot_add_or_remove_dataset_authority(
         is None
     )
 
-    # An existing Job is never re-adopted under another identity or kind.
     assert (
         await _birth_scope(
             db_session,
@@ -582,7 +580,6 @@ async def test_inconsistent_mapping_never_becomes_unrelated(
                 },
             )
     except DBAPIError:
-        # The strict birth admission may refuse the unproven Job outright.
         rejected = True
     if not rejected:
         assert _scope_ids(await _classifier(db_session, unproven_job)) is None
@@ -707,7 +704,6 @@ async def test_task_reassignment_fails_closed_without_writes(
     world.target_task.dataset_item_id = other_item.id
     await db_session.flush()
 
-    # The born receipt is immutable; the new Dataset is not silently in scope.
     assert _scope_ids(await _classifier(db_session, job_id)) == (world.dataset.id,)
     current = _copy(job.payload)
     assert await _birth_scope(
@@ -809,13 +805,10 @@ async def test_neighbor_born_job_keeps_execution_and_classification(
     widened.target_task.dataset_item_id = extra_item.id
     await db_session.flush()
 
-    # Only the widened Job's current facts moved; its receipt did not.
     assert _scope_ids(await _classifier(db_session, keeper_id)) == (keeper.dataset.id,)
     assert _scope_ids(await _classifier(db_session, widened_id)) == (
         widened.dataset.id,
     )
-    # The executor refuses the widened Job before writing there, so cleanup of
-    # that new Dataset remains safe rather than silently widening the receipt.
     await ownership.guard_dataset_jobs(db_session, [extra_dataset.id])
 
     await execute_cross_frame_job(db_session, job_id=widened_id)

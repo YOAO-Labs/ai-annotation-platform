@@ -27,7 +27,6 @@ const inactive: CanvasDraft = {
 };
 const active: CanvasDraft = { ...inactive, active: true, annotationId: "a1", shapes, origin };
 
-/** Store revision/submission behavior has its own tests. */
 function memoryStore() {
   const drafts: Record<
     string,

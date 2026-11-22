@@ -1,7 +1,3 @@
-/**
- * 多选轨迹批量卡：显隐 / 锁定各占**一个切换按钮**，而不是显示+隐藏+锁定+解锁四个并排。
- * 与图片工作台 (ImageBatchCardContent) 及视频单帧 (VideoBoxBatchCardContent) 对齐。
- */
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -39,7 +35,6 @@ describe("VideoTrackBatchCardContent · 显隐/锁定切换按钮", () => {
     expect(screen.getByLabelText("批量解锁")).toBeInTheDocument();
     expect(screen.queryByLabelText("批量隐藏")).toBeNull();
     expect(screen.queryByLabelText("批量锁定")).toBeNull();
-    // 翻转态用 aria-pressed 表达, 与图片侧一致 (仅换图标不足以让读屏用户感知状态)。
     expect(screen.getByLabelText("批量显示")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByLabelText("批量解锁")).toHaveAttribute("aria-pressed", "true");
   });

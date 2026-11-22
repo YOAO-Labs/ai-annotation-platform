@@ -462,8 +462,6 @@ async def workspace_guide_storage(test_engine, monkeypatch):
         )
         cleanup.callback(_destroy_cleanup_storage_scope, scope)
         scope["buckets"] = resources["buckets"]
-        # Only this API receives Guide object access; other cold consumers keep
-        # the verifier's metadata-only bootstrap principal.
         _create_api_bootstrap_storage_scope(scope, workspace_guides=True)
         yield bucket, owner_s3, (scope["access_key"], scope["secret_key"])
 
@@ -768,8 +766,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 assert native_project.status_code == 200, native_project.text
                 native_project_id = uuid.UUID(native_project.json()["id"])
 
-                # Canonical authenticated Guide transfer: bytes traverse the
-                # API storage owner, while publication/CAS stays in Workspace.
                 guide_upload = await client.post(
                     f"/api/v1/projects/{project_id}/guide-assets/upload",
                     params={"file_name": "assembly-guide.png"},
@@ -795,8 +791,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 assert guide_delete.status_code == 200, guide_delete.text
                 assert guide_delete.json() == {"deleted": guide_key}
 
-                # Wrong control credentials do not create a template. The
-                # accepted operation is then replayed after a real owner restart.
                 from yoao_workspace.configuration_contract import configuration_request
 
                 replay_operation_id = uuid.uuid4()
@@ -844,8 +838,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 assert replayed.status_code == 200, replayed.text
                 assert replayed.json() == first_reply
 
-                # Selected HTTP owner failures return 503 and never fall back
-                # to ORM writes or another Workspace service.
                 async with maker() as db:
                     template_count = await db.scalar(
                         text("SELECT count(*) FROM public.project_templates")
@@ -911,8 +903,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     project_id=native_project_id,
                 )
 
-                # Workspace owner HTTP is deliberately stopped to qualify the
-                # transaction-local Native Project read.
                 for service in _WORKSPACE_STOP_ORDER:
                     await stack.stop_service(service)
 
@@ -957,8 +947,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     headers=headers["owner"],
                 )
                 assert access.status_code == 503, access.text
-                # The ownership guard used by maintenance remains Native even
-                # while all six Workspace services are down.
                 maintenance = await client.post(
                     f"/api/v1/projects/{native_project_id}/cleanup-orphans",
                     headers=headers["owner"],

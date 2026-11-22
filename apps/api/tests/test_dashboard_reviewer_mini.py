@@ -95,7 +95,6 @@ async def test_reviewer_mini_today_counts(httpx_client, db_session, super_admin)
     proj = await _seed_project(db_session, user.id)
     now = datetime.now(timezone.utc)
 
-    # 3 approved today (claimed 100s ago, reviewed now → ~100s)
     for i in range(3):
         await _seed_task(
             db_session,
@@ -105,7 +104,6 @@ async def test_reviewer_mini_today_counts(httpx_client, db_session, super_admin)
             reviewer_claimed_at=now - timedelta(seconds=100 + i * 10),
             reviewed_at=now - timedelta(seconds=i * 10),
         )
-    # 1 rejected today（rejected 流程：status=in_progress + reject_reason 非空）
     await _seed_task(
         db_session,
         project_id=proj.id,
@@ -115,7 +113,6 @@ async def test_reviewer_mini_today_counts(httpx_client, db_session, super_admin)
         reviewer_claimed_at=now - timedelta(seconds=200),
         reviewed_at=now - timedelta(seconds=10),
     )
-    # 1 approved yesterday (should be excluded)
     yest = now - timedelta(days=1)
     await _seed_task(
         db_session,
@@ -136,7 +133,6 @@ async def test_reviewer_mini_today_counts(httpx_client, db_session, super_admin)
     assert data["approved_today"] == 3
     assert data["rejected_today"] == 1
     assert data["avg_review_seconds"] is not None
-    # 100~120 + 200 → 平均 ≈ 130，宽松断言
     assert 60 <= data["avg_review_seconds"] <= 220
 
 
@@ -158,7 +154,6 @@ async def test_reviewer_mini_other_user_isolated(httpx_client, db_session, super
     rev_token = create_access_token(subject=str(rev_user.id), role=rev_user.role)
     now = datetime.now(timezone.utc)
 
-    # admin reviewer 当日审过 2 个；rev_user 0 个
     for _ in range(2):
         await _seed_task(
             db_session,

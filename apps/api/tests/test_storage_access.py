@@ -73,7 +73,6 @@ async def test_independent_receipt_does_not_commit_caller_and_connection_bind_is
     location_id = where.id
     try:
         assert await access.check(db, location_id, lock=True) == 1
-        # The caller already owns Gate SHARE and an uncommitted business location.
         permit = await asyncio.wait_for(
             access.acquire(db, location_id, "outer_transaction", expected_revision=1), 2
         )

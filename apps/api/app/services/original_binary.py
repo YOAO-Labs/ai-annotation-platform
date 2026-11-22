@@ -130,8 +130,6 @@ async def recheck_original(db, context, *, captured=False):
         raise HTTPException(403, {"code": "api_key_authority_revoked"})
     expected = context.source
     if captured:
-        # The current lookup still rejects stopped gates. A completed stop/resume
-        # does not change already-verified bytes, authority, or source identity.
         expected = replace(expected, maintenance_revision=current.maintenance_revision)
         if expected.read_route is not None and current.read_route is not None:
             expected = replace(
@@ -216,7 +214,6 @@ async def _read_admission(db, context, plan):
             yield admitted
         return
 
-    # Classification must not hold the request connection across the media owner.
     await db.commit()
     async with fixture_original_read.admitted(
         db, source, context.proof.actor_id, plan.spec

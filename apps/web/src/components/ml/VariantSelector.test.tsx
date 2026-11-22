@@ -117,7 +117,6 @@ describe("VariantSelector", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  // yolo 协议 v2: axis_key 任意 (series/size 不在 VARIANT_FIELD_KEYS 白名单)
   it("renders arbitrary axis_keys from supportedVariants (yolo series/size)", () => {
     render(
       <VariantSelector
@@ -149,12 +148,10 @@ describe("VariantSelector", () => {
     expect(screen.getByTestId("ai-variant-size")).toBeInTheDocument();
     const series = screen.getByTestId("ai-variant-series") as HTMLSelectElement;
     const size = screen.getByTestId("ai-variant-size") as HTMLSelectElement;
-    // defaults 落在 value 上
     expect(series.value).toBe("yolo11");
     expect(size.value).toBe("s");
   });
 
-  // sam3 单档 model_variant: 也是任意 axis_key, 只有一个选项
   it("renders single-option axis for sam3 model_variant", () => {
     render(
       <VariantSelector
@@ -176,7 +173,6 @@ describe("VariantSelector", () => {
     expect(select.options.length).toBe(1);
   });
 
-  // variantCombinations 非笛卡尔积联动: series=yolov9 → size 受限到 {t,s,m,c,e}
   it("filters second axis options by variantCombinations (yolo non-cartesian)", () => {
     render(
       <VariantSelector
@@ -187,7 +183,6 @@ describe("VariantSelector", () => {
           },
           {
             key: "size",
-            // 注意 size 的轴 metadata 是并集: n/s/m/c/e/x (v8 有 n/s/m/l/x; v9 有 t/s/m/c/e).
             variants: [
               { value: "n" },
               { value: "s" },
@@ -199,12 +194,10 @@ describe("VariantSelector", () => {
           },
         ]}
         variantCombinations={[
-          // v8 detection: n/s/m/l/x; 省略 l 简化
           ["yolov8", "n"],
           ["yolov8", "s"],
           ["yolov8", "m"],
           ["yolov8", "x"],
-          // v9 detection: t/s/m/c/e
           ["yolov9", "s"],
           ["yolov9", "m"],
           ["yolov9", "c"],
@@ -222,7 +215,6 @@ describe("VariantSelector", () => {
     expect(sizeValues).not.toContain("x");
   });
 
-  // 联动: 切第一轴让第二轴当前值变非法, onChange next 应清掉非法 value
   it("clears downstream axis when series change makes current size illegal", () => {
     const onChange = vi.fn();
     render(
@@ -240,7 +232,6 @@ describe("VariantSelector", () => {
       />,
     );
 
-    // 切 series 到 yolov9 → size=n 已不合法, onChange 应清掉 size
     fireEvent.change(screen.getByTestId("ai-variant-series"), {
       target: { value: "yolov9" },
     });
@@ -249,7 +240,6 @@ describe("VariantSelector", () => {
     expect(lastCall.size).toBeUndefined();
   });
 
-  // defaults 优先级高于 schema.default
   it("uses defaults over schema.default for initial value", () => {
     render(
       <VariantSelector

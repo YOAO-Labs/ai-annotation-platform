@@ -3,20 +3,16 @@ import { Icon } from "@/components/ui/Icon";
 import type { AnnotationResponse } from "@/types";
 import { classColor, displayClassName } from "../../stage/colors";
 
-/** 标注来源:手动 / AI 预测(未采纳)/ AI 采纳(已落库)/ 外部导入。 */
 export type SourceKind = "manual" | "ai" | "accepted" | "import";
 
-/** 置信度三档配色键,与 Tailwind 语义色对齐。 */
 export type ConfidenceTone = "high" | "mid" | "low";
 
-/** ≥0.8 高 / 0.5–0.8 中 / <0.5 低。阈值取闭区间下界。 */
 export function confidenceTone(conf: number): ConfidenceTone {
   if (conf >= 0.8) return "high";
   if (conf >= 0.5) return "mid";
   return "low";
 }
 
-/** 从已落库标注派生来源:有 parent_prediction_id = AI 采纳;source 含 import = 导入;否则手动。 */
 export function annotationSourceKind(ann: AnnotationResponse): SourceKind {
   if (ann.parent_prediction_id) return "accepted";
   if (ann.source?.includes("import")) return "import";
@@ -57,18 +53,11 @@ const TONE_CLASS: Record<ConfidenceTone, string> = {
 export interface IdentityHeaderProps {
   className: string;
   source: SourceKind;
-  /** 0–1。传入时在右侧渲染置信度 pill(按阈值着色)。手动框不传。 */
   confidence?: number | null;
-  /** 右侧附加位(如视频单帧的「F12 · 00:24」帧定位)。 */
   trailing?: ReactNode;
-  /** 色块覆盖色(如视频轨迹的 getTrackColor,含逐轨道覆盖);缺省回落到 classColor。 */
   dotColor?: string;
 }
 
-/**
- * 选中信息卡通用身份头:类别色块 + 类名 + 来源徽章 +(可选)置信度 pill / 帧定位。
- * 四种选中态共用,色块走数据域类别色(与画布/列表同源),徽章/pill 走 Tailwind 语义类。
- */
 export function IdentityHeader({
   className,
   source,

@@ -84,9 +84,7 @@ def test_saved_target_and_output_reference_require_the_enclosing_prefix():
         url_expiry_seconds=60,
         fixture_owned=False,
     )
-    assert reference.storage_ref.prefix.endswith(
-        f"image-pyramids/objects/{output_id}/"
-    )
+    assert reference.storage_ref.prefix.endswith(f"image-pyramids/objects/{output_id}/")
 
     escaped = _target(output_id)
     escaped["prefix"] = escaped["key_prefix"] + "image-pyramids/objects/other/"
@@ -226,13 +224,9 @@ def test_read_permit_operations_are_control_only_and_exact():
     c.require_scope(request, permit)
 
     with pytest.raises(ValueError):
-        c.require_scope(
-            request.model_copy(update={"token": uuid4()}), permit
-        )
+        c.require_scope(request.model_copy(update={"token": uuid4()}), permit)
     with pytest.raises(ValueError):
-        c.require_scope(
-            request.model_copy(update={"generation": 2}), permit
-        )
+        c.require_scope(request.model_copy(update={"generation": 2}), permit)
 
     closure = c.NativePyramidReadClosure(
         operation_id=permit.operation_id, token=permit.token, closed=True
@@ -265,13 +259,11 @@ def test_native_member_receipt_keeps_bounded_raw_receipts():
     literal = c.PyramidMemberReceipt(
         operation_id=operation_id, etag='"etag"', version_id="null"
     )
-    # A literal "null" S3 version is a real receipt value, distinct from None.
     assert literal.version_id == "null"
     assert (
         c.PyramidMemberReceipt(operation_id=operation_id, etag='"etag"').version_id
         is None
     )
-    # The bounds agree with the portable NativePyramidIoMember (both 1024).
     c.PyramidMemberReceipt(
         operation_id=operation_id,
         etag='"' + "a" * 1022 + '"',

@@ -8,11 +8,13 @@ import uuid
 
 from fastapi import HTTPException
 from sqlalchemy import exists, or_, select
+from sqlalchemy.exc import DBAPIError
 
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.comment_attachment_upload import CommentAttachmentUpload
 from app.db.models.storage_maintenance import StorageOperation
 from app.schemas._jsonb_types import Attachment
+from app.services.annotation_comment import AnnotationCommentService
 from app.services import conditional_write_accounting as accounting
 from app.services import comment_attachment_authority as authority
 from app.services import comment_attachment_storage as storage, storage_access
@@ -187,7 +189,6 @@ async def upload(db, proof, original, data, mime_type, file_name):
             revision = permit.revision
 
         def write_saved():
-            # Executor queueing can outlive admission; only immutable facts are used.
             check_deadlines(proof, expiries)
             storage.run_io(
                 target,
@@ -278,7 +279,6 @@ async def normalize_for_comment(db, actor_id, ctx, supplied):
 
 
 async def bind(db, rows, comment_id):
-    # All owners already follow the context locks. The gate is always last.
     for location_id in sorted(
         {uuid.UUID(row.storage_ref["location_id"]) for row in rows}
     ):
@@ -301,7 +301,18 @@ def validate_bound(rows, comment_id):
 
 
 async def locked_comment(db, identifier):
-    return await authority.locked(db, AnnotationComment, identifier, read=False)
+    try:
+        return await AnnotationCommentService(db).lock(identifier)
+    except HTTPException as exc:
+        if exc.status_code == 404:
+            return None
+        if exc.status_code == 409 and exc.detail == {"reason": "comment_busy"}:
+            reject("comment_attachment_busy")
+        if exc.status_code == 503:
+            reject("comment_attachment_unavailable", 503)
+        raise
+    except DBAPIError:
+        reject("comment_attachment_unavailable", 503)
 
 
 def _registered(comment, row, key, ctx):
@@ -329,7 +340,6 @@ def _registered(comment, row, key, ctx):
 
 
 async def _read_binding(db, actor, annotation_id, key, *, expected=None, receipt=None):
-    # Pre-read locates the bound original Comment; no Feedback metadata is authority.
     ctx = await context(db, actor, annotation_id, expected=expected)
     key_annotation_id, identifier = _identifier(key)
     if key_annotation_id != annotation_id:
@@ -478,7 +488,6 @@ async def _has_read(db, receipt):
 
 
 async def _active_comment(db, row):
-    # Plain MVCC reads deliberately take no Comment lock after an owner lock.
     if row.bound_comment_id is None or row.expires_at <= now():
         return False
     return (

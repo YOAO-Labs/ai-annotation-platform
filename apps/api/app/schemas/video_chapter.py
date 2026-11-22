@@ -6,9 +6,6 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-# 章节的 frame_step / source 不新增数据库列, 而是约定存进
-# chapter_metadata (JSONB) 的这两个键。schema 层做强类型互转, 旧章节缺键时
-# 退化为 frame_step=None / source="manual"。
 ChapterSource = Literal["manual", "sampled"]
 _META_FRAME_STEP = "frame_step"
 _META_SOURCE = "source"
@@ -20,9 +17,7 @@ class VideoChapterBase(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     color: str | None = Field(default=None, max_length=40)
     metadata: dict[str, Any] = Field(default_factory=dict)
-    # 该章节内建议的逐帧步长 (源帧空间); 给出时必须 >= 1。
     frame_step: int | None = Field(default=None, ge=1)
-    # 章节来源: 手动建 (manual) 还是由采样网格派生 (sampled)。
     source: ChapterSource | None = None
 
     @field_validator("title")
@@ -80,7 +75,6 @@ class VideoChapterOut(BaseModel):
 
     @model_validator(mode="after")
     def _derive_from_metadata(self) -> "VideoChapterOut":
-        # frame_step / source 未显式给出时, 从 metadata 内的约定键派生 (向后兼容)。
         meta = self.metadata or {}
         if self.frame_step is None:
             raw_step = meta.get(_META_FRAME_STEP)

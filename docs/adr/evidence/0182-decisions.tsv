@@ -1,0 +1,946 @@
+id	source_at_e8a4f595	related_adr	constraint_and_reason
+0182-0001	apps/web/eslint.config.js:66	-	应用源码不能用原生对话框替代应用内交互，因为嵌入式浏览器可能静默丢弃原生对话框；限制只针对浏览器提供的对话框，不应误禁同名局部绑定。
+0182-0002	apps/web/eslint.config.js:96-98	-	为使 TSX 适配收紧后的 CSP style-src，状态样式应切换类名，由 lint 防止 JSX 内联样式回流。只有必要的 CSS 自定义属性注入才可按文件豁免，并优先使用 useElementStyle。
+0182-0003	apps/web/playwright.browser-integration.config.ts:23;apps/web/playwright.mask-product.config.ts:13	-	浏览器集成和 Mask 产品套件的 Vite 不能改由 Playwright 托管；Raster 启动器负责优雅关闭自己启动的确切进程，不能把启动和回收拆给不同的管理方。
+0182-0004	apps/web/playwright.config.ts:8	-	离线 Mask 的运行标识以启动器的一次调用为边界：worker 重启不能重新分配标识而割裂同一次运行，不同调用也不能沿用标识而失去隔离。
+0182-0005	apps/web/playwright.config.ts:69	-	隔离模式必须覆盖 Playwright 的 Web 和 API 地址，不能只在变量缺失时填默认值；否则 shell 或 CI 遗留的地址可能把隔离套件接回开发服务。
+0182-0006	apps/web/playwright.config.ts:114	-	不同运行彼此隔离，不代表同一夹具族内的用例也能安全并发；并发性必须按夹具族验证，未验证前仍串行，不能仅凭运行隔离打开并行。
+0182-0007	apps/web/playwright.config.ts:143,146-147	-	3D 点云不能直接沿用普通 Chromium 项目：无头环境默认没有 GPU，Three.js 的 WebGL 需要通过 ANGLE 使用 SwiftShader；新版 Chromium 还需用 unsafe 旗标显式放行。
+0182-0008	apps/web/playwright.config.ts:201-203,223-224	-	Playwright 关闭自管 API 和 Vite 时应发 SIGTERM，而不是硬杀：API supervisor 需要回收原生运行，否则 supervisor、worker 和日志可能留到下一套件；Vite 的 143 是预期退出，硬杀反而可能在 exec 的后代中留下进程组。
+0182-0009	apps/web/playwright.stress.config.ts:4-8	-	压力套件只允许一次重试，因为 CI 渲染负载可能让重载后的布局恢复长期占用主线程，拖延清单查询。重试通过仍标记为不稳定，再次失败则保留失败结果。
+0182-0010	apps/web/vite.config.ts:9-10	-	开发 API 代理不能把后端端口固定为 8000；并行 worktree 需要通过 API_PROXY_TARGET 分别指向各自的后端，否则不同检出会被迫连接同一个默认端口。
+0182-0011	apps/web/vite.config.ts:19-21	-	即使 worktree 共用 node_modules，Vite 的预打包缓存也必须按检出目录分开；否则并行服务会用各自的模块图重写同一份缓存，互相覆盖依赖产物。
+0182-0012	apps/web/vite.config.ts:23-25	-	Vite 应从仓库根目录读取 .env，而不是在 apps/web 再维护一份；这样 VITE_* 与后端使用同一个配置来源，避免两份环境设置分别修改后漂移。
+0182-0013	apps/web/vite.config.ts:48-49	-	Vite Worker 必须保留 ES 输出，不能换成普通脚本格式：两个生产 Worker 都按模块启动，Raster Mask Worker 的 WebGPU provider 还需要按需加载分块。
+0182-0014	apps/web/vite.config.ts:56-57	-	开发 API 代理默认使用 127.0.0.1，而非 localhost；CI 上 Node 可能把后者解析为 ::1，只绑定 IPv4 的 Uvicorn 就会拒绝连接。
+0182-0015	apps/web/vite.config.ts:66-67	-	开发媒体走同源 /minio 代理，使远程浏览器只需访问 Vite 端口；转发时必须剥离 /minio 前缀，否则 S3 看到的规范资源路径会变化，导致签名校验失败。
+0182-0016	apps/web/vite.config.ts:87-94;apps/web/vitest.setup.ts:41-44	-	Canvas/WebGL 渲染器不计入 Vitest 覆盖率分母：jsdom 和 react-konva 的 DOM 替身只能检查属性与组件交互，不能证明真实渲染正确。几何仍由单测覆盖，像素、焦点和指针回归由 Playwright 验证。
+0182-0017	apps/web/vitest.setup.ts:7-12	-	Vitest 的五秒兜底仅供未迁移套件应对繁忙 CI 上超过一秒的交互渲染；新集成测试应等待具体操作，不应继续放大全局超时，掩盖错误 mock 或漏等的定时器。
+0182-0018	apps/web/vitest.setup.ts:47-49	-	不透明来源下不能依赖 jsdom 的 localStorage 或 sessionStorage：访问不可用会使 Zustand persist 写入失败，因此测试用内存 Storage 承接这些读写。
+0182-0019	apps/web/e2e/global-teardown.ts:19	-	全局清理的读者等待应由 owner 限时，客户端不能另设请求超时；客户端可能先结束清理请求，而资源实际上还未完成退役。
+0182-0020	apps/web/e2e/fixtures/ai-request-backend.ts:13	-	startAiRequestBackend 必须控制实际接收推理请求的同一托管 provider；另起一个测试替身并不等价，因为对替身的控制不会作用于真实推理请求。
+0182-0021	apps/web/e2e/fixtures/annotation-canvas-pixels.ts:5-7	-	标注像素统计必须排除 ImageStage 和 VideoKonvaStage 的首个 Konva 媒体层，避免跨域媒体污染读回；其余层都要计入，不能静默跳过不可读的标注层。
+0182-0022	apps/web/e2e/fixtures/context-toolbar.ts:18-19;apps/web/e2e/fixtures/mask-toolbar.ts:13	-	Context Toolbar 和 Mask Toolbar 都不能仅凭展开属性就点击：前者的网格裁剪可使滚动中的 More 按钮在指针下移位，后者的过渡会改变快捷区宽度及滚动约束，须等动画结束。
+0182-0023	apps/web/e2e/fixtures/mask-slice-lifecycle.py:135	-	Mask 生命周期测试不能只隔离数据库而复用对象存储桶；GC 还会扫描桶中的对象，测试执行回收时可能触及其他运行的对象。
+0182-0024	apps/web/e2e/fixtures/mask-slice-lifecycle.py:242-243	-	验证真实宽限期和两阶段 GC 时，只推进收集器时钟，不改写所有者事实，否则就绕过了待验证的生命周期条件；定位回收对象须用独立保存的物理位置，不能拿逻辑 RLE 键代替。
+0182-0025	apps/web/e2e/fixtures/mask-toolbar.ts:33	-	Mask Toolbar 收起后不能直接发送 Enter：恢复焦点的触发器会接收按键。测试须先移走该焦点，才能让后续键盘输入实际到达工作台。
+0182-0026	apps/web/e2e/fixtures/native-browser-zoom.ts:7-18	-	Linux 上的 MV3 完整 Chromium 必须使用短 /tmp 目录：单例 Unix socket 路径受 108 字节限制，过长的 TMPDIR 会导致启动因 SIGTRAP 中止。失败或关闭时清理短目录；Windows 使用命名管道，不套用此限制。
+0182-0027	apps/web/e2e/fixtures/native-browser-zoom.ts:41	-	原生标签页缩放须在文档导航完成后再调用 setZoom；Chromium 导航时会重置缩放，提前设置会被覆盖，测试就不会在指定缩放下运行。
+0182-0028	apps/web/e2e/fixtures/native-browser-zoom.ts:48-57,121	-	原生缩放须在一次性 Chromium 配置中走 MV3 tabs API；CSS 缩放和设备模拟不能替代浏览器缩放。windowSize 是含边框的外窗 DIP，须清除继承的设备预设并保留空 viewport，否则固定视口会掩盖 CSS 视口变化。
+0182-0029	apps/web/e2e/fixtures/native-browser-zoom.ts:167	-	setZoom 不能在 Chromium 确认倍率后立即交还控制权：倍率已被接受不等于新布局已生效，此时测量仍可能读到旧布局。
+0182-0030	apps/web/e2e/fixtures/raster-browser.ts:11-12	-	Raster Browser 以对应 ChildProcess 的实际退出码和退出信号判定是否正常关闭；Playwright 强杀浏览器后 close() 仍可能成功返回，仅看 Promise 会把强杀误判为正常退出。
+0182-0031	apps/web/e2e/fixtures/seed-request.py:689,1480	-	Fixture authority 须持有 guard_fd 启动锁直到对应进程实际退出。启动检查通过或停止监听都不是释放条件，否则旧进程仍存活时就可能启动第二个实例。
+0182-0032	apps/web/e2e/fixtures/seed-request.py:709-710	-	原生套件准备阶段导入的模型须绑定私有 owner 数据库引擎，不能沿用原环境中的数据库绑定而让模型访问非 owner 数据库；透传原环境时只覆盖原生控制绑定。
+0182-0033	apps/web/e2e/fixtures/seed-request.py:1471	-	就绪通知管道断开不能作为 Fixture authority 的终止条件：客户端可能在首个请求前就已退出，若把通知失败当作致命错误，后续客户端将无法恢复使用该 authority。
+0182-0034	apps/web/e2e/fixtures/seed-request.py:1600;apps/web/e2e/helpers/seed-owner-transport.mjs:268	-	夹具错误不能把原始诊断回显给调用方：setup 摘要仅给出异常类型，操作错误仅指向私有 owner 日志。完整响应留在该日志中，避免对外暴露 DSN、请求体、凭据或 SQL 参数。
+0182-0035	apps/web/e2e/fixtures/seed.ts:328-332,409-412,454-461	-	SeedAPI 命名空间须同时纳入运行身份和显式标签（未指定时用测试身份），否则无法兼顾同次运行重试复用和独立运行隔离；生成值还须满足后端 4–12 位小写字母或数字的限制。
+0182-0036	apps/web/e2e/fixtures/seed.ts:442	-	prepareRasterOwned 须在产品测试计时前准备默认 owned run 的原生进程，否则进程启动会挤占产品验证的时间预算，准备慢也可能导致产品测试超时。
+0182-0037	apps/web/e2e/fixtures/seed.ts:550-554	-	SeedAPI 须等测试主体和证据附件完成后才清理已登记的命名空间，否则取证可能失去所需数据；清理错误不得吞掉，以免命名空间未清理而测试仍被判为通过。
+0182-0038	apps/web/e2e/fixtures/seed.ts:686	-	configureRasterMask 只能修改项目 opt-in；部署级读取和创建总闸由 API 进程环境决定，不能把夹具中的项目开关当作绕过部署禁用的方式。
+0182-0039	apps/web/e2e/fixtures/seed.ts:776	-	未知嵌套视频上下文版本须经测试夹具布置，不能为构造该状态而放宽公开写入校验，否则产品接口也会接受本应拒绝的版本。
+0182-0040	apps/web/e2e/fixtures/seed.ts:912-915,1059	-	保留结束截图后，须先退役已绑定页面，再删除媒体所属命名空间，否则页面仍可能继续上传或预取。injectToken 在登录前就须登记页面，以便注入中途失败时也能退役它。
+0182-0041	apps/web/e2e/fixtures/seed.ts:922-923	-	injectToken 须用空的同源文档建立存储上下文；直接打开仪表盘会在换身份前启动上一身份的应用。写入新身份后再由调用方导航到测试页。
+0182-0042	apps/web/e2e/fixtures/seed.ts:1036	-	fixtureOwner 即使没有夹具依赖也须保留首参的空解构；去掉解构会违反 Playwright 对夹具函数首参的解析要求。
+0182-0043	apps/web/e2e/fixtures/seed.ts:1077	-	seed fixture 的总预算须覆盖准备和清理各自已有的 60 秒操作预算；若把总预算也设为 60 秒，准备接近上限时，清理会在自身预算用尽前被截断。
+0182-0044	apps/web/e2e/fixtures/video-frame-pixels.ts:33-38	-	视频像素采样只对导航销毁执行上下文做有界重试，并在当前文档重采；不能把错帧当成导航抖动忽略，逐帧的背景亮度及角位、中心位断言仍须生效。
+0182-0045	apps/web/e2e/fixtures/video-response-fault.ts:3	-	injectVideoResponseFault 只破坏浏览器收到的响应，不能改持久化输出回执；否则会把响应传递故障与产物失效混在一起，无法单独验证前者。
+0182-0046	apps/web/e2e/fixtures/workbench-panel-actions.ts:58-59	-	标签回停靠须走原生 HTML 拖放，不能沿用创建浮窗时的 Shift 手势；浮动内容上的 Shift 会捕获指针并移动整个窗口，而不是拖动标签回停靠。
+0182-0047	apps/web/e2e/helpers/browser-environment.mjs:1	-	浏览器进程环境须按白名单传递，不能直接继承父进程环境，否则会将浏览器不需要的 API、数据库、存储或夹具权限暴露给浏览器进程。
+0182-0048	apps/web/e2e/helpers/mask-refinement.ts:13	-	confirmMaskRefinement 的有损转换预期须由夹具独立给出，不能从待校验的转换报告反推，否则错误报告也可能与自身推导出的预期一致而通过。
+0182-0049	apps/web/e2e/helpers/request-errors.ts:1-15	-	各套件只组合本流程确切的中止豁免，不按方法一概放行。写形请求只豁免卸载遥测、尽力撤销播放租约和用 POST 传帧列表的只读预取；派生缓存仍由服务端负责，标注等业务写入中止必须报错。
+0182-0050	apps/web/e2e/helpers/request-errors.ts:41-44	-	卸载时即使设置 keepalive，浏览器仍可能把会话遥测报为中止。豁免只限两条会话遥测 POST 路由，不能据此忽略其他卸载请求的中止。
+0182-0051	apps/web/e2e/helpers/request-errors.ts:74-77	-	dashboardViewAborts 只用于经仪表板进入图像工作台的流程；直接进入不会发起这些读取，沿用该组豁免会掩盖不属于该流程的请求中止。
+0182-0052	apps/web/e2e/helpers/request-errors.ts:92,135,144,153-155,189-193	-	读取中止豁免须随请求所有者退役：任务上下文、普通及精确视频清单与块／章节／片段预取随任务切换或重载，评论随面板卸载，Mask 随画布或编辑器退役，已验证的原始媒体随任务、相机或数据集预览退役；不能把仍在使用的读取中止当作正常取消。
+0182-0053	apps/web/e2e/helpers/request-errors.ts:169-175	-	离页时原生播放租约只能用 keepalive DELETE 尽力撤销，文档销毁仍可能使其报中止，由租约到期和注册表回收兜底。豁免只适用于该中止，不覆盖 HTTP 失败或其他方法。
+0182-0054	apps/web/e2e/helpers/seed-owner-transport.mjs:193-194	-	recoverFixtureOperation 只能取回既有操作的结果，不能重提变更，否则可能重复执行已经完成的操作；调用方须先检查取回的结果，再显式确认。
+0182-0055	apps/web/e2e/helpers/video-timeline-seek.ts:1-13,26	-	浮层离开画布 2 秒后会禁用指针事件，裸坐标点击可能被吞，固定步进也不能保证命中目标帧。精确定位须先把目标纳入可见窗口，再走 range 的 onChange→onSeek 并按 pctToFrame 校验；无法精确表示时应失败或缩窗重试。
+0182-0056	apps/web/e2e/helpers/video-timeline-seek.ts:61-66	-	timelineClickX 须与组件的指针换算使用同一几何；仅端点内缩 2px，以免边界、圆角或子像素舍入使点击落空，中间帧仍须按精确比例计算。
+0182-0057	apps/web/e2e/helpers/workbench-layout-matrix.ts:11-14	-	3D 与图像／视频布局矩阵须保持用例标题一致；单独改其中一套的标题并非纯文案修改，会改变分片和扩展套件的筛选结果。
+0182-0058	apps/web/e2e/helpers/workbench-layout-matrix.ts:21-24	-	慢速 CI 上，重载恢复布局可能在视频清单发起前阻塞渲染主线程数十秒；@stress 的阶段等待须覆盖挂载延迟，延长身份断言的等待不能弥补这一阶段的超时。
+0182-0059	apps/web/e2e/helpers/workbench-layout-matrix.ts:50-53	-	布局矩阵须先等 stage host 再等 canvas：host 受载荷就绪约束（视频为清单），canvas 随同轮挂载。直接等 canvas 会把冷启动时载荷未就绪与画布缺失混成同一种超时。
+0182-0060	apps/web/e2e/helpers/workbench-layout-matrix.ts:88	-	renderedGroups 必须读取实际渲染的分组。缓存偏好和 Dockview 私有 API 都可能给出与界面不同的结果，用它们断言会漏掉渲染与布局状态不一致的回归。
+0182-0061	apps/web/e2e/helpers/workbench-layout-matrix.ts:225	-	验证最终保存树时，须等最后一条命令越过 300 ms 防抖窗口，且串行提交中已无在途请求；仅等防抖到期或看到一次保存完成，都可能读到上一版布局。
+0182-0062	apps/web/e2e/helpers/worktree-mode.mjs:1	-	worktreeMode 必须识别旧版 shell 环境；不能把未识别的旧环境当作独立 CI，否则测试会套用不属于该运行模式的默认夹具。
+0182-0063	apps/web/e2e/layout/scrollbar-layout.spec.ts:37,106-107	-	滚动条布局测试必须使用占据布局空间的原生滚动条，并等根节点实际出现滚动条后再打开 Radix 弹窗。隐藏或覆盖式滚动条不占空间，短文档也无需补偿，两者都会绕开要验证的布局变化。
+0182-0064	apps/web/e2e/tests/annotation.spec.ts:1-4;apps/web/e2e/tests/bbox-center-out.spec.ts:47	-	标注冒烟测试可用种子接口准备前置条件，bbox-center-out 可固定模型能力与推理响应，但保存必须通过真实界面和写入 API。用种子补写或用模拟响应替代几何与掩码写入，会让持久化失败的流程也通过。
+0182-0065	apps/web/e2e/tests/annotation.spec.ts:8-12,177-184,259,264,356	-	ToolDock 按产出几何而非模型能力列表门控：smart-point、smart-box 和 exemplar 产出 region，只有 bbox 的种子项目必须在相关用例中启用 region。grounded-sam2 支持文本不意味着 ToolDock 应有 text-prompt 按钮，该入口属于批量流程。
+0182-0066	apps/web/e2e/tests/annotation.spec.ts:371-374	-	启用 exemplar 后，拖框须从 AIToolDrawer 右侧未被覆盖的画布开始；若从画布左侧的抽屉覆盖区起手，pointerdown 到不了 Konva，samProbe 不会触发。
+0182-0067	apps/web/e2e/tests/auth.spec.ts:8-9	-	认证冒烟测试用 /health/db 检查 API 和主存储是否可达，不用顶层 /health；CI 不启动 Celery worker，后者会因 Celery 检查返回 503，即使主存储正常。
+0182-0068	apps/web/e2e/tests/batch-flow.spec.ts:1-6;apps/web/e2e/tests/employee-project-roles.spec.ts:1-15	-	批次生命周期测试可用 _test_seed.advance_task 推进状态，但不能用它验收员工跨项目的冻结轮次归属。后者须通过真实成员关系和 API，从空贡献者集合起由同伴实际标注并提交，否则无法证明冻结时的完整贡献者集合和提交人。
+0182-0069	apps/web/e2e/tests/bbox-center-out.spec.ts:184	-	重载时不能仅凭浏览器报告 keepalive 请求中止，就认定会话遥测未送达；API 可能已经接收该请求，浏览器端的中止状态不能替代服务端证据。
+0182-0070	apps/web/e2e/tests/bbox-center-out.spec.ts:298	-	bbox-center-out 的独立几何验收应以浏览器实际派发的指针坐标为准；预设拖拽坐标可能在派发时被量化，用它计算期望值会把像素取整误判为几何偏差。
+0182-0071	apps/web/e2e/tests/bbox-center-out.spec.ts:595-596	-	原生预览只解码当前掩码，因此修饰键点击必须命中该掩码的实际前景；不能用新推理提示或边框草稿代替，否则验收的就不是当前掩码的预览。
+0182-0072	apps/web/e2e/tests/data-manager-management.spec.ts:182-183,186	-	从 Data Manager 任务行打开预览只供对照原图，不得领取、加锁或修改任务。写入断言不能把所有 POST 都计为变更：matches 虽使用 POST，但只返回只读投影。
+0182-0073	apps/web/e2e/tests/data-manager-management.spec.ts:210-211	-	图库汇总所需的计数应追加到查询投影，不能取决于恢复后的表格有没有计数列；也不能为满足汇总查询改写已保存的列配置，否则打开图库就会改变用户的表格偏好。
+0182-0074	apps/web/e2e/tests/employee-project-roles.spec.ts:195-198	-	任务退出标注阶段后，原标注员可能因失去批次可见性而收到 404，这不表示提交失败。应由对应项目中有权限的管理员读取最终状态，而不是用提交者的后续读取结果判断提交是否成功。
+0182-0075	apps/web/e2e/tests/employee-project-roles.spec.ts:237	-	显式任务指派不能替代项目成员资格；授权时仍须检查所属项目的成员权限，否则仅凭指派就会让非成员访问项目任务。
+0182-0076	apps/web/e2e/tests/employee-project-roles.spec.ts:315	-	成员变更预览绑定 CAS 版本且只能使用一次；成员版本更新后，重放同一预览必须返回 409，不能让基于旧成员状态确认的变更再次生效。
+0182-0077	apps/web/e2e/tests/employee-project-roles.spec.ts:367-370,409-412	-	账户离线队列重连时须逐条复查所属项目权限；返回 403 或 404 时保留草稿，不发送标注写入。验收时须用真实离线保存生成草稿并保持离线直至撤权完成，否则队列可能在撤权前就已写入。
+0182-0078	apps/web/e2e/tests/employee-project-roles.spec.ts:461-462;apps/web/e2e/tests/lidar-export-trusted.spec.ts:11-14	-	员工项目与 LiDAR 导出测试须按项目 ID 从 API 读取完整名称再定位。owned 夹具的名称带命名空间，使用共享夹具的固定名称或前缀不能可靠定位本次项目。
+0182-0079	apps/web/e2e/tests/employee-project-roles.spec.ts:483-486,494-496	-	员工标注卡片与待审项目徽标应按完整项目名精确匹配；子标题、批次或优先级标签也可能含有同一文本，子串匹配会把这些标签误当成目标。
+0182-0080	apps/web/e2e/tests/filter-data-manager.spec.ts:145	-	已保存视图的短 URL 不必在编辑前展开，重载后仍须恢复同一筛选树；若恢复依赖事先改写 URL，直接重载原短链接就无法保证得到同一筛选条件。
+0182-0081	apps/web/e2e/tests/filter-data-manager.spec.ts:369-370	-	保存筛选会在旧文档中重发当前查询；验收重载时须先等保存触发的请求结束，再注册监听并重载，否则可能把旧文档的请求误认成重载后的查询。
+0182-0082	apps/web/e2e/tests/filter-operational-lists.spec.ts:148-149	-	旧版 dataset= 链接须直达数据集详情，并通过 return 保留列表筛选；不能先加载列表再跳转，否则会在直达详情的路径上发出本不需要的列表请求。
+0182-0083	apps/web/e2e/tests/filter-operational-lists.spec.ts:318-320	-	搜索须从首个键入字符起就让请求携带输入值，并把页码重置与防抖后的查询一并提交；若先单独重置页码，就会先发出一次未筛选的第一页请求。
+0182-0084	apps/web/e2e/tests/filter-operational-lists.spec.ts:413-414	-	移除用户角色筛选后，恢复的查询仍可能命中 30 秒缓存，不发请求不等于筛选未清除。验收应重载核对恢复后的请求范围，而不是要求移除动作立即产生新请求。
+0182-0085	apps/web/e2e/tests/guide-experience.spec.ts:167-168	-	向外层指引发送 Escape 前须等 Radix 图片弹窗节点移除；aria-hidden 可能在退场动画结束前就已设置，此时内层弹窗仍持有 Escape 处理器，会截获按键。
+0182-0086	apps/web/e2e/tests/markdown-authoring.spec.ts:650-652	-	Chromium 的 CDP Input.insertText 在普通 contenteditable 上也可能派发非可信 compositionend；不能把该协议副作用当成浏览器真实的输入法候选或输入事件，否则验收会误认已覆盖真实输入法流程。
+0182-0087	apps/web/e2e/tests/markdown-authoring.spec.ts:836-839	-	表格粘贴回归须在同一任务内聚焦单元格并粘贴；若先等 selectionchange，MDXEditor 已有机会确定嵌套编辑器归属，就测不到图片误插入表格外根编辑器的竞态。
+0182-0088	apps/web/e2e/tests/markdown-authoring.spec.ts:910-912,917-919	-	删除上传失败的 Markdown 占位节点时，须同时移除待上传项，否则重试可能重新上传已取消的资产。不能只凭编辑器恢复判定取消成功；须实际保存并回读，确认未再发起上传，且待处理标记和资产均未落库。
+0182-0089	apps/web/e2e/tests/markdown-authoring.spec.ts:1075-1076	-	项目模板保留对创建者的关联，因此 E2E 须先删除自行创建的模板，再由共享 seed 清理临时用户；不能颠倒顺序，让用户清理面对仍引用该用户的模板。
+0182-0090	apps/web/e2e/tests/mask-advanced-operations.spec.ts:97-98;apps/web/e2e/tests/mask-editor.spec.ts:97-98	-	Mask 工具栏就绪不等于画布能接收笔划；须等媒体就绪且 Konva 画布可见。若在 fitted 前落笔，隐藏的画布宿主会吞掉整笔输入，且不会标记 dirty。
+0182-0091	apps/web/e2e/tests/mask-advanced-operations.spec.ts:124-125	-	beginEdit 后须等右上角 Sonner 提示消失再在画布上部落笔；即使画布已就绪，提示仍可能截获 mousedown，导致整笔输入静默丢失。
+0182-0092	apps/web/e2e/tests/mask-advanced-operations.spec.ts:510-511;apps/web/e2e/tests/mask-editor.spec.ts:100-103	-	Mask E2E 不能在笔刷控件重渲染前按旧几何落笔：即使默认已是圆形，也显式选圆并等控件就绪；调整橡皮后则在滑块失焦重渲染后重取边界框，避免 stage 几何与 Konva 视口错位。
+0182-0093	apps/web/e2e/tests/mask-advanced-operations.spec.ts:515-516	-	高级 Mask 用例的起笔必须避开右上浮动面板覆盖区；该夹具的面板从 x=51 起遮挡图片，按下事件若被截获，整笔都会丢失，且不会标记 dirty。
+0182-0094	apps/web/e2e/tests/mask-editor.spec.ts:47	-	Mask E2E 按 COCO RLE 的列优先顺序独立检查固定源像素，不用编辑器自身的编解码器作判据，否则读写两侧共享的像素顺序错误可能彼此抵消。
+0182-0095	apps/web/e2e/tests/mask-lock-bypass.spec.ts:1-17	-	验证 canEditMask 拒绝编辑时用单标注锁，不用任务只读替代；两者虽进入同一拒绝分支，任务只读却可能隐藏工具栏，使测试无法从工具入口验证拒绝行为。
+0182-0096	apps/web/e2e/tests/mask-primary-actions.spec.ts:159;apps/web/e2e/tests/mask-slice.spec.ts:616	-	验证重复提交时，暂缓放行首个真实 commit，让第二次输入确实发生在首笔提交仍在途时；直接返回模拟响应不能同时检验在途门控与真实写入结果。
+0182-0097	apps/web/e2e/tests/mask-primary-actions.spec.ts:286-287;apps/web/e2e/tests/native-mask-ai.spec.ts:643-644	-	验证工作台全局帧导航前，先移开选中轨道控件的焦点；控件聚焦时会有意消费方向键，不移焦测到的是控件行为，而不是全局导航。
+0182-0098	apps/web/e2e/tests/mask-primary-actions.spec.ts:425-427	-	预览构建已将模块打包，拦截源码不能替换 Mask 瓦片预算，因此仅在开发和 E2E 构建读取覆盖值。准入仍由真实指针与缩放触发，直接注入编辑器状态会绕过待验证的路径。
+0182-0099	apps/web/e2e/tests/mask-slice.spec.ts:164,846;apps/web/e2e/tests/polygon-auto-points.spec.ts:119;apps/web/e2e/tests/polygon-boundary-trace.spec.ts:120;apps/web/e2e/tests/polygon-slice.spec.ts:137;apps/web/e2e/tests/video-issue-context.spec.ts:289;apps/web/e2e/tests/video-issue-frame.spec.ts:207	-	导航时 keepalive 遥测和解锁请求可能已达后端却被浏览器报为中止；仅容许匹配的遥测或锁清理取消，解锁以数据库状态确认。反馈与标注写入不进入取消白名单。
+0182-0100	apps/web/e2e/tests/mask-slice.spec.ts:542-543	-	Mask 切割 E2E 每次重载后都要重新建立像素中心对齐；重载会恢复面板比例，沿用上次视口会把切割输入映射到错误的像素。
+0182-0101	apps/web/e2e/tests/native-mask-ai.spec.ts:231	-	原生 Mask AI 测试不能把多边形轮廓可见当成像素预览就绪；轮廓即时展示，而像素仅为当前候选延迟解码，二者就绪时点不同。
+0182-0102	apps/web/e2e/tests/native-mask-ai.spec.ts:276-277	-	远程 HTTP 非安全上下文没有 crypto.randomUUID，而 Playwright 的回环源受浏览器信任；不显式禁用该 API，测试就不会进入远程 HTTP 缺少该能力时的路径。
+0182-0103	apps/web/e2e/tests/native-mask-ai.spec.ts:805	-	交互提示的重试入口通过悬停显露，使测试能找到入口而不把键盘焦点从画布移走；若先聚焦入口，随后键盘输入就不再验证原本的画布交互。
+0182-0104	apps/web/e2e/tests/polygon-boundary-trace.spec.ts:316-317	-	验证 Polygon 边界追踪时从角点外侧接近，因为普通吸附选择最近的边或顶点；从边上接近时，像素舍入可能让边投影比角点更近，实际命中边而非角点。
+0182-0105	apps/web/e2e/tests/polygon-slice.spec.ts:569	-	Polygon 切割的确认丢失场景必须先让真实后端提交，再丢弃响应；提交前直接制造失败只会测到未写入，无法覆盖写入已生效但客户端未收到确认的情况。
+0182-0106	apps/web/e2e/tests/raster-mask-native.spec.ts:11-13	-	缺失内容的栅格 Mask 夹具必须先固定已保存对象，再删除实际字节；直接使用未知键或未固定的键会进入另一条读取错误路径，不能验证已存对象内容缺失。
+0182-0107	apps/web/e2e/tests/review-approve-loop.spec.ts:28-29;apps/web/e2e/tests/review-feedback-loop.spec.ts:27-28	-	审批与退回 E2E 都必须通过真实标注提交冻结审核贡献者证据；用 advance_task 直接推进会绕过证据生成，使证据仍为 unknown，导致操作被自审守卫拒绝。
+0182-0108	apps/web/e2e/tests/review-approve-loop.spec.ts:55;apps/web/e2e/tests/review-feedback-loop.spec.ts:65-66	-	审批和退回以任务 API 验证状态，不以审核人列表或弹窗关闭为准：列表不是任务状态判据，退回关闭弹窗后页面可能已跳转，查询还须给 mutation 成功回调留出时间。
+0182-0109	apps/web/e2e/tests/seed-auth-injection.spec.ts:50	-	即使测试只使用 testInfo，也须把空解构保留为首个参数；Playwright 要求首参采用 fixture 解构形式，不能直接省去它并把 testInfo 移到首位。
+0182-0110	apps/web/e2e/tests/training-parameter-reset.spec.ts:121-122	-	验证禁用的训练参数重置按钮是否把点击传给下方章节时，用坐标点击；普通 locator 点击会因按钮禁用而不执行，无法观察浏览器实际将点击交给谁。
+0182-0111	apps/web/e2e/tests/video-issue-context.spec.ts:167;apps/web/e2e/tests/video-issue-frame.spec.ts:88	-	视频问题测试只把 GPU 适配器元数据用作渲染证据，不能据此判定启用了硬件视频解码；适配器信息并不表明媒体实际走了哪条解码路径。
+0182-0112	apps/web/e2e/tests/video-issue-context.spec.ts:262;apps/web/e2e/tests/video-issue-frame.spec.ts:180	-	视频问题测试收到相关错误响应时应立即读取响应体，不延至导航后统一采集；重载可能使 Playwright 的 Response 句柄失效，导致原始错误正文无法取得。
+0182-0113	apps/web/e2e/tests/video-issue-context.spec.ts:375;apps/web/e2e/tests/video-issue-frame.spec.ts:266	-	媒体延迟用例打开工作台只等 DOMContentLoaded，不等媒体加载完成；冷启动媒体响应可能由测试故意挂起，等待媒体会阻塞后续测试步骤。
+0182-0114	apps/web/e2e/tests/video-issue-context.spec.ts:390-392,498-499	-	精确取帧路径在选中目标后须等绘制帧追上并复核选中帧，再做键盘步进；迟到帧可能覆盖步进结果，应用单调栅栏仍作冗余保护。原生视频回退不经过该管线，无需等待。
+0182-0115	apps/web/e2e/tests/video-issue-context.spec.ts:409-411	-	定位失败快照只读采集，不改事件传播、焦点或播放器，否则会改变待诊断的状态；采集异常只记字段占位，不能用诊断失败覆盖原断言错误。
+0182-0116	apps/web/e2e/tests/video-issue-context.spec.ts:453-454,474-476	-	时间轴换算须使用已更新、包含目标且跨度非零的窗口，并验证 0–10000 输入经 pctToFrame 精确回到目标帧；局部窗口不可表达时复核全窗口，仍不能往返就拒绝近似定位。
+0182-0117	apps/web/e2e/tests/video-issue-context.spec.ts:492-493	-	时间轴定位用 range.fill 触发现有 onChange → onSeek，不写内部状态；坐标点击可能在播放浮层隐藏时被静默吞掉，而 fill 不依赖命中检查。
+0182-0118	apps/web/e2e/tests/video-issue-context.spec.ts:554-555,573-574;apps/web/e2e/tests/video-issue-frame.spec.ts:328-329,347-348	-	反推视频问题落点时，先以浏览器量化后的实际屏幕点击点为准，再按 DOM 缩放换算 Konva 坐标；CSS 尺寸可含小数，不能与取整的 clientWidth/clientHeight 等同。只在摘要显示时取整，不改持久化精度。
+0182-0119	apps/web/e2e/tests/video-issue-context.spec.ts:591;apps/web/e2e/tests/video-issue-frame.spec.ts:365	-	无论走 WebCodecs 还是原生视频回退，都要校验目标帧的真实像素；不能因缺少 WebCodecs 而跳过，也不能用帧号正确替代画面已切到目标帧的证据。
+0182-0120	apps/web/e2e/tests/video-issue-context.spec.ts:707;apps/web/e2e/tests/video-issue-frame.spec.ts:516	-	媒体延迟 fixture 只推迟真实存储响应的交付，保留状态、响应头和字节；合成响应会同时替换待验证的媒体输入，无法把差异归于交付时机。
+0182-0121	apps/web/e2e/tests/video-issue-context.spec.ts:979	-	验证连续独立落点时，真实点击之间须超过 Konva 的双击判定间隔；否则两个落点可能被解释为双击，测试走的是另一条交互路径。
+0182-0122	apps/web/e2e/tests/video-issue-context.spec.ts:1112-1113	-	问题页签重挂载回归须直接从页签进入，不能经浮动按钮代入；浮动按钮会主动重查列表并清除旧激活状态，掩盖页签重挂载时残留状态的问题。
+0182-0123	apps/web/e2e/tests/video-issue-context.spec.ts:1204	-	定位并选中轨迹后再完成一次原生 seek，把断言放到选择与渲染副作用之后；若仅在选中时立即检查，可能漏掉随后到达并覆盖定位的自动聚焦。
+0182-0124	apps/web/e2e/tests/video-issue-frame.spec.ts:469	-	问题图钉半径固定为 8 个屏幕像素，取样偏移也须按屏幕像素计算；按媒体缩放换算偏移，可能把图钉字形或描边误采为画布内容。
+0182-0125	apps/web/e2e/tests/video-issue-frame.spec.ts:656,677-678	-	验证重载后的「问题」面板状态前，须等打开面板所触发的最后一次 discussion 活动组保存响应完整结束。初始化或预设变更的成功响应不能替代它，重载可能中断尚未完成的保存传输。
+0182-0126	apps/web/e2e/tests/video-issue-frame.spec.ts:879	-	第一次落点会解除问题浮动按钮的布防，但不会终止已经开始的手势。后续画布输入仍归待完成的手势捕获器；若按按钮布防状态分派，手势会在中途失去输入。
+0182-0127	apps/web/e2e/tests/video-issue-frame.spec.ts:978,1000;apps/web/e2e/tests/video-tracker-review-scope.spec.ts:667,686	-	重载只用于建立冷启动；竞争中的切换须经真实 SPA 点击，让旧请求所属的 JavaScript 实例继续存活。旧媒体须放行并等到帧绘制后才判定有无回写；旧审阅上下文迟到的 409 不得弹出覆盖确认框。
+0182-0128	apps/web/e2e/tests/video-issue-frame.spec.ts:1097-1098	-	原生取帧丢弃 F3 的呈现回执后，重新启用回调不会补发该回执；暂停在 F3 原地重试也不会触发新呈现，因此两者都不能作为回执已恢复的依据。
+0182-0129	apps/web/e2e/tests/video-mask-keyframe-operations.spec.ts:153	-	Mask 保存返回 HTTP 200 时，保存后的会话清理可能尚未完成。下一项关键帧操作须等界面回到选择态，不能把请求成功当作编辑会话已经释放。
+0182-0130	apps/web/e2e/tests/video-mask-keyframe-operations.spec.ts:210-211	-	视频轨迹上下文栏拥有独立的键盘控制；触发工作台全局撤销前须将焦点移出该栏，否则快捷键仍落在上下文栏的作用域内。
+0182-0131	apps/web/e2e/tests/video-mask-keyframe-operations.spec.ts:216	-	删除关键帧会重新加载沿用的 Mask；此时触发撤销会被加载守卫吞掉。验证撤销须等 Mask 就绪，不能把删除完成当作撤销已可用。
+0182-0132	apps/web/e2e/tests/video-original-playback.spec.ts:133	-	原片续租测试用 route.fetch 经 Node 转发时，浏览器的 Fetch Metadata 不会自动随请求带上；须显式保留 Sec-Fetch-Site: same-origin，避免转发请求失去同源元数据。
+0182-0133	apps/web/e2e/tests/video-original-playback.spec.ts:167-169,197	-	通过真实通知 WebSocket 注入令牌过期时，只向当时已连接的套接字发送关闭码 1008。继续干预会波及刷新后的重连；直接改令牌则会绕过本用例要验证的真实 POST /auth/refresh。
+0182-0134	apps/web/e2e/tests/video-original-playback.spec.ts:212	-	原片续租以会话 store 采纳新令牌为凭据所有权的切换点。刷新响应到达只表明服务端已返回令牌，不能据此认定会话操作已改用新凭据。
+0182-0135	apps/web/e2e/tests/video-original-playback.spec.ts:251-252	-	租约已撤销时，缓冲中的原片仍可能不发起 I/O，单等自然播放报错不能稳定触发恢复。须先真实撤销服务端租约，再派发原生 error，以进入同一作用域的 HEAD 恢复路径。
+0182-0136	apps/web/e2e/tests/video-prediction-import.spec.ts:280-281	-	预测导入用例验证的是「采纳预测」的原有处理器，而非指针命中；常驻成功提示和行内按钮过渡可能拦截合成指针事件，因此直接派发 click，避免把未命中误判为采纳失败。
+0182-0137	apps/web/e2e/tests/video-timeline-seek.spec.ts:7-21,263-265	-	问题提交后，指针离开画布可使时间轴浮层隐藏，裸坐标点击可能静默丢失。定位回归须先真实移动指针唤出浮层，再用带命中检查的定位器单击；强制点击或键盘操作无法验证这条指针路径。
+0182-0138	apps/web/e2e/tests/video-timeline-seek.spec.ts:95	-	时间轴工作台以 DOMContentLoaded 作为导航就绪点，不把媒体就绪纳入页面打开的等待条件；否则冷媒体响应延迟会阻塞导航，即使工作台页面已可打开。
+0182-0139	apps/web/e2e/tests/video-timeline-seek.spec.ts:114-115	-	精确取帧路径中，选中帧已更新不代表对应帧已经绘制；负载下须等待绘制追上选中帧。原生 video 回退不经过该管线，不应套用这一等待。
+0182-0140	apps/web/e2e/tests/video-timeline-seek.spec.ts:170-171,289-290	-	时间轴点击仅在端点接受 ±1 帧：整数像素量化及点击辅助函数向内缩 2px，可能使实际落点偏一帧。pctToFrame 仍须把结果限制在窗口内，内部帧不放宽精确断言。
+0182-0141	apps/web/e2e/tests/video-tool-scope.spec.ts:188-189	-	工具作用域用例向 runner 交接数据库归属和内容寻址的 Mask 来源，但来源可复用，并不代表对象归该用例独占；清理时不得连带删除共享 Mask 对象。
+0182-0142	apps/web/e2e/tests/video-tool-scope.spec.ts:219	-	AlertDialog 打开时会从无障碍查询中隐藏背景控件，但背景状态并未被移除；断言不能把此时查不到控件判为工具状态丢失。
+0182-0143	apps/web/e2e/tests/video-tool-scope.spec.ts:240;apps/web/e2e/tests/video-track-context.spec.ts:247;apps/web/e2e/tests/video-tracker-review-scope.spec.ts:269	-	工具作用域、轨迹上下文和追踪审阅用例只用 evaluate 清除焦点，实际交互仍走真实输入；直接改应用状态会绕过输入处理，审阅换帧也会避开现有帧守卫。
+0182-0144	apps/web/e2e/tests/video-tool-scope.spec.ts:282	-	工具作用域用例的两次画布点击须留出时间间隔；只把点击坐标分开并不够，Konva 仍可能把间隔过短的两次点击识别为双击。
+0182-0145	apps/web/e2e/tests/video-tool-scope.spec.ts:318	-	类别选择器中，最近使用标签可能与正式类别行同名；必须把定位范围限定到正式行，不能用文本唯一性假设来判断命中的是正式类别行。
+0182-0146	apps/web/e2e/tests/video-tool-scope.spec.ts:666,728	-	点击轨迹行导致的选中和首关键帧跳转须共同等待同一次草稿决策。轨迹行捕获指针不等同于点击类别选择器外部，否则会在草稿决策前误触发自动保存。
+0182-0147	apps/web/e2e/tests/video-tool-scope.spec.ts:938-939;apps/web/e2e/tests/workbench-ai-tracker-layout.spec.ts:7-8	-	ML 工具作用域和追踪器布局用例保留真实的种子后端注册，只替换能力发现响应；用例只验证本地提示采集或布局，不能用模型推理结果作前置条件，也不能以替换整个后端来代替能力发现。
+0182-0148	apps/web/e2e/tests/video-tool-scope.spec.ts:975-976	-	ML 后端的 /capabilities 是二次推理和预标注配置读取的独立规范化目录；只替换 /setup 不会覆盖该请求，相关用例仍会读取未替换的能力目录。
+0182-0149	apps/web/e2e/tests/video-track-context.spec.ts:93-94;apps/web/e2e/tests/video-tracker-review-scope.spec.ts:129	-	轨迹上下文和追踪审阅范围用例只消费已存储的几何或候选，须通过真实项目配置停用不可达的种子 ML 后端；保留启用状态会让用例发起本不需要的推理请求。
+0182-0150	apps/web/e2e/tests/video-track-context.spec.ts:567-568	-	切换账号前须正常导航离开标注页，让租约在原账号身份仍有效时归还；先切换账号再退出，无法以原账号身份完成这一步。
+0182-0151	apps/web/e2e/tests/video-tracker-local-review.spec.ts:184	-	追踪本地审阅中，修订 F3 后应保留显式目标；加入 A 是独立的用户意图，不能从修订动作中推断，否则会把未明确加入的对象纳入审阅。
+0182-0152	apps/web/e2e/tests/video-tracker-review-scope.spec.ts:79-80	-	比较追踪审阅的完整标注状态时须按稳定 ID 排序；种子标注可能共用 created_at，而 API 不保证同时间记录的次序，直接比较返回数组会把重排误判为状态变化。
+0182-0153	apps/web/e2e/tests/video-tracker-review-scope.spec.ts:189	-	清理追踪任务和标注前须先离开任务页，使任务套接字和锁的生命周期结束；倒序清理会在页面仍持有任务会话和锁时删除测试资源。
+0182-0154	apps/web/e2e/tests/video-tracker-review-scope.spec.ts:218	-	追踪审阅的新旧帧窗口不相交时，须先移动阻碍整段窗口移动的边界；两个控件逐项更新，反过来会让中间状态的两端次序颠倒，形成非法区间。
+0182-0155	apps/web/e2e/tests/video-tracker-review-scope.spec.ts:321-323	-	追踪审阅候选是否可见须验证透明 Konva 层的实际像素；媒体层或 DOM 属性不能证明候选画出来了。按 A/B 颜色采样候选右缘，并避开标签和已保存的种子边线，以免将其他绘制误认作候选。
+0182-0156	apps/web/e2e/tests/video-tracker-review-scope.spec.ts:531	-	追踪审阅的延迟注入须先让 route.fetch 取得真实 API 结果，再扣留给浏览器的响应。直接伪造响应会替换服务端决策，无法只检验同一真实结果迟到时的处理。
+0182-0157	apps/web/e2e/tests/workbench-ai-toolbar-layers.spec.ts:223	-	候选工具栏的原生按钮持有焦点时，Enter 只应激活该按钮；若同时把按键交给候选确认逻辑，一次操作就会误提交背后的候选。
+0182-0158	apps/web/e2e/tests/workbench-discussion.spec.ts:154-155	-	浏览器后退会保留已认证的查询缓存；从通知再次打开同一会话仍须重新拉取回复，否则沿用缓存会漏掉其间新增的回复。
+0182-0159	apps/web/e2e/tests/workbench-discussion.spec.ts:359-360	-	工作台已有有效画布时，历史 URL 中的新批次和任务必须先通过校验，才能接管当前上下文。无效链接既不能替换画布，也不能把当前草稿的发送目标改到别处。
+0182-0160	apps/web/e2e/tests/workbench-discussion.spec.ts:656-657	-	关闭绘图弹窗并不等于显式保存，但卸载前仍须把未完成的笔画交回对应编辑器的草稿；若笔画只留在弹窗内部，关闭就会丢掉尚未完成的编辑。
+0182-0161	apps/web/e2e/tests/workbench-discussion.spec.ts:887-888	-	解决问题使卡片移出列表后，返回时应将原滚动偏移夹到当前列表的可用范围；回到顶部或重置分页会让用户丢失刚才的处理位置。
+0182-0162	apps/web/e2e/tests/workbench-image-continuous-creation.spec.ts:270	-	连续创建只对传输或服务端故障排队重试，无效输入应直接拒绝。把校验失败也放入队列，会反复提交重连或重试都无法修复的内容。
+0182-0163	apps/web/e2e/tests/workbench-image-continuous-creation.spec.ts:396	-	离线重载回归应隔离写入故障，而不是断开全部网络。页面资源和读取 API 必须仍可访问，否则页面无法重载，测试就不能验证写入持续失败时的行为。
+0182-0164	apps/web/e2e/tests/workbench-image-continuous-creation.spec.ts:468,482;apps/web/e2e/tests/workbench-pointcloud-layout-hydration.spec.ts:149-150	-	验证重连重新校验前，共享查询必须先过期，否则真实重连也可能命中新鲜缓存；测试专用变更不会替项目查询跳过 30 秒新鲜期。布局水合测试可只拨动查询时钟，再用真实浏览器重连，避免同时推进动画和锁定计时器。
+0182-0165	apps/web/e2e/tests/workbench-image-continuous-creation.spec.ts:517-518	-	审核入口测试必须经真实提交冻结贡献者证据，不能只改任务状态来模拟已提交；否则审核员挂载后发出的领取请求可能无提示地返回 409。
+0182-0166	apps/web/e2e/tests/workbench-layout-matrix.spec.ts:3-7;apps/web/e2e/tests/workbench-pointcloud-layout-matrix.spec.ts:13-16	-	布局矩阵按渲染需求分流：3D 在 pointcloud 项目使用 SwiftShader，图像和视频留在 chromium。二维测试不需要 WebGL，共用软件 GL 会在 CI 压力重载时挤占渲染资源。
+0182-0167	apps/web/e2e/tests/workbench-layout.spec.ts:42	-	布局快照只应滤除浮点运算噪声，不能把几何量舍入到整像素；后者也会抹去真实的亚像素位移，使布局回归通过比较。
+0182-0168	apps/web/e2e/tests/workbench-layout.spec.ts:152-153	-	Dockview 隐藏面板后仍保留挂载，因而不能以完全没有评论请求作为隔离成立的标准。应验证讨论最终稳定在当前任务范围内，固定延时既不能证明范围正确，也不能证明状态已稳定。
+0182-0169	apps/web/e2e/tests/workbench-layout.spec.ts:469-470	-	Dockview 的预留停放组不能作为网格中的普通占位列；停靠区域应由实际使用的组覆盖到工作区边缘，否则空的预留组也会挤占画布空间。
+0182-0170	apps/web/e2e/tests/workbench-layout.spec.ts:482-483,522-524	-	原生标签拖放无论正常结束还是按 Escape 取消，都必须撤销工作区的覆盖层穿透类，否则画布会继续处于拖放时的错误命中状态。取消回归必须确认穿透确已启用，并用真实指针验证恢复。
+0182-0171	apps/web/e2e/tests/workbench-layout.spec.ts:607	-	重载时可以重建工作台 DOM，但重载完成后应用已保存的布局预设只能调整布局，不能替换此时已挂载的画布实例；两者不能走同一条画布重建路径。
+0182-0172	apps/web/e2e/tests/workbench-layout.spec.ts:707;apps/web/e2e/tests/workbench-pointcloud-layout-hydration.spec.ts:123	-	布局写入有 300 ms 防抖，不能立即用没有请求证明没有保存。紧凑模式测试须先排空切换前的保存，避免误归因；水合测试须在水合后跨过防抖窗口，避免漏掉尚未发出的意外写入。
+0182-0173	apps/web/e2e/tests/workbench-pointcloud-edit.spec.ts:345,1395	-	点云仍在渲染时，跨帧任务中心和设置遮罩都不应使用背景模糊；模糊会拖住 SwiftShader 清理，进而阻塞下一次 WebGL 上下文创建。
+0182-0174	apps/web/e2e/tests/workbench-pointcloud-edit.spec.ts:390-393	-	场景轨迹命令用 NOWAIT 锁定所有成员任务行，而原始数据读取的共享锁会持续到字节传输结束。只等当前帧可见就发命令仍可能撞上当前帧或预取邻帧的读锁，得到可重试的 409。
+0182-0175	apps/web/e2e/tests/workbench-pointcloud-edit.spec.ts:719-723;apps/web/e2e/tests/workbench-pointcloud-tools.spec.ts:395-398	-	PSR 几何和点掩码回归都应等匹配的写入响应后再清理夹具。请求已发出不代表写入已结束；未完成的写入或锁心跳可能与清理死锁，只看请求也会漏掉写入返回的 500。
+0182-0176	apps/web/e2e/tests/workbench-pointcloud-edit.spec.ts:1140-1142	-	TriOrthoView 可编辑时，overlay 的计算样式必须是 pointer-events: auto。不能同时保留 none 和 auto 再假定后者必然获胜，否则边角拖拽精修可能收不到指针事件。
+0182-0177	apps/web/e2e/tests/workbench-pointcloud-edit.spec.ts:1371-1372	-	不能把三视图可见当成检查器已打开的证据：它只说明右侧区域部分展开，检查器仍可能沿用之前的隐藏状态。布局矩阵需要分别确认两者。
+0182-0178	apps/web/e2e/tests/workbench-pointcloud-layout-matrix.spec.ts:161-162	-	冷启动恢复须以服务端收到重排后的完整本地布局树为保存完成的依据。仅看到相机已停靠无法区分新旧快照，因为上一份布局也可能带有同样的停靠标志。
+0182-0179	apps/web/e2e/tests/workbench-pointcloud-smoke.spec.ts:64,71	-	点掩码像素回归应比较浏览器合成后的场景截图，不能读取未保留的 WebGL 绘制缓冲。截图也应避开随操作变化的列表、计数和选择控件，防止把界面变化误当成场景像素回归。
+0182-0180	apps/web/e2e/tests/workbench-pointcloud-smoke.spec.ts:188-189	-	点云冒烟应以状态栏出现与种子点云相符的点数作为成功信号。仅断言没有加载错误会漏掉未完成的渲染，因为 PointCloudScene 渲染失败时不会设置统计。
+0182-0181	apps/web/e2e/tests/workbench-pointcloud-smoke.spec.ts:215	-	判断主视图和三视图是否停止空闲渲染，应从 OrbitControls 阻尼收敛后开始计数；停止输入不等于场景已静止，否则交互余动产生的帧会被误报为空闲渲染。
+0182-0182	apps/web/e2e/tests/workbench-pointcloud-tools.spec.ts:221	-	SceneTimeline 会预取相邻帧的 manifest，切帧可直接复用缓存。回归应等待目标帧就绪，而不是强制等待新响应，否则正常的缓存命中也会等到超时。
+0182-0183	apps/web/e2e/tests/workbench-pointcloud-tools.spec.ts:466	-	点掩码探测应使用实际点击事件采用的整数像素坐标，而不是先在小数坐标上选点；取整后若跨过掩码边界，探测结果就不能代表点击命中。
+0182-0184	apps/web/e2e/tests/workbench-secondary-permissions.spec.ts:63-65	-	复审权限用例必须由实际标注人走真实提交，才能冻结该轮完整的贡献者证据；用 advance_task 代替会留下未知证据，使复审修订被阻止。
+0182-0185	apps/web/e2e/tests/workbench-settings.spec.ts:89	-	原生下拉菜单展开时，第一次 Esc 由菜单消费，不能把它当作设置窗口的关闭信号；菜单收起后，第二次 Esc 才关闭窗口。
+0182-0186	apps/web/e2e/tests/workbench-shortcuts.spec.ts:86;apps/web/e2e/tests/workbench-video-candidate-decisions.spec.ts:97,104-105	-	验证画布或候选决策的全局快捷键前须移除控件焦点；选中候选并不会阻止原生批次下拉框将字母键用于键入查找。移除焦点不会清除选中状态，无需重点击可能被浮动卡片遮住的列表行。
+0182-0187	apps/web/e2e/tests/workbench-tool-dock.spec.ts:74-75	-	工具坞视口测试在 100% 缩放下为无头 Chromium 的浏览器界面预留 87 个物理像素，但仍须断言实际 CSS 视口；只设窗口大小会在预留量变化时测到错误的布局尺寸。
+0182-0188	apps/web/e2e/tests/workbench-tool-dock.spec.ts:174-177	-	工具坞视频测试须先关标签页再关闭浏览器配置实例；只关闭后者不会触发 pagehide，原播放租约将继续占用服务端暂存资源，使下一档高度无法准备播放。
+0182-0189	apps/web/e2e/tests/workbench-tool-dock.spec.ts:221	-	工具坞测试将画布点击间隔拉到 450 毫秒；仅改变点击坐标不足以隔离两次单击，Konva 仍可能将相邻点击判为双击。
+0182-0190	apps/web/e2e/tests/workbench-tool-dock.spec.ts:275-276	-	原生停靠平分画布后，最小高度可能使工具坞可缩空间不足 40 像素。测试须验证工具坞确实缩小并出现溢出菜单，不能以固定缩小量判失败。
+0182-0191	apps/web/e2e/tests/workbench-topbar.spec.ts:3-4	-	顶栏回归须测量控件实际渲染尺寸，而不是断言类名；控件重叠或过度换行仍可能通过组件测试，却挤占画布空间。
+0182-0192	apps/web/e2e/tests/workbench-video-candidate-decisions.spec.ts:218,229-230	-	候选决策写入未完成时，须保留原候选的选中状态及卡片预测操作，但重复按键不得发起第二次决策或推进选择。并发测试只延迟转发接受请求，不伪造写入成功，接受后的标注仍由真实 API 持久化。
+0182-0193	apps/web/e2e/tests/workbench-video-candidate-decisions.spec.ts:233,256-257	-	迟到的候选决策回执只能归入发起写入的任务，不得改变当前任务的选中项或已持久化标注。测试须通过 SPA 任务队列切换并保留组件实例；若切换时重挂载，就测不到同一实例收到旧回执的情形。
+0182-0194	apps/web/scripts/benchmark-mask-large-canvas.mjs:383-384	-	大画布 Mask 基准保留原始基线，与待验收实现放在同一次运行、同一浏览器和机器上比较；用历史跑分替代会把运行环境差异混入实现变化。
+0182-0195	apps/web/scripts/benchmark-pointcloud-renderer.mjs:463-464	-	点云基准通过真实 UI 改布局，但这些改动不得写回账号工作区；若原本没有工作区上下文，也不能为还原布局而创建一个，否则基准会留下账号状态变更。
+0182-0196	apps/web/scripts/benchmark-pointcloud-renderer.mjs:539	-	点云基准不能把 Long Tasks API 当作观测呈现卡顿的前提；该 API 不可用时仍须用 requestAnimationFrame 的帧间隔捕获卡顿，不能把缺少记录视为呈现流畅。
+0182-0197	apps/web/scripts/benchmark-pointcloud-renderer.mjs:563-565	-	点云基准须在首次等待几何数据前展开默认折叠的 Scene 时间轴；等几何加载后再展开虽能切帧，却无法让首次后台加载条件与原先常展开的布局保持可比。
+0182-0198	apps/web/scripts/benchmark-pointcloud-renderer.mjs:631,643-644	-	三视图的计时不含打开工作台设置对话框的耗时；触发展开后须让对话框在展开期间保持开启，立即关闭可能与对话框的 Escape 处理竞态。
+0182-0199	apps/web/scripts/check-tw-tokens.mjs:63	-	Tailwind 检查用空格替换注释内容再扫描，避免把注释里的色值示例报成违规；不能直接删除注释并压缩行，否则诊断行号会与源码错位。
+0182-0200	apps/web/scripts/codegen-if-changed.mjs:2-10,20-21	-	只有两组 snapshot 对应的产物都存在且均未落后于源时，才可跳过 Web codegen；任一组失效就整批生成。显式指定 OPENAPI_URL 时，本地 mtime 无法证明该输入未变，必须绕过快路径。
+0182-0201	apps/web/scripts/gen-capability-vocab.mjs:2-4	-	capability_registry.py 是受控词表的唯一真值源；前端从后端快照离线生成静态 TS 常量，生成物不入库，避免维护另一份可独立漂移的词表，也不要求构建时启动后端。
+0182-0202	apps/web/scripts/gen-pixel-avatars.mjs:2-18,64-67	-	像素头像以提交的 CC0 1.0 资产供离线使用和审查，不在运行时渲染或从外网取用。生成端由 optionsFor 按索引显式配置，不依赖 seed 随机，manifest 也不写时间戳，以保持跨机器逐字节可复现。
+0182-0203	apps/web/scripts/gen-pixel-avatars.mjs:30	-	持久化的 avatar_ref 引用的是永久头像 ID，因此新 ID 只能追加，不能重排或复用；否则已有引用可能在更新后指向另一张头像。
+0182-0204	apps/web/scripts/gen-pixel-avatars.mjs:33,85	-	像素头像 SVG 不烘焙背景，由前端提供主题圆片底；同一套素材还须避开极亮与极暗配色，否则换到深色或浅色主题时可能失去足够对比。
+0182-0205	apps/web/scripts/raster-vite.mjs:26	-	Raster Vite owner 须等实际的 server.close() Promise 成功完成才可报告成功退出；把收到 close 命令视为完成会掩盖尚未完成或失败的关闭。
+0182-0206	apps/web/scripts/video-bench/precise-frame-runner.mjs:111-112,176	-	精确帧基准只用可解析的 JSON 媒体日志判定解码器身份。仅发出 kLoad 的瞬时 player 尚无解码器选择证据；一旦报告解码器名称或平台解码标志之一，就须两项齐全，不能凭单项判定。
+0182-0207	apps/web/scripts/video-bench/precise-frame-runner.mjs:254;apps/web/scripts/video-bench/run-video-bench.mjs:141-146	-	WebCodecs 资格矩阵的热 seek、长任务和内存实测须在具备 VideoDecoder 的有头 Chrome 与 GPU runner 上进行；无头运行只记录环境与能力，单台开发机结果不能证明硬件 SLA。Long Tasks API 不可用时记为 inconclusive，不能按零长任务计。
+0182-0208	apps/web/scripts/video-bench/precise-frame-runner.mjs:306-307,342-343	-	精确帧延迟截至 Konva 绘出目标帧，资源账本则须额外等约两个常规帧窗口及补充帧、预取帧的关闭状态发布。共用绘制时刻作截点会把暂未发布的关闭误判为泄漏。
+0182-0209	apps/web/scripts/video-bench/precise-frame-runner.mjs:358-359	-	pipelineBlockingMs 计 buildGopPlan 的同步耗时，涵盖 sample 校验、GOP 规划、description 解码及 chunk 构造；评估迁入 Worker 时不能用整段操作的事件循环延迟替代，否则测到的不是这段同步阻塞。
+0182-0210	apps/web/scripts/video-bench/precise-frame-runner.mjs:503-504	-	播放请求计数须等上一次暂停 seek 的同 GOP 预取静默后，再在点击播放前取基线；过早取样会把残余的 seek 请求算作播放新增请求。
+0182-0211	apps/web/scripts/video-bench/precise-frame-runner.mjs:817	-	夹具响应体解析失败时，精确帧 runner 须把夹具合同记为 inconclusive；收到响应不等于已取得可验证合同的内容，不能据此判定满足或违反合同。
+0182-0212	apps/web/scripts/video-bench/precise-frame-runner.mjs:939	-	长稳采样用互质步长遍历视频，触发 GOP、chunk 切换与预算淘汰；反复访问固定两帧可能一直命中缓存，掩盖资源周转下的不稳定。
+0182-0213	apps/web/scripts/video-bench/precise-frame-runner.mjs:962-963	-	冷首帧取页面首次打开的观测；warm same-GOP 正式采样前须预热目标 GOP 和会话，否则会把切换场景的成本计入热路径。
+0182-0214	apps/web/scripts/video-bench/precise-frame-runner.mjs:1059-1060	-	无物理显示输出的 GPU runner 可能把有头 Chrome 的 BeginFrame 降至约 1 Hz；此时禁用 GPU vsync 可恢复约 60 Hz 调度，同时保留硬件解码与 WebGL 适配器，避免把显示节拍误当成管线性能。
+0182-0215	apps/web/scripts/video-bench/run-video-bench.mjs:280	-	视频基准清理遇到夹具客户端传输失败时，应重连创建夹具时使用的 authority；切换到另一 authority 会改变清理目标，不能保证原夹具被清除。
+0182-0216	apps/web/src/App.module.css:1-2	-	AppShell 与全屏工作台各自管理滚动，滚动条预留空间应设在实际滚动的内部面板；设在浏览器外层会挤占外层视口，却不能为内部滚动条预留空间。
+0182-0217	apps/web/src/App.notifications.test.tsx:1-8;apps/web/src/App.tsx:357-358	-	个人通知 WS 由 App 持有，不随主壳、全屏标注和审核路由反复卸载重连；连接仍由 hook 按 token 和 userId 清理，不能因路由间复用连接而跨登出或换号复用。
+0182-0218	apps/web/src/App.tsx:13,39	-	登录页同步加载，仪表盘按角色懒加载，重型非首屏页面延后加载；将这些入口统一同步导入会让登录或仪表盘首屏提前下载其他角色的管理页面、导入流程或 Konva。
+0182-0219	apps/web/src/App.tsx:231-232	-	PerfHud 应在组件内限制为 super_admin 和 project_admin 可用；全局快捷键只切换可见状态，若把授权放在快捷键监听器里，其他可见状态入口就不会受该门禁约束。
+0182-0220	apps/web/src/App.tsx:289-294	-	登出或换号时，DecisionQueueAuthBoundary 必须以取消值结算并清空全局对话框队列；仅卸载 Host 不会终结旧请求，遗留请求可能在新账号下使用新凭据执行。
+0182-0221	apps/web/src/App.tsx:363	-	WhatsNewDialog 在登录或会话恢复时以服务端按账号保存的已读版本为准；单用浏览器本地标记，既可能在换设备后重复提示，也可能在同一浏览器换号后误判已读。
+0182-0222	apps/web/src/api/adminMlIntegrations.ts:75-78,84-86,99	-	模型池和视频池应先读标准 PoolStatus，仅在缺失时回退到兼容字段；不要给模型池旧字段加弃用标记，否则仍受支持的回退代码也会触发 TS6385/6387。
+0182-0223	apps/web/src/api/adminMlIntegrations.ts:121	-	判断 GPU 是否静默回退到 CPU，应读取 ML 后端 compute 报告的实际计算设备；设备配置只代表预期，配置为 GPU 并不能排除任务实际跑在 CPU 上。
+0182-0224	apps/web/src/api/adminMlIntegrations.ts:92-93,115,123	-	物理 GPU 驻留应以覆盖所有 pool 和 session 的 residency 为准，不能拿 grounded-sam2 独有的多变体 ModelPool 快照代替；视频追踪后端另报独立显存池，其 loaded_keys 使用 sam_variant。
+0182-0225	apps/web/src/api/adminMlIntegrations.ts:138	-	是否调用 POST /warmup 以健康响应中的 warmup_endpoint 为准；省略字段的旧后端按不支持处理，不能把未声明当作支持并调用可能不存在的端点。
+0182-0226	apps/web/src/api/adminMlIntegrations.ts:265,327	-	observe 直接观测环境变量配置的后端容器，项目注册状态只用于标记结果；若改从项目注册表枚举，已配置但尚未注册的容器就会被漏掉。
+0182-0227	apps/web/src/api/adminMlIntegrations.ts:329	-	observeSmokeTest 在空池预热以验证模型确实可加载，并在验证后自动卸载；只探活无法验证模型加载，预热后不卸载又会把一次检查变成常驻加载。
+0182-0228	apps/web/src/api/adminMlIntegrations.ts:338	-	全局 backend 仍有运行中的预标任务时，删除必须返回 409；不能将删除视为单纯的注册表清理，否则会在任务仍依赖该后端时移除其注册。
+0182-0229	apps/web/src/api/adminMlIntegrations.ts:347-349	-	前端注册管理应读取服务端 topology，而非按 URL 拼接服务池与实例；URL 不能代替显式成员关系，PROJECT_ADMIN 的裁剪视图也不能当作 SUPER_ADMIN 的全量拓扑。
+0182-0230	apps/web/src/api/adminMlIntegrations.ts:369	-	删除服务池前既要解除全部成员关系，也要确认不存在活跃 lease；没有成员不等于没有在用的 lease，只检查其一可能删掉仍被引用的池。
+0182-0231	apps/web/src/api/adminMlIntegrations.ts:372,397,402	-	成员加入或更新时，能力指纹与池基线不符须返回 409，不能顺手改写基线。漂移预览只读；接受时须重新探活、核对已审核的指纹，并原子恢复成员接流，可同时恢复池接流，避免放行预览后又变化的能力。
+0182-0232	apps/web/src/api/adminMlIntegrations.ts:382,387,392	-	移除池成员前须先 drain 以停止发放新 lease，再确认 inflight 为 0；仅检查瞬时计数会留下新请求进入的窗口。drain 和 resume 均可重试，但 resume 不能替代 disabled 成员所需的 enable。
+0182-0233	apps/web/src/api/adminPreannotate.ts:76	-	projectQueue 用于对整个项目队列做客户端搜索、排序和选择，必须先取齐各页；仅使用当前页会漏掉匹配项，并把页内排序误当成全局顺序。
+0182-0234	apps/web/src/api/annotationGroup.ts:1-6	-	标注 bulk-update 的任务边界由路由层强制校验，所有标注 ID 必须属于同一 task；不能只靠界面筛选，否则混入其他任务的 ID 就可能造成跨任务修改。
+0182-0235	apps/web/src/api/apiKeys.ts:14	-	API Key 明文只在创建或轮换的当次响应中交付；不能增加事后读取明文的入口，否则已有密钥会在发行之后再次暴露。
+0182-0236	apps/web/src/api/apiKeys.ts:22,29	-	API Key 创建时，省略 expires_in_days 与显式 null 都表示永不过期；更新时省略表示保留原有效期，只有显式 null 才清除期限，否则普通更新可能意外延长密钥寿命。
+0182-0237	apps/web/src/api/asyncJobs.ts:22	-	只有 worker 实现协作取消的异步作业类型才应显示取消入口；不能用统一按钮代替能力判断，否则用户会以为作业已停止，而 worker 仍可能继续执行。
+0182-0238	apps/web/src/api/auth.ts:10	-	captcha_token 在登录请求类型中可选，是为了允许未达失败阈值的请求；达到渐进式 CAPTCHA 阈值后必须提供，不能把类型可选误解为所有登录尝试均可省略。
+0182-0239	apps/web/src/api/auth.ts:34-35	-	图片和视频共用标签字号基准，但图片画布须按 1/scale 换算，视频直接用固定 CSS 像素；统一按画布坐标或统一做反缩放，都会使其中一个工作台的屏幕字号偏离设定。
+0182-0240	apps/web/src/api/auth.ts:49-52,54-57	-	图片和视频 2D 工作台应将选中推进与视口聚焦分开：A/D 默认选中下一待决 AI 候选，但只有开启 focusSelectionEnabled 才允许按需居中和缩放，否则连续审核会意外移动视口。
+0182-0241	apps/web/src/api/auth.ts:76,100	-	旧扁平 labelContent 只作用于图片，迁移时分发给 single 和 ai，并为 ai 补 source 以保留 ✦ 前缀；track 仍用含编号和状态的默认值，不能把旧图片设置套到轨迹标签上。
+0182-0242	apps/web/src/api/auth.ts:166,168	-	neighborPointOverlay 须用 ego 轨迹补偿自车运动，否则邻帧的静止背景也会错位；补偿后动态物体仍可能拖影。点云叠加开销高，neighborPointOverlayK 独立于邻帧框的帧数，限 1 至 3 帧。
+0182-0243	apps/web/src/api/auth.ts:177	-	WorkbenchPreferences.layout 描述壳层和设备维度的布局，应留在顶层；归入单个工作台的渲染偏好会把布局限定在错误的作用域。
+0182-0244	apps/web/src/api/auth.ts:184-188,384-387	-	shortcuts 跨项目共享，仅由 useWorkbenchShortcutPreferences 按命令定向 PATCH。布局等写入须省略整个 shortcuts 子树；即便只附带 schemaVersion: 1，深合并也会降级已有版本。
+0182-0245	apps/web/src/api/auth.ts:198	-	快捷键不能把空数组当作未配置：对同一 commandId，写 null 表示恢复默认，缺键时使用默认，而空数组明确停用绑定。
+0182-0246	apps/web/src/api/auth.ts:218-221	-	FloatingSelectionState 不应照搬边栏浮窗的 detached：选中卡没有可合并回去的边栏位置，其显隐取决于是否有选中项，而非浮窗停靠状态。
+0182-0247	apps/web/src/api/auth.ts:252-255,270	-	contexts 自动记录当前布局，不能代替账号级命名预设：后者是显式另存、可重复套用的副本，最多 5 份。只保存过命名预设时，不能因 contexts 缺席就判定没有布局数据。
+0182-0248	apps/web/src/api/auth.ts:261,281,368	-	命名预设仅由 useWorkbenchNamedPresets 用不透明的 namedPresetsRevision 对整表做比较并交换。写回时须原样携带 GET 返回但本客户端无法解释的条目，否则即使版本匹配也会将其删除。
+0182-0249	apps/web/src/api/auth.ts:268	-	不能把 WorkspacePreferences.engine 收窄为本客户端已知的标记：GET 可透传更新客户端写入的值，未知标记不等于无效数据。
+0182-0250	apps/web/src/api/auth.ts:296	-	读取 WorkbenchLayoutPreferences 时不能把 workspace 缺键与显式 null 合并处理；后者可能是 GET 原样返回的历史值或损坏值，并非未提交该键。
+0182-0251	apps/web/src/api/auth.ts:320-327,531	-	偏好 PATCH 按已提交的顶层子树合并，workbench 与 ai 不必互带；ai 写入方只提交负责的子键。参数和模型选择按后端分桶，交互后端按项目分桶，二次推理参数和变体按后端与模型组合分桶，以免混用配置。
+0182-0252	apps/web/src/api/auth.ts:341,343	-	theme 是服务端账号偏好，仅存 localStorage 无法让其他设备及工作台外界面共享设置。更新其他 UI 子键时应省略 theme，而非补写 system；system 是未设置时的后端回退值。
+0182-0253	apps/web/src/api/auth.ts:347-348	-	changelog_seen_version 记录账号已确认的版本，不是设备上最近展示的版本。空值或缺键表示从未确认；用 semver 判断更新，确认后才写回，避免跨设备重复提示或提前标为已读。
+0182-0254	apps/web/src/api/auth.ts:526-527	-	不能仅因 token 已过期就跳过续签：长标注会话中，useNotificationSocket 遇关闭码 1008 或 4001 会触发 auth.refresh，临近过期或已过期但仍在 7 天宽限期内的 token 可换新。
+0182-0255	apps/web/src/api/client.ts:7	-	ApiError.detailRaw 须保留后端 detail 原值；统一转成错误文本会让调用方无法读取结构化错误中的 reason、pending_task_count 等字段。
+0182-0256	apps/web/src/api/client.ts:9,25	-	ApiError 仅以小写键透传白名单响应头；调用方可按固定键读取所需值，不应为此序列化整组响应头，把无关的大响应头一并带入错误对象。
+0182-0257	apps/web/src/api/client.ts:86-87,164	-	401 只归属于发出请求时使用的凭据，不能按收到响应时的登录状态清会话，否则迟到的响应会登出新会话。注册等公开请求不带 Authorization，其 401 也不得触发全局登出。
+0182-0258	apps/web/src/api/client.ts:133,136-140,144,161	-	下载、探测和取消由调用方反馈时，silent 请求应抑制全局通知，而非吞掉错误。silentGet 和 silentPost 遇 403/5xx 仍抛 ApiError，否则调用方无法处理失败；启用全局 toast 则会让批量探测堆叠通知。
+0182-0259	apps/web/src/api/comments.ts:24,34	-	标注评论用 URL 安全的 Base64 游标做 keyset 分页，较早内容按需加载；不能为展示讨论历史而在首屏取全量，评论过百时会造成卡顿。
+0182-0260	apps/web/src/api/dataManagerActions.ts:62	-	Data Manager 操作遇网络问题时，未收到回执不代表未入队；若重试不应新增任务，就必须复用原幂等键，换键会让重试被当作另一次操作。
+0182-0261	apps/web/src/api/discussion.ts:53-59	-	混合讨论流的顺序、总数和来源由 discussionApi 的服务端结果确定；不能在浏览器拼接 discussionApi 与 feedbacksApi 等独立分页结果，各来源的局部页不能确定混合流的一页。
+0182-0262	apps/web/src/api/discussion.ts:79	-	讨论项须用来源与 ID 共同标识，不能仅以 UUID 去重或定位；不同来源表中相同 UUID 可以指向不同条目。
+0182-0263	apps/web/src/api/discussionTargets.ts:21-22	-	查找协作标注须指定分段，当前分段快照中未命中不能证明标注不存在；这种读取不领取或释放租约，不能用会改变租约状态的操作代替。
+0182-0264	apps/web/src/api/feedbacks.ts:30	-	反馈视图的 zoom 是相对于适配缩放比例的倍数，不是绝对屏幕缩放值；按绝对值恢复会使同一反馈在不同屏幕尺寸上失去原来的相对缩放。
+0182-0265	apps/web/src/api/feedbacks.ts:66	-	不能把所有反馈的 video_context 都按 V1 恢复：该字段容纳历史及后续版本的数据，消费者须先校验其符合 V1，再按 V1 解释。
+0182-0266	apps/web/src/api/feedbacks.ts:114	-	include_counts=true 时，总数对应本次请求，各状态的精确计数却不受状态筛选影响；不能从筛选后的结果计算状态计数，否则会漏掉其他状态。
+0182-0267	apps/web/src/api/feedbacks.ts:116	-	计算 status_counts 时保留请求的其他筛选条件，但不套用当前状态筛选；否则选中一个状态后，其他状态的计数会被错误地压成零。
+0182-0268	apps/web/src/api/invitations.ts:22	-	注册成功不等于已获登录凭据：需要验证邮箱时，RegisterResponse 的 access_token 为空，客户端不能仅凭注册成功就建立登录态。
+0182-0269	apps/web/src/api/me.ts:29	-	有界任务事件队列淘汰本地事件后，必须通过 collection_coverage 标明采集不完整；否则接收方会把留存事件误当作全部事件。
+0182-0270	apps/web/src/api/me.ts:50-53	-	setAvatarRef 只允许选择 preset:<slug> 或用 null 恢复默认头像，不能作为上传头像的通用写入接口；否则客户端可绕过上传端点直接设置 upload: 引用。
+0182-0271	apps/web/src/api/me.ts:57-62	-	头像上传用 XHR 获取上传进度，并让浏览器生成带 boundary 的 multipart Content-Type；复用固定 JSON Content-Type 的 apiClient 会使服务端无法按 multipart 解析请求。
+0182-0272	apps/web/src/api/ml-backends.ts:7-10;apps/web/src/api/mlCapabilities.ts:140	-	项目 ML backend 记录表示启用关系和变体覆盖，不代表独立实例。全局编排的 pipeline_stages.ml_backend_id 必须引用 ml_backend_registry.id；使用项目关联 ID 会把关联记录误作后端身份。
+0182-0273	apps/web/src/api/ml-backends.ts:17	-	更新项目 ML backend 的启用状态时，省略 default_variants 表示保留已有覆盖；若按空值处理，只切换启用状态也会丢失项目的变体选择。
+0182-0274	apps/web/src/api/ml-backends.ts:81-82	-	精修须将后端返回的不透明 base64 低分辨率 logits 原样经 context.mask_input 回传，不能用展示掩码替代。仅 multimask=False 的单掩码精修阶段会返回可用于下一次点击的 mask_input_next。
+0182-0275	apps/web/src/api/ml-backends.ts:111-113,209-210	-	协议 v2 按模型条目的 task 判断输出几何和项目兼容性，不能给同一 backend 的所有模型套用同一任务；infra 未声明时才继承 backend 默认值，旧 backend 没有模型目录时由 /capabilities 合成隐式单模型。
+0182-0276	apps/web/src/api/ml-backends.ts:119-120;apps/web/src/api/mlCapabilities.ts:95	-	编排下游只接受单次推理的 atom，不能把内部串联多次推理的 composite 当作单个原子阶段；composition 缺省时按 atom 处理，避免旧条目失去编排资格。
+0182-0277	apps/web/src/api/ml-backends.ts:125-127	-	编排父子阶段按 supported_inputs 判断实际投递形态，不能用 supported_prompts 代替，否则会把支持同类提示但无法接收上游产物的阶段判为兼容。旧 backend 未声明时由平台补默认值。
+0182-0278	apps/web/src/api/ml-backends.ts:132-134;apps/web/src/api/mlCapabilities.ts:120-123	-	阶段写回和项目导入应使用 /capabilities 透传的 output_attribute_schema，避免手写的键或枚举与 /predict 实际输出错配；字段缺失时不能推断存在属性输出。
+0182-0279	apps/web/src/api/ml-backends.ts:138,197,199-200	-	视频追踪仅允许 supported_trackers 列出的项，列表缺失不表示全部可用。只有选中的 tracker 属于 text_driven_trackers，才显示传播所需的文本入口；这类 tracker 的 propagate 需要文本或 exemplars。
+0182-0280	apps/web/src/api/ml-backends.ts:142-145	-	变体轴并非任意可组合时，必须用 variant_combinations 按 supported_variants 的轴顺序列出合法元组。省略该字段会按笛卡尔积展开，导致目录展示没有对应权重的组合。
+0182-0281	apps/web/src/api/ml-backends.ts:147-148;apps/web/src/api/mlCapabilities.ts:111-114	-	目录仅在 variants_shared_across_tasks 为真时按变体跨任务合并；为假或缺省时须按任务分行，否则同名变体会掩盖不同任务使用的物理权重。
+0182-0282	apps/web/src/api/ml-backends.ts:150-152;apps/web/src/api/mlCapabilities.ts:116-118	-	未显式选择变体时，VariantSelector 依次使用项目覆盖、backend 声明的默认组合和启动环境默认值；若优先采用后端默认，项目选型就会被覆盖。
+0182-0283	apps/web/src/api/ml-backends.ts:158	-	核验 checkpoint 应查目录元数据，不能拿旧 backend 的 classes 声明当作权重证据；该声明可能是静态的，无法证明当前 checkpoint 的类别。
+0182-0284	apps/web/src/api/ml-backends.ts:160-162	-	工作台用 exemplar_capabilities 屏蔽后端明确不支持的输入控件；未声明时仍按全支持处理，否则会禁掉旧版 SAM3 实际支持的交互。
+0182-0285	apps/web/src/api/ml-backends.ts:171-172,215,217	-	受控词表诊断和 modalities 都由 /capabilities 从 health_meta 派生，不能从原始 /setup 读取后据其缺失判断能力或诊断结果；只有 /capabilities 中诊断为空或缺省才表示无越界项。
+0182-0286	apps/web/src/api/ml-backends.ts:203	-	缺少 supported_variants 元数据时，应从 /setup 的 params.*_variant.enum 恢复变体选项；直接判为无变体会隐藏旧 backend 已可选择的变体。
+0182-0287	apps/web/src/api/ml-backends.ts:212;apps/web/src/api/mlCapabilities.ts:148-149	-	只有 backend 通过 warmup_endpoint 声明支持时才启用 POST /warmup；不能因实例已注册就默认可预热，否则旧 backend 会收到未承诺支持的调用。
+0182-0288	apps/web/src/api/ml-backends.ts:221-226	-	同一 backend 的 /setup 查询复用 mlBackendSetupQueryKey，并保留 ["ml-backends", projectId] 前缀；另设缓存键既可能重复探测，也会让项目列表失效时漏掉相关 setup 缓存。
+0182-0289	apps/web/src/api/ml-backends.ts:256-257	-	/setup 探测失败只交给调用方展示降级状态，不发全局 toast；否则同一容器不可达时，多处探测可能重复弹出错误。
+0182-0290	apps/web/src/api/ml-backends.ts:287-288	-	taskType 为 video 的 reload 必须预热独立的 tracker 池，只使用 sam_variant；照搬图片路径的 DINO 变体不会选中视频 tracker 所用的权重。
+0182-0291	apps/web/src/api/ml-backends.ts:312-313	-	连续调整阈值或文本时，interactiveAnnotate 应取消已被取代的请求，而不是只丢弃旧响应，以减少过时请求对 GPU 的压力；调用方应静默忽略由此产生的 AbortError。
+0182-0292	apps/web/src/api/ml-backends.ts:338-341,375-378	-	视频单帧预测和交互都须以 multipart 发送当前帧 JPEG：file_path 指向整段 MP4，不能定位当前帧，固定 JSON Content-Type 的 apiClient 也不适用于这种请求。
+0182-0293	apps/web/src/api/mlCapabilities.ts:1-4,176	-	协议词表以 capability_registry.py 为准，不随已注册实例变化；实例列表则每分钟重查，若沿用静态协议目录的缓存方式，后端上下线后仍会展示旧实例集合。
+0182-0294	apps/web/src/api/mlCapabilities.ts:142	-	全局编排选择器可以展示 error 状态的 backend，但不能将可见等同于可选，否则故障实例会被写入编排阶段。
+0182-0295	apps/web/src/api/modelCatalog.ts:46	-	模型目录先对全部匹配变体按家族分组，再对家族分页；若先分页变体，同一家族可能被切到不同页。
+0182-0296	apps/web/src/api/modelCatalog.ts:88	-	项目检测目录查询只读取项目选型缓存，不能把安装或加载绑定到目录读取；否则浏览目录本身就会改变模型的安装或运行状态。
+0182-0297	apps/web/src/api/originalVideo.test.ts:72-76;apps/web/src/api/originalVideo.ts:101-107	-	页面内租约 release 用带超时的 XHR 发送同样的 DELETE、凭据和 Cookie 清除请求；Chromium 可能把 fetch 已完成的无正文 204 误报为中止，使观察方把成功清理判作失败。
+0182-0298	apps/web/src/api/originalVideo.ts:21,23,119,125-129	-	原视频租约的页面内 release 必须可重复调用；文档卸载时不能等待响应，只能用 keepalive 尽力发送。撤权、服务重启或离线仍可能使清理失败，最终由租约到期兜底。
+0182-0299	apps/web/src/api/originalVideo.ts:151	-	租约清理绑定创建该租约时的凭据，不能读取当前登录态来替代；否则切换账号后会用错误身份释放旧租约，清理也不应改变全局认证状态。
+0182-0300	apps/web/src/api/originalVideo.ts:212	-	原视频准备结果返回时须重新核对任务、账号和会话；任一已切换就丢弃结果中的 Cookie 和媒体路径，并尝试释放已取得的租约，避免新上下文接收旧上下文的播放授权。
+0182-0301	apps/web/src/api/originalVideo.ts:269	-	原生媒体错误不包含 HTTP 状态，不能仅凭播放失败判定租约过期；probeOriginalVideo 对租约媒体路径发起 HEAD，以免把普通播放错误当作过期。
+0182-0302	apps/web/src/api/originalVideo.ts:277-278;apps/web/src/api/originals.ts:64	-	originalOwnerKey 是公开缓存命名空间，只含用户 ID 和会话 ID；bearer token 等私有凭据既不进入 owner，也不进入租约 URL。公开 owner 相同不代表授权仍有效，探测发现当前凭据与租约凭据不同时按过期处理。
+0182-0303	apps/web/src/api/originals.ts:209	-	共享消费者急需读取同一原件时，由 promoteOriginalRead 提升已排队的私有下载优先级，而不是另发一次下载；重复请求会为同一资源占用有限的读取名额。
+0182-0304	apps/web/src/api/originals.ts:294,300-302	-	取消同一 owner 的在途预取不等于服务端释放槽位；服务端只接纳两条实际读取，客户端须等传输结束再补位。若 owner 已失效，即使任务已取消且仍在等待传输结束，也须中止传输，不能让旧凭据继续在途。
+0182-0305	apps/web/src/api/pointCloudOriginals.ts:25	-	点云清单在传输时故意留空 URL，不能把空值当作资源缺失；hydratePointCloudOriginals 只用类型正确且与清单条目精确匹配的资源补齐，否则可能把另一资源的 URL 绑定到该条目。
+0182-0306	apps/web/src/api/predictions.ts:79	-	预测类名不在项目标签集时，直接采纳会返回 422；必须由审阅者选定项目标签，再用 override_class_name 重试，不能把外部类名直接当作有效项目标签。
+0182-0307	apps/web/src/api/predictions.ts:82	-	审阅中修改的候选属性须随采纳请求通过 attribute_overrides 提交；若先采纳再单独写属性，后一次写入失败就会留下已采纳但仍带旧属性的标注。
+0182-0308	apps/web/src/api/predictions.ts:94-99	-	驳回预测框须在后端持久化 rejected_shape_indexes；只在当前页面隐藏不会改变待审状态，刷新后被驳回的框会重新出现。
+0182-0309	apps/web/src/api/predictions.ts:105-110	-	外部预测导入必须用 multipart，不能沿用 apiClient 默认的 JSON Content-Type。预览只校验、不入库；覆盖只替换当前任务中来源为 external_import 的预测，不能扩大到其他来源。
+0182-0310	apps/web/src/api/predictions.ts:158-162	-	原生 JSON 标注导入使用内部 geometry 格式；覆盖时只能清理当前任务带 attributes._imported 的标注，不能以任务为单位全量替换，否则会删掉人工标注。
+0182-0311	apps/web/src/api/projectTemplates.ts:61	-	模板同时提供 tool_bindings 和扁平配置时，以工具级类别和属性绑定为准；改用 classes_config 或 attribute_schema 会丢掉工具之间的配置差异。
+0182-0312	apps/web/src/api/projects.ts:54-55	-	ProjectRenderingConfig 逐字段覆盖用户偏好；缺失和 null 都表示继承该字段。不能整体替换用户配置或将 null 写成实际值，否则未配置的项目字段也会盖掉用户偏好。
+0182-0313	apps/web/src/api/projects.ts:68,119-120	-	ProjectResponse 和 ProjectUpdatePayload 都先 Omit 生成的 preannotate_pipeline，再换成 PipelineStagePayload[]；直接与生成的字典数组做交叉会额外要求阶段类型具备字符串索引签名。
+0182-0314	apps/web/src/api/projects.ts:112	-	从源项目复制标注指引时，annotation_guide 必须与 guide_assets 一并复制，否则指引中的图片引用可能没有对应资源；图片继续引用源存储键，不复制图片字节。
+0182-0315	apps/web/src/api/projects.ts:128	-	更新 preannotate_pipeline 时，显式 null 才表示清除，省略则保留现状；不能把两者归一成同一个值，否则局部更新可能误删编排，或无法执行清除。
+0182-0316	apps/web/src/api/projects.ts:170,375-377	-	项目导出 POST 只创建异步任务并返回 job_id，不能按 Blob 消费；完成后从 JobsBell 使用预签名 URL 下载。YOLO det、obb、seg 等可组合目标合为一个 ZIP，VOC 必须单独导出。
+0182-0317	apps/web/src/api/projects.ts:299-302	-	项目授权以服务端结合平台角色和项目角色解析出的能力为准，响应附带成员关系版本；前端守卫只控制展示，不能代替服务端裁决，因为隐藏入口不能阻止直接调用 API。
+0182-0318	apps/web/src/api/projects.ts:324-325	-	类别重命名须由后端原子更新 classes、classes_config 和 annotations.class_name，分开写可能使已有标注与类别配置不一致。指定工具单位时只改该单位，省略时跨单位修改同名类别。
+0182-0319	apps/web/src/api/projects.ts:342	-	修改项目成员角色须先预览，再通过 CAS 提交；无条件写入可能在预览已过时的情况下覆盖另一管理员刚提交的变更。
+0182-0320	apps/web/src/api/rasterMasks.ts:11-12	-	Raster Mask 静态预览即使本地缓存仍新鲜，也默认向服务器重新验证；仅依赖缓存有效期会继续使用策略变更前的响应。
+0182-0321	apps/web/src/api/scenes.ts:11	-	场景没有可用位姿时，轨迹接口返回 HTTP 200 和空 poses，而不是把缺少轨迹当成请求失败；调用方据此进入无轨迹模式。
+0182-0322	apps/web/src/api/settings.ts:46	-	系统设置的 version 只作为服务端乐观并发比较使用的不透明修订标识；客户端应原样使用，不能解析或自行推算下一版本。
+0182-0323	apps/web/src/api/tasks.ts:66	-	跨帧延续无法按 ego pose 补偿时原样复制标注，并返回 motion_compensated=false；不能把复制出的坐标当作已经按目标帧位姿校正的结果。
+0182-0324	apps/web/src/api/tasks.ts:80	-	区间插值遇到已有同组标注的中间帧时须跳过并计入 skipped_frames；若重试时对整个区间重新创建，就会在这些帧生成重复标注。
+0182-0325	apps/web/src/api/tasks.ts:86	-	任务列表仅首页提供精确总数，游标续页的 total=null 表示本页不提供总数，不代表总数为零；前端应沿用同一次列表查询的首页总数。
+0182-0326	apps/web/src/api/tasks.ts:110	-	离线标注变更的 client_request_id 应从 JSON 请求体移除，改由 Idempotency-Key 头发送；仅把它留作请求体字段，不能替代服务端用于重试去重的幂等键。
+0182-0327	apps/web/src/api/tasks.ts:114	-	校验标注的 class_name 时须使用 tool_unit_id 对应的类别集；只检查项目全局类别会放行属于其他工具单位、却不能用于当前标注的类别。
+0182-0328	apps/web/src/api/tasks.ts:369-370	-	仅启用 WebCodecs 精确帧链路时才为 manifest v2 查询 chunk_size_frames 和 dataset_item_id。实验链路失败不应变成全局错误，而应静默回退；切换任务或卸载时允许取消旧查询。
+0182-0329	apps/web/src/api/tasks.ts:472-473	-	邻帧标注用一个请求取前后各 k 帧，指定 trackId 时由服务端筛选该轨迹；逐帧拉列表再在客户端筛选会将一次查询放大为 2k 个并发请求。
+0182-0330	apps/web/src/api/tasks.ts:490,502-503	-	跨帧延续不能只核对项目或只核对场景，源、目标任务必须同时归属同一项目和同一场景。批量操作省略 annotationIds 也不是全类型复制，只处理源任务中活跃的 box_3d。
+0182-0331	apps/web/src/api/tasks.ts:565-569	-	数据管理等只读预览按键集分页读取已保存标注，每页 200 条；改为一次拉全量会让大型任务等所有标注到齐后才能开始渲染。
+0182-0332	apps/web/src/api/tasks.ts:728-732	-	卸载或跳转时用 fetch keepalive 释放任务锁，普通客户端请求可能被浏览器取消；sendBeacon 虽能在离页时发送，但不能携带所需的 Bearer 请求头。
+0182-0333	apps/web/src/api/users.ts:13-17	-	账号生命周期写操作须单独依据 is_lifecycle_managed 开放，不能用一般项目权限替代：涉及跨项目交接的账号即使可见，离职、停用、删除或重新激活仍会被 API 以 403 拒绝。
+0182-0334	apps/web/src/api/videoDerivatives.ts:14	-	视频衍生资源的缓存键只能取自非机密命名空间，不能直接用签名 URL 或凭据作键，否则缓存标识本身就会暴露访问凭据。
+0182-0335	apps/web/src/api/videoTracker.ts:11-12,160	-	追踪作业完成不等于标注已保存：逐帧结果先暂存在作业中供叠加预览，只有接受才落库；完成即写入会把仍可丢弃的候选变成正式标注。
+0182-0336	apps/web/src/api/videoTracker.ts:150-151,316-317	-	无源检测没有可继承的标注，必须显式指定新轨迹的类别和工具单元；有源延展则以路径或源轨迹为准，不另传这两个字段，以免出现相互冲突的目标定义。
+0182-0337	apps/web/src/api/videoTrackerJobs.ts:52	-	作业列表的 signal 必须交给请求层，而不是序列化进查询参数；否则筛选条件或游标切换时，React Query 无法通过该信号取消旧请求。
+0182-0338	apps/web/src/api/videos.ts:4-10	-	WebCodecs 精确定位只取目标帧所在分块的字节和样本清单；不能先请求无范围的分块列表，否则长视频的一次取帧也可能触发全量分块的创建或调度。
+0182-0339	apps/web/src/api/videos.ts:15	-	构造分块解码计划时须保留样本清单的解码顺序，不能按 PTS 重排；PTS 表示呈现时刻，不保证参考帧先于依赖它的数据包送入解码器。
+0182-0340	apps/web/src/components/CanvasDrawingEditor.test.tsx:40-41	-	绘图弹窗打开时，工作台在 document 捕获阶段还须按 portal 标记拦截交互；只检查编辑器正文的祖先会漏掉位于正文之外的弹窗标题栏。
+0182-0341	apps/web/src/components/CanvasDrawingEditor.tsx:19-21	-	绘图画布应沿用原图的像素宽高比，不能统一套用固定比例，否则批注会与审核者所见原图失配；仅在缺少原图尺寸时回退到 600×400 比例。
+0182-0342	apps/web/src/components/CanvasDrawingEditor.tsx:69-71	-	在 pointerdown 中必须同步置位 drawingActiveRef；若用 React 状态闭包判断是否正在绘制，状态提交前紧随的 pointermove 会被忽略，导致笔画起点缺失。
+0182-0343	apps/web/src/components/CanvasDrawingEditor.tsx:88-90	-	initial 只在弹窗由关闭转为打开时用于初始化；打开期间自动保存也会回写 initial，若每次变化都重置画布，会覆盖尚在绘制的本地笔画。
+0182-0344	apps/web/src/components/CanvasDrawingEditor.tsx:217-218	-	handleClose 必须在关闭时同步上报草稿，不能等后续保存流程；Radix 会在 Escape 或关闭时卸载正文，尚未结束的笔画可能随之丢失。
+0182-0345	apps/web/src/components/Captcha.tsx:5-10,55	-	未配置 VITE_TURNSTILE_SITE_KEY 时不挂载 Captcha，也不要求 token，否则开发和 CI 无法提交；配置后遇到过期或错误须回传 null，不能让旧 token 继续放行提交。
+0182-0346	apps/web/src/components/CommandPalette.tsx:44	-	CommandPalette 打开时将输入框聚焦延至下一动画帧；在打开回调中同步聚焦可能早于 portal 渲染，导致输入框未获焦点。
+0182-0347	apps/web/src/components/PerfHud/PerfHud.tsx:14-20;apps/web/src/components/PerfHud/useMLBackendStats.ts:86-89	-	PerfHud 只在可见时订阅 /ws/ml-backend-stats，关闭即断开；若仅隐藏界面而保留订阅，后端 Celery beat 就不能在无人查看时跳过每秒采集。
+0182-0348	apps/web/src/components/PerfHud/PerfHud.tsx:151;apps/web/src/components/PerfHud/useMLBackendStats.ts:62	-	Torch 和 ORT 的 CPU 回退都应按实际计算设备判定，不能以 GPU 已配置为准；配置仍指向 GPU 时也可能已静默回退到 CPU。
+0182-0349	apps/web/src/components/PerfHud/useBrowserStats.ts:1-12,79	-	浏览器采集不能逐帧提交 rAF 指标状态，也不应轮询长任务；将状态更新限制为每秒一次，并用 PerformanceObserver 接收长任务，避免采集本身给被测页面增加持续开销。
+0182-0350	apps/web/src/components/PerfHud/useBrowserStats.ts:82	-	启用长任务观测前须单独检测 longtask 条目类型；部分 Safari 和 Firefox 虽提供 PerformanceObserver，却不支持该类型，不能把构造器存在当成订阅依据。
+0182-0351	apps/web/src/components/PerfHud/useMLBackendStats.ts:105-106	-	统计 WebSocket 必须连接根路径 /ws/ml-backend-stats，不能复用 HTTP API 前缀；main.py 无前缀挂载 ws_router，拼接后握手会发往错误路由。
+0182-0352	apps/web/src/components/PerfHud/useMLBackendStats.ts:160-162	-	Starlette 在 accept 前拒绝握手时返回 HTTP 403，浏览器只报告 1006；应结合是否已建立连接判断握手拒绝，并将 1008 归为鉴权失败，不能把所有 1006 都当成鉴权失败。
+0182-0353	apps/web/src/components/PerfHud/usePerfHudStore.ts:3-10	-	PerfHud 的可见性 store 只表示开关状态，不代表授权；消费组件须按 super_admin 或 project_admin 角色决定是否渲染，不能因 store 已打开就展示浮窗。
+0182-0354	apps/web/src/components/UserPicker.test.tsx:67;apps/web/src/components/UserPicker.tsx:94-99	-	UserPicker 在 isComposing 为真或 keyCode 为 229 时必须把按键留给编辑器和输入法；即使按键也能操作提及列表，接管它仍可能抢走定字或翻页，并因中途改动 DOM 而误定下一段拼音。
+0182-0355	apps/web/src/components/UserPicker.tsx:53	-	UserPicker 应先测量候选列表的实际高度，再按视口剩余空间决定展开方向；固定向下展开会在讨论面板靠近窗口底部时裁掉候选项。
+0182-0356	apps/web/src/components/UserPicker.tsx:101-102,129	-	UserPicker 须在 window 捕获阶段先于文档和编辑器处理提及按键，接管后还要阻止默认行为与传播；否则确认 @ 对象的 Enter 可能同时触发消息发送。
+0182-0357	apps/web/src/components/bugreport/BugReportDrawer.test.tsx:359	-	反馈中的视频诊断须使用经过筛选的结构化快照，不能直接附原始播放数据，否则签名 URL、分片字节或 Base64 描述会随反馈一并上传。
+0182-0358	apps/web/src/components/bugreport/BugReportDrawer.tsx:86	-	BugReportDrawer 按需加载紧凑 Markdown 编辑器，不在抽屉入口静态引入 MDXEditor，否则编辑器会被打入首屏包，打开抽屉就要加载。
+0182-0359	apps/web/src/components/bugreport/BugReportDrawer.tsx:389	-	截图上传失败时须保留表单并让用户选择重试、跳过截图或取消；不能自动按无截图提交，否则用户以为已随反馈附上的证据会被静默丢弃。
+0182-0360	apps/web/src/components/bugreport/ScreenshotEditor.tsx:1-9	-	截图脱敏确认时须返回已将矩形遮罩合成进像素的截图，不能只在预览中覆盖原图；否则上传结果仍会暴露被遮盖的内容。
+0182-0361	apps/web/src/components/connections/StorageConnectionsPanel.tsx:79	-	比较存储连接配置时，历史记录缺省的可选项应与表单序列化出的默认值视为等价；直接比较对象会把未修改的连接误判为配置变更。
+0182-0362	apps/web/src/components/connections/storageQueryState.ts:1	-	只有网络失败时才可沿用已加载的存储数据，权限撤销时必须停止展示；若对两种失败沿用同一缓存回退，用户仍会看到已无权访问的数据。
+0182-0363	apps/web/src/components/datasets/ImportDatasetWizard.test.tsx:494	-	时序开关不能按媒体类型只对点云等格式开放；默认的图片 ZIP 导入也能生成 scene，隐藏开关会使这类导入无法声明时序。
+0182-0364	apps/web/src/components/datasets/ImportDatasetWizard.tsx:209	-	只有存在会话且草稿唯一、来自当前交接机制并可读取时才自动恢复；旧版或冲突记录须由用户选择，不能自动猜测要续接哪份导入。
+0182-0365	apps/web/src/components/datasets/ImportDatasetWizard.tsx:637-638	-	切换数据类型时须重置时序声明，不能只隐藏开关。该声明仅适用于 image、video、point_cloud；切到 other 或 multimodal 后若仍提交 true，后端 scene 校验会返回 422。
+0182-0366	apps/web/src/components/datasets/storageNavigation.ts:4	-	safeDatasetReturn 不能只验证目标是站内路径；返回目标必须是拥有配置草稿的数据集列表或详情页，否则会将用户带离可继续处理该草稿的页面。
+0182-0367	apps/web/src/components/datasets/storageNavigation.ts:93	-	inspectImportTextDrafts 只检查当前标签页内所有者精确匹配的记录，不能以跨标签页或宽松匹配补查。无法解析也不等于可以删除，原始内容仍是后续恢复的依据。
+0182-0368	apps/web/src/components/datasets/storageNavigation.ts:112	-	持久化导入文本草稿须显式选取字段，不能直接序列化表单或请求对象，否则文件、凭据或后台作业载荷可能随草稿写入存储。
+0182-0369	apps/web/src/components/datasets/storageNavigation.ts:161	-	removeImportTextDraft 不能只按存储键删除；只有当前记录与用户已看到的内容逐字节相同时才可删除，否则会误删查看后写入的替代草稿。
+0182-0370	apps/web/src/components/jobs/AsyncJobDetailModal.test.tsx:416	-	验证后台任务详情未被外部点击关闭时，不能在 click 刚结束就断言。下层 Radix 对话框会延后处理关闭，过早断言会把稍后发生的误关闭判为通过。
+0182-0371	apps/web/src/components/jobs/StorageJobProgress.tsx:52	-	storageProgressObservation 不能用 TypeScript 类型代替运行时校验；历史作业响应未必符合当前类型，直接信任会把无效的进度观测值用于展示。
+0182-0372	apps/web/src/components/jobs/asyncJobPresentation.ts:231	-	exportDownloadState 不能把到期时间缺失或无法解析视作未过期，否则在没有有效期依据时仍会把签名下载链接标为可用。
+0182-0373	apps/web/src/components/markdown/GuideMarkdownView.tsx:14	-	GuideMarkdownView 的 resolveImage 不能将签名结果简化为裸 URL；到期信息必须随地址返回，否则调用方无法判断已解析的地址何时失效。
+0182-0374	apps/web/src/components/markdown/GuideMarkdownView.tsx:16;apps/web/src/components/markdown/MarkdownEditor.tsx:112,126	-	图片解析结果必须受当前归属约束：GuideMarkdownView 用项目或文档身份划分 imageScope，resolveScopedImagePreview 则丢弃旧处理器的结果。MDXEditor 不会自行隔离这些异步结果，晚到的旧结果可能覆盖当前预览。
+0182-0375	apps/web/src/components/markdown/MarkdownEditor.module.css:19-21	-	MarkdownEditor 不能只给编辑区设置主题颜色；弹层通过门户渲染，不会随编辑区的局部样式切换。须将 MDXEditor 公开的 Radix 调色板映射到应用主题变量。
+0182-0376	apps/web/src/components/markdown/MarkdownEditor.module.css:184-186	-	不能直接在 contentEditableClassName 上设置正文前景色，MDXEditor 会把该类同时用于编辑区和占位符。颜色须限定在实际可编辑节点，否则占位符也会失去弱化颜色。
+0182-0377	apps/web/src/components/markdown/MarkdownEditor.tsx:91	-	Ctrl/Cmd+Enter 提交前须先同步嵌套表格单元格，再把 Markdown 交给 onSubmit；直接读取外层文档会漏掉单元格里尚未同步的最后修改。
+0182-0378	apps/web/src/components/markdown/MarkdownEditor.tsx:96	-	MarkdownEditor 的 onBlur 以整个交互区域为边界，不能仅以可编辑节点是否失焦为准；切换到工具栏或弹层仍在编辑器内，不应误报离开。
+0182-0379	apps/web/src/components/markdown/MarkdownEditor.tsx:179-180,713-714	-	上传进度由视觉占位符表达，不写进 Markdown alt。上传完成时仅对上传命令留下的空 alt 补写文件名，否则会覆盖作者在等待期间编辑的替代文本。
+0182-0380	apps/web/src/components/markdown/MarkdownEditor.tsx:192-200,228-229,241-243	-	父级草稿按上传专属源标记清除内部目标地址，不按一般图片语法或 URL 批量删改。即使源码编辑破坏了占位语法，或撤销、重建带回无主标记，也不能泄出内部地址；作者编辑过的标签须保留。
+0182-0381	apps/web/src/components/markdown/MarkdownEditor.tsx:252-254	-	markdownImageDestination 须用尖括号包裹目标，并转义尖括号和反斜杠；直接拼接带空格或括号的目标可能被 Markdown 解析器截断，无法还原原始 guide-asset 键。
+0182-0382	apps/web/src/components/markdown/MarkdownEditor.tsx:303-308,344-345	-	表格单元格是独立的 Lexical 编辑器，应订阅 MDXEditor 的活动编辑器并通过嵌套更新命令同步有脏节点的修改。不能按每次按键或选区变化导出整篇文档，否则会反复发布未变的草稿。
+0182-0383	apps/web/src/components/markdown/MarkdownEditor.tsx:336-338	-	延迟同步后只能在原单元格仍持有焦点时用 saveAndFocus(null) 恢复焦点和选区；该调用会更新活动单元格标记，无条件执行会把已导航离开的焦点抢回。
+0182-0384	apps/web/src/components/markdown/MarkdownEditor.tsx:402-406,681-684,969-971	-	让 MDXEditor 在当前选区插入 ImageNode，上传失败时保留该节点，并按节点身份及所属事务原位替换。兄弟键或字符偏移会随编辑失准，扫描 Markdown 也无法可靠地区分被移动的占位图、引用图片和正文 URL。
+0182-0385	apps/web/src/components/markdown/MarkdownEditor.tsx:430-435	-	MarkdownEditorDocument 须忽略 MDXEditor 导入时首次发出的规范化回调，不能把它当成用户修改；否则仅打开文档就会触发写入。
+0182-0386	apps/web/src/components/markdown/MarkdownEditor.tsx:494-495	-	MarkdownEditor 每次挂载 effect 时都须重置存活引用，不能只在组件初始化时设一次；React StrictMode 清理后重新挂载 effect 时，残留的失活标记会让上传结果被忽略。
+0182-0387	apps/web/src/components/markdown/MarkdownEditor.tsx:585-591,601-604	-	表格内粘贴或拖放图片前须从目标单元格重发 SELECTION_CHANGE_COMMAND。操作可能早于 Lexical 的 selectionchange，而 focus() 不会为未变选区重发命令，图片可能因此落到表格外。
+0182-0388	apps/web/src/components/markdown/MarkdownEditor.tsx:637-638	-	IME 组合输入边界须在原生事件捕获阶段标记，不能等 React 委托事件；MDXEditor 的原生处理器可能先运行，把仍在组合中的输入当作普通编辑发布。
+0182-0389	apps/web/src/components/markdown/MarkdownEditor.tsx:672-674,871-873,1020-1024,1043-1045	-	重试或协调前先同步活动单元格并刷新节点归属；退出源码模式后等一个微任务让观察者重绑，仍无活动节点才查整篇 Markdown。旧节点键失效但标记仍在时复用原记录，否则过早按锚点回退可能把图片插到表格外。
+0182-0390	apps/web/src/components/markdown/MarkdownEditor.tsx:703-705,916-917	-	上传完成后须等插件观察到占位节点再替换，未观察到则交给节点插入后的 Lexical 更新。替换前先移除待上传记录，否则该事务触发的 onChange 仍会按临时标记过滤真实来源。
+0182-0391	apps/web/src/components/markdown/MarkdownEditor.tsx:1137-1138	-	第一次编辑的撤销基线必须是调用方提供的原始 Markdown；用 MDXEditor 导入后规范化的等价文本做基线，会导致撤销无法恢复原文。
+0182-0392	apps/web/src/components/markdown/MarkdownEditor.tsx:98,1204-1206,1394-1398	-	以 documentId 为内层实例键，让上传、外部同步与 Lexical 状态随文档切换一同卸载；同一实例内若仍有待上传标记而受控值变化，也须在导入前废弃旧上传归属，否则迟到结果可能写入替换后的文档。
+0182-0393	apps/web/src/components/markdown/MarkdownView.tsx:91-97	-	在 mdast 阶段保留 guide-asset 图片的原始键，引用式图片从定义节点取键；若等 mdast-util-to-hast 转换后再取 URL，解析器会收到规范化后的值，而不是原始键。
+0182-0394	apps/web/src/components/markdown/MarkdownView.tsx:276-277	-	图片源变化后的首帧不得复用旧源的显示 URL；新作用域的 URL 须等异步解析完成再显示，否则新图片会短暂显示旧源内容。
+0182-0395	apps/web/src/components/markdown/MarkdownView.tsx:302-303,371-373	-	不得挂载解析器已判定过期的 URL；首次查询未强制刷新时才可补查一次，仍过期则失败。自动刷新额度须等替换图片实际加载成功才恢复，否则存储端持续报错时会反复重试。
+0182-0396	apps/web/src/components/markdown/MarkdownView.tsx:403-404	-	普通图片重试通过重新挂载触发浏览器加载，而不是给 URL 加重试参数；改写原地址可能破坏查询签名，也不应丢失原有片段。
+0182-0397	apps/web/src/components/markdown/MarkdownView.tsx:481-483	-	createUrlTransform 仅在配置解析器时对 img 的 src 放行私有协议；若把例外扩展到 href 或其他 URL，就会绕过这些位置原本由 react-markdown 执行的默认过滤。
+0182-0398	apps/web/src/components/markdown/MarkdownView.tsx:506-507	-	StrictMode 重放图片 effect 时会保留 ref，因此清理时须推进缓存代次并清空缓存和在途请求；否则重放会复用已经取消的首个请求。
+0182-0399	apps/web/src/components/markdown/markdownEditorLabels.ts:1-7	-	MDXEditor 的翻译函数留在共享编辑器本地；若改为从应用 i18n Provider 取翻译，标注指南和模板编辑器的懒加载入口就不能再脱离该 Provider 使用。
+0182-0400	apps/web/src/components/ml/VariantSelector.tsx:1-18,165	-	schema-only 路径仍须识别旧变体键和 x-platform-role=modelVariant；若选择器只识别新版变体描述，旧后端仅提供 schema 时就无法识别其变体字段。
+0182-0401	apps/web/src/components/ml/VariantSelector.tsx:35,137-138	-	variantCombinations 的内层数组按位置对应 supportedVariants 的轴，不按轴名匹配；单独重排轴而不重排组合值，会把合法值解释到错误的轴上。
+0182-0402	apps/web/src/components/notifications/NotificationPreferencesPanel.tsx:9-17	-	通知偏好首次查询失败时禁止保存，否则猜测的默认值可能覆盖既有偏好。关闭接收只禁用弹出提示，不清除弹出选项，否则重新启用接收时会丢失原有选择。
+0182-0403	apps/web/src/components/notifications/NotificationPreferencesPanel.tsx:176,180	-	待保存与失败状态归账号会话而非账号 ID；即使重新登录的是同一账号，旧请求也不得结算到新会话，否则会改写新会话的保存状态。
+0182-0404	apps/web/src/components/notifications/NotificationPreferencesPanel.tsx:198	-	通知偏好用 mutateAsync 单独结算每笔保存；连续调用 mutate 时，调用级回调只跟随最后一笔，用它逐笔结算会漏掉较早请求的结果。
+0182-0405	apps/web/src/components/projects/AssignMemberModal.test.tsx:34-35;apps/web/src/components/projects/AssignMemberModal.tsx:60-61	-	普通在职员工资格只决定是否出现在候选名单，不决定项目角色；项目角色须由页签显式选择，写入由服务端复核，不能把平台角色当作项目授权。
+0182-0406	apps/web/src/components/projects/AssignMemberModal.tsx:23,89-90	-	同一人在一批待指派选择中只能有一个角色；换角色须先在原页签取消，不能让另一页签的选择静默覆盖先前的指派。
+0182-0407	apps/web/src/components/projects/AssignMemberModal.tsx:44-46,112	-	每次打开 AssignMemberModal 或切换项目都建立新的指派上下文，关闭或卸载即作废旧上下文；否则旧批次迟到的结算可能关闭新弹窗或清空新选择。
+0182-0408	apps/web/src/components/projects/AssignMemberModal.tsx:107-108	-	指派提交锁覆盖整批请求，须等所有请求结算才释放；共享 mutation observer 的 isPending 只跟踪其中一个请求，直接用它解锁会允许未完成的批次与新提交重叠。
+0182-0409	apps/web/src/components/projects/CreateProjectWizard.tsx:48-49,138-142,219,223-224,416-417	-	源项目和模板都只用于复用配置，不把数据集、成员等运行数据带入新项目；模板也不绑定 ML backend。复制时仍需传 source_project_id，否则向导未提供的标注、渲染、采样及 IoU 去重配置无法由后端补齐。
+0182-0410	apps/web/src/components/projects/CreateProjectWizard.tsx:51-52,421-422	-	templateId 与 sourceProjectId 须在调用和提交校验两处互斥；模板路径会深拷贝载荷并递增 usage_count，不能把模板和源项目当成可同时叠加的两个预填来源。
+0182-0411	apps/web/src/components/projects/CreateProjectWizard.tsx:67-68,403	-	新建项目以媒体维度 data_type 为准，type_key 由对应的 legacyTypeKey 派生；若把旧类型键当作媒体类型的主值，会混淆媒体选择与旧读取方依赖的类型分流。
+0182-0412	apps/web/src/components/projects/CreateProjectWizard.tsx:72-74,175-176,369,386	-	tool_bindings 是按工具单位组织的主数据；旧字段 classes、classes_config 和 attribute_schema 从 activeUnit 派生。仅当旧项目缺少 tool_bindings 时，才按 type_key 迁入默认工具单位，避免用扁平配置覆盖各单位的差异。
+0182-0413	apps/web/src/components/projects/CreateProjectWizard.tsx:135,253-254,322-323	-	普通新建使用独立草稿键，避免还原分包配置不兼容的旧草稿；复制模式不读取普通草稿，复制和模板模式均不写入该草稿，避免预填配置混入下一次普通新建。
+0182-0414	apps/web/src/components/projects/CreateProjectWizard.tsx:412	-	仅在启用 AI 且选中了源 backend 时提交 ml_backend_source_id；该参数会在新项目启用同一个全局 backend，不是复制后端，不能在未选择复用时随项目配置一起提交。
+0182-0415	apps/web/src/components/projects/CreateProjectWizard.tsx:419	-	copy_annotation_guide 只能随 source_project_id 提交，不能当作独立的建项选项；缺少源项目时单独发送该标志，后端会返回 400。
+0182-0416	apps/web/src/components/projects/MemberRoleChangeModal.tsx:27-37,150	-	职责变更只接受与成员、目标职责和接收人匹配的预览；输入改变即作废并丢弃迟到结果。写入带 expected_version 和 preview_token，若分配或接收人职责变化使快照过期，返回 409 而非覆盖并发修改。
+0182-0417	apps/web/src/components/projects/MemberRoleChangeModal.tsx:52-54,119-120,178-179	-	职责变更弹窗关闭重开，或项目、成员、版本变化时，须作废旧上下文的预览和写入回调；否则迟到的成功或失败仍可能关闭或修改当前弹窗。
+0182-0418	apps/web/src/components/projects/steps/Step1DataTypeAndTools.tsx:46-48	-	切换媒体类型只重置工具单位的默认启用状态，同一单位已编辑的类别和属性仍须保留；若整组替换为默认配置，切换类型就会误删用户编辑。
+0182-0419	apps/web/src/components/projects/steps/Step4Ai.tsx:72	-	BackendSourceSelect 从健康检查的能力快照读取模态；缺少模态字段只能判为未知，若当成不匹配，会把未报告能力的后端误判为不支持。
+0182-0420	apps/web/src/components/projects/steps/Step5Datasets.test.tsx:92;apps/web/src/components/projects/steps/Step5Datasets.tsx:30-31	-	候选数据集查询须传项目原始 data_type，由后端按关联校验所用的同一规则归一 lidar 和 point_cloud；若前端只按 point_cloud 匹配，会漏掉存为 lidar 的点云数据集。
+0182-0421	apps/web/src/components/projects/steps/Step5Datasets.tsx:43,80,122-124	-	数据集关联触发异步建任务时，必须等所有作业完成后再切分批次；关联请求返回并不代表任务可用，提前切分可能得到空集。全同步时可立即切分。
+0182-0422	apps/web/src/components/projects/steps/Step5Datasets.tsx:55-56	-	跨步骤更换数据集可能让 by_scene 仍作用于无法识别 scene 的数据集；切分返回零批次时须明确告警，不能把接口正常返回当成已生成批次。
+0182-0423	apps/web/src/components/projects/steps/Step5Datasets.tsx:106	-	Step5Datasets 逐项提交数据集关联，不能用只产出一条审计记录或遇错即停的批量操作替代：每项关联须可单独追溯，单项失败也不能阻断其余关联。
+0182-0424	apps/web/src/components/routing/RequireAuth.test.tsx:1-8;apps/web/src/components/routing/RequireAuth.tsx:11-15	-	RequireAuth 在主动退出后不写入 state.from，并将退出标记保留到认证恢复；否则 Navigate 重渲染可能把旧地址写回历史，让下一个账号回跳到前一个账号的受限页。
+0182-0425	apps/web/src/components/routing/RequireProjectAccess.tsx:17-22;apps/web/src/components/routing/RequireProjectMember.tsx:12-16	-	项目路由须等服务端确认后才挂载工作台：RequireProjectAccess 在能力未知、查询失败或被拒时不开放编辑器；RequireProjectMember 以按成员资格过滤的 GET /projects/:id 为准，遇 403 或 404 退回列表。
+0182-0426	apps/web/src/components/shadcn/ui/sonner.tsx:6-12,21	-	Toaster 以 html[data-theme] 对应的 useTheme().resolved 为主题来源，不另用 next-themes 解析；通过 Sonner 的 CSS 变量注入 --sc-*，避免通知与同屏卡片、浮层使用不同的主题色。
+0182-0427	apps/web/src/components/shadcn/ui/table.tsx:8-11	-	Table 的圆角和边框应通过 containerClassName 设在表格的直接滚动父容器上；只在外面加装饰壳不能替代由同一容器承担横向滚动和圆角裁切。
+0182-0428	apps/web/src/components/shell/JobsBell.tsx:3-10	-	JobsBell 每 5 秒轮询最近 20 条任务，不能用 PreannotateJobsBadge 的实时订阅替代：该订阅只有预标进度，无法覆盖没有 Redis pub/sub 通道的任务，也不能提供终态历史。
+0182-0429	apps/web/src/components/shell/JobsBell.tsx:424-426	-	JobsBell 只在取得轮询结果后，才用最近 20 条任务的 ID 裁剪本地隐藏记录；既不能无限累积旧 ID，也不能用加载态的空列表裁剪，否则会丢失仍有效的隐藏选择。
+0182-0430	apps/web/src/components/shell/NotificationsPopover.tsx:106-111,427-429	-	通知跳转须按实际目标项目的能力选择工作模式。审核任务缺少审核权限时应报访问错误，不能因为账号能标注就打开标注编辑器，否则会把审核任务带入错误的操作模式。
+0182-0431	apps/web/src/components/shell/NotificationsPopover.tsx:149	-	skip_predicted 排除全部候选任务时，NotificationsPopover 须明示任务因已预标而被跳过；只展示成功 0、失败 0，无法区分正常跳过和批次未执行。
+0182-0432	apps/web/src/components/shell/NotificationsPopover.tsx:336-342,355,445-446	-	全屏工作台提供 navigateExternal 时，通知面板的所有跳转（含 Bug 和错误恢复链接）都须经它执行，避免绕过视频或 Mask 的离开检查。目标弹窗只在导航确认成功后关闭；返回 false 时保留弹窗以便重试。
+0182-0433	apps/web/src/components/shell/NotificationsPopover.tsx:412	-	NotificationsPopover 打开任务通知时须重新读取任务，不能直接按通知载荷打开：任务可能在通知生成后被转移或审核，旧载荷不再代表当前归属或状态。
+0182-0434	apps/web/src/components/shell/ShellPopover.tsx:50	-	ShellPopover 的顶栏面板互斥规则须覆盖键盘打开性能面板的路径；若只在指针回调中替换现有面板，键盘操作就可能让两个面板同时打开。
+0182-0435	apps/web/src/components/shell/Sidebar.tsx:89-90,138-139	-	Sidebar 不能把项目管理权当作全局管理权：project_admin 可看项目范围内的标注员绩效，但离线分析仍仅限超管；预标批次徽章也只为 super_admin 查询 /dashboard/admin，避免其他角色触发无关的权限提示。
+0182-0436	apps/web/src/components/shell/SidebarDrawer.tsx:15-21	-	SidebarDrawer 须经 Portal 挂到 document.body，不能作为原位置的普通子节点渲染，否则窄屏抽屉会受外层 grid 布局约束。
+0182-0437	apps/web/src/components/shell/WhatsNewDialog.test.tsx:141;apps/web/src/components/shell/WhatsNewDialog.tsx:1-12,71-72	-	WhatsNewDialog 挂在 App 层，避免全屏工作台漏掉登录提醒。跨设备去重以服务端已读为准，关闭弹窗或写入失败都不算已读；登出须清除账号＋版本的本地已弹登记，否则同一账号不刷新重登会漏掉未确认版本。
+0182-0438	apps/web/src/components/shell/WhatsNewDialog.test.tsx:161-162	-	WhatsNewDialog 不能在异步内容加载完成前登记已弹；StrictMode 重跑 effect 时，清理会使原加载失效，过早写入的登记又会挡住重试，导致弹窗未打开。
+0182-0439	apps/web/src/components/shell/WhatsNewDialog.tsx:59-60	-	WhatsNewDialog 以运行中的账号从无到有作为登录触发条件，包括跨标签页接纳的会话；挂载时已有账号只算恢复会话，否则刷新也会被误当成新登录。
+0182-0440	apps/web/src/components/shell/WhatsNewDialog.tsx:83	-	WhatsNewDialog 的版本要点可以按需加载，但内容加载成功不能成为开窗条件；拆包加载失败时须用简短提示替代，否则内容请求失败会吞掉登录提醒。
+0182-0441	apps/web/src/components/shell/WhatsNewDialog.tsx:120-121	-	WhatsNewDialog 仅在当前构建版本高于账号已确认版本时写回；若无条件提交当前版本，回滚后的构建或缓存中的旧前端就可能降低跨设备已读水位，让新版重复弹出。
+0182-0442	apps/web/src/components/shell/WhatsNewDialog.tsx:132-133	-	WhatsNewDialog 处理延迟写回响应时须先核对当前账号，再只合并已读版本；否则旧响应可能写进切换后的账号，或用整块旧偏好覆盖期间更新的主题和面板显隐。
+0182-0443	apps/web/src/components/storage/SiteAgentsPanel.tsx:240	-	SiteAgentsPanel 交付含密钥响应时须同时核对会话和发起请求的对话框；只核对会话会让同一会话中旧对话框的延迟响应落入后来打开的对话框。
+0182-0444	apps/web/src/components/ui/Button.tsx:16-18	-	Button 基类的 SVG 尺寸规则会覆盖 Icon 的 size 属性；需要 12px 图标时须使用 xs 档，单改 Icon 的 size 不会改变按钮内的实际渲染尺寸。
+0182-0445	apps/web/src/components/ui/Button.tsx:51-54;apps/web/src/components/ui/ContextMenu.tsx:9-12	-	未启用 Tailwind Preflight 时，不能假定原生按钮已重置：Button 须先清除原生外观、背景与边宽再应用 variant；ContextMenu 的 Portal 菜单项也须显式设 appearance-none，否则会露出浏览器默认外观。
+0182-0446	apps/web/src/components/ui/Card.tsx:7-12	-	Card 只提供无内边距的表面容器；直接换成带内边距、间距和阴影的 shadcn Card 根组件，会在调用方既有布局之外再引入间距和表面样式。
+0182-0447	apps/web/src/components/ui/CopyableError.tsx:6	-	CopyableError 只能截短可见预览，剪贴板仍须写入完整错误消息；若直接复制显示摘要，未展示的诊断细节也会从复制结果中丢失。
+0182-0448	apps/web/src/components/ui/DecisionDialogHost.tsx:29-32	-	DecisionDialogHost 不能只挂在 AppShell：全屏工作台不渲染 AppShell，须在自己的 ToastRack 旁挂宿主，否则该入口发出的决定请求没有宿主消费。
+0182-0449	apps/web/src/components/ui/DecisionDialogHost.tsx:36,86	-	DecisionDialogHost 换队首时须用 uid 重建输入和报错状态，避免状态串到下一项。结算不等于出队：须保留挂载到退场结束、Radix 卸载 FocusScope 后，避免下一项接手时旧焦点作用域仍在。
+0182-0450	apps/web/src/components/ui/DecisionDialogHost.tsx:55-57	-	Radix AlertDialog 1.1.17 不透传遮罩点击，不能靠遮罩回调实现点外取消；DecisionDialogHost 监听 document 的 pointerdown，仅将当前对话框外的落点视为取消。
+0182-0451	apps/web/src/components/ui/DecisionDialogHost.tsx:97	-	DecisionDialogHost 校验失败时必须阻止 AlertDialogAction 的默认关闭；否则用户还没来得及在原对话框中修正输入，对话框就已关闭。
+0182-0452	apps/web/src/components/ui/DecisionDialogHost.tsx:114-115;apps/web/src/components/ui/decisionDialog.test.tsx:288	-	DecisionDialogHost 必须保留 data-modal；isWorkbenchInteractionBlocked 依赖该标记拦截 Workbench 的窗口级快捷键，否则在对话框内按 A/R 可能触发后台审核操作。
+0182-0453	apps/web/src/components/ui/DropdownMenu.test.tsx:61-62,215-216;apps/web/src/components/ui/DropdownMenu.tsx:233-239	-	DropdownMenu 的 items 面板挂在 body 末尾，必须实际移焦，不能仅靠高亮接收键盘事件。不要因 items 引用变化重跑移焦而抢走 footer 控件的焦点；content 模式则由内容自行管理焦点。
+0182-0454	apps/web/src/components/ui/DropdownMenu.test.tsx:80-81;apps/web/src/components/ui/DropdownMenu.tsx:269-271,412	-	DropdownMenu 的 items 模式须拦截 Tab 和 Shift+Tab，关菜单并归焦触发器；放行会让焦点离开挂在 body 末尾的面板，而菜单仍开着。用触发器切换关闭时也须归焦，因为当前焦点可能在即将卸载的面板内。
+0182-0455	apps/web/src/components/ui/DropdownMenu.test.tsx:91-92;apps/web/src/components/ui/DropdownMenu.tsx:380-381	-	DropdownMenu 不得因悬停而把 roving 焦点交给禁用项：浏览器无法聚焦禁用按钮，高亮会与 DOM 焦点脱节，导致 Enter 无法激活预期菜单项。
+0182-0456	apps/web/src/components/ui/DropdownMenu.test.tsx:109-110;apps/web/src/components/ui/DropdownMenu.tsx:176-178	-	DropdownMenu 用项 ID 保持焦点身份，再从当前列表求位置；若直接保存索引，拓扑刷新插入或删除菜单项后，Enter 可能激活另一项。
+0182-0457	apps/web/src/components/ui/DropdownMenu.tsx:294-297	-	DropdownMenu 同步面板样式时不能只依赖 panelStyle 的引用变化；重新打开会挂载新的 portal 节点，即使样式对象未变，也要为新节点重新应用宽度等覆盖样式。
+0182-0458	apps/web/src/components/ui/Modal.tsx:20	-	实时画布上的 Modal 必须允许关闭 backdropBlur；若遮罩始终使用背景滤镜，持续更新的画布会带来额外的合成开销。
+0182-0459	apps/web/src/components/ui/Modal.tsx:22,24	-	嵌套 Modal 需要留在所属对话框的层叠上下文时，应通过 container 指定 portal 宿主。若宿主在所属对话框首次渲染后才挂载，改用 containerRef，避免首次渲染时取不到宿主。
+0182-0460	apps/web/src/components/ui/Modal.tsx:26	-	嵌套 Modal 用 stopEscapePropagation 将 Escape 限于当前对话框；若继续传播，一次按键就可能同时关闭内外两层。
+0182-0461	apps/web/src/components/ui/Modal.tsx:28	-	受控 Modal 的触发器若在 Radix Root 外，关闭时须通过 returnFocusRef 归焦；不能依赖 Radix 的默认机制找回未在 Root 内注册的触发器。
+0182-0462	apps/web/src/components/ui/Modal.tsx:92-93	-	Modal 不应把同级确认框上的操作判为自己的外部点击；Radix 可能延迟到 click 才处理外部关闭，此时确认框可能已经关闭，仅凭当下的打开状态判断会误关当前 Modal。
+0182-0463	apps/web/src/components/ui/SearchInput.tsx:19	-	SearchInput 用作 TopBar 的 ⌘K 面板入口时，应由外壳处理点击并将输入框设为只读；否则点击入口可能让输入框抢占键盘焦点。
+0182-0464	apps/web/src/components/ui/TabRow.tsx:3-7	-	TabRow 只负责筛选，没有与按钮对应的 tabpanel；应使用按钮组，而非 Radix Tabs，以免向辅助技术暴露没有对应面板的 tab 角色。
+0182-0465	apps/web/src/components/ui/Toast.tsx:8-17	-	Toast 列表只由 Sonner 持有，测试应验证 Sonner 实际渲染的 DOM；不要为断言向 store 增加列表读取接口，让测试依赖本不属于 store 的状态。
+0182-0466	apps/web/src/components/ui/Tooltip.tsx:28	-	Tooltip 的触发内容必须是单个能接收 ref 和事件的 ReactElement；Radix 的 asChild 会把二者直接附加给它，不能转交这些属性的子元素无法正常充当触发器。
+0182-0467	apps/web/src/components/ui/UserAvatar.test.tsx:28	-	UserAvatar 旁已显示姓名时，应将头像对读屏隐藏；若头像也提供同一姓名，辅助技术会重复播报。
+0182-0468	apps/web/src/components/ui/UserAvatar.tsx:8-18	-	UserAvatar 使用原生 img 的 onError 回退到首字母；入口包体预算仅余约 0.2 KB，而改用 Radix Avatar 约增加 3 KB，会超出当前预算。
+0182-0469	apps/web/src/components/ui/UserAvatar.tsx:36-37	-	UserAvatar 按失败 URL 而不是布尔值记录错误；同一挂载实例换成新头像后必须重新尝试加载，否则旧图的失败状态会直接挡住新图。
+0182-0470	apps/web/src/components/ui/UserAvatar.tsx:50	-	UserAvatar 将首字母保留在图片下方，使图片尚未加载时也有内容可显示；若只在 onError 后才渲染回退，等待图片加载期间会留下空白。
+0182-0471	apps/web/src/components/ui/annotationIcons.ts:3-4	-	本地标注图标沿用 Lucide 的 24px 网格，但不同标注在 12–17px 下仍须靠轮廓区分；若区别只在颜色或微小徽标，缩小后就可能无法辨认。
+0182-0472	apps/web/src/components/ui/decisionDialog.ts:6-14	-	decisionDialog 的 Promise 只返回用户决策，不代表业务操作完成；等待态、禁用与业务文案由调用方管理，不能改用由对话框执行异步业务回调的接口来替代。
+0182-0473	apps/web/src/components/ui/decisionDialog.ts:106	-	DecisionDialogHost 以自增 uid 识别队首项；即使连续两项是同一种对话框，换项时也必须重建本地状态，否则上一项的输入值和校验错误会残留。
+0182-0474	apps/web/src/components/ui/decisionDialog.ts:109,116,118	-	决策 Promise 在用户动作时结算，但队首须等退场动画结束、内容卸载后才出队，否则下一项会在退场期间接管 Host。动作结算后，Radix 再请求关闭也不能重复结算。
+0182-0475	apps/web/src/components/ui/decisionDialog.ts:120-124	-	登出或换账号时，App 必须用 cancelAll 按取消值结算未决请求，不能只隐藏弹窗；否则旧会话的调用方可能用新凭据执行先前捕获的变更。
+0182-0476	apps/web/src/components/ui/useElementStyle.ts:65-66	-	useElementStyle 不能只用 ref 保存元素：Modal 或 Drawer 延迟挂载时，节点到位必须通过 state 触发 effect 重跑，否则会漏写样式。
+0182-0477	apps/web/src/components/users/ApiKeysPanel.test.tsx:69	-	测试清空决策队列时仍需用 act 包住 store 更新：Vitest 逆注册顺序执行 afterEach，此时 RTL 尚未卸载 Host，不能按卸载后的清理处理。
+0182-0478	apps/web/src/components/users/ApiKeysPanel.tsx:51,55,57	-	API 密钥 PATCH 中，省略 expires_in_days 才会保留原有效期；把未修改的有效期序列化为 null 会把密钥改为永不过期。
+0182-0479	apps/web/src/components/users/AvatarPickerDialog.tsx:13-19;apps/web/src/hooks/useAvatarPresets.ts:3-10,31	-	内置头像以随前端发布的生成 manifest 为目录真值，不能依赖只校验引用语法的后端来确认 ID 是否在目录中。清单加载失败只影响预设选择，不能连带禁用上传或恢复默认。
+0182-0480	apps/web/src/components/users/BulkInviteModal.tsx:162-163;apps/web/src/components/users/InviteUserModal.tsx:23-27	-	非项目邀请只提交平台 role；项目邀请还须提交相容的 project_member_role。批量切换平台角色时须同步调整项目职责，否则平台观察者可能带着后端不接受的非观察者职责进入预览或提交。
+0182-0481	apps/web/src/components/users/EditUserModal.preview.test.tsx:112;apps/web/src/components/users/EditUserModal.tsx:23-25,47,80	-	AUTH-04 只允许超级管理员预览和变更平台角色；项目管理员不能在 EditUserModal 复用这套选项或预览请求。项目职责应在项目成员管理中修改，不能借平台角色接口代办。
+0182-0482	apps/web/src/components/users/EditUserModal.tsx:33-35	-	项目管理员能编辑账号，不代表能操作该账号的生命周期：后端只允许其对 employee 目标执行生命周期操作，因此不能向其提供删除观察者的操作。
+0182-0483	apps/web/src/config/featureFlags.ts:3	-	项目指南编辑器和工作台浮层须读取同一份 annotation_guide；若为浮层另存一份指南，编辑器保存的内容与标注员实际看到的指南可能不一致。
+0182-0484	apps/web/src/constants/permissions.ts:3-7,44-45,125-126;apps/web/src/constants/roles.ts:3-6	-	ROLE_PAGE_ACCESS 只控制平台页面入口，employee 能进入标注和质检页面不代表拥有相应项目职责。项目管理、导出和分派须检查 useProjectAccess 提供的项目能力，实际权限由服务端按项目成员职责裁定。
+0182-0485	apps/web/src/constants/toolUnits.ts:1-7	-	新增工具单位须同步前后端 ToolUnitId，不能用生成 schema 的字符串键字典替代前端本地字面量校验；该字典无法识别误拼或不受支持的单位键。
+0182-0486	apps/web/src/constants/toolUnits.ts:11-13,127-129,159-160	-	AI 交互不产出独立几何，不能为它另设工具单位，否则同类几何会被拆到不同类别绑定中。可用性由 project.ai_interactive_enabled 控制，类别按产出归入 region 或 bbox，旧绑定由迁移 0116 合并。
+0182-0487	apps/web/src/constants/toolUnits.ts:171	-	toolUnitFromLegacy 对旧 type_key 的默认映射须与后端迁移 0072 一致；否则同一旧类型在前端兼容读取和后端迁移后可能落到不同工具单位。
+0182-0488	apps/web/src/hooks/useAcceptNativeMaskCandidate.ts:20-26	-	图像和视频接受原生候选掩码时，同一幂等键在浏览器内只允许一个在途请求。调用方须等服务端返回结果才消耗候选；失败只抛错，否则尚未接受的候选会丢失。
+0182-0489	apps/web/src/hooks/useAnnotationComments.test.tsx:36-37	-	乐观删除回滚测试不能对无观察者的预置缓存使用 gcTime: 0；onSettled 失效后缓存可能被回收，使断言无法区分回滚失败和缓存被清理。
+0182-0490	apps/web/src/hooks/useAnnotationComments.ts:18-20,103-104	-	评论变更有 taskId 时只失效该任务的讨论缓存族，旧调用缺少 taskId 才退回 task-discussion 前缀。创建评论还须失效 task-comments-page 前缀，因为标注评论键无法命中未选中标注时按任务分键的汇总。
+0182-0491	apps/web/src/hooks/useAnnotationComments.ts:34-36	-	CommentsPanel 不能复用简单场景的 useAnnotationComments 做全量首载；单条标注有上百条评论时会拖慢打开，应以键集分页按需加载更早评论。
+0182-0492	apps/web/src/hooks/useAnnotationComments.ts:177-179,184-186	-	删除评论不能只等失效重拉：快速切换标注可能读到旧缓存，让已删项重现，因此先乐观剔除，失败再回滚。已知 taskId 时只快照和回滚该任务的汇总，避免影响其他任务；旧调用缺少 taskId 才使用全量前缀。
+0182-0493	apps/web/src/hooks/useAuth.ts:28,97-103,125-126	-	主动退出须在读取离线队列或等待服务端前设置粘性标记，否则期间的 401 可能先清凭证，让 RequireAuth 带旧页的 from 跳转。主动退出直达 /login 不带 from；取消退出须撤销标记，普通过期仍保留 from。
+0182-0494	apps/web/src/hooks/useAuth.ts:106-107	-	useLogout 等待服务端返回后不能无条件清本地认证：期间若已切换账号，会误清新会话；若凭证只是被本次退出清空，仍须完成登录页跳转。
+0182-0495	apps/web/src/hooks/useBatchEventsSocket.ts:1-20	-	批次自动转态不写通知表，列表也不轮询，须靠项目批次频道触发刷新。不能只监听状态变化：改派也会改变未分派草稿的预标资格，须刷新批次列表及聚合批次数的项目视图。
+0182-0496	apps/web/src/hooks/useBatchEventsSocket.ts:35-37	-	批次 WebSocket 须等认证恢复后用当前令牌连接，不能回退到匿名连接。令牌或账号切换须改变 URL，让重连 hook 拆掉旧连接，避免保留旧订阅。
+0182-0497	apps/web/src/hooks/useBugAttachmentDownload.ts:38	-	下载结果和界面反馈只能在发起请求时的报告及登录会话仍有效时生效；按完成时的界面归属处理，会把旧报告或旧会话的下载带入当前界面。
+0182-0498	apps/web/src/hooks/useCursorListPagination.ts:4;apps/web/src/hooks/useListPageState.ts:4	-	游标历史和分页状态须随筛选条件、账号及页大小隔离。不能只在切换时重置页码：复用旧游标会取错页，已退役作用域的迟到响应也会覆盖新分页状态。
+0182-0499	apps/web/src/hooks/useDashboard.ts:5	-	allBatches 必须取齐所有批次页后再交给消费者筛选和排序；用任意单页替代全集，会漏掉其他页的匹配批次，也无法得到全局排序。
+0182-0500	apps/web/src/hooks/useDashboard.ts:20	-	看板查询由 useAccountScope 按账号分键，换号时仍由 bindAuthQueryCache 清除缓存。分键只隔离查询命中，不能替代清理，旧账号的数据仍会留在客户端缓存里。
+0182-0501	apps/web/src/hooks/useFailedPredictions.ts:1-7	-	触发预测重试不等于作业完成，不能只在操作返回时刷新失败列表；由 useNotificationSocket 在收到重试开始和 async_jobs 的 job.* 终态事件时失效缓存，避免列表停留在旧状态。
+0182-0502	apps/web/src/hooks/useFeedbacks.ts:1-7,40	-	反馈根列表、精确计数、会话和置顶共用 useFeedbacks 的缓存族和失效前缀；消费者另建客户端或前缀，会使同一次变更只刷新部分视图，留下旧计数或旧会话。
+0182-0503	apps/web/src/hooks/useFeedbacks.ts:19-23,92-93	-	反馈查询键必须区分服务端筛选和响应模式，否则不同结果会命中同一缓存。单页查询还须把游标入键，避免后续页复用首页；无限查询则通过 pageParam 翻页，不另建逐页缓存。
+0182-0504	apps/web/src/hooks/useFeedbacks.ts:49-51	-	回复可按已知根帖精确失效会话，但通用反馈变更仍须覆盖 feedback-thread 前缀；变更目标可能是根帖或后代，直接把目标 ID 当根帖键会漏掉实际受影响的会话。
+0182-0505	apps/web/src/hooks/useFeedbacks.ts:72-74	-	旧版删除返回 204 且缺少发起范围时，不能按响应到达时的账号做精确失效；账号 A 的迟到响应可能只刷新账号 B，因此要广泛失效反馈、任务讨论和会话缓存。
+0182-0506	apps/web/src/hooks/useGuideAssets.ts:48	-	保留 SVG 原始字节时应使用不透明源的 data URL，而非同源 Blob 文档；两者虽然都能承载相同内容，但后者会让该 SVG 文档继承应用的源。
+0182-0507	apps/web/src/hooks/useGuideAssets.ts:73,222	-	图片地址的寿命属于挂载实例的登录会话和项目作用域，而非单个缓存项；删项时立即撤销旧地址会破坏仍引用它的图片或放大预览，应等作用域退役再撤销。
+0182-0508	apps/web/src/hooks/useGuideAssets.ts:81,102-103,152	-	useGuideAssets 必须在渲染期隔离旧归属，并在子预览 effect 前通过布局 effect 激活新归属，StrictMode 重设时也一样；否则子预览可能读到旧归属，旧 epoch 的结果也不得返回或入缓存。
+0182-0509	apps/web/src/hooks/useIssueThread.ts:81-88	-	会话分页可能先返回后代、后返回中间父帖；flattenIssueThread 不能丢弃暂时找不到父帖的回复，应保留回复并占位显示父帖上下文，后续页到达后重算。
+0182-0510	apps/web/src/hooks/useIssueThread.ts:107-109	-	Issue 回复虽以 kind=comment 写入，会话成员资格仍以绑定根帖的 API 为准；按 kind 过滤看似能识别回复，却会漏掉已归入该会话的旧版后代。
+0182-0511	apps/web/src/hooks/useIssueThread.ts:114-116	-	服务端各页已按权威倒序排列，并由新到旧追加；flattenIssueThread 去重后直接反转即可，本地重新解析和排序会在 ISO 时间戳偏移量或精度混用时打乱顺序。
+0182-0512	apps/web/src/hooks/useIssueThread.ts:168-169	-	认证讨论缓存用 provider 所持标签页租约的不透明 sessionId 隔离，不以 bearer token 作为查询键；令牌不是会话缓存标识，直接入键会把认证凭据带入查询缓存元数据。
+0182-0513	apps/web/src/hooks/useIssueThread.ts:190-193	-	会话用 TanStack Query 的请求方向区分旧页加载失败和根帖刷新失败；另存本地错误会让上一根帖或上一认证会话的错误在切换后仍然显示。
+0182-0514	apps/web/src/hooks/useMLBackends.ts:23-24	-	项目设置的可用 ML 后端清单应复用 ml-backends 的项目键前缀；另设独立前缀会绕过 invalidateBackendQueries，使后端配置变更后仍显示旧清单。
+0182-0515	apps/web/src/hooks/useMLBackends.ts:66-67	-	预热请求未指定 variant 时必须落到默认变体；把省略参数解释为其他变体或拒绝请求，都会改变旧「重载」入口原本针对默认变体的行为。
+0182-0516	apps/web/src/hooks/useMe.ts:62-63,66-67	-	头像 mutation 在 onMutate 快照发起账号，不能依赖可能被重渲染替换的闭包；登出或跨标签页换号后必须拒绝迟到写回，否则旧账号会被恢复到持久化 store。
+0182-0517	apps/web/src/hooks/useNeighborAnnotations.ts:1-10	-	邻帧框按 track_id 在服务端批量筛选，避免逐帧发起 2K 次请求。选中模式缺少 trackId 时必须禁用查询，不能沿用全量模式的空 trackId，否则会把未选中轨迹误当作全量查询。
+0182-0518	apps/web/src/hooks/useNeighborPointClouds.ts:3-8	-	邻帧点云的下采样缓存不能只按帧复用；目标点数或轴系变化时，旧结果会导致叠加点数不符或坐标错位，因此两者都必须参与缓存区分。
+0182-0519	apps/web/src/hooks/useNotificationPreferences.ts:9-13;apps/web/src/hooks/useNotificationSocket.ts:95	-	个人设置、工作台和 useNotificationSocket 共用按账号分键、换号时清理的通知偏好缓存；连接另存一份偏好会使设置已更新而通知仍按旧值处理。
+0182-0520	apps/web/src/hooks/useNotificationPreferences.ts:30-34,49	-	通知偏好 mutation 必须在调用点同步捕获 owner，不能在延迟执行的 mutationFn 中读取当前账号；换号后应丢弃迟到结果，避免把操作归给新账号或重新写入已清除的旧键。
+0182-0521	apps/web/src/hooks/useNotificationPreferences.ts:51-52	-	通知偏好保存成功后先更新缓存再失效重拉；只做失效会让开关在重拉期间回跳，用户再次点击时可能把刚保存的偏好改回去。
+0182-0522	apps/web/src/hooks/useNotificationSocket.ts:15-20,113,271	-	通知 WS 遇 1008 或 4001 时，同一连接对一次令牌过期只发起一次 /auth/refresh，避免重复关闭回调并发刷新。成功后以新令牌重连，失败则停止重试，401 交由 API 客户端登出。
+0182-0523	apps/web/src/hooks/useNotificationSocket.ts:77-87	-	通知 WS 应随 App 保持单用户连接，不由路由页面各自管理；否则切换工作台会拆掉实时订阅。连接中断时由 useNotifications 每 30 秒轮询兜底。
+0182-0524	apps/web/src/hooks/useNotificationSocket.ts:98,103,172-173,233	-	长连接的 onmessage 必须通过 ref 读取最新通知偏好，而非闭包中的建连快照；收到偏好同步失效后（含本会话保存），新数据到达前暂停弹窗判断，避免按已修改的规则弹出。
+0182-0525	apps/web/src/hooks/useNotificationSocket.ts:115,261	-	通知 WS 的刷新结果只归发起刷新时绑定的令牌；不能在回调完成时无条件更新 authStore，否则登出或令牌已替换后，迟到结果会恢复或覆盖认证状态。
+0182-0526	apps/web/src/hooks/useNotificationSocket.ts:152-153	-	弹窗批次到期时若标签页已在后台，应丢弃整批而非延迟到前台补弹；延迟只改变展示时机，不能保证提醒在用户返回时仍然有效。
+0182-0527	apps/web/src/hooks/useNotificationSocket.ts:215	-	通知 WS 打开或重连时须重新查询持久化通知状态；仅恢复监听只能收到后续推送，无法补齐断线期间错过的通知和未读状态。
+0182-0528	apps/web/src/hooks/useNotificationSocket.ts:219,237	-	通知 WS 控制帧不能走普通通知分支：心跳不失效查询，否则会每 30 秒触发无谓重拉；notifications.sync 只刷新查询，进入 toast 队列会把同步信号误弹给用户。
+0182-0529	apps/web/src/hooks/useNotificationSocket.ts:307	-	通知弹窗批次按会话修订号失效，不能只在凭据变化时清理；新会话即使复用原凭据，也不能继承旧会话的待显示批次。
+0182-0530	apps/web/src/hooks/useNotifications.ts:38	-	窗口重新聚焦时立即补查未读数，不能只靠推送或等下一轮轮询；断线期间漏掉的通知会让角标在用户回到窗口后仍显示旧值。
+0182-0531	apps/web/src/hooks/useOffsetListPagination.ts:4	-	limit/offset 由服务端应用，客户端只维护分页状态；对已按偏移截取的响应再做本地切片，会跳过当前页条目，甚至把非空页切成空页。
+0182-0532	apps/web/src/hooks/useOnboardingProjectState.ts:8-17	-	引导状态只有保存成功且账号和请求序号仍匹配时才写入认证缓存；否则慢响应可能覆盖更新的状态或串到另一账号，写入失败也会被误当成已保存。
+0182-0533	apps/web/src/hooks/useOnboardingProjectState.ts:79-80	-	保存成功后只把响应中已保存的项目清单条目合入当前偏好，不用整份响应替换缓存；否则较慢的引导写入会冲掉其他写入方刚保存的非引导设置。
+0182-0534	apps/web/src/hooks/useOnlineStatus.ts:35	-	离线队列切换作用域时立即清空旧计数并标记为未就绪；若保留上次读数直到新队列加载完成，新账号会短暂看到上一账号的待提交数量。
+0182-0535	apps/web/src/hooks/useOriginalImage.ts:14	-	原图地址只在当前挂载会话、资源和显式尝试内复用；不能只按资源缓存，否则重挂载或用户主动重试时仍可能拿到上一次尝试的地址。
+0182-0536	apps/web/src/hooks/useOriginalVideoPlayback.ts:53,409	-	原始视频租约由 VideoSession 按规范化资源键持有。不能让渲染源、调用方临时对象或解码节点决定租约生命周期，否则同一资源仅因重渲染或节点替换就可能被误判为已切换。
+0182-0537	apps/web/src/hooks/useOriginalVideoPlayback.ts:58,60,137-141	-	VideoSession 跟踪尚未完成归还的租约；页面真正离开时由 pagehide 发起 keepalive 归还，不能等 React 卸载。进入往返缓存时不归还，否则恢复页面时原租约已被释放。
+0182-0538	apps/web/src/hooks/useOriginalVideoPlayback.ts:271	-	VideoSession 操作先让出一个微任务再继续执行，保证清理所引用的操作已登记；若立即执行，快速失败可能让 finally 先于登记运行。
+0182-0539	apps/web/src/hooks/usePermissions.ts:5-8	-	平台角色不能替代 useProjectAccess 对项目管理、导出、标注或审核的判定；否则会把平台级身份误当成对具体项目和操作的授权。
+0182-0540	apps/web/src/hooks/usePreannotation.ts:24,44	-	多阶段预标只在 5% 步长帧附带 pipeline_stages 累计快照；中间帧缺字段表示没有新快照，不是清空阶段状态，否则进度徽标会反复消失。
+0182-0541	apps/web/src/hooks/usePreannotation.ts:36-37	-	预标 WS 须等认证状态提供当前令牌后再连接，并在令牌或账号变化时重连；不能先连匿名套接字或沿用旧连接，否则连接不对应当前认证上下文。
+0182-0542	apps/web/src/hooks/usePreannotation.ts:71	-	批量预标以所选后端的 /setup.params 面板值为准，项目阈值只作兜底；若反过来让项目值覆盖面板值，用户针对当前后端设置的参数就不会生效。
+0182-0543	apps/web/src/hooks/usePreannotation.ts:75-77	-	预标默认走 bulk；workbench 单题交互仅放宽 in_progress 任务和 draft 批次限制。直接套用 bulk 会误拦单题操作，把例外视为全面放行则会绕过管理员锁、他人编辑锁或终态保护。
+0182-0544	apps/web/src/hooks/usePreannotation.ts:83-84	-	多任务几何后端的非空 model_variants 必须按轴传递；不能把选择压成单个模型值或只传平铺 params，否则后端不会构造带变体映射和嵌套参数的 v2 上下文。
+0182-0545	apps/web/src/hooks/usePreannotation.ts:86	-	几何后端的 class_filter 使用模型原生类别索引，不按项目标签顺序解释，否则会筛错类别。空数组与省略都表示不过滤，不能用空数组表达排除全部类别。
+0182-0546	apps/web/src/hooks/usePreannotation.ts:88-89	-	多阶段预标的根阶段 ml_backend_id 必须与顶层一致，不能把两处配置当成独立的后端选择。只有非空 pipeline_stages 才启用有序阶段执行，省略时仍走单阶段。
+0182-0547	apps/web/src/hooks/usePreannotation.ts:91-92	-	多阶段预标中，并行兄弟阶段写同一属性键时默认以 422 拒绝，不能静默覆盖另一个阶段的结果；只有显式选择 last_wins 才允许末位结果覆盖。
+0182-0548	apps/web/src/hooks/usePreannotation.ts:101	-	旧 PipelineSource 记录可能未保存 data_type，缺失时须按 image 解释；把该字段改成读取时必填会拒绝原本可用的旧记录。
+0182-0549	apps/web/src/hooks/usePreannotation.ts:120,131	-	下游阶段只对 class_name 命中白名单的父框运行；未命中时跳过该阶段但保留检测框。下游执行失败默认也保留父框并留空属性，只有显式选择 drop_box 才因失败丢框。
+0182-0550	apps/web/src/hooks/usePreannotation.ts:135-136	-	未指定下游投递模式时留空，由后端依据 supported_inputs 推导；不能显式填 full_image 作为默认值，它不是有效投递模式，会被后端拒绝。
+0182-0551	apps/web/src/hooks/usePredictions.ts:7-11	-	预测分页跨 Prediction 按 shape 置信度排序，同一个 Prediction 可拆到多页；续页 offset 必须累计已加载的 shape 数，按 Prediction 数推进会从错误位置取页。
+0182-0552	apps/web/src/hooks/usePredictions.ts:39	-	阈值或模型版本变化会生成新预测查询键，旧键在 30 秒后回收；沿用默认的 5 分钟回收时间，会在连续调阈值时同时积存大量旧查询结果。
+0182-0553	apps/web/src/hooks/usePredictions.ts:58	-	预测类别不在项目标签集中时，采纳请求必须带上人工选定的项目标签；不能直接沿用模型类别或省略映射，否则后端返回 422。
+0182-0554	apps/web/src/hooks/useProjectAccess.ts:5-10	-	项目访问查询键按账号和项目划分，不把 bearer token 放进键，否则令牌刷新会分裂缓存。凭据或账号变化时仍须清缓存并取消在途查询，不能因键稳定而复用旧认证结果。
+0182-0555	apps/web/src/hooks/useProjectAccess.ts:20	-	成员角色更新必须回传 membershipVersion 做 CAS 校验；无条件写入无法识别读取后发生的并发变更，可能用基于旧成员关系的操作覆盖新版状态。
+0182-0556	apps/web/src/hooks/useProjectAccess.ts:31-37	-	项目授权只接受与当前账号和项目匹配、且最近一次查询成功的结果；重查返回 403、查询禁用或上下文切换后，不能拿上次成功的缓存继续授权。
+0182-0557	apps/web/src/hooks/useProjects.ts:108-109	-	类别重命名须由后端在同一原子操作中更新 classes_config 与 annotations.class_name，避免配置和存量标注名称分裂；范围必须用 tool_unit_id 限定，不能连带改掉其他工具单位的同名类别。
+0182-0558	apps/web/src/hooks/useProjects.ts:133-134	-	讨论区提及候选只要求项目可见，不能额外要求成员管理权限。候选查询沿用项目键前缀，否则成员增删或负责人转移时，已有的失效操作不会刷新候选名单。
+0182-0559	apps/web/src/hooks/useProjects.ts:157-160	-	角色变更预览只读；实际写入必须回传预览返回的不透明令牌，不能用客户端重组的影响快照或阻断项代替该次预览的凭据。
+0182-0560	apps/web/src/hooks/useReconnectingWebSocket.ts:21-27,77	-	WS 只由 onclose 为非主动断开安排退避重连；onerror 再调度会重复重试，卸载或禁用后的关闭则不应拉起连接。重试耗尽后只由 URL 或启用状态变化重新触发。
+0182-0561	apps/web/src/hooks/useReconnectingWebSocket.ts:111	-	清理尚在握手的 WebSocket 时，等 onopen 再关闭；直接在 CONNECTING 状态调用 close 会触发浏览器告警。
+0182-0562	apps/web/src/hooks/useSceneTrajectory.ts:1-6	-	ego 轨迹在导入时已固化，常规重查不会得到更新轨迹，因此可用较长的新鲜期。空 poses 表示确实没有位姿，参考框仍可叠加，但不能假装已完成 ego 对齐。
+0182-0563	apps/web/src/hooks/useSessionGuard.ts:4	-	多请求动作在卸载或任一认证状态转换后都须失效；只在动作开始时检查一次会话，会让后续请求在原上下文已失效后继续执行。
+0182-0564	apps/web/src/hooks/useTaskDiscussion.ts:13-17	-	任务讨论须由服务端先统一排序再分页；客户端分别分页拉取标注和反馈后再合并，无法保证当前页是合并时间线中的连续区间。
+0182-0565	apps/web/src/hooks/useTaskDiscussion.ts:28-29	-	任务讨论查询键既要保留既有失效前缀，也要按账号和项目区分；只复用公共键会串用操作权限视图，另起前缀则会漏掉现有的缓存失效操作。
+0182-0566	apps/web/src/hooks/useTaskDiscussion.ts:69-74	-	展开任务讨论分页时保留服务端顺序，按来源与 UUID 的组合去重；重查短暂返回旧页时不会重复渲染，仅按 UUID 去重则会吞掉不同源表的同 UUID 条目。
+0182-0567	apps/web/src/hooks/useTaskLock.ts:8-9,70-71	-	任务锁即使跨卸载和重挂载，也须按旧 POST 完成、DELETE 释放、新 POST 获取的顺序串行。取消旧请求不保证没获锁，且 DELETE 不按获取令牌定位，迟到的释放可能删掉新锁。
+0182-0568	apps/web/src/hooks/useTaskViews.ts:59-62	-	数据管理器的 schema 查询失败后只允许用户显式重试；若在挂载时自动重试，错误分支的反复重挂载会让界面在加载和报错之间循环。
+0182-0569	apps/web/src/hooks/useTasks.ts:60-65	-	刷新期间任务变化可能使游标页重叠，合并时须按任务去重并保留首次出现的位置；直接拼接会使计数、批量选择和加载更多的边界失准。
+0182-0570	apps/web/src/hooks/useTasks.ts:231-232	-	创建标注使用 networkMode=always，让请求尝试后的传输失败进入既有持久化离线队列；若让 TanStack Query 自行暂停，草稿可能一直停在内存里而未入队。
+0182-0571	apps/web/src/hooks/useTasks.ts:234-235,252,354-355	-	标注变更须把提交账号绑定到变量，并在等待取消查询后重新核验；若账号已切换，不得写入新账号缓存或发请求，而应将此次操作按传输失败交给既有队列分类器。
+0182-0572	apps/web/src/hooks/useTasks.ts:246	-	创建标注要在清除 pendingDrawing 前先放入临时缓存条目；若只等重查返回正式标注，两者之间画布会短暂失去该标注。
+0182-0573	apps/web/src/hooks/useTasks.ts:283-284,300-301	-	创建失败只撤销本次临时条目，不恢复整份缓存快照；离线回退同步补回该条目，避免闪烁。创建成功须与当前缓存合并，即使重查已移除临时条目，也不能覆盖新数据或重复插入已有的正式标注。
+0182-0574	apps/web/src/hooks/useTasks.ts:313	-	创建首条标注会使任务从 pending 转为 in_progress，因此成功后还须刷新批次进度；只刷新标注会让批次继续显示旧进度。
+0182-0575	apps/web/src/hooks/useTasks.annotationMutations.test.tsx:184-185;apps/web/src/hooks/useTasks.ts:369-373,401,520,529	-	更新和删除仅在调用方未接管失败回退时负责持久入队，避免自持草稿的事务重复入队；刷新后由队列所有者恢复，新挂载的更新 hook 不接管。入队确认单独记录，错误回调仍收到原始错误。
+0182-0576	apps/web/src/hooks/useTasks.ts:449,615	-	更新或删除只有在离线操作成功持久化后才能报告本地成功；若写入存储失败，须保留失败并回滚乐观缓存，否则界面会显示一项刷新后无法恢复的变更。
+0182-0577	apps/web/src/hooks/useTasks.ts:640-641	-	标注变更结束时，由当前用户的操作通知 usePendingGeom 清除临时几何覆盖；不能只等 800ms 兜底，否则慢网失败回滚时画面可能闪回旧几何。
+0182-0578	apps/web/src/hooks/useTheme.ts:43-52,62-63,112	-	账号的服务端偏好是跨设备真值，但首帧先应用 localStorage 中的主题，不能等登录恢复才着色。仅用非空且不同的服务端值覆盖当前选择，避免登出时把偏好缺失误当成重置。
+0182-0579	apps/web/src/hooks/useTheme.ts:96-97	-	登录态下先乐观更新 authStore，使其他主题实例和 auth-storage 看到同一选择；PATCH 失败不撤销本地主题，只有后续成功读取服务端偏好时才重新对齐。
+0182-0580	apps/web/src/hooks/useVerifiedImage.ts:153	-	解码后的 Blob 只能在对应登录会话、内容定位符和加载尝试内使用；跨这些边界复用会让旧加载结果被当成当前图像，甚至在切换账号后显示上一会话的内容。
+0182-0581	apps/web/src/hooks/useVideoTrackerJobs.ts:106-107,319-322,324-325,378,453	-	TrackerStore 单例切换任务时须清除旧状态、关闭旧 socket 并停掉定时器；异步恢复写回前还须核验任务及 epoch，否则迟到结果会把已清掉的旧候选或完成状态带进新任务。
+0182-0582	apps/web/src/hooks/useVideoTrackerJobs.ts:109-111,333,343-344,1045-1047	-	restoreReviewable 不等 token 就可拉列表；同作用域的拉取若仍在进行，后到的 token 须等它结束并核验 epoch，只为尚未连接的 queued/running 任务补连。重拉已恢复的列表会造成界面抖动。
+0182-0583	apps/web/src/hooks/useVideoTrackerJobs.ts:427-428	-	restoreReviewable 将待审结果和 queued/running 任务分开恢复，不能让一路请求失败阻断另一路；待审侧还须包含已取消但仍有暂存结果的任务，不能仅从运行队列推导。
+0182-0584	apps/web/src/hooks/useVideoTrackerJobs.ts:649-650,951	-	追踪完成或取消后，有暂存结果时先进入审阅，取消纠正任务除外。暂存不直接落库，也不使标注查询失效；只有用户接受才持久化，避免把未审候选当成正式标注。
+0182-0585	apps/web/src/hooks/useVideoTrackerJobs.ts:718	-	接受或丢弃追踪结果遇到 4xx（如 409）时须由审阅操作自行提示并保留审阅条；全局拦截器不会提示此类失败，关闭审阅条会让尚未完成的操作看起来已结束。
+0182-0586	apps/web/src/hooks/useVideoTrackerJobs.ts:821	-	TrackerStore 合并审阅提交响应时须比较 revision；并发刷新可能已经读到更新的持久化决定，按响应到达顺序覆盖会把审阅状态退回旧版本。
+0182-0587	apps/web/src/hooks/useVideoTrackerJobs.ts:1122-1123,1137;apps/web/src/hooks/videoTrackerReviewScope.ts:27	-	只有暂存目标确实归属于当前查看的标注时，才建立 referenceReviewInstanceIds 映射，不能用当前选中项推断归属。无源任务及其候选走 job 级审阅，不进 annotation 索引，以免按轨迹查找时误命中。
+0182-0588	apps/web/src/hooks/__tests__/useGlobalPreannotationJobs.test.tsx:18,135;apps/web/src/hooks/__tests__/usePreannotation.test.tsx:117	-	预标注 WebSocket 卸载时若仍处于 CONNECTING，应等到 onopen 再关闭；直接在握手期间调用 close 会触发浏览器告警。
+0182-0589	apps/web/src/hooks/__tests__/useNotificationSocket.test.tsx:320-321	-	通知 WebSocket 必须连根路径 /ws/notifications；main.py 对该路由无前缀挂载，沿用 HTTP API 的 /api/v1 前缀会连不到通知端点。
+0182-0590	apps/web/src/hooks/__tests__/useNotificationSocket.test.tsx:527	-	通知 toast 批次必须在 flush 时重新检查标签页可见性；即使入队时可见，若此时已转后台也应丢弃整批，以免用户回前台后才看到过时提醒。
+0182-0591	apps/web/src/lib/clipboard.ts:1	-	copyToClipboard 在 Clipboard API 不可用或写入被拒时，仍须用未改动的原值尝试传统复制；现代接口被拒不代表浏览器也禁用用户触发的旧式复制。
+0182-0592	apps/web/src/lib/turnstile.ts:1-6	-	未配置 VITE_TURNSTILE_SITE_KEY 时不执行 Turnstile 验证；若仍要求验证，本地开发环境在没有站点密钥可用时就无法完成注册。
+0182-0593	apps/web/src/lib/turnstile.ts:36-40,63	-	Turnstile 动态脚本必须显式带上页面 meta 中的逐请求 nonce；仅插入脚本 URL 无法满足基于 nonce 的 script-src。开发环境保留占位值，不依赖 Nginx 替换。
+0182-0594	apps/web/src/lib/wsHost.ts:1-15	-	WebSocket 默认走页面同源的 /ws 代理，避免 LAN 或 SSH LocalForward 访问时把浏览器所在机器的 localhost 当成 API 主机；需绕过 Vite 代理时才显式设置 VITE_WS_HOST。
+0182-0595	apps/web/src/lib/filters/filterValues.ts:21	-	parseDelimitedValues 必须保留引号内的逗号；直接按逗号拆分会把一个带逗号的筛选值错误地变成多个查询值。
+0182-0596	apps/web/src/lib/filters/filterValues.ts:59,110;apps/web/src/lib/filters/types.ts:45	-	共享筛选控件把字符串草稿与已应用的 API 查询值分开，只有输入足够完整并能有效提交时才转换；边输入边转换会把尚未写完的中间值提前发给 API。
+0182-0597	apps/web/src/pages/AIPreAnnotate/AIPreAnnotateJobsPage.tsx:46-50	-	AIPreAnnotateJobsPage 的模式须由 URL 的 tab 参数表示；若仅保存在页面内部，ProjectDetailPanel 就无法通过 ?tab=video&project_id= 直接打开指定项目的视频任务。
+0182-0598	apps/web/src/pages/AIPreAnnotate/AIPreAnnotateJobsPage.tsx:88-89	-	图像任务以 URL 为已应用筛选的真值，须保留 `?status=failed` 深链；视频跟踪面板使用独立参数，否则筛选一个面板会改动另一个面板的条件。
+0182-0599	apps/web/src/pages/AIPreAnnotate/AIPreAnnotateJobsPage.tsx:106-107,225-227	-	URL 的 `q` 是已应用查询，输入草稿保留空格，并在外部导航改变 `q` 时重新同步。草稿待提交时不单独纠正越界页码；防抖提交须同时更新 `q` 和页码，否则会先按旧查询请求首页。
+0182-0600	apps/web/src/pages/AIPreAnnotate/AIPreAnnotateJobsPage.tsx:381-382	-	几何任务须显示 worker 根据 `model_variants` 派生的实际模型标识；不能复用文本提示任务的输出模式，否则会把输出形式误报为执行模型。
+0182-0601	apps/web/src/pages/AIPreAnnotate/GlobalPipelineLibraryPage.tsx:4-15,85-86	-	全局库与项目侧共用 `usePipelineComposer` 的新增、改父和键冲突判据。下游 backend 必须不同于源阶段；可用 backend 不足两个时，源节点新增入口须沿用 `canAddChildAt` 禁用，不能放行无法配置的子阶段。
+0182-0602	apps/web/src/pages/AIPreAnnotate/GlobalPipelineLibraryPage.tsx:4-15,146-148;apps/web/src/pages/AIPreAnnotate/components/GlobalStageInspector.tsx:1-19,118	-	全局 Inspector 没有项目上下文：源类别取当前模型，父框类别取上游模型，写回键取输出属性 schema；父框无候选时允许自由输入，不用项目 schema 补齐。仅下游由模型推导 `roi/input/write`，否则会给只消费整图并输出几何的源阶段配置不支持的投递或写回。
+0182-0603	apps/web/src/pages/AIPreAnnotate/GlobalPipelineLibraryPage.tsx:62-63,387;apps/web/src/pages/AIPreAnnotate/components/GlobalStageInspector.tsx:234-236	-	切换编排时按已加载 ID 重挂载源 Inspector，并同时写入 `loadedSourceSeed` 和 `sourcePayload`。回填须有 backend 和模型 ID 且 `modelKey` 为空，几种模式由模型重推；否则旧键会挡住回填、覆盖在编内容，或在回填前将旧配置或空源阶段保存到新名称下。
+0182-0604	apps/web/src/pages/AIPreAnnotate/GlobalPipelineLibraryPage.tsx:164-165,531	-	全局编排没有项目上下文，输入节点须先声明数据类型和执行单位，再据此筛选源模型；反过来由模型推定输入，会让被筛选的模型决定用于判断自身是否适配的条件。
+0182-0605	apps/web/src/pages/AIPreAnnotate/GlobalPipelineLibraryPage.tsx:264	-	不能只更新 `stageCapsRef` 来同步画布能力：引用变更不会触发节点重算，画布会保留旧能力。`usePipelineComposer` 须通过内部 tick 更新 `downstreamPayloads`，让节点重新派生。
+0182-0606	apps/web/src/pages/AIPreAnnotate/components/ChipMultiSelect.tsx:1-6	-	`ChipMultiSelect` 不得把空集自动展开成全选，否则会改写调用方定义的空集语义；允许自由输入时也不能按候选表裁剪已选项，否则表外值会失去可见的删除入口。
+0182-0607	apps/web/src/pages/AIPreAnnotate/components/ClassWhitelistRow.tsx:1-9;apps/web/src/pages/AIPreAnnotate/components/GlobalStageInspector.tsx:108-109	-	源阶段闭集 `class_filter` 只提交 backend 自报的模型原生类别数字索引，空集省略字段表示不过滤；不能提交 chip 文本或项目标签。预标保留原生类名，项目标签由采纳时人工选定。
+0182-0608	apps/web/src/pages/AIPreAnnotate/components/ClassWhitelistRow.tsx:34,92;apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.module.css:523-524	-	源类别和父框类名筛选不用原生 `datalist`，因为页面无法控制其弹层字号，类别多时会撑大弹层。源类别下拉按不区分大小写的子串匹配并截断，空输入不展开整表。
+0182-0609	apps/web/src/pages/AIPreAnnotate/components/ClassWhitelistRow.tsx:105	-	类别搜索框失焦后须延迟关闭候选下拉；立即卸掉选项可能发生在选项的鼠标按下或点击处理完成前，导致用户点了却未选中。
+0182-0610	apps/web/src/pages/AIPreAnnotate/components/GlobalStageInspector.tsx:111-112,165-166	-	变体提交只保留模型声明的轴，显式选择优先于 `default_variants`；两者皆无时省略该轴，不能在前端补造默认值，否则会覆盖后端按启动配置解析的默认项。
+0182-0611	apps/web/src/pages/AIPreAnnotate/components/PipelineGraphCanvas.module.css:113,116,123,164	-	画布节点首行须允许多个徽标换行，否则源类型和执行单位徽标会把中文标题挤成逐字竖排。运行状态点独立定位在右上角，首行留出右侧空间，避免文字或徽标压住状态点。
+0182-0612	apps/web/src/pages/AIPreAnnotate/components/PipelineGraphCanvas.test.tsx:1-6,15;apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.test.tsx:44-45	-	详情面板单测用画布替身隔离 React Flow 的尺寸测量依赖，专测编排和请求；画布点选在具备 `ResizeObserver` 和尺寸桩的测试中验证，约束和布局直接测纯函数，不依赖 jsdom 推导真实布局。
+0182-0613	apps/web/src/pages/AIPreAnnotate/components/PipelineGraphCanvas.tsx:1-11,331	-	`stagesGraph` 是编排真值，画布只派生节点和边，React Flow 本地状态用于尺寸测量。改父须通过约束校验，删除须回写 `stagesGraph`；只调用画布默认删除会把阶段留在编排里。
+0182-0614	apps/web/src/pages/AIPreAnnotate/components/PipelineGraphCanvas.tsx:218-220	-	输入节点的出端口不能随新增入口一起禁用：即使该节点不允许手动加子阶段，已有源模型的子边仍需出端口才能渲染。`canAddChild` 只控制加号。
+0182-0615	apps/web/src/pages/AIPreAnnotate/components/PipelineGraphCanvas.tsx:260-263,272-276	-	阶段参数变更仍同步节点数据，但只在节点集合或父子关系变化时整批同步边并重新 `fitView`，以免画布闪烁。按节点 ID 保留 `measured`；若清空它，尺寸未变的 DOM 不会再通知观察器，节点可能一直隐藏。
+0182-0616	apps/web/src/pages/AIPreAnnotate/components/PreannotateConfigForm.tsx:51-55	-	下游阶段以自己的选择器确定裁剪后执行的识别模型，不能用整图检测或端到端模型下拉替代，否则会把整图模型选择误当成下游配置；该阶段的变体、参数和 backend 配置仍保留。
+0182-0617	apps/web/src/pages/AIPreAnnotate/components/PreannotateConfigForm.tsx:57-60,164-166	-	下游阶段用 `parent_class_filter` 按父框类名决定处理哪些裁剪区域，不能沿用整图模型的类别白名单，也不能写入下游 `class_filter`，否则会把父框匹配和模型自身类别过滤混为一谈。
+0182-0618	apps/web/src/pages/AIPreAnnotate/components/PreannotateConfigForm.tsx:114-117	-	用 `cfg.backendId` 区分未接入后端与能力声明不全。未接入时参数区只给接入引导，不能使用能力缺省的兜底面板，否则会在尚无后端时露出 SAM 风格配置。
+0182-0619	apps/web/src/pages/AIPreAnnotate/components/PreannotateConfigForm.tsx:156	-	源模型可选不代表可批量运行：声明 `batchable=false` 的交互或有状态模型不能提交到批量预标端点，否则请求会被以 422 拒绝。
+0182-0620	apps/web/src/pages/AIPreAnnotate/components/PreannotateConfigForm.tsx:254-255,267-268	-	不能因 OCR 模型没有 `params` 就隐藏所有配置：版本、尺寸和语言可能由 `supported_variants` 声明。只有变体轴时须保留变体选择器，而不渲染空的 `SchemaForm`。
+0182-0621	apps/web/src/pages/AIPreAnnotate/components/PreannotateConfigForm.tsx:292-294	-	文本检测模型固定输出框，不能复用文本分割模型的输出形态选择器，否则会提供检测模型无法产生的掩膜或全部输出选项。
+0182-0622	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.module.css:293	-	未选中的阶段卡只做 CSS 隐藏，不能随选中状态卸载；每张卡持有自己的 `usePreannotateConfig` 状态，卸载后切回会丢失该卡尚未提交的配置。
+0182-0623	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.test.tsx:39-40,76-77	-	详情面板单测须替换挂载即连接的批次及预标进度 WebSocket；直接挂载真实连接会在无 WS handler 时使测试 worker 崩溃。连接行为与进度快照消费另行验证。
+0182-0624	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.test.tsx:288-289	-	未选批次只禁止运行，不禁止编辑或保存预设。若把整个表单绑到批次选择，虽能阻止空选提交，却也会阻止用户在选批次前完成配置。
+0182-0625	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:61	-	`PipelineGraphCanvas` 由详情面板按需加载，不能改为静态引入，否则 React Flow 会进入主包，而不再留在加载详情画布时才需要的分块。
+0182-0626	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:103-107	-	不要把 prompt、output_mode、predict_mode 从请求参数原样复制到阶段对象。源阶段的 prompt 由请求顶层承载，下游消费父阶段给出的 ROI，不应把源提示词当成下游输入。
+0182-0627	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:209-210,421-422;apps/web/src/pages/AIPreAnnotate/components/usePreannotateConfig.ts:72-77,199-205,270	-	视频执行单位随 source 保存：默认整段交给接收 video 的 tracker，不能套用 full_image 筛选，结果写入 video_track；选 frame 才展开为图像几何检测，写入 video_bbox。图像项目不切换执行单位。
+0182-0628	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:226-227,1127	-	已保存编排可跨 backend，须用项目当前注册的后端全集检查引用；只查当前选中的后端会误判合法编排。服务删除或停用后若已不在注册列表中，详情提示失效，工作台禁用「按编排跑」。
+0182-0629	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:296,302,340,715	-	多阶段任务运行中应读取项目 WS 的逐阶段累加快照，不能用单阶段统计代替；没有快照时回读最后一个多阶段 job 的结果作为终态记录。单阶段任务没有逐阶段统计。
+0182-0630	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:305-308,832-833	-	AI 预标可先于人工分派：除 active 外，标注员和质检员均未分派的 draft 也可提交。前端用 batchPreannotationEligible 筛入口，提交时由后端复验；预标不代替进入人工流程所需的分派和激活。
+0182-0631	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:322	-	必须先读全项目已就绪批次，再在本地筛历史和分页。若先截断队列再筛，截断点之后符合历史条件的批次会被漏掉。
+0182-0632	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:334	-	批量预标默认使用 skip_predicted；若默认重跑已有预测的任务，会在旧结果上叠加重复标注。
+0182-0633	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:404-406;apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:56-57,518	-	父框类别候选应反映下游实际可能收到的框：直连源时优先取模型类别与白名单的交集，空白名单不限，取不到才回退项目类别。候选不限制手输；父为中间阶段时用自由文本。
+0182-0634	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:417-418	-	多阶段写回键冲突默认由后端拒绝，不能把隐式覆盖当成正常写回。只有用户显式选择 last_wins，才允许末位阶段覆盖前面的值。
+0182-0635	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:500	-	stageCapsRef 的值变了，ref 引用不会变，不能靠引用触发 graphNodes 重算。能力更新由 composer 的 tick 带动画布重算，否则节点可能继续显示旧能力。
+0182-0636	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:530-532,553-554	-	仅有源模型时，批跑须省略 pipeline_stages，以兼容单阶段执行；保存则必须保留单元素阶段数组，否则工作台没有可用于当前题的项目编排。保存本身不执行。
+0182-0637	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:847-848	-	批次选择只限制运行，不应限制配置区或预设保存；把配置区也绑在批次选中状态上，会阻断先配置、后选批次的流程。
+0182-0638	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:877-878	-	详情面板只保存 private 编排：组织范围要求面板未采集的 organization_id，公共范围要求超管权限。跨项目复用走全局 Pipeline 库，而不是放宽详情面板的保存范围。
+0182-0639	apps/web/src/pages/AIPreAnnotate/components/ProjectDetailPanel.tsx:945;apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:67	-	切换检查节点时只用 hidden 隐藏 StageCard，不卸载；每张卡独立持有 usePreannotateConfig 状态，卸载会让切回节点时丢失未提交的配置。
+0182-0640	apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:30	-	StageCard 的运行态徽标使用 Badge 语义变体，不写死颜色；固定颜色会绕过设计系统为同一状态提供的暗色主题样式。
+0182-0641	apps/web/src/pages/AIPreAnnotate/components/StageCard.test.tsx:225;apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:139-144	-	下游只接受非交互的原子批处理模型，不能按 OCR 任务名把 ocr-e2e 当成识别阶段。原子 OCR 识别可跨后端消费检测框并产出文本、方向和语言属性，不需要再次做整图检测。
+0182-0642	apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:158	-	下游默认优先纯分类模型，因为父阶段已经定位 ROI，再选检测模型会重复定位；没有可用分类模型时才回退到首个可用下游模型。
+0182-0643	apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:171-174,226,531,567	-	classifyDownstream 区分两种几何投递：框分割接收整图和父框，追加 polygon，不使用 ROI pad 或属性键白名单；子物体检测接收父框裁图，须把坐标映回整图。两者不配置属性写回，但都可作为父阶段。
+0182-0644	apps/web/src/pages/AIPreAnnotate/components/StageCard.test.tsx:227,260	-	ocr-rec 借同后端的整图 OCR 模型使共享配置就绪并取得 version、size、lang 变体轴，但执行仍须提交 ocr-rec，否则会把父框识别换成整图 OCR。
+0182-0645	apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:189	-	OCR 对齐以共享配置的当前模型是否已对齐为守卫，不以 selectTaskModel 的引用变化判断；该函数每次渲染都会换引用，直接依赖它会反复执行对齐。
+0182-0646	apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:200-201	-	box-seg 由后端和所选模型直接构造阶段；若统一等待文本提示或 configReady，会卡住无需提示的框分割。选了目录项时仍要等 stageArgs，且只保留该模型声明的变体轴。
+0182-0647	apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:236-238,595-598	-	分类和 OCR 识别可复用 buildArgs 取后端和参数，但变体只保留下游模型声明的轴，且不得透传源 class_filter。其类别索引属于源整图检测模型，到了下游会被误用或忽略。
+0182-0648	apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:279,333	-	上报只应由 payload 或能力内容变化触发：onChange 用 ref 读取最新回调，supportedInputs 按序列化内容比较。否则容器重渲染换出的函数或数组引用也会造成重复上报。
+0182-0649	apps/web/src/pages/AIPreAnnotate/components/StageCard.test.tsx:258;apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:290-291,295,504	-	仅当能力已就绪、模型明确自报分类类型且缺少 class 时，才提示分类属性为空并会触发端点 422。不能把缺少能力声明当作缺少 class，也不能把此检查套到几何阶段或 OCR 识别。
+0182-0650	apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:298-299,583	-	只有模型声明 output_attribute_schema 时才核对 write.keys，并警告 schema 未列出的键可能拿不到值。旧模型没有 schema 不代表不产出属性，不能据此把所有写回键报成不匹配。
+0182-0651	apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:308-309,494;apps/web/src/pages/AIPreAnnotate/components/usePreannotateConfig.ts:631-633	-	源或下游模型明确声明 resource_profile.batchable=false 时，配置阶段只预警，提交由端点拒绝并返回 422。下游不能把非布尔值当成能力声明，以免把未声明误判为不支持批处理。
+0182-0652	apps/web/src/pages/AIPreAnnotate/components/StageCard.tsx:550-551	-	父阶段产出几何对象时，可用子物体名前缀区分写回键（如 hat_color）；不能强制添加前缀，留空须沿用原键，否则会改变既有双阶段编排写入的属性。
+0182-0653	apps/web/src/pages/AIPreAnnotate/components/supportsFullImageInput.test.ts:1-6;apps/web/src/pages/AIPreAnnotate/components/usePreannotateConfig.ts:40-43	-	单图和批量整图预标都须排除明确只接收 crop 的模型；按 OCR task 取首项可能选中 RapidOCR 的 ocr-rec，任务成功却没有框。supported_inputs 缺失或为空仍按支持整图兼容。
+0182-0654	apps/web/src/pages/AIPreAnnotate/components/usePreannotateConfig.ts:169-171,261-264,306-307,661	-	统一下拉按所选模型的 task 进入对应配置路径，不能把文档任务固定到同族首项，否则端到端 OCR 模型可能无法选中。当前 ID 缺失或失效时，用首个可选模型的 task 初始化，避免纯 OCR 后端落入无可用面板的文本路径。
+0182-0655	apps/web/src/pages/AIPreAnnotate/components/usePreannotateConfig.ts:194	-	单阶段预标的默认候选不能按是否为 composite 一刀切；vehicle-attr 这类模型能在一次推理中完成组合任务，排除它会迫使本可单阶段完成的任务拆成多个阶段。
+0182-0656	apps/web/src/pages/AIPreAnnotate/components/usePreannotateConfig.ts:256-258;apps/web/src/pages/AIPreAnnotate/utils/panelShape.ts:106-114	-	文档、闭集几何和文本批量的变体轴、组合及默认值以各自选中的模型为准；文本路径只有无选中模型时才回退到后端顶层声明，否则顶层并集会把仅分割适用的 SAM 选项暴露给检测模型。
+0182-0657	apps/web/src/pages/AIPreAnnotate/components/usePreannotateConfig.ts:353-355	-	检测固定输出框，文本分割只提供模型支持的 mask 或 both；在分割任务中再提供仅框模式，会把已有的检测任务重复暴露为分割选项。
+0182-0658	apps/web/src/pages/AIPreAnnotate/components/usePreannotateConfig.ts:368-372	-	几何参数应优先读取所选模型的 schema，缺失才回退到 /setup 顶层；若始终采用检测型顶层 schema，追踪算法枚举和 OBB 专属参数将无法配置。
+0182-0659	apps/web/src/pages/AIPreAnnotate/components/usePreannotateConfig.ts:553	-	currentVariantSlice 必须以 variantSource 为依赖，因为来源切换会更新非响应式的 variantAxisKeysRef；只依赖 paramsValue 时，即使值没变，切片也可能继续使用旧变体轴。
+0182-0660	apps/web/src/pages/AIPreAnnotate/components/usePreannotateConfig.ts:567-568	-	切换 variant 时清除类别白名单的勾选，避免将旧变体的类别索引当作新模型的类别；不要连带清除后端类别表，后者仍按 task 缓存。
+0182-0661	apps/web/src/pages/AIPreAnnotate/components/usePreannotateConfig.ts:609-610	-	buildArgs 必须把版本、尺寸、语言等变体轴放入 model_variants，而不是留在 params；后端 resolve() 不从 params 读取这些轴，放错位置会使推理使用默认档。
+0182-0662	apps/web/src/pages/AIPreAnnotate/hooks/usePipelineComposer.ts:35-38	-	下游必须使用不同于源检测的后端，因而只有至少两个不同的可用后端时才能加子阶段；项目页按已启用后端计数，全局页须对池内后端去重，不能把同一后端的多个池条目当作可用替代。
+0182-0663	apps/web/src/pages/AIPreAnnotate/hooks/usePipelineComposer.ts:82	-	usePipelineComposer 不感知项目或编排入口的切换，调用方必须在对应的 useEffect 中调用 reset；只切换外部上下文会让上一入口的阶段图残留在新入口。
+0182-0664	apps/web/src/pages/AIPreAnnotate/hooks/usePipelineComposer.ts:152	-	阶段卡片写入 stagePayloadsRef 后必须递增 stageTick；ref 写入本身不会使 useMemo 失效，只存新值而不更新 tick 会让派生的阶段 payload 继续使用旧配置。
+0182-0665	apps/web/src/pages/AIPreAnnotate/hooks/usePipelineComposer.ts:156-157	-	复合器只校验模型阶段下挂卡片的就绪状态，纯输入节点没有模型配置；直接挂在输入下的源式阶段必须由调用方用 cfg.configReady 门控，不能以卡片校验通过替代源配置就绪。
+0182-0666	apps/web/src/pages/AIPreAnnotate/utils/panelShape.ts:1-11	-	按所选模型声明的提示词和几何能力决定面板字段，不能按后端名称判定开集或闭集；同一后端可同时提供两类模型，按后端分类会给其中一类显示错误的输入或输出控件。
+0182-0667	apps/web/src/pages/AIPreAnnotate/utils/panelShape.ts:47-48,61-62	-	模型未声明 supported_geometric_outputs 或 supported_prompts 时，分别保留输出形态选择或文本框；缺少声明不是明确不支持，不能据此锁定输出形态或隐藏文本输入。
+0182-0668	apps/web/src/pages/AIPreAnnotate/utils/panelShape.ts:73-79,81	-	文本批量由后端根据 output_mode 编排框和掩膜，输出选项须取顶层 supported_text_outputs，不能被单个检测模型锁成仅框。该声明缺失或为空时保留框、掩膜和两者三项。
+0182-0669	apps/web/src/pages/AIPreAnnotate/utils/pipelineGraph.test.ts:56;apps/web/src/pages/AIPreAnnotate/utils/pipelineGraph.ts:280-285,451	-	depthBySid 沿父链计算深度，MAX_DEPTH 的三层只计模型阶段；改挂后子节点可能排在父节点前，顺序扫描会低估深度并误放行加子。buildFlow 仍需防护环和过深图，不能假定异常输入都已在编辑时拦截。
+0182-0670	apps/web/src/pages/AIPreAnnotate/utils/pipelineGraph.test.ts:115;apps/web/src/pages/AIPreAnnotate/utils/pipelineGraph.ts:106-113,139,143	-	StageCard 与 GlobalStageInspector 按同一模型归类推导下游 ROI、输入和写回，不允许独立手选，以免裁剪检测的几何回映、框提示分割的掩膜或 OCR 的文本写回用错路径。仅检测下游显式发送 input=crop，其余由后端按 supported_inputs 补齐。
+0182-0671	apps/web/src/pages/AIPreAnnotate/utils/pipelineGraph.test.ts:446;apps/web/src/pages/AIPreAnnotate/utils/pipelineGraph.ts:36-40,324-330	-	纯数据输入 ROOT_SID 保留 parentSid=null，不绑定模型或显示入边连接柄；首模型绑固定 SOURCE_SID，对应后端 parent_stage=null 的 stage 0。输入根不受加子时的几何资格限制，源阶段也不能因配置由外部管理、复合器缺少 payload 而失去挂下游资格。
+0182-0672	apps/web/src/pages/AIPreAnnotate/utils/pipelineGraph.test.ts:469	-	删除守卫必须排除 ROOT_SID，不能沿用普通阶段的删除规则；根节点不是模型阶段，删除它会级联清空整棵编排树。
+0182-0673	apps/web/src/pages/AIPreAnnotate/utils/pipelineGraph.ts:2-8	-	stagesGraph 是拓扑的唯一真值，React Flow 节点和边只从它派生，不能在画布侧另存一份可独立修改的拓扑，否则画布与实际编排会分叉。pipelineGraph 只引入 React Flow 类型，使布局和编辑校验可在 Node 中脱离画布运行时测试。
+0182-0674	apps/web/src/pages/AIPreAnnotate/utils/pipelineGraph.ts:231,233,238-241,243-246	-	stageWarning 等能力查询就绪后再判断，并区分未声明和明确否定；旧后端未声明 supported_inputs 时跳过可达性检查，类别产出或批量能力未知也不触发对应警示，以免把缺失元数据当成不兼容。
+0182-0675	apps/web/src/pages/AIPreAnnotate/utils/pipelineGraph.ts:250-257,263	-	画布能力检查只发警示，不替代运行端点的拒绝判定；源和下游都先检查 batchable，再检查几何输入可达性或属性产出，避免首条警示与端点的拒绝原因不一致。
+0182-0676	apps/web/src/pages/AIPreAnnotate/utils/pipelineGraph.ts:273	-	OCR 下游不适用 class 属性检查：识别结果可写入文本、朝向或语言，若沿用分类阶段的 class 要求，会把有效识别错误判成没有可用输出。
+0182-0677	apps/web/src/pages/AIPreAnnotate/utils/pipelineGraph.ts:359-367	-	改挂须替换旧入边以维持单父树，拒绝自连、原父和后代，并要求新父产几何且整棵子树不超 MAX_DEPTH；只检查被拖节点会漏掉后代超深。子节点的 supported_inputs 兼容性由端点判定，不满足时返回 422。
+0182-0678	apps/web/src/pages/AIPreAnnotate/utils/useAiParamPresets.ts:1-10	-	User.preferences 的 extra:forbid 拒绝扩字段，原偏好只能按后端记最后一套参数，不能承载多套具名预设；具名 variant＋params 按后端及任务类型存入 localStorage，因此不跨浏览器或设备同步。
+0182-0679	apps/web/src/pages/Admin/AdminPeoplePage.tsx:86	-	成员管理的原生 select 和 input 需在组件内重置默认外观；若把重置交给全局 preflight，在未启用它时控件会退回浏览器默认样式。
+0182-0680	apps/web/src/pages/Admin/AdminPeoplePage.tsx:117,143,187	-	project_admin 的成员请求必须指定其管理的项目，不能把未选项目当成全局查询，否则后端返回 403；有可用项目时默认选首项，选定前不发请求。
+0182-0681	apps/web/src/pages/Admin/AdminPeoplePage.tsx:477-478,484	-	按驳回原因或类别下钻只在项目模式开放，因为任务查询必须带 project_id；复用审核队列时还须传 assignee_id，否则结果会混入同项目其他成员的任务。
+0182-0682	apps/web/src/pages/Admin/AnalyticsPage.test.tsx:1-6;apps/web/src/pages/Me/MyPerformancePage.test.tsx:1-6	-	分析页与个人绩效页的 Recharts 冒烟测试只断言图表容器外的文案或 KPI；jsdom 中容器尺寸为零，断言图内内容会把测试环境未渲染误判为页面回归。
+0182-0683	apps/web/src/pages/Admin/AnalyticsPage.tsx:3-12	-	分析页首次 DuckDB 同步前收到 503 时应提示数据初始化中，不能按空结果展示，否则会把统计数据尚未生成误报为没有活动。
+0182-0684	apps/web/src/pages/Admin/AnalyticsPage.tsx:32,55-56	-	Recharts 的语义色从运行时 --sc-* 令牌读取，切换主题时必须重读；硬编码或只在挂载时取色，会使图表在换主题后仍沿用旧配色。
+0182-0685	apps/web/src/pages/Admin/AnalyticsPage.tsx:44	-	分析热力图按 DuckDB dayofweek() 对齐星期标签：0 为周日，6 为周六；若改用周一为 0 的索引，活动会归到错误的星期。
+0182-0686	apps/web/src/pages/Annotate/AnnotatePage.tsx:286-287,299-300;apps/web/src/pages/Dashboard/MyBatchesCard.tsx:58,225-227	-	标注工作台与批次卡不要求所有任务先动工才允许送审；有 pending 或 in_progress 项即可发起，仍有 pending 时须确认。rejected 不计入本次提交，必须先重做。
+0182-0687	apps/web/src/pages/Audit/AuditPage.tsx:109	-	审计页应按字段从 URL 回填筛选草稿，不能因一个字段变化就重置整份草稿，否则会覆盖其他字段尚未提交的编辑。
+0182-0688	apps/web/src/pages/Audit/AuditPage.tsx:357	-	审计事件范围下拉框保留无障碍名称，但不展示可见标签；标签会把控件挤到第二行，使筛选面板错位，直接去掉名称则会让控件失去无障碍标识。
+0182-0689	apps/web/src/pages/Audit/auditUrlState.ts:88	-	审计 URL 指定 detail_key 后，空字符串仍是有效的 detail_value；若用真值判断把它当作未设置，就无法按该字段的空字符串值筛选。
+0182-0690	apps/web/src/pages/Dashboard/AdminDashboard.tsx:28;apps/web/src/pages/Dashboard/AdminProjectsDashboard.tsx:50;apps/web/src/pages/Dashboard/DashboardPage.tsx:48-50;apps/web/src/pages/Dashboard/ViewerDashboard.tsx:27	-	各项目看板按媒体 data_type 而非标注 type_key 放行工作台：LiDAR 和视频各用对应工作台，检测、OCR、分割共用图像工作台；按子类型列白名单会漏放新增的图像子类型。
+0182-0691	apps/web/src/pages/Dashboard/AdminDashboard.tsx:53	-	管理看板只有在接口保证按创建时间倒序返回时，才能截取前五项作为最近项目；若接口改按名称或更新时间排序，这五项就不再代表最新创建的项目。
+0182-0692	apps/web/src/pages/Dashboard/DashboardPage.tsx:75;apps/web/src/pages/Dashboard/MyBatchesCard.tsx:336-337	-	项目与批次的已动工进度不能用完成率代替：进行中的任务已经有投入，进入审核后也不应归零。批次另列已送审和审核通过，避免待审核时把已有标注进度显示为零。
+0182-0693	apps/web/src/pages/Dashboard/DashboardPage.tsx:262	-	看板用独立的 URL 参数 layout 记录列表或网格布局，不复用页面级 view；否则切换布局会覆盖页面视图状态。
+0182-0694	apps/web/src/pages/Dashboard/EmployeeDashboard.tsx:17-24,26-27	-	员工身份按项目由服务端筛选，标签只切工作视图，不能当成全局角色。初始标签以 null 表示尚未选定，不能先落到标注页，否则仅有查看权限的员工会看到空白页，而非只读项目列表。
+0182-0695	apps/web/src/pages/Dashboard/ExportModal.tsx:270	-	视频导出的帧模式只对 Video JSON 开放；MOT/KITTI 按采样网格输出，原生 JSON 保留源帧，通用帧模式会暗示这些格式可以切换其固定的帧选择方式。
+0182-0696	apps/web/src/pages/Dashboard/ProjectFilterControl.tsx:19-20	-	筛选触发器随看板直接加载，仅延迟加载弹层依赖；弹层加载后不能在关闭时立即卸载，否则 Radix 无法完成关闭流程并将焦点归还触发器。
+0182-0697	apps/web/src/pages/Dashboard/ReviewerDashboard.test.tsx:79	-	审核看板测试在 RTL 卸载 Host 前的 afterEach 清空 decisionDialog 队列；仅卸载组件不会清掉残留对话框，它们可能进入下一用例。
+0182-0698	apps/web/src/pages/Dashboard/ReviewerDashboard.tsx:130-131	-	两步退回弹窗打开前必须锁定点击时的 taskId；若确认时才读取当前任务，等待期间切换任务会把退回操作提交到另一项。
+0182-0699	apps/web/src/pages/Dashboard/ReviewerDashboard.tsx:449	-	最近审核记录与任务队列应使用一致的状态文案，并显式映射 rejected；缺少该映射会让最近记录走回退分支，直接显示英文状态值。
+0182-0700	apps/web/src/pages/Dashboard/useDashboardQuerySync.ts:20-27	-	看板本地写 URL 时保留搜索草稿并防抖 250ms，不能将回读当作导航而抹掉输入；外部或历史导航则必须以链接覆盖草稿，即使 q 未变也不能跳过。
+0182-0701	apps/web/src/pages/Datasets/DatasetDetailPage.test.tsx:404	-	保存视图弹窗持有焦点不代表筛选范围被锁定；浏览器历史导航仍能改变范围，若以焦点作为不变依据，就会沿用旧筛选范围。
+0182-0702	apps/web/src/pages/Datasets/DatasetQualityBulkReview.tsx:164	-	批量质检进入非预览终态时应使数据集质检查询失效；若只在前台提交回调里刷新，后台自行完成的批次会使页面继续显示旧状态。
+0182-0703	apps/web/src/pages/Datasets/DatasetQualityPanel.test.tsx:154	-	启动质检的异步响应须归属发起请求的弹窗；若等待期间通过浏览器导航切换了运行，旧响应不能用当前页面上下文回写 URL，否则会覆盖新运行。
+0182-0704	apps/web/src/pages/Datasets/datasetsUrlState.ts:114	-	数据集 URL 中无效的筛选条件应交给校验处理，不能静默丢弃；删除条件会让原本受限的查询返回更宽的结果范围。
+0182-0705	apps/web/src/pages/Login/LoginPage.tsx:19-21	-	登录不将 /unauthorized 等错误页作为返回目标；没有有效业务目标时回到角色默认首页，否则换账号登录后仍可能落到上一会话的拒绝提示页。
+0182-0706	apps/web/src/pages/Login/LoginPage.tsx:47-49	-	主动退出标记应等跳转完成、登录页挂载后再清除；清得太早，带 from 的认证跳转会覆盖退出导航，继续保留则会妨碍后续未登录访问保留来源。
+0182-0707	apps/web/src/pages/Login/LoginPage.tsx:55	-	Turnstile 凭证仅可使用一次；每次登录失败后都要丢弃旧凭证并重建组件取新凭证，否则重试仍会因沿用已用凭证而失败。
+0182-0708	apps/web/src/pages/Login/VerifyEmailPage.tsx:14	-	邮箱验证用 ref 防止 StrictMode 重跑 effect 时重复提交同一个一次性 token；否则首次验证成功后，第二次请求仍会收到「已使用」错误。
+0182-0709	apps/web/src/pages/Me/MyPerformancePage.tsx:28-29	-	MyPerformancePage 的 KPI 固定为四周，与按周聚合的趋势、团队均线、质量分和周环比保持同一时间口径；若只让 KPI 随 period 变化，同屏数字就不能按同一窗口比较。
+0182-0710	apps/web/src/pages/Me/MyPerformancePage.tsx:35,47	-	主题切换时须触发重渲染，并从根元素重新读取 shadcn 的运行时 token；只在初次渲染取色会让 Recharts 在切换后继续使用旧主题颜色。
+0182-0711	apps/web/src/pages/Me/MyPerformancePage.tsx:128	-	类别覆盖只列 top‑N，占比分母仍包含未列出的类别；不能把返回项重新归一化到 100%，否则会把未展示类别的份额分摊给已展示类别。
+0182-0712	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.test.tsx:230-231,276-277;apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:147-148,158-160,206-207,237-240,291-294	-	目录以普通登录用户可读的 /instances 为基础，按 registry ID 合并仅含项目启用关联、仅超管可读的 overview；不能把 overview 当必需数据源，也不能用 env_only 识别内置实例，因为 /instances 的 source 使用 env/manual，否则会漏列服务。
+0182-0713	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.test.tsx:296-297;apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:95-98	-	实例转模型时保留两种输出属性字段，ModelCard 优先读 schema 的 label/key，缺失时回退到扁平类型；若只保留 schema，仍仅上报扁平字段的 gsam2、sam3、yolo 会被显示为无属性。
+0182-0714	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.test.tsx:318;apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:178-180	-	跨项目注册按 URL 合并为一个探测目标，保留首条记录发起 /capabilities 请求，同时汇集其余项目名；若按项目逐条探测，同一端点会重复分组和收请求，可能触发限流。
+0182-0715	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.test.tsx:375-376;apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:286	-	协议词表越界诊断须按 model_id 关联到对应 ModelCard，而不是统一标到后端；一个后端可服务多个模型，后端级标记会让未越界的模型也看似有问题。
+0182-0716	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:2-15,433,559-560;apps/web/src/pages/ModelMarket/ModelMarketPage.tsx:21-27	-	匹配模型数按目录当前渲染口径计算，总数取目录模型全集，协议类别另计；父页不能按项目重算模型数，否则同名指标会混用不同统计对象，项目绑定和运行观测也各自保留其统计口径。
+0182-0717	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:72-75,363-365	-	协议卡按后端名和模型 ID 优先取 /capabilities 数据，仅在无法匹配时用 /instances 合成 ModelCard；实例响应虽可提供资源徽标，却不能据此推定运行时池大小或加载状态。
+0182-0718	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:130-131;apps/web/src/pages/ModelMarket/ModelMarketPage.test.tsx:93;apps/web/src/pages/ModelMarket/ModelMarketPage.tsx:56;apps/web/src/pages/ModelMarket/RegisteredBackendsTab.tsx:67-68	-	市场主标签和注册子页的显式切换新增 URL 历史项，目录分组、视图切换及筛选编辑则替换当前项，catalog_* 多选用重复键；否则后退会跳过页面切换，或被逐次编辑占满。
+0182-0719	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:145,372-374,640,642-644	-	任务分组的类别取自独立协议目录，零接入也保留协议卡；未接入横幅仅在所有卡均无挂载模型时显示，不能按项目注册数判断，否则会把 Compose 通过环境接入的 gsam2、sam3 误报为未接入。
+0182-0720	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:248	-	即使 /capabilities 通常已为旧协议后端合成单模型，目录仍须在 models 为空时用顶层字段合成一项；直接以空数组为准会让仍有顶层能力信息的旧后端从目录消失。
+0182-0721	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:265	-	非 connected 后端即使还有可展示的能力数据，也须标记为 stale；离线或最近探测失败时这些值可能来自缓存，不能把有数据等同于已确认的当前状态。
+0182-0722	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:267-269	-	目录名优先采用后端协议自报的 cap.name，缺失才回退到项目名称字段；项目别名在注册状态中显示，不能让某个项目的局部命名替代后端在目录中的名称。
+0182-0723	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:487-488	-	模型服务数与项目级注册数分开统计；计算服务数时只补入未出现在已启用注册集合中的内置 registry ID，不能直接把内置实例数相加，否则同一服务会在两路数据中重复计数。
+0182-0724	apps/web/src/pages/ModelMarket/CapabilityCatalogPanel.tsx:626	-	后端探测失败时须提示目录可能缺项，而不是把当前结果当作完整清单；未探测到的能力并不等于后端没有该能力。
+0182-0725	apps/web/src/pages/ModelMarket/GlobalBackendFormModal.tsx:154	-	GlobalBackendItem 不返回 extra_params，编辑时的空白输入不能视为服务端原值为空；未填写就应省略字段，提交空值会覆盖服务端已有配置。
+0182-0726	apps/web/src/pages/ModelMarket/ModelMarketPage.tsx:51-53	-	项目管理员可进入模型市场并查看只读注册管理，但不能挂载仅超管可用的 /observe 面板；只隐藏入口而保留轮询，会让会话每 60 秒收到一次 403。
+0182-0727	apps/web/src/pages/ModelMarket/ModelMarketPage.tsx:68,75-77	-	标签规范化只在 URL 已有 tab 键时运行，无参数入口不补写默认值；旧 ?tab=failed 由独立逻辑替换导航到 /ai-pre/jobs?status=failed，避免规范化与迁移同时写路由。
+0182-0728	apps/web/src/pages/ModelMarket/ProtocolCapabilityCard.tsx:18	-	ProtocolCapabilityCard 通过 infraLabel 接收基础设施标签，不从面板反向导入 INFRA_LABELS；面板已依赖该卡片，反向导入会形成模块循环。
+0182-0729	apps/web/src/pages/ModelMarket/RegisteredBackendsTab.test.tsx:22-23,575	-	测试 Radix 标签切换时用 userEvent.click 走完整指针交互；仅派发 click 会跳过实际触发切换的 pointerdown，在 jsdom 中不能可靠验证切换。
+0182-0730	apps/web/src/pages/ModelMarket/RegisteredBackendsTab.test.tsx:412-413;apps/web/src/pages/ModelMarket/RegisteredBackendsTab.tsx:190-193,197,420	-	注册管理计数必须区分加载、未知和真实零值；/all 失败且无缓存时实例数为未知，不能用 0 兜底，否则会把未取得数据误报为空注册表。
+0182-0731	apps/web/src/pages/ModelMarket/RegisteredBackendsTab.test.tsx:735;apps/web/src/pages/ModelMarket/RegisteredBackendsTab.tsx:2-25,79-80	-	项目管理员收到的 routing_policy 由服务端投影为 unknown，不能下发真实策略后再由前端隐藏；若打开超管子页深链，应回到可见子页且不发超管查询。
+0182-0732	apps/web/src/pages/ModelMarket/RegisteredBackendsTab.test.tsx:930-933	-	collectDiagnostics 用 code、subject_type、subject_id 联合去重，不能只按关联服务池合并；池离线与池内实例熔断即使指向同一池，仍是不同层级的问题。
+0182-0733	apps/web/src/pages/ModelMarket/RegisteredBackendsTab.tsx:167-170	-	注册管理各子页都依赖拓扑，拓扑失败且无缓存时应显示整页错误，不能继续渲染成空拓扑；仅运行快照失败时则保留拓扑，只标记运行数据不完整。
+0182-0734	apps/web/src/pages/ModelMarket/RegisteredBackendsTab.tsx:256-257	-	RegisteredBackendsTab 须在复制按钮、新鲜度指示和来源错误徽标外保留 TooltipProvider；这些 Radix Tooltip 依赖祖先上下文，移除外层 provider 会让它们失去所需上下文。
+0182-0735	apps/web/src/pages/ModelMarket/RuntimeObservePanel.test.tsx:5-6	-	jsdom 不提供 ResizeObserver，挂载 Radix Tooltip 和 ScrollArea 需要最小替身；该替身不计算布局，不能把挂载或渲染断言当成布局已验证。
+0182-0736	apps/web/src/pages/ModelMarket/RuntimeObservePanel.test.tsx:346-347	-	池级驻留只有在状态、载荷和来源均可确认时才视为已知；仅凭原始字段非空就计数，会把未知状态、畸形数据或未核实来源误报为零驻留。
+0182-0737	apps/web/src/pages/ModelMarket/RuntimeObservePanel.tsx:79-81,131	-	运行观测不能只依赖 /observe：池成员须按 registry_id 从 /all 补齐注册记录和 GPU 申领，而预热所需的 projectId 取自 /overview 中首个启用该后端的项目。
+0182-0738	apps/web/src/pages/ModelMarket/RuntimeObservePanel.tsx:120-121	-	/observe 不提供服务池或注册记录身份，须先按 registry_id 找到后端，再以规范化 URL 匹配观测数据；URL 匹配只用于展示，不能替代路由关联键。
+0182-0739	apps/web/src/pages/ModelMarket/RuntimeObservePanel.tsx:502-506	-	预热优先调用后端声明的通用 /warmup，只对旧后端回退到 /reload；固定使用任一端点都不能覆盖这两种接口契约。
+0182-0740	apps/web/src/pages/ModelMarket/VariantPanel.tsx:94-95,101-103,121,269-270	-	变体优先读 loaded_keys：图像键为 sam=X/dino=Y，对应 ISO 最近使用时间，视频键是 SAM 变体名；无可用新条目才回退 loaded_variants，旧 per_variant_lru_ts 按 sam/dino 读取单调时钟相对值，不能当作 ISO 时间。
+0182-0741	apps/web/src/pages/ModelMarket/VariantPanel.tsx:143	-	变体默认值须等异步 setup 返回枚举后再填，且只填尚未选择的轴；只用 useState 初值会错过枚举，无条件回填则会覆盖已有选择。
+0182-0742	apps/web/src/pages/ModelMarket/VariantPanel.tsx:167-168,224;apps/web/src/pages/ModelMarket/poolKeyParse.ts:1-4,21-24	-	loaded_keys 的键在协议上不透明，仅 GSAM2 图像池按 sam=<sv>/dino=<dv> 拆解，解析失败的项不列为变体。无 SAM/DINO 轴的后端原样展示池键并走通用预热，不按 GSAM2 分桶。
+0182-0743	apps/web/src/pages/ModelMarket/VariantPanel.tsx:197	-	图像组是否可见以持久化的 modalities 探测快照为准；旧枚举只在模态尚未探测时兜底，不能用枚举覆盖已有的模态判定。
+0182-0744	apps/web/src/pages/ModelMarket/VariantPanel.tsx:266-267;apps/web/src/pages/ModelMarket/poolKeyParse.ts:63	-	GSAM2 的 loaded_keys 组合键不能直接查后端的 cache.buckets 或旧 lru_ts：缓存桶仍以 sam/dino 为键，单调时钟秒数的 LRU 记录则图像用 sam/dino、视频只用 sam。
+0182-0745	apps/web/src/pages/ModelMarket/VariantPanel.tsx:392-393,408-409	-	单档视频模型的权重名标识模型本身，不表示权重已驻留；即使未加载也显示名称，以池计数和显存徽标区分状态。多变体仍须逐项展示。
+0182-0746	apps/web/src/pages/ModelMarket/VariantPanel.tsx:524-525	-	预热入口取决于后端声明的 warmup_endpoint，而非是否有变体轴；否则会漏掉 onnxtools 等无需选择变体、可直接按 model.id 预热的模型。
+0182-0747	apps/web/src/pages/ModelMarket/capability/FilterToolbar.tsx:7-11	-	非法 URL 枚举回落默认值时须以可移除标签提示，否则用户会误认原筛选仍生效。能力目录的清除筛选仅重置多选轴，不清搜索、分组或视图。
+0182-0748	apps/web/src/pages/ModelMarket/capability/ModelCard.test.tsx:81-82;apps/web/src/pages/ModelMarket/capability/ModelCard.tsx:246-247	-	device 和 batchable 已在卡片顶部展示；若它们是全部资源信息，应省略资源行而非填「—」，后者会把没有额外字段误示为资源信息缺失。
+0182-0749	apps/web/src/pages/ModelMarket/capability/ModelCard.test.tsx:98,108;apps/web/src/pages/ModelMarket/capability/ModelCard.tsx:54-56	-	ModelCard 在 /capabilities 和 instances 两条路径均优先解释结构化输出 schema，用 label 展示、缺 label 时用 key；只有无 schema 才用扁平类型，否则会丢失属性级信息。
+0182-0750	apps/web/src/pages/ModelMarket/capability/ModelCard.tsx:76-77	-	instances 路径或尚未探活时可能没有池状态，此时卡片应显示「运行状态未知」；不能把缺少驻留观测解释为已确认模型未加载。
+0182-0751	apps/web/src/pages/ModelMarket/capability/ModelCard.tsx:127	-	「可批量」表示可进入批量预标流水线，而不是笼统的批处理能力；交互或有状态模型不适用于该流水线，不能以此徽标推荐。
+0182-0752	apps/web/src/pages/ModelMarket/capability/catalogModel.ts:159,241-242;apps/web/src/pages/ModelMarket/capability/types.ts:31-38	-	能力目录按物理权重计行：gsam2 共享权重，须按后端及变体轴值合并并汇总任务；YOLO 各任务的权重独立，按同名变体合并会把不同权重误作一个。
+0182-0753	apps/web/src/pages/ModelMarket/capability/types.ts:11-14,16	-	同 URL 跨项目注册时，registeredProjects 才表示完整项目归属；projectName 仅为首项，projectId 仅为 capabilities API 取主项目。env_only 不应据此填项目 ID 或注册列表。
+0182-0754	apps/web/src/pages/ModelMarket/marketUrlState.ts:27;apps/web/src/pages/ModelMarket/runtimeTopology.ts:66,71	-	项目管理员的注册视图仅限服务池和实例，可见数据以服务端裁剪为界，而非靠前端隐藏字段。成员拓扑字段可以为空，不得补造仅超级管理员可见的成员运行时快照。
+0182-0755	apps/web/src/pages/ModelMarket/marketUrlState.ts:248,289-293	-	注册管理写 URL 只改本模块拥有的键，不能覆盖主 tab 或其他模块参数。清筛选只清枚举、池限定和问题附着条件，保留文本搜索；定位键由关闭详情清理。
+0182-0756	apps/web/src/pages/ModelMarket/marketUrlState.ts:464-467,478;apps/web/src/pages/ModelMarket/registry/BackendInstancesSection.tsx:5-25	-	对象跳转须清互斥的旧定位键，筛选仅清目标视图中可能遮住对象的条件；若实例仍不可见，应明确提示，不能为显示详情而静默放宽其余筛选。
+0182-0757	apps/web/src/pages/ModelMarket/marketUrlState.ts:485-489	-	服务池的「查看实例」须把实例子视图及 instance_pool 写入 URL；仅发送 registry:focus-tab 事件无法在刷新或浏览器前进、后退时恢复池限定。
+0182-0758	apps/web/src/pages/ModelMarket/modelDirectoryGroups.ts:37	-	目录分组只是展示层聚合，边界不能跨服务池；组内仍要能选中具体条目，不能以整组选择取代条目选择。
+0182-0759	apps/web/src/pages/ModelMarket/poolKeyParse.ts:37-41	-	lastUsedSecondsAgo 表示距上次使用的秒数，须相对当前时间计算；没有显式启动时刻 t0，不能把最早加载记录当作启动基准。
+0182-0760	apps/web/src/pages/ModelMarket/registry/BackendInstancesSection.tsx:109,227	-	实例详情以 URL 的 instance_id 为准，打开时新增历史记录，并从当前后端列表解析对象；独立保存打开时的对象会使浏览器返回或刷新数据后仍显示旧面板。
+0182-0761	apps/web/src/pages/ModelMarket/runtimeTopology.test.ts:288;apps/web/src/pages/ModelMarket/runtimeTopology.ts:213	-	执行计数来自当前路由观测，容量上限则需要独立的 max_concurrency 契约。未上报上限时应保留已有计数、将上限留为未知，不能反过来用当前在途数充当上限。
+0182-0762	apps/web/src/pages/ModelMarket/runtimeTopology.ts:1-19	-	拓扑视图解释服务端观测，不在前端重做路由裁决。未知、过期或不完整的状态不能显示为正常；缺少路由指标应显示「暂无路由指标」，不能拿共享路由计数补位。
+0182-0763	apps/web/src/pages/ModelMarket/runtimeTopology.ts:33,609-614	-	池健康与有效路由状态是独立判断；运行时池卡和注册表服务池行须共用 derivePoolEffectiveRouting，否则同一池可能因展示位置不同而被判成不同路由状态。
+0182-0764	apps/web/src/pages/ModelMarket/runtimeTopology.ts:154-160,184-185	-	成员按 pool_id 与 registry_id 关联，URL 仅供展示。快照因权限或加载失败而缺失时仍用拓扑显示成员，但须标记 partial 并说明原因：拓扑本身不能证明 router_ledger、GPU 或驻留状态仍新鲜。
+0182-0765	apps/web/src/pages/ModelMarket/runtimeTopology.ts:248-249,290-291	-	项目管理员的拓扑投影可能已裁掉路由策略；routing_policy 为 unknown 时，deriveMemberRouting 不能从成员配置状态推断其实际可路由性。
+0182-0766	apps/web/src/pages/ModelMarket/runtimeTopology.ts:278-284;apps/web/src/pages/ModelMarket/useGlobalRegistry.ts:134,144	-	drain 和 resume 是幂等的状态操作而非开关翻转。即使 off 或 observe 沿用旧的后端选择逻辑，draining 也必须阻止发放新租约，不能因路由模式而绕过。
+0182-0767	apps/web/src/pages/ModelMarket/runtimeTopology.ts:520-525	-	evaluateUnloadGate 只决定是否展示卸载请求入口；即使新鲜读数为零在途，也不能保证请求到达时仍为空闲，服务端接受请求前仍须独立核验执行状态。
+0182-0768	apps/web/src/pages/ModelMarket/useGlobalRegistry.ts:1-7,19-26,32	-	project_id=null 的全局后端须走独立管理端点，不能复用项目级 useMLBackends。变更后定向刷新全局列表和市场总览；涉及池或成员时还须失效 topology 与 runtime-snapshot，否则角色视图会读到旧状态。
+0182-0769	apps/web/src/pages/ModelMarket/registry/GPUResourcesSection.tsx:4-18,257-258,264,342	-	GPU 静态声明占预算与运行时 committed 必须分开显示：静态超售不代表物理显存利用率，预算未知时画 0% 又会把未知误报为未占用。
+0182-0770	apps/web/src/pages/ModelMarket/registry/IssueCenter.tsx:12-28,284,302,352-354	-	IssueCenter 用 code、subject_type、subject_id 合并问题；对象定位键与问题筛选键分开。名称可能缺失或重名，只用于展示并以短 ID 消歧，筛选仍用稳定 ID，不能用名称或 code 文本搜索代替精确匹配。
+0182-0771	apps/web/src/pages/ModelMarket/registry/IssueCenter.tsx:418-421	-	受影响对象只有匹配到源记录时才提供定位入口；否则显示非交互摘要，不能把问题记录中的对象引用当成可跳转的源记录。
+0182-0772	apps/web/src/pages/ModelMarket/registry/ProjectBindingsSection.tsx:4-20	-	项目绑定页的双向视图只反映已启用实例中的关系；不能按可路由实例数推断主服务池，否则会把当前运行情况误当成项目绑定。绑定以项目设置为准，并在那里修改。
+0182-0773	apps/web/src/pages/ModelMarket/registry/ServicePoolsSection.tsx:4-22;apps/web/src/pages/ModelMarket/registry/registryTypes.ts:1-11	-	注册表各分区消费 RegisteredBackendsTab 编排的 RegistryScope，不另查或重算池、实例与 GPU 的关联；写入由 useGlobalRegistry 统一失效共享查询键，避免分区各自保留写入前的关系。
+0182-0774	apps/web/src/pages/ModelMarket/registry/ServicePoolsSection.tsx:192-193	-	服务池深链的 pool_id 对应的池不存在或不可访问时，保留该定位条件并明确提示；清掉条件会把定位失败悄悄变成未筛选列表。
+0182-0775	apps/web/src/pages/ModelMarket/registry/ServicePoolsSection.tsx:529;apps/web/src/pages/ModelMarket/registry/registryTypes.ts:44	-	项目管理员看到的是服务端裁剪后的 RegistryScope：GPU 配置已置空，路由策略的 unknown 是权限投影，不是实际策略。不能依赖前端隐藏完整 GPU 数据，也不能把投影值当作策略展示。
+0182-0776	apps/web/src/pages/ModelMarket/registry/ServicePoolsSection.tsx:621;apps/web/src/pages/ModelMarket/runtime/StateTokens.ts:48	-	服务池是否实际接流应由 derivePoolEffectiveRouting 判定，不能照搬配置的路由策略。router_mode 不是 enforce 时，配置仅处于影子模式，bypassed 应标为「未生效」。
+0182-0777	apps/web/src/pages/ModelMarket/registry/ServicePoolsSection.tsx:808-809;apps/web/src/pages/ModelMarket/registry/registryTypes.ts:24-28	-	RegistryUrlPatch 对显式子视图或对象跳转新增历史记录，使用户能用前进、后退恢复定位；搜索文字和筛选微调则替换当前记录，避免返回键逐次回退编辑过程。
+0182-0778	apps/web/src/pages/ModelMarket/registry/registryShared.ts:85-91	-	buildRegistryToPoolMap 只按拓扑成员的稳定 registry_id 确定服务池归属；URL 不是成员身份，不能用地址拼接代替拓扑关系，否则可能把实例归到错误的池。
+0182-0779	apps/web/src/pages/ModelMarket/registry/registryTypes.ts:54-57	-	RegistryScope.loading 必须区分请求尚未完成与结果确实为空；只在请求完成后显示最终空态，不能用 0 把尚未取得的数量报成空集合。
+0182-0780	apps/web/src/pages/ModelMarket/registry/registryUi.tsx:49	-	注册表单个分区请求失败时，在该分区呈现可重试的 ErrorState；不能改用整页错误替换，否则会一并遮蔽已成功加载的其他分区。
+0182-0781	apps/web/src/pages/ModelMarket/registry/registryUi.tsx:83-87	-	URL 中的非法筛选枚举由 codec 回退到默认值，但 UrlIssueChips 必须说明回退并提供移除入口，否则用户会把默认结果误认为原 URL 条件下的结果。
+0182-0782	apps/web/src/pages/ModelMarket/registry/useFocusedListPagination.ts:4	-	对象深链的定位范围不能限于当前页；useFocusedListPagination 必须能定位实际包含目标的页，否则列表中存在的对象也会因分页而无法定位。
+0182-0783	apps/web/src/pages/ModelMarket/runtime/BackendInstanceRow.tsx:186-189;apps/web/src/pages/ModelMarket/runtime/ServicePoolRuntimeTable.tsx:117-118,174-179;apps/web/src/pages/ModelMarket/runtime/parseResidency.ts:225-229,238-244	-	实例行与池汇总仅信任新鲜直探或 3 分钟窗口内的 connected 健康缓存。没有可信、可解析且非 unknown 的成员状态时，驻留数保持未知；仅将可信确认的占用、获取或释放计入驻留数。
+0182-0784	apps/web/src/pages/ModelMarket/runtime/DiagnosticBadge.tsx:2-8;apps/web/src/pages/ModelMarket/runtime/RuntimeStatusBadge.tsx:1-7;apps/web/src/pages/ModelMarket/runtime/StateTokens.ts:34	-	DiagnosticBadge、RuntimeStatusBadge 与 StateTokens 用图标和文字表达严重度或状态；不能只靠颜色，否则无法区分颜色的用户就无法辨认状态。
+0182-0785	apps/web/src/pages/ModelMarket/runtime/EnvOnlyContainerCard.tsx:2-10,133	-	对 /observe 中 registered=false 的容器只显示直探数据；未纳管对象没有路由状态，不能展示接流、权重或流量，也不能用零值暗示已经接入路由。
+0182-0786	apps/web/src/pages/ModelMarket/runtime/FreshnessIndicator.tsx:2-8	-	陈旧来源可保留末次值与时间，但必须标记陈旧，不能沿用实时状态色；错误也按来源呈现，避免把旧值当作现状或遮蔽其他来源的可信数据。
+0182-0787	apps/web/src/pages/ModelMarket/runtime/LifecycleActions.tsx:1-12,36-40,54,101	-	只有成员已停流且新鲜的 router_ledger 确认没有未结执行时，界面才允许发起卸载。快照或账本缺失以及账本陈旧都不能证明工作已清空，最终由服务端判定是否可安全卸载。
+0182-0788	apps/web/src/pages/ModelMarket/runtime/LifecycleActions.tsx:169-170	-	禁用卸载按钮的原因提示由可聚焦的 span 承载；不能把 Radix TooltipTrigger 直接挂在禁用按钮上并依赖按钮获得焦点，否则键盘用户无法查看提示。
+0182-0789	apps/web/src/pages/ModelMarket/runtime/LifecycleActions.tsx:214	-	生命周期操作成功后不能只刷新运行时查询，还必须使旧 registry 列表缓存失效；向导等界面仍读取这些列表，否则会继续看到操作前的状态。
+0182-0790	apps/web/src/pages/ModelMarket/runtime/ServicePoolRuntimeTable.tsx:4-15	-	服务池概览保持 topology 顺序，不按轮询指标重排；否则即使拓扑没有变化，池行也会随每次采样移动，破坏定位。
+0182-0791	apps/web/src/pages/ModelMarket/runtime/ServicePoolRuntimeTable.tsx:315-316;apps/web/src/pages/ModelMarket/runtime/TrafficDistributionBar.tsx:37	-	路由选择计数缺失时，池概览和 TrafficDistributionBar 都显示「暂无路由指标」；零值或空分布条会把未采集误报为已观测到零次选择。
+0182-0792	apps/web/src/pages/ModelMarket/runtime/parseResidency.ts:1-17,74-78,89-96,208-215	-	parseResidency 对不可识别的 /observe 顶层载荷返回 null，对异常叶字段保留畸形标记。effectiveGpuLoaded 仅在来源可信时接受 true；false 还须载荷无畸形、builder 与 borrower 均为零且各池均不驻留，否则仍未知。
+0182-0793	apps/web/src/pages/ProjectTemplates/TemplateEditModal.tsx:139	-	模板提交不能只写 tool_bindings：仍需从首个启用工具单元派生顶层扁平 classes，否则尚不读取 tool_bindings 的旧读取方会丢失类别信息。
+0182-0794	apps/web/src/pages/ProjectTemplates/TemplateEditModal.tsx:153-154	-	模板 annotation_guide 仅将空串或纯空白转为 null；非空 Markdown 原样提交，不能统一 trim，否则可能改掉有语义的缩进或换行空白。
+0182-0795	apps/web/src/pages/Projects/ProjectDataManagerPage.schemaError.test.tsx:35-36	-	Data Manager 筛选 schema 加载失败后保留错误界面并提供显式重试；若错误分支反复卸载并重新挂载查询观察者，会不断触发请求，形成无限重试。
+0182-0796	apps/web/src/pages/Projects/ProjectDataManagerPage.tsx:734-736;apps/web/src/pages/Projects/data-manager/EntityDataManagerLens.tsx:596-597	-	任务与实体结果在查询、排序或各自的视图、页码、列配置切换后应回到结果起点，否则旧滚动偏移会让用户跳过新结果的开头；同页加载更多或游标续页只追加结果，不重置视口。
+0182-0797	apps/web/src/pages/Projects/ProjectDataManagerPage.tsx:818-819	-	Data Manager 的读取和管理分别检查 project.read 与 project.manage，但选中任务的导出须独立检查 export.annotations；用管理权限代替导出权限会拒绝本可导出的审核员，用读取权限则会放行标注员。
+0182-0798	apps/web/src/pages/Projects/ProjectDataManagerPage.tsx:1581;apps/web/src/pages/Projects/data-manager/DataManagerFrame.tsx:34-36;apps/web/src/pages/Projects/data-manager/EntityDataManagerLens.tsx:555-558,1125-1126	-	Data 页由根容器承担纵向滚动，任务和实体结果按自然高度展开，表内仅处理横向溢出；不能照搬 Overview、Members 的限高内滚动。实体虚拟化还须在表头、查询控件或摘要改变画布起点时重测 scrollMargin，否则可见行会按旧偏移计算。
+0182-0799	apps/web/src/pages/Projects/ProjectSettingsPage.tsx:109-110	-	ProjectSettingsPage 挂载后仍须响应合法的 ?section 变化；只在初始化解析会使就绪项深链、浏览器前进后退和标签切换改变了 URL 却未切换设置区块。
+0182-0800	apps/web/src/pages/Projects/data-manager/DataManagerAnalyticsPanel.tsx:10-14	-	统计面板内联在概览条与结果表之间，但须单独限高滚动，否则展开较长的统计内容会挤占结果表的可见空间；点柱筛选直接作用于当前视图，不要求切换到抽屉。
+0182-0801	apps/web/src/pages/Projects/data-manager/DataManagerAnnotationPreview.test.tsx:392-393	-	工作台保存删除后，重新打开同一任务的标注预览仍须读取反映删除后的结果；若仅以缓存仍在新鲜期为由复用数据，预览会继续显示已删除的标注。
+0182-0802	apps/web/src/pages/Projects/data-manager/DataManagerAnnotationPreview.test.tsx:621-622,626;apps/web/src/pages/Projects/data-manager/DataManagerAnnotationPreview.tsx:1-13,133-135,346-347	-	预览只回放当前任务已保存的标注，不把待处理的 AI 或跟踪候选画成已保存结果；视频、轨迹和点云只给元数据及工作台入口，不请求预览标注。图像与几何须共用含留边的变换以免错位，配色和骨架须取项目配置而非工作台全局状态。
+0182-0803	apps/web/src/pages/Projects/data-manager/DataManagerAnnotationPreview.tsx:79-80	-	预览应与工作台和复核的 annotationToBox 一样，从所有工具单元（含禁用单元）收集遮挡属性键；只取启用单元会让使用旧键的遮挡标注丢失虚线和半透明样式。
+0182-0804	apps/web/src/pages/Projects/data-manager/DataManagerAnnotationPreview.tsx:165-167	-	预览定位高亮标注时须沿游标继续查找，直到命中目标或耗尽当前任务的标注页；首屏没有目标只说明它不在已读页，不能据此判定已删除。
+0182-0805	apps/web/src/pages/Projects/data-manager/DataManagerAnnotationPreview.test.tsx:742;apps/web/src/pages/Projects/data-manager/DataManagerAnnotationPreview.tsx:205-206,209-210	-	媒体加载失败后自动重读一次任务元数据以处理签名过期，并显式重新发起图片加载；瞬时网络失败后仍可能拿到同一个签名 URL，仅监听 URL 变化不会重试。自动重试仍失败时保留手动入口。
+0182-0806	apps/web/src/pages/Projects/data-manager/DataManagerAnnotationPreview.tsx:258-259,262-263	-	掩码请求按任务与账号隔离，关闭预览或作用域变化时取消。取消控制器须先于 useRasterMaskRecords 注册，否则后者的布局 effect 可能在同次提交中从缓存读到标注并发起未受该控制器管理的请求。
+0182-0807	apps/web/src/pages/Projects/data-manager/DataManagerCharts.test.tsx:50	-	DataManagerCharts 测试不能只安装 ResizeObserver 替身，还须提供可测的容器尺寸：Recharts 会测量容器，而 jsdom 不做布局，缺少尺寸时图表无法按预期渲染。
+0182-0808	apps/web/src/pages/Projects/data-manager/DataManagerCharts.tsx:77-78,157-158	-	柱图只有在 schema 提供相应字段且支持 eq 时才可下钻；不能从展示桶或空占位推断筛选字段。属性值分布遵循后端聚合口径，只有 select 和 boolean 可按值下钻。
+0182-0809	apps/web/src/pages/Projects/data-manager/EntityDetailSheet.tsx:23;apps/web/src/pages/Projects/data-manager/TaskMatchesSheet.tsx:22	-	EntityDetailSheet 和 TaskMatchesSheet 延迟加载 DataManagerAnnotationPreview；若随列表静态加载，用户尚未打开标注预览就会初始化工作台画布。
+0182-0810	apps/web/src/pages/Projects/data-manager/ProjectMembersPerformance.test.tsx:408-409	-	关闭成员绩效详情与清空事件游标不保证在同一次 act 中完成；测试应等到查询使用重置后的游标再断言，否则会把仍带旧游标的中间渲染当作最终结果。
+0182-0811	apps/web/src/pages/Projects/data-manager/ProjectMembersPerformance.tsx:212	-	formatPerformanceDate 将趋势键 YYYY-MM-DD 当作本地日历日期，而非 UTC 时间点；先按 UTC 解析再本地化，会让部分时区显示成前一天。
+0182-0812	apps/web/src/pages/Projects/data-manager/dataManagerFilterExpression.ts:117,156	-	splitKeyword 只抽取直接参与合取的关键字，combineKeyword 也只将其作为同级合取项加回；从 OR 或分组中提取关键字、或加回时打平分组，都会改变原表达式的匹配语义。
+0182-0813	apps/web/src/pages/Projects/data-manager/dataManagerUrlState.ts:13	-	旧项目链接可省略 section，解析时须将缺省值解释为 Data；若改用其他默认区块，原有项目入口将落到不同页面。
+0182-0814	apps/web/src/pages/Projects/data-manager/dataManagerUrlState.ts:75-82	-	后端仍接受 unresolved_feedback_count 作为 unresolved_issue_count 的别名，但显式保存的列配置恢复时须映射到当前列名，否则旧视图无法恢复该列；兼容转换只在读取时做，不回写已保存视图。
+0182-0815	apps/web/src/pages/Projects/data-manager/dataManagerUrlState.ts:174-177	-	dataManagerViewKey 分别用 saved: 和 builtin: 限定保存视图 ID 与内置视图 key；直接使用裸标识会在两种值相同时把不同视图识别为同一个。
+0182-0816	apps/web/src/pages/Projects/data-manager/dataManagerUrlState.ts:197-201	-	请求视图已消失且列表有可用项时才回退到首项；列表为空时返回 null 并保留请求 key 等待列表。提前改成假定存在的内置 key 会丢掉尚未解析的深链目标。
+0182-0817	apps/web/src/pages/Projects/data-manager/dataManagerUrlState.ts:210-215	-	URL 中的关键字、筛选、排序、列、选择和布局只在任务镜头且 URL 指向当前视图时覆盖保存配置；否则切换视图时会把前一视图的临时覆盖误施加到新视图。
+0182-0818	apps/web/src/pages/Projects/data-manager/usePageTableHeader.ts:12-15,52	-	表头与数据行共用原生横向滚动；overflow-x:auto 祖先使 CSS sticky 无法跟随外层页面，故只补偿纵向偏移。还须观察页面子元素，因为摘要或筛选控件能在表格尺寸不变时移动表格，仅观察表格会漏掉偏移变化。
+0182-0819	apps/web/src/pages/Projects/data-manager/usePageTableHeader.ts:20,61-62	-	表头可能在加载结束或退出图库后才挂载，usePageTableHeader 须在相关提交后重新绑定；不要让 ref 回调更新 React 状态，否则可能提前触发页面从 URL 恢复状态。
+0182-0820	apps/web/src/pages/Projects/sections/AnnotationGuideSection.tsx:221-222	-	保存后同一项目的服务端刷新只可更新干净表单；若每次收到数据都重置草稿，用户在保存期间继续输入的内容会被刷新响应覆盖。
+0182-0821	apps/web/src/pages/Projects/sections/AnnotationGuideSection.tsx:299-302,345-347	-	保存成功时先以本次请求内容推进已保存基线，再与当前草稿比较，否则 A→B→A 中 B 的响应可能吞掉排队的 A。失败时若有更新的显式保存排队，由该请求决定最终状态；否则保留草稿与可重试错误。
+0182-0822	apps/web/src/pages/Projects/sections/AnnotationGuideSection.tsx:470-473	-	显式保存须推迟到下一轮任务再读取草稿，让失焦的嵌套 Lexical 表格单元格先写回父编辑器，再由 MDXEditor 发布 Markdown；同步取值可能漏掉刚编辑的单元格内容。
+0182-0823	apps/web/src/pages/Projects/sections/AttributeOptionsEditor.tsx:1-14	-	批量行序是选项的排序依据，textarea 须保留本地 bulkText；若每次输入后用解析并规范化的选项回填，刚键入的分隔符等尚未完成的输入会被吞掉。
+0182-0824	apps/web/src/pages/Projects/sections/AttributeOptionsEditor.tsx:24-27,50	-	批量选项只按换行分项，每行只在第一个冒号处分隔 value 与 label；把逗号也当作分项符，或在后续冒号处继续拆分，会破坏合法标签。
+0182-0825	apps/web/src/pages/Projects/sections/AttributeOptionsEditor.tsx:105-106	-	批量解析须报告非法的非空行和因去重被丢弃的行；静默跳过会让用户以为所有录入行都已生成选项，实际结果却少于录入。
+0182-0826	apps/web/src/pages/Projects/sections/AttributeSchemaEditor.tsx:1-8	-	AttributeSchemaEditor 由 ClassesSection 和 CreateProjectWizard 共用，只用 onChange 返回字段；组件若自行 PATCH，会绕过各宿主的持久化时机，把尚未提交的编辑直接写入后端。
+0182-0827	apps/web/src/pages/Projects/sections/AttributeSchemaEditor.tsx:39-43	-	推荐属性应采用在线后端自报的完整 schema，由调用方排除已有 key，并保留 language、orientation 等协议键；换成自定义别名会使落点校验漏判。
+0182-0828	apps/web/src/pages/Projects/sections/AttributeSchemaEditor.tsx:111-112	-	style_occluded 仅适用于布尔属性，改成其他类型时须清除它；仅隐藏编辑入口会留下用户无法从该入口清除的 true，导致后端拒绝保存。
+0182-0829	apps/web/src/pages/Projects/sections/AttributeSchemaEditor.tsx:246-247	-	推荐项的等宽拉丁 key 下移 2px 是为对齐同排 CJK 标签的墨迹中心；直接用常规居中会使 key 的墨迹中心偏高约 2px，并非视觉对齐。
+0182-0830	apps/web/src/pages/Projects/sections/AttributeSchemaEditor.tsx:268-269	-	validateAttributeFields 必须拒绝空或重复的选项 value：空值会与未选混淆，重复值无法区分对应选项，而后端 AttributeFieldOption 不会拦截这两种配置。
+0182-0831	apps/web/src/pages/Projects/sections/BatchesKanbanView.tsx:25,38;apps/web/src/pages/Projects/sections/BatchesSection.tsx:163	-	AI 预标结束后，后端可将批次从 active 自动转为 pre_annotated。项目级订阅须同时处理 transition 和 auto_transition；只在手动迁移后刷新，会让已就绪批次仍留在旧状态。
+0182-0832	apps/web/src/pages/Projects/sections/BatchesKanbanView.tsx:34-35	-	Kanban 的 VALID_TRANSITIONS 须与 batch.py 对齐，以免拖拽预判错误地拦住合法迁移或放行非法操作；它不能代替后端 transition 端点鉴权和裁决。
+0182-0833	apps/web/src/pages/Projects/sections/BatchesSection.tsx:82-83	-	批次列表不能因为重置就省去 pre_annotated 的中文标签：重置后仍可能短暂收到该状态，若此时回退显示原始枚举，用户可能误判重置没有生效。
+0182-0834	apps/web/src/pages/Projects/sections/BatchesSection.tsx:149,528	-	批次列表与标注页共用整批送审端点，实际提交批次内的 pending 和 in_progress 任务，不能只切换批次状态。rejected 任务须先重做，不能因尚未送审就被纳入。
+0182-0835	apps/web/src/pages/Projects/sections/BatchesSection.tsx:190,355,552,1128	-	后端以 409 requires_force 阻止普通删除含进行中成果或预标结果的批次。批量操作遇到此响应须跳过，不能自动以强制模式重试；强制删除须逐批确认。
+0182-0836	apps/web/src/pages/Projects/sections/BatchesSection.tsx:212-213,452	-	逆向迁移、重置、驳回和锁定须提交点击时捕获的批次；等待用户确认或填写内容后再读取弹窗状态，可能因弹窗关闭或目标切换而丢失目标或误操作另一批次。
+0182-0837	apps/web/src/pages/Projects/sections/BatchesSection.tsx:396-397,610,640-641	-	scene 项目处理追加数据和删包回流任务时，须沿用向导的 by_scene 分包和 Scene 命名前缀。随机分包或把全部任务并成一包，都无法维持批次与 scene 的边界。
+0182-0838	apps/web/src/pages/Projects/sections/ClassEditor.tsx:22,30-32,136	-	类别 alias 可直接用作 SAM 的文本 prompt，须满足后端 schema 的 ASCII 和最多 50 字符限制。失焦时按同一规则规范化显示值，不能只靠后端兜底而让用户看到的值与实际提交结果不一致。
+0182-0839	apps/web/src/pages/Projects/sections/ClassEditor.tsx:24;apps/web/src/pages/Projects/sections/resolveClassVisual.test.ts:1-4;apps/web/src/pages/Projects/sections/resolveClassVisual.ts:1-7	-	alias_to 是跨工具单位继承颜色和 alias 的软关联，空值或缺省不继承。编辑器须用未保存的 bindings 预览，不能读取已保存结果代替；继承优先级和降级规则须与后端 resolve_class_visual 及两端测试同步。
+0182-0840	apps/web/src/pages/Projects/sections/ClassEditor.tsx:73;apps/web/src/pages/Projects/sections/ClassesSection.tsx:53-54,76-77	-	类别改名须原子迁移已有标注，未接入 onRename 的调用方只能只读展示类别名。默认通过 tool_unit_id 限定范围；只有显式开启同步才省略该参数，否则会误改其他启用单位的同名类。
+0182-0841	apps/web/src/pages/Projects/sections/ClassesSection.tsx:106-108;apps/web/src/pages/Projects/sections/PrefillFromBackendDialog.test.tsx:1-7	-	推荐和导入预填均须保留在线后端 output_attribute_schema 自报的 text、language、orientation 等键及字段定义；落点校验按键名匹配，擅自改名会使已有承接字段无法被识别。
+0182-0842	apps/web/src/pages/Projects/sections/ClassesSection.tsx:281-282	-	属性校验须覆盖所有将被持久化的工具单位，而不只是启用项。禁用单位的配置仍会提交，跳过它们会漏掉空属性键，并因后端 min_length=1 校验导致保存失败。
+0182-0843	apps/web/src/pages/Projects/sections/ClassesSection.tsx:345-346	-	预填类别和属性会分别提交受控更新，须用函数式 setBindings 将每次变更叠加到最新状态；若两次提交都基于同一份渲染快照，后一次会覆盖前一次。
+0182-0844	apps/web/src/pages/Projects/sections/ClassesSection.tsx:387-389	-	属性 schema 的 JSON 导入须在菜单 onSelect 的用户手势内触发隐藏文件输入；若改成先更新状态、再异步触发，浏览器可能不再认作用户操作而阻止文件选择器。
+0182-0845	apps/web/src/pages/Projects/sections/GeneralSection.tsx:77	-	项目名称仅在失焦时保存，因此非空且已修改的名称需要离开提示；否则用户在输入框仍聚焦时刷新或关闭标签页，可能直接丢失改名。
+0182-0846	apps/web/src/pages/Projects/sections/MlBackendsSection.tsx:134	-	项目的 ai_enabled 以主模型服务配置为准：设置主服务即启用 AI。不要再维护一个独立的同义开关，否则会出现已配置主服务却被判为未启用等矛盾状态。
+0182-0847	apps/web/src/pages/Projects/sections/MlBackendsSection.tsx:138-139,145	-	主模型服务和 IoU 阈值的本地值只用于乐观展示；切换项目、服务端值外部变更或提交失败时须以服务端值校正，否则会显示上一项目或未成功保存的配置。
+0182-0848	apps/web/src/pages/Projects/sections/MlBackendsSection.tsx:166-168	-	交互式 AI 总开关关闭时隐藏整组智能工具；开启后仍须逐项核对 supported_prompts，并确认输出几何对应的 region 或 bbox 单位已启用，否则会暴露无法使用或无承接单位的工具。
+0182-0849	apps/web/src/pages/Projects/sections/MlBackendsSection.tsx:183	-	IoU 滑块拖动期间只更新本地值，松手或失焦时才提交实际变化；不能把每次滑动值变化都当成一次保存，否则连续拖动会产生逐帧请求。
+0182-0850	apps/web/src/pages/Projects/sections/OwnerSection.tsx:12-13	-	OwnerSection 的候选项选中与未选中背景类须互斥。模板字符串不经 tailwind-merge，若在基础类中始终保留 bg-transparent，样式表顺序可能让透明背景盖掉选中色。
+0182-0851	apps/web/src/pages/Projects/sections/PrefillFromBackendDialog.tsx:1-16,94	-	预填类别须从项目已接入且在线的后端 /capabilities 读取，按 {index,name} 提取类名；只查全局环境配置的实例会漏掉项目接入的 YOLO、onnxtools 等类别源。
+0182-0852	apps/web/src/pages/Projects/sections/PrefillFromBackendDialog.tsx:117,134	-	候选项按各能力查询的 dataUpdatedAt 组成的 capSig 重算，使任一后端数据就绪即可更新；不能直接依赖 capResults 引用，否则每次渲染产生的新引用都会触发重算。
+0182-0853	apps/web/src/pages/Projects/sections/PrefillFromBackendDialog.tsx:124	-	预填源须排除 composite 模型，因为它与原子模型提供的类别和属性重复；若两者都作为独立来源展示，用户会看到重复的预填源。
+0182-0854	apps/web/src/pages/Projects/sections/PrefillFromBackendDialog.tsx:152	-	预填默认只勾选当前工具单位缺少的类别和属性，已有项须由用户显式选择；若默认全选，确认补齐缺项时也可能无意覆盖现有配置。
+0182-0855	apps/web/src/pages/Projects/sections/RenderingConfigEditor.tsx:1-9	-	项目渲染覆盖值为 null 表示不下发该字段，让工作台沿用用户偏好；不能把 null 改写为项目默认值再下发，否则未设置覆盖的字段也会压过用户设置。
+0182-0856	apps/web/src/pages/Projects/sections/VideoSamplingSection.tsx:26	-	目标帧率在编辑期间须保留原始字符串，不在每次输入时强制转成数值，否则清空后重输等尚未形成合法数字的中间状态无法保留。
+0182-0857	apps/web/src/pages/Projects/sections/VideoSamplingSection.tsx:55	-	项目设置页没有源视频帧率，因此采样预览只能说明规则，不能给出实际结果；用假定帧率推算会把依赖源视频的结果误显示为确定值。
+0182-0858	apps/web/src/pages/Projects/sections/VideoSamplingSection.tsx:94-95	-	切换到 fps 或 step 时，若对应输入为空，须补合法默认值后再提交；否则校验会拒绝保存，单选项看似已切换，刷新后却回到旧模式。
+0182-0859	apps/web/src/pages/Projects/sections/useProjectToolBindings.test.ts:183,213;apps/web/src/pages/Projects/sections/useProjectToolBindings.ts:82-84,119-124	-	保存旧 JSONB 的工具绑定时，须按迁移 0116 将 ai_interactive 的共享类别和属性并入已配置且适用的 region、bbox，没有目标才落入 bbox；同名类别、同键属性以目标为准，避免丢失旧配置或覆盖目标配置。
+0182-0860	apps/web/src/pages/Projects/sections/useProjectToolBindings.ts:178-184	-	unitBindingsToPayload 不能把禁用单元当作未配置项省略，否则保存会丢失其配置；工作台可见性由后端 derive_* 控制，禁用单元虽被保存，却不进入扁平投影。
+0182-0861	apps/web/src/pages/Projects/sections/useProjectToolBindings.ts:194-195	-	链接类别只提交 alias_to，不把预览颜色和别名写成类别自身的值；继承值由后端 resolve_class_visual 从目标解析，避免预览快照在目标变化后仍被当作配置。
+0182-0862	apps/web/src/pages/Register/RegisterPage.test.tsx:357;apps/web/src/pages/Register/RegisterPage.tsx:42-44,233-234,274-275	-	RegisterPage 按进入时的登录态选择邀请流程，接受成功后先用 flushSync 展示结果并卸载邀请查询，再调用 setAuth。否则登录态变化可能抢占成功面板，清理匿名缓存也可能触发对已消费 token 的再次解析。
+0182-0863	apps/web/src/pages/Review/ReviewPage.tsx:208-210,311;apps/web/src/pages/Review/reviewUrlState.ts:1-8,44	-	Review 的项目、批次、标注员和任务抽屉直接以 URL 为准；等待 effect 同步本地副本会让历史导航后的请求混用新标注员和旧批次。切换批次只合并相关参数，不能重写并丢弃入口带入的 assignee。
+0182-0864	apps/web/src/pages/Review/ReviewPage.tsx:215	-	Review 批次树须纳入 reviewer dashboard 中状态为 reviewing 或 review_tasks 大于零的批次；只按状态筛选会隐藏仍有待审任务、但状态并非 reviewing 的批次。
+0182-0865	apps/web/src/pages/Review/ReviewPage.test.tsx:289;apps/web/src/pages/Review/ReviewPage.tsx:279-280,436,458;apps/web/src/pages/Review/rejectReasonDialog.ts:1-4;apps/web/src/pages/Review/reviewUrlState.ts:36-39	-	decisionDialog 不随 Review 页面作用域关闭，退回前须快照含登录身份的队列键，确认后再核对；任务退回还须核对勾选集合。任一变化都放弃提交，避免把旧弹窗的确认用于当前队列或选项。
+0182-0866	apps/web/src/pages/Review/ReviewWorkbench.tsx:95-96,105	-	ReviewWorkbench 只对 review 状态发起幂等 claim，以冻结标注员的撤回入口；completed 和 rejected 无须认领。effect 不依赖 claimMut 对象身份，避免对象变化时对同一任务重复发请求。
+0182-0867	apps/web/src/pages/Review/rejectReasonDialog.ts:42-43	-	退回已跳过的任务时，补充说明应预填可编辑的「标注员跳过：…」；若默认留空，直接确认的请求不带 reason，指派方就看不到原跳过原因。
+0182-0868	apps/web/src/pages/Settings/SettingsPage.tsx:21	-	SettingsPage 延迟到头像选择器打开时才加载组件并请求内置目录；静态引入会把选择器计入入口 chunk 的体积预算，即使用户从未打开它。
+0182-0869	apps/web/src/pages/Settings/SettingsPage.tsx:126	-	SettingsPage 的 grid 内容列须设 min-w-0；保留默认最小宽度会让过宽的 API 密钥表格撑开整页，而不是在表格容器内部横向滚动。
+0182-0870	apps/web/src/pages/Settings/SettingsPage.tsx:176-178	-	改密接口只返回 204，成功后须本地清除临时密码标记，否则刷新前仍可能被送回强制改密入口。回写前须核对当前账号仍是提交者，避免迟到的响应清除另一账号的标记。
+0182-0871	apps/web/src/pages/Settings/SettingsPage.tsx:698,701-704,713-718	-	头像的前端 MIME 白名单和 2 MiB 上限须与 avatar_image.py 对齐，但空 MIME 和 application/octet-stream 不能据此拒绝；浏览器可能认不出合法图片，最终格式和大小以服务端校验为准。
+0182-0872	apps/web/src/pages/Settings/SettingsPage.tsx:739	-	AvatarField 读取文件后须清空文件输入的 value；若保留旧值，用户连续选择同一文件时不会再次触发 change，页面也就无法处理这次选择。
+0182-0873	apps/web/src/pages/Settings/SystemSettingsSection.tsx:380,389,399	-	GiB 输入不能经 Number 往返换算，否则舍入可能改变原本的整数字节数。字节数除以 2^30 可用至多 30 位小数精确表示，反向从十进制文本直接求整数字节数。
+0182-0874	apps/web/src/pages/Settings/SystemSettingsSection.tsx:655-656	-	刷新查询时更新 SystemSettingsSection 的服务端读回值及来源，但只有未修改的表单才同步显示新值；直接用查询结果重置表单会覆盖尚未保存的草稿。
+0182-0875	apps/web/src/pages/Settings/useUnsavedSettingsGuard.ts:7,14-24,27,65-67,91,95	-	异步确认不能阻塞同步导航：push/replace 先捕获，历史遍历先按路由器的 idx 恢复上次接受的 URL 和索引，确认后再重放。popstate 守卫须先于 BrowserRouter 注册，否则表单可能先被卸载；beforeunload 仍用原生同步确认。
+0182-0876	apps/web/src/pages/Training/TrainingAugmentationPreview.tsx:212	-	预览轮询以带键的 owner 固定草稿、运行时、凭据和请求参数；这些输入不应各自触发轮询重启，否则同一次预览的轮询可能脱离发起时固定的请求上下文。
+0182-0877	apps/web/src/pages/Training/TrainingCreatePage.tsx:687	-	重新查询只能补全用户已明确选择但尚未固定的初始化来源；若用新结果改写已有 pin 或待提交请求体，实际提交的来源就可能不同于用户已固定的选择。
+0182-0878	apps/web/src/pages/Training/TrainingCreatePage.tsx:920,1244	-	训练创建页把 URL 中的数据集与克隆意图当作一次性输入，而非持续指令：编辑草稿后需显式重试才重新处理数据集意图，克隆无论接受或取消都清除 URL 参数，避免旧意图被再次执行。
+0182-0879	apps/web/src/pages/Training/trainingComparison.ts:238	-	comparisonMetricRanking 对每项指标只在证据可比的组内排名；URL 选中的参照项不参与排名，否则仅切换参照就可能改变同一组证据的排名结果。
+0182-0880	apps/web/src/pages/Training/trainingComparison.ts:275	-	curveData 用 null 保留无观测的位置，不对缺失指标插值；补出的数值会让曲线把并未观测到的数据呈现为连续趋势。
+0182-0881	apps/web/src/pages/Training/trainingDraftStorage.ts:440	-	upgradeTrainingDraft 只在用户明确选择后、持有相应 owner 的 Web Lock 时运行；后台自行升级会绕过选择，不加锁则无法阻止同一 owner 的并发升级。
+0182-0882	apps/web/src/pages/Training/useTrainingEvents.ts:51	-	useTrainingEvents 按 attempt 分页，新 attempt 必须另起曲线；若把事件接到上一 attempt 的观测之后，会把两次独立运行误画为同一条训练轨迹。
+0182-0883	apps/web/src/pages/Training/useTrainingObservability.ts:56	-	训练进入终态后，useTrainingObservability 须显式请求最新的保留尾段；仅沿用已有观测窗口，可能漏掉终态前最后写入的观测。
+0182-0884	apps/web/src/pages/Users/UsersPage.test.tsx:81-85	-	验证 UsersPage 的历史导航时须把 MemoryRouter 的 initialIndex 指向首条记录；renderWithProviders 默认从末条启动，会让测试从错误的历史位置开始。
+0182-0885	apps/web/src/pages/Users/UsersPage.test.tsx:171-172	-	防抖测试先用真实计时器等 URL 驱动的初始查询完成，再切换到假计时器推进防抖；从一开始就使用假计时器会连 MSW 的请求处理一起冻结。
+0182-0886	apps/web/src/pages/Users/UsersPage.tsx:49-51	-	平台角色修改仅向超级管理员开放；项目管理员的生命周期接口只接受 employee 目标，不能把员工行的编辑或离职入口照搬给观察者行，否则会提供后端不接受的操作。
+0182-0887	apps/web/src/pages/Users/UsersPage.test.tsx:511;apps/web/src/pages/Users/UsersPage.tsx:789-791	-	只有目标成员的所有派生项目都在操作者的管理范围内，才开放离职、删除和恢复。仅凭当前项目的管理权开放这些操作会触发后端 403，但不应因此一并隐藏账号级操作。
+0182-0888	apps/web/src/pages/shared/QueryState.tsx:8-12	-	QueryState 不能仅凭 isLoading 为 false 就显示空态：TanStack Query 离线时可能处于 pending/paused，此时查询尚未完成，必须显式识别暂停状态。
+0182-0889	apps/web/src/stores/authQueryCache.test.ts:83;apps/web/src/stores/authStore.ts:97-99	-	跨标签页清除令牌须同步为主动退出，避免 RequireAuth 把当前受限页写入 state.from。storage 事件不会回到发起页，因此发起页仍由 useLogout 标记退出意图。
+0182-0890	apps/web/src/stores/authQueryCache.ts:4,12-14	-	凭据或会话变更时，bindAuthQueryCache 必须清空内存查询缓存并取消旧查询；只清缓存会让迟到的旧结果重新写入共享键。持久化离线记录仍按账号归属，不随内存缓存一起清除。
+0182-0891	apps/web/src/stores/authSession.test.ts:54	-	测试旧版会话持久化输入时，必须先清理内存状态，再写入旧格式样本；setState 也会写存储，顺序反过来会覆盖样本，使测试没有真正覆盖旧版输入。
+0182-0892	apps/web/src/stores/authStore.ts:27,69	-	sessionId 标识一次登录，不随令牌轮换而改变，否则待提交写入会失去原有的会话归属。缺少 sessionId 的旧版持久化登录也应补齐稳定、不透明的会话命名空间。
+0182-0893	apps/web/src/stores/authStore.ts:76	-	isCurrentAuthOwner 不能只依据本标签页的内存状态判断归属；共享凭据可能已被其他标签页替换，而本页 UI 尚未更新，此时内存状态会把旧身份误判为当前身份。
+0182-0894	apps/web/src/stores/authStore.ts:86,94-95	-	bindAuthStorage 只接纳其他标签页持久化的完整令牌与用户对，且不回写。登录先写令牌再获取用户，若把中间状态当成已认证身份，请求就可能使用尚未配齐用户的凭据。
+0182-0895	apps/web/src/stores/fabRevealStore.ts:19-20,40-43	-	反馈悬浮按钮只由右下角窄带唤出，展开后由按钮自身维持，离开时延迟收起。扩大触发区会让指针经过贴边缩放条的「适应」时误唤出按钮，立即收起则会在边界抖动。
+0182-0896	apps/web/src/styles/scrollbars.css:1-2	-	稳定滚动条槽位应声明在原生滚动工具类上，使响应式和状态变体也能在滚动条出现前后保留相同宽度；否则内容会随垂直滚动条的出现而横向移位。
+0182-0897	apps/web/src/styles/scrollbars.css:26-28	-	支持稳定滚动条槽位时应禁用 Radix 锁滚动添加的 body 右边距：长文档的根槽位在 overflow:hidden 后仍保留，再补偿会重复占位；全屏应用壳没有根滚动条，也无需补偿。
+0182-0898	apps/web/src/styles/shadcn.css:18	-	shadcn 使用 @theme inline 让生成的 Tailwind 工具类直接引用 --sc-* 变量；映射若不在工具类使用处保留对主题变量的引用，运行时切换主题就可能无法更新这些样式。
+0182-0899	apps/web/src/styles/shadcn.css:277-280	-	Tailwind v4 的裸 border、border-t 和 divide-* 默认使用 currentColor，会随正文色变成近黑或近白；全局只替换默认值为语义边框色，不能覆盖显式颜色工具类。
+0182-0900	apps/web/src/styles/shadcn.css:327-329	-	原生 select 的禁用且隐藏提示项不是业务值，其提示色须置于 CSS 层外，避免被字段文字工具类或 CSS Modules 覆盖成真实值的样式。「全部」「无」「重置」仍用可选的普通选项。
+0182-0901	apps/web/src/test/auth.ts:21-25	-	seedAuthUser 应同时填充真实 auth store 和令牌存储，模拟 /auth/me 握手完成后的同一身份；只填一处会让 API hook 的 owner ID 与请求客户端发送的 bearer 令牌脱节。
+0182-0902	apps/web/src/test/konvaMock.tsx:1-21	-	react-konva 的 DOM 替身只能验证交互与 props 透传，不能证明画布实际绘制了什么。隐藏或恢复标注后的像素变化必须由浏览器测试验证，不能用 DOM 断言替代。
+0182-0903	apps/web/src/test/queryClient.ts:3-8	-	集成测试每例创建禁用重试的 QueryClient，不能复用模块级实例，否则上一例的查询缓存或未完成请求可能影响下一例。
+0182-0904	apps/web/src/test/renderWithProviders.tsx:10-13	-	renderWithProviders 的探针必须与被测页面共用路由器和查询上下文；另包一套 Provider 会让位置、历史读取或导航操作落到探针自己的上下文，无法反映页面行为。
+0182-0905	apps/web/src/types/index.ts:3-8,17-22	-	PlatformRole 只表示全局身份，标注与质检必须按各项目成员关系中的 ProjectRole 判权，否则会把一个项目的职责套到另一个项目。UserRole 只是类型别名，历史全局 annotator、reviewer 由服务端迁为 employee，前端不据此授权。
+0182-0906	apps/web/src/types/index.ts:330,460,535	-	图片和视频单帧关键点共用类别级 ToolBinding.keypoint_schema，画布按 nodes 索引匹配命名节点，不能独立重排点位，否则会连错骨骼。骨骼连线取自类别定义，不随每份标注重复存储。
+0182-0907	apps/web/src/types/index.ts:342-343	-	轨迹关键帧只可覆盖 schema 中 mutable=true 的属性；若让任意关键帧值优先，本应贯穿整条轨迹的属性就会随帧变化。没有关键帧覆盖时回退到 annotation.attributes。
+0182-0908	apps/web/src/types/index.ts:354	-	VideoTrackBboxGeometry.semantic_label 是供人工关联跨任务同一对象的标签，可编辑且不保证唯一；用作轨迹主键会使改名改变轨迹身份，重名也可能合并不同轨迹。
+0182-0909	apps/web/src/types/index.ts:367,383	-	多边形关键帧按闭环弧长插值，折线按开放路径弧长插值；不能共用同一种首尾处理，否则会漏算多边形的闭合边，或给折线凭空增加一段并改变点位对应。
+0182-0910	apps/web/src/types/index.ts:425-429,435-439,530,532-533	-	LS 的多区域结果用 MultiPolygonGeometry 保留各分量的外环和孔洞；无孔洞的单区域仍用旧前端可读的 PolygonGeometry，只有 points 时按无孔处理。普通编辑只操作主外环，孔洞须保留供 even-odd 渲染，否则预测应镂空的区域会被填实。
+0182-0911	apps/web/src/types/index.ts:491-493	-	Geometry 虽同时承载 2D 和点云 3D 数据，2D 画布仍须把 3D 几何当作空图形，不能按平面形状绘制；实际 3D 渲染由 three-d 模块负责。
+0182-0912	apps/web/src/types/index.ts:560,611	-	标注 API 回写状态位，旧落库记录由迁移补默认值，但画布模型不能因此把状态位设为必填：AI 候选和历史数据仍可能缺省，收紧后会把这些输入排除在外。
+0182-0913	apps/web/src/types/index.ts:569,623	-	乐观创建从临时 id 换成服务端 id 时，仍用原 render_key 维持 React/Konva 图形身份；若用业务 id 作渲染键，确认创建时图形会重挂载并闪烁。
+0182-0914	apps/web/src/types/index.ts:576,580-581,609	-	属性来源通过 attributes_meta 与属性值分开传输，后端只回写 AI 来源的键。前端须将未列出的键视为人工，而不是来源未知，否则人工属性的来源会被误判。
+0182-0915	apps/web/src/types/index.ts:635-640	-	前端 Prediction.geometry 只接受已知形状，不用任意字典兜底；未识别的 LS 形状先由后端转为空几何，再走通用渲染，避免把未经解释的字段当作可绘制几何。
+0182-0916	apps/web/src/utils/annotationGuide.ts:1-8	-	API 不保存独立修订号，annotationGuideVersion 因此以指南正文的稳定哈希标识进度。若改用项目版本，无关项目更新也会让用户的已读进度失效。
+0182-0917	apps/web/src/utils/authRedirect.ts:3-6	-	登录后的回退目标与 DefaultLandingRedirect 共用角色首页规则；另维护一套映射会使角色首页调整后，登录回退和默认入口可能把同一角色送到不同页面。
+0182-0918	apps/web/src/utils/authRedirect.test.ts:49;apps/web/src/utils/authRedirect.ts:11-15,33-35	-	sanitizeLoginRedirect 排除普通认证页和错误页，避免登录后回到认证流程或看到上一会话的拒绝提示。仅对携带非空 token 的 /register 破例，让已有账号登录后仍能确认加入邀请。
+0182-0919	apps/web/src/utils/authRedirect.ts:41-48	-	主动退出标记须保留到认证恢复或登录页重挂载：clearLocal() 可能在导航生效前触发 RequireAuth 重渲染，过早清除标记会让旧页面被再次写入 from；之后的会话过期仍可正常携带 from。
+0182-0920	apps/web/src/utils/avatar.ts:1-12	-	身份响应只传 avatar_ref，由前端按后端语法统一解析为可缓存的预设地址或免鉴权的上传能力地址，不由各端点回填签名 URL。畸形引用不能透传到 img.src。
+0182-0921	apps/web/src/utils/avatarAssets.test.ts:8-14	-	预设头像资产校验须从 Vitest 根目录定位磁盘文件，不能用 import.meta.url 换算路径：它在 jsdom 下不代表文件系统位置，会使校验无法读取已提交的 SVG 和 manifest。
+0182-0922	apps/web/src/utils/batchPreannotation.test.ts:5;apps/web/src/utils/batchPreannotation.ts:1-8	-	batchPreannotationEligible 须与后端 allows_bulk_preannotation 对齐：除 active 外，只放行未分派人员的 draft，保留先跑 AI 再派人的流程。放宽到已分派的 draft 或已进入人工流程的批次，前端会开放后端以 4xx 拒绝的操作。
+0182-0923	apps/web/src/utils/bugReportCapture.ts:62-67	-	captureScreenshot 须用 ignoreElements 排除 data-bug-drawer；若直接截取当前页面，反馈抽屉会遮住用户原本想提交的页面内容。
+0182-0924	apps/web/src/utils/bugReportCapture.ts:69-72	-	截图依赖 html2canvas-pro 对 oklch() 的支持，不能换回原版 1.4.1；原版遇到使用该色值的设计令牌会抛错，导致截图失败。
+0182-0925	apps/web/src/utils/bugReportCapture.ts:92-94	-	patchFetchForBugCapture 只在应用初始化时安装一次；它包装的是当时的 window.fetch，重复安装会把已有的捕获包装再包一层，而不是替换旧包装。
+0182-0926	apps/web/src/utils/id.ts:1-9	-	randomId 在局域网 HTTP 或旧浏览器缺少 crypto.randomUUID 时回退到 getRandomValues，必要时再用 Math.random。保留 UUID v4 格式不代表具备安全随机性，因此不能用于凭据或安全令牌。
+0182-0927	apps/web/src/utils/imageBitmapToJpeg.ts:1-10	-	单题 AI 和交互式 SAM 供图不能把位图缓存未命中当作画面未就绪；此时应从正在显示的 video 取帧，否则用户已经看到画面却无法提交供图。
+0182-0928	apps/web/src/utils/originalImageCache.ts:51	-	readOriginalImage 即使命中原图字节缓存，也须为每个消费方重新获取资源描述；缓存只证明字节此前已取回，不能证明当前消费方有权读取。
+0182-0929	apps/web/src/utils/originalImageDisplay.ts:61	-	原图展示通过 data URL 承载 SVG，不能只依赖 img 的嵌入上下文限制来源；SVG 脱离 img 单独打开时也必须保持不透明来源。
+0182-0930	apps/web/src/utils/password.ts:10,12-13	-	getPasswordRequirements 按 Unicode 码点计长，与 API 的 Python len() 对齐；若改用 JavaScript 字符串长度，代理对会被算作两个单位，导致前后端密码长度判定不一致。
+0182-0931	apps/web/src/utils/pointCloudNavigationDiagnostics.ts:145-147	-	点云诊断只记录用于同一浏览器会话内比较的 signed URL 稳定指纹；直接记录原 URL 会暴露签名访问地址，文件名也不进入诊断记录。
+0182-0932	apps/web/src/utils/releaseNotes.ts:112-115	-	shouldShowReleaseNotes 不能仅凭当前部署版本与已确认版本不同就弹出说明；账号已确认更高版本时应保持静默，否则部署回滚会反复提示旧版本。
+0182-0933	apps/web/src/utils/releaseNotes.ts:123-128;apps/web/vite-plugins/release-notes.ts:8-16	-	发布说明只从 CHANGELOG 提取当前版本段落，由 loadCurrentReleaseNotes 按需加载独立 chunk；不能把完整日志或当前版本正文静态并入主包，否则会挤占首屏包预算。
+0182-0934	apps/web/src/utils/uploadQueue.ts:68-70	-	putWithProgress 的 PUT 不能直接改用浏览器 fetch：fetch 不提供原生上传进度，替换后无法像 XHR 一样报告已上传字节。
+0182-0935	apps/web/src/utils/videoWorkbenchDiagnostics.ts:8-12	-	精确帧诊断只接收定型快照，保留状态、原因和数值指标；不能展开任意对象，否则可能把签名 URL、媒体字节、base64 描述、文件名或标注内容带入诊断。
+0182-0936	apps/web/src/utils/videoWorkbenchDiagnostics.ts:139-143,189-192,223	-	精确帧诊断写入 window，避免让高频采样触发 React 重渲染；普通更新限 5 Hz 并补发末条，状态或 fallbackReason 变化立即发布，切换任务时重置节流，避免新任务首条快照被上一任务延迟。
+0182-0937	apps/web/src/utils/videoWorkbenchDiagnostics.ts:235	-	精确帧舞台卸载时，删除任务诊断快照还不够，必须同时取消待执行的尾部写入，否则旧快照会在清理后重新出现。
+0182-0938	apps/web/src/utils/workbenchNavigation.ts:3	-	GuardedNavigate 返回 false 表示离开检查已取消导航，触发导航的界面必须保持打开；若无条件关闭，用户仍在原处却会丢失当前界面。
+0182-0939	apps/web/src/utils/workbenchNavigation.ts:9,23	-	工作台讨论目标只能是结构化记录标识，不能当作任意跳转 URL；从 URL 解析出的标识也只是定位提示，调用方仍须复核任务和目标记录的访问权限。
+0182-0940	apps/web/src/utils/workbenchNavigation.ts:100	-	显式激活工作台讨论时必须移除 focus、track、frame；若沿用这些参数，另一条实体或帧定位请求就会与讨论激活竞争。
+0182-0941	apps/web/src/utils/workbenchNavigation.ts:155-156	-	读取旧版字符串任务记录时，缺失的选择时间只能记为 0（未知）；用当前时间补齐会把旧记录误记为一次真实的新选择。
+0182-0942	apps/web/src/utils/workbenchNavigation.ts:263	-	buildProjectEntryUrl 传递的项目角色只用于列表入口选路；目标路由必须重新解析当前能力，否则入口提示可能被误当成当前权限。
+0182-0943	apps/web/vite-plugins/csp-nonce.ts:5-21,35	-	生产中由 Nginx 用同一请求的 $request_id 填充 CSP 响应头和页面 meta，Turnstile 从 meta 读取 nonce；两处值不一致会被 CSP 拦截，不能靠放开 unsafe-inline 解决。开发环境没有这一步替换，不注册该 CSP 中间件。
+0182-0944	apps/web/vite-plugins/release-notes.ts:29-30	-	精简构建上下文缺少根 CHANGELOG，或发版中间态缺少当前版本段落时，releaseNotesPlugin 应注入空串而非报错；发布说明缺失只让前端回落到简短提示，不应阻断构建。
+0182-0945	apps/web/openapi-ts.config.ts:4-13	-	输入优先级是决策；块末 SDK 输出描述已过时，当前插件只产类型及其入口。

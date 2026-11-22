@@ -177,7 +177,6 @@ async def test_gc_keeps_mask_seeds_in_retained_native_tracker_scope(
     )
     captured = _reply(await _capture(db_session, actor, job.id))
     assert captured["ok"] is True
-    # Only the accepted scope carries this key; current job facts no longer do.
     job.prompt = {"text": "new prompt"}
     job.status = status
     job.staged_result = {"results": [{"geometry": {"type": "bbox"}}]}

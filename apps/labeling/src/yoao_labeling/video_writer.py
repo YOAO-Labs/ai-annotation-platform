@@ -77,8 +77,6 @@ class VideoWriterManager:
         except VideoWriterFailure:
             raise
         except Exception:
-            # Includes an ambiguous transaction commit. Callers may query the
-            # same operation ID and digest; inference is never retried here.
             raise VideoWriterUnavailable() from None
 
     async def _execute(self, value: VideoWriterCommand | Any) -> VideoWriterReceipt:
@@ -138,8 +136,6 @@ class VideoWriterManager:
                     except VideoWriterFailure:
                         raise
                     except Exception:
-                        # Mask client diagnostics may contain object paths or
-                        # credentials. Return only a closed failure to callers.
                         raise VideoWriterUnavailable() from None
 
             staged_json, staged_digest, staged_size = video_writer_staged_json(staged)
@@ -226,8 +222,6 @@ class VideoWriterManager:
             return False
         if command.outcome == "completed":
             return True
-        # The Native owner derives accepted input from the frozen plan after
-        # a crash; a redelivery need not carry the lost worker's local facts.
         return (
             command.outcome == "cancelled"
             and facts.job.job_kind == "tracking"
@@ -273,8 +267,6 @@ class VideoWriterManager:
                 found_missing = True
                 continue
             if found_missing:
-                # A cancelled output is only the frozen sealed prefix. A gap
-                # followed by a later checkpoint cannot be published as one.
                 raise VideoWriterRejected("checkpoint_incomplete")
             predecessor = self._predecessor_manifest(plan, window, manifests)
             manifest, payload = validate_video_writer_checkpoint(

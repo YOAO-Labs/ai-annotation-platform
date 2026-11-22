@@ -65,7 +65,6 @@ function boundsFromPoints(points: readonly [number, number][]): RasterMaskNormal
     : null;
 }
 
-/** Derive an image-space anchor from the geometry currently being rendered. */
 export function annotationCommentBadgeBoundsFromGeometry(
   annotation: Annotation,
   geometry: Geometry | undefined = annotation.geometry,
@@ -124,7 +123,6 @@ function validRasterBounds(
   return validBounds(bounds) && bounds.w > 0 && bounds.h > 0;
 }
 
-/** Return the current normalized anchor bounds used by the canvas renderer. */
 export function annotationCommentBadgeBounds(
   annotation: Annotation,
   rasterMaskBoundsById: ReadonlyMap<
@@ -259,7 +257,6 @@ export interface AnnotationCommentBadgeTargetsProps {
   interactive?: boolean;
 }
 
-/** Shared screen-space, keyboard-accessible comment targets for image and video stages. */
 export function AnnotationCommentBadgeTargets({
   badges,
   onOpenAnnotationComments,
@@ -317,7 +314,6 @@ export function AnnotationCommentBadgeTargets({
   );
 }
 
-/** Screen-space, keyboard-accessible comment targets above the Konva canvas. */
 export function ImageStageCommentBadges({
   annotations,
   rasterMaskRecords,

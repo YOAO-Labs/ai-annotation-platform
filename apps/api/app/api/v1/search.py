@@ -48,7 +48,6 @@ async def global_search(
         filters={"q": q, "limit": limit},
     )
 
-    # Filter task authority before LIMIT so hidden matches cannot starve valid ones.
     project_scope = project_search_scope(user)
     tasks_q = (
         select(task_row, project_scope.c.project_name)
@@ -107,7 +106,6 @@ async def global_search(
         for t, pname in task_rows
     ]
 
-    # 数据集（数据集对所有登录用户可见；service 层已无角色过滤）
     ds_q = (
         select(Dataset)
         .where(Dataset.name.ilike(pattern))
@@ -124,8 +122,6 @@ async def global_search(
         for d in datasets
     ]
 
-    # 成员（仅可见项目里的成员；平台角色只决定是否全局，项目内成员身份由
-    # project_members 决定）
     if user.role == PlatformRole.SUPER_ADMIN.value:
         users_q = (
             select(account_profiles)
@@ -140,7 +136,6 @@ async def global_search(
             .limit(limit)
         )
     else:
-        # 仅返回当前用户共项目的成员
         member_scope = project_search_member_ids(user)
         users_q = (
             select(account_profiles)

@@ -1,8 +1,3 @@
--- Grant the Workspace project-deletion LOGIN only its single coordinator function.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v workspace_owner=workspace_code
---   -v workspace_project_deletion_role=yoao_workspace_project_deletion_client
---   -f infra/docker/workspace-project-deletion-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

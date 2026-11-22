@@ -1,4 +1,3 @@
-// 字段注册表完整性:key 与 category 一致、默认值可解析、patch 构造正确。
 import { describe, expect, it } from "vitest";
 import { DEFAULT_WORKBENCH_PREFERENCES } from "@/api/auth";
 import {
@@ -140,7 +139,6 @@ describe("settings presentation", () => {
     expect(fields).toHaveLength(48);
     expect(fields.some((field) => field.hidden)).toBe(false);
     const groups = groupWorkbenchSettings(fields);
-    // notifications 分组由共享通知偏好面板渲染，不承载偏好字段
     expect(groups.map((group) => group.key)).toEqual(
       Object.keys(WORKBENCH_SETTING_GROUPS).filter((key) => key !== "notifications"),
     );

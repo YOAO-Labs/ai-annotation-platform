@@ -25,7 +25,6 @@ export interface FrameClockDiagnostics {
 
 type FrameReadySource = NonNullable<FrameClockDiagnostics["lastFrameReadySource"]>;
 
-/** Native decoder completion, not a media-layer presentation receipt. */
 export interface FrameSeekResult {
   status: "ready" | "cancelled" | "timeout" | "unavailable";
   frameIndex: number;
@@ -41,7 +40,6 @@ export interface NativeVideoFrameEvidence {
 
 interface UseFrameClockOptions {
   videoRef: RefObject<HTMLVideoElement | null>;
-  /** Include the task and media identity so A→B→A cannot reuse old callbacks. */
   sourceKey?: string;
   frameIndex: number;
   timebase: FrameTimebase;
@@ -165,8 +163,6 @@ export function useFrameClock({
         sourceTimebase.source !== "ffprobe" ||
         sourcePts === undefined ||
         !Number.isFinite(sourcePts) ||
-        // The stored timetable rounds ffprobe PTS to milliseconds. This is timestamp
-        // quantization tolerance, never acceptance of a neighboring source-frame index.
         Math.abs(evidence.mediaTime * 1000 - sourcePts) > 0.501 ||
         timeToFrame(video.currentTime, sourceTimebase) !== targetFrame
       )
@@ -224,20 +220,16 @@ export function useFrameClock({
         }
         latest.onFrameChange(mediaFrame);
         if (getFrameEvidence(mediaFrame)) {
-          // rVFC may arrive while seeking is still true. Later media events can admit
-          // that existing exact receipt, but never create pixel evidence themselves.
           recordSeek(pending, "rvfc");
           settleSeek(pending, { status: "ready", frameIndex: mediaFrame, source: "rvfc" });
         } else if (
           source === "seeked" &&
           typeof (video as VideoWithFrameCallback).requestVideoFrameCallback !== "function"
         ) {
-          // seeked/currentTime can release normal seeking, but cannot certify native pixels.
           settleSeek(pending, { status: "unavailable", frameIndex: pending.frameIndex, source });
         }
         return;
       }
-      // Paused timeupdate events describe the clock position, not a new source-frame receipt.
       if (latest.isPlaying) latest.onFrameChange(mediaFrame);
       patchDiagnostics({ lastFrameReadySource: source });
     },
@@ -261,7 +253,6 @@ export function useFrameClock({
         timer: null,
         resolve,
       };
-      // Install the resolver before dispatch: an already-presented frame can finish immediately.
       pendingSeekRef.current = pending;
       patchDiagnostics({ seekCount: diagnosticsRef.current.seekCount + 1 });
       latest.onFrameChange(target);
@@ -342,8 +333,6 @@ export function useFrameClock({
 
   useEffect(() => {
     cancelPendingSeek();
-    // The previous owner's cleanup already cancelled its pending seek without publishing.
-    // Release that owner's gate even when no new seek is needed at the current media time.
     setIsSeeking(false);
     nativeFrameRef.current = null;
     setNativeFrame(null);
@@ -357,7 +346,6 @@ export function useFrameClock({
     const video = videoRef.current;
     if (!video) return;
     const epoch = ownerEpoch;
-    // The ref can first bind during commit, after the render that installed this owner.
     if (identityRef.current.epoch === epoch) identityRef.current.video = video;
     let disposed = false;
     let frameHandle: number | null = null;

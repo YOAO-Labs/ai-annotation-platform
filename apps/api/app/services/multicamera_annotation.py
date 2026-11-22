@@ -338,7 +338,6 @@ async def create_camera_member(
     expected_calibration_revision: int,
     expected_calibration_digest: str,
 ) -> Annotation:
-    # A2 · acquire Task evidence before the Annotation and SceneTrack rows.
     await record_annotation_actor(db, task, actor_id)
     await _lock_camera_scope(
         db,

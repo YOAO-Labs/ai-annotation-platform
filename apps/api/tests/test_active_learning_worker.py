@@ -322,7 +322,6 @@ async def test_timeout_debit_is_retained_on_retry_and_original_identity_never_re
         assert current.current_attempt_id == newer.id
         assert current.spec == round.spec and current.spec_digest == round.spec_digest
         assert candidate.request == original
-    # A second dispatch is charged again, even for the same bound request.
     with pytest.raises(worker.RemoteUncertain):
         await worker.obtain_result(
             world.factory, current, candidate, png, newer.id, new_claim
@@ -429,7 +428,6 @@ async def test_execute_publishes_only_verified_complete_evidence(world, monkeypa
         async with factory() as check:
             current = await check.get(Round, world.round.id)
             observed.append(current.inference_dispatches)
-        # The durable debit must precede every actual native dispatch.
         assert observed[-1] == len(observed)
         frozen = SimpleNamespace(spec=kwargs["spec"])
         return prediction(frozen, kwargs["row"])

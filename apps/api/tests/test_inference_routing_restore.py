@@ -198,9 +198,6 @@ async def _seed_nonempty_routing_state(
     incarnation = uuid.uuid4()
     completed_control_id = uuid.uuid4()
     unresolved_control_id = uuid.uuid4()
-    # Seed a source epoch only to create a source admission header in the copied
-    # receipt. This test sends no source backend request; the active scope/attempt
-    # and unresolved control below remain deliberately non-idle.
     await owner.execute(
         f"""UPDATE {_SCHEMA}.registry_state
             SET continuity='ready', authority_epoch=$2, backend_incarnation=$3,
@@ -610,8 +607,6 @@ async def test_restored_routing_authority_is_quarantined_in_owned_clone(
             clone_dsn,
             backend_control=forbidden_backend_control,
         )
-        # The restored secret is deliberately bound to its source database.
-        # Public owner readiness and data binding remain closed in quarantine.
         assert await clone_runtime.readiness() is False
         for source_command in (world["begin_command"], world["acquire_command"]):
             with pytest.raises(RoutingUnavailable):
@@ -630,7 +625,6 @@ async def test_restored_routing_authority_is_quarantined_in_owned_clone(
             await RoutingPostgresData.bind(
                 clone_connection, expected_login="yoao_inference_routing_client"
             )
-        # Core Native reads allow inspection without exposing copied receipts.
         for source_command in (world["begin_command"], world["acquire_command"]):
             status = await _step(
                 clone_connection,
@@ -728,9 +722,6 @@ async def test_restored_routing_authority_is_quarantined_in_owned_clone(
         await clone_connection.close()
         clone_connection = None
 
-        # A copied uncertain management hold is quarantined too. The owner must
-        # refuse before invoking any backend callback; this test does not attempt
-        # or claim a safe rebind/recovery procedure.
         reconcile = make_routing_command(
             "reconcile",
             {

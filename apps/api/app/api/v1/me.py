@@ -95,9 +95,6 @@ async def upload_avatar(
     raw = await file.read(MAX_AVATAR_FILE_BYTES + 1)
 
     execute = _avatar_commands(request, credentials, commands)
-    # Freeze authentication and the previous reference before normalization can
-    # outlive either. The owner re-authenticates the original credential at
-    # publication; remote transactions never span image processing or S3 IO.
     authority = await avatar_uploads.capture_authority(db, execute, principal)
     try:
         normalized = await asyncio.to_thread(normalize_avatar, raw)
@@ -223,7 +220,6 @@ async def cancel_self_deactivation(
     )
 
 
-# Workbench task-event ingestion
 from app.config import settings  # noqa: E402
 from app.schemas.task_event import (  # noqa: E402
     TaskEventBatchIn,
@@ -275,9 +271,6 @@ async def submit_task_events(
     """
 
     rows, rejected = await validate_api_events(db, user=user, events=payload.events)
-    # Preserve the single-event HTTP contract for direct callers. The browser
-    # collector drops this one permanently invalid event; mixed batches use the
-    # per-row response below so valid events continue through the same request.
     if len(payload.events) == 1 and rejected:
         raise rejected[0].error
     payload_list = [

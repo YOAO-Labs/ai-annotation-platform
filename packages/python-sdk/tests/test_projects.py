@@ -95,7 +95,6 @@ def test_create_project_fills_type_label(client, respx_mock):
     assert body["name"] == "demo"
     assert body["type_key"] == "object_detection"
     assert body["data_type"] == "image"
-    # 后端 ProjectCreate.type_label 必填, SDK 按 type_key 兜底
     assert body["type_label"] == "object_detection"
     assert p.name == "demo"
 
@@ -270,7 +269,6 @@ def test_project_access_maps_permission_error(client, respx_mock):
 
 
 def test_extra_fields_tolerated(client, respx_mock):
-    # 服务端新增字段不应破坏解析 (extra="allow")
     payload = {**PROJECT, "brand_new_field": {"x": 1}}
     respx_mock.get(f"{API}/projects/{PROJECT['id']}").mock(
         return_value=httpx.Response(200, json=payload)

@@ -1,12 +1,3 @@
-// 能力目录单个 model 卡片（plan §4.1 阶段二：首层摘要化）。
-//
-// 首层只保留选择模型所需的信息：
-//   名称 + 来源后端 / 任务与模态及可批量、交互·有状态等选型徽标 /
-//   简短「输入 → 输出」摘要 / 驻留情况（未知如实呈现）/ 缓存提示 /
-//   详情展开入口 + 现有规则允许时的预热按钮。
-// 框架、模型族、完整属性、资源细项、变体组合等收进展开区域；展开按钮是独立
-// 按钮，不把整卡包成大按钮。协议分组已在分组标题呈现任务时，通过
-// `showTaskBadge=false` 不在卡内重复。
 import { useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -43,7 +34,6 @@ export function ModelCard({
   showTaskBadge = true,
 }: {
   item: FlatModel;
-  /** 分组标题已含任务标签（协议卡）时关闭，避免重复（plan §4.1）。 */
   showTaskBadge?: boolean;
 }) {
   const { model: m } = item;
@@ -51,9 +41,6 @@ export function ModelCard({
   const infra = effectiveInfra(m, item.backendInfra);
   const modalities = effectiveModalities(m, item.backendModalities);
   const geom = m.supported_geometric_outputs ?? [];
-  // 输出属性: schema 非空优先取其 label/key (rapidocr 等报结构化 schema, label 更友好);
-  // 否则回落扁平 output_attribute_types (gsam2 / sam3 / yolo 只报这个, schema 为空)。
-  // overview (/capabilities) 与 instances 两条数据路径统一在此判定, 保持一致。
   const attrs =
     m.output_attribute_schema && m.output_attribute_schema.length > 0
       ? m.output_attribute_schema.map((s) => s.label || s.key)
@@ -61,7 +48,6 @@ export function ModelCard({
   const variantGroups = (m.supported_variants ?? []).filter(
     (g) => Array.isArray(g.variants) && g.variants.length > 0,
   );
-  // batchable / device 升级为语义徽标 (顶部 badge 行), 资源行排除二者只留余项 (vram 等)。
   const resource = m.resource_profile ?? {};
   const batchable = typeof resource.batchable === "boolean" ? resource.batchable : undefined;
   const device = typeof resource.device === "string" ? resource.device : undefined;
@@ -73,11 +59,8 @@ export function ModelCard({
   const loaded = isLoadedRuntimeKey(item, defaultVariants, cardRuntimeKey);
   const evict = lastEvict(item);
   const comp = COMPOSITION_BADGE[m.composition ?? "atom"];
-  // 驻留情况：healthMeta 缺失（instances 路径 / 未探活）时如实显示「运行状态未知」，
-  // 不把未知画成「未加载」（plan §4.1）。
   const runtimeKnown = item.healthMeta?.pool != null;
 
-  // 简短「输入 → 输出」摘要（plan §4.1 首层）。
   const inputLabels =
     (m.supported_inputs?.length ?? 0) > 0
       ? m.supported_inputs!.map((i) => inputLabel(i))
@@ -124,7 +107,6 @@ export function ModelCard({
           </Badge>
         ))}
         {m.is_interactive && <Badge variant="ai">交互式</Badge>}
-        {/* 批量徽标: 一眼看出能否进批量预标 (交互/有状态模型不可批量)。 */}
         {batchable === true && (
           <span title="resource_profile.batchable=true：可用于批量预标流水线">
             <Badge variant="success">可批量</Badge>
@@ -135,7 +117,6 @@ export function ModelCard({
             <Badge variant="warning">交互/有状态</Badge>
           </span>
         )}
-        {/* 设备徽标: resource_profile.device。 */}
         {device && (
           <span title={`resource_profile.device=${device}`}>
             <Badge variant="outline">{device.toUpperCase()}</Badge>
@@ -153,7 +134,6 @@ export function ModelCard({
         </span>
       </div>
 
-      {/* 简短输入 → 输出摘要。 */}
       <div
         className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
         title={`输入 ${inputLabels.join("、")} → 输出 ${outputParts.join("、") || "未知"}`}
@@ -177,7 +157,6 @@ export function ModelCard({
         <WarmButton item={item} variants={defaultVariants} size="xs" />
       </div>
 
-      {/* 展开按钮是独立按钮（plan §4.1），详情区按需渲染。 */}
       <div className="flex items-center justify-end border-t border-dashed border-border pt-1.5">
         <Button
           size="xs"
@@ -243,8 +222,6 @@ export function ModelCard({
             )}
           </Row>
 
-          {/* device / batchable 已升级为顶部徽标; 资源行只留余项 (vram 等)。backend 未上报
-              任何余项时整行隐藏, 而非显示恒为「—」的空行 (那会让人误以为资源信息缺失)。 */}
           {resourceEntries.length > 0 && (
             <Row label="资源">
               {resourceEntries.map(([k, v]) => (

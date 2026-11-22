@@ -114,7 +114,6 @@ export function draftToRule(
   return { field: draft.field, op: draft.op, value: parsed.value };
 }
 
-/** Extract only a direct keyword conjunct; keywords nested in OR/group branches stay in the tree. */
 export function splitKeyword(expression: DataManagerFilterExpression): {
   query: string;
   filter: DataManagerFilterExpression;
@@ -153,7 +152,6 @@ export function splitKeyword(expression: DataManagerFilterExpression): {
   };
 }
 
-/** Add keyword as a sibling conjunct and retain every existing group boundary. */
 export function combineKeyword(
   query: string,
   expression: DataManagerFilterExpression,

@@ -13,7 +13,6 @@ class StorageObservationBucket(Base):
     __tablename__ = "storage_observation_buckets"
 
     day: Mapped[date] = mapped_column(Date, primary_key=True)
-    # No parent FK: independent observations must not wait on caller row locks.
     location_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     source_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     metric: Mapped[str] = mapped_column(String(24), primary_key=True)

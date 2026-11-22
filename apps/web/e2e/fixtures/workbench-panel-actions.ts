@@ -32,7 +32,6 @@ export async function canvasBottomDivider(
   return divider!;
 }
 
-/** Exercise the same close and drag controls as the workbench user. */
 export async function panelCommand(page: Page, title: string, name: string): Promise<void> {
   const tab = page.getByRole("tab", { name: title, exact: true });
   if (name === "隐藏面板") {
@@ -55,13 +54,10 @@ export async function panelCommand(page: Page, title: string, name: string): Pro
     }
     return;
   }
-  // Shift on floating content captures the pointer for moving the whole window.
-  // Redock a tab with native HTML drag/drop; reserve Shift for creating a float.
   if (name.startsWith("与") && name.endsWith("合并为标签")) {
     const target = page.getByRole("tab", { name: name.slice(1, -5), exact: true });
     const box = await target.boundingBox();
     expect(box).not.toBeNull();
-    // Drop on the right half to append, matching the panel action's tab order.
     await source.dragTo(target, {
       targetPosition: { x: box!.width * 0.75, y: box!.height / 2 },
     });

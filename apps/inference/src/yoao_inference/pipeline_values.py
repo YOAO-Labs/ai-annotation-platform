@@ -48,8 +48,6 @@ def _raw_json(payload) -> object:
             "Invalid JSON number:"
         ):
             raise PipelineUnavailable() from None
-        # Preserve driver-compatible ValueError phases such as Python's
-        # excessive-integer-digit failure while decoding stored JSONB.
         raise
     try:
         _assert_json_value(value)
@@ -76,8 +74,6 @@ def _timestamp(value):
         return value
     if type(value) is not str:
         raise PipelineUnavailable()
-    # A DTO may already contain the naive extrema produced by the shared
-    # PostgreSQL infinity decoder; accept that exact, normalized ISO spelling.
     if value == datetime.max.isoformat():
         return datetime.max
     if value == datetime.min.isoformat():

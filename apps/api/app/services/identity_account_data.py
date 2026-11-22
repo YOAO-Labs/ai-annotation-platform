@@ -40,8 +40,6 @@ class IdentityAccountCommandData:
             yield self
             await self.db.commit()
         except AccountFailure:
-            # Policy rejections precede any mutation, as in the original HTTP
-            # handlers. The request's session closes its read/lock transaction.
             raise
         except BaseException:
             await self.db.rollback()

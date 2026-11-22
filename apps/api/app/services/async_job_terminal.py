@@ -134,9 +134,6 @@ async def reconcile_mask_format_import(
     )
 
 
-#: Closed dispatch from ``AsyncJob.kind`` to its domain reconciler.  Kinds with
-#: no domain ledger (batch_predict, video_tracker, create_tasks, ...) are absent
-#: and only ever reconcile the generic row.
 DOMAIN_TERMINAL_RECONCILERS = {
     "mask_qc": reconcile_mask_qc,
     "point_cloud_quality": reconcile_point_cloud_quality,

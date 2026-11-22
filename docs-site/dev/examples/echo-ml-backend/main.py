@@ -32,9 +32,6 @@ async def health():
 
 @app.get("/setup")
 async def setup():
-    # 协议 v2.1 能力声明（协议文档 §4 / §4.1）。
-    # models[] 是多模型目录：echo 只有一条 detection 条目；
-    # supported_prompts=["none"] 表示纯批量、无交互式 prompt。
     return {
         "name": "echo-backend",
         "version": "0.1.0",
@@ -84,8 +81,6 @@ async def predict(req: PredictRequest):
                 "score": 0.5,
                 "model_version": MODEL_VERSION,
                 "inference_time_ms": 1,
-                # 运行时观测字段（可选，协议文档 §4.2）：echo 无真实权重，
-                # 固定上报"已命中、零加载耗时"演示字段形态。
                 "cache_hit": True,
                 "model_load_ms": 0,
             }

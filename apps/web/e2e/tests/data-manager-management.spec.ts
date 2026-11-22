@@ -113,8 +113,6 @@ test("task columns separate unresolved issues from comments and open a read-only
   const token = await seed.accessToken(filtering.user_emails.admin);
   const headers = { Authorization: `Bearer ${token}` };
 
-  // Plan example: one open issue with two replies plus three task comments and
-  // one annotation comment shows 未解决问题 1 / 评论 4.
   const issueResponse = await request.post(`${API_BASE}/api/v1/feedbacks`, {
     headers,
     data: {
@@ -179,11 +177,8 @@ test("task columns separate unresolved issues from comments and open a read-only
   const row = page.getByRole("row", { name: new RegExp(seeded.display_id) });
   await expect(row).toBeVisible();
 
-  // The read-only preview opens from the task row and can compare with the
-  // original image; it never claims, locks or mutates the task.
   const mutations: string[] = [];
   page.on("request", (req) => {
-    // The match-evidence endpoint is a read-only POST projection.
     if (req.method() !== "GET" && !req.url().includes("/data-manager/matches")) {
       mutations.push(`${req.method()} ${req.url()}`);
     }
@@ -207,8 +202,6 @@ test("task columns separate unresolved issues from comments and open a read-only
   await expect(page.getByRole("button", { name: /显示标注/ })).toBeVisible();
   expect(mutations).toEqual([]);
 
-  // Gallery summaries remain correct when restored table columns omit all
-  // counters. Additional query projections must not rewrite those columns.
   await page.getByRole("button", { name: "关闭", exact: true }).click();
   const gallery = new URLSearchParams({
     layout: "gallery",
@@ -235,7 +228,6 @@ test("member rows show saved content before submission counts", async ({ page, f
   expect(response.ok(), await response.text()).toBe(true);
   const result = await response.json();
 
-  // Saved content appears in the project summary and before submission counts.
   await expect(
     page.locator("section[aria-label='项目成员绩效汇总']").getByText("已标注图片"),
   ).toBeVisible();
@@ -247,8 +239,6 @@ test("member rows show saved content before submission counts", async ({ page, f
   expect(headerCells.indexOf("已标注图片")).toBeLessThan(headerCells.indexOf("提交任务"));
   expect(headerCells.indexOf("保留标注")).toBeLessThan(headerCells.indexOf("提交任务"));
 
-  // Row values agree with the API projection for the annotator who saved
-  // objects without any submission.
   const annotator = result.items.find(
     (item: { user_id: string }) => item.user_id === filtering.users.anno,
   );

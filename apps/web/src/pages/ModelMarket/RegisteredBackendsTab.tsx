@@ -1,28 +1,4 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-/**
- * 注册管理 tab — orchestrator shell.
- *
- * Plan §4.3 / §5（模型市场多 TAB UI 优化 · 阶段一）：this file is the only
- * place that owns the registry queries, the registry URL state and the
- * role-aware tab structure. It:
- *   - reads `usePermissions()` and gates Super Admin vs Project Admin tabs;
- *   - owns the topology / runtime-snapshot / gpu-resources / overview queries;
- *   - merges topology + snapshot via the pure view-model (no URL-join);
- *   - collects diagnostics for the Issue Center;
- *   - renders one compact summary strip (routable instances / pending issues /
- *     data availability) + one refresh action + sub-TAB counts;
- *   - keeps the registry sub-TAB and per-view filters in the URL
- *     (`registry_view=…`, plan §5) so refresh / back-forward / deep links
- *     restore the working context — object jumps navigate via URL instead of
- *     the removed `registry:focus-tab` custom event;
- *   - delegates to the five section components under `registry/`, each of
- *     which owns the toolbar that actually applies to its collection.
- *
- * Mutations invalidate topology + all + overview + gpu-resources (extended in
- * useGlobalRegistry.ts). Role projection is server-side (P1) — this view does
- * NOT add client-side hiding as the only gate; it simply does not render what
- * the server already nulled (plan §5 + Appendix A.6).
- */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { useQuery } from "@tanstack/react-query";
@@ -41,6 +17,7 @@ import {
 import { adminMlIntegrationsApi } from "@/api/adminMlIntegrations";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useUrlFilterState } from "@/hooks/useUrlFilterState";
+import { useAuthStore } from "@/stores/authStore";
 
 import {
   MARKET_URL_KEYS,
@@ -63,9 +40,9 @@ import { SEVERITY_TOKENS } from "./runtime/StateTokens";
 export function RegisteredBackendsTab(): ReactNode {
   const { role } = usePermissions();
   const isSuperAdmin = role === "super_admin";
+  const canReadProjectCounts = isSuperAdmin || role === "project_admin";
+  const sessionId = useAuthStore((state) => state.sessionId);
 
-  // 注册子 TAB + 各子视图筛选全部写入 URL（plan §5）。子 TAB 显式切换 push
-  // 历史；文本/筛选更新 replace（由各 section 决定）。
   const {
     state: url,
     patch: patchUrl,
@@ -76,8 +53,6 @@ export function RegisteredBackendsTab(): ReactNode {
   });
   const [registerOpen, setRegisterOpen] = useState(false);
 
-  // 未知子视图枚举 → 回退默认页并规范化 URL；项目管理员深链到超管专属子视图
-  // → 回退到其可见子页（查询本身已按角色 enabled，不会发出超管请求）。
   useEffect(() => {
     const invalidView = urlIssues.some((issue) => issue.key === MARKET_URL_KEYS.registryView);
     const needsRoleFallback =
@@ -93,14 +68,16 @@ export function RegisteredBackendsTab(): ReactNode {
     }
   };
 
-  // ── queries ──────────────────────────────────────────────────────────────
-  // Plan §9.1 + §9.3: topology is the registry default read model and is
-  // always fetched (both roles); runtime-snapshot / gpu-resources / overview
-  // are SUPER_ADMIN-only.
   const topologyQ = useQuery({
     queryKey: ["admin", "ml-integrations", "topology"],
     queryFn: () => adminMlIntegrationsApi.topology(),
     staleTime: 60_000,
+  });
+
+  const primaryPoolProjectCountsQ = useQuery({
+    queryKey: ["admin", "ml-integrations", "primary-pool-project-counts", sessionId, role],
+    queryFn: () => adminMlIntegrationsApi.primaryPoolProjectCounts(),
+    enabled: canReadProjectCounts,
   });
 
   const snapshotQ = useQuery({
@@ -132,6 +109,7 @@ export function RegisteredBackendsTab(): ReactNode {
 
   const refreshAll = () => {
     topologyQ.refetch();
+    if (canReadProjectCounts) primaryPoolProjectCountsQ.refetch();
     if (isSuperAdmin) {
       snapshotQ.refetch();
       gpuQ.refetch();
@@ -141,13 +119,10 @@ export function RegisteredBackendsTab(): ReactNode {
   };
   const refreshing =
     topologyQ.isFetching ||
+    primaryPoolProjectCountsQ.isFetching ||
     (isSuperAdmin && (snapshotQ.isFetching || gpuQ.isFetching || overviewQ.isFetching)) ||
     allQ.isFetching;
 
-  // ── view-model merge ──────────────────────────────────────────────────────
-  // topologyQ.data may be undefined while loading; once loaded it is non-null.
-  // We narrow here so the rest of the component (and the RegistryScope it
-  // builds) can rely on a non-null TopologyResponse.
   const topology = topologyQ.data ?? null;
   const snapshot = isSuperAdmin ? (snapshotQ.data ?? null) : null;
   const vm = useMemo(() => {
@@ -164,10 +139,6 @@ export function RegisteredBackendsTab(): ReactNode {
     );
   }, [topology, snapshot, gpuQ.data, isSuperAdmin]);
 
-  // ── loading / error / partial-fail ────────────────────────────────────────
-  // Topology is load-bearing for every tab; if it fails and we have nothing
-  // cached, surface a full error block. If only runtime-snapshot fails, keep
-  // the topology view and mark partial (plan §6.3).
   if (topologyQ.isLoading) {
     return <LoadingShell label="加载服务池拓扑…" />;
   }
@@ -182,19 +153,12 @@ export function RegisteredBackendsTab(): ReactNode {
   if (!vm || !topology) {
     return <LoadingShell label="组装视图模型…" />;
   }
-  // After the guards above, both `vm` and `topology` are non-null. Bind a
-  // narrowed local so TS carries the non-nullability into RegistryScope.
   const narrowedTopology = topology;
   const narrowedVm = vm;
 
-  // ── summary counts ───────────────────────────────────────────────────────
-  // 每个计数来源明确（plan §3）：可路由实例来自 topology 视图模型；待处理问题
-  // 来自去重诊断；数据可用性来自快照 partial 标记。请求未完成的计数显示加载
-  // 占位，不写成 0。
   const routableInstances = narrowedVm.pools.reduce((sum, p) => sum + p.availability.routable, 0);
   const totalInstances = narrowedVm.pools.reduce((sum, p) => sum + p.availability.total, 0);
   const instanceCountPending = allQ.isLoading;
-  // 查询失败且无缓存时如实显示未知（?），不把失败的列表冒充成空注册表。
   const instanceCountError = allQ.isError;
   const instanceCount = allQ.data?.items.length ?? 0;
   const gpuCountPending = isSuperAdmin && gpuQ.isLoading;
@@ -253,11 +217,8 @@ export function RegisteredBackendsTab(): ReactNode {
   );
 
   return (
-    // TooltipProvider: several descendants (CopyValueButton, FreshnessIndicator,
-    // SourceErrorBadge) use Radix Tooltip, which requires a provider ancestor.
     <TooltipProvider>
       <div className="flex flex-col gap-3">
-        {/* 紧凑摘要带（plan §3）：可路由实例 · 待处理问题 · 数据可用性 + 唯一刷新 */}
         <div
           data-testid="registry-summary"
           className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs"
@@ -346,6 +307,12 @@ export function RegisteredBackendsTab(): ReactNode {
           <TabsContent value="pools">
             <ServicePoolsSection
               scope={scope}
+              primaryPoolProjectCounts={
+                canReadProjectCounts && primaryPoolProjectCountsQ.isSuccess
+                  ? primaryPoolProjectCountsQ.data.counts
+                  : null
+              }
+              primaryPoolProjectCountsLoading={primaryPoolProjectCountsQ.isLoading}
               url={url}
               patchUrl={patchUrl}
               urlIssues={urlIssues}
@@ -406,8 +373,6 @@ export function RegisteredBackendsTab(): ReactNode {
   );
 }
 
-// ── summary pieces ───────────────────────────────────────────────────────────
-
 function SummaryItem({ label, children }: { label: string; children: ReactNode }): ReactNode {
   return (
     <span className="inline-flex items-center gap-1.5">
@@ -417,7 +382,6 @@ function SummaryItem({ label, children }: { label: string; children: ReactNode }
   );
 }
 
-/** Sub-TAB count; pending loads render "…" instead of a fake 0 (plan §3). */
 function TabCount({ value }: { value: string | number }): ReactNode {
   return <span className="text-2xs tabular-nums text-muted-foreground">{value}</span>;
 }
@@ -436,7 +400,6 @@ function SourceErrorBadge({ label, message }: { label: string; message: string }
   );
 }
 
-/** Highest diagnostic severity, or null when there are no diagnostics. */
 function maxSeverityOf(diagnostics: Array<{ severity: Severity }>): Severity | null {
   const rank: Record<Severity, number> = { info: 0, warning: 1, critical: 2, blocker: 3 };
   let max: Severity | null = null;

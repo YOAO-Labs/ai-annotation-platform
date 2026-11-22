@@ -91,8 +91,6 @@ def verify_ai_mask_session(token: str, *, now: int | None = None) -> dict[str, A
         json.JSONDecodeError,
         UnicodeDecodeError,
     ) as exc:
-        # Preserve a stable expiry reason for a valid token whose authenticated
-        # payload has simply exceeded the short session lifetime.
         try:
             payload = json.loads(_session_cipher().decrypt(token.encode()))
         except (InvalidToken, TypeError, json.JSONDecodeError, UnicodeDecodeError):

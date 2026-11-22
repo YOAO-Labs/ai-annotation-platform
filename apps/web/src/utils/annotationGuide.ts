@@ -1,11 +1,3 @@
-/**
- * Stable client-side identity for a project guide.
- *
- * The API deliberately stores the guide as Markdown and has no separate
- * revision column.  A small deterministic hash lets the per-user progress
- * state expire when the guide text changes, without treating an unrelated
- * project update as a new guide.
- */
 export function annotationGuideVersion(content: string | null | undefined): string {
   const value = content ?? "";
   let hash = 2166136261;

@@ -328,7 +328,6 @@ def test_segmentation_package_binds_task_and_instance_sources_without_semantic_i
 def test_historical_package_digest_is_unchanged(
     tmp_path, schema, content, validation, semantic_train, semantic_val
 ):
-    # Golden outputs computed from commit 770fb03be, before canonical task metadata.
     samples, media = [], []
     for index in range(3):
         task_id = f"00000000-0000-4000-8000-{index + 1:012d}"

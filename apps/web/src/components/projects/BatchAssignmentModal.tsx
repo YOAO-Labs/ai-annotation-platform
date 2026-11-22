@@ -21,10 +21,6 @@ interface Props {
   onClose: () => void;
 }
 
-/**
- * 一 batch = 一标注员 + 一审核员（单选语义）。
- * 提交后 PATCH /batches/{id}（写 annotator_id / reviewer_id）。
- */
 export function BatchAssignmentModal({ projectId, batch, onClose }: Props) {
   const pushToast = useToastStore((s) => s.push);
   const { data: members = [], isLoading } = useProjectMembers(projectId);
@@ -195,7 +191,6 @@ function Column({
     user_name: string;
     user_email: string;
     role: string;
-    /** 头像引用；结构上是 ProjectMemberResponse 的子集，缺省 = 回退首字母。 */
     avatar_ref?: string | null;
   }[];
   selectedId: string | null;

@@ -208,8 +208,6 @@ async def complete(db, actor, request, task_id):
         reject("task_original_uploader_required", 403)
     if task.status != "uploading" and task.original_id != allocation["id"]:
         reject("task_original_context_changed")
-    # No business/credential locks may span physical I/O. The independent
-    # creation ledger retains responsibility if publication later fails.
     await db.commit()
     credentials.check_clock(proof)
     created = await creations.complete_direct(db, allocation)

@@ -49,7 +49,6 @@ def parser():
 async def backfill_batch(db, *, mode, dataset_id=None, after=None, batch_size=100):
     if mode not in {"apply", "verify", "dry-run"} or not 1 <= batch_size <= 500:
         raise ValueError("Invalid backfill mode or batch size")
-    # Bootstrap bindings before item locks, matching online import lock order.
     if mode == "apply":
         await ensure_legacy_bindings(db)
     binding = legacy_dataset_binding() if mode == "apply" else None

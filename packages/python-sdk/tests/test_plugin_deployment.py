@@ -33,8 +33,6 @@ def test_cpu_libreyolo_denies_gpu_and_preserves_existing_drain_state(tmp_path):
     assert "\nNVIDIA_VISIBLE_DEVICES=void\n" in env
     assert "\nCUDA_VISIBLE_DEVICES=\n" in env
 
-    # A historical CPU launch can still be inspected and drained, but a new
-    # launch must not silently reuse the old, unfenced environment.
     old_env = env.replace("NVIDIA_VISIBLE_DEVICES=void\nCUDA_VISIBLE_DEVICES=\n", "")
     container.env_file.write_text(old_env)
     assert (

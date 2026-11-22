@@ -44,18 +44,14 @@ from app.services.role_patterns import (
 
 logger = logging.getLogger(__name__)
 
-# 与 pointcloud_import.group_frames 共用 role pattern:这些顶层目录名说明
-# "整 dataset 就是单 scene 的角色子目录布局";否则就是 per_subdirectory 的 scene key。
 _EXTRA_ROLE_DIR_PATTERNS = ("video", "images", "videos")
 ROLE_DIR_NAMES = role_dir_names(DEFAULT_ROLE_PATTERNS, extra=_EXTRA_ROLE_DIR_PATTERNS)
 
-# 与 pointcloud_import 共享的扩展名集合
 _POINT_CLOUD_EXTS = {".pcd", ".bin", ".ply", ".las", ".laz", ".npy"}
 
 _SINGLE_GROUP_KEY = "_single"
 _ROOT_GROUP_KEY = "_root"
 
-# per_subdirectory 安全阀:推出超过这个数 → 报错,避免把巨型 jpg 序列误识别成 N 万个伪 scene
 _MAX_INFERRED_SCENES = 100
 
 
@@ -120,7 +116,6 @@ def _assign_frame_indices_pointcloud(
     notes: list[str] = []
     frames, calib_items = group_frames(items)
 
-    # 已分组的 item id 集合,用于计算"未参与分组"的 items(纯 metadata 等)
     grouped_ids: set[uuid.UUID] = set()
 
     sorted_stems = sorted(frames.keys(), key=_natural_sort_key)
@@ -245,7 +240,6 @@ async def infer_and_apply(
             ],
         )
 
-    # 决定 scene 分组
     groups: dict[str, list[DatasetItem]]
     if mode == "single":
         groups = {_SINGLE_GROUP_KEY: all_items}
@@ -254,10 +248,8 @@ async def infer_and_apply(
         if mode == "auto":
             keys = set(groups.keys())
             if keys.issubset({_SINGLE_GROUP_KEY, _ROOT_GROUP_KEY}):
-                # 全是 role 目录布局 → 单 scene
                 groups = {_SINGLE_GROUP_KEY: all_items}
 
-    # 把 _root 抛出 notes,不参与建 scene
     notes: list[str] = []
     root_items = groups.pop(_ROOT_GROUP_KEY, None)
     if root_items:

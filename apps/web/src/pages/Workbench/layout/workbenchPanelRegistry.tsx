@@ -18,7 +18,6 @@ export interface WorkbenchWorkspaceState {
   inspectorVisible: boolean;
   aiTaskVisible: boolean;
   videoTrackerVisible: boolean;
-  /** True only while the tracking panel content is the displayed tab of a visible group. */
   videoTrackerContentVisible: boolean;
   triViewVisible: boolean;
   cameraViewVisible: boolean;
@@ -194,7 +193,6 @@ export function workbenchPanelTitle(id: PanelId, context: WorkspaceContext): str
     : WORKBENCH_PANEL_REGISTRY[id].title;
 }
 
-/** A docked panel must fit the preset sidebar; floating groups keep their own limits. */
 export function panelMinimumWidth(id: PanelId, workspaceWidth: number): number {
   const minimum = WORKBENCH_PANEL_REGISTRY[id].minWidth;
   return id === "canvas" ? minimum : Math.min(minimum, defaultDockWidth(workspaceWidth));

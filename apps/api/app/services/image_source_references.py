@@ -58,7 +58,6 @@ async def image_source_references(
                         detail={"reason": exc.code},
                         headers={"Retry-After": "3"} if status in {409, 503} else None,
                     ) from exc
-                # Isolate a bad source without turning a healthy page into N RPCs.
                 middle = len(batch) // 2
                 return await read_batch(batch[:middle]) + await read_batch(
                     batch[middle:]

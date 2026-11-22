@@ -961,7 +961,6 @@ class MappingTests(unittest.IsolatedAsyncioTestCase):
                     "schema": 2,
                     "binding_generation": 2,
                 }
-                # A controlled return to legacy still carries unsupported new facts.
                 (export_storage if kind == "zip" else export_media_storage).resolve(row)
                 before = [
                     (

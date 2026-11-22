@@ -80,7 +80,6 @@ async def test_maintenance_owner_keeps_cleanup_json_and_outer_rollback(test_engi
         async def execute(payload):
             request = json.loads(payload)
             if request["operation"] == "cleanup_schema":
-                # Native clients may send valid uppercase UUIDs without Python normalization.
                 request["project_id"] = request["project_id"].upper()
                 for row in request["annotations"] + request["tasks"]:
                     for field in ("id", "task_id", "project_id", "batch_id"):

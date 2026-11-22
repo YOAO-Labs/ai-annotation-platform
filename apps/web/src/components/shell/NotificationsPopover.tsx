@@ -103,12 +103,6 @@ function stringValue(value: unknown): string {
 
 type WorkMode = "annotate" | "review";
 
-/**
- * Pick the work mode a notification should open.  Review work is never
- * downgraded to the annotation editor just because the account could annotate
- * somewhere; if the target is a review task and the account lacks review
- * authority the caller surfaces an access error instead.
- */
 export function chooseWorkMode(capabilities: ReadonlySet<string>, status?: string): WorkMode {
   const canAnnotate = capabilities.has("annotation.write");
   const canReview = capabilities.has("review.write");
@@ -146,7 +140,6 @@ export function jobSnippet(item: NotificationItem): string {
   const error = stringValue(payload.error_message);
   if (error) return error;
 
-  // skip_predicted 下候选 task 全部已预标被跳过 → 给明确文案, 免得「成功 0/失败 0」被误读为没生效。
   const reason = stringValue(payload.reason);
   if (reason === "all_predicted") {
     const skippedCount = payload.skipped_count;
@@ -219,9 +212,7 @@ function NotifRow({ item, onClick, onDelete, deletePending }: NotifRowProps) {
   const toStatus = payload.to_status as string | undefined;
   const reopen = Boolean(payload.reopen as boolean | undefined);
 
-  // batch.rejected 复用同一行渲染，但 payload 字段不同
   const isBatchRejected = item.type === "batch.rejected";
-  // 导出完成/失败复用同一行；payload 含 project_display_id / format / download_url / error
   const isExport = item.target_type === "export";
   const isJob = item.target_type === "async_job";
   const displayId = isBatchRejected
@@ -333,13 +324,6 @@ function NotifRow({ item, onClick, onDelete, deletePending }: NotifRowProps) {
   );
 }
 
-/**
- * Notification trigger and list share the top-bar panel's geometry and dismissal.
- *
- * `navigate` 可选：默认走 React Router；全屏工作台传入自己的导航回调，
- * 在真正改路由前跑视频/Mask 离开检查。所有会换路由的动作（含 Bug 导航、
- * 错误恢复链接）都必须经过它。
- */
 export function NotificationsPopover({
   navigate: navigateExternal,
 }: {
@@ -352,7 +336,6 @@ export function NotificationsPopover({
   const unreadQ = useUnreadCount();
   const unread = unreadQ.data?.unread ?? null;
   const [open, setOpen] = useState(false);
-  // 工作台传 navigateExternal 时，所有换路由动作都先过它的离开检查。
   const go = useCallback(
     (to: string) => (navigateExternal ? navigateExternal(to) : navigate(to)),
     [navigateExternal, navigate],
@@ -409,7 +392,6 @@ export function NotificationsPopover({
         status = resolved.task.status;
         discussion = resolved.target;
       } else if (item.target_type === "task") {
-        // Read the current target: notification payloads may precede a transfer or another review.
         const task = await tasksApi.get(item.target_id, { signal: controller.signal });
         if (!current()) return;
         projectId = task.project_id;
@@ -424,9 +406,6 @@ export function NotificationsPopover({
         projectId = batch.project_id;
         batchId = batch.id;
       }
-      // Resolve the *actual* project's access before choosing a work mode; an
-      // employee's review notification must not silently open the annotation
-      // editor, and a project they cannot work in must not open a dead editor.
       const access = await projectsApi.getAccess(projectId, { signal: controller.signal });
       if (!current()) return;
       const capabilities = new Set(access.capabilities ?? []);
@@ -442,8 +421,6 @@ export function NotificationsPopover({
             ? buildUrl(projectId, { taskId: taskId!, batchId, returnTo })
             : buildUrl(projectId, { batchId: batchId!, returnTo });
       if (!current()) return;
-      // 守卫导航可能在视频 / Mask 离开检查中被取消并返回 false；确认成功前
-      // 保留目标弹窗，取消时给出可重试的说明而不是静默关闭来源。
       const navigated = await go(url);
       if (!current()) return;
       if (navigated === false) {
@@ -585,7 +562,7 @@ function NotificationsPanel({
   unread: number;
   onItemClick: (item: NotificationItem) => void;
 }) {
-  const notificationsQ = useNotifications(true); // panel 已渲染 = popover 已打开
+  const notificationsQ = useNotifications(true);
   const clearRead = useClearReadNotifications();
   const deleteNotification = useDeleteNotification();
   const markAllRead = useMarkAllRead();

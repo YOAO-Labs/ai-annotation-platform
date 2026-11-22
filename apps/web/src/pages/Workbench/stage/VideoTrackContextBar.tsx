@@ -64,7 +64,6 @@ const BUTTON_CLASS = "hover:translate-y-0 transition-none";
 const KEY_CLASS =
   "rounded border border-border bg-muted px-1 font-mono text-2xs text-muted-foreground";
 
-/** Presentation only: the stage owns geometry, provenance and guarded write callbacks. */
 export function VideoTrackContextBar({
   frameIndex,
   track,

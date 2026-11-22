@@ -175,7 +175,6 @@ def memory_objects(monkeypatch, training_config_fixture):  # noqa: F811
         "delete_object",
         lambda *, Bucket, Key: values.pop((Bucket, Key), None),
     )
-    # Owned mask writes build a per-call transport from the saved client config.
     patch_owned_client(monkeypatch, storage.client)
     monkeypatch.setattr(
         managed_original_reader,
@@ -233,7 +232,6 @@ async def freeze(client, token, db, project, *, parent=None, name="Frozen masks"
     async def sessions():
         yield db
 
-    # Use the production worker body against the same SAVEPOINT-backed session.
     await dataset_worker._build_dataset(
         version.id, version.async_job_id, version.attempt_id, sessions
     )
@@ -560,7 +558,6 @@ async def test_mask_release_human_review_second_freeze_and_learning_baseline(
         ProjectMLBackendPool(project_id=s.project.id, pool_id=pool.id, enabled=True)
     )
     await db_session.flush()
-    # Routing/HTTP availability are external; trial validation and storage remain real.
     monkeypatch.setattr(trained_models, "assert_routable_backend", AsyncMock())
     receipt = trained_models.expected_receipt(version)
 
@@ -641,7 +638,6 @@ async def test_mask_release_human_review_second_freeze_and_learning_baseline(
         == backend.id
     )
 
-    # Reconcile an actually retained successful source run into the task baseline.
     policy_path = f"/api/v1/projects/{s.project.id}/learning-policy"
     saved = await httpx_client.put(
         policy_path,
@@ -767,7 +763,6 @@ async def test_mask_release_human_review_second_freeze_and_learning_baseline(
     await create_membership(
         db_session, project_id=s.project.id, user_id=review_user.id, role="reviewer"
     )
-    # Unbatched tasks require explicit reviewer assignment before they are visible.
     task.reviewer_id, task.reviewer_is_override = review_user.id, True
     await db_session.flush()
     for action in ("claim", "approve"):
@@ -803,7 +798,6 @@ async def test_mask_release_human_review_second_freeze_and_learning_baseline(
     assert {row["task_id"]: row["split"] for row in second.manifest["samples"]} == {
         row["task_id"]: row["split"] for row in s.parent.manifest["samples"]
     }
-    # A stale baseline of another bridge is rejected before any candidate build.
     saved_parent = copy.deepcopy(s.parent.manifest)
     s.parent.manifest = {**saved_parent, **SEGMENTATION_CONTRACT}
     await db_session.flush()

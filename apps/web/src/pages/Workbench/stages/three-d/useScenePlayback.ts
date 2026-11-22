@@ -18,7 +18,6 @@ interface ScenePlaybackOptions {
   active: boolean;
   onActiveChange: (active: boolean) => void;
   taskId: string | null;
-  /** undefined means a temporary placeholder; null confirms this task has no Scene. */
   sceneId: string | null | undefined;
   frameState: ScenePlaybackFrameState;
   rate: ScenePlaybackRate;
@@ -122,7 +121,6 @@ export function useScenePlayback(options: ScenePlaybackOptions) {
     }
     if (
       (sceneId !== undefined && sceneId !== run.sceneId) ||
-      // Resolving an out-of-page task briefly leaves Shell without a task identity.
       (taskId === null
         ? run.previousTaskId === null
         : taskId !== run.taskId && taskId !== run.previousTaskId)

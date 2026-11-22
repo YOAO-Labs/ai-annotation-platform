@@ -120,8 +120,6 @@ async def test_selected_project_summary_and_jump_match_dataset_primary_membershi
         primary = await create_task(db, project_id=project.id, status="review")
         primary.is_labeled = True
         _link(db, primary, item, "primary_lidar")
-        # Several links to the selected data must neither multiply a task nor
-        # make camera-only data count as its primary dataset.
         _link(db, direct, item, "primary_lidar")
         _link(db, direct, item, "camera_front")
         _link(db, direct, item, "camera_rear")
@@ -135,8 +133,6 @@ async def test_selected_project_summary_and_jump_match_dataset_primary_membershi
         _link(db, direct_wins, item, "primary_lidar")
         other_direct = await create_task(db, project_id=project.id)
         other_direct.dataset_item_id = other_item.id
-        # An unlinked Task, even with a standalone-original path, has no dataset
-        # membership. Its path and filename are not dataset relation evidence.
         unlinked = await create_task(db, project_id=project.id)
         unlinked.file_path = (
             f"__aap_task_originals__/{unlinked.id}/{uuid.uuid4()}/payload"
@@ -151,7 +147,6 @@ async def test_selected_project_summary_and_jump_match_dataset_primary_membershi
             _annotation(db, actor, excluded, "car")
         expected.append([direct, primary])
 
-    # The very same dataset has different annotation statistics in each project.
     for _ in range(2):
         _annotation(db, actor, expected[0][0], "car")
     _annotation(db, actor, expected[0][1], "person")
@@ -183,7 +178,6 @@ async def test_selected_project_summary_and_jump_match_dataset_primary_membershi
         assert summary["annotations"]["by_class"] == (
             {"car": 2, "person": 1} if project == projects[0] else {"person": 3}
         )
-    # The label jump counts tasks containing that label, not annotation rows.
     cars = await _project_scope(
         httpx_client,
         projects[0],
@@ -284,7 +278,6 @@ async def test_current_project_roles_clip_batch_task_and_annotation_statistics(
         assert summary["annotations"]["by_class"] == {"car": len(tasks)}
         assert summary["annotations"]["total"] == len(tasks)
 
-    # Keep an old ORM membership loaded while the actual SQL role changes.
     member = members["annotator"]
     await db.execute(
         update(ProjectMember)

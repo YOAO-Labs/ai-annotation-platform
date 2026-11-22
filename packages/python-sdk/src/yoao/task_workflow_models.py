@@ -87,7 +87,6 @@ class TaskPredictionShape(_TaskWorkflowResponse):
     geometry: dict[str, Any]
     confidence: float
     attributes: dict[str, Any] = Field(default_factory=dict)
-    # This is the original persisted-array offset, even after filtering or sorting.
     shape_index: int | None = None
 
 

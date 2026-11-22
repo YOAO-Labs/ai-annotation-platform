@@ -163,7 +163,6 @@ async def run_credential_mail(delivery_id=None, *, session_factory=None):
     session_factory = session_factory or async_session
     identity = get_identity_gateway()
     if identity.identity_url is not None:
-        # The selected remote owner is served by its own durable mail process.
         return {"state": "remote"}
     mail_dsn = identity_database_source(
         settings.identity_mail_database_url, settings.identity_mail_database_url_file

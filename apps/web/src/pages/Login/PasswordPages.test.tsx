@@ -1,7 +1,3 @@
-/**
- * ForgotPasswordPage + ResetPasswordPage 单测：表单提交 / 成功态切换 /
- * 错误处理 / 不匹配校验 / 缺 token 重定向。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
@@ -50,7 +46,6 @@ describe("ForgotPasswordPage", () => {
     });
     fireEvent.click(screen.getByText("发送重置链接"));
     await waitFor(() => screen.getByText(/如果该邮箱已注册，您将收到一封包含重置链接的邮件/));
-    // payload 增加 captcha_token（VITE_TURNSTILE_SITE_KEY 缺省时为 null）
     expect(mockPublicPost).toHaveBeenCalledWith("/auth/forgot-password", {
       email: "x@y.com",
       captcha_token: null,

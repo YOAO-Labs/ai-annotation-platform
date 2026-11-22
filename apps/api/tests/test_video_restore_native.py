@@ -294,9 +294,6 @@ async def test_restore_operator_inspect_prepare_replay_conflict_and_role_boundar
         command = _command(identity, dump)
         command_payload = _identity_fields(command)
 
-        # Secret-bound Native authority refuses snapshotting isolation and
-        # Serializable, since either can preserve a pre-restore snapshot across
-        # the realm rotation.
         video_execution_dsn = _role_dsn(
             "AAP_MODULE_DATA_VIDEO_EXECUTION_URL",
             "yoao_video_execution_client",

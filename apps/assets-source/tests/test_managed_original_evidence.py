@@ -32,7 +32,6 @@ def test_current_head_flag_requires_an_observed_version_pinned_match():
         )
         is False
     )
-    # Unversioned, missing observation and absent evidence never claim a match.
     assert (
         observed_current_head_match(
             {"version_id": None, "observation": {"version_id": None, "size": 3}},

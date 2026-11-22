@@ -7,8 +7,6 @@ import {
   timelineClickX,
 } from "../e2e/helpers/video-timeline-seek";
 
-// h264-issue-context E2E 夹具：180 帧（0..179），与 apps/api
-// _test_seed_webcodecs.py 的 FIXTURE_SPECS 保持一致。
 const FULL = { from: 0, to: 179 };
 
 test("180 帧全窗口逐帧可经 range 归一化精确表达", () => {
@@ -37,7 +35,6 @@ test("窗口偏移与缩放产生的分数端点不破坏精确表达", () => {
 });
 
 test("超出 range 粒度的长窗口显式报告不可表达，不静默近似", () => {
-  // span=12000 时一个归一化步长 ≈ 1.2 帧：F3 反解为 F4，必须拒绝。
   const mapping = rangeValueForFrame(3, { from: 0, to: 12000 });
   assert.equal(mapping.expressible, false);
   assert.equal(mapping.representedFrame, 4);

@@ -32,12 +32,8 @@ import pytest
 _SERVICES_DIR = Path(__file__).resolve().parent.parent / "app" / "services"
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
-# Facades that already have a canonical domain-package replacement. First-party code
-# may exercise these paths only in the compatibility contract test; all production,
-# worker, script and ordinary test imports must use the new modules directly.
 CURRENT_COMPAT_FACADES: tuple[str, ...] = ()
 
-# Retired modules must not return through first-party imports or dynamic calls.
 _SPATIAL_RETIRED_MODULES = (
     "app.services.scene",
     "app.services.scene_pose",
@@ -112,16 +108,10 @@ _LEGACY_CALL_SCAN_EXEMPT_FILES = {
 class DomainSpec:
     """One new domain package and the rules it must satisfy."""
 
-    package: str  # e.g. "gpu_arbitration"
-    # Old flat module roots this package replaces; the new package must not import them.
+    package: str
     legacy_facades: tuple[str, ...]
-    # Optional sub-packages that must stay lazy (no eager high-level imports at the
-    # package __init__). Listed as "<pkg>.<sub>".
     lazy_roots: tuple[str, ...] = ()
-    # Optional positive app-dependency boundary for transport-independent owners.
     allowed_app_imports: tuple[str, ...] | None = None
-    # Narrow exceptions for data adapters that must use a framework without
-    # relaxing the rest of the contract package's dependency boundary.
     allowed_framework_imports: tuple[str, ...] = ()
 
 
@@ -138,9 +128,7 @@ DOMAIN_PACKAGES = (
             "app.services.gpu_membership_activation",
             "app.services.gpu_rollout_control",
         ),
-        lazy_roots=(
-            "gpu_arbitration",
-        ),  # package root must not eager-import dispatch/membership/rollout
+        lazy_roots=("gpu_arbitration",),
     ),
     DomainSpec(
         package="video_tracking",
@@ -639,7 +627,6 @@ DOMAIN_PACKAGES = (
     ),
 )
 
-# Absolute module roots a service domain must never depend on.
 _FORBIDDEN_ROOTS = ("app.api", "app.workers", "app.application", "app.deps")
 
 
@@ -683,9 +670,6 @@ def _collect_imports(tree: ast.AST, current_module: str) -> list[tuple[str, bool
                 module = node.module or ""
             if module:
                 out.append((module, self._depth > 0))
-                # ``from app.services import gpu_arbiter`` and
-                # ``from . import runner`` name a submodule via the imported alias.
-                # Record both candidates; graph resolution later ignores symbol paths.
                 out.extend(
                     (f"{module}.{alias.name}", self._depth > 0)
                     for alias in node.names
@@ -904,7 +888,6 @@ def _strongly_connected_components(
     return components
 
 
-# Skip the whole module gracefully if no domain package exists yet (pre-P1 state).
 _HAS_ANY_DOMAIN = any(_iter_domain_files(spec.package) for spec in DOMAIN_PACKAGES)
 pytestmark = pytest.mark.skipif(
     not _HAS_ANY_DOMAIN, reason="no domain package created yet (P0 baseline)"
@@ -1019,10 +1002,6 @@ def test_domain_package_root_not_eager_importing(spec: DomainSpec) -> None:
     eager = [
         name for name, is_local in _collect_imports(tree, init_module) if not is_local
     ]
-    # lazy_roots for gpu_arbitration lists the package itself, meaning the *root*
-    # __init__ must stay minimal; re-export of stable leaf symbols is allowed but
-    # importing high-level modules (dispatch/membership/rollout) by name is not.
-    # We forbid eager import of known high-level submodules.
     forbidden_high_level = {
         "dispatch",
         "membership",
@@ -1133,7 +1112,7 @@ def test_repo_has_no_first_party_legacy_facade_references() -> None:
     used_call_allowlist: set[tuple[str, str, str]] = set()
     for path in _tracked_python_files():
         if not path.exists():
-            continue  # deleted but not yet committed
+            continue
         relative = path.relative_to(_REPO_ROOT).as_posix()
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for line, kind, reference in _legacy_references(

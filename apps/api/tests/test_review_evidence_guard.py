@@ -68,8 +68,8 @@ def test_valid_evidence_returns_frozen_set_and_submitter() -> None:
         {"review_round_id": None},
         {"review_contributor_ids": None},
         {"review_contributor_ids": []},
-        {"review_contributor_ids": [str(_CONTRIBUTOR)]},  # missing accumulated
-        {"review_contributor_ids": [str(_ACCUMULATED)]},  # missing submitter
+        {"review_contributor_ids": [str(_CONTRIBUTOR)]},
+        {"review_contributor_ids": [str(_ACCUMULATED)]},
         {"review_submitter_id": None},
         {"review_submitter_id": "not-a-uuid"},
     ],

@@ -191,7 +191,6 @@ async def _execute_private_command(mode, maker, request):
         async with maker() as db:
             reply = await _invoke(owner, db, "execute", request)
             if isinstance(reply, PipelineFailure) and reply.error.rollback:
-                # Match the borrowed API boundary, which owns this rollback.
                 await db.rollback()
             return reply
     return await _invoke(owner, None, "execute", request)

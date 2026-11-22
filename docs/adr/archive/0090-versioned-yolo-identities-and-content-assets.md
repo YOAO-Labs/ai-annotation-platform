@@ -19,11 +19,21 @@
 
 YOLO26 使用精确原生端到端分支，固定 `nms=false`，区分真实 L1 损失与不适用的 DFL 项。实例分割为原生语义辅助目标生成确定性标签，保留各实例原始掩码，按 batch、类别数和输入面积限制辅助目标预算。架构验证同时核对 YAML 拓扑、原生模块和张量形状，兼容已确认的官方旧格式及原生类别迁移图，拒绝跨规格冒用。
 
-公共基础权重保存在当前环境既有训练桶的 `model-assets/sha256/<sha256>/weights.pt`，同时固定字节数。管理员准备工具校验上传及下载的真实字节；运行容器读取只读节点缓存，不持有对象存储管理凭据。节点心跳声明本地已校验摘要，创建与领取再次核对。对象存在或另一节点就绪不替代本节点准备。
+公共基础权重保存在当前环境既有训练桶的 `model-assets/sha256/<sha256>/weights.pt`，同时固定字节数。管理员准备工具校验上传及下载的真实字节；运行容器读取只读节点缓存，不持有对象存储管理凭据。节点通过认领请求声明本地已校验摘要，创建与领取再次核对。对象存在或另一节点就绪不替代本节点准备。
+
+`worker.py` 的 `Supervisor` 在启动时取一次 `runtime_identity`，并在 claim 中发送这份本地能力快照；心跳只发送围栏和事件，不重新扫描或转移权重。节点之后的磁盘变化不回写该快照，也不能推导其他节点或全局的就绪状态。
 
 同机训练器和 YOLO Backend 可挂载同一实际宿主目录；不同宿主机各自准备缓存，无共享文件系统前提。受控回流权重在服务保护目录按 SHA 去重，版本目录通过硬链接复用文件，安装收据仍按版本独立保存。每次新安装都检查任务、类别与原生环境；并发及取消通过进程内锁、文件锁和原子替换处理。损坏修复不得原地改写其他版本仍引用的 inode，身份冲突不得重绑定 UUID。
 
 资格证据按具体模型、运行时与操作记录。CPU 小输入原生训练、续训和安装可证明功能链路，不能替代目标设备容量、GPU 生命周期／故障或两台真实主机验收。
+
+冻结字节校验不能证明原生加载器真的接纳了全部成员：损坏图像仍可与其冻结 SHA 相符，却可能被原生数据集悄悄过滤。`input_membership.py` 的 `InputMembership` 核对原生实际载入的成员；`tools/native_family_qualification.py` 的 `qualify_managed_return` 从已安装 `yolo-backend` wheel 定位验证助手，并调用对应已安装后端的安装路径，避免工作树源码替代被核验的分发产物。
+
+`train.py` 的 `UltralyticsTrainingEvaluation` 复用验证口径但使用独立的训练集验证器，关闭增强并隔离 Python、NumPy 和 Torch 的随机状态；测量不能改变训练随机流、验证集 fitness、最佳权重选择或最终报告。`ultralytics_train.AttemptTrainer.final_eval` 将原生最终最佳权重回调与普通 `epoch_end` 遥测分流：锁定版本的 `final_eval` 临时递增 epoch 并再调用 `on_fit_epoch_end`，这不是新增训练轮。最终指标另存 `metrics.json`。
+
+`ultralytics_train` 在导入 Ultralytics 之前固定并预建可写 `YOLO_CONFIG_DIR` 根目录，避免设置和缓存落入通用目录。旧资格 v8.4.177 先检查根目录是否可写，v8.4.183 则先尝试递归创建；预建根路径适用于两条路径，不应依赖库导入时的回退行为。
+
+原生训练与验证不应临时下载字体；`ultralytics_train` 当前为原生字体探测提供镜像内字体，镜像资产的正式提供方式由 [#157](https://github.com/YOAO-Labs/ai-annotation-platform/issues/157) 跟踪。内存不足时，冻结 batch 不得被原生自动重试减小，失败应传播；`on_train_epoch_start` 目前盖过固定版本的私有 OOM 计数器，替换此兼容处理由 [#156](https://github.com/YOAO-Labs/ai-annotation-platform/issues/156) 跟踪。
 
 ## Consequences
 

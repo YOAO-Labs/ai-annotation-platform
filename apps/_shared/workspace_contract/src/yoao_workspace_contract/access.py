@@ -43,9 +43,7 @@ class ProjectCapability(str, Enum):
     TASK_READ = "task.read"
     ANNOTATION_WRITE = "annotation.write"
     REVIEW_WRITE = "review.write"
-    #: Full project / batch / selected-task annotation export. Excludes annotators and viewers.
     EXPORT_ANNOTATIONS = "export.annotations"
-    #: Project performance details and CSV; annotation export does not grant this.
     PERFORMANCE_READ = "performance.read"
 
 

@@ -1,10 +1,14 @@
 """Snapshot integrity and task-scope checks shared by initial execution and retry."""
 
-from copy import deepcopy
 import json
+from collections.abc import Mapping
+from copy import deepcopy
 from uuid import UUID
+
 from fastapi import HTTPException
 from sqlalchemy import select
+from yoao_inference_contract.topology import to_record
+
 from app.db.models.prediction_execution import PredictionExecutionSnapshot
 from app.services.training_dataset_bridge import content_digest
 
@@ -49,7 +53,6 @@ async def validate_task_scope(db, project, task, actor, scope, *, lock=False):
 
     if lock:
         original_batch_id = task.batch_id
-        # Assignment/batch edits lock these owners; hold them until prediction commit.
         if task.batch_id:
             await db.execute(
                 select(TaskBatch).where(TaskBatch.id == task.batch_id).with_for_update()
@@ -85,10 +88,10 @@ def freeze_builtin_defaults(backend, model, stage, *, project_thresholds=None):
         axis["key"]: [
             item["value"]
             for item in axis.get("variants", [])
-            if isinstance(item, dict) and isinstance(item.get("value"), str)
+            if isinstance(item, Mapping) and isinstance(item.get("value"), str)
         ]
         for axis in axes
-        if isinstance(axis, dict) and isinstance(axis.get("key"), str)
+        if isinstance(axis, Mapping) and isinstance(axis.get("key"), str)
     }
     combos = model.get("variant_combinations") or []
     if valid_values:
@@ -100,21 +103,26 @@ def freeze_builtin_defaults(backend, model, stage, *, project_thresholds=None):
                 status_code=422,
                 detail="管线模型缺少可冻结的完整变体，请明确选择模型规格",
             )
-        if combos and [variants[key] for key in valid_values] not in combos:
-            raise HTTPException(status_code=422, detail="管线模型变体组合无效")
+        if combos:
+            selected = tuple(variants[key] for key in valid_values)
+            if not any(
+                selected == tuple(row)
+                for row in combos
+                if isinstance(row, (list, tuple))
+            ):
+                raise HTTPException(status_code=422, detail="管线模型变体组合无效")
         stage["model_variants"] = {key: variants[key] for key in valid_values}
     properties = (model.get("params") or {}).get("properties") or {}
     defaults = {
-        key: prop["default"]
+        key: to_record(prop["default"])
         for key, prop in properties.items()
-        if isinstance(prop, dict) and "default" in prop
+        if isinstance(prop, Mapping) and "default" in prop
     }
     if stage.get("parent_stage") is None and project_thresholds:
         defaults.update(
             {key: value for key, value in project_thresholds.items() if key in defaults}
         )
     stage["params"] = {**defaults, **(stage.get("params") or {})}
-    # The read model never invents a physical checkpoint identity for legacy declarations.
     stage["identity_guarantee"] = "declared_configuration"
 
 

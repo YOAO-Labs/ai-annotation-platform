@@ -48,8 +48,6 @@ async def test_empty_creation_schema_roundtrip_and_exact_columns(creation_db):
                     "managed_original_creations", schema=owned_schema
                 )
             } == set(Creation.__table__.columns.keys()) - {
-                # scope columns arrive in 0230; staging_ref in 0250, so the
-                # fixture's writer-compatible augmentation cannot round-trip.
                 "owner_kind",
                 "project_id",
                 "task_id",
@@ -161,8 +159,6 @@ async def test_retirement_null_link_cannot_be_backfilled(creation_db, client):
     row = await allocation(db)
     await create(db, row)
     retired = await assertion(db)
-    # The baseline ORM intentionally has no new retirement column yet; its
-    # owning integration change supplies it. SQL still exercises 0219's guard.
     from sqlalchemy import text
 
     with pytest.raises(IntegrityError, match="link is immutable"):

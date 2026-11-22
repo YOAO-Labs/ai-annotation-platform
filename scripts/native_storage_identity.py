@@ -93,9 +93,6 @@ def _native_source_storage_policy(scope: dict) -> dict:
                 "Condition": {"StringLike": {"s3:prefix": native_prefixes}},
             },
             {
-                # Metadata-only permission requires complete bounded pages.
-                # Explicit denials above prevent a peer from expanding
-                # PutObject into abort or part-inspection authority.
                 "Effect": "Allow",
                 "Action": ["s3:ListBucketMultipartUploads"],
                 "Resource": [bucket_arn],
@@ -145,7 +142,6 @@ def _native_connection_storage_policy(scope: dict) -> dict:
 
 
 def client_for(service, endpoint, credentials, budget):
-    # Match the real consumers: no checksum suppression or implicit SDK retries.
     client = boto3.client(
         service,
         endpoint_url=endpoint,

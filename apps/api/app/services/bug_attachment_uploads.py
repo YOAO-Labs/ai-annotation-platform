@@ -196,7 +196,6 @@ async def lock_authority(db, actor, request):
 
 async def capture_authority(db, actor, request):
     _, authority = await lock_authority(db, actor, request)
-    # Request streaming and image validation must not hold business row locks.
     await db.commit()
     return authority
 
@@ -218,7 +217,6 @@ async def validated_image(data, mime_type):
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
-        # Repeated cancellation cannot abandon image parsing in its thread.
         try:
             await storage_access.finish(task)
         except BaseException:
@@ -304,7 +302,6 @@ async def upload(db, authority, data, mime_type, file_name):
             expected_revision=revision,
             lock=True,
         )
-        # Key and attachment deadlines may elapse during any preceding lock wait.
         await reauthorize(db, authority)
         if current.expires_at <= now():
             reject("bug_attachment_expired", 410)

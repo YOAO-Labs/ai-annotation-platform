@@ -116,7 +116,7 @@ async def test_scene_import_end_to_end(db_session, _patch_calib_read):
     project = await create_project(
         db_session, owner_id=owner.id, type_key="lidar", type_label="点云检测"
     )
-    project.data_type = "lidar"  # 触发点云分流
+    project.data_type = "lidar"
     await db_session.flush()
 
     ds = await _seed_scene_dataset(db_session, "scene-a", owner.id)
@@ -129,7 +129,6 @@ async def test_scene_import_end_to_end(db_session, _patch_calib_read):
         dataset_id=ds.id, project_id=project.id, actor_id=owner.id
     )
 
-    # 每个 lidar 帧一个 Task
     assert result == {"created": len(lidar_frames), "total": len(lidar_frames)}
 
     from sqlalchemy import select
@@ -143,9 +142,6 @@ async def test_scene_import_end_to_end(db_session, _patch_calib_read):
     assert len(tasks) == len(lidar_frames)
     assert all(t.file_type == "point_cloud" for t in tasks)
 
-    # 每帧 link: 1 primary_lidar + 该帧实际存在的相机
-    # attach_calibration 入库前经 SensorCalibration 归一化（剥未建模杂键、
-    # exclude_none），故期望值同样归一化（夹具 left.json 含杂键 extrinsic_ok，被剥掉）。
     from yoao_assets_catalog.spatial_values import SensorCalibration
 
     _known = set(SensorCalibration.model_fields)
@@ -167,7 +163,6 @@ async def test_scene_import_end_to_end(db_session, _patch_calib_read):
     by_path = {i.file_path: i for i in items}
 
     for task in tasks:
-        # task.dataset_item_id 指向该帧 lidar item
         lidar_item = by_path[task.file_path]
         assert task.dataset_item_id == lidar_item.id
         frame = PurePosixPath(lidar_item.file_path).stem
@@ -180,14 +175,12 @@ async def test_scene_import_end_to_end(db_session, _patch_calib_read):
         )
         assert roles == expected_roles, f"frame {frame}"
 
-    # 缺相机的帧 (000950) 只有 primary_lidar
     assert "000950" in lidar_frames
     lidar_950 = by_path["scene-a/lidar/000950.pcd"]
     task_950 = next(t for t in tasks if t.dataset_item_id == lidar_950.id)
     links_950 = await get_linked_items(db_session, task_950.id)
     assert [link.role for link in links_950] == ["primary_lidar"]
 
-    # 各相机帧 DatasetItem.metadata_["calibration"] 与源（归一化后）一致
     for cam, frames in cams.items():
         for frame in frames:
             cam_item = by_path[f"scene-a/camera/{cam}/{frame}.jpg"]

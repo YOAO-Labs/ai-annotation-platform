@@ -25,10 +25,6 @@ from typing import Any
 
 from yoao_inference_contract.topology import to_record
 
-# The protocol currently persists normalized ``models[]`` entries.  Keep the old
-# flat fields as a compatibility branch for snapshots written by older versions;
-# production snapshots use ``models`` and are no longer fingerprinted as an empty
-# flat capability.
 _DEFAULTS: dict[str, Any] = {
     "version": None,
     "protocol_version": "1",
@@ -53,9 +49,6 @@ _DEFAULTS: dict[str, Any] = {
 
 _CANONICAL_FIELDS: tuple[str, ...] = tuple(_DEFAULTS)
 
-# Fields that are always excluded from routing fingerprint (runtime/display-only).
-# Listed for documentation; the canonicalization only reads _CANONICAL_FIELDS so
-# anything not listed there is implicitly excluded.
 _EXCLUDED_FIELDS = frozenset(
     {
         "url",
@@ -81,7 +74,6 @@ def _sorted_unique(value: list[Any]) -> list[Any]:
     """Sort a list of comparable scalars and dedupe, preserving JSON-serializability."""
     if not value:
         return []
-    # Capability lists are strings or dicts-with-stable-keys; sort by JSON repr for determinism.
     keyed = {json.dumps(v, sort_keys=True, ensure_ascii=False): v for v in value}
     return [keyed[key] for key in sorted(keyed)]
 
@@ -146,7 +138,6 @@ def _canonicalize_variant_axes(value: Any) -> list[dict]:
             "default": axis.get("default"),
         }
         out.append(norm)
-    # Stable order by axis key.
     out.sort(key=lambda a: json.dumps(a.get("key"), sort_keys=True, ensure_ascii=False))
     return out
 
@@ -268,8 +259,6 @@ def canonicalize_capability(raw: Mapping[str, Any] | None) -> dict:
             canonical[field_name] = bool(caps.get(field_name, _DEFAULTS[field_name]))
         else:
             canonical[field_name] = caps.get(field_name, _DEFAULTS[field_name])
-    # Preserve existing legacy fingerprints when no managed model is advertised.
-    # A declared compatibility set changes which checkpoints a member can serve.
     if caps.get("managed_model_compatibility"):
         canonical["managed_model_compatibility"] = _canonicalize_list_field(
             caps["managed_model_compatibility"]

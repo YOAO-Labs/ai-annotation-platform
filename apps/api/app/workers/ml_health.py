@@ -12,12 +12,17 @@ from datetime import datetime, timezone
 from time import perf_counter
 
 import redis as redis_sync
+from redis.exceptions import RedisError
 
 from app.config import GPUArbiterMode, settings
 from app.services.inference_backend_control import backend_control_service
 from app.services.inference_gpu import gpu_authority_client
 from app.services.inference_gpu_data import open_gpu_authority_data
 from app.services.inference_topology_data import InferenceTopologyData
+from app.services.ml_stats_presence import (
+    ML_STATS_CHANNEL,
+    count_live_stats_subscribers,
+)
 from app.workers._db import task_session, task_session_factory
 from app.workers.celery_app import celery_app
 
@@ -266,8 +271,6 @@ async def _repair_one_gpu_resource(
     collections: list[dict] = []
     rollout_transition_id = rollout.transition_id
 
-    # Finish DB-pending collection receipts before a reset can reintroduce the
-    # still-durable tombstone into the closed domain.
     memberships = await _resource_memberships(factory, resource_id)
     for membership in memberships:
         finalized = await client.collect_tombstone(
@@ -821,48 +824,34 @@ def publish_ml_backend_stats() -> dict:
 
 
 async def _publish_stats_async() -> dict:
-    r = redis_sync.from_url(settings.redis_url)
-    try:
-        raw = r.get("ml-backend-stats:subscribers")
-    except Exception as e:  # noqa: BLE001
-        log.debug("subscribers key read failed: %s", e)
-        raw = None
-    finally:
+    with redis_sync.from_url(
+        settings.redis_url, socket_connect_timeout=2, socket_timeout=2
+    ) as r:
         try:
-            r.close()
-        except Exception:
-            pass
-    try:
-        subscribers = int(raw) if raw is not None else 0
-    except (TypeError, ValueError):
-        subscribers = 0
-    if subscribers <= 0:
-        return {"skipped": True, "subscribers": 0}
+            subscribers = count_live_stats_subscribers(r)
+        except RedisError as exc:
+            log.warning("ML stats subscriber lease read failed: %s", exc)
+            subscribers = 0
+        if subscribers <= 0:
+            return {"skipped": True, "subscribers": 0}
 
-    async with task_session() as db:
-        snapshots = await backend_control_service(db).stats_snapshots()
+        async with task_session() as db:
+            snapshots = await backend_control_service(db).stats_snapshots()
 
-    now = datetime.now(timezone.utc).isoformat()
-    payload_snapshots = []
-    for snapshot in snapshots:
-        payload = snapshot.model_dump(mode="json")
-        meta = payload.pop("meta", None)
-        if isinstance(meta, dict):
-            for key in _PERFHUD_META_KEYS:
-                if key in meta:
-                    payload[key] = meta[key]
-        payload_snapshots.append(payload)
-    r2 = redis_sync.from_url(settings.redis_url)
-    try:
-        r2.publish(
-            "ml-backend-stats:global",
+        now = datetime.now(timezone.utc).isoformat()
+        payload_snapshots = []
+        for snapshot in snapshots:
+            payload = snapshot.model_dump(mode="json")
+            meta = payload.pop("meta", None)
+            if isinstance(meta, dict):
+                for key in _PERFHUD_META_KEYS:
+                    if key in meta:
+                        payload[key] = meta[key]
+            payload_snapshots.append(payload)
+        r.publish(
+            ML_STATS_CHANNEL,
             json.dumps({"backends": payload_snapshots, "timestamp": now}),
         )
-    finally:
-        try:
-            r2.close()
-        except Exception:
-            pass
     return {"published": len(payload_snapshots), "subscribers": subscribers}
 
 

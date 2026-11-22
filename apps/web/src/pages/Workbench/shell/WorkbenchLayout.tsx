@@ -49,7 +49,6 @@ interface WorkbenchLayoutProps {
   banners: ComponentProps<typeof WorkbenchBanners>;
   topbar: ComponentProps<typeof Topbar>;
   stageHost: ComponentPropsWithoutRef<typeof WorkbenchStageHost>;
-  /** 保持锚定画布的审阅与 modal 层。 */
   stageOverlay?: ReactNode;
   videoControlsRef: Ref<VideoStageControls>;
   statusBar: ComponentProps<typeof StatusBar>;
@@ -58,17 +57,12 @@ interface WorkbenchLayoutProps {
   videoTracker: ComponentProps<typeof VideoTrackerPropagateDialog>;
   hotkeys: ComponentProps<typeof HotkeyCheatSheet>;
   offlineQueue: ComponentProps<typeof OfflineQueueDrawer>;
-  /** 工作台设置窗口(齿轮菜单入口)。 */
   workbenchSettings: ComponentProps<typeof WorkbenchSettingsDialog>;
   conflict: ComponentProps<typeof ConflictModal>;
   deleteConfirm?: ComponentProps<typeof DeleteConfirmModal>;
-  // 顶栏标注指引入口 (可选; 项目无 guide 时不渲染).
   guidePanel?: ComponentProps<typeof GuidePanel>;
-  // B 组 · 右栏下段统一讨论面板 (转正; 上 AIInspectorPanel + 下 DiscussionPanel 两段固定).
   discussionPanel: ComponentProps<typeof DiscussionPanel>;
-  // 选中标注浮动信息卡(图片 / 视频);null = 当前无选中 / 该端不显示。
   floatingSelection?: SelectedAnnotationCardProps | null;
-  // 工作台桌宠;enabled=false 时不挂载,折叠态回退为纯文字小条。
   pet?: ({ enabled: boolean } & WorkbenchPetProps) | null;
 }
 
@@ -157,7 +151,6 @@ export function WorkbenchLayout({
     [floatingSelection, linkedFloatingSelection, setPetPosition],
   );
 
-  // 3D / 点云画布在软件渲染下用 backdrop-filter 会拖慢合成清理，这类工作台只压暗。
   const dialogBackdropBlur = stageHost.common.stageKind !== "3d";
 
   return (
@@ -252,7 +245,6 @@ export function WorkbenchLayout({
         }}
       />
 
-      {/* 桌宠开启时吃掉折叠态:折叠小条不渲染(由像素小人举牌代替),仅展开态渲染完整卡。 */}
       {floatingSelection && (!pet?.enabled || !floatingSelection.collapsed) && (
         <SelectedAnnotationCard
           {...floatingSelection}

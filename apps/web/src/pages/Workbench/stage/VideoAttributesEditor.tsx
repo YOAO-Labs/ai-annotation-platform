@@ -3,31 +3,17 @@ import type { AttributeSchema } from "@/api/projects";
 import { AttributeForm } from "../shell/AttributeForm";
 
 export interface VideoAttributesEditorProps {
-  /** 当前激活工具的属性 schema (由 WorkbenchShell 派生)。 */
   schema: AttributeSchema | undefined;
   className: string;
-  /** track 级默认值 (annotation.attributes)。 */
   trackAttributes: Record<string, unknown> | undefined;
-  /** 当前帧逐帧覆盖 (keyframe.attributes); 为空表示该帧用 track 默认值。 */
   keyframeAttributes: Record<string, unknown> | undefined;
   frameIndex: number;
-  /** 当前帧是否有可写关键帧 (消失帧不可写逐帧属性)。 */
   canEditKeyframe: boolean;
   readOnly?: boolean;
   onChangeTrackAttributes: (next: Record<string, unknown>) => void;
   onChangeKeyframeAttributes: (next: Record<string, unknown>) => void;
 }
 
-/**
- * 视频轨迹属性编辑器。
- *
- * 仅暴露 schema 中 `mutable=true` 的属性, 区分两层:
- * - 「track 默认值」写入 annotation.attributes (整条轨迹生效);
- * - 「当前帧覆盖」写入当前帧 keyframe.attributes (仅该帧覆盖默认值)。
- *
- * 复用既有 AttributeForm 渲染表单控件 (context="video" 会给字段挂「逐帧」徽标),
- * 通过裁剪 schema.fields 只保留 mutable 字段, 避免重复造控件。
- */
 export function VideoAttributesEditor({
   schema,
   className,
@@ -39,7 +25,6 @@ export function VideoAttributesEditor({
   onChangeTrackAttributes,
   onChangeKeyframeAttributes,
 }: VideoAttributesEditorProps) {
-  // 仅保留 mutable=true 的字段; 非 mutable 属性在 track 创建后不应逐帧/逐 track 改动。
   const mutableSchema = useMemo<AttributeSchema | undefined>(() => {
     const fields = (schema?.fields ?? []).filter((f) => f.mutable === true);
     if (fields.length === 0) return undefined;

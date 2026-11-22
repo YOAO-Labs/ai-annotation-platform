@@ -1,20 +1,3 @@
-/**
- * SAM 候选前端 LRU 缓存。
- *
- * 重复点击同一坐标 / 拖同一框时，跳过对后端的重复请求；后端 embedding cache 减少了
- * encoder 开销但仍走 HTTP round-trip。前端缓存让重复操作秒回。
- *
- * Key 设计：
- *   `${taskId}|${mlBackendId}|${ctxKind}|${normalize(ctx)}`
- *
- * `normalize` 把可序列化字段（points / bbox / text / exemplar bbox / 额外参数）按 key
- * 排序后 JSON.stringify；点坐标按 4 位小数 round 防浮点抖动。
- *
- * Eviction：
- * - LRU 32 项；最久未访问的先淘汰。
- * - 原生 RLE 候选同时受 32 MiB 估算字节预算和 2 分钟 TTL 约束。
- * - `clearAll()` 在 mlBackendId / capability 变更时调用。
- */
 import type { PendingCandidate } from "./useInteractiveAI";
 
 const DEFAULT_CAP = 32;
@@ -28,7 +11,6 @@ function roundCoord(n: number): number {
 }
 
 function normalizeCtx(ctx: Record<string, unknown>): string {
-  // 浅 clone + 坐标 round；按 key 排序后 JSON。
   const out: Record<string, unknown> = {};
   for (const k of Object.keys(ctx).sort()) {
     const v = ctx[k];
@@ -53,10 +35,6 @@ export interface SamCacheKeyArgs {
   mlBackendId: string;
   ctxKind: string;
   ctx: Record<string, unknown>;
-  /**
-   * 额外作用域，视频传当前 frameIndex。同一 task 的不同帧是不同底图，
-   * 同样的 prompt 必须命中不同缓存项，否则候选会跨帧串。省略 = 图片链路（无此维度）。
-   */
   scope?: string | number;
 }
 
@@ -159,7 +137,6 @@ export function createSamCache(options: number | SamCacheOptions = {}): SamCache
         misses += 1;
         return undefined;
       }
-      // LRU 触摸：删后重插，迭代顺序末尾 = 最新。
       map.delete(key);
       map.set(key, entry);
       hits += 1;

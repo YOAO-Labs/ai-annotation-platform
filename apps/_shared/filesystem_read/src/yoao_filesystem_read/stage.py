@@ -142,8 +142,6 @@ def stage_content(
                 digest.update(chunk)
             if size != observed_size:
                 raise FilesystemStorageError("source_changed")
-        # Exiting the source context performs the pinned file/directory checks.
-        # No byte from this file is returned before that exit has succeeded.
         check()
         sha256 = digest.hexdigest()
         if expected_sha256 is not None and sha256 != expected_sha256:

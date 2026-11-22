@@ -87,8 +87,6 @@ class InvitationSendEmailResponse(BaseModel):
 
 
 class BulkInviteItem(BaseModel):
-    # Validate business fields per item, so one invalid email does not discard
-    # every otherwise valid invitation in the same request.
     email: str = Field(max_length=1000)
     role: str = Field(max_length=100)
     group_name: str | None = Field(default=None, max_length=1000)

@@ -69,8 +69,6 @@ class _FakeUpload:
             chunk = self._data[self._pos :]
         else:
             chunk = self._data[self._pos : self._pos + size]
-        # Force the streaming stride by capping each read at _chunk (mirrors
-        # the helper's _FRAME_READ_CHUNK expectation of bounded read() calls).
         if self._chunk and len(chunk) > self._chunk:
             chunk = chunk[: self._chunk]
         self._pos += len(chunk)
@@ -78,9 +76,6 @@ class _FakeUpload:
 
     async def close(self) -> None:  # pragma: no cover - parity with UploadFile
         return None
-
-
-# ── unit tests on _read_capped_frame ──────────────────────────────────
 
 
 async def test_read_capped_frame_accepts_valid_jpeg():
@@ -111,12 +106,8 @@ async def test_read_capped_frame_rejects_oversize_upload_file_size():
 
 async def test_read_capped_frame_rejects_oversize_streamed():
     """no Content-Length, streams > cap → 413 mid-stream."""
-    # Build a payload that is both valid JPEG-shaped and larger than the cap.
-    # We don't need a *decodable* image here — the streaming cap fires before
-    # PIL decode runs.
     big = b"\xff\xd8" + b"\x00" * (MAX_FRAME_UPLOAD_BYTES + 1)
     frame = _FakeUpload(big)
-    # No request → no Content-Length → must rely on streaming guard.
     with pytest.raises(HTTPException) as exc:
         await _read_capped_frame(frame, request=None)
     assert exc.value.status_code == 413
@@ -150,9 +141,6 @@ async def test_read_capped_frame_rejects_truncated_jpeg_with_valid_header():
 
 async def test_read_capped_frame_rejects_oversize_dimensions():
     """valid image but a dimension > 4096 → 400."""
-    # Patch MAX_FRAME_UPLOAD_BYTES-style guard is irrelevant here — we want a
-    # well-formed JPEG whose width exceeds the dimension cap. Use a width just
-    # over the limit and a tiny height so the byte count stays small.
     data = _jpeg_bytes(width=_MAX_FRAME_DIMENSION + 1, height=8)
     frame = _FakeUpload(data)
     with pytest.raises(HTTPException) as exc:
@@ -170,13 +158,10 @@ async def test_read_capped_frame_rejects_oversize_pixel_count():
     This test instead documents the pixel-cap path by tightening the helper's
     internal constant via a JPEG that exercises the guard indirectly.
     """
-    # 4096 x 4096 is exactly the cap; the helper accepts it (≤).
     data = _jpeg_bytes(width=_MAX_FRAME_DIMENSION, height=_MAX_FRAME_DIMENSION)
     frame = _FakeUpload(data)
-    # Build would be huge; skip if the JPEG is too large to materialize fast.
     if len(data) > MAX_FRAME_UPLOAD_BYTES:
         pytest.skip("4096^2 JPEG too large to materialize in unit test")
-    # The pixel count equals _MAX_FRAME_PIXELS exactly → accepted.
     out = await _read_capped_frame(frame)
     assert out == data
 
@@ -190,9 +175,6 @@ async def test_read_capped_frame_rejects_unsupported_format():
         await _read_capped_frame(frame)
     assert exc.value.status_code == 400
     assert "format" in exc.value.detail.lower()
-
-
-# ── endpoint test: predict-frame 413 path ────────────────────────────
 
 
 async def _seed(db, owner_id):
@@ -270,15 +252,13 @@ async def test_predict_frame_rejects_oversize_content_length(
 
     resp = await httpx_client.post(
         _predict_url(proj, backend),
-        content=b"x",  # 1 byte body but headers declare an oversized payload
+        content=b"x",
         headers={
             "Authorization": f"Bearer {token}",
             "content-length": str(MAX_FRAME_UPLOAD_BYTES + 1),
             "content-type": "multipart/form-data; boundary=----x",
         },
     )
-    # Either 413 (cap tripped) or 400 (multipart parse fails on the synthetic
-    # content-length) — both prove the frame was rejected before execution.
     assert resp.status_code in (400, 413)
     assert not patched_storage.get("execution_called")
     assert not patched_storage.get("upload_called")
@@ -292,7 +272,6 @@ async def test_predict_frame_rejects_oversize_streamed(
     proj, backend, task = await _seed(db_session, user.id)
     await db_session.commit()
 
-    # Send ~33 MiB of bytes as a multipart upload; the cap fires mid-stream.
     big = b"\xff\xd8" + b"\x00" * (MAX_FRAME_UPLOAD_BYTES + 1)
     files = {"frame": ("f.jpg", big, "image/jpeg")}
     data = {"task_id": str(task.id), "frame_index": "0", "config": "{}"}

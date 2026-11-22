@@ -202,7 +202,6 @@ async def test_static_mask_get_supports_etag_and_frame_alias(
     assert alias.headers["cache-control"] == "private, no-cache"
     assert load.await_count == 3
 
-    # A stable annotation URL can point at new pixels after edits or restore.
     annotation.geometry = {
         "type": "raster_mask",
         "mask": build_rle_reference(EMPTY_RLE),

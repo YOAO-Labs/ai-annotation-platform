@@ -16,7 +16,10 @@ role set means "any membership", never "any account role".
 
 from __future__ import annotations
 
-from sqlalchemy import Select, false, or_, select
+from uuid import UUID
+
+from sqlalchemy import Select, false, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.db.enums import (
@@ -34,13 +37,11 @@ from app.services.identity_contracts import IdentityActorFacts, IdentityActorSta
 from app.services.identity_read_relations import account_profiles
 from app.services.workspace_read_relations import (
     actor_project_memberships,
+    project_facts,
     project_member_facts,
     project_search_scope,
 )
 
-#: Platform roles allowed to open the personal annotator/reviewer dashboards.
-#: Legacy ``annotator`` / ``reviewer`` account values are intentionally absent;
-#: they are historical facts and must not authorize a request.
 DASHBOARD_PLATFORM_ROLES = (
     PlatformRole.SUPER_ADMIN,
     PlatformRole.PROJECT_ADMIN,
@@ -91,7 +92,6 @@ def membership_project_ids(
     """Project IDs where ``user`` holds a valid membership, optionally role-filtered."""
 
     project_scope = actor_project_memberships(user.id)
-    # Retain ORM autoflush for standalone execution while selecting only facts.
     facts = select(
         project_scope.c.project_id,
         project_scope.c.member_role.label("role"),
@@ -138,7 +138,6 @@ def owned_project_ids(
     """Owned IDs in the caller's candidate scope; callers retain manager gates."""
 
     project_scope = project_search_scope(user)
-    # The ORM column alias preserves the original Select's flush behavior.
     facts = select(
         project_scope.c.project_id.label("id"), project_scope.c.owner_id
     ).subquery("workspace_owned_project_facts")
@@ -177,9 +176,6 @@ def project_scope_clause(
     add a predicate (global scope).
     """
 
-    # Fail closed for an inactive account or a legacy/unknown platform role;
-    # the resolver would reject the request, and aggregate SQL must not open a
-    # wider scope than the request can ever pass.
     if not getattr(user, "is_active", False) or user.role not in PLATFORM_ROLES:
         return false()
     if user.role == PlatformRole.SUPER_ADMIN.value:
@@ -188,6 +184,18 @@ def project_scope_clause(
     if platform_role_is_manager(user.role):
         arms.append(project_column.in_(_managed_project_ids(user)))
     return or_(*arms)
+
+
+async def count_visible_projects_by_primary_pool(
+    db: AsyncSession, actor: IdentityActorFacts
+) -> dict[UUID, int]:
+    projects = project_facts()
+    pool_id = projects.c.ml_backend_pool_id
+    query = select(pool_id, func.count()).where(pool_id.is_not(None)).group_by(pool_id)
+    scope = project_scope_clause(actor, projects.c.id)
+    if scope is not None:
+        query = query.where(scope)
+    return {pool: count for pool, count in await db.execute(query)}
 
 
 def task_project_scope(

@@ -11,7 +11,6 @@ import {
   useImageAnnotationActions,
 } from "./useImageAnnotationActions";
 
-/** 结算当前排队的 decisionDialog,模拟用户点下某个按钮。 */
 function settleDecisionDialog(value: boolean | string | null) {
   const head = useDecisionDialogStore.getState().queue[0];
   if (!head) throw new Error("decisionDialog 队列为空");
@@ -19,7 +18,6 @@ function settleDecisionDialog(value: boolean | string | null) {
 }
 
 afterEach(() => {
-  // decisionDialog store 是模块级单例,清空队列避免跨测试残留。
   act(() => {
     useDecisionDialogStore.setState({ queue: [] });
   });
@@ -245,7 +243,6 @@ describe("ordinary prediction decisions", () => {
     });
     expect(view.s.setSelectedId).toHaveBeenCalledWith("pred-p-1");
     expect(view.args.history.push).toHaveBeenCalledTimes(1);
-    // A stale prediction query must not permit a second write after the response.
     await act(async () => {
       await view.result.current.handleAcceptPrediction(candidate);
     });
@@ -284,7 +281,6 @@ describe("ordinary prediction decisions", () => {
       ).toEqual({ status: "awaiting-class" });
     });
     expect(view.s.setSelectedId).not.toHaveBeenCalled();
-    // A mutation notification can commit a render before the picker state update.
     view.rerender();
     view.s.editingClass = view.s.setEditingClass.mock.calls[0][0];
     view.rerender();
@@ -961,7 +957,6 @@ describe("ordinary image Mask commit ownership", () => {
     await act(async () => {
       pending = view.result.current.commitMaskAsPolygon();
     });
-    // 擦空稿件走应用内三选一;选「删除对象」后进入删除分支。
     await act(async () => {
       settleDecisionDialog("delete");
       await Promise.resolve();

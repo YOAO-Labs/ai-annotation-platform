@@ -15,9 +15,6 @@ import {
 import { discussionKeys } from "@/pages/Workbench/state/discussionTypes";
 
 function invalidateDiscussionFeed(qc: ReturnType<typeof useQueryClient>, taskId?: string | null) {
-  // A task id lets React Query invalidate only the affected discussion family.
-  // Legacy callers do not have one, so invalidate the C0 family prefix rather
-  // than trying to merge a second browser-side feed.
   qc.invalidateQueries({
     queryKey: taskId ? discussionKeys.task(taskId) : ["task-discussion"],
   });
@@ -31,9 +28,6 @@ export function useAnnotationComments(annotationId: string | null | undefined) {
   });
 }
 
-// keyset 分页 + 「加载更早评论」按钮。CommentsPanel 切换到这条 hook
-// 后单标注 100+ 评论不再初始化卡顿；老 hook（`useAnnotationComments`）保留作
-// 简单场景兜底（list_attachments 等）。
 const COMMENTS_PAGE_LIMIT = 50;
 
 export interface ScopedCreateCommentInput {
@@ -64,9 +58,6 @@ export function useAnnotationCommentsInfinite(annotationId: string | null | unde
   });
 }
 
-/**
- * I4 · 任务级评论 — DiscussionPanel 未选中标注时降级展示.
- */
 export function useTaskCommentsInfinite(taskId: string | null | undefined, enabled = true) {
   return useInfiniteQuery({
     queryKey: ["task-comments-page", taskId],
@@ -100,8 +91,6 @@ export function useCreateComment(annotationId: string | null | undefined, taskId
       const targetTaskId = scoped?.taskId ?? taskId;
       qc.invalidateQueries({ queryKey: ["annotation-comments", targetAnnotationId] });
       qc.invalidateQueries({ queryKey: ["annotation-comments-page", targetAnnotationId] });
-      // 任务级聚合视图（未选中标注）下 annotationId 为 null，上面的 key 命中不到
-      // ["task-comments-page", taskId]；按前缀失效任务级缓存，保证汇总列表即时刷新。
       qc.invalidateQueries({ queryKey: ["task-comments-page"] });
       invalidateDiscussionFeed(qc, targetTaskId);
       qc.invalidateQueries({ queryKey: ["notifications"] });
@@ -166,24 +155,16 @@ function normalizeDeleteCommentInput(
 
 export function useDeleteComment(annotationId: string | null | undefined, taskId?: string | null) {
   const qc = useQueryClient();
-  // 任务级聚合视图（未选中标注）缓存按 taskId 分键，删除时不知道 taskId，
-  // 故按前缀对所有 ["task-comments-page", *] 缓存乐观剔除。
   const taskPagePrefix = ["task-comments-page"];
   return useMutation({
     mutationFn: (input: DeleteCommentInput) => {
       const { id } = normalizeDeleteCommentInput(input, annotationId, taskId);
       return commentsApi.remove(id);
     },
-    // 乐观移除：直接从缓存剔除被删项。后端是软删 (is_active=false) + 列表过滤，
-    // 仅靠 invalidate+refetch 在快速切换标注时会偶现"删除后重现"（stale 缓存竞态）。
-    // 直接改缓存条目可彻底避免；失败则在 onError 回滚（不掩盖失败的删除）。
     onMutate: async (input: DeleteCommentInput) => {
       const scoped = normalizeDeleteCommentInput(input, annotationId, taskId);
       const pageKey = ["annotation-comments-page", scoped.annotationId];
       const listKey = ["annotation-comments", scoped.annotationId];
-      // A scoped mutation knows its task, so never snapshot or roll back every
-      // task aggregate. The broad prefix remains for legacy callers that have
-      // no task id at all.
       const taskPageKey = scoped.taskId ? ["task-comments-page", scoped.taskId] : taskPagePrefix;
       await Promise.all([
         qc.cancelQueries({ queryKey: pageKey }),

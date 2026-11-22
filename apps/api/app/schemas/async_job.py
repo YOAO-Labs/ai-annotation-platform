@@ -85,6 +85,7 @@ class AsyncJobOut(BaseModel):
                 "video_prediction_authority",
                 "repair_authority",
                 "point_cloud_quality_authority",
+                "frame_segment_receipts",
             }
         }
 

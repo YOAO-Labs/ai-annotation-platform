@@ -21,24 +21,10 @@ import {
 } from "../layout/workbenchLayoutSnapshot";
 import { userPreferencesQueryKey } from "./useUserPreferences";
 
-/**
- * 账号级「命名布局预设」的唯一写入者。
- *
- * 与 useWorkbenchWorkspaceLayout 的分工:那边只写 `workspace.contexts.<当前上下文>`
- * (当前布局自动记住), 这里只写 `workspace.namedPresets` (用户显式另存的清单)。两条
- * 路径的键互不相交, 后端把整份 namedPresets 当原子 map 替换, 所以省略某条即删除。
- * 每次写入同时携带 GET 返回的 namedPresetsRevision；陈旧整图会被 API 拒绝并刷新，
- * 不会覆盖另一设备已经提交的新版本。
- *
- * 无法解析的条目 (损坏 / 来自更新版本) 保留原样参与每次整表提交。界面只派生能
- * 识别名称与 context 的条目；无法恢复的条目只能删除，避免旧客户端改写新版预设。
- */
-
 export interface WorkbenchNamedPreset {
   id: string;
   name: string;
   context: WorkspaceContext;
-  /** null = 快照无法恢复;只能删除, 不能应用或重命名。 */
   snapshot: WorkspaceSnapshot | null;
 }
 
@@ -89,7 +75,6 @@ function readVisiblePreset(id: string, value: unknown): WorkbenchNamedPreset | n
 export function useWorkbenchNamedPresets() {
   const userId = useAuthStore((state) => state.user?.id);
   const queryClient = useQueryClient();
-  // Same key and stale time as useUserPreferences: one shared GET, one cache.
   const query = useQuery({
     queryKey: userPreferencesQueryKey(userId),
     queryFn: () => authApi.getPreferences(),
@@ -126,10 +111,7 @@ export function useWorkbenchNamedPresets() {
           namedPresetsRevision: revision,
           workbench: { layout: { workspace: { namedPresets: next } } },
         });
-        // A refetch may have started while PATCH was in flight; do not let its old
-        // response land after the authoritative mutation response.
         await queryClient.cancelQueries({ queryKey, exact: true });
-        // Replace only this key: the layout writer owns the sibling contexts map.
         queryClient.setQueryData<UserPreferences>(queryKey, (previous) => {
           if (!previous) return response;
           const workspace =
@@ -163,7 +145,6 @@ export function useWorkbenchNamedPresets() {
     [queryClient, revision, userId],
   );
 
-  /** 同名保存视为更新已有预设,不占新名额。 */
   const save = useCallback(
     async (
       name: string,
@@ -180,8 +161,6 @@ export function useWorkbenchNamedPresets() {
       const existing = presets.find(
         (preset) => preset.id === matchingId && preset.snapshot !== null,
       );
-      // Never reinterpret or overwrite a same-name entry that this client
-      // cannot restore, including a preset written by a newer schema.
       if (matchingId && !existing) return "duplicate-name";
       if (!existing && Object.keys(stored).length >= MAX_NAMED_WORKSPACE_PRESETS) return "limit";
       let clean: WorkspaceSnapshot;

@@ -11,7 +11,9 @@
 
 from __future__ import annotations
 
+import json
 import uuid
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -24,6 +26,7 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from tests.conftest import create_registry_with_pool
+from tests.test_managed_prediction_requests import managed_task
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -59,7 +62,6 @@ async def _seed(
         state="connected",
     )
     proj.ml_backend_pool_id = pool.id
-    # ADR-0044 · 预标校验项目「已启用」, 为该 backend 建启用关联
     db.add(ProjectMLBackendPool(project_id=proj.id, pool_id=pool.id, enabled=True))
     await db.flush()
 
@@ -100,7 +102,8 @@ def _mock_celery(monkeypatch):
         captured["request"] = request
         captured["queue"] = queue
         captured["soft_time_limit"] = soft_time_limit
-        return "fake-job-uuid"
+        assert request.async_job_id is not None
+        return request.async_job_id
 
     from app.workers.batch_prediction_dispatch import CeleryBatchPredictionDispatcher
 
@@ -320,7 +323,6 @@ async def test_preannotate_happy_path_text_box_mode(
     assert data["total_tasks"] == 3
     assert data["channel"] == f"project:{proj.id}:preannotate"
 
-    # delay 收到的 kwargs 透传 prompt + output_mode + batch_id
     assert _mock_celery["request"].prompt == "ripe apples"
     assert _mock_celery["request"].output_mode == "box"
     assert _mock_celery["request"].batch_id == str(batch.id)
@@ -347,6 +349,104 @@ async def test_preannotate_forwards_model_id_and_task_type(
     assert resp.status_code == 200, resp.text
     assert _mock_celery["request"].task == "ocr"
     assert _mock_celery["request"].model_id == "pp-ocrv4"
+
+
+_CROP_OCR = json.loads(
+    (
+        Path(__file__).resolve().parents[3]
+        / "apps/web/src/__fixtures__/crop-ocr-pipeline-cases.json"
+    ).read_text(encoding="utf-8")
+)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", _CROP_OCR["cases"], ids=lambda case: case["name"])
+async def test_preannotate_accepts_composed_crop_ocr(
+    httpx_client, super_admin, db_session, _mock_celery, case
+):
+    owner, token = super_admin
+    project, root_backend, batch = await _seed(db_session, owner.id)
+    tasks = await db_session.scalars(select(Task).where(Task.batch_id == batch.id))
+    for task in tasks:
+        await managed_task(db_session, project, owner, task=task)
+    source = _CROP_OCR["source"]
+    recognizer = {**_CROP_OCR["recognizer"], **case["recognition"]}
+    if case["sibling"]:
+        recognition_backend = root_backend
+        root_backend.health_meta = {
+            "capabilities": {"models": [source, case["sibling"], recognizer]}
+        }
+    else:
+        recognition_backend, pool = await create_registry_with_pool(
+            db_session,
+            name="crop-ocr",
+            url=f"http://ocr-{project.id}/",
+            is_interactive=False,
+            state="connected",
+        )
+        db_session.add(
+            ProjectMLBackendPool(project_id=project.id, pool_id=pool.id, enabled=True)
+        )
+        root_backend.health_meta = {"capabilities": {"models": [source]}}
+        recognition_backend.health_meta = {"capabilities": {"models": [recognizer]}}
+    await db_session.commit()
+
+    root = {
+        "ml_backend_id": str(root_backend.id),
+        "model_id": source["id"],
+        "task": source["task"],
+        "model_variants": source["default_variants"],
+        "params": {},
+        "class_filter": [4],
+    }
+    child = {
+        **case["expected_child"],
+        "stage": 1,
+        "parent_stage": 0,
+        "ml_backend_id": str(recognition_backend.id),
+    }
+    body = {
+        **root,
+        "batch_id": str(batch.id),
+        "predict_mode": "skip_predicted",
+        "pipeline_stages": [
+            {
+                **root,
+                "stage": 0,
+                "source": {"kind": "dataset", "data_type": "image"},
+            },
+            child,
+        ],
+    }
+    endpoint = f"/api/v1/projects/{project.id}/preannotate"
+    if case["edit_axis"] == "version":
+        sibling_variant = case["sibling"]["default_variants"]["version"]
+        invalid_child = {
+            **child,
+            "model_variants": {**child["model_variants"], "version": sibling_variant},
+        }
+        rejected = await httpx_client.post(
+            endpoint,
+            headers=_bearer(token),
+            json={
+                **body,
+                "pipeline_stages": [body["pipeline_stages"][0], invalid_child],
+            },
+        )
+        assert rejected.status_code == 422, rejected.text
+        assert (
+            rejected.json()["detail"]
+            == "管线模型缺少可冻结的完整变体，请明确选择模型规格"
+        )
+        assert "request" not in _mock_celery
+    response = await httpx_client.post(endpoint, headers=_bearer(token), json=body)
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "queued"
+    assert response.json()["job_id"] == _mock_celery["request"].async_job_id
+    sent_root, sent_child = _mock_celery["request"].pipeline_stages
+    assert sent_root["class_filter"] == [4]
+    assert {key: sent_child[key] for key in child} == child
+    assert sent_child.get("class_filter") is None
 
 
 @pytest.mark.asyncio

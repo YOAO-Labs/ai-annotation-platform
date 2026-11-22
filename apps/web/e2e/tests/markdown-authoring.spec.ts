@@ -647,9 +647,6 @@ test.describe("shared Markdown authoring", () => {
         if (event.isTrusted) events.push("start");
       });
       element.addEventListener("compositionend", () => {
-        // Chromium's CDP Input.insertText emits an untrusted compositionend,
-        // including on a plain contenteditable. Observe that protocol event;
-        // the candidate/input events above still originate in the browser.
         events.push("end");
       });
     });
@@ -833,10 +830,6 @@ test.describe("shared Markdown authoring", () => {
     const targetRow = editor.getByRole("row").filter({ hasText: "车辆" });
     const targetCell = targetRow.locator("td").nth(2).locator('[contenteditable="true"]');
 
-    // Focus and dispatch the paste in the same task: the browser's deferred
-    // selectionchange (which attributes the nested editor) has not run yet.
-    // MDXEditor would otherwise keep the root editor active and insert the
-    // image outside the table.
     await targetCell.evaluate((element, bytes) => {
       (element as HTMLElement).focus();
       const transfer = new DataTransfer();
@@ -903,20 +896,12 @@ test.describe("shared Markdown authoring", () => {
     await pasteImage(targetCell, "待删图片.png");
     const errors = editor.getByTestId("markdown-upload-errors");
     await expect(errors).toBeVisible();
-    // Positive baseline: the upload failed once before the node was deleted, so
-    // the later count is not comparing two accidental zeros.
     expect(uploadCount).toBe(1);
 
-    // Remove the failed placeholder; the editor must drop the pending upload
-    // rather than keep a retry that could re-upload a deleted node. The paste
-    // leaves the selection immediately after the inserted node.
     await page.keyboard.press("Backspace");
     await expect(errors).toHaveCount(0);
     await expect(targetCell).toContainText("前后");
 
-    // The real save and persisted readback is the observable completion
-    // boundary: no further upload may run, and neither the pending marker
-    // nor an asset may persist.
     await page.getByRole("button", { name: "保存", exact: true }).click();
     await expect(page.getByTestId("guide-save-status")).toHaveText("已保存");
     const saved = await fixture.read();
@@ -1042,12 +1027,19 @@ test.describe("shared Markdown authoring", () => {
     await expect(richText(editor)).toBeVisible({ timeout: 30_000 });
     await richText(editor).fill("模板边界约定：记录遮挡，保留可见轮廓。");
     await richText(editor).press("Control+a");
-    await editor.getByRole("button", { name: "插入链接", exact: true }).click();
-    const linkAddress = page.getByRole("textbox", { name: "地址", exact: true });
-    await expect(linkAddress).toBeVisible();
-    await linkAddress.fill("https://example.com/annotation-guide");
+    await richText(editor).press("ControlOrMeta+k");
+    const linkAddress = editor.getByRole("textbox", { name: "地址", exact: true });
     await expect(linkAddress).toBeFocused();
-    await page.getByRole("button", { name: "保存链接", exact: true }).click();
+    await page.keyboard.press("Tab");
+    await expect(editor.getByRole("textbox", { name: "链接标题", exact: true })).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(linkAddress).toHaveCount(0);
+    await expect(richText(editor)).toBeFocused();
+    await richText(editor).press("Control+a");
+    await editor.getByRole("button", { name: "插入链接", exact: true }).click();
+    await expect(linkAddress).toBeFocused();
+    await linkAddress.fill("https://example.com/annotation-guide");
+    await linkAddress.press("Enter");
     await mode(editor, "预览");
     await expect(
       editor.getByRole("link", { name: "模板边界约定：记录遮挡，保留可见轮廓。", exact: true }),
@@ -1070,10 +1062,29 @@ test.describe("shared Markdown authoring", () => {
         .getByRole("button", { name: "编辑", exact: true })
         .click();
       dialog = page.getByRole("dialog", { name: "编辑模板" });
-      await expect(richText(dialog.getByTestId("markdown-editor"))).toContainText("模板边界约定");
+      const reopenedEditor = dialog.getByTestId("markdown-editor");
+      const linkText = "模板边界约定：记录遮挡，保留可见轮廓。";
+      await richText(reopenedEditor).getByText(linkText, { exact: true }).click();
+      const linkPreview = reopenedEditor.getByTestId("link-dialog-preview");
+      await expect(linkPreview).toHaveAttribute("href", "https://example.com/annotation-guide");
+      await reopenedEditor.getByRole("button", { name: "编辑链接", exact: true }).click();
+      const reopenedAddress = reopenedEditor.getByRole("textbox", { name: "地址", exact: true });
+      await expect(reopenedAddress).toBeFocused();
+      await expect(reopenedAddress).toHaveValue("https://example.com/annotation-guide");
+      await reopenedAddress.fill("https://example.com/should-not-save");
+      await reopenedAddress.press("Escape");
+      await expect(richText(reopenedEditor)).toBeFocused();
+      await expect(linkPreview).toHaveAttribute("href", "https://example.com/annotation-guide");
+      await reopenedEditor.getByRole("button", { name: "移除链接", exact: true }).click();
+      await mode(reopenedEditor, "预览");
+      await expect(
+        reopenedEditor.getByTestId("markdown-preview").getByText(linkText),
+      ).toBeVisible();
+      await expect(reopenedEditor.getByRole("link", { name: linkText, exact: true })).toHaveCount(
+        0,
+      );
+      await dialog.getByRole("button", { name: "取消", exact: true }).click();
     } finally {
-      // Templates retain their creator; remove this test-owned record before
-      // the shared seed teardown removes its disposable users.
       const removed = await request.delete(`${API}/project-templates/${template.id}`, { headers });
       expect(removed.ok(), await removed.text()).toBe(true);
     }
@@ -1085,6 +1096,7 @@ test.describe("shared Markdown authoring", () => {
     seed,
   }) => {
     const data = await seed.owned();
+    const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
     await seed.injectToken(page, data.admin_email);
     await page.goto("/bugs");
     await page.getByTitle("报告 Bug / 提交反馈").click();
@@ -1103,66 +1115,68 @@ test.describe("shared Markdown authoring", () => {
     const response = await createdResponse;
     expect(response.ok()).toBe(true);
     const created = await response.json();
-    expect(created.description).toContain("复现步骤");
-    expect(created.description).not.toMatch(/blob:|data:image|guide-asset:/);
-    expect(created.attachments).toHaveLength(1);
-    await page.getByText(`${created.display_id}: Markdown 验收反馈`, { exact: true }).click();
-    await page.getByRole("button", { name: "编辑", exact: true }).click();
-    editor = page.getByTestId("markdown-editor");
-    await expect(richText(editor)).toBeVisible();
-    await richText(editor).fill("更新复现步骤：图片与表格需要保留，截图仍可访问。");
-    const updatedResponse = page.waitForResponse(
-      (result) =>
-        new URL(result.url()).pathname.endsWith(`/bug_reports/${created.id}`) &&
-        result.request().method() === "PATCH",
-    );
-    await page.getByRole("button", { name: "保存修改", exact: true }).click();
-    expect((await updatedResponse).ok()).toBe(true);
-    await page.getByText(`${created.display_id}: Markdown 验收反馈`, { exact: true }).click();
-    editor = page.getByTestId("markdown-editor");
-    await expect(richText(editor)).toBeVisible();
-    const firstComment = page.waitForResponse(
-      (result) =>
-        result.url().includes(`/bug_reports/${created.id}/comments`) &&
-        result.request().method() === "POST",
-    );
-    await submitTableCommentWithShortcut(editor, "抽屉旧值", "抽屉最终值");
-    expect((await firstComment).ok()).toBe(true);
-    await page.reload();
-    await page.getByRole("row").filter({ hasText: "Markdown 验收反馈" }).click();
-    editor = page.getByTestId("markdown-editor");
-    await expect(richText(editor)).toBeVisible();
-    const secondComment = page.waitForResponse(
-      (result) =>
-        result.url().includes(`/bug_reports/${created.id}/comments`) &&
-        result.request().method() === "POST",
-    );
-    await submitSourceCommentAfterTableFocusWithShortcut(editor, "管理旧值", "管理源码最终值");
-    expect((await secondComment).ok()).toBe(true);
-    const token = await seed.accessToken(data.admin_email);
-    const detailResponse = await request.get(`${API}/bug_reports/${created.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    expect(detailResponse.ok()).toBe(true);
-    const detail = await detailResponse.json();
-    expect(detail.description).toContain("更新复现步骤");
-    expect(detail.attachments).toHaveLength(1);
-    expect(detail.comments).toHaveLength(2);
-    const commentBodies = detail.comments
-      .map((comment: { body: string }) => comment.body)
-      .join("\n");
-    expect(commentBodies).toContain("抽屉最终值");
-    expect(commentBodies).toContain("管理源码最终值");
-    expect(commentBodies).not.toContain("抽屉旧值");
-    expect(commentBodies).not.toContain("管理旧值");
-    await page.setViewportSize({ width: 375, height: 812 });
-    await page.getByTitle("报告 Bug / 提交反馈").click();
-    await page.getByRole("button", { name: "提交新反馈" }).click();
-    editor = page.locator("[data-bug-drawer]").getByTestId("markdown-editor");
-    await expect(richText(editor)).toBeVisible();
-    const box = await editor.boundingBox();
-    expect(box).not.toBeNull();
-    expect(box!.x).toBeGreaterThanOrEqual(0);
-    expect(box!.x + box!.width).toBeLessThanOrEqual(376);
+    try {
+      expect(created.description).toContain("复现步骤");
+      expect(created.description).not.toMatch(/blob:|data:image|guide-asset:/);
+      expect(created.attachments).toHaveLength(1);
+      await page.getByText(`${created.display_id}: Markdown 验收反馈`, { exact: true }).click();
+      await page.getByRole("button", { name: "编辑", exact: true }).click();
+      editor = page.getByTestId("markdown-editor");
+      await expect(richText(editor)).toBeVisible();
+      await richText(editor).fill("更新复现步骤：图片与表格需要保留，截图仍可访问。");
+      const updatedResponse = page.waitForResponse(
+        (result) =>
+          new URL(result.url()).pathname.endsWith(`/bug_reports/${created.id}`) &&
+          result.request().method() === "PATCH",
+      );
+      await page.getByRole("button", { name: "保存修改", exact: true }).click();
+      expect((await updatedResponse).ok()).toBe(true);
+      await page.getByText(`${created.display_id}: Markdown 验收反馈`, { exact: true }).click();
+      editor = page.getByTestId("markdown-editor");
+      await expect(richText(editor)).toBeVisible();
+      const firstComment = page.waitForResponse(
+        (result) =>
+          result.url().includes(`/bug_reports/${created.id}/comments`) &&
+          result.request().method() === "POST",
+      );
+      await submitTableCommentWithShortcut(editor, "抽屉旧值", "抽屉最终值");
+      expect((await firstComment).ok()).toBe(true);
+      await page.reload();
+      await page.getByRole("row").filter({ hasText: created.display_id }).click();
+      editor = page.getByTestId("markdown-editor");
+      await expect(richText(editor)).toBeVisible();
+      const secondComment = page.waitForResponse(
+        (result) =>
+          result.url().includes(`/bug_reports/${created.id}/comments`) &&
+          result.request().method() === "POST",
+      );
+      await submitSourceCommentAfterTableFocusWithShortcut(editor, "管理旧值", "管理源码最终值");
+      expect((await secondComment).ok()).toBe(true);
+      const detailResponse = await request.get(`${API}/bug_reports/${created.id}`, { headers });
+      expect(detailResponse.ok()).toBe(true);
+      const detail = await detailResponse.json();
+      expect(detail.description).toContain("更新复现步骤");
+      expect(detail.attachments).toHaveLength(1);
+      expect(detail.comments).toHaveLength(2);
+      const commentBodies = detail.comments
+        .map((comment: { body: string }) => comment.body)
+        .join("\n");
+      expect(commentBodies).toContain("抽屉最终值");
+      expect(commentBodies).toContain("管理源码最终值");
+      expect(commentBodies).not.toContain("抽屉旧值");
+      expect(commentBodies).not.toContain("管理旧值");
+      await page.setViewportSize({ width: 375, height: 812 });
+      await page.getByTitle("报告 Bug / 提交反馈").click();
+      await page.getByRole("button", { name: "提交新反馈" }).click();
+      editor = page.locator("[data-bug-drawer]").getByTestId("markdown-editor");
+      await expect(richText(editor)).toBeVisible();
+      const box = await editor.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(376);
+    } finally {
+      const removed = await request.delete(`${API}/bug_reports/${created.id}`, { headers });
+      expect(removed.status(), await removed.text()).toBe(204);
+    }
   });
 });

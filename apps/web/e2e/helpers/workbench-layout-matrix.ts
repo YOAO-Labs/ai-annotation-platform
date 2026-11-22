@@ -8,20 +8,11 @@ import type {
 } from "../../src/pages/Workbench/layout/workbenchLayoutSnapshot";
 import { expect, test } from "../fixtures/seed";
 
-// Shared by workbench-pointcloud-layout-matrix.spec.ts (3D, pointcloud
-// project) and workbench-layout-matrix.spec.ts (image/video, chromium
-// project). Keep both files' titles identical so sharding and extended-suite
-// selection stay stable.
-
 const VIEWPORTS = [
   { width: 1366, height: 900 },
   { width: 1920, height: 1080 },
 ] as const;
 
-// A post-reload layout restore can stall the renderer main thread for tens of
-// seconds on loaded CI runners before the manifest query even fires (observed
-// ~28s on a nightly layout-stress run); the identity assertions themselves are
-// instant once the stage mounts, so @stress scenarios get a generous budget.
 const STRESS_STAGE_TIMEOUT_MS = 90_000;
 
 export const workspace = (page: Page) => page.locator("[data-workbench-workspace]");
@@ -47,10 +38,6 @@ export async function rememberCanvas(page: Page, kind: "image" | "video" | "3d",
     kind === "3d"
       ? page.locator("[data-workbench-render-surface] > canvas")
       : stage.locator(".konvajs-content > canvas").first();
-  // The stage host mounts only after its payload resolves (the video host
-  // awaits its manifest), and the canvas follows in the same render pass.
-  // Waiting for the host first keeps slow cold starts from failing here with
-  // an opaque "canvas not found".
   await expect(stage).toBeVisible({ timeout });
   await expect(canvas).toBeVisible({ timeout });
   if (kind === "3d") await expect(page.getByTestId("pointcloud-stats")).toBeVisible();
@@ -85,7 +72,6 @@ export async function rememberCanvas(page: Page, kind: "image" | "video" | "3d",
   };
 }
 
-/** Read rendered groups, not a cached preference or a private Dockview API. */
 export async function renderedGroups(page: Page) {
   return workspace(page)
     .locator(".dv-groupview")
@@ -145,7 +131,6 @@ export async function expectRenderedGroups(
 export type LayoutMatrixKind = "image" | "video" | "3d";
 
 export function registerWorkbenchLayoutMatrixTests(kinds: readonly LayoutMatrixKind[]) {
-  // Two complete action cycles cover transitions; repetition belongs to @stress.
   for (const reorders of [10, 50]) {
     for (const mode of ["annotate", "review"] as const) {
       for (const kind of kinds) {
@@ -209,7 +194,6 @@ export function registerWorkbenchLayoutMatrixTests(kinds: readonly LayoutMatrixK
               await test.step(`拖动重排 ${operation + 1}`, async () => {
                 if (operation === Math.floor(reorders / 2))
                   await page.setViewportSize(finalViewport);
-                // Leave a tab group and a floating group in the final saved tree.
                 await panelCommand(
                   page,
                   operation === reorders - 1 ? "类别面板" : "讨论",
@@ -222,7 +206,6 @@ export function registerWorkbenchLayoutMatrixTests(kinds: readonly LayoutMatrixK
               await panelCommand(page, "任务队列", command);
               await sameCanvas();
             }
-            // The owner debounces by 300 ms; wait for the last command and its serial request.
             await page.waitForTimeout(650);
             await expect.poll(() => inFlight.size).toBe(0);
             expect(latestSubmitted).toBeDefined();

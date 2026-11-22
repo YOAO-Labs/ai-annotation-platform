@@ -10,7 +10,6 @@ import { SidebarDrawer } from "@/components/shell/SidebarDrawer";
 import { ToastRack, useToastStore } from "@/components/ui/Toast";
 import { DecisionDialogHost } from "@/components/ui/DecisionDialogHost";
 import { useDecisionDialogStore } from "@/components/ui/decisionDialog";
-// 登录保持同步加载；仪表盘按角色加载，避免首屏下载其他角色的管理与导入流程。
 import { LoginPage } from "@/pages/Login/LoginPage";
 import { ForgotPasswordPage } from "@/pages/Login/ForgotPasswordPage";
 import { ResetPasswordPage } from "@/pages/Login/ResetPasswordPage";
@@ -36,7 +35,6 @@ const EmployeeDashboard = lazy(() =>
   import("@/pages/Dashboard/EmployeeDashboard").then((m) => ({ default: m.EmployeeDashboard })),
 );
 
-// 重型 / 非首屏页面 lazy-load，让登录 / 仪表盘不下载 konva 等。
 const WorkbenchPage = lazy(() =>
   import("@/pages/Workbench/WorkbenchPage").then((m) => ({ default: m.WorkbenchPage })),
 );
@@ -205,7 +203,6 @@ function RedirectWithSearch({ to }: { to: string }) {
   return <Navigate to={`${to}${search}`} replace />;
 }
 
-// super_admin 默认主页是「平台概览」(/overview);其余角色进 /dashboard。
 function DefaultLandingRedirect() {
   const { role } = usePermissions();
   return <Navigate to={defaultHomePath(role)} replace />;
@@ -221,15 +218,12 @@ function AppShell() {
   const openBugDrawer = useBugDrawerStore((s) => s.openDrawer);
   const closeBugDrawer = useBugDrawerStore((s) => s.close);
 
-  // 初始化 bug 反馈自动捕获
   useEffect(() => {
     patchFetchForBugCapture();
     initBugReportCapture();
   }, []);
 
   useHeartbeat();
-  // PerfHud · 全局快捷键 Ctrl+Shift+P 切换性能监控浮窗 (super_admin/project_admin only).
-  // 权限 gating 在 PerfHud 组件内做; 此 listener 只负责 toggle store.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.shiftKey && (e.key === "P" || e.key === "p")) {
@@ -268,7 +262,6 @@ function AppShell() {
         </Suspense>
       </main>
       <ToastRack />
-      {/* 决策对话框宿主:与 ToastRack 同位双挂载,全屏工作台路由也覆盖 */}
       <DecisionDialogHost />
       <BugReportFAB onClick={() => openBugDrawer()} />
       {bugDrawerOpen && (
@@ -280,18 +273,11 @@ function AppShell() {
           />
         </Suspense>
       )}
-      {/* PerfHud · 全局浮窗 (内部按角色 gating + visibility store 控制渲染) */}
       <PerfHud />
     </div>
   );
 }
 
-/**
- * decisionDialog 队列的认证归属边界:队列是全局 Zustand,而挂载 Host 的壳在登出时
- * 会被 RequireAuth 拆掉,排队中的请求却残留下来;换账号再登录后旧对话框会重新出现,
- * 确认它可能用新凭据执行旧调用方捕获的变更。这里在认证归属变化(登出/换人)时
- * 以取消值结算并清空整条队列(plan 1789527942 评审意见,Codex P1)。
- */
 function DecisionQueueAuthBoundary() {
   const ownerId = useAuthStore((s) => s.user?.id ?? null);
   const prevOwnerRef = useRef(ownerId);
@@ -314,7 +300,6 @@ function FullScreenWorkbench({ mode }: { mode?: "annotate" | "review" }) {
     initBugReportCapture();
   }, []);
   useHeartbeat();
-  // 右下角按钮列日常隐藏:光标进右下角指定区域才露出。
   useFabAutoHideDriver();
 
   return (
@@ -354,13 +339,10 @@ function MobileWorkbenchBlock() {
 
 export function App() {
   const discussionSession = useAuthenticatedDiscussionSession();
-  // 通知 WS 挂在 App 生命周期：主界面与全屏标注/审核工作台共用一条
-  // 个人通知连接，路由切换不拆链；登出/换账号由 hook 清理（token/userId 依赖）。
   useNotificationSocket();
   return (
     <DiscussionDraftProvider {...discussionSession}>
       <DecisionQueueAuthBoundary />
-      {/* 版本更新提醒:登录/会话恢复后每版本弹一次,内部按账号已读版本(服务端)gate。 */}
       <WhatsNewDialog />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
@@ -421,7 +403,6 @@ export function App() {
               </RequirePagePermission>
             }
           />
-          {/* DuckDB 离线分析面板（super_admin only） */}
           <Route
             path="/admin/analytics"
             element={
@@ -438,7 +419,6 @@ export function App() {
               </RequirePagePermission>
             }
           />
-          {/* 我的绩效（所有角色，自助自视） */}
           <Route
             path="/me/performance"
             element={
@@ -447,7 +427,6 @@ export function App() {
               </RequirePagePermission>
             }
           />
-          {/* 预测失败记录和 ML 服务管理统一由 /model-market 提供。 */}
           <Route
             path="/review"
             element={
@@ -516,7 +495,6 @@ export function App() {
               </RequirePagePermission>
             }
           />
-          {/* 视频追踪监控并入 /ai-pre/jobs 视频 tab (epic 阶段 3); 旧链接 301 到新址 */}
           <Route
             path="/model-market/video-jobs"
             element={<Navigate to="/ai-pre/jobs?tab=video" replace />}

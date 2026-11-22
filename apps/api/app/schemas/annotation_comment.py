@@ -15,7 +15,6 @@ from app.schemas.annotation_feedback import AnnotationFeedbackOut
 from app.schemas.discussion_actions import DiscussionActions
 
 
-# 兼容旧导入路径
 __all__ = [
     "ATTACHMENT_KEY_PREFIX",
     "Mention",
@@ -35,8 +34,6 @@ __all__ = [
 
 
 class AnnotationCommentCreate(BaseModel):
-    # body 可空：允许「只画批注 / 只传附件」的评论（前端 CommentInput 也按此放行）。
-    # 但整条评论必须至少有 body / 附件 / 画布批注之一，见 _require_content。
     body: str = Field(default="", max_length=4000)
     mentions: list[Mention] = Field(default_factory=list)
     attachments: list[Attachment] = Field(default_factory=list)
@@ -54,8 +51,6 @@ class AnnotationCommentCreate(BaseModel):
 
 
 class AnnotationCommentUpdate(BaseModel):
-    # body 与 create 口径对齐：字段级不再强制 min_length=1（None=不改、""=清空正文）。
-    # 内容不变式由 AnnotationCommentService 结合锁定后的附件/画布批注校验。
     body: str | None = Field(default=None, max_length=4000)
     is_resolved: bool | None = None
 

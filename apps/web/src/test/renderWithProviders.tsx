@@ -7,18 +7,9 @@ import { createTestQueryClient } from "./queryClient";
 
 export interface RenderWithProvidersOptions {
   initialEntries?: string[];
-  /**
-   * Probe nodes (location/history readers, navigation buttons) that must share
-   * the router and query context with the page under test.
-   */
   children?: ReactNode;
 }
 
-/**
- * Small provider fixture for integration tests: a fresh QueryClient plus a
- * MemoryRouter around one page. It deliberately holds no page state, access
- * data or handlers — callers describe those at the API boundary with MSW.
- */
 export function renderWithProviders(
   ui: ReactElement,
   { initialEntries = ["/"], children }: RenderWithProvidersOptions = {},

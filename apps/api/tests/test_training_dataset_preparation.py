@@ -176,7 +176,6 @@ async def test_late_changes_cannot_finish_preparation_and_do_not_wait_for_media_
                         )
                         .values(revision=StorageMaintenanceGate.revision + 1)
                     )
-                # A business/source lock held across physical work would block here.
                 await asyncio.wait_for(editor.execute(statement), 2)
                 await editor.commit()
             release.set()
@@ -324,7 +323,6 @@ async def test_disconnected_route_drains_decoder_without_creating_or_reading_nex
                 for kind, bucket, key in world.objects.calls
                 if kind == "get"
             ]
-            # One impossible-condition probe and one full GET for the same image.
             assert len(gets) == 2 and len(set(gets)) == 1
             assert not await db.scalar(
                 select(TrainingDatasetVersion.id).where(

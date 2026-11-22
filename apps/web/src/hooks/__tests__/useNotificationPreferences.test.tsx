@@ -86,7 +86,6 @@ describe("useNotificationPreferences", () => {
         { type: "task.approved", in_app: true, email: false, toast: false },
       ],
     });
-    // 重拉悬而未决：缓存仍应是本次提交值，而不是回跳到旧值。
     api.getPreferences.mockReturnValue(new Promise(() => {}));
     const { result } = renderHook(() => useUpdateNotificationPreference(), {
       wrapper: wrapper(client),
@@ -113,7 +112,6 @@ describe("useNotificationPreferences", () => {
       wrapper: wrapper(client),
     });
     result.current.mutate({ type: "task.rejected", owner: "u1", in_app: false });
-    // 保存期间账号被替换
     act(() => {
       useAuthStore.getState().setAuth("t2", { id: "u2", role: "employee" } as MeResponse);
     });

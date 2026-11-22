@@ -1,7 +1,3 @@
-// 模板新建 / 编辑表单 (Modal).
-// 加 tool_bindings 编辑能力 (基础 / 工具与类别 / 渲染配置 三 tab),
-// 复用 ProjectSettings 的 ClassEditor / AttributeSchemaEditor / ToolUnitTabs.
-
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
@@ -29,7 +25,6 @@ import styles from "./ProjectTemplatesPage.module.css";
 interface Props {
   open: boolean;
   onClose: () => void;
-  /** undefined = 新建; 给值 = 编辑. */
   initial?: ProjectTemplateOut;
 }
 
@@ -136,7 +131,6 @@ export function TemplateEditModal({ open, onClose, initial }: Props) {
       return;
     }
     const tool_bindings = unitBindingsToPayload(bindings);
-    // 旧扁平 classes 派生自首个 enabled unit, 兼容旧 reader.
     const firstUnitClasses =
       (Object.keys(tool_bindings) as ToolUnitId[])
         .map((k) => tool_bindings[k]?.classes ?? [])
@@ -150,8 +144,6 @@ export function TemplateEditModal({ open, onClose, initial }: Props) {
       type_key: typeKey,
       classes,
       tool_bindings,
-      // Preserve intentional Markdown whitespace. Empty or whitespace-only
-      // input keeps the existing nullable template contract.
       annotation_guide: annotationGuide.trim() ? annotationGuide : null,
       scope,
       rendering_config: renderingConfig,

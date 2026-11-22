@@ -73,7 +73,6 @@ NATIVE = ("celery-media", "celery-pyramid", "media-worker", "image-worker", "pro
 FAILURE = "INTENTIONAL_GLOBAL_TEARDOWN_ACCEPTANCE_FAILURE"
 CASE_SECONDS = 2 * (2 * 120 + 7 * 120) + 2 * 120
 
-# Compare only resources linked to the neighboring run by durable ownership.
 ROW_QUERIES = {
     "resources": "SELECT to_jsonb(r) FROM yoao_fixture_v1.fixture_run_resources r WHERE r.run_id=:run ORDER BY r.kind,r.resource_id",
     "users": "SELECT to_jsonb(t) FROM public.users t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.id AND r.kind='user' WHERE r.run_id=:run ORDER BY t.id",
@@ -155,8 +154,6 @@ def evidence_directory(path):
 
 
 def free_ports():
-    # Holding all four sockets at once proves distinctness. Playwright's own
-    # non-reuse/strict-port checks reject a race after these reservations close.
     sockets = []
     try:
         for _ in range(4):
@@ -323,8 +320,6 @@ def launch(case_dir, suite, role, ports, config):
         TEARDOWN_ACCEPTANCE_REPORT=str(case_dir / "report.json"),
         TEARDOWN_ACCEPTANCE_TEST_TIMEOUT_MS=str(CASE_SECONDS * 1000),
     )
-    # Execute Playwright in this exact node process, rather than signalling a
-    # package-manager wrapper or a process group.
     log = os.open(
         case_dir / "playwright.log",
         os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
@@ -571,8 +566,6 @@ async def read_only_thread(function, *args):
         try:
             loop.call_soon_threadsafe(finish)
         except RuntimeError:
-            # The bounded parent has already left; the read-only probe owns
-            # no authority to alter or retire any resource.
             pass
 
     threading.Thread(target=execute, daemon=True).start()
@@ -930,8 +923,6 @@ async def verify_retired(instance, resources, engine, owner_path):
             and row["resource_state"] == "retired",
             "original_reclaim_unproved",
         )
-    # The scoped reader performs exact-version HEADs; neither an administrator
-    # nor a writer identity is used to establish physical absence.
     owner = Owner(owner_path)
     store = owner.data["fixture_store"]
     account = reader_credentials(owner, store)
@@ -1209,8 +1200,6 @@ if __name__ == "__main__":
     try:
         raise SystemExit(asyncio.run(main()))
     except Exception as error:
-        # Logs and all paths remain private; do not print exception text, DSNs,
-        # credentials, or attempt cleanup after an unproved outcome.
         reason = (
             str(error)
             if type(error) is RuntimeError

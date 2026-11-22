@@ -25,9 +25,7 @@ const CONTEXT_LABELS: Record<WorkspaceContext, string> = {
 export interface NamedPresetControls {
   presets: WorkbenchNamedPreset[];
   context: WorkspaceContext;
-  /** 已存满 MAX_NAMED_WORKSPACE_PRESETS 条。 */
   full: boolean;
-  /** 包含界面无法解析、但仍需原样保留的条目。 */
   count: number;
   busy: boolean;
   disabled: boolean;
@@ -369,7 +367,6 @@ function PreviewNode({ node, horizontal }: { node: WorkspaceNode; horizontal: bo
         style={{ "--preview-flex": `${node.size || 1} 1 0%` } as CSSProperties}
         className="relative min-h-0 min-w-0 flex-[var(--preview-flex)]"
       >
-        {/* Labels and borders must not change the preset's flex proportions. */}
         <span
           className={`absolute inset-px flex items-center justify-center overflow-hidden rounded-sm border py-0.5 text-center text-2xs leading-tight ${panel === "canvas" ? "border-brand/30 bg-brand/10 text-brand" : "border-border bg-muted text-muted-foreground"}`}
         >

@@ -1,12 +1,3 @@
-// 项目级视频帧采样配置（逻辑采样，见
-// docs/plans/archive/2026-05-21-v0.10.29-video-frame-sampling.md §2/§4 Wave2-D）。
-//
-// 仅在 data_type === "video" 的项目设置页渲染。
-// mode=none 不采样；mode=fps 按目标 fps；mode=step 按帧间隔。
-// 保存走 useUpdateProject (PATCH)，payload { video_sampling: {...} }。
-//
-// 结构/样式/保存交互仿 RenderingConfigSection.tsx。
-
 import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { useToastStore } from "@/components/ui/Toast";
@@ -23,9 +14,7 @@ type SamplingMode = "none" | "fps" | "step";
 
 interface DraftState {
   mode: SamplingMode;
-  /** fps 模式的目标帧率原始输入（保留字符串以便编辑） */
   targetFps: string;
-  /** step 模式的帧间隔原始输入 */
   frameStep: string;
 }
 
@@ -38,7 +27,6 @@ function initDraft(cfg: VideoSamplingConfig | null | undefined): DraftState {
   };
 }
 
-/** 把草稿状态转成后端 payload；非法时返回 null。 */
 function buildConfig(draft: DraftState): VideoSamplingConfig | null {
   if (draft.mode === "none") return { mode: "none" };
   if (draft.mode === "fps") {
@@ -46,13 +34,11 @@ function buildConfig(draft: DraftState): VideoSamplingConfig | null {
     if (!Number.isFinite(fps) || fps <= 0) return null;
     return { mode: "fps", target_fps: fps };
   }
-  // step
   const step = Number(draft.frameStep);
   if (!Number.isInteger(step) || step < 1) return null;
   return { mode: "step", frame_step: step };
 }
 
-/** 预览文案：源 fps 在设置页拿不到，故只回显逻辑关系。 */
 function previewText(draft: DraftState): string {
   if (draft.mode === "none") {
     return "不采样：所有源帧都是导航网格点（每 1 帧打点）。";
@@ -78,8 +64,6 @@ export function VideoSamplingSection({ project }: { project: ProjectResponse }) 
   const config = buildConfig(draft);
   const valid = config !== null;
 
-  // 自动保存：切换采样方式即时存；数字输入失焦存。非法配置不提交，等用户
-  // 填到合法再触发。失败弹 toast，成功静默。
   const commit = (nextDraft: DraftState) => {
     const cfg = buildConfig(nextDraft);
     if (!cfg) return;
@@ -91,8 +75,6 @@ export function VideoSamplingSection({ project }: { project: ProjectResponse }) 
 
   const setMode = (mode: SamplingMode) => {
     const next = { ...draft, mode };
-    // 切到 fps/step 时若对应输入为空，填一个合法默认值，保证 commit 一定落库，
-    // 避免 UI radio 已切到新模式但后端仍是旧模式（刷新即回滚）。
     if (mode === "fps" && !next.targetFps.trim()) next.targetFps = "10";
     if (mode === "step" && !next.frameStep.trim()) next.frameStep = "1";
     setDraft(next);

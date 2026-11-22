@@ -70,7 +70,6 @@ def load_control_config(
     maximum = _positive_int(values, "ASSETS_MEDIA_POOL_MAX_SIZE", "8", maximum=64)
     if minimum > maximum:
         raise ConfigurationError("ASSETS_MEDIA_POOL_MIN_SIZE exceeds POOL_MAX_SIZE")
-    # HTTP control performs short HEAD/signing operations, never downloads.
     values.setdefault("ASSETS_MEDIA_S3_CONNECT_TIMEOUT_SECONDS", "2")
     values.setdefault("ASSETS_MEDIA_S3_READ_TIMEOUT_SECONDS", "10")
     return MediaControlConfig(

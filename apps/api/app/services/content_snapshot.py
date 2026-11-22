@@ -197,7 +197,6 @@ async def _capture_bounded(factory, expected_sha256=None, *, inspect_quality=Fal
     if not _slots.acquire(blocking=False):
         raise ContentError("snapshot_capacity_exceeded", 429)
     stop = threading.Event()
-    # Executor Futures survive asyncio.run's Task cancellation sweep.
     context = contextvars.copy_context()
     try:
         pending = asyncio.get_running_loop().run_in_executor(
@@ -213,8 +212,6 @@ async def _capture_bounded(factory, expected_sha256=None, *, inspect_quality=Fal
     except (TimeoutError, asyncio.CancelledError) as exc:
         stop.set()
         cancelled = isinstance(exc, asyncio.CancelledError)
-        # Deadlines are cooperative. A blocked SDK read must physically end
-        # before its handle, snapshot slot and source permit can be released.
         while not pending.done():
             try:
                 await asyncio.shield(pending)
@@ -403,8 +400,6 @@ class SnapshotResponse(StreamingResponse):
                     },
                     headers=exc.headers,
                 ) from None
-            # Playback may ignore a valid multipart request. Image snapshots
-            # deliberately expose only a single interval, including on retries.
             if (
                 range_header is not None
                 and (if_range is None or if_range == etag)

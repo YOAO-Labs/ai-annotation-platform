@@ -1303,9 +1303,6 @@ class AnnotationConversionService:
         if upload_keys:
             await self._reserve_generated_rles(task, upload_keys)
 
-        # Keep the shared mutation lock order: Task / segment / RLE / upload
-        # before annotation UUID. Re-read after taking row locks so a source
-        # change during the pre-lock plan rebuild is still rejected atomically.
         sources = await self._load_sources(task_id, source_ids, lock=True)
         source_by_id = self._verify_source_records(sources, source_records)
         if upload_keys:

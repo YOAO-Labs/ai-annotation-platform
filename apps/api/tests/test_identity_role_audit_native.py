@@ -56,7 +56,6 @@ def _canonical(value):
 
 @pytest.fixture
 async def empty_audit_engine(test_engine):
-    # The verifier's shared database deliberately contains a Notifications probe.
     async with historical_audit_database(test_engine, revision="head") as (engine, _):
         yield engine
 

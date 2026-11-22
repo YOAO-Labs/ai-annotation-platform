@@ -3,7 +3,6 @@ import styles from "./BugReportFAB.module.css";
 
 interface BugReportFABProps {
   onClick: () => void;
-  /** 日常隐藏:光标移到右下角指定区域才露出(滑入 + 淡入)。 */
   hidden?: boolean;
 }
 

@@ -120,7 +120,6 @@ async def test_installed_owner_isolates_profile_failure_grants_and_restart(
                         assert missing_profiles.value.status_code == 503
                         assert missing_profiles.value.detail == "身份资料服务暂不可用"
 
-                    # Statistics and readiness never acquire owner display profiles.
                     for operation, target in (
                         ("project_stats", None),
                         ("project_readiness", project_id),

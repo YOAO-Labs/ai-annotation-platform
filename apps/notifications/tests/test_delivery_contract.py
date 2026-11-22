@@ -11,6 +11,7 @@ from yoao_notifications.notification_delivery_contract import (
     NOTIFICATION_DELIVERY_POLICY,
     NOTIFICATION_DELIVERY_POLICY_PROTOCOL,
     NOTIFICATION_DELIVERY_PROTOCOL,
+    NOTIFICATION_MIXED_CLAIM_PROTOCOL,
     NotificationClaimReply,
     NotificationCompletedLease,
     NotificationDeliveryPolicyReply,
@@ -18,12 +19,15 @@ from yoao_notifications.notification_delivery_contract import (
     NotificationFinishRequest,
     NotificationRequestedLease,
     NotificationDeliveryUnavailable,
+    NotificationTerminalLease,
+    decode_claimed_deliveries,
     decode_notification_claim_reply,
     decode_notification_claim_request,
     decode_notification_delivery_policy,
     decode_notification_finish_reply,
     decode_notification_finish_request,
     native_notification_command_json,
+    notification_claim_request,
 )
 
 
@@ -160,6 +164,40 @@ def test_claim_reply_rejects_non_boolean_success_target_mismatch_and_oversized_p
     items = [_lease() for _ in range(101)]
     with pytest.raises(NotificationDeliveryUnavailable):
         decode_notification_claim_reply(_claim(items))
+
+
+@pytest.mark.parametrize("status", ["completed", "failed", "cancelled"])
+def test_mixed_claim_keeps_v1_closed_and_preserves_terminal_payload(status):
+    identity = _lease()
+    terminal = {
+        **_lease(),
+        "target_type": "async_job",
+        "type": f"job.{status}",
+        "payload": {"status": status, "scope": ["a", {"b": None}]},
+        "worker_id": identity["worker_id"],
+    }
+    request = notification_claim_request(
+        uuid.UUID(identity["worker_id"]),
+        limit=2,
+        lease_seconds=60,
+        include_terminal=True,
+    )
+    assert json.loads(native_notification_command_json(request))["schema"] == (
+        NOTIFICATION_MIXED_CLAIM_PROTOCOL
+    )
+    with pytest.raises(NotificationDeliveryUnavailable):
+        decode_notification_claim_reply(_claim([terminal]))
+    response = {
+        **_claim([identity, terminal]),
+        "schema": NOTIFICATION_MIXED_CLAIM_PROTOCOL,
+    }
+    _, item = decode_claimed_deliveries(request, response)
+    assert isinstance(item, NotificationTerminalLease)
+    assert item.payload == terminal["payload"]
+
+    terminal["payload"] = {"status": "mismatched"}
+    with pytest.raises(NotificationDeliveryUnavailable):
+        decode_claimed_deliveries(request, response)
 
 
 def test_finish_request_has_closed_safe_outcomes_and_reasons():

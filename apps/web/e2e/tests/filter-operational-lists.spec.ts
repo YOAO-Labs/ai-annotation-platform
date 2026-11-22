@@ -145,8 +145,6 @@ test("dataset filters preserve deep-link state and browser history", async ({
   const videoId = filtering.operations.dataset_ids[1];
   const imageName = filtering.operations.display_names.dataset_a;
   const videoName = filtering.operations.display_names.dataset_b;
-  // A legacy `dataset=` link opens the deep detail page and carries the
-  // filtered list forward in `return`; the list itself must not be queried.
   const detail = getResponse(page, "/datasets/" + imageId);
   await page.goto(
     "/datasets?" +
@@ -313,11 +311,8 @@ test("image job search keeps spaces and applies its page reset with the debounce
     if (url.pathname === "/api/v1/async-jobs" && url.searchParams.has("kind"))
       seen.push(url.search);
   });
-  const search = page.getByPlaceholder("搜索 prompt...");
+  const search = page.getByPlaceholder("搜索提示词...", { exact: true });
   await search.press(query[0]);
-  // From the first keystroke on the panel may only ask for the typed query:
-  // its page reset rides along with the debounced apply instead of fetching the
-  // unfiltered first page in between.
   const typedAt = seen.length;
   await search.pressSequentially(query.slice(1), { delay: 15 });
   const jobs = await checked(await applied);
@@ -410,8 +405,6 @@ test("member filter summaries remove one condition without clearing search or ac
   await expect(page.getByRole("button", { name: "角色：员工", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "移除角色筛选" }).click();
   await expect(page.getByRole("button", { name: "移除角色筛选" })).toHaveCount(0);
-  // The initial query is still fresh in the 30-second cache. Reload verifies
-  // restored request scope without requiring a redundant request on removal.
   const removed = getResponse(page, "/users/query", { search: searchKeys.users, status: "active" });
   await page.reload();
   const response = await removed;

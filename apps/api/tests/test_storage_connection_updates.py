@@ -80,8 +80,6 @@ async def test_revision_required_and_stale_edits_do_not_overwrite(
         path, headers=headers, json={"name": "winner", "expected_revision": 1}
     )
     assert first.status_code == 200 and first.json()["revision"] == 2
-    # Sending the identical config is not a candidate change: no probe and no
-    # storage-location revision movement.
     second = await httpx_client.patch(
         path, headers=headers, json={"config": CONFIG, "expected_revision": 2}
     )
@@ -259,8 +257,6 @@ async def committed_world(test_engine, monkeypatch):
         yield maker, actor_id, connection_id
     finally:
         location_id = connector_location_id(connection_id)
-        # Restore the connector allowlist override first: a later teardown
-        # failure must not strand an empty committed allowlist for the next test.
         async with maker.begin() as db:
             await db.execute(
                 delete(SystemSetting).where(
@@ -294,8 +290,6 @@ async def committed_world(test_engine, monkeypatch):
                 delete(StorageConnection).where(StorageConnection.id == connection_id)
             )
         async with maker.begin() as db:
-            # Use the audit owner's sanctioned fixture exemption for this one
-            # transaction; the immutability trigger still guards every other path.
             await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
             await db.execute(delete(AuditLog).where(AuditLog.actor_id == actor_id))
             await db.execute(delete(User).where(User.id == actor_id))
@@ -390,10 +384,6 @@ async def test_validation_holds_no_row_locks_and_rechecks_publication(
                     await db.commit()
 
             await asyncio.wait_for(concurrent(), 3)
-            # The concurrent change itself advances the connection revision
-            # (Main's update trigger), so record what it published instead of
-            # pinning an incidental revision count. The rejected candidate must
-            # not advance it any further.
             async with maker() as db:
                 published = await db.get(StorageConnection, connection_id)
                 published_revision = None if published is None else published.revision
@@ -624,8 +614,6 @@ async def test_candidate_actor_role_loss_preserves_secret(
     conn_id, headers = connection
     conn = await db_session.get(StorageConnection, uuid.UUID(conn_id))
     old_cipher = conn.secret_enc
-    # Capture the owner identity before the request: a rejected candidate
-    # rolls the caller's unit of work back, which expires this instance.
     actor_id = conn.created_by
 
     async def probe(*args, **kwargs):

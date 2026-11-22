@@ -148,6 +148,7 @@ npm run docs:build
 
 - **API 路由与 Schema**：源自后端应用代码与受跟踪的 OpenAPI 快照（`openapi.snapshot.json`）。接口契约变更后请重新生成 API 产物。
 - **自动生成页面与索引**：由各自的生成脚本刷新；只要上游数据源存在，切勿手改 `*.generated.md`。
+- **工作台设置**：在 `workbenchSettingsFields.ts` 维护字段和分组，在 `workbenchLocalDefaults.ts` 维护本机开关及单选项的默认值；运行时与文档使用同一默认值。新增本机字段时须补齐默认值，删除字段时也须移除对应默认值，再运行 `pnpm --filter docs-site settings`。
 - **环境变量文档**：以 `.env.example` 与环境变量生成脚本（`pnpm docs:gen-env-vars`）为准。
 - **架构决策记录（ADR）**：真源位于 `docs/adr/`，文档站中的 `/dev/adr/` 是构建期同步镜像。
 - **截图、视频与架构图**：按需维护真实文件和公开引用；架构图另保留可编辑源。素材更新前先按[按需截图与录屏](./update-screenshots)核对真实界面，回放复核改动的素材。

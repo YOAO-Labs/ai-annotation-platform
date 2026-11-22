@@ -498,7 +498,6 @@ ProjectQueryParameters: TypeAlias = (
     | None
 )
 
-# Each action binds both its argument shape and its reply, including repeated reads.
 PROJECT_QUERY_STEPS = {
     "list_rows": (ProjectQueryDateBounds, ProjectQueryRowsFacts),
     "count_rows": (ProjectQueryDateBounds, ProjectQueryCountFacts),
@@ -572,8 +571,6 @@ class ProjectQueryStep(_ProjectQueryModel):
     @model_validator(mode="after")
     def action_shapes_match(self):
         parameter_type, fact_type = PROJECT_QUERY_STEPS[self.action]
-        # Both actions carry the same closed rows_json object; Pydantic resolves
-        # that structural union to ProjectQueryRowsFacts at runtime.
         equivalent_rows_fact = (
             self.action == "access_member_rows"
             and type(self.facts) is ProjectQueryRowsFacts

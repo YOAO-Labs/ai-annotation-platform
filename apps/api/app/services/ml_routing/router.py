@@ -196,9 +196,6 @@ class MLBackendRouter:
                     == pool.capability_fingerprint
                 )
             elif singleton_without_fingerprint and caps is not None:
-                # 0132-created singleton pools predate capability seeding. A single
-                # member is interchangeable with itself; its next health refresh
-                # persists the canonical fingerprint. Multi-member pools stay closed.
                 fingerprint_ok = True
             if gpu_data is None:
                 from app.services.inference_gpu_data import bind_gpu_authority_data
@@ -265,7 +262,6 @@ class MLBackendRouter:
             ]
             if not eligible:
                 return legacy_selection
-            # cheap SWRR preview: pick highest-weight, tie-break smallest UUID.
             winner = min(
                 eligible,
                 key=lambda c: (-c.weight, str(c.instance_id)),
@@ -312,7 +308,6 @@ class MLBackendRouter:
         )
         return True
 
-    # ── legacy resolver (off/observe: registry id → its singleton pool) ───────
     async def pool_for_registry(self, registry_id: uuid.UUID) -> PoolFacts | None:
         """Resolve the immutable public facts for a registry's service pool."""
         return await InferenceTopologyData(self.db).pool_for_registry(registry_id)

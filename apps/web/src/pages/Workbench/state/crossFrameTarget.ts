@@ -1,7 +1,3 @@
-/**
- * 跨帧目标延续的纯决策: 给定 neighbors + 方向, 解析应跳转的目标帧 task,
- * 或区分"无 scene" / "已到首末帧边界"(供调用方出对应 toast)。无副作用, 便于单测。
- */
 import type { NeighborsResponse } from "@/types";
 
 export type CrossFrameResolution =
@@ -17,8 +13,6 @@ export function resolveCrossFrameTarget(
   neighbors: NeighborsResponse | null,
   direction: "next" | "prev",
 ): CrossFrameResolution {
-  // 后端把"无 scene / 单帧"从全零 UUID sentinel 改为 scene_id=null,
-  // 据此判定无跨帧能力 (不再依赖 scene_total_frames===0 / 空串 / 全零 UUID)。
   if (!neighbors || neighbors.scene_id == null) {
     return { kind: "no-scene" };
   }

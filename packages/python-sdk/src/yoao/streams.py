@@ -27,7 +27,6 @@ from yoao.stream_models import (
 
 EventT = TypeVar("EventT")
 IdLike = str | UUID
-# Socket debug logs can include the token-bearing handshake URI.
 _SOCKET_LOG = logging.Logger("yoao.streams.transport", level=logging.CRITICAL + 1)
 _SOCKET_LOG.addHandler(logging.NullHandler())
 _SOCKET_LOG.propagate = False
@@ -227,7 +226,6 @@ class Streams:
         try:
             yield _events(connection, TypeAdapter(_CHANNELS[channel]["model"]))
         finally:
-            # Preserve consumer exceptions and cancellation while releasing the socket.
             with suppress(Exception):
                 await connection.close()
 

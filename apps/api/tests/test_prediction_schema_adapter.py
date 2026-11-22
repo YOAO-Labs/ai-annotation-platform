@@ -138,7 +138,6 @@ def test_already_internal_shape_passthrough():
     out = to_internal_shape(raw)
     assert out["class_name"] == "cat"
     assert out["geometry"] == raw["geometry"]
-    # 缺 tool_unit_id 时按 type 反推回填
     assert out["tool_unit_id"] == "bbox"
 
 
@@ -239,9 +238,6 @@ def test_non_dict_input_safe():
     assert to_internal_shape([1, 2]) == {}
 
 
-# ─── 协议 v2 OCR / doc_layout attributes 透传 ─────────────────────
-
-
 def test_ocr_shape_extracts_attributes_text():
     """OCR backend 在 shape 顶层写 attributes.{text,language,...}, adapter 原样提取。"""
     raw = {
@@ -303,9 +299,6 @@ def test_doc_layout_class_from_value_class_with_attributes():
     assert out["attributes"] == {"reading_order": 1}
 
 
-# ─── 黄金样本 — 锁定内部 schema 边界, 防止再次漂移 ────────────────────
-
-
 def test_idempotent_on_internal_shape():
     """to_internal_shape 二次调用同形态结果 — 即 read path 多次应用安全."""
     raw = {
@@ -342,7 +335,6 @@ def test_dual_presence_value_and_geometry_prefers_geometry():
         },
     }
     out = to_internal_shape(raw)
-    # geometry 路径胜出 — internal-cls / 0.42 / 0/0/1/1, 而非 ls-cls / 0.99
     assert out["class_name"] == "internal-cls"
     assert out["confidence"] == 0.42
     assert out["geometry"] == {"type": "bbox", "x": 0, "y": 0, "w": 1, "h": 1}
@@ -358,11 +350,8 @@ def test_geometry_passthrough_preserves_unknown_fields():
         "extra_meta": {"hint": "from-sam"},
     }
     out = to_internal_shape(raw)
-    assert out is raw  # 同一对象返回, 字段无损
+    assert out is raw
     assert out["extra_meta"] == {"hint": "from-sam"}
-
-
-# ─── mask 多连通域 / 空洞 LS → 内部 schema ─────────────────
 
 
 def test_polygonlabels_with_holes_field():
@@ -407,7 +396,7 @@ def test_polygonlabels_with_polygons_field_multi():
     out = to_internal_shape(raw)
     assert out["geometry"]["type"] == "multi_polygon"
     assert len(out["geometry"]["polygons"]) == 2
-    assert "holes" not in out["geometry"]["polygons"][0]  # 无 hole 时不写字段
+    assert "holes" not in out["geometry"]["polygons"][0]
     assert len(out["geometry"]["polygons"][1]["holes"]) == 1
 
 
@@ -450,7 +439,7 @@ def test_pydantic_polygon_geometry_rejects_invalid_hole():
             {
                 "type": "polygon",
                 "points": [[0, 0], [1, 0], [1, 1]],
-                "holes": [[[0.5, 0.5], [0.6, 0.5]]],  # 仅 2 顶点
+                "holes": [[[0.5, 0.5], [0.6, 0.5]]],
             }
         )
 
@@ -495,9 +484,6 @@ def test_pydantic_multi_polygon_requires_at_least_one():
         MultiPolygonGeometry(polygons=[])
 
 
-# ── 检测式视频追踪 result item → VideoTrackGeometry ──────────────────
-
-
 def test_video_track_bbox_reshapes_keyframes_to_geometry():
     raw = {
         "type": "video_track_bbox",
@@ -527,7 +513,6 @@ def test_video_track_bbox_reshapes_keyframes_to_geometry():
     assert g["track_id"] == "trk_abc"
     assert g["outside"] == []
     assert len(g["keyframes"]) == 2
-    # 每帧标 source=prediction, bbox 保 0-1, keyframe 级 score 不入几何。
     assert g["keyframes"][0] == {
         "frame_index": 0,
         "bbox": {"x": 0.10, "y": 0.20, "w": 0.08, "h": 0.06},
@@ -596,9 +581,6 @@ def test_video_track_bbox_geometry_validates_against_pydantic():
     assert g.keyframes[1].frame_index == 5
 
 
-# ── ingestion 端 int track_id → trk_<uuid> 映射 ──────────────────────
-
-
 def test_remap_track_ids_int_to_uuid_with_semantic_label():
     from app.services.prediction import _remap_track_ids
 
@@ -634,7 +616,7 @@ def test_remap_track_ids_idempotent_for_existing_trk():
         "keyframes": [],
     }
     out = _remap_track_ids([item])
-    assert out[0]["track_id"] == "trk_deadbeef"  # 不重映射
+    assert out[0]["track_id"] == "trk_deadbeef"
 
 
 def test_remap_track_ids_does_not_mutate_input():
@@ -649,7 +631,7 @@ def test_remap_track_ids_does_not_mutate_input():
         }
     ]
     _remap_track_ids(items)
-    assert items[0]["track_id"] == 5  # 原对象未被改
+    assert items[0]["track_id"] == 5
 
 
 def test_remap_track_ids_missing_class_falls_back_to_obj():

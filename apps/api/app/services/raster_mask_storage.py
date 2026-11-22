@@ -79,10 +79,8 @@ from app.utils.raster_mask_rle import (
 MAX_RLE_OBJECT_BYTES = 4 * 1024 * 1024
 RLE_OBJECT_PREFIX = "raster-masks/sha256"
 
-# ADR-0052 §D6 · encoding markers carried inside ``coco_rle_ref``
-# (additive — legacy uncompressed ``.json`` refs keep ``encoding="coco_rle_ref"``).
 COCO_RLE_REF_ENCODING = "coco_rle_ref"
-COCO_RLE_GZIP_ENCODING = "coco_rle_gzip"  # legacy request/reference marker
+COCO_RLE_GZIP_ENCODING = "coco_rle_gzip"
 RLE_STORAGE_IDENTITY = "identity"
 RLE_STORAGE_GZIP = "gzip"
 
@@ -608,8 +606,6 @@ async def reserve_raster_mask_upload(
 ) -> int:
     """Reserve one task-owned anonymous upload under a transaction-scoped lock."""
     await begin_mask_content_write(db, [object_key])
-    # The legacy ORM SELECT acquired this transaction lock before its implicit
-    # autoflush. Keep that UOW boundary around the new owner call explicitly.
     with db.no_autoflush:
         await mask_edit_command(
             db,
@@ -795,7 +791,6 @@ async def validate_mask_geometry_for_task(
         return
 
     if geom_type == "raster_mask":
-        # 图片掩码验证
         if task.dataset_item_id is None:
             raise RasterMaskContractError(
                 status_code=422,
@@ -876,7 +871,6 @@ async def validate_mask_geometry_for_task(
                     )
         return
 
-    # 其他几何类型不需要验证
     return
 
 
@@ -965,9 +959,6 @@ async def prepare_mask_payload_for_write(
             message="mask content verification does not match the write payload",
         )
 
-    # Verify bytes before taking a Task lock; only SQL reference/upload locks are
-    # acquired below. Migrated callers pass a preflight receipt from before their
-    # own business locks, while simple callers use the preflight above.
     task = await lock_task_for_core_read(
         db,
         task.id,
@@ -982,8 +973,6 @@ async def prepare_mask_payload_for_write(
             message="mask persistence requires an existing task",
         )
 
-    # Repeat Task/image/dimension eligibility under the final Task lock, keeping
-    # the caller's immutable read receipts in the decision.
     await _validate_mask_payload_for_task(
         db,
         task,
@@ -994,10 +983,6 @@ async def prepare_mask_payload_for_write(
         video_acceptance_receipt=video_acceptance_receipt,
     )
 
-    # Verify all references in one globally sorted advisory-lock pass.  Atomic
-    # video mutations may pass only their current-frame references: unchanged
-    # historical keyframes are already linked and were compared byte-for-byte by
-    # the mutation contract, so re-reading thousands of old objects is wasteful.
     foreground_keys = {
         str(reference["object_key"])
         for geometry in geometries
@@ -1021,8 +1006,6 @@ async def prepare_mask_payload_for_write(
             or video_result_receipt is not None
             or video_acceptance_receipt is not None
         ):
-            # Preflight published and verified the owned bytes. Bind their
-            # publication guards atomically with the final business references.
             from app.services.raster_mask_objects import bind_publications
 
             await bind_publications(db, references_to_commit)
@@ -1126,8 +1109,6 @@ def canonical_rle_bytes_gzip(rle: dict[str, Any]) -> tuple[bytes, bytes]:
     data = canonical_rle_bytes(rle)
     gzip_bytes = compress_mask_gzip(data)
     if len(gzip_bytes) > MAX_COMPRESSED_BYTES:
-        # Compressed bytes are capped so a decompressor never has to read more
-        # than ``MAX_COMPRESSED_BYTES`` before it can reject a payload.
         raise ValueError("mask RLE gzip payload exceeds MAX_COMPRESSED_BYTES")
     return data, gzip_bytes
 
@@ -1189,7 +1170,6 @@ def _mask_content_failure(exc: MaskContentFailure) -> NoReturn:
         ) from None
     if exc.code in {"invalid_request", "invalid_reference", "resource_limit"}:
         raise ValueError("mask RLE reference or bounded content is invalid") from None
-    # Availability failures must not enter existing ValueError/content-conflict handlers.
     raise exc from None
 
 
@@ -1197,7 +1177,6 @@ def _store_mask_content(
     rle: dict[str, Any], storage: StorageService, storage_encoding: str
 ) -> dict[str, Any]:
     """Write one canonical object through the explicitly selected byte owner."""
-    # Normalize permitted extra producer metadata before crossing the byte contract.
     content = RleContent.model_validate(json.loads(canonical_rle_bytes(rle)))
     try:
         with mask_content_owner(storage) as owner:
@@ -1220,7 +1199,6 @@ def _load_mask_content(
     reference: dict[str, Any], storage: StorageService
 ) -> dict[str, Any]:
     """Read one portable reference only from the explicitly selected owner."""
-    # Reject a reference outside the fixed namespace before any owner request.
     try:
         request = GetRequest(reference=MaskReference.model_validate(reference))
     except ValidationError:
@@ -1295,7 +1273,6 @@ def raster_mask_storage_contract_error(exc):
 
 async def _store_owned(rle, *, compressed=False, db=None, storage=storage_service):
     if mask_content_owner_selected():
-        # A selected owner is authoritative: no saved-ownership fallback.
         return await _run_content_io(
             _store_mask_content,
             rle,
@@ -1401,7 +1378,6 @@ async def load_coco_rle(
 ) -> dict[str, Any]:
     """Read through the selected owner; unselected mode uses saved ownership."""
     if mask_content_owner_selected():
-        # A selected owner is authoritative: no saved-ownership fallback.
         return await _observe_content_operation(
             "load",
             _run_content_io(_load_mask_content, reference, storage),

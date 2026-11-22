@@ -86,9 +86,6 @@ def _validate_finish_request(request: FinishImageMediaRequest) -> None:
     if not manifest_key.endswith("/manifest.json"):
         raise ImageFailure("invalid_request")
     prefix = manifest_key[: -len("manifest.json")]
-    # Ordinary and fixture native attempts write only the allocation's saved
-    # output prefix.  Its exact output identity is proven by the executor's
-    # allocation scope and by the SQL saved-member receipts.
     if (
         not 1 <= len(prefix) <= 496
         or prefix.startswith("/")
@@ -155,8 +152,6 @@ class AsyncpgImageDatabase:
             raise ValueError("invalid image SQL operation roles")
         self._pool = pool
         self._allowed_roles = roles
-        # Source captures lock the same attempt as a worker SQL transition,
-        # but run on a different connection from the worker's single-slot pool.
         self.native_capture_lane = (
             asyncio.Lock() if roles == {"worker"} else nullcontext()
         )

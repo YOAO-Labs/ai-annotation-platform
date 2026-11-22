@@ -555,8 +555,6 @@ async def patch_issue(
     task = await get_core_row(db, task_row, issue.task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    # Account-first: resolve the locked membership before any resource lock, then
-    # take the bounded task/resource locks so a busy row cannot block forever.
     _project, access = await _resolve_task_review_access(
         db, task=task, user=current_user, lock=True
     )
@@ -767,9 +765,6 @@ async def execute_mask_repairs(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
 ) -> MaskRepairBatchOut:
-    # Write boundary: re-resolve the current membership under lock and re-assert
-    # the capability on that fresh access (a downgrade after the dependency
-    # resolved must not proceed).
     fresh_access = await resolve_project_access(
         db, actor_id=current_user.id, project=project, lock_membership=True
     )

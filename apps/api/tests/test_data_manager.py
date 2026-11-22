@@ -930,9 +930,6 @@ async def test_match_evidence_treats_empty_groups_as_compiled_true(
     await db_session.flush()
     annotation_ids = {str(car.id), str(person.id)}
 
-    # The task compiler compiles an empty group to literal true for either op.
-    # The drawer must explain that match with task-context objects instead of
-    # serializing an empty witness set.
     empty_group_cases = [
         ("empty-or", {"op": "or", "rules": []}),
         ("nested-empty-or", {"op": "and", "rules": [{"op": "or", "rules": []}]}),
@@ -996,8 +993,6 @@ async def test_match_evidence_empty_group_keeps_entity_witness_scope(
     db_session.add_all([car, person])
     await db_session.flush()
 
-    # An empty group inside an entity-explained AND is task context, so it must
-    # not widen the witness object beyond the true entity branches.
     witness_cases = [
         (
             "empty-or-and-entity",

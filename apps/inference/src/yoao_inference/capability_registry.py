@@ -14,20 +14,20 @@ class SuggestedBackend:
     name: str
     repo_url: str
     summary: str
-    research_link: str | None = None  # 指向 docs/research/ 内的本平台调研结论
-    infra: str | None = None  # 推荐 backend 的默认 infra (与受控 INFRAS 对齐)
-    builtin: bool = False  # True = 平台自带, 已在 docker-compose 提供; False = 外部推荐
+    research_link: str | None = None
+    infra: str | None = None
+    builtin: bool = False
 
 
 @dataclass(frozen=True)
 class TaskSpec:
     id: str
-    label: str  # 中文短标签 (UI 主标题)
-    summary: str  # 一句话简介 (协议层语义, 不写「平台支持 N 个模型」)
-    default_geometry: tuple[str, ...]  # task 未声明几何时按此补全
-    default_modalities: tuple[str, ...]  # UI 徽标用
-    typical_models: tuple[str, ...]  # 协议示例, 仅文档用途
-    protocol_notes: str  # 在协议 v2 下的输出约束 (引用 ml-backend-protocol §4.1)
+    label: str
+    summary: str
+    default_geometry: tuple[str, ...]
+    default_modalities: tuple[str, ...]
+    typical_models: tuple[str, ...]
+    protocol_notes: str
     suggested_backends: tuple[SuggestedBackend, ...] = field(default_factory=tuple)
 
 
@@ -76,7 +76,6 @@ class InputSpec:
     summary: str
 
 
-# ── 9 个 task (协议 v2 受控词表, 顺序即 UI 展示顺序) ───────────────────
 TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
         id="detect",
@@ -319,7 +318,6 @@ TASKS: tuple[TaskSpec, ...] = (
 )
 
 
-# ── 6 个 infra (协议 v2 受控词表) ──────────────────────────────────────
 INFRAS: tuple[InfraSpec, ...] = (
     InfraSpec(id="pytorch", label="PyTorch", summary="原生 .pt / TorchScript 部署。"),
     InfraSpec(id="onnx", label="ONNX", summary="跨框架推理, 与硬件解耦。"),
@@ -334,8 +332,6 @@ INFRAS: tuple[InfraSpec, ...] = (
 )
 
 
-# ── 3 个 modality (与 services/ml_capabilities.derive_modalities 实际输出对齐) ──
-# 注: text / point_cloud 是预留语义, 暂未由 derive_modalities 产出, 不进受控表。
 MODALITIES: tuple[ModalitySpec, ...] = (
     ModalitySpec(id="image", label="图像", summary="2D 图片 (含视频单帧)。"),
     ModalitySpec(id="video", label="视频", summary="多帧视频序列。"),
@@ -347,7 +343,6 @@ MODALITIES: tuple[ModalitySpec, ...] = (
 )
 
 
-# ── geometry (复用 supported_geometric_outputs 字段值) ────────────────────────
 GEOMETRIES: tuple[GeometrySpec, ...] = (
     GeometrySpec(id="bbox", label="矩形框", summary="与图像坐标轴对齐的矩形框。"),
     GeometrySpec(id="rotated_bbox", label="旋转框", summary="带旋转角度的矩形框。"),
@@ -367,9 +362,6 @@ GEOMETRIES: tuple[GeometrySpec, ...] = (
 )
 
 
-# ── prompt 受控词表 (supported_prompts 合法值) ──────────────────────
-# 此前散落在 `ml_capabilities._INTERACTIVE_PROMPTS` 与前端三处常量, 现统一为 SSOT。
-# 这是「补登已在协议流通的既有值」(非扩协议), 沿用 既有词表惯例, 不另起 ADR。
 PROMPTS: tuple[PromptSpec, ...] = (
     PromptSpec(
         id="none",
@@ -444,7 +436,6 @@ PROMPTS: tuple[PromptSpec, ...] = (
 )
 
 
-# ── input 受控词表 (supported_inputs 合法值) ─────────────────────────
 INPUTS: tuple[InputSpec, ...] = (
     InputSpec(id="full_image", label="整图", summary="整张图片或视频帧作为模型输入。"),
     InputSpec(id="crop", label="裁剪", summary="从上游标注区域裁出的图像。"),
@@ -462,7 +453,6 @@ INPUTS: tuple[InputSpec, ...] = (
 )
 
 
-# ── 派生表 (供 ml_capabilities.py 消费, 避免双份维护) ───────────────────────────
 INFRA_VALUES: tuple[str, ...] = tuple(s.id for s in INFRAS)
 TASKS = tuple(sorted(TASKS, key=lambda spec: CANONICAL_TASK_VALUES.index(spec.id)))
 TASK_VALUES = CANONICAL_TASK_VALUES
@@ -477,8 +467,6 @@ INPUT_POINT_PROMPT = "point_prompt"
 INPUT_MASK_PROMPT = "mask_prompt"
 INPUT_SCRIBBLE_PROMPT = "scribble_prompt"
 INPUT_VIDEO = "video"
-# requires_input 集合 = 旧 _INTERACTIVE_PROMPTS (含 text/bbox); interactive_route 集合 =
-# 旧前端 INTERACTIVE_PROMPTS 的超集 (含预留 scribble/sketch/mask, 不含 text)。
 PROMPTS_REQUIRES_INPUT: frozenset[str] = frozenset(
     s.id for s in PROMPTS if s.requires_input
 )

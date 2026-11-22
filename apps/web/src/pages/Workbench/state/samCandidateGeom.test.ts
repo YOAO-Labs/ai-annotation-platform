@@ -1,9 +1,3 @@
-/**
- * SAM 候选外接框 —— 类选择器 popover 的定位依据。
- *
- * 图片与视频两侧共用同一份解析（此前只有图片侧有，视频侧接 popover 时若各写一份，
- * 迟早在几何类型上分叉）。
- */
 import { describe, expect, it } from "vitest";
 import { samCandidateGeom } from "./useWorkbenchShellModel.helpers";
 

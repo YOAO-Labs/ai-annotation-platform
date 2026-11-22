@@ -93,9 +93,6 @@ async def database_facts(db, *, protected=False):
     if protected:
         from worktree_recovery_export import media_cache_ids
 
-        # The full source fingerprint still contains every cache row. Offline
-        # mapping deliberately removes only typed bundle-linked indexes: their
-        # immutable ZIPs retain historical signed URLs which cannot be remapped.
         invalidated_export_indexes = await media_cache_ids(db)
     tables = list(
         await db.scalars(
@@ -106,7 +103,6 @@ async def database_facts(db, *, protected=False):
     )
     facts = {}
     for table in tables:
-        # Names come from the verified database catalog, never user SQL.
         quoted = '"' + table.replace('"', '""') + '"'
         rows = []
         result = await db.stream(
@@ -220,7 +216,6 @@ async def seed_task_originals(db, *, actor, project, storage):
             await db.delete(task)
             await db.flush()
 
-    # A historical same-content key remains unknown, even beside verified uploads.
     unknown_key = "recovery/unknown-task-original.png"
     storage.client.put_object(
         Bucket=storage.bucket, Key=unknown_key, Body=raw, ContentType="image/png"
@@ -243,7 +238,6 @@ async def verify_fixed_task_image(db, *, storage, task, actor, sha256, raw):
     from app.services.dataset_content import task_snapshot
 
     original_buckets = storage.bucket, storage.datasets_bucket
-    # The import purpose is unrelated to either saved original location.
     storage.bucket = storage.datasets_bucket = storage.import_bucket
     try:
         snapshot = await task_snapshot(db, task.id, actor, sha256)
@@ -310,7 +304,6 @@ async def verify_task_originals(db, *, storage, actor):
         assert row.size_bytes == original.size_bytes == len(raw)
         assert row.etag == original.etag and row.version_id == original.version_id
         assert row.created_at == original.completed_at
-        # Target observations can differ from historical ETag/version receipts.
         observed = managed_original_writer.inspect_staging(
             storage.client,
             owner.bucket,
@@ -729,7 +722,6 @@ async def verify_auxiliary_originals(db, *, storage):
             )
             assert actual == raw
             verified_empty_objects += int(len(actual) == 0)
-        # The immutable source attempt is not executable in the target context.
         saved = await creations._read(db, creation.id)
         try:
             await creations._validate(db, saved)
@@ -971,7 +963,6 @@ async def seed(db, external: Path):
                 "worker:content@test",
             )
 
-        # Durable owners exercise every supported physical relocation column.
         retired = DatasetItem(
             dataset_id=world[3].id,
             file_name="retired-managed.png",
@@ -1005,8 +996,6 @@ async def seed(db, external: Path):
         )
         await creations.attach(db, retired, created.creation_id)
         assert await DatasetService(db).delete_item(retired.id)
-        # Related assertions must preserve independent policies and complete hold
-        # history while following the same physical locator through restoration.
         peer = DatasetItem(
             dataset_id=world[3].id,
             file_name="retired-managed-peer.png",
@@ -1085,7 +1074,6 @@ async def seed(db, external: Path):
             retain_until=now + timedelta(days=7),
             next_check_at=now + timedelta(days=1),
         )
-        # Use the exact member bytes if the first source member is blue.
         original = world[0] / (
             "图片 空格.png"
             if source_item.path_digest == world[7].path_digest
@@ -1329,9 +1317,6 @@ async def seed(db, external: Path):
                 "planned": video_identifier("task:standalone"),
             },
         )
-        # Keep both positive and negative immutable observations, plus an
-        # undispatched pending attempt. Restoring bytes must not rewrite these
-        # source facts or automatically resume an old queue.
         attempt, probe_job, _ = await verifications.start(db, retired_record.id, actor)
         await db.commit()
         async with async_session() as verification_db:
@@ -1422,7 +1407,6 @@ async def verify_application(db, external: Path):
     ]
     assert len(dataset_creations) == 3
     assert all(row.status == "verified" for row in dataset_creations)
-    # Restoration maps physical locations, never historical successful writes.
     assert all(row.bucket != storage.datasets_bucket for row in dataset_creations)
     from app.services import managed_original_creation as creations
 
@@ -1524,8 +1508,6 @@ async def verify_application(db, external: Path):
     )
     pending = next(probe for probe in old_probes if probe.status == "pending")
     assert pending.operation_id is None and pending.started_at is None
-    # Reverify the other independent assertion explicitly in the target. The
-    # restored pending source attempt stays pending, preserving recovery facts.
     target_anchor = next(record for record in retirements if record.id != old_anchor_id)
     target_probe, target_job, _ = await verifications.start(db, target_anchor.id, actor)
     await db.commit()
@@ -1562,7 +1544,6 @@ async def verify_application(db, external: Path):
         else:
             content.close()
             raise WorktreeError("缺失的外部原件被错误恢复为可读")
-    # A replacement at the old path must not silently become the indexed original.
     from PIL import Image
 
     replacement = io.BytesIO()

@@ -296,7 +296,6 @@ async def find_verified_content(
     existing = await db.scalar(stmt.limit(1))
     if existing is not None or not legacy_md5:
         return existing
-    # A legacy hash only selects candidates; actual bytes establish duplicates.
     candidates = (
         select(DatasetItem)
         .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)

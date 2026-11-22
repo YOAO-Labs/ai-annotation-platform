@@ -344,7 +344,6 @@ def redacted_log(run, attempt, name, artifact, *, transport=None):
         except Exception as exc:
             if getattr(exc, "storage_operation_unsettled", False):
                 raise
-            # Read permission and observational uncertainty do not gate downloads.
         observation.complete()
     return {
         "key": key,

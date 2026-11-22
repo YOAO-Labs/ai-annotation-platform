@@ -24,25 +24,20 @@ class ProjectMember(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), index=True, nullable=False
     )
-    role: Mapped[str] = mapped_column(
-        String(30), nullable=False
-    )  # annotator | reviewer | viewer
+    role: Mapped[str] = mapped_column(String(30), nullable=False)
     assigned_by: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id")
     )
     assigned_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
-    # 项目成员版本：角色变更时由成员变更事务递增；legacy 写入依赖 server default。
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
     )
-    # 最近一次成员变更时间。assigned_at 保留为原始加入时间。
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
     )
-    # 项目级周目标覆盖；NULL → 退到 User.weekly_target_default → 200
     weekly_target: Mapped[int | None] = mapped_column(Integer, nullable=True)

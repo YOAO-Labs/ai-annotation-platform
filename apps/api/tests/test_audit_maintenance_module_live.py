@@ -168,7 +168,6 @@ async def _cli(image, directory, database_url, bucket, command):
                         path.write_text(content)
                         path.chmod(0o600)
                 finally:
-                    # This immutable ID is the receipt of this context's docker run.
                     await asyncio.to_thread(_docker, "rm", "--force", container)
         finally:
             directory.chmod(0o700)
@@ -241,7 +240,6 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
         ) as container:
             assert (await _result(container)) == {"refreshed": True}
 
-        # Pause the exact DROP after PUT so SIGKILL leaves a real orphan object.
         async with test_engine.begin() as db:
             await db.execute(
                 text(f"""
@@ -432,7 +430,6 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
             access_key_id_file=str(tmp_path / "reader-key"),
             secret_access_key_file=str(tmp_path / "reader-secret"),
         )
-        # Uncommitted user fixtures would block the earlier partition DDL on users.
         _, admin_token = await _create_user(
             db_session, "super_admin", "audit-admin@test.local", "Audit Admin"
         )

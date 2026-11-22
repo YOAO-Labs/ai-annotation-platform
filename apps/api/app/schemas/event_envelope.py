@@ -9,7 +9,6 @@ from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field
 
-# 首版事件名（与 §1.2 reject_reason_type 落地同窗口）；后续按 minor 增加
 EventName = Literal[
     "task.created",
     "task.reviewed",
@@ -22,7 +21,6 @@ EventName = Literal[
 ]
 
 
-# `data` 字段的泛型类型变量；具体事件 payload schema 在落地 §2.1 时分别定义
 T = TypeVar("T", bound=BaseModel)
 
 

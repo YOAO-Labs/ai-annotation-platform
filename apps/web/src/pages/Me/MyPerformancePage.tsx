@@ -1,10 +1,3 @@
-/**
- * 我的绩效（取经合集 §4.1 个人页）。
- *
- * 任意已认证用户看自己的 4 周产出趋势（叠加团队均线）+ 耗时直方图 + hero KPI。
- * 数据走实时 PG（/dashboard/me/performance），强制 self。
- */
-
 import { useMemo, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -25,14 +18,11 @@ import { useTheme } from "@/hooks/useTheme";
 import { REJECT_REASON_TYPE_LABELS } from "@/pages/Review/rejectReasonTypes";
 import styles from "./MyPerformancePage.module.css";
 
-// 统计窗口固定 4 周：趋势图 / 团队均线 / 质量分 / 周环比均按周聚合写死 4 周，
-// 故 KPI 也锁定同一窗口，避免「KPI 跟 period、趋势写死 4 周」的口径割裂。
 const PERIOD = "4w";
 
 const WEEK_LABELS = ["前 3 周", "前 2 周", "上周", "本周"];
 type KpiTone = "accent" | "success" | "warning" | "danger" | "neutral";
 
-/** 读取 shadcn 运行时 token，避免图表在主题切换后滞留旧色。 */
 function cssVar(name: string): string {
   if (typeof window === "undefined") return "";
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -44,7 +34,6 @@ export function MyPerformancePage() {
     queryFn: () => dashboardApi.getMyPerformance(PERIOD),
   });
 
-  // 订阅主题变化，切换时 re-render 后重读 token，避免 recharts 颜色滞留。
   useTheme();
   const accent = cssVar("--sc-brand");
   const muted = cssVar("--sc-muted-foreground");
@@ -125,7 +114,6 @@ export function MyPerformancePage() {
   const latestTeam = data?.team_trend_throughput[WEEK_LABELS.length - 1] ?? null;
   const topClass = classData[0];
 
-  // top-N 类别覆盖率之外的剩余占比;类多时 ΣP 不到 100% 是 backend 有意行为。
   const otherClassPct = useMemo(() => {
     if (!data || data.class_distribution.length === 0) return 0;
     const sum = data.class_distribution.reduce((s, c) => s + c.pct, 0);
@@ -221,7 +209,6 @@ export function MyPerformancePage() {
           </div>
 
           <div className={styles.grid}>
-            {/* 产出趋势 vs 团队均线 */}
             <div className={`${styles.card} ${styles.cardWide}`}>
               <div className={styles.cardHeader}>
                 <div>
@@ -272,7 +259,6 @@ export function MyPerformancePage() {
               </div>
             </div>
 
-            {/* 耗时直方图 */}
             <div className={styles.card}>
               <div className={styles.cardHeader}>
                 <div>
@@ -317,7 +303,6 @@ export function MyPerformancePage() {
               )}
             </div>
 
-            {/* Reject 原因分布(质量归因 A1) */}
             <div className={styles.card}>
               <div className={styles.cardHeader}>
                 <div>
@@ -364,7 +349,6 @@ export function MyPerformancePage() {
               )}
             </div>
 
-            {/* 类别覆盖 top-N(质量归因 A1) */}
             <div className={styles.card}>
               <div className={styles.cardHeader}>
                 <div>

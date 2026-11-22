@@ -304,7 +304,6 @@ class SftpSource(SourceAdapter):
                     if identity[1]
                     else None
                 )
-                # Symlink and special-file entries stay visible but cannot be opened.
                 yield SourceObject(
                     relpath=relpath,
                     size=max(0, identity[0]),

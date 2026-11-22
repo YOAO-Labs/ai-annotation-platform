@@ -1,4 +1,3 @@
-/* 画布叠加层:像素/z-index 编排保留 CSS,色彩走 --sc-*(门禁白名单) */
 .root {
   flex: 1;
   position: relative;
@@ -68,7 +67,6 @@
   display: block;
 }
 
-/* 翻页换图时 fit 变换算出前隐藏 Konva 层 (blurhash 占位顶着), 避免标注用旧/默认变换闪一帧。 */
 .konvaHostHidden {
   visibility: hidden;
 }

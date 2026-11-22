@@ -92,8 +92,6 @@ async def test_annotator_dashboard_scopes_to_annotator_membership(
         "/api/v1/dashboard/annotator", headers=_headers(employee)
     )
     assert resp.status_code == 200
-    # Assigned work in a project where the account is only a reviewer must not
-    # appear in the annotation queue.
     assert resp.json()["assigned_tasks"] == 0
     assert resp.json()["rejected_tasks_count"] == 0
 
@@ -120,7 +118,6 @@ async def test_reviewer_dashboard_accepts_employee_and_filters_role(
         assigned_by=admin.id,
     )
     review_task = await create_task(db_session, project_id=project.id, status="review")
-    # Unbatched review work is actionable only when assigned to the reviewer.
     review_task.reviewer_id = reviewer.id
     await db_session.commit()
 
@@ -185,7 +182,6 @@ async def test_async_job_access_drops_after_membership_revocation(
     await db_session.commit()
     await db_session.refresh(employee)
 
-    # Job ownership is not enough once current project access is gone.
     assert await _can_access_job(db_session, job=job, actor_id=employee.id) is False
 
 
@@ -235,8 +231,6 @@ async def test_export_job_result_denied_to_annotator_membership(
 
     job.user_id = reviewer.id
     await db_session.commit()
-    # The server handler shares this session; refresh the server-updated
-    # columns so serialization does not trigger an async lazy load.
     await db_session.refresh(job)
     allowed = await httpx_client.get(
         f"/api/v1/async-jobs/{job.id}", headers=_headers(reviewer)

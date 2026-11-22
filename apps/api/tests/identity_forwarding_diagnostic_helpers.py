@@ -9,7 +9,6 @@ from tests.identity_module_assembly_helpers import IdentityModuleStack
 
 TRACE_PREFIX = "AAP_IDENTITY_ROUTE_TRACE "
 
-# Instrument installed packages without mounting source or changing the adapters.
 OWNER_TRACE = r"""
 import contextvars, json, re, sys, time, traceback, urllib.parse
 import asyncpg

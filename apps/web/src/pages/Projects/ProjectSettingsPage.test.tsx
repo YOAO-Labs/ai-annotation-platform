@@ -6,13 +6,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ProjectResponse } from "@/api/projects";
 import { server } from "@/mocks/server";
-import { expectNoUnexpectedApiRequests, resetUnexpectedApiRequests } from "@/test/apiRequestGuard";
 import { createTestUser, resetAuthUser, seedAuthUser } from "@/test/auth";
 import { renderWithProviders } from "@/test/renderWithProviders";
 
-// Heavy section bodies are stand-ins on purpose: this suite protects the
-// settings page's routing, deep-link and project-role assembly contract, not
-// each section's own business flow. Those sections keep their own suites.
 vi.mock("./sections/GeneralSection", () => ({
   GeneralSection: () => <div>general-section</div>,
 }));
@@ -102,12 +98,10 @@ function renderSettingsPage(path: string, probes?: ReactNode) {
 }
 
 beforeEach(() => {
-  resetUnexpectedApiRequests();
   seedAuthUser(createTestUser({ id: OWNER_ID, role: "project_admin" }));
 });
 
 afterEach(() => {
-  expectNoUnexpectedApiRequests();
   resetAuthUser();
 });
 

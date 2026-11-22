@@ -877,8 +877,6 @@ def decode_configuration_step_reply(
             facts = raw["facts"]
             if type(facts) is not dict:
                 raise ValueError("Configuration facts must be a JSON object")
-            # Stored configuration has the existing JSON limits. Do not apply
-            # the small envelope's depth cap to arbitrary nested config values.
             json.dumps(facts, ensure_ascii=True, allow_nan=False)
             pending = [facts]
             while pending:

@@ -7,25 +7,14 @@ import {
   TooltipTrigger,
 } from "@/components/shadcn/ui/tooltip";
 
-/**
- * Tooltip —— shadcn(Radix)适配层。
- * 保留 `{name,desc?,hotkey?,side?,delay?,children}` API(调用点零改动);定位/hover/focus/Esc
- * 由 Radix 兜底,去掉手写 portal + 定位。Provider 内置(每用例自带,免改 App 根)。
- */
 type Side = "right" | "left" | "top" | "bottom";
 
 interface TooltipProps {
-  /** 主标题(粗体首行)。 */
   name: ReactNode;
-  /** 描述(次行,灰)。 */
   desc?: ReactNode;
-  /** hotkey 徽(kbd 样式末行;多键用空格分隔,如 "Ctrl Z")。 */
   hotkey?: string;
-  /** 显示位置(默认 right)。 */
   side?: Side;
-  /** hover 触发延迟 ms(默认 200)。 */
   delay?: number;
-  /** 子元素必须是单个 ReactElement(如 <button>),Radix 通过 asChild 附加 ref + 事件。 */
   children: ReactElement;
 }
 

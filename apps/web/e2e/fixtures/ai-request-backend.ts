@@ -10,7 +10,6 @@ export interface AiRequestRecord {
   responseStatus?: number;
 }
 
-/** Controls the same managed provider that receives actual inference requests. */
 export function startAiRequestBackend(seed: SeedAPI, data: SeedData) {
   const control = (action: Parameters<SeedAPI["providerControl"]>[2], value?: boolean | number) =>
     seed.providerControl(data.project_id, data.ml_backend_id, action, value);

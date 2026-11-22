@@ -1,6 +1,3 @@
-# Independent production application stack. Shared infrastructure is external:
-# never combine this file with the development or whole-stack prod overlays.
-# docker compose --env-file .env.production -f docker-compose.lan-prod.yml up -d
 name: aap-production
 
 x-logging: &logging
@@ -165,8 +162,6 @@ services:
         bind:
           create_host_path: false
 
-  # LAN's existing runtime role owns the selected maintenance objects. Keep the
-  # migration login restricted to the one-shot migrate service.
   celery-worker-maintenance:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q maintenance --concurrency=1 --prefetch-multiplier=1
@@ -212,8 +207,6 @@ services:
   celery-worker-gpu-control:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q gpu.control --concurrency=1 --prefetch-multiplier=1
-    # This deployment shares model services in observe mode. It never mounts the
-    # development collector credential or creates a second enforce controller.
 
   celery-beat:
     <<: *runtime

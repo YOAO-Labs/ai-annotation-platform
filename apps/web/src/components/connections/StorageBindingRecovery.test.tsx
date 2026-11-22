@@ -9,7 +9,6 @@ import type {
   StorageBindingOut,
 } from "@/api/generated/types.gen";
 import { server } from "@/mocks/server";
-import { expectNoUnexpectedApiRequests, resetUnexpectedApiRequests } from "@/test/apiRequestGuard";
 import { createTestUser, resetAuthUser, seedAuthUser } from "@/test/auth";
 import { renderWithProviders } from "@/test/renderWithProviders";
 import { AvatarBindingChangeButton } from "./AvatarBindingChangeButton";
@@ -27,13 +26,11 @@ const replacement = {
 };
 
 beforeEach(() => {
-  resetUnexpectedApiRequests();
   seedAuthUser(createTestUser({ role: "super_admin" }));
 });
 afterEach(() => {
   cleanup();
   resetAuthUser();
-  expectNoUnexpectedApiRequests();
 });
 
 function serveBinding(

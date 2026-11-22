@@ -10,9 +10,6 @@ from sqlalchemy.orm import aliased
 from yoao_audit.read_relation_postgres import audit_events
 from app.db.models.audit_log import AuditLog
 
-# Map the published relation to the existing ORM entity. Normal ORM reads then
-# retain the same identity-map reuse, dirty-field behavior, and expired-field
-# refresh as the former private-table SELECTs.
 audit_event = aliased(AuditLog, audit_events, adapt_on_names=True)
 
 

@@ -1,7 +1,3 @@
-/**
- * PredictionImportWizard 单测.
- * 覆盖: 格式切换, dry-run 预览 errors 渲染, 确认提交调 API, 文件未选时不能预览.
- */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
@@ -71,7 +67,6 @@ describe("PredictionImportWizard", () => {
       );
     });
 
-    // 第 2 步渲染统计
     expect(await screen.findByText(/确认导入 5 条/)).toBeInTheDocument();
     expect(screen.getByText(/task not found/)).toBeInTheDocument();
   });
@@ -202,10 +197,8 @@ describe("PredictionImportWizard", () => {
   });
 
   it("预测导入向导不再承载标注导入切换", () => {
-    // Mask 标注导入已迁入独立的 registry-driven 向导，此处固定走预测导入。
     render(<PredictionImportWizard open onClose={() => {}} projectId="p-anno" />);
     expect(screen.queryByLabelText(/导入对象/)).not.toBeInTheDocument();
-    // 预测路径仍可用: 仍能看到「格式」选择。
     expect(screen.getByLabelText(/格式/)).toBeInTheDocument();
   });
 

@@ -14,7 +14,6 @@ from typing import Iterator
 from yoao_assets_video_inputs import execution as c
 from yoao_assets_video_inputs import values as v
 
-# Exclude playlists and external protocols: all decoding must use retained bytes.
 _INPUT_OPTIONS = (
     "-protocol_whitelist",
     "file,pipe",

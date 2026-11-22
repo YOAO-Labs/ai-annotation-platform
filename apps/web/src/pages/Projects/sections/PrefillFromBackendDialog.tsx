@@ -1,19 +1,3 @@
-/**
- * 从 ML Backend 预填项目配置（类别 + 属性）
- *
- * backend /setup 自报 `classes`（yolo COCO 等）+ `output_attribute_schema`（二阶段属性，
- * 如 onnxtools 车型/颜色，含 select options）。本对话框列出「有类别或有属性可预填」的 model，
- * 让用户选一个、分别勾选类别 / 属性字段，一键合并进当前工具单位：
- *   - 类别 → 工具单位 classRows（同名跳过、自动配色）；
- *   - 属性 → 工具单位 attribute_schema（同 key 覆盖、新 key 追加）。
- *
- * 数据源 = **本项目已接入的 backend**（GET /projects/{id}/ml-backends + 各自 /capabilities），
- * 而非全局 env-configured 实例 —— 否则项目级接入的 yolo（COCO80）/ onnxtools（车辆类）拿不到，
- * 用户「填不了类别」。项目级 /capabilities 的 classes 形状是 `[{index,name}]`，此处抽出 name。
- *
- * 纯受控：确认后回调 onPrefill({ classes, attributes })，由调用方（ClassesSection）决定合并。
- * 预填配置同时支持从后端导入类别与属性。
- */
 import { useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/Button";
@@ -71,13 +55,9 @@ export interface PrefillPicked {
 interface Props {
   open: boolean;
   onClose: () => void;
-  /** 取本项目已接入 backend 的能力 (含 yolo COCO / onnxtools 车辆类别)。 */
   projectId: string;
-  /** 用户确认预填的类别名 + 属性字段（已按勾选过滤）。 */
   onPrefill: (picked: PrefillPicked) => void;
-  /** 当前工具单位名（仅用于文案提示）。 */
   targetUnitLabel: string;
-  /** 当前工具单位已有类名 / 属性 key，用于标记「已存在」并默认不勾选。 */
   existingClassNames?: string[];
   existingAttrKeys?: string[];
 }
@@ -91,7 +71,6 @@ export function PrefillFromBackendDialog({
   existingClassNames = [],
   existingAttrKeys = [],
 }: Props) {
-  // 数据源: 本项目已接入且在线的 backend → 各自 /capabilities (含静态自报 classes)。
   const backendsQ = useQuery({
     queryKey: ["prefill-project-backends", projectId],
     queryFn: () => mlBackendsApi.list(projectId),
@@ -114,14 +93,12 @@ export function PrefillFromBackendDialog({
 
   const capsLoading = backendsQ.isLoading || capResults.some((r) => r.isLoading);
   const capsError = backendsQ.isError;
-  // 各 backend caps 的更新时刻拼成稳定签名: 任一就绪即重算 entries (capResults 每渲染新引用)。
   const capSig = capResults.map((r) => r.dataUpdatedAt).join(",");
   const entries = useMemo<ModelEntry[]>(() => {
     const out: ModelEntry[] = [];
     onlineBackends.forEach((b, i) => {
       const caps = capResults[i]?.data;
       for (const model of caps?.models ?? []) {
-        // 一锅端 composite 与原子声明同一份属性/类别; 跳过 composite 避免重复预填源。
         if (model.composition === "composite") continue;
         const classes = (model.classes ?? []).map((c) => c.name);
         const schema = model.output_attribute_schema ?? [];
@@ -131,7 +108,6 @@ export function PrefillFromBackendDialog({
       }
     });
     return out;
-    // capSig 串化各 caps 更新时刻作稳定依赖, 故不直接列 capResults。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onlineBackends, capSig]);
 
@@ -149,7 +125,6 @@ export function PrefillFromBackendDialog({
 
   const selectEntry = (entry: ModelEntry) => {
     setSelectedId(`${entry.backendName}::${entry.model.id}`);
-    // 默认勾选「项目还没有的」类别 / 属性，已存在的不勾（避免无谓覆盖）。
     setCheckedClasses(new Set(entry.classes.filter((c) => !existingClasses.has(c))));
     setCheckedKeys(new Set(entry.schema.map((s) => s.key).filter((k) => !existingKeys.has(k))));
   };

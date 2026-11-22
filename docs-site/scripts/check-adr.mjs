@@ -1,9 +1,4 @@
 #!/usr/bin/env node
-// 校验 docs/adr/ 下 ADR 文件：
-//   1. 编号唯一（00NN-*.md）
-//   2. 编号连续（无空号）—— archive/ 子目录也纳入统计（归档 ADR 保留编号占位）
-//   3. 文件首部包含 Status 字段
-// 失败退出 1。
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -41,7 +36,6 @@ for (const { f, dir, label } of files) {
   numbers.set(n, { f, label });
 
   const content = readFileSync(join(dir, f), "utf8");
-  // 接受 `- **Status:** ...` / `Status: ...` / `## Status` 等多种写法
   const statusOk =
     /^\s*[-*]?\s*\**\s*Status\s*\**\s*[:：]/im.test(content) ||
     /^##?\s*Status\b/im.test(content) ||

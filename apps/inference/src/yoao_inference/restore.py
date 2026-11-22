@@ -202,8 +202,6 @@ class VideoRestoreManager:
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except Exception:
-            # A prepare acknowledgement can be lost at commit. Recover only the
-            # public state for this same restore id and command digest.
             recovered = await self._recover(typed)
             if recovered is None:
                 return self._unknown()
@@ -268,13 +266,8 @@ class VideoRestoreManager:
             except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
                 raise
             except Exception:
-                # Prepared state remains the durable global write fence. The
-                # next explicit invocation reuses every persisted control id.
                 return RestoreResult(state="pending", record=record)
 
-        # A persisted bound context is only a historical observation. Re-read
-        # every target controller immediately before the Native atomic finish
-        # so a cold restart or changed route cannot reuse stale retirement proof.
         try:
             for context in by_registry.values():
                 if context["phase"] != "bound":

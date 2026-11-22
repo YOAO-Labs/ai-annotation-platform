@@ -53,7 +53,6 @@ describe("videoTrackOutside", () => {
     expect(ranges).toEqual([{ from: 4, to: 5, source: "manual" }]);
     expect(isFrameOutside({ ...track, outside: [{ from: 4, to: 5 }] }, 4)).toBe(true);
     expect(isFrameOutside({ ...track, outside: [{ from: 4, to: 5 }] }, 8)).toBe(false);
-    // 关键帧本身不再携带 absent, 不影响 outside 判定。
     expect(isFrameOutside({ ...track, outside: [{ from: 4, to: 5 }] }, 2)).toBe(false);
   });
 

@@ -1,11 +1,4 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-/**
- * per-source freshness chip.
- *
- * Plan §6.3: a stale source keeps its last value + a stale marker + time, and
- * does NOT borrow the real-time status color. Errors are surfaced in a tooltip
- * so partial failures don't erase other trustworthy sources.
- */
 import type { ReactNode } from "react";
 
 import { Badge } from "@/components/ui/Badge";

@@ -9,17 +9,19 @@ import uuid
 
 import httpx
 import pytest
+from fastapi import Request
 from sqlalchemy import func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.core.security import create_access_token
+from app.config import settings
 from app.db.base import Base
 from app.db.models.async_job import AsyncJob
 from app.db.models.managed_original_creation import ManagedOriginalCreation as Creation
 from app.db.models.managed_original_reclaim import (
     ManagedOriginalReclaimAttempt as Attempt,
     ManagedOriginalReclaimClaim as Claim,
+    ReferenceReconciliationState,
 )
 from app.db.models.storage_maintenance import (
     StorageMaintenanceGate as Gate,
@@ -41,15 +43,21 @@ from app.services.managed_original_reclaim_io import ReclaimResult
 from app.services.storage import storage_service
 from app.workers import managed_original_reclaim as worker
 from tests import live_provider_guard
-from tests.factory import create_user
+from tests.factory import DEFAULT_PASSWORD, create_user
+from tests.storage_migration_isolation import (
+    native_reclaim_db as native_reclaim_db,
+    native_reclaim_only,
+)
 from tests.test_managed_original_creation import migration
-from tests.test_managed_original_reclamation import assertion, declared_hold
+from tests.test_managed_original_reclamation import (
+    assertion,
+    declared_hold,
+    forbid_object_io,
+)
 
 
 @pytest.fixture
 async def reclaim_db(test_engine):
-    # Clone only empty schema structure, never development rows. Independent
-    # callback commits and permanent trigger facts are removed by namespace DROP.
     schema = "reclaim_test_" + uuid.uuid4().hex
     excluded = {
         "alembic_version",
@@ -323,7 +331,6 @@ async def test_intent_commit_then_callback_reply_failure_keeps_permanent_tombsto
     permit = await service.acquire(db, row.id, row.task_id)
     await service.checkpoint(db, row.id, row.task_id, "delete_started", verified(row))
     await permit._settle()
-    # Native may still report delete_started=False after its callback committed.
     await service.publish(
         db,
         job.id,
@@ -441,10 +448,95 @@ async def test_reference_audit_real_sql_and_terminal_job_recovery(reclaim_db):
     assert (await service.reconciliation_out(db)).last_success_at == measured
 
 
-async def test_http_preview_commit_and_worker_real_small_version_delete(
-    reclaim_db, monkeypatch
+@pytest.fixture
+def reclaim_identity(monkeypatch, test_engine):
+    from tests.test_assets_images_live import _guard_role_url
+
+    if (
+        settings.identity_url
+        or settings.identity_auth_database_url_file
+        or settings.identity_session_database_url_file
+    ):
+        pytest.fail("Reclamation acceptance requires the verifier's Identity DB roles.")
+    for setting, kind, role in (
+        ("identity_auth_database_url", "AUTH", "yoao_identity_auth_client"),
+        ("identity_session_database_url", "SESSIONS", "yoao_identity_session_client"),
+    ):
+        url = _guard_role_url(f"AAP_MODULE_DATA_IDENTITY_{kind}_URL", role, test_engine)
+        monkeypatch.setattr(
+            settings, setting, url.render_as_string(hide_password=False)
+        )
+
+
+async def reclaim_login(client, actor):
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"email": actor.email, "password": DEFAULT_PASSWORD},
+    )
+    assert response.status_code == 200, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+@native_reclaim_only
+async def test_observation_gets_do_not_claim_reclamation_in_read_only_transactions(
+    native_reclaim_db, reclaim_identity, monkeypatch
 ):
-    db, actor = reclaim_db
+    db, actor = native_reclaim_db
+    anchor, _, _ = await seed(db)
+    forbid_object_io(monkeypatch)
+
+    async def read_only_get(request: Request):
+        async with async_sessionmaker(db.bind, expire_on_commit=False)() as session:
+            if request.method == "GET":
+                await session.execute(text("SET TRANSACTION READ ONLY"))
+            yield session
+
+    app.dependency_overrides[get_db] = read_only_get
+    try:
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            headers = await reclaim_login(client, actor)
+            base = "/api/v1/storage"
+            preview = await client.get(
+                base + "/managed-original-reclamation?limit=1", headers=headers
+            )
+            assert preview.status_code == 200, preview.text
+            preview_body = preview.json()
+            assert preview_body["items"][0]["id"] == str(anchor.id)
+            assert preview_body["execution_permission"] is False
+            assert preview_body["reclaimable_bytes"] is None
+            history = await client.get(
+                base + f"/managed-original-retirements/{anchor.id}/reclaims",
+                headers=headers,
+            )
+            assert history.status_code == 200, history.text
+            assert history.json()["items"] == [] and history.json()["total"] == 0
+            assert "impact_token" not in history.json()
+            audit = await client.get(
+                base + "/managed-original-reference-reconciliation", headers=headers
+            )
+            assert audit.status_code == 200, audit.text
+            assert audit.json()["status"] == "idle"
+            assert audit.json()["async_job_id"] is None
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+    for model in (
+        Attempt,
+        Claim,
+        AsyncJob,
+        StorageOperation,
+        ReferenceReconciliationState,
+    ):
+        assert await db.scalar(select(func.count()).select_from(model)) == 0
+
+
+@native_reclaim_only
+async def test_http_preview_commit_and_worker_real_small_version_delete(
+    native_reclaim_db, reclaim_identity, monkeypatch
+):
+    db, actor = native_reclaim_db
     bucket = live_provider_guard.owned_bucket(
         storage_service.datasets_bucket, purpose="datasets"
     )
@@ -463,12 +555,11 @@ async def test_http_preview_commit_and_worker_real_small_version_delete(
 
     app.dependency_overrides[get_db] = independent
     monkeypatch.setattr(worker, "_publish", lambda *args, **kwargs: None)
-    token = create_access_token(str(actor.id), actor.role)
-    headers = {"Authorization": f"Bearer {token}"}
     try:
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
+            headers = await reclaim_login(client, actor)
             base = f"/api/v1/storage/managed-original-retirements/{anchor.id}"
             response = await client.post(
                 base + "/reclaim-preview",
@@ -477,6 +568,8 @@ async def test_http_preview_commit_and_worker_real_small_version_delete(
             )
             assert response.status_code == 200, response.text
             preview = response.json()
+            assert preview["eligible"], preview["blockers"]
+            assert preview["version_id"] == creation.version_id
             response = await client.post(
                 base + "/reclaims",
                 json={
@@ -647,7 +740,6 @@ async def test_audit_failure_keeps_start_mutations_atomic(reclaim_db, monkeypatc
 @pytest.mark.parametrize("version", [None, ""])
 async def test_unpinned_creation_is_observationally_blocked(reclaim_db, version):
     db, actor = reclaim_db
-    # The storage ledger permits historical ACKs without an immutable version.
     anchor, _, _ = await seed(db, version=version or None)
     value = await service.preview(
         db, anchor.id, Review(reason="Reviewed exact version expiry"), actor

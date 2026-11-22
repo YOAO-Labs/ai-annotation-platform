@@ -19,9 +19,7 @@ ENTITY_TO_PREFIX: dict[str, str] = {
     "datasets": "D",
     "projects": "P",
     "batches": "BT",
-    # ProjectTemplate (前缀避开 P/T/B/D 单字母, 用 PT)
     "project_templates": "PT",
-    # 跨 task 帧序列地基(scene)
     "scenes": "SCN",
 }
 

@@ -42,7 +42,6 @@ class _FakeWebSocket:
         self.sent.append(data if isinstance(data, str) else data.decode())
 
     async def receive(self) -> dict:
-        # Block forever; the relay completing ends the wait and cancels this.
         await asyncio.sleep(3600)
         return {"type": "websocket.disconnect"}
 
@@ -72,6 +71,9 @@ class _FakeStatsPubSub:
     async def subscribe(self, _channel: str) -> None:
         pass
 
+    async def aclose(self) -> None:
+        pass
+
     async def unsubscribe(self, _channel: str) -> None:
         pass
 
@@ -83,10 +85,10 @@ class _FakeStatsRedis:
     def pubsub(self) -> _FakeStatsPubSub:
         return _FakeStatsPubSub()
 
-    async def incr(self, _key: str) -> int:
+    async def eval(self, *_args) -> int:
         return 1
 
-    async def decr(self, _key: str) -> int:
+    async def zrem(self, *_args) -> int:
         return 0
 
 
@@ -95,7 +97,7 @@ async def test_relay_revalidates_before_each_message():
 
     async def revalidate() -> bool:
         calls.append(1)
-        return len(calls) < 2  # allow first, reject second
+        return len(calls) < 2
 
     websocket = _FakeWebSocket()
     pubsub = _FakePubSub(["first", "second"])
@@ -130,8 +132,6 @@ async def test_project_stream_rejects_when_credential_invalid(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _no_redis_pool(monkeypatch):
-    # The relay test never touches Redis, but importing the module must not
-    # construct a live pool.
     yield
 
 
@@ -175,7 +175,7 @@ async def test_notification_parser_resolves_stored_row(monkeypatch):
 
     async def fake_notification(self, candidate_id):
         seen["notification_id"] = candidate_id
-        return object()  # row is committed and visible
+        return object()
 
     async def fake_deliverable(self, notification_id, user_id):
         seen["pair"] = (notification_id, user_id)
@@ -265,7 +265,7 @@ async def test_notification_gate_fails_closed_after_retry_window(monkeypatch):
 
     async def fake_notification(self, _notification_id):
         fake_db.looks += 1
-        return None  # row never becomes visible
+        return None
 
     monkeypatch.setattr(NotificationService, "notification_by_id", fake_notification)
     assert (

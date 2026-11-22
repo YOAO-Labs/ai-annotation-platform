@@ -204,8 +204,6 @@ class Target:
         if self._access is None and owned:
             from app.services.storage import StorageService
 
-            # Managed ZIP transfer keeps the original SDK retry/transport policy.
-            # Its observer belongs to this exclusive client, never the shared one.
             try:
                 client = StorageService(
                     client_config=self._legacy_client.meta.config
@@ -219,8 +217,6 @@ class Target:
         elif self._access is None and single_attempt:
             from app.services.storage import StorageService
 
-            # Accounting owns this transport: one durable intent represents one
-            # submission, including when the provider loses its response.
             config = Config(
                 connect_timeout=3,
                 read_timeout=read_timeout or 30,
@@ -235,7 +231,6 @@ class Target:
             finally:
                 storage_access.close_registered(client)
         elif self._access is None:
-            # The process owns the shared legacy client; do not close it here.
             yield self._legacy_client
         else:
             options = {} if read_timeout is None else {"read_timeout": read_timeout}
@@ -329,8 +324,6 @@ async def target_for(
         connection.secret_enc,
         tuple(await connector_guard.get_allowlist(db)),
     )
-    # S3Access.client repeats the live host guard inside the registered I/O.
-    # Resolving DNS here would put physical work inside allocation row locks.
     try:
         endpoint = owners._endpoint(access.endpoint)
         bucket = connection.config["bucket"]
@@ -447,7 +440,6 @@ def _conditional_put(client, params, data):
             raise
         raise storage_access.mark_unsettled(exc)
     except BaseException as exc:
-        # A lost PUT response cannot be converted to proven deletion.
         raise storage_access.mark_unsettled(exc)
 
 
@@ -481,8 +473,6 @@ def probe_target(target):
                 }:
                     raise
             else:
-                # An ignored condition may have created another provider version;
-                # never call that a successfully qualified managed target.
                 try:
                     unexpected_params = object_params(
                         target.bucket, key, version_id(unexpected, purpose=purpose)

@@ -277,7 +277,6 @@ async def test_dimensions_finish_persists_facts_and_chains_a_small_preview(db_se
     assert parent is not None and parent.status == "ready"
     assert parent.result == result
 
-    # The same lease cannot publish twice after response loss.
     replay = _data(
         _reply(
             await db_session.scalar(
@@ -1167,7 +1166,6 @@ async def test_owned_admission_rejects_a_forged_original_receipt(db_session):
         )
     )
     assert reply["ok"] is False, reply
-    # A different original cannot be accepted as the current source.
     assert reply["error"]["code"] in {"invalid_request", "source_changed"}
 
 
@@ -1214,7 +1212,6 @@ async def test_native_allocation_rejects_another_lease_or_generation(db_session)
         )
     )
     assert stale["ok"] is False and stale["error"]["code"] == "invalid_request"
-    # The allocation is the only saved output bound to this lease.
     assert (
         await db_session.scalar(
             text(
@@ -1248,8 +1245,6 @@ async def test_expired_image_lease_requeues_then_fails_after_three_attempts(db_s
     source = await _source(db_session, item_id)
     job_id, _ = await _enqueue(db_session, source, _spec("dimensions", source))
     claim = await _claim(db_session, job_id=job_id, kind="dimensions")
-    # reconcile_image_media sweeps every expired Job in the database. Park
-    # foreign committed leases for this rolled-back test so only its Job expires.
     await db_session.execute(
         text(
             "UPDATE public.asset_image_jobs SET lease_expires_at="

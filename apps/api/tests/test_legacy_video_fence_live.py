@@ -143,7 +143,6 @@ async def _seed_scope_only_route(test_engine, world):
                 {"registry_id": world["registry_id"], "pool_id": pool_id},
                 scope_id,
             )
-            # Seed the pre-ledger shape using the existing owner fixture pattern.
             await owner.execute(
                 "UPDATE yoao_inference_routing_v1.scopes SET owner=$1,"
                 "operation='tracker',project_id=$2 WHERE id=$3",
@@ -451,7 +450,6 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
     expected_revision = _required("AAP_LEGACY_VIDEO_FENCE_API_SOURCE_REVISION")
     video = await asyncio.to_thread(_video_bytes, tmp_path)
     _artifact_bytes, artifact, artifact_digest = _bbox_artifact()
-    # API routing authority reaches only the restricted owner over HTTP.
 
     peer = owner_s3 = sender = worker = probe_worker = None
     destroy_guide_scope = None
@@ -571,7 +569,6 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
                 "reject_on_worker_lost": True,
             }:
                 raise LocalFenceRefused("accepted_worker_task_contract_mismatch")
-            # This scope-only peer is owned by the host fixture, not the worker.
             async with media.sessions.begin() as health_db:
                 service = MLBackendService(health_db)
                 if not await service.check_health(world["registry_id"]):
@@ -589,8 +586,6 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
             ):
                 raise LocalFenceRefused("owned_backend_control_not_ready")
 
-            # Seed the historical started/unbound state; this accepted binary
-            # retries it instead of running an old pre-ledger implementation.
             async with test_engine.begin() as db:
                 await db.execute(
                     text(
@@ -840,8 +835,6 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
                 preflight, perform_fence
             )
 
-            # The original worker's real Celery retry is the stale delivery.
-            # The broker remains shared; keep the consumer on this exact queue.
             probe_worker = _worker(
                 test_engine,
                 tmp_path / "stale-redelivery-worker",

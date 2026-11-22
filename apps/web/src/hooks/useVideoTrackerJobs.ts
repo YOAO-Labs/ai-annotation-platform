@@ -29,7 +29,6 @@ const MAX_POLL_DELAY_MS = 30000;
 export interface VideoTrackerJobState {
   jobId: string;
   taskId: string;
-  // 无源检测 job 无 annotationId (画布级发起)。
   annotationId: string | null;
   jobKind: "tracking" | "correction";
   correctionFrame?: number | null;
@@ -68,7 +67,6 @@ export interface TrackerReviewDecisionOutcome {
   reason?: string;
 }
 
-// 候选/接受流: 追踪完成 (pending_review) 拉出的暂存预览, 供画布叠加 + 接受/丢弃。
 export interface TrackerStoreState {
   jobs: Record<string, VideoTrackerJobState>;
   candidates: Record<string, VideoTrackerJobPreview>;
@@ -103,12 +101,7 @@ export class TrackerJobStore {
   private pollFailures = new Map<string, number>();
   private jobGenerations = new Map<string, number>();
   private hydrationTasks = new Map<string, Promise<void>>();
-  // 当前工作台聚焦的 task。切任务时用它把不属于当前 task 的 job/candidate/socket/timer
-  // 清掉 (见 scopeToTask), 并作为异步恢复的护栏 (恢复回来发现已切走就丢弃)。
   private currentTaskId: string | null = null;
-  // restoreReviewable 已成功拉取过 reviewable/active 数据的 task id。切任务时清空 (见
-  // restoreReviewable 顶部); 同一 task 内重复调用 (例如 token 从 null 变为有值后 effect 重跑)
-  // 靠它跳过重复拉数据, 只补连尚未连接的 socket。
   private hydratedTaskId: string | null = null;
   private invalidateAnnotations: (taskId: string) => void = () => {};
 
@@ -316,13 +309,7 @@ export class TrackerJobStore {
     else this.schedulePoll(job.id);
   }
 
-  /**
-   * 从服务端恢复刷新前的会话态: 仍待审阅的候选 + 仍在运行的追踪任务 (重连 WS)。
-   * 单例 store 跨 task 复用, 切 task 时先把上一个 task 的残留清干净, 再按 task 去重恢复。
-   */
   restoreReviewable(taskId: string, token?: string | null): Promise<void> {
-    // 切 task: 先 scope 清理 (关旧 socket / 清旧 timer), 避免旧任务的完成 Toast 或候选
-    // 借同名 annotation 浮到新任务上。
     if (this.currentTaskId !== taskId) {
       this.scopeToTask(taskId);
     }
@@ -330,7 +317,6 @@ export class TrackerJobStore {
     const hydrationKey = `${epoch}:${taskId}`;
     const pending = this.hydrationTasks.get(hydrationKey);
     if (pending) {
-      // 拉取仍在飞行中: 待其结束后再补连 (届时 token 若已就绪, connectActiveJobs 是幂等的)。
       if (token)
         void pending.then(() => {
           if (!this.isTaskEpochCurrent(taskId, epoch)) return;
@@ -340,8 +326,6 @@ export class TrackerJobStore {
       return pending;
     }
     if (this.hydratedTaskId === taskId) {
-      // 本 task 已经拉取过一轮: 只是 token 从 null 变为有值 (如刷新后 auth store 延迟 hydrate)。
-      // 不重新拉数据 (避免抖动), 只对 jobs 里仍是 queued/running 但还没连上 socket 的补连。
       if (token) this.connectActiveJobs(taskId, token);
       return Promise.resolve();
     }
@@ -356,7 +340,6 @@ export class TrackerJobStore {
     return hydration;
   }
 
-  /** 关闭并清掉不属于 taskId 的 job/candidate/submitting/socket/timer。同 task 的活跃 job 保留。 */
   scopeToTask(taskId: string | null): void {
     if (this.currentTaskId === taskId) return;
     this.currentTaskId = taskId;
@@ -366,7 +349,6 @@ export class TrackerJobStore {
     for (const [jobId, job] of Object.entries(this.jobs)) {
       if (job.taskId === taskId) keptJobs[jobId] = job;
     }
-    // candidates / submitting 以 jobId 为键, 其归属经 jobs[jobId].taskId 反查 —— 只保留仍在 keptJobs 里的。
     const keptCandidates: Record<string, VideoTrackerJobPreview> = {};
     for (const [jobId, preview] of Object.entries(this.candidates)) {
       if (keptJobs[jobId]) keptCandidates[jobId] = preview;
@@ -375,7 +357,6 @@ export class TrackerJobStore {
     for (const [jobId, on] of Object.entries(this.submitting)) {
       if (keptJobs[jobId]) keptSubmitting[jobId] = on;
     }
-    // 关掉 / 清掉不再保留的 job 对应的 socket 与 timer, 避免泄漏与旧任务的迟到消息。
     for (const [jobId, socket] of this.sockets) {
       if (!keptJobs[jobId]) {
         try {
@@ -424,8 +405,6 @@ export class TrackerJobStore {
     const generations = new Map(this.jobGenerations);
     const reads = new Map(this.readRequests);
     let listingsLoaded = true;
-    // 候选 (pending_review / cancelled+staged) 与运行中 (queued/running) 任务分别拉取;
-    // 任一失败都不阻断另一路。
     let reviewable: VideoTrackerJob[] = [];
     try {
       reviewable = (await videoTrackerApi.reviewable(taskId)) ?? [];
@@ -450,7 +429,6 @@ export class TrackerJobStore {
         }
       }),
     );
-    // 护栏: 恢复期间用户已切走 task → 丢弃这批结果, 别把旧任务塞回来 (scopeToTask 会用当前 task 兜底)。
     if (!this.isTaskEpochCurrent(taskId, epoch)) return false;
     const canRestore = (job: VideoTrackerJob) =>
       job.task_id === taskId &&
@@ -466,7 +444,6 @@ export class TrackerJobStore {
       }
       if (preview) this.admitPreview(job.id, preview);
     }
-    // 运行中任务: 恢复到 UI 并重连 WS, 让刷新后仍能收进度 / 完成时冒候选。
     for (const job of active) {
       if (canRestore(job) && !this.jobs[job.id]) {
         this.jobGenerations.set(job.id, this.jobGenerations.get(job.id) ?? 0);
@@ -604,7 +581,6 @@ export class TrackerJobStore {
     };
   }
 
-  /** 对 taskId 下仍是 queued/running 的 job 补连 socket; connect() 内部按 jobId 判重, 已连的会跳过。 */
   private connectActiveJobs(taskId: string, token: string): void {
     for (const job of Object.values(this.jobs)) {
       if (job.taskId === taskId && (job.status === "queued" || job.status === "running")) {
@@ -646,8 +622,6 @@ export class TrackerJobStore {
     this.emit();
 
     const range = `${cur.modelKey} · F${cur.fromFrame}-F${cur.toFrame}`;
-    // 候选流: 完成/取消 = 结果暂存待审, 拉候选预览进候选态 (接受才落库), 不直接
-    // invalidate; 失败无候选、直接清理。
     if (payload.type === "job_completed") {
       this.resetPoll(jobId);
       useToastStore.getState().push({ msg: "AI 追踪完成, 待接受", sub: range, kind: "success" });
@@ -681,7 +655,6 @@ export class TrackerJobStore {
     }
   }
 
-  /** 拉候选预览; 有暂存结果则进候选态 (等用户接受/丢弃), 无结果直接清理。 */
   private async enterReview(jobId: string): Promise<void> {
     const read = this.beginRead(jobId);
     if (!read) return;
@@ -715,7 +688,6 @@ export class TrackerJobStore {
     this.emit();
   }
 
-  /** 接受/丢弃失败: 4xx (如 409 状态冲突) 全局拦截器不弹 toast, 这里显式提示并保留审阅条。 */
   private pushActionError(action: string, err: unknown): void {
     const status = err instanceof ApiError ? err.status : undefined;
     const detail =
@@ -818,7 +790,6 @@ export class TrackerJobStore {
       }
       if (!this.owns(owner)) return { ok: false, reason: "stale_request" };
       if (selection.decision === "accept") this.invalidateAnnotations(current.taskId);
-      // A concurrent review refresh may already contain a later persisted decision.
       if ((updated.revision ?? 1) < this.currentRevision(jobId)) return { ok: true };
       if (updated.status === "partially_reviewed") {
         this.jobs = { ...this.jobs, [jobId]: toJobState(updated) };
@@ -948,7 +919,6 @@ export class TrackerJobStore {
       },
     };
     this.emit();
-    // 取消也暂存部分结果 → 进候选态待审 (而非直接落库)。
     if (updated.status === "cancelled" && cur.jobKind !== "correction") {
       void this.enterReview(jobId);
     } else if (updated.status === "cancelled") {
@@ -999,7 +969,6 @@ function mapEventToStatus(
     case "job_progress":
     case "frame_result":
       return "running";
-    // 完成 = 暂存待审 (非直接 completed)。
     case "job_completed":
       return "pending_review";
     case "job_failed":
@@ -1042,9 +1011,6 @@ export function useVideoTrackerJobs(taskId?: string, enabled = true) {
   }, [taskId, enabled]);
 
   useEffect(() => {
-    // 传 token 让恢复顺带重连运行中任务的 WS (刷新后仍能收进度 / 完成时冒候选)。token 进依赖:
-    // 刷新时 auth store 可能还没 hydrate (token=null), effect 先跑一轮拉数据但因无 token 连不上
-    // socket; token 就位后这里重跑, restoreReviewable 内部会跳过重复拉数据、只补连 socket。
     if (taskId && enabled) void trackerStore.restoreReviewable(taskId, token);
   }, [taskId, enabled, token]);
 
@@ -1063,7 +1029,6 @@ export function useVideoTrackerJobs(taskId?: string, enabled = true) {
     [],
   );
 
-  // 无源检测发起 (画布级入口, 不绑选中轨迹)。
   const track = useCallback(
     async (taskId: string, payload: Parameters<typeof videoTrackerApi.track>[1]) => {
       const epoch = trackerStore.captureTaskEpoch(taskId);
@@ -1119,8 +1084,6 @@ export function useVideoTrackerJobs(taskId?: string, enabled = true) {
   const byAnnotation = useMemo(() => {
     const map: Record<string, VideoTrackerJobState> = {};
     for (const job of Object.values(jobs)) {
-      // 无源 job (annotationId=null) 不进 annotation 索引 (画布按选中轨迹取
-      // 候选时不误命中); 其审阅走 job 级 review bar。
       if (!job.annotationId) continue;
       const existing = map[job.annotationId];
       if (!existing || existing.receivedAt < job.receivedAt) {
@@ -1130,11 +1093,9 @@ export function useVideoTrackerJobs(taskId?: string, enabled = true) {
     return map;
   }, [jobs]);
 
-  // 候选按 annotation 归并 (供画布/审阅条按当前选中轨迹取候选)。
   const candidateByAnnotation = useMemo(() => {
     const map: Record<string, VideoTrackerJobPreview> = {};
     for (const preview of Object.values(candidates)) {
-      // 无源候选无 annotation_id, 不进 annotation 索引 (走 job 级审阅)。
       if (!preview.annotation_id) continue;
       map[preview.annotation_id] = preview;
     }

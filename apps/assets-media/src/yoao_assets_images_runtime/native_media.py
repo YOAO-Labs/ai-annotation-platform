@@ -39,7 +39,6 @@ from yoao_assets_images.native_storage_contract import (
 
 _QUOTED_ETAG = re.compile(r'^"[^"]+"$')
 _MAX_HEADER_LENGTH = 4096
-# Raw HTTP receipts share the portable ``NativePyramidIoMember`` bounds.
 _MAX_RECEIPT = 1024
 _READ_CHUNK = 64 * 1024
 
@@ -372,8 +371,6 @@ def _observed_identity(headers: Mapping[str, str]) -> MemberReceipt:
         etag = _raw_etag(headers)
         version = _raw_version(headers)
     except ImageFailure:
-        # A malformed observation is an invalid response to this read, never a
-        # write-verification verdict.
         raise _invalid() from None
     length = headers.get("content-length")
     try:
@@ -430,8 +427,6 @@ async def put_member(
     except httpx.HTTPError:
         raise _unavailable() from None
     if not response.is_closed:
-        # A confirmed write whose response was never drained and closed has no
-        # proven settlement; the caller must keep the member unknown.
         raise _unavailable()
     if response.status_code == 412:
         raise NativeWriteRefused()

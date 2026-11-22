@@ -71,7 +71,6 @@ class ManagedStorage:
     def _client_scope(self, target: ManagedOriginalMaterial):
         """Own connection-backed clients for exactly one physical operation."""
         if target.destination is None:
-            # The caller owns the platform client for its whole process.
             yield self._platform_client
             return
         if self._client_for_target is None:
@@ -588,8 +587,13 @@ class _Physical:
 async def _publication_failure(
     exc, client, target, prepared, receipt, completion_started
 ):
-    if prepared is not None and receipt is None and (
-        not completion_started or getattr(exc, "outcome", None) in {"failed", "conflict"}
+    if (
+        prepared is not None
+        and receipt is None
+        and (
+            not completion_started
+            or getattr(exc, "outcome", None) in {"failed", "conflict"}
+        )
     ):
         try:
             await _thread(
@@ -601,11 +605,14 @@ async def _publication_failure(
             )
         except BaseException as abort_error:
             combined = BaseExceptionGroup(
-                "Managed original failure and multipart abort failed", [exc, abort_error]
+                "Managed original failure and multipart abort failed",
+                [exc, abort_error],
             )
             combined.storage_operation_unsettled = True
             return combined
-    error = _map_writer_error(exc) if isinstance(exc, managed_original.WriterError) else exc
+    error = (
+        _map_writer_error(exc) if isinstance(exc, managed_original.WriterError) else exc
+    )
     if receipt is not None:
         error.physical_receipt = receipt.evidence()
     return error
@@ -621,7 +628,5 @@ async def _thread(function, /, *args, **kwargs):
                 await asyncio.shield(task)
             except BaseException:
                 continue
-        # Propagate the completed physical failure rather than hide it behind
-        # cancellation; handles are no longer in use when this scope unwinds.
         task.result()
         raise

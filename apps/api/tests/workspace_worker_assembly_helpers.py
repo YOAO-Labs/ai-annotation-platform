@@ -231,8 +231,6 @@ class WorkspaceCeleryWorker:
             "AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY": configured.access_key,
             "AAP_ASSETS_ADDITIONAL_ORIGINAL_SECRET_KEY": configured.secret_key,
         }
-        # The immutable fixture endpoint is a host-reachable bridge address.
-        # Joining its network would invalidate the store's one-peer ownership.
         self.object_store_endpoint = urlsplit(self.object_store_public_url).netloc
         self._api_database_url = self._api_consumer_url()
         self._result_database_url = self._role_dsn(
@@ -264,7 +262,6 @@ class WorkspaceCeleryWorker:
                 f"org.aap.acceptance-id={self.identity}",
                 self.network_name,
             )
-            # Keep published dependency sockets on their original gateway.
             self._docker(
                 "network",
                 "connect",
@@ -621,7 +618,6 @@ class WorkspaceCeleryWorker:
             "image_id": record.get("Image"),
             "restart_count": (record.get("RestartCount") or 0),
             "started_at": (record.get("State") or {}).get("StartedAt"),
-            # Host mode shares the host's address; it cannot identify a worker.
             "database_client_address": (
                 None
                 if self._fixture_reader_environment
@@ -737,7 +733,6 @@ class WorkspaceCeleryWorker:
                 try:
                     secrets.append(make_url(value_from_environment).password or "")
                 except Exception:
-                    # The full selector is already scrubbed if it cannot be parsed.
                     pass
         for secret in sorted(set(secrets), key=len, reverse=True):
             if secret:

@@ -354,7 +354,6 @@ class ReferenceRepairUnit:
         return task, actor
 
     async def _authorize(self, db, task, actor):
-        # Avoid recursion through reference_context while retaining current policy.
         await authorize_repair_task(db, task, actor, ai=self.ai)
 
     async def _validate_model(self):
@@ -615,8 +614,6 @@ async def qualify_repair_candidate(
     ):
         raise ContentError("repair_candidate_provenance_invalid")
     if final:
-        # Content locks precede the source Annotation row, matching repair writes
-        # and GC. Keep the native gate and exact RLE validation in this owner.
         try:
             await prepare_mask_payload_for_write(db, task, prediction.result)
         except RasterMaskContractError as exc:

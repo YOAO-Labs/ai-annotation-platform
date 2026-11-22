@@ -1,18 +1,6 @@
-/**
- * 「粘轨迹」态可视化。
- *
- * 轨迹工具激活且有选中轨迹时,画布顶部常驻一条低对比提示,把隐式的「下一次画框归属到选中
- * 轨迹」模型升级为显式可见。文案随「当前帧是否已有该轨迹关键帧」切换:
- *   - 无关键帧 → 画框延展到本帧(新增关键帧、形成插值)。
- *   - 有关键帧 → 同帧再画框新建物体(与吞框修复分流一致, 见 resolveDragCommit)。
- * 无选中轨迹即不渲染,避免视觉噪音。Esc 结束由既有分层取消(useWorkbenchHotkeys)清选实现。
- */
 interface VideoStickyTrackHintProps {
-  /** 轨迹显示标签, 如 "#3 car"。 */
   label: string;
-  /** 当前帧是否已有该轨迹关键帧(决定「同帧新建 / 换帧延展」措辞)。 */
   hasKeyframeAtFrame: boolean;
-  /** Embed in the current track bar without a second canvas overlay. */
   inline?: boolean;
 }
 

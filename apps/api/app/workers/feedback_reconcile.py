@@ -27,7 +27,6 @@ from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
 
-# 对账告警通知没有具体目标实体，用固定 nil UUID 占位 target_id。
 _RECONCILE_TARGET_ID = uuid.UUID("00000000-0000-0000-0000-000000000000")
 
 

@@ -1074,8 +1074,6 @@ async def test_existing_account_acceptance_rechecks_issuer_owner_and_serializes_
         )
         assert stale_owner["ok"] is False
         assert stale_owner["error"]["code"] == "invitation_scope_invalid"
-        # Revoke/resend remain owned by the original inviter row even though the
-        # project owner changed; proof resolution still fails after token rotation.
         resend_after_transfer = _command(
             "resend_invitation",
             manager_token,
@@ -1382,8 +1380,6 @@ async def test_mail_v2_recovers_unknown_delivery_keeps_v1_draining_and_suppresse
         )
         assert current_send_result["ok"]
 
-        # Pending mail is revalidated after accept/revoke, so neither stale
-        # invitation is delivered when the independent worker later claims.
         async with maker.begin() as db:
             target = await create_user(
                 db,
@@ -1530,9 +1526,6 @@ async def test_mail_v2_recovers_unknown_delivery_keeps_v1_draining_and_suppresse
                 for row in untouched_rows
             )
 
-        # The V2 worker may send only the current link; the older purpose-aware
-        # Recovery V1 sender has already drained its own reset without claiming
-        # any of these invitation rows.
         smtp_v2 = SMTPInbox(lose_ack=1)
         mail_v2 = _start_mail_v2(test_engine, tmp_path, encryption_key, smtp_v2)
         await smtp_v2.wait(2)
@@ -1564,8 +1557,6 @@ async def test_mail_v2_recovers_unknown_delivery_keeps_v1_draining_and_suppresse
         await asyncio.to_thread(mail_v2.stop)
         mail_v2 = None
 
-        # Kill the second publisher after SMTP accepted DATA but before 250;
-        # takeover retries the same outbox row and stable Message-ID.
         smtp_blocked = SMTPInbox(pause_ack=True)
         mail_v2 = _start_mail_v2(test_engine, tmp_path, encryption_key, smtp_blocked)
         send_after_kill = _command(

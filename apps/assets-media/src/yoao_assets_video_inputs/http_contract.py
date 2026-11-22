@@ -19,9 +19,6 @@ class VideoInputControlError(v.Value):
     code: ErrorCode
 
 
-# Route names are wire values. Keep this allowlist separate from the larger
-# native operation matrix so capture, worker, fencing and cleanup calls cannot
-# become HTTP commands by accident.
 HTTP_OPERATIONS: dict[str, tuple[type[BaseModel], type[BaseModel]]] = {
     "manifest": (c.VideoManifestScope, c.VideoManifestHeader),
     "members": (c.VideoManifestPageRequest, c.VideoManifestPage),
@@ -114,8 +111,6 @@ def require_scope(operation: str, request: BaseModel, result: BaseModel) -> None
             or result.entry.ordinal != request.ordinal
         ):
             raise ValueError("video reference escaped its requested frame")
-        # `video.actor_id` records the actor who admitted the Job. HTTP
-        # `request.actor_id` is the current reader and may differ by design.
         return
     c.require_scope(operation, request, result)
 

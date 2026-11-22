@@ -1,7 +1,5 @@
 import { createLucideIcon } from "lucide-react";
 
-// Local annotation geometry, using Lucide's 24px grid and shared rendering contract.
-// Keep silhouettes legible at 12–17px; do not add color-only or tiny badge distinctions.
 export const RotatedBox = createLucideIcon("AnnotationRotatedBox", [
   ["path", { d: "m4 10 12-4 4 12-12 4Z", key: "box" }],
   ["path", { d: "m10 8-1-3", key: "stem" }],
@@ -27,7 +25,6 @@ export const AnnotationPolyline = createLucideIcon("AnnotationPolyline", [
   ["circle", { cx: "20", cy: "5", r: "1.5", key: "end" }],
 ]);
 
-// A trailing frame is shared by trajectory variants, outside the main geometry.
 export const PolygonTrack = createLucideIcon("AnnotationPolygonTrack", [
   ["path", { d: "M3 8v13h13", key: "frame" }],
   ["path", { d: "m8 8 5-5 8 4-3 10-9-2Z", key: "polygon" }],

@@ -19,16 +19,11 @@ def _no_original_signing(*args, **kwargs):
 
 
 async def _unknown_original(*args, **kwargs):
-    # Unknown/legacy media has no verified ownership facts; saved-owner poster
-    # lookups must degrade to no URL instead of signing or guessing.
     raise ContentError("content_unverified")
 
 
 @pytest.fixture
 def lazy_only(monkeypatch):
-    # Saved-owner read models may resolve bounded ownership facts (for example a
-    # video poster's saved owner), but serialization must never presign original
-    # bytes or mint a freshness/verification claim.
     monkeypatch.setattr(storage_service, "generate_download_url", _no_original_signing)
     monkeypatch.setattr(original_binary, "public_identity", _no_original_signing)
     monkeypatch.setattr(original_sources, "resolve_task", _unknown_original)
@@ -182,14 +177,11 @@ async def test_image_thumbnail_signing_remains_separate_from_original_identity(
         return "https://storage.invalid/thumbnail"
 
     async def saved_pointer(db, owner_kind, owner_id, requested):
-        # The saved business pointer names this task's derived thumbnail.
         assert (owner_kind, owner_id, requested) == ("task", task.id, path)
         return "task_thumbnail", task.id, None
 
     monkeypatch.setattr(storage_service, "generate_download_url", sign)
     monkeypatch.setattr(thumbnail_outputs, "_business_pointer", saved_pointer)
-    # One isolated test session cannot be reopened; ownership lookup is covered
-    # by the database seam, this test covers the saved-owner signing contract.
     monkeypatch.setattr(
         image_pyramid, "task_pyramid_assets", AsyncMock(return_value={})
     )

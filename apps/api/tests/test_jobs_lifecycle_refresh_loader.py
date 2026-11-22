@@ -57,7 +57,6 @@ def _refresh_query(*, only_load_props=None, with_for_update=None):
     state.key = inspect(AsyncJob).identity_key_from_primary_key((job_id,))
     session = _CaptureSession(row)
 
-    # shortcut: characterize SQLAlchemy 2.0.49's refresh shape; rebaseline on lock upgrades.
     loading.load_on_pk_identity(
         session,
         select(AsyncJob),
@@ -199,3 +198,46 @@ def test_non_postgresql_refresh_stays_on_original_statement():
 
     assert _retarget_job_column_load(execute_state) is None
     assert execute_state.statement is original
+
+
+@pytest.mark.parametrize(
+    "modify",
+    [
+        lambda stmt: stmt.where(AsyncJob.status == "failed"),
+        lambda stmt: stmt.where(AsyncJob.id != uuid.uuid4()),
+        lambda stmt: stmt.fetch(1),
+        lambda stmt: stmt.distinct(),
+        lambda stmt: stmt.add_columns(AsyncJob.status),
+    ],
+)
+def test_custom_refresh_keeps_original_query_and_parameters(modify):
+    _row, base, parameters = _refresh_query(only_load_props={"updated_at"})
+    original = modify(base)
+    original_parameters = parameters.copy()
+    execute_state = _execute_state(original, parameters)
+
+    _retarget_job_column_load(execute_state)
+
+    assert execute_state.statement is original
+    assert execute_state.parameters == original_parameters
+
+
+def test_upgrade_gate_rejects_a_changed_private_signature(monkeypatch):
+    from app.db import owner_orm_compat
+
+    def incompatible(self, states, *, new_argument):
+        raise AssertionError("upgrade gate must not invoke the incompatible hook")
+
+    monkeypatch.setattr(Session, "_remove_newly_deleted", incompatible)
+    with pytest.raises(RuntimeError, match="Unsupported SQLAlchemy owner ORM contract"):
+        owner_orm_compat._assert_installed_contract()
+
+
+def test_upgrade_gate_rejects_an_unqualified_version(monkeypatch):
+    from app.db import owner_orm_compat
+
+    monkeypatch.setattr(owner_orm_compat, "__version__", "2.0.50")
+    with pytest.raises(
+        RuntimeError, match=r"Unsupported SQLAlchemy owner ORM contract \(2\.0\.50\)"
+    ):
+        owner_orm_compat._assert_installed_contract()

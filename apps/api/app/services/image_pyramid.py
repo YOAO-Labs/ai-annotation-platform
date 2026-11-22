@@ -329,8 +329,6 @@ async def prepare_generation(
         if execution is not None:
             if execution.kind not in {"pyramid", "independent"}:
                 raise ImagePyramidError("fixture_media_scope_mismatch")
-            # A reuser records the real generation and leaves its lease and
-            # initiating authority untouched, even when that lease has expired.
             await execution.bind_generation(inflight.asset_id, inflight.generation)
             return None
         if (
@@ -524,7 +522,6 @@ async def publish_generation(
     asset.active_generation = generation_number
     if asset.building_generation == generation_number:
         asset.building_generation = None
-    # The owner command re-reads this receipt under its own locks.
     await db.flush()
     receipt = await db.scalar(
         text(

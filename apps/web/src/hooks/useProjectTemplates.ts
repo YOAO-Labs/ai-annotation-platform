@@ -1,5 +1,3 @@
-// React Query hooks for project templates.
-
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {

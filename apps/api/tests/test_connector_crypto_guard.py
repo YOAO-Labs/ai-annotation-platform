@@ -11,22 +11,17 @@ from app.services import connector_guard as cg
 from yoao_assets_source.connectors.sftp import load_sftp_private_key
 
 
-# ── Fernet 加解密 ─────────────────────────────────────────────────────
-
-
 def test_encrypt_decrypt_roundtrip(monkeypatch):
     monkeypatch.setattr(
         settings, "connector_encryption_key", Fernet.generate_key().decode()
     )
-    # 用足够长的独特明文标记：Fernet 密文是带随机 IV 的 base64，短串（如 "AK"）会以
-    # ~2% 概率偶然出现在密文里造成 flaky；长标记的碰撞概率可忽略，仍能验证「密文不含明文」。
     secret = {
         "access_key": "AKIA_DISTINCTIVE_PLAINTEXT_MARKER_0",
         "secret_key": "SK_DISTINCTIVE_PLAINTEXT_MARKER_1",
     }
     token = crypto.encrypt_secret(secret)
     assert isinstance(token, bytes)
-    assert secret["access_key"].encode() not in token  # 密文里看不到明文
+    assert secret["access_key"].encode() not in token
     assert secret["secret_key"].encode() not in token
     assert crypto.decrypt_secret(token) == secret
 
@@ -121,9 +116,6 @@ def test_sftp_private_key_parser_supports_all_declared_types(
     ) == (accepted_name, "secret-passphrase")
 
 
-# ── host 提取 ─────────────────────────────────────────────────────────
-
-
 @pytest.mark.parametrize(
     "raw,expected",
     [
@@ -136,9 +128,6 @@ def test_sftp_private_key_parser_supports_all_declared_types(
 )
 def test_extract_host(raw, expected):
     assert cg.extract_host(raw) == expected
-
-
-# ── 白名单 / SSRF 判定 ────────────────────────────────────────────────
 
 
 def test_empty_allowlist_denies():
@@ -161,21 +150,17 @@ def test_loopback_hard_blocked_even_if_allowlisted():
 
 
 def test_link_local_metadata_hard_blocked():
-    # 云元数据 169.254.169.254，即便有人把 link-local 段加进白名单也拒。
     with pytest.raises(cg.ConnectorHostDenied):
         cg.assert_host_allowed("169.254.169.254", ["169.254.0.0/16"])
 
 
 def test_private_ip_allowed_only_via_cidr_entry():
-    # 内网服务器（同网段）必须显式 CIDR 放行。
     cg.assert_host_allowed("10.0.3.5", ["10.0.3.0/24"])
     with pytest.raises(cg.ConnectorHostDenied):
         cg.assert_host_allowed("10.0.3.5", ["10.9.9.0/24"])
 
 
 def test_dns_rebinding_to_internal_denied(monkeypatch):
-    # 公网域名命中域名白名单，但解析到内网 IP（rebinding）→ 拒绝，
-    # 因为域名匹配只对 is_global 的解析 IP 放行。
     def fake_getaddrinfo(host, *a, **k):
         import socket as s
 

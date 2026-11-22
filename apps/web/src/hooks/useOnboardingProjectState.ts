@@ -5,16 +5,6 @@ import { isGuideSeen } from "@/utils/annotationGuide";
 
 type OnboardingProjectStatePatch = Partial<OnboardingProjectState>;
 
-/**
- * The checklist is a user preference, but completion is derived from the
- * server's task state by the caller. This hook owns only durable dismissal and
- * guide confirmation for one user/project/guide revision.
- *
- * Writes are incremental. A failed write remains retryable and does not update
- * the auth store, so the UI never presents an optimistic preference as
- * persisted. Owner and request sequence fences protect responses from a
- * previous account or an older concurrent write.
- */
 export function useOnboardingProjectState(projectId: string, guideVersion: string) {
   const user = useAuthStore((state) => state.user);
   const setUser = useAuthStore((state) => state.setUser);
@@ -76,8 +66,6 @@ export function useOnboardingProjectState(projectId: string, guideVersion: strin
 
         const currentUser = useAuthStore.getState().user;
         if (!currentUser || currentUser.id !== ownerId) return false;
-        // Keep the current non-onboarding subtrees intact so a slower
-        // onboarding response cannot erase another preference writer's state.
         const currentPreferences = currentUser.preferences ?? {};
         const savedEntry = preferences.onboarding?.projects?.[projectId];
         if (!savedEntry) throw new Error("Missing saved checklist state");
@@ -121,7 +109,6 @@ export function useOnboardingProjectState(projectId: string, guideVersion: strin
   return { ...state, isSaving, saveError, dismiss, reopen, markGuideRead, retry };
 }
 
-/** Narrow helper for tests and consumers that need the current preference map. */
 export function onboardingProjects(prefs: UserPreferences | undefined) {
   return prefs?.onboarding?.projects ?? {};
 }

@@ -3,11 +3,6 @@ import { cn } from "@/lib/utils";
 import { Icon, type IconName } from "./Icon";
 import { Sparkline } from "./Sparkline";
 
-/**
- * StatCard —— 统计卡。
- * 保持原布局(图标-左 + 标签 + 数值 + trend + sparkline),仅 token 化:中性卡 + 发丝边,
- * trend 走设计 §2.2 emerald/rose。
- */
 interface StatCardProps {
   icon?: IconName;
   label: string;

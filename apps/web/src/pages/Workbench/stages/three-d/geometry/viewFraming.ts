@@ -35,12 +35,6 @@ function normalizedDirection(primary: Vec3, fallback: Vec3): [number, number, nu
   return normalize(primary) ?? normalize(fallback) ?? [0, -Math.SQRT1_2, Math.SQRT1_2];
 }
 
-/**
- * 计算透视相机聚焦一个 3D 框所需的位置和裁剪面。
- *
- * 用框的包围球同时约束水平 / 垂直 FOV，保留当前观察方向；marginScale=1.2
- * 对应框外 20% 安全边距。函数不依赖 Three.js，可直接用单测锁定边界。
- */
 export function framePerspectiveBox(input: PerspectiveBoxFramingInput): PerspectiveBoxFraming {
   const marginScale =
     Number.isFinite(input.marginScale) && (input.marginScale ?? 0) > 0

@@ -59,7 +59,6 @@ from yoao_inference_contract.gpu import (
 
 logger = logging.getLogger(__name__)
 
-# The public response has a newly serialized body and a different HTTP connection.
 _PRIVATE_RESPONSE_HEADERS = frozenset(
     {
         "connection",
@@ -95,7 +94,6 @@ def _project_error_headers(
         for name, value in source.items():
             if name.lower() == "connection":
                 excluded.update(token.strip().lower() for token in value.split(","))
-    # Error-body headers take precedence even when their casing differs.
     projected: dict[str, tuple[str, str]] = {}
     for source in sources:
         for name, value in source.items():

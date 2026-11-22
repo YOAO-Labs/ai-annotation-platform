@@ -167,7 +167,6 @@ def cli(arguments, environment, *, event=None, failure=False, expect=(0, 1)):
         *map(str, arguments),
     ]
     if event or failure:
-        # Fault injection lives in this owner-only harness, never in the operator CLI.
         wrapper = """
 import os, signal, sys
 sys.path.insert(0, sys.argv.pop(1))
@@ -284,7 +283,6 @@ async def qualify(backend, directory):
             ),
             "Fixture requires empty business tables",
         )
-        # The StorageService attribute names match the environment settings.
         from app.services.storage import StorageService
 
         storage = StorageService()
@@ -295,7 +293,6 @@ async def qualify(backend, directory):
             }
         finally:
             storage.client.close()
-        # Two reviewed purposes deliberately share one physical source bucket.
         shared = purposes["datasets"]
         purposes["media-cache"] = shared
         source_buckets = sorted(set(purposes.values()))
@@ -556,7 +553,6 @@ async def qualify(backend, directory):
         )
         retried = cli(["run", *base, "--retry-failed"], environment)
         require(retried["copy_subset_complete"], "Explicit failed retry failed")
-        # A foreign existing target must remain one unchanged version.
         conflict = directory / "conflict.sqlite"
         base = ["--checkpoint", conflict, "--target-config", target_file]
         cli(

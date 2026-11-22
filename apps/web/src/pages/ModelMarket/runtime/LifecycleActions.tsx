@@ -1,15 +1,3 @@
-/**
- * lifecycle action cluster for a pool member.
- *
- * Draining and a fresh zero-work observation gate the unload request. The
- * server still decides whether the backend is safe to unload. This component
- * keeps a routable / busy / stale instance from offering that request.
- *
- * Mutations are wired through existing hooks (registry health/unload,
- * project-scoped warmup) plus pool-member drain/resume.
- * All success paths invalidate topology + runtime-snapshot + observe so the
- * caller's three queries refresh together.
- */
 import type { ReactNode } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -33,25 +21,16 @@ import {
 export interface LifecycleActionsProps {
   poolId: string;
   member: MemberViewModel;
-  /**
-   * View model supplies route execution-state freshness for the unload request
-   * gate. Null when runtime snapshot is unavailable (Project Admin or load
-   * failure) — in that case the request remains disabled.
-   */
   topology: RuntimeTopologyViewModel | null;
-  /** Project id for warmup; null/undefined when no project binding exists. */
   projectId?: string | null;
-  /** Compact mode for table rows (icon-only buttons). */
   compact?: boolean;
 }
 
-/** Whether the backend exposes a force-unload endpoint. */
 export const FORCE_UNLOAD_CONTRACT_AVAILABLE = false;
 
 function ledgerFreshFromTopology(topology: RuntimeTopologyViewModel | null): boolean {
   if (!topology) return false;
   const ledger = topology.sources.find((s) => s.name === "router_ledger");
-  // An absent source cannot establish that there is no open execution work.
   if (!ledger) return false;
   return !ledger.stale;
 }
@@ -98,7 +77,6 @@ export function LifecycleActions({
       }),
   });
 
-  // This submits an unload request; the server performs the final safety check.
   const onUnload = () => {
     unload.mutate(member.registry_id, {
       onSuccess: (res) =>
@@ -166,8 +144,6 @@ export function LifecycleActions({
       <TooltipProvider delayDuration={200}>
         <Tooltip>
           <TooltipTrigger asChild>
-            {/* span wraps the disabled button: Radix TooltipTrigger won't
-                forward its ref onto a disabled <button>, so anchor on span. */}
             <span tabIndex={0} aria-label="卸载状态">
               <Button
                 size="xs"
@@ -190,28 +166,23 @@ export function LifecycleActions({
         健康检查
       </Button>
 
-      {/* Warmup lives in the detail Sheet (variant picker is heavy); kept off
-          the compact row to avoid duplicating the picker. projectId is still
-          surfaced via the detail Sheet for the warm path. */}
       {!compact && projectId && (
         <span className="text-2xs text-muted-foreground" title="在实例详情中查看预热选项">
           详情中查看预热
         </span>
       )}
 
-      {FORCE_UNLOAD_CONTRACT_AVAILABLE && null /* future AlertDialog hook */}
+      {FORCE_UNLOAD_CONTRACT_AVAILABLE && null}
     </div>
   );
 }
 
-/** Invalidate the three runtime queries + legacy registry lists. */
 export function invalidateRuntimeQueries(qc: ReturnType<typeof useQueryClient>): void {
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "topology"] });
   qc.invalidateQueries({
     queryKey: ["admin", "ml-integrations", "runtime-snapshot"],
   });
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "observe"] });
-  // legacy registry list still consumed by other surfaces (wizard, etc.)
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "all"] });
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "overview"] });
 }

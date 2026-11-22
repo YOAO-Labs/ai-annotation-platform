@@ -251,8 +251,6 @@ async def test_health_observation_round_trip_is_bound_to_origin_and_keeps_raw_te
     auth_token = f"health-observation-secret-{uuid.uuid4().hex}"
     rotated_token = f"health-observation-rotated-{uuid.uuid4().hex}"
     challenge = "0123456789abcdef" * 4
-    # The raw observation text keeps non-standard JSON number tokens; Native
-    # transport must return the exact text so the legacy decoder keeps its phase.
     observation_json = (
         ' { "kind":"observed", "meta":{"sample":NaN}, "setup":Infinity }\n'
     )
@@ -265,8 +263,6 @@ async def test_health_observation_round_trip_is_bound_to_origin_and_keeps_raw_te
     try:
         await _seed_backend(owner, registry_id, url, auth_token, {"max_concurrency": 5})
 
-        # Endpoint capture belongs to the ordinary API caller transaction, which
-        # must stay live only while the observation owner opens the snapshot.
         api_transaction = api.transaction()
         await api_transaction.start()
         api_started = True
@@ -287,8 +283,6 @@ async def test_health_observation_round_trip_is_bound_to_origin_and_keeps_raw_te
             ),
             challenge=challenge,
         )
-        # A rolled-back endpoint capture can never be opened from the still-live
-        # observation origin transaction.
         await _assert_invalid(
             provider,
             f"SELECT {_OPEN}($1::text,$2::uuid,$3::uuid)",
@@ -319,7 +313,6 @@ async def test_health_observation_round_trip_is_bound_to_origin_and_keeps_raw_te
         assert auth_token not in subject
         assert endpoint_subject not in subject
 
-        # Rotation after capture must not change the sealed endpoint snapshot.
         await _rotate_backend(owner, registry_id, rotated_token)
 
         opened = json.loads(await _open(provider, subject, registry_id, request_id))
@@ -381,8 +374,6 @@ async def test_health_observation_round_trip_is_bound_to_origin_and_keeps_raw_te
             message="invalid health observation evidence",
         )
 
-        # A second still-open transaction cannot consume this response even while
-        # the real origin transaction remains active.
         other_transaction = other_origin.transaction()
         await other_transaction.start()
         other_started = True

@@ -31,7 +31,6 @@ test("桌宠切换信息时保持位置，展开详情后隐藏简化气泡", as
   await seed.injectToken(page, data.annotator_email);
   await seed.setPetEnabled(data.annotator_email, true);
   await page.setViewportSize({ width: 1440, height: 900 });
-  // Exclude the intentional idle bob so geometry changes expose layout movement.
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.addInitScript(() => {
     localStorage.setItem("workbench.pet.pos", JSON.stringify({ x: 950, y: 780 }));
@@ -72,7 +71,6 @@ test("桌宠切换信息时保持位置，展开详情后隐藏简化气泡", as
     await expect(selectionCard).toHaveCount(0);
     await expect(pet.getByText(index === 0 ? "car" : "person", { exact: true })).toBeVisible();
     await measure(`collapsed-${index}`);
-    // Clicking the bubble must still expand the card after it leaves normal layout.
     await pet.getByText("▸ 点我展开", { exact: true }).click();
     await expect(selectionCard).toBeVisible();
     expect.soft(await pet.innerText(), "expanded details replace every compact message").toBe("");

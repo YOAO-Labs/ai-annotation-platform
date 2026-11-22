@@ -167,7 +167,6 @@ async def _assert_consumer_is_restricted(test_engine, actor):
 
 async def _briefs_consumer_world(maker, actor, suffix):
     world = await _caller_world(maker, actor, suffix)
-    # A direct point-cloud Task exercises Briefs without an image-store dependency.
     async with maker.begin() as db:
         await db.execute(
             text(
@@ -588,7 +587,6 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
                     headers=caller_headers,
                 )
 
-                # Only V1 can deliver this recovery while V2 is stopped.
                 await stack.stop_service("identity-mail-v2")
                 await call(
                     "POST",
@@ -631,7 +629,6 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
                 await call("POST", f"/api/v1/invitations/{invitation_id}/send-email")
                 await inbox.wait(2)
                 assert inbox.tokens()[1] == invitation["token"]
-                # Avoid recording a capability URL in the evidence call ledger.
                 resolved = await client.get(
                     "/api/v1/auth/invitations/" + invitation["token"]
                 )
@@ -739,7 +736,6 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
                 assert replay == first
                 await call("GET", "/api/v1/auth/me")
 
-                # A stopped publisher leaves durable rows; its replacement delivers them.
                 await stack.stop_service("identity-notification-publisher")
                 pubsub = redis_owner.pubsub()
                 channels = [f"notify:{value}" for value in (actor, successor.id)]
@@ -1119,8 +1115,6 @@ async def test_host_forwarded_identity_rpc_failures(
                                 },
                             )
                     collect_traces("original")
-                    # The owned server's ordinary invitation LOGIN rejects new
-                    # connections; no command can start or ambiguously commit.
                     async with test_engine.begin() as db:
                         limit = await db.scalar(
                             text(

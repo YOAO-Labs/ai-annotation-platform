@@ -82,12 +82,9 @@ const sectionsForRole = (isSuperAdmin: boolean): { label: string; items: NavItem
     items: [
       { key: "datasets", path: "/datasets", icon: "layers", label: "数据集" },
       { key: "storage", path: "/storage", icon: "db", label: "存储管理" },
-      // 项目模板库
       { key: "project-templates", path: "/project-templates", icon: "book", label: "项目模板" },
       { key: "users", path: "/users", icon: "userRoundCog", label: "用户与权限" },
       { key: "audit", path: "/audit", icon: "shield", label: "审计日志" },
-      // 标注员绩效和离线分析的快捷入口。
-      // (A3) · 标注员绩效对 project_admin 开放（项目级范围），由 canAccessPage 过滤；离线分析仍超管专属。
       {
         key: "admin-people" as PageKey,
         path: "/admin/people",
@@ -117,7 +114,6 @@ const sectionsForRole = (isSuperAdmin: boolean): { label: string; items: NavItem
       ...(isSuperAdmin
         ? [{ key: "bugs" as PageKey, path: "/bugs", icon: "bug" as IconName, label: "BUG反馈" }]
         : []),
-      // 我的绩效（所有角色自助自视）
       { key: "my-performance", path: "/me/performance", icon: "gauge", label: "我的绩效" },
       { key: "settings", path: "/settings", icon: "settings", label: "设置" },
     ],
@@ -135,8 +131,6 @@ export function Sidebar({ reviewCount, drawer = false }: SidebarProps) {
   const canSeeFailed = hasAnyPermission("ml-backend.manage");
   const failedQuery = useFailedPredictions(1, 1, false, canSeeFailed);
   const failedTotal = failedQuery.data?.total ?? 0;
-  // pre_annotated 批次徽章（仅 super_admin 能拉 /dashboard/admin）
-  // B-19：非超管角色禁用此查询，避免 dashboard 加载时弹出"需要角色权限"toast。
   const adminStatsQ = useAdminStats(role === "super_admin");
   const preAnnotatedTotal = adminStatsQ.data?.pre_annotated_batches ?? 0;
   const navigationLabel = (item: NavItem) => {
@@ -237,8 +231,6 @@ export function Sidebar({ reviewCount, drawer = false }: SidebarProps) {
                 {!collapsed && item.badge && (
                   <span className={clsx(BADGE_BASE, BADGE_AI, "ml-auto")}>{item.badge}</span>
                 )}
-                {/* AI 预标注：待接管 + 失败预测两枚徽章同挂此项（失败预测已迁到 /ai-pre/jobs?status=failed，
-                  此前误挂在「模型市场」上）。 */}
                 {!collapsed &&
                   item.key === "ai-pre" &&
                   (preAnnotatedTotal > 0 || failedTotal > 0) && (

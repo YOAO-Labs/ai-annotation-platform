@@ -29,8 +29,6 @@ _WRITE_COUNTER_PROJECTION = text(
     "CAST(:project_id AS uuid), CAST(:patch AS jsonb))"
 )
 
-# Preserve the legacy flush points: Workspace reads may autoflush, while source-less cleanup may defer this write.
-
 
 def _project_identity(target: Project) -> uuid.UUID | None:
     identity = attributes.instance_state(target).identity
@@ -93,8 +91,6 @@ def _write_project_counters_before_update(mapper, connection, target: Project) -
     if explicit_updated_at:
         patch["updated_at"] = _native_json_value(target.updated_at)
 
-    # Preserve unrelated ORM edits. A dirty updated_at is left in the ORM
-    # history only when another column still needs its ordinary Project UPDATE.
     other_dirty_fields = any(
         name not in _COUNTER_FIELD_SET and name != "updated_at"
         for name in state.committed_state
@@ -143,7 +139,6 @@ def _clear_project_counter_flush_state(session: Session, previous_transaction) -
 
 @event.listens_for(Session, "after_transaction_end")
 def _clear_finished_project_counter_scope(session: Session, transaction) -> None:
-    # close() may abandon pending work without dispatching after_soft_rollback.
     if transaction.parent is None:
         session.info.pop(_PENDING_PROJECT_IDS, None)
         session.info.pop(_EXPIRE_UPDATED_AT_IDS, None)

@@ -1,6 +1,3 @@
-// 能力目录列表视图(从 CapabilityCatalogPanel.tsx 拆出,行为零变化)。
-// ModelListTable 渲染按物理权重展开的行;RuntimeCell 为内部子组件(池状态 + 预热)。
-
 import { Badge } from "@/components/ui/Badge";
 import type { FlatModel } from "./types";
 import {

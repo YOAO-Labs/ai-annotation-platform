@@ -18,7 +18,6 @@ from fastapi import HTTPException
 from app.services.annotation import AnnotationService
 from tests.factory import create_project, create_task
 
-# 一个 7-DoF 框: center=[x,y,z] (米), size=[长,宽,高], rotation=[rx,ry,yaw] (弧度, 仅 yaw 非零)。
 _BOX_GEOM = {
     "type": "box_3d",
     "center": [12.0, -3.5, 0.8],
@@ -76,7 +75,6 @@ async def test_create_box3d_allowed_class_passes(db_session, super_admin):
     assert ann.class_name == "car"
     assert ann.tool_unit_id == "lidar_box_3d"
     assert ann.annotation_type == "box_3d"
-    # geometry 原样落库 (JSONB); PSR 三元组各 len 3。
     assert ann.geometry["type"] == "box_3d"
     assert ann.geometry["center"] == [12.0, -3.5, 0.8]
     assert len(ann.geometry["size"]) == 3
@@ -134,7 +132,7 @@ async def test_create_box3d_class_not_in_lidar_unit_raises_422(db_session, super
             task_id=task.id,
             user_id=user.id,
             annotation_type="box_3d",
-            class_name="airplane",  # 不在 lidar_box_3d 的 allowed=["car"] 内
+            class_name="airplane",
             geometry=_BOX_GEOM,
             tool_unit_id="lidar_box_3d",
         )

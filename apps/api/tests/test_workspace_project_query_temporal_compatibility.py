@@ -53,8 +53,6 @@ async def test_current_owner_matches_frozen_temporal_http_responses(
         ]
 
     def compare(current):
-        # SQL spelling and internal exception wrappers vary by binding. Public
-        # status/content type/body, including successful infinity values, do not.
         assert public_reads(current) == public_reads(reference)
         comparisons.append(len(current["public_reads"]))
 

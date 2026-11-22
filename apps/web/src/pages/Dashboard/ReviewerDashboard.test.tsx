@@ -1,9 +1,3 @@
-/**
- * ReviewerDashboard 单测：加载态 / 空 pending / handleApprove /
- * handleReject（两步 decisionDialog 选 reason_type + 可选补充说明）/ recentReviews 渲染。
- * plan 1789527942 · T2：原 RejectReasonModal 已迁移 choiceDialog + inputDialog，
- * 这里渲染真实 <DecisionDialogHost /> 驱动完整两步流。
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -76,7 +70,6 @@ describe("ReviewerDashboard", () => {
     mockUseMyRecentReviews.mockReturnValue({ data: [] });
   });
 
-  // vitest afterEach 先于 RTL cleanup 跑,此刻 Host 仍挂载;清空 decisionDialog 队列防跨用例残留。
   afterEach(() => {
     act(() => {
       useDecisionDialogStore.setState({ queue: [] });
@@ -165,10 +158,10 @@ describe("ReviewerDashboard", () => {
   it("产能/质量数值正确显示", () => {
     mockUseReviewerStats.mockReturnValue({ data: baseStats, isLoading: false });
     renderUI();
-    expect(screen.getByText("3")).toBeInTheDocument(); // pending_review_count
-    expect(screen.getByText("88%")).toBeInTheDocument(); // approval_rate
-    expect(screen.getByText("91%")).toBeInTheDocument(); // approval_rate_24h
-    expect(screen.getByText("220")).toBeInTheDocument(); // total_reviewed
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByText("88%")).toBeInTheDocument();
+    expect(screen.getByText("91%")).toBeInTheDocument();
+    expect(screen.getByText("220")).toBeInTheDocument();
   });
 
   it("median_review_duration_ms < 60s → 显示 X.Xs；>= 60s → Xm", () => {
@@ -245,10 +238,8 @@ describe("ReviewerDashboard", () => {
     mockRejectMutate.mockImplementation((_args, opts) => opts?.onSuccess?.());
     renderUI();
     fireEvent.click(screen.getByText("退回"));
-    // 第一步 choiceDialog：选项 label 沿用 rejectReasonTypes 单点
     let dialog = await screen.findByRole("alertdialog", { name: "退回原因（1 个任务）" });
     fireEvent.click(within(dialog).getByRole("button", { name: "漏标" }));
-    // 第二步 inputDialog：补充说明可留空
     dialog = await screen.findByRole("alertdialog", { name: "补充说明" });
     fireEvent.click(within(dialog).getByRole("button", { name: "确认退回" }));
     await waitFor(() =>

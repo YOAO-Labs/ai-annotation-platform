@@ -1,6 +1,3 @@
-/**
- * 失败预测管理 API。
- */
 import { apiClient } from "./client";
 
 export interface FailedPredictionItem {
@@ -16,7 +13,6 @@ export interface FailedPredictionItem {
   message: string;
   retry_count: number;
   last_retry_at: string | null;
-  // 永久放弃时间戳；非空表示已被 admin dismiss
   dismissed_at: string | null;
   created_at: string;
 }

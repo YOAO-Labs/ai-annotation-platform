@@ -26,7 +26,6 @@ async def test_consecutive_image_wakes_use_fresh_event_loop_connections(
         assert (await connection.scalar(text("SELECT current_database()"))).endswith(
             "_test"
         )
-    # A Celery process reuses the Python module across asyncio.run invocations.
     for _ in range(2):
         await asyncio.to_thread(execute_image_media.run, str(uuid.uuid4()))
 

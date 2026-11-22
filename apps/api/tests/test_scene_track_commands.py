@@ -99,7 +99,6 @@ async def test_terminate_requires_confirmation_and_revert_restores_state(
     assert result["kind"] == "terminate"
     assert result["operation_id"]
 
-    # Same command/key is replay-safe even though Track revisions already changed.
     replay = await httpx_client.post(
         f"/api/v1/tasks/{tasks[1].id}/scene-track-commands/execute",
         json=execute_body,
@@ -452,7 +451,6 @@ async def test_mark_absent_then_resume_clones_a_keyframe(
     )
     assert absent_execute.status_code == 200, absent_execute.text
 
-    # A resume is explicit and creates a human keyframe from an existing member.
     resume_body = {
         "kind": "resume",
         "track_id": "trk-gap",

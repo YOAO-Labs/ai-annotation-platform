@@ -71,14 +71,16 @@ async def _bounded_async(chunks, *, limit: int) -> bytes:
 def _connection_not_sent(exc: BaseException) -> bool:
     cause = exc
     while cause is not None:
-        if isinstance(cause, ConnectionRefusedError) and cause.errno == errno.ECONNREFUSED:
+        if (
+            isinstance(cause, ConnectionRefusedError)
+            and cause.errno == errno.ECONNREFUSED
+        ):
             return True
         if isinstance(cause, socket.gaierror) and cause.errno in {
             socket.EAI_NONAME,
             socket.EAI_AGAIN,
         }:
             return True
-        # httpcore also preserves the original socket error as its sole argument.
         cause = cause.__cause__ or (
             cause.args[0]
             if len(cause.args) == 1 and isinstance(cause.args[0], BaseException)

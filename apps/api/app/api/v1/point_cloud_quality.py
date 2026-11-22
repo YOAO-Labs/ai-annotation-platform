@@ -214,8 +214,6 @@ async def create_run(
         require_project_capability(ProjectCapability.REVIEW_WRITE.value)
     ),
 ):
-    # Re-resolve current authority under a membership lock for the write path and
-    # re-assert the capability on the fresh access.
     access = await resolve_project_access(
         db, actor_id=current_user.id, project=project, lock_membership=True
     )
@@ -389,8 +387,6 @@ async def patch_issue(
     issue = quality_row(PointCloudQualityIssue, data["row"]) if data["row"] else None
     if issue is None:
         raise HTTPException(status_code=404, detail="Quality issue not found")
-    # Account-first: resolve the locked membership, then take bounded task and
-    # resource locks so a busy row cannot block indefinitely.
     _project, access = await _assert_issue_visible(db, issue, current_user, lock=True)
     _assert_review_authority(access)
     expected_task_id = issue.task_id

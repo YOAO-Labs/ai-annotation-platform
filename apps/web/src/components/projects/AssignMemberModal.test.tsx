@@ -31,8 +31,6 @@ vi.mock("@/components/ui/Toast", async () => {
   };
 });
 
-// Assignment candidates are ordinary active employees; the membership role is
-// chosen with the role tabs, never derived from the employee's platform role.
 const USERS = [
   { id: "u1", name: "Alice", email: "alice@example.com", role: "employee", group_name: "一组" },
   { id: "u2", name: "Bob", email: "bob@example.com", role: "employee", group_name: "一组" },
@@ -59,7 +57,6 @@ function renderModal() {
       <AssignMemberModal open projectId="p1" existing={EXISTING} onClose={onClose} />
     </QueryClientProvider>,
   );
-  // Re-render the same mounted tree with new props (open/projectId).
   const rerenderModal = (open: boolean, projectId = "p1") =>
     view.rerender(
       <QueryClientProvider client={qc}>
@@ -145,12 +142,10 @@ describe("AssignMemberModal", () => {
     fireEvent.click(userButton("Alice"));
     fireEvent.click(userButton("Bob"));
 
-    // Selections survive a switch to the other role tab.
     fireEvent.click(screen.getByRole("button", { name: "审核员" }));
     expect(summary()).toHaveTextContent("标注员 2 名");
     expect(summary()).toHaveTextContent("共 2 人");
 
-    // Searching narrows the list without dropping stored selections.
     fireEvent.change(screen.getByPlaceholderText("按姓名、邮箱、分组搜索"), {
       target: { value: "rita" },
     });
@@ -181,12 +176,10 @@ describe("AssignMemberModal", () => {
     expect(alice).toBeDisabled();
     expect(within(alice).getByText("已选为标注员")).toBeInTheDocument();
 
-    // Clicking the disabled row must not move or duplicate the selection.
     fireEvent.click(alice);
     expect(summary()).toHaveTextContent("标注员 1 名");
     expect(summary()).toHaveTextContent("审核员 0 名");
 
-    // Unselecting on the owning tab re-enables the candidate.
     fireEvent.click(screen.getByRole("button", { name: "标注员" }));
     fireEvent.click(userButton("Alice"));
     fireEvent.click(screen.getByRole("button", { name: "审核员" }));
@@ -227,8 +220,6 @@ describe("AssignMemberModal", () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(mockPushToast).toHaveBeenCalledWith(expect.objectContaining({ kind: "error" }));
 
-    // Successful annotator selection is gone; the failed reviewer selection
-    // stays on its original role for retry.
     expect(summary()).toHaveTextContent("标注员 0 名");
     expect(summary()).toHaveTextContent("审核员 1 名");
     expect(screen.getByRole("button", { name: "审核员" })).toHaveAttribute("aria-pressed", "true");
@@ -257,7 +248,6 @@ describe("AssignMemberModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /确认指派 2 人/ }));
     await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(2));
 
-    // While sending: no duplicate submit, no tab change.
     const pending = screen.getByRole("button", { name: "指派中..." });
     expect(pending).toBeDisabled();
     fireEvent.click(pending);
@@ -266,7 +256,6 @@ describe("AssignMemberModal", () => {
     expect(screen.getByRole("button", { name: "审核员" })).toHaveAttribute("aria-pressed", "true");
     expect(mockMutateAsync).toHaveBeenCalledTimes(2);
 
-    // A single settle must not unlock the submit while a request is in flight.
     await act(async () => {
       second.resolve({});
       await second.promise;
@@ -319,7 +308,6 @@ describe("AssignMemberModal", () => {
       await pending.promise;
     });
 
-    // The stale success must not close the modal or clear the new selection.
     expect(onClose).not.toHaveBeenCalled();
     expect(userButton("Bob")).toHaveAttribute("aria-pressed", "true");
     expect(summary()).toHaveTextContent("共 1 人");
@@ -335,7 +323,6 @@ describe("AssignMemberModal", () => {
     fireEvent.click(screen.getByRole("button", { name: /确认指派 1 人/ }));
     await waitFor(() => expect(mockMutateAsync).toHaveBeenCalledTimes(1));
 
-    // Switch project while the previous project's request is still in flight.
     rerenderModal(true, "p2");
 
     expect(await screen.findByText("Alice")).toBeInTheDocument();
@@ -348,7 +335,6 @@ describe("AssignMemberModal", () => {
       await pending.promise;
     });
 
-    // The stale success must not close the modal, toast, or clear p2's selection.
     expect(onClose).not.toHaveBeenCalled();
     expect(mockPushToast).not.toHaveBeenCalled();
     expect(userButton("Bob")).toHaveAttribute("aria-pressed", "true");

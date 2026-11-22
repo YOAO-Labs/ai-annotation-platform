@@ -1,16 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
 
-/**
- * rAF-coalesced callback scheduler. Multiple schedule() calls within one frame
- * collapse to a single flush() at the next animation frame. The latest task
- * wins; intermediate tasks are dropped. Useful for drag handlers that emit at
- * pointer rate but only need to commit one frame's worth of state.
- *
- * Returns { schedule, flush, cancel }.
- *   schedule(fn): queue fn for next frame (replacing any pending).
- *   flush(): run pending task synchronously (e.g. on mouseup).
- *   cancel(): drop pending without running.
- */
 export function useRafThrottle() {
   const rafRef = useRef<number | null>(null);
   const pendingRef = useRef<(() => void) | null>(null);

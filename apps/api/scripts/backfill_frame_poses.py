@@ -73,7 +73,6 @@ async def backfill_frame_poses(
             f"dataset {ds.display_id} 下无 source_format=nuscenes 的 scene"
         )
 
-    # 元数据表按 version 子目录缓存(同 dataset 各 scene 通常同 version)
     tables_cache: dict[str, dict] = {}
 
     def _tables(ver: str) -> dict:

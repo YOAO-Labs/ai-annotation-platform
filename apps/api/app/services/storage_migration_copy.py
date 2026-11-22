@@ -129,7 +129,6 @@ def digest(value):
 
 
 def error_code(exc):
-    # Never expose provider errors, URLs, object keys or credentials.
     return exc.code if isinstance(exc, (CopyError, ReferenceError)) else "io_failure"
 
 
@@ -242,8 +241,6 @@ def history_id(record):
     if record["record_type"] == "fact":
         return "f:" + digest(record["value"])
     row = record["value"]
-    # Verification state and receipt timestamps are observations of one creation,
-    # not new physical identities. Unwritten mappings are only source facts.
     return "r:" + digest(
         {
             "source": row["source"],
@@ -504,8 +501,6 @@ class Checkpoint:
             sha.update(canonical({"record_type": "current", "value": row}))
             count += 1
         fact_counts = {}
-        # Sort logical JSON, never local insertion IDs. Canonical serialization
-        # is already required by writers, but decoding still verifies each fact.
         for data, checksum in self.db.execute(
             "SELECT data,digest FROM facts ORDER BY digest,data"
         ):
@@ -540,8 +535,6 @@ class Checkpoint:
     def save(self, row):
         self.validate_row(row)
         if self.on_save is not None:
-            # Durable remote intent/ACK comes first. Local disk failure must not
-            # erase an already-observed provider receipt or permit another I/O.
             self.on_save(json.loads(packed(row)), digest(row))
         try:
             self.db.execute(
@@ -813,7 +806,6 @@ def plan_generation(
     handling = parent.meta["handling"] if handling is None else handling
     if asdict(limits) != parent.meta["limits"] or handling != parent.meta["handling"]:
         raise CopyError("generation_policy_mismatch")
-    # The ordinary sealed-input planner remains the only input projection path.
     plan(
         checkpoint_path,
         source_report,
@@ -879,7 +871,6 @@ def plan_generation(
                         if not after.get("receipt"):
                             record = old
                 else:
-                    # Keep the first creation attribution for non-physical facts.
                     record = old
             else:
                 if state.meta["result_count"] + history_count >= row_limit:
@@ -905,8 +896,6 @@ def plan_generation(
             "SELECT data,digest FROM facts ORDER BY digest,data"
         ):
             remember({"record_type": "fact", "value": parent.decode(data, checksum)})
-        # A bounded disk-backed join also finds physical versions that disappeared
-        # in one intermediate report and reappear in a later generation.
         for (data,) in state.db.execute(
             "SELECT data FROM history WHERE id LIKE 'r:%' ORDER BY id"
         ):
@@ -942,8 +931,6 @@ def plan_generation(
                 elif row["decision"] == "copy":
                     reusable = [old for old in objects if physical_intent(old)]
                     if reusable:
-                        # Receipts are stronger than unknown-ACK intents. Preserve
-                        # the oldest stable mapping when several facts exist.
                         old = sorted(
                             reusable,
                             key=lambda item: (
@@ -1179,7 +1166,6 @@ def target_verify(client, state, row, budget, *, version=None):
         or content_target(head) != expected
     ):
         raise CopyError("target_creation_conflict")
-    # Pin the observed immutable version even when recovering an unknown PUT ack.
     args["VersionId"] = actual
     response = client.get_object(**args)
     try:
@@ -1214,7 +1200,6 @@ def target_verify(client, state, row, budget, *, version=None):
 
 
 def content_target(response):
-    # Reserved creation metadata is valid only on our target.
     metadata = response.get("Metadata", {})
     clean = {
         **response,
@@ -1261,7 +1246,6 @@ def staging(state):
     path = directory / "body.part"
     safe = False
     try:
-        # Only this exact file, in this checkpoint's verified private directory.
         if path.exists() or path.is_symlink():
             info = path.lstat()
             if (
@@ -1378,9 +1362,6 @@ def _execute(
                         except Exception as exc:
                             if not missing(exc):
                                 raise
-                            # An unknown write cannot be retried into a new version:
-                            # a delete marker could hide its version. Require an empty
-                            # exact version history before another conditional PUT.
                             require_empty_history(target_client, state, row)
                         else:
                             row.update(state="verified", receipt=receipt, error=None)
@@ -1430,7 +1411,6 @@ def _execute(
                         version = response.get("VersionId")
                         if not version or version == "null":
                             raise CopyError("target_version_unconfirmed")
-                        # Save the acknowledged version even when later readback fails.
                         row["receipt"] = {
                             "version_id": version,
                             "put_acknowledged": True,
@@ -1455,7 +1435,6 @@ def _execute(
                 paused = exc.code
                 break
             except Exception as exc:
-                # Keep the original receipt for failed readbacks; verified is never stale.
                 row.update(
                     state="uncertain"
                     if writing

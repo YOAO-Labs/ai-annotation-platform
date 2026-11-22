@@ -734,7 +734,6 @@ async def test_four_distinct_snapshots_fill_without_requesting_extra_snapshot_ad
     try:
         for _ in range(4):
             contents.append(await snapshot(world))
-        # Hold all snapshot slots; optional NOWAIT publication is independent.
         results = [
             await cache.store(world.factory, world.source_id, identity, content)
             for identity, content in zip(assets, contents)

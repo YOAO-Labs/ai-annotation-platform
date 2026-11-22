@@ -428,8 +428,6 @@ def mask_to_bbox_conversion(
         **({"frame_index": video_frame_index} if video_frame_index is not None else {}),
         **bbox,
     }
-    # Keep the explicit integer derivation above visible to guard against a
-    # future normalized rounding change silently producing a negative delta.
     if min_x < 0 or min_y < 0 or changed < 0:
         raise ValueError("invalid tight mask bbox")
     return geometry, ConversionMetrics(

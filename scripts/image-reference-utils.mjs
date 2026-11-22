@@ -42,9 +42,7 @@ export function resolveLocalMediaPath(src, sourcePath, docsRoot) {
   let decoded = cleaned;
   try {
     decoded = decodeURIComponent(cleaned);
-  } catch {
-    // Keep malformed URLs visible as broken references.
-  }
+  } catch {}
   if (!decoded.startsWith("/")) return path.resolve(path.dirname(sourcePath), decoded);
   const relative = decoded.slice(1);
   const publicPath = path.join(docsRoot, "public", relative);

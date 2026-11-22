@@ -384,8 +384,6 @@ async def test_export_keeps_exact_task_scope_in_job_worker_and_artifact(
     job = await db_session.get(AsyncJob, job_id)
     assert job.payload["scope"] == {"task_ids": [str(selected.id)]}
 
-    # Pending publication can be retried using the same durable job; a running
-    # job must not be dispatched again, and a changed request conflicts.
     retried = await httpx_client.post(endpoint, headers=headers, json=body)
     assert retried.json()["job_id"] == str(job_id)
     assert dispatch.call_count == 2

@@ -5,11 +5,6 @@ type VideoWorkbenchDiagnosticsStore = {
 
 export type VideoWorkbenchDiagnosticsSnapshot = Record<string, unknown>;
 
-/**
- * 精确帧 pipeline 的全局诊断快照。只允许枚举型 state / reason、数值型 id / 计数 /
- * 耗时与预算;禁止 signed URL、chunk bytes、base64 description、文件名或 annotation 内容。
- * typed 边界本身就是数据最小化约束——producer 不接受任意对象 spread。
- */
 export interface VideoPreciseFrameDiagnosticsSnapshot {
   enabled: boolean;
   supported: boolean;
@@ -48,7 +43,6 @@ export interface VideoPreciseFrameDiagnosticsSnapshot {
   };
 }
 
-/** 单个视频 task 在全局诊断 store 里的聚合快照;preciseFrame 是精确帧诊断字段。 */
 export interface VideoWorkbenchTaskDiagnostics {
   taskId?: string;
   route?: string;
@@ -136,13 +130,7 @@ export function taskIdFromVideoWorkbenchDiagnostics(
   return taskId && UUID_RE.test(taskId) ? taskId : undefined;
 }
 
-// === Precise-frame diagnostics producer ===
-//
-// 写入 window.__videoWorkbenchDiagnostics,供 BugReportDrawer 附带与排障。producer 只接受 typed
-// snapshot,不 spread 任意对象;节流上限 5 Hz,state / fallback 转换立即写入,trailing 保证最后
-// 一次状态一定落盘。写入 window 不触发 React 重渲染。
-
-const PRECISE_PUBLISH_MIN_INTERVAL_MS = 200; // 5 Hz 上限
+const PRECISE_PUBLISH_MIN_INTERVAL_MS = 200;
 let preciseLastPublishAt = 0;
 let preciseTrailingTimer: ReturnType<typeof setTimeout> | null = null;
 let preciseLastState: string | null = null;
@@ -186,10 +174,6 @@ function writePreciseSnapshot(
   store.activeTaskId = taskId;
 }
 
-/**
- * 以 5 Hz 上限写入当前 task 的精确帧诊断快照。state / fallbackReason 变化视为 urgent,立即写入;
- * 其余高频字段由 trailing 定时器保证最后一次值落盘。仅浏览器端生效,SSR / 无 taskId 时 no-op。
- */
 export function publishVideoPreciseFrameDiagnostics(
   taskId: string,
   snapshot: VideoPreciseFrameDiagnosticsSnapshot,
@@ -220,7 +204,6 @@ export function publishVideoPreciseFrameDiagnostics(
   );
 }
 
-/** 注册当前活跃 task;切换 task 时重置节流,确保新 task 首个快照立即写入。 */
 export function setActiveVideoWorkbenchTask(taskId: string | null): void {
   const store = ensureDiagnosticsStore();
   if (!store) return;
@@ -232,7 +215,6 @@ export function setActiveVideoWorkbenchTask(taskId: string | null): void {
   clearPreciseTrailingTimer();
 }
 
-/** stage unmount:删除该 task 的快照,取消未发出的 trailing 写入。 */
 export function clearVideoPreciseFrameDiagnostics(taskId: string): void {
   clearPreciseTrailingTimer();
   const store = ensureDiagnosticsStore();

@@ -30,7 +30,6 @@ ETAG = '"provider-version-one"'
 
 @pytest.fixture(autouse=True)
 def isolated_admission(monkeypatch):
-    # Each pytest function owns its event loop; production keeps one API loop.
     monkeypatch.setattr(service, "_slots", asyncio.BoundedSemaphore(4))
     monkeypatch.setattr(service, "_waiting", threading.BoundedSemaphore(64))
 
@@ -137,8 +136,6 @@ class Harness:
 
             async def scalar(self, statement):
                 harness.transaction = True
-                # The output guard is a real FOR SHARE NOWAIT query. The only
-                # other scalar is its exact-purpose retiring-operation barrier.
                 if statement.column_descriptions[0].get("entity") is not None:
                     assert statement._for_update_arg.read
                     assert statement._for_update_arg.nowait
@@ -147,7 +144,6 @@ class Harness:
 
         async def target_for_ref(db, ref):
             assert ref == self.ref
-            # The second lookup models normal credential rotation after admission.
             target = SimpleNamespace(
                 bucket=ref["bucket"],
                 location_id=uuid.UUID(ref["location_id"]),
@@ -412,7 +408,6 @@ async def test_failed_close_retains_unresolved_operation(monkeypatch, failure):
     assert caught.value.storage_operation_unsettled
     assert harness.permit.unsettled and not harness.permit.settled
     assert harness.events[-3:] == ["body-close", "client-close", "permit-exit"]
-    # The mock close failure is intentional; release its local BytesIO afterward.
     harness.fail_body_close = False
     if not harness.body.closed:
         harness.body.close()
@@ -778,8 +773,6 @@ async def admitted_output(test_engine, monkeypatch, request):
         yield context
     finally:
         async with factory() as db:
-            # All test physical contexts were never entered; remove any failed
-            # assertion's test-only permit, preserving no real uncertainty.
             await db.execute(
                 delete(service.StorageOperation).where(
                     service.StorageOperation.purpose == context.purpose
@@ -811,8 +804,6 @@ async def test_db_read_permit_is_seen_by_collectors_locked_second_check(
             async with await service.storage_access.acquire(
                 gc, LEGACY_LOCATION_ID, owned.purpose
             ) as collecting:
-                # Both existing collectors and Thumbnail GC take this exclusive
-                # owner lock, then exclude their own operation before deletion.
                 row = await gc.scalar(
                     select(owned.model)
                     .where(owned.model.id == owned.identifier)
@@ -855,8 +846,6 @@ async def test_db_retiring_read_after_gc_final_check_is_refused(admitted_output)
                 )
             )
             await gc.commit()
-            # Reproduce the exact former window: the collector committed its
-            # last metadata check and retains its permit over physical deletion.
             with pytest.raises(HTTPException) as caught:
                 await service._metadata(owned.capability)
             assert caught.value.detail == {"code": "media_cache_busy"}

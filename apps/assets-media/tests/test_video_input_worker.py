@@ -257,7 +257,6 @@ async def test_frame_extraction_reads_the_original_retained_version_after_source
     original_blob = db.input.plan.input.blob
     db.require_frame()
     storage.source_bytes, storage.source_forbidden = b"replacement is not a video", True
-    # A new latest version at the same key cannot retarget extraction.
     storage.blobs[(original_blob.key, "latest-replacement")] = b"new bytes"
     db.transient = "lost_finish"
     ready = await executor.execute_frame_once(frame_id=FRAME_ID)

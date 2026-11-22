@@ -41,7 +41,6 @@ test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布�
   await expect(dialog.getByTestId("setting-field-video.autoFitOnResize")).toHaveCount(1);
   await expect(dialog.getByTestId("setting-field-pointcloud.pointSize")).toHaveCount(1);
 
-  // 从图片任务编辑视频与点云偏好，所有改动都应保留到刷新之后。
   await dialog.getByRole("tab", { name: "播放与轨迹", exact: true }).click();
   const videoSaved = page.waitForResponse(
     (response) =>
@@ -56,7 +55,6 @@ test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布�
   );
   await dialog.getByRole("switch", { name: "显示地面网格" }).click();
   expect((await gridSaved).ok()).toBe(true);
-  // 全局搜索跨图片、视频和点云；父开关随匹配的子项出现。
   await search.fill("邻帧");
   await expect(dialog.getByTestId("setting-field-common.crossFrameOverlayEnabled")).toBeVisible();
   await search.fill("CSS");
@@ -86,7 +84,6 @@ test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布�
   await page.keyboard.press("Delete");
   await expect(boxTool).toHaveAttribute("aria-pressed", "true");
 
-  // 原生下拉菜单先消费 Esc，第二次 Esc 才关闭设置窗口。
   const select = dialog.getByTestId("setting-field-image.zoomStepFactor").getByRole("combobox");
   await select.click();
   await expect.poll(() => select.evaluate((element) => element.matches(":open"))).toBe(true);
@@ -108,7 +105,6 @@ test("图像设置：外部关闭保存、搜索、焦点隔离及响应式布�
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
 
-  // 四周都可关闭，点击不能穿透到背景任务导航或工具栏。
   for (const [x, y] of [
     [12, 450],
     [1428, 450],

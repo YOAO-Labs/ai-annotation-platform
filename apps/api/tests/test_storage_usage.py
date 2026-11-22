@@ -171,7 +171,6 @@ async def test_shared_bucket_multi_page_and_true_zero(ready, monkeypatch):
     )
     assert all(i.measurement_started_at <= i.measured_at for i in result.items)
     assert job.status == "completed"
-    # Job retention cannot delete observation evidence.
     await db.execute(delete(AsyncJob).where(AsyncJob.id == job.id))
     await db.commit()
     assert (await svc.read_usage(db)).total_size_bytes == 12
@@ -313,7 +312,6 @@ async def test_recovery_uses_checkpoint_and_fences_late_page(ready, monkeypatch)
     await run_all(db, job)
     assert seen[0] == "resume"
     assert (await svc.read_usage(db)).items[0].total_size_bytes == 13
-    # A late old failure signal cannot overwrite the completed new attempt.
     await svc.signal_interrupted(db, job.id, old_task, cancelled=False)
     assert job.status == "completed"
 
@@ -349,8 +347,6 @@ async def test_dispatch_failure_leaves_recoverable_lease(ready, monkeypatch):
         raise OSError("broker unavailable")
 
     monkeypatch.setattr(worker, "_publish", fail)
-    # Use actual dispatch rather than fixture's stub.
-    # The saved implementation is available below without reloading global task registration.
     await REAL_DISPATCH(db, job)
     inventory = await db.get(Inventory, "platform")
     assert inventory.status == "pending" and inventory.lease_until is not None
@@ -428,7 +424,6 @@ async def test_api_key_scope_applies_to_snapshots_and_jobs(
     )
     db.add(key)
     await db.commit()
-    # Match authentication's normal prefix lookup.
     key.key_prefix = "ak_inventory-secret"[:12]
     await db.commit()
     job, _ = await svc.start(db, actor)

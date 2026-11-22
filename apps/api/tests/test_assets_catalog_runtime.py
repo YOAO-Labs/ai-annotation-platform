@@ -275,7 +275,6 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
         app_module.dependency_overrides[get_db] = gateway_database
         monkeypatch.setattr(settings, "assets_catalog_token", service_token)
         scheme = "https" if settings.minio_use_ssl else "http"
-        # This API-only fixture has no frontend /s3 reverse proxy.
         monkeypatch.setattr(
             settings, "minio_public_url", f"{scheme}://{settings.minio_endpoint}"
         )
@@ -418,7 +417,6 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                 item = items.json()["items"][0]
                 assert "thumbnail_path" not in item
                 assert item["metadata"]["future_field"] == {"retained": True}
-                # Original reads require API auth; thumbnails use signed storage URLs.
                 original_identity = await api.get(
                     item["original_identity_path"], headers=headers
                 )
@@ -467,7 +465,6 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                 assert unavailable.status_code in {502, 503}
                 await asyncio.to_thread(_docker, "start", container)
                 await _wait_healthy(container)
-                # Docker may allocate a new dynamic host port after stop/start.
                 origin = _catalog_origin(container, image, identity)
                 await _wait_public_ready(origin)
                 monkeypatch.setattr(settings, "assets_catalog_url", origin)
@@ -489,7 +486,6 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                     local_replay.status_code == 201 and local_replay.json() == original
                 )
 
-            # A general migration credential must never start this runtime.
             values["ASSETS_CATALOG_DATABASE_URL"] = _container_database_url(
                 test_engine.url
             )

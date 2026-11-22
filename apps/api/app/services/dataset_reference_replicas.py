@@ -194,7 +194,6 @@ async def _write_primary(db, item_id, actor, api_key_id):
     actor, _ = await lock_actor(db, actor, api_key_id)
     context, item = await _primary(db, item_id, actor)
     await require_writable(db, item.dataset_id)
-    # Serialize publications of this primary, including concurrent duplicate POSTs.
     await db.scalar(
         select(DatasetAsset.id)
         .where(DatasetAsset.id == context["asset_id"])
@@ -365,8 +364,6 @@ async def source_context(db, context, replica_id, actor, *, task_id=None, node_i
     if task_id is None:
         state = await references._reference_state(db, target.dataset_item_id, actor)
     else:
-        # The caller must recheck the original task grant. A published edge grants
-        # this exact content only, not target-task access or source enumeration.
         state = await references._reference_binding_state(db, target.dataset_item_id)
     candidate = references._logical_context(state)
     original = await db.get(DatasetItem, context["item_id"], populate_existing=True)

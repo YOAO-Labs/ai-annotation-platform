@@ -215,8 +215,6 @@ async def test_failed_seed_flush_cannot_commit_partial_native_work(
                 await writes.flush_before_read()
             else:
                 await writes.commit()
-        # Catching the bridge error cannot commit a successful earlier row or
-        # the caller's pending work from the failed flush.
         await db.commit()
     async with test_engine.connect() as observer:
         assert (

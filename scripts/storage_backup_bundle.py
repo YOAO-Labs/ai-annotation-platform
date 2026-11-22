@@ -318,8 +318,6 @@ def _current_only(s3, bucket, limits, *, allow_versioned=True):
                     "unsupported_bucket_state",
                     "Historical object versions are not supported.",
                 )
-            # An old null object can remain current after enabling versioning.
-            # Preserve that explicit source version instead of silently omitting it.
             versions[key] = (version or "null") if enabled else None
             if len(versions) > limits.max_objects:
                 _fail(
@@ -812,8 +810,6 @@ def restore_objects(directory, *, s3, bucket_roles, limits=Limits()):
                     Key=item["key"],
                     ContentLength=item["size_bytes"],
                     IfNoneMatch="*",
-                    # Omit an empty Body: botocore wraps b'' into a stream and
-                    # adds Expect/continue, which can stall the next pooled PUT.
                     **({"Body": stream} if item["size_bytes"] else {}),
                     **metadata,
                 )

@@ -125,7 +125,6 @@ class ManagedOriginalReclamationPreview(BaseModel):
     execution_permission: Literal[False] = False
     coverage: ManagedOriginalReclamationCoverage
     counts: ManagedOriginalReclamationCounts
-    # Assertion sizes can repeat a physical copy and do not establish its presence.
     reclaimable_bytes: None = None
     items: list[ManagedOriginalReclamationItem]
     limit: int

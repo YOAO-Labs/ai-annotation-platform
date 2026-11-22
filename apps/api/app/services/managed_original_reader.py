@@ -23,7 +23,11 @@ from botocore.exceptions import ClientError
 
 from app.services.content_snapshot import ContentError
 from app.services.filesystem_storage import FilesystemStorageError
-from app.services.storage_access import close_registered, failure_unsettled, mark_unsettled
+from app.services.storage_access import (
+    close_registered,
+    failure_unsettled,
+    mark_unsettled,
+)
 
 CHUNK_BYTES = 256 * 1024
 _slots = threading.BoundedSemaphore(4)
@@ -199,7 +203,6 @@ def _observation(response, spec):
 def _body(response):
     body = response.get("Body") if isinstance(response, dict) else None
     if body is None:
-        # A malformed constructor result cannot prove whether its stream ended.
         raise mark_unsettled(ContentError("content_source_unavailable", 503))
     return body
 
@@ -381,9 +384,6 @@ def _capture(
     finally:
         primary = sys.exception()
         if not transferred:
-            # Closing the local temporary file does not settle an unknown
-            # provider constructor or remote handle. Explicit pools retain that
-            # responsibility even when this last local close succeeds.
             settled = not (retain_on_close_error and unsettled)
             try:
                 if temporary is not None:
@@ -394,7 +394,8 @@ def _capture(
                         closing = _failure(exc)
                         if primary is not None:
                             raise BaseExceptionGroup(
-                                "Original read and temporary close failed", [primary, closing]
+                                "Original read and temporary close failed",
+                                [primary, closing],
                             ) from None
                         raise closing from None
             finally:

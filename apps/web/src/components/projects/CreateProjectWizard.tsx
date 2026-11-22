@@ -1,7 +1,3 @@
-// 主控瘦身: step 1-7 全部抽到 components/projects/steps/ 子目录.
-// 本文件仅保留: FormState 类型、INITIAL、defaultUnitBindings、buildFormFromSource/Template、
-// 草稿持久化、step 路由、Stepper / Footer 两个内部 UI 组件、submit 逻辑.
-
 import { useEffect, useMemo, useState } from "react";
 import { clsx } from "clsx";
 import { useNavigate } from "react-router-dom";
@@ -45,15 +41,10 @@ type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 interface Props {
   open: boolean;
   onClose: () => void;
-  /** 给定时, 打开后以此项目为模板预填 FormState; 提交时携带
-   *  source_project_id, 后端用源项目兜底未显式给出的字段. */
   sourceProjectId?: string;
-  /** 从 ProjectTemplate 应用模板. 与 sourceProjectId 互斥
-   *  (调用方保证). 给定时预填 FormState + 提交携带 template_id, 后端 usage_count + 1. */
   templateId?: string;
 }
 
-/** 单一工具单位的表单状态: enabled + 类别列表 + 属性 schema. */
 export interface UnitBindingForm {
   enabled: boolean;
   classRows: ClassRow[];
@@ -64,30 +55,21 @@ export type UnitBindingMap = Partial<Record<ToolUnitId, UnitBindingForm>>;
 
 export interface FormState {
   name: string;
-  // B 路线: 新建项目以 dataType (媒体维度) 为主选项;
-  // typeKey 由 PROJECT_DATA_TYPES[].legacyTypeKey 派生, 保旧分流兼容.
   dataType: ProjectDataType;
   typeKey: string;
   dueDate: string;
-  // 取代扁平 classRows / attributeFields, 按工具单位拆开. 提交时序列化
-  // 为 tool_bindings; 旧 classes / classes_config / attribute_schema 由 active unit
-  // 派生作老 reader 兜底 (后端 coalesce 也会反向同步).
   unitBindings: UnitBindingMap;
   activeUnit: ToolUnitId;
   aiEnabled: boolean;
-  /** 复用现有 backend; "" = 暂不绑定 (项目创建后到设置页注册). */
   mlBackendSourceId: string;
   sceneMode: boolean;
   datasetIds: string[];
   splitStrategy: "none" | "random" | "by_scene";
   splitNBatches: number;
   members: { userId: string; role: "annotator" | "reviewer" }[];
-  // 复制模式下是否同时携带源项目的 annotation_guide + guide_assets.
-  // 仅 sourceProjectId 给定时显示 UI; 默认 true.
   copyAnnotationGuide: boolean;
 }
 
-/** 取默认 unitBindings: 按 type_key 推 data type, 启用对应 unit. */
 export function defaultUnitBindings(typeKey: string): UnitBindingMap {
   const dt = dataTypeFromLegacy(typeKey);
   const enabled = new Set(defaultEnabledUnits(dt));
@@ -132,14 +114,8 @@ const STEP_LABELS: Record<StepperStep, string> = {
   6: "成员",
 };
 
-// 草稿 key 与旧分包配置隔离，避免恢复不兼容的状态。
 const DRAFT_KEY = "create_project_draft_v0_14_4";
 
-/** 把 ProjectResponse 的可克隆配置字段还原为 Wizard FormState. 不包含
- *  运行时数据 (datasets / tasks / members / batches); 后端 source_project_id 兜底
- *  那些不在表单中的字段 (label_config / sampling / rendering_config 等). */
-/** 把 ProjectResponse 的 tool_bindings (优先) 或扁平 classes_config /
- *  attribute_schema (兜底) 还原为 Wizard 的 unitBindings + activeUnit. */
 function buildUnitBindingsFromSource(src: {
   type_key?: string;
   classes?: string[];
@@ -151,7 +127,6 @@ function buildUnitBindingsFromSource(src: {
   const base = defaultUnitBindings(typeKey);
   const tb = (src.tool_bindings ?? {}) as ToolBindings;
 
-  // 把 tool_bindings 各 unit 拍进 base; 缺失 unit 沿用默认 (disabled / 空)
   for (const unitId of Object.keys(tb) as ToolUnitId[]) {
     const binding = tb[unitId];
     if (!binding) continue;
@@ -172,8 +147,6 @@ function buildUnitBindingsFromSource(src: {
     };
   }
 
-  // 兼容: 老项目无 tool_bindings, 但有扁平 classes_config / attribute_schema —
-  // 派生到默认 unit (按 type_key 推).
   const hasTb = Object.keys(tb).length > 0;
   if (!hasTb) {
     const defaultUnit = toolUnitFromLegacy(typeKey);
@@ -198,7 +171,6 @@ function buildUnitBindingsFromSource(src: {
     };
   }
 
-  // activeUnit = 第一个 enabled 的 unit, 没有就选 bbox
   const firstEnabled = (Object.keys(base) as ToolUnitId[]).find((k) => base[k]?.enabled);
   return { unitBindings: base, activeUnit: firstEnabled ?? "bbox" };
 }
@@ -216,12 +188,9 @@ function buildFormFromSource(src: ProjectResponse): FormState {
     mlBackendSourceId: src.ml_backend_id ?? "",
     sceneMode: !!src.scene_mode,
     splitStrategy: src.scene_mode ? "by_scene" : "none",
-    // datasets / batches / members / dueDate 留空 — 这些是运行时数据
   };
 }
 
-/** 从模板还原 FormState. 模板字段集合与 source 项目相近, 但
- *  没有 ml_backend_id (模板不绑 backend), 也没有 dataset/members 等运行时数据. */
 function buildFormFromTemplate(t: ProjectTemplateOut): FormState {
   const { unitBindings, activeUnit } = buildUnitBindingsFromSource(
     t as Parameters<typeof buildUnitBindingsFromSource>[0],
@@ -246,12 +215,8 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
   const [step, setStep] = useState<Step>(1);
   const [form, setForm] = useState<FormState>(INITIAL);
   const [created, setCreated] = useState<ProjectResponse | null>(null);
-  // "从已有项目复制" — 拉源项目并 prefill 一次. 失败时 toast + 退化为
-  // 普通新建 (不阻塞 Wizard 流程).
   const [prefilling, setPrefilling] = useState(false);
 
-  // 复制模式下不恢复或持久化草稿，避免与他人项目混合。
-  // 复制模式读取源项目 prefill。
   useEffect(() => {
     if (!open) {
       setStep(1);
@@ -319,8 +284,6 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
   }, [open, sourceProjectId, templateId]);
 
   useEffect(() => {
-    // 复制模式不写草稿 (避免下次普通新建被他人项目模板污染).
-    // 模板模式同理.
     if (open && !created && !sourceProjectId && !templateId) {
       try {
         localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
@@ -330,7 +293,6 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
     }
   }, [form, open, created, sourceProjectId, templateId]);
 
-  // B 路线: 媒体维度选项 (image / video / lidar) 取代任务级 PROJECT_TYPES.
   const selectedDataType = useMemo(
     () => PROJECT_DATA_TYPES.find((t) => t.id === form.dataType) ?? PROJECT_DATA_TYPES[0],
     [form.dataType],
@@ -344,7 +306,6 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
   ).length;
   const step1Valid = nameValid && !!form.dataType && dueValid && enabledUnitCount > 0;
 
-  // 各 enabled unit 各自的 attribute_schema 必须独立校验通过.
   const enabledUnitIds = useMemo(
     () =>
       (Object.keys(form.unitBindings) as ToolUnitId[]).filter((k) => form.unitBindings[k]?.enabled),
@@ -366,7 +327,6 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
       pushToast({ msg: step3AttrError, kind: "error" });
       return;
     }
-    // 构造 tool_bindings 主真值
     const tool_bindings: ToolBindings = {};
     for (const unitId of enabledUnitIds) {
       const ub = form.unitBindings[unitId];
@@ -383,7 +343,6 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
           ub.attributeFields.length > 0 ? { fields: ub.attributeFields } : { fields: [] },
       };
     }
-    // 老 reader 兜底: 派生 classes / classes_config / attribute_schema 自 activeUnit
     const activeRows = form.unitBindings[form.activeUnit]?.classRows ?? [];
     const activeFields = form.unitBindings[form.activeUnit]?.attributeFields ?? [];
     const classes = activeRows.map((r) => r.name);
@@ -400,7 +359,6 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
     createProject.mutate(
       {
         name: trimmedName,
-        // B 路线: data_type 为主, type_key 由 legacyTypeKey 派生兼容旧分流.
         data_type: selectedDataType.id,
         type_key: selectedDataType.legacyTypeKey,
         type_label: selectedDataType.label,
@@ -409,17 +367,11 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
         attribute_schema,
         tool_bindings,
         ai_enabled: form.aiEnabled,
-        // 仅启用 AI 且选了 source backend 时携带; 后端为新项目启用同一全局 backend
         ml_backend_source_id:
           form.aiEnabled && form.mlBackendSourceId ? form.mlBackendSourceId : null,
         scene_mode: form.sceneMode,
-        // "从已有项目复制" — 给后端兜底未显式给出的字段 (例如 label_config /
-        // rendering_config / iou_dedup_threshold / sampling 等不在 wizard 表单内的项).
         source_project_id: sourceProjectId ?? null,
-        // 仅复制模式下传该 flag; 后端校验若无 source_project_id 会返 400.
         copy_annotation_guide: sourceProjectId ? form.copyAnnotationGuide : undefined,
-        // 模板模式下携带 template_id; 后端 deepcopy 模板载荷 +
-        // usage_count + 1. 与 source_project_id 互斥, schema 已校验.
         template_id: templateId ?? null,
         due_date: form.dueDate || null,
       },
@@ -427,7 +379,6 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
         onSuccess: async (p) => {
           setCreated(p);
           pushToast({ msg: "项目创建成功", sub: p.display_id, kind: "success" });
-          // 后续 step 5 / 6 顺序调用其他端点，每步独立失败不阻断
           setStep(5);
         },
         onError: (err) => {
@@ -440,7 +391,6 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
     );
   };
 
-  // step 5 / 6 完成后的最终落地
   const finishWizard = (_linkedDatasets: number, _addedMembers: number) => {
     try {
       localStorage.removeItem(DRAFT_KEY);
@@ -469,7 +419,6 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
     >
       <div className={styles.wizard} data-testid="project-wizard">
         {step !== 7 && <Stepper current={stepperCurrent} />}
-        {/* 模板模式: 顶部横幅 + 加载态. */}
         {templateId && !sourceProjectId && step !== 7 && (
           <div className={styles.copyBanner}>
             <Icon name="book" size={12} />
@@ -478,7 +427,6 @@ export function CreateProjectWizard({ open, onClose, sourceProjectId, templateId
               : "已用模板字段预填表单, 提交后将复制到新项目 (模板的 annotation_guide 也会一并应用; guide_assets 不携带)"}
           </div>
         )}
-        {/* 复制模式: 顶部横幅 + 加载态. */}
         {sourceProjectId && step !== 7 && (
           <div className={styles.copyBanner}>
             <Icon name="copy" size={12} />

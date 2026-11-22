@@ -35,6 +35,10 @@ from training_executor.instance_rle import (
 )
 from training_executor.train import UltralyticsCheckpoints
 from training_executor.native_identity import validate_architecture
+from training_executor.ultralytics_adapter import (
+    UltralyticsAttemptTrainer,
+    configure_offline_fonts,
+)
 
 
 def encode(mask):
@@ -130,20 +134,17 @@ def qualify(base_path, temporary, base_model=None):
     settings.update(
         {"sync": False, "wandb": False, "mlflow": False, "tensorboard": False}
     )
-    from ultralytics.utils import USER_CONFIG_DIR
-    import shutil
-
-    USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    for font in ("Arial.ttf", "Arial.Unicode.ttf"):
-        shutil.copyfile(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", USER_CONFIG_DIR / font
-        )
     if base_model is not None and not base_model.endswith("-seg"):
         from native_family_qualification import qualify_detection, qualify_libre
 
         if base_model.lower().startswith("libreyolo"):
             return qualify_libre(base_path, temporary, base_model)
         return qualify_detection(base_path, temporary, base_model)
+    configure_offline_fonts()
+
+    class AttemptTrainer(UltralyticsAttemptTrainer, InstanceRLETrainer):
+        pass
+
     root = Path(temporary) / "data"
     root.mkdir()
     originals = fixture(root)
@@ -253,7 +254,7 @@ def qualify(base_path, temporary, base_model=None):
         name="framework",
     )
     try:
-        native.train(trainer=InstanceRLETrainer, **options)
+        native.train(trainer=AttemptTrainer, **options)
     except Interrupted:
         pass
     assert checkpoints.checkpoint and checkpoints.checkpoint["epoch"] == 1
@@ -268,16 +269,8 @@ def qualify(base_path, temporary, base_model=None):
     resumed.add_callback("on_train_start", resumed_checkpoints.started)
     resumed.add_callback("on_model_save", resumed_checkpoints.saved)
 
-    # Match the production relocation override without changing resume state.
-    class RelocatedTrainer(InstanceRLETrainer):
-        def check_resume(self, overrides):
-            super().check_resume(overrides)
-            for field in ("project", "name", "data", "exist_ok"):
-                setattr(self.args, field, overrides[field])
-            self.args.save_dir = str(second / "framework")
-
     result = resumed.train(
-        trainer=RelocatedTrainer,
+        trainer=AttemptTrainer,
         **{**options, "project": str(second), "resume": str(checkpoint_path)},
     )
     best = second / "framework/weights/best.pt"

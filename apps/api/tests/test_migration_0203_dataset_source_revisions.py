@@ -51,9 +51,6 @@ async def test_existing_heads_backfill_and_populated_rollback_refused(
         monkeypatch.setattr(
             migration, "op", Operations(MigrationContext.configure(sync.connection()))
         )
-        # Later migrations are additive for these objects. Rolling the shared
-        # schema back would be blocked by facts other tests legitimately retain,
-        # so round-trip only this revision's own objects.
         with pytest.raises(RuntimeError, match="Retain accepted source revisions"):
             migration.downgrade()
         before = sync.execute(
@@ -61,7 +58,6 @@ async def test_existing_heads_backfill_and_populated_rollback_refused(
                 "SELECT source_id,path_digest,run_id,dataset_item_id,asset_id,content_sha256 FROM dataset_source_items"
             )
         ).one()
-        # Simulate 0202 only inside the verified disposable SAVEPOINT test database.
         sync.execute(
             text("ALTER TABLE dataset_source_items DISABLE TRIGGER source_head_guard")
         )

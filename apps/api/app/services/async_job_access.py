@@ -14,7 +14,6 @@ from yoao_workspace_contract.access import ProjectCapability
 from app.services.project_access import resolve_project_access
 
 EXPORT_JOB_KIND = "export"
-# Unlisted kinds require project scope; these are the audited global production kinds.
 GLOBAL_ASYNC_JOB_KINDS = frozenset(
     {AsyncJobKind.AUDIT_ARCHIVE.value, AsyncJobKind.DATASET_IMPORT.value}
 )

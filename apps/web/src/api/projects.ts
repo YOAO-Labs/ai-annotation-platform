@@ -22,13 +22,7 @@ import type {
   VideoSamplingConfig as GenVideoSamplingConfig,
 } from "./generated/types.gen";
 import type { ToolUnitId } from "@/constants/toolUnits";
-// 项目级「已保存的编排」复用预标注阶段载荷类型 (与后端 PipelineStage 同构).
 import type { PipelineStagePayload } from "@/hooks/usePreannotation";
-
-// ── 类型再导出（向后兼容旧 import 名） ─────────────────────────────
-//
-// 后端的 Pydantic JSONB 字段已结构化，OpenAPI codegen 直接生成强类型。
-// 按旧名称再导出生成类型，以兼容现有调用方。
 
 export type AttributeField = GenAttributeField;
 export type AttributeFieldOption = GenAttributeFieldOption;
@@ -37,22 +31,14 @@ export type AttributeSchema = GenAttributeSchema;
 export type ClassConfigEntry = GenClassConfigEntry;
 export type ClassesConfig = Record<string, ClassConfigEntry>;
 
-// 项目级视频帧采样配置 (逻辑采样, 见 docs/plans/.../video-frame-sampling.md §2).
 export type VideoSamplingConfig = GenVideoSamplingConfig;
 
-// 工具维度类别 / 属性绑定. codegen 派生 dict<string, ToolBinding>, 这里
-// 用 ToolUnitId Literal 收窄 key, 供前端编辑器强类型.
 export type ToolClassEntry = GenToolClassEntry;
-// keypoint 单元骨骼模板. 后端 ToolBinding.keypoint_schema 就位前, 前端先在
-// 此处扩展可选字段贯通配置 UI ↔ 工作台渲染. 注意: 当前 codegen ToolBinding 无此字段,
-// 故 PATCH 时后端会忽略 keypoint_schema (不落库) — 详见提交说明的「未竟部分」.
 export type ToolBinding = GenToolBinding & {
   keypoint_schema?: import("@/types").KeypointSchema | null;
 };
 export type ToolBindings = Partial<Record<ToolUnitId, ToolBinding>>;
 
-// ProjectRenderingConfig — 与后端 ProjectRenderingConfig 同形；
-// 字段 = null/undefined 表示「项目不覆盖该字段」，沿用用户级 preferences。
 export interface ProjectRenderingConfig {
   smoothImage?: boolean | null;
   cssImageFilter?: string | null;
@@ -63,12 +49,8 @@ export interface ProjectRenderingConfig {
   trackerDefaultModel?: string | null;
 }
 
-/** ProjectResponse 是生成类型 ProjectOut 的兼容导出名。 */
-// 待 codegen 重跑前手动扩 rendering_config 字段。
-// codegen 已含 preannotate_pipeline (Array<{[k]:unknown}>), Omit 后用富类型覆盖.
 export type ProjectResponse = Omit<ProjectOut, "preannotate_pipeline"> & {
   rendering_config?: ProjectRenderingConfig;
-  // 项目级「已保存的编排」(方案 A); null/缺 = 未配编排.
   preannotate_pipeline?: PipelineStagePayload[] | null;
 };
 export type ProjectStatsResponse = ProjectStats;
@@ -79,10 +61,8 @@ export type ProjectMemberRolePreviewResponse = ProjectMemberRolePreviewOut;
 export type ProjectMemberRoleChangePayload = ProjectMemberRoleChangeRequest;
 export type ProjectMemberRolePreviewPayload = ProjectMemberRolePreviewRequest;
 
-/** Fixed capability set returned by `GET /projects/{id}/access`. */
 export type ProjectCapability = NonNullable<ProjectAccessOut["capabilities"]>[number];
 
-/** @ 提及候选：项目负责人 / 平台超管 / 项目成员，`kind` 用于输入区展示标签。 */
 export type MentionCandidateResponse = MentionCandidateOut;
 
 export interface ProjectReadinessSummary {
@@ -104,32 +84,20 @@ export interface ProjectReadinessSummary {
   active_reviewer_count: number;
   activated_batch_count: number;
 }
-// 加 ml_backend_source_id (Wizard step 4 复用全局 backend), 待 codegen 重跑.
-// 加 source_project_id (从已有项目复制配置), 同样待 codegen 重跑.
 export type ProjectCreatePayload = ProjectCreate & {
   ml_backend_source_id?: string | null;
   source_project_id?: string | null;
-  // 同时复制源项目 annotation_guide + guide_assets (storage key 共享).
   copy_annotation_guide?: boolean;
-  // 从 ProjectTemplate 应用模板创建项目; 与 source_project_id 互斥.
   template_id?: string | null;
 };
-// 加 rendering_config 字段；待 codegen 重跑。
-// 加 annotation_guide / guide_assets; 待 codegen 重跑。
-// codegen 已含 preannotate_pipeline (Array<{[k]:unknown}>), Omit 后用富类型覆盖
-// 避免与 PipelineStagePayload[] 交叉时报缺索引签名。
 export type ProjectUpdatePayload = Omit<ProjectUpdate, "preannotate_pipeline"> & {
   rendering_config?: ProjectRenderingConfig | null;
   annotation_guide?: string | null;
   guide_assets?: GuideAssetEntry[] | null;
-  // 项目级 variant 偏好 (按 backend_id 分桶); 待 codegen 重跑后从 ProjectUpdate 自带.
-  // 形状: {"<backend_uuid>": {"<axis_key>": "<axis_value>", ...}, ...}
   default_variants?: Record<string, Record<string, string>> | null;
-  // 项目级「已保存的编排」(方案 A); 显式 null = 清除, 不传 = 不动.
   preannotate_pipeline?: PipelineStagePayload[] | null;
 };
 
-// 项目标注指引图片资源 entry, 与后端 guide_asset.py 同构.
 export interface GuideAssetEntry {
   key: string;
   original_name: string;
@@ -149,7 +117,6 @@ export interface GuideAssetSignedUrlResponse {
   expires_in: number;
 }
 
-// 视频项目支持 video_json、mot、kitti 和原生 JSON。
 export type ExportFormat =
   | "coco"
   | "voc"
@@ -167,7 +134,6 @@ export type ExportFormat =
   | "davis"
   | "youtube-vos"
   | "mots";
-// 多目标导出：YOLO 拆 det/obb/seg；一次导出可多选目标（voc 仅可单选）。
 export type ExportTarget =
   | "coco"
   | "yolo-det"
@@ -248,9 +214,7 @@ export interface ProjectCleanupOrphansResponse {
 export interface ProjectListParams {
   status?: string;
   search?: string;
-  /** 高级筛选 */
   type_key?: string[];
-  /** 媒体维度筛选 (image / video / lidar) */
   data_type?: string[];
   member_id?: string;
   created_from?: string;
@@ -296,10 +260,6 @@ export const projectsApi = {
   get: (id: string) => apiClient.get<ProjectResponse>(`/projects/${id}`),
   getReadiness: (id: string) => apiClient.get<ProjectReadinessSummary>(`/projects/${id}/readiness`),
 
-  /**
-   * B1 · resolved project access (platform + project role, membership version and
-   * fixed capability set).  Server authoritative; local guards are presentation.
-   */
   getAccess: (id: string, init?: RequestInit) =>
     init
       ? apiClient.get<ProjectAccessResponse>(`/projects/${id}/access`, init)
@@ -321,8 +281,6 @@ export const projectsApi = {
   cleanupOrphans: (id: string, dry_run = true) =>
     apiClient.post<ProjectCleanupOrphansResponse>(`/projects/${id}/cleanup-orphans`, { dry_run }),
 
-  // B-13 · 重命名类别 (后端原子更新 classes / classes_config / annotations.class_name)
-  // 加可选 tool_unit_id 限定工具单位; 不传时跨所有 unit 同名一起改 (兼容旧客户端).
   renameClass: (id: string, old_name: string, new_name: string, tool_unit_id?: string) =>
     apiClient.post<ProjectResponse>(`/projects/${id}/classes/rename`, {
       old_name,
@@ -332,14 +290,12 @@ export const projectsApi = {
 
   listMembers: (id: string) => apiClient.get<ProjectMemberResponse[]>(`/projects/${id}/members`),
 
-  /** 讨论区 @ 候选：项目负责人 + 平台超管 + 项目成员（按 user_id 去重）。 */
   mentionCandidates: (id: string) =>
     apiClient.get<MentionCandidateResponse[]>(`/projects/${id}/mention-candidates`),
 
   addMember: (id: string, payload: { user_id: string; role: ProjectRole }) =>
     apiClient.post<ProjectMemberResponse>(`/projects/${id}/members`, payload),
 
-  // B1 · member role change is a preview → CAS write flow (see plan §6).
   previewMemberRole: (id: string, memberId: string, payload: ProjectMemberRolePreviewPayload) =>
     apiClient.post<ProjectMemberRolePreviewResponse>(
       `/projects/${id}/members/${memberId}/role/preview`,
@@ -352,7 +308,6 @@ export const projectsApi = {
   removeMember: (id: string, memberId: string) =>
     apiClient.delete<void>(`/projects/${id}/members/${memberId}`),
 
-  // Guide images use authenticated, server-verified bytes in both directions.
   guideAssets: {
     upload: (projectId: string, file: File, init?: RequestInit) =>
       apiClient.silentPost<GuideAssetEntry>(
@@ -372,9 +327,6 @@ export const projectsApi = {
       ),
   },
 
-  // 导出异步化：POST 创建 async_job(kind=export)，返回 {job_id}。
-  // 多目标：targets 可多选，一次导出产一个 zip。不再直接 blob 下载；
-  // 产物完成后在 JobsBell 里用预签名 URL 下载。
   exportProject: (id: string, targets: ExportTarget[], opts?: ExportOptions) => {
     const includeAttr = opts?.includeAttributes !== false;
     const params = new URLSearchParams({ include_attributes: String(includeAttr) });

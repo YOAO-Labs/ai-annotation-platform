@@ -53,8 +53,6 @@ def raw_source():
 
 @pytest.fixture
 async def auxiliary_db(creation_db):
-    # creation_db owns the current auxiliary tables, provenance FKs and guards.
-    # Do not replay historical migrations over the current consumer schema.
     return creation_db
 
 
@@ -121,8 +119,6 @@ async def test_saved_identity_cannot_change_or_be_deleted(auxiliary_db, client, 
                 .values(**{field: replacement})
             )
     assert mutation.value.orig.sqlstate == "23514"
-    # DELETE is guarded separately: only the native retirement command can
-    # qualify removal; an unreferenced verified owner is not disposable.
     with pytest.raises(IntegrityError) as refusal:
         async with auxiliary_db.begin_nested():
             await auxiliary_db.execute(delete(Original).where(Original.id == owner_id))

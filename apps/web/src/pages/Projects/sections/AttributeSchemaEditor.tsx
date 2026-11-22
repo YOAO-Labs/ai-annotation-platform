@@ -1,18 +1,9 @@
-/**
- * AttributeSchemaEditor
- *
- * 从项目设置属性编辑抽出的纯受控组件：负责字段增删改 + 校验。
- * 由 ClassesSection（类别与属性合并页）和 CreateProjectWizard（向导 step）共用。
- *
- * 不在内部触发 PATCH 请求；调用方拿到 onChange 后的 fields 自行决定保存时机。
- */
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import type { AttributeField, AttributeFieldType } from "@/api/projects";
 import { AttributeOptionsEditor } from "./AttributeOptionsEditor";
 import { LABEL_CLASS } from "./formClasses";
 
-// UA-safe 表单基线 + token 化(无全局 preflight)。
 const CONTROL_CLASS =
   "box-border w-full appearance-none rounded-sm border border-border bg-muted px-2.5 py-1.5 text-sm text-foreground outline-none [font-family:inherit]";
 
@@ -32,15 +23,8 @@ export function newAttributeField(): AttributeField {
 interface Props {
   value: AttributeField[];
   onChange: (next: AttributeField[]) => void;
-  /** 空状态提示文案 */
   emptyHint?: string;
-  /** 删除前确认；返回 false 时取消删除。 */
   onConfirmDelete?: (field: AttributeField) => boolean | Promise<boolean>;
-  /**
-   * 推荐属性字段（已含完整 key/type/options，来自在线 backend 自报 schema，
-   * 调用方已排除项目已有 key）。手工建字段时一键填入，让 key 天然对齐协议（如 OCR 的
-   * language/orientation），避免取成 lang/语言 等导致落点校验漏判。空 = 不显示推荐区。
-   */
   recommendedFields?: AttributeField[];
 }
 
@@ -108,8 +92,6 @@ export function AttributeSchemaEditor({
                 value={f.type}
                 onChange={(e) => {
                   const next = e.target.value as AttributeFieldType;
-                  // style_occluded 仅在 boolean 字段上有效；切换到非 boolean 时同步清理，
-                  // 否则字段会保留 style_occluded:true 且 UI 入口消失 → 提交时被后端校验拒绝。
                   setField(
                     i,
                     next !== "boolean" ? { type: next, style_occluded: undefined } : { type: next },
@@ -243,8 +225,6 @@ export function AttributeSchemaEditor({
               >
                 <Icon name="plus" size={10} />
                 {rf.label || rf.key}
-                {/* 等宽拉丁 key 字体上沉重(无下行字 + cap 偏上), items-center 下墨迹中心比同排 CJK
-                    标签实测高 2px; 下移 2px 让两者墨迹中线对齐 (canvas 字体度量实测, 非拍脑袋)。 */}
                 <code className="translate-y-0.5 text-2xs text-muted-foreground">{rf.key}</code>
               </button>
             ))}
@@ -255,7 +235,6 @@ export function AttributeSchemaEditor({
   );
 }
 
-/** 共享校验逻辑，调用方在保存 / 进入下一步前调一次。返回错误描述或 null。*/
 export function validateAttributeFields(fields: AttributeField[]): string | null {
   const seen = new Set<string>();
   for (const f of fields) {
@@ -265,8 +244,6 @@ export function validateAttributeFields(fields: AttributeField[]): string | null
     if (f.type === "select" || f.type === "multiselect") {
       const opts = f.options ?? [];
       if (opts.length === 0) return `${f.label || f.key} 需要至少 1 个选项`;
-      // 空 value 会渲染成 <option value="">（选了等于没选）；重复 value 让两个选项无法区分。
-      // 后端 AttributeFieldOption 两者都不拦，只能在此把关。
       const seenValues = new Set<string>();
       for (const o of opts) {
         if (!o.value.trim()) return `${f.label || f.key}：选项 value 不能为空`;

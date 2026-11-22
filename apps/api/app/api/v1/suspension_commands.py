@@ -42,7 +42,6 @@ def get_suspension_commands(
 
 
 def _reject_suspension_error(error: SuspensionFailure):
-    # Admission succeeded; an intervening suspension retains the manager error.
     if error.code == "user_inactive":
         raise HTTPException(status_code=403, detail="当前账号已无管理权限") from None
     if error.code in {

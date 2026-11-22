@@ -211,7 +211,6 @@ def case(kind, *, bucket="saved-training"):
             "sha256": hashlib.sha256(source).hexdigest(),
             "size_bytes": len(source),
         }
-        # Obtain the exact unchanged redaction bytes from the same line engine.
         redactor = logs.RedactedLines((settings.training_executor_token,))
         data = "".join(
             [*redactor.feed(source), *redactor.feed(b"", final=True)]
@@ -225,7 +224,6 @@ def case(kind, *, bucket="saved-training"):
                 row, attempt, "train.log", artifact, transport=bound
             )
 
-    # Keep source identity stable while choosing only this task's bucket.
     from app.services.managed_original_retirement import managed_storage_identity
 
     row.storage_ref = {

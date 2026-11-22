@@ -395,8 +395,6 @@ async def _wait_for_backend_exit(test_engine, backend_pid: int) -> None:
 
 
 async def _finish_pending_cli_task(task: asyncio.Task) -> None:
-    # Join the bounded SQL gate before close(), including failed startup, so
-    # separate threads never race to remove the same owned container.
     await asyncio.wait_for(asyncio.shield(task), timeout=35)
 
 

@@ -134,8 +134,6 @@ class PlaybackRegistry:
 
     async def _close(self, entry):
         try:
-            # The private close task is never cancelled: callers drain it, even
-            # when repeatedly cancelled themselves. Unknown close retains quota.
             context = contextvars.copy_context()
             await asyncio.get_running_loop().run_in_executor(
                 None, context.run, entry.stage.close
@@ -447,8 +445,6 @@ class PlaybackRegistry:
                 remember(entry)
 
         for entry in entries:
-            # Retiring drops the key and every lease; a capture still running is
-            # left to its owner, which can no longer publish it.
             self._retire(entry)
         pending = asyncio.gather(
             *(self._wait_close(entry) for entry in entries), return_exceptions=True

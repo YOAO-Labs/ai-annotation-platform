@@ -158,13 +158,11 @@ async def test_patch_scene_mode_rejected_when_linked_dataset_mismatches(
     db_session.add(plain_ds)
     await db_session.commit()
 
-    # 普通项目 link 普通数据集:匹配,放行。
     await DatasetTaskCreationWorkflow(db_session).link_project(
         plain_ds.id, project.id, actor_id=user.id
     )
     await db_session.commit()
 
-    # 翻 scene_mode=True 后,已 link 的非 scene 数据集 kind 不再匹配 → 422 要求解绑。
     res = await httpx_client.patch(
         f"/api/v1/projects/{project.id}",
         json={"scene_mode": True},

@@ -217,11 +217,15 @@ class IngestWorkflow:
                             _validate_published_facts(proposal, facts)
                             await self._finish_original(target, proof)
                     except ManagedOriginalFailure as exc:
-                        if written_receipt is not None or getattr(
-                            exc, "physical_receipt", None
-                        ) is not None:
+                        if (
+                            written_receipt is not None
+                            or getattr(exc, "physical_receipt", None) is not None
+                        ):
                             await self._fail_original(
-                                target, "write", "storage_write_failed", exc,
+                                target,
+                                "write",
+                                "storage_write_failed",
+                                exc,
                                 operation=operation,
                                 receipt=written_receipt,
                             )
@@ -238,7 +242,11 @@ class IngestWorkflow:
                         )
                     except IngestEntryFailure as exc:
                         await self._fail_original(
-                            target, "write", exc.code, exc, operation=operation,
+                            target,
+                            "write",
+                            exc.code,
+                            exc,
+                            operation=operation,
                             receipt=written_receipt,
                         )
                         completions.append(_failed_completion(planned, exc.code))
@@ -247,14 +255,20 @@ class IngestWorkflow:
                         )
                     except asyncio.CancelledError as exc:
                         await self._fail_original(
-                            target, "write", "storage_write_failed", exc,
+                            target,
+                            "write",
+                            "storage_write_failed",
+                            exc,
                             operation=operation,
                             receipt=written_receipt,
                         )
                         raise
                     except Exception as exc:  # noqa: BLE001 - ZIP reader failures are per-entry.
                         await self._fail_original(
-                            target, "write", "archive_entry_read_failed", exc,
+                            target,
+                            "write",
+                            "archive_entry_read_failed",
+                            exc,
                             operation=operation,
                             receipt=written_receipt,
                         )
@@ -351,9 +365,7 @@ class IngestWorkflow:
             relative = item.key[len(prefix) :]
             if not relative:
                 continue
-            proposals.append(
-                _scan_source_entry(relative, item.key, item.size)
-            )
+            proposals.append(_scan_source_entry(relative, item.key, item.size))
             listed.append((item.key, item.etag, item.size))
             if len(proposals) == INGEST_BATCH_SIZE:
                 batch = await self._scan_batch(
@@ -477,11 +489,16 @@ class IngestWorkflow:
                         )
                     await self._finish_original(target, proof)
             except ManagedOriginalFailure as exc:
-                if written_receipt is not None or getattr(
-                    exc, "physical_receipt", None
-                ) is not None:
+                if (
+                    written_receipt is not None
+                    or getattr(exc, "physical_receipt", None) is not None
+                ):
                     await self._fail_original(
-                        target, "write", "source_read_failed", exc, operation=operation,
+                        target,
+                        "write",
+                        "source_read_failed",
+                        exc,
+                        operation=operation,
                         receipt=written_receipt,
                     )
                 logger.info(
@@ -492,19 +509,31 @@ class IngestWorkflow:
                 completions.append(_failed_completion(planned, "source_read_failed"))
             except IngestEntryFailure as exc:
                 await self._fail_original(
-                    target, "write", exc.code, exc, operation=operation,
+                    target,
+                    "write",
+                    exc.code,
+                    exc,
+                    operation=operation,
                     receipt=written_receipt,
                 )
                 completions.append(_failed_completion(planned, exc.code))
             except asyncio.CancelledError as exc:
                 await self._fail_original(
-                    target, "adopt", "source_read_failed", exc, operation=operation,
+                    target,
+                    "adopt",
+                    "source_read_failed",
+                    exc,
+                    operation=operation,
                     receipt=written_receipt,
                 )
                 raise
             except Exception as exc:  # noqa: BLE001 - per-entry storage failures
                 await self._fail_original(
-                    target, "write", "source_read_failed", exc, operation=operation,
+                    target,
+                    "write",
+                    "source_read_failed",
+                    exc,
+                    operation=operation,
                     receipt=written_receipt,
                 )
                 completions.append(_failed_completion(planned, "source_read_failed"))
@@ -561,7 +590,9 @@ class IngestWorkflow:
             target.creation_id,
             "unknown"
             if not evidence["physical_settled"]
-            else "conflict" if getattr(exc, "outcome", None) == "conflict" else "failed",
+            else "conflict"
+            if getattr(exc, "outcome", None) == "conflict"
+            else "failed",
             _safe_error_code("ingest_" + code),
             evidence,
         )
@@ -593,8 +624,6 @@ class IngestWorkflow:
                 or (planned.source_key is None and planned.publication_id is None)
             ):
                 raise IngestFailure("invalid_response")
-            # A legacy scan adopts bytes without publishing them; its accepted
-            # entry owns the stable image-admission namespace instead.
             try:
                 await self._image_admission.admit_dataset_item(
                     item_id=planned.item_id,
@@ -970,9 +999,7 @@ async def _zip_source_entry(archive: SafeZipArchive, entry) -> IngestSourceEntry
     )
 
 
-def _scan_source_entry(
-    relative: str, key: str, size: int | None
-) -> IngestSourceEntry:
+def _scan_source_entry(relative: str, key: str, size: int | None) -> IngestSourceEntry:
     basename = PurePosixPath(relative).name
     content_type = mimetypes.guess_type(basename)[0] or "application/octet-stream"
     extension = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""

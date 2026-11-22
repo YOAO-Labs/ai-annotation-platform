@@ -1,15 +1,3 @@
-// 从 WorkbenchShell 拆出的标注 mutation 接线层。
-//
-// 集中管理 7 个 handler：
-//  - optimisticEnqueueCreate（共用 fallback：tmpId + cache + 离线队列）
-//  - handlePickPendingClass（bbox create）
-//  - submitPolygon（polygon create）
-//  - handleDeleteBox
-//  - handleCommitMove / handleCommitResize / handleCommitPolygonGeometry
-// 以及 polygon 草稿状态 + PolygonDraftHandle。
-//
-// 不在这里管的：键盘 dispatch（键位在 useWorkbenchHotkeys）、history undo/redo 本身。
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import type { ToolBindings } from "@/api/projects";
@@ -39,7 +27,7 @@ import type { useAnnotationHistory } from "../state/useAnnotationHistory";
 import type { AnnotationPayload, AnnotationUpdatePayload } from "@/api/tasks";
 import { tasksApi } from "@/api/tasks";
 import type { AnnotationResponse, RotatedBboxGeometry } from "@/types";
-import { isCurrentAuthOwner } from "@/stores/authStore";
+import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 
 type Geom = { x: number; y: number; w: number; h: number };
 
@@ -76,6 +64,7 @@ export interface AnnotationMutations {
 
 export interface UseWorkbenchAnnotationActionsArgs {
   taskId: string | undefined;
+  videoSegmentId?: string | null;
   projectId: string | undefined;
   meUserId: string | null | undefined;
   queryClient: QueryClient;
@@ -85,25 +74,16 @@ export interface UseWorkbenchAnnotationActionsArgs {
   recordRecentClass: (cls: string) => void;
   mutations: AnnotationMutations;
   enqueueOnError: (err: unknown, fallback: () => void) => void;
-  /** 由 shell 维护的当前 annotations ref（避免 stale closure）。*/
   annotationsRef: { current: AnnotationResponse[] };
-  /** 任务已锁定（review/completed），所有写动作直接 short-circuit + toast。 */
   isLocked?: boolean;
-  /** 当前 keypoint 单元 schema 节点数；放满即自动提交一个实例。0 = 未配置 schema。 */
   keypointNodeCount?: number;
-  /** 当前工具自身无类别时直接以 unknown 落库，不打开空类别弹层。 */
   activeToolHasOwnClasses?: boolean;
   toolBindings?: ToolBindings;
   createAnnotationAsync?: (payload: AnnotationPayload) => Promise<AnnotationResponse>;
-  /**
-   * 同步登记提交在途几何 override, 桥接「setDrag(null)」与「onMutate 微任务
-   * 回填 cache」之间的一帧空窗, 防松手闪回原尺寸。见 usePendingGeom。
-   */
   markPendingGeom?: (id: string, geom: Geometry) => void;
 }
 
 export interface UseWorkbenchAnnotationActionsReturn {
-  /** 共用 create fallback：分配 tmpId → cache → history → enqueue。*/
   optimisticEnqueueCreate: (payload: AnnotationPayload) => Promise<void>;
   createBboxWithClass: (geom: Geom, cls: string) => boolean;
   beginBboxDrawing: (geom: Geom, cls?: string) => boolean;
@@ -111,9 +91,7 @@ export interface UseWorkbenchAnnotationActionsReturn {
   changeManualAttributes: (id: string, next: Record<string, unknown>) => void;
   cancelManualDrawing: () => boolean;
   hasManualDraft: boolean;
-  /** 旋转框：由轴对齐矩形生成 angle=0 草稿，再统一选择类别。 */
   createRotatedBbox: (geom: Geom) => boolean;
-  /** 旋转框: 旋转 / 缩放手柄落定时更新 OBB geometry (走 update mutation + history)。 */
   handleCommitRotateBbox: (
     id: string,
     before: RotatedBboxGeometry,
@@ -121,7 +99,6 @@ export interface UseWorkbenchAnnotationActionsReturn {
   ) => void;
   handlePickPendingClass: (cls: string) => void;
   submitPolygon: (points: [number, number][]) => void;
-  /** 提交折线（不闭合，≥2 顶点）。*/
   submitPolyline: (points: [number, number][]) => void;
   handleDeleteBox: (id: string) => void;
   handleCommitMove: (
@@ -132,27 +109,22 @@ export interface UseWorkbenchAnnotationActionsReturn {
   ) => void;
   handleCommitResize: (id: string, before: Geom, after: Geom) => void;
   handleCommitPolygonGeometry: (id: string, before: Pt[], after: Pt[]) => void;
-  /** keypoint 节点几何/可见性变更。 */
   handleCommitKeypointGeometry: (id: string, before: Keypoint[], after: Keypoint[]) => void;
-  /** shape 状态位 (z_order / is_locked / is_hidden) 字段级 PATCH。*/
   handlePatchShapeFlag: (
     id: string,
     flag: "z_order" | "is_locked" | "is_hidden",
     value: number | boolean,
   ) => void;
-  /** polygon 草稿点集（由 hotkeys hook 借用一份引用做 Enter/Esc/Backspace 处理）。*/
   polygonDraftPoints: [number, number][];
   setPolygonDraftPoints: React.Dispatch<React.SetStateAction<[number, number][]>>;
-  /** 给 ImageStage 用的 PolygonDraftHandle，已 memoize。*/
   polygonHandle: PolygonDraftHandle;
-  /** 折线草稿 handle（closed:false，复用同一 polygonDraftPoints）。*/
   polylineHandle: PolygonDraftHandle;
-  /** 给 ImageStage 用的 KeypointDraftHandle，已 memoize。*/
   keypointHandle: KeypointDraftHandle;
 }
 
 export function useWorkbenchAnnotationActions({
   taskId,
+  videoSegmentId,
   projectId,
   meUserId,
   queryClient,
@@ -171,6 +143,7 @@ export function useWorkbenchAnnotationActions({
   markPendingGeom,
 }: UseWorkbenchAnnotationActionsArgs): UseWorkbenchAnnotationActionsReturn {
   const setQ = queryClient.setQueryData.bind(queryClient);
+  const sessionId = useAuthStore((state) => state.sessionId);
   const enqueueOwnedDurably = useCallback(
     (op: OfflineOp) => {
       if (!meUserId) return Promise.reject(new Error("当前账号已退出，无法接收离线操作"));
@@ -179,8 +152,8 @@ export function useWorkbenchAnnotationActions({
     [meUserId, projectId],
   );
   const owner = useMemo(
-    () => ({ taskId, projectId, meUserId, isLocked }),
-    [taskId, projectId, meUserId, isLocked],
+    () => ({ taskId, projectId, meUserId, isLocked, sessionId, videoSegmentId }),
+    [taskId, projectId, meUserId, isLocked, sessionId, videoSegmentId],
   );
   const currentOwner = useRef(owner);
   currentOwner.current = owner;
@@ -208,7 +181,6 @@ export function useWorkbenchAnnotationActions({
       s.setPendingDrawing(null);
   }, [s, taskId]);
 
-  /** 锁定时 short-circuit；返回 true 表示已被拦截。 */
   const blockIfLocked = useCallback((): boolean => {
     if (isLocked) {
       pushToast({ msg: "任务已锁定", sub: "撤回提交或继续编辑后再操作", kind: "warning" });
@@ -217,7 +189,6 @@ export function useWorkbenchAnnotationActions({
     return false;
   }, [isLocked, pushToast]);
 
-  /** 共用：写入 annotations cache 中的某条 geometry（bbox 移动 / resize / polygon 编辑都用）。 */
   const optimisticUpdateGeom = useCallback(
     (id: string, afterG: Record<string, unknown>) => {
       if (!taskId || !meUserId || !isCurrentAuthOwner(meUserId) || currentOwner.current !== owner)
@@ -231,7 +202,6 @@ export function useWorkbenchAnnotationActions({
     [meUserId, taskId, setQ, owner],
   );
 
-  /** 共用：从 annotations cache 中删除一条（delete fallback）。 */
   const optimisticDelete = useCallback(
     (id: string) => {
       if (
@@ -248,16 +218,19 @@ export function useWorkbenchAnnotationActions({
     [taskId, setQ, owner],
   );
 
-  /** create 失败兜底（共用 bbox / polygon）。*/
   const optimisticEnqueueCreate = useCallback(
     async (payload: AnnotationPayload) => {
       if (!taskId || !meUserId) throw new Error("当前账号无法接收离线操作");
       const tmpId = `tmp_${randomId()}`;
+      const scopedPayload = videoSegmentId
+        ? { ...payload, video_segment_id: videoSegmentId }
+        : payload;
       const optimistic: AnnotationResponse = {
         id: tmpId,
         task_id: taskId,
         project_id: projectId ?? null,
         user_id: meUserId ?? null,
+        video_segment_id: videoSegmentId ?? null,
         source: "manual",
         annotation_type: payload.annotation_type ?? "bbox",
         class_name: payload.class_name,
@@ -278,15 +251,35 @@ export function useWorkbenchAnnotationActions({
         id: payload.client_request_id ?? randomId(),
         tmpId,
         taskId,
-        payload,
+        videoSegmentId,
+        payload: scopedPayload,
         ts: Date.now(),
       });
-      if (currentOwner.current !== owner || !isCurrentAuthOwner(meUserId)) return;
-      setQ<AnnotationResponse[]>(["annotations", taskId], (prev) => [...(prev ?? []), optimistic]);
+      history.push({ kind: "create", annotationId: tmpId, payload: scopedPayload });
+      if (
+        currentOwner.current !== owner ||
+        !isCurrentAuthOwner(meUserId) ||
+        useAuthStore.getState().sessionId !== sessionId
+      )
+        return;
+      const key = videoSegmentId
+        ? ["annotations", taskId, videoSegmentId]
+        : ["annotations", taskId];
+      setQ<AnnotationResponse[]>(key, (prev) => [...(prev ?? []), optimistic]);
       s.setSelectedId(tmpId);
-      history.push({ kind: "create", annotationId: tmpId, payload });
     },
-    [taskId, projectId, meUserId, setQ, s, history, owner, enqueueOwnedDurably],
+    [
+      taskId,
+      projectId,
+      meUserId,
+      setQ,
+      s,
+      history,
+      owner,
+      enqueueOwnedDurably,
+      sessionId,
+      videoSegmentId,
+    ],
   );
 
   const submitManual = useCallback(
@@ -350,8 +343,6 @@ export function useWorkbenchAnnotationActions({
         publishManualDraft(null);
       };
       const failed = async (err: unknown) => {
-        // Business rejections keep the draft; transport failures and temporary server failures
-        // are accepted only after the offline queue durably stores the operation.
         if (isOfflineCandidate(err)) {
           const tmpId = `tmp_${randomId()}`;
           try {
@@ -616,7 +607,6 @@ export function useWorkbenchAnnotationActions({
     [createGeometryWithClass],
   );
 
-  // ── polygon / polyline 草稿（共用顶点累积 state）──────────────────────
   const {
     points: polygonDraftPoints,
     setPoints: setPolygonDraftPoints,
@@ -626,7 +616,6 @@ export function useWorkbenchAnnotationActions({
   const polygonBeforeInput = useRef<((event: KeyboardEvent) => boolean) | null>(null);
   const currentTool = useRef(s.tool);
   currentTool.current = s.tool;
-  // Each tool owns its unfinished vertices, including Polygon ↔ Polyline switches.
   useEffect(() => {
     setPolygonDraftPoints([]);
   }, [s.tool, setPolygonDraftPoints]);
@@ -725,7 +714,6 @@ export function useWorkbenchAnnotationActions({
     ],
   );
 
-  // ── polyline 提交 ──────────────────────────────────────
   const submitPolyline = useCallback(
     (points: [number, number][]) => {
       if (blockIfLocked()) return;
@@ -770,7 +758,6 @@ export function useWorkbenchAnnotationActions({
     [polygonDraftPoints, submitPolyline, isLocked, setPolygonDraftPoints],
   );
 
-  // ── keypoint 草稿 ──────────────────────────────────────────
   const [keypointDraftPoints, setKeypointDraftPoints] = useState<Keypoint[]>([]);
   useEffect(() => {
     if (!isLocked) return;
@@ -783,7 +770,6 @@ export function useWorkbenchAnnotationActions({
   useEffect(() => {
     setKeypointDraftPoints([]);
   }, [taskId]);
-  // schema 节点数变化 (切类别 → 不同 schema) 时清空半成品草稿。
   useEffect(() => {
     setKeypointDraftPoints([]);
   }, [keypointNodeCount]);
@@ -824,7 +810,6 @@ export function useWorkbenchAnnotationActions({
     ],
   );
 
-  // 放满 nodeCount 个点 → 自动提交一个实例。
   useEffect(() => {
     if (keypointNodeCount > 0 && keypointDraftPoints.length >= keypointNodeCount) {
       submitKeypoint(keypointDraftPoints.slice(0, keypointNodeCount));
@@ -876,7 +861,6 @@ export function useWorkbenchAnnotationActions({
       const beforeG = keypointGeom(before);
       const afterG = keypointGeom(after);
       const payload = { geometry: afterG };
-      // 见 usePendingGeom: 同步 mark 目标几何以桥接一帧闪回。
       markPendingGeom?.(id, afterG);
       mutations.update.mutate(
         { annotationId: id, payload },
@@ -935,8 +919,6 @@ export function useWorkbenchAnnotationActions({
     ],
   );
 
-  // ── handlers ───────────────────────────────────────────────────────
-
   const createBboxWithClass = useCallback(
     (geom: Geom, cls: string): boolean => {
       if (s.tool === "box") return beginBboxDrawing(geom, cls);
@@ -946,13 +928,11 @@ export function useWorkbenchAnnotationActions({
       const payload: AnnotationPayload = {
         client_request_id: randomId(),
         annotation_type: "bbox",
-        // 工具维度: bbox / smart-box / magic-box 各自映射的 unit.
         tool_unit_id: toolUnitForTool(s.tool),
         class_name: cls,
         geometry: bboxGeom(geom),
         confidence: 1,
       };
-      // unknown 是「画完未选类」的兜底，不应污染 activeClass / 最近使用类。
       if (!isUnknown) {
         s.setActiveClass(cls);
         recordRecentClass(cls);
@@ -1002,7 +982,6 @@ export function useWorkbenchAnnotationActions({
     [createGeometryWithClass],
   );
 
-  // 旋转框: 轴对齐矩形 → angle=0 的 rotated_bbox，完成后统一弹类别选择。
   const createRotatedBbox = useCallback(
     (geom: Geom): boolean => {
       return beginManualDrawing({ kind: "rotated_bbox", geom });
@@ -1010,7 +989,6 @@ export function useWorkbenchAnnotationActions({
     [beginManualDrawing],
   );
 
-  // 旋转框: 旋转 / 缩放手柄落定时更新 rotated_bbox geometry。
   const handleCommitRotateBbox = useCallback(
     (id: string, before: RotatedBboxGeometry, after: RotatedBboxGeometry) => {
       if (blockIfLocked()) return;
@@ -1024,7 +1002,6 @@ export function useWorkbenchAnnotationActions({
       )
         return;
       const payload = { geometry: after };
-      // 见 usePendingGeom。
       markPendingGeom?.(id, after);
       mutations.update.mutate(
         { annotationId: id, payload },
@@ -1203,8 +1180,6 @@ export function useWorkbenchAnnotationActions({
       if (!taskId) return;
       const beforeG = bboxGeom(before);
       const afterG = bboxGeom(after);
-      // Alt 拖父联动子: 父 + 子的几何更新作为一个 batch 命令进 history (单次 undo 全回退)。
-      // 各更新独立 mutate; 失败走同款离线兜底 (乐观写 + enqueue), 但 history 只 pushBatch 一次 (不逐条 push)。
       if (childMoves && childMoves.length > 0) {
         const commands: {
           kind: "update";
@@ -1226,57 +1201,56 @@ export function useWorkbenchAnnotationActions({
           })),
         ];
         let remaining = commands.length;
-        let accepted = 0;
-        const finish = (didAccept: boolean) => {
-          if (
-            currentOwner.current !== owner ||
-            !owner.meUserId ||
-            !isCurrentAuthOwner(owner.meUserId)
-          )
-            return;
-          if (didAccept) accepted += 1;
+        const accepted = new Set<string>();
+        const finish = (annotationId: string, didAccept: boolean) => {
+          if (didAccept) accepted.add(annotationId);
           remaining -= 1;
-          if (remaining === 0 && accepted === commands.length) history.pushBatch(commands);
+          if (remaining !== 0) return;
+          history.pushBatch(commands.filter((command) => accepted.has(command.annotationId)));
+          if (
+            currentOwner.current === owner &&
+            owner.meUserId &&
+            isCurrentAuthOwner(owner.meUserId)
+          )
+            pushToast({
+              msg: `已移动 ${accepted.size}/${commands.length} 个标注`,
+              kind: accepted.size === commands.length ? "success" : "warning",
+            });
         };
         const fire = (annotationId: string, geometry: Geometry) => {
           const p = { geometry };
-          // 见 usePendingGeom。
           markPendingGeom?.(annotationId, geometry);
           mutations.update.mutate(
             { annotationId, payload: p },
             {
-              onSuccess: () => finish(true),
-              onError: (err) =>
-                isOfflineCandidate(err)
-                  ? enqueueOnError(err, async () => {
-                      await enqueueOwnedDurably({
-                        kind: "update",
-                        id: randomId(),
-                        taskId,
-                        annotationId,
-                        payload: p,
-                        ts: Date.now(),
-                      });
-                      if (
-                        currentOwner.current !== owner ||
-                        !owner.meUserId ||
-                        !isCurrentAuthOwner(owner.meUserId)
-                      )
-                        return;
-                      optimisticUpdateGeom(annotationId, geometry);
-                      finish(true);
-                    })
-                  : (enqueueOnError(err, () => undefined), finish(false)),
+              onSuccess: () => finish(annotationId, true),
+              onError: async (err) => {
+                let didAccept = false;
+                try {
+                  await enqueueOnError(err, async () => {
+                    await enqueueOwnedDurably({
+                      kind: "update",
+                      id: randomId(),
+                      taskId,
+                      annotationId,
+                      payload: p,
+                      ts: Date.now(),
+                    });
+                    didAccept = true;
+                    optimisticUpdateGeom(annotationId, geometry);
+                  });
+                } finally {
+                  finish(annotationId, didAccept);
+                }
+              },
             },
           );
         };
         fire(id, afterG);
         for (const c of childMoves) fire(c.id, c.after);
-        pushToast({ msg: `联动搬动 ${childMoves.length} 个子框`, kind: "" });
         return;
       }
       const payload = { geometry: afterG };
-      // 见 usePendingGeom。
       markPendingGeom?.(id, afterG);
       mutations.update.mutate(
         { annotationId: id, payload },
@@ -1347,7 +1321,6 @@ export function useWorkbenchAnnotationActions({
       const beforeG = bboxGeom(before);
       const afterG = bboxGeom(after);
       const payload = { geometry: afterG };
-      // 见 usePendingGeom。
       markPendingGeom?.(id, afterG);
       mutations.update.mutate(
         { annotationId: id, payload },
@@ -1419,7 +1392,6 @@ export function useWorkbenchAnnotationActions({
         });
         return;
       }
-      // 折线 (polyline) 复用同一顶点编辑路径，但不闭合 → 跳过 polygon 专属校验。
       const isPolyline = target?.geometry.type === "polyline";
       if (isPolyline) {
         if (after.length < 2) {
@@ -1440,7 +1412,6 @@ export function useWorkbenchAnnotationActions({
       const beforeG = isPolyline ? polylineGeom(before) : polygonGeom(before);
       const afterG = isPolyline ? polylineGeom(after) : polygonGeom(after);
       const payload = { geometry: afterG };
-      // 见 usePendingGeom。
       markPendingGeom?.(id, afterG);
       mutations.update.mutate(
         { annotationId: id, payload },
@@ -1501,9 +1472,6 @@ export function useWorkbenchAnnotationActions({
     ],
   );
 
-  // shape 状态位字段级 PATCH。
-  // `flag` ∈ { z_order, is_locked, is_hidden }；value 直传。
-  // 失败时仍 enqueue 离线 op（与 handleCommitMove 一致）。
   const handlePatchShapeFlag = useCallback(
     (id: string, flag: "z_order" | "is_locked" | "is_hidden", value: number | boolean) => {
       if (blockIfLocked()) return;

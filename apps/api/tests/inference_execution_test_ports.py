@@ -103,8 +103,6 @@ class FakeModelExecutionPort:
                 endpoint_sha256="0" * 64,
             ),
             observation=ModelExecutionObservation(
-                # The public observation carries the selected registry identity as
-                # text; provenance keeps the UUID form.
                 backend_id=str(actual_registry_id),
                 operation="predict"
                 if operation.operation == "batch_predict"

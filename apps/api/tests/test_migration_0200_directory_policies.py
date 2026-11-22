@@ -90,7 +90,6 @@ async def test_existing_references_backfill_and_prevent_downgrade(
         )
         with pytest.raises(RuntimeError, match="Retain directory"):
             migration.downgrade()
-        # Explicitly discard only this disposable test's newer ledger to model 0199.
         sync.execute(
             text("ALTER TABLE dataset_source_items DISABLE TRIGGER source_head_guard")
         )
@@ -104,9 +103,6 @@ async def test_existing_references_backfill_and_prevent_downgrade(
         sync.execute(
             text("ALTER TABLE dataset_source_items ENABLE TRIGGER source_head_guard")
         )
-        # Later migrations are additive for these objects. Rolling the shared
-        # schema back would be blocked by facts other tests legitimately retain,
-        # so round-trip only this revision's own objects.
         sync.execute(text("DELETE FROM dataset_source_items"))
         migration.downgrade()
         migration.upgrade()

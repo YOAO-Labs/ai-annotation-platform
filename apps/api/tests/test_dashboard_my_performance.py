@@ -78,7 +78,6 @@ async def test_my_performance_zeros_when_no_data(httpx_client, annotator):
     assert len(data["trend_throughput"]) == 4
     assert len(data["team_trend_throughput"]) == 4
     assert data["duration_histogram"] == []
-    # 没有样本时，质量归因返回空列表与 None。
     assert data["reject_reason_breakdown"] == []
     assert data["class_distribution"] == []
     assert data["first_pass_yield"] is None
@@ -106,7 +105,6 @@ async def test_my_performance_counts_own_throughput(
     assert resp.status_code == 200
     data = resp.json()
     assert data["throughput"] == 3
-    # 本周是趋势最后一个点
     assert data["trend_throughput"][-1] == 3
     assert data["user_id"] == str(ann_user.id)
 
@@ -130,7 +128,6 @@ async def test_my_performance_is_self_scoped(
         headers={"Authorization": f"Bearer {admin_token}"},
     )
     assert resp.status_code == 200
-    # admin 自己没有标注产出
     assert resp.json()["throughput"] == 0
 
 
@@ -144,7 +141,6 @@ async def test_my_performance_quality_attribution(
     proj = await _seed_project(db_session, admin_user.id)
     now = datetime.now(timezone.utc)
 
-    # 类别分布:car×2, person×1
     for cls in ("car", "car", "person"):
         task = await _seed_task(db_session, proj.id)
         db_session.add(
@@ -158,7 +154,6 @@ async def test_my_performance_quality_attribution(
                 created_at=now,
             )
         )
-    # 首过率:3 提交(2 干净 + 1 reopen=1) → 2/3;其中 reopen 那条带 reject 原因
     for reopened, reason in [(0, None), (0, None), (1, "missing")]:
         t = await _seed_task(db_session, proj.id)
         t.assignee_id = ann_user.id
@@ -175,7 +170,7 @@ async def test_my_performance_quality_attribution(
     data = resp.json()
     classes = {c["class_name"]: c["count"] for c in data["class_distribution"]}
     assert classes == {"car": 2, "person": 1}
-    assert data["first_pass_yield"] == 0.667  # 2/3 round 3
+    assert data["first_pass_yield"] == 0.667
     reasons = {r["reason_type"]: r["count"] for r in data["reject_reason_breakdown"]}
     assert reasons == {"missing": 1}
 

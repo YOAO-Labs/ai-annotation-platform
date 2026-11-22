@@ -265,7 +265,6 @@ describe("AIPredictionPopover phases", () => {
         {...props}
         aiModel="Next model"
         cfg={config({ prompt: "next prompt" })}
-        isVariantWarm={false}
       />,
     );
     expect(screen.getByTestId("ai-request-summary")).toHaveTextContent("Original model");
@@ -392,6 +391,23 @@ describe("AIPredictionPopover phases", () => {
     expect(screen.getByTestId("ai-request-progress")).toHaveTextContent("尚无可用进度");
     expect(screen.queryByRole("progressbar")).toBeNull();
     expect(screen.getByTestId("ai-prediction-primary-action")).toBeDisabled();
+  });
+
+  it.each([
+    ["submitting", "提交中…"],
+    ["accepted", "已受理，等待作业状态"],
+    ["queued", "排队中"],
+  ] as const)("shows observed dispatch state %s, not model residency", (dispatchState, label) => {
+    render(
+      <AIPredictionPopover
+        {...popoverProps({ request: runningRequest({ dispatchState, progressPct: 0 }) })}
+      />,
+    );
+    expect(screen.getByTestId("ai-request-progress")).toHaveTextContent(label);
+    expect(screen.getByTestId("ai-request-progress")).not.toHaveTextContent(
+      /加载模型|推理正在进行/,
+    );
+    expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
   it("respects cancellation state and ignores a stale compatibility running flag", () => {
@@ -568,7 +584,6 @@ describe("AIInspectorPanel selected candidate review", () => {
       screen.getByTestId("review-dock-tab"),
       screen.getByTestId("review-editable"),
     ]) {
-      // jsdom does not expose isContentEditable, so model the browser property for this target.
       if (target.hasAttribute("contenteditable")) {
         Object.defineProperty(target, "isContentEditable", { configurable: true, value: true });
       }

@@ -1,8 +1,3 @@
--- Grant a Labeling core read LOGIN only fixed row locks and public projections.
--- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v labeling_owner=labeling_code -v core_read_role=yoao_labeling_core_read_client \
---   -f infra/docker/labeling-core-read-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

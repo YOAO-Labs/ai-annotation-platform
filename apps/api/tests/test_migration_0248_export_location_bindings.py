@@ -82,7 +82,6 @@ async def test_saved_schema2_facts_refuse_downgrade_even_after_switch_back(
     db, location, _, binding = external_db
     if kind == "zip":
         output = await _zip(db)
-        # Allocate the schema2 owner before insertion in a separate new candidate.
         values = {
             column.name: deepcopy(getattr(output, column.name))
             for column in ExportOutput.__table__.columns

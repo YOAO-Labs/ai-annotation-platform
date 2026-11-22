@@ -78,8 +78,6 @@ async def world(db_session, super_admin):
     await db_session.flush()
     members = []
     for index in range(2):
-        # Source facts are registered; no sentinel bytes are presented as a
-        # decoded video or passed to a physical reader in this selection test.
         raw = f"selection metadata only {index}".encode()
         item = DatasetItem(
             id=uuid.uuid4(),

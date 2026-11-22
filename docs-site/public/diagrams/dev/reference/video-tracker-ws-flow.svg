@@ -7,22 +7,18 @@
 <text x="44" y="52" font-family="Virgil, Segoe UI Emoji" font-size="28px" fill="#1e1e1e" text-anchor="start" style="white-space:pre" direction="ltr">Video tracker WebSocket event lifecycle</text>
 <text x="44" y="80" font-family="Virgil, Segoe UI Emoji" font-size="15px" fill="#64748b" text-anchor="start" style="white-space:pre" direction="ltr">Endpoint: /ws/video-tracker-jobs/{job_id} · Channel: video-tracker-job:{job_id}</text>
 
-<!-- Start Dot -->
 <ellipse cx="60" cy="282" rx="14" ry="14" fill="#1e1e1e" stroke="#1e1e1e" stroke-width="2"/>
 <path d="M 74 282 L 130 282" fill="none" stroke="#2563eb" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="128,276 138,282 128,288" fill="#2563eb"/>
 <text x="60" y="258" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#64748b" text-anchor="start">JWT 认证连接</text>
 
-<!-- job_started -->
 <rect x="130" y="240" width="200" height="85" rx="16" fill="#dbeafe" stroke="#2563eb" stroke-width="2.4"/>
 <text x="230" y="278" font-family="Virgil, Segoe UI Emoji" font-size="22px" fill="#2563eb" text-anchor="middle">job_started</text>
 <text x="230" y="304" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#1d4ed8" text-anchor="middle">任务初始化 (一次)</text>
 
-<!-- started -> processing -->
 <path d="M 330 282 L 430 282" fill="none" stroke="#475569" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="428,276 438,282 428,288" fill="#475569"/>
 
-<!-- processing container -->
 <rect x="430" y="180" width="270" height="200" rx="16" fill="#f8fafc" stroke="#475569" stroke-width="2" stroke-dasharray="8 6"/>
 <text x="565" y="215" font-family="Virgil, Segoe UI Emoji" font-size="20px" fill="#475569" text-anchor="middle">processing 阶段</text>
 
@@ -31,88 +27,72 @@
 <text x="565" y="292" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#2563eb" text-anchor="middle">↻ frame_result (逐帧增量)</text>
 <text x="565" y="318" font-family="Virgil, Segoe UI Emoji" font-size="13px" fill="#7c3aed" text-anchor="middle">↻ job_progress (窗口汇报)</text>
 
-<!-- processing -> job_completed -->
 <path d="M 700 230 L 800 190" fill="none" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="796,183 808,187 801,196" fill="#16a34a"/>
 <text x="735" y="195" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#16a34a" text-anchor="middle">暂存候选</text>
 
-<!-- job_completed -->
 <rect x="800" y="150" width="210" height="80" rx="14" fill="#dcfce7" stroke="#16a34a" stroke-width="2.2"/>
 <text x="905" y="186" font-family="Virgil, Segoe UI Emoji" font-size="20px" fill="#16a34a" text-anchor="middle">job_completed</text>
 <text x="905" y="210" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#15803d" text-anchor="middle">候选暂存 · 待用户审阅</text>
 
-<!-- processing -> job_failed -->
 <path d="M 700 282 L 800 282" fill="none" stroke="#dc2626" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="798,276 808,282 798,288" fill="#dc2626"/>
 <text x="750" y="275" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#dc2626" text-anchor="middle">出错</text>
 
-<!-- job_failed -->
 <rect x="800" y="245" width="210" height="80" rx="14" fill="#fee2e2" stroke="#dc2626" stroke-width="2.2"/>
 <text x="905" y="281" font-family="Virgil, Segoe UI Emoji" font-size="20px" fill="#dc2626" text-anchor="middle">job_failed</text>
 <text x="905" y="305" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#b91c1c" text-anchor="middle">携带 error · 推理终止</text>
 
-<!-- processing -> job_cancelled -->
 <path d="M 700 330 L 800 380" fill="none" stroke="#475569" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="798,374 808,384 794,385" fill="#475569"/>
 <text x="735" y="370" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#475569" text-anchor="middle">DELETE 请求</text>
 
-<!-- job_cancelled -->
 <rect x="800" y="340" width="210" height="80" rx="14" fill="#f1f5f9" stroke="#475569" stroke-width="2.2"/>
 <text x="905" y="376" font-family="Virgil, Segoe UI Emoji" font-size="20px" fill="#475569" text-anchor="middle">job_cancelled</text>
 <text x="905" y="400" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#334155" text-anchor="middle">用户取消 / 中断</text>
 
-<!-- job_completed -> review -->
 <path d="M 1010 190 L 1100 190" fill="none" stroke="#7c3aed" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="1098,184 1108,190 1098,196" fill="#7c3aed"/>
 <text x="1055" y="180" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#7c3aed" text-anchor="middle">GET preview</text>
 
-<!-- job_cancelled (with staged) -> review -->
 <path d="M 1010 380 Q 1060 380 1120 235" fill="none" stroke="#7c3aed" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="6 4"/>
 <polygon points="1114,238 1123,228 1126,242" fill="#7c3aed"/>
 <text x="1065" y="330" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#7c3aed" text-anchor="middle">有部分候选暂存</text>
 
-<!-- review state -->
 <rect x="1100" y="150" width="220" height="80" rx="14" fill="#ede9fe" stroke="#7c3aed" stroke-width="2.2"/>
 <text x="1210" y="186" font-family="Virgil, Segoe UI Emoji" font-size="22px" fill="#7c3aed" text-anchor="middle">review 质检审阅</text>
 <text x="1210" y="210" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#5b21b6" text-anchor="middle">人工逐段/逐对象核对</text>
 
-<!-- review -> partially reviewed -->
 <path d="M 1170 230 L 1170 290" fill="none" stroke="#d97706" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="1164,288 1170,298 1176,288" fill="#d97706"/>
 <text x="1110" y="265" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#d97706" text-anchor="middle">决定子集仍有未决</text>
 
-<!-- partially reviewed -> review -->
 <path d="M 1250 290 L 1250 230" fill="none" stroke="#7c3aed" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="1244,232 1250,222 1256,232" fill="#7c3aed"/>
 <text x="1285" y="265" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#7c3aed" text-anchor="middle">重拉 preview</text>
 
-<!-- partially reviewed box -->
 <rect x="1100" y="290" width="220" height="80" rx="14" fill="#fef3c7" stroke="#d97706" stroke-width="2.2"/>
 <text x="1210" y="326" font-family="Virgil, Segoe UI Emoji" font-size="18px" fill="#d97706" text-anchor="middle">job_partially_reviewed</text>
 <text x="1210" y="350" font-family="Virgil, Segoe UI Emoji" font-size="12px" fill="#b45309" text-anchor="middle">局部采纳 · 留存未决区间</text>
 
-<!-- review -> accepted &amp; discarded -->
 <path d="M 1320 175 L 1380 145" fill="none" stroke="#16a34a" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="1378,138 1388,141 1382,151" fill="#16a34a"/>
 
 <path d="M 1320 205 L 1380 235" fill="none" stroke="#dc2626" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
 <polygon points="1382,229 1388,239 1378,242" fill="#dc2626"/>
 
-<!-- accepted / discarded terminal boxes -->
 <rect x="1380" y="115" width="100" height="55" rx="10" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
 <text x="1430" y="147" font-family="Virgil, Segoe UI Emoji" font-size="15px" fill="#16a34a" text-anchor="middle">job_accepted</text>
 
 <rect x="1380" y="215" width="100" height="55" rx="10" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
 <text x="1430" y="247" font-family="Virgil, Segoe UI Emoji" font-size="15px" fill="#dc2626" text-anchor="middle">job_discarded</text>
 
-<!-- End dots -->
 <ellipse cx="1430" cy="90" rx="12" ry="12" fill="#16a34a" stroke="#16a34a" stroke-width="2"/>
 <path d="M 1430 115 L 1430 102" fill="none" stroke="#16a34a" stroke-width="2"/>
 
 <ellipse cx="1430" cy="295" rx="12" ry="12" fill="#dc2626" stroke="#dc2626" stroke-width="2"/>
 <path d="M 1430 270 L 1430 283" fill="none" stroke="#dc2626" stroke-width="2"/>
 
-<!-- Bottom Note -->
 <rect x="44" y="490" width="1412" height="150" rx="16" fill="#f8fafc" stroke="#94a3b8" stroke-width="1.8"/>
 <text x="70" y="525" font-family="Virgil, Segoe UI Emoji" font-size="18px" fill="#1e293b" text-anchor="start">协议与并发保障说明：</text>
 <text x="70" y="560" font-family="Virgil, Segoe UI Emoji" font-size="14px" fill="#475569" text-anchor="start">1. 状态流转时序：job_started (一次) → (job_progress + frame_result)* → job_completed/failed/cancelled → job_partially_reviewed* → job_accepted/discarded。</text>

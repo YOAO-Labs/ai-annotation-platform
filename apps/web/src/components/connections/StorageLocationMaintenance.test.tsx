@@ -279,7 +279,6 @@ it("blocks expired previews while the confirmation is open", async () => {
   await expand();
   await preview();
   vi.useFakeTimers();
-  // Re-preview under the fake clock so the expiry timer belongs to that clock.
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "重新预览" })));
   await act(async () => vi.advanceTimersByTimeAsync(300_001));
   expect(screen.getByRole("button", { name: "确认开始维护" })).toBeDisabled();

@@ -1,21 +1,3 @@
-/**
- * IssueLayer
- *
- * 把 pixel-anchored feedback (kind=issue, anchor_type=pixel) 同步渲染到
- * ImageStage Konva tree 中, 替代「输入框填 x/y」形态:
- *
- *   - 每个 pixel issue 渲染为 status/severity 配色的图钉 (Circle + 符号)。
- *   - open 按 severity 使用蓝/黄/红，resolved=positive，wont_fix=muted。
- *   - 单击图钉 → 派发 onPinClick(id), 由 Shell 高亮 + 切到 DiscussionPanel issues tab 对应项。
- *   - drop-arm 模式 (armedForDrop=true): 渲染一个透明全画布 Rect, 单击落点 → 派发 onDrop(x, y)
- *     (相对坐标 [0,1]); Shell 据此打开 IssueCreateModal 预填 anchor.
- *
- * 注意:
- *   - 本 Layer 必须挂在 ImageStage `</Stage>` 之前 (位于 ImageStageShapes 层之上, 确保图钉不被遮挡).
- *   - listening 行为:
- *       drop-arm 模式 → catcher Rect listening=true 拦截一切 click (含底层 shape);
- *       否则只有 pin Circle listening=true, 其余 hit 透到底层工具.
- */
 import { useMemo } from "react";
 import { Circle, Layer, Rect, Text } from "react-konva";
 import type Konva from "konva";
@@ -35,18 +17,12 @@ import {
 } from "../issuePinVisuals";
 
 interface Props {
-  /** 仅 kind=issue + anchor_type=pixel + 含 anchor_position 的 feedback 行. */
   pixelIssues: AnnotationFeedback[];
-  /** 当前图像绘制尺寸 (相对 0-1 → 像素坐标的缩放). */
   imgW: number;
   imgH: number;
-  /** 视口缩放; 用于让图钉视觉大小不随 zoom 变化 (反向缩放). */
   scale: number;
-  /** 高亮的 feedback id (单击列表 → 圆环加粗). */
   highlightId?: string | null;
-  /** 单击图钉. */
   onPinClick?: (id: string) => void;
-  /** drop-arm 模式: 渲染透明 catcher, 单击落点 → 派发归一化坐标 (相对 0-1). */
   armedForDrop?: boolean;
   onDrop?: (x: number, y: number) => void;
 }
@@ -75,7 +51,6 @@ export function IssueLayer({
     ];
     return Object.fromEntries(vars.map((name) => [name, cssVarToHex(name, theme)]));
   }, [theme]);
-  // Konva uses image pixels as world units; divide every dimension by zoom.
   const pinR = ISSUE_PIN_RADIUS_PX / safeScale;
   const pinStroke = ISSUE_PIN_STROKE_PX / safeScale;
   const selectedStroke = ISSUE_PIN_SELECTED_STROKE_PX / safeScale;
@@ -131,12 +106,10 @@ export function IssueLayer({
               e.cancelBubble = true;
               onPinClick?.(issue.id);
             }}
-            // The name carries the same state/severity context as the DOM list label.
             aria-label={issuePinAriaLabel(issue)}
           />
         );
       })}
-      {/* pin 文字标签 — 单独 map 避免 onClick 命中 Text 被 Circle 截获 */}
       {pixelIssues.map((issue) => {
         if (!hasPixelAnchor(issue)) return null;
         const x = issue.anchor_position.x * imgW;
@@ -166,7 +139,6 @@ export function IssueLayer({
           height={imgH}
           fill="rgba(0,0,0,0)"
           listening={true}
-          // 鼠标悬浮时显示 cell cursor 提示进入 drop 模式 (Konva container 接管 cursor).
           onMouseEnter={(e: Konva.KonvaEventObject<MouseEvent>) => {
             const stage = e.target.getStage();
             if (stage?.container()) stage.container().style.cursor = "crosshair";
@@ -181,7 +153,6 @@ export function IssueLayer({
             if (!stage) return;
             const pointer = stage.getPointerPosition();
             if (!pointer) return;
-            // pointer 是 Stage 容器坐标; 需要先 invert stage transform 再除图像尺寸归一.
             const transform = stage.getAbsoluteTransform().copy().invert();
             const local = transform.point(pointer);
             const x = local.x / imgW;

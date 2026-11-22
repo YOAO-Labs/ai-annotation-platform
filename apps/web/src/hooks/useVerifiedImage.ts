@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient, ApiError } from "@/api/client";
 import { useAuthStore } from "@/stores/authStore";
 
-// Grid previews share the bounded snapshot service with foreground originals.
 const pendingPreviews = new Set<() => void>();
 let activePreviews = 0;
 
@@ -150,7 +149,6 @@ export function verifiedContentError(error: unknown): string {
   return error instanceof Error ? error.message : "原图读取失败，请重试";
 }
 
-/** One decoded Blob belongs to a login session, content locator and attempt. */
 export function useVerifiedImage(path: string | null) {
   const userId = useAuthStore((s) => s.user?.id);
   const sessionId = useAuthStore((s) => s.sessionId);

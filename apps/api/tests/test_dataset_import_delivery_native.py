@@ -66,8 +66,6 @@ async def test_delivery_lease_uses_wall_clock_inside_held_transactions(
             with pytest.raises(DatasetImportDeliveryFailure, match="invalid_request"):
                 decode_dataset_import_delivery_claim(null_lease)
 
-            # The transaction clock starts before the sleep. Claiming afterwards
-            # must grant a fresh lease based on wall clock, not that old timestamp.
             await connection.execute(text("SELECT pg_catalog.pg_sleep(31)"))
             claimed = (
                 await connection.execute(

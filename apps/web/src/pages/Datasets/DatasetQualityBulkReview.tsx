@@ -161,7 +161,6 @@ export function DatasetQualityBulkReview({
     const timer = setInterval(() => setClock(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [preview]);
-  // Terminal batch keys also refresh results after a background completion.
   useEffect(() => {
     if (detail.data && !reviewBatchActive(detail.data) && detail.data.status !== "preview") {
       void client.invalidateQueries({ queryKey: ["dataset-quality", datasetId] });

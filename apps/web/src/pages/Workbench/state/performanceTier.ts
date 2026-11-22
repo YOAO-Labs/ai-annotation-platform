@@ -4,14 +4,8 @@ export type WorkbenchPerformanceTier = WorkbenchCommonPreferences["performanceTi
 
 export interface WorkbenchPerformanceConfig {
   videoBitmapCache: number;
-  /**
-   * WebCodecs 精确帧已解码 bitmap 的字节预算上限(不预分配,仅作准入/淘汰阈值)。
-   * 单张 bitmap 按 codedWidth*codedHeight*4(RGBA)估算占用。
-   */
   videoDecoderBitmapCacheBytes: number;
-  /** chunk 原始字节缓存的字节预算上限(按 ArrayBuffer.byteLength 计)。 */
   videoChunkByteCacheBytes: number;
-  /** 暂停态同 GOP 方向感知预取帧数;0 表示不预取。 */
   videoDecodePrefetchFrames: number;
   previewCache: number;
   prefetchHalfWindow: number;

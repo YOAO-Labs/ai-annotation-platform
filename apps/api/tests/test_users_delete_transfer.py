@@ -30,12 +30,11 @@ class TestUserDelete:
         from app.db.models.user import User
 
         _, sa_token = super_admin
-        # 创建一个临时用户用于删除测试
         user_data = {
             "id": uuid.uuid4(),
             "email": "temp@test.local",
             "name": "Temp",
-            "password_hash": "$2b$12$" + "0" * 53,  # dummy
+            "password_hash": "$2b$12$" + "0" * 53,
             "role": "employee",
             "is_active": True,
         }

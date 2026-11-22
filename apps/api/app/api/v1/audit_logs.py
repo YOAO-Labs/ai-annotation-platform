@@ -190,7 +190,6 @@ def _build_base_query(
         base = base.where(~audit_event.action.like("http.%"))
         count_base = count_base.where(~audit_event.action.like("http.%"))
     if detail_key and detail_value is not None:
-        # JSONB 子集匹配 —— 走 GIN 索引（仅 PG）；测试态 SQLite 走通用 contains
         match = {detail_key: detail_value}
         base = base.where(audit_event.detail_json.contains(match))
         count_base = count_base.where(audit_event.detail_json.contains(match))
@@ -596,7 +595,6 @@ async def export_audit_logs(
         )
     items = [_query_event_to_out(event) for event in reply.data.events]
 
-    # 记录自身的导出操作
     from app.services.audit import AuditService, export_detail, export_metadata_header
     from app.middleware.request_id import request_id_var
 
@@ -652,7 +650,6 @@ async def export_audit_logs(
             headers={"Content-Disposition": "attachment; filename=audit_logs.json"},
         )
 
-    # CSV
     _COLS = [
         "id",
         "created_at",
@@ -670,7 +667,6 @@ async def export_audit_logs(
 
     def _gen_csv():
         buf = io.StringIO()
-        # 首部审计 metadata 注释行
         buf.write(
             export_metadata_header(actor=current_user, fmt="csv", request=request)
         )

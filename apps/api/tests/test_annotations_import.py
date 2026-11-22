@@ -38,9 +38,6 @@ from tests.factory import create_membership, build_tool_bindings
 pytestmark = pytest.mark.asyncio
 
 
-# ── helpers ──────────────────────────────────────────────────────────
-
-
 async def _seed_project_with_tasks(
     db: AsyncSession,
     owner_id: uuid.UUID,
@@ -293,7 +290,6 @@ async def test_aap_camera_member_import_links_role_to_scene_track(
             {
                 "task_match": {"display_id": task.display_id},
                 "media_type": "lidar",
-                # 相机成员故意放在前面，导入器仍应先建立主 3D SceneTrack。
                 "annotations": [
                     {
                         "geometry": {
@@ -412,8 +408,6 @@ async def test_aap_camera_member_import_links_role_to_scene_track(
         json.dumps(envelope).encode(),
         operator_user_id=user.id,
     )
-    # Append mode keeps the existing primary-annotation semantics, but the
-    # per-camera uniqueness contract rejects a second active camera member.
     assert duplicate.imported == 1
     assert duplicate.skipped == 1
     assert any("already exists" in error.reason for error in duplicate.errors)
@@ -456,9 +450,6 @@ async def test_aap_camera_member_import_links_role_to_scene_track(
         )
         == 2
     )
-
-
-# ── append 默认语义 ──────────────────────────────────────────────────
 
 
 async def test_import_annotations_append_happy(
@@ -518,7 +509,6 @@ async def test_import_annotations_append_happy(
     assert body["errors"] == []
     assert body["dry_run"] is False
 
-    # 验证写入
     rows = (
         (
             await db_session.execute(
@@ -533,35 +523,26 @@ async def test_import_annotations_append_happy(
     car_ann = next(a for a in rows if a.class_name == "car")
     truck_ann = next(a for a in rows if a.class_name == "truck")
 
-    # D1: user_id = 操作者（不是原始 user_id）
     assert car_ann.user_id == user.id
     assert truck_ann.user_id == user.id
 
-    # D2: source 保留
     assert car_ann.source == "manual"
     assert truck_ann.source == "prediction_based"
 
-    # D1+D2: attributes._imported=true, _imported_user_id 溯源
     assert car_ann.attributes["_imported"] is True
     assert car_ann.attributes["_imported_user_id"] == orig_user_id
     assert truck_ann.attributes["_imported"] is True
-    assert "_imported_user_id" not in truck_ann.attributes  # 无原始 user_id 不写
+    assert "_imported_user_id" not in truck_ann.attributes
 
-    # geometry 透传（不做 LS 转换）
     assert car_ann.geometry == {"type": "bbox", "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}
 
-    # D5: created_at 保留原值
     assert car_ann.created_at is not None
     assert car_ann.created_at.year == 2026
 
-    # D6: task 统计更新
     await db_session.refresh(tasks[0])
     assert tasks[0].total_annotations == 2
     assert tasks[0].is_labeled is True
-    assert tasks[0].status == "in_progress"  # pending → in_progress
-
-
-# ── overwrite 语义 ────────────────────────────────────────────────────
+    assert tasks[0].status == "in_progress"
 
 
 async def test_import_annotations_overwrite_clears_imported_keeps_manual(
@@ -574,7 +555,6 @@ async def test_import_annotations_overwrite_clears_imported_keeps_manual(
     project, tasks = await _seed_project_with_tasks(db_session, user.id)
     headers = {"Authorization": f"Bearer {token}"}
 
-    # 先插入一条"人工标注"（无 _imported 标记）
     manual_ann = Annotation(
         id=uuid.uuid4(),
         task_id=tasks[0].id,
@@ -585,12 +565,11 @@ async def test_import_annotations_overwrite_clears_imported_keeps_manual(
         tool_unit_id="bbox",
         class_name="car",
         geometry={"type": "bbox", "x": 0.0, "y": 0.0, "w": 0.1, "h": 0.1},
-        attributes={},  # 无 _imported
+        attributes={},
     )
     db_session.add(manual_ann)
     await db_session.flush()
 
-    # 第一次 import（append）
     payload = _aap_envelope(
         [
             {
@@ -618,7 +597,6 @@ async def test_import_annotations_overwrite_clears_imported_keeps_manual(
     assert r.status_code == 200, r.text
     assert r.json()["imported"] == 1
 
-    # 此时有 2 条: 人工 + 导入
     count = (
         await db_session.execute(
             select(func.count(Annotation.id)).where(Annotation.task_id == tasks[0].id)
@@ -626,7 +604,6 @@ async def test_import_annotations_overwrite_clears_imported_keeps_manual(
     ).scalar()
     assert count == 2
 
-    # 第二次 import（overwrite）: 应清 _imported，保留人工，不堆叠
     r = await httpx_client.post(
         f"/api/v1/projects/{project.id}/annotations/import?format=native_json",
         files=_upload_files(payload),
@@ -645,18 +622,13 @@ async def test_import_annotations_overwrite_clears_imported_keeps_manual(
         .scalars()
         .all()
     )
-    # 应剩 2 条: 人工标注 + 新导入的
     assert len(rows) == 2
 
     imported_rows = [a for a in rows if a.attributes.get("_imported")]
     manual_rows = [a for a in rows if not a.attributes.get("_imported")]
     assert len(imported_rows) == 1
     assert len(manual_rows) == 1
-    # 人工标注的 id 应未变
     assert manual_rows[0].id == manual_ann.id
-
-
-# ── class_name 校验（软校验，失败不整批失败）────────────────────────
 
 
 async def test_import_annotations_class_name_not_in_bindings(
@@ -666,7 +638,6 @@ async def test_import_annotations_class_name_not_in_bindings(
 ):
     """class_name 不在项目工具单位类别集合 → errors[] + skip，不整批失败。"""
     user, token = super_admin
-    # 创建有严格 tool_bindings 的项目
     tool_bindings = {
         "bbox": {
             "enabled": True,
@@ -683,7 +654,6 @@ async def test_import_annotations_class_name_not_in_bindings(
             {
                 "task_match": {"display_id": tasks[0].display_id},
                 "annotations": [
-                    # 合法类别
                     _ann_entry(
                         geometry={
                             "type": "bbox",
@@ -694,7 +664,6 @@ async def test_import_annotations_class_name_not_in_bindings(
                         },
                         class_name="car",
                     ),
-                    # 不合法类别
                     _ann_entry(
                         geometry={
                             "type": "bbox",
@@ -721,9 +690,6 @@ async def test_import_annotations_class_name_not_in_bindings(
     assert body["skipped"] == 1
     assert len(body["errors"]) == 1
     assert "pedestrian" in body["errors"][0]["reason"]
-
-
-# ── task 匹配不到 ────────────────────────────────────────────────────
 
 
 async def test_import_annotations_task_miss(
@@ -765,9 +731,6 @@ async def test_import_annotations_task_miss(
     assert body["imported"] == 0
     assert body["skipped"] == 1
     assert "task not found" in body["errors"][0]["reason"].lower()
-
-
-# ── dry_run ──────────────────────────────────────────────────────────
 
 
 async def test_import_annotations_dry_run_not_persisted(
@@ -818,9 +781,6 @@ async def test_import_annotations_dry_run_not_persisted(
     assert count == 0
 
 
-# ── batch 自动流转被抑制 ──────────────────────────────────────────────
-
-
 async def test_import_annotations_batch_transitions_suppressed(
     httpx_client: httpx.AsyncClient,
     super_admin,
@@ -861,15 +821,10 @@ async def test_import_annotations_batch_transitions_suppressed(
             headers=headers,
         )
         assert r.status_code == 200, r.text
-        # check_auto_transitions 不应被调用（D6 抑制 batch 流转）
         mock_check.assert_not_called()
 
-    # task 的统计/状态翻转应正确执行
     await db_session.refresh(tasks[0])
     assert tasks[0].status == "in_progress"
-
-
-# ── 几何多 kind 透传 ──────────────────────────────────────────────────
 
 
 async def test_aap_mask_objects_must_match_content_addressed_reference():
@@ -987,7 +942,6 @@ async def test_import_annotations_multi_geometry_kinds(
     )
     assert len(rows) == 7
 
-    # 每条 annotation 的 geometry 应与输入完全一致（透传）
     stored_geoms = {a.geometry["type"]: a.geometry for a in rows}
     assert stored_geoms["bbox"] == geometries[0]
     assert stored_geoms["polygon"] == geometries[1]
@@ -997,7 +951,6 @@ async def test_import_annotations_multi_geometry_kinds(
     assert stored_geoms["video_rotated_bbox"] == geometries[5]
     assert stored_geoms["video_keypoint"] == geometries[6]
 
-    # tool_unit_id 派生验证
     by_type = {a.annotation_type: a for a in rows}
     assert by_type["polygon"].tool_unit_id == "region"
     assert by_type["rotated_bbox"].tool_unit_id == "rotated_bbox"
@@ -1006,9 +959,6 @@ async def test_import_annotations_multi_geometry_kinds(
     assert by_type["bbox"].tool_unit_id == "bbox"
     assert by_type["video_rotated_bbox"].tool_unit_id == "rotated_bbox"
     assert by_type["video_keypoint"].tool_unit_id == "keypoint"
-
-
-# ── 缺少 class_name 校验 ─────────────────────────────────────────────
 
 
 async def test_import_annotations_missing_class_name(
@@ -1025,7 +975,6 @@ async def test_import_annotations_missing_class_name(
             {
                 "task_match": {"display_id": tasks[0].display_id},
                 "annotations": [
-                    # 无 class_name → skip
                     {
                         "geometry": {
                             "type": "bbox",
@@ -1035,7 +984,6 @@ async def test_import_annotations_missing_class_name(
                             "h": 0.2,
                         }
                     },
-                    # 有 class_name → ok
                     _ann_entry(
                         geometry={
                             "type": "bbox",
@@ -1063,9 +1011,6 @@ async def test_import_annotations_missing_class_name(
     assert "class_name" in body["errors"][0]["reason"]
 
 
-# ── 权限 ────────────────────────────────────────────────────────────
-
-
 async def test_import_annotations_forbidden_for_annotator(
     httpx_client: httpx.AsyncClient,
     super_admin,
@@ -1075,8 +1020,6 @@ async def test_import_annotations_forbidden_for_annotator(
     user, _ = super_admin
     project, tasks = await _seed_project_with_tasks(db_session, user.id)
     _annotator_user, annotator_token = annotator
-    # Visible project member with the annotator role: import stays a management
-    # capability, so the denial must be 403 rather than an invisible 404.
     await create_membership(
         db_session, project_id=project.id, user_id=_annotator_user.id, role="annotator"
     )
@@ -1093,9 +1036,6 @@ async def test_import_annotations_forbidden_for_annotator(
         headers=headers,
     )
     assert r.status_code == 403
-
-
-# ── source 默认值 ──────────────────────────────────────────────────
 
 
 async def test_import_annotations_source_default_manual(
@@ -1122,7 +1062,7 @@ async def test_import_annotations_source_default_manual(
                             "h": 0.2,
                         },
                         "class_name": "car",
-                        "source": "unknown_source",  # 不在允许集合
+                        "source": "unknown_source",
                     },
                 ],
             }
@@ -1172,7 +1112,6 @@ async def test_native_import_admission_and_empty_document_identity(
     platform,
     status,
 ):
-    # A rejected upload may roll back its transaction; each case needs its own actor.
     user, token = super_admin
     project, _ = await _seed_project_with_tasks(db_session, user.id)
     payload = {"schema_version": version, "tasks": []}
@@ -1197,7 +1136,6 @@ async def test_native_import_reports_field_without_echoing_uploaded_data(
 ):
     user, token = super_admin
     project, _ = await _seed_project_with_tasks(db_session, user.id)
-    # Both the invalid annotation and the dynamic object key are user content.
     marker = "private-review-note"
     payload = {
         "schema_version": "2.0",
@@ -1218,3 +1156,75 @@ async def test_native_import_reports_field_without_echoing_uploaded_data(
     detail = response.json()["detail"]
     assert "tasks[0].annotations[0].geometry" in detail and "mask_objects" in detail
     assert marker not in detail
+
+
+@pytest.mark.parametrize("scenario", ["owned", "borrowed", "running", "unaudited"])
+async def test_fixture_cleanup_requires_owned_import_completion(
+    httpx_client, super_admin, db_session, monkeypatch, scenario
+):
+    from fastapi import HTTPException
+    from sqlalchemy import text
+
+    from app.config import settings
+    from app.db.models.fixture_run import FixtureRun
+    from app.services import async_job, fixture_run_ownership as ownership
+
+    monkeypatch.setattr(settings, "environment", "development")
+    monkeypatch.setattr(settings, "e2e_seed_enabled", True)
+    user, token = super_admin
+    project, _ = await _seed_project_with_tasks(db_session, user.id, n_tasks=0)
+    run_id = uuid.uuid4()
+    actor_run_id = uuid.uuid4() if scenario == "borrowed" else run_id
+    db_session.add(FixtureRun(id=run_id, family="owned"))
+    if actor_run_id != run_id:
+        db_session.add(FixtureRun(id=actor_run_id, family="owned"))
+    await db_session.flush()
+    await ownership.reserve(
+        db_session, run_id, "project", project.id, logical_key="project", published=True
+    )
+    await ownership.reserve(
+        db_session, actor_run_id, "user", user.id, logical_key="admin", published=True
+    )
+
+    if scenario in {"owned", "borrowed"}:
+        response = await httpx_client.post(
+            f"/api/v1/projects/{project.id}/annotations/import?format=native_json",
+            headers={"Authorization": f"Bearer {token}"},
+            files=_upload_files(_aap_envelope([])),
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["imported"] == 0
+    else:
+        job = await async_job.create_job(
+            db_session,
+            kind="annotations_import",
+            project_id=project.id,
+            user_id=user.id,
+        )
+        await async_job.mark_running(db_session, job.id)
+        await db_session.flush()
+        if scenario == "unaudited":
+            await async_job.mark_complete(
+                db_session,
+                job.id,
+                result={"imported": 0, "skipped": 0, "error_count": 0},
+            )
+            await db_session.flush()
+
+    lookup = text("SELECT id, status FROM public.async_jobs WHERE project_id=:project")
+    params = {"project": project.id}
+    _, state = (await db_session.execute(lookup, params)).one()
+    assert state == ("running" if scenario == "running" else "completed")
+    assert await ownership.seal(db_session, run_id, family="owned") == ()
+    if scenario == "owned":
+        delete = text(
+            "SELECT yoao_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+        )
+        await ownership.guard_project_jobs(db_session, [project.id])
+        assert await db_session.scalar(delete, {"ids": [project.id]}) == 1
+        assert (await db_session.execute(lookup, params)).one_or_none() is None
+    else:
+        with pytest.raises(HTTPException) as blocked:
+            async with db_session.begin_nested():
+                await ownership.guard_project_jobs(db_session, [project.id])
+        assert blocked.value.detail["code"] == "fixture_job_execution_unsettled"

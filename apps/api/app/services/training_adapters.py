@@ -2,7 +2,7 @@
 
 from fastapi import HTTPException
 from training_contract import (
-    ADAPTERS,  # re-export the shared legacy identity
+    ADAPTERS,
     definition,
     resolve,
     schema_identity,

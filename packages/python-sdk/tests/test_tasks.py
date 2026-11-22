@@ -65,7 +65,6 @@ def test_next_task(client, respx_mock):
 
 
 def test_next_task_none(client, respx_mock):
-    # 无可领任务时后端返回 null
     respx_mock.get(f"{API}/tasks/next").mock(
         return_value=httpx.Response(200, json=None)
     )

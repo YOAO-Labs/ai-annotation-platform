@@ -42,8 +42,6 @@ async def actor_and_key(db, actor_id, key_id, scope, proof=None):
             if proof is not None
             else await credentials._actor(db, actor_id, frozenset(PlatformRole))
         )
-        # Identity confirms the accepted key, its current scopes and its expiry
-        # under its own SHARE fence; no credential material is read here.
         key = await credentials._key(
             db,
             actor_id,
@@ -69,8 +67,6 @@ async def _row(db, model, identifier, *, lock):
     if identifier is None:
         return None
     if lock and model in {User, Project}:
-        # Non-core consumers reuse this helper for their legacy rows. Waiting
-        # out the short self-service writers keeps the existing SHARE fence.
         try:
             return await credentials.locked(db, model, identifier, wait=True)
         except HTTPException as exc:
@@ -81,7 +77,7 @@ async def _row(db, model, identifier, *, lock):
     return await db.scalar(statement.execution_options(populate_existing=True))
 
 
-async def visible_task(db, task_id, actor, *, lock=False):
+async def visible_task(db, task_id, actor, *, lock=False, wait_for_task=False):
     """Refresh the actor, Task, Project, membership and Batch before visibility.
 
     Owner reads provide every current fact. The caller's Task SHARE lock keeps
@@ -95,9 +91,9 @@ async def visible_task(db, task_id, actor, *, lock=False):
         batch_row,
         get_core_row,
         lock_batch_rows_for_core_read,
-        lock_task_for_core_read,
         task_row,
     )
+    from app.services.original_sources import lock_task_for_original_read
     from app.services.project_access import (
         get_workspace_project,
         lock_current_project_rows,
@@ -116,8 +112,6 @@ async def visible_task(db, task_id, actor, *, lock=False):
             if located is None:
                 raise HTTPException(404, "Task not found")
             project_id, batch_id = located
-            # Without an HTTP proof this is still a fresh current actor; do not
-            # grant visibility from an identity-map role retained across I/O.
             if lock:
                 accounts = await IdentityAccountLockData(db).lock_accounts(
                     [actor.id], mode="share", nowait=True
@@ -127,16 +121,9 @@ async def visible_task(db, task_id, actor, *, lock=False):
                 fresh_actor = await IdentityAccountLockData(db).read_actor_status(
                     actor.id
                 )
-            # Annotation writers update Task before Project counters. Keep that
-            # order so a read does not hold Project while waiting on their Task.
             if lock:
-                task = await lock_task_for_core_read(
-                    db,
-                    task_id,
-                    project_id=project_id,
-                    lock_mode="share",
-                    nowait=True,
-                    populate_existing=True,
+                task = await lock_task_for_original_read(
+                    db, task_id, project_id=project_id, wait=wait_for_task
                 )
                 _, project = await lock_current_project_rows(
                     db, actor_id=actor.id, project_id=project_id

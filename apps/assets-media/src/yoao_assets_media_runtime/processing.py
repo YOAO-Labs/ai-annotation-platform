@@ -762,7 +762,6 @@ def _process_chunk(
             sample_rows = samples
             diagnostics["samples"] = sample_rows
     except Exception:
-        # Chunk playback remains usable if optional WebCodecs packet facts fail.
         pass
 
     artifact = _artifact(claim, path, "chunk.mp4")

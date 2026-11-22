@@ -2,7 +2,6 @@ import type { AnnotationResponse, TaskResponse } from "@/types";
 import { tasksApi } from "./tasks";
 import { videoTrackerApi } from "./videoTracker";
 
-/** Resolve an active, canvas-addressable annotation through existing reads. */
 export async function resolveActiveDiscussionAnnotation(
   task: TaskResponse,
   annotationId: string,
@@ -18,8 +17,6 @@ export async function resolveActiveDiscussionAnnotation(
       segments = [...new Set(result.segments.map((segment) => segment.id))];
     }
   }
-  // Collaboration reads require a segment; no selected-segment snapshot is
-  // sufficient to prove absence. Reading does not claim or release any lease.
   for (const segmentId of segments) {
     signal?.throwIfAborted();
     const annotations = await tasksApi.getAnnotations(task.id, segmentId, { signal });

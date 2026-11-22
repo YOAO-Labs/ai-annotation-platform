@@ -1,7 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/components/ui/ListPagination";
 
-/** Page state for server limit/offset collections; never slices an incomplete response. */
 export function useOffsetListPagination(resetKey = "") {
   const [state, setState] = useState({ page: 0, pageSize: DEFAULT_LIST_PAGE_SIZE, resetKey });
   const page = state.resetKey === resetKey ? state.page : 0;

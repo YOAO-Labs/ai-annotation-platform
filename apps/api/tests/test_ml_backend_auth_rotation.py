@@ -196,8 +196,6 @@ async def test_auth_rotation_waits_for_membership_proof_commit(test_engine):
             backend = await db.get(MLBackendRegistry, backend_id)
             assert backend.auth_revision == 1
     finally:
-        # Only this committed fixture needs explicit cleanup; the other tests use
-        # the shared rollback fixture. Trigger changes are transaction-local DDL.
         async with factory.begin() as db:
             triggers = (
                 ("ml_backend_registry", "trg_sync_gpu_backend_membership"),

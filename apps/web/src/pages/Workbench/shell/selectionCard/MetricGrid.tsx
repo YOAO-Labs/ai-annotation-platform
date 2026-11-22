@@ -12,10 +12,6 @@ export interface MetricGridProps {
   metrics: Metric[];
 }
 
-/**
- * 2 列紧凑指标网格。label 次要色 11px / value 主色 13px(tabular-nums),
- * hint 跟在 value 后更次要。空数组不渲染(如 3D / 轨迹几何无 2D 指标)。
- */
 export function MetricGrid({ metrics }: MetricGridProps) {
   if (metrics.length === 0) return null;
   return (

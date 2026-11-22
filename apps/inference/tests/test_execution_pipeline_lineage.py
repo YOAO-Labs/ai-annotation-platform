@@ -365,7 +365,6 @@ async def test_filtered_drop_preserves_dropped_source_lineage_and_partial_fact()
     assert remaining[0]["pipeline_shape_id"] == lineage_shape_id(
         SNAPSHOT, "task-1", 3, 0, 1
     )
-    # The dropped source record stays available for audit.
     assert [record["shape_id"] for record in pipeline["shape_lineage"]] == [
         lineage_shape_id(SNAPSHOT, "task-1", 3, 0, 0),
         lineage_shape_id(SNAPSHOT, "task-1", 3, 0, 1),

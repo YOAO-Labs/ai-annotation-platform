@@ -264,7 +264,6 @@ async def attach_managed(
         )
         client = Client()
         client.store(allocation["staging_bucket"], allocation["staging_key"], raw)
-        # This is a provider seam, not a creation/publication receipt shortcut.
         with world.monkeypatch.context() as patch:
             patch.setattr(creation, "create_client", lambda **_: client)
             from tests.managed_original_client_support import stage_client
@@ -321,7 +320,6 @@ async def attach_managed(
     await db.flush()
     source = await originals.resolve(db, task.id)
     world.source_bytes[source.bucket, source.object_key] = raw
-    # A current-bucket read would find different bytes at the identical key.
     current = await db.get(StorageBinding, "datasets")
     assert source.bucket != current.bucket
     world.source_bytes[current.bucket, source.object_key] = b"wrong-current-bucket"

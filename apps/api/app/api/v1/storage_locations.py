@@ -798,8 +798,6 @@ async def lock_change_location(db, location_id, actor):
     initial = await svc.get_visible(db, location_id, actor)
     connection_id = initial.connection_id
     if connection_id is not None:
-        # Connector changes own Connection -> Location. Keep that order when
-        # binding a location review to the connector's current revision.
         await db.scalar(
             select(StorageConnection)
             .where(StorageConnection.id == connection_id)
@@ -1048,7 +1046,7 @@ def _probe_worker(
             try:
                 task.forget()
             except Exception:
-                pass  # Cleanup must not replace the probe outcome.
+                pass
 
 
 @router.post("/{location_id}/probe", response_model=StorageProbeOut)

@@ -1,8 +1,3 @@
--- Install fixed historical Labeling audit projections for one trusted LOGIN.
--- This explicit installer works before revision 0173 and does not create roles,
--- alter business data, install a migration, or advance Alembic.
--- psql -v expected_database=... -v migration_role=... -v labeling_owner=...
---      -v consumer_role=... -f labeling-role-audit-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;
@@ -20,7 +15,6 @@ BEGIN
 END
 $preflight$;
 
--- References freeze the exact projection definitions without replacing view OIDs.
 CREATE TEMP VIEW _aap_labeling_role_audit_task_legacy_ref
 WITH (security_barrier = true) AS
 SELECT task.id, task.project_id, task.status, task.assignee_id, task.reviewer_id,

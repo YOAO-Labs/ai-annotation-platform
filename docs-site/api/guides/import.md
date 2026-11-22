@@ -185,4 +185,4 @@ curl -X POST "https://platform/api/v1/projects/$PID/predictions/import?format=na
 
 ## 审计
 
-所有非 dry-run 导入在 `audit_logs` 写一条 `predictions.import` 记录，`detail_json` 含 `format` / `imported` / `skipped` / `error_count` / `overwrite_existing` / `model_version_fallback` / `image_size_hint` / `yolo_variant` / `file_count`。
+正式导入成功后会写入 `predictions.import` 审计记录。`detail_json` 包含 `format`、`imported`、`skipped`、`error_count`、`file_count`、`overwrite_existing`、`model_version_fallback`、`image_size_hint` 和 `yolo_variant`。已创建导入作业时，用 `job_id` 对照本次 `predictions_import` 作业；预检不创建作业，也不写这条记录。

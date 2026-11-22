@@ -19,6 +19,8 @@ Attempt 在入队前固定预留身份与原生额度。预算由全部围栏终
 
 执行器在 spawn 前保存意图，Popen 后立即保留单调时钟和独立 watchdog；deadline 不依赖主循环日志、journal 或 API 可用性。停止调用串行且失败重试，直到整个进程组确认退出。精确回执持久化后随固定 finish body 重试，只有围栏提交才能结算并释放租约。重启后缺失回执的 spawn 意图表示未知；GPU flock 证明互斥，不证明计时时长。
 
+`process_budget.py` 的 `ProcessBudget.launch` 先保留实际 `Popen` 句柄，再启动 watchdog、日志捕获或执行 PID 写盘；保存失败时仍能用原句柄停止并回收进程。`ProcessBudget.watch` 自行重试停止，不把失败转交给可能阻塞在 I/O 的主线程。
+
 Study、Trial、Run 与冻结输入以无互相循环的 RESTRICT 外键长期保留，删除前先检查引用再触及存储。当前不增加删除 Study、并行 GPU、调参服务或自动模型发布功能。
 
 ## Consequences

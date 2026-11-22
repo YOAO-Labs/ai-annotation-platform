@@ -205,8 +205,6 @@ def geometry_budget(annotations, predictions=()):
     for prediction in predictions:
         for reference in prediction.result or []:
             if isinstance(reference, dict):
-                # LS shapes retain geometry under value; recursive mask facts
-                # are budgeted separately without interpreting provider output.
                 measure(reference.get("geometry", {}))
     return {
         "keyframes": total_keys,
@@ -289,8 +287,6 @@ async def _quality_rows(db, predicate, *, budget, lock=False):
     if count > MAX_QUALITY_RUNS or size > remaining:
         reject("video_export_input_budget_exceeded", 422)
     aggregate = measure.correlate(None).cte("video_export_quality_budget")
-    # A concurrent update after measure cannot send a large sampling array or
-    # pair list to Python: both this guard and the projection use one MVCC view.
     query = (
         select(projection, aggregate.c.count, aggregate.c.size)
         .select_from(aggregate)
@@ -512,8 +508,6 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
         if item_ids
         else []
     )
-    # Quality freshness deliberately uses every raw annotation for a Task. All
-    # inactive/cancelled rows stay locked against restoration at the final fence.
     all_annotations = (
         await _rows(
             db,
@@ -727,7 +721,6 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
     )
     digest(frozen)
     logical_sources(frozen)
-    # Validate all required boundaries with detached facts before allocation.
     FrozenVideo(frozen)
     return Inputs(frozen, sources)
 

@@ -30,8 +30,6 @@ from tests.test_export_media_bundles import (
 )
 from tests.test_export_media_storage import Client, ok, record
 
-# Pure fakes model only the video bundle contract; allocation belongs to real
-# sessions, so only FakeDB sessions take the shared fake boundary.
 pytestmark = pytest.mark.usefixtures("fake_allocation_boundary")
 
 REVISION = "0237_export_video_media"

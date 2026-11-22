@@ -24,7 +24,6 @@ interface UseVideoBitmapCacheArgs {
 }
 
 export interface VideoBitmapCaptureProof {
-  /** Must still identify this exact observed source frame and navigation request. */
   isCurrent: () => boolean;
 }
 
@@ -135,12 +134,6 @@ export function useVideoBitmapCache({
       const epoch = ownerRef.current.epoch;
       const normalizedFrame = frameIndex;
       const key = bitmapKey(taskId, normalizedFrame);
-      // 已缓存该帧 → 复用,绝不重抓。首帧冷加载时同一帧(frame 0)会被多条路径反复抓取
-      // (primeFirstFrame seek / loadeddata / seeked / 暂停态 rAF 持续抓),每次重抓都会在
-      // remember() 里 closeBitmap(old) 把旧位图释放掉;而旧位图此刻可能正被 media-bg 的
-      // Konva.Image 引用(react-konva 重渲染 + Konva batchDraw 均为异步),close 后其 width=0,
-      // 等到 rAF 真正 draw 时画出的是空白 → 首帧黑屏直到用户 scrub。同一视频帧解码结果确定不变,
-      // 复用既正确又省一次 createImageBitmap;active 帧指针仍刷新以保证立即显示。
       const cached = cacheRef.current.get(key);
       if (cached?.ownerEpoch === epoch) {
         setActiveFrameIndex(normalizedFrame);

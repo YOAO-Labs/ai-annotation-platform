@@ -24,7 +24,6 @@ async def test_summary_scopes_counts_and_jobs_across_source_pages(
     location.config = {**location.config, "scope": "global"}
     source.enabled = False
     source.unregistered_at = datetime.now(timezone.utc)
-    # A newer source page must not limit the jobs for older visible sources.
     for index in range(21):
         db.add(
             DatasetSource(
@@ -94,7 +93,6 @@ async def test_summary_scopes_counts_and_jobs_across_source_pages(
     assert page["items"][0]["source_id"] == str(source.id)
     assert page["items"][0]["unregistered_at"] and not page["items"][0]["enabled"]
     assert len(page["jobs"]["items"]) == 1 and page["jobs"]["total"] == 2
-    # All visible sources includes the other owner only for a super-admin.
     assert (await httpx_client.get(url, headers=headers(super_admin))).json()[
         "total"
     ] == 23

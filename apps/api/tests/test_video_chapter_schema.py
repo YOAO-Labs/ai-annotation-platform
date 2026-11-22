@@ -34,9 +34,6 @@ def _out(metadata: dict, **overrides) -> VideoChapterOut:
     return VideoChapterOut.model_validate(payload)
 
 
-# ── frame_step / source 校验 ─────────────────────────────────────────
-
-
 def test_base_frame_step_optional_defaults_none():
     base = VideoChapterBase(start_frame=0, end_frame=5, title="ch")
     assert base.frame_step is None
@@ -56,9 +53,6 @@ def test_base_frame_step_accepts_one():
 def test_base_source_rejects_unknown():
     with pytest.raises(ValidationError):
         VideoChapterBase(start_frame=0, end_frame=5, title="ch", source="auto")
-
-
-# ── VideoChapterOut: 从 metadata 派生便捷字段 (向后兼容) ──────────────
 
 
 def test_out_legacy_chapter_without_keys_defaults():
@@ -81,9 +75,6 @@ def test_out_ignores_invalid_frame_step_in_metadata():
 def test_out_ignores_unknown_source_in_metadata():
     out = _out({"source": "bogus"})
     assert out.source == "manual"
-
-
-# ── merge_chapter_metadata ───────────────────────────────────────────
 
 
 def test_merge_writes_keys_into_empty_base():
@@ -109,9 +100,6 @@ def test_merge_does_not_mutate_base():
     assert base == {"frame_step": 1}
 
 
-# ── snap_chapter_to_grid ─────────────────────────────────────────────
-
-
 def test_snap_step_one_is_identity():
     assert snap_chapter_to_grid(3, 17, 1) == (3, 17)
 
@@ -121,7 +109,6 @@ def test_snap_step_clamped_to_one_is_identity():
 
 
 def test_snap_start_floors_end_floors():
-    # step=5: start 7 → 5, end 17 → 15 (<= 17 的最近网格点)
     assert snap_chapter_to_grid(7, 17, 5) == (5, 15)
 
 
@@ -130,7 +117,6 @@ def test_snap_exact_grid_points_unchanged():
 
 
 def test_snap_end_below_step_collapses_to_start():
-    # start=0, end=3, step=5 → end 网格点 0, 不小于 start
     assert snap_chapter_to_grid(0, 3, 5) == (0, 0)
 
 

@@ -18,7 +18,6 @@ try {
     "yoao_workspace_project_deletion_client",
   );
   await client.query("BEGIN");
-  // Keep JSON text intact so receipt integers retain full PostgreSQL precision.
   const raw = (
     await client.query(
       "SELECT yoao_workspace_v1.delete_project($1::uuid,$2::uuid,$3::uuid,$4::jsonb)::text AS reply",

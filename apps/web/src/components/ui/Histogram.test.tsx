@@ -1,12 +1,8 @@
-/**
- * Histogram 组件单测：bar 渲染、xLabels 首末、markers 标签、空值容错。
- */
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Histogram } from "./Histogram";
 
 function getBars(container: HTMLElement): HTMLElement[] {
-  // bar 都有 borderRadius "2px 2px 0 0"；markers 是 width:1px 的竖线（无 borderRadius）。
   return Array.from(container.querySelectorAll("div")).filter((el) => {
     const s = (el as HTMLElement).style;
     return s.borderRadius === "2px 2px 0 0";
@@ -33,7 +29,6 @@ describe("Histogram", () => {
     render(<Histogram values={[1, 2, 3, 4]} xLabels={["A", "B", "C", "Z"]} />);
     expect(screen.getByText("A")).toBeInTheDocument();
     expect(screen.getByText("Z")).toBeInTheDocument();
-    // 中间标签不显示
     expect(screen.queryByText("B")).not.toBeInTheDocument();
     expect(screen.queryByText("C")).not.toBeInTheDocument();
   });
@@ -54,7 +49,6 @@ describe("Histogram", () => {
 
   it("自定义 height 透传到 bar 容器 style.height", () => {
     const { container } = render(<Histogram values={[1, 2, 3]} height={120} />);
-    // 结构：root <div> > <div height=N>（bar 容器）
     const root = container.firstChild as HTMLElement;
     const wrap = root.firstChild as HTMLElement;
     expect(wrap.style.height).toBe("120px");

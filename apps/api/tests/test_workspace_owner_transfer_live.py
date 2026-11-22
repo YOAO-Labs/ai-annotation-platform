@@ -81,9 +81,6 @@ def _auth(user):
 def _suppress_request_audit(monkeypatch):
     from app.config import settings
 
-    # The proof concerns business audit rows emitted by the owner transfer.
-    # Avoid creating unrelated immutable HTTP middleware rows for disposable
-    # principals, which would intentionally survive account cleanup.
     monkeypatch.setattr(settings, "audit_async", True)
     monkeypatch.setattr("app.middleware.audit._enqueue_audit", lambda _payload: True)
 
@@ -180,8 +177,6 @@ async def test_node_owner_transfer_survives_response_loss_restart_and_supersessi
             lost = _peer(origin, control, command, expect_transport_failure=True)
             assert lost == {"ok": True, "transport_failure": "connection_lost"}
 
-        # The provider has restarted; the same operation UUID must recover its
-        # committed result from Native's immutable receipt instead of reapplying.
         async with node_provider_url(dsn, control) as origin:
             recovered = _peer(origin, control, command)
             assert recovered["ok"] is True

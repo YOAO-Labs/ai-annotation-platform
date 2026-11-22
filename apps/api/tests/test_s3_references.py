@@ -278,7 +278,6 @@ async def test_preflight_registration_and_copy_use_same_backend(db_session, s3_w
             DatasetScanEntry.run_id == run.id, DatasetScanEntry.kind == "file"
         )
     )
-    # Reuse the existing durable registration acceptance helpers.
     world = (memory, memory.data, actor, dataset, location, source, run, entry)
     preflight, task_id, fence = await start(db_session, world)
     await drain(db_session, preflight, task_id, fence)

@@ -326,7 +326,6 @@ async def test_success_requires_all_windows_but_cancellation_preserves_partial_r
     )
     await _call(db, "finish", FinishRequest(**proof.model_dump(), outcome="cancelled"))
     await _call(db, "retire", ReadRequest(**proof.model_dump()))
-    # Reviewing accepted partial cancellation must not rewrite the writer outcome.
     await db.execute(
         text("UPDATE public.video_tracker_jobs SET status='accepted' WHERE id=:job"),
         {"job": proof.job_id},

@@ -221,8 +221,6 @@ def test_native_segmentation_warm_start_transfers_mask_head_and_resets_state(tmp
         next(loaded.model[-1].parameters()).add_(0.01)
     with pytest.raises(InputMismatchError):
         observation(spec, baseline, trainer)
-    # Resume uses the original experiment checkpoint and never rereads the
-    # optional source initialization file, even when that source is gone.
     Path(spec["initialization_path"]).unlink()
     spec["resume_path"] = "/state/own-checkpoint.pt"
     validate_input(spec)

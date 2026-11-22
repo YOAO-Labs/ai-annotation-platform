@@ -62,9 +62,6 @@ class LabelingE2EFixtureWrites:
         self.db = db
 
     async def _command(self, request: FixtureCommand):
-        # Match the prior explicit flush point for pending Workspace/Assets rows.
-        # Fixture model instances passed to this class are transient value carriers,
-        # never Session.add() targets.
         await self.db.flush()
 
         async def execute(payload: str):

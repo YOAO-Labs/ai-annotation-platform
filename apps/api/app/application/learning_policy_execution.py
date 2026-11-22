@@ -25,7 +25,6 @@ async def tick(
     force=False,
 ):
     async with session_factory() as db:
-        # Advance a durable fair ordering so a long/lost run cannot pin the first page.
         ids = (
             [policy_id]
             if policy_id

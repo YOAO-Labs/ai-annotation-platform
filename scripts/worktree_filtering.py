@@ -415,8 +415,6 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
                 manifest = FilteringSeedManifest.model_validate(
                     await _seed_filtering(suite_id, run_id)
                 )
-                # Supply renderable geometry without changing the fixture's literal
-                # memberships/counts. The automatic tests keep their metric-only data.
                 await LabelingE2EFixtureWrites(db).prepare_filtering_rendering(
                     project_id=UUID(manifest.video.project_id),
                     low_prediction_id=UUID(manifest.video.candidate_ids["low"]),

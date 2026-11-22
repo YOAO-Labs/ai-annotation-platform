@@ -147,8 +147,8 @@ async def test_pose_pair_read_returns_only_existing_requested_rows_in_order(db_s
 @pytest.mark.parametrize(
     "pairs",
     [
-        None,  # SQL NULL
-        "null",  # JSON null
+        None,
+        "null",
         [],
         [None],
         [{"scene_id": _SCENE_ID, "frame_index": None}],

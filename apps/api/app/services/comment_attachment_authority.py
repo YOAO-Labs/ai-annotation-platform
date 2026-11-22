@@ -26,8 +26,6 @@ ALLOWED_ROLES = frozenset(
     }
 )
 AUTHORITY_LOCK_TIMEOUT = "1s"
-# Accepted-key facts no longer expose credential material. The Identity owner
-# confirms the same key row under its own SHARE fence on every reauthorization.
 KEY_ACCEPTED = (True, (), None)
 
 
@@ -165,7 +163,6 @@ def check_clock(proof):
 async def _jwt_current(db, proof):
     check_clock(proof)
     if proof.jwt is not None and proof.jwt.jti is not None:
-        # Recheck Identity in the transaction holding the account SHARE fence.
         if await token_blacklist.is_blacklisted(proof.jwt.jti, db=db):
             reject("comment_attachment_authority_revoked", 403)
         if (
@@ -224,8 +221,6 @@ async def lock_authority(db, actor, request, *, allowed_roles=ALLOWED_ROLES):
     actor = await _actor(db, actor_id, allowed_roles)
     key = await _key(db, actor_id, key_id)
     if key_id is not None:
-        # Restore the exact stored-facts match the admission captured: a scope
-        # edit between admission and this lock revokes the accepted credential.
         if key is None or tuple(key[1]) != tuple(scopes or ()):
             reject("api_key_authority_revoked", 403)
     proof = Authority(
@@ -276,7 +271,6 @@ async def context(db, actor, annotation_id, *, active=False, expected=None):
 
     try:
         with db.no_autoflush:
-            # Scalar locator values cannot be mutated by populate_existing later.
             located = (
                 await db.execute(
                     select(

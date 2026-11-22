@@ -26,9 +26,6 @@ from app.services.labeling_core_read_relations import (
 
 _PRIMARY_LIDAR_ROLE = "primary_lidar"
 
-# 经典派题路径在「候选查询」与「acquire 上锁」之间存在 TOCTOU 窗口:他人可能抢先
-# 上锁。逐个候选尝试 acquire,失败即跳到下一个,最多看这么多个候选(高竞争下兜底,
-# 全被占则本次返回 None,客户端重试)。
 _NEXT_TASK_CANDIDATE_WINDOW = 20
 
 
@@ -45,13 +42,9 @@ def visible_batch_statuses_for_project_role(project_role: str | None) -> list[st
     return []
 
 
-# 按角色分拆可见性集合。
-# 标注员能看到 active / annotating（自己分派的批次）+ rejected（特例：让他们看到 reviewer 留言并重做）。
-# Reviewer 能看到 active / annotating / reviewing（跨批次审核），不受 assigned_user_ids 约束。
 ANNOTATOR_VISIBLE_BATCH_STATUSES = ["active", "annotating", "rejected"]
 REVIEWER_VISIBLE_BATCH_STATUSES = ["active", "annotating", "reviewing"]
 
-# 兼容别名（保留 B-16 时引入的常量名；指向 annotator 集合的核心三态）。
 WORKBENCH_VISIBLE_BATCH_STATUSES = ["active", "annotating"]
 
 
@@ -84,7 +77,6 @@ def batch_visibility_clause(
             batch_model.status.in_(["active", "annotating"]),
             or_(batch_model.annotator_id.is_(None), is_self),
         ),
-        # rejected 对**被分派**的标注员可见（看 reviewer 留言 + 重做）
         and_(batch_model.status == "rejected", is_self),
     )
 
@@ -227,9 +219,6 @@ def task_visibility_clause(
         actor_id, task_model=task_model, batch_model=batch_model
     )
     arms = [
-        # Keep the existing active/annotating open-pool behavior, while an
-        # explicit task assignee narrows a normally batch-scoped task.  This
-        # task-level override filtering applies to viewer too.
         and_(
             task_model.batch_id.is_not(None),
             batch_model.status.in_(["active", "annotating"]),
@@ -237,7 +226,6 @@ def task_visibility_clause(
                 actor_id, task_model=task_model, batch_model=batch_model
             ),
         ),
-        # Rejected work is visible only to its effective assignee.
         and_(
             task_model.batch_id.is_not(None),
             batch_model.status == "rejected",
@@ -246,13 +234,9 @@ def task_visibility_clause(
     ]
     if is_annotator:
         arms.append(
-            # An explicitly assigned unbatched task has no batch status to gate
-            # it; only an annotator may see it.
             and_(task_model.batch_id.is_(None), task_model.assignee_id == actor_id)
         )
         arms.append(
-            # A rejected/in-progress task can be resumed during batch review by
-            # its annotator assignee; a viewer must not enter this rework arm.
             and_(
                 task_model.batch_id.is_not(None),
                 batch_model.status == "reviewing",
@@ -449,16 +433,10 @@ async def get_next_task(
     project_role: str | None = None,
 ) -> Task | None:
     user_id = actor_id
-    # Authentication may have completed before an administrator suspended the
-    # account. Keep the same account share lock as TaskLockService before
-    # returning an already-held lock or attempting to claim a new task.
     if not await assert_task_user_active(db, user_id):
         return None
     lock_svc = TaskLockService(db)
 
-    # 1. Check if user already has a locked task in this project
-    # B-6 修复：用户在同一项目下可能因切换任务残留多把锁，scalar_one_or_none() 会抛 500。
-    # 改用 .first() 取最新一把作为"当前任务"。
     locked_result = await db.execute(
         select(task_lock_row)
         .join(task_row, task_row.id == task_lock_row.task_id)
@@ -471,13 +449,10 @@ async def get_next_task(
         if task and not task.is_labeled:
             return task
 
-    # 2. Get project config
     project = await get_workspace_project(db, project_id=project_id)
     if not project:
         return None
 
-    # scene 连续标注优先(默认 OFF, 既有项目零回归): 显式打开后, 在套用既有
-    # sampling 策略前, 优先返回"用户最近提交 task 的同 scene 下一帧"。找不到则回退。
     if project.prefer_same_scene_continuation:
         scene_task = await _next_same_scene_task(
             db,
@@ -487,19 +462,12 @@ async def get_next_task(
             project_role=project_role,
         )
         if scene_task is not None:
-            # TOCTOU: _filter_assignable_task_ids 已排除他人锁, 但与此处 acquire 之间存在
-            # 竞态窗口——他人可能在两步之间抢先上锁。acquire 返回 None 表示未拿到锁, 此时
-            # 不能返回这个未上锁的 task(否则多人同拉同一 scene next frame), 回退到下方既有
-            # 经典分配逻辑(经典路径同样以 acquire 结果决定是否返回)。
             acquired = await lock_svc.acquire(
                 scene_task.id, user_id, ttl=project.task_lock_ttl_seconds
             )
             if acquired is not None:
                 return scene_task
 
-    # 3. Build candidate query: unlabeled, not already annotated by this user.
-    # 相关 NOT EXISTS 取代 NOT IN(子查询)：标注员标注量大时 NOT IN 会让
-    # Postgres 物化整个 task_id 集合（大表热路径放大）；NOT EXISTS 可直接走索引短路。
     already_annotated = (
         select(annotation_row.id)
         .where(
@@ -522,18 +490,15 @@ async def get_next_task(
                 task_row.batch_id.is_(None),
                 and_(
                     batch_row.status.in_(["active", "annotating"]),
-                    batch_row.admin_locked.is_(False),  # 管理员锁定时不派单（ADR-0008）
+                    batch_row.admin_locked.is_(False),
                 ),
             ),
         )
     )
 
-    # Batch filtering
     if batch_id:
         candidates = candidates.where(task_row.batch_id == batch_id)
 
-    # Assignment filtering: super_admin / 项目 owner 越权放行（可代标注员补刀），
-    # 其他角色无论是否显式指定 batch_id，都必须命中 assigned_user_ids（或批次未分派）。
     actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or not is_privileged_for_project(actor, project):
         candidates = candidates.where(
@@ -545,16 +510,12 @@ async def get_next_task(
             )
         )
 
-    # 4. Multi-annotator overlap
     if project.maximum_annotations > 1:
         candidates = candidates.where(
             task_row.total_annotations < project.maximum_annotations
         )
 
-    # 5. Apply sampling strategy (batch priority as primary sort)
     if project.sampling == "uncertainty":
-        # 相关标量子查询取每 task 最低预测分，取代 outerjoin Prediction：
-        # outerjoin 会按预测条数行扇出（一 task 多 prediction）再对扇出行排序，大表代价高。
         min_pred_score = (
             select(func.min(prediction_row.score))
             .where(prediction_row.task_id == task_row.id)
@@ -575,8 +536,6 @@ async def get_next_task(
             task_row.created_at,
         )
 
-    # 6. Pick and lock — 逐个候选尝试 acquire,跳过他人在 TOCTOU 窗口抢先上锁的 task,
-    #    返回首个成功上锁者;候选窗口内全被占则返回 None(本次无可派 task,客户端重试)。
     result = await db.execute(candidates.limit(_NEXT_TASK_CANDIDATE_WINDOW))
     for next_task in result.scalars().all():
         acquired = await lock_svc.acquire(

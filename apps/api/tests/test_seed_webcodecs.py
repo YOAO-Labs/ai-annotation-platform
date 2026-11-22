@@ -33,7 +33,7 @@ _SAMPLE_KEYS = {
 def test_baseline_fixture_produces_production_shaped_samples(tmp_path):
     meta = generate_fixture("h264-baseline-gop12", tmp_path)
     assert meta["codec_string"].startswith("avc1.")
-    assert meta["description"]  # base64 avcC
+    assert meta["description"]
     assert meta["width"] == 160 and meta["height"] == 120
     assert meta["frame_count"] == 12
 
@@ -45,16 +45,13 @@ def test_baseline_fixture_produces_production_shaped_samples(tmp_path):
     assert [entry["pts_ms"] for entry in meta["frame_timetable"]] == [
         sample["pts_ms"] for sample in samples
     ]
-    # frame_index 是 0..11 的 presentation-rank 排列(前端按 timestamp 选目标)。
     assert sorted(s["frame_index"] for s in samples) == list(range(12))
-    # baseline 共 12 帧且 GOP=12，关闭 scenecut 后只有首帧关键帧。
     key_fi = sorted(s["frame_index"] for s in samples if s["is_keyframe"])
     assert key_fi == [0]
     for s in samples:
         assert _SAMPLE_KEYS <= set(s)
         assert s["size_bytes"] > 0
         assert s["offset_in_chunk"] >= 0
-    # mp4 字节非空,供前端按 offset 切片。
     assert meta["mp4_bytes"]
 
 
@@ -74,11 +71,9 @@ def test_qualification_fixture_produces_full_ready_chunk_contract(tmp_path):
 
 def test_main_bframes_has_decode_presentation_reorder(tmp_path):
     meta = generate_fixture("h264-main-bframes-gop30", tmp_path)
-    assert meta["codec_string"].startswith("avc1.4d")  # main profile
+    assert meta["codec_string"].startswith("avc1.4d")
     decode_order = [s["frame_index"] for s in meta["samples"]]
-    # B 帧:packet(decode)顺序 ≠ presentation rank 单调序列。
     assert decode_order != sorted(decode_order)
-    # 但 frame_index 集合仍是完整排列(覆盖全部帧)。
     assert sorted(decode_order) == list(range(meta["frame_count"]))
     assert sorted(s["frame_index"] for s in meta["samples"] if s["is_keyframe"]) == [
         0,
@@ -154,7 +149,6 @@ def test_issue_context_fixture_has_180_unique_decoded_frame_identities(tmp_path)
                 luma = pixels[y - 2 : y + 3, x - 2 : x + 3].mean()
                 assert luma > 160 if bit else luma < 95
 
-    # Decode the actual MP4, then verify every signature in presentation order.
     decoded = subprocess.run(
         [
             "ffmpeg",
@@ -233,7 +227,6 @@ def test_apply_metadata_mutation_unsupported_keeps_description(tmp_path):
     base = generate_fixture("h264-baseline-gop12", tmp_path)
     mutated = apply_metadata_mutation("unsupported-config", base)
     assert mutated["codec_string"] == "avc1.ffff00"
-    # 真实 avcC description 保留 → 前端 isConfigSupported 因 codec string 拒绝。
     assert mutated["description"] == base["description"]
 
 
@@ -244,7 +237,6 @@ def test_apply_metadata_mutation_malformed_pushes_offset_out_of_bounds(tmp_path)
     assert mutated["samples"][1]["offset_in_chunk"] == 10**9
     assert mutated["frame_timetable"] == base["frame_timetable"]
     assert mutated["frame_timetable"][1]["pts_ms"] == 33
-    # 其余帧不变。
     assert mutated["samples"][0] == base["samples"][0]
 
 
@@ -255,13 +247,11 @@ def test_frame_expectations_structure_and_bit_encoding():
     assert len(exp["frames"]) == 12
     assert exp["sample_regions"]["background"]["kind"] == "luma"
     assert len(exp["sample_regions"]["corners"]) == 4
-    # 帧 0:四角 bit 全 0,背景基值。
     assert exp["frames"][0]["corner_bits"] == [0, 0, 0, 0]
     assert exp["frames"][0]["background_luma"] == 32
-    # frame_index 低 4 位编码到 corner_bits(bit0=TL)。
-    assert exp["frames"][1]["corner_bits"] == [1, 0, 0, 0]  # 1
-    assert exp["frames"][5]["corner_bits"] == [1, 0, 1, 0]  # 5 = 0b0101
-    assert exp["frames"][9]["corner_bits"] == [1, 0, 0, 1]  # 9 = 0b1001
+    assert exp["frames"][1]["corner_bits"] == [1, 0, 0, 0]
+    assert exp["frames"][5]["corner_bits"] == [1, 0, 1, 0]
+    assert exp["frames"][9]["corner_bits"] == [1, 0, 0, 1]
 
 
 def test_frame_expectations_include_sample_timestamps_and_unique_signatures(tmp_path):
@@ -277,7 +267,6 @@ def test_frame_expectations_include_sample_timestamps_and_unique_signatures(tmp_
 
 
 def test_frame_expectations_malformed_uses_real_baseline_frames():
-    # unsupported / malformed 复用 baseline 真实编码,expectations 描述 baseline 帧签名。
     exp = frame_expectations("malformed-samples")
     assert exp["scene_color"] == "red"
     assert exp["frame_count"] == 12

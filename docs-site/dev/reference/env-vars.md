@@ -3,7 +3,7 @@ title: 环境变量参考
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-11-20
+last_reviewed: 2026-11-21
 ---
 
 # 环境变量参考
@@ -409,17 +409,25 @@ last_reviewed: 2026-11-20
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `SMTP_HOST` | `localhost` | 留空则 GET /settings/system 显示「未配置」，发送测试邮件按钮报错。 dev 推荐用 docker-compose 内置的 mailpit 收件箱（不外发真实邮件）： docker compose up -d mailpit  → Web UI http://localhost:8025 API 跑 host 时连 localhost:1025；API 也进 Docker 时把 SMTP_HOST 改成 mailpit。 |
+| `SMTP_HOST` | `localhost` | 未配置则不发送应用邮件；GET /settings/system 显示「未配置」。 下面的 SMTP 地址是开发示例，不是运行默认值。docker compose up -d mailpit → http://localhost:8025。 宿主机上的 API 连 localhost:1025；同一开发 Compose 网络内连 mailpit:1025。 整栈生产不会启动 Mailpit；需要发信时填写真实中继，优先使用 587（STARTTLS）或 465（TLS）。 |
 | `SMTP_PORT` | `1025` | — |
 | `SMTP_FROM` | `noreply@local.test` | — |
 | `SMTP_USER` | `—` | — |
-| `SMTP_PASSWORD` | `—` | — |
+| `SMTP_PASSWORD` | `—` | 旧式直接传入密码。整栈生产优先配置密码文件，两者不可并用。 |
+| `SMTP_PASSWORD_FILE` | `—` | SMTP 密码文件，内容为单个密码。整栈生产填写宿主文件路径，仅只读挂载到 API 与默认队列 worker。 |
+
+## 生产监控邮件（仅整栈 Compose 的 monitoring profile）
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `ALERTMANAGER_CONFIG_FILE` | `—` | 留空则 Alertmanager 接收告警但不发通知；启用时填写仓库外、不含密码的 Alertmanager 配置文件路径。 |
+| `ALERTMANAGER_SMTP_PASSWORD_FILE` | `—` | Alertmanager SMTP 密码的宿主文件路径；配置内用 smtp_auth_password_file: /run/secrets/alertmanager_smtp_password。 |
 
 ## 跨域 (CORS)
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `CORS_ALLOW_ORIGINS` | `["https://app.example.com","https://admin.example.com"]` | 允许的前端来源列表，支持两种格式： JSON 数组：["https://app.example.com","https://admin.example.com"] 逗号分隔：https://app.example.com,https://admin.example.com production 环境必填；dev/staging 留空则默认放行 localhost 常用端口 |
+| `CORS_ALLOW_ORIGINS` | `["https://app.example.com","https://admin.example.com"]` | 允许的前端来源列表，支持两种格式： JSON 数组：["https://app.example.com","https://admin.example.com"] 逗号分隔：https://app.example.com,https://admin.example.com production 必须显式设置非空列表；dev/staging 未设置时默认放行 localhost 常用端口 |
 | `CORS_ALLOW_ORIGINS` | `https://app.example.com,https://admin.example.com` | — |
 
 ## 来源正则匹配（仅 dev/staging 生效，production 自动忽略以防误放本机正则上线）

@@ -76,8 +76,6 @@ async def generated_parent_runtime(test_engine, resources, monkeypatch):
         if role is not None:
             await backend.owned_runtime_role("check_drop")
             async with test_engine.begin() as db:
-                # This fixture attaches only new grants to an existing disposable
-                # verifier DB; prove it owns no data before removing those ACLs.
                 assert not await db.scalar(
                     text(
                         "SELECT EXISTS(SELECT 1 FROM pg_class WHERE relowner=(SELECT oid FROM pg_roles WHERE rolname=:role))"

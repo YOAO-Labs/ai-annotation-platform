@@ -11,7 +11,6 @@ import re
 from builtins import BaseExceptionGroup
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
-from datetime import datetime
 from typing import Literal, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
@@ -60,8 +59,6 @@ _NATIVE_MANIFEST_RELATIVE = "manifest.json"
 _NATIVE_OVERVIEW_RELATIVE = "overview.webp"
 _NATIVE_READ_BATCH = 100
 _NATIVE_URL_MAX_SECONDS = 604800
-# A frozen Native URL policy is a positive SQL integer; only the URLs actually
-# issued to clients are capped at the SigV4 limit.
 _NATIVE_POLICY_MAX_SECONDS = 2_147_483_647
 _NATIVE_TILE_RELATIVE = re.compile(
     r"^tiles/(0|[1-9][0-9]*)/(0|[1-9][0-9]*)/(0|[1-9][0-9]*)\.webp$"
@@ -364,8 +361,6 @@ class ImageControl:
         if not isinstance(identity, c.ObjectIdentity):
             raise c.ImageFailure("invalid_response")
         if source.object_identity == identity:
-            # Recheck authority after storage I/O without taking a writer fence
-            # for an identity the owner has already observed.
             observed = await self._native_call("read_image_source", selector)
         else:
             observed = await self._native_call(
@@ -857,16 +852,15 @@ class ImageControl:
                 )
                 try:
                     if output.fixture_owned:
-                        manifest, overview_url = (
-                            await self._fixture_native_generation_overview(
-                                state.pyramid, expires_in=expires_in
-                            )
+                        (
+                            manifest,
+                            overview_url,
+                        ) = await self._fixture_native_generation_overview(
+                            state.pyramid, expires_in=expires_in
                         )
                     else:
-                        manifest, overview_url = (
-                            await self._native_generation_overview(
-                                state.pyramid, request, expires_in=expires_in
-                            )
+                        manifest, overview_url = await self._native_generation_overview(
+                            state.pyramid, request, expires_in=expires_in
                         )
                 except c.ImageFailure as exc:
                     missing = _missing_native_scope(exc)
@@ -1215,10 +1209,6 @@ class ImageControl:
                     await self._prepare_small_thumbnail(source, request, key)
                 return None, None
             if state.pyramid.native:
-                # No in-scope writer publishes a saved Native key as the owner
-                # thumbnail pointer, so only the legacy overview family remains
-                # dispatchable here.  A saved-output overview is read solely
-                # through the generation/asset reference lanes.
                 raise c.ImageFailure("invalid_response")
             _manifest, prefix = await self._read_ready_manifest(state.pyramid)
             if key != prefix + "/overview.webp" or await self._head_cache(key) is None:
@@ -1347,7 +1337,6 @@ class ImageControl:
         self, pyramid: c.ImagePyramidGeneration
     ) -> tuple[c.ImagePyramidManifest, str]:
         if pyramid.native:
-            # A saved native output is read only through its durable permit.
             raise c.ImageFailure("invalid_response")
         if (
             pyramid.status != "ready"
@@ -1412,8 +1401,6 @@ class ImageControl:
         if not isinstance(result, str):
             raise c.ImageFailure("invalid_response")
         return result
-
-    # -- native saved-output reads ------------------------------------------
 
     def _native_http(self) -> httpx.AsyncClient:
         client = self._native_http_client
@@ -1480,12 +1467,13 @@ class ImageControl:
             or not isinstance(prefix, str)
             or not prefix.endswith("/")
             or prefix
-            != target.key_prefix + "image-pyramids/objects/" + str(output.output_id) + "/"
+            != target.key_prefix
+            + "image-pyramids/objects/"
+            + str(output.output_id)
+            + "/"
             or pyramid.manifest_key != prefix + _NATIVE_MANIFEST_RELATIVE
             or pyramid.overview_key != prefix + _NATIVE_OVERVIEW_RELATIVE
-            or not 1
-            <= output.url_expiry_seconds
-            <= _NATIVE_POLICY_MAX_SECONDS
+            or not 1 <= output.url_expiry_seconds <= _NATIVE_POLICY_MAX_SECONDS
         ):
             raise c.ImageFailure("invalid_response")
         return prefix
@@ -1560,8 +1548,6 @@ class ImageControl:
         """
         output = pyramid.native_output
         if self.native_storage is None:
-            # No Native read signer in this process; never fall back to the
-            # configured cache bucket or another issuer.
             raise c.ImageFailure("storage_unavailable")
         if (
             pyramid.native is not True
@@ -1587,9 +1573,6 @@ class ImageControl:
             if failure is not None and getattr(
                 failure, "storage_operation_unsettled", False
             ):
-                # The HTTP response/body closure was not proved.  Completing the
-                # permit would claim physical closure the owner cannot support,
-                # so retain the durable barrier and never publish URLs.
                 log.warning(
                     "Native image read permit retained after unproven closure "
                     "operation_id=%s output_id=%s",
@@ -1683,9 +1666,7 @@ class ImageControl:
                 (_NATIVE_MANIFEST_RELATIVE, _NATIVE_OVERVIEW_RELATIVE),
                 get_keys=(_NATIVE_MANIFEST_RELATIVE,),
             )
-            manifest = self._native_manifest(
-                pyramid, bodies[_NATIVE_MANIFEST_RELATIVE]
-            )
+            manifest = self._native_manifest(pyramid, bodies[_NATIVE_MANIFEST_RELATIVE])
             urls = await read.publish(
                 (_NATIVE_OVERVIEW_RELATIVE,), expires_in=expires_in
             )
@@ -1697,8 +1678,6 @@ class ImageControl:
         *,
         expires_in: int,
     ) -> tuple[c.ImagePyramidManifest, str]:
-        # The fixture read owner serves only the exact saved output prefix; the
-        # legacy overview family and any reconstructed key are refused.
         self._native_saved_prefix(pyramid)
         if pyramid.manifest_key is None or pyramid.overview_key is None:
             raise c.ImageFailure("invalid_response")
@@ -1724,9 +1703,7 @@ class ImageControl:
                 (_NATIVE_MANIFEST_RELATIVE,),
                 get_keys=(_NATIVE_MANIFEST_RELATIVE,),
             )
-            manifest = self._native_manifest(
-                pyramid, bodies[_NATIVE_MANIFEST_RELATIVE]
-            )
+            manifest = self._native_manifest(pyramid, bodies[_NATIVE_MANIFEST_RELATIVE])
             entries = _native_asset_entries(request, manifest)
             keys = [entry[-1] for entry in entries]
             await read.inspect(keys, get_keys=())
@@ -1793,9 +1770,7 @@ class ImageControl:
             await self._invalidate_generation(
                 source, request, pyramid, kind, level=level, x=x, y=y
             )
-        await self._repair_pyramid(
-            source, request, "|".join(sorted(relative_keys))
-        )
+        await self._repair_pyramid(source, request, "|".join(sorted(relative_keys)))
 
     async def _invalidate_generation(
         self,
@@ -1886,7 +1861,9 @@ def _native_asset_entries(
 class _NativeReadSession:
     """One durable native read permit with its inspected member receipts."""
 
-    def __init__(self, control: ImageControl, permit: c.NativePyramidReadPermit) -> None:
+    def __init__(
+        self, control: ImageControl, permit: c.NativePyramidReadPermit
+    ) -> None:
         self.control = control
         self.permit = permit
         self.receipts: dict[str, NativePyramidIoMember] = {}

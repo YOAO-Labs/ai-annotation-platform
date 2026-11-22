@@ -552,10 +552,6 @@ export function EntityDataManagerLens({
   const total = activeQ.data?.pages[0]?.total ?? 0;
   const facets = activeQ.data?.pages[0]?.facets;
 
-  // The virtual rows follow the Data page scroll owner instead of a table-local
-  // scroller. `scrollMargin` maps the virtual list onto the canvas position
-  // below the sticky header, query controls and summaries; it is remeasured
-  // whenever content above the canvas changes height.
   const [scrollMargin, setScrollMargin] = useState(0);
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -593,8 +589,6 @@ export function EntityDataManagerLens({
     };
   }, [hasRows, scrollContainerRef]);
   const virtualRows = virtualizer.getVirtualItems();
-  // Query, sort or column changes return the reader to the result start on the
-  // page scroll owner; loading another cursor page keeps the viewport position.
   useEffect(() => {
     const scroller = scrollContainerRef.current;
     const target = resultsStartRef.current;
@@ -745,7 +739,6 @@ export function EntityDataManagerLens({
       ? [{ rule: filter, path: [] }]
       : [];
   const topRuleEntries = expressionRuleEntries;
-  // 图表交叉筛选：点柱子 → 切换一条 `field eq value`（已存在则移除，实现 toggle）。
   const toggleFacetRule = (field: string, value: string) => {
     if (!fields.some((item) => item.key === field)) return;
     const existing =
@@ -1122,8 +1115,6 @@ export function EntityDataManagerLens({
                 ref={resultsStartRef}
                 role="table"
                 aria-rowcount={total}
-                // Horizontal overflow stays here; natural height leaves vertical
-                // scrolling and virtualizer ownership with the Data page.
                 className="relative w-full min-w-0 max-w-full min-h-[280px] overflow-x-auto rounded-md border border-border bg-card"
               >
                 <div
@@ -1227,8 +1218,6 @@ export function EntityDataManagerLens({
                           style={
                             {
                               "--dm-grid-columns": gridTemplate,
-                              // `scrollMargin` compensates for the page content
-                              // above the canvas; rows position within the canvas.
                               "--dm-row-offset": `${virtualRow.start - scrollMargin}px`,
                             } as CSSProperties
                           }

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-_PROJECT_ROOT_PYTHONPATH = "."  # tests run from apps/api; app/ is on path
+_PROJECT_ROOT_PYTHONPATH = "."
 
 
 @dataclass(frozen=True)
@@ -53,10 +53,6 @@ def _exports(module: str, *names: str) -> ExportGroup:
 
 FACADE_SPECS: tuple[FacadeSpec, ...] = ()
 
-# Modules physically removed. Each entry records the old facade path,
-# the replacement modules (positive controls), and the frozen symbols that must
-# NO LONGER be importable from the old path. The negative-import tests below
-# verify every removed module is truly gone.
 REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
     FacadeSpec(
         facade_module="app.services.data_manager",
@@ -736,10 +732,6 @@ REMOVED_MODULE_SPECS: tuple[FacadeSpec, ...] = (
 
 _EXPECTED_FACADES: set[str] = set()
 
-# Every module in REMOVED_MODULE_SPECS has been physically deleted.
-# FACADE_SPECS is empty; the positive facade tests are inert. The
-# REMOVED_MODULE_SPECS negative tests below are the permanent guard.
-
 
 def _public_names(module: object) -> tuple[str, ...]:
     names = getattr(module, "__all__", None)
@@ -765,7 +757,7 @@ def test_all_compatibility_facades_are_registered() -> None:
     """The data-driven suite must not silently omit a landed legacy facade."""
     assert {spec.facade_module for spec in FACADE_SPECS} == _EXPECTED_FACADES
     all_names = [name for spec in FACADE_SPECS for name in spec.expected_names]
-    assert len(all_names) == 0  # FACADE_SPECS empty; remaining retired modules deleted
+    assert len(all_names) == 0
     for spec in FACADE_SPECS:
         assert len(spec.expected_names) == len(set(spec.expected_names)), (
             f"frozen manifest duplicates a name for {spec.facade_module}"
@@ -989,9 +981,6 @@ def test_facade_no_import_star(spec: FacadeSpec) -> None:
 
     facade = __import__(spec.facade_module, fromlist=["*"])
     public_names = set(_public_names(facade))
-    # A facade may import private (underscore-prefixed) symbols for test-patch
-    # convenience that are not part of the public __all__ contract.  Only the
-    # public imported names must match __all__ exactly.
     public_imported = {name for name in imported_names if not name.startswith("_")}
     if public_imported != public_names:
         offenders.append(
@@ -1000,10 +989,6 @@ def test_facade_no_import_star(spec: FacadeSpec) -> None:
         )
     assert not offenders, f"{spec.facade_module}: " + "; ".join(offenders)
 
-
-# ---------------------------------------------------------------------------
-# Negative guards for physically removed modules.
-# ---------------------------------------------------------------------------
 
 _REMOVED_FACADES = {spec.facade_module for spec in REMOVED_MODULE_SPECS}
 
@@ -1016,11 +1001,9 @@ def test_removed_module_not_importable(spec: FacadeSpec) -> None:
     old = spec.facade_module
     assert importlib.util.find_spec(old) is None, f"{old} still has a module spec"
 
-    # Direct import must fail
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module(old)
 
-    # from app.services import <name> must not expose the attribute
     if old.startswith("app.services."):
         name = old.rsplit(".", 1)[-1]
         import app.services as pkg  # noqa: PLC0415
@@ -1029,7 +1012,6 @@ def test_removed_module_not_importable(spec: FacadeSpec) -> None:
             f"app.services.{name} still accessible as package attribute"
         )
 
-    # A frozen symbol must not be importable from the old path
     first_symbol = spec.expected_names[0]
     with pytest.raises(ModuleNotFoundError):
         __import__(old, fromlist=[first_symbol])
@@ -1077,8 +1059,6 @@ def test_removed_modules_count_matches_manifest() -> None:
     manifest_path = Path(__file__).parent / "_fixtures" / "removed_service_modules.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     manifest_old_paths = {m["facade_module"] for m in manifest["modules"]}
-    # Every removed spec must be in the manifest; the manifest may have more
-    # entries (modules not yet deleted).
     assert _REMOVED_FACADES.issubset(manifest_old_paths), (
         f"removed specs not in manifest: {_REMOVED_FACADES - manifest_old_paths}"
     )

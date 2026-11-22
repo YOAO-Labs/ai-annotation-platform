@@ -135,7 +135,6 @@ function ProtectionEditor({
             recovery_reference: reference.trim() || null,
           })
           .then(async () => {
-            // The callback only invalidates queries belonging to this source owner.
             await onSaved();
             if (current()) onClose();
           })

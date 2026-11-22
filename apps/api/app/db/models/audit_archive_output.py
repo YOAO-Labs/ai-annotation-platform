@@ -131,7 +131,6 @@ class AuditArchiveOutput(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    # Historical snapshots must survive job deletion and database restoration.
     job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     year: Mapped[int] = mapped_column(Integer, nullable=False)
     month: Mapped[int] = mapped_column(Integer, nullable=False)

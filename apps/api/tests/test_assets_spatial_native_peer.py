@@ -183,8 +183,6 @@ async def test_restricted_catalog_psql_spatial_transaction_rolls_back(test_engin
     if owner_database != catalog_url.database or not owner_database.endswith("_test"):
         pytest.fail("owner connection did not target the Catalog test database")
 
-    # This verifies the exact verifier-owned PostgreSQL name, image, labels, and
-    # loopback port before either seeding rows or invoking Docker exec.
     _verify_postgres(catalog_url)
 
     actor_id: UUID | None = None

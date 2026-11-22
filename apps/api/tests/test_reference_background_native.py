@@ -262,7 +262,6 @@ async def native_world(db_session, reference_world, input_world, monkeypatch):
         )
     )
     await db_session.flush()
-    # A ring and disconnected island remain a single native instance.
     pixels = [
         int(
             (3 <= x < 18 and 3 <= y < 18 and not (7 <= x < 14 and 7 <= y < 14))
@@ -404,7 +403,6 @@ async def prepared(w, client, admin, monkeypatch):
             self.last_instance_id = w.backend.id
             return [result]
 
-    # ready_deployment does not change the project's default pool.
     from app.db.models.ml_backend_registry import ProjectMLBackendPool
 
     pool_id = await w.db.scalar(
@@ -483,7 +481,6 @@ async def test_whole_group_is_qualified_before_first_object_put(
         bad["token_meta"]["segmentation"]["dimensions"] = [48, 32]
     else:
         monkeypatch.setattr(settings, "raster_mask_create_enabled", False)
-    # Result index 1 has its own deterministic lineage even in a valid group.
     ident = str(
         uuid.uuid5(
             uuid.NAMESPACE_URL, f"{owner.proof['snapshot_id']}:{w.task.id}:7:1:0"
@@ -540,8 +537,6 @@ async def test_private_receipt_rejects_changed_payload_owner_and_transaction(
         elif fault == "snapshot":
             owner.deliveries[task_id][0]._snapshot.close()
         elif fault == "expired":
-            # Keep the receipt's immutable deadlines; advance the actual clock
-            # past them so the delivery expires through its real comparison.
             expired = owner.deliveries[task_id][0].record.expires_at + timedelta(
                 seconds=1
             )

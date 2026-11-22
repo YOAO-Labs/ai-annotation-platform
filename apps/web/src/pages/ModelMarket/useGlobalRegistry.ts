@@ -1,10 +1,3 @@
-/**
- * ADR-0044 · superadmin 全局 ML backend 注册表 mutation hooks。
- *
- * 全局 backend (project_id=null) 走 /admin/ml-integrations/registry，与项目作用域的
- * useMLBackends（/projects/{id}/ml-backends）解耦。成功后同时失效全局列表 (all) 与
- * 模型市场总览 (overview)，让两处视图一起刷新。
- */
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   adminMlIntegrationsApi,
@@ -16,20 +9,11 @@ import {
   type ServicePoolMemberPutRequest,
 } from "@/api/adminMlIntegrations";
 
-/**
- * Invalidate every query that reflects registry / pool state.
- *
- * extended to also drop `topology` + `runtime-snapshot` so pool /
- * member mutations (drain / resume / edit / remove) refresh the new role-aware
- * registry views, not just the legacy `/all` list. Plan §9.3 requires precise
- * invalidation — no global `invalidateQueries({})`.
- */
 export function invalidateRegistryQueries(qc: QueryClient) {
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "all"] });
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "overview"] });
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "gpu-resources"] });
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "observe"] });
-  // registry views are driven by topology + runtime snapshot.
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "topology"] });
   qc.invalidateQueries({ queryKey: ["admin", "ml-integrations", "runtime-snapshot"] });
 }
@@ -75,10 +59,6 @@ export function useRegistryUnload() {
     onSuccess: () => invalidateRegistryQueries(qc),
   });
 }
-
-// ── service-pool / member mutations (ADR-0050) ────────────────
-// Plan §8 + §10: drain / resume / unload gate at the member scope; pool edits
-// and member add/remove use the same invalidation envelope as registry CRUD.
 
 export function useCreateServicePool() {
   const qc = useQueryClient();
@@ -131,7 +111,6 @@ export function useRemovePoolMember() {
   });
 }
 
-/** Member active → draining (stop accepting new leases). Idempotent. */
 export function useDrainPoolMember() {
   const qc = useQueryClient();
   return useMutation({
@@ -141,7 +120,6 @@ export function useDrainPoolMember() {
   });
 }
 
-/** Member draining → active (resume routing). Idempotent. */
 export function useResumePoolMember() {
   const qc = useQueryClient();
   return useMutation({

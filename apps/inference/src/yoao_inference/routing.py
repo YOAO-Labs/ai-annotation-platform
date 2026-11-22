@@ -82,9 +82,6 @@ _MANAGED_CONTROL_PATHS = frozenset(
 )
 _CONTROL_FIELDS = {"control_id", "registry_id", "kind", "phase", "capability"}
 _FINISHED_CONTROL_FIELDS = {"control_id", "registry_id", "kind", "phase"}
-# The Native admission snapshot serializes the whole ``ml_backend_registry`` row
-# (``to_jsonb(registry)``), which includes the database-managed auth_revision in
-# addition to the shared health-row columns.
 _ROUTING_BACKEND_FIELDS = (*_BACKEND_FIELDS, "auth_revision")
 _EPOCH_FIELDS = {
     "control_id",
@@ -326,8 +323,6 @@ class RoutingManager:
         try:
             async with self._data_factory() as data:
                 if request.operation == "video_acquire":
-                    # Current claim validation precedes any successful receipt
-                    # replay. Stable scope identity survives contention retries.
                     try:
                         await self._prepare_video_acquire(data, request, digest)
                     except VideoScopeRejected as rejected:
@@ -942,8 +937,6 @@ class RoutingManager:
     async def _prepare_control(
         self, data: RoutingTransaction, body: dict[str, Any]
     ) -> dict[str, Any]:
-        # Native rechecks and takes the persistent control hold in the same XID.
-        # This explicit read preserves the API's pre-control topology error phase.
         await _native_step(
             data,
             "quiescence",
@@ -1049,7 +1042,6 @@ class RoutingManager:
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except Exception:
-            # The persistent hold remains. A new command ID may poll and resume it.
             return self._unknown(make_routing_status_request(request))
 
         if reply.phase != "bound" or reply.active_requests != 0:
@@ -1366,9 +1358,6 @@ def _decode_backend_control_reply(value: object) -> Any:
 
 
 def _decode_routing_backend(value: Any) -> BackendHealthRow:
-    # The Native admission snapshot serializes the whole registry row, so the
-    # routing wire also carries the database-managed ``auth_revision``. Validate
-    # it as part of the frozen subject instead of ignoring an unknown column.
     values = _record_values(_json_object(value), _ROUTING_BACKEND_FIELDS)
     auth_revision = values.pop("auth_revision")
     if type(auth_revision) is not int or auth_revision < 0:

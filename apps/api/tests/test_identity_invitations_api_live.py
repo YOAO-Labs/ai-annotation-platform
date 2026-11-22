@@ -144,7 +144,6 @@ async def test_auth_only_api_exercises_all_thirteen_invitation_operations(
                 headers=existing_headers,
             ) as employee,
         ):
-            # Resolve and accept an existing account without changing its role.
             existing_create = await manager.post(
                 "/api/v1/users/invite",
                 json={
@@ -172,8 +171,6 @@ async def test_auth_only_api_exercises_all_thirteen_invitation_operations(
             assert accepted.json()["user"]["role"] == "employee"
             assert accepted.json()["acceptance"]["project_member_role"] == "annotator"
 
-            # New-account registration creates the requested project/group rows
-            # atomically, while the public API returns a usable owner-issued JWT.
             group_name = f"API-Invitation-Group-{suffix[:12]}"
             registered_email = f"api-registered-{suffix}@example.test"
             registration_invite = await manager.post(
@@ -227,8 +224,6 @@ async def test_auth_only_api_exercises_all_thirteen_invitation_operations(
                 )
                 assert membership is not None and membership.role == "reviewer"
 
-            # Preview is rolled back; apply keeps the two valid rows and reports
-            # the invalid address independently.
             batch_items = [
                 {
                     "email": f"api-bulk-one-{suffix}@example.test",
@@ -295,8 +290,6 @@ async def test_auth_only_api_exercises_all_thirteen_invitation_operations(
             for item in successful_batch:
                 invitation_ids.append(await _invitation_id(maker, item["token"]))
 
-            # Revoke and resend are distinct commands. Resend rotates the token
-            # but must not enqueue mail; only the explicit send route does.
             mail_invite = await manager.post(
                 "/api/v1/users/invite",
                 json={
@@ -376,7 +369,6 @@ async def test_auth_only_api_exercises_all_thirteen_invitation_operations(
             )
             assert deleted.status_code == 204, deleted.text
 
-            # Exercise all manager read presentations after the writes.
             listed = await manager.get(
                 "/api/v1/invitations", params={"status": "all", "scope": "me"}
             )

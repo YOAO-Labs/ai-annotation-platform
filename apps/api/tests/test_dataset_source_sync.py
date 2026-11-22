@@ -222,7 +222,7 @@ async def test_duplicate_wakeups_and_recovery_after_lost_publish(
     scan_id = row.scan_id
     with pytest.raises(sync.LostWakeup):
         await sync.process(db, *new)
-    await wake(db, row)  # pending publication can be replayed
+    await wake(db, row)
     assert row.scan_id == scan_id
     with pytest.raises(sync.LostWakeup):
         await sync.process(db, row.source_id, row.revision, uuid.uuid4(), "wrong@node")

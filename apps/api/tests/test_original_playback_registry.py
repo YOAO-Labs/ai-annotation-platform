@@ -330,6 +330,76 @@ async def test_cancelled_capture_drains_late_success_and_repeated_cancellation(w
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("stage_state", ["captured", "unsettled", "cached"])
+async def test_prepare_disconnect_after_lease_allocation_retires_exact_owner(
+    world, monkeypatch, stage_state
+):
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException, Response
+
+    from app.api.v1 import original_playback as routes
+
+    registry, clock = world
+    close_fails = stage_state == "unsettled"
+    reused = stage_state == "cached"
+    stage, neighbor = Stage(fail=close_fails), Stage()
+    context = SimpleNamespace(original=object())
+    other = await prepare(registry, clock, key="other", context="other", stage=neighbor)
+    cached = (
+        await prepare(registry, clock, context=context, stage=stage) if reused else None
+    )
+    checking, disconnected = asyncio.Event(), asyncio.Event()
+
+    async def receive():
+        await disconnected.wait()
+        return {"type": "http.disconnect"}
+
+    async def allocate(*args):
+        async def unexpected_capture():
+            pytest.fail("a cached stage must not be captured again")
+
+        options = {"factory": unexpected_capture} if reused else {}
+        return await prepare(registry, clock, context=context, stage=stage, **options)
+
+    async def recheck(*args, captured):
+        assert captured
+        checking.set()
+        await asyncio.Future()
+
+    monkeypatch.setattr(routes.playback, "prepare", allocate)
+    monkeypatch.setattr(routes.originals, "recheck_original", recheck)
+    response = Response()
+    pending = asyncio.create_task(
+        routes._prepare(
+            None,
+            None,
+            SimpleNamespace(headers={}, receive=receive),
+            response,
+            None,
+            None,
+            registry,
+        )
+    )
+    await asyncio.wait_for(checking.wait(), 2)
+    assert registry.diagnostics()["leases"] == (3 if reused else 2)
+    disconnected.set()
+    with pytest.raises(HTTPException) as error:
+        await asyncio.wait_for(pending, 2)
+    assert error.value.status_code == 499
+    assert "Set-Cookie" not in response.headers
+    assert stage.close_calls == (0 if reused else 1)
+    assert stage.closed is (stage_state == "captured")
+    assert registry.diagnostics()["leases"] == (2 if reused else 1)
+    assert registry.diagnostics()["stages"] == (2 if reused or close_fails else 1)
+    assert registry.diagnostics()["unsettled_stages"] == int(close_fails)
+    registry.validate_lease(other)
+    assert not neighbor.closed
+    if cached is not None:
+        registry.validate_lease(cached)
+
+
+@pytest.mark.asyncio
 async def test_cancelled_actual_close_is_drained_and_its_slot_not_reused_early(world):
     registry, clock = world
     stage = Stage(block=True)
@@ -415,8 +485,6 @@ async def test_revoke_contexts_fences_a_capture_that_can_no_longer_lease(world):
     await owned_started.wait()
     await neighbor_started.wait()
 
-    # Revoking a capture belongs to its owner: it is retired, not cancelled, so
-    # it can never mint a lease for a fixture that is already being destroyed.
     await registry.revoke_contexts(lambda context: context == "owned")
     assert not owned.done() and not neighbor.done()
     release_owned.set()
@@ -426,7 +494,6 @@ async def test_revoke_contexts_fences_a_capture_that_can_no_longer_lease(world):
     assert owned_stage.closed and owned_stage.close_calls == 1
     assert registry.diagnostics()["stages"] == 1
 
-    # The unrelated capture still publishes, and the revoked key is free again.
     release_neighbor.set()
     registry.validate_lease(await neighbor)
     revived = await prepare(registry, clock, key="owned", context="owned")

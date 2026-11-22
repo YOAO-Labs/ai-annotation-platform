@@ -141,8 +141,6 @@ async def test_installed_owner_node_all_operations_and_separate_mail_process(
 
         mail = start_mail(test_engine, tmp_path, key, inbox)
         await inbox.wait(1)
-        # DATA is paused in a different process. User, outbox lease and Audit
-        # are already committed and no User lock remains around SMTP.
         async with maker.begin() as db:
             await db.execute(text("SET LOCAL lock_timeout='200ms'"))
             assert (
@@ -257,7 +255,6 @@ async def test_installed_owner_node_all_operations_and_separate_mail_process(
             ] == "generation_outdated"
             assert (await _verdict(client, identity, control, plaintext))["ok"]
 
-        # Frozen registration replay stays intact after verification and reset.
         assert (await asyncio.to_thread(node, identity, control, register))[
             "account"
         ] == issued["account"]
@@ -574,7 +571,6 @@ async def test_readonly_mail_container_takes_over_after_sender_process_dies(
         await inbox.wait(1)
         before = await outbox(maker, operation_id)
         assert before.status == "leased" and before.attempt == 1
-        # Kill only this test's sender while DATA acknowledgement is withheld.
         first.process.kill()
         first.process.wait(timeout=5)
         first.log.close()

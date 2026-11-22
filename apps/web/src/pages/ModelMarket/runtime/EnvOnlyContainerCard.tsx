@@ -1,13 +1,4 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-/**
- * unregistered env container card (plan §6.2 / §A.4).
- *
- * Env containers discovered via `/observe` with `registered === false` have no
- * routing state — no routable flag, weight or traffic distribution. This card
- * only shows direct-probe health / latency / compute / GPU / model residency,
- * plus the two allowed actions: "显式注册" (open the registry form) and
- * "试启动" (smoke test). It NEVER shows routable/weight/traffic fields.
- */
 import { useState, type ReactNode } from "react";
 
 import { adminMlIntegrationsApi, type ObserveTarget } from "@/api/adminMlIntegrations";
@@ -27,7 +18,6 @@ import { NO_METRICS_LABEL } from "../runtimeTopology";
 
 export interface EnvOnlyContainerCardProps {
   target: ObserveTarget;
-  /** "显式注册" callback — opens GlobalBackendFormModal / switches to registry tab. */
   onRegister?: (url: string) => void;
 }
 
@@ -130,7 +120,6 @@ export function EnvOnlyContainerCard({ target, onRegister }: EnvOnlyContainerCar
         </div>
       )}
 
-      {/* NO routable / weight / traffic fields — env containers have none (§6.2). */}
       <div className="text-2xs text-muted-foreground">
         未纳管容器不携带服务池接流、权重或流量信息{NO_METRICS_LABEL.replace("路由", "")}
       </div>

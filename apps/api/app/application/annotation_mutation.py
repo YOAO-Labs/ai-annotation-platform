@@ -127,9 +127,6 @@ async def _load_single_task_for_ids(
             detail="bulk operation requires all annotations belong to a single task",
         )
     task_id = next(iter(task_ids))
-    # Lock the task row before any capability/evidence check so the decision is
-    # made on the current row and concurrent writers are serialized (the bulk
-    # UPDATE itself also takes this lock later).
     task = await lock_task_for_core_read(
         db, task_id, lock_mode="update", populate_existing=True
     )
@@ -257,7 +254,6 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
         if not fields:
             raise HTTPException(status_code=400, detail="No fields to update")
 
-        # The task lock was acquired by HTTP before this initial annotation read.
         existing = (
             await execute_core_read(
                 self._db,
@@ -279,7 +275,6 @@ class _AnnotationMutationSqlAdapter(AnnotationMutationPort):
             segment_id=existing.video_segment_id,
             geometry=fields.get("geometry", existing.geometry),
         )
-        # Keep both version checks before mask IO and after the annotation row lock.
         expected_version = validate_annotation_update_preconditions(
             existing,
             task_id=command.task_id,

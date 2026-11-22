@@ -71,8 +71,6 @@ class BriefsManager:
                 raw = await transaction.execute_briefs_command(native_payload)
                 native: NativeBriefsSuccess = decode_native_briefs_reply(command, raw)
             except BriefsFailure:
-                # A valid Core request always produces a valid native command.
-                # Native rejection here indicates a stale owner contract/config.
                 raise IdentityUnavailable() from None
 
             users = [

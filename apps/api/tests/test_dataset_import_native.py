@@ -492,7 +492,6 @@ async def test_active_import_blocks_source_delete_and_cancel_fences_late_settlem
         assert conflict.value.status_code == 409
         assert conflict.value.code == "source_busy"
 
-    # A platform super-admin may cancel another actor's accepted import.
     async with world.maker() as db:
         cancelled = _assert_ok(await _cancel(db, world.actor_id, job_id))
         assert cancelled["stage"] == "cancelled"
@@ -522,8 +521,6 @@ async def test_active_import_blocks_source_delete_and_cancel_fences_late_settlem
         )
         await db.commit()
 
-    # The owner can cancel after losing manager status; owner scope is retained
-    # by the accepted Jobs record rather than re-derived from the current role.
     async with world.maker() as db:
         await db.execute(
             update(User)

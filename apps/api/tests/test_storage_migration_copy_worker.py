@@ -599,7 +599,7 @@ async def test_generation_prepares_pending_inheritance_and_rechecks_old_receipt(
         value = await service.item(db, await service.owner(db, child_id))
         assert value.counts.verified == 2 and value.status == "completed"
         assert value.io["source_bytes"] == value.io["upload_bytes"] == 3
-        assert len(clients.source.calls) == 3  # HEAD+GET+HEAD only for the new object.
+        assert len(clients.source.calls) == 3
         deltas = list(await db.scalars(select(Delta).where(Delta.copy_id == child_id)))
         saved = next(
             d.data for d in deltas if d.data["creation_plan_uuid"] == identity[0]
@@ -609,7 +609,6 @@ async def test_generation_prepares_pending_inheritance_and_rechecks_old_receipt(
             saved["target_key"],
             saved["nonce"],
         ) == identity
-        # Original inventory/attempt Jobs can expire without erasing either plan.
         await db.execute(delete(AsyncJob).where(AsyncJob.user_id == world.actor_id))
         await db.commit()
         parent = await service.owner(db, parent_id)
@@ -646,7 +645,6 @@ async def test_generation_atomic_single_successor_reuse_and_report_identity(
         )
         assert len(children) == 1
         parent = await service.owner(db, world.copy_id)
-        # Even a stale pending worker delivery cannot claim a frozen parent.
         a = await service.last(db, parent)
         a.status = "pending"
         job = await db.get(AsyncJob, a.async_job_id)
@@ -976,8 +974,6 @@ async def test_recover_clones_old_selection_including_verified_without_broadenin
     selected = ids[:2]
     await attempt(world, "run", retry_failed=True, retry_object_ids=selected)
     assert await execute(world) and clients.target.puts == 2
-    # Model the exact persisted selection left by a dead worker after its first
-    # object verification. Physical receipt identity is retained for object two.
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
     try:
         proof = service.process_identity()

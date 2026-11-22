@@ -767,8 +767,6 @@ async def qualify(backend, options, directory, report):
             report["tiers"].append(value)
             atomic_json(options.output, report)
     except BaseException:
-        # Diagnostic files remain private and bounded; the operator owns their
-        # later removal. Never copy logs or credential-bearing URLs to stdout.
         for log in logs:
             log.flush()
         for name in processes:

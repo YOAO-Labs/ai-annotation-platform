@@ -43,8 +43,6 @@ def fixture(*, state="verified", absent=False, corrupt=False):
     from app.services import import_storage, prediction_inputs as owner
 
     identifier, nonce = uuid.uuid4(), str(uuid.uuid4())
-    # Transport-only unit bytes; actual fixture qualification borrows canonical
-    # ffmpeg video plus the source owner's same-FD probe, never this sentinel.
     raw = b"RIFF\0\0\0\0AVI restored content with durable receipt"
     sha = hashlib.sha256(raw).hexdigest()
     relative = "video/" + sha + ".avi"

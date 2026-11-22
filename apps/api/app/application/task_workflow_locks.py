@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,9 @@ from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services import task_access
 from app.services.labeling_core_read_relations import (
+    BatchTaskSubmissionBusy,
     execute_core_read,
+    lock_batch_for_task_submission,
     lock_batch_rows_for_core_read,
     lock_task_for_core_read,
     task_row,
@@ -23,6 +25,8 @@ from app.services.project_access import lock_current_project_access
 from app.services.identity_contracts import IdentityActorFacts
 
 _LOCK_FAILURE_SQLSTATES = {"55P03", "40001", "40P01"}
+_ROW_LOCK_TIMEOUT = "1s"
+_SET_LOCK_TIMEOUT = text("SELECT set_config('lock_timeout', :timeout, true)")
 
 
 def _identity_actor_facts(user: IdentityActorFacts) -> IdentityActorFacts:
@@ -110,6 +114,8 @@ async def lock_current_task_target(
     task_id: uuid.UUID,
     actor_id: uuid.UUID,
     expected_access: ProjectAccess,
+    wait_for_rows: bool = False,
+    drain_batch_readers: bool = False,
 ) -> tuple[Task, IdentityActorFacts, Project, ProjectAccess]:
     """Revalidate authority, then lock a task's captured batch and fresh row."""
     with db.no_autoflush:
@@ -131,35 +137,65 @@ async def lock_current_task_target(
     task_access.assert_access_binding(
         expected_access, actor_id=actor.id, project_id=project_id
     )
-    if target_batch_id is not None:
-        batches = await lock_core_nowait(
-            db,
-            lambda: lock_batch_rows_for_core_read(
+    previous_timeout = None
+    if wait_for_rows:
+        previous_timeout = await db.scalar(
+            text(
+                "SELECT setting FROM pg_catalog.pg_settings WHERE name = 'lock_timeout' "
+                "AND setting::integer NOT BETWEEN 1 AND 1000"
+            )
+        )
+        if previous_timeout is not None:
+            await db.execute(_SET_LOCK_TIMEOUT, {"timeout": _ROW_LOCK_TIMEOUT})
+    if target_batch_id is None:
+        batch_present = True
+    elif drain_batch_readers:
+        try:
+            batch = await lock_core_nowait(
                 db,
-                [target_batch_id],
+                lambda: lock_batch_for_task_submission(
+                    db, target_batch_id, project_id=project_id
+                ),
+                reason="batch_busy",
+            )
+        except BatchTaskSubmissionBusy as exc:
+            raise TaskWorkflowError(409, {"reason": "batch_busy"}) from exc
+        batch_present = batch is not None
+    else:
+        batch_present = bool(
+            await lock_core_nowait(
+                db,
+                lambda: lock_batch_rows_for_core_read(
+                    db,
+                    [target_batch_id],
+                    project_id=project_id,
+                    lock_mode="update",
+                    nowait=not wait_for_rows,
+                    populate_existing=True,
+                ),
+                reason="batch_busy",
+            )
+        )
+    task = (
+        await lock_core_nowait(
+            db,
+            lambda: lock_task_for_core_read(
+                db,
+                task_id,
                 project_id=project_id,
                 lock_mode="update",
-                nowait=True,
+                nowait=not wait_for_rows,
                 populate_existing=True,
             ),
-            reason="batch_busy",
+            reason="task_busy",
         )
-        batch = batches[0] if batches else None
-        if batch is None:
-            raise TaskWorkflowError(409, {"reason": "task_target_changed"})
-
-    task = await lock_core_nowait(
-        db,
-        lambda: lock_task_for_core_read(
-            db,
-            task_id,
-            project_id=project_id,
-            lock_mode="update",
-            nowait=True,
-            populate_existing=True,
-        ),
-        reason="task_busy",
+        if batch_present
+        else None
     )
+    if previous_timeout is not None:
+        await db.execute(_SET_LOCK_TIMEOUT, {"timeout": previous_timeout})
+    if not batch_present:
+        raise TaskWorkflowError(409, {"reason": "task_target_changed"})
     if task is None:
         raise TaskWorkflowError(404, "Task not found")
     if task.batch_id != target_batch_id:

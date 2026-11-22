@@ -365,24 +365,11 @@ async def create_project(
     payload = data.model_dump(exclude_unset=True)
     source_project_id = payload.get("source_project_id")
     if payload.get("copy_annotation_guide") and source_project_id is not None:
-        from app.db.models.project_guide_asset import ProjectGuideAsset
+        from app.services.guide_asset_references import clone_snapshot
 
-        source_project = await db.get(Project, source_project_id)
-        if source_project is not None:
-            payload["source_guide_snapshot"] = {
-                "owner_id": str(source_project.owner_id),
-                "annotation_guide": source_project.annotation_guide,
-                "guide_assets": source_project.guide_assets,
-                "guide_assets_revision": source_project.guide_assets_revision,
-                "upload_ids": [
-                    str(identifier)
-                    for identifier in await db.scalars(
-                        select(ProjectGuideAsset.upload_id)
-                        .where(ProjectGuideAsset.project_id == source_project_id)
-                        .order_by(ProjectGuideAsset.upload_id)
-                    )
-                ],
-            }
+        snapshot = await clone_snapshot(db, source_project_id)
+        if snapshot is not None:
+            payload["source_guide_snapshot"] = snapshot
     result = await execute_configuration(
         db,
         operation="create_project",
@@ -534,8 +521,6 @@ async def delete_project(
     await guide_flow.lock_projects(
         db, current_user, [project.id], write_ids=[project.id]
     )
-    # The native Workspace deletion owner retires guide and comment uploads in
-    # this same transaction before Labeling removes their comment rows.
     origin = audit_origin_from_request(request)
     try:
         ip = str(ip_address(origin.ip)) if origin.ip else None
@@ -562,7 +547,6 @@ async def delete_project(
 class ClassRenameRequest(BaseModel):
     old_name: str
     new_name: str
-    # Omission targets all stored bindings, including disabled tool units.
     tool_unit_id: str | None = None
 
 
@@ -926,10 +910,6 @@ async def export_project(
         require_project_capability(ProjectCapability.EXPORT_ANNOTATIONS.value)
     ),
 ):
-    # 导出异步化：创建 async_job(kind=export) + 派发 run_export，返回 {job_id}。
-    # 多目标（方案 B）：一个 job 产一个 zip（>1 目标分子目录）。
-    # 状态/下载走 GET /async-jobs/{id}（result.download_url 为 7d 预签名）。
-    # VOC 后端保留同步 blob（前端已隐藏），仅可单选；不删避免破坏 API 契约。
     from app.services.audit import AuditService, AuditAction, export_detail
 
     targets = _validate_export_targets(targets, project.data_type)
@@ -1145,8 +1125,6 @@ def _stage_model(backend, model_id: str | None, *, task: str | None = None) -> d
             "resource_profile": {"batchable": True},
             "output_attribute_types": ["class"],
         }
-        # Opaque version IDs acquire their task when the server freezes the
-        # model reference. Never advertise detection for an unresolved version.
         resolved_task = release_task(model_id) or (
             normalize_task(task) if task else None
         )
@@ -1218,7 +1196,6 @@ async def _compute_pipeline_capability_warnings(db, stages) -> list[str]:
 
     svc = MLBackendService(db)
     warnings: list[str] = []
-    # 建 stage号→(caps, model_id) map, 供下面校验下游阶段的「上游产出几何可否作 ROI」。
     stage_caps: dict[int, tuple[dict, object]] = {}
     for s in stages:
         if not isinstance(s, dict) or not s.get("ml_backend_id"):
@@ -1231,7 +1208,6 @@ async def _compute_pipeline_capability_warnings(db, stages) -> list[str]:
             stage_caps[s["stage"]] = (caps, s.get("model_id"))
         is_source = s.get("parent_stage") is None
         where = "源阶段" if is_source else f"stage {s.get('stage')} "
-        # 源阶段不写属性, class 判据不适用 (与 dispatch 对称)。
         writes_attributes = (
             not is_source
             and (s.get("write") or {}).get("target", "attributes") == "attributes"
@@ -1243,7 +1219,6 @@ async def _compute_pipeline_capability_warnings(db, stages) -> list[str]:
             writes_attributes=writes_attributes,
         )
         warnings.extend(v.detail for v in violations)
-    # 上下游几何兼容: 下游按上游框作 ROI, 上游若不产 bbox/polygon → 软提示。
     for s in stages:
         if not isinstance(s, dict):
             continue
@@ -1298,8 +1273,6 @@ async def _validate_preannotate_task_scope(
             status_code=409,
             detail="explicit preannotation tasks must be pending",
         )
-    # issue #124 · draft 批次在未分派标注员与质检员时同样可批量预标;
-    # 已分派人员的 draft 与已进入人工流程的批次仍拒绝。
     if any(
         batch is not None and not allows_bulk_preannotation(batch) for _, batch in rows
     ):
@@ -1322,7 +1295,6 @@ async def _validate_preannotate_task_scope(
     return requested
 
 
-# 终态任务: 先撤回 / 重开后再运行; 其它不可编辑状态 (如 uploading) 单独提示。
 _WORKBENCH_AI_TERMINAL_STATUSES = {
     TaskStatus.REVIEW.value,
     TaskStatus.COMPLETED.value,
@@ -1365,8 +1337,6 @@ async def _validate_workbench_task_scope(
             status_code=409,
             detail="任务所属批次已被管理员锁定，无法运行 AI",
         )
-    # 白名单而非黑名单: 只有明确可编辑的 pending / in_progress / rejected 放行,
-    # uploading (对象未校验) 与未来新增/非法状态一律拒绝 (issue #121 review)。
     if task.status not in WORKBENCH_AI_EDITABLE_TASK_STATUSES:
         if task.status in _WORKBENCH_AI_TERMINAL_STATUSES:
             detail = "当前任务已提交审核或已完成，请先撤回或重开后再运行 AI"
@@ -1380,8 +1350,6 @@ async def _validate_workbench_task_scope(
     )
     from app.services.task_lock import TaskLockService
 
-    # 同一 task 可能存在多行残留锁 (unique 仅在 (task_id, user_id) 上), 必须逐行判断,
-    # 不能只看 active_lock() 的第一行, 否则他人持锁时可能被本人锁掩盖 (issue #121 review)。
     locks = await TaskLockService(db).active_locks(task.id)
     if any(lock.user_id != actor.id for lock in locks):
         raise HTTPException(
@@ -1441,8 +1409,6 @@ async def trigger_preannotation(
     from app.services import prediction_references
 
     freeze_image_scope = project.data_type == "image"
-    # Frame fan-out keeps its own derived-frame contract. Whole-video models
-    # need a frozen source even when their pipeline has only one stage.
     requested_unit = next(
         (
             (stage.source or {}).get("execution_unit")
@@ -1492,9 +1458,6 @@ async def trigger_preannotation(
     if source_backend_id is None:
         raise HTTPException(status_code=422, detail="ml_backend_id 必填")
     backend = await svc.get_registry(source_backend_id)
-    # ADR-0044 · 校验 backend 存在且在本项目「已启用」
-    # (project_ml_backend_pool.enabled, 经 pool member 解析回 registry):
-    # 与下游阶段校验对称, 防止 owner 手动 POST 未启用/别项目 backend id 触发预标。
     if not backend or not await svc.is_enabled(project.id, source_backend_id):
         raise HTTPException(status_code=404, detail="模型服务不存在")
 
@@ -1555,20 +1518,13 @@ async def trigger_preannotation(
     ):
         raise HTTPException(status_code=422, detail="预标注模型上下文不能超过 8 KiB")
 
-    # 源阶段 (单模型预标 / 流水线源) batchable 闸门: 交互/有状态模型不可批量。
-    # 源阶段不写属性, class 判据不适用 (writes_attributes=False)。
     _assert_capabilities(backend, body.model_id, "源阶段", writes_attributes=False)
 
-    # 设备感知队列路由: 收集源 + 各下游阶段 model 的 device, 据此选 Celery 队列。
     stage_devices: list[str | None] = [_stage_device(backend, body.model_id)]
 
-    # 多阶段编排: 校验每个下游阶段的 backend 存在且归属本项目, 归一化成 worker
-    # 可消费的 stage dict 列表 (uuid → str)。源阶段 backend 归属已在上面校验。
     pipeline_stages_payload: list[dict] | None = None
     if body.pipeline_stages:
         norm: list[dict] = []
-        # stage号→(caps, model_id) map, source stage is identified by parent_stage=None.
-        # 循环内填各下游 caps, 循环后校验「上游产出几何可否作下游 ROI」。
         stage_caps: dict[int, tuple[dict, object]] = {
             next(
                 stage.stage
@@ -1593,8 +1549,6 @@ async def trigger_preannotation(
                     raise HTTPException(
                         status_code=422, detail=f"stage {st.stage}: {exc}"
                     ) from exc
-                # 下游阶段能力闸门：必须可批量；写属性的分类阶段必须产出 class。
-                # 写属性的子但模型不产 class → 跑完属性恒空, 提前 422。
                 _assert_capabilities(
                     st_backend,
                     st.model_id,
@@ -1602,17 +1556,11 @@ async def trigger_preannotation(
                     writes_attributes=(st.write or {}).get("target", "attributes")
                     == "attributes",
                 )
-                # 收集下游阶段 device 供队列路由。
                 stage_devices.append(_stage_device(st_backend, st.model_id))
-                # 记本阶段 caps, 供循环后校验其作为下游父阶段时几何可否作 ROI。
                 stage_caps[st.stage] = (
                     _stage_model(st_backend, st.model_id, task=st.task),
                     st.model_id,
                 )
-                # 按子模型 supported_inputs 解析投递方式 + 几何可达性门控。
-                # 产几何的子: supported_inputs 须含 bbox_prompt (geometry-prompt 路径) 或
-                # crop (普通检测器在 crop 上跑 + 坐标回映)。据此把投递方式烘焙进 input.mode,
-                # worker 直接消费 (无快照时 inputs=[] → 放过门控、不烘焙, 保持零退化)。
                 target = (st.write or {}).get("target", "attributes")
                 inputs = _stage_supported_inputs(st_backend, st.model_id, task=st.task)
                 if target in {"geometry", "intermediate"} and inputs:
@@ -1643,16 +1591,11 @@ async def trigger_preannotation(
                     "roi": st.roi,
                     "write": st.write,
                     "on_failure": st.on_failure,
-                    # 卡片显示名 + 写回属性键前缀 (子物体命名空间, 如 hat_color)。
                     "label": st.label,
-                    # 投递模式: 用户显式 input 或按 supported_inputs 烘焙的结果。
                     "input": resolved_input,
-                    # 键冲突策略下放到每个下游阶段, worker 末位覆盖时据此合并。
                     "on_key_conflict": body.on_key_conflict,
                 }
             )
-        # 上下游几何兼容闸门 (与「下游能否吃框」门对称): 下游按上游框作 ROI,
-        # 上游若完全不产 bbox/polygon → 该阶段所有父框运行期被跳过、零富集, 提前 422 硬挡。
         for st in body.pipeline_stages:
             if st.parent_stage is None or st.parent_stage not in stage_caps:
                 continue
@@ -1754,8 +1697,6 @@ async def trigger_preannotation(
                 status_code=422,
                 detail="工作台当前题 AI 必须指定当前任务",
             )
-        # 工作台单题语义由任务推导批次, 不接受 batch_id: 否则会落入下方「批次须 active」
-        # 的批量校验 (draft 批次误报 400) 或放行无关 active 批次 (issue #121 review)。
         if body.batch_id is not None:
             raise HTTPException(
                 status_code=422,
@@ -1764,8 +1705,6 @@ async def trigger_preannotation(
     explicit_task_ids: list[uuid.UUID] | None = None
     if body.task_ids:
         if replay_manifest:
-            # The native capture replay validates the original selector; do not
-            # reselect or replace accepted membership from today's Task state.
             explicit_task_ids = canonical_task_ids
         elif body.execution_scope == "workbench":
             explicit_task_ids = await _validate_workbench_task_scope(
@@ -1782,7 +1721,6 @@ async def trigger_preannotation(
                 batch_id=body.batch_id,
             )
 
-    # 指定 batch 时校验归属本项目 + 状态在 active
     total_tasks_hint: int | None = None
     if replay_manifest:
         total_tasks_hint = (existing_job.payload or {}).get("total_tasks")
@@ -1792,8 +1730,6 @@ async def trigger_preannotation(
         batch = await get_core_row(db, batch_row, body.batch_id)
         if not batch or batch.project_id != project.id:
             raise HTTPException(status_code=404, detail="Batch not found")
-        # issue #124 · 未分派人员（标注员与质检员）的 draft 批次同样可批量预标,
-        # 让管理员先跑 AI 再分派人工; 已分派 draft / 其它状态仍拒绝。
         if not allows_bulk_preannotation(batch):
             if batch.status == BatchStatus.DRAFT:
                 raise HTTPException(
@@ -1817,7 +1753,6 @@ async def trigger_preannotation(
             task_row.batch_id == body.batch_id,
             task_row.status == "pending",
         ]
-        # skip_predicted 下进度条分母应排除已预标 task，否则虚高
         if body.predict_mode == "skip_predicted":
             hint_conds.append(task_row.total_predictions == 0)
         count_q = await db.execute(select(func.count(task_row.id)).where(*hint_conds))
@@ -1829,25 +1764,17 @@ async def trigger_preannotation(
         count_q = await db.execute(select(func.count(task_row.id)).where(*hint_conds))
         total_tasks_hint = int(count_q.scalar_one() or 0)
 
-    # 设备感知路由: 全 CPU pipeline → cpu 队列; 任一 GPU/未自报阶段 → gpu(ml) 队列 (零退化)。
     queue = resolve_preannotate_queue(
         stage_devices,
         gpu_queue=settings.preannotate_gpu_queue,
         cpu_queue=settings.preannotate_cpu_queue,
     )
-    # detect-then-track: 含 tracker 阶段的 job 施加 soft 超时 (帧上限之外的双保险)。
-    #   单阶段源 tracker 走 body.task; 编排里的 tracker 阶段走 pipeline_stages_payload。
     has_tracker_stage = body.task == "tracker" or any(
         (s or {}).get("task") == "tracker" for s in (pipeline_stages_payload or [])
     )
     has_text_stage = body.task == "text" or any(
         (s or {}).get("task") == "text" for s in (pipeline_stages_payload or [])
     )
-    # 逐帧执行单位: 从源阶段(parent_stage=None)的 source.execution_unit 提取 (norm 丢弃了
-    #   source, 故从原始 body.pipeline_stages 取)。frame → worker 走二级 fan-out 逐帧跑图像 backend。
-    #   execution_unit 是整任务迭代粒度、非 per-stage, 故作 batch_predict 顶层参数。
-    #   源阶段判据须与 _validate_pipeline_stages 一致 (恰一个 parent_stage=None); stage 号是自由整数,
-    #   不保证为 0, 故不能按 s.stage == 0 找源。
     uses_input_manifest = replay_image_manifest or (
         body.execution_scope == "bulk"
         and project.data_type == "image"
@@ -1886,8 +1813,6 @@ async def trigger_preannotation(
             return {}
         return {
             "accepted_inputs_protocol": "aap-assets-inputs/v1",
-            # The durable job exists before admission. The empty map records that
-            # this operation requires a canonical input and can safely replay it.
             "accepted_input_ids": {},
         }
 
@@ -2014,8 +1939,6 @@ async def trigger_preannotation(
                 if metadata.verification_status == "verified":
                     stage["identity_guarantee"] = "checkpoint_verified"
         if uses_controlled_model:
-            # The initial scope check cannot know an opaque version's task.
-            # Revalidate the server-resolved identity before recording a job.
             trained_models.assert_image_scope(
                 project,
                 prompt=body.prompt,
@@ -2052,8 +1975,6 @@ async def trigger_preannotation(
             scope=body.execution_scope,
         )
         if uses_input_manifest:
-            # Match the Labeling manifest owner's bulk eligibility before
-            # capturing source authority for the selected execution members.
             query = query.outerjoin(batch_row, batch_row.id == task_row.batch_id).where(
                 or_(
                     task_row.batch_id.is_(None),
@@ -2127,10 +2048,6 @@ async def trigger_preannotation(
             else "prediction_authority": proof
         }
 
-    # 派发前预建持久作业, 让客户端可轮询同一 job、并发重试不会重复入队。
-    # - 数据管理重试可带幂等键 (复用/去重)。
-    # - 工作台单题请求 (无幂等键) 也预建, 使 worker 在派发前的范围复校验失败时
-    #   on_failure 能按 celery_task_id 落一条 failed 作业 (issue #121 review)。
     accepted_input_manifest_protocol = None
     accepted_input_manifest_id = None
     accepted_input_manifest_digest = None
@@ -2278,8 +2195,6 @@ async def trigger_preannotation(
                 headers={"Retry-After": "5"},
             ) from exc
         except Exception as exc:
-            # A lost native response is ambiguous; keep replayable durable state
-            # only when it was committed before this call.
             await db.rollback()
             raise HTTPException(
                 status_code=503,
@@ -2297,9 +2212,6 @@ async def trigger_preannotation(
     if idempotency_key is not None:
         existing = existing_job
         if existing is not None:
-            # A request may have crashed after committing this pending row but
-            # before publishing to Celery. Reuse the row and safely republish;
-            # the worker's row lock makes a duplicate delivery a no-op.
             precreated_job = existing
             saved_ids = (
                 (existing.payload or {}).get("execution_task_ids")
@@ -2419,17 +2331,11 @@ async def trigger_preannotation(
                 actor_id=current_user.id,
                 snapshot_id=execution_snapshot.id,
             )
-        # Use the durable async job id as the Celery task id. The failure hook
-        # can therefore resolve a job even if the worker fails before the API
-        # request reaches its post-dispatch commit.
         async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
         await capture_input_manifest(precreated_job, replay=existing is not None)
         await capture_video_manifest(precreated_job, replay=existing is not None)
         await db.commit()
     else:
-        # issue #121 review · 工作台单题请求 (无幂等键) 同样预建持久作业: worker 在派发
-        # 前的范围复校验失败时, on_failure 能按 celery_task_id 落一条 failed 作业,
-        # 工作台面板不会因找不到终态记录而无限轮询。
         await freeze_input_selection()
         scoped_ids = (
             [str(task_id) for task_id in explicit_task_ids]
@@ -2490,8 +2396,6 @@ async def trigger_preannotation(
         if prediction_references.frozen_reference_task(
             durable_payload, accepted_input_task_id
         ):
-            # The authenticated reference binding owns this source; the
-            # accepted-image owner only covers managed objects.
             if durable_payload.get("accepted_input_ids"):
                 await async_job_svc.mark_dispatch_failed(
                     db, precreated_job.id, error="accepted_input_identity_mismatch"
@@ -2566,17 +2470,12 @@ async def trigger_preannotation(
                     status_code=409,
                     detail=f"图像来源无法冻结：{exc.code}",
                 ) from exc
-            # Busy/storage failures may have happened after the owner reserved the
-            # canonical row. Keep the job pending so the same-key replay can find
-            # it without observing a newer Task URL.
             raise HTTPException(
                 status_code=503,
                 detail="冻结图像输入暂时不可用，请重试本次请求",
                 headers={"Retry-After": "5"},
             ) from exc
         except Exception as exc:
-            # A lost owner response is ambiguous. Retain the pending job and replay
-            # this same (job, task, actor) identity on the next request.
             raise HTTPException(
                 status_code=503,
                 detail="冻结图像输入暂时不可用，请重试本次请求",
@@ -2641,7 +2540,6 @@ async def trigger_preannotation(
         user_id=str(current_user.id),
         params=body.params or None,
         predict_mode=body.predict_mode,
-        # protocol v2 resolves the durable controlled model identity here.
         model_id=(
             f"trained:{frozen_model_ref['model_version_id']}"
             if frozen_model_ref
@@ -2699,8 +2597,6 @@ async def trigger_preannotation(
     dispatch_lease = await prepare_batch_prediction_dispatch(
         db, batch_request, queue=queue, soft_time_limit=soft_time_limit
     )
-    # Input admission owns its existing checkpoints. Complete queue acceptance
-    # freezes the exact message before the broker can receive it.
     await db.commit()
     try:
         dispatched_id = await publish_prepared_dispatch(
@@ -2721,7 +2617,6 @@ async def trigger_preannotation(
         await db.commit()
         raise
     async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
-    # B-5 · AI 预标注触发审计 — 让超管在 /audit 看到 谁/何时/对哪个 batch 跑了 AI
     await AuditService.log(
         db,
         actor=current_user,
@@ -2740,10 +2635,7 @@ async def trigger_preannotation(
                 else total_tasks_hint
             ),
             "prompt": (body.prompt or "")[:200],
-            # output_mode 仅文本 prompt 路径生效; 几何路径不读它, 留 None 免误导 (与 job payload 一致)
             "output_mode": body.output_mode if body.prompt else None,
-            # 协议 v2 多模型路由溯源: 记录具体 model / task 类型
-            # 增记 model_variants (实际 variant, 如 series/size=yolov8/l)
             "model_id": body.model_id,
             "task": body.task,
             "prompt_type": body.prompt_type,
@@ -2751,9 +2643,6 @@ async def trigger_preannotation(
         },
     )
     await db.commit()
-    # both 多阶段引导: output=both 仅文本 prompt 路径生效 (见上文 job payload 注释),
-    # 且会对同一实例产出框+多边形两条几何; 若还配了下游阶段, 编排会把两条各当一个父框各处理
-    # 一次 (重复裁剪/推理/富集) 并落两条 region。软提示、不拦截 (both 仍可跑)。
     warnings: list[str] = []
     if body.output_mode == "both" and body.prompt and body.pipeline_stages:
         msg = (
@@ -2833,9 +2722,6 @@ async def cleanup_orphan_tasks(
     )
     await db.commit()
     return result
-
-
-# ── 项目侧关联数据集 ────────────────────────────────────────────
 
 
 @router.get("/{project_id}/datasets", response_model=list[ProjectDatasetSummary])

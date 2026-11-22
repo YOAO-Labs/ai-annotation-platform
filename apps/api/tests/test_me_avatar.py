@@ -62,15 +62,11 @@ def fake_storage(monkeypatch) -> FakeAvatarStorage:
     return patch_storage(monkeypatch)
 
 
-# ── 1. normalize_avatar 纯函数 ────────────────────────────────────────
-
-
 def test_normalize_produces_square_webp():
     out = normalize_avatar(_png_bytes((600, 300)))
     with Image.open(io.BytesIO(out)) as image:
         assert image.format == "WEBP"
         assert image.size == (256, 256)
-    # 600×300 居中取 300×300,故左右两侧的纯色块取样都应是红色。
     assert _pixel(out, 4, 128) == pytest.approx(RED, abs=12)
     assert _pixel(out, 251, 128) == pytest.approx(RED, abs=12)
 
@@ -78,7 +74,6 @@ def test_normalize_produces_square_webp():
 def test_normalize_applies_exif_orientation():
     """orientation=6 (顺时针 90°) 必须被转正;不转正时方裁结果会完全不同。"""
     raw = _jpeg_bytes_with_orientation(6)
-    # 解码前先确认源图确实是横图,否则本用例失去意义。
     with Image.open(io.BytesIO(raw)) as src:
         assert src.size == (300, 100)
 
@@ -93,7 +88,6 @@ def test_normalize_flattens_transparency_onto_neutral_backdrop():
     buffer = io.BytesIO()
     Image.new("RGBA", (128, 128), (0, 0, 0, 0)).save(buffer, format="PNG")
     out = normalize_avatar(buffer.getvalue())
-    # 直接 RGBA→RGB 会得到黑底;这里必须是中性底色。
     assert _pixel(out, 64, 64) == pytest.approx(NEUTRAL, abs=6)
 
 
@@ -119,9 +113,6 @@ def test_normalize_rejects_truncated_image():
     raw = _png_bytes((128, 128))
     with pytest.raises(AvatarImageError):
         normalize_avatar(raw[: len(raw) // 2])
-
-
-# ── 2. 上传 / 选择 / 清除 ────────────────────────────────────────────
 
 
 async def test_upload_avatar_stores_normalized_webp(

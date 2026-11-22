@@ -14,17 +14,7 @@ import { ReviewerDashboard } from "./ReviewerDashboard";
 
 type WorkTab = "annotate" | "review" | "browse";
 
-/**
- * Employee home.  An employee may annotate in one project and review in another,
- * so this composes the existing annotation and review dashboards (each already
- * server-filtered by project membership) behind an explicit work-mode switch.
- * A viewer membership is real, authorized access too: viewer-only employees get
- * a read-only project list instead of two empty work tabs.
- * No global "current role" is fabricated; the tab only selects presentation.
- */
 export function EmployeeDashboard() {
-  // null = the initial tab has not been chosen yet; viewer-only employees then
-  // land on the browse tab instead of an empty annotate view.
   const [chosenTab, setTab] = useState<WorkTab | null>(null);
   const navigate = useNavigate();
   const location = useLocation();

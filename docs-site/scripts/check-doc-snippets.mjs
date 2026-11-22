@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-// 校验 docs-site/**/*.md 中 <!-- snippet:SPEC --> 标记包裹的代码块与源文件一致。
-//
-// SPEC 支持三种锚点：
-//   <!-- snippet:apps/api/app/api/v1/auth.py#logout -->            # Python 函数/类（含同缩进的单行装饰器）
-//   <!-- snippet:docs-site/dev/examples/echo-ml-backend/main.py --># 整文件
-//   <!-- snippet:apps/api/app/api/v1/auth.py:256-283 -->           # 行号区间（兼容旧格式）
-//
-// 任一不一致退出 1 并打印 diff，让 prebuild / CI 拦下漂移。
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -38,8 +30,6 @@ function parseSpec(spec) {
   return { path: spec, mode: "whole" };
 }
 
-// 在 Python 源中定位 `def`/`async def`/`class SYMBOL` 块，返回 1-indexed [start,end]。
-// 起点向上吸收紧邻的同缩进单行装饰器；先按括号配对吃完多行签名头，再按缩进切块体。
 function locatePythonSymbol(srcLines, symbol) {
   const headerRe = new RegExp(`^(\\s*)(?:async\\s+def|def|class)\\s+${symbol}\\b`);
   let defIdx = -1;

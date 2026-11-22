@@ -103,8 +103,6 @@ async def test_running_masks_survive_expired_grace_and_transfer_to_staged_roots(
                 {"key": key, "past": datetime.now(timezone.utc) - timedelta(days=3)},
             )
             await _stage_one_old_candidate(db, key, expected_staged=1)
-            # This last probe uses a synthetic listing, not a physical object.
-            # Its staged intent must not become work for the next real GC sweep.
             await db.rollback()
 
 

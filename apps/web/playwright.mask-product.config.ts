@@ -10,6 +10,5 @@ if (!Array.isArray(base.webServer) || base.webServer.length !== 1) {
 
 export default defineConfig({
   ...base,
-  // The Raster launcher owns Vite's exact process and graceful shutdown.
   webServer: [],
 });

@@ -143,7 +143,6 @@ async def lock_reference_bindings(db, bindings, node_id):
             .with_for_update(read=True, nowait=True)
         )
 
-    # Hold these SHARE locks in the caller's final transaction through publish.
     for row in sorted(
         bindings, key=lambda row: row.get("reference", {}).get("location_id", "")
     ):

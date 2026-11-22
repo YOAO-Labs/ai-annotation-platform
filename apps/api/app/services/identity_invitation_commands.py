@@ -106,8 +106,6 @@ class IdentityInvitationCommands:
                         if not invitation_dsn or mail_dsn:
                             await kick_invitation_mail(request.operation_id)
                         kicked = True
-                    # Every owner call has already committed; polling retains
-                    # neither SQL locks nor a mail sender's lease.
                     await asyncio.sleep(delay)
                     delay = min(1.0, delay * 2)
         except TimeoutError:

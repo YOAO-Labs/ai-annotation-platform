@@ -43,8 +43,6 @@ async def test_tracker_clients_have_only_their_control_and_worker_operations(
                 signature,
             )
 
-    # Retention is an internal Labeling projection called by the Assets-owned
-    # sweeper; media logins cannot call Labeling directly.
     referenced = "yoao_labeling_v1.video_tracker_input_referenced(uuid)"
     assert await _function_allowed(db_session, "assets_code", referenced)
     assert not await _function_allowed(
@@ -125,8 +123,6 @@ async def test_tracker_owners_keep_private_rows_and_cross_owner_reads_narrow(
         )
         assert owner == "labeling_code", signature
 
-    # Assets receives exactly three Labeling projections: current canonical
-    # scope, an admission failure update, and owner-local retention lookup.
     for name, operation in c.LABELING_OPERATIONS.items():
         signature = (
             "yoao_labeling_v1." + name + "(" + ",".join(operation.sql_types) + ")"
@@ -142,9 +138,6 @@ async def test_tracker_owners_keep_private_rows_and_cross_owner_reads_narrow(
 
 
 async def test_labeling_table_grants_are_scoped_to_its_native_receipts(db_session):
-    # bo0350/bo0352 route video-control reads and writes through Labeling-owned
-    # native functions and the owner-owned view, so the owner needs these
-    # columns; other module owners must stay outside the Celery identifiers.
     for column, privilege, expected in (
         ("id", "UPDATE", True),
         ("status", "SELECT", True),

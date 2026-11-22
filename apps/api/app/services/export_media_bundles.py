@@ -217,7 +217,6 @@ def _sources(data, project_id):
     )
     if not targets:
         reject("invalid", 422)
-    # Historical mixed bundles own only private PCD support; retain their facts.
     if "nuscenes" in data["targets"]:
         targets = targets | {"nuscenes"}
     tasks = set()
@@ -836,7 +835,6 @@ async def allocate(
 
 @asynccontextmanager
 async def _reads(db, lock):
-    # Use a connection savepoint: Session.begin_nested() flushes caller work.
     with db.no_autoflush:
         if not lock:
             yield
@@ -940,7 +938,6 @@ async def publish(db, receipt):
     _check(current, receipt)
     if not same(current, receipt):
         reject()
-    # Check natural expiry again after the complete immutable JSON comparison.
     _check(current, receipt)
     row.state, row.published_at = "ready", now()
     await db.flush()

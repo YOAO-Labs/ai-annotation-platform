@@ -129,7 +129,6 @@ async def rebuild_item_timetable(
         or current_item.video_output_id != output_id
     ):
         raise ContentError("video_metadata_rebuild_failed", 409)
-    # Recheck the exact pinned original before accepting the newly published owner.
     current_source = await originals.check(db, authority)
     published = await derivatives.metadata(db, current_item, current_source)
     info, frames = derivatives.metadata_result(published)

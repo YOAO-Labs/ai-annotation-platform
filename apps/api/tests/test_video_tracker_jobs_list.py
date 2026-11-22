@@ -45,8 +45,6 @@ async def _make_video_task(
     )
     db.add_all([project, dataset])
     await db.flush()
-    # Keep an explicit project role for the owner: an employee owner acts
-    # through membership, and managers are unaffected by the extra row.
     await create_membership(
         db,
         project_id=project.id,
@@ -72,7 +70,6 @@ async def _make_video_task(
         file_path="videos/clip.mp4",
         file_type="video",
         status="pending",
-        # Unbatched task visibility requires the effective annotator to match.
         assignee_id=owner_id,
     )
     db.add(task)
@@ -174,18 +171,16 @@ async def test_counts_and_status_filter(httpx_client, super_admin, db_session):
     assert body["counts"]["failed"] == 1
     assert body["counts"]["cancelled"] == 0
     assert len(body["items"]) == 5
-    # 返回项带 project_id / task_id
     assert all(i["project_id"] == str(task.project_id) for i in body["items"])
     assert all(i["task_id"] == str(task.id) for i in body["items"])
 
-    # status filter — counts 仍是全量, items 受过滤
     res = await httpx_client.get(
         "/api/v1/video-tracker-jobs?status=running", headers=_bearer(token)
     )
     body = res.json()
     assert len(body["items"]) == 2
     assert all(i["status"] == "running" for i in body["items"])
-    assert body["counts"]["completed"] == 1  # counts 忽略 status 过滤
+    assert body["counts"]["completed"] == 1
 
 
 async def test_project_and_model_key_filter(httpx_client, super_admin, db_session):
@@ -297,9 +292,6 @@ async def test_invalid_status_rejected(httpx_client, super_admin):
     assert res.status_code == 422
 
 
-# ── 候选/接受端点 ──────────────────────────────────────────
-
-
 async def _make_staged_job(db, task, item, owner_id):
     """建一个 PENDING_REVIEW 的 job + 源 annotation, 带 2 帧暂存结果。"""
     annotation = Annotation(
@@ -361,14 +353,12 @@ async def test_preview_and_accept_applies_staged(httpx_client, super_admin, db_s
     job, annotation = await _make_staged_job(db_session, task, item, user.id)
     await db_session.commit()
 
-    # preview → 返回暂存逐帧结果。
     res = await httpx_client.get(
         f"/api/v1/video-tracker-jobs/{job.id}/preview", headers=_bearer(token)
     )
     assert res.status_code == 200, res.text
     assert len(res.json()["results"]) == 2
 
-    # accept → 落库 + status accepted。
     res = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/accept", headers=_bearer(token)
     )
@@ -426,7 +416,6 @@ async def test_preview_typed_results_roundtrip_rich_shape(
                     "instance_id": "2",
                     "primary": True,
                 },
-                # 缺失全部可选键的极简行 (只有 frame_index + geometry): 验证 typed 容错。
                 {
                     "frame_index": 1,
                     "geometry": {
@@ -465,7 +454,6 @@ async def test_preview_typed_results_roundtrip_rich_shape(
     assert first["instance_id"] == "2"
     assert first["primary"] is True
 
-    # 缺失可选键 → 默认值填充, 而非 500。
     second = rows[1]
     assert second["frame_index"] == 1
     assert second["confidence"] is None
@@ -488,9 +476,8 @@ async def test_discard_leaves_annotation_untouched(
     assert res.status_code == 200, res.text
     assert res.json()["status"] == "discarded"
     await db_session.refresh(annotation)
-    assert annotation.annotation_type == "bbox"  # 源零改动
+    assert annotation.annotation_type == "bbox"
 
-    # 重复丢弃幂等，不会把已清空的 staged_result 当非法候选。
     repeated = await httpx_client.post(
         f"/api/v1/video-tracker-jobs/{job.id}/discard", headers=_bearer(token)
     )
@@ -597,7 +584,6 @@ async def test_task_active_jobs_supports_ws_reconnect(
     """刷新后重连: /active 只返回运行中 (queued/running) 任务, 待审候选归 /reviewable。"""
     user, token = annotator
     task, item = await _make_video_task(db_session, user.id)
-    # 一个待审候选 (应被 /active 排除)。
     await _make_staged_job(db_session, task, item, user.id)
     running = await _make_job(
         db_session, task, item, user.id, status=VideoTrackerJobStatus.RUNNING.value

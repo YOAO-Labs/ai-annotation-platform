@@ -127,8 +127,6 @@ async def capture_job(db, job, project, *, batch_id, targets, opts):
         )
     except export_media_storage.ExportMediaStorageError as exc:
         raise ContentError(exc.code, exc.status_code) from None
-    # Validate the registered new-write binding using only metadata. The Bundle
-    # already reserved this ZIP identity; no client or object is created here.
     try:
         zip_ref = await export_storage.allocate(
             db,

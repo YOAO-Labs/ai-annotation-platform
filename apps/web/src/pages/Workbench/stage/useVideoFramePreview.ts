@@ -347,9 +347,6 @@ export function useVideoFramePreview({
             errors: next.status === "error" ? cur.errors + 1 : cur.errors,
           }));
           if (next.status === "pending" && retryAttempt < MAX_PENDING_RETRIES) {
-            // Exponential backoff: poll quickly after the first miss so frames
-            // that finish extraction fast show up promptly, then back off to the
-            // server hint / cap so a slow worker is not hammered.
             const expBase = Math.min(
               RETRY_INITIAL_DELAY_MS * Math.pow(2, retryAttempt),
               RETRY_DELAY_MS,
@@ -538,9 +535,6 @@ export function useVideoFramePreview({
     for (let i = 0; i < count; i++) {
       anchors.push(Math.round((i / span) * maxFrame));
     }
-    // First scrub on a fresh task: seed evenly-spaced anchor frames so distant
-    // jumps later (e.g. clicking a bookmark) land on a warm cache instead of a
-    // cold worker.
     prefetch(anchors, "anchor");
   }, [anchorPrefetchCount, maxFrame, prefetch, taskId]);
 
@@ -553,7 +547,6 @@ export function useVideoFramePreview({
     const key = cacheKey(scopeKey, frameIndex, width, format);
     const cached = cachedPreview(key);
     if (cached) {
-      // Window prefetch may have filled the cache between scheduling and flush.
       setPreview(cached);
       scrubPrefetch(frameIndex);
       seedAnchorsIfNeeded();
@@ -612,9 +605,6 @@ export function useVideoFramePreview({
         }));
         return;
       }
-      // Cache miss while scrubbing: keep the previous ready preview on screen so
-      // the popover does not flash back to "Loading F X" between adjacent frames.
-      // Only fall back to a pending placeholder if nothing has been shown yet.
       setPreview((prev) => {
         if (prev && prev.status === "ready") return prev;
         return { frameIndex, status: "pending", url: null, width, format, error: null };
@@ -627,8 +617,6 @@ export function useVideoFramePreview({
         lastFrameIndex: frameIndex,
         lastStatus: "pending",
       }));
-      // Coalesce rapid scrub events to one fetch per animation frame so fast
-      // pointer moves don't fire one request per pixel.
       scheduledFrameRef.current = frameIndex;
       if (rafHandleRef.current === null) {
         rafHandleRef.current = requestAnimationFrame(flushScheduledFetch);

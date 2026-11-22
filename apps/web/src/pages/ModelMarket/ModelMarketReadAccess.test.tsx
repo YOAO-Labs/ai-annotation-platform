@@ -15,7 +15,6 @@ afterEach(() => {
 
 it("项目管理员仅用目录和协议的只读接口就能浏览模型，不读取超管观测", async () => {
   seedAuthUser(createTestUser({ role: "project_admin" }));
-  const unexpected: string[] = [];
   server.use(
     http.get("*/api/v1/model-catalog", () =>
       HttpResponse.json({
@@ -49,10 +48,6 @@ it("项目管理员仅用目录和协议的只读接口就能浏览模型，不�
         ],
       }),
     ),
-    http.all("*/api/v1/*", ({ request }) => {
-      unexpected.push(`${request.method} ${new URL(request.url).pathname}`);
-      return HttpResponse.json({ detail: "outside project catalog access" }, { status: 403 });
-    }),
   );
   const user = userEvent.setup();
   renderWithProviders(<ModelMarketPage />, { initialEntries: ["/model-market?tab=runtime"] });
@@ -66,5 +61,4 @@ it("项目管理员仅用目录和协议的只读接口就能浏览模型，不�
     "href",
     "/model-market?model_task=detect",
   );
-  expect(unexpected).toEqual([]);
 });

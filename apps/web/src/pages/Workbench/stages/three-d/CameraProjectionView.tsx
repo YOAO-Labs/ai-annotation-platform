@@ -1,14 +1,3 @@
-/**
- * 单相机视图 = 只读图 + 投影 overlay(canvas)。
- *
- * 把各 3D 框经该相机标定(SensorCalibration)投影成 12 边线框,叠在图上;点投影框可反选对应
- * 3D 框(命中测试 → onSelectBox)。投影**实时**:消费同一份 boxes + highlightedIds,框 PSR / 选中
- * 变化即重绘(useUpdateAnnotation 乐观更新会即时把新几何写入 annotations,故面板 / gizmo / 列表
- * 改框后 overlay 立刻跟随)。无标定的相机降级:不画投影、不报错。
- *
- * 缩放约定:intrinsic 基于图像**原始分辨率**,投影出的像素是原图坐标;overlay 按
- *   显示尺寸 / 自然尺寸(clientWidth/naturalWidth)比例缩放后绘制,`ResizeObserver` + onLoad 重算。
- */
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { hexToRgba } from "@/pages/Workbench/stage/colors";
@@ -24,7 +13,6 @@ import { buildDepthRaster, sampleDepth, type DepthRaster } from "./geometry/dept
 import type { Psr } from "./geometry/triview";
 import type { SceneBox } from "./PointCloudScene";
 
-// Tailwind class constants (was ThreeDWorkbench.module.css).
 const CAMERA_ITEM = "m-0 shrink-0";
 const CAMERA_ITEM_EXPANDED = "w-fit max-w-full";
 const CAMERA_VIEW = "relative inline-block min-h-24 bg-muted leading-none";
@@ -44,54 +32,30 @@ interface CameraProjectionViewProps {
   name: string;
   imageUrl: string | null | undefined;
   calibration?: SensorCalibration | null;
-  /** 非隐藏的 3D 框(PSR + 类别色),与主视图同源。 */
   boxes: SceneBox[];
-  /** 需高亮的框 id(选中框 + 同 track_id 成员);决定描边粗细 / 填充。 */
   highlightedIds: Set<string>;
-  /** 点投影框反选(命中最小面积框,前景优先)。 */
   onSelectBox: (id: string | null, opts?: { shift?: boolean }) => void;
-  /** 该相机是否最正对当前选中框(可见角点最多者);用于 figcaption 角标。 */
   bestForSelected?: boolean;
-  /** 点云坐标(N*3,lidar/world 系);深度提示开启时建相机深度栅格。 */
   pointPositions?: Float32Array | null;
-  /** 深度提示开关:开 → 画深度热力图 + 图上 hover 读出最近点深度/3D。 */
   showDepth?: boolean;
-  /**
-   * 种框模式:在相机图上拖一个 2D 矩形 → mouseup 回调 onSeedBox(natural 像素系)。
-   * 上层据此选视锥内点拟合 box_3d。开则禁用反选点击、光标 crosshair。无标定时不生效。
-   */
   seedMode?: boolean;
-  /** 上层正在保存种框时阻止新的 pointer，不把请求排成并发队列。 */
   interactionDisabled?: boolean;
-  /** 种框完成回调:rect 为 natural 像素系,calibration 为本相机标定(必非空)。 */
   onSeedBox?: (rect: SeedRect, calibration: SensorCalibration) => void;
-  /** 放大相机视图中允许直接移动中心的单个 3D 框；缩略视图与不可编辑态传 null。 */
   editableBox?: SceneBox | null;
-  /** 拖动中 commit=false 更新共享草稿，pointerup 时 commit=true 只提交一次。 */
   onEditPsr?: (psr: Psr, commit: boolean) => void;
-  /** Escape、pointer cancel 或拖出画布时恢复原 PSR，不提交。 */
   onCancelEditPsr?: (boxId: string, original: Psr) => void;
-  /** 标定不可逆等异常只提示，不改变当前草稿。 */
   onEditError?: () => void;
-  /** 当前相机上的持久化 2D 成员；坐标为图像归一化坐标。 */
   manualBbox?: NormalizedCameraBbox | null;
-  /** 开启后拖框创建，或用八向手柄/框内拖动编辑现有 2D 成员。 */
   manualBboxMode?: boolean;
-  /** 标定版本落后时用警示色和虚线提示。 */
   manualBboxStale?: boolean;
   onManualBboxCommit?: (bbox: NormalizedCameraBbox) => void;
-  /** 放大浮层使用内容宽度，并受父级可用空间约束；缩略图保持固定 190px。 */
   expanded?: boolean;
-  /** 停靠图库按可用宽度等比显示，不使用浮层的固定尺寸。 */
   fitToPanel?: boolean;
-  /** 停靠面板隐藏或标签未激活时暂停投影和深度绘制。 */
   visible?: boolean;
 }
 
-// 一个框至少有这么多可见角点才参与命中测试(避免擦边框误选)。
 const MIN_VISIBLE_FOR_HIT = 3;
 
-// 种框拖拽最小位移(显示像素);低于此视为误点,不种框。
 const MIN_SEED_DRAG_PX = 5;
 
 const EDIT_HANDLE_RADIUS_PX = 7;
@@ -231,7 +195,6 @@ export function CameraProjectionView({
 }: CameraProjectionViewProps) {
   const imgRef = useRef<HTMLImageElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // 种框拖拽:起点(显示坐标)+ 当前矩形(显示坐标),用 ref 即时重绘不进 state。
   const seedStartRef = useRef<{ x: number; y: number } | null>(null);
   const seedRectRef = useRef<SeedRect | null>(null);
   const editHandleRef = useRef<{ x: number; y: number } | null>(null);
@@ -240,11 +203,9 @@ export function CameraProjectionView({
   const manualDraftRef = useRef<NormalizedCameraBbox | null>(null);
   const manualRectRef = useRef<ManualBboxDisplayRect | null>(null);
   const suppressClickRef = useRef(false);
-  // 命中测试用:每框可见投影角点的显示坐标包围盒(id + 矩形 + 面积),draw 时同步。
   const hitBoxesRef = useRef<
     { id: string; x0: number; y0: number; x1: number; y1: number; area: number }[]
   >([]);
-  // 深度提示:相机深度栅格(state,变化时驱动一次重绘)+ hover 读数(不入 draw 依赖,不触发重绘)。
   const [raster, setRaster] = useState<DepthRaster | null>(null);
   const [natSize, setNatSize] = useState<{ w: number; h: number } | null>(null);
   const [loadedImageUrl, setLoadedImageUrl] = useState<string | null>(null);
@@ -262,7 +223,6 @@ export function CameraProjectionView({
     setHover(null);
   }, [displayUrl]);
 
-  // 深度栅格:开关开 + 有点 + 有标定 + 知道原图尺寸时建一次(换帧/换相机重建);否则清空。
   useEffect(() => {
     if (!visible) return;
     if (imageReady && showDepth && pointPositions && calibration && natSize) {
@@ -299,8 +259,6 @@ export function CameraProjectionView({
     const sx = cssW / natW;
     const sy = cssH / natH;
 
-    // 深度热力图:遍历栅格非空格,在投影像素画按深度着色的点(近→远 = 红→蓝)。
-    // 画在框线之下。深度归一化到 [minDepth, maxDepth],hue 0(红,近)→ 240(蓝,远)。
     if (calibration && showDepth && raster && isFinite(raster.minDepth)) {
       const span = raster.maxDepth - raster.minDepth || 1;
       const cellsN = raster.cols * raster.rows;
@@ -358,7 +316,6 @@ export function CameraProjectionView({
       }
     }
 
-    // 高亮框最后画(描边置顶);同序更新命中包围盒。
     const projectionCalibration = calibration;
     const ordered = projectionCalibration
       ? [...boxes].sort(
@@ -370,12 +327,11 @@ export function CameraProjectionView({
       if (!projectionCalibration) break;
       const corners = psrToCorners(b.center, b.size, b.rotation);
       const { pixels, visible } = projectPoints(corners, projectionCalibration);
-      if (!visible.some(Boolean)) continue; // 全角点在相机后方 / 不可见 → 该相机不画此框
+      if (!visible.some(Boolean)) continue;
 
       const disp = pixels.map(([u, v]) => [u * sx, v * sy] as [number, number]);
       const hl = highlightedIds.has(b.id);
 
-      // 12 边线:两端都可见才连(MVP:出画角点的边不画,不做画面裁剪)。
       ctx.lineWidth = hl ? 2.5 : 1.25;
       ctx.strokeStyle = hexToRgba(b.color, hl ? 1 : 0.8);
       ctx.beginPath();
@@ -386,7 +342,6 @@ export function CameraProjectionView({
       }
       ctx.stroke();
 
-      // 可见角点包围盒:既作淡填充(高亮时),也作命中区。
       let x0 = Infinity;
       let y0 = Infinity;
       let x1 = -Infinity;
@@ -416,7 +371,6 @@ export function CameraProjectionView({
       }
     }
 
-    // 种框橡皮筋矩形(显示坐标,虚线 + 淡填充)。从 shadcn token 取品牌色。
     const seed = seedRectRef.current;
     if (seedMode && seed) {
       const accent = getComputedStyle(canvas).getPropertyValue("--sc-brand").trim() || "#3b82f6";
@@ -488,7 +442,6 @@ export function CameraProjectionView({
     manualBboxStale,
   ]);
 
-  // 数据 / 标定变化重绘。
   useEffect(() => {
     draw();
   }, [draw]);
@@ -508,7 +461,6 @@ export function CameraProjectionView({
     draw();
   }, [draw, manualBboxMode, name]);
 
-  // 图尺寸变化(响应式布局 / 懒加载)重算缩放并重绘。
   useEffect(() => {
     const img = imgRef.current;
     if (!img || !visible) return;
@@ -517,7 +469,6 @@ export function CameraProjectionView({
     return () => ro.disconnect();
   }, [draw, visible]);
 
-  // 图加载后记下原图分辨率(深度栅格 / 投影都基于 intrinsic 原图坐标)+ 重绘。
   const handleImgLoad = useCallback(() => {
     const img = imgRef.current;
     if (img?.naturalWidth) {
@@ -528,7 +479,6 @@ export function CameraProjectionView({
     draw();
   }, [draw, displayUrl]);
 
-  // 光标相对 canvas 的显示坐标。
   const localXY = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     return { x: e.clientX - rect.left, y: e.clientY - rect.top };
@@ -600,7 +550,6 @@ export function CameraProjectionView({
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [cancelCameraEdit, cancelManualEdit]);
 
-  // mousemove:种框模式下更新橡皮筋矩形(ref + 直接重绘);否则深度 hover。
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       if (interactionDisabled) return;
@@ -716,7 +665,6 @@ export function CameraProjectionView({
     ],
   );
 
-  // 种框:按下记起点(需有标定);松手换算回 natural 像素发 onSeedBox;微小位移视为误点。
   const handlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLCanvasElement>) => {
       if (e.button !== 0 || editDragRef.current || manualDragRef.current) return;
@@ -854,17 +802,14 @@ export function CameraProjectionView({
         return;
       }
       const { x, y } = localXY(e);
-      draw(); // 清掉橡皮筋
-      // 对角线位移小于阈值才算误点(与 ThreeDWorkbench 的 DRAG_CLICK_TOL 同口径);
-      // 用 hypot 而非「任一边 < 阈值」,避免吃掉细长矩形(行人/杆子/路灯侧影)。
+      draw();
       if (Math.hypot(x - start.x, y - start.y) < MIN_SEED_DRAG_PX) {
-        return; // 误点,不种框
+        return;
       }
       const img = imgRef.current;
       if (!img?.naturalWidth || !img.clientWidth) return;
       const sx = img.clientWidth / img.naturalWidth;
       const sy = img.clientHeight / img.naturalHeight;
-      // 显示坐标 → natural 像素(与 projectPoints 的原图 intrinsic 对齐)。
       const rect = normalizeRect(start.x / sx, start.y / sy, x / sx, y / sy);
       onSeedBox(rect, calibration);
     },
@@ -893,7 +838,7 @@ export function CameraProjectionView({
     if (seedStartRef.current || seedRectRef.current) {
       seedStartRef.current = null;
       seedRectRef.current = null;
-      draw(); // 拖出画布外 → 取消种框
+      draw();
     }
   }, [cancelCameraEdit, draw]);
 
@@ -904,13 +849,12 @@ export function CameraProjectionView({
         suppressClickRef.current = false;
         return;
       }
-      if (seedMode || manualBboxMode) return; // 编辑模式禁用反选
+      if (seedMode || manualBboxMode) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
-      // 命中含点的最小面积框(前景 / 近处框面积小,优先选中)。
       let hitId: string | null = null;
       let hitArea = Infinity;
       for (const hb of hitBoxesRef.current) {

@@ -187,8 +187,6 @@ async def _collect_portable_mask_objects(
         actual = len(payload.get("counts", []))
         if actual != declared or runs + actual > MAX_PORTABLE_MASK_RUNS:
             raise ValueError("portable mask expansion budget exceeded")
-        # The final envelope is indented too. Account with the same indentation
-        # and reserve the nested property's indentation for every emitted line.
         encoded_size = len(digest.encode("utf-8")) + 8
         for part in json.JSONEncoder(ensure_ascii=False, indent=2).iterencode(payload):
             encoded_size += len(part.encode("utf-8")) + part.count("\n") * 4
@@ -214,8 +212,6 @@ class VideoBoundaryExportError(UnsupportedExportError):
 
 
 def _assert_image_export_supported(project: Project, export_format: str) -> None:
-    # 媒体维度判断改用 data_type; video 子类型路由 (video-track vs
-    # video-mm) 仍用 type_key.
     if project.data_type == "video":
         if project.type_key == "video-track":
             raise UnsupportedExportError(
@@ -272,9 +268,6 @@ def _clean_video_single_frame_geometry(geometry: dict) -> dict:
             "h": geometry.get("h", 0),
         }
     return row
-
-
-# ── 多几何 → COCO 写入 helper（坐标归一化 [0,1]，写入时去归一化到像素） ──
 
 
 def _aabb_from_rings(
@@ -670,10 +663,6 @@ class ExportService:
 
             dataset_items = await self._load_dataset_items(tasks)
             yield tasks, ann_by_task, dataset_items
-            # 释放 session 身份映射，否则分块加载的 Task/Annotation/DatasetItem
-            # ORM Task/Annotation 行会全部滞留 identity map，内存仍随 task 数线性增长。
-            # 消费方在本轮已写盘完成；expunge 后已加载属性仍可读（expire_on_commit=False），
-            # 不影响 dataset_items_all 等后续引用。
             self.db.expunge_all()
 
     async def export_video_tracks(
@@ -892,10 +881,6 @@ class ExportService:
             )
         _assert_image_export_supported(project, "coco")
 
-        # COCO categories 按 tool_unit 分组. tool_bindings 提供 N 个工具
-        # 单位, 每单位贡献一段 categories; supercategory = tool_unit_id; category.id
-        # 全局唯一. 同名类不去重 (强隔离). cat_map 由 (tool_unit_id, class_name) → id 查.
-        # 兼容: tool_bindings 为空 (理论上不应出现, 全部已 backfill) 时派生空类集.
         categories: list[dict] = []
         cat_map: dict[tuple[str, str], int] = {}
         tb = project.tool_bindings or {}
@@ -904,14 +889,11 @@ class ExportService:
             for unit_id, binding in tb.items():
                 if not isinstance(binding, dict) or not binding.get("enabled"):
                     continue
-                # keypoint 单元的类别附 COCO keypoints(节点名) + skeleton(edges,
-                # COCO 1-indexed)，直接派生自 ToolBinding.keypoint_schema。
                 kp_names: list[str] | None = None
                 kp_skeleton: list[list[int]] | None = None
                 if unit_id == "keypoint":
                     kp_schema = binding.get("keypoint_schema") or {}
                     nodes = kp_schema.get("nodes") or []
-                    # 有 sublabel 时拼成 name_sublabel，保证 COCO keypoints 名唯一可辨。
                     names = [
                         f"{n['name']}_{n['sublabel']}"
                         if n.get("sublabel")
@@ -956,13 +938,11 @@ class ExportService:
             cid = cat_map.get((unit, ann_obj.class_name))
             if cid is not None:
                 return cid
-            # 兜底: 强隔离同名不存在时, 跨 unit 同名取第一个; 都没有就 0.
             for (_, n), v in cat_map.items():
                 if n == ann_obj.class_name:
                     return v
             return 0
 
-        # 像素坐标改用 DatasetItem.width/height 真值, 缺失再回退常量。
         items = (
             dataset_items
             if dataset_items is not None
@@ -1015,7 +995,6 @@ class ExportService:
             else:
                 aabb = _coco_aabb_norm(g)
                 if aabb is None:
-                    # rotated_bbox / polyline / 空几何不进 COCO（各有专属目标）。
                     skipped += 1
                     continue
                 x_px = aabb[0] * img_w
@@ -1034,7 +1013,6 @@ class ExportService:
                     round(h_px, 2),
                 ],
                 "area": round(area, 2),
-                # COCO uses iscrowd=1 for RLE segmentation and 0 for polygons.
                 "iscrowd": 1 if raster_rle is not None else 0,
             }
             if raster_rle is not None:
@@ -1048,8 +1026,6 @@ class ExportService:
                 row["keypoints"], row["num_keypoints"] = kp
             if include_attributes:
                 attrs = dict(ann.attributes or {})
-                # ADR-0045 · 跨帧同一对象标识 → COCO attributes.__track_id
-                # (原 group_id 高位段 __group_id; 跨帧语义已统一到 track_id)。
                 if getattr(ann, "track_id", None) is not None:
                     attrs["__track_id"] = ann.track_id
                 row["attributes"] = attrs
@@ -1103,7 +1079,6 @@ class ExportService:
             zf.writestr("classes.txt", classes_txt)
 
             if include_attributes:
-                # 包内根目录写一份属性 schema，下游训练 ingest 可解析
                 zf.writestr(
                     "attribute_schema.json",
                     json.dumps(
@@ -1130,7 +1105,6 @@ class ExportService:
                 base = t.file_name.rsplit(".", 1)[0]
                 zf.writestr(f"labels/{base}.txt", "\n".join(lines))
                 if include_attributes and attrs_per_line:
-                    # 伴生属性文件：行索引与 .txt 行号对齐
                     zf.writestr(
                         f"labels/{base}.attrs.json",
                         json.dumps({"attributes": attrs_per_line}, ensure_ascii=False),
@@ -1307,7 +1281,6 @@ class ExportService:
             await self._axis_convention_by_task(tasks) if axis_frame == "source" else {}
         )
 
-        # 视频项目: 给每个 task block 填 media_type + video 子块.
         is_video = project.data_type == "video"
         dataset_items = await self._load_dataset_items(tasks) if is_video else {}
 
@@ -1330,7 +1303,6 @@ class ExportService:
                     AnnotationEntry(
                         geometry=geometry,
                         class_name=ann.class_name,
-                        # 工具维度绑定 (1.1+).
                         tool_unit_id=getattr(ann, "tool_unit_id", None) or "bbox",
                         attributes=ann.attributes or {},
                         confidence=ann.confidence,
@@ -1349,8 +1321,6 @@ class ExportService:
 
             pred_entries: list[PredictionEntry] = []
             for pred in pred_by_task.get(t.id, []):
-                # prediction.result 存 LS shape 数组; 每个 shape 对应一个目标物.
-                # 走 to_internal_shape() 反推内部 geometry + class_name.
                 pred_unit = getattr(pred, "tool_unit_id", None) or "bbox"
                 for raw_shape in pred.result or []:
                     await self._checkpoint()
@@ -1442,7 +1412,6 @@ class ExportService:
                 type_key=project.type_key,
                 classes_config=derive_classes_config(project.tool_bindings),
                 attribute_schema=derive_attribute_schema(project.tool_bindings),
-                # 工具维度绑定 (1.1+).
                 tool_bindings=project.tool_bindings or {},
                 rendering_config=project.rendering_config or {},
                 annotation_guide=getattr(project, "annotation_guide", None),
@@ -1452,5 +1421,4 @@ class ExportService:
             tasks=task_blocks,
         )
 
-        # 严格写满 null: 走 mode="json" + exclude_none=False (默认).
         return envelope.model_dump_json(indent=2, exclude_none=False)

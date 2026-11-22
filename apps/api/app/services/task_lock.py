@@ -220,7 +220,6 @@ class TaskLockService:
         ttl: int | None = None,
         force_takeover: bool = False,
     ) -> TaskLock | None:
-        # IdentityAccountLockData used to flush here before its account SHARE lock.
         await self._flush_for_orm_query()
         result = await self._execute(
             "acquire",
@@ -234,8 +233,6 @@ class TaskLockService:
         record = result["lock"]
         if record is None:
             return None
-        # Preserve the old explicit flush after the successful upsert. Cached rows
-        # selected for this task were expunged before it can write over the new row.
         await self.db.flush()
         return await self._attach(record)
 

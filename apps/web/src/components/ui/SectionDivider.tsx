@@ -1,6 +1,3 @@
-/**
- * SectionDivider —— 分区标题分隔。
- */
 interface SectionDividerProps {
   label: string;
   hint?: string;

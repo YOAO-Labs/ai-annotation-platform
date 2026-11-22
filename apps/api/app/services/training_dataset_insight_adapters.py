@@ -44,8 +44,6 @@ def contract_profile(record: dict) -> dict[str, str]:
         if task == "detect"
         else SEGMENTATION_CONTRACT
     )
-    # Historical schemas omitted media. An explicit different output medium is
-    # not an image adapter merely because the legacy task spelling is familiar.
     if record.get("media_type", "image") != "image":
         raise TrainingDatasetError(
             "unsupported_insight_contract", "该媒体没有经过资格验证的冻结分析适配器"
@@ -68,8 +66,6 @@ class FrozenInsightAdapter:
         return self.profile[0]
 
     def capabilities(self, record: dict | None = None) -> dict:
-        # These are data-contract qualifications, not claims that preview bytes
-        # are currently retained or that every trainer/weight supports the task.
         result = {key: {"supported": True, "reason": None} for key in OPERATIONS}
         source = (record or {}).get("source") or {}
         if not isinstance(source, dict) or source.get("media_type", "image") != "image":
@@ -169,8 +165,6 @@ class FrozenInsightAdapter:
                     ),
                 }
             )
-        # Native eight-decimal coordinates and multiplicity retain the existing
-        # detection semantic identity. Provenance IDs/class positions are absent.
         return content_digest(
             sorted(
                 (
@@ -292,9 +286,6 @@ def assert_parent_compatible(
         raise TrainingDatasetError(
             "parent_grouping_mismatch", "父版本使用不同的来源分组契约"
         )
-    # The bridge resolves all retained cumulative task/content/scene identities
-    # and rejects cross-partition conflicts. Unknown namespaces must not silently
-    # lose their constraints when a future source grouping is introduced.
     try:
         history = split_history(parent_manifest)
     except (KeyError, TypeError, ValueError, AttributeError) as exc:

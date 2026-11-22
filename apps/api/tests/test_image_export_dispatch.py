@@ -65,7 +65,6 @@ async def test_worker_claim_lock_fences_late_success(owned_db):
     db = owned_db
     identifier = await seed(db)
     factory = async_sessionmaker(db.bind, expire_on_commit=False)
-    # The deadline measures SKIP LOCKED, not a cold connection/BEGIN round trip.
     await db.execute(text("SELECT 1"))
     async with factory() as worker:
         await worker.execute(
@@ -73,8 +72,6 @@ async def test_worker_claim_lock_fences_late_success(owned_db):
                 WHERE id=:id"""),
             {"id": identifier},
         )
-        # The actual claim is still uncommitted. Backfill skips its row lock,
-        # rather than waiting and then changing the worker's durable identity.
         assert not await asyncio.wait_for(
             media_jobs.record_dispatch(db, identifier, "late"), timeout=1
         )

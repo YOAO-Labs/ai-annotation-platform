@@ -10,7 +10,6 @@ interface UseClipboardArgs {
   setClipboard: (b: Annotation[]) => void;
   createAnnotation: (payload: AnnotationPayload) => Promise<AnnotationResponse>;
   pushBatch: (cmds: { kind: "create"; annotationId: string; payload: AnnotationPayload }[]) => void;
-  /** 已落库后回选这些新框（用于"粘贴后即选中副本"语义）。 */
   setSelectedIds?: (ids: string[]) => void;
   imgW: number;
   imgH: number;
@@ -18,7 +17,6 @@ interface UseClipboardArgs {
 
 const PIXEL_OFFSET = 10;
 
-/** 把 Annotation 列表按 (+10px, +10px) 偏移粘贴到当前任务，落库后 batch 进 history。 */
 export function useClipboard({
   userBoxes,
   selectedIds,
@@ -78,10 +76,8 @@ export function useClipboard({
     [offX, offY, createAnnotation, pushBatch, setSelectedIds],
   );
 
-  /** Ctrl+V：从 clipboard 粘贴。 */
   const paste = useCallback(() => pasteFrom(clipboard), [pasteFrom, clipboard]);
 
-  /** Ctrl+D：原地复制当前选中（不消费/写入 clipboard）。 */
   const duplicateSelection = useCallback(() => {
     const targets = userBoxes.filter((b) => selectedIds.includes(b.id));
     return pasteFrom(targets);

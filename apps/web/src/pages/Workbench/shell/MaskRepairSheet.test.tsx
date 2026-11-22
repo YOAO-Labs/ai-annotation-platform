@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -169,59 +170,51 @@ describe("MaskRepairSheet", () => {
     expect(screen.getByRole("button", { name: "确认修复 (1)" })).toBeInTheDocument();
   });
 
-  it("关闭后以相同 owner 重开时，旧 execute 结果不能创建 repair batch", async () => {
-    const executions: Array<((value: { id: string }) => void) | undefined> = [];
-    mocks.executeMutate.mockImplementation(
-      (_value: unknown, options?: { onSuccess?: (value: { id: string }) => void }) =>
-        executions.push(options?.onSuccess),
-    );
-    const onOpenChange = vi.fn();
-    const view = render(
-      <MaskRepairSheet
-        open
-        ownerKey="owner-a"
-        projectId="project-1"
-        actions={[{ issue_id: "issue-1", kind: "delete_small_islands" }]}
-        onOpenChange={onOpenChange}
-        onFinished={vi.fn()}
-      />,
-    );
-    await waitFor(() => expect(mocks.dryRunMutate).toHaveBeenCalledOnce());
-    fireEvent.click(screen.getByRole("button", { name: "确认修复 (1)" }));
-    expect(executions).toHaveLength(1);
+  it.each(["关闭", "关闭批量修复预览"])(
+    "用 %s 关闭并以相同 owner 重开时，旧 execute 结果不能创建 repair batch",
+    async (closeButtonName) => {
+      const executions: Array<(value: { id: string }) => void> = [];
+      mocks.executeMutate.mockImplementation(
+        (_value: unknown, { onSuccess }: { onSuccess: (value: { id: string }) => void }) => {
+          executions.push(onSuccess);
+        },
+      );
+      function RepairSheetHarness() {
+        const [open, setOpen] = useState(true);
+        return (
+          <>
+            <button onClick={() => setOpen(true)}>打开修复预览</button>
+            <MaskRepairSheet
+              open={open}
+              ownerKey="owner-a"
+              projectId="project-1"
+              actions={[{ issue_id: "issue-1", kind: "delete_small_islands" }]}
+              onOpenChange={setOpen}
+              onFinished={vi.fn()}
+            />
+          </>
+        );
+      }
 
-    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
-    expect(onOpenChange).toHaveBeenCalledWith(false);
-    const dryRunsAfterClose = mocks.dryRunMutate.mock.calls.length;
-    view.rerender(
-      <MaskRepairSheet
-        open={false}
-        ownerKey="owner-a"
-        projectId="project-1"
-        actions={[{ issue_id: "issue-1", kind: "delete_small_islands" }]}
-        onOpenChange={onOpenChange}
-        onFinished={vi.fn()}
-      />,
-    );
-    view.rerender(
-      <MaskRepairSheet
-        open
-        ownerKey="owner-a"
-        projectId="project-1"
-        actions={[{ issue_id: "issue-1", kind: "delete_small_islands" }]}
-        onOpenChange={onOpenChange}
-        onFinished={vi.fn()}
-      />,
-    );
-    await waitFor(() => expect(mocks.dryRunMutate).toHaveBeenCalledTimes(dryRunsAfterClose + 1));
-    fireEvent.click(screen.getByRole("button", { name: "确认修复 (1)" }));
-    expect(executions).toHaveLength(2);
+      render(<RepairSheetHarness />);
+      const dialog = () => screen.getByRole("dialog", { name: "批量修复预览" });
+      await waitFor(() => expect(mocks.dryRunMutate).toHaveBeenCalledOnce());
+      fireEvent.click(within(dialog()).getByRole("button", { name: "确认修复 (1)" }));
+      expect(executions).toHaveLength(1);
 
-    await act(async () => executions[0]?.({ id: "repair-old" }));
-    expect(mocks.batchIds).not.toContain("repair-old");
-    await act(async () => executions[1]?.({ id: "repair-new" }));
-    expect(mocks.batchIds).toContain("repair-new");
-  });
+      fireEvent.click(within(dialog()).getByRole("button", { name: closeButtonName }));
+      expect(screen.queryByRole("dialog", { name: "批量修复预览" })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "打开修复预览" }));
+      await waitFor(() => expect(mocks.dryRunMutate).toHaveBeenCalledTimes(2));
+      fireEvent.click(within(dialog()).getByRole("button", { name: "确认修复 (1)" }));
+      expect(executions).toHaveLength(2);
+
+      await act(async () => executions[0]!({ id: "repair-old" }));
+      expect(mocks.batchIds).not.toContain("repair-old");
+      await act(async () => executions[1]!({ id: "repair-new" }));
+      expect(mocks.batchIds).toContain("repair-new");
+    },
+  );
 
   it("部分失败时可以重试未完成分片", () => {
     mocks.batchData = {

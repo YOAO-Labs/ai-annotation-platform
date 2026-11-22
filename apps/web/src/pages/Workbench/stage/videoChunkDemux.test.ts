@@ -1,6 +1,3 @@
-// 纯函数 demux 正确性:普通 GOP、B 帧 decode order、字节边界、base64 description。
-// B 帧的核心合同:sample 数组保持 packet decode order,frame_index 按 PTS presentation
-// rank;目标帧按 pts timestamp 命中,绝不按数组展示顺序重排输入。
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildEncodedVideoDecodePlan, type EncodedVideoDecodePlan } from "./videoChunkDemux";
 import type { VideoChunkSampleEntry, VideoChunkSamplesResponse } from "@/types";
@@ -12,7 +9,6 @@ interface RecordedChunkInit {
   data: Uint8Array;
 }
 
-/** 记录构造时 init 的 EncodedVideoChunk 替身(测试可回读 timestamp/duration/data)。 */
 class FakeEncodedVideoChunk {
   readonly type: RecordedChunkInit["type"];
   readonly timestamp: number;
@@ -87,7 +83,6 @@ describe("buildEncodedVideoDecodePlan", () => {
 
   it("普通 I/P GOP:从最近 key 回溯到 target;timestamp/duration 为微秒", () => {
     vi.stubGlobal("EncodedVideoChunk", FakeEncodedVideoChunk);
-    // decode order: frame0(key) → frame1(P) → frame2(P)
     const samples = makeSamples([
       { frame: 0, pts: 0, key: true },
       { frame: 1, pts: 33, key: false },
@@ -99,7 +94,7 @@ describe("buildEncodedVideoDecodePlan", () => {
     expect(result.plan.chunks).toHaveLength(3);
     expect(result.plan.targetDecodeIndex).toBe(2);
     expect(result.plan.gopStartDecodeIndex).toBe(0);
-    expect(result.plan.targetTimestampUs).toBe(66000); // 66ms → 66000us
+    expect(result.plan.targetTimestampUs).toBe(66000);
     const init = recordedInit(result.plan);
     expect(init.map((c) => c.timestamp)).toEqual([0, 33000, 66000]);
     expect(init.map((c) => c.type)).toEqual(["key", "delta", "delta"]);
@@ -124,8 +119,6 @@ describe("buildEncodedVideoDecodePlan", () => {
 
   it("B 帧 decode order [10,12,11]:target 11/12 各自 timestamp,不按展示顺序重排输入", () => {
     vi.stubGlobal("EncodedVideoChunk", FakeEncodedVideoChunk);
-    // packet(decode) order: frame10(key,pts0) → frame12(pts66) → frame11(pts33)
-    // 后端 parse_ffprobe_packet_samples 实测会这样排(见 test_media_chunk_samples.py)。
     const samples = makeSamples([
       { frame: 10, pts: 0, key: true },
       { frame: 12, pts: 66, key: false },
@@ -135,16 +128,13 @@ describe("buildEncodedVideoDecodePlan", () => {
     const r11 = buildEncodedVideoDecodePlan(makeBytes(64), samples, 11);
     expect(r11.ok).toBe(true);
     if (!r11.ok) return;
-    // decode 到 target(数组下标 2)需要全部 3 个 chunk(decode order 不变)。
     expect(r11.plan.chunks).toHaveLength(3);
     expect(r11.plan.targetTimestampUs).toBe(33000);
-    // chunk 输入顺序保持 decode order:frame10 → frame12 → frame11。
     expect(recordedInit(r11.plan).map((c) => c.timestamp)).toEqual([0, 66000, 33000]);
 
     const r12 = buildEncodedVideoDecodePlan(makeBytes(64), samples, 12);
     expect(r12.ok).toBe(true);
     if (!r12.ok) return;
-    // target 在下标 1,只需 decode 到 frame12(frame11 在它之后、不依赖)。
     expect(r12.plan.chunks).toHaveLength(2);
     expect(r12.plan.targetTimestampUs).toBe(66000);
     expect(recordedInit(r12.plan).map((c) => c.timestamp)).toEqual([0, 66000]);
@@ -161,7 +151,7 @@ describe("buildEncodedVideoDecodePlan", () => {
     const result = buildEncodedVideoDecodePlan(makeBytes(64), samples, 3);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.plan.gopStartDecodeIndex).toBe(2); // frame2 key, 不回溯到 frame0
+    expect(result.plan.gopStartDecodeIndex).toBe(2);
     expect(result.plan.chunks).toHaveLength(2);
   });
 
@@ -202,7 +192,7 @@ describe("buildEncodedVideoDecodePlan", () => {
   it("offset + size 越界 → invalid_sample_range", () => {
     vi.stubGlobal("EncodedVideoChunk", FakeEncodedVideoChunk);
     const samples = makeSamples([{ frame: 0, pts: 0, key: true, offset: 60, size: 10 }]);
-    const result = buildEncodedVideoDecodePlan(makeBytes(64), samples, 0); // 60+10 > 64
+    const result = buildEncodedVideoDecodePlan(makeBytes(64), samples, 0);
     expect(result).toEqual({ ok: false, reason: "invalid_sample_range" });
   });
 
@@ -226,7 +216,6 @@ describe("buildEncodedVideoDecodePlan", () => {
     expect(Array.from(desc)).toEqual(Array.from("hello-config").map((c) => c.charCodeAt(0)));
     expect(result.plan.config.optimizeForLatency).toBe(true);
     expect(result.plan.config.hardwareAcceleration).toBe("prefer-hardware");
-    // data 直接引用 chunkBytes 的 view(同一 buffer)。
     expect(recordedInit(result.plan)[0].data.buffer).toBe(chunkBytes);
   });
 

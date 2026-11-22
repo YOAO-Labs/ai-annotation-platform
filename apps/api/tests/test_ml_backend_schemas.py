@@ -59,9 +59,6 @@ def test_interactive_request_default_context_empty_dict():
     assert req.context == {}
 
 
-# ─── MLBackendCreate / MLBackendUpdate URL host blacklist ──────────
-
-
 import pytest  # noqa: E402
 
 from app.schemas.ml_backend import ComputeInfo, MLBackendCreate, MLBackendUpdate  # noqa: E402
@@ -74,7 +71,7 @@ from app.schemas.ml_backend import ComputeInfo, MLBackendCreate, MLBackendUpdate
         "http://127.0.0.1:8001/predict",
         "http://0.0.0.0/",
         "https://[::1]:443/path",
-        "http://LOCALHOST:9000",  # 大小写不敏感
+        "http://LOCALHOST:9000",
     ],
 )
 def test_ml_backend_create_rejects_loopback_url(bad_url: str):

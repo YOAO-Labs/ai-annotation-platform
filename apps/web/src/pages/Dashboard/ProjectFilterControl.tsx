@@ -16,8 +16,6 @@ export function ProjectFilterControl(props: Props) {
     if (open) setRequested(true);
   }, [open]);
 
-  // Keep the dashboard and trigger eager, but defer the popover dependency tree.
-  // Retain the loaded panel on close so Radix owns dismissal and focus return.
   const loading = requested || open;
   const trigger = (
     <FilterTrigger

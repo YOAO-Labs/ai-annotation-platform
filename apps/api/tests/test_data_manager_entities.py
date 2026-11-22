@@ -96,8 +96,6 @@ async def test_issue_filter_keeps_annotation_grain_and_complete_scene_tracks(
                 track_id="has_issue",
             )
         )
-        # A legacy issue anchored to an annotation on another task is not a
-        # valid root for that annotation, even within the same project.
         db_session.add(
             AnnotationFeedback(
                 project_id=project.id,
@@ -142,8 +140,6 @@ async def test_issue_filter_keeps_annotation_grain_and_complete_scene_tracks(
         assert response.status_code == 200, response.text
         body = response.json()
         if grain == "scene_tracks":
-            # A scene track matches when any member matches. Compare complete
-            # occurrence counts even when its issue-free member matches eq=0.
             expected = {"has_issue": 2}
             if operator == "eq":
                 expected["no_issue"] = 1

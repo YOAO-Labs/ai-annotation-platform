@@ -163,7 +163,6 @@ async def test_existing_pin_rejects_ordinary_json_changes(owned_db, field, value
 @pytest.mark.parametrize("bad", [{}, [], None, "text"])
 async def test_first_pin_requires_complete_object(owned_db, bad):
     row = await create(owned_db)
-    # SQL NULL is valid historical state; JSON null is not a locator.
     serialized = __import__("json").dumps(bad)
     with pytest.raises(IntegrityError):
         async with owned_db.begin_nested():

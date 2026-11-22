@@ -15,14 +15,9 @@ const TONE_VALUE_CLASS: Record<string, string> = {
 };
 
 export interface ConfidenceBarProps {
-  /** 0–1 置信度。 */
   value: number;
 }
 
-/**
- * AI 置信度大条。按阈值着色(≥0.8 emerald / 0.5–0.8 amber / <0.5 brand),
- * 填充宽度经 CSS 变量注入,保证条 / 数字同色。
- */
 export function ConfidenceBar({ value }: ConfidenceBarProps) {
   const pct = Math.round(value * 100);
   const tone = confidenceTone(value);

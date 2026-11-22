@@ -16,6 +16,7 @@ export interface WorkbenchAiRequestSummary {
 
 export interface WorkbenchAiRequestPresentation {
   status: "idle" | "running" | "completed" | "error" | "cancelled";
+  dispatchState?: "submitting" | "accepted" | "queued";
   summary: WorkbenchAiRequestSummary | null;
   progressPct: number | null;
   error: string | null;
@@ -33,7 +34,6 @@ export interface WorkbenchAiRequestStart {
     summary: WorkbenchAiRequestSummary;
     idempotencyKey: string;
   }) => Promise<{ kind: "queued"; celeryTaskId: string } | { kind: "completed" }>;
-  /** Local execution supports abort; queued jobs negotiate cancellation after lookup. */
   cancellable: boolean;
 }
 
@@ -103,6 +103,16 @@ function canCancel(owner: RequestOwner): boolean {
 function presentationOf(owner: RequestOwner): WorkbenchAiRequestPresentation {
   return {
     status: owner.status,
+    dispatchState:
+      owner.status !== "running" || owner.refreshing
+        ? undefined
+        : owner.job?.status === "pending"
+          ? "queued"
+          : owner.job
+            ? undefined
+            : owner.celeryTaskId
+              ? "accepted"
+              : "submitting",
     summary: owner.summary,
     progressPct: owner.progressPct,
     error: owner.error,
@@ -124,7 +134,6 @@ function failureMessage(error: unknown, fallback: string): string {
   return apiErrorDetailMessage(error) || fallback;
 }
 
-/** Owns one submitted ordinary prediction, independently of Inspector visibility. */
 export function useWorkbenchAiRequest({
   scopeKey,
   onCompleted,
@@ -168,7 +177,6 @@ export function useWorkbenchAiRequest({
       ownerRef.current = null;
       if (!previous) return;
       clearLookup(previous);
-      // Retiring this view never sends a server-side cancellation request.
       if (previous.cancellable && !previous.celeryTaskId) previous.controller.abort();
     };
   }, [scopeKey]);
@@ -264,7 +272,6 @@ export function useWorkbenchAiRequest({
           if (!owns(owner) || owner.status !== "running") return;
           if (!Number.isSafeInteger(page.total) || page.total < 0)
             throw new Error("作业列表分页响应无效");
-          // New jobs can arrive during pagination; keep this scan's boundary finite.
           scanTotal ??= page.total;
           const match = page.items.find(
             (job) =>
@@ -357,7 +364,6 @@ export function useWorkbenchAiRequest({
         cancelling: false,
         cancelInFlight: false,
       };
-      // This ref is claimed before invoking an executor that may await video capture.
       ownerRef.current = owner;
       publish(owner);
       void execute(owner);

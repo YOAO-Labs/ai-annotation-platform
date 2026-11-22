@@ -487,6 +487,8 @@ API／元数据、独立维护 CLI、Labeling 的已通过资格保持复用。
 
 `aap-notification-terminal-append/v1` 与迁移 `0321` 将同一收件人、类型及作业目标的查重和追加放入一个固定 owner 调用。函数返回新建标记和实际通知快照，不读取 Jobs／Identity 私表，保留历史行及长 scope。它与冻结的数据集导入通知函数共用事务锁键；只支持 `READ COMMITTED`，其他隔离级别明确拒绝。API 保留原作业白名单、payload 投影和静音行为，在借用连接的保存点内保护通知预检、SQL 与回包校验，避免通知 SQL 错误静默丢失外层作业状态更新。只有实际新建者沿用原提交前即时发布，57 个调用点没有改动。
 
+迁移 `bo0484` 保留上述追加合同和授权边界，将新建通知与投递 outbox 一起写入，替换历史的提交前发布行为。现有 publisher 以 v2 claim 领取，旧 v1 claim 和原 v1 finish 仍可用。Redis 确认不明或进程退出时重领原通知 ID；通知 socket 只向当前仍获准的接收者转发，并在同一连接内去重。下列 `0321` 证据记录的是原路径，不代表 `bo0484` 已通过新的运行验收。
+
 子线 27 项混合数据库／调用基线与另 1 项 ORM 缓存／回滚检查通过，包含两会话竞争、旧函数两种锁顺序、SQLSTATE 42883 故障、静音真假值、长 payload、提交前发布和 caller 回滚；56 项包检查单列，不叠加计数。15 项原始证据及失败基线已归档，清单 SHA-256 为 `61caabc6c93d983ea9654e8f498320a7ff968354a25f6816bd2bc38d21e7641a`。19 项原始 Git 文件已核对；父线仅在服务导入和 README 合并即时 Redis 传输的独立改动。父线 65 项包／兼容纯检查、Node 自检和固定版本 Ruff 通过；这批纯检查与下述数据库／工件门槛分别保存。
 
 父线在干净源码 `8d8c4a387` 上完成一次独占验收：28 项终态／旧调用案例、普通 API LOGIN 实际调用、仅函数权限的 Node 客户端、私表拒绝及 `0321 → 0189 → 0321` 完整迁移往返均通过。冻结 SQL 和已安装函数体一致，3,799 项运行前输入在运行中未变，所有自有资源清理成功；子线独立测试环境也已在归档确认后按精确确认值销毁。规范说明 `.worktree/notifications-terminal-321-qualification.json` SHA-256 为 `faef9987490ca16d13e574c45fc2b03e4a6408b71afc6abea9722b9099f0a9a3`，实际收据为 `3e6e5032161568d07cce977b5be59978391c0f545cb6eb8122b30c134c07e83d`。这些案例包含子线已通过的行为，不叠加计数；当前冷工件、普通发布／WS／Jobs 范围及整模块继续按上表跟踪。
@@ -756,6 +758,10 @@ ARM64 正确性资格，不证明对象存储灾难恢复、GPU／模型正确�
 使用当前 LOGIN 支持的模型，不再把已撤销的 Tasks／Batch 原始 ORM 写入当作
 Workspace 调用前提。冻结 scope 的行、计数、分页结果与 caller autoflush／回滚分别检查，
 不把 SQL 次数、旧函数体文本或触发器写入轨迹作为新的功能契约。
+
+项目指南的克隆与最后引用回收使用生产 LAN 入口已有的 Workspace 权限组合：
+`scripts/verify_module_data_boundary.py --workspace-consumer-profile default --test-file tests/test_guide_clone_api_login_native.py`。
+该普通 LOGIN 不能读取 `public.projects`，通过现有指南命令复制引用。单独的 `strict32` 配置不包含指南写命令；不要为运行这项验收给它追加授权。
 
 此前图检查记录的 API `annotation_cleanup ↔ batch` 环已修复：共用 SQL／错误映射／
 ORM缓存同步适配器迁入 `labeling_batch_control_data.py`，所有实际调用方改接该入口，
@@ -2797,6 +2803,8 @@ ORM identity、摘要 409 和点云窄投影，原行读取／写入围栏和函
 API 保留借用 Session、通知缓存／过期字段、Jobs 范围及四项授权语句顺序，只传事件和
 该次受信事实；owner 再执行同一策略，不读取另一事务中不可见的行。普通最佳努力、
 终态提交前发布和按 ID 失败传播分别保留，不新增普通 outbox 或自动重试。
+
+上述提交前终态行为只描述当时的组合验收；当前路径见[终态追加 owner](#notification-terminal-append)，未改变普通即时发布合同。
 
 独立发布服务使用原有函数数据库与 publish-only Redis 凭据，另加专用发布 bearer；
 API 显式选择远程地址后不回退本地 Redis。发布端从收件人 UUID 生成频道，并在读取

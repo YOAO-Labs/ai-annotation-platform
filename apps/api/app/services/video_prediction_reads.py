@@ -235,9 +235,6 @@ def _validation_shapes(kind, geometry):
             VideoTrackMaskGeometry.model_validate(value)
         except (ValidationError, ValueError, TypeError):
             _reject("prediction_video_mask_changed")
-        # Persisted human keyframes are legitimate annotations. Only the copy
-        # supplied to the shared prediction-budget validator changes; receipt
-        # fingerprints and final subject comparisons retain the real geometry.
         for frame in value["keyframes"]:
             frame["source"] = "prediction"
     return [{"type": value["type"], "geometry": value}]
@@ -259,8 +256,6 @@ async def _subject(db, task_id, kind, identifier, shape_index, *, lock=False):
         return geometry, evidence, accept._request_fingerprint(row, metadata)
     row = await _annotation(db, task_id, identifier, lock=lock)
     lineage = _lineage(row)
-    # This namespace can be inherited by server clone/slice operations on the
-    # same source. Caller-supplied source/parent/attributes never creates it.
     return deepcopy(row.geometry), lineage, _annotation_fingerprint(row)
 
 

@@ -103,7 +103,6 @@ async def retry_migration_database(test_engine):
                         {"name": name},
                     )
                     assert marker == ownership or (not tagged and marker is None)
-                    # An untagged partial CREATE is still this run's resource.
                     await connection.execute(text(f'DROP DATABASE "{name}"'))
         finally:
             await admin.dispose()
@@ -431,17 +430,12 @@ async def test_upload_retry_forward_migration_preserves_history_and_permissions(
         for status, scope in scopes.items():
             history_ids[status] = await _insert_creation(connection, scope, status)
         history = await _rows(connection)
-        # The actual pre-upgrade schema disallows reuse even after a failed
-        # attempt. Nothing has been stamped or retroactively declared safe.
         with pytest.raises(IntegrityError) as blocked:
             async with connection.begin_nested():
                 await _insert_creation(connection, scopes["failed"], "allocated")
         assert blocked.value.orig.sqlstate == "23505"
         assert await _rows(connection) == history
 
-    # The forward namespace cutovers treat any other client of this database as
-    # a live caller. Release the pooled pre-upgrade connection before alembic
-    # opens its own; the test reconnects afterwards.
     await engine.dispose()
     await asyncio.to_thread(command.upgrade, config, "head")
     async with engine.begin() as connection:
@@ -512,8 +506,6 @@ async def test_upload_retry_forward_migration_preserves_history_and_permissions(
                     "physical_outcome": "not_written",
                 },
             )
-        # A settled attempt commits before a later retry is admitted. This also
-        # preserves the actual allocation ordering used by current admission.
         async with engine.begin() as connection:
             for changes in (
                 {"max_bytes": 1048577},
@@ -568,8 +560,6 @@ async def test_upload_retry_forward_migration_preserves_history_and_permissions(
         with_retries = await _rows(connection)
         assert len(with_retries) == len(history) + 7
         assert all(row in with_retries for row in legacy_after)
-        # Only positively settled no-write evidence releases keys. Active,
-        # unproven and possibly-written attempts exclude both locators.
         for scope in scopes.values():
             for override in (
                 {"staging_key": f"{_STAGING_KEY}/{uuid4()}"},
@@ -599,8 +589,6 @@ async def test_upload_retry_forward_migration_preserves_history_and_permissions(
                         await connection.execute(text(statement), {"id": creation_id})
                 assert immutable.value.orig.sqlstate == "23514"
                 assert await _rows(connection) == with_retries
-        # Settling these attempts must not release another active writer's
-        # exact permit or rewrite its unresolved accounting window.
         assert await _attempt_state(connection, contradictory_id) == contradictory_state
 
 
@@ -624,8 +612,6 @@ async def test_forward_upgrade_refuses_unproven_shared_keys_atomically(
         before_schema = await _retry_schema(connection)
         before_contract = await _installed_contract(connection, _FROZEN_ADMISSION)
 
-    # The same cutover drain fence applies to this refused upgrade; keep its
-    # failure attributable to the shared-key history rather than this engine.
     await engine.dispose()
     with pytest.raises(IntegrityError) as refused:
         await asyncio.to_thread(command.upgrade, config, "head")

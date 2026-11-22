@@ -84,7 +84,6 @@ describe("useMLCapabilities", () => {
   it("prefers active model prompts/params and defaults to first interactive model", async () => {
     mockSetup.mockResolvedValue({
       name: "multi-backend",
-      // 顶层 supported_prompts 故意与 model 不同, 验证 activeModel 优先级.
       supported_prompts: ["text"],
       params: { type: "object", properties: { top_threshold: { type: "number" } } },
       models: [
@@ -108,7 +107,6 @@ describe("useMLCapabilities", () => {
     });
     const { result } = renderHook(() => useMLCapabilities("p1", "b1"), { wrapper: Wrapper });
     await waitFor(() => expect(result.current.isLoading).toBe(false));
-    // 默认选第一个 interactive 的 model (seg).
     expect(result.current.activeModelId).toBe("seg");
     expect(result.current.hasMultipleModels).toBe(true);
     expect(result.current.prompts).toEqual(["point", "bbox"]);
@@ -238,7 +236,6 @@ describe("useMLCapabilities", () => {
     await waitFor(() => expect(result.current.isFetching).toBe(true));
     expect(result.current.isLoading).toBe(false);
     expect(result.current.activeModelId).toBe("selected");
-    // A second retry joins the running query instead of restarting its request.
     let duplicate!: Promise<unknown>;
     act(() => {
       duplicate = result.current.refetch();

@@ -27,9 +27,6 @@ class _Ann:
         self.attributes = attributes or {}
 
 
-# ── COCO 外接框 ──
-
-
 def test_aabb_bbox():
     assert _coco_aabb_norm(
         {"type": "bbox", "x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4}
@@ -52,7 +49,6 @@ def test_aabb_keypoint_skips_unlabeled():
         "type": "keypoint",
         "points": [{"x": 0.2, "y": 0.2, "v": 2}, {"x": 0.6, "y": 0.9, "v": 0}],
     }
-    # v=0 的点不计入外接框。
     assert _coco_aabb_norm(g) == (0.2, 0.2, 0.0, 0.0)
 
 
@@ -74,9 +70,6 @@ def test_aabb_rotated_and_polyline_skipped():
         _coco_aabb_norm({"type": "polyline", "points": [[0.1, 0.1], [0.9, 0.9]]})
         is None
     )
-
-
-# ── COCO segmentation ──
 
 
 def test_coco_segmentation_polygon_pixels():
@@ -104,9 +97,6 @@ def test_coco_segmentation_none_for_bbox():
     )
 
 
-# ── COCO keypoints ──
-
-
 def test_coco_keypoints_flatten_and_count():
     g = {
         "type": "keypoint",
@@ -117,15 +107,11 @@ def test_coco_keypoints_flatten_and_count():
     assert n == 1
 
 
-# ── YOLO det / obb / seg ──
-
-
 def test_yolo_det_line():
     anns = [_Ann("car", {"type": "bbox", "x": 0.1, "y": 0.2, "w": 0.2, "h": 0.4})]
     lines, _ = _yolo_target_lines(
         "yolo-det", anns, {"car": 0}, img_w=100, img_h=100, include_attributes=False
     )
-    # cx=0.2 cy=0.4 w=0.2 h=0.4
     assert lines == ["0 0.200000 0.400000 0.200000 0.400000"]
 
 
@@ -150,7 +136,6 @@ def test_yolo_obb_corners_angle_zero():
     assert parts[0] == "0"
     coords = [float(p) for p in parts[1:]]
     assert len(coords) == 8
-    # angle=0 → 轴对齐四角，x ∈ {0.4, 0.6}, y ∈ {0.4, 0.6}
     assert all(
         math.isclose(c, 0.4, abs_tol=1e-6) or math.isclose(c, 0.6, abs_tol=1e-6)
         for c in coords

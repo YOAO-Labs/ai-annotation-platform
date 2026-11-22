@@ -594,8 +594,6 @@ async def _remove_managed_fence(maker, world: dict, registry_id: uuid.UUID) -> N
     await assert_owned_test_database(world["test_engine"])
     assert registry_id in world["fence_registry_ids"]
     async with maker.begin() as db:
-        # Reset only synthetic fixture state; rollback also restores this exact
-        # trigger if any cleanup statement fails.
         await db.execute(
             text(
                 "ALTER TABLE public.gpu_backend_fences DISABLE TRIGGER "

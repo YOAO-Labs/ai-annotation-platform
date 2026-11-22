@@ -2,27 +2,6 @@ import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useFocusedListPagination } from "./useFocusedListPagination";
 import { CopyableError } from "@/components/ui/CopyableError";
-/**
- * registry "实例" tab.
- *
- * Plan §4.3（模型市场多 TAB UI 优化 · 阶段一）: the table is for configuring
- * and locating physical endpoints. Main columns collapse to six —
- * 实例身份 (name + short id + URL subrow + source tag) / 所属服务池 /
- * 健康及路由 / 并发与 GPU 摘要 / 最近检查 / 操作 — so identity and actions fit
- * on screen together at 1440px. URL drops to a name subrow; weight, the full
- * GPU claim and raw snapshots live in the detail Sheet.
- *
- * Toolbar + filters belong to this view (plan §5): `instance_q` (name/ID/URL),
- * `instance_health`, and the removable pool focus condition
- * (`instance_pool=<id>`, set via the pool row's 查看实例 jump). `instance_id`
- * deep-links straight into the detail Sheet; unknown objects render an
- * explicit "对象不存在或当前不可访问" note instead of silently widening the
- * filter.
- *
- * Project Admin: weight, GPU claim and internal reason are hidden (server-side
- * projection already nulled them). Super Admin sees the risk-ordered action
- * menu; 详情 stays visible for both roles.
- */
 import { useMemo, useState, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -106,7 +85,6 @@ export function BackendInstancesSection({
     : null;
   const focusPoolUnknown = Boolean(url.instancePool) && !loading.backends && !focusPool;
 
-  // The URL owns detail selection so history and refreshed data cannot leave a stale sheet.
   const focusInstanceId = url.instanceId;
   const detailBackend = backends.find((b) => b.id === focusInstanceId);
   const detail: DetailState | null = detailBackend ? { backend: detailBackend } : null;
@@ -169,9 +147,6 @@ export function BackendInstancesSection({
     );
   }
 
-  // Other registry sections wrap their toolbar/conditions/table in `gap-3`;
-  // the instances view used a bare fragment, so its toolbar sat flush against
-  // the table instead of matching the sibling tabs (plan §4.3).
   return (
     <div className="flex flex-col gap-3">
       <InstanceToolbar
@@ -224,7 +199,6 @@ export function BackendInstancesSection({
               scope={scope}
               poolInfo={registryToPool.get(b.id) ?? null}
               onOpenDetail={(backend) => {
-                // 对象跳转写入 URL 并 push 历史（plan §5），深链/返回可恢复。
                 patchUrl({ instanceId: backend.id }, { replace: false });
               }}
               onConfirm={setConfirm}
@@ -263,7 +237,6 @@ export function BackendInstancesSection({
   );
 }
 
-/** 本子视图的工具栏：搜索/健康筛选/池定位清除 + 明确主操作「注册实例」。 */
 function InstanceToolbar({
   scope,
   url,
@@ -361,7 +334,6 @@ function InstanceRow({
 
   return (
     <TableRow>
-      {/* 身份：名称 + 短 ID + URL 副行 + 来源轻标签（plan §4.3）。 */}
       <TableCell>
         <div className="flex max-w-[260px] flex-col gap-0.5">
           <div className="flex items-center gap-1.5">
@@ -760,11 +732,6 @@ function InstanceConfirmDialog({
   );
 }
 
-/**
- * 详情 Sheet（plan §4.3）：主行收敛后的重字段——权重、完整 GPU claim、原始
- * 快照——都落在这里；同时补充只读身份字段（所属服务池 / 接流状态 / 路由 /
- * 最大并发），详情关闭后焦点返回触发按钮由 Sheet 的RADIX 焦点管理兜底。
- */
 function InstanceDetailSheet({
   detail,
   scope,
@@ -967,8 +934,6 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }):
     </div>
   );
 }
-
-// ── helpers ──────────────────────────────────────────────────────────────────
 
 function buildRegistryPoolLookup(
   scope: RegistryScope,

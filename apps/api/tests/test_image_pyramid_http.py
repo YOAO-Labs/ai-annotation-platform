@@ -123,8 +123,6 @@ async def committed_pyramid(test_engine, app_module, monkeypatch):
         else:
             app_module.dependency_overrides[get_db] = old_override
         async with factory() as db:
-            # Output rows intentionally outlive business cascades in production.
-            # Remove this test's exact rows only, including any leaked permit.
             if state.output_id is not None:
                 await db.execute(
                     delete(StorageOperation).where(
@@ -143,9 +141,6 @@ async def committed_pyramid(test_engine, app_module, monkeypatch):
                     )
                 )
             if state.output_id is not None:
-                # There are no real provider objects in this transport fixture.
-                # Still honor the production ledger's forward-only settlement
-                # and deletion guards rather than disabling database triggers.
                 await db.execute(
                     update(ImagePyramidOutput)
                     .where(
@@ -245,7 +240,6 @@ async def test_revocation_committed_after_physical_read_rejects_http_response(
             changed = True
             async with state.factory() as db:
                 if revocation == "key_rotation":
-                    # Same ID/scopes/expiry remains a different presented key.
                     await db.execute(
                         update(ApiKey)
                         .where(ApiKey.id == state.key_id)
@@ -316,8 +310,6 @@ async def test_key_rotated_after_read_context_exit_is_rechecked_before_ready_res
         result = await building_generation(db, asset)
         assert state.transport.verified and state.transport.signed
         async with state.factory() as independent:
-            # This specifically covers the gap after reading()'s successful
-            # post-check and durable Permit settlement, before GET returns.
             assert (
                 await independent.scalar(
                     select(StorageOperation.id).where(
@@ -361,9 +353,6 @@ async def test_invalid_manifest_metadata_invalidates_ready_and_can_retry_after_c
         generation.overview_width += 1
         await db.commit()
 
-    # Real validate_inventory rejects this metadata with ContentError, rather
-    # than the physical transport's ImagePyramidStorageError. Authorization and
-    # the independent output-owner checks remain entirely real.
     response = await state.client.get(state.route, headers=state.headers)
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "inconsistent"

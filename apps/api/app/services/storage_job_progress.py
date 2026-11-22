@@ -129,7 +129,6 @@ async def record(
         if current is None:
             return False
         last_at, old, at = current
-        # A backwards clock must not create a newer sequence at an older time.
         if last_at is not None and (last_at.tzinfo is None or at < last_at):
             return False
         previous = old if valid(old, job.id, job.kind, task_id) else None

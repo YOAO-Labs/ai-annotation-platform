@@ -49,20 +49,9 @@
 
 .footer {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
-}
-
-.confirmDelete {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-}
-
-.dangerText {
-  color: var(--sc-destructive);
 }
 
 .actions {

@@ -1,6 +1,3 @@
-/**
- * ViewerDashboard 单测：KPI 卡片 / 项目列表 / 过滤切换 / 搜索 / 空态。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -89,8 +86,6 @@ describe("ViewerDashboard", () => {
   });
 
   it("未实现工作台类型点击 → toast 而不是导航", () => {
-    // 注:工作台现按媒体维度 data_type(image/video/lidar)放行,三种均已实现。
-    // 此 fixture 不带 data_type(媒体维度缺失/未识别),走降级 toast 兜底路径。
     mockUseProjects.mockReturnValue({
       data: [
         {
@@ -167,7 +162,6 @@ describe("ViewerDashboard", () => {
     mockUseProjects.mockReturnValue({ data: [], isLoading: false });
     mockUseProjectStats.mockReturnValue({ data: undefined });
     renderUI();
-    // 默认 全部 → status undefined
     expect(mockUseProjects).toHaveBeenLastCalledWith({
       status: undefined,
       search: undefined,
@@ -209,7 +203,6 @@ describe("ViewerDashboard", () => {
     });
     mockUseProjectStats.mockReturnValue({ data: undefined });
     renderUI();
-    // 「已完成」「待审核」也是 TabRow 选项，会重复出现，断言至少一个
     expect(screen.getAllByText("已完成").length).toBeGreaterThan(0);
     expect(screen.getAllByText("待审核").length).toBeGreaterThan(0);
   });

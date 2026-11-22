@@ -1059,9 +1059,6 @@ async def test_active_learning_reference_blocks_unlink_before_cleanup(
     )
     db_session.add(dataset)
     await db_session.flush()
-    # Retain the verified originals seeded for every task: move their existing
-    # DatasetItems into the dataset being unlinked. Inventing new items here
-    # would strip the verified DatasetAsset that active learning must pin.
     items = [
         await db_session.get(DatasetItem, task.dataset_item_id) for task in world.tasks
     ]

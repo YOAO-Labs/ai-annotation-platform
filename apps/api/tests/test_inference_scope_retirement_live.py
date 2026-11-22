@@ -292,7 +292,6 @@ async def test_retire_one_live_scope_preserves_another_and_fences_delayed_tokens
                         assert observation["active_requests"] == 2
                         break
                     await asyncio.sleep(0.025)
-            # Lease expiry is not evidence that either process's work ended.
             await native.execute(
                 "UPDATE yoao_inference_routing_v1.scopes SET heartbeat_deadline="
                 "pg_catalog.clock_timestamp()-interval '1 hour' WHERE id=$1",
@@ -344,7 +343,6 @@ async def test_retire_one_live_scope_preserves_another_and_fences_delayed_tokens
                 "SELECT closed FROM yoao_inference_routing_v1.scopes WHERE id=$1",
                 old.id,
             )
-            # This valid bearer was minted before closure and never reached the peer.
             denied = await http.post(
                 peer_base + "/predict",
                 headers={

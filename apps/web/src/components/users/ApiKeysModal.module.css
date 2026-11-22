@@ -28,7 +28,6 @@
   background: var(--sc-muted);
 }
 
-/* 列表头部: intro 文案占主, 新建按钮靠右同行(避免文案独占一行后留怪空档) */
 .panelHeader {
   display: flex;
   align-items: center;
@@ -45,7 +44,6 @@
   white-space: nowrap;
 }
 
-/* Modal 内表单: 不再需要卡片边框(Modal 自带容器), 仅竖排间距 */
 .modalForm {
   display: flex;
   flex-direction: column;
@@ -195,7 +193,6 @@
   gap: 3px;
 }
 
-/* 列表里权限列的紧凑摘要: 一行「N 项权限」, 完整 scope 走 hover 居中浮层, 避免撑宽行 */
 .scopeSummary {
   color: var(--sc-muted-foreground);
   border-bottom: 1px dotted var(--sc-border);

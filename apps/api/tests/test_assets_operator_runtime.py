@@ -368,8 +368,6 @@ async def test_restricted_operator_pages_large_sources_and_rolls_back_oversized_
         assert record_bytes > OPERATOR_REPLY_BYTES
         assert len(pages) >= 4 and max(pages) <= OPERATOR_PAGE_BYTES
 
-        # Legacy rows can exceed the new write budget; reject a late oversized
-        # reply without committing the preceding source observations.
         oversized_id = uuid4()
         async with async_sessionmaker(
             test_engine, expire_on_commit=False

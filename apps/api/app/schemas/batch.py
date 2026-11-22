@@ -15,7 +15,6 @@ class BatchCreate(BaseModel):
     dataset_id: UUID | None = None
     priority: int = Field(50, ge=0, le=100)
     deadline: date | None = None
-    # 单值分派
     annotator_id: UUID | None = None
     reviewer_id: UUID | None = None
 
@@ -25,7 +24,6 @@ class BatchUpdate(BaseModel):
     description: str | None = None
     priority: int | None = Field(None, ge=0, le=100)
     deadline: date | None = None
-    # 单值分派
     annotator_id: UUID | None = None
     reviewer_id: UUID | None = None
 
@@ -41,10 +39,8 @@ class BatchOut(BaseModel):
     priority: int = 50
     deadline: date | None = None
     assigned_user_ids: list[UUID] = []
-    # 单值分派字段（一 batch 一标注员 + 一审核员）
     annotator_id: UUID | None = None
     reviewer_id: UUID | None = None
-    # 责任人可视化 brief（avatar / name / role）
     annotator: UserBrief | None = None
     reviewer: UserBrief | None = None
     total_tasks: int = 0
@@ -59,7 +55,6 @@ class BatchOut(BaseModel):
     review_feedback: str | None = None
     reviewed_at: datetime | None = None
     reviewed_by: UUID | None = None
-    # ADR-0008 · admin-lock
     admin_locked: bool = False
     admin_lock_reason: str | None = None
     admin_locked_at: datetime | None = None
@@ -71,7 +66,6 @@ class BatchOut(BaseModel):
 
 class BatchTransition(BaseModel):
     target_status: str
-    # 逆向迁移（archived→active / approved→reviewing / rejected→reviewing）必填，1-500 字
     reason: str | None = Field(None, min_length=1, max_length=500)
 
 
@@ -103,8 +97,6 @@ class ProjectDistributeBatches(BaseModel):
     batch_ids: list[UUID] | None = Field(default=None, min_length=1, max_length=500)
     annotator_ids: list[UUID] = []
     reviewer_ids: list[UUID] = []
-    # only_unassigned=True：只分派 annotator_id IS NULL（或 reviewer 为空）的 batch；
-    # False：覆盖所有 batch
     only_unassigned: bool = True
 
 
@@ -118,14 +110,12 @@ class BatchDistributeResult(BaseModel):
     reviewer_per_batch: dict[str, str | None] = {}
 
 
-# 多选批量操作
 class BulkBatchIds(BaseModel):
     batch_ids: list[UUID] = Field(..., min_length=1, max_length=200)
 
 
 class BulkBatchReassign(BaseModel):
     batch_ids: list[UUID] = Field(..., min_length=1, max_length=200)
-    # 任一可省（None = 不改）；至少传一个
     annotator_id: UUID | None = None
     reviewer_id: UUID | None = None
 
@@ -141,12 +131,10 @@ class BulkBatchActionResponse(BaseModel):
     failed: list[BulkBatchActionItem] = []
 
 
-# ADR-0008 · admin-lock
 class AdminLockRequest(BaseModel):
     reason: str = Field(..., min_length=1, max_length=500)
 
 
-# Bulk approve/reject
 class BulkBatchApprove(BaseModel):
     batch_ids: list[UUID] = Field(..., min_length=1, max_length=200)
 
@@ -158,21 +146,14 @@ class BulkBatchReject(BaseModel):
 
 class BatchSplitRequest(BaseModel):
     strategy: Literal["metadata", "id_range", "random", "by_scene"]
-    # metadata 策略
     metadata_key: str | None = None
     metadata_value: str | None = None
-    # id_range 策略
     item_ids: list[UUID] | None = None
-    # random 策略
     n_batches: int | None = Field(None, ge=1, le=100)
-    # 顺序切分（不打乱）：False 时按 task 创建顺序切分，便于把未归类任务按导入顺序分包。
-    # n_batches=1 + shuffle=False 即「把全部未归类任务顺序注入一个新批次」。
     shuffle: bool = True
-    # 公共字段
     name_prefix: str = "Batch"
     priority: int = Field(50, ge=0, le=100)
     deadline: date | None = None
-    # 切批默认分派（每个新切的 batch 都落到同一对人；后续可用项目级 distribute 重新分派）
     annotator_id: UUID | None = None
     reviewer_id: UUID | None = None
 

@@ -443,8 +443,6 @@ async def test_preview_single_snapshot_counts_and_mutation_blocker_order(test_en
     batch_display_id = f"b-{batch_id.hex[:27]}"
     operation_ids = [uuid.uuid4(), uuid.uuid4()]
     now = datetime.now(UTC)
-    # The last-unreserved-super-admin blocker is a global count; park foreign
-    # super admins so this target is provably the only unreserved super admin.
     parked = await park_foreign_super_admins(
         test_engine, keep_ids=[fixture["actor_id"], target_id]
     )
@@ -659,8 +657,6 @@ async def test_last_unreserved_super_admin_blocks_then_allows_demotion(test_engi
     fixture = await _seed(test_engine, role="super_admin", create_key=False)
     target_id = await _add_user(test_engine, "super_admin")
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
-    # The guard counts every unreserved super admin in the database; park the
-    # rows left by earlier files so this test controls the premise.
     parked = await park_foreign_super_admins(
         test_engine, keep_ids=[fixture["actor_id"], target_id]
     )

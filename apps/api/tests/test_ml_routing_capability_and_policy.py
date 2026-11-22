@@ -15,9 +15,6 @@ from yoao_inference import pool_capability as cap
 from app.services.ml_routing import policy as swrr
 
 
-# ── Capability fingerprint (§C.1) ─────────────────────────────────────────────
-
-
 def test_fingerprint_stable_across_field_order() -> None:
     """Same capability, JSON keys shuffled → same fingerprint."""
     a = {"protocol_version": "2", "model_ids": ["sam3", "yolo"], "task": "detect"}
@@ -52,7 +49,7 @@ def test_fingerprint_missing_defaults_equivalent_to_explicit() -> None:
         "batchable": False,
         "warmup": False,
     }
-    omitted = {}  # nothing specified
+    omitted = {}
     assert cap.capability_fingerprint(explicit) == cap.capability_fingerprint(omitted)
 
 
@@ -124,7 +121,7 @@ def test_diff_returns_none_on_identical() -> None:
 def test_fingerprint_is_sha256_hex_64() -> None:
     fp = cap.capability_fingerprint({"model_ids": ["sam3"]})
     assert len(fp) == 64
-    int(fp, 16)  # must be valid hex
+    int(fp, 16)
 
 
 def test_canonical_snapshot_field_order_fixed() -> None:
@@ -250,9 +247,6 @@ def test_production_display_and_runtime_fields_do_not_change_fingerprint() -> No
     assert cap.capability_fingerprint(a) == cap.capability_fingerprint(b)
 
 
-# ── SWRR (§C.2) ───────────────────────────────────────────────────────────────
-
-
 def _ids(n: int) -> list[str]:
     """N deterministic, lexicographically-ordered instance UUID hexes."""
     base = uuid.UUID("00000000-0000-0000-0000-000000000000")
@@ -268,7 +262,6 @@ def test_swrr_weight_1_1_split_50_50() -> None:
         pick = swrr.select_swrr(cands, state)
         assert pick in ids
         counts[pick] += 1
-    # SWRR with equal weights alternates exactly → ~50/50, within tight tolerance.
     for i in ids:
         assert 0.45 < counts[i] / 1000 < 0.55, f"{i}: {counts[i] / 1000}"
 
@@ -281,7 +274,6 @@ def test_swrr_weight_1_2_split_33_67() -> None:
     for _ in range(3000):
         pick = swrr.select_swrr(cands, state)
         counts[pick] += 1
-    # weight 1 : 2 → exactly 1/3 : 2/3 over each 3-draw cycle.
     assert abs(counts[ids[0]] / 3000 - 1 / 3) < 0.02
     assert abs(counts[ids[1]] / 3000 - 2 / 3) < 0.02
 
@@ -303,8 +295,6 @@ def test_swrr_tie_break_smallest_uuid() -> None:
     ids = sorted(_ids(3))
     cands = [(i, 1) for i in ids]
     state = swrr.SWRRState()
-    # First draw with equal weights + zero starting state: all advance to weight 1,
-    # tie → smallest UUID wins.
     first = swrr.select_swrr(cands, state)
     assert first == ids[0]
 
@@ -314,10 +304,8 @@ def test_swrr_excludes_non_eligible() -> None:
     ids = _ids(3)
     cands = [(i, 1) for i in ids]
     state = swrr.SWRRState()
-    # Only ids[2] eligible → always picks ids[2], others never accrue.
     for _ in range(5):
         assert swrr.select_swrr(cands, state, eligible_instance_ids={ids[2]}) == ids[2]
-    # ids[0]/ids[1] current_weights stayed at 0.
     assert state.current_weights.get(ids[0], 0) == 0
     assert state.current_weights.get(ids[1], 0) == 0
 
@@ -333,10 +321,8 @@ def test_swrr_prunes_stale_members_on_generation_change() -> None:
     """When the member set changes, stale current_weights are pruned (§10.1)."""
     ids = _ids(3)
     state = swrr.SWRRState()
-    # Advance with members 0,1
     swrr.select_swrr([(ids[0], 1), (ids[1], 1)], state)
     assert ids[0] in state.current_weights
-    # New generation: members 1,2 only → id[0] pruned
     swrr.select_swrr([(ids[1], 1), (ids[2], 1)], state)
     assert ids[0] not in state.current_weights
 

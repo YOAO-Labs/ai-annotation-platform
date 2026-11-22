@@ -24,7 +24,6 @@ const STATUS_LABEL: Record<FeedbackStatus, string> = {
   wont_fix: "搁置",
 };
 
-/** Status takes precedence after resolution; old null severities remain caution. */
 export function issuePinColorVar(
   status: FeedbackStatus,
   severity: FeedbackSeverity | null | undefined,

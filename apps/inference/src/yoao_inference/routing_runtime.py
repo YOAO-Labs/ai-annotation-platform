@@ -111,8 +111,6 @@ class RoutingRuntime:
                 else backend_retirement
             ),
         )
-        # The HTTP server may receive the lower-level routing manager directly;
-        # keep both owner APIs attached to the same configured runtime.
         self.manager.scope_retirement_manager = self.scope_retirement_manager
 
     async def execute(self, command: RoutingCommand | dict | bytes | str):
@@ -357,8 +355,6 @@ class RoutingRuntime:
                 try:
                     await asyncio.shield(transaction.rollback())
                 except BaseException:
-                    # Preserve the failure that prevented this operation from
-                    # reaching its normal commit path.
                     pass
                 raise
             await transaction.commit()

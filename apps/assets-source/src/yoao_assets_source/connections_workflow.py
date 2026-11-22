@@ -352,11 +352,6 @@ class ConnectionsWorkflow:
                 ),
             )
             entries = await self._check_host(capture.connection.kind, config, policy)
-            # The owner accepts a config candidate only when the digest it
-            # re-verifies at publication accompanies it. That fence applies to
-            # an identical config too: it is not a candidate change (no probe,
-            # no location revision), but the accepted edit still advances the
-            # connection revision.
             policy_digest = policy.policy_digest
         needs_validation = config_changed or request.secret is not None
         if needs_validation:
@@ -393,17 +388,12 @@ class ConnectionsWorkflow:
             if fresh.policy_digest != policy.policy_digest:
                 raise ConnectionFailure("policy_changed")
         if needs_validation:
-            # Re-read the actor and publication snapshot after the probe. No row
-            # lock is held while network I/O runs, so a concurrent rename,
-            # delete, deactivation or demotion must still fence this candidate.
             fresh_capture = await self._capture(request, "admin")
             if fresh_capture.platform_role not in {"super_admin", "project_admin"}:
                 raise ConnectionFailure("manager_required")
             if fresh_capture.source_snapshot != capture.source_snapshot:
                 raise ConnectionFailure("connection_revision_conflict")
             capture = fresh_capture
-        # A nonempty accepted key must bind its full current scopes/expiry and
-        # stored verifier revision; a caller cannot omit the proof.
         if request.api_key_id is not None and request.accepted_api_key_proof is None:
             raise ConnectionFailure("invalid_request")
         encrypted = (
@@ -479,7 +469,6 @@ class ConnectionsWorkflow:
                 ),
             )
         except ConnectionFailure:
-            # The ledger row is retained when the transport did not settle.
             if settled:
                 raise
 

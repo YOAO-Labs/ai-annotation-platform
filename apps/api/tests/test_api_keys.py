@@ -16,12 +16,10 @@ async def test_list_create_revoke_api_key(httpx_client, super_admin):
     user, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
 
-    # 列表初始为空
     res = await httpx_client.get("/api/v1/me/api-keys", headers=headers)
     assert res.status_code == 200
     assert res.json() == []
 
-    # 创建
     res = await httpx_client.post(
         "/api/v1/me/api-keys",
         headers=headers,
@@ -38,21 +36,17 @@ async def test_list_create_revoke_api_key(httpx_client, super_admin):
     key_id = body["id"]
     plaintext = body["plaintext"]
 
-    # logout is JWT-only; an API key must receive an authentication response,
-    # never reach JWT decoding and produce an internal error.
     logout = await httpx_client.post(
         "/api/v1/auth/logout", headers={"Authorization": f"Bearer {plaintext}"}
     )
     assert logout.status_code == 401
 
-    # 列表中可见
     res = await httpx_client.get("/api/v1/me/api-keys", headers=headers)
     assert res.status_code == 200
     items = res.json()
     assert len(items) == 1
-    assert "plaintext" not in items[0]  # 列表绝不返回明文
+    assert "plaintext" not in items[0]
 
-    # 用 ak_ token 调 /me 应同样能识别为该用户
     res = await httpx_client.get(
         "/api/v1/auth/me", headers={"Authorization": f"Bearer {plaintext}"}
     )
@@ -64,17 +58,14 @@ async def test_list_create_revoke_api_key(httpx_client, super_admin):
         key_id
     ] is not None
 
-    # 吊销
     res = await httpx_client.delete(f"/api/v1/me/api-keys/{key_id}", headers=headers)
     assert res.status_code == 204
 
-    # 吊销后再用 ak_ 应 401
     res = await httpx_client.get(
         "/api/v1/auth/me", headers={"Authorization": f"Bearer {plaintext}"}
     )
     assert res.status_code == 401
 
-    # 重复吊销 404
     res = await httpx_client.delete(f"/api/v1/me/api-keys/{key_id}", headers=headers)
     assert res.status_code == 404
 
@@ -116,9 +107,6 @@ async def test_invalid_ak_token_rejected(httpx_client):
     assert res.status_code == 401
 
 
-# ── 过期 ────────────────────────────────────────────────────
-
-
 async def _create_key(httpx_client, token, scopes=None, expires_in_days=None):
     body = {"name": "k", "scopes": scopes or []}
     if expires_in_days is not None:
@@ -147,13 +135,11 @@ async def test_expired_key_rejected(httpx_client, super_admin, db_session):
     body = await _create_key(httpx_client, token)
     plaintext = body["plaintext"]
 
-    # 未过期时可认证
     res = await httpx_client.get(
         "/api/v1/auth/me", headers={"Authorization": f"Bearer {plaintext}"}
     )
     assert res.status_code == 200
 
-    # 手动把 expires_at 拨到过去 → 认证应 401
     key = await db_session.get(ApiKey, uuid.UUID(body["id"]))
     key.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
     await db_session.flush()
@@ -162,9 +148,6 @@ async def test_expired_key_rejected(httpx_client, super_admin, db_session):
         "/api/v1/auth/me", headers={"Authorization": f"Bearer {plaintext}"}
     )
     assert res.status_code == 401
-
-
-# ── scope 强制 + full-access ────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -177,7 +160,6 @@ async def test_scope_enforced(httpx_client, super_admin):
     res = await httpx_client.get("/api/v1/datasets", headers=ak)
     assert res.status_code == 200
 
-    # require_scopes 在 handler(404) 之前拦截 → 即使 task 不存在也应是 403 而非 404
     res = await httpx_client.get(
         f"/api/v1/tasks/{uuid.uuid4()}/annotations", headers=ak
     )
@@ -197,7 +179,7 @@ async def test_full_access_scope(httpx_client, super_admin):
     res = await httpx_client.get(
         f"/api/v1/tasks/{uuid.uuid4()}/annotations", headers=ak
     )
-    assert res.status_code == 404  # 过了 scope，倒在 task 查找上
+    assert res.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -208,10 +190,7 @@ async def test_jwt_not_scope_restricted(httpx_client, super_admin):
     res = await httpx_client.get(
         f"/api/v1/tasks/{uuid.uuid4()}/annotations", headers=jwt
     )
-    assert res.status_code == 404  # 非 403
-
-
-# ── rotate / patch ──────────────────────────────────────────
+    assert res.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -234,7 +213,6 @@ async def test_rotate_key(httpx_client, super_admin):
     assert res.json()["id"] == key_id
     assert res.json()["last_used_at"] is None
 
-    # 旧明文失效，新明文有效
     res = await httpx_client.get(
         "/api/v1/auth/me", headers={"Authorization": f"Bearer {old_plain}"}
     )

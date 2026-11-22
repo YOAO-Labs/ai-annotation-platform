@@ -67,8 +67,6 @@ def test_legacy_history_classification(test_db_url, apply_migrations):
                             },
                         )
                 elif step == "verify":
-                    # Exercise the historical classifier without traversing
-                    # irreversible 0174 or persisting changes to unrelated rows.
                     await db.run_sync(_replay, migration, "downgrade")
                     await db.run_sync(_replay, migration, "upgrade")
                     for name, expected in (

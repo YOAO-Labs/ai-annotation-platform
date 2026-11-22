@@ -20,20 +20,13 @@ import { useDecisionDialogStore, type QueuedDecisionDialog } from "./decisionDia
 
 const REQUIRED_INPUT_MESSAGE = "请填写此项";
 
-// 克制的危险态(设计规范):语义 status token 着色图标与确认按钮,
-// 柔和底色只给图标容器,不做整块红。
 const DANGER_MEDIA_CLASS = "bg-status-danger-soft text-status-danger";
 const DANGER_ACTION_CLASS =
   "border-status-danger/30 text-status-danger hover:bg-status-danger-soft focus-visible:ring-status-danger/30";
 
-/**
- * <DecisionDialogHost /> —— decisionDialog 服务的渲染端,一次一条地消费队列。
- * App.tsx 在两个 ToastRack 旁各挂一份(AppShell + FullScreenWorkbench,全屏工作台不渲染 AppShell)。
- */
 export function DecisionDialogHost() {
   const head = useDecisionDialogStore((s) => s.queue[0]);
   if (!head) return null;
-  // key=uid:换头时重建本地 state(输入值/报错);已结算条目在退场动画期间保持挂载。
   return <ActiveDecisionDialog key={head.uid} entry={head} />;
 }
 
@@ -42,19 +35,14 @@ function ActiveDecisionDialog({ entry }: { entry: QueuedDecisionDialog }) {
   const settle = useDecisionDialogStore((s) => s.settle);
   const dispose = useDecisionDialogStore((s) => s.dispose);
   const contentRef = useRef<HTMLElement | null>(null);
-  // input 预填(如退回补充说明预填「标注员跳过：…」);key=uid 换头时随本地 state 一并重建。
   const [value, setValue] = useState(request.initialValue ?? "");
   const [error, setError] = useState<string | null>(null);
   const inputId = useId();
   const errorId = useId();
 
   const isDanger = request.tone === "danger";
-  // confirm 取消 = false;choice/input 取消 = null;alert 的 resolve 忽略入参。
   const settleCancel = () => settle(request.kind === "confirm" ? false : null);
 
-  // AlertDialog 原语把 onPointerDownOutside/onInteractOutside 固定成仅 preventDefault
-  // (@radix-ui/react-alert-dialog 1.1.17 不透传遮罩点击),这里自挂 document 监听补齐
-  // 「点遮罩取消」:pointerdown 落点不在当前 alertdialog 内即视为遮罩点击。
   useEffect(() => {
     if (settled) return;
     const onPointerDown = (event: PointerEvent) => {
@@ -65,8 +53,6 @@ function ActiveDecisionDialog({ entry }: { entry: QueuedDecisionDialog }) {
     return () => document.removeEventListener("pointerdown", onPointerDown);
   }, [settled, request, settle]);
 
-  // 默认聚焦:危险 → 取消;普通 confirm/alert → 确认;input 普通态 → 输入框;choice → 首个选项。
-  // preventDefault 接管 Radix 默认(其内部默认也是聚焦取消键)。
   const handleOpenAutoFocus = (event: Event) => {
     event.preventDefault();
     const content = event.currentTarget;
@@ -83,7 +69,6 @@ function ActiveDecisionDialog({ entry }: { entry: QueuedDecisionDialog }) {
     content.querySelector<HTMLElement>(selector)?.focus();
   };
 
-  // 退场动画播完、Radix Presence 卸载内容(FocusScope unmount)时出队,队列下一条接管。
   const handleCloseAutoFocus = () => {
     dispose();
   };
@@ -94,7 +79,6 @@ function ActiveDecisionDialog({ entry }: { entry: QueuedDecisionDialog }) {
       request.required && !text ? REQUIRED_INPUT_MESSAGE : (request.validate?.(text) ?? null);
     if (problem) {
       setError(problem);
-      // 阻止 AlertDialogAction(内部是 DialogPrimitive.Close)自动关窗,留在原地改错。
       event.preventDefault();
       return;
     }
@@ -111,8 +95,6 @@ function ActiveDecisionDialog({ entry }: { entry: QueuedDecisionDialog }) {
       <AlertDialogContent
         size={request.kind === "input" ? "default" : "sm"}
         className="border-border bg-card"
-        // 决策对话框是模态:挂上 isWorkbenchInteractionBlocked 识别的 [data-modal] 标记,
-        // 否则 Workbench 的窗口级快捷键(如 review 流的 A/R)会穿透对话框误触后台操作。
         data-modal=""
         onOpenAutoFocus={handleOpenAutoFocus}
         onCloseAutoFocus={handleCloseAutoFocus}
@@ -149,7 +131,7 @@ function ActiveDecisionDialog({ entry }: { entry: QueuedDecisionDialog }) {
               aria-describedby={error ? errorId : undefined}
               onChange={(event) => {
                 setValue(event.target.value);
-                setError(null); // 输入即清除上次提交的报错
+                setError(null);
               }}
             />
             <div className="flex items-start justify-between gap-3">

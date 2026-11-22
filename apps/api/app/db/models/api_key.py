@@ -28,9 +28,7 @@ class ApiKey(Base):
     name: Mapped[str] = mapped_column(String(60), nullable=False)
     key_prefix: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
     key_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    # scopes 在路由层经 require_scopes 强制；含 "*" 即 full-access 全权
     scopes: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
-    # NULL=永不过期；非 NULL 且 < now() 时 resolve_token 拒绝
     expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

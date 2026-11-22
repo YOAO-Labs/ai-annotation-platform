@@ -389,7 +389,6 @@ async def test_stopped_identity_racing_with_promotion_is_rejected(harness):
             "boot_id": harness.request.boot_id,
         }
     ]
-    # Owned endpoint digests include plugin lifecycle metadata.
     harness.current.endpoint_sha256 = "endpoint-with-stopped-identity"
     harness.health_resume.set()
     with pytest.raises(GPUArbiterDispatchError):

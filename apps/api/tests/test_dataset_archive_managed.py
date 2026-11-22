@@ -312,8 +312,6 @@ async def test_queued_managed_workers_reject_old_lifecycle_after_restore(
     async def sessions():
         yield db
 
-    # Bind the real worker to the disposable fixture transaction; its business
-    # logic, commits, rollback, and terminal job handling remain intact.
     worker = create_tasks
     monkeypatch.setattr(
         worker,
@@ -413,8 +411,6 @@ async def test_pointcloud_committed_chunk_is_retained_but_old_ticket_stops_next_
         await original_commit()
         if not changed:
             changed = True
-            # Exercise a real lifecycle transition after a durable worker chunk,
-            # before its next chunk. Restoring must not revive the old request.
             await archive_restore(httpx_client, row, super_admin)
 
     monkeypatch.setattr(db, "commit", archive_at_chunk_boundary)
@@ -570,8 +566,6 @@ async def test_existing_frozen_version_remains_readable_after_dataset_archive(
     await db.commit()
     await transition(httpx_client, row, super_admin)
     forbid_source_io(monkeypatch)
-    # Existing packaging still checks current project authority, rather than
-    # treating a dataset archive as revocation of its immutable snapshot.
     await assert_dataset_authority(db, version)
     response = await httpx_client.get(
         f"/api/v1/projects/{project.id}/training-datasets/{version.id}",

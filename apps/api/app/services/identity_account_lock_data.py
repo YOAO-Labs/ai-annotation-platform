@@ -89,8 +89,6 @@ class IdentityAccountLockData:
             mode=mode,
             nowait=nowait,
         )
-        # Text SQL does not trigger ORM autoflush. Keep the original query's
-        # visibility without overriding a surrounding no_autoflush scope.
         if self.db.autoflush:
             await self.db.flush()
         raw = await self.db.scalar(

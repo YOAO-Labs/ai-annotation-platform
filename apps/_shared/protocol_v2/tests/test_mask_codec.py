@@ -15,7 +15,6 @@ def test_roundtrip_equivalence():
     decoded = decode_low_res_mask(encode_low_res_mask(arr))
     assert decoded.shape == (1, 256, 256)
     assert decoded.dtype == np.float32
-    # float16 往返误差: 量化到半精度后逐元素差应 ~0 (相对量级小).
     np.testing.assert_allclose(
         decoded[0], arr.astype(np.float16).astype(np.float32), rtol=0, atol=0
     )

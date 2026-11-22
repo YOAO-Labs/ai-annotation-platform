@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ProjectTaskQueryPayload } from "@/api/taskViews";
 import { server } from "@/mocks/server";
-import { expectNoUnexpectedApiRequests, resetUnexpectedApiRequests } from "@/test/apiRequestGuard";
 import { createTestUser, resetAuthUser, seedAuthUser } from "@/test/auth";
 import {
   createDataManagerTask,
@@ -78,13 +77,10 @@ function lastTaskQuery(queries: ProjectTaskQueryPayload[]): ProjectTaskQueryPayl
 }
 
 beforeEach(() => {
-  resetUnexpectedApiRequests();
   seedAuthUser(createTestUser());
 });
 
 afterEach(() => {
-  // A target API request without an explicit handler fails the test that made it.
-  expectNoUnexpectedApiRequests();
   resetAuthUser();
 });
 

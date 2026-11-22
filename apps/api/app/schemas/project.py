@@ -61,23 +61,18 @@ class ProjectOut(BaseModel):
     name: str
     type_label: str
     type_key: str
-    # 媒体维度数据类型 (image / video / lidar).
     data_type: str = "image"
     owner_id: UUID
     owner_name: str | None = None
     owner_avatar_ref: str | None = None
     member_count: int = 0
-    #: Project role of the *requesting* account (None for managers / viewers
-    #: without a membership).  Filled by the list/query/detail serializers.
     my_project_role: ProjectRole | None = None
     status: str
     ai_enabled: bool
     ml_backend_id: UUID | None = None
-    # 扁平视图字段不再有 DB 列, 由下方 validator 从 tool_bindings 读时派生.
     classes: list[str] = []
     classes_config: _ClassesConfig = {}
     attribute_schema: _AttributeSchema = _AttributeSchema()
-    # 工具维度类别 / 属性绑定 (唯一存储真值).
     tool_bindings: _ToolBindings = {}
     label_config: dict = {}
     sampling: str = "sequence"
@@ -86,25 +81,19 @@ class ProjectOut(BaseModel):
     iou_dedup_threshold: float = 0.7
     box_threshold: float = 0.35
     text_threshold: float = 0.25
-    # 交互式 AI 工具总开关 (归 ML 模型设置项)。
     ai_interactive_enabled: bool = True
     raster_mask_native_editing_enabled: bool = True
     mask_qc_config: _MaskQCConfig = Field(default_factory=_MaskQCConfig)
     point_cloud_quality_config: _PointCloudQualityConfig = Field(
         default_factory=_PointCloudQualityConfig
     )
-    # 项目级渲染配置覆盖；空 dict 表示项目不覆盖任何字段
     rendering_config: _ProjectRenderingConfig = _ProjectRenderingConfig()
-    # 视频帧逻辑采样配置; 空 dict (mode=none) 表示不采样.
     video_sampling: _VideoSamplingConfig = _VideoSamplingConfig()
     video_collaboration: _VideoCollaborationConfig = _VideoCollaborationConfig()
-    # scene 连续标注调度开关 + 连续 session 估计窗口(分钟).
     scene_mode: bool = False
     prefer_same_scene_continuation: bool = False
     scene_continuation_window_min: int = 30
-    # 项目级 variant 偏好 (按 backend_id 分桶). 空 dict = 未设, 由前端落到 backend.default_variants.
     default_variants: dict[str, dict[str, str]] = Field(default_factory=dict)
-    # 项目级「已保存的编排」(方案 A). None = 未配编排.
     preannotate_pipeline: list[dict] | None = None
 
     @field_validator("preannotate_pipeline", mode="before")
@@ -116,12 +105,8 @@ class ProjectOut(BaseModel):
             else None
         )
 
-    # 保存编排时的能力软提示 (batchable/产 class 判据), 仅 PATCH 响应填充;
-    # 非 DB 列, 不挡保存, dispatch-time 422 仍是最终闸。
     capability_warnings: list[str] = []
-    # 标注指引 Markdown 原文; None 表示未配置.
     annotation_guide: str | None = None
-    # 已上传的指引图片资源元数据列表.
     guide_assets: list[dict] = []
     guide_assets_revision: int = 1
     model_version: str | None = None
@@ -138,15 +123,12 @@ class ProjectOut(BaseModel):
 
     @model_validator(mode="after")
     def _derive_flat_class_views(self) -> "ProjectOut":
-        # classes / classes_config / attribute_schema 无 DB 列,
-        # 从 tool_bindings 派生扁平投影供前端 / 导出消费.
         from yoao_workspace_contract import (
             derive_attribute_schema,
             derive_classes_config,
             derive_classes_list,
         )
 
-        # tool_bindings 的 value 在此已是 ToolBinding 模型实例; derive_* 需要纯 dict.
         tb = {
             k: (v.model_dump() if hasattr(v, "model_dump") else v)
             for k, v in (self.tool_bindings or {}).items()
@@ -203,17 +185,11 @@ class ProjectMemberOut(BaseModel):
     user_id: UUID
     user_name: str
     user_email: str
-    #: Project responsibility.  Flat by design; invitation DTOs keep the
-    #: ``project_member_role`` name.  Required, so a missed serializer fails
-    #: loudly instead of returning an untyped string.
     role: ProjectRole
-    #: Account/platform role, added so clients no longer conflate the two.
     platform_role: PlatformRole
-    #: Membership CAS version; increments on role change.
     version: int = 1
     assigned_at: datetime
     updated_at: datetime | None = None
-    # 头像引用（preset:<slug> / upload:<token>）；None = 前端回退姓名首字母。
     avatar_ref: str | None = None
 
     class Config:
@@ -258,7 +234,6 @@ class ProjectMemberRolePreviewRequest(BaseModel):
     """Input for the read-only role-change preview (no writes)."""
 
     project_role: Literal["annotator", "reviewer", "viewer"]
-    #: Explicit replacement responsibilities for outstanding work handoff.
     replacement_annotator_id: UUID | None = None
     replacement_reviewer_id: UUID | None = None
 
@@ -269,21 +244,16 @@ class ProjectMemberRolePreviewOut(BaseModel):
     current_role: ProjectRole
     current_version: int
     target_role: ProjectRole
-    #: True when the target role needs an explicit, valid handoff first.
     requires_handoff: bool = False
     blockers: list[str] = Field(default_factory=list)
     blocker_details: list[dict] = Field(default_factory=list)
-    #: Canonical snapshot of affected work/locks/claims at preview time.
     resource_snapshot: dict = Field(default_factory=dict)
-    #: Opaque token covering the snapshot; must be echoed on the write.
     preview_token: str
 
 
 class ProjectMemberRoleChangeRequest(BaseModel):
     project_role: Literal["annotator", "reviewer", "viewer"]
-    #: CAS guard against a stale membership.
     expected_version: int = Field(ge=1)
-    #: Token returned by the preview; revalidated under locks.
     preview_token: str = Field(min_length=1)
     reason: str = Field(min_length=1, max_length=500)
     replacement_annotator_id: UUID | None = None

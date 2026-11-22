@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MeResponse } from "@/api/auth";
+import type { AnnotationPayload } from "@/api/tasks";
 import { useAuthStore } from "@/stores/authStore";
 
 import { useThreeDHistory } from "./useThreeDHistory";
@@ -17,33 +18,31 @@ afterEach(() => {
 function makeMutations() {
   return {
     createAnnotation: {
-      mutate: vi.fn((payload, options) => {
-        options?.onSuccess?.({
-          id: "created-id",
-          task_id: "t1",
-          project_id: null,
-          user_id: null,
-          source: "manual",
-          annotation_type: payload.annotation_type ?? "box_3d",
-          class_name: payload.class_name,
-          geometry: payload.geometry,
-          confidence: 1,
-          parent_prediction_id: null,
-          parent_annotation_id: null,
-          lead_time: null,
-          is_active: true,
-          ground_truth: false,
-          attributes: payload.attributes ?? {},
-          created_at: "2026-06-07T00:00:00Z",
-          updated_at: null,
-        });
-      }),
+      mutateAsync: vi.fn(async (payload: AnnotationPayload) => ({
+        id: "created-id",
+        task_id: "t1",
+        project_id: null,
+        user_id: null,
+        source: "manual",
+        annotation_type: payload.annotation_type ?? "box_3d",
+        class_name: payload.class_name,
+        geometry: payload.geometry,
+        confidence: 1,
+        parent_prediction_id: null,
+        parent_annotation_id: null,
+        lead_time: null,
+        is_active: true,
+        ground_truth: false,
+        attributes: payload.attributes ?? {},
+        created_at: "2026-06-07T00:00:00Z",
+        updated_at: null,
+      })),
     },
     deleteAnnotation: {
-      mutate: vi.fn((_id, options) => options?.onSuccess?.()),
+      mutateAsync: vi.fn(async (_id: string) => undefined),
     },
     updateAnnotation: {
-      mutate: vi.fn((_args, options) => options?.onSuccess?.()),
+      mutateAsync: vi.fn(async (_input: { annotationId: string }) => undefined),
     },
   };
 }
@@ -65,19 +64,19 @@ describe("useThreeDHistory", () => {
       await result.current.undo();
     });
     await waitFor(() => expect(result.current.canRedo).toBe(true));
-    expect(mutations.updateAnnotation.mutate).toHaveBeenCalledWith(
-      { annotationId: "a1", payload: { class_name: "car" } },
-      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
-    );
+    expect(mutations.updateAnnotation.mutateAsync).toHaveBeenCalledWith({
+      annotationId: "a1",
+      payload: { class_name: "car" },
+    });
 
     await act(async () => {
       await result.current.redo();
     });
     await waitFor(() => expect(result.current.canUndo).toBe(true));
-    expect(mutations.updateAnnotation.mutate).toHaveBeenCalledWith(
-      { annotationId: "a1", payload: { class_name: "truck" } },
-      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
-    );
+    expect(mutations.updateAnnotation.mutateAsync).toHaveBeenCalledWith({
+      annotationId: "a1",
+      payload: { class_name: "truck" },
+    });
   });
 
   it("delegates create undo and redo to delete/create mutations", async () => {
@@ -102,18 +101,44 @@ describe("useThreeDHistory", () => {
       await result.current.undo();
     });
     await waitFor(() => expect(result.current.canRedo).toBe(true));
-    expect(mutations.deleteAnnotation.mutate).toHaveBeenCalledWith(
-      "a1",
-      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
-    );
+    expect(mutations.deleteAnnotation.mutateAsync).toHaveBeenCalledWith("a1");
 
     await act(async () => {
       await result.current.redo();
     });
     await waitFor(() => expect(result.current.canUndo).toBe(true));
-    expect(mutations.createAnnotation.mutate).toHaveBeenCalledWith(
+    expect(mutations.createAnnotation.mutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({ ...payload, client_request_id: expect.any(String) }),
-      expect.objectContaining({ onSuccess: expect.any(Function), onError: expect.any(Function) }),
     );
+  });
+
+  it("records only acknowledged 3D changes and retries a failed batch undo", async () => {
+    const mutations = makeMutations();
+    mutations.updateAnnotation.mutateAsync
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("locked"))
+      .mockResolvedValueOnce(undefined);
+    const { result } = renderHook(() => useThreeDHistory("t1", mutations));
+    await act(async () =>
+      result.current.commit(
+        ["a", "b", "c"].map((annotationId) => ({
+          kind: "update",
+          annotationId,
+          before: { class_name: "car" },
+          after: { class_name: "truck" },
+        })),
+      ),
+    );
+    mutations.updateAnnotation.mutateAsync.mockClear();
+    mutations.updateAnnotation.mutateAsync
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("locked"));
+    await act(async () => result.current.undo());
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.canRedo).toBe(true);
+    await act(async () => result.current.undo());
+    expect(
+      mutations.updateAnnotation.mutateAsync.mock.calls.map(([arg]) => arg.annotationId),
+    ).toEqual(["c", "a", "a"]);
   });
 });

@@ -46,6 +46,8 @@ class AnnotationFeedback:
 
 API: `GET /feedbacks?project_id=&task_id=&annotation_id=&kind=&anchor_type=&status=` + POST/PATCH/DELETE/replies。
 
+任务反馈只写反馈记录，不修改批次或任务。命令按批次、任务顺序持有 `FOR SHARE NOWAIT`，在同一事务内重验任务归属与可见性。共享锁允许原件读取并行，但会拒绝实际编辑竞争；使用排他锁会让正常播放触发无关的「批次忙」。标注和反馈线程沿用各自的写锁。
+
 ## Migration 策略 (三段式, 单步可回退)
 
 **v0.10.19 (本切片)**: 仅立新表 + 新 API。旧 `bug_reports` / `annotation_comments` / `tasks.reject_reason` 读写路径**完全不动**。前端 IssueLayer (I18) 直接读新表, 因为这本来就是新功能, 没有旧数据。

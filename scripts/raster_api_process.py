@@ -54,8 +54,6 @@ def serve_api(app, *, port: int, ready_fd: int | None = None) -> int:
     def request_stop(_signal, _frame):
         server.should_exit = True
 
-    # Uvicorn replays the shutdown signal after draining. Keep that replay inside
-    # this owned process so a zero status can attest successful ASGI shutdown.
     previous = {
         sig: signal.signal(sig, request_stop) for sig in (signal.SIGINT, signal.SIGTERM)
     }

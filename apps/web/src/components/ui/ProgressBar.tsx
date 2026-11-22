@@ -2,16 +2,10 @@ import { useEffect, useRef } from "react";
 
 import { cn } from "@/lib/utils";
 
-/**
- * ProgressBar —— 三层叠条进度。
- * 第 0 层「已动工」副条(in_progress/review/completed)+ 第 1 层 AI 完成(violet)+ 第 2 层人工完成。
- * 动态 width/left/background 命令式写在元素上(非 JSX inline style,绕 eslint);默认色 --sc-brand。
- */
 interface ProgressBarProps {
   value: number;
   color?: string;
   aiValue?: number;
-  /** 底层「已动工」副条(含 in_progress / review / completed),用淡色背景表示 */
   inProgressValue?: number;
   style?: React.CSSProperties;
 }
@@ -82,7 +76,6 @@ export function ProgressBar({
 
   return (
     <div ref={rootRef} className="relative h-1.5 overflow-hidden rounded-full bg-muted">
-      {/* 第 0 层:已动工(最浅) */}
       {inProgressValue !== undefined && inProgressValue > 0 && (
         <i
           ref={(element) => {
@@ -91,7 +84,6 @@ export function ProgressBar({
           className={cn(segBase, "left-0 bg-foreground/10 transition-[width] duration-300")}
         />
       )}
-      {/* 第 1 层:AI 完成(violet) */}
       {aiValue !== undefined && aiValue > 0 && (
         <i
           ref={(element) => {
@@ -100,7 +92,6 @@ export function ProgressBar({
           className={cn(segBase, "left-0 bg-violet-500")}
         />
       )}
-      {/* 第 2 层:人工完成(从 aiValue 到 value,色由 color prop 指定) */}
       <i
         ref={(element) => {
           if (!element) return;

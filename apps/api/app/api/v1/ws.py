@@ -18,6 +18,7 @@ from app.services.identity_contracts import (
 )
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.identity_gateway import get_identity_gateway
+from app.services.ml_stats_presence import ML_STATS_CHANNEL, MLStatsPresence
 
 if TYPE_CHECKING:
     from yoao_identity.contract import Principal
@@ -31,15 +32,11 @@ from app.services.labeling_core_read_relations import (
 router = APIRouter()
 log = logging.getLogger(__name__)
 
-#: Administrative socket channels are limited to these *current* platform roles.
 _ADMIN_SOCKET_ROLES = (
     PlatformRole.SUPER_ADMIN.value,
     PlatformRole.PROJECT_ADMIN.value,
 )
 
-# Pre-commit publishers (worker jobs) emit their Redis message before the
-# notification row is committed; the per-message gate retries this long for the
-# row to become visible before failing closed.
 _NOTIFICATION_GATE_RETRY_SECONDS = 0.15
 
 
@@ -176,8 +173,6 @@ async def _revalidate_task_visible(task_id: uuid.UUID, user_id: str) -> bool:
         return True
 
 
-# 模块级共享连接池，避免每次 WS 连接都新建 Redis socket。
-# WS 副本数 ↑ 时 Redis 连接数受 max_connections 上限保护。
 _REDIS_POOL: ConnectionPool | None = None
 
 
@@ -213,13 +208,12 @@ async def close_redis_pool() -> None:
             timeout=2.0,
         )
     except (asyncio.TimeoutError, Exception) as e:
-        # 超时或任何异常都不能阻塞 shutdown; 进程退出后内核会回收 socket
         log.debug("close_redis_pool: %s (continuing shutdown)", e)
     finally:
         _REDIS_POOL = None
 
 
-HEARTBEAT_INTERVAL = 30  # 秒；防 LB / nginx idle timeout（默认 60s）主动断连
+HEARTBEAT_INTERVAL = 30
 
 
 async def _heartbeat_loop(websocket: WebSocket) -> None:
@@ -241,6 +235,7 @@ async def _run_pubsub_ws(
     heartbeat: bool = True,
     revalidate=None,
     allow_message=None,
+    maintain=None,
 ) -> None:
     """把 Redis pub/sub 消息转发给 WebSocket, 直到任意一方关闭。caller 负责 subscribe/cleanup。
 
@@ -257,22 +252,15 @@ async def _run_pubsub_ws(
             if message["type"] != "message":
                 continue
             if revalidate is not None and not await revalidate():
-                # Authority or credential changed after the handshake: stop
-                # before forwarding this protected payload.  The endpoint's
-                # finally block unsubscribes; unrelated sockets are untouched.
                 return
             data = message["data"]
             if allow_message is not None and not await allow_message(data):
-                # Drop this one restricted payload (for example a notification
-                # whose project access was revoked after publication) while
-                # keeping unrelated deliveries flowing.
                 continue
             await websocket.send_text(
                 data.decode() if isinstance(data, bytes) else data
             )
 
     async def _watch_disconnect() -> None:
-        # 不期望客户端→服务端帧; await receive() 仅用于感知客户端断开 / 服务端关闭。
         while True:
             msg = await websocket.receive()
             if msg["type"] == "websocket.disconnect":
@@ -284,6 +272,8 @@ async def _run_pubsub_ws(
     ]
     if heartbeat:
         tasks.append(asyncio.create_task(_heartbeat_loop(websocket)))
+    if maintain is not None:
+        tasks.append(asyncio.create_task(maintain()))
 
     try:
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -292,8 +282,6 @@ async def _run_pubsub_ws(
             t.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
 
-    # 把最先完成的任务里的真实错误抛给 caller (用于各 endpoint 的 log.warning);
-    # 正常断连 (_watch_disconnect 返回) / 取消不算错误。
     for t in done:
         exc = t.exception()
         if exc is not None and not isinstance(
@@ -492,25 +480,12 @@ async def video_tracker_job_socket(
             pass
 
 
-_ML_STATS_CHANNEL = "ml-backend-stats:global"
-_ML_STATS_SUBSCRIBERS_KEY = "ml-backend-stats:subscribers"
-
-
 @router.websocket("/ws/ml-backend-stats")
 async def ml_backend_stats_socket(
     websocket: WebSocket,
     token: str = Query(...),
 ):
-    """admin-only ML backend 实时统计 WS.
-
-    Channel: `ml-backend-stats:global` (Celery beat `publish_ml_backend_stats` 每 1s
-    pull 所有 is_active=true backend 的 /health → publish snapshot list).
-    订阅者计数键: `ml-backend-stats:subscribers` (INCR/DECR), beat 任务读这个
-    决定是否实拉 — 0 订阅者时直接 skip, 节省 GPU 探活成本.
-
-    鉴权: super_admin / project_admin 才能看 (运维向, 标注员不需要).
-    除 JWT 外也接受 ak_ api_key (SDK/TUI 用), role 校验不变.
-    """
+    """实时推送推理服务统计，仅允许当前管理员通过 JWT 或 API key 订阅。"""
     user_id: str | None = None
     try:
         actor = await _authenticate_socket_token(token, allow_api_key=True)
@@ -524,34 +499,24 @@ async def ml_backend_stats_socket(
     await websocket.accept()
     r = aioredis.Redis(connection_pool=_get_redis_pool())
     pubsub = r.pubsub()
-    await pubsub.subscribe(_ML_STATS_CHANNEL)
-    # 订阅者计数 +1 (Celery beat 1s 实拉门控)
+    presence = MLStatsPresence(r)
     try:
-        await r.incr(_ML_STATS_SUBSCRIBERS_KEY)
-    except Exception as e:
-        log.warning("incr subscribers key failed: %s", e)
-
-    try:
+        await pubsub.subscribe(ML_STATS_CHANNEL)
+        await presence.refresh()
         await _run_pubsub_ws(
             websocket,
             pubsub,
             revalidate=lambda: _revalidate_admin_stream(token, allow_api_key=True),
+            maintain=presence.maintain,
         )
     except WebSocketDisconnect:
         pass
     except Exception as e:
         log.warning("ml-backend-stats WS error user=%s err=%s", user_id, e)
     finally:
+        await presence.detach()
         try:
-            # 计数 -1; 防计数漂移 (异常退出场景), 取 max(0, ...)
-            count = await r.decr(_ML_STATS_SUBSCRIBERS_KEY)
-            if count is not None and count < 0:
-                await r.set(_ML_STATS_SUBSCRIBERS_KEY, 0)
-        except Exception as e:
-            log.debug("decr subscribers key failed: %s", e)
-        try:
-            await pubsub.unsubscribe(_ML_STATS_CHANNEL)
-            await pubsub.close()
+            await pubsub.aclose()
         except Exception:
             pass
 

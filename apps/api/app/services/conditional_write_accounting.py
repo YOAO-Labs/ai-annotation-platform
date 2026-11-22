@@ -146,6 +146,4 @@ class Observation:
             and immutable(returned)
             and version == returned
         ):
-            # The existing reader has already enforced this immutable version
-            # on HEAD, the complete SHA/size GET and the subsequent HEAD.
             self.attempt.verified(self.client, version)

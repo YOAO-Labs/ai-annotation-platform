@@ -435,8 +435,6 @@ async def test_history_counts_all_responsibilities_and_only_task_creations(db_se
         "comment_attachment_uploads",
         "guide_asset_uploads",
     )
-    # Private temporary tables shadow only this session's history source. This
-    # exercises the actual count query without constructing unrelated owners.
     try:
         for table in tables:
             await db_session.execute(

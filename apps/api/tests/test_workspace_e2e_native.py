@@ -351,7 +351,6 @@ async def test_owner_unretired_video_blocks_fixture_cleanup_before_any_delete(
                     {"id": project_id},
                 )
             ).one()
-            # Synthetic started history has no retirement evidence and must stay blocked.
             db.add(
                 VideoTrackerJob(
                     id=job_id,

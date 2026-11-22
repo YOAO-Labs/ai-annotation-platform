@@ -160,7 +160,6 @@ def create_app(
             except c.MaskGcFailure as exc:
                 return _reply(error=exc.code, status=_status_for(exc.code))
             except Exception:
-                # Provider and database exceptions may contain credentials or keys.
                 return _reply(error="storage_unavailable", status=503)
 
     @app.post("/v1/mask-gc/progress")

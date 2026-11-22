@@ -214,7 +214,6 @@ class BackendTransportModelExecutionProvider(ModelExecutionPort):
             ):
                 raise ModelExecutionUnavailable()
             if before_dispatch is not None:
-                # Caller preflight runs before transport semaphore and GPU admission.
                 try:
                     await before_dispatch(ModelExecutionDispatch.from_request(request))
                 except BaseException as error:

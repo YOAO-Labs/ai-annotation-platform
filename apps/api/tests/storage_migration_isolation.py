@@ -12,6 +12,7 @@ Fixture names deliberately mirror ``tests/conftest.py`` so a module can shadow
 the public-schema versions by importing them.
 """
 
+import os
 import uuid
 
 import httpx
@@ -21,8 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.db.base import Base
 
-# Required control-plane tables plus every registered business root consulted
-# by scope-wide observations; no row lookup may fall through to public data.
 TABLES = (
     "users",
     "api_keys",
@@ -101,11 +100,7 @@ async def _clone(source, schema):
             )
         )
     async with source.begin() as connection:
-        # Table names and guard functions must resolve inside the owned namespace
-        # (migration downgrades drop them by unqualified name); the engine's
-        # session search_path does the same for the fixtures' own connections.
         await connection.execute(text(f'SET LOCAL search_path = "{schema}", public'))
-        # LIKE omits foreign keys and their SET NULL/CASCADE behavior.
         for child, parent, name, definition in foreign_keys:
             if child not in tables:
                 continue
@@ -130,10 +125,6 @@ async def _clone(source, schema):
                     "CREATE OR REPLACE FUNCTION ",
                     1,
                 )
-                # Guards may pin their relations to public explicitly so native
-                # owner capabilities with search_path=pg_catalog can execute
-                # them. The clone must keep reading and writing the owned
-                # namespace instead of falling through to public data.
                 definition = definition.replace("public.", f'"{schema}".')
             await connection.exec_driver_sql(definition)
         for relation, definition, _ in triggers:
@@ -166,6 +157,58 @@ async def migration_engine(test_engine):
             await engine.dispose()
         async with test_engine.begin() as connection:
             await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+
+
+native_reclaim_only = pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the disposable module-data boundary verifier",
+)
+
+
+@pytest.fixture
+async def native_reclaim_db(test_engine):
+    from datetime import datetime, timezone
+
+    from tests.factory import create_user
+    from tests.test_asset_storage_cleanup_runtime import (
+        _verified_resource_manifest,
+        _verify_postgres,
+    )
+
+    url = test_engine.url
+    name = url.database
+    assert url.host == "127.0.0.1" and name and name.endswith("_test")
+    _verify_postgres(url)
+    _verified_resource_manifest(test_engine, url)
+    async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
+        assert await db.scalar(text("SELECT current_database()")) == name
+        empty = await db.scalar(
+            text(
+                """
+                SELECT NOT (
+                    EXISTS (SELECT 1 FROM public.managed_original_retirements)
+                    OR EXISTS (SELECT 1 FROM public.managed_original_creations)
+                    OR EXISTS (SELECT 1 FROM public.managed_original_reclaim_attempts)
+                    OR EXISTS (SELECT 1 FROM public.managed_original_reclaim_claims)
+                    OR EXISTS (SELECT 1 FROM public.managed_original_reference_reconciliation)
+                    OR EXISTS (SELECT 1 FROM public.async_jobs)
+                    OR EXISTS (SELECT 1 FROM public.storage_operations)
+                    OR EXISTS (SELECT 1 FROM public.training_dataset_versions)
+                    OR EXISTS (SELECT 1 FROM public.active_learning_rounds)
+                )
+                """
+            )
+        )
+        if not empty:
+            pytest.fail(
+                "Native reclamation requires a fresh disposable database per case."
+            )
+        actor = await create_user(
+            db, "super_admin", f"{uuid.uuid4()}@reclaim.test", "Reclaim operator"
+        )
+        actor.email_verified_at = datetime.now(timezone.utc)
+        await db.commit()
+        yield db, actor
 
 
 @pytest.fixture

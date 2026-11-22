@@ -23,15 +23,16 @@ pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e --headed
 pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e --ui
 pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:stress
 
-# Mask native 独占入口自行准备并监督 e2e 环境，不要嵌套 dev:worktree exec
+# 两个原生 Mask 入口各自构建 E2E 产物并监督独立环境，不要嵌套 dev:worktree exec
 pnpm --filter web test:e2e:mask-native
+pnpm --filter web test:e2e:mask-native-editor
 ```
 
 首次运行需要 `pnpm exec playwright install chromium` 装浏览器。
 
 CI 使用 `line` reporter 显示正在执行的用例及重试，同时保留 GitHub annotations、HTML 和 `e2e-results.json` 报告。Actions 摘要分别列出每个套件通过、失败、重试后通过（flaky）、跳过数量及执行时间。每次失败尝试保留截图和 trace；成功路径不保存截图或对比图片基线。报告缺失时应检查启动或超时日志。分片内按单 worker 串行运行；排查长时间执行时先查看当前用例和超时信息，不能只凭 WebSocket 断连日志判断测试卡死。
 
-CI 核心 smoke 不重试，完整功能和压力用例最多重试一次。首个用例最终失败后终止当前分片，其他分片继续完成各自诊断。每个 Playwright 测试进程总限时 15 分钟，测试步骤限时 20 分钟，整个 E2E job（含安装和构建）限时 30 分钟。分层限时为清理和报告上传保留余量，并在测试进程无法自行退出时由 Actions 兜底。本地运行不启用这些 CI 早退限制。
+CI 核心 smoke 不重试，完整功能和压力用例最多重试一次。首个用例最终失败后终止当前分片，其他分片继续完成各自诊断。每个 Playwright 测试进程总限时 15 分钟，测试步骤限时 20 分钟，整个 E2E job（含安装和构建）限时 30 分钟。分层限时为清理和报告上传保留余量，并在测试进程无法自行退出时由 Actions 兜底。本地默认不启用这些 CI 早退限制；使用 `CI=1` 复现构建产物套件时沿用 CI 的 Playwright 配置。
 
 ## 功能、渲染与压力测试
 
@@ -39,11 +40,18 @@ CI 核心 smoke 不重试，完整功能和压力用例最多重试一次。首�
 
 Mask 场景用 `@mask-native`／`@mask-readonly` 标签按
 `PLAYWRIGHT_RASTER_MASK_MATRIX` 选择，未指定矩阵时不选这两组标签；不要用条件
-`test.skip` 把另一部署开关下的场景混入当前选集。`test:e2e:mask-native` 先构建
-产品，再用 `playwright.mask-product.config.ts` 验证真实 API 和 Vite preview；
-源码 Worker 使用 `playwright.browser-integration.config.ts` 独立报告，
-不需要 API、认证或数据库，也不能代替构建产物的保存和恢复证据。
-两阶段的 Vite 都由 Raster 启动器直接管理，配置不再自行启动 `webServer`；
+`test.skip` 把另一部署开关下的场景混入当前选集。两个原生入口均以
+`pnpm build --mode e2e` 构建前端，用 `playwright.mask-product.config.ts` 验证真实
+API、开启的 Raster 写入和 Vite preview。`mask-native` 只选
+`raster-mask-native.spec.ts` 的 11 例；产品消费者及夹具 owner 退休后，才单独运行
+`playwright.browser-integration.config.ts` 的 `mask-worker.spec.ts` 并核对独立报告。
+源码 Worker 不需要 API、认证或数据库，也不能代替构建产物的保存和恢复证据。
+`mask-native-editor` 只选 `mask-advanced-operations.spec.ts` 的 8 例及
+`mask-editor.spec.ts` 的 2 例；沿用真实 Images worker 和套件清理，但不预分配
+损坏内容，也不重复执行 `mask-worker`。
+产品诊断可指定 `--workers=1`、`--retries`、`--trace` 或 `--headed`；启动器拒绝
+改动用例成员的参数，也不把产品参数传给源码 Worker。
+产品预览和源码 Worker 的 Vite 都由 Raster 启动器直接管理，配置不再自行启动 `webServer`；
 只有准确 Node 子进程在绑定端口后发出的私有就绪握手才能接纳 HTTP 检查，
 其他进程的 HTTP 200 不算启动成功。收尾通过私有控制管道等待真实
 `server.close()` 和准确进程退出，不向整个进程组发信号。
@@ -51,8 +59,8 @@ Raster 原生／只读矩阵与源码 Worker 使用独占本地 `BrowserServer`�
 不接入外部浏览器；关闭时检查真实 `ChildProcess` 退出结果。
 Playwright 的关闭 Promise 成功并不足以通过验收：强制回退导致的信号退出、
 非零退出以及关闭请求前已观察到的退出都必须失败。
-该入口在启动 API、浏览器前准备专用版本化存储及故障夹具。测试进程仅持有本次
-suite 的本地夹具通道和公开 manifest 路径；数据库 owner、连接器密钥与存储写入
+故障组在启动 API、浏览器前准备专用版本化存储及故障夹具。产品测试进程仅持有本次
+suite 的本地夹具通道和公开 manifest 路径（编辑组的故障条目为空）；数据库 owner、连接器密钥与存储写入
 凭据只进入启动器、受限 API 和私有夹具进程。通道限制为本 suite 的固定夹具
 操作，不提供通用 HTTP 或 SQL；它不是同一系统用户或拥有 Docker 权限的进程之间
 的操作系统沙箱。结束时监督整个消费者进程组，并先等待已接纳的夹具工作收尾；
@@ -68,6 +76,52 @@ HTTP 准入、确认全部真实请求及跟踪的工作结束并关闭数据库
 
 损坏内容诊断和重试两例仍包含在所选 Mask 矩阵中，但必须先由隔离环境协调器在产品 API、worker 和浏览器启动前，使用专属数据库与版本化存储准备真实缺失对象和健康邻居。协调器通过 `PLAYWRIGHT_RASTER_FAULT_MANIFEST` 提供每个用例及重试各自的 run 与精确标注；缺少或不匹配的清单会直接失败，不会在线破坏共享内容或跳过用例。该串行夹具不代表共享数据库／存储的并发隔离已经通过验收。
 
+仅核对用例成员时，从 `apps/web` 运行以下命令。`--list` 不执行夹具或启动服务，
+其中 `/dev/null` 和固定 suite 仅用于通过配置的收集门禁，不能用于产品运行。
+
+```bash
+list_mask_product() {
+  env -i HOME="$HOME" PATH="$PATH" CI=1 YOAO_WORKTREE_MODE=e2e \
+    PLAYWRIGHT_RASTER_OFFLINE=1 PLAYWRIGHT_RASTER_MASK_MATRIX=native \
+    PLAYWRIGHT_FIXTURE_RUN_ID=00000000-0000-4000-8000-000000000000 \
+    PLAYWRIGHT_RASTER_FAULT_MANIFEST=/dev/null PLAYWRIGHT_RASTER_FIXTURE_SOCKET=/dev/null \
+    pnpm exec playwright test --config=playwright.mask-product.config.ts --project=chromium \
+      --list --reporter=list "$@"
+}
+list_mask_product e2e/tests/raster-mask-native.spec.ts e2e/tests/mask-advanced-operations.spec.ts e2e/tests/mask-editor.spec.ts
+list_mask_product e2e/tests/raster-mask-native.spec.ts
+list_mask_product e2e/tests/mask-advanced-operations.spec.ts e2e/tests/mask-editor.spec.ts
+pnpm exec playwright test --config=playwright.browser-integration.config.ts --project=chromium \
+  --list --reporter=list e2e/browser-integration/mask-worker.spec.ts
+```
+
+三个产品清单应为 21、11 和 10 例；后两组无重叠且合并后与第一组一致。
+Worker 独立收集 1 例；运行时用 `E2E_REQUIRE_ALL_TESTS=1` 核验它的 JSON 报告。
+
+### 图片工作台性能基准
+
+默认套件中只有 `image-bench-fixtures.spec.ts` 的基础 smoke：64×48 原图、0 个标注，实际平移、缩放，保留 500 ms smoke 门槛。测量矩阵不进入默认套件，也不使用 `IMAGE_BENCH_SIZE` 或 `IMAGE_BENCH_DENSITY` 改写 smoke。
+
+单独测量使用归属核验的本地工作树 `e2e` 环境。先按[本地运行](#本地运行)准备 PostgreSQL、MinIO 和 Playwright Chromium。从仓库根执行：
+
+```bash
+image_bench() {
+  env -u CI -u PLAYWRIGHT_RASTER_MASK_MATRIX -u PLAYWRIGHT_RASTER_OFFLINE \
+    pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e \
+    --config=playwright.image-bench.config.ts --project=chromium --reporter=line \
+    --grep "$1" --output="test-results/image-bench/$2"
+}
+image_bench 'image-720p-boxes-10$' image-720p-boxes-10
+image_bench 'image-720p-boxes-100$' image-720p-boxes-100
+image_bench 'image-5k-boxes-10$' image-5k-boxes-10
+image_bench 'image-5k-boxes-100$' image-5k-boxes-100
+image_bench 'image-bench rejects fixture mismatches$' mismatch
+```
+
+这是本机 Chromium、真实 API 和 Vite 开发服务的读数。启动器分配数据库、存储和端口；不要将基准指向日常开发或部署服务器。每例由 `seed.owned()` 创建托管 PNG（1280×720 或 5120×2880），再以该任务的标注员账号通过产品 API 写入 10 或 100 个真实矩形。浏览器加载同一任务时，测试校验原件身份与响应字节 SHA-256、PNG 宽高、舞台实际解码和坐标系宽高、产品返回的几何及舞台标注数。负例把真实 720p / 10 框分别与 5k / 10 框、720p / 100 框比较，两次均在计时之前拒绝，不产生测量。
+
+`pnpm --filter web image:bench` 只在仓库 `test-results/image-bench/` 写 `kind: "plan"` 的 `manifest.json`，并不启动浏览器。成功的 Playwright 场景才在各自的 `apps/web/test-results/image-bench/` 输出目录保存 `kind: "measurement"` 的 `image-bench-measurement.json`。记录选择值和观测值、浏览器版本与 viewport/DPR、手势和 Long Tasks；无有效样本时最大值为 `null`。测量窗口只包含加载后的 5 次平移、4 次放大、4 次缩小和全选，不包含夹具准备、首次打开、FPS 或渲染延时。200 ms / 5 次是软预算，只报告是否达标；比较读数时另记录源码版本和设备，且只使用测试与清理均通过的结果。
+
 布局矩阵在图片/视频/点云 × 标注/审核六种上下文中都保留真实拖动、画布身份、上下文隔离、紧凑模式、保存与刷新恢复断言。功能集执行 14 次重排，`@stress` 执行完整 54 次；新增长循环必须放入压力集，并在功能集中保留覆盖关键状态转换的短流程。
 
 CI 调度规则由根目录 `scripts/plan-e2e-suites.mjs` 维护：
@@ -75,6 +129,9 @@ CI 调度规则由根目录 `scripts/plan-e2e-suites.mjs` 维护：
 - 普通 PR 使用核心 smoke 加受影响的 Mask、视频、点云等专项；共享依赖、未知路径等高影响变更保守扩大选集。白名单内的纯文档变更显式跳过应用 E2E；`E2E_SELECTION_MODE=legacy` 保留固定全量功能分片和专项的回退入口。
 - 主分支和 `E2E extended` 夜间运行（北京时间 03:00）使用全量选集。手动选择 `extended` 仅执行布局压力集；`full` 执行全量选集。
 - PR 路径读取失败会使计划 job 失败；`Frontend E2E` 汇总同时要求计划和所有已选套件成功，不会把漏跑当作通过。
+- 全量矩阵包含 32 个套件任务及 33 份必需报告；额外报告来自 `mask-native` 内的独立 `mask-worker`。默认 Chromium 分片中的条件跳过必须在专项逐项执行：视频写入由视频专项覆盖，原生 AI、工具栏及异步阶段由各自的专项覆盖。数量以当前 `--list` 和执行报告为准。
+
+默认 Chromium 功能回归和视频专项均按用例而不是按 spec 文件分片（分别为 16 片和 4 片）。每片仍只有一个 worker，串行执行并独占自己的数据库和存储。这样单个较大的测试文件不会挤占下一片、留下空 Job。改动分片时，核对每片非空，各片 `--list` 并集与未分片清单相同且不重叠，再运行实际浏览器。
 
 `seed` 只用于准备前置数据。核心创建用例必须验证真实 UI 操作、保存响应、API 读回和刷新恢复；不能在 UI 保存失败后调用 `seed.advanceTask` 等接口伪造成功。Canvas 指针坐标应依据当前媒体位置和尺寸计算，并确认没有被浮层遮挡。连续执行相互独立的边缘绘制时，通过真实 UI 收起前一个标注的浮窗，并检查拖拽起点命中画布。截图检查不能替代保存检查，存储状态检查也不能替代真实渲染检查。
 
@@ -103,6 +160,8 @@ router。已核验资源根和模式对应唯一私有 authority，其 Unix sock
 - 夹具进程使用启动器注入的资源根，且其 identity、资源清单、数据库 owner 标记和受限 runtime LOGIN 均通过核验；
 - `production` 环境永不挂载路由。
 
+Mask 切片撤销后的真实 GC 和版本丢失注入按运行账本校验：当前套件与子运行都须开放，工作台项目和首道任务必须同属该子运行且已发布，两个不同的标注必须确实属于这道任务。显示名或可重复的测试命名空间不能代替归属凭据；数据库和桶的独占校验仍在任何改动之前执行。
+
 authority 的 Unix socket 使用 `/tmp` 下的私有随机短目录，避免工作树 `TMPDIR` 超过
 系统 socket 路径长度限制；准确目录、socket 身份和原进程仍登记在该模式的私有记录中。
 临时目录的位置不会改变资源归属，不能按目录前缀批量清理。
@@ -116,11 +175,11 @@ authority 的 Unix socket 使用 `/tmp` 下的私有随机短目录，避免工�
 Identity 私表或邀请 schema 权限。创建 owned suite 时，Routing 与健康观测 owner
 必须保持存活直到该 suite 清理完成。
 
-**默认使用私有命名空间 fixture**：`await seed.owned()` 按运行 UUID、spec 文件及测试标题
-确定性派生命名空间（`^[a-z0-9]{4,12}$`，同次运行的重试稳定），由 `/seed/owned`
-只创建该命名空间的标准工作台 fixture，测试结束后 seed fixture teardown 调用
-`/seed/owned-cleanup` 精确清理（含存储对象与 mock backend 注册项）；清理失败会让
-测试失败。`/seed/lidar`、`/seed/project-roles`、`/seed/filtering` 的命名空间参数
+**默认使用私有命名空间 fixture**：需要标准工作台的用例声明 `async ({ page, seed, owned: data })`。
+Playwright 在测试体计时前调用 `seed.owned()`，按照运行 UUID、spec 文件及测试标题派生命名空间
+（`^[a-z0-9]{4,12}$`，同次运行的重试稳定）。结束时 seed teardown 调用 `/seed/owned-cleanup`
+精确回收该命名空间的存储对象和后端注册项；回收失败会让测试失败。不要在 `afterEach` 里再调用
+`seed.owned()`，那会创建另一个工作台。`/seed/lidar`、`/seed/project-roles`、`/seed/filtering` 的命名空间参数
 同样只触碰各自命名空间；filtering manifest 暴露 `display_names`、`invitation_emails`、
 `search_keys`、`audit_scopes`，spec 必须用 manifest 值做全局列表搜索/文案/导出断言。
 filtering 的无源 tracker 候选仅用于列表和预览验证；该夹具未准备已接受输入证据，
@@ -226,18 +285,18 @@ VersionId／ETag 核验字节。许可的独立事务不能提交调用者事务
 删除并核验该版本不存在；增加 key 的删除标记不算物理回收，也不能删除同键的邻居版本。
 私有交付在创建时冻结 15 分钟期限，验证等待真实数据库时钟，不通过回写时间戳缩短等待。
 
-## 当前题 AI 的真实异步作业 E2E
+## 原生 AI 工具栏与真实异步作业 E2E
 
-`workbench-ai-inspector-phases.spec.ts` 需要与隔离 API 使用同一测试数据库和专用
-Redis broker 的 Celery worker；确认后设置 `PLAYWRIGHT_AI_REQUEST_WORKER=1` 才会执行。
-不能把 worker 连到开发数据库或复用开发任务队列。API 和 worker 同时覆盖
-`DATABASE_URL`、`MIGRATION_DATABASE_URL`、`REDIS_URL`、`CELERY_BROKER_URL`，并设置相同的
-`PREANNOTATE_GPU_QUEUE` / `PREANNOTATE_CPU_QUEUE`。worker 订阅这两个队列及 `default,audit`，
-使用当前 checkout 的虚拟环境，不启动 beat。测试提供方不使用 GPU；关闭 GPU arbiter，
-防止继承开发环境 GPU 调度：`GPU_ARBITER_MODE=off`、
-`GPU_ARBITER_ROLLOUT_ENABLED=false`、`GPU_ARBITER_RESOURCES_JSON={}`。
-API、worker 和私有 owner 使用 `ML_BACKEND_ROUTER_MODE=enforce`，并连接本套隔离的
-Routing owner；不能关闭路由或改用无 scope 的执行来绕过受管提供方的准入检查。
+`mask-toolbar-native` 仅执行 `workbench-ai-toolbar-layers.spec.ts` 的 6 例。它复用在线
+原生 Mask 写入 API、真实种子与 E2E 构建产物；推理协议使用受控输入，候选采纳、保存和
+像素读回走真实服务，不使用离线 Raster 故障启动器。
+
+`ai-request-worker` 仅执行 `workbench-ai-inspector-phases.spec.ts` 的 4 例。
+`dev:worktree exec --mode e2e --with-worker` 为 API 与 Celery 使用同一专属数据库和
+Redis broker；不复用开发数据库、队列或 worker，也不启动 beat。两个预标队列都在
+该次启动命令上设置为 `ml.cpu`，由本工作树的普通 worker 消费。API、worker 和私有
+owner 必须使用本套隔离的 Routing owner；不能关闭路由或改用无 scope 的执行来绕过
+受管提供方的准入检查。
 
 模型夹具由私有 owner 为每个运行启动带认证的受管测试提供方；真实 API／worker 始终使用
 该运行的 Registry，Node helper 仅通过 owner 通道控制暂停、释放和故障，不再替换后端 URL。
@@ -251,9 +310,30 @@ Routing、健康观测、模型执行与后端控制能力须属于同一套隔�
 IPv4；缺省解析本机主机名。若主机名仅解析到 loopback，必须显式指定可达地址，
 不能用关闭路由或伪造健康状态替代。不据此声明真实模型质量、YOLO／SAM 或 GPU 执行资格。
 
+从各自工作树根目录执行，先准备该工作树的依赖及本地 PostgreSQL、MinIO。
+并行运行请使用不同的工作树，不在同一 `e2e` 模式中并发启动两个入口。
+
 ```bash
-PLAYWRIGHT_AI_REQUEST_WORKER=1 pnpm dev:worktree -- exec --mode e2e -- \
-  pnpm --filter web test:e2e e2e/tests/workbench-ai-inspector-phases.spec.ts --project=chromium
+pnpm --filter web exec playwright install --with-deps chrome
+pnpm --filter web build --mode e2e
+
+CI=1 PLAYWRIGHT_CHROMIUM_CHANNEL=chrome \
+  pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:mask-toolbar-native
+
+CI=1 PLAYWRIGHT_CHROMIUM_CHANNEL=chrome \
+  PLAYWRIGHT_AI_REQUEST_WORKER=1 PREANNOTATE_GPU_QUEUE=ml.cpu PREANNOTATE_CPU_QUEUE=ml.cpu \
+  pnpm dev:worktree -- exec --mode e2e --with-worker -- \
+  pnpm --filter web test:e2e --project=chromium e2e/tests/workbench-ai-inspector-phases.spec.ts
+```
+
+仅核对用例成员时，从仓库根目录执行以下命令；分别收集 6 和 4 例，不启动服务，也不
+把条件用例的收集当作通过。实际运行的两份独立报告均须通过严格审计：失败、跳过或
+零执行不能满足门禁。
+
+```bash
+pnpm --filter web test:e2e:mask-toolbar-native --list --reporter=list
+pnpm --filter web test:e2e --project=chromium \
+  e2e/tests/workbench-ai-inspector-phases.spec.ts --list --reporter=list
 ```
 
 每例在输出目录保存不含凭据的 `ai-request-metadata.json`，记录项目与模型收到的任务 ID。

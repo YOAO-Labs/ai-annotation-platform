@@ -44,7 +44,7 @@ async def test_failed_login_returns_count_header(httpx_client, fake_counter):
     )
     assert res.status_code == 401
     assert res.headers.get("x-login-failed-count") == "1"
-    assert fake_counter.values  # 计数已落
+    assert fake_counter.values
 
 
 @pytest.mark.asyncio
@@ -53,14 +53,13 @@ async def test_captcha_required_after_threshold(
 ):
     """达到阈值后无 captcha_token 应返 400 captcha_required（turnstile 启用时）。"""
 
-    # mock verify_turnstile_token：模拟 production 启用，无 token → False
     async def fake_verify(token, ip):  # noqa: ARG001
         return bool(token)
 
     monkeypatch.setattr("app.api.v1.auth.verify_turnstile_token", fake_verify)
 
     counter = fake_counter
-    counter.values["127.0.0.1"] = 5  # httpx ASGITransport 默认 client.host
+    counter.values["127.0.0.1"] = 5
 
     res = await httpx_client.post(
         "/api/v1/auth/login",
@@ -81,7 +80,7 @@ async def test_successful_login_resets_counter(httpx_client, fake_counter, super
         json={"email": user.email, "password": "Test1234"},
     )
     assert res.status_code == 200
-    assert "127.0.0.1" not in fake_counter.values  # 已 reset
+    assert "127.0.0.1" not in fake_counter.values
 
 
 @pytest.mark.asyncio
@@ -93,11 +92,9 @@ async def test_captcha_disabled_short_circuit_passes(
     user, _ = super_admin
     fake_counter.values["127.0.0.1"] = 5
 
-    # 错密码 → 仍按 401（密码错误），但 captcha 被 short-circuit 放行
     res = await httpx_client.post(
         "/api/v1/auth/login",
         json={"email": user.email, "password": "wrong"},
     )
-    assert res.status_code == 401  # captcha 放行 → 进入凭据校验 → 密码错
-    # 失败计数继续 +1
+    assert res.status_code == 401
     assert fake_counter.values["127.0.0.1"] == 6

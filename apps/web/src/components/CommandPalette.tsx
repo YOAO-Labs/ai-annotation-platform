@@ -25,11 +25,6 @@ const KIND_LABEL: Record<FlatItem["kind"], string> = {
   member: "成员",
 };
 
-/**
- * ⌘K 全局搜索 Palette。
- * - 由 TopBar 的 SearchInput / 全局 keydown 触发
- * - ↑↓ 切换 / ↵ 跳转 / Esc 关闭
- */
 export function CommandPalette({ open, onClose }: Props) {
   const navigate = useNavigate();
   const [input, setInput] = useState("");
@@ -41,7 +36,6 @@ export function CommandPalette({ open, onClose }: Props) {
     if (open) {
       setInput("");
       setActiveIdx(0);
-      // 延迟让 portal 完成渲染再 focus
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
@@ -118,7 +112,6 @@ export function CommandPalette({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  // 分组渲染：一次循环输出 group header + items，记录每条对应的 flat index
   const grouped: { kind: FlatItem["kind"]; rows: { item: FlatItem; flatIdx: number }[] }[] = [];
   let flatIdx = 0;
   for (const kind of ["project", "task", "dataset", "member"] as const) {

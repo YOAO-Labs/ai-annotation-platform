@@ -58,7 +58,6 @@ describe("NotificationPreferencesPanel", () => {
   it("按组展示已知类型，每类两个开关；关闭接收时弹出只禁用不重置", async () => {
     mountPanel();
     expect(await screen.findByTestId("notification-preference-task.rejected")).toBeVisible();
-    // 分组标题存在
     expect(screen.getByText("任务与审核")).toBeVisible();
     expect(screen.getByText("批次")).toBeVisible();
     expect(screen.getByText("Bug 反馈")).toBeVisible();
@@ -67,10 +66,8 @@ describe("NotificationPreferencesPanel", () => {
     const popup = screen.getByRole("checkbox", { name: "批次被驳回 弹出提示" });
     expect(receipt).not.toBeChecked();
     expect(popup).toBeDisabled();
-    // 保留的弹出选择仍显示为已选
     expect(popup).toBeChecked();
 
-    // 接收开启的类型：两开关可用
     expect(screen.getByRole("checkbox", { name: "任务被退回 弹出提示" })).toBeEnabled();
   });
 
@@ -99,7 +96,6 @@ describe("NotificationPreferencesPanel", () => {
     await waitFor(() => expect(screen.getByText("保存中…")).toBeVisible());
     expect(screen.getByRole("checkbox", { name: "任务被退回 接收通知" })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "任务被退回 弹出提示" })).toBeDisabled();
-    // 其它类型不受影响
     expect(screen.getByRole("checkbox", { name: "任务审核通过 接收通知" })).toBeEnabled();
 
     await act(async () => {
@@ -211,8 +207,6 @@ describe("NotificationPreferencesPanel", () => {
       useAuthStore.getState().setAuth("t2", { id: "u2", role: "employee" } as MeResponse);
     });
     await waitFor(() => expect(screen.queryByText("保存中…")).toBeNull());
-    // 等新账号偏好加载完成后再放行旧账号的迟到失败:账号切换会重拉偏好,
-    // 若在此前的加载态断言,会和 CI 高负载下的查询结算竞态。
     expect(
       await screen.findByRole("checkbox", { name: "任务被退回 接收通知" }, { timeout: 5_000 }),
     ).toBeEnabled();

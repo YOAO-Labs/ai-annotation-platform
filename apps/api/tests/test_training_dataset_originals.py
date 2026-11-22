@@ -769,8 +769,6 @@ async def test_unknown_close_never_becomes_success_or_releases_unsettled_respons
         and world.permits[0].exits[0].storage_operation_unsettled
     )
     assert all(file.closed for file in world.files)
-    # Unknown decoder ownership quarantines full consumer capacity, even when
-    # its borrowed capture stage was independently closed successfully.
     assert service._slots._value == 1
     if phase == "image":
         with pytest.raises(OSError) as second:

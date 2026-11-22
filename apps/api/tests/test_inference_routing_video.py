@@ -339,8 +339,6 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                 expected_sha256=sha256(video).hexdigest(),
             ) as backend:
                 listener = None
-                # Changing transport configuration invalidates prior health.
-                # Re-observe this actual backend through the existing owner.
                 async with media.sessions.begin() as health_db:
                     health_service = MLBackendService(health_db)
                     assert await health_service.check_health(registry_id)
@@ -504,8 +502,6 @@ async def test_committed_video_job_heartbeats_cancels_and_closes_one_route_scope
                 assert all(item["authorization_bound"] for item in backend.calls)
                 assert backend.controller.active_requests == 0
 
-                # A definite stale/terminal preflight cannot recover an old
-                # success through the ambiguous-commit status fallback.
                 from app.services.ml_routing import authority as routing_authority
 
                 replay_command = decode_routing_command(command)

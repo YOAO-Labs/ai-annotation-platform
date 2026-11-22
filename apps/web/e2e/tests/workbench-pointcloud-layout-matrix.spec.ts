@@ -10,11 +10,6 @@ import {
 } from "../helpers/workbench-layout-matrix";
 import { expect, test } from "../fixtures/seed";
 
-// This filename selects the pointcloud project (SwiftShader software WebGL),
-// so it hosts only the 3D scenarios. Image and video scenarios run in
-// workbench-layout-matrix.spec.ts under the chromium project: their canvases
-// need no WebGL, and software GL made CI stress reloads starve the renderer.
-
 test("3D 自由布局保留共享 renderer，三视图移出画布与相机整组切换后恢复宽度", async ({
   page,
   seed,
@@ -54,7 +49,6 @@ test("3D 自由布局保留共享 renderer，三视图移出画布与相机整�
     .toBeGreaterThan(0);
   await sameCanvas();
 
-  // Real tab drag changes topology; selecting the sibling must suspend the hidden tri viewport.
   await page
     .getByRole("tab", { name: "三视图精修", exact: true })
     .dragTo(page.getByRole("tab", { name: "标注详情", exact: true }));
@@ -158,8 +152,6 @@ test("3D 自由布局保留共享 renderer，三视图移出画布与相机整�
   await expect(workspace(page)).toHaveAttribute("data-compact", "false");
   await sameCanvas();
   await expectRenderedGroups(page, arranged);
-  // A docked camera flag can still belong to the snapshot before the final rearrangement.
-  // Wait for the complete local tree to reach the server before testing cold restoration.
   const local = await page.evaluate(() => {
     const { state } = JSON.parse(localStorage.getItem("auth-storage")!);
     return JSON.parse(localStorage.getItem(`workbench.${state.user.id}.workspace.annotate:3d`)!);

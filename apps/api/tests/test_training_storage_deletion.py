@@ -32,8 +32,6 @@ from tests.test_training_runs import ready_dataset
 
 @pytest.fixture(autouse=True)
 def isolated_cleanup_transport(monkeypatch):
-    # Durable intent/commit ordering is under test; physical transport routing
-    # and its credentials have dedicated storage suites.
     from tests.training_consumer_fixtures import mock_legacy_transport
 
     mock_legacy_transport(monkeypatch)
@@ -173,7 +171,6 @@ async def test_storage_failure_keeps_intent_for_existing_maintenance_owner(
         assert intent.last_attempted_at is not None
         intent_id = intent.id
     assert objects[original_bucket] == {key: b"original"}
-    # A changed runtime bucket must not redirect the committed cleanup intent.
     monkeypatch.setattr(storage_service, "training_bucket", other_bucket)
     await cleanup.maintain(world.factory)
     async with world.factory() as db:
@@ -217,7 +214,6 @@ async def test_cleanup_commit_failure_keeps_retryable_intent(
         await world.endpoint(
             world.record.id, project=world.project, db=db, **world.actor_argument
         )
-    # The first cleanup commit precedes IO; the second acknowledges its result.
     assert objects == ({"artifact": b"original"} if failed_commit == 2 else {})
     assert purges == (
         []

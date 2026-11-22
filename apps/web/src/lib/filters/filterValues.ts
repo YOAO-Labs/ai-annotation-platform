@@ -18,7 +18,6 @@ function isCompleteNumber(value: string) {
   return /^[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim());
 }
 
-/** Parse a comma-delimited draft while preserving values that contain commas when quoted. */
 function parseDelimitedValues(input: string): DelimitedValues {
   const values: string[] = [];
   let current = "";
@@ -56,7 +55,6 @@ function arrayDraft(value: unknown) {
   return String(value ?? "");
 }
 
-/** Convert an applied API value to the stable string owned by an input while it is edited. */
 export function formatFilterDraft(
   value: unknown,
   field?: FilterFieldDefinition,
@@ -107,7 +105,6 @@ function parseArrayDraft(
   return { ok: true, value: values };
 }
 
-/** Parse a draft only when it is complete enough to replace the applied query. */
 export function parseFilterValue(
   field: FilterFieldDefinition,
   operator: TaskFilterOp,
@@ -142,7 +139,6 @@ export function filterValueError(
   return parseFilterValue(field, operator, draft).error;
 }
 
-/** Normalize a value already known to be valid for serialization. */
 export function normalizeFilterValue(
   field: FilterFieldDefinition,
   operator: TaskFilterOp,

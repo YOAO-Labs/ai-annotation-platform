@@ -28,11 +28,9 @@ export function filterOperatorLabel(operator: TaskFilterOp) {
   return FILTER_OPERATOR_LABELS[operator] ?? operator;
 }
 
-/** A JSON filter expression accepted by the Data Manager API. */
 export type FilterExpression = TaskFilterRule | TaskFilterGroup;
 export type FilterPath = number[];
 
-/** The small common field contract used by shared filter controls. */
 export type FilterFieldDefinition = Pick<
   DataManagerFilterField,
   "key" | "label" | "group" | "value_type" | "operators" | "options"
@@ -42,7 +40,6 @@ export type FilterFieldDefinition = Pick<
 export interface FilterDraftRule {
   field: string;
   op: TaskFilterOp;
-  /** Input remains a string until a valid commit. */
   value: string;
 }
 

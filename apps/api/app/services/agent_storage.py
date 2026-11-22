@@ -65,7 +65,6 @@ async def capture(
     inspect_quality=False,
 ):
     location = await db.get(StorageLocation, config.location_id, populate_existing=True)
-    # The original caller has already committed its source/authority locks.
     receipt = await transport.exchange(
         db,
         location,
@@ -94,8 +93,6 @@ async def capture(
             stage.file.seek(0)
             yield stage.file, stage.observation
 
-        # Reuse the four-slot image decoder and complete SHA proof. The second
-        # bounded copy avoids introducing an unaccounted snapshot lifetime.
         snapshot = await (
             snapshots.capture_for_quality(staged_file, expected_sha256)
             if inspect_quality

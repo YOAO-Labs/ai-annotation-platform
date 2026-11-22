@@ -117,7 +117,6 @@ async def list_task_views(
         else builtin_entity_views(project_id, entity_scope)
     )
     saved = await svc.list_views(project_id, user.id, entity_scope)
-    # 单条聚合查询算出全部视图计数，避免每个视图一次往返 (N+1)。
     entries = [*builtins, *saved]
     invalid_by_index = [
         (
@@ -430,9 +429,7 @@ async def query_project_tasks(
     tasks = [row[0] for row in rows]
     dims = await _attach_dimensions_batch(db, tasks)
     source_references = await _linked_source_references(db, tasks, actor_id=user.id)
-    pyramids = await _attach_image_pyramids_batch(
-        db, tasks, dims, actor_id=user.id
-    )
+    pyramids = await _attach_image_pyramids_batch(db, tasks, dims, actor_id=user.id)
     user_ids = {t.assignee_id for t in tasks if t.assignee_id} | {
         t.reviewer_id for t in tasks if t.reviewer_id
     }
@@ -471,7 +468,6 @@ async def query_project_tasks(
                 "unresolved_issue_count": int(
                     _row_value(row, "unresolved_issue_count", 0) or 0
                 ),
-                # Legacy alias of the corrected unresolved-issue count.
                 "unresolved_feedback_count": int(
                     _row_value(row, "unresolved_issue_count", 0) or 0
                 ),

@@ -280,9 +280,6 @@ def _evaluation(reader, state, inventory):
         }
         if any(checked[k] != v for k, v in identity.items()):
             reject()
-        # Shared sample checkpoints may have changed during a later retry. Old
-        # report identity remains independently explained by its publication
-        # receipt; only the current attempt can reuse the current checkpoints.
         if facts["id"] == state["record"]["current_attempt_id"]:
             service.verify_report(
                 checked, run, attempt, [_record(row) for row in state["members"]]

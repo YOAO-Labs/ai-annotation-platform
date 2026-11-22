@@ -211,7 +211,6 @@ async def test_replaced_attempt_or_owner_signal_cannot_modify_current_attempt(
         world.job.user_id = uuid.uuid4()
     elif change == "changed_kind":
         world.job.kind = "export"
-        # The lookup saw training, but the fresh locked row changed kind.
         found = SimpleNamespace(**(vars(world.job) | {"kind": "training_dataset"}))
         signals.async_job_svc.find_by_celery_task_id.return_value = found
     elif change == "other_payload_owner":
@@ -276,8 +275,6 @@ async def test_late_fallback_does_not_deadlock_a_worker_already_holding_version(
     try:
         await asyncio.sleep(0)
         assert world.db.events == [("waiting", "version")]
-        # This is the worker's publication order. A Job-first fallback would
-        # hold this second lock and deadlock against the worker's Version lock.
         await asyncio.wait_for(world.db.locks["job"].acquire(), 0.1)
         world.version.status, world.job.status = "ready", "completed"
         world.db.locks["job"].release()

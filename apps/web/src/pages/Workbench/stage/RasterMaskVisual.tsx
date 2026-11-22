@@ -18,7 +18,6 @@ interface RasterMaskVisualProps {
   opacityScale?: number;
 }
 
-/** Mask 选中态沿真实像素轮廓增亮，不再用容易被误解为矩形标注的 AABB 虚线框。 */
 export function RasterMaskVisual({
   id,
   image,

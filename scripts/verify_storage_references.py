@@ -395,9 +395,6 @@ async def qualify(backend):
         new_version = backend.s3.put_object(
             Bucket=bug_bucket, Key=new_key, Body=BODY
         ).get("VersionId", "null")
-        # These raw source keys must survive without URL/path normalization.
-        # MinIO rejects literal dot segments on PUT; the pure report tests cover
-        # those opaque keys independently of this provider's write restrictions.
         for key in ("raw/%2F/key", "raw/%2f/key", "raw/a/b", "raw/a_boundary"):
             backend.s3.put_object(Bucket=bucket, Key=key, Body=BODY)
         prefix = f"projects/{uuid.uuid4()}/datasets/{uuid.uuid4()}/"
@@ -552,7 +549,6 @@ async def qualify(backend):
                     phases[-1]["matches"].get(expected, 0) > 0,
                     "Missing expected locator distinction",
                 )
-            # Verify the effective role, not just a SET TRANSACTION string.
             denials = 0
             for query in (
                 "UPDATE storage_connections SET name=name WHERE false",

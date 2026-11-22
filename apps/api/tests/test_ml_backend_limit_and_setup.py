@@ -159,7 +159,6 @@ async def test_create_ml_backend_activates_singleton_pool(
     )
     assert pool is not None
     assert pool.enabled is True
-    # Pool activation and the project-binding trigger each advance the fence.
     assert pool.routing_generation == 3
 
 
@@ -210,7 +209,6 @@ async def test_setup_proxy_returns_capability_and_caches(
     assert r1.status_code == 200, r1.text
     assert r1.json() == capability
     assert r2.json() == capability
-    # 30s TTL → 第二次走缓存
     assert call_count["n"] == 1
 
 
@@ -257,9 +255,6 @@ async def test_setup_proxy_502_when_backend_unreachable(
     assert resp.status_code == 502
 
 
-# ─── 能力声明协议 v2 — /capabilities 端点 ──────────────────────────
-
-# 含 models[] 的 /setup 回放样本: OCR + 检测双模型目录。
 _SETUP_WITH_MODELS = {
     "name": "multi-model-backend",
     "infra": "paddle",
@@ -297,16 +292,12 @@ async def test_capabilities_returns_derived_models_snapshot(
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    # backend 默认 infra
     assert body["infra"] == "paddle"
-    # models[] 派生出两条, id / task / infra 各就位
     models = {m["id"]: m for m in body["models"]}
     assert set(models) == {"pp-ocrv4", "yolo-det"}
     assert models["pp-ocrv4"]["task"] == "ocr"
     assert models["pp-ocrv4"]["output_attribute_types"] == ["text", "language"]
-    # detection 条目显式覆盖 infra
     assert models["yolo-det"]["infra"] == "onnx"
-    # 模态派生 (纯 image 双模型)
     assert body["modalities"] == ["image"]
 
 
@@ -326,21 +317,17 @@ async def test_capabilities_refresh_invalidates_cache(
         lambda: {"infra": state["infra"], "models": []},
     )
     headers = {"Authorization": f"Bearer {token}"}
-    # 先 GET 一次填充缓存
     r1 = await httpx_client.get(
         f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities",
         headers=headers,
     )
     assert r1.json()["infra"] == "pytorch"
-    # backend 升级换 infra
     state["infra"] = "tensorrt"
-    # 不刷新时 GET 仍走 30s 缓存 → 旧值
     r2 = await httpx_client.get(
         f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities",
         headers=headers,
     )
     assert r2.json()["infra"] == "pytorch"
-    # refresh 先 invalidate 缓存再重探 → 新值
     r3 = await httpx_client.post(
         f"/api/v1/projects/{proj.id}/ml-backends/{backend.id}/capabilities/refresh",
         headers=headers,

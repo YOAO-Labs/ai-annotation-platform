@@ -24,12 +24,10 @@ async def test_patch_round_trip(httpx_client, super_admin, db_session: AsyncSess
     _, token = super_admin
     headers = {"Authorization": f"Bearer {token}"}
 
-    # 初始 GET
     res = await httpx_client.get("/api/v1/settings/system", headers=headers)
     assert res.status_code == 200
     initial = res.json()
 
-    # PATCH allow_open_registration=True + invitation_ttl_days=30
     res = await httpx_client.patch(
         "/api/v1/settings/system",
         headers=headers,
@@ -40,13 +38,11 @@ async def test_patch_round_trip(httpx_client, super_admin, db_session: AsyncSess
     assert body["allow_open_registration"] is True
     assert body["invitation_ttl_days"] == 30
 
-    # 再 GET 应保持
     SystemSettingsService.invalidate()
     res = await httpx_client.get("/api/v1/settings/system", headers=headers)
     assert res.json()["allow_open_registration"] is True
     assert res.json()["invitation_ttl_days"] == 30
 
-    # 还原（避免污染其它 test）
     await httpx_client.patch(
         "/api/v1/settings/system",
         headers=headers,
@@ -65,7 +61,6 @@ async def test_patch_invalid_ttl_returns_422(httpx_client, super_admin):
         headers=headers,
         json={"invitation_ttl_days": 999},
     )
-    # pydantic Field(ge=1, le=90) 会拦截
     assert res.status_code == 422
 
 
@@ -88,13 +83,11 @@ async def test_smtp_password_masked_in_response(
     )
     assert res.status_code == 200, res.text
     body = res.json()
-    # password_set true，response 不直接回密码
     assert body["smtp"]["password_set"] is True
     assert "password" not in body["smtp"]
     assert body["smtp"]["host"] == "smtp.test.local"
     assert body["smtp"]["configured"] is True
 
-    # 清理
     await httpx_client.patch(
         "/api/v1/settings/system",
         headers=headers,
@@ -171,7 +164,6 @@ async def test_audit_log_excludes_smtp_password_value(
     assert detail["smtp_password"] == {"changed": True}
     assert "highly-secret-string" not in str(detail)
 
-    # 清理
     await httpx_client.patch(
         "/api/v1/settings/system",
         headers=headers,
@@ -345,8 +337,6 @@ async def test_registration_default_change_causes_cas_conflict_with_matching_rea
         recovery_default,
     )
     _, token = super_admin
-    # Both rejected requests roll back their session. Keep the pre-operation
-    # actor fixture outside those request transactions.
     await db_session.commit()
     headers = {"Authorization": f"Bearer {token}"}
     initial = await httpx_client.get("/api/v1/settings/system", headers=headers)

@@ -187,8 +187,6 @@ describe("Mask operations · connectivity and membership", () => {
   });
 
   it("keeps the hit diagonal component in 4-connectivity while the 8-connected merge makes the same keep a no-op", () => {
-    // diagonal_two topology from the Mask advanced E2E matrix: two equal
-    // components touching diagonally, so connectivity decides the outcome.
     const source = alpha([
       [1, 1, 0, 0],
       [1, 1, 0, 0],
@@ -220,7 +218,6 @@ describe("Mask operations · connectivity and membership", () => {
     expect(four.report.afterArea).toBe(4);
     expect(four.report.beforeComponents).toBe(2);
     expect(four.report.afterComponents).toBe(1);
-    // Under 8-connectivity the diagonal blocks are one component: keep is a no-op.
     expect([...eight.alpha]).toEqual([...source]);
     expect(eight.report.changedPixels).toBe(0);
     expect(eight.report.beforeArea).toBe(8);
@@ -427,8 +424,6 @@ describe("Mask operations · component and hole editing", () => {
   });
 
   it("drives the donut-and-islands matrix: hole count, threshold pruning and keep-to-one", () => {
-    // donut_three topology from the Mask advanced E2E matrix: a donut with one
-    // enclosed hole plus two separate islands (three foreground components).
     const source = alpha([
       [0, 0, 0, 0, 0, 0, 0, 0, 0],
       [0, 1, 1, 1, 1, 1, 1, 1, 0],

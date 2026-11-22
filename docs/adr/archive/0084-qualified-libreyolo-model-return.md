@@ -23,6 +23,10 @@ LibreYOLO 收据固定家族、规格、格式、字节数与运行时资格。�
 
 原生最终评估经既有 reader 验证，保持真实零、负哨兵和不可用的逐类别／precision／recall 信息。共享样本评估与主动学习排名另有资格，API 和推理端在请求收据绑定前拒绝尚未通过该资格的 LibreYOLO；不能将原生别名包装为可比指标。
 
+训练适配器的 `native_dataset_yaml` 从冻结类别列表派生原生 YAML，以便原生验证器按整数类别索引取名，不把 JSON 的字符串键交给它。`CheckpointCallbacks.commit_resume` 在第一轮运行前就登记上次已核验的检查点字节，以便新尝试在产生新检查点前又被取消时仍可恢复。`libreyolo_train` 在调用原生可信加载器前用 `weights_only` 核验完整续训检查点和其中携带的确切历史最佳权重。
+
+`CheckpointCallbacks.on_train_epoch_end` 不把 mAP50–95 和 AR100 的原生 precision／recall 别名发布为常规轮次指标；最终报告在 `native_raw` 保留原始值及其别名说明。没有累计预测时，原生验证可跳过 COCOeval；`evaluation.py` 的 `libreyolo_descriptor` 未观察到后端时保留原生报告，但不签发可比描述符或补猜后端身份。
+
 ## Consequences
 
 负责人可以在既有模型面板完成 LibreYOLO 回流，历史下载与实验继续可用。无需数据库迁移、新部署变量或第二个服务；代价是共享镜像增加锁定原生依赖，必须重建并复验部署身份。推理资格不证明模型质量或人工效率，GPU、其他任务和格式需独立资格验证。

@@ -61,8 +61,6 @@ class SqlPredictionRetry(PredictionRetryPort):
         fp = await get_core_row(self._db, failed_prediction_row, failed_id)
         if not fp:
             _raise_retry_failure("not_found")
-        # Resolve the immutable evidence, snapshot and queue before the ledger
-        # admits the retry so an ineligible failure leaves no Job behind.
         target = await resolve_retry_target(
             self._db, fp, actor_id=actor_id, project_id=project_id
         )
@@ -89,9 +87,6 @@ class SqlPredictionRetry(PredictionRetryPort):
         job = await jobs.get_job(self._db, attempt.job_id, populate_existing=True)
         if job is None:
             _raise_retry_failure("storage_unavailable")
-        # Fresh source/manager/model authority captured by the input owners is
-        # written into the Job this transaction admitted; a rejection rolls the
-        # whole admission back, and a redelivery cannot replace it.
         updates = await capture_retry_authority(
             self._db, target, actor_id=actor_id, credential=credential
         )
@@ -102,8 +97,6 @@ class SqlPredictionRetry(PredictionRetryPort):
             actor_id=actor_id,
             snapshot_id=target.snapshot_id,
         )
-        # Display metadata stays optional; authority and immutable parameters
-        # were already accepted by the native owners in this same transaction.
         metadata = {}
         task = (
             await get_core_row(self._db, task_row, attempt.task_id)

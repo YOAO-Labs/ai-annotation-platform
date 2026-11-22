@@ -27,7 +27,6 @@ async def test_list_pools_available_returns_all_pools_with_enablement(
     proj = await create_project(db_session, owner_id=user.id)
     backend1, pool1 = await create_registry_with_pool(db_session, name="bk1")
     backend2, pool2 = await create_registry_with_pool(db_session, name="bk2")
-    # Enable pool1 for the project.
     db_session.add(
         ProjectMLBackendPool(project_id=proj.id, pool_id=pool1.id, enabled=True)
     )
@@ -42,12 +41,10 @@ async def test_list_pools_available_returns_all_pools_with_enablement(
     pool_ids = {it["pool"]["id"] for it in items}
     assert str(pool1.id) in pool_ids
     assert str(pool2.id) in pool_ids
-    # pool1 enabled, pool2 not.
     p1 = next(it for it in items if it["pool"]["id"] == str(pool1.id))
     p2 = next(it for it in items if it["pool"]["id"] == str(pool2.id))
     assert p1["enabled"] is True
     assert p2["enabled"] is False
-    # singleton pools: member_count = 1, legacy_instance_id set.
     assert p1["pool"]["member_count"] == 1
     assert p1["pool"]["legacy_instance_id"] == str(backend1.id)
 
@@ -58,7 +55,7 @@ async def test_enable_pool_for_project(httpx_client, db_session, super_admin) ->
     user, token = super_admin
     proj = await create_project(db_session, owner_id=user.id)
     backend, pool = await create_registry_with_pool(db_session, name="bk")
-    pool.enabled = True  # pool must be enabled to be project-enableable
+    pool.enabled = True
     await db_session.flush()
 
     resp = await httpx_client.put(
@@ -72,7 +69,6 @@ async def test_enable_pool_for_project(httpx_client, db_session, super_admin) ->
     assert body["pool"]["id"] == str(pool.id)
     assert body["pool"]["member_count"] == 1
 
-    # The binding row now exists.
     from sqlalchemy import select
 
     assoc = (
@@ -94,7 +90,6 @@ async def test_enable_disabled_pool_rejected(
     user, token = super_admin
     proj = await create_project(db_session, owner_id=user.id)
     _backend, pool = await create_registry_with_pool(db_session, name="bk")
-    # pool.enabled defaults to False (create_registry_with_pool does not enable the pool).
     await db_session.flush()
 
     resp = await httpx_client.put(

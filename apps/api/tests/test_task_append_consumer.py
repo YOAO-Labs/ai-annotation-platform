@@ -590,9 +590,6 @@ async def test_upload_completion_locks_parent_before_item_updates_and_delete(
         await db.execute(
             delete(ProjectDataset).where(ProjectDataset.dataset_id == state.dataset_id)
         )
-        # The legacy completion precheck reads the current image source. Bind
-        # the object identity the stubbed HEAD reports so that check passes and
-        # the test keeps exercising the parent-lock ordering.
         await db.execute(
             text(
                 "UPDATE public.dataset_items SET media_source_generation=1, "

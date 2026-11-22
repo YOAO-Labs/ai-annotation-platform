@@ -268,7 +268,6 @@ async def test_guarded_hydration_rechecks_budget_in_its_own_statement(
     monkeypatch.setattr(inputs._Budget, "measure", change_after_measure)
     with pytest.raises(ContentError, match="lidar_export_input_budget_exceeded"):
         await capture(db, project)
-    # The rejected row was not hydrated into the existing ORM instance.
     assert changed and project.rendering_config == {}
 
 

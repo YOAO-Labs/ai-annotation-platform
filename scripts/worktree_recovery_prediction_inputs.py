@@ -117,7 +117,6 @@ class _BeforePutStorage:
 def _interrupted_storage():
     from app.services import prediction_inputs
 
-    # The caller's real output permit already covers this constructor and close.
     return _BeforePutStorage(prediction_inputs.make_storage())
 
 
@@ -166,7 +165,6 @@ async def _close_case(inputs, source, permit, interrupted, failure):
             if getattr(exc, "storage_operation_unsettled", False):
                 storage_access.mark_unsettled(problem)
 
-    # A same-purpose source/output permit must still exist during inputs.close.
     await attempt(inputs.close)
     if interrupted is not None and not interrupted.client.closed:
         await attempt(lambda: originals.physical(interrupted.client.close))
@@ -326,7 +324,6 @@ def _read_restored_content(client, record, key, entry, deadline):
         if size != entry["size_bytes"] or digest.hexdigest() != entry["sha256"]:
             prediction_inputs.reject("integrity_mismatch")
     prediction_inputs._deadline(deadline)
-    # Current HEAD also detects a replacement that appeared after the pinned GET.
     after = client.head_object(Bucket=record.bucket, Key=key)
     prediction_inputs._http(after)
     prediction_inputs._owned(after, record.id, entry)
@@ -419,9 +416,6 @@ def _verify_historical_rejections(storage, record, objects):
                 )
             )
             rejected += 1
-    # Cleanup must reject during physical preparation, before accounting intents
-    # or deletion evidence exist. Never fabricate prepared observations from the
-    # restored current object to make an obsolete receipt eligible for DELETE.
     expect_rejection(
         lambda: prediction_inputs._prepare_delete_known(
             SimpleNamespace(client=_NoDeleteClient(storage.client)),
@@ -666,7 +660,6 @@ async def _seed_video_case(db, factory, task, case):
         **reference_bindings.task_binding(task),
         "original": await originals.managed_binding(db, task),
     }
-    # Source rows and proof are committed before independent owner/read sessions.
     await db.commit()
     guard = _guard(binding, video=True)
     inputs = await prediction_inputs.PredictionInputs.create(
@@ -705,7 +698,6 @@ async def _seed_video_case(db, factory, task, case):
             interruption = _BeforeVideoPublish(source.probe)
             inputs._publish = interruption
         try:
-            # Real probe belongs to this same full-hash-verified source FD.
             await inputs.upload_video(source.stage, probe=source.probe)
         except ContentError as exc:
             assert case == "planned" and exc.code == "prediction_input_upload_failed"

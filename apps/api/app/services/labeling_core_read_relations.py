@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import column, func, inspect, select, table
+from sqlalchemy import column, func, inspect, select, table, text
 from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -21,6 +21,10 @@ from app.db.models.dataset import VideoSegment
 from app.db.models.scene_track import SceneTrack, SceneTrackInterval
 from app.db.models.video_tracker_job import VideoTrackerJob
 from app.db.models.video_track_quality import VideoTrackQualityRun
+
+_TRY_CORE_LOCK_UPGRADE = text(
+    "SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"
+)
 
 
 def _row_relation(relation: str, model):
@@ -112,6 +116,27 @@ async def refresh_core_row(db: AsyncSession, row_model, row) -> None:
         raise InvalidRequestError("Could not refresh instance")
 
 
+async def _execute_core_row_lock(db: AsyncSession, statement, *, bounded: bool):
+    previous = None
+    if bounded:
+        previous = await db.scalar(
+            text(
+                "SELECT setting FROM pg_catalog.pg_settings WHERE name = 'lock_timeout'"
+            )
+        )
+        if 0 < int(previous) <= 1000:
+            previous = None
+        if previous is not None:
+            await db.execute(text("SET LOCAL lock_timeout = '1s'"))
+    result = await execute_core_read(db, statement)
+    if previous is not None:
+        await db.execute(
+            text("SELECT set_config('lock_timeout', :timeout, true)"),
+            {"timeout": previous},
+        )
+    return result
+
+
 async def lock_task_for_core_read(
     db: AsyncSession,
     task_id: uuid.UUID,
@@ -120,6 +145,7 @@ async def lock_task_for_core_read(
     lock_mode: str = "update",
     nowait: bool = False,
     populate_existing: bool = False,
+    bounded: bool = False,
 ):
     locked = func.yoao_labeling_v1.lock_task_for_core_read(
         task_id, lock_mode, nowait, project_id
@@ -132,7 +158,33 @@ async def lock_task_for_core_read(
     statement = select(aliased(Task, locked, adapt_on_names=True))
     if populate_existing:
         statement = statement.execution_options(populate_existing=True)
-    return (await execute_core_read(db, statement)).scalar_one_or_none()
+    result = await _execute_core_row_lock(db, statement, bounded=bounded)
+    return result.scalar_one_or_none()
+
+
+class VideoTaskDecisionBusy(RuntimeError):
+    pass
+
+
+async def lock_task_for_video_decision(
+    db: AsyncSession, task_id: uuid.UUID, *, project_id: uuid.UUID
+) -> Task | None:
+    connection = await db.connection()
+    async with connection.begin_nested():
+        reserved = await db.scalar(
+            _TRY_CORE_LOCK_UPGRADE,
+            {"key": f"yoao:labeling:video-task-decision:{task_id}"},
+        )
+        if not reserved:
+            raise VideoTaskDecisionBusy
+        shared = await lock_task_for_core_read(
+            db, task_id, project_id=project_id, lock_mode="share", nowait=True
+        )
+        if shared is None:
+            return None
+        return await lock_task_for_core_read(
+            db, task_id, project_id=project_id, populate_existing=True, bounded=True
+        )
 
 
 async def lock_task_dataset_item_links_for_core_read(
@@ -165,6 +217,7 @@ async def lock_batch_rows_for_core_read(
     lock_mode: str = "update",
     nowait: bool = False,
     populate_existing: bool = False,
+    bounded: bool = False,
 ):
     if not batch_ids:
         return []
@@ -180,7 +233,38 @@ async def lock_batch_rows_for_core_read(
     statement = select(row).order_by(row.id)
     if populate_existing:
         statement = statement.execution_options(populate_existing=True)
-    return (await execute_core_read(db, statement)).scalars().all()
+    result = await _execute_core_row_lock(db, statement, bounded=bounded)
+    return result.scalars().all()
+
+
+class BatchTaskSubmissionBusy(RuntimeError):
+    pass
+
+
+async def lock_batch_for_task_submission(
+    db: AsyncSession, batch_id: uuid.UUID, *, project_id: uuid.UUID
+) -> TaskBatch | None:
+    connection = await db.connection()
+    async with connection.begin_nested():
+        if not await db.scalar(
+            _TRY_CORE_LOCK_UPGRADE,
+            {"key": f"yoao:labeling:batch-task-submission:{batch_id}"},
+        ):
+            raise BatchTaskSubmissionBusy
+        batch_ids = [batch_id]
+        if not await lock_batch_rows_for_core_read(
+            db, batch_ids, project_id=project_id, lock_mode="share", nowait=True
+        ):
+            return None
+        batches = await lock_batch_rows_for_core_read(
+            db,
+            batch_ids,
+            project_id=project_id,
+            lock_mode="update",
+            populate_existing=True,
+            bounded=True,
+        )
+        return batches[0] if batches else None
 
 
 async def lock_task_rows_for_core_read(
@@ -395,6 +479,8 @@ async def lock_video_segment_for_core_read(
 
 
 __all__ = [
+    "BatchTaskSubmissionBusy",
+    "VideoTaskDecisionBusy",
     "alias_core_row",
     "annotation_row",
     "annotation_draft_rows",
@@ -403,12 +489,14 @@ __all__ = [
     "failed_prediction_row",
     "task_dataset_item_link_row",
     "get_core_row",
+    "lock_batch_for_task_submission",
     "lock_batch_rows_for_core_read",
     "lock_batch_task_rows_for_core_read",
     "lock_annotation_rows_for_core_read",
     "lock_active_annotation_rows_for_share",
     "lock_feedback_task_rows_for_share",
     "lock_task_for_core_read",
+    "lock_task_for_video_decision",
     "lock_task_dataset_item_links_for_core_read",
     "lock_task_rows_for_core_read",
     "lock_task_rows_for_core_read_share",

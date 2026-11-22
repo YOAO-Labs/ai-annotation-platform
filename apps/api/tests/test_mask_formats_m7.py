@@ -414,7 +414,6 @@ def test_yolo_polygon_consumer_and_loss_contract() -> None:
     consumer = Image.new("L", (7, 5), 0)
     ImageDraw.Draw(consumer).polygon(parsed, fill=1)
     assert sum(consumer.getdata()) > 0
-    # YOLO cannot encode the donut hole; the consumer therefore differs from canonical pixels.
     assert list(consumer.getdata()) != list(decode_coco_rle(rle))
     assert len(mask_to_yolo_polygons(_three_components())) == 3
 

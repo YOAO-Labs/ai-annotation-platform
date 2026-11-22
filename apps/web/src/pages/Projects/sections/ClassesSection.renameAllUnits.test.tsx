@@ -1,13 +1,10 @@
-/**
- * ClassesSection — 同名类跨工具单位批量重命名开关。
- *
- * 覆盖: 多 unit 同名类时开关出现 / 默认仅改当前 unit / 开启后走跨 unit 批量路径
- * (不传 tool_unit_id) / 单 unit 独占时开关不渲染。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { HttpResponse, http } from "msw";
+import type { CapabilityInstancesResponse } from "@/api/mlCapabilities";
+import { server } from "@/mocks/server";
 
 const mockRenameMutate = vi.fn();
 const mockUpdateMutate = vi.fn();
@@ -80,9 +77,6 @@ const sharedBindings = {
 };
 
 function renderUI(project: ProjectResponse) {
-  // 包 QueryClientProvider: ClassesSection 内挂的 PrefillFromBackendDialog
-  // 调 useCapabilityInstances(useQuery), 即使 dialog 关闭 hook 也无条件挂载。生产
-  // 环境整个 App 在 QueryClient 包装下, 测试须对齐。
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -102,6 +96,11 @@ function renameFirstPersonTo(newName: string) {
 }
 
 beforeEach(() => {
+  server.use(
+    http.get("*/api/v1/ml-capabilities/instances", () =>
+      HttpResponse.json<CapabilityInstancesResponse>({ instances: [] }),
+    ),
+  );
   mockRenameMutate.mockClear();
   mockUpdateMutate.mockClear();
   mockPushToast.mockClear();

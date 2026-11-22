@@ -33,7 +33,6 @@ pytestmark = [
 
 
 def _replay(name, value, record_property):
-    # Preserve frozen behavior, excluding SQL-count metadata and wording.
     expected = {
         key: item
         for key, item in GOLDEN[name].items()

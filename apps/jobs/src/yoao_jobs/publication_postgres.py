@@ -178,6 +178,20 @@ async def refuse_publication(connection, arguments):
 
 async def publish_fixture_media_delivery(database_url, delivery_id, publisher):
     """Publish only the owner-saved envelope while holding its physical fence."""
+    return await _publish_fixture_media_delivery(database_url, delivery_id, publisher)
+
+
+async def publish_fixture_video_request(database_url, run_id, delivery_id, publisher):
+    if not isinstance(run_id, uuid.UUID):
+        raise ValueError("Fixture video publication requires its exact run")
+    return await _publish_fixture_media_delivery(
+        database_url, delivery_id, publisher, run_id=run_id
+    )
+
+
+async def _publish_fixture_media_delivery(
+    database_url, delivery_id, publisher, *, run_id=None
+):
     from .queue_contract import (
         JobsQueueNotSent,
         JobsQueueUnavailable,
@@ -195,11 +209,36 @@ async def publish_fixture_media_delivery(database_url, delivery_id, publisher):
         if owned is not True:
             raise PublicationUnavailable("Fixture media publication is already owned")
         nonce = uuid.uuid4()
-        raw = await connection.fetchval(
-            "SELECT yoao_jobs_v1.begin_fixture_media_publication($1, $2)",
-            delivery_id,
-            nonce,
-        )
+        if run_id is None:
+            raw = await connection.fetchval(
+                "SELECT yoao_jobs_v1.begin_fixture_media_publication($1, $2)",
+                delivery_id,
+                nonce,
+            )
+        else:
+            raw = await connection.fetchval(
+                "SELECT yoao_jobs_v1.begin_fixture_video_request_publication($1, $2, $3)",
+                run_id,
+                delivery_id,
+                nonce,
+            )
+
+        async def finish(outcome):
+            if run_id is None:
+                return await connection.fetchval(
+                    "SELECT yoao_jobs_v1.finish_fixture_media_publication($1, $2, $3)",
+                    delivery_id,
+                    nonce,
+                    outcome,
+                )
+            return await connection.fetchval(
+                "SELECT yoao_jobs_v1.finish_fixture_video_request_publication($1, $2, $3, $4)",
+                run_id,
+                delivery_id,
+                nonce,
+                outcome,
+            )
+
         try:
             receipt = json.loads(raw) if isinstance(raw, str) else raw
             if (
@@ -230,13 +269,7 @@ async def publish_fixture_media_delivery(database_url, delivery_id, publisher):
             published = await publisher.publish_envelope(receipt["envelope"])
         except JobsQueueNotSent as primary:
             try:
-                recorded = await connection.fetchval(
-                    "SELECT yoao_jobs_v1.finish_fixture_media_publication($1, $2, $3)",
-                    delivery_id,
-                    nonce,
-                    "not_sent",
-                )
-                if recorded is not True:
+                if await finish("not_sent") is not True:
                     raise PublicationUnavailable(
                         "Fixture media refusal was not acknowledged"
                     )
@@ -248,15 +281,7 @@ async def publish_fixture_media_delivery(database_url, delivery_id, publisher):
             raise
         if published != str(delivery_id):
             raise JobsQueueUnavailable()
-        if (
-            await connection.fetchval(
-                "SELECT yoao_jobs_v1.finish_fixture_media_publication($1, $2, $3)",
-                delivery_id,
-                nonce,
-                "accepted",
-            )
-            is not True
-        ):
+        if await finish("accepted") is not True:
             raise PublicationUnavailable(
                 "Fixture media publication was not acknowledged"
             )

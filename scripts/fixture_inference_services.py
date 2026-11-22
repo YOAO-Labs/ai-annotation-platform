@@ -61,6 +61,13 @@ _HEALTH = (
 )
 
 
+_JOBS_PUBLICATION = {
+    ("begin_dispatch_publication", "uuid, uuid, text, bigint, uuid"),
+    ("finish_dispatch_publication", "uuid, uuid, text, bigint, uuid"),
+    ("refuse_dispatch_publication", "uuid, uuid, text, bigint, uuid"),
+}
+
+
 def _control_profiles():
     """The same function-only profiles enforced by the native owner."""
     from yoao_inference.backend_endpoint_postgres import _function_set
@@ -121,6 +128,11 @@ def _set_private_gpu_selectors(selectors):
         if key.upper() in protected:
             del os.environ[key]
     os.environ.update(selectors)
+
+
+def _derive_secret(credentials, purpose):
+    key = credentials["routing_password"].encode()
+    return hmac.digest(key, purpose, "sha256").hex()
 
 
 class FixtureInferenceServices:
@@ -293,7 +305,13 @@ class FixtureInferenceServices:
             self._phase = "paused"
             return self._selection()
 
-    async def _roles(self, action: str, *, require_existing: bool = False):
+    async def _roles(
+        self,
+        action: str,
+        *,
+        require_existing: bool = False,
+        publication_only: bool = False,
+    ):
         credentials = self._load_credentials(create=action == "create")
         observed_db = await self.backend.database()
         if action == "create" and not require_owner(
@@ -332,13 +350,29 @@ class FixtureInferenceServices:
                     .mappings()
                     .one()
                 )
-                profiles = {
-                    "routing": ("yoao_inference_routing_v1", _ROUTING),
-                    "health": ("yoao_inference_health_observation_v1", _HEALTH),
-                    **_control_profiles(),
-                }
+                profiles = (
+                    {}
+                    if publication_only
+                    else {
+                        "routing": ("yoao_inference_routing_v1", _ROUTING),
+                        "health": ("yoao_inference_health_observation_v1", _HEALTH),
+                        **_control_profiles(),
+                    }
+                )
+                if publication_only or action != "create":
+                    profiles["jobs_publication"] = (
+                        "yoao_jobs_v1",
+                        tuple(
+                            f"yoao_jobs_v1.{name}({arguments})"
+                            for name, arguments in sorted(_JOBS_PUBLICATION)
+                        ),
+                    )
                 for kind, (schema, functions) in profiles.items():
-                    role = self._identity()[kind + "_role"]
+                    role = (
+                        self.resources["database"] + "_jobs_publish"
+                        if kind == "jobs_publication"
+                        else self._identity()[kind + "_role"]
+                    )
                     await connection.execute(
                         text("SELECT pg_advisory_xact_lock(hashtext(:role))"),
                         {"role": role},
@@ -365,7 +399,11 @@ class FixtureInferenceServices:
                             ),
                             {
                                 "role": role,
-                                "password": credentials[kind + "_password"],
+                                "password": (
+                                    _derive_secret(credentials, b"jobs-publication/v1")
+                                    if kind == "jobs_publication"
+                                    else credentials[kind + "_password"]
+                                ),
                                 "owner": self.resources["owner"],
                             },
                         )
@@ -550,6 +588,7 @@ class FixtureInferenceServices:
             "routing_token": values["routing_token"],
             "health_token": values["health_token"],
             "backend_control_token": values["backend_control_token"],
+            "model_execution_token": _derive_secret(values, b"model-execution/v1"),
             "port": values["port"],
             "nonce": nonce,
             "health_max_age_seconds": (
@@ -653,7 +692,6 @@ class FixtureInferenceServices:
         except ProcessLookupError:
             pass
         else:
-            # Even a different identity at the old PID is not a settled receipt.
             raise WorktreeError("无法确认原推理夹具监督进程退出")
         script = str(self.code_root / "scripts/fixture_inference_services.py")
         if not process_matches(marker, script):
@@ -800,8 +838,49 @@ class FixtureInferenceServices:
             "INFERENCE_BACKEND_CONTROL_URL": origin,
             "INFERENCE_BACKEND_CONTROL_TOKEN": value["backend_control_token"],
             "INFERENCE_BACKEND_CONTROL_TOKEN_FILE": "",
+            "INFERENCE_MODEL_EXECUTION_URL": origin,
+            "INFERENCE_MODEL_EXECUTION_TOKEN": _derive_secret(
+                value, b"model-execution/v1"
+            ),
+            "INFERENCE_MODEL_EXECUTION_TOKEN_FILE": "",
             "ML_BACKEND_ROUTER_MODE": "enforce",
         }
+
+    async def prepare_jobs_publication(self) -> str:
+        import asyncpg
+        from yoao_owner_data.postgres import (
+            FunctionRoleUnavailable,
+            verify_function_only_role,
+        )
+
+        if self._credentials is None or not self.is_alive():
+            raise WorktreeError("推理夹具 owner 不可验证；拒绝选择 Jobs 发布账号")
+        await self._roles("create", publication_only=True)
+        role = self.resources["database"] + "_jobs_publish"
+        url = self.backend.url.set(
+            drivername="postgresql",
+            username=role,
+            password=_derive_secret(self._credentials, b"jobs-publication/v1"),
+        ).render_as_string(hide_password=False)
+        try:
+            connection = await asyncpg.connect(url, timeout=5, command_timeout=5)
+            try:
+                database = await connection.fetchval("SELECT current_database()")
+                if database != self.resources["database"]:
+                    raise WorktreeError("Jobs 发布账号连接的数据库与本环境不一致")
+                await verify_function_only_role(
+                    connection,
+                    schema="yoao_jobs_v1",
+                    functions=_JOBS_PUBLICATION,
+                    role=role,
+                )
+            finally:
+                await connection.close()
+        except (asyncpg.PostgresError, OSError, FunctionRoleUnavailable) as exc:
+            raise WorktreeError("无法核对本环境的受限 Jobs 发布账号") from exc
+        if not self.is_alive():
+            raise WorktreeError("推理夹具 owner 身份变化；拒绝选择 Jobs 发布账号")
+        return url
 
     def pause(self):
         with self._lifecycle_lock:
@@ -826,8 +905,6 @@ class FixtureInferenceServices:
             try:
                 self._control("finish", deadline)
             except (OSError, ValueError, WorktreeError):
-                # A lost final reply is resolved only by the prior drain receipt,
-                # exact pidfd exit, and owned control-directory removal below.
                 pass
             if self.pidfd is None:
                 raise WorktreeError("无法核对推理夹具进程退出；保留资源")
@@ -1000,10 +1077,12 @@ async def _serve(payload):
     from yoao_inference.gpu.endpoint_source import _verify_endpoint_profile
     from yoao_inference.gpu.native import GPUAuthorityPostgresData
     from yoao_inference.health_data_postgres import HealthDataPostgresData
+    from yoao_inference.model_execution import BackendTransportModelExecutionProvider
     from yoao_inference_contract.backend_endpoint import backend_endpoint_policy_ready
     import asyncpg
     from yoao_inference.owner_transport import (
         RoutingBackendControlRequestContextFactory,
+        RoutingModelRequestContextFactory,
     )
     from yoao_inference_contract.capabilities import CapabilityLimits
     from yoao_inference.health_observation_manager import (
@@ -1025,7 +1104,6 @@ async def _serve(payload):
         health_max_age_seconds=payload["health_max_age_seconds"],
         lease_ttl_ms=payload["lease_ttl_ms"],
     )
-    # Native GPU dispatch owns these separate profiles, even for CPU fixtures.
     _set_private_gpu_selectors(
         {
             "INFERENCE_GPU_DATABASE_URL": dsn("gpu_authority"),
@@ -1103,6 +1181,12 @@ async def _serve(payload):
         unregistered_smoke_dispatch=boundary.unregistered_smoke_dispatch,
         stats_data=BackendControlStatsPostgresData(dsn("backend_stats")),
     )
+    model_execution = BackendTransportModelExecutionProvider(
+        openers["execution"],
+        options=options,
+        request_context_factory=RoutingModelRequestContextFactory(routing),
+        dispatch_context_factory=boundary,
+    )
     health_data = BackendHealthObservationPostgresData(dsn("health"))
     server = PipelineHttpServer(
         None,
@@ -1114,9 +1198,16 @@ async def _serve(payload):
         routing_control_token=payload["routing_token"],
         health_observation_manager=BackendHealthObservationManager(health_data),
         health_observation_control_token=payload["health_token"],
+        model_execution_manager=model_execution,
+        model_execution_control_token=payload["model_execution_token"],
         backend_control_manager=backend_control,
         backend_control_token=payload["backend_control_token"],
-        required_capabilities=("routing", "health_observation", "backend_control"),
+        required_capabilities=(
+            "routing",
+            "health_observation",
+            "backend_control",
+            "execution",
+        ),
     )
     control_path = Path(payload["control_path"])
     if control_path.exists() or control_path.is_symlink():
@@ -1188,9 +1279,6 @@ async def _serve(payload):
                 ):
                     raise RuntimeError("Inference control socket identity changed")
                 controller.close()
-                # Server.close() also unlinks the Unix socket path it created;
-                # the unlink must stay idempotent or the finish reply and
-                # shutdown signal are skipped while the socket is already gone.
                 control_path.unlink(missing_ok=True)
                 finishing = True
                 control_path.parent.rmdir()
@@ -1207,7 +1295,6 @@ async def _serve(payload):
             pass
         finally:
             if finishing:
-                # Completion cannot depend on delivery of the final reply.
                 shutdown.set()
             writer.close()
             try:

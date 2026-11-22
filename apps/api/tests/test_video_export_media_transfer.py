@@ -15,8 +15,6 @@ from tests.test_storage_usage_accounting import accounting_factory as accounting
 
 
 def video(runtime, monkeypatch):
-    # Exercise the actual boundary selection with small real bytes, without
-    # allocating a multi-GiB fixture or weakening any full-reader algorithm.
     runtime.snapshot.input_schema = 4
     runtime.snapshot._input_snapshot = {"schema": 4}
     monkeypatch.setattr(physical, "MAX_OBJECT_BYTES", len(RAW) - 1)

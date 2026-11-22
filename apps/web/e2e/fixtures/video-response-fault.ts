@@ -1,6 +1,5 @@
 import type { Page } from "@playwright/test";
 
-/** Damage only a browser response; persisted output receipts remain valid. */
 export async function injectVideoResponseFault(
   page: Page,
   itemId: string,

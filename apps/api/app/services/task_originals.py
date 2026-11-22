@@ -192,9 +192,6 @@ async def _persist(db, values):
             .one_or_none()
         )
         if existing is None:
-            # Every immutable identity is unique: the row id and the Creation
-            # that owns the receipt. A concurrent independent publisher of the
-            # same receipt must settle on that row, never surface an unknown.
             await connection.execute(
                 insert(table).values(**values).on_conflict_do_nothing()
             )
@@ -221,8 +218,6 @@ async def _durable_owner(db, values):
     try:
         return await asyncio.shield(operation)
     except asyncio.CancelledError:
-        # Drain the commit/rollback even under repeated cancellation. An owner
-        # may have committed despite losing its acknowledgement; never delete it.
         try:
             await storage_access.finish(operation)
         except BaseException:
@@ -285,8 +280,6 @@ async def publish(db, task, allocation, created, *, actor_id):
         storage_ref=creation.original_ref(row),
     )
     resolve(values)
-    # These are the caller's short final configuration/Gate locks. The separate
-    # owner transaction only references already committed immutable evidence.
     await creation._validate(db, row, lock=True)
     from app.services.managed_original_reclaim_fence import shared
 
@@ -316,8 +309,6 @@ async def publish(db, task, allocation, created, *, actor_id):
     ).one_or_none()
     if published is None or published.original_id != owner.id:
         _reject("creation_conflict")
-    # Sync only the returned facts on the borrowed owner read; never emit an
-    # ORM UPDATE of the published Task row.
     from sqlalchemy.orm import attributes
 
     for name, value in (

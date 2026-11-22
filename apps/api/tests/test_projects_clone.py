@@ -44,8 +44,6 @@ async def _seed_project(db: AsyncSession, owner_id: uuid.UUID, **overrides) -> P
 async def _seed_backend(
     db: AsyncSession, project_id: uuid.UUID, name: str = "src-backend"
 ) -> tuple[MLBackendRegistry, MLBackendServicePool]:
-    # ADR-0044 · backend 已上提为全局注册项 (无 project_id); url 全局唯一。
-    # ADR-0050 · 同时建 singleton pool (克隆 / 绑定经 pool 层)。
     return await create_registry_with_pool(
         db,
         name=name,
@@ -105,9 +103,7 @@ async def test_clone_copies_all_cloneable_fields(httpx_client, super_admin, db_s
     assert resp.status_code == 200, resp.text
     data = resp.json()
 
-    # 显式字段保留
     assert data["name"] == "克隆出来的项目"
-    # 配置字段从源克隆
     assert data["classes"] == ["car", "pedestrian"]
     assert data["classes_config"]["car"]["color"] == "#ff0000"
     assert data["attribute_schema"]["fields"][0]["key"] == "occluded"
@@ -120,12 +116,9 @@ async def test_clone_copies_all_cloneable_fields(httpx_client, super_admin, db_s
     assert data["iou_dedup_threshold"] == pytest.approx(0.85, rel=1e-5)
     assert data["rendering_config"]["smoothImage"] is False
     assert data["rendering_config"]["controlPointsSize"] == 8
-    # 不复制运行时数据
     assert data["total_tasks"] == 0
     assert data["completed_tasks"] == 0
-    # 新项目独立 id
     assert data["id"] != str(src.id)
-    # 新项目独立 display_id
     assert data["display_id"] != src.display_id
 
 
@@ -147,14 +140,12 @@ async def test_clone_explicit_field_overrides_source(
         "type_label": "图像-检测",
         "type_key": "image-det",
         "source_project_id": str(src.id),
-        # 显式 override
         "ai_enabled": False,
         "box_threshold": 0.6,
     }
     resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    # 显式字段优先
     assert data["ai_enabled"] is False
     assert data["box_threshold"] == pytest.approx(0.6, rel=1e-5)
 
@@ -174,7 +165,6 @@ async def test_clone_auto_derives_ml_backend_from_source(
     monkeypatch.setattr(
         "app.services.inference_backend_probe.backend_probe", lambda: probe
     )
-    # 项目主绑定存 pool id (backend 经 _seed_backend 已有 singleton pool)。
     src.ml_backend_pool_id = src_pool.id
     await db_session.flush()
     await db_session.commit()
@@ -189,9 +179,7 @@ async def test_clone_auto_derives_ml_backend_from_source(
     resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
     assert resp.status_code == 200, resp.text
     data = resp.json()
-    # ADR-0044 · clone 复用同一全局 registry id (不再复制新 backend row)
     assert data["ml_backend_id"] == str(backend.id)
-    # 新项目获得一条启用关联
     from app.services.ml_backend import MLBackendService
 
     assert await MLBackendService(db_session).is_enabled(
@@ -205,7 +193,6 @@ async def test_clone_without_view_permission_returns_404(
     """project_admin 复制别人 (非 self 所有) 的源项目 -> 404 (隐藏存在性)."""
     pm_user, pm_token = project_admin
 
-    # 另一个 super_admin 拥有源项目 (project_admin 看不到)
     from app.core.security import hash_password
 
     other_owner = User(
@@ -230,7 +217,6 @@ async def test_clone_without_view_permission_returns_404(
         "source_project_id": str(src.id),
     }
     resp = await httpx_client.post("/api/v1/projects", json=body, headers=headers)
-    # assert_project_visible 隐藏存在性, 返回 404 (project_admin 只能看 owner=self)
     assert resp.status_code == 404, resp.text
 
 
@@ -509,7 +495,6 @@ async def test_apply_template_with_explicit_field_override(
         "type_label": "图像-检测",
         "type_key": "image-det",
         "template_id": str(t.id),
-        # 显式覆盖
         "ai_enabled": False,
         "classes": ["pedestrian"],
     }
@@ -561,7 +546,6 @@ async def test_clone_jsonb_is_deep_copied(httpx_client, super_admin, db_session)
     assert resp.status_code == 200
     new_id = resp.json()["id"]
 
-    # 走 PATCH 改新项目 classes_config
     patch = await httpx_client.patch(
         f"/api/v1/projects/{new_id}",
         json={"classes_config": {"a": {"color": "#999999", "order": 0}}},
@@ -569,7 +553,6 @@ async def test_clone_jsonb_is_deep_copied(httpx_client, super_admin, db_session)
     )
     assert patch.status_code == 200
 
-    # 重新读源项目, color 应保持 #111111
     db_session.expire_all()
     refreshed = await db_session.get(Project, src_id)
     assert refreshed is not None

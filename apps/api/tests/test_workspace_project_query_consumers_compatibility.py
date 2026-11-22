@@ -30,9 +30,6 @@ def _comparable(sample):
     response = sample["response"]
     body = json.loads(json.dumps(response["body"]))
     if isinstance(body, dict) and "projects" in body and "tasks" in body:
-        # All seeded Project/Task updated_at values tie. Non-SA member search
-        # has no ORDER BY. Compare those unordered groups without inventing a
-        # production UUID tie-breaker; retain SA's defined name ordering.
         groups = ["projects", "tasks"]
         if sample["request"]["actor"]["role"] != "super_admin":
             groups.append("members")
@@ -75,8 +72,6 @@ async def test_current_owner_matches_frozen_consumers_and_postcommit_authority(
 
     async def observed_execute(db, **kwargs):
         if kwargs["operation"] == "get_project_projection":
-            # Adapt only the legacy harness's observer seam. Real query work
-            # still runs through the current owner; production has no facade.
             return await projects_api._serialize_project(
                 db, SimpleNamespace(id=kwargs["target_id"]), current_request=kwargs
             )

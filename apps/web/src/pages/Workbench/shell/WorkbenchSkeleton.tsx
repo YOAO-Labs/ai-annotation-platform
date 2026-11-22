@@ -21,7 +21,6 @@ function Block({ w, h, mb = 0 }: { w: number | string; h: number; mb?: 0 | 6 | 8
 export function WorkbenchSkeleton() {
   return (
     <div className="grid grid-cols-[260px_1fr_280px] h-full overflow-hidden bg-muted">
-      {/* 左侧 task list */}
       <div className="p-3.5 border-r border-border bg-card">
         <Block w={120} h={16} mb={10} />
         <Block w="80%" h={11} mb={20} />
@@ -36,7 +35,6 @@ export function WorkbenchSkeleton() {
         ))}
       </div>
 
-      {/* 中央 stage */}
       <div className="flex flex-col">
         <div className="flex gap-1.5 p-2.5 border-b border-border bg-card">
           <Block w={60} h={26} />
@@ -55,7 +53,6 @@ export function WorkbenchSkeleton() {
         </div>
       </div>
 
-      {/* 右侧 AI panel */}
       <div className="p-3.5 border-l border-border bg-card">
         <Block w="50%" h={14} mb={10} />
         <Block w="100%" h={32} mb={10} />

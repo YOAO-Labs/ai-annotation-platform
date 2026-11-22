@@ -1,24 +1,5 @@
 /// <reference lib="es2021.promise" />
 
-/**
- * E2E 共享 fixtures：调用后端 _test_seed router 造数与跳登录。
- *
- * `seed.owned()` 创建每个测试私有命名空间的标准工作台 fixture，不触碰其他
- * 命名空间；测试结束后自动精确清理，重试可独立重建。
- *
- * 后端要求（`_test_seed.py`）：
- *   - development + E2E_SEED_ENABLED=true，且数据库名以 _e2e / _test 结尾
- *   - POST /api/v1/__test/seed/owned {namespace} → 仅建本命名空间 fixture
- *   - POST /api/v1/__test/seed/owned-cleanup {namespace} → 仅删本命名空间
- *   - POST /api/v1/__test/seed/login {email} → 返回 access_token
- *
- * 用法：
- *   import { test } from "../fixtures/seed";
- *   test("登录后跳默认首页", async ({ page, seed }) => {
- *     const data = await seed.owned("mypage");     // 私有 fixture，测试后自动清理
- *     await seed.loginViaUI(page, data.admin_email, "Test1234", /\/overview/);
- *   });
- */
 import {
   test as base,
   expect,
@@ -33,6 +14,7 @@ import { worktreeMode as readWorktreeMode } from "../helpers/worktree-mode.mjs";
 import {
   closeFixtureTransport,
   postFixture,
+  runMaskSliceLifecycle,
   type SeedResponse,
 } from "../helpers/seed-owner-transport.mjs";
 
@@ -42,7 +24,6 @@ export interface SeedData {
   reviewer_email: string;
   project_id: string;
   task_ids: string[];
-  /** Per-run managed test execution provider. */
   ml_backend_id: string;
 }
 
@@ -62,11 +43,6 @@ export interface ProjectRolesSeedProject {
   task_ids: string[];
 }
 
-/**
- * Multi-project employee-role fixture.  `employee` annotates in `a`, reviews
- * in `b`, has no membership in `c` (despite an assigned task), and is an idle
- * annotator in the open-pool project `d` used for the revocation check.
- */
 export interface ProjectRolesSeedData {
   employee_email: string;
   peer_email: string;
@@ -141,7 +117,6 @@ export interface FilteringSeedManifest {
     job_ids: string[];
     bug_ids: string[];
     audit_ids: string[];
-    /** Namespace-unique display values for global list searches and UI labels. */
     display_names: Record<
       | "active"
       | "inactive"
@@ -165,8 +140,6 @@ export interface FilteringSeedManifest {
   };
 }
 
-/** 点云 E2E fixture：优先使用 seed 用户缓存中的两个 nuScenes mini 真实 LIDAR_TOP 帧；
- *  CI 未安装外部数据时回落到 32 线、同量级点数的确定性扫描。 */
 export interface SeedLidarData {
   lidar_project_id: string;
   lidar_task_ids: string[];
@@ -325,26 +298,31 @@ function namespaceForKey(key: string): string {
   return digest.slice(0, 12).padStart(4, "0");
 }
 
-/**
- * Collision-resistant token for a test in one run. Retries retain the same
- * token, while independent runs of the same test use different namespaces.
- * The result remains within the backend's `^[a-z0-9]{4,12}$` namespace rule.
- */
 export function ownedNamespaceFor(testInfo?: TestInfo): string {
   if (!testInfo) throw new Error("seed.owned() needs a namespace outside a Playwright test");
   return namespaceForKey(`${testInfo.file}::${testInfo.titlePath.join("::")}`);
 }
 
+const OWNED_SETUP_TIMEOUT = 60_000;
+
+type OwnedRun = { id: string; provisional: boolean };
+
+function isUnadmittedScopeRefusal(status: number, body: string): boolean {
+  if (status !== 409) return false;
+  try {
+    return JSON.parse(body)?.detail?.code === "fixture_scope_busy";
+  } catch {
+    return false;
+  }
+}
+
 export class SeedAPI {
-  /** Namespaces built by this test via `owned()`; cleaned up in teardown. */
-  private ownedNamespaces: string[] = [];
   private explicitNamespaces = new Map<string, string>();
-  private ownedRunIds = new Map<string, string>();
+  private ownedRuns = new Map<string, OwnedRun>();
   private retiredRunIds = new Map<string, string>();
   private workbenchBuilt = new Set<string>();
   private projectNamespaces = new Map<string, string>();
   private taskRunIds = new Map<string, string>();
-  /** Pages this test bound through `injectToken`; retired before cleanup. */
   private boundPages = new Set<Page>();
 
   constructor(
@@ -352,7 +330,6 @@ export class SeedAPI {
     private testInfo?: TestInfo,
   ) {}
 
-  /** Seed setup runs outside the ordinary API credential boundary. */
   private seedLogin(email: string): Promise<SeedResponse> {
     return postFixture(`${API_BASE}/api/v1/__test/seed/login`, {
       data: { email },
@@ -367,7 +344,6 @@ export class SeedAPI {
     return ((await res.json()) as { access_token: string }).access_token;
   }
 
-  /** 通过正式 API 为功能测试准备单条标注。 */
   async createTaskAnnotation(
     taskId: string,
     userEmail: string,
@@ -390,7 +366,6 @@ export class SeedAPI {
     return (await res.json()) as SeedTaskAnnotation;
   }
 
-  /** 通过正式 API 精确删除指定标注。 */
   async deleteTaskAnnotation(
     taskId: string,
     annotationId: string,
@@ -406,10 +381,6 @@ export class SeedAPI {
     }
   }
 
-  /**
-   * Resolve and register this test's namespace. Explicit labels are also
-   * scoped to the current run.
-   */
   private ownedNamespace(explicit?: string): string {
     if (explicit !== undefined && !/^[a-z0-9]{4,12}$/.test(explicit)) {
       throw new Error("Fixture namespace must contain 4–12 lowercase letters or digits");
@@ -423,42 +394,57 @@ export class SeedAPI {
         : defaultToken;
     if (!token) throw new Error("seed.owned() needs a namespace outside a Playwright test");
     if (explicit !== undefined) this.explicitNamespaces.set(explicit, token);
-    if (!this.ownedNamespaces.includes(token)) this.ownedNamespaces.push(token);
-    if (!this.ownedRunIds.has(token)) {
-      this.ownedRunIds.set(token, randomUUID());
-      this.retiredRunIds.delete(token);
-    }
     return token;
   }
 
   private ownedScope(token: string, includeRetired = false) {
     const suiteId = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
     const runId =
-      this.ownedRunIds.get(token) ?? (includeRetired ? this.retiredRunIds.get(token) : undefined);
+      this.ownedRuns.get(token)?.id ?? (includeRetired ? this.retiredRunIds.get(token) : undefined);
     if (!suiteId || !runId) throw new Error("Fixture suite and run identities are required");
     return { namespace: token, suite_id: suiteId, run_id: runId };
   }
 
-  /** Prepare the default owned run's native processes outside the product test budget. */
-  async prepareRasterOwned(): Promise<void> {
-    const token = this.ownedNamespace();
-    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/owned-prepare`, {
-      data: this.ownedScope(token),
-      timeout: 60_000,
-    });
-    if (!res.ok()) {
-      throw new Error(`seed/owned-prepare failed: ${res.status()} ${await res.text()}`);
+  private async postOwnedSeed(
+    path: "owned" | "owned-prepare" | "project-roles" | "filtering" | "lidar",
+    token: string,
+    { data, timeout }: { data?: Record<string, unknown>; timeout?: number } = {},
+  ): Promise<SeedResponse> {
+    let run = this.ownedRuns.get(token);
+    if (run) {
+      run.provisional = false;
+    } else {
+      run = { id: randomUUID(), provisional: true };
+      this.ownedRuns.set(token, run);
+      this.retiredRunIds.delete(token);
+    }
+    try {
+      const res = await postFixture(`${API_BASE}/api/v1/__test/seed/${path}`, {
+        data: { ...data, ...this.ownedScope(token) },
+        timeout,
+      });
+      if (!res.ok()) {
+        const status = res.status();
+        const body = await res.text();
+        if (
+          run.provisional &&
+          this.ownedRuns.get(token) === run &&
+          isUnadmittedScopeRefusal(status, body)
+        ) {
+          this.ownedRuns.delete(token);
+        }
+        throw new Error(`seed/${path} failed: ${status} ${body}`);
+      }
+      return res;
+    } finally {
+      run.provisional = false;
     }
   }
 
-  /**
-   * Build this test's own namespaced image-workbench fixture without touching
-   * any other namespace. Tokens derive from the run identity and either an
-   * explicit label or the test identity; retries reuse that token within a run.
-   * The namespace is registered on this SeedAPI instance (fresh per test) and
-   * `cleanupOwnedFixtures()` removes every registered namespace in the
-   * seed-fixture teardown after the test.
-   */
+  async prepareRasterOwned(): Promise<void> {
+    await this.postOwnedSeed("owned-prepare", this.ownedNamespace(), { timeout: 60_000 });
+  }
+
   async owned(
     namespace?: string,
     options?: { imageCanvas?: "default" | "720p" | "5k" | "8k" },
@@ -466,17 +452,11 @@ export class SeedAPI {
     const token = this.ownedNamespace(namespace);
     if (this.workbenchBuilt.has(token)) {
       await this.cleanupOwned(token);
-      this.ownedRunIds.set(token, randomUUID());
-      this.retiredRunIds.delete(token);
-      this.ownedNamespaces.push(token);
     }
-    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/owned`, {
-      data: { ...this.ownedScope(token), image_canvas: options?.imageCanvas ?? "default" },
-      timeout: 60_000,
+    const res = await this.postOwnedSeed("owned", token, {
+      data: { image_canvas: options?.imageCanvas ?? "default" },
+      timeout: OWNED_SETUP_TIMEOUT,
     });
-    if (!res.ok()) {
-      throw new Error(`seed/owned failed: ${res.status()} ${await res.text()}`);
-    }
     this.workbenchBuilt.add(token);
     const data = (await res.json()) as SeedData;
     this.projectNamespaces.set(data.project_id, token);
@@ -485,7 +465,6 @@ export class SeedAPI {
     return data;
   }
 
-  /** Adopt one coordinator-prepared offline fault run after exact owner verification. */
   async preparedRasterFault(caseName: RasterFaultCase): Promise<{
     data: SeedData;
     taskId: string;
@@ -511,11 +490,10 @@ export class SeedAPI {
         `Raster fault scope verification failed: ${response.status()} ${await response.text()}`,
       );
     }
-    if (this.ownedRunIds.has(entry.namespace)) {
+    if (this.ownedRuns.has(entry.namespace)) {
       throw new Error("Raster fault namespace is already registered");
     }
-    this.ownedNamespaces.push(entry.namespace);
-    this.ownedRunIds.set(entry.namespace, entry.run_id);
+    this.ownedRuns.set(entry.namespace, { id: entry.run_id, provisional: false });
     this.workbenchBuilt.add(entry.namespace);
     this.projectNamespaces.set(entry.seed.project_id, entry.namespace);
     for (const taskId of entry.seed.task_ids) this.taskRunIds.set(taskId, entry.run_id);
@@ -527,7 +505,6 @@ export class SeedAPI {
     };
   }
 
-  /** Delete exactly one namespace's fixture; idempotent and neighbour-safe. */
   async cleanupOwned(namespace: string): Promise<void> {
     const token = this.explicitNamespaces.get(namespace) ?? namespace;
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/owned-cleanup`, {
@@ -538,28 +515,20 @@ export class SeedAPI {
       throw new Error(`seed/owned-cleanup failed: ${res.status()} ${await res.text()}`);
     }
     this.workbenchBuilt.delete(token);
-    const runId = this.ownedRunIds.get(token);
-    if (runId) this.retiredRunIds.set(token, runId);
-    this.ownedRunIds.delete(token);
-    this.ownedNamespaces = this.ownedNamespaces.filter((entry) => entry !== token);
+    const run = this.ownedRuns.get(token);
+    if (run) this.retiredRunIds.set(token, run.id);
+    this.ownedRuns.delete(token);
     for (const [projectId, owner] of this.projectNamespaces) {
       if (owner === token) this.projectNamespaces.delete(projectId);
     }
   }
 
-  /**
-   * Remove every namespace this instance built, newest first. Called by the
-   * seed fixture teardown after the test body (and its evidence attachments)
-   * finished; a failed cleanup must fail the test, so errors propagate.
-   */
   async cleanupOwnedFixtures(): Promise<void> {
-    for (const namespace of [...this.ownedNamespaces].reverse()) {
+    for (const namespace of [...this.ownedRuns.keys()].reverse()) {
       await this.cleanupOwned(namespace);
     }
-    this.ownedNamespaces.length = 0;
   }
 
-  /** Stop only bound pages from admitting media work before final fixture cleanup. */
   async retireOwnedPages(): Promise<void> {
     const errors: unknown[] = [];
     for (const page of this.boundPages) {
@@ -574,35 +543,23 @@ export class SeedAPI {
     if (errors.length) throw new AggregateError(errors, "Owned page retirement failed");
   }
 
-  /** Build the multi-project employee-role acceptance fixture for this test's namespace. */
   async projectRoles(namespace?: string): Promise<ProjectRolesSeedData> {
     const token = this.ownedNamespace(namespace);
-    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/project-roles`, {
-      data: this.ownedScope(token),
-      timeout: 60_000,
-    });
-    if (!res.ok()) {
-      throw new Error(`seed/project-roles failed: ${res.status()} ${await res.text()}`);
-    }
+    const res = await this.postOwnedSeed("project-roles", token, { timeout: 60_000 });
     return (await res.json()) as ProjectRolesSeedData;
   }
 
-  /** Build the filtering fixture inside this test's own owned namespace. */
   async filtering(
     options: { namespace?: string; videoReady?: boolean } = {},
   ): Promise<FilteringSeedManifest> {
     const token = this.ownedNamespace(options.namespace);
-    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/filtering`, {
-      data: { ...this.ownedScope(token), video_ready: options.videoReady === true },
+    const res = await this.postOwnedSeed("filtering", token, {
+      data: { video_ready: options.videoReady === true },
       timeout: 120_000,
     });
-    if (!res.ok()) {
-      throw new Error(`seed/filtering failed: ${res.status()} ${await res.text()}`);
-    }
     return (await res.json()) as FilteringSeedManifest;
   }
 
-  /** Bind a real invite/register transaction to this owned project's run. */
   async withOwnedInvitation<T>(
     projectId: string,
     inviterId: string,
@@ -655,20 +612,12 @@ export class SeedAPI {
     return result;
   }
 
-  /** 造点云 E2E fixture(lidar 项目 + 2 帧 point_cloud task)。需先 reset()。 */
-  /** Build the namespaced point-cloud fixture (reuses this namespace's users). */
   async seedLidar(namespace?: string): Promise<SeedLidarData> {
     const token = this.ownedNamespace(namespace);
-    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/lidar`, {
-      data: this.ownedScope(token),
-    });
-    if (!res.ok()) {
-      throw new Error(`seed/lidar failed: ${res.status()} ${await res.text()}`);
-    }
+    const res = await this.postOwnedSeed("lidar", token);
     return (await res.json()) as SeedLidarData;
   }
 
-  /** Settle current owner-backed thumbnail work before opening the Raster task list. */
   async prepareRasterImages(data: SeedData): Promise<void> {
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/prepare-raster-images`, {
       data: {
@@ -683,7 +632,6 @@ export class SeedAPI {
     }
   }
 
-  /** 只切项目 opt-in；部署级 read/create 总闸由 API 进程环境决定。 */
   async configureRasterMask(projectId: string, enabled: boolean): Promise<void> {
     const runId = this.projectScope(projectId).run_id;
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/configure-raster-mask`, {
@@ -692,6 +640,21 @@ export class SeedAPI {
     if (!res.ok()) {
       throw new Error(`seed/configure-raster-mask failed: ${res.status()} ${await res.text()}`);
     }
+  }
+
+  maskSliceLifecycle(
+    taskId: string,
+    action: "gc" | "drop_revision" | "expire_revision",
+    operationId: string,
+  ) {
+    const runId = this.taskRunIds.get(taskId);
+    if (!runId) throw new Error("Task is not owned by this fixture scope");
+    return runMaskSliceLifecycle({
+      run_id: runId,
+      task_id: taskId,
+      action,
+      operation_id: operationId,
+    });
   }
 
   private projectScope(projectId: string) {
@@ -735,7 +698,6 @@ export class SeedAPI {
     return result;
   }
 
-  /** 造确定性 H.264 WebCodecs fixture 任务 + 单 chunk(precise-frame E2E)。 */
   async videoWebCodecs(
     projectId: string,
     options?: {
@@ -773,7 +735,6 @@ export class SeedAPI {
     return result;
   }
 
-  /** Simulate one unknown nested video context version without relaxing public writes. */
   async videoIssueContextHistory(
     projectId: string,
     feedbackId: string,
@@ -792,7 +753,6 @@ export class SeedAPI {
     return res.json();
   }
 
-  /** Deterministically release a pending media chunk without a Celery worker. */
   async videoWebCodecsTransitionReady(
     datasetItemId: string,
     chunkId = 0,
@@ -856,7 +816,6 @@ export class SeedAPI {
     return (await res.json()) as SeedNativeMaskCandidateData;
   }
 
-  /** 构造已有 raster annotation，用于只读、损坏内容与锁定矩阵。 */
   async injectRasterMask(opts: {
     taskId: string;
     userEmail: string;
@@ -884,7 +843,6 @@ export class SeedAPI {
     return (await res.json()) as SeedRasterMaskData;
   }
 
-  /** 构造待接受的 raster prediction，只用于 gate 关闭矩阵。 */
   async injectRasterPrediction(opts: {
     taskId: string;
     userEmail: string;
@@ -907,20 +865,13 @@ export class SeedAPI {
     return (await res.json()) as SeedRasterPredictionData;
   }
 
-  /** 直接拿 JWT 注入 localStorage（跳过 UI 登录，加快非 auth spec）。 */
   async injectToken(page: Page, email: string, baseURL?: string): Promise<void> {
-    // Binding point for this fixture's own browser work: an attached workbench
-    // keeps issuing video reads (chunk uploads, frame prefetch), so teardown
-    // has to retire exactly this page before deleting its namespaces. Record it
-    // first so a half-injected page is retired too.
     this.boundPages.add(page);
     const res = await this.seedLogin(email);
     if (!res.ok()) throw new Error(`seed/login failed: ${res.status()} ${await res.text()}`);
     const body = (await res.json()) as { access_token: string; user: unknown };
     await this.setPetEnabled(email, false, body.access_token);
     const target = baseURL ?? process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
-    // Establish same-origin storage without booting the previous actor's dashboard.
-    // Callers navigate to their test page after injecting the new identity.
     const documentURL = new URL(target).href;
     const emptyDocument = (route: Route) =>
       route.fulfill({
@@ -936,7 +887,6 @@ export class SeedAPI {
     await page.evaluate(
       ({ token, user }) => {
         localStorage.setItem("token", token);
-        // zustand persist 写入 auth-storage 同步形态
         localStorage.setItem(
           "auth-storage",
           JSON.stringify({ state: { token, user }, version: 0 }),
@@ -957,11 +907,6 @@ export class SeedAPI {
     }
   }
 
-  /**
-   * UI 路径登录：filling form + click 提交（auth spec 主用）。
-   * Issue #123 · 登录后进入角色默认首页：super_admin → /overview，其余角色 → /dashboard。
-   * 调用方传入该账号角色对应的期望路径。
-   */
   async loginViaUI(
     page: Page,
     email: string,
@@ -975,15 +920,10 @@ export class SeedAPI {
     await expect(page).toHaveURL(expectedHome, { timeout: 10_000 });
   }
 
-  /**
-   * 辅助：直接 INSERT 一条 polygon prediction，绕过 ml-backend。
-   * 用于 mask 编辑器「AI prediction 精修」入口测试。
-   */
   async injectPrediction(opts: {
     taskId: string;
     projectId: string;
     label: string;
-    /** 归一化 [0,1] points, ≥3 顶点 */
     polygon: [number, number][];
     score?: number;
   }): Promise<{ prediction_id: string }> {
@@ -1003,10 +943,6 @@ export class SeedAPI {
     return (await res.json()) as { prediction_id: string };
   }
 
-  /**
-   * 辅助：直接置 task 状态，绕过 UI 链路。
-   * 多角色串联 spec 用此跳过画框 / 提交流程，专注验证下游交接。
-   */
   async advanceTask(opts: {
     taskId: string;
     toStatus: "pending" | "annotating" | "submitted" | "review" | "completed" | "rejected";
@@ -1029,11 +965,11 @@ export class SeedAPI {
 
 type Fixtures = {
   seed: SeedAPI;
+  owned: SeedData;
 };
 
 export const test = base.extend<Fixtures, { fixtureOwner: void }>({
   fixtureOwner: [
-    // Playwright requires destructuring even when a fixture has no dependencies.
     // eslint-disable-next-line no-empty-pattern
     async ({}, use) => {
       try {
@@ -1056,7 +992,6 @@ export const test = base.extend<Fixtures, { fixtureOwner: void }>({
       } catch (error) {
         failures.push(error);
       }
-      // Finish-time screenshots already exist; retire pages before their media.
       try {
         await api.retireOwnedPages();
       } catch (error) {
@@ -1074,8 +1009,13 @@ export const test = base.extend<Fixtures, { fixtureOwner: void }>({
         throw new AggregateError(failures, "Seed fixture failed");
       }
     },
-    // Allow the existing 60-second operation budgets for preparation and cleanup.
     { timeout: 120_000 },
+  ],
+  owned: [
+    async ({ seed }, use) => {
+      await use(await seed.owned());
+    },
+    { timeout: OWNED_SETUP_TIMEOUT },
   ],
 });
 

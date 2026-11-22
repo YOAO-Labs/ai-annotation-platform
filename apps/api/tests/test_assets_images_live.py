@@ -117,8 +117,6 @@ def _srgb_profile() -> Path:
     ):
         if candidate.is_file():
             return candidate
-    # Worker config accepts this absolute path for thumbnail-only tests. Pyramid
-    # acceptance checks that the profile exists before starting its real worker.
     return Path("/usr/share/color/icc/sRGB.icc")
 
 
@@ -1481,9 +1479,6 @@ async def test_unlink_cancels_task_image_work_and_retains_attempt_garbage(
                 "status"
             ] == "canceled"
 
-            # The old process can finish its local encoder after unlink, but its
-            # accepted attempt remains canceled and its immutable prefix tombstone
-            # is retained for the delayed garbage sweeper.
             (gate[1] / "release").touch()
             await _wait_process_exit(
                 worker,

@@ -24,7 +24,6 @@ import { VideoTrackPanel, type TrackFilter } from "./VideoTrackPanel";
 import { VideoTrackCardContent } from "../shell/selectionCard/VideoTrackCardContent";
 import type { VideoTrackGapMode } from "./VideoTrackComposeDialog";
 import { useVideoTrackActions } from "./useVideoTrackActions";
-// VideoTrackerJobState type imported lazily via inline import in props
 import type {
   VideoFrameEntry,
   VideoManagedTrackAnnotation,
@@ -41,9 +40,7 @@ interface VideoTrackSidebarProps {
   frameIndex: number;
   userId?: string | null;
   trackFilter?: TrackFilter;
-  /** roster = 右栏纯轨迹清单(默认);card = 画布内选中卡的单轨迹两层信息。 */
   view?: "roster" | "card";
-  /** 视频帧率 / 帧尺寸,仅 card 视图用于帧定位时间码 + 当前帧几何指标。 */
   fps?: number | null;
   imageWidth?: number | null;
   imageHeight?: number | null;
@@ -65,7 +62,6 @@ interface VideoTrackSidebarProps {
     options: VideoTrackConversionOptions,
   ) => void;
   onComposeTracks?: (options: VideoTrackCompositionOptions) => void;
-  /** 上报轨迹多选态给 shell (浮卡多选批量卡消费)。仅 roster 实例传入。 */
   onSelectionChange?: (selectedTracks: VideoTrackAnnotation[]) => void;
   reviewDisplayMode?: DiffMode;
   trackerJobsByAnnotation?: Record<
@@ -73,13 +69,10 @@ interface VideoTrackSidebarProps {
     import("@/hooks/useVideoTrackerJobs").VideoTrackerJobState
   >;
   onPropagateTrack?: (annotation: VideoManagedTrackAnnotation) => void;
-  /** M2 · 批量 AI 追踪: 把多选的 ≥2 条轨迹一次喂给追踪对话框 (单 job 多源)。 */
   onBatchTrack?: (annotations: AnnotationResponse[]) => void;
   onCancelTrackerJob?: (jobId: string) => void;
-  // 1A 选色器透传 (session 级覆盖)。
   trackColorOverrides?: Record<string, string>;
   onSetTrackColor?: (trackId: string, colorToken: string | null) => void;
-  // 1B 属性 / propagate / semantic_label 透传。
   attributeSchema?: AttributeSchema;
   onUpdateTrackAttributes?: (
     annotation: VideoTrackAnnotation,
@@ -97,10 +90,8 @@ interface VideoTrackSidebarProps {
     options: { direction: "forward" | "backward"; overwrite: boolean },
   ) => void;
   onUpdateSemanticLabel?: (annotation: VideoTrackAnnotation, semanticLabel: string) => void;
-  /** §A: 采样网格步长, 透传给 propagate 对话框 (>1 时 count 以网格格子为单位)。 */
   samplingStep?: number;
   propagateOverwrite?: boolean | null;
-  /** roster 视图「轨迹」分组头折叠态 (受控, 走 workbench.layout 服务端持久); card 视图忽略。 */
   trackSectionCollapsed?: boolean;
   onToggleTrackSection?: () => void;
 }
@@ -119,7 +110,6 @@ function cloneKeyframe(keyframe: VideoTrackKeyframe): VideoTrackKeyframe {
   };
 }
 
-// 取一条 track 的可见关键帧帧号区间 (排除 outside 帧)。无可见帧时回落到全部关键帧。
 function visibleFrameRange(track: VideoTrackAnnotation["geometry"]): [number, number] | null {
   const visible = track.keyframes.filter((kf) => !isFrameOutside(track, kf.frame_index));
   const frames = (visible.length > 0 ? visible : track.keyframes).map((kf) => kf.frame_index);
@@ -127,7 +117,6 @@ function visibleFrameRange(track: VideoTrackAnnotation["geometry"]): [number, nu
   return [Math.min(...frames), Math.max(...frames)];
 }
 
-// 两条 track 的可见帧区间是否重叠 (join 要求不重叠)。
 export function trackRangesOverlap(a: VideoTrackAnnotation, b: VideoTrackAnnotation): boolean {
   const ra = visibleFrameRange(a.geometry);
   const rb = visibleFrameRange(b.geometry);
@@ -187,8 +176,6 @@ export function VideoTrackSidebar({
   trackSectionCollapsed = false,
   onToggleTrackSection,
 }: VideoTrackSidebarProps) {
-  // 删除确认是异步的:await 期间浏览器历史可能已切到别的题,闭包里的 props 是旧渲染的。
-  // 复检一律读这份实时 ref(与 shell 层 annotationsRef 兜底同一模式)。
   const annotationsRef = useRef(annotations);
   annotationsRef.current = annotations;
   const videoTracks = useMemo(() => annotations.filter(isVideoTrack), [annotations]);
@@ -232,19 +219,15 @@ export function VideoTrackSidebar({
     () => videoTracks.filter((ann) => selectedTrackIds.has(ann.id)),
     [selectedTrackIds, videoTracks],
   );
-  // 把轨迹多选态上报给 shell (浮卡多选批量卡消费)。roster 实例是多选唯一 owner,
-  // 浮卡实例 (view="card") 不传此回调, 不参与上报, 保证单一数据源。
   useEffect(() => {
     onSelectionChange?.(selectedTracks);
   }, [onSelectionChange, selectedTracks]);
   const canMergeSelectedTracks =
     selectedTracks.length === 2 && selectedTracks[0].class_name === selectedTracks[1].class_name;
-  // join: 恰好两条同类且可见帧区间不重叠的 track。
   const canJoinSelectedTracks =
     selectedTracks.length === 2 &&
     selectedTracks[0].class_name === selectedTracks[1].class_name &&
     !trackRangesOverlap(selectedTracks[0], selectedTracks[1]);
-  // 合并 / 跳连禁用时按当前选择态给出动态原因 (差在哪), 而非笼统「只支持…」。
   const mergeDisabledReason = useMemo(() => {
     if (canMergeSelectedTracks) return null;
     if (selectedTracks.length !== 2)
@@ -307,7 +290,6 @@ export function VideoTrackSidebar({
       !visibleInReviewMode("manual", reviewDisplayMode)
     )
       return null;
-    // 锁定轨迹视为已确认,不再提示参考框(与画布 ghost 一致)。
     if (lockedTrackIds.has(selectedTrack.geometry.track_id)) return null;
     if (currentFrameEntries.some((entry) => entry.ann.id === selectedTrack.id)) return null;
     const reference = trackReferenceAtFrame(
@@ -400,7 +382,6 @@ export function VideoTrackSidebar({
       } else {
         next.clear();
       }
-      // The roster owns its batch set; the global selection receives its primary only.
       onSelectVideoObject(primaryId, {
         ...options,
         shift: false,
@@ -424,8 +405,6 @@ export function VideoTrackSidebar({
     [hiddenTrackIds, onToggleHiddenTrack, selectedTracks],
   );
 
-  // 全选中才算「已隐藏 / 已锁定」→ 切换按钮翻转为反向动作; 部分选中时仍显示正向动作。
-  // 空选时 every 恒 true, 会让按钮显示成反向态 —— 故显式要求非空。
   const allSelectedTracksHidden =
     selectedTracks.length > 0 &&
     selectedTracks.every((ann) => hiddenTrackIds.has(ann.geometry.track_id));
@@ -452,14 +431,11 @@ export function VideoTrackSidebar({
     [onRenameTracks, selectedTracks],
   );
 
-  // M2 · 批量 AI 追踪: 把当前多选的 ≥2 条轨迹一次喂给追踪对话框。
   const batchTrackSelectedTracks = useCallback(() => {
     if (selectedTracks.length <= 1 || !onBatchTrack) return;
     onBatchTrack(selectedTracks);
   }, [onBatchTrack, selectedTracks]);
 
-  // await 确认后的归属复检:对话框打开期间浏览器历史可能已切题,只提交仍属于
-  // 当前题 annotations 的轨迹;全部失效则整个放弃,不拿旧题的标注开刀。
   const stillOwned = useCallback(
     (tracks: AnnotationResponse[]) =>
       tracks.filter((ann) => annotationsRef.current.some((current) => current.id === ann.id)),
@@ -468,8 +444,6 @@ export function VideoTrackSidebar({
 
   const deleteSelectedTracks = useCallback(() => {
     if (selectedTracks.length <= 1 || !onDeleteTracks) return;
-    // 删除确认走应用内对话框;确认期间轨迹可能被并行删除或已切题,提交前复检归属,
-    // 由上层 handleVideoBatchDelete 再次过滤兜底。
     void (async () => {
       const confirmed = await confirmDialog({
         tone: "danger",
@@ -484,7 +458,6 @@ export function VideoTrackSidebar({
     })();
   }, [onDeleteTracks, selectedTracks, stillOwned]);
 
-  // 单条轨迹删除:右栏每行 + 选中卡底部操作栏共用;删整条 = onDeleteTracks([ann])。
   const deleteTrack = useCallback(
     (ann: VideoTrackAnnotation) => {
       if (readOnly || lockedTrackIds.has(ann.geometry.track_id) || !onDeleteTracks) return;
@@ -809,7 +782,6 @@ export function VideoTrackSidebar({
                           title: "删除这条 Mask 轨迹？",
                           confirmLabel: "删除",
                         });
-                        // await 期间可能已切题:仍属于当前题才提交删除。
                         if (confirmed && stillOwned([annotation]).length > 0) {
                           onDeleteTracks?.([annotation]);
                         }

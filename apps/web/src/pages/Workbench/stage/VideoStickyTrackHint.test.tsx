@@ -1,7 +1,3 @@
-/**
- * 粘轨迹态提示文案切换测试。
- * 文案随「当前帧是否已有该轨迹关键帧」在「延展 / 同帧新建」间切换。
- */
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { VideoStickyTrackHint } from "./VideoStickyTrackHint";

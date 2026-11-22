@@ -1297,7 +1297,6 @@ async def exercise_video_tracker_queue_and_restore(
                         media, Path(tmp_path) / "metadata-source", world
                     ),
                 )
-                # Restore must rebind the exact backend incarnation, even after scope retirement.
                 async with nullcontext(
                     await source_peer_stack.enter_async_context(
                         _checkpoint_cpu_backend(

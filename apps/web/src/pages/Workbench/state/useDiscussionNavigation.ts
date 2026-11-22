@@ -37,13 +37,11 @@ export interface DiscussionNavigation {
 }
 
 interface Options {
-  /** Router location identity, including pathname/search for replacement URLs. */
   navigationKey: string;
   request: WorkbenchDiscussionRequest;
   projectId: string | null | undefined;
   taskId: string | null | undefined;
   reveal: () => void;
-  /** Existing guarded selection owner, called only after target validation. */
   selectAnnotation: (
     annotation: AnnotationResponse,
     isCurrent: () => boolean,
@@ -80,12 +78,6 @@ function failureMessage(error: unknown): string {
   return "讨论加载失败，请重试";
 }
 
-/**
- * The Workbench owns URL activation, independently of dock/tab presentation.
- * Readers below use the same query owners as the visible thread/comment feed.
- * Cancelling this search stops continuation without cancelling another reader's
- * shared query. Direct access checks have their own abortable request lifetime.
- */
 export function useDiscussionNavigation(options: Options): DiscussionNavigation {
   const { navigationKey, request, projectId, taskId } = options;
   const requestKey = JSON.stringify(request);
@@ -102,8 +94,6 @@ export function useDiscussionNavigation(options: Options): DiscussionNavigation 
     state: DiscussionNavigationState;
   }>({ owner, state: { status: "idle" } });
   const active = useRef<{ owner: string; controller: AbortController } | null>(null);
-  // An owner change retires this navigation; ordinary query renders do not
-  // reactivate it. Leaving and later returning to a router identity is new work.
   const consumed = useRef<{ key: string; attempt: number; started: boolean }>({
     key: navigationKey,
     attempt,
@@ -162,8 +152,6 @@ export function useDiscussionNavigation(options: Options): DiscussionNavigation 
     latest.current.reveal();
     progress("正在核对讨论目标");
 
-    // Delay dispatch until the effect lease survives StrictMode's immediate
-    // cleanup/setup replay. A genuinely retired lease performs no API work.
     void Promise.resolve()
       .then(async () => {
         if (!isCurrent()) return;
@@ -176,13 +164,9 @@ export function useDiscussionNavigation(options: Options): DiscussionNavigation 
         if (request.target.kind === "issue") {
           const { issueId, replyId } = request.target;
           progress("正在刷新问题对话");
-          // Always refresh before looking for a reply. A cached first page can
-          // predate the notification, even while it remains within staleTime.
           const joinedFetch = readers.current.thread.isFetching;
           let result = await threadReader.refetch({ cancelRefetch: false });
           if (!isCurrent()) return;
-          // Do not cancel another reader, but do not mistake its pre-navigation
-          // in-flight snapshot for our fresh read either.
           if (joinedFetch) result = await threadReader.refetch({ cancelRefetch: false });
           const cursors = new Set<string>();
           while (isCurrent()) {
@@ -216,8 +200,6 @@ export function useDiscussionNavigation(options: Options): DiscussionNavigation 
             if (!cursor) throw new UnavailableTarget("回复已删除或不属于这个问题");
             if (cursors.has(cursor)) throw new Error("Repeated thread cursor");
             result = await threadReader.fetchNextPage({ cancelRefetch: false });
-            // A shared background refresh may be joined without advancing.
-            // Only a cursor present in the returned page parameters was used.
             if (result.data?.pageParams.includes(cursor)) cursors.add(cursor);
           }
           return;
@@ -269,8 +251,6 @@ export function useDiscussionNavigation(options: Options): DiscussionNavigation 
         const annotation = await resolveActiveDiscussionAnnotation(task, annotationId, signal);
         if (!isCurrent()) return;
         if (!annotation) throw new UnavailableTarget("评论所属标注已删除或不可访问");
-        // Original annotation-comment identity stays authoritative. Do not look
-        // for a feedback mirror, or assume the first window contains an old comment.
         let cursor: string | undefined;
         let checked = 0;
         const legacyCursors = new Set<string>();
@@ -294,8 +274,6 @@ export function useDiscussionNavigation(options: Options): DiscussionNavigation 
         }
         if (!isCurrent()) return;
         progress("正在打开标注评论");
-        // Populate the visible feed through its own owner, retaining the server's
-        // actions projection instead of synthesizing permissions from legacy rows.
         const joinedFeedFetch = readers.current.comments.isFetching;
         let result = await commentReader.refetch({ cancelRefetch: false });
         if (!isCurrent()) return;
@@ -345,8 +323,6 @@ export function useDiscussionNavigation(options: Options): DiscussionNavigation 
       running.controller.abort();
       if (active.current === running) active.current = null;
     };
-    // Query observer objects/callbacks change on progress renders; their current
-    // methods are captured once by this navigation's immutable identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navigationKey, requestKey, projectId, taskId, userId, sessionId, hasAuth, owner, attempt]);
 

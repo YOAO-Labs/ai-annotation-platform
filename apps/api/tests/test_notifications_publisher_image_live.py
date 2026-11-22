@@ -397,7 +397,6 @@ async def test_standalone_publisher_acl_retry_restart_and_cold_lease_takeover(
             denied_secrets = make_secret_files("denied", redis_urls["denied"])
             blocked_url = "redis://:acceptance-blocked@notifications-blackhole:16379/0"
             blocked_secrets = make_secret_files("blocked", blocked_url)
-            # URL contents are only mounted as read-only files into UID 10004.
             assert all(path.stat().st_mode & 0o777 == 0o444 for path in allowed_secrets)
             assert all(path.stat().st_mode & 0o777 == 0o444 for path in denied_secrets)
             assert all(path.stat().st_mode & 0o777 == 0o444 for path in blocked_secrets)
@@ -641,8 +640,6 @@ async def test_standalone_publisher_acl_retry_restart_and_cold_lease_takeover(
                 and row["last_reason"] is None
                 for row in leased_rows
             )
-            # The lease is committed; the stub received handshake bytes and
-            # withholds its response, before the publisher can issue PUBLISH.
             subprocess.run(
                 ["docker", "kill", blocked_container],
                 check=True,
@@ -956,8 +953,6 @@ async def test_standalone_publisher_delivers_real_deactivation_completed_event(
                 for row in await _notification_rows(maker, request_id)
             )
 
-            # Keep the accepted request and its correlation row in sync while
-            # making only this fixture actor due now.
             async with maker.begin() as db:
                 await db.execute(
                     text(

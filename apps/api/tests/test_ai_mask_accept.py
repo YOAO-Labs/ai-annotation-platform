@@ -250,7 +250,6 @@ def accept_storage_mocks(monkeypatch):
     async def load(reference):
         return deepcopy(contents[reference["object_key"]])
 
-    # Preflight now verifies through the shared byte port before persistence.
     monkeypatch.setattr("app.services.raster_mask_storage.load_coco_rle", load)
 
     async def store_values(_db, _value, resolved, *, task_id):
@@ -471,8 +470,6 @@ async def test_image_accept_is_atomic_and_replays_exact_result(
     assert len(audits) == 1
     assert "counts" not in str(audits[0].detail_json)
 
-    # A live decision protects its replay-only content reference from GC; once
-    # expired, the same snapshot no longer participates in the reference scan.
     from app.application.raster_mask_retention import referenced_raster_mask_keys
 
     decision = (await db_session.execute(select(AiMaskAcceptDecision))).scalar_one()
@@ -914,9 +911,6 @@ async def test_idempotent_replay_rechecks_actor_ownership(
     assert first.status_code == 200, first.text
     project = await db_session.get(Project, task.project_id)
     project.owner_id = other.id
-    # Literal employee owner: ownership alone is not management. An explicit
-    # annotator membership plus the task assignment make the replayed task
-    # visible so the request reaches the idempotency owner check.
     await create_membership(
         db_session, project_id=project.id, user_id=other.id, role="annotator"
     )

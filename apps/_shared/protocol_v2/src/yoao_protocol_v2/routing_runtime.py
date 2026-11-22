@@ -286,8 +286,6 @@ class BackendRoutingController:
                 or claims.path != path
             ):
                 raise RouteAuthorizationError
-            # Scope admission and retirement share this lock, so each request is
-            # either counted before retirement observes it or rejected afterward.
             if (
                 self._scope_tracking_errors
                 or claims.scope_id in self._scope_retirement_ids_by_scope
@@ -364,9 +362,6 @@ class BackendRoutingController:
                 lease.pending_futures.add(future)
                 return True
 
-        # A task can register work after the ASGI lease closes. Serialize this
-        # late accounting with retirement, using the current counter for that
-        # scope instead of a possibly-pruned counter held by the old lease.
         with self._control_lock:
             ticket = self._counter.acquire()
             scope_ticket = None
@@ -502,8 +497,6 @@ class BackendRoutingController:
             self._signing_key = command.signing_key
             self._authority_epoch = accepted.authority_epoch
             self._used_attempts.clear()
-            # A completed epoch replacement invalidates every old admission
-            # token, so it is the safe point to clear scope retirement state.
             self._scope_retirements.clear()
             self._scope_retirements_by_id.clear()
             self._scope_retirement_ids_by_scope.clear()
@@ -565,13 +558,9 @@ class BackendRoutingController:
             )
             active_requests = self._scope_active_requests(command.scope_id)
             if active_requests < 0:
-                # A broken counter must never be represented as quiescence.
                 self._scope_tracking_errors.add(command.scope_id)
                 self._scope_retirements[command.scope_id] = accepted
                 raise RouteControlConflict
-            # Keep the admission tombstone through the token high-water plus
-            # replay skew, and through any already-counted work. Immutable ID
-            # identity remains until the epoch changes, even after pruning.
             if (
                 active_requests
                 or command.scope_id in self._scope_tracking_errors
@@ -715,8 +704,6 @@ def _gpu_transition_headers(scope: Scope) -> bool:
         validate_canonical_positive_int64(generation[0].decode("ascii"))
     except (UnicodeDecodeError, ValueError):
         return False
-    # These headers force the managed endpoint branch. Its GPU owner still
-    # verifies signature, identity, generation, scope, owner and drain state.
     return 0 < len(token[0]) <= 16384 and all(33 <= byte <= 126 for byte in token[0])
 
 
@@ -868,8 +855,6 @@ class BackendRoutingMiddleware:
                     await send({**pending_body, "more_body": True})
                 pending_body = message
             elif not message.get("more_body", False):
-                # Keep the last nonempty bytes even when the final ASGI message
-                # is empty: Content-Length clients otherwise finish too early.
                 pending_body = {**(pending_body or message), "more_body": False}
 
         context_token = _CURRENT_REQUEST.set(lease)
@@ -880,11 +865,8 @@ class BackendRoutingMiddleware:
             except asyncio.CancelledError:
                 if app_task.done():
                     raise
-                # Keep the ticket until handlers, streams, and awaited background work stop.
                 await _wait_for_task(app_task)
                 raise
-            # A complete HTTP response is used as execution settlement evidence.
-            # Withhold its last bytes through actual background/future completion.
             await _finish_uncancelled(self.controller, lease)
             await start_response()
             if pending_body is not None:
@@ -894,7 +876,6 @@ class BackendRoutingMiddleware:
             if app_task is None or app_task.done():
                 await _finish_uncancelled(self.controller, lease)
             else:
-                # A cancellation must never publish an idle backend while its ASGI task runs.
                 waiter = asyncio.create_task(_wait_for_task(app_task))
                 await _finish_after_child(self.controller, lease, waiter)
 

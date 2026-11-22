@@ -65,9 +65,6 @@ async def _seed_backend(db, project_id) -> MLBackendRegistry:
     return b
 
 
-# ── 读端点: require_project_visible ──────────────────────────────────
-
-
 async def test_list_backends_denied_for_non_member_annotator(
     httpx_client, super_admin, annotator, db_session
 ):
@@ -133,9 +130,6 @@ async def test_project_backend_list_keeps_malformed_health_meta_observable(
     assert resp.json()[0]["health_meta"]["residency"] == {}
 
 
-# ── 写端点: require_project_owner ────────────────────────────────────
-
-
 async def test_create_backend_denied_for_non_owner_project_admin(
     httpx_client, super_admin, project_admin, db_session
 ):
@@ -143,8 +137,6 @@ async def test_create_backend_denied_for_non_owner_project_admin(
     owner, _ = super_admin
     pm, pm_token = project_admin
     proj = await _seed_project(db_session, owner.id)
-    # Visible member with a work role: a non-owner project administrator receives
-    # that membership's capabilities, never management, so the denial is 403.
     await create_membership(
         db_session,
         project_id=proj.id,
@@ -176,15 +168,6 @@ async def test_create_backend_denied_for_owning_project_admin(
         headers={"Authorization": f"Bearer {pm_token}"},
     )
     assert resp.status_code == 403, resp.text
-
-
-# ── 共享全局态运维端点: unload/reload 收口到 super_admin ────────────────────
-#
-# 评审 #17 · unload/reload 操作的是「全局 backend 显存驻留」(一物理 backend 被多项目共用),
-# 项目 owner 也能借此驱逐/换掉其他项目正在用的权重。故这类破坏性驻留操作从 project_owner
-# 收口到 super_admin; 构造性的 warmup 刻意保留在 project_owner (项目预标/交互推理前置)。
-# 正 (授权角色通过闸) / 反 (未授权角色被拒) 各一。授权方向 monkeypatch 掉 service 的
-# backend HTTP 调用, 只锁鉴权闸, 不打真实网络。
 
 
 async def test_unload_denied_for_owning_project_admin(
@@ -311,9 +294,6 @@ async def test_residency_routes_preserve_gpu_arbiter_error_contract(
             }
         }
         assert response.headers["Retry-After"] == "7"
-
-
-# ── warmup: 刻意保留 project_owner (未随 unload/reload 收口) ─────────────────
 
 
 async def test_warmup_denied_for_non_owner_project_admin(

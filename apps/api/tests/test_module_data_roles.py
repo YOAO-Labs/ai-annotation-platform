@@ -26,7 +26,6 @@ pytestmark = [
     ),
 ]
 
-# Resolve catalog OIDs without USAGE on the target owner's private schema.
 _FUNCTION_PRIVILEGE = text(
     "SELECT has_function_privilege(current_user, proc.oid, 'EXECUTE') "
     "FROM pg_catalog.pg_proc AS proc "

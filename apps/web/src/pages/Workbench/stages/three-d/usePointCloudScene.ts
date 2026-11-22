@@ -1,15 +1,5 @@
 import { originalOwnerKey } from "@/api/originals";
 import { useOriginalAssetOwner } from "./useOriginalAssetOwner";
-/**
- * 管理 Three.js 点云场景的生命周期。
- *
- * 封装 `PointCloudScene` 的 实例化 / 销毁 / 偏好同步 / 点云加载 / 框图层 / gizmo 挂载 /
- * W-E-R 模式键 / 相机视图存档(rAF 防抖)。与 ThreeDWorkbench 的唯一耦合点 ——
- * gizmo 拖拽中回写本地预览、结束后 PATCH —— 走 `onTransformPreview` / `onTransformCommit`
- * 回调参数注入，form / mutate / history 仍由壳组件持有，边界干净。
- *
- * 守护:点云 E2E 护栏网(smoke 加载 / gizmo W 拖拽→PATCH / B 放置 / cx 编辑 / Q 贴合)。
- */
 import {
   useCallback,
   useEffect,
@@ -43,58 +33,38 @@ import { markPointCloudPaint } from "./pointCloudTiming";
 import { publishPointCloudResourceTrace } from "@/utils/pointCloudNavigationDiagnostics";
 
 interface UsePointCloudSceneParams {
-  /** 渲染容器(壳组件持有的 DOM ref)。 */
   viewportRef: RefObject<HTMLDivElement | null>;
-  /** Optional workspace-wide canvas host; input and projection stay on viewportRef. */
   renderSurface?: HTMLElement | null;
-  /** Changes after Dockview has measured and clipped moving/hidden groups. */
   layoutKey?: string | number;
   getVisibleRegions?: PointCloudVisibleRegions;
-  /** 场景实例 ref —— 由壳组件持有(稳定),本 hook 负责其生命周期写入/清理;
-   *  壳层各交互 handler(pickBox / placeOnGround / getPointPositions …)共用同一 ref。 */
   sceneRef: MutableRefObject<PointCloudScene | null>;
-  /** 性能档位抽稀阈值。 */
   pcdDecimate: number;
-  /** 工作台打开时冻结的 renderer 选择；设置切换后需刷新。 */
   rendererMode?: PointCloudRendererMode;
   pointSize: number;
   showGrid: boolean;
   showAxisGizmo: boolean;
-  /** OrbitControls 阻尼系数(数值,非开关)。 */
   cameraDamping: number;
-  /** 是否把相机视角落库(跨帧/跨会话记忆)。 */
   persistCameraView: boolean;
-  /** manifest 的点云 URL(presigned);缺省时不加载。 */
   pointCloudUrl: string | undefined;
-  /** 相机上色开启时，新点云在 RGB 完成前不显示中间高度色。 */
   deferPointCloudDisplay?: boolean;
-  /** scene_id；无 scene 的单帧任务传 taskId，防止无关任务复用运行时视角。 */
   continuityKey: string | null;
   axisConvention: LidarAxisConvention;
-  /** 标注框 → 渲染输入(选中态 / 颜色 / 草稿覆盖已在壳层算好)。 */
   boxes: SceneBox[];
-  /** 会话态测量路径；只同步到主 scene 的辅助层。 */
   measurementPaths?: SceneMeasurementPath[];
   selectedId: string | null;
-  /** 选中且可编辑时才挂 gizmo / 接 W-E-R。 */
   selectedPsrEditable: boolean;
   pointcloudCamera: PointcloudCameraState | null;
   onWorkbenchLayoutChange: (patch: WorkbenchLayoutPatch) => void;
-  /** 载帧与视角恢复完成后，同步壳层的相机模式按钮状态。 */
   onViewModeChange: (mode: PointCloudViewState["mode"]) => void;
-  /** gizmo 拖拽结束:回写表单 + PATCH 持久化(壳层注入,闭合 form / mutate / history)。 */
   onTransformCommit: (id: string, psr: BoxPsr) => void;
-  /** gizmo 拖拽中:只更新壳层本地 PSR，供三视图和相机投影实时预览。 */
   onTransformPreview: (id: string, psr: BoxPsr) => void;
 }
 
 interface UsePointCloudSceneResult {
-  /** 载帧统计(渲染点数 / 抽稀);null = 未加载。其变化亦作"换帧"信号被壳层多处消费。 */
   stats: PointCloudStats | null;
   loadError: string | null;
   rendererError: string | null;
   isLoading: boolean;
-  /** stats 所属的精确 URL，用于防止新 manifest 搭配旧点缓冲。 */
   loadedPointCloudUrl: string | null;
   rendererStatus: PointCloudRendererStatus | null;
   retryLoad: () => void;
@@ -231,7 +201,6 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
   const scheduleCameraViewSaveRef = useRef(scheduleCameraViewSave);
   scheduleCameraViewSaveRef.current = scheduleCameraViewSave;
 
-  // 实例化 / 销毁 Scene(随容器挂载一次)。
   useLayoutEffect(() => {
     if (cameraSaveRafRef.current !== null) {
       window.cancelAnimationFrame(cameraSaveRafRef.current);
@@ -246,7 +215,6 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
     sceneRef.current?.setViewChangeHandler(scheduleCameraViewSave);
     cancelActivePointCloudFrameLoad();
     setLoadState({ stats: null, loadedPointCloudUrl: null, isLoading: !!pointCloudUrl });
-    // Loading dependencies are handled by the load effect; this is an owner retirement boundary.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [originalOwner, sceneRef, scheduleCameraViewSave]);
   useEffect(() => {
@@ -322,7 +290,6 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
       scene?.dispose();
       if (sceneRef.current === scene) sceneRef.current = null;
     };
-    // rendererMode 在工作台打开时冻结；只有 page circuit 会触发同页重建。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rendererCircuitReason, rendererMode, rendererAttempt]);
 
@@ -359,8 +326,6 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
     sceneRef.current?.setDecimateThreshold(pcdDecimate);
   }, [pcdDecimate, rendererReadyVersion, sceneRef]);
 
-  // manifest 到位后加载点云。
-  // 传入 axisConvention,scene 内部加载完 PCD 立即把 positions 旋到 ISO 系。
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) {
@@ -489,7 +454,6 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
     loadAttempt,
   ]);
 
-  // 同步 3D 框图层(标注 / 选中变化)。scene 在挂载 effect 里先建,本 effect 后跑。
   useEffect(() => {
     sceneRef.current?.setBoxes(boxes);
   }, [boxes, rendererReadyVersion, sceneRef]);
@@ -498,7 +462,6 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
     sceneRef.current?.setMeasurementPaths(measurementPaths);
   }, [measurementPaths, rendererReadyVersion, loadState.loadedPointCloudUrl, sceneRef]);
 
-  // 选中框时挂变换 gizmo,取消选中时脱离；同一次 render 中 setBoxes effect 先执行。
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene) return;
@@ -506,7 +469,6 @@ export function usePointCloudScene(params: UsePointCloudSceneParams): UsePointCl
     else scene.detachTransform();
   }, [boxes, selectedId, selectedPsrEditable, rendererReadyVersion, sceneRef]);
 
-  // W/E/R 切 gizmo 模式(仅选中且可编辑时;焦点在输入框时不拦截)。
   useEffect(() => {
     if (!selectedId || !selectedPsrEditable) return;
     const onKey = (e: KeyboardEvent) => {

@@ -20,7 +20,6 @@ def normalize_dataset_relative_path(relative_path: str) -> str:
 
 
 def managed_dataset_key(dataset_id: uuid.UUID, relative_path: str) -> str:
-    # Keep the logical suffix intact, while each write gets its own identity.
     path = normalize_dataset_relative_path(relative_path)
     return f"{managed_dataset_prefix(dataset_id)}{MANAGED_OBJECTS_DIR}/{uuid.uuid4()}/{path}"
 

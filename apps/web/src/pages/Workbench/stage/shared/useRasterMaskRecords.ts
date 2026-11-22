@@ -77,18 +77,13 @@ export function estimateCocoRleRetainedBytes(rle: CocoRle): number {
 export interface RasterMaskRecordDescriptor<TSource extends string = string> {
   id: string;
   source: TSource;
-  /** Immutable content identity; inline AI candidates intentionally have no object_key. */
   ref: Pick<CocoRleMaskRef, "size" | "sha256">;
-  /** Annotation version, keyframe revision, or another immutable content revision. */
   revision: string | number;
   color: string;
-  /** Must change whenever the rendered category color changes. */
   colorRevision: string | number;
   zOrder: number;
   selected: boolean;
-  /** Higher-value work enters the queue first; selection still outranks current/prefetch. */
   loadPriority?: "editing" | "current" | "prefetch";
-  /** Disable global request sharing when the loader owns a cancellable lifecycle. */
   deduplicateLoad?: boolean;
   load: () => Promise<CocoRle>;
 }
@@ -137,15 +132,10 @@ export interface UseRasterMaskRecordsOptions<TSource extends string = string> {
   scopeKey: string | null;
   descriptors: readonly RasterMaskRecordDescriptor<TSource>[];
   maxConcurrent?: number;
-  /** Approximate retained crop alpha + bitmap RGBA + canonical RLE budget. */
   maxCacheBytes?: number;
-  /** Optional secondary guard for callers that need a strict object-count cap. */
   maxCachedRecords?: number;
-  /** Test/SSR override; omitted values read `navigator.deviceMemory`, then fall back to Standard. */
   deviceMemory?: number | null;
-  /** Task-scoped shared pool; omitted tests retain the explicit synchronous fallback. */
   workerPool?: RasterMaskWorkerPool;
-  /** Task-scoped aggregate resource admission shared with background, editing, and workers. */
   resourceCoordinator?: RasterResourceCoordinator;
   resourceOwner?: string;
 }
@@ -271,8 +261,6 @@ function loadRleSingleFlight(descriptor: RasterMaskRecordDescriptor): Promise<Co
   if (existing) {
     if (existing.id === descriptor.id && existing.source === descriptor.source)
       return existing.promise;
-    // Equal content can share a successful load, but authorization/existence errors
-    // belong to the requested object. Confirm a different source using its own endpoint.
     return existing.promise.catch(() => descriptor.load());
   }
   let request: Promise<CocoRle>;
@@ -882,7 +870,6 @@ export function useRasterMaskRecords<TSource extends string = string>(
       if (!activeDescriptors.has(cacheKey)) deferredRef.current.delete(cacheKey);
     }
 
-    // Filtered records can stay warm, but no longer own selected/editing pins.
     for (const [cacheKey, cached] of cacheRef.current) {
       if (!activeDescriptors.has(cacheKey)) {
         cached.resource?.update({ priority: 5, pinned: false });

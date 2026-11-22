@@ -577,17 +577,21 @@ it("resets the automatic recovery budget only after the current native source is
   expect(prepareOriginalVideo).toHaveBeenCalledTimes(5);
 });
 it("retires the held lease through the unload path only when the document really leaves", async () => {
+  const native = nativeVideo();
   const current = lease();
   vi.mocked(prepareOriginalVideo).mockResolvedValueOnce(current);
-  const { result } = mounted(null);
+  const { result } = mounted(native.node);
   await flush();
   expect(result.current.mediaPath).toBe(current.mediaPath);
+  native.playing(true);
   act(() =>
     window.dispatchEvent(
       Object.assign(new Event("pagehide"), { persisted: true } as PageTransitionEvent),
     ),
   );
   expect(current.retireOnUnload).not.toHaveBeenCalled();
+  expect(native.node.getAttribute("src")).toBe(current.mediaPath);
+  events.length = 0;
   act(() =>
     window.dispatchEvent(
       Object.assign(new Event("pagehide"), { persisted: false } as PageTransitionEvent),
@@ -595,7 +599,7 @@ it("retires the held lease through the unload path only when the document really
   );
   expect(current.retireOnUnload).toHaveBeenCalledTimes(1);
   expect(current.release).not.toHaveBeenCalled();
-  // The lease is no longer owned here; a repeated teardown must not retire it twice.
+  expect(events).toEqual(["pause", "load:null", `retire:${current.leaseId}`]);
   act(() =>
     window.dispatchEvent(
       Object.assign(new Event("pagehide"), { persisted: false } as PageTransitionEvent),

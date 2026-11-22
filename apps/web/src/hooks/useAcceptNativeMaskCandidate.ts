@@ -17,13 +17,6 @@ export interface AcceptNativeMaskCandidateInput {
   target: AiMaskAcceptTarget;
 }
 
-/**
- * Shared image/video native-candidate accept boundary.
- *
- * The same idempotency key is single-flight in the browser. A failed request
- * throws without mutating candidate state; callers consume it only after this
- * function returns a server result.
- */
 export function useAcceptNativeMaskCandidate(args: {
   taskId: string | undefined;
   videoSegmentId?: string | null;

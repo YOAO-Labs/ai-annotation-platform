@@ -47,7 +47,6 @@ async function commitChineseInput(page: Page, input: Locator, read: () => Promis
       selectionStart: 6,
       selectionEnd: 6,
     });
-    // Wait past the autosave interval while the candidate is still active.
     await page.waitForTimeout(1_500);
     expect(await read()).toBe(beforeComposition);
     await expect(input).toBeFocused();

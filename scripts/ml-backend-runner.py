@@ -26,7 +26,6 @@ MODEL_MOUNTS = {
     "onnxtools": {"/app/models"},
     "rapidocr": {"/app/models"},
 }
-# Inspect source without importing model code or initializing CUDA.
 CODE_PROBE = """import ast,hashlib,importlib.util,json,pathlib
 main=pathlib.Path(importlib.util.find_spec('main').origin)
 t=ast.parse(main.read_text())
@@ -132,9 +131,6 @@ class Runner:
             if result.returncode:
                 raise CommandFailure("Docker command failed")
             return result.stdout
-        # The stop client is deliberately never terminated on our tracking deadline.
-        # Docker's stop request has an infinite grace period; only the operator may
-        # decide how to recover an indefinitely draining runtime.
         process = subprocess.Popen(
             args, stdout=logfile, stderr=subprocess.STDOUT, start_new_session=True
         )

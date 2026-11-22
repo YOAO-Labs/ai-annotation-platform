@@ -13,7 +13,6 @@ function pose(fi: number, x: number, yaw = 0): FramePose {
 
 describe("alignPsrToFrame", () => {
   it("纯平移: 邻帧框对齐到当前帧后 x 减去 ego 前进量", () => {
-    // 邻帧(x=0)里框在 ego 前方 10m;当前帧 ego 已前进到 x=4
     const out = alignPsrToFrame(
       { center: [10, 2, 1], rotation: [0, 0, 0.3] },
       pose(0, 0),
@@ -27,8 +26,6 @@ describe("alignPsrToFrame", () => {
   });
 
   it("ego 旋转 90°: 框位置/朝向随世界系守恒地换系", () => {
-    // 邻帧 ego 无旋转, 框在正前方 (10,0,0);当前帧 ego 原地左转 90°
-    // → 世界系同一点在当前 ego 系应位于右侧 (0,-10,0)
     const out = alignPsrToFrame(
       { center: [10, 0, 0], rotation: [0, 0, 0] },
       pose(0, 0, 0),
@@ -60,8 +57,6 @@ describe("alignPsrToFrame", () => {
 
 describe("frameRelMatrix · 点云叠加", () => {
   it("纯平移: 邻帧静止世界点经 rel 变换后 x 减去 ego 前进量", () => {
-    // 邻帧 ego 在 x=0, 当前帧 ego 前进到 x=4;邻帧系里 (10,0,0) 的静止点
-    // 在当前帧系应为 (6,0,0)——与 alignPsrToFrame 同口径。
     const rel = frameRelMatrix(pose(0, 0), pose(2, 4));
     expect(rel).not.toBeNull();
     const v = new THREE.Vector3(10, 0, 0).applyMatrix4(rel!);

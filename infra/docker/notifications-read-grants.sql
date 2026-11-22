@@ -1,8 +1,3 @@
--- Grant the public Notifications fact view to the existing API/worker LOGIN.
--- Run after module-data-grants.sql as the migration role.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v notifications_owner=notifications_code -v api_role=legacy_runtime \
---   -f infra/docker/notifications-read-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;

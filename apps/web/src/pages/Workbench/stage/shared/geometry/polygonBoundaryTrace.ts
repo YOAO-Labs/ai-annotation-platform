@@ -25,7 +25,6 @@ export function traceUnsupportedReason(geometry: Geometry | undefined): string |
   return null;
 }
 
-/** Remove storage closure and consecutive duplicates, without changing any source geometry. */
 export function traceRing(points: Pt[]): Pt[] {
   const ring = points.filter((point, i) => i === 0 || !samePolygonPoint(point, points[i - 1]));
   if (ring.length > 1 && samePolygonPoint(ring[0], ring[ring.length - 1])) return ring.slice(0, -1);
@@ -35,7 +34,6 @@ export function traceRing(points: Pt[]): Pt[] {
 const distance = (a: Pt, b: Pt, width: number, height: number) =>
   Math.hypot((a[0] - b[0]) * width, (a[1] - b[1]) * height);
 
-/** Vertex priority and segment projection are both measured in CSS pixels. */
 export function pickBoundary(
   ring: Pt[],
   point: Pt,
@@ -104,7 +102,6 @@ export function boundaryPaths(
       0,
     ),
   });
-  // Image y grows downwards, so positive area is clockwise on screen.
   return signedArea(ring) > 0
     ? { clockwise: arc(forward), counterclockwise: arc(backward) }
     : { clockwise: arc(backward), counterclockwise: arc(forward) };

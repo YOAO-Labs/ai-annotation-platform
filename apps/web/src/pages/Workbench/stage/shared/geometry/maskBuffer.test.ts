@@ -1,5 +1,3 @@
-// MaskBuffer 单测：brush / erase / clear / fromPolygon / toAlphaImageData / clone。
-
 import { describe, expect, it } from "vitest";
 import { MaskBuffer } from "./maskBuffer";
 
@@ -32,19 +30,15 @@ describe("MaskBuffer · brush / erase / clear", () => {
     const m = new MaskBuffer({ width: 100, height: 100 });
     m.brush(50, 50, 10);
     const n = m.countSet();
-    // π * 10² ≈ 314
     expect(n).toBeGreaterThan(250);
     expect(n).toBeLessThan(380);
-    // 圆心必中
     expect(m.get(50, 50)).toBe(255);
-    // 远点必不中
     expect(m.get(80, 80)).toBe(0);
   });
 
   it("brush 越界部分被裁，仍能落入合法像素", () => {
     const m = new MaskBuffer({ width: 20, height: 20 });
     m.brush(0, 0, 5);
-    // 仅左上 1/4 圆，应有像素被画但不越界
     expect(m.countSet()).toBeGreaterThan(0);
     expect(m.get(0, 0)).toBe(255);
   });
@@ -101,18 +95,15 @@ describe("MaskBuffer · fromPolygon", () => {
       [30, 30],
       [10, 30],
     ]);
-    // 20x20 ≈ 400 像素（±5% 容差）
     const n = m.countSet();
     expect(n).toBeGreaterThan(360);
     expect(n).toBeLessThan(450);
-    // 中心命中、远处空
     expect(m.get(20, 20)).toBe(255);
     expect(m.get(40, 40)).toBe(0);
   });
 
   it("三角形 polygon 大致填出三角形面积", () => {
     const m = new MaskBuffer({ width: 100, height: 100 });
-    // 直角三角形 边长 40,40 → 面积 = 800
     m.fromPolygon([
       [10, 10],
       [50, 10],
@@ -134,14 +125,12 @@ describe("MaskBuffer · fromPolygon", () => {
 
   it("polygon 部分越界仍能填到有效区域", () => {
     const m = new MaskBuffer({ width: 20, height: 20 });
-    // 大部分在画布外
     m.fromPolygon([
       [-10, -10],
       [25, -10],
       [25, 25],
       [-10, 25],
     ]);
-    // 应该填满整个画布
     expect(m.countSet()).toBe(20 * 20);
   });
 
@@ -202,7 +191,6 @@ describe("MaskBuffer · dirtyRect", () => {
     m.brush(50, 50, 10);
     const rect = m.consumeDirty();
     expect(rect).not.toBeNull();
-    // 外接框 [40, 61) × [40, 61) 上下浮动 1 像素都可接受
     expect(rect!.x0).toBeGreaterThanOrEqual(39);
     expect(rect!.x0).toBeLessThanOrEqual(41);
     expect(rect!.x1).toBeGreaterThanOrEqual(60);
@@ -235,7 +223,7 @@ describe("MaskBuffer · dirtyRect", () => {
 
   it("clear 后脏区 = 全图", () => {
     const m = new MaskBuffer({ width: 40, height: 30 });
-    m.consumeDirty(); // 重置
+    m.consumeDirty();
     m.clear();
     const rect = m.consumeDirty()!;
     expect(rect).toEqual({ x0: 0, y0: 0, x1: 40, y1: 30 });
@@ -270,15 +258,11 @@ describe("MaskBuffer · dirtyRect", () => {
 
   it("toAlphaImageDataRect 切片字节正确", () => {
     const m = new MaskBuffer({ width: 10, height: 10 });
-    // 在 (5, 5) 画半径 1，紧贴 5,5
     m.brush(5, 5, 1);
     const slice = m.toAlphaImageDataRect({ x0: 4, y0: 4, x1: 7, y1: 7 });
-    // 3*3*4 = 36
     expect(slice.length).toBe(36);
-    // 中心 (5, 5) → 切片局部坐标 (1, 1)
     const centerIdx = (1 * 3 + 1) * 4;
     expect(slice[centerIdx + 3]).toBe(255);
-    // 切片角 (4, 4) → 局部 (0, 0)
     expect(slice[0 + 3]).toBe(0);
   });
 
@@ -293,7 +277,6 @@ describe("MaskBuffer · dirtyRect", () => {
     m.brush(10, 10, 3);
     const c = m.clone();
     expect(c.consumeDirty()).not.toBeNull();
-    // 原 buffer 脏区不被消费
     expect(m.consumeDirty()).not.toBeNull();
   });
 });
@@ -304,7 +287,6 @@ describe("MaskBuffer · toAlphaImageData / clone", () => {
     m.brush(2, 2, 1);
     const out = m.toAlphaImageData();
     expect(out.length).toBe(4 * 4 * 4);
-    // 找一个 alpha=255 的像素，对应 R/G/B 必须是 0
     for (let i = 0; i < out.length; i += 4) {
       if (out[i + 3] === 255) {
         expect(out[i]).toBe(0);
@@ -322,7 +304,6 @@ describe("MaskBuffer · toAlphaImageData / clone", () => {
     expect(b.countSet()).toBe(before);
     b.clear();
     expect(b.countSet()).toBe(0);
-    // 原 mask 不受影响
     expect(a.countSet()).toBe(before);
   });
 });

@@ -480,7 +480,6 @@ class _RestrictedWriterContainer:
         self._inspect_owned()
         _docker("start", self.container_id, timeout=30)
         self._inspect_owned()
-        # Docker may assign a new ephemeral host port when the container starts.
         self._verify_runtime_profile()
         await self.wait_ready()
 
@@ -591,8 +590,6 @@ async def test_video_writer_owner_container_restarts_and_serves_bounded_status_s
     async def observe_renewal(db, action, proof):
         if action != "renew":
             return await native_call(db, action, proof)
-        # Keep the normal heartbeat during model work. Accelerate it only
-        # once the committed receipt is being served across an owner restart.
         if not terminal.is_set():
             try:
                 await asyncio.wait_for(terminal.wait(), timeout=normal_interval)

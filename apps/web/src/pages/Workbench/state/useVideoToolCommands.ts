@@ -82,7 +82,6 @@ function pendingBelongsToDraft(pending: PendingDrawing, draft: VideoDrawingDraft
   return completedKind[draft.tool] === pending.kind;
 }
 
-/** Admits explicit video commands without duplicating the Stage or Mask draft owners. */
 export function useVideoToolCommands(options: Options) {
   const latest = useRef(options);
   latest.current = options;
@@ -117,7 +116,6 @@ export function useVideoToolCommands(options: Options) {
     async (command: Command) => {
       const initial = latest.current;
       const requestId = ++serial.current;
-      // A newer explicit command supersedes a dialog or Mask save still in flight.
       settleConfirmation(false);
       if (!initial.enabled) return false;
       if (initial.blockedReason) {
@@ -155,7 +153,6 @@ export function useVideoToolCommands(options: Options) {
               ? initial.state.selectedIds.filter((id) => id !== command.id)
               : [...initial.state.selectedIds, command.id]
             : [command.id];
-        // Removing a member does not create a fresh selection event for an older member.
         const trackTool =
           command.activateTrackTool !== false &&
           !removing &&
@@ -163,7 +160,6 @@ export function useVideoToolCommands(options: Options) {
           videoTrackSelectionTool(annotation.geometry.type);
         if (trackTool) target = { tool: trackTool, scope: "track" };
       }
-      // Tracker seed collection has its own backend capabilities and borrows an AI tool.
       const reason =
         command.kind === "temporary" || command.kind === "frame" || command.kind === "leave"
           ? undefined
@@ -209,10 +205,8 @@ export function useVideoToolCommands(options: Options) {
           command.isRelevant());
       if (!isCurrent()) return false;
       const pending = initial.state.pendingDrawing;
-      // A pending Mask class owns an in-flight save resolver in the native writer.
       const hasPending = pending?.kind !== "video_mask" && !!pending?.kind?.startsWith("video_");
       const stageDraft = initial.controlsRef.current?.getDrawingDraft?.();
-      // An existing track continuation commits on pointerup through its original update owner.
       if (stageDraft?.continuingTrack) {
         initial.explain("正在续画轨迹，请先松手完成本帧后再切换");
         return false;
@@ -235,8 +229,6 @@ export function useVideoToolCommands(options: Options) {
       }
       if (!isCurrent()) return false;
       const currentPending = latest.current.state.pendingDrawing;
-      // Releasing a held drawing pointer can complete the same draft while the dialog is open.
-      // Recheck after every await so an unrelated replacement is never discarded.
       const migratedPending = !!stageDraft && pendingBelongsToDraft(currentPending, stageDraft);
       if (hasPending && currentPending !== pending) return false;
       if (stageDraft && currentPending && currentPending !== pending && !migratedPending)
@@ -297,7 +289,6 @@ export function useVideoToolCommands(options: Options) {
   );
   const requestSelection = useCallback<VideoSelectionCommand>(
     (id, options) => {
-      // The playback owner's task reset is lifecycle cleanup, not a user command.
       if (id === null && options?.source === "task-reset") {
         latest.current.state.replaceSelected([]);
         return;
@@ -308,7 +299,6 @@ export function useVideoToolCommands(options: Options) {
     [request],
   );
 
-  /** Await admission for an owner-bound navigation without creating another guard. */
   const requestSelectionReady = useCallback(
     (id: string, isRelevant: () => boolean) =>
       request({ kind: "selection", id, activateTrackTool: false, isRelevant }),
@@ -350,8 +340,6 @@ export function useVideoToolCommands(options: Options) {
       });
       if (!admitted || !ready) return { status: "cancelled", frameIndex, source: null };
       const result = await ready;
-      // Admission is complete before the Stage changes the frame component of ownerKey.
-      // The caller's task/intent token and Stage's request generation own completion.
       return active.current && isRelevant()
         ? result
         : { status: "cancelled", frameIndex, source: null };

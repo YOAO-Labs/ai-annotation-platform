@@ -1,8 +1,3 @@
-/**
- * ProjectSettings ClassesSection / TemplateEditModal
- *  共享的 unit tab 切换条 + enabled chip 控件.
- */
-
 import { Icon } from "@/components/ui/Icon";
 import { clsx } from "clsx";
 import { TOOL_UNIT_GROUPS, type ProjectDataType, type ToolUnitId } from "@/constants/toolUnits";
@@ -13,7 +8,6 @@ interface Props {
   activeUnit: ToolUnitId;
   onSelect: (unit: ToolUnitId) => void;
   dataType?: ProjectDataType;
-  /** 是否允许在此处切换 enabled 状态. Section 内默认 false (不让用户在类别页删 unit). */
   allowToggle?: boolean;
   onToggle?: (unit: ToolUnitId, enabled: boolean) => void;
 }
@@ -77,7 +71,6 @@ export function ToolUnitTabs({
 
 function toolUnitLabel(unit: ToolUnitId, fallback: string, dataType?: ProjectDataType): string {
   if (dataType === "video") {
-    // 视频几何单位名简化 (单帧/轨迹变体由单位内子开关区分, 不进 tab 名)。
     if (unit === "bbox") return "矩形框 / 轨迹";
     if (unit === "region") return "多边形";
     if (unit === "polyline") return "折线";

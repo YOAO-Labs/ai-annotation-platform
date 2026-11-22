@@ -126,8 +126,6 @@ async def test_function_only_reader_owns_read_transaction_and_preserves_receipt_
         assert rows[0]["created_by_name"] == ""
         assert math.copysign(1, rows[0]["box_threshold"]) == -1
 
-        # This admission snapshot precedes the state change, as in a request
-        # whose successful command already committed before response hydration.
         projection = template_query_request(
             "get_template_projection",
             actor_id,

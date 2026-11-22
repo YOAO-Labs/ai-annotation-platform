@@ -144,18 +144,14 @@ async def test_pa_default_active_visibility(
     world = await _seed_scope_world(db_session, project_admin, super_admin)
     ids = await _query_ids(httpx_client, project_admin, status="active")
 
-    assert str(world.manager.id) in ids  # self
-    assert str(world.member.id) in ids  # own project member
-    # The fix (issue #115): enabled unassigned workers are visible.
+    assert str(world.manager.id) in ids
+    assert str(world.member.id) in ids
     assert str(world.unassigned_annotator.id) in ids
     assert str(world.unassigned_reviewer.id) in ids
-    # Enabled super admin is visible read-only (maintainer addition).
     assert str(world.admin.id) in ids
-    # Foreign-project enabled annotator shares the same widened population.
     assert str(world.foreign_member.id) in ids
-    # No expansion: own inactive member, unassigned viewer, other PA, disabled.
     assert str(world.inactive_member.id) not in ids
-    assert str(world.viewer_member.id) in ids  # own member, any role
+    assert str(world.viewer_member.id) in ids
     assert str(world.unassigned_viewer.id) not in ids
     assert str(world.other_pa.id) not in ids
     assert str(world.inactive_annotator.id) not in ids
@@ -168,10 +164,10 @@ async def test_pa_inactive_visibility_keeps_disabled_accounts_hidden(
     world = await _seed_scope_world(db_session, project_admin, super_admin)
     ids = await _query_ids(httpx_client, project_admin, status="inactive")
 
-    assert str(world.inactive_member.id) in ids  # own project member
-    assert str(world.inactive_annotator.id) not in ids  # unassigned disabled
-    assert str(world.inactive_super_admin.id) not in ids  # disabled super admin
-    assert str(world.unassigned_annotator.id) not in ids  # active account
+    assert str(world.inactive_member.id) in ids
+    assert str(world.inactive_annotator.id) not in ids
+    assert str(world.inactive_super_admin.id) not in ids
+    assert str(world.unassigned_annotator.id) not in ids
 
 
 async def test_pa_role_filters(
@@ -182,17 +178,17 @@ async def test_pa_role_filters(
     super_admins = await _query_ids(
         httpx_client, project_admin, status="active", role="super_admin"
     )
-    assert str(world.admin.id) in super_admins  # read-only lookup
+    assert str(world.admin.id) in super_admins
     assert str(world.inactive_super_admin.id) not in super_admins
 
     viewers = await _query_ids(httpx_client, project_admin, status="all", role="viewer")
-    assert str(world.viewer_member.id) in viewers  # own member only
+    assert str(world.viewer_member.id) in viewers
     assert str(world.unassigned_viewer.id) not in viewers
 
     project_admins = await _query_ids(
         httpx_client, project_admin, status="active", role="project_admin"
     )
-    assert str(world.manager.id) in project_admins  # self
+    assert str(world.manager.id) in project_admins
     assert str(world.other_pa.id) not in project_admins
 
 
@@ -219,7 +215,7 @@ async def test_pa_project_filter_stays_project_bounded(
         status="all",
         project_id=str(world.foreign_project.id),
     )
-    assert foreign == set()  # no cross-project membership disclosure
+    assert foreign == set()
 
 
 async def test_pa_search_finds_unassigned_annotator(
@@ -288,16 +284,13 @@ async def test_pa_query_flags_is_managed(
     assert response.status_code == 200, response.text
     flags = {row["id"]: row["is_managed"] for row in response.json()["items"]}
 
-    assert flags[str(world.manager.id)] is True  # self
-    assert flags[str(world.member.id)] is True  # own project member
-    # Enabled annotator/reviewer accounts are operable, incl. unassigned and
-    # foreign-project members (maintainer revision).
+    assert flags[str(world.manager.id)] is True
+    assert flags[str(world.member.id)] is True
     assert flags[str(world.unassigned_annotator.id)] is True
     assert flags[str(world.unassigned_reviewer.id)] is True
     assert flags[str(world.foreign_member.id)] is True
-    assert flags[str(world.admin.id)] is False  # super admin: visible, read-only
+    assert flags[str(world.admin.id)] is False
 
-    # Super-admin actor: everything is manageable.
     sa_response = await httpx_client.get(
         "/api/v1/users/query",
         params={"page": 1, "page_size": 200, "status": "all"},
@@ -442,16 +435,12 @@ async def test_pa_query_flags_is_lifecycle_managed(
         for row in response.json()["items"]
     }
 
-    assert flags[str(world.manager.id)] == (True, True)  # self
-    assert flags[str(world.member.id)] == (True, True)  # own project member
-    # Unassigned enabled workers: no derived projects, lifecycle allowed.
+    assert flags[str(world.manager.id)] == (True, True)
+    assert flags[str(world.member.id)] == (True, True)
     assert flags[str(world.unassigned_annotator.id)] == (True, True)
-    # Foreign-project member: manageable, but lifecycle gated.
     assert flags[str(world.foreign_member.id)] == (True, False)
-    # Super admin stays read-only on both axes.
     assert flags[str(world.admin.id)] == (False, False)
 
-    # Super-admin actor: everything stays fully manageable.
     sa_response = await httpx_client.get(
         "/api/v1/users/query",
         params={"page": 1, "page_size": 200, "status": "all"},
@@ -492,13 +481,11 @@ async def test_pa_lifecycle_blocked_for_task_straddling_annotator(
     straddler_id = straddler.id
     headers = _headers(project_admin)
 
-    # Account-level writes stay open on the enabled annotator.
     reset = await httpx_client.post(
         f"/api/v1/users/{straddler_id}/admin-reset-password", headers=headers
     )
     assert reset.status_code == 200, reset.text
 
-    # Lifecycle writes must stay gated even without any ProjectMember row.
     deactivate = await httpx_client.post(
         f"/api/v1/users/{straddler_id}/deactivate", headers=headers
     )
@@ -557,11 +544,8 @@ async def test_pa_delete_transfer_receiver_must_cover_task_projects(
         ]
     )
     target_id, receiver_id, outsider_id = target.id, receiver.id, outsider.id
-    # Persist setup across the rejected command's rollback; retain plain IDs.
     await db_session.commit()
 
-    # The enabled outsider would pass the account-level manage arm but has no
-    # membership in the project holding the pending task.
     blocked = await httpx_client.request(
         "DELETE",
         f"/api/v1/users/{target_id}",
@@ -570,7 +554,6 @@ async def test_pa_delete_transfer_receiver_must_cover_task_projects(
     )
     assert blocked.status_code == 403, blocked.text
 
-    # A member of the affected project is a valid receiver.
     ok = await httpx_client.request(
         "DELETE",
         f"/api/v1/users/{target_id}",
@@ -616,7 +599,6 @@ async def test_pa_offboarding_blocked_on_disabled_unassigned_account(
     assert commit.status_code == 403, commit.text
     assert commit.json()["detail"] == preview.json()["detail"]
 
-    # Super admins keep full offboarding access to the same account.
     sa_preview = await httpx_client.get(
         f"/api/v1/users/{suspended_id}/offboarding-preview",
         headers=sa_headers,
@@ -629,7 +611,6 @@ async def test_pa_writes_blocked_on_super_admin(
     httpx_client: httpx.AsyncClient, project_admin, super_admin, db_session
 ):
     world = await _seed_scope_world(db_session, project_admin, super_admin)
-    # Owner denials roll back the command; retain fixture rows in the outer savepoint.
     await db_session.commit()
     target = world.admin
     target_id, target_email, target_name = target.id, target.email, target.name
@@ -655,8 +636,6 @@ async def test_pa_writes_blocked_on_super_admin(
     delete = await httpx_client.delete(f"/api/v1/users/{target_id}", headers=headers)
     assert delete.status_code == 403, delete.text
 
-    # Platform-role preview is super-admin only, so an out-of-scope project
-    # administrator is denied before any user detail is disclosed.
     preview = await httpx_client.get(
         f"/api/v1/users/{target_id}/role/preview?role=employee", headers=headers
     )
@@ -670,7 +649,6 @@ async def test_legacy_role_filters_are_rejected(
     """role=annotator/reviewer must be a validation error, not an empty list."""
 
     _, token = super_admin
-    # Owner failures roll back their transaction; keep the fixture in its outer savepoint.
     await db_session.commit()
     headers = {"Authorization": f"Bearer {token}"}
     for url in ("/api/v1/users", "/api/v1/users/query", "/api/v1/users/stats"):
@@ -705,7 +683,6 @@ async def test_legacy_picker_semantics_unchanged(
 ):
     world = await _seed_scope_world(db_session, project_admin, super_admin)
 
-    # role=employee&status=active keeps the wide candidate list (assign modal).
     candidates = await httpx_client.get(
         "/api/v1/users",
         params={"role": "employee", "status": "active"},
@@ -716,7 +693,6 @@ async def test_legacy_picker_semantics_unchanged(
     assert str(world.unassigned_annotator.id) in candidate_ids
     assert str(world.foreign_member.id) in candidate_ids
 
-    # Without a role the picker stays strict (transfer receivers, pickers).
     strict = await httpx_client.get(
         "/api/v1/users", params={"status": "active"}, headers=_headers(project_admin)
     )

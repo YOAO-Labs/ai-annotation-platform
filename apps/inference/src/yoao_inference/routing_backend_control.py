@@ -301,8 +301,6 @@ class BackendRoutingControl:
         except (BackendRoutingControlUnavailable, asyncio.CancelledError):
             raise
         except (httpx.HTTPError, OSError, TimeoutError):
-            # The command may have reached the backend. The persistent Native
-            # hold remains in place; a later reconciliation uses the same ID.
             raise BackendRoutingControlUnavailable() from None
 
         try:

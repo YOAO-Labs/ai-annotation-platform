@@ -67,9 +67,6 @@ async def _video_context(db, task):
     )
 
 
-# ── 纯函数: 按实例分组 ────────────────────────────────────────────────
-
-
 def _r(frame: int, instance_id=None, primary=False) -> TrackerFrameResult:
     return TrackerFrameResult(
         frame_index=frame,
@@ -105,7 +102,6 @@ def test_partition_primary_flag_routes_flagged_instance_to_source():
 
 
 def test_partition_primary_flag_covers_all_frames_of_that_instance():
-    # backend 只在种子帧标了 primary, 但该 instance 的其余帧也应整体归主。
     results = [_r(0, "obj7", primary=True), _r(1, "obj7"), _r(2, "obj7"), _r(1, "obj9")]
     primary, extras = _partition_results_by_instance(results)
     assert [x.frame_index for x in primary] == [0, 1, 2]
@@ -120,14 +116,10 @@ def test_partition_no_primary_flag_uses_smallest_instance_id():
 
 
 def test_partition_no_primary_flag_numeric_ids_use_numeric_min():
-    # 数字 instance_id 按数值取 min, 而非字典序 (否则 "10" < "2" 会挑错主实例)。
     results = [_r(0, "2"), _r(0, "10"), _r(1, "2"), _r(1, "10")]
     primary, extras = _partition_results_by_instance(results)
     assert all(x.instance_id == "2" for x in primary)
     assert set(extras) == {"10"}
-
-
-# ── runner 端到端: 单 seed → 多实例 → 多 annotation ──────────────────
 
 
 async def _make_video_task(db_session, owner_id, media_owner=None):
@@ -265,15 +257,12 @@ async def test_runner_lands_extra_instances_as_new_tracks(
     await db_session.flush()
     await db_session.commit()
 
-    # 两窗 (0,1) (2,3), 每窗返回 obj0(primary)+obj1+obj2。
     monkeypatch.setattr(settings, "video_tracker_sam3_window_size_frames", 2)
     adapter = _MultiInstanceAdapter(extra_ids=["obj1", "obj2"])
     monkeypatch.setattr(
         "app.services.video_tracking.runner.get_tracker_adapter",
         lambda _model_key: adapter,
     )
-    # 无声明 sam3_video 的已启用 backend → get_tracker_backend 返回 None; stub adapter
-    # 忽略 ctx.ml_backend, 无需真实 registry。
 
     async def collect(_channel: str, _payload: dict) -> None:
         return None
@@ -290,10 +279,9 @@ async def test_runner_lands_extra_instances_as_new_tracks(
     assert {seed["obj_id"] for seed in continuation} == {1, 2, 3}
     assert all(seed["geometry"]["type"] == "bbox" for seed in continuation)
 
-    # 候选流: 完成 = 暂存待审, committed annotations 未改。
     assert job.status == "pending_review"
     assert job.staged_result and job.staged_result["results"]
-    assert source.annotation_type == "bbox"  # 源未回填 (仍原始单帧 bbox)
+    assert source.annotation_type == "bbox"
     pre_extra = (
         (
             await db_session.execute(
@@ -306,23 +294,19 @@ async def test_runner_lands_extra_instances_as_new_tracks(
         .scalars()
         .all()
     )
-    assert pre_extra == []  # 接受前无新轨迹
+    assert pre_extra == []
 
-    # 接受 → 落库。
     await accept_tracker_job(db_session, job.id, actor_id=user_id, publisher=collect)
     await db_session.refresh(job)
     await db_session.refresh(source)
     assert job.status == "accepted"
 
-    # 源 annotation: 主实例 obj0 回填, seed 帧 0 保留 manual, 1..3 prediction。
     assert source.annotation_type == "video_track_bbox"
     src_frames = [kf["frame_index"] for kf in source.geometry["keyframes"]]
     assert src_frames == [0, 1, 2, 3]
     assert source.geometry["keyframes"][0]["source"] == "manual"
-    # 主实例几何 x==frame (非 +100 的新目标几何) —— 证明未串到 extras。
     assert source.geometry["keyframes"][3]["bbox"]["x"] == pytest.approx(3.0)
 
-    # 新发现的 obj1/obj2 各落一条 ai_tracker annotation。
     rows = (
         (
             await db_session.execute(
@@ -337,15 +321,14 @@ async def test_runner_lands_extra_instances_as_new_tracks(
     )
     assert len(rows) == 2
     track_ids = {r.track_id for r in rows}
-    assert len(track_ids) == 2  # 各自独立 track_id
+    assert len(track_ids) == 2
     for r in rows:
-        assert r.class_name == "car"  # 继承 source label
+        assert r.class_name == "car"
         assert r.tool_unit_id == "bbox"
         assert r.annotation_type == "video_track_bbox"
         assert r.user_id == user_id
         frames = [kf["frame_index"] for kf in r.geometry["keyframes"]]
-        assert frames == [0, 1, 2, 3]  # 跨两窗连续
-        # 全为预测帧 (新目标无人工 seed)。
+        assert frames == [0, 1, 2, 3]
         assert all(kf["source"] == "prediction" for kf in r.geometry["keyframes"])
         assert r.geometry["keyframes"][3]["bbox"]["x"] == pytest.approx(103.0)
 
@@ -410,11 +393,10 @@ async def test_runner_sourceless_detection_lands_all_as_new_tracks(
         .scalars()
         .all()
     )
-    # 无源 → 主实例 obj0 + 新发现 obj1 各落一条新轨迹 = 2 条 (无回填对象)。
     assert len(rows) == 2
     assert len({r.track_id for r in rows}) == 2
     for r in rows:
-        assert r.class_name == "pedestrian"  # 取 job.target_class_name, 不继承 source
+        assert r.class_name == "pedestrian"
         assert r.tool_unit_id == "bbox"
         assert r.annotation_type == "video_track_bbox"
         assert r.user_id == user_id
@@ -673,7 +655,7 @@ async def test_create_tracker_job_with_source_keeps_target_null(
         from_frame=0,
         to_frame=3,
         model_key="mock_bbox",
-        target_class_name="pedestrian",  # 有源时应被忽略
+        target_class_name="pedestrian",
     )
     body = await create_tracker_job(
         db_session,
@@ -811,8 +793,8 @@ async def test_runner_discard_leaves_annotation_untouched(
     await db_session.refresh(source)
 
     assert job.status == "discarded"
-    assert job.staged_result is None  # 清空
-    assert source.annotation_type == "bbox"  # 源零改动
+    assert job.staged_result is None
+    assert source.annotation_type == "bbox"
     extra = (
         (
             await db_session.execute(
@@ -826,9 +808,6 @@ async def test_runner_discard_leaves_annotation_untouched(
         .all()
     )
     assert extra == []
-
-
-# ── B-mx · text-multiplex 跨窗 IoU 关联 ─────────────────────
 
 
 def _mr(
@@ -851,23 +830,22 @@ def test_associate_multiplex_window_matches_by_iou_and_births_new():
         "1": {"type": "bbox", "x": 0.10, "y": 0.0, "w": 0.1, "h": 0.1},
         "2": {"type": "bbox", "x": 0.50, "y": 0.0, "w": 0.1, "h": 0.1},
     }
-    nxt = [3]  # 下一个新全局 id
+    nxt = [3]
     win = [
-        _mr(2, "a", 0.11),  # 与 global 1 边界高 IoU → 复用 "1"
-        _mr(2, "b", 0.51),  # 与 global 2 → "2"
-        _mr(2, "c", 0.90),  # 无匹配 → 新 global "3"
+        _mr(2, "a", 0.11),
+        _mr(2, "b", 0.51),
+        _mr(2, "c", 0.90),
     ]
     out = _associate_multiplex_window(win, prev, nxt)
     remap = {r.geometry["x"]: r.instance_id for r in out}
     assert remap[0.11] == "1"
     assert remap[0.51] == "2"
     assert remap[0.90] == "3"
-    assert nxt == [4]  # 消耗了一个新全局 id
-    assert set(prev) == {"1", "2", "3"}  # prev 更新为本窗末帧几何
+    assert nxt == [4]
+    assert set(prev) == {"1", "2", "3"}
 
 
 def test_associate_multiplex_window_empty_window_keeps_boundary():
-    # 空窗 (backend 空窗返回) 不应抹掉跨窗边界, 否则下一窗全部实例被当作新发现。
     from app.services.video_tracking.runner import _associate_multiplex_window
 
     prev = {
@@ -878,12 +856,11 @@ def test_associate_multiplex_window_empty_window_keeps_boundary():
     nxt = [3]
     out = _associate_multiplex_window([], prev, nxt)
     assert out == []
-    assert prev == before  # 边界保留
-    assert nxt == [3]  # 未消耗新全局 id
+    assert prev == before
+    assert nxt == [3]
 
 
 def test_associate_multiplex_window_all_outside_keeps_boundary():
-    # 短暂遮挡 → 整窗全 outside (无几何) 时同样保留边界, 避免同物体遮挡后被拆两条轨迹。
     from app.services.video_tracking.runner import _associate_multiplex_window
 
     prev = {"1": {"type": "bbox", "x": 0.10, "y": 0.0, "w": 0.1, "h": 0.1}}
@@ -899,7 +876,7 @@ def test_associate_multiplex_window_all_outside_keeps_boundary():
     )
     out = _associate_multiplex_window([occluded], prev, nxt)
     assert len(out) == 1
-    assert prev == before  # 全 outside 窗不抹跨窗边界
+    assert prev == before
 
 
 class _WindowLocalMultiplexAdapter:
@@ -989,9 +966,7 @@ async def test_runner_associates_window_local_ids_across_windows(
     db_session.add(job)
     await db_session.commit()
 
-    monkeypatch.setattr(
-        settings, "video_tracker_sam3_window_size_frames", 2
-    )  # 两窗 (0,1)(2,3)
+    monkeypatch.setattr(settings, "video_tracker_sam3_window_size_frames", 2)
     adapter = _WindowLocalMultiplexAdapter()
     monkeypatch.setattr(
         "app.services.video_tracking.runner.get_tracker_adapter", lambda _k: adapter
@@ -1004,14 +979,12 @@ async def test_runner_associates_window_local_ids_across_windows(
     await accept_tracker_job(db_session, job.id, actor_id=user_id, publisher=collect)
     await db_session.refresh(source)
 
-    # 源轨迹 (primary=left): 4 帧全为 left 几何 (x≈0.1), 不混入 right (x≈0.5)。
     src_kfs = sorted(source.geometry["keyframes"], key=lambda k: k["frame_index"])
     assert [k["frame_index"] for k in src_kfs] == [0, 1, 2, 3]
     assert all(k["bbox"]["x"] < 0.3 for k in src_kfs if k.get("bbox")), (
         "源轨迹应全是 left 目标, 关联把跨窗 id 互换的 left 帧归回一条"
     )
 
-    # right → 恰 1 条新 ai_tracker 轨迹 (非 2 条: 证明未因 id 互换分裂), 4 帧全 right (x≈0.5)。
     from sqlalchemy import select
 
     rows = (
@@ -1029,9 +1002,6 @@ async def test_runner_associates_window_local_ids_across_windows(
     right_kfs = sorted(rows[0].geometry["keyframes"], key=lambda k: k["frame_index"])
     assert [k["frame_index"] for k in right_kfs] == [0, 1, 2, 3]
     assert all(k["bbox"]["x"] > 0.3 for k in right_kfs if k.get("bbox"))
-
-
-# ── M · 多选批量: 多源各回填各自源 ──────────────────────────
 
 
 class _MultiSourceAdapter:
@@ -1105,7 +1075,7 @@ async def _seed_two_source_job(db_session, user, media_owner):
     job = VideoTrackerJob(
         task_id=task.id,
         dataset_item_id=item.id,
-        annotation_id=None,  # 多源 job 没有唯一的主 annotation_id
+        annotation_id=None,
         created_by=user_id,
         status=VideoTrackerJobStatus.QUEUED.value,
         model_key="sam3_video_interactive",
@@ -1158,7 +1128,6 @@ async def test_runner_multi_source_backfills_each_own_track(
     await db_session.refresh(src_b)
     assert job.status == "accepted"
 
-    # 各回填各自源: src_a=obj1 (x≈frame), src_b=obj2 (x≈frame+100), 帧末几何区分证明不串。
     assert src_a.annotation_type == "video_track_bbox"
     assert src_b.annotation_type == "video_track_bbox"
     assert [kf["frame_index"] for kf in src_a.geometry["keyframes"]] == [0, 1, 2, 3]
@@ -1166,7 +1135,6 @@ async def test_runner_multi_source_backfills_each_own_track(
     assert src_a.geometry["keyframes"][3]["bbox"]["x"] == pytest.approx(3.0)
     assert src_b.geometry["keyframes"][3]["bbox"]["x"] == pytest.approx(103.0)
 
-    # 两 obj 都有源 → 无额外 ai_tracker 新轨迹。
     rows = (
         (
             await db_session.execute(
@@ -1207,7 +1175,6 @@ async def test_accept_multi_source_soft_deleted_source_fails_closed(
     await db_session.refresh(job)
     assert job.status == "pending_review"
 
-    # 接受前软删 src_b (obj2 的源)。
     await db_session.refresh(src_b)
     src_b.is_active = False
     await db_session.flush()
@@ -1222,7 +1189,6 @@ async def test_accept_multi_source_soft_deleted_source_fails_closed(
     assert job.status == "pending_review"
     assert src_a.annotation_type == "bbox"
 
-    # 不把失去来源的候选静默降级为新轨迹。
     rows = (
         (
             await db_session.execute(
@@ -1238,9 +1204,6 @@ async def test_accept_multi_source_soft_deleted_source_fails_closed(
     assert rows == []
 
 
-# ── 建 job 侧: 多源 endpoint/schema/service ────────────────
-
-
 async def test_create_tracker_job_multi_source_builds_seeds(db_session, super_admin):
     """M · 多选批量: source_annotation_ids ≥1 → job.annotation_id 为 NULL,
     prompt.seeds 每源一条 (obj_id 1..N + source_annotation_id + from_frame 处几何)。"""
@@ -1249,7 +1212,6 @@ async def test_create_tracker_job_multi_source_builds_seeds(db_session, super_ad
 
     user, _ = super_admin
     task, item = await _make_video_task(db_session, user.id)
-    # 普通 bbox 源 (resolve 取不到 → 回退整条几何) + video_track_bbox 源 (取 frame 0 关键帧)。
     src_a = Annotation(
         task_id=task.id,
         project_id=task.project_id,
@@ -1289,7 +1251,7 @@ async def test_create_tracker_job_multi_source_builds_seeds(db_session, super_ad
         to_frame=3,
         model_key="mock_bbox",
         source_annotation_ids=source_ids,
-        target_class_name="pedestrian",  # 多源时应被忽略 (各源继承自身 label)
+        target_class_name="pedestrian",
     )
     body = await create_tracker_job(
         db_session,
@@ -1302,15 +1264,13 @@ async def test_create_tracker_job_multi_source_builds_seeds(db_session, super_ad
     )
     job = await db_session.get(VideoTrackerJob, body.id)
     assert job is not None
-    assert job.annotation_id is None  # 多源不认单主
-    assert job.target_class_name is None  # 多源不存显式目标类别
+    assert job.annotation_id is None
+    assert job.target_class_name is None
     seeds = job.prompt["seeds"]
     assert [s["obj_id"] for s in seeds] == [1, 2]
     assert seeds[0]["source_annotation_id"] == str(source_ids[0])
     assert seeds[1]["source_annotation_id"] == str(source_ids[1])
-    # 普通 bbox 源: 回退整条几何。
     assert seeds[0]["geometry"] == {"type": "bbox", "x": 0, "y": 0, "w": 10, "h": 10}
-    # video_track_bbox 源: 取 frame 0 关键帧 → result-style bbox。
     assert seeds[1]["geometry"] == {"type": "bbox", "x": 5, "y": 5, "w": 3, "h": 3}
 
 
@@ -1365,7 +1325,7 @@ async def test_track_video_endpoint_multi_source_builds_job(
     )
     assert resp.status_code == 202, resp.text
     body = resp.json()
-    assert body["annotation_id"] is None  # 多源不认单主
+    assert body["annotation_id"] is None
     assert body["status"] == "queued"
     row = await db_session.get(VideoTrackerJob, uuid.UUID(body["id"]))
     seeds = row.prompt["seeds"]
@@ -1431,7 +1391,6 @@ async def test_accept_multi_source_touched_covers_sources_and_created(
     await run_tracker_job(db_session, job.id, publisher=collect)
     await db_session.refresh(job)
     assert job.status == "pending_review"
-    # 未接受 → 无 touched。
     assert "touched_annotation_ids" not in (job.prompt or {})
     assert (
         VideoTrackerJobOut.model_validate(
@@ -1444,7 +1403,6 @@ async def test_accept_multi_source_touched_covers_sources_and_created(
     await db_session.refresh(job)
     assert job.status == "accepted"
 
-    # obj3 无源 → 一条新建 ai_tracker 轨迹。
     created = (
         (
             await db_session.execute(
@@ -1459,12 +1417,8 @@ async def test_accept_multi_source_touched_covers_sources_and_created(
     assert len(created) == 1
     touched = set(job.prompt["touched_annotation_ids"])
     assert touched == {str(src_a.id), str(src_b.id), str(created[0].id)}
-    # VideoTrackerJobOut 顶层字段与 prompt 落库一致。
     out = VideoTrackerJobOut.model_validate(job, from_attributes=True)
     assert {str(x) for x in out.touched_annotation_ids} == touched
-
-
-# ── accept version conflict → 409 ────────────────
 
 
 async def _seed_pending_review_job_with_source(
@@ -1503,15 +1457,11 @@ async def _seed_pending_review_job_with_source(
     db_session.add(job)
     await db_session.commit()
 
-    # Drive the job to pending_review with staged results.
     adapter = _MultiInstanceAdapter(extra_ids=[])
     monkeypatch_holder["adapter"] = adapter
     return task, source, job
 
 
-# module-level holder so the test body can patch get_tracker_adapter after
-# the helper returns (tests need to monkeypatch within their own monkeypatch
-# fixture scope).
 monkeypatch_holder: dict = {}
 
 
@@ -1528,9 +1478,8 @@ async def test_accept_tracker_job_conflict_on_source_version_mismatch(
         db_session,
         user_id,
         media_owner,
-        expected_versions={str("__SOURCE__"): 1},  # placeholder, fixed below
+        expected_versions={str("__SOURCE__"): 1},
     )
-    # Replace the placeholder with the actual source id + version snapshot.
     expected = {str(source.id): int(source.version)}
     job.prompt = {**(job.prompt or {}), "expected_source_versions": expected}
     await db_session.commit()
@@ -1552,7 +1501,6 @@ async def test_accept_tracker_job_conflict_on_source_version_mismatch(
     assert job.status == "pending_review"
     original_geometry = dict(source.geometry or {})
 
-    # Simulate a concurrent edit: bump the source annotation's version.
     source.version = (source.version or 1) + 1
     await db_session.commit()
     await db_session.refresh(source)
@@ -1563,10 +1511,8 @@ async def test_accept_tracker_job_conflict_on_source_version_mismatch(
                 db_session, job.id, actor_id=user_id, publisher=collect
             )
 
-    # Source geometry untouched (no last-writer-wins).
     await db_session.refresh(source)
     assert source.geometry == original_geometry
-    # Job is NOT accepted.
     await db_session.refresh(job)
     assert job.status != "accepted"
 
@@ -1583,7 +1529,7 @@ async def test_accept_tracker_job_legacy_without_expected_versions_fails_closed(
         db_session,
         user_id,
         media_owner,
-        expected_versions=None,  # legacy: no snapshot
+        expected_versions=None,
     )
     monkeypatch.setattr(settings, "video_tracker_sam3_window_size_frames", 2)
     monkeypatch.setattr(
@@ -1600,7 +1546,6 @@ async def test_accept_tracker_job_legacy_without_expected_versions_fails_closed(
     await db_session.refresh(job)
     assert job.status == "pending_review"
 
-    # Even if the row is currently readable, drift since creation is unknowable.
     await db_session.refresh(source)
     source.version = (source.version or 1) + 5
     await db_session.commit()
@@ -1676,8 +1621,6 @@ async def test_accept_tracker_job_rechecks_task_status(
         return None
 
     await run_tracker_job(db_session, job.id, publisher=collect)
-    # Review-state accept is rejected by the canonical frozen-evidence guard
-    # (unknown legacy evidence) before the legacy status lock message.
     await db_session.refresh(task)
     task.status = "review"
     await db_session.commit()
@@ -1687,7 +1630,6 @@ async def test_accept_tracker_job_rechecks_task_status(
         )
     assert exc.value.detail["reason"] == "review_contributors_unknown"
 
-    # A completed task is still rejected by the status/phase lock.
     await db_session.refresh(task)
     task.status = "completed"
     await db_session.commit()

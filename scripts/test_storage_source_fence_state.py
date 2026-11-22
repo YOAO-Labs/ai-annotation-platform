@@ -142,7 +142,6 @@ class Adapter:
 
     def restore_lifecycle(self, snapshot):
         assert snapshot == self.snapshot
-        # A CAS failure occurs before restoring anything.
         self.call("restore_lifecycle", intent="restore_lifecycle")
         self.disabled = False
 
@@ -466,7 +465,6 @@ class ControllerTests(Base):
                         saved_snapshot = deepcopy(journal.data["snapshot"])
                         revision = journal.data["revision"]
                         self.assertNotIn("writable", adapter.calls)
-                    # Reopening the journal alone must never touch the adapter.
                     calls = list(adapter.calls)
                     adapter.fail = None
                     with Journal(path, DIGEST) as journal:

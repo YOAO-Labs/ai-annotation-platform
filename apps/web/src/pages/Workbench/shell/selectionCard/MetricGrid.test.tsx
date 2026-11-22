@@ -1,5 +1,3 @@
-// MetricGrid 单测:渲染 label/value/hint;空数组不渲染。
-
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { MetricGrid } from "./MetricGrid";

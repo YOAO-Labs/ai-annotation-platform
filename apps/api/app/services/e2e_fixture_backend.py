@@ -32,7 +32,9 @@ class FixtureOfflineFence:
             return
         if self.runtime.offline_sealed:
             if scope["type"] == "http":
-                await send({"type": "http.response.start", "status": 503, "headers": []})
+                await send(
+                    {"type": "http.response.start", "status": 503, "headers": []}
+                )
                 await send({"type": "http.response.body", "body": b""})
             else:
                 await send({"type": "websocket.close", "code": 1013})
@@ -269,7 +271,6 @@ class FixtureBackendRuntime:
         return self
 
     async def close(self):
-        # EOF and shutdown are not permission to release a held execution.
         if self.server is not None:
             self.server.should_exit = True
         if self.task is not None:
@@ -377,7 +378,6 @@ class FixtureBackendProcess:
         async with self.lock:
             if self.process is not None:
                 if self.process.returncode is None:
-                    # Fence admission without losing control of unfinished work.
                     await self._control("offline_seal", None)
                     self.process.stdin.close()
                 await self.process.wait()

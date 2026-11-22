@@ -1,8 +1,3 @@
-// Issue #114 复现 harness：真实 useFrameClock + 真实 useVideoPlaybackController 集成。
-// 既有 useVideoPlaybackController.test.ts 把 useFrameClock 整体 mock 掉，无法覆盖
-// 「时间轴点击 seek → 媒体管线积压 → 连续步进 → 迟到的 seeked/rVFC 回放」交错；
-// 本文件只 mock 位图/精确帧/预览等子 hook，帧钟走真实现，fake <video> 手动驱动
-// 媒体事件时序，断言帧号（宿主受控态）不被迟到的旧帧回写。
 import { act, fireEvent, renderHook } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -131,7 +126,6 @@ const TIMETABLE = {
 
 type VideoFrameCallback = (now: number, metadata: { mediaTime: number }) => void;
 
-/** jsdom <video> 替身：rVFC 句柄表 + 手动驱动的媒体管线（seeked/rVFC 由测试控制时序）。 */
 function mediaElement() {
   const video = document.createElement("video");
   Object.defineProperties(video, {
@@ -150,14 +144,12 @@ function mediaElement() {
   };
   withRvfc.requestVideoFrameCallback = (cb) => {
     const handle = nextHandle++;
-    // DOM 原生回调接受更宽的 metadata；useFrameClock 运行时只读 mediaTime，收窄安全。
     callbacks.set(handle, cb as VideoFrameCallback);
     return handle;
   };
   withRvfc.cancelVideoFrameCallback = (handle) => {
     callbacks.delete(handle);
   };
-  /** 媒体管线呈现 frame：currentTime 对齐该帧 PTS，并派发全部挂起的 rVFC。 */
   const present = (frame: number) => {
     video.currentTime = frameToSeekTime(frame, {
       fps: FPS,
@@ -173,7 +165,6 @@ function mediaElement() {
   return { video, callbacks, present };
 }
 
-/** 宿主模型：受控 frameIndex + 记录全部 onFrameIndexChange 写入（检测迟到回写）。 */
 function setupHost(
   video: HTMLVideoElement,
   overrides: Partial<Parameters<typeof useVideoPlaybackController>[0]> = {},
@@ -223,9 +214,7 @@ describe("useVideoPlaybackController × useFrameClock stale-seek 交错", () => 
     const native = mediaElement();
     const { result, writes } = setupHost(native.video);
 
-    // 时间轴点击（量化命中 F105），媒体管线积压：不呈现。
     act(() => result.current.controls.seekToFrame(105));
-    // 连续键盘步进到 F120。
     for (let frame = 106; frame <= 120; frame += 1) {
       act(() => result.current.controls.microStep(1));
     }
@@ -233,12 +222,10 @@ describe("useVideoPlaybackController × useFrameClock stale-seek 交错", () => 
     expect(writes[writes.length - 1]).toBe(120);
     const stepMark = writes.length;
 
-    // 300ms seek 超时：pending 清空（CI 高负载下媒体远未跟上）。
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
     });
 
-    // 浏览器最终只完成了点击那一次 seek：元素落回 t105，seeked 与 rVFC 迟到派发。
     native.video.currentTime = 105 / FPS;
     act(() => {
       fireEvent.seeked(native.video);
@@ -258,12 +245,10 @@ describe("useVideoPlaybackController × useFrameClock stale-seek 交错", () => 
       act(() => result.current.controls.microStep(1));
     }
 
-    // pending(120) 仍在：迟到的 F105 呈现必须被 pending 身份校验拒绝。
     act(() => native.present(105));
     expect(result.current.frameIndex).toBe(120);
     expect(writes[writes.length - 1]).toBe(120);
 
-    // 目标帧真正呈现后才结算 ready。
     act(() => native.present(120));
     expect(result.current.frameIndex).toBe(120);
   });
@@ -273,9 +258,8 @@ describe("useVideoPlaybackController × useFrameClock stale-seek 交错", () => 
     const { result, writes } = setupHost(native.video);
 
     act(() => result.current.controls.seekToFrame(105));
-    act(() => result.current.controls.microStep(1)); // F106
+    act(() => result.current.controls.microStep(1));
     const stepMark = writes.length;
-    // 浏览器完成的是点击那次 seek：呈现 F105（新 seek 尚在队列）。
     act(() => native.present(105));
     expect(result.current.frameIndex).toBe(106);
 
@@ -284,7 +268,6 @@ describe("useVideoPlaybackController × useFrameClock stale-seek 交错", () => 
     }
     act(() => native.present(120));
     expect(result.current.frameIndex).toBe(120);
-    // 点击时的合法写入之后，F105 不得再次出现。
     const clickWrite = writes.indexOf(105);
     expect(writes.slice(clickWrite + 1)).not.toContain(105);
     expect(writes.slice(stepMark).every((frame) => frame >= 106)).toBe(true);

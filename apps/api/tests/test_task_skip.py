@@ -138,8 +138,6 @@ async def test_skip_task_assigns_to_caller_when_unassigned(
     user, token = annotator
     project, task = await _seed_project_task(db_session, user.id, status="pending")
     assert task.assignee_id is None
-    # Literal employee: explicit annotator membership grants the write authority,
-    # and an active open-pool batch makes the unassigned task visible/claimable.
     await create_membership(
         db_session, project_id=project.id, user_id=user.id, role="annotator"
     )

@@ -346,7 +346,6 @@ async def test_build_tasks_missing_camera_tolerated(db_session, super_admin):
     ds = await _seed_dataset(db_session, user.id)
     project = await _seed_lidar_project(db_session, user.id, dataset_id=ds.id)
 
-    # 帧 000970 完整 (front+left)，帧 000971 只有 lidar+front。
     name = ds.name
     _add_item(db_session, ds.id, f"{name}/lidar/000970.pcd", "point_cloud")
     _add_item(db_session, ds.id, f"{name}/camera/front/000970.jpg", "image")
@@ -369,7 +368,6 @@ async def test_build_tasks_missing_camera_tolerated(db_session, super_admin):
         await db_session.execute(select(Task).where(Task.dataset_item_id == lidar1.id))
     ).scalar_one()
     links = await get_linked_items(db_session, task1.id)
-    # 缺 left：只 link lidar + front 两条，不报错。
     roles = {ln.role for ln in links}
     assert roles == {"primary_lidar", "camera_front"}
 
@@ -388,7 +386,6 @@ async def test_build_tasks_multi_scene_same_frame_stem(db_session, super_admin):
     ds = await _seed_dataset(db_session, user.id)
     project = await _seed_lidar_project(db_session, user.id, dataset_id=ds.id)
 
-    # 两个 scene，各自 2 帧，帧 stem 跨 scene 重复（000 / 001）。
     scenes: dict[str, dict] = {}
     for sidx, sname in enumerate(["scene_a", "scene_b"]):
         scene = Scene(
@@ -421,7 +418,6 @@ async def test_build_tasks_multi_scene_same_frame_stem(db_session, super_admin):
     ).create_tasks_for_linked_dataset(
         dataset_id=ds.id, project_id=project.id, actor_id=user.id
     )
-    # 2 scene × 2 帧 = 4 个 task（修复前会因同号帧覆盖只建 2 个）。
     assert result == {"created": 4, "total": 4}
 
     tasks = (
@@ -431,7 +427,6 @@ async def test_build_tasks_multi_scene_same_frame_stem(db_session, super_admin):
     )
     assert len(tasks) == 4
 
-    # 每个 lidar item 都恰好对应一个 task，且 camera link 指向同 scene 的相机（不串）。
     by_lidar = {t.dataset_item_id: t for t in tasks}
     for sname, sdata in scenes.items():
         for frame_id, frame in sdata["frames"].items():
@@ -477,8 +472,6 @@ async def test_accepted_pointcloud_creation_writes_calibration_metadata(
     calib = {
         "extrinsic": list(range(16)),
         "intrinsic": list(range(9)),
-        # rect is the optional KITTI correction matrix. Invalid matrix lengths
-        # make the complete source calibration invalid and are skipped by preparation.
         "rect": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
     }
     _patch_get_object(monkeypatch, calib)
@@ -506,7 +499,6 @@ async def test_accepted_pointcloud_creation_skips_invalid_calibration(
     _add_item(db_session, ds.id, f"{ds.name}/calib/camera/front.json", "other")
     await db_session.flush()
 
-    # extrinsic 长度非 16 → 跳过，不写不抛。
     _patch_get_object(
         monkeypatch, {"extrinsic": [1, 2, 3], "intrinsic": list(range(9))}
     )

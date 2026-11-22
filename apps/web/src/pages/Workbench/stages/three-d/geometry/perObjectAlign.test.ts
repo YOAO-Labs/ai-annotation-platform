@@ -1,5 +1,3 @@
-// §C.8-A perObjectAlign 纯函数单测:背景走 ego、目标搬到当前位置、
-// 未配对走 fallback、identity/同位姿恒等、旋转随当前 box。
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 
@@ -23,7 +21,7 @@ function curMap(entries: [string, AlignPsr][]): Map<string, AlignPsr> {
   return new Map(entries);
 }
 
-const I = new THREE.Matrix4(); // identity
+const I = new THREE.Matrix4();
 
 describe("alignNeighborPointsPerObject", () => {
   it("无邻帧 box 时,所有点按 relMatrix 走背景", () => {
@@ -40,7 +38,6 @@ describe("alignNeighborPointsPerObject", () => {
       { trackId: "trk_1", center: [0, 0, 0], size: [4, 2, 2], rotation: [0, 0, 0] },
     ];
     const cur = curMap([["trk_1", { center: [50, 0, 0], size: [4, 2, 2], rotation: [0, 0, 0] }]]);
-    // 点 [20,0,0] 远在邻帧框外 → 背景。
     const res = alignNeighborPointsPerObject(f32(20, 0, 0), rel, nbr, cur);
     expect(res.movedCount).toBe(0);
     const [x, y, z] = pt(res.aligned, 0);
@@ -65,7 +62,6 @@ describe("alignNeighborPointsPerObject", () => {
       { trackId: "trk_1", center: [0, 0, 0], size: [4, 2, 2], rotation: [0, 0, 0] },
     ];
     const cur = curMap([["trk_1", { center: [10, 0, 0], size: [4, 2, 2], rotation: [0, 0, 0] }]]);
-    // 邻帧框内前端 [1,0,0] → 当前框前端 [11,0,0](同尺寸纯平移)。
     const res = alignNeighborPointsPerObject(f32(1, 0, 0), I, nbr, cur);
     const [x, y, z] = pt(res.aligned, 0);
     expect(x).toBeCloseTo(11, 5);
@@ -77,11 +73,9 @@ describe("alignNeighborPointsPerObject", () => {
     const nbr: AlignNeighborBox[] = [
       { trackId: "trk_1", center: [0, 0, 0], size: [4, 2, 2], rotation: [0, 0, 0] },
     ];
-    // 当前帧目标 yaw 90°。
     const cur = curMap([
       ["trk_1", { center: [0, 0, 0], size: [4, 2, 2], rotation: [0, 0, Math.PI / 2] }],
     ]);
-    // 邻帧 +X 前端 [1,0,0] → 当前帧应朝 +Y。
     const res = alignNeighborPointsPerObject(f32(1, 0, 0), I, nbr, cur);
     const [x, y, z] = pt(res.aligned, 0);
     expect(x).toBeCloseTo(0, 5);
@@ -96,7 +90,7 @@ describe("alignNeighborPointsPerObject", () => {
     const res = alignNeighborPointsPerObject(f32(0, 0, 0), I, nbr, curMap([]));
     expect(res.movedCount).toBe(0);
     expect(res.fallbackCount).toBe(1);
-    expect(res.aligned.length).toBe(0); // 被剔除
+    expect(res.aligned.length).toBe(0);
   });
 
   it("命中邻帧目标但无配对:fallback=ego 退背景(保留,走 relMatrix)", () => {
@@ -129,16 +123,13 @@ describe("alignNeighborPointsPerObject", () => {
       { trackId: "trk_1", center: [0, 0, 0], size: [4, 2, 2], rotation: [0, 0, 0] },
     ];
     const cur = curMap([["trk_1", { center: [0, 5, 0], size: [4, 2, 2], rotation: [0, 0, 0] }]]);
-    // p0 = 目标内 [0,0,0];p1 = 框外背景 [50,50,50]。
     const res = alignNeighborPointsPerObject(f32(0, 0, 0, 50, 50, 50), rel, nbr, cur);
     expect(res.movedCount).toBe(1);
     expect(res.fallbackCount).toBe(0);
-    // 目标点搬到当前框中心 [0,5,0](不经 relMatrix)。
     const [x0, y0, z0] = pt(res.aligned, 0);
     expect(x0).toBeCloseTo(0, 5);
     expect(y0).toBeCloseTo(5, 5);
     expect(z0).toBeCloseTo(0, 5);
-    // 背景点经 relMatrix(+100 X)。
     expect(pt(res.aligned, 1)).toEqual([150, 50, 50]);
   });
 });

@@ -56,12 +56,18 @@ class Receipt:
     error_code: str | None
     created_at: datetime
     updated_at: datetime
+    fixture_request_versions: dict | None = field(default=None, repr=False)
 
 
 def snapshot(row):
     physical.resolve(row)
     return Receipt(
-        **{name: deepcopy(getattr(row, name)) for name in Receipt.__dataclass_fields__}
+        **{
+            name: deepcopy(getattr(row, name, None))
+            if name == "fixture_request_versions"
+            else deepcopy(getattr(row, name))
+            for name in Receipt.__dataclass_fields__
+        }
     )
 
 
@@ -98,6 +104,8 @@ async def read_plan(db, output, keys):
         route = await migration_reads.resolve(
             db, owner.ref, key, facts["sha256"], facts["size_bytes"]
         )
+        if receipt.fixture_request_versions is not None and route is not None:
+            reject()
         members.append((key, facts["sha256"], facts["size_bytes"], route))
     if not members:
         reject()
@@ -125,8 +133,6 @@ async def check_reads(db, output, plan, *, lock=False):
     ):
         reject()
     if plan.routes:
-        # The facade constructor validates the entire immutable context without
-        # opening a client. Reject mixed publications before provider construction.
         migration_reads.ReadClientSet(None, plan.routes)
     owner = physical.resolve(output)
     inventory = physical.validate_inventory(output)
@@ -304,6 +310,11 @@ async def allocate(
     )
     db.add(output)
     await db.flush()
+    if output.fixture_request_versions is not None:
+        await db.refresh(output, ["storage_ref"])
+        await storage_access.check(
+            db, uuid.UUID(output.storage_ref["location_id"]), lock=True
+        )
     return output
 
 
@@ -381,8 +392,6 @@ async def access(
                 )
                 yield client
             finally:
-                # A cancelled constructor may finish after its await was interrupted.
-                # physical() drains it before returning; the holder owns that late result.
                 if entered:
                     await originals.physical(
                         context.__exit__, *sys.exc_info(), timeout=originals.JOB_SECONDS
@@ -735,8 +744,6 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
                     or await _has_reference(db, identifier)
                 ):
                     reject()
-                # access() acquires one permit for this attempt. Any other record is
-                # an earlier uncertain operation and prevents physical collection.
                 operations = list(
                     await db.scalars(
                         select(StorageOperation).where(

@@ -622,7 +622,6 @@ async def test_generation_of_frozen_child_is_rejected(db_session, bound):
     await service.begin_seal(
         db_session, bound.actor.id, bound.claim, row.id, 1, bound.native
     )
-    # The parent path itself must fence, without relying on a fake successor.
     await code(
         "copy_read_only",
         lambda: copies.generation(

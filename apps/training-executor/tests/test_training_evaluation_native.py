@@ -2,7 +2,6 @@
 
 import json
 import random
-import shutil
 
 import pytest
 
@@ -19,7 +18,7 @@ def test_native_training_metrics_are_separate_unaugmented_and_rng_neutral(
     pytest.importorskip("ultralytics")
     from PIL import Image, ImageDraw
     from ultralytics import YOLO
-    from ultralytics.utils import USER_CONFIG_DIR
+    from ultralytics.models.yolo.detect import DetectionTrainer
     from training_contract.models import model_spec
 
     spec = model_spec("ultralytics", base_model)
@@ -33,14 +32,18 @@ def test_native_training_metrics_are_separate_unaugmented_and_rng_neutral(
         ultralytics_model_path,
     )
 
-    USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    font = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-    for name in ("Arial.ttf", "Arial.Unicode.ttf"):
-        if not (USER_CONFIG_DIR / name).exists():
-            shutil.copyfile(font, USER_CONFIG_DIR / name)
+    from training_executor.ultralytics_adapter import (
+        UltralyticsAttemptTrainer,
+        configure_offline_fonts,
+    )
+
+    configure_offline_fonts()
+    trainer_class = InstanceRLETrainer if task == "segment" else DetectionTrainer
+
+    class AttemptTrainer(UltralyticsAttemptTrainer, trainer_class):
+        pass
 
     samples = []
-    # The train and val sets have different membership counts and object positions.
     for split, count in (("train", 2), ("val", 1)):
         (tmp_path / "images" / split).mkdir(parents=True)
         (tmp_path / "labels" / split).mkdir(parents=True)
@@ -127,7 +130,7 @@ def test_native_training_metrics_are_separate_unaugmented_and_rng_neutral(
     assert not model.ckpt
     model.add_callback("on_fit_epoch_end", on_epoch)
     model.train(
-        **({"trainer": InstanceRLETrainer} if task == "segment" else {}),
+        trainer=AttemptTrainer,
         data=str(data),
         epochs=2,
         batch=2,

@@ -188,9 +188,6 @@ async def test_only_marked_expected_lock_states_are_mapped(
     assert isinstance(reply, OwnerTransferFailure)
     assert reply.error.detail == expected_detail
     assert reply.error.rollback is expected_rollback
-    # The standalone asyncpg owner aborts its own transaction regardless of the
-    # rollback bit; the borrowed caller adapter uses that bit to preserve legacy
-    # caller-session behaviour.
     assert connection.events == ["begin", "rollback"]
 
 

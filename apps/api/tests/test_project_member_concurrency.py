@@ -173,8 +173,6 @@ async def _drop(
     ]
     project_ids = [pid for pid in (fixture["project"], fixture["other_project"]) if pid]
     async with maker() as cleanup:
-        # Audit rows are immutable; allow the exact fixture rows to be removed
-        # before their actors so the users FK cannot trip the guard on SET NULL.
         await cleanup.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
         await cleanup.execute(delete(AuditLog).where(AuditLog.actor_id.in_(user_ids)))
         await cleanup.execute(delete(TaskLock).where(TaskLock.user_id.in_(user_ids)))
@@ -237,11 +235,6 @@ async def _change(
     )
 
 
-# ---------------------------------------------------------------------------
-# RACE-01: stale preview / same-version concurrency
-# ---------------------------------------------------------------------------
-
-
 async def test_same_version_race_and_busy_membership_rollback(test_engine):
     """Only one same-version mutation may succeed; the loser 409s and rolls back."""
 
@@ -250,7 +243,6 @@ async def test_same_version_race_and_busy_membership_rollback(test_engine):
     holder = maker()
     contender = maker()
     try:
-        # A concurrent member mutation holds the membership row lock.
         locked = await holder.scalar(
             select(ProjectMember)
             .where(ProjectMember.id == fixture["member_row"])
@@ -276,12 +268,10 @@ async def test_same_version_race_and_busy_membership_rollback(test_engine):
         detail = getattr(caught.value, "detail", None)
         assert getattr(caught.value, "status_code", None) == 409, caught.value
         assert detail["reason"] == "membership_busy"
-        # A busy lock rolls the whole transaction back; no partial handoff remains.
         assert not contender.in_transaction()
 
         await holder.rollback()
 
-        # A fresh session applies the change for real.
         winner = maker()
         try:
             winner_preview = await _preview(
@@ -303,7 +293,6 @@ async def test_same_version_race_and_busy_membership_rollback(test_engine):
         finally:
             await winner.close()
 
-        # The original same-version attempt can no longer succeed.
         with pytest.raises(Exception) as stale:
             await _change(
                 contender,
@@ -336,7 +325,6 @@ async def test_new_assignment_after_preview_conflicts(test_engine):
         )
         preview_token = preview["preview_token"]
 
-        # Commit a brand-new assignment to the member on another connection.
         async with maker() as seeding:
             batch = await seeding.get(TaskBatch, fixture["batch"])
             batch.annotator_id = fixture["member_user"]
@@ -423,9 +411,6 @@ async def test_ownership_change_after_preview_conflicts(test_engine):
     extra_user_ids: tuple[uuid.UUID, ...] = ()
     try:
         preview = await _preview(preview_session, fixture, target_role="reviewer")
-        # A different legitimate manager (platform project_admin) takes ownership
-        # on another connection.  The member's own platform role is untouched so
-        # only the project-owner change can invalidate the snapshot.
         async with maker() as seeding:
             new_owner = await create_user(
                 seeding,
@@ -502,17 +487,11 @@ async def test_receiver_role_change_after_preview_conflicts(test_engine):
         await _drop(maker, fixture)
 
 
-# ---------------------------------------------------------------------------
-# RACE-02: no cross-project effects, post-revocation authority
-# ---------------------------------------------------------------------------
-
-
 async def test_handoff_is_project_scoped_and_preserves_history(test_engine):
     """Handoff changes only this project and never rewrites terminal attribution."""
 
     maker = _maker(test_engine)
     fixture = await _seed(maker)
-    # A terminal task in the same batch must keep its historical assignee.
     async with maker() as seeding:
         terminal = await create_task(
             seeding, project_id=fixture["project"], status="completed"
@@ -521,7 +500,6 @@ async def test_handoff_is_project_scoped_and_preserves_history(test_engine):
         terminal.assignee_id = fixture["member_user"]
         terminal.assignee_is_override = False
         terminal.assigned_at = datetime.now(timezone.utc)
-        # An explicit override task is transferred without losing "override".
         overridden = await create_task(
             seeding, project_id=fixture["project"], status="in_progress"
         )
@@ -574,12 +552,11 @@ async def test_handoff_is_project_scoped_and_preserves_history(test_engine):
             assert str(fixture["member_user"]) not in batch.assigned_user_ids
             assert None not in batch.assigned_user_ids
 
-            # The other project's assignment is untouched.
             other = await check.get(Task, fixture["other_task"])
             assert other.assignee_id == fixture["member_user"]
 
             lock = await check.get(TaskLock, fixture["lock"])
-            assert lock is None  # released only for this project's member
+            assert lock is None
     finally:
         await _drop(maker, fixture)
 
@@ -625,11 +602,6 @@ async def test_post_revocation_access_and_handoff_are_atomic(test_engine):
         await _drop(maker, fixture)
 
 
-# ---------------------------------------------------------------------------
-# RACE-03: delete / rejoin invalidates the member identity
-# ---------------------------------------------------------------------------
-
-
 async def test_delete_rejoin_rejects_stale_member_id(test_engine):
     """A recycled membership never accepts a mutation addressed to the old ID."""
 
@@ -646,7 +618,6 @@ async def test_delete_rejoin_rejects_stale_member_id(test_engine):
                 actor_id=actor.id,
                 member_id=fixture["member_row"],
             )
-            # Re-joining the same account creates a brand-new membership row.
             new_member = await add_member(
                 session,
                 project_id=project.id,
@@ -675,7 +646,6 @@ async def test_delete_rejoin_rejects_stale_member_id(test_engine):
                     replacement_reviewer_id=None,
                 )
             assert getattr(caught.value, "status_code", None) == 404
-            # The new membership is independently usable.
             fresh_preview = await preview_role_change(
                 stale,
                 project_id=project.id,
@@ -704,7 +674,6 @@ async def test_reviewer_handoff_moves_assignment_and_releases_claim(test_engine)
             )
             review_task.reviewer_id = fixture["member_user"]
             review_task.reviewer_claimed_at = datetime.now(timezone.utc)
-            # Known-empty contributor evidence keeps the receiver validatable.
             review_task.annotation_contributor_ids = []
             await seeding.commit()
             review_task_id = review_task.id
@@ -792,8 +761,6 @@ async def test_concurrent_duplicate_change_only_one_wins(test_engine):
                 replacement_annotator_id=fixture["annotator_receiver"],
             )
 
-        # Start both; whichever acquires the membership lock first wins and the
-        # other resolves to a busy/stale conflict rather than a lost update.
         results = await asyncio.gather(
             _apply(first), _apply(second), return_exceptions=True
         )
@@ -813,11 +780,6 @@ async def test_concurrent_duplicate_change_only_one_wins(test_engine):
         await _drop(maker, fixture)
 
 
-# ---------------------------------------------------------------------------
-# Follow-up review regressions
-# ---------------------------------------------------------------------------
-
-
 async def test_pending_only_inherited_reviewer_batch_handoff(test_engine):
     """A batch reviewer default used by pending work is handed off and reassigned."""
 
@@ -831,7 +793,6 @@ async def test_pending_only_inherited_reviewer_batch_handoff(test_engine):
             pending = await create_task(
                 seeding, project_id=fixture["project"], status="pending"
             )
-            # No reviewer override: the task inherits the batch default.
             pending.batch_id = fixture["batch"]
             await seeding.commit()
             pending_id = pending.id
@@ -867,7 +828,6 @@ async def test_pending_only_inherited_reviewer_batch_handoff(test_engine):
             assert str(fixture["reviewer_receiver"]) in batch.assigned_user_ids
             assert str(fixture["member_user"]) not in batch.assigned_user_ids
             pending_task = await check.get(Task, pending_id)
-            # Pending work keeps inheriting the (now reassigned) default.
             assert pending_task.reviewer_id is None
     finally:
         await _drop(maker, fixture)
@@ -888,7 +848,6 @@ async def test_pending_inherited_reviewer_batch_conflicts_on_contributor(test_en
                 seeding, project_id=fixture["project"], status="pending"
             )
             pending.batch_id = fixture["batch"]
-            # The proposed receiver annotated this pending work earlier.
             pending.annotation_contributor_ids = [str(fixture["reviewer_receiver"])]
             await seeding.commit()
 
@@ -931,8 +890,6 @@ async def test_lock_bounding_ignores_terminal_history_and_expired_locks(test_eng
             await seeding.commit()
             terminal_id = terminal.id
 
-        # An external writer holds terminal history; the bounded mutation must
-        # not need that row.
         await holder.scalar(
             select(Task).where(Task.id == terminal_id).with_for_update()
         )
@@ -1088,7 +1045,6 @@ async def test_materialized_history_is_prelocked_with_nowait(test_engine):
                 seeding, project_id=fixture["project"], status="completed"
             )
             null_history.batch_id = fixture["batch"]
-            # assignee_id stays NULL: the effective assignee is the batch default.
             await seeding.commit()
             null_history_id = null_history.id
 

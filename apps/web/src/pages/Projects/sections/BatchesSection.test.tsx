@@ -1,7 +1,3 @@
-/**
- * BatchesSection 冒烟测试，覆盖加载态、空批次和
- * 创建按钮可见性。此处不覆盖创建、批量操作、逆向迁移和看板。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -117,7 +113,6 @@ describe("BatchesSection (smoke)", () => {
   it("空 batches → 显示空提示", () => {
     mockUseBatches.mockReturnValue({ data: [], isLoading: false });
     renderUI();
-    // 空批次提示文本（兜底匹配, 不强绑特定 wording）
     expect(screen.queryByText(/加载中/)).not.toBeInTheDocument();
   });
 

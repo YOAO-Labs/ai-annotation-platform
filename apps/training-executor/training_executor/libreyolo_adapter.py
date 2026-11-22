@@ -18,7 +18,6 @@ def native_dataset_yaml(spec, output):
     import yaml
 
     source = Path(spec["data_yaml"]).resolve()
-    # Native validation indexes names with integers; frozen JSON maps use strings.
     target = output / "libreyolo-data.yaml"
     target.write_text(
         yaml.safe_dump(
@@ -104,7 +103,6 @@ class CheckpointCallbacks:
         self.membership, self.trainer = membership, None
 
     def commit_resume(self, path):
-        # A second cancellation before a new epoch must retain the verified input.
         epoch = self.resume["epoch"] + 1
         self.checkpoint = immutable_copy(
             Path(path), self.output / f"checkpoint-{epoch:04d}.pt"
@@ -193,7 +191,6 @@ class CheckpointCallbacks:
         atomic_json(self.output / "checkpoint.json", self.checkpoint)
         if previous and previous["name"] != self.checkpoint["name"]:
             (self.output / previous["name"]).unlink(missing_ok=True)
-        # Alias names in this framework are not conventional precision/recall.
         raw = metrics_of(event.val_metrics)
         metrics = {
             k: v for k, v in raw.items() if "precision" not in k and "recall" not in k
@@ -310,7 +307,6 @@ def libreyolo_train(spec, output, progress=None, membership=None):
             spec,
             resume=True,
         )
-        # Validate the exact best bytes before entering the native trusted loader.
         import io
 
         validate_checkpoint(

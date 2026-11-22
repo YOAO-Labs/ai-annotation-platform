@@ -71,7 +71,6 @@ async def test_get_does_not_adopt_explicit_pin_is_idempotent_and_download_uses_s
     assert version.storage_ref is None and store.reads == []
     snapshot, manifest = deepcopy(version.snapshot), deepcopy(version.manifest)
     original_bucket = store.bucket
-    # Current allocation no longer supplies the historical candidate.
     binding = await db_session.get(StorageBinding, "training")
     binding.generation = 2
     await db_session.flush()

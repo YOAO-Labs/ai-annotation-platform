@@ -121,7 +121,6 @@ def bounded(value):
 
 
 def _same(left, right):
-    # Python equality considers True == 1; frozen JSON contracts do not.
     return authority.encoded(left) == authority.encoded(right)
 
 
@@ -555,8 +554,6 @@ async def validate_result_geometry(db, task, receipt, geometry):
         reject("prediction_video_result_receipt_invalid")
     await validate_receipt(db, task.id, task.project_id, receipt.anchor)
     if collect_mask_references(geometry):
-        # Content was verified before business locks; only serialize the exact
-        # reference commitments in the final writer transaction.
         await lock_raster_mask_references(db, geometry, verify=False)
 
 

@@ -2,8 +2,6 @@
 import { ref } from "vue";
 import { withBase } from "vitepress";
 
-// Scalar API Reference 是独立静态页（docs-site/public/api-reference.html），
-// 通过 iframe 隔离，不受 VitePress 全局 CSS 穿透。withBase 保证子路径部署正确。
 const src = withBase("/api-reference.html");
 const loaded = ref(false);
 </script>

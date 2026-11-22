@@ -45,7 +45,6 @@ _ROOT = Path(__file__).resolve().parents[3]
 
 async def test_native_column_contract_owner_and_grants_match_database(test_engine):
     schema = read_relations_schema()
-    # The packaged migration descriptor keeps the historical AAP spelling.
     native = current(
         json.loads(
             (

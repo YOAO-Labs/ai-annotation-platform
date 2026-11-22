@@ -24,8 +24,6 @@ async def retire_tracker_scope(db, job_id, *, authority=None):
         )
         scope = status["scope"]
         if scope is None:
-            # Native recovery_ready/retire still requires an exact no-scope
-            # rejection if an acquire intent was prepared.
             return
         request = make_scope_retirement_request(
             uuid5(scope.id, "aap-video-execution-retirement/v1"),
@@ -49,8 +47,6 @@ async def recover_tracker_execution(db, job_id):
     try:
         await journal.committed("recovery_ready", journal.request(ReadRequest))
     except TrackerExecutionLost:
-        # A terminal/deleted Job can win while physical retirement is in flight.
-        # The retire RPC still fences this exact proof before releasing any pin.
         await journal.retire()
         return False
     return True

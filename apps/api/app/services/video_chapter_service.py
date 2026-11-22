@@ -27,7 +27,6 @@ async def create_chapter(
         end_frame=payload.end_frame,
         title=payload.title,
         color=payload.color,
-        # frame_step / source 落进 chapter_metadata 约定键 (不新增数据库列)。
         chapter_metadata=merge_chapter_metadata(
             payload.metadata,
             frame_step=payload.frame_step,
@@ -68,8 +67,6 @@ async def update_chapter(
     if payload.color is not None:
         chapter.color = payload.color
         changes["color"] = payload.color
-    # metadata / frame_step / source 都写进 chapter_metadata: 给出 metadata 时以它为基底,
-    # 否则在现有值上叠加; frame_step / source 显式给出时覆盖对应键。
     if (
         payload.metadata is not None
         or payload.frame_step is not None

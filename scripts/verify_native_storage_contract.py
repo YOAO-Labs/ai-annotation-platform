@@ -314,7 +314,6 @@ def qualify(owner, lock, candidate, budget, report):
             )
         report["conditional_io_and_prefix_iam_passed"] = True
         stage("multipart_bounded_pages")
-        # Page 100 splits multiple uploads for the same key; the owned upload is later.
         upload_keys = [f"a-foreign/{i:03d}" for i in range(98)]
         upload_keys += ["b-same-key"] * 3
         upload_keys += [f"c-foreign/{i:03d}" for i in range(20)]
@@ -372,7 +371,6 @@ def qualify(owner, lock, candidate, budget, report):
                 {"AccessDenied", "403"},
             )
         report["native_multipart_permission_denials_passed"] = True
-        # Record the exact first page, not a guessed ordering among same-key upload IDs.
         first_page = scoped[0][0].list_multipart_uploads(
             Bucket=buckets[0], MaxUploads=PAGE_SIZE
         )
@@ -565,7 +563,6 @@ def qualify(owner, lock, candidate, budget, report):
                     VersionId=replacement["VersionId"],
                     IfMatch=replacement["ETag"],
                 )
-            # Disable must revoke actual I/O; re-enable proves this was not an absent key.
             client.put_object(Bucket=buckets[index], Key=keys[index], Body=body)
             user, access, arn, _ = identities[index]
             iam.update_access_key(
@@ -627,7 +624,6 @@ def main():
         require(report["runtime_retired"], "owner_retirement_failed")
     except (Exception, KeyboardInterrupt) as exc:
         report["error"] = safe_error(exc)
-        # Preserve provider details privately; no URLs, credentials or messages in public evidence.
         if owner.private.exists():
             private_write(
                 owner.private / "failure.json",

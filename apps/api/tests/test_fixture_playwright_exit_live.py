@@ -144,7 +144,6 @@ async def _serve_consumer(app):
 
 
 def _playwright_files(directory, mode):
-    # Resolve the existing installed package, without changing shared dependencies.
     (directory / "node_modules").symlink_to(
         WEB / "node_modules", target_is_directory=True
     )
@@ -261,7 +260,6 @@ async def test_actual_playwright_owned_exit_preserves_neighbor(
             login_b.json()["access_token"],
         )
 
-        # This project and object are ordinary, unregistered data which predate A's exit.
         async with async_sessionmaker(
             test_engine, expire_on_commit=False
         ).begin() as db:
@@ -318,7 +316,6 @@ async def test_actual_playwright_owned_exit_preserves_neighbor(
             test_engine, world_b["ml_backend_id"], world_b["project_id"]
         )
 
-        # Hold one actual S3 response body with its native read permit open.
         actor_a, task_a, _, source_a = await _fixture_source(
             test_engine, world_a, run_a, versions_a
         )
@@ -498,7 +495,6 @@ async def test_actual_playwright_owned_exit_preserves_neighbor(
             == ordinary_bytes
         )
 
-        # Retire only the resources created here, through their respective owners.
         deleted = await fenced_http.delete(
             f"/api/v1/projects/{ordinary_project}",
             headers={"Authorization": f"Bearer {token_b}"},

@@ -72,7 +72,6 @@ try {
     }
     if (commitFailure === null) assert.notEqual(input.finish, "failed_commit");
   }
-  // Forward original JSON text; JavaScript numbers cannot represent the audit ID.
   process.stdout.write(
     commitFailure === null ? `{"reply":${raw}}` : JSON.stringify({ commit_failed: commitFailure }),
   );

@@ -102,8 +102,6 @@ class _AnnotationSecondaryInferenceSqlAdapter(SecondaryInferenceWritePort):
                 },
             )
             if self._original_operation is not None:
-                # Verify current owner credentials in the same transaction that
-                # persists the derived annotations, before it can commit.
                 await self._original_operation.recheck_credentials()
             await self._db.commit()
             await refresh_core_row(self._db, annotation_row, updated)

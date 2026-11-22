@@ -209,7 +209,6 @@ function PreviewContent({
       clearTimeout(timer);
       pending.abort();
     };
-    // The keyed owner freezes the draft, runtime, credentials and request inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result, owner, projectId, pollRetry]);
 

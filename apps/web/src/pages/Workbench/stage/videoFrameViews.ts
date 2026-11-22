@@ -1,4 +1,9 @@
-import type { AnnotationResponse, Keypoint, VideoRotatedBboxGeometry } from "@/types";
+import type {
+  AnnotationResponse,
+  Keypoint,
+  VideoPolygonGeometry,
+  VideoRotatedBboxGeometry,
+} from "@/types";
 import type { DiffMode } from "../modes/types";
 import { classColor, getTrackColor } from "./colors";
 import {
@@ -31,38 +36,21 @@ import type { VideoReferenceConfig } from "./videoReferencePredict";
 
 const DEFAULT_REFERENCE_CONFIG: VideoReferenceConfig = { mode: "off", preset: "stable" };
 
-/**
- * 视频标注层的渲染派生(纯函数,栈无关)。
- *
- * 把「当前帧应显示哪些框 / 轨迹预览 / ghost / 标签」从 VideoStage 的内联 useMemo 抽出,
- * 供 VideoKonvaTracksLayer / OverlayLayer 消费。
- *
- * **不含颜色→hex 转换 / scale 抵消**(那是各 Konva 层在 render 时按 DOM/缩放做的),返回的
- * `color` 是原始 CSS 色串、`geom`/`points` 是归一化坐标,保持本模块纯净可测。
- */
-
 export type VideoEntryView = {
   key: string;
   id: string;
   geom: VideoStageGeom;
-  /** polygon/polyline track 当前帧的归一化顶点; 存在时 Konva 层画 <Line> 而非 <Rect>。 */
   points?: [number, number][];
-  /** true = polyline (开路径, Line 不闭合); 缺省/false = polygon (闭合)。 */
+  holes?: VideoPolygonGeometry["holes"];
   open?: boolean;
-  /** OBB 保留原始中心/尺寸/角度，渲染与命中不再退化成外接多边形。 */
   rotatedBbox?: VideoRotatedBboxGeometry;
-  /** 关键点保留 COCO 可见性。 */
   keypoints?: Keypoint[];
-  /** 原始 CSS 色(轨迹色 / 类别色);Konva 层 render 时转 hex。 */
   color: string;
   selected: boolean;
-  /** 插值帧或遮挡 → 虚线。 */
   dashed: boolean;
   occluded: boolean;
-  /** 当前帧是 AI 追出的关键帧 (source==="prediction") → 常态加区别于插值虚线的 AI 线索。 */
   predicted: boolean;
   labelText: string;
-  /** 类别名(供 QC 密度/重叠率计算消费)。 */
   className: string;
 };
 
@@ -73,20 +61,16 @@ export type VideoTrackPreviewView = {
   id: string;
   color: string;
   selected: boolean;
-  /** 可见(非 outside)关键帧中心点,归一化;>1 点画预览线,选中时画关键帧圆点。 */
   points: VideoPreviewPoint[];
 };
 
 export type VideoGhostView = {
   id: string;
   geom: VideoStageGeom;
-  /** polygon/polyline track 的参考顶点(归一化); 存在时渲染层画 <Line> 而非外接框 <Rect>。 */
   points?: [number, number][];
-  /** true = polyline(开路径, Line 不闭合); 缺省/false = polygon(闭合)。 */
   open?: boolean;
   color: string;
   labelText: string;
-  /** kalman 预测的位置不确定度(归一化标准差);存在时画淡色误差椭圆。其它模式 undefined。 */
   uncertainty?: { sx: number; sy: number; sw: number; sh: number };
 };
 
@@ -106,10 +90,6 @@ export interface VideoFrameViews {
   entries: VideoEntryView[];
   previews: VideoTrackPreviewView[];
   ghost: VideoGhostView | null;
-  /**
-   * 「跨网格帧续写」参考框:恰好上一网格帧有关键帧、未锁定、当前帧还没画的**非选中**
-   * 轨迹(选中那条由 `ghost` 承)。让新网格帧上「其余待续轨迹」可见 + 可命中,不必回上一帧 / 右栏选。
-   */
   carryOverGhosts: VideoGhostView[];
   labels: VideoLabelView[];
 }
@@ -117,30 +97,20 @@ export interface VideoFrameViews {
 export interface DeriveVideoFrameViewsInput {
   annotations: AnnotationResponse[];
   frameIndex: number;
-  /**
-   * 编辑焦点(单数): 决定 ghost 参考框、track 工具往哪条轨迹落关键帧。多选时它是 primary。
-   * 只画高亮请用 selectedIds —— 二者语义不同, 别混用。
-   */
   selectedId: string | null;
-  /** 全部选中项(含 primary), 驱动画布高亮。缺省回落 [selectedId], 保持单选调用方不变。 */
   selectedIds?: readonly string[];
   hiddenTrackIds?: Set<string>;
-  /** 已锁定轨迹:锁定后不再显示参考框(视为已确认,不需逐帧提示)。 */
   lockedTrackIds?: Set<string>;
   reviewDisplayMode?: DiffMode;
   trackColorOverrides?: Record<string, string>;
   visual: AnnotationVisualConfig;
-  /** 参考框运动预测配置(实验);off=最近关键帧,linear=恒速外推,kalman=完整卡尔曼。 */
   referenceConfig?: VideoReferenceConfig;
-  /** pending 草稿(画一半 / 待确认);仅当前帧透传。 */
   pendingDraft?: { geom: VideoStageGeom; className: string } | null;
-  /** 采样网格步长;用于「上一网格帧」(gridPrev)判定「跨网格帧续写」集合 S。缺省 1。 */
   samplingStep?: number;
 }
 
 const EMPTY_SET = new Set<string>();
 
-/** 复审显示模式过滤(与 VideoStage.visibleInReviewMode 逐位一致)。 */
 export function visibleInReviewMode(source: string | null, mode?: DiffMode): boolean {
   if (!mode || mode === "diff") return true;
   if (!source) return false;
@@ -164,14 +134,12 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
     samplingStep = 1,
   } = input;
 
-  // 高亮集合: 多选时含全部选中项; 未传时回落 primary(单选调用方语义不变)。
   const selectedSet = new Set(selectedIds ?? (selectedId ? [selectedId] : []));
 
   const videoTracks = annotations.filter(isVideoTrack);
   const polygonTracks = annotations.filter(isVideoPolygonTrack);
   const polylineTracks = annotations.filter(isVideoPolylineTrack);
   const maskTracks = annotations.filter(isVideoMaskTrack);
-  // 所有跨帧几何共享同一轨迹编号序列，避免 Mask 标签与侧栏中的其它轨迹编号漂移。
   const trackNumbers = deriveTrackNumber([
     ...videoTracks,
     ...polygonTracks,
@@ -180,7 +148,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
   ]);
   const trackContent = visual.labelContent.track;
 
-  // 当前帧应显示的 bbox(legacy bbox + track 解析帧)。
   const entries: VideoEntryView[] = [];
   const currentFrameTrackIds = new Set<string>();
   for (const ann of annotations) {
@@ -201,7 +168,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
         ),
       );
     } else if (isVideoPolygon(ann) && ann.geometry.frame_index === frameIndex) {
-      // 单帧 polygon: 外接盒作 geom (标签/选中锚点) + points 供 <Line closed>。
       if (!visibleInReviewMode("legacy", reviewDisplayMode)) continue;
       const entry = buildEntryView(
         ann,
@@ -214,9 +180,8 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
         trackColorOverrides,
         trackContent,
       );
-      entries.push({ ...entry, points: ann.geometry.points });
+      entries.push({ ...entry, points: ann.geometry.points, holes: ann.geometry.holes });
     } else if (isVideoPolyline(ann) && ann.geometry.frame_index === frameIndex) {
-      // 单帧 polyline: 同 polygon 但开路径 (Line 不闭合、不填充)。
       if (!visibleInReviewMode("legacy", reviewDisplayMode)) continue;
       const entry = buildEntryView(
         ann,
@@ -231,7 +196,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
       );
       entries.push({ ...entry, points: ann.geometry.points, open: true });
     } else if (isVideoRotatedBbox(ann) && ann.geometry.frame_index === frameIndex) {
-      // 单帧 OBB: 四角旋转顶点作闭合 Line (复用 polygon 渲染路径), 外接盒作 geom。
       if (!visibleInReviewMode("legacy", reviewDisplayMode)) continue;
       const corners = rotatedBboxCorners(ann.geometry);
       const entry = buildEntryView(
@@ -279,7 +243,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
         ),
       );
     } else if (isVideoPolygonTrack(ann) && !hiddenTrackIds.has(ann.geometry.track_id)) {
-      // polygon track: 解析当前帧多边形 → 外接盒作 geom (标签/选中锚点) + points 供 <Line>。
       const resolved = resolveVideoPolygonTrackAtFrame(ann.geometry, frameIndex);
       if (!resolved || !visibleInReviewMode(resolved.source, reviewDisplayMode)) continue;
       currentFrameTrackIds.add(ann.geometry.track_id);
@@ -296,7 +259,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
       );
       entries.push({ ...entry, points: resolved.points });
     } else if (isVideoPolylineTrack(ann) && !hiddenTrackIds.has(ann.geometry.track_id)) {
-      // polyline track: 同 polygon 但开路径 (Line 不闭合)。
       const resolved = resolveVideoPolylineTrackAtFrame(ann.geometry, frameIndex);
       if (!resolved || !visibleInReviewMode(resolved.source, reviewDisplayMode)) continue;
       currentFrameTrackIds.add(ann.geometry.track_id);
@@ -315,7 +277,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
     }
   }
 
-  // 轨迹预览线 + 关键帧圆点:可见且当前帧有解析帧的 track。
   const previews: VideoTrackPreviewView[] = videoTracks
     .filter(
       (ann) =>
@@ -348,8 +309,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
       };
     });
 
-  // ghost:选中轨迹当前帧无框时,画参考框(与 VideoTrackSidebar.selectedTrackGhost 一致)。
-  // 锁定轨迹视为已确认,不再逐帧提示参考框。
   let ghost: VideoGhostView | null = null;
   const selectedTrack = videoTracks.find((ann) => ann.id === selectedId) ?? null;
   if (
@@ -385,8 +344,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
     }
   }
 
-  // 选中 polygon/polyline 轨迹当前帧无实框时的参考虚影(点集几何): 取最近关键帧的顶点,
-  // 渲染层据 points 画多边形轮廓 / 折线(不硬塞成外接框)。与上面 bbox ghost 互斥(只有点集轨迹被选时才走)。
   if (!ghost) {
     const selectedPointsTrack =
       polygonTracks.find((ann) => ann.id === selectedId) ??
@@ -419,9 +376,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
     }
   }
 
-  // 跨网格帧续写参考框(集合 S 的非选中成员):恰好上一网格帧有关键帧、未锁定/未隐藏、
-  // 当前帧还没画,且不在当前帧 entries(无插值实框)。选中那条已由上面的 `ghost` 承,这里排除。
-  // gridPrev 用 frameIndex 当 maxFrame(上界钳位对「更早的帧」无影响),step=1 时退化为 frameIndex-1。
   const carryOverGhosts: VideoGhostView[] = [];
   const prevGridFrame = gridPrev(frameIndex, samplingStep, frameIndex);
   if (prevGridFrame < frameIndex && visibleInReviewMode("manual", reviewDisplayMode)) {
@@ -448,8 +402,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
         labelText: `${num !== undefined ? `#${num} · ` : ""}${ann.class_name}`,
       });
     }
-    // 点集轨迹(polygon/polyline)的跨网格帧续写虚影: 同 bbox 判据, 但参考顶点走
-    //   nearestPointsTrackKeyframe, 渲染层据 points 画轮廓/折线, 使 Tab 续写流对点集轨迹也生效。
     for (const ann of [...polygonTracks, ...polylineTracks]) {
       if (ann.is_hidden || ann.id === selectedId) continue;
       const tid = ann.geometry.track_id;
@@ -472,7 +424,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
     }
   }
 
-  // 标签门控(always / selected / none);草稿与 ghost 按 selected=true 门控。
   const visibility = visual.labelVisibility;
   const labels: VideoLabelView[] = [];
   for (const entry of entries) {
@@ -503,7 +454,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
       opacity: 0.86,
     });
   }
-  // 跨网格帧续写 ghost 的精简标签(更淡):供识别是哪条待续轨迹(Tab / 点选目标)。
   if (shouldShowLabel(true, visibility)) {
     for (const g of carryOverGhosts) {
       labels.push({
@@ -519,7 +469,6 @@ export function deriveVideoFrameViews(input: DeriveVideoFrameViewsInput): VideoF
   return { entries, previews, ghost, carryOverGhosts, labels };
 }
 
-/** 多边形顶点的轴对齐外接盒 (归一化); 供 polygon track 的标签/选中锚点定位。 */
 function boundsOfPoints(points: [number, number][]): VideoStageGeom {
   if (points.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
   let minX = Infinity,
@@ -551,7 +500,6 @@ function buildEntryView(
     : classColor(ann.class_name);
   const trackNumber = trackNumbers.get(ann.id);
   const renderKey = annotationRenderKey(ann);
-  // 状态后缀（· 由 buildTrackLabelText 拼）；插值 / 遮挡互斥。
   const stateSuffix = source === "interpolated" ? "插值" : occluded ? "遮挡" : undefined;
   return {
     key: `${renderKey}-${trackId ?? "legacy"}`,

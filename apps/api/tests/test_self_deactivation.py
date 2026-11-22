@@ -37,7 +37,6 @@ async def test_request_sets_scheduled_7d_out(
     await db_session.refresh(refreshed)
     assert refreshed.deactivation_reason == "我不需要这个账号了"
     delta = refreshed.deactivation_scheduled_at - refreshed.deactivation_requested_at
-    # 6.5 ~ 7.5 天之间
     assert timedelta(days=6, hours=12) < delta < timedelta(days=7, hours=12)
 
 
@@ -75,10 +74,6 @@ async def test_last_super_admin_cannot_self_deactivate(
     httpx_client, super_admin, db_session: AsyncSession
 ):
     user, token = super_admin
-    # Committed worlds from other suites can legitimately leave active super
-    # admins behind. This contract is about the actor being the only active
-    # super admin, so narrow the observation inside this rolled-back test
-    # transaction: teardown reverts it and no committed account is changed.
     await db_session.execute(
         update(User)
         .where(
@@ -101,7 +96,6 @@ async def test_last_super_admin_cannot_self_deactivate(
 async def test_execute_due_processes_overdue_users(db_session: AsyncSession, annotator):
     """The operator adopts an existing pending request and commits its deletion."""
     user, _ = annotator
-    # 直接 SQL 把 scheduled_at 提前到过去
     user.deactivation_requested_at = datetime.now(timezone.utc) - timedelta(days=8)
     user.deactivation_reason = "stale"
     user.deactivation_scheduled_at = datetime.now(timezone.utc) - timedelta(seconds=10)
@@ -124,7 +118,6 @@ async def test_execute_due_processes_overdue_users(db_session: AsyncSession, ann
     assert refreshed.deactivation_scheduled_at is None
     assert refreshed.deactivation_requested_at is None
 
-    # audit 行已写
     rows = (
         (
             await db_session.execute(

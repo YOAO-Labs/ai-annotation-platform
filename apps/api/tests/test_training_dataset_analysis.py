@@ -126,8 +126,6 @@ def test_polygon_insights_use_instance_area_and_keep_source_identity():
         0.0775
     )
     assert "box_centers" not in result["overview"]["task_statistics"]
-    # Recognition modernizes only the derived adapter profile. Historical
-    # polygon labels and their source receipt remain exactly the same inputs.
     from training_contract.dataset import LEGACY_SEGMENTATION_CONTRACT
 
     for record in (snapshot, manifest):

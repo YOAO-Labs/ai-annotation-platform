@@ -128,10 +128,6 @@ export function useVideoMaskFrames(params: {
     retiredImagesRef.current.add(image);
   }, []);
 
-  // react-konva 在 commit 后通过 requestAnimationFrame 批量重画 Layer。旧 ImageBitmap 若在
-  // records 切换前同步 close，下一次 video-mask-layer draw 会读到 width=0 的已释放位图；
-  // 该帧绘制中断后，同一 Konva 队列里的标签/AI/交互层也会一直保持 waitingForDraw。
-  // 因此先提交新 records，再把释放排到其后的动画帧。
   useEffect(() => {
     if (retiredImagesRef.current.size === 0) return;
     const closeRetired = () => {
@@ -152,7 +148,6 @@ export function useVideoMaskFrames(params: {
 
   const descriptors = useMemo<MaskDescriptor[]>(() => {
     const committed = annotations.flatMap((annotation) => {
-      // Optimistic rows have no persisted content endpoint until creation returns a real ID.
       if (annotation.id.startsWith("tmp_")) return [];
       if (isVideoMask(annotation)) {
         if (annotation.geometry.frame_index !== frameIndex) return [];
@@ -363,7 +358,6 @@ export function useVideoMaskFrames(params: {
   );
 
   return useMemo(() => {
-    // Review scope changes retire old staged visuals before another job finishes decoding.
     const activeTrackerKeys = new Set(
       descriptors.filter((descriptor) => descriptor.source === "tracker").map(cacheKey),
     );

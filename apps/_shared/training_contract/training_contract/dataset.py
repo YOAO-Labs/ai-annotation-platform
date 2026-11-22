@@ -122,7 +122,6 @@ def _cross(a, b, c):
     value = left - right
     if abs(value) > 1e-14:
         return value
-    # Exact fallback distinguishes tiny valid edges from collinear contacts.
     ax, ay, bx, by, cx, cy = map(Fraction, (*a, *b, *c))
     return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
 
@@ -394,8 +393,6 @@ def instance_mask_annotations(annotations, classes, width, height):
                 "unsupported_annotation", "实例必须属于冻结 region 类别表"
             )
         if geometry.get("type") == "polygon":
-            # The first revision rasterizes only the already qualified simple
-            # polygon surface; holes/multipart are accepted as native raster.
             segmentation_labels([annotation], classes)
         elif geometry.get("type") == "raster_mask":
             ref = geometry.get("mask", {})

@@ -50,7 +50,6 @@ async def dispatch_pending(db, job_id):
 
 def _failure(output, asset_type):
     if output.state != "ready":
-        # Public errors are codes, never raw provider/decoder exception strings.
         return (
             "video_asset_retry_expired"
             if output.error_code == "lease_expired"

@@ -1,8 +1,3 @@
-// AIPredictionCardContent 单测:
-// - 置信度条 + 来源/候选序号渲染
-// - 采纳 / 忽略 回调透传整个 box
-// - 精修按钮仅 polygon 几何渲染;readOnly 禁用动作
-
 import { describe, expect, it, vi } from "vitest";
 import { render, fireEvent } from "@testing-library/react";
 import type { AiBox } from "../../state/transforms";
@@ -90,8 +85,8 @@ describe("AIPredictionCardContent", () => {
       />,
     );
     expect(getByText("82%")).not.toBeNull();
-    expect(getByText("模型")).not.toBeNull(); // predictionSourceLabel(ml_backend)
-    expect(getByText("第 3 个候选")).not.toBeNull(); // shapeIndex 2 → 第 3
+    expect(getByText("模型")).not.toBeNull();
+    expect(getByText("第 3 个候选")).not.toBeNull();
   });
 
   it("采纳 / 忽略 回调透传整个 box", () => {

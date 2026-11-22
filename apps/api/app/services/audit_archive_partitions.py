@@ -60,7 +60,6 @@ class SourcePartition:
 
     @property
     def qualified(self) -> str:
-        # Construction is restricted to validated, canonical catalog names.
         return f'public."{self.name}"'
 
     @property
@@ -247,7 +246,6 @@ async def month_mutex(db: AsyncSession, month_start: date) -> None:
 
 async def lock_source(db: AsyncSession, source: SourcePartition) -> None:
     await db.execute(text(f"LOCK TABLE ONLY {source.qualified} IN SHARE MODE NOWAIT"))
-    # Name resolution and the lock must both identify the originally selected OID.
     await verify_source(db, source)
 
 
@@ -272,9 +270,6 @@ async def _stream_source(
         deadline = monotonic() + archive_storage.VERIFY_SECONDS
     digest = hashlib.sha256()
     row_count = size_bytes = 0
-    # SQLAlchemy's asyncpg result.close() only drops its client cursor reference;
-    # the server portal can still prevent DROP in this very transaction. Own a
-    # uniquely named SQL cursor and explicitly close precisely that portal.
     name = f"audit_archive_{uuid4().hex}"
     declared = failed = False
     try:
@@ -287,8 +282,6 @@ async def _stream_source(
         declared = True
         while True:
             _deadline(deadline)
-            # Fetch one bounded row, even when it approaches the 16 MiB limit.
-            # PostgreSQL advances the portal without rescanning a keyset index.
             row = (
                 (await db.execute(text(f'FETCH FORWARD 1 FROM "{name}"')))
                 .mappings()
@@ -323,8 +316,6 @@ async def _stream_source(
             except BaseException:
                 if not failed:
                     raise
-                # Preserve the original error/cancellation. The archive owner's
-                # mandatory rollback also destroys a portal in an aborted tx.
     _deadline(deadline)
     if expected_rows is not None and row_count != expected_rows:
         raise AuditArchiveError("audit_archive_source_changed")

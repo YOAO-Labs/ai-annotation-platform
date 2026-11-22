@@ -29,14 +29,11 @@ def test_import_file_multipart(client, respx_mock, tmp_path):
     req = route.calls.last.request
     assert req.url.params["format"] == "native_json"
     assert req.url.params["dry_run"] == "false"
-    # 缺省不传 yolo_variant (走后端默认 det)
     assert "yolo_variant" not in req.url.params
     content = req.content
-    # multipart 字段名必须是 file (后端 alias)
     assert b'name="file"' in content
     assert b'filename="preds.json"' in content
     assert b'name="model_version"' in content and b"v3" in content
-    # SDK 缺省 overwrite_existing=False, 显式发送 (后端缺省是 True)
     assert b'name="overwrite_existing"' in content and b"false" in content
     assert isinstance(result, ImportResult)
     assert result.imported == 5

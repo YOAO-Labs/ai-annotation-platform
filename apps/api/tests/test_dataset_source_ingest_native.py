@@ -134,7 +134,6 @@ async def ingest_world(test_engine):
                     {"ids": list(world.batch_ids)},
                 )
         await _cleanup_world(world.base)
-        # Immutable original history lives until the verifier retires its database.
         await engine.dispose()
 
 
@@ -732,7 +731,6 @@ async def test_scan_publishes_existing_prefix_objects_without_scenes(ingest_worl
     async with world.source_maker.begin() as db:
         context = await _begin(db, command, _descriptor("scan"))
         key = context.source_prefix + "nested/frame.pcd"
-        # Seed existing bytes, not an ingest upload or a synthetic verification.
         world.physical.objects[key] = source_bytes
         storage = IngestStorage(world.physical, settings.minio_datasets_bucket)
         [listed] = [item async for item in storage.iter_objects(context.source_prefix)]

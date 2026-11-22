@@ -434,8 +434,6 @@ async def test_real_worker_ledger_waits_for_outer_directory_and_preserves_partia
         ]
     finally:
         if fault == "directory":
-            # This synthetic close error follows actual directory removal and
-            # drained native work; only this test can attest its handle closed.
             assert all(not path.exists() for path in paths)
             async with storage_access.engine(db).begin() as connection:
                 await connection.execute(

@@ -113,8 +113,6 @@ async def owned_import(db_session, _restore_owned_originals, monkeypatch, tmp_pa
     )
     db_session.add(actor)
     await db_session.flush()
-    # Owned imports expire the session repeatedly; keep the fixture actor's
-    # facts available without a lazy load outside greenlet context.
     db_session.expunge(actor)
     _restore_owned_originals.append(actor.id)
     yield db_session, actor, client, root
@@ -136,8 +134,6 @@ async def test_new_import_owns_originals_preserves_counts_and_caller_transaction
     db, actor, _client, root = owned_import
     result = await run_import(db, actor, root)
     assert result["total_items"] == 10
-    # Business rows (Dataset and its auxiliary owners) stay in the caller
-    # transaction; only independent physical creation responsibility commits.
     async with creation.storage_access.engine(db).connect() as connection:
         assert (
             await connection.scalar(
@@ -221,7 +217,6 @@ async def test_idempotent_import_reuses_all_canonical_receipts(owned_import):
 
 async def test_late_source_drift_leaves_known_unbound_responsibility(owned_import):
     db, actor, _client, root = owned_import
-    # Establish a full prior scene, then alter its local original bytes.
     await run_import(db, actor, root)
     await db.commit()
     path = next((root / "samples/LIDAR_TOP").glob("*.pcd.bin"))
@@ -309,8 +304,6 @@ async def test_legacy_proof_drift_is_not_adopted_when_auxiliary_pointer_is_missi
     await db.commit()
     original_scene = await db.scalar(select(Scene))
     original_items = list(await db.scalars(select(DatasetItem)))
-    # A separate historical import has metadata receipts but no canonical
-    # registration. It cannot borrow the first import's ownership by inference.
     legacy = Dataset(
         id=uuid.uuid4(),
         display_id="DS-NU-legacy-proof",
@@ -358,7 +351,7 @@ async def test_legacy_proof_drift_is_not_adopted_when_auxiliary_pointer_is_missi
     if changed == "raw":
         path = next((root / "samples/LIDAR_TOP").glob("*.pcd.bin"))
         points = np.frombuffer(path.read_bytes(), dtype="<f4").copy()
-        points[3] += 0.125  # XYZ-derived PCD is unchanged; raw proof is not.
+        points[3] += 0.125
         path.write_bytes(points.tobytes())
     else:
         path = root / "maps/map-0.png"

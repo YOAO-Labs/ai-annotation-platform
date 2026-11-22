@@ -7,6 +7,7 @@ interface ThumbnailProps {
   src: string | null | undefined;
   blurhash?: string | null;
   alt?: string;
+  fillContainer?: boolean;
   width?: number;
   height?: number;
   style?: React.CSSProperties;
@@ -16,6 +17,7 @@ export function Thumbnail({
   src,
   blurhash,
   alt = "",
+  fillContainer = false,
   width = 48,
   height = 48,
   style,
@@ -23,15 +25,15 @@ export function Thumbnail({
   const [loaded, setLoaded] = useState(false);
   const [errored, setErrored] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const rootStyle = useMemo<React.CSSProperties>(
-    () => ({
-      width,
-      height,
-      ...style,
-    }),
-    [height, style, width],
+  const rootStyle = useMemo<React.CSSProperties | undefined>(
+    () => (fillContainer ? style : { width, height, ...style }),
+    [fillContainer, height, style, width],
   );
   const rootRef = useElementStyle<HTMLDivElement>(rootStyle);
+  const className = fillContainer ? `${styles.root} ${styles.fillContainer}` : styles.root;
+  const showBlurhash = Boolean(blurhash && !loaded);
+  const sampleWidth = fillContainer ? 48 : width;
+  const sampleHeight = fillContainer ? 48 : height;
 
   useEffect(() => {
     setLoaded(false);
@@ -39,36 +41,36 @@ export function Thumbnail({
   }, [blurhash, src]);
 
   useEffect(() => {
-    if (!blurhash || !canvasRef.current) return;
+    const canvas = canvasRef.current;
+    if (!showBlurhash || !blurhash || !canvas) return;
+    let current = true;
     import("blurhash")
       .then(({ decode }) => {
-        const pixels = decode(blurhash, width, height);
-        const canvas = canvasRef.current!;
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d")!;
-        const imageData = ctx.createImageData(width, height);
+        if (!current) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        const pixels = decode(blurhash, sampleWidth, sampleHeight);
+        const imageData = ctx.createImageData(sampleWidth, sampleHeight);
         imageData.data.set(pixels);
         ctx.putImageData(imageData, 0, 0);
       })
-      .catch(() => {
-        /* ignore */
-      });
-  }, [blurhash, width, height]);
-
-  if (!src && !blurhash) {
-    return (
-      <div ref={rootRef} className={styles.root}>
-        <Icon name="image" size={14} className={styles.placeholderIcon} />
-      </div>
-    );
-  }
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [blurhash, sampleWidth, sampleHeight, showBlurhash]);
 
   return (
-    <div ref={rootRef} className={styles.root}>
-      {/* blurhash canvas placeholder */}
-      {blurhash && !loaded && <canvas ref={canvasRef} className={styles.media} />}
-      {/* actual image */}
+    <div ref={rootRef} className={className}>
+      {showBlurhash && (
+        <canvas
+          ref={canvasRef}
+          width={sampleWidth}
+          height={sampleHeight}
+          className={styles.media}
+          aria-hidden
+        />
+      )}
       {src && !errored && (
         <img
           src={src}

@@ -88,7 +88,6 @@ async def test_function_only_prediction_records_preserve_transaction_and_cleanup
             task_id = task.id
             task_ids.append(task.id)
 
-        # The selector is test-only; _dsn verifies that its database is disposable.
         connection = await asyncpg.connect(
             _dsn(
                 test_engine,

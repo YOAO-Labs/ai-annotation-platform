@@ -36,11 +36,7 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      // The codebase intentionally colocates small helpers/types with components.
-      // Splitting every helper into a separate file would add churn without
-      // changing runtime behavior, so keep Fast Refresh as a dev-tool concern.
       "react-refresh/only-export-components": "off",
-      // 项目当下偏向务实：先放宽这几条最常见的规则，逐步收紧
       "@typescript-eslint/no-explicit-any": "warn",
       "@typescript-eslint/no-unused-vars": [
         "warn",
@@ -51,7 +47,6 @@ export default tseslint.config(
   {
     files: ["src/**/*.test.{ts,tsx}", "src/**/__tests__/**/*.{ts,tsx}"],
     rules: {
-      // Tests use mocked modules and event shims where exact app types add noise.
       "@typescript-eslint/no-explicit-any": "off",
     },
   },
@@ -63,7 +58,6 @@ export default tseslint.config(
       "test-contracts/no-bare-expect": "error",
     },
   },
-  // Embedded browsers can silently discard native dialogs. Locally bound actions are fine.
   {
     files: ["src/**/*.{ts,tsx}"],
     ignores: ["src/**/*.test.{ts,tsx}", "src/**/__tests__/**/*.{ts,tsx}"],
@@ -93,9 +87,6 @@ export default tseslint.config(
       ],
     },
   },
-  // CSP style-src 收紧 — 全站 TSX 已迁到 CSS modules / class 切换,
-  // 用 lint guard 防止 JSX inline style 回潮. 文件级 disable 仅用于真正必要的
-  // CSS custom property 注入逃生口，并应优先改用 useElementStyle。
   {
     files: ["src/**/*.tsx"],
     rules: {

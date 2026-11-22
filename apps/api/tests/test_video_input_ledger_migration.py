@@ -54,7 +54,6 @@ def _migration():
 
 
 def test_video_execution_and_evidence_artifacts_match_portable_contracts():
-    # The numbered bo0225 artifact keeps the spelling it was installed with.
     document = historical(execution.contract_document())
     frozen = json.loads((SQL / "0225_video_inputs.schema.json").read_text())
     assert frozen == _contract_subset(document, frozen)

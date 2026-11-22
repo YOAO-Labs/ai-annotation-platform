@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import json
 from typing import BinaryIO, NoReturn, TypeVar
 from urllib.parse import urlsplit
 
+from anyio import CancelScope
 import httpx
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException
@@ -48,6 +50,7 @@ from app.services.dataset_source_deletion_data import DatasetSourceDeletionData
 from app.services.dataset_upload_data import DatasetUploadData
 from app.services.assets_images import image_gateway, image_policy
 from app.services.storage import StorageService, storage_service
+from app.services.storage_access import finish
 
 _RESULT = TypeVar("_RESULT", bound=BaseModel)
 _MAX_REQUEST_BYTES = 1 * 1024 * 1024
@@ -257,9 +260,19 @@ def _raise_ingest_failure(exc: IngestFailure, *, kind: str) -> NoReturn:
     ) from None
 
 
+async def run_zip_file_io(function, *args):
+    worker = asyncio.get_running_loop().run_in_executor(None, function, *args)
+    try:
+        return await asyncio.shield(worker)
+    except asyncio.CancelledError:
+        with CancelScope(shield=True), suppress(BaseException):
+            await finish(worker)
+        raise
+
+
 async def _stream_binary(source: BinaryIO):
     while True:
-        chunk = await asyncio.to_thread(source.read, 64 * 1024)
+        chunk = await run_zip_file_io(source.read, 64 * 1024)
         if not chunk:
             return
         yield chunk if isinstance(chunk, bytes) else bytes(chunk)
@@ -355,8 +368,6 @@ class _LocalStoragePort:
 
     @staticmethod
     def _source_failure(exc) -> SourceFailure:
-        # Managed-storage outcomes use their own taxonomy; only a proven source
-        # change is a user-visible conflict, everything else is unavailable.
         failure = SourceFailure(
             "source_changed" if exc.code == "source_changed" else "storage_unavailable"
         )

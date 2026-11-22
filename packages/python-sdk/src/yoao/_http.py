@@ -77,7 +77,6 @@ class HttpTransport:
             base_url=self._origin + API_PREFIX, headers=headers, timeout=timeout
         )
         self._bare_client: httpx.Client | None = None
-        # 重试退避基数, 测试可调小避免真实 sleep
         self.retry_backoff = 0.5
 
     @property

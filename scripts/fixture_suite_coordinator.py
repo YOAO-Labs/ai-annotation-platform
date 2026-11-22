@@ -36,7 +36,6 @@ from worktree_env import (
 
 
 ROOT = Path(__file__).resolve().parents[1]
-# ROOT is the code checkout; disposable resource state has a separate owner root.
 
 
 class FixtureSetupRefused(WorktreeError):
@@ -160,7 +159,6 @@ async def _settled(task):
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError as interrupted:
-        # Bootstrap verification runs before API settings bind to the owner DSN.
         from app.services.storage_access import finish
 
         try:
@@ -742,7 +740,6 @@ async def prepare_worktree_store(
             )
             from fixture_store import reader_credentials
 
-            # Reload the committed journal after the private child exits.
             owner = Owner(manifest_path)
             _refuse_unless(
                 owner.data["fixture_store"]["state"] == "published",
@@ -1427,7 +1424,7 @@ async def prepare_native_run_target(run_id: uuid.UUID, admission_id: uuid.UUID):
     """Provision and register an admitted run's exact native output target."""
     from app.services.storage_access import mark_unsettled
     from fixture_media_control import register_native_target
-    from fixture_store import provision_native_output, verified_native_output
+    from fixture_store import provision_native_output
     from verify_storage_candidates import Owner
 
     _refuse_unless(
@@ -1490,20 +1487,12 @@ async def prepare_native_run_target(run_id: uuid.UUID, admission_id: uuid.UUID):
         )
         targets = owner.data.get("fixture_native_outputs", {})
         _refuse_unless(isinstance(targets, dict), "fixture_native_targets_invalid")
-        if run_id.hex in targets:
-            target = await _settled_thread(
-                verified_native_output, owner, identity, run_id
-            )
-        else:
-            target = await _settled_thread(
-                provision_native_output, owner, identity, run_id
-            )
+        if run_id.hex not in targets:
+            await _settled_thread(provision_native_output, owner, identity, run_id)
         registration_started = True
-        registered = await _settled(
+        return await _settled(
             asyncio.create_task(register_native_target(run_id, owner, identity))
         )
-        _refuse_unless(registered == target, "fixture_native_target_changed")
-        return target
     except BaseException as failure:
         if registration_started or (
             owner is not None

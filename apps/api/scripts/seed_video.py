@@ -24,7 +24,7 @@ from pathlib import Path
 PROJECT_DISPLAY_ID = "P-VIDEO-DEV"
 DATASET_DISPLAY_ID = "DS-VIDEO-DEV"
 DATASET_NAME = "tracking-car-dev"
-DATASET_FOLDER = "tracking-car-dev"  # MinIO datasets 桶内前缀
+DATASET_FOLDER = "tracking-car-dev"
 ADMIN_EMAIL = "admin"
 ADMIN_PASSWORD = "123456"
 
@@ -106,7 +106,6 @@ async def seed_video(
     if not video.exists():
         raise FileNotFoundError(f"视频素材缺失: {video}")
 
-    # Local probe is reporting only; persisted derivatives use the owned pipeline.
     video_meta = probe_video_file(video)
 
     ds = Dataset(
@@ -126,7 +125,6 @@ async def seed_video(
         tool_bindings=VIDEO_TOOL_BINDINGS,
     )
 
-    # 上传视频到 MinIO datasets 桶。
     payload = video.read_bytes()
     content_type = mimetypes.guess_type(video.name)[0] or "application/octet-stream"
     binding = await ensure_legacy_bindings(db)
@@ -165,7 +163,6 @@ async def seed_video(
     db.add(ProjectDataset(project_id=project_id, dataset_id=ds.id))
     await db.flush()
 
-    # 每个视频一个 Task(video 走普通路径,非 lidar 分支)。
     tasks_result = await DatasetTaskCreationWorkflow(
         db
     ).create_tasks_for_linked_dataset(

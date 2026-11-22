@@ -293,7 +293,6 @@ class PipelineHttpClient:
             try:
                 await client.aclose()
             except Exception:
-                # Cleanup must not replace an operation result or its failure.
                 return
 
 

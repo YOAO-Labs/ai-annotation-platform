@@ -216,8 +216,6 @@ async def _capture_bound_samples(
         try:
             for frozen in frozen_samples:
                 if frozen["label"] == _PHASE_SAMPLE:
-                    # Replay the frozen sequence's committed row; the separate
-                    # gated probe below supplies actual concurrency evidence.
                     interleave_id = await add_frozen_interleave_row(engine, world)
                 sample = await request_sample(
                     client, world, frozen, native_rpc=native_rpc
@@ -486,8 +484,6 @@ async def test_labeling_class_query_owner_survives_owned_database_restore(
             assert disabled.ok is False
             assert disabled.error.status_code == 401
             assert disabled.error.headers == {"WWW-Authenticate": "Bearer"}
-            # Labeling's private projection trusts the API coordinator; this
-            # disabled-actor check belongs to Workspace's current authority read.
             source_still_active = await _manager_reply(
                 source_workspace_dsn,
                 actor_id=inactive_actor.id,

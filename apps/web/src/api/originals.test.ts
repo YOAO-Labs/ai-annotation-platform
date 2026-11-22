@@ -55,6 +55,9 @@ function binary(value: Blob | Promise<Blob>) {
 function json(value: unknown) {
   return { ok: true, status: 200, json: async () => value };
 }
+function readError(status: number, detail: unknown) {
+  return { ok: false, status, headers: new Headers(), json: async () => ({ detail }) };
+}
 function authenticate(token = "private-token") {
   useAuthStore.getState().setAuth(token, { id: "alice" } as MeResponse);
 }
@@ -199,7 +202,6 @@ it("keeps a cancelled speculative transport in its slot until the response settl
     expect(transport.aborted).toBe(false);
     expect(await canceled).toMatchObject({ name: "AbortError" });
     await tick();
-    // The abandoned byte stream still owns its server admission slot.
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     bodies[0].resolve(new Blob(["late"]));
@@ -296,24 +298,80 @@ it("checks the returned byte count and never downgrades an identity error to a s
   expect(fetchMock).toHaveBeenCalledTimes(3);
 });
 
-it("only retries the explicit capacity response and stops after a finite number of attempts", async () => {
+it("recovers a busy original read without changing the authorized content path", async () => {
   vi.useFakeTimers();
-  fetchMock.mockResolvedValue({
-    ok: false,
-    status: 429,
-    headers: new Headers(),
-    json: async () => ({ detail: { code: "snapshot_capacity_exceeded" } }),
+  const blob = new Blob(["abc"]);
+  fetchMock
+    .mockResolvedValueOnce(json(identity()))
+    .mockResolvedValueOnce(readError(409, { code: "content_busy" }))
+    .mockResolvedValueOnce(binary(blob));
+
+  const pending = readOriginal(resource).catch((error: unknown) => error);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  await vi.runAllTimersAsync();
+  expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+    `/api/v1/files/tasks/${taskId}/original-identity`,
+    path,
+    path,
+  ]);
+  expect(fetchMock.mock.calls[2][1]).toMatchObject({
+    cache: "no-store",
+    headers: { Authorization: "Bearer private-token" },
   });
+  expect(await pending).toEqual({ identity: identity(), blob });
+});
+
+it.each([
+  [429, "snapshot_capacity_exceeded"],
+  [409, "content_busy"],
+] as const)("bounds retries for binary HTTP %i %s", async (status, code) => {
+  vi.useFakeTimers();
+  fetchMock.mockResolvedValue(readError(status, { code }));
+
   const pending = readOriginalBytes(path).catch((error: unknown) => error);
   await vi.runAllTimersAsync();
-  expect(await pending).toMatchObject({ status: 429 });
+  expect(await pending).toMatchObject({ status, detailRaw: { code } });
   expect(fetchMock).toHaveBeenCalledTimes(4);
-  fetchMock.mockResolvedValueOnce({
-    ok: false,
-    status: 429,
-    headers: new Headers(),
-    json: async () => ({ detail: { code: "other_limit" } }),
+});
+
+it.each([
+  [409, { code: "content_mismatch" }],
+  [409, "content_busy"],
+  [403, { code: "content_busy" }],
+  [429, { code: "other_limit" }],
+] as const)("does not retry binary HTTP %i with unrelated detail %j", async (status, detail) => {
+  vi.useFakeTimers();
+  fetchMock.mockResolvedValue(readError(status, detail));
+
+  const pending = readOriginalBytes(path).catch((error: unknown) => error);
+  await vi.runAllTimersAsync();
+  expect(await pending).toMatchObject({ status, detailRaw: detail });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it("does not retry a busy original identity lookup", async () => {
+  fetchMock.mockResolvedValue(readError(409, { code: "content_busy" }));
+  await expect(readOriginal(resource)).rejects.toMatchObject({
+    status: 409,
+    detailRaw: { code: "content_busy" },
   });
-  await expect(readOriginalBytes(path)).rejects.toMatchObject({ status: 429 });
-  expect(fetchMock).toHaveBeenCalledTimes(5);
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it.each(["abort", "session"])("stops retrying a busy original on %s", async (change) => {
+  vi.useFakeTimers();
+  fetchMock.mockResolvedValue(readError(409, { code: "content_busy" }));
+  const controller = new AbortController();
+  const pending = readOriginalBytes(path, { signal: controller.signal }).catch(
+    (error: unknown) => error,
+  );
+  await vi.advanceTimersByTimeAsync(100);
+
+  if (change === "abort") controller.abort();
+  else useAuthStore.setState({ sessionId: crypto.randomUUID() });
+
+  await vi.runAllTimersAsync();
+  expect(await pending).toMatchObject({ name: "AbortError" });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });

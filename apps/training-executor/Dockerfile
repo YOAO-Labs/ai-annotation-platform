@@ -7,7 +7,8 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 \
     POLARS_MAX_THREADS=4 NUMEXPR_MAX_THREADS=4
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 fonts-dejavu-core python3.12-venv && rm -rf /var/lib/apt/lists/*
+    libgl1 libglib2.0-0 fonts-dejavu-core fonts-noto-cjk python3.12-venv && \
+    rm -rf /var/lib/apt/lists/*
 
 RUN python -m venv --system-site-packages /opt/training-venv
 ENV VIRTUAL_ENV=/opt/training-venv PATH=/opt/training-venv/bin:$PATH

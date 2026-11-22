@@ -14,7 +14,6 @@ from app.deps import (
     require_scopes,
 )
 from app.db.models.annotation import Annotation
-from app.db.models.task import Task
 from app.schemas.annotation import (
     AnnotationCreate,
     AnnotationListPage,
@@ -109,6 +108,7 @@ from app.services.labeling_core_read_relations import (
     get_core_row,
     lock_task_for_core_read,
     refresh_core_row,
+    task_row,
 )
 
 router = APIRouter()
@@ -231,7 +231,6 @@ async def get_neighbor_annotations(
             frames=[],
         )
 
-    # 逐邻帧复核可见性,不可见的邻帧 task 不取其 annotation(下面 by_task 占位为空)。
     project = await get_workspace_project(db, actor_id=None, project_id=task.project_id)
     visible_ids = await task_access.visible_task_ids(
         db, project, current_user.id, list(frame_by_task.keys())
@@ -248,7 +247,6 @@ async def get_neighbor_annotations(
     for a in anns:
         by_task[a.task_id].append(AnnotationOut.model_validate(a))
 
-    # 按距中心帧远近排序(与 neighbors prev/next 顺序一致),便于前端就近渲染
     ordered = [*neighbors.prev, *neighbors.next]
     frames = [
         NeighborFrameAnnotations(
@@ -411,8 +409,6 @@ async def create_annotation(
     except RasterMaskContractError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
-    # Fence current membership before the Task lock; object verification must
-    # not extend either lock's lifetime.
     access = await task_access.resolve_task_access(
         db, task, current_user.id, lock_membership=True
     )
@@ -497,9 +493,6 @@ async def secondary_inference(
         geometry=annotation.geometry,
     )
 
-    # 一层父子约束: 选中框如果已经是子框 (parent 非空), geometry 型二次推理会
-    # 建"孙子"框 (子框的子框), 违反一层深度。前置到端点, 不再等 ML predict 跑完 10-30s
-    # 才在 AnnotationService.create 里 400, 省一次 backend 调用。属性型无此问题, 放过。
     if data.write_target == "geometry" and annotation.parent_annotation_id is not None:
         raise HTTPException(
             status_code=400,
@@ -514,9 +507,6 @@ async def secondary_inference(
     if not backend or not await ml_svc.is_enabled(task.project_id, data.ml_backend_id):
         raise HTTPException(status_code=404, detail="模型服务不存在或未对当前项目启用")
 
-    # 与批量 pipeline 保持同一能力判据 SSOT (services/pipeline_validation): batchable=false
-    # (交互 backend) 与「写属性但模型不产 class」都在 predict 前 422 硬挡, 避免选错模型
-    # 返 201 空产物 (与"跑完无检出"混淆)。判据本身「显式自报才拦, 缺省放过」, 对老 backend 零退化。
     from app.api.v1.projects import _stage_model
 
     _writes_attributes = data.write_target == "attributes"
@@ -541,8 +531,6 @@ async def secondary_inference(
         source_annotation=annotation,
     )
 
-    # Validate the model and selected geometry before acquiring any physical
-    # source input or releasing the current read transaction.
     prepared_request = prepare_secondary_request(
         annotation,
         backend,
@@ -555,8 +543,6 @@ async def secondary_inference(
         prompt_type=data.prompt_type,
     )
 
-    # 释放当前只读事务再进入 10-30s 的远程 predict, 避免 async 连接池在高并发下饥饿
-    # (expire_on_commit=False, annotation / task / backend 对象保持 attached 可继续使用)。
     await db.commit()
 
     if task.file_type == "image":
@@ -568,7 +554,6 @@ async def secondary_inference(
             db, task, current_user, request, annotation, input_session_factory
         )
     else:
-        # The temporary input lease owns delivery; it claims no original provenance.
         operation = nullcontext(None)
 
     try:
@@ -594,7 +579,7 @@ async def secondary_inference(
                 prepared_request=prepared_request,
             )
             if original_operation is not None:
-                task = await db.get(Task, task_id, populate_existing=True)
+                task = await get_core_row(db, task_row, task_id, populate_existing=True)
             write_port: SecondaryInferenceWritePort = (
                 _AnnotationSecondaryInferenceSqlAdapter(
                     db,
@@ -803,7 +788,6 @@ async def update_annotation(
         except RasterMaskContractError as exc:
             raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
 
-    # Recheck current membership before the Task lock after object verification.
     access = await task_access.resolve_task_access(
         db, _task, current_user.id, lock_membership=True
     )
@@ -1039,9 +1023,6 @@ async def delete_annotation(
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write),
 ):
-    # Keep the same Task -> Annotation lock order as task-scoped atomic Mask
-    # mutations. Otherwise DELETE can hold Annotation while waiting for Task,
-    # forming a deadlock cycle with a concurrent atomic mutation.
     task = await lock_task_for_core_read(db, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")

@@ -1,4 +1,3 @@
-// buildSecondaryInferencePayload 能力→请求参数映射单测。
 import { describe, it, expect, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -150,12 +149,10 @@ describe("buildSecondaryInferencePayload", () => {
       { id: "yolo-det", task: "detection", default_variants: { series: "yolo11", size: "l" } },
       "geometry",
     );
-    // 用户只改 size, series 保留默认。
     expect(buildSecondaryInferencePayload(c, undefined, { size: "s" }).model_variants).toEqual({
       series: "yolo11",
       size: "s",
     });
-    // 未传 variants → 纯默认。
     expect(buildSecondaryInferencePayload(c).model_variants).toEqual({
       series: "yolo11",
       size: "l",
@@ -168,7 +165,6 @@ describe("buildSecondaryInferencePayload", () => {
   });
 
   it("variants: 有变体轴的 OCR 属性能力 → 带 model_variants (协议 v2)", () => {
-    // rapidocr rec/e2e 是 attributes 写回, 但声明了 version/size/lang 轴, 也要能选档透传。
     const c = cap(
       {
         id: "ocr-rec",
@@ -180,7 +176,6 @@ describe("buildSecondaryInferencePayload", () => {
       },
       "attributes",
     );
-    // 用户改 lang, version/size 保留默认。
     expect(buildSecondaryInferencePayload(c, undefined, { lang: "en" }).model_variants).toEqual({
       version: "v5",
       size: "mobile",
@@ -236,7 +231,6 @@ describe("mergeSecondaryResult", () => {
     const [merged] = mergeSecondaryResult(prev, resp(server))!;
     expect(merged.attributes).toEqual({ color: "blue" });
     expect(merged.attributes_meta?.color?.origin).toBe("ai");
-    // 用户拖动中的几何保留, 未被服务端快照顶回。
     expect(merged.geometry).toEqual({ type: "bbox", x: 0.9, y: 0.9, w: 0.05, h: 0.05 });
   });
 

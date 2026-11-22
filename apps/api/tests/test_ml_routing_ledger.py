@@ -46,7 +46,6 @@ async def ledger() -> AsyncIterator[RoutingLedger]:
         eject_ms=2000,
     )
     yield store
-    # clean namespace
     client = Redis.from_url(_redis_url(), decode_responses=True)
     async for key in client.scan_iter(match=f"{ns}:*", count=200):
         await client.delete(key)
@@ -78,9 +77,6 @@ def _ids(n: int) -> list[str]:
     return [str(uuid.UUID(int=base.int + i)) for i in range(n)]
 
 
-# ── acquire basics ────────────────────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_acquire_selects_one_of_eligible(ledger: RoutingLedger) -> None:
     pool_id = uuid.uuid4().hex
@@ -103,11 +99,9 @@ async def test_acquire_respects_max_concurrency(ledger: RoutingLedger) -> None:
     cands = [_candidate(i, max_concurrency=1) for i in ids]
     l1, _ = await ledger.acquire(pool_id, 1, cands, owner="t", operation="p")
     assert l1 is not None
-    # Second acquire must pick the OTHER instance (first is saturated).
     l2, _ = await ledger.acquire(pool_id, 1, cands, owner="t", operation="p")
     assert l2 is not None
     assert l2.instance_id != l1.instance_id
-    # Third acquire with both saturated → POOL_SATURATED
     l3, reason = await ledger.acquire(pool_id, 1, cands, owner="t", operation="p")
     assert l3 is None
     assert reason == RejectionReason.POOL_SATURATED
@@ -116,7 +110,6 @@ async def test_acquire_respects_max_concurrency(ledger: RoutingLedger) -> None:
 @pytest.mark.asyncio
 async def test_acquire_no_eligible_returns_unavailable(ledger: RoutingLedger) -> None:
     pool_id = uuid.uuid4().hex
-    # All candidates disabled → POOL_UNAVAILABLE
     cands = [_candidate(_ids(1)[0], traffic_state=TrafficState.DISABLED)]
     lease, reason = await ledger.acquire(pool_id, 1, cands, owner="t", operation="p")
     assert lease is None
@@ -147,21 +140,18 @@ async def test_acquire_generation_mismatch_rejected(ledger: RoutingLedger) -> No
     """An acquire with a stale generation is rejected (ADR-0050 D16)."""
     pool_id = uuid.uuid4().hex
     cands = [_candidate(_ids(1)[0])]
-    # First acquire at gen=1 succeeds and seeds pool:state.generation=1.
     l1, _ = await ledger.acquire(
         pool_id, generation=1, candidates=cands, owner="t", operation="p"
     )
     assert l1 is not None
     await ledger.cancel(l1)
-    # Bump generation (topology changed) → stored gen now 2.
     await ledger.bump_generation(pool_id)
-    # Stale-gen acquire rejected.
     lease, reason = await ledger.acquire(
         pool_id,
         generation=1,
         candidates=cands,
         owner="t",
-        operation="p",  # stale gen
+        operation="p",
     )
     assert lease is None
     assert reason == RejectionReason.GENERATION_MISMATCH
@@ -198,9 +188,6 @@ async def test_sync_generation_is_exact_idempotent_and_monotonic(
     assert await ledger.sync_generation(pool_id, 7) is False
 
 
-# ── SWRR distribution over Redis ──────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_swrr_weight_1_2_distribution_over_redis(ledger: RoutingLedger) -> None:
     """The Redis Lua SWRR matches the pure core: weight 1:2 → 33/67 over a cycle."""
@@ -215,13 +202,9 @@ async def test_swrr_weight_1_2_distribution_over_redis(ledger: RoutingLedger) ->
         lease, _ = await ledger.acquire(pool_id, 1, cands, owner="t", operation="p")
         assert lease is not None
         counts[lease.instance_id] += 1
-        # release immediately so concurrency never saturates
         await ledger.cancel(lease)
     assert abs(counts[ids[0]] / 300 - 1 / 3) < 0.05
     assert abs(counts[ids[1]] / 300 - 2 / 3) < 0.05
-
-
-# ── heartbeat / finish / cancel ───────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -255,7 +238,6 @@ async def test_finish_releases_and_counts_success(ledger: RoutingLedger) -> None
     assert lease is not None
     released = await ledger.finish(lease, RouteOutcome.SUCCESS, duration_ms=42)
     assert released is True
-    # idempotent: second finish returns False (already terminal)
     again = await ledger.finish(lease, RouteOutcome.SUCCESS, duration_ms=42)
     assert again is False
 
@@ -268,7 +250,6 @@ async def test_cancel_releases_without_tripping_circuit(ledger: RoutingLedger) -
     assert lease is not None
     released = await ledger.cancel(lease)
     assert released is True
-    # circuit should NOT be open after a cancel
     open_instances = await ledger.circuit_open_instances(pool_id)
     assert open_instances == set()
 
@@ -282,11 +263,7 @@ async def test_finish_cancel_race_only_one_releases(ledger: RoutingLedger) -> No
     assert lease is not None
     r_finish = await ledger.finish(lease, RouteOutcome.SUCCESS, duration_ms=1)
     r_cancel = await ledger.cancel(lease)
-    # Exactly one returned True (the first); the other is idempotent False.
     assert (r_finish, r_cancel) in {(True, False), (False, True)}
-
-
-# ── passive circuit ───────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -297,15 +274,12 @@ async def test_transport_failures_open_circuit_after_threshold(
     pool_id = uuid.uuid4().hex
     inst = _ids(1)[0]
     cands = [_candidate(inst, max_concurrency=4)]
-    # 3 consecutive transport failures (threshold=3) → circuit open
     for _ in range(3):
         lease, _ = await ledger.acquire(pool_id, 1, cands, owner="t", operation="p")
         assert lease is not None
         await ledger.finish(lease, RouteOutcome.CONNECT_REFUSED, duration_ms=1)
-    # Now circuit_open_instances should report it
     open_ids = await ledger.circuit_open_instances(pool_id)
     assert inst in open_ids
-    # Acquire with circuit_open excludes it → ALL_CIRCUITS_OPEN (single member, all open)
     lease, reason = await ledger.acquire(
         pool_id,
         1,
@@ -324,7 +298,7 @@ async def test_business_4xx_does_not_trip_circuit(ledger: RoutingLedger) -> None
     pool_id = uuid.uuid4().hex
     inst = _ids(1)[0]
     cands = [_candidate(inst, max_concurrency=4)]
-    for _ in range(5):  # well past the threshold of 3
+    for _ in range(5):
         lease, _ = await ledger.acquire(pool_id, 1, cands, owner="t", operation="p")
         assert lease is not None
         await ledger.finish(lease, RouteOutcome.BUSINESS_ERROR, duration_ms=1)
@@ -338,7 +312,6 @@ async def test_success_resets_failure_counter(ledger: RoutingLedger) -> None:
     pool_id = uuid.uuid4().hex
     inst = _ids(1)[0]
     cands = [_candidate(inst, max_concurrency=4)]
-    # 2 failures (below threshold=3), then success, then 2 more failures → still closed.
     for outcome in [
         RouteOutcome.TRANSPORT_TIMEOUT,
         RouteOutcome.TRANSPORT_TIMEOUT,
@@ -352,36 +325,27 @@ async def test_success_resets_failure_counter(ledger: RoutingLedger) -> None:
     assert inst not in open_ids
 
 
-# ── lease TTL / crash reclaim ─────────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_expired_lease_reclaimed_on_next_acquire(ledger: RoutingLedger) -> None:
     """A lease whose TTL passed is swept by the next acquire (crash reclaim, §C.2)."""
     pool_id = uuid.uuid4().hex
     inst = _ids(1)[0]
-    cands = [_candidate(inst, max_concurrency=1)]  # cap 1 so it saturates
+    cands = [_candidate(inst, max_concurrency=1)]
     lease, _ = await ledger.acquire(pool_id, 1, cands, owner="t", operation="p")
     assert lease is not None
-    # Saturated now; acquire without release → SATURATED
     l2, reason = await ledger.acquire(pool_id, 1, cands, owner="t", operation="p")
     assert l2 is None and reason == RejectionReason.POOL_SATURATED
-    # Wait for TTL to pass, then acquire again → should succeed (expired lease swept).
     await asyncio.sleep(2.2)
     l3, reason = await ledger.acquire(pool_id, 1, cands, owner="t", operation="p")
     assert l3 is not None, f"expected reclaim after TTL, got reason={reason}"
-
-
-# ── namespace isolation ───────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_namespace_isolated_from_gpu_arbiter(ledger: RoutingLedger) -> None:
     """ml-router keys must never collide with gpu-arbiter keys (ADR-0050 D7)."""
     client = Redis.from_url(_redis_url(), decode_responses=True)
-    # Our test fixture namespace; ensure no gpu-arbiter keys exist under it.
     found = set()
     async for key in client.scan_iter(match=f"{ledger.namespace}:*", count=50):
-        found.add(key.split(":", 2)[0])  # top-level namespace segment
+        found.add(key.split(":", 2)[0])
     await client.aclose()
     assert "gpu-arbiter" not in found

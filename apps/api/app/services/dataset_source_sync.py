@@ -116,8 +116,6 @@ async def configure(db, source_id, payload, actor, key_id=None):
             != snapshot["maintenance_revision"]
         )
         if lifecycle_changed:
-            # A renewed delegation cannot adopt observations or jobs from before
-            # an archive/restore or maintenance cycle. Old attempts keep their fence.
             row.scan_id = row.registration_id = None
             row.state = "idle"
         if delegation_changed or row.snapshot != snapshot or row.state == "blocked":
@@ -371,8 +369,6 @@ async def choose_action(db, source, row):
             return "resume_scan"
     else:
         run = await db.get(Registration, row.registration_id, populate_existing=True)
-        # Only an explicitly automatic run under this exact delegation is ours
-        # to recover. Human confirmation remains observation-only.
         if run.phase == "registering":
             if run.status in {"completed", "cancelled", "failed"}:
                 finish_cycle(row, stamp, run.error_code)
@@ -446,7 +442,6 @@ async def process(db, source_id, revision, token, node):
     stamp = await scans.now(db)
     row.next_check_at = stamp + timedelta(seconds=CHECK_SECONDS)
     operation = await action(db, source, row)
-    # Idle/review observations are committed before any broker publication.
     if operation:
         await db.commit()
         try:
@@ -480,7 +475,6 @@ async def process(db, source_id, revision, token, node):
         if anchor != row.snapshot["anchor"]:
             raise FilesystemStorageError("root_identity_changed")
         await locations.require_scan_node(db, location, f"worker:{node}")
-        # Source serialization rechecks manual conflicts after probe I/O.
         operation = await action(db, source, row)
         if operation == "start_scan":
             run, created = await scans.start_scan(
@@ -546,8 +540,6 @@ async def process(db, source_id, revision, token, node):
                 db, row.registration_id, actor, api_key_id=row.api_key_id
             )
         if operation:
-            # Nested domain entry points capture current credentials. Reject a
-            # concurrent key rotation instead of silently renewing the delegation.
             await authority(db, location, source, row)
             await db.flush()
             current_run = await db.get(
@@ -564,7 +556,6 @@ async def process(db, source_id, revision, token, node):
     row.last_checked_at = await scans.now(db)
     scan_id, registration_id = row.scan_id, row.registration_id
     await db.commit()
-    # Persistent pointers close every commit-before-publish gap; publication is replayable.
     if operation in {"start_scan", "resume_scan", "dispatch_scan"}:
         from app.workers.dataset_scan import dispatch
 

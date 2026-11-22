@@ -199,8 +199,6 @@ class _TrustedLidarMedia:
         self.receipts = receipts
 
     def service(self, db):
-        # Business rows stay live for this DB-backed test; only media delivery
-        # is frozen behind saved receipts.
         from app.services.exporting.service import ExportService
 
         return ExportService(db, media_paths={})

@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import func, select, update
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import delete, func, select, text, update
+from sqlalchemy.exc import DBAPIError
 
 from app.db.models.notification import Notification
 from app.services.notification import NotificationService
-from sqlalchemy import inspect as sa_inspect
+from tests.test_workspace_actor_scope_native import _consumer_world
 
 
 def _row(user_id: uuid.UUID, *, read_at: datetime | None = None) -> Notification:
@@ -435,3 +438,91 @@ async def test_read_state_owner_matches_legacy_update_with_dirty_user_no_autoflu
     assert owner_snapshot["database"]["user_id"] == database_user.id
     assert legacy_snapshot["database"]["read_at"] is None
     assert owner_snapshot["database"]["read_at"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the verifier-owned restricted Notifications API LOGIN",
+)
+async def test_restricted_notification_evaluate_matches_orm_and_rollback(test_engine):
+    async with _consumer_world(test_engine) as (owner, api, world, _url):
+        user_id, other_id = world["member_id"], world["owner_id"]
+        async with owner.begin() as db:
+            rows = [_row(other_id), _row(user_id), _row(other_id), _row(user_id)]
+            ids = [row.id for row in rows]
+            db.add_all(rows)
+
+        async with owner() as legacy, api() as strict:
+            assert (
+                await strict.scalar(text("SELECT session_user"))
+                == "identity_api_consumer"
+            )
+            for sql in (
+                "SELECT id FROM public.notifications LIMIT 0",
+                "UPDATE public.notifications SET read_at=now() WHERE false",
+                "DELETE FROM public.notifications WHERE false",
+            ):
+                with pytest.raises(DBAPIError) as denied:
+                    async with strict.begin_nested():
+                        await strict.execute(text(sql))
+                assert denied.value.orig.sqlstate == "42501"
+
+            legacy_dirty, legacy_expired = [
+                await legacy.get(Notification, id_) for id_ in ids[:2]
+            ]
+            service = NotificationService(strict)
+            dirty, expired = [await service.notification_by_id(id_) for id_ in ids[2:]]
+            ordinary = await legacy.begin_nested()
+            restricted = await strict.begin_nested()
+            legacy_dirty.user_id = dirty.user_id = user_id
+            legacy.expire(legacy_expired, ["read_at"])
+            strict.expire(expired, ["read_at"])
+            read_at = datetime.now(timezone.utc)
+            with legacy.no_autoflush, strict.no_autoflush:
+                legacy_read = await legacy.execute(
+                    update(Notification)
+                    .where(
+                        Notification.id == ids[0],
+                        Notification.user_id == user_id,
+                        Notification.read_at.is_(None),
+                    )
+                    .values(read_at=read_at)
+                    .execution_options(synchronize_session="evaluate")
+                )
+                assert legacy_read.rowcount == 0
+                assert not await service.mark_read(user_id, ids[2])
+                assert legacy_dirty.read_at == read_at and dirty.read_at is not None
+                assert not sa_inspect(dirty).attrs.read_at.history.has_changes()
+                assert _state(dirty, strict) == _state(legacy_dirty, legacy)
+
+                for old_id, new_id in zip(ids[:2], ids[2:], strict=True):
+                    legacy_delete = await legacy.execute(
+                        delete(Notification)
+                        .where(
+                            Notification.id == old_id,
+                            Notification.user_id == user_id,
+                        )
+                        .execution_options(synchronize_session="evaluate")
+                    )
+                    assert await service.delete_for_user(user_id, new_id) == bool(
+                        legacy_delete.rowcount
+                    )
+                assert _state(dirty, strict) == _state(legacy_dirty, legacy)
+                assert _state(expired, strict) == _state(legacy_expired, legacy)
+
+            await ordinary.rollback()
+            await restricted.rollback()
+            assert await service.notification_by_id(ids[2]) is dirty
+            assert dirty.user_id == other_id and dirty.read_at is None
+            assert await service.notification_by_id(ids[3]) is expired
+
+            assert await service.mark_read(user_id, ids[3])
+            assert "read_at" in sa_inspect(expired).expired_attributes
+            strict.expire(expired)
+            assert await service.notification_by_id(ids[3]) is expired
+            assert expired.read_at is not None
+            assert await service.delete_for_user(user_id, ids[3])
+            await strict.rollback()
+            assert await service.notification_by_id(ids[3]) is expired
+            assert expired.read_at is None

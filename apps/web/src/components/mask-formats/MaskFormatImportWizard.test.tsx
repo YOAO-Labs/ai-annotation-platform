@@ -47,18 +47,19 @@ function plan(lossClass: "lossless" | "lossy" | "unsupported", unknownLabels: st
   };
 }
 
+const uploadUrl = "https://storage.invalid/upload";
+const upload = vi.fn();
+
 describe("MaskFormatImportWizard", () => {
   beforeEach(() => {
+    upload.mockClear();
     Object.defineProperty(File.prototype, "arrayBuffer", {
       configurable: true,
       value: vi.fn(async () => new Uint8Array([1, 2, 3]).buffer),
     });
-    Object.defineProperty(globalThis, "crypto", {
-      configurable: true,
-      value: {
-        subtle: {
-          digest: vi.fn(async () => new Uint8Array(32).fill(10).buffer),
-        },
+    vi.stubGlobal("crypto", {
+      subtle: {
+        digest: vi.fn(async () => new Uint8Array(32).fill(10).buffer),
       },
     });
     vi.mocked(maskFormatsApi.list).mockResolvedValue([
@@ -85,7 +86,7 @@ describe("MaskFormatImportWizard", () => {
     ]);
     vi.mocked(maskFormatsApi.initImportUpload).mockResolvedValue({
       object_key: "mask-formats/key/file.json",
-      upload_url: "https://storage.invalid/upload",
+      upload_url: uploadUrl,
       expires_in: 900,
     });
     vi.mocked(maskFormatsApi.executeImport).mockResolvedValue({
@@ -96,10 +97,12 @@ describe("MaskFormatImportWizard", () => {
       status: "pending",
       result: {},
     });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => ({ ok: true, status: 200 })),
-    );
+    const interceptedFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input !== uploadUrl || init?.method !== "PUT") return interceptedFetch(input, init);
+      upload(new Headers(init.headers).get("content-type"));
+      return new Response(null, { status: 204 });
+    });
   });
 
   it("只展示 registry 已验证格式，并按 staged receipt 发起导入", async () => {
@@ -117,6 +120,7 @@ describe("MaskFormatImportWizard", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "上传并预检" }));
     expect(await screen.findByText("无损，可执行")).toBeInTheDocument();
+    expect(upload.mock.calls).toEqual([["application/json"]]);
     expect(maskFormatsApi.preflightImport).toHaveBeenCalledWith(
       "project-1",
       expect.objectContaining({

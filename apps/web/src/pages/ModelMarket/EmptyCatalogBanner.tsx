@@ -1,4 +1,3 @@
-// 模型列表为空时保留协议能力浏览和注册管理入口。
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 

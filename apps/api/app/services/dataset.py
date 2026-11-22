@@ -51,8 +51,6 @@ from app.services.task_creation_contract import (
     decode_creation_reply,
 )
 
-# 用于 DatasetService.update 区分「未传参」与「显式传 None」(后者表示清除
-# metadata_["axis_convention"]，回退到默认 iso_8855)。
 _UNSET: object = object()
 log = logging.getLogger(__name__)
 
@@ -167,9 +165,6 @@ async def build_tasks_for_link(
         )
 
         await attach_calibration(db, dataset_id=dataset_id)
-        # 标定独立落库：build_pointcloud 在「帧全已建过 task」时 total==0 早退且不 commit，
-        # 若不在此 commit，attach_calibration 的 flush 会在 session 关闭时回滚 —— 重导入
-        # （如修正 calib 文件后重跑）将刷不掉旧标定。commit 在这让标定持久化与建任务解耦。
         await validate_dataset_write(
             db, dataset_id, directory_authority, project_id=project_id, lock=True
         )
@@ -243,8 +238,6 @@ async def build_tasks_for_link(
                 "file_path": item.file_path,
                 "file_type": item.file_type,
                 "status": "pending",
-                # A2 · known-empty annotation-phase accumulator for a task created
-                # after every producer records.
                 "annotation_contributor_ids": [],
             }
             for i, item in enumerate(chunk)
@@ -307,7 +300,6 @@ class DatasetService:
             q = q.where(Dataset.name.ilike(f"%{search}%"))
             count_q = count_q.where(Dataset.name.ilike(f"%{search}%"))
         if data_type:
-            # 按 media kind 过滤,与 link 硬门同口径(lidar/point_cloud 互通)。
             data_type_cond = Dataset.data_type.in_(media_kind_aliases(data_type))
             q = q.where(data_type_cond)
             count_q = count_q.where(data_type_cond)
@@ -328,7 +320,6 @@ class DatasetService:
 
         ds_ids = [ds.id for ds in datasets]
 
-        # 批量聚合 project_count 与 total_size，避免 N+1
         if ds_ids:
             pc_rows = await self.db.execute(
                 select(ProjectDataset.dataset_id, func.count())
@@ -423,7 +414,6 @@ class DatasetService:
             "is_temporal": is_temporal,
             "created_by": user_id,
         }
-        # 仅当显式给定时写 metadata，否则走 server_default '{}'。
         if axis_convention is not None:
             kwargs["metadata_"] = {"axis_convention": axis_convention}
         ds = Dataset(**kwargs)
@@ -450,8 +440,6 @@ class DatasetService:
             ds.name = name
         if description is not None:
             ds.description = description
-        # sentinel 区分「未传」/「显式 None」/「具体值」。
-        # JSONB in-place mutation 不被 SQLAlchemy dirty-track，必须赋值整对象。
         if axis_convention is not _UNSET:
             meta = dict(ds.metadata_ or {})
             if axis_convention is None:
@@ -524,10 +512,6 @@ class DatasetService:
                 storage_service.delete_object(key, bucket=bucket)
             except Exception:
                 log.exception("failed to clean directory preview %s", key)
-
-        # Independent pyramid owners survive the Dataset cascade for durable GC.
-
-    # ── Items ───────────────────────────────────────────────────────────────
 
     async def list_items(
         self,
@@ -667,8 +651,6 @@ class DatasetService:
         ):
             return False
         await writable_dataset(self.db, candidate.dataset_id)
-        # Writers acquire the dataset before its items. NO KEY UPDATE also
-        # remains compatible with existing FK references from other writers.
         await self.db.get(
             Dataset, candidate.dataset_id, with_for_update={"key_share": True}
         )
@@ -1001,8 +983,6 @@ class DatasetService:
             i += 1
         return f"{stem}-{i}{ext}"
 
-    # ── Scan & import from bucket ─────────────────────────────────────────
-
     async def scan_and_import(
         self, dataset_id: uuid.UUID, *, directory_authority=None
     ) -> list[IngestOutcome]:
@@ -1041,8 +1021,6 @@ class DatasetService:
                     )
                 )
         return outcomes
-
-    # ── Project linking ─────────────────────────────────────────────────────
 
     async def link_project(
         self, dataset_id: uuid.UUID, project_id: uuid.UUID, *, directory_authority=None
@@ -1096,11 +1074,6 @@ class DatasetService:
             )
         ).scalar() or 0
 
-        # 不再为新接入的 dataset 自建「默认包」batch。task 直接 batch_id=NULL，
-        # 走「未归类任务」语义；BatchesSection 顶部横带提示，用户主动 split 才入 batch。
-        # Resolve this decision at link-request time.  A queued CREATE_TASKS
-        # job already has its branch chosen and must not change when an admin
-        # later adjusts the threshold.
         task_create_sync_threshold = await SystemSettingsService.get(
             self.db, "task_create_sync_threshold"
         )
@@ -1118,7 +1091,6 @@ class DatasetService:
             )
             return LinkProjectResult(link=link, async_job_id=job.id)
 
-        # 同步快路径：build_tasks_for_link 内部分块 commit（job_id=None 不上报进度）。
         result = await build_tasks_for_link(
             self.db,
             dataset_id=dataset_id,
@@ -1316,8 +1288,6 @@ class DatasetService:
         if not pending:
             return 0
 
-        # 按 5000 分块 INSERT，避免一条巨 INSERT；本路径仍同步（上游
-        # upload/zip/scan 语义不变）。
         chunk_size = 5000
         total_created = 0
         for start in range(0, len(pending), chunk_size):
@@ -1385,7 +1355,6 @@ class DatasetService:
         from app.db.models.annotation_feedback import AnnotationFeedback
         from app.db.models.task_lock import TaskLock
 
-        # 1. 找出本次要删的 task ids 与所属 batch ids
         target_rows = (
             await self.db.execute(
                 select(Task.id, Task.batch_id)
@@ -1406,7 +1375,6 @@ class DatasetService:
             r[1] for r in target_rows if r[1] is not None
         }
 
-        # 2. 找出对应 annotation ids（用于 annotation_comments 级联）
         ann_ids: list[uuid.UUID] = []
         ann_count = 0
         if target_task_ids:
@@ -1423,7 +1391,6 @@ class DatasetService:
             )
             ann_count = len(ann_ids)
 
-        # 3. 级联删除（顺序关键：先 child 后 parent）
         if ann_ids:
             from app.services.comment_attachment_uploads import retire_for_comments
 
@@ -1452,7 +1419,6 @@ class DatasetService:
             )
             await self.db.execute(delete(Task).where(Task.id.in_(target_task_ids)))
 
-        # 4. 删 ProjectDataset link
         result = await self.db.execute(
             delete(ProjectDataset).where(
                 ProjectDataset.dataset_id == dataset_id,
@@ -1462,7 +1428,6 @@ class DatasetService:
         if result.rowcount == 0:
             return None
 
-        # 5. 重算 project 计数器
         project = await self.db.get(Project, project_id)
         if project:
             row = (
@@ -1480,7 +1445,6 @@ class DatasetService:
             project.completed_tasks = row.completed
             project.review_tasks = row.review
 
-        # 6. 重算所有该 project 的 batch 计数器（被删 task 之前可能在某个 batch 里）
         batches = (
             (
                 await self.db.execute(
@@ -1506,7 +1470,6 @@ class DatasetService:
             b.completed_tasks = r.completed
             b.review_tasks = r.review
 
-        # 7. 级联清理：失去 task 后变空壳的 batch 删除（B-DEFAULT 永远保留）
         deleted_batch_ids: list[uuid.UUID] = []
         if affected_batch_ids:
             for b in batches:
@@ -1538,7 +1501,6 @@ class DatasetService:
 
 _IMAGE_EXTS = {"jpg", "jpeg", "png", "bmp", "webp", "tiff", "tif", "gif", "svg"}
 _VIDEO_EXTS = {"mp4", "avi", "mov", "mkv", "wmv", "flv", "webm"}
-# 点云扩展名映射为 file_type=point_cloud。
 _POINTCLOUD_EXTS = {"pcd", "bin", "las", "ply"}
 
 
@@ -1577,12 +1539,11 @@ def _dataset_dict(ds: Dataset) -> dict:
         "is_temporal": ds.is_temporal,
         "has_scenes": False,
         "file_count": ds.file_count,
-        "total_size": 0,  # 调用方会覆盖
+        "total_size": 0,
         "created_by": ds.created_by,
         "archived_at": ds.archived_at,
         "archived_by": ds.archived_by,
         "lifecycle_revision": ds.lifecycle_revision,
-        # 派生自 metadata_["axis_convention"], None = 视作 iso_8855。
         "axis_convention": (ds.metadata_ or {}).get("axis_convention"),
         "created_at": ds.created_at,
         "updated_at": ds.updated_at,

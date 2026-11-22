@@ -1,7 +1,3 @@
-/**
- * PreannotateJobsBadge 单测.
- */
-
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -90,7 +86,6 @@ describe("PreannotateJobsBadge", () => {
     render(withRouter(<PreannotateJobsBadge />));
     await user.click(screen.getByRole("button", { name: "2" }));
     expect(screen.getByText(/预标进行中 \(2\)/)).toBeInTheDocument();
-    // 项目名按 receivedAt desc: Beta 在前
     const buttons = screen.getAllByRole("button");
     const labels = buttons.map((b) => b.textContent);
     const betaIdx = labels.findIndex((l) => l?.includes("Beta"));

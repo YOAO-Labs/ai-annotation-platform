@@ -350,7 +350,6 @@ async def _stack(test_engine, app_module, monkeypatch, connections_image):
                         Bucket=stack.config["bucket"], Key=object_key
                     )
                 await engine.dispose()
-                # Audit and immutable receipts remain until the verified owned DB is destroyed.
 
 
 async def _create(

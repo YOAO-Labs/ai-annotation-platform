@@ -34,9 +34,13 @@ from yoao_workspace_contract.access import ProjectAccess
 from app.services.project_access import lock_current_project_access
 from app.services.task_lock import TaskLockService
 from app.services.labeling_core_read_relations import (
+    VideoTaskDecisionBusy,
+    get_core_row,
     lock_annotation_rows_for_core_read,
     lock_batch_rows_for_core_read,
     lock_task_for_core_read,
+    lock_task_for_video_decision,
+    task_row,
 )
 
 _MANAGER_OPERATIONS = frozenset(
@@ -197,6 +201,8 @@ async def _locked_core_row(db: AsyncSession, operation, *, reason: str):
     """Map contention from a fixed Labeling row-lock capability."""
     try:
         return await operation()
+    except VideoTaskDecisionBusy as exc:
+        raise _conflict(reason) from exc
     except DBAPIError as exc:
         sqlstate = getattr(exc.orig, "sqlstate", None) or getattr(
             exc.orig, "pgcode", None
@@ -231,8 +237,6 @@ async def _assert_execution_current(
     ):
         raise _conflict("prediction_execution_scope_mismatch")
     payload = job.payload or {}
-    # A running item's cooperative cancellation is observed at its existing
-    # item boundary; an actual terminal job can never admit a late result.
     if job.status not in {"pending", "running"} or (
         job.status == "pending" and payload.get("cancel_requested")
     ):
@@ -394,18 +398,39 @@ async def lock_labeling_write(
             batch = batches[0] if batches else None
             if batch is None:
                 raise _conflict("prediction_task_scope_changed")
-        task = await _locked_core_row(
-            db,
-            lambda: lock_task_for_core_read(
+        if (
+            scope.operation in {"candidate_accept", "candidate_reject"}
+            and scope.source_file_type == "video"
+        ):
+            current = await get_core_row(
+                db, task_row, scope.task_id, populate_existing=True
+            )
+            if current is None or current.project_id != scope.project_id:
+                raise HTTPException(status_code=404, detail="Task not found")
+            await task_access.assert_task_visible(db, current, actor.id, access=access)
+            task_access.assert_annotation_write_allowed(
+                current, access, allow_review_adjustment=True
+            )
+            task = await _locked_core_row(
                 db,
-                scope.task_id,
-                project_id=scope.project_id,
-                lock_mode="update",
-                nowait=True,
-                populate_existing=True,
-            ),
-            reason="task_busy",
-        )
+                lambda: lock_task_for_video_decision(
+                    db, scope.task_id, project_id=scope.project_id
+                ),
+                reason="task_busy",
+            )
+        else:
+            task = await _locked_core_row(
+                db,
+                lambda: lock_task_for_core_read(
+                    db,
+                    scope.task_id,
+                    project_id=scope.project_id,
+                    lock_mode="update",
+                    nowait=True,
+                    populate_existing=True,
+                ),
+                reason="task_busy",
+            )
         if task is None:
             raise HTTPException(status_code=404, detail="Task not found")
         if (

@@ -15,7 +15,6 @@ from app.services.storage import storage_service
 from app.db.models.project import Project
 from app.db.models.task import Task
 
-# 所有 task 共用同一创建时刻(复现 batch 批量建 task 的场景)。
 _FIXED_TS = datetime(2026, 6, 10, 13, 10, 31, 12768, tzinfo=timezone.utc)
 
 
@@ -54,7 +53,6 @@ async def test_list_orders_by_sequence_order_despite_identical_created_at(
     httpx_client, db_session, super_admin
 ):
     admin_user, token = super_admin
-    # 打乱插入,期望接口仍按 sequence_order 升序返回。
     p = await _seed_sequence(db_session, admin_user.id, [3, 0, 4, 1, 2])
     await db_session.commit()
 
@@ -70,7 +68,6 @@ async def test_list_orders_by_sequence_order_despite_identical_created_at(
 @pytest.mark.asyncio
 async def test_null_sequence_order_sorts_last(httpx_client, db_session, super_admin):
     admin_user, token = super_admin
-    # 含 NULL(非序列任务):应排在有序帧之后,且不破坏排序。
     p = await _seed_sequence(db_session, admin_user.id, [1, None, 0, None])
     await db_session.commit()
 
@@ -91,10 +88,9 @@ async def test_cursor_pagination_preserves_sequence_order(
     p = await _seed_sequence(db_session, admin_user.id, [4, 2, 0, 5, 1, 3])
     await db_session.commit()
 
-    # limit=2 翻页,拼接所有页,断言整体仍是 0..5 且无重复/缺漏。
     collected: list[int] = []
     cursor: str | None = None
-    for _ in range(10):  # 上限保护
+    for _ in range(10):
         url = f"/api/v1/tasks?project_id={p.id}&limit=2"
         if cursor:
             url += f"&cursor={cursor}"

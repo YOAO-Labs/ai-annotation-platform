@@ -115,8 +115,6 @@ async def test_tracker_capture_is_idempotent_and_binds_stable_request_facts(db_s
     assert first.scope.execution.prompt_snapshot["text"] == "person"
     assert first.scope.source_facts.object_identity is None
 
-    # The execution backend is a mutable routing choice; the accepted prompt,
-    # seed, range, source and grid remain the immutable admission facts.
     job.prompt = {
         **job.prompt,
         "correction": {"routing": {"execution_backend_id": "local-b"}},
@@ -296,8 +294,6 @@ async def test_tracker_claim_uses_only_its_canonical_scope(db_session):
     assert isinstance(prepared, c.TrackerVideoInputRecord)
     assert prepared.status == "pending"
 
-    # The legacy batch claimant cannot consume a tracker-owned row even when
-    # given the exact input ID; the dedicated tracker claim can take it next.
     legacy = await db_session.scalar(
         text(
             "SELECT yoao_assets_v1.claim_accepted_video_input("

@@ -57,5 +57,4 @@ def setup_logging(level: str = "INFO") -> None:
     root.addHandler(handler)
     root.setLevel(level)
 
-    # 压低 uvicorn access 的噪音（仍然保留，但不输出到 structlog）
     logging.getLogger("uvicorn.access").propagate = False

@@ -1,17 +1,3 @@
--- Run after migrations as the schema owner. Roles must already exist.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v identity_owner=identity_code -v workspace_owner=workspace_code
---   -v assets_owner=assets_code -v labeling_owner=labeling_code
---   -v jobs_owner=jobs_code -v learning_owner=learning_code
---   -v inference_owner=inference_code -v insights_owner=insights_code
---   -v diagnostics_owner=diagnostics_code -v export_owner=export_code
---   -v audit_owner=audit_code -v settings_owner=settings_code
---   -v notifications_owner=notifications_code -v workflow_role=yoao_append_client
---   -v asset_cleanup_role=yoao_asset_cleanup_client
---   -v mask_gc_role=yoao_labeling_mask_gc_client
---   -v inference_registry_ingress_role=yoao_inference_registry_ingress_client
---   -v inference_routing_role=yoao_inference_routing_client
---   -f infra/docker/module-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -150,8 +136,6 @@ GRANT USAGE ON SCHEMA public TO :"identity_owner", :"workspace_owner",
     :"inference_owner", :"insights_owner", :"diagnostics_owner",
     :"export_owner", :"audit_owner", :"settings_owner", :"notifications_owner";
 
--- Identity owns current authentication facts and the bounded self-account
--- projection needed while it retains each User row lock through the transaction.
 GRANT SELECT (
     id, name, email, role, group_name, group_id, is_active, credential_generation,
     disabled_kind, disabled_at, disabled_by, disabled_reason, email_verified_at,
@@ -417,7 +401,6 @@ GRANT SELECT (
 GRANT SELECT (id, email)
     ON yoao_identity_v1.account_profiles TO :"audit_owner";
 
--- Assets owns catalog/source rows and their exact upload, deletion and connection receipts.
 GRANT SELECT (id, display_id, data_type, name, file_count),
     UPDATE (id, file_count, updated_at), DELETE
     ON public.datasets TO :"assets_owner";
@@ -480,7 +463,6 @@ GRANT SELECT (
     UPDATE (completed_at, not_before, retained)
     ON public.asset_storage_deletions TO :"assets_owner";
 
--- Private fixture metadata is reachable only through its NOLOGIN domain owners.
 GRANT USAGE ON SCHEMA yoao_fixture_v1
     TO :"assets_owner", :"jobs_owner", :"labeling_owner", :"identity_owner";
 GRANT SELECT ON yoao_fixture_v1.fixture_original_targets,
@@ -505,7 +487,6 @@ GRANT INSERT (run_id, kind, resource_id, logical_key, state)
 GRANT UPDATE (invitation_id, accepted_user_id, state)
     ON yoao_fixture_v1.fixture_invitation_intents TO :"identity_owner";
 
--- Spatial state stays private to the Assets function owner.
 GRANT SELECT (id, name, metadata, is_temporal) ON public.datasets TO :"assets_owner";
 GRANT SELECT (description, created_by, created_at, updated_at),
     INSERT (id, display_id, name, description, data_type, is_temporal,
@@ -556,7 +537,6 @@ GRANT SELECT (operation_id, action, intent, result, created_at),
     INSERT (operation_id, action, intent, result)
     ON public.dataset_operator_operations TO :"assets_owner";
 
--- Cross-owner reads use versioned projections, never private foreign-table grants.
 DO $$
 DECLARE
     denied record;
@@ -622,7 +602,6 @@ BEGIN
     END LOOP;
 END $$;
 
--- Fixed owner write columns used by the remaining Labeling commands.
 GRANT DELETE ON public.annotation_conversion_plans TO :"labeling_owner";
 GRANT INSERT (actor_id, expires_at, id, plan_json, request_digest, request_json, snapshot_digest, task_id, token_hash) ON public.annotation_conversion_plans TO :"labeling_owner";
 GRANT UPDATE (executed_idempotency_key, executed_operation_id) ON public.annotation_conversion_plans TO :"labeling_owner";
@@ -662,7 +641,6 @@ GRANT INSERT (annotation_id, correction_frame, created_by, dataset_item_id, dire
 GRANT UPDATE (cancel_requested_at, celery_task_id, event_channel, prompt, revision, started_at) ON public.video_tracker_jobs TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION yoao_assets_v1.workspace_project_query_dataset_ids(uuid) TO :"labeling_owner";
 
--- Fixed owner snapshots for the remaining Labeling operation families.
 GRANT SELECT (
     id, dataset_item_id, segment_index, start_frame, end_frame, assignee_id, status, locked_by, locked_at, lock_expires_at, created_at, updated_at
 ) ON public.video_segments TO :"labeling_owner";
@@ -709,7 +687,6 @@ GRANT SELECT ON yoao_assets_v1.video_chapter_facts,
     yoao_assets_v1.scale_seed_dataset_item_facts TO :"labeling_owner";
 GRANT SELECT ON yoao_labeling_v1.annotation_draft_rows TO :"labeling_owner";
 
--- Labeling owns task creation, lifecycle/evidence, edit locks and counters.
 GRANT SELECT (total_annotations, is_labeled),
     UPDATE (total_annotations, is_labeled)
     ON public.tasks TO :"labeling_owner";
@@ -806,7 +783,6 @@ GRANT INSERT (
     id, task_id, project_id, ml_backend_id, ml_backend_pool_id,
     model_version, error_type, message, extra
 ), UPDATE (dismissed_at) ON public.failed_predictions TO :"labeling_owner";
--- FOR KEY SHARE in the failure proof needs UPDATE on one column.
 GRANT UPDATE (id, retry_count, last_retry_at, extra)
     ON public.failed_predictions TO :"labeling_owner";
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.batch_result_executions,
@@ -957,7 +933,6 @@ GRANT INSERT (id, task_id, user_id, project_id, kind, started_at, ended_at, dura
 GRANT INSERT (id, task_id, actor_id, kind, idempotency_key, request_digest, scope_fingerprint, source_versions, result_versions, report, status, response_json, created_at, completed_at) ON public.annotation_operations TO :"labeling_owner";
 GRANT INSERT (id, operation_id, source_annotation_id, result_annotation_id, relation, source_version, result_version, frame_index) ON public.annotation_lineage_edges TO :"labeling_owner";
 GRANT INSERT (id, task_id, idempotency_key, request_digest, candidate_id, content_digest, prediction_id, prediction_created_at, annotation_id, source_annotation_id, source_version, result_version, actor_id, response_json) ON public.ai_mask_accept_decisions TO :"labeling_owner";
--- PostgreSQL row locks require UPDATE on at least one column.
 GRANT UPDATE (id) ON public.ai_mask_accept_decisions TO :"labeling_owner";
 GRANT UPDATE (body, is_resolved, is_active, attachments, updated_at) ON public.annotation_comments TO :"labeling_owner";
 GRANT UPDATE (status, resolved_at, resolved_by_id, severity, title, body, mentions, is_active, updated_at) ON public.annotation_feedbacks TO :"labeling_owner";
@@ -1027,7 +1002,6 @@ GRANT SELECT (
     thumbnail_path, blurhash
 ) ON public.tasks TO :"labeling_owner";
 GRANT SELECT (version, total_predictions) ON public.tasks TO :"labeling_owner";
--- Project query facts stay with Labeling; Workspace receives only typed reads.
 GRANT SELECT (created_at, reviewed_at, updated_at, submitted_at)
     ON public.tasks TO :"labeling_owner";
 GRANT SELECT (created_at, parent_prediction_id, is_active, was_cancelled)
@@ -1052,7 +1026,6 @@ GRANT UPDATE (id) ON public.task_dataset_item_links TO :"labeling_owner";
 GRANT USAGE ON SEQUENCE public.display_seq_tasks, public.display_seq_batches
     TO :"labeling_owner";
 
--- Screenshot operational maintenance uses fixed project/task scopes and exact fields.
 GRANT SELECT (id, project_id, display_id, batch_id, status, total_predictions,
     total_annotations, is_labeled, assignee_id, reviewer_id, assigned_at,
     submitted_at, reviewer_claimed_at, reviewed_at, reject_reason,
@@ -1113,7 +1086,6 @@ GRANT SELECT (operation_id, chunk_index, result),
     INSERT (operation_id, chunk_index, result), UPDATE (chunk_index)
     ON public.task_creation_chunks TO :"labeling_owner";
 
--- Jobs writes its own lifecycle row; no direct table access reaches the caller.
 GRANT SELECT ON public.async_jobs TO :"jobs_owner";
 GRANT INSERT (id, kind, project_id, user_id, status, progress_pct, payload, result,
     celery_task_id, created_at, updated_at)
@@ -1123,9 +1095,7 @@ GRANT UPDATE (
     completed_at, updated_at, project_id, retained_project_id, payload
 ) ON public.async_jobs TO :"jobs_owner";
 
--- Settings and Notifications retain their own relation permissions.
 GRANT SELECT (key, value_type, value_json) ON public.system_settings TO :"settings_owner";
--- SHARE table locking fences an absent connector policy row from a concurrent insert.
 GRANT UPDATE ON public.system_settings TO :"settings_owner";
 GRANT SELECT, INSERT, DELETE ON public.notifications TO :"notifications_owner";
 REVOKE UPDATE ON public.notifications FROM :"notifications_owner";
@@ -1185,7 +1155,6 @@ GRANT EXECUTE ON FUNCTION yoao_jobs_v1.create_dataset_import_job(uuid,uuid,jsonb
 GRANT EXECUTE ON FUNCTION yoao_audit_v1.record_dataset_import(uuid,uuid,uuid,jsonb,jsonb)
     TO :"assets_owner";
 
--- Learning holds project retention evidence, task-derived streams and recipes.
 GRANT SELECT (project_id) ON public.active_learning_rounds TO :"learning_owner";
 GRANT SELECT (task_id, dataset_item_id) ON public.active_learning_pool_members,
     public.active_learning_candidates TO :"learning_owner";
@@ -1202,7 +1171,6 @@ GRANT SELECT (project_id), DELETE ON public.project_task_datasets,
 GRANT SELECT (deployment_id) ON public.sample_evaluation_runs TO :"learning_owner";
 GRANT SELECT (id, registry_id) ON public.trained_model_deployments TO :"learning_owner";
 
--- Other owners expose only their project cleanup predicates and row mutations.
 REVOKE SELECT (id, ml_backend_pool_id) ON public.projects FROM :"inference_owner";
 GRANT SELECT (project_id), DELETE ON public.project_ml_backend_pool,
     public.project_pipelines TO :"inference_owner";
@@ -1217,7 +1185,6 @@ GRANT UPDATE (
         scope, project_id, organization_id, name, stages, is_default,
         usage_count, updated_at
     ) ON public.project_pipelines TO :"inference_owner";
--- Native health operations materialize full rows and hold caller-owned locks.
 GRANT SELECT ON public.ml_backend_registry, public.ml_backend_service_pools,
     public.ml_backend_pool_members TO :"inference_owner";
 GRANT UPDATE (state, last_checked_at, health_meta, is_interactive, updated_at)
@@ -1244,7 +1211,6 @@ GRANT SELECT (
         backend_registry_id, gpu_resource_id, membership_epoch, state, max_concurrency
     ),
     UPDATE (state) ON public.gpu_backend_memberships TO :"inference_owner";
--- The existing Registry configuration trigger retains its GPU fence checks.
 GRANT SELECT (backend_registry_id, runtime_epoch_high_water,
     generation_high_water, control_epoch_high_water, token_expiry_high_water),
     UPDATE (backend_registry_id)
@@ -1275,8 +1241,6 @@ GRANT SELECT (project_id, task_id), UPDATE (project_id, task_id)
     ON public.bug_reports TO :"diagnostics_owner";
 GRANT SELECT (project_id), DELETE ON public.export_artifacts TO :"export_owner";
 
--- Cross-owner function calls share one PostgreSQL transaction and retain the
--- dataset -> current authority -> association -> Jobs/Labeling lock order.
 GRANT USAGE ON SCHEMA yoao_identity_v1
     TO :"identity_owner", :"workspace_owner", :"assets_owner", :"audit_owner",
        :"labeling_owner", :"learning_owner", :"inference_owner", :"workflow_role";
@@ -1776,7 +1740,6 @@ GRANT EXECUTE ON FUNCTION yoao_workspace_v1.preview_dataset_unlink(uuid, uuid, u
 GRANT EXECUTE ON FUNCTION yoao_workspace_v1.delete_project(uuid, uuid, uuid, jsonb)
     TO :"workflow_role";
 
--- Keep schemas owned by the migrator; NOLOGIN code owners cannot replace code.
 GRANT CREATE ON SCHEMA yoao_identity_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA yoao_identity_keys_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA yoao_identity_sessions_v1 TO :"identity_owner";
@@ -2713,7 +2676,6 @@ ALTER FUNCTION yoao_assets_v1.delete_dataset_item(
 ALTER FUNCTION yoao_assets_v1.pending_storage_deletions_v2(
     text, timestamptz, uuid, uuid, integer
 ) OWNER TO :"assets_owner";
--- Ordinary native pyramid retirement is owned and executed by Images/Assets.
 ALTER TABLE yoao_assets_v1.image_pyramid_native_attempts OWNER TO :"assets_owner";
 ALTER TABLE yoao_assets_v1.image_pyramid_native_members OWNER TO :"assets_owner";
 ALTER TABLE yoao_assets_v1.native_pyramid_retirement_targets OWNER TO :"assets_owner";
@@ -2746,7 +2708,6 @@ ALTER FUNCTION yoao_assets_v1.guard_native_pyramid_retirement_page()
 ALTER FUNCTION yoao_assets_v1.preserve_native_pyramid_retirement_grace()
     OWNER TO :"assets_owner";
 ALTER TABLE yoao_assets_v1.native_pyramid_read_permits OWNER TO :"assets_owner";
--- The superseding allocator keeps its Images/Assets owner on fresh installs.
 ALTER FUNCTION yoao_assets_v1.allocate_native_pyramid_output(
     uuid, bigint, uuid, uuid, integer
 ) OWNER TO :"assets_owner";
@@ -3298,7 +3259,6 @@ BEGIN
 END;
 $audit_storage_owner$;
 ALTER MATERIALIZED VIEW public.mv_audit_bi_daily OWNER TO :"audit_owner";
--- Concurrent refresh creates transient relations as the fixed MV owner.
 GRANT TEMPORARY ON DATABASE :"expected_database" TO :"audit_owner";
 GRANT CREATE ON SCHEMA yoao_audit_v1 TO :"audit_owner";
 ALTER FUNCTION yoao_audit_v1.record_identity_session_event(
@@ -3349,7 +3309,6 @@ GRANT SELECT (run_id, state)
     ON yoao_fixture_v1.fixture_run_admissions TO :"audit_owner";
 REVOKE CREATE ON SCHEMA yoao_audit_v1 FROM :"audit_owner";
 
--- Import and spatial helpers stay with their schema owner; runtime roles gain no DDL.
 GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
 GRANT CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
 GRANT CREATE ON SCHEMA yoao_workspace_v1 TO :"workspace_owner";
@@ -3403,7 +3362,10 @@ REVOKE CREATE ON SCHEMA yoao_audit_v1 FROM :"audit_owner";
 REVOKE CREATE ON SCHEMA yoao_settings_v1 FROM :"settings_owner";
 REVOKE CREATE ON SCHEMA yoao_notifications_v1 FROM :"notifications_owner";
 
--- Cross-owner spatial authority and audit stay behind their owner capabilities.
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"jobs_owner";
+ALTER FUNCTION yoao_assets_v1.prepare_fixture_video_request_delivery() OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"jobs_owner";
+
 GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
 ALTER VIEW yoao_assets_v1.spatial_item_references OWNER TO :"assets_owner";
 ALTER VIEW yoao_assets_v1.spatial_scene_references OWNER TO :"assets_owner";
@@ -3822,8 +3784,6 @@ ALTER FUNCTION yoao_labeling_v1.record_project_review_approval(uuid)
     OWNER TO :"labeling_owner";
 REVOKE CREATE ON SCHEMA yoao_labeling_v1 FROM :"labeling_owner";
 
--- Durable result data stays with its Jobs/Labeling owner. Cross-owner calls
--- expose only scoped capabilities; the inference executor receives no tables.
 GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
 GRANT CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
 DO $$
@@ -3871,7 +3831,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_labeling_v1._retire_prediction_retry_results(uuid),
     yoao_labeling_v1._prediction_retry_job_delete_allowed(uuid)
     TO :"jobs_owner";
--- Video window journals keep input and Mask retention behind owner capabilities.
 GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
 ALTER TABLE yoao_jobs_v1.video_execution_checkpoint_restore OWNER TO :"jobs_owner";
 ALTER TABLE yoao_jobs_v1.video_execution_journals OWNER TO :"jobs_owner";
@@ -3932,7 +3891,6 @@ GRANT EXECUTE ON FUNCTION yoao_jobs_v1.video_execution_source_item_retained(uuid
 GRANT EXECUTE ON FUNCTION yoao_jobs_v1.video_tracker_input_retention_facts(uuid,uuid)
     TO :"labeling_owner";
 
--- Final video publication stays inside the Labeling business transaction.
 GRANT CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
 ALTER TABLE yoao_labeling_v1.video_writer_receipts OWNER TO :"labeling_owner";
 DO $video_writer_owners$
@@ -3960,7 +3918,6 @@ REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
 GRANT EXECUTE ON FUNCTION yoao_jobs_v1.video_writer_authority(text,jsonb)
     TO :"labeling_owner";
 
--- Offline restore coordinates existing owners through one fixed Jobs capability.
 GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
 ALTER TABLE yoao_jobs_v1.video_restore_fence OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1.video_restore_authority(text,jsonb) OWNER TO :"jobs_owner";
@@ -4012,7 +3969,6 @@ BEGIN
 END
 $video_restore_owners$;
 REVOKE CREATE ON SCHEMA yoao_inference_routing_v1 FROM :"inference_owner";
--- Deletion uses current-run retirement proof without exposing Jobs journals.
 GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
 ALTER TABLE yoao_jobs_v1.video_deletion_clearances OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1.guard_video_execution_deletion(uuid[],uuid[],uuid)
@@ -4033,7 +3989,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_labeling_v1.guard_project_video_deletion(uuid),
     yoao_labeling_v1.guard_dataset_video_deletion(uuid,uuid)
     TO :"workspace_owner";
--- Jobs owns page and total; cross-owner facts stay fixed capabilities.
 GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
     OWNER TO :"jobs_owner";
@@ -4062,7 +4017,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_labeling_v1.guard_fixture_presentation_failures(uuid,uuid,uuid[]),
     yoao_labeling_v1.guard_fixture_project_retry_anchors(uuid[])
     TO :"jobs_owner";
--- Jobs owns lifecycle writes; existing producers retain their current ACLs.
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.async_jobs TO :"jobs_owner";
 GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
 ALTER VIEW yoao_jobs_v1.async_job_creation OWNER TO :"jobs_owner";
@@ -4133,7 +4087,6 @@ GRANT USAGE ON SCHEMA yoao_labeling_v1 TO :"jobs_owner";
 GRANT SELECT (id, status, job_kind)
     ON yoao_labeling_v1.video_tracker_job_rows TO :"jobs_owner";
 REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
--- Complete Inference ownership: public topology/caller capabilities never return credentials.
 GRANT USAGE, CREATE ON SCHEMA yoao_inference_topology_v1,
     yoao_inference_backend_endpoint_v1, yoao_inference_gpu_v1,
     yoao_inference_gpu_caller_v1, yoao_inference_gpu_collector_v1 TO :"inference_owner";
@@ -4168,7 +4121,6 @@ ALTER TABLE yoao_inference_gpu_v1.installation_terminal_intents OWNER TO :"infer
 REVOKE CREATE ON SCHEMA yoao_inference_topology_v1,
     yoao_inference_backend_endpoint_v1, yoao_inference_gpu_v1,
     yoao_inference_gpu_caller_v1, yoao_inference_gpu_collector_v1 FROM :"inference_owner";
--- Forward main integration: each new capability retains its domain owner.
 GRANT SELECT (avatar_ref), UPDATE (avatar_ref) ON public.users TO :"identity_owner";
 GRANT SELECT, UPDATE ON public.avatar_uploads TO :"identity_owner";
 GRANT SELECT (guide_assets_revision), UPDATE (guide_assets_revision)
@@ -4198,7 +4150,6 @@ GRANT SELECT (bucket, object_key, state)
     ON public.managed_original_reclaim_claims TO :"assets_owner";
 GRANT DELETE ON public.storage_locations TO :"assets_owner";
 GRANT SELECT ON public.storage_bindings TO :"assets_owner";
--- FOR SHARE needs UPDATE on one column; target and generation remain read-only.
 GRANT UPDATE (purpose) ON public.storage_bindings TO :"assets_owner";
 GRANT SELECT (revision), INSERT (revision), UPDATE (revision)
     ON public.storage_connections TO :"assets_owner";
@@ -4220,7 +4171,6 @@ GRANT SELECT (id,state,storage_ref,inventory,lease_token,dataset_item_id)
 GRANT UPDATE (id) ON public.thumbnail_outputs, public.video_derivative_outputs
     TO :"assets_owner";
 
--- Physical retention checks can see addresses, never the referencing payloads.
 GRANT SELECT (location_id) ON public.original_cache_entries,
     public.managed_original_retirements, public.dataset_auxiliary_originals,
     public.task_originals TO :"assets_owner";
@@ -4381,7 +4331,6 @@ GRANT DELETE ON public.dataset_asset_locations TO :"assets_owner";
 GRANT SELECT, INSERT, UPDATE ON public.storage_usage_mutations TO :"assets_owner";
 REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
 
--- Prediction producers and route retirement retain their distinct Native owners.
 GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
 ALTER TABLE yoao_jobs_v1.prediction_mask_producers OWNER TO :"jobs_owner";
 ALTER TABLE yoao_jobs_v1.prediction_mask_producer_objects OWNER TO :"jobs_owner";
@@ -4485,7 +4434,6 @@ GRANT SELECT (scope_id,job_id,actor_id,project_id,request_digest,generation,uses
 GRANT SELECT (scope_id,phase) ON yoao_inference_routing_v1.scope_retirements TO :"jobs_owner";
 GRANT SELECT (id,project_id,operation) ON yoao_inference_routing_v1.scopes TO :"jobs_owner";
 
--- Export execution and physical receipts outlive the removable business Job.
 GRANT USAGE, CREATE ON SCHEMA yoao_fixture_v1 TO :"export_owner";
 GRANT CREATE ON SCHEMA public TO :"export_owner";
 ALTER TABLE yoao_fixture_v1.fixture_native_exports OWNER TO :"export_owner";
@@ -4543,6 +4491,8 @@ GRANT EXECUTE ON FUNCTION
     public.fixture_export_retired(uuid,uuid,uuid),
     public.fixture_export_execution_retired(uuid,uuid,uuid)
     TO :"jobs_owner";
+GRANT SELECT (job_id, run_id, project_id, actor_id, kind, started_at, completed_at, result)
+    ON yoao_jobs_v1.fixture_annotation_imports TO :"jobs_owner";
 GRANT CREATE ON SCHEMA yoao_jobs_v1, yoao_fixture_v1 TO :"jobs_owner";
 ALTER TABLE yoao_jobs_v1.fixture_export_dispatch_receipts OWNER TO :"jobs_owner";
 ALTER FUNCTION yoao_jobs_v1.fixture_real_job_retired(uuid,uuid,uuid) OWNER TO :"jobs_owner";
@@ -4770,7 +4720,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.prepare_fixture_independent_execution(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb)
     TO :"jobs_owner";
 
--- Exact additional bo0446 owners not covered by the existing media/image selectors.
 GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
 ALTER TABLE yoao_assets_v1.fixture_independent_media_births OWNER TO :"assets_owner";
 ALTER TABLE yoao_assets_v1.fixture_external_media_jobs OWNER TO :"assets_owner";

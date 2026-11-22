@@ -19,7 +19,6 @@ describe("AssigneeAvatarStack", () => {
     const images = container.querySelectorAll("img");
     expect(images).toHaveLength(1);
     expect(images[0]).toHaveAttribute("src", "/avatars/pixel/pixel-05.svg");
-    // 无头像者仍渲染首字母
     expect(screen.getByText("刘")).toBeInTheDocument();
   });
 

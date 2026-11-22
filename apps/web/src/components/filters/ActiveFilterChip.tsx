@@ -22,8 +22,6 @@ export const ActiveFilterChip = forwardRef<HTMLButtonElement, Props>(function Ac
     </>
   );
   const mainClass = "inline-flex min-w-0 items-center px-2 py-1 text-xs";
-  // Button props and the forwarded ref belong to the optional edit action;
-  // read-only summaries deliberately have no focusable editing control.
   return (
     <span
       data-filter-chip=""

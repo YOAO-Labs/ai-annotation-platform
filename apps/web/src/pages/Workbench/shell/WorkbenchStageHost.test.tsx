@@ -1,7 +1,3 @@
-// WorkbenchStageHost focused render tests.
-// 验证按 stageKind 分发到唯一对应的舞台组件 (image / video / 3d).
-// 不验证舞台组件内部行为 — 那些有各自单测 (VideoStage / ImageWorkbench).
-
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { createRef, forwardRef } from "react";
@@ -31,9 +27,6 @@ vi.mock("../stages/three-d/ThreeDWorkbench", () => ({
 
 import { WorkbenchStageHost } from "./WorkbenchStageHost";
 
-// 全字段 mock; 大多数 prop 仅 image/video 各自子组件消费, 这里只关心 stageKind 分发.
-// 子组件被 vi.mock 替换为空 div 后, 实际不消费任何 prop;
-// 用 `as unknown as Parameters<typeof WorkbenchStageHost>[0]` 绕开 70+ 字段的精确 mock.
 type StageHostProps = React.ComponentProps<typeof WorkbenchStageHost>;
 const baseProps = {
   common: {
@@ -224,7 +217,6 @@ describe("WorkbenchStageHost", () => {
     props.common.onNavigateSceneFrame = onNavigateSceneFrame;
     render(<WorkbenchStageHost ref={createRef()} {...props} />);
 
-    // lazy + Suspense: 组件异步解析,用 findBy 等待。
     expect(await screen.findByTestId("three-d-workbench")).toBeTruthy();
     expect(screen.queryByTestId("image-workbench")).toBeNull();
     expect(screen.queryByTestId("video-workbench")).toBeNull();

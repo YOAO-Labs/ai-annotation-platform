@@ -27,7 +27,6 @@ from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter()
 
-# label 维度截断, 防止异常 prompt (DINO 偶发空字符串等) 把响应撑爆
 _LIMIT = 200
 
 
@@ -51,7 +50,6 @@ async def get_alias_frequency(
     _project: Project = Depends(require_project_owner),
 ) -> AliasFrequencyResponse:
     """统计本项目 predictions 中各 detected label 出现次数, 按 count desc 排."""
-    # total predictions
     total_q = await db.execute(
         text(
             """
@@ -70,11 +68,6 @@ async def get_alias_frequency(
             last_computed_at=datetime.now(timezone.utc),
         )
 
-    # 展开 JSONB 数组, 按 LabelStudio 标准 value.{type}[0] 取 label
-    # (rectanglelabels → value.rectanglelabels[0]; polygonlabels → value.polygonlabels[0]),
-    # 兼容老格式 value.labels[0] 或 value.class.
-    # NOTE: result 通常是 list[AnnotationResult]; 偶发不是数组 (mock data) 时
-    # jsonb_array_elements 会报错, 用 jsonb_typeof 守卫.
     rows = await db.execute(
         text(
             """

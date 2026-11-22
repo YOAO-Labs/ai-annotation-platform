@@ -15,7 +15,6 @@ from app.services.ml_routing.router import MLBackendRouter
 from app.services.trained_model_reference_contract import FreezeModelReferenceError
 from tests.factory import create_project
 
-# Fixture dependencies resolve per module: routing_admission requires committed_routes.
 from tests.test_ml_routing_router import (  # noqa: F401
     committed_routes,
     routing_admission as routing_admission,
@@ -30,12 +29,8 @@ async def test_exact_target_is_never_replaced_by_another_pool_member(
 ):
     db_session, project, pool, legacy, target = routing_admission
     assert legacy.id != target.id
-    # A real in-flight durable scope on the exact target fills its declared
-    # backend concurrency; the sibling member stays entirely unused.
     target.extra_params = {"max_concurrency": 1}
     await db_session.commit()
-    # Configuration changes invalidate observed health. Seed a fresh observation
-    # only after that configuration transaction has committed.
     await db_session.refresh(target)
     target.state = "connected"
     target.health_meta = legacy.health_meta
@@ -68,15 +63,9 @@ async def test_exact_target_is_never_replaced_by_another_pool_member(
         assert selection.lease is None
         assert selection.instance_id is None
         if mode == RouterMode.ENFORCE:
-            # Saturation is physical: the exact target is rejected, never swapped
-            # for the free sibling.
             assert selection.rejection == RejectionReason.POOL_SATURATED
         else:
-            # off/observe admission only ever names the legacy member; an exact
-            # target elsewhere must reject rather than dispatch to that legacy.
             assert selection.rejection == RejectionReason.POOL_UNAVAILABLE
-        # The other physical member is independently free: rejection above is
-        # exact-instance admission, not whole-pool exhaustion.
         sibling = await enforcing.acquire(
             pool.id,
             owner="test:sibling",
@@ -121,8 +110,6 @@ async def test_target_filter_does_not_create_a_fake_singleton_fingerprint_exempt
     assert matched.lease.scope.registry_id == legacy.id
     assert await router.cancel(matched.lease)
 
-    # Two active members with no pool fingerprint must stay closed even when the
-    # target filter narrows the candidate view to one (no fabricated singleton).
     pool.capability_fingerprint = None
     await db_session.commit()
     selection = await router.acquire(

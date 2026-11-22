@@ -43,7 +43,6 @@ export function useModelCatalog(filters: CatalogFilters = {}, projectId?: string
   });
 }
 
-/** Read all matching variants before paginating display groups, so families never split across pages. */
 export function useModelDirectory(filters: Omit<CatalogFilters, "page" | "page_size">) {
   const owner = useAuthStore((state) => state.user?.id);
   return useQuery({
@@ -85,7 +84,6 @@ export function classSourceLabel(entry: Pick<CatalogEntry, "class_metadata">): s
   return "预置声明 · 未核验";
 }
 
-/** Private project selection cache; reading never installs or loads a model. */
 export function useProjectDetectionCatalog(projectId: string) {
   const owner = useAuthStore((state) => state.user?.id);
   return useQuery({

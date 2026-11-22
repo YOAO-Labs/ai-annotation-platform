@@ -37,8 +37,6 @@ TASK_TO_TOOL_UNITS = {
 
 
 def _json_value(record, *path):
-    # Function syntax also works with bound JSONB fixtures on PostgreSQL: an
-    # unparenthesized "$1::JSONB[...]" subscript is invalid SQL.
     return func.jsonb_extract_path(record, *path, type_=JSONB)
 
 
@@ -66,8 +64,6 @@ def output_media_expression(snapshot=None):
 def source_media_expression(snapshot=None):
     snapshot = TrainingDatasetVersion.snapshot if snapshot is None else snapshot
     source = _json_value(snapshot, "source")
-    # The existing adapter treats an absent/null source as the historical
-    # omitted image source. Explicit source.media_type=null stays unknown.
     return case(
         (or_(source.is_(None), func.jsonb_typeof(source) == "null"), "image"),
         (func.jsonb_typeof(source) == "object", _media_field(source)),
@@ -80,7 +76,6 @@ def recognized_task_expression(snapshot=None):
     snapshot = TrainingDatasetVersion.snapshot if snapshot is None else snapshot
 
     def schema_is(number):
-        # JSON string/bool/float schemas are not Python int schemas.
         return and_(
             func.jsonb_typeof(_json_value(snapshot, "schema")) == "number",
             _json_text(snapshot, "schema") == str(number),
@@ -116,7 +111,6 @@ def recognized_task_expression(snapshot=None):
             ),
         )
 
-    # SQL NULL cannot leak into diagnostic NOT predicates.
     return case(
         (func.coalesce(legacy_detection, False), "detect"),
         (func.coalesce(legacy_segmentation, False), "segment"),
@@ -398,8 +392,6 @@ async def list_task_datasets(db, project):
     for task_name in VISUAL_TASK_VALUES:
         if task_name not in choices:
             continue
-        # Issued sequence is authoritative once associated. Pending old-writer
-        # versions still remain visible in the separately filtered version list.
         row = (
             await db.execute(
                 version_metadata_statement()

@@ -715,7 +715,6 @@ describe("usePointCloudScene camera continuity", () => {
         useAuthStore.getState().setAuth("camera-second-login", { id: "camera-owner" } as never),
       );
       expect(cancel).toHaveBeenCalledWith(cameraFrame);
-      // Invoke cancelled callbacks as an adversarial scheduler would; the owner fence still applies.
       act(() => oldCallbacks.forEach((callback) => callback(performance.now())));
       expect(oldSave).not.toHaveBeenCalled();
       expect(newSave).not.toHaveBeenCalled();

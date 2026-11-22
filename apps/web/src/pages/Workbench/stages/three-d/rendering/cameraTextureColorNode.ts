@@ -88,10 +88,6 @@ function matrix3FromRowMajor(values: readonly number[]): THREE.Matrix3 {
   );
 }
 
-/**
- * Projects the per-instance lidar position in TSL and samples camera textures.
- * The low-resolution depth texture preserves the existing 0.1 m occlusion rule.
- */
 export function createCameraTextureColorNode(
   positionNode: Node<"vec3">,
   baseColorNode: Node<"vec3">,

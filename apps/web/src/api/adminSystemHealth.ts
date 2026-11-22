@@ -1,5 +1,3 @@
-// /admin/system-health panel API client.
-
 import { apiClient } from "./client";
 
 export type SystemHealthStatus = "ok" | "degraded" | "down";

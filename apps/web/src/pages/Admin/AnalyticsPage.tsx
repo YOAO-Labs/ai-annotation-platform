@@ -1,15 +1,5 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterSelect } from "@/components/filters/FilterControls";
-/**
- * DuckDB 离线分析面板（ROADMAP §1.6）。
- *
- * super_admin only，4 个固定面板：团队日吞吐 / reject 率分类型 / 标注耗时分布 / 工时热力图。
- * 数据来源 = Celery beat 每日 02:30 UTC 同步的 DuckDB 文件；尚未首次同步时端点
- * 返回 503，前端展示「数据初始化中」提示。
- *
- * 吞吐 / reject 面板升级为 recharts；新增工时热力图（星期几 × 小时）。
- * Recharts / heatmap colors read shadcn runtime tokens.
- */
 
 import { useMemo, useState, type CSSProperties } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -29,7 +19,6 @@ import { adminAnalyticsApi } from "@/api/adminAnalytics";
 import { useTheme } from "@/hooks/useTheme";
 import { REJECT_REASON_TYPE_LABELS } from "@/pages/Review/rejectReasonTypes";
 
-/** 运行时读取设计 token 语义色(组件不写死颜色;迁移后走 shadcn.css 的 --sc-*)。 */
 function cssVar(name: string): string {
   if (typeof window === "undefined") return "";
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -41,7 +30,6 @@ const RANGE_OPTIONS = [
   { value: 90, label: "近 90 天" },
 ];
 
-// DuckDB dayofweek() 约定 0=周日 .. 6=周六。下标对齐该约定。
 const WEEKDAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
@@ -52,8 +40,6 @@ const EMPTY_CLASS = "py-2 text-xs text-muted-foreground";
 
 export function AnalyticsPage() {
   const [days, setDays] = useState(30);
-  // 订阅主题变化:resolved 切换会触发本组件 re-render,
-  // accent/gridColor 的 useMemo 重读 token,recharts 拿到新色重绘。
   const { resolved } = useTheme();
 
   const throughputQ = useQuery({
@@ -140,7 +126,6 @@ export function AnalyticsPage() {
       </div>
 
       <div className="grid grid-cols-[repeat(auto-fit,minmax(320px,1fr))] gap-4">
-        {/* 团队日吞吐（按日聚合） */}
         <div className={CARD_CLASS} data-testid="panel-throughput">
           <div className={TITLE_CLASS}>团队日吞吐（task_events.kind=annotate）</div>
           <div className={HINT_CLASS}>每点 = 1 天的全团队提交事件计数</div>
@@ -170,7 +155,6 @@ export function AnalyticsPage() {
           )}
         </div>
 
-        {/* reject 率按类型分布 */}
         <div className={CARD_CLASS} data-testid="panel-reject-rate">
           <div className={TITLE_CLASS}>Reject 原因分布</div>
           <div className={HINT_CLASS}>
@@ -199,7 +183,6 @@ export function AnalyticsPage() {
           )}
         </div>
 
-        {/* 标注耗时分布 */}
         <div className={CARD_CLASS} data-testid="panel-duration">
           <div className={TITLE_CLASS}>标注耗时分布</div>
           <div className={HINT_CLASS}>task_events claim → submit 间隔（ms）</div>
@@ -224,7 +207,6 @@ export function AnalyticsPage() {
           )}
         </div>
 
-        {/* 工时热力图（星期几 × 小时） */}
         <div className={`${CARD_CLASS} col-span-full`} data-testid="panel-heatmap">
           <div className={TITLE_CLASS}>工时热力图（started_at · 星期 × 小时）</div>
           <div className={HINT_CLASS}>颜色深浅 = 该时段 annotate 事件计数占比</div>
@@ -269,7 +251,6 @@ export function AnalyticsPage() {
   );
 }
 
-// 热力图格子:强度走 CSS 变量(opacity),底色取 token --sc-brand。
 function HeatCell({ intensity, title }: { intensity: number; title: string }) {
   const ref = useElementStyle<HTMLDivElement>({
     "--heat-opacity": String(intensity),

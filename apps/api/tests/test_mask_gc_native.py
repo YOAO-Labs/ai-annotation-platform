@@ -50,8 +50,6 @@ def _candidate(key: str, last_modified: str) -> dict:
 
 
 def _annotation(task, user_id, key: str) -> Annotation:
-    # Geometry remains a non-mask type so the historical annotation revision
-    # trigger does not introduce a second independent root for this lifecycle test.
     return Annotation(
         task_id=task.id,
         project_id=task.project_id,
@@ -334,8 +332,6 @@ async def test_begin_write_grace_protects_old_immutable_object_after_commit(
     ).scalar_one()
     assert last_write_at > old_write_at
 
-    # Ending this transaction mirrors Tracker's committed materialization
-    # windows, where the final reviewable candidate root does not exist yet.
     await db_session.commit()
     worker_id, _ = await _stage_one_old_candidate(db_session, key, expected_staged=0)
     progress = await _native_call(db_session, "read_mask_gc_progress", {})
@@ -624,7 +620,6 @@ async def test_backfill_uses_whole_rows_when_a_source_column_shadows_the_alias(
         text("DELETE FROM mask_gc_roots WHERE object_key=ANY(:keys)"), {"keys": keys}
     )
     assert await roots() == set()
-    # bo0229 froze the spelling it was installed with; this replay runs at head.
     statement = current(
         next(
             part.strip()

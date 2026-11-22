@@ -1,6 +1,3 @@
-/**
- * 视频右键菜单 builder 纯函数测试(栈无关,SVG + Konva 共用)。
- */
 import { describe, expect, it, vi } from "vitest";
 import type {
   AnnotationResponse,
@@ -186,7 +183,7 @@ describe("buildVideoContextMenuItems", () => {
     expect(byId["outside"].disabled).toBe(true);
     expect(byId["split-frame"].disabled).toBe(true);
     expect(byId["delete-track"].disabled).toBe(true);
-    expect(byId["locked"].disabled).toBe(false); // 解锁始终可点
+    expect(byId["locked"].disabled).toBe(false);
     expect(byId["locked"].label).toBe("解锁轨迹");
   });
 

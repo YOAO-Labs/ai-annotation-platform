@@ -319,8 +319,6 @@ async def test_ordinary_image_retry_binds_task_dataset_and_rejects_mutation(
     await _assert_blocked(db_session, [first.dataset.id])
     await _assert_unrelated(db_session, [second.dataset.id])
 
-    # The born receipt is authoritative. A Task source change after birth
-    # cannot add its new Dataset to this Job's proven scope.
     first.task.dataset_item_id = second.item.id
     first.task.file_path = second.item.file_path
     first.task.file_type = second.item.file_type
@@ -354,8 +352,6 @@ async def test_itemless_text_retry_is_dataset_independent_and_ignores_metadata(
     assert await _receipt(db_session, job) == []
     assert await _scope(db_session, job) == {"kind": "datasets", "dataset_ids": []}
 
-    # Production display metadata and cooperative cancellation do not turn the
-    # proven dataset-independent execution into an unknown or Dataset scope.
     await db_session.execute(
         text(
             "UPDATE public.async_jobs SET payload = payload || "
@@ -425,8 +421,6 @@ async def test_terminal_delivery_and_completed_writer_member_do_not_change_scope
     world = await _world(db_session, file_type="image")
     job = await _admit(db_session, world)
 
-    # A legitimate writer may already have removed the member in this
-    # transaction; a terminal delivery phase is not a source fact.
     await db_session.execute(
         text("DELETE FROM public.batch_result_members WHERE job_id=:id"),
         {"id": job},
@@ -488,9 +482,6 @@ async def test_historical_attempt_without_same_transaction_birth_is_not_adopted(
     historical_failed = uuid.uuid4()
     digest = hashlib.sha256(b"historical retry").hexdigest()
     async with db_session.begin_nested() as savepoint:
-        # Simulate a pre-migration attempt row: explicitly NULL birth_xid and
-        # no same-transaction insert trigger (the production migration adds the
-        # column without backfilling).
         await db_session.execute(
             text(
                 "ALTER TABLE public.prediction_retry_attempts "

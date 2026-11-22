@@ -228,7 +228,6 @@ async function generateAndAccept(
     ? `${options.candidateCycles + 1} 个候选待处理`
     : "候选待处理";
   await expect(page.getByText(pendingLabel, { exact: true })).toBeVisible({ timeout: 10_000 });
-  // Polygon outlines are immediate; only the active candidate's pixel preview is decoded lazily.
   await page.waitForTimeout(media === "image" ? 250 : 750);
   if (options?.zoomBeforeAccept) {
     const zoomLabel = page.getByText(/^\d+%$/).first();
@@ -272,16 +271,14 @@ test.describe("native Mask interactive candidate acceptance", () => {
     page,
     request,
     seed,
+    owned: data,
   }) => {
-    // Remote HTTP hosts are not secure contexts, so randomUUID is unavailable.
-    // Force that browser path even though Playwright's loopback origin is trusted.
     await page.addInitScript(() => {
       Object.defineProperty(globalThis.crypto, "randomUUID", {
         configurable: true,
         value: undefined,
       });
     });
-    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await seed.configureRasterMask(data.project_id, true);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
@@ -325,8 +322,8 @@ test.describe("native Mask interactive candidate acceptance", () => {
     page,
     request,
     seed,
+    owned: data,
   }) => {
-    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await seed.configureRasterMask(data.project_id, true);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
@@ -374,9 +371,9 @@ test.describe("native Mask interactive candidate acceptance", () => {
     page,
     request,
     seed,
+    owned: data,
   }) => {
     test.setTimeout(60_000);
-    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await seed.configureRasterMask(data.project_id, true);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
@@ -451,8 +448,8 @@ test.describe("native Mask interactive candidate acceptance", () => {
     page,
     request,
     seed,
+    owned: data,
   }) => {
-    const data = await seed.owned();
     const { task_id: taskId } = await seed.videoTask(data.project_id);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
     const fixture = await seed.nativeMaskCandidate(taskId);
@@ -481,9 +478,9 @@ test.describe("native Mask interactive candidate acceptance", () => {
     page,
     request,
     seed,
+    owned: data,
   }) => {
     test.setTimeout(60_000);
-    const data = await seed.owned();
     const { task_id: taskId } = await seed.videoTask(data.project_id);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
     const fixture = await seed.nativeMaskCandidate(taskId);
@@ -640,8 +637,6 @@ test.describe("native Mask interactive candidate acceptance", () => {
     await page.getByRole("button", { name: "收起浮窗" }).click();
     await row.click();
     await page.getByLabel(/展开选中信息卡.*可拖动/).click();
-    // The selected track command intentionally owns arrow keys while focused;
-    // return focus to the workbench before testing global frame navigation.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowRight");
@@ -709,7 +704,7 @@ test.describe("native Mask interactive candidate acceptance", () => {
     await expect(review).toBeHidden();
     await openContextToolbar(page, "tracker-review");
     await expect(review.getByTestId("tracker-review-correction-summary")).toContainText(
-      "向更早帧 · 原生 Mask seed · 保护人工帧",
+      /F0–F2.*向更早帧.*原生 Mask.*保护人工帧/,
     );
     await review.getByTestId("tracker-review-accept").click();
     await expect(review).toBeHidden();
@@ -728,8 +723,8 @@ test.describe("native Mask interactive candidate acceptance", () => {
     page,
     request,
     seed,
+    owned: data,
   }) => {
-    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await seed.configureRasterMask(data.project_id, true);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
@@ -802,7 +797,6 @@ test.describe("native Mask interactive candidate acceptance", () => {
     const scribbleContexts = () => routed.contexts.filter((context) => context.type === "scribble");
     await expect.poll(() => scribbleContexts().length, { timeout: 10_000 }).toBe(1);
 
-    // Hover reveals retry without taking keyboard focus from the canvas.
     await page.getByTestId("interactive-settings-trigger").hover();
     const retry = page.getByTestId("interactive-prompt-retry");
     await expect(retry).toBeVisible({ timeout: 10_000 });

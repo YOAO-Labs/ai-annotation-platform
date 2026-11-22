@@ -5,10 +5,6 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 import { listStyles } from "@/components/ui/listStyles";
 
-// `containerClassName` lets a caller frame the scroll container as a rounded
-// surface (registry tables) without repeating an outer wrapper. The scroll
-// container stays the direct parent so horizontal scrolling still works while
-// the rounded border clips the corners.
 function Table({
   className,
   containerClassName,
@@ -73,9 +69,6 @@ function TableRow({ className, ...props }: React.ComponentProps<"tr">) {
   );
 }
 
-// Header labels use the muted label strip pattern already used by the model
-// catalog list table (plan §3): smaller, muted, on a quiet `bg-muted` strip so
-// the header reads as chrome instead of competing with row content.
 function TableHead({ className, ...props }: React.ComponentProps<"th">) {
   return (
     <th

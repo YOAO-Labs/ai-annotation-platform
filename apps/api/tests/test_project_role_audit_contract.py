@@ -71,7 +71,6 @@ def test_script_graph_has_single_head_and_preparation_revision() -> None:
         revision.revision
         for revision in ScriptDirectory.from_config(config).walk_revisions()
     }
-    # Later increments may extend the chain; 0173 must never be dropped.
     assert "0173" in revisions
 
 
@@ -110,12 +109,9 @@ def test_post_migration_predicates_require_round_submitter_and_accummulator() ->
     assert (
         "jsonb_typeof(annotation_contributor_ids) = 'array'" in predicates["complete"]
     )
-    # The frozen set must include the submitter and every accumulator ID.
     assert "@>" in predicates["missing_contributors"]
     assert "to_jsonb((review_submitter_id)::text)" in predicates["missing_contributors"]
     assert "(annotation_contributor_ids)" in predicates["missing_contributors"]
-    # A non-NULL frozen array alone is not complete: every incomplete reason
-    # participates in the incomplete union.
     assert predicates["missing_submitter"] in predicates["incomplete"]
     assert predicates["unknown_accumulator"] in predicates["incomplete"]
     assert predicates["missing_contributors"] in predicates["incomplete"]

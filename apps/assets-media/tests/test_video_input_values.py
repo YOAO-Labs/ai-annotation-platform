@@ -230,7 +230,6 @@ def test_page_cursor_and_scope_are_independent_of_current_request_actor():
         plan_digest=frozen.plan_digest,
         page_size=2,
     )
-    # This is attribution validation; current authorization belongs to the owner.
     c.require_page_scope(request, page)
     crossed = request.model_dump()
     crossed["job_id"] = uuid4()

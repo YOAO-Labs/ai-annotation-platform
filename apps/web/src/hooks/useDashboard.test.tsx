@@ -1,6 +1,3 @@
-/**
- * useDashboard 系列 hooks 单测：验证 queryKey 与 queryFn 调用入参。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -134,7 +131,6 @@ describe("useDashboard hooks", () => {
     const { result } = renderHook(() => useAdminPersonDetail(null), {
       wrapper: makeWrapper(),
     });
-    // enabled=false 时不会自动 fetch，short wait 后 isFetched 仍 false
     await new Promise((r) => setTimeout(r, 30));
     expect(mockApi.getAdminPersonDetail).not.toHaveBeenCalled();
     expect(result.current.fetchStatus).toBe("idle");
@@ -145,8 +141,6 @@ describe("useDashboard hooks", () => {
       wrapper: makeWrapper(),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    // (A3)：useAdminPersonDetail 签名扩为 (userId, period, project)，
-    // project 默认 undefined 仍会透传到第三参。
     expect(mockApi.getAdminPersonDetail).toHaveBeenCalledWith(
       "u1",
       "4w",

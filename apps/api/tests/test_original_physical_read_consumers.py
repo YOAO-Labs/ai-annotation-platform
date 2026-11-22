@@ -221,7 +221,6 @@ async def test_prediction_freshness_rechecks_initial_plan_after_source_refresh(
     monkeypatch.setattr(prediction_originals, "resolve", resolve)
     monkeypatch.setattr(storage_access, "engine", lambda _db: object())
     expected = prediction_originals.source_receipt(state.source)
-    # This entry owns the Permit beyond capture, through the adopted image close.
     owned = await prediction_originals.open_snapshot(
         state.db,
         state.source.relation.task_id,

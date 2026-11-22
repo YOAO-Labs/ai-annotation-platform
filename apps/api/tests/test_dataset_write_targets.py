@@ -132,7 +132,6 @@ async def test_new_b_write_saved_a_and_task_independence_and_short_target_locks(
             ):
                 await other.execute(select(model).where(condition).with_for_update())
 
-    # Every provider call can independently lock the target registry rows.
     import asyncio
 
     loop = asyncio.get_running_loop()
@@ -173,7 +172,6 @@ async def test_new_b_write_saved_a_and_task_independence_and_short_target_locks(
         )
     )
     assert owner.storage_ref == reference
-    # Credential revisions are current; the saved address and allocation revisions remain exact.
     await db.execute(
         update(StorageConnection)
         .where(StorageConnection.id == connection.id)

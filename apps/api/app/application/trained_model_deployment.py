@@ -71,8 +71,6 @@ async def deploy_model(
         receipt, trial = {}, {}
         error = f"加载或样本试用未通过（{type(exc).__name__}）"
 
-    # Release the Inference registry fence before reacquiring the project lock;
-    # the result is re-fenced against current installation state below.
     await db.commit()
 
     await project_lock(db, project.id)

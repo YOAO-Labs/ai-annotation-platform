@@ -1,6 +1,3 @@
-/**
- * DashboardPage 单测 — 加载态 / 空态 / 正常渲染 / 视图切换 / 活动日志过滤.
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
@@ -274,7 +271,6 @@ describe("DashboardPage", () => {
   it("点击视图切换按钮 → URL 追加 layout=grid 并渲染 ProjectGrid", () => {
     mockUseProjectPage.mockReturnValue({ data: pageResult([]), isLoading: false });
     renderUI();
-    // 切换到网格视图
     const toggleBtn = screen.getByTitle(/切换到网格视图/);
     fireEvent.click(toggleBtn);
     expect(screen.getByTestId("project-grid")).toBeInTheDocument();

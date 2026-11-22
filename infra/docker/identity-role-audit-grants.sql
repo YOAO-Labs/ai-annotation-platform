@@ -1,8 +1,3 @@
--- Install fixed historical-audit projections for one trusted audit LOGIN.
--- This explicit installer supports legacy schemas before yoao_identity_v1 exists;
--- it creates no login, Alembic revision, runtime selector, or database credential.
--- psql -v expected_database=... -v migration_role=... -v identity_owner=...
---      -v consumer_role=... -f identity-role-audit-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;
@@ -20,8 +15,6 @@ BEGIN
 END
 $preflight$;
 
--- These temporary references make reuse checks compare PostgreSQL's own exact
--- deparse of the three static definitions without altering an existing view OID.
 CREATE TEMP VIEW _aap_identity_role_audit_account_ref
 WITH (security_barrier = true) AS
 SELECT account_row.id, account_row.role, account_row.is_active

@@ -198,7 +198,6 @@ async def test_empty_offline_location_is_read_only_and_query_count_is_fixed(
     assert all(
         sql.lstrip().upper().startswith(("SELECT", "WITH")) for sql in initial_queries
     )
-    # The result must not grow or issue one query per retained source/page.
     for index in range(45):
         await source(
             db,
@@ -261,7 +260,6 @@ async def test_real_accepted_history_and_current_relationships_are_deduplicated(
     db = db_session
     registered, project, old_task, world = reference_world
     where, retained = world[4:6]
-    # Keep a genuinely accepted older item/task, then accept changed bytes.
     world, registration, change, payload = await candidate(db, world)
     accepted = await dataset_source_revisions.accept(
         db, registration.id, change["path_digest"], payload, world[2]
@@ -280,7 +278,6 @@ async def test_real_accepted_history_and_current_relationships_are_deduplicated(
                 geometry={"type": "bbox", "x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2},
             )
         )
-    # An item reached by revision, immutable reference and two locators is one item.
     old_asset = await db.scalar(
         select(DatasetAsset).where(
             DatasetAsset.dataset_item_id == old_task.dataset_item_id
@@ -323,7 +320,6 @@ async def test_real_accepted_history_and_current_relationships_are_deduplicated(
             ProjectDataset(project_id=without_tasks.id, dataset_id=managed_dataset.id),
         ]
     )
-    # A current task is sufficient even without a ProjectDataset association.
     task_only_project = await create_project(db, owner_id=super_admin[0].id)
     task_only = await create_task(db, project_id=task_only_project.id)
     task_only.dataset_item_id = old_task.dataset_item_id
@@ -480,7 +476,6 @@ async def test_cache_orphans_preview_destinations_and_current_input_links(
         cache_entry(where.id, platform.id, now, state=state, size=size)
         for state, size in [("ready", 10), ("uploading", 20), ("deleting", 30)]
     ]
-    # Physical destination and a surviving source ID cannot change quota ownership.
     foreign = cache_entry(elsewhere.id, where.id, now, size=400)
     foreign.source_id = retained.id
     db.add_all([*entries, foreign])
@@ -531,7 +526,6 @@ async def test_cache_orphans_preview_destinations_and_current_input_links(
         counts = (await read(httpx_client, where, super_admin))["counts"]
     assert counts["cache_entries"] == 3 and counts["cache_bytes"] == 60
     assert counts["active_cache_read_leases"] == 2
-    # Expiry is cleanup evidence; this view reports the stored input state only.
     assert counts["active_input_leases"] == 2 and counts["cleanup_input_leases"] == 1
     assert counts["ready_previews"] == 1 and counts["preview_bytes"] == 123
     assert counts["failed_previews"] == 0
@@ -598,7 +592,6 @@ async def test_frozen_versions_use_recorded_lineage_once_and_keep_historical_cov
             {"classes": [], "samples": [deepcopy(sample), deepcopy(sample)]},
             status,
         )
-    # A ready version owned by another project still protects the location.
     independent = await create_project(db, owner_id=super_admin[0].id)
     await frozen_version(db, independent.id, {"samples": [sample]}, "ready")
     for samples in (
@@ -612,7 +605,6 @@ async def test_frozen_versions_use_recorded_lineage_once_and_keep_historical_cov
     ):
         await frozen_version(db, project.id, {"samples": samples}, "ready")
     await frozen_version(db, project.id, {}, "running")
-    # Current source state no longer establishes these frozen associations.
     world[5].enabled = False
     world[5].dataset_id = None
     await db.commit()

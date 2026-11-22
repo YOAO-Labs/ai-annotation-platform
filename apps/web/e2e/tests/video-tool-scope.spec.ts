@@ -2,6 +2,7 @@ import { canvasBottomDivider, panelCommand } from "../fixtures/workbench-panel-a
 import type { APIRequestContext, APIResponse, Locator, Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 
+import { closeMaskSettings, openMaskSettings } from "../fixtures/mask-toolbar";
 import { expect, test as base, type SeedData } from "../fixtures/seed";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
@@ -30,6 +31,7 @@ interface Annotation {
     h?: number;
     bbox?: Keyframe["bbox"];
     points?: Point[];
+    holes?: Point[][];
     mask?: MaskReference;
     track_id?: string;
     keyframes?: Keyframe[];
@@ -96,13 +98,10 @@ async function annotations(request: APIRequestContext, fixture: ScopeCase) {
 }
 
 const test = base.extend<{ scopeCase: ScopeCase }>({
-  scopeCase: async ({ page, request, seed }, provideFixture, testInfo) => {
-    const data = await seed.owned();
+  scopeCase: async ({ page, request, seed, owned: data }, provideFixture, testInfo) => {
     const { task_id: taskId } = await seed.videoTask(data.project_id);
     const token = await seed.accessToken(data.admin_email);
     await seed.configureRasterMask(data.project_id, true);
-    // Deterministic RLE exercises native storage and editing, not model inference quality.
-    // Generate it before removing the seed project's original backend pool identity.
     const candidate = await seed.nativeMaskCandidate(taskId, { variant: "multimask_donut" });
     const bindings: Record<string, Binding> = Object.fromEntries(
       ["bbox", "region", "polyline", "rotated_bbox", "keypoint"].map((unit) => [
@@ -185,8 +184,6 @@ const test = base.extend<{ scopeCase: ScopeCase }>({
       await provideFixture(fixture);
       expect(errors).toEqual([]);
     } finally {
-      // Database ownership and reusable content-addressed Mask provenance for the runner.
-      // This spec does not delete shared Mask objects or manage runtime services.
       await writeFile(
         testInfo.outputPath("video-tool-scope-metadata.json"),
         JSON.stringify(
@@ -216,7 +213,6 @@ async function open(page: Page, fixture: ScopeCase) {
 
 async function expectScope(page: Page, scope: Scope) {
   await expect(page.getByTestId("video-tool-scope")).toHaveAttribute("data-scope", scope);
-  // AlertDialog hides the background from accessibility queries while keeping its state.
   await expect(scopeControl(page, scope, true)).toHaveAttribute("aria-pressed", "true");
   await expect(scopeControl(page, scope === "frame" ? "track" : "frame", true)).toHaveAttribute(
     "aria-pressed",
@@ -237,7 +233,6 @@ async function chooseTool(page: Page, id: string) {
 }
 
 async function key(page: Page, value: string) {
-  // Focus only; all application state changes go through real pointer/keyboard events.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press(value);
 }
@@ -253,7 +248,6 @@ async function seek(page: Page, target: number) {
   }
 }
 
-// Pointer actions target the rendered video, not the letterboxed stage.
 async function renderedMediaBounds(stage: Locator) {
   const stageBox = await stage.boundingBox();
   if (!stageBox) throw new Error("视频工作台没有可见边界");
@@ -279,7 +273,6 @@ async function renderedMediaBounds(stage: Locator) {
 async function clickPoint(page: Page, point: Point) {
   const bounds = await renderedMediaBounds(stage(page));
   await page.mouse.click(bounds.x + bounds.width * point[0], bounds.y + bounds.height * point[1]);
-  // Konva detects rapid consecutive canvas clicks as a double-click across locations.
   await page.waitForTimeout(450);
 }
 
@@ -304,7 +297,10 @@ async function draw(page: Page, kind: Kind, scope: Scope) {
     });
     await expect(hint(page)).toHaveText(expectedHint);
     await page.mouse.up();
-    if (kind === "mask") await page.getByTestId("mask-primary-action").click();
+    if (kind === "mask") {
+      await openMaskSettings(page);
+      await page.getByTestId("mask-primary-action").click();
+    }
   }
   await expect(picker(page)).toBeVisible();
 }
@@ -315,7 +311,6 @@ async function save(page: Page, fixture: ScopeCase) {
       response.request().method() === "POST" &&
       new URL(response.url()).pathname === `/api/v1/tasks/${fixture.taskId}/annotations`,
   );
-  // The recent-class chip has the same text; select the formal class row explicitly.
   await picker(page).locator("span").filter({ hasText: /^car$/ }).click();
   const response = await responsePromise;
   expect(response.ok(), await response.text()).toBe(true);
@@ -461,7 +456,11 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
         await scopeControl(page, scope).click();
         await expectScope(page, scope);
         await chooseTool(page, toolFor(kind, scope));
-        if (kind === "mask") await page.getByTestId("mask-radius-slider").fill("2");
+        if (kind === "mask") {
+          await openMaskSettings(page);
+          await page.getByTestId("mask-radius-slider").fill("2");
+          await closeMaskSettings(page);
+        }
         await draw(page, kind, scope);
         const result = await save(page, scopeCase);
         const type = `video_${scope === "track" ? "track_" : ""}${kind}`;
@@ -537,7 +536,6 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
         "aria-pressed",
         "true",
       );
-      // Frame navigation triggers ordinary owner re-renders while selection remains intact.
       await seek(page, 1);
       await expectScope(page, "frame");
       await expect(page.getByTestId(`video-tool-btn-${tool}`)).toHaveAttribute(
@@ -579,6 +577,178 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
     }
     expect(scopeCase.writes).toEqual([]);
     expect(await annotations(request, scopeCase)).toHaveLength(4);
+  });
+
+  test("带孔单帧多边形整体拖动、边缘限位、撤销重做与刷新", async ({ page, request, scopeCase }) => {
+    const frame = 2;
+    const rectangle = (left: number, top: number, right: number, bottom: number): Point[] => [
+      [left, top],
+      [right, top],
+      [right, bottom],
+      [left, bottom],
+    ];
+    const geometry = {
+      type: "video_polygon",
+      frame_index: frame,
+      points: rectangle(0.18, 0.2, 0.48, 0.48),
+      holes: [rectangle(0.27, 0.27, 0.31, 0.32), rectangle(0.37, 0.34, 0.44, 0.43)],
+    };
+    const endpoint = `/api/v1/tasks/${scopeCase.taskId}/annotations`;
+    const original = record(
+      scopeCase,
+      await json<Annotation>(
+        await request.post(`${API_BASE}${endpoint}`, {
+          headers: auth(scopeCase.token),
+          data: {
+            annotation_type: "video_polygon",
+            tool_unit_id: "region",
+            class_name: "car",
+            geometry,
+          },
+        }),
+      ),
+    );
+    const annotationPath = `${endpoint}/${original.id}`;
+    const savedGeometry = async (action: () => Promise<void>) => {
+      const responsePromise = page.waitForResponse(
+        (response) =>
+          response.request().method() === "PATCH" &&
+          new URL(response.url()).pathname === annotationPath,
+      );
+      await action();
+      const response = await responsePromise;
+      const stored = (await json<Annotation>(response)).geometry;
+      expect(response.request().postDataJSON().geometry).toEqual(stored);
+      return stored as typeof geometry;
+    };
+    const expectStored = async (expected: typeof geometry) => {
+      const stored = await annotations(request, scopeCase);
+      expect(stored.map(({ id, geometry }) => ({ id, geometry }))).toEqual([
+        { id: original.id, geometry: expected },
+      ]);
+    };
+    const translate = (source: typeof geometry, dx: number, dy: number) => {
+      const move = ([x, y]: Point): Point => [x + dx, y + dy];
+      return {
+        ...source,
+        points: source.points.map(move),
+        holes: source.holes.map((ring) => ring.map(move)),
+      };
+    };
+    const expectTranslation = (
+      before: typeof geometry,
+      after: typeof geometry,
+      expectedX: number,
+      expectedY: number,
+    ) => {
+      const dx = after.points[0][0] - before.points[0][0];
+      const dy = after.points[0][1] - before.points[0][1];
+      expect(dx).toBeCloseTo(expectedX, 2);
+      expect(dy).toBeCloseTo(expectedY, 2);
+      expect(after).toMatchObject({ type: "video_polygon", frame_index: frame });
+      const expected = translate(before, dx, dy);
+      const actualRings = [after.points, ...after.holes];
+      expect(actualRings).toHaveLength(1 + before.holes.length);
+      [expected.points, ...expected.holes].forEach((ring, index) => {
+        expect(actualRings[index]).toHaveLength(ring.length);
+        ring.forEach(([x, y], vertex) => {
+          const [actualX, actualY] = actualRings[index][vertex];
+          expect(actualX).toBeGreaterThanOrEqual(0);
+          expect(actualX).toBeLessThanOrEqual(1);
+          expect(actualY).toBeGreaterThanOrEqual(0);
+          expect(actualY).toBeLessThanOrEqual(1);
+          expect(actualX).toBeCloseTo(x, 10);
+          expect(actualY).toBeCloseTo(y, 10);
+        });
+      });
+    };
+
+    const surface = stage(page);
+    const tracksCanvas = surface.locator(".konvajs-content > canvas").nth(1);
+    const clientPoint = async ([x, y]: Point): Promise<Point> => {
+      const bounds = await renderedMediaBounds(surface);
+      return [bounds.x + x * bounds.width, bounds.y + y * bounds.height];
+    };
+    const expectPaint = async (solid: Point, empty: Point[]) => {
+      const locations = await Promise.all([solid, ...empty].map(clientPoint));
+      await expect
+        .poll(() =>
+          tracksCanvas.evaluate((node, positions) => {
+            const canvas = node as HTMLCanvasElement;
+            const rect = canvas.getBoundingClientRect();
+            const context = canvas.getContext("2d")!;
+            return positions.map(([clientX, clientY]) => {
+              const x = Math.floor(((clientX - rect.left) * canvas.width) / rect.width);
+              const y = Math.floor(((clientY - rect.top) * canvas.height) / rect.height);
+              return context.getImageData(x, y, 1, 1).data[3] > 0;
+            });
+          }, locations),
+        )
+        .toEqual([true, ...empty.map(() => false)]);
+    };
+    const interiorSamples = (shape: typeof geometry): Point[] =>
+      shape.holes.map(([a, , c]) => [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2]);
+    const solidSample = (shape: typeof geometry): Point => [
+      shape.points[0][0] + 0.045,
+      shape.points[0][1] + 0.05,
+    ];
+    const moveBody = async (before: typeof geometry, end: Point, dx: number, dy: number) => {
+      const preview = translate(before, dx, dy);
+      const writesBefore = scopeCase.writes.length;
+      await page.mouse.move(...(await clientPoint(solidSample(before))));
+      await page.mouse.down();
+      await page.mouse.move(...(await clientPoint(end)));
+      await expectPaint(solidSample(preview), [...interiorSamples(preview), solidSample(before)]);
+      await expect(surface).toHaveAttribute("data-video-frame-index", String(frame));
+      expect(scopeCase.writes).toHaveLength(writesBefore);
+      const after = await savedGeometry(() => page.mouse.up());
+      expectTranslation(before, after, dx, dy);
+      await expectScope(page, "frame");
+      await expectPaint(solidSample(after), interiorSamples(after));
+      await expectStored(after);
+      return after;
+    };
+
+    await open(page, scopeCase);
+    await seek(page, frame);
+    await scopeControl(page, "frame").click();
+    await chooseTool(page, "select");
+    await expectPaint(solidSample(geometry), interiorSamples(geometry));
+    await page.mouse.click(...(await clientPoint(solidSample(geometry))));
+    await collapseSelectedCard(page);
+
+    const moved = await moveBody(geometry, [0.405, 0.39], 0.18, 0.14);
+    const boundaryDx = 1 - moved.points[1][0];
+    const clamped = await moveBody(moved, [0.93, solidSample(moved)[1]], boundaryDx, 0);
+    expect(clamped.points[1][0]).toBe(1);
+    expect(await savedGeometry(() => key(page, "ControlOrMeta+z"))).toEqual(moved);
+    await expectPaint(solidSample(moved), [...interiorSamples(moved), solidSample(clamped)]);
+    await expectStored(moved);
+    expect(await savedGeometry(() => key(page, "ControlOrMeta+Shift+z"))).toEqual(clamped);
+    await expectStored(clamped);
+    await expectPaint(solidSample(clamped), [...interiorSamples(clamped), solidSample(moved)]);
+
+    await page.reload();
+    await expect(surface).toBeVisible({ timeout: 25_000 });
+    await seek(page, frame);
+    await expectStored(clamped);
+    await expectPaint(solidSample(clamped), interiorSamples(clamped));
+    await chooseTool(page, "select");
+    await page.mouse.click(...(await clientPoint(solidSample(clamped))));
+    await collapseSelectedCard(page);
+    const [vertexX, vertexY] = clamped.points[0];
+    await page.mouse.move(...(await clientPoint(clamped.points[0])));
+    await page.mouse.down();
+    await page.mouse.move(...(await clientPoint([vertexX - 0.05, vertexY - 0.05])));
+    const reshaped = await savedGeometry(() => page.mouse.up());
+    expect(reshaped.holes).toEqual(clamped.holes);
+    expect(reshaped.points.slice(1)).toEqual(clamped.points.slice(1));
+    expect(reshaped.points[0][0]).toBeCloseTo(vertexX - 0.05, 2);
+    expect(reshaped.points[0][1]).toBeCloseTo(vertexY - 0.05, 2);
+    await expectStored(reshaped);
+    await expectPaint(solidSample(clamped), interiorSamples(reshaped));
+    await expectScope(page, "frame");
+    expect(scopeCase.writes).toEqual(Array(5).fill(`PATCH ${annotationPath}`));
   });
 
   test("F2-4 未完成点集切范围先确认，继续后仍按原单帧提交", async ({
@@ -663,7 +833,6 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
     await chooseTool(page, "polygon");
     for (const point of points.slice(0, 2)) await clickPoint(page, point);
 
-    // A row's first-keyframe navigation must wait for the same draft decision as selection.
     await row(page, tracks.bbox).click();
     await expect(page.getByRole("alertdialog").filter({ hasText: "切换视频工具" })).toBeVisible();
     await expect(stage(page)).toHaveAttribute("data-video-frame-index", "8");
@@ -689,7 +858,6 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
       ),
     );
 
-    // Start the discard branch on another frame, clear of the polygon saved at F8.
     await collapseSelectedCard(page);
     await seek(page, 9);
     await chooseTool(page, "polygon");
@@ -725,7 +893,6 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
     await chooseTool(page, "polygon");
     await draw(page, "polygon", "frame");
 
-    // Pointer capture on the row must not dismiss the picker as an outside auto-save.
     await row(page, tracks.polygon).click();
     await expect(page.getByRole("alertdialog").filter({ hasText: "切换视频工具" })).toBeVisible();
     await expect(stage(page)).toHaveAttribute("data-video-frame-index", "8");
@@ -756,7 +923,6 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
       ),
     );
 
-    // Repeating these points at F8 would select the existing polygon instead of drawing.
     await collapseSelectedCard(page);
     await seek(page, 9);
     await chooseTool(page, "polygon");
@@ -803,7 +969,6 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
       await page.keyboard.press("t");
       await page.mouse.up();
       await expect(page.getByRole("alertdialog").filter({ hasText: "切换视频工具" })).toBeVisible();
-      // Pointerup moves ownership from the Stage drag to the Shell's pending class picker.
       await expect(picker(page)).toBeVisible();
       await expectScope(page, "frame");
     };
@@ -825,7 +990,6 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
       expect(first.payload.geometry[coordinate as "x" | "y" | "w" | "h"]).toBeCloseTo(expected, 2);
     }
 
-    // Use another source frame so the second drag cannot hit the saved first rectangle.
     await seek(page, 9);
     await chooseTool(page, "box");
     await requestTrackWhileDragging();
@@ -852,7 +1016,6 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
   }) => {
     const tracks = await seedTracks(request, scopeCase);
     const original = tracks.bbox;
-    // Keep pointer hit-testing real while removing unrelated geometry from this case.
     for (const kind of ["polygon", "polyline", "mask"] as const) {
       const removed = await request.delete(
         `${API_BASE}/api/v1/tasks/${scopeCase.taskId}/annotations/${tracks[kind].id}`,
@@ -935,8 +1098,6 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
     request,
     scopeCase,
   }, testInfo) => {
-    // Re-enable the real seed registry entry. Only its two ML capability responses are supplied;
-    // this case collects local prompts and never runs frame inference or a tracker job.
     await json(
       await request.put(
         `${API_BASE}/api/v1/projects/${scopeCase.data.project_id}/ml-backends/${scopeCase.data.ml_backend_id}/enablement`,
@@ -972,8 +1133,6 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
         },
       ],
     };
-    // /capabilities is an independent normalized catalog consumed by secondary inference
-    // and preannotation configuration; fulfilling /setup does not fulfill that request.
     const trackerCatalog = {
       ...trackerSetup,
       protocol_version: "1",
@@ -1063,7 +1222,6 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
       ),
     );
 
-    // Keep the second draft and its seed separate from the completed F8 polygon.
     await collapseSelectedCard(page);
     await seek(page, 9);
     await chooseTool(page, "polygon");
@@ -1106,12 +1264,18 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
   test("F2-4 Mask 范围切换沿用继续、丢弃与保存保护", async ({ page, request, scopeCase }) => {
     const tracks = await seedTracks(request, scopeCase);
     await open(page, scopeCase);
+    const maskTool = page.getByTestId("video-tool-btn-mask-track");
+    const expectMaskAction = async (label: string) => {
+      await openMaskSettings(page);
+      await expect(page.getByTestId("mask-primary-action")).toHaveText(label);
+      await closeMaskSettings(page);
+    };
     await selectTrack(page, tracks.mask);
+    await expect(maskTool).toHaveAttribute("aria-pressed", "true");
     const original = tracks.mask.geometry;
-    await expect(page.getByTestId("mask-primary-action")).toHaveText("已保存");
+    await expectMaskAction("已保存");
     await clickPoint(page, [0.9, 0.85]);
-    await expect(page.getByTestId("mask-primary-action")).toHaveText("保存当前帧关键帧");
-    // 离开守卫是应用内三选一对话框: 继续编辑 / 丢弃并离开 / 保存后离开。
+    await expectMaskAction("保存当前帧关键帧");
     const leaveDialog = page.getByRole("alertdialog");
     const decideLeave = async (action: "继续编辑" | "丢弃并离开" | "保存后离开") => {
       await expect(leaveDialog).toBeVisible();
@@ -1121,7 +1285,7 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
     await scopeControl(page, "frame").click();
     await decideLeave("继续编辑");
     await expectScope(page, "track");
-    await expect(page.getByTestId("mask-primary-action")).toHaveText("保存当前帧关键帧");
+    await expectMaskAction("保存当前帧关键帧");
     expect(scopeCase.writes).toEqual([]);
     await scopeControl(page, "frame").click();
     await decideLeave("丢弃并离开");
@@ -1134,7 +1298,8 @@ test.describe("视频工具作用范围：真实输入与持久化", () => {
     await chooseTool(page, "select");
     await clickPoint(page, [0.94, 0.9]);
     await selectTrack(page, tracks.mask);
-    await expect(page.getByTestId("mask-primary-action")).toHaveText("已保存");
+    await expect(maskTool).toHaveAttribute("aria-pressed", "true");
+    await expectMaskAction("已保存");
     await clickPoint(page, [0.9, 0.85]);
     const saved = page.waitForResponse(
       (response) =>

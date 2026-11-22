@@ -105,8 +105,6 @@ async def test_offboarding_route_accepts_unbounded_stale_version_then_uses_owner
             content=request.model_dump_json(by_alias=True).encode(),
         )
 
-    # Owner availability is checked after the uncapped request has been decoded
-    # and admitted; a legacy 64 KiB body cap would return 400 instead.
     assert response.status_code == 503
     assert token not in response.text
 

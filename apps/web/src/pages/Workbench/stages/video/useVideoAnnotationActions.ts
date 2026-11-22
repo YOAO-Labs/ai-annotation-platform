@@ -1,15 +1,14 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { confirmDialog } from "@/components/ui/decisionDialog";
 import type { QueryClient } from "@tanstack/react-query";
-import { ApiError } from "@/api/client";
-import { tasksApi, type AnnotationPayload } from "@/api/tasks";
+import { tasksApi, type AnnotationPayload, type AnnotationUpdatePayload } from "@/api/tasks";
 import { rasterMasksApi } from "@/api/rasterMasks";
 import { videoTrackerApi } from "@/api/videoTracker";
+import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 import { cocoRleBounds, type CocoRle } from "../../stage/shared/geometry/maskRle";
 import type {
   AnnotationResponse,
   CocoRleMaskRef,
-  Geometry,
   VideoBboxGeometry,
   VideoPolygonGeometry,
   VideoPolylineGeometry,
@@ -23,7 +22,7 @@ import type {
   VideoTrackMaskGeometry,
 } from "@/types";
 import { UNKNOWN_CLASS } from "../../stage/colors";
-import { enqueue as enqueueOffline, type OfflineOp } from "../../state/offlineQueue";
+import { enqueueDurably, isOfflineCandidate } from "../../state/offlineQueue";
 import type { useAnnotationHistory, Command, LeafCommand } from "../../state/useAnnotationHistory";
 import { randomId } from "@/utils/id";
 import type { PendingDrawing, useWorkbenchState } from "../../state/useWorkbenchState";
@@ -58,6 +57,7 @@ interface ToastInput {
   msg: string;
   sub?: string;
   kind?: "success" | "warning" | "error" | "";
+  retry?: () => boolean;
 }
 
 interface VideoAnnotationMutations {
@@ -70,7 +70,12 @@ interface VideoAnnotationMutations {
   update: {
     mutate: (
       vars: { annotationId: string; payload: Partial<AnnotationPayload> },
-      opts?: { onSuccess?: () => void; onError?: (e: unknown) => void; onSettled?: () => void },
+      opts?: {
+        onSuccess?: () => void;
+        onError?: (e: unknown) => void;
+        onSettled?: () => void;
+        optimistic?: boolean;
+      },
     ) => void;
   };
   delete: {
@@ -84,6 +89,8 @@ interface VideoAnnotationMutations {
 interface UseVideoAnnotationActionsArgs {
   taskId: string | undefined;
   meUserId?: string | null;
+  projectId?: string;
+  videoSegmentId?: string | null;
   queryClient: QueryClient;
   history: ReturnType<typeof useAnnotationHistory>;
   s: ReturnType<typeof useWorkbenchState>;
@@ -109,7 +116,6 @@ export interface VideoTrackCompositionOptions {
   annotationIds: string[];
   frameIndex?: number;
   deleteSources?: boolean;
-  // join: gap 填充模式, 仅 join_tracks 透传给后端 gap_mode。
   gapMode?: "interpolate" | "outside";
 }
 
@@ -184,7 +190,6 @@ export function buildVideoKeypointCreatePayload(
   };
 }
 
-/** 由绘制的归一化顶点新建单帧 polygon/polyline (当前帧, 非 track)。 */
 export function buildVideoPointsCreatePayload(
   type: "video_polygon" | "video_polyline",
   frameIndex: number,
@@ -195,13 +200,11 @@ export function buildVideoPointsCreatePayload(
   return {
     annotation_type: type,
     class_name: className,
-    // 多边形归 region 单位、折线归 polyline 单位 (对齐图片, 各自类别/属性隔离)。
     tool_unit_id: type === "video_polyline" ? "polyline" : "region",
     geometry: { type, frame_index: frameIndex, points },
   };
 }
 
-/** 由绘制的归一化顶点新建 polygon/polyline track (单关键帧于当前帧)。 */
 export function buildVideoPointsTrackCreatePayload(
   type: "video_track_polygon" | "video_track_polyline",
   frameIndex: number,
@@ -218,7 +221,6 @@ export function buildVideoPointsTrackCreatePayload(
   return {
     annotation_type: type,
     class_name: className,
-    // 轨迹多边形归 region、轨迹折线归 polyline (与单帧同单位, 变体不同)。
     tool_unit_id: type === "video_track_polyline" ? "polyline" : "region",
     geometry,
   };
@@ -341,10 +343,6 @@ export function buildVideoCompositionCommands(
   return commands;
 }
 
-function isConflictError(err: unknown): boolean {
-  return err instanceof ApiError && err.status === 409;
-}
-
 function isVideoPending(pending: PendingDrawing): pending is NonNullable<PendingDrawing> & {
   kind:
     | "video_bbox"
@@ -384,6 +382,8 @@ function videoClassPickerAnchor(geom: Geom): { left: number; top: number } {
 export function useVideoAnnotationActions({
   taskId,
   meUserId,
+  projectId,
+  videoSegmentId,
   queryClient,
   history,
   s,
@@ -396,12 +396,29 @@ export function useVideoAnnotationActions({
   activeToolHasOwnClasses = true,
   annotationQueryKey = ["annotations", taskId],
 }: UseVideoAnnotationActionsArgs) {
-  const enqueueOwned = useCallback(
-    (op: OfflineOp) => {
-      if (!meUserId) return;
-      void enqueueOffline(op, { userId: meUserId });
-    },
-    [meUserId],
+  const sessionId = useAuthStore((state) => state.sessionId);
+  const owner = useMemo(
+    () => JSON.stringify([sessionId, meUserId, projectId, taskId, videoSegmentId]),
+    [meUserId, projectId, sessionId, taskId, videoSegmentId],
+  );
+  const activeOwner = useRef<string | null>(owner);
+  const pendingEdits = useRef(new Map<string, string>());
+  useLayoutEffect(() => {
+    activeOwner.current = owner;
+    return () => {
+      activeOwner.current = null;
+    };
+  }, [owner]);
+  useLayoutEffect(() => {
+    const edits = pendingEdits.current;
+    return () => edits.clear();
+  }, [sessionId]);
+  const ownsUi = useCallback(
+    () =>
+      activeOwner.current === owner &&
+      useAuthStore.getState().sessionId === sessionId &&
+      (!meUserId || isCurrentAuthOwner(meUserId)),
+    [meUserId, owner, sessionId],
   );
   const pendingMaskClassResolverRef = useRef<((className: string | null) => void) | null>(null);
   useEffect(
@@ -439,14 +456,109 @@ export function useVideoAnnotationActions({
     return true;
   }, [s]);
 
-  const optimisticUpdateAnnotation = useCallback(
-    (annotationId: string, patch: { geometry?: Geometry; class_name?: string }) => {
-      if (!taskId) return;
-      queryClient.setQueryData<AnnotationResponse[]>(annotationQueryKey, (prev) =>
-        (prev ?? []).map((a) => (a.id === annotationId ? { ...a, ...patch } : a)),
-      );
+  const commitVideoEdit = useCallback(
+    (
+      annotationId: string,
+      patch: AnnotationUpdatePayload,
+      command: Command,
+      onSaved?: () => void,
+    ) => {
+      if (!taskId || !meUserId) return;
+      const id = randomId();
+      const ownsSession = () =>
+        isCurrentAuthOwner(meUserId) && useAuthStore.getState().sessionId === sessionId;
+      const key = `${owner}:${annotationId}`;
+      const isLatest = () => pendingEdits.current.get(key) === id;
+      pendingEdits.current.set(key, id);
+      let submitting = false;
+      const submit = (): boolean => {
+        if (submitting || !ownsSession() || !isLatest()) return false;
+        if (!ownsUi()) {
+          pushToast({ msg: "请返回原任务和片段后重试", kind: "warning" });
+          return false;
+        }
+        submitting = true;
+        mutations.update.mutate(
+          { annotationId, payload: patch },
+          {
+            optimistic: false,
+            onSuccess: () => {
+              history.push(command);
+              if (!isLatest()) return;
+              pendingEdits.current.delete(key);
+              if (ownsUi()) onSaved?.();
+            },
+            onError: async (error) => {
+              if (!isOfflineCandidate(error)) {
+                if (!isLatest()) return;
+                pendingEdits.current.delete(key);
+                if (ownsUi())
+                  pushToast({ msg: "视频修改未保存", sub: String(error), kind: "error" });
+                return;
+              }
+              try {
+                await enqueueDurably(
+                  {
+                    kind: "update",
+                    id,
+                    taskId,
+                    projectId,
+                    videoSegmentId,
+                    annotationId,
+                    payload: patch,
+                    ts: Date.now(),
+                  },
+                  { userId: meUserId, taskId },
+                );
+              } catch (storageError) {
+                submitting = false;
+                if (ownsSession() && isLatest())
+                  pushToast({
+                    msg: "本机保存失败，修改尚未保存",
+                    sub: String(storageError),
+                    kind: "error",
+                    retry: submit,
+                  });
+                return;
+              }
+              history.push(command);
+              if (!isLatest()) return;
+              pendingEdits.current.delete(key);
+              if (!ownsUi()) return;
+              queryClient.setQueryData<AnnotationResponse[]>(annotationQueryKey, (prev) =>
+                prev?.map((a) =>
+                  a.id === annotationId
+                    ? {
+                        ...a,
+                        ...(patch.geometry ? { geometry: patch.geometry } : {}),
+                        ...(patch.class_name !== undefined ? { class_name: patch.class_name } : {}),
+                        ...(patch.attributes !== undefined ? { attributes: patch.attributes } : {}),
+                      }
+                    : a,
+                ),
+              );
+              pushToast({ msg: "已暂存到离线队列", sub: "恢复连接后将自动同步", kind: "warning" });
+            },
+          },
+        );
+        return true;
+      };
+      submit();
     },
-    [annotationQueryKey, queryClient, taskId],
+    [
+      annotationQueryKey,
+      history,
+      meUserId,
+      mutations.update,
+      owner,
+      ownsUi,
+      projectId,
+      pushToast,
+      queryClient,
+      sessionId,
+      taskId,
+      videoSegmentId,
+    ],
   );
 
   const handleVideoCreateWithClass = useCallback(
@@ -522,7 +634,6 @@ export function useVideoAnnotationActions({
     [handleVideoCreateWithClass, s.activeClass],
   );
 
-  // 由绘制顶点新建 polygon/polyline track (单关键帧于当前帧)。
   const handleVideoPointsTrackCreateWithClass = useCallback(
     (
       type: "video_track_polygon" | "video_track_polyline",
@@ -569,7 +680,6 @@ export function useVideoAnnotationActions({
     [activeToolHasOwnClasses, handleVideoPointsTrackCreateWithClass, s],
   );
 
-  // 单帧 polygon/polyline 创建 (非 track), 与 handleVideoPointsTrackCreate 平行。
   const handleVideoPointsCreateWithClass = useCallback(
     (
       type: "video_polygon" | "video_polyline",
@@ -665,33 +775,9 @@ export function useVideoAnnotationActions({
   );
 
   const handleVideoUpdate = useCallback(
-    (ann: AnnotationResponse, geometry: VideoGeometry) => {
-      const after = { geometry };
-      const command = buildVideoUpdateCommand(ann, geometry);
-      mutations.update.mutate(
-        { annotationId: ann.id, payload: after },
-        {
-          onSuccess: () => history.push(command),
-          onError: (err) => {
-            if (isConflictError(err)) return;
-            enqueueOnError(err, () => {
-              optimisticUpdateAnnotation(ann.id, { geometry });
-              history.push(command);
-              if (taskId)
-                enqueueOwned({
-                  kind: "update",
-                  id: randomId(),
-                  taskId,
-                  annotationId: ann.id,
-                  payload: after,
-                  ts: Date.now(),
-                });
-            });
-          },
-        },
-      );
-    },
-    [enqueueOnError, enqueueOwned, history, mutations.update, optimisticUpdateAnnotation, taskId],
+    (ann: AnnotationResponse, geometry: VideoGeometry) =>
+      commitVideoEdit(ann.id, { geometry }, buildVideoUpdateCommand(ann, geometry)),
+    [commitVideoEdit],
   );
 
   const handleVideoMaskCommit = useCallback(
@@ -785,30 +871,9 @@ export function useVideoAnnotationActions({
     (ann: AnnotationResponse, className: string) => {
       const before = { class_name: ann.class_name };
       const after = { class_name: className };
-      mutations.update.mutate(
-        { annotationId: ann.id, payload: after },
-        {
-          onSuccess: () => history.push({ kind: "update", annotationId: ann.id, before, after }),
-          onError: (err) => {
-            if (isConflictError(err)) return;
-            enqueueOnError(err, () => {
-              optimisticUpdateAnnotation(ann.id, { class_name: className });
-              history.push({ kind: "update", annotationId: ann.id, before, after });
-              if (taskId)
-                enqueueOwned({
-                  kind: "update",
-                  id: randomId(),
-                  taskId,
-                  annotationId: ann.id,
-                  payload: after,
-                  ts: Date.now(),
-                });
-            });
-          },
-        },
-      );
+      commitVideoEdit(ann.id, after, { kind: "update", annotationId: ann.id, before, after });
     },
-    [enqueueOnError, enqueueOwned, history, mutations.update, optimisticUpdateAnnotation, taskId],
+    [commitVideoEdit],
   );
 
   const handleVideoBatchRename = useCallback(
@@ -823,7 +888,7 @@ export function useVideoAnnotationActions({
       let failed = 0;
       const commands: Extract<Command, { kind: "update" }>[] = [];
 
-      targets.forEach((ann) => {
+      targets.forEach((ann, index) => {
         const before = { class_name: ann.class_name };
         const after = { class_name: className };
         mutations.update.mutate(
@@ -831,7 +896,7 @@ export function useVideoAnnotationActions({
           {
             onSuccess: () => {
               succeeded++;
-              commands.push({ kind: "update", annotationId: ann.id, before, after });
+              commands[index] = { kind: "update", annotationId: ann.id, before, after };
             },
             onError: () => {
               failed++;
@@ -839,7 +904,8 @@ export function useVideoAnnotationActions({
             onSettled: () => {
               pending--;
               if (pending !== 0) return;
-              if (commands.length > 0) history.pushBatch(commands);
+              history.pushBatch(commands.filter(Boolean));
+              if (!ownsUi()) return;
               if (succeeded > 0) {
                 s.setActiveClass(className);
                 recordRecentClass(className);
@@ -854,7 +920,7 @@ export function useVideoAnnotationActions({
         );
       });
     },
-    [history, mutations.update, pushToast, recordRecentClass, s],
+    [history, mutations.update, ownsUi, pushToast, recordRecentClass, s],
   );
 
   const handleVideoBatchDelete = useCallback(
@@ -867,11 +933,11 @@ export function useVideoAnnotationActions({
       let failed = 0;
       const commands: Extract<Command, { kind: "delete" }>[] = [];
 
-      targets.forEach((ann) => {
+      targets.forEach((ann, index) => {
         mutations.delete.mutate(ann.id, {
           onSuccess: () => {
             succeeded++;
-            commands.push({ kind: "delete", annotation: ann });
+            commands[index] = { kind: "delete", annotation: ann };
           },
           onError: () => {
             failed++;
@@ -879,7 +945,8 @@ export function useVideoAnnotationActions({
           onSettled: () => {
             pending--;
             if (pending !== 0) return;
-            if (commands.length > 0) history.pushBatch(commands);
+            history.pushBatch(commands.filter(Boolean));
+            if (!ownsUi()) return;
             pushToast({
               msg: `已删除 ${succeeded}/${targets.length} 条轨迹`,
               sub: failed ? `${failed} 项失败` : undefined,
@@ -890,15 +957,13 @@ export function useVideoAnnotationActions({
         });
       });
     },
-    [history, mutations.delete, pushToast, s],
+    [history, mutations.delete, ownsUi, pushToast, s],
   );
 
   const handleVideoSetSelectedClass = useCallback(
     (className: string) => {
       if (!s.selectedId) return false;
       const ann = annotationsRef.current.find((a) => a.id === s.selectedId);
-      // 放宽到全部视频几何 (单帧 bbox/polygon/polyline/rotated + bbox/polygon/polyline track):
-      // 改类走 handleVideoRename (仅动 class_name, 类型无关), 快捷改类不再对点集几何静默失效。
       if (!ann || !(isAnyVideoSingleFrame(ann) || isAnyVideoTrack(ann))) return false;
       if (ann.class_name === className) return true;
       handleVideoRename(ann, className);
@@ -917,8 +982,7 @@ export function useVideoAnnotationActions({
           description: "长视频可能生成大量独立框。",
           confirmLabel: "继续",
         });
-        if (!confirmed) return;
-        // 等待决定期间轨迹可能已被删除;目标不存在则放弃本次转换。
+        if (!confirmed || !ownsUi()) return;
         if (!annotationsRef.current.some((item) => item.id === ann.id)) return;
       }
       try {
@@ -928,23 +992,27 @@ export function useVideoAnnotationActions({
           frame_index: options.frameIndex,
           frame_mode: options.frameMode ?? "keyframes",
         });
-        queryClient.setQueryData<AnnotationResponse[]>(annotationQueryKey, (prev) => {
-          const base = (prev ?? []).filter(
-            (item) => !result.created_annotations.some((created) => created.id === item.id),
-          );
-          const withoutSource = result.deleted_source
-            ? base.filter((item) => item.id !== ann.id)
-            : base;
-          const updatedSource = result.source_annotation
-            ? withoutSource.map((item) => (item.id === ann.id ? result.source_annotation! : item))
-            : withoutSource;
-          return [...updatedSource, ...result.created_annotations];
-        });
+        const canPublish = ownsUi();
+        if (canPublish) {
+          queryClient.setQueryData<AnnotationResponse[]>(annotationQueryKey, (prev) => {
+            const base = (prev ?? []).filter(
+              (item) => !result.created_annotations.some((created) => created.id === item.id),
+            );
+            const withoutSource = result.deleted_source
+              ? base.filter((item) => item.id !== ann.id)
+              : base;
+            const updatedSource = result.source_annotation
+              ? withoutSource.map((item) => (item.id === ann.id ? result.source_annotation! : item))
+              : withoutSource;
+            return [...updatedSource, ...result.created_annotations];
+          });
+        }
         const commands: LeafCommand[] = result.created_annotations.map((created) => ({
           kind: "create",
           annotationId: created.id,
           payload: {
             annotation_type: created.annotation_type,
+            tool_unit_id: created.tool_unit_id ?? undefined,
             class_name: created.class_name,
             geometry: created.geometry,
             confidence: created.confidence ?? undefined,
@@ -953,7 +1021,7 @@ export function useVideoAnnotationActions({
         }));
         if (result.deleted_source) {
           commands.push({ kind: "delete", annotation: ann });
-          s.setSelectedId(null);
+          if (canPublish) s.setSelectedId(null);
         } else if (
           result.source_annotation &&
           result.source_annotation.geometry.type === "video_track_bbox"
@@ -964,15 +1032,19 @@ export function useVideoAnnotationActions({
             before: { geometry: ann.geometry },
             after: { geometry: result.source_annotation.geometry },
           });
-          s.setSelectedId(result.source_annotation.id);
+          if (canPublish) s.setSelectedId(result.source_annotation.id);
         }
         history.pushBatch(commands);
-        pushToast({ msg: `已生成 ${result.created_annotations.length} 个独立框`, kind: "success" });
+        if (canPublish)
+          pushToast({
+            msg: `已生成 ${result.created_annotations.length} 个独立框`,
+            kind: "success",
+          });
       } catch (err) {
-        pushToast({ msg: "轨迹转换失败", sub: String(err), kind: "error" });
+        if (ownsUi()) pushToast({ msg: "轨迹转换失败", sub: String(err), kind: "error" });
       }
     },
-    [annotationQueryKey, annotationsRef, history, pushToast, queryClient, s, taskId],
+    [annotationQueryKey, annotationsRef, history, ownsUi, pushToast, queryClient, s, taskId],
   );
 
   const handleVideoComposeTracks = useCallback(
@@ -987,6 +1059,8 @@ export function useVideoAnnotationActions({
           delete_sources: options.deleteSources,
           gap_mode: options.gapMode,
         });
+        history.pushBatch(buildVideoCompositionCommands(before, result));
+        if (!ownsUi()) return;
         queryClient.setQueryData<AnnotationResponse[]>(annotationQueryKey, (prev) => {
           const deleted = new Set(result.deleted_annotation_ids);
           const updatedById = new Map(result.updated_annotations.map((ann) => [ann.id, ann]));
@@ -1001,7 +1075,6 @@ export function useVideoAnnotationActions({
             ...result.created_annotations,
           ];
         });
-        history.pushBatch(buildVideoCompositionCommands(before, result));
         const nextSelected =
           result.created_annotations[0]?.id ?? result.updated_annotations[0]?.id ?? null;
         s.setSelectedId(nextSelected);
@@ -1015,49 +1088,21 @@ export function useVideoAnnotationActions({
                 : "轨迹已合并";
         pushToast({ msg: label, kind: "success" });
       } catch (err) {
-        pushToast({ msg: "轨迹组合失败", sub: String(err), kind: "error" });
+        if (ownsUi()) pushToast({ msg: "轨迹组合失败", sub: String(err), kind: "error" });
       }
     },
-    [annotationQueryKey, annotationsRef, history, pushToast, queryClient, s, taskId],
+    [annotationQueryKey, annotationsRef, history, ownsUi, pushToast, queryClient, s, taskId],
   );
 
-  // track 级属性默认值: 写入 annotation.attributes (顶层)。复用既有
-  // update mutation + offline 回退路径 (同 handleVideoRename 风格), undo 用 update 命令。
   const handleUpdateTrackAttributes = useCallback(
     (ann: AnnotationResponse, attributes: Record<string, unknown>) => {
       const before = { attributes: ann.attributes };
       const after = { attributes };
-      mutations.update.mutate(
-        { annotationId: ann.id, payload: after },
-        {
-          onSuccess: () => history.push({ kind: "update", annotationId: ann.id, before, after }),
-          onError: (err) => {
-            if (isConflictError(err)) return;
-            enqueueOnError(err, () => {
-              queryClient.setQueryData<AnnotationResponse[]>(
-                ["annotations", taskId ?? ""],
-                (prev) => (prev ?? []).map((a) => (a.id === ann.id ? { ...a, attributes } : a)),
-              );
-              history.push({ kind: "update", annotationId: ann.id, before, after });
-              if (taskId)
-                enqueueOwned({
-                  kind: "update",
-                  id: randomId(),
-                  taskId,
-                  annotationId: ann.id,
-                  payload: after,
-                  ts: Date.now(),
-                });
-            });
-          },
-        },
-      );
+      commitVideoEdit(ann.id, after, { kind: "update", annotationId: ann.id, before, after });
     },
-    [enqueueOnError, enqueueOwned, history, mutations.update, queryClient, taskId],
+    [commitVideoEdit],
   );
 
-  // 当前帧逐帧覆盖: 写入该帧 keyframe.attributes。复用 upsertKeyframe (保留当前帧框)
-  // + handleVideoUpdate (geometry 单条 keyframe 变化 → videoKeyframe undo 命令)。
   const handleUpdateKeyframeAttributes = useCallback(
     (ann: AnnotationResponse, frameIndex: number, attributes: Record<string, unknown>) => {
       if (ann.geometry.type !== "video_track_bbox") return;
@@ -1070,7 +1115,6 @@ export function useVideoAnnotationActions({
     [handleVideoUpdate],
   );
 
-  // Propagate: 把 fromFrame 处框复制到后续/向前 N 帧, 合成单条 undo 命令。
   const handlePropagateKeyframe = useCallback(
     (
       ann: AnnotationResponse,
@@ -1090,15 +1134,16 @@ export function useVideoAnnotationActions({
         pushToast({ msg: "无可铺设的帧", kind: "warning" });
         return;
       }
-      handleVideoUpdate(ann, next);
-      const added = next.keyframes.length - track.keyframes.length;
-      pushToast({
-        msg: `已传播到 ${count} 帧`,
-        sub: added > 0 ? `新增 ${added} 个关键帧` : undefined,
-        kind: "success",
+      commitVideoEdit(ann.id, { geometry: next }, buildVideoUpdateCommand(ann, next), () => {
+        const added = next.keyframes.length - track.keyframes.length;
+        pushToast({
+          msg: `已传播到 ${count} 帧`,
+          sub: added > 0 ? `新增 ${added} 个关键帧` : undefined,
+          kind: "success",
+        });
       });
     },
-    [handleVideoUpdate, pushToast],
+    [commitVideoEdit, pushToast],
   );
 
   return {

@@ -115,7 +115,6 @@ class ExportOutput(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    # Snapshots have no FK: cache, project or job deletion must retain cleanup facts.
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     media_bundle_id: Mapped[uuid.UUID | None] = mapped_column(

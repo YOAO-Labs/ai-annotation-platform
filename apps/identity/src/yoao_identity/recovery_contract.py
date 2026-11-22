@@ -1065,8 +1065,6 @@ def decode_native_recovery_reply(
             "consume_password_reset",
             "consume_email_verification",
         }:
-            # A consumed inactive reset is valid with completed=false. The DB may
-            # return a fresh actor summary or null for invalid/deleted targets.
             pass
         return reply
     except RecoveryFailure:

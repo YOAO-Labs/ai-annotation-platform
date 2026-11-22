@@ -8,7 +8,6 @@ import { copyToClipboard } from "@/lib/clipboard";
 
 vi.mock("@/lib/clipboard", () => ({ copyToClipboard: vi.fn().mockResolvedValue(true) }));
 
-/** 结算当前排队的 decisionDialog,模拟用户点下某个按钮。 */
 function settleDecisionDialog(value: boolean | string | null) {
   const head = useDecisionDialogStore.getState().queue[0];
   if (!head) throw new Error("decisionDialog 队列为空");
@@ -173,7 +172,6 @@ function props(overrides: Partial<MaskQcPanelProps> = {}): MaskQcPanelProps {
 }
 
 afterEach(() => {
-  // decisionDialog store 是模块级单例,清空队列避免跨测试残留。
   act(() => {
     useDecisionDialogStore.setState({ queue: [] });
   });
@@ -449,7 +447,6 @@ describe("MaskQcPanel", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "区域接受" }));
-    // 区域决定前弹应用内确认;确认后才提交。
     await waitFor(() => expect(useDecisionDialogStore.getState().queue[0]).toBeDefined());
     act(() => settleDecisionDialog(true));
     await waitFor(() => {

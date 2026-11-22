@@ -226,7 +226,6 @@ class _VideoTrackerCeleryWorker(WorkspaceInferenceCeleryWorker):
 
     def __init__(self, *args, media_url: str, media_token: str, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        # The production dispatcher targets the isolated verifier's gpu queue.
         self.queue = "gpu"
         writer_dsn = self._role_dsn(
             "AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL",

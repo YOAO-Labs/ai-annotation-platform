@@ -1,15 +1,4 @@
 #!/usr/bin/env node
-/**
- * 检查维护型正文页是否包含稳定的归属与复核 frontmatter。
- * 页面标题取自 H1；发布沿革不属于当前文档的元数据。
- * 跳过目录首页、自动生成文件、redirects/、示例源码、maintainers/ 维护材料，
- * 以及 dev/adr/、changelog/、roadmap/ 等构建期镜像。
- *
- * 用法：node docs-site/scripts/check-doc-frontmatter.mjs [--fix]
- *   --fix  在缺失字段的文件顶部插入空骨架（仅补充缺失字段，不覆盖已有值）
- *
- * CI 集成：在 docs:build 之前运行，失败则退出码 1。
- */
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, extname, basename } from "node:path";
@@ -84,10 +73,8 @@ function checkFile(filePath) {
   const content = readFileSync(filePath, "utf8");
 
   if (SKIP_PATHS.has(rel)) return;
-  // Skip auto-generated files
   if (SKIP_GENERATED.test(filePath)) return;
 
-  // Landing pages may rely on their visible H1 and do not need maintenance metadata.
   if (basename(filePath) === "index.md" && !content.startsWith("---")) return;
 
   checked++;
@@ -109,7 +96,6 @@ function checkFile(filePath) {
   if (missing.length > 0) {
     if (fix) {
       const extra = buildSkeletonFrontmatter(fm);
-      // Insert missing fields after opening ---
       const fmBlock = extra.replace(/^---\n/, "").replace(/\n---\n$/, "");
       const insertAfter = content.indexOf("\n---", 3);
       const newContent =

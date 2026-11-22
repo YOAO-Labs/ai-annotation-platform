@@ -18,12 +18,10 @@ from app.db.models.user import User
 from app.services.project_access import is_privileged_for_project
 from app.services.identity_contracts import IdentityActorFacts
 
-# owner-only 逆向迁移白名单。命中时必须传 reason（1-500 字），写入 audit_log.detail_json.reason。
 REVERSE_TRANSITIONS: set[tuple[str, str]] = {
     (BatchStatus.ARCHIVED, BatchStatus.ACTIVE),
     (BatchStatus.APPROVED, BatchStatus.REVIEWING),
     (BatchStatus.REJECTED, BatchStatus.REVIEWING),
-    # 丢弃 AI 预标 predictions 重置（owner 兜底，需 reason）
     (BatchStatus.PRE_ANNOTATED, BatchStatus.ACTIVE),
 }
 
@@ -59,10 +57,6 @@ def bulk_preannotation_eligible_condition(batch_model=TaskBatch):
     )
 
 
-# transition 鉴权矩阵 — (from, to) 元组 → 允许角色集合 / 特殊判定
-# 'owner' = super_admin 或项目 owner（require_project_owner 等价）
-# 'reviewer' = super_admin / project_admin(owner) / reviewer
-# 'annotator_assigned' = 标注员且 user_id == batch.annotator_id
 def _is_owner(user: User | IdentityActorFacts, project: Project) -> bool:
     """Privileged owner for the batch state machine.
 
@@ -118,7 +112,6 @@ def assert_can_transition(
     src = batch.status
     dst = target_status
 
-    # 逆向迁移（撤销归档 / 重开审核 / 跳标复审）owner-only，非 owner 直接拒
     if (src, dst) in REVERSE_TRANSITIONS:
         if not _is_owner(user, project):
             raise HTTPException(
@@ -127,35 +120,29 @@ def assert_can_transition(
             )
         return
 
-    # owner / super_admin 始终放行（包含 archived 出口、rejected 重激活）
     if _is_owner(user, project):
         return
 
-    # draft → active：仅 owner（已被上面拦截）；其他角色拒绝
     if (src, dst) == (BatchStatus.DRAFT, BatchStatus.ACTIVE):
         raise HTTPException(
             status_code=403, detail=f"{user.role} cannot transition draft -> active"
         )
 
-    # active → annotating：仅 check_auto_transitions 内部驱动；REST 一律拒绝
     if (src, dst) == (BatchStatus.ACTIVE, BatchStatus.ANNOTATING):
         raise HTTPException(
             status_code=403, detail="active -> annotating is auto-driven only"
         )
 
-    # active → pre_annotated 仅 batch_predict task 内部驱动；REST 一律拒绝
     if (src, dst) == (BatchStatus.ACTIVE, BatchStatus.PRE_ANNOTATED):
         raise HTTPException(
             status_code=403, detail="active -> pre_annotated is auto-driven only"
         )
 
-    # pre_annotated → annotating 与 active 同语义，scheduler 内部驱动
     if (src, dst) == (BatchStatus.PRE_ANNOTATED, BatchStatus.ANNOTATING):
         raise HTTPException(
             status_code=403, detail="pre_annotated -> annotating is auto-driven only"
         )
 
-    # annotating → reviewing：标注员（被分派）可主动整批提交质检
     if (src, dst) == (BatchStatus.ANNOTATING, BatchStatus.REVIEWING):
         if _is_annotator_assigned(user, batch, project_role):
             return
@@ -164,9 +151,6 @@ def assert_can_transition(
             detail=f"{user.role} cannot transition annotating -> reviewing",
         )
 
-    # active / annotating → rejected：整批退回（reviewer / owner）。批次尚未整批送审
-    # （review_tasks > 0 但状态仍是 active/annotating）时，审核页同样提供整批退回入口。
-    # 通用 /transition 仍受 VALID_TRANSITIONS 限制，只有专用 /reject 端点会执行该迁移。
     if dst == BatchStatus.REJECTED and src in (
         BatchStatus.ACTIVE,
         BatchStatus.ANNOTATING,
@@ -177,7 +161,6 @@ def assert_can_transition(
             status_code=403, detail=f"{user.role} cannot reject batch from {src}"
         )
 
-    # reviewing → approved / rejected：reviewer
     if src == BatchStatus.REVIEWING and dst in (
         BatchStatus.APPROVED,
         BatchStatus.REJECTED,
@@ -188,17 +171,14 @@ def assert_can_transition(
             status_code=403, detail=f"{user.role} cannot transition reviewing -> {dst}"
         )
 
-    # rejected → active：仅 owner（已被上面拦截）
     if (src, dst) == (BatchStatus.REJECTED, BatchStatus.ACTIVE):
         raise HTTPException(
             status_code=403, detail=f"{user.role} cannot reactivate rejected batch"
         )
 
-    # 任意 → archived：仅 owner（已被上面拦截）
     if dst == BatchStatus.ARCHIVED:
         raise HTTPException(status_code=403, detail=f"{user.role} cannot archive batch")
 
-    # approved → 其他：仅 archived 合法（VALID_TRANSITIONS 已限），owner 已放行；其他拒
     raise HTTPException(
         status_code=403, detail=f"{user.role} cannot transition {src} -> {dst}"
     )

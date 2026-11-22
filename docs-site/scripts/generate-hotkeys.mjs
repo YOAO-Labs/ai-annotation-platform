@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// 从 apps/web/src/pages/Workbench/state/hotkeys.ts 中的 HOTKEYS 数组 + HOTKEY_CATEGORY_LABEL
-// 生成 docs-site/user-guide/workbench/hotkeys.generated.md。
-// 在 docs:dev / docs:build 之前自动执行。
-//
-// 使用项目已有 TypeScript parser 读取字面量，校验命令 ID 与元数据；不执行源码。
-// 解析失败会报错退出，让漂移问题暴露在 CI 而不是文档站静默错乱。
 
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -18,7 +12,6 @@ const dst = resolve(here, "../user-guide/workbench/hotkeys.generated.md");
 
 const text = readFileSync(src, "utf8");
 
-// 2. Read complete records, including id / category / stages / applies metadata.
 const ts = createRequire(src)("typescript");
 const sourceFile = ts.createSourceFile(src, text, ts.ScriptTarget.Latest, true);
 const declaration = sourceFile.statements
@@ -88,7 +81,6 @@ const items = declaration.initializer.elements.map((node) => {
 });
 if (items.length === 0) throw new Error("HOTKEYS is empty");
 
-// 3. 找 HOTKEY_CATEGORY_LABEL / HOTKEY_STAGE_LABEL
 const categoryLabel = readLabelMap("HOTKEY_CATEGORY_LABEL");
 const stageLabel = readLabelMap("HOTKEY_STAGE_LABEL");
 
@@ -104,11 +96,9 @@ function readLabelMap(name) {
   return map;
 }
 
-// 4. 按 category 输出
 const categoryOrder = ["draw", "selection", "canvas", "ai", "playback", "task", "mouse", "threed"];
 const byCategory = new Map();
 for (const it of items) {
-  // common 是精选视图：条目按其 home 分类归档，常用行另外汇总到开头。
   const home = it.category === "common" ? "common" : it.category;
   if (!byCategory.has(home)) byCategory.set(home, []);
   byCategory.get(home).push(it);

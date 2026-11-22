@@ -192,7 +192,6 @@ it("rejects delayed source A after choosing B and A again", async () => {
   await waitFor(() => expect(trainingRunsApi.initializationSource).toHaveBeenCalledTimes(1));
   const user = userEvent.setup();
   await user.selectOptions(screen.getByLabelText("初始化权重"), "");
-  // The original off-page ID remains explicitly available only while selected.
   vi.mocked(trainedModelsApi.list).mockResolvedValue({
     total: 1,
     items: [{ id: modelId, name: "候选 A", framework: "ultralytics" }],

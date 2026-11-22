@@ -1,7 +1,6 @@
 import { useRef, useState } from "react";
 import { DEFAULT_LIST_PAGE_SIZE } from "@/components/ui/ListPagination";
 
-/** Page state owned by a query scope, never by a retired asynchronous request. */
 export function useListPageState(scope: string) {
   const [state, setState] = useState({ scope, page: 0, pageSize: DEFAULT_LIST_PAGE_SIZE });
   const owner = useRef(scope);

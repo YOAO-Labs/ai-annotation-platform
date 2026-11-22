@@ -72,15 +72,12 @@ function BatchActionButton({
   );
 }
 
-// success-colored Button 覆盖类(Button 无 success variant) — 对齐 Button danger/ai variant 风格
 const SUCCESS_BTN =
   "border-emerald-500/30 bg-status-positive-soft text-status-positive hover:bg-emerald-500/15";
 
 const STATUS_LABELS: Record<string, string> = {
   draft: "草稿",
   active: "激活",
-  // B-33 · 补全 pre_annotated 标签 — 之前缺失导致列表回退为原文"pre_annotated",
-  // 重置后若数据短暂残留或被误读为状态未变,容易让人以为重置未生效
   pre_annotated: "AI 预标已就绪",
   annotating: "标注中",
   reviewing: "审核中",
@@ -111,7 +108,6 @@ const BULK_LABEL: Record<BulkActionKind, string> = {
   reject: "驳回",
 };
 
-// 逆向迁移（owner 专属）。原 ReverseTransitionModal 的文案随 plan T2 迁移 inputDialog 一并收编。
 type ReverseKind = "unarchive" | "reopen_from_approved" | "reopen_from_rejected";
 
 const REVERSE_COPY: Record<
@@ -146,12 +142,10 @@ const REVERSE_COPY: Record<
   },
 };
 
-/** 未送审任务 = pending + in_progress（rejected 需先重做，不计入整批送审）。 */
 function hasUnsubmittedTasks(batch: BatchResponse): boolean {
   return batch.total_tasks - batch.review_tasks - batch.completed_tasks - batch.rejected_tasks > 0;
 }
 
-/** 与标注页一致：annotating / reviewing 且仍有未送审任务时才提供整批送审。 */
 function canSubmitReview(batch: BatchResponse): boolean {
   return (
     hasUnsubmittedTasks(batch) && (batch.status === "annotating" || batch.status === "reviewing")
@@ -160,7 +154,6 @@ function canSubmitReview(batch: BatchResponse): boolean {
 
 export function BatchesSection({ project }: { project: ProjectResponse }) {
   const pushToast = useToastStore((s) => s.push);
-  // 后端 batch 状态变更 (transition / auto_transition) 实时刷新本页列表
   useBatchEventsSocket(project.id);
   const { data: batches = [], isLoading } = useBatches(project.id);
   const pagination = useListPagination(batches, project.id);
@@ -187,7 +180,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
   const [namePrefix, setNamePrefix] = useState("Batch");
   const [shuffle, setShuffle] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState<BatchResponse | null>(null);
-  // 删批次保护：含进行中成果/已预标时后端 409，弹此框让用户确认强制删除
   const [forceDelete, setForceDelete] = useState<{
     batch: BatchResponse;
     nonPending: number;
@@ -196,10 +188,8 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
   } | null>(null);
   const [assignTarget, setAssignTarget] = useState<BatchResponse | null>(null);
   const [distributeOpen, setDistributeOpen] = useState(false);
-  // 浏览未归类任务池
   const [browseUnbatched, setBrowseUnbatched] = useState(false);
 
-  // 多选批量操作
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmBulk, setConfirmBulk] = useState<BulkActionKind | null>(null);
   const [reassignOpen, setReassignOpen] = useState(false);
@@ -209,11 +199,8 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
   } | null>(null);
   const [resultExpanded, setResultExpanded] = useState(false);
 
-  // 操作历史抽屉（逆向迁移 / 重置 / 驳回 / 锁定在 plan T2 已迁移 inputDialog，
-  // 目标批次以点击时的局部快照传入 async handler，不再需要 open state）
   const [auditTarget, setAuditTarget] = useState<BatchResponse | null>(null);
 
-  // view toggle [list | kanban] + URL ?batch_view=kanban 持久化
   const [searchParams, setSearchParams] = useSearchParams();
   const view = (searchParams.get("batch_view") === "kanban" ? "kanban" : "list") as
     | "list"
@@ -352,7 +339,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
 
   const renderBulkResultRow = (item: { batch_id: string; reason: string }) => {
     const b = idToBatch.get(item.batch_id);
-    // requires_force 的批次含进行中成果/已预标，批量删除默认跳过
     const reason =
       item.reason === "requires_force"
         ? "含进行中成果/已预标，未删除（可单独强制删除）"
@@ -376,8 +362,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // B5 兜底：一键把全部未归类任务注入 1 个批次（random split, n_batches=1）。
-  // 十万级导入后无需手动选 N，直接让任务进入工作流。
   const handleCreateAll = () => {
     splitBatches.mutate(
       { strategy: "random", n_batches: 1, shuffle: false, name_prefix: "全部未归类", priority: 50 },
@@ -393,8 +377,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // scene 模式项目只能按 scene 建包：未归类任务(向导自动分包之外的后补/回归任务,
-  // 如删包后回归、追加 scene 数据集)按 by_scene 一键重分。name_prefix 与向导一致用 "Scene"。
   const handleCreateByScene = () => {
     splitBatches.mutate(
       { strategy: "by_scene", name_prefix: "Scene", priority: 50 },
@@ -434,7 +416,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // 批次驳回（原 RejectBatchModal，plan T2 迁移 inputDialog，copy 原样保留）。
   const handleRejectBatch = async (batch: BatchResponse) => {
     if (rejectBatch.isPending) return;
     const feedback = await inputDialog({
@@ -449,7 +430,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
       confirmLabel: "确认驳回",
     });
     if (!feedback) return;
-    // batch 为点击时的快照，async-await gap 后提交目标不变
     rejectBatch.mutate(
       { batchId: batch.id, feedback },
       {
@@ -459,7 +439,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // owner 逆向迁移（原 ReverseTransitionModal，plan T2 迁移 inputDialog）。
   const handleReverseTransition = async (batch: BatchResponse, kind: ReverseKind) => {
     if (transitionBatch.isPending) return;
     const copy = REVERSE_COPY[kind];
@@ -482,8 +461,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // owner 终极重置到 draft（原 ResetBatchModal，plan T2 迁移 inputDialog；
-  // 原警告块的列表文案并入 description，≥10 字下限走 validate）。
   const handleResetBatch = async (batch: BatchResponse) => {
     if (resetBatch.isPending) return;
     const reason = await inputDialog({
@@ -507,7 +484,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // ADR-0008 admin-lock（原 AdminLockModal，plan T2 迁移 inputDialog）。
   const handleAdminLockPrompt = async (batch: BatchResponse) => {
     if (adminLock.isPending) return;
     const reason = await inputDialog({
@@ -525,7 +501,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
     handleAdminLock(batch, reason);
   };
 
-  // 整批送审与标注页共用同一端点：提交批次内所有未送审任务，而不是只改批次状态。
   const handleSubmitReview = (batch: BatchResponse) => {
     submitBatchReview.mutate(batch.id, {
       onSuccess: (result) =>
@@ -549,7 +524,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
           setForceDelete(null);
         },
         onError: (e) => {
-          // 409 requires_force：含进行中成果/已预标 → 弹保护框让用户确认强制删除
           const err = e as { status?: number; detailRaw?: Record<string, unknown> };
           if (err.status === 409 && err.detailRaw?.requires_force) {
             setConfirmDelete(null);
@@ -573,7 +547,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border px-4 py-3.5">
           <h3 className="text-sm font-semibold">批次管理</h3>
           <div className="flex flex-wrap items-center gap-1.5">
-            {/* view toggle */}
             <div
               role="tablist"
               aria-label="批次视图"
@@ -607,7 +580,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
               <Icon name="users" />
               按项目分派批次
             </Button>
-            {/* scene 模式项目分包只能 by scene：头部入口也走 by_scene，不开 random modal。 */}
             <Button
               size="sm"
               variant="ghost"
@@ -628,7 +600,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
           <div className="p-8 text-center text-sm text-muted-foreground">暂无批次</div>
         )}
 
-        {/* 未归类任务横带（关联数据集后但还没切分到 batch 的 task） */}
         {unclassifiedCount > 0 && (
           <div className="flex items-center gap-3 border-b border-border bg-status-caution-soft px-4 py-2 text-sm">
             <Icon name="info" size={14} />
@@ -637,8 +608,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
               （数据集已关联但尚未划分到批次）。
             </span>
             {isOwner &&
-              // scene 模式项目只能按 scene 建包：隐藏 random 系入口(一键全量/去分包),
-              // 仅留「按 scene 建包」,与向导自动分包同策略,保证批次边界对齐 scene。
               (project.scene_mode ? (
                 <Button
                   onClick={handleCreateByScene}
@@ -677,7 +646,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
           </div>
         )}
 
-        {/* 多选浮层操作条（仅 owner 可见） */}
         {isOwner && selectedCount > 0 && (
           <div className="flex items-center gap-3 border-b border-border bg-brand/10 px-4 py-2 text-sm">
             <span>
@@ -717,7 +685,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
           </div>
         )}
 
-        {/* 上次批量操作结果（partial-success） */}
         {bulkResult && (
           <div className="block border-b border-border bg-muted px-4 py-2 text-xs">
             <div className="flex items-center gap-2">
@@ -939,7 +906,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                             title="重新激活"
                           />
                         )}
-                        {/* owner 专属逆向迁移按钮 */}
                         {isOwner && b.status === "rejected" && (
                           <BatchActionButton
                             icon="refresh"
@@ -964,7 +930,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                             title="撤销归档"
                           />
                         )}
-                        {/* owner 终极重置到 draft（任意非 draft 状态） */}
                         {isOwner && b.status !== "draft" && (
                           <BatchActionButton
                             icon="refresh"
@@ -989,14 +954,12 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
                             title="删除"
                           />
                         )}
-                        {/* 操作历史抽屉 */}
                         <BatchActionButton
                           icon="clock"
                           label="操作历史"
                           onClick={() => setAuditTarget(b)}
                           title="操作历史"
                         />
-                        {/* ADR-0008 admin-lock */}
                         {isOwner && !b.admin_locked && (
                           <BatchActionButton
                             icon="lock"
@@ -1045,7 +1008,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       </Card>
 
-      {/* 创建批次 Modal */}
       <Modal open={showCreate} title="创建批次" onClose={() => setShowCreate(false)}>
         <div className="flex flex-col gap-4 px-1">
           <label className="flex flex-col gap-1 text-sm">
@@ -1109,7 +1071,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         </div>
       </Modal>
 
-      {/* 删除确认 */}
       <Modal open={!!confirmDelete} title="确认删除" onClose={() => setConfirmDelete(null)}>
         <div className="text-sm">
           <p>
@@ -1125,7 +1086,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         </div>
       </Modal>
 
-      {/* 删除保护：含进行中成果/已预标 → 强制删除确认 */}
       <Modal open={!!forceDelete} title="该批次有进行中的成果" onClose={() => setForceDelete(null)}>
         <div className="text-sm">
           <p>
@@ -1153,7 +1113,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         </div>
       </Modal>
 
-      {/* B-12-②：分派 Modal */}
       {assignTarget && (
         <BatchAssignmentModal
           projectId={project.id}
@@ -1162,7 +1121,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       )}
 
-      {/* 项目级 batch 分派 Modal */}
       {distributeOpen && (
         <ProjectDistributeBatchesModal
           projectId={project.id}
@@ -1170,7 +1128,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       )}
 
-      {/* 批量操作二次确认 Modal */}
       <Modal
         open={
           confirmBulk === "archive" ||
@@ -1230,7 +1187,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         </div>
       </Modal>
 
-      {/* 批量改派 Modal */}
       {reassignOpen && (
         <ProjectDistributeBatchesModal
           projectId={project.id}
@@ -1239,7 +1195,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       )}
 
-      {/* 操作历史抽屉 */}
       {auditTarget && (
         <BatchAuditLogDrawer
           projectId={project.id}
@@ -1248,7 +1203,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       )}
 
-      {/* 浏览未归类任务池（虚拟滚动） */}
       {browseUnbatched && (
         <UnbatchedTasksModal
           projectId={project.id}
@@ -1257,7 +1211,6 @@ export function BatchesSection({ project }: { project: ProjectResponse }) {
         />
       )}
 
-      {/* 批量驳回 Modal */}
       {confirmBulk === "reject" && (
         <BulkRejectModal
           count={selectedCount}

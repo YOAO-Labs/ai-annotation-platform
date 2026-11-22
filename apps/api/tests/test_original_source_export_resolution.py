@@ -336,7 +336,6 @@ async def test_bounded_replica_query_masks_large_metadata_and_reads_at_most_two(
     assert len(await sources._replicas(db, uuid.uuid4(), lock, bounded=True)) == 2
     query = db.statements[0]
     assert query._limit_clause.value == 2
-    # Raw locator/ETag columns must never cross the bounded read boundary.
     assert all(
         column is not DatasetAssetLocation.__table__.c.etag
         and column is not DatasetAssetLocation.__table__.c.storage_ref
@@ -347,7 +346,6 @@ async def test_bounded_replica_query_masks_large_metadata_and_reads_at_most_two(
     assert "CASE WHEN (octet_length(dataset_asset_locations.etag) <=" in sql
     assert "THEN dataset_asset_locations.etag END AS etag" in sql
     assert "octet_length(dataset_asset_locations.etag) >" in sql
-    # The saved JSON locator is masked by the same bounded CASE treatment.
     assert "THEN dataset_asset_locations.storage_ref END AS storage_ref" in sql
     assert 1024 in compiled.params.values()
     assert 8192 in compiled.params.values()
@@ -518,7 +516,6 @@ async def test_bounded_relation_rejects_overflow_before_source_or_cache(
     if lock:
         assert query._for_update_arg.read and query._for_update_arg.nowait
         assert db.events == ["begin", "rollback"]
-    # The default canonical resolver still reads every link.
     full = await sources._relation(db, current.task_id, lock)
     assert full == current and db.statements[-1]._limit_clause is None
 
@@ -675,8 +672,6 @@ async def test_database_projection_reads_fresh_facts_without_rehydrating_json(
         set(inspect(task).unloaded),
         set(inspect(item).unloaded),
     )
-    # The first, budgeted hydration is already in the caller's identity map.
-    # A concurrent writer changes both a required scalar and excluded JSON.
     async with async_sessionmaker(db.bind, expire_on_commit=False)() as writer:
         await writer.execute(
             update(Task).where(Task.id == task_id).values(tags=["x" * 131_072])
@@ -757,7 +752,6 @@ async def test_database_link_growth_is_rejected_before_item_read_and_cache(
     )
     assert await db.scalar(select(1)) == 1
     monkeypatch.setattr(sources, "_item", original_item)
-    # Existing unbounded callers preserve complete canonical relation facts.
     complete = await sources.CachedResolver(db, lock=lock).task(task_id)
     assert len(complete.relation.links) == 2
 
@@ -798,8 +792,6 @@ async def test_database_bounded_source_rejects_large_etag_without_truncation(
     assert not any(
         (resolver._relations, resolver._links, resolver._items, resolver._tasks)
     )
-    # Existing callers keep the exact saved identity; bounded mode never
-    # accepts a truncated ETag or substitutes a current bucket locator.
     expected = await sources.CachedResolver(db, lock=lock).task(task.id)
     assert expected.replica_facts.etag == etag
     assert expected.bucket == replica.bucket
@@ -1036,8 +1028,6 @@ async def test_database_compact_task_original_rejects_any_link(
     assert await resolver.task(task.id) == expected
     assert original_client.calls == calls
     camera, _, _, _ = await dataset_rows(db)
-    # The per-test schema owns its triggers. Inject legacy corruption explicitly
-    # because the current writer already rejects this independent-owner clash.
     await db.execute(
         text(
             "ALTER TABLE task_dataset_item_links "

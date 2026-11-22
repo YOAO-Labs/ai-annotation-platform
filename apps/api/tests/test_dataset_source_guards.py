@@ -352,7 +352,6 @@ async def test_whole_dataset_guard_preserves_scene_and_quality_history(
     await db_session.flush()
 
     assert await _guard(db_session, _GUARD_LABELING, dataset.id, None) == _blocked()
-    # Scene-owned evidence does not retain a different item in the dataset.
     assert (
         await _guard(db_session, _GUARD_LABELING, dataset.id, uuid.uuid4()) == _clear()
     )
@@ -424,8 +423,6 @@ async def test_item_guard_fails_closed_for_active_current_task_creation(
     assert await _guard(db_session, _GUARD_LABELING, dataset.id, item.id) == _blocked(
         "creation_in_progress"
     )
-    # Whole-dataset deletion explicitly revokes associations/jobs in its owner
-    # coordinator, so this guard only protects an individual source item.
     assert await _guard(db_session, _GUARD_LABELING, dataset.id, None) == _clear()
 
     await db_session.delete(association)

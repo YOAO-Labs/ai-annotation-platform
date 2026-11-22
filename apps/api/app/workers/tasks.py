@@ -47,9 +47,6 @@ async def _mark_job_failed(celery_task_id: str, error_message: str) -> bool:
                 return job.status == "failed"
             digest = (job.payload or {}).get("preannotation_request_digest")
             if isinstance(digest, str):
-                # A broker task ID cannot prove the request digest or current
-                # lease owner. Only the fenced workflow may terminalize a bound
-                # Job, including a rejected delivery before its first claim.
                 return False
             if (job.payload or {}).get("cancel_requested"):
                 await async_job_svc.mark_cancelled(db, job.id)
@@ -89,8 +86,6 @@ class _BatchPredictTask(celery_app.Task):
 @celery_app.task(
     bind=True,
     base=_BatchPredictTask,
-    # Input readiness and saved-result contention defer the same durable Job.
-    # The wait can exceed Celery's default three retries without losing output.
     max_retries=None,
     default_retry_delay=30,
     acks_late=True,

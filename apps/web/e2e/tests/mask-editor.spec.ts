@@ -1,7 +1,3 @@
-/**
- * Mask keyboard controls and refinement of the seeded prediction.
- * Native creation, persistence and re-edit are covered by the native write matrix.
- */
 import { mergeTests, type APIRequestContext } from "@playwright/test";
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
 import { test as seedTest, expect } from "../fixtures/seed";
@@ -44,7 +40,6 @@ async function maskContent(request: APIRequestContext, id: string, token: string
   return (await response.json()) as MaskContent;
 }
 
-// COCO RLE is column-major; inspect fixed source pixels without the editor codec.
 function pixel(content: MaskContent, x: number, y: number): number {
   const offset = x * content.size[0] + y;
   let end = 0;
@@ -66,7 +61,6 @@ test.describe("mask editor (I11)", { tag: "@mask-native" }, () => {
       toStatus: "pending",
       annotatorEmail: data.annotator_email,
     });
-    // 注入一条 polygon prediction
     const { prediction_id: predictionId } = await seed.injectPrediction({
       taskId,
       projectId: data.project_id,
@@ -85,22 +79,14 @@ test.describe("mask editor (I11)", { tag: "@mask-native" }, () => {
     await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
     await openPredictionRefinement(page, predictionId);
 
-    // mask 工具应激活 + buffer 已 from polygon 初始化
     await expect(page.getByTestId("mask-tool-capsule")).toBeVisible();
     await expect(page.getByTestId("mask-settings-trigger")).toHaveAttribute("title", /· 就绪 ·/);
-    // This case selects the real eraser control; keyboard behavior has its own case.
     await openMaskSettings(page);
     await page.getByTestId("mask-toolbar").getByLabel("橡皮", { exact: true }).click();
 
     const stage = page.getByTestId("workbench-stage");
     await expect(stage).toHaveAttribute("data-image-ready", "true", { timeout: 10_000 });
-    // fitted 完成前 Konva 宿主为 visibility:hidden (ImageStage konvaHostHidden),
-    // 此窗口内的 pointer 事件不会到达画布 → 一笔橡皮会被整体丢弃且不置 dirty。
     await expect(stage.locator("canvas").first()).toBeVisible({ timeout: 10_000 });
-    // 真实 E2E 图片为 64x48；默认 16px 橡皮会把约 19x14px 的候选整个擦空。
-    // 用 2px 半径从多边形内部深处向外擦出与外部连通的小缺口，既保留前景，也不制造 hole。
-    // boundingBox 取在 slider 之后：slider blur 触发工具栏重渲染，先取 box 会拿到
-    // 重渲染前的过渡几何，换算出的擦除点会偏离 mask buffer 的真实坐标。
     const slider = page.getByTestId("mask-radius-slider");
     await slider.fill("2");
     await expect(slider).toHaveValue("2");
@@ -167,15 +153,12 @@ test.describe("mask editor (I11)", { tag: "@mask-native" }, () => {
     await expect(page.getByTestId("mask-tool-capsule")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("mask-settings-trigger")).toHaveAttribute("title", /· 就绪 ·/);
 
-    // 默认是 brush 模式（aria-pressed 或视觉态由 chipStyle 控制），按 E 切橡皮
     await page.keyboard.press("e");
     const trigger = page.getByTestId("mask-settings-trigger");
     await expect(trigger).toHaveAttribute("aria-label", "Mask 常用工具：橡皮");
-    // 按 B 切回笔刷
     await page.keyboard.press("b");
     await expect(trigger).toHaveAttribute("aria-label", "Mask 常用工具：笔刷");
 
-    // 滚轮调半径 —— 取 slider 的 value 前后对比
     const stage = page.getByTestId("workbench-stage");
     const box = await stage.boundingBox();
     if (!box) throw new Error("stage boundingBox 不可用");
@@ -190,7 +173,6 @@ test.describe("mask editor (I11)", { tag: "@mask-native" }, () => {
     await closeMaskSettings(page);
     expect(Number(after)).not.toBe(Number(before));
 
-    // Esc 取消 → mask-toolbar 隐藏（mask 工具退出）
     await page.keyboard.press("Escape");
     await expect(page.getByTestId("mask-tool-capsule")).toHaveCount(0);
   });

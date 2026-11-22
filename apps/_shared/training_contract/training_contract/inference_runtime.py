@@ -8,7 +8,6 @@ from yoao_task_contract import normalize_task
 from .model_return import LIBRE_RUNTIME, detection_runtime, segmentation_runtime
 from .models import LEGACY_ULTRALYTICS_VERSION, ULTRALYTICS_VERSION
 
-# Execution qualification only: do not use this as an artifact identity.
 LIBRE_CUDA_RUNTIME = MappingProxyType(
     {
         "revision": 1,

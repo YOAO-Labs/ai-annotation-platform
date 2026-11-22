@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 
-# ── Rollout mode (deployment-level single switch, ADR-0050 D17) ────────────────
 class RouterMode(str, enum.Enum):
     """``ML_BACKEND_ROUTER_MODE``: off / observe / enforce.
 
@@ -32,14 +31,12 @@ class RouterMode(str, enum.Enum):
     ENFORCE = "enforce"
 
 
-# ── Member traffic state (ADR-0050 D5 / §10.3) ─────────────────────────────────
 class TrafficState(str, enum.Enum):
-    ACTIVE = "active"  # may receive new route leases
-    DRAINING = "draining"  # keeps existing leases, no new ones
-    DISABLED = "disabled"  # no new leases; resume needs re-validation
+    ACTIVE = "active"
+    DRAINING = "draining"
+    DISABLED = "disabled"
 
 
-# ── Routing outcome (fed to finish(); drives circuit + metrics) ────────────────
 class RouteOutcome(str, enum.Enum):
     """Terminal outcome of a route lease.
 
@@ -48,16 +45,14 @@ class RouteOutcome(str, enum.Enum):
     """
 
     SUCCESS = "success"
-    # transport failures → passive circuit
     CONNECT_REFUSED = "connect_refused"
     TRANSPORT_TIMEOUT = "transport_timeout"
     NO_RESPONSE = "no_response"
     GATEWAY_UNAVAILABLE = "gateway_unavailable"
-    # non-circuit outcomes
-    BUSINESS_ERROR = "business_error"  # 4xx from backend
+    BUSINESS_ERROR = "business_error"
     MODEL_VALIDATION_ERROR = "model_validation_error"
-    GPU_CAPACITY_UNAVAILABLE = "gpu_capacity_unavailable"  # ADR-0049 503
-    CANCEL = "cancel"  # caller-initiated cancel; never a transport failure
+    GPU_CAPACITY_UNAVAILABLE = "gpu_capacity_unavailable"
+    CANCEL = "cancel"
 
     @property
     def is_transport_failure(self) -> bool:
@@ -79,19 +74,17 @@ TRANSPORT_FAILURE_OUTCOMES = frozenset(
 )
 
 
-# ── Rejection reasons (structured; returned when acquire selects nothing) ──────
 class RejectionReason(str, enum.Enum):
     """Why an acquire returned no instance. Maps to ADR-0050 §B.3 error codes."""
 
     POOL_NOT_ENABLED = "ml_backend_pool_not_enabled"
-    POOL_UNAVAILABLE = "ml_backend_pool_unavailable"  # no active/healthy member
-    POOL_SATURATED = "ml_backend_pool_saturated"  # all at max concurrency
-    ROUTER_UNAVAILABLE = "ml_backend_router_unavailable"  # Redis down in enforce
-    GENERATION_MISMATCH = "generation_mismatch"  # topology changed mid-acquire
+    POOL_UNAVAILABLE = "ml_backend_pool_unavailable"
+    POOL_SATURATED = "ml_backend_pool_saturated"
+    ROUTER_UNAVAILABLE = "ml_backend_router_unavailable"
+    GENERATION_MISMATCH = "generation_mismatch"
     ALL_CIRCUITS_OPEN = "all_circuits_open"
 
 
-# ── HTTP status for each rejection (ADR-0050 §B.3) ─────────────────────────────
 REJECTION_HTTP_STATUS: dict[RejectionReason, int] = {
     RejectionReason.POOL_NOT_ENABLED: 403,
     RejectionReason.POOL_UNAVAILABLE: 503,
@@ -102,7 +95,6 @@ REJECTION_HTTP_STATUS: dict[RejectionReason, int] = {
 }
 
 
-# ── Data classes ───────────────────────────────────────────────────────────────
 @dataclass(frozen=True)
 class RoutingCandidate:
     """One eligible member at acquire time, validated by the caller (DB-side).
@@ -113,10 +105,10 @@ class RoutingCandidate:
     """
 
     instance_id: uuid.UUID
-    weight: int  # 1..100
-    max_concurrency: int  # instance-level cap (from GPUBackendMembership or config)
-    fingerprint_ok: bool  # capability fingerprint exact-matches pool snapshot
-    health_fresh: bool  # health_meta within ML_BACKEND_ROUTER_HEALTH_MAX_AGE_SECONDS
+    weight: int
+    max_concurrency: int
+    fingerprint_ok: bool
+    health_fresh: bool
     traffic_state: TrafficState
 
 
@@ -127,8 +119,8 @@ class RouteLease:
     lease_id: str
     pool_id: uuid.UUID | None
     instance_id: uuid.UUID
-    owner: str  # caller identity (e.g. "api:request_id" / "celery:task_id")
-    operation: str  # e.g. "predict" / "interactive" / "batch" / "tracker"
+    owner: str
+    operation: str
     generation: int
     expires_at_ms: int
     scope: Any = field(default=None, repr=False, compare=False)
@@ -140,9 +132,9 @@ class RouteSelection:
     """Result of MLBackendRouter.acquire(): either a lease+instance or a rejection."""
 
     lease: RouteLease | None
-    instance_id: uuid.UUID | None  # selected registry instance (None on rejection)
+    instance_id: uuid.UUID | None
     rejection: RejectionReason | None
-    would_select: uuid.UUID | None = None  # observe-mode shadow selection (instance id)
+    would_select: uuid.UUID | None = None
     diagnostics: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -159,7 +151,7 @@ class CapabilityDiff:
 
     pool_fingerprint: str
     candidate_fingerprint: str
-    differing_fields: tuple[str, ...]  # canonical field names that differ
+    differing_fields: tuple[str, ...]
 
 
 class CapabilityMismatchError(Exception):

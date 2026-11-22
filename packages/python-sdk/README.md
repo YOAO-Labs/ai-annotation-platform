@@ -304,7 +304,7 @@ yoao data-manager export-tasks --project "$PROJECT_ID" --body export.json --idem
 
 ## CLI
 
-需要 `[cli]` extras。首次使用先登录(验证连通后写入 `~/.config/yoao/config.toml`,权限 0600):
+需要 `[cli]` extras。`yoao login` 验证连通后，以权限 0600 的新文件原子替换 `~/.config/yoao/config.toml`；验证失败保留原配置。
 
 ```bash
 yoao login --url http://localhost:8000 --api-key ak_...   # 省略 --api-key 则隐藏输入

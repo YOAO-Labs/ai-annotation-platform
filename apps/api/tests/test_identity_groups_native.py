@@ -520,10 +520,7 @@ async def test_preview_hides_out_of_scope_accounts_and_empty_scope_group_name(
     )
     try:
         async with maker.begin() as session:
-            session.add(
-                # This group exists, but the viewer is outside the PA's scope.
-                Group(id=group_id, name=f"preview-{group_id.hex}")
-            )
+            session.add(Group(id=group_id, name=f"preview-{group_id.hex}"))
         async with maker.begin() as session:
             response = await _execute(session, command)
             assert response["ok"] is True

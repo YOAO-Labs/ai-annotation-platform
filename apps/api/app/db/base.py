@@ -11,7 +11,7 @@ engine = create_async_engine(
     pool_recycle=3600,
 )
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-AsyncSessionLocal = async_session  # 别名，供 health 端点直接导入
+AsyncSessionLocal = async_session
 
 
 class Base(DeclarativeBase):

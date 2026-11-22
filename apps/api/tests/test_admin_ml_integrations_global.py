@@ -78,7 +78,6 @@ async def test_list_all_lists_registry_rows(
     urls = sorted(it["url"] for it in items)
     assert urls == ["http://other:8000", "http://shared:8000"]
     for it in items:
-        # source_project_name 现承载来源标签 (manual/env), source_project_id 置空
         assert it["source_project_name"] == "manual"
         assert it["source_project_id"] == ""
 
@@ -118,9 +117,7 @@ async def test_create_project_with_backend_source_reuses_registry(
     )
     assert res.status_code == 200, res.text
     body = res.json()
-    # 新项目绑定同一全局 registry id (不再是新 backend id)
     assert body["ml_backend_id"] == str(src.id)
-    # 新项目获得一条启用关联
     assert await MLBackendService(db_session).is_enabled(uuid.UUID(body["id"]), src.id)
 
 

@@ -51,7 +51,6 @@ import {
   type ScenePlaybackTarget,
 } from "./useScenePlayback";
 
-// 人工快速点选约为 8–10 次/秒，只提交停手后的最终意图；自动播放不支付此防抖。
 const FRAME_NAVIGATION_SETTLE_MS = 160;
 
 interface SceneTimelineProps {

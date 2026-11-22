@@ -182,8 +182,6 @@ async def _target(db, context):
             anchor.get("storage_identity"),
         ):
             raise ValueError()
-        # The current target may have changed configuration while retaining the
-        # same saved address. Its exact current configuration is bound below.
         if (target.endpoint_url, target.bucket, target.key_prefix) != (
             saved.endpoint_url,
             saved.bucket,
@@ -882,8 +880,6 @@ async def publish(
         return False
     remaining = row.operation_id and await db.get(StorageOperation, row.operation_id)
     row.physical_settled = bool(settled and not remaining)
-    # Facts, not a possibly lost return value, decide whether deletion could
-    # have happened. A checkpoint may commit before its reply is interrupted.
     if result is not None:
         if result.delete_ack and row.delete_ack is None and row.delete_intent_at:
             row.delete_ack = dict(result.delete_ack)
@@ -978,8 +974,6 @@ async def signal_interrupted(db, job_id, task_id, *, cancelled):
             outcome="cancelled" if cancelled else "failed",
             error_code=None if cancelled else "reclaim_interrupted",
         )
-    # A process signal cannot establish that its native executor has stopped.
-    # Preserve the running owner and permit; no TTL takeover is permitted.
     row.cancel_requested_at = row.cancel_requested_at or (now() if cancelled else None)
     return False
 
@@ -1019,8 +1013,6 @@ async def start_reconciliation(db, actor=None, *, api_key_id=None):
             and job.status in ACTIVE
         ):
             return job
-        # This owner only observes a DB snapshot. A known terminal/missing Job
-        # cannot retain a physical responsibility or prevent the next audit.
         row.status, row.error_code = "failed", "reference_reconciliation_interrupted"
     task_id = str(uuid.uuid4())
     job = await jobs.create_job(
@@ -1049,8 +1041,6 @@ async def start_reconciliation(db, actor=None, *, api_key_id=None):
 
 
 async def reconcile(db, job_id, task_id):
-    # Match the normal User/Key -> owner/Job lock order. A read-only audit has
-    # no physical work to preserve when its current requester loses authority.
     initial = await db.get(AsyncJob, job_id, populate_existing=True)
     authority_failure = False
     initial_payload = dict(initial.payload) if initial else {}

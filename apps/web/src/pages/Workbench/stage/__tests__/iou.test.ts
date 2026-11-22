@@ -1,13 +1,3 @@
-/**
- * iou / iouShape 单测。
- *
- * 覆盖：
- *  - bbox 完全重叠 → 1
- *  - bbox 不相交 / 退化 → 0
- *  - bbox 半重叠几何
- *  - polygon vs bbox / polygon vs polygon
- *  - 退化 polygon (< 3 点) 走 bbox 回落
- */
 import { describe, it, expect } from "vitest";
 import { iou, iouShape } from "../iou";
 
@@ -26,7 +16,6 @@ describe("iou (axis-aligned)", () => {
   });
 
   it("一半重叠 → 1/3", () => {
-    // a = 0,0,2,1, b=1,0,2,1 → inter = 1*1 = 1, union = 2+2-1 = 3
     const v = iou({ x: 0, y: 0, w: 2, h: 1 }, { x: 1, y: 0, w: 2, h: 1 });
     expect(v).toBeCloseTo(1 / 3, 6);
   });

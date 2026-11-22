@@ -1,15 +1,3 @@
-/**
- * 受限树形流水线 DAG 画布 (react-flow v12).
- *
- * 左列编排画布: 把 stagesGraph 派生的 GraphNodeModel[] 渲染成分层 DAG, 支持点选节点 (右列出参数)、
- * 节点上 +/🗑 增删、拖边改父 (re-parent)。所有真值仍在容器的 stagesGraph; nodes/edges 由 models
- * 派生 (react-flow 用 stateful 节点回填测量尺寸)。受限校验 (无环/深度/父产几何) 经 canReparentConn
- * 回调下沉到纯函数层。经 React.lazy 加载, react-flow chunk 不进主包。
- *
- * §13 信息增强: 节点显 backend / 就绪态 / 父框过滤 / 运行进度 / 可达性警示; hover 浮层显全量;
- * 拖拽时合法落点高亮; 方向键在节点间移动选中; 大扇出出 MiniMap; 空态 ghost CTA。
- */
-
 import {
   createContext,
   memo,
@@ -59,7 +47,6 @@ interface CanvasCallbacks {
   onSelect: (sid: string) => void;
   onAddChild: (parentSid: string) => void;
   onRemove: (sid: string) => void;
-  /** 拖拽中: 从哪个节点的出 handle 拉线 (用于合法落点高亮); null=未拖拽。 */
   connectingFrom: string | null;
   canReparentConn: (childSid: string, newParentSid: string) => boolean;
 }
@@ -81,7 +68,6 @@ const DOT_CLASS: Record<string, string> = {
   done: styles.dotDone,
 };
 
-/** hover 浮层全量信息 (节点只显主信息, 全量走浮层)。 */
 function tooltipDesc(data: StageNodeData, isSource: boolean) {
   return (
     <div className={styles.tipBody}>
@@ -97,13 +83,10 @@ function tooltipDesc(data: StageNodeData, isSource: boolean) {
   );
 }
 
-/** 节点公共内容 (角色徽标 + backend + 就绪/警示 + 详情 + 父框 + 进度 + 计数 + 增删)。 */
 function NodeBody({ data }: { data: StageNodeData }) {
   const { onSelect, onAddChild, onRemove, connectingFrom, canReparentConn } = useContext(CanvasCtx);
-  // 输入节点 = parentSid==null (去 kind 二分); 无入 handle、不可删、显源类型/执行单位徽标。
   const isSource = data.parentSid == null;
 
-  // 拖拽中: 本节点是否合法落点 (连线 source=connectingFrom 父, target=本节点 子)。
   const drop =
     connectingFrom && connectingFrom !== data.sid
       ? canReparentConn(data.sid, connectingFrom)
@@ -134,7 +117,6 @@ function NodeBody({ data }: { data: StageNodeData }) {
           <Badge variant={isSource ? "outline" : data.role.variant}>
             {isSource ? "输入" : data.role.label}
           </Badge>
-          {/* 输入节点显任务名 (目标检测 / 视频追踪) + 源类型 (图像 / 视频) + 执行单位 (整段序列/逐帧) 徽标。 */}
           <span className={styles.nodeName}>{isSource ? data.role.label : ""}</span>
           {isSource && data.sourceTypeLabel && (
             <Badge variant="outline">{data.sourceTypeLabel}</Badge>
@@ -146,7 +128,6 @@ function NodeBody({ data }: { data: StageNodeData }) {
           <span className={cx(styles.dot, DOT_CLASS[data.runState])} title={data.runState} />
         </div>
 
-        {/* 副标题: backend 名 + 待配置徽标。 */}
         <div className={styles.nodeSubtitle}>
           <span className={styles.nodeBackend}>{data.backendName ?? "—"}</span>
           {!data.ready && <Badge variant="outline">待配置</Badge>}
@@ -156,12 +137,10 @@ function NodeBody({ data }: { data: StageNodeData }) {
           {data.detail}
         </span>
 
-        {/* 父框过滤芯片 (仅下游)。 */}
         {!isSource && data.classFilter && (
           <span className={styles.nodeChip}>{data.classFilter}</span>
         )}
 
-        {/* 运行进度条 (运行中且有目标)。 */}
         {!isSource && data.runState === "running" && data.targeted ? (
           <ProgressBar value={okPct} />
         ) : null}
@@ -215,9 +194,6 @@ function NodeBody({ data }: { data: StageNodeData }) {
   );
 }
 
-// 单一节点组件 (去 source/stage 二分): 入 handle 仅非输入节点 (parentSid!=null) 有;
-// 出 handle 产几何且未达深度上限 (canAddChild) 才有 —— 输入节点(parentSid==null)恒有出 handle
-// (总有源模型子，供边渲染)。是否显示 + 按钮由 canAddChild 单独决定，输入节点不显示。
 const StageNode = memo(({ data }: NodeProps<Node<StageNodeData>>) => (
   <>
     {data.parentSid != null && <Handle type="target" position={Position.Left} />}
@@ -237,9 +213,7 @@ interface Props {
   onSelect: (sid: string) => void;
   onAddChild: (parentSid: string) => void;
   onRemove: (sid: string) => void;
-  /** 改父: child 挂到 newParent。 */
   onReparent: (childSid: string, newParentSid: string) => void;
-  /** 改父合法性 (纯函数层判): 连线 source=新父, target=子。 */
   canReparentConn: (childSid: string, newParentSid: string) => boolean;
 }
 
@@ -252,15 +226,9 @@ function Flow({
   onReparent,
   canReparentConn,
 }: Props) {
-  // 派生 nodes/edges 由 stagesGraph (经 models) 单向决定; react-flow 用 stateful 节点 + onNodesChange
-  // 回填测量尺寸 (否则节点 width/height 恒 0, fitView 坍缩 → 节点全不可见)。graph 变时整体重置 + 重新测量。
   const flow = useMemo(() => buildFlow(models, selectedSid), [models, selectedSid]);
   const [nodes, setNodes, onNodesChange] = useNodesState(flow.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(flow.edges);
-  // claude[bot] P2 · 用户改阶段参数 (label/keys/...) 不改拓扑时, 旧实现仍整批 setNodes/setEdges +
-  // 触发 fitView → 画布闪烁/重 fit。这里抽拓扑指纹 (sid + parentSid + nodeCount), 拓扑不变就
-  // 跳过整批 setEdges 与 fitView 重排; setNodes 仍透传以让节点数据 (角色/标记) 同步, 但 react-flow
-  // 内部 shallow-eq 后无视觉重排。fitView 改挂在指纹上, 拓扑稳定时不会反复触发。详 ROADMAP 0008.6。
   const topoFingerprint = useMemo(
     () =>
       flow.nodes
@@ -269,11 +237,6 @@ function Flow({
         .join(","),
     [flow.nodes],
   );
-  // 整批同步 flow.nodes 时, **按 id 保留上一批已测量的 measured 尺寸** —— buildFlow 每次产全新节点
-  // 对象 (无 measured), 直接整批替换会把 react-flow 已测量态清掉 → 节点转 visibility:hidden; 而节点
-  // DOM 元素未重建、尺寸未变 → 其 ResizeObserver 不再触发 → 永远拿不到新测量 → 节点卡死隐藏 (改下游
-  // 阶段配置等「同 id 仅变 data」时必现)。保留 measured 后, 仅 data 变不丢测量态; 真改了尺寸时
-  // ResizeObserver 仍会触发纠正。
   useEffect(() => {
     setNodes((prev) => {
       const measuredById = new Map(prev.map((n) => [n.id, n.measured]));
@@ -297,13 +260,11 @@ function Flow({
     if (nodesInitialized) rf.fitView({ padding: 0.2, maxZoom: 1 });
   }, [nodesInitialized, topoFingerprint, rf]);
 
-  // 拖拽中起点 (合法落点高亮)。仅从「出 handle」(source) 拉线才记。
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null);
   const onConnectStart = useCallback<OnConnectStart>((_e, params) => {
     if (params.handleType === "source") setConnectingFrom(params.nodeId ?? null);
   }, []);
 
-  // 连线: source=拖出的父出 handle, target=落到的子入 handle → child 改挂到 source。
   const onConnect = useCallback(
     (c: Connection) => {
       if (c.source && c.target) onReparent(c.target, c.source);
@@ -320,7 +281,6 @@ function Flow({
     (c) => !!c.source && !!c.target && canReparentConn(c.target, c.source),
     [canReparentConn],
   );
-  // 拖出 handle 落到空白 → 新建子阶段; 无论落到哪都清掉高亮态。
   const onConnectEnd = useCallback<OnConnectEnd>(
     (_event, conn) => {
       if (conn.fromNode && !conn.toNode) onAddChild(conn.fromNode.id);
@@ -328,7 +288,6 @@ function Flow({
     },
     [onAddChild],
   );
-  // Delete/Backspace 删选中节点: react-flow 默认只删其内部态 (假删除), 须回写真值源 stagesGraph。
   const onNodesDelete = useCallback(
     (deleted: Node[]) => {
       deleted.forEach((n) => {
@@ -338,7 +297,6 @@ function Flow({
     [onRemove],
   );
 
-  // 方向键在节点间移动选中 (左=父, 右=首子, 上/下=兄弟)。Enter 由选中即出右栏天然覆盖。
   const onKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLDivElement>) => {
       if (!selectedSid) return;

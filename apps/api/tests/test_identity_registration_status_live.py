@@ -245,7 +245,6 @@ async def test_real_api_status_settings_and_registration_share_the_remote_owner_
             if identity:
                 identity.stop()
             async with maker() as db:
-                # Include a created account even if an assertion failed before its response was decoded.
                 actors = list(
                     set(actors)
                     | set(

@@ -15,7 +15,22 @@ AI 预标注流水线以 `async_jobs(kind=batch_predict)` 作为用户可见任�
 
 HTTP 经注入的 `BatchPredictionDispatcher` 派发，`workers/batch_prediction_dispatch.py` 保留原 Celery 参数、执行 ID、设备队列及 tracker 超时；`workers/tasks.py::batch_predict` 保留原注册名/签名与失败钩子。Assets 继续提供已校验输入与 crop 发布，Jobs／Labeling 持有原始／准备结果、最终候选和终态；Inference 不代替这些 owner 提交。
 
-帧模式在应用的同一 Session 中逐任务读取元数据，仅把任务 ID/帧数、阶段配置与作业/执行 ID 交给帧派发端口。`workers/frame_preannotate.py` 负责段规划、Redis 进度和两阶段 chord；无帧时由应用完成空作业，派发后由既有帧任务完成预测与收尾。每次模型调用通过 [Inference 私有执行协议](/api/guides/inference-runtime)，保留精确 task IDs、实际实例、原响应上限与期限、结构化错误和 transport observation；不在不确定响应后重发模型请求。
+帧模式在应用的同一 Session 中逐任务读取元数据，仅把任务 ID/帧数、阶段配置与作业/执行 ID 交给帧派发端口。`workers/frame_preannotate.py` 按已封存的保留视频计划分段；无帧时由应用完成空作业。每次模型调用通过 [Inference 私有执行协议](/api/guides/inference-runtime)，保留精确 task IDs、实际实例、原响应上限与期限、结构化错误和 transport observation；不在不确定响应后重发模型请求。
+
+Jobs 在受理事务中保存帧段 ID 和派发信封。每段只按原 Job 和冻结段 ID 保存一份聚合回执；最后一个精确段回执与 Job 终态在同一数据库事务提交。现有单阶段预测 canvas 及回调任务名不变，但不依赖 Celery chord 结果计数或 Redis 进度缓存；写锁延期超过结果 TTL 也不会丢失已完成的兄弟段。旧抽帧 chord 仍只拒绝过期消息，不参与新派发。
+
+部署时避免新旧帧 worker 同时处理一个作业，优先等旧作业收尾。仍在队列中的旧保留输入作业首次结算时会导入可核对的应用 Redis 回执；若旧缓存已过期且无法证明回执完整，作业标记 `frame_segment_receipts_unavailable`，保留已落库结果和原受理输入，不把未知计入成功或已跳过。检查原作业与已有预测后，通过预标入口重新受理需要补跑的范围；不要重写旧作业的冻结段 ID。
+
+隔离验收使用模块数据验收工具提供的、已校验的 `yoao_jobs_publication_client` 专用登录：
+
+```bash
+AAP_FRAME_CELERY_ACCEPTANCE=1 apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .artifacts/frame-celery-acceptance.json \
+  --test-file tests/test_frame_preannotate_celery.py \
+  --test-file tests/test_frame_segment_receipts.py
+```
+
+真实 Celery 和 Redis 中的兄弟结果过期、原 ID 延期/重投、协作取消和当前写权限变更均在此入口覆盖。
 
 > 决策依据：[ADR 0014 — Prediction Jobs 历史表](../adr/archive/0014-prediction-jobs-table)
 
@@ -50,6 +65,8 @@ HTTP 经注入的 `BatchPredictionDispatcher` 派发，`workers/batch_prediction
 HTTP 入口对普通批量、Data Manager、工作台和受控模型请求统一先提交 `AsyncJob`，再把该 UUID 作为 Celery 执行 ID。返回的 `job_id` 可在 worker 启动前直接查询；派发异常仅将仍为 pending 的行原子地转为 failed。broker 可能已接收消息但丢失确认，已认领或已结束作业的状态因此由执行侧保留。幂等重放沿用原作业，没有幂等键的新请求创建新作业。内部旧 Celery 调用仍可省略预建 ID，由应用建立作业；它不是当前 HTTP 受理合同。其它模态保留各自的建档规则；前端 `ProjectDetailPanel` / `RunStatusPanel` 通过订阅 `project:{id}:preannotate` WebSocket 频道接收实时进度与阶段统计。
 
 项目级与批次级受理都会记录当时待处理数量提示，`skip_predicted` 排除已有预测。普通图片在受理事务中固定输入清单成员，排队后新增任务不进入原作业；计数提示不能代替该清单的选择摘要、成员身份或最终结算。其它模态继续遵循各自的范围与取消协议。
+
+Web 只用派发回执报告已受理，用实际作业状态报告排队和执行。批次全部跳过、执行失败、另一批次完成或模型被驱逐都不改变下一次提交的显示；浏览器不缓存预标模型的驻留推断。
 
 ### 托管图片与混合输入
 
@@ -237,6 +254,8 @@ if params:
 `PreannotateRequest.pipeline_stages`（定义于 `apps/inference/src/yoao_inference/preannotate.py`）把单阶段批量预标泛化为**平台层跨 backend 编排**：源阶段（如 detect）产框 → 下游阶段（如 classify / box-seg）对每个父框按各自路由方式投递 → 结果合并回同一框。缺省（无 `pipeline_stages`）与单阶段 `batch_predict` 逐字等价，完全向后兼容。决策与边界见 [ADR 0043 — 多阶段预标注编排](../adr/archive/0043-staged-preannotation-pipeline)。
 
 命名预标编排的保存、读取、apply 与本页描述的执行流水线属于相邻层次：结构仍共用 `yoao_inference.pipeline.validate_saved_pipeline`，便携命令由 `yoao_inference.pipeline_manager.PipelineManager` 持有，API 路由经 `services/inference_pipelines.py` 选择事务或独立 owner。六个公开路由的 DTO 不变；这些命令不会改变本页所述 `PreannotateRequest` 或 worker 执行合同。
+
+项目编排的裁剪 OCR 子阶段从所选识别模型的 `supported_inputs`、`supported_variants`、`variant_combinations` 和 `params` 建立配置，独立于整图模型。请求使用 `roi.mode=crop`、`write.target=attributes`；`parent_class_filter` 按父对象类别名称筛选，不下发父模型的 `class_filter` 索引。派发端仍按所选模型校验能力并冻结变体。
 
 ### 请求形态
 
@@ -437,6 +456,8 @@ decision 内保留非授权的原图溯源，15 分钟候选 receipt 到期后�
 
 实际路由选池后复核并释放短事务，再发送固定版本 URL。最终在调用者顶层事务锁定当前权限／Task／来源与父 Annotation，核对版本、几何、类别、属性／meta、结构和活动事实，再用刷新对象写属性或创建子框。父标注变化不能作为普通 AI 属性合并吞掉；整个子框集合、贡献者和 Audit 一起提交，提交前再次复核原凭据时钟与 JWT 注销缓存。正常退出先释放事务再关闭输入／来源，未知关闭保护延续输入账本的耐久责任。该路径直接写 Annotation，不伪造 Prediction、原生 Mask receipt 或异步 Job；引用、视频与批量修复保留各自合同。
 
+父框读写走 Labeling 已发布的按任务锁行能力：观察原件与发送前复核使用共享锁，结果落库时才请求独占锁。每次锁住后从公开投影刷新同一父框，不用普通 API 账号直接锁标注私表，也不把旧 ORM 对象当作当前事实。
+
 ### 引用图片的批量修复
 
 `reference_mask_repair.ReferenceRepairUnit` 按分片/候选组管理固定引用内容、当前 Job 私有 Key proof、真实 Worker 节点严格快照及临时输入。确定性修复仅需审核写入与 native gate；SAM 另需 AI 开关，并在计划中固定模型声明、变体和参数。当前协议提供声明配置身份，不虚构 checkpoint 摘要。实际路由 transport 的 setup 在发送原图 URL 前核对冻结模型；最终短事务共享锁定 pool、项目启用关联、成员和 registry，保留实际 instance/pool 溯源。
@@ -470,7 +491,7 @@ SAM Prediction、元信息、候选 ID 及生成时结果/元信息摘要与单�
 - 模型：`apps/api/app/db/models/async_job.py`、`apps/api/app/db/models/prediction.py`
 - 请求与派发：`apps/api/app/application/preannotation_contract.py`、`apps/api/app/workers/batch_prediction_dispatch.py`
 - 应用编排：`apps/api/app/application/preannotation_execution.py::run_preannotation`、`_run_task_pipeline`、`_resolve_input_mode`
-- Celery 适配：`apps/api/app/workers/tasks.py::batch_predict` 与失败钩子、`apps/api/app/workers/frame_preannotate.py` 的帧 chord
+- Celery 适配：`apps/api/app/workers/tasks.py::batch_predict` 与失败钩子、`apps/api/app/workers/frame_preannotate.py` 的帧段派发与持久结算
 - ROI 路由：`apps/api/app/services/prediction_roi.py`（`crop_inputs_from_boxes` / `geometry_prompts_from_boxes` / `merge_classify_attributes` / `remap_geometry_to_image`）
 - 上下文与原图：`apps/api/app/services/prediction_context.py`（`build_predict_context` / `model_label` / `load_task_image`）
 - 进度发布：`apps/api/app/services/prediction_progress.py::publish_progress`

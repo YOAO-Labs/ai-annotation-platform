@@ -39,7 +39,6 @@ async def test_orphan_ready_only_retires_in_first_cycle_and_pending_is_never_col
     identifier = uuid.UUID(value["key"].split("/")[-1])
     row = await db_session.get(Upload, identifier)
     if state == "pending":
-        # A separate historical allocation may have bytes after an interrupted PUT.
         receipt = storage.snapshot(row)
         pending = Upload(
             id=uuid.uuid4(),
@@ -63,7 +62,6 @@ async def test_orphan_ready_only_retires_in_first_cycle_and_pending_is_never_col
             pending.storage_ref["bucket"], pending.storage_ref["object_key"]
         ] = b"image\x00bytes"
     else:
-        # Project CASCADE and test-only direct deletion can leave ready orphans.
         await db_session.execute(
             delete(Reference).where(Reference.upload_id == identifier)
         )
@@ -76,7 +74,7 @@ async def test_orphan_ready_only_retires_in_first_cycle_and_pending_is_never_col
     assert second["objects"] == (1 if state == "ready" else 0)
     assert bool(objects.deleted) is (state == "ready")
     await db_session.refresh(project)
-    assert project.guide_assets == [value]  # JSON is not a keep-alive reference.
+    assert project.guide_assets == [value]
 
 
 async def test_last_reference_retirement_delete_failure_retains_saved_receipt_for_retry(
@@ -200,7 +198,6 @@ async def test_unknown_physical_close_preserves_permit_and_independent_owner(
         ] == 0
         assert not objects.deleted
     finally:
-        # The fixture explicitly closes its own handles before exact ledger removal.
         for body in objects.bodies:
             io.BytesIO.close(body)
         async with storage_access.engine(db_session).begin() as connection:
@@ -233,7 +230,7 @@ async def test_reconcile_rejects_injection_metadata_rewrite_duplicate_and_stale_
     revision = current.guide_assets_revision
     assets = [deepcopy(first), deepcopy(second)]
     if change == "metadata":
-        assets[0]["size"] = True  # strict JSON identity rejects bool/int coercion.
+        assets[0]["size"] = True
     elif change == "add":
         assets.append({**first, "key": f"projects/{uuid.uuid4()}/guide/{uuid.uuid4()}"})
     elif change == "duplicate":
@@ -574,8 +571,6 @@ async def test_known_reference_copy_requires_unique_owner_entry_but_explicit_rem
     assert rejected.value.status_code == 409
     assert await db_session.get(Reference, (target_id, identifier)) is None
     await db_session.commit()
-    # A unique exact retained owner entry repairs the old list; forged metadata
-    # cannot be retained even though it is a historical JSON source fact.
     current = (
         await uploads.lock_projects(
             db_session, project_admin[0], [source_id], write_ids=[source_id]

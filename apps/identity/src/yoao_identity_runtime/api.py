@@ -1483,8 +1483,6 @@ def create_app(
         try:
             async with asyncio.timeout(settings.request_timeout_seconds):
                 async with slots:
-                    # The legacy stale response must echo unbounded raw preview
-                    # versions, including NUL. This private route has no small body cap.
                     body = await request.body()
                     try:
                         parsed = decode_offboarding_request(body)

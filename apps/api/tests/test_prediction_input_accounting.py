@@ -285,8 +285,6 @@ async def test_owned_live_minio_current_versions_and_exact_physical_deletion(
         client.delete_object(
             Bucket=bucket, Key=saved["Key"], VersionId=replacement["VersionId"]
         )
-        # Removing the newer version really frees that version, but the older
-        # current object is exposed: it is not a current-objects negative.
         assert not accounting.deleted_current(
             client, bucket, saved["Key"], replacement["VersionId"]
         )
@@ -339,7 +337,6 @@ async def test_owned_live_minio_current_versions_and_exact_physical_deletion(
                 )
     finally:
         await inputs.close()
-        # Exact test-owner prefix only, including any retained failure versions.
         page = client.list_object_versions(Bucket=bucket, Prefix=inputs.prefix)
         for item in page.get("Versions", []) + page.get("DeleteMarkers", []):
             client.delete_object(
@@ -471,8 +468,6 @@ async def test_concurrent_conditional_requests_have_separate_durable_windows(
         )
     ]
     try:
-        # Let the first reservation commit before issuing the concurrent retry;
-        # allocation's existing NOWAIT guard is a separate business contract.
         assert await asyncio.to_thread(world.put_started.wait, 3)
         calls.append(
             asyncio.create_task(

@@ -495,8 +495,6 @@ async def _wait_for_membership_disconnect(
 
 
 async def _finish_pending_cli_task(task: asyncio.Task) -> None:
-    # The SQL gate lasts at most ten seconds. Join its lifecycle before close(),
-    # including failures before Docker starts, so two threads never remove it.
     await asyncio.wait_for(asyncio.shield(task), timeout=35)
 
 

@@ -299,11 +299,6 @@ def _scene_from_members(
     all_keys = {key for item in attrs for key in item}
     inconsistent_attributes = False
     for key in all_keys:
-        # dict/list attribute values (e.g. imported JSON vs. editor round-trip)
-        # can be equal but have different key order; repr() would treat them
-        # as distinct. json.dumps(sort_keys=True) normalizes key order so
-        # equal values compare equal regardless of origin. default=str covers
-        # any value that isn't JSON-serializable on its own.
         values = {
             json.dumps(item.get(key), sort_keys=True, ensure_ascii=False, default=str)
             for item in attrs

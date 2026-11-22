@@ -60,8 +60,6 @@ class IdentityRecoveryCommandData:
             yield self
             await self.db.commit()
         except RecoveryFailure:
-            # Rejected policies precede writes. The request session closes its
-            # remaining read/lock transaction, as the original handlers did.
             raise
         except BaseException:
             await self.db.rollback()

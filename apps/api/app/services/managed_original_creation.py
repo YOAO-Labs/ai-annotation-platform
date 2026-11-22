@@ -396,9 +396,6 @@ async def _validate(db, row, *, lock=False):
         try:
             from app.services.original_sources import _reads
 
-            # Publication may already own source/business rows. Recover a busy
-            # target without reversing an administrator's Connection→Location
-            # lock order or ending the caller's publication transaction.
             async with _reads(db, lock):
                 if lock:
                     from app.db.models.storage_connection import StorageConnection
@@ -969,8 +966,6 @@ async def _allocate(
                 or root.original_storage_identity != target_identity
             ):
                 reject("fixture_original_storage_changed")
-            # Operator append receipts outlive their items. Serialize their
-            # admission with this exact key before publishing fixture ownership.
             await current.execute(
                 text(
                     "SELECT pg_catalog.pg_advisory_xact_lock("
@@ -1100,9 +1095,6 @@ async def for_key(db, *, dataset_id, object_key):
                         Creation.dataset_id == dataset_id,
                         Creation.object_key == object_key,
                     )
-                    # A retried publication keeps the same reserved key, so the
-                    # verified attempt is the current row; immutable failed
-                    # evidence for earlier attempts may also exist.
                     .order_by(
                         (Creation.status == "verified").desc(),
                         Creation.allocated_at.desc(),
@@ -1231,8 +1223,6 @@ class _Physical:
         except BaseException as exc:
             if future.done() and (future.cancelled() or future.exception() is not None):
                 return future.result()
-            # Adopt late client/preparation/receipt results in the caller so its
-            # normal persistence and finally-close path still owns every handle.
             if self.interrupted is None:
                 self.interrupted = exc
             return await _drain(future)
@@ -1419,8 +1409,6 @@ async def _physical(db, row, stream, *, source_target=None):
         ):
             evidence.update(physical_outcome="not_written", current_delta_bytes=0)
         if prepared is not None and not completion_started:
-            # A failed freeze/config fence may clean only its exact unfinished
-            # MPU. This never deletes or retries the final object.
             try:
                 await physical.run(
                     writer.abort_prepared,
@@ -1470,7 +1458,6 @@ async def _physical(db, row, stream, *, source_target=None):
             failures.append(physical.interrupted)
         accounting_failed = False
         if mutation is not None:
-            # Keep the permit until physical close and accounting both settle.
             publication = asyncio.create_task(
                 accounting.publish(
                     async_sessionmaker(
@@ -1650,8 +1637,6 @@ async def _shielded(db, allocation, stream):
     try:
         return await asyncio.shield(task)
     except BaseException as first_failure:
-        # Do not let request cancellation abandon physical work or hide a
-        # later write, close, or receipt-persistence failure.
         try:
             await _drain(task)
         except BaseException as late_failure:
@@ -1697,8 +1682,6 @@ async def image_dimensions(db, allocation, created):
         "dataset_original_dimensions",
         expected_revision=allocation["maintenance_revision"],
     ):
-        # The durable permit precedes the exact-key reclaim fence. A claim
-        # installed first rejects this read; otherwise the permit blocks GC.
         from app.services.managed_original_reclaim_fence import shared
 
         async with async_sessionmaker(storage_access.engine(db))() as fence:

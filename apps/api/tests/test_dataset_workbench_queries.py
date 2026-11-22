@@ -57,7 +57,6 @@ async def test_page_detail_relation_only_contains_current_ordered_members(
     expected = [item.id for item in ordered[31:33]]
     assert total == size and [item["id"] for item in page] == expected
     assert full_relations
-    # Execute the actual detail relation, rather than trusting a spy's arguments.
     for relation in full_relations:
         relation_ids = list(await db.scalars(select(relation.c.item_id)))
         assert set(relation_ids) == set(expected)
@@ -98,7 +97,6 @@ async def test_membership_count_omits_display_only_relations(
     else:
         assert "dataset_source_changes" in counts[0]
         assert "dataset_source_previews" in counts[0]
-    # The listener must also see the real full-detail path retaining cache facts.
     assert any("original_cache_entries" in sql for sql in statements)
 
 

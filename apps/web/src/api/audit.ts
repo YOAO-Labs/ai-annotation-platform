@@ -15,7 +15,6 @@ export interface AuditQuery {
   from?: string;
   to?: string;
   business_only?: boolean;
-  /** A.3：detail_json 字段级 GIN 过滤——键名 + 键值（仅 super_admin）。 */
   detail_key?: string;
   detail_value?: string;
 }

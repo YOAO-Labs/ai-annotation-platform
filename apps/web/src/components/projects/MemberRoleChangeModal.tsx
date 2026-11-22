@@ -24,17 +24,6 @@ interface Props {
 const INPUT_CLASS =
   "box-border w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
-/**
- * Project-member role change: a read-only preview returns blockers plus a
- * resource-snapshot token; the write echoes `expected_version` + `preview_token`
- * so a stale preview (new assignments, receiver role change) is rejected with a
- * 409 instead of silently overwriting concurrent work.
- *
- * The preview is bound to the exact member/target/receiver inputs. Changing any
- * input invalidates the previous preview, late responses from an older request
- * are discarded, and Save stays disabled until a preview matching the current
- * inputs succeeds.
- */
 export function MemberRoleChangeModal({ open, projectId, member, members, onClose }: Props) {
   const pushToast = useToastStore((s) => s.push);
   const previewMutation = usePreviewProjectMemberRole(projectId);
@@ -49,9 +38,6 @@ export function MemberRoleChangeModal({ open, projectId, member, members, onClos
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
   const requestRef = useRef(0);
-  // Dialog-lifetime token: bumped whenever the dialog closes/reopens or the
-  // project/member/version context changes, so a late success/error from a
-  // previous dialog cannot close or mutate the new one.
   const dialogRef = useRef(0);
 
   const inputKey = member
@@ -116,8 +102,6 @@ export function MemberRoleChangeModal({ open, projectId, member, members, onClos
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, member?.id]);
 
-  // Context lifetime: a project/member/version change or close/reopen invalidates
-  // any in-flight preview and the write callbacks bound to the old dialog.
   useEffect(() => {
     dialogRef.current += 1;
     requestRef.current += 1;
@@ -147,7 +131,6 @@ export function MemberRoleChangeModal({ open, projectId, member, members, onClos
 
   const blockers = preview?.blockers ?? [];
   const requiresHandoff = preview?.requires_handoff ?? false;
-  // Only a preview produced for exactly these inputs may authorize the write.
   const previewMatches = !!preview && previewKey === inputKey && !previewPending;
   const canSubmit =
     previewMatches &&
@@ -175,8 +158,6 @@ export function MemberRoleChangeModal({ open, projectId, member, members, onClos
       },
       {
         onSuccess: () => {
-          // Ignore a late response once the dialog closed/reopened or moved to
-          // another project/member/version.
           if (dialog !== dialogRef.current) return;
           pushToast({
             msg: `已将 ${member.user_name} 的职责改为${PROJECT_ROLE_LABELS[targetRole]}`,

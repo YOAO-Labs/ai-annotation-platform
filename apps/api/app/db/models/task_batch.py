@@ -69,7 +69,6 @@ class TaskBatch(Base):
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
-    # 批次单值分派 — 一 batch 一标注员 + 一审核员
     annotator_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -82,7 +81,6 @@ class TaskBatch(Base):
         nullable=True,
         index=True,
     )
-    # ADR-0008 · admin-lock (soft hold: 冻结自动推进 + 阻断新派单)
     admin_locked: Mapped[bool] = mapped_column(
         sa.Boolean, nullable=False, server_default=sa.text("false")
     )

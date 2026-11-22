@@ -201,7 +201,6 @@ async def _read_io(db, receipt, route, call, *, guard):
         await transfer._async(fresh())
 
     await transfer._async(fresh())
-    # The routed read owns both physical permits and the execution checkpoint.
     async with transfer._session(db) as owned:
         result = await artifact_reads.run(
             owned, route, transfer.purpose(receipt), call, on_acquired=acquired
@@ -641,8 +640,6 @@ async def _fail_unclaimed(db, receipt, task_id, exc):
         .with_for_update(nowait=True)
         .execution_options(populate_existing=True)
     )
-    # A competing valid delivery may have claimed between rollback and this
-    # fence. Its attempt alone owns terminal updates, even for the same task ID.
     if current is None or current.lease_token is not None:
         await db.rollback()
         return
@@ -829,8 +826,6 @@ async def run_owned(
 
         async def checkpoint():
             if adapter.kind == "video":
-                # CPU/frame loops must not retain a SQL transaction or borrow
-                # the serializer's connection while a physical thread drains.
                 async with transfer._session(db) as owned:
                     await check_cancelled(owned, receipt.job_id)
             else:

@@ -8,9 +8,6 @@ import { test as browserTest } from "../fixtures/raster-browser";
 const base = mergeTests(seedTest, browserTest);
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
-// The corrupt fixture pins its own saved object and then removes those bytes, so
-// the owned reader reports its stored-object code (classified as missing
-// content) instead of an unknown/unpinned key.
 const CORRUPT_MASK_REASON = "raster_object_storage_missing";
 
 interface MaskReference {
@@ -76,7 +73,6 @@ async function rasterResources(page: Page): Promise<RasterResourceSnapshot | nul
 async function expectPyramidTileCoverage(page: Page): Promise<void> {
   await page.waitForFunction(
     () => {
-      // The renderer publishes this in-process record outside the DOM's Window type.
       const diagnosticsWindow = window as unknown as {
         __imageTileDiagnostics?: {
           route: string;
@@ -734,8 +730,8 @@ test.describe("raster mask read-only and closed-gate matrix", { tag: "@mask-read
     page,
     request,
     seed,
+    owned: data,
   }) => {
-    const data = await seed.owned();
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
     await openTask(page, seed, data, taskId);
@@ -770,8 +766,8 @@ test.describe("raster mask read-only and closed-gate matrix", { tag: "@mask-read
   test("11. closed gate rejects upload, direct create, prediction accept and import without new rows", async ({
     request,
     seed,
+    owned: data,
   }) => {
-    const data = await seed.owned();
     const taskId = data.task_ids[0];
     await seed.configureRasterMask(data.project_id, true);
     await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });

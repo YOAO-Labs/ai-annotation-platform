@@ -37,8 +37,6 @@ async def _seed_project_and_task(db: AsyncSession, owner_id: uuid.UUID) -> Task:
     db.add(project)
     await db.flush()
 
-    # The owner identity is a literal employee; its annotation authority comes
-    # from this explicit membership, not from the account role.
     await create_membership(
         db,
         project_id=project.id,
@@ -131,7 +129,6 @@ class TestTaskLockMultiRowResilience:
         rev_user, _ = reviewer
         task = await _seed_project_and_task(db_session, owner_id=ann_user.id)
 
-        # 他人残留锁：expire_at = now + 60s（远小于阈值 now + 150s）
         db_session.add(_stale_lock(task.id, rev_user.id, ttl_s=60))
         await db_session.flush()
 
@@ -161,7 +158,6 @@ class TestTaskLockMultiRowResilience:
         rev_user, _ = reviewer
         task = await _seed_project_and_task(db_session, owner_id=ann_user.id)
 
-        # 他人活锁：expire_at = now + 280s（活会话 60s 前刚心跳过）
         db_session.add(_stale_lock(task.id, rev_user.id, ttl_s=280))
         await db_session.flush()
 
@@ -184,7 +180,6 @@ class TestTaskLockMultiRowResilience:
         lock1 = await svc.acquire(task.id, ann_user.id)
         lock2 = await svc.acquire(task.id, ann_user.id)
 
-        # 两次都应成功，且只有一行（同 (task_id, user_id) 行 expire_at 续期）
         assert lock1 is not None
         assert lock2 is not None
         rows = (
@@ -211,7 +206,6 @@ class TestTaskLockMultiRowResilience:
         rev_user, _ = reviewer
         task = await _seed_project_and_task(db_session, owner_id=ann_user.id)
 
-        # 他人活锁：expire_at = now + 280s（按现有阈值不会被自动接管）
         db_session.add(_stale_lock(task.id, rev_user.id, ttl_s=280))
         await db_session.flush()
 
@@ -254,9 +248,6 @@ class TestTaskLockMultiRowResilience:
         rev_user, _ = reviewer
         _, admin_token = super_admin
         task = await _seed_project_and_task(db_session, owner_id=ann_user.id)
-        # The legitimate manager can see the task, while the task belongs to the
-        # other user; the caller is therefore not the effective assignee, so the
-        # real lock-conflict path runs instead of the assignee force-takeover.
         task.assignee_id = rev_user.id
         db_session.add(_stale_lock(task.id, rev_user.id, ttl_s=280))
         await db_session.flush()

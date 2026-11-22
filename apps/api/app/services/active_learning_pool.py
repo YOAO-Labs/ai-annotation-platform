@@ -191,7 +191,6 @@ async def prepare(
     training_authority: TrainingAuthorityPort,
 ):
     context = await originals.authorize(db, project.id, actor_id, request, api_key_id)
-    # External qualification and media IO precede final domain locks.
     ref, profile = await qualification(
         db, project, body.model_version_id, body.deployment_id
     )

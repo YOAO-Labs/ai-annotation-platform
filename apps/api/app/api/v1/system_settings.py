@@ -40,8 +40,6 @@ async def _build_response(
     )
     return SystemSettingsOut(
         environment=settings.environment,
-        # Keep every value explicit: false, zero and empty strings are valid
-        # effective values and must not be replaced with deployment defaults.
         invitation_ttl_days=cur["invitation_ttl_days"],
         frontend_base_url=cur["frontend_base_url"],
         smtp=SmtpStatus(
@@ -69,9 +67,6 @@ async def _version_conflict_response(
     exc: SettingsVersionConflict,
     registration_default: bool | None = None,
 ) -> HTTPException:
-    # The failed transaction must be rolled back before the readback query; the
-    # advisory lock is then released and the response contains the winner's
-    # effective values for the UI to reconcile.
     await db.rollback()
     latest = await _build_response(db, registration_default)
     return HTTPException(
@@ -181,8 +176,6 @@ async def reset_system_settings(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
 
-    # An explicit reset is auditable even if the requested key already had no
-    # override.  Password values are still represented only as changed=True.
     await AuditService.log(
         db,
         actor=actor,

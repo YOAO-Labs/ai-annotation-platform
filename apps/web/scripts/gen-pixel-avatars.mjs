@@ -1,21 +1,4 @@
 #!/usr/bin/env node
-/**
- * 生成内置像素头像资产（`public/avatars/pixel/pixel-NN.svg` + `manifest.json`）。
- *
- * 真值源是**本脚本**：每次运行都用固定的选项表重新渲染，manifest 里不含时间戳，
- * 因此重复执行是无差异的 no-op（`--check` 只比对、不写入）。
- *
- * 产物提交进仓库而不是运行期生成，理由：运行期零依赖、可离线、不新增外部网络来源、
- * 生成结果能被 code review。`@dicebear/core` / `@dicebear/styles` 只作为 devDependency。
- *
- * 素材来源与许可（CC0 1.0，可商用、无署名义务）:
- *   https://www.dicebear.com/styles/pixel-art/
- *   https://www.dicebear.com/licenses/
- *
- * 用法:
- *   pnpm --filter web gen:avatars          # 重新生成
- *   pnpm --filter web gen:avatars --check  # 只校验产物是否与脚本一致
- */
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,10 +10,8 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.resolve(HERE, "../public/avatars/pixel");
 const CHECK_ONLY = process.argv.includes("--check");
 
-/** id 是**永久**标识：已入库的 avatar_ref 指向它。只能追加，不得重排或复用。 */
 const COUNT = 32;
 
-// 调色板刻意避开极亮/极暗两端，让头像在深浅两套主题的中性圆片底上都可辨。
 const SKIN = ["f4c7a1", "e8b48c", "d99b72", "b97a4f", "8d5524", "ffd9b8"];
 const HAIR = ["2f2a25", "4a3b31", "7c4a21", "b45309", "a1662f", "d1d5db", "8b5cf6", "0f766e"];
 const CLOTHES = ["f8fafc", "cbd5e1", "38bdf8", "2563eb", "22c55e", "f59e0b", "ef4444", "7c3aed"];
@@ -61,10 +42,6 @@ const GLASSES_VARIANTS = [
 ];
 const BEARD_VARIANTS = Array.from({ length: 8 }, (_, index) => `variant0${index + 1}`);
 
-/**
- * 第 index 张头像的**完整**渲染选项。全部显式指定，不依赖 seed 随机，
- * 因此任何一次生成、任何一台机器上的结果都逐字节一致。
- */
 function optionsFor(index) {
   const options = {
     hairVariant: HAIR_VARIANTS[(index * 7) % HAIR_VARIANTS.length],
@@ -75,14 +52,12 @@ function optionsFor(index) {
     eyesVariant: EYES_VARIANTS[(index * 5) % EYES_VARIANTS.length],
     mouthVariant: MOUTH_VARIANTS[index % MOUTH_VARIANTS.length],
     skinColor: SKIN[index % SKIN.length],
-    // 帽子 / 眼镜 / 胡须按错开的相位分配（约 1/3、1/4、1/5），避免同一张同时戴三样而显得拥挤。
     glassesProbability: index % 4 === 1 ? 100 : 0,
     glassesVariant: GLASSES_VARIANTS[(index * 3) % GLASSES_VARIANTS.length],
     hatProbability: index % 3 === 0 ? 100 : 0,
     hatVariant: HAT_VARIANTS[(index * 3) % HAT_VARIANTS.length],
     beardProbability: index % 5 === 2 ? 100 : 0,
     beardVariant: BEARD_VARIANTS[(index * 3) % BEARD_VARIANTS.length],
-    // 无背景：中性圆片底由前端提供，深浅主题共用一套素材。
     backgroundColor: undefined,
     accessoriesProbability: 0,
     flip: "none",

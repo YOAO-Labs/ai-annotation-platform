@@ -4,8 +4,6 @@ import type { Page } from "@playwright/test";
 import { expect, test, type SeedData } from "../fixtures/seed";
 
 async function trackerCapabilities(page: Page, data: SeedData) {
-  // Layout uses real project/task/preferences APIs and needs no model inference.
-  // Keep the owned seed backend connected and stub only capability discovery.
   const backend = `**/api/v1/projects/${data.project_id}/ml-backends/${data.ml_backend_id}`;
   const model = {
     id: "e2e-layout-tracker",

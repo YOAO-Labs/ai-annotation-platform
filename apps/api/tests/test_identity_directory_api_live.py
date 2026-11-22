@@ -116,8 +116,6 @@ async def test_auth_only_api_routes_use_directory_owner(
                 headers=pa_headers,
             ) as project_admin,
         ):
-            # Legacy list and the query/stat/export family intentionally keep
-            # their distinct project-admin visibility policies.
             pa_list = await project_admin.get(
                 "/api/v1/users",
                 params={
@@ -242,7 +240,6 @@ async def test_auth_only_api_routes_use_directory_owner(
 
             await _add_large_directory_catalog(maker, actor_ids, suffix, count=540)
 
-            # The super-admin surface must return an uncapped list and page.
             listed = await super_admin.get("/api/v1/users", params={"status": "all"})
             assert listed.status_code == 200, listed.text
             assert len(listed.content) > 64 * 1024

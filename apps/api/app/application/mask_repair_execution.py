@@ -577,8 +577,6 @@ async def _dispatch_tracker_handoff(
         if lease is None and child.status == "queued":
             if not execution_id:
                 raise RuntimeError("tracker_handoff_missing")
-            # Resume after process loss: re-acquire the already recorded identity
-            # through the owner ledger. A pending intent is its scheduled retry.
             lease = await prepare_job_dispatch(
                 db,
                 job_id=uuid.UUID(child_id),
@@ -604,8 +602,6 @@ async def _dispatch_tracker_handoff(
             except asyncio.CancelledError:
                 raise
             except Exception:
-                # The owner records accepted=False, so the exact envelope stays
-                # redrivable after its lease/backoff instead of being inferred.
                 await db.rollback()
             else:
                 accepted = True
@@ -627,8 +623,6 @@ async def _dispatch_tracker_handoff(
             await db.rollback()
             return
         child = await _read_tracker_child(db, child_id)
-        # A child that left `queued` only proves our publication when it carries
-        # the exact execution identity this attempt journalled.
         proven = accepted or (
             child is not None
             and child.status != "queued"
@@ -639,9 +633,6 @@ async def _dispatch_tracker_handoff(
             if child is not None and (
                 child.status == "queued" or child.celery_task_id != execution_id
             ):
-                # Always confirm enqueue through the owner command while the child
-                # still awaits it; a matching id is not the same fact as the
-                # recorded enqueue receipt.
                 await video_control_command(
                     db,
                     MarkEnqueued(
@@ -771,8 +762,6 @@ async def run_mask_repair(
             durable_child = existing.get("tracker_job_id")
             try:
                 if durable_child is not None:
-                    # The child and its execution identity are already durable;
-                    # republish that identity instead of creating another child.
                     await db.rollback()
                     handoff = (
                         str(durable_child),
@@ -849,8 +838,6 @@ async def run_mask_repair(
                         if durable_batch is not None
                         else {}
                     )
-                    # COMMIT may have succeeded before its response was lost.
-                    # Never replace durable work with an inferred failure.
                     if durable.get("status") == "completed" or durable.get(
                         "tracker_job_id"
                     ):
@@ -937,8 +924,6 @@ async def run_mask_repair_rollback(
             batch = await load_repair_batch(db, batch_id=repair_id)
             rollback_job_id = attempt.job_id
             plan_items = list((batch.plan_json or {}).get("items") or [])
-            # JSONB object key order is not execution order. Follow the immutable
-            # plan so reversing this list really reverses the forward shards.
             saved = (batch.result_json or {}).get("shards") or {}
             completed_shards = [
                 (str(row["id"]), saved[str(row["id"])])
@@ -1017,8 +1002,6 @@ async def run_mask_repair_rollback(
                         if (checkpoints.get(shard_id) or {}).get(
                             "status"
                         ) == "completed":
-                            # COMMIT may have succeeded before its response was
-                            # lost; the checkpoint is the durable fact.
                             await journal_db.rollback()
                             continue
                         await fail_repair_rollback(

@@ -90,7 +90,6 @@ def _fact(row, name):
     if name == "media_bundle_id" and not isinstance(
         row, (ExportOutput, OutputSnapshot)
     ):
-        # Historical lightweight consumers model unassociated candidates only.
         return getattr(row, name, None)
     return getattr(row, name)
 
@@ -144,8 +143,6 @@ async def _settled_thread(call, *args):
         failure = interrupted
         if task is None:
             raise storage_access.mark_unsettled(interrupted)
-        # The temporary ZIP remains owned until hashing physically finishes.
-        # Soft limits and a second interruption must also drain the real thread.
         while not task.done():
             try:
                 await asyncio.shield(task)
@@ -316,8 +313,6 @@ async def create(
     if bundle is None:
         row.storage_ref = await export_storage.allocate(db, row)
     else:
-        # Allocation happened with the HTTP Job. The reserved ZIP must use the
-        # same saved owner as its media, even if today's purpose defaults move.
         saved = deepcopy(bundle.storage_ref)
         root = saved.pop("key_prefix")[
             : -len(export_media_storage.prefix_for(bundle.id))
@@ -477,8 +472,6 @@ class CacheHit:
 
 
 async def _invalidate(db, artifact_id, output_id):
-    # A competing record() may have repointed the same cache row. Never remove
-    # that new index merely because the old candidate failed verification.
     await db.execute(
         delete(ExportArtifact).where(
             ExportArtifact.id == artifact_id,
@@ -530,8 +523,6 @@ async def verify_cache(db, artifact):
             reject()
         if current.expires_at <= now():
             reject("export_storage_expired")
-        # The durable read receipt is visible before releasing this row lock.
-        # Retirement either sees it or makes a later reader reject before I/O.
         await db.commit()
 
     try:
@@ -612,7 +603,6 @@ async def _check_read(db, receipt, revision, route, *, lock=False):
 async def prepare_download(db, receipt, *, download_name, expected_revision=None):
     """Construct, sign and close an external client before final business locks."""
     if receipt.storage_ref["schema"] == 2 and receipt.upload_proof is None:
-        # A new worker's allocation snapshot predates the separately committed PUT.
         row = await db.get(ExportOutput, receipt.id, populate_existing=True)
         if row is None or not same(row, receipt):
             reject()
@@ -755,7 +745,6 @@ async def _has_index(db, identifier):
 
 
 async def _cleanup_locked(db, identifier):
-    # Linked candidates share Bundle -> Output lock order with publication.
     from app.services import export_media_retirement
 
     bundle_id = await db.scalar(

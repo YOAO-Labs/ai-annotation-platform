@@ -1,22 +1,4 @@
 #!/usr/bin/env bash
-#
-# CPU test runner for the reusable `.github/workflows/ml-cpu-test.yml` workflow.
-#
-# Isolated per suite: every invocation creates its own throwaway virtualenv, so
-# no suite can inherit another package's `sys.modules` (the committed tests
-# install MagicMock torch stubs, and a shared interpreter would let a stub leak
-# into a later suite). Plugin-owned suites run in the plugin repository.
-# No GPU, weights or network are used by the tests.
-#
-# Usage:
-#   scripts/run-ml-cpu-tests.sh plan "<spec>"   # print name=value suite flags
-#   scripts/run-ml-cpu-tests.sh run <suite>     # install deps and run pytest
-#   scripts/run-ml-cpu-tests.sh list            # list suite names
-#
-# `<spec>` is `all` (default) or a comma/space separated subset of the suite
-# names. Unknown names fail loudly.
-#
-# Set ML_CPU_DRY_RUN=1 to print the commands instead of executing them.
 
 set -euo pipefail
 
@@ -50,9 +32,6 @@ run_in() {
   fi
 }
 
-# new_venv sets the global VENV_PATH instead of printing on stdout: it must run
-# in the main shell (not a command substitution) so VENV_DIRS recorded here is
-# the same array the EXIT trap cleans up.
 VENV_PATH=""
 new_venv() {
   local python_version="$1"
@@ -68,16 +47,12 @@ new_venv() {
   return 0
 }
 
-# plan: expand and validate "<spec>" into GitHub-output style suite flags.
 plan() {
   local spec="${1-all}"
   local -a requested=()
   if [ "$spec" = "all" ]; then
     requested=("${SUITES[@]}")
   else
-    # Normalize every accepted separator (comma, space, tab, CR, LF) to a single
-    # space, then split with `read -a`. `read -a` performs no pathname expansion,
-    # so a literal `*` stays one unknown token instead of globbing the checkout.
     local normalized="$spec"
     normalized="${normalized//,/ }"
     normalized="${normalized//$'\t'/ }"
@@ -85,8 +60,6 @@ plan() {
     normalized="${normalized//$'\n'/ }"
     requested=()
     read -r -a requested <<< "$normalized" || true
-    # Explicit nonempty invariant: the string guard cannot see tab/newline-only
-    # input, so check the parsed array instead of consulting the raw string.
     if [ "${#requested[@]}" -eq 0 ]; then
       printf 'no suites selected: pass "all" or at least one suite name (got %q)\n' "$spec" >&2
       exit 1
@@ -122,7 +95,6 @@ plan() {
   python3 -c 'import json,sys; suites=json.load(open(sys.argv[1]))["ml_cpu"]; wanted=set(sys.argv[2:]); print("matrix=" + json.dumps({"include":[{"suite":s["id"],"python":s["python"]} for s in suites if s["id"] in wanted]}, separators=(",",":")))' "$ROOT/scripts/test-suites.json" "${requested[@]}"
 }
 
-# Both installers set the global VENV_PATH and must be called as statements.
 install_editable() {
   local dir="$1" python_version="$2" extras="$3"
   shift 3
@@ -140,7 +112,6 @@ run_pytest() {
   run_in "$dir" env PYTHONDONTWRITEBYTECODE=1 "$venv/bin/python" -m pytest -q -p no:cacheprovider --basetemp "$venv/../pytest-tmp" "--junitxml=$report" "$@"
 }
 
-# run: install the minimal dependencies for one suite and execute its tests.
 run() {
   local suite="${1:?suite name required}"
   case "$suite" in
@@ -162,9 +133,6 @@ run() {
   esac
 }
 
-# selftest: dependency-free regression for the plan() contract. Exercises the
-# separator mixtures, empty/whitespace-only rejection, unknown names, and the
-# wildcard case that must not glob. Exits nonzero on any mismatch.
 selftest() {
   local failures=0
   local suite_list

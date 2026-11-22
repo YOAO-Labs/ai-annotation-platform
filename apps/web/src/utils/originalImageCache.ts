@@ -48,7 +48,6 @@ function trim() {
   }
 }
 
-/** Re-describe every consumer; cached bytes never grant authority by themselves. */
 export async function readOriginalImage(
   resource: OriginalResource,
   options: { owner: OriginalOwner; signal: AbortSignal; priority?: "active" | "prefetch" },

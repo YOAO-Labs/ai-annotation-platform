@@ -144,7 +144,6 @@ if __name__ == "__main__":
     try:
         result = asyncio.run(main(arguments))
     except Exception as error:
-        # Driver error strings may include connection credentials or SQL bodies.
         print(
             json.dumps(
                 {

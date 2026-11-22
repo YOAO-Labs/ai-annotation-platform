@@ -357,7 +357,6 @@ async def test_failure_and_cancellation_leave_cleanup_owner(
         response = await call(httpx_client, w, headers(super_admin))
         assert response.status_code in {409, 502, 503}, response.text
     assert not w.inputs.objects
-    # An uncertain PUT deliberately retains a seven-day recovery record.
     async with w.inputs.factory() as db:
         records = list(
             (

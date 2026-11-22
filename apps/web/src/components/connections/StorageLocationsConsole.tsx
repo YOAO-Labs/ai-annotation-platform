@@ -540,7 +540,7 @@ function ConsoleOwner() {
                 }}
                 onCreated={(connection) => {
                   setCreateKind(null);
-                  /* The refreshed list exposes the new location identity. */ void connection;
+                  void connection;
                 }}
               />
             ) : (

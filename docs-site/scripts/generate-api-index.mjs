@@ -1,8 +1,4 @@
 #!/usr/bin/env node
-// 扫描 apps/api/app/api/v1/ 下的路由模块，生成 docs-site/api/guides/_routes.generated.md
-// 索引页：模块名 → 该模块所有 @router.<method> 路径。
-//
-// 目的：让阅读 API 指南的人能一眼看到全量路由，反查到具体模块文件。
 
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -17,8 +13,6 @@ const OUT = resolve(here, "../api/guides/_routes.generated.md");
 const ROUTE_RE = /@router\.(get|post|put|patch|delete)\s*\(\s*["']([^"']*)["']/gi;
 const SKIP = new Set(["__init__.py", "router.py", "_test_seed.py"]);
 
-// 递归收集路由模块:顶层 *.py + 子包(如 tasks/)内的 *.py。
-// 子包内模块的标签带上目录前缀(如 `tasks/list.py`),便于反查文件。
 function collectModules(dir, prefix = "") {
   const out = [];
   const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>

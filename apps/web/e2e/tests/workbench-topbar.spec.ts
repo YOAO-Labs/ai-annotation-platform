@@ -1,7 +1,5 @@
 import { expect, test } from "../fixtures/seed";
 
-// Measure rendered controls, not class names: both overlap and excessive wrapping
-// previously passed component tests while wasting canvas space.
 export function measureTopbar(bar: HTMLElement) {
   const outer = bar.getBoundingClientRect();
   const controls = Array.from(

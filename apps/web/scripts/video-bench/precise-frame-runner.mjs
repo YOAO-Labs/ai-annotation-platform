@@ -108,8 +108,6 @@ function classifyVideoDecoderEvidence(
       : typeof player.platformDecoder === "boolean"
         ? [player.platformDecoder]
         : [];
-  // Chromium 会为未走到 initialize 的瞬时 VideoDecoder 只发 kLoad；它们没有选择 decoder，
-  // 不能作为正证据或反证据。任何发布过一侧属性的 player 都算 initialized，并必须两侧完整。
   const initialized = matched.filter(
     (player) => decoderNamesFor(player).length > 0 || platformValuesFor(player).length > 0,
   );
@@ -172,9 +170,7 @@ async function installVideoDecoderEvidenceProbe(page, host = {}) {
           if (value?.event === "kLoad" && typeof value.url === "string") {
             entry.loadUrls.push(value.url);
           }
-        } catch {
-          // 非 JSON 的媒体日志不是 decoder 身份证据。
-        }
+        } catch {}
       }
     });
     session.on("Media.playerPropertiesChanged", ({ playerId, properties = [] }) => {
@@ -196,9 +192,7 @@ async function installVideoDecoderEvidenceProbe(page, host = {}) {
       if (!session) return;
       try {
         await session.detach();
-      } catch {
-        // context 关闭时 session 可能已 detach。
-      }
+      } catch {}
     },
   };
 }
@@ -250,9 +244,7 @@ async function installProbe(context) {
       });
       observer.observe({ type: "longtask", buffered: true });
       probe.longTaskSupported = true;
-    } catch {
-      // 浏览器未开放 Long Tasks API；runner 会把该行标为 inconclusive。
-    }
+    } catch {}
   });
 }
 
@@ -303,8 +295,6 @@ async function waitForFrameTerminal(page, targetFrame) {
 }
 
 async function waitForFrameResourcesSettled(page) {
-  // Konva 已完成目标帧 draw 时，supplemental/prefetch bitmap 的异步 close 可能尚未发布到诊断。
-  // 延迟统计已经截断；这里先跨两个常规帧窗口，再读取资源账本，避免 0 → 1 的发布竞态。
   await page.waitForTimeout(32);
   await page.waitForFunction(
     () => {
@@ -339,8 +329,6 @@ async function measureSeek(page, targetFrame, maxFrame, scenario) {
   await seekFrame(page, targetFrame, maxFrame);
   await waitForFrameTerminal(page, targetFrame);
   const latencyMs = performance.now() - startedAt;
-  // 延迟在真实 Konva draw 时截断；资源快照另等后台 supplemental/prefetch frame close，
-  // 避免把允许存在的短时转换误报成“操作结束仍泄漏 VideoFrame”。
   await waitForFrameResourcesSettled(page);
   await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
   const endTime = await page.evaluate(() => performance.now());
@@ -355,8 +343,6 @@ async function measureSeek(page, targetFrame, maxFrame, scenario) {
     source: snapshot.source,
     state: snapshot.state,
     fallbackReason: snapshot.precise?.fallbackReason ?? null,
-    // buildGopPlan 覆盖 sample 校验、GOP 规划、description 解码和 EncodedVideoChunk 构造，
-    // 是可迁移到 Worker 的具名同步 slice；不能用整段操作的 event-loop delay 冒充。
     pipelineBlockingMs: snapshot.precise?.lastDemuxMs ?? null,
     queueMs: snapshot.precise?.lastQueueMs ?? null,
     codecMs: snapshot.precise?.lastCodecMs ?? null,
@@ -500,8 +486,6 @@ async function waitForPreciseRequestsToSettle(requestUrls, quietMs = 250, timeou
 }
 
 async function playbackObservation(page, seconds, requestUrls, scenario) {
-  // 前一个暂停态 seek 可能仍有已发起的同 GOP 预取；先等请求流静默，再把计数边界放到
-  // play click 之前，避免把先前操作的尾请求误算成“播放态新增请求”。
   await waitForPreciseRequestsToSettle(requestUrls);
   const beforeRequests = requestUrls.length;
   const mediaBefore = await page.locator(VIDEO_SELECTOR).evaluate((video) => ({
@@ -813,9 +797,7 @@ async function measureRow(browser, browserGpuEnvironment, resolution, config, ar
       } else if (/^\/api\/v1\/videos\/[^/]+\/chunks\/\d+\/samples$/.test(pathname)) {
         payloads.samples ??= await response.json();
       }
-    } catch {
-      // body 不可解析会让 fixture 合同标为 inconclusive。
-    }
+    } catch {}
   });
   const taskUrl = taskUrlWithWebCodecs(absoluteTaskUrl(args.baseUrl, rawTaskUrl), true);
   const startedAt = performance.now();
@@ -936,7 +918,6 @@ async function measureRow(browser, browserGpuEnvironment, resolution, config, ar
       const crossTargets = Array.from({ length: config.samples.crossGopRoundtrip }, (_, index) =>
         index % 2 === 0 ? firstGopFrames[0] : keyframes[1],
       );
-      // 互质步长跨全视频制造 GOP/chunk 切换和预算淘汰，避免固定两帧缓存命中假长稳。
       const stabilitySpan = Math.max(2, maxFrame);
       const stabilityTargets = Array.from(
         { length: args.stabilityOperations },
@@ -959,8 +940,6 @@ async function measureRow(browser, browserGpuEnvironment, resolution, config, ar
         ),
         maxFrame,
       );
-      // cold-first-frame 已由页面首开记录；warm same-GOP 正式采样前先把目标 GOP/session
-      // 预热一次，避免把跨场景切换成本混进 warm 指标。
       await seekFrame(page, firstGopFrames[0], maxFrame);
       await waitForFrameTerminal(page, firstGopFrames[0]);
       await waitForFrameResourcesSettled(page);
@@ -1056,8 +1035,6 @@ export async function runPreciseFrameMeasurements(config, args) {
     );
   }
   const channel = process.env.VIDEO_BENCH_CHROMIUM_CHANNEL || undefined;
-  // 无物理输出口的 GPU runner 会把有头页的 BeginFrame 降到约 1 Hz；关闭 GPU vsync
-  // 可恢复 Chrome 的 60 Hz 调度，同时仍保留真实硬件 VideoDecoder / WebGL 适配器。
   const chromiumArgs = args.headed ? ["--disable-gpu-vsync"] : ["--enable-unsafe-swiftshader"];
   const browser = await chromium.launch({
     headless: !args.headed,

@@ -1,10 +1,3 @@
-// useMaskEditor 单测：
-// - 初始非 active；beginBlank / initFromPolygon 后 active
-// - paintAt 调 brush / erase 按 mode 分流
-// - radius clamp 到 [MIN, MAX]
-// - dirty 在 paintAt 后变 true；cancel 后 false
-// - commitToPolygon 空 mask 返回 null；有内容时返回外环顶点
-
 import { describe, expect, it, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import {
@@ -168,7 +161,6 @@ describe("useMaskEditor · paintAt / mode / radius", () => {
     expect(result.current.dirty).toBe(true);
     expect(result.current.buffer!.get(40, 40)).toBe(255);
     expect(result.current.buffer!.countSet()).toBeGreaterThan(250);
-    // revision 在每次 paintAt 后 bump，供 MaskOverlayLayer 触发重画。
     expect(result.current.revision).toBeGreaterThan(revAfterBegin);
   });
 
@@ -218,7 +210,6 @@ describe("useMaskEditor · paintAt / mode / radius", () => {
     act(() => {
       result.current.setRadius(NaN);
     });
-    // NaN 走 default
     expect(result.current.radius).toBe(MASK_BRUSH_DEFAULT_PX);
   });
 });

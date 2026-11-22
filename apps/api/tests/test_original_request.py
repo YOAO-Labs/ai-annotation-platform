@@ -79,7 +79,7 @@ async def test_disconnect_waits_for_capture_drain_and_closes_late_stage(cancel_a
                     await physical_end.wait()
                 except asyncio.CancelledError:
                     pass
-            return stage  # The physical reader won the late completion race.
+            return stage
 
     pending = asyncio.create_task(connected_snapshot(request, capture()))
     await entered.wait()
@@ -109,7 +109,6 @@ async def test_external_cancellation_is_propagated_after_late_capture_is_closed(
     pending = asyncio.create_task(connected_snapshot(request, capture()))
     await entered.wait()
     pending.cancel()
-    # A capture that suppresses cancellation cannot transfer its late stage.
     with pytest.raises(asyncio.CancelledError):
         await pending
     assert stage.file.closed and finished.is_set()

@@ -16,7 +16,6 @@ export function resolveWorkbenchAiRunUnavailableReason({
   return unavailableReason ?? "当前 AI 后端不可用，请在推理面板中选择已连接的后端";
 }
 
-/** Entry admission is project-wide; model/prompt configuration belongs inside the panel. */
 export function resolveWorkbenchAiAvailability({
   backends,
   capIndex,

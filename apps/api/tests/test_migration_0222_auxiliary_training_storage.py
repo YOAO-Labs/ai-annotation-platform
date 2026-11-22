@@ -188,7 +188,6 @@ async def test_nullable_downgrade_upgrade_roundtrip_keeps_semantic_facts(
                         auxiliary.__tablename__, schema=schema
                     )
                 }
-            # Existing dataset/run/deletion shape constraints and columns are untouched.
             for older in [
                 "training_dataset_versions",
                 "training_runs",

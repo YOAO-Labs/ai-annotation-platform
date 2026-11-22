@@ -249,7 +249,6 @@ async def test_mixed_pages_are_source_aware_and_exactly_ordered(
             created_at=base,
             body="native third",
         ),
-        # A mirror with stale body must never leak into the authoritative feed.
         _task_feedback(
             feedback_id=uuid.uuid4(),
             project_id=project.id,
@@ -261,7 +260,6 @@ async def test_mixed_pages_are_source_aware_and_exactly_ordered(
             anchor_type="annotation",
             annotation_id=annotation_a.id,
         ),
-        # Issue roots and replies are not task comments.
         _task_feedback(
             feedback_id=uuid.uuid4(),
             project_id=project.id,

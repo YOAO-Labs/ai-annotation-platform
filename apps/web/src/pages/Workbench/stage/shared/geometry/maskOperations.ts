@@ -455,7 +455,6 @@ export function fillMaskHoles(
   if (options.mode === "max_area" && (!Number.isInteger(options.maxArea) || options.maxArea! < 1)) {
     throw new Error("hole area threshold must be a positive integer");
   }
-  // Hole 的冻结合同固定为 4 邻域；它不随 component/fill 的可选 connectivity 改变。
   const labels = labelMaskRegions(source, width, height, { value: 0, connectivity: 4 });
   const after = source.slice();
   let selected: MaskRegion[];

@@ -1,5 +1,3 @@
-// 第 3 批 · usePsrPatchPipeline 防抖落库管线单测(B 类里少见可单测者):
-// fake timers 锁定 250ms 防抖 / 校验门槛 / box_3d 才入 history / selectedId 守卫。
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,7 +18,7 @@ const VALID: Record<PsrField, string> = {
   pitch: "0",
   roll: "0",
 };
-const INVALID: Record<PsrField, string> = { ...VALID, h: "0" }; // 尺寸 0 → 非法
+const INVALID: Record<PsrField, string> = { ...VALID, h: "0" };
 
 function boxAnn(): AnnotationResponse {
   return {
@@ -31,7 +29,7 @@ function boxAnn(): AnnotationResponse {
 
 function mocks() {
   const update = { mutate: vi.fn() } as unknown as ReturnType<typeof useUpdateAnnotation>;
-  const history = { push: vi.fn() } as unknown as ReturnType<typeof useThreeDHistory>;
+  const history = { commit: vi.fn() } as unknown as ReturnType<typeof useThreeDHistory>;
   return { update, history };
 }
 
@@ -54,20 +52,21 @@ describe("usePsrPatchPipeline", () => {
   afterEach(() => vi.useRealTimers());
 
   it("有效表单 250ms 后 PATCH 并入 history(box_3d)", () => {
-    const { result, update, history } = setup();
+    const { result, history } = setup();
     act(() => result.current.schedulePatch(VALID));
     expect(result.current.hasPendingPatch).toBe(true);
-    expect(update.mutate).not.toHaveBeenCalled(); // 防抖未到
+    expect(history.commit).not.toHaveBeenCalled();
     act(() => vi.advanceTimersByTime(250));
     expect(result.current.hasPendingPatch).toBe(false);
-    expect(update.mutate).toHaveBeenCalledTimes(1);
-    expect(update.mutate).toHaveBeenCalledWith(
+    expect(history.commit).toHaveBeenCalledTimes(1);
+    expect(history.commit).toHaveBeenCalledWith([
       expect.objectContaining({
+        kind: "update",
         annotationId: "a1",
-        payload: expect.objectContaining({ geometry: expect.anything() }),
+        before: expect.objectContaining({ geometry: expect.anything() }),
+        after: expect.objectContaining({ geometry: expect.anything() }),
       }),
-    );
-    expect(history.push).toHaveBeenCalledTimes(1);
+    ]);
   });
 
   it("非法表单(尺寸 0)不提交", () => {
@@ -96,7 +95,7 @@ describe("usePsrPatchPipeline", () => {
     act(() => vi.advanceTimersByTime(250));
     unmount();
     expect(update.mutate).not.toHaveBeenCalled();
-    expect(history.push).not.toHaveBeenCalled();
+    expect(history.commit).not.toHaveBeenCalled();
   });
 
   it("失焦恢复或外部表单重置后直接反映有效性，不自动提交", () => {
@@ -126,7 +125,7 @@ describe("usePsrPatchPipeline", () => {
       isPending: true,
       error,
     } as unknown as ReturnType<typeof useUpdateAnnotation>;
-    const { result } = setup({ updateAnnotation: update });
+    const { result, history } = setup({ updateAnnotation: update });
     act(() => result.current.schedulePatch(INVALID));
     act(() => result.current.schedulePatch(VALID));
     expect(result.current.hasInvalidDraft).toBe(false);
@@ -134,17 +133,17 @@ describe("usePsrPatchPipeline", () => {
     expect(result.current.isSaving).toBe(true);
     expect(result.current.saveError).toBe(error);
     act(() => vi.advanceTimersByTime(250));
-    expect(update.mutate).toHaveBeenCalledTimes(1);
+    expect(history.commit).toHaveBeenCalledTimes(1);
   });
 
   it("连续调用只触发最后一次(250ms 防抖)", () => {
-    const { result, update } = setup();
+    const { result, history } = setup();
     act(() => {
       result.current.schedulePatch(VALID);
       result.current.schedulePatch({ ...VALID, cx: "9" });
     });
     act(() => vi.advanceTimersByTime(250));
-    expect(update.mutate).toHaveBeenCalledTimes(1);
+    expect(history.commit).toHaveBeenCalledTimes(1);
   });
 
   it("无 selectedId 时为 no-op", () => {
@@ -163,7 +162,7 @@ describe("usePsrPatchPipeline", () => {
     act(() => result.current.schedulePatch(VALID));
     act(() => vi.advanceTimersByTime(250));
     expect(update.mutate).toHaveBeenCalledTimes(1);
-    expect(history.push).not.toHaveBeenCalled();
+    expect(history.commit).not.toHaveBeenCalled();
   });
 
   it("unmount 时 flush 未到 250ms 的防抖 PATCH(不丢编辑)", () => {
@@ -178,10 +177,9 @@ describe("usePsrPatchPipeline", () => {
       }),
     );
     act(() => result.current.schedulePatch(VALID));
-    expect(update.mutate).not.toHaveBeenCalled(); // 防抖未到
-    act(() => unmount()); // 250ms 内卸载
-    expect(update.mutate).toHaveBeenCalledTimes(1); // flush 一次,不丢
-    expect(history.push).toHaveBeenCalledTimes(1);
+    expect(history.commit).not.toHaveBeenCalled();
+    act(() => unmount());
+    expect(history.commit).toHaveBeenCalledTimes(1);
   });
 
   it("切 selectedId 时 flush 上一对象 pending 编辑后不重复提交", () => {
@@ -197,13 +195,11 @@ describe("usePsrPatchPipeline", () => {
       }),
     );
     act(() => result.current.schedulePatch(VALID));
-    // 250ms 内切到另一对象 → 应同步 flush a1 一次。
     selectedId = "a2";
     act(() => rerender());
-    expect(update.mutate).toHaveBeenCalledTimes(1);
-    expect(update.mutate).toHaveBeenCalledWith(expect.objectContaining({ annotationId: "a1" }));
-    // 定时器已被 flush 清掉,再推进时间不应二次提交。
+    expect(history.commit).toHaveBeenCalledTimes(1);
+    expect(history.commit).toHaveBeenCalledWith([expect.objectContaining({ annotationId: "a1" })]);
     act(() => vi.advanceTimersByTime(250));
-    expect(update.mutate).toHaveBeenCalledTimes(1);
+    expect(history.commit).toHaveBeenCalledTimes(1);
   });
 });

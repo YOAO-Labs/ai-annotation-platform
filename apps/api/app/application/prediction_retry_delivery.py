@@ -49,8 +49,6 @@ async def publish_prediction_retry_deliveries(
                 )
             accepted = True
         except Exception:
-            # Publication may already have reached the broker. Keep the stable
-            # task identity and durable outbox instead of clearing the claim.
             accepted = False
         try:
             await call_retry(
@@ -63,7 +61,6 @@ async def publish_prediction_retry_deliveries(
                 error_code=None if accepted else "publication_unavailable",
             )
         except Exception:
-            # Reclaim after lease expiry can republish the same task UUID.
             log.warning("Retry publication acknowledgement remains pending")
         submitted += int(accepted)
         pending += int(not accepted)

@@ -107,8 +107,6 @@ def _presign(
 ) -> tuple[str, datetime]:
     """Presign one exact S3 request with botocore's SigV4 query signer."""
     parsed_endpoint = urlsplit(endpoint)
-    # Botocore lowercases the signed host; keep the request URL identical so
-    # the executor's automatic Host header matches the signed value.
     origin = parsed_endpoint.scheme + "://" + parsed_endpoint.netloc.lower()
     request = AWSRequest(
         method=method,
@@ -123,15 +121,11 @@ def _presign(
             credentials.region,
             expires=expires_in,
         ).add_auth(request)
-        signed = dict(
-            parse_qsl(urlsplit(request.url).query, keep_blank_values=True)
+        signed = dict(parse_qsl(urlsplit(request.url).query, keep_blank_values=True))
+        issued_at = datetime.strptime(signed["X-Amz-Date"], "%Y%m%dT%H%M%SZ").replace(
+            tzinfo=timezone.utc
         )
-        issued_at = datetime.strptime(
-            signed["X-Amz-Date"], "%Y%m%dT%H%M%SZ"
-        ).replace(tzinfo=timezone.utc)
-        expires_at = issued_at + timedelta(
-            seconds=int(signed["X-Amz-Expires"])
-        )
+        expires_at = issued_at + timedelta(seconds=int(signed["X-Amz-Expires"]))
     except BotoCoreError:
         raise ImageFailure("storage_unavailable") from None
     except (KeyError, TypeError, ValueError):
@@ -162,8 +156,6 @@ def _lease_expiry(valid_until: datetime | None, now: datetime) -> int:
     if valid_until is None:
         raise ImageFailure("invalid_response")
     remaining = int((valid_until - now).total_seconds())
-    # Keep one second of slack so the later botocore signing timestamp cannot
-    # push the issued expiry past the retained lease deadline.
     if remaining < 2:
         raise ImageFailure("lease_lost")
     return min(remaining - 1, NATIVE_URL_EXPIRY_MAX)
@@ -176,11 +168,7 @@ def _native_key_prefix(base_prefix: object) -> str:
         base = base_prefix
     else:
         raise ImageFailure("dependency_changed")
-    if (
-        base != base.strip()
-        or "\\" in base
-        or _CONTROL_CHARACTERS.search(base)
-    ):
+    if base != base.strip() or "\\" in base or _CONTROL_CHARACTERS.search(base):
         raise ImageFailure("dependency_changed")
     base = base.rstrip("/")
     if base.startswith("/"):
@@ -208,10 +196,7 @@ def _require_stable_capture(
         raise ImageFailure("dependency_changed")
     if (first.valid_until is None) != (second.valid_until is None):
         raise ImageFailure("dependency_changed")
-    if (
-        first.valid_until is not None
-        and second.valid_until < first.valid_until
-    ):
+    if first.valid_until is not None and second.valid_until < first.valid_until:
         raise ImageFailure("dependency_changed")
 
 
@@ -260,9 +245,7 @@ class NativeStorageSigner:
                 raise ImageFailure("invalid_response")
 
         result = await self._sign_write(mode, capture, require_scope)
-        self._self_check(
-            lambda: require_write_reference_scope(request, result, mode)
-        )
+        self._self_check(lambda: require_write_reference_scope(request, result, mode))
         return result
 
     async def read_references(
@@ -294,11 +277,7 @@ class NativeStorageSigner:
             expires_in = None
             ttl = issued_cap
         else:
-            ttl = (
-                request.expires_in
-                if request.expires_in is not None
-                else issued_cap
-            )
+            ttl = request.expires_in if request.expires_in is not None else issued_cap
             if ttl > issued_cap:
                 raise ImageFailure("invalid_request")
             expires_in = ttl
@@ -321,9 +300,7 @@ class NativeStorageSigner:
             members=members,
             expires_in=expires_in,
         )
-        self._self_check(
-            lambda: require_read_reference_scope(request, result)
-        )
+        self._self_check(lambda: require_read_reference_scope(request, result))
         return result
 
     async def retirement_references(
@@ -362,9 +339,7 @@ class NativeStorageSigner:
             members=members,
             expires_in=None,
         )
-        self._self_check(
-            lambda: require_retirement_reference_scope(request, result)
-        )
+        self._self_check(lambda: require_retirement_reference_scope(request, result))
         return result
 
     async def retirement_prefix_reference(
@@ -392,8 +367,10 @@ class NativeStorageSigner:
         )
         ttl = _lease_expiry(context.valid_until, datetime.now(timezone.utc))
         query = prefix_listing_query(
-            context.storage_ref.prefix, request.kind,
-            key_marker=request.key_marker, upload_id_marker=request.upload_id_marker,
+            context.storage_ref.prefix,
+            request.kind,
+            key_marker=request.key_marker,
+            upload_id_marker=request.upload_id_marker,
         )
         url, expires_at = _presign(
             method="GET",
@@ -426,9 +403,7 @@ class NativeStorageSigner:
         capture,
         require_scope,
     ) -> NativePyramidIoReferences:
-        context, credentials = await self._stable_context(
-            mode, capture, require_scope
-        )
+        context, credentials = await self._stable_context(mode, capture, require_scope)
         ttl = _lease_expiry(context.valid_until, datetime.now(timezone.utc))
         member = context.members[0]
         if mode == "put":
@@ -607,13 +582,9 @@ class NativeStorageSigner:
         if not isinstance(second, NativePyramidIoContext) or second.mode != mode:
             raise ImageFailure("invalid_response")
         _require_stable_capture(first, second)
-        # A heartbeat may extend the live lease. Keep the earlier deadline so
-        # every issued capability remains bounded by the first admitted lease.
         return first, credentials
 
-    async def _resolve(
-        self, context: NativePyramidIoContext
-    ) -> _TargetCredentials:
+    async def _resolve(self, context: NativePyramidIoContext) -> _TargetCredentials:
         reference = context.storage_ref
         if context.destination is None:
             endpoint = self._config.s3_endpoint.rstrip("/")
@@ -637,8 +608,6 @@ class NativeStorageSigner:
             endpoint = validate_s3_endpoint(destination.config)
         except (TypeError, ValueError):
             raise ImageFailure("dependency_changed") from None
-        # The saved bucket comes from the media-cache binding; the registered
-        # connection owns the endpoint identity and the managed namespace.
         if (
             endpoint.rstrip("/") != reference.endpoint_url.rstrip("/")
             or _native_key_prefix(destination.config.get("base_prefix"))

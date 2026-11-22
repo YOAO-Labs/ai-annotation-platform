@@ -144,8 +144,6 @@ async def commit_tracker_outcome(
     except (ValueError, OSError):
         raise TrackerExecutionDeferred("video_writer_unavailable") from None
 
-    # The worker owns its read transactions. Release them before an independent
-    # owner locks Job/Task/actor; the borrowed path then owns its explicit commit.
     try:
         await db.commit()
     except (SQLAlchemyError, OSError):
@@ -184,8 +182,6 @@ async def commit_tracker_outcome(
                 return receipt
             except (VideoWriterUnavailable, SQLAlchemyError, OSError):
                 await db.rollback()
-                # A lost COMMIT response may already have published the result.
-                # Inspect the exact operation before repeating its stable command.
                 receipt = await manager.status(
                     command.operation_id, command.execution, digest
                 )

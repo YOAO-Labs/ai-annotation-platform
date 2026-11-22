@@ -44,8 +44,6 @@ const STATE_VARIANT: Record<string, "success" | "warning" | "outline" | "danger"
   error: "danger",
 };
 
-// ADR-0044 · 「管理 backend」悬浮面板: 列出全部全局 backend, 在此勾选启用/停用。
-// 主表只展示已启用项, 增删启用都在本面板里做。
 function ManageBackendsPanel({
   open,
   onClose,
@@ -129,20 +127,15 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
 
   const setEnablement = useSetMLBackendEnablement(project.id);
   const health = useMLBackendHealth(project.id);
-  // 行内快捷设置项目主模型服务。
   const updateProject = useUpdateProject(project.id);
-  // ai_enabled 自动派生：设置项目主模型服务即启用 AI。
   const [mlBackendId, setMlBackendId] = useState<string | null>(project.ml_backend_id ?? null);
   const [iouThreshold, setIouThreshold] = useState(project.iou_dedup_threshold ?? 0.7);
 
-  // 下拉、行内主服务操作和 IoU 滑块分别即时提交。
-  // 本地态只作乐观显示 + 跟随服务端回灌(切项目、外部改动、提交失败回滚都靠它)。
   useEffect(() => {
     setMlBackendId(project.ml_backend_id ?? null);
     setIouThreshold(project.iou_dedup_threshold ?? 0.7);
   }, [project.id, project.ml_backend_id, project.iou_dedup_threshold]);
 
-  // 设／清项目主模型服务；提交失败时恢复服务端值。
   const commitBackend = (id: string | null, name?: string) => {
     setMlBackendId(id);
     updateProject.mutate(
@@ -163,9 +156,6 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // 交互式 AI 工具总开关 (工作台 smart-point / smart-box / exemplar / magic-box)。
-  // 关闭后这些工具在工作台整组隐藏; 具体某个工具是否可用仍取决于后端 supported_prompts
-  // (不支持则置灰), 以及其产出几何所属工具单位 (region / bbox) 是否启用。
   const commitAiInteractive = (next: boolean) => {
     updateProject.mutate(
       { ai_interactive_enabled: next },
@@ -180,7 +170,6 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // IoU 阈值滑块松手/失焦时提交一次(拖动中只更新本地,不逐帧发请求);无变化跳过。
   const commitIou = (value: number) => {
     if (Math.abs(value - (project.iou_dedup_threshold ?? 0.7)) < 0.001) return;
     updateProject.mutate(
@@ -197,7 +186,6 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
 
   const onBind = (b: MLBackendResponse) => commitBackend(b.id, b.name);
 
-  // ADR-0044 · 启用/停用某全局 backend。
   const onToggleEnabled = (item: ProjectMLBackendItem, next: boolean) => {
     setEnablement.mutate(
       { registryId: item.backend.id, payload: { enabled: next } },
@@ -212,8 +200,6 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
     );
   };
 
-  // 仅对已启用 backend 拉 /setup 拿 supported_prompts; 失败容忍, 列显示 "—"。
-  // 管理面板低频, 不做合并端点; 未来 N>5 再优化。
   const capabilities = useQueries({
     queries: enabledBackends.map((b) => ({
       queryKey: mlBackendSetupQueryKey(project.id, b.id),
@@ -440,7 +426,6 @@ export function MlBackendsSection({ project }: { project: ProjectResponse }) {
                                 {p}
                               </Badge>
                             ))}
-                            {/* 视频追踪能力 (supported_trackers 非空 ⇒ 支持 video 模态) */}
                             {cap.supported_trackers?.map((t) => (
                               <Badge key={t} variant="ai">
                                 <Icon name="video" size={10} />

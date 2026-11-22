@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# 三连击校验 echo backend 实现了 ml-backend-protocol §1-3 的四个端点。
-# 启动 backend 后另起一个 shell 跑此脚本（默认 host=localhost:8000）。
 
 set -euo pipefail
 

@@ -6,16 +6,6 @@ import {
 } from "@/hooks/useNotificationPreferences";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 
-/**
- * 通知偏好共享面板：个人设置页「通知偏好」与工作台设置「通知」分类共用。
- * 数据走同一账号级查询（useNotificationPreferences），自动保存，两个开关：
- * 「接收通知」(in_app) 与「弹出提示」(toast)。
- *
- * - 关闭接收后弹出开关只禁用、不重置，重新开启时恢复原选择。
- * - 保存失败恢复上次确认值并提供本行重试；其它类型不受影响。
- * - 初始加载失败禁用写入，不猜测默认值。
- */
-
 const TYPE_LABELS: Record<string, string> = {
   "bug_report.commented": "BUG 反馈：有新评论",
   "bug_report.reopened": "BUG 反馈：被重新打开",
@@ -72,7 +62,6 @@ function notificationCategoryMatchesQuery(query: string): boolean {
   return !!query && ("通知".includes(query) || "通知偏好".includes(query));
 }
 
-/** 供设置搜索使用：分类名称、类型标签或类型 ID 命中查询词即返回 true。 */
 export function notificationPreferencesMatchQuery(
   items: { type: string }[] | undefined,
   query: string,
@@ -173,11 +162,9 @@ export function NotificationPreferencesPanel({ filterQuery }: { filterQuery?: st
   const sessionRef = useRef(0);
 
   useEffect(() => {
-    // 账号替换：待保存/失败状态属于旧账号，全部丢弃。
     setPendingByType({});
     setFailureByType({});
     return () => {
-      // 迟到的请求属于退出的账号/面板会话，即使重新登录同一账号也不能写回。
       sessionRef.current += 1;
     };
   }, [userId]);
@@ -195,11 +182,9 @@ export function NotificationPreferencesPanel({ filterQuery }: { filterQuery?: st
         return next;
       });
       try {
-        // 每笔 Promise 独立结算；连续 mutate 的调用级回调只跟随最后一笔。
         await updatePref.mutateAsync({ type: item.type, owner: userId ?? undefined, ...patch });
       } catch {
         if (ownsRequest()) {
-          // 恢复为查询中最后确认的值；失败信息留本行供重试。
           setFailureByType((prev) => ({ ...prev, [item.type]: patch }));
         }
       } finally {

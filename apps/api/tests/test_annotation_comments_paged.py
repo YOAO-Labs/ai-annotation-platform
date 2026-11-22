@@ -63,8 +63,6 @@ async def _seed_with_comments(
     db.add(ann)
     await db.flush()
 
-    # 测试环境用 SAVEPOINT 隔离 → 单个外 tx 下 func.now() 恒等，无法靠真实时间拉开 created_at。
-    # 显式给每条 comment 写入 created_at = base + Δi，保证 DESC 排序确定。
     base_ts = datetime.now(timezone.utc)
     comments: list[AnnotationComment] = []
     for i in range(n):
@@ -95,7 +93,6 @@ async def test_paged_returns_chunks_in_desc_order(
     ann, comments = await _seed_with_comments(db_session, user.id, n=12)
     headers = {"Authorization": f"Bearer {token}"}
 
-    # 第一页：5 条
     r1 = await httpx_client.get(
         f"/api/v1/annotations/{ann.id}/comments/page?limit=5",
         headers=headers,
@@ -105,10 +102,8 @@ async def test_paged_returns_chunks_in_desc_order(
     assert len(page1["items"]) == 5
     assert page1["next_cursor"]
 
-    # 时间倒序：第 0 条应是 comments[-1]
     assert page1["items"][0]["id"] == str(comments[-1].id)
 
-    # 第二页（cursor 是 base64-urlsafe，无需额外 encode）
     r2 = await httpx_client.get(
         f"/api/v1/annotations/{ann.id}/comments/page?limit=5&cursor={page1['next_cursor']}",
         headers=headers,
@@ -118,7 +113,6 @@ async def test_paged_returns_chunks_in_desc_order(
     assert len(page2["items"]) == 5
     assert page2["items"][0]["id"] == str(comments[-6].id)
 
-    # 第三页：2 条 + next_cursor=None
     r3 = await httpx_client.get(
         f"/api/v1/annotations/{ann.id}/comments/page?limit=5&cursor={page2['next_cursor']}",
         headers=headers,

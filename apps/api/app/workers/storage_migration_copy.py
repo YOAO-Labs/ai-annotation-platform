@@ -148,7 +148,6 @@ def native(
                     parent_evidence_sha256=values["parent_evidence_sha256"],
                     **options,
                 )
-            # Verify the generated checkpoint independently of the returned summary.
             with storage_access.closing_registered(
                 Checkpoint(path, max_bytes=BASELINE_LIMIT, strict_closure=True)
             ) as prepared:
@@ -159,7 +158,6 @@ def native(
                 ):
                     raise CopyStopped("copy_checkpoint_integrity")
         checkpoint()
-        # The core closed both sealed outputs before bytes become publishable.
         with storage_access.closing_registered(path.open("rb")) as stream:
             baseline = stream.read(BASELINE_LIMIT + 1)
         with storage_access.closing_registered(catalog_path.open("rb")) as stream:
@@ -266,7 +264,6 @@ async def execute(db, job_id, task_id):
         local_check()
 
     def save(data, checksum):
-        # A late cancellation or authority revocation cannot discard an ACK.
         async def persist():
             async with AsyncSession(
                 bind=bind, expire_on_commit=False, autoflush=False

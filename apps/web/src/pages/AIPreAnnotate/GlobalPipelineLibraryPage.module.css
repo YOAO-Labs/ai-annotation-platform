@@ -102,7 +102,6 @@
   border-radius: var(--radius-sm);
 }
 
-/* 两列编排：左侧 DAG 画布，右侧选中节点的参数检查器。 */
 .editorTwoCol {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.1fr);
@@ -142,7 +141,6 @@
   border-top: 1px solid var(--sc-border);
 }
 
-/* 命名编排库列表 */
 .libraryHeader {
   display: flex;
   gap: 8px;

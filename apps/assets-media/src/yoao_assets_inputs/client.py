@@ -114,7 +114,6 @@ class InputClient:
         created = False
         expected = reference.input
         try:
-            # Never forward control credentials or a borrowed client's cookies to S3.
             request = self._client.build_request(
                 "GET", reference.url, headers={"Accept-Encoding": "identity"}
             )

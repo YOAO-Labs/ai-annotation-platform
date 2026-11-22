@@ -282,7 +282,6 @@ async def test_epoch_without_control_auth_does_not_leave_an_unrecoverable_hold(
             )
             == 0
         )
-        # Configuration can still be repaired before any management HTTP is sent.
         await owner.execute(
             "UPDATE public.ml_backend_registry SET auth_method='token',auth_token='repaired' WHERE id=$1",
             world["registry_id"],

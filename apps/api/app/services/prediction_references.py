@@ -504,7 +504,6 @@ class ReferencePredictionJob:
     async def lock_key(self):
         key_id = self.proof["api_key_id"]
         if key_id:
-            # Identity retains the accepted key's SHARE fence in this transaction.
             facts = await IdentityAccountLockData(self.db).read_accepted_api_key_facts(
                 self.actor_id, uuid.UUID(key_id)
             )

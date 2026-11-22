@@ -1,7 +1,3 @@
-/**
- * resolveClassVisual 单测 — 前端 alias_to 解析 (须与后端
- * services/project.resolve_class_visual 行为一致)。
- */
 import { describe, expect, it } from "vitest";
 import { resolveClassVisual } from "./resolveClassVisual";
 

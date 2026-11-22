@@ -39,7 +39,6 @@ async def test_suspended_actor_is_rechecked_before_task_handler(
     operation, httpx_client, app_module, db_session, annotator
 ):
     user, token = annotator
-    # _seed_project_and_task adds the explicit annotator membership for the worker.
     _, task = await _seed_project_and_task(db_session, user.id, user.id)
     annotation = await _create_annotation(db_session, task, user.id)
     stale_principal = SimpleNamespace(id=user.id, role=user.role, is_active=True)

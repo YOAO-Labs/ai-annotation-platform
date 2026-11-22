@@ -69,8 +69,6 @@ def _uuid(value, *, optional=False):
 
 
 def _json_proof(value):
-    # Persisted proof is JSON already. UUID/datetime coercion is reserved for
-    # source_receipt's trusted dataclasses, not for a delivered proof document.
     raw = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
     if len(raw.encode()) > MAX_PROOF_BYTES:
         _reject("prediction_proof_budget_exceeded", 413)
@@ -355,8 +353,6 @@ class _Admission:
         self.retained = self.released = False
 
     def release(self):
-        # BinaryStage calls this only after real FD close. Permit settlement and
-        # unknown provider/process state remain the enclosing owner's duty.
         pass
 
     def finish(self, unsettled):
@@ -374,7 +370,6 @@ async def _session(db):
     try:
         yield owned
     finally:
-        # A cancelled __aexit__ cannot leave SQL locks over physical I/O.
         await common.settled(owned.close())
 
 
@@ -417,8 +412,6 @@ class SourceInput:
         except BaseException as exc:
             failure = exc
         if not getattr(failure, "storage_operation_unsettled", False):
-            # physical_close marks every actual failure; a drained interruption
-            # alone therefore still proves that the local source has closed.
             self._closed = True
         if not self._unsettled and not getattr(
             failure, "storage_operation_unsettled", False
@@ -522,7 +515,6 @@ async def open_snapshot(
         async with _session(db) as owned:
             await guard(owned)
             source = await resolve(owned, task_id, lock=True)
-            # Canonical JSON equality also distinguishes booleans from integers.
             if common.encoded(source_receipt(source)) != common.encoded(expected):
                 raise ContentError("content_binding_changed")
             await original_sources.recheck_read_route(

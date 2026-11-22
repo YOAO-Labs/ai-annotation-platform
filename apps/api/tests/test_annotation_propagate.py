@@ -109,9 +109,6 @@ async def _add_annotation(db, *, task, project, user_id, geometry, track_id=None
     return ann
 
 
-# ── service-level 复制语义 ───────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_propagate_box3d_copies_and_assigns_shared_group(db_session, super_admin):
     user, _ = super_admin
@@ -129,24 +126,19 @@ async def test_propagate_box3d_copies_and_assigns_shared_group(db_session, super
         user_id=user.id,
     )
 
-    # 几何 PSR 原值复制
     assert new.geometry["center"] == [1.0, 2.0, 3.0]
     assert new.geometry["size"] == [4.0, 5.0, 6.0]
     assert new.geometry["rotation"] == [0.0, 0.0, 0.5]
-    # convention_at_create 取目标 dataset(不是源的 iso_8855)
     assert new.geometry["convention_at_create"] == "kitti_camera"
-    # class / attributes 深拷贝
     assert new.class_name == "car"
     assert new.attributes == {"occluded": True}
     assert new.task_id == tasks[1].id
-    # ADR-0045 · 跨帧共享 track_id 为唯一标识 (group_id 列已删)
     assert new.track_id is not None and new.track_id.startswith("trk_")
     assert src.track_id == new.track_id
 
 
 @pytest.mark.asyncio
 async def test_propagate_reuses_existing_track_id(db_session, super_admin):
-    # 源已有 track_id → 复用不重分配 (跨帧链身份延续的关键)。
     user, _ = super_admin
     project, _, _, tasks = await _seed_scene(db_session, owner_id=user.id)
     src = await _add_annotation(
@@ -233,9 +225,7 @@ async def test_propagate_bbox_2d(db_session, super_admin):
         source_annotation_id=src.id, target_task_id=tasks[1].id, user_id=user.id
     )
     assert new.geometry == bbox
-    # 2D 不写 convention_at_create
     assert "convention_at_create" not in new.geometry
-    # ADR-0045 · 跨帧标识走 track_id
     assert new.track_id is not None and new.track_id.startswith("trk_")
 
 
@@ -349,9 +339,6 @@ async def test_propagate_rejects_cross_scene(db_session, super_admin):
     assert exc.value.status_code == 422
 
 
-# ── API 端点端到端 ────────────────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
 async def test_propagate_endpoint_201(db_session, httpx_client, super_admin):
     user, token = super_admin
@@ -372,7 +359,6 @@ async def test_propagate_endpoint_201(db_session, httpx_client, super_admin):
     ann = body["annotation"]
     assert ann["task_id"] == str(tasks[1].id)
     assert ann["geometry"]["convention_at_create"] == "ros_rep103"
-    # ADR-0045 · 跨帧标识走 track_id
     assert ann["track_id"] is not None and ann["track_id"].startswith("trk_")
 
 
@@ -403,7 +389,6 @@ async def test_propagate_endpoint_annotation_task_mismatch_404(
     """
     user, token = super_admin
     project, _, _, tasks = await _seed_scene(db_session, owner_id=user.id)
-    # annotation 实际属于 tasks[1], 但 URL 源 task 用 tasks[0]。
     src = await _add_annotation(
         db_session, task=tasks[1], project=project, user_id=user.id, geometry=_box3d()
     )
@@ -413,9 +398,6 @@ async def test_propagate_endpoint_annotation_task_mismatch_404(
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 404
-
-
-# ── 运动补偿 / 批量 / 区间插值 ─────────────────────────────────
 
 
 async def _seed_poses(db, scene_id, frames: int, step: float = 2.0):
@@ -461,7 +443,6 @@ async def test_propagate_motion_compensation(db_session, super_admin):
         source_annotation_id=src.id, target_task_id=tasks[1].id, user_id=user.id
     )
     assert compensated is True
-    # 车从 x=0 前进到 x=2 → 框在新 ego 系 x = 10 - 2 = 8
     assert new.geometry["center"] == pytest.approx([8.0, 2.0, 1.0])
     assert new.geometry["size"] == [4.0, 5.0, 6.0]
     assert new.geometry["rotation"] == pytest.approx([0.0, 0.0, 0.5])
@@ -534,7 +515,6 @@ async def test_propagate_batch_all_box3d(db_session, super_admin):
     by_src = {src_id: ann for src_id, ann in results}
     assert by_src[a1.id].geometry["center"] == pytest.approx([8.0, 0.0, 0.0])
     assert by_src[a2.id].geometry["center"] == pytest.approx([18.0, 5.0, 0.0])
-    # 各自延续独立 track 链 (原 group 链)
     t1, t2 = by_src[a1.id].track_id, by_src[a2.id].track_id
     assert t1 and t2 and t1 != t2
     assert all(ann.task_id == tasks[1].id for _, ann in results)
@@ -592,7 +572,6 @@ async def test_propagate_batch_resolution_not_amplified_by_box_count(
     )
     assert len(results) == 4
     assert compensated is True
-    # 恒定: 与框数(4)无关。若退回逐框 propagate 会是 4 / 8。
     assert counters["axis"] == 1
     assert counters["pose"] == 2
 
@@ -641,8 +620,6 @@ async def test_interpolate_range_world_lerp(db_session, super_admin):
     project, _, scene, tasks = await _seed_scene(db_session, owner_id=user.id, n=5)
     await _seed_poses(db_session, scene.id, frames=5, step=2.0)
 
-    # 世界系: 框从 (10,0,0) 匀速移到 (18,4,0); 帧 i 的 ego 在 x=2i
-    # → 帧 0 ego 系 center=(10,0,0); 帧 4 ego 系 center=(18-8, 4, 0)=(10,4,0)
     a0 = await _add_annotation(
         db_session,
         task=tasks[0],
@@ -669,14 +646,12 @@ async def test_interpolate_range_world_lerp(db_session, super_admin):
     assert compensated is True
     assert skipped == []
     assert [a.task_id for a in created] == [t.id for t in tasks[1:4]]
-    # 帧 2 (t=0.5): 世界中心 (14,2,0),ego x=4 → ego 系 (10,2,0)
     mid = created[1]
     assert mid.geometry["center"] == pytest.approx([10.0, 2.0, 0.0])
     assert mid.source == "interpolated"
     assert mid.track_id == "trk_wl"
     assert mid.class_name == a0.class_name
 
-    # 幂等: 重跑全部跳过,不重复生成
     created2, _, skipped2 = await svc._interpolate_range(
         track_id="trk_wl",
         from_task_id=tasks[0].id,
@@ -728,7 +703,6 @@ async def test_interpolate_range_validations(db_session, super_admin):
     project, _, _, tasks = await _seed_scene(db_session, owner_id=user.id, n=3)
     svc = AnnotationService(db_session)
 
-    # 两端缺框 → 422
     with pytest.raises(HTTPException) as exc:
         await svc._interpolate_range(
             track_id="trk_v0",
@@ -738,7 +712,6 @@ async def test_interpolate_range_validations(db_session, super_admin):
         )
     assert exc.value.status_code == 422
 
-    # 相邻帧无中间帧 → 422
     await _add_annotation(
         db_session,
         task=tasks[0],
@@ -848,7 +821,6 @@ async def test_interpolate_range_invisible_mid_task_rejected(db_session, super_a
     )
 
     async def _deny_visible(t):
-        # 模拟中间帧 task 所在批次对该用户不可见
         if t.id == tasks[1].id:
             raise HTTPException(status_code=404, detail="Task not found")
 
@@ -889,7 +861,6 @@ async def test_batch_and_interpolate_endpoints(db_session, httpx_client, super_a
         track_id="trk_bi",
     )
 
-    # propagate-batch: 帧 0 全部 box_3d → 帧 1
     resp = await httpx_client.post(
         f"/api/v1/tasks/{tasks[0].id}/annotations/propagate-batch",
         json={"target_task_id": str(tasks[1].id)},
@@ -901,7 +872,6 @@ async def test_batch_and_interpolate_endpoints(db_session, httpx_client, super_a
     assert len(body["items"]) == 1
     assert body["items"][0]["annotation"]["geometry"]["center"] == [8.0, 0.0, 0.0]
 
-    # interpolate-range: 帧 0 ↔ 帧 3(帧 3 手动补一框),生成帧 1 跳过(已有)、帧 2 新建
     await _add_annotation(
         db_session,
         task=tasks[3],

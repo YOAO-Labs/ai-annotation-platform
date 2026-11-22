@@ -72,10 +72,8 @@ async def test_employee_annotates_a_reviews_b_and_cannot_access_c(
     task_b.review_round_id = uuid.uuid4()
     pending_b = await create_task(db_session, project_id=project_b.id)
     pending_b.assignee_id = colleague.id
-    # Keep this Task visible so the request reaches annotation capability checks.
     pending_b.reviewer_id = employee.id
     task_c = await create_task(db_session, project_id=project_c.id)
-    # Assignment alone must not grant project authority.
     task_c.assignee_id = employee.id
     await db_session.flush()
 

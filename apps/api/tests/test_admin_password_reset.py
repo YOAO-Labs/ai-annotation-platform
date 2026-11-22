@@ -30,7 +30,6 @@ async def test_super_admin_resets_annotator(
     temp = body["temp_password"]
     assert len(temp) == 16
 
-    # 临时密码应能登录（密码哈希正确）
     refreshed = await db_session.get(User, target_user.id)
     await db_session.refresh(refreshed)
     assert verify_password(temp, refreshed.password_hash)
@@ -98,14 +97,12 @@ async def test_self_change_password_clears_admin_reset(
     _, sa_token = super_admin
     target_user, _ = annotator
 
-    # 1. 管理员先重置（拿到临时密码）
     res = await httpx_client.post(
         f"/api/v1/users/{target_user.id}/admin-reset-password",
         headers={"Authorization": f"Bearer {sa_token}"},
     )
     temp = res.json()["temp_password"]
 
-    # 2. 用户用临时密码登录拿 token，再自助改密
     from app.core.security import create_access_token
 
     target_token = create_access_token(

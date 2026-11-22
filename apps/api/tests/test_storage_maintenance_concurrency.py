@@ -27,9 +27,6 @@ from app.services.audit import AuditService
 
 @asynccontextmanager
 async def world(test_engine, monkeypatch):
-    # These tests isolate admission/transaction concurrency. The API suite tests
-    # real audit writes. Avoid producing immutable audit facts in a world whose
-    # independently committed actor must be removed during precise teardown.
     monkeypatch.setattr(AuditService, "log", AsyncMock())
     actor_id, location_id = uuid.uuid4(), uuid.uuid4()
     maker = async_sessionmaker(test_engine, expire_on_commit=False)

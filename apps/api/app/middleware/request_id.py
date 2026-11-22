@@ -15,12 +15,10 @@ from app.observability.metrics import (
     HTTP_REQUESTS_TOTAL,
 )
 
-# 供同一请求的所有代码（包括 AuditService / AuditMiddleware）读取
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")
 
 HEADER_NAME = "X-Request-ID"
 
-# 仅记录 /api/ 路径，避免 /health /metrics 计数爆炸
 _METRIC_PREFIX = "/api/"
 
 
@@ -31,9 +29,6 @@ def _metric_route_path(request: Request) -> str:
     if isinstance(template, str) and template.startswith(_METRIC_PREFIX):
         return template
 
-    # RequestIDMiddleware wraps the router, so Starlette does not propagate the
-    # route object back through BaseHTTPMiddleware's scope. Resolve against the
-    # application's static route table instead of falling back to the raw URL.
     partial_template: str | None = None
     app = request.scope.get("app")
     routes = getattr(getattr(app, "router", None), "routes", ())

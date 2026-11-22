@@ -284,7 +284,6 @@ async def _read_lineage_row(
 
     row = await owner_read(row_id)
     if row is None and cached_state is not None and cached_state.expired:
-        # Session.get removes an expired identity after its refresh finds no row.
         db.sync_session._remove_newly_deleted([cached_state])
     return row
 
@@ -309,8 +308,6 @@ async def _resolve_routing_lineage(
         if data.routing.backend_pool_id is not None
         else None
     )
-    # Receipt 签名的是推理当时的历史路由事实。实例在候选 TTL 内摘除或换池
-    # 不得使合法候选失效；当前表只决定 nullable FK 能否保留，完整 ID 始终进 meta/audit。
     return (
         actual.id if actual is not None else None,
         pool.id if pool is not None else None,
@@ -452,7 +449,6 @@ def _prediction_out(
     *,
     inference_time_ms: int | None,
 ) -> PredictionOut:
-    # shortcut: mask result only; read the persisted row if new geometry is added.
     if len(request.result) != 1 or request.result[0].get("type") not in {
         "raster_mask",
         "video_track_mask",
@@ -848,8 +844,6 @@ async def accept_ai_mask_candidate(
         set_committed_value(source, "version", refined.version)
         set_committed_value(source, "updated_at", refined.updated_at)
         annotation = source
-        # The create branch records through AnnotationService.create; the refine
-        # branch mutates the source directly and must record here.
         await record_annotation_actor(db, task, current_user.id)
 
     await TaskLockService(db).heartbeat(task.id, current_user.id)

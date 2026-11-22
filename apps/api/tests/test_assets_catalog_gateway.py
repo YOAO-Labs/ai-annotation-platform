@@ -883,8 +883,6 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                 {"task": uuid.UUID(world["task_ids"][0])},
             )
         assert dataset_id is not None
-        # Two ordinary Jobs share the database with both fixture runs. Neither
-        # may be treated as settled or removed by retirement of the backfill.
         neighbors = async_sessionmaker(test_engine, expire_on_commit=False)
         cross_frame = await _seed_member_job(neighbors, label="backfill-neighbor")
         async with neighbors.begin() as db:
@@ -943,8 +941,6 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
             broker=settings.effective_celery_broker,
             backend=settings.effective_celery_broker,
         )
-        # Keep the owner's qualified worker alive but prevent it racing the
-        # installed worker before the post-cutoff item has been created.
         native_node = f"aap-fixture-{run.run_id.hex}-media@127.0.0.1"
         native_queue = f"aap_workspace_worker_{run.run_id.hex}_media"
         paused = await asyncio.to_thread(

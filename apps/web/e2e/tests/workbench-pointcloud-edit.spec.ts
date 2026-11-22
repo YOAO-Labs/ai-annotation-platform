@@ -1,16 +1,4 @@
 import { layoutCommand, openLayoutSettings } from "../helpers/workbench-layout";
-/**
- * 点云工作台交互断言基线(P2)—— 拆 3D 整簇前的真正守护网。
- *
- * 见 docs/plans/archive/2026-06-17-v0.16.x-pointcloud-e2e-baseline-for-3d-split.md §1:
- * 以"交互后状态断言"(GPU 无关、确定性)钉死 usePsrEditor / usePointCloudSelection
- * 拆分前后必须保持的可观测行为,而非脆弱的画布像素。覆盖:
- *   ⑥ 点选框 → 选中高亮 + PSR 数值面板出现(选择链 + 面板渲染)
- *   ① 选中框 → 改数值字段 → 250ms 防抖后 PATCH 几何落库(usePsrEditor 核心)
- *
- * 由 `pointcloud` project 跑(WebGL 软渲染);seed 已含单路标定相机，覆盖相机内中心拖动。
- * 跨帧 scene 仍由对应邻帧 spec 单独覆盖。
- */
 import type { Locator, Page, Request } from "@playwright/test";
 import { test, expect } from "../fixtures/seed";
 
@@ -342,7 +330,6 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     await expect(page.getByTestId("scene-cross-frame-job-center")).toBeVisible({ timeout: 20_000 });
     await page.getByTestId("scene-cross-frame-job-center").click();
     const dialog = page.getByRole("dialog", { name: "3D 跨帧任务中心" });
-    // Blurring the live point cloud stalls SwiftShader cleanup and the next context creation.
     await expect(page.getByTestId("modal-overlay")).toHaveCSS("backdrop-filter", "none");
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole("radio", { name: /当前帧全部框/ })).toBeChecked();
@@ -387,10 +374,6 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     });
     page.on("pageerror", (error) => runtimeErrors.push(error.message));
 
-    // Scene track commands lock every member task row with NOWAIT, while an
-    // owned original read holds a share lock on the same rows until its bytes
-    // settle. Wait for this frame and the prefetched neighbour frame's original
-    // reads to drain so the command never races them into a retryable 409.
     const sceneTaskIds = new Set(lidar.lidar_task_ids);
     const pendingOriginalReads = new Set<Request>();
     let lastOriginalActivity = Date.now();
@@ -644,15 +627,11 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/projects/${lidar.lidar_project_id}/annotate`);
 
-    // 点云加载(stats 出数)+ 首帧 box_3d 渲进列表。
     await expect(page.getByTestId("pointcloud-stats")).toBeVisible({ timeout: 20_000 });
     const card = page.locator('[data-testid^="box-list-item-"]').first();
     await expect(card).toBeVisible({ timeout: 10_000 });
 
-    // ⑥ 点选 → 选中 box(PSR 浮层出现,默认折叠态)。
-    // 点卡片左侧(类别标签区)而非中心 —— 中心会压到右侧 眼/锁/标签/删 图标。
     await card.click({ position: { x: 12, y: 16 } });
-    // PSR 浮层默认折叠(usePsrFloatingPanel expanded=false),展开后才渲染 cx/cy/cz 输入。
     const expandBtn = page.getByLabel("展开详情");
     await expect(expandBtn).toBeVisible({ timeout: 5_000 });
     const selectionPanel = page.getByTestId("three-d-selection-panel");
@@ -714,13 +693,8 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
 
     const cx = page.getByLabel("cx", { exact: true });
     await expect(cx).toBeVisible({ timeout: 5_000 });
-    await expect(cx).toHaveValue("1"); // seed 的 center=[1,0,1]
+    await expect(cx).toHaveValue("1");
 
-    // ① 改 cx → handleField → 250ms 防抖 → PATCH /annotations/:id { geometry }。
-    // Await the RESPONSE, not just the request: the geometry PATCH takes the
-    // annotation row lock, so the fixture teardown must not start while it is
-    // still in flight, otherwise the cleanup DELETE FROM tasks deadlocks with it
-    // and the write 500 goes unnoticed.
     const patchResponsePromise = page.waitForResponse(
       (res) => res.request().method() === "PATCH" && /\/annotations\/[0-9a-f-]+/.test(res.url()),
       { timeout: 10_000 },
@@ -738,7 +712,6 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     };
     expect(persisted.geometry?.center?.[0]).toBeCloseTo(3, 3);
 
-    // PATCH 成功后无 fatal console error。
     const fatal = consoleErrors.filter(
       (e) => !/favicon|net::ERR_|Download the React DevTools/i.test(e),
     );
@@ -801,8 +774,6 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
 
     const bounds = await canvas.boundingBox();
     if (!bounds) throw new Error("放大相机 canvas boundingBox 不可用");
-    // fixture: 640×480, K=[fx=100,fy=100,cx=320,cy=240], box center=[1,0,1]
-    // → 投影中心=[420,240]，即显示画布的 65.625% / 50%。
     const handleX = bounds.x + bounds.width * (420 / 640);
     const handleY = bounds.y + bounds.height * 0.5;
 
@@ -881,9 +852,41 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     const lidar = await seed.seedLidar();
     await seed.injectToken(page, data.admin_email);
 
+    const points = ["0 0 2", "12 0 12", "0 0 -1"];
+    for (let i = 0; i <= 6; i++) {
+      for (const x of [-2, 2]) {
+        for (const y of [-0.75, 0.75]) points.push(`${x} ${y} ${14.5 - i * 0.5}`);
+      }
+      for (const x of [-5, -2.5, 0, 2.5, 5]) {
+        for (const y of [-2, 2]) points.push(`${x} ${y} ${18 + i * 0.25}`);
+      }
+    }
+    await page.route(/\/api\/v1\/files\/tasks\/[^/]+\/original\?/, async (route) => {
+      const taskId = new URL(route.request().url()).pathname.split("/").at(-2) ?? "";
+      if (!lidar.lidar_task_ids.includes(taskId)) return route.fallback();
+      await route.fulfill({
+        contentType: "application/octet-stream",
+        body: [
+          "VERSION .7",
+          "FIELDS x y z",
+          "SIZE 4 4 4",
+          "TYPE F F F",
+          "COUNT 1 1 1",
+          `WIDTH ${points.length}`,
+          "HEIGHT 1",
+          "VIEWPOINT 0 0 0 1 0 0 0",
+          `POINTS ${points.length}`,
+          "DATA ascii",
+          ...points,
+        ].join("\n"),
+      });
+    });
+
     await page.setViewportSize({ width: 1920, height: 1080 });
     await page.goto(`/projects/${lidar.lidar_project_id}/annotate`);
-    await expect(page.getByTestId("pointcloud-stats")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId("pointcloud-stats")).toHaveText(`${points.length} 点`, {
+      timeout: 20_000,
+    });
 
     const collapsedCamera = page.getByTitle("展开相机").first();
     if (await collapsedCamera.isVisible()) await collapsedCamera.click();
@@ -894,13 +897,16 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     const modalBody = page.getByRole("button", { name: "关闭 ✕" }).locator("..");
     const cameraCanvas = modalBody.getByLabel(/^front 相机投影$/);
     await expect(cameraCanvas).toBeVisible();
-    await expect
-      .poll(() => cameraCanvas.evaluate((element) => (element as HTMLCanvasElement).width))
-      .toBeGreaterThan(0);
+    await expect(modalBody.getByRole("img")).toHaveJSProperty("naturalWidth", 640);
+    await expect(cameraCanvas).not.toHaveClass(/pointer-events-none/);
     const bounds = await cameraCanvas.boundingBox();
     if (!bounds) throw new Error("放大相机 canvas boundingBox 不可用");
-    const start = { x: bounds.x + bounds.width * 0.35, y: bounds.y + bounds.height * 0.35 };
-    const end = { x: bounds.x + bounds.width * 0.62, y: bounds.y + bounds.height * 0.68 };
+    const imagePoint = (u: number, v: number) => ({
+      x: bounds.x + bounds.width * (u / 640),
+      y: bounds.y + bounds.height * (v / 480),
+    });
+    const start = imagePoint(289, 225);
+    const end = imagePoint(351, 255);
 
     let releaseFirstRequest: (() => void) | null = null;
     const firstRequestGate = new Promise<void>((resolve) => {
@@ -934,7 +940,20 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     expect(boxPostCount, "相机保存期间的额外拖框不得发 POST").toBe(1);
 
     releaseFirstRequest?.();
-    await firstResponse;
+    const fitResponse = await firstResponse;
+    expect(fitResponse.ok(), await fitResponse.text()).toBe(true);
+    expect(fitResponse.request().postDataJSON()).toMatchObject({
+      annotation_type: "box_3d",
+      tool_unit_id: "lidar_box_3d",
+      geometry: {
+        type: "box_3d",
+        center: [0, 0, 13.05],
+        size: [4.1, 1.6, 3.1],
+        rotation: [0, 0, 0],
+        convention_at_create: "iso_8855",
+      },
+    });
+    await expect(page.getByText(/视锥内缺少足够连续的点云回波/)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /连续种框.*拖矩形/ })).toBeVisible();
     await expect(cameraCanvas).not.toHaveAttribute("aria-disabled", "true");
 
@@ -942,11 +961,25 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
       (response) => response.request().method() === "POST" && /\/annotations$/.test(response.url()),
       { timeout: 10_000 },
     );
-    await page.mouse.move(start.x + 20, start.y);
+    const fallbackStart = imagePoint(400, 150);
+    const fallbackEnd = imagePoint(470, 200);
+    await page.mouse.move(fallbackStart.x, fallbackStart.y);
     await page.mouse.down();
-    await page.mouse.move(end.x + 20, end.y, { steps: 6 });
+    await page.mouse.move(fallbackEnd.x, fallbackEnd.y, { steps: 6 });
     await page.mouse.up();
-    await secondResponse;
+    const fallbackResponse = await secondResponse;
+    expect(fallbackResponse.ok(), await fallbackResponse.text()).toBe(true);
+    const fallbackBox = await fallbackResponse.json();
+    expect(fallbackBox).toMatchObject({
+      annotation_type: "box_3d",
+      geometry: { type: "box_3d", size: [4, 1.8, 1.6], rotation: [0, 0, 0] },
+    });
+    const rayScale = 12 / Math.hypot(1.15, 0.65, 1);
+    const [cx, cy, cz] = fallbackBox.geometry.center;
+    expect(cx).toBeCloseTo(1.15 * rayScale, 1);
+    expect(cy).toBeCloseTo(-0.65 * rayScale, 1);
+    expect(cz).toBeCloseTo(rayScale, 1);
+    await expect(page.getByText(/视锥内缺少足够连续的点云回波/)).toBeVisible();
     expect(boxPostCount).toBe(2);
     await expect(page.locator('[data-testid^="box-list-item-"]')).toHaveCount(3);
     await expect(page.getByRole("button", { name: /连续种框.*拖矩形/ })).toBeVisible();
@@ -959,6 +992,11 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     await page.mouse.up();
     await page.waitForTimeout(250);
     expect(boxPostCount).toBe(2);
+
+    await page.getByRole("button", { name: "关闭 ✕" }).click();
+    await page.getByTestId(`box-list-item-${fallbackBox.id}`).click({ position: { x: 12, y: 16 } });
+    await page.getByLabel("展开详情").click();
+    await expect(page.getByLabel("cx", { exact: true })).toBeEditable();
   });
 
   test("标定 revision 管理追加原始矩阵并保留历史", async ({ page, seed }) => {
@@ -1019,10 +1057,6 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     await expect(sheet.getByText("Revision 1", { exact: true })).toBeVisible();
   });
 
-  // 一键贴合(Q 键):applyFit 写 setForm + 立即(非防抖)PATCH 落库 —— 守护 usePsrEditor
-  // 另一类 setForm 写点(一键操作,区别于数值面板的防抖路径)。Q 键 effect 本身也是
-  // 3D 合并键盘 handler 的一员,重构若动 Q 分支/applyFit↔form 接线,这条立刻报警。
-  // (复位旋转 handleResetRotation 结构同型:setForm + updateAnnotationWithHistory,同受守护。)
   test("选中框 → Q 一键贴合 → 即时 PATCH 落库", async ({ page, seed }) => {
     const data = await seed.owned();
     const lidar = await seed.seedLidar();
@@ -1034,10 +1068,8 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
 
     const card = page.locator('[data-testid^="box-list-item-"]').first();
     await expect(card).toBeVisible({ timeout: 10_000 });
-    await card.click({ position: { x: 12, y: 16 } }); // 选中,焦点落卡片(非 input)
+    await card.click({ position: { x: 12, y: 16 } });
 
-    // 真实 nuScenes 的传感器盲区覆盖 ego 原点；把固定 seed 框移到首帧真实点密集区，
-    // 避免 Q 因框内无点而被等值更新短路。CI profile 在固定框内自带目标点，无需搬移。
     if (lidar.lidar_fixture_source === "nuscenes_mini") {
       await page.getByLabel("展开详情").click();
       const setupPatch = page.waitForRequest(
@@ -1062,7 +1094,6 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
       await card.click({ position: { x: 12, y: 16 } });
     }
 
-    // Q(无修饰)→ handleFitDefault → applyFit(fitSizeAndBottom)→ setForm + 即时 PATCH。
     const patchPromise = page.waitForRequest(
       (req) => req.method() === "PATCH" && /\/annotations\/[0-9a-f-]+/.test(req.url()),
       { timeout: 10_000 },
@@ -1070,19 +1101,11 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     await page.keyboard.press("q");
     const patch = await patchPromise;
 
-    // 断 geometry 落库(box_3d 几何存在;不较真具体数值 —— 取决于点云分布)。
     const body = patch.postDataJSON() as { geometry?: { type?: string; center?: number[] } };
     expect(body.geometry?.type).toBe("box_3d");
     expect(Array.isArray(body.geometry?.center)).toBe(true);
   });
 
-  // gizmo 拖拽(W 平移模式):TransformControls 松手 → scene.setTransformHandler → setForm +
-  // boxGeometryFromPsr + PATCH(ThreeDWorkbench:682)。这是 usePsrEditor 最热、最耦合的写点
-  // (在 scene-init effect 里共享 sceneRef + setForm + updateMutateRef)。拆 usePsrEditor 时
-  // setTransformHandler 回调若不再接 setForm/PATCH,这条立刻报警。
-  // 注:gizmo→psr 的几何数学在 PointCloudScene(重构不碰、另有 geometry 单测);此处只钉
-  // 「拖 gizmo 落 PATCH」的回调接线。BEV 俯视固定相机 → 框投影画布中心、轴屏对齐 → 近中心
-  // 网格扫起点拖拽,命中 gizmo 即落 PATCH(抗投影抖动)。
   test("选中框 → W gizmo 拖拽 → setTransformHandler PATCH 落库", async ({ page, seed }) => {
     const data = await seed.owned();
     const lidar = await seed.seedLidar();
@@ -1094,12 +1117,12 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
 
     const card = page.locator('[data-testid^="box-list-item-"]').first();
     await expect(card).toBeVisible({ timeout: 10_000 });
-    await card.click({ position: { x: 12, y: 16 } }); // 选中 → gizmo 挂到框
+    await card.click({ position: { x: 12, y: 16 } });
 
-    await page.getByRole("button", { name: "俯视" }).click(); // BEV:固定相机、轴屏对齐
+    await page.getByRole("button", { name: "俯视" }).click();
     await page.waitForTimeout(400);
     await focusPointCloudBox(page, card);
-    await page.keyboard.press("w"); // 平移模式
+    await page.keyboard.press("w");
 
     const patches: Array<{ geometry?: { type?: string; center?: number[] } }> = [];
     page.on("request", (r) => {
@@ -1114,7 +1137,6 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     const cx = cbox.x + cbox.width * 0.5;
     const cy = cbox.y + cbox.height * 0.5;
 
-    // 框中心附近多起点试拖(任一命中 gizmo 轴/面即落 PATCH);命中即停。
     for (const [dx, dy] of [
       [0, 0],
       [30, 0],
@@ -1137,9 +1159,6 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
     expect(Array.isArray(patches[0].geometry?.center)).toBe(true);
   });
 
-  // 三视图(TriOrthoView)overlay 可交互守护:editable 时 overlay canvas 的 computed
-  // pointer-events 必须为 "auto"，否则拖边/角精修完全失效。
-  // 防止 `pointer-events-none` 和 `pointer-events-auto` 同挂时前者覆盖后者。
   test("选中框 → 三视图 overlay 可接收事件(pointer-events: auto)", async ({ page, seed }) => {
     const data = await seed.owned();
     const lidar = await seed.seedLidar();
@@ -1151,9 +1170,8 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
 
     const card = page.locator('[data-testid^="box-list-item-"]').first();
     await expect(card).toBeVisible({ timeout: 10_000 });
-    await card.click({ position: { x: 12, y: 16 } }); // 选中 → 三视图面板出现
+    await card.click({ position: { x: 12, y: 16 } });
 
-    // 三视图 overlay canvas(className 含 inset-0,叠在 WebGL 渲染层之上);editable 时须能收事件。
     const overlayPE = await page.evaluate(() => {
       const c = Array.from(document.querySelectorAll("canvas")).find((el) =>
         el.className.includes("inset-0"),
@@ -1368,8 +1386,6 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
         await rightSide.click();
       }
       if (item.selectBox) {
-        // A visible tri-view can make the physical right side partially open
-        // while the inspector is still hidden from the previous matrix case.
         if (
           (await page.locator('[data-workbench-panel="inspector"]').getAttribute("aria-hidden")) ===
           "true"
@@ -1392,7 +1408,6 @@ test.describe("workbench pointcloud edit (PSR 交互守护)", () => {
       await layoutCommand(page, "框体精修");
 
       const settings = await openLayoutSettings(page);
-      // Blurring the live point-cloud canvas stalls SwiftShader cleanup and the next context creation.
       await expect(page.getByTestId("workbench-settings-overlay")).toHaveCSS(
         "backdrop-filter",
         "none",

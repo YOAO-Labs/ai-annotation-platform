@@ -85,7 +85,6 @@ class FeedbackVideoContext(BaseModel):
     @field_validator("schema_version", mode="before")
     @classmethod
     def _strict_schema_version(cls, value):
-        # Literal[1] alone also accepts True and 1.0 in Pydantic.
         if type(value) is not int:
             raise ValueError("schema_version must be the integer 1")
         return value
@@ -170,7 +169,6 @@ class AnnotationFeedbackCreate(BaseModel):
                 and self.annotation_id is None
             ):
                 raise ValueError("annotation_version requires annotation_id")
-        # 同 DB CHECK 约束逻辑, 但提前到 pydantic 层给出更友好错误.
         if self.anchor_type == "project":
             if self.task_id or self.annotation_id or self.anchor_position:
                 raise ValueError(
@@ -216,10 +214,6 @@ class AnnotationFeedbackCreate(BaseModel):
                 and self.thread_parent_id is None
             ):
                 raise ValueError("canvas_drawing requires a native root task comment")
-        # Native task comments are the only task discussion source that does not
-        # carry an annotation target.
-        # Rich annotation/pixel/point-cloud callers historically support an
-        # attachment-only body, so do not impose this rule on those records.
         if (
             self.kind == "comment"
             and self.anchor_type == "task"

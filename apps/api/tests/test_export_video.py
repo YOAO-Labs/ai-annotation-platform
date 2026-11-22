@@ -63,7 +63,6 @@ def test_effective_fps_divides_by_step():
 
 
 def test_source_to_grid_renumbers_on_grid():
-    # frame_count=13, step=6 → 网格源帧 [0,6,12] → 序号 {0:0,6:1,12:2}
     assert source_to_grid(13, 6) == {0: 0, 6: 1, 12: 2}
 
 
@@ -122,11 +121,9 @@ def test_video_json_preserves_obb_and_keypoint_geometry_losslessly():
 
 
 def test_track_grid_rows_only_keeps_grid_frames():
-    # step=6: 源帧 0/6/12 在网格上, 中间插值帧被丢弃。
     geom = _track("a", [(0, 0.0, 0.0, 0.5, 0.5), (12, 0.0, 0.0, 0.5, 0.5)])
     rows = track_grid_rows(geom, frame_count=13, step=6, img_w=1000, img_h=1000)
     assert [r["grid_index"] for r in rows] == [0, 1, 2]
-    # 0..1 区间整段 bbox 不变 → 像素 left/top=0, w/h=500。
     assert rows[0]["left"] == 0 and rows[0]["w"] == 500.0
 
 
@@ -137,7 +134,6 @@ def test_outside_frames_dropped():
         outside=[{"from": 6, "to": 6, "source": "manual"}],
     )
     rows = track_grid_rows(geom, frame_count=13, step=6, img_w=1000, img_h=1000)
-    # 网格帧 6 落在 outside → 省略, 只剩 0 和 12 (grid 0,2)。
     assert [r["grid_index"] for r in rows] == [0, 2]
 
 
@@ -146,7 +142,6 @@ def test_mot_gt_format_and_1based_frame():
     out = build_mot_gt(
         [(1, "car", geom)], frame_count=1, step=1, img_w=1000, img_h=1000
     )
-    # frame 1-based, id=1, bbox px = 100,200,300,400, conf=1, x/y/z=-1
     assert out == "1,1,100.0,200.0,300.0,400.0,1,-1,-1,-1"
 
 
@@ -155,7 +150,7 @@ def test_mot_seqinfo_framerate_uses_sampled_fps():
         "seq01", source_fps=60, step=6, frame_count=13, img_w=1920, img_h=1080
     )
     assert "frameRate=10" in info
-    assert "seqLength=3" in info  # 网格帧 [0,6,12]
+    assert "seqLength=3" in info
     assert "imWidth=1920" in info
 
 
@@ -166,10 +161,10 @@ def test_kitti_labels_0based_frame_and_occluded():
         [(2, "Pedestrian", geom)], frame_count=1, step=1, img_w=1000, img_h=1000
     )
     parts = out.split(" ")
-    assert parts[0] == "0"  # frame 0-based
-    assert parts[1] == "2"  # track id
+    assert parts[0] == "0"
+    assert parts[1] == "2"
     assert parts[2] == "Pedestrian"
-    assert parts[4] == "1"  # occluded
+    assert parts[4] == "1"
 
 
 def test_yolo_frame_det_labels_merge_bbox_and_track_on_grid():
@@ -203,7 +198,6 @@ def test_yolo_frame_det_labels_merge_bbox_and_track_on_grid():
 
     assert sorted(labels.keys()) == [1, 2, 3]
     assert labels[1][0] == ["0 0.100000 0.100000 0.200000 0.200000"]
-    # Track frame 6 is outside, while video_bbox on the same grid frame remains.
     assert labels[2][0] == ["1 0.300000 0.400000 0.200000 0.400000"]
     assert labels[2][1] == [{"bbox_attr": True}]
     assert labels[3][0] == ["0 0.700000 0.700000 0.200000 0.200000"]
@@ -251,11 +245,7 @@ def test_yolo_frame_det_skips_off_grid_bboxes_and_keeps_empty_labels():
     assert labels[3][0] == []
 
 
-# ── polygon/polyline track → bbox-only 格式降级为顶点外接框 ──
-
-
 def test_points_to_bbox_norm_computes_bounding_box():
-    # 三角形顶点 → 外接框 x=0.1,y=0.2,w=0.4,h=0.3。
     pts = [[0.1, 0.2], [0.5, 0.2], [0.3, 0.5]]
     assert points_to_bbox_norm(pts) == {"x": 0.1, "y": 0.2, "w": 0.4, "h": 0.3}
 
@@ -265,11 +255,9 @@ def test_points_to_bbox_norm_empty_is_zero():
 
 
 def test_polygon_track_grid_rows_use_vertex_bounds_not_zero():
-    # polygon track 关键帧存 points；MOT/KITTI 走 track_grid_rows → 顶点外接框像素。
     geom = _polygon_track("a", [(0, [[0.1, 0.2], [0.5, 0.2], [0.3, 0.6]])])
     rows = track_grid_rows(geom, frame_count=1, step=1, img_w=1000, img_h=1000)
     assert len(rows) == 1
-    # 外接框归一 x=0.1,y=0.2,w=0.4,h=0.4 → 像素 100,200,400,400（非全 0）。
     assert (rows[0]["left"], rows[0]["top"], rows[0]["w"], rows[0]["h"]) == (
         100.0,
         200.0,
@@ -283,13 +271,11 @@ def test_polygon_track_mot_and_kitti_emit_bounding_box():
     mot = build_mot_gt(
         [(1, "car", geom)], frame_count=1, step=1, img_w=1000, img_h=1000
     )
-    # 正方形外接框 = 自身 → px 0,0,500,500。
     assert mot == "1,1,0.0,0.0,500.0,500.0,1,-1,-1,-1"
     kitti = build_kitti_labels(
         [(1, "Car", geom)], frame_count=1, step=1, img_w=1000, img_h=1000
     )
     parts = kitti.split(" ")
-    # x1 y1 x2 y2 = 0 0 500 500。
     assert parts[6:10] == ["0.0", "0.0", "500.0", "500.0"]
 
 
@@ -304,11 +290,7 @@ def test_polygon_track_yolo_det_emits_bounding_box_center():
         frame_start_number=1,
         include_attributes=False,
     )
-    # 外接框 x0=0,y0=0,w=0.4,h=0.4 → YOLO cx=cy=0.2, bw=bh=0.4。
     assert labels[1][0] == ["0 0.200000 0.200000 0.400000 0.400000"]
-
-
-# ── COCO frame segmentation（纯函数）──────────────────────────────────
 
 
 def _single_polygon(frame_index: int, points: list[list[float]]) -> dict:
@@ -344,7 +326,6 @@ def test_coco_frames_seg_builds_images_and_annotations():
         description="Video Polygon Project",
     )
 
-    # 采样网格 [0,2,4] → 3 image（含无标注空帧），1-based 文件名 + 源帧号。
     assert [im["file_name"] for im in doc["images"]] == [
         "images/clip-a/000001.jpg",
         "images/clip-a/000002.jpg",
@@ -354,11 +335,10 @@ def test_coco_frames_seg_builds_images_and_annotations():
     assert all(im["width"] == 640 and im["height"] == 360 for im in doc["images"])
 
     anns = doc["annotations"]
-    # bboxes 先（person@frame2），tracks 后（car@frame0 / car@frame4，outside frame2 省略）。
     assert len(anns) == 3
     person = anns[0]
     assert person["category_id"] == 1
-    assert person["image_id"] == 1  # frame_no 2
+    assert person["image_id"] == 1
     assert person["segmentation"] == [
         [128.0, 72.0, 256.0, 72.0, 256.0, 216.0, 128.0, 216.0]
     ]
@@ -366,14 +346,13 @@ def test_coco_frames_seg_builds_images_and_annotations():
     assert person["area"] == 18432.0
     assert person["iscrowd"] == 0
     assert person["attributes"] == {"speed": 3}
-    assert anns[1]["category_id"] == 0 and anns[1]["image_id"] == 0  # car@frame0
-    assert anns[2]["image_id"] == 2  # car@frame4
+    assert anns[1]["category_id"] == 0 and anns[1]["image_id"] == 0
+    assert anns[2]["image_id"] == 2
 
     assert doc["categories"] == [
         {"id": 0, "name": "car"},
         {"id": 1, "name": "person"},
     ]
-    # 结构契约：image_id / category_id 引用完整（等价 pycocotools createIndex 可成功）。
     img_ids = {im["id"] for im in doc["images"]}
     cat_ids = {c["id"] for c in doc["categories"]}
     for a in anns:
@@ -500,7 +479,6 @@ def test_coco_frames_seg_skips_off_grid_single_frame():
         frame_start_number=1,
         include_attributes=True,
     )
-    # frame1 不在网格 [0,2,4] → 无 annotation，但仍有 3 张 image。
     assert doc["annotations"] == []
     assert len(doc["images"]) == 3
 
@@ -567,7 +545,6 @@ def test_coco_frames_seg_unknown_class_is_skipped_not_zeroed():
         frame_start_number=1,
         include_attributes=True,
     )
-    # 已知类正常导出；未知类（比如项目已删除的类）不落 category_id=0，直接跳过。
     assert len(doc["annotations"]) == 1
     assert doc["annotations"][0]["category_id"] == 0
     assert doc["info"]["skipped_unknown_class_annotations"] == 1
@@ -577,7 +554,7 @@ def test_coco_frames_seg_unknown_class_is_skipped_not_zeroed():
 
     coco = COCO()
     coco.dataset = doc  # type: ignore[attr-defined]
-    coco.createIndex()  # 引用不完整会在此抛 KeyError
+    coco.createIndex()
     assert len(coco.getAnnIds()) == 1
 
 
@@ -664,7 +641,7 @@ def test_coco_frames_seg_empty_classes_list_produces_loadable_coco():
 
     coco = COCO()
     coco.dataset = doc  # type: ignore[attr-defined]
-    coco.createIndex()  # 此前 categories=[] + category_id=0 组合会在此 KeyError
+    coco.createIndex()
 
 
 def test_coco_frames_seg_deterministic_and_unique_ids_across_sequences():
@@ -696,14 +673,11 @@ def test_coco_frames_seg_deterministic_and_unique_ids_across_sequences():
     doc2 = build_coco_frames_seg(
         seqs, {"car": 0}, frame_start_number=1, include_attributes=True
     )
-    # 相同输入 → 字节稳定（cache 友好 + 下游 diff 稳定）。
     assert json.dumps(doc1) == json.dumps(doc2)
-    # image / annotation id 从 0 连续自增、全局唯一。
     assert [im["id"] for im in doc1["images"]] == list(range(len(doc1["images"])))
     assert [a["id"] for a in doc1["annotations"]] == list(
         range(len(doc1["annotations"]))
     )
-    # 两 sequence 同名叶子帧靠 seq 前缀区分，不冲突。
     names = {im["file_name"] for im in doc1["images"]}
     assert "images/a/000001.jpg" in names and "images/b/000001.jpg" in names
 
@@ -744,18 +718,16 @@ def test_coco_frames_seg_loads_with_pycocotools_and_decodes_mask():
 
     coco = COCO()
     coco.dataset = doc  # type: ignore[attr-defined]  # 官方 in-memory 加载路径
-    coco.createIndex()  # 引用不完整会在此抛 KeyError
+    coco.createIndex()
 
     ann_ids = coco.getAnnIds()
     assert len(ann_ids) == 3
     assert set(coco.getCatIds()) == {0, 1}
 
-    # 每条 annotation 的 segmentation 都能被官方 annToMask 解码成该帧尺寸的非空掩码。
     for ann in coco.loadAnns(ann_ids):
         mask = coco.annToMask(ann)
         assert mask.shape == (360, 640)
         assert int(mask.sum()) > 0
 
-    # person 是像素 [128,72]–[256,216] 的方形多边形，掩码面积应落在其外接框内且非空。
     person = next(a for a in coco.loadAnns(ann_ids) if a["category_id"] == 1)
     assert 0 < int(coco.annToMask(person).sum()) <= 128 * 144

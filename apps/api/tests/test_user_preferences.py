@@ -208,9 +208,6 @@ def test_onboarding_preferences_reject_unknown_project_state_fields():
     ) in errors
 
 
-# ── workbench.shortcuts（账号级快捷键覆盖）────────────────────────
-
-
 def test_shortcuts_accept_valid_binding_entry_and_dump_by_alias():
     prefs = UserPreferences.model_validate(
         {
@@ -269,7 +266,6 @@ def test_shortcuts_reject_unknown_command_id():
 
 
 def test_shortcuts_reject_modifier_only_key_and_over_limit_bindings():
-    # 仅修饰键不是合法 key
     try:
         UserPreferences.model_validate(
             {
@@ -285,7 +281,6 @@ def test_shortcuts_reject_modifier_only_key_and_over_limit_bindings():
     else:  # pragma: no cover
         raise AssertionError("expected validation error for modifier-only key")
 
-    # 每条命令最多一主一备两条组合
     try:
         UserPreferences.model_validate(
             {

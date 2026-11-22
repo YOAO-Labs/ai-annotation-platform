@@ -367,8 +367,6 @@ async def test_qc_region_and_issue_follow_caller_transaction(
     )
     transaction = await db_session.begin_nested()
     if insert_failed:
-        # A nonexistent run reaches the real owner's foreign-key constraint
-        # after the independently owned region bytes have been stored.
         with pytest.raises(IntegrityError):
             await qc_execution._persist_issue(db_session, **kwargs)
     else:

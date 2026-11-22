@@ -146,8 +146,6 @@ async def _resolve_delete(
     if status.state != "not_found":
         return status, None
 
-    # A not_found status means the journal claim never became visible. Retrying
-    # with the same stable ID is safe; the byte owner conditionally claims once.
     try:
         retried = await _storage_call(storage, "execute", expected)
         retried = _validate_status(
@@ -248,8 +246,6 @@ async def _run_preview(
         _add(stats, "scan_pages", 1)
         _add(stats, "scanned", inspection.scanned)
         _add(stats, "eligible", inspection.eligible)
-        # Dry-run has no separate retained counter; skipped carries the preview's
-        # retained count while staged remains zero.
         _add(stats, "skipped", inspection.retained)
         cursor = page.after_key
         stats["next_after_key"] = cursor
@@ -297,8 +293,6 @@ async def run_cycle(
 
     stats = c.CycleStats().model_dump()
 
-    # A failed inventory pass leaves the durable cursor untouched. Continue to
-    # reconcile already-staged operations in this same cycle.
     sweep: c.SweepClaim | None = None
     try:
         claimed = await _data_call(
@@ -338,8 +332,6 @@ async def run_cycle(
                     stats["referenced"] = inspection.referenced
                     reference_count_pending = False
                 except Exception:
-                    # The preview count is observational. Its failure must not
-                    # prevent the durable staging and replay path from running.
                     stats["data_errors"] += 1
             stage_request = c.StageMaskGcPageRequest(
                 sweep_id=sweep.sweep_id,
@@ -418,8 +410,6 @@ async def run_cycle(
                 stats[finished.state] += 1
                 stats["durable_uncertainties"] += 1
         except Exception:
-            # A lost finish acknowledgement is itself ambiguous. Leave the claim
-            # fenced; the next worker replays its stable byte operation ID.
             stats["finish_errors"] += 1
 
     return c.CycleStats(**stats)

@@ -153,8 +153,6 @@ async def test_installed_entrypoint_replays_after_restart_and_api_never_falls_ba
             "inference_routing_timeout_seconds": 1,
         }.items():
             monkeypatch.setattr(settings, name, value)
-        # A usable local engine exists. The explicit HTTP selection must still
-        # fail when its owner stops, without creating a local replacement scope.
         scopes_before = await owner.fetchval(
             "SELECT count(*) FROM yoao_inference_routing_v1.scopes WHERE registry_id=$1",
             scope.registry_id,

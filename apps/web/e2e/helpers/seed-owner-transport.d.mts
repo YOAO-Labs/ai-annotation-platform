@@ -29,7 +29,7 @@ export function runMaskSliceLifecycle(data: {
   action: "gc" | "drop_revision" | "expire_revision";
   task_id: string;
   operation_id: string;
-  namespace: string;
+  run_id: string;
 }): Promise<{ orphan_deleted?: boolean }>;
 export function postFixture(
   url: string,

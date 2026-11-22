@@ -1,5 +1,3 @@
-# 仅为 contract tests 可独立运行 (uv run --extra test pytest);
-# 示例本体零外部依赖, 部署仍按 main.py docstring 用 requirements.txt。
 [project]
 name = "example-mock-v2-backend"
 version = "0.0.0"

@@ -39,9 +39,6 @@ export function RegisterPage() {
   const token = params.get("token");
   const existingToken = useAuthStore((s) => s.token);
   const currentUserId = useAuthStore((s) => s.user?.id);
-  // Keep the entry mode stable while a newly created invitation account is
-  // written to the auth store; otherwise the same render would switch into
-  // the existing-account confirmation flow before the success panel appears.
   const [hadAuthOnEntry] = useState(() => Boolean(useAuthStore.getState().token));
 
   if (hadAuthOnEntry && existingToken) {
@@ -70,7 +67,6 @@ function OpenRegisterForm() {
   const [pwd2, setPwd2] = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  // 注册后需邮箱验证时切到「验证邮件已发送」态（不进站）
   const [verificationSentTo, setVerificationSentTo] = useState<string | null>(null);
   const captchaRequired = isCaptchaRequired();
 
@@ -230,8 +226,6 @@ function InviteRegisterForm({ token }: { token: string }) {
   const [pwd2, setPwd2] = useState("");
   const [showPwd, setShowPwd] = useState(false);
 
-  // Login clears the previous anonymous query cache. A consumed invitation
-  // must not be resolved again or replace this confirmed acceptance result.
   if (accepted) return <InviteAcceptedPanel acceptance={accepted.acceptance} />;
 
   if (resolve.isLoading) {
@@ -264,15 +258,12 @@ function InviteRegisterForm({ token }: { token: string }) {
       { token, name: name.trim(), password: pwd },
       {
         onSuccess: (data) => {
-          // 邀请注册恒返回 token（不走邮箱验证）；先展示项目落点和分派状态。
           if (
             !data.access_token ||
             useAuthStore.getState().token !== ownerToken ||
             localStorage.getItem("token") !== ownerToken
           )
             return;
-          // Remove the consumed-token query observer before auth adoption
-          // synchronously invalidates the previous account's query cache.
           if (data.acceptance) flushSync(() => setAccepted(data));
           setAuth(data.access_token, data.user);
           if (!data.acceptance) navigate("/dashboard", { replace: true });

@@ -1,18 +1,9 @@
-/**
- * useNotificationSocket 单测：连接生命周期、reauth 重连、查询失效与
- * 重要消息瞬时提醒（偏好门控、去重、1s 批量、可见标签页限制）。
- *
- * 不打真实 WS server，用 MockWebSocket 替换 globalThis.WebSocket，
- * 然后通过 instance 的 dispatchEvent / onclose 模拟服务端行为。
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast as sonnerToast } from "sonner";
 import { useAuthStore } from "@/stores/authStore";
 
-// 断言「弹了什么 toast」通过 mock sonner 的 toast 入口观测，
-// 不给 useToastStore 增加可观测状态（见 Toast.tsx 的红线注释）。
 vi.mock("sonner", () => {
   const fn = vi.fn();
   return {
@@ -96,7 +87,6 @@ class MockWebSocket {
   close() {
     this.closedManually = true;
   }
-  // 测试钩子
   triggerClose(code: number) {
     this.onclose?.({ code, wasClean: false } as CloseEvent);
   }
@@ -317,8 +307,6 @@ describe("useNotificationSocket", () => {
     mount();
     expect(MockWebSocket.instances.length).toBe(1);
     expect(MockWebSocket.instances[0].url).toContain("token=old-token");
-    // 修复: WS URL 从错误的 /api/v1/ws/notifications 改为 /ws/notifications
-    // (ws_router 在 main.py 是 app.include_router(ws_router) 无 prefix).
     expect(MockWebSocket.instances[0].url).toMatch(/\/ws\/notifications/);
     expect(MockWebSocket.instances[0].url).not.toMatch(/\/api\/v1\/ws\/notifications/);
   });
@@ -348,10 +336,8 @@ describe("useNotificationSocket", () => {
     mount();
     expect(MockWebSocket.instances.length).toBe(1);
 
-    // 模拟 1008（鉴权过期）关闭
     await act(async () => {
       MockWebSocket.instances[0].triggerClose(1008);
-      // 让 .then 回调跑（refresh 是异步）
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -359,7 +345,6 @@ describe("useNotificationSocket", () => {
     expect(refreshMock).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState().token).toBe("new-token");
 
-    // scheduleRetry 1s 后用新 token 重连
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1500);
     });
@@ -378,7 +363,6 @@ describe("useNotificationSocket", () => {
     });
     expect(refreshMock).toHaveBeenCalled();
 
-    // catch 后 closedManually = true → schedule 不会触发新连接
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
@@ -398,7 +382,6 @@ describe("useNotificationSocket", () => {
       MockWebSocket.instances[0].triggerClose(1008);
       await Promise.resolve();
     });
-    // 会话被替换（登出+新登录）后 refresh 才返回
     useAuthStore.setState({
       token: "session-b-token",
       user: { id: "u2", role: "employee" } as never,
@@ -480,7 +463,6 @@ describe("useNotificationSocket", () => {
       });
     });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["notifications"] });
-    // 偏好查询没有数据 → 抑制瞬时提醒，但仍计数
     act(() => {
       vi.advanceTimersByTimeAsync(1500);
     });
@@ -511,7 +493,6 @@ describe("useNotificationSocket", () => {
     seedPreferences(qc, "u1", [{ type: "task.rejected", toast: true }]);
     mount(qc);
 
-    // 入队时标签页可见，两条事件合并进同一批。
     act(() => {
       MockWebSocket.instances[0].triggerMessage({
         id: "n1",
@@ -524,7 +505,6 @@ describe("useNotificationSocket", () => {
         payload: { task_display_id: "T-2" },
       });
     });
-    // flush 前切到后台：重新检查可见性后丢弃整批，不产生回到前台才看到的 toast。
     Object.defineProperty(document, "visibilityState", {
       value: "hidden",
       configurable: true,
@@ -547,7 +527,7 @@ describe("useNotificationSocket", () => {
         payload: { task_display_id: "T-1", reject_reason: "漏标" },
       });
     });
-    expect(toastCallCount()).toBe(0); // 1s 批量窗口内
+    expect(toastCallCount()).toBe(0);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1100);
     });
@@ -597,7 +577,6 @@ describe("useNotificationSocket", () => {
         type: "task.rejected",
         payload: {},
       });
-      // export.ready 无偏好记录：未知/普通类型默认不弹
       MockWebSocket.instances[0].triggerMessage({
         id: "b",
         type: "export.ready",
@@ -712,7 +691,6 @@ describe("useNotificationSocket", () => {
         type: "export.failed",
         payload: {},
       });
-      // 重复 ID 不重复提醒
       MockWebSocket.instances[0].triggerMessage({
         id: "n1",
         type: "task.rejected",
@@ -725,7 +703,6 @@ describe("useNotificationSocket", () => {
     expect(toastCallCount()).toBe(1);
     expect(warningToastMessages()).toEqual(["收到 2 条重要通知，请查看通知中心"]);
 
-    // 窗口外的重复 ID 仍被去重
     act(() => {
       MockWebSocket.instances[0].triggerMessage({
         id: "n1",

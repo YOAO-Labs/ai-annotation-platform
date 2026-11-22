@@ -419,6 +419,7 @@ GET /api/v1/projects/{project_id}/batches/{batch_id}/export?format=coco&video_fr
 
 - **唯一显示真值（`displayBitmap`）**：bitmap cache 只优化前端体感，不替代 `<video>` 播放源。`useVideoBitmapCache` 在浏览器支持 `createImageBitmap(video)` 时按 `taskId + frameIndex` 保存 LRU；Konva 媒体层（`VideoKonvaMediaLayer`）按唯一显示真值 `displayBitmap` 绘制——播放态用 `<video>` 实时帧，暂停态优先 WebCodecs 精确帧位图（`useVideoPreciseFrame`），其次原生 `<video>` 抓取位图。同一份 `displayBitmap` 也供当前帧 JPEG（`captureCurrentFrameJpeg`）使用，避免画面、标注与 AI 串帧。
 - **有状态 GOP 解码会话**：`useVideoPreciseFrame` 经 `manifest v2 → chunk 轮询 → packet samples → chunk 字节 → GOP plan → 有状态 GOP decoder session` 解码目标帧。同 GOP 逐帧只提交增量，后退、跨 GOP 或切任务时确定性重建 decoder。B 帧 lookahead 提前输出的未来帧会立即转为 bitmap 并移交现有 LRU，避免关闭后又从关键帧重解，同时不在操作结束后持有 `VideoFrame`。
+- **GOP 尾部排空**：只在提交至 GOP 尾且目标尚未输出时调用 `flush()`。输出超时（仍为 5 秒）、更新的请求代际或会话销毁均可结束等待；未排空的原生 decoder 被关闭，迟到帧直接释放。后续合法请求从 GOP 的关键样本开始，已正常排空的 decoder 也必须先 reset，不能接着喂 delta sample。
 - **字节预算与安全回退**：已解码位图的 LRU、活动帧、待显示帧与退休帧共同受同一个总字节预算约束，chunk 字节另按轻量 / 标准 / 激进三档淘汰。用户显式关闭、codec 不支持、chunk pending / failed、缺 samples / description、signed URL 过期或字节越界都安全回退到 `<video>` / 位图，不阻断标注。
 - **诊断快照与平台解码验证**：`window.__videoWorkbenchDiagnostics` 暴露当前 `state`、`source`、`fallback reason`、资源预算与计数（更新上限 5 Hz，状态与 fallback 转换立即写入），BUG 报告自动附带经裁剪、不含签名 URL / 字节 / 描述的快照。浏览器资格矩阵从 Konva media canvas 验证确定性帧标记，并在有头 Chrome / GPU runner 采集 1080p/4K 延迟、long task、真实媒体时间与资源账本；Apple Silicon Chrome 的 strict 门从实际 WebCodecs player 读取 VideoToolbox/platform decoder 证据。
 

@@ -1,17 +1,13 @@
-// useWorkbenchConfig 单测：项目级覆盖合并优先级 + lockedFields。
-// 偏好四分树:用户偏好走 image.* / common.* 子树;项目级 rendering_config 保持平铺。
-
 import type { ReactNode } from "react";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { MeResponse } from "@/api/auth";
+import { useAuthStore } from "@/stores/authStore";
 
 const mockGetPreferences = vi.hoisted(() => vi.fn());
 const mockUpdatePreferences = vi.hoisted(() => vi.fn());
 const mockPushToast = vi.hoisted(() => vi.fn());
-const mockAuthUser = vi.hoisted(() => ({
-  current: { id: "u1" } as { id: string; preferences?: unknown },
-}));
 
 vi.mock("@/api/auth", async () => {
   const actual = await vi.importActual<typeof import("@/api/auth")>("@/api/auth");
@@ -23,15 +19,6 @@ vi.mock("@/api/auth", async () => {
     },
   };
 });
-
-// zustand store 既是 hook 又带 getState 静态方法; useWorkbenchConfig 的 flush 回调
-// 走 useAuthStore.getState() 取 userId (无法在回调里调 hook), 故 mock 两者都要有。
-vi.mock("@/stores/authStore", () => ({
-  useAuthStore: Object.assign(
-    (selector: (s: { user: unknown }) => unknown) => selector({ user: mockAuthUser.current }),
-    { getState: () => ({ user: mockAuthUser.current }) },
-  ),
-}));
 
 vi.mock("@/components/ui/Toast", () => ({
   useToastStore: { getState: () => ({ push: mockPushToast }) },
@@ -45,24 +32,25 @@ function wrapper({ children }: { children: ReactNode }) {
   return <QueryClientProvider client={c}>{children}</QueryClientProvider>;
 }
 
+function signIn(preferences?: unknown) {
+  useAuthStore.getState().setAuth("u1-token", { id: "u1", preferences } as MeResponse);
+}
+
 describe("useWorkbenchConfig · 项目级覆盖", () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
-    mockAuthUser.current = { id: "u1" };
     window.localStorage.clear();
+    signIn();
   });
 
   it("首帧优先使用本地 layout 缓存，避免右栏按旧偏好闪开再收起", () => {
     window.localStorage.setItem("workbench.u1.rightOpen", "0");
-    mockAuthUser.current = {
-      id: "u1",
-      preferences: {
-        workbench: {
-          layout: { rightOpen: true },
-        },
+    signIn({
+      workbench: {
+        layout: { rightOpen: true },
       },
-    };
+    });
     mockGetPreferences.mockReturnValue(new Promise(() => undefined));
 
     const { result } = renderHook(() => useWorkbenchConfig(), { wrapper });
@@ -79,7 +67,6 @@ describe("useWorkbenchConfig · 项目级覆盖", () => {
     await waitFor(() => expect(result.current.loaded).toBe(true));
     expect(result.current.config.image.smoothImage).toBe(false);
     expect(result.current.config.image.cssImageFilter).toBe("invert(1)");
-    // 未提供的字段走默认
     expect(result.current.config.image.controlPointsSize).toBe(6);
     expect(result.current.config.common.longTaskSampleRate).toBe(0.05);
     expect(result.current.config.common.showAnnotationComments).toBe(true);
@@ -98,7 +85,7 @@ describe("useWorkbenchConfig · 项目级覆盖", () => {
     vi.useFakeTimers();
     act(() => result.current.setFields({ common: { showAnnotationComments: false } }));
     await act(async () => vi.advanceTimersByTimeAsync(300));
-    expect(mockUpdatePreferences).toHaveBeenCalledWith({
+    expect(mockUpdatePreferences.mock.lastCall?.[0]).toEqual({
       workbench: expect.objectContaining({
         common: expect.objectContaining({ showAnnotationComments: false }),
       }),
@@ -119,11 +106,8 @@ describe("useWorkbenchConfig · 项目级覆盖", () => {
       { wrapper },
     );
     await waitFor(() => expect(result.current.loaded).toBe(true));
-    // smoothImage 用户=true，项目=false → 项目胜
     expect(result.current.config.image.smoothImage).toBe(false);
-    // cssImageFilter 用户未设，项目=grayscale → 项目胜
     expect(result.current.config.image.cssImageFilter).toBe("grayscale(1)");
-    // controlPointsSize 项目未覆盖 → 沿用用户值 10
     expect(result.current.config.image.controlPointsSize).toBe(10);
     expect(result.current.lockedFields).toEqual(
       expect.arrayContaining(["smoothImage", "cssImageFilter"]),
@@ -145,8 +129,8 @@ describe("useWorkbenchConfig · 项目级覆盖", () => {
       { wrapper },
     );
     await waitFor(() => expect(result.current.loaded).toBe(true));
-    expect(result.current.config.image.smoothImage).toBe(true); // 沿用用户
-    expect(result.current.config.image.controlPointsSize).toBe(12); // 项目覆盖
+    expect(result.current.config.image.smoothImage).toBe(true);
+    expect(result.current.config.image.controlPointsSize).toBe(12);
     expect(result.current.lockedFields).toEqual(["controlPointsSize"]);
   });
 
@@ -192,7 +176,7 @@ describe("useWorkbenchConfig · 项目级覆盖", () => {
       await vi.advanceTimersByTimeAsync(300);
     });
 
-    expect(mockUpdatePreferences).toHaveBeenCalledWith({
+    expect(mockUpdatePreferences.mock.lastCall?.[0]).toEqual({
       workbench: expect.objectContaining({
         image: expect.objectContaining({ smoothImage: false }),
         layout: expect.objectContaining({
@@ -211,8 +195,6 @@ describe("useWorkbenchConfig · 项目级覆盖", () => {
     vi.useRealTimers();
   });
 
-  // 选中标注浮动信息卡:位置 + 折叠态走偏好通道(跨设备),即本地立即生效 +
-  // localStorage 缓存 + debounce 全量 PATCH 带上 floatingSelection。
   it("setLayout 持久化 floatingSelection(位置 + 折叠态,跨设备)", async () => {
     mockGetPreferences.mockResolvedValue({ workbench: {} });
     mockUpdatePreferences.mockImplementation(async (payload) => payload);
@@ -241,7 +223,7 @@ describe("useWorkbenchConfig · 项目级覆盖", () => {
       await vi.advanceTimersByTimeAsync(300);
     });
 
-    expect(mockUpdatePreferences).toHaveBeenCalledWith({
+    expect(mockUpdatePreferences.mock.lastCall?.[0]).toEqual({
       workbench: expect.objectContaining({
         layout: expect.objectContaining({
           floatingSelection: expect.objectContaining({ collapsed: true, x: 900, h: 440 }),
@@ -340,8 +322,8 @@ describe("useWorkbenchConfig · setFields + 多实例广播", () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
-    mockAuthUser.current = { id: "u1" };
     window.localStorage.clear();
+    signIn();
   });
 
   it("setFields 子树级 patch 立即生效并 debounce PATCH", async () => {
@@ -354,16 +336,14 @@ describe("useWorkbenchConfig · setFields + 多实例广播", () => {
     act(() => {
       result.current.setFields({ image: { controlPointsSize: 12 } });
     });
-    // 本地立即生效（画布实时预览），未到 300ms 不发请求
     expect(result.current.config.image.controlPointsSize).toBe(12);
-    // 其余字段不被 patch 踩掉
     expect(result.current.config.image.smoothImage).toBe(true);
     expect(mockUpdatePreferences).not.toHaveBeenCalled();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(300);
     });
-    expect(mockUpdatePreferences).toHaveBeenCalledWith({
+    expect(mockUpdatePreferences.mock.lastCall?.[0]).toEqual({
       workbench: expect.objectContaining({
         image: expect.objectContaining({ controlPointsSize: 12 }),
       }),
@@ -477,8 +457,8 @@ describe("useWorkbenchConfig · 设置读写失败与离开页面", () => {
   beforeEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
-    mockAuthUser.current = { id: "u1" };
     window.localStorage.clear();
+    signIn();
   });
 
   it("加载中或首次读取失败不允许 setFields，重试成功后保留远端字段再写入", async () => {
@@ -502,7 +482,7 @@ describe("useWorkbenchConfig · 设置读写失败与离开页面", () => {
     expect(result.current.loaded).toBe(true);
     act(() => result.current.setFields({ image: { controlPointsSize: 12 } }));
     unmount();
-    expect(mockUpdatePreferences).toHaveBeenCalledWith({
+    expect(mockUpdatePreferences.mock.lastCall?.[0]).toEqual({
       workbench: expect.objectContaining({
         image: expect.objectContaining({ cssImageFilter: "invert(1)", controlPointsSize: 12 }),
       }),
@@ -556,7 +536,7 @@ describe("useWorkbenchConfig · 设置读写失败与离开页面", () => {
 
     act(() => result.current.setFields({ image: { smoothImage: false } }));
     await act(async () => vi.advanceTimersByTimeAsync(300));
-    expect(mockUpdatePreferences).toHaveBeenLastCalledWith({
+    expect(mockUpdatePreferences.mock.lastCall?.[0]).toEqual({
       workbench: expect.objectContaining({
         image: expect.objectContaining({ controlPointsSize: 12, smoothImage: false }),
       }),

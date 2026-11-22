@@ -109,8 +109,6 @@ class Observation:
         try:
             self._complete(response)
         except Exception:
-            # Read/receipt observation must not turn a successful delete into
-            # a business failure. Its independent window remains unknown.
             self.attempt.evidence.pop("current_delta_bytes", None)
 
     def _complete(self, response):

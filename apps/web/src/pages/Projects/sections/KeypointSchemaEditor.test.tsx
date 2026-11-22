@@ -4,7 +4,6 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { KeypointSchema } from "@/types";
 import { KeypointSchemaEditor, keypointNodePos } from "./KeypointSchemaEditor";
 
-/** 受控组件包壳：自持 schema 状态，便于交互断言。 */
 function Harness({ initial }: { initial?: KeypointSchema }) {
   const [schema, setSchema] = useState<KeypointSchema>(initial ?? { nodes: [], edges: [] });
   return (
@@ -60,7 +59,6 @@ describe("KeypointSchemaEditor", () => {
         }}
       />,
     );
-    // pointerdown+up 无位移 → 视为点击连线 (jsdom 下 getBoundingClientRect 为 0, moved 保持 false)
     const n0 = screen.getByTestId("keypoint-node-0");
     const n1 = screen.getByTestId("keypoint-node-1");
     fireEvent.pointerDown(n0);
@@ -82,7 +80,6 @@ describe("KeypointSchemaEditor", () => {
         }}
       />,
     );
-    // 删除第 1 个节点 (index 0)：含它的边丢弃，其余索引 -1
     const list = screen.getByText("关键点节点 (3)").closest("div")!.parentElement!;
     const firstRow = within(list).getByLabelText("节点 1 名称").closest("li")!;
     fireEvent.click(within(firstRow).getByTitle("删除节点"));

@@ -29,9 +29,6 @@ from app.services import storage_access
 from app.services.content_snapshot import ContentError
 
 
-# Allocation is the only writer a reader can contend with. Readers reuse a
-# committed attempt without any write lock, so this bound applies exactly to
-# the slot row a concurrent allocator (or publisher) owns for a short window.
 ALLOCATION_LOCK_TIMEOUT = "1s"
 
 
@@ -103,8 +100,6 @@ def metadata_result(output):
         ):
             reject("video_metadata_invalid")
         previous = frame["frame_index"]
-    # Some containers lack a complete timetable. Keep the previous estimated-PTS
-    # fallback, while every existing exact entry belongs to this generation.
     return metadata, deepcopy(frames)
 
 
@@ -253,7 +248,9 @@ async def _waiting_scalar(db, statement, timeout):
     return value
 
 
-async def _slot(db, item, kind, spec, *, lock=False, create=False, wait=False):
+async def _slot(
+    db, item, kind, spec, *, lock=False, create=False, write=False, wait=False
+):
     if kind == "metadata":
         return item
     model = VideoFrameCache if kind == "frame" else VideoChunk
@@ -270,7 +267,7 @@ async def _slot(db, item, kind, spec, *, lock=False, create=False, wait=False):
         reject()
     stmt = select(model).where(*predicates).execution_options(populate_existing=True)
     if lock:
-        stmt = stmt.with_for_update(read=not create, nowait=not wait)
+        stmt = stmt.with_for_update(read=not (create or write), nowait=not wait)
     slot = (
         await _waiting_scalar(db, stmt, ALLOCATION_LOCK_TIMEOUT)
         if wait
@@ -293,9 +290,6 @@ async def _slot(db, item, kind, spec, *, lock=False, create=False, wait=False):
             )
         slot = model(**values)
         try:
-            # A concurrent allocator may commit the unique slot while this
-            # transaction waits on the index. Keep the caller's transaction
-            # usable and adopt the committed winner instead of failing a read.
             async with db.begin_nested():
                 db.add(slot)
                 await db.flush()
@@ -418,8 +412,6 @@ async def prepare(db, item_id, authority, kind, *, spec=None, force=False):
         if current.state == "building" and (
             current.lease_token is None or current.lease_expires_at > now()
         ):
-            # Re-delivery of an unclaimed owner is idempotent. No new prefix or
-            # replacement authority is created for a broker redelivery.
             return current, current.lease_token is None
     output = await objects.allocate(
         db,
@@ -456,16 +448,31 @@ async def check(
     building=False,
 ):
     """Compare the current logical slot, generation, authority and lease only."""
-    source = await originals.check(db, authority, lock=lock)
+    source = await originals.check(
+        db,
+        authority,
+        lock=lock,
+        wait_for_item=(
+            not (write or building) and (token is not None or output.kind == "metadata")
+        ),
+    )
     if (
         source.item_id != output.dataset_item_id
         or originals.receipt(source) != output.original_ref
     ):
         reject("content_binding_changed")
-    item = await row(db, DatasetItem, output.dataset_item_id, lock=lock, write=write)
+    item = await row(
+        db,
+        DatasetItem,
+        output.dataset_item_id,
+        lock=lock,
+        write=write and output.kind == "metadata",
+    )
     if item is None:
         reject("video_not_found", 404)
-    slot = await _slot(db, item, output.kind, output.spec, lock=lock, create=False)
+    slot = await _slot(
+        db, item, output.kind, output.spec, lock=lock, write=write, wait=lock
+    )
     current = await row(db, Output, output.id, lock=lock, write=write)
     if current is None or slot is None:
         reject()
@@ -798,9 +805,7 @@ async def prepare_dispatch(db, output_ids, *, delivery_id=None):
         return []
     if delivery_id is not None and len(identifiers) != 1:
         raise ContentError("fixture_media_scope_mismatch", 409)
-    rows = list(await db.scalars(select(Output).where(
-        Output.id.in_(identifiers)
-    )))
+    rows = list(await db.scalars(select(Output).where(Output.id.in_(identifiers))))
     outputs = {row.id: row for row in rows}
     if any(identifier not in outputs for identifier in identifiers):
         raise ContentError("video_derivative_output_missing", 409)
@@ -815,14 +820,22 @@ async def prepare_dispatch(db, output_ids, *, delivery_id=None):
         source = {
             "schema": "aap-video-derivative-inputs/v1",
             "outputs": [
-                {"output_id": str(identifier), "original": outputs[identifier].original_ref}
+                {
+                    "output_id": str(identifier),
+                    "original": outputs[identifier].original_ref,
+                }
                 for identifier in group
             ],
         }
         values = [str(identifier) for identifier in group]
         preparation = await media_dispatch.prepare(
-            db, owner_kind="dataset_item", owner_id=owner_id, producer_kind="video_derivatives",
-            source=source, task_name="app.workers.media.generate_video_derivatives", args=[values],
+            db,
+            owner_kind="dataset_item",
+            owner_id=owner_id,
+            producer_kind="video_derivatives",
+            source=source,
+            task_name="app.workers.media.generate_video_derivatives",
+            args=[values],
             delivery_id=delivery_id,
         )
         return preparation, values
@@ -837,7 +850,9 @@ async def prepare_dispatch(db, output_ids, *, delivery_id=None):
         else:
             ordinary_ids.update(group)
     if ordinary_ids:
-        ordinary_group = [identifier for identifier in identifiers if identifier in ordinary_ids]
+        ordinary_group = [
+            identifier for identifier in identifiers if identifier in ordinary_ids
+        ]
         preparation, values = await prepare_group(ordinary_group)
         if preparation.ownership != "ordinary":
             raise ContentError("fixture_media_scope_changed", 409)
@@ -850,4 +865,6 @@ async def publish_dispatch(prepared):
     from app.workers.media import generate_video_derivatives
 
     for preparation, identifiers in prepared:
-        await media_dispatch.publish(preparation, lambda: generate_video_derivatives.delay(identifiers))
+        await media_dispatch.publish(
+            preparation, lambda: generate_video_derivatives.delay(identifiers)
+        )

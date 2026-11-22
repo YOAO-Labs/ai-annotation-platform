@@ -119,7 +119,6 @@ async def legacy(
             report, ensure_ascii=False, allow_nan=False, separators=(",", ":")
         ).encode()
         sha = hashlib.sha256(raw).hexdigest()
-        # Legacy fixture bytes exist before this row has a saved reference.
         key = (
             sample_evaluation_storage.prefix_for(row.project_id, row.id)
             + f"{attempt.id}/{sha}.json"

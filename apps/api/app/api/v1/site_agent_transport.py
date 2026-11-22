@@ -135,7 +135,6 @@ async def result(
     authorization: str | None = Header(default=None),
     x_agent_protocol: str = Header(default="1"),
 ):
-    # Authentication of a retained receipt cannot issue new reads or receive bytes.
     agent, credential = await identity(
         db, authorization, x_agent_protocol, retired=True
     )

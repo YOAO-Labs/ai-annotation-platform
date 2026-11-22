@@ -79,7 +79,6 @@ def parser():
 
 
 def bound_state(directory, state):
-    # One physical ingress has one journal and lock, even across CLI invocations.
     expected = Path(directory).parent / "fence-state.json"
     if Path(os.path.abspath(state)) != expected:
         raise FenceError("state_path_changed")

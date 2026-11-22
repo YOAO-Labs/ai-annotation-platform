@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-/**
- * check-orphan-images.mjs
- *
- * 检查本地图片、视频和封面引用是否指向现有文件，并在用户手册图片目录中
- * 找出未被 Markdown 或主题组件引用的文件、以及内容重复的文件。
- *
- * 用法：
- *   node docs-site/scripts/check-orphan-images.mjs
- *   node docs-site/scripts/check-orphan-images.mjs --strict   # 发现问题时退出码 1
- */
 import fs from "fs";
 import path from "path";
 import { createHash } from "crypto";
@@ -23,7 +13,6 @@ const IMAGES_ROOT = path.join(REPO_ROOT, "docs-site/user-guide/images");
 const strict = process.argv.includes("--strict");
 const json = process.argv.includes("--json");
 
-// 仅允许路径集合完全一致的已知重复组；新增豁免必须写清不同语义和清理条件。
 const DUPLICATE_ALLOWLIST = new Map([
   [
     ["polygon/close-hint.png", "polygon/vertex-edit.png"].join("\n"),
@@ -31,10 +20,8 @@ const DUPLICATE_ALLOWLIST = new Map([
   ],
 ]);
 
-// ── 收集 images/ 下所有图片文件（绝对路径）─────────────────────────
 const imageFiles = [...walkFiles(IMAGES_ROOT, (name) => IMAGE_EXTENSION_RE.test(name))];
 
-// ── 重复内容：不同路径的图片文件具有相同 SHA-256 ──────────────────
 const filesByHash = new Map();
 for (const abs of imageFiles) {
   const hash = createHash("sha256").update(fs.readFileSync(abs)).digest("hex");
@@ -56,11 +43,9 @@ for (const [hash, files] of filesByHash) {
 duplicateGroups.sort((a, b) => a.files[0].localeCompare(b.files[0]));
 allowedDuplicateGroups.sort((a, b) => a.files[0].localeCompare(b.files[0]));
 
-// ── 收集 Markdown、HTML 与主题组件的媒体引用─────────────────────
 const referenceRecords = collectAssetReferences(REPO_ROOT);
 const referenced = new Set([...referenceRecords.values()].map((record) => record.absolute));
 
-// ── 孤儿：磁盘有图但无任何文档引用 ────────────────────────────────
 const orphans = imageFiles
   .filter((abs) => !referenced.has(abs))
   .map((abs) => path.relative(IMAGES_ROOT, abs).replace(/\\/g, "/"))
@@ -90,7 +75,6 @@ if (json) {
   process.exit(strict && failed > 0 ? 1 : 0);
 }
 
-// ── 人类可读输出 ─────────────────────────────────────────────────
 console.log(`\n文档资源检查 — images/ 下 ${imageFiles.length} 张图\n${"─".repeat(64)}`);
 if (orphans.length === 0) {
   console.log("✓  全部图片都已被文档页面引用，无孤儿。");

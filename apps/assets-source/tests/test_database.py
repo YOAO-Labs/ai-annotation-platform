@@ -733,5 +733,4 @@ async def test_transaction_exposes_connection_and_probe_ports_and_allocates_obje
         )
 
     assert str(material.creation_id) == reply["data"]["creation_id"]
-    # Direct-origin material carries the owner-persisted staging ownership.
     assert material.staging is not None and material.staging.bucket == "imports"

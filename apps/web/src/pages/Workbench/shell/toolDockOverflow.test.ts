@@ -56,7 +56,6 @@ describe("tool dock overflow", () => {
       { id: "smart-point", group: "sam" },
       { id: "track", group: "track" },
     ];
-    // Includes two dividers, three labels and the extra flex gap around nested SAM.
     expect(toolDockHeight(video, true, metrics)).toBe(282);
     const result = splitToolDock(video, "track", 200, true, metrics);
     expect(result).toEqual({

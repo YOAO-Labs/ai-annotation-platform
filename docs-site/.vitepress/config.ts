@@ -10,8 +10,6 @@ import { nav } from "./navigation/nav";
 import { opsSidebar } from "./navigation/ops";
 import { userGuideSidebar } from "./navigation/user-guide";
 
-// ADR 侧边栏由 docs-site/scripts/mirror-adr.mjs 在 prebuild/predev 阶段生成。
-// 若文件缺失（例如刚 clone 还未跑 prebuild），降级为空数组让 VitePress 仍能启动。
 const __here = dirname(fileURLToPath(import.meta.url));
 function loadSidebar(rel: string): DefaultTheme.SidebarItem[] {
   const p = resolve(__here, rel);
@@ -35,31 +33,21 @@ export default withMermaid(
     head: [
       ["link", { rel: "icon", type: "image/svg+xml", href: "/ai-annotation-platform-icon.svg" }],
     ],
-    // 站点地图：hostname 用源站，路径前缀由 base 处理。部署地址
-    // https://yyq19990828.github.io/ai-annotation-platform/ 。提交给 Search Console 用完整 URL。
     sitemap: {
       hostname: "https://yyq19990828.github.io/ai-annotation-platform/",
       transformItems: (items) =>
         items.filter((item) => !item.url.includes("user-guide/projects/annotation-guide")),
     },
-    // 允许指向本地开发服务器的链接，构建期不当 dead link
     ignoreDeadLinks: [
       /^https?:\/\/localhost(:\d+)?(\/|$)/,
-      // ROADMAP / ADR mirror files contain relative links to source code files outside docs-site
       (url) => /\.(tsx?|py|json|ya?ml|sh|toml|Dockerfile\w*)$/.test(url),
       (url) => /\/(apps|infra)\//.test(url),
-      // ADR mirrors may point back to repo-local docs/plans files, which are not
-      // rendered as VitePress pages, including archived plans.
       (url) =>
         /(^|\/)\.\.\/plans\/(archive\/)?\d{4}-/.test(url) ||
         /\/plans\/(archive\/)?\d{4}-/.test(url),
-      // ROADMAP/inspiration 文档引用本地 clone 的 CVAT 源码（`../../cvat/...`），
-      // 这些不是站点页面，构建期不应判为 dead。
       (url) => /\/cvat\//.test(url) || /\/cvat-(sdk|cli)(\/|$)/.test(url),
     ],
 
-    // mermaid 11.x 的 chunk 直接 import `dayjs/dayjs.min.js`（UMD 文件），Vite 当 ESM
-    // 解析失败 → "does not provide an export named 'default'"。alias 指向 ESM 入口。
     vite: {
       resolve: {
         alias: [{ find: /^dayjs\/dayjs\.min\.js$/, replacement: "dayjs/esm/index.js" }],
@@ -68,9 +56,6 @@ export default withMermaid(
         include: ["dayjs/esm/index.js", "@braintree/sanitize-url", "debug"],
       },
       build: {
-        // VitePress local search emits a large generated index for the whole docs site.
-        // Keep the threshold above that expected artifact while still warning on accidental
-        // multi-megabyte application chunks.
         chunkSizeWarningLimit: 2048,
         rollupOptions: {
           output: {
@@ -141,8 +126,6 @@ export default withMermaid(
       },
 
       editLink: {
-        // VitePress serializes this callback into the client bundle, so keep it
-        // self-contained instead of closing over helpers from config.ts.
         pattern: ({ filePath }) => {
           let sourcePath = `docs-site/${filePath}`;
           if (filePath === "changelog/index.md") sourcePath = "CHANGELOG.md";

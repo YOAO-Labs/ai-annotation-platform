@@ -686,7 +686,6 @@ async def serve_authority(ready_fd):
         1,
     ):
         raise SeedSetupRefused("Fixture authority lock identity changed")
-    # Keep guard_fd open through exact process exit.
     if owner_paths()[0] != resources:
         raise SeedSetupRefused("Fixture resources changed during startup")
     generation = private_record(directory / "generation.json")
@@ -706,8 +705,6 @@ async def serve_authority(ready_fd):
     )
     if checked_resources != resources:
         raise SeedSetupRefused("Fixture authority database changed")
-    # Models imported by native suite preparation must bind the private owner engine.
-    # Keep original_environment unchanged except for the native control binding.
     select_fixture_owner(owner_url)
     native_control = None
     raster_owner = os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
@@ -1468,7 +1465,6 @@ async def serve_authority(ready_fd):
     try:
         os.write(ready_fd, b"1")
     except BrokenPipeError:
-        # The client may disappear before first request; keep this authority recoverable.
         pass
     finally:
         os.close(ready_fd)
@@ -1477,7 +1473,6 @@ async def serve_authority(ready_fd):
     for connection in tuple(connections):
         connection.close()
     await server.wait_closed()
-    # Prevent a fresh incarnation until this exact process has exited.
     exit_lock = await asyncio.to_thread(lock_start, directory, create=False)
     if os.fstat(exit_lock).st_nlink != 1:
         raise SeedSetupRefused("Fixture authority start lock changed")
@@ -1597,6 +1592,5 @@ if __name__ == "__main__":
     except Exception as error:
         if len(sys.argv) == 3 and sys.argv[1] == "--authority":
             traceback.print_exception(error, file=sys.stderr)
-        # Never expose a DSN, request body, credential or SQL parameter in setup errors.
         print(f"Fixture setup failed: {type(error).__name__}", file=sys.stderr)
         raise SystemExit(1) from None

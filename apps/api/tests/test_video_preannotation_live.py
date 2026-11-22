@@ -262,8 +262,6 @@ async def _cleanup_consumer_fixture(
 ):
     for process in reversed(runtime.processes):
         await asyncio.to_thread(_stop_process, process)
-    # Native receipts, audits and their actors remain until DB destruction.
-    # Only this fixture's mutable business rows are removed between tests.
     async with runtime.sessions.begin() as db:
         pred_ids = select(Prediction.id).where(Prediction.task_id == task_id)
         failed_ids = select(FailedPrediction.id).where(
@@ -420,7 +418,6 @@ async def test_api_video_overwrite_waits_for_original_then_runs_real_celery_fram
             if model_failure and task["id"].endswith(":3"):
                 calls[-1]["failed"] = True
                 raise RuntimeError("fixture frame model failure")
-            # Empty results must also leave a durable completion receipt.
             result = (
                 []
                 if len(calls) % 2 == 0

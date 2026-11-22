@@ -412,7 +412,6 @@ class CopyTests(unittest.TestCase):
         self.assertEqual(result["source"]["exact_catalog_matches"], 0)
         self.assertEqual(result["catalog"]["counts"]["resolution_unknown"], 1)
         self.assertFalse(result["catalog"]["resolution_complete"])
-        # Unknown business ownership still does not block a verified source pre-copy.
         self.assertEqual(self.run_copy()["counts"], {"verified": 1})
         self.assertFalse(self.run_copy()["migration_ready"])
 

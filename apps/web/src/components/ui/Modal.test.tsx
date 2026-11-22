@@ -1,6 +1,3 @@
-/**
- * Modal 单测：open 切换、Escape 关闭、点击 overlay 关闭、点击内部不关闭。
- */
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Modal } from "./Modal";
@@ -55,8 +52,6 @@ describe("<Modal />", () => {
     );
     expect(screen.getByText("visible")).toBeInTheDocument();
     expect(screen.getByText("测试 modal")).toBeInTheDocument();
-    // 迁到 Radix Dialog —— role=dialog + data-state=open + aria-labelledby(关联 title)。
-    // Radix 不显式设 aria-modal(靠 FocusScope 实现模态),故改断言其 open 态与可访问名关联。
     const dialog = screen.getByRole("dialog");
     expect(dialog).toHaveAttribute("data-state", "open");
     expect(dialog).toHaveAttribute("aria-labelledby");
@@ -69,7 +64,6 @@ describe("<Modal />", () => {
         <p>x</p>
       </Modal>,
     );
-    // Radix 的 Esc 监听挂在 document(旧实现挂 window),故在 document 上派发。
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
@@ -99,8 +93,6 @@ describe("<Modal />", () => {
         <button>inside</button>
       </Modal>,
     );
-    // 内容内点击不应关闭(我们关心子元素点击不误触发);
-    // 「外部点击关闭」是 Radix DismissableLayer 的库行为,onClose 接线已由 Escape / 关闭按钮用例覆盖。
     fireEvent.pointerDown(screen.getByText("inside"));
     fireEvent.click(screen.getByText("inside"));
     expect(onClose).not.toHaveBeenCalled();
@@ -113,9 +105,6 @@ describe("<Modal />", () => {
         <p>x</p>
       </Modal>,
     );
-    // 守护 Radix DismissableLayer 默认「点击 Content 外关闭」行为,
-    // 防止未来误传 onPointerDownOutside / onInteractOutside 把它关掉而无人察觉。
-    // Radix 的 document pointerdown 监听经 setTimeout(0) 挂载,先放过一个宏任务再点。
     await new Promise((resolve) => setTimeout(resolve, 0));
     fireEvent.pointerDown(screen.getByTestId("modal-overlay"));
     expect(onClose).toHaveBeenCalledTimes(1);

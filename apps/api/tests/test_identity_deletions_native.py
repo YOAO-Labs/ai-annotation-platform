@@ -908,8 +908,6 @@ async def test_delete_last_unreserved_super_admin_is_rejected(test_engine):
     actor_fixture = await _seed(test_engine, role="super_admin", create_key=False)
     actor_id = actor_fixture["actor_id"]
     target_id, _ = await _add_user(test_engine, "super_admin")
-    # The guard counts every unreserved super admin in the database; park the
-    # rows left by earlier files so this test controls the premise.
     parked = await park_foreign_super_admins(
         test_engine, keep_ids=[actor_id, target_id]
     )

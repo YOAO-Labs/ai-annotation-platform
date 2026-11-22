@@ -24,7 +24,6 @@ from tests.test_managed_original_reader import Provider
 
 
 def pcd(mode="ascii"):
-    # A deliberately reordered field layout ensures XYZ is decoded by name.
     header = (
         "VERSION .7\nFIELDS intensity z x y\nSIZE 4 4 4 4\n"
         "TYPE F F F F\nCOUNT 1 1 1 1\nWIDTH 3\nHEIGHT 1\n"
@@ -331,8 +330,6 @@ def world(monkeypatch):
         service.storage_access, "acquire", AsyncMock(side_effect=acquire)
     )
     yield value
-    # Unknown-close tests deliberately leave responsibility registered. Retire
-    # their actual test-owned files without weakening the assertions above.
     for file in value.files:
         file.close()
     for body in provider.bodies:

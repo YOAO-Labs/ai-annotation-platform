@@ -68,6 +68,7 @@ pages (路由页面与领域工作流)
 标注指引、项目模板指引、BUG 反馈描述与评论共用一套安全的 Markdown 组件（底层持久化仍为标准 Markdown 字符串）：
 
 - **按需加载与读写分离**：`MarkdownEditor` 基于 MDXEditor 构建，仅在进入编辑态时动态加载；只读视图 `MarkdownView`（及兼容包装 `GuideMarkdownView` / `MarkdownBlock`）使用轻量的 `react-markdown` + `remark-gfm`，不打包编辑器运行时。
+- **链接键盘操作**：使用工具栏“插入链接”或 `Ctrl/Cmd+K`，打开后焦点落在“地址”。用 `Tab` 浏览其余字段，按 `Enter` 保存或按 `Esc` 取消并返回编辑区。传入 `linkSuggestions` 时可用上下方向键选中建议，第一次 `Enter` 选用建议，再按 `Enter` 保存。链接表单通过 MDXEditor 的公开 `linkDialogPlugin` 替换入口渲染，各实例独立管理表单与浮层，不读取或修改库生成的输入控件。
 - **核心属性契约**：
 
   | 属性                             | 职责说明                                                                                                                                            |

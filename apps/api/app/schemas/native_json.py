@@ -16,12 +16,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-# ── schema 常量 ─────────────────────────────────────────────────────
-
 SCHEMA_VERSION = "2.0"
-
-
-# ── task_match (oneof) ───────────────────────────────────────────────
 
 
 class TaskMatch(BaseModel):
@@ -33,22 +28,17 @@ class TaskMatch(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# ── annotations / predictions entry ──────────────────────────────────
-
-
 class AnnotationEntry(BaseModel):
     """导出严格写满 null；标注导入保持 lenient。"""
 
     geometry: dict[str, Any]
     class_name: str | None = None
-    # 工具维度绑定 (1.1+). 老 1.0 reader 走 extra=ignore 容忍缺失.
     tool_unit_id: str | None = None
     attributes: dict[str, Any] = Field(default_factory=dict)
     confidence: float | None = None
-    source: str | None = None  # manual / prediction_based / prediction / interpolated
+    source: str | None = None
     track_id: str | None = Field(default=None, max_length=64)
     temporal_role: Literal["keyframe", "derived", "sample"] | None = None
-    # 多相机持久化成员：role 是跨实例稳定键，DatasetItem UUID 不进入交换格式。
     sensor_role: str | None = Field(default=None, max_length=50, pattern=r"^camera_")
     sensor_visibility: Literal["visible", "occluded", "truncated", "unknown"] | None = (
         None
@@ -57,7 +47,7 @@ class AnnotationEntry(BaseModel):
     calibration_digest: str | None = Field(default=None, min_length=64, max_length=64)
     user_id: UUID | None = None
     created_at: datetime | None = None
-    external_id: str | None = None  # 留 forward compat
+    external_id: str | None = None
 
     @model_validator(mode="after")
     def validate_sensor_member(self):
@@ -85,18 +75,15 @@ class AnnotationEntry(BaseModel):
 
 class PredictionEntry(BaseModel):
     geometry: dict[str, Any] | None = None
-    # 一个 prediction entry 可合并多个 shape 写入同一 Prediction.result.
-    # 与 geometry 同时存在时 shapes 优先; 老单 geometry entry 继续兼容.
     shapes: list[dict[str, Any]] | None = None
     class_name: str | None = None
-    # 工具维度绑定 (1.1+).
     tool_unit_id: str | None = None
     confidence: float | None = None
     model_version: str | None = None
-    score: float | None = None  # 模型整体置信度 (与 prediction.score 对齐)
-    source: str | None = None  # ml_backend / external_import
+    score: float | None = None
+    source: str | None = None
     created_at: datetime | None = None
-    external_id: str | None = None  # 留 forward compat
+    external_id: str | None = None
 
     model_config = ConfigDict(extra="ignore")
 
@@ -127,26 +114,18 @@ class SceneTrackEntry(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# ── task block ───────────────────────────────────────────────────────
-
-
 class TaskBlock(BaseModel):
     task: VisualTaskName | None = None
     available_tasks: list[VisualTaskName] = Field(default_factory=list)
     task_match: TaskMatch
     file_path: str | None = None
-    # 媒体维度 (1.2+). 1.x reader 走 extra=ignore, 缺失默认 "image".
     media_type: Literal["image", "video", "lidar"] = "image"
-    # 视频专属元数据: 采样配置/fps/frame_count/timetable 摘要/segment/chapter.
     video: dict[str, Any] | None = None
     external_id: str | None = None
     annotations: list[AnnotationEntry] = Field(default_factory=list)
     predictions: list[PredictionEntry] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
-
-
-# ── project / exported_from / envelope ──────────────────────────────
 
 
 class ExportedFrom(BaseModel):
@@ -161,8 +140,6 @@ class ExportedFrom(BaseModel):
 class ProjectMeta(BaseModel):
     name: str | None = None
     type_key: str | None = None
-    # classes_config / attribute_schema 在 1.x 期间继续保留 (老 reader 派生用);
-    # tool_bindings 是 1.1+ 真值字段, 1.0 reader 走 extra=ignore 容忍.
     classes_config: dict[str, Any] = Field(default_factory=dict)
     attribute_schema: dict[str, Any] = Field(default_factory=lambda: {"fields": []})
     tool_bindings: dict[str, Any] = Field(default_factory=dict)
@@ -193,9 +170,6 @@ class NativeJsonEnvelope(BaseModel):
     tasks: list[TaskBlock] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
-
-
-# ── 预测与标注导入的共同回执 ───────────────────────────────────────
 
 
 class ImportErrorEntry(BaseModel):
@@ -243,7 +217,6 @@ def _document_validation_detail(exc: ValidationError) -> str:
         include_input=False, include_context=False, include_url=False
     )[:3]:
         loc = error["loc"]
-        # mask_objects is keyed by uploaded object references, not schema field names.
         if loc[:1] == ("mask_objects",):
             loc = loc[:1]
         path = "".join(f"[{p}]" if isinstance(p, int) else f".{p}" for p in loc).lstrip(
@@ -251,7 +224,6 @@ def _document_validation_detail(exc: ValidationError) -> str:
         )
         kind = error["type"]
         if kind == "value_error":
-            # Cross-field validators in this schema raise fixed explanations.
             reason = error["msg"].removeprefix("Value error, ")
         else:
             reason = _FIELD_HINTS.get(kind, "请检查字段的取值和格式")

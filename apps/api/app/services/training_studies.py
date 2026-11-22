@@ -207,8 +207,6 @@ async def load(db, project_id, study_id, *, lock=False):
         TrainingStudy.id == study_id, TrainingStudy.project_id == project_id
     )
     if lock:
-        # Serialize non-key Study edits while allowing child FK KEY SHARE checks.
-        # FOR UPDATE would invert Study→Run coordination against fenced Run exit.
         query = query.with_for_update(key_share=True).execution_options(
             populate_existing=True
         )

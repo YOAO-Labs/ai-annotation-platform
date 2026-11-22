@@ -228,15 +228,12 @@ async def test_tracker_worker_completes_mock_bbox_job_and_writes_video_track(
     events: list[dict] = []
 
     async def collect(_channel: str, payload: dict) -> None:
-        # Published events cross a JSON transport boundary; consumers never see
-        # the worker's frozen in-memory mappings.
         events.append(json.loads(json.dumps(payload)))
 
     await run_tracker_job(db_session, job.id, publisher=collect)
     await db_session.refresh(job)
     await db_session.refresh(annotation)
 
-    # 候选流: 完成 = 暂存待审, annotation 未回填 (仍原始 bbox)。
     assert job.status == "pending_review"
     assert annotation.annotation_type == "bbox"
     assert job.staged_result and job.staged_result["results"]
@@ -251,7 +248,6 @@ async def test_tracker_worker_completes_mock_bbox_job_and_writes_video_track(
         "job_completed",
     ]
 
-    # 接受 → 落库 (主实例回填源 annotation)。
     async def _noop(_c: str, _p: dict) -> None:
         return None
 
@@ -389,8 +385,6 @@ async def test_tracker_http_error_redacts_signed_source_url_from_logs_and_job(
     signed_url = "https://source.test/clip.mp4?X-Amz-Signature=tracker-secret-123"
 
     class FailingAdapter:
-        # TrackerAdapter.propagate is awaited and must return the propagation
-        # result; an async generator would be awaited as a plain coroutine.
         async def propagate(self, _context):
             request = httpx.Request("GET", signed_url)
             response = httpx.Response(502, request=request)
@@ -566,7 +560,6 @@ def test_apply_tracker_results_only_backfills_grid_frames():
     apply_tracker_results(annotation, job, results, grid_step=10)
 
     frames = [kf["frame_index"] for kf in annotation.geometry["keyframes"]]
-    # 手动 seed 帧 0 + 网格预测帧 10/20/30；1..9/11..29 等 off-grid 帧不持久化。
     assert frames == [0, 10, 20, 30]
     assert annotation.geometry["keyframes"][0]["source"] == "manual"
     assert all(
@@ -629,7 +622,6 @@ def test_apply_tracker_results_writes_polygon_keyframes():
     kfs = annotation.geometry["keyframes"]
     frames = [kf["frame_index"] for kf in kfs]
     assert frames == [0, 1, 2, 3]
-    # seed 帧手动保留; 预测帧写 points (非 bbox)。
     assert kfs[0]["source"] == "manual"
     for kf in kfs[1:]:
         assert kf["source"] == "prediction"
@@ -654,7 +646,7 @@ def test_apply_tracker_results_degenerate_polygon_marked_outside():
     apply_tracker_results(annotation, _job(), results, grid_step=1)
 
     frames = [kf["frame_index"] for kf in annotation.geometry["keyframes"]]
-    assert frames == [0]  # 只剩手动 seed；退化帧未落库
+    assert frames == [0]
     outside = annotation.geometry["outside"]
     assert any(r["from"] <= 1 <= r["to"] for r in outside)
 
@@ -729,9 +721,8 @@ async def test_tracker_worker_preserves_partial_results_on_cancel(
     await db_session.refresh(job)
     await db_session.refresh(annotation)
 
-    # 候选流: 取消也**暂存**部分结果 (annotation 未回填), 可 accept 部分。
     assert job.status == "cancelled"
-    assert annotation.annotation_type == "video_bbox"  # 未回填 (仍原始类型)
+    assert annotation.annotation_type == "video_bbox"
     assert job.staged_result and job.staged_result["results"]
 
     async def _noop(_c: str, _p: dict) -> None:
@@ -757,11 +748,9 @@ async def test_tracker_worker_calls_project_ml_backend_in_windows(
         is_interactive=True,
         enabled_pool=True,
         extra_params={},
-        # runner 按 supported_trackers 路由, backend 须声明能力。
         health_meta={"capabilities": {"supported_trackers": ["sam2_video"]}},
     )
     project.ml_backend_pool_id = pool.id
-    # ADR-0044 · get_project_backend 优先 project.ml_backend_pool_id 且需项目「已启用」
     db_session.add(
         ProjectMLBackendPool(project_id=task.project_id, pool_id=pool.id, enabled=True)
     )
@@ -841,8 +830,6 @@ async def test_tracker_worker_calls_project_ml_backend_in_windows(
     await db_session.refresh(annotation)
 
     assert job.status == "pending_review"
-    # One job-scope route is acquired for the project-bound instance and
-    # finished after publication.
     assert [call["mode"] for call in routing["acquire"]] == ["off"]
     assert routing["acquire"][0]["pool_id"] == pool.id
     assert [scope.registry_id for scope, _outcome in routing["close"]] == [backend.id]
@@ -982,11 +969,9 @@ async def test_tracker_worker_marks_low_confidence_backend_results_outside(
         is_interactive=True,
         enabled_pool=True,
         extra_params={},
-        # runner 按 supported_trackers 路由, backend 须声明能力。
         health_meta={"capabilities": {"supported_trackers": ["sam3_video"]}},
     )
     project.ml_backend_pool_id = pool.id
-    # ADR-0044 · get_project_backend 优先 project.ml_backend_pool_id 且需项目「已启用」
     db_session.add(
         ProjectMLBackendPool(project_id=task.project_id, pool_id=pool.id, enabled=True)
     )
@@ -1173,7 +1158,6 @@ async def _run_seed_test(db_session, super_admin, monkeypatch, *, direction, out
 
     await run_tracker_job(db_session, job.id, publisher=collect)
     await db_session.refresh(job)
-    # 候选流: seed/续窗行为在 run 期间捕获 (adapter.seeds), 完成 = 暂存待审。
     assert job.status == "pending_review"
     return adapter, annotation.geometry
 
@@ -1181,9 +1165,6 @@ async def _run_seed_test(db_session, super_admin, monkeypatch, *, direction, out
 async def test_tracker_seeds_next_window_from_prev_window_end_forward(
     db_session, super_admin, monkeypatch
 ):
-    # Windows: (0,1) (2,3) (4,5). Window 1 seeds from original (x=100);
-    # each later window seeds from the previous window's last frame geometry
-    # (forward => to_frame, i.e. x == 1 then x == 3).
     adapter, _ = await _run_seed_test(
         db_session, super_admin, monkeypatch, direction="forward", outside=set()
     )
@@ -1207,9 +1188,6 @@ async def test_tracker_seeds_next_window_from_prev_window_end_forward(
 async def test_tracker_seeds_next_window_from_prev_window_end_backward(
     db_session, super_admin, monkeypatch
 ):
-    # Windows reversed: (4,5) (2,3) (0,1). Each window propagates high->low,
-    # so the last yielded frame is from_frame (the temporally-earlier
-    # boundary adjacent to the next window): seed x == 4 then x == 2.
     adapter, _ = await _run_seed_test(
         db_session, super_admin, monkeypatch, direction="backward", outside=set()
     )
@@ -1233,9 +1211,6 @@ async def test_tracker_seeds_next_window_from_prev_window_end_backward(
 async def test_tracker_seed_falls_back_to_last_valid_when_window_all_outside(
     db_session, super_admin, monkeypatch
 ):
-    # Forward windows (0,1) (2,3) (4,5); make window 2 (frames 2,3) all
-    # outside. Window 3 must reuse window 1's last valid geometry (x == 1),
-    # not an empty seed.
     adapter, _ = await _run_seed_test(
         db_session,
         super_admin,
@@ -1250,7 +1225,6 @@ async def test_tracker_seed_falls_back_to_last_valid_when_window_all_outside(
         "w": 10.0,
         "h": 10.0,
     }
-    # window 2 produced no valid geometry, so window 3 seed stays at x == 1
     assert adapter.seeds[2] == {
         "type": "bbox",
         "x": 1.0,
@@ -1258,9 +1232,6 @@ async def test_tracker_seed_falls_back_to_last_valid_when_window_all_outside(
         "w": 10.0,
         "h": 10.0,
     }
-
-
-# ── worker 按专表最终状态同步 async_jobs（修双写漂移）─────────────
 
 
 async def _run_worker_with_final_status(
@@ -1332,7 +1303,6 @@ async def _run_worker_with_final_status(
 
     monkeypatch.setattr(worker_mod, "run_tracker_job", _stub_run)
 
-    # 让 worker 内部 create_async_engine/async_sessionmaker 复用 db_session
     class _Engine:
         async def dispose(self):
             pass
@@ -1351,7 +1321,6 @@ async def _run_worker_with_final_status(
 
             return _Ctx()
 
-    # worker 在模块顶层 import，故 patch worker_mod 上的名字（非 sqlalchemy 模块）
     monkeypatch.setattr(worker_mod, "create_async_engine", lambda *a, **k: _Engine())
     monkeypatch.setattr(worker_mod, "async_sessionmaker", _Factory)
 
@@ -1383,7 +1352,7 @@ async def test_worker_syncs_async_job_cancelled(db_session, super_admin, monkeyp
     aj = await _run_worker_with_final_status(
         db_session, super_admin, monkeypatch, VideoTrackerJobStatus.CANCELLED.value
     )
-    assert aj.status == "cancelled"  # 不再被误标 completed
+    assert aj.status == "cancelled"
 
 
 async def test_worker_projects_success_while_physical_cleanup_is_retried(
@@ -1493,8 +1462,6 @@ async def test_materialize_tracker_mask_result_stores_rle_and_adds_aabb(monkeypa
         job_id=job_id,
         task_id=task_id,
     )
-    # The immutable frame result exports its JSON content; compare that durable
-    # geometry (not the frozen container types) with the stored reference.
     exported = thaw_json(result.geometry)
     assert exported["mask"] == reference
     assert exported["bbox"] == {"x": 1 / 3, "y": 0, "w": 1 / 3, "h": 1}
@@ -1569,7 +1536,6 @@ async def test_materialize_tracker_mask_keeps_raw_result_during_fence(
         assert db.rollback.await_count == 5
         db.commit.assert_awaited_once()
         assert thaw_json(result.geometry)["mask"] == reference
-    # The held raw model result still carries the inferred RLE it must retry.
     assert thaw_json(held.geometry)["rle"] == rle
 
 
@@ -1744,9 +1710,6 @@ async def test_accept_mask_candidate_validates_source_dimensions_before_commit(
     assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value
 
 
-# ── ADR-0050 §11 · tracker job-scope pin + would-select evidence ──────
-
-
 @pytest.mark.asyncio
 async def test_tracker_observe_mode_records_would_select_evidence(
     db_session, super_admin, monkeypatch
@@ -1837,8 +1800,6 @@ async def test_tracker_observe_mode_records_would_select_evidence(
 
     await run_tracker_job(db_session, job.id, publisher=_noop_pub)
     await db_session.refresh(job)
-    # observe: the route is acquired for evidence but never gates dispatch, so the
-    # job completes against the legacy capability-selected instance.
     assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value
     assert [call["mode"] for call in routing["acquire"]] == ["observe"]
     assert [call["pool_id"] for call in routing["acquire"]] == [pool.id]
@@ -1864,7 +1825,7 @@ async def test_tracker_enforce_mode_acquires_and_finishes_route_lease(
         last_checked_at=datetime.now(timezone.utc),
     )
     project.ml_backend_pool_id = pool.id
-    pool.enabled = True  # pool must be enabled for enforce acquire
+    pool.enabled = True
     db_session.add(
         ProjectMLBackendPool(project_id=task.project_id, pool_id=pool.id, enabled=True)
     )
@@ -1932,8 +1893,6 @@ async def test_tracker_enforce_mode_acquires_and_finishes_route_lease(
 
     await run_tracker_job(db_session, job.id, publisher=_noop_pub)
     await db_session.refresh(job)
-    # enforce: job completes; one job-scope lease was reserved and finished
-    # (successful close, no lease leak) for the pinned instance.
     assert job.status == VideoTrackerJobStatus.PENDING_REVIEW.value
     assert [call["mode"] for call in routing["acquire"]] == ["enforce"]
     assert routing["acquire"][0]["owner"] == f"tracker:{job.id}"
@@ -2168,8 +2127,6 @@ async def test_tracker_runtime_identity_outage_defers_without_failing_the_job(
     with pytest.raises(TrackerExecutionDeferred, match="routing_unavailable"):
         await run_tracker_job(db_session, job_id, publisher=_noop_pub)
     await db_session.refresh(job)
-    # The owner outage is retryable: no canonical failure is written and no
-    # dispatch happens without the pinned runtime identity.
     assert job.status == "running" and job.error_message is None
     snapshot.assert_awaited_once()
 
@@ -2448,7 +2405,6 @@ async def test_tracker_pins_approved_pool_member_with_durable_video_claim(
         {"id": approved_id, "decision": json.dumps(decision)},
     )
     if combo:
-        # The other healthy member has only the propagation model approved.
         partial = {
             **decision,
             "approved": [

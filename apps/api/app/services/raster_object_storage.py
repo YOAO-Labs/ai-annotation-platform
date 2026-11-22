@@ -415,7 +415,6 @@ def run_io(target, client, operation, record, *args, **kwargs):
     ):
         _reject()
     if target.location_id == LEGACY_LOCATION_ID:
-        # Keep the existing explicit legacy-client injection for local callers.
         target = replace(target, _legacy_client=client)
     try:
         context = target.client(

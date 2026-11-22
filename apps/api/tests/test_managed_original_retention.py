@@ -477,10 +477,6 @@ async def test_audit_failure_rolls_back_entire_change(
 
 @pytest.fixture
 async def committed_group(test_engine, monkeypatch):
-    # This fixture isolates real cross-session group serialization. Transaction-
-    # scoped cases above exercise successful audit writes and audit rollback.
-    # Keep immutable audit rows untouched: even deleting their actor would issue
-    # an audit UPDATE through its SET NULL FK during committed cleanup.
     monkeypatch.setattr(service.AuditService, "log", AsyncMock(return_value=None))
     factory = async_sessionmaker(test_engine, expire_on_commit=False)
     async with factory() as db:

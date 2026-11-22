@@ -125,8 +125,6 @@ class InteractiveBackend(plumbing.CPUBackend):
 
         interactive = "task" in payload
         tasks = [payload["task"]] if interactive else payload.get("tasks")
-        # The inherited verifier performs the real version-pinned HTTP GET,
-        # complete SHA/length checks, canonical fixture pixels and gate control.
         results, failed = super().predict(
             {"tasks": tasks, "context": {"model_id": "detect"}}
         )

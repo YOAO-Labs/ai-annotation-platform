@@ -1,12 +1,3 @@
-/**
- * useGlobalPreannotationJobs WS smoke 测试.
- *
- * 兜底「14 个月没人发现 URL 写错」类 bug — 验证:
- *   - URL 路径 /ws/prediction-jobs?token=... 拼接正确
- *   - 非 admin 角色 / 无 token 不建连
- *   - 收消息后维护 jobs map
- *   - 卸载清理
- */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useAuthStore } from "@/stores/authStore";
@@ -15,7 +6,6 @@ import { useGlobalPreannotationJobs } from "../useGlobalPreannotationJobs";
 
 class MockWebSocket {
   static instances: MockWebSocket[] = [];
-  // 与 WebSocket spec 对齐, useReconnectingWebSocket 卸载时按 readyState 判定 close
   static readonly CONNECTING = 0;
   static readonly OPEN = 1;
   static readonly CLOSING = 2;
@@ -132,7 +122,6 @@ describe("useGlobalPreannotationJobs", () => {
 
   it("卸载时仍在握手 → 延迟到 onopen 再关", () => {
     const { unmount } = renderHook(() => useGlobalPreannotationJobs());
-    // 未 triggerOpen，readyState 仍 CONNECTING：直接关会触发浏览器告警，故延迟
     unmount();
     expect(MockWebSocket.instances[0].closedManually).toBe(false);
     act(() => MockWebSocket.instances[0].triggerOpen());

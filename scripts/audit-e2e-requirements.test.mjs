@@ -275,7 +275,6 @@ test("duplicate suite names and blank docs-only reasons fail closed", () => {
 test("core-flaky policy blocks a forbid-flaky suite that only passed on retry", () => {
   const dir = mkdtempSync(join(tmpdir(), "e2e-audit-flaky-"));
   try {
-    // A real flaky status artifact shape: stats.flaky > 0 with outcome success.
     writeFileSync(
       join(dir, "smoke.json"),
       JSON.stringify({
@@ -305,7 +304,6 @@ test("core-flaky policy blocks a forbid-flaky suite that only passed on retry", 
       [["smoke", "core-flaky"]],
     );
 
-    // Without the forbid policy a flaky diagnostic suite still passes.
     const allowed = auditE2ERequirements({
       requiredSuites: [{ suite: "mask-native", planned: true, flakyPolicy: "diagnostic" }],
       statusDir: dir,

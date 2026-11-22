@@ -108,8 +108,6 @@ def _install_health_observation(monkeypatch, health_meta, setup=None) -> None:
         client_factory,
         raising=True,
     )
-    # The health path still constructs the real caller-UOW control adapter, whose
-    # owner endpoint must parse even though only the observation port is faked.
     _install_backend_control_endpoint(monkeypatch)
 
 
@@ -1721,11 +1719,15 @@ async def test_stats_publisher_skips_owner_when_no_subscribers(monkeypatch) -> N
     calls = {"owner": 0, "closed": 0}
 
     class FakeRedis:
-        def get(self, key):
-            assert key == "ml-backend-stats:subscribers"
-            return "0"
+        def eval(self, _script, count, key):
+            assert count == 1
+            assert key == "ml-backend-stats:leases"
+            return 0
 
-        def close(self):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
             calls["closed"] += 1
 
     monkeypatch.setattr(
@@ -1793,9 +1795,16 @@ async def test_stats_publisher_flattens_owner_metadata_to_legacy_payload(
     owner_calls = []
 
     class FakeRedis:
-        def get(self, key):
-            assert key == "ml-backend-stats:subscribers"
-            return "3"
+        def eval(self, _script, count, key):
+            assert count == 1
+            assert key == "ml-backend-stats:leases"
+            return 3
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self.close()
 
         def publish(self, channel, payload):
             redis_calls.append((channel, json.loads(payload)))

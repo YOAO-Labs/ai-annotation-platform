@@ -79,9 +79,6 @@ staging_ref IS NULL OR COALESCE((
 class ManagedOriginalCreation(Base):
     __tablename__ = "managed_original_creations"
     __table_args__ = (
-        # Terminal labels never release a key without immutable proof that this
-        # attempt drained without publishing; written and uncertain attempts
-        # keep their reservation.
         Index(
             "uq_managed_creation_reserved_key_active",
             "storage_identity",
@@ -91,7 +88,7 @@ class ManagedOriginalCreation(Base):
             postgresql_where=text(
                 "status NOT IN ('failed','conflict') OR receipt IS NOT NULL "
                 "OR NOT COALESCE(failure_evidence @> "
-                "'{\"physical_settled\":true,\"physical_outcome\":\"not_written\"}'::jsonb, false)"
+                '\'{"physical_settled":true,"physical_outcome":"not_written"}\'::jsonb, false)'
             ),
         ),
         Index(
@@ -101,7 +98,7 @@ class ManagedOriginalCreation(Base):
             postgresql_where=text(
                 "staging_key IS NOT NULL AND (status NOT IN ('failed','conflict') "
                 "OR receipt IS NOT NULL OR NOT COALESCE(failure_evidence @> "
-                "'{\"physical_settled\":true,\"physical_outcome\":\"not_written\"}'::jsonb, false))"
+                '\'{"physical_settled":true,"physical_outcome":"not_written"}\'::jsonb, false))'
             ),
         ),
         Index("ix_managed_creation_dataset", "dataset_id", "allocated_at", "id"),
@@ -174,8 +171,6 @@ class ManagedOriginalCreation(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
-    # No business/location/actor FK: independent persistence must never wait on
-    # an uncommitted caller, or lose physical responsibility to a cascade.
     owner_kind: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="dataset"
     )

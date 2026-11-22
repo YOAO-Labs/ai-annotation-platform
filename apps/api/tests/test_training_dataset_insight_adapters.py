@@ -188,8 +188,6 @@ def test_density_buckets_and_normalized_upper_edges_are_bounded():
 
 
 def test_native_rounding_collapse_is_geometry_unknown_without_changing_frozen_labels():
-    # The historical bridge can round a tiny positive width to zero. Keep those
-    # frozen bytes and known labels, but do not claim valid box geometry.
     value = derive([{"content": "tiny", "w": 1e-10}])
     overview = value["overview"]
     assert overview["status"] == "partial"

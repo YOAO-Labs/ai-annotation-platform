@@ -10,9 +10,7 @@ interface BoxRendererProps {
   b: Annotation;
   isAi?: boolean;
   selected: boolean;
-  /** 编辑态：选中后允许 body drag、resize handles、accept/reject/delete 浮按钮。审核只读时关掉。 */
   editable?: boolean;
-  /** diff 模式：用户已采纳的 AI 预测（parent_prediction_id 命中）会被淡化以避免与最终标注堆叠。 */
   faded?: boolean;
   onClick: () => void;
   onAccept?: () => void;
@@ -63,7 +61,6 @@ export function BoxRenderer({
     <div
       ref={rootRef}
       onPointerDown={(e) => {
-        // 选中态 + 用户框：左键 drag = move；其它：单击选中
         if (isUserSelected && e.button === 0 && onMoveStart) {
           e.stopPropagation();
           onMoveStart(e);

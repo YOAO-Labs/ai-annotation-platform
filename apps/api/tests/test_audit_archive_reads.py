@@ -169,7 +169,6 @@ async def owned_operations(db, row):
 
 
 async def clear_closed_test_operations(db, row):
-    # This test alone attests that its synthetic handles have physically closed.
     async with storage_access.engine(db).begin() as connection:
         await connection.execute(delete(StorageOperation).where(*operation_filter(row)))
 
@@ -177,8 +176,6 @@ async def clear_closed_test_operations(db, row):
 async def test_list_is_ready_database_ownership_without_bucket_probe(
     httpx_client, super_admin, db_session, objects, monkeypatch
 ):
-    # Partition tests retain permanent owners until their disposable DB is
-    # destroyed. Preserve those rows when checking this test's new publication.
     baseline = await httpx_client.get(ARCHIVES, headers=bearer(super_admin[1]))
     assert baseline.status_code == 200, baseline.text
     ready, _ = await seed_archive(db_session, objects)

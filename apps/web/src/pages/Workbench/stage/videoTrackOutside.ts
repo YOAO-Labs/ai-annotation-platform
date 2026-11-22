@@ -47,10 +47,6 @@ export function normalizeOutsideRanges(
   return merged;
 }
 
-/**
- * outside 区间只依赖 `outside` 字段, 故按结构取参 —— polygon / polyline 轨迹同样携带它,
- * 收窄到 VideoTrackGeometry(bbox 轨迹) 会把它们挡在门外。
- */
 export type OutsideRangeCarrier = { outside?: readonly VideoTrackOutsideRange[] | null };
 
 export function effectiveOutsideRanges(track: OutsideRangeCarrier): VideoTrackOutsideRange[] {
@@ -87,8 +83,6 @@ export function addOutsideRange<
   } as T;
 }
 
-// 泛型化: bbox track 与 polygon/polyline track 都只需读写 `outside`, 故约束到
-// 「带 outside 的对象」即可复用 (落新可见关键帧时清该帧 outside 标记)。
 export function removeOutsideFrame<T extends { outside?: VideoTrackOutsideRange[] }>(
   track: T,
   frameIndex: number,

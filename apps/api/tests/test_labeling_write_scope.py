@@ -295,7 +295,6 @@ async def test_late_prediction_rejects_changed_task_source_without_task_version_
             .values(file_path=original_path)
             .execution_options(synchronize_session=False)
         )
-    # Keep the inference caller's stale identity-map object until the final owner lock.
     assert task.version == scope.task_version
     assert task.media_source_generation == scope.task_source_generation
 

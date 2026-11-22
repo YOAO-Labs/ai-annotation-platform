@@ -312,7 +312,6 @@ async def test_polling_does_not_claim_another_unit_after_lost_claim_response():
 
         async def execute_once(self, **_selectors):
             await self.database.call("claim_video_media", None)
-            # A confirmed claim can finish with a lease-loss `None` result.
             return None
 
     tracking = ClaimTrackingDatabase(Database())

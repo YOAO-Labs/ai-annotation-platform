@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { batchPreannotationEligible } from "./batchPreannotation";
 
-/** Issue #124 · 与后端 allows_bulk_preannotation 同源的准入规则。 */
 describe("batchPreannotationEligible", () => {
   it("active 批次始终放行（含已分派人员）", () => {
     expect(batchPreannotationEligible({ status: "active" })).toBe(true);

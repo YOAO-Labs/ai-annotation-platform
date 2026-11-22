@@ -22,6 +22,8 @@ prepare生成独立lease UUID、平台相对media_path与期限，随机256位�
 
 每进程两个stage、单个5GiB、声明暂存最多10GiB，最多8个响应，每stage32租约。准备900秒、transport30秒、响应120秒是合作式期限。租约300秒、stage最迟3600秒退休；30秒reaper及lifespan负责无人访问时的收尾。退休禁止新pin，实际复制、范围线程与响应pin结束后才真实关闭并释放额度；未知收尾继续占额。
 
+断开监视覆盖准备、缓存复用与授权复核；只撤回本请求已经取得的租约。客户端取消显示不能丢下已经派出的准备请求：若拿到迟到回执，要归还其准确租约。真正离页先断开旧视频源并尝试归还；在同一标签页只短存已要求归还但未确认的租约 ID、资源、会话归属和到期时间，不存 Bearer 或播放 Cookie。同一账号和会话刷新后可有界重送 DELETE。显式 `Prefer: ignore-missing` 让已消失的能力返回 204，但不豁免有效租约的归属核对，也不宣称响应 pin 或暂存文件已关闭。无法登记、收不到回执或文档先销毁时，由服务端到期回收；不提高容量或重试上限。
+
 范围适配器用os.pread独立偏移，支持完整GET、HEAD、单范围和强SHA ETag If-Range。复用[RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html#name-range-requests)的状态和范围语义，参考Starlette的范围/关闭生命周期与Django的明确资源closer；普通FileResponse不能直接拥有共享匿名文件和全局保留额度。取消及发送失败必须drain物理线程后unpin，单响应不关闭共享stage。
 
 当前只资格化单Uvicorn实例。匿名stage不进入数据库、备份或恢复；reload、重启、过期或落到无lease实例时返回410，客户端重新Bearer准备。GET不得隐式重建远端完整副本。跨实例共享暂存、路由及集群总预算需要独立合同。

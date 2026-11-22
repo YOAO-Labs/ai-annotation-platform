@@ -30,7 +30,6 @@ CORE_PANELS = {"canvas", "task-queue", "class-palette", "inspector", "discussion
 TOOL_PANELS = {"ai-task", "video-tracker"}
 THREE_D_PANELS = {"tri-view", "camera-view"}
 MAX_SNAPSHOT_BYTES = 64 * 1024
-# Explicitly saved layouts are a personal shortlist, not a layout archive.
 MAX_NAMED_PRESETS = 5
 MAX_PRESET_NAME_LENGTH = 40
 
@@ -215,7 +214,6 @@ class WorkspaceContextEnvelope(WorkspaceModel):
             ):
                 raise ValueError("invalid dock return")
 
-        # Bound traversal separately from the serialized byte budget.
         pending = [(layout.grid.root, 1, True)]
         groups: list[tuple[WorkspaceGroup, bool, bool]] = []
         nodes = 0
@@ -318,8 +316,6 @@ def _require_three_d_parking(
 
 class WorkbenchWorkspacePreferences(WorkspaceModel):
     engine: Literal["dockview@8"]
-    # Both maps are optional so one writer can replace saved presets without
-    # resubmitting live layouts, and the layout writer never carries presets.
     contexts: dict[WorkspaceContext, WorkspaceContextEnvelope] = Field(
         default_factory=dict, max_length=6
     )

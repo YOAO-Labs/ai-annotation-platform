@@ -1,9 +1,3 @@
-// 协议能力卡片 — 一张卡 = 一个协议 task; 卡内挂载已注册 backend 的 model.
-// 卡内已接入模型直接复用 ModelCard, 与 groupBy=backend/infra 等其他分组视图字段对齐;
-// 空态仍引导注册。
-//
-// 模型市场多 TAB UI 优化 · 阶段二 (plan §4.1)：任务标签已在卡标题呈现, 不在卡内
-// 重复徽标; 未接入能力首层只保留一行说明 + 接入入口, 推荐后端收进展开区域。
 import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -15,11 +9,8 @@ import type { FlatModel } from "./capability/types";
 interface Props {
   task: ProtocolTask;
   mounted: FlatModel[];
-  /** 中文 infra label (复用 panel 内 INFRA_LABELS, 通过 props 注入避免循环依赖). */
   infraLabel: (infra: string) => string;
-  /** 中文 modality label. */
   modalityLabel: (modality: string) => string;
-  /** 点 「去注册」按钮的回调 (跳 ?tab=registry). */
   onGoToRegistry?: () => void;
 }
 
@@ -71,12 +62,7 @@ export function ProtocolCapabilityCard({
       {!empty && (
         <div className="mt-1 grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2">
           {mounted.map((m) => (
-            <ModelCard
-              key={`${m.backendId}:${m.model.id}`}
-              item={m}
-              // 任务标签已在卡标题呈现（plan §4.1），不在每张模型卡内重复。
-              showTaskBadge={false}
-            />
+            <ModelCard key={`${m.backendId}:${m.model.id}`} item={m} showTaskBadge={false} />
           ))}
         </div>
       )}

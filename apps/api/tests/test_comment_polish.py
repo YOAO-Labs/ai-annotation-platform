@@ -84,7 +84,7 @@ async def test_mentions_non_member_rejected(httpx_client, db_session, super_admi
     sa_user, sa_token = super_admin
     _, ann = await _seed_project_with_annotation(db_session, sa_user.id)
 
-    stranger_id = str(uuid.uuid4())  # 不是项目成员
+    stranger_id = str(uuid.uuid4())
     r = await httpx_client.post(
         f"/api/v1/annotations/{ann.id}/comments",
         json={
@@ -102,7 +102,6 @@ async def test_mentions_non_member_rejected(httpx_client, db_session, super_admi
         },
         headers=_bearer(sa_token),
     )
-    # super_admin 可见所有项目，但 mentions 校验是「项目成员」—— 应 422 / 400
     assert r.status_code in (400, 422), f"expected 4xx, got {r.status_code}: {r.text}"
 
 
@@ -345,14 +344,12 @@ async def test_download_non_member_404(
     ann_user, ann_token = annotator
     _, ann = await _seed_project_with_annotation(db_session, sa_user.id)
 
-    # 合法前缀的 key（不需真实存在；越权应优先于 storage 校验）
     valid_key = f"comment-attachments/{ann.id}/{uuid.uuid4()}-z.png"
     r = await httpx_client.get(
         f"/api/v1/annotations/{ann.id}/comment-attachments/download",
         params={"key": valid_key},
         headers=_bearer(ann_token),
     )
-    # annotator 不是项目成员（也不是 owner）→ 404 隐藏存在性
     assert r.status_code == 404, r.text
 
 

@@ -28,7 +28,6 @@ DEFAULT_PASSWORD = "Test1234"
 
 @cache
 def _default_password_hash() -> str:
-    # Fixture users share a known password; retain the real bcrypt cost and verifier.
     from app.core.security import hash_password
 
     return hash_password(DEFAULT_PASSWORD)
@@ -135,7 +134,6 @@ async def create_project(
     from app.db.models.project import Project
 
     suffix = secrets.token_hex(3)
-    # tool_bindings 是唯一存储真值；classes 经工厂直接构造成现行绑定结构。
     project = Project(
         display_id=f"P-E2E-{suffix}",
         name=name,

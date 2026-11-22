@@ -97,7 +97,6 @@ class TrackerVideoInputClient:
         except (ValueError, TypeError, AttributeError, UnicodeError, RecursionError):
             raise t.TrackerFailure("invalid_response") from None
         except Exception:
-            # Never include authorization, request bodies or signed source URLs.
             raise t.TrackerFailure("storage_unavailable") from None
 
     async def input(

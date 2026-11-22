@@ -31,7 +31,6 @@ from app.schemas.dashboard import (
 from app.db.models.project_member import ProjectMember
 from app.services.dashboard_stats import (
     _class_distribution,
-    _first_pass_yield,
     _percentile_rank,
     _period_window,
     _reject_reason_breakdown,
@@ -111,7 +110,6 @@ async def admin_dashboard(
     except Exception:
         pass
 
-    # pre_annotated 批次计数（Sidebar 徽章 + AdminDashboard 卡片共用）
     from app.db.enums import BatchStatus
 
     pre_annotated_batches = (
@@ -122,7 +120,6 @@ async def admin_dashboard(
         )
     ).scalar() or 0
 
-    # 过去 30 天注册来源（按日聚合 audit_logs.action='user.register'）
     cutoff_30d = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     ) - timedelta(days=29)
@@ -205,7 +202,6 @@ async def _resolve_people_scope(
         if proj is None or proj.owner_id != current_user.id:
             raise HTTPException(status_code=404, detail="项目不存在")
     elif pid is not None:
-        # super_admin 指定项目：校验存在（对 super_admin 恒可见，无 member fallback 问题）。
         await assert_project_visible(pid, db, current_user.id)
     return pid
 
@@ -232,7 +228,6 @@ async def admin_people_list(
     project_admin 必须指定其项目，super_admin 可全局或任意项目。
     """
     pid = await _resolve_people_scope(db, current_user, project)
-    # 聚合级项目过滤片段（pid 为 None 时为空 → 全局，行为与改造前一致）。
     ann_proj = [annotation_row.project_id == pid] if pid else []
     task_proj = [task_row.project_id == pid] if pid else []
     event_proj = [task_event_facts.c.project_id == pid] if pid else []
@@ -244,9 +239,6 @@ async def admin_people_list(
     week_start = week_start - timedelta(days=week_start.weekday())
     last_week_start = week_start - timedelta(days=7)
 
-    # 拉用户：标注 / 审核分组由 project_members.role 决定，平台账号角色不再
-    # 参与分组（避免 employee 同时在不同项目承担不同职责时被错误归类）。
-    # project 给定时只保留该项目内持有对应职责的成员。
     user_q = select(account_profiles).where(account_profiles.c.is_active.is_(True))
     if role in {"annotator", "reviewer"}:
         target_role = (
@@ -278,8 +270,6 @@ async def admin_people_list(
 
     user_ids = [u.id for u in users]
 
-    # Per-user project roles for this scope (single query, no N+1): drives the
-    # annotator/reviewer metric classification below.
     role_membership = aliased(
         ProjectMember, project_member_facts(), adapt_on_names=True
     )
@@ -295,7 +285,6 @@ async def admin_people_list(
     for member_user_id, member_role in role_rows:
         user_roles_map.setdefault(member_user_id, set()).add(member_role)
 
-    # 项目隶属计数
     count_membership = aliased(
         ProjectMember, project_member_facts(), adapt_on_names=True
     )
@@ -311,7 +300,6 @@ async def admin_people_list(
     ).all()
     pm_count_map = {r.user_id: int(r.n) for r in pm_rows}
 
-    # 标注吞吐（period 内）
     ann_rows = (
         await db.execute(
             select(annotation_row.user_id, func.count().label("n"))
@@ -326,7 +314,6 @@ async def admin_people_list(
     ).all()
     ann_count_map = {r.user_id: int(r.n) for r in ann_rows}
 
-    # 审核吞吐（reviewer）
     rev_rows = (
         await db.execute(
             select(task_row.reviewer_id, func.count().label("n"))
@@ -341,7 +328,6 @@ async def admin_people_list(
     ).all()
     rev_count_map = {r.reviewer_id: int(r.n) for r in rev_rows}
 
-    # 上周对比（标注员）
     last_week_rows = (
         await db.execute(
             select(annotation_row.user_id, func.count().label("n"))
@@ -371,7 +357,6 @@ async def admin_people_list(
     ).all()
     this_week_map = {r.user_id: int(r.n) for r in this_week_rows}
 
-    # 退回率（标注员）
     reopen_rows = (
         await db.execute(
             select(
@@ -392,11 +377,10 @@ async def admin_people_list(
         for r in reopen_rows
     }
 
-    # 7 日 sparkline（统一按 annotation 创建数；reviewer 用 reviewed_at）
     today_start = datetime.now(timezone.utc).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    daily_buckets: dict = {}  # user_id → [7 ints]
+    daily_buckets: dict = {}
     for i in range(6, -1, -1):
         ds = today_start - timedelta(days=i)
         de = ds + timedelta(days=1)
@@ -417,7 +401,6 @@ async def admin_people_list(
         for uid in user_ids:
             daily_buckets.setdefault(uid, []).append(per_user.get(uid, 0))
 
-    # 以过去 7 天的活跃分钟数计算团队内分位。
     seven_d_start = today_start - timedelta(days=6)
     active_rows = (
         await db.execute(
@@ -435,22 +418,14 @@ async def admin_people_list(
     ).all()
     active_minutes_map = {r.user_id: int((r.ms or 0) // 60000) for r in active_rows}
 
-    # 计算分位
     def _is_reviewer(u: AccountProfile) -> bool:
         roles = user_roles_map.get(u.id, set())
         if role == "reviewer":
-            # The request explicitly asks for reviewers; a mixed employee is
-            # reported by review throughput so the filter and metric agree.
             return REVIEWER_ROLE in roles
         if role == "annotator":
             return False
         if roles:
-            # Unfiltered "both" view: a reviewer membership classifies the row
-            # as review work, while an account that also annotates stays in the
-            # annotation cohort (the previous "reviewer and not annotator" rule).
             return REVIEWER_ROLE in roles and ANNOTATOR_ROLE not in roles
-        # Manager accounts without a membership row keep their review-side
-        # label.  This is metric labeling only; authority is never derived here.
         return u.role in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 
     throughputs = []
@@ -519,7 +494,6 @@ async def admin_people_list(
             )
         )
 
-    # 排序
     if sort == "quality":
         items.sort(key=lambda it: it.quality_score, reverse=True)
     elif sort == "activity":
@@ -529,7 +503,6 @@ async def admin_people_list(
     else:
         items.sort(key=lambda it: it.main_metric, reverse=True)
 
-    # 项目过滤：指定项目时只返回该项目成员（聚合数字已在上面按 pid 切分）。
     if pid:
         allowed_membership = aliased(
             ProjectMember, project_member_facts(), adapt_on_names=True
@@ -551,8 +524,6 @@ async def admin_people_list(
     return AdminPeopleList(items=items, total=len(items), period=period)
 
 
-# 成员绩效 CSV 导出(A2)。
-# 注意:必须定义在 /admin/people/{user_id} 之前,否则 "export" 会被当作 user_id 命中详情端点。
 _PEOPLE_EXPORT_COLS = [
     "user_id",
     "name",
@@ -596,10 +567,8 @@ async def admin_people_export(
         current_user=current_user,
     )
 
-    # 名实相符:admin_people_list 已把全表加载进内存(百行级),
-    # CSV 也是一次拼好,直接 Response,不假装流式。
     buf = io.StringIO()
-    buf.write("﻿")  # Excel UTF-8 BOM
+    buf.write("﻿")
     writer = csv.DictWriter(buf, fieldnames=_PEOPLE_EXPORT_COLS, extrasaction="ignore")
     writer.writeheader()
     for it in data.items:
@@ -644,8 +613,6 @@ async def admin_person_detail(
     if not user or not user.is_active:
         raise HTTPException(status_code=404, detail="user not found")
 
-    # 安全收口:project_admin 只能查其项目内的成员详情。否则可借任意
-    # user_id + 自有 project 枚举他人存在性 + 读取全局 timeline(IDOR)。非成员 → 404。
     if current_user.role == UserRole.PROJECT_ADMIN and pid is not None:
         member = aliased(ProjectMember, project_member_facts(), adapt_on_names=True)
         membership = (
@@ -659,11 +626,9 @@ async def admin_person_detail(
         if membership is None:
             raise HTTPException(status_code=404, detail="user not found")
 
-    start, _end = _period_window(period)
-    now = datetime.now(timezone.utc)
+    start, now = _period_window(period)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # 总产出
     throughput = (
         await db.execute(
             select(func.count())
@@ -672,12 +637,32 @@ async def admin_person_detail(
                 annotation_row.user_id == uid,
                 annotation_row.is_active.is_(True),
                 annotation_row.created_at >= start,
+                annotation_row.created_at < now,
                 *ann_proj,
             )
         )
     ).scalar() or 0
 
-    # 4 周趋势（每周一点）
+    submitted, clean = (
+        await db.execute(
+            select(
+                func.count(),
+                func.count().filter(task_row.reopened_count == 0),
+            ).where(
+                task_row.assignee_id == uid,
+                task_row.submitted_at >= start,
+                task_row.submitted_at < now,
+                *task_proj,
+            )
+        )
+    ).one()
+    first_pass_yield = round(clean / submitted, 3) if submitted else None
+    quality_score = 100 - (submitted - clean) * 100 // submitted if submitted else 100
+    throughput_score = min(100, throughput)
+    composite = (
+        round((throughput_score + quality_score) / 2) if submitted else throughput_score
+    )
+
     trend_throughput: list[int] = []
     trend_quality: list[int] = []
     for w in range(3, -1, -1):
@@ -697,7 +682,6 @@ async def admin_person_detail(
             )
         ).scalar() or 0
         trend_throughput.append(int(n))
-        # 质量：1 - 当周 reopen 率
         reopen_row = (
             await db.execute(
                 select(
@@ -717,7 +701,6 @@ async def admin_person_detail(
         q = 100 if sn == 0 else max(0, 100 - int(rn / sn * 100))
         trend_quality.append(q)
 
-    # 项目分布
     project_facts_alias = project_facts()
     proj_rows = (
         await db.execute(
@@ -745,7 +728,6 @@ async def admin_person_detail(
         for r in proj_rows
     ]
 
-    # 耗时直方图：从 task_events 拉本人的 annotate kind（TaskEvent 已在模块级导入）
     duration_rows = (
         (
             await db.execute(
@@ -767,7 +749,6 @@ async def admin_person_detail(
     if durations:
         durations_sorted = sorted(durations)
         peak = durations_sorted[-1]
-        # 10 桶 [0..peak]
         if peak > 0:
             step = max(1, peak // 10)
             buckets = [0] * 10
@@ -782,7 +763,6 @@ async def admin_person_detail(
         p95_idx = max(0, int(len(durations_sorted) * 0.95) - 1)
         p95 = int(durations_sorted[p95_idx])
 
-    # Scope before LIMIT so unrelated recent activity cannot hide project events.
     timeline_rows = (
         (
             await db.execute(
@@ -826,10 +806,6 @@ async def admin_person_detail(
             }
         )
 
-    # 综合分（throughput + quality / 2，活跃暂用 50）
-    quality_score = trend_quality[-1] if trend_quality else 50
-    composite = int(round((min(100, throughput) + quality_score + 50) / 3))
-
     project_membership_count = aliased(
         ProjectMember, project_member_facts(), adapt_on_names=True
     )
@@ -844,7 +820,6 @@ async def admin_person_detail(
         )
     ).scalar() or 0
 
-    # 周环比
     last_week_start = (
         today_start - timedelta(days=today_start.weekday()) - timedelta(weeks=1)
     )
@@ -903,11 +878,8 @@ async def admin_person_detail(
             db, uid, start, project_id=pid
         ),
         class_distribution=await _class_distribution(db, uid, start, project_id=pid),
-        first_pass_yield=await _first_pass_yield(db, uid, start, project_id=pid),
+        first_pass_yield=first_pass_yield,
     )
-
-
-# ── 预测成本卡片 ─────────────────────────────────────────
 
 
 _RANGE_DAYS = {"7d": 7, "30d": 30}
@@ -928,8 +900,6 @@ async def prediction_cost_stats(
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
 
     try:
-        # 主聚合：调用数 / avg / p50 / p95 / p99 / total_cost / total_tokens
-        # Postgres 聚合 PERCENTILE_CONT(p50/p95/p99) WITHIN GROUP。
         main = (
             await db.execute(
                 select(
@@ -960,7 +930,6 @@ async def prediction_cost_stats(
             )
         ).one()
 
-        # 失败数
         failed_count = (
             await db.execute(
                 select(func.count(failed_prediction_row.id)).where(
@@ -969,7 +938,6 @@ async def prediction_cost_stats(
             )
         ).scalar() or 0
 
-        # by_backend
         rows = (
             await db.execute(
                 select(
@@ -998,7 +966,6 @@ async def prediction_cost_stats(
                 await topology_data.registry_names(registry_ids[start : start + 500])
             )
 
-        # 失败按 backend
         failed_by_backend_rows = (
             await db.execute(
                 select(
@@ -1049,5 +1016,4 @@ async def prediction_cost_stats(
             by_backend=by_backend,
         )
     except Exception:
-        # 数据量异常或 schema 漂移时降级，避免 Dashboard 黑屏
         return PredictionCostStats(range=range)

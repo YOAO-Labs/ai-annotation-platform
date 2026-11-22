@@ -35,7 +35,6 @@ class ManagedOriginalRetentionHold(Base):
         ),
     )
 
-    # Client-generated and preview-bound; a lost response cannot create a second ID.
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     retirement_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("managed_original_retirements.id", ondelete="RESTRICT"),
@@ -44,7 +43,6 @@ class ManagedOriginalRetentionHold(Base):
     kind: Mapped[str] = mapped_column(String(12), nullable=False)
     reference_code: Mapped[str] = mapped_column(String(100), nullable=False)
     reason: Mapped[str] = mapped_column(String(500), nullable=False)
-    # Historical identities have no actor FK or cascade.
     created_by: Mapped[uuid.UUID] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

@@ -15,8 +15,6 @@ export async function openContextToolbar(page: Page, id: ToolbarId) {
     if ((await capsule.getAttribute("data-expanded")) !== "true")
       await page.getByTestId(`${id}-settings-trigger`).click();
     await expect(capsule).toHaveAttribute("data-expanded", "true");
-    // The disclosure animates a clipped grid. Clicking during that transition
-    // can scroll its contents and move the More button underneath the pointer.
     await capsule.evaluate((element) =>
       Promise.allSettled(
         element
@@ -51,7 +49,6 @@ export async function closeContextToolbar(page: Page, id: ToolbarId) {
   }
 }
 
-/** Sample the rendered capsule throughout pointer and settings transitions. */
 export async function expectStableContextCapsule(page: Page, id: ToolbarId) {
   const capsule = page.getByTestId(`${id}-tool-capsule`);
   await expect(capsule).toBeVisible();

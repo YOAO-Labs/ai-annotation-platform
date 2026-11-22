@@ -410,7 +410,6 @@ async def test_unknown_file_close_keeps_download_admission_and_error_responsibil
         assert service._slots._value == 1
     finally:
         release.set()
-        # Test-owned uncertainty is resolved explicitly, never by production GC.
         io.BytesIO.close(body)
         service._slots.release()
 

@@ -1,8 +1,3 @@
--- Grant a Labeling video control data LOGIN exactly two owner commands.
--- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v labeling_owner=labeling_code -v video_control_role=yoao_labeling_video_control_client \
---   -f infra/docker/labeling-video-control-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

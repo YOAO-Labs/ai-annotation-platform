@@ -42,7 +42,6 @@ function createDepthTexture(depth: Float32Array, width: number, height: number):
   return texture;
 }
 
-/** Decode camera images once and prepare textures without any Canvas pixel readback. */
 export async function prepareCameraTextureResources(
   pointCloudUrl: string,
   positions: Float32Array,
@@ -123,8 +122,6 @@ export async function prepareCameraTextureResources(
         for (const sample of samples) {
           sample.texture.dispose();
           sample.depthTexture.dispose();
-          // Three's WebGPU backend may retain the disposed Texture wrapper until
-          // its render-object cache is pruned. Release the CPU raster immediately.
           sample.depthTexture.image.data = null;
         }
         releaseAll();

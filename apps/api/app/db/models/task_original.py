@@ -68,7 +68,6 @@ class TaskOriginal(Base):
         ForeignKey("managed_original_creations.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    # Business snapshots deliberately have no FK or cascade.
     task_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     project_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     location_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
@@ -78,7 +77,6 @@ class TaskOriginal(Base):
     storage_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    # These are source write receipts, not target HEAD conditions after restore.
     etag: Mapped[str] = mapped_column(Text, nullable=False)
     version_id: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(

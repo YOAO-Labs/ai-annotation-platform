@@ -197,9 +197,6 @@ async def _assert_inference_has_no_raw_reads(engine) -> None:
                 with pytest.raises(asyncpg.InsufficientPrivilegeError):
                     async with connection.transaction():
                         await connection.fetch(statement)
-            # Routing's execution-scope owner still reads Jobs lifecycle rows.
-            # This restore must preserve that existing grant, not revoke it to
-            # manufacture a dependency-read isolation result.
             assert await connection.fetchval(
                 "SELECT pg_catalog.has_table_privilege("
                 "current_user, 'public.async_jobs', 'SELECT')"
@@ -268,7 +265,6 @@ async def _assert_copied_authority_quarantined(engine) -> None:
 
 async def _initialize_fresh_source(test_engine, admin, engine) -> None:
     """Install a new source through the forward chain, never from copied authority."""
-    # The shared grant helpers import this module's database ownership helpers.
     from tests.test_labeling_video_writer_restore import (
         ROOT,
         _grant_variables,
@@ -285,10 +281,6 @@ async def _initialize_fresh_source(test_engine, admin, engine) -> None:
         )
     database = engine.url.database
     await _revoke_public_temp(admin, test_engine, database)
-    # The forward cutovers treat any other client backend that can reach the
-    # source schema or call its transfer function as a live writer. This
-    # engine's idle pooled connection is such a client, so release it before
-    # the fresh install; the engine reconnects after the migration.
     await engine.dispose()
     migration = _alembic(engine.url, "upgrade", "head")
     assert migration.returncode == 0, "fresh restore source migration failed"

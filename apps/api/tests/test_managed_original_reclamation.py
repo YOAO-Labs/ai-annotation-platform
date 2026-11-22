@@ -165,13 +165,12 @@ async def test_global_preview_is_read_only_bounded_and_reports_assertion_units(
 ):
     db = db_session
     first = await assertion(db)
-    # Repeated assertions are intentionally not described as physical objects.
     await assertion(db, object_key=first.object_key, size_bytes=None)
     forbid_object_io(monkeypatch)
     with recorded_statements(db) as statements:
         result = await planner.preview(db, retirement_admin, limit=1)
     assert all(s.lstrip().upper().startswith(("SELECT", "WITH")) for s in statements)
-    assert len(statements) == 4  # Actor, complete observation, actor, configuration.
+    assert len(statements) == 4
     assert result.unit == "retirement_assertion"
     assert result.counts.total_assertions == result.counts.retained_assertions == 2
     assert result.counts.known_asserted_bytes == 42
@@ -269,7 +268,7 @@ async def test_effective_policy_uses_latest_finite_peer_deadline_and_exact_locat
         == 1
     )
     assert rows[independent.id].policy_candidate
-    assert not rows[other_bucket.id].policy_candidate  # Identity is not current.
+    assert not rows[other_bucket.id].policy_candidate
     assert result.counts.retained_assertions == 3
     assert result.counts.blocked_assertions == 2
     assert result.counts.policy_candidate_assertions == 1
@@ -687,6 +686,10 @@ async def test_active_learning_failed_history_retains_source_snapshot_and_unknow
     assert result.counts.unknown_active_learning_rounds == 1
     assert "unsupported_active_learning_snapshot" in result.items[0].blockers
     assert not result.items[0].policy_candidate
+    scoped = await planner.observe(db, retired.id)
+    assert scoped["roots"]["active_learning_roots"] == 0
+    assert scoped["unknown"]["unknown_active_learning_rounds"] == 1
+    assert "unknown_active_learning_rounds" in scoped["blockers"]
 
 
 async def test_api_requires_current_superadmin_and_star_key_scope(

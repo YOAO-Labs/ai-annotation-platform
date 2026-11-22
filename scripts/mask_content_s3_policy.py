@@ -44,7 +44,6 @@ def mask_content_policy(bucket: str, *, cleanup: bool = False) -> dict:
                 },
             }
         )
-        # An explicit deny also fences versions under a broader parent identity.
         statements.append(
             {
                 "Effect": "Deny",

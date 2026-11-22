@@ -454,7 +454,6 @@ class AssetsCatalogGateway:
                 503,
             )
         if peer is None:
-            # Native capability call shares the caller's transaction and actor identity.
             try:
                 result = await self.db.execute(text(sql), parameters)
                 payload = result.scalar_one()

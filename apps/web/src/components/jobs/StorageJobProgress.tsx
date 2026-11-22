@@ -49,7 +49,6 @@ function duration(seconds: number) {
   return `${hours} 小时${minutes ? ` ${minutes} 分钟` : ""}`;
 }
 
-/** Public observations are untrusted at runtime, including historical responses. */
 export function storageProgressObservation(job: AsyncJob): StorageJobProgressObservation | null {
   const raw: unknown = job.progress_observation;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;

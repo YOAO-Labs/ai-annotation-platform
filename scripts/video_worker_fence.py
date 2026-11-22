@@ -376,7 +376,6 @@ def _input(path: str):
 async def _run(path: str) -> int:
     try:
         url, postgres, credentials = _input(path)
-        # Verify the local owned endpoint before constructing a connecting engine.
         await asyncio.to_thread(_inspect_postgres, postgres, url)
     except Exception:
         print(json.dumps({"reason": "invalid_operator_input"}))

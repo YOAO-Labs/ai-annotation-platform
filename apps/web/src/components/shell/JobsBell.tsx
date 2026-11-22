@@ -1,13 +1,5 @@
 import { CopyableError } from "@/components/ui/CopyableError";
 import { FilterGroup, FilterToggle } from "@/components/filters/FilterControls";
-/**
- * Topbar 异步任务铃铛（ROADMAP §1.7）。
- *
- * 5s polling /async-jobs?limit=20，把 in-progress 进度 + 最近完成历史塞进 drawer。
- * 与 PreannotateJobsBadge 互补：那个走 Redis pub/sub 只展示预标 job 实时进度；
- * 本组件走 polling 涵盖所有 kind（包括 predictions_import / audit_archive 等没有
- * pub/sub 通道的任务），同时记录终态历史。
- */
 
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties } from "react";
@@ -37,7 +29,6 @@ import { ShellPopover, SHELL_POPOVER_HEADER_CLASS } from "./ShellPopover";
 
 const POLL_INTERVAL_MS = 5000;
 
-// 浮层显示层（纯前端，不触后端 / 不调删除接口）。
 const FILTER_KEY = "wb:jobsbell:filter";
 const DISMISSED_KEY = "wb:jobsbell:dismissed";
 
@@ -132,7 +123,6 @@ function exportTargetLabel(target: string): string {
   return EXPORT_TARGET_LABELS[target] ?? target.replace(/_/g, " ").toUpperCase();
 }
 
-/** 从 payload 取一段副标题（导出 job 显示「项目 display_id · 目标格式」）。 */
 function jobDetail(job: AsyncJob): string | null {
   const p = job.payload || {};
   const display =
@@ -235,14 +225,12 @@ function JobRow({
 }) {
   const kindLabel = KIND_LABEL[job.kind] ?? job.kind;
   const pct = Math.max(0, Math.min(100, job.progress_pct));
-  // 导出完成后的下载链接（预签名 URL，7 天内可反复点）。
   const download =
     job.kind === "export" && job.status === "completed" ? exportDownloadState(job.result) : null;
   const downloadUrl = download?.url;
   const detail = jobDetail(job);
   const resultDetail =
     job.kind === "export" ? exportResultDetail(job.result) : jobResultSummary(job);
-  // 仅终态任务可单条本地 dismiss；进行中永不可隐藏。
   const canDismiss = onDismiss && isTerminal(job.status);
   const cancelRequested = job.payload?.cancel_requested === true;
   const canCancel =
@@ -411,7 +399,6 @@ export function JobsBell() {
     persistFilter(next, userId);
   };
 
-  // 终态任务才进 dismiss 集合；进行中无 dismiss 入口，集合永不含其 id。
   const dismissOne = (id: string) => {
     setDismissed((prev) => {
       if (prev.has(id)) return prev;
@@ -421,9 +408,6 @@ export function JobsBell() {
     });
   };
 
-  // dismiss 集合收敛：轮询窗口只回最近 20 条，已滑出窗口的 dismiss id 既不会再渲染、
-  // 又会让 localStorage 无限增长，故每次窗口更新后用当前 id 集合求交集裁剪。
-  // 守卫 data：loading 态 jobs 为空，若此时收敛会把整个集合误清空。
   useEffect(() => {
     if (!data || renderedOwnerKey !== ownerKey) return;
     setDismissed((prev) => {
@@ -436,7 +420,6 @@ export function JobsBell() {
     });
   }, [data, jobs, ownerKey, renderedOwnerKey, userId]);
 
-  // 渲染列表：先按 filter 过滤，再剔除已 dismiss 的终态项（进行中永不隐藏）。
   const visibleJobs = useMemo(() => {
     if (renderedOwnerKey !== ownerKey) return [];
     return jobs.filter((j) => {

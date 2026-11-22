@@ -528,7 +528,6 @@ class LabelingTaskService(LabelingTaskCreationPort):
         item_ids: tuple[uuid.UUID, ...],
         operation_id: uuid.UUID,
     ) -> int:
-        # Flush source inserts into the same transaction before crossing the data API.
         await self.db.flush()
         payload = await self.db.scalar(
             text(
@@ -550,7 +549,6 @@ class LabelingTaskService(LabelingTaskCreationPort):
                 identity_key(Project, ident=total.project_id)
             )
             if project is not None:
-                # Replayed receipts contain historical totals, not current projections.
                 self.db.expire(project, ["total_tasks", "updated_at"])
         return result.created
 

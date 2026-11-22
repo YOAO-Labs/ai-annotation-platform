@@ -641,7 +641,6 @@ async def test_native_soft_limit_drains_before_source_and_permit_release(
     async def run():
         async with service.media(object(), state.authority, state.source) as stage:
             captured.append(stage)
-            # Inject the soft limit only at the native wait, after source capture.
             interrupt_first_shield(monkeypatch, entered)
             await service.physical(native, stage)
 

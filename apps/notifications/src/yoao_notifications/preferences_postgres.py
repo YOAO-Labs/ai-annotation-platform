@@ -24,7 +24,6 @@ class NotificationPreferencesPostgresData:
     async def command(self, request: PreferenceRequest) -> Any:
         if self.session.autoflush:
             await self.session.flush()
-        # The API keeps this transaction and publishes sync only after commit.
         return await self.session.scalar(
             text(
                 "SELECT yoao_notifications_v1.preference_command("

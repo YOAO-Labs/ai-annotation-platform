@@ -122,7 +122,7 @@ async def collect_spatial_pages(
                 raise SpatialPageError("spatial page result ended before its total")
             return rows
 
-        assert page.next_cursor is not None  # established by completion agreement
+        assert page.next_cursor is not None
         if not page_cursors or page.next_cursor != page_cursors[-1]:
             raise SpatialPageError("spatial next cursor does not match its last row")
         next_order = cursor_order_key(page.next_cursor)

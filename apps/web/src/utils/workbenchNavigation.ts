@@ -1,12 +1,10 @@
 const LAST_TASK_BY_BATCH_KEY = "anno.workbench.lastTaskByBatch.v1";
 
-/** Returning false keeps a navigation source open after a cancelled leave check. */
 export type GuardedNavigate = (to: string) => void | boolean | Promise<void | boolean>;
 
 type StorageLike = Pick<Storage, "getItem" | "setItem">;
 type RememberedTaskValue = string | { taskId: string; lastOpenedAt: number };
 
-/** A discussion destination is data, never an arbitrary redirect URL. */
 export type WorkbenchDiscussionTarget =
   | { kind: "issue"; issueId: string; replyId?: string | null }
   | { kind: "comment"; annotationId: string; commentId: string }
@@ -20,7 +18,6 @@ export type WorkbenchDiscussionRequest =
 const DISCUSSION_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DISCUSSION_PARAMETERS = ["discussion", "issue", "reply", "comment", "task_comment"] as const;
 
-/** URL identities remain hints; callers must recheck task and record access. */
 export function parseWorkbenchDiscussionRequest(
   search: string | URLSearchParams,
 ): WorkbenchDiscussionRequest {
@@ -97,7 +94,6 @@ function setDiscussionTarget(q: URLSearchParams, target: WorkbenchDiscussionTarg
     if (previousMode === "comments") q.delete("focus");
     return;
   }
-  // Explicit discussion activation must not race a second entity/frame request.
   q.delete("focus");
   q.delete("track");
   q.delete("frame");
@@ -152,8 +148,6 @@ export function getRememberedWorkbenchTask(
   return getRememberedWorkbenchTaskRecord(batchId, storage, scope)?.taskId ?? null;
 }
 
-/** Return the remembered task and its last real selection time.
- * Legacy string entries remain readable with an unknown (zero) timestamp. */
 export function getRememberedWorkbenchTaskRecord(
   batchId: string | null | undefined,
   storage = getStorage(),
@@ -260,7 +254,6 @@ export function buildReviewWorkbenchUrl(
   return `/projects/${projectId}/review${qs ? `?${qs}` : ""}`;
 }
 
-/** List-entry hint only; destination routes still resolve current capabilities. */
 export function buildProjectEntryUrl(
   projectId: string,
   projectRole: "annotator" | "reviewer" | "viewer" | null | undefined,

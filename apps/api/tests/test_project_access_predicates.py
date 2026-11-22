@@ -27,8 +27,6 @@ def _project(owner_id: uuid.UUID) -> SimpleNamespace:
 def test_platform_role_is_manager_matches_administrative_roles():
     assert platform_role_is_manager("super_admin")
     assert platform_role_is_manager("project_admin")
-    # Employee/viewer are never management; legacy staff values and unknown
-    # values fail closed instead of being treated as historical authority.
     assert not platform_role_is_manager("employee")
     assert not platform_role_is_manager("viewer")
     assert not platform_role_is_manager("annotator")

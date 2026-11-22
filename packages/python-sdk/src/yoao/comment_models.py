@@ -101,8 +101,6 @@ class AnnotationCommentCreate(_CommentRequest):
 
 
 class AnnotationCommentUpdate(_CommentRequest):
-    # The API treats null as "leave unchanged"; an explicit empty body can clear text
-    # only when the existing comment still contains an attachment or drawing.
     body: str | None = Field(default=None, max_length=4000)
     is_resolved: bool | None = None
 

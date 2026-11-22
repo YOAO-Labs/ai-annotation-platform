@@ -172,7 +172,6 @@ def test_download_presigned_absolute_url_no_auth(client, respx_mock, tmp_path):
     job = Job.model_validate(_completed_job(url))
     dest = client.exports.download(job, tmp_path / "out.zip")
     assert dest.read_bytes() == b"PK\x03\x04zipbytes"
-    # 预签名 URL 不带平台 auth header
     assert "Authorization" not in dl.calls.last.request.headers
 
 

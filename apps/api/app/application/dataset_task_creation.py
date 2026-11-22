@@ -85,7 +85,6 @@ class DatasetTaskCreationWorkflow:
         sync_threshold = await SystemSettingsService.get(
             self.db, "task_create_sync_threshold"
         )
-        # The association identifies a synchronous operation across a pre-task commit.
         operation_id = association.link_id
         job_id = None
         if association.item_count > sync_threshold:
@@ -176,7 +175,6 @@ class DatasetTaskCreationWorkflow:
             frames = None
             if operation.mode == "pointcloud":
                 if commit_calibration:
-                    # The independent preparation owner must see the accepted operation.
                     await self.db.commit()
                 await AssetsSpatialGateway(self.db).prepare_pointcloud(
                     PreparePointcloudRequest(
@@ -186,7 +184,6 @@ class DatasetTaskCreationWorkflow:
                     commit=False,
                 )
                 if commit_calibration:
-                    # Keep accepted preparation durable before Labeling starts task chunks.
                     await self.db.commit()
                     operation = await self.labeling.read_dataset_task_creation(
                         operation.operation_id

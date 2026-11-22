@@ -23,7 +23,6 @@ describe("useCapabilityValidation", () => {
   it("warns when model geometry has no matching enabled tool_unit", () => {
     const { result } = renderHook(() =>
       useCapabilityValidation({
-        // 模型输出 polygon (→ region unit), 但项目只启用了 bbox.
         activeModel: model({ supported_geometric_outputs: ["polygon"] }),
         enabledToolUnits: new Set(["bbox"]),
         toolBindings: {},

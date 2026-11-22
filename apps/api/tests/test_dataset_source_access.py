@@ -677,7 +677,6 @@ async def test_upload_cleanup_is_not_a_revocation_bypass(
     monkeypatch.setattr(storage_service, "client", fake)
     from app.services.dataset import DatasetService
 
-    # This exercises completion of upload URLs issued before staging isolation.
     item = await DatasetService(db_session).add_item(
         world[3].id, "a.bin", f"legacy-upload/{uuid.uuid4()}/a.bin", "other"
     )

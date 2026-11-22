@@ -82,8 +82,6 @@ def prepare_interactive_context(
                 409, "mask_source_identity_conflict", "Mask source does not match task"
             )
     prepared = dict(context)
-    # The shared backend may still serve older API instances that only accept
-    # Masks. Only this platform boundary negotiates the paired response.
     prepared.pop("native_mask_companion_boxes", None)
     uses_mask_contract = any(
         key in prepared

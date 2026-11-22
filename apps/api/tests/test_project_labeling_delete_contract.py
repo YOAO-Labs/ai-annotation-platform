@@ -110,7 +110,6 @@ async def test_project_labeling_delete_cleans_owned_children_and_uses_outer_tran
     )
     db_session.add(target_annotation)
     await db_session.flush()
-    # Seed historical lineage without weakening the live parent-input guards.
     lineage_guards = (
         "trg_inherit_annotation_input_sources",
         "trg_inherit_annotation_video_input_sources",
@@ -219,8 +218,6 @@ async def test_project_labeling_delete_cleans_owned_children_and_uses_outer_tran
     )
     assert task_refs == sorted(task.id for task in target_tasks)
 
-    # The capability participates in the caller transaction: rolling back its
-    # work must restore every row and make the frozen result disappear.
     savepoint = await db_session.begin_nested()
     rolled_back_result = await _delete_owned_records(db_session, project.id)
     assert rolled_back_result == {
@@ -328,8 +325,6 @@ def test_project_labeling_delete_schema_and_sql_freeze_the_public_contract():
     assert "FOR UPDATE NOWAIT" in statements[1]
     assert all(statement.endswith(";") for statement in statements[2:])
 
-    # Project-FK rows owned by Labeling must be removed by this owner function;
-    # immutable creation/append receipts have no Project FK and are retained.
     delete_statement = statements[1].lower()
     owned_project_tables = {
         "tasks",

@@ -70,7 +70,6 @@ function robustFrame(positions: Float32Array): {
   };
 }
 
-/** Decode and normalize a PCD frame without creating renderer-owned objects. */
 export function decodePointCloudFrame(
   buffer: ArrayBuffer,
   convention: LidarAxisConvention,

@@ -18,8 +18,6 @@ async def target_for(db, location, *, require_enabled=True, saved_root=None):
 
 
 async def bound_bucket(db, location):
-    # Inspect existing bindings, not new ZIP allocations. The longest legal
-    # historical root still identifies its bucket without granting a new key.
     target = await shared.target_for(
         db, location, purpose="export", require_enabled=False, historical_export=True
     )

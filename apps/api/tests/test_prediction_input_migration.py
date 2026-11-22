@@ -15,8 +15,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 async def test_recovery_migration_refuses_nonempty_downgrade_and_is_reversible(
     test_engine,
 ):
-    # Exercise the historical migration at its actual schema shape. New v2
-    # owners (including deleted tombstones) have their own downgrade coverage.
     schema = "prediction_input_migration_" + uuid.uuid4().hex
     async with test_engine.begin() as connection:
         await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
@@ -70,8 +68,6 @@ async def test_recovery_migration_refuses_nonempty_downgrade_and_is_reversible(
                 == 1
             )
 
-            # The downgrade retains its exclusive lock until transaction end,
-            # so a concurrent intent cannot pass the empty check and be lost.
             with pytest.raises(DBAPIError) as blocked:
                 async with engine.begin() as concurrent:
                     await concurrent.execute(text("SET LOCAL lock_timeout='100ms'"))

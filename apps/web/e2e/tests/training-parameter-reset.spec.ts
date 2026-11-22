@@ -63,7 +63,6 @@ async function openEditor(page: Page) {
       }),
     );
   }, user);
-  // This interaction fixture never reads or changes a backing database or starts training.
   await page.route("**/api/v1/**", async (route) => {
     const path = new URL(route.request().url()).pathname.replace("/api/v1", "");
     const responses: Record<string, unknown> = {
@@ -118,8 +117,6 @@ async function clickResetArea(page: Page, button: Locator) {
   await button.scrollIntoViewIfNeeded();
   const box = await button.boundingBox();
   expect(box).not.toBeNull();
-  // A disabled locator cannot be clicked normally. Coordinates exercise browser hit testing,
-  // including whether an inactive action passes its click through to the chapter underneath.
   await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
 }
 

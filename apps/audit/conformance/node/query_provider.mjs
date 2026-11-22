@@ -47,7 +47,6 @@ function checkReferences(schema) {
 }
 
 function timestampMicroseconds(value) {
-  // Date normalizes offsets but drops the submillisecond digits PostgreSQL keeps.
   const fraction = value.match(/\.(\d+)/)?.[1] ?? "";
   return BigInt(Date.parse(value)) * 1000n + BigInt(fraction.padEnd(6, "0").slice(3, 6));
 }

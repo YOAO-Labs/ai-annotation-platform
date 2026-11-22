@@ -280,9 +280,7 @@ async def test_real_zip_uses_only_frozen_saved_receipts_deadline_and_exact_origi
     world, targets
 ):
     if targets == ["kitti"]:
-        del world.entries[
-            "camera_back"
-        ]  # Unselected cameras must not be signed or inspected.
+        del world.entries["camera_back"]
     async with archive(world, targets) as result:
         for target in targets:
             prefix = target + "/" if len(targets) > 1 else ""
@@ -521,7 +519,6 @@ async def test_nuscenes_uses_owned_raw_map_cameras_and_frozen_pcd(
                 "raw_lidar" if role == "primary_lidar" else role
             ]["sha256"],
         }
-    # Existing nuScenes counting stays intact; the PCD bytes come from its saved copy.
     frames = []
 
     def records(values):
@@ -656,8 +653,6 @@ def test_duplicate_frame_labels_are_rejected_even_for_the_exact_same_source(
     second["source_key"] = first["source_key"] if same_source else "f" * 64
     frozen["tasks"].append({"id": second["task_id"], "file_path": world.task.file_path})
     frozen["media"] = [first, second]
-    # Media may share an exact copy, but two Task labels still cannot occupy
-    # one generated frame path. Their annotations could be different.
     with pytest.raises(ValueError, match="lidar_media_path_collision"):
         logical_sources(frozen)
 

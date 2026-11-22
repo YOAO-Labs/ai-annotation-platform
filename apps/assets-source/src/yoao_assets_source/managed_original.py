@@ -180,9 +180,6 @@ def _failure(exc: BaseException, code: str = "creation_io_failed") -> WriterErro
 
     if isinstance(exc, ClientError):
         error_code, _status = _error(exc)
-        # A pinned read or conditional write rejected by its own precondition
-        # (or a vanished object) proves the source changed; it must not be
-        # reported as an unknown storage outage.
         if error_code in ("PreconditionFailed", "412", "NoSuchKey", "404", "NotFound"):
             return WriterError("creation_source_changed")
     return WriterError(code)
@@ -229,8 +226,6 @@ def _start(client: Any, bucket: str, key: str, content_type: str) -> str:
             raise WriterError("creation_access_denied") from None
         raise WriterError("creation_prepare_unknown", "unknown") from None
     except BaseException:
-        # A constructor response lost before its UploadId is retained cannot be
-        # reconciled by inventing an ID or scanning another writer's prefix.
         raise WriterError("creation_prepare_unknown", "unknown") from None
 
 
@@ -426,8 +421,6 @@ def _read(
             head.extend(chunk[: max(0, HEAD_BYTES - len(head))])
         if size != before["size"]:
             raise WriterError("creation_source_changed")
-        # Also check currentness for versioned reads: downstream consumers have
-        # not universally adopted immutable VersionId reads.
         check()
         final = _observation(client.head_object(Bucket=bucket, Key=key), bucket, key)
         check()
@@ -561,8 +554,6 @@ def _prepare_pinned_stream(
     finally:
         if body is not None:
             _close(body)
-    # A version-pinned read cannot adopt a source which stopped being current
-    # while its bytes or handle were still being consumed.
     try:
         check()
         current = _observation(
@@ -647,8 +638,6 @@ def prepare_copy(
             CopySourceIfMatch=source.etag,
         )
         if source.version_id is not None and "CopySourceVersionId" not in response:
-            # Some S3-compatible services omit the copy-source version echo.
-            # Do not infer that they copied the requested immutable version.
             abort_started = True
             _abort(client, bucket, key, upload_id)
             upload_id = None

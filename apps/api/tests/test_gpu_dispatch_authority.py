@@ -2116,7 +2116,6 @@ async def test_next_window_rechecks_transitional_pool_observation(
     async with factory(_request(subject)) as first:
         first.report_response(200)
 
-    # A probe observed another pool loading during the completed first window.
     observed_ready = False
     if fresh_state == "resident":
         async with factory(_request(subject)) as second:

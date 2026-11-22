@@ -644,8 +644,6 @@ async def test_installed_platform_role_preview_replay_and_fences(
         initial_task_rows = await _task_rows(maker, project_scope_ids)
         initial_batch_rows = await _batch_rows(maker, project_scope_ids)
 
-        # API-key admission remains current and the consumer accepts the live
-        # Principal while preserving the historical target role.
         api_key_preview_request = request(
             "preview_role_change",
             legacy_target.id,
@@ -752,8 +750,6 @@ async def test_installed_platform_role_preview_replay_and_fences(
         assert invalid_role["error"]["code"] == "invalid_platform_role"
         assert invalid_role["error"]["detail"] == "非法平台角色: future_role"
 
-        # A no-op mutation is accepted once, creates a frozen receipt without
-        # an Audit, and avoids the owned-Project lock even while that row is held.
         noop_request = request(
             "change_platform_role", noop_target.id, "employee", name="noop"
         )
@@ -822,7 +818,6 @@ async def test_installed_platform_role_preview_replay_and_fences(
         assert {row["audit_id"] for row in noop_receipts.values()} == {None}
         assert await _audit_count_for_user(maker, actor_id, noop_target.id) == 0
 
-        # A real role change to a manager role still fences Project ownership.
         project_busy_request = request(
             "change_platform_role",
             project_busy_target.id,
@@ -1065,7 +1060,6 @@ async def test_installed_platform_role_preview_replay_and_fences(
         assert await _task_rows(maker, project_scope_ids) == initial_task_rows
         assert await _batch_rows(maker, project_scope_ids) == initial_batch_rows
 
-        # Work blockers stay ahead of the last-unreserved-super-admin guard.
         async with maker.begin() as db:
             await db.execute(delete(Task).where(Task.project_id == blocker_z.id))
             await db.execute(
@@ -1106,8 +1100,6 @@ async def test_installed_platform_role_preview_replay_and_fences(
         assert last_sa_change["ok"] is False
         assert last_sa_change["error"]["code"] == "last_super_admin"
 
-        # Verify role writes did not cascade into ownership, memberships, tasks,
-        # batches, credential generations or API-key status.
         role_projects = [
             blocker_a.id,
             blocker_z.id,
@@ -1132,8 +1124,6 @@ async def test_installed_platform_role_preview_replay_and_fences(
         )
         keys_before = await _key_rows(maker, [actor_id, cycle_target.id])
 
-        # Finite local host-process sample only. Container resource proof is a
-        # separate gate; these measurements make no production-capacity claim.
         load_operation_ids = [uuid.uuid4() for _ in sample_targets]
         load_requests = [
             _platform_role_request(
@@ -1258,8 +1248,6 @@ async def test_installed_platform_role_preview_replay_and_fences(
             ),
         )
 
-        # Same accepted B operation with another signing-secret epoch fails
-        # closed instead of changing the current A role or adding another Audit.
         cycle_before_epoch = await _user_snapshot(maker, cycle_target.id)
         cycle_b_audit_count = len(await _audit_rows(maker, [cycle_b_audit_id]))
         old_origin = identity.origin

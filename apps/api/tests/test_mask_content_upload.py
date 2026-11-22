@@ -31,7 +31,6 @@ from app.db.models.task import Task
 from app.config import settings
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 2, 1]}
-# Distinct object_key → distinct counted reference.
 _KEY_FMT = "raster-masks/sha256/{ab}/{cd}/{digest}.json"
 
 
@@ -157,7 +156,6 @@ async def test_upload_task_mask_content_enforces_quota(
     user, token = super_admin
     _proj, task = await _seed_task(db_session, user.id)
 
-    # Stub the counter so we don't have to materialize 2048 annotation rows.
     async def _full_count(db, task_id):
         assert task_id == task.id
         return MAX_MASK_OBJECTS_PER_TASK
@@ -169,7 +167,6 @@ async def test_upload_task_mask_content_enforces_quota(
         "app.api.v1.annotations.reserve_raster_mask_upload",
         AsyncMock(side_effect=ValueError("quota")),
     )
-    # Storage should never be hit on a rejected upload.
     monkeypatch.setattr("app.api.v1.annotations.store_coco_rle", AsyncMock())
     monkeypatch.setattr("app.api.v1.annotations.store_coco_rle_gzip", AsyncMock())
     await db_session.commit()
@@ -242,7 +239,7 @@ async def test_upload_task_mask_content_defaults_to_json_path(
 
     resp = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/mask-content",
-        json=RLE,  # no encoding field → legacy path
+        json=RLE,
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resp.status_code == 200, resp.text
@@ -309,10 +306,3 @@ async def test_upload_task_mask_content_keeps_video_at_4k(
     assert response.status_code == 422
     assert response.json()["detail"]["reason"] == "video_mask_dimensions_exceeded"
     store.assert_not_awaited()
-
-
-# Note (D3): the per-annotation ``is_locked`` check does NOT apply at upload
-# time because the endpoint returns an anonymous reference not yet linked to
-# any annotation. ``task_access.assert_task_editable`` still runs (task-level review /
-# completed lock), but annotation-level locks are enforced on the POST/PATCH
-# that links the reference, not on the content upload.

@@ -124,7 +124,6 @@ async def test_close_waits_for_disconnected_handler_after_waiter_cancel():
         await asyncio.sleep(0)
         assert not second.done()
         release.set()
-        # The handler, not the disconnected transport, owns the outstanding work.
         await asyncio.wait_for(second, 5)
     finally:
         release.set()

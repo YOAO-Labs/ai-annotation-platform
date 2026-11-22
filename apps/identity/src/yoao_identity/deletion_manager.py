@@ -132,7 +132,6 @@ class DeletionManager:
                 "data": native.data.model_dump(mode="json", by_alias=True),
             }
             _strict_json(public_payload)
-            # Both owner-native and public-wire reply validation happen before commit.
             return decode_deletion_reply(
                 request,
                 public_payload,

@@ -164,7 +164,6 @@
   font-size: 10px;
 }
 
-/* BrowserPanel: 6 个浏览器侧指标平铺. */
 .browserPanel {
   display: grid;
   grid-template-columns: 1fr 1fr;

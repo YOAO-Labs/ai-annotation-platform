@@ -1,8 +1,3 @@
--- Apply after module-data-grants.sql and lan-production-grants.sql as migration owner.
--- One LOGIN per closed profile; ordinary API/worker credentials must not use this script.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v inference_owner=inference_code -v client_role=yoao_inference_execution_client \
---   -v profile=execution -f infra/docker/inference-owner-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

@@ -358,7 +358,6 @@ async def _prepare_accepted_input_manifest(
                         db, job_id, populate_existing=True
                     )
                     if job is None:
-                        # A stale or foreign durable identity must not mutate a Job.
                         already_claimed = True
                     else:
                         try:
@@ -371,7 +370,6 @@ async def _prepare_accepted_input_manifest(
                             or request_actor_id is None
                             or job.user_id != request_actor_id
                         ):
-                            # The failure hook must never be reached for a foreign Job.
                             already_claimed = True
                         elif job.status != AsyncJobStatus.PENDING.value:
                             payload = (
@@ -447,8 +445,6 @@ async def _prepare_accepted_input_manifest(
         ):
             raise ValueError("accepted input manifest durable Job scope is unavailable")
         if job.status != AsyncJobStatus.PENDING.value:
-            # The locked claim check is authoritative. A redelivery of an already
-            # claimed Job does not need to reopen a retained manifest receipt.
             already_claimed = True
         else:
             payload = job.payload if isinstance(job.payload, dict) else {}
@@ -749,8 +745,6 @@ async def _prepare_manifest_member(manifest: _PreparedAcceptedManifest, member):
         except OSError:
             error = "storage_unavailable"
         except Exception:
-            # A post-seal transport/storage error is a recoverable item failure;
-            # it must never strand a running root Job in the readiness retry path.
             error = "storage_unavailable"
         yield _PreparedManifestMember(
             reference=reference if error is None else None,
@@ -896,8 +890,6 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
             if protocol is not None:
                 raise ValueError("accepted image input durable job is unavailable")
         elif job.status != AsyncJobStatus.PENDING.value:
-            # The normal worker path below performs the locked duplicate-delivery
-            # check. Do not consult an expired receipt for already-claimed work.
             already_claimed = True
         elif candidate and task_id is not None:
             task = await get_core_row(db, task_row, task_id, populate_existing=True)
@@ -1389,8 +1381,6 @@ async def _execute_preannotation(
     failed_prediction_ids: list[str] = []
     gpu_arbiter_failures: list[dict] = []
     project_name: str | None = None
-    # 累加每条 prediction.meta.total_cost; job 完成时写 async_job.result.total_cost.
-    # grounded-sam2-backend 当前不返回 cost (留 0.0), LLM-backed backend (sam3 / future) 自然到位.
     running_total_cost = 0.0
 
     async with SessionLocal() as db:
@@ -1421,15 +1411,11 @@ async def _execute_preannotation(
                 project_id, 0, 0, status="error", error="找不到模型服务"
             )
             return
-        # Freeze registry identity and display metadata before rollback-capable work.
-        # The model gateway returns selected instance/pool facts for each operation.
         backend_name = str(backend.name)
         source_pool_id = await MLBackendService(db).pool_id_for_registry(
             requested_backend_id
         )
 
-        # Build /predict context (flat text vs structured v2).
-        # DINO thresholds come from project overrides.
         project = await get_workspace_project(db, project_id=uuid.UUID(project_id))
         if project is not None:
             project_name = project.name
@@ -1468,8 +1454,6 @@ async def _execute_preannotation(
                 )
             ):
                 raise ValueError("preannotation async job scope is unavailable")
-            # A redelivery/retry for a job that already started must not run the
-            # selected tasks a second time. The row lock serializes this check.
             if precreated_job.status != AsyncJobStatus.PENDING.value and not (
                 batch_results is not None
                 and precreated_job.status == AsyncJobStatus.RUNNING.value
@@ -1523,8 +1507,6 @@ async def _execute_preannotation(
                 await async_job_svc.mark_running(
                     db, precreated_job.id, celery_task_id=celery_task_id
                 )
-            # Release the initial row lock before video source verification and
-            # timebase paging. The video Job is claimed only after that barrier.
             await db.commit()
 
         reference_job = None
@@ -1553,7 +1535,6 @@ async def _execute_preannotation(
                 requested_backend_id
             ):
                 raise ValueError("Queued backend differs from the execution snapshot")
-            # The durable snapshot, not the replayed request, owns execution identity.
             pipeline_stages = execution_snapshot_payload["stages"]
             prompt = execution_snapshot_payload["prompt"]
             output_mode = execution_snapshot_payload["output_mode"]
@@ -1605,7 +1586,6 @@ async def _execute_preannotation(
                 image_authority is not None
                 and accepted_input_manifest_protocol is not None
             ):
-                # The proof also binds selections of already-admitted Jobs.
                 try:
                     proof_ids = [row["task_id"] for row in image_authority["tasks"]]
                 except (TypeError, KeyError):
@@ -1667,7 +1647,6 @@ async def _execute_preannotation(
                         "video prediction authority requires a frozen snapshot"
                     )
                 if accepted_video_manifest is not None:
-                    # Frame execution owns retained frame inputs and write plans.
                     logger.info(
                         "frame preannotation retains its accepted video manifest"
                     )
@@ -1694,13 +1673,10 @@ async def _execute_preannotation(
             if (
                 selected_batch is None
                 or selected_batch.project_id != project_uuid
-                # issue #124 · 与 API 同源准入: active 或未分派人员的 draft。
                 or not allows_bulk_preannotation(selected_batch)
                 or selected_batch.admin_locked
             ):
                 raise ValueError("preannotation batch scope is unavailable")
-        # issue #121 · 工作台单题交互执行 (execution_scope=workbench) 允许 in_progress / draft,
-        # 但批次管理员锁、他人编辑锁、终态任务与越权仍在此兜底; bulk 保持原批量前置条件。
         workbench_scope = execution_scope == "workbench"
         if requested_task_ids is not None and not resuming_results:
             scope_rows = (
@@ -1728,8 +1704,6 @@ async def _execute_preannotation(
             if not workbench_scope:
                 if any(task.status != "pending" for task, _ in scope_rows):
                     raise ValueError("preannotation task scope is no longer pending")
-                # issue #124 · 与 API 同源准入: active 或未分派人员的 draft;
-                # 已分派 draft / 已进入人工流程的批次仍拒绝。
                 if any(
                     batch is not None and not allows_bulk_preannotation(batch)
                     for _, batch in scope_rows
@@ -1742,14 +1716,10 @@ async def _execute_preannotation(
                 task.status not in WORKBENCH_AI_EDITABLE_TASK_STATUSES
                 for task, _ in scope_rows
             ):
-                # 白名单 (pending / in_progress / rejected), 与 API 同源, 排除 uploading
-                # 与终态 (issue #121 review)。
                 raise ValueError("preannotation workbench task scope is not editable")
             lock_service = TaskLockService(db)
             actor_id = actor.id if actor is not None else None
             for task, _ in scope_rows:
-                # 同一 task 可能有多行残留锁, 必须逐行判断 (active_lock 只看最新一行;
-                # issue #121 review)。工作台运行者本人持锁是交互式执行的正常状态。
                 locks = await lock_service.active_locks(task.id)
                 if workbench_scope and actor_id is not None:
                     locked_by_other = any(lock.user_id != actor_id for lock in locks)
@@ -1847,19 +1817,15 @@ async def _execute_preannotation(
         manifest_backed = accepted_manifest is not None
         video_manifest_backed = accepted_video_manifest is not None
 
-        # 幂等：skip_predicted 排除已预标 task；append/overwrite 不排除。
         skip_predicted = predict_mode == "skip_predicted"
-        # base_conds 不含预标过滤, 供 total==0 时回数候选区分「批次本就空」vs「全已预标被跳过」。
         if requested_task_ids is not None:
             base_conds = [
                 task_core_row.project_id == project_uuid,
                 task_core_row.id.in_(requested_task_ids),
             ]
-            # 工作台单题交互可对 in_progress 任务运行; bulk 仍只捞 pending。
             if not workbench_scope:
                 base_conds.append(task_core_row.status == "pending")
         elif batch_id:
-            # 指定 batch 时仅捞 batch 内 pending tasks
             base_conds = [
                 task_core_row.batch_id == uuid.UUID(batch_id),
                 task_core_row.status == "pending",
@@ -2053,8 +2019,6 @@ async def _execute_preannotation(
                         }
                     )
                     continue
-                # Recheck mutable workflow eligibility after the owner call and before
-                # overwrite. The final Labeling write repeats these checks atomically.
                 task_batch = (
                     await get_core_row(
                         db, batch_core_row, task.batch_id, populate_existing=True
@@ -2118,8 +2082,6 @@ async def _execute_preannotation(
         if controlled and any(task.file_type != "image" for task in tasks):
             raise ValueError("Controlled detection task is not an image")
 
-        # overwrite：预标前清掉这批 task 的旧预测（保留人工标注），避免叠加。
-        # 不重置 task 状态（与删批次不同）——预标只换预测内容、不动流程。
         if execution_unit == "frame" and pipeline_stages and len(pipeline_stages) > 1:
             raise ValueError("frame preannotation supports one detection stage")
 
@@ -2161,23 +2123,17 @@ async def _execute_preannotation(
             )
             await db.flush()
 
-        # async_jobs 单一真值：建 batch_predict 行 (status=running)。
-        # domain 字段（batch_id / ml_backend / prompt / total_tasks）进 payload。
         batch = (
             await get_core_row(db, batch_core_row, uuid.UUID(batch_id))
             if batch_id
             else None
         )
-        # payload 记实际模型路由 (溯源 + 任务页展示用了哪个模型)。
-        # output_mode is recorded only for the text-prompt path that consumes it (see build_predict_context);
-        # geometry/YOLO paths do not read it, so recording it would imply an unused mask output.
         job_payload: dict = {
             "batch_id": batch_id,
             "execution_scope": execution_scope,
             "predict_mode": predict_mode,
             "batch_display_id": batch.display_id if batch else None,
             "ml_backend_id": ml_backend_id,
-            # job payload 保留请求入口 registry 与逻辑池；逐条 Prediction 另记实际执行实例。
             "ml_backend_pool_id": str(source_pool_id) if source_pool_id else None,
             "total_tasks": total,
             "prompt": (prompt or "")[:200],
@@ -2324,7 +2280,6 @@ async def _execute_preannotation(
             await async_job_svc.mark_running(
                 db, locked_job.id, celery_task_id=celery_task_id
             )
-            # Source guards may refresh this Job while checking the overwrite scope.
             await db.flush()
             if predict_mode == "overwrite" and tasks:
                 from app.services.batch import BatchService
@@ -2430,7 +2385,6 @@ async def _execute_preannotation(
             "project_name": project_name,
             "batch_id": batch_id,
         }
-        # 开始时点 → 全局通道发 running
         prediction_progress.publish_progress(
             project_id,
             0,
@@ -2509,8 +2463,6 @@ async def _execute_preannotation(
                     "selected_count": accepted_manifest.header.selected_count,
                     "candidate_count": accepted_manifest.header.candidate_count,
                 }
-            # skip_predicted 下 total==0 可能是「候选 task 全部已预标被跳过」而非批次本就空。
-            # 回数不含预标过滤的候选, >0 即全被跳过 → 标 reason 供前端给明确文案。
             if skip_predicted and manifest_backed:
                 skipped_n = max(
                     0,
@@ -2555,9 +2507,6 @@ async def _execute_preannotation(
         if execution_unit != "frame":
             stages = execution_stages()
 
-        # 逐帧执行单位: 视频 task 逐帧跑图像 backend (二级 Celery fan-out chord)。
-        # 首刀 = 源**单阶段**检测; 多阶段逐帧不在范围 (frame × depth 组合爆炸, 见 plan)。
-        # 段任务 + finalize_frame_job 接管抽帧/predict/落库/进度/收尾, 此处只发起并返回。
         if execution_unit == "frame":
             if frame_dispatcher is None:
                 raise RuntimeError("frame execution requires a frame dispatcher")
@@ -2703,8 +2652,6 @@ async def _execute_preannotation(
         stage_contexts = tuple(stage_contexts)
         stage_modes = tuple(stage_modes)
 
-        # 多阶段时构造 crop 上传器 (presigned 投递, 对所有下游后端通用)。
-        # 单阶段无下游 crop, 不建 (省去对象存储往返)。
         crop_uploader = None
         if len(stages) > 1:
             from app.services.storage import StorageService
@@ -2721,7 +2668,6 @@ async def _execute_preannotation(
                 async_job_id,
             )
 
-        # 逐阶段统计累加器 (跨 task 汇总): {stage_idx: {detected/targeted/ok/failed}}。
         pipeline_stage_totals: dict[int, dict] = {}
 
         def _accumulate_stage_stats(per_task: dict | None) -> None:
@@ -2780,8 +2726,6 @@ async def _execute_preannotation(
                     raise _ManifestPageReadFailure(cursor) from exc
 
                 for member in page.members:
-                    # A prior member can roll back and expire ORM rows. Load
-                    # current eligibility at each boundary, including its batch.
                     task_row = await get_core_row(
                         db,
                         task_core_row,
@@ -2808,8 +2752,6 @@ async def _execute_preannotation(
                 raise ValueError("manifest omitted frozen Tasks")
 
         async def release_inference_locks(_stage, _dispatch):
-            # Model selection reacquires Registry locks after the write guard.
-            # Cold GPU settlement needs that row from the independent health owner.
             await db.commit()
 
         if batch_results is not None:
@@ -3193,8 +3135,6 @@ async def _execute_preannotation(
                     )
                     continue
 
-            # Fail before more model work when the initiating authority is gone.
-            # The labeling owner independently fences the actual final write.
             if actor is not None and await _preannotation_actor_revoked(
                 db, uuid.UUID(user_id), project_uuid, execution_scope=execution_scope
             ):
@@ -3343,8 +3283,6 @@ async def _execute_preannotation(
                     )
                     await db.commit()
                 if video_owner is not None:
-                    # Open the retained original through the video owner so the
-                    # dispatch boundary can prove the exact delivered version.
                     if db.in_transaction():
                         await db.commit()
                     video_inputs = await video_owner.open_inputs(task, SessionLocal)
@@ -3485,8 +3423,6 @@ async def _execute_preannotation(
                     pipeline_output
                 )
                 if video_owner is not None:
-                    # The retained original and delivery permit must settle
-                    # before cancellation/account/task/candidate write locks.
                     await video_owner.finish_source(task.id)
                 if prepared_manifest_member is not None:
                     if accepted_input_metadata is None:
@@ -3575,8 +3511,6 @@ async def _execute_preannotation(
                 receipt_kwargs: dict = {}
                 native_receipts: list = [None] * len(results)
                 if video_owner is not None:
-                    # Reauthorize and issue the opaque input/result receipts in
-                    # the exact transaction that will persist the predictions.
                     if not db.in_transaction():
                         await db.begin()
                     video_input_receipt = await video_owner.final_receipt(task)
@@ -3648,8 +3582,6 @@ async def _execute_preannotation(
                     for request in write_requests
                 )
                 if provenance_bound:
-                    # Receipts are bound to the current transaction; a rollback
-                    # retry would need fresh evidence, so apply exactly once.
                     if len(write_requests) > 1:
                         await prediction_writer.apply_prediction_result_bundle(
                             write_requests
@@ -3667,11 +3599,8 @@ async def _execute_preannotation(
                         prediction_writer, db, write_requests[0]
                     )
                 if video_owner is not None:
-                    # The write, its receipts and the reauthorized origin commit
-                    # or roll back together.
                     await video_owner.recheck_credentials()
                 for pred_result in results:
-                    # 单条 cost 累加到 job 级总费用
                     if pred_result.meta:
                         cost = pred_result.meta.get("total_cost")
                         if cost is not None:
@@ -3773,12 +3702,10 @@ async def _execute_preannotation(
                 if manifest_input_cm is not None:
                     await manifest_input_cm.__aexit__(None, None, None)
                 if video_owner is not None:
-                    # Release business locks before independent storage cleanup.
                     if db.in_transaction():
                         await db.rollback()
                     await video_owner.close_inputs(task_id)
                 elif reference_job is not None:
-                    # Release business locks before independent storage cleanup.
                     if db.in_transaction():
                         await db.rollback()
                     await reference_job.close_inputs(task_id)
@@ -3787,8 +3714,6 @@ async def _execute_preannotation(
                 last_completed_ordinal = manifest_member.ordinal
             processed_count = success_count + failed_count + runtime_skipped_count
 
-            # 逐阶段累加快照随进度推送 (多阶段才有), 让前端运行中实时更新卡上徽标。
-            # 按 5% 步长 (或末条) 节流, 避免每条都塞快照; 阶段数少, payload 增量可忽略。
             completed = processed_count if manifest_member is not None else i + 1
             pct = int((completed / total) * 100) if total > 0 else 0
             stage_step = pct % 5 == 0 or completed == total
@@ -3803,7 +3728,6 @@ async def _execute_preannotation(
                 ),
             )
 
-            # async_jobs 进度（每 5% 步长写一次，避免每条都 DB write）
             if total > 0:
                 if stage_step:
                     try:
@@ -3818,14 +3742,8 @@ async def _execute_preannotation(
             )
             return
 
-        # B-45 · 全部子项失败 → job 视为失败（避免「失败也显示已完成」），
-        # 不推进 batch 状态、终态走 failed 分支。
         all_failed = success_count == 0 and failed_count > 0
 
-        # 跑完自动 active → pre_annotated（仅当指定 batch + 当前还在 active 时）
-        # issue #124 · 未分派人员的 draft 批次跑完保持 draft：不隐式推进生命周期、
-        # 不隐式分派人员；预测挂在 task 上保留，管理员随后正常分派并 draft → active
-        # 激活即可进入人工流程（激活不清预测）。all_failed 时任何状态都不推进。
         if batch_id and success_count > 0:
             from app.services.batch import BatchService
             from app.services.labeling_write_scope import LabelingBatchWriteScope
@@ -3847,14 +3765,12 @@ async def _execute_preannotation(
             if advanced:
                 await db.commit()
 
-        # 结束时点 → 写 async_job final stats (result JSONB)
         duration_ms = int((time.perf_counter() - started_perf) * 1000)
         result_stats = {
             "success_count": success_count,
             "failed_count": failed_count,
             "failed_prediction_ids": failed_prediction_ids,
             "duration_ms": duration_ms,
-            # total_cost 接通 PredictionMeta.total_cost 累加
             "total_cost": f"{running_total_cost:.4f}",
         }
         if accepted_manifest is not None:
@@ -3870,8 +3786,6 @@ async def _execute_preannotation(
             result_stats["done_count"] = (
                 success_count + failed_count + runtime_skipped_count
             )
-        # 多阶段预标: 逐阶段统计 (检出框数 / 各下游富集成功失败), 供前端逐阶段徽标。
-        # 与运行中实时快照共用同一阶段统计形态。
         if pipeline_stage_totals:
             result_stats["pipeline_stages"] = stage_totals_snapshot(
                 pipeline_stage_totals

@@ -1,8 +1,3 @@
-/**
- * usePreannotationProgress WS smoke 测试.
- *
- * 验证 URL 路径 /ws/projects/{id}/preannotate 拼接正确, 收消息 setProgress, 卸载清理.
- */
 import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
@@ -58,7 +53,6 @@ beforeEach(() => {
     writable: true,
     configurable: true,
   });
-  // Auth hydration: a token is required before the root WS URL is built.
   useAuthStore.setState({ token: "test-token", user: { id: "u1" } as never });
 });
 
@@ -114,7 +108,6 @@ describe("usePreannotationProgress", () => {
 
   it("卸载时仍在握手 → 延迟到 onopen 再关", () => {
     const { unmount } = renderHook(() => usePreannotationProgress("p-1"));
-    // 未 triggerOpen，readyState 仍 CONNECTING：直接关会触发浏览器告警，故延迟
     unmount();
     expect(MockWebSocket.instances[0].closedManually).toBe(false);
     act(() => MockWebSocket.instances[0].triggerOpen());

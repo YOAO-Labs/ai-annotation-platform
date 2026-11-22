@@ -248,7 +248,6 @@ export async function verifyReadRelation() {
     connectionTimeoutMillis: 5000,
     types: {
       getTypeParser(oid, format) {
-        // PostgreSQL DATE is a calendar value, not a timezone-dependent instant.
         return oid === 1082 ? (value) => value : types.getTypeParser(oid, format);
       },
     },

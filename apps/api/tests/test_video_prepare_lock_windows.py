@@ -13,10 +13,11 @@ import uuid
 from fastapi import HTTPException, Request
 import pytest
 from sqlalchemy import delete, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.core.security import create_access_token
-from app.db.models.dataset import Dataset, DatasetItem
+from app.db.models.dataset import Dataset, DatasetItem, VideoFrameCache
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.storage_maintenance import StorageOperation
@@ -27,6 +28,7 @@ from app.services import video_derivative_objects as objects
 from app.services import video_derivative_originals as originals
 from app.services import video_derivatives as core
 from app.services import video_frame_service as service
+from app.workers.media import generate_video_derivatives
 from tests.factory import make_user_dict
 from tests.video_derivative_fixtures import (
     owned_metadata,
@@ -73,12 +75,12 @@ async def committed_video(test_engine, monkeypatch):
         return saved_url(output, relative)
 
     def dispatch(identifiers):
-        if identifiers:
-            state.dispatched.append(list(identifiers))
+        state.dispatched.append([uuid.UUID(identifier) for identifier in identifiers])
+        return SimpleNamespace(id=str(uuid.uuid4()))
 
     monkeypatch.setattr(service.SystemSettingsService, "get", look_ahead)
     monkeypatch.setattr(core, "verified", verified)
-    monkeypatch.setattr(core, "dispatch", dispatch)
+    monkeypatch.setattr(generate_video_derivatives, "delay", dispatch)
     try:
         async with factory() as db:
             owner, actor = User(**owner_data), User(**actor_data)
@@ -230,7 +232,7 @@ async def test_each_prepare_releases_item_before_next_slot_and_physical_delivery
             response = await service.list_chunks(db, ctx, 0, 65)
             delivered = response.chunks
         assert not db.in_transaction()
-    assert boundaries == [0, 1, 2]  # chunk 2 is the separately committed warmup.
+    assert boundaries == [0, 1, 2]
     assert state.physical == [ready.id]
     assert [row.status for row in delivered] == ["ready", "pending"] + (
         ["pending"] if kind == "frame" else []
@@ -284,6 +286,35 @@ async def test_overlapping_reads_reuse_a_committed_slot_instead_of_reporting_bus
         await first.rollback()
 
 
+@pytest.mark.parametrize("kind", ["frame", "chunk"])
+async def test_publish_sibling_during_read_without_releasing_source_fence(
+    committed_video, kind
+):
+    state = committed_video
+    async with state.factory() as setup:
+        item = await setup.get(DatasetItem, state.item_id)
+        first = await owned_output(setup, item, kind)
+        authority = await video_authority(setup, item)
+
+    async with state.factory() as reader, state.factory() as publisher:
+        await core.check(reader, first, authority)
+        item = await publisher.get(DatasetItem, state.item_id)
+        second = await owned_output(publisher, item, kind, frame_index=1, chunk_id=1)
+        assert second.id != first.id
+        async with state.factory() as observer:
+            stored = await observer.get(Output, second.id)
+            assert stored.state == "ready"
+            assert stored.metadata_output_id == state.generation_id
+            with pytest.raises(DBAPIError) as blocked:
+                await observer.scalar(
+                    select(DatasetItem.id)
+                    .where(DatasetItem.id == state.item_id)
+                    .with_for_update(nowait=True)
+                )
+            assert blocked.value.orig.sqlstate == "55P03"
+        await core.check(reader, first, authority)
+
+
 async def _await_lock_wait(state, pid, reader):
     """Prove the real reader is blocked on a row lock, not merely slow."""
     async with state.factory() as observer:
@@ -306,6 +337,61 @@ async def _await_lock_wait(state, pid, reader):
     raise AssertionError("reader never waited on the blocked visibility row")
 
 
+async def test_pending_frame_poll_leaves_the_slot_available_to_its_publisher(
+    committed_video,
+):
+    state = committed_video
+    async with state.factory() as setup:
+        item = await setup.get(DatasetItem, state.item_id)
+        pending = await owned_output(setup, item, "frame", ready=False, claimed=True)
+    async with state.factory() as polling, state.factory() as publisher:
+        ctx = await _context(polling, state)
+        receipt, enqueue = await service._prepare(polling, ctx, "frame", pending.spec)
+        await polling.flush()
+        slot = await publisher.scalar(
+            select(VideoFrameCache)
+            .where(VideoFrameCache.output_id == pending.id)
+            .with_for_update(nowait=True)
+        )
+        assert receipt.id == slot.output_id == pending.id
+        assert receipt.state == "building"
+        assert not enqueue
+
+
+@pytest.mark.parametrize("detached", [False, True], ids=["hit", "detached"])
+async def test_frame_check_revalidates_slot_after_its_writer_commits(
+    committed_video, detached
+):
+    state = committed_video
+    async with state.factory() as setup:
+        item = await setup.get(DatasetItem, state.item_id)
+        frame = await owned_output(setup, item, "frame")
+    async with state.factory() as writer, state.factory() as reader:
+        slot = await writer.scalar(
+            select(VideoFrameCache)
+            .where(VideoFrameCache.output_id == frame.id)
+            .with_for_update()
+        )
+        if detached:
+            slot.output_id, slot.status = None, "pending"
+        else:
+            slot.last_accessed_at = objects.utcnow()
+        await writer.flush()
+        pid = await reader.scalar(text("SELECT pg_backend_pid()"))
+        checking = asyncio.create_task(core.check(reader, frame, state.authority))
+        try:
+            await _await_lock_wait(state, pid, checking)
+        finally:
+            await writer.commit()
+            await asyncio.gather(checking, return_exceptions=True)
+        if detached:
+            with pytest.raises(core.ContentError, match="video_derivative_changed"):
+                checking.result()
+        else:
+            _, checked_slot, checked_output, _ = checking.result()
+            assert checked_slot.output_id == checked_output.id == frame.id
+
+
 async def test_counter_writer_is_waited_out_but_a_held_identity_fence_fails_closed(
     committed_video,
 ):
@@ -318,8 +404,6 @@ async def test_counter_writer_is_waited_out_but_a_held_identity_fence_fails_clos
     removal or key change) must still reject with content_busy in the same bound.
     """
     state = committed_video
-    # The fixture pins video_chunk_size_frames=60, so chunk 0 owns frames 0..59
-    # and its samples must address every one of them inside the chunk bytes.
     samples = [
         {
             "frame_index": frame,
@@ -349,8 +433,6 @@ async def test_counter_writer_is_waited_out_but_a_held_identity_fence_fails_clos
         ready_id = ready.id
     assert ready.state == "ready"
     async with state.factory() as writer, state.factory() as db:
-        # Annotation writers hold Task before updating Project counters. Let the
-        # sample reader reach its fence between those writes to expose inversions.
         await writer.execute(
             update(Task)
             .where(Task.id == state.task_id)
@@ -447,8 +529,6 @@ async def test_mid_batch_fence_change_never_delivers_or_dispatches_committed_att
     async def observe_physical(db, output, authority, **kwargs):
         value = await verified(db, output, authority, **kwargs)
         if len(state.physical) == 2:
-            # The later owner changes after an earlier verified response has
-            # been staged. The final batch fence must still reject all delivery.
             await _change_batch_fence(state, change)
         return value
 
@@ -524,8 +604,6 @@ async def test_seed_retirement_drains_a_reader_allocated_after_its_initial_snaps
                     assert (
                         await final_read.get(Output, late_output.id)
                     ).state == "retiring"
-                    # Its final read must be able to finish: the collector may not
-                    # hold the Item write fence while waiting for the permit.
                     assert (
                         await final_read.scalar(
                             select(DatasetItem.id)

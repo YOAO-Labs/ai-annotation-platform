@@ -631,8 +631,6 @@ class ConfigurationManager:
                 ),
             )
 
-        # This decoder verifies the canonical opaque payload and selector coherence.
-        # It must remain after `begin` so hidden resources and initial authority win.
         try:
             payload = configuration_payload(request)
         except ConfigurationInvalidRequest as error:
@@ -663,7 +661,7 @@ class ConfigurationManager:
                 result = await self._duplicate_template(
                     request, begin, request_json, transaction
                 )
-            else:  # request decoder already closes the operation set
+            else:
                 raise ConfigurationUnavailable()
         except ConfigurationPolicyError as error:
             raise ConfigurationCommandFailure(self._policy_error(error)) from error
@@ -1466,7 +1464,6 @@ class ConfigurationManager:
     ) -> dict[str, Any]:
         selected = {key: value for key, value in payload.items() if key in allowed}
         if resource_kind == "project":
-            # Explicit nulls on creation historically let the database defaults win.
             for field in ("box_threshold", "text_threshold"):
                 if selected.get(field, object()) is None:
                     selected.pop(field)

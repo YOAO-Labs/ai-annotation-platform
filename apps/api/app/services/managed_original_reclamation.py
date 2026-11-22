@@ -55,20 +55,46 @@ def _original_receipt(value):
         ), false)"""
 
 
-# These source-shape checks are deliberately conservative. Unknown records stay
-# visible as global blockers rather than disappearing through a JSON expansion.
-# Text comparison avoids unsafe UUID/numeric casts of historical JSON values.
-_OBSERVATION = text(
-    """
-WITH clock AS (
+def _observation_statement(*ctes: str, select: str):
+    return text("WITH " + ",\n".join(ctes) + "\n" + select)
+
+
+_CLOCK = """clock AS (
     SELECT statement_timestamp() AS measured_at
-), active_declared_holds AS MATERIALIZED (
-    SELECT retirement_id,
-        count(*) FILTER (WHERE kind = 'backup') AS backup_holds,
-        count(*) FILTER (WHERE kind = 'migration') AS migration_holds
-    FROM managed_original_retention_holds
-    WHERE released_at IS NULL
-    GROUP BY retirement_id
+)"""
+
+_PREVIEW_SCOPE = """retirement_scope AS (
+    SELECT * FROM managed_original_retirements
+)"""
+
+_EXECUTION_SCOPE = """retirement_scope AS MATERIALIZED (
+    SELECT * FROM managed_original_retirements WHERE id = CAST(:retirement_id AS uuid)
+)"""
+
+_RECONCILIATION_SCOPE = """retirement_scope AS (
+    SELECT DISTINCT ON (bucket, object_key) * FROM managed_original_retirements
+    ORDER BY bucket, object_key, id
+)"""
+
+_ALL_PEERS = """locator_peers AS NOT MATERIALIZED (
+    SELECT * FROM managed_original_retirements
+)"""
+
+_EXECUTION_PEERS = """locator_peers AS MATERIALIZED (
+    SELECT p.* FROM retirement_scope r
+    JOIN managed_original_retirements p ON md5(p.bucket) = md5(r.bucket)
+        AND md5(p.object_key) = md5(r.object_key)
+        AND p.bucket = r.bucket AND p.object_key = r.object_key
+)"""
+
+_PEER_RETENTION = """active_declared_holds AS (
+    SELECT h.retirement_id,
+        count(*) FILTER (WHERE h.kind = 'backup') AS backup_holds,
+        count(*) FILTER (WHERE h.kind = 'migration') AS migration_holds
+    FROM managed_original_retention_holds h
+    JOIN locator_peers r ON r.id = h.retirement_id
+    WHERE h.released_at IS NULL
+    GROUP BY h.retirement_id
 ), peer_protection AS MATERIALIZED (
     -- Group complete exact bucket/key peers before pagination. Endpoint identity
     -- differences cannot weaken this conservative recorded-locator protection.
@@ -79,10 +105,13 @@ WITH clock AS (
             ELSE max(r.retain_until) END AS effective_retain_until,
         COALESCE(sum(h.backup_holds), 0) AS declared_backup_holds,
         COALESCE(sum(h.migration_holds), 0) AS declared_migration_holds
-    FROM managed_original_retirements r
+    FROM locator_peers r
     LEFT JOIN active_declared_holds h ON h.retirement_id = r.id
     GROUP BY r.bucket, r.object_key
-), training_documents AS MATERIALIZED (
+)"""
+
+_REFERENCE_HISTORY = (
+    """training_documents AS MATERIALIZED (
     SELECT id, snapshot,
         COALESCE(jsonb_typeof(snapshot) = 'object'
         AND jsonb_typeof(snapshot->'samples') = 'array'
@@ -290,7 +319,14 @@ WITH clock AS (
                 NOT COALESCE(jsonb_typeof(d.snapshot->'source_snapshots') = 'array', false)
                 OR EXISTS (SELECT 1 FROM decision_sources s WHERE s.id = d.id AND NOT s.supported)
             ))
-), evidence AS MATERIALIZED (
+)""".replace("__TRAINING_ORIGINAL__", _original_receipt("s.value->'original'"))
+    .replace(
+        "__LEARNING_ORIGINAL__", _original_receipt("p.value->'snapshot'->'original'")
+    )
+    .replace("__DECISION_ORIGINAL__", _original_receipt("p.value->'original'"))
+)
+
+_ASSERTION_EVIDENCE = """evidence AS MATERIALIZED (
     SELECT r.*, clock.measured_at,
         p.peer_assertions, p.indefinite_retention, p.effective_retain_until,
         p.declared_backup_holds, p.declared_migration_holds,
@@ -390,14 +426,16 @@ WITH clock AS (
         ) AS active_learning_roots,
         u.count AS unknown_training_versions,
         au.count AS unknown_active_learning_rounds
-    FROM managed_original_retirements r
+    FROM retirement_scope r
     JOIN peer_protection p ON md5(p.bucket) = md5(r.bucket)
         AND md5(p.object_key) = md5(r.object_key)
         AND p.bucket = r.bucket AND p.object_key = r.object_key
     CROSS JOIN clock CROSS JOIN training_unknown u CROSS JOIN learning_unknown au
     LEFT JOIN storage_bindings b ON b.purpose = 'datasets'
     LEFT JOIN storage_locations l ON l.id = r.location_id
-), classified AS MATERIALIZED (
+)"""
+
+_CLASSIFIED_PAGE = """classified AS MATERIALIZED (
     SELECT e.*,
         (asset_locations + dataset_items + tasks + task_dataset_links
             + training_versions + active_learning_roots
@@ -426,8 +464,10 @@ WITH clock AS (
         count(*) FILTER (WHERE size_bytes IS NULL) AS unknown_size_assertions,
         COALESCE(sum(size_bytes), 0) AS known_asserted_bytes
     FROM classified
-)
-SELECT clock.measured_at, __CONFIGURATION__ AS configuration_fingerprint,
+)"""
+
+_PREVIEW_ROWS = f"""
+SELECT clock.measured_at, {_CONFIGURATION_EXPRESSION} AS configuration_fingerprint,
     to_jsonb(totals) || jsonb_build_object(
         'unknown_training_versions', u.count,
         'unknown_active_learning_rounds', au.count
@@ -485,12 +525,17 @@ SELECT clock.measured_at, __CONFIGURATION__ AS configuration_fingerprint,
         ]::text[], NULL))
     ) ORDER BY p.retired_at, p.id) FROM page p), '[]'::jsonb) AS items
 FROM clock CROSS JOIN totals CROSS JOIN training_unknown u CROSS JOIN learning_unknown au
-""".replace("__CONFIGURATION__", _CONFIGURATION_EXPRESSION)
-    .replace("__TRAINING_ORIGINAL__", _original_receipt("s.value->'original'"))
-    .replace(
-        "__LEARNING_ORIGINAL__", _original_receipt("p.value->'snapshot'->'original'")
-    )
-    .replace("__DECISION_ORIGINAL__", _original_receipt("p.value->'original'"))
+"""
+
+_PREVIEW_OBSERVATION = _observation_statement(
+    _CLOCK,
+    _PREVIEW_SCOPE,
+    _ALL_PEERS,
+    _PEER_RETENTION,
+    _REFERENCE_HISTORY,
+    _ASSERTION_EVIDENCE,
+    _CLASSIFIED_PAGE,
+    select=_PREVIEW_ROWS,
 )
 
 
@@ -512,30 +557,8 @@ async def preview(db, actor, *, api_key_id=None, limit=50, offset=0):
     result = (
         (
             await db.execute(
-                _OBSERVATION,
-                {
-                    "location_id": str(LEGACY_LOCATION_ID),
-                    "datasets_bucket": storage_service.datasets_bucket,
-                    "annotations_bucket": storage_service.bucket,
-                    "storage_identity": managed_storage_identity(
-                        storage_service.client.meta.endpoint_url,
-                        storage_service.datasets_bucket,
-                    ),
-                    "location_config": json.dumps(
-                        {
-                            "endpoint": settings.minio_endpoint,
-                            "use_ssl": settings.minio_use_ssl,
-                        }
-                    ),
-                    "uuid_pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-                    "timestamp_pattern": (
-                        "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])"
-                        "T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
-                        "([.][0-9]{1,6})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
-                    ),
-                    "limit": limit,
-                    "offset": offset,
-                },
+                _PREVIEW_OBSERVATION,
+                _observation_parameters() | {"limit": limit, "offset": offset},
             )
         )
         .mappings()
@@ -563,22 +586,10 @@ async def preview(db, actor, *, api_key_id=None, limit=50, offset=0):
     )
 
 
-# The executable owner consumes raw protective facts from the same SQL snapshot.
-# Public GET above remains a non-executing observation with its established DTO.
-_GROUP_OBSERVATION = text(
-    _OBSERVATION.text.split("), classified AS MATERIALIZED (", 1)[0].replace(
-        "LEFT JOIN storage_locations l ON l.id = r.location_id\n",
-        "LEFT JOIN storage_locations l ON l.id = r.location_id\n"
-        "    WHERE CAST(:retirement_id AS uuid) IS NULL OR r.id = CAST(:retirement_id AS uuid)\n",
-    )
-    + """
-), matched AS MATERIALIZED (
-    SELECT * FROM evidence WHERE CAST(:retirement_id AS uuid) IS NULL
-        OR id = CAST(:retirement_id AS uuid)
-), own_operation AS (
+_OWN_OPERATION = """own_operation AS (
     SELECT a.operation_id FROM managed_original_reclaim_attempts a
     JOIN managed_original_reclaim_claims c ON c.current_attempt_id = a.id
-    JOIN matched r ON r.id = a.retirement_id AND r.creation_id = a.creation_id
+    JOIN evidence r ON r.id = a.retirement_id AND r.creation_id = a.creation_id
     JOIN async_jobs job ON job.id = a.async_job_id
     JOIN storage_operations op ON op.id = a.operation_id
     WHERE a.id = CAST(:reclaim_attempt_id AS uuid) AND a.status = 'running'
@@ -594,7 +605,13 @@ _GROUP_OBSERVATION = text(
         AND a.target->>'location_id' = CAST(r.location_id AS text)
         AND a.target->>'bucket' = r.bucket AND a.target->>'object_key' = r.object_key
         AND a.operation_id IS NOT NULL
-), aliases AS MATERIALIZED (
+)"""
+
+_NO_OWN_OPERATION = """own_operation AS (
+    SELECT NULL::uuid AS operation_id WHERE false
+)"""
+
+_ALIAS_FACTS = """aliases AS MATERIALIZED (
     SELECT d.dataset_item_id, d.run_id, d.path_digest, e.observed,
         run.snapshot, source.location_id, location.kind AS location_kind
     FROM dataset_references d
@@ -602,28 +619,42 @@ _GROUP_OBSERVATION = text(
     JOIN dataset_scan_runs run ON run.id = e.run_id
     JOIN dataset_sources source ON source.id = d.source_id
     JOIN storage_locations location ON location.id = source.location_id
-), groups AS (
+), unknown_aliases AS (
+    SELECT count(*) AS count FROM aliases a WHERE a.location_kind = 's3'
+        AND NOT COALESCE(a.observed->>'kind' = 's3'
+            AND jsonb_typeof(a.observed->'bucket') = 'string'
+            AND length(a.observed->>'bucket') > 0
+            AND jsonb_typeof(a.observed->'key') = 'string'
+            AND length(a.observed->>'key') > 0, false)
+)"""
+
+_UNKNOWN_OPERATIONS = """unknown_operations AS (
+    SELECT count(*) AS count FROM storage_operations o
+    JOIN storage_locations sl ON sl.id = o.location_id
+    LEFT JOIN storage_connections sc ON sc.id = sl.connection_id
+    WHERE sl.kind = 's3' AND sl.id <> CAST(:location_id AS uuid)
+        AND NOT COALESCE(jsonb_typeof(sc.config->'bucket') = 'string'
+            AND length(sc.config->>'bucket') > 0, false)
+        AND NOT EXISTS (SELECT 1 FROM own_operation own WHERE own.operation_id = o.id)
+)"""
+
+_GROUP_EVIDENCE = """groups AS (
     SELECT r.*, to_jsonb(anchor) AS anchor, to_jsonb(creation) AS creation,
         jsonb_build_object('location', to_jsonb(location),
             'connection', to_jsonb(connection) - 'secret_enc') AS configuration,
         COALESCE((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.id)
-            FROM managed_original_retirements p
+            FROM locator_peers p
             WHERE p.bucket = r.bucket AND p.object_key = r.object_key), '[]'::jsonb) AS peers,
         COALESCE((SELECT jsonb_agg(to_jsonb(h) ORDER BY h.id)
             FROM managed_original_retention_holds h
-            JOIN managed_original_retirements p ON p.id = h.retirement_id
+            JOIN locator_peers p ON p.id = h.retirement_id
             WHERE p.bucket = r.bucket AND p.object_key = r.object_key), '[]'::jsonb) AS holds,
         COALESCE((SELECT jsonb_agg(to_jsonb(o) ORDER BY o.id) FROM task_originals o
             WHERE o.bucket = r.bucket AND o.object_key = r.object_key), '[]'::jsonb) AS task_originals,
         COALESCE((SELECT jsonb_agg(to_jsonb(a) ORDER BY a.dataset_item_id) FROM aliases a
             WHERE a.observed->>'kind' = 's3' AND a.observed->>'bucket' = r.bucket
                 AND a.observed->>'key' = r.object_key), '[]'::jsonb) AS reference_aliases,
-        (SELECT count(*) FROM aliases a WHERE a.location_kind = 's3'
-            AND NOT COALESCE(a.observed->>'kind' = 's3'
-                AND jsonb_typeof(a.observed->'bucket') = 'string'
-                AND length(a.observed->>'bucket') > 0
-                AND jsonb_typeof(a.observed->'key') = 'string'
-                AND length(a.observed->>'key') > 0, false)) AS unknown_reference_aliases,
+        ua.count AS unknown_reference_aliases,
         COALESCE((SELECT jsonb_agg(jsonb_build_object('id', i.async_job_id, 'status', i.status,
                 'source', i.source, 'operation_id', i.operation_id) ORDER BY i.async_job_id)
             FROM storage_migration_inventories i
@@ -671,13 +702,7 @@ _GROUP_OBSERVATION = text(
                     WHERE sl.id = o.location_id AND sl.kind = 's3'
                         AND (sc.config->>'bucket' = r.bucket
                             OR sl.id = CAST(:location_id AS uuid))))) , '[]'::jsonb) AS operations,
-        (SELECT count(*) FROM storage_operations o
-            JOIN storage_locations sl ON sl.id = o.location_id
-            LEFT JOIN storage_connections sc ON sc.id = sl.connection_id
-            WHERE sl.kind = 's3' AND sl.id <> CAST(:location_id AS uuid)
-                AND NOT COALESCE(jsonb_typeof(sc.config->'bucket') = 'string'
-                    AND length(sc.config->>'bucket') > 0, false)
-                AND NOT EXISTS (SELECT 1 FROM own_operation own WHERE own.operation_id = o.id)) AS unknown_operations,
+        uo.count AS unknown_operations,
         jsonb_build_object(
             'assets', (SELECT COALESCE(jsonb_agg(to_jsonb(a) ORDER BY a.asset_id, a.location_id, a.bucket), '[]'::jsonb)
                 FROM dataset_asset_locations a WHERE a.bucket = r.bucket AND a.object_key = r.object_key),
@@ -694,26 +719,25 @@ _GROUP_OBSERVATION = text(
             'decisions', (SELECT md5(COALESCE(string_agg(md5(jsonb_build_object('id', a.id, 'snapshot', a.snapshot)::text), '' ORDER BY a.id), ''))
                 FROM active_learning_decisions a)
         ) AS root_evidence
-    FROM matched r JOIN managed_original_retirements anchor ON anchor.id = r.id
+    FROM evidence r JOIN managed_original_retirements anchor ON anchor.id = r.id
     LEFT JOIN managed_original_creations creation ON creation.id = r.creation_id
     LEFT JOIN storage_locations location ON location.id = r.location_id
     LEFT JOIN storage_connections connection ON connection.id = location.connection_id
-)
-SELECT to_jsonb(g) AS observation FROM groups g
-UNION ALL SELECT jsonb_build_object('_meta', true, 'measured_at', clock.measured_at,
-    'unknown_training_versions', u.count, 'unknown_active_learning_rounds', au.count,
-    'unknown_reference_aliases', (SELECT count(*) FROM aliases a WHERE a.location_kind = 's3'
-        AND NOT COALESCE(a.observed->>'kind' = 's3'
-            AND jsonb_typeof(a.observed->'bucket') = 'string' AND length(a.observed->>'bucket') > 0
-            AND jsonb_typeof(a.observed->'key') = 'string' AND length(a.observed->>'key') > 0, false)),
-    'unknown_operations', (SELECT count(*) FROM storage_operations o
-        JOIN storage_locations sl ON sl.id = o.location_id
-        LEFT JOIN storage_connections sc ON sc.id = sl.connection_id
-        WHERE sl.kind = 's3' AND sl.id <> CAST(:location_id AS uuid)
-            AND NOT COALESCE(jsonb_typeof(sc.config->'bucket') = 'string'
-                AND length(sc.config->>'bucket') > 0, false)))
-FROM clock CROSS JOIN training_unknown u CROSS JOIN learning_unknown au
-"""
+    CROSS JOIN unknown_aliases ua CROSS JOIN unknown_operations uo
+)"""
+
+_EXECUTION_OBSERVATION = _observation_statement(
+    _CLOCK,
+    _EXECUTION_SCOPE,
+    _EXECUTION_PEERS,
+    _PEER_RETENTION,
+    _REFERENCE_HISTORY,
+    _ASSERTION_EVIDENCE,
+    _OWN_OPERATION,
+    _ALIAS_FACTS,
+    _UNKNOWN_OPERATIONS,
+    _GROUP_EVIDENCE,
+    select="SELECT to_jsonb(g) AS observation FROM groups g",
 )
 
 
@@ -822,36 +846,22 @@ _READONLY_OPTIONS = text(
 async def observe(db, retirement_id, *, reclaim_attempt_id=None):
     """Unauthenticated internal MVCC facts, never a physical deletion permission."""
     await db.execute(_READONLY_OPTIONS)
-    rows = (
-        (
-            await db.execute(
-                _GROUP_OBSERVATION,
-                _observation_parameters()
-                | {
-                    "retirement_id": retirement_id,
-                    "reclaim_attempt_id": reclaim_attempt_id,
-                },
-            )
+    row = (
+        await db.execute(
+            _EXECUTION_OBSERVATION,
+            _observation_parameters()
+            | {
+                "retirement_id": retirement_id,
+                "reclaim_attempt_id": reclaim_attempt_id,
+            },
         )
-        .scalars()
-        .all()
-    )
-    rows = [row for row in rows if not row.get("_meta")]
-    if not rows:
+    ).scalar_one_or_none()
+    if row is None:
         raise HTTPException(404, "Retirement assertion not found")
-    return _protective_observation(rows[0])
+    return _protective_observation(row)
 
 
-_RECONCILIATION_OBSERVATION = text(
-    _GROUP_OBSERVATION.text.split(
-        "\nSELECT to_jsonb(g) AS observation FROM groups g", 1
-    )[0].replace(
-        "FROM managed_original_retirements r\n    JOIN peer_protection",
-        "FROM (SELECT DISTINCT ON (bucket, object_key) * FROM managed_original_retirements "
-        "ORDER BY bucket, object_key, id) r\n    JOIN peer_protection",
-    )
-    + """
-, grouped AS (
+_GROUP_TOTALS = """grouped AS (
     SELECT bucket, object_key,
         bool_or(asset_locations + dataset_items + tasks + task_dataset_links
             + training_versions + active_learning_roots + ambiguous_legacy_tasks
@@ -862,12 +872,9 @@ _RECONCILIATION_OBSERVATION = text(
         bool_or(unknown_training_versions + unknown_active_learning_rounds
             + unknown_reference_aliases + unknown_operations > 0) AS blocked
     FROM groups GROUP BY bucket, object_key
-), metadata AS (SELECT """
-    + _GROUP_OBSERVATION.text.split("UNION ALL SELECT ", 1)[1].replace(
-        "\nFROM clock CROSS JOIN", " AS proof\nFROM clock CROSS JOIN"
-    )
-    + """
-)
+)"""
+
+_RECONCILIATION_ROWS = """
 SELECT clock.measured_at,
     jsonb_build_object(
         'total_assertions', (SELECT count(*) FROM managed_original_retirements),
@@ -877,28 +884,36 @@ SELECT clock.measured_at,
         'blocked_groups', count(g.*) FILTER (WHERE NOT g.protected AND NOT g.retained AND g.blocked),
         'unreferenced_groups', count(g.*) FILTER (WHERE NOT g.protected AND NOT g.retained AND NOT g.blocked)
     ) AS counts,
-    metadata.proof - ARRAY['_meta', 'measured_at'] AS unknown
-FROM clock CROSS JOIN metadata LEFT JOIN grouped g ON true
-GROUP BY clock.measured_at, metadata.proof
+    jsonb_build_object(
+        'unknown_training_versions', u.count,
+        'unknown_active_learning_rounds', au.count,
+        'unknown_reference_aliases', ua.count,
+        'unknown_operations', uo.count
+    ) AS unknown
+FROM clock CROSS JOIN training_unknown u CROSS JOIN learning_unknown au
+CROSS JOIN unknown_aliases ua CROSS JOIN unknown_operations uo
+LEFT JOIN grouped g ON true
+GROUP BY clock.measured_at, u.count, au.count, ua.count, uo.count
 """
+
+_RECONCILIATION_OBSERVATION = _observation_statement(
+    _CLOCK,
+    _RECONCILIATION_SCOPE,
+    _ALL_PEERS,
+    _PEER_RETENTION,
+    _REFERENCE_HISTORY,
+    _ASSERTION_EVIDENCE,
+    _NO_OWN_OPERATION,
+    _ALIAS_FACTS,
+    _UNKNOWN_OPERATIONS,
+    _GROUP_EVIDENCE,
+    _GROUP_TOTALS,
+    select=_RECONCILIATION_ROWS,
 )
 
 
 async def reconciliation_observe(db):
     """One SQL aggregate returns bounded counts, never full per-object proofs."""
     await db.execute(_READONLY_OPTIONS)
-    row = (
-        (
-            await db.execute(
-                _RECONCILIATION_OBSERVATION,
-                _observation_parameters()
-                | {
-                    "retirement_id": None,
-                    "reclaim_attempt_id": None,
-                },
-            )
-        )
-        .mappings()
-        .one()
-    )
-    return dict(row)
+    result = await db.execute(_RECONCILIATION_OBSERVATION, _observation_parameters())
+    return dict(result.mappings().one())

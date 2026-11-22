@@ -130,7 +130,6 @@ async def test_transfer_and_native_role_demotion_preserve_owner_lock_orders(
     held_project_id = None
 
     async def committed_transfer(project_id, new_owner_id):
-        # A remote owner must observe a real commit, not the API fixture's savepoint.
         async with maker.begin() as db:
             project = await project_workspace.transfer_project_owner(
                 db,
@@ -224,8 +223,6 @@ async def test_transfer_and_native_role_demotion_preserve_owner_lock_orders(
             enable_presence=False,
         )
 
-        # Demotion-first keeps the captured owned-project blocker and does not
-        # create a receipt; transfer then lets the same operation succeed.
         blocked = await asyncio.to_thread(_node, identity, control, first_request)
         assert blocked["ok"] is False
         assert blocked["error"]["code"] == "platform_role_change_blocked"

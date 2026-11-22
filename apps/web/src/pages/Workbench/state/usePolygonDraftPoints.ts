@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type { Pt } from "../stage/polygonGeom";
 
-/** One draft owner; synchronous edits invalidate queued pointer batches before React renders. */
 export function usePolygonDraftPoints() {
   const [points, publish] = useState<Pt[]>([]);
   const current = useRef(points);

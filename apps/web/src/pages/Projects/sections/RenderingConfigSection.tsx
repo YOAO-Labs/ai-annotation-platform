@@ -1,11 +1,3 @@
-// 项目级渲染配置覆盖（ProjectSettings 子页）。
-// 视图层抽出为 RenderingConfigEditor, Section 仅作保存外壳.
-//
-// 字段集与 User.preferences.workbench 同：smoothImage / cssImageFilter /
-// controlPointsSize / snapToGrid（不含 longTaskSampleRate）。
-// PATCH 整个 rendering_config 对象；后端 Pydantic ProjectRenderingConfig
-// (extra=forbid, 字段范围校验) 兜底。
-
 import { useState } from "react";
 import { Card } from "@/components/ui/Card";
 import { useToastStore } from "@/components/ui/Toast";

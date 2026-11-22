@@ -81,6 +81,7 @@
 | GET | `/service-pools/{pool_id}/members/{registry_id}/capability-drift` |
 | POST | `/service-pools/{pool_id}/members/{registry_id}/capability-drift/accept` |
 | GET | `/topology` |
+| GET | `/primary-pool-project-counts` |
 | GET | `/runtime-snapshot` |
 
 ## `admin_plugin_installations.py`
@@ -1261,4 +1262,4 @@
 
 ---
 
-_共 118 模块 / 754 路由_
+_共 118 模块 / 755 路由_

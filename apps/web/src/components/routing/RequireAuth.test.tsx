@@ -1,11 +1,3 @@
-/**
- * Issue #123 · RequireAuth 兜底跳转与主动退出标记:
- * - 会话过期 / 未登录访问业务页 → /login 携带 state.from,登录后可返回原页;
- * - 主动退出(useLogout 已打标记)→ /login 不携带 from,避免把 /unauthorized
- *   或他人受限页留给下一个账号;
- * - 标记粘性置位(挂载期间每次重渲染都生效),恢复认证后清除,
- *   不影响之后的会话过期跳转。
- */
 import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -53,7 +45,6 @@ function loginState(): unknown {
 
 describe("RequireAuth 主动退出标记", () => {
   beforeEach(() => {
-    // 粘性标记是模块级状态,测试间复位。
     clearProactiveLogout();
     useAuthStore.getState().setAuth("jwt", user);
   });
@@ -93,8 +84,6 @@ describe("RequireAuth 主动退出标记", () => {
     expect(loginState()).toBeNull();
     unmount();
 
-    // 新一轮会话访问受保护页(RequireAuth 渲染到已登录分支清除标记),再过期:
-    // from 应正常保留。
     useAuthStore.getState().setAuth("jwt2", user);
     renderProtected();
     expect(screen.getByText("DATASETS")).toBeInTheDocument();

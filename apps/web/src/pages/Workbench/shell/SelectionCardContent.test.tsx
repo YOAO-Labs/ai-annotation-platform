@@ -9,7 +9,6 @@ vi.mock("@/components/ui/decisionDialog", () => ({
   confirmDialog: (input: unknown) => confirmDialog(input),
 }));
 
-// 只捕获批量轨迹卡 onDelete，其余渲染为 null —— 便于直接驱动确认回调。
 let capturedBatchDelete: (() => void) | null = null;
 vi.mock("./VideoTrackBatchCardContent", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./VideoTrackBatchCardContent")>();
@@ -117,7 +116,6 @@ describe("SelectionCardContent 轨迹批量删除确认", () => {
     });
     expect(confirmDialog).toHaveBeenCalledOnce();
 
-    // 打开确认后、解决前：并发删除 a2（活跃标注迟到变化）。
     await act(async () => {
       annotationsRef.current = [t1];
       resolveConfirm(true);

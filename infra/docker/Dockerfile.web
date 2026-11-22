@@ -6,11 +6,9 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY patches ./patches
 COPY apps/web/package.json apps/web/
 COPY scripts/install-git-hooks.sh scripts/
-# Corepack reads the exact pnpm version from the root packageManager field.
 RUN CI=1 pnpm install --frozen-lockfile
 COPY apps/api/openapi.snapshot.json apps/api/capability-registry.snapshot.json apps/api/
 COPY apps/web apps/web
-# 版本更新提醒:release-notes 插件在构建期读取根 CHANGELOG.md 注入当前版本段落。
 COPY CHANGELOG.md ./
 ARG VITE_EXPERIMENTAL_RASTER_MASK_WEBGPU=true
 ENV VITE_EXPERIMENTAL_RASTER_MASK_WEBGPU=${VITE_EXPERIMENTAL_RASTER_MASK_WEBGPU}

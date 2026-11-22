@@ -75,8 +75,6 @@ async def test_history_uses_actual_task_visibility_and_allows_soft_deleted_annot
         display_id=f"T-HISTORY-HIDDEN-{uuid.uuid4().hex[:8]}",
     )
 
-    # A mismatched denormalized project used to authorize against the wrong
-    # project. A NULL value must still resolve visibility from task.project_id.
     spoofed = await _annotation(
         db_session,
         task_id=visible_task.id,
@@ -146,8 +144,6 @@ async def test_bug_report_patch_field_authority_and_nullable_admin_fields(
     assert reporter_edit.json()["description"] == "Updated details"
     assert reporter_edit.json()["severity"] == "high"
 
-    # Even an explicit null on an administrator-only field is an attempted
-    # administrative write. Reject the whole patch before applying its title.
     report.resolution = "retain this admin field"
     await db_session.flush()
     mixed_reporter_patch = await httpx_client.patch(
@@ -164,8 +160,6 @@ async def test_bug_report_patch_field_authority_and_nullable_admin_fields(
     assert report.title == "Updated title"
     assert report.resolution == "retain this admin field"
 
-    # Bug management is global for project_admin. This caller is neither the
-    # report author nor a project owner; status null is accepted as a no-op.
     duplicate = await _seed_bug(db_session, reporter.id, status="new")
     report.status = "fixed"
     report.resolution = "confirmed"
@@ -263,8 +257,6 @@ async def test_mask_format_export_preflight_requires_export_capability_before_ad
         (annotator_user, "annotator"),
         (reviewer_user, "reviewer"),
         (viewer, "viewer"),
-        # Simulate a legacy row so global project_admin role cannot act as a
-        # project manager when it only has viewer-level project capability.
         (nonowner_project_admin, "viewer"),
     ):
         await create_membership(

@@ -71,14 +71,6 @@ def _minute_bucket(now_ms: int) -> str:
     return time.strftime("%Y%m%d%H%M", time.gmtime(secs))
 
 
-# ── Lua scripts (frozen I/O; golden tests in tests/test_ml_routing_ledger.py) ──
-
-# ACQUIRE: one atomic step per §9.1.
-# KEYS: dynamic — we pass the pool:state key + each candidate's member:leases key.
-#       KEYS[1] = pool:state, KEYS[2..] = member:{instance_id}:leases (one per candidate)
-# ARGV: pool_id, candidate_generation, now_ms, lease_ttl_ms, lease_id, owner, operation,
-#       bucket, then per-candidate: instance_id, weight, max_concurrency (3 ARGV each, same order as KEYS[2..])
-# Returns: {1, selected_instance_id} or {0, reason_code}
 _ACQUIRE_LUA = """
 local pool_state = KEYS[1]
 local pool_id = ARGV[1]
@@ -187,10 +179,6 @@ redis.call('PEXPIRE', metrics_key, 7200 * 1000)
 return {1, winner}
 """
 
-# HEARTBEAT: extend an exact unexpired lease; no pool/instance/owner mutation.
-# KEYS: lease_key, member_leases_key
-# ARGV: lease_id, pool_id, instance_id, owner, now_ms, new_ttl_ms
-# Returns: 1 (extended) or 0 (lease missing/expired/owner mismatch)
 _HEARTBEAT_LUA = """
 local lease_key = KEYS[1]
 local leases_key = KEYS[2]
@@ -220,10 +208,6 @@ redis.call('PEXPIRE', leases_key, new_ttl_ms + 60000)
 return 1
 """
 
-# FINISH: idempotent terminal; releases lease + updates circuit + metrics.
-# KEYS: lease_key, member_leases_key, circuit_key, metrics_key
-# ARGV: lease_id, pool_id, instance_id, owner, outcome, duration_ms, now_ms, fail_threshold, eject_ms
-# Returns: 1 (released) or 2 (already-finished idempotent) or 0 (lease missing/mismatch)
 _FINISH_LUA = """
 local lease_key = KEYS[1]
 local leases_key = KEYS[2]
@@ -274,10 +258,6 @@ end
 return 1
 """
 
-# CANCEL: release without tripping circuit; idempotent.
-# KEYS: lease_key, member_leases_key, metrics_key
-# ARGV: lease_id, pool_id, instance_id, owner
-# Returns: 1 (released) or 2 (already-finished idempotent) or 0 (missing/mismatch)
 _CANCEL_LUA = """
 local lease_key = KEYS[1]
 local leases_key = KEYS[2]
@@ -376,7 +356,6 @@ class RoutingLedger:
     async def __aexit__(self, *exc: object) -> None:
         await self.aclose()
 
-    # ── acquire ───────────────────────────────────────────────────────────────
     async def acquire(
         self,
         pool_id: str,
@@ -404,7 +383,6 @@ class RoutingLedger:
             and c.health_fresh
         ]
         if not eligible:
-            # Distinguish "no active member" from "all circuit open" for diagnostics.
             if candidates and all(
                 str(c.instance_id) in circuit_open_instances for c in candidates
             ):
@@ -415,13 +393,11 @@ class RoutingLedger:
         bucket = _minute_bucket(now_ms)
         lease_id = lease_id or uuid.uuid4().hex
 
-        # KEYS: pool:state + each eligible member's leases key
         keys = [_pool_state_key(pool_id, self.namespace)]
         keys += [
             _member_leases_key(pool_id, str(c.instance_id), self.namespace)
             for c in eligible
         ]
-        # ARGV: pool_id, gen, now, ttl, lease_id, owner, operation, bucket, then triples
         argv: list[str] = [
             pool_id,
             str(generation),
@@ -440,7 +416,6 @@ class RoutingLedger:
         except RedisError:
             return None, RejectionReason.ROUTER_UNAVAILABLE
 
-        # result is a list [ok, instance_or_reason]
         ok = int(result[0])
         if ok == 1:
             instance_id = result[1]
@@ -456,7 +431,6 @@ class RoutingLedger:
                 ),
                 None,
             )
-        # ok == 0 → rejection
         reason_str = result[1]
         if reason_str == "generation_mismatch":
             return None, RejectionReason.GENERATION_MISMATCH
@@ -464,7 +438,6 @@ class RoutingLedger:
             return None, RejectionReason.POOL_SATURATED
         return None, RejectionReason.POOL_UNAVAILABLE
 
-    # ── heartbeat ─────────────────────────────────────────────────────────────
     async def heartbeat(self, lease: RouteLease) -> bool:
         """Extend an unexpired exact lease. Returns True if extended."""
         keys = [
@@ -485,7 +458,6 @@ class RoutingLedger:
             return False
         return int(result) == 1
 
-    # ── finish ────────────────────────────────────────────────────────────────
     async def finish(
         self, lease: RouteLease, outcome: RouteOutcome, duration_ms: int
     ) -> bool:
@@ -513,9 +485,8 @@ class RoutingLedger:
         except RedisError:
             return False
         code = int(result)
-        return code == 1  # 2 = already terminal (idempotent), 0 = mismatch
+        return code == 1
 
-    # ── cancel ────────────────────────────────────────────────────────────────
     async def cancel(self, lease: RouteLease) -> bool:
         """Caller-initiated cancel. Never trips the circuit. Idempotent."""
         keys = [
@@ -530,13 +501,11 @@ class RoutingLedger:
             return False
         return int(result) == 1
 
-    # ── circuit introspection (for router candidate pre-filtering) ────────────
     async def circuit_open_instances(self, pool_id: str) -> set[str]:
         """Return the set of instance_ids whose circuit is currently open in this pool.
 
         Used by MLBackendRouter.acquire() to pre-filter candidates before the atomic Lua.
         """
-        # Circuit keys are per-member; we scan the pool's member:*:circuit keys.
         pattern = f"{self.namespace}:pool:{pool_id}:member:*:circuit"
         open_ids: set[str] = set()
         try:
@@ -545,7 +514,6 @@ class RoutingLedger:
                 if state == "open":
                     try:
                         if int(open_until or 0) > _now_ms():
-                            # extract instance_id from key
                             inst = key.split(":member:")[1].split(":circuit")[0]
                             open_ids.add(inst)
                     except (ValueError, IndexError):

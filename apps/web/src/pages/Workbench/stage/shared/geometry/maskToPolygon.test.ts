@@ -1,16 +1,3 @@
-// maskToPolygon 单测：
-// - 空 mask → 空
-// - 矩形 mask → 顶点紧绕外环（≥3，闭合后去重）
-// - 圆形 mask → 顶点数远小于 perimeter（RDP 起效）
-// - 多连通 mask → 取最大分量；multipleComponents=true
-// - 顶点无重复（去重生效）
-//
-// (ADR-0052 D5) · 新增 lossy 显式报告测试:
-// - 多连通 → lossy=true, droppedComponents=分量数-1, lossyReason 非空
-// - 单前景连通但含背景孔洞 → lossy=true, droppedHoles=孔洞数
-// - 单连通 → lossy=false
-// - 空 mask → lossy=false (无几何可丢)
-
 import { describe, expect, it } from "vitest";
 import { MaskBuffer } from "./maskBuffer";
 import { maskToPolygon } from "./maskToPolygon";
@@ -49,7 +36,6 @@ describe("maskToPolygon", () => {
     const m = makeRect(50, 50, 10, 10, 30, 30);
     const out = maskToPolygon(m, { simplifyEpsilon: 0.5 });
     expect(out.points.length).toBeGreaterThanOrEqual(4);
-    // bounding box 应该接近 (10..30, 10..30)
     const xs = out.points.map((p) => p[0]);
     const ys = out.points.map((p) => p[1]);
     expect(Math.min(...xs)).toBeLessThanOrEqual(11);
@@ -63,7 +49,6 @@ describe("maskToPolygon", () => {
     const m = new MaskBuffer({ width: 80, height: 80 });
     m.brush(40, 40, 20);
     const out = maskToPolygon(m, { simplifyEpsilon: 1.5 });
-    // 半径 20 圆周 ≈ 125 像素；简化后应 < 60
     expect(out.points.length).toBeGreaterThan(8);
     expect(out.points.length).toBeLessThan(60);
   });
@@ -80,9 +65,7 @@ describe("maskToPolygon", () => {
 
   it("threshold 控制实心判定", () => {
     const m = new MaskBuffer({ width: 20, height: 20 });
-    // 单点画半径 3 → alpha=255
     m.brush(10, 10, 3);
-    // threshold=200 应找到分量；threshold=300（>255）则没像素 → 空
     expect(maskToPolygon(m, { threshold: 200 }).points.length).toBeGreaterThan(0);
     expect(maskToPolygon(m, { threshold: 300 }).points).toEqual([]);
   });
@@ -96,12 +79,9 @@ describe("maskToPolygon", () => {
   });
 });
 
-// ADR-0052 D5: maskToPolygon 必须显式报告 lossy, 不再静默 pickLargest。
-// 调用方 (useImageAnnotationActions.commitMaskAsPolygon) 检查 lossy 后阻断有损提交。
 describe("maskToPolygon · lossy 显式报告", () => {
   it("test_mask_to_polygon_marks_lossy_on_multiple_components: 2 个分量 → lossy=true, droppedComponents=1", () => {
     const m = new MaskBuffer({ width: 60, height: 60 });
-    // 两个互不相交的方块 → 2 个连通分量。
     m.fromPolygon([
       [5, 5],
       [25, 5],
@@ -117,9 +97,8 @@ describe("maskToPolygon · lossy 显式报告", () => {
     const out = maskToPolygon(m, { simplifyEpsilon: 0.5 });
     expect(out.multipleComponents).toBe(true);
     expect(out.lossy).toBe(true);
-    expect(out.droppedComponents).toBe(1); // 2 个分量 - 1 个主分量 = 丢弃 1 个。
+    expect(out.droppedComponents).toBe(1);
     expect(out.lossyReason).toContain("多个连通分量");
-    // 仍返回最大外环 (不破现有调用方), 但调用方必须先检查 lossy。
     expect(out.points.length).toBeGreaterThanOrEqual(3);
     expect(Math.max(...out.points.map(([x]) => x))).toBeLessThan(30);
   });
@@ -160,7 +139,6 @@ describe("maskToPolygon · lossy 显式报告", () => {
 
   it("背景通道连到画布边界时不误报孔洞", () => {
     const m = makeDonut();
-    // 从内孔向上打通到外部背景，几何成为单连通、无孔的 C 形。
     for (let y = 0; y <= 14; y++) m.data[y * m.width + 20] = 0;
 
     const out = maskToPolygon(m, { simplifyEpsilon: 0.5 });

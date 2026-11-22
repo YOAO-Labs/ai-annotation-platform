@@ -506,7 +506,6 @@ async def test_video_request_enforces_each_scope_before_publication(
     if problem == "assigned_draft":
         batch.annotator_id = world.member
     elif problem == "foreign_lock":
-        # The caller's own lock must not hide another member's active lock.
         world.db.add_all([lock(task_id, world.actor), lock(task_id, world.member)])
     elif problem == "admin_lock":
         batch.admin_locked = True
@@ -616,7 +615,6 @@ async def test_changes_after_actual_video_dispatch_preserve_old_candidates_atomi
 ):
     world = video_world
     task_id = await source_task(world)
-    # Use the real member policy for the effective-assignee race.
     auth = world.headers
     if change == "assignee":
         task = await world.db.get(Task, task_id)
@@ -726,8 +724,6 @@ async def test_video_second_shape_failure_rolls_back_the_whole_acceptance(
     async def validate(service, *args, **kwargs):
         validations.append(args)
         if len(validations) == 2:
-            # Flush and observe the first shape inside the real transaction;
-            # the failed request must roll this actual INSERT back as well.
             assert (
                 await service.db.scalar(
                     select(func.count())

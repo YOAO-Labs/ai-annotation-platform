@@ -90,8 +90,6 @@ async def register_original(db, task, owner, *, raw=None, provider=None, bucket=
     )
     db.add(replica)
     await db.flush()
-    # Source registration invalidates prior image summaries. Publish dimensions
-    # derived from these exact bytes only after that generation change settles.
     await db.refresh(item, ["width", "height"])
     item.width, item.height = width, height
     await db.flush()

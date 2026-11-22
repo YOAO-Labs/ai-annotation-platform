@@ -203,7 +203,6 @@ class Journal:
                 return
             if ack["state"] == "applied" and not prior["result"]["closed"]:
                 raise AgentError("ack_close_mismatch")
-            # A rejected lease is not proof that its remote physical I/O closed.
             unsettled = not prior["result"]["closed"]
             terminal = ack["state"] in {"applied", "rejected"} and not unsettled
             stage = prior["stage"] if terminal else None
@@ -221,7 +220,6 @@ class Journal:
             )
             self.connection.execute("""DELETE FROM commands WHERE state IN ('applied','rejected') AND command_id NOT IN (
                 SELECT command_id FROM commands WHERE state IN ('applied','rejected') ORDER BY updated DESC LIMIT 256)""")
-        # The ACK is durable before bytes can be removed.
         if stage is not None:
             (self.stages / stage).unlink(missing_ok=True)
             self.sync_stages()

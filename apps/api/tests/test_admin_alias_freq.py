@@ -96,7 +96,6 @@ async def test_alias_freq_aggregates_polygon_labels(
     proj = await create_project(db_session, owner_id=user.id, name="Poly")
     task = await create_task(db_session, project_id=proj.id)
 
-    # 3 个 polygon prediction: 2 person + 1 car
     await _make_prediction(
         db_session,
         project_id=proj.id,
@@ -190,7 +189,7 @@ async def test_alias_freq_handles_non_array_result(
         db_session,
         project_id=proj.id,
         task_id=task.id,
-        result={"corrupted": "object"},  # 非数组 — 应被守卫跳过
+        result={"corrupted": "object"},
     )
     await db_session.commit()
 

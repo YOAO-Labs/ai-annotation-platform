@@ -94,7 +94,6 @@ async def test_retained_storage_outbox_keeps_wire_and_resweeps_after_ack(test_en
                 )
             ).all() == []
 
-            # Fast-forward the retained tombstone instead of waiting for its sweep interval.
             await session.execute(
                 text(
                     "UPDATE public.asset_storage_deletions "

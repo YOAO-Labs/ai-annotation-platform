@@ -112,8 +112,6 @@ class MaskContentClient:
                         raise MaskContentFailure("resource_limit")
                 result = parse_reply(bytes(raw), result_type)
                 if not response.is_success:
-                    # A valid error envelope carries the stable code. A success
-                    # envelope on a non-success status is a protocol violation.
                     raise MaskContentFailure("invalid_response")
                 return result
         except MaskContentFailure:

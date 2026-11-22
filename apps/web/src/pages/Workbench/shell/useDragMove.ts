@@ -124,9 +124,6 @@ export function useDragMove(opts: {
       }
     };
     window.addEventListener("resize", onResize);
-    // 只在用户真实缩放窗口时归位;不在挂载 / bounds 变化时立即 clamp 写回。
-    // 否则 HMR 重挂 → bounds 经 null→viewport 显著变化(及每次重测的亚像素抖动)会把
-    // 已摆放的浮动面板反复 clamp 微调并落库,导致位置逐渐漂移("乱飞")。
     return () => window.removeEventListener("resize", onResize);
   }, [bounds, onChange, position, size]);
 

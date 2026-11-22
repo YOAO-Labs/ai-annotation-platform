@@ -298,7 +298,6 @@ def test_specific_claim_and_source_response_keep_requested_identity():
     different_capability = ClaimRequest(worker_id=uuid4(), kinds=["chunk"])
     with pytest.raises(ValueError):
         require_scope(different_capability, ClaimedWork(claim=claim()))
-    # A claim remains an explicit value even when the queue is empty.
     assert ClaimedWork(claim=None).claim is None
     assert requested.kinds == [
         "video_metadata",

@@ -85,7 +85,6 @@ async function drawPoints(page: Page, points: number[][]) {
   const bounds = (await page.getByTestId("workbench-stage").boundingBox())!;
   for (const [x, y] of points) {
     await page.mouse.click(bounds.x + bounds.width * x, bounds.y + bounds.height * y);
-    // Konva's double-click interval also applies to clicks at different positions.
     await page.waitForTimeout(450);
   }
 }
@@ -267,7 +266,6 @@ test("每个对象独立补必填属性，立即Enter使用最新值且Esc先取
   ]);
 });
 
-// Reject invalid input without entering the retryable transport/server-failure queue.
 test("业务失败可重试，保存中切题保持意图且迟到结果只归原题", async ({ page, request, seed }) => {
   test.setTimeout(90_000);
   const data = await prepare(request, seed);
@@ -371,6 +369,339 @@ async function storedQueue(page: Page) {
   );
 }
 
+async function installQueueAbort(page: Page) {
+  await page.addInitScript(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (
+      this: IDBObjectStore,
+      value: unknown,
+      key?: IDBValidKey,
+    ) {
+      const result = put.call(this, value, key);
+      if (key === "anno.offline-queue.v1" && sessionStorage.getItem("abort-annotation-queue"))
+        this.transaction.abort();
+      return result;
+    };
+  });
+}
+
+for (const outcome of ["retry", "reconnect"] as const) {
+  test(`未同步创建撤销的队列事务中止后保留原操作：${outcome}`, async ({
+    page,
+    context,
+    request,
+    seed,
+  }) => {
+    test.setTimeout(90_000);
+    const data = await prepare(request, seed);
+    await installQueueAbort(page);
+    await open(page, seed, data);
+    await choose(page);
+    await context.setOffline(true);
+    await drawBox(page, 0.3, 0.35, 0.14, 0.13);
+    await accepted(page, 1);
+    await expect.poll(async () => (await storedQueue(page)).length).toBe(1);
+    await page.evaluate(() => sessionStorage.setItem("abort-annotation-queue", "true"));
+    await page.keyboard.press("Control+z");
+    await expect(page.getByText("撤销未完成，可重试剩余操作", { exact: true })).toBeVisible();
+    await accepted(page, 1);
+    expect(await storedQueue(page)).toHaveLength(1);
+    const path = `**/api/v1/tasks/${data.task_ids[0]}/annotations`;
+    let allowReplay = false;
+    let acceptedPosts = 0;
+    if (outcome === "retry") {
+      await page.evaluate(() => sessionStorage.removeItem("abort-annotation-queue"));
+      await page.keyboard.press("Control+z");
+      await accepted(page, 0);
+      await expect.poll(async () => (await storedQueue(page)).length).toBe(0);
+    } else {
+      await page.route(path, async (route) => {
+        if (route.request().method() !== "POST") return route.continue();
+        if (!allowReplay) return route.fulfill({ status: 503, json: { detail: "offline" } });
+        const response = await route.fetch();
+        if (response.ok()) acceptedPosts++;
+        await route.fulfill({ response });
+      });
+    }
+    await context.setOffline(false);
+    await page.reload();
+    await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-image-ready", "true");
+    if (outcome === "reconnect") {
+      expect(await storedQueue(page)).toHaveLength(1);
+      await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[1]}`);
+      await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-image-ready", "true");
+      await page.evaluate(() => sessionStorage.removeItem("abort-annotation-queue"));
+      allowReplay = true;
+      await context.setOffline(true);
+      await context.setOffline(false);
+      await expect.poll(async () => (await saved(request, data)).length).toBe(1);
+      await expect.poll(async () => (await storedQueue(page)).length).toBe(0);
+      expect(acceptedPosts).toBe(1);
+      await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
+      await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-image-ready", "true");
+      await page.keyboard.press("Control+z");
+      await expect.poll(async () => (await saved(request, data)).length).toBe(0);
+    } else {
+      expect(await saved(request, data)).toHaveLength(0);
+    }
+  });
+}
+
+test("视频补关键帧只在 IndexedDB 提交后确认，冲突不入队且重连仅同步一次", async ({
+  page,
+  context,
+  request,
+  seed,
+}) => {
+  test.setTimeout(90_000);
+  const data = await prepare(request, seed);
+  const { task_id: taskId } = await seed.videoTask(data.project_id);
+  await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
+  const annotator = await seed.accessToken(data.annotator_email);
+  const created = await request.post(`${API_BASE}/api/v1/tasks/${taskId}/annotations`, {
+    headers: { Authorization: `Bearer ${annotator}` },
+    data: {
+      annotation_type: "video_track_bbox",
+      class_name: "car",
+      attributes: { verified: true },
+      geometry: {
+        type: "video_track_bbox",
+        track_id: "durable-geometry",
+        keyframes: [0, 10].map((frame_index) => ({
+          frame_index,
+          bbox: { x: 0.12 + frame_index / 100, y: 0.12, w: 0.12, h: 0.16 },
+          source: "manual",
+        })),
+      },
+    },
+  });
+  expect(created.ok(), await created.text()).toBe(true);
+  const track: { id: string; geometry: { keyframes: unknown[] } } = await created.json();
+  const readKeyframes = async () =>
+    (await saved(request, data, taskId)).find(({ id }) => id === track.id)?.geometry.keyframes;
+  const readHistory = () =>
+    page.evaluate((id) => {
+      const userId = JSON.parse(localStorage.getItem("auth-storage") ?? "null")?.state?.user?.id;
+      if (!userId) throw new Error("Expected an authenticated workbench history owner");
+      const entry = sessionStorage.getItem(`wb:hist:${userId}:${id}`);
+      return entry ? JSON.parse(entry) : { undo: [], redo: [] };
+    }, taskId);
+  const emptyHistory = { undo: [], redo: [] };
+  const addedKeyframe = {
+    frame_index: 1,
+    bbox: { x: 0.13, y: 0.12, w: 0.12, h: 0.16 },
+    source: "manual",
+  };
+  const [firstKeyframe, lastKeyframe] = track.geometry.keyframes;
+  const materialized = [firstKeyframe, addedKeyframe, lastKeyframe];
+  const command = {
+    kind: "videoKeyframe",
+    annotationId: track.id,
+    frameIndex: 1,
+    before: null,
+    after: addedKeyframe,
+  };
+  const undoHistory = { undo: [command], redo: [] };
+  const routePath = `**/api/v1/tasks/${taskId}/annotations/${track.id}`;
+  let status: 409 | 503 | null = 409;
+  let acceptedPatches = 0;
+  await page.route(routePath, async (route) => {
+    if (route.request().method() !== "PATCH") return route.continue();
+    if (status) return route.fulfill({ status, json: { detail: "injected edit failure" } });
+    const response = await route.fetch();
+    if (response.ok()) acceptedPatches++;
+    await route.fulfill({ response });
+  });
+  await installQueueAbort(page);
+  await seed.injectToken(page, data.annotator_email);
+  await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
+  await expect(page.getByTestId("video-konva-stage")).toBeVisible({ timeout: 25_000 });
+  const row = page.getByTestId("video-track-row").filter({ hasText: "durable-" });
+  await row.click();
+  await page.keyboard.press("k");
+  await page.keyboard.press("ArrowRight");
+  const frameState = page.getByTestId("video-track-context-state");
+  await expect(frameState).toHaveAttribute("data-state", "interpolated");
+  await expect(page.getByTestId("video-track-context-frame")).toHaveText("源帧 F1");
+  const add = page.getByRole("button", { name: "补关键帧", exact: true });
+  await add.click();
+  await expect(page.getByText("视频修改未保存", { exact: true })).toBeVisible();
+  await expect(frameState).toHaveAttribute("data-state", "interpolated");
+  expect(await storedQueue(page)).toHaveLength(0);
+  expect(await readHistory()).toEqual(emptyHistory);
+
+  status = 503;
+  await page.evaluate(() => sessionStorage.setItem("abort-annotation-queue", "true"));
+  await add.click();
+  await expect(page.getByText("本机保存失败，修改尚未保存", { exact: true })).toBeVisible();
+  await expect(frameState).toHaveAttribute("data-state", "interpolated");
+  expect(await storedQueue(page)).toHaveLength(0);
+  expect(await readHistory()).toEqual(emptyHistory);
+  expect(await readKeyframes()).toEqual(track.geometry.keyframes);
+
+  await page.evaluate(() => sessionStorage.removeItem("abort-annotation-queue"));
+  await page.getByRole("button", { name: "重试", exact: true }).click();
+  await expect(frameState).toHaveAttribute("data-state", "keyframe");
+  expect(await readHistory()).toMatchObject(undoHistory);
+  await expect.poll(async () => (await storedQueue(page)).length).toBe(1);
+  await page.reload();
+  await expect(page.getByTestId("video-konva-stage")).toBeVisible();
+  expect(await storedQueue(page)).toHaveLength(1);
+  expect(await readHistory()).toMatchObject(undoHistory);
+  await context.setOffline(true);
+  status = null;
+  await context.setOffline(false);
+  await expect.poll(async () => (await storedQueue(page)).length).toBe(0);
+  expect(acceptedPatches).toBe(1);
+  expect(await readKeyframes()).toMatchObject(materialized);
+
+  await row.click();
+  await page.keyboard.press("Control+z");
+  await expect.poll(readHistory).toMatchObject({ undo: [], redo: [command] });
+  expect(await readKeyframes()).toEqual(track.geometry.keyframes);
+
+  await page.keyboard.press("Control+Shift+z");
+  await expect.poll(readHistory).toMatchObject(undoHistory);
+  expect(await readKeyframes()).toMatchObject(materialized);
+  expect(acceptedPatches).toBe(3);
+  expect(await storedQueue(page)).toHaveLength(0);
+});
+
+test("图片批量撤销在首项和中间冲突时停止，刷新重试不会重复已恢复的对象", async ({
+  page,
+  request,
+  seed,
+}) => {
+  test.setTimeout(90_000);
+  const data = await prepare(request, seed);
+  const annotationsPath = `/api/v1/tasks/${data.task_ids[0]}/annotations`;
+  const creationKeys = new Map<number, string>();
+  await open(page, seed, data);
+  await choose(page);
+  for (const [index, x] of [0.25, 0.45, 0.65].entries()) {
+    const creation = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === annotationsPath &&
+        response.request().method() === "POST",
+    );
+    await drawBox(page, x, 0.4);
+    await accepted(page, index + 1);
+    const response = await creation;
+    expect(response.status()).toBe(201);
+    const key = await response.request().headerValue("idempotency-key");
+    expect(key).toBeTruthy();
+    creationKeys.set((await response.json()).geometry.x, key!);
+  }
+  await page.getByRole("switch", { name: "连续创建", exact: true }).click();
+  await expect(page.getByTestId("tool-btn-select")).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => (await storedQueue(page)).length).toBe(0);
+  const original = (await saved(request, data)).sort(
+    (a, b) => Number(a.geometry.x) - Number(b.geometry.x),
+  );
+  expect(original).toHaveLength(3);
+  const stage = page.getByTestId("workbench-stage");
+  for (const [index, { geometry }] of original.entries()) {
+    const position = await stage.evaluate(
+      (element, { x, y, w, h }) => ({
+        x:
+          Number(element.getAttribute("data-media-x")) +
+          (Number(x) + Number(w) / 2) * Number(element.getAttribute("data-media-width")),
+        y:
+          Number(element.getAttribute("data-media-y")) +
+          (Number(y) + Number(h) / 2) * Number(element.getAttribute("data-media-height")),
+      }),
+      geometry,
+    );
+    await stage.click({ position, modifiers: index ? ["Shift"] : [] });
+    await expect(stage).toHaveAttribute("data-selected-box-count", String(index + 1));
+  }
+  await expect(page.getByText("3 个已选中 · 批量", { exact: true })).toBeVisible();
+  await page
+    .getByRole("group", { name: "批量操作", exact: true })
+    .getByRole("button", { name: "批量删除", exact: true })
+    .click();
+  const confirm = page.getByTestId("delete-confirm-submit");
+  const deleted = page.getByText("已删除 3/3 个标注", { exact: true });
+  await expect(confirm.or(deleted)).toBeVisible();
+  if (await confirm.isVisible()) await confirm.click();
+  await expect(deleted).toBeVisible();
+  await expect.poll(async () => (await saved(request, data)).length).toBe(0);
+
+  const attempts: { x: number; key: string | undefined; status: number; reason?: string }[] = [];
+  const restoredIds: string[] = [];
+  await page.route(`**${annotationsPath}`, async (route) => {
+    const restore = route.request();
+    if (restore.method() !== "POST") return route.continue();
+    const { x } = restore.postDataJSON().geometry;
+    const headers = await restore.allHeaders();
+    const key = headers["idempotency-key"];
+    const shouldConflict = attempts.length === 0 || attempts.length === 2;
+    const response = shouldConflict
+      ? await route.fetch({
+          headers: {
+            ...headers,
+            "idempotency-key": [...creationKeys].find(([originalX]) => originalX !== x)![1],
+          },
+        })
+      : await route.fetch();
+    const body = await response.json();
+    attempts.push({ x, key, status: response.status(), reason: body.detail?.reason });
+    if (response.ok()) restoredIds.push(body.id);
+    await route.fulfill({ response });
+  });
+  const undo = page.getByTitle("撤销 (Ctrl+Z)", { exact: true });
+  const redo = page.getByTitle("重做 (Ctrl+Shift+Z)", { exact: true });
+  await undo.click();
+  await expect(
+    page.getByText("撤销未完成（本次已完成 0/3 项），可重试剩余操作", { exact: true }),
+  ).toBeVisible();
+  expect(attempts.map(({ status, reason }) => ({ status, reason }))).toEqual([
+    { status: 409, reason: "idempotency_conflict" },
+  ]);
+  expect(await saved(request, data)).toHaveLength(0);
+  await undo.click();
+  await expect(
+    page.getByText("撤销未完成（本次已完成 1/3 项），可重试剩余操作", { exact: true }),
+  ).toBeVisible();
+  expect(attempts.map(({ status, reason }) => ({ status, reason }))).toEqual([
+    { status: 409, reason: "idempotency_conflict" },
+    { status: 201 },
+    { status: 409, reason: "idempotency_conflict" },
+  ]);
+  expect(restoredIds).toHaveLength(1);
+  expect((await saved(request, data)).map(({ id }) => id)).toEqual(restoredIds);
+  await page.reload();
+  await expect(stage).toHaveAttribute("data-image-ready", "true");
+  await expect(stage).toHaveAttribute("data-user-box-count", "1");
+  await undo.click();
+  await expect.poll(async () => (await saved(request, data)).length).toBe(3);
+  await expect(redo).toBeEnabled();
+  expect(attempts.map(({ status }) => status)).toEqual([409, 201, 409, 201, 201]);
+  expect(attempts[0].key).toBeTruthy();
+  expect(attempts[2].key).toBeTruthy();
+  expect(attempts[1]).toMatchObject({ x: attempts[0].x, key: attempts[0].key });
+  expect(attempts[3]).toMatchObject({ x: attempts[2].x, key: attempts[2].key });
+  const restored = (await saved(request, data)).sort(
+    (a, b) => Number(a.geometry.x) - Number(b.geometry.x),
+  );
+  expect(restored.map(({ geometry }) => geometry)).toEqual(
+    original.map(({ geometry }) => geometry),
+  );
+  expect(restored.map(({ id }) => id).sort()).toEqual([...restoredIds].sort());
+  expect(await storedQueue(page)).toHaveLength(0);
+
+  const redoneIds: string[] = [];
+  await page.route(`**${annotationsPath}/*`, (route) => {
+    if (route.request().method() === "DELETE")
+      redoneIds.push(new URL(route.request().url()).pathname.split("/").at(-1)!);
+    return route.continue();
+  });
+  await redo.click();
+  await expect.poll(async () => (await saved(request, data)).length).toBe(0);
+  await expect(redo).toBeDisabled();
+  expect(redoneIds).toEqual([...restoredIds].reverse());
+});
+
 for (const failure of ["offline", "server"] as const) {
   test(`${failure === "offline" ? "断网" : "服务暂时不可用时"}创建等待IndexedDB接收，刷新队列保留且恢复网络仅同步一次`, async ({
     page,
@@ -393,7 +724,6 @@ for (const failure of ["offline", "server"] as const) {
     await drawBox(page, 0.3, 0.35, 0.14, 0.13);
     await accepted(page, 1);
     await expect.poll(async () => (await storedQueue(page)).length).toBe(1);
-    // Keep writes offline while allowing the page bundle and read APIs to reload.
     if (failure === "offline")
       await page.route(path, (route) =>
         route.request().method() === "POST"
@@ -465,7 +795,6 @@ test("半成品Esc不保存，工具绑定失效和任务锁会退出连续创�
     },
   });
   expect(updated.ok()).toBe(true);
-  // Let the project's normal 30s query freshness expire, then reconnect to revalidate.
   await page.waitForTimeout(31_000);
   await context.setOffline(true);
   await context.setOffline(false);
@@ -479,7 +808,6 @@ test("半成品Esc不保存，工具绑定失效和任务锁会退出连续创�
     toStatus: "review",
     reviewerEmail: data.reviewer_email,
   });
-  // The test-only status mutation does not emit the normal UI cache invalidation.
   await page.waitForTimeout(31_000);
   await context.setOffline(true);
   await context.setOffline(false);
@@ -514,8 +842,6 @@ test("切到视频退出连续模式，审核入口无法开启", async ({ page,
   await expect(page.getByTestId("continuous-creation-status")).toBeHidden();
   await expect(page.getByTestId("continuous-creation-controls")).toBeHidden();
 
-  // Reach review through the real workflow so the reviewer's mount-time claim
-  // sees frozen contributor evidence instead of a silent 409.
   const submitToken = await seed.accessToken(data.annotator_email);
   const submitted = await request.post(`${API_BASE}/api/v1/tasks/${data.task_ids[0]}/submit`, {
     headers: { Authorization: `Bearer ${submitToken}` },

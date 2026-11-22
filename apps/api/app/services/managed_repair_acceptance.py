@@ -236,8 +236,6 @@ async def qualify_acceptance(db, task, actor, request, prediction_id):
     try:
         selection = await request_selection(request)
     except (ValueError, TypeError):
-        # The route schema retains its ordinary 422 responses; malformed input
-        # never starts a source read or receives any private receipt.
         return None
     task_id = task.id
     prediction, metadata = await _candidate(db, task_id, prediction_id)

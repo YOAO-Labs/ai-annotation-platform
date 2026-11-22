@@ -1,12 +1,3 @@
-/**
- * 批次 Kanban 看板视图
- *
- * 7 态卡片墙（draft / active / annotating / reviewing / approved / rejected / archived），
- * 列内显示批次 mini-card；owner 视角支持 HTML5 drag-and-drop 拖拽迁移，受 VALID_TRANSITIONS 约束。
- * 非法目标列 drop 显示 toast。
- *
- * 与 BatchesSection 列表视图共用 useTransitionBatch；纯展示与拖拽分发，无独立后端调用。
- */
 import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -22,7 +13,6 @@ const COLUMNS: {
 }[] = [
   { id: "draft", label: "草稿", variant: "default" },
   { id: "active", label: "激活", variant: "accent" },
-  // pre_annotated: 让 admin 跑完 /ai-pre 后能在 Kanban 看到「AI 预标已就绪」紫色列
   { id: "pre_annotated", label: "AI 预标已就绪", variant: "ai" },
   { id: "annotating", label: "标注中", variant: "accent" },
   { id: "reviewing", label: "审核中", variant: "warning" },
@@ -31,11 +21,8 @@ const COLUMNS: {
   { id: "archived", label: "已归档", variant: "default" },
 ];
 
-// VALID_TRANSITIONS 镜像 — 与 apps/api/app/services/batch.py 的 VALID_TRANSITIONS 字典保持一致
-// 仅做前端 dryrun，最终鉴权与状态机由后端 transition 端点把关。
 const VALID_TRANSITIONS: Record<string, Set<string>> = {
   draft: new Set(["active"]),
-  // active 可去 pre_annotated (跑完 AI 预标自动转); 也保留原 annotating / archived
   active: new Set(["annotating", "pre_annotated", "archived"]),
   pre_annotated: new Set(["annotating", "active", "archived"]),
   annotating: new Set(["reviewing", "archived"]),

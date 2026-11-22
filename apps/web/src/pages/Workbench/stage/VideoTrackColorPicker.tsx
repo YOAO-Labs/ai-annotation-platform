@@ -4,9 +4,7 @@ import { useElementStyle } from "@/components/ui/useElementStyle";
 import { TRACK_COLOR_PALETTE } from "./colors";
 
 interface VideoTrackColorPickerProps {
-  /** 当前生效色（用于高亮选中的色块）。 */
   currentColor: string;
-  /** 是否存在覆盖色（决定是否显示「恢复默认」）。 */
   hasOverride: boolean;
   onPick: (color: string) => void;
   onReset: () => void;
@@ -41,7 +39,6 @@ function SwatchButton({
   );
 }
 
-/** 轻量 track 取色器：从固定调色板选色，或恢复默认（按 track_id 派生色）。 */
 export function VideoTrackColorPicker({
   currentColor,
   hasOverride,

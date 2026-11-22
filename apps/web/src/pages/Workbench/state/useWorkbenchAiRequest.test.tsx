@@ -364,6 +364,37 @@ describe("ordinary AI request ownership", () => {
 });
 
 describe("queued prediction job identity", () => {
+  it("distinguishes the pending POST, dispatch receipt, queued job, and execution", async () => {
+    const view = harness();
+    const response = deferred<typeof queued>();
+    const pendingJob = job({ status: "pending", progress_pct: 0 });
+    const lookup = deferred<{ items: AsyncJob[]; total: number }>();
+    api.list.mockReturnValue(lookup.promise);
+    api.get.mockResolvedValue(pendingJob);
+    act(() => {
+      view.result.current.start({
+        summary: summary(),
+        execute: () => response.promise,
+        cancellable: false,
+      });
+    });
+    expect(view.result.current.presentation.dispatchState).toBe("submitting");
+    await act(async () => response.resolve(queued));
+    expect(view.result.current.presentation.dispatchState).toBe("accepted");
+    await act(async () => lookup.resolve({ items: [pendingJob], total: 1 }));
+    await waitFor(() => expect(view.result.current.presentation.dispatchState).toBe("queued"));
+    act(() => {
+      view.client.setQueryData(["async-job", pendingJob.id], job());
+    });
+    await waitFor(() =>
+      expect(view.result.current.presentation).toMatchObject({
+        status: "running",
+        dispatchState: undefined,
+        progressPct: 35,
+      }),
+    );
+  });
+
   it("cannot cancel an image dispatch while the non-abortable POST is still pending", async () => {
     const view = harness();
     const response = deferred<typeof queued>();

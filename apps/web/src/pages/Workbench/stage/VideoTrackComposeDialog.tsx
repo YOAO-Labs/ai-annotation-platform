@@ -27,11 +27,6 @@ interface VideoTrackComposeDialogProps {
   onSubmit: (gapMode: VideoTrackGapMode) => void;
 }
 
-/**
- * Track Join 对话框：选中两条同类且帧号不重叠的轨迹跳连前，
- * 选择 gap 区填充模式（interpolate / outside）。merge / split 走各自既有路径，
- * 本对话框只覆盖 join 的 gap_mode 选择。
- */
 export function VideoTrackComposeDialog({
   open,
   onCancel,

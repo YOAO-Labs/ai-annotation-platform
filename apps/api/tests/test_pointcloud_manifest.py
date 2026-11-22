@@ -110,11 +110,10 @@ async def test_point_cloud_manifest_returns_scene(
     assert body["original_identity_path"] == (
         f"/api/v1/files/tasks/{task.id}/original-identity"
     )
-    # dataset 无 axis_convention 时 manifest 字段为 None,前端按 iso_8855 处理。
     assert body["axis_convention"] is None
 
     cameras = body["cameras"]
-    assert [c["name"] for c in cameras] == ["front", "rear"]  # 按 name 排序
+    assert [c["name"] for c in cameras] == ["front", "rear"]
     front, rear = cameras
     assert front["role"] == "camera_front"
     assert front["image_url"] is None
@@ -168,7 +167,6 @@ async def test_point_cloud_manifest_keeps_cameras_when_calibration_is_unavailabl
 ):
     user, token = super_admin
     task, _, _ = await _seed_lidar_scene(db_session, user.id)
-    # Resolve linked camera items in the same way as the endpoint's link facts.
     from app.services.task_dataset_link import get_linked_items
 
     links = await get_linked_items(db_session, task.id)
@@ -256,7 +254,6 @@ async def test_point_cloud_manifest_rejects_non_lidar_task(
 ):
     user, token = super_admin
     project = await create_project(db_session, owner_id=user.id, type_key="image-det")
-    # 默认 data_type == "image"
     task = Task(
         project_id=project.id,
         display_id=f"T-IMG-{uuid.uuid4().hex[:6]}",

@@ -138,7 +138,6 @@ async def exercise_original_relation_native(test_engine):
                     )
                 assert error.value.code == "original_relation_budget_exceeded"
                 await db.rollback()
-            # A successful share lock lives until the caller transaction ends.
             await sources.resolve_task_relation(db, task_id, lock=True)
             async with owner() as contender:
                 with pytest.raises(DBAPIError) as error:
@@ -150,7 +149,6 @@ async def exercise_original_relation_native(test_engine):
                 assert getattr(error.value.orig, "sqlstate", None) == "55P03"
                 await contender.rollback()
             await db.rollback()
-            # Compact locking ignores unselected cameras unless requested.
             async with owner() as blocker:
                 await blocker.scalar(
                     select(TaskDatasetItemLink)
@@ -170,7 +168,6 @@ async def exercise_original_relation_native(test_engine):
                 assert error.value.code == "storage_original_busy"
                 await blocker.rollback()
             await db.rollback()
-            # Holding the link, not the task, proves the narrow lock is real.
             async with owner() as blocker:
                 await db.execute(
                     text("SELECT set_config('aap.relation_probe', 'caller-work', true)")
@@ -198,12 +195,10 @@ async def exercise_original_relation_native(test_engine):
                     )
                 db.expunge(pending)
                 await blocker.rollback()
-                # The original caller transaction remains usable after savepoint rollback.
                 assert (
                     await sources.resolve_task_relation(db, task_id, lock=True)
                 ).item_id == item_id
                 await db.rollback()
-        # Conflicting direct and primary-link identities must not select either original.
         async with owner.begin() as db:
             other = DatasetItem(
                 id=uuid.uuid4(),

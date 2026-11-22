@@ -40,8 +40,6 @@ async def test_each_http_mutation_commits_before_the_next_independent_request(
         )
         await db.commit()
 
-    # This dependency deliberately has the same no-auto-commit lifetime as
-    # production get_db. Every request owns a new Session and connection lease.
     async def fresh_request():
         async with world.maker() as session:
             sessions.append(session)

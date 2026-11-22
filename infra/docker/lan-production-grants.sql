@@ -1,10 +1,3 @@
--- Run with psql as the migration owner after the application migration head is
--- installed. All changes are confined to the selected database and runtime role.
--- psql -v expected_database=annotation_production -v application_role=anno_prod_app
---       -v migration_role=anno_prod_owner -v asset_cleanup_role=yoao_asset_cleanup_client
---       -f lan-production-grants.sql
--- application_role composes embedded owners through their published capabilities.
--- Identity, Audit, and Notifications writes use owner capabilities; other legacy access remains.
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -58,7 +51,6 @@ BEGIN
 END $$;
 
 REVOKE ALL ON DATABASE :"expected_database" FROM PUBLIC;
--- Retained Predictions and user-performance maintenance still needs these privileges.
 GRANT CONNECT, TEMPORARY ON DATABASE :"expected_database" TO :"application_role";
 REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_cleanup_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_cleanup_role";
@@ -240,7 +232,6 @@ GRANT SELECT ON yoao_labeling_v1.task_rows,
     yoao_labeling_v1.annotation_comment_facts,
     yoao_labeling_v1.annotation_feedback_facts, yoao_labeling_v1.task_event_facts
     TO :"application_role";
--- Embedded Identity adapters use the same owner capabilities as isolated clients.
 GRANT USAGE ON SCHEMA yoao_identity_v1, yoao_identity_keys_v1,
     yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1,
     yoao_identity_groups_v1, yoao_identity_deactivation_v1,
@@ -250,7 +241,6 @@ GRANT USAGE ON SCHEMA yoao_identity_v1, yoao_identity_keys_v1,
     yoao_identity_deletions_v1, yoao_identity_offboarding_v1,
     yoao_identity_briefs_v1,
     yoao_settings_v1, yoao_notifications_v1 TO :"application_role";
--- Existing API bindings call these owner functions inside the business transaction.
 GRANT USAGE ON SCHEMA yoao_audit_v1 TO :"application_role";
 REVOKE ALL ON FUNCTION yoao_audit_v1.maintenance_command(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION yoao_audit_v1.append_events(jsonb),
@@ -411,7 +401,6 @@ REVOKE ALL ON FUNCTION
     yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
     FROM :"application_role", PUBLIC;
 
--- Fixture authority never follows a test database suffix into the runtime role.
 REVOKE ALL ON SCHEMA yoao_fixture_v1, yoao_identity_fixture_v1, yoao_workspace_fixture_v1
     FROM :"application_role";
 REVOKE ALL ON ALL TABLES IN SCHEMA yoao_fixture_v1, yoao_identity_fixture_v1,
@@ -756,7 +745,6 @@ GRANT EXECUTE ON FUNCTION
         timestamptz, timestamptz, bigint, integer
     )
     TO :"application_role";
--- These cross-owner dependencies are called only by Workspace SECURITY DEFINER code.
 REVOKE ALL ON FUNCTION
     yoao_identity_v1.workspace_configuration_org_scope(uuid, uuid),
     yoao_assets_v1.workspace_configuration_datasets(uuid),
@@ -878,7 +866,6 @@ BEGIN
     END IF;
 END;
 $image_export_scope_acl$;
--- Compose the existing Spatial native contract for default API/worker calls.
 GRANT SELECT ON yoao_assets_v1.spatial_item_references,
     yoao_assets_v1.spatial_scene_references,
     yoao_assets_v1.labeling_dataset_item_facts TO :"application_role";
@@ -907,9 +894,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)
     TO :"application_role";
 
--- The monolithic API/Celery runtime composes retained video input capabilities
--- locally. Keep this bounded to workflow, control, worker and labeling calls;
--- system sweep and video-input garbage operations stay with their owners.
 GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.capture_accepted_video_manifest(uuid, uuid, uuid, jsonb),
     yoao_assets_v1.read_accepted_video_manifest(uuid, uuid, uuid),
@@ -938,8 +922,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_labeling_v1.accepted_video_input_referenced(uuid)
     TO :"application_role";
 
--- The monolithic API/Celery runtime still composes the image media owner
--- locally. Preserve its published image runtime surface alongside video.
 GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.read_video_derivative_links(uuid[]),
     yoao_assets_v1.publish_image_pyramid_thumbnail(uuid,integer,uuid),
@@ -976,9 +958,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.complete_image_garbage(uuid,uuid)
     TO :"application_role";
 
--- Retained accepted-image inputs and manifests are used by the legacy
--- API/Celery adapter. Keep their public workflow/control/worker/Labeling calls
--- here; input sweep, input garbage and private receipt/pin helpers stay owner-only.
 GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.find_accepted_image_input(uuid,uuid,uuid),
     yoao_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb),
@@ -1000,7 +979,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_labeling_v1.copy_annotation_input_sources(uuid,uuid)
     TO :"application_role";
 
--- Mask edit capabilities are restricted to explicitly granted consumers.
 REVOKE ALL ON FUNCTION yoao_labeling_v1.mask_edit_command(jsonb),
     yoao_labeling_v1.mask_revision_command(jsonb),
     yoao_labeling_v1.ai_mask_accept_command(jsonb) FROM PUBLIC;
@@ -1044,10 +1022,7 @@ GRANT EXECUTE ON FUNCTION yoao_assets_v1.pending_storage_deletions_v2(
     yoao_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer),
     yoao_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)
     TO :"asset_cleanup_role";
--- Refresh explicit runtime grants after migrations; blanket defaults expose owner storage.
 
--- User-performance maintenance retains this MV; prediction partitions use
--- their Labeling owner. The migration role inherits the runtime, never vice versa.
 DO $$
 BEGIN
     EXECUTE format('ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO %I',
@@ -1068,7 +1043,6 @@ BEGIN
     END IF;
 END $$;
 
--- Keep fixed operational capabilities; fence Workspace storage in embedded runtimes.
 DO $workspace_private_acl$
 DECLARE
     v_runtime name := current_setting('yoao.application_role');
@@ -1308,7 +1282,6 @@ BEGIN
         RAISE EXCEPTION 'The Assets cleanup role can execute outside its eleven cleanup functions';
     END IF;
 END $$;
--- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
 DECLARE
     v_runtime name := current_setting('yoao.application_role');

@@ -701,10 +701,6 @@ async def test_presence_operator_preserves_cutoff_and_null_timestamp_rules(test_
                     ),
                     {"id": user_id, "status": status, "seen": seen},
                 )
-            # The sweep is global: every online presence row whose last_seen is
-            # missing or before the cutoff is rewritten.  Park the rows left by
-            # earlier files inside this savepoint so only this test's fixtures
-            # can match; the fixture teardown rolls the parking back.
             await session.execute(
                 text(
                     "UPDATE public.identity_account_presence SET status='offline' "
@@ -908,8 +904,6 @@ async def test_avatar_upload_receipt_publishes_and_retires_atomically(test_engin
                 )
                 == "upload:" + new_token
             )
-        # The operation receipt replays the verified publication without a
-        # second state transition or a second audit event.
         async with maker.begin() as session:
             replay = await _apply(
                 session,

@@ -14,9 +14,6 @@ from app.services.video_collaboration import geometry_frame_bounds, segment_work
 from app.services.video_context import derive_sampled_frames, derive_step
 
 
-# ── VideoSamplingConfig 校验 ─────────────────────────────────────────
-
-
 def test_sampling_config_default_is_none():
     cfg = VideoSamplingConfig()
     assert cfg.mode == "none"
@@ -148,9 +145,6 @@ def test_geometry_frame_bounds_includes_keyframes_and_outside_ranges():
     ) == (7, 7)
 
 
-# ── derive_step ──────────────────────────────────────────────────────
-
-
 def test_derive_step_empty_config_is_one():
     assert derive_step(60, {}) == 1
 
@@ -169,14 +163,11 @@ def test_derive_step_fps_integer_ratio():
 
 
 def test_derive_step_fps_non_integer_ratio_rounds():
-    # 60 / 25 = 2.4 → round → 2 (≈30fps, 计划 §7 已知近似)
     assert derive_step(60, {"mode": "fps", "target_fps": 25}) == 2
-    # 30 / 12 = 2.5 → round → 2 (banker's rounding)
     assert derive_step(30, {"mode": "fps", "target_fps": 12}) == 2
 
 
 def test_derive_step_fps_target_exceeds_source_floors_to_one():
-    # target_fps > source_fps → ratio < 1 → round → 0 → clamp to 1
     assert derive_step(10, {"mode": "fps", "target_fps": 30}) == 1
 
 
@@ -197,9 +188,6 @@ def test_derive_step_unknown_mode_is_one():
     assert derive_step(60, {"mode": "bogus"}) == 1
 
 
-# ── derive_sampled_frames ────────────────────────────────────────────
-
-
 def test_derive_sampled_frames_step_one_is_all_frames():
     assert derive_sampled_frames(5, 1) == [0, 1, 2, 3, 4]
 
@@ -209,7 +197,6 @@ def test_derive_sampled_frames_step_five():
 
 
 def test_derive_sampled_frames_exact_multiple_boundary():
-    # frame_count=10, step=5 → 0,5 (帧号 < frame_count, 不含 10)
     assert derive_sampled_frames(10, 5) == [0, 5]
 
 

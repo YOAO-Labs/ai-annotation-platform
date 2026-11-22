@@ -18,21 +18,18 @@ async def test_audit_logs_is_partitioned(db_session: AsyncSession):
         text("SELECT relkind FROM pg_class WHERE relname='audit_logs'")
     )
     relkind = res.scalar_one_or_none()
-    # 'p' = partitioned table; 'r' = ordinary table（asyncpg 返回 bytes "char"）
     norm = relkind.decode() if isinstance(relkind, (bytes, bytearray)) else relkind
     assert norm == "p", f"audit_logs should be partitioned, got relkind={relkind!r}"
 
 
 async def test_immutability_trigger_blocks_update(db_session: AsyncSession):
     """不可变 trigger 在父表上挂，应级联到所有子分区。"""
-    # 写一条审计行，再尝试 UPDATE
     await db_session.execute(
         text(
             "INSERT INTO audit_logs (action, created_at) VALUES ('test.action', now())"
         )
     )
     await db_session.flush()
-    # UPDATE 应抛错
     with pytest.raises(Exception) as exc:
         await db_session.execute(
             text(
@@ -47,8 +44,6 @@ async def test_immutability_trigger_blocks_update(db_session: AsyncSession):
 async def test_ensure_future_partitions_creates_missing(db_session: AsyncSession):
     """调用 ensure 应保证未来 N 月分区存在，已存在的不重复创建。"""
     await AuditPartitionService.ensure_future_partitions(db_session, months_ahead=6)
-    # 多数月份已在 0037 迁移建好；但向 6 月（往后）会有新增
-    # 不强求 created 数量，只要不报错且后续再调用为空
     again = await AuditPartitionService.ensure_future_partitions(
         db_session, months_ahead=6
     )
@@ -76,9 +71,6 @@ async def test_export_detail_helper_includes_actor_and_request(
     )
     assert res.status_code == 200, res.text
 
-    # 注意：httpx_client 走同一 db_session；audit log 已在该 session 中可见
-    # 此处单独取 db_session 在另一个 fixture，需要从已知的 super_admin 创建查询
-    # 简化：直接断言 response body 含 _export_meta
     body = res.json()
     assert "_export_meta" in body
     assert body["_export_meta"]["exported_by"] == user.email
@@ -91,8 +83,6 @@ async def test_ensure_rejects_independent_same_named_table(db_session):
     from app.services.audit_archive_partitions import AuditArchiveError, partition_name
     from app.services import audit_partition_service as service
 
-    # Override only the clock, so the collision is reached without creating a
-    # large span of unrelated future partitions in this savepoint-backed test.
     target = date(2080, 1, 1)
     name = partition_name(target)
     await db_session.execute(text(f'CREATE TABLE public."{name}" (id bigint)'))

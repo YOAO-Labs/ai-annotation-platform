@@ -1,8 +1,3 @@
-// geometryMetrics 单测:
-// - bbox 像素 / 占图比 / 位置 / 宽高比;无 imgW/imgH 时降级
-// - polygon 鞋带面积 + 周长 + 占图比;多连通域总面积
-// - polyline 总长;keypoint 可见计数;rotated 旋转角
-
 import { describe, expect, it } from "vitest";
 import type { Geometry } from "@/types";
 import { geometryMetrics, shoelaceArea, polylinePerimeterPx } from "./geometryMetrics";
@@ -34,7 +29,6 @@ describe("shoelaceArea / polylinePerimeterPx", () => {
     ).toBe(0);
   });
   it("闭合周长计入闭合边", () => {
-    // 0.5×0.5 方形 @1000×800: 500+400+500+400 = 1800
     const p = polylinePerimeterPx(
       [
         [0, 0],
@@ -71,7 +65,7 @@ describe("geometryMetrics · bbox", () => {
     expect(byLabel(m, "尺寸").value).toBe("480×216 px");
     expect(byLabel(m, "占图").value).toBe("5.0%");
     expect(byLabel(m, "位置").value).toBe("192, 108");
-    expect(byLabel(m, "宽高比").value).toBe("2.22 : 1"); // 480/216
+    expect(byLabel(m, "宽高比").value).toBe("2.22 : 1");
   });
 
   it("无像素维度:降级为相对值,省略宽高比", () => {
@@ -83,7 +77,7 @@ describe("geometryMetrics · bbox", () => {
 
   it("竖向框宽高比写作 1 : N", () => {
     const tall: Geometry = { type: "bbox", x: 0, y: 0, w: 0.1, h: 0.4 };
-    const m = geometryMetrics(tall, 1000, 1000); // 100×400 → 1 : 4
+    const m = geometryMetrics(tall, 1000, 1000);
     expect(byLabel(m, "宽高比").value).toBe("1 : 4.00");
   });
 });
@@ -102,7 +96,7 @@ describe("geometryMetrics · polygon", () => {
     const m = geometryMetrics(g, 1000, 800);
     expect(byLabel(m, "顶点").value).toBe("4");
     expect(byLabel(m, "占图").value).toBe("25.0%");
-    expect(byLabel(m, "面积").value).toBe("≈ 200,000 px²"); // 0.25*1000*800
+    expect(byLabel(m, "面积").value).toBe("≈ 200,000 px²");
     expect(byLabel(m, "周长").value).toBe("≈ 1,800 px");
   });
 
@@ -114,7 +108,7 @@ describe("geometryMetrics · polygon", () => {
         [0.5, 0],
         [0.5, 0.5],
         [0, 0.5],
-      ], // 0.25
+      ],
       holes: [
         [
           [0.1, 0.1],
@@ -122,13 +116,13 @@ describe("geometryMetrics · polygon", () => {
           [0.3, 0.3],
           [0.1, 0.3],
         ],
-      ], // 0.04
+      ],
     };
     const m = geometryMetrics(g, 1000, 1000);
-    expect(byLabel(m, "占图").value).toBe("21.0%"); // 0.25 - 0.04
+    expect(byLabel(m, "占图").value).toBe("21.0%");
     expect(byLabel(m, "顶点").value).toBe("8");
     expect(byLabel(m, "顶点").hint).toBe("外环 4 + 1 内环");
-    expect(byLabel(m, "周长").value).toBe("≈ 2,800 px"); // 外环 2000 + 内环 800
+    expect(byLabel(m, "周长").value).toBe("≈ 2,800 px");
   });
 });
 
@@ -167,7 +161,7 @@ describe("geometryMetrics · 其它几何", () => {
     };
     const m = geometryMetrics(g, 1000, 1000);
     expect(byLabel(m, "环 / 顶点").value).toBe("3 / 12");
-    expect(byLabel(m, "占图").value).toBe("49.0%"); // 0.25 - 0.01 + 0.25
+    expect(byLabel(m, "占图").value).toBe("49.0%");
   });
 
   it("polyline 点数 + 总长", () => {

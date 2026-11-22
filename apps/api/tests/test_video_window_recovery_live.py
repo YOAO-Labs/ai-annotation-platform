@@ -1063,8 +1063,6 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                                 {"job": job_id},
                             )
                         ).one()
-                    # Duplicate delivery cannot reopen an already settled
-                    # execution or replace its original writer receipt.
                     settled_execution = await _snapshot_claim(media.sessions, job_id)
                     await _attempt_tracker_run(execution_sessions, job_id)
                     assert (

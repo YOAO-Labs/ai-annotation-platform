@@ -177,7 +177,6 @@ class ImportVerifier:
                         with suppress(asyncio.CancelledError, Exception):
                             task.result()
             except (_TransientVerificationError, TimeoutError):
-                # Recovery only asks for this operation's status; it never reposts verification.
                 path = "/v1/import/verify-status"
             else:
                 check()

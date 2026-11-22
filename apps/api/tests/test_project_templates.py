@@ -139,7 +139,6 @@ async def test_list_visibility_filters(httpx_client, db_session, super_admin):
     db_session.add(org)
     await db_session.flush()
 
-    # other_pm 不在 org 内
     await _seed_template(db_session, other_pm.id, name="他私有", scope="private")
     await _seed_template(
         db_session,
@@ -151,7 +150,6 @@ async def test_list_visibility_filters(httpx_client, db_session, super_admin):
     await _seed_template(db_session, other_pm.id, name="他公共", scope="public")
     await db_session.commit()
 
-    # 以 project_admin (新建一个) 视角调用
     pm = await _seed_user(db_session, UserRole.PROJECT_ADMIN.value, "viewer-pm")
     await db_session.commit()
     from app.core.security import create_access_token
@@ -223,7 +221,6 @@ async def test_update_only_by_creator_or_super_admin(
         json={"name": "被改了"},
         headers=_auth(pm_token),
     )
-    # pm_user 看不到 (private + 非 created_by) → 404
     assert resp.status_code == 404
 
 
@@ -411,7 +408,6 @@ async def test_duplicate_creates_private_copy(httpx_client, db_session, super_ad
     assert data["scope"] == "private"
     assert data["name"].endswith("(副本)")
     assert data["classes"] == ["a", "b"]
-    # JSONB 深拷贝, 改副本不影响源 (这里只做 API 层 round-trip 校验)
     assert data["id"] != str(src.id)
 
 
@@ -451,10 +447,8 @@ async def test_apply_template_creates_project_and_bumps_usage(
     assert project_data["classes"] == ["car"]
     assert project_data["ai_enabled"] is True
     assert project_data["annotation_guide"] == "# 模板指引"
-    # 模板不带 guide_assets, 新项目 guide_assets 应为空
     assert project_data["guide_assets"] == []
 
-    # 复读模板, usage_count + 1
     resp2 = await httpx_client.get(
         f"/api/v1/project-templates/{t_id}", headers=_auth(token)
     )
@@ -522,7 +516,6 @@ async def test_template_id_and_source_project_id_mutually_exclusive(
         "source_project_id": str(src.id),
     }
     resp = await httpx_client.post("/api/v1/projects", json=body, headers=_auth(token))
-    # pydantic model_validator → 422
     assert resp.status_code == 422, resp.text
 
 

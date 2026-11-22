@@ -16,7 +16,6 @@ from linux_pidfd import (
 )
 from storage_s3_contract import ContractError, require
 
-# Keep exact pidfds and Popen handles reachable if cooperative drain fails.
 _unsettled_consumers = []
 
 
@@ -105,8 +104,6 @@ def _track_group_members(group, tracked):
 
 
 def _signal_consumer(group, tracked, sig):
-    # The leader is still unreaped; signal exact descriptors, not a group whose
-    # members may disappear before their individual delivery can be observed.
     leader = open_pidfd(group)
     try:
         if _pidfd_live(leader):
@@ -167,8 +164,6 @@ def _drain_consumer(child, tracked, *, request_stop=True):
     while _group_live(child.pid) or any(_pidfd_live(fd) for fd in tracked.values()):
         if time.monotonic() >= deadline:
             unsettled = ContractError("raster_consumer_group_unsettled")
-            # The caller must retain these exact handles rather than interpreting
-            # a deadline as physical settlement.
             unsettled.child = child
             unsettled.pidfds = tracked
             unsettled.descendant_outcomes = _descendant_outcomes(tracked, reap=False)
@@ -188,8 +183,6 @@ def _drain_consumer(child, tracked, *, request_stop=True):
             raise unsettled
         time.sleep(0.05)
     result = child.wait(timeout=0.1)
-    # Adopted children may exit before we signal them. Reap their actual status
-    # too; only an unsignalled child already reaped by its parent may be absent.
     outcomes = _descendant_outcomes(tracked, reap=True)
     if any(
         outcome is None

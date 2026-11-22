@@ -1,4 +1,3 @@
-# Layer onto the complete Inference owner; never the primary infrastructure stack.
 services:
   inference:
     image: ${AAP_INFERENCE_IMAGE:?Set the accepted Inference image}

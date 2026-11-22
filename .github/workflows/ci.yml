@@ -7,9 +7,6 @@ on:
     branches: [main]
   workflow_dispatch:
     inputs:
-      # Plan §6.5-5: the manual entry states its scope explicitly instead of
-      # implying one from the event name. The planned selection honours it;
-      # the legacy rollback mode keeps its extended-only behavior.
       e2e_scope:
         description: "E2E scope for the manual run (shadow report)"
         required: false
@@ -19,16 +16,11 @@ on:
           - extended
           - full
 
-# Cancel superseded PR runs; retain every main-branch validation.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Backend validation runs through one reusable workflow, called four times
-  # with static shard inputs. Each call is a whole backend validation on its own
-  # runner (services, dependency sync, migration and OpenAPI checks, coverage);
-  # only the pytest items are partitioned, deterministically, by test file.
   backend-tests-shard-zero:
     name: Backend tests shard zero
     uses: ./.github/workflows/backend-test.yml
@@ -65,9 +57,6 @@ jobs:
     secrets:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-  # The stable required check keeps its id and name. It never runs tests itself;
-  # it fails closed unless every real shard job ended in success, so a skipped,
-  # cancelled or failed shard cannot be masked by an ordinary no-op success.
   pytest:
     name: Backend tests
     runs-on: ubuntu-latest
@@ -94,7 +83,6 @@ jobs:
           done
           exit "$failed"
 
-  # 示例 ML backend contract tests 保活：防 docs-site/dev/examples 与协议文档脱节。
   examples-pytest:
     name: ML examples tests
     runs-on: ubuntu-latest
@@ -128,7 +116,6 @@ jobs:
           path: docs-site/dev/examples/mock-v2-backend/mock-v2-test-results.xml
           if-no-files-found: error
 
-  # Python SDK / CLI / TUI 测试（packages/python-sdk）。
   python-sdk-pytest:
     name: Python SDK tests
     runs-on: ubuntu-latest
@@ -289,7 +276,6 @@ jobs:
           name: web-video-timeline-layout
           path: ${{ runner.temp }}/video-timeline-layout.*
           if-no-files-found: error
-      # bundle size budget 守护：超过 .size-limit.json 阈值即阻断 PR。
       - name: Bundle size check
         working-directory: apps/web
         run: pnpm size
@@ -335,7 +321,11 @@ jobs:
         working-directory: apps/web
         run: pnpm typecheck
       - name: Repository lint
+        env:
+          COMMENT_LINT_BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD^' }}
         run: pnpm lint
+      - name: Comment ratchet regression cases
+        run: pnpm lint:comments --test
       - name: Pre-commit full repository check
         run: >-
           uv tool run --from pre-commit==4.6.1 pre-commit run
@@ -355,8 +345,6 @@ jobs:
 
   docs-build:
     name: Docs build
-    # 任何 PR 都跑：让 dead-link / hotkeys SoT 漂移 / snippet 不一致即时暴露。
-    # 本地构建约 5s + prebuild 同步 openapi/hotkeys/snippet 约 2s。
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -397,13 +385,8 @@ jobs:
           E2E_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           E2E_SHADOW_PATH: ${{ runner.temp }}/e2e-shadow.json
           E2E_DISPATCH_SCOPE: ${{ inputs.e2e_scope }}
-          # Documented rollback: set the repository variable
-          # E2E_SELECTION_MODE=legacy to restore the frozen pre-P8 selection
-          # without a code change (empty/unset keeps the planned default).
           E2E_SELECTION_MODE: ${{ vars.E2E_SELECTION_MODE }}
         run: node scripts/plan-e2e-suites.mjs "$E2E_BASE_SHA" >> "$GITHUB_OUTPUT"
-      # The planning job records the legacy-vs-planned comparison every run;
-      # the stable `Frontend E2E` name is preserved across the P9 switch.
       - name: Record shadow E2E selection
         env:
           SHADOW_PATH: ${{ steps.plan.outputs.shadow_path }}
@@ -448,9 +431,6 @@ jobs:
           path: ${{ steps.plan.outputs.shadow_path }}
           if-no-files-found: error
 
-  # P6 handoff wiring: the CPU contract suites (shared packages + five ML
-  # backends, including the 12 CPU-torch files) execute through the dedicated
-  # reusable workflow. Path filters live here; execution lives there.
   ml-cpu:
     name: ML CPU contract tests
     needs: [e2e-plan]
@@ -484,8 +464,6 @@ jobs:
       - name: Audit planned suites against actual results
         if: needs.e2e-plan.outputs.required != ''
         env:
-          # This manifest contains only the bounded suite IDs/policies, never
-          # changed paths or the shadow report; it is safe to transfer via env.
           E2E_REQUIRED: ${{ needs.e2e-plan.outputs.required }}
           E2E_RUN_SUITES: ${{ needs.e2e-plan.outputs.run-suites }}
         run: |
@@ -493,8 +471,6 @@ jobs:
           if [ "$E2E_RUN_SUITES" = "true" ]; then
             node scripts/audit-e2e-requirements.mjs required-suites.json suite-status-raw/suite-status
           else
-            # Documented docs-only skip: the manifest must carry an explicit
-            # docs-only classification with a reason (validated by the audit).
             mkdir -p empty-status
             node scripts/audit-e2e-requirements.mjs required-suites.json empty-status
           fi

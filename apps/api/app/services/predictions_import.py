@@ -64,9 +64,6 @@ _VIDEO_PREDICTION_UNITS = {
 }
 
 
-# ── geometry kind → LabelStudio shape 适配 ─────────────────────────
-
-
 def internal_geometry_to_ls_shape(
     geometry: dict[str, Any],
     class_name: str,
@@ -105,7 +102,6 @@ def internal_geometry_to_ls_shape(
         points = geometry.get("points") or []
         if len(points) < 3:
             return None
-        # LabelStudio polygonlabels: points 是 [[x*100, y*100], ...]
         ls_points = [
             [float(pt[0]) * 100, float(pt[1]) * 100] for pt in points if len(pt) == 2
         ]
@@ -131,7 +127,6 @@ def internal_geometry_to_ls_shape(
         polygons = geometry.get("polygons") or []
         if not polygons:
             return None
-        # multi_polygon LS shape: value.polygons = [{points, holes?}, ...]
         ls_polys: list[dict[str, Any]] = []
         for poly in polygons:
             pts = poly.get("points") or []
@@ -193,7 +188,6 @@ def internal_geometry_to_ls_shape(
         rad = math.radians(angle)
         cos_a = math.cos(rad)
         sin_a = math.sin(rad)
-        # LabelStudio rectangle rotation is anchored at the rotated top-left corner.
         x = cx + (-w / 2) * cos_a - (-h / 2) * sin_a
         y = cy + (-w / 2) * sin_a + (-h / 2) * cos_a
         return {
@@ -258,9 +252,6 @@ def internal_geometry_to_ls_shape(
         }
 
     return None
-
-
-# ── purge / overwrite 语义 ────────────────────────────────────────────
 
 
 def _empty_purge_counts() -> dict[str, int]:
@@ -379,7 +370,6 @@ async def import_native_json(
 
     for block in envelope.tasks:
         match_dict = block.task_match.model_dump(exclude_none=True)
-        # 兜底用 task block 顶层 file_path (兼容客户手工组装 task_match 漏写 file_path).
         if "file_path" not in match_dict and block.file_path:
             match_dict["file_path"] = block.file_path
 
@@ -398,7 +388,6 @@ async def import_native_json(
                 result.skipped += 1
             continue
 
-        # One prediction entry may contain multiple shapes for the same candidate.
         for entry in block.predictions:
             mask_geometries: list[dict[str, Any]] = []
             prepared_shapes: list[dict[str, Any]] = []
@@ -660,9 +649,6 @@ def _normalize_video_prediction_geometry(
     return normalized
 
 
-# ── COCO importer ──────────────────────────────────────────────────
-
-
 def _coco_bbox_geometry(
     bbox: Any,
     *,
@@ -842,7 +828,6 @@ async def import_coco(
             result.skipped += 1
             continue
 
-        # 匹配: 优先用 file_name 当 file_path; 兼容 file_name 顶层带斜杠子目录.
         match_dict = {"file_path": file_name}
         task = await resolve_task(db, project_id, match_dict)
         if task is None:
@@ -856,9 +841,6 @@ async def import_coco(
             continue
 
         score = ann.get("score")
-        # 预标注导入缺省满分: COCO GT 标注通常无 score, 缺省视作 100% 置信(确定标签)。
-        # 否则 score=null 经 to_internal_shape 落为 confidence=0.0, 被工作台默认 50% 阈值
-        # 全量过滤而不可见。COCO 结果格式若带 score 则保留原值。
         confidence = float(score) if isinstance(score, (int, float)) else 1.0
 
         rle: dict[str, Any] | None = None
@@ -960,9 +942,6 @@ async def import_coco(
         result.imported += 1
 
     return result
-
-
-# ── YOLO zip importer (det / obb / seg) ─────────────────────────────
 
 
 YOLO_VARIANTS = {"det", "obb", "seg"}
@@ -1084,8 +1063,6 @@ async def import_yolo(
                 continue
             assert parsed is not None
             geometry, class_name = parsed
-            # 预标注导入缺省满分: YOLO label 无置信度列, 缺省视作 100%(确定标签)。
-            # 否则经 to_internal_shape 落为 confidence=0.0, 被工作台默认 50% 阈值过滤而不可见。
             ls_shape = internal_geometry_to_ls_shape(geometry, class_name, 1.0)
             if ls_shape is None:
                 result.errors.append(
@@ -1111,7 +1088,7 @@ async def import_yolo(
                 project_id=project_id,
                 ml_backend_id=None,
                 result=ls_shapes,
-                score=1.0,  # YOLO label 无分数 → 预测级 score 同样缺省满分(与逐 shape 一致)
+                score=1.0,
                 model_version=model_version_fallback,
                 source="external_import",
                 write_scope=capture_labeling_write_scope(

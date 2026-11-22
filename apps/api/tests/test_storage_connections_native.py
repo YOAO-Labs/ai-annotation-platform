@@ -170,8 +170,6 @@ async def test_native_connection_reads_preserve_visibility_and_keep_ciphertext_o
         secret=b"private-ciphertext-three",
     )
 
-    # Visibility includes the actor's own rows and every global connection.
-    # Page that complete scope without changing another fixture's authority.
     expected_ids = [
         str(connection_id)
         for connection_id in await db_session.scalars(
@@ -320,7 +318,6 @@ async def test_native_connection_replay_survives_creator_role_change_and_delete(
                 "secret_enc": None,
                 "source_snapshot": initial_capture["source_snapshot"],
                 "policy_digest": None,
-                # A name-only/no-op update does not consult Settings.
                 "fallback_allowlist": "null",
                 "audit_context": "{}",
             },
@@ -331,7 +328,6 @@ async def test_native_connection_replay_survives_creator_role_change_and_delete(
     await db_session.execute(
         text("UPDATE public.users SET role='viewer' WHERE id=:id"), {"id": actor_id}
     )
-    # Owner creation replay uses the saved owner scope and current creator identity.
     assert _data(await _call(db_session, _CREATE, arguments)) == created
 
     update_operation = uuid4()
@@ -490,7 +486,6 @@ async def test_native_connection_source_and_policy_snapshots_fence_replacement(
         "config": replacement,
         "secret_digest": None,
     }
-    # A current Settings row now supersedes the older environment/database policy.
     await db_session.execute(
         text(
             "INSERT INTO public.system_settings(key, value_type, value_json) "

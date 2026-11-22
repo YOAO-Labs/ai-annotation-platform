@@ -1,9 +1,3 @@
--- Grant the fixed Jobs lifecycle capabilities to the API and one function-only LOGIN.
--- Run after migration 0327 and module-data-grants.sql as the migration role.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v jobs_owner=jobs_code -v api_role=api_runtime \
---   -v lifecycle_client=yoao_jobs_lifecycle_client \
---   -f infra/docker/jobs-lifecycle-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

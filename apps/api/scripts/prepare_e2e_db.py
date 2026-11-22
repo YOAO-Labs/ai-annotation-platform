@@ -30,7 +30,6 @@ async def prepare_e2e_database(database_url: str) -> bool:
     engine = create_async_engine(maintenance_url, isolation_level="AUTOCOMMIT")
     try:
         async with engine.connect() as connection:
-            # Session-level lock closes the check/create race between concurrent runners.
             await connection.execute(
                 text("SELECT pg_advisory_lock(hashtext(:database_name))"),
                 {"database_name": target_database},

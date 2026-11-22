@@ -57,8 +57,6 @@ def world(monkeypatch):
         }
 
     async def check_source(db, binding):
-        # The real resolver re-reads the frozen Task binding from storage. Keep
-        # that authorization meaningful without a borrowed database session.
         assert db is state.db
         state.checks.append(binding["task_id"])
         frozen = next(
@@ -82,7 +80,6 @@ def world(monkeypatch):
         return deepcopy(binding["source"])
 
     def objects(saved, logical_intents):
-        # Only managed sources get a physical copy plan, once per owner.
         assert saved is receipt
         assert set(logical_intents) == set(state.data["targets"])
         keys = {row["source_key"] for row in state.data["media"]}
@@ -120,8 +117,6 @@ def world(monkeypatch):
         state.guards += 1
 
     state.guard = guard
-    # image_delivery binds these collaborators as module globals, so patch the
-    # names it actually calls instead of unrelated package attributes.
     monkeypatch.setattr(image_delivery, "paths", task_paths)
     monkeypatch.setattr(image_delivery, "archive_paths", archive_paths)
     monkeypatch.setattr(image_delivery, "logical_sources", logical_sources)

@@ -48,7 +48,6 @@ class RasterWebShutdownTests(unittest.TestCase):
 
     @staticmethod
     def clean_owner(web):
-        # Only this test's explicitly owned synthetic process may be force-stopped.
         if web.child.poll() is None:
             web.child.kill()
         web.child.wait(timeout=5)

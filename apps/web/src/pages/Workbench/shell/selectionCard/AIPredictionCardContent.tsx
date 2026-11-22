@@ -22,19 +22,15 @@ export interface AIPredictionCardContentProps {
   box: AiBox;
   imageWidth: number | null;
   imageHeight: number | null;
-  /** 项目属性 schema:候选携带 attributes 时只读预览(采纳前可见车型/颜色等)。 */
   attributeSchema?: AttributeSchema;
-  /** 任务级锁定(review/completed)→ 采纳 / 精修 / 忽略禁用。 */
   readOnly: boolean;
   onAccept: (b: AiBox) => void;
   onReject: (b: AiBox) => void;
-  /** 仅 polygon 几何时由调用方注入(开 Mask 笔刷);非 polygon 不渲染精修。 */
   onRefine: (b: AiBox) => void;
   rasterMaskStatus?: RasterMaskRecordStatus;
   onRetryRasterMask?: (id: string) => void;
 }
 
-/** OCR / doc_layout 候选携带的识别文本摘要(单行截断),无文本返回 null。 */
 function ocrTextSummary(box: AiBox): string | null {
   const text = box.attributes?.text;
   if (typeof text !== "string" || text.trim() === "") return null;
@@ -42,7 +38,6 @@ function ocrTextSummary(box: AiBox): string | null {
   return trimmed.length > 48 ? `${trimmed.slice(0, 48)}…` : trimmed;
 }
 
-/** 候选除 text(OCR 已单列)外是否还带可预览的二阶段属性(车型 / 颜色等)。 */
 function hasPreviewableAttrs(box: AiBox): boolean {
   const attrs = box.attributes;
   if (!attrs) return false;
@@ -51,12 +46,6 @@ function hasPreviewableAttrs(box: AiBox): boolean {
   );
 }
 
-/**
- * 选中 AI 预测框的浮动卡内容(图片端专属)。
- * 补齐此前掉进 placeholder 而丢失的信息:大置信度条 + 来源 / 候选序号 + OCR 文本,
- * 动作组直连模型既有 handleAcceptPrediction / handleRefinePrediction / handleRejectPrediction,
- * 不新增业务逻辑。精修按钮仅 polygon 几何渲染(与右栏 AIInspectorPanel 同条件)。
- */
 export function AIPredictionCardContent({
   box,
   imageWidth,
@@ -72,7 +61,6 @@ export function AIPredictionCardContent({
   const metrics = box.geometry ? geometryMetrics(box.geometry, imageWidth, imageHeight) : [];
   const isPolygon = box.geometry?.type === "polygon";
   const ocrText = ocrTextSummary(box);
-  // 采纳前预览二阶段属性:项目已配 schema 且候选带 attributes 时, 只读展示(经 options 解析中文)。
   const schemaFields = attributeSchema?.fields ?? [];
   const showAttrPreview = schemaFields.length > 0 && hasPreviewableAttrs(box);
 

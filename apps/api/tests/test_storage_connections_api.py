@@ -58,7 +58,6 @@ async def configuration_actors(committed_owner):
             committed_owner, role, f"config-{uuid.uuid4().hex}@example.test", role
         )
         actors[role] = (user, create_access_token(str(user.id), role))
-    # Identity admission and Source operations use independent connections.
     await committed_owner.commit()
     return actors
 
@@ -157,8 +156,6 @@ async def test_configuration_reads_require_current_management_role(
     )
     credentials = []
     if not api_key:
-        # Old credentials must not retain access; a fresh JWT separately proves
-        # the manager guard for an authenticated current non-manager.
         credentials.append((stale_jwt, (401, 403)))
         token = create_access_token(str(user.id), role)
     await _assert_current_actor(fenced_http, token, user.id, role)
@@ -201,9 +198,7 @@ async def test_configuration_reads_preserve_manager_visibility_and_require_read_
         visible.remove("super-owned")
     if allowed:
         ids = {item["id"] for item in listed.json()}
-        assert {
-            configuration_connections[name] for name in visible
-        } <= ids
+        assert {configuration_connections[name] for name in visible} <= ids
         if actor_name == "project_admin":
             assert configuration_connections["super-owned"] not in ids
     for name, conn_id in configuration_connections.items():
@@ -251,7 +246,6 @@ async def test_configuration_reads_recheck_role_after_successful_read(
 async def test_allowlist_super_admin_only(httpx_client, super_admin, project_admin):
     _, super_token = super_admin
     _, pm_token = project_admin
-    # 项目管理员读/写白名单都 403
     assert (
         await httpx_client.get(
             "/api/v1/storage-connections/allowlist", headers=_h(pm_token)
@@ -269,7 +263,6 @@ async def test_allowlist_super_admin_only(httpx_client, super_admin, project_adm
             "/api/v1/storage-connections/allowlist", headers=_h(pm_token)
         )
     ).status_code == 403
-    # 超管可写可读
     await _set_allowlist(httpx_client, super_token, ["8.8.8.0/24"])
     r = await httpx_client.get(
         "/api/v1/storage-connections/allowlist", headers=_h(super_token)
@@ -398,7 +391,6 @@ async def test_create_global_connection_redacts_secret(
     body = r.json()
     assert body["secret_set"] is True
     assert body["kind"] == "s3"
-    # 密钥绝不回吐
     assert "secret" not in body
     assert "SK" not in r.text and "AK" not in r.text
 
@@ -407,7 +399,7 @@ async def test_create_blocked_when_host_not_allowlisted(
     httpx_client, super_admin, crypto_key
 ):
     _, super_token = super_admin
-    await _set_allowlist(httpx_client, super_token, ["9.9.9.0/24"])  # 不含 8.8.8.8
+    await _set_allowlist(httpx_client, super_token, ["9.9.9.0/24"])
     r = await httpx_client.post(
         "/api/v1/storage-connections", headers=_h(super_token), json=_S3_CONN
     )

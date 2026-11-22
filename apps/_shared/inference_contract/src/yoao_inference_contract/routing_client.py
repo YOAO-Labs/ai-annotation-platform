@@ -214,8 +214,6 @@ class RoutingHttpClient:
             raw = await self._post("/v1/routes/runtime", body)
             return decode_routing_runtime_result(typed_request, raw)
         except _AmbiguousRoutingResponse:
-            # This is an observation only; unlike command receipts it has no
-            # write to recover, so malformed or lost replies fail immediately.
             raise RoutingUnavailable() from None
 
     async def quiescence(
@@ -244,9 +242,6 @@ class RoutingHttpClient:
             )
             return decode_scope_retirement_result(typed_request, raw)
         except ScopeRetirementUnavailable:
-            # The commit acknowledgement may have been lost. One read recovers
-            # the durable retirement by its immutable identity; the control is
-            # never reposted by this client.
             return await self.scope_retirement_status(typed_request)
         except _AmbiguousRoutingResponse:
             return await self.scope_retirement_status(typed_request)
@@ -278,8 +273,6 @@ class RoutingHttpClient:
             )
             return decode_video_execution_status_result(proof, raw)
         except (_AmbiguousRoutingResponse, VideoScopeRejected):
-            # This is a proof-bound read. Invalid/unknown owner responses never
-            # expose Native details to the caller or trigger a write retry.
             raise RoutingUnavailable() from None
 
 

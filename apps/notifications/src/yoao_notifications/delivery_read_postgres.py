@@ -80,7 +80,6 @@ class NotificationDeliveryReadPostgresData:
         return result.all()
 
     async def _pairs(self, function_name, pairs):
-        # The ORM projection retains each original authorization read's autoflush.
         statement = select(
             self.notification_model.target_id.label("project_id"),
             self.notification_model.user_id.label("user_id"),

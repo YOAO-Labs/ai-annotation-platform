@@ -1,28 +1,7 @@
 #!/usr/bin/env node
-/**
- * Summarize one Playwright E2E suite run for the GitHub step summary.
- *
- * Reads the Playwright JSON report plus run metadata and renders:
- * - pass/fail/flaky/skipped counts and duration (as before), plus
- * - first-attempt vs retried outcomes, timeout / interrupted / not-run
- *   classification, global errors,
- * - a REQUIRED-MISSING marker when the suite was planned but produced no
- *   report while the run step claims success (fail-closed),
- * - preparation and execution wall-clock seconds when the caller supplies
- *   E2E_PREP_SECONDS / E2E_RUN_SECONDS.
- *
- * The stable `Frontend E2E` gate semantics are unchanged: only the reporting
- * fidelity improves.
- */
 
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 
-// Classification contract (locked Playwright 1.59 JSON report,
-// playwright/types/testReporter.d.ts): JSONReportTest.status is
-// 'skipped' | 'expected' | 'unexpected' | 'flaky' and JSONReportSpec carries
-// `ok` — JSONReportTest has NO `ok`. Results carry TestStatus
-// 'passed' | 'failed' | 'timedout' | 'skipped' | 'interrupted' (lowercase).
-// Verified against real generated runs: scripts/fixtures/e2e-summary/*.json.
 function summarizeTests(report) {
   let firstAttemptPassed = 0;
   let retriedPassed = 0;
@@ -38,8 +17,6 @@ function summarizeTests(report) {
       for (const test of spec.tests ?? []) {
         const attempts = test.results ?? [];
         const last = attempts[attempts.length - 1];
-        // An intentional skip executes a skipped result; a test the runner
-        // never attempted has an empty results array.
         if (test.status === "skipped" && attempts.some((result) => result.status === "skipped")) {
           intentionalSkipped += 1;
           continue;
@@ -64,8 +41,6 @@ function summarizeTests(report) {
           default:
             break;
         }
-        // §6.6: the FIRST failed attempt carries the failure evidence —
-        // including flaky tests, whose final status alone would hide it.
         if (!firstFailure && (test.status === "unexpected" || test.status === "flaky")) {
           const firstAttempt = attempts[0];
           firstFailure = {
@@ -122,8 +97,6 @@ export function buildSummary({
       requiredMissing: true,
       status: {
         suite,
-        // A skipped run after failed preparation is not an allowed suite skip.
-        // Never publish a success artifact without the report that proves it.
         outcome: missingOutcome,
         runOutcome: outcome,
         reportMissing: true,
@@ -199,8 +172,6 @@ export function main(argv, env, io) {
     io.writeFileSync(statusOut, JSON.stringify({ suite, outcome, ...status }, null, 1));
   if (io.summaryPath) io.appendFileSync(io.summaryPath, text);
   else io.stdout.write(text);
-  // Fail-closed: a planned suite that claims success without a report must
-  // fail the step so the missing evidence is never read as a pass.
   if (requiredMissing && outcome === "success") {
     io.stderr.write(`required suite ${suite} reported success without a Playwright report\n`);
     return 1;

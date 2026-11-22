@@ -765,7 +765,6 @@ async def _cleanup_owned_redis(world: dict) -> None:
     client = redis.from_url(settings.redis_url, decode_responses=True)
     try:
         keys = sorted(world["redis_keys"])
-        # Delete only exact pool/member lease keys observed during this test.
         await client.delete(*keys)
     finally:
         await client.aclose()
@@ -1435,7 +1434,5 @@ async def test_replay_frozen_legacy_inference_pool_lifecycle(
     }
     readback = by_label["fresh_get_confirms_removal_committed_despite_response_failure"]
     assert removal["tables_after"] == readback["tables_before"]
-    # The explicit postcommit refresh fix changes only this response. Keep the
-    # captured error bytes and all old data/Audit/lease observations immutable.
     removal["response"] = deepcopy(readback["response"])
     assert live["samples"] == expected

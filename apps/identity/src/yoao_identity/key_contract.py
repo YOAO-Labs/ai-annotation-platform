@@ -421,7 +421,6 @@ def native_key_command(
     }
     payload = request.payload
     if isinstance(request, CreateKeyRequest):
-        # Materialize create defaults so omitted and explicit defaults share one receipt scope.
         payload = CreateKeyPayload(
             name=payload.name,
             scopes=list(payload.scopes),

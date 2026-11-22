@@ -221,8 +221,6 @@ async def test_api_to_worker_reference_snapshot_and_roi_are_one_owned_input(
             if not stages:
                 await mutate_after_inference()
             elif len(seen) == 1 and mutation == "physical":
-                # Geometry and ROI must use the already captured image even if
-                # the registered path changes while a model is running.
                 (content[0] / "图片 空格.png").write_bytes(b"replaced")
             return [
                 PredictionResult(

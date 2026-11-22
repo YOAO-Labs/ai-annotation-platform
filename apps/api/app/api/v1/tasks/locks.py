@@ -31,8 +31,6 @@ async def acquire_lock(
     current_user: IdentityActorFacts = Depends(get_current_user),
     access: ProjectAccess = Depends(require_task_annotation_write_lifecycle),
 ):
-    # B-21：任务的当前 assignee 重进时强制接管残留锁，
-    # 否则上一个会话残留的他人 lock 会让本人误判"他人正在编辑"。
     task = await _load_task_or_404(db, task_id)
     await task_access.assert_task_visible(db, task, current_user.id, access=access)
     is_assignee = (
@@ -90,6 +88,3 @@ async def release_lock(
     svc = TaskLockService(db)
     await svc.release(task_id, current_user.id)
     await db.commit()
-
-
-# ── Helpers ──────────────────────────────────────────────────────────────────

@@ -39,49 +39,33 @@ import {
   type DiscussionTarget,
 } from "../state/discussionTypes";
 
-// mention chip(@提及):brand 语义色 + 柔底,亮暗主题统一走 token。
-// 经 raw DOM(insertMentionChip)与 React(renderCommentBody)两条路径共用,故抽成静态串。
 const MENTION_CHIP = "mx-px rounded-[3px] bg-brand/15 px-1.5 py-px font-medium text-brand";
 
 export interface CommentInputProps {
-  /** Legacy annotation-only adapter. New callers should pass `target`. */
   annotationId?: string | null;
   projectId?: string | null;
   taskId?: string | null;
-  /** Explicit task/annotation/Issue target for the session-backed composer. */
   target?: DiscussionTarget | null;
-  /** Alias retained for callers that name the prop after the contract. */
   discussionTarget?: DiscussionTarget | null;
-  /** Optional host-controlled draft; the provider store is used by default. */
   draft?: DiscussionDraft | null;
   draftStore?: DiscussionDraftStore | null;
   onDraftChange?: (draft: DiscussionDraft) => void;
-  /** 项目成员候选；触发 @ 时作为 UserPicker 的源。 */
   members: UserPickerOption[];
   busy?: boolean;
-  /** Reviewer 端：传入当前题图 URL，画布批注弹窗以此为背景。 */
   backgroundUrl?: string | null;
-  /** 图像真实尺寸；画布批注按真实比例，避免 16:9 / 4:3 上批注被拉成 600×400 比例。*/
   imageWidth?: number | null;
   imageHeight?: number | null;
-  /** 是否显示「画布批注」入口（仅 reviewer 端默认开启）。 */
   enableCanvasDrawing?: boolean;
-  /** 在题图上直接画批注的桥接（与 ImageStage CanvasDrawingLayer 共享坐标系）。
-   *  active=true 时，本组件不渲染入口按钮（toolbar 移到 ImageStage 上方）；
-   *  result 非空表示一段绘制完成，本组件应消费并写回 canvasDrawing 后调 onConsume。*/
   liveCanvas?: {
     active: boolean;
     result: CommentCanvasDrawing | null;
-    /** Result identity is optional for the old ReviewWorkbench adapter. */
     resultId?: string | null;
     origin?: DiscussionOrigin | null;
     onStart: (initial?: CommentCanvasDrawing | null, origin?: DiscussionOrigin | null) => void;
     onConsume: (resultId?: string | null) => void;
   };
   anchor?: AnnotationCommentAnchor | null;
-  /** 上报当前 pending 批注，让画布把「正在编辑的评论」的批注预览出来。 */
   onPendingDrawingChange?: (drawing: CommentCanvasDrawing | null) => void;
-  /** Unavailable targets stay recoverable but cannot be silently retargeted. */
   targetAvailable?: boolean;
   targetUnavailableReason?: string | null;
   onReturnToTask?: () => void;
@@ -93,15 +77,12 @@ export interface CommentInputProps {
 
 interface PickerState {
   open: boolean;
-  /** 光标矩形（top/bottom 用于 UserPicker 判断向上/向下展开）。 */
   anchor: { left: number; top: number; bottom: number };
-  /** @ 后的过滤 query。 */
   query: string;
-  /** @ 起始 Range（用于替换为 chip）。 */
   triggerRange: { node: Node; offset: number } | null;
 }
 
-const MAX_ATTACH_BYTES = 20 * 1024 * 1024; // 20MB / file
+const MAX_ATTACH_BYTES = 20 * 1024 * 1024;
 
 function sourceLabel(source: NonNullable<AnnotationCommentAnchor["source"]>): string {
   if (source === "prediction") return "prediction";
@@ -114,8 +95,6 @@ function cn(...xs: Array<string | false | null | undefined>): string {
   return xs.filter(Boolean).join(" ");
 }
 
-/** Serialize contenteditable 内容：扁平化文本 + 抽取 mention chip 的 (offset, length, userId, displayName)。
- *  导出以便单测。 */
 export function serialize(root: HTMLElement): { body: string; mentions: CommentMention[] } {
   let body = "";
   const mentions: CommentMention[] = [];
@@ -145,7 +124,6 @@ export function serialize(root: HTMLElement): { body: string; mentions: CommentM
       return;
     }
     el.childNodes.forEach(walk);
-    // block 元素之间补换行（避免 div 包裹时丢失换行）
     if (["DIV", "P"].includes(el.tagName) && body && !body.endsWith("\n")) {
       body += "\n";
     }
@@ -162,12 +140,10 @@ export function serialize(root: HTMLElement): { body: string; mentions: CommentM
   };
 }
 
-/** 把 @+name 注入到当前光标位置：插入 chip span，替换之前的 `@query` 文本。 */
 function insertMentionChip(triggerRange: { node: Node; offset: number }, opt: UserPickerOption) {
   const sel = window.getSelection();
   if (!sel) return;
 
-  // 计算 trigger（@ 字符）到当前光标之间的范围
   const r = document.createRange();
   r.setStart(triggerRange.node, triggerRange.offset);
   if (sel.rangeCount > 0) {
@@ -185,12 +161,9 @@ function insertMentionChip(triggerRange: { node: Node; offset: number }, opt: Us
 
   r.insertNode(chip);
 
-  // 在 chip 之后追加一个空格（让用户继续输入更自然）
   const space = document.createTextNode("\u00A0");
   chip.after(space);
 
-  // 光标放在空格文本节点内（而不是父节点子边界上）：贴着 contenteditable=false
-  // chip 的边界位置会让部分中文输入法无法起组合，首个字母被直接提交为字面量。
   const newRange = document.createRange();
   newRange.setStart(space, space.length);
   newRange.collapse(true);
@@ -236,7 +209,6 @@ type CanvasMode =
   | { kind: "popup"; identity: string; session: PopupCanvasSession }
   | { kind: "live"; identity: string; origin: DiscussionOrigin | null };
 
-/** Hydrate only when a target changes or the editor DOM is newly mounted. */
 function hydrateEditor(root: HTMLElement, body: string, mentions: CommentMention[]) {
   const sorted = [...mentions]
     .filter((mention) => mention.offset >= 0 && mention.length > 0)
@@ -351,9 +323,6 @@ export function CommentInput({
         return JSON.stringify([owner.sessionId, owner.userId]);
       })()
     : "legacy";
-  // The target alone is not an editor identity: a replacement auth lease can
-  // render the same task/annotation while owning a different draft. Legacy
-  // adapters also need the annotation fallback because targetKey can be null.
   const targetIdentity = `${ownerKey}:${targetKey ?? `legacy:${annotationId ?? "none"}`}`;
   visibleIdentityRef.current = targetIdentity;
   const storeSubscribe = useCallback(
@@ -366,9 +335,6 @@ export function CommentInput({
   );
   const storeDraft = useSyncExternalStore(storeSubscribe, storeGetDraft, storeGetDraft);
   const draft = draftProp ?? storeDraft;
-  // Refs provide synchronous duplicate guards; the version state makes their
-  // changes visible to the current editor without sharing state with another
-  // target rendered by this component instance.
   const uploadingCurrent = activeUploadRequestsRef.current.has(targetIdentity);
   const draftSubmitting = draft?.status === "submitting" || Boolean(draft?.inFlightRequestId);
   const submittingCurrent =
@@ -428,8 +394,6 @@ export function CommentInput({
     }
   }, [effectiveTarget, store, targetAvailable, targetUnavailableReason, targetKey]);
 
-  // Hydration is keyed by owner + target identity. Draft revisions update the
-  // store but never rewrite this DOM node, so typing cannot move the caret.
   useLayoutEffect(() => {
     const editor = editorRef.current;
     if (!editor || hydratedElementRef.current !== editor) {
@@ -454,8 +418,6 @@ export function CommentInput({
     capturedAnchorRef.current = null;
     setAttachments([]);
     setCanvasDrawing(null);
-    // Close a modal opened for the previous target. Keep its frozen identity
-    // and origin so a queued onSave cannot fall back to the newly visible one.
     if (canvasModeRef.current?.kind === "popup") {
       canvasModeRef.current = null;
       bumpRequestState();
@@ -547,7 +509,6 @@ export function CommentInput({
     return patchDraft({ body: payload.body, mentions: payload.mentions });
   }, [effectiveAnchor, maybeCaptureAnchor, patchDraft]);
 
-  /** 同步草稿并维护光标处的 @ query（非组合期调用）。 */
   const processEditorInput = useCallback(() => {
     if (syncEditorDraft() === false) return;
     const sel = window.getSelection();
@@ -586,7 +547,6 @@ export function CommentInput({
     });
   }, [syncEditorDraft, targetCapabilities.mentions]);
 
-  /** 监听 input：中文输入法组合期不做同步/状态更新，避免打断组合。 */
   const handleInput = useCallback(() => {
     if (composingRef.current) return;
     processEditorInput();
@@ -594,8 +554,6 @@ export function CommentInput({
 
   const handleCompositionEnd = useCallback(() => {
     composingRef.current = false;
-    // Chrome 通常会在 compositionend 后再补一次 input；这里显式同步，保证
-    // 浏览器不补事件时草稿与 @ query 也拿到最终文本。
     processEditorInput();
   }, [processEditorInput]);
 
@@ -614,8 +572,6 @@ export function CommentInput({
     (drawing: CommentCanvasDrawing | null) => {
       const session = canvasSession;
       if (!session || canvasSessionRef.current !== session) return;
-      // The callback is bound to the popup's opening identity. A late callback
-      // after task/annotation/account replacement may never retarget itself.
       if (visibleIdentityRef.current !== session.identity) return;
       const normalized = cloneDrawing(drawing);
       if (session.origin && store) {
@@ -633,8 +589,6 @@ export function CommentInput({
     (drawing: CommentCanvasDrawing | null) => {
       const session = canvasSession;
       if (!session || canvasSessionRef.current !== session) return;
-      // Check the live identity as well as the callback's captured identity:
-      // React can deliver an already queued callback after a target switch.
       if (visibleIdentityRef.current !== session.identity) return;
       const normalized = cloneDrawing(drawing);
       if (session.origin && store) {
@@ -668,13 +622,9 @@ export function CommentInput({
     setCanvasOpen(false);
   }, [canvasSession]);
 
-  // 消费来自 ImageStage 的 live canvas 结果. A result with an
-  // origin is never attached to the currently visible target by inference.
   useEffect(() => {
     const result = liveCanvas?.result;
     if (!result) {
-      // A cancelled live session has no result to consume. Release the local
-      // duplicate-click guard once the owning stage reports it inactive.
       const mode = canvasModeRef.current;
       const modeDraftActive = activeLiveModeDraft;
       if (
@@ -695,8 +645,6 @@ export function CommentInput({
     const origin = liveCanvas.origin;
     if (store && effectiveTarget) {
       if (origin && store.isOwned(origin) && store.acceptDrawing(origin, result)) {
-        // A late result may update an inactive target's memory draft, but it
-        // must never capture the currently playing frame into that target.
         if (
           origin.target.kind === "annotation" &&
           effectiveTarget &&
@@ -705,12 +653,8 @@ export function CommentInput({
           maybeCaptureAnchor();
         }
       }
-      // Consume is always keyed. The root bridge decides whether a stale
-      // result ID can be discarded; it cannot clear a newer result.
       liveCanvas.onConsume(resultId);
     } else {
-      // An origin-bearing result requires a session store to validate its
-      // owner/target. The legacy adapter has no origin and remains compatible.
       if (!origin) setCanvasDrawing(result.shapes?.length ? result : null);
       liveCanvas.onConsume(resultId);
     }
@@ -730,7 +674,6 @@ export function CommentInput({
     targetIdentity,
   ]);
 
-  // 把当前 pending 批注上报给画布预览通道；卸载时清空。
   useEffect(() => {
     onPendingDrawingChange?.(effectiveCanvasDrawing);
     return () => onPendingDrawingChange?.(null);
@@ -780,8 +723,6 @@ export function CommentInput({
             legacyIdentityRef.current === uploadIdentity);
       try {
         for (const f of Array.from(files)) {
-          // A current lease may finish into its original target while another
-          // target is visible. A retired account cannot start the next file.
           if (!uploadStillCurrent()) return;
           if (f.size > MAX_ATTACH_BYTES) {
             if (mountedRef.current && visibleIdentityRef.current === uploadIdentity) {
@@ -827,9 +768,6 @@ export function CommentInput({
   const authOwnerIsUsable = useCallback(() => {
     if (!store || draftStoreProp) return true;
     try {
-      // A provider-backed store represents a real authenticated route. Fail
-      // closed when auth is missing/expired; explicit draftStore adapters are
-      // the supported path for standalone tests and ReviewWorkbench callers.
       return isCurrentAuthOwner(store.getOwner().userId);
     } catch {
       return false;
@@ -875,23 +813,16 @@ export function CommentInput({
     let requestId: string | null = null;
     try {
       if (store && effectiveTarget) {
-        // Ensure the final editor state is represented in the structured draft
-        // before taking the immutable request snapshot.
         if (!patchDraft({ body, mentions })) return;
         submission = store.beginSubmission(effectiveTarget, payload);
         if (!submission) return;
       }
       requestId = submission?.requestId ?? `comment-${randomId()}`;
-      // Store-backed submissions are already serialized by draft.inFlight;
-      // this map also covers legacy adapters and closes the rapid-click gap
-      // before React can publish the next render.
       if (activeSubmissionRequestsRef.current.has(submittedIdentity)) return;
       activeSubmissionRequestsRef.current.set(submittedIdentity, requestId);
       bumpRequestState();
       await onSubmit(payload, submission ?? undefined);
       if (store && submission) {
-        // Only clear the editor when the store confirms the snapshot was
-        // unchanged. A newer edit must remain visible and recoverable.
         const cleared = store.resolveSubmission(submission);
         if (
           cleared &&
@@ -954,9 +885,6 @@ export function CommentInput({
     if (origin && store) {
       if (!store.startCanvasSession(origin, effectiveCanvasDrawing)) return;
     }
-    // Set this before invoking the host callback. The host may update its
-    // active prop asynchronously, and two same-tick clicks must still share
-    // one canvas owner.
     canvasModeRef.current = { kind: "live", identity: targetIdentity, origin };
     bumpRequestState();
     liveCanvas.onStart(effectiveCanvasDrawing, origin);
@@ -1068,7 +996,6 @@ export function CommentInput({
         }}
         onCompositionEnd={handleCompositionEnd}
         onKeyDown={(e) => {
-          // Enter 提交（Shift+Enter 换行）
           if (
             e.key === "Enter" &&
             !e.shiftKey &&
@@ -1261,8 +1188,6 @@ export function CommentInput({
   );
 }
 
-/** 把后端返回的 body + mentions[] 还原成 React 节点（用于历史评论渲染）。
- *  渲染规则：mentions 按 offset 排序，依次插入 chip；其它文字作为纯文本。 */
 export function renderCommentBody(
   body: string,
   mentions: CommentMention[],

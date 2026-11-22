@@ -1,5 +1,3 @@
-/* These full-viewport shells own their scrolling internally. Reserve space
-   in their scrollable panels rather than on the outer browser viewport. */
 :global(html):has(.appShell, .fullScreenWorkbench) {
   scrollbar-gutter: auto;
 }

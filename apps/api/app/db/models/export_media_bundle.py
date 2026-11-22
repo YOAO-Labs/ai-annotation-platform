@@ -168,7 +168,6 @@ class ExportMediaBundle(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    # No business FKs: deletion must retain pending and published delivery facts.
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     zip_output_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
@@ -179,8 +178,6 @@ class ExportMediaBundle(Base):
     input_snapshot: Mapped[dict] = mapped_column(
         JSONB(none_as_null=True), nullable=False
     )
-    # Select one authoritative scalar for physical/retirement fences without
-    # loading the private frozen document during cleanup.
     input_schema = column_property(
         input_snapshot["schema"].label("input_schema"), expire_on_flush=False
     )

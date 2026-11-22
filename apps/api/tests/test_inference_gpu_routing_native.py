@@ -238,8 +238,6 @@ async def test_gpu_unload_composes_native_route_and_real_gpu_signature_without_p
                     timeout_seconds=5,
                 )
             assert mode.gate.value == "enforce"
-            # This signed fixture exercises backend/Native routing only; it does not
-            # claim a real GPU-arbiter admission or hardware capacity.
             warm_token = token(AdmissionScope.WARMUP, generation="1")
             warm_scope = (
                 await runtime.execute(

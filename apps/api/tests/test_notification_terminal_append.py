@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from contextlib import suppress
+from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
@@ -76,15 +78,30 @@ async def _terminal_count(maker, job_id, notification_type="job.completed"):
         )
 
 
+async def _outbox_ids(db, job_id):
+    return list(
+        await db.scalars(
+            text(
+                "SELECT notification_id FROM public.notification_delivery_outbox "
+                "WHERE operation_id=:job_id"
+            ),
+            {"job_id": job_id},
+        )
+    )
+
+
+async def _committed_outbox_ids(maker, job_id):
+    async with maker() as db:
+        return await _outbox_ids(db, job_id)
+
+
 @pytest.mark.asyncio
 async def test_terminal_dedupe_race_creates_one_row(terminal_world, monkeypatch):
-    """Independent callers share one row and only the winning caller publishes."""
+    """Independent callers share one inbox row and one durable handoff."""
     maker, _user_id, job_id = terminal_world
     original_command = NotificationTerminalAppendPostgresData.command
     both_at_owner = asyncio.Event()
     owner_call_count = 0
-    published_ids = []
-    visible_at_publish = []
 
     async def synchronized_command(self, request):
         nonlocal owner_call_count
@@ -94,14 +111,9 @@ async def test_terminal_dedupe_race_creates_one_row(terminal_world, monkeypatch)
         await asyncio.wait_for(both_at_owner.wait(), timeout=5)
         return await original_command(self, request)
 
-    async def record_publish(_self, notifications):
-        published_ids.extend(row.id for row in notifications)
-        visible_at_publish.append(await _terminal_count(maker, job_id))
-
     monkeypatch.setattr(
         NotificationTerminalAppendPostgresData, "command", synchronized_command
     )
-    monkeypatch.setattr(NotificationService, "publish_committed", record_publish)
 
     async def run_once():
         async with maker() as db:
@@ -112,14 +124,11 @@ async def test_terminal_dedupe_race_creates_one_row(terminal_world, monkeypatch)
 
     assert owner_call_count == 2
     assert await _terminal_count(maker, job_id) == 1
-    assert len(published_ids) == 1
-    assert visible_at_publish == [0]
+    assert len(await _committed_outbox_ids(maker, job_id)) == 1
 
 
 @pytest.mark.asyncio
-async def test_terminal_existing_row_does_not_replay_publish(
-    terminal_world, monkeypatch
-):
+async def test_terminal_existing_row_does_not_create_another_handoff(terminal_world):
     maker, user_id, job_id = terminal_world
     async with maker() as db:
         db.add(
@@ -134,70 +143,160 @@ async def test_terminal_existing_row_does_not_replay_publish(
         )
         await db.commit()
 
-    published = []
-
-    async def record_publish(_self, notifications):
-        published.extend(row.id for row in notifications)
-
-    monkeypatch.setattr(NotificationService, "publish_committed", record_publish)
     async with maker() as db:
         await notify_job_terminal(db, job_id=job_id)
         await db.commit()
 
     assert await _terminal_count(maker, job_id) == 1
-    assert published == []
+    assert await _committed_outbox_ids(maker, job_id) == []
 
 
 @pytest.mark.asyncio
 async def test_terminal_manager_rehydrates_identity_and_respects_caller_rollback(
-    db_session, annotator, monkeypatch
+    db_session, annotator
 ):
     user, _ = annotator
     service = NotificationService(db_session)
-    published_ids = []
-
-    async def record_publish(notifications):
-        published_ids.extend(row.id for row in notifications)
-
-    monkeypatch.setattr(service, "publish_committed", record_publish)
+    target_id = uuid.uuid4()
     savepoint = await db_session.begin_nested()
     row = await service.notify_terminal(
         user_id=user.id,
         type="job.completed",
-        target_id=uuid.uuid4(),
+        target_id=target_id,
         payload={"kind": "batch_predict", "status": "completed"},
     )
     assert row is not None
     assert row.created_at.tzinfo is not None
     assert await db_session.get(Notification, row.id) is row
     row_id = row.id
+    assert await _outbox_ids(db_session, target_id) == [row_id]
 
     await savepoint.rollback()
     if row in db_session:
         db_session.expunge(row)
     assert await db_session.get(Notification, row_id) is None
-    assert published_ids == [row_id]
+    assert await _outbox_ids(db_session, target_id) == []
 
 
 @pytest.mark.asyncio
-async def test_terminal_publish_remains_before_caller_commit(
+async def test_terminal_handoff_is_invisible_until_caller_commit(
     terminal_world, monkeypatch
 ):
     maker, _user_id, job_id = terminal_world
-    visible_at_publish = []
-
-    async def observe_publish(_self, notifications):
-        assert len(list(notifications)) == 1
-        visible_at_publish.append(await _terminal_count(maker, job_id))
-
-    monkeypatch.setattr(NotificationService, "publish_committed", observe_publish)
+    immediate_publish = AsyncMock()
+    monkeypatch.setattr(NotificationService, "publish_committed", immediate_publish)
     async with maker() as db:
         await notify_job_terminal(db, job_id=job_id)
+        assert len(await _outbox_ids(db, job_id)) == 1
+        await asyncio.sleep(0.65)
         assert await _terminal_count(maker, job_id) == 0
-        assert visible_at_publish == [0]
+        assert await _committed_outbox_ids(maker, job_id) == []
         await db.commit()
 
     assert await _terminal_count(maker, job_id) == 1
+    assert len(await _committed_outbox_ids(maker, job_id)) == 1
+    immediate_publish.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires verifier-owned PostgreSQL LOGINs and Redis",
+)
+async def test_scheduled_terminal_relay_uses_existing_restricted_bindings(
+    test_engine, terminal_world, monkeypatch
+):
+    import asyncpg
+
+    from app.config import settings
+    from app.workers.celery_app import celery_app
+    from app.workers.notification_delivery import relay_identity_notifications
+    from tests.test_identity_admission_live import _dsn
+    from tests.test_identity_module_assembly_live import _publisher_redis
+    from tests.test_notifications_publisher_image_live import _subscribe
+    from tests.test_workspace_project_authority_locking import _api_url
+
+    maker, user_id, job_id = terminal_world
+    strict_engine = create_async_engine(_api_url(test_engine))
+    strict = async_sessionmaker(strict_engine, expire_on_commit=False)
+    publisher_dsn = _dsn("NOTIFICATION_PUBLISH", test_engine)
+    entry = celery_app.conf.beat_schedule["relay-notification-deliveries"]
+    assert entry["task"] == relay_identity_notifications.name
+    assert entry["schedule"].total_seconds() == 10
+    try:
+        async with strict() as db:
+            assert (
+                await db.scalar(text("SELECT session_user")) == "identity_api_consumer"
+            )
+            with pytest.raises(DBAPIError) as denied:
+                async with db.begin_nested():
+                    await _outbox_ids(db, job_id)
+            assert denied.value.orig.sqlstate == "42501"
+            await notify_job_terminal(db, job_id=job_id)
+            await db.commit()
+    finally:
+        await strict_engine.dispose()
+    [notification_id] = await _committed_outbox_ids(maker, job_id)
+
+    reader = await asyncpg.connect(publisher_dsn)
+    try:
+        assert (
+            await reader.fetchval("SELECT session_user")
+            == "yoao_notification_publish_client"
+        )
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await reader.fetchval("SELECT id FROM public.notifications LIMIT 1")
+        transaction = reader.transaction()
+        await transaction.start()
+        try:
+            old_claim = json.loads(
+                await reader.fetchval(
+                    "SELECT yoao_notifications_v1.claim_identity_deliveries($1::jsonb)",
+                    json.dumps(
+                        {
+                            "schema": "aap-notifications-delivery/v1",
+                            "worker_id": str(uuid.uuid4()),
+                            "limit": 100,
+                            "lease_seconds": 1,
+                        }
+                    ),
+                )
+            )
+            assert old_claim["ok"] is True
+            assert all(
+                item["target_type"] == "user" for item in old_claim["data"]["items"]
+            )
+        finally:
+            await transaction.rollback()
+    finally:
+        await reader.close()
+
+    monkeypatch.setattr(settings, "notification_publish_database_url", publisher_dsn)
+    monkeypatch.setattr(settings, "notification_publish_database_url_file", "")
+    async with _publisher_redis() as (redis_dsn, owner_redis):
+        monkeypatch.setattr(settings, "redis_url", redis_dsn)
+        async with owner_redis.pubsub() as subscriber:
+            await _subscribe(subscriber, (f"notify:{user_id}",))
+            result = await asyncio.to_thread(
+                lambda: celery_app.tasks[entry["task"]].apply(throw=True).get()
+            )
+            assert result["published"] >= 1
+            message = await subscriber.get_message(
+                ignore_subscribe_messages=True, timeout=5
+            )
+            assert message is not None
+            assert json.loads(message["data"])["id"] == str(notification_id)
+    async with maker() as db:
+        assert (
+            await db.scalar(
+                text(
+                    "SELECT state FROM public.notification_delivery_outbox "
+                    "WHERE notification_id=:id"
+                ),
+                {"id": notification_id},
+            )
+            == "done"
+        )
 
 
 @pytest.mark.asyncio
@@ -229,9 +328,7 @@ async def test_terminal_owner_refusal_keeps_job_transaction_usable(
 
 
 @pytest.mark.asyncio
-async def test_terminal_mute_uses_existing_preference_truthiness(
-    terminal_world, monkeypatch
-):
+async def test_terminal_mute_uses_existing_preference_truthiness(terminal_world):
     maker, user_id, job_id = terminal_world
     async with maker() as db:
         db.add(
@@ -243,17 +340,11 @@ async def test_terminal_mute_uses_existing_preference_truthiness(
         )
         await db.commit()
 
-    published_ids = []
-
-    async def record_publish(_self, notifications):
-        published_ids.extend(row.id for row in notifications)
-
-    monkeypatch.setattr(NotificationService, "publish_committed", record_publish)
     async with maker() as db:
         await notify_job_terminal(db, job_id=job_id)
         await db.commit()
     assert await _terminal_count(maker, job_id) == 0
-    assert published_ids == []
+    assert await _committed_outbox_ids(maker, job_id) == []
 
     async with maker() as db:
         preference = await db.get(NotificationPreference, (user_id, "job.completed"))
@@ -265,21 +356,13 @@ async def test_terminal_mute_uses_existing_preference_truthiness(
         await db.commit()
 
     assert await _terminal_count(maker, job_id) == 1
-    assert len(published_ids) == 1
+    assert len(await _committed_outbox_ids(maker, job_id)) == 1
 
 
 @pytest.mark.asyncio
-async def test_terminal_scope_payload_has_no_frozen_0214_size_cap(
-    terminal_world, monkeypatch
-):
+async def test_terminal_scope_payload_has_no_frozen_0214_size_cap(terminal_world):
     maker, _user_id, job_id = terminal_world
     scope = "scope-value-" * 2_000
-    published_ids = []
-
-    async def record_publish(_self, notifications):
-        published_ids.extend(row.id for row in notifications)
-
-    monkeypatch.setattr(NotificationService, "publish_committed", record_publish)
     async with maker() as db:
         job = await db.get(AsyncJob, job_id)
         assert job is not None
@@ -298,27 +381,20 @@ async def test_terminal_scope_payload_has_no_frozen_0214_size_cap(
     assert row is not None
     assert len(row.payload["scope"]) > 16_384
     assert row.payload["scope"] == scope
-    assert len(published_ids) == 1
+    assert await _committed_outbox_ids(maker, job_id) == [row.id]
 
 
 @pytest.mark.asyncio
-async def test_terminal_caller_rollback_keeps_precommit_publish_timing(
-    terminal_world, monkeypatch
-):
+async def test_terminal_full_rollback_discards_inbox_and_handoff(terminal_world):
     maker, _user_id, job_id = terminal_world
-    published_ids = []
-
-    async def record_publish(_self, notifications):
-        published_ids.extend(row.id for row in notifications)
-
-    monkeypatch.setattr(NotificationService, "publish_committed", record_publish)
     async with maker() as db:
         await notify_job_terminal(db, job_id=job_id)
         assert await _terminal_count(maker, job_id) == 0
-        assert len(published_ids) == 1
+        assert len(await _outbox_ids(db, job_id)) == 1
         await db.rollback()
 
     assert await _terminal_count(maker, job_id) == 0
+    assert await _committed_outbox_ids(maker, job_id) == []
 
 
 @pytest.mark.asyncio
@@ -326,7 +402,6 @@ async def test_terminal_no_autoflush_keeps_owner_before_full_job_flush(
     terminal_world, monkeypatch
 ):
     maker, _user_id, job_id = terminal_world
-    published_ids = []
     owner_rows = []
     original_command = NotificationTerminalAppendPostgresData.command
 
@@ -341,13 +416,9 @@ async def test_terminal_no_autoflush_keeps_owner_before_full_job_flush(
         owner_rows.append(tuple(row.one()))
         return result
 
-    async def record_publish(_self, notifications):
-        published_ids.extend(row.id for row in notifications)
-
     monkeypatch.setattr(
         NotificationTerminalAppendPostgresData, "command", observe_append
     )
-    monkeypatch.setattr(NotificationService, "publish_committed", record_publish)
     async with maker() as db:
         job = await db.get(AsyncJob, job_id)
         assert job is not None
@@ -359,7 +430,7 @@ async def test_terminal_no_autoflush_keeps_owner_before_full_job_flush(
     async with maker() as db:
         assert (await db.get(AsyncJob, job_id)).status == "failed"
     assert await _terminal_count(maker, job_id, "job.failed") == 1
-    assert len(published_ids) == 1
+    assert len(await _committed_outbox_ids(maker, job_id)) == 1
 
 
 @pytest.mark.asyncio
@@ -370,19 +441,14 @@ async def test_terminal_append_interoperates_when_frozen_0214_writer_wins(
     frozen = maker()
     owner_call_started = asyncio.Event()
     original_command = NotificationTerminalAppendPostgresData.command
-    published_ids = []
 
     async def observe_owner_call(self, request):
         owner_call_started.set()
         return await original_command(self, request)
 
-    async def record_publish(_self, notifications):
-        published_ids.extend(row.id for row in notifications)
-
     monkeypatch.setattr(
         NotificationTerminalAppendPostgresData, "command", observe_owner_call
     )
-    monkeypatch.setattr(NotificationService, "publish_committed", record_publish)
 
     async def python_append():
         async with maker() as db:
@@ -421,28 +487,22 @@ async def test_terminal_append_interoperates_when_frozen_0214_writer_wins(
                 await task
 
     assert await _terminal_count(maker, job_id) == 1
-    assert published_ids == []
+    assert await _committed_outbox_ids(maker, job_id) == []
 
 
 @pytest.mark.asyncio
-async def test_terminal_append_interoperates_when_python_writer_wins(
-    terminal_world, monkeypatch
-):
+async def test_terminal_append_interoperates_when_python_writer_wins(terminal_world):
     maker, user_id, job_id = terminal_world
     python_created = asyncio.Event()
     allow_python_commit = asyncio.Event()
     python_ids = []
 
-    async def block_before_commit(_self, notifications):
-        python_ids.extend(row.id for row in notifications)
-        python_created.set()
-        await allow_python_commit.wait()
-
-    monkeypatch.setattr(NotificationService, "publish_committed", block_before_commit)
-
     async def python_append():
         async with maker() as db:
             await notify_job_terminal(db, job_id=job_id)
+            python_ids.extend(await _outbox_ids(db, job_id))
+            python_created.set()
+            await allow_python_commit.wait()
             await db.commit()
 
     python_task = asyncio.create_task(python_append())
@@ -489,6 +549,7 @@ async def test_terminal_append_interoperates_when_python_writer_wins(
     assert len(python_ids) == 1
     assert frozen_id == python_ids[0]
     assert await _terminal_count(maker, job_id) == 1
+    assert await _committed_outbox_ids(maker, job_id) == [frozen_id]
 
 
 @pytest.mark.asyncio

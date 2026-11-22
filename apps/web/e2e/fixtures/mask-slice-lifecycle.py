@@ -95,19 +95,28 @@ def _bucket_owner_tag(storage: object, bucket: str) -> str | None:
     return next((tag["Value"] for tag in tags if tag["Key"] == OWNER_TAG), None)
 
 
-async def require_fixture_annotations(db, task_id, source_id, created_id, scope):
+async def require_fixture_annotations(
+    db, task_id, source_id, created_id, run_id, suite_id
+):
     owned = await db.scalar(
         text(
-            "SELECT count(*) FROM annotations a "
-            "JOIN tasks t ON t.id = a.task_id AND t.project_id = a.project_id "
-            "JOIN projects p ON p.id = t.project_id "
-            "WHERE t.id = :task AND t.display_id = :display_id "
-            "AND p.name = :project_name AND a.id IN (:source, :created)"
+            "SELECT count(*) FROM public.annotations a "
+            "JOIN public.tasks t ON t.id=a.task_id AND t.project_id=a.project_id "
+            "JOIN yoao_fixture_v1.fixture_run_resources rt ON rt.resource_id=t.id "
+            "  AND rt.kind='task' AND rt.logical_key='workbench-1' AND rt.state='published' "
+            "JOIN yoao_fixture_v1.fixture_run_resources rp ON rp.run_id=rt.run_id "
+            "  AND rp.resource_id=t.project_id AND rp.kind='project' "
+            "  AND rp.logical_key='workbench' AND rp.state='published' "
+            "JOIN yoao_fixture_v1.fixture_runs r ON r.id=rt.run_id "
+            "JOIN yoao_fixture_v1.fixture_runs s ON s.id=r.parent_run_id "
+            "WHERE t.id=:task AND a.id IN (:source, :created) AND r.id=:run AND s.id=:suite "
+            "  AND r.family='owned' AND s.family='owned' AND s.parent_run_id IS NULL "
+            "  AND r.state='open' AND s.state='open'"
         ),
         {
             "task": task_id,
-            "display_id": f"{scope.task_display_prefix}000001",
-            "project_name": scope.project_name,
+            "run": run_id,
+            "suite": suite_id,
             "source": source_id,
             "created": created_id,
         },
@@ -116,14 +125,11 @@ async def require_fixture_annotations(db, task_id, source_id, created_id, scope)
         raise GuardError("slice annotations do not belong to the selected fixture")
 
 
-async def run(action: str, task_id: str, operation_id: str, namespace: str):
+async def run(action: str, task_id: str, operation_id: str, run_id: str):
     mode = worktree_mode(os.environ)
     if action not in {"gc", "drop_revision", "expire_revision"}:
         raise GuardError("unknown mask lifecycle action")
-    task_id, operation_id = UUID(task_id), UUID(operation_id)
-    from app.api.v1._test_seed import _parse_owned_namespace
-
-    scope = _parse_owned_namespace(namespace)
+    task_id, operation_id, run_id = UUID(task_id), UUID(operation_id), UUID(run_id)
     url = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
     if not url.database or not url.database.endswith(("_e2e", "_test")):
         raise GuardError("mask lifecycle requires a disposable database")
@@ -132,7 +138,6 @@ async def run(action: str, task_id: str, operation_id: str, namespace: str):
         or os.environ.get("ENVIRONMENT") != "development"
     ):
         raise GuardError("mask lifecycle requires E2E development mode")
-    # A disposable DB alone is insufficient: GC must never scan a shared bucket.
     bucket = os.environ.get("MINIO_BUCKET", "")
     resources = None
     if mode is not None:
@@ -175,7 +180,14 @@ async def run(action: str, task_id: str, operation_id: str, namespace: str):
         restore = operation["response_json"]["slice_restore"]
         source_id = UUID(restore["source_annotation_id"])
         created_id = UUID(restore["created_annotation_id"])
-        await require_fixture_annotations(db, task_id, source_id, created_id, scope)
+        await require_fixture_annotations(
+            db,
+            task_id,
+            source_id,
+            created_id,
+            run_id,
+            UUID(os.environ["PLAYWRIGHT_FIXTURE_RUN_ID"]),
+        )
         source_version = operation["report"]["before"][str(source_id)][
             "annotation_version"
         ]
@@ -217,7 +229,6 @@ async def run(action: str, task_id: str, operation_id: str, namespace: str):
             > gc_time
         )
 
-    # Add an actual unreferenced object to show that GC deletes eligible content.
     length = 128
     bits = uuid4().int
     counts, last = [0], False
@@ -239,8 +250,6 @@ async def run(action: str, task_id: str, operation_id: str, namespace: str):
         receipt = raster_object_storage.snapshot(owner)
         assert raster_object_storage.resolve(receipt).bucket == bucket
         target = await raster_object_storage.io_target(db, receipt)
-    # Exercise the real grace and two-phase collector without rewriting owner facts
-    # or treating a logical RLE key as its separately saved physical location.
     with patch.object(raster_mask_objects, "now", return_value=gc_time):
         retired = await _purge_unreferenced_raster_masks_async(dry_run=False)
         async with task_session() as db:

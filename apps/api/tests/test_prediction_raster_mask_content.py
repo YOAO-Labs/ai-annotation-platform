@@ -97,7 +97,6 @@ async def test_candidate_uses_original_index_and_reads_independently_of_write_ga
         for call in load.await_args_list
     )
 
-    # Editing an accepted annotation never changes the original candidate's pixels.
     from app.services.raster_mask_storage import build_rle_reference
 
     annotation.parent_prediction_id = prediction.id

@@ -66,7 +66,6 @@ def test_non_manager_scope_is_membership_only(platform_role):
     assert "yoao_workspace_v1.actor_project_memberships" in sql
     assert "workspace_member_facts.role" in sql
     assert "projects.owner_id" not in sql
-    # Strict membership contract: active account, known platform role, pairing.
     assert "account_profiles.is_active" in sql
     assert "account_profiles.role" in sql
 
@@ -116,8 +115,6 @@ def test_role_filters_are_explicit():
     assert "workspace_member_facts.role IN ('annotator')" in annotator_sql
     assert "workspace_member_facts.role IN ('reviewer')" in reviewer_sql
     assert annotator_sql != reviewer_sql
-    # The project role is a membership value; the account role is only checked
-    # against the current known platform-role set, never as an alias.
     assert "account_profiles.role IN ('annotator'" not in annotator_sql
     assert "account_profiles.role IN ('reviewer'" not in reviewer_sql
 
@@ -148,7 +145,6 @@ def test_async_job_query_gates_export_results():
     sql = _sql(stmt)
     assert "async_jobs.kind" in sql
     assert "yoao_workspace_v1.actor_project_memberships" in sql
-    # Both the ownership scope and the export-capability scope are present.
     assert sql.count("yoao_workspace_v1.actor_project_memberships") >= 2
 
 

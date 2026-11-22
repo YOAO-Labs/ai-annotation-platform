@@ -52,7 +52,6 @@ def mask_content_owner(storage, *, cleanup: bool = False):
         or parts.fragment
     ):
         raise MaskContentFailure("storage_unavailable")
-    # The selected owner is authoritative even when unavailable or misconfigured.
     with httpx.Client(
         timeout=settings.assets_mask_content_timeout_seconds,
         trust_env=False,

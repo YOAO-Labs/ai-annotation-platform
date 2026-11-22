@@ -88,10 +88,7 @@ const test = base.extend<{ trackCase: TrackCase }>({
     const { task_id: taskId } = await seed.videoTask(data.project_id);
     const token = await seed.accessToken(data.admin_email);
     await seed.configureRasterMask(data.project_id, true);
-    // The deterministic RLE seed needs the project's original backend pool identity.
     const candidate = await seed.nativeMaskCandidate(taskId, { variant: "multimask_donut" });
-    // Disable the seed's unreachable SAM registration through real configuration.
-    // This suite exercises stored geometry and does not perform model inference.
     await json(
       await request.patch(`${API_BASE}/api/v1/projects/${data.project_id}`, {
         headers: auth(token),
@@ -212,7 +209,6 @@ const test = base.extend<{ trackCase: TrackCase }>({
       await provideFixture({ data, taskId, token, tracks });
       expect(errors).toEqual([]);
     } finally {
-      // Non-secret ownership evidence lets the isolated runner clean this case exactly.
       await writeFile(
         testInfo.outputPath("video-track-context-metadata.json"),
         JSON.stringify(
@@ -244,7 +240,6 @@ async function frame(page: Page) {
 }
 
 async function blur(page: Page) {
-  // Focus only; never mutate application stores or playback state from evaluate.
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
 }
 
@@ -564,8 +559,6 @@ test.describe("当前视频轨迹条：真实几何与持久化", () => {
     expect(await readTrack(request, trackCase, bbox.id)).toEqual(bbox);
     expect(writes).toEqual([]);
 
-    // Leave the annotator view before switching accounts so its lease is released
-    // under the original identity, as a normal user navigation would do.
     await page.goto(`/projects/${trackCase.data.project_id}`);
     const unlocked = await request.delete(`${API_BASE}/api/v1/tasks/${trackCase.taskId}/lock`, {
       headers: auth(trackCase.token),

@@ -67,7 +67,6 @@ class StorageConnectionCreate(_RequestModel):
     config: StorageConfig = Field(repr=False)
     secret: StorageSecret = Field(repr=False)
     scope: StorageScope = "owner"
-    # The API accepts this historical field but the service always stores None.
     project_id: UUID | None = None
 
     @model_validator(mode="after")

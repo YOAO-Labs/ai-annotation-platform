@@ -153,7 +153,6 @@ class Accounts:
                 ),
                 "Refuse existing role",
             )
-            # Both interpolated values are generated above from fixed alphabets.
             self.db_created = True
             await connection.exec_driver_sql(
                 f"CREATE ROLE \"{self.role}\" LOGIN PASSWORD '{password}' "
@@ -178,8 +177,6 @@ class Accounts:
             ),
             "Refuse existing or unobservable service account",
         )
-        # Set a recoverable owned ID before the request; a lost response can
-        # still be revoked without logging or guessing a generated credential.
         self.s3_created = True
         response = self.mc(
             "add",
@@ -347,7 +344,6 @@ async def seed(factory, directory, backend, patches):
         backend.s3.put_object(
             Bucket=bucket, Key=item.file_path, Body=raw, ContentType="image/png"
         )
-        # A real colliding opaque key must still be unreadable to the old app.
         backend.s3.put_object(
             Bucket=bucket, Key=reference.file_path, Body=b"opaque-key-trap"
         )
@@ -551,7 +547,6 @@ async def qualify(backend, options, directory, report):
                     )
                 else:
                     raise WorktreeError("Old app could select source credentials")
-            # Even overriding the transaction default cannot grant table writes.
             for statement in (
                 "UPDATE dataset_items SET file_name=file_name WHERE false",
                 "DELETE FROM dataset_items WHERE false",

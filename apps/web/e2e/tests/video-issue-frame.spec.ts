@@ -50,7 +50,6 @@ const modal = (page: Page) => page.getByRole("dialog").filter({ hasText: "标记
 const auth = (token: string) => ({ Authorization: `Bearer ${token}` });
 const pathOf = (url: string) => new URL(url).pathname;
 
-/** Fixture-specific cancellations beyond the shared workbench policy. */
 function fixtureAbortRules(fixture: IssueCase): AbortAllowRule[] {
   if (!fixture.mediaLatency) return [];
   return [
@@ -85,7 +84,6 @@ async function graphicsEvidence(browser: Browser, page: Page) {
         ...browserInfo,
         graphicsDevices: info.gpu.devices,
         graphicsFeatures: info.gpu.featureStatus,
-        // Adapter metadata is evidence about rendering, not proof of hardware video decoding.
         hardwareVideoDecoderQualified: false,
       };
     } finally {
@@ -102,8 +100,11 @@ async function graphicsEvidence(browser: Browser, page: Page) {
 
 const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
   videoFixture: [MAIN_FIXTURE, { option: true }],
-  issueCase: async ({ page, request, seed, browser, videoFixture }, provideFixture, testInfo) => {
-    const data = await seed.owned();
+  issueCase: async (
+    { page, request, seed, browser, videoFixture, owned: data },
+    provideFixture,
+    testInfo,
+  ) => {
     const video = await seed.videoWebCodecs(data.project_id, { fixture: videoFixture });
     await injectVideoResponseFault(page, video.dataset_item_id, video.frame_expectations);
     const token = await seed.accessToken(data.admin_email);
@@ -177,7 +178,6 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
     });
     page.on("response", (response) => {
       if (response.status() < 400 || !relevant(response.url())) return;
-      // Read the body immediately: Playwright Response handles can expire on reload.
       pending.push(
         (async () => {
           const entry: RequestErrorSignal = {
@@ -204,7 +204,6 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
     try {
       await provideFixture(fixture);
       await Promise.all(pending);
-      // Feedback/annotation writes are never allowlisted. Navigation may cancel lock cleanup.
       const rules = [...videoWorkbenchAborts, ...fixtureAbortRules(fixture)];
       const expectedAborts = errors.filter((error) => isExpectedRequestAbort(error, rules));
       const unexpected = errors.filter((error) => !expectedAborts.includes(error));
@@ -251,19 +250,14 @@ const test = base.extend<{ issueCase: IssueCase; videoFixture: string }>({
         page.removeAllListeners("pageerror");
         page.removeAllListeners("console");
         for (const release of fixture.releaseMedia) release();
-        try {
-          await page.unrouteAll({ behavior: "ignoreErrors" });
-          if (!page.isClosed()) await page.goto("about:blank");
-        } finally {
-          await seed.owned();
-        }
+        await page.unrouteAll({ behavior: "ignoreErrors" });
+        if (!page.isClosed()) await page.goto("about:blank");
       }
     }
   },
 });
 
 async function open(page: Page, fixture: IssueCase) {
-  // A cold media response may intentionally be held; DOMContentLoaded does not await it.
   await page.goto(`/projects/${fixture.data.project_id}/annotate?task=${fixture.taskId}`, {
     waitUntil: "domcontentloaded",
   });
@@ -283,7 +277,6 @@ async function seek(page: Page, frame: number) {
   while (current !== frame) {
     const forward = frame > current;
     current += forward ? 1 : -1;
-    // Shift in the Workbench hotkey owner means one source frame, even with step=5.
     await key(page, forward ? "Shift+ArrowRight" : "Shift+ArrowLeft");
     await expect(stage(page)).toHaveAttribute("data-video-frame-index", String(current));
   }
@@ -325,8 +318,6 @@ async function clickPoint(page: Page, point: Point) {
     (receipt!.x - bounds.x) / bounds.width,
     (receipt!.y - bounds.y) / bounds.height,
   ];
-  // The location summary rounds only its display; persistence retains the
-  // actual clicked point after browser screen-pixel quantization.
   expect(Math.abs(normalized[0] - point[0])).toBeLessThanOrEqual(1.1 / bounds.width);
   expect(Math.abs(normalized[1] - point[1])).toBeLessThanOrEqual(1.1 / bounds.height);
   return { x: normalized[0], y: normalized[1] };
@@ -344,8 +335,6 @@ async function videoMediaBounds(page: Page) {
     };
     if (!Object.values(media).every(Number.isFinite) || media.width <= 0 || media.height <= 0)
       throw new Error("Video media transform unavailable");
-    // Konva maps browser input through DOM scale, including fractional CSS
-    // dimensions whose clientWidth/clientHeight are rounded to integers.
     const contentBounds = content.getBoundingClientRect();
     const scaleX = contentBounds.width / content.clientWidth;
     const scaleY = contentBounds.height / content.clientHeight;
@@ -362,7 +351,6 @@ async function expectReady(page: Page, fixture: IssueCase, frame: number) {
   await expect(navigation(page)).toHaveAttribute("data-status", "ready", { timeout: 12_000 });
   await expect(navigation(page)).toHaveAttribute("data-frame-index", String(frame));
   await expect(stage(page)).toHaveAttribute("data-video-frame-index", String(frame));
-  // No capability skip: both WebCodecs and native fallback must display the real target pixels.
   await expectVideoFramePixels(page, fixture.expectations, frame);
   fixture.evidence.push({
     frame,
@@ -466,7 +454,6 @@ async function pinPixels(page: Page, point: Point) {
       .map((canvas) => {
         const scaleX = canvas.width / canvas.clientWidth;
         const scaleY = canvas.height / canvas.clientHeight;
-        // The pin has a fixed 8px screen radius; sample clear of its glyph and stroke at any zoom.
         const px = Math.round((media.x + media.w * x + 4) * scaleX);
         const py = Math.round((media.y + media.h * y) * scaleY);
         const rgba = [...canvas.getContext("2d")!.getImageData(px, py, 1, 1).data];
@@ -513,7 +500,6 @@ async function holdMedia(page: Page, fixture: IssueCase) {
       expect(response.ok()).toBe(true);
       expect(bytes).toBeGreaterThan(100);
       await gate;
-      // Only latency is injected; status, headers and bytes are the actual storage response.
       await route.fulfill({ response });
     })();
     deliveries.push(delivery);
@@ -558,7 +544,6 @@ async function observeNavigation(page: Page) {
       attributes: true,
       attributeFilter: ["data-status", "data-frame-index"],
     });
-    // This is observational telemetry only; it never calls application state or dispatches events.
     Object.defineProperty(window, "__g1NavigationObservation", {
       value: { entries, observer },
       configurable: true,
@@ -602,7 +587,6 @@ test.describe("video Issue source-frame ownership", () => {
     await page.keyboard.press("Space");
     await expect(page.getByTestId("issue-pin-fab")).toHaveAttribute("data-armed", "false");
     await expect(page.getByTestId("video-konva-source")).toHaveJSProperty("paused", true);
-    // The independent off-grid step makes the no-snap assertion deterministic under load.
     await seek(page, 17);
     const anchor = await dropReady(page, fixture, 17, [0.375, 0.625]);
     const issue = await saveIssue(page, fixture);
@@ -653,7 +637,6 @@ test.describe("video Issue source-frame ownership", () => {
       request.postDataJSON()?.workbench?.layout?.workspace?.contexts?.["annotate:video"]?.snapshot
         ?.layout?.activeGroup === "discussion";
     const finalLayoutWrite = page.waitForRequest(isDiscussionLayoutWrite);
-    // A prior successful save must not authorize reload while the final save is in flight.
     await page.route("**/api/v1/auth/me/preferences", async (route) => {
       if (!isDiscussionLayoutWrite(route.request())) return route.continue();
       const response = await route.fetch();
@@ -674,8 +657,6 @@ test.describe("video Issue source-frame ownership", () => {
     const issue = await saveIssue(page, fixture);
     expect(issue).toMatchObject({ anchor_type: "task", anchor_position: null });
     await finalLayoutWrite;
-    // Opening Issues saves a later active group than initialization or the preset change.
-    // Consume that response completely before reload can cancel its transport.
     const layoutResponse = await layoutSaved;
     expect(layoutResponse.ok()).toBe(true);
     expect(await layoutResponse.finished()).toBeNull();
@@ -722,7 +703,6 @@ test.describe("video Issue source-frame ownership", () => {
     await expect(modal(page).getByPlaceholder("y (0-1)")).toHaveCount(0);
     await expect(modal(page)).toContainText("任务问题不绑定画布位置");
     await expect(page.getByTestId("issue-create-frame")).toBeHidden();
-    // No held source response has been delivered: task-level feedback is independent of media.
     const issue = await saveIssue(page, fixture);
     expect(issue).toMatchObject({ anchor_type: "task", anchor_position: null });
     expect(fixture.writes).toHaveLength(1);
@@ -876,7 +856,6 @@ test.describe("video Issue source-frame ownership", () => {
     await expect(navigation(page)).toHaveAttribute("data-status", "preparing");
     await expect(navigation(page)).toHaveAttribute("data-frame-index", "3");
     await expect(modal(page)).toBeHidden();
-    // The first drop disarms the FAB; the pending catcher must still own later canvas gestures.
     await clickPoint(page, [0.75, 0.3]);
     const bounds = await videoMediaBounds(page);
     await page.mouse.move(bounds.x + bounds.width * 0.2, bounds.y + bounds.height * 0.2);
@@ -975,7 +954,6 @@ test.describe("video Issue source-frame ownership", () => {
     ).toEqual(["17"]);
     fixture.evidence.push({ rapidClickTransitions: clickTransitions });
 
-    // Reopen with a cold cache via reload, then preserve the JS owner through real SPA clicks.
     const secondGate = await holdMedia(page, fixture);
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(stage(page)).toBeVisible({ timeout: 25_000 });
@@ -997,7 +975,6 @@ test.describe("video Issue source-frame ownership", () => {
     await expect(page).toHaveURL(new RegExp(`task=${fixture.taskId}`));
     await expect(navigation(page)).toBeHidden();
     await secondGate.finish();
-    // Allow actual source delivery and paint to finish before checking for a stale UI result.
     const returnedFrame = Number(await stage(page).getAttribute("data-video-frame-index"));
     await expect(async () =>
       expectVideoFramePixels(page, fixture.expectations, returnedFrame),
@@ -1094,11 +1071,8 @@ test.describe("video Issue explicit decoder and native-media faults", () => {
       ).__g1NativeFrameFault.stalled = false;
     });
     await page.getByTestId("issue-frame-retry").click();
-    // The fixture permanently discarded F3's receipt. Restoring the callback function does
-    // not replay it, and a paused same-frame seek produces no new native presentation.
     await expect(navigation(page)).toHaveAttribute("data-status", "timeout", { timeout: 12_000 });
     await expect(navigation(page)).toHaveAttribute("data-frame-index", "3");
-    // Restore actual native frame output through real user navigation, then retry the same Issue.
     await key(page, "Shift+ArrowLeft");
     await expect(stage(page)).toHaveAttribute("data-video-frame-index", "2");
     await expect(async () => expectVideoFramePixels(page, fixture.expectations, 2)).toPass({

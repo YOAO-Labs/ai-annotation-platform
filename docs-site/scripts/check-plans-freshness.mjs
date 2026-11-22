@@ -1,10 +1,4 @@
 #!/usr/bin/env node
-// 扫描 docs/plans/*.md，对超过 30 天且未补 `## Outcome` 段的 plan 输出 warning。
-// 不阻断 CI（exit 0），但会在 GitHub Actions 中以 ::warning:: 形式高亮。
-//
-// 跳过：
-//   - README.md
-//   - 顶部声明 `> Status: abandoned` 的废案
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -31,7 +25,6 @@ for (const f of files) {
 
   const days = Math.floor((now - st.mtimeMs) / (24 * 3600 * 1000));
   const msg = `Plan ${f} is ${days} days old without ## Outcome — please summarize landed work or mark as abandoned`;
-  // GitHub Actions warning annotation
   console.log(`::warning file=docs/plans/${f}::${msg}`);
   warned++;
 }

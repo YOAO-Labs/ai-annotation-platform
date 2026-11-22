@@ -98,8 +98,6 @@ class VideoInputClient:
         except (ValueError, TypeError, AttributeError, UnicodeError, RecursionError):
             raise c.VideoInputFailure("invalid_response") from None
         except Exception:
-            # Do not include request URLs, authorization headers or body data in
-            # the public exception or any log emitted by this client.
             raise c.VideoInputFailure("storage_unavailable") from None
 
     async def manifest(self, request: c.VideoManifestScope) -> c.VideoManifestHeader:

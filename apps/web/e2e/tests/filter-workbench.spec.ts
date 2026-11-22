@@ -103,6 +103,19 @@ test("current-frame display keeps the explicit all-loaded-frame acceptance scope
     toStatus: "pending",
     annotatorEmail: filtering.user_emails.anno,
   });
+  const chunks = await request.get(
+    `${API_BASE}/api/v1/tasks/${taskId}/video/chunks?from_frame=0&to_frame=10`,
+    { headers },
+  );
+  expect(chunks.ok()).toBe(true);
+  const { chunks: loadedChunks }: { chunks: { status: string; output_id: string }[] } =
+    await chunks.json();
+  expect(loadedChunks.length).toBeGreaterThan(0);
+  for (const chunk of loadedChunks) {
+    expect(chunk.status).toBe("ready");
+    expect(chunk.output_id).toBeTruthy();
+  }
+
   await seed.injectToken(page, filtering.user_emails.anno);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

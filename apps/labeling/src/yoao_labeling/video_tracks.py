@@ -44,7 +44,6 @@ def sorted_keyframes(geometry: dict) -> list[dict]:
 
 
 def clean_keyframe(kf: dict, *, include_attributes: bool = True) -> dict:
-    # polygon 关键帧存 points, bbox 关键帧存 bbox; 按存在的形状键保留。
     row: dict = {
         "frame_index": int(kf.get("frame_index", 0)),
         "source": kf.get("source", "manual"),

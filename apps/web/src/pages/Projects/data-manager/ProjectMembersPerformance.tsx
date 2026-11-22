@@ -209,7 +209,6 @@ function roleLabel(role: string | null) {
 }
 
 export function formatPerformanceDate(value: string, timezone: string) {
-  // Trend keys already represent a local calendar date, not a UTC instant.
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return `${value.slice(5, 7)}/${value.slice(8, 10)}`;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;

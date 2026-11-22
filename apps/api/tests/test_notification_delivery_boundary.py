@@ -217,8 +217,9 @@ async def test_explicit_publisher_binding_can_run_alongside_remote_identity(
     )
 
     class Data:
-        def __init__(self, dsn):
+        def __init__(self, dsn, *, include_terminal):
             assert dsn == settings.notification_publish_database_url
+            assert include_terminal is True
 
         async def delivery_policy(self):
             return SimpleNamespace(policy="aap-notifications-delivery/v1")

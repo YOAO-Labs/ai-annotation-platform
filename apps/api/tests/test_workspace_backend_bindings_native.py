@@ -150,7 +150,6 @@ async def test_native_clear_is_match_scoped_timestamped_and_caller_transactional
             )
             == 0
         )
-        # Another connection cannot observe writes before the caller commits.
         assert await _snapshot(test_engine, world) == original
         await transaction.rollback()
         assert await _snapshot(test_engine, world) == original

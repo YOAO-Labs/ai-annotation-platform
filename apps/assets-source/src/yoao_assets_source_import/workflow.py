@@ -81,8 +81,6 @@ _HEARTBEAT_RETRY_MAX_SECONDS = 2.0
 _IMAGE_EXTS = {"jpg", "jpeg", "png", "bmp", "webp", "tiff", "tif", "gif", "svg"}
 _VIDEO_EXTS = {"mp4", "avi", "mov", "mkv", "wmv", "flv", "webm"}
 _POINTCLOUD_EXTS = {"pcd", "bin", "las", "ply"}
-# Keep a manifest below this wire budget so a valid 50k-file limit cannot
-# exhaust the worker with thousands of maximum-length connector paths.
 _MAX_MANIFEST_WIRE_BYTES = 16 * 1024 * 1024
 
 
@@ -240,7 +238,6 @@ class LeaseKeeper:
                     self._stop_unavailable()
                     return
                 except Exception:
-                    # Transport and unknown errors leave ownership uncertain.
                     self._stop_unavailable()
                     return
         self._thread_stop.set()
@@ -465,8 +462,6 @@ class ImportWorkflow:
                 object_identity=object_identity,
             )
             if stream_bytes and state.committed_bytes == previous_committed_bytes:
-                # Failed reads are not persisted in committed_bytes. Track their
-                # consumed source bytes only until this worker lease is reclaimed.
                 attempted_bytes += stream_bytes
         if state.cursor != state.total:
             raise ImportFailure("invalid_response")
@@ -516,14 +511,21 @@ class ImportWorkflow:
                     for attempt in range(5):
                         keeper.check()
                         try:
-                            operation = await self._database.reserve_original_read(verification_scope)
+                            operation = await self._database.reserve_original_read(
+                                verification_scope
+                            )
                             break
                         except Exception as exc:
                             if not _transient_database_error(exc):
                                 raise
                             if attempt == 4:
                                 raise LeaseUnavailable from None
-                            await asyncio.sleep(min(0.1 * (2**attempt), max(0, keeper._remaining_lease())))
+                            await asyncio.sleep(
+                                min(
+                                    0.1 * (2**attempt),
+                                    max(0, keeper._remaining_lease()),
+                                )
+                            )
                     else:
                         raise LeaseUnavailable
             else:
@@ -570,7 +572,6 @@ class ImportWorkflow:
                 await _drain_source(stream, exc)
                 raise
             else:
-                # The source handle must stop owning bytes before settlement.
                 await _drain_source(stream, None)
                 stream = None
             if entry.file_type == "image":
@@ -709,7 +710,10 @@ class ImportWorkflow:
                         request.model_dump(mode="json")
                     )
                 except Exception:
-                    logger.warning("Could not settle unstarted import verification job=%s", entry.job_id)
+                    logger.warning(
+                        "Could not settle unstarted import verification job=%s",
+                        entry.job_id,
+                    )
             if isinstance(exc, VerificationFailed):
                 raise ImportFailure("storage_unavailable") from None
             if isinstance(exc, VerificationRejected):
@@ -863,7 +867,7 @@ def _collect_manifest(
     collected: list[ImportSourceObject] = []
     seen: set[str] = set()
     total_bytes = 0
-    manifest_bytes = 2  # []
+    manifest_bytes = 2
     for source_object in adapter.list(
         state.source_path, state.recursive, state.include_globs
     ):

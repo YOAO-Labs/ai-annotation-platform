@@ -615,7 +615,6 @@ async def test_body_close_unknown_retains_both_actual_permits(runtime):
     assert caught.value.storage_operation_unsettled is True
     assert len(world.active) == 2
     assert world.sdk.closes == 1
-    # Release the test's in-memory handle; production retains its durable record.
     world.sdk.bodies[0].close_failure = False
     world.sdk.bodies[0].close()
 

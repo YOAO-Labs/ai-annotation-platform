@@ -304,7 +304,6 @@ describe("explicit video tool commands", () => {
         expect(result.current.state.videoTool).toBe(explicit);
         expect(result.current.state.videoToolScope).toBe("frame");
       }
-      // Programmatic selection restoration is not a fresh pointer/keyboard command.
       act(() => result.current.state.setSelectedId(type));
       expect(result.current.state.videoTool).toBe("mask");
       act(() => result.current.commands.requestSelection(type));

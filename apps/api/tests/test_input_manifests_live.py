@@ -271,8 +271,6 @@ async def test_manifest_response_loss_replays_one_input_in_restricted_materializ
             manifests = ManifestClient(origin, runtime.control_token, client=http)
             original_inputs = InputClient(origin, runtime.control_token, client=http)
             assert (await manifests.page(page_request)).members[0].input is None
-            # The generic accept route cannot create a new bulk Input outside
-            # its immutable member's preparation capability.
             with pytest.raises(inputs.InputFailure):
                 await original_inputs.accept(
                     inputs.FindInputRequest(
@@ -514,8 +512,6 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
             accepted_input_manifest_id=str(header.job_id),
             accepted_input_manifest_digest=header.selection_digest,
         )
-        # The missing source must become a fixed member failure. A late Task is
-        # outside admission even though it belongs to the same still-active batch.
         await asyncio.to_thread(
             runtime.owner_s3.delete_object,
             Bucket=runtime.datasets_bucket,
@@ -615,8 +611,6 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
                 failed[tasks[2].id].id,
             )
 
-        # Retrying a retained per-item failure survives ordinary Task versions
-        # and origin Job pruning; it still cannot borrow a current source URL.
         async with runtime.owner_sessions.begin() as owner:
             await owner.execute(
                 text("DELETE FROM public.async_jobs WHERE id=:job"),

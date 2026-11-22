@@ -215,7 +215,6 @@ function request<T>(
   return { entry: entry!, promise, cacheHit };
 }
 
-/** Non-original URLs are reserved for anonymous renderer fixtures; credentials are never attached. */
 async function bytes(
   state: OwnerCache,
   url: string,
@@ -329,7 +328,6 @@ export async function loadTimedDecodedPointCloudFrame(
   state.active = controller;
   const startedAt = performance.now();
   const result = frameRequest(state, url, convention, threshold, controller.signal, "active");
-  // Join first so cancelling the speculative consumer cannot cancel the shared work.
   state.prefetch?.abort();
   state.prefetch = null;
   try {
@@ -341,7 +339,6 @@ export async function loadTimedDecodedPointCloudFrame(
     if (state.active === controller) state.active = null;
   }
 }
-/** Drop speculative consumers when their workbench unmounts; shared active readers stay alive. */
 export function cancelPointCloudFramePrefetch(): void {
   current?.prefetch?.abort();
   if (current) current.prefetch = null;
@@ -383,7 +380,6 @@ async function decodeBitmap(state: OwnerCache, blob: Blob, signal: AbortSignal) 
   check(state, signal);
   if (typed.type !== "image/svg+xml") return checkedBitmap(state, typed, signal);
 
-  // Chromium requires an already decoded Image for SVG; keep its document origin opaque.
   const address = await createOriginalImageAddress(typed, signal);
   let image: HTMLImageElement | null = null;
   const onAbort = () => {

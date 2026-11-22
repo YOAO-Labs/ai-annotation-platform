@@ -67,7 +67,6 @@ async def test_apply_prediction_result_records_pool_and_instance(
         select(Prediction).where(Prediction.id == receipt.id)
     )
 
-    # Both columns written.
     assert prediction.ml_backend_id == backend.id
     assert prediction.ml_backend_pool_id == pool.id
 
@@ -108,7 +107,7 @@ async def test_create_failed_pool_set_when_instance_null(
     failed = await pred_svc.create_failed(
         task_id=None,
         project_id=proj.id,
-        ml_backend_id=None,  # no instance selected yet
+        ml_backend_id=None,
         error_type="PoolUnavailable",
         message="all members circuit-open",
         ml_backend_pool_id=pool.id,

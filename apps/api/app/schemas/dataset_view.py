@@ -47,7 +47,6 @@ class DatasetItemFilters(BaseModel):
 
 
 class DatasetItemQuery(DatasetItemFilters):
-    # Existing item callers may include unrelated parameters; saved queries stay strict.
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
     limit: int = Field(50, ge=1, le=200)
     offset: int = Field(0, ge=0)

@@ -175,7 +175,6 @@ async def test_metadata_best_effort_failure_restart_and_database_restore(
     deliveries = []
     monkeypatch.setattr(middleware, "async_session", maker)
     monkeypatch.setattr(middleware.settings, "audit_async", True)
-    # Alembic disables preexisting loggers; retain the best-effort failure cause.
     monkeypatch.setattr(middleware.logger, "disabled", False)
     async with async_sessionmaker(test_engine, expire_on_commit=False).begin() as db:
         actor = await create_user(
@@ -236,7 +235,6 @@ async def test_metadata_best_effort_failure_restart_and_database_restore(
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
-            # A refused connection to an owned bound socket exercises real enqueue failure.
             with socket.socket() as unavailable:
                 unavailable.bind(("127.0.0.1", 0))
                 refused_broker = f"redis://127.0.0.1:{unavailable.getsockname()[1]}/0"
@@ -246,7 +244,6 @@ async def test_metadata_best_effort_failure_restart_and_database_restore(
                 )
                 try:
                     with monkeypatch.context() as patch:
-                        # Celery's environment selector overrides its constructor broker.
                         patch.setenv("CELERY_BROKER_WRITE_URL", refused_broker)
                         patch.setattr(
                             persist_audit_entry,
@@ -365,7 +362,6 @@ async def test_metadata_best_effort_failure_restart_and_database_restore(
                     assert os.getpgid(child_pid) == worker.process.pid
                     os.kill(child_pid, signal.SIGKILL)
                     await control.rollback()
-                # The first committed row survives; the interrupted second insert rolls back.
                 assert len(await _rows(test_engine, payload["request_id"])) == 1
             async with test_engine.begin() as db:
                 await db.execute(text(f"DROP TRIGGER {trigger} ON public.audit_logs"))
@@ -378,7 +374,6 @@ async def test_metadata_best_effort_failure_restart_and_database_restore(
                     "queue_size": 0,
                     "unacknowledged": 0,
                 }
-                # Explicit replay can recover the missing attempt; it is not automatic redelivery.
                 await send(payload)
                 assert len(await _rows(test_engine, payload["request_id"])) == 2
 

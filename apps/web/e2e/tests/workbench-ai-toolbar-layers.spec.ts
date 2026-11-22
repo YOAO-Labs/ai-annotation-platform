@@ -1,7 +1,13 @@
 import { expectStableContextCapsule, openContextToolbar } from "../fixtures/context-toolbar";
 import { openMaskSettings } from "../fixtures/mask-toolbar";
 import type { APIRequestContext, APIResponse, Page, Request } from "@playwright/test";
-import { expect, test, type SeedAPI, type SeedNativeMaskCandidateData } from "../fixtures/seed";
+import {
+  expect,
+  test,
+  type SeedAPI,
+  type SeedData,
+  type SeedNativeMaskCandidateData,
+} from "../fixtures/seed";
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 const native = process.env.PLAYWRIGHT_RASTER_MASK_MATRIX === "native";
@@ -93,7 +99,6 @@ async function routeML(page: Page, response: unknown) {
   );
   await page.route(inferencePattern, (route) => {
     const context = contextOf(route.request());
-    // Existing warmup sends a center point without model/output defaults and discards its result.
     if (!("output_geometry" in context)) {
       state.warmups.push(route.request().url());
       return route.fulfill({
@@ -113,13 +118,12 @@ async function routeML(page: Page, response: unknown) {
   });
   return state;
 }
-async function fixtureFor(seed: SeedAPI, media: Media) {
-  const data = await seed.owned();
+async function fixtureFor(seed: SeedAPI, data: SeedData, media: Media) {
   await seed.configureRasterMask(data.project_id, true);
   const taskId =
     media === "video" ? (await seed.videoTask(data.project_id)).task_id : data.task_ids[0];
   await seed.advanceTask({ taskId, toStatus: "pending", annotatorEmail: data.annotator_email });
-  return { data, taskId, token: await seed.accessToken(data.annotator_email) };
+  return { taskId, token: await seed.accessToken(data.annotator_email) };
 }
 async function openWorkbench(
   page: Page,
@@ -204,8 +208,9 @@ test.describe("E1 interactive toolbar layers", () => {
       page,
       request,
       seed,
+      owned: data,
     }) => {
-      const { data, taskId, token } = await fixtureFor(seed, media);
+      const { taskId, token } = await fixtureFor(seed, data, media);
       const fixture = await seed.nativeMaskCandidate(taskId, { variant: "multimask_donut" });
       const routed = await routeML(page, fixture.response);
       const errors: string[] = [];
@@ -220,7 +225,6 @@ test.describe("E1 interactive toolbar layers", () => {
       await expect(page.getByTestId("interactive-candidate-count")).toContainText(/2\s*\/\s*3/);
       await page.getByTestId("interactive-candidate-previous").click();
       await expect(page.getByTestId("interactive-candidate-count")).toContainText(/1\s*\/\s*3/);
-      // Native button Enter must invoke that button, without accepting the candidate behind it.
       await expectStableContextCapsule(page, "interactive");
       await openContextToolbar(page, "interactive");
       await page.getByTestId("interactive-toolbar-advanced-toggle").press("Enter");
@@ -261,8 +265,9 @@ test.describe("E1 interactive toolbar layers", () => {
       page,
       request,
       seed,
+      owned: data,
     }) => {
-      const { data, taskId } = await fixtureFor(seed, media);
+      const { taskId } = await fixtureFor(seed, data, media);
       const adminToken = await seed.accessToken(data.admin_email);
       const second = await json<{ id: string }>(
         await request.post(`${API_BASE}/api/v1/projects/${data.project_id}/ml-backends`, {
@@ -295,7 +300,10 @@ test.describe("E1 interactive toolbar layers", () => {
           response.url().endsWith(`/projects/${data.project_id}`) &&
           response.request().method() === "PATCH",
       );
-      await page.getByTestId("ai-variant-size").selectOption("large");
+      const variant = page
+        .getByTestId("interactive-toolbar-advanced")
+        .getByTestId("ai-variant-size");
+      await variant.selectOption("large");
       expect((await savedProject).ok()).toBe(true);
       await openContextToolbar(page, "interactive");
       await page.getByTestId("interactive-toolbar-advanced-toggle").click();
@@ -313,7 +321,7 @@ test.describe("E1 interactive toolbar layers", () => {
       await page.getByTestId("interactive-toolbar-advanced-toggle").click();
       await expect(page.getByTestId("ai-tool-backend-select")).toHaveValue(second.id);
       await expect(page.getByTestId("ai-tool-model-select")).toHaveValue("e2e-alternate-model");
-      await expect(page.getByTestId("ai-variant-size")).toHaveValue("large");
+      await expect(variant).toHaveValue("large");
       await openContextToolbar(page, "interactive");
       await page.getByTestId("interactive-toolbar-advanced-toggle").click();
       await expect
@@ -341,7 +349,7 @@ test.describe("E1 interactive toolbar layers", () => {
       await page.getByTestId("interactive-toolbar-advanced-toggle").click();
       await expect(page.getByTestId("ai-tool-backend-select")).toHaveValue(second.id);
       await expect(page.getByTestId("ai-tool-model-select")).toHaveValue("e2e-alternate-model");
-      await expect(page.getByTestId("ai-variant-size")).toHaveValue("large");
+      await expect(variant).toHaveValue("large");
       expect(routed.calls).toHaveLength(count);
     });
   }
@@ -350,8 +358,9 @@ test.describe("E1 interactive toolbar layers", () => {
     page,
     request,
     seed,
+    owned: data,
   }) => {
-    const { data, taskId, token } = await fixtureFor(seed, "image");
+    const { taskId, token } = await fixtureFor(seed, data, "image");
     const fixture = await seed.nativeMaskCandidate(taskId);
     const routed = await routeML(page, fixture.response);
     routed.capabilityFailure = true;
@@ -397,8 +406,9 @@ test.describe("E1 interactive toolbar layers", () => {
     page,
     request,
     seed,
+    owned: data,
   }) => {
-    const { data, taskId, token } = await fixtureFor(seed, "image");
+    const { taskId, token } = await fixtureFor(seed, data, "image");
     const source = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
     const fixture = await seed.nativeMaskCandidate(taskId, {
       variant: "negative_scribble",

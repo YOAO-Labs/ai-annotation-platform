@@ -193,7 +193,6 @@ async def test_attributes_written_back_with_ai_origin(
     box = await _mk_box(db_session, task.id, user.id)
     await db_session.flush()
 
-    # 下游分类返回 color=blue (crop 输入 id="0" → cr.task_id="0")
     _patch_predict(
         monkeypatch,
         [
@@ -285,7 +284,7 @@ async def test_label_prefix_on_written_keys(
 
     assert updated.attributes["plate_color"] == "red"
     assert updated.attributes_meta["plate_color"]["origin"] == "ai"
-    assert "color" not in updated.attributes  # 原始键被前缀命名空间化
+    assert "color" not in updated.attributes
 
 
 @pytest.mark.asyncio
@@ -299,8 +298,6 @@ async def test_attributes_respects_human_edits_and_reuses_ai_slots(
     task = await create_task(db_session, project_id=proj.id)
     await db_session.flush()
 
-    # 预置一个框: color=red 是人工手改 (attributes_meta 无该键 → 隐式 human);
-    # brand=BMW 是上次 AI 写的 (origin=ai, model_ref 指向旧模型)。
     box = await _mk_box(db_session, task.id, user.id)
     box.attributes = {"color": "red", "brand": "BMW"}
     box.attributes_meta = {
@@ -311,7 +308,6 @@ async def test_attributes_respects_human_edits_and_reuses_ai_slots(
     }
     await db_session.flush()
 
-    # 本次 AI 返回 color=blue (想改人工) 与 brand=Audi (想改 AI 上次值)。
     _patch_predict(
         monkeypatch,
         [
@@ -343,10 +339,8 @@ async def test_attributes_respects_human_edits_and_reuses_ai_slots(
     )
 
     assert children == []
-    # 人工手改的 color 保住原值, meta 仍无该键。
     assert updated.attributes["color"] == "red"
     assert "color" not in updated.attributes_meta
-    # AI 上次写的 brand 被本次 AI 覆盖, model_ref 刷新到新模型。
     assert updated.attributes["brand"] == "Audi"
     assert updated.attributes_meta["brand"]["origin"] == "ai"
     assert updated.attributes_meta["brand"]["model_ref"]["model_id"] == "new-cls"
@@ -358,7 +352,6 @@ async def test_geometry_creates_child_boxes(
 ):
     user, _ = super_admin
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
-    # 项目 bbox 标签集含 plate → 子检出类名保留 (否则回落 __unknown)
     proj.tool_bindings = {
         "bbox": {
             "enabled": True,
@@ -374,7 +367,6 @@ async def test_geometry_creates_child_boxes(
     box = await _mk_box(db_session, task.id, user.id)
     await db_session.flush()
 
-    # crop 上检出一个子物 (crop 百分比坐标) → 回映 → 建子框
     _patch_predict(
         monkeypatch,
         [
@@ -420,7 +412,6 @@ async def test_geometry_creates_child_boxes(
     assert child.parent_annotation_id == box.id
     assert child.source == "prediction_based"
     assert child.class_name == "plate"
-    # 回映后落在原图归一化范围内
     assert 0.0 <= child.geometry["x"] <= 1.0
     assert 0.0 <= child.geometry["y"] <= 1.0
 
@@ -435,7 +426,7 @@ async def test_geometry_unknown_class_falls_back(
     proj.tool_bindings = {
         "bbox": {
             "enabled": True,
-            "classes": [{"name": "car", "order": 0}],  # 无 plate
+            "classes": [{"name": "car", "order": 0}],
             "attribute_schema": {"fields": []},
         }
     }
@@ -495,7 +486,6 @@ async def test_tiny_crop_raises_422(db_session, super_admin, monkeypatch, _patch
     proj = await create_project(db_session, owner_id=user.id, type_key="image-det")
     task = await create_task(db_session, project_id=proj.id)
     await db_session.flush()
-    # 极小框 (200px 图上 1% 宽高 = 2px < min_crop_side_px=32) → crop 守卫跳过
     svc = AnnotationService(db_session)
     box = await svc.create(
         task_id=task.id,
@@ -507,7 +497,7 @@ async def test_tiny_crop_raises_422(db_session, super_admin, monkeypatch, _patch
     )
     await db_session.flush()
 
-    _patch_predict(monkeypatch, [])  # 不应被调用
+    _patch_predict(monkeypatch, [])
 
     with pytest.raises(HTTPException) as exc:
         await run_secondary_inference(
@@ -532,9 +522,7 @@ async def test_tiny_crop_raises_422(db_session, super_admin, monkeypatch, _patch
 @pytest.mark.asyncio
 async def test_non_croppable_geometry_raises_400(db_session, super_admin, monkeypatch):
     """门1 能转 LS shape 但门2 取不到外接框的几何 (如 polyline) → 明确 400。"""
-    # polyline 门1 → polylinelabels, 门2 _box_bbox_pct 非 rectangle/polygon → None → 400。
-    # 400 在读图 / 裁 crop 之前触发, 用 fake annotation 即可 (不落库)。
-    _patch_predict(monkeypatch, [])  # 不应被调用
+    _patch_predict(monkeypatch, [])
     fake_ann = types.SimpleNamespace(
         id="ann-0001",
         geometry={"type": "polyline", "points": [[0.2, 0.2], [0.5, 0.5], [0.7, 0.3]]},
@@ -611,7 +599,7 @@ async def test_non_croppable_geometry_variants_raise_400(
 ):
     """门2 兜底覆盖: 除 polyline 外, rotated_bbox / keypoint / multi_polygon
     (走 _box_bbox_pct → None 路径) 都应提前 400, 不静默返回空。"""
-    _patch_predict(monkeypatch, [])  # 不应被调用
+    _patch_predict(monkeypatch, [])
     fake_ann = types.SimpleNamespace(
         id=f"ann-{geo_type}",
         geometry=geometry,
@@ -643,15 +631,10 @@ async def test_non_croppable_geometry_variants_raise_400(
 @pytest.mark.parametrize(
     "text_outputs,expected",
     [
-        # 检测型 (yolo detect-yoloe / gsam2-detection): 自报 ["box"] → 出子框。
         (["box"], "box"),
-        # 分割型 (segment-yoloe / *-segmentation): 不支持 box → 取首个受支持值。
         (["mask", "both"], "mask"),
-        # 错配 backend 自报非法值 (如 polygon): 过滤掉 → 回落协议默认 mask。
         (["polygon"], "mask"),
-        # 非法值混在合法值前: 跳过非法, 取受支持的 both。
         (["polygon", "both"], "both"),
-        # 模型未自报 → 协议默认 mask (老 backend 兼容路径)。
         ([], "mask"),
     ],
 )

@@ -1,4 +1,3 @@
-# Optional official SAM3 plugin; combine with docker-compose.ml.yml.
 services:
   sam3-backend:
     image: ${SAM3_IMAGE:?Set the accepted SAM3 image repository}@${SAM3_IMAGE_DIGEST:?Set the SAM3 manifest digest}

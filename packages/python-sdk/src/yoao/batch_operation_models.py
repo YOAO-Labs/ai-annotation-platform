@@ -84,7 +84,6 @@ class ReviewedBatchDistribution(BatchDistributionRequest):
 
 
 class BatchAssignmentPreviewRequest(_BatchRequest):
-    # These fields are required, nullable targets. Explicit null means clear that role.
     annotator_id: UUID | None
     reviewer_id: UUID | None
 

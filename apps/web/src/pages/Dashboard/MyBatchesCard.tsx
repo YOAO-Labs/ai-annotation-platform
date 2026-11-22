@@ -55,18 +55,14 @@ function batchesErrorMessage(error: unknown): string {
   return "分派批次加载失败，请检查网络后重试。";
 }
 
-/** 未送审任务 = pending + in_progress（rejected 需先重做，不计入整批送审）。 */
 function unsubmittedTasks(b: MyBatchItem): number {
   return Math.max(0, b.total_tasks - b.review_tasks - b.completed_tasks - b.rejected_tasks);
 }
 
-/** 整批送审入口按“是否还有未送审任务”显示，而不是只看批次状态。 */
 function canBatchSubmit(b: MyBatchItem): boolean {
   return unsubmittedTasks(b) > 0 && (b.status === "annotating" || b.status === "reviewing");
 }
 
-/** B-20：标注员视角的三段进度条 — 已动工 / 送审 / 通过。
- *  三条进度独立显示，文字小号附在右侧，避免占用太多行高。 */
 function ProgressTriple({
   startedPct,
   reviewPct,
@@ -106,9 +102,6 @@ function ProgressTriple({
   );
 }
 
-/** 标注员 dashboard 的「我的批次」卡片，行版式与 ReviewerDashboard
- *  「审核中批次」对齐：button-row + display_id · 项目 · 计数 + 右侧进度% + chev。
- *  额外的 状态徽章 / 提交质检 / 修改 等动作放在右侧 action 区。 */
 export function MyBatchesCard() {
   const batchesQuery = useMyBatches();
   const batches = batchesQuery.data ?? [];
@@ -120,7 +113,6 @@ export function MyBatchesCard() {
   const pushToast = useToastStore((s) => s.push);
   const qc = useQueryClient();
   const [submittingId, setSubmittingId] = useState<string | null>(null);
-  // B-22：多选提交 — 选中态以 batch_id 集合保存，触发批量提交时按顺序串行调用。
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkSubmitting, setBulkSubmitting] = useState(false);
 
@@ -158,7 +150,6 @@ export function MyBatchesCard() {
     });
   };
 
-  // annotating 排前面，rejected 次之，其他靠后；同状态按 display_id 自然序
   const STATUS_ORDER: Record<string, number> = {
     annotating: 0,
     rejected: 1,
@@ -222,13 +213,9 @@ export function MyBatchesCard() {
 
   if (batches.length === 0 && !batchesQuery.isError) return null;
 
-  // B-22 改：可批量提交的批次 = 仍有未送审任务（pending / in_progress）的 annotating /
-  // reviewing 批次。用户反馈"提交质检仍无效"是因为旧门槛要求所有任务都送审，这里放宽到
-  // 只要还有未送审任务即可，让标注员可以中途整批提交（剩余任务由 confirm 提示）。
   const submittable = sorted.filter(canBatchSubmit);
   const selectedSubmittable = submittable.filter((b) => selectedIds.has(b.batch_id));
 
-  // 与 AnnotatePage 的单批提交确认同一 tone/voice(计划 Group B 要求)。
   const confirmBatchSubmit = async (b: MyBatchItem, pendingCount: number) => {
     if (
       !(await confirmDialog({
@@ -333,8 +320,6 @@ export function MyBatchesCard() {
         <div className="py-2">
           {pagination.items.map((b) => {
             const meta = STATUS_LABEL[b.status] ?? { label: b.status, variant: "outline" as const };
-            // B-20：分三档进度，每档独立条 — "标注中"(已动工含 in_progress) / "送审" / "审核通过"。
-            // 旧版只用 completed/total 计算，导致 reviewer 没批复前进度永远 0%，且与后端三态语义脱节。
             const inProgress = b.in_progress_tasks ?? 0;
             const startedDone = inProgress + b.review_tasks + b.completed_tasks;
             const reviewDone = b.review_tasks + b.completed_tasks;

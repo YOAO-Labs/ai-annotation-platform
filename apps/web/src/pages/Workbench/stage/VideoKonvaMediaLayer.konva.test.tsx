@@ -1,11 +1,3 @@
-/**
- * 视频底图层(VideoKonvaMediaLayer)测试。
- *
- * 两层分工(对齐 ADR-0041 决策 C):
- *   - 纯函数 pickMediaImageSource:播放/暂停下的 image source 选取矩阵;
- *   - konva mock:断言渲染出 media-bg Layer + Konva.Image,几何 props(world 尺寸)透传。
- * 真实 canvas blit / 播放重绘回归交给 Playwright,不在此验证。
- */
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render } from "@testing-library/react";
@@ -111,7 +103,6 @@ describe("VideoKonvaMediaLayer · konva mock", () => {
     expect(image).not.toBeNull();
     expect(image!.getAttribute("data-width")).toBe("1920");
     expect(image!.getAttribute("data-height")).toBe("1080");
-    // 底图层不参与 hit-test。
     expect(image!.getAttribute("data-listening")).toBe("false");
   });
 

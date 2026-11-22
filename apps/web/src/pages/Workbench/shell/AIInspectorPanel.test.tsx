@@ -1,21 +1,14 @@
-/**
- * AIInspectorPanel 单测
- * 覆盖: open=false 不渲染 / 渲染 AI 待审分组 / 渲染人工分组 / 采纳/驳回/精修按钮回调
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { ComponentProps } from "react";
 
-// jsdom 没有 ResizeObserver — react-virtual 需要它
 globalThis.ResizeObserver = class {
   observe() {}
   unobserve() {}
   disconnect() {}
 } as unknown as typeof ResizeObserver;
 
-// jsdom 下滚动容器高度为 0, react-virtual 默认渲染 0 行 → 列表内容(分组头/box行)都不渲染。
-// mock useVirtualizer 让其返回全部行, 使列表内容可断言。
 vi.mock("@tanstack/react-virtual", () => ({
   useVirtualizer: ({ count }: { count: number }) => ({
     getVirtualItems: () =>
@@ -30,12 +23,10 @@ vi.mock("@tanstack/react-virtual", () => ({
   }),
 }));
 
-// ── mock ResizeHandle (纯布局，不影响逻辑) ───────────────────────────────────
 vi.mock("./ResizeHandle", () => ({
   ResizeHandle: () => <div data-testid="resize-handle" />,
 }));
 
-// ── mock AttributeForm ────────────────────────────────────────────────────────
 vi.mock("./AttributeForm", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./AttributeForm")>()),
   AttributeForm: ({ onChange }: { onChange: (v: Record<string, unknown>) => void }) => (
@@ -45,7 +36,6 @@ vi.mock("./AttributeForm", async (importOriginal) => ({
   ),
 }));
 
-// ── mock BoxListItem (重量级画布依赖) ────────────────────────────────────────
 vi.mock("../stage/BoxListItem", () => ({
   BoxListItem: ({
     b,
@@ -88,7 +78,6 @@ vi.mock("../stage/BoxListItem", () => ({
   ),
 }));
 
-// ── mock stage helpers ────────────────────────────────────────────────────────
 vi.mock("../stage/videoStageGeometry", () => ({
   resolveTrackAtFrame: () => null,
 }));
@@ -96,7 +85,6 @@ vi.mock("../stage/videoTrackOutside", () => ({
   isFrameOutside: () => false,
 }));
 
-// ── mock SchemaForm / VariantSelector ─────────────────────────────────────────
 vi.mock("../components/SchemaForm", () => ({
   SchemaForm: () => <div data-testid="schema-form" />,
   VARIANT_FIELD_KEYS: [],
@@ -109,7 +97,6 @@ import { AIInspectorPanel } from "./AIInspectorPanel";
 import type { AiBox } from "../state/transforms";
 import type { Annotation } from "@/types";
 
-// ── fixtures ──────────────────────────────────────────────────────────────────
 function makeAiBox(id: string, cls = "car"): AiBox {
   return {
     id,
@@ -240,8 +227,6 @@ describe("AIInspectorPanel", () => {
     const aiBox = makeAiBox("ai-2", "truck");
     renderUI({ aiBoxes: [aiBox], onAcceptPrediction });
     fireEvent.click(screen.getByTestId("accept-ai-2"));
-    // AIInspectorPanel 通过 acceptWithReviewEdits wrapper 透传给 BoxesList,
-    // 未选中候选 / 未编辑时 overrides = undefined。
     expect(onAcceptPrediction).toHaveBeenCalledWith(aiBox, undefined);
   });
 
@@ -267,10 +252,8 @@ describe("AIInspectorPanel", () => {
       attributeSchema,
       onAcceptPrediction,
     });
-    // 行内采纳与新的当前候选主动作共用原属性覆盖处理。
     expect(screen.getByText("属性审阅")).toBeInTheDocument();
     expect(screen.getByTestId("ai-candidate-accept")).toBeEnabled();
-    // 行内 (BoxesList) 采纳按钮触发 wrapper: 未编辑 → 传 undefined。
     fireEvent.click(screen.getByTestId("accept-ai-attr"));
     expect(onAcceptPrediction).toHaveBeenCalledWith(aiBox, undefined);
   });
@@ -287,9 +270,7 @@ describe("AIInspectorPanel", () => {
       attributeSchema,
       onAcceptPrediction,
     });
-    // mock AttributeForm 的 change-attr 触发 onChange({ key: "val" }) → 写入 editedAiBoxAttrs。
     fireEvent.click(screen.getByText("change-attr"));
-    // 点 BoxesList 行内采纳按钮 → wrapper 合并 editedAiBoxAttrs 作为 overrides。
     fireEvent.click(screen.getByTestId("accept-ai-attr"));
     expect(onAcceptPrediction).toHaveBeenCalledWith(aiBox, { key: "val" });
   });
@@ -299,7 +280,6 @@ describe("AIInspectorPanel", () => {
     const attributeSchema = {
       fields: [{ key: "color", label: "颜色", type: "text" as const }],
     };
-    // 候选属性审阅与人工属性共用 attrCollapsed 控制。
     const aiBox = { ...makeAiBox("ai-attr", "car"), attributes: { color: "blue" } };
     const shared = {
       aiBoxes: [aiBox],
@@ -307,7 +287,6 @@ describe("AIInspectorPanel", () => {
       attributeSchema,
       onToggleAttrCollapsed,
     };
-    // 折叠态: 属性表单不渲染 (头部仍在)。
     const { rerender } = render(
       <MemoryRouter>
         <AIInspectorPanel {...baseProps} {...shared} attrCollapsed />
@@ -315,10 +294,8 @@ describe("AIInspectorPanel", () => {
     );
     expect(screen.getByText("属性审阅")).toBeInTheDocument();
     expect(screen.queryByTestId("attribute-form")).toBeNull();
-    // 点头部 → 调受控回调 (不改本地态)。
     fireEvent.click(screen.getByText("属性审阅"));
     expect(onToggleAttrCollapsed).toHaveBeenCalledTimes(1);
-    // 展开态: 属性表单渲染。
     rerender(
       <MemoryRouter>
         <AIInspectorPanel {...baseProps} {...shared} attrCollapsed={false} />
@@ -360,11 +337,9 @@ describe("AIInspectorPanel", () => {
     const parent = makeUserBox("u-parent", "car");
     const child = { ...makeUserBox("u-child", "plate"), parent_annotation_id: "u-parent" };
     renderUI({ userBoxes: [parent, child] });
-    // 父子都渲染
     expect(screen.getByTestId("box-item-u-parent")).toBeInTheDocument();
     const childItem = screen.getByTestId("box-item-u-child");
     expect(childItem).toBeInTheDocument();
-    // 子框被缩进包裹 (border-l 连接线), 父框不被包裹
     expect(childItem.parentElement?.className).toContain("border-l-2");
     expect(screen.getByTestId("box-item-u-parent").parentElement?.className ?? "").not.toContain(
       "border-l-2",

@@ -208,7 +208,6 @@ async def test_after_io_and_label_work_rechecks_the_original_facts(
 
     monkeypatch.setattr(originals, "bounded_thread", observed)
     monkeypatch.setattr(originals, "close_stage", closed)
-    # JWT uses the actual JWT, Key changes use the captured scoped Key proof.
     result = await response(
         httpx_client, current, token=current.token if change == "jwt" else token
     )

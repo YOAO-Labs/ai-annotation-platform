@@ -19,7 +19,6 @@ interface Options {
   snap: (point: { x: number; y: number }, event: MouseEvent) => { point: { x: number; y: number } };
 }
 
-/** Owns only the active gesture and its unflushed batch, never a second polygon draft. */
 export function usePolygonAutoPoints(options: Options) {
   const latest = useRef(options);
   const gesture = useRef<{ valid: () => boolean; cancel: () => void } | null>(null);
@@ -102,7 +101,6 @@ export function usePolygonAutoPoints(options: Options) {
     };
     const up = (event: MouseEvent) => {
       if (event.button !== 0) return;
-      // Include the authoritative release position even if its last move was not delivered.
       if (valid() && event.shiftKey) {
         const point = latest.current.toImage(event.clientX, event.clientY);
         if (point) {

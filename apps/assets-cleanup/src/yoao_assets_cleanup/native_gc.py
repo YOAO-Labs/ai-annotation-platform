@@ -47,8 +47,6 @@ _MAX_PAGE_SIZE = 100
 NATIVE_RETIREMENT_LEASE_SECONDS = 300
 
 
-
-
 class NativeStorageError(RuntimeError):
     """One exact member or prefix could not be proven settled."""
 
@@ -213,7 +211,6 @@ class SignedNativeRetirementStore:
         except (NativeStorageError, CleanupStopped):
             raise
         except Exception:
-            # httpx may mark a response closed before its stream close fails.
             raise NativeStorageError(
                 "native_response_body_unsettled", unsettled=True
             ) from None
@@ -321,12 +318,8 @@ class SignedNativeRetirementStore:
                 self._status_error(response, mutation=True)
             await self._bounded_body(response, stop)
             actual_version = response.headers.get("x-amz-version-id")
-            if (
-                response.headers.get("x-amz-delete-marker", "").lower() == "true"
-                or (
-                    actual_version is not None
-                    and actual_version != member.version_id
-                )
+            if response.headers.get("x-amz-delete-marker", "").lower() == "true" or (
+                actual_version is not None and actual_version != member.version_id
             ):
                 raise NativeStorageError(
                     "native_member_version_unknown", unsettled=True
@@ -342,8 +335,6 @@ class SignedNativeRetirementStore:
             raise NativeStorageError("native_member_present_after_delete")
 
     async def _verify_multipart_absent(self, claim, page, stop) -> None:
-        # Prefix-filtered multipart listing is not reliable on every supported
-        # S3 peer. Scan bounded metadata pages; never abort a foreign upload.
         marker = None
         seen = set()
         while True:
@@ -372,10 +363,20 @@ class SignedNativeRetirementStore:
                 else ""
             )
             allowed = {
-                namespace + name for name in (
-                    "Bucket", "KeyMarker", "UploadIdMarker", "NextKeyMarker",
-                    "NextUploadIdMarker", "Prefix", "Delimiter", "MaxUploads",
-                    "IsTruncated", "Upload", "CommonPrefixes", "EncodingType",
+                namespace + name
+                for name in (
+                    "Bucket",
+                    "KeyMarker",
+                    "UploadIdMarker",
+                    "NextKeyMarker",
+                    "NextUploadIdMarker",
+                    "Prefix",
+                    "Delimiter",
+                    "MaxUploads",
+                    "IsTruncated",
+                    "Upload",
+                    "CommonPrefixes",
+                    "EncodingType",
                 )
             }
             if (
@@ -385,8 +386,10 @@ class SignedNativeRetirementStore:
                 or root.findtext(namespace + "Prefix") not in {None, ""}
                 or root.findtext(namespace + "Delimiter") not in {None, ""}
                 or root.findtext(namespace + "EncodingType") not in {None, ""}
-                or (root.findtext(namespace + "KeyMarker") or "") != (request.key_marker or "")
-                or (root.findtext(namespace + "UploadIdMarker") or "") != (request.upload_id_marker or "")
+                or (root.findtext(namespace + "KeyMarker") or "")
+                != (request.key_marker or "")
+                or (root.findtext(namespace + "UploadIdMarker") or "")
+                != (request.upload_id_marker or "")
                 or root.findall(namespace + "CommonPrefixes")
             ):
                 raise NativeStorageError("native_prefix_scan_scope_mismatch")
@@ -418,9 +421,12 @@ class SignedNativeRetirementStore:
                 raise NativeStorageError("native_prefix_scan_incomplete")
             try:
                 NativePyramidRetirementPrefixIoRequest(
-                    output_id=claim.output_id, lease_token=page.lease_token,
-                    page_id=page.page_id, kind="uploads",
-                    key_marker=next_marker[0], upload_id_marker=next_marker[1],
+                    output_id=claim.output_id,
+                    lease_token=page.lease_token,
+                    page_id=page.page_id,
+                    kind="uploads",
+                    key_marker=next_marker[0],
+                    upload_id_marker=next_marker[1],
                 )
             except ValueError:
                 raise NativeStorageError("native_prefix_scan_incomplete") from None
@@ -531,9 +537,7 @@ async def _release_page(
         )
         return
     if ack.output_id != page.output_id:
-        log.warning(
-            "Native retirement closure acknowledgement named another output"
-        )
+        log.warning("Native retirement closure acknowledgement named another output")
     elif ack.after_operation_id != cursor:
         log.info(
             "Native retirement closure found an advanced cursor output_id=%s",
@@ -569,9 +573,7 @@ async def _retire_output(
     pages = 0
     while not stop.is_set():
         if _lease_expired(lease_expires_at):
-            log.warning(
-                "Native retirement lease expired output_id=%s", claim.output_id
-            )
+            log.warning("Native retirement lease expired output_id=%s", claim.output_id)
             return _RetirementOutcome(0, 0, pages, True)
         try:
             page = await data.prepare_native_pyramid_retirement_page(
@@ -607,10 +609,7 @@ async def _retire_output(
         pages += 1
         if health is not None:
             health.heartbeat()
-        if (
-            page.output_id != claim.output_id
-            or page.lease_token != claim.lease_token
-        ):
+        if page.output_id != claim.output_id or page.lease_token != claim.lease_token:
             raise DataContractError(
                 "Assets returned a retirement page for another lease"
             )
@@ -644,7 +643,6 @@ async def _retire_output(
             try:
                 references = await storage.prepare_page(claim, page)
             except asyncio.CancelledError:
-                # Signing performs no object I/O; this prepared page is unstarted.
                 await asyncio.shield(_release_page(data, page, previous_cursor))
                 raise
             except Exception as exc:
@@ -675,9 +673,7 @@ async def _retire_output(
                     )
                 except asyncio.CancelledError as exc:
                     if not getattr(exc, "storage_operation_unsettled", True):
-                        await asyncio.shield(
-                            _release_page(data, page, previous_cursor)
-                        )
+                        await asyncio.shield(_release_page(data, page, previous_cursor))
                     raise
                 except CleanupStopped:
                     await _release_page(data, page, previous_cursor)
@@ -797,9 +793,7 @@ async def _retire_output(
             or not ack.completed
             or ack.after_operation_id != page.after_operation_id
         ):
-            raise DataContractError(
-                "Assets did not close the Native retirement output"
-            )
+            raise DataContractError("Assets did not close the Native retirement output")
         return _RetirementOutcome(1, 0, pages, False)
     return _RetirementOutcome(0, 0, pages, True)
 

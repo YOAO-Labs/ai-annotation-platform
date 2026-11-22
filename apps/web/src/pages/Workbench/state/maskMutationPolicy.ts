@@ -1,28 +1,9 @@
-/**
- * Pure policy module for native Mask atomic mutations.
- *
- * Owns the two decisions the assembly model used to re-derive inline:
- * - `maskMutationRecovery` classifies a failed commit/refresh into the
- *   retry/refresh affordances the toolbar may offer. Version/lock/scope
- *   conflicts are server-authoritative: retrying blind cannot succeed, only a
- *   scope refresh can. 422 is a caller bug: neither affordance applies.
- *   Remaining statuses keep the classic transport heuristics.
- * - `maskMutationErrorMessage` maps structured `detailRaw.reason` payloads to
- *   user-facing labels; unknown reasons fall through to the server message,
- *   then the reason, then the transport message.
- *
- * `PendingMaskAtomicDraft` is the preview-time snapshot contract shared by the
- * draft publisher (prepare/run/preview) and the commit/refresh owners: commit
- * and retry must use the member versions captured at preview time, never a
- * later refetch.
- */
 import { ApiError } from "@/api/client";
 import type { MaskMutationOperation, MaskMutationScope } from "@/api/maskMutations";
 import type { AnnotationResponse } from "@/types";
 import type { VideoMaskClipboardEntry } from "../stage/videoMaskClipboard";
 import type { MaskInstanceOperationSpec } from "../stage/shared/geometry/maskInstanceOperations";
 
-/** 判定哪些 reason 属于"服务端权威的版本/锁冲突":盲重试不可能成功,只允许刷新范围后重算。 */
 const REFRESH_ONLY_REASONS = new Set([
   "expected_versions_missing",
   "version_mismatch",
@@ -86,7 +67,6 @@ export type PendingMaskAtomicDraft = {
   kind: MaskMutationOperation;
   sourceIds: string[];
   scope: MaskMutationScope;
-  /** 预览时的范围快照；提交/重试不得改用后续刷新的版本。 */
   members: AnnotationResponse[];
   operationSpec?: MaskInstanceOperationSpec;
   joinMode?: "replace_sources" | "preserve_sources";

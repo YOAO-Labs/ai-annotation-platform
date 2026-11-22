@@ -1,5 +1,3 @@
-// 模型预热按钮(从 CapabilityCatalogPanel.tsx 拆出,行为零变化)。RuntimeCell 与 ModelCard 共用。
-
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/Button";

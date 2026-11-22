@@ -70,7 +70,6 @@ async def _seed_batch(db: AsyncSession, owner_id: uuid.UUID, n_items: int):
 async def test_delete_pure_pending_no_force_ok(db_session: AsyncSession, super_admin):
     user, _ = super_admin
     project, batch_id = await _seed_batch(db_session, user.id, 3)
-    # 全 pending、无预测 → 非 force 直接删
     assert await BatchService(db_session).delete(batch_id) is True
 
 
@@ -91,7 +90,6 @@ async def test_delete_nonpending_requires_force(db_session: AsyncSession, super_
     assert exc.value.status_code == 409
     assert exc.value.detail["requires_force"] is True
     assert exc.value.detail["non_pending"] == 1
-    # 批次与 task 未被改动
     still = await db_session.get(Task, tasks[0].id)
     assert still.batch_id == batch_id and still.status == "review"
 
@@ -105,7 +103,6 @@ async def test_delete_predicted_requires_force(db_session: AsyncSession, super_a
         .scalars()
         .all()
     )
-    # 仍 pending 但已预标 → 也算成果
     tasks[0].total_predictions = 1
     await db_session.flush()
 
@@ -134,7 +131,6 @@ async def test_delete_force_resets_and_deletes(db_session: AsyncSession, super_a
         )
     ).all()
     assert all(r.status == "pending" and r.batch_id is None for r in rows)
-    # 无 B-DEFAULT 的新项目也必须同步 project 物化列，避免停在删前快照
     await db_session.refresh(project)
     assert project.completed_tasks == 0
     assert project.review_tasks == 0
@@ -151,7 +147,6 @@ async def test_count_protected_dedups_affected(db_session: AsyncSession, super_a
         .scalars()
         .all()
     )
-    # 同一 task 既 review 又已预标 → non_pending=1, predicted=1, 但实际只 1 个 task 受影响
     tasks[0].status = "review"
     tasks[0].total_predictions = 1
     await db_session.flush()
@@ -177,7 +172,6 @@ async def test_bulk_delete_force_guard(db_session: AsyncSession, super_admin):
 
     svc = BatchService(db_session)
     res = await svc.bulk_delete(project.id, [protected_id])
-    # 非 force：受保护批次进 failed，不被删
     assert protected_id not in res["succeeded"]
     assert any(
         f["batch_id"] == protected_id and f["reason"] == "requires_force"
@@ -190,7 +184,6 @@ async def test_bulk_delete_force_guard(db_session: AsyncSession, super_admin):
     ).scalar()
     assert remaining == 2
 
-    # force=True：删除并重置
     res2 = await svc.bulk_delete(project.id, [protected_id], force=True)
     assert protected_id in res2["succeeded"]
 

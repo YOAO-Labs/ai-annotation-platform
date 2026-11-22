@@ -10,8 +10,6 @@ import { useWorkbenchState } from "../useWorkbenchState";
 import type { DiscussionDraftStore } from "../useDiscussionDraftStore";
 import type { DiscussionOrigin, DiscussionTarget } from "../discussionTypes";
 
-// Preferences are outside this lifecycle test; keep the real auth, draft store
-// and Workbench canvas owner without starting unrelated preferences requests.
 const config = vi.hoisted(() => ({
   config: {},
   layout: {},

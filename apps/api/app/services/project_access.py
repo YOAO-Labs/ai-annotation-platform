@@ -227,8 +227,6 @@ async def _load_after_expired_project_disappeared(
     actor_id: uuid.UUID | None,
     project_id: uuid.UUID,
 ) -> Project | None:
-    # Session.get removes a fully expired identity that vanished during refresh,
-    # then performs its ordinary primary-key SELECT once more.
     db.sync_session._remove_newly_deleted([inspect(cached)])
     if db.autoflush:
         await db.flush()
@@ -254,9 +252,6 @@ async def get_workspace_project(
     cached = db.sync_session.identity_map.get(identity_key)
     state = inspect(cached) if cached is not None else None
 
-    # Session.get returns any non-fully-expired identity directly, including an
-    # object with only some unloaded/expired columns. This path emits no SQL and
-    # must not flush unrelated pending work.
     if not populate_existing and cached is not None and not state.expired:
         return cached
 
@@ -264,10 +259,6 @@ async def get_workspace_project(
         db.autoflush and cached is not None and state.expired and state.modified
     )
     if expired_dirty_autoflush:
-        # The old ORM refresh first restored expired PK columns before its unit
-        # of work flushed. Reading once under no_autoflush avoids a private
-        # Project SELECT during flush; the second owner read preserves the
-        # refresh/read order after pending Project and Task writes complete.
         with db.no_autoflush:
             values = await _workspace_project_values(
                 db,
@@ -500,7 +491,6 @@ async def _resolve_current_project_access(
         if manager is not None:
             return manager
 
-        # Retain the caller's refreshed row and optional lock before pure policy.
         if lock_membership:
             member_facts = await _locked_workspace_project_access_phase(
                 db,

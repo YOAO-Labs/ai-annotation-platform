@@ -343,9 +343,6 @@ async def create_original(
         requested_by=requested_by,
         content_type=content_type,
     )
-    # The real intended item must survive before any physical write begins.
-    # Recovery can then attach a verified Creation to that item without
-    # manufacturing business identity after a process interruption.
     try:
         item.file_path = allocation["object_key"]
         db.add(item)

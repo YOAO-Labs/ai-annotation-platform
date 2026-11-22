@@ -15,7 +15,6 @@ interface MaskPrimaryActionOwnerOptions {
   onError: (error: unknown) => void;
 }
 
-/** Dispatches derived actions without owning the Mask editor's phase or draft. */
 export function useMaskPrimaryActionOwner(options: MaskPrimaryActionOwnerOptions) {
   const [pending, setPending] = useState(false);
   const [emptyConfirmation, setEmptyConfirmation] = useState<{
@@ -93,7 +92,6 @@ export function useMaskPrimaryActionOwner(options: MaskPrimaryActionOwnerOptions
   const saveBeforeLeave = useCallback(async () => {
     const current = latest.current;
     const action = resolveMaskPrimaryActions(current.state).primary;
-    // Applying a region or recovering an error is not a persistence success.
     if (!["save", "commit_instances", "retry_instances"].includes(action.kind)) return false;
     return runPrimary();
   }, [runPrimary]);

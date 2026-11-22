@@ -460,8 +460,6 @@ async function sampleMemory(browser, page, label) {
 
 async function runMode(browser, token, user, mode) {
   const context = await browser.newContext({ baseURL: baseUrl, viewport, deviceScaleFactor });
-  // Layout commands are real UI operations, but benchmark-only changes must not
-  // overwrite the account's workspace (including an originally absent context).
   let benchmarkPreferences = await api("/auth/me/preferences", {
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -535,9 +533,7 @@ async function runMode(browser, token, user, mode) {
         });
         observer.observe({ type: "longtask", buffered: true });
         window.__pointCloudLongTaskObserver = observer;
-      } catch {
-        // Long Tasks is optional; rAF gaps still expose presentation stalls.
-      }
+      } catch {}
       window.addEventListener("pointcloud:render-timing", (event) => {
         window.__pointCloudTimingEvents.push(event.detail);
       });
@@ -560,9 +556,6 @@ async function runMode(browser, token, user, mode) {
   try {
     await page.goto(`/projects/${projectId}/annotate?task=${taskId}`);
     await page.getByTestId("three-d-scene-timeline").waitFor({ state: "visible", timeout: 30_000 });
-    // The compact scene timeline defaults to collapsed; frame navigation below needs
-    // the expanded frame list. Expand before the initial geometry wait so background
-    // timeline loading matches the previously always-expanded layout.
     const expandTimeline = page.getByRole("button", { name: "展开 Scene 时间轴" });
     if (
       (await expandTimeline.count()) > 0 &&
@@ -602,9 +595,6 @@ async function runMode(browser, token, user, mode) {
       }
     }
     if ((await firstBox.count()) > 0) {
-      // Since the dockview layout rework, panel visibility lives in the workbench
-      // settings dialog (面板与高级布局 details); the tri-view panel no longer has
-      // an inline collapse button or a layout menu item.
       const openTriViewToggle = async () => {
         await page.getByRole("button", { name: "工作台设置" }).click();
         const dialog = page.getByRole("dialog");
@@ -628,7 +618,6 @@ async function runMode(browser, token, user, mode) {
       await firstBox.click({ position: { x: 12, y: 16 } });
       await waitForTwoFrames(page);
       const measureRefinement = async (label) => {
-        // Opening the settings dialog is outside the visibility-to-first-render measurement.
         const openRefinement = await openTriViewToggle();
         await openRefinement.waitFor({ state: "visible" });
         const diagnosticsStartedAt = await beginFrameDiagnostics(page, `${mode}:${label}`);
@@ -640,8 +629,6 @@ async function runMode(browser, token, user, mode) {
           button.click();
           return at;
         });
-        // Keep the settings dialog open while the panel expands: dismissing it right
-        // after the click can race the dialog's Escape handling.
         await page.getByTestId("tri-view-renderer-panel").waitFor({ state: "visible" });
         await page.waitForFunction((previousCount) => {
           const viewport = document.querySelector('[data-testid="pc-viewport"]');

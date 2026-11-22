@@ -45,8 +45,6 @@ async def test_fingerprint_uses_public_rows_and_preserves_scope(worker_db):
 
     role = f"export_fingerprint_{uuid.uuid4().hex}"
     try:
-        # The fixture owns a disposable migrated database. Transaction rollback
-        # removes this temporary role and its grants, including on assertion failure.
         await db.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
         await db.execute(
             text(

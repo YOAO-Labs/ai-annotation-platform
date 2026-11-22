@@ -1,8 +1,3 @@
--- Grant a Labeling discussion and event data LOGIN exactly two owner commands and four public projections.
--- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v labeling_owner=labeling_code -v discussion_role=yoao_labeling_discussion_client \
---   -f infra/docker/labeling-discussion-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

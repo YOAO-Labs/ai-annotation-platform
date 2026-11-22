@@ -1,8 +1,3 @@
--- Grant a standalone Audit maintenance LOGIN exactly one owner command.
--- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v audit_owner=audit_code -v maintenance_role=yoao_audit_maintenance_client \
---   -f infra/docker/audit-maintenance-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

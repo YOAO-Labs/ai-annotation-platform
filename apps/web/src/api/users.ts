@@ -1,20 +1,13 @@
 import { apiClient } from "./client";
 import type { UserOut } from "./generated/types.gen";
 
-/** The lifecycle fields are served by the API but may lag the generated client snapshot. */
 export type UserResponse = UserOut & {
   is_active?: boolean;
   disabled_kind?: string | null;
   disabled_at?: string | null;
   disabled_by?: string | null;
   disabled_reason?: string | null;
-  /** Whether the current actor may run account-management actions on this row. */
   is_managed?: boolean;
-  /**
-   * Whether the current actor may run lifecycle writes (offboarding,
-   * deactivate, delete, reactivate). False for cross-project rows whose
-   * work-handover the API rejects with 403.
-   */
   is_lifecycle_managed?: boolean;
 };
 
@@ -148,9 +141,7 @@ export interface ReactivateRequest {
 
 export interface InvitePayload {
   email: string;
-  /** Platform (account) role. */
   role: string;
-  /** Project responsibility, only when a target project is selected. */
   project_member_role?: string | undefined;
   group_name?: string;
   project_id?: string;
@@ -182,9 +173,7 @@ export interface UsersStats {
 
 export interface BulkInviteItemPayload {
   email: string;
-  /** Platform (account) role. */
   role: string;
-  /** Project responsibility, only when a target project is selected. */
   project_member_role?: string;
   group_name?: string;
   project_id?: string;
@@ -299,7 +288,6 @@ export const usersApi = {
       : apiClient.get<UserResponse[]>(path);
   },
 
-  // UsersPage 顶部 4 卡之「本周活跃」聚合（last_seen_at >= now-7d）
   page: (params: UserPageParams = {}, signal?: AbortSignal) => {
     const q = queryString(params);
     const path = `/users/query${q ? `?${q}` : ""}`;

@@ -27,13 +27,13 @@ from app.db.base import Base
 
 
 class StorageConnectionKind(str, enum.Enum):
-    S3 = "s3"  # 外部对象存储（S3 / OSS / 兼容 MinIO）
-    SFTP = "sftp"  # SFTP/SSH 目标（宿主机 & 同网段服务器）
+    S3 = "s3"
+    SFTP = "sftp"
 
 
 class StorageConnectionScope(str, enum.Enum):
-    GLOBAL = "global"  # 超管建，全平台可见
-    OWNER = "owner"  # 用户自建，仅创建者与超管可见
+    GLOBAL = "global"
+    OWNER = "owner"
 
 
 class StorageConnection(Base):
@@ -47,10 +47,7 @@ class StorageConnection(Base):
         Integer, nullable=False, default=1, server_default="1"
     )
     kind: Mapped[str] = mapped_column(String(20), nullable=False)
-    # 非密钥配置：s3 → endpoint/region/bucket/base_prefix/use_ssl；
-    # sftp → host/port/username/base_path/auth_type。
     config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
-    # Fernet 密文：s3 → {access_key,secret_key}；sftp → {password} 或 {private_key,passphrase?}
     secret_enc: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
     scope: Mapped[str] = mapped_column(
         String(20), nullable=False, default=StorageConnectionScope.OWNER.value

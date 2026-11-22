@@ -493,7 +493,6 @@ async def test_restored_current_original_locator_is_independent_of_creation(
             "object_count": 1,
             "size_bytes": 7,
         }
-    # Use the existing offline restore gate without changing immutable creation history.
     await db.execute(text("SET LOCAL yoao.restore_training_storage='on'"))
     owner.bucket = bucket
     owner.storage_identity = managed_storage_identity(categories.endpoint(), bucket)
@@ -526,7 +525,6 @@ async def test_real_saved_owners_retirements_and_training_prefix_use_physical_ro
         "other_platform": 19,
         "unclassified": 23,
     }
-    # Business deletion and an outstanding deletion intent do not erase listed bytes.
     db.add(
         TrainingStorageDeletion(
             bucket=bucket,

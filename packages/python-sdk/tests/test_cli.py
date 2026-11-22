@@ -22,7 +22,6 @@ def test_runtime_version_matches_distribution_metadata():
 
 
 def test_tui_unconfigured_exits_with_login_hint(monkeypatch, tmp_path):
-    # 未配置 base_url/api_key 时 tui 不进 app, 提示先 login
     monkeypatch.delenv("YOAO_BASE_URL", raising=False)
     monkeypatch.delenv("YOAO_API_KEY", raising=False)
     monkeypatch.setattr("yoao.config.config_path", lambda: tmp_path / "config.toml")

@@ -411,7 +411,6 @@ async def test_apply_rechecks_after_io_and_does_not_hold_business_lock(
                 )
                 await db.commit()
 
-        # A separate event loop/engine is unnecessary: schedule on the test loop.
         asyncio.run_coroutine_threadsafe(mutate(), loop).result(3)
         return result
 
@@ -563,7 +562,6 @@ async def test_cli_plan_is_bounded_private_and_retryable(legacy, tmp_path):
     assert events[-1]["verified"] == 1
     assert await cli.run(args, legacy.factory, events.append) == 0
     assert events[-1]["already_verified"] == 1
-    # Bulk preview skips verified entries rather than reinterpreting them.
     args = cli.parser().parse_args(
         [
             "--preview",
@@ -654,7 +652,6 @@ async def test_real_minio_upgrade_restores_existing_task_and_item_downloads(
 ):
     if os.environ.get("YOAO_WORKTREE_MODE") != "test":
         pytest.skip("Live object writes require an owned worktree test environment")
-    # Restore the real guarded constructor only for this exact owned object.
     monkeypatch.undo()
     key, bucket = legacy.item.file_path, storage_service.datasets_bucket
     assert bucket.startswith("yoao-wt-") and "-test-" in bucket

@@ -7,7 +7,6 @@ from sqlalchemy import and_, exists, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.db.models.annotation import Annotation
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.services.data_management.filter_tree import (
@@ -97,8 +96,6 @@ def _compile_entity_node(
             annotation, field, op, value, project
         )
     if field in {"feedback.unresolved_count", "issue.unresolved_count"}:
-        # Corrected to the Workbench root-issue definition restricted to the
-        # annotation: replies and non-issue feedback never count.
         count = annotation_unresolved_issue_count_sq(annotation)
         return _compare_column(count, op, value, _NUMERIC_OPS)
     if field == "feedback.status":
@@ -139,7 +136,7 @@ def validate_entity_view(
             raise HTTPException(
                 status_code=422, detail=f"Unsupported filter field: {field}"
             )
-        compile_entity_filter(node, Annotation, project=project)
+        compile_entity_filter(node, annotation_row, project=project)
     allowed_sorts = {item.value for item in schema.sort_fields}
     for item in sort_json or []:
         if item.get("field") not in allowed_sorts:
@@ -179,7 +176,7 @@ def invalid_entity_filter_fields(
                 raise HTTPException(
                     status_code=422, detail=f"Unsupported filter field: {field}"
                 )
-            compile_entity_filter(node, Annotation, project=project)
+            compile_entity_filter(node, annotation_row, project=project)
         except HTTPException:
             invalid.append(str(field or "__filter__"))
     return list(dict.fromkeys(invalid))
@@ -293,7 +290,7 @@ async def count_entity_filters(
         project_id, user=user, project=project, project_role=project_role
     ).subquery(f"dm_{entity_scope}_view_visible")
     conditions = [
-        compile_entity_filter(item, Annotation, project=project, user=user)
+        compile_entity_filter(item, annotation_row, project=project, user=user)
         for item in filters
     ]
     active = and_(

@@ -113,8 +113,6 @@ class TrackerWindowJournal:
                 await self.db.rollback()
                 raise
             except Exception:
-                # A commit may have succeeded. Repeating the exact request is
-                # idempotent; inference is never retried inside this loop.
                 await self.db.rollback()
                 if storage_failures >= 2:
                     raise TrackerExecutionDeferred("storage_unavailable") from None
@@ -228,8 +226,6 @@ class TrackerWindowJournal:
 
     async def load(self, window):
         manifest = self.manifests[window.ordinal]
-        # Spool Base64 transport parts to disk; never retain a second full
-        # encoded copy alongside the bounded decoded window payload.
         with TemporaryFile(mode="w+b") as spool:
             for index in range(manifest.payload_part_count):
                 part = (

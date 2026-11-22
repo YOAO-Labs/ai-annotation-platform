@@ -1,6 +1,3 @@
-// CreateProjectWizard 第 4 步: AI 接入 (启用开关 + backend 复用).
-// 从 CreateProjectWizard.tsx 抽出. 含本步专用的 BackendSourceSelect 子组件.
-
 import { clsx } from "clsx";
 import { useQuery } from "@tanstack/react-query";
 import { Icon } from "@/components/ui/Icon";
@@ -33,8 +30,6 @@ export function Step4Ai({
 
       {form.aiEnabled && (
         <>
-          {/* 复用现有 backend dropdown — 让新项目立即可用 AI */}
-          {/* 按项目 data_type 标注 backend 模态匹配 (epic 阶段 1) */}
           <BackendSourceSelect
             value={form.mlBackendSourceId}
             dataType={form.dataType}
@@ -50,14 +45,12 @@ export function Step4Ai({
   );
 }
 
-/** Wizard step 4 复用 backend 下拉. 拉 /admin/ml-integrations/all */
 function BackendSourceSelect({
   value,
   dataType,
   onChange,
 }: {
   value: string;
-  // 项目媒体维度, 用于标注 backend 模态匹配
   dataType: string;
   onChange: (v: string) => void;
 }) {
@@ -69,7 +62,6 @@ function BackendSourceSelect({
   const items = q.data?.items ?? [];
   const selected = items.find((b) => b.id === value);
 
-  // 由 backend 能力快照派生模态; 未健康检查过 (modalities 空) 视为「未知」, 不标不匹配。
   const modalityHint = (b: (typeof items)[number]): string => {
     const mods = b.health_meta?.capabilities?.modalities;
     if (!mods || mods.length === 0) return "模态未知";

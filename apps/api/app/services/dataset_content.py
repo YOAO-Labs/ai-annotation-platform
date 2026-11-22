@@ -47,7 +47,6 @@ async def key_authority(db, actor, key_id, scope):
     )
     if facts is None or ("*" not in facts.scopes and scope not in facts.scopes):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-    # The non-secret revision replaces the raw verifier as the comparable proof.
     return facts.revision
 
 
@@ -74,8 +73,6 @@ async def scan_context(db, run_id, path_digest, actor, *, lock=False, node_id=No
     )
     proof = locations.probe_out(probe, location) if probe else None
     if node_id is not None and probe is not None:
-        # A claimed worker uses its pinned anchor and every actual safe read.
-        # A long registration does not lose authority merely due to probe TTL.
         proof = (
             probe.result if probe.config_revision == location.config_revision else None
         )
@@ -120,8 +117,6 @@ async def scan_snapshot(
     if not verify and (not receipt or receipt["sha256"] != expected_sha256):
         raise snapshots.ContentError("content_unverified")
     digest = receipt["sha256"] if receipt else None
-    # Device/inode values are node-local. A persisted digest is portable; the
-    # initial receipt establishes current bytes, not bytes at inventory time.
     same_host = (
         run.snapshot.get("scan_host_id") is not None
         and run.snapshot["scan_host_id"] == fs.host_identity()
@@ -142,7 +137,7 @@ async def scan_snapshot(
         else dict(observed)
     )
     if refresh_unverified and receipt is None:
-        expected = None  # Explicit repair retry; a verified identity never moves.
+        expected = None
     if receipt and (receipt["node_id"] == node or same_host):
         expected = receipt["observation"]
         expected_source = expected.get("source_identity")
@@ -208,7 +203,7 @@ async def scan_snapshot(
             )
             if before_io is not None:
                 await before_io(db)
-            await db.commit()  # No database locks span filesystem I/O.
+            await db.commit()
             from app.services.managed_original_reclaim_fence import (
                 protect_observed_read,
             )
@@ -450,7 +445,7 @@ async def _managed_snapshot(
             )
             await original_sources.recheck_read_route(db, source)
         result = await snapshots.adopt_stage(stage, inspect_quality=quality)
-        stage = None  # The image snapshot now owns the exact staged file and slot.
+        stage = None
         return result
     finally:
         if stage is not None:

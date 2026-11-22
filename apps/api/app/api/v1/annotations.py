@@ -90,12 +90,6 @@ router = APIRouter(
 )
 logger = logging.getLogger(__name__)
 
-# per-task cap on unclaimed raster-mask uploads.
-# The upload endpoint returns an anonymous reference (not yet linked to an
-# annotation), so the per-annotation ``is_locked`` guard doesn't apply at
-# upload time. Ownership rows bound anonymous objects until an annotation
-# transaction claims them; the cap is serialized by a task-level advisory lock
-# so concurrent requests cannot race.
 MAX_MASK_OBJECTS_PER_TASK = 256
 
 
@@ -312,7 +306,6 @@ async def upload_task_mask_content(
     db: AsyncSession = Depends(get_db),
     user: IdentityActorFacts = Depends(get_current_user),
 ) -> dict:
-    # Match all Mask writers: the Task row is the first database row lock.
     task = await lock_task_for_core_read(db, task_id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="task not found")
@@ -329,17 +322,9 @@ async def upload_task_mask_content(
         and task.assignee_id != user.id
     ):
         raise HTTPException(status_code=403, detail="Task belongs to another annotator")
-    # per-task mask-object quota. The upload returns an
-    # anonymous reference (not yet linked to an annotation), so the per-annotation
-    # ``is_locked`` guard doesn't apply at upload time; the quota bounds how many
-    # orphan-able objects a single task can produce before the caller must link
-    # or clean up existing ones. Linking the returned ref marks the reservation
-    # claimed in the same annotation transaction.
     try:
         body = dict(payload)
         requested_storage = body.pop("storage_encoding", None)
-        # Backward-compatible request shim. The body is normalized immediately:
-        # COCO RLE encoding and object-storage encoding are separate contracts.
         if body.get("encoding") == COCO_RLE_GZIP_ENCODING:
             requested_storage = RLE_STORAGE_GZIP
             body["encoding"] = "coco_rle"
@@ -410,8 +395,6 @@ async def upload_task_mask_content(
                 raise ValueError(
                     f"mask size must match source media [{height}, {width}]"
                 )
-        # HTTP Content-Encoding is handled before JSON parsing. This field is
-        # only the object-storage preference; reference encoding stays stable.
         if requested_storage == RLE_STORAGE_GZIP:
             try:
                 expected = build_rle_gzip_reference(body)
@@ -421,9 +404,6 @@ async def upload_task_mask_content(
                 expected = build_rle_reference(body)
         else:
             expected = build_rle_reference(body)
-        # Hold the same content lock used by GC from reservation through object
-        # storage and commit. This closes the window where GC could miss an
-        # uncommitted reservation and delete a concurrently uploaded object.
         await lock_raster_mask_references(db, expected, verify=False)
         try:
             await reserve_raster_mask_upload(
@@ -451,13 +431,10 @@ async def upload_task_mask_content(
                 else await store_coco_rle(body, db=db)
             )
         except Exception:
-            # Reservation and quota consumption are transactional. A storage
-            # failure must not leave a phantom owner row.
             await db.rollback()
             raise
         if reference["object_key"] != expected["object_key"]:
             raise RuntimeError("mask storage selection changed after reservation")
-        # Settle publication with the anonymous reservation, without linking it.
         await lock_raster_mask_references(db, reference, verify=True)
         await db.commit()
         return reference
@@ -502,10 +479,6 @@ async def bulk_update_annotations(
         ) from exc
 
 
-# 工作台的临时多选使用 bulk-update，不持久化组。
-# 跨帧对象通过 track_id 标识（ADR-0045）。
-
-
 @router.post(
     "/projects/{project_id}/annotations/import",
     summary="导入正式标注",
@@ -542,7 +515,6 @@ async def import_annotations(
             status_code=413, detail="Native JSON import must be <= 64 MiB"
         )
 
-    # async_jobs 双写（dry_run 不记录）
     aj_id: uuid.UUID | None = None
     if not dry_run:
         try:
@@ -575,7 +547,6 @@ async def import_annotations(
             dry_run=dry_run,
         )
     except RasterMaskContractError as exc:
-        # Roll back business writes before committing only the failure receipt.
         await db.rollback()
         if aj_id is not None:
             try:
@@ -605,6 +576,11 @@ async def import_annotations(
         raise
 
     if not dry_run:
+        outcome = {
+            "imported": result.imported,
+            "skipped": result.skipped,
+            "error_count": len(result.errors),
+        }
         await AuditService.log(
             db,
             actor=current_user,
@@ -616,23 +592,14 @@ async def import_annotations(
             detail={
                 "format": format,
                 "project_display_id": project.display_id,
-                "imported": result.imported,
-                "skipped": result.skipped,
-                "error_count": len(result.errors),
+                **outcome,
                 "overwrite": overwrite,
+                **({"job_id": str(aj_id)} if aj_id is not None else {}),
             },
         )
         if aj_id is not None:
             try:
-                await async_job_svc.mark_complete(
-                    db,
-                    aj_id,
-                    result={
-                        "imported": result.imported,
-                        "skipped": result.skipped,
-                        "error_count": len(result.errors),
-                    },
-                )
+                await async_job_svc.mark_complete(db, aj_id, result=outcome)
                 await notify_job_terminal(db, job_id=aj_id)
             except Exception:
                 pass

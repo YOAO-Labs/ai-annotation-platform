@@ -1,11 +1,3 @@
-/**
- * MDXEditor labels used by the annotation guide and template authoring surfaces.
- *
- * Keeping the translation function local means the editor can be loaded lazily
- * without making the application i18n provider a dependency of this shared
- * component.
- */
-
 export const MARKDOWN_EDITOR_LABELS = {
   edit: "编辑",
   source: "源码",

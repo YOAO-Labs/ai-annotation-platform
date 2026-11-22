@@ -10,7 +10,6 @@ import { useHomeMotion } from "./home/useHomeMotion";
 const rootRef = ref<HTMLElement | null>(null);
 useHomeMotion(rootRef);
 
-// 能力 marquee：不显示易过期数字，只列多模态能力。
 const capabilities = [
   "IMAGE ANNOTATION",
   "VIDEO TRACKING",
@@ -20,7 +19,6 @@ const capabilities = [
   "PRIVATE DEPLOYMENT",
 ];
 
-// Final CTA：三个下一步，链接数据复用全站内容路由（不复制维护 GitHub/更新日志 URL）。
 const finalLinks = [
   { label: "第一次使用平台", cta: "START ↗", href: withBase("/user-guide/getting-started") },
   { label: "部署到自己的基础设施", cta: "DEPLOY ↗", href: withBase("/ops/") },

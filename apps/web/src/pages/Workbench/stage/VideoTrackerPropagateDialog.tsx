@@ -37,8 +37,6 @@ type TrackerDialogMemory = {
   samVariant: string;
 };
 
-// 采样开启 (step>1) 时数字预设以网格格子为单位, 标签显示如「10 格 (≈100 帧)」;
-// 关闭时维持「N 帧」。next-keyframe / end 与单位无关, 标签固定。
 function presetLabel(value: RangePresetValue, step: number): string {
   if (value === "next-keyframe") return "到下一关键帧";
   if (value === "end") return "到结尾";
@@ -46,22 +44,15 @@ function presetLabel(value: RangePresetValue, step: number): string {
   return step > 1 ? `${n} 格 (≈${n * step} 帧)` : `${n} 帧`;
 }
 
-// label 用人类可读名 + 能力一句话 (原为裸 key, 对标注员无意义)。
-// value 保持不变 (提交/记忆/测试均按 value)。
 export const TRACKER_MODEL_OPTIONS: Array<{ value: string; label: string; note?: string }> = [
   { value: "mock_bbox", label: "mock · 测试框", note: "测试用 (不依赖模型服务)" },
   { value: "sam2_video", label: "SAM2 · 框追踪", note: "种子框跨帧追踪" },
   { value: "sam3_video", label: "SAM3 · 文本检测追踪", note: "按文本每帧检测" },
-  // 阶段 B-pvs · SAM3 交互追踪 (点/框 seed + memory 跨帧, 非文本驱动)。与
-  // sam2_video 同为种子传播 (不显 text 框); 需绑定声明该 tracker 的 sam3 backend。
   {
     value: "sam3_video_interactive",
     label: "SAM3 · 点框交互追踪",
     note: "点/框种子 + memory 跨帧",
   },
-  // B-combo · 发现追踪: multiplex 按文本发现目标 → 逐对象 PVS memory 追踪
-  // (兼得自动发现与干净身份)。发现对象全新建, 需目标类别; 需 sam3 backend 同时声明
-  // sam3_video 与 sam3_video_interactive。
   {
     value: "sam3_video_combo",
     label: "SAM3 · 发现追踪 (combo)",
@@ -69,7 +60,6 @@ export const TRACKER_MODEL_OPTIONS: Array<{ value: string; label: string; note?:
   },
 ];
 
-// SAM 模型尺寸 (tracker 不用 DINO, 只选 SAM 尺寸)。空 = 默认/tiny。
 const SAM_VARIANTS: Array<{ value: string; label: string }> = [
   { value: "", label: "默认 (tiny)" },
   { value: "tiny", label: "tiny" },
@@ -78,39 +68,26 @@ const SAM_VARIANTS: Array<{ value: string; label: string }> = [
   { value: "large", label: "large" },
 ];
 
-// 方向标签消歧。forward/backward 用「更晚/更早帧」+ 箭头,
-// 避免「向后追踪」被误读成倒放; title 补全语义。
 const DIRECTION_META: Record<VideoTrackerDirection, { label: string; title: string }> = {
   forward: { label: "更晚帧 →", title: "向后追踪: 追踪到更晚 (时间轴更右) 的帧" },
   backward: { label: "← 更早帧", title: "向前追踪: 追踪到更早 (时间轴更左) 的帧" },
   bidirectional: { label: "⇆ 双向", title: "双向: 同时向更早与更晚帧追踪" },
 };
 
-// 分窗窗口数粗估。窗口尺寸镜像后端默认 (sam3 系 16 / 其余 300,
-// 见 VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES / VIDEO_TRACKER_WINDOW_SIZE_FRAMES); 后端 env
-// 可覆盖, 故仅作「会分多窗」的粗略提示, 不做精确耗时。
 function estimateWindowCount(frameSpan: number, modelKey: string): number {
   const windowSize = modelKey.startsWith("sam3") ? 16 : 300;
   const frames = Math.max(1, frameSpan + 1);
   return Math.max(1, Math.ceil(frames / windowSize));
 }
 
-// 支持画布点/框种子 + 多目标 + 纠偏的 tracker: SAM3 PVS 交互, 及阶段 A 起的
-// sam2_video(grounded-sam2 wrapper 解除单 obj 硬编码后同样吃 seeds[])。无种子则退选中轨迹框。
 function supportsSeedCapture(modelKey: string): boolean {
   return modelKey === "sam3_video_interactive" || modelKey === "sam2_video";
 }
 
-// SAM 尺寸档位 (tiny/small/base_plus/large) 是 SAM2 checkpoint 概念, 只有
-// sam2_video 消费; sam3 系 (multiplex / PVS / combo) 用各自 sam3 权重、忽略该变体, 故不显
-// 尺寸选择器 (显示会误导用户以为能调 sam3 模型大小)。
 function usesSamVariant(modelKey: string): boolean {
   return modelKey === "sam2_video";
 }
 
-// mock_bbox「测试框」只是无后端时验证流程的开发/测试兜底, 不是给真实用户的模型。
-// 绑了真实后端 (preferNonMockModel) 时一直会过滤掉它; 现进一步在生产构建 (非 import.meta.env.DEV)
-// 里彻底不出现 —— 即便项目没绑后端, 生产 UI 也不再露出 mock。dev 构建保留它便于本地无 GPU 验证。
 export function visibleTrackerModelOptions(
   preferNonMockModel: boolean,
   isDev: boolean,
@@ -204,65 +181,36 @@ interface VideoTrackerPropagateDialogProps {
   minFrame?: number;
   maxFrame: number;
   nextKeyframeAfter: number | null;
-  /** 向前(backward)传播的「到上一关键帧」目标; 缺省 null 时回退到固定跨度。 */
   prevKeyframeBefore?: number | null;
   userId?: string | null;
-  /** 采样网格步长 (源帧). >1 时数字预设以网格格子为单位; 缺省 1 = 现状 (按源帧). */
   samplingStep?: number;
   projectDefaultModel?: string | null;
   preferNonMockModel?: boolean;
-  /** 当前项目已启用、已连接且能力可达的 tracker。 */
   supportedTrackers?: string[];
-  /** text-driven tracker 子集; 选中其中之一时显 text 框。缺省时 sam3_video 静态视为 text-driven。 */
   textDrivenTrackers?: string[];
-  /** 可执行模型 → 提供该能力的已连接项目后端名称。 */
   trackerModelProviders?: Record<string, string[]>;
-  /** polyline 轨迹追踪暂不支持 (后端只识别 polygon/bbox track); 为真时灰置传播动作。 */
   isPolylineTrack?: boolean;
   submitting: boolean;
   onCancel: () => void;
   onSubmit: (payload: VideoTrackerPropagatePayload) => Promise<void>;
-  /** Publish the preview only while visible; retain range settings when hidden. */
   onRangeChange?: (range: { startFrame: number; endFrame: number } | null) => void;
-  /** 时间轴 Shift+拖刷选回填的范围 (覆盖预设/方向派生的范围); 每次刷选传新对象。 */
   brushedRange?: { startFrame: number; endFrame: number } | null;
-  /** PVS 点种子采集 (仅 sam3_video_interactive)。开启后画布点击落归一化种子点。 */
   seedCollecting?: boolean;
-  /** 已落种子点数。 */
   seedPointCount?: number;
-  /** 切换「落点选目标」采集态 (进入时画布切 smart-point、退出复原)。 */
   onToggleSeedCollecting?: () => void;
-  /** 清空已落种子点。 */
   onClearSeeds?: () => void;
-  /** 新目标: 当前目标已落点后, 后续点归入下一目标 (各成一条轨迹)。 */
   onNewSeedTarget?: () => void;
-  /** 按目标聚合的种子摘要，用于展示每个目标的点、框和涉及帧。 */
   seedTargets?: TrackerSeedTargetSummary[];
-  /** 当前继续接收新种子的目标编号。 */
   activeSeedTargetId?: number;
-  /** 框修正 · 采集模式: point 落点 / box 画修正框。 */
   seedMode?: "point" | "box";
-  /** 切换采集模式 (采集中即时切 smart-point ↔ smart-box)。 */
   onChangeSeedMode?: (mode: "point" | "box") => void;
-  /** 已落框种子数 (框修正)。 */
   seedBoxCount?: number;
-  /** A2/A3 · 选中源轨迹类别 (用于「本次影响」摘要 + 文本检测类别继承警示); 无源时 null。 */
   sourceTrackClassName?: string | null;
-  /** 无源检测模式 (画布级入口, 无选中轨迹): 显示目标类别选择器, 提交带 target_class_name。 */
   sourceless?: boolean;
-  /** 无源时可选的目标类别 (项目 classes)。 */
   availableClasses?: string[];
-  /** M2 · 多选批量: 一次延展的源轨迹条数 (≥2 时摘要转「延展 N 条轨迹」)。缺省 = 单源。 */
   sourceCount?: number;
-  /** M2 · 多选批量源的去重类别 (单类展示「XX」, 混类展示「N 类」)。 */
   sourceClassNames?: string[];
-  /**
-   * 提交后就地进行态。true 时对话框不再显表单, 而是在原位转成
-   * 「追踪中…」轻量进度视图 (让位审阅条前给即时反馈); 由上层在追踪 job 建成后置真、
-   * 结果就绪 / 失败时关闭对话框复位。
-   */
   tracking?: boolean;
-  /** 追踪分窗进度 (WS 回报; 未开始为 null)。tracking 为真时显示「第 c/t 窗」。 */
   trackingWindow?: { current: number; total: number } | null;
 }
 
@@ -309,21 +257,13 @@ export function VideoTrackerPropagateDialog({
   const [direction, setDirection] = useState<VideoTrackerDirection>("forward");
   const [rangePreset, setRangePreset] = useState<RangePresetValue>("30");
   const [modelKey, setModelKey] = useState<string>("mock_bbox");
-  // SAM 模型尺寸; 空 = 默认 (tiny)。
   const [samVariant, setSamVariant] = useState<string>("");
   const [outputGeometry, setOutputGeometry] = useState<"" | "bbox" | "polygon" | "mask">("");
-  // text-driven 追踪 (sam3_video) 的文本 query; 每次打开重置 (非持久化)。
   const [text, setText] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  // 时间轴 Shift+拖刷选回填的自定义范围; 非 null 时覆盖预设/方向派生的范围。
-  // 改预设 / 方向即清空 (回到派生范围)。
   const [customRange, setCustomRange] = useState<{ from: number; to: number } | null>(null);
-  // 无源检测的目标类别 (新建轨迹用); 每次打开重置为首个可选类别。
   const [targetClass, setTargetClass] = useState<string>("");
 
-  // 绑定真实后端时过滤测试用 mock_bbox，避免误选生成假框。生产构建
-  // 里进一步彻底隐藏 mock (即便没绑后端)。过滤后的表也用于默认模型解析, 使记忆里残留的
-  // mock_bbox 不再复现 (不在候选 → 回退到首个真实模型)。
   const modelOptions = useMemo(() => {
     const available = visibleTrackerModelOptions(
       preferNonMockModel,
@@ -334,17 +274,13 @@ export function VideoTrackerPropagateDialog({
     return available.filter((model) => model.value !== "sam3_video_combo");
   }, [preferNonMockModel, sourceless, supportedTrackers]);
 
-  // text-driven 判定用于显示目标描述；可执行性已由 modelOptions 按项目后端能力过滤。
   const isTextDrivenModel = useMemo(() => {
     const set = new Set(textDrivenTrackers ?? []);
-    // combo 也文本驱动 (发现趟按 text 检测), 显 text 框。
     return (value: string) =>
       set.has(value) || value === "sam3_video" || value === "sam3_video_combo";
   }, [textDrivenTrackers]);
   const textDrivenActive = isTextDrivenModel(modelKey);
   const selectedModelDisabled = !modelOptions.some((model) => model.value === modelKey);
-  // B-combo · combo 发现对象全新建, 与无源检测同样需目标类别 —— 无论从画布级
-  // 无源入口还是选中源入口打开, 选 combo 都按无源处理 (显类别选择器 + payload 带 target)。
   const sourcelessLike = sourceless || modelKey === "sam3_video_combo";
   const operationScope = sourceCount >= 2 ? "batch" : sourceless ? "canvas" : "single";
   const scopeTitle =
@@ -397,14 +333,11 @@ export function VideoTrackerPropagateDialog({
     setCustomRange(null);
   }, [open, preferNonMockModel, projectDefaultModel, userId, modelOptions]);
 
-  // 无源目标类别重置独立成 effect (仅依赖 open); 不把不稳定的 availableClasses
-  // 引用混进主 open effect 依赖, 否则每次 render 重跑主 effect 会重置方向 / 范围。
   useEffect(() => {
     if (open) setTargetClass(availableClasses[0] ?? "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  // 时间轴 Shift+拖刷选 → 覆盖为自定义范围 (每次刷选传新对象, 故按引用触发)。
   useEffect(() => {
     if (!open || !brushedRange) return;
     setCustomRange({ from: brushedRange.startFrame, to: brushedRange.endFrame });
@@ -414,7 +347,6 @@ export function VideoTrackerPropagateDialog({
 
   const derivedRange = useMemo(() => {
     if (rangePreset === "next-keyframe") {
-      // 向前(backward): 传播到上一关键帧; 无上一关键帧时回退固定跨度。其余方向: 到下一关键帧。
       if (direction === "backward") {
         if (prevKeyframeBefore !== null && prevKeyframeBefore < frameIndex) {
           return { from: prevKeyframeBefore, to: frameIndex };
@@ -431,7 +363,6 @@ export function VideoTrackerPropagateDialog({
         ? { from: minFrame, to: frameIndex }
         : { from: frameIndex, to: maxFrame };
     }
-    // 数字预设是网格格子数; 采样开启时换算成源帧跨度 (span * grid)。
     const span = Number(rangePreset) * grid;
     if (direction === "backward") {
       return { from: Math.max(minFrame, frameIndex - span), to: frameIndex };
@@ -454,7 +385,6 @@ export function VideoTrackerPropagateDialog({
     rangePreset,
   ]);
 
-  // 自定义范围 (来自时间轴刷选) 优先; 否则用预设/方向派生的范围。
   const range = customRange
     ? {
         from: clamp(customRange.from, minFrame, maxFrame),
@@ -462,11 +392,8 @@ export function VideoTrackerPropagateDialog({
       }
     : derivedRange;
 
-  // 当前范围粗估窗口数 (>1 时提示大范围将分多窗处理)。
   const estimatedWindows = estimateWindowCount(range.to - range.from, modelKey);
 
-  // 「+新目标」后的目标在首个种子落下前还不在聚合数据中；先显示一行空态，
-  // 让用户始终知道接下来的点 / 框会归到哪个目标。
   const displayedSeedTargets = useMemo(() => {
     const targets = [...seedTargets].sort((a, b) => a.targetId - b.targetId);
     if (
@@ -484,7 +411,6 @@ export function VideoTrackerPropagateDialog({
     return targets;
   }, [activeSeedTargetId, seedBoxCount, seedPointCount, seedTargets]);
 
-  // A retained background panel owns its settings, but must not paint a timeline preview.
   useEffect(() => {
     if (!open || !visible) {
       onRangeChange?.(null);
@@ -494,7 +420,6 @@ export function VideoTrackerPropagateDialog({
     return () => onRangeChange?.(null);
   }, [open, visible, range.from, range.to, onRangeChange]);
 
-  // 浮层化后无遮罩, 用 Esc 关闭 (替代原点击遮罩关闭)。
   useEffect(() => {
     if (!open || !visible) return;
     const onKey = (e: KeyboardEvent) => {
@@ -520,7 +445,6 @@ export function VideoTrackerPropagateDialog({
       setError("当前项目没有可执行的追踪模型");
       return;
     }
-    // text-driven tracker 必须有文本描述 (否则每帧无检测依据)。
     const trimmedText = text.trim();
     if (textDrivenActive && !trimmedText) {
       setError("文本驱动追踪需填写文本描述");
@@ -530,7 +454,6 @@ export function VideoTrackerPropagateDialog({
       setError("画布级点框追踪需先在画布添加点或框种子");
       return;
     }
-    // 无源检测必须选目标类别 (新建轨迹归属); combo 发现同理。
     if (sourcelessLike && !availableClasses.includes(targetClass)) {
       setError("请选择新目标的类别");
       return;
@@ -541,7 +464,6 @@ export function VideoTrackerPropagateDialog({
         to_frame: range.to,
         model_key: modelKey,
         direction,
-        // sam3 系忽略 SAM2 尺寸档位 —— 只对 sam2_video 透传, 避免把残留档位发给 sam3。
         sam_variant: usesSamVariant(modelKey) ? samVariant || undefined : undefined,
         text: textDrivenActive ? trimmedText : undefined,
         output_geometry: outputGeometry || undefined,

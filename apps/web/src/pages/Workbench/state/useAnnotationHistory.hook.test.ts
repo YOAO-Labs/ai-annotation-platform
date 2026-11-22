@@ -1,10 +1,3 @@
-/**
- * useAnnotationHistory hook 集成单测：push / undo / redo / pushBatch /
- * replaceAnnotationId / 切任务清栈。
- *
- * 已有 useAnnotationHistory.test.ts 测的是纯函数 applyLeaf；此处补 React hook
- * 状态机层（栈管理 / busy 锁 / taskId 切换）。
- */
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import {
@@ -22,6 +15,8 @@ import type {
   AcceptanceHistoryRestoreRequest,
   AcceptanceHistoryRestoreResponse,
 } from "@/api/acceptanceHistory";
+import type { MeResponse } from "@/api/auth";
+import { useAuthStore } from "@/stores/authStore";
 
 function makeHandlers(): HistoryHandlers {
   return {
@@ -129,7 +124,6 @@ describe("useAnnotationHistory · 栈状态机", () => {
     });
     await waitFor(() => expect(result.current.canRedo).toBe(true));
 
-    // push 新命令 → redo 栈应清空
     act(() =>
       result.current.push({
         kind: "update",
@@ -172,11 +166,128 @@ describe("useAnnotationHistory · 栈状态机", () => {
       }),
     );
     act(() => result.current.replaceAnnotationId("tmp_xyz", "real-1"));
-    // undo 应触发 deleteAnnotation("real-1")（不再是 tmp_xyz）
     await act(async () => {
       await result.current.undo();
     });
     await waitFor(() => expect(handlers.deleteAnnotation).toHaveBeenCalledWith("real-1"));
+  });
+});
+
+describe("ordinary batch settlement", () => {
+  const edits = () =>
+    ["a", "b", "c"].map((annotationId) => ({
+      kind: "update" as const,
+      annotationId,
+      before: { class_name: "before" },
+      after: { class_name: "after" },
+    }));
+
+  it.each(["undo", "redo"] as const)(
+    "persists first and middle failures on %s and resumes only the unfinished leaves",
+    async (direction) => {
+      const task = `partial-${direction}`;
+      const onReplayError = vi.fn();
+      const update = vi.fn(async (_id: string) => undefined);
+      const handlers = { ...makeHandlers(), updateAnnotation: update, onReplayError };
+      const first = renderHook(() => useAnnotationHistory(task, handlers));
+      act(() => first.result.current.pushBatch(edits()));
+      if (direction === "redo") await act(async () => first.result.current.undo());
+      update.mockClear();
+      const order = direction === "undo" ? ["c", "b", "a"] : ["a", "b", "c"];
+      const locked = new Error("HTTP 409");
+      update.mockRejectedValueOnce(locked);
+      await act(async () => first.result.current[direction]());
+      expect(update.mock.calls.map(([id]) => id)).toEqual([order[0]]);
+      expect(onReplayError).toHaveBeenLastCalledWith(expect.stringContaining("0/3"), locked);
+
+      update.mockResolvedValueOnce(undefined).mockRejectedValueOnce(locked);
+      await act(async () => first.result.current[direction]());
+      expect(update.mock.calls.map(([id]) => id)).toEqual([order[0], order[0], order[1]]);
+      expect(onReplayError).toHaveBeenLastCalledWith(expect.stringContaining("1/3"), locked);
+      expect(first.result.current.canUndo && first.result.current.canRedo).toBe(true);
+      first.unmount();
+
+      const second = renderHook(() => useAnnotationHistory(task, handlers));
+      await act(async () => second.result.current[direction]());
+      expect(update.mock.calls.map(([id]) => id)).toEqual([
+        order[0],
+        order[0],
+        order[1],
+        order[1],
+        order[2],
+      ]);
+      update.mockClear();
+      await act(async () => second.result.current[direction === "undo" ? "redo" : "undo"]());
+      expect(update.mock.calls.map(([id]) => id)).toEqual([...order].reverse());
+    },
+  );
+
+  it("settles a confirmed leaf for the original owner after switching and rejects replay reentry", async () => {
+    const setAuth = useAuthStore.getState().setAuth;
+    setAuth("alice-token", { id: "alice" } as MeResponse);
+    const update = vi.fn(async (_id: string): Promise<void> => undefined);
+    let finish!: () => void;
+    update.mockReturnValueOnce(new Promise<void>((resolve) => (finish = resolve)));
+    const handlers = { ...makeHandlers(), updateAnnotation: update, onReplayError: vi.fn() };
+    const hook = renderHook(
+      ({ taskId, userId }) => useAnnotationHistory(taskId, handlers, userId),
+      { initialProps: { taskId: "original", userId: "alice" } },
+    );
+    try {
+      act(() => hook.result.current.pushBatch(edits()));
+      let pending!: Promise<void>;
+      act(() => {
+        pending = hook.result.current.undo();
+      });
+      await act(async () => {
+        await Promise.all([hook.result.current.undo(), hook.result.current.redo()]);
+      });
+      expect(update.mock.calls.map(([id]) => id)).toEqual(["c"]);
+      setAuth("bob-token", { id: "bob" } as MeResponse);
+      hook.rerender({ taskId: "neighbor", userId: "bob" });
+      await act(async () => {
+        finish();
+        await pending;
+      });
+      expect(update.mock.calls.map(([id]) => id)).toEqual(["c"]);
+      expect(hook.result.current.canUndo).toBe(false);
+      expect(handlers.onReplayError).not.toHaveBeenCalled();
+      expect(loadHistoryFromSession("original", "alice")?.redo).toMatchObject([
+        { commands: [{ annotationId: "c" }] },
+      ]);
+      setAuth("alice-again", { id: "alice" } as MeResponse);
+      hook.rerender({ taskId: "original", userId: "alice" });
+      await act(async () => hook.result.current.undo());
+      expect(update.mock.calls.map(([id]) => id)).toEqual(["c", "b", "a"]);
+    } finally {
+      hook.unmount();
+      useAuthStore.getState().logout();
+      sessionStorage.removeItem("wb:hist:alice:original");
+    }
+  });
+
+  it("resolves temporary IDs for remaining leaves after the batch was partially reversed", async () => {
+    const taskId = "remap-partial-batch";
+    const h = { ...makeHandlers(), resolveAnnotationId: vi.fn(async () => "real-id") };
+    const first = renderHook(() => useAnnotationHistory(taskId, h));
+    act(() => {
+      const [update, neighbor] = edits();
+      first.result.current.pushBatch([{ ...update, annotationId: "tmp_local" }, neighbor]);
+    });
+    h.resolveAnnotationId.mockRejectedValueOnce(new Error("reload required"));
+    await act(async () => first.result.current.undo());
+    expect(h.updateAnnotation).toHaveBeenCalledTimes(1);
+    expect(h.updateAnnotation).toHaveBeenLastCalledWith("b", { class_name: "before" });
+    first.unmount();
+
+    const second = renderHook(() => useAnnotationHistory(taskId, h));
+    await act(async () => second.result.current.undo());
+    expect(h.updateAnnotation).toHaveBeenCalledTimes(2);
+    expect(h.updateAnnotation).toHaveBeenLastCalledWith("real-id", { class_name: "before" });
+    await act(async () => second.result.current.redo());
+    expect(h.resolveAnnotationId).toHaveBeenCalledTimes(2);
+    expect(h.updateAnnotation).toHaveBeenNthCalledWith(3, "real-id", { class_name: "after" });
+    expect(h.updateAnnotation).toHaveBeenNthCalledWith(4, "b", { class_name: "after" });
   });
 });
 

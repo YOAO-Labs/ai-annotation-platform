@@ -477,8 +477,6 @@ class AssetsConnectionsGateway:
                 parameters[argument] = value
         statement = text(f"SELECT yoao_assets_v1.{name}({placeholders})")
         if name in {"begin_connection_probe", "finish_connection_probe"}:
-            # The ledger and the accepted-key fence are independently durable:
-            # never hold the caller's publication transaction across physical I/O.
             from app.services.storage_access import engine
 
             async with engine(self.db).begin() as connection:
@@ -523,9 +521,6 @@ class AssetsConnectionsGateway:
         )
         parameters = {}
         for name, type_name, value in zip(names, casts, arguments, strict=True):
-            # Optional jsonb arguments must stay SQL NULL. Encoding None as the
-            # JSON literal null would reach the owner helpers as a present value
-            # and turn an accepted request into invalid_request.
             if type_name != "jsonb" or value is None:
                 parameters[name] = value
             else:

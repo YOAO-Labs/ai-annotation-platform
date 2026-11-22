@@ -19,7 +19,6 @@ from yoao.streams import _build_ws_url, _SOCKET_LOG
 
 log = logging.getLogger(__name__)
 
-# 后端 super_admin / project_admin 才放行；其余 close。这两个 code 不重连（鉴权问题重连也没用）。
 _AUTH_CLOSE_CODES = {1008}
 
 SnapshotHandler = Callable[[list[MLBackendStatsSnapshot]], Awaitable[None] | None]
@@ -40,12 +39,12 @@ def parse_frame(text: str) -> list[MLBackendStatsSnapshot] | None:
     except (ValueError, TypeError):
         return None
     if not isinstance(data, dict) or "backends" not in data:
-        return None  # {"type": "ping"} 心跳或其他帧
+        return None
     out: list[MLBackendStatsSnapshot] = []
     for raw in data.get("backends") or []:
         try:
             out.append(MLBackendStatsSnapshot.model_validate(raw))
-        except Exception as exc:  # 单条坏数据不拖垮整帧
+        except Exception as exc:
             log.debug("ml-stats snapshot parse skip: %s", type(exc).__name__)
     return out
 
@@ -76,7 +75,6 @@ class MlStatsStream:
             await res
 
     async def run(self) -> None:
-        # 延迟导入：websockets 仅在 [tui] extra 中，避免核心包硬依赖。
         import websockets
 
         backoff = 1.0
@@ -85,7 +83,7 @@ class MlStatsStream:
                 async with websockets.connect(
                     self._url, open_timeout=10, logger=_SOCKET_LOG
                 ) as ws:
-                    backoff = 1.0  # 连上即重置退避
+                    backoff = 1.0
                     async for message in ws:
                         text = message if isinstance(message, str) else message.decode()
                         snaps = parse_frame(text)
@@ -98,7 +96,7 @@ class MlStatsStream:
                 if code in _AUTH_CLOSE_CODES:
                     if self._on_error:
                         self._on_error("实时统计鉴权失败（需 admin 权限的 key）")
-                    return  # 鉴权问题不重连
+                    return
                 if self._on_error:
                     self._on_error(f"实时统计连接中断，{backoff:g}s 后重连")
                 log.debug("ml-stats ws error: %s", type(exc).__name__)

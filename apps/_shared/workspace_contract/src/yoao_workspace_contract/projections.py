@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 
-# Bound alias_to traversal when input contains a cycle or an unusually deep chain.
 _ALIAS_RESOLVE_MAX_DEPTH = 4
 
 
@@ -49,16 +48,11 @@ def resolve_class_visual(
     if None in key:
         return color, alias
     visited = _visited if _visited is not None else set()
-    if key in visited:  # 环: 降级
+    if key in visited:
         return color, alias
     visited.add(key)
-    # 注: 按 (unit, name) 定位 target 时不校验目标 unit 的 enabled —— alias_to 是显式
-    # 视觉继承指针, 语义为"引用该类定义的 color/alias", 与目标是否参与标注解耦; 故
-    # enabled 类可继承自 disabled unit 同名类。这与 derive_classes_config 顶层只投影
-    # enabled binding 的口径不同, 系当前有意取舍; 若改为严格隔离(继承也只认 enabled),
-    # 需前后端(resolveClassVisual)同步加校验并补测试。
     target = _find_class(tool_bindings, key[0], key[1])
-    if target is None:  # 悬空: 降级用自身值
+    if target is None:
         return color, alias
     t_color, t_alias = resolve_class_visual(
         tool_bindings, target, _visited=visited, _depth=_depth + 1

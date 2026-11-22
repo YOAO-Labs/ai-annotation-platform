@@ -1,10 +1,3 @@
-/**
- * runtimeTopology view-model tests.
- *
- * Covers the Appendix A.5 golden fixture matrix plus the negative assertions
- * (forbidden behaviors): missing values must NOT render as 0 / healthy / idle,
- * stale must NOT borrow real-time color, same diagnostic must NOT duplicate.
- */
 import { describe, expect, it } from "vitest";
 import {
   collectDiagnostics,
@@ -26,8 +19,6 @@ import type {
   TopologyPoolEntry,
   TopologyResponse,
 } from "@/api/generated/types.gen";
-
-// ── fixture builders ───────────────────────────────────────────────────────
 
 function makePool(overrides: Partial<TopologyPoolEntry> = {}): TopologyPoolEntry {
   return {
@@ -110,18 +101,12 @@ function makeTopology(overrides: Partial<TopologyResponse> = {}): TopologyRespon
   };
 }
 
-// ── F_empty ────────────────────────────────────────────────────────────────
-
 describe("F_empty · 0 pool", () => {
   it("空态渲染时不出现 0 / healthy", () => {
     const vm = mergeTopologyAndSnapshot(makeTopology({ pools: [] }), makeSnapshot({ pools: [] }));
     expect(vm.pools).toHaveLength(0);
-    // No pool → no aggregate "0 routable" rendered at pool level.
-    // (Header counter logic lives in component; here we verify the data contract.)
   });
 });
-
-// ── F_single_healthy ───────────────────────────────────────────────────────
 
 describe("F_single_healthy", () => {
   it("单实例正常池：availability 正常, metrics_available=false", () => {
@@ -140,8 +125,6 @@ describe("F_single_healthy", () => {
     expect(pool.members[0].capacity).toBe("idle");
   });
 });
-
-// ── F_multi_draining ───────────────────────────────────────────────────────
 
 describe("F_multi_draining", () => {
   it("draining 成员被隔离：routable=2, draining=1", () => {
@@ -193,13 +176,10 @@ describe("F_multi_draining", () => {
       draining: 1,
       offline: 0,
     });
-    // Draining member's routing axis is "draining" not "routable".
     const draining = vm.pools[0].members.find((m) => m.registry_id === "i3")!;
     expect(draining.routing).toBe("draining");
   });
 });
-
-// ── F_offline_all_disabled ─────────────────────────────────────────────────
 
 describe("F_offline_all_disabled", () => {
   it("全部 disabled → status=offline + offline 计数", () => {
@@ -236,12 +216,9 @@ describe("F_offline_all_disabled", () => {
     const vm = mergeTopologyAndSnapshot(topology, null);
     expect(vm.pools[0].status).toBe("offline");
     expect(vm.pools[0].availability.offline).toBe(2);
-    // Disabled members → routing=blocked.
     expect(vm.pools[0].members.every((m) => m.routing === "blocked")).toBe(true);
   });
 });
-
-// ── F_degraded_partial_health + freshness ──────────────────────────────────
 
 describe("F_degraded_partial_health", () => {
   it("health 来源 stale → partial=true, 但 topology 数据保留", () => {
@@ -259,17 +236,13 @@ describe("F_degraded_partial_health", () => {
     const vm = mergeTopologyAndSnapshot(makeTopology(), snapshot);
     expect(vm.partial).toBe(true);
     expect(vm.partial_reason).toContain("health");
-    // Pool data is still present (not erased).
     expect(vm.pools).toHaveLength(1);
     expect(vm.pools[0].members).toHaveLength(1);
-    // The stale health source is surfaced.
     const healthSrc = vm.sources.find((s) => s.name === "health")!;
     expect(healthSrc.stale).toBe(true);
     expect(vm.sources.find((s) => s.name === "router_ledger")?.label).toBe("路由执行状态");
   });
 });
-
-// ── F_metrics_absent (forbidden: never 0/healthy) ─────────────────────────
 
 describe("F_metrics_absent · 负向断言", () => {
   it("未上报的路由指标保持 null，不冒充零", () => {
@@ -285,13 +258,10 @@ describe("F_metrics_absent · 负向断言", () => {
   it("capacity limit 恒为 null（后端合同不提供 max_concurrency）", () => {
     const vm = mergeTopologyAndSnapshot(makeTopology(), makeSnapshot());
     expect(vm.pools[0].capacity.limit).toBeNull();
-    // Execution counts come from the current routing-state observation; these stay.
     expect(vm.pools[0].capacity.inflight).toBe(0);
     expect(vm.pools[0].capacity.saturated).toBe(false);
   });
 });
-
-// ── F_project_admin projection ─────────────────────────────────────────────
 
 describe("F_project_admin · 服务端投影后前端不推断", () => {
   it("routing_policy=unknown → 成员 routing=unknown（不冒充 routable）", () => {
@@ -315,13 +285,11 @@ describe("F_project_admin · 服务端投影后前端不推断", () => {
     });
     const vm = mergeTopologyAndSnapshot(topology, null);
     const m = vm.pools[0].members[0];
-    expect(m.routing).toBe("unknown"); // NOT "routable"
-    expect(m.weight).toBeNull(); // NOT 1 or 0
-    expect(m.state).toBeNull(); // NOT "connected"
+    expect(m.routing).toBe("unknown");
+    expect(m.weight).toBeNull();
+    expect(m.state).toBeNull();
   });
 });
-
-// ── runtime unavailable (Project Admin / load failure) ─────────────────────
 
 describe("runtime 不可用", () => {
   it("snapshot=null → partial=true + reason, 成员无 runtime 字段", () => {
@@ -330,12 +298,9 @@ describe("runtime 不可用", () => {
     expect(vm.partial).toBe(true);
     expect(vm.partial_reason).toBe("runtime_snapshot_unavailable");
     expect(vm.pools[0].members[0].runtime).toBeUndefined();
-    // capacity unknown (no runtime evidence).
     expect(vm.pools[0].members[0].capacity).toBe("unknown");
   });
 });
-
-// ── routing axis derivation matrix ─────────────────────────────────────────
 
 describe("deriveMemberRouting", () => {
   it("active + circuit_open → blocked", () => {
@@ -353,8 +318,6 @@ describe("deriveMemberRouting", () => {
     ).toBe("blocked");
   });
 });
-
-// ── capacity axis derivation ───────────────────────────────────────────────
 
 describe("deriveMemberCapacity", () => {
   it("circuit_open → saturated", () => {
@@ -374,8 +337,6 @@ describe("deriveMemberCapacity", () => {
     ).toBe("serving");
   });
 });
-
-// ── diagnostic dedup ───────────────────────────────────────────────────────
 
 describe("collectDiagnostics · 去重", () => {
   it("off 模式下路由执行状态过期仍阻止卸载请求", () => {
@@ -437,10 +398,8 @@ describe("collectDiagnostics · 去重", () => {
       ],
     });
     const diags = collectDiagnostics(topology, snapshot, null);
-    // Three distinct records: pool_offline (p1) + circuit_open (i1) + health_stale (i1).
     const ids = diags.map((d) => d.id);
     expect(new Set(ids).size).toBe(ids.length);
-    // Affected instance list on pool_offline includes i1.
     const offline = diags.find((d) => d.code === "pool_offline")!;
     expect(offline.affected_instance_ids).toContain("i1");
   });
@@ -464,10 +423,6 @@ describe("collectDiagnostics · 去重", () => {
   });
 
   it("diagnostic.id 是稳定的 code:subject_type:subject_id（dedup 键）", () => {
-    // collectDiagnostics 的 pushDiagnostic 用 d.id 做 Map key 合并 affected_*_ids。
-    // 当前各 emitter 不会产生同 id 冲突（topology/runtime/gpu 各自的 code 不重叠），
-    // 但 dedup 合并路径是为未来新增 emitter 准备的。这里固定 id 格式合同，
-    // 保证未来若两个来源 emit 同 code+subject_type+subject_id，它们会落到同一 Map key。
     const pool = makePool({
       id: "p-stable",
       name: "stable-pool",
@@ -486,9 +441,7 @@ describe("collectDiagnostics · 去重", () => {
     });
     const diags = collectDiagnostics(makeTopology({ pools: [pool] }), null, null);
     const offline = diags.find((d) => d.code === "pool_offline")!;
-    // id = `${code}:${subject_type}:${subject_id}` —— 稳定去重键。
     expect(offline.id).toBe("pool_offline:service_pool:p-stable");
-    // 不同 subject 的同 code 不会冲突（subject_id 区分）。
     const pool2 = makePool({
       id: "p-other",
       name: "other-pool",
@@ -503,8 +456,6 @@ describe("collectDiagnostics · 去重", () => {
     ]);
   });
 });
-
-// ── diagnostic sort + filter ───────────────────────────────────────────────
 
 describe("sortDiagnostics + filterDiagnostics", () => {
   const sample: Diagnostic[] = [
@@ -556,12 +507,9 @@ describe("sortDiagnostics + filterDiagnostics", () => {
 
   it("按 instance_id 过滤", () => {
     const filtered = filterDiagnostics(sample, { instance_id: "i1" });
-    // blocker (affects i1) + info (subject i1) match; gpu one doesn't.
     expect(filtered.map((d) => d.id).sort()).toEqual(["a:instance:i1", "b:service_pool:p1"]);
   });
 });
-
-// ── unload request gate (§8.1) ────────────────────────────────────────────
 
 describe("evaluateUnloadGate · drain→observed idle→unload request gate", () => {
   function makeMember(
@@ -652,8 +600,6 @@ describe("evaluateUnloadGate · drain→observed idle→unload request gate", ()
     expect(gate.blocked_routable).toBe(true);
   });
 });
-
-// ── pool sort ──────────────────────────────────────────────────────────────
 
 describe("sortPoolsBySeverity", () => {
   it("offline 先于 degraded 先于 healthy", () => {

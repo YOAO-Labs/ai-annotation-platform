@@ -23,6 +23,36 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 
 默认开发账号为 `pm` / `qa` / `anno`，密码 `123456`；已有账号不会被重置。夹具不创建实验、不启用策略、不发布模型。离线和缓存选项见 [DEV.md](https://github.com/yyq19990828/ai-annotation-platform/blob/main/DEV.md#coco8-在线训练夹具)。
 
+## 原生 CPU 固定批大小与离线字体
+
+使用独立的 Python 3.12 环境，安装训练执行器锁定的依赖及共享 `yoao-task-contract`／`yoao-training-contract`，额外安装 `pytest`。原生环境锁定 Ultralytics `8.4.183`、Torch `2.14.1`、TorchVision `0.29.1` 与 LibreYOLO `1.6.0`；执行器镜像使用上述 Torch 对应的 `+cu132` 构建，CPU 测试不需要 GPU、API 服务或预训练权重。
+
+Ubuntu 24.04 的执行器镜像和本地资格环境使用相同系统字体包：`fonts-dejavu-core` 提供 `/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf`，`fonts-noto-cjk` 提供 `/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc`。镜像不修改这些字体，保留包内的 `/usr/share/doc/fonts-{dejavu-core,noto-cjk}/copyright`（DejaVu Sans 的 Bitstream Vera 许可及 DejaVu 增补条款，Noto Sans CJK 的 SIL OFL 1.1）。另一文件布局可通过 `YOAO_ULTRALYTICS_ASCII_FONT` 和 `YOAO_ULTRALYTICS_UNICODE_FONT` 指定相同资产的绝对路径；只需可读，不依赖字体文件名、缓存内容或运行期写权限。
+
+Ubuntu 原生环境提前安装系统依赖：`sudo apt-get install libgl1 libglib2.0-0 fonts-dejavu-core fonts-noto-cjk`。
+
+从仓库根目录进入执行器目录，在预先准备好依赖、字体且阻断外网的环境运行：
+
+```bash
+cd apps/training-executor
+export YOLO_CONFIG_DIR="$(mktemp -d)"
+trap 'rm -rf "$YOLO_CONFIG_DIR"' EXIT
+YOLO_OFFLINE=1 YOLO_AUTOINSTALL=0 \
+  python -m pytest -q tests/test_ultralytics_native_contract.py \
+  tests/test_training_evaluation_native.py
+```
+
+专用测试为 `shape` 与 `形状` 各启一个进程，从空用户缓存开始，阻断网络与下载入口，验证原生数据及绘图实际选择可读的本地字体且能渲染类别字形，不写入字体或用户缓存。它还在实际原生前向中注入首轮 OOM，分别核对新训练与恢复的首轮不重试、原异常直接传播、正常训练与恢复保持 batch 4。这不是 CUDA 容量测试。
+
+需要单独检查权重初始化时，预先准备并校验原生 `yolo11n-seg.pt`；RLE 资格工具的受控回流段还需要预装 YOLO 推理插件 `yolo-backend` 及其依赖，允许进程内的回环 HTTP 但不需要外网。`YOLO11N_SEG_WEIGHTS` 是已准备文件的绝对路径：
+
+```bash
+YOLO_OFFLINE=1 YOLO_AUTOINSTALL=0 PYTHONPATH=. \
+  python tools/qualify_segmentation_initialization.py --model yolo11n-seg --base "$YOLO11N_SEG_WEIGHTS"
+YOLO_OFFLINE=1 YOLO_AUTOINSTALL=0 PYTHONPATH=. \
+  python tools/qualify_instance_rle.py --model yolo11n-seg --base "$YOLO11N_SEG_WEIGHTS"
+```
+
 ## 人工验收第一轮
 
 1. 用 `pm` 登录，打开项目「训练数据」，将「数据集任务」设为「图片实例分割」。打开「COCO8 实例分割初始数据（原生 RLE · 4 train / 4 val）」。应为已就绪、8 张图片、80 类、30 个实例，训练与验证各 4 张。

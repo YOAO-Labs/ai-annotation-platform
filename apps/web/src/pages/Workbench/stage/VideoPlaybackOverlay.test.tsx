@@ -46,9 +46,10 @@ function setRect(el: Element) {
   });
 }
 
-function pointerMove(clientX: number) {
+function pointerMove(clientX: number, buttons = 0) {
   const event = new Event("pointermove", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clientX", { value: clientX });
+  Object.defineProperty(event, "buttons", { value: buttons });
   return event;
 }
 
@@ -414,6 +415,23 @@ describe("VideoPlaybackOverlay", () => {
     expect(getByTestId("video-frame-preview-image")).toHaveAttribute("src", "/frame-5.webp");
   });
 
+  it("ignores a drag that started outside the timeline but previews an owned scrub", () => {
+    const onHoverFrameChange = vi.fn();
+    const onSeek = vi.fn();
+    const { getByTestId } = renderOverlay({ onHoverFrameChange, onSeek });
+    const shell = getByTestId("video-timeline-shell");
+    setRect(shell);
+
+    fireEvent(shell, pointerMove(560, 1));
+    expect(onHoverFrameChange).not.toHaveBeenCalled();
+    expect(onSeek).not.toHaveBeenCalled();
+
+    fireEvent(shell, pointerDown(100));
+    fireEvent(shell, pointerMove(560, 1));
+    expect(onHoverFrameChange).toHaveBeenCalledWith(5);
+    expect(onSeek).toHaveBeenLastCalledWith(5);
+  });
+
   it("does not report duplicate hover changes for the same frame", () => {
     const onHoverFrameChange = vi.fn();
     const { getByTestId } = renderOverlay({ onHoverFrameChange });
@@ -544,7 +562,6 @@ describe("VideoPlaybackOverlay", () => {
     expect(onSeekByFrames).toHaveBeenNthCalledWith(2, -10);
   });
 
-  // 区间选择基建: 默认 purpose="loop" 时 Shift+拖仍提交循环区间 (零回归)。
   it("commits a loop region on Shift+drag by default (range-select purpose loop)", () => {
     const onLoopRegionChange = vi.fn();
     const onRangeSelect = vi.fn();
@@ -561,7 +578,6 @@ describe("VideoPlaybackOverlay", () => {
     expect(onRangeSelect).not.toHaveBeenCalled();
   });
 
-  // 区间选择基建: purpose="chapter-draft" 时 Shift+拖走通用 onRangeSelect, 草稿带用章节样式。
   it("routes a chapter-draft brush to onRangeSelect with the purpose tag", () => {
     const onLoopRegionChange = vi.fn();
     const onRangeSelect = vi.fn();
@@ -582,7 +598,6 @@ describe("VideoPlaybackOverlay", () => {
     expect(onLoopRegionChange).not.toHaveBeenCalled();
   });
 
-  // propagate-range 用途保留普通拖 seek, 仅 Shift+拖才圈选 (对话框开着仍能 scrub 预览)。
   it("keeps plain-drag seek under propagate-range purpose; only Shift+drag brushes", () => {
     const onSeek = vi.fn();
     const onRangeSelect = vi.fn();
@@ -594,13 +609,11 @@ describe("VideoPlaybackOverlay", () => {
     const shell = getByTestId("video-timeline-shell");
     setRect(shell);
 
-    // 普通拖 → seek, 不圈选。
     fireEvent(shell, pointerDown(300));
     expect(onSeek).toHaveBeenCalledWith(3);
     expect(onRangeSelect).not.toHaveBeenCalled();
     fireEvent(shell, pointerUp(300));
 
-    // Shift+拖 → 圈选 propagate-range。
     fireEvent(shell, pointerDown(200, true));
     fireEvent(shell, pointerMove(800));
     fireEvent(shell, pointerUp(800));
@@ -665,7 +678,6 @@ describe("VideoPlaybackOverlay", () => {
     });
     onRangeSelect.mockClear();
 
-    // The shell clears its chapter arm when the user opens propagation again.
     rerender(overlay(false));
     fireEvent(shell, pointerDown(300, true));
     fireEvent(shell, pointerMove(900));
@@ -682,7 +694,6 @@ describe("VideoPlaybackOverlay", () => {
     expect(onSeek).toHaveBeenCalledWith(4);
   });
 
-  // 拖章节条右边界 → 松手 onChapterResize 落新起止帧 (拖动中本地预览)。
   it("resizes a chapter by dragging its end handle and commits on pointer up", () => {
     const onChapterResize = vi.fn();
     const { getByTestId } = renderOverlay({
@@ -695,7 +706,6 @@ describe("VideoPlaybackOverlay", () => {
 
     fireEvent(endHandle, pointerDown(500));
     fireEvent(endHandle, pointerMove(900));
-    // 拖动中不落库, 仅预览。
     expect(onChapterResize).not.toHaveBeenCalled();
     fireEvent(endHandle, pointerUp(900));
 
@@ -709,7 +719,6 @@ describe("VideoPlaybackOverlay", () => {
     expect(queryByTestId("video-chapter-resize-end")).toBeNull();
   });
 
-  // AI 传播对话框打开时在时间轴受控高亮影响范围。
   it("renders the propagate range highlight when provided", () => {
     const { getByTestId, queryByTestId, rerender } = renderOverlay();
     expect(queryByTestId("video-propagate-range")).toBeNull();
@@ -885,7 +894,6 @@ describe("VideoPlaybackOverlay", () => {
     expect(getByTestId("timeline-tracker-review-scope")).toHaveTextContent("F2–F7");
   });
 
-  // 时间轴章节条 hover 上报 + 受控高亮 (与侧栏行双向联动)。
   it("reports chapter hover and reflects the controlled hovered chapter", () => {
     const onHoverChapter = vi.fn();
     const { getByTestId, rerender } = renderOverlay({
@@ -916,8 +924,6 @@ describe("VideoPlaybackOverlay", () => {
     expect(getByTestId("video-timeline-chapter")).toHaveAttribute("data-hovered", "true");
   });
 
-  // 回归: 人工关键帧密度与 AI 候选密度必须共用同一计数基准, 柱高才真实反映数量占比。
-  // 修复前两条 lane 各自独立归一化, 会把「1 个关键帧」画得比「8 个候选」还高 (倒挂)。
   it("scales manual and prediction density on a shared count basis so bar height reflects real ratio", () => {
     const px = (el: HTMLElement) => parseFloat(el.style.getPropertyValue("--density-height"));
     const { getByTestId } = renderOverlay({
@@ -930,7 +936,6 @@ describe("VideoPlaybackOverlay", () => {
       "span",
     ) as HTMLElement;
 
-    // 8 个候选的柱必须显著高于 1 个关键帧的柱 (共享 max=8 下: 9px vs 2px), 不再倒挂。
     expect(px(predBin)).toBeGreaterThan(px(manualBin));
     expect(px(predBin)).toBeGreaterThan(px(manualBin) * 3);
   });
@@ -946,7 +951,6 @@ describe("densityBinGradient", () => {
     const gradient = densityBinGradient(bin(3, []));
 
     expect(gradient).toMatch(/^linear-gradient\(to top, /);
-    // 没有任何 track 段, 只有 accent 兜底覆盖 0%~100%
     const stops = gradient.match(/color-mix\([^)]+\)/g) ?? [];
     expect(stops).toHaveLength(2);
     expect(stops[0]).toContain("var(--sc-brand)");
@@ -955,12 +959,10 @@ describe("densityBinGradient", () => {
   });
 
   it("tops up the remainder with accent when tracks cover only part of the density", () => {
-    // density=4, 但只有 2 个 track keyframe (差额 2 是 legacy bbox)
     const gradient = densityBinGradient(bin(4, [{ trackId: "t1", count: 2 }]));
 
     expect(gradient).toContain(densityHelpers.color("t1"));
     expect(gradient).toContain("var(--sc-brand)");
-    // t1 占 0%~50%, accent 占 50%~100%
     expect(gradient).toContain("0.00%");
     expect(gradient).toContain("50.00%");
     expect(gradient).toContain("100%");
@@ -971,12 +973,10 @@ describe("densityBinGradient", () => {
     const gradient = densityBinGradient(bin(2, [{ trackId: "t1", count: 2 }]), overrides);
 
     expect(gradient).toContain("oklch(0.7 0.2 200)");
-    // 完全覆盖时不应出现 accent 兜底
     expect(gradient).not.toContain("var(--sc-brand)");
   });
 
   it("stacks tracks in iteration order (stable for same-count tracks)", () => {
-    // 两个轨迹同 count, 按传入顺序堆叠 (Map 插入序 + 稳定 sort)
     const gradient = densityBinGradient(
       bin(4, [
         { trackId: "tA", count: 2 },
@@ -986,12 +986,10 @@ describe("densityBinGradient", () => {
 
     const colorA = densityHelpers.color("tA");
     const colorB = densityHelpers.color("tB");
-    // tA 应排在 tB 前 (自底向上: tA 从 0% 开始)
     const idxA = gradient.indexOf(colorA);
     const idxB = gradient.indexOf(colorB);
     expect(idxA).toBeGreaterThan(-1);
     expect(idxB).toBeGreaterThan(idxA);
-    // 边界: 0% → 50% (tA) → 100% (tB); 全覆盖时尾部 stop 是 pct(total) = "100.00%"
     expect(gradient).toContain("0.00%");
     expect(gradient).toContain("50.00%");
     expect(gradient).toContain("100.00%");
@@ -1012,13 +1010,18 @@ const densityHelpers = {
 
 describe("Issue frame navigation", () => {
   it.each([false, true])(
-    "routes Issue anchors through checked readiness (expanded=%s)",
+    "routes pointer activation of Issue markers through checked readiness (expanded=%s)",
     (expanded) => {
       const onSeek = vi.fn();
       const onSeekIssueFrame = vi.fn();
       const view = renderOverlay({ issueFrames: [3], onSeek, onSeekIssueFrame });
       if (expanded) fireEvent.click(view.getByRole("button", { name: "展开时间轴详情" }));
-      fireEvent.click(view.getByTestId("video-issue-marker"));
+      setRect(view.getByTestId("video-timeline-shell"));
+      const marker = view.getByTestId("video-issue-marker");
+      expect(fireEvent(marker, pointerDown(350))).toBe(true);
+      fireEvent(marker, pointerUp(350));
+      fireEvent.click(marker);
+      expect(onSeekIssueFrame).toHaveBeenCalledTimes(1);
       expect(onSeekIssueFrame).toHaveBeenCalledWith(3);
       expect(onSeek).not.toHaveBeenCalled();
     },

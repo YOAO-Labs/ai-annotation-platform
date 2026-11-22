@@ -236,7 +236,6 @@ async def test_upload_staging_publication_and_duplicate_preserve_source(
     published_bytes = body.getvalue()
     fake = _FakeDatasetSourceStorage()
     _patch_storage_clients(monkeypatch, fake)
-    # The native workflow publishes through its own bounded managed client.
     monkeypatch.setattr(assets_source, "_managed_client", lambda storage: fake)
 
     def sign(key, content_type, **kwargs):

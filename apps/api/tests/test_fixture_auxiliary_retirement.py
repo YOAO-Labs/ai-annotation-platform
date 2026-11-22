@@ -153,7 +153,7 @@ async def _assert_root_precedes_source_lock(test_engine, root_id, command, param
             await blocker.rollback()
             result = await asyncio.wait_for(pending, timeout=5)
             await waiter.rollback()
-        assert result is False  # the Dataset still exists
+        assert result is False
 
 
 @pytest.mark.asyncio
@@ -240,7 +240,7 @@ async def test_fixture_auxiliary_retirement_rolls_back_and_reclaims_only_its_run
         await _assert_untrusted_session_denied(
             test_engine, e2e_consumer, command, params
         )
-        assert await db.scalar(command, params) is False  # open run, live Dataset
+        assert await db.scalar(command, params) is False
         await db.rollback()
         assert not await ownership.seal(db, runs[0].run_id, family="owned")
         await db.commit()

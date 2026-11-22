@@ -10,7 +10,6 @@ from app.services.storage_migration_inventories import reject
 
 
 async def resolve(db, location_id, *, lock=False):
-    # Connection precedes location, matching existing redirect/delete writers.
     location = await db.get(StorageLocation, location_id, populate_existing=True)
     if location is None or location.connection_id is None:
         reject("copy_target_unavailable")

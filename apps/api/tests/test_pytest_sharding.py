@@ -60,9 +60,8 @@ def test_every_test_lands_in_exactly_one_shard_with_original_order(count: int) -
 
     union = [nodeid for shard in shards for nodeid in shard]
     assert sorted(union) == sorted(nodeids)
-    assert len(union) == len(set(union))  # 互斥：没有重复项
+    assert len(union) == len(set(union))
     for shard in shards:
-        # 分片内部保持收集顺序（相对顺序与原序列一致）
         assert shard == [nodeid for nodeid in nodeids if nodeid in set(shard)]
 
 
@@ -82,7 +81,6 @@ def test_assignment_does_not_depend_on_collection_order() -> None:
         selection = pytest_sharding.ShardSelection(index=index, count=3)
         forward = _shard_nodeids(nodeids, selection)
         reverse = _shard_nodeids(list(reversed(nodeids)), selection)
-        # 逆序收集后每个分片仍是同一集合，且分片内顺序随收集顺序反转。
         assert sorted(reverse) == sorted(forward)
         assert reverse == list(reversed(forward))
 
@@ -115,12 +113,8 @@ def test_count_one_index_zero_keeps_every_test() -> None:
     assert deselected == []
 
 
-# ── 真实 pytest 子进程 ────────────────────────────────────────────────
-
-
 @pytest.fixture
 def mini_suite(tmp_path: Path) -> Path:
-    # 固定 rootdir，保证子进程里的 nodeid 是 test_shard_XX.py::...（分片键稳定）。
     (tmp_path / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
     for module in range(MINI_MODULE_COUNT):
         body = "".join(
@@ -144,7 +138,6 @@ def _run_sharded_pytest(
             "PYTEST_ADDOPTS",
             "PYTEST_PLUGINS",
             "PYTHONHASHSEED",
-            # 父进程的 coverage 子进程配置不应影响最小测试目录。
             "COVERAGE_PROCESS_START",
             "COVERAGE_FILE",
             "COV_CORE_SOURCE",
@@ -152,7 +145,6 @@ def _run_sharded_pytest(
             "COV_CORE_DATAFILE",
         }
     }
-    # 只用本仓库的插件，不加载环境里已有的第三方 pytest 插件，保证行为可复现。
     env["PYTHONPATH"] = str(API_ROOT)
     env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
     if hash_seed is not None:
@@ -193,7 +185,7 @@ def test_real_pytest_shards_are_disjoint_and_cover_every_test(mini_suite: Path) 
         assert result.returncode == 0, (
             f"shard {index} failed:\n{result.stdout}\n{result.stderr}"
         )
-        assert "deselected" in result.stdout  # 被排除的用例如实计入统计
+        assert "deselected" in result.stdout
         passed = len(_passed_nodeids(result))
         assert f"{MINI_TOTAL - passed} deselected" in result.stdout
 
@@ -232,7 +224,7 @@ def test_real_pytest_rejects_invalid_range_before_running(
         f"expected UsageError exit code:\n{result.stdout}\n{result.stderr}"
     )
     assert "--shard" in result.stderr
-    assert "PASSED" not in result.stdout  # 任何用例都没有执行
+    assert "PASSED" not in result.stdout
 
 
 def test_real_pytest_without_flags_keeps_all_tests(mini_suite: Path) -> None:

@@ -176,7 +176,6 @@ def validate_directory_query_data(request: DirectoryQueryRequest, data_json: str
             seen.add(member_id)
             _text(item["user_name"])
             _text(item["user_email"])
-            # Preserve unknown stored role values for the public API model to reject.
             _text(item["role"])
             _optional_text(item["platform_role"])
             if _integer(item["version"]) is None:

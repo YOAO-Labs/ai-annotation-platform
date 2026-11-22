@@ -13,6 +13,8 @@
 
 增加 schema 4 的 `aap-instance-rle` 数据契约与 `ultralytics-instance-rle-1` 消费者，首个受控规格为 Ultralytics `yolo11n-seg`。每个实例保留独立原尺寸二值 RLE、来源版本和像素摘要；训练包独立持有冻结字节。简单多边形桥接保持原身份，跨桥接不直接继承父版本。
 
+`instance_rle.py` 的 `InstanceRLEDataset.preflight` 分开报告首次缩放丢失的原始实例和仅在验证平面消失的实例。受控内部评估复用固定 [原生 `SegmentationValidator._prepare_batch`](https://github.com/ultralytics/ultralytics/blob/v8.4.183/ultralytics/models/yolo/segment/val.py) 的四分之一分辨率路径：双线性插值、不对齐角点、以大于 0.5 二值化。这样小实例证据反映实际验证目标，不只是原始掩码或输入平面大小。
+
 发布、代次与自动训练策略按 `(project_id, task)` 隔离；迁移先核验历史身份，拒绝猜测未知记录。检测的默认接口与历史冻结摘要保持兼容。项目自动任务与物理 GPU 所有权仍统一串行。
 
 受控模型须绑定最终候选权重、原生 Segment 架构、运行时、掩码解码器和类别顺序。整图原生掩码经平台校验后物化为内容寻址引用；人工接纳、修正并审核后才能进入下一轮。训练成功仅生成候选，发布仍由负责人选择。

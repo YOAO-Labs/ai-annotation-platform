@@ -1,10 +1,3 @@
-/**
- * Magic Box 用 bbox helper.
- *
- * 给定 SAM 返回的 polygon 顶点 (归一化坐标 [0..1]), 计算紧凑外接矩形
- * (axis-aligned bounding box).
- */
-
 export interface NormBbox {
   x: number;
   y: number;
@@ -12,10 +5,6 @@ export interface NormBbox {
   h: number;
 }
 
-/**
- * 从 polygon 顶点列表派生紧凑外接矩形.
- * 输入 / 输出均归一化坐标 [0..1]; 顶点不足 1 个时返回 null.
- */
 export function tightenBboxFromPolygon(
   points: ReadonlyArray<readonly [number, number]> | ReadonlyArray<number[]>,
 ): NormBbox | null {
@@ -35,7 +24,6 @@ export function tightenBboxFromPolygon(
     if (y > maxY) maxY = y;
   }
   if (!Number.isFinite(minX) || maxX <= minX || maxY <= minY) return null;
-  // clamp 到 [0, 1] 避免越界 (SAM polygon 偶发 -0.0001)
   const x = Math.max(0, minX);
   const y = Math.max(0, minY);
   const w = Math.min(1, maxX) - x;

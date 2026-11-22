@@ -4,13 +4,11 @@ import hashlib
 import json
 from pathlib import Path
 import runpy
-import shutil
 import tempfile
 import uuid
 
 from ultralytics import YOLO, settings
 import ultralytics
-from ultralytics.utils import USER_CONFIG_DIR
 
 from training_contract.catalog import digest
 from training_contract.dataset import INSTANCE_RLE_CONTRACT
@@ -18,6 +16,10 @@ from training_contract.initialization import policy_for_model, validate_pin
 from training_executor.initialization import prepare, observation, validate_input
 from training_executor.instance_rle import InstanceRLETrainer
 from training_executor.native_identity import validate_architecture
+from training_executor.ultralytics_adapter import (
+    UltralyticsAttemptTrainer,
+    configure_offline_fonts,
+)
 from ultralytics.models.yolo.detect import DetectionTrainer
 
 
@@ -32,11 +34,7 @@ def qualification(base, root, base_model=None):
     settings.update(
         {"sync": False, "wandb": False, "mlflow": False, "tensorboard": False}
     )
-    USER_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    for font in ("Arial.ttf", "Arial.Unicode.ttf"):
-        shutil.copyfile(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", USER_CONFIG_DIR / font
-        )
+    configure_offline_fonts()
     data = root / "data"
     data.mkdir()
     source = YOLO(base)
@@ -53,6 +51,10 @@ def qualification(base, root, base_model=None):
 
         detection_fixture(data)
     trainer_class = InstanceRLETrainer if segmentation else DetectionTrainer
+
+    class AttemptTrainer(UltralyticsAttemptTrainer, trainer_class):
+        pass
+
     policy = policy_for_model(base_model, ultralytics.__version__)
     options = dict(
         data=str(data / "data.yaml"),
@@ -86,7 +88,7 @@ def qualification(base, root, base_model=None):
         name="framework",
     )
     result = source.train(
-        trainer=trainer_class,
+        trainer=AttemptTrainer,
         **{**options, "epochs": 1, "project": str(root / "source")},
     )
     weights = root / "source/framework/weights/best.pt"
@@ -171,7 +173,7 @@ def qualification(base, root, base_model=None):
     candidate.add_callback("on_train_start", inspect)
     try:
         candidate.train(
-            trainer=trainer_class,
+            trainer=AttemptTrainer,
             **{
                 **options,
                 "epochs": 3,

@@ -52,8 +52,6 @@ class ShortcutBinding(BaseModel):
         return sorted(seen)
 
 
-# 可编辑命令的稳定 ID 及其所属域；与前端 state/hotkeyBindings.ts 的注册表一一对应。
-# 本增量之外的新命令需先在前端注册再在此处放行（写路径按「域 + 命令 ID」严格校验）。
 _SHORTCUT_COMMAND_DOMAINS: dict[str, str] = {
     "common.task.next": "common",
     "common.task.prev": "common",
@@ -111,8 +109,6 @@ class WorkbenchShortcutPreferences(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    # 只接受当前受支持的 schema 版本；更高版本由客户端保留为 opaque 子树，
-    # 写路径不能用一个「看起来合法」的版本来静默停用全部覆盖。
     schemaVersion: Literal[1] = 1
     common: _ShortcutOverrideBucket = Field(default_factory=dict)
     image: _ShortcutOverrideBucket = Field(default_factory=dict)
@@ -126,13 +122,11 @@ class WorkbenchShortcutPreferences(BaseModel):
         domain = info.field_name
         for command_id, value in v.items():
             if value is None:
-                # 显式恢复默认（重置）对未知 ID 也放行：客户端据此清除损坏存量条目。
                 continue
             expected = shortcut_command_domain(command_id)
             if expected is None:
                 raise ValueError(f"unknown shortcut command id: {command_id}")
             if expected != domain:
-                # 命令 ID 必须落在自己的域桶；否则写入会通过校验却被生效表忽略。
                 raise ValueError(
                     f"shortcut command {command_id} does not belong to the "
                     f"{domain} bucket"
@@ -218,16 +212,11 @@ class WorkbenchLayoutPreferences(BaseModel):
 
     left_open: bool | None = Field(default=None, alias="leftOpen")
     right_open: bool | None = Field(default=None, alias="rightOpen")
-    # 右栏「标注详情」属性区折叠态 (随账号持久, 不再每次选框重置)。
     attr_panel_collapsed: bool | None = Field(default=None, alias="attrPanelCollapsed")
-    # 右栏「AI 待审」/「人工」分组头折叠 + 右栏下段「讨论」完全收起 (跨设备持久)。
-    # 强类型 extra="forbid" → 未在此声明的字段前端 PATCH 会 422 直接落不下去,
-    # 前端也就永远拿到默认值 (刷新后又全部展开)。
     ai_section_collapsed: bool | None = Field(default=None, alias="aiSectionCollapsed")
     manual_section_collapsed: bool | None = Field(
         default=None, alias="manualSectionCollapsed"
     )
-    # 右栏「轨迹」分组头折叠 (视频任务; 跨设备持久)。
     track_section_collapsed: bool | None = Field(
         default=None, alias="trackSectionCollapsed"
     )
@@ -278,13 +267,10 @@ class LabelContentByType(BaseModel):
 
     model_config = {"extra": "forbid"}
 
-    # 分组号 #id / 属性。
     single: list[Literal["id", "attrs"]] = Field(default_factory=list)
-    # 轨迹号 #num / 状态(插值·遮挡) / 属性。
     track: list[Literal["id", "state", "attrs"]] = Field(
         default_factory=lambda: ["id", "state"]
     )
-    # ✦来源前缀 / 置信度 / 分组号 / 属性。
     ai: list[Literal["source", "score", "id", "attrs"]] = Field(
         default_factory=lambda: ["source", "score"]
     )
@@ -292,7 +278,6 @@ class LabelContentByType(BaseModel):
     @field_validator("single", "track", "ai")
     @classmethod
     def _dedupe(cls, v: list[str]) -> list[str]:
-        # 去重保序，避免重复 token。
         seen: list[str] = []
         for item in v:
             if item not in seen:
@@ -308,46 +293,26 @@ class WorkbenchCommonPreferences(BaseModel):
     longTaskSampleRate: float = Field(default=0.05, ge=0.0, le=1.0)
     confirmDelete: Literal["never", "multi_only", "always"] = "never"
     recentClassesLimit: int = Field(default=5, ge=3, le=20)
-    # 邻帧框叠加独立开关。历史偏好没有该字段时,由 crossFrameOverlayK>0 推导。
     crossFrameOverlayEnabled: bool = False
-    # 邻帧框叠加帧数档位。0 仅兼容历史关闭值;新 UI 用独立开关表达关闭。
     crossFrameOverlayK: Literal[0, 1, 3, 5, 7] = 1
-    # 邻帧框叠加范围:selected=仅选中对象 group(现状);all=不选对象也叠全部邻帧框。
     crossFrameOverlayScope: Literal["selected", "all"] = "selected"
     performanceTier: Literal["light", "standard", "aggressive"] = "standard"
-    # 边栏宽度按工作台宽度的百分比存（替代旧 layout.leftWidth/rightWidth 像素值）。
     leftWidthPct: float = Field(default=15.0, ge=10, le=35)
     rightWidthPct: float = Field(default=15.0, ge=10, le=35)
-    # 标注视觉样式（图片 + 视频共享，单一来源 annotationVisual.ts 消费）。
-    # 标签字号（画布缩放跟随由前端按模态处理，这里只存基准 px）。
     labelFontSize: int = Field(default=12, ge=8, le=24)
-    # 标签显隐：always=恒显 / selected=仅选中时 / none=不显示（取代旧 image.showBoxLabels）。
     labelVisibility: Literal["always", "selected", "none"] = "always"
-    # 标签内容按标注类型分段（single/track/ai）；旧扁平 list 由 before validator 迁移。
     labelContent: LabelContentByType = Field(default_factory=LabelContentByType)
-    # 描边线宽（screen px 基准；选中态 = 基值 + 0.5）。
     strokeWidth: float = Field(default=1.5, ge=1, le=5)
-    # 闭合形状填充透明度（非选中）。
     fillOpacity: float = Field(default=0.07, ge=0, le=0.6)
-    # 选中对象填充加重透明度。
     fillOpacitySelected: float = Field(default=0.12, ge=0, le=0.8)
-    # 工作台桌宠（常驻像素小精灵）开关；历史偏好缺该字段时默认开启。
     petEnabled: bool = True
-    # 选中自动聚焦：键盘循环 / 点选对象时若出视口或过小则自动平移居中 + 适度放大。
-    # 视频 + 图片 2D 工作台通用；默认关（不改选中前不移动视口的现状）。
     focusSelectionEnabled: bool = False
-    # 采纳/拒绝 AI 候选后自动前进到下一个待决（仅移动选中，不缩放视口）。
-    # 视频 + 图片 2D 通用；默认开（审阅流水线手感）。历史偏好缺该字段时默认开启。
     autoAdvanceOnDecide: bool = True
-    # Image-canvas comment badges; missing historic values default to enabled.
     showAnnotationComments: bool = True
 
     @field_validator("labelContent", mode="before")
     @classmethod
     def _migrate_label_content(cls, v: Any) -> Any:
-        # 旧扁平 list（["class","score"] 等）迁移为按类型分段对象。
-        # 旧值只作用过图片：single/ai 按老勾选分发（ai 补 source 保留 ✦ 前缀），
-        # track 用默认 ["id","state"]（= 旧视频硬编码观感）。class 恒显，丢弃。
         if isinstance(v, list):
             old = [t for t in v if isinstance(t, str)]
             single = [t for t in ("id", "attrs") if t in old]
@@ -380,7 +345,6 @@ class WorkbenchImagePreferences(BaseModel):
     snapThresholdPx: int = Field(default=8, ge=4, le=16)
     zoomStepFactor: Literal[1.05, 1.1, 1.15, 1.2] = 1.1
     fadedOpacity: float = Field(default=0.35, ge=0.1, le=0.8)
-    # showBoxLabels 迁移到 common.labelVisibility（三态枚举），此处删除。
     maskOverlayOpacity: float = Field(default=0.45, ge=0.2, le=0.8)
 
 
@@ -392,8 +356,6 @@ class WorkbenchVideoPreferences(BaseModel):
     defaultPlaybackRate: Literal[0.25, 0.5, 1, 2, 4] = 1
     largeFrameStep: Literal[5, 10, 30, "grid"] = 10
     autoFitOnResize: bool = True
-    # 轨迹「续写后自动前进」：跨网格帧续写完一条轨迹后，自动选中同帧下一条待续轨迹
-    # （上一网格帧有关键帧、当前帧未画者）。默认关（保持逐条手动 Tab / 点选的现状）。
     trackContinueAutoAdvance: bool = False
 
 
@@ -412,13 +374,9 @@ class WorkbenchPointcloudPreferences(BaseModel):
     pointMaskSelectMode: Literal["rect", "lasso", "polygon"] = "rect"
     showGrid: bool = True
     showAxisGizmo: bool = True
-    # OrbitControls dampingFactor：值越小惯性越强（前端文案「相机灵敏度」）。
     cameraDamping: float = Field(default=0.1, ge=0.05, le=0.3)
-    # 邻帧点云叠加(ego 补偿对齐前后帧点云)。需 ego 轨迹;默认关。
     neighborPointOverlay: bool = False
-    # 邻帧点云叠加帧数,独立于邻帧框叠加;点云较重,限制为 1-3。
     neighborPointOverlayK: Literal[1, 2, 3] = 1
-    # 邻帧点云动态目标处理:保留拖影 / 剔除 / 逐目标对齐。
     neighborPointCull: Literal["keep", "cull", "align"] = "keep"
 
 
@@ -458,13 +416,7 @@ class AIToolPreferences(BaseModel):
 
     params_by_backend: dict[str, dict[str, Any]] = Field(default_factory=dict)
     model_by_backend: dict[str, str] = Field(default_factory=dict)
-    # 交互后端(引擎)选择, 按 project 分桶(每项目各记用哪个交互后端)。此前存
-    # localStorage(wb:preferred-interactive)不跨设备 = BUG; 现迁服务端与 model/params 对齐
-    # (深合并故三键各自独立保存)。注: 按 project 分桶, 与 model 选择按 backend 分桶是有意区别。
     interactive_backend_by_project: dict[str, str] = Field(default_factory=dict)
-    # 单框二次推理的参数 + 模型变体偏好, 按 `backendId:modelId` 分桶(比 backend
-    # 更细: 二次推理选具体 model, 同 backend 多 model 的档位/阈值不互相串)。每桶为自由 dict
-    # {params: {...}, variants: {...}}, 平台只存取不强校验(随模型 schema 变化, 旧键无害忽略)。
     secondary_by_model: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -501,10 +453,7 @@ class UIPreferences(BaseModel):
     model_config = {"extra": "forbid"}
 
     theme: Literal["light", "dark", "system"] = "system"
-    # 二次推理面板显隐 (跨设备): true=隐藏工具条。默认 false=显示 (不回归现状)。
     secondary_bar_hidden: bool = False
-    # 登录后「版本更新提醒」已确认的版本。空串 = 从未确认；前端按语义化版本比较，
-    # 仅当构建版本更新时弹一次「本次更新」，点「知道了」写回本键，跨设备去重。
     changelog_seen_version: str = ""
 
 
@@ -517,8 +466,6 @@ class UserPreferences(BaseModel):
     ai: AIToolPreferences = Field(default_factory=AIToolPreferences)
     ui: UIPreferences = Field(default_factory=UIPreferences)
     onboarding: OnboardingPreferences = Field(default_factory=OnboardingPreferences)
-    # Opaque compare-and-swap token for the atomic namedPresets map. "0" is the
-    # virtual revision before the first guarded write; successful writes use UUID hex.
     named_presets_revision: NamedPresetsRevision = Field(
         default="0", alias="namedPresetsRevision"
     )

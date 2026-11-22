@@ -1,15 +1,3 @@
-/**
- * Video Mask correction flow: the correction dialog state machine plus the
- * video Mask editor save owner (`commitVideoMask`).
- *
- * Async ownership: the dialog context (annotation/frame/session/segment) is
- * captured when the dialog opens; submit refuses to save if that context no
- * longer matches the live editor session. Commits are owner-guarded (task,
- * frame, tool, selection, mode, path, lock) so a late save from a retired
- * context cannot write into a new one. Propagation creation is delegated to
- * the existing tracker owner; `executeVideoMaskCorrectionFlow` (pure module)
- * sequences save -> propagate.
- */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "@/api/client";
 import type { AnnotationResponse } from "@/types";
@@ -36,7 +24,6 @@ export interface UseVideoMaskCorrectionParams {
   mode: "annotate" | "review";
   currentPath: string;
   isLockedForActions: boolean;
-  /** 任务锁/比对冻结等只读判定输入;此处仅做真值判断。 */
   lockConflict: unknown;
   lockError: unknown;
   maskCompareInteractionBlocked: boolean;
@@ -227,8 +214,6 @@ export function useVideoMaskCorrection({
       pushToast({ msg: "Mask 为空，未提交", kind: "warning" });
       return Promise.resolve({ ok: false, retryable: false, savedKeyframe: null });
     }
-    // 经 session 单飞 save: 重复 Enter / 双击只产生一次 mutation;
-    // 失败保留 buffer/history 进入 error 相位, 可 retry (A2)。
     let savedKeyframe: Awaited<ReturnType<typeof handleVideoMaskCommit>> | null = null;
     let classSelectionCancelled = false;
     return maskEditor
@@ -247,9 +232,6 @@ export function useVideoMaskCorrection({
             return { ok: false, retryable: false };
           }
           if (savedKeyframe.annotation.version != null) {
-            // 保存回包会先把 annotation version 写入 query cache。若仍让 session
-            // change guard 处理这次“已确认的新版本”，它会把随后切回 select 的动作
-            // 当成离开 saving 会话并恢复旧工具，最终留下未激活的 Mask toolbar。
             maskEditor.rebaseSession({
               ...maskSessionContextRef.current.key,
               annotationVersion: savedKeyframe.annotation.version,

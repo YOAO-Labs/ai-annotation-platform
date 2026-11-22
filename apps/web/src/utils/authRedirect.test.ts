@@ -1,4 +1,3 @@
-/** Issue #123 · 登录返回目标的角色默认首页与错误页过滤。 */
 import { describe, expect, it } from "vitest";
 import { defaultHomePath, sanitizeLoginRedirect } from "./authRedirect";
 
@@ -46,7 +45,6 @@ describe("sanitizeLoginRedirect", () => {
     expect(sanitizeLoginRedirect("/register?token=invite-token")).toBe(
       "/register?token=invite-token",
     );
-    // 无 token 的注册页仍不作为返回目标(现有账号误入注册页不应成为落点)。
     expect(sanitizeLoginRedirect("/register?token=")).toBeNull();
     expect(sanitizeLoginRedirect("/register?foo=bar")).toBeNull();
   });

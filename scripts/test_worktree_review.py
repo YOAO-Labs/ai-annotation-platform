@@ -36,7 +36,6 @@ class ReviewRegressions(unittest.TestCase):
         for acquired in (True, False):
             with self.subTest(different_server=acquired):
                 owner, runtime_connection = AsyncMock(), AsyncMock()
-                # An existing owned database needs no DDL, but still requires identity proof.
                 rows = Mock()
                 rows.mappings.return_value.first.return_value = {
                     "owner": "fixture",

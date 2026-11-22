@@ -41,8 +41,7 @@ async function json<T>(response: APIResponse | Response): Promise<T> {
 }
 
 const test = base.extend<{ sliceCase: Case }>({
-  sliceCase: async ({ page, request, seed, browser }, provideFixture, testInfo) => {
-    const data = await seed.owned();
+  sliceCase: async ({ page, request, seed, browser, owned: data }, provideFixture, testInfo) => {
     const taskId = data.task_ids[0];
     const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
     const project = await json<{ tool_bindings: Record<string, unknown> }>(
@@ -134,7 +133,6 @@ const test = base.extend<{ sliceCase: Case }>({
     let passed = false;
     try {
       await provideFixture(fixture);
-      // Reload can report keepalive session telemetry as aborted after the API accepts it.
       const expectedAborts = errors.filter((error) =>
         isExpectedRequestAbort(error, imageWorkbenchAborts),
       );
@@ -178,8 +176,6 @@ const test = base.extend<{ sliceCase: Case }>({
         page.removeAllListeners("requestfailed");
         page.removeAllListeners("request");
         await page.unrouteAll({ behavior: "ignoreErrors" });
-        if (!page.isClosed()) await page.goto("about:blank");
-        await seed.owned();
       }
     }
   },
@@ -566,7 +562,6 @@ test("H4a-4 a lost successful response retries the same key and creates only two
   let interrupted = false;
   fixture.allowedErrors.add(`request:${path}:net::ERR_CONNECTION_RESET`);
   fixture.allowedErrors.add(`console:${path}:Failed to load resource: net::ERR_CONNECTION_RESET`);
-  // Explicit fault injection: the real backend commits before the response is discarded.
   await page.route(`**${path}`, async (route) => {
     if (interrupted) return route.continue();
     interrupted = true;

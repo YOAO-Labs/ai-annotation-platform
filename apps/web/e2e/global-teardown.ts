@@ -16,7 +16,6 @@ export default async function globalTeardown(_config: FullConfig): Promise<void>
     if (!suiteId) throw new Error("Fixture suite identity is required for teardown");
     const response = await postFixture(`${apiBase}/api/v1/__test/seed/cleanup`, {
       data: { suite_id: suiteId },
-      // Reader waits are bounded by the owner; physical retirement must settle.
       timeout: 0,
     });
     if (!response.ok()) {

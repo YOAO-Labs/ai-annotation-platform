@@ -462,7 +462,6 @@ async def test_binding_scope_is_validated_before_copy(world, fault, monkeypatch)
     else:
         binding["role"] = "arbitrary"
     monkeypatch.setattr(world.delivery, "logical_sources", lambda data: {})
-    # Isolate this layer's scope checks from the bundle's own stricter validator.
     monkeypatch.setattr(
         world.delivery.bundles,
         "source_objects",

@@ -85,7 +85,6 @@ async def test_pending_endpoint_values_are_observed_only_when_the_caller_autoflu
                     (observed + "/setup", "Bearer " + observed_token),
                 ]
                 assert await caller.get(MLBackendRegistry, row.id) is row
-                # Caller edits stay in the original unit of work either way.
                 assert row.url == origin + "/pending"
                 assert row.auth_token == "pending-token"
                 assert row.last_checked_at is not None
@@ -211,7 +210,6 @@ async def test_rotated_endpoint_after_observation_drops_the_stale_write(
                         is False
                     )
                     assert not rotation_errors
-                    # The observation still used the sealed pre-rotation snapshot.
                     assert calls == [
                         ("/health", "Bearer original-token"),
                         ("/setup", "Bearer original-token"),

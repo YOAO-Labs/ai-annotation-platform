@@ -355,7 +355,6 @@ async def read_storage(db, pin, metrics, *, owner, full):
 async def eligibility(
     db, project_id, version_id, framework, base_model, dataset_id=None
 ):
-    # Resolve the same-project source before returning target availability details.
     try:
         pin, metrics = await source_pin(db, project_id, version_id)
     except (ValueError, KeyError, TypeError, AttributeError) as exc:

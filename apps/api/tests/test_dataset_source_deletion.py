@@ -1036,7 +1036,6 @@ async def test_scene_reference_fence_is_ordered_and_nonblocking(test_engine):
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     holder = maker()
     try:
-        # Simulate the source deleter holding its exclusive scene fence.
         await holder.begin()
         await holder.execute(_SCENE_FOR_UPDATE, {"scene_id": scene_ids[0]})
         async with maker.begin() as contender:
@@ -1069,8 +1068,6 @@ async def test_scene_reference_fence_is_ordered_and_nonblocking(test_engine):
                 )
                 is False
             )
-            # A failed multi-scene fence must release every partial KEY SHARE
-            # lock before its caller decides whether to commit or roll back.
             async with maker() as writer:
                 await writer.begin()
                 await writer.execute(_SCENE_FOR_UPDATE, {"scene_id": scene_ids[0]})

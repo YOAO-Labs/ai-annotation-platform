@@ -327,8 +327,6 @@ def stop_owned_worker(worker: Any, expected: Mapping[str, Any]) -> dict[str, Any
         exit_observation = observe_worker_exit(
             _worker_observation_target(worker, expected)
         )
-        # WorkspaceCeleryWorker.stop validates this exact ID/acceptance label
-        # again, removes the container, and detaches only its private network.
         worker.stop()
         if worker._inspect(container_id, required=False) is not None:
             raise LocalFenceRefused("worker_container_removal_unverified")
@@ -396,8 +394,6 @@ async def fence_disposable_database_logins(
                 or not identity.rolsuper
             ):
                 raise LocalFenceRefused("postgres_owner_changed_before_mutation")
-            # The owner is the only LOGIN retained. All other LOGIN roles are
-            # inside the verifier-owned, single-run PostgreSQL container.
             login_roles = (
                 (
                     await connection.execute(

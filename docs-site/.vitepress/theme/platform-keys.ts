@@ -1,17 +1,3 @@
-/**
- * 平台自适应按键检测与快捷键展示增强。
- *
- * 自动识别用户操作系统（macOS vs Windows/Linux）：
- * - macOS: 将 Ctrl 映射为 ⌘ (Command)，Alt 映射为 ⌥ (Option)；
- * - Windows/Linux: 保持 Ctrl 与 Alt。
- *
- * 安全约束：
- * - 仅在客户端运行，避免 SSR 异常；
- * - 绑定 VitePress router 路由切换，绝不在 document.body 上挂载无条件 MutationObserver，
- *   杜绝死循环 microtask 导致的页面卡死；
- * - 更新 DOM 前严格比对 textContent，避免无效重绘与事件风暴。
- */
-
 import type { Router } from "vitepress";
 
 export type PlatformKind = "mac" | "win";
@@ -29,9 +15,7 @@ export function getActivePlatform(): PlatformKind {
   try {
     const saved = localStorage.getItem(STORAGE_KEY) as PlatformKind | null;
     if (saved === "mac" || saved === "win") return saved;
-  } catch {
-    // ignore security/sandbox errors
-  }
+  } catch {}
   return getDetectedPlatform();
 }
 
@@ -39,9 +23,7 @@ export function setActivePlatform(plat: PlatformKind): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(STORAGE_KEY, plat);
-  } catch {
-    // ignore
-  }
+  } catch {}
   applyPlatformClass(plat);
   updateHotkeyElements();
 }
@@ -63,7 +45,6 @@ export function updateHotkeyElements(): void {
     const plat = getActivePlatform();
     applyPlatformClass(plat);
 
-    // 1. 更新显式声明了 data-key-mac / data-key-win 的专用按键
     document.querySelectorAll<HTMLElement>("[data-key-mac][data-key-win]").forEach((el) => {
       const target = plat === "mac" ? el.dataset.keyMac : el.dataset.keyWin;
       if (target && el.textContent !== target) {
@@ -71,7 +52,6 @@ export function updateHotkeyElements(): void {
       }
     });
 
-    // 2. 增强正文表格和正文内的快捷键代码与 kbd
     document.querySelectorAll<HTMLElement>(".vp-doc table td code, .vp-doc kbd").forEach((el) => {
       const currentText = el.textContent || "";
 
@@ -125,7 +105,6 @@ function formatKeyText(raw: string, plat: PlatformKind): string {
 export function setupPlatformKeys(router?: Router): void {
   if (typeof window === "undefined" || typeof document === "undefined") return;
 
-  // HMR / 多次执行保护
   const win = window as unknown as { __docsPlatformKeysInitialized?: boolean };
   if (win.__docsPlatformKeysInitialized) return;
   win.__docsPlatformKeysInitialized = true;
@@ -143,7 +122,6 @@ export function setupPlatformKeys(router?: Router): void {
     scheduleUpdate();
   }
 
-  // 挂载路由切换钩子（VitePress 官方标准 SPA 导航生命周期）
   if (router) {
     const prevHook = router.onAfterRouteChanged;
     router.onAfterRouteChanged = (to) => {

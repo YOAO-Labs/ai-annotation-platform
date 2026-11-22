@@ -1,9 +1,3 @@
-/**
- * 「显示范围: 当前帧」的视频几何归属判定。
- *
- * 回归: 只认矩形框时, 多边形 / 折线走 `return true` 兜底 ——「当前帧」筛选静默失效
- * (面板里跨帧的单帧多边形被全量列出), 且 firstTrackFrame 返回 null 导致点击无法跳转。
- */
 import { describe, expect, it } from "vitest";
 import { boxIsOnFrame, firstTrackFrame } from "./annotationFrameScope";
 describe("boxIsOnFrame / firstTrackFrame · 视频几何", () => {
@@ -124,16 +118,15 @@ describe("boxIsOnFrame / firstTrackFrame · 视频几何", () => {
 
   it.each(TRACKS)("轨迹几何 $type: 关键帧区间内(含插值帧)显示, 跳转到首个关键帧", (geometry) => {
     expect(boxIsOnFrame(ann(geometry), 2)).toBe(true);
-    expect(boxIsOnFrame(ann(geometry), 4)).toBe(true); // 插值帧
-    expect(boxIsOnFrame(ann(geometry), 9)).toBe(false); // 关键帧区间外
+    expect(boxIsOnFrame(ann(geometry), 4)).toBe(true);
+    expect(boxIsOnFrame(ann(geometry), 9)).toBe(false);
     expect(firstTrackFrame(ann(geometry))).toBe(2);
   });
 
-  // outside 区间不仅让该帧不可见, 还切断跨区间插值 —— 两侧只剩关键帧本身可见(既有语义)。
   it.each(TRACKS)("轨迹几何 $type: outside 区间内不显示", (geometry) => {
     const withOutside = { ...geometry, outside: [{ from: 4, to: 4 }] };
     expect(boxIsOnFrame(ann(withOutside), 4)).toBe(false);
-    expect(boxIsOnFrame(ann(withOutside), 2)).toBe(true); // 关键帧本身
+    expect(boxIsOnFrame(ann(withOutside), 2)).toBe(true);
     expect(boxIsOnFrame(ann(withOutside), 6)).toBe(true);
   });
 

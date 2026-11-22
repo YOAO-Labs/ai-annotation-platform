@@ -31,7 +31,6 @@ pytestmark = [
 _SOURCE_URL = "AAP_MODULE_DATA_ASSET_SOURCE_URL"
 _CONTAINER_ID = "AAP_MODULE_DATA_PG_CONTAINER_ID"
 _EXPECTED_SOURCE_CAPABILITIES = {
-    # bo0453 adds Source-owned Dataset import original verification receipts.
     "begin_operator_auxiliary",
     "open_operator_storage_operation",
     "record_operator_original_prepared",
@@ -63,7 +62,6 @@ _EXPECTED_SOURCE_CAPABILITIES = {
     "resolve_internal_image_source",
     "schedule_image_media",
     "read_legacy_dataset_upload",
-    # bo0464 adds the Source-owned native pyramid capture/retirement surface.
     "capture_native_pyramid_write_io",
     "capture_native_pyramid_read_io",
     "capture_native_pyramid_retirement_io",

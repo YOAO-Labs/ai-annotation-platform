@@ -116,8 +116,6 @@ class BackendEndpointSnapshot:
     vram_budget_mb: int | None = field(repr=False)
     eviction_priority: int = field(repr=False)
     extra_params: Mapping[str, Any] | None = field(repr=False)
-    # Exact registry credential generation captured with the endpoint snapshot.
-    # In-process seam fakes may omit it; SQL snapshots always carry it.
     auth_revision: int = field(default=0, repr=False)
     plugin_asset_approval: Mapping[str, Any] | None = field(default=None, repr=False)
 

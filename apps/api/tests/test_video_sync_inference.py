@@ -279,7 +279,7 @@ async def test_video_dispatch_borrows_stage_until_model_then_closes_before_final
         detached = owner.probe
         detached["video"]["width"] = 1
         assert owner.probe["video"]["width"] == 96
-        world.db.transaction = True  # actual RoutedMLBackendClient selection
+        world.db.transaction = True
         await owner.before_dispatch(world.transport)
         assert not world.db.transaction
         assert not world.source.closed
@@ -316,7 +316,6 @@ async def test_changes_after_model_never_return_a_result(world, change):
             elif change == "task_version":
                 world.task.version += 1
             elif change == "source_owner":
-                # Identical bytes on another owner are not the frozen original.
                 current = world.state.original
                 world.state.original = replace(current, content_id=uuid.uuid4())
             elif change == "pool":
@@ -366,8 +365,6 @@ async def test_an_equivalent_active_pool_member_may_be_selected(world):
             "wire_digest": sync._wire(world.transport),
         }
         await owner.before_dispatch(world.transport)
-        # Rollback can expire the ORM registry retained by MLBackendClient. The
-        # transport's copied wire facts and captured revision remain usable.
         vars(world.transport._backend).clear()
         await owner.final()
     assert world.source.settled

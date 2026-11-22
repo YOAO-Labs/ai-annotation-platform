@@ -253,8 +253,6 @@ def _verify_zip(package, version, snapshot, manifest, samples, reader):
             or json.loads(archive.read("classes.json")) != snapshot["classes"]
         ):
             reject()
-        # Match the existing package owner's deterministic YAML, without allowing
-        # a second loader configuration or arbitrary download directive.
         yaml = (
             "train: images/train\nval: images/val\nnames: "
             + json.dumps(dict(enumerate(snapshot["classes"])), ensure_ascii=False)
@@ -411,8 +409,6 @@ def _verify(reader, version, max_bytes):
             or sample.get("asset_reference", {}).get("sha256")
             or sample.get("media", {}).get("sha256")
         )
-        # Equal current bytes do not establish a missing historical association,
-        # including samples removed from the manifest by old deduplication.
         if not expected:
             reject("legacy_content_identity_unproven")
         if (
@@ -422,7 +418,6 @@ def _verify(reader, version, max_bytes):
             reject()
         with Image.open(io.BytesIO(data)) as image:
             width, height = image.size
-            # Use the same EXIF-oriented dimensions as the original builder.
             from app.services.storage import storage_service
 
             width, height = storage_service._logical_image_dimensions(image)

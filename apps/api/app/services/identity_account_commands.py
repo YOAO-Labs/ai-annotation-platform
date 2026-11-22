@@ -71,7 +71,6 @@ class _AccountAuthenticator:
             verified.principal.credential_type == "api_key"
             and self.identity.uses_caller_session(self.db)
         ):
-            # Admission's last-used write cannot retain a key-before-User lock.
             await self.db.commit()
         return verified
 
@@ -95,8 +94,6 @@ async def _remote_json(identity, path: str, payload: str) -> bytes:
             ) as response:
                 if response.status_code != 200:
                     raise IdentityGatewayUnavailable()
-                # Preferences have no global legacy byte ceiling. The existing
-                # admission/key response cap cannot narrow this account contract.
                 body = bytearray()
                 async for chunk in response.aiter_bytes(chunk_size=65536):
                     body.extend(chunk)

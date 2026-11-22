@@ -103,7 +103,6 @@ async def test_bulk_replay_keeps_captured_members_after_new_tasks_and_batch_chan
     )
     assert {member.task_id for member in page.members} == {task.id for task in tasks}
     assert late_task.id not in {member.task_id for member in page.members}
-    # A confirmed durable publication is not sent a second time on replay.
     assert dispatch.call_count == 1
 
 

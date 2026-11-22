@@ -13,7 +13,6 @@ interface Args {
   taskId: string | undefined;
   projectId?: string | null;
   store?: DiscussionDraftStore | null;
-  /** Undefined while annotations load; an empty list is a completed result. */
   annotationIds?: readonly string[];
   canvasDraft: CanvasDraft;
   beginCanvasDraft: (
@@ -30,13 +29,10 @@ function flushActiveDrawing(draft: CanvasDraft, store: DiscussionDraftStore | nu
   const drawing = { shapes: draft.shapes };
   const active = drawing.shapes.length > 0;
   if (!store.saveDrawing(draft.origin, drawing, { active })) return;
-  // Never serialize an old drawing under the currently displayed task. An
-  // empty transaction has nothing to recover and must not stay blocking.
   if (active) writeCanvasDraftRecovery(draft.origin, drawing);
   else clearCanvasDraftRecovery(draft.origin);
 }
 
-/** Canvas is a view onto the session draft, with a scoped five-minute reload fallback. */
 export function useCanvasDraftPersistence({
   taskId,
   projectId,
@@ -64,7 +60,6 @@ export function useCanvasDraftPersistence({
       if (origin.target.taskId !== taskId || origin.target.projectId !== projectId)
         releaseCanvasDraft?.();
     } else if (canvasDraft.pendingResult) {
-      // Complete the original target even if its input is hidden/unmounted.
       if (store.saveDrawing(origin, canvasDraft.pendingResult, { active: false })) {
         clearCanvasDraftRecovery(origin);
       }
@@ -82,7 +77,6 @@ export function useCanvasDraftPersistence({
   useLayoutEffect(() => {
     if (!store || !projectId || !taskId || store.getSnapshot().disposed) return;
     const context = JSON.stringify([store.owner.sessionId, projectId, taskId]);
-    // The preceding effect releases the old task before restoration can run.
     if (canvasDraft.active || canvasDraft.pendingResult) return;
     const restoreTask = restoredTaskContext.current !== context;
     const restoreAnnotations =
@@ -116,9 +110,6 @@ export function useCanvasDraftPersistence({
           ? memory.find((draft) => draft.target.kind === "task")
           : memory[memory.length - 1];
     if (saved?.canvasOrigin) {
-      // A restored transaction owns the canvas until it is explicitly
-      // completed or cancelled. Do not resume a second target from storage
-      // after that transaction releases the view.
       restoredTaskContext.current = context;
       restoredAnnotationContext.current = context;
       store.setSendTarget(projectId, taskId, saved.target);

@@ -10,19 +10,15 @@ import {
 } from "@/components/shadcn/ui/alert-dialog";
 
 export interface MaskConfirmDialogsProps {
-  /** 切换视频工具时丢弃未完成绘制的确认。 */
   videoToolConfirmation: {
     open: boolean;
-    /** confirmed=false 表示继续绘制（取消切换）。 */
     settle: (confirmed: boolean) => void;
   };
-  /** 清空当前 Mask 区域的确认。 */
   emptyRegion: {
     open: boolean;
     close: () => void;
     confirm: () => void;
   };
-  /** 破坏性 Mask 实例原子操作（图片侧删除面积为零/被替换实例）的确认。 */
   instanceDelete: {
     open: boolean;
     setOpen: (open: boolean) => void;
@@ -31,7 +27,6 @@ export interface MaskConfirmDialogsProps {
   };
 }
 
-/** Mask 工具条与原子操作共享的本地确认弹窗簇（§4.4(4)：局部视图回到 shell）。 */
 export function MaskConfirmDialogs({
   videoToolConfirmation,
   emptyRegion,

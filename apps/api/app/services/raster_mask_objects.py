@@ -81,7 +81,6 @@ async def _context(db):
     if db is not None:
         yield db
         return
-    # Workers may enter through a different event loop on every invocation.
     from app.workers._db import task_session
 
     async with task_session() as owned:
@@ -153,8 +152,6 @@ async def _read_plan(db, receipt):
     )
     if route is None:
         return await _gate(db, receipt), None
-    # Persist the source Gate fact, never the target Permit revision. The
-    # published route separately admits reads while the source is stopped.
     revision = (await storage_access.state(db, _location(receipt)))["revision"]
     await read_publications.recheck(db, route, lock=True)
     return revision, route
@@ -393,7 +390,6 @@ async def _publish(db, receipt, revision, guard, guarded, storage):
         winner_revision, winner_route = await _read_plan(session, winner_receipt)
         await _commit(session)
 
-    # Never keep a publication or owner lock while verifying the competing owner.
     await _io(
         db, winner_receipt, winner_revision, "read", storage, read_route=winner_route
     )
@@ -496,8 +492,6 @@ async def load(reference, *, db=None, storage=storage_service):
             context, receipt, revision, "read", storage, read_route=read_route
         )
         async with _session(context) as session:
-            # A business caller may already hold a SHARE owner lock from a prior
-            # binding in the same transaction. Reads never upgrade that lock.
             row = (await _owners(session, [receipt.id], read=True)).get(receipt.id)
             _current(row, receipt, "ready")
             await _read_gate(session, receipt, revision, read_route)
@@ -545,9 +539,6 @@ async def bind_publications(db, value):
                 )
             ).all()
         }
-        # Until the business transaction commits, its uncommitted guard DELETE
-        # remains visible to retirement. Do not retain owner SHARE locks here:
-        # a later store in this batch needs an independent UPDATE on that owner.
         for row in present:
             guard = selected[row.id]
             if row.object_id != guard.receipt.id or row.gate_revision != guard.revision:
@@ -623,8 +614,6 @@ async def _business_retains(db, receipt, state):
     )
     if winner is None:
         return True
-    # A newer generation may carry the same portable business reference. Its
-    # physical UUID is distinct; deleting this retired UUID cannot affect it.
     physical.resolve(winner)
     return any(getattr(winner, name) != getattr(receipt, name) for name in _CANONICAL)
 
@@ -748,9 +737,6 @@ async def cleanup(db, *, dry_run=False, limit=1000, storage=storage_service):
             .limit(limit)
         )
         if not dry_run:
-            # Scan bookkeeping takes no content/publication/business locks and
-            # skips contended owners. Commit attempts for retained rows too,
-            # before starting the ordered lifetime protocol or physical I/O.
             query = query.with_for_update(skip_locked=True)
         rows = list((await session.scalars(query)).all())
         candidates = []
@@ -783,6 +769,5 @@ async def cleanup(db, *, dry_run=False, limit=1000, storage=storage_service):
             outcome = await _gc_one(db, receipt, cutoff, storage)
             result[outcome] += 1
         except Exception:
-            # Keep the owner, guard and unresolved operation as independent facts.
             result["errors"] += 1
     return result

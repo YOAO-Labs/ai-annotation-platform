@@ -1,10 +1,3 @@
-/**
- * 标注详情面板「显示范围: 全部 / 当前帧」的帧归属判定。
- *
- * 所有视频单帧与轨迹几何都要认。此前只认矩形框(`video_bbox` / `video_track_bbox`),多边形与折线
- * 走 `return true` 兜底 —— 「当前帧」筛选对它们静默失效(跨帧的单帧多边形被全量列出),
- * 且 `firstTrackFrame` 返回 null 让点击列表行无法跳转到所属帧。
- */
 import type { Annotation } from "@/types";
 import {
   resolveTrackAtFrame,
@@ -17,11 +10,9 @@ import type { AiBox } from "../state/transforms";
 
 export type FrameFilter = "all" | "current";
 
-/** 该标注是否出现在给定帧(轨迹含插值帧, 排除 outside 区间)。非视频几何恒为 true。 */
 export function boxIsOnFrame(box: Annotation | AiBox, frameIndex: number): boolean {
   const geometry = box.geometry;
   if (!geometry) return true;
-  // 单帧几何: 帧号相等即在该帧。
   if (
     geometry.type === "video_bbox" ||
     geometry.type === "video_polygon" ||
@@ -32,7 +23,6 @@ export function boxIsOnFrame(box: Annotation | AiBox, frameIndex: number): boole
   ) {
     return geometry.frame_index === frameIndex;
   }
-  // 轨迹几何: 该帧能解析出形状即在该帧。
   if (geometry.type === "video_track_bbox")
     return resolveTrackAtFrame(geometry, frameIndex) !== null;
   if (geometry.type === "video_track_polygon")
@@ -44,7 +34,6 @@ export function boxIsOnFrame(box: Annotation | AiBox, frameIndex: number): boole
   return true;
 }
 
-/** 点击列表行跳转到的目标帧: 单帧几何取其帧号, 轨迹取首个可见关键帧。非视频几何返回 null。 */
 export function firstTrackFrame(box: Annotation | AiBox): number | null {
   const geometry = box.geometry;
   if (!geometry) return null;

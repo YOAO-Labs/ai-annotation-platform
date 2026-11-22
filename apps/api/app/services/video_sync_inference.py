@@ -91,8 +91,6 @@ async def _backend(db, identifier, *, active=True):
 
 
 async def _route(db, project_id, backend_id):
-    # The requested registry names its logical pool; it need not be the instance
-    # selected for traffic. Only the actual dispatch must be an active member.
     backend = await _backend(db, backend_id, active=False)
     row = (
         await db.execute(
@@ -300,7 +298,6 @@ class VideoPredictTestOperation:
                 _changed()
             self._selected, self._transport = selected, None
         await self.validate()
-        # Routing used the caller session. End that transaction before /predict.
         await self.db.commit()
         self._check_open()
         self._dispatched = True

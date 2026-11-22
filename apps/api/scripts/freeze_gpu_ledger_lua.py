@@ -21,8 +21,6 @@ import json
 import sys
 from pathlib import Path
 
-# Attribute name on GPUArbiterStore -> final composed Lua string to freeze.
-# Order matches GPUArbiterStore.__init__ registration order.
 SCRIPT_SPECS: list[tuple[str, str]] = [
     ("mark_card_not_ready_script", "_MARK_CARD_NOT_READY_LUA"),
     ("begin_proof_reset_script", "_BEGIN_PROOF_RESET_LUA"),

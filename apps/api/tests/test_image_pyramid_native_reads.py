@@ -188,7 +188,6 @@ async def test_native_ready_get_uses_owner_reference_and_data_building_state(
     assert result.generation == 1
     assert result.source_snapshot == fixture.projection.source_snapshot
     assert result.width == 1024 and result.height == 768
-    # Data, not the local ORM row, owns pending/building projection.
     assert result.building_generation == 2
     assert result.building_status == "building"
     assert result.manifest.width == 1024 and result.manifest.height == 768
@@ -360,9 +359,7 @@ async def test_legacy_reading_refuses_saved_native_output():
     generation = SimpleNamespace(job_id=uuid.uuid4(), output_id=uuid.uuid4())
 
     with pytest.raises(ContentError) as refusal:
-        async with objects.reading(
-            None, None, generation, keys=("manifest.json",)
-        ):
+        async with objects.reading(None, None, generation, keys=("manifest.json",)):
             pytest.fail("saved Native output reached legacy physical reads")
 
     assert refusal.value.code == "image_pyramid_native_owner_required"

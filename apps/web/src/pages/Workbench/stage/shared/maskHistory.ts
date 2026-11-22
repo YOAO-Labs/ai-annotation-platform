@@ -35,7 +35,6 @@ export interface MaskHistoryResources {
 }
 
 export interface MaskHistoryLifecycle {
-  /** Return false when aggregate admission rejects the command; the stacks remain unchanged. */
   onRetain?: (command: MaskHistoryCommand) => boolean | void;
   onRelease?: (command: MaskHistoryCommand) => void;
 }
@@ -177,10 +176,6 @@ export function createMaskHistoryCommandFromPatches(
   };
 }
 
-/**
- * A transient per-command checkpoint. Only tiles first touched by an interaction are captured.
- * Calling finish releases those baselines from this object regardless of whether the command is a no-op.
- */
 export class MaskHistoryCheckpoint {
   private readonly tiles = new Map<string, CapturedTile>();
 

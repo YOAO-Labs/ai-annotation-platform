@@ -142,7 +142,6 @@ function centroid(points: Pt[]): Pt {
   ) as Pt;
 }
 
-/** The preview follows the same two-crossing contract and checks Boolean conservation. */
 export function slicePolygon(
   geometry: Geometry,
   cutPath: Pt[],

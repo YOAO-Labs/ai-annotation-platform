@@ -1,20 +1,9 @@
-/**
- * KeypointSchemaEditor — keypoint 工具单位的骨骼模板编辑器。
- *
- *   - SVG 画布：拖动节点定义模板坐标 (写 node.x/y, 归一化 0–1)；点击两个节点连一条边；
- *     点击连线删除该边。
- *   - 节点列表：增 / 删 / 重命名 / 子标签 / 选色 / 上下移排序。
- *
- * 受控组件，由 ClassesSection 持有 value/onChange，端到端持久化到
- * 后端 ToolBinding.keypoint_schema。
- */
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import type { KeypointNode, KeypointSchema } from "@/types";
 import { keypointColorByIndex } from "@/pages/Workbench/stage/ImageStageShapes";
 
-// UA-safe 表单/按钮基线 + token 化(无全局 preflight)。
 const ICON_BTN_CLASS =
   "inline-flex size-7 shrink-0 cursor-pointer appearance-none items-center justify-center rounded border border-border bg-transparent p-0 text-muted-foreground enabled:hover:bg-card enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40";
 const FIELD_CLASS =
@@ -22,12 +11,10 @@ const FIELD_CLASS =
 
 const EMPTY: KeypointSchema = { nodes: [], edges: [] };
 
-// 拖动阈值（归一化坐标）：节点指针位移超过此值算「拖动布局」，否则算「点击连线」。
 const DRAG_THRESHOLD = 0.02;
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
-/** 节点显示坐标：有模板坐标用之，否则按 index 退化到圆周布局。 */
 export function keypointNodePos(
   node: KeypointNode,
   i: number,
@@ -49,9 +36,7 @@ export function KeypointSchemaEditor({
   const { nodes, edges } = schema;
 
   const svgRef = useRef<SVGSVGElement>(null);
-  // 连线模式：记住第一个被点中的节点，点第二个即成边。
   const [linkFrom, setLinkFrom] = useState<number | null>(null);
-  // 当前拖动状态：moved 用于区分「拖动布局」与「点击连线」。
   const dragRef = useRef<{ idx: number; moved: boolean; startX: number; startY: number } | null>(
     null,
   );
@@ -78,7 +63,6 @@ export function KeypointSchemaEditor({
 
   const removeNode = (idx: number) => {
     const nextNodes = nodes.filter((_, i) => i !== idx);
-    // 重映射边索引：删掉含该节点的边，其余 index > idx 的减 1。
     const nextEdges = edges
       .filter(([i, j]) => i !== idx && j !== idx)
       .map(([i, j]) => [i > idx ? i - 1 : i, j > idx ? j - 1 : j] as [number, number]);
@@ -91,7 +75,6 @@ export function KeypointSchemaEditor({
     if (j < 0 || j >= nodes.length) return;
     const nextNodes = nodes.slice();
     [nextNodes[idx], nextNodes[j]] = [nextNodes[j], nextNodes[idx]];
-    // 边索引随之交换 idx ↔ j。
     const swap = (k: number) => (k === idx ? j : k === j ? idx : k);
     const nextEdges = edges.map(([i, k]) => [swap(i), swap(k)] as [number, number]);
     onChange({ nodes: nextNodes, edges: nextEdges });
@@ -108,7 +91,6 @@ export function KeypointSchemaEditor({
     onChange({ nodes, edges: edges.filter((_, i) => i !== idx) });
   };
 
-  // ── SVG 指针交互 ───────────────────────────────────────────
   const toNorm = (clientX: number, clientY: number) => {
     const svg = svgRef.current;
     if (!svg) return null;
@@ -140,8 +122,7 @@ export function KeypointSchemaEditor({
     const d = dragRef.current;
     dragRef.current = null;
     (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
-    if (!d || d.moved) return; // 拖动布局，不触发连线
-    // 纯点击 → 连线选择
+    if (!d || d.moved) return;
     if (linkFrom == null) setLinkFrom(i);
     else if (linkFrom !== i) {
       addEdge(linkFrom, i);
@@ -151,7 +132,6 @@ export function KeypointSchemaEditor({
 
   return (
     <div className="mt-3 grid grid-cols-1 gap-5 md:grid-cols-2">
-      {/* SVG 骨骼画布 */}
       <div className="flex flex-col gap-2">
         <span className="text-sm font-semibold text-foreground">骨骼画布</span>
         <svg
@@ -169,7 +149,6 @@ export function KeypointSchemaEditor({
             if (e.target === svgRef.current) setLinkFrom(null);
           }}
         >
-          {/* 骨骼连线 (点击删除) */}
           {edges.map(([i, j], idx) => {
             const a = nodes[i];
             const b = nodes[j];
@@ -196,7 +175,6 @@ export function KeypointSchemaEditor({
               </line>
             );
           })}
-          {/* 节点圆点 (拖动定位 / 点击连线) */}
           {nodes.map((n, i) => {
             const p = keypointNodePos(n, i, nodes.length);
             const isLink = linkFrom === i;
@@ -238,7 +216,6 @@ export function KeypointSchemaEditor({
         </p>
       </div>
 
-      {/* 节点列表 */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <span className="text-sm font-semibold text-foreground">关键点节点 ({nodes.length})</span>

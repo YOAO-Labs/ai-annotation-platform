@@ -132,10 +132,10 @@ Mask 格式 staged object 和预标临时输入使用 import bucket，导出产�
 
 ### 2.7 跨域 (CORS)
 
-| 变量                                     | 默认                            | 说明                                                                                                          |
-| ---------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `CORS_ALLOW_ORIGINS` **production 必填** | dev 默认放行 localhost 常用端口 | 支持 JSON 数组 `["https://app.example.com"]` 或逗号分隔。即便前后端同源也要显式列；`main.py:71-74` 启动断言。 |
-| `CORS_ALLOW_ORIGIN_REGEX`                | dev `http://localhost:\d+`      | 仅 `dev / staging` 生效，production 自动忽略以防误把本机正则上线。                                            |
+| 变量                                     | 默认                                  | 说明                                                                                                                    |
+| ---------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `CORS_ALLOW_ORIGINS` **production 必填** | 非生产未设置时放行 localhost 常用端口 | 支持 JSON 数组 `["https://app.example.com"]` 或逗号分隔。即便前后端同源也必须显式填写；省略、空白和空列表均会拒绝启动。 |
+| `CORS_ALLOW_ORIGIN_REGEX`                | dev `http://localhost:\d+`            | 仅 `dev / staging` 生效，production 自动忽略以防误把本机正则上线。                                                      |
 
 ### 2.8 Grounded-SAM-2 ML Backend (GPU profile)
 
@@ -195,18 +195,55 @@ SAM3 图像、PVS 与 multiplex 视频分别依赖获准的 `sam3.pt` 和 `sam3.
 
 `config.py` 支持但 `.env.example` 没列出，按需在 `.env.production` 显式添加：
 
-| 变量                                                            | 默认     | 何时改                                  |
-| --------------------------------------------------------------- | -------- | --------------------------------------- |
-| `MAX_INVITATIONS_PER_DAY`                                       | `30`     | 邀请活动期临时调高                      |
-| `INVITATION_TTL_DAYS`                                           | `7`      | 合规要求短链 → `1–3`                    |
-| `ML_PREDICT_TIMEOUT`                                            | `100` 秒 | LLM 慢 backend 调到 ≥ 180               |
-| `ML_HEALTH_TIMEOUT`                                             | `10` 秒  | 通常不需动；冷启动慢的 backend 适当上调 |
-| `AUDIT_ASYNC`                                                   | `true`   | broker 故障时回退 `false`（强一致但慢） |
-| `TASK_EVENTS_ASYNC`                                             | `true`   | 同上，针对 task event 流                |
-| `OFFLINE_THRESHOLD_MINUTES`                                     | `5`      | 在线状态心跳判断窗口                    |
-| `LOGIN_CAPTCHA_THRESHOLD`                                       | `5`      | 同 IP 登录失败几次后强制 Turnstile      |
-| `LOGIN_FAILED_WINDOW_SECONDS`                                   | `3600`   | 上面失败计数的窗口长度                  |
-| `SMTP_HOST` `SMTP_PORT` `SMTP_USER` `SMTP_PASSWORD` `SMTP_FROM` | 空       | 启用密码重置邮件 / bug digest 时配齐    |
+| 变量                          | 默认     | 何时改                                  |
+| ----------------------------- | -------- | --------------------------------------- |
+| `MAX_INVITATIONS_PER_DAY`     | `30`     | 邀请活动期临时调高                      |
+| `INVITATION_TTL_DAYS`         | `7`      | 合规要求短链 → `1–3`                    |
+| `ML_PREDICT_TIMEOUT`          | `100` 秒 | LLM 慢 backend 调到 ≥ 180               |
+| `ML_HEALTH_TIMEOUT`           | `10` 秒  | 通常不需动；冷启动慢的 backend 适当上调 |
+| `AUDIT_ASYNC`                 | `true`   | broker 故障时回退 `false`（强一致但慢） |
+| `TASK_EVENTS_ASYNC`           | `true`   | 同上，针对 task event 流                |
+| `OFFLINE_THRESHOLD_MINUTES`   | `5`      | 在线状态心跳判断窗口                    |
+| `LOGIN_CAPTCHA_THRESHOLD`     | `5`      | 同 IP 登录失败几次后强制 Turnstile      |
+| `LOGIN_FAILED_WINDOW_SECONDS` | `3600`   | 上面失败计数的窗口长度                  |
+
+### 2.11 应用邮件与监控告警 {#production-mail}
+
+**应用邮件默认不发送。** 需要发送密码重置、邀请等邮件时，在 `.env.production` 设置实际中继的 `SMTP_HOST`、`SMTP_PORT`、`SMTP_FROM`，认证时另设 `SMTP_USER`。推荐使用 587（STARTTLS）或 465（TLS）。管理员在「系统设置」保存的 SMTP 覆盖优先于部署配置；从旧部署迁移时先检查并重置指向 Mailpit 的覆盖。不要使用 `mailpit`、`localhost:1025` 或 `host.docker.internal:1025` 作为生产中继。
+
+在仓库和镜像构建上下文之外保存单行密码文件，只允许部署和容器运行身份读取。在 `.env.production` 设置 `SMTP_PASSWORD_FILE=/绝对路径/应用邮件密码文件`，不设置 `SMTP_PASSWORD`。Compose 只读挂载到 API 和消费默认队列的 worker；文件无法读取、为空或两种密码配置并存时拒绝启动。已有 `SMTP_PASSWORD` 配置仍可用，但直接传入环境并不能把密码与容器配置隔离。
+
+**Alertmanager 的邮件单独配置。** `monitoring` profile 默认不启动；启用后，生产默认仍只接收告警，不发通知。要启用邮件，在仓库外保存下列配置并设置 `ALERTMANAGER_CONFIG_FILE` 为宿主文件绝对路径。用户名、发件地址和收件地址用实际值替换；密码仅存放在 `ALERTMANAGER_SMTP_PASSWORD_FILE` 指向的宿主文件中。两份文件均只读挂载，宿主权限须允许 Alertmanager 的容器运行身份（镜像默认 `nobody`）读取，不要为此将密码改成全局可读。无认证的受信任中继不填用户名和密码文件项，也不设置 `ALERTMANAGER_SMTP_PASSWORD_FILE`。
+
+```yaml
+global:
+  smtp_smarthost: "smtp.example.com:587"
+  smtp_from: "alerts@example.com"
+  smtp_auth_username: "alerts@example.com"
+  smtp_auth_password_file: /run/secrets/alertmanager_smtp_password
+  smtp_require_tls: true
+route:
+  receiver: ops-email
+  group_by: ["alertname", "service"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+receivers:
+  - name: ops-email
+    email_configs:
+      - to: "ops@example.com"
+        send_resolved: true
+```
+
+启用前检查配置；此命令不发送邮件：
+
+```bash
+docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml \
+  --profile monitoring run --rm --no-deps --entrypoint /bin/amtool \
+  alertmanager check-config /etc/alertmanager/alertmanager.yml
+```
+
+使用相同的两份 Compose 文件和 `.env.production`，加 `--profile monitoring` 启动监控。将监控端口限制在可信内网或 VPN；能写入 Alertmanager API 的客户端可以触发告警通知。替换宿主文件后重建相应容器，使单文件挂载切换到新文件。
 
 ---
 
@@ -268,6 +305,10 @@ server {
 
 ### 4.1 一键拉起（容器化生产标准路径）
 
+使用 Docker Compose v2.32 或更新版本；生产覆盖用 `!reset` 删除整个 Mailpit 服务，而不只是取消端口发布。
+
+如果从曾启动 Mailpit 的旧版整栈生产升级，先用**原生产项目名**和基础文件定向移除遗留容器：`docker compose -p <原生产项目名> --env-file .env.production -f docker-compose.yml rm --stop --force mailpit`。不要在仍需保留的开发项目上执行此命令。
+
 ```bash
 docker compose --env-file .env.production \
   -f docker-compose.yml -f docker-compose.prod.yml up -d --build
@@ -287,9 +328,16 @@ Raster Mask WebGPU 使用访问网页的客户端 GPU，不使用 Compose 主机
 `fallbackReason`、`failureStage`、`webGpuCircuitState`、CPU/GPU budgets 与 transient/capacity bytes；
 需要整体停止 adapter 请求时，将 build arg 设为 `false` 后重新构建 web 镜像。
 
-栈内服务包括：postgres / redis / minio / mailpit / api / web / celery-worker / celery-worker-maintenance / celery-worker-gpu-control / celery-worker-gpu / celery-worker-cpu / celery-worker-export / celery-beat。五个 ML backend 分别使用 `gpu`、`gpu-sam3`、`gpu-yolo`、`gpu-onnxtools`、`gpu-rapidocr` profile，监控使用 `monitoring` profile，均按需启用；mailpit 是 dev SMTP 收件箱，**生产应禁用并改真实 SMTP**（见 §2.10）。
+默认服务包括 postgres / redis / minio / api / web / celery-worker / celery-worker-maintenance / celery-worker-image-pyramid / celery-worker-gpu-control / celery-worker-gpu / celery-worker-cpu / celery-worker-export / celery-beat。五个 ML backend 分别使用 `gpu`、`gpu-sam3`、`gpu-yolo`、`gpu-onnxtools`、`gpu-rapidocr` profile，监控使用 `monitoring` profile，均按需启用。生产不会创建 Mailpit；应用邮件与告警发信按 §2.11 分别配置。
 
 > 宿主端口 `8080`（api）/ `8088`（web）只供外层反代转发，**绝不直接暴露公网**。prod 叠加文件默认把它们绑在宿主回环 `127.0.0.1`（`${PROXY_BIND_HOST:-127.0.0.1}`）——外层反代同机时开箱即安全；反代在**别的机器**时于 `.env.production` 设 `PROXY_BIND_HOST=<内网IP>`（勿用 `0.0.0.0`）。详见[端口暴露与网络安全](/ops/deploy/network-security)。
+
+#### 隔离冒烟验收
+
+1. **只解析配置**：可先跑 `python3 scripts/test_compose_mail.py`（只用测试变量，不需要 Docker daemon 和数据库），再用 `docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml config --services` 检查部署配置。默认没有 `mailpit` 和 `alertmanager`；加 `--profile monitoring` 后有 `alertmanager`，仍没有 `mailpit`。不要把包含环境值的完整 `config` 输出贴到工单。
+2. **启动检查**：用独立项目名、一次性数据库/卷及测试凭据执行 §4.1 的启动命令。若与其他工作栈同机，用测试专用叠加文件把端口改为回环随机端口（例如 `ports: !override ["127.0.0.1::8000"]`），不要改现有工作栈。`docker compose ... ps --all` 不应有 Mailpit；检查 API/Web 的绑定及 `/health`，确认没有发布 PostgreSQL、Redis、MinIO、SMTP 或收件箱端口。在 `ENVIRONMENT=production` 下分别用缺失、空列表和有效的 `CORS_ALLOW_ORIGINS` 重新创建 API，前两者必须退出，合法配置允许启动。
+3. **开发试投**：在另一个隔离项目中仅起 `mailpit`，把宿主 1025/8025 改成回环随机端口；用 `docker compose ... port mailpit 1025` / `8025` 找到端口。向该 SMTP 端口发送 `probe@example.test` → `inbox@example.test`，确认收件箱收到邮件。
+4. **生产告警试投（不发真实邮件）**：在隔离生产项目的测试叠加中将默认网络设为 `internal: true`，加一个只收信、不转发的 `smtp-fixture`，仅用 `*.example.test` 地址。分别使用默认生产监控配置和显式指向 `smtp-fixture` 的测试配置启动 Alertmanager。每次用 `docker compose ... exec -T alertmanager amtool --alertmanager.url=http://localhost:9093 alert add alertname=SMTPDeliverySmoke service=smtp-smoke` 触发合成告警，等待 `group_wait` 后确认默认配置不投递、测试配置将邮件送到收件器。仅用不支持 TLS 的本地收件器时，才在测试配置中临时设 `smtp_require_tls: false`；若验认证，收件器须要求测试凭据，并使用单独的测试密码文件。只检查配置或 `/ready` 不等于验证了投递；不得将合成告警发到线上 Alertmanager 或真实邮箱。
 
 ### 4.2 Celery 队列与 beat（容器已配好，理解即可）
 
@@ -521,7 +569,7 @@ LB 配置 `livenessProbe → /health`、`readinessProbe → /health/db`。`/metr
 A: `ENVIRONMENT=production` 但 `SECRET_KEY` 是默认值。生成强随机：`python -c "import secrets; print(secrets.token_hex(32))"`。
 
 **Q: production 启动时报 `production 环境必须显式设置 CORS_ALLOW_ORIGINS`**
-A: 即使前后端同源也要设。回填 `CORS_ALLOW_ORIGINS=["https://app.example.com"]`。
+A: 即使前后端同源也要显式填写非空列表。回填 `CORS_ALLOW_ORIGINS=["https://app.example.com"]`，或填写等价的逗号分隔值。
 
 **Q: WS 频繁掉线，前端控制台报 1006**
 A: 检查 nginx `proxy_read_timeout`。默认 60s 会被 30s 心跳保住，但反代链路上还有别的 LB（云厂商 ALB / WAF）也要 ≥ 60s。

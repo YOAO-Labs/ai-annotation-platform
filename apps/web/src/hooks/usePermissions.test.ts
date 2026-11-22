@@ -1,7 +1,3 @@
-/**
- * usePermissions 单测：平台角色 × 页面访问 / 权限分支。
- * 项目职责（标注员 / 质检员）由 useProjectAccess 覆盖，不再走这里。
- */
 import { describe, it, expect, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useAuthStore } from "@/stores/authStore";

@@ -36,7 +36,6 @@ from yoao.models import ImportResult
 
 console = Console()
 err_console = Console(stderr=True)
-# 进度条/spinner 是瞬态 UI 而非命令输出, 走 stderr, 避免污染管道中的 stdout
 progress_console = Console(stderr=True)
 ModelT = TypeVar("ModelT", bound=BaseModel)
 _ERROR_FORMAT: ContextVar[str] = ContextVar("cli_error_format", default="text")
@@ -303,7 +302,6 @@ def _safe_request_detail(error: SDKError) -> str | None:
         return "Video asset is not ready. Read its descriptor before downloading."
     if message == "video asset URL must be absolute to avoid sending API credentials":
         return "Video asset URL must be absolute. Refresh its descriptor."
-    # Fixed SDK-authored hints are safe; other SDKError text may contain IDs or server data.
     if message.startswith(
         (
             "无法读取请求文件",

@@ -1,12 +1,10 @@
 import { recordApiDuration } from "./_metrics";
-import { useAuthStore } from "../stores/authStore";
+import { authSessionToken, type AuthSessionOwner, useAuthStore } from "../stores/authStore";
 
 const BASE = "/api/v1";
 
 class ApiError extends Error {
-  /** 后端 detail 原文：可能是 string 或结构化对象（如 409 + {reason, pending_task_count, ...}）。 */
   detailRaw?: unknown;
-  /** 选择性透传响应头（小写键），用于 LoginPage 读 X-Login-Failed-Count 等。 */
   headers?: Record<string, string>;
 
   constructor(
@@ -22,7 +20,6 @@ class ApiError extends Error {
   }
 }
 
-/** 仅透传少数白名单响应头（避免序列化无关大头），按需扩展。 */
 const EXPOSED_HEADERS = ["x-login-failed-count", "retry-after"] as const;
 
 function validationIssueMessage(issue: unknown): string | undefined {
@@ -53,14 +50,22 @@ export function apiErrorDetailMessage(rawDetail: unknown): string | undefined {
 async function request<T>(
   path: string,
   init?: RequestInit,
-  opts?: { anonymous?: boolean; silent?: boolean; responseType?: "blob" },
+  opts?: {
+    anonymous?: boolean;
+    silent?: boolean;
+    responseType?: "blob";
+    session?: AuthSessionOwner;
+  },
 ): Promise<T> {
-  const token = opts?.anonymous ? null : localStorage.getItem("token");
+  const token = opts?.session
+    ? authSessionToken(opts.session)
+    : opts?.anonymous
+      ? null
+      : localStorage.getItem("token");
   const owner = useAuthStore.getState();
-  if (!opts?.anonymous && owner.user && owner.token !== token) {
+  if ((opts?.session && !token) || (!opts?.anonymous && owner.user && owner.token !== token)) {
     throw new ApiError(401, "登录账号已在其他页面变更，请等待同步或刷新页面");
   }
-  // PerfHud 浏览器侧 API p95 指标; recordApiDuration 内部包 try/catch 不会抛.
   const t0 = performance.now();
   const res = await fetch(`${BASE}${path}`, {
     ...init,
@@ -83,10 +88,9 @@ async function request<T>(
 
     if (res.status === 401 && !opts?.anonymous) {
       const { useAuthStore } = await import("../stores/authStore");
-      // A response belongs to the credentials captured before fetch. A late
-      // rejection must not clear a session established in the meantime.
       const current = useAuthStore.getState();
       if (
+        (!opts?.session || authSessionToken(opts.session) === token) &&
         localStorage.getItem("token") === token &&
         current.token === owner.token &&
         current.user?.id === owner.user?.id &&
@@ -121,7 +125,6 @@ async function request<T>(
     );
   }
 
-  // 204 No Content
   if (res.status === 204) return undefined as T;
   return opts?.responseType === "blob" ? (res.blob() as Promise<T>) : res.json();
 }
@@ -130,18 +133,11 @@ export const apiClient = {
   get: <T>(path: string, init?: RequestInit) => request<T>(path, init),
   getBlob: (path: string, init?: RequestInit) =>
     request<Blob>(path, init, { responseType: "blob" }),
-  /** Binary requests whose caller owns scoped progress and error feedback. */
   silentGetBlob: (path: string, init?: RequestInit) =>
     request<Blob>(path, init, { responseType: "blob", silent: true }),
-  /**
-   * 探测式 GET：不弹全局 toast（调用方自带错误展示，例如能力目录的黄色降级提示）。
-   * 5xx/403 仍正常抛 ApiError；只是不重复弹通知。用于按 backend 批量探测的端点
-   * （/capabilities / /setup），避免一个不可达容器触发 N 个堆叠 toast。
-   */
   silentGet: <T>(path: string, init?: RequestInit) => request<T>(path, init, { silent: true }),
   post: <T>(path: string, body?: unknown, extra?: RequestInit) =>
     request<T>(path, { method: "POST", body: JSON.stringify(body ?? {}), ...extra }),
-  /** 探测式 POST：不弹全局 toast（见 silentGet 说明）。 */
   silentPost: <T>(path: string, body?: unknown, extra?: RequestInit) =>
     request<T>(
       path,
@@ -152,16 +148,16 @@ export const apiClient = {
     request<T>(path, { method: "PUT", body: JSON.stringify(body ?? {}), ...extra }),
   patch: <T>(path: string, body?: unknown, extra?: RequestInit) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body ?? {}), ...extra }),
+  patchForSession: <T>(path: string, body: unknown, session: AuthSessionOwner) =>
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body) }, { session, silent: true }),
   delete: <T>(path: string, body?: unknown, extra?: RequestInit) =>
     request<T>(path, {
       method: "DELETE",
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       ...extra,
     }),
-  /** Scoped callers own cancellation and error feedback for authenticated deletes. */
   silentDelete: <T>(path: string, init?: RequestInit) =>
     request<T>(path, { method: "DELETE", ...init }, { silent: true }),
-  /** 公开请求：不携带 Authorization；401 不触发全局 logout（用于 /auth/register 等公开端点）。 */
   publicGet: <T>(path: string) => request<T>(path, undefined, { anonymous: true }),
   publicPost: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: JSON.stringify(body ?? {}) }, { anonymous: true }),

@@ -146,7 +146,6 @@ async def test_dataset_import_guard_fails_closed_without_mutating_jobs(
     assert target_job.payload == {"dataset_id": str(target_dataset_id)}
     assert target_job.result == {}
 
-    # A well-formed import for another Dataset does not block this one.
     await db_session.delete(target_job)
     for job in malformed_jobs:
         await db_session.delete(job)
@@ -191,7 +190,6 @@ async def test_task_creation_execution_active_is_fail_closed_and_scope_checked(
     project = await create_project(db_session, owner_id=actor.id)
     project_id = project.id
 
-    # A synchronous accepted operation has no AsyncJob to prove completion.
     assert (
         await db_session.scalar(
             _TASK_CREATION_EXECUTION_ACTIVE,

@@ -32,36 +32,30 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "websockets>=15.0",
-    "sqlalchemy[asyncio]>=2.0.0",
+    "sqlalchemy[asyncio]==2.0.49",
     "asyncpg>=0.30.0",
     "alembic>=1.14.0",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.6.0",
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",
-    "python-multipart>=0.0.12",
+    "python-multipart>=0.0.15",
     "redis>=5.2.0",
     "boto3>=1.43.77",
-    # 存储连接器 SFTP/SSH 拉取（宿主机 & 同网段服务器）。
     "paramiko>=3.4.0",
-    # 直接依赖 cryptography，因为存储连接器用 Fernet 加密凭据。
     "cryptography>=43.0.0",
     "celery>=5.4.0",
     "httpx>=0.28.0",
     "structlog>=25.5.0",
     "prometheus-client>=0.25.0",
     "Pillow>=10.0.0",
-    # Large-image pyramids use libvips' lazy/sequential decode path. Pillow remains
-    # a small-image thumbnail/oracle dependency and is not the production fallback.
     "pyvips>=3.0.0,<4.0.0",
     "numpy>=2.0.0",
     "scipy>=1.14,<2",
-    # COCO compressed RLE is a production import/export codec, not only a test oracle.
     "pycocotools>=2.0.7",
     "blurhash-python>=1.2.0",
     "slowapi>=0.1.9",
     "sentry-sdk[fastapi]>=2.18.0",
-    # DuckDB 离线分析视图：Celery worker 写、API 只读。
     "duckdb>=1.1.0,<2.0.0",
 ]
 
@@ -96,8 +90,6 @@ yoao-workspace = { path = "../workspace", editable = true }
 yoao-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
 
 [tool.uv]
-# nuScenes 1.1.11 pins legacy Shapely and Matplotlib. Keep this test oracle
-# installable on supported Python versions and compatible with NumPy 2.
 override-dependencies = ["shapely>=2.0", "matplotlib>=3.9,<4"]
 
 [project.optional-dependencies]
@@ -114,9 +106,6 @@ test = [
 asyncio_mode = "auto"
 addopts = "-q --tb=short"
 testpaths = ["tests"]
-# Repository-level operator scripts (scripts/video_*.py) are consumed by the
-# legacy video fence tests. `scripts` stays a namespace package, so this adds
-# the repo-root modules without shadowing apps/api/scripts.
 pythonpath = ["../.."]
 filterwarnings = [
     "ignore::DeprecationWarning",

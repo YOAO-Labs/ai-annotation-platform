@@ -142,7 +142,6 @@ test("AI review restores OR and required attributes restore nested groups", asyn
     [...filtering.image.expected.missing_required_task_ids].sort(),
   );
   await expect(page.getByRole("table")).toBeVisible();
-  // A short saved-view URL may stay short until an edit; reload must restore the same tree.
   const reloadResponse = queryResponse(page, filtering.image.project_id, "tasks");
   await page.reload();
   const reloaded = await reloadResponse;
@@ -366,8 +365,6 @@ test("grouped saved views persist creation and edits, cancel navigation, and cop
   await page.getByRole("button", { name: "保存视图", exact: true }).click();
   const updated = await checked(await updatedResponse);
   expect(updated.filter_json).toEqual({ ...expression, op: "and" });
-  // Saving refetches the current query. Finish that response before registering
-  // a reload listener, which must only observe the new document's request.
   await page.waitForLoadState("networkidle");
   const reload = queryResponse(page, projectId, "tasks");
   await page.reload();

@@ -107,10 +107,6 @@ def assert_reference(actual, rle):
 @pytest.fixture
 async def repair_world(db_session, sync_world, super_admin, monkeypatch, request):
     blobs = Objects()
-    # The shared StorageService object remains real; its physical client alone
-    # is an in-memory provider with conditional writes and complete byte reads.
-    # Owned conditional writes build a per-call transport from the saved client
-    # config, so that seam must forward to the same in-memory provider.
     patch_owned_client(monkeypatch, blobs.client)
     from app.services.storage import storage_service
 
@@ -286,9 +282,6 @@ async def repair_world(db_session, sync_world, super_admin, monkeypatch, request
         "app.application.mask_repair_execution.model_execution_port",
         lambda _db: Execution(),
     )
-    # The interactive API path owns both seams independently; reuse the same
-    # canonical setup fact and qualified input reader so it reaches the same
-    # saved original with the truthful input kind.
     monkeypatch.setattr(
         "app.api.v1.ml_backends.backend_control_service",
         lambda _db: control,

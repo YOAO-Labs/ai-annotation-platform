@@ -109,7 +109,6 @@ function isPanelContentVisible(api: IDockviewPanelProps["api"] | undefined): boo
   );
 }
 
-// Dockview owns these stable React portals. Reparenting a panel does not recreate its content.
 function PanelContent({ api, containerApi }: IDockviewPanelProps) {
   const slots = useContext(SlotsContext)!;
   const layout = useWorkbench3DLayout();
@@ -291,7 +290,6 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
     }),
     [],
   );
-  // Legacy preferences are a one-time seed, never a second layout owner.
   const fallback = useMemo(() => {
     const seed =
       legacyAccount.current === userId ? props.legacy : (user?.preferences?.workbench ?? {});
@@ -344,7 +342,6 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
     const engine = executor.current;
     if (!api || !engine) return;
     engine.syncConstraints();
-    // Capturing a maximized layout exits/reenters maximization and emits layout changes.
     setActivePreset(
       engine.isCanvasMaximized() ? "focus" : getActiveWorkspacePreset(engine.capture(), context),
     );
@@ -538,7 +535,6 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
     executor.current = engine;
     try {
       let maximizeAfterHydration = false;
-      // The only whole-tree restore seam: cold start and the settled initial authority.
       if (
         !previous ||
         previous.api !== api ||
@@ -620,20 +616,9 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
   useEffect(() => {
     if (!api) return;
     const blocked = () => latest.current.owner.readOnly || latest.current.compact;
-    // Overlay-rendered panel content (e.g. the canvas) sits above its Dockview
-    // group. Dockview forwards overlay DnD to the group, but in this layout the
-    // forwarded HTML5 target did not activate, so the group's drop target never
-    // received dragover/drop and the dock was cancelled. While an HTML5 dock
-    // drag is active, make the overlay layer transparent so the drag hit-tests
-    // the owning group. Scoped to HTML5 drags only: Dockview also arms a pointer
-    // drag source, and Shift+pointer is the float gesture, which must keep the
-    // canvas overlay interactive.
     const setOverlayPassthrough = (active: boolean) => {
       host.current?.classList.toggle(styles.dragPassthrough, active);
     };
-    // Dockview arms both an HTML5 and a pointer drag source. Only the HTML5
-    // backend needs the overlay passthrough; Shift+pointer is Dockview's float
-    // gesture and must keep the canvas overlay interactive.
     const armOverlayPassthrough = (nativeEvent: DragEvent | PointerEvent) => {
       if (!(nativeEvent instanceof DragEvent) || nativeEvent.shiftKey) return;
       setOverlayPassthrough(true);
@@ -692,8 +677,6 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
         restoreDragSizes = undefined;
         if (!restore) return;
         try {
-          // A root-edge restructure can re-expose the reserved parking group
-          // into the grid; re-assert the owner invariant before restoring sizes.
           executor.current?.reassertReservedGroups();
           restore(movedPanel ? api.getPanel(movedPanel)?.group.id : movedGroup);
         } catch {
@@ -720,7 +703,6 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
         if (event.defaultPrevented) return;
         const horizontal = event.position === "left" || event.position === "right";
         const width = defaultDockWidth(api.width);
-        // Dockview reads these models immediately after this event, before painting.
         dropOverlays.content.size = horizontal
           ? { type: "pixels", value: width }
           : { type: "percentage", value: 50 };
@@ -731,7 +713,6 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
       api.onWillDrop((event) => {
         guardDrop(event);
         if (!event.defaultPrevented) {
-          // Root-edge drops create a grid branch before Dockview emits its mutation event.
           restoreDragSizes ??= executor.current?.preserveGridSizes();
           const source = event.position !== "center" ? event.getData() : undefined;
           movedPanel = source?.panelId ?? undefined;
@@ -751,7 +732,6 @@ export function WorkbenchDockWorkspace(props: WorkbenchDockWorkspaceProps) {
     };
     window.addEventListener("pointerup", release);
     window.addEventListener("dragend", release);
-    // Moving a tab can remove the drag source before dragend reaches window.
     window.addEventListener("drop", release, true);
     return () => {
       subscriptions.forEach((subscription) => subscription.dispose());

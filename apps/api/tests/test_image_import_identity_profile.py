@@ -114,8 +114,6 @@ def image_profile(test_engine, tmp_path):
         aws_secret_access_key=secret_key,
         config=Config(s3={"addressing_style": "path"}, proxies={}),
     )
-    # config.py resolves its dotenv relative to the source root, so copy the
-    # actual CLI and app into a private root that contains no repository dotenv.
     root = tmp_path / "consumer-root"
     api = root / "apps" / "api"
     shutil.copytree(
@@ -333,8 +331,6 @@ async def test_image_import_identity_behavior(
         _denied(lambda: client.list_buckets())
         _denied(lambda: client.get_bucket_policy(Bucket=bucket))
 
-        # Audit the actual SQL login at the dataset insertion boundary, not a
-        # separate probe connection, without granting the consumer table access.
         async with owner_maker.begin() as owner:
             await owner.execute(
                 text(
@@ -565,7 +561,6 @@ async def test_local_image_import_uses_native_rows_and_retains_uploads_on_sql_fa
     async with owner_maker.begin() as owner:
         if not await owner.scalar(text("SELECT EXISTS(SELECT 1 FROM public.users)")):
             await _seed_actor(owner, role="viewer")
-        # Sequence state survives the deliberately rolled-back business insert.
         await owner.execute(
             text("CREATE SEQUENCE public.image_import_test_reject_seen")
         )

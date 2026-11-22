@@ -29,8 +29,6 @@ class AuditLog(Base):
     status_code: Mapped[int | None] = mapped_column(SmallInteger)
     ip: Mapped[str | None] = mapped_column(INET)
     detail_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    # 一次 HTTP 请求触发的所有 audit 行共享同一 request_id（中间件 + 业务层）
-    # 前端按此字段折叠为「双行 UI 合并视图」（metadata 行 + N 条 business detail 行）
     request_id: Mapped[str | None] = mapped_column(
         String(36), index=True, nullable=True
     )

@@ -108,15 +108,12 @@ async def uncovered_bindings(db, scope):
             if S3Access(config, b"", ()).endpoint == endpoint:
                 uncovered.discard(binding.purpose)
         except (ValueError, KeyError, TypeError):
-            # Invalid configuration is unknown coverage, never evidence of zero.
             continue
     return sorted(uncovered)
 
 
 async def read_usage(db):
     scope = configured_scope()
-    # Read the task state before its observations: a terminal state must never
-    # be paired with pre-completion rows and stop the client polling too early.
     inventory = await db.get(Inventory, "platform", populate_existing=True)
     rows = {
         r.scope_key: r
@@ -326,8 +323,6 @@ async def signal_interrupted(db, job_id, task_id, *, cancelled):
     if cancelled:
         await finish(db, inventory, "cancelled", "cancelled")
         return
-    # A process-loss signal fences that delivery, but keeps its durable page checkpoint.
-    # Beat republishes it after this commit; late signals for the old task ID are ignored.
     inventory.status = "pending"
     inventory.generation += 1
     inventory.lease_until = now()
@@ -388,8 +383,6 @@ async def start_due(db):
     if row.next_due_at is None or row.next_due_at > now():
         await db.commit()
         return None
-    # start() takes the same inventory lock as manual starts. Reuse is not a
-    # new scheduled delivery and must not move the next due time.
     actor = await require_admin(db, uuid.UUID(row.authority["actor_id"]))
     key_id = row.authority.get("api_key_id")
     job, reused = await start(db, actor, uuid.UUID(key_id) if key_id else None)

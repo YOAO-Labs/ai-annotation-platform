@@ -221,7 +221,6 @@ async def test_clone_rechecks_source_and_original_actor_after_remote_setup_befor
     before = await db_session.scalar(select(func.count()).select_from(Project))
 
     async def validate(*args):
-        # No target row exists while the remote capability check is in progress.
         assert (
             await db_session.scalar(select(func.count()).select_from(Project)) == before
         )
@@ -241,7 +240,6 @@ async def test_clone_rechecks_source_and_original_actor_after_remote_setup_befor
     monkeypatch.setattr(routes, "_validate_backend_modality", validate)
     result = await clone(httpx_client, project_admin, identifier)
     assert result.status_code == status, result.text
-    # The failed final check never commits a clone or creates a second reference.
     await db_session.rollback()
     assert (
         await db_session.scalar(

@@ -308,8 +308,6 @@ async def _locked_anchor(db, retirement_id):
         raise HTTPException(404, "Retirement assertion not found")
     from app.services.managed_original_reclaim_fence import exclusive, shared
 
-    # Policy mutations remain serialized with one another. The shared boundary
-    # first checks the durable claim, using the same identity as GC/publication.
     try:
         await shared(db, *locator)
         await exclusive(db, *locator)
@@ -368,8 +366,6 @@ async def apply(db, retirement_id, payload, actor, *, api_key_id=None, request=N
     ):
         reject("managed_retention_deadline_not_future")
     previous_revision = anchor.policy_revision
-    # A savepoint keeps all local mutations and audit atomic even when a caller
-    # catches an audit error and continues using its surrounding transaction.
     try:
         async with db.begin_nested():
             if payload.action == "set_retention":

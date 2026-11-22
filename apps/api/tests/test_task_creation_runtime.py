@@ -41,7 +41,6 @@ async def test_old_unscoped_creation_is_terminalized_without_adopting_payload_sc
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     try:
         async with maker.begin() as owner:
-            # Represents a pre-migration SET NULL row, not a new accepted operation.
             owner.add(
                 AsyncJob(
                     id=operation_id,
@@ -106,7 +105,6 @@ async def test_real_celery_creation_uses_public_capabilities_and_replays_termina
     sender = Celery("creation-acceptance", broker=broker, backend=broker)
     result = duplicate = None
     try:
-        # Exercise association INSERT through the public client, not owner SQL.
         async with test_engine.begin() as owner:
             await owner.execute(
                 text("DELETE FROM public.project_datasets WHERE id = :id"),

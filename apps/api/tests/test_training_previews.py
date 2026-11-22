@@ -455,7 +455,6 @@ async def test_internal_preview_http_responses_preserve_idle_lost_stop_and_recei
         for source in row.spec["sources"]
     }
 
-    # A worker may retry the durable claim after it loses the first response.
     row.heartbeat_at = service.now() - timedelta(minutes=1)
     await db_session.flush()
     lost = await httpx_client.get(path + f"/{row.id}", headers=headers)

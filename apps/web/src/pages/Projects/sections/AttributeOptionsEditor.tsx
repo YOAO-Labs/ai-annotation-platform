@@ -1,17 +1,3 @@
-/**
- * AttributeOptionsEditor
- *
- * select / multiselect 属性的「选项」编辑器。取代原先「逗号分隔 value:label」单行 input。
- *
- * 两种模式：
- *  - chip 模式（默认）：每个选项一枚 chip，点击就地编辑 value/label，× 删除；底部输入框回车新增。
- *  - 批量模式：textarea，一行一个 `value:label`，方便粘贴 / 重排（**调整行序即调整选项顺序**，
- *    这也是本组件唯一的排序入口 —— 不引入拖拽依赖）。
- *
- * 关键设计：批量模式的 textarea 绑定本地 bulkText 而非 serialize(options)。旧实现把 input
- * 的值 round-trip 成 `options.map(...).join(", ")`，导致用户刚打下的 `,` 被 filter(Boolean)
- * 立刻吞掉。本地缓冲让「正在输入的中间态」不被解析结果覆盖。
- */
 import { useState, type KeyboardEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
@@ -21,10 +7,6 @@ import { LABEL_CLASS } from "./formClasses";
 const CONTROL_CLASS =
   "box-border w-full appearance-none rounded-sm border border-border bg-muted px-2.5 py-1.5 text-sm text-foreground outline-none [font-family:inherit]";
 
-/**
- * 单段文本 → option。语法 `value:label`，**只在第一个冒号处切分**，故 label 可含 `:`。
- * 无冒号时 value=label=原文。value 为空（如 `:foo`）视为非法，返回 null。
- */
 export function parseOptionToken(raw: string): AttributeFieldOption | null {
   const s = raw.trim();
   if (!s) return null;
@@ -47,22 +29,18 @@ function dedupeByValue(options: AttributeFieldOption[]): AttributeFieldOption[] 
   });
 }
 
-/** 批量 textarea：只按换行切，故 label 可含逗号。 */
 export function parseOptionLines(text: string): AttributeFieldOption[] {
   return dedupeByValue(text.split("\n").map(parseOptionToken).filter(isOption));
 }
 
-/** 新增输入框：按换行或逗号切，方便直接粘贴 `car:小车, truck:卡车`。 */
 export function parseOptionTokens(text: string): AttributeFieldOption[] {
   return dedupeByValue(text.split(/[\n,]/).map(parseOptionToken).filter(isOption));
 }
 
-/** value === label 时只写一次，保证 parse ∘ serialize 幂等。 */
 export function serializeOptionLines(options: AttributeFieldOption[]): string {
   return options.map((o) => (o.value === o.label ? o.value : `${o.value}:${o.label}`)).join("\n");
 }
 
-/** 重复出现（第 2 次及以后）的 value 集合，用于 chip 标红。 */
 function duplicateValues(options: AttributeFieldOption[]): Set<string> {
   const seen = new Set<string>();
   const dup = new Set<string>();
@@ -79,7 +57,6 @@ interface Props {
 }
 
 export function AttributeOptionsEditor({ value, onChange }: Props) {
-  /** 非 null 即处于批量模式，值为 textarea 的本地缓冲。 */
   const [bulkText, setBulkText] = useState<string | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [addText, setAddText] = useState("");
@@ -102,8 +79,6 @@ export function AttributeOptionsEditor({ value, onChange }: Props) {
 
   if (bulkText !== null) {
     const parsed = parseOptionLines(bulkText);
-    // 有内容但解析不出 option 的行（如 `:foo`）与被 dedupe 丢弃的重复行都要显式告知用户，
-    // 否则「我明明写了 12 行怎么只剩 10 个」。
     const nonEmpty = bulkText.split("\n").filter((l) => l.trim());
     const invalid = nonEmpty.filter((l) => !parseOptionToken(l)).length;
     const dropped = nonEmpty.length - invalid - parsed.length;
@@ -193,7 +168,6 @@ export function AttributeOptionsEditor({ value, onChange }: Props) {
               e.preventDefault();
               commitAdd();
             } else if (e.key === "Backspace" && addText === "" && value.length > 0) {
-              // 空输入框退格删末尾 chip —— 标准 tag input 手感。
               e.preventDefault();
               removeAt(value.length - 1);
             }
@@ -238,7 +212,6 @@ function OptionChip({
         className="inline-flex items-center gap-1.5"
       >
         {option.label}
-        {/* value 与 label 一致时不重复展示，减少噪声。 */}
         {option.value !== option.label && (
           <code className="translate-y-0.5 text-2xs text-muted-foreground">{option.value}</code>
         )}

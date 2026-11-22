@@ -19,7 +19,6 @@ def test_build_ws_url_http_to_ws():
 def test_build_ws_url_https_to_wss_and_strip_slash():
     url = build_ws_url("https://api.example.com/", "ak_x/y+z")
     assert url.startswith("wss://api.example.com/ws/ml-backend-stats?token=")
-    # token 做了 url 编码 (/ 和 + 不能裸传)
     assert "ak_x%2Fy%2Bz" in url
 
 
@@ -63,7 +62,6 @@ def test_parse_frame_ping_and_garbage():
 
 
 def test_parse_frame_skips_bad_snapshot():
-    # state 必填; 缺失的坏条目被跳过, 不拖垮整帧
     frame = json.dumps(
         {
             "backends": [
@@ -71,7 +69,7 @@ def test_parse_frame_skips_bad_snapshot():
                     "backend_id": "11111111-1111-1111-1111-111111111111",
                     "state": "connected",
                 },
-                {"backend_name": "broken"},  # 缺 state → 跳过
+                {"backend_name": "broken"},
             ]
         }
     )

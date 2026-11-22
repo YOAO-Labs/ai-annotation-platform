@@ -33,9 +33,9 @@ def test_warnings_flag_unknown_task_prompt_geometry():
         "models": [
             {
                 "id": "m1",
-                "task": "seg",  # 越界 (应为 segmentation)
-                "supported_prompts": ["point", "boxes"],  # boxes 越界
-                "supported_geometric_outputs": ["polygon", "circle"],  # circle 越界
+                "task": "seg",
+                "supported_prompts": ["point", "boxes"],
+                "supported_geometric_outputs": ["polygon", "circle"],
             }
         ],
     }
@@ -44,10 +44,8 @@ def test_warnings_flag_unknown_task_prompt_geometry():
     assert ("task", "seg") in flagged
     assert ("supported_prompts", "boxes") in flagged
     assert ("supported_geometric_outputs", "circle") in flagged
-    # 合法值不报
     assert ("supported_prompts", "point") not in flagged
     assert ("supported_geometric_outputs", "polygon") not in flagged
-    # 每条带 model_id 溯源
     assert all(w["model_id"] == "m1" for w in warnings)
 
 

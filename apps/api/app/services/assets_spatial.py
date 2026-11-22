@@ -561,7 +561,6 @@ class AssetsSpatialGateway:
     ) -> dict[tuple[uuid.UUID, int], FramePose]:
         if not pairs:
             return {}
-        # Keep the export chunk in one native snapshot when poses change concurrently.
         result = await self.read_spatial_pose_pairs(
             ReadPosePairsRequest(
                 pairs=[

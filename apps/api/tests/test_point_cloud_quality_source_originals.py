@@ -54,7 +54,6 @@ async def current(db_session, super_admin, monkeypatch):
         owner_id=owner.id,
         original_objects=objects,
     )
-    # Quality currently has no Key scope dependency. Preserve that boundary.
     key, token = await create_api_key(
         db_session, owner.id, "PCD original", ["annotations:read"]
     )
@@ -70,8 +69,6 @@ async def current(db_session, super_admin, monkeypatch):
             http_request=proof,
         )
         assert created and job
-        # Owner writes return projections; keep the session's persistent rows so
-        # fenced transitions and test-visible state stay on one identity.
         run = await db_session.get(PointCloudQualityRun, run.id, populate_existing=True)
         job = await db_session.get(AsyncJob, job.id, populate_existing=True)
         return run, job
@@ -374,8 +371,6 @@ async def test_key_expiry_during_publication_rolls_back_every_issue(
         nonlocal calls
         result = await operation(*args, **kwargs)
         calls += 1
-        # Real Identity transition: the accepted key expires mid-publication and
-        # the terminal authority revalidation must refuse the whole transaction.
         current.key.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
         await current.db.flush()
         return result
@@ -423,8 +418,6 @@ async def test_success_notifies_once_and_failed_rescan_preserves_human_review(
         )
     )
     assert [row.type for row in notifications] == ["job.completed"]
-    # An explicit fresh scan may find the same issues, but must not publish half
-    # its updated evidence if final publication fails.
     run.status = "failed"
     await current.db.commit()
     next_run, next_job = await current.create()

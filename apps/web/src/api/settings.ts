@@ -43,9 +43,7 @@ export interface SmtpStatusResponse {
 }
 
 export interface SystemSettingsResponse {
-  /** Opaque server-side settings revision used for optimistic concurrency. */
   version?: string;
-  /** Non-secret provenance and validation information for editable settings. */
   metadata?: Partial<Record<SystemSettingKey, SystemSettingMetadata>>;
   environment: string;
   invitation_ttl_days: number;

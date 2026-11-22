@@ -17,9 +17,6 @@ from yoao_workspace.configuration_policy import (
 from tests.factory import create_project
 
 
-# ── 纯单元: helper ───────────────────────────────────────────────────────────
-
-
 def test_invariant_passes_when_consistent():
     assert_project_kind_consistent("lidar", "lidar")
     assert_project_kind_consistent("image-det", "image")
@@ -50,13 +47,10 @@ def test_legacy_helpers_round_trip():
     """互推 helper 跟 invariant 同源 (避免再次出现新 type_key 漏更新派生表的漂移)."""
     for tk in ("lidar", "image-det", "image-seg", "video-track"):
         dt = data_type_from_type_key(tk)
-        assert_project_kind_consistent(tk, dt)  # 任一边推得另一边, invariant 必过
+        assert_project_kind_consistent(tk, dt)
     for dt in ("lidar", "image", "video"):
         tk = legacy_type_key_from_data_type(dt)
         assert_project_kind_consistent(tk, dt)
-
-
-# ── 集成: POST/PATCH /projects ───────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -68,7 +62,7 @@ async def test_create_project_rejects_kind_drift(httpx_client, db_session, super
             "name": "drift",
             "type_label": "drift",
             "type_key": "lidar",
-            "data_type": "image",  # 与 type_key 不一致 → 422
+            "data_type": "image",
         },
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -105,7 +99,7 @@ async def test_patch_project_rejects_kind_drift(httpx_client, db_session, super_
 
     res = await httpx_client.patch(
         f"/api/v1/projects/{proj.id}",
-        json={"type_key": "lidar"},  # 单改 type_key, 与现 data_type=image 撕裂
+        json={"type_key": "lidar"},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 422, res.text

@@ -495,10 +495,6 @@ describe("ToolDock · 视频范围命令", () => {
   });
 });
 
-// AI 工具三层门控 (ai_interactive 伪单位退役后):
-//   1. project.ai_interactive_enabled 关 → 整组隐藏
-//   2. 后端不支持该 prompt → 置灰
-//   3. 产出几何所属单位未启用 → 隐藏 (smart-* → region, magic-box → bbox)
 describe("ToolDock · AI 工具三层门控", () => {
   const AI_TOOL_IDS = ["smart-point", "smart-box", "smart-scribble", "exemplar", "magic-box"];
 
@@ -527,11 +523,9 @@ describe("ToolDock · AI 工具三层门控", () => {
 
   it("层 2 · 后端不支持该 prompt → 置灰而非隐藏", () => {
     render(<ToolDock tool="select" onSetTool={vi.fn()} isPromptSupported={(p) => p !== "point"} />);
-    // smart-point 要求 point prompt → 置灰但仍在栏内
     const smartPoint = screen.getByTestId("tool-btn-smart-point");
     expect(smartPoint).toBeInTheDocument();
     expect(smartPoint).toBeDisabled();
-    // smart-box 要求 interactive_box → 正常可用
     expect(screen.getByTestId("tool-btn-smart-box")).not.toBeDisabled();
   });
 
@@ -541,10 +535,8 @@ describe("ToolDock · AI 工具三层门控", () => {
     expect(screen.queryByTestId("tool-btn-smart-box")).toBeNull();
     expect(screen.queryByTestId("tool-btn-smart-scribble")).toBeNull();
     expect(screen.queryByTestId("tool-btn-exemplar")).toBeNull();
-    // magic-box 把 SAM 多边形收紧成外接矩形 → 归 bbox 单位, 故仍显示
     expect(screen.getByTestId("tool-btn-magic-box")).toBeInTheDocument();
     expect(screen.getByTestId("tool-btn-box")).toBeInTheDocument();
-    // region 未启用 → 手画 polygon / mask 一并隐藏 (与 smart-* 同待遇)
     expect(screen.queryByTestId("tool-btn-polygon")).toBeNull();
   });
 
@@ -601,7 +593,6 @@ describe("ToolDock · AI 工具三层门控", () => {
   });
 });
 
-// 视频侧交互式 SAM 工具也受 ML 能力门控。
 describe("ToolDock · 视频 AI 工具三层门控", () => {
   const VIDEO_AI = ["smart-point", "smart-box", "exemplar", "magic-box"];
 
@@ -651,7 +642,6 @@ describe("ToolDock · 视频 AI 工具三层门控", () => {
     );
     expect(screen.getByTestId("video-tool-btn-smart-point")).toBeDisabled();
     expect(screen.getByTestId("video-tool-btn-smart-box")).not.toBeDisabled();
-    // exemplar 各按自己的 requiredPrompt 判定, 不受 point 不支持牵连。
     expect(screen.getByTestId("video-tool-btn-exemplar")).not.toBeDisabled();
   });
 
@@ -688,7 +678,6 @@ describe("ToolDock · 视频 AI 工具三层门控", () => {
   });
 
   it("层 3 · region 单位未启用 → smart-* 随多边形一起隐藏（产出几何归属）", () => {
-    // 模拟只启用 bbox 单位: box / track / magic-box 归 bbox, 其余归 region / polyline。
     render(
       <ToolDock
         tool="select"
@@ -704,14 +693,11 @@ describe("ToolDock · 视频 AI 工具三层门控", () => {
     expect(screen.queryByTestId("video-tool-btn-exemplar")).toBeNull();
     expect(screen.queryByTestId("video-tool-btn-polygon")).toBeNull();
     expect(screen.getByTestId("video-tool-btn-box")).toBeInTheDocument();
-    // magic-box 产矩形框 → 归 bbox 单位, 只启用 bbox 时它**仍在**（与 smart-* 分家）。
     expect(screen.getByTestId("video-tool-btn-magic-box")).toBeInTheDocument();
   });
 });
 
 describe("ToolDock · 视频工具角标不撒谎", () => {
-  // 角标是给用户看的承诺: 按这个键就切到这个工具。历史上 polygon 标 G、polyline 标 L 都没绑定,
-  // 而视频 L 是播放 jog —— 按下去会快进。这条测试把角标与 hotkeys.ts 的真实绑定钉在一起。
   it("每个渲染出的角标都真能 dispatch 到它标注的工具", () => {
     const view = (scope: "frame" | "track") => (
       <ToolDock
@@ -740,7 +726,7 @@ describe("ToolDock · 视频工具角标不撒谎", () => {
     for (const btn of buttons) {
       const id = btn.dataset.testid!.replace("video-tool-btn-", "");
       const badge = btn.querySelector("span[aria-hidden]")?.textContent?.trim();
-      if (!badge) continue; // 无角标 = 未承诺快捷键 (polyline / *-track), 合法
+      if (!badge) continue;
       const action = dispatchKey(
         {
           key: badge.toLowerCase(),
@@ -757,6 +743,6 @@ describe("ToolDock · 视频工具角标不撒谎", () => {
       });
       checked += 1;
     }
-    expect(checked).toBeGreaterThanOrEqual(8); // V B T P S D E G
+    expect(checked).toBeGreaterThanOrEqual(8);
   });
 });

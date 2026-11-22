@@ -58,7 +58,6 @@ class BugReportCreate(_BugReportRequest):
     route: str = ""
     browser_ua: str | None = None
     viewport: str | None = None
-    # These IDs are diagnostic context; authorization always comes from the API.
     project_id: UUID | None = None
     task_id: UUID | None = None
     recent_api_calls: list[dict[str, Any]] | None = Field(default=None, max_length=100)

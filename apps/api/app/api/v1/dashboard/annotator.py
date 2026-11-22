@@ -73,8 +73,6 @@ async def annotator_project_onboarding(
     )
     assignment_scope = True
     if not access.is_manager:
-        # Pass the resolved project role: the task-visibility predicate fails
-        # closed without one, so omitting it would hide every assigned task.
         assignment_scope = or_(
             task_row.batch_id.in_(
                 select(batch_row.id)
@@ -191,10 +189,6 @@ async def annotator_dashboard(
         require_roles(*DASHBOARD_PLATFORM_ROLES)
     ),
 ):
-    # Current annotation work follows the *project* annotator role.  An
-    # employee who is only a reviewer elsewhere must not see that project's
-    # task queue; a manager keeps the existing owner/super-admin override.
-    # Historical personal metrics below stay account-scoped.
     annotator_work_scope = project_scope_clause(
         current_user, task_row.project_id, project_roles=(ANNOTATOR_ROLE,)
     )
@@ -288,8 +282,6 @@ async def annotator_dashboard(
         )
         daily_counts.append(day_result.scalar() or 0)
 
-    # 效率看板 L2 字段：基于 task_row.assigned_at / submitted_at / reopened_count
-    # 中位单题耗时（仅本人 + assigned_at IS NOT NULL + submitted_at 在过去 30d）
     cutoff_30d = now - timedelta(days=30)
     duration_rows = (
         await db.execute(
@@ -318,7 +310,6 @@ async def annotator_dashboard(
         else None
     )
 
-    # 退回率 / 重审次数：仅本人，submitted_at 不为空（已提交过的任务）
     reopen_row = (
         await db.execute(
             select(
@@ -345,7 +336,6 @@ async def annotator_dashboard(
         else None
     )
 
-    # 周环比：本周完成 vs 上周完成
     last_week_start = week_start - timedelta(days=7)
     last_week_n = (
         await db.execute(
@@ -365,15 +355,12 @@ async def annotator_dashboard(
             (weekly_completed - last_week_n) / last_week_n * 100, 1
         )
     elif weekly_completed > 0:
-        weekly_compare_pct = 100.0  # 上周 0 → 本周有量 → +100%
+        weekly_compare_pct = 100.0
     else:
         weekly_compare_pct = None
 
-    # 周目标：ProjectMember.weekly_target → Identity weekly_target_default → 200
     weekly_target = getattr(current_user, "weekly_target_default", None) or 200
 
-    # 根据 task_events 计算活跃度。
-    # active_minutes_today: 当日累计 duration_ms / 60000
     active_ms_row = (
         await db.execute(
             select(
@@ -386,7 +373,6 @@ async def annotator_dashboard(
     ).first()
     active_minutes_today = int((active_ms_row.ms if active_ms_row else 0) // 60000)
 
-    # 24-bar 当日专注时段：按 EXTRACT(hour) 聚合 duration_ms → 分钟
     hour_rows = (
         await db.execute(
             select(
@@ -404,7 +390,6 @@ async def annotator_dashboard(
     hour_map = {int(r.hour): int(r.ms // 60000) for r in hour_rows}
     hour_buckets = [hour_map.get(h, 0) for h in range(24)]
 
-    # streak_days: 从今天倒推 distinct UTC 日期连续计数（30 天上限）
     streak_cutoff = today_start - timedelta(days=29)
     day_expr = cast(func.timezone("UTC", task_event_facts.c.started_at), Date)
     day_rows = (
@@ -474,9 +459,6 @@ async def my_batches(
     )
     if current_user.role != UserRole.SUPER_ADMIN:
         q = q.where(batch_row.annotator_id == current_user.id)
-        # "My batches" is annotation work: restrict to projects where the
-        # account still holds an annotator role (managers may also annotate in
-        # a project they own).
         batch_scope = project_scope_clause(
             current_user, batch_row.project_id, project_roles=(ANNOTATOR_ROLE,)
         )
@@ -490,9 +472,6 @@ async def my_batches(
 
     rows = (await db.execute(q)).all()
 
-    # B-20 · 标注员视角的进度分三档（in_progress / review / completed）：旧字段
-    # completed_tasks 仅记 reviewer 已通过的任务，标注员看不到自己已动工的进展。
-    # 这里一次 GROUP BY 拉齐每个 batch 的 in_progress 数量。
     batch_ids = [b.id for b, _, _ in rows]
     in_progress_map: dict = {}
     if batch_ids:
@@ -506,9 +485,6 @@ async def my_batches(
         )
         in_progress_map = {row[0]: row[1] for row in ip_rows.all()}
 
-    # 批次封面缩略图：每个 batch 取最早一张「有缩略图」的任务作封面（DISTINCT ON）。
-    # 缩略图口径与 tasks/_shared.py 一致：dataset 导入的任务缩略图存在 DatasetItem 上，
-    # task_row.thumbnail_path 为空，故需 LEFT JOIN + COALESCE，否则数据集任务永远拿不到封面。
     cover_map: dict = {}
     video_cover_requests: list[ReadSourceRequest] = []
     if batch_ids:
@@ -571,7 +547,6 @@ async def my_batches(
         for request, poster_url in zip(video_cover_requests, video_posters, strict=True)
     }
 
-    # 单值语义 — 一 batch 一审核员
     project_user_map: dict = {}
     for b, _, _ in rows:
         if b.reviewer_id is not None:
@@ -637,9 +612,6 @@ async def my_batches(
     return items
 
 
-# ─── 管理员人员看板 ───────────────────────────────────────────────────
-
-
 @router.get("/me/performance", response_model=MyPerformance)
 async def my_performance(
     period: str = Query("4w"),
@@ -656,7 +628,6 @@ async def my_performance(
     now = datetime.now(timezone.utc)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    # 本期总产出
     throughput = (
         await db.execute(
             select(func.count())
@@ -669,9 +640,6 @@ async def my_performance(
         )
     ).scalar() or 0
 
-    # 团队 annotator 群体（活跃），用于每周均线分母。
-    # 项目职责来自 project_members，账户必须是当前活跃账号；legacy 全局
-    # annotator 账号角色不再参与统计。
     annotator_membership = aliased(
         ProjectMember, project_member_facts(), adapt_on_names=True
     )
@@ -695,7 +663,6 @@ async def my_performance(
     )
     team_n = len(team_ids) or 1
 
-    # 4 周趋势（每周一点）：自身 throughput / quality + 团队均线
     trend_throughput: list[int] = []
     trend_quality: list[int] = []
     team_trend_throughput: list[float] = []
@@ -715,7 +682,6 @@ async def my_performance(
             )
         ).scalar() or 0
         trend_throughput.append(int(n))
-        # 质量：1 - 当周 reopen 率
         reopen_row = (
             await db.execute(
                 select(
@@ -732,7 +698,6 @@ async def my_performance(
         sn = int(reopen_row.sn or 0) if reopen_row else 0
         rn = int(reopen_row.rn or 0) if reopen_row else 0
         trend_quality.append(100 if sn == 0 else max(0, 100 - int(rn / sn * 100)))
-        # 团队均线：当周全 annotator 总产出 / annotator 数
         team_total = (
             await db.execute(
                 select(func.count())
@@ -747,7 +712,6 @@ async def my_performance(
         ).scalar() or 0
         team_trend_throughput.append(round(int(team_total) / team_n, 1))
 
-    # 耗时直方图（10 桶）+ p50 / p95，从 task_events 拉本人 annotate
     duration_rows = (
         (
             await db.execute(
@@ -781,7 +745,6 @@ async def my_performance(
         p95_idx = max(0, int(len(durations_sorted) * 0.95) - 1)
         p95 = int(durations_sorted[p95_idx])
 
-    # 周环比
     last_week_start = (
         today_start - timedelta(days=today_start.weekday()) - timedelta(weeks=1)
     )

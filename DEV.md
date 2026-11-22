@@ -850,7 +850,7 @@ docker compose --project-name aap-jobs-development --env-file /private/path/comp
 
 ### Notifications 作业终态原子追加
 
-迁移 `0321` 安装 `yoao_notifications_v1.append_job_terminal_notification(jsonb)`，合同与冻结 schema 为 `aap-notification-terminal-append/v1`。它按收件人、类型、`async_job` 目标和作业 ID 原子查重，返回 `created` 及数据库通知快照；只由新建者执行原有提交前即时发布。`notify_job_terminal(db, job_id=...)` 的调用入口、作业类型白名单、payload 投影和静音预检保持，长 scope 不新增大小上限。新函数不读取 Jobs 或 Identity 私表，与冻结的数据集导入通知函数共用原事务锁键。
+迁移 `0321` 安装 `yoao_notifications_v1.append_job_terminal_notification(jsonb)`，合同为 `aap-notification-terminal-append/v1`。它按收件人、类型及 `async_job` 作业 ID 原子查重，返回 `created` 与数据库通知快照。迁移 `bo0484` 仅为新建行同事务加入投递 outbox，提交前不再发布；不会补发旧行。`notify_job_terminal(db, job_id=...)` 的调用入口、白名单、payload 投影和静音预检保持，长 scope 不新增大小上限。追加不读取 Jobs 或 Identity 私表，与冻结的数据集导入通知函数共用原事务锁键。
 
 该能力要求 `READ COMMITTED`，其他隔离级别返回 `unsupported_isolation` 且不写入。API 在借用连接的局部保存点内组合偏好、追加和回包校验，通知 SQL 失败不再静默丢失外层作业更新；保存点不会强制提交或提前 flush `no_autoflush` 的待处理状态。授权沿用上节五函数账号与普通 API／工作树角色，Node peer 复用同一数据库参数；没有新增 DSN、服务或环境变量。完整合同和运行证据见 `apps/notifications/README.md` 与[模块台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
@@ -944,13 +944,15 @@ API 可设 `NOTIFICATION_PUBLICATION_URL=http://notifications-publisher:8181`，
 文件均二选一，文件只挂载给对应 API／publisher。空 URL 使用原内嵌装配；显式选择
 远程 owner 后，错误不回退本地 Redis。工作树清空继承的 URL 和 token 选择器，验收
 夹具只注入自己拥有的地址。该 HTTP 入口使用版本化即时发布合同，不创建普通通知
-的 outbox 或自动重试；普通 best-effort、终态提交前发布与按 ID 发布的错误传播
-分别保留。事务内的查找、缓存与四次授权事实读取仍由调用方 Session 适配，publisher
+的 outbox 或自动重试；普通尽力发布和按 ID 发布的错误传播不变。事务内的查找、
+缓存与四次授权事实读取仍由调用方 Session 适配，publisher
 使用受信调用方提供的快照，不另开连接读取未提交行。
 
 `apps/notifications` 发布 `aap-notification-realtime/v1` 和 `realtime_event.schema.json`，API 与 durable publisher 共用六个业务事件字段的构造，保留各自的日期字符串和 JSON 编码。合同不向既有帧增加 schema 字段，业务 type 与 sync reason 保持开放；原生 JSONB 的对象、数组、标量与 null 均可保留。通用 ping 仍属于 WebSocket 层。
 
-普通通知仍由调用方提交后 best-effort 发布，终态 job 保留原提交前路径，durable publisher 保留 lease／重试／ack。WS 继续逐帧认证与当前投递权限检查，缺失行保留四次查询及三次 150ms 等待；公开消息合同不会收紧既有 WS gate。订阅被取消或退订失败时也会关闭 PubSub。
+普通通知仍由调用方提交后尽力发布。迁移 `bo0484` 将白名单 Jobs 终态的收件箱行和投递租约入口写在同一事务内；既有独立 publisher 或内嵌 Celery relay 在提交后领取（内嵌每 10 秒）。先迁移再切换 publisher、API／worker 与 socket，停掉仍使用提交前发布的终态生产者后再切换 socket；回退数据库前须先排空终态 outbox。旧 v1 claim 仍只领取 Identity 注销事件，新 v2 claim 同时领取终态事件；函数级凭据和 Redis ACL 不变。现有 WS 逐帧验证身份和目标权限，终态用稳定 ID 在连接内去重，缺行不再等待；普通通知保留四次读取及三次 150ms 等待。
+
+Jobs refresh/fetch 与 Notifications evaluate 的 SQLAlchemy 私有行为仅由 `app/db/owner_orm_compat.py` 适配，API 固定 `2.0.49`。升级时先核对入口签名、刷新列投影和 DML 同步状态，在真实受限登录上运行 `test_jobs_lifecycle_refresh_loader.py`、`test_jobs_lifecycle_native.py`、`test_notifications.py`、`test_notification_read_state_cache.py`、`test_notifications_delete_baseline.py`；不要以全量过期或重复写 SQL 替代缓存登记和回滚语义。
 
 Node peer `apps/notifications/conformance/node/realtime_event_provider.mjs --stdio` 校验 stdin 的单条事件／sync 并原字节回显，不读取连接凭据。真实本地 socket 案例 `tests/test_notifications_socket_live.py` 通过现有 module-data verifier 运行，要求独占临时 PostgreSQL／Redis，分别使用受限 API、认证角色和单频道订阅 ACL。它覆盖原始事件、Node 帧、历史 JSONB、提交可见性、撤权及断连／handler 取消；既有 8 项组合案例继续复用；当前冷工件、即时发布、受限 API Redis 及完整数据库恢复已通过一次限定本地组合验收，见[发布与恢复台账](docs-site/dev/concepts/module-deployment.md#notification-publication-owner)。源码检查、实际运行与整模块资格见[唯一台账](docs-site/dev/concepts/module-deployment.md#notification-realtime-wire)。
 
@@ -1233,6 +1235,9 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 冷安装／容器／完整迁移／恢复仍在一致模块里程碑集中验收，日常主环境未切换。
 
 ### Workspace 开发点云种子
+
+只有批次所有者确认没有可分包任务时，nuScenes 重跑才将未建包视为成功；发生其他
+分包错误时，外层回滚导入和已写入的部分批次，不清理旧对象。禁用分包时沿用原提交顺序。
 
 `scripts/seed_pointcloud.py` 的 Project 读取、目录种子创建和 nuScenes 重设通过固定
 Workspace 能力执行。目录模式默认关闭 scene，保留建题内部提交；nuScenes 模式默认
@@ -2155,13 +2160,15 @@ artifact 的 JUnit XML 中。测试用户工厂在进程内复用默认密码 `T
 哈希；自定义密码、生产密码哈希与验证逻辑保持原样。四角色 fixture 与 E2E 造数
 共用这一工厂，避免为每个测试账号重复计算默认密码哈希。
 
-逐帧保存的真实 Celery 调度验收需显式启用，在隔离测试库与 Redis 中启动临时 worker：
+逐帧保存的真实 Celery 调度验收需显式启用。模块数据验收工具启动隔离 PostgreSQL、Redis 和临时 worker，并向用例提供已校验的 `yoao_jobs_publication_client` 专用登录：
 
 ```bash
-pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && AAP_FRAME_CELERY_ACCEPTANCE=1 .venv/bin/python -m pytest tests/test_frame_preannotate_celery.py'
+AAP_FRAME_CELERY_ACCEPTANCE=1 apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .artifacts/frame-celery-acceptance.json \
+  --test-file tests/test_frame_preannotate_celery.py
 ```
 
-该验收使用固定推理与缓存帧夹具，实际执行 `default → ml → RETRY → finalize`、PostgreSQL 行锁、Redis chord 与进度续期，覆盖连续多轮争锁后的恢复、取消和任务版本变化。普通 pytest 默认跳过该验收；测试结束关闭临时 worker，资源按工作树测试环境的正常流程保留或销毁。
+该验收固定推理和视频帧引用，实际执行 Jobs 派发、Celery 重试与 PostgreSQL 行锁。它覆盖兄弟段结果和 Redis 进度过期后的精确结算、原 ID 重投、取消和任务版本变化。普通 pytest 默认跳过；普通 `dev:worktree exec` 不提供此发布登录，不能替代本验收入口。
 
 `seed.injectToken()` 用一次性的同源空文档写入身份，避免切换账号时先启动旧账号的
 首页请求。调用后需显式导航到测试页面；已有 localStorage 偏好会保留，真实请求
@@ -2169,28 +2176,43 @@ pnpm dev:worktree -- exec --mode test -- sh -c 'cd apps/api && AAP_FRAME_CELERY_
 
 CI E2E 由 `scripts/plan-e2e-suites.mjs` 路由：普通 PR 运行核心 smoke 与受影响专项，
 共享依赖或未知路径变更保守放大全量；主分支和 `E2E extended` 夜间定时执行全量，
-手动 `extended` 只运行布局压力集，`full` 使用全量选集。完整功能集保留四个 Chromium
-分片、点云专项，以及 readonly Mask、native Mask、native Mask AI 三个专项。
+手动 `extended` 只运行布局压力集，`full` 使用全量选集。默认 Chromium 功能集分为 16 片，
+视频和点云专项各分为 4 片；另有 5 个 Mask 专项及 1 个异步 AI 专项。全量矩阵包含
+32 个套件任务及 33 份必需报告，最多并行 11 个任务。
 默认配置排除 `@stress`，但六种布局上下文的 14 次短流程和恢复断言仍属于功能回归。
 每个任务通过可复用的 `e2e-run.yml` 拥有独立 PostgreSQL、Redis 和 MinIO；未完成隔离验收的
 夹具仍只用一个 Playwright worker。Raster 故障用例还要求协调器在产品服务启动前准备专属
 数据库、版本化存储和 `PLAYWRIGHT_RASTER_FAULT_MANIFEST`，不允许在线破坏共享对象。
+
+`pnpm --filter web test:e2e:mask-native` 只运行 11 个原生 Raster 矩阵用例，产品及
+夹具 owner 退休后另行审计真实 `mask-worker` 报告。
+`pnpm --filter web test:e2e:mask-native-editor` 运行 8 个高级编辑及 2 个编辑器用例，
+不预分配故障，也不重复运行 Worker。两个入口都构建 `--mode e2e` 产物并使用相同的独立
+Raster 写入部署；不要再套 `dev:worktree exec`。成员核对见 [E2E 运行说明](apps/web/e2e/README.md)。
+
+`mask-toolbar-native` 的 6 个原生写入场景与 `ai-request-worker` 的 4 个真实异步阶段场景
+分别执行、分别审计，不允许跳过或零执行。两个专项用 Google Chrome 和 E2E 构建产物；
+前者使用在线原生 Mask 写入 API，后者仅在专属工作树启动器启用 worker 和 `ml.cpu` 队列覆盖，
+沿用真实 Routing、健康观测、Registry 与模型协议。并行运行须使用不同工作树，完整命令和
+各自的 `--list` 见 [AI 专项运行说明](apps/web/e2e/README.md#原生-ai-工具栏与真实异步作业-e2e)。
+默认功能分片的 36 个条件跳过分别由视频专项（20）、原生 AI（6）、原生 AI 工具栏（6）
+和异步 AI 作业（4）覆盖。这些验证不证明模型质量或 GPU／硬件解码资格。
 
 `seed_scale.py` 要求协调器提供 `AAP_FIXTURE_TOOLS_ROOT` 绝对目录：主机为仓库
 `scripts`，安装镜像为 `/opt/yoao-fixture-tools`。协调器先在隔离测试环境注册运行；
 `--run-id UUID` 与 `--purge` 只处理该精确 run，不再隐式创建它。不要把原始存储
 写入凭据或源码挂载交给已安装的普通消费进程。
 
-完整功能和压力套件使用构建产物，Mask 专项使用各自的隔离启动器和配置。
+完整功能和压力套件使用构建产物；离线 Raster 专项使用独立启动器和专用配置。
 核心 smoke 不重试；完整功能和压力用例最多重试一次；进程/步骤/job 保留 15/20/30 分钟限时。
 `Frontend E2E` 汇总门禁同时要求路由和全部已选任务成功。每个套件的 HTML、JSON、
 失败截图和 trace 分别上传到 `playwright-report-<suite>`，Actions 摘要展示结果与耗时，
 并区分失败、flaky、跳过及全局错误。详见 [E2E 运行说明](apps/web/e2e/README.md)。
 同一 PR 的新提交会取消旧 CI；main 的每次 push 验证均保留。
 
-独立套件和分片缩短并行等待时间，可能增加 runner 总用量。调整分片数量时，使用
-`pnpm exec playwright test --list --shard=1/4`（依次检查四片）确认默认用例无遗漏、
-无重复，并观察远端最慢分片的耗时与排队时间；不要在共享本地数据库上并发运行分片。
+调整分片时，在 `apps/web` 用 `pnpm exec playwright test --list --project=chromium` 列出基准，
+再分别列出全部 `--shard=i/16`。点云使用 `--project=pointcloud --shard=i/4`；视频使用 `pnpm test:e2e:video --project=chromium e2e/tests/video- e2e/tests/workbench-video- --shard=i/4`，开启真实 Mask 写入，覆盖只读部署中按设计跳过的轨迹写入场景。
+每个分片必须非空，同一专项所有分片的用例 ID 合集须与未分片清单相等且无重复。不要在共享本地数据库上并发运行分片。
 
 CI 检查名称统一使用 `领域 职责`，例如 `Backend tests`、`Frontend verification`、
 `Docs validation`。所有 job（包括单 job 工作流）都显式设置 `name`，并在仓库内保持唯一；

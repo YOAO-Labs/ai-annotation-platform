@@ -42,7 +42,6 @@ async def test_bulk_update_locked_raises(db_session, super_admin):
     with pytest.raises(HTTPException) as exc:
         await svc.bulk_update([a1.id, a2.id], class_name="person")
     assert exc.value.status_code == 422
-    # 整体回滚: a1.class_name 不应被改
     await db_session.refresh(a1)
     assert a1.class_name == "__unknown"
 

@@ -258,15 +258,10 @@ class RecoveryImageTransport(unittest.IsolatedAsyncioTestCase):
         self.public = patch.object(settings, "minio_public_url", "")
         self.public.start()
         self.addCleanup(self.public.stop)
-        # This transport double has no SQL owner; native scope is covered by
-        # the disposable database acceptance rather than the fake DB.
         scope = patch.object(image_jobs, "assert_scope_binding", AsyncMock())
         scope.start()
         self.addCleanup(scope.stop)
 
-        # unittest discovery does not install the API suite's pytest allocation
-        # fixture. Keep this transport-only DB behind the same explicit boundary
-        # used by ExportMediaRecovery rather than querying live storage bindings.
         async def allocate(db, row):
             self.assertIs(db, self.db)
             return {

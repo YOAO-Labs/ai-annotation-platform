@@ -17,8 +17,6 @@ from app.services.pipeline_validation import (
     resolve_preannotate_queue,
 )
 
-# fixture 落在前端包内 (vitest 受 tsconfig include=src 约束只能 import src 下文件);
-# pytest 读任意路径无碍, 故走仓库根的文件路径常量。parents[3] = 仓库根。
 _FIXTURE = (
     Path(__file__).resolve().parents[3]
     / "apps/web/src/__fixtures__/capability-validation-cases.json"
@@ -44,7 +42,6 @@ def test_capability_contract(case):
         writes_attributes=case["writes_attributes"],
     )
     codes = [v.code for v in violations]
-    # 序列断言 (强于集合): 后端 append 顺序 batchable → class, 与 fixture expect_codes 一致。
     assert codes == case["expect_codes"]
 
 
@@ -53,12 +50,12 @@ def test_capability_contract(case):
     [
         (["cpu"], "ml.cpu"),
         (["cpu", "cpu"], "ml.cpu"),
-        (["CPU", "cpu"], "ml.cpu"),  # 大小写不敏感
+        (["CPU", "cpu"], "ml.cpu"),
         (["gpu"], "ml"),
-        (["gpu", "cpu"], "ml"),  # 混合 → 保守进 gpu
-        ([None], "ml"),  # 未自报 → 视作 gpu
-        (["cpu", None], "ml"),  # 任一未自报 → gpu
-        ([], "ml"),  # 空 → gpu
+        (["gpu", "cpu"], "ml"),
+        ([None], "ml"),
+        (["cpu", None], "ml"),
+        ([], "ml"),
     ],
 )
 def test_resolve_preannotate_queue(devices, expected):
@@ -72,13 +69,13 @@ def test_resolve_preannotate_queue(devices, expected):
     "raw, expected",
     [
         (["bbox", "polygon"], ["bbox", "polygon"]),
-        (["box"], ["bbox"]),  # sam3 别名
-        (["mask"], ["polygon"]),  # sam3 别名
-        (["both"], ["bbox", "polygon"]),  # both 展开
-        (["BBox", " polygon "], ["bbox", "polygon"]),  # 大小写/空白归一
+        (["box"], ["bbox"]),
+        (["mask"], ["polygon"]),
+        (["both"], ["bbox", "polygon"]),
+        (["BBox", " polygon "], ["bbox", "polygon"]),
         ([], []),
-        (None, []),  # 缺省
-        ([123, "keypoint"], ["keypoint"]),  # 非法项跳过
+        (None, []),
+        ([123, "keypoint"], ["keypoint"]),
     ],
 )
 def test_normalize_geometry_outputs(raw, expected):
@@ -89,17 +86,17 @@ def test_normalize_geometry_outputs(raw, expected):
 @pytest.mark.parametrize(
     "geo, expect_violation",
     [
-        (["bbox"], False),  # 可裁
-        (["polygon"], False),  # 可裁 (取外接框)
-        (["raster_mask"], False),  # 原生 RLE 的紧像素外接框
-        (["bbox", "keypoint"], False),  # 至少一种可裁 → 放过, 部分交运行期兜底
-        (["mask"], False),  # 别名 → polygon → 可裁
-        (["both"], False),  # 展开含 bbox/polygon
-        (None, False),  # 未自报 → 零退化放过
-        ([], False),  # 空 → 放过
-        (["keypoint"], True),  # 完全不可裁
+        (["bbox"], False),
+        (["polygon"], False),
+        (["raster_mask"], False),
+        (["bbox", "keypoint"], False),
+        (["mask"], False),
+        (["both"], False),
+        (None, False),
+        ([], False),
+        (["keypoint"], True),
         (["polyline"], True),
-        (["rotated_bbox"], True),  # 旋转框运行期被 _box_bbox_pct 跳过
+        (["rotated_bbox"], True),
         (["keypoint", "polyline"], True),
     ],
 )

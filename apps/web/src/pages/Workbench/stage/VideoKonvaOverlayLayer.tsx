@@ -8,7 +8,6 @@ import type { VideoLabelView } from "./videoFrameViews";
 import type { VideoStageGeom } from "./videoStageTypes";
 
 interface VideoKonvaOverlayLayerProps {
-  /** pending 草稿(画一半 / 待确认);虚线框。 */
   pendingDraft?: { geom: VideoStageGeom; className: string } | null;
   labels: VideoLabelView[];
   size: VideoPixelSize;
@@ -16,14 +15,6 @@ interface VideoKonvaOverlayLayerProps {
   visual: AnnotationVisualConfig;
 }
 
-/**
- * 视频 overlay 层(Konva Layer "overlay",listening=false)。
- *
- * 渲染 pending draft(虚线框)+ 标签(Konva Label/Tag/Text,抄图片 KonvaBox 标签)。
- * 标签置于框顶上方(对齐图片栈统一范式),字号 `labelFontSize/scale` 屏幕恒定;
- * 字体用字面字体栈 BOX_LABEL_FONT_FAMILY(canvas 无法解析 CSS var)。标签门控/文本
- * 由 videoFrameViews 统一产出。
- */
 export function VideoKonvaOverlayLayer({
   pendingDraft,
   labels,

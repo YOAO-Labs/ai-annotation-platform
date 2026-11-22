@@ -2,10 +2,6 @@ import { ListPagination } from "@/components/ui/ListPagination";
 import { listStyles } from "@/components/ui/listStyles";
 import { useListPagination } from "@/hooks/useListPagination";
 import { CopyableError } from "@/components/ui/CopyableError";
-/**
- * pre_annotated 批次历史表 (含 client-side 搜索 / 排序 / 分页).
- * BUG B-16 加 checkbox 多选 + 底部浮窗 + 批量重激活/删除 prediction.
- */
 
 import { Fragment, useId, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -37,7 +33,6 @@ export function HistoryTable({ items, isLoading }: Props) {
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("last_run_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
-  // 多选 state (按 batch_id 索引, 跨折叠/分页保留)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmMode, setConfirmMode] = useState<BulkClearMode | null>(null);
   const [reasonInput, setReasonInput] = useState("");
@@ -71,7 +66,6 @@ export function HistoryTable({ items, isLoading }: Props) {
   const pagination = useListPagination(sorted, `${search}|${sortKey}|${sortDir}`);
   const { items: pageItems, setPage } = pagination;
 
-  // B-2 · 项目→batch 分组,折叠展开;按当前页 pageItems 聚合
   const grouped = useMemo(() => {
     const m = new Map<
       string,
@@ -185,12 +179,10 @@ export function HistoryTable({ items, isLoading }: Props) {
     }
     setBulkResult(res);
     if (res.failed.length === 0 && res.skipped.length === 0) {
-      // 全成功 → 直接关闭 + 清选中
       setConfirmMode(null);
       setReasonInput("");
       clearSelection();
     } else {
-      // 部分失败 → 保留 modal 展示结果, 但移除已成功项
       setSelectedIds((s) => {
         const n = new Set(s);
         for (const id of res.succeeded) n.delete(id);

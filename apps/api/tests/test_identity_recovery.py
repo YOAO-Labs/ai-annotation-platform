@@ -482,8 +482,6 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
             await db.execute(text(f'CREATE DATABASE "{clone}" TEMPLATE template0'))
             created = True
             await db.execute(text(f"COMMENT ON DATABASE \"{clone}\" IS '{ownership}'"))
-            # A normal pg_dump keeps schema/table/function ACLs. Database ACLs
-            # belong to CREATE DATABASE and must also retain the source boundary.
             async with test_engine.connect() as source:
                 acl = (
                     await source.execute(

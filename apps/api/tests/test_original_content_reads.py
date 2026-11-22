@@ -43,7 +43,6 @@ async def content(client, actor, task, sha256):
 async def standalone_original(
     httpx_client, db_session, project_admin, stored_world, monkeypatch
 ):
-    # Keep the real provider, creation writer, durable owner and read admission.
     monkeypatch.setattr(
         "app.workers.media.generate_task_thumbnail.delay", lambda *_: None
     )
@@ -76,8 +75,6 @@ async def standalone_original(
     await db_session.refresh(task)
     owner = await db_session.get(TaskOriginal, task.original_id)
     assert owner.sha256 == hashlib.sha256(raw).hexdigest()
-    # Independent immutable evidence and bytes live until the owned test
-    # namespace is destroyed; a business rollback must not compensate-delete.
     return task, owner, raw
 
 
@@ -308,8 +305,6 @@ async def test_task_original_corruption_never_changes_saved_receipt(
         await db_session.refresh(owner)
         assert owner.sha256 == hashlib.sha256(raw).hexdigest()
     finally:
-        # Restore the exact owned fixture bytes without changing its immutable
-        # receipt. The candidate remains until full test-namespace destruction.
         storage_service.client.put_object(
             Bucket=owner.bucket, Key=owner.object_key, Body=raw
         )
@@ -338,7 +333,6 @@ async def test_post_read_binding_or_authority_change_closes_stage(
     await db_session.flush()
     task.batch_id = batch.id
     if change == "batch_assignment":
-        # Exercise Batch authority without a retained Task assignee override.
         task.assignee_id = None
         await create_membership(
             db_session,
@@ -353,7 +347,6 @@ async def test_post_read_binding_or_authority_change_closes_stage(
     async def capture(*args, **kwargs):
         stage = await original_capture(*args, **kwargs)
         stages.append(stage)
-        # SQL updates deliberately leave already loaded ORM objects stale.
         if change == "key":
             await db_session.execute(
                 update(Task)

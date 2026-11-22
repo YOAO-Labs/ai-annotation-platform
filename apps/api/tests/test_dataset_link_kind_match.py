@@ -118,7 +118,6 @@ async def test_link_project_enforces_data_type_and_scene_mode(
         != type_exc.value.facts["dataset_data_type"]
     )
 
-    # 反向 scene 门:普通项目拒绝 has_scenes 数据集(对称强制)。
     with pytest.raises(TaskCreationFailure) as inv_scene_exc:
         await workflow.link_project(scene_image.id, normal_project.id, actor_id=user.id)
     assert inv_scene_exc.value.code == "scene_kind_mismatch"
@@ -127,7 +126,6 @@ async def test_link_project_enforces_data_type_and_scene_mode(
         != inv_scene_exc.value.facts["dataset_has_scenes"]
     )
 
-    # 反向 data_type 门:lidar 项目拒绝 image 数据集。
     with pytest.raises(TaskCreationFailure) as inv_type_exc:
         await workflow.link_project(
             scene_image.id, lidar_scene_project.id, actor_id=user.id

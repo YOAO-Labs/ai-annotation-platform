@@ -61,12 +61,9 @@ class ManagedOriginalRetirement(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    # Immutable provenance of the original assertion. An audited offline restore
-    # may remap physical fields without rewriting this digest or business IDs.
     assertion_digest: Mapped[str] = mapped_column(
         String(64), nullable=False, unique=True
     )
-    # No business FKs: cascades must not erase retired locator responsibility.
     dataset_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     dataset_item_id: Mapped[uuid.UUID | None] = mapped_column()
     asset_id: Mapped[uuid.UUID | None] = mapped_column()
@@ -81,12 +78,9 @@ class ManagedOriginalRetirement(Base):
     bucket: Mapped[str] = mapped_column(String(255), nullable=False)
     object_key: Mapped[str] = mapped_column(String(1000), nullable=False)
     role: Mapped[str] = mapped_column(String(30), nullable=False)
-    # These are observations at retirement, not upload-time locator pins.
     location_config_revision: Mapped[int | None] = mapped_column()
     binding_generation: Mapped[int | None] = mapped_column()
     storage_identity: Mapped[str | None] = mapped_column(String(64))
-    # verified_binding proves configuration agreement, never exclusive ownership
-    # or current object existence/content. Unknown evidence does not block delete.
     identity_state: Mapped[str] = mapped_column(String(24), nullable=False)
     identity_error_code: Mapped[str | None] = mapped_column(String(64))
     asset_verification_state: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -100,5 +94,4 @@ class ManagedOriginalRetirement(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     policy_revision: Mapped[int] = mapped_column(nullable=False, server_default="1")
-    # No established retention policy means indefinite protection.
     retain_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

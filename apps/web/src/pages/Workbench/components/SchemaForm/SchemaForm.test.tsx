@@ -1,7 +1,3 @@
-/**
- * SchemaForm 单测 (number / boolean / enum / 空 schema).
- * 不引入 @rjsf, 自研 ~150 行覆盖核心范畴.
- */
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SchemaForm, deriveDefaults, type JsonSchemaObject } from "./index";
@@ -78,7 +74,7 @@ describe("SchemaForm", () => {
         properties: {
           a: { type: "number", default: 0.5 },
           b: { type: "boolean", default: true },
-          c: { type: "string" /* no default */ },
+          c: { type: "string" },
         },
       }),
     ).toEqual({ a: 0.5, b: true });

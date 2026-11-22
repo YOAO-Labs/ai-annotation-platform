@@ -239,7 +239,6 @@ async def test_database_adoption_does_not_need_or_bootstrap_current_binding(
     db_session, super_admin
 ):
     version = await database_version(db_session, super_admin[0])
-    # The ordinary fixture transaction has not registered any purpose yet.
     original = await db_session.get(StorageBinding, "training")
     if original is not None:
         await db_session.delete(original)

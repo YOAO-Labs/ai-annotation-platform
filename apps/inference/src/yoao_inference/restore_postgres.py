@@ -55,7 +55,6 @@ class VideoRestorePostgresProvider:
     async def step(self, action: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
         if action not in RESTORE_ACTIONS:
             raise RestoreUnavailable()
-        # Build and bound the exact JSON before opening a DB connection.
         encoded_arguments = _arguments_json(action, arguments)
         try:
             import asyncpg

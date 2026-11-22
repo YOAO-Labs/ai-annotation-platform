@@ -59,9 +59,6 @@ def decoder_input(stage) -> tuple[Path, tuple[int, ...]]:
 
 
 def _demuxer(fd):
-    # Only platform-supported self-contained containers are accepted. In
-    # particular no HLS/DASH/concat/image sequence demuxer may open a second
-    # unverified file. Header inspection leaves the shared file offset intact.
     header = os.pread(fd, 16, 0)
     if header[4:8] in _MOV_ATOMS:
         return "mov"
@@ -108,8 +105,6 @@ def _decoder_args(args, pass_fds):
         demuxer,
     ]
     if demuxer == "mov":
-        # MOV alone supports external data references. Explicitly refuse both
-        # relative and absolute aliases even though the decoder defaults agree.
         options += ["-enable_drefs", "0", "-use_absolute_path", "0"]
     return command[:insertion] + options + command[insertion:]
 
@@ -151,9 +146,6 @@ def _settle(process, *, failed):
 
     if failed:
         attempt(process.kill, physical=True)
-    # Confirm process death before releasing its inherited source or closing
-    # pipes. If signaling itself failed, a bounded observation retains unknown
-    # responsibility rather than pretending an unkillable process has ended.
     attempt(lambda: process.wait(timeout=1 if uncertain else None), physical=True)
     if process.returncode is None:
         uncertain = True

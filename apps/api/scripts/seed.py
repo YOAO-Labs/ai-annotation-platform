@@ -15,8 +15,7 @@ from datetime import UTC, datetime
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy import select
 
-# 点云夹具脚本与本文件同目录;PYTHONPATH 已含 apps/api,直接 import。
-sys.path.insert(0, str(__file__.rsplit("/", 1)[0]))  # 让 `scripts/` 入 sys.path
+sys.path.insert(0, str(__file__.rsplit("/", 1)[0]))
 from seed_pointcloud import (  # noqa: E402
     cleanup_legacy_dev_seed_objects,
     seed_nuscenes_scene,
@@ -32,15 +31,12 @@ from seed_assets import (  # noqa: E402  (版本化网络素材)
 from app.config import settings
 from app.services.identity_commands import IdentityCommandService
 
-# 生产保护栏：seed.py 仅用于 dev / staging
 if settings.environment == "production":
     print("[seed] refusing to run with environment=production", file=sys.stderr)
     raise SystemExit(2)
 
 engine = create_async_engine(settings.database_url, echo=False, hide_parameters=True)
 Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-# ── 种子用户 ──────────────────────────────────────────────────────────────────
 
 USERS = [
     {
@@ -94,16 +90,11 @@ USERS = [
     },
 ]
 
-# Demo 夹具创建的固定项目: 非 owner 的 persona 通过显式项目职责获取访问权,
-# 平台角色一律 employee / viewer (迁移 0174 后不再有 annotator / reviewer 平台身份).
 DEMO_PROJECT_DISPLAY_IDS = (
     "P-COCO8",
     "P-VIDEO-DEV",
     "P-PC-DEV",
 )
-# (persona email, project duty) — 只授予 persona 声明用途所需的最小职责.
-# anno/anno2/anno3 是 seed.py 自述的标注员 (标注组A/B), qa 是质检员, viewer 只读;
-# pm / admin 通过项目负责人身份 (或超管) 管项目, 不写成员行.
 DEMO_PROJECT_MEMBERS = (
     ("anno", "annotator"),
     ("anno2", "annotator"),
@@ -261,9 +252,6 @@ async def _enqueue_seed_video_backfill(
     return job.id
 
 
-# ── 主逻辑 ────────────────────────────────────────────────────────────────────
-
-
 async def seed(
     *,
     profile: str = "demo",
@@ -327,7 +315,6 @@ async def seed(
         else:
             print("  skip  video P-VIDEO-DEV (使用 --video 提供素材)")
 
-        # 点云开发夹具按需下载官方 nuScenes mini 到用户缓存，离线模式只复用缓存。
         try:
             nu, stale_storage_keys = await seed_nuscenes_scene(
                 db, owner_id=admin_id, cache_dir=cache_dir, offline=offline
@@ -463,7 +450,6 @@ async def _seed_online_training_profile(*, cache_dir, asset_dir, offline) -> Non
                 (v.id, v.async_job_id, v.attempt_id, v.status == "pending")
                 for v in versions
             ]
-        # Materialize both immutable task streams without requiring a worker.
         for version_id, job_id, attempt_id, pending in builds:
             if pending:
                 await build_dataset(version_id, job_id, attempt_id, Session)

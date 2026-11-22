@@ -368,8 +368,6 @@ async def sample_media(
     preview: bool = False,
 ):
     version, _, _ = await authorized_analysis(db, project, user, version_id)
-    # Keep deletion from removing members while storage is read and the media
-    # observation is committed. Authority locks are acquired first, as in delete.
     retained = await db.scalar(
         select(TrainingDatasetVersion.id)
         .where(

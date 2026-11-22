@@ -94,7 +94,11 @@ async def original_permit(database, operation, request, finish_operation):
     if not isinstance(permit, c.OriginalRead):
         raise c.MediaFailure("invalid_response")
     failure = None
-    evidence = {"write_started": False, "permit": permit} if permit.ownership == "fixture" else None
+    evidence = (
+        {"write_started": False, "permit": permit}
+        if permit.ownership == "fixture"
+        else None
+    )
     context = _fixture_original.set(evidence)
     try:
         yield permit
@@ -105,8 +109,6 @@ async def original_permit(database, operation, request, finish_operation):
         raise
     finally:
         _fixture_original.reset(context)
-        # Uncertain provider handles retain the durable operation even if local
-        # cancellation or process death makes a later settlement impossible.
         if permit.ownership == "fixture" and not _unsettled(failure):
             try:
                 await _finish(database, finish_operation, permit)

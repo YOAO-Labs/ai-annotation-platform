@@ -1,4 +1,3 @@
-// 版本冲突弹层逻辑单测:conflictCbRef 接线、弹层开合、reload 失效缓存 / overwrite 仅关闭。
 import { act, renderHook } from "@testing-library/react";
 import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";

@@ -143,7 +143,6 @@ def _transport_json(value: str) -> Any:
             "Invalid JSON number:"
         ):
             raise PipelineUnavailable() from None
-        # Oversized stored JSON integers keep the old driver's generic500 phase.
         raise
     except (TypeError, UnicodeError, RecursionError):
         raise PipelineUnavailable() from None
@@ -169,8 +168,6 @@ class PipelineManager:
                 except PipelineRejected as error:
                     raise _CommandRollback(error) from error
                 except (TypeError, ValueError, OverflowError) as error:
-                    # Stored JSON null/scalars and driver-decoded values can
-                    # retain legacy plain-500 failures during command phases.
                     raise _CommandRollback(
                         self._legacy_materialization_failure()
                     ) from error
@@ -184,8 +181,6 @@ class PipelineManager:
                 ),
             )
         except PipelineUnavailable:
-            # Only a failure during transaction exit can be an uncertain commit.
-            # Entry/step failures retain their established unavailable phase.
             if body_completed and owns_commit is True:
                 return self._command_failure(
                     request,
@@ -198,8 +193,6 @@ class PipelineManager:
                 )
             raise
         except PipelineRejected as error:
-            # Acknowledged commit/rollback failures from an owner transaction
-            # are known outcomes. Transport uncertainty remains PipelineUnavailable.
             if owns_commit is True and error.rollback:
                 return self._command_failure(request, error, commit_state="rolled_back")
             raise
@@ -221,7 +214,7 @@ class PipelineManager:
                 elif request.operation == "get_pipeline_projection":
                     row = await self._get_accepted_projection(transaction, request)
                     rows = [row]
-                else:  # The closed request decoder should make this unreachable.
+                else:
                     raise PipelineUnavailable()
         except PipelineRejected as error:
             return self._query_failure(request, error)
@@ -458,13 +451,9 @@ class PipelineManager:
         if switch_default:
             await self._default_clear(transaction, request, project_id)
             if current.project_id == project_id and current.is_default:
-                # SQLAlchemy's evaluate synchronization changes the loaded row
-                # before the service assigns the explicit default back to it.
                 comparison_map = {**current_map, "is_default": False}
 
         dirty = dirty_pipeline_payload(comparison_map, payload)
-        # The old service flushes unconditionally after assigning update fields.
-        # Empty arrays preserve that phase without issuing a data UPDATE.
         columns, values = encode_pipeline_columns(dirty)
         facts = _exact_dict(
             await self._step(
@@ -895,8 +884,6 @@ class PipelineManager:
     ) -> list[str]:
         missing: list[str] = []
         seen: set[str] = set()
-        # Preserve the old raw stages iteration. A stored JSON null therefore
-        # raises its original TypeError at this phase after stage validation.
         for stage in stages:
             if not isinstance(stage, dict) or not stage.get("ml_backend_id"):
                 continue
@@ -945,8 +932,6 @@ class PipelineManager:
             if not pools:
                 missing.append(backend_id)
                 continue
-            # The legacy query has no ORDER BY and uses .first(); preserve the
-            # complete decoded rows and consume their first returned pool.
             pool_id = pools[0]["id"]
 
             association_facts = _exact_dict(
@@ -1028,8 +1013,6 @@ class PipelineManager:
     def _decode_backend_pools(cls, rows_json: Any) -> list[dict[str, Any]]:
         if type(rows_json) is not str:
             raise PipelineUnavailable()
-        # This is Native transport JSON. Stored JSONB subfields are separately
-        # decoded below, matching full ORM row materialization.
         values = _transport_json(rows_json)
         if type(values) is not list:
             raise PipelineUnavailable()

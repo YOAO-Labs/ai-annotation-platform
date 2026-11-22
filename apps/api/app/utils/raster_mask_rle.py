@@ -15,8 +15,6 @@ MAX_IMAGE_MASK_PIXELS = 67_108_864
 MAX_VIDEO_MASK_DIMENSION = 4096
 MAX_VIDEO_MASK_PIXELS = 16_777_216
 MAX_DENSE_MASK_PIXELS = MAX_VIDEO_MASK_PIXELS
-# Backward-compatible names describe the structural/canonical RLE envelope.
-# Task-aware boundaries narrow video and interactive-AI payloads separately.
 MAX_MASK_DIMENSION = MAX_IMAGE_MASK_DIMENSION
 MAX_MASK_PIXELS = MAX_IMAGE_MASK_PIXELS
 MAX_MASK_RUNS = 1_000_000

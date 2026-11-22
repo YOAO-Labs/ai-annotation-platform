@@ -31,7 +31,6 @@ class PluginInstallations:
                 json=request.model_dump(mode="json"),
             )
         except APIStatusError as exc:
-            # Validation responses can echo the submitted write-only credential.
             raise type(exc)(
                 exc.status_code,
                 "Plugin preparation failed",

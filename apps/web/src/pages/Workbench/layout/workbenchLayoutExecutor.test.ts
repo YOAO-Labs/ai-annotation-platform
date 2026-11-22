@@ -765,7 +765,6 @@ describe("workspace executor with Dockview 8", () => {
     controller.show("task-queue");
     controller.show("discussion");
 
-    // React observes the desktop media query before Dockview observes the resized element.
     bounds = { width: 1920, height: 1080 };
     expect(api.width).toBe(1024);
     expect(() => controller.exitCompact()).not.toThrow();
@@ -774,7 +773,6 @@ describe("workspace executor with Dockview 8", () => {
     expect(api.getPanel("canvas")).toBe(originalCanvas);
     expect(api.getPanel("discussion")?.group).toBe(api.getPanel("inspector")?.group);
     expect(api.getPanel("class-palette")?.api.location.type).toBe("floating");
-    // The actual observer arriving afterwards must not disturb the completed replay.
     const restored = controller.capture();
     api.layout(bounds.width, bounds.height);
     const withoutSizes = (snapshot: WorkspaceSnapshot) => {

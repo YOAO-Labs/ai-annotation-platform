@@ -164,7 +164,6 @@ def test_ultralytics_silent_corrupt_image_filter_is_a_membership_failure(frozen)
     from ultralytics.data.dataset import YOLODataset
 
     spec, manifest, root = frozen
-    # A frozen byte hash alone does not prove the native loader admitted the file.
     path = root / manifest["samples"][0]["image_path"]
     path.write_bytes(b"not an image")
     manifest["samples"][0]["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -299,6 +298,7 @@ def test_ultralytics_adapter_hooks_reject_changed_loader_before_success(
 
     monkeypatch.setattr(ultralytics, "YOLO", Model)
     monkeypatch.setattr(adapter, "validate_architecture", lambda *args, **kwargs: None)
+    monkeypatch.setattr(adapter, "configure_offline_fonts", lambda: None)
     with pytest.raises(InputMismatchError, match="differ"):
         adapter.ultralytics_train(spec, root, membership=observer)
     assert not (root / "result.json").exists()

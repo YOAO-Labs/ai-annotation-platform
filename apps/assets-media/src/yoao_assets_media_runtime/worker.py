@@ -729,10 +729,17 @@ async def _run_worker(
         raise ValueError("worker selectors are mutually exclusive")
     private = bool(os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"))
     strict = strict or private
-    if private and any(value is not None for value in (input_id, frame_id, tracker_input_id)):
+    if private and any(
+        value is not None for value in (input_id, frame_id, tracker_input_id)
+    ):
         raise ValueError("fixture native worker cannot claim ordinary input lanes")
     if ready_callback is not None and (
-        not strict or once or any(value is not None for value in (job_id, input_id, frame_id, tracker_input_id))
+        not strict
+        or once
+        or any(
+            value is not None
+            for value in (job_id, input_id, frame_id, tracker_input_id)
+        )
     ):
         raise ValueError("readiness requires a strict unselected worker")
     config = load_config()
@@ -791,10 +798,14 @@ async def _run_worker(
                         await runtime.media_executor.execute_once(job_id=job_id)
                     )
                     if (
-                        did_work is not None and did_work.value is not None
-                        and did_work.value.outcome not in {"published", "replayed", "failed"}
+                        did_work is not None
+                        and did_work.value is not None
+                        and did_work.value.outcome
+                        not in {"published", "replayed", "failed"}
                     ):
-                        raise RuntimeError("fixture native media execution is unsettled")
+                        raise RuntimeError(
+                            "fixture native media execution is unsettled"
+                        )
                 else:
                     did_work = await poller.execute_once(
                         job_id=job_id,
@@ -922,15 +933,20 @@ def main() -> None:
     if (args.ready_fd is None) != (args.stopped_fd is None):
         parser.error("ready and stopped descriptors must be supplied together")
     if args.ready_fd is not None and (
-        args.ready_fd < 0 or args.stopped_fd < 0 or args.ready_fd == args.stopped_fd
-        or args.once or args.job_id or args.input_id or args.frame_id or args.tracker_input_id
+        args.ready_fd < 0
+        or args.stopped_fd < 0
+        or args.ready_fd == args.stopped_fd
+        or args.once
+        or args.job_id
+        or args.input_id
+        or args.frame_id
+        or args.tracker_input_id
         or args.healthcheck
     ):
         parser.error("supervised readiness requires a continuous unselected worker")
     if args.healthcheck:
         asyncio.run(_healthcheck())
         return
-    # Leave SIGINT to asyncio.run; only container SIGTERM requests a drain.
     previous_sigterm = signal.getsignal(signal.SIGTERM)
     previous_sigint = signal.getsignal(signal.SIGINT)
     try:

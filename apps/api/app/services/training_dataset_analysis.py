@@ -575,8 +575,6 @@ def compare(baseline: dict, target: dict) -> dict:
             changes["unknown"].add(sha)
         elif a["semantic_label_digest"] != b["semantic_label_digest"]:
             changes["labels_changed"].add(sha)
-        # Partial split sets cannot establish either a change or sameness. An
-        # older derived record without this evidence is unknown, never zero.
         if a.get("unknown_split_members") != 0 or b.get("unknown_split_members") != 0:
             changes["unknown"].add(sha)
         elif set(a["splits"]) != set(b["splits"]):
@@ -714,8 +712,6 @@ async def ensure_analysis(db, project_id, version_id):
     )
     if manifest_identity is None:
         raise HTTPException(status_code=404, detail="数据版本已删除")
-    # Distinguish historical absence from an explicit invalid null. Dispatch and
-    # cache identity must be identical on the compact projection and full record.
     manifest_identity = {
         key: entry["value"]
         for key, entry in manifest_identity.items()
@@ -728,7 +724,6 @@ async def ensure_analysis(db, project_id, version_id):
     cached = await db.get(TrainingDatasetAnalysis, version.id)
     if cached and cached.input_digest == fingerprint:
         return version, cached, manifest_digest or ""
-    # Serialize the one-time metadata build with deletion and other cache creators.
     version = await db.scalar(
         select(TrainingDatasetVersion)
         .where(

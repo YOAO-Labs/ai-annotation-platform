@@ -61,7 +61,6 @@ def _socket_fixture_user_cleanup_statement(user_ids):
 @pytest.fixture
 async def socket_world(test_engine, request):
     _verify_postgres(test_engine.url)
-    # Restore cases keep protected history until the verifier drops the owned DB.
     retain_history = getattr(request, "param", None) == "retain_history"
     seed = async_sessionmaker(test_engine, expire_on_commit=False)
     user_ids = []
@@ -93,7 +92,6 @@ async def socket_world(test_engine, request):
                 if project_id is not None:
                     await db.execute(delete(Project).where(Project.id == project_id))
                 if user_ids:
-                    # Keep immutable Audit actors until disposable database teardown.
                     await db.execute(_socket_fixture_user_cleanup_statement(user_ids))
 
 

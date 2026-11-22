@@ -14,7 +14,6 @@ log = logging.getLogger(__name__)
 
 def stage_deletion(db, record, prefix):
     """Stage one pinned storage intent; the caller owns deletion and commit."""
-    # No FK from the tombstone: project removal must not cancel pending cleanup.
     from app.db.models.training_dataset import TrainingDatasetVersion
     from app.db.models.training_run import TrainingRun
     from app.services import training_dataset_storage, training_run_storage
@@ -47,8 +46,6 @@ async def purge_committed(db, intent_id):
     try:
         await purge_requested(db, intent_id)
     except Exception:
-        # Business deletion is already committed. Return success while the
-        # existing maintenance owner retries the independent storage intent.
         log.warning("Training storage deletion deferred intent=%s", intent_id)
 
 
@@ -91,8 +88,6 @@ async def purge_requested(db, intent_id):
     intent.last_attempted_at = datetime.now(timezone.utc)
     await db.commit()
     owner = _pinned_owner(intent)
-    # Repeated prefix deletion is safe after crashes or an acknowledgement
-    # commit failure. Keep the durable intent until both operations succeed.
     await storage_io.run(
         db,
         owner,

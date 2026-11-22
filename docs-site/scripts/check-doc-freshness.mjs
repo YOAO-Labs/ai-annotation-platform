@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-/**
- * 检查 docs-site/ 下所有 .md 文件的 last_reviewed 字段，
- * 超过 THRESHOLD_DAYS 天未审阅则输出 warning（不退出，不阻断构建）。
- * maintainers/ 维护材料、构建期镜像、示例源码和生成页不纳入正文 freshness 统计。
- *
- * 用法：node docs-site/scripts/check-doc-freshness.mjs [--threshold=<days>]
- *   默认 threshold = 180 天
- *
- * CI 集成：在 docs:build 前运行，仅输出 warning，不阻断。
- */
 
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, extname, basename } from "node:path";
@@ -103,4 +93,3 @@ if (stale > 0 || missing > 0) {
 } else {
   console.log("All files are fresh.");
 }
-// Always exit 0 — freshness check is advisory, not blocking.

@@ -244,8 +244,6 @@ def _bbox(value, *, outside=False):
 
 
 def _flags(value, *, outside_ranges=False):
-    # Only an unwrapped aggregate track owns an outside range list; its full
-    # interval validation belongs to _track, never to per-frame flag handling.
     keys = (
         ("primary", "occluded")
         if outside_ranges
@@ -312,7 +310,6 @@ def _reference(value, objects, referenced, budget, *, outside=False):
         return
     rle = objects.get(digest)
     budget.mask(rle, outside=outside)
-    # Canonical mask JSON has a fixed field order independent of backend key order.
     canonical = {"encoding": "coco_rle", "size": rle["size"], "counts": rle["counts"]}
     checksum = hashlib.sha256()
     size = _json_budget(canonical, maximum=MAX_RLE_BYTES, digest=checksum)
@@ -344,7 +341,6 @@ def _geometry(value, budget, objects, referenced, *, outside=False):
     elif kind == "polygon":
         budget.points(value.get("points"), outside=outside)
         if value.get("holes"):
-            # Existing tracker polygon keyframes have no holes representation.
             reject()
     elif kind == "mask":
         if "rle" in value and "mask" in value:

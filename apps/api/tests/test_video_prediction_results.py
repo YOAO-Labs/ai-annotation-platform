@@ -521,7 +521,6 @@ def test_saved_preflight_checks_declared_refs_without_claiming_physical_qualific
         },
     }
     assert subject.validate_saved_results([shape], probe()) == [shape]
-    # The raw model path cannot borrow the saved-declaration preflight.
     with pytest.raises(ContentError, match="mask_invalid"):
         subject.validate_results(envelope([shape]), TASK, probe())
     for change in (
@@ -601,7 +600,6 @@ def test_unhashable_json_kind_values_have_stable_content_errors(field):
         results[0].result[0]["geometry"]["type"] = []
     elif field == "hidden_kind":
         results[0].result[0]["attributes"] = {"type": []}
-        # Arbitrary JSON attributes are allowed, including a non-string type.
         assert subject.validate_results(results, TASK, probe()) is results
         return
     else:

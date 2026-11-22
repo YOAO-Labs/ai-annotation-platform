@@ -862,7 +862,6 @@ async def test_project_enablement_locks_project_before_pool(
 
         tasks.append(asyncio.create_task(enable()))
         await _blocked_by(test_engine, writer_pid, workspace_pid)
-        # The existing Workspace operation can take Pool while the writer waits on Project.
         reply = await workspace.scalar(
             text(
                 "SELECT yoao_inference_v1.enable_workspace_project_backend(:project, :registry)"
@@ -916,7 +915,6 @@ async def test_pool_enablement_revalidates_disabled_pool_after_wait(
     try:
         delete_pid = await _timeouts(deleter)
         writer_pid = await _timeouts(writer)
-        # Prime the identity map as the public route does before calling its service.
         cached = await writer.get(MLBackendServicePool, pool_id)
         assert cached.enabled is True
         await deleter.execute(
@@ -936,7 +934,6 @@ async def test_pool_enablement_revalidates_disabled_pool_after_wait(
                         project_id, pool_id, True
                     )
             if remove_pool and operation == "pool_enable":
-                # The pool endpoint maps its existing missing-pool ValueError to404.
                 assert isinstance(failure.value, ValueError)
             else:
                 assert failure.value.status_code == 409

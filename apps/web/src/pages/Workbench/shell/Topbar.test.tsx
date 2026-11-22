@@ -91,9 +91,6 @@ it("preserves native segment selector keys without activating overflow menu acti
   }
   fireEvent.change(select, { target: { value: "" } });
   expect(onSelectVideoSegment).toHaveBeenCalledWith(null);
-  // Tab 在 items 菜单内（含 footer 原生 select）统一为关闭语义：关闭并归还
-  // 触发器，页面遍历从触发器继续；否则 portal 面板在 body 末尾，放行 Tab 会把
-  // 焦点带出文档而菜单仍开着（PR #117 评审 P2）
   fireEvent.keyDown(select, { key: "Tab" });
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   expect(trigger).toHaveFocus();
@@ -348,7 +345,6 @@ describe("Topbar · 通知入口", () => {
     renderTopbar({ onNotificationNavigate: vi.fn() });
     const bell = await screen.findByRole("button", { name: "通知，3 条未读" });
     expect(screen.getByTestId("notifications-unread-badge")).toHaveTextContent("3");
-    // 位于 Bug/主题/设置组之外，不随窄屏隐藏组折叠
     expect(bell.parentElement).not.toHaveClass(/hidden/);
   });
 
@@ -357,7 +353,6 @@ describe("Topbar · 通知入口", () => {
     renderTopbar({ onNotificationNavigate });
     fireEvent.click(await screen.findByRole("button", { name: "通知，3 条未读" }));
     expect(await screen.findByRole("dialog", { name: "通知" })).toBeInTheDocument();
-    // 面板打开后画布守卫可识别（data-shell-popover 存在）
     expect(document.querySelector('[data-shell-popover="notifications"]')).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("dialog", { name: "通知" }), { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "通知" })).not.toBeInTheDocument();

@@ -78,7 +78,6 @@ class TestAsyncJobService:
     ):
         job = await async_job_svc.create_job(db_session, kind="batch_predict")
         settled_at = datetime(2000, 1, 1, tzinfo=timezone.utc)
-        # Model a worker's update without refreshing the API's cached pending row.
         await db_session.execute(
             update(AsyncJob)
             .where(AsyncJob.id == job.id)
@@ -117,7 +116,6 @@ class TestAsyncJobService:
         await async_job_svc.mark_complete(db_session, aj.id)
         await db_session.flush()
         await db_session.refresh(aj)
-        # 仍是 failed，complete 是幂等的
         assert aj.status == AsyncJobStatus.FAILED.value
 
     async def test_progress_pct_clamps(self, db_session):
@@ -222,8 +220,6 @@ async def test_removed_project_member_cannot_read_or_list_export_result(
     membership = ProjectMember(
         project_id=project.id,
         user_id=member.id,
-        # Export result/URL access is a reviewer/manager capability; a reviewer
-        # membership is required before the revocation half of this test.
         role="reviewer",
         assigned_by=owner.id,
     )
@@ -380,11 +376,9 @@ class TestAsyncJobTerminalNotifications:
 class TestAsyncJobsAPI:
     async def test_list_owner_scoped(self, httpx_client, db_session, annotator):
         user, token = annotator
-        # 自己的 job
         own = await async_job_svc.create_job(
             db_session, kind="dataset_import", user_id=user.id
         )
-        # 别人的 job
         await async_job_svc.create_job(db_session, kind="dataset_import")
         await db_session.flush()
 
@@ -393,7 +387,6 @@ class TestAsyncJobsAPI:
         body = r.json()
         ids = {item["id"] for item in body["items"]}
         assert str(own.id) in ids
-        # annotator 看不到他人的 job
         assert all(item["user_id"] == str(user.id) for item in body["items"])
 
     async def test_super_admin_sees_all(
@@ -413,8 +406,6 @@ class TestAsyncJobsAPI:
     async def test_list_filters_and_project_meta(
         self, httpx_client, db_session, project_admin
     ):
-        # Project-scoped list access needs current management of the owned
-        # project; use the administrative owner so the scope matches.
         user, token = project_admin
         project = Project(
             display_id="PROJ-AJ-1",
@@ -778,7 +769,6 @@ class TestAsyncJobsAPI:
         )
         assert r.status_code == 200
         assert r.json() == {"status": "cancelled", "id": str(aj.id)}
-        # 刷新看库
         await db_session.refresh(aj)
         assert aj.status == AsyncJobStatus.CANCELLED.value
         rows = (

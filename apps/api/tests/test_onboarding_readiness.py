@@ -189,8 +189,6 @@ async def test_readiness_counts_real_tasks_valid_recipients_and_all_jobs(
     data = (await httpx_client.get(url, headers=headers(token))).json()
     assert data["active_reviewer_count"] == data["assigned_batch_count"] == 0
     review.is_active = True
-    # Project authority now comes from the membership, not the account role:
-    # changing the reviewer membership to annotator drops the reviewer count.
     memberships[review.id].role = "annotator"
     await db_session.flush()
     data = (await httpx_client.get(url, headers=headers(token))).json()

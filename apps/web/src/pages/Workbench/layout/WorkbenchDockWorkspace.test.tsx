@@ -308,7 +308,6 @@ describe("stable Dockview React workspace", () => {
     );
     await screen.findByRole("button", { name: "编辑当前帧 Mask" });
 
-    // Activating the canvas must not hide a tracking panel displayed in its own group.
     act(() => tracker.api.setActive());
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "编辑当前帧 Mask" })).toBeNull(),
@@ -516,7 +515,6 @@ describe("stable Dockview React workspace", () => {
     expect(entry.name).toBe("审核宽讨论");
     expect(entry.context).toBe("review:image");
 
-    // 换成内置预设后再套回命名预设，画布必须是同一个 DOM 实例。
     fireEvent.click(await screen.findByRole("button", { name: "标准标注" }));
     await waitFor(() => expect(state.api!.getPanel("task-queue")?.group.id).not.toBe("parking"));
     fireEvent.click(await screen.findByRole("button", { name: "应用" }));
@@ -631,7 +629,6 @@ describe("stable Dockview React workspace", () => {
     expect(await screen.findByText("5 / 5")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("预设名称"), { target: { value: "第六组" } });
     expect(screen.getByRole("button", { name: "保存当前布局" })).toBeDisabled();
-    // 同名保存是更新已有预设，不占新名额。
     fireEvent.change(screen.getByLabelText("预设名称"), { target: { value: "布局 0" } });
     fireEvent.click(screen.getByRole("button", { name: "覆盖同名预设" }));
     await waitFor(() => expect(state.updatePreferences).toHaveBeenCalledTimes(1));

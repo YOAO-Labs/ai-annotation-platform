@@ -18,9 +18,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-# 旧源 → annotation_feedbacks 里对应的 mirror kind。
-# 注意 view 里 annotation_feedbacks 源同时含原生 issue/comment + 三类 mirror，
-# 对账只针对有旧表权威的三类 mirror（issue 天生单源，无旧表，不参与对账）。
 _MIRROR_KINDS = {
     "bug_reports": "bug",
     "annotation_comments": "comment",
@@ -28,11 +25,6 @@ _MIRROR_KINDS = {
 }
 
 
-# 各旧源「应被 mirror 的行」口径。排除按设计就不该出现在统一表的行，避免误报：
-#   - bug_reports.project_id IS NULL：无项目归属的 bug（登录页等），设计上不 mirror
-#   - annotation_comments.is_active = false：软删评论不进 view，也不该有 mirror
-#   - tasks: status != 'rejected' OR reject_reason IS NULL：仅被驳回且填了理由的 task 行算一条 reject
-# SELECT 返回旧源主键（统一 ::text），用于和 mirror 行做差集找 missing_ids。
 _EXPECTED_SQL = {
     "bug_reports": (
         "SELECT id FROM public.v_annotation_feedback_unified "
@@ -69,9 +61,6 @@ async def compute_feedback_drift(db: AsyncSession) -> dict[str, dict]:
         expected = len(expected_rows)
 
         missing_ids = await _missing_ids(db, source)
-        # actual = 真正被 mirror 覆盖的旧表行数 = expected - missing。不直接 COUNT
-        # 统一表的 kind 行：那会把原生 annotation_feedbacks 行（非 mirror）算进去，
-        # 正常一致态下也 expected != actual，误导排障（见 ADR-0027 对账安全网说明）。
         out[source] = {
             "expected": expected,
             "actual": expected - len(missing_ids),

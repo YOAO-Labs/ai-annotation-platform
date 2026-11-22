@@ -22,8 +22,6 @@ MANAGERS = {UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN}
 
 
 async def _dataset_authority(db, dataset_id, *, lock=False):
-    # Text SQL bypasses ORM autoflush; preserve the original ORM query's
-    # visibility and the caller's no_autoflush scope.
     if db.autoflush:
         await db.flush()
     row = (
@@ -93,8 +91,6 @@ async def capture_dataset_write(db, dataset_id, actor, key_id, *, allow_missing=
 async def validate_dataset_write(
     db, dataset_id, authority, *, project_id=None, lock=False
 ):
-    # The prior managed-writer lock is a blocking FOR NO KEY UPDATE. The
-    # capability holds the same lock on the caller's transaction.
     await _writable_dataset_authority(
         db,
         dataset_id,
@@ -180,8 +176,6 @@ async def require_run(db, model, run_id, actor):
 
 
 def job_scope_clause(actor, source_ids=None):
-    # Payload identifies retained attempts after a resume replaces async_job_id.
-    # Compare strings; malformed legacy payloads must not raise UUID cast errors.
     scope = source_scope_clause(actor)
     if source_ids is not None:
         scope = and_(scope, DatasetSource.id.in_(source_ids))

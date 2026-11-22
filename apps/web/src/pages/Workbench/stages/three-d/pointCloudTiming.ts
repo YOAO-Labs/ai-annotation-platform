@@ -24,7 +24,6 @@ function emitPointCloudTiming(detail: PointCloudTimingDetail) {
   );
 }
 
-/** Emit a non-paint resource stage into the same trace stream as the paint boundaries. */
 export function markPointCloudStage(
   phase: Exclude<PointCloudTimingPhase, "geometry-ready" | "camera-color-ready">,
   pointCloudUrl: string,
@@ -42,11 +41,6 @@ export function markPointCloudStage(
   });
 }
 
-/**
- * Emit after the preceding scene/material update has crossed a browser paint boundary.
- * The matching Performance mark is visible in DevTools traces; the event drives the
- * repeatable local A/B benchmark without polling transient UI text.
- */
 export function markPointCloudPaint(
   phase: PointCloudTimingPhase,
   pointCloudUrl: string,

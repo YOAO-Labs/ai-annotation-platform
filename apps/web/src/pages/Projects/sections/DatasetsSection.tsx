@@ -157,11 +157,7 @@ function LinkDatasetModal({
   onLinked: (name: string) => void;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
-  // 大 dataset 异步建 task 时返回的 job id，非空则在弹窗内显示进度条
   const [linkJobId, setLinkJobId] = useState<string | null>(null);
-  // useLinkProject 是按 datasetId 维度的 hook；这里临时绕开 — 直接调 mutation
-  // 但现有 useLinkProject 只能 useMutation 化为 datasetId-bound 实例。
-  // 为简洁，我们直接调 datasetsApi.linkProject + invalidate by hand。
   const link = useLinkProject(selected ?? "");
   const pushToast = useToastStore((s) => s.push);
 
@@ -171,7 +167,6 @@ function LinkDatasetModal({
     link.mutate(projectId, {
       onSuccess: (res) => {
         onLinked(ds?.name ?? "数据集");
-        // 大 dataset 异步建 task：留在弹窗里看进度；小 dataset 同步建完直接关闭
         if (res.async_job_id) {
           setLinkJobId(res.async_job_id);
         } else {

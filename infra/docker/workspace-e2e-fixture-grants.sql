@@ -1,7 +1,3 @@
--- Compose after workspace-consumer-grants.sql only for a trusted E2E fixture operator.
--- Ordinary API/worker credentials do not receive fixture creation or cleanup capabilities.
--- psql -v expected_database=... -v migration_role=... -v workspace_owner=...
---      -v consumer_role=... -f workspace-e2e-fixture-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;

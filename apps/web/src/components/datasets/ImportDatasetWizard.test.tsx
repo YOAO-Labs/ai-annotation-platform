@@ -1,9 +1,3 @@
-/**
- * ImportDatasetWizard 单测
- * 覆盖: 初始渲染(step1=选择来源) / 选源后推进 step2=基本信息 / 名称校验 /
- *       skipCreate 直接在来源步提交 / 文件模式 / ZIP 模式 / 上传触发 mutation /
- *       连接器模式按 source_path 末段自动命名
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
@@ -121,7 +115,6 @@ function renderUI(
   );
 }
 
-/** 选中一个文件，让「来源」步的文件模式可推进。 */
 function pickFile() {
   const fileInput = document.querySelector('input[type="file"][multiple]') as HTMLInputElement;
   const fakeFile = new File(["content"], "img.jpg", { type: "image/jpeg" });
@@ -220,7 +213,6 @@ describe("ImportDatasetWizard", () => {
     renderUI();
     expect(screen.getByText("选择来源")).toBeInTheDocument();
     expect(screen.getByText(/拖拽文件到此处/)).toBeInTheDocument();
-    // step1 不显示名称输入框（名称在 step2）
     expect(screen.queryByPlaceholderText(/商品检测训练集/)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /下一步/ })).toBeDisabled();
   });
@@ -242,7 +234,6 @@ describe("ImportDatasetWizard", () => {
     expect(screen.getByText(/拖拽文件到此处/)).toBeInTheDocument();
     expect(screen.queryByPlaceholderText(/商品检测训练集/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /下一步/ })).not.toBeInTheDocument();
-    // 未选文件时提交按钮禁用
     expect(screen.getByRole("button", { name: /开始上传/ })).toBeDisabled();
   });
 
@@ -256,13 +247,10 @@ describe("ImportDatasetWizard", () => {
   it("连接器模式: 选定 source_path 后按末段自动填充数据集名", async () => {
     renderUI();
     fireEvent.click(screen.getByRole("button", { name: /连接器导入/ }));
-    // 选连接器
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "c1" } });
-    // 输入 source path
     fireEvent.change(screen.getByPlaceholderText("batch-a/"), {
       target: { value: "root/dataset-A" },
     });
-    // 进入基本信息步，名称应自动为 dataset-A
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
     const nameInput = screen.getByPlaceholderText(/商品检测训练集/) as HTMLInputElement;
     expect(nameInput.value).toBe("dataset-A");
@@ -469,7 +457,6 @@ describe("ImportDatasetWizard", () => {
     fireEvent.change(screen.getByPlaceholderText(/商品检测训练集/), {
       target: { value: "点云时序集" },
     });
-    // 切到 3D 点云 → 时序开关出现 → 勾选
     fireEvent.click(screen.getByRole("button", { name: /3D 点云/ }));
     fireEvent.click(screen.getByLabelText(/声明为时序数据集/));
     fireEvent.click(screen.getByRole("button", { name: /开始上传/ }));
@@ -491,7 +478,6 @@ describe("ImportDatasetWizard", () => {
     fireEvent.change(screen.getByPlaceholderText(/商品检测训练集/), {
       target: { value: "图片时序集" },
     });
-    // 图片(默认 data_type)同样有时序开关——图片 ZIP 也会产生 scene
     fireEvent.click(screen.getByLabelText(/声明为时序数据集/));
     fireEvent.click(screen.getByRole("button", { name: /开始上传/ }));
     await waitFor(() => {
@@ -528,12 +514,9 @@ describe("ImportDatasetWizard", () => {
     pickFile();
     await waitFor(() => expect(screen.getByText(/已选 1 个文件/)).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /下一步/ }));
-    // 默认 image 时开关存在
     expect(screen.getByLabelText(/声明为时序数据集/)).toBeInTheDocument();
-    // 切到「多模态」后开关消失
     fireEvent.click(screen.getByRole("button", { name: /多模态/ }));
     expect(screen.queryByLabelText(/声明为时序数据集/)).not.toBeInTheDocument();
-    // 切到「其他」同样无开关
     fireEvent.click(screen.getByRole("button", { name: /其他/ }));
     expect(screen.queryByLabelText(/声明为时序数据集/)).not.toBeInTheDocument();
   });
@@ -546,9 +529,7 @@ describe("ImportDatasetWizard", () => {
     fireEvent.change(screen.getByPlaceholderText(/商品检测训练集/), {
       target: { value: "重置测试集" },
     });
-    // image 下勾选时序
     fireEvent.click(screen.getByLabelText(/声明为时序数据集/));
-    // 切到视频(同样显示开关)——切换应重置为未勾选
     fireEvent.click(screen.getByRole("button", { name: /视频/ }));
     const checkbox = screen.getByLabelText(/声明为时序数据集/) as HTMLInputElement;
     expect(checkbox.checked).toBe(false);

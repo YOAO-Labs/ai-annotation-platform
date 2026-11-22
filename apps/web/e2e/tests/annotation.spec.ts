@@ -1,15 +1,6 @@
-/**
- * Annotation smoke and real bbox creation: draw, choose a class, persist and reload.
- * Seed endpoints prepare prerequisites only; they never replace a failed UI save.
- */
 import { test, expect } from "../fixtures/seed";
 import type { Page } from "@playwright/test";
 
-/**
- * smart-point / smart-box / exemplar 现按产出几何归属到 region 单位 (ToolDock 三层门控之层3);
- * 种子 E2E Demo Project 为 image-det, tool_bindings 仅启用 bbox, 故这些 AI 工具会被隐藏。
- * 拦截项目详情响应, 注入一个启用的 region 单位, 让交互工具在工具栏可见 (仅影响调用它的用例)。
- */
 async function enableRegionUnit(page: Page): Promise<void> {
   await page.route(
     (url) => /\/api\/v1\/projects\/[^/]+$/.test(url.pathname),
@@ -86,7 +77,6 @@ test.describe("annotation workbench", () => {
         await expect(bboxBtn).toHaveAttribute("aria-pressed", "true");
         expect(await readAnnotations()).toEqual([]);
 
-        // Existing media geometry accounts for letterboxing and changing panel sizes.
         const points = await stage.evaluate((node) => {
           const rect = node.getBoundingClientRect();
           const width = Number(node.getAttribute("data-media-width"));
@@ -174,14 +164,6 @@ test.describe("annotation workbench", () => {
     );
   }
 
-  /**
-   * Prompt-first ToolDock + capability 协商.
-   * mock /setup 返回 grounded-sam2 (point/bbox/text), 断言:
-   *   ① smart-point / smart-box 可点 (text-prompt 归批量线，不在工具栏)
-   *   ② exemplar 工具置灰 (aria-disabled="true")
-   *   ③ AIToolDrawer 在 smart-point 激活时出现
-   *   ④ 点击 stage 触发 /interactive-annotating, body.context.type === "point"
-   */
   test("Prompt-first · grounded-sam2 capability → smart-point dispatch", async ({ page, seed }) => {
     const data = await seed.owned();
     await seed.advanceTask({
@@ -191,7 +173,6 @@ test.describe("annotation workbench", () => {
     });
     await seed.injectToken(page, data.annotator_email);
 
-    // mock /setup → grounded-sam2 (无 exemplar)
     await page.route(/\/api\/v1\/projects\/[^/]+\/ml-backends\/[^/]+\/setup/, async (route) => {
       await route.fulfill({
         status: 200,
@@ -256,12 +237,10 @@ test.describe("annotation workbench", () => {
       },
     );
 
-    // 交互工具 (smart-*) 归 region 单位, 种子项目仅 bbox, 需启用 region 使其可见
     await enableRegionUnit(page);
     await page.goto(`/projects/${data.project_id}/annotate`);
     await page.waitForLoadState("networkidle");
 
-    // ① 交互 AI 工具按钮可见 (text-prompt 已归批量线, 工具栏不再有)
     const pointBtn = page.getByTestId("tool-btn-smart-point");
     const boxBtn = page.getByTestId("tool-btn-smart-box");
     const exemplarBtn = page.getByTestId("tool-btn-exemplar");
@@ -269,15 +248,12 @@ test.describe("annotation workbench", () => {
     await expect(boxBtn).toBeVisible();
     await expect(exemplarBtn).toBeVisible();
 
-    // ② exemplar 工具置灰
     await expect(exemplarBtn).toHaveAttribute("aria-disabled", "true");
 
-    // ③ 激活 smart-point → 画布顶部出现 InteractiveToolBar
     await pointBtn.click();
     await expect(pointBtn).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("interactive-tool-capsule")).toBeVisible();
 
-    // ④ 点击 stage → dispatch context.type === "point"
     const stage = page.getByTestId("workbench-stage");
     const box = await stage.boundingBox();
     if (!box) throw new Error("workbench-stage boundingBox 不可用");
@@ -288,9 +264,6 @@ test.describe("annotation workbench", () => {
     expect(state.lastBody?.context?.type).toBe("point");
   });
 
-  /**
-   * sam3 capability → exemplar 工具可用; smart-point 置灰; 拖框 → exemplar dispatch.
-   */
   test("Prompt-first · sam3 capability → exemplar dispatch", async ({ page, seed }) => {
     const data = await seed.owned();
     await seed.advanceTask({
@@ -353,12 +326,10 @@ test.describe("annotation workbench", () => {
       },
     );
 
-    // 同上: exemplar / smart-point 归 region 单位, 需启用 region 使其在工具栏可见
     await enableRegionUnit(page);
     await page.goto(`/projects/${data.project_id}/annotate`);
     await page.waitForLoadState("networkidle");
 
-    // smart-point 置灰; exemplar 可用
     const pointBtn = page.getByTestId("tool-btn-smart-point");
     const exemplarBtn = page.getByTestId("tool-btn-exemplar");
     await expect(pointBtn).toBeVisible({ timeout: 10_000 });
@@ -368,10 +339,6 @@ test.describe("annotation workbench", () => {
     await exemplarBtn.click();
     await expect(exemplarBtn).toHaveAttribute("aria-pressed", "true");
 
-    // 拖框 → exemplar
-    // 注意：选中 AI 工具会打开 AIToolDrawer 悬浮参数面板，覆盖画布左侧约 1/3
-    // 拖框起点须落在悬浮参数面板右侧的空白画布区，
-    // 否则 pointerdown 命中面板而非 Konva canvas，samProbe 不会触发。
     const stage = page.getByTestId("workbench-stage");
     const box = await stage.boundingBox();
     if (!box) throw new Error("workbench-stage boundingBox 不可用");

@@ -287,7 +287,6 @@ def native_preview(spec, directory, *, traced=True):
     dataset.get_image_and_label = get_label
     if closed_mosaic(config, spec["epoch"]):
         dataset.close_mosaic(args)
-    # Reproduce a declared, deterministic native buffer state without RNG calls.
     for index in range(len(dataset)):
         dataset.load_image(index)
     trainer = object.__new__(DetectionTrainer)

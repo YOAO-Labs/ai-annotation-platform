@@ -27,25 +27,18 @@ interface StatusBarProps {
   preannotationProgress: PreannotationProgress | null;
   preannotationConn: ReconnectState;
   preannotationRetries: number;
-  /** 本会话每题平均耗时（毫秒）。null = 样本 < 10。 */
   avgLeadMs?: number | null;
-  /** 剩余题数（用于 ETA 计算）。 */
   remainingTaskCount?: number;
-  /** 离线队列：> 0 时右侧显示"离线 · N 操作待同步"徽章。 */
   offlineQueueCount?: number;
   online?: boolean;
   onShowQueueDrawer?: () => void;
-  /** 锁剩余时间（毫秒）。0 = 未持有锁。 */
   lockRemainingMs?: number;
-  /** 锁错误消息。非空时优先展示错误。 */
   lockError?: string | null;
   lockConflict?: TaskLockConflictDetail | null;
-  /** M2 · review 模式下的 diff 控制（final/raw/diff）。有值时渲染 segmented control。 */
   diffMode?: DiffMode;
   onSetDiffMode?: (m: DiffMode) => void;
   activeVideoSegment?: VideoSegment | null;
   segmentLeaseError?: string | null;
-  /** Derived from existing mutation, mask and durable queue owners. */
   saveState?: WorkbenchSaveState;
   saveError?: string | null;
   toolHint?: ToolGestureHintPillProps | null;

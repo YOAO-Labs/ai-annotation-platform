@@ -1,9 +1,3 @@
-/**
- * ADR-0044 · MlBackendsSection 启用清单单测 —
- * 已启用角标 / 勾选启用调 setEnablement / 空态 / AI 设置保存设主后端 (仅从已启用项选)。
- *
- * 项目层不再「注册 backend」(全局 backend 由超管在模型市场注册); 旧上限态断言已废弃。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -108,7 +102,6 @@ describe("MlBackendsSection 启用清单", () => {
       isError: false,
     });
     renderSection({ id: "p1", ml_backend_id: null });
-    // 主表只显示已启用项; 未启用项的启用勾选在悬浮面板里, 先打开面板。
     fireEvent.click(screen.getByRole("button", { name: /管理模型服务/ }));
     fireEvent.click(screen.getByRole("checkbox", { name: /启用 grounded-sam2/ }));
     expect(mockSetEnablementMutate).toHaveBeenCalledTimes(1);
@@ -123,7 +116,6 @@ describe("MlBackendsSection 启用清单", () => {
       isError: false,
     });
     renderSection({ id: "p1", ml_backend_id: null });
-    // 主表空态 (未启用任何), 面板未开 ⇒ 行内启用勾选不可见。
     expect(screen.queryByRole("checkbox", { name: /启用 grounded-sam2/ })).toBeNull();
   });
 
@@ -170,11 +162,9 @@ describe("MlBackendsSection 启用清单", () => {
     renderSection({ id: "p1", ml_backend_id: "b1", iou_dedup_threshold: 0.7 });
     const slider = screen.getByRole("slider");
 
-    // 拖动只更新本地态, 不提交。
     fireEvent.change(slider, { target: { value: "0.85" } });
     expect(mockUpdateMutate).not.toHaveBeenCalled();
 
-    // 松手提交一次。
     fireEvent.pointerUp(slider);
     expect(mockUpdateMutate).toHaveBeenCalledTimes(1);
     expect(mockUpdateMutate.mock.calls[0][0]).toMatchObject({ iou_dedup_threshold: 0.85 });
@@ -195,7 +185,6 @@ describe("MlBackendsSection 启用清单", () => {
     );
     expect(screen.getByRole("combobox", { name: "项目主模型服务" })).toHaveValue("");
 
-    // 行内「设为主后端」(onBind) 落库后服务端值变化 → 重渲染携带新 ml_backend_id。
     rerender(
       <QueryClientProvider client={qc}>
         <MlBackendsSection

@@ -61,7 +61,6 @@ class DatasetQualityResult(Base):
     run_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("dataset_quality_runs.id", ondelete="CASCADE"), index=True
     )
-    # Historical UUIDs intentionally survive deletion of the live Item/Asset.
     item_id: Mapped[uuid.UUID] = mapped_column(UUID)
     asset_id: Mapped[uuid.UUID | None] = mapped_column(UUID)
     source_id: Mapped[uuid.UUID | None] = mapped_column(UUID)

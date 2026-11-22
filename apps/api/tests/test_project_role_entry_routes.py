@@ -147,9 +147,6 @@ async def _seed_video_item_task(
     return item, task
 
 
-# ── Platform catalog: groups (platform-only admin operation) ─────────────────
-
-
 async def test_groups_are_platform_admin_only(
     httpx_client, db_session: AsyncSession, super_admin
 ):
@@ -161,9 +158,6 @@ async def test_groups_are_platform_admin_only(
 
     allowed = await httpx_client.get("/api/v1/groups", headers=_headers(admin))
     assert allowed.status_code == 200
-
-
-# ── datasets: project linking is target-project management ───────────────────
 
 
 async def test_dataset_link_requires_target_project_management(
@@ -196,8 +190,6 @@ async def test_dataset_link_requires_target_project_management(
     )
     assert denied_annotator.status_code == 403
 
-    # A platform project administrator who only holds a membership in the target
-    # project receives that membership's capabilities, never management.
     denied_foreign = await httpx_client.post(
         f"/api/v1/datasets/{dataset.id}/link",
         json=body,
@@ -210,9 +202,6 @@ async def test_dataset_link_requires_target_project_management(
     )
     assert allowed.status_code == 200
     assert allowed.json()["status"] in {"linked", "linking"}
-
-
-# ── annotation history: canonical project visibility ─────────────────────────
 
 
 async def test_annotation_history_uses_task_and_project_visibility(
@@ -239,9 +228,6 @@ async def test_annotation_history_uses_task_and_project_visibility(
         f"/api/v1/tasks/{task.id}/audit-history", headers=_headers(outsider)
     )
     assert hidden.status_code == 404
-
-
-# ── task views: read for members, shared writes for managers ─────────────────
 
 
 async def test_task_view_shared_write_requires_management(
@@ -281,9 +267,6 @@ async def test_task_view_shared_write_requires_management(
     assert manager_shared.status_code == 201
 
 
-# ── mask QC: reviewer/manager authority, annotator denied ────────────────────
-
-
 async def test_mask_qc_summary_requires_review_authority(
     httpx_client, db_session: AsyncSession, super_admin
 ):
@@ -314,9 +297,6 @@ async def test_mask_qc_summary_requires_review_authority(
     assert allowed.status_code == 200
 
 
-# ── point-cloud quality: reviewer/manager authority ──────────────────────────
-
-
 async def test_point_cloud_quality_issues_require_review_authority(
     httpx_client, db_session: AsyncSession, super_admin
 ):
@@ -343,9 +323,6 @@ async def test_point_cloud_quality_issues_require_review_authority(
         headers=_headers(reviewer),
     )
     assert allowed.status_code == 200
-
-
-# ── video chapters: manager-only mutation ────────────────────────────────────
 
 
 async def test_video_chapter_requires_project_manager(
@@ -395,9 +372,6 @@ async def test_video_chapter_requires_project_manager(
     assert allowed.status_code == 201
 
 
-# ── video tracker jobs: annotation-phase write denies reviewer ───────────────
-
-
 async def test_video_tracker_job_write_denies_reviewer(
     httpx_client,
     video_tracker_job_dispatcher,
@@ -441,14 +415,12 @@ async def test_video_tracker_job_write_denies_reviewer(
     db_session.add(job)
     await db_session.flush()
 
-    # The creator (assigned annotator) may cancel.
     allowed = await httpx_client.delete(
         f"/api/v1/video-tracker-jobs/{job.id}", headers=_headers(annotator)
     )
     assert allowed.status_code == 200
     assert video_tracker_job_dispatcher.jobs == [job.id]
 
-    # A reviewer is denied annotation-phase tracker work outside a review round.
     second = VideoTrackerJob(
         task_id=task.id,
         dataset_item_id=item.id,
@@ -482,9 +454,6 @@ async def test_video_tracker_job_write_denies_reviewer(
     assert hidden.status_code == 404
 
 
-# ── failed predictions: project-admin scope is owned projects only ───────────
-
-
 async def test_failed_prediction_management_is_project_scoped(
     httpx_client, db_session: AsyncSession, super_admin
 ):
@@ -502,7 +471,6 @@ async def test_failed_prediction_management_is_project_scoped(
     db_session.add_all([owned_failure, foreign_failure])
     await db_session.flush()
 
-    # The global list is scoped to the administrator's owned projects.
     listed = await httpx_client.get(
         "/api/v1/admin/failed-predictions", headers=_headers(project_admin)
     )
@@ -522,9 +490,6 @@ async def test_failed_prediction_management_is_project_scoped(
         headers=_headers(project_admin),
     )
     assert allowed.status_code == 200
-
-
-# ── ML backends: project read for work roles, not platform viewers ───────────
 
 
 async def test_ml_backend_read_scope(
@@ -557,9 +522,6 @@ async def test_ml_backend_read_scope(
         f"/api/v1/projects/{project.id}/ml-backends", headers=_headers(outsider)
     )
     assert hidden.status_code == 404
-
-
-# ── final-write freshness: revocation after the preflight is denied ──────────
 
 
 async def test_canonical_annotation_write_predicate_denies_reviewer_annotation_phase():
@@ -658,7 +620,6 @@ async def test_lock_tracker_task_denies_reviewer_and_revoked_member(
     )
     assert access.project_role == "annotator"
 
-    # A project reviewer cannot perform annotation-phase tracker work.
     with pytest.raises(HTTPException) as reviewer_exc:
         await _lock_visible_job_task_row(db_session, job.id, reviewer)
     assert reviewer_exc.value.status_code == 403
@@ -757,7 +718,6 @@ async def test_task_view_query_and_count_share_project_role_scope(
     assert {row[0].id for row in rows} == {task_a.id}
     assert total == count == 1
 
-    # Missing project_role stays fail-closed for a non-privileged caller.
     rows_none, total_none = await svc.query_tasks(
         project_id=project.id,
         filter_json={},
@@ -772,7 +732,6 @@ async def test_task_view_query_and_count_share_project_role_scope(
     assert rows_none == []
     assert total_none == 0
 
-    # A manager sees the whole project regardless of membership role.
     _manager_rows, manager_total = await svc.query_tasks(
         project_id=project.id,
         filter_json={},

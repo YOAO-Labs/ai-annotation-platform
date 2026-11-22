@@ -137,8 +137,6 @@ async def seed_legacy_world(test_engine, app_module, monkeypatch, tmp_path) -> d
             for sample in samples_fixture()["samples"]
         }
         assert required_actors <= set(captured["actors"])
-        # The old capture allocated this deliberately absent UUID only when
-        # reaching the later missing-project request, after seed-only reuse ends.
         missing_project = uuid4()
         assert "$project_missing_project" not in captured["aliases"].values()
         async with async_sessionmaker(test_engine)() as observer:

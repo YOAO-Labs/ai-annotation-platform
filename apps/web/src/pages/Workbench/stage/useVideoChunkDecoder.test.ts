@@ -77,8 +77,6 @@ describe("detectWebCodecsSupport · 能力探测", () => {
   });
 });
 
-// ── mock 基础设施 ──────────────────────────────────────────────────────────────
-
 function fakeFrame(timestamp: number) {
   const close = vi.fn();
   const frame = {
@@ -142,7 +140,6 @@ function makeSamples(
   };
 }
 
-/** 单 sample GOP:frame `frameIndex` 为 key,pts=33ms(→ 33000us,匹配 FakeDecoder 默认 emit)。 */
 function gopPlan(frameIndex: number): VideoGopPlan {
   const samples = makeSamples([{ frame: frameIndex, pts: 33, key: true }]);
   const result = buildGopPlan(makeBytes(64), samples, frameIndex);
@@ -160,7 +157,6 @@ function gopIdentity(plan: VideoGopPlan, taskId = "task-1"): VideoGopSessionIden
   };
 }
 
-/** 构造 decodePlan 新签名所需的参数对象。 */
 function decodeArgs(frameIndex: number, taskId = "task-1", generation = 0) {
   const plan = gopPlan(frameIndex);
   return {
@@ -171,7 +167,6 @@ function decodeArgs(frameIndex: number, taskId = "task-1", generation = 0) {
   };
 }
 
-/** 可控 VideoDecoder 替身:flush 默认 resolve,行为经 controller 配置。 */
 class FakeDecoder {
   readonly output: (f: VideoFrame) => void;
   private readonly errorCb: (e: DOMException) => void;
@@ -201,7 +196,6 @@ interface DecoderCtrl {
   flushError: DOMException | null;
 }
 
-/** 安装 VideoDecoder/EncodedVideoChunk 全局替身,返回行为控制器与已建 decoder 列表。 */
 function installDecoderMock(): { ctrl: DecoderCtrl; decoders: FakeDecoder[] } {
   const ctrl: DecoderCtrl = {
     supported: null,
@@ -251,8 +245,6 @@ function installDecoderMock(): { ctrl: DecoderCtrl; decoders: FakeDecoder[] } {
   return { ctrl, decoders };
 }
 
-// ── decodePlanToBitmap:按 timestamp 命中 + 资源清理 ───────────────────────────
-
 describe("decodePlanToBitmap · 按 timestamp 选目标 + 资源清理", () => {
   let ctrl: DecoderCtrl;
   let decoders: FakeDecoder[];
@@ -266,17 +258,17 @@ describe("decodePlanToBitmap · 按 timestamp 选目标 + 资源清理", () => {
   });
 
   it("output 乱序仍按 timestamp 命中目标;非目标 frame 立即 close", async () => {
-    const a = fakeFrame(66000); // 非 target
-    const b = fakeFrame(33000); // target
+    const a = fakeFrame(66000);
+    const b = fakeFrame(33000);
     ctrl.flushImpl = async (d) => {
-      d.emit(a.frame); // 先到的非目标
-      d.emit(b.frame); // 后到的目标
+      d.emit(a.frame);
+      d.emit(b.frame);
     };
     const result = await decodePlanToBitmap(makePlan(33000));
     expect(result).not.toBeNull();
     expect(result?.frameIndex).toBe(1);
-    expect(a.close).toHaveBeenCalledTimes(1); // 非目标 emit 时立即 close
-    expect(b.close).toHaveBeenCalledTimes(1); // 目标在 finally close
+    expect(a.close).toHaveBeenCalledTimes(1);
+    expect(b.close).toHaveBeenCalledTimes(1);
     expect(last().close).toHaveBeenCalledTimes(1);
   });
 
@@ -333,7 +325,7 @@ describe("decodePlanToBitmap · 按 timestamp 选目标 + 资源清理", () => {
       d.emit(b.frame);
     };
     expect(await decodePlanToBitmap(makePlan())).toBeNull();
-    expect(b.close).toHaveBeenCalledTimes(1); // finally 仍 close wanted
+    expect(b.close).toHaveBeenCalledTimes(1);
   });
 
   it("成功交付的 bitmap 不被 decoder finally close(由缓存接管)", async () => {
@@ -354,15 +346,11 @@ describe("decodePlanToBitmap · 按 timestamp 选目标 + 资源清理", () => {
   });
 });
 
-// ── useVideoChunkDecoder hook ─────────────────────────────────────────────────
-
 describe("useVideoChunkDecoder · flag 关闭 (默认) 行为", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
   it("WebCodecs 不可用 / flag 关闭时 active=false,decodePlan no-op", async () => {
-    // buildGopPlan 构造 chunk 需要 EncodedVideoChunk;不 stub VideoDecoder/createImageBitmap,
-    // 保持 detectWebCodecsSupport=false(active=false)。
     vi.stubGlobal("EncodedVideoChunk", class {});
     const { result } = renderHook(() => useVideoChunkDecoder({ taskId: "task-1", enabled: false }));
     expect(result.current.active).toBe(false);
@@ -388,7 +376,6 @@ describe("useVideoChunkDecoder · 缓存、single-flight 与诊断 (mock WebCode
       Promise.resolve({ width: 4, height: 4, close: bitmapClose } as unknown as ImageBitmap),
     );
     ({ ctrl, decoders } = installDecoderMock());
-    // 持久 session 的 output 由 decode 产生；它不得依赖 flush。
     ctrl.decodeImpl = (d, chunk) => {
       d.emit(fakeFrame(chunk.timestamp).frame);
     };
@@ -406,7 +393,6 @@ describe("useVideoChunkDecoder · 缓存、single-flight 与诊断 (mock WebCode
     });
     expect(result.current.diagnostics.decodes).toBe(1);
     expect(result.current.diagnostics.cacheSize).toBe(1);
-    // decode 成功只入缓存,不自动激活 active 指针。
     expect(result.current.activeFrameIndex).toBeNull();
 
     let hit: unknown = null;
@@ -435,7 +421,7 @@ describe("useVideoChunkDecoder · 缓存、single-flight 与诊断 (mock WebCode
         result.current.decodePlan(decodeArgs(5, "t1")),
       ]);
     });
-    expect(decoders).toHaveLength(1); // 并发共享同一 in-flight promise
+    expect(decoders).toHaveLength(1);
     expect(pair[0].bitmap).not.toBeNull();
     expect(pair[1].bitmap).not.toBeNull();
   });
@@ -661,7 +647,6 @@ describe("useVideoChunkDecoder · 缓存、single-flight 与诊断 (mock WebCode
   });
 
   it("task 切换后旧解码结果关闭 bitmap 且不入新缓存(staleResults)", async () => {
-    // 在 wanted 帧确定之后、createImageBitmap resolve 之前阻塞,以便切换 task。
     let resolveBitmap: ((b: ImageBitmap) => void) | null = null;
     vi.stubGlobal(
       "createImageBitmap",
@@ -680,13 +665,10 @@ describe("useVideoChunkDecoder · 缓存、single-flight 与诊断 (mock WebCode
     } as VideoChunkDecodeResult);
     await act(async () => {
       decodePromise = result.current.decodePlan(decodeArgs(3, "t1"));
-      // 推进 microtask 到 createImageBitmap 阻塞点。
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(result.current.diagnostics.activeDecoders).toBe(1);
     expect(result.current.diagnostics.liveVideoFrames).toBe(1);
-    // decode 进行中(wanted 已命中,等待 createImageBitmap),task 切到 t2
-    // → 旧 taskId(t1) 闭包不再匹配 taskIdRef.current(t2)。
     act(() => {
       rerender({ tid: "t2" });
     });
@@ -701,7 +683,7 @@ describe("useVideoChunkDecoder · 缓存、single-flight 与诊断 (mock WebCode
     });
     expect((resolved as VideoChunkDecodeResult).bitmap).toBeNull();
     expect((resolved as VideoChunkDecodeResult).fallbackReason).toBe("stale_request");
-    expect(bitmapClose).toHaveBeenCalledTimes(1); // 旧 bitmap 被关闭,不入新缓存
+    expect(bitmapClose).toHaveBeenCalledTimes(1);
     expect(result.current.diagnostics.staleResults).toBe(1);
     expect(result.current.diagnostics.activeDecoders).toBe(0);
     expect(result.current.diagnostics.liveVideoFrames).toBe(0);

@@ -95,7 +95,6 @@ describe("videoStageGeometry", () => {
     });
 
     it("mode=linear → 按前两关键帧恒速外推到当前帧", () => {
-      // vx = (0.3-0.1)/10 = 0.02/帧;F15 = 0.3 + 0.02*5 = 0.4。
       const ref = trackReferenceAtFrame(geometry, 15, "linear");
       expect(ref?.predicted).toBe(true);
       expect(ref?.predictedKind).toBe("linear");
@@ -140,8 +139,6 @@ describe("videoStageGeometry", () => {
     expect(updated?.geom.x).toBe(0.3);
   });
 });
-
-// ── polygon track 弧长参数化插值 (前端, 镜像后端 lerp_polygon) ──
 
 const SQUARE_A: [number, number][] = [
   [0, 0],
@@ -248,15 +245,12 @@ describe("videoStageGeometry · polygon track", () => {
       points: materialized,
       source: "manual",
     });
-    // 落新可见关键帧 → outside [4,6] 被拆成 [4,4] 与 [6,6]。
     expect(next.outside).toEqual([
       { from: 4, to: 4, source: "manual" },
       { from: 6, to: 6, source: "manual" },
     ]);
   });
 });
-
-// ── polyline (开路径) track 插值 (前端, 镜像后端 lerp_polyline) ──
 
 const LINE_A: [number, number][] = [
   [0, 0],

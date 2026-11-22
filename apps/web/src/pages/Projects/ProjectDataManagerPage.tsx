@@ -134,7 +134,6 @@ const EMPTY_DATA_MANAGER_URL_STATE = {
   layout: "list" as const,
 };
 
-// UA-safe 表单基线(无全局 preflight 期间,原生 select/input 需消浏览器默认样式)
 const FIELD_CLASS =
   "h-8 w-full appearance-none rounded-sm border border-border bg-background px-2 py-1.5 text-foreground disabled:bg-muted disabled:text-muted-foreground";
 
@@ -731,9 +730,6 @@ function TaskDataManagerPage({
     pageSignatureRef.current = queryStateSignature;
     setPage(0);
   }, [queryStateSignature]);
-  // Query, sort, saved view or task page changes return the reader to the start
-  // of the results on the Data page scroll owner. Loading more of the same page
-  // keeps the current viewport position.
   useEffect(() => {
     const scroller = scrollContainerRef.current;
     const target = resultsStartRef.current;
@@ -815,8 +811,6 @@ function TaskDataManagerPage({
   }, [page, tasksQ.data, tasksQ.isFetching, totalPages]);
   const projectAccess = useProjectAccess(id);
   const canManageProject = projectAccess.hasCapability("project.manage");
-  // Data Manager reads stay project.read; management actions need project.manage
-  // and selected-task export needs export.annotations (reviewer, not annotator).
   const canManageProjectTasks = canManageProject;
   const canExportProjectTasks = projectAccess.hasCapability("export.annotations");
   const showProjectTaskActions = canManageProjectTasks || canExportProjectTasks;
@@ -1578,7 +1572,6 @@ function TaskDataManagerPage({
 
               <div
                 ref={resultsStartRef}
-                // Contain wide columns without creating a short vertical scroller.
                 className="w-full min-w-0 max-w-full min-h-[280px] overflow-x-auto rounded-md border border-border bg-card shadow-sm"
               >
                 {layout === "gallery" ? (

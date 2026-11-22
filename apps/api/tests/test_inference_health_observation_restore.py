@@ -158,8 +158,6 @@ async def test_restored_key_and_role_contract_keep_database_binding_and_caller_c
                 )
             data = BackendHealthObservationPostgresData(observation_dsn(restored.url))
             assert await data.readiness()
-            # The key is the same and the source transaction is still live; the
-            # database binding must nevertheless reject its source-only subject.
             with pytest.raises(BackendHealthObservationUnavailable):
                 await data.open_subject(subject, registry_id, request_id)
             async with AsyncExitStack() as stack:

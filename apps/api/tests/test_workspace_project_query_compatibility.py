@@ -50,16 +50,12 @@ async def test_owner_matches_frozen_public_samples_and_caller_boundaries(
         "workspace_project_query_database_url_file",
     ):
         monkeypatch.setattr(settings, name, "")
-    # Reuse only the scenario harness. The original one-time capture and its
-    # source guard stay untouched; this run neither creates nor replaces evidence.
     monkeypatch.setattr(scenarios, "_CAPTURE_PATH", tmp_path / "unused-current-run")
     monkeypatch.setattr(scenarios, "_source_metadata", lambda: {"current_owner": True})
     monkeypatch.setattr(scenarios, "_write_capture", compare)
     original_probe = scenarios._direct_read_probe
 
     async def borrowed_probe(**kwargs):
-        # These two probes freeze the default caller transaction only; dedicated
-        # providers intentionally cannot see another connection's pending work.
         async with api_project_query_binding(token="test-query"):
             return await original_probe(**kwargs)
 

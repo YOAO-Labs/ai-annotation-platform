@@ -65,9 +65,6 @@ class InferencePipelinesData:
 
     @asynccontextmanager
     async def transaction(self, *, readonly: bool = False):
-        # The API request owns this SQLAlchemy transaction. The flag is part of
-        # the portable data protocol; PostgreSQL cannot impose a nested mode on
-        # an already active request transaction.
         del readonly
         yield self
 
@@ -82,8 +79,6 @@ class InferencePipelinesData:
         if action in _AUTOFLUSH_ACTIONS and self.db.autoflush:
             await self.db.flush()
         elif action in {"pipeline_insert", "pipeline_update"}:
-            # These mirror the explicit db.flush() at the end of the legacy
-            # create/update/apply paths, including when autoflush is disabled.
             await self.db.flush()
 
         parameters = {

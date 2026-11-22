@@ -16,8 +16,6 @@ import worktree_recovery_video_export as fixture
 
 
 def inputs():
-    # Synthetic transport bytes only. The actual seed uses make_videos + the
-    # real canonical creation/copy/probe/serializer chain.
     expected = fixture.expected_sources(
         {"dataset": b"dataset-video", "standalone": b"task-video"}
     )

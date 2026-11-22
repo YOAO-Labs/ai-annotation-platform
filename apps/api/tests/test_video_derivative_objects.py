@@ -71,8 +71,6 @@ async def owned(test_engine, monkeypatch):
     class Access:
         @contextmanager
         def client(self, **options):
-            # Keep the existing late-constructor/close fault seam while new
-            # schema2 allocations retain their real saved metadata lookup.
             storage = physical.StorageService()
             try:
                 yield storage.client
@@ -95,8 +93,6 @@ async def owned(test_engine, monkeypatch):
     try:
         yield context
     finally:
-        # Failed close tests restore the fake method before their teardown, so
-        # removing the owned durable test records never hides a live resource.
         provider.close()
         async with factory() as db:
             identifiers = list(

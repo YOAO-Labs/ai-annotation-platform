@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-/**
- * 校验文档站 Excalidraw 图表的引用与单文件合同。
- *
- * 每张图以一个 SVG 同时承担展示文件和可编辑源文件：
- * - 位于 public/diagrams/，并被正文的 <ExcalidrawDiagram> 引用；
- * - 包含 Excalidraw scene payload，可重新导入 Excalidraw 编辑；
- * - 包含内嵌 Virgil 字体，在未安装字体的环境中仍保持手写风格。
- */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";

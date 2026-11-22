@@ -137,13 +137,12 @@ describe("deriveVariantSource — 文本走顶层 / 几何走选中 model (#3 �
       isGeometricBackend: false,
       activeDocModel: undefined,
       geometricModel: undefined,
-      // 选中「检测」文本 model → 只表达 dino 一组 (选检测时不再白显 SAM2 组)。
       textModel: model({
         task: "detect",
         supported_variants: [DINO_GROUP],
         default_variants: { dino_variant: "swint" },
       }),
-      topSupportedVariants: [SAM_GROUP, DINO_GROUP], // 顶层在场也不该被用 (textModel 优先)
+      topSupportedVariants: [SAM_GROUP, DINO_GROUP],
     });
     expect(src.groups).toEqual([DINO_GROUP]);
     expect(src.defaults).toEqual({ dino_variant: "swint" });
@@ -174,7 +173,7 @@ describe("deriveVariantSource — 文本走顶层 / 几何走选中 model (#3 �
         variant_combinations: [["n"], ["x"]],
         default_variants: { size: "n" },
       }),
-      topSupportedVariants: [SAM_GROUP, DINO_GROUP], // 顶层在场也不该被用
+      topSupportedVariants: [SAM_GROUP, DINO_GROUP],
     });
     expect(src.groups).toEqual([SIZE_GROUP]);
     expect(src.combinations).toEqual([["n"], ["x"]]);

@@ -18,8 +18,6 @@ import json
 import sys
 from pathlib import Path
 
-# 当 `uv run python ../../scripts/export_openapi.py` 时，cwd=apps/api，
-# 但 sys.path 不会自动包含 cwd；显式添加确保 `from app.main` 能解析。
 _API_DIR = Path(__file__).resolve().parents[1] / "apps" / "api"
 if str(_API_DIR) not in sys.path:
     sys.path.insert(0, str(_API_DIR))
@@ -34,7 +32,6 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    # 必须在 apps/api 目录下执行（uv 会从该目录解析依赖）
     from app.main import app  # noqa: E402  延迟导入
 
     schema = app.openapi()

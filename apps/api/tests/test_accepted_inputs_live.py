@@ -481,8 +481,6 @@ async def test_replayed_input_materializes_in_restricted_process_and_binds_one_v
                 monkeypatch.setattr(
                     "app.services.prediction_context.load_task_image", no_task_reload
                 )
-                # Even a later overwrite of the original source cannot change
-                # either model's input. The final source check will reject writes.
                 await asyncio.to_thread(
                     runtime.owner_s3.put_object,
                     Bucket=runtime.datasets_bucket,
@@ -538,8 +536,6 @@ async def test_replayed_input_materializes_in_restricted_process_and_binds_one_v
                     )
                 assert not (tmp_path / "must-not-use-latest.png").exists()
         finally:
-            # Receipts/attempts are immutable provenance; the verifier destroys
-            # their owned database and versioned bucket after the qualification.
             async with runtime.owner_sessions.begin() as owner:
                 await owner.execute(
                     text("DELETE FROM public.annotations WHERE task_id=:task"),

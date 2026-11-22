@@ -385,8 +385,6 @@ async def update_video_chapter(
         )
     except TaskWorkflowError as exc:
         _raise_task_workflow_error(exc)
-    # onupdate=func.now() 令 updated_at 在 flush 后被 expire; 若不 refresh, _chapter_out 读取它
-    # 会触发异步上下文外的惰性加载 (MissingGreenlet → 500)。显式 refresh 在 greenlet 内取回新值。
     await db.refresh(chapter)
     body = _chapter_out(chapter)
     await AuditService.log(

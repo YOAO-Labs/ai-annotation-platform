@@ -11,7 +11,6 @@ import { bindAuthStorage } from "./stores/authStore";
 import { bindSettingsHistoryGuard } from "./pages/Settings/useUnsavedSettingsGuard";
 import "./styles/shadcn.css";
 
-// Sentry：DSN 留空则完全不启用（dev 默认关闭）
 const SENTRY_DSN = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 if (SENTRY_DSN) {
   Sentry.init({

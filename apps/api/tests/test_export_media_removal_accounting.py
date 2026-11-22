@@ -171,7 +171,6 @@ def test_exact_removal_and_noop_current_deltas(case, expected, status):
     if case == "marker":
         client.seed("v2", marker=True)
     version = "v2" if case in {"fallback", "marker"} else "v1"
-    # A sibling sharing the exact-key prefix is not this object's identity.
     client.seed("foreign", b"unrelated", key=KEY + "-sibling")
     fact = observe(client, version)
     assert fact["current_delta_bytes"] == expected

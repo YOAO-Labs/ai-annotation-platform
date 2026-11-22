@@ -39,7 +39,6 @@ const ICON_BTN_CLASS =
 interface TopBarProps {
   workspace: string;
   onWorkspaceChange?: () => void;
-  /** 窄屏时显示 hamburger 按钮，点击打开 SidebarDrawer。 */
   showHamburger?: boolean;
   onOpenDrawer?: () => void;
 }
@@ -58,12 +57,10 @@ export function TopBar({
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { resolved, setTheme } = useTheme();
 
-  // 全局 ⌘K / Ctrl+K 触发命令搜索
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
-        // 在 input/textarea/contenteditable 内不拦截系统快捷键
         if (tag === "input" || tag === "textarea") return;
         e.preventDefault();
         setPaletteOpen(true);
@@ -105,7 +102,6 @@ export function TopBar({
               className="size-[22px] shrink-0 rounded-md"
             />
             <span>YOAO</span>
-            {/* 版本号与登录后「本次更新」窗口联动:点击随时查看当前版本更新内容。 */}
             <button
               type="button"
               title="查看本次更新内容"
@@ -140,7 +136,6 @@ export function TopBar({
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
-          {/* 刷新按钮 */}
           <button type="button" title="刷新" onClick={handleRefresh} className={ICON_BTN_CLASS}>
             <Icon
               name="refresh"
@@ -149,7 +144,6 @@ export function TopBar({
             />
           </button>
 
-          {/* 主题切换 */}
           <button
             type="button"
             title={themeTitle}
@@ -160,7 +154,6 @@ export function TopBar({
             <Icon name={themeIcon} size={15} />
           </button>
 
-          {/* PerfHud · 性能监控浮窗 toggle (admin only, 快捷键 Ctrl+Shift+P 同步) */}
           {user?.role === "super_admin" || user?.role === "project_admin" ? (
             <button
               type="button"
@@ -177,13 +170,10 @@ export function TopBar({
             </button>
           ) : null}
 
-          {/* 全局预标 job 徽章 (admin only, 0 个时隐身) */}
           <PreannotateJobsBadge />
 
-          {/* 后台异步任务铃铛（all users, polling /async-jobs） */}
           <JobsBell />
 
-          {/* 通知按钮封装 trigger 和 popover，TopBar 不管理其 open state。 */}
           <Suspense
             fallback={
               <button type="button" aria-label="通知加载中" disabled className={ICON_BTN_CLASS}>

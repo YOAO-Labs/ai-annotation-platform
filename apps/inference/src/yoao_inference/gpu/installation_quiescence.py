@@ -223,8 +223,6 @@ async def quiesce_gpu_installation(
         begin = {
             "backend_id": str(request.registry_id),
             "membership_epoch": membership_epoch,
-            # Recovery may retain the Native intent after Redis loses its generation.
-            # Fence the observed ledger state; keep the durable intent for verification.
             "source_generation": source_generation,
             "generation": generation,
             "owner_id": owner,

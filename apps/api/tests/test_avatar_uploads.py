@@ -483,8 +483,6 @@ async def test_unknown_body_close_keeps_operation_and_pending_receipt(
         owned_ids = after - before
         assert len(owned_ids) == 1
     finally:
-        # This deliberately unresolved operation belongs only to this fixture.
-        # Tests do not claim closure; remove their synthetic ledger explicitly.
         if owned_ids:
             async with storage_access.engine(db_session).begin() as connection:
                 await connection.execute(
@@ -522,8 +520,6 @@ async def test_owner_failure_after_io_retains_bytes_and_committed_state(
         )
         assert response.status_code == 503
         row = await db_session.scalar(select(AvatarUpload))
-        # The owner publishes through native SQL, so the request's ORM instance
-        # still carries the pre-publication state. Assert the persisted row.
         await db_session.refresh(row)
         assert row.state == ("ready" if commit_applied else "pending")
         assert objects.puts and not objects.deleted

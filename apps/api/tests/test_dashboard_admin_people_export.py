@@ -68,9 +68,7 @@ async def test_admin_people_export_csv(
     assert "text/csv" in resp.headers["content-type"]
     assert "attachment" in resp.headers.get("content-disposition", "")
     body = resp.text
-    # Excel UTF-8 BOM
     assert body.startswith("﻿")
-    # 表头 + 成员行
     assert "user_id" in body
     assert "quality_score" in body
     assert ann_user.email in body
@@ -101,7 +99,6 @@ async def test_admin_people_export_requires_admin_role(
     )
     assert r_pm_no_proj.status_code == 403
 
-    # 自有项目:owner 是 pm_user → 严格 owner 校验通过 → 200。
     own = Project(
         id=uuid.uuid4(),
         display_id=f"P-EXP-{uuid.uuid4().hex[:6]}",

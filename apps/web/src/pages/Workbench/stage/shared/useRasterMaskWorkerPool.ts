@@ -2,13 +2,6 @@ import { useEffect, useMemo, useRef } from "react";
 import { RasterMaskWorkerPool } from "./rasterMaskWorkerPool";
 import type { RasterResourceCoordinator } from "./rasterResourceCoordinator";
 
-/**
- * Keep one lazy Worker pool per task.
- *
- * React StrictMode replays effects as setup → cleanup → setup in development.
- * Disposal is therefore deferred by one microtask and cancelled when the same
- * pool is leased again, while task switches and real unmounts still release it.
- */
 export function useRasterMaskWorkerPool(
   taskId: string | null | undefined,
   resourceCoordinator?: RasterResourceCoordinator,

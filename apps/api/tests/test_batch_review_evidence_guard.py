@@ -127,7 +127,6 @@ async def test_bulk_approve_preserves_per_batch_summary(
     reviewer, project, good_batch, _good = await _seed(
         db_session, owner, evidence="frozen", batch_name="good"
     )
-    # A second batch in the SAME project with unknown evidence.
     bad_batch = await create_batch(
         db_session, project_id=project.id, status="reviewing"
     )
@@ -204,7 +203,6 @@ async def test_batch_decision_busy_returns_conflict(
 
     try:
         async with maker() as writer:
-            # Lock a real, committed, visible row on a separate connection.
             locked = await writer.scalar(
                 select(TaskBatch.id)
                 .where(TaskBatch.id == ids["batch"])

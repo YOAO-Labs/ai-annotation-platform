@@ -66,9 +66,6 @@ from app.services.labeling_core_read_relations import (
 
 logger = logging.getLogger("app.services.prediction")
 
-# 显式 tool_unit_id 的白名单, 单一来源取自 schema 的 ToolUnitId (此前本地手抄一份, 漏了
-# point_mask_3d 而漂移)。'ai_interactive' 已退役: result item 若显式带该值, 不在白名单内,
-# derive_tool_unit_from_result 会绕过它、改按几何类型派生并记 warning。
 TOOL_UNIT_IDS = frozenset(_SCHEMA_TOOL_UNIT_IDS)
 
 
@@ -223,7 +220,6 @@ def derive_tool_unit_from_result(result: list[dict] | None) -> str:
     first = result[0] if isinstance(result[0], dict) else {}
     explicit = first.get("tool_unit_id")
     if explicit == "ai_interactive":
-        # 退役值: 忽略, 落到下方按几何/LS type 派生 (与迁移 0116 归位同规则)。
         logger.warning(
             "prediction result carries retired tool_unit_id 'ai_interactive'; "
             "deriving unit from geometry/type instead"
@@ -379,8 +375,6 @@ def to_internal_shape(s: dict) -> dict:
     if not isinstance(s, dict):
         return {}
     if "geometry" in s:
-        # 已是内部 schema 时，仅在缺少 tool_unit_id 时按 type 就地补齐，
-        # 保留原 dict identity (`is raw`) 以保兼容历史调用方依赖.
         if "tool_unit_id" not in s:
             s["tool_unit_id"] = _tool_unit_from_internal_geometry(
                 s.get("geometry")
@@ -394,22 +388,12 @@ def to_internal_shape(s: dict) -> dict:
         raw_score = s.get("confidence")
     confidence = float(raw_score) if raw_score is not None else 0.0
 
-    # 协议 v2 OCR / doc_layout: backend 在 shape 顶层写
-    # `attributes: {text, language?, orientation?, ...}` (与几何 value 同级)。
-    # 这里原样提取, 供 accept 路径透传到 annotation.attributes; 无则 {}。
     raw_attributes = s.get("attributes")
     attributes = dict(raw_attributes) if isinstance(raw_attributes, dict) else {}
 
-    # 检测式视频追踪 result item: 与扁平单几何不同, 是**嵌套聚合轨迹**
-    # `{type, track_id, class_name, keyframes:[{frame_index, bbox:{x,y,w,h}, ...}]}`。
-    # class_name 在顶层 (非 value.{type}); 坐标已归一 0-1 (backend 直返, 见协议约定),
-    # **不走 _percent_scale 自动探测** —— 小目标 bbox 各分量可能全 <1, 探测会误判为百分比。
-    # track_id 应已在 worker ingestion 阶段由原生 int 映射成 `trk_<uuid>` (读路径纯函数、
-    # 每次调用不得再生 uuid, 否则轨迹身份漂移)。此处只做形态重塑, 不做映射。
     if typ == "video_track_bbox":
         return _track_to_internal_shape(s, confidence, attributes)
 
-    # LabelStudio 字段名约定: value.{type} 是 label 数组 (rectanglelabels/polygonlabels/...)
     labels = val.get(typ)
     if not labels:
         labels = val.get("labels") or []
@@ -453,13 +437,6 @@ def to_internal_shape(s: dict) -> dict:
                 "h": h,
             }
     elif typ == "polygonlabels":
-        # 三种 LS shape 兼容:
-        #   ① 旧: {points: [[x,y]...]}                      → polygon (无 hole)
-        #   ② 新单连通带 hole: {points, holes: [[[x,y]...]]} → polygon (带 hole)
-        #   ③ 新多连通: {polygons: [{points, holes?}, ...]}  → multi_polygon
-        # ② / ③ 用于表达带 hole 或多连通的 mask。
-        # 缺少 holes / polygons 的形状不输出 holes，
-        # 以兼容既有 fixture 与 DB JSONB；Pydantic 的 PolygonGeometry 默认补 []。
         polygons_raw = val.get("polygons")
         if polygons_raw:
             scale_values: list[float] = []
@@ -511,9 +488,7 @@ def to_internal_shape(s: dict) -> dict:
         "class_name": class_name,
         "geometry": geometry,
         "confidence": confidence,
-        # 与 prediction.tool_unit_id 派生同源.
         "tool_unit_id": derive_tool_unit_from_ls_type(typ, val),
-        # OCR / doc_layout 富属性 (text / language / orientation 等); 非 OCR 为 {}。
         "attributes": attributes,
     }
 
@@ -1258,8 +1233,6 @@ class PredictionService:
             extra=extra,
         )
         try:
-            # Match the former first flush: pending application writes reach this
-            # transaction before the Prediction/metadata pair is inserted.
             await self.db.flush()
             data = await prediction_record_command(self.db, command)
         except HTTPException as exc:
@@ -1323,7 +1296,6 @@ class PredictionService:
         if write_scope.task_id != task_id or write_scope.project_id != project_id:
             raise ValueError("prediction write scope does not match its target")
         await assert_isolated_test_seed_database(self.db)
-        # Preserve pending Task edits before the native owner locks/inserts.
         await self.db.flush()
         command = InsertTestSeedPrediction(
             schema=PREDICTION_RECORDS_PROTOCOL,
@@ -1372,7 +1344,6 @@ class PredictionService:
         execution_snapshot_id: uuid.UUID | None = None,
     ) -> FailedPrediction:
         resolved_failure_id = failure_id if failure_id is not None else uuid.uuid4()
-        # Keep pending Task counter changes ahead of the native failure insert.
         await self.db.flush()
         created_at = await create_prediction_record_failed_state(
             self.db,

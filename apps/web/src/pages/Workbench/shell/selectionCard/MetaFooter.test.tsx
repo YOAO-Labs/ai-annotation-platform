@@ -1,5 +1,3 @@
-// MetaFooter 单测:ID 短码 / z-order / 额外行;来源映射中文。
-
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { MetaFooter } from "./MetaFooter";
@@ -13,7 +11,7 @@ describe("MetaFooter", () => {
         extra={[{ label: "模型", value: "grounding-sam2" }]}
       />,
     );
-    expect(getByText("abcd1234")).not.toBeNull(); // 短码 = 前 8 位
+    expect(getByText("abcd1234")).not.toBeNull();
     expect(getByText("3")).not.toBeNull();
     expect(getByText("grounding-sam2")).not.toBeNull();
   });

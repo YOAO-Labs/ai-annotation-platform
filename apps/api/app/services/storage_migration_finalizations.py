@@ -286,8 +286,6 @@ def _native(native, claim, source, previous=None):
         valid = False
     if not valid:
         reject("finalization_native_changed")
-    # Journal claim writes legitimately advance its revision, and a live status
-    # has a new timestamp. Physical operation/config/barriers/source stay exact.
     if previous and any(
         native[key] != previous[key]
         for key in ("config_digest", "operation_id", "barriers_sha256", "source")
@@ -410,7 +408,6 @@ async def preflight(db, actor_id, window_id, expected_revision):
         or parent.source != window.source
         or parent.target != window.target
     ):
-        # Historical cosmetic source revisions remain valid, as in B6.
         if (
             parent.baseline_sha256 is None
             or windows.physical_source(parent.source)
@@ -718,9 +715,6 @@ async def begin_invalidation(db, actor_id, claim, expected_revision):
             reject("finalization_unknown")
         if type(expected_revision) is not int or expected_revision != 0:
             reject("finalization_changed")
-        # No database reservation ever existed for this intent. The original
-        # window may have closed after a rolled-back bind; lock its current Gate
-        # and drain real work without requiring the old stopped revision.
         gate = await _lock(
             db,
             select(StorageMaintenanceGate).where(
@@ -780,10 +774,6 @@ async def status(db, actor_id, claim):
 
 
 async def changed_checkpoint(db, copy_id):
-    # save_delta already holds the Copy lock. Control acquires Copy before
-    # Finalization NOWAIT and never spans native work, so this one short UPDATE
-    # may wait without a reverse-lock cycle. Receipt and revocation commit
-    # together; a NOWAIT error here must never discard a real physical ACK.
     await db.execute(
         update(Finalization)
         .where(
@@ -799,6 +789,4 @@ async def changed_checkpoint(db, copy_id):
     )
     from app.services import storage_migration_read_publications as publications
 
-    # Copy -> Finalization -> Publication matches control lock order. Both
-    # eligibility changes and the actual ACK become visible in one commit.
     await publications.changed_checkpoint(db, copy_id)

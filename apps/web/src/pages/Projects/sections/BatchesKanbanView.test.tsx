@@ -1,6 +1,3 @@
-/**
- * BatchesKanbanView 单测：核心是验证拖拽迁移合法性 dryrun。
- */
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { BatchesKanbanView } from "./BatchesKanbanView";
@@ -76,11 +73,9 @@ describe("<BatchesKanbanView />", () => {
       <BatchesKanbanView batches={batches} isOwner={true} onTransition={onTransition} />,
     );
 
-    // 模拟 dragStart on card
     const card = container.querySelector('[draggable="true"]')!;
     fireEvent.dragStart(card);
 
-    // 找到 "审核中" 列容器并触发 drop
     const reviewing = screen.getByText("审核中").closest("div")?.parentElement;
     expect(reviewing).toBeTruthy();
     fireEvent.dragOver(reviewing!);

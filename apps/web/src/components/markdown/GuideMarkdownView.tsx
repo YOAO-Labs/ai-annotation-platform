@@ -4,28 +4,16 @@ import MarkdownView from "./MarkdownView";
 import type { MarkdownImageResolver } from "./types";
 
 interface GuideMarkdownViewProps {
-  /** Markdown 原文. */
   content: string;
-  /** 将 guide-asset:KEY 形式的 src 解析为签名 URL. */
   resolveAssetUrl?: (
     key: string,
     options?: { refresh?: boolean },
   ) => Promise<string | { url: string; expiresAt?: number }>;
-  /** New resolver contract; when present it preserves signed URL expiry metadata. */
   resolveImage?: MarkdownImageResolver;
-  /** 项目/文档身份，用于隔离图片解析的异步回调. */
   imageScope?: string;
-  /** Mount image previews in the owning guide dialog. */
   modalContainerRef?: RefObject<HTMLElement | null>;
 }
 
-/**
- * 渲染 annotation guide Markdown.
- *
- * 与 MarkdownBlock 同样基于 react-markdown + remark-gfm, 额外:
- * - <img src="guide-asset:KEY"> 经 resolveAssetUrl 转签名 URL 渲染.
- * - 解析失败 / 加载中显示占位文本, 避免 404.
- */
 export function GuideMarkdownView({
   content,
   resolveAssetUrl,

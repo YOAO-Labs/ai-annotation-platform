@@ -126,8 +126,6 @@ async def test_source_conditions_recheck_authority_without_dataset_write_guard(
     payload = {"name": "Source", "query": {"source_id": str(world[5].id)}}
     view = await client.post(url + "/saved-views", json=payload, headers=auth)
     assert view.status_code == 201, view.text
-    # An employee can save personal browsing preferences on a directory dataset;
-    # this grants no write capability and no authority to select its source.
     employee = headers(annotator)
     assert (
         await client.post(url + "/saved-views", json={"name": "Mine"}, headers=employee)
@@ -148,7 +146,6 @@ async def test_source_conditions_recheck_authority_without_dataset_write_guard(
             url + "/saved-views/" + view.json()["id"], json=payload, headers=auth
         )
     ).status_code == 404
-    # Deleting an invalid view must remain possible without selecting that source.
     assert (
         await client.delete(url + "/saved-views/" + view.json()["id"], headers=auth)
     ).status_code == 204

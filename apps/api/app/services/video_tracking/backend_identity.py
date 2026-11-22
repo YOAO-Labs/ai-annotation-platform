@@ -76,7 +76,6 @@ def _model_entries(backend: object) -> Sequence[Mapping[str, Any]]:
     if models is None and isinstance(capabilities, Mapping):
         supported = capabilities.get("supported_trackers")
         if _text_set(supported):
-            # The legacy aggregate has no per-model artifact identity.
             return [
                 {
                     **capabilities,

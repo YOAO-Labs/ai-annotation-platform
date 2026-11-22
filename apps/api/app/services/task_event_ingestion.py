@@ -173,10 +173,6 @@ async def assert_task_event_access(
     project = await get_workspace_project(db, project_id=task.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    # Current account + actual-project membership authority, locked for the
-    # persisted interval write.  Legacy global annotator/reviewer roles are not
-    # an authority source; an anomalous non-administrative owner is rejected
-    # because resolve_project_access fails closed without a valid membership.
     access = await resolve_project_access(
         db, actor_id=user.id, project=project, lock_membership=True
     )

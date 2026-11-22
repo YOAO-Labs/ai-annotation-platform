@@ -1,7 +1,5 @@
 import { execFileSync } from "node:child_process";
 
-// Check new names in places that create commands, imports, UI labels and private
-// state. Historical payloads, signed claims and operator migration prose are not names.
 const rules = [
   [
     /(?:\b(?:command|entrypoint):\s*\[?\s*["']?|^\s*(?:\$\s+)?(?:exec\s+)?)(?:aap-(?:jobs|identity|inference|labeling|workspace|assets|video|audit|diagnostics|insights|plugin)(?:-[\w-]+)?)(?=[\s\]"',=]|$)/,

@@ -6,14 +6,12 @@ import type { UserPageResponse, UserResponse, UsersStats } from "@/api/users";
 import { server } from "@/mocks/server";
 
 export interface UsersApiOptions {
-  /** Rows the API returns before request filters are applied. */
   users?: UserResponse[];
   total?: number;
   pages?: number;
   stats?: UsersStats;
   projects?: ProjectResponse[];
   groups?: GroupResponse[];
-  /** Gate the `/users/query` response so a test can observe the loading state. */
   queryGate?: Promise<void>;
   queryStatus?: number;
   deleteStatus?: number;
@@ -30,7 +28,6 @@ export interface CapturedUsersRequests {
   exports: URLSearchParams[];
 }
 
-/** Minimal row with the lifecycle fields the page reads; other `UserOut` fields are unused. */
 export function createUser(overrides: Partial<UserResponse> = {}): UserResponse {
   return {
     id: "u-base",
@@ -65,7 +62,6 @@ export const DEFAULT_PROJECTS: ProjectResponse[] = [
   { id: "project-1", name: "Test project", owner_id: "me-id" } as unknown as ProjectResponse,
 ];
 
-/** Reject rows outside the requested status/role/search, mirroring the server filters. */
 function filterUsers(users: UserResponse[], params: URLSearchParams): UserResponse[] {
   const search = params.get("search")?.toLowerCase() ?? "";
   const role = params.get("role") ?? "";
@@ -79,12 +75,6 @@ function filterUsers(users: UserResponse[], params: URLSearchParams): UserRespon
   });
 }
 
-/**
- * Describe the UsersPage responses at the API boundary the page already uses
- * (`/users/query`, `/users/stats`, `/users`, `/projects`, `/groups`, the delete
- * mutation and the CSV export fetch). Register in a `beforeEach`; the global
- * afterEach resets these runtime handlers.
- */
 export function installUsersApi(options: UsersApiOptions = {}): CapturedUsersRequests {
   const captured: CapturedUsersRequests = {
     pageQueries: [],

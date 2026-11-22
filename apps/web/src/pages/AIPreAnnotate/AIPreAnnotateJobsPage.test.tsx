@@ -1,7 +1,3 @@
-/**
- * AIPreAnnotateJobsPage 单测
- * 覆盖: 渲染 / 加载态 / 空态 / 有数据 / tab 切换
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
@@ -9,7 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { MeResponse } from "@/api/auth";
 import { useAuthStore } from "@/stores/authStore";
 
-// ── mock asyncJobsApi ────────────────────────────────────────────────────────
 const mockAsyncJobsList = vi.fn();
 const mockAsyncJobsCancel = vi.fn();
 const mockAsyncJobsGet = vi.fn();
@@ -24,14 +19,12 @@ vi.mock("@/api/asyncJobs", () => ({
   },
 }));
 
-// ── mock VideoTrackerJobsPanel (it has its own useQuery) ────────────────────
 vi.mock("@/pages/ModelMarket/VideoTrackerJobsPage", () => ({
   VideoTrackerJobsPanel: ({ projectId }: { projectId?: string }) => (
     <div data-testid="video-tracker-panel">video-panel{projectId ? `-${projectId}` : ""}</div>
   ),
 }));
 
-// ── mock workbench navigation utils ─────────────────────────────────────────
 vi.mock("@/utils/workbenchNavigation", () => ({
   buildWorkbenchUrl: (...args: unknown[]) => mockBuildWorkbenchUrl(...(args as [string])),
   currentWorkbenchReturnTo: () => "/ai-pre/jobs",
@@ -117,7 +110,6 @@ describe("AIPreAnnotateJobsPage", () => {
     mockAsyncJobsGet.mockReset();
     mockAsyncJobsRetryFailed.mockReset();
     mockBuildWorkbenchUrl.mockClear();
-    // 默认: 返回空列表
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 0 });
     mockAsyncJobsCancel.mockResolvedValue({ status: "cancel_requested", id: "job-1" });
     mockAsyncJobsGet.mockResolvedValue(makeJob());
@@ -137,7 +129,6 @@ describe("AIPreAnnotateJobsPage", () => {
   });
 
   it("加载态 → 显示加载中文本", () => {
-    // useQuery isLoading=true: 让 mockAsyncJobsList 挂起不 resolve
     mockAsyncJobsList.mockImplementation(() => new Promise(() => {}));
     renderUI();
     expect(screen.getByText("加载中…")).toBeInTheDocument();
@@ -146,7 +137,6 @@ describe("AIPreAnnotateJobsPage", () => {
   it("空态 → 显示暂无历史提示", async () => {
     mockAsyncJobsList.mockResolvedValue({ items: [], total: 0 });
     renderUI();
-    // 等待 query 完成
     await screen.findByText("暂无图片预标任务");
     expect(screen.getByText("图片预标任务 (0)")).toBeInTheDocument();
   });
@@ -409,7 +399,6 @@ describe("AIPreAnnotateJobsPage", () => {
     });
     renderUI();
     await screen.findByText("3");
-    // Badge variant=danger 渲染了 '3'
     expect(screen.getByText("3")).toBeInTheDocument();
   });
 

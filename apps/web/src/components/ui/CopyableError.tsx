@@ -3,7 +3,6 @@ import { CopyButton } from "./CopyButton";
 
 interface CopyableErrorProps {
   message: string | null | undefined;
-  /** A short visible summary; copying always uses the complete message. */
   preview?: string;
   className?: string;
   truncate?: boolean;

@@ -1,12 +1,3 @@
-/**
- * ExportModal 关键交互单测（前身 ExportSection.test.tsx）。
- * 多目标导出：targets 数组入参 + 多选切换。
- * B-47 后导出入口收进 ⋮ 菜单，独立包装器 ExportSection 已删除；
- * 表单逻辑（目标多选 / 属性开关 / 视频帧模式）改为直接渲染 ExportModal 验证。
- *
- * 覆盖：属性开关、目标多选和视频帧模式透传。
- * 用 vi.mock 拦截 api 模块，断言入参。
- */
 import { useState } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -104,7 +95,6 @@ function lidarPreflight(
   };
 }
 
-// 受控 harness：导出完成回调把 open 置 false，便于断言弹窗关闭。
 function ExportModalHarness({
   projectId,
   projectDataType,
@@ -161,7 +151,7 @@ describe("ExportModal", () => {
 
   it("多选 coco + 展开 YOLO 选分割 → targets 含两者", async () => {
     render(<ExportModalHarness projectId="p2" />);
-    fireEvent.click(screen.getByText("YOLO")); // 展开分组
+    fireEvent.click(screen.getByText("YOLO"));
     fireEvent.click(screen.getByText("分割"));
     submitExport();
     await waitFor(() => expect(projectsApi.exportProject).toHaveBeenCalled());
@@ -172,8 +162,8 @@ describe("ExportModal", () => {
 
   it("取消默认 coco 改选 YOLO 旋转框 → targets=[yolo-obb]", async () => {
     render(<ExportModalHarness projectId="p2b" />);
-    fireEvent.click(screen.getByText("COCO")); // 取消默认 coco
-    fireEvent.click(screen.getByText("YOLO")); // 展开分组
+    fireEvent.click(screen.getByText("COCO"));
+    fireEvent.click(screen.getByText("YOLO"));
     fireEvent.click(screen.getByText("旋转框"));
     submitExport();
     await waitFor(() => expect(projectsApi.exportProject).toHaveBeenCalled());
@@ -331,7 +321,7 @@ describe("ExportModal", () => {
 
     expect(screen.getByText("YOLO 逐帧分割")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Video JSON")); // 取消默认 video_json
+    fireEvent.click(screen.getByText("Video JSON"));
     fireEvent.click(screen.getByText("YOLO 逐帧分割"));
     submitExport();
     await waitFor(() => expect(projectsApi.exportProject).toHaveBeenCalled());
@@ -343,7 +333,7 @@ describe("ExportModal", () => {
   it("视频项目可同选 YOLO 逐帧检测 + 分割，互不覆盖", async () => {
     render(<ExportModalHarness projectId="p4c" projectDataType="video" />);
 
-    fireEvent.click(screen.getByText("Video JSON")); // 取消默认 video_json
+    fireEvent.click(screen.getByText("Video JSON"));
     fireEvent.click(screen.getByText("YOLO 逐帧"));
     fireEvent.click(screen.getByText("YOLO 逐帧分割"));
     submitExport();
@@ -360,7 +350,7 @@ describe("ExportModal", () => {
 
     expect(screen.getByText("COCO 逐帧分割")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Video JSON")); // 取消默认 video_json
+    fireEvent.click(screen.getByText("Video JSON"));
     fireEvent.click(screen.getByText("COCO 逐帧分割"));
     submitExport();
     await waitFor(() => expect(projectsApi.exportProject).toHaveBeenCalled());
@@ -372,7 +362,7 @@ describe("ExportModal", () => {
   it("视频项目可同选 YOLO 逐帧分割 + COCO 逐帧分割，互不覆盖", async () => {
     render(<ExportModalHarness projectId="p7" projectDataType="video" />);
 
-    fireEvent.click(screen.getByText("Video JSON")); // 取消默认 video_json
+    fireEvent.click(screen.getByText("Video JSON"));
     fireEvent.click(screen.getByText("YOLO 逐帧分割"));
     fireEvent.click(screen.getByText("COCO 逐帧分割"));
     submitExport();

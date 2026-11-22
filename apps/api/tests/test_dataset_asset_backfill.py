@@ -52,7 +52,6 @@ async def test_backfill_bounded_resume_idempotency_and_no_business_writes(
         db_session, mode="apply", dataset_id=dataset.id, batch_size=2
     )
     assert report["created"] == 2 and cursor == items[1].id
-    # Resume after a completed batch, and rescan from the beginning afterward.
     report, _ = await backfill.backfill_batch(
         db_session, mode="apply", dataset_id=dataset.id, batch_size=2, after=cursor
     )

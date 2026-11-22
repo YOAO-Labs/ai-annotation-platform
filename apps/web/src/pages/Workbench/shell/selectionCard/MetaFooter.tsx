@@ -8,12 +8,10 @@ export interface MetaFooterRow {
 
 export interface MetaFooterProps {
   id: string;
-  /** 原始来源串(manual / prediction_based / import…),映射为中文。 */
   source?: string;
   createdAt?: string | null;
   updatedAt?: string | null;
   zOrder?: number;
-  /** 各端补充行(如模型名 / 候选序号)。 */
   extra?: MetaFooterRow[];
 }
 
@@ -28,7 +26,6 @@ function sourceText(source: string): string {
   return source;
 }
 
-/** ISO → 本地「YYYY-MM-DD HH:mm」。解析失败原样返回。 */
 function formatTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -46,11 +43,6 @@ const ROW_CLASS = "contents";
 const ROW_LABEL_CLASS = "text-xs text-muted-foreground";
 const ROW_VALUE_CLASS = "truncate text-xs text-muted-foreground";
 
-/**
- * 选中信息卡 · 可折叠次要信息(默认收起)。
- * ID 短码 / 来源 / 创建·更新时间 / z-order,各端可经 extra 追加行。
- * 用原生 details/summary,无 JS 状态、键盘可达;无任何行时不渲染。
- */
 export function MetaFooter({ id, source, createdAt, updatedAt, zOrder, extra }: MetaFooterProps) {
   const rows: MetaFooterRow[] = [{ label: "ID", value: shortId(id), mono: true }];
   if (source) rows.push({ label: "来源", value: sourceText(source) });

@@ -40,7 +40,6 @@ export function densityRatio(count: number, maxCount: number): number {
   return Math.min(1, count / maxCount);
 }
 
-/** Preserve the current-frame position, or the viewport center after manual browsing. */
 export function timelineZoomOffset({
   scrollLeft,
   viewportWidth,

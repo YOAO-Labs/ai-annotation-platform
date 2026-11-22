@@ -23,21 +23,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-# ── status enums (plan Appendix A.1 — four independent axes) ──────────────
-
 TrafficState = Literal["active", "draining", "disabled"]
 RoutingMode = Literal["off", "observe", "enforce"]
 
-# Derived pool-level availability, combining health + routing axes. This is a
-# *display hint* assembled from already-server-trimmed fields; it never
-# invents routing truth the router did not produce.
 PoolAvailabilityStatus = Literal["healthy", "degraded", "offline", "unknown"]
 
-# Per-source freshness label (plan Appendix A.2).
 SourceName = Literal["topology", "router_ledger", "health", "gpu", "residency"]
-
-
-# ── topology (role-scoped; consumed by registry management) ───────────────
 
 
 class TopologyMemberInstance(BaseModel):
@@ -52,8 +43,6 @@ class TopologyMemberInstance(BaseModel):
     registry_id: UUID
     name: str
     traffic_state: TrafficState
-    # Super-Admin-only; ``None`` when projected away for Project Admin
-    # (plan §5 + Appendix A.6 hide weight/state/health/GPU from Project Admin).
     weight: int | None = None
     state: str | None = None
     last_checked_at: datetime | None = None
@@ -71,13 +60,11 @@ class TopologyPoolEntry(BaseModel):
     id: UUID
     name: str
     enabled: bool
-    # Project Admin projection: ``"unknown"`` (plan Appendix A.6).
     routing_policy: str
     legacy_instance_id: UUID | None = None
     routing_generation: int
     capability_fingerprint: str | None = None
     member_count: int
-    # Derived fields:
     routable_instances: int
     status: PoolAvailabilityStatus
     status_reason_codes: list[str] = Field(default_factory=list)
@@ -93,7 +80,13 @@ class TopologyResponse(BaseModel):
     pools: list[TopologyPoolEntry] = Field(default_factory=list)
 
 
-# ── runtime snapshot (Super Admin only; consumed by runtime observe) ──────
+class PrimaryPoolProjectCountsResponse(BaseModel):
+    counts: dict[UUID, int] = Field(
+        description=(
+            "Visible projects grouped by primary pool UUID. "
+            "Omitted pools have zero visible bindings."
+        )
+    )
 
 
 class RuntimeMemberSnapshot(BaseModel):
@@ -112,12 +105,9 @@ class RuntimeMemberSnapshot(BaseModel):
     registry_state: str
     health_fresh: bool
     last_checked_at: datetime | None = None
-    # None means the router ledger could not provide a fresh proof.  It must not
-    # be coerced to zero/closed because unload safety is fail-closed.
     route_inflight: int | None = None
     circuit_open: bool | None = None
     gpu_resource_id: str | None = None
-    # These fields are unset when routing metrics are unavailable.
     last_selected_at: datetime | None = None
     selection_count_window: int | None = None
     rejection_count_window: int | None = None

@@ -52,7 +52,6 @@ class AnnotationsRecoveryGuards(unittest.IsolatedAsyncioTestCase):
                             )
                         )
                         if table == "managed_original_creations":
-                            # Earlier import/dataset guards query the same table.
                             if "owner_kind = 'task'" not in sql:
                                 return None
                             self.assertIn("original_ref", sql)

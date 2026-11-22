@@ -48,7 +48,6 @@ async def _seed_project_and_task(
     db.add(project)
     await db.flush()
 
-    # Literal employees; authority comes only from these explicit membership rows.
     await create_membership(
         db,
         project_id=project.id,
@@ -131,7 +130,6 @@ class TestTaskLockFlow:
         )
         tid = str(task.id)
 
-        # 1) submit
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/submit", headers=_bearer(ann_token)
         )
@@ -141,7 +139,6 @@ class TestTaskLockFlow:
         assert task.submitted_at is not None
         assert task.reviewer_claimed_at is None
 
-        # 2) withdraw（reviewer 未 claim）
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/withdraw", headers=_bearer(ann_token)
         )
@@ -150,13 +147,11 @@ class TestTaskLockFlow:
         assert task.status == "in_progress"
         assert task.submitted_at is None
 
-        # 3) submit 又一次
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/submit", headers=_bearer(ann_token)
         )
         assert r.status_code == 200
 
-        # 4) reviewer claim
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/review/claim", headers=_bearer(rev_token)
         )
@@ -167,14 +162,12 @@ class TestTaskLockFlow:
         await db_session.refresh(task)
         assert task.reviewer_claimed_at is not None
 
-        # 5) withdraw 已被 claim → 409 task_already_claimed
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/withdraw", headers=_bearer(ann_token)
         )
         assert r.status_code == 409
         assert r.json()["detail"]["reason"] == "task_already_claimed"
 
-        # 6) approve
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/review/approve", headers=_bearer(rev_token)
         )
@@ -184,7 +177,6 @@ class TestTaskLockFlow:
         assert task.reviewed_at is not None
         assert task.reviewer_id == rev_user.id
 
-        # 7) reopen 由 assignee 单方面发起
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/reopen", headers=_bearer(ann_token)
         )
@@ -205,13 +197,11 @@ class TestTaskLockFlow:
         ann = await _create_annotation(db_session, task, ann_user.id)
         tid, aid = str(task.id), str(ann.id)
 
-        # 进入 review
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/submit", headers=_bearer(ann_token)
         )
         assert r.status_code == 200
 
-        # PATCH annotation 应被拦截
         r = await httpx_client.patch(
             f"/api/v1/tasks/{tid}/annotations/{aid}",
             json={"class_name": "person"},
@@ -220,7 +210,6 @@ class TestTaskLockFlow:
         assert r.status_code == 409, r.text
         assert r.json()["detail"]["reason"] == "task_locked"
 
-        # DELETE 也被拦截
         r = await httpx_client.delete(
             f"/api/v1/tasks/{tid}/annotations/{aid}",
             headers=_bearer(ann_token),
@@ -228,7 +217,6 @@ class TestTaskLockFlow:
         assert r.status_code == 409
         assert r.json()["detail"]["reason"] == "task_locked"
 
-        # 新增也被拦截
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/annotations",
             json={
@@ -257,7 +245,6 @@ class TestTaskLockFlow:
             f"/api/v1/tasks/{tid}/submit", headers=_bearer(ann_token)
         )
 
-        # reviewer 不是 assignee + 不是 admin → 403
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/withdraw", headers=_bearer(rev_token)
         )
@@ -286,19 +273,16 @@ class TestTaskLockFlow:
         )
         assert claim.status_code == 200
 
-        # 缺 reason_type → 422
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/review/reject", headers=_bearer(rev_token)
         )
         assert r.status_code == 422
-        # 仅传 reason 不带 type → 422
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/review/reject",
             json={"reason": "框漏了 3 处行人"},
             headers=_bearer(rev_token),
         )
         assert r.status_code == 422
-        # 非法 type → Pydantic 422
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/review/reject",
             json={"reason_type": "garbage"},
@@ -306,7 +290,6 @@ class TestTaskLockFlow:
         )
         assert r.status_code == 422
 
-        # 合法 type + 自由文本 → 持久化两字段
         r = await httpx_client.post(
             f"/api/v1/tasks/{tid}/review/reject",
             json={"reason_type": "missing", "reason": "框漏了 3 处行人"},
@@ -375,6 +358,5 @@ class TestTaskLockFlow:
         assert rows[0].method == "POST"
         assert rows[0].path == f"/api/v1/tasks/{tid}/submit"
         assert str(rows[0].ip) == "198.51.100.17"
-        # reopen 的 detail 含 original_reviewer_id
         reopen_log = rows[-1]
         assert reopen_log.detail_json.get("original_reviewer_id") is not None

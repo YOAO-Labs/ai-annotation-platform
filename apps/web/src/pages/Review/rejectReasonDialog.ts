@@ -1,7 +1,3 @@
-// plan 1789527942 · T2 · Review 退回两步决策流（原 RejectReasonModal 的 Projects/Review 调用点迁移）
-// 第一步 choiceDialog 选 reason_type（labels 沿用 rejectReasonTypes 单点），
-// 第二步可选 inputDialog 补充说明；任一步取消 → null（放弃整次退回）。
-// 注意：每一步 await 之后调用方必须重查自身作用域守卫（如 ReviewPage 的 queueScopeKeyRef）再提交。
 import { choiceDialog, inputDialog } from "@/components/ui/decisionDialog";
 
 import {
@@ -20,10 +16,6 @@ export const REJECT_PRESET_COMMENTS: string[] = [
   "截断漏标",
 ];
 
-/**
- * 退回原因两步弹窗。count 沿用原 modal 的「退回原因（N 个任务）」标题；
- * skipReasonHint 为单任务且被标注员跳过时的提示（原紫色提示块，纯文本展示在第一步描述里）。
- */
 export async function promptRejectReason(options: {
   count: number;
   skipReasonHint?: string | null;
@@ -39,8 +31,6 @@ export async function promptRejectReason(options: {
     })),
   });
   if (!reasonType) return null;
-  // 原 modal 的行为:被跳过任务的补充说明预填「标注员跳过：…」,标注员可直接改写;
-  // 不预填的话,直接确认会得到 reason: undefined,指派方收不到跳过原因。
   const comment = await inputDialog({
     title: "补充说明",
     label: "补充说明（可选）",

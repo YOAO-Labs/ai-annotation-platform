@@ -10,6 +10,8 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 from scripts.verify_module_data_boundary import (
+    TEST_FILES,
+    _RECLAMATION_PROFILES,
     _append_profile_junit,
     _arguments,
     _passed_test_count,
@@ -169,6 +171,70 @@ class ModuleDataSelectionTests(unittest.TestCase):
             self.assertEqual(evidence["profiles"]["ordinary"]["status"], "passed")
             self.assertEqual(evidence["profiles"]["identity-e2e"]["status"], "failed")
             self.assertFalse(output.with_name("acceptance.junit.xml").exists())
+
+    def test_default_reclaim_cases_use_separate_native_profiles(self):
+        ordinary = "tests/test_other.py::Group::test_parametrized"
+        selected = (ordinary, *_RECLAMATION_PROFILES)
+        collected = {target: target for target in selected}
+        collected[ordinary] += "[a::b]"
+        invocations = {}
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "acceptance.json"
+            args = _arguments(["--output", str(output)])
+
+            def profile_run(argv, *, collect_only=False, partition_default=True):
+                receipt = Path(argv[1])
+                manifest = receipt.with_suffix(".collection.json")
+                if collect_only:
+                    manifest.write_text(json.dumps(list(collected.values())))
+                    return 0
+                selection = argv[3::2]
+                invocations[receipt.stem] = tuple(selection)
+                actual = [collected[target] for target in selection]
+                manifest.write_text(json.dumps(actual))
+                receipt.write_text(
+                    json.dumps(
+                        {
+                            "status": "passed",
+                            "test_exit_code": 0,
+                            "cleanup": {"errors": []},
+                        }
+                    )
+                )
+                suite = ET.Element("testsuite", tests=str(len(actual)))
+                for node in actual:
+                    target, bracket, parameter = node.partition("[")
+                    path, *parts = target.split("::")
+                    ET.SubElement(
+                        suite,
+                        "testcase",
+                        classname=".".join(
+                            [path.removesuffix(".py").replace("/", "."), *parts[:-1]]
+                        ),
+                        name=parts[-1] + bracket + parameter,
+                    )
+                ET.ElementTree(suite).write(receipt.with_suffix(".junit.xml"))
+                return 0
+
+            with (
+                patch(
+                    "scripts.verify_module_data_boundary.main", side_effect=profile_run
+                ),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(_run_strict_default(args, selected), 0)
+
+            self.assertTrue(_RECLAMATION_PROFILES.keys() <= set(TEST_FILES))
+            self.assertEqual(
+                invocations,
+                {
+                    "ordinary": (ordinary,),
+                    **{
+                        name: (target,)
+                        for target, name in _RECLAMATION_PROFILES.items()
+                    },
+                },
+            )
 
     def test_default_interruption_cannot_leave_a_prior_pass(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -1,23 +1,7 @@
-/**
- * 通用 popover 状态 hook。
- *
- * 之前 ExportSection / TopBar 主题切换 / 智能切题菜单 / AttributeForm
- * DescriptionPopover / CanvasToolbar 各自手写 click-outside + ESC-close 逻辑。
- * 本 hook 统一行为，并暴露 anchorRef / popoverRef 以便组件自管样式与定位。
- *
- * 使用：
- *   const pop = usePopover();
- *   <button ref={pop.anchorRef} onClick={pop.toggle}>菜单</button>
- *   {pop.open && (
- *     <div ref={pop.popoverRef}>...</div>
- *   )}
- */
 import { useCallback, useEffect, useRef, useState } from "react";
 
 export interface UsePopoverOptions {
-  /** 关闭时回调（非状态变化，用于上层副作用） */
   onClose?: () => void;
-  /** 初始是否打开 */
   initialOpen?: boolean;
 }
 

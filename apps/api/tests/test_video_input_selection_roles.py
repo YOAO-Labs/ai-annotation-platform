@@ -69,7 +69,6 @@ async def test_assets_streams_and_locks_video_members_without_private_table_acce
         cursor = c.parse_native(
             "open_video_input_manifest_members", request, raw
         ).cursor
-        # The cursor name was parsed against the protocol's fixed identifier pattern.
         header = c.parse_cursor_row(
             (
                 await db_session.execute(text(f'FETCH FORWARD 1 FROM "{cursor}"'))

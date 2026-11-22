@@ -25,7 +25,6 @@ describe("UserAvatar", () => {
     );
     const img = container.querySelector("img");
     expect(img).toHaveAttribute("src", "/avatars/pixel/pixel-07.svg");
-    // 姓名已在旁侧展示,头像不重复播报。
     expect(img).toHaveAttribute("aria-hidden", "true");
   });
 
@@ -62,7 +61,6 @@ describe("UserAvatar", () => {
     fireEvent.error(container.querySelector("img")!);
     expect(container.querySelector("img")).toBeNull();
 
-    // 同一挂载实例内保存了新头像:必须重新渲染 img,而不是沿用旧的失败状态。
     rerender(<UserAvatar user={{ name: "Ann", avatar_ref: "preset:pixel-04" }} />);
     expect(container.querySelector("img")).toHaveAttribute("src", "/avatars/pixel/pixel-04.svg");
   });

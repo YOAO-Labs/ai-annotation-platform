@@ -107,9 +107,6 @@ def _true_entity_source(
             for index, child in enumerate(children)
         )
 
-    # Immediate annotation leaves are one same-row witness when their AND group is
-    # true.  Nested groups retain their own witness identity and may be different
-    # rows, so recurse into each group independently.
     if any(_is_annotation_object_rule(child) for child in children):
         return True
     return any(
@@ -169,16 +166,10 @@ def _collect_true_sources(
                 predicates.append(predicate)
             context = context or child_context
             entity = entity or child_entity
-        # The task compiler compiles an empty group to literal true for either op,
-        # so an empty OR explains its match with task context exactly like an empty
-        # AND does, instead of serializing an empty witness set.
         if not children and not suppress_context:
             context = True
         return _merge_annotation_conditions(predicates), context, entity
 
-    # Resolve this from the actual true branches before visiting children.  A false
-    # annotation sibling in a nested OR must not suppress a true task-only branch;
-    # an actual entity witness elsewhere in the AND does suppress that context.
     entity = _true_entity_source(node, path, truths)
     child_suppress_context = suppress_context or entity
     predicates: list[ColumnElement[bool]] = []
@@ -228,10 +219,6 @@ async def collect_match_evidence(
         evidence.annotation_condition = literal(True)
         return evidence
 
-    # A boolean ARRAY is one PostgreSQL target-list column even for a structurally
-    # valid tree containing more than 1664 OR children.  Non-OR descendants are
-    # known true once their containing AND branch is reached after the full task
-    # filter guard in DataManagerService.matches.
     or_entries = _or_children(filter_json)
     truths: dict[str, bool] = {}
     if or_entries:

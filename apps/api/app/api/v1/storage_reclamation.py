@@ -170,8 +170,6 @@ async def managed_original_verification_start(
     return response
 
 
-# Exact-version execution has its own reviewed authority and durable owner;
-# observational retirement preview never becomes deletion permission.
 from app.schemas.managed_original_reclaim import (  # noqa: E402
     ManagedOriginalReclaimReview,
     ManagedOriginalReclaimApply,

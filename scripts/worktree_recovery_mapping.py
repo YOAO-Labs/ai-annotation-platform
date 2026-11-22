@@ -638,8 +638,6 @@ async def remap_storage(
             != identity(endpoint_url, source["MINIO_DATASETS_BUCKET"])
         ):
             raise WorktreeError("辅助原件归属与备份datasets用途不一致")
-        # Creation is historical write evidence. Only this current locator is
-        # relocated; source contracts, pointers and unbound attempts stay fixed.
         table = "dataset_auxiliary_originals"
         bucket = target["MINIO_DATASETS_BUCKET"]
         change(row, "bucket", bucket, table, str(row.id))
@@ -667,8 +665,6 @@ async def remap_storage(
             table,
             str(row.id),
         )
-    # Only the table owner may opt into the narrowly scoped JSON physical map.
-    # Any failure rolls back the caller's complete offline mapping transaction.
     await db.execute(text("SET LOCAL yoao.restore_training_storage = 'on'"))
     for row, field, value in planned:
         setattr(row, field, value)

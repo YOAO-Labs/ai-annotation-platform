@@ -339,7 +339,6 @@ async def test_inference_role_gets_owner_reads_without_learning_table_access(
 
 
 async def test_backend_dependency_catalog_schema_is_closed_and_typed() -> None:
-    # The packaged migration descriptor keeps the historical AAP spelling.
     schema = current(json.loads(_SCHEMA_PATH.read_text(encoding="utf-8")))
     signatures = [_EVALUATION_FUNCTION, _JOBS_FUNCTION]
 

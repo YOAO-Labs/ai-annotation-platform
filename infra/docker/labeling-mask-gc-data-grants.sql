@@ -1,8 +1,3 @@
--- Grant the isolated Mask GC worker only its six Labeling operation functions.
--- The role must be provisioned as a LOGIN with no memberships before this runs.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v labeling_owner=labeling_code -v mask_gc_role=yoao_labeling_mask_gc_client
---   -f infra/docker/labeling-mask-gc-data-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

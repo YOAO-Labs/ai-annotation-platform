@@ -34,7 +34,6 @@ interface TaskQueuePanelProps {
   open: boolean;
   classes: string[];
   classesConfig?: ClassesConfig;
-  /** 当前激活工具的显示名 + 图标，色板图例据此标明类别归属的工具。 */
   toolLabel: string;
   toolIcon: IconName;
   activeClass: string;
@@ -52,10 +51,8 @@ interface TaskQueuePanelProps {
   totalCount?: number;
   isOwner?: boolean;
   onGoToBatchSettings?: () => void;
-  /** 受控宽度（仅 open=true 生效）。 */
   width: number;
   onResize: (w: number) => void;
-  /** 拖拽 handle 的像素边界与双击重置值(随窗口宽度动态变化;不传按内置默认)。 */
   widthMin?: number;
   widthMax?: number;
   widthResetTo?: number;
@@ -64,10 +61,6 @@ interface TaskQueuePanelProps {
   onDetachQueue?: () => void;
   onDetachPalette?: () => void;
   floatingSection?: "queue" | "palette";
-  /**
-   * 左栏色板默认是只读图例(2D 落框时弹窗/数字键选类)。点云 3D 台没有落框弹窗,
-   * 放置新框直接取 activeClass,故 3D 下让色板可点选(classPickable),点击即设 activeClass。
-   */
   classPickable?: boolean;
   onPickClass?: (cls: string) => void;
   continuousCreation?: ContinuousCreationControlsProps;
@@ -278,7 +271,6 @@ export function TaskQueuePanel({
     }
   }, []);
 
-  // rejected 任务置顶，其余保持原序
   const sortedTasks = useMemo(() => {
     const rejected = tasks.filter((t) => t.status === "rejected");
     const rest = tasks.filter((t) => t.status !== "rejected");
@@ -298,7 +290,6 @@ export function TaskQueuePanel({
     overscan: 5,
   });
 
-  // 滚到接近末尾时触发加载下一页
   useEffect(() => {
     if (!showQueue) return;
     const virtualItems = virtualizer.getVirtualItems();
@@ -319,9 +310,6 @@ export function TaskQueuePanel({
     return () => window.cancelAnimationFrame(frame);
   }, [open, showQueue, activeTaskIndex, virtualizer]);
 
-  // 高度用 useElementStyle 注入 CSS 变量:本面板在收起左栏后会条件卸载,再展开时挂成新 DOM;
-  // 若仍用 useRef+useEffect([paletteHeight]),依赖未变 effect 不重跑 → 新元素拿不到
-  // --left-palette-height → 高度回退到默认(同右栏 B-56「展开收起后回到原位 / 第一次拖拽不跟手」)。
   const rootStyleRef = useElementStyle<HTMLDivElement>(
     useMemo<CSSProperties>(
       () => ({ "--left-palette-height": `${paletteHeight}px` }) as CSSProperties,
@@ -379,7 +367,6 @@ export function TaskQueuePanel({
             </FilterGroup>
           )}
 
-          {/* owner 视角且无任何批次时给出明确入口，避免误以为「100 条就是全部」 */}
           {isOwner && (!batches || batches.length === 0) && onGoToBatchSettings && (
             <div className="flex items-center justify-between gap-2 mx-3.5 mt-1.5 px-2.5 py-2 border border-dashed border-border rounded-[var(--radius-sm)] bg-background text-muted-foreground text-xs">
               <span>未分批次 · 任务统一在「未归类」</span>
@@ -394,7 +381,6 @@ export function TaskQueuePanel({
             </div>
           )}
 
-          {/* 非 owner 视角且未分到批次 → 显式提示，避免误以为「列表无尽，但只看见 100」 */}
           {!isOwner && (!batches || batches.length === 0) && (
             <div className="mx-3.5 mt-1.5 px-2.5 py-2 border border-dashed border-border rounded-[var(--radius-sm)] bg-background text-muted-foreground text-xs">
               暂未被分派到批次 · 联系项目管理员分配

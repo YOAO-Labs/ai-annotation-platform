@@ -484,7 +484,6 @@ async def test_unknown_target_close_keeps_lease_and_unique_b_read_responsibility
         for permit in world.active
     )
     world.retire.assert_not_awaited()
-    # Fake provider handles have no external lifetime; close them explicitly.
     world.close_failure = None
     for body in world.bodies:
         body.close()

@@ -280,8 +280,6 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
     try:
         await recorder.finish(settled=not storage_access.failure_unsettled(failure))
     except BaseException as exc:
-        # The verified owner receipt is mandatory even if accounting drains a
-        # caller cancellation. Persist it before propagating that cancellation.
         failure = (
             exc
             if failure is None
@@ -440,8 +438,6 @@ def _same_source(output, source):
     current, expected = source_facts(source), output.input_ref.get("source")
     if not isinstance(expected, dict):
         return False
-    # Ready bytes retain their content identity across maintenance windows.
-    # Current source admission and read routes are checked at both bookends.
     transport = {"maintenance_revision", "read_route"}
     return {key: value for key, value in current.items() if key not in transport} == {
         key: value for key, value in expected.items() if key not in transport

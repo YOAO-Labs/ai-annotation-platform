@@ -136,8 +136,6 @@ NOTIFICATION_INBOX_FUNCTIONS = (
 NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "yoao_notifications_v1._visible_inbox_rows(uuid,text)"
 )
-# Qualified owner identities and their audited callers may move; historical SQL may not.
-# Frozen SQL and signed wire identities remain unchanged.
 FROZEN_OWNER_NAMESPACES = {
     "yoao_assets_v1": "aap_assets_v1",
     "yoao_audit_v1": "aap_audit_v1",
@@ -216,7 +214,6 @@ NAMESPACE_BODY_CALLERS = {
     "yoao_workspace_v1.delete_project",
     "yoao_workspace_v1.unlink_dataset",
 }
-# Frozen pre-upgrade bodies and the exact substitutions in the forward migration.
 KEY_USAGE_BODY_PATCHES = {
     "yoao_identity_v1.confirm_api_key_principal(uuid,text)": (
         ("lock", 1),
@@ -497,7 +494,8 @@ FUNCTION_BODY_ARTIFACTS = {
     },
     "yoao_audit_v1.refresh_audit_bi_mv()": "0322_audit_daily_projection.sql",
     "yoao_audit_v1.maintenance_command(jsonb)": "0438_fixture_audit_namespace.sql",
-    "yoao_notifications_v1.append_job_terminal_notification(jsonb)": "0321_notifications_terminal_append.sql",
+    "yoao_notifications_v1.append_job_terminal_notification(jsonb)": "0484_notifications_terminal_outbox.sql",
+    "yoao_notifications_v1.claim_identity_deliveries(jsonb)": "0484_notifications_terminal_outbox.sql",
     "yoao_audit_v1.query_events(pg_catalog.jsonb)": "0317_audit_query.sql",
     **{
         signature: "0324_notifications_inbox_query.sql"
@@ -647,7 +645,6 @@ FUNCTION_BODY_ARTIFACTS = {
             "yoao_assets_v1._managed_original_import_prefix(text)",
             "yoao_assets_v1._managed_original_scope_key(text,text)",
             "yoao_assets_v1._operator_read_permit_purpose(uuid)",
-            # begin_operator_auxiliary(jsonb) is superseded by 0459 below.
             "yoao_assets_v1.publish_operator_auxiliary(uuid)",
             "yoao_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid)",
             "yoao_assets_v1.operator_auxiliary_material(uuid,uuid)",
@@ -887,7 +884,10 @@ FUNCTION_BODY_ARTIFACTS = {
             "yoao_jobs_v1.prepare_media_delivery(jsonb)",
         )
     },
-    "yoao_jobs_v1.fixture_real_job_retired(uuid,uuid,uuid)": "0436_fixture_jobs_join.sql",
+    "yoao_jobs_v1.observe_fixture_annotation_import()": "0480_fixture_annotation_import.sql",
+    "yoao_assets_v1.prepare_fixture_video_request_delivery()": "0481_fixture_video_requests.sql",
+    "yoao_jobs_v1.fixture_real_job_retired(uuid,uuid,uuid)": "0483_fixture_prediction_import.sql",
+    "yoao_jobs_v1.observe_fixture_prediction_import()": "0483_fixture_prediction_import.sql",
     "yoao_jobs_v1.preserve_fixture_export_dispatch()": "0436_fixture_jobs_join.sql",
     **{
         signature: "0432_assets_media_source_read.sql"
@@ -2297,10 +2297,24 @@ SCHEMA_ARTIFACTS = (
     "0455_images_output_ownership.schema.json",
     *ASSETS_SOURCE_SCHEMA_ARTIFACTS,
 )
+_RECLAMATION_PROFILES = {
+    "tests/test_managed_original_reclaim_fences.py::test_selected_group_and_global_pages_share_facts_but_not_scope": "reclaim-scope",
+    "tests/test_managed_original_reclaim_fences.py::test_reconciliation_unknown_coverage_survives_empty_retirement_table": "reclaim-unknown",
+    "tests/test_managed_original_reclaim_fences.py::test_only_valid_current_attempt_can_exclude_its_exact_operation": "reclaim-operation",
+    "tests/test_managed_original_reclaim.py::test_observation_gets_do_not_claim_reclamation_in_read_only_transactions": "reclaim-read-only",
+    "tests/test_managed_original_reclaim.py::test_http_preview_commit_and_worker_real_small_version_delete": "reclaim-version-delete",
+}
+
+
 TEST_FILES = (
     "tests/test_video_frame_service.py",
     "tests/test_video_control_worker_binding.py",
+    "tests/test_video_derivative_seeds.py::test_request_ownership_marker_cannot_be_supplied_by_caller",
+    "tests/test_video_derivative_seeds.py::test_fixture_video_publication_proof_uses_private_postgres_state",
     "tests/test_jobs_fixture_cleanup_binding.py",
+    "tests/test_predictions_import.py::test_owned_prediction_import_cleanup",
+    "tests/test_fixture_run_ownership.py::test_synchronous_fixture_import_proof",
+    "tests/test_fixture_run_ownership.py::test_synchronous_fixture_import_proof_rejects",
     "tests/test_retry_born_dataset_scope.py",
     "tests/test_cross_frame_born_dataset_scope.py",
     "tests/test_task_upload_managed_contract.py",
@@ -2527,6 +2541,8 @@ TEST_FILES = (
     "tests/test_project_task_datasets.py",
     "tests/test_sample_evaluations.py",
     "tests/test_async_jobs.py",
+    "tests/test_jobs_lifecycle_refresh_loader.py",
+    "tests/test_jobs_lifecycle_native.py",
     "tests/test_jobs_list_query.py",
     "tests/test_jobs_list_query_native.py",
     "tests/test_async_job_actor_freshness.py",
@@ -2723,6 +2739,7 @@ TEST_FILES = (
     "tests/test_project_scene_mode.py",
     "tests/test_operational_ingest_boundaries.py",
     "tests/test_storage_connections_api.py",
+    *_RECLAMATION_PROFILES,
 )
 
 
@@ -2762,13 +2779,19 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="retain the outer database, storage identities and evidence after failure; test-managed processes may still stop",
     )
-    parser.add_argument(
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument(
         "--test-file",
         dest="test_files",
         action="append",
         type=_test_file,
         metavar="TEST_NODEID",
         help="select an apps/api test file or node ID; repeat to replace the default suite",
+    )
+    selection.add_argument(
+        "--reclamation-only",
+        action="store_true",
+        help="run each managed-original reclamation profile on its own disposable database",
     )
     parser.add_argument(
         "--workspace-consumer-profile",
@@ -2777,6 +2800,13 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         help="Workspace assembly/worker credentials: strict32 or existing default LAN capabilities",
     )
     args = parser.parse_args(argv)
+    guide_clone_file = "tests/test_guide_clone_api_login_native.py"
+    if args.workspace_consumer_profile != "default" and any(
+        name.split("::", 1)[0] == guide_clone_file for name in args.test_files or ()
+    ):
+        parser.error(
+            "Guide clone qualification requires --workspace-consumer-profile default"
+        )
     if args.workspace_consumer_profile == "default" and (
         not args.test_files
         or len(args.test_files) != 1
@@ -2784,10 +2814,11 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         not in {
             "tests/test_workspace_module_assembly_live.py",
             "tests/test_workspace_worker_assembly_live.py",
+            guide_clone_file,
         }
     ):
         parser.error(
-            "The default Workspace profile requires one explicit module-assembly or worker-assembly target"
+            "The default Workspace profile requires one explicit module assembly, worker assembly, or guide clone target"
         )
     return args
 
@@ -2834,33 +2865,25 @@ _STRICT_PROFILE_TARGETS = {
     "tests/test_audit_consumers_cold.py": "audit-consumers-cold",
     "tests/test_audit_maintenance_consumers_cold.py": "audit-maintenance-consumers-cold",
     "tests/test_seed_parent_operator_native.py": "parent-seed-native",
-    # The historical audit temporarily replaces legacy_runtime, a cluster-wide LOGIN.
     "tests/test_identity_role_audit_live.py": "identity-role-audit",
     "tests/test_identity_e2e_live.py": "identity-e2e",
     "tests/test_identity_seed_selection_live.py": "scale-seed",
-    # The restore fixture retains terminal Jobs and delivers to all active admins.
     "tests/test_notifications_module_assembly_live.py": "notifications-restore",
     "tests/test_media_seed_identity_live.py": "media-seed",
     "tests/test_seed_parent_operator_live.py": "parent-seed",
     "tests/test_workspace_seed_operator_live.py": "workspace-seed",
     "tests/test_workspace_import_cli_live.py": "workspace-import",
-    # This worker commits unscoped Jobs that fixture teardown must not ignore.
     "tests/test_workspace_video_tracker_worker_live.py": "workspace-video-tracker",
-    # These HTTP cases deliberately retain cancellation Jobs after deleting their Tasks.
     "tests/test_video_deletion_retirement_http_native.py": "video-deletion-http",
-    # This forward migration requires a drained system with no native retry attempts.
     "tests/test_prediction_retry_legacy_migration.py": "pre-retry-migration",
-    # Both claimers and sweep counters cover their whole owner lane, not a Task.
     "tests/test_video_tracker_input_lifecycle.py": "video-input-lanes",
-    # Native fences and delete-order proofs need an initially empty global GC
-    # queue. The live lost-reply case runs last and commits its real receipt.
     "tests/test_mask_gc_native.py": "mask-gc-fences",
     "tests/test_mask_gc_protocol_native.py": "mask-gc-fences",
     "tests/test_mask_gc_live.py": "mask-gc-fences",
     "tests/test_native_pyramid_lifecycle_live.py": "native-lifecycle",
-    # These destructive fixtures advance the whole store's retention cutoff.
     "tests/test_mask_gc_collection_live.py": "mask-gc-collection",
     "tests/test_mask_gc_runtime_image.py": "mask-gc-runtime",
+    **_RECLAMATION_PROFILES,
 }
 
 
@@ -2909,13 +2932,20 @@ def _run_strict_default(args: argparse.Namespace, selected: tuple[str, ...]) -> 
     for name in _STRICT_PROFILE_TARGETS.values():
         groups[name] = []
     for target in selected:
-        name = _STRICT_PROFILE_TARGETS.get(target.split("::", 1)[0], "ordinary")
+        path = target.split("::", 1)[0]
+        name = _STRICT_PROFILE_TARGETS.get(
+            target, _STRICT_PROFILE_TARGETS.get(path, "ordinary")
+        )
         groups[name].append(target)
     groups = {name: targets for name, targets in groups.items() if targets}
     evidence = {
         "schema": 1,
         "acceptance": "module-data-boundary",
-        "scope": "strict-default-isolated-profiles",
+        "scope": (
+            "managed-original-reclamation"
+            if args.reclamation_only
+            else "strict-default-isolated-profiles"
+        ),
         "status": "running",
         "phase": "default-collection",
         "started_at": datetime.now(timezone.utc).isoformat(),
@@ -2937,9 +2967,12 @@ def _run_strict_default(args: argparse.Namespace, selected: tuple[str, ...]) -> 
     )
     try:
         collection_output = directory / "collection.json"
+        collection_args = ["--output", str(collection_output), *diagnostic_arguments]
+        if args.reclamation_only:
+            collection_args.append("--reclamation-only")
         if (
             main(
-                ["--output", str(collection_output), *diagnostic_arguments],
+                collection_args,
                 collect_only=True,
             )
             != 0
@@ -2965,14 +2998,16 @@ def _run_strict_default(args: argparse.Namespace, selected: tuple[str, ...]) -> 
             raise RuntimeError(
                 "Acceptance default collection contains duplicate node IDs"
             )
-        path_groups = {
-            target.split("::", 1)[0]: name
-            for name, targets in groups.items()
-            for target in targets
+        target_groups = {
+            target: name for name, targets in groups.items() for target in targets
         }
         expected = {name: [] for name in groups}
         for node in collected:
-            name = path_groups.get(node.split("::", 1)[0])
+            name = target_groups.get(node)
+            selector = node.partition("[")[0]
+            while name is None and selector:
+                name = target_groups.get(selector)
+                selector = selector.rpartition("::")[0]
             if name is None:
                 raise RuntimeError("Acceptance collection contains an unselected file")
             expected[name].append(node)
@@ -3117,8 +3152,6 @@ def _passed_test_count(
         name = case.get("name", "")
         if not nodes:
             return classname == module or classname.startswith(module + ".")
-        # A selected class may contain several tests; a selected function may
-        # expand into parameterized cases, unless a specific parameter was selected.
         class_name = module + "." + ".".join(nodes)
         if classname == class_name or classname.startswith(class_name + "."):
             return True
@@ -3627,7 +3660,6 @@ async def _retire_image_import_preparation(backend, birth_oid, user_id, project_
                 )
             ):
                 raise RuntimeError("Image-import preparation contains unexpected rows")
-            # Unknown cascading or SET NULL dependents must not be modified.
             allowed = {
                 ("public", "users"),
                 ("public", "projects"),
@@ -3930,7 +3962,6 @@ async def _probe_image_import_guard(backend, scope) -> dict:
                 or versions() != before
             ):
                 raise RuntimeError("Open-permit guard changed owned storage")
-        # This probe never starts physical I/O; its exact permit can be settled.
         await permit.__aexit__(None, None, None)
         async with factory.begin() as db:
             gate = await storage_maintenance.lock_gate(db, LEGACY_LOCATION_ID)
@@ -4237,8 +4268,6 @@ async def _retire_image_import_bucket(backend, prepared, scope, proof) -> None:
                             "403",
                             "AccessDenied",
                         }:
-                            # An explicit denial proves this version was not
-                            # removed; unknown outcomes keep their pending intent.
                             journal["pending"] = None
                             journal["last_denial"] = item
                             atomic_json(path, journal)
@@ -4637,11 +4666,6 @@ def _destroy_cleanup_storage_scope(scope: dict) -> None:
     docker("exec", scope["container"], "rm", "-rf", "--", scope["config"])
 
 
-# The Native signer owns a S3 identity that is bounded to saved Native output
-# object prefixes.  It is distinct from the normal Source identity, from the
-# four ordinary cleanup lanes, and from every worker/control identity.  Root
-# admin credentials provision it; no runtime receives the raw pair except the
-# Source signer process.
 NATIVE_SOURCE_WRITER_TOKEN_SETTING = "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_WRITER_TOKEN"
 NATIVE_SOURCE_READER_TOKEN_SETTING = "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_READER_TOKEN"
 NATIVE_SOURCE_CLEANUP_TOKEN_SETTING = (
@@ -4816,8 +4840,6 @@ def _verify_native_storage_scopes(
                 UploadId=upload["UploadId"],
             ),
         )
-        # The ordinary four-lane cleanup identity keeps its legitimate rights
-        # but never gains either Native root.
         managed_key = f"_aap_managed/media-cache/image-pyramids/objects/{uuid4()}/owned"
         legacy_native_key = f"image-pyramids/objects/{uuid4()}/owned"
         for key in (managed_key, legacy_native_key):
@@ -4845,8 +4867,6 @@ def _verify_native_storage_scopes(
                         )
                     ),
                 )
-        # A registered connection identity is bounded to its own managed
-        # namespace in its own bucket and never reaches the builtin target.
         connection_key = (
             f"{NATIVE_CONNECTION_BASE_PREFIX}/_aap_managed/media-cache/"
             f"image-pyramids/objects/{uuid4()}/probe"
@@ -5595,8 +5615,6 @@ def _psql(
         check=False,
     )
     if result.returncode:
-        # Expose only guard literals from this checked-in SQL, never raw stderr
-        # (which may contain connection material or echoed statements).
         guards = re.findall(r"RAISE EXCEPTION '([^']+)';", sql)
         diagnostic = next(
             (message for message in guards if f"ERROR:  {message}" in result.stderr),
@@ -5719,6 +5737,8 @@ def _sql_artifact_path(name: str) -> Path:
         directory = ROOT / "apps/jobs/src/yoao_jobs/sql"
     elif name in ASSETS_SOURCE_SQL_ARTIFACTS:
         directory = ROOT / "apps/assets-source/src/yoao_assets_source"
+    elif name == "0484_notifications_terminal_outbox.sql":
+        directory = ROOT / "apps/notifications/src/yoao_notifications/sql"
     else:
         directory = ROOT / "apps/api/alembic/sql"
     return directory / name
@@ -5748,7 +5768,15 @@ def _installed_function_body_sha256(
     current_name = signature.split("(", 1)[0]
     if "." in current_name:
         schema, function = current_name.split(".", 1)
-        frozen_schema = FROZEN_OWNER_NAMESPACES.get(schema, schema)
+        if base_sql_name in (
+            "0480_fixture_annotation_import.sql",
+            "0481_fixture_video_requests.sql",
+            "0483_fixture_prediction_import.sql",
+            "0484_notifications_terminal_outbox.sql",
+        ):
+            frozen_schema = schema
+        else:
+            frozen_schema = FROZEN_OWNER_NAMESPACES.get(schema, schema)
         function_name = re.escape(f"{frozen_schema}.{function}")
     else:
         schema = ""
@@ -5799,8 +5827,13 @@ def _installed_function_body_sha256(
             if expected.count(before) != 1 or after in expected:
                 raise RuntimeError(f"frozen SQL patch source differs: {signature}")
             expected = expected.replace(before, after, 1)
+    if signature == "yoao_assets_v1._image_owner_source_share(uuid,uuid,uuid,boolean)":
+        task_item = "WHERE item.id = (v_task_data ->> 'dataset_item_id')::uuid\n                FOR "
+        before, after = task_item + "UPDATE NOWAIT;", task_item + "SHARE NOWAIT;"
+        if expected.count(before) != 1 or after in expected:
+            raise RuntimeError("frozen image Task Item admission fence differs")
+        expected = expected.replace(before, after, 1)
     if signature == "yoao_labeling_v1.mask_edit_command(jsonb)":
-        # Revision bo0430 derives the installed owner from this frozen body.
         marker = "    v_operation := p_request ->> 'operation';\n"
         if expected.count(marker) != 1:
             raise RuntimeError("frozen mask edit operation marker is not unique")
@@ -5815,7 +5848,6 @@ def _installed_function_body_sha256(
     if schema in FROZEN_OWNER_NAMESPACES or current_name in NAMESPACE_BODY_CALLERS:
         for current, frozen in FROZEN_OWNER_NAMESPACES.items():
             expected = expected.replace(f"{frozen}.", f"{current}.")
-    # bo0474 also projects the three authorized transaction-local GUCs.
     for old, new in PROJECTED_GUCS.items():
         expected = expected.replace(old, new)
     if signature in KEY_USAGE_BODY_PATCHES:
@@ -6031,8 +6063,6 @@ def _verify_audit_maintenance_boundary(
     maintenance_password: str,
     maintenance_url: str,
 ) -> dict:
-    # Exercise the owner function itself so the ACL check also covers a child
-    # partition created after the ordinary runtime and maintenance grants were set.
     for month in ("1999-03-01", "2098-04-01"):
         request = json.dumps(
             {
@@ -6893,9 +6923,6 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_labeling_v1.append_dataset_items("
         ":'dataset_id'::uuid, ARRAY[]::uuid[], :'operation_id'::uuid);\n"
         "SELECT 'AAP_READ_RELATIONS_FROZEN=' || ("
-        # The replay installs the frozen artifacts on the bo0267 base, i.e.
-        # historical bo0473 names. bo0474 is applied only by the real alembic
-        # head; never preview its renames in this transient transaction.
         f"{_read_relation_evidence_expression(frozen=True)}"
         ")::text;\n"
         "ROLLBACK;\n"
@@ -7291,7 +7318,11 @@ def main(
     partition_default: bool = True,
 ) -> int:
     args = _arguments(argv)
-    test_files = tuple(dict.fromkeys(args.test_files or TEST_FILES))
+    test_files = (
+        tuple(_RECLAMATION_PROFILES)
+        if args.reclamation_only
+        else tuple(dict.fromkeys(args.test_files or TEST_FILES))
+    )
     if partition_default and args.test_files is None and not collect_only:
         return _run_strict_default(args, test_files)
     output = args.output.resolve()
@@ -7307,7 +7338,6 @@ def main(
         )
     output.parent.mkdir(parents=True, exist_ok=True)
     junit.parent.mkdir(parents=True, exist_ok=True)
-    # Reports from an earlier invocation must never stand in for this run.
     junit.unlink(missing_ok=True)
     collection_manifest.unlink(missing_ok=True)
 
@@ -7327,6 +7357,10 @@ def main(
                 *SQL_ARTIFACTS,
                 "0475_inbox_retained_job_scope.sql",
                 "0479_identity_api_key_usage.sql",
+                "0480_fixture_annotation_import.sql",
+                "0481_fixture_video_requests.sql",
+                "0483_fixture_prediction_import.sql",
+                "0484_notifications_terminal_outbox.sql",
             ],
             "schemas": list(SCHEMA_ARTIFACTS),
         },
@@ -8611,9 +8645,6 @@ def main(
         evidence["migrations"]["frozen_database"] = frozen_database
         evidence["migrations"]["frozen_database_identity"] = frozen_identity
         base_revision = evidence["migrations"]["base_revision"]
-        # Security migrations need not restore obsolete write capabilities.
-        # Compare frozen SQL against a second fresh database in the same owned
-        # disposable container rather than downgrading the accepted head.
         _run_alembic(backend, "upgrade", base_revision, database=frozen_database)
         observed_base = _psql(
             container_id,
@@ -8696,8 +8727,6 @@ def main(
             raise RuntimeError(
                 "installed SQL function bodies differ after fresh-base upgrade"
             )
-        # This database has hosted only the completed schema probes, never a
-        # business process. Retire its exact identity before admitting tests.
         phase = "retire-frozen-sql-database"
         observed_frozen_identity = json.loads(
             _psql(
@@ -10642,8 +10671,6 @@ def main(
             raise RuntimeError("Node Notifications delivery-read check failed")
         evidence["notification_delivery_read"]["node_contract_check"] = True
 
-        # Both read-only consumers have exited. Dispose only our unchanged,
-        # never-dispatched probe before any fixture dataset can be published.
         phase = "retire-jobs-notification-probe"
         retired_probe = _psql(
             container_id,
@@ -11689,14 +11716,9 @@ SELECT id FROM removed;
         )
         resource_environment = backend.environment()
         resource_environment["AAP_MODULE_DATA_PG_DATABASE_OID"] = str(database_oid)
-        # The fixture backend refuses loopback; advertise the gateway of the
-        # verifier's own PostgreSQL bridge, reachable from host and containers.
         resource_environment["PLAYWRIGHT_ML_FIXTURE_HOST"] = _fixture_provider_host(
             container_id
         )
-        # Authority-native fixture suites construct their own LocalResources
-        # for the fixture store and require the ordinary MinIO endpoint
-        # credentials in their child environment.
         resource_environment["MINIO_ACCESS_KEY"] = backend.settings.minio_access_key
         resource_environment["MINIO_SECRET_KEY"] = backend.settings.minio_secret_key
         resource_environment.update(
@@ -12234,8 +12256,6 @@ GRANT EXECUTE ON FUNCTION
                     },
                 )
                 phase = "restore-workspace-import-cli-provisioning-capabilities"
-                # The existing CLI provisions its operator in the same transaction.
-                # The ordinary API role does not receive these trusted capabilities.
                 provisioning_grants = """
     GRANT EXECUTE ON FUNCTION
         yoao_identity_v1.read_provisioning_account(text),
@@ -12563,9 +12583,6 @@ SELECT pg_catalog.jsonb_build_object(
         ]
         image_worker_storage["policy"] = "aap-images-worker-" + secrets.token_hex(8)
         _create_image_storage_scope(image_worker_storage)
-        # Source owns finite Native signing under its own bounded S3 identity;
-        # the executors receive role tokens only.  One extra scoped identity
-        # represents a registered connection target for the A->B switch.
         if native_provider_owner is not None:
             phase = "provision-native-provider"
             native_provider_scopes = provision_native_provider(
@@ -12693,7 +12710,6 @@ SELECT pg_catalog.jsonb_build_object(
             "tests/test_audit_consumers_cold.py",
         }:
             api_bootstrap_storage = _cleanup_storage_scope(backend)
-            # The exported immutable selector must identify this bootstrap owner too.
             if api_bootstrap_storage["container"] != cleanup_storage["container"]:
                 raise RuntimeError("API bootstrap and verifier MinIO identities differ")
             api_bootstrap_storage["buckets"] = resources["buckets"]
@@ -13044,8 +13060,6 @@ SELECT pg_catalog.jsonb_build_object(
                 prepare_owned_resources(skip_migrations=skip_migrations)
                 if workspace_import_cli_fence is not None:
                     workspace_import_cli_fence()
-                # The launcher reapplies legacy table grants while preparing.
-                # Reapply owner-bound reads and writes after broad test grants.
                 apply_notification_preferences_grants()
                 apply_notification_append_grants()
                 apply_notification_delivery_read_grants()
@@ -13060,6 +13074,36 @@ SELECT pg_catalog.jsonb_build_object(
                 apply_audit_read_grants()
                 apply_audit_maintenance_grants()
                 apply_jobs_scope_grants()
+                video_request_owner = _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username="owner",
+                    password=owner_password,
+                    database=database,
+                    sql="""
+SELECT EXISTS (
+    SELECT FROM pg_catalog.pg_proc AS fn
+    JOIN pg_catalog.pg_trigger AS trigger ON trigger.tgfoid = fn.oid
+    WHERE fn.oid = 'yoao_assets_v1.prepare_fixture_video_request_delivery()'::regprocedure
+      AND fn.proowner = 'jobs_code'::regrole AND fn.prosecdef
+      AND fn.proconfig = ARRAY['search_path=pg_catalog, pg_temp']
+      AND NOT pg_catalog.has_schema_privilege(fn.proowner, fn.pronamespace, 'CREATE')
+      AND trigger.tgrelid = 'public.video_derivative_outputs'::regclass
+      AND trigger.tgname = 'fixture_video_request_delivery' AND trigger.tgqual IS NOT NULL
+      AND NOT EXISTS (
+          SELECT FROM pg_catalog.aclexplode(
+              COALESCE(fn.proacl, pg_catalog.acldefault('f', fn.proowner))
+          ) AS entry
+          WHERE entry.grantee <> fn.proowner AND entry.privilege_type = 'EXECUTE'
+      )
+);
+""",
+                )
+                if video_request_owner.strip() != "t":
+                    raise RuntimeError(
+                        "Fixture video request trigger owner or ACL differs"
+                    )
                 private_fixture_statements = (
                     "SELECT * FROM yoao_fixture_v1.fixture_runs LIMIT 1",
                     "SELECT * FROM yoao_fixture_v1.fixture_native_media_work_intents LIMIT 1",
@@ -13072,10 +13116,22 @@ SELECT pg_catalog.jsonb_build_object(
                     "SELECT yoao_labeling_v1._fixture_screenshot_user(NULL::uuid,NULL::text,NULL::text)",
                     "SELECT yoao_labeling_v1.create_scale_seed_tasks(NULL::text,NULL::uuid,NULL::uuid)",
                     "SELECT yoao_jobs_v1.delete_fixture_project_jobs(ARRAY[]::uuid[])",
+                    "SELECT job_id FROM yoao_jobs_v1.fixture_annotation_imports LIMIT 1",
+                    "UPDATE yoao_jobs_v1.fixture_annotation_imports SET result = NULL WHERE false",
+                    "SELECT yoao_jobs_v1.fixture_real_job_retired(NULL::uuid,NULL::uuid,NULL::uuid)",
+                    "SELECT yoao_jobs_v1.observe_fixture_prediction_import()",
                     "SELECT yoao_jobs_v1.delete_fixture_media_backfills(NULL::uuid,NULL::uuid)",
                     "SELECT yoao_jobs_v1.delete_fixture_presentation_jobs(NULL::uuid,NULL::uuid,ARRAY[]::uuid[])",
                     "SELECT yoao_labeling_v1.guard_fixture_presentation_failures(NULL::uuid,NULL::uuid,ARRAY[]::uuid[])",
                     "SELECT yoao_labeling_v1.guard_fixture_project_retry_anchors(ARRAY[]::uuid[])",
+                    "SELECT yoao_assets_v1.prepare_fixture_video_request_delivery()",
+                    "SELECT yoao_jobs_v1.fixture_video_request_delivery_matches(NULL::uuid,NULL::uuid)",
+                    "SELECT yoao_jobs_v1.next_fixture_video_request_publication(NULL::uuid)",
+                    "SELECT yoao_jobs_v1.begin_fixture_video_request_publication(NULL::uuid,NULL::uuid,NULL::uuid)",
+                    "SELECT yoao_jobs_v1.finish_fixture_video_request_publication(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text)",
+                    "SELECT yoao_jobs_v1.begin_fixture_media_publication(NULL::uuid,NULL::uuid)",
+                    "SELECT delivery_id FROM yoao_jobs_v1.fixture_media_deliveries LIMIT 1",
+                    "SELECT delivery_id FROM yoao_jobs_v1.fixture_media_publication_attempts LIMIT 1",
                 )
                 for statement in (
                     *notification_private_statements,
@@ -13093,6 +13149,7 @@ SELECT pg_catalog.jsonb_build_object(
                     )
                 evidence["private_fixture_runtime_boundary"] = {
                     "role": "legacy_runtime",
+                    "video_request_trigger_owner": "jobs_code",
                     "statements": list(private_fixture_statements),
                     "sqlstate": "42501",
                     "after_launcher_prepare": True,
@@ -13211,14 +13268,11 @@ SELECT pg_catalog.jsonb_build_object(
             evidence["failure"]["node_diagnostic"] = node_diagnostic
         exit_code = 1
     except BaseException as error:
-        # Interruptions must not publish a passing result from a partial report.
         exit_code = 1
         evidence["status"] = "failed"
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
         raise
     finally:
-        # prepare arms touched before publishing or mutating any owned resource.
-        # If guarded destruction fails, retain the identity root and PostgreSQL.
         local_resources_destroyed = backend is None or not backend.touched
         if backend is not None and backend.touched:
             try:
@@ -13411,7 +13465,6 @@ SELECT pg_catalog.jsonb_build_object(
                         in selected_test_paths
                         and os.environ.get("AAP_LEGACY_VIDEO_FENCE_LIVE") == "1"
                     ):
-                        # This fixture deliberately disables every ordinary LOGIN.
                         cleanup_backend = LocalResources(
                             backend.resources,
                             backend.settings.model_copy(
@@ -13510,7 +13563,6 @@ SELECT pg_catalog.jsonb_build_object(
                         {f"{label}_storage_identity": type(error).__name__}
                     )
                     exit_code = 1
-        # Keep the verified database reachable when cleanup needs another pass.
         if container_id and local_resources_destroyed:
             try:
                 _container_details(

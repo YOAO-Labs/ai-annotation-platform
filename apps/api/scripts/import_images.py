@@ -114,8 +114,6 @@ async def import_to_dataset(
 
         operation_id = uuid4()
         for img_path in images:
-            # 保留 image_dir 下的相对目录结构 (posix `/` 分隔, Windows 兼容),
-            # 与 Web 数据集扫描入口的「file_path = 完整 key 保留嵌套」对齐。
             rel = img_path.relative_to(folder).as_posix()
             data = img_path.read_bytes()
             content_type = (

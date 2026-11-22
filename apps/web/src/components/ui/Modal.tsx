@@ -5,31 +5,17 @@ import { Icon } from "@/components/ui/Icon";
 import { cn } from "@/lib/utils";
 import { useElementStyle } from "./useElementStyle";
 
-/**
- * Modal —— Radix Dialog 适配层。
- * 保留 `{open,onClose,title?,width?,children}` API(43 处调用零改动);焦点陷阱 / Esc / 滚动锁 /
- * aria-modal 由 Radix 兜底(去掉旧手写 useEffect)。沿用旧布局:可选 header(title + 关闭,带下边框)
- * + 可滚动 body;无 title 则无 header/关闭按钮(与旧一致),补 sr-only Title 满足 Radix a11y。
- * `width` 动态值经 useElementStyle 注入(绕 eslint inline-style)。
- */
 interface ModalProps {
   open: boolean;
   onClose: () => void;
   title?: ReactNode;
   width?: number;
-  /** Disable for live canvases where backdrop filtering makes compositing expensive. */
   backdropBlur?: boolean;
-  /** Mount nested modal layers inside an owning dialog's stacking context. */
   container?: HTMLElement | null;
-  /** Ref form for containers that mount after the first render of the modal owner. */
   containerRef?: RefObject<HTMLElement | null>;
-  /** Keep Escape scoped to this modal when it is nested in another dialog. */
   stopEscapePropagation?: boolean;
-  /** Restore focus for controlled dialogs whose trigger lives outside the Root. */
   returnFocusRef?: RefObject<HTMLElement | null>;
-  /** Optionally focus a specific field when the controlled dialog opens. */
   initialFocusRef?: RefObject<HTMLElement | null>;
-  /** Actions that remain visible outside the scrolling content. */
   footer?: ReactNode;
   children: ReactNode;
 }
@@ -89,8 +75,6 @@ export function Modal({
             if (stopEscapePropagation) event.stopPropagation();
           }}
           onPointerDownOutside={(event) => {
-            // Radix can defer outside dismissal until click, after a sibling
-            // confirmation has closed. Its action still belongs to that dialog.
             const target = event.detail.originalEvent.target;
             if (
               target instanceof Element &&

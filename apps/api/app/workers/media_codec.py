@@ -55,7 +55,6 @@ def _hevc_codec_string(hvcc: bytes) -> str | None:
     profile_space = (b1 >> 6) & 0x03
     tier_flag = (b1 >> 5) & 0x01
     profile_idc = b1 & 0x1F
-    # general_profile_compatibility_flags: 32 位, codec string 用其逆序位的 hex。
     compat = int.from_bytes(hvcc[2:6], "big")
     rev = 0
     for _ in range(32):
@@ -68,7 +67,6 @@ def _hevc_codec_string(hvcc: bytes) -> str | None:
         format(rev, "x").upper() or "0",
         ("H" if tier_flag else "L") + str(hvcc[12]),
     ]
-    # general_constraint_indicator_flags: 6 字节, 去尾部 0 后逐字节 hex。
     for byte in hvcc[6:12].rstrip(b"\x00"):
         parts.append(format(byte, "02X"))
     return ".".join(parts)

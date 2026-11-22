@@ -130,8 +130,6 @@ def row_value(row, *, fields=None, ignored=frozenset()):
 
 
 def source_value(source, link_id=None, *, relation_links=None):
-    # The complete Task link collection is frozen once in snapshot.links. Each
-    # object guard needs only its exact camera and the canonical primary link.
     result = value(
         {
             name: getattr(source, name)
@@ -164,7 +162,6 @@ def source_value(source, link_id=None, *, relation_links=None):
 
 def source_key(source):
     """Deduplicate one registered object, retaining each Task/link separately."""
-    # Exclude the potentially large relation before dataclass expansion.
     result = value(
         {
             name: getattr(source, name)
@@ -203,8 +200,6 @@ class _Budget:
     media_bytes: int = 0
 
     async def measure(self, db, model, predicate, max_rows):
-        # Aggregate in PostgreSQL before materializing any potentially large
-        # JSONB row. Include all stored columns as a conservative read budget.
         encoded_row = cast(
             func.to_jsonb(inspect(model).selectable.table_valued()), Text
         )
@@ -224,8 +219,6 @@ class _Budget:
         return int(count)
 
     def media(self, entry):
-        # Full per-binding relation facts can repeat. Stop while constructing
-        # the snapshot instead of first building an unbounded media document.
         self.media_bytes += encoded_size(entry)
         if self.media_bytes + self.read_bytes > MAX_JSON_BYTES:
             reject("lidar_export_input_budget_exceeded", 422)
@@ -255,8 +248,6 @@ async def _rows(
     lock_query=None,
 ):
     if lock:
-        # Lock only small IDs before measuring JSONB. Writers cannot enlarge a
-        # measured row before hydration. Caller-owned parent locks fence inserts.
         query = lock_query
         if query is None:
             query = core_reads.row_lock_query(
@@ -287,9 +278,6 @@ async def _rows(
         .correlate(None)
         .cte()
     )
-    # The guard and hydration share one PostgreSQL statement/MVCC snapshot.
-    # READ COMMITTED preflight cannot race a larger JSON update between them.
-    # The left join returns the guard even when the table is empty or rejected.
     query = (
         select(model, aggregate.c.count, aggregate.c.size)
         .select_from(aggregate)
@@ -444,8 +432,6 @@ async def _collect(
     item_ids = {link.dataset_item_id for link in links} | {
         task.dataset_item_id for task in tasks if task.dataset_item_id
     }
-    # Lock calibration's parents in its Dataset -> Item order. Dataset reads
-    # intentionally do not impose a writable/unarchived lifecycle requirement.
     dataset_ids = (
         list(
             await db.scalars(
@@ -635,9 +621,6 @@ async def _collect(
     )
     scope_tasks, scope_items, scope_links = [], [], []
     if "nuscenes" in targets and scene_ids:
-        # Completeness is about the entire Scene, including members outside a
-        # batch selection. Scene -> Item parent locks fence future frame/link
-        # additions; a bounded Task set freezes current membership as well.
         scope_items = await _rows(
             db,
             DatasetItem,
@@ -866,9 +849,6 @@ async def _collect(
         "bytes": sizes,
     }
     digest(frozen)
-    # Persisted JSONB normalizes numeric spellings (including negative zero).
-    # Hash the same representation a later worker will read, not a pre-storage
-    # Python spelling that could make a lawful frozen contract unverifiable.
     frozen = await db.scalar(
         select(cast(bindparam("frozen_inputs", frozen, type_=JSONB), JSONB))
     )

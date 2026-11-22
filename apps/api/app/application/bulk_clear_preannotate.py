@@ -104,7 +104,6 @@ async def bulk_clear_preannotate(
             succeeded.append(batch_id)
         except Exception as exc:  # noqa: BLE001
             if not db.in_transaction():
-                # A domain rollback releases every authority fence and earlier write.
                 raise
             failed.append(
                 {"batch_id": batch_id, "reason": f"{type(exc).__name__}: {exc}"}

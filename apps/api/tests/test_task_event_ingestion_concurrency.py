@@ -100,8 +100,6 @@ async def test_concurrent_event_id_comparison_is_atomic(
     backend_pids: set[int] = set()
 
     async def racing_insert(session, rows):
-        # Both paths finish preflight with no stored event before either writes.
-        # A process-local lock or shared fixture transaction cannot pass this test.
         backend_pids.add(await session.scalar(text("SELECT pg_backend_pid()")))
         assert (
             await session.scalar(select(TaskEvent.id).where(TaskEvent.id == event_id))
@@ -229,7 +227,6 @@ async def test_queued_conflicting_event_is_discarded_without_losing_valid_rows(
 
     assert await _async_persist(captured[0]) == 1
     assert await _async_persist(captured[1]) == 1
-    # Conflicting deliveries are permanent discards; identical retries stay no-ops.
     assert await _async_persist(captured[1]) == 0
     assert "duplicate_client_event_conflict" in caplog.text
     assert event["client_id"] in caplog.text

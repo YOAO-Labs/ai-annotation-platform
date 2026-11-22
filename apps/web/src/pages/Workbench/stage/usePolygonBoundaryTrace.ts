@@ -47,7 +47,6 @@ const unchanged = (
   current.version === source.version &&
   JSON.stringify(current.geometry) === JSON.stringify(source.geometry);
 
-/** Only the preview lives here. The existing annotation owner keeps all committed draft vertices. */
 export function usePolygonBoundaryTrace(options: Options) {
   const [trace, setTrace] = useState<Trace | null>(null);
   const liveTrace = useRef(trace);

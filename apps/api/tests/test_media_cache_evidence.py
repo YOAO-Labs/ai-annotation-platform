@@ -295,8 +295,6 @@ async def test_cache_evidence_rejects_unavailable_or_stale_saved_addresses(
     elif change == "quota":
         world[4].config = {**world[4].config, "original_cache_quota_bytes": 0}
     elif change == "expired":
-        # The candidate query compares against the database transaction clock, so
-        # expiry must be established before this test's transaction began.
         entry.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
     elif change == "source_revision":
         world[5].config_revision += 1

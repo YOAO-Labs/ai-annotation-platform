@@ -35,7 +35,6 @@ export function useUnreadCount() {
     queryKey: ["notifications", "unread-count", owner],
     queryFn: () => notificationsApi.unreadCount(),
     refetchInterval: 30_000,
-    // 断线期间错过的事件在回到前台时立即补偿；后台节流由浏览器决定。
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     retry: false,

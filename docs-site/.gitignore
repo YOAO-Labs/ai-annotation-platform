@@ -1,9 +1,7 @@
 .vitepress/cache
 .vitepress/dist
 node_modules
-# openapi.json 由 scripts/sync-openapi.mjs 在 dev/build 前自动复制
 public/openapi.json
 
-# llms.txt / llms-full.txt 由 scripts/generate-llms.mjs 在 dev/build 前自动生成
 public/llms.txt
 public/llms-full.txt

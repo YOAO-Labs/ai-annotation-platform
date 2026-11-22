@@ -1,10 +1,3 @@
--- Grant the fixed local scale-seed capabilities to a dedicated trusted operator.
--- Compose with existing Identity and other-domain operator grants after the
--- ordinary Workspace consumer fence. Ordinary API/worker credentials omit this profile.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v workspace_owner=workspace_code -v assets_owner=assets_code
---   -v labeling_owner=labeling_code -v consumer_role=yoao_workspace_scale_seed_client
---   -f infra/docker/workspace-scale-seed-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;

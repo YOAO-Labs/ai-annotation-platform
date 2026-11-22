@@ -81,7 +81,6 @@ def _intersection(a: Point, b: Point, c: Point, d: Point):
 
 def _simple(points: list[Point], *, closed: bool) -> None:
     edges = list(zip(points, points[1:] + (points[:1] if closed else [])))
-    # X-interval sweep avoids quadratic work on ordinary detailed outlines.
     ordered = sorted(
         enumerate(edges), key=lambda item: min(item[1][0][0], item[1][1][0])
     )
@@ -219,8 +218,6 @@ def slice_polygon(geometry: dict, cut_path) -> tuple[dict, dict]:
     if len(unique) != 2:
         _reject("切线必须恰好穿越边界两次，不能相切或多次进出")
     start, end = unique
-    # Include every path vertex when testing intervals: a corner may lie between
-    # two intersections, and sampling only the middle of the whole cut is unsafe.
     stops = sorted(
         {
             0.0,
@@ -256,7 +253,6 @@ def slice_polygon(geometry: dict, cut_path) -> tuple[dict, dict]:
     areas = [abs(signed_area(first)), abs(signed_area(second))]
     if abs(sum(areas) - source_area) > max(1e-10, source_area * 1e-8):
         _reject("切割结果未保持来源面积")
-    # Tiny floating error in an exactly equal partition must not flip identity.
     if areas[1] > areas[0] + EPS or (
         abs(areas[0] - areas[1]) <= EPS and _centroid(second) < _centroid(first)
     ):

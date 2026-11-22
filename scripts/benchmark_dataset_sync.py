@@ -481,7 +481,6 @@ async def run(directory, sizes, report, output):
                 )
                 item["cycles"].append(result)
                 async with maker() as db:
-                    # No Beat is running; disable this completed fixture explicitly.
                     row = await db.get(DatasetSourceSyncSchedule, source_id)
                     row.enabled = False
                     await db.commit()

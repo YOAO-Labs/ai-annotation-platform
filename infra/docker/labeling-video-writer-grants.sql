@@ -1,8 +1,3 @@
--- Give the Labeling video writer LOGIN exactly one Labeling Native function.
--- Apply module-data-grants.sql first in the same explicitly named database.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v labeling_owner=labeling_code -v labeling_video_writer_role=yoao_labeling_video_writer_client
---   -f infra/docker/labeling-video-writer-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

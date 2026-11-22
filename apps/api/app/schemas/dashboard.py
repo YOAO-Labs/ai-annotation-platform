@@ -23,7 +23,7 @@ class OnboardingProjectSummary(BaseModel):
 class RegistrationDayPoint(BaseModel):
     """注册来源按日聚合：邀请 vs 开放注册。"""
 
-    date: str  # YYYY-MM-DD
+    date: str
     invite_count: int
     open_count: int
 
@@ -41,9 +41,7 @@ class AdminDashboardStats(BaseModel):
     ml_backends_total: int
     ml_backends_connected: int
     role_distribution: dict[str, int]
-    # 过去 30 天注册来源
     registration_by_day: list[RegistrationDayPoint] = []
-    # AI 文本批量预标已跑完、待人工接管的批次数（Sidebar/AdminDashboard 共用）
     pre_annotated_batches: int = 0
 
 
@@ -56,7 +54,6 @@ class ReviewTaskItem(BaseModel):
     total_annotations: int
     total_predictions: int
     updated_at: str | None
-    # 返修后重新送审的任务，在 reviewer 首页单独标明，避免和首审混在一起。
     is_rework: bool = False
 
     class Config:
@@ -72,10 +69,8 @@ class ReviewingBatchItem(BaseModel):
     total_tasks: int
     review_tasks: int
     completed_tasks: int
-    # 批次封面：该批第一张有缩略图的任务，用于卡片网格。presigned URL + blurhash 占位。
     thumbnail_url: str | None = None
     cover_blurhash: str | None = None
-    # 责任人可视化：审核员看到这批是谁标的（单值）
     annotator: UserBrief | None = None
 
     class Config:
@@ -86,17 +81,14 @@ class ReviewerDashboardStats(BaseModel):
     pending_review_count: int
     today_reviewed: int
     approval_rate: float
-    # 24h 滚动通过率：完成 / (完成 + 退回)，仅看过去 24 小时
     approval_rate_24h: float
     total_reviewed: int
     pending_tasks: list[ReviewTaskItem]
-    # 批次级聚合：当前 reviewing 状态的批次列表
     reviewing_batches: list[ReviewingBatchItem] = []
-    # 效率看板 L2 扩展
     median_review_duration_ms: int | None = None
     reopen_after_approve_rate: float | None = None
     weekly_compare_pct: float | None = None
-    daily_review_counts: list[int] = []  # 7 日审核数 sparkline
+    daily_review_counts: list[int] = []
 
 
 class RecentReviewItem(BaseModel):
@@ -119,18 +111,14 @@ class AnnotatorDashboardStats(BaseModel):
     total_completed: int
     personal_accuracy: float
     daily_counts: list[int]
-    # 效率看板 L2 字段（缺数据 / 心跳未落地时为 None）
     median_duration_ms: int | None = None
     rejected_rate: float | None = None
     reopened_avg: float | None = None
     weekly_compare_pct: float | None = None
     weekly_target: int = 200
-    # 心跳侧未落地 → 暂返 null，前端 graceful degrade
     active_minutes_today: int | None = None
     streak_days: int | None = None
-    # 当日 0-23 时分钟数（按 task_events.started_at hour 聚合）
     hour_buckets: list[int] = []
-    # M1 · 当前待重做退回任务数
     rejected_tasks_count: int = 0
 
 
@@ -150,18 +138,18 @@ class AdminPersonItem(BaseModel):
     name: str
     email: str
     role: str
-    status: str  # online / offline
+    status: str
     project_count: int
     avatar_ref: str | None = None
-    main_metric: int  # 标注员=本周完成 / 审核员=本周审核
+    main_metric: int
     main_metric_label: str
     weekly_compare_pct: float | None = None
-    throughput_score: int  # 0-100 团队分位
-    quality_score: int  # 0-100
-    activity_score: int  # 0-100
+    throughput_score: int
+    quality_score: int
+    activity_score: int
     sparkline_7d: list[int]
     rejected_rate: float | None = None
-    alerts: list[str] = []  # 例: ["high_rejected", "drop_30"]
+    alerts: list[str] = []
 
 
 class AdminPeopleList(BaseModel):
@@ -176,27 +164,20 @@ class AdminPersonDetail(BaseModel):
     email: str
     role: str
     project_count: int
-    # 4 hero KPI
     throughput: int
     quality_score: int
     active_minutes: int | None
     composite_score: int
     weekly_compare_pct: float | None
-    # 4 周趋势 (每周 1 点)
     trend_throughput: list[int]
     trend_quality: list[int]
-    # 项目工作量分布
     project_distribution: list[dict]
-    # 耗时直方图 buckets (10 桶 + 上界 ms)
     duration_histogram: list[dict]
-    # p50 / p95
     p50_duration_ms: int | None
     p95_duration_ms: int | None
-    # timeline 最近事件
     timeline: list[dict]
-    # 质量归因(A1)
-    reject_reason_breakdown: list[dict] = []  # [{reason_type, count, pct}]
-    class_distribution: list[dict] = []  # [{class_name, count, pct}] top-N
+    reject_reason_breakdown: list[dict] = []
+    class_distribution: list[dict] = []
     first_pass_yield: float | None = None
 
 
@@ -206,22 +187,18 @@ class MyPerformance(BaseModel):
     user_id: str
     name: str
     period: str
-    # 本期 hero
     throughput: int
     quality_score: int
     weekly_compare_pct: float | None
-    # 4 周趋势（每周 1 点）：自身 + 团队均线
     trend_throughput: list[int]
     trend_quality: list[int]
     team_trend_throughput: list[float]
-    # 耗时直方图 + 分位
     duration_histogram: list[dict]
     p50_duration_ms: int | None
     p95_duration_ms: int | None
-    # 质量归因(A1)
-    reject_reason_breakdown: list[dict]  # [{reason_type, count, pct}]
-    class_distribution: list[dict]  # [{class_name, count, pct}] top-N
-    first_pass_yield: float | None  # 一次通过(无 reopen) / 提交总数
+    reject_reason_breakdown: list[dict]
+    class_distribution: list[dict]
+    first_pass_yield: float | None
 
 
 class MyBatchItem(BaseModel):
@@ -237,24 +214,18 @@ class MyBatchItem(BaseModel):
     total_tasks: int
     completed_tasks: int
     review_tasks: int
-    # B-20：标注员已动工但未送审的任务数（status='in_progress'），用于显示"标注中"进度。
     in_progress_tasks: int = 0
     approved_tasks: int
     rejected_tasks: int
     progress_pct: float
     review_feedback: str | None = None
     reviewed_at: str | None = None
-    # 批次封面：该批第一张有缩略图的任务，用于卡片网格。presigned URL + blurhash 占位。
     thumbnail_url: str | None = None
     cover_blurhash: str | None = None
-    # 责任人可视化：标注员看到这批的审核员是谁（单值）
     reviewer: UserBrief | None = None
 
     class Config:
         from_attributes = True
-
-
-# ── 预测成本统计 ─────────────────────────────────────────
 
 
 class BackendCostBreakdown(BaseModel):
@@ -282,7 +253,6 @@ class PredictionCostStats(BaseModel):
     failed_predictions: int = 0
     failure_rate: float = 0.0
     avg_inference_time_ms: float | None = None
-    # 延迟分位数（PERCENTILE_CONT on prediction_metas.inference_time_ms）
     p50_inference_time_ms: float | None = None
     p95_inference_time_ms: float | None = None
     p99_inference_time_ms: float | None = None

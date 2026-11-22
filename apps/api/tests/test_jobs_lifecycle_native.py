@@ -52,6 +52,7 @@ async def test_independent_node_consumes_lifecycle_capabilities(
     receipt = json.loads(result.stdout.strip().splitlines()[-1])
     assert receipt["status"] == "passed"
     assert receipt["functionCapabilities"] == 8
+    assert receipt["borrowedSessionCapabilities"] == 3
     assert receipt["rowColumns"] == 15
     record_property("jobs_lifecycle_node_consumer", json.dumps(receipt))
 
@@ -414,7 +415,6 @@ async def test_dispatch_failure_preserves_claimed_state_cache_and_no_autoflush(
         db_session, dispatch_error.id, error="x" * 4001
     )
     assert dispatch_error.status == "failed"
-    # Fetch synchronization leaves an unloaded nullable attribute unloaded.
     assert dispatch_error.error_message == legacy.error_message
     fresh_failure = await async_job_svc.get_job(
         db_session, dispatch_error.id, populate_existing=True
@@ -598,3 +598,81 @@ async def test_expired_refresh_keeps_concurrent_timestamp_and_partial_dirty_cach
                 {"job_id": job_id},
             )
             await cleanup.commit()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the verifier-owned strict Jobs lifecycle LOGIN",
+)
+async def test_owner_fetch_synchronizes_exact_rows_and_restores_strict_login_identity(
+    test_engine,
+):
+    from app.services.jobs_lifecycle_data import JobsLifecyclePostgresData
+
+    strict_engine = create_async_engine(_jobs_lifecycle_url(test_engine))
+    strict = async_sessionmaker(strict_engine, expire_on_commit=False)
+    owner = async_sessionmaker(test_engine, expire_on_commit=False)
+    batch_id = uuid.uuid4()
+    matched_id, unmatched_id = uuid.uuid4(), uuid.uuid4()
+    try:
+        async with owner.begin() as db:
+            db.add_all(
+                [
+                    _job(
+                        id=matched_id,
+                        kind="batch_predict",
+                        payload={"batch_id": str(batch_id)},
+                    ),
+                    _job(id=unmatched_id, kind="batch_predict"),
+                ]
+            )
+        async with strict() as db:
+            assert (
+                await db.scalar(text("SELECT session_user"))
+                == "yoao_jobs_lifecycle_client"
+            )
+            with pytest.raises(DBAPIError) as denied:
+                async with db.begin_nested():
+                    await db.execute(
+                        text("UPDATE public.async_jobs SET status='failed' WHERE false")
+                    )
+            assert _sqlstate(denied.value) == "42501"
+
+            matched = await async_job_svc.get_job(db, matched_id)
+            unmatched = await async_job_svc.get_job(db, unmatched_id)
+            assert matched is not None and unmatched is not None
+            savepoint = await db.begin_nested()
+            with db.no_autoflush:
+                matched.status = "local matched status"
+                unmatched.payload = {"batch_id": str(batch_id)}
+                changed = await JobsLifecyclePostgresData(db).delete_batch_predict_jobs(
+                    batch_id, completed_at=datetime.now(timezone.utc)
+                )
+                assert changed == 1
+                assert sa_inspect(matched).deleted and matched not in db
+                assert sa_inspect(unmatched).persistent and unmatched in db
+                assert sa_inspect(unmatched).attrs.payload.history.has_changes()
+                assert await async_job_svc.get_job(db, matched_id) is None
+            await savepoint.rollback()
+            assert await async_job_svc.get_job(db, matched_id) is matched
+            assert matched.status == "pending"
+            assert await async_job_svc.get_job(db, unmatched_id) is unmatched
+            assert unmatched.payload == {}
+
+            assert await async_job_svc.mark_dispatch_failed(
+                db, matched_id, error="rolled back"
+            )
+            assert matched.status == "failed"
+            await db.rollback()
+            assert await async_job_svc.get_job(db, matched_id) is matched
+            assert matched.status == "pending"
+    finally:
+        await strict_engine.dispose()
+        async with owner.begin() as db:
+            await db.execute(
+                text(
+                    "DELETE FROM public.async_jobs WHERE id IN (:matched, :unmatched)"
+                ),
+                {"matched": matched_id, "unmatched": unmatched_id},
+            )

@@ -59,7 +59,6 @@ function renderTopBar() {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   function Wrapper({ children }: { children: ReactNode }) {
-    // TopBar 的 useLogout 内部使用 useNavigate,需要 Router 上下文。
     return (
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>{children}</MemoryRouter>

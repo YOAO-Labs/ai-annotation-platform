@@ -190,8 +190,6 @@ function startOwner() {
   };
 }
 
-// Recovery never resubmits a mutation; callers explicitly acknowledge a
-// completed outcome after inspecting it.
 export async function recoverFixtureOperation(operationId) {
   transport ??= startOwner();
   const result = await transport.exchange({ action: "recover", operation_id: operationId }, 30_000);
@@ -264,9 +262,7 @@ function safeFailureBody(body) {
         return JSON.stringify({ detail: { [key]: value } });
       }
     }
-  } catch {
-    // The complete original body remains in the private owner journal.
-  }
+  } catch {}
   return JSON.stringify({ detail: "Fixture operation failed; see the private owner journal" });
 }
 

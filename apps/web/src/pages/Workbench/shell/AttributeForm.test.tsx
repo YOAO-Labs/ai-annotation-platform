@@ -1,8 +1,3 @@
-// AttributeForm 单测：
-// - mutable=true 字段在 context=video 时出现「逐帧」徽标；context=image / mutable 缺省时不出现
-// - 传 dirtyTracker + annotationId 时，输入改变只标 dirty，不立即 onChange；form 失焦时 flush 触发一次 onChange
-// - 不传 dirtyTracker 时使用 400ms debounce。
-
 import { describe, expect, it, vi } from "vitest";
 import { render, fireEvent, act } from "@testing-library/react";
 import { renderHook } from "@testing-library/react";
@@ -143,11 +138,9 @@ describe("AttributeForm · dirtyTracker 首次消费", () => {
 
     const input = getByDisplayValue("red") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "blue" } });
-    // dirty 已标，但 onChange 还没触发
     expect(tracker.current.getDirtyFields("anno-1")).toEqual(["attributes"]);
     expect(onChange).not.toHaveBeenCalled();
 
-    // blur form 容器 → flush
     const formContainer = container.firstChild as HTMLElement;
     act(() => {
       fireEvent.blur(formContainer, { relatedTarget: null });
@@ -179,7 +172,6 @@ describe("AttributeForm · dirtyTracker 首次消费", () => {
     vi.useRealTimers();
   });
 
-  // 回归：debounce 未到点就卸载（弹层快速关闭）时，用最新 draft 补 flush，避免「改了没保存」
   it("debounce 路径下卸载前若有未到点提交，用最新 draft 补 flush 一次", () => {
     vi.useFakeTimers();
     const onChange = vi.fn();
@@ -194,13 +186,11 @@ describe("AttributeForm · dirtyTracker 首次消费", () => {
     const input = getByDisplayValue("red") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "blue" } });
     expect(onChange).not.toHaveBeenCalled();
-    // 不等 400ms 直接卸载（模拟 <400ms 内关闭弹层）
     act(() => {
       unmount();
     });
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange.mock.calls[0][0]).toEqual({ color: "blue" });
-    // 卸载已 clearTimeout，定时器不应再触发第二次
     act(() => {
       vi.advanceTimersByTime(450);
     });
@@ -208,7 +198,6 @@ describe("AttributeForm · dirtyTracker 首次消费", () => {
     vi.useRealTimers();
   });
 
-  // 无 pending 提交时卸载不应触发任何 onChange（杜绝空 flush / 重复提交）
   it("无未到点提交时卸载不触发 onChange", () => {
     const onChange = vi.fn();
     const { unmount } = render(
@@ -257,7 +246,6 @@ describe("AttributeForm · batch banner", () => {
     const chip = getByTestId("attr-ai-origin-color");
     expect(chip).not.toBeNull();
     expect(chip.getAttribute("title")).toContain("cls");
-    // occluded 无 meta → 无 chip
     expect(queryByTestId("attr-ai-origin-occluded")).toBeNull();
   });
 

@@ -111,7 +111,6 @@ export function datasetItemFilters(params: URLSearchParams): DatasetItemFilters 
   DATASET_ITEM_FILTER_KEYS.forEach((key) => {
     const value = params.get(key === "search" ? "q" : key);
     if (!value) return;
-    // Invalid URL conditions must reach validation rather than broaden results.
     filters[key] = key.startsWith("min_") || key.startsWith("max_") ? Number(value) : value;
   });
   return filters as DatasetItemFilters;

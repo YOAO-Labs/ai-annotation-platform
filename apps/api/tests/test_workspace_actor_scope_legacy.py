@@ -287,7 +287,6 @@ async def _check_scope_case(
             if binding == "owner":
                 _capture(key, observed)
             else:
-                # Freeze scope results independently of retired raw Task writes.
                 expected = json.loads(_GOLDEN.read_text())["cases"][key]["False"]
                 fields = ("rows", "count", "page")
                 for autoflush, state in observed.items():

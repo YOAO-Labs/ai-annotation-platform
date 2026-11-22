@@ -52,7 +52,6 @@ describe("VideoChapterSidebar frame_step / source display", () => {
     ];
     const { getAllByTestId, queryAllByText } = renderSidebar();
     expect(getAllByTestId("video-chapter-row")).toHaveLength(2);
-    // 仅 sampled 章节出现 "采样" badge。
     expect(queryAllByText("采样")).toHaveLength(1);
   });
 
@@ -99,7 +98,6 @@ describe("VideoChapterSidebar timeline draft", () => {
       />,
     );
     const row = getByTestId("video-chapter-row");
-    // 受控 hover → data-hovered。
     expect(row).toHaveAttribute("data-hovered", "true");
     fireEvent.mouseEnter(row);
     expect(onHoverChapter).toHaveBeenCalledWith("ch1");
@@ -120,11 +118,9 @@ describe("VideoChapterSidebar timeline draft", () => {
         onConsumeDraftRange={onConsumeDraftRange}
       />,
     );
-    // 表单打开并预填 start/end (数字输入框以 value 呈现)。
     expect(getByTestId("video-chapter-form")).toBeInTheDocument();
     expect(getByDisplayValue("12")).toBeInTheDocument();
     expect(getByDisplayValue("34")).toBeInTheDocument();
-    // 消费一次, 通知 shell 清空 draftRange。
     expect(onConsumeDraftRange).toHaveBeenCalledTimes(1);
   });
 });

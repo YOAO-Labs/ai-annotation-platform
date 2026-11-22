@@ -20,7 +20,6 @@ describe("buildFrameCategories", () => {
       [],
     );
     expect(cats.ai).toEqual(["a1", "a2"]);
-    // 同 y 下按 x 升序
     expect(cats.user).toEqual(["u1", "u2"]);
     expect(cats.track).toEqual([]);
   });
@@ -55,8 +54,6 @@ describe("collectFrameCategories (来源归并)", () => {
   });
 
   it("回归: 全部轨迹以 ghost 显示时, 选中 ghost 并入 track, Tab 遍历全部四条而非只在两条间弹", () => {
-    // 场景: 当前帧过了各轨迹末关键帧, 四条 car 均以参考虚影显示; 选中 t1(→ ghost),
-    // 另外三条走 carryOverGhosts(排除 t1)。修复前 t1 不在 track 类, Tab 只在两条间弹。
     const sources = (selectedId: string) => {
       const all = [
         { id: "t1", x: 0.1, y: 0.1 },
@@ -72,7 +69,6 @@ describe("collectFrameCategories (来源归并)", () => {
         selectedTrackGhost: sel,
       });
     };
-    // 从 t1 起连按 Tab, 应依次经过 t2 → t3 → t4 → t1, 覆盖全部四条。
     let selected = "t1";
     const visited: string[] = [selected];
     for (let i = 0; i < 4; i++) {
@@ -80,7 +76,7 @@ describe("collectFrameCategories (来源归并)", () => {
       visited.push(selected);
     }
     expect(visited).toEqual(["t1", "t2", "t3", "t4", "t1"]);
-    expect(new Set(visited).size).toBe(4); // 四条全部可达
+    expect(new Set(visited).size).toBe(4);
   });
 });
 
@@ -93,8 +89,8 @@ const CATS = {
 describe("nextInCategory (同类流转)", () => {
   it("cycles within the selected object's category (ring)", () => {
     expect(nextInCategory(CATS, "a1", 1)).toBe("a2");
-    expect(nextInCategory(CATS, "a3", 1)).toBe("a1"); // 环回头
-    expect(nextInCategory(CATS, "a1", -1)).toBe("a3"); // 反向环
+    expect(nextInCategory(CATS, "a3", 1)).toBe("a1");
+    expect(nextInCategory(CATS, "a1", -1)).toBe("a3");
     expect(nextInCategory(CATS, "u1", 1)).toBe("u2");
     expect(nextInCategory(CATS, "u2", 1)).toBe("u1");
   });
@@ -117,13 +113,13 @@ describe("nextCategory (跨类跳转)", () => {
   it("jumps to next non-empty category's head (AI→user→track→wrap)", () => {
     expect(nextCategory(CATS, "a2", 1)).toBe("u1");
     expect(nextCategory(CATS, "u1", 1)).toBe("t1");
-    expect(nextCategory(CATS, "t1", 1)).toBe("a1"); // 回环
+    expect(nextCategory(CATS, "t1", 1)).toBe("a1");
     expect(nextCategory(CATS, "u1", -1)).toBe("a1");
   });
 
   it("skips empty categories", () => {
     const cats = { ai: ["a1"], user: [], track: ["t1"] };
-    expect(nextCategory(cats, "a1", 1)).toBe("t1"); // 跳过空 user
+    expect(nextCategory(cats, "a1", 1)).toBe("t1");
     expect(nextCategory(cats, "t1", 1)).toBe("a1");
   });
 

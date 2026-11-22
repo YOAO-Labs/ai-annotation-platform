@@ -622,8 +622,6 @@ async def test_historical_digest_survives_jsonb_negative_zero_normalization(
     original_digest = calibration_digest(original)
     assert "-0.0" in original_document
 
-    # PostgreSQL JSONB normalizes -0.0 to 0.0, while the append-only digest
-    # records the exact canonical input document that existed before storage.
     await db_session.execute(
         text(
             "UPDATE public.dataset_items SET metadata = jsonb_set("

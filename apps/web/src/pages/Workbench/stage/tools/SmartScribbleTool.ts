@@ -1,9 +1,5 @@
 import type { CanvasTool, DragInit, ToolPointerContext } from "./index";
 
-/**
- * 在选中的已存 Mask 上画正 / 负归一化笔迹。笔迹只是 AI prompt，
- * 不直接修改已存像素；服务端返回候选后仍需显式接纳。
- */
 export const SmartScribbleTool: CanvasTool = {
   id: "smart-scribble",
   hotkey: "",

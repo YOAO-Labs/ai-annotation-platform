@@ -24,7 +24,6 @@ async def test_mention_candidates_include_owner_super_admin_and_members(
 ):
     owner, _ = project_admin
     project = await create_project(db_session, owner_id=owner.id, name="Mention QA")
-    # annotator / reviewer are project members; the owner is deliberately not a member row.
     await create_membership(
         db_session, project_id=project.id, user_id=annotator[0].id, role="annotator"
     )
@@ -46,7 +45,6 @@ async def test_mention_candidates_include_owner_super_admin_and_members(
     assert kinds[str(owner.id)] == "owner"
     assert kinds[str(root.id)] == "super_admin"
     assert kinds[str(annotator[0].id)] == "member"
-    # 顺序：负责人 → 超管 → 成员。
     ids = [item["user_id"] for item in items]
     assert ids[0] == str(owner.id)
     assert ids.index(str(root.id)) < ids.index(str(annotator[0].id))
@@ -61,7 +59,6 @@ async def test_mention_candidates_dedupe_by_user_id(
 ):
     owner, _ = project_admin
     project = await create_project(db_session, owner_id=owner.id, name="Mention Dedupe")
-    # The super admin is also a project member: one entry, labeled super_admin.
     await create_membership(
         db_session, project_id=project.id, user_id=super_admin[0].id, role="reviewer"
     )
@@ -93,7 +90,6 @@ async def test_mention_candidates_require_project_visibility(
     project = await create_project(
         db_session, owner_id=owner.id, name="Mention Private"
     )
-    # annotator is not a member of this project.
     resp = await httpx_client.get(
         f"/api/v1/projects/{project.id}/mention-candidates",
         headers=_headers(annotator),

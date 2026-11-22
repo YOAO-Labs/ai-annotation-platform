@@ -35,21 +35,18 @@ describe("VIEW_AXES", () => {
 
 describe("frameOrtho · 正交取景半宽/半高", () => {
   it("保持视口 aspect, 且必框住 box+margin (较紧一维贴边)", () => {
-    // base.size=[4,2,1.5], Top: u=X(4)→halfU=2.6, v=Y(2)→halfV=1.6; aspect=2
     const { halfW, halfH } = frameOrtho(base.size, "top", 2);
-    expect(halfW / halfH).toBeCloseTo(2); // aspect 不变形
+    expect(halfW / halfH).toBeCloseTo(2);
     expect(halfW).toBeGreaterThanOrEqual(base.size[0] / 2 + FRAME_MARGIN - 1e-9);
     expect(halfH).toBeGreaterThanOrEqual(base.size[1] / 2 + FRAME_MARGIN - 1e-9);
-    // halfU/halfV=1.625 < aspect 2 → 按高贴边: halfH=1.6, halfW=3.2
     expect(halfH).toBeCloseTo(1.6);
     expect(halfW).toBeCloseTo(3.2);
   });
 
   it("框比视口更'宽'时按宽贴边 (横轴顶满, 纵轴按 aspect 撑开)", () => {
-    // aspect=1 (方形视口): halfU/halfV=1.625 > 1 → 按宽贴边
     const { halfW, halfH } = frameOrtho(base.size, "top", 1);
-    expect(halfW).toBeCloseTo(2.6); // = halfU
-    expect(halfH).toBeCloseTo(2.6); // = halfU / aspect
+    expect(halfW).toBeCloseTo(2.6);
+    expect(halfH).toBeCloseTo(2.6);
   });
 
   it("zoom 同步缩放两个正交半轴，默认参数保持既有行为", () => {
@@ -77,10 +74,10 @@ describe("三视图离散缩放", () => {
 describe("dragEdge · 半/全边长口径", () => {
   it("Top 拖 +X 边 +0.5m → size[0]=4.5 (全边长, 非 SUSTech 半边长的 5.0)", () => {
     const r = dragEdge(base, 0, 1, 0.5);
-    expect(r.size[0]).toBeCloseTo(4.5); // 全边长直接 +0.5; 若误用半边长口径会得 5.0
-    expect(r.size[1]).toBeCloseTo(2); // 其余维不变
+    expect(r.size[0]).toBeCloseTo(4.5);
+    expect(r.size[1]).toBeCloseTo(2);
     expect(r.size[2]).toBeCloseTo(1.5);
-    expect(r.center[0]).toBeCloseTo(0.25); // 中心沿 +X 移半程
+    expect(r.center[0]).toBeCloseTo(0.25);
     expect(r.center[1]).toBeCloseTo(0);
     expect(r.center[2]).toBeCloseTo(0);
     expect(r.rotation).toEqual([0, 0, 0]);
@@ -100,8 +97,8 @@ describe("dragEdge · 半/全边长口径", () => {
   it("旋转后中心沿世界轴移动: yaw 90° 时 local +X 世界方向 = +Y", () => {
     const yawed: Psr = { ...base, rotation: [0, 0, Math.PI / 2] };
     const r = dragEdge(yawed, 0, 1, 0.5);
-    expect(r.center[0]).toBeCloseTo(0); // 不再沿世界 X
-    expect(r.center[1]).toBeCloseTo(0.25); // 沿世界 Y
+    expect(r.center[0]).toBeCloseTo(0);
+    expect(r.center[1]).toBeCloseTo(0.25);
   });
 });
 
@@ -146,7 +143,6 @@ describe("dragHandle · 屏幕 handle → 边/角", () => {
   });
 
   it("Front 视图 e = 改 width(v=Y? u=Y): u 轴=Y → size[1] 变", () => {
-    // front: u=Y(width), v=Z(height); e 拖 u(+1) → size[1]
     const r = dragHandle(base, "front", "e", 0.4, 0);
     expect(r.size[1]).toBeCloseTo(2.4);
     expect(r.size[0]).toBeCloseTo(4);
@@ -161,7 +157,7 @@ describe("dragRotation · 三轴 yaw/pitch/roll", () => {
     expect(r.rotation[0]).toBeCloseTo(0);
     expect(r.rotation[1]).toBeCloseTo(0);
     expect(r.rotation[2]).toBeCloseTo(0.5);
-    expect(r.size).toEqual(base.size); // 旋转不改尺寸 / 中心
+    expect(r.size).toEqual(base.size);
     expect(r.center).toEqual(base.center);
   });
 
@@ -173,23 +169,22 @@ describe("dragRotation · 三轴 yaw/pitch/roll", () => {
     const start: Psr = { ...base, rotation: [0.15, -0.25, 0.35] };
     const there = dragRotation(start, view, 0.3);
     const back = dragRotation(there, view, -0.3);
-    // 经四元数往返, 欧拉分量应复原 (用四元数比较避免欧拉多解歧义)。
     const q0 = new THREE.Quaternion().setFromEuler(new THREE.Euler(...start.rotation, "XYZ"));
     const q1 = new THREE.Quaternion().setFromEuler(new THREE.Euler(...back.rotation, "XYZ"));
-    expect(Math.abs(q0.dot(q1))).toBeCloseTo(1); // 同一朝向 (dot=±1)
+    expect(Math.abs(q0.dot(q1))).toBeCloseTo(1);
   });
 
   it("非零 pitch 起调 yaw 不串轴: 绕 local Z 转 → Z 轴方向不变, X 轴方向转过 dθ", () => {
-    const start: Psr = { ...base, rotation: [0, 0.4, 0] }; // 已有 pitch
+    const start: Psr = { ...base, rotation: [0, 0.4, 0] };
     const dTheta = 0.25;
-    const r = dragRotation(start, "top", dTheta); // top → 绕 local Z
+    const r = dragRotation(start, "top", dTheta);
 
     const zBefore = boxAxisWorldDir(start.rotation, 2);
     const zAfter = boxAxisWorldDir(r.rotation, 2);
-    expect(zAfter.angleTo(zBefore)).toBeCloseTo(0); // 旋转轴方向不变
+    expect(zAfter.angleTo(zBefore)).toBeCloseTo(0);
 
     const xBefore = boxAxisWorldDir(start.rotation, 0);
     const xAfter = boxAxisWorldDir(r.rotation, 0);
-    expect(xAfter.angleTo(xBefore)).toBeCloseTo(dTheta); // X 轴恰转过 dθ
+    expect(xAfter.angleTo(xBefore)).toBeCloseTo(dTheta);
   });
 });

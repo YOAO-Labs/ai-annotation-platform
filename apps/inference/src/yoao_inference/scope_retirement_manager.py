@@ -307,9 +307,6 @@ class ScopeRetirementManager:
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except Exception:
-            # A prepare acknowledgement can be lost at commit. Status exposes
-            # only the public phase, so recovery returns that phase and leaves
-            # the next explicit execute call to resume through prepare.
             try:
                 payload = await self._step("status", arguments)
                 view, _ = _intent(payload, typed, action="status")
@@ -352,8 +349,6 @@ class ScopeRetirementManager:
         except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             raise
         except Exception:
-            # The backend reply may already have been accepted. One read can
-            # recover the durable phase; it does not repeat the control call.
             try:
                 payload = await self._step("status", arguments)
                 observed, _ = _intent(payload, typed, action="status")

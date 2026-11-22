@@ -93,8 +93,6 @@ class ImageClient:
                         if len(data) > reply_limit:
                             raise c.ImageFailure("resource_budget_exceeded")
                     if not response.is_success:
-                        # A well-formed failure envelope preserves its typed error;
-                        # success data on a failure status is a protocol violation.
                         c.decode_reply(bytes(data), result_type)
                         raise c.ImageFailure("invalid_response")
                     return c.decode_reply(bytes(data), result_type)

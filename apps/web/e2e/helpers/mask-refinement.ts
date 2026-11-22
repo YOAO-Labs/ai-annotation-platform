@@ -1,6 +1,5 @@
 import { expect, type Page } from "@playwright/test";
 
-/** Open the one seeded prediction shape, rather than whichever row appears first. */
 export async function openPredictionRefinement(page: Page, predictionId: string): Promise<void> {
   const shapeId = `pred-${predictionId}-0`;
   const row = page.getByTestId(`box-list-item-${shapeId}`);
@@ -10,7 +9,6 @@ export async function openPredictionRefinement(page: Page, predictionId: string)
   await row.getByRole("button", { name: "精修", exact: true }).click();
 }
 
-/** Confirm the fixture's expected conversion decision, never derive it from the result. */
 export async function confirmMaskRefinement(page: Page, expectedLossy: boolean): Promise<void> {
   const report = page.getByRole("alertdialog", { name: "将精修结果保存为原生 Mask？" });
   await expect(report).toBeVisible();

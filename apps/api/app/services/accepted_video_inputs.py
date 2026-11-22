@@ -212,8 +212,6 @@ class VideoInputGateway:
                     )
                     member = receipt.member
                 if member.state == "preparing" and self.executor is not None:
-                    # The owner persists terminal copy outcomes; only its seal
-                    # decides whether the complete captured membership is ready.
                     await self.executor.execute_once(input_id=member.input.input_id)
             if page.next_cursor is None:
                 break

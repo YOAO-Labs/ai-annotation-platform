@@ -14,11 +14,14 @@ from unittest.mock import AsyncMock
 import uuid
 from urllib.parse import urlsplit
 
+from fastapi import HTTPException, Request
 from PIL import Image
 import pytest
 from sqlalchemy import delete, select, text, update
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.api.v1.tasks.video import get_video_manifest
+from app.core.security import create_access_token
 from app.db.models.dataset import Dataset, DatasetItem, VideoFrameIndex
 from app.db.models.project import Project
 from app.db.models.task import Task
@@ -31,12 +34,15 @@ from app.services import video_derivative_objects as objects
 from app.services import video_derivative_originals as originals
 from app.services import video_derivative_storage as physical
 from app.services import video_derivatives as core
+from app.services import video_frame_service as service
 from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, register_item_asset
+from app.services.identity_contracts import IdentityActorFacts
 from app.services.storage import storage_service
 from app.workers import media_derivatives as worker
 from tests.test_video_derivative_api import _inventory, _publish, world as world
+from tests.test_workspace_project_authority_locking import _api_url
 
 
 def packet():
@@ -410,6 +416,213 @@ async def test_real_active_output_claim_survives_expiry(real_video, monkeypatch)
     async with context.factory() as db:
         output = await db.get(Output, identifier)
         assert output.state == "ready", output.error_code
+
+
+@pytest.fixture
+async def manifest_runtime(test_engine, monkeypatch):
+    from app.config import settings
+
+    if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1":
+        url = _api_url(test_engine)
+        monkeypatch.setattr(
+            settings, "database_url", url.render_as_string(hide_password=False)
+        )
+    engine = create_async_engine(settings.database_url, hide_parameters=True)
+    try:
+        assert (engine.url.host, engine.url.port, engine.url.database) == (
+            test_engine.url.host,
+            test_engine.url.port,
+            test_engine.url.database,
+        )
+        yield async_sessionmaker(engine, expire_on_commit=False)
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.parametrize("change", ["dimensions", "committed-rebind", "held-writer"])
+async def test_real_task_video_manifest_item_fence(
+    real_video, manifest_runtime, change
+):
+    context = real_video
+    async with context.factory() as setup:
+        output, _ = await core.prepare(
+            setup, context.item_id, context.authority, "metadata"
+        )
+        generation_id = output.id
+        user = await setup.get(User, context.user_id)
+        actor = IdentityActorFacts(
+            user.id, user.name, user.email, user.role, user.is_active
+        )
+        if change == "committed-rebind":
+            task = await setup.get(Task, context.task_id)
+        await setup.commit()
+    await worker.run_outputs([str(generation_id)], propagate_failure=True)
+
+    async with (
+        manifest_runtime() as db,
+        context.factory() as writer,
+        manifest_runtime() as observer,
+    ):
+        generation = await writer.get(Output, generation_id)
+        assert generation.state == "ready", generation.error_code
+        token = create_access_token(str(actor.id), actor.role)
+        request = Request(
+            {
+                "type": "http",
+                "headers": [(b"authorization", f"Bearer {token}".encode())],
+            }
+        )
+        if change == "committed-rebind":
+            ctx = await service.authorize_context(db, task, actor, request)
+            await db.commit()
+        else:
+            await db.execute(text("SET LOCAL lock_timeout = '20s'"))
+        writer_pid = await writer.scalar(text("SELECT pg_backend_pid()"))
+        if change == "dimensions":
+            await writer.execute(
+                update(DatasetItem)
+                .where(DatasetItem.id == context.item_id)
+                .values(width=80, height=60)
+            )
+        else:
+            item = await writer.get(DatasetItem, context.item_id, with_for_update=True)
+            if change == "committed-rebind":
+                item.file_path += ".replacement"
+                await writer.flush()
+
+        await observer.connection()
+        reading = asyncio.create_task(
+            service.legacy_manifest(db, ctx)
+            if change == "committed-rebind"
+            else get_video_manifest(context.task_id, request, db, actor)
+        )
+        try:
+            async with asyncio.timeout(3):
+                while not await observer.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity AS activity "
+                        "WHERE :writer = ANY(pg_catalog.pg_blocking_pids(activity.pid)) "
+                        "AND activity.query LIKE '%FROM dataset_items%FOR SHARE%')"
+                    ),
+                    {"writer": writer_pid},
+                ):
+                    assert not reading.done(), "manifest did not wait on the Item fence"
+                    await observer.rollback()
+            if change != "held-writer":
+                await writer.commit()
+            if change == "dimensions":
+                body = await reading
+                assert body.metadata_generation_id == generation_id
+                assert body.dataset_item_id == context.item_id
+                assert (body.metadata.width, body.metadata.height) == (64, 48)
+                assert body.poster_url
+            else:
+                async with asyncio.timeout(3):
+                    with pytest.raises(HTTPException) as error:
+                        await reading
+                assert error.value.status_code == 409
+                assert error.value.detail == {
+                    "code": (
+                        "storage_original_busy"
+                        if change == "held-writer"
+                        else "content_binding_changed"
+                    )
+                }
+                if change == "held-writer":
+                    assert writer.in_transaction()
+                    assert await db.scalar(text("SHOW lock_timeout")) == "20s"
+                    assert await db.scalar(text("SELECT 1")) == 1
+        finally:
+            await writer.rollback()
+            await asyncio.gather(reading, return_exceptions=True)
+
+
+async def test_claimed_task_frame_finishes_after_short_item_writer(
+    real_video, manifest_runtime, monkeypatch
+):
+    context = real_video
+    async with context.factory() as db:
+        metadata, _ = await core.prepare(
+            db, context.item_id, context.authority, "metadata"
+        )
+        metadata_id = metadata.id
+        user = await db.get(User, context.user_id)
+        actor = IdentityActorFacts(
+            user.id, user.name, user.email, user.role, user.is_active
+        )
+        await db.commit()
+    await worker.run_outputs([str(metadata_id)], propagate_failure=True)
+
+    token = create_access_token(str(actor.id), actor.role)
+    request = Request(
+        {"type": "http", "headers": [(b"authorization", f"Bearer {token}".encode())]}
+    )
+    async with manifest_runtime() as db:
+        authority = await originals.authorize(db, context.task_id, actor, request)
+        metadata = await db.get(Output, metadata_id)
+        output, _ = await core.prepare(
+            db,
+            context.item_id,
+            authority,
+            "frame",
+            spec=core.frame_spec(metadata, 3, 48, "webp"),
+        )
+        identifier = output.id
+        await db.commit()
+
+    built, resume = threading.Event(), threading.Event()
+    build = worker.build
+
+    def pause_after_build(*args, **kwargs):
+        result = build(*args, **kwargs)
+        built.set()
+        if not resume.wait(30):
+            raise RuntimeError("video output test gate was not released")
+        return result
+
+    monkeypatch.setattr(worker, "build", pause_after_build)
+    async with context.factory() as writer, manifest_runtime() as observer:
+        await observer.connection()
+        running = asyncio.create_task(
+            worker.run_outputs([str(identifier)], propagate_failure=True)
+        )
+        try:
+            assert await asyncio.to_thread(built.wait, 30)
+            output = await writer.get(Output, identifier)
+            lease = output.lease_token
+            assert output.state == "building" and lease is not None
+            writer_pid = await writer.scalar(text("SELECT pg_backend_pid()"))
+            await writer.execute(
+                update(DatasetItem)
+                .where(DatasetItem.id == context.item_id)
+                .values(width=80, height=60)
+            )
+            resume.set()
+            async with asyncio.timeout(3):
+                while not await observer.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity AS activity "
+                        "WHERE :writer = ANY(pg_catalog.pg_blocking_pids(activity.pid)) "
+                        "AND activity.query LIKE '%FROM dataset_items%FOR SHARE%')"
+                    ),
+                    {"writer": writer_pid},
+                ):
+                    assert not running.done(), (
+                        "post-build guard did not wait on the Item"
+                    )
+                    await observer.rollback()
+            await writer.commit()
+            await running
+        finally:
+            resume.set()
+            await writer.rollback()
+            await asyncio.gather(running, return_exceptions=True)
+
+    async with context.factory() as db:
+        output = await db.get(Output, identifier)
+        assert output.state == "ready", output.error_code
+        assert output.lease_token == lease
+        core.validate_result(output, output.result, output.inventory)
 
 
 async def test_real_registered_original_native_generation_and_complete_readback(

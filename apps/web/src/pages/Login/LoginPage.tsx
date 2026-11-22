@@ -16,9 +16,6 @@ export function LoginPage() {
   const user = useAuthStore((s) => s.user);
   const location = useLocation();
   const requestedNext = new URLSearchParams(location.search).get("next");
-  // Issue #123 · 返回目标排除 /unauthorized 等错误页,无效目标回落角色默认首页,
-  // 避免换账号登录后被带回上一个会话的拒绝提示页。MeResponse.role 为 string,
-  // 与 usePermissions 一致按 UserRole 收窄。
   const from =
     sanitizeLoginRedirect(requestedNext) ??
     sanitizeLoginRedirect(
@@ -32,7 +29,6 @@ export function LoginPage() {
   const [captchaRequired, setCaptchaRequired] = useState(false);
   const [captchaGeneration, setCaptchaGeneration] = useState(0);
   const [captchaToken, setCaptchaToken] = useState<string | null>(null);
-  // 后端返回 email_not_verified 时展示重发入口
   const [unverified, setUnverified] = useState(false);
   const [resendDone, setResendDone] = useState(false);
   const login = useLogin();
@@ -44,15 +40,11 @@ export function LoginPage() {
     login.error.detailRaw === "captcha_required";
 
   useEffect(() => {
-    // Issue #123 · 登录页挂载即结束"主动退出"标记窗口:此后未登录直接打开业务
-    // 链接时,RequireAuth 仍正常携带 from。挂载时机在退出跳转的 <Navigate>
-    // 全部结束后,不会提前放行带 from 的覆盖跳转。
     clearProactiveLogout();
   }, []);
 
   useEffect(() => {
     if (login.isError) {
-      // Turnstile proofs are single-use; every failed attempt needs a fresh widget.
       setCaptchaToken(null);
       setCaptchaGeneration((generation) => generation + 1);
       if (isCaptchaChallenge) setCaptchaRequired(true);
@@ -99,7 +91,6 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-6 text-foreground">
       <div className="w-[min(380px,100%)]">
-        {/* Logo */}
         <div className="mb-8 flex items-center justify-center gap-2.5">
           <img
             src="/ai-annotation-platform-icon.svg"
@@ -113,7 +104,6 @@ export function LoginPage() {
           </div>
         </div>
 
-        {/* Card */}
         <div className="rounded-2xl border border-border bg-card px-8 pb-8 pt-7 shadow-xl">
           <h1 className="mb-1 text-lg font-semibold">登录</h1>
           <p className="mb-6 text-sm text-muted-foreground">使用工作账号登录标注平台</p>

@@ -409,8 +409,6 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
         )
     await db_session.flush()
     if restricted_audit:
-        # A transaction-owned role isolates Audit while retaining the existing
-        # in-process Learning transaction and its other dependencies.
         role = "feedback_probe_" + uuid.uuid4().hex
         await db_session.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
         await db_session.execute(

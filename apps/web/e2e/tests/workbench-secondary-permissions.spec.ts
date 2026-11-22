@@ -25,7 +25,6 @@ test("secondary inference is available to annotators and absent from review work
       apiErrors.push(`${response.status()} ${new URL(response.url()).pathname}`);
     }
   });
-  // Only capability discovery is stubbed; users, tasks, annotations and writes use the API.
   await page.route(
     /\/api\/v1\/projects\/[^/]+\/ml-backends\/[^/]+\/(setup|capabilities)$/,
     (route) =>
@@ -44,8 +43,6 @@ test("secondary inference is available to annotators and absent from review work
         },
       }),
   );
-  // The base fixture already assigns this task to the annotator through its
-  // batch, so create the parent annotation as the real author.
   const parent = await seed.createTaskAnnotation(taskId, data.annotator_email, {
     annotation_type: "bbox",
     tool_unit_id: "bbox",
@@ -60,16 +57,12 @@ test("secondary inference is available to annotators and absent from review work
   await expect(page.getByTestId("selection-toggle-secondary-bar")).toBeVisible();
   await leaveWorkbench(data.annotator_email);
 
-  // Submit through the real workflow as the effective annotator so the review
-  // round freezes complete contributor evidence.  advance_task cannot be used
-  // here: it leaves review evidence unknown and blocks reviewer adjustments.
   const annotatorToken = await seed.accessToken(data.annotator_email);
   const submitted = await request.post(`${API_BASE}/api/v1/tasks/${taskId}/submit`, {
     headers: { Authorization: `Bearer ${annotatorToken}` },
   });
   expect(submitted.ok(), await submitted.text()).toBe(true);
 
-  // Administrators also lose the inference entry when they enter review mode.
   for (const email of [data.reviewer_email, data.admin_email]) {
     await seed.injectToken(page, email);
     await page.goto(`/projects/${data.project_id}/review?task=${taskId}`);
@@ -111,7 +104,6 @@ test("secondary inference is available to annotators and absent from review work
     });
     expect(response.status(), await response.text()).toBe(403);
   }
-  // Reviewers retain the existing ability to correct confirmed annotations manually.
   const updatedGeometry = { type: "bbox", x: 0.12, y: 0.1, w: 0.7, h: 0.7 };
   const edited = await request.patch(annotationPath, {
     headers,

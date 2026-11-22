@@ -47,9 +47,6 @@ async def video_authority(db, item, *, register=True):
             )
             await storage_access.ensure(db, LEGACY_LOCATION_ID)
         else:
-            # Re-registration refreshes replica.verified_at, which is part of
-            # the immutable source receipt. A later fixture consumer must only
-            # read the already registered source and never rewrite its facts.
             assert asset.media_type == "video"
             assert asset.verification_state == "verified"
             assert asset.checksum_algorithm == "sha256"

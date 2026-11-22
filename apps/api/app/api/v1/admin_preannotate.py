@@ -69,7 +69,6 @@ async def list_preannotate_queue(
 
     含 prediction / failed 计数 + 项目元数据, 供 AIPreAnnotatePage 历史表渲染.
     """
-    # 1. 拉所有 pre_annotated 批次 (limit 前)
     stmt = select(batch_row).where(batch_row.status == BatchStatus.PRE_ANNOTATED)
     if project_id is not None:
         stmt = stmt.where(batch_row.project_id == project_id)
@@ -92,12 +91,10 @@ async def list_preannotate_queue(
     batch_ids = [b.id for b in batches]
     project_ids = list({b.project_id for b in batches})
 
-    # 2. project 信息
     projects = aliased(Project, project_rows(), adapt_on_names=True)
     pres = await db.execute(select(projects).where(projects.id.in_(project_ids)))
     projects_by_id = {p.id: p for p in pres.scalars().all()}
 
-    # 3. 每 batch 的 task count
     task_count_q = await db.execute(
         select(task_row.batch_id, func.count(task_row.id))
         .where(task_row.batch_id.in_(batch_ids))
@@ -105,7 +102,6 @@ async def list_preannotate_queue(
     )
     task_counts = {bid: cnt for bid, cnt in task_count_q.all()}
 
-    # 4. 每 batch 的 prediction count + max created_at (从 predictions JOIN tasks)
     pred_q = await db.execute(
         select(
             task_row.batch_id,
@@ -121,7 +117,6 @@ async def list_preannotate_queue(
         bid: (int(cnt), last) for bid, cnt, last in pred_q.all()
     }
 
-    # 5. 每 batch 的 failed count (排除 dismissed)
     fail_q = await db.execute(
         select(task_row.batch_id, func.count(failed_prediction_row.id))
         .select_from(failed_prediction_row)
@@ -156,9 +151,6 @@ async def list_preannotate_queue(
         )
 
     return PreannotateQueueResponse(items=items)
-
-
-# ── 多选批量清理 prediction / 重激活 ────────────────────────
 
 
 class BulkClearRequest(BaseModel):
@@ -208,9 +200,6 @@ async def bulk_clear_preannotate(
     return BulkClearResponse(**result)
 
 
-# ── /ai-pre 项目卡片网格的聚合数据源 ─────────────────────────
-
-
 class PreannotateProjectSummary(BaseModel):
     project_id: uuid.UUID
     project_name: str
@@ -222,8 +211,6 @@ class PreannotateProjectSummary(BaseModel):
     ml_backend_state: str | None = None
     ml_backend_max_concurrency: int | None = None
     ready_batches: int = 0
-    # 可预标批次数（active + 未分派标注员与质检员的 draft），与
-    # `allows_bulk_preannotation` 同源；ProjectCardGrid 以「可预标」展示。
     active_batches: int = 0
     last_job_at: datetime | None = None
     recent_failures: int = 0
@@ -288,8 +275,6 @@ async def list_preannotate_project_summary(
         (pid, status): cnt for pid, status, cnt in bres.all()
     }
 
-    # issue #124 · 卡片「可预标」= active + 未分派人员的 draft，与
-    # allows_bulk_preannotation 同源；否则卡片可能显示 0 而详情页仍列有草稿。
     eligible_res = await db.execute(
         select(batch_row.project_id, func.count(batch_row.id))
         .where(
@@ -300,7 +285,6 @@ async def list_preannotate_project_summary(
     )
     eligible_counts = {pid: int(cnt) for pid, cnt in eligible_res.all()}
 
-    # prediction_jobs 已收敛进 async_jobs，最近预标时间改查 kind=batch_predict
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 
     job_rows = await JobsDomainQueryPostgresData(db).latest_batch_prediction_times(

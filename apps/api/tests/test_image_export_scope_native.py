@@ -130,7 +130,6 @@ async def test_existing_job_cannot_be_adopted_and_birth_cannot_be_forged(worker_
         {"id": job.id},
     ) == {"kind": "unknown"}
 
-    # Widened direct scope-table UPDATE cannot manufacture the nested birth.
     fresh = {**scope, "job": uuid.uuid4(), "bundle": uuid.uuid4(), "born": False}
     async with db.begin_nested() as savepoint:
         await db.execute(insert, fresh)
@@ -315,7 +314,6 @@ async def test_image_admission_fails_closed_instead_of_deadlocking_fixture_regis
     await db.commit()
     maker = async_sessionmaker(db.bind, expire_on_commit=False)
     async with maker() as registration, maker() as producer:
-        # Hold D as an already-admitted export could, while R owns E and F.
         await producer.execute(
             text(
                 "SELECT pg_advisory_xact_lock(hashtextextended("

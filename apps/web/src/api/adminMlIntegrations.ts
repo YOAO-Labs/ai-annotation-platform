@@ -8,7 +8,6 @@ import type {
   GpuInfo,
   MLBackendUnloadResponse,
   ResidencyInfo,
-  // ML routing read models + service-pool CRUD (ADR-0050).
   TopologyResponse,
   RuntimeSnapshotResponse,
   ServicePoolAdminItem,
@@ -28,7 +27,6 @@ export type {
   GpuInfo,
   MLBackendUnloadResponse,
   ResidencyInfo,
-  // ML routing read models + service-pool CRUD (ADR-0050).
   TopologyResponse,
   TopologyPoolEntry,
   TopologyMemberInstance,
@@ -49,7 +47,6 @@ export type StorageOverview = Pick<
   "items" | "total_object_count" | "total_size_bytes"
 >;
 
-// 单变体 cache 桶 (来自 backend /cache/stats，key="sam/dino")。
 export interface CacheBucketStat {
   size?: number;
   hits?: number;
@@ -57,7 +54,6 @@ export interface CacheBucketStat {
   hit_rate?: number;
 }
 
-// 协议 §4.3 PoolStatus.loaded_keys 元数据 (loaded_at/last_used_at 为 ISO).
 export interface PoolLoadedKey {
   key: string;
   loaded_at?: string;
@@ -65,38 +61,27 @@ export interface PoolLoadedKey {
   hit_count?: number;
 }
 
-// 协议 §4.3 last_evict.
 export interface PoolEvictRecord {
   key: string;
   at: string;
   reason: string;
 }
 
-// ModelPool 健康快照 (来自 backend /health.pool).
-// backend 上报 PoolStatus (cap/current_size/loaded_keys/last_evict)；
-// 旧字段 loaded_variants / evict_count / per_variant_lru_ts 可能同时存在。
-// 消费方优先读新字段，老字段仅作 fallback。
 export interface BackendPoolMeta {
   cap?: number;
   current_size?: number;
   loaded_keys?: PoolLoadedKey[];
   last_evict?: PoolEvictRecord | null;
-  // 下三个字段是旧协议的兼容字段；消费方应优先读
-  // 标准 PoolStatus 字段。
-  // 避免触发 TS6385/6387 在 fallback 调用点污染警告 (sessionVariantCache 同款理由).
   loaded_variants?: Array<{ sam_variant: string; dino_variant: string }>;
   evict_count?: number;
   per_variant_lru_ts?: Record<string, number>;
 }
 
-// video tracker 独立显存池快照 (来自 backend /health.video_pool).
-// 视频池上报 PoolStatus.loaded_keys，key 为 sam_variant 字符串。
 export interface VideoPoolMeta {
   cap: number;
   current_size?: number;
   loaded_keys?: PoolLoadedKey[];
   last_evict?: PoolEvictRecord | null;
-  // 老字段, 同 BackendPoolMeta.loaded_variants 说明; 优先读 loaded_keys.
   loaded_variants: string[];
   active_sessions: number;
   idle_seconds?: number;
@@ -112,19 +97,13 @@ export interface BackendHealthMeta {
     [key: string]: unknown;
   } | null;
   model_version?: string | null;
-  /** ModelPool 多变体并存快照 (grounded-sam2 才有)。 */
   pool?: BackendPoolMeta | null;
-  /** video tracker 独立显存池快照 (支持视频追踪的 backend 才有)。 */
   video_pool?: VideoPoolMeta | null;
-  /** /setup 能力快照 (epic 阶段 1); check_health 探 /setup 后落库。 */
   capabilities?: BackendCapabilities | null;
-  /** 有效计算设备观测 (GPU 静默退回 CPU 告警用)。 */
   compute?: MLBackendCompute | null;
-  /** ADR-0049 · 全 pool/session 的物理 GPU 驻留真值；第三方旧响应允许保留原始对象。 */
   residency?: ResidencyInfo | Record<string, unknown> | null;
 }
 
-// backend /setup 能力快照 (epic 阶段 1); modalities 为派生视图 (image/video)。
 export interface BackendCapabilities {
   is_interactive: boolean;
   supported_prompts: string[];
@@ -132,10 +111,7 @@ export interface BackendCapabilities {
   supported_text_outputs: string[];
   supported_geometric_outputs: string[];
   modalities: string[];
-  // 协议 v2: 多 model 目录 (yolo 一个进程暴露 detection/segmentation/keypoint/obb
-  // 4 个 task model). gsam2/sam3 是单 model, 此处缺省或长度 0.
   models?: Array<{ id: string; task?: string }>;
-  // backend 自报支持 POST /warmup (协议 §4.4); 老 backend 缺字段 = false.
   warmup_endpoint?: boolean;
 }
 
@@ -148,7 +124,6 @@ export interface MLBackendItem {
   is_interactive: boolean;
   auth_method: string;
   extra_params: Record<string, unknown>;
-  /** backend `/health` 深度指标缓存 (gpu_info / cache / model_version). */
   health_meta?: BackendHealthMeta | null;
   error_message: string | null;
   last_checked_at: string | null;
@@ -168,8 +143,6 @@ export interface MLIntegrationsOverview {
   total_backends: number;
   connected_backends: number;
 }
-
-// ── /probe + /runtime-hints ─────────────────────────────────
 
 export interface ProbeRequest {
   url: string;
@@ -192,7 +165,6 @@ export interface RuntimeHints {
   managed_backend_urls?: Record<string, string>;
 }
 
-// /all 全局 backend 列表 (Wizard step 4 复用 backend 配置).
 export interface GlobalBackendItem {
   id: string;
   name: string;
@@ -215,8 +187,6 @@ export interface GlobalBackendListResponse {
   items: GlobalBackendItem[];
 }
 
-// ── ADR-0044 · superadmin 全局注册表 CRUD ──────────────────
-// 全局 backend (project_id 为 null), 走 /admin/ml-integrations/registry。
 export interface MLBackendOut {
   id: string;
   project_id: string | null;
@@ -253,7 +223,6 @@ export interface MLBackendRegistryCreatePayload {
   eviction_priority?: number;
 }
 
-// update 与 create 同字段, 但全部可选 (仅下发改动字段)。
 export type MLBackendRegistryUpdatePayload = Partial<MLBackendRegistryCreatePayload>;
 
 export interface RegistryHealthResponse {
@@ -262,7 +231,6 @@ export interface RegistryHealthResponse {
   backend_name: string;
 }
 
-// ── 容器直连观测 (与项目注册解耦) ─────────────────────────
 export interface VariantCatalog {
   sam_variant: string[];
   dino_variant: string[];
@@ -277,9 +245,7 @@ export interface ObserveTarget {
   gpu_info?: GpuInfo | null;
   model_version?: string | null;
   pool?: BackendPoolMeta | null;
-  /** video tracker 独立显存池观测。 */
   video_pool?: VideoPoolMeta | null;
-  /** 支持的视频 tracker 列表 (如 ["sam2_video"]); 空 = 不支持视频追踪。 */
   supported_trackers?: string[];
   cache?: { hit_rate?: number; buckets?: Record<string, CacheBucketStat> } | null;
   compute?: MLBackendCompute | null;
@@ -319,57 +285,42 @@ export const adminMlIntegrationsApi = {
   probe: (payload: ProbeRequest) =>
     apiClient.post<ProbeResponse>("/admin/ml-integrations/probe", payload),
   runtimeHints: () => apiClient.get<RuntimeHints>("/admin/ml-integrations/runtime-hints"),
-  /** 全局 backend 去重列表, 用于 Wizard step 4 dropdown. */
   listAll: () => apiClient.get<GlobalBackendListResponse>("/admin/ml-integrations/all"),
-  /** ADR-0049 · 逐物理卡静态容量、模式和配置诊断。 */
   gpuResources: () =>
     apiClient.get<GPUArbiterResourcesResponse>("/admin/ml-integrations/gpu-resources"),
-  /** 直连观测 env 配的后端容器 (健康/变体目录/registered 标记). */
   observe: () => apiClient.get<ObserveResponse>("/admin/ml-integrations/observe"),
-  /** 试启动: 空池时 warm→自动 unload 验证可加载性. */
   observeSmokeTest: (payload: SmokeTestRequest) =>
     apiClient.post<SmokeTestResponse>("/admin/ml-integrations/observe/smoke-test", payload),
-  /** ADR-0044 · superadmin 注册全局 backend (project_id=null); url 重复返 409. */
   createRegistry: (payload: MLBackendRegistryCreatePayload) =>
     apiClient.post<MLBackendOut>("/admin/ml-integrations/registry", payload),
-  /** 编辑全局 backend; 仅下发改动字段; 不存在返 404. */
   updateRegistry: (id: string, payload: MLBackendRegistryUpdatePayload) =>
     apiClient.put<MLBackendOut>(`/admin/ml-integrations/registry/${id}`, payload),
-  /** 删除全局 backend; 有运行中预标任务返 409; 不存在返 404. */
   deleteRegistry: (id: string) => apiClient.delete<void>(`/admin/ml-integrations/registry/${id}`),
-  /** 对全局 backend 触发一次健康检查. */
   registryHealth: (id: string) =>
     apiClient.post<RegistryHealthResponse>(`/admin/ml-integrations/registry/${id}/health`),
-  /** ADR-0049 · 不依赖项目绑定的全局 backend 手工卸载。 */
   registryUnload: (id: string) =>
     apiClient.post<MLBackendUnloadResponse>(`/admin/ml-integrations/registry/${id}/unload`),
 
-  // ── ADR-0050 · 服务池 / 实例读模型 + CRUD ────────────────────
-  // Plan §9.1: 前端不再 URL-join; topology 是注册管理默认读模型。
-  /** 角色裁剪的服务池/实例拓扑 (PROJECT_ADMIN 看裁剪视图, SUPER_ADMIN 看全量). */
   topology: () => apiClient.get<TopologyResponse>("/admin/ml-integrations/topology"),
-  /** 运行时快照 (SUPER_ADMIN-only); 含 router metrics / health / 新鲜度信封. */
+  primaryPoolProjectCounts: () =>
+    apiClient.get<{ counts: Partial<Record<string, number>> }>(
+      "/admin/ml-integrations/primary-pool-project-counts",
+    ),
   runtimeSnapshot: () =>
     apiClient.get<RuntimeSnapshotResponse>("/admin/ml-integrations/runtime-snapshot"),
-  /** 超管: 全量服务池列表 (含 members + created_at/updated_at). */
   listServicePools: () =>
     apiClient.get<ServicePoolAdminItem[]>("/admin/ml-integrations/service-pools"),
-  /** 超管: 新建服务池; name 必填, legacy_instance_id 可选 (单实例起步). */
   createServicePool: (payload: ServicePoolCreateRequest) =>
     apiClient.post<ServicePoolAdminItem>("/admin/ml-integrations/service-pools", payload),
-  /** 超管: 单个服务池详情. */
   getServicePool: (poolId: string) =>
     apiClient.get<ServicePoolAdminItem>(`/admin/ml-integrations/service-pools/${poolId}`),
-  /** 超管: 改池名 / 启用状态; 仅下发改动字段. */
   patchServicePool: (poolId: string, payload: ServicePoolPatchRequest) =>
     apiClient.patch<ServicePoolAdminItem>(
       `/admin/ml-integrations/service-pools/${poolId}`,
       payload,
     ),
-  /** 超管: 删除服务池; 需先解除成员关系且无活跃 lease. */
   deleteServicePool: (poolId: string) =>
     apiClient.delete<void>(`/admin/ml-integrations/service-pools/${poolId}`),
-  /** 超管: 加入或更新成员 (weight); capability 指纹不匹配返 409. */
   addOrUpdatePoolMember: (
     poolId: string,
     registryId: string,
@@ -379,27 +330,22 @@ export const adminMlIntegrationsApi = {
       `/admin/ml-integrations/service-pools/${poolId}/members/${registryId}`,
       payload,
     ),
-  /** 超管: 移除成员; 需先 drain 且 inflight=0. */
   removePoolMember: (poolId: string, registryId: string) =>
     apiClient.delete<ServicePoolAdminItem>(
       `/admin/ml-integrations/service-pools/${poolId}/members/${registryId}`,
     ),
-  /** 超管: 成员 active→draining (停止接新 lease); 幂等. */
   drainPoolMember: (poolId: string, registryId: string) =>
     apiClient.post<ServicePoolAdminItem>(
       `/admin/ml-integrations/service-pools/${poolId}/members/${registryId}/drain`,
     ),
-  /** 超管: 成员 draining→active (恢复接流); 幂等; disabled 需先 enable. */
   resumePoolMember: (poolId: string, registryId: string) =>
     apiClient.post<ServicePoolAdminItem>(
       `/admin/ml-integrations/service-pools/${poolId}/members/${registryId}/resume`,
     ),
-  /** 超管: 读取已持久化的池基线与成员当前能力差异，不触发写操作. */
   previewCapabilityDrift: (poolId: string, registryId: string) =>
     apiClient.get<CapabilityDriftPreviewResponse>(
       `/admin/ml-integrations/service-pools/${poolId}/members/${registryId}/capability-drift`,
     ),
-  /** 超管: 重新探活并接受审核过的能力指纹，原子恢复成员与可选的服务池接流. */
   acceptCapabilityDrift: (
     poolId: string,
     registryId: string,

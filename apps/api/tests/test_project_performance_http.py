@@ -28,8 +28,6 @@ def _assert_public_audit_reads(statements: list[str]) -> None:
 @pytest.fixture(autouse=True)
 async def historical_audit_partition(db_session):
     """Prepare the fixed event month independently of the migration date."""
-    # The real monthly partition inherits audit indexes and immutability triggers.
-    # Its DDL shares the per-test transaction and rolls back with the fixture data.
     await db_session.execute(
         text(
             "CREATE TABLE IF NOT EXISTS audit_logs_y2026m09 PARTITION OF audit_logs "
@@ -365,8 +363,6 @@ async def test_members_http_roster_metrics_empty_search_and_safe_csv(
     assert metrics["first_review_pass_rate"]["value"] == 0.0
     assert metrics["first_review_pass_rate"]["denominator"] == 1
     assert metrics["first_review_pass_rate"]["coverage"] == "complete"
-    # Reused track IDs do not collapse retained annotation records. This count
-    # uses the same grain as the source, class and geometry distributions.
     assert metrics["retained_objects"]["value"] == 2
     assert metrics["contributed_tasks"]["value"] == 1
     assert items[str(reviewer_user.id)]["account_status"] == "inactive"
@@ -556,9 +552,6 @@ async def test_members_http_qualified_time_clips_and_unions_sessions(
                 collection_source="legacy",
                 collection_coverage="unverified_collection",
             ),
-            # A pre-provenance client could claim this foreign task belonged to
-            # the requested project.  The performance query must reject it by
-            # checking both sides of the relationship.
             TaskEvent(
                 task_id=foreign_task.id,
                 user_id=worker.id,
@@ -579,9 +572,6 @@ async def test_members_http_qualified_time_clips_and_unions_sessions(
                 ended_at=start + timedelta(minutes=25),
                 duration_ms=1_200_000,
                 collection_source="legacy",
-                # A legacy row remains untrusted even if a malformed client
-                # marked its coverage qualified.  It must not create a roster
-                # identity or evidence row.
                 collection_coverage="qualified",
             ),
         ]
@@ -673,8 +663,6 @@ async def test_members_http_volume_uses_bounded_grouped_queries(
     )
     await db_session.flush()
 
-    # Every task has ten submits. Counts and daily trends must be aggregated
-    # before Python receives rows, including for a one-member page or CSV.
     rounds = {task.id: [uuid.uuid4() for _ in range(10)] for task in tasks}
     db_session.add_all(
         [
@@ -705,8 +693,6 @@ async def test_members_http_volume_uses_bounded_grouped_queries(
         ]
     )
     await db_session.flush()
-    # Bulk fixture inserts are still uncommitted, so autovacuum cannot collect
-    # the statistics a deployed project normally has before this request.
     await db_session.execute(text("ANALYZE tasks, task_events, audit_logs"))
     from app.services import project_performance
 
@@ -1365,8 +1351,6 @@ async def test_legacy_video_coverage_survives_cleared_submission_timestamp(
     from tests.conftest import _create_user
 
     owner, owner_token = project_admin
-    # Platform employee with an explicit project role; the legacy global
-    # annotator role is no longer a valid live account identity.
     worker, worker_token = await _create_user(
         db_session,
         "employee",
@@ -1390,7 +1374,6 @@ async def test_legacy_video_coverage_survives_cleared_submission_timestamp(
     task.submitted_at = start + timedelta(hours=1)
     db_session.add(task)
     await db_session.flush()
-    # Explicitly persist the pre-rollout NULL after INSERT's new-task default.
     task.first_review_eligible = None
     await db_session.commit()
     params = {
@@ -1499,8 +1482,6 @@ async def test_missing_later_round_snapshot_marks_annotation_but_not_review_cove
     ]["approved_task_outcomes"]
     assert metric["value"] == 0
     assert metric["coverage"] == "partial"
-    # A review-only view still has complete reviewer decision and time evidence,
-    # independently of the missing annotation round and legacy video submit.
     review = await httpx_client.get(
         url, params={**params, "work_type": "review"}, headers=headers
     )
@@ -1530,8 +1511,6 @@ async def test_decision_aggregation_matches_project_task_and_submission_round(
     matching_round = uuid.uuid4()
     db_session.add_all(
         [
-            # Earlier retained rows cannot provide a snapshot for a different
-            # project, task, or review round even when another key is identical.
             _audit(
                 project_id=foreign_project.id,
                 task_id=task.id,
@@ -1660,7 +1639,6 @@ async def test_members_http_saved_content_counts_distinct_image_tasks(
     a_box_two = _annotation(image_one.id, worker_a.id)
     b_box_one = _annotation(image_one.id, worker_b.id)
     b_box_two = _annotation(image_two.id, worker_b.id)
-    # Saved outside the selected interval: today's metrics never absorb it.
     a_stale_box = _annotation(image_two.id, worker_a.id, at=start - timedelta(days=2))
     db_session.add_all([a_box_one, a_box_two, b_box_one, b_box_two, a_stale_box])
     await db_session.flush()
@@ -1684,7 +1662,6 @@ async def test_members_http_saved_content_counts_distinct_image_tasks(
     assert response.status_code == 200, response.text
     body = response.json()
     metrics = {row["user_id"]: row["metrics"] for row in body["items"]}
-    # Saved without submission: images 1 / objects 2 / submitted 0.
     assert metrics[str(worker_a.id)]["annotated_images"]["value"] == 1
     assert metrics[str(worker_a.id)]["retained_objects"]["value"] == 2
     assert metrics[str(worker_a.id)]["submitted_tasks"]["value"] == 0
@@ -1692,12 +1669,9 @@ async def test_members_http_saved_content_counts_distinct_image_tasks(
     assert metrics[str(worker_a.id)]["contributed_tasks"]["value"] == 1
     assert metrics[str(worker_b.id)]["annotated_images"]["value"] == 2
     assert metrics[str(worker_b.id)]["retained_objects"]["value"] == 2
-    # Independent project totals: two distinct image tasks, four retained records.
     assert body["project_totals"]["annotated_images"]["value"] == 2
     assert body["project_totals"]["retained_objects"]["value"] == 4
 
-    # A video task in the image-labelled project adds a retained record and a
-    # contributed task, but never an annotated image.
     db_session.add(_annotation(video_task.id, worker_a.id))
     await db_session.flush()
     video_body = (
@@ -1710,12 +1684,10 @@ async def test_members_http_saved_content_counts_distinct_image_tasks(
     video_metrics = {row["user_id"]: row["metrics"] for row in video_body["items"]}
     assert video_metrics[str(worker_a.id)]["annotated_images"]["value"] == 1
     assert video_metrics[str(worker_a.id)]["retained_objects"]["value"] == 3
-    # contributed_tasks stays all-modality (image + video), unlike the image count.
     assert video_metrics[str(worker_a.id)]["contributed_tasks"]["value"] == 2
     assert video_body["project_totals"]["annotated_images"]["value"] == 2
     assert video_body["project_totals"]["retained_objects"]["value"] == 5
 
-    # Sorting by the new saved-content fields with stable UUID tie-breaking.
     sorted_response = await httpx_client.get(
         f"/api/v1/projects/{project.id}/performance/members",
         params={**params, "sort": "-annotated_images"},
@@ -1730,7 +1702,6 @@ async def test_members_http_saved_content_counts_distinct_image_tasks(
     )
     assert objects_sorted.status_code == 200, objects_sorted.text
 
-    # Member detail exposes the image count alongside retained content.
     detail = await httpx_client.get(
         f"/api/v1/projects/{project.id}/performance/members/{worker_a.id}",
         params=params,
@@ -1739,7 +1710,6 @@ async def test_members_http_saved_content_counts_distinct_image_tasks(
     assert detail.status_code == 200, detail.text
     assert detail.json()["member"]["metrics"]["annotated_images"]["value"] == 1
 
-    # CSV gains annotated_images next to the existing retained object count.
     csv_response = await httpx_client.get(
         f"/api/v1/projects/{project.id}/performance/export",
         params=params,
@@ -1761,10 +1731,8 @@ async def test_members_http_saved_content_counts_distinct_image_tasks(
     images_index = header_columns.index("annotated_images.value")
     objects_index = header_columns.index("retained_objects.value")
     assert a_columns[images_index] == "1"
-    # Two image objects plus the retained video record.
     assert a_columns[objects_index] == "3"
 
-    # Deleting or cancelling retained content reduces the saved counts.
     a_box_one.is_active = False
     await db_session.flush()
     reduced = await httpx_client.get(
@@ -1790,5 +1758,4 @@ async def test_members_http_saved_content_counts_distinct_image_tasks(
     }
     assert emptied_metrics[str(worker_a.id)]["annotated_images"]["value"] == 0
     assert emptied_metrics[str(worker_a.id)]["retained_objects"]["value"] == 1
-    # Project image totals remain independent of member attribution.
     assert emptied.json()["project_totals"]["annotated_images"]["value"] == 2

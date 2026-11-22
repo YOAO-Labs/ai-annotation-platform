@@ -106,7 +106,6 @@ def _build_payload() -> ProtocolCapabilitiesResponse:
     )
 
 
-# 进程内冻结的 payload + ETag (SSOT 是模块常量, 一次构造即可)。
 _PAYLOAD: ProtocolCapabilitiesResponse = _build_payload()
 _PAYLOAD_JSON: str = _PAYLOAD.model_dump_json()
 _ETAG: str = (
@@ -159,9 +158,6 @@ async def get_capability_instances(
     raw = await load_capability_instances(
         db, operation_context_factory=backend_control_operation_context_factory(db)
     )
-    # 逐 backend 构造: 单个 backend 自报格式不合规 (如 variant 选项缺 value / models
-    # 非数组) 只跳过它本身并告警, 而非让一条坏数据的 ValidationError 拖垮整个端点 ——
-    # 否则一个不合规 backend 会让所有 backend 的卡片一起从能力目录消失 (整体 500)。
     instances: list[CapabilityInstanceItem] = []
     for item in raw:
         try:
@@ -172,7 +168,6 @@ async def get_capability_instances(
                     source=item["source"],
                     name=item["name"],
                     infra=item["infra"],
-                    # backend 自报是否支持 POST /warmup (协议 §4.4).
                     warmup_endpoint=bool(item.get("warmup_endpoint", False)),
                     models=[InstanceModelItem(**m) for m in item["models"]],
                 )

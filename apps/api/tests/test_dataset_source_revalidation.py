@@ -57,7 +57,6 @@ async def test_revalidation_restores_original_task_and_preserves_labels(
         assert (
             await httpx_client.get(content_url, headers=headers(annotator))
         ).status_code == 409
-        # Ordinary registration is not permission to renew an old reference.
         plain = await register_entry(db, world[6].id, change["path_digest"], world[2])
         assert not plain["created"]
         assert (

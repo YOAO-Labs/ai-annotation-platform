@@ -33,16 +33,115 @@ ROOT = Path(__file__).resolve().parents[4]
 if str(ROOT / "scripts") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts"))
 
-from fixture_suite_coordinator import (
+from fixture_suite_coordinator import (  # noqa: E402
     _resource_root,
     _settled,
     _settled_thread,
     _verified_database,
     prepare_native_run_target,
     retire_native_run_target,
-)  # noqa: E402
+)
 from linux_pidfd import open_pidfd, pidfd_alive, pidfd_send_signal  # noqa: E402
 from worktree_env import application_environment, atomic_json, state_path  # noqa: E402
+
+
+_VIDEO_REQUEST_DRAIN_INTERVAL = 0.05
+_VIDEO_REQUEST_PUBLICATION_SECONDS = 10.0
+_VIDEO_REQUEST_PENDING = text("""
+    SELECT ARRAY(
+        SELECT output.id FROM public.video_derivative_outputs AS output
+        JOIN yoao_fixture_v1.fixture_run_resources AS item
+          ON item.kind = 'item' AND item.resource_id = output.dataset_item_id
+        WHERE item.run_id = ANY(:runs) AND output.fixture_request_versions = '{}'::jsonb
+    )
+""")
+_VIDEO_REQUEST_PUBLICATIONS = text("""
+    SELECT output.id, output.lease_token, execution.token,
+           CASE
+               WHEN output.state = 'ready'
+                AND attempt.output_id IS NOT NULL AND execution.token IS NOT NULL
+                AND pg_catalog.jsonb_typeof(output.fixture_request_versions) = 'object'
+                AND output.fixture_request_versions <> '{}'::jsonb THEN 'published'
+               WHEN output.state = 'building' AND output.error_code IS NULL
+                AND output.fixture_request_versions = '{}'::jsonb
+                AND output.lease_token IS NULL AND output.lease_expires_at IS NULL
+                AND execution.delivery_id IS NULL THEN 'queued'
+               WHEN output.state = 'building' AND output.error_code IS NULL
+                AND output.fixture_request_versions = '{}'::jsonb
+                AND (
+                    (output.lease_token IS NULL AND output.lease_expires_at IS NULL)
+                    OR (output.lease_token IS NOT NULL
+                        AND output.lease_expires_at > pg_catalog.clock_timestamp())
+                )
+                AND execution.state = 'running' THEN
+                   CASE WHEN EXISTS (
+                       SELECT 1 FROM pg_catalog.pg_locks AS held
+                       WHERE held.locktype = 'advisory' AND held.granted
+                         AND held.mode = 'ExclusiveLock' AND held.objsubid = 1
+                         AND held.database = (
+                             SELECT oid FROM pg_catalog.pg_database
+                             WHERE datname = pg_catalog.current_database()
+                         )
+                         AND held.pid = execution.backend_pid
+                         AND held.classid::bigint = ((execution_key.key >> 32) & 4294967295::bigint)
+                         AND held.objid::bigint = (execution_key.key & 4294967295::bigint)
+                   ) THEN 'running'
+                   WHEN output.lease_token IS NULL OR attempt.output_id IS NOT NULL THEN 'unlocked'
+                   ELSE 'unproven' END
+               ELSE 'unproven'
+           END AS status
+    FROM public.video_derivative_outputs AS output
+    JOIN yoao_fixture_v1.fixture_run_resources AS item
+      ON item.kind = 'item' AND item.resource_id = output.dataset_item_id
+     AND item.run_id = :run AND item.state = 'published'
+    JOIN yoao_fixture_v1.fixture_runs AS run ON run.id = item.run_id
+     AND run.family = 'owned' AND run.state = 'open' AND run.parent_run_id = :suite
+    JOIN yoao_fixture_v1.fixture_runs AS suite ON suite.id = run.parent_run_id
+     AND suite.family = 'owned' AND suite.state = 'open' AND suite.parent_run_id IS NULL
+    JOIN yoao_jobs_v1.fixture_media_deliveries AS delivery ON delivery.delivery_id = output.id
+    JOIN yoao_assets_v1.fixture_independent_media_births AS birth
+      ON birth.delivery_id = delivery.delivery_id
+     AND (birth.run_id, birth.dataset_id, birth.item_id, birth.owner_kind, birth.owner_id,
+          birth.producer_kind, birth.queue, birth.source, birth.envelope)
+       = (delivery.run_id, delivery.dataset_id, delivery.item_id, delivery.owner_kind,
+          delivery.owner_id, delivery.producer_kind, delivery.queue, delivery.source, delivery.envelope)
+    LEFT JOIN yoao_assets_v1.fixture_independent_video_attempts AS attempt
+      ON attempt.output_id = output.id AND attempt.lease_token = output.lease_token
+     AND attempt.delivery_id = delivery.delivery_id
+    LEFT JOIN yoao_assets_v1.fixture_independent_media_executions AS execution
+      ON execution.delivery_id = delivery.delivery_id
+    CROSS JOIN LATERAL (
+        SELECT pg_catalog.hashtextextended('aap-fixture-independent-execution:' || output.id::text, 0) AS key
+    ) AS execution_key
+    WHERE output.id = ANY(:outputs)
+      AND yoao_jobs_v1.fixture_video_request_delivery_matches(:run, delivery.delivery_id)
+      AND NOT EXISTS (
+          SELECT FROM yoao_assets_v1.fixture_independent_no_start AS no_start
+          WHERE no_start.delivery_id = delivery.delivery_id
+      )
+      AND NOT EXISTS (
+          SELECT FROM yoao_assets_v1.fixture_independent_video_attempts AS previous
+          WHERE previous.output_id = output.id
+            AND (previous.lease_token, previous.delivery_id)
+                IS DISTINCT FROM (output.lease_token, delivery.delivery_id)
+      )
+      AND EXISTS (
+          SELECT 1 FROM yoao_jobs_v1.fixture_media_publication_attempts AS publication
+          WHERE publication.delivery_id = delivery.delivery_id AND publication.state = 'accepted'
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM yoao_jobs_v1.fixture_media_publication_attempts AS publication
+          WHERE publication.delivery_id = delivery.delivery_id AND publication.state = 'entered'
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM yoao_jobs_v1.fixture_media_publication_retirements AS retirement
+          WHERE retirement.delivery_id = delivery.delivery_id
+      )
+""")
+
+
+async def _pending_video_requests(db, run_ids):
+    return await db.scalar(_VIDEO_REQUEST_PENDING, {"runs": run_ids})
 
 
 def _require(condition, code):
@@ -272,6 +371,64 @@ def _drain(process, descriptor, stopped_fd=None, *, descendants=False):
         process.fixture_native_descendants = None
 
 
+class _VideoRequestPublisher:
+    async def publish_envelope(self, envelope):
+        from app.services.jobs_queue import publish_queue_envelope
+
+        return await publish_queue_envelope(envelope)
+
+
+async def _publish_video_requests(run_id, control_url, stopped):
+    from yoao_jobs.publication_postgres import publish_fixture_video_request
+
+    publisher = _VideoRequestPublisher()
+    database_url = control_url.set(drivername="postgresql").render_as_string(
+        hide_password=False
+    )
+    engine = create_async_engine(control_url, poolclass=NullPool, hide_parameters=True)
+    try:
+        async with engine.connect() as connection:
+            while not stopped.is_set():
+                delivery = await connection.scalar(
+                    text(
+                        "SELECT yoao_jobs_v1.next_fixture_video_request_publication(:run)"
+                    ),
+                    {"run": run_id},
+                )
+                await connection.commit()
+                if stopped.is_set():
+                    break
+                if delivery is not None:
+                    _require(
+                        isinstance(delivery, uuid.UUID),
+                        "fixture_video_delivery_changed",
+                    )
+                    await publish_fixture_video_request(
+                        database_url, run_id, delivery, publisher
+                    )
+                else:
+                    try:
+                        await asyncio.wait_for(stopped.wait(), 0.1)
+                    except TimeoutError:
+                        pass
+    finally:
+        await engine.dispose()
+
+
+def _require_video_publisher(run):
+    stopped, pending = run["video_publisher"]
+    if pending.done():
+        pending.result()
+        raise RuntimeError("fixture_video_publisher_stopped")
+    _require(not stopped.is_set(), "fixture_video_publisher_stopped")
+
+
+async def _stop_video_publisher(run):
+    stopped, pending = run["video_publisher"]
+    stopped.set()
+    await _settled(pending)
+
+
 class FixtureNativeRuntime:
     """Retain each process and receipt until its real Native owner settles it."""
 
@@ -495,6 +652,7 @@ class FixtureNativeRuntime:
                 raise storage_access.mark_unsettled(
                     RuntimeError("fixture_native_run_unsettled")
                 )
+            _require_video_publisher(run)
             return
         directory = self.directory / ("native-run-" + run_id.hex)
         directory.mkdir(mode=0o700)
@@ -542,7 +700,12 @@ class FixtureNativeRuntime:
             )
             dsn = await fixture_media_control.worker_dsn_path(run_id, receipt)
             run.update(
-                control_url=control_url, control_receipt=receipt, admin=admin, dsn=dsn
+                owner_url=owner_url,
+                ordinary_media_bucket=resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"],
+                control_url=control_url,
+                control_receipt=receipt,
+                admin=admin,
+                dsn=dsn,
             )
             listener, observed = await _settled_thread(
                 _reserve_proxy, resources, identity, run_id
@@ -691,6 +854,19 @@ class FixtureNativeRuntime:
                 pidfd_alive(child["pidfd"]) and child["process"].poll() is None,
                 "fixture_native_process_exited",
             )
+        from app.config import settings
+
+        _require(
+            not settings.jobs_queue_url and settings.effective_celery_broker == broker,
+            "fixture_video_publisher_broker_changed",
+        )
+        stopped = asyncio.Event()
+        run["video_publisher"] = (
+            stopped,
+            asyncio.create_task(
+                _publish_video_requests(run_id, run["control_url"], stopped)
+            ),
+        )
         self._journal(run, "ready", proxy_origin=origin)
 
     def _drain_child(self, run, name, *, descendants, next_state):
@@ -738,6 +914,7 @@ class FixtureNativeRuntime:
                 self._journal(
                     run, "offline_draining", drained=[], child_dispositions={}
                 )
+            await _stop_video_publisher(run)
             for name in names:
                 if name not in run["journal"]["drained"]:
                     await _settled_thread(
@@ -780,6 +957,7 @@ class FixtureNativeRuntime:
                     ),
                     "fixture_native_run_unsettled",
                 )
+                _require_video_publisher(run)
                 continue
             _require(
                 run["journal"]["state"] == "offline_paused",
@@ -798,39 +976,64 @@ class FixtureNativeRuntime:
     def video_scope_prepared(self, run_id):
         return "video_outputs" in self.runs[run_id]["journal"]
 
-    async def classify_video_outputs(self, run_id, outputs):
+    def record_video_seed_claims(self, run_id, claims):
         run = self.runs[run_id]
-        ordered = [(str(dataset), str(output)) for dataset, output in outputs]
-        current = [list(pair) for pair in ordered]
-        previous = run["journal"].get("video_outputs")
-        if previous is not None:
+        journal = run["journal"]
+        _require(
+            journal["state"] == "ready" and "video_outputs" not in journal,
+            "fixture_native_video_scope_changed",
+        )
+        previous = journal.get("video_seed_claims", {})
+        _require(
+            not previous.keys() & claims.keys(), "fixture_native_video_scope_changed"
+        )
+        for receipt in claims.values():
+            storage = receipt["storage_ref"]
             _require(
-                all(pair in previous for pair in current),
+                storage["bucket"] == run["ordinary_media_bucket"]
+                and storage["storage_identity"] != run["target"]["storage_identity"],
                 "fixture_native_video_scope_changed",
             )
+        self._journal(run, journal["state"], video_seed_claims={**previous, **claims})
+
+    async def classify_video_outputs(self, run_id, outputs):
+        run = self.runs[run_id]
+        journal = run["journal"]
+        _require("video_outputs" not in journal, "fixture_native_video_scope_changed")
+        claims = journal.get("video_seed_claims", {})
+        native_outputs, seed_outputs = [], {}
         engine = create_async_engine(
-            run["control_url"], poolclass=NullPool, hide_parameters=True
+            run["owner_url"], poolclass=NullPool, hide_parameters=True
         )
         try:
             async with engine.connect() as connection:
-                for dataset, output in ordered:
+                for dataset, output, receipt in outputs:
                     disposition = await connection.scalar(
                         text(
                             "SELECT yoao_assets_v1.fixture_video_output_disposition(:run,:dataset,:output)"
                         ),
                         {
                             "run": run_id,
-                            "dataset": uuid.UUID(dataset),
-                            "output": uuid.UUID(output),
+                            "dataset": dataset,
+                            "output": output,
                         },
                     )
-                    _require(
-                        disposition == "owned", "fixture_native_video_owner_unknown"
-                    )
+                    if disposition == "owned":
+                        native_outputs.append([str(dataset), str(output)])
+                    elif disposition == "unknown" and receipt == claims.get(
+                        str(output)
+                    ):
+                        seed_outputs[str(output)] = receipt
+                    else:
+                        _require(False, "fixture_native_video_owner_unknown")
         finally:
             await engine.dispose()
-        if previous is None:
-            self._journal(run, run["journal"]["state"], video_outputs=current)
+        self._journal(
+            run,
+            journal["state"],
+            video_outputs=native_outputs,
+            video_seed_outputs=seed_outputs,
+        )
 
     async def _native_target_proof(self, run_id, run):
         engine = create_async_engine(
@@ -883,7 +1086,7 @@ class FixtureNativeRuntime:
         outputs = run["journal"].get("video_outputs")
         _require(isinstance(outputs, list), "fixture_native_video_scope_missing")
         engine = create_async_engine(
-            run["control_url"], poolclass=NullPool, hide_parameters=True
+            run["owner_url"], poolclass=NullPool, hide_parameters=True
         )
         try:
             async with engine.begin() as connection:
@@ -899,6 +1102,110 @@ class FixtureNativeRuntime:
                         },
                     )
                     _require(result is True, "fixture_native_video_anchor_unsettled")
+        finally:
+            await engine.dispose()
+
+    async def drain_video_requests_before_seal(self, db, run_id, deadline):
+        run = self.runs[run_id]
+        if run["journal"]["state"] != "ready":
+            return
+        publisher = run["video_publisher"]
+
+        def require_publisher():
+            _require(
+                self.runs.get(run_id) is run
+                and run["journal"]["state"] == "ready"
+                and run["video_publisher"] is publisher,
+                "fixture_native_run_unsettled",
+            )
+            _require_video_publisher(run)
+
+        require_publisher()
+
+        loop = asyncio.get_running_loop()
+        fence = text(
+            "SELECT pg_catalog.pg_try_advisory_xact_lock("
+            "pg_catalog.hashtextextended('aap-fixture-video-requests:' || CAST(:run AS text),0))"
+        )
+        try:
+            async with asyncio.timeout_at(deadline):
+                while not await db.scalar(fence, {"run": str(run_id)}):
+                    require_publisher()
+                    await asyncio.sleep(_VIDEO_REQUEST_DRAIN_INTERVAL)
+        except TimeoutError as exc:
+            raise RuntimeError("fixture_video_request_drain_busy") from exc
+        outputs = None
+        while loop.time() < deadline:
+            try:
+                async with asyncio.timeout_at(deadline):
+                    outputs = await _pending_video_requests(db, (run_id,))
+            except TimeoutError as exc:
+                raise RuntimeError("fixture_video_request_drain_busy") from exc
+            require_publisher()
+            if not outputs:
+                return
+            remaining = deadline - loop.time()
+            if remaining > 0:
+                await asyncio.sleep(min(_VIDEO_REQUEST_DRAIN_INTERVAL, remaining))
+        _require(outputs, "fixture_video_request_drain_busy")
+        await self._wait_video_request_publication(
+            run_id,
+            run,
+            outputs,
+            require_publisher,
+            deadline + _VIDEO_REQUEST_PUBLICATION_SECONDS,
+        )
+
+    async def _wait_video_request_publication(
+        self, run_id, run, outputs, require_publisher, deadline
+    ):
+        engine = create_async_engine(
+            run["owner_url"], poolclass=NullPool, hide_parameters=True
+        )
+        params = {"run": run_id, "suite": self.suite_id, "outputs": outputs}
+        expected = set(outputs)
+        generations = {}
+        confirm_unlocked = set()
+        saw_worker = False
+        try:
+            async with asyncio.timeout_at(deadline), engine.connect() as connection:
+                while True:
+                    require_publisher()
+                    rows = (
+                        await connection.execute(_VIDEO_REQUEST_PUBLICATIONS, params)
+                    ).all()
+                    _require(
+                        len(rows) == len(expected)
+                        and {row[0] for row in rows} == expected,
+                        "fixture_video_request_drain_busy",
+                    )
+                    unlocked = set()
+                    for output, lease, token, status in rows:
+                        saved_lease, saved_token = generations.get(output, (None, None))
+                        _require(
+                            (saved_lease is None or lease == saved_lease)
+                            and (saved_token is None or token == saved_token)
+                            and status in {"published", "running", "queued", "unlocked"}
+                            and (
+                                output not in confirm_unlocked or status == "published"
+                            ),
+                            "fixture_video_request_drain_busy",
+                        )
+                        generations[output] = (lease, token)
+                        if status == "running":
+                            saw_worker = True
+                        elif status == "unlocked":
+                            unlocked.add(output)
+                    require_publisher()
+                    if all(status == "published" for _, _, _, status in rows):
+                        return
+                    confirm_unlocked = unlocked
+                    if unlocked:
+                        continue
+                    _require(saw_worker, "fixture_video_request_drain_busy")
+                    await asyncio.sleep(_VIDEO_REQUEST_DRAIN_INTERVAL)
+        except TimeoutError as exc:
+            raise RuntimeError("fixture_video_request_drain_busy") from exc
         finally:
             await engine.dispose()
 
@@ -918,6 +1225,7 @@ class FixtureNativeRuntime:
         _require(state in {"ready", "draining"}, "fixture_native_run_unsettled")
         if state == "ready":
             self._journal(run, "draining", drained=[])
+        await _stop_video_publisher(run)
         for name in ("celery-media", "celery-pyramid", "media-worker", "image-worker"):
             if name not in run["journal"]["drained"]:
                 await _settled_thread(
@@ -961,7 +1269,7 @@ class FixtureNativeRuntime:
         await db.commit()
         self._journal(run, "datasets_retired")
 
-    async def retire_roles(self, run_id):
+    async def retire_roles(self, run_id, retire_video_seeds):
         import fixture_media_control
         import fixture_native_read_control
 
@@ -1010,6 +1318,16 @@ class FixtureNativeRuntime:
             self._journal(run, "anchors_retired")
             state = "anchors_retired"
         if state == "anchors_retired":
+
+            async def retire_seed_outputs():
+                journal = run["journal"]
+                claims = journal["video_seed_outputs"]
+                retired = journal.get("video_seed_outputs_retired") is True
+                await retire_video_seeds({} if retired else claims)
+                if claims and not retired:
+                    self._journal(run, state, video_seed_outputs_retired=True)
+
+            await _settled(asyncio.create_task(retire_seed_outputs()))
             proof = await retire_native_run_target(run_id, run["control_url"])
             _require(
                 proof == run["journal"]["target_proof"],

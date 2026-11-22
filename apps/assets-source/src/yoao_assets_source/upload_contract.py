@@ -43,7 +43,6 @@ def validate_relative_file_name(value: str) -> str:
     if (
         not value
         or len(value) > 500
-        # UUID publication paths leave 897 bytes within the S3 object-key limit.
         or len(value.encode("utf-8")) > 897
         or value.startswith("/")
         or re.match(r"^[A-Za-z]:/", value)

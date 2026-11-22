@@ -1,6 +1,7 @@
 import type {
   AnnotationResponse,
   VideoBboxGeometry,
+  VideoPolygonGeometry,
   VideoRotatedBboxGeometry,
   VideoKeypointGeometry,
   Keypoint,
@@ -11,7 +12,6 @@ import type {
 } from "@/types";
 
 export type VideoStageGeom = { x: number; y: number; w: number; h: number };
-/** 归一化视频坐标点 [0,1]。命中/几何纯函数复用。 */
 export type VideoPoint = { x: number; y: number };
 export type VideoStageGeometry =
   | VideoBboxGeometry
@@ -100,10 +100,10 @@ export type VideoDragState =
       origin: Keypoint[];
       current: Keypoint[];
     }
-  // 单帧 polygon/polyline 提交后编辑: 拖单个顶点 / 整体平移。points 归一化 [0,1]。
   | {
       kind: "polyVertex";
       id: string;
+      frameIndex: number;
       vidx: number;
       start: { x: number; y: number };
       origin: [number, number][];
@@ -112,12 +112,14 @@ export type VideoDragState =
   | {
       kind: "polyMove";
       id: string;
+      frameIndex: number;
       start: { x: number; y: number };
       origin: [number, number][];
       current: [number, number][];
+      originHoles?: VideoPolygonGeometry["holes"];
+      currentHoles?: VideoPolygonGeometry["holes"];
+      translationBounds?: { minX: number; minY: number; maxX: number; maxY: number };
     }
-  // 交互式 SAM 提示 (smart-point / smart-box)。point 是零位移「拖拽」,
-  // bbox 拖出提示框; 松手派发到 onSamPrompt, 不直接建标注。坐标归一化 [0,1]。
   | {
       kind: "samProbe";
       mode: "point" | "bbox" | "exemplar";
@@ -128,10 +130,6 @@ export type VideoDragState =
   | { kind: "pan"; sx: number; sy: number }
   | null;
 
-/**
- * 交互式 SAM 提示 (画布 → shell)。坐标归一化 [0,1]。
- * `alt` = 负点 / 负框 (Alt 按住 或 工具条切到负极性)。
- */
 export type VideoSamPrompt =
   | { mode: "point"; pt: [number, number]; alt: boolean }
   | { mode: "bbox" | "exemplar"; bbox: [number, number, number, number]; alt: boolean };
@@ -148,7 +146,6 @@ export type VideoTrackCompositionOptions = {
   annotationIds: string[];
   frameIndex?: number;
   deleteSources?: boolean;
-  // join 的 gap 填充模式 (interpolate / outside)。
   gapMode?: "interpolate" | "outside";
 };
 

@@ -12,10 +12,10 @@ on:
       - "scripts/check-dead-links.mjs"
       - "scripts/image-reference-utils*.mjs"
       - ".github/workflows/docs-validate.yml"
-      # 生成文档的真值来源:改了它们但忘了重新生成,本工作流的 check:codegen 拦住
       - "apps/api/app/api/v1/**"
       - "apps/web/src/pages/Workbench/state/hotkeys.ts"
       - "apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts"
+      - "apps/web/src/pages/Workbench/state/workbenchLocalDefaults.ts"
       - "apps/web/src/api/auth.ts"
   push:
     branches: [main]
@@ -31,6 +31,7 @@ on:
       - "apps/api/app/api/v1/**"
       - "apps/web/src/pages/Workbench/state/hotkeys.ts"
       - "apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts"
+      - "apps/web/src/pages/Workbench/state/workbenchLocalDefaults.ts"
       - "apps/web/src/api/auth.ts"
 
 permissions:
@@ -43,7 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 需要 tag 用于 changelog 校验
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -75,9 +76,6 @@ jobs:
       - name: Navigation coverage
         run: pnpm --filter docs-site check:navigation -- --strict
 
-      # 死链检查前先物化 build 期生成的链接目标（public/openapi.json 由 sync-openapi
-      # 生成、docs-site/dev/adr/ 由 mirror-adr 从 docs/adr/ 镜像），否则指向这些生成物的
-      # 合法链接（api/index.md 的 openapi 下载、dev/index.md 的 ADR 列表）会被误报为死链。
       - name: Materialize generated link targets (openapi + ADR mirror)
         run: |
           node docs-site/scripts/sync-openapi.mjs
@@ -100,7 +98,6 @@ jobs:
           DOCS_BASE: /ai-annotation-platform/
         run: pnpm --filter docs-site build
 
-      # 链接外链校验：仅在 main 推送时跑（PR 不卡）
       - name: Link check (lychee)
         if: github.event_name == 'push'
         uses: lycheeverse/lychee-action@v2

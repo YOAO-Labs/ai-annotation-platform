@@ -40,7 +40,6 @@ function roundRatioTiesToEven(numerator, denominator) {
   return sign * quotient;
 }
 
-// Python uses ties-to-even; JavaScript Math.round rounds midpoints toward +infinity.
 export function pythonRoundInteger(value) {
   const [numerator, denominator] = ratioOfDouble(value);
   const rounded = roundRatioTiesToEven(numerator, denominator);

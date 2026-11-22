@@ -1,11 +1,15 @@
-/**
- * ProjectDetailPanel 单测 (BUG B-17 多选 batch + 串/并行预标).
- */
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { HttpResponse, http } from "msw";
 import type { MeResponse } from "@/api/auth";
+import type { ModelCatalogResponse } from "@/api/modelCatalog";
+import { server } from "@/mocks/server";
+import type { asyncJobsApi } from "@/api/asyncJobs";
+import type { PipelineStagePayload } from "@/hooks/usePreannotation";
+import { useToastStore } from "@/components/ui/Toast";
+import cropCases from "@/__fixtures__/crop-ocr-pipeline-cases.json";
 
 const mockTriggerMutate = vi.fn();
 const mockUseProject = vi.fn();
@@ -25,27 +29,43 @@ const mockApplyProjectPipelineMutate = vi.fn();
 const mockApplyProjectPipelineMutateAsync = vi.fn();
 const mockDeleteProjectPipelineMutate = vi.fn();
 const mockUpdatePreferences = vi.fn();
+const readModelCatalog = vi.fn<(pageSize: string | null) => ModelCatalogResponse["items"]>();
+const mockAsyncJobGet = vi.hoisted(() => vi.fn<typeof asyncJobsApi.get>());
 
 vi.mock("@/hooks/useProjects", () => ({
   useProject: (id: string) => mockUseProject(id),
   useProjects: () => ({ data: [], isLoading: false }),
-  // ProjectDetailPanel 调用 useUpdateProject 持久化 chips/threshold；mock 默认 noop
   useUpdateProject: () => ({
     mutate: mockUpdateProjectMutate,
     mutateAsync: mockUpdateProjectMutateAsync,
     isPending: false,
   }),
 }));
-// useBatchEventsSocket 在 mount 时发起 WebSocket 连接；此测试未装 ws handler，
-// libuv stream assert → worker crash. 单测里直接 noop 即可 (WS 行为另有 useBatchEventsSocket 自己的 smoke 测试).
 vi.mock("@/hooks/useBatchEventsSocket", () => ({
   useBatchEventsSocket: () => undefined,
 }));
-// 本文件验证面板编排与请求参数，不覆盖 React Flow 画布；真实画布依赖 jsdom
-// 不提供的 ResizeObserver，交互行为由 PipelineGraphCanvas.test.tsx 单独守护。
 vi.mock("./PipelineGraphCanvas", () => ({
-  default: () => <div data-testid="pipeline-canvas" />,
+  default: ({
+    onAddChild,
+    onSelect,
+  }: {
+    onAddChild: (sid: string) => void;
+    onSelect: (sid: string) => void;
+  }) => (
+    <div data-testid="pipeline-canvas">
+      <button type="button" onClick={() => onAddChild("source")}>
+        添加源模型下游
+      </button>
+      <button type="button" onClick={() => onSelect("source")}>
+        查看源模型
+      </button>
+    </div>
+  ),
 }));
+vi.mock("@/api/asyncJobs", async (importOriginal) => {
+  const actual = await importOriginal<{ asyncJobsApi: typeof asyncJobsApi }>();
+  return { ...actual, asyncJobsApi: { ...actual.asyncJobsApi, get: mockAsyncJobGet } };
+});
 vi.mock("@/hooks/useProjectPipelines", () => ({
   useProjectPipelines: (...args: unknown[]) => mockUseProjectPipelines(...args),
   useCreateProjectPipeline: () => ({
@@ -73,8 +93,6 @@ vi.mock("@/hooks/usePreannotation", async () => {
   return {
     ...actual,
     useTriggerPreannotation: () => mockUseTrigger(),
-    // ProjectDetailPanel 订阅预标进度 WS；单测用 noop 跳过连接。
-    // (同 useBatchEventsSocket)。逐阶段实时徽标的快照消费另由更聚焦的测试覆盖。
     usePreannotationProgress: () => ({
       progress: null,
       connection: "idle",
@@ -135,25 +153,57 @@ function renderUI(extras: Partial<{ summary: any }> = {}) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={qc}>
       <MemoryRouter>
         <ProjectDetailPanel projectId="p1" onBack={() => {}} summary={extras.summary} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  return { ...view, qc };
 }
 
 describe("ProjectDetailPanel", () => {
   beforeEach(() => {
+    readModelCatalog.mockReset().mockReturnValue([]);
+    server.use(
+      http.get("*/api/v1/projects/p1/model-catalog", ({ request }) => {
+        const items = readModelCatalog(new URL(request.url).searchParams.get("page_size"));
+        return HttpResponse.json<ModelCatalogResponse>({
+          items,
+          total: items.length,
+          page: 1,
+          page_size: 200,
+        });
+      }),
+    );
     setAuthRole("super_admin");
+    mockAsyncJobGet.mockReset();
+    mockAsyncJobGet.mockImplementation(async (id) => ({
+      id,
+      status: "pending",
+      kind: "batch_predict",
+      project_id: "p1",
+      user_id: "u-super_admin",
+      project_display_id: null,
+      project_name: null,
+      progress_pct: 0,
+      payload: {},
+      result: {},
+      error_message: null,
+      celery_task_id: null,
+      started_at: null,
+      completed_at: null,
+      created_at: "2026-01-01T00:00:00Z",
+      updated_at: "2026-01-01T00:00:00Z",
+    }));
+    sessionStorage.removeItem("ai-annotation:variant-hot-cache:v1");
     mockTriggerMutate.mockReset();
     mockSetupAPI.mockReset();
     mockCapabilitiesAPI.mockReset();
     mockUpdateProjectMutate.mockReset();
     mockUpdateProjectMutateAsync.mockReset();
     mockUpdateProjectMutateAsync.mockResolvedValue(undefined);
-    // 默认能力目录无 ocr / doc_layout 条目 → 不出现任务类型选择 (保持原文本预标行为).
     mockCapabilitiesAPI.mockResolvedValue({ name: "grounded-sam2", models: [] });
     mockUpdatePreferences.mockReset();
     mockUseProject.mockReturnValue({
@@ -270,6 +320,195 @@ describe("ProjectDetailPanel", () => {
     mockUpdatePreferences.mockResolvedValue(undefined);
   });
 
+  afterEach(() => {
+    sessionStorage.removeItem("ai-annotation:variant-hot-cache:v1");
+    vi.restoreAllMocks();
+  });
+
+  function setupCropPipeline(cropCase: (typeof cropCases.cases)[number]) {
+    const recognition = { ...cropCases.recognizer, ...cropCase.recognition };
+    const downstream = [...(cropCase.sibling ? [cropCase.sibling] : []), recognition];
+    readModelCatalog.mockReturnValue([
+      {
+        id: "builtin-ocr",
+        source: "builtin",
+        publication: "builtin",
+        media_type: "image",
+        task: "ocr",
+        model_id: recognition.id,
+        name: recognition.display_name,
+        capabilities: { id: recognition.id, task: "ocr", supported_inputs: ["crop"] },
+        class_metadata: { class_source: "builtin_manifest", verification_status: "uninspected" },
+        operations: { pipeline: { allowed: true } },
+      },
+    ]);
+    mockUseMLBackends.mockReturnValue({
+      data: [
+        { id: "bk1", name: "检测服务" },
+        { id: "bk2", name: "识别服务" },
+      ],
+      isLoading: false,
+    });
+    mockCapabilitiesAPI.mockImplementation(async (_pid: string, backendId: string) => ({
+      models:
+        backendId === "bk1"
+          ? [cropCases.source, ...(cropCase.sibling ? downstream : [])]
+          : downstream,
+    }));
+    return renderUI();
+  }
+
+  it.each(cropCases.cases)("提交 OCR 裁剪编排：$name", async (cropCase) => {
+    setupCropPipeline(cropCase);
+    fireEvent.click(await screen.findByRole("button", { name: /plate.*\[4\]/ }));
+    expect(screen.getByRole("button", { name: /✓.*plate.*\[4\]/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "添加源模型下游" }));
+    if (cropCase.sibling) {
+      fireEvent.change(screen.getByRole("combobox", { name: "模型服务" }), {
+        target: { value: "bk1" },
+      });
+      fireEvent.change(await screen.findByRole("combobox", { name: "下游模型" }), {
+        target: { value: "ocr-rec" },
+      });
+      expect(screen.queryByRole("option", { name: /ocr-e2e/ })).toBeNull();
+    }
+    await screen.findByText("识别");
+    const form = within(screen.getByRole("group", { name: "推理参数" }));
+    const axis = form.getByTestId(`ai-variant-${cropCase.edit_axis}`);
+    const defaults: Record<string, string | undefined> = cropCase.recognition.default_variants;
+    expect(axis).toHaveValue(defaults[cropCase.edit_axis]);
+    const variants = within(form.getByTestId("ai-variant-selector")).getAllByRole("combobox");
+    expect(variants.map((control) => control.dataset.testid)).toEqual(
+      cropCase.recognition.supported_variants.map(({ key }) => `ai-variant-${key}`),
+    );
+    const options = cropCase.recognition.supported_variants.find(
+      ({ key }) => key === cropCase.edit_axis,
+    )?.variants;
+    expect(
+      within(axis)
+        .getAllByRole("option")
+        .map((option) => option.getAttribute("value")),
+    ).toEqual(options?.map(({ value }) => value));
+    expect(form.queryByTestId("schema-field-det_db_thresh")).toBeNull();
+    expect(screen.queryByText(/不产类别属性/)).toBeNull();
+    fireEvent.change(axis, { target: { value: cropCase.edited_value } });
+    for (const [key, value] of Object.entries(cropCase.expected_child.model_variants)) {
+      expect(form.getByTestId(`ai-variant-${key}`)).toHaveValue(value);
+    }
+    const param = within(form.getByTestId(`schema-field-${cropCase.params_key}`));
+    fireEvent.change(param.getByRole("spinbutton"), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "plate" }));
+    fireEvent.click(screen.getByRole("button", { name: "识别文本" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "查看源模型" }));
+    expect(screen.getByRole("button", { name: /✓.*plate.*\[4\]/ })).toBeInTheDocument();
+    if (cropCase.sibling) {
+      expect(screen.getByRole("combobox", { name: "模型任务" })).toHaveValue("plate-detect");
+    }
+    fireEvent.click(screen.getByRole("checkbox", { name: "选择 批次甲" }));
+    fireEvent.click(screen.getByRole("button", { name: /跑预标.*1 批/ }));
+    await waitFor(() => expect(mockTriggerMutate).toHaveBeenCalledTimes(1));
+    const { pipeline_stages: stages } = mockTriggerMutate.mock.calls[0][0] as {
+      pipeline_stages: PipelineStagePayload[];
+    };
+    expect(stages).toHaveLength(2);
+    expect(stages[0]).toMatchObject({
+      stage: 0,
+      model_id: "plate-detect",
+      model_variants: cropCases.source.default_variants,
+      class_filter: [4],
+    });
+    expect(JSON.parse(JSON.stringify(stages[1]))).toEqual({
+      ...cropCase.expected_child,
+      stage: 1,
+      parent_stage: 0,
+      ml_backend_id: cropCase.sibling ? "bk1" : "bk2",
+    });
+    expect(mockUpdateProjectMutate).not.toHaveBeenCalled();
+    expect(mockUpdatePreferences).not.toHaveBeenCalled();
+  });
+
+  it("切换源模型变体清除旧类别索引，切回时不复用", async () => {
+    setupCropPipeline(cropCases.cases[0]);
+    fireEvent.click(await screen.findByRole("button", { name: /plate.*\[4\]/ }));
+    expect(screen.getByRole("button", { name: /✓.*plate.*\[4\]/ })).toBeInTheDocument();
+    const form = within(screen.getByRole("group", { name: "推理参数" }));
+    const size = form.getByTestId("ai-variant-size");
+    fireEvent.change(size, { target: { value: "large" } });
+    expect(size).toHaveValue("large");
+    expect(screen.queryByRole("button", { name: /✓.*plate.*\[4\]/ })).toBeNull();
+    fireEvent.change(size, { target: { value: "small" } });
+    expect(size).toHaveValue("small");
+    expect(screen.queryByRole("button", { name: /✓.*plate.*\[4\]/ })).toBeNull();
+  });
+
+  it.each([
+    { name: "后台失败", status: "failed", result: {}, nextSize: "small", stale: false },
+    {
+      name: "全部跳过",
+      status: "completed",
+      result: { success_count: 0, failed_count: 0, done_count: 0, skipped_count: 10 },
+      nextSize: "large",
+      stale: false,
+    },
+    {
+      name: "完成后已驱逐",
+      status: "completed",
+      result: { success_count: 10, failed_count: 0, done_count: 10, skipped_count: 0 },
+      nextSize: "small",
+      stale: true,
+    },
+  ])("派发不推定模型驻留：$name", async ({ status, result, nextSize, stale }) => {
+    const legacyKey = "ai-annotation:variant-hot-cache:v1";
+    const oldRecord = stale ? JSON.stringify({ hot: ["bk1|size=small"] }) : null;
+    if (oldRecord) sessionStorage.setItem(legacyKey, oldRecord);
+    const pushToast = vi.spyOn(useToastStore.getState(), "push");
+    const { qc } = setupCropPipeline(cropCases.cases[0]);
+    await screen.findByRole("button", { name: /plate.*\[4\]/ });
+    fireEvent.click(screen.getByRole("button", { name: "添加源模型下游" }));
+    await screen.findByText("识别");
+    fireEvent.click(screen.getByRole("button", { name: "查看源模型" }));
+    function submit() {
+      type Receipt = { job_id: string; status: string };
+      let resolve!: (receipt: Receipt) => void;
+      const response = new Promise<Receipt>((done) => {
+        resolve = done;
+      });
+      mockTriggerMutate.mockReturnValueOnce(response);
+      fireEvent.click(screen.getByRole("checkbox", { name: "选择 批次甲" }));
+      fireEvent.click(screen.getByRole("button", { name: /跑预标.*1 批/ }));
+      expect(screen.getByRole("button", { name: "提交中…" })).toBeDisabled();
+      expect(screen.queryByRole("button", { name: /加载模型|预热/ })).toBeNull();
+      return resolve;
+    }
+    const first = submit();
+    await act(async () => first({ job_id: "j1", status: "queued" }));
+    await waitFor(() =>
+      expect(qc.getQueryData(["async-job", "j1"])).toMatchObject({ status: "pending" }),
+    );
+    expect(screen.queryByText("运行中")).toBeNull();
+    expect(pushToast).toHaveBeenCalledWith(
+      expect.objectContaining({
+        msg: "预标已提交",
+        sub: "1 个批次已受理 · 0 个批次提交失败",
+      }),
+    );
+    expect(sessionStorage.getItem(legacyKey)).toBe(oldRecord);
+    act(() => {
+      qc.setQueryData(["async-job", "j1"], { id: "j1", status, result });
+    });
+    if (nextSize === "large") {
+      fireEvent.change(screen.getByTestId("ai-variant-size"), { target: { value: nextSize } });
+    }
+    const second = submit();
+    expect(mockTriggerMutate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ model_variants: { size: nextSize } }),
+    );
+    await act(async () => second({ job_id: "j2", status: "queued" }));
+    expect(sessionStorage.getItem(legacyKey)).toBe(oldRecord);
+  });
+
   it("渲染 header 含项目名 + ml_backend chip", () => {
     renderUI({ summary: { project_name: "Demo", project_display_id: "P-9" } });
     expect(screen.getByText("Demo")).toBeInTheDocument();
@@ -285,8 +524,6 @@ describe("ProjectDetailPanel", () => {
 
   it("空选中时配置区常驻 · prompt 表单仍显示但运行按钮禁用", () => {
     renderUI();
-    // 配置区常驻: 配置面板 (含 prompt) 不再被『先选批次』gate, 未选也可预先调参 / 存预设;
-    // 防误触发的不变量改由「运行按钮禁用」承担, 而非隐藏表单.
     expect(screen.getByPlaceholderText(/car, person/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /跑预标/ })).toBeDisabled();
   });
@@ -310,8 +547,6 @@ describe("ProjectDetailPanel", () => {
     expect(mockUseBatches).toHaveBeenCalledWith("p1", "active,draft");
   });
 
-  // issue #124 · 未分派人员的 draft 批次出现在可预标列表, 已分派 draft / 已进入
-  // 人工流程的批次不出现; draft 行带「草稿·未分派」徽标提醒后续仍需分派激活。
   it("批次列表放行未分派 draft, 过滤已分派 draft 与人工流程批次", () => {
     mockUseBatches.mockReturnValue({
       data: [
@@ -359,7 +594,6 @@ describe("ProjectDetailPanel", () => {
     expect(screen.getByText("草稿·未分派")).toBeInTheDocument();
     expect(screen.queryByText("已分派草稿")).toBeNull();
     expect(screen.queryByText("标注中批次")).toBeNull();
-    // 全选只勾选放行的两个批次 (active + 未分派 draft)。
     fireEvent.click(screen.getByRole("checkbox", { name: /全选可预标批次/ }));
     expect(screen.getByRole("checkbox", { name: /选择 活动批次/ })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /选择 未分派草稿/ })).toBeChecked();
@@ -421,7 +655,6 @@ describe("ProjectDetailPanel", () => {
     });
     renderUI();
     fireEvent.click(screen.getAllByRole("checkbox", { name: /选择/ })[0]);
-    // 等 aliases query 解析后 useEffect 把 prompt 填上
     await waitFor(() => {
       const ta = screen.getByPlaceholderText(/car, person/) as HTMLTextAreaElement;
       expect(ta.value).toBe("person, car, truck");
@@ -456,7 +689,6 @@ describe("ProjectDetailPanel", () => {
     fireEvent.click(screen.getAllByRole("checkbox", { name: /选择/ })[0]);
     const ta = screen.getByPlaceholderText(/car, person/) as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "我手填的" } });
-    // 多次 re-render 不应覆盖
     await waitFor(() => expect(ta.value).toBe("我手填的"));
   });
 
@@ -478,7 +710,6 @@ describe("ProjectDetailPanel", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /跑预标.*1 批/ }));
 
-    // 统一 wire: 变体走 model_variants (独立字段), params 只留非变体阈值。
     await waitFor(() => {
       expect(mockTriggerMutate).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -564,12 +795,10 @@ describe("ProjectDetailPanel", () => {
     expect(onBack).toHaveBeenCalled();
   });
 
-  // 多阶段下游 backend 门控: 单 backend 兜底提示 vs 双 backend 可编排。
-  // 加阶段已移入 DAG 画布 (lazy, 测试里渲染 Suspense 占位), 故此处只断言两列编排区的兜底/引导文案。
   describe("多阶段下游 backend 门控", () => {
-    it("没有兼容目录模型时提示启用或发布兼容模型", () => {
-      // 默认 mockUseMLBackends 只有 bk1 (单 backend)。
+    it("没有兼容目录模型时提示启用或发布兼容模型", async () => {
       renderUI();
+      await waitFor(() => expect(readModelCatalog.mock.calls).toEqual([["200"]]));
       expect(screen.getByText(/暂无兼容的下游模型/)).toBeInTheDocument();
     });
 
@@ -587,7 +816,6 @@ describe("ProjectDetailPanel", () => {
     });
   });
 
-  // 能力声明协议 v2: backend models[] 含 ocr / doc_layout 时的任务类型分流.
   describe("OCR / 文档版面任务类型", () => {
     function withOcrCapabilities() {
       mockCapabilitiesAPI.mockResolvedValue({
@@ -610,11 +838,9 @@ describe("ProjectDetailPanel", () => {
     it("无 ocr / doc_layout 模型时,文本路径正常出 prompt(无 OCR 选项)", async () => {
       renderUI();
       fireEvent.click(screen.getAllByRole("checkbox", { name: /选择/ })[0]);
-      // 等 capabilities query 解析
       await waitFor(() => {
         expect(screen.getByPlaceholderText(/car, person/)).toBeInTheDocument();
       });
-      // 已无「任务类型」tab; 这是几何/文本 backend, 不应出现 OCR/版面 model 选项。
       expect(screen.queryByRole("option", { name: /OCR/ })).toBeNull();
     });
 
@@ -622,12 +848,10 @@ describe("ProjectDetailPanel", () => {
       withOcrCapabilities();
       renderUI();
       fireEvent.click(screen.getAllByRole("checkbox", { name: /选择/ })[0]);
-      // 不再有「OCR 文字识别」tab; OCR/版面 model 进统一「模型任务」下拉。
       await waitFor(() => {
         expect(screen.getByRole("option", { name: "OCR" })).toBeInTheDocument();
       });
       expect(screen.getByRole("option", { name: "版面" })).toBeInTheDocument();
-      // 默认选中第一个可选 model(OCR)→ doc 模式: prompt 隐藏 + 静态提示。
       await waitFor(() => {
         expect(screen.queryByPlaceholderText(/car, person/)).toBeNull();
         expect(screen.getByText(/未配置 text 属性，文本不会入库/)).toBeInTheDocument();

@@ -1,8 +1,3 @@
--- Install fixed historical-audit projections for one trusted audit LOGIN.
--- This explicit installer also works before the Workspace migration schema exists.
--- It creates no login or Alembic revision and does not advance the database.
--- psql -v expected_database=... -v migration_role=... -v workspace_owner=...
---      -v consumer_role=... -f workspace-role-audit-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SET LOCAL search_path = pg_catalog, pg_temp;
@@ -20,8 +15,6 @@ BEGIN
 END
 $preflight$;
 
--- Temporary references freeze the three exact view definitions without
--- replacing an existing owner view during an idempotent install.
 CREATE TEMP VIEW _aap_workspace_role_audit_project_ref
 WITH (security_barrier = true) AS
 SELECT project.id, project.owner_id, project.status

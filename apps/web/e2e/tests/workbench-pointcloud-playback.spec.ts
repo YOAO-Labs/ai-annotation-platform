@@ -1,12 +1,11 @@
 import type { Page, Request } from "@playwright/test";
-import { expect, test, type SeedAPI } from "../fixtures/seed";
+import { expect, test, type SeedAPI, type SeedData } from "../fixtures/seed";
 
 const timeline = (page: Page) => page.getByTestId("three-d-scene-timeline");
 const player = (page: Page) => page.locator("[data-scene-playback]");
 const play = (page: Page) => page.getByTestId("scene-timeline-play");
 
-async function prepare(page: Page, seed: SeedAPI) {
-  const owned = await seed.owned();
+async function prepare(page: Page, seed: SeedAPI, owned: SeedData) {
   const data = await seed.seedLidar();
   await seed.injectToken(page, owned.admin_email);
   if (process.env.PLAYWRIGHT_POINTCLOUD_WEBGPU === "1") {
@@ -33,8 +32,8 @@ function annotationWrite(request: Request) {
   );
 }
 
-test("连续浏览等待真实点云，暂停恢复当前帧锁并保留 renderer", async ({ page, seed }) => {
-  const data = await prepare(page, seed);
+test("连续浏览等待真实点云，暂停恢复当前帧锁并保留 renderer", async ({ page, seed, owned }) => {
+  const data = await prepare(page, seed, owned);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await open(page, data.lidar_project_id, data.lidar_task_ids[0]);
@@ -58,7 +57,6 @@ test("连续浏览等待真实点云，暂停恢复当前帧锁并保留 rendere
   });
 
   for (const rate of [1, 2, 4]) {
-    // The last frame starts a new playback session from the first accessible frame.
     await page.getByLabel("Scene 浏览速率", { exact: true }).selectOption(String(rate));
     await expect(play(page)).toBeEnabled();
     observing = true;
@@ -76,7 +74,6 @@ test("连续浏览等待真实点云，暂停恢复当前帧锁并保留 rendere
     await expect(viewport).toHaveAttribute("data-pointcloud-renderer-count", "1");
   }
   expect(writes).toEqual([]);
-  // Each completed session reacquires only its final frame, never an intermediate preview frame.
   expect(locks.every((url) => url.includes(data.lidar_task_ids[1]))).toBe(true);
   await expect
     .poll(async () => {
@@ -88,8 +85,8 @@ test("连续浏览等待真实点云，暂停恢复当前帧锁并保留 rendere
   expect(errors).toEqual([]);
 });
 
-test("慢点云加载中暂停，迟到资源只完成一次导航", async ({ page, seed }) => {
-  const data = await prepare(page, seed);
+test("慢点云加载中暂停，迟到资源只完成一次导航", async ({ page, seed, owned }) => {
+  const data = await prepare(page, seed, owned);
   let release!: () => void;
   const gate = new Promise<void>((resolve) => {
     release = resolve;
@@ -125,8 +122,8 @@ test("慢点云加载中暂停，迟到资源只完成一次导航", async ({ pa
   await expect(player(page)).toHaveAttribute("data-scene-playback", "paused");
 });
 
-test("未完成 PSR 与在途保存阻止播放，编辑快捷键先暂停", async ({ page, seed }) => {
-  const data = await prepare(page, seed);
+test("未完成 PSR 与在途保存阻止播放，编辑快捷键先暂停", async ({ page, seed, owned }) => {
+  const data = await prepare(page, seed, owned);
   await open(page, data.lidar_project_id, data.lidar_task_ids[0]);
   await page
     .locator('[data-testid^="box-list-item-"]')
@@ -165,8 +162,8 @@ test("未完成 PSR 与在途保存阻止播放，编辑快捷键先暂停", asy
   await expect(field).toBeEnabled();
 });
 
-test("容器缩放与展开时间轴不重建点云画布", async ({ page, seed }) => {
-  const data = await prepare(page, seed);
+test("容器缩放与展开时间轴不重建点云画布", async ({ page, seed, owned }) => {
+  const data = await prepare(page, seed, owned);
   await open(page, data.lidar_project_id, data.lidar_task_ids[0]);
   const canvas = page.locator("[data-workbench-render-surface] > canvas");
   const original = await canvas.elementHandle();
@@ -195,8 +192,8 @@ test("容器缩放与展开时间轴不重建点云画布", async ({ page, seed 
   await expect(page.getByRole("heading", { name: "请切换到桌面端" })).toBeVisible();
 });
 
-test("点云错误立即暂停，重试成功仍保持暂停", async ({ page, seed }) => {
-  const data = await prepare(page, seed);
+test("点云错误立即暂停，重试成功仍保持暂停", async ({ page, seed, owned }) => {
+  const data = await prepare(page, seed, owned);
   let failTarget = true;
   let failures = 0;
   await page.route(

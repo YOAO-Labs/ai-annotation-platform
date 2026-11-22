@@ -245,7 +245,6 @@ async def init_mask_format_upload(
         upload_expires_at=started + timedelta(seconds=900),
     )
     db.add(upload)
-    # Durable ownership precedes URL signing; no final authorization locks cross I/O.
     await db.commit()
     expires_in = int(
         (upload.upload_expires_at - datetime.now(timezone.utc)).total_seconds()

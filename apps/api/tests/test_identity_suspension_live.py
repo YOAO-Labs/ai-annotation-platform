@@ -571,8 +571,6 @@ async def test_installed_suspension_replay_reservation_credentials_and_host_samp
             "ok"
         ] is True
 
-        # A pending self-deactivation reservation does not count as another
-        # unreserved super-admin when reducing the only remaining admin.
         last_admin_request = _suspension_request(
             "suspend_account", target_token, manager.id
         )
@@ -1145,8 +1143,6 @@ async def test_installed_suspension_project_admin_scopes_inactive_noop_and_repla
     try:
         identity = _start_suspension_identity(test_engine, tmp_path, secret, control)
 
-        # A project admin can suspend an unassigned employee, while the same
-        # empty derived scope is not enough to reactivate an account.
         empty_suspend_request = request(
             "suspend_account", empty_target.id, manager_key_plaintext
         )
@@ -1161,8 +1157,6 @@ async def test_installed_suspension_project_admin_scopes_inactive_noop_and_repla
         assert empty_reactivate["ok"] is False
         assert empty_reactivate["error"]["code"] == "reactivate_not_managed"
 
-        # Owned projects permit both changes. A later ownership transfer fences
-        # the frozen reactivation receipt until scope is restored.
         owned_suspend_request = request("suspend_account", owned_target.id)
         owned_suspend = await asyncio.to_thread(
             _node, identity, control, owned_suspend_request
@@ -1244,8 +1238,6 @@ async def test_installed_suspension_project_admin_scopes_inactive_noop_and_repla
         assert already_active["ok"] is False
         assert already_active["error"]["code"] == "already_active"
 
-        # Cross-project scope is rejected differently for suspension and
-        # reactivation; neither failure creates a durable receipt.
         cross_suspend_request = request("suspend_account", cross_target.id)
         cross_suspend = await asyncio.to_thread(
             _node, identity, control, cross_suspend_request
@@ -1265,7 +1257,6 @@ async def test_installed_suspension_project_admin_scopes_inactive_noop_and_repla
         cross_reactivate_id = uuid.UUID(cross_reactivate_request["operation_id"])
         assert await _receipts(test_engine, [cross_reactivate_id]) == {}
 
-        # Inactive account handling precedes PA role and scope restrictions.
         inactive_before = await _lifecycle_state(maker, inactive_nonemployee.id)
         noop_audit_count = await _audit_count(
             maker, project_admin.id, inactive_nonemployee.id, "user.deactivate"
@@ -1307,8 +1298,6 @@ async def test_installed_suspension_project_admin_scopes_inactive_noop_and_repla
         ] is True
         assert await _receipts(test_engine, [noop_id]) == {noop_id: noop_receipt}
 
-        # Remaining closed precedence paths are checked on targets whose PA
-        # scope is deliberately valid for reactivation.
         forbidden_suspend = await asyncio.to_thread(
             _node,
             identity,

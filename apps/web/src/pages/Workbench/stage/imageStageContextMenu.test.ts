@@ -196,7 +196,7 @@ describe("imageStageContextMenu", () => {
     });
     const cutter = annotation({
       id: "ann-2",
-      cls: "person", // 不同类别也允许裁切(遮挡场景)
+      cls: "person",
       geometry: {
         type: "polygon",
         points: [
@@ -221,7 +221,6 @@ describe("imageStageContextMenu", () => {
     enabled?.onSelect?.();
     expect(onCropSelected).toHaveBeenCalledWith(base.id);
 
-    // 只选中基准框一个 → 无裁刀 → 禁用。
     const noCutter = buildImageContextMenuItems({
       annotation: base,
       selectedAnnotations: [base],

@@ -41,8 +41,6 @@ def migration(connection):
 
 
 async def test_empty_roundtrip_and_restrict_owner_fks(test_engine):
-    # Schema roundtrip drops named indexes/constraints, so it must run against
-    # the real public schema, not the isolation clone (LIKE renames them).
     async with test_engine.connect() as connection:
         transaction = await connection.begin()
         try:

@@ -110,7 +110,6 @@ test("secondary capsule preserves configuration and real child writes across col
     expect(JSON.stringify(calls[0].context)).toContain(String(selectedConfidence));
     await closeContextToolbar(page, "secondary");
 
-    // The same primary inputs remain bounded and actionable in a narrowed canvas.
     for (const theme of ["light", "dark"] as const) {
       await page.evaluate(
         (value) => document.documentElement.setAttribute("data-theme", value),
@@ -160,7 +159,6 @@ test("secondary capsule preserves configuration and real child writes across col
         .getByTestId("schema-field-confidence")
         .getByRole("slider"),
     ).toHaveValue(String(selectedConfidence));
-    // Prompt is intentionally session-only, while model parameters persist.
     await expect(page.getByTestId("secondary-prompt")).toHaveValue("");
     await page.getByTestId("secondary-prompt").fill("car");
     await backend.failNext();

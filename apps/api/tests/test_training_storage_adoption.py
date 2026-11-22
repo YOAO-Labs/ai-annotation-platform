@@ -149,7 +149,6 @@ def retained(request, frozen, tmp_path, monkeypatch):
                 ).encode()
             )
 
-    # Production adoption must use retained RLE only, including gzip references.
     def no_source(*args):
         pytest.fail("adoption cannot read current mask sources")
 

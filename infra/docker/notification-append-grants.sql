@@ -1,10 +1,3 @@
--- Grant bounded append, read-state, and deletion functions to the API LOGIN and function-only peer.
--- The peer also composes the existing preference command in its borrowed transaction.
--- Run after module-data-grants.sql and notification-preferences-grants.sql as migration role.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v notifications_owner=notifications_code -v api_role=legacy_runtime \
---   -v append_role=yoao_notification_append_client \
---   -f infra/docker/notification-append-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

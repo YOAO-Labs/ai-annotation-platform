@@ -1,0 +1,1208 @@
+id	source_at_e8a4f595	related_adr	constraint_and_reason
+0183-0001	apps/api/pyproject.toml:47	-	Fernet 凭据加密是 API 的运行时能力，cryptography 必须声明为直接依赖；借用其他包的传递依赖会让无关的依赖调整破坏连接器。
+0183-0002	apps/api/pyproject.toml:54-55	-	生产大图金字塔依赖 libvips 的惰性、顺序解码，不能用只负责小图缩略图和测试参照的 Pillow 回退，否则大图处理将失去这一解码约束。
+0183-0003	apps/api/pyproject.toml:99-100	-	API 测试依赖需覆盖 nuScenes 1.1.11 锁定的 Shapely 和 Matplotlib 版本；沿用上游旧版本无法同时满足受支持的 Python 环境和 NumPy 2 兼容要求。
+0183-0004	apps/api/pyproject.toml:117-119	-	API pytest 需把仓库根加入导入路径，让旧视频围栏测试能导入 scripts/video_*.py；根目录的 scripts 必须保留为命名空间包，否则会遮蔽 apps/api/scripts。
+0183-0005	apps/api/alembic/env.py:10	-	Alembic autogenerate 依赖导入 app.db.models 时把表注册到 Base.metadata；删除看似未使用的导入会让迁移生成器拿到不完整的表定义。
+0183-0006	apps/api/alembic/env.py:18-20	-	Alembic 仅在调用方未指定 URL 时才读取 settings；若用应用默认值覆盖显式 URL，原本指向测试库的迁移可能改跑到开发库。
+0183-0007	apps/api/alembic/env.py:43-46,51-56,84-86	-	worker 与 beat 并发迁移须用 PostgreSQL 会话锁串行化，避免重复 ALTER。取锁 SQL 隐式开事务，成功须显式提交（不释放锁），否则 asyncpg + NullPool 断连会回滚 DDL 和版本更新；失败须先回滚再解锁，避免 InFailedSQLTransaction 掩盖原错。
+0183-0008	apps/api/app/config.py:22-24	-	仅在宿主机按仓库根定位 .env；容器目录层级不足，不能无条件访问 parents[3]，也不能要求镜像提供 .env，容器配置由 Compose 注入。
+0183-0009	apps/api/app/config.py:29-31	-	宿主机的默认 DuckDB 路径须锚定仓库根，不能按工作目录解析，否则从 apps/api 启动会落到另一处 data 目录；容器由 Compose 注入绝对 DUCKDB_PATH。
+0183-0010	apps/api/app/config.py:46-47	-	测试 DuckDB 存储名按数据库主机、端口和库名派生，不能只用库名，否则不同服务器上的同名测试库会共用一个存储；凭据不参与命名。
+0183-0011	apps/api/app/config.py:94-96	-	配置 migration_database_url 时，只有 Alembic 和专用维护 worker 使用 owner 连接；不能让 API 和普通 worker 一并切换，否则会把维护权限带进常规运行路径。
+0183-0012	apps/api/app/config.py:130-132	-	连接器凭据使用独立于 secret_key 的 Fernet 密钥（32 字节密钥的 URL-safe Base64 编码）；未配置时不得借用应用密钥继续处理，API 返回 503。
+0183-0013	apps/api/app/config.py:134-135	-	环境变量中的连接器主机白名单只提供部署默认值；存在 system_settings.connector_host_allowlist 时须以其为准，否则运行时配置无法收紧部署默认的允许范围。
+0183-0014	apps/api/app/config.py:139	-	只有同一存储命名空间内的所有消费者都接入准入协议，才能开启存储维护控制；否则未接入的消费者仍可绕过准入，在维护期间访问存储。
+0183-0015	apps/api/app/config.py:141	-	文件系统和 SFTP 根目录只能由部署配置；运行时注册仅保存根句柄和相对子路径，不能允许注册新根，否则注册操作就能扩大部署方划定的访问范围。
+0183-0016	apps/api/app/config.py:186-187	-	连接器导入按受理时固定的预算快照执行，不能在运行中改用新的 system_settings 限额；超限须让整个 Job 失败，不能以部分导入完成。
+0183-0017	apps/api/app/config.py:191-192	-	Mask 适配器的读写都须按实际流经的字节检查临时存储和归档预算；只做事前估算会在实际体积高于估值时放过超限处理。
+0183-0018	apps/api/app/config.py:198-200	-	数据集关联超过建任务阈值须转交 Celery，不能继续在 HTTP 单事务内处理，否则可能超时并长时间持锁；阈值设为 0 时，所有非空数据集均走异步。
+0183-0019	apps/api/app/config.py:210-211,227-228	-	可从源文件重建的缩略图、视频帧、分块和播放产物使用独立缓存桶，按 30 天到期，不能连同源数据清理；不可重建的用户头像另行分桶并备份，不继承缓存或任务数据的清理规则。
+0183-0020	apps/api/app/config.py:213	-	审计冷分区归档因合规要求永久保留，须使用与运营数据物理隔离的独立桶，不能让运营桶的清理规则覆盖审计归档。
+0183-0021	apps/api/app/config.py:240-241	-	minio_public_url 是浏览器消费的签名 URL 根地址，不能用仅服务端可达的内部端点；开发环境可用 Vite 代理的同源 /minio，浏览器仍须能访问该地址。
+0183-0022	apps/api/app/config.py:411-412	-	不可变大图金字塔的 schema 和 API 可先发布，但不能据此自动入队；须经容量验收后显式开启，且 worker 在生成前后仍须复核实际字节、像素和切片限额。
+0183-0023	apps/api/app/config.py:462-465	-	API 在宿主机而 SAM 在 Compose 网络时，URL 中的 localhost 在 SAM 容器内指向它自己，不能访问宿主机 MinIO；须用 ml_backend_storage_host 指定容器可达的地址。
+0183-0024	apps/api/app/config.py:468	-	可接收凭据的受管 ML 后端身份由部署配置确定，不能把 UI 提交的 URL 当作可信身份，否则用户可扩大凭据接收范围。
+0183-0025	apps/api/app/config.py:506-510	-	模型市场直连 URL 列表须禁用配置层的自动 JSON 解码，否则以 CSV 提供的合法列表会在字段校验有机会解析之前就被拒绝。
+0183-0026	apps/api/app/config.py:526-528,534-535	-	GPU 仲裁全局 mode 只设上限和紧急回滚，不替单卡启用；各卡须在 resources JSON 中显式声明，缺失或解析失败均按 off。保留原始 JSON，让 off/observe 下仍能启动并报告配置阻塞。
+0183-0027	apps/api/app/config.py:530-532	-	GPU 发布闩关闭时，期望模式为 enforce 也不能让派发依赖数据库；开启后每次 GPU 加载都须查该资源的持久发布记录，无法取得时必须拒绝，不能只凭期望模式放行。
+0183-0028	apps/api/app/config.py:537-538	-	GPU 仲裁慢路径 FIFO 须使用独立的准入超时，不能沿用更长的推理超时，否则尚未获准执行的票据会长时间占用队列。
+0183-0029	apps/api/app/config.py:541-546	-	后端路由在 off/observe 保持原派发，observe 只在影子命名空间试算；仅 enforce 按路由结果派发，Redis 或拓扑不确定时拒绝。API、worker、beat 须同值并一起重建重启，避免同一工作流混用路由规则。
+0183-0030	apps/api/app/config.py:548-549	-	后端路由须剔除健康检查快照超龄的成员，不能沿用最后一次有效快照继续选路，否则会把请求发给已无法确认具备所需能力的成员。
+0183-0031	apps/api/app/config.py:551	-	后端路由租约 TTL 必须长于常规传输超时，长任务须用心跳续租；否则请求仍在传输或任务仍在运行时，路由占用就可能被提前释放。
+0183-0032	apps/api/app/config.py:557-560	-	Raster Mask 先开放读取以兼容存量，不能在读端和导出端通过验收前默认放开创建，否则会产生尚不能完整读出或导出的记录；常规放量由项目 opt-in 控制，部署开关仅作紧急停用。
+0183-0033	apps/api/app/config.py:563-564	-	新确认的 Resident 按 Redis 时间计算保护期，确认后不能立即将其纳入驱逐候选；改用各仲裁进程的本地时钟会使保护期的结束判定依赖进程时钟。
+0183-0034	apps/api/app/config.py:595-597	-	Prometheus HTTP 服务发现与 /metrics 默认依赖内网或 nginx 网段隔离；一旦配置 metrics_sd_token，不能以网段检查代替 Bearer token 校验，令牌不匹配须返回 401。
+0183-0035	apps/api/app/config.py:602-605	-	只有全 CPU 预标流水线进入高并发的 ml.cpu 队列，旧后端与混合设备流水线仍走 ml。队列改名必须同步 Compose 的 -Q 订阅，否则任务仍能入队，却没有 worker 消费。
+0183-0036	apps/api/app/config.py:621-624	-	SAM3.1 视频在 24 GB 卡上实测到 41 帧即 OOM，因此 SAM3 单独使用 16 帧窗口，与图像 SAM3 共驻时建议约 12 帧。不能靠统一缩短窗口规避显存问题，否则会削减 SAM2 的 300 帧长程记忆。
+0183-0037	apps/api/app/config.py:627-629	-	仅含 tracker 阶段的预标不能只用帧数限制：整段追踪比逐帧检测慢得多，即使未超帧也可能长期独占 worker。须保留软超时，让 worker 能清理并落库已处理帧。
+0183-0038	apps/api/app/config.py:632-638	-	逐帧预标的总帧上限与 tracker 的 900 帧上限对齐，同时保留每帧框数上限；只限制帧数，仍无法约束单帧框过多造成的写入量膨胀。
+0183-0039	apps/api/app/config.py:644-645,651	-	audit_logs 与 task_events 可经 Celery 旁路写入，但不能把异步投递作为唯一写入路径；关闭异步或 broker 不可用时须回退到同步写入，否则这些记录会因投递失败而丢失。
+0183-0040	apps/api/app/config.py:648	-	超期审计分区必须先归档至 MinIO，再执行 DROP；不能先删分区再补归档，因为分区删除后就失去了待归档的数据。
+0183-0041	apps/api/app/config.py:667-669	-	开放注册须读取解析后的 email_verification_required，而非原始 require_email_verification；直接读原始值会绕过未配置时的环境默认值（生产开启、开发和 staging 关闭），显式设置仍优先。
+0183-0042	apps/api/app/config.py:681-682	-	离线判定不能把一次未按时到达的心跳当作离线；mark_inactive_offline 默认等待 5 分钟，是前端 30 秒心跳周期的 10 倍，用于容忍短时延迟。
+0183-0043	apps/api/app/api/health.py:115-117,136;apps/api/app/config.py:685-686	-	Celery 健康检查须按 worker 读取 Redis 心跳时间戳并计算年龄，不能仅凭键未过期判定健康。读取失败只将心跳降级为未知；Gauge 不补零，否则会将缺失误报为刚刚收到心跳。
+0183-0044	apps/api/app/config.py:735	-	uvicorn 必须以仓库根的绝对路径定位 .env，不能相对启动目录查找；否则从其他目录启动同一服务时，可能漏载部署配置。
+0183-0045	apps/api/app/config.py:737-739	-	API 设置须忽略共享 .env 中的额外字段，不能启用 pydantic-settings 的额外字段拒绝行为；否则合法的前端 VITE_* 变量也会导致 API 启动失败。
+0183-0046	apps/api/app/main.py:47	-	Sentry 事件发送前须移除请求的 Authorization 头；不能把原始请求头随异常上报，否则认证令牌会进入错误事件。
+0183-0047	apps/api/app/main.py:301-302	-	UploadBodyLimitMiddleware 必须置于 ASGI 最外层，在 multipart 或 JSON 解析前限制受管请求体；若只在端点校验大小，解析器此前就可能已缓存无界上传。
+0183-0048	apps/api/app/api/v1/_test_seed.py:72-81	-	Owned fixture 的 ID 须从受限命名空间确定性派生，而非使用跨测试共享的固定 ID；这样按 ID 清理时才能区分其他测试及普通数据，同时不超过列宽。
+0183-0049	apps/api/app/api/v1/_test_seed.py:487-488,492-500	-	页面关闭不能作为视频清理已安全的前提，已获准的读取仍可能持有存储许可。清理只排空已知操作且不重试，物理删除从首张回执起共用期限；活跃或未知许可未排除时须报 e2e_seed_video_operation_unsettled，不删对象。
+0183-0050	apps/api/app/api/v1/_test_seed.py:762-764,792-794,831-834	-	视频清理须在获取 Item 所有权行锁前排空已获准的旧读取；首次快照后若新增输出，须先将锁定的所有者标为退役并提交，再排空新操作。持锁等待会卡住读者的退出检查，使许可无法在期限内释放。
+0183-0051	apps/api/app/api/v1/_test_seed.py:928-932	-	收集期间同一 Item 槽位新增的所有者，只有尚无已保存对象、租约或许可时才可一并退役；不能凭槽位相同删除已发布或已认领的输出，其归属仍未确认。
+0183-0052	apps/api/app/api/v1/_test_seed.py:1673-1674,1953	-	移除项目绑定会改变池路由世代，不能把物理导出清理前的一次引用检查当成保障；必须先阻断外部引用，并持续到项目删除事务提交，否则迟到的引用仍可能指向待删导出。
+0183-0053	apps/api/app/api/v1/_test_seed.py:1859-1860,2461-2462	-	fixture 原件及辅助原件须趁存储位置仍活跃时发布，并在原件键或字节可见前登记数据集清单和实际保存位置；删除事务再复查同一批附件，不能将对未登记输出的快照当作完整清单。
+0183-0054	apps/api/app/api/v1/_test_seed.py:2001	-	fixture 池成员清理须先提交以释放库存和拓扑锁，再执行 HTTP 权限操作；不能把 HTTP 调用包在同一持锁事务内，否则其等待时间也会延长对库存和拓扑的阻塞。
+0183-0055	apps/api/app/api/v1/_test_seed.py:2047-2048	-	物理 I/O 结果不确定时，须以持久化的停止窗口作为恢复依据；不能把请求结束或报错视作位置已可用，只有 reclaim 成功后才能恢复该存储位置。
+0183-0056	apps/api/app/api/v1/_test_seed.py:2161-2162	-	批量清理第二阶段只接受同一请求中已通过预检的封存 run ID，仍须复查最终路由、输入和导出；不能复用旧预检或把预检当作删除许可，否则会漏掉两阶段之间的状态变化。
+0183-0057	apps/api/app/api/v1/_test_seed.py:2422-2423	-	Mask 的兼容 polygon 提交不能替代项目的 region 能力声明；项目未显式启用 region 时，即使提交格式兼容，也过不了工作台的能力握手。
+0183-0058	apps/api/app/api/v1/_test_seed.py:2435-2436,3330	-	账号角色或任务分派都不能替代项目成员资格；即使 annotator 或 reviewer 已有相应角色，或员工已受派项目任务，非成员仍会被 RequireProjectMember 以 403 拒绝。
+0183-0059	apps/api/app/api/v1/_test_seed.py:2445-2447	-	工作台给非特权用户列任务时，不能绕过批次可见性来构造孤儿任务；仅创建任务而不把它放进该用户可见的批次，list_tasks 会将其过滤，页面呈现空列表。
+0183-0060	apps/api/app/api/v1/_test_seed.py:3306-3308	-	开放池允许项目标注成员打开未分派任务，但可打开不等于持有分派；没有批次默认分派或任务受派人时，撤销成员资格不应被分派交接阻拦。
+0183-0061	apps/api/app/api/v1/_test_seed.py:3670-3672	-	LiDAR 夹具必须显式声明 lidar，点云端点才会通过 manifest 校验；类别也必须显式绑定 lidar_box_3d，不能用会回落到 bbox 的 coalesce，否则前端取类和 PATCH 校验会按错误的单元处理。
+0183-0062	apps/api/app/api/v1/_test_seed.py:3682-3683	-	仅启用 point_mask_3d 单元不会让点掩码工具具备放置能力；还要在该单元下配置可放置类别，否则前端的 pointMaskPlaceClass 条件仍不成立。
+0183-0063	apps/api/app/api/v1/_test_seed.py:3952	-	polygon 夹具应以 Label Studio 形状列表写入数据库，把内部形状留给读取时的 to_internal_shape 转换；直接写入内部形状会让读取层拿到不符合其输入约定的数据。
+0183-0064	apps/api/app/api/v1/_test_seed.py:4562-4564	-	呈现帧的像素签名由源 fixture 独立定义，解码时间戳则以实际复用分片的时钟为准；B 帧的 DTS 预滚可以平移时钟，却不能据此改变所期望的呈现帧身份。
+0183-0065	apps/api/app/api/v1/_test_seed.py:4669	-	写入端遇到不支持的视频上下文版本时须保留原锚点；兼容降级应发生在公开读取端，由它忽略该版本，而不是在写入时抹掉锚点。
+0183-0066	apps/api/app/api/v1/_test_seed.py:5045	-	视频回执须按 DatasetItem 的实际媒体类型绑定，不能按 project.data_type 推断；视频 E2E 可以复用图片项目，按项目类型绑定会把视频项当作图片处理。
+0183-0067	apps/api/app/api/v1/_test_seed.py:5283-5284	-	故障夹具应使用不同的初始内容，避免两者共享逻辑引用；但内容不同不构成独占证明，是否独占仍须由离线协调器确认。
+0183-0068	apps/api/app/api/v1/_test_seed.py:5539-5540	-	须在最后一个任务结算后复查全部精确回执，不能沿用各任务先前通过的结果；等待其他任务期间，已核验回执的源对象或世代仍可能变化。
+0183-0069	apps/api/app/api/v1/_test_seed_attachments.py:53-65	-	账号和项目行只圈定清理范围，关页后跨 MinIO 读取的请求仍可能持有共享锁。预检和删除前用 5 秒 lock_timeout 等待，超时报 e2e_seed_attachment_cleanup_busy；删除所有权锚点仍用 NOWAIT，拿不到锁就拒绝。
+0183-0070	apps/api/app/api/v1/_test_seed_attachments.py:130-131	-	清理应以不可变的项目快照确定归属：历史任务或标注缺失不应使快照失效，但仍存在且实际属于其他项目的子对象，即使曾被记录也不能清理。
+0183-0071	apps/api/app/api/v1/_test_seed_filters.py:31-34	-	filtering 夹具保留原字面值供阅读，但归属 ID 须单独映射，不能用展示值代替清理时的精确匹配键；映射还须满足列宽，项目等最多 20 字符，批次和任务最多 30 字符。
+0183-0072	apps/api/app/api/v1/_test_seed_filters.py:104-105,166-167	-	filtering 夹具把命名空间放在展示名开头，使全局列表能用连续的 `[ns] Prefix` 子串匹配派生名称；把命名空间移到末尾会破坏这项搜索隔离。
+0183-0073	apps/api/app/api/v1/_test_seed_filters.py:1076-1077	-	无源发现结果没有源标注 ID，因此只能预览，不能作为验收跟踪结果的依据；预览成功并不证明结果能追溯到源标注。
+0183-0074	apps/api/app/api/v1/_test_seed_webcodecs.py:109	-	帧身份采样区须用相对视频帧的归一化坐标，并按实际显示位置映射到 Konva 画布；固定画布像素在缩放或平移后会采到别处。
+0183-0075	apps/api/app/api/v1/_test_seed_webcodecs.py:150-151	-	缩放和平移用例应使用单独的长视频夹具，在中心保留可读取的完整 8 位帧身份；不要为此改写现有精确帧夹具，否则其既定像素和签名会一并变化。
+0183-0076	apps/api/app/api/v1/_test_seed_webcodecs.py:257,288	-	h264-issue-context 按帧数转码切块，不能直接复制码流，否则 B 帧包可能跨块；首帧不在整毫秒时，seek 时间须向下取整，避免定位到首帧之后而漏帧。
+0183-0077	apps/api/app/api/v1/_test_seed_webcodecs.py:417	-	unsupported-config 夹具须保留真实 avcC，只替换 codec string；同时破坏解码配置会混入其他失败原因，无法单独验证浏览器 isConfigSupported 的拒绝路径。
+0183-0078	apps/api/app/api/v1/admin_alias_freq.py:30	-	别名频次接口最多返回 200 个标签，不能把模型产出的不同标签全部返回；异常 prompt 的输出可能让响应随不同标签的数量膨胀。
+0183-0079	apps/api/app/api/v1/admin_alias_freq.py:73-77	-	别名频次优先读 Label Studio 的 value.{type}[0]，旧数据则兼容 value.labels[0] 或 value.class；展开前须检查 JSONB 类型，直接对非数组调用 jsonb_array_elements 会使查询报错。
+0183-0080	apps/api/app/api/v1/admin_ml_integrations.py:156-158,945-950	-	物理后端须共享一个全局注册项、能力快照和并发闸，不能随项目启用而复制，否则会拆分并发限制并重复计算 total、connected。项目分组仍按启用关联；删除时由服务层检查运行中作业，项目和预测引用由外键置空。
+0183-0081	apps/api/app/api/v1/admin_ml_integrations.py:734-735	-	GPU 诊断须在 authority 开始有界诊断和运行时观测前回滚调用方事务，不能等观测结束后再回滚，否则观测期间调用方事务仍会保持打开。
+0183-0082	apps/api/app/api/v1/admin_ml_integrations.py:952	-	全局注册接口应显式固定 422 的公开描述，不能沿用解释器的默认短语，否则升级 Python 就可能在业务逻辑未变的情况下改变公开响应。
+0183-0083	apps/api/app/api/v1/admin_ml_integrations.py:1223-1227	-	容器只读发现不应要求先有项目注册，可直连部署配置的观测地址；有注册凭据时用注册凭据，只有部署固定且未注册的第一方目标才可复用本地凭据，不能将后者作为通用回退。
+0183-0084	apps/api/app/api/v1/admin_ml_integrations.py:2254-2255	-	运行时快照已标明 Redis 数据新鲜度，关闭客户端失败不应覆盖已经取得的观测结果；应继续返回带类型的部分结果，而不是将整个响应改为 500。
+0183-0085	apps/api/app/api/v1/admin_plugin_installations.py:244-245	0180-installable-inference-plugins.md	插件激活须在探测前提交经检查的启动记录，不能等探测成功才记账；否则激活失败后缺少可恢复的记录，停止授权也无法以已记录的容器为依据。
+0183-0086	apps/api/app/api/v1/admin_plugin_installations.py:271-272	0180-installable-inference-plugins.md	插件资格核准后，须先提交预留再发起经认证的后端控制调用；否则另一侧所有者看不到预留，Registry 事务也会被远程调用占用。
+0183-0087	apps/api/app/api/v1/admin_plugin_installations.py:418-419,446-447	0180-installable-inference-plugins.md	插件远程排空前须释放所有者锁，不跨远程 I/O 持有 Registry 行锁。Native quiesce 须在自己的 Registry 锁内复验后才发出 safe-to-stop，最终以已记录的启动实例和修订号做 CAS，拒绝过期排空结果。
+0183-0088	apps/api/app/api/v1/admin_preannotate.py:225-226,291-292	-	项目卡片的可预标计数须与 allows_bulk_preannotation 共用资格口径，计入 active 及未分派标注员和质检员的 draft；否则卡片可能显示为零，详情页却仍有可预标草稿。
+0183-0089	apps/api/app/api/v1/annotation_comments.py:59-61;apps/api/app/api/v1/annotation_feedbacks.py:55-56	-	任务讨论和标注反馈以平台角色作准入检查，项目职责必须取自解析后的项目成员关系；不能用旧的全局标注员或质检员角色替代，否则会把全局身份误当作该项目的权限。
+0183-0090	apps/api/app/api/v1/annotation_comments.py:163-164	-	读取标注评论仍须验证标注归属于请求中的任务，但不能沿用排除软删除标注的条件；软删除改变标注状态，不应同时切断历史评论的访问。
+0183-0091	apps/api/app/api/v1/annotation_comments.py:470	-	读取标注附件前须校验对象键属于该标注的键前缀并拒绝越界请求；不能先访问存储再校验，否则归属检查已无法阻止对错误对象的读取。
+0183-0092	apps/api/app/api/v1/annotation_feedbacks.py:293-294	-	反馈表中的旧标注评论只是以 /comments 为权威的镜像，不能把镜像转换成 Issue 线程，否则同一条历史评论会被误当成独立的反馈记录。
+0183-0093	apps/api/app/api/v1/annotation_history.py:35	-	标注历史须纳入影响该标注生命周期的任务级操作；如果只按标注自身的审计事件生成时间线，就会漏掉由任务操作触发的状态变化。
+0183-0094	apps/api/app/api/v1/annotations.py:93-98,332-337	-	Raster mask 上传返回的引用尚未关联标注，不能依赖标注的 is_locked；须以任务级 advisory lock 串行检查未认领对象配额，并在关联标注的同一事务内认领预留，避免并发超额或关联与认领分离。
+0183-0095	apps/api/app/api/v1/annotations.py:315	-	所有 Mask 写入路径都须先锁 Task 行，再获取其他数据库行锁；仅在部分路径遵循该顺序仍会留下反向取锁的路径，使并发写入相互等待。
+0183-0096	apps/api/app/api/v1/annotations.py:341-342,413-414	-	旧 gzip encoding 写法应在入口归一化，不能让存储压缩方式改变 COCO RLE 引用编码；HTTP Content-Encoding 属于传输层，须在解析 JSON 前处理，不能当作引用字段解释。
+0183-0097	apps/api/app/api/v1/annotations.py:424-426	-	Raster mask 上传从预留、写对象到提交都须持有 GC 使用的同一内容锁；若提前释放，GC 可能因看不到未提交的预留而删除刚上传的对象。
+0183-0098	apps/api/app/api/v1/annotations.py:454-455	-	Raster mask 的上传预留与配额占用必须在同一事务内；对象写入失败时一并回滚，不能留下没有对应对象的归属记录或继续占用配额。
+0183-0099	apps/api/app/api/v1/annotations.py:578	-	批量标注遇到 RasterMaskContractError 时，先回滚业务写入，再单独提交失败回执；同事务回滚会丢失回执，同事务提交则可能保留部分失败写入。
+0183-0100	apps/api/app/api/v1/avatars.py:26	-	头像读取路由须沿用上传服务的 token 语法，非法 token 在拼接存储 key 前直接返回 404；不能让不合法的输入参与构造其他对象的 key。
+0183-0101	apps/api/app/api/v1/batches.py:287,865	-	含进行中成果或已预标的批次不得在未显式指定 force 时清理删除，否则会丢失已有工作；单删返回 409 requires_force，批删仅将该批次以 requires_force 记入 failed。
+0183-0102	apps/api/app/api/v1/batches.py:1190-1191	-	多目标导出通过异步 export 作业返回 job_id，但 VOC 仍只允许单选并同步返回 blob；把 VOC 一并异步化会改变既有客户端依赖的响应契约。
+0183-0103	apps/api/app/api/v1/bug_reports.py:203	-	提交 bug 反馈时，须等反馈、镜像、审计操作及相关行等待结束后再检查附件上传期限；只在入口检查会让等待期间已过期的上传仍被提交。
+0183-0104	apps/api/app/api/v1/bug_reports.py:425	-	bug 反馈删除提交后，若附件清理失败，仍须保留持久化附件归属记录；随反馈一并删除该记录会让后续重试失去清理依据。
+0183-0105	apps/api/app/api/v1/bug_reports.py:451-452	-	仅对提交者在已关闭反馈下会触发重开的评论，按用户与反馈另限 5 次/日，整体 60 次/小时限流照旧；只用整体限额仍允许集中刷同一反馈的重开计数。
+0183-0106	apps/api/app/api/v1/bug_reports.py:505	-	bug 反馈评论的通知只能在评论事务提交后发布；提前发布可能让收件人收到一条随后回滚、实际不存在的评论通知。
+0183-0107	apps/api/app/api/v1/data_manager.py:189-190	-	Data Manager 须在作业载荷和 worker 参数中固化同一精确选区；重试时不能重新推导选区，否则可能把操作扩大到用户原先未选的范围。
+0183-0108	apps/api/app/api/v1/data_manager.py:224-226,298-300	-	Data Manager 必须先提交作业行再发布到 Celery，否则 worker 可能读不到作业。若在提交与发布之间重试，同一幂等键应复用 pending 行并补发，不另建导出作业或改变缓存范围。
+0183-0109	apps/api/app/api/v1/dataset_sources.py:528-529	-	数据集来源验证单独发布回执，不能用验证入口替代普通内容 GET；后者须保留原读取上下文，否则会改变归档后仍可读取的行为。
+0183-0110	apps/api/app/api/v1/dataset_views.py:94	-	创建 Dataset View 时先锁所属 Dataset，再检查该数据集的创建上限；仅查询当前数量会让并发请求各自通过同一次限额检查，合计超限。
+0183-0111	apps/api/app/api/v1/datasets.py:121-122	-	Dataset 删除提交后原行可能已不存在；仅显式带 Idempotency-Key 的删除重放可越过缺行检查，且仍由命令 owner 精确核验回执，不能把任意缺行视为成功重放。
+0183-0112	apps/api/app/api/v1/datasets.py:152	-	ZIP 上传的 multipart 请求限额须比 ZIP 文件字节上限多留 64 KiB，用于边界和分段头等封装开销，否则达到合法文件上限的上传会被误拒。
+0183-0113	apps/api/app/api/v1/datasets.py:354-355	-	Dataset 更新须用 model_fields_set 区分遗漏与显式 null：遗漏 axis_convention 时传 _UNSET 保留原值，只有显式 null 才清除元数据键，避免不相关的更新误删该值。
+0183-0114	apps/api/app/api/v1/datasets.py:368-370	-	Dataset 更新提交后须显式 refresh；get_with_project_count 可能复用 identity map 中已过期的对象，直接访问 updated_at 会触发同步懒加载并在异步会话中抛出 MissingGreenlet。
+0183-0115	apps/api/app/api/v1/datasets.py:664-666	-	Dataset 导入的两项预算须随请求以同一快照提交；worker 枚举文件时若重读全局设置，管理员在排队期间改配置就会改变作业已接受的限额。
+0183-0116	apps/api/app/api/v1/datasets.py:837-838	-	Dataset 的只读路由准入也可能持有凭据栅栏，须先结束事务释放栅栏，再让共享 helper 独立认证并取得请求密钥证明，不能用准入结果替代该证明。
+0183-0117	apps/api/app/api/v1/datasets.py:1035,1042	-	media_backfill 以 Dataset 为作用域，幂等查询和作业创建都须接受空项目作用域；若套用必须绑定项目的约束，未关联项目的数据集将无法回填或重放。
+0183-0118	apps/api/app/api/v1/datasets.py:1104-1105	-	Dataset 媒体回填须先提交作业行再发布到 Celery，避免 worker 读不到记录；同一 Idempotency-Key 的并发重试复用原作业和派发信封，不能另建一份。
+0183-0119	apps/api/app/api/v1/datasets.py:1334-1336	-	关联 Dataset 会在目标项目中创建任务，因此须检查对该项目的管理权；平台目录权限或项目管理员身份不能替代目标项目授权，否则可能向无权管理的项目写入任务。
+0183-0120	apps/api/app/api/v1/datasets.py:1366-1367	-	大型 Dataset 关联后的建任务作业必须在事务提交后才发布到 Celery；提前发布可能让 worker 在项目关联行或 async_job 行可见前启动。
+0183-0121	apps/api/app/api/v1/mask_formats.py:248	-	Mask 上传须先提交归属记录再签发 URL，确保 URL 可用时已有持久归属，同时避免最终授权所持的锁延续到签名 I/O。
+0183-0122	apps/api/app/api/v1/mask_qc.py:558-559	-	Mask QC 先锁账户侧成员资格，再对任务和资源行执行有界等待；不能无期限等资源锁，否则繁忙资源行会一直阻塞请求。
+0183-0123	apps/api/app/api/v1/mask_qc.py:770-772	-	Mask 批量修复须在写入边界锁定并重查当前项目成员资格，再按新结果验证能力；仅依赖前置依赖解析会让其后被降权的请求仍能写入。
+0183-0124	apps/api/app/api/v1/me.py:98-100	-	头像处理开始前捕获原认证凭据和旧引用，发布时由命令 owner 重验原凭据；不能沿用处理前的授权，也不能为保持授权而把远端事务跨到图像处理或 S3 I/O。
+0183-0125	apps/api/app/api/v1/me.py:278-280	-	工作台单条无效事件须保留 HTTP 错误响应，让浏览器采集器丢弃永久无效的事件；混合批次则逐条返回结果，不能因一条无效事件拒绝其余有效事件。
+0183-0126	apps/api/app/api/v1/ml_backends.py:103-104,812-813	-	按 backend_id 缓存 /setup，避免每次进入工作台都探活，重绑会绕过旧项。预热后须立即失效缓存：YOLO 加载后才暴露 model.names，仅等 TTL 会让 /capabilities 最多陈旧 30 秒。
+0183-0127	apps/api/app/api/v1/ml_backends.py:189-191,194-196,198-200,1593-1594,1729-1730	-	帧上传不能仅信任 Content-Length，须在存储 I/O 前按实读量执行 32 MiB 上限，并解码确认是 JPEG/PNG。边长不得超过 4096、总像素不得超过 16,777,216，以免压缩后字节数合规的图像仍超过推理内存预算。
+0183-0128	apps/api/app/api/v1/ml_backends.py:285-286	-	Pillow 的 verify() 只验证流结构且会使当前解码器失效；验证后必须重新打开并实际加载像素，否则头部有效但像素数据截断的帧仍可能通过。
+0183-0129	apps/api/app/api/v1/ml_backends.py:400-401,581,642-643	-	项目按 URL 复用或创建全局 ML backend 并启用关联；auth、URL、extra_params 属于全局项，项目删除只能停用自身关联，以免影响其他项目，全局项由 superadmin 删除。显存压力由全局 max_concurrency 约束，项目后端数量不能限制共享端点的并发。
+0183-0130	apps/api/app/api/v1/ml_backends.py:1358-1360,1772-1773	-	工作台按绑定后端的 /setup.params 渲染每用户参数并通过 context 透传，缺省值由后端决定；平台不能注入项目级 DINO 阈值，否则会把 gsam2 专属参数传给 sam3 等不支持的后端。
+0183-0131	apps/api/app/api/v1/ml_backends.py:1452-1453,1626-1627,1811-1812	-	返回受限推理候选或写入单帧预标注前，须重新取得任务行并锁定成员关系、按当前权限重验；沿用推理前的授权会让推理期间被撤权或变更角色的用户仍能收取或写入结果。
+0183-0132	apps/api/app/api/v1/ml_capabilities.py:162-164	-	能力目录须逐后端验证自报数据；遇到不合规的 variant 或 models 只告警并跳过该后端，不能让单个后端的坏数据把整个目录变成 500。
+0183-0133	apps/api/app/api/v1/notifications.py:124	-	通知同步事件必须在事务提交后发布；若先发布，收到事件的另一会话可能仍读到提交前的状态。
+0183-0134	apps/api/app/api/v1/original_playback.py:49-50	-	原件播放用 Sec-Fetch-Site 判断浏览器来源，不能用 Host 替代：Vite 的 changeOrigin 会将 Host 改写为 API 的回环地址，无法反映浏览器来源。
+0183-0135	apps/api/app/api/v1/original_playback.py:73-74	-	即使复用已就绪的播放暂存文件，prepare 也可能等无关的退役文件关闭；返回后须复核原件授权及来源并重新验证租约，不能沿用等待前的判断。
+0183-0136	apps/api/app/api/v1/platform_role_commands.py:79	0125-independent-identity-platform-role-commands.md	平台角色命令必须先验证角色，再解析或查询目标用户；若反过来，非法路径 ID 会掩盖本应优先返回的非法角色错误。
+0183-0137	apps/api/app/api/v1/point_cloud_quality.py:217-218,392-393	-	点云质量写入须锁定成员关系后重算权限并复核写能力，不能沿用锁前的判定；审核确认权限后再限时获取任务和资源锁，避免繁忙行无限阻塞请求。
+0183-0138	apps/api/app/api/v1/predictions.py:127-128	-	平台项目管理员的全局预测列表只覆盖其名下项目；显式传入项目 ID 也不能绕过归属约束，否则可枚举他人项目的预测记录。
+0183-0139	apps/api/app/api/v1/predictions.py:441	-	预测导入失败时须先回滚导入事务，再记录并提交失败回执；否则提交回执时可能一并持久化本应回滚的导入写入。
+0183-0140	apps/api/app/api/v1/projects.py:565	-	工具绑定重命名省略 tool_unit_id 时，范围是所有已存绑定，而非当前启用的工具单元；只更新启用项会漏掉已禁用单元的绑定。
+0183-0141	apps/api/app/api/v1/projects.py:929-932	-	多目标导出由一个异步作业生成按目标分目录的 ZIP，并返回有效期为 7 天的预签名 URL；VOC 即使已从前端隐藏，也不能改走该响应契约，仍仅支持单选并同步返回 blob。
+0183-0142	apps/api/app/api/v1/projects.py:1148-1149,2017-2018	-	不透明版本须等服务端冻结模型引用、解析出任务类型后才能宣告检测能力；涉及受控模型时还须在记录作业前按解析后的身份重验图像范围，避免初检漏掉限制。
+0183-0143	apps/api/app/api/v1/projects.py:1234,1558-1559,1596-1597	-	预标注源和下游都须支持批量，不能准入交互或有状态模型。源阶段不写属性，配置与派发均不要求 class；写属性的下游分类阶段缺少 class 则须在派发前返回 422，否则属性始终为空。
+0183-0144	apps/api/app/api/v1/projects.py:1246,1654-1655	-	配置检查发现上游缺少 bbox/polygon 时只告警；派发若确定下游要用其作 ROI，须提前返回 422，否则运行时父结果会全部跳过，下游无法富集。
+0183-0145	apps/api/app/api/v1/projects.py:1301-1302,1795-1796	-	仅未分派标注员和质检员的 draft 批次可例外执行批量预标注，以便先跑 AI 再分派；不能把例外扩大到已分派的 draft 或已进入人工流程的批次。
+0183-0146	apps/api/app/api/v1/projects.py:1368-1369	-	工作台 AI 只准入明确可编辑的 pending、in_progress、rejected；不能改用禁止状态黑名单，否则可能放行对象尚未校验的 uploading，或未明确允许的新状态和非法状态。
+0183-0147	apps/api/app/api/v1/projects.py:1383-1384	-	任务锁只在 (task_id, user_id) 上唯一，工作台 AI 必须检查所有活跃锁；只取首行可能先读到自己的锁，从而漏掉他人持锁。
+0183-0148	apps/api/app/api/v1/projects.py:1495-1497	-	预标注源和下游都须从本项目已启用的服务池成员解析出注册实例；仅凭 registry ID 放行，会让手工 POST 调用未启用或其他项目的后端。
+0183-0149	apps/api/app/api/v1/projects.py:1612-1615	-	几何或中间结果子阶段须依 supported_inputs 固化 input.mode：bbox_prompt 直接传提示，crop 则须回映坐标；缺少能力快照时不猜测模式或拒绝请求，沿用原投递行为。
+0183-0150	apps/api/app/api/v1/projects.py:1757-1758	-	工作台单题 AI 必须由任务推导所属批次，不接受 batch_id；否则会误套批量状态校验，拒绝 draft，或因无关批次处于 active 而错误放行。
+0183-0151	apps/api/app/api/v1/projects.py:1767-1768	-	原生输入捕获重放时须校验原始选择条件并沿用已受理的任务集合；按当前 Task 状态重新选取会更换已受理的成员。
+0183-0152	apps/api/app/api/v1/projects.py:1832	-	只有全部阶段都自报 CPU 的预标注流水线才可进入 CPU 队列；任一阶段声明 GPU 或未声明设备，均走 GPU（ml）队列，不能把未知设备当作 CPU。
+0183-0153	apps/api/app/api/v1/projects.py:1838-1839	-	含 tracker 的作业不能只靠帧数上限约束运行时间，还须设软超时；单阶段从 body.task 识别 tracker，编排作业则检查归一化后的阶段，避免漏判。
+0183-0154	apps/api/app/api/v1/projects.py:1846-1850	-	batch_predict 须从原始编排中唯一 parent_stage=None 的源阶段读取 execution_unit，frame 才触发逐帧二级分发；归一化会丢掉源阶段，也不能假定源阶段号为 0。
+0183-0155	apps/api/app/api/v1/projects.py:1889-1890,2281-2282,2569-2571,2578-2579	-	忙碌、存储故障或原生调用回包丢失都不能证明规范输入未占位；仅保留调用前已提交的可重放状态，其余回滚。pending 作业的 accepted_input_ids 为空仍须准入规范输入，同键沿用原 job、task、actor 重放，避免改读更新后的 Task URL。
+0183-0156	apps/api/app/api/v1/projects.py:2055-2056	-	捕获执行任务的来源授权前，须先按 Labeling 清单所有者的规则完成批量准入；来源授权不能替代清单准入，否则会覆盖本不允许执行的任务。
+0183-0157	apps/api/app/api/v1/projects.py:2130-2133,2422-2424,2430-2432	-	预标注须在派发前提交持久作业，并将其 ID 用作 Celery task ID，即使工作台单题没有幂等键也一样；否则 worker 在派发后的 API 提交前因范围复核失败时，on_failure 可能找不到作业，导致面板无限轮询。
+0183-0158	apps/api/app/api/v1/projects.py:2300-2302,2702-2703	-	输入准入保留独立检查点；队列受理须在向 broker 发布前提交并冻结确切消息。已提交的 pending 不等于已发布，重试须复用原行补发，由 worker 借助作业行锁防止重复执行。
+0183-0159	apps/api/app/api/v1/projects.py:2493-2494	-	经认证的引用来源须由其引用绑定验证身份；accepted-image owner 只校验受管对象，用它替代绑定校验会漏掉引用来源的身份验证。
+0183-0160	apps/api/app/api/v1/projects.py:2743	-	审计须与作业载荷一致：output_mode 只对文本 prompt 生效，几何路径记为 None；照抄请求值会让审计误示该选项实际生效。
+0183-0161	apps/api/app/api/v1/projects.py:2754-2756	-	文本 prompt 的 both 会为同一实例生成框和多边形；有下游时两者各作父区域，分别裁剪、推理和富集，落两条 region，因此只提示重复开销，不将该组合判为无效。
+0183-0162	apps/api/app/api/v1/router.py:99	-	头像读取路由不要求应用的 Authorization 请求头，因为普通 img 标签加载图片时不会附带该头；套用普通 API 鉴权会使头像无法加载。
+0183-0163	apps/api/app/api/v1/router.py:141	-	项目标注指引图片须走独立的 guide_assets 端点，而不是复用数据集条目上传；后者会把指引资源写入 dataset_items。
+0183-0164	apps/api/app/api/v1/router.py:152-153;apps/api/app/api/v1/tasks/__init__.py:33-36	-	由 tasks 包聚合时加 /tasks，上层只加 tag：FastAPI 不接受空前缀嵌套 GET 空路径，两层都加又会变成 /tasks/tasks；前缀必须放在内层才能保留 /tasks 根列表。
+0183-0165	apps/api/app/api/v1/router.py:227-228	-	`/internal/metrics-targets` 在所有环境挂载，不能因排除公开 OpenAPI schema 就不注册路由，否则 Prometheus 的 HTTP 服务发现会失去目标列表。
+0183-0166	apps/api/app/api/v1/router.py:231-232	-	`_test_seed` 仅在非生产环境且显式开启 `E2E_SEED_ENABLED` 时挂载；环境开关不能替代数据库名校验，否则路由仍可能把测试数据写进开发库。
+0183-0167	apps/api/app/api/v1/sample_evaluations.py:131	-	样本评估的 `qualification` HTTP 调用必须在取得任何领域锁或权限锁前完成，不能挪进持锁区间，否则外部服务的响应时间会阻塞依赖这些锁的操作。
+0183-0168	apps/api/app/api/v1/dashboard/admin.py:785;apps/api/app/api/v1/search.py:51	-	全局任务搜索先按任务可见权限过滤，成员活动时间线先按项目过滤，两者都在过滤后才应用 `LIMIT`；否则不可见的任务或其他项目的近期活动会占用名额，挤掉本应返回的记录。
+0183-0169	apps/api/app/api/v1/search.py:127-128	-	成员搜索只有 `super_admin` 可以查全局；其他调用者只能查共同可见项目中的成员，且须以 `project_members` 判定成员身份，否则用平台角色放行会暴露无共同可见项目的账号。
+0183-0170	apps/api/app/api/v1/site_agent_transport.py:138	-	保留回执的认证只证明该回执有效，不能复用为新读取请求的凭据，也不能据此接收对象字节，否则回执会变成对象读取授权。
+0183-0171	apps/api/app/api/v1/storage.py:38-40	-	全局媒体与资产维护路由没有项目路径边界，入口角色检查不能替代目标项目授权；处理项目资产时必须核对调用者有权管理该项目，否则项目管理员可能操作其他项目的资产。
+0183-0172	apps/api/app/api/v1/dashboard/admin.py:554-555;apps/api/app/api/v1/storage_connections.py:77	-	静态路径 `/allowlist` 和人员绩效 CSV 的 `export` 必须分别在 `/{conn_id}` 和 `/admin/people/{user_id}` 前注册，否则动态路由会把固定路径段当作 ID，截走原本发给静态端点的请求。
+0183-0173	apps/api/app/api/v1/storage_locations.py:801-802	-	把存储位置评审绑定到连接器当前修订时，必须沿用连接器变更流程先锁 `Connection`、后锁 `Location` 的顺序；反向获取会让两个流程互相等待对方持有的锁。
+0183-0174	apps/api/app/api/v1/storage_locations.py:1051	-	存储位置探测的清理失败不能替换探测本身的结果；否则清理异常会把成功探测误报为失败，或掩盖真正的探测错误。
+0183-0175	apps/api/app/api/v1/storage_migration_inventories.py:39	-	复用存储迁移清单只读取既有状态，不能把发布结果不确定等同于发布失败并自动重试，否则首次发布已生效时可能重复派发；只有显式重新派发才重试。
+0183-0176	apps/api/app/api/v1/storage_reclamation.py:173-174	-	按精确版本回收存储须具备独立的评审授权和持久化的执行归属；不能把只读退役预览当作回收审批，否则仅有预览权限的调用者也能触发删除。
+0183-0177	apps/api/app/api/v1/suspension_commands.py:45	0126-independent-identity-suspension-commands.md	停用命令通过准入不代表执行时仍有权限。若操作者在执行前已被停用，必须按管理权限丧失返回 403，不能凭此前的准入结果继续执行。
+0183-0178	apps/api/app/api/v1/system_settings.py:43-44	-	系统设置只有缺少覆盖值时才回退到部署默认值，不能按真值判断；`false`、`0` 和空串都是显式设置，否则会被默认值悄悄替换。
+0183-0179	apps/api/app/api/v1/system_settings.py:72-74	-	系统设置写入冲突后，先回滚失败事务以释放 advisory lock，再读取胜出方的生效值；不能把本次未生效的请求值返回给 UI，否则界面会显示实际未保存的设置。
+0183-0180	apps/api/app/api/v1/system_settings.py:184-185	-	显式重置系统设置即使没有覆盖值可删除也须审计，否则无状态变更的重置请求会漏记；涉及密码时只记 `changed=True`，不能把明文值写入审计记录。
+0183-0181	apps/api/app/api/v1/training_dataset_analysis.py:371-372	-	训练数据集媒体分析沿用删除流程的锁顺序，先取权限锁，再保留版本成员，保护范围从读取存储持续到提交媒体观测；否则删除可能在两步之间移除被分析的成员。
+0183-0182	apps/api/app/api/v1/training_datasets.py:124	-	创建训练数据集须先按项目串行化，再获取共享锁；不能先持共享锁再升级为排他锁，否则同项目的并发创建可能各自持有共享锁，互相阻塞升级。
+0183-0183	apps/api/app/api/v1/training_datasets.py:148-149	-	训练数据集源准备是只读阶段，进入源 I/O 前须释放本请求的幂等锁和权限锁，准备完成后再串行化；否则慢速源读取会延长持锁时间，阻塞其他请求。
+0183-0184	apps/api/app/api/v1/training_datasets.py:276	-	滚动部署期间，训练数据集版本应按冻结契约识别任务，不能从成员关系反推；否则新旧代码可能对同一个已冻结版本识别出不同的任务范围。
+0183-0185	apps/api/app/api/v1/video_tracker_jobs.py:685	-	视频跟踪审核变更及必需的审计记录须在同一事务提交；若分开提交，审计写入失败时可能留下已经生效却没有审计记录的审核变更。
+0183-0186	apps/api/app/api/v1/videos.py:388-389	-	章节 `flush` 后，`onupdate=func.now()` 会使 `updated_at` 过期；构造 `_chapter_out` 前须显式 `refresh`，否则属性读取会在异步上下文外触发惰性加载，引发 `MissingGreenlet` 并返回 500。
+0183-0187	apps/api/app/api/v1/ws.py:179-180	-	WS 在同一进程内共享 Redis 连接池，并用 `max_connections` 限制每池连接数；若每条 WS 都单独打开 Redis socket，Redis 连接数会随客户端数增长。
+0183-0188	apps/api/app/api/v1/ws.py:216	-	Redis 池关闭超时或报错时仍要继续 WS 服务停机，不能等待连接全部关闭而卡住退出；剩余 socket 会由内核在进程退出后回收。
+0183-0189	apps/api/app/api/v1/ws.py:222	-	即使没有业务消息，WS 也要保持心跳；只依赖业务流量维持连接时，负载均衡器或 nginx 会在空闲超时后主动断开仍有效的订阅。
+0183-0190	apps/api/app/api/v1/ws.py:260-262,266-268	-	WS 握手通过不能代替受保护消息的逐条校验。握手后权限或凭据变化导致订阅不再有效时终止订阅；若只是当前消息未获准，仅丢弃该条，不能中断其他合法投递。
+0183-0191	apps/api/app/api/v1/dashboard/admin.py:247-249,442-443,452-453	-	人员绩效按查询范围内的项目成员职责归类，不能按平台角色推断，否则跨项目兼任者会被错分。筛选审核员时，兼任标注者也展示审核吞吐量；无项目成员记录的管理员归审核侧，但此归类不授予权限。
+0183-0192	apps/api/app/api/v1/dashboard/admin.py:602	-	人员绩效 CSV 需要写入 UTF-8 BOM，不能只输出普通 UTF-8；否则 Excel 可能按其他编码打开文件，导致中文内容显示为乱码。
+0183-0193	apps/api/app/api/v1/dashboard/admin.py:647-648	-	项目管理员只能查看所属项目的成员详情，对非成员统一返回 404；不能用不同响应区分账号不存在与无权查看，否则可借详情接口确认项目外账号是否存在。
+0183-0194	apps/api/app/api/v1/dashboard/admin.py:1052	-	预测成本聚合遇到异常数据量或 schema 漂移时，应只让成本卡片返回空统计；不能让聚合失败向上传播，否则一个卡片就会使整个 Dashboard 不可用。
+0183-0195	apps/api/app/api/v1/dashboard/annotator.py:76-77	-	标注员看板调用任务可见性谓词时须传入已解析的项目角色，不能仅凭任务已指派就省略角色；谓词在缺少角色时默认拒绝，会隐藏所有已分配任务。
+0183-0196	apps/api/app/api/v1/dashboard/annotator.py:194-197,477-479	-	当前标注队列和「我的批次」按项目内的当前标注职责授权，不能凭其他项目的标注身份或尚未撤销的批次分派进入仅任审核员的项目。项目所有者和超级管理员保留例外，个人历史指标仍按账号统计。
+0183-0197	apps/api/app/api/v1/dashboard/annotator.py:493-495	-	不能用 completed_tasks 表示个人标注进度：它只计审核通过，把它当作进度会漏掉正在标注和已提交待审的工作，因此批次须分别展示这三种状态。
+0183-0198	apps/api/app/api/v1/dashboard/annotator.py:509-511;apps/api/app/api/v1/dashboard/reviewer.py:140-142	-	标注员和审核员看板须沿用 tasks/_shared.py 的缩略图口径：导入任务的缩略图在 DatasetItem 中，只查任务行会漏图；批次取最早可用的一张。
+0183-0199	apps/api/app/api/v1/dashboard/annotator.py:672-674	-	团队周均线的分母按活跃账号在 project_members 中的标注职责确定；改用全局 annotator 角色会把没有该项目标注职责的人也算进项目均值。
+0183-0200	apps/api/app/api/v1/dashboard/reviewer.py:98-100	-	ReviewPage 不能只按批次的 reviewing 状态开放入口：单个任务提交质检时，批次可能还没切换状态，只看批次状态会藏住已经可审核的任务。
+0183-0201	apps/api/app/api/v1/tasks/_shared.py:196-197,219;apps/api/app/api/v1/tasks/list.py:167-171	-	首屏和游标页须共用排序和游标口径，否则会重漏或无法续页。同批同时间戳的点云帧按 sequence_order 排，不能用随机 UUID 定帧序；空序号和旧两段游标用 int32 上限占位，使非序列任务排在帧后并按 created_at、id 续翻。
+0183-0202	apps/api/app/api/v1/tasks/_shared.py:318	-	缩略图不能统一从默认桶读取：thumbnails/* 对象位于 media-cache，其他键（含旧路径）仍由 datasets 解析；改用单桶会读不到其中一类对象。
+0183-0203	apps/api/app/api/v1/tasks/_shared.py:335	-	异步缩略图 sidecar 的校验只对确切的当前有效 owner 和路径成立；即使其他路径属于同一 owner，也不能复用校验结果，否则会把未经校验的对象当作已验证。
+0183-0204	apps/api/app/api/v1/tasks/annotations.py:234	-	读取邻帧标注必须逐帧检查任务可见性，中心帧可见并不代表邻帧可见；不可见邻帧只留空占位，不能读取其标注。
+0183-0205	apps/api/app/api/v1/tasks/annotations.py:414-415,806	-	标注写入须先完成对象校验，再锁定并复核当前成员资格，之后才取 Task 锁。不能依赖校验前看到的成员资格，也不能把对象校验移入锁内，延长任一锁的持有时间。
+0183-0206	apps/api/app/api/v1/tasks/annotations.py:500-502	-	标注只允许一层父子关系；已有父标注的框须在调用模型前拒绝几何二次推理，否则会等远程推理结束才发现孙框无法写入。只写属性不产生子框，不受此限。
+0183-0207	apps/api/app/api/v1/tasks/annotations.py:517-519	-	单框二次推理与批量 pipeline 共用能力判据：模型显式声明不可批处理，或写属性时显式声明不产类别，须在预测前返回 422，以免把不支持误作无检出；未声明时仍兼容旧 backend。
+0183-0208	apps/api/app/api/v1/tasks/annotations.py:544-545,558-559	-	先校验模型和所选几何，再获取实际源输入或结束当前读事务；远程 predict 前须提交只读事务，不能让慢调用占着连接直至耗尽异步连接池。提交后依靠 expire_on_commit=False 继续使用已加载对象。
+0183-0209	apps/api/app/api/v1/tasks/annotations.py:571;apps/api/app/application/annotation_secondary_inference.py:105-106	-	临时输入租约只证明输入已交付，不能证明其原始来源或替代当前 owner 凭据。二次推理的派生标注须在写入它们的同一事务内、提交前复核该凭据。
+0183-0210	apps/api/app/api/v1/tasks/annotations.py:1042-1044	-	删除标注与任务级原子 Mask 变更须统一先锁 Task、再锁 Annotation；若删除反向持锁，两个事务可能各持一把锁等待对方而死锁。
+0183-0211	apps/api/app/api/v1/tasks/image_pyramid.py:195,199,734-736,1170	0106-independent-image-media-owner.md	不能证明确切代次或 ready 产出归属时，应判为缺失或不可用；只有 owner 的来源校验拒绝已固定来源时才判 stale。缺证不能作为接管或删除代次的依据，当前 owner 可另建有记录的代次。
+0183-0212	apps/api/app/api/v1/tasks/image_pyramid.py:630-632,702-703,719-721,920-921	0106-independent-image-media-owner.md	Native 金字塔由 Images owner 核对来源快照、代次、对象身份、尺寸和发布租约，并用持久化读取许可及 Source 有界请求核验 manifest、overview 回执和代次栅栏。本地 job ID 或准入标记不证明产出已保存；缺证不返回 manifest 或 asset_urls，也不回退旧路由。
+0183-0213	apps/api/app/api/v1/tasks/image_pyramid.py:1031	0106-independent-image-media-owner.md	历史瓦片的对象键只能从已保存产出的命名空间派生；若用当前绑定解析，绑定变更后就可能把旧代次的请求指向别的对象。
+0183-0214	apps/api/app/api/v1/tasks/list.py:70	-	非管理员的任务列表须复用调度器的批次可见性规则；独立判权会使同一批次在列表与调度入口的可见性不一致。
+0183-0215	apps/api/app/api/v1/tasks/list.py:137-138,159-160	-	任务列表按 Assets 发布的条目归属筛选数据集；涉及条目条件时，由 Assets 复核项目关联并筛选，不能直接用私有数据集表的关联替代 Assets 的归属判定。
+0183-0216	apps/api/app/api/v1/tasks/list.py:192-193	-	精确总数只在无游标且 offset=0 的首屏计算，后续页由前端复用该值；逐页重新计数会让无限滚动反复扫描大表。
+0183-0217	apps/api/app/api/v1/tasks/list.py:341	-	帧邻居查询无结果时须返回空 prev/next，与首末帧采用同一空值口径；若改为 404，调用方就得为同样没有可导航帧的情况另设分支。
+0183-0218	apps/api/app/api/v1/tasks/locks.py:34-35	-	当前 assignee 重进任务时可以强制接管残留锁；只看锁的持有人会把旧会话遗留的他人锁误当成正在编辑，挡住当前受派人。
+0183-0219	apps/api/app/api/v1/tasks/predictions.py:106-110	-	Prediction 须保留 LabelStudio 原始存储格式，供导出等路径直接读取；PredictionShape 转换只用于构造列表响应，不能把响应格式写回存储。
+0183-0220	apps/api/app/api/v1/tasks/predictions.py:135-136	-	交互式候选只在前端待决；采纳后保存的 Prediction 用于审计和模型溯源，不能因关联 Annotation 被删除就把它重新列入 AI 待审。
+0183-0221	apps/api/app/api/v1/tasks/predictions.py:139	-	AI 待审须用存储时的原始 shape 下标排除驳回项，不能用过滤后重排的下标匹配，否则刷新后已驳回的候选框可能重现。
+0183-0222	apps/api/app/api/v1/tasks/predictions.py:443-445	-	采纳预测成功时只返回本次新建的标注，不能返回整题标注；前端会把返回项视为新增并逐条合并 AI 属性，返回全量会污染人工标注。
+0183-0223	apps/api/app/api/v1/tasks/video.py:224	-	相机标定不可用时仍可展示原图，投影和人工成员写入则按显式空值降级；不能把缺标定当作原图不可用，也不能当作已有有效标定。
+0183-0224	apps/api/app/api/v1/tasks/video.py:249-251	-	PCD 坐标与相机外参须使用主点云数据集的 axis_convention 一起归一到 ISO 8855，否则两者可能不在同一坐标约定下。缺少主点云条目或元数据时返回空，由前端作恒等变换。
+0183-0225	apps/api/app/api/v1/tasks/video.py:546-548	-	视频 segment 随数据集条目跨项目共享，其全局 assignee 不能作为项目贡献依据，否则会把其他项目的分派计入本项目；只能计本任务的作者和实际提交人。
+0183-0226	apps/api/app/application/annotation_create.py:98-99	-	写入历史幂等响应前须刷新已 flush 的 Annotation；直接用刷新前的对象构造响应可能遗漏服务端默认值，使后续幂等重放返回不完整的创建结果。
+0183-0227	apps/api/app/application/annotation_mutation.py:130-132	-	批量变更须在检查能力或证据前刷新并锁定 Task；若到批量 UPDATE 才加锁，前置决定可能已基于被并发修改的任务状态，写入串行化也无法纠正。
+0183-0228	apps/api/app/application/annotation_mutation.py:260,282	-	单条更新由 HTTP 层在首次读 Annotation 前取得 Task 锁；mask I/O 前先验版本以避开无效 I/O，锁定 Annotation 行后须再验，不能把前置检查当作最终写入依据。
+0183-0229	apps/api/app/application/dataset_deletion.py:100	-	数据集解绑时须按回执使相关 ORM 缓存对象失效；Native owner 的写入绕过装配层 identity map，不失效就可能继续读到已解绑的旧关联。
+0183-0230	apps/api/app/application/dataset_task_creation.py:88,179,189	-	同步创建用关联记录的 link_id 标识操作，避免前置提交后无法识别同一次创建。点云启用 commit_calibration 时须先提交受理操作供独立 Assets 准备方读取，再提交准备结果，之后才由 Labeling 分块建任务。
+0183-0231	apps/api/app/application/durable_preannotation.py:116-117	0113-durable-preannotation-results.md	恢复选集时以已封存的 manifest 成员为准；没有 manifest 的选集须在单一事务内暂存，不能边写边推进恢复游标，否则重启可能把半写入的选集当成完整选集。
+0183-0232	apps/api/app/application/durable_preannotation.py:239-240,278-279	0113-durable-preannotation-results.md	批量结果发布与取消须争用同一把 Job 锁；取消若排在发布事务之后，只从下一成员生效。通过 Labeling Task 守卫后，结果租约锁、完成凭据与 Prediction/Meta 写入须同事务提交，避免完成状态与结果脱节。
+0183-0233	apps/api/app/application/durable_preannotation.py:394-395;apps/api/app/application/preannotation_execution.py:1608	0113-durable-preannotation-results.md	批量结果 owner 只能在选集封存后启动 Job；图像授权既要求 Job 已运行，也须覆盖实际选中的任务，不能以 Job 已准入代替范围校验。授权须先于覆盖预测和模型处理，避免对越界任务产生副作用。
+0183-0234	apps/api/app/application/durable_preannotation.py:511,525	0113-durable-preannotation-results.md	先封存 raw，再生成掩码并取得最终 Task/Job 写锁，使后续阶段失败时仍能从 raw 恢复。prepared 只能在掩码生产者的 epoch/grace 阶段结束且提交后封存，否则会把尚未提交的掩码当作可恢复结果。
+0183-0235	apps/api/app/application/durable_preannotation.py:563-564	0113-durable-preannotation-results.md	确定性的原生拒绝不是存储故障；若该成员已有保留结果，不能因这种拒绝将其改判为失败，否则会用重放的拒绝覆盖既有结果。
+0183-0236	apps/api/app/application/durable_preannotation.py:596-597	0113-durable-preannotation-results.md	重放已有完整 raw 结果的成员时，须保留原执行实例。新一轮推理可能在路由选定后才失败，此时失败上下文中的实例并未生成已封存的结果。
+0183-0237	apps/api/app/application/durable_prediction_retry.py:311-312	0114-durable-prediction-retries.md	引用源重试须分开做源准入与快照传输，不能在持有业务锁的事务中等待后端读取输入，否则传输耗时会延长业务锁的占用。
+0183-0238	apps/api/app/application/durable_prediction_retry.py:455-457	0114-durable-prediction-retries.md	推理完成不代表源及其凭据仍有效，封存 raw 前须再核验。写入会话必须重新打开同一 owner 并取得本会话可用的回执，不能沿用另一会话的回执。
+0183-0239	apps/api/app/application/durable_prediction_retry.py:508	0114-durable-prediction-retries.md	暂时无法验证重试输入源时，须保留已经完成的模型输出；验证未完成并不表示输出无效，丢弃后即使源恢复可验证，也无法复用这次推理结果。
+0183-0240	apps/api/app/application/durable_prediction_retry.py:660-661	0114-durable-prediction-retries.md	视频预测重试须在发布事务内再次核验视频 owner 凭据；推理时通过检查不代表发布时仍有授权，否则可能在凭据失效后发布结果。
+0183-0241	apps/api/app/application/fixture_prediction_retirement.py:120-121	-	asyncpg 在事务外提交 LISTEN，所以须先完成订阅，再读取 fixture 退役的首份新状态快照；反过来会漏掉读取快照与订阅生效之间的状态变化。
+0183-0242	apps/api/app/application/fixture_prediction_retirement.py:161-162,170	-	asyncpg 会先更新本地监听表，再等服务端确认 UNLISTEN；本地已移除不代表服务端已退订。无法确认时须分离并终止连接，不能把可能仍在接收通知的连接归还池中。
+0183-0243	apps/api/app/application/job_terminal.py:94-95,107	-	不能仅凭 broker 信号将 Job 投影置为终态：对视频执行，该信号无权否定替代执行者已持有的权威 tracker；对预测重试，失败信号不能证明它对应已获准的重试租约。
+0183-0244	apps/api/app/application/learning_policy_execution.py:28	-	学习策略扫描须持久推进轮转顺序，不能每次都从同一首页开始；长期运行或失联的执行可能持续占据首页，使后续策略得不到扫描。
+0183-0245	apps/api/app/application/mask_repair_execution.py:580-581,774-775	-	掩码修复进程丢失后，从 owner 台账取回已登记的子 Job 执行标识。待处理意图已代表计划重试，应重发原标识；新建子 Job 会把一次待确认的派发变成两次执行。
+0183-0246	apps/api/app/application/mask_repair_execution.py:607-608,630-631,642-644	-	掩码修复发布未获确认时，由 owner 记录 accepted=False，按租约和退避重投原信封。子 Job 离开 queued 不能证明本次派发，须核对本次日志中的执行标识；标识相同也不等于已确认入队，待确认时仍须通过视频 owner 的 MarkEnqueued 记录回执。
+0183-0247	apps/api/app/application/mask_repair_execution.py:852-853,1020-1021	-	掩码修复提交响应丢失并不等于事务失败；恢复时须以持久化的完成检查点或已登记的 tracker 子 Job 为准，否则会把已提交的工作误记为失败。
+0183-0248	apps/api/app/application/mask_repair_execution.py:940-941	-	掩码修复须沿不可变计划读取已完成分片，不能按 JSONB 键迭代；只有按正向分片顺序构建列表，反转后才是正确的回滚顺序。
+0183-0249	apps/api/app/application/preannotation_execution.py:361,374,1556	-	预标注重放须以持久执行快照确定身份，不能让重投请求改写它。过期或不属于本次请求的执行标识不得修改 Job，外部 Job 也不得进入本次执行的失败钩子，以免一次投递污染另一执行的状态。
+0183-0250	apps/api/app/application/preannotation_execution.py:450-451,899-900,1471-1472	-	以 Job 行锁内的认领检查判定预标注是否还应执行，不能靠重开输入回执判定。否则重复投递可能再次执行已选工作，或因旧回执已过期而误判已认领的执行。
+0183-0251	apps/api/app/application/preannotation_execution.py:752-753	-	选集封存后，输入传输或存储错误应按可恢复的成员失败处理，不能将已经运行的根 Job 继续留在仅适用于就绪状态的重试路径。
+0183-0252	apps/api/app/application/preannotation_execution.py:1424-1425,2180	-	在可能回滚的工作前固定 registry 标识与展示元数据；Job payload 保留请求入口的 registry 与逻辑池。实际实例与池以各次模型网关返回为准，执行实例逐条记在 Prediction 上，不能把请求路由当作实际执行溯源。
+0183-0253	apps/api/app/application/preannotation_execution.py:1526-1527	-	视频预标注须先释放初始 Job 行锁，再验证视频源并分页读取时间基准；否则源校验和分页读取会延长行锁占用。完成这两项检查后才认领 Job，不能先认领再确认视频输入。
+0183-0254	apps/api/app/application/preannotation_execution.py:1751-1752	-	同一工作台任务可能同时存在多条有效锁，因此不能只用返回最新一条的 active_lock；最新锁属于执行者时，较早的他人有效锁仍可能被漏掉。执行者自己的锁不阻止交互预标注。
+0183-0255	apps/api/app/application/preannotation_execution.py:1852,2512-2513	-	skip_predicted 返回零任务时，不能直接认定所有任务均已预标；须用未应用预测过滤的候选数区分无候选与候选全部被跳过，否则前端会提示错误原因。
+0183-0256	apps/api/app/application/preannotation_execution.py:2056-2057,3196-3197	-	owner 调用之后、覆盖旧预测之前须复核可变的工作流准入；发起者权限若已撤销，必须在继续模型工作前停止。前置检查不能替代 Labeling owner 在最终写入时的原子复核，否则检查后发生的变化仍可能被漏过。
+0183-0257	apps/api/app/application/preannotation_execution.py:2121-2122	-	overwrite 只替换旧预测以避免叠加，不能复用删除批次的语义；否则会连带影响人工标注或重置任务状态，而覆盖预测不应重置工作流。
+0183-0258	apps/api/app/application/preannotation_execution.py:2171-2173	-	只有实际消费 output_mode 的文本提示路径才应将该字段写进 Job payload；几何与 YOLO 路径不读取它，照抄字段会让记录误示本次使用了掩码输出。
+0183-0259	apps/api/app/application/preannotation_execution.py:2327	-	进入覆盖范围的源守卫前须先 flush 本事务内的 Job 认领更新；守卫可能刷新 Job，若仍只在 ORM 内存中修改，刷新会冲掉尚未写出的认领状态。
+0183-0260	apps/api/app/application/preannotation_execution.py:2558-2560	-	视频逐帧预标注限于单阶段图像检测，不能直接复用多阶段图像链路；否则下游推理量会随帧数与阶段深度叠加膨胀。
+0183-0261	apps/api/app/application/preannotation_execution.py:2706-2707	-	多阶段预标注以预签名方式向下游后端交付裁剪图；单阶段没有这种交付，不能无条件初始化同一上传器，否则会引入无用的对象存储往返。
+0183-0262	apps/api/app/application/preannotation_execution.py:2783-2784	-	每个成员开始时须重新读取任务及所属批次的准入状态；前一成员回滚可能使 ORM 行过期，沿用跨成员缓存的状态不能可靠判断本成员是否仍可处理。
+0183-0263	apps/api/app/application/preannotation_execution.py:2811-2812	-	写入守卫后重新取得的 Registry 锁须在推理前提交释放；冷 GPU 的独立健康管理方也要访问该行，持锁等待推理会阻塞它。
+0183-0264	apps/api/app/application/preannotation_execution.py:3346-3347,3488-3489	-	视频原件须由视频 owner 打开保留版本，否则派发无法证明实际交付的是哪一版。保留原件及交付许可须在取得取消、账户、任务和候选项写锁之前确认，避免持这些锁等待源端确认。
+0183-0265	apps/api/app/application/preannotation_execution.py:3578-3579,3651-3652,3670-3671	-	视频预测须在实际写入的事务内重新授权，由 owner 签发不透明的输入与结果回执；预测写入、写入回执和重新授权的来源须一起提交或回滚。来源绑定回执只能在签发事务中使用一次，回滚重试须重新取证。
+0183-0266	apps/api/app/application/preannotation_execution.py:3776,3781;apps/api/app/application/raster_mask_retention.py:80-81	-	调用 video_owner 或 reference_job 的 close_inputs 前，先回滚未结束的业务事务；栅格 mask 回收器联系任一 owner 前也须结束调用方事务。指标刷新可能另开读事务，不能借用调用方连接或在清理时继续持有业务锁。
+0183-0267	apps/api/app/application/preannotation_execution.py:3790-3791,3806	-	预标注只在进度达到 5% 的倍数或处理到末项时写入 async_jobs，多阶段推送也只在这些节点附带累计快照。逐项写入和附带快照会使数据库写入次数和累计快照的传输量随处理项数增加。
+0183-0268	apps/api/app/application/preannotation_execution.py:3821-3822	-	有失败项却没有任何成功预测时，Job 必须以失败终结且不得推进批次；不能仅因所有项都已处理，就把全失败的作业和批次显示为已完成。
+0183-0269	apps/api/app/application/preannotation_execution.py:3825-3828	-	即使已有成功预测，也只自动推进指定的 active 批次。未分派的 draft 批次不因预测成功而激活或分派；预测留在任务上，等待管理员按人工流程分派并激活。
+0183-0270	apps/api/app/application/preannotation_results.py:50	0113-durable-preannotation-results.md	请求指纹不纳入 async_job_id：Job ID 已由执行作用域独立且不可变地绑定，无须把这项归属绑定重复算进请求内容的指纹。
+0183-0271	apps/api/app/application/preannotation_results.py:263-264,272	0113-durable-preannotation-results.md	即使 Job 锁争用来自结果检查点自身的事务，每次结果写入仍须由 SQL 校验租约时效和令牌。未知租约协议异常按 lease_lost 处理，不能凭未确认的结果继续写入。
+0183-0272	apps/api/app/application/preannotation_results.py:319-320	0113-durable-preannotation-results.md	多结果任务共用一个临时归档，而不是为每个结果保持一个文件打开，以免打开文件数随结果数增长；各请求体仍须独立保留并分别计算哈希。
+0183-0273	apps/api/app/application/preannotation_results.py:396-398	0113-durable-preannotation-results.md	先前的 GC 轮次过后，不能沿用快照根的旧字节校验：须在对象 I/O 前读取写入 epoch，并在同一提供方事务内完成校验和关联。执行器不能代替提供方签发业务写入许可。
+0183-0274	apps/api/app/application/prediction_mask_producers.py:44	0113-durable-preannotation-results.md	预测 mask 的生产结果未确认时，保留持久锚点和该锚点确切拥有的对象；不能把未知结果当成已确认结果清理，否则可能删掉生产结果仍依赖的对象。
+0183-0275	apps/api/app/application/prediction_retry.py:64-65,92-94	0114-durable-prediction-retries.md	重试受理须先解析不可变证据、快照和队列，免得不合资格的失败记录留下 Job。输入 owner 新确认的来源、管理者和模型授权须与 Job 一起落库；拒绝时整笔回滚，重新投递不得替换授权。
+0183-0276	apps/api/app/application/prediction_retry_delivery.py:52-53,66	0114-durable-prediction-retries.md	发布异常不能证明 broker 未收到消息，不能据此撤销认领或另换任务 UUID。保留原认领、持久 outbox 和稳定任务 UUID，租约到期后可重新认领并用同一 UUID 发布。
+0183-0277	apps/api/app/application/prediction_retry_inputs.py:314-315	0114-durable-prediction-retries.md	重试时 _infer 须凭 Job 携带的输入 owner 证明打开该 owner 保留的输入，不能重新读取当前来源 URL，否则可能以不同于已受理输入的数据执行重试。
+0183-0278	apps/api/app/application/trained_model_deployment.py:74-75	archive/0076-controlled-trained-model-identity.md	训练模型部署先释放 Inference 注册表的写入围栏，再重新获取项目锁。重新加锁后必须按当前安装状态复核试用结果，不能假定围栏释放前的试用结论仍适用。
+0183-0279	apps/api/app/application/video_timetable_rebuild.py:160-161	-	远程模式下，run_media_job 返回 False 不能作为视频时间表重建失败的依据：本地未执行已受理的 Job，但持久工作仍由独立部署的媒体 owner 继续。
+0183-0280	apps/api/app/cli/video/rebuild_timetable.py:132	-	接纳视频时间表重建发布的新派生数据前，须重新校验授权锁定的确切原件。改用当前可见的其他原件会让校验与该次授权脱节。
+0183-0281	apps/api/app/db/enums.py:43,47-48	-	项目管理授权不能只凭平台管理角色，仍须满足项目所有权要求；旧平台角色 annotator 和 reviewer 只供历史读取及迁移，不得作为项目级授权依据。
+0183-0282	apps/api/app/db/enums.py:72-74	-	工作台单题 AI 与标注写入须使用同一可编辑状态集合，API 和 worker 均复校验，不能只靠入口放行。未校验对象的 uploading 以及 review、completed 不可编辑；批量预标另限 pending。
+0183-0283	apps/api/app/db/jobs_lifecycle.py:84	-	Jobs 生命周期记录不能因原操作最终抛错，就丢弃异常前已成功写入的字段；记录须反映实际成功的前缀，而不是把部分成功记成完全未写入。
+0183-0284	apps/api/app/db/jobs_lifecycle.py:255-258;apps/api/app/db/models/async_job.py:74-79	-	冻结的 Jobs 读写接口不含所有者绑定快照和存储进度。刷新须用 Jobs 专用能力在同一 SQL 语句中补齐，不能直读私有 async_jobs 行；通过创建视图写入时须省略未赋值列，显式 NULL 也会触发快照列写入守卫。
+0183-0285	apps/api/app/db/models/ai_mask_accept_decision.py:46-47;apps/api/app/db/models/annotation.py:156-157	-	Prediction 按 created_at 分区并采用复合主键，AI Mask 接受决策和 Annotation 谱系须以 ID 与创建时间的精确配对软引用。Annotation 在删除预测分区前由业务置空引用，避免在大表重建复合外键的锁表代价。
+0183-0286	apps/api/app/db/models/annotation.py:162-164	-	跨帧身份以 Annotation.track_id 为准，由 _new_track_id() 生成 trk_<uuid.hex>。传播、插值、导出和 3D 前端均读此列，不能借用几何字段或编组 ID，否则同一轨迹会因几何类型或消费方而被不同地识别。
+0183-0287	apps/api/app/db/models/annotation.py:166-167	-	3D Scene 成员归属以 scene_track_id 外键为准，冗余 track_id 仅作兼容外部键，不能反推 Scene 成员关系。非 Scene、compact video 和迁移异常链的外键须留空。
+0183-0288	apps/api/app/db/models/annotation.py:174-175	-	LiDAR SceneTrack 人工成员的多相机上下文只接受整组填写，不能把部分字段当作有效上下文；普通或 3D Annotation 则整组留空。
+0183-0289	apps/api/app/db/models/annotation.py:186	-	Annotation.source 不能用来推导或代替 temporal_role：前者记录标注从何而来，后者描述成员在时序模型中的角色，用来源判定时序角色会混淆这两类信息。
+0183-0290	apps/api/app/db/models/annotation.py:197-200	-	逐属性来源、模型引用、置信度和时间存入 attributes_meta，不混入属性值；存量空元数据按全人工读取。属性增删须由 AnnotationService 同步元数据，避免来源记录与实际属性错位。
+0183-0291	apps/api/app/db/models/annotation_feedback.py:43-44	-	AnnotationFeedback.anchor_position 的 Python None 须落为 SQL NULL；JSONB null 虽也表示空值，却不能满足该列的 CHECK 约束。
+0183-0292	apps/api/app/db/models/annotation_operation.py:57-58	archive/0074-atomic-annotation-slice-restore.md	AnnotationOperation.actor_id 须保留为持久软引用；不能在删除或停用用户时清空该引用，否则会丢失幂等判定和操作谱系所需的记录。
+0183-0293	apps/api/app/db/models/async_job.py:55	-	MASK_REPAIR_ROLLBACK 批量回滚须受版本校验保护，不能无条件恢复旧值，否则会覆盖修复之后写入的新版本。
+0183-0294	apps/api/app/db/models/async_job.py:105	-	AsyncJob 的 retained_project_id 须由数据库触发器保留，不能只依赖仍存在的项目关联来授权，否则项目删除后将无法判定该 Job 原有的授权范围。
+0183-0295	apps/api/app/db/models/audit_archive_output.py:134	-	审计归档输出必须独立保存历史快照，不能在读取时从任务记录重建；否则任务删除后，即使恢复数据库，也无法从已不存在的任务取回归档事实。
+0183-0296	apps/api/app/db/models/audit_log.py:32-33	-	同一 HTTP 请求的中间件审计行和业务审计行必须共用 request_id；若各层自行生成标识，前端就无法把一条请求元数据与多条业务明细折叠成同一个双行视图。
+0183-0297	apps/api/app/db/models/avatar_upload.py:13	-	头像存储引用的校验约束应在迁移中保留独立定义，不从当前应用代码导入；否则应用校验变更后，重放同一历史迁移可能得到不同的数据库约束。
+0183-0298	apps/api/app/db/models/avatar_upload.py:105;apps/api/app/db/models/bug_attachment_upload.py:129;apps/api/app/db/models/comment_attachment_upload.py:103;apps/api/app/db/models/dataset_auxiliary_original.py:75;apps/api/app/db/models/export_media_bundle.py:171;apps/api/app/db/models/export_output.py:118;apps/api/app/db/models/guide_asset_upload.py:83;apps/api/app/db/models/managed_original_retirement.py:69;apps/api/app/db/models/mask_format_upload.py:97	-	头像、附件、指南资产、Mask 格式上传、数据集辅助原件及导出与退役快照，不能用业务外键把存续绑定到父记录。删除账户、项目等业务记录后，仍须能追踪已签发目标、物理对象的清理或退役责任，以及媒体包的待交付或已发布状态。
+0183-0299	apps/api/app/db/models/dataset.py:53-54	-	加载 LiDAR 数据时须按 metadata 中的 axis_convention 转换至 ISO 8855；若把原始数据一律视为已遵循 ISO 8855，采用不同坐标约定的数据就会被按错误的轴向解释。
+0183-0300	apps/api/app/db/models/dataset.py:171	-	scene_id 用于对齐跨任务帧序，但场景并不拥有引用它的历史数据；删除场景时应置空引用，若改成级联删除，就会连同需要保留的历史数据一起删除。
+0183-0301	apps/api/app/db/models/dataset_auxiliary_original.py:86	-	数据集辅助原件的 ETag 和版本 ID 仅是源端写入回执，不能充当恢复后目标对象的 HEAD 条件；目标对象的标识可能不同，沿用回执会把已恢复的对象误判为不匹配。
+0183-0302	apps/api/app/db/models/dataset_quality.py:64;apps/api/app/db/models/dataset_quality_review.py:55	-	数据集质量结果须保留历史 Item、Asset UUID，复核须保留原始 result_id；若删除在线条目、资产或质量结果时清空这些标识，历史结果和复核就无法再指认当时的证据。
+0183-0303	apps/api/app/db/models/dataset_source.py:419	-	数据集源变更记录必须保留 before_item_id，即使该条目后来被显式删除；若随删除清空引用，变更历史就无法指认变更前的条目。
+0183-0304	apps/api/app/db/models/export_media_bundle.py:182-183	-	导出媒体包的物理清理和退役校验，以冻结快照中权威的 input_schema 标量为准；不能改读当前业务配置，也不应把整份私有文档仍可加载作为清理的前提。
+0183-0305	apps/api/app/db/models/gpu_backend_fence.py:52-53	archive/0049-cross-backend-gpu-memory-arbitration.md	GPU generation_high_water 的持久化值 0 只表示从未签发，不能作为线上代数使用；线上代数采用规范的正 int64 十进制字符串，以免把未签发状态当作有效代数。
+0183-0306	apps/api/app/db/models/gpu_backend_fence.py:60-61	archive/0049-cross-backend-gpu-memory-arbitration.md	GPU runtime_epoch_high_water 为 0 才表示从未进入 enforce 纪元；一旦为正，即使当前模式已切换，也不能绕过托管退役直接修改资源认领或端点。
+0183-0307	apps/api/app/db/models/gpu_backend_fence.py:65-67	archive/0049-cross-backend-gpu-memory-arbitration.md	签发 GPU capability 前须持久化最大到期时间；Redis 连续性丢失后，不能把租约记录消失当作旧凭据失效。须等到期并取得期限之后的在线空闲证据，或使用更强的签名重置。
+0183-0308	apps/api/app/db/models/gpu_backend_fence.py:71-73	archive/0049-cross-backend-gpu-memory-arbitration.md	GPU rollout 须将最近一次控制操作与单调高水位一起持久化；只保存代数不足以让 worker 重启后在同一纪元重放 reset 或模式设置，也无法区分 reset ACK 和旧的 legacy 模式 ACK。
+0183-0309	apps/api/app/db/models/gpu_backend_membership.py:108-109	archive/0049-cross-backend-gpu-memory-arbitration.md	GPU 后端成员不对 registry 建外键，注册项移除后仍须留下资源墓碑；但必须保留对 fence 的外键，否则墓碑可能失去高水位，无法保留资源先前的代数边界。
+0183-0310	apps/api/app/db/models/managed_original_creation.py:82-84	-	托管原件创建到达终态不等于可以释放对象键；只有不可变证据证明该次尝试已收尾且未发布，才可解除预留。已写入或结果不明时继续占用，避免将同一键交给另一尝试。
+0183-0311	apps/api/app/db/models/managed_original_creation.py:177-178	-	托管原件创建记录不设业务、位置或操作者外键；否则独立持久化可能等待调用方尚未提交的事务，后续级联删除还可能抹去物理对象的处置责任。
+0183-0312	apps/api/app/db/models/managed_original_retention_hold.py:38	-	托管原件保留锁的 ID 须由客户端预先生成并绑定预览；若改成每次由服务端分配，首次响应丢失后，重试可能生成第二个 ID，而不是复用原锁标识。
+0183-0313	apps/api/app/db/models/managed_original_retention_hold.py:47	-	托管原件保留锁的操作者标识是历史记录，不应依赖账户外键；账户删除时若级联删除或清空标识，就无法追溯原操作者。
+0183-0314	apps/api/app/db/models/managed_original_retirement.py:64-65	-	经审计的离线恢复可以重映射托管原件退役记录的物理字段，但不能重算 assertion_digest 或改写业务 ID；否则恢复结果会覆盖原始断言的来源和业务归属。
+0183-0315	apps/api/app/db/models/managed_original_retirement.py:84	-	托管原件退役记录的位置配置版本、绑定代数和存储身份反映退役时的观测，不能当作上传时冻结的定位依据；两者混用会把退役时的配置误认为原始写入位置。
+0183-0316	apps/api/app/db/models/managed_original_retirement.py:88-89	-	verified_binding 只验证配置相符，不能据此认定托管原件由本方独占，或对象当前存在且内容正确；反过来，证据未知也不能单独作为阻止删除的理由。
+0183-0317	apps/api/app/db/models/managed_original_retirement.py:103	-	托管原件未确立保留策略时，退役记录须按无限期保护处理；策略缺失不能解释为无需保留或已经到期，否则会在没有保留依据时清除记录。
+0183-0318	apps/api/app/db/models/managed_original_verification.py:87	-	托管原件校验的 operation_id 不设外键，以免校验记录阻碍 StorageOperation 独立清理；但操作记录仍须等实际 I/O 结束后才能删除，不能把校验记录落库视作 I/O 已完成。
+0183-0319	apps/api/app/db/models/mask_annotation_revision.py:67-68	-	Mask 修订的 annotation_id 使用软引用，标注硬删后仍须留下最终快照；这一例外不延伸到任务或项目，删除这两类生命周期主体时仍可级联清理修订。
+0183-0320	apps/api/app/db/models/mask_annotation_revision.py:74-75	-	Mask 修订的操作软引用必须允许为空：数据库触发器也会观察到没有应用操作记录的写入，若要求每条修订都关联应用操作，就无法如实记录这类写入。
+0183-0321	apps/api/app/db/models/ml_backend_pool.py:64-65	-	无成员的 ML 后端池不能接流，因此显式创建的空池默认禁用；单实例回填不是创建空池，应沿用原注册项状态，不能套用禁用默认值而停掉原有流量。
+0183-0322	apps/api/app/db/models/ml_backend_pool.py:75-78	-	启用的 ML 池须指定本池的 active legacy 成员：off/observe 只向其派发，enforce 不给它优先权。删除该成员前须先指定替代者，或在池变空的同一操作中将其禁用。
+0183-0323	apps/api/app/db/models/ml_backend_pool.py:84-85	-	ML 池、成员、权重或流量状态变更时，routing_generation 须递增 1；router 只接受持有当前代数的 acquire，否则按旧路由状态选出的请求仍可能在变更后取得资源。
+0183-0324	apps/api/app/db/models/ml_backend_pool.py:89,93	-	ML 池指纹是规范路由能力快照的 SHA-256 十六进制值，不混入 URL、认证、GPU 或健康运行态，以免这些字段的变动被误判为路由能力变化；空指纹表示不可路由。
+0183-0325	apps/api/app/db/models/ml_backend_pool.py:138-139	-	删除 ML 后端注册项前，须排空流量、确认在途请求为零、完成 GPU 退役并移除池成员；仅停止新派发就删除，仍可能留下未完成请求、未退役资源或悬空成员。
+0183-0326	apps/api/app/db/models/ml_backend_registry.py:62-63	-	ML 后端轮换凭据时须用数据库管理的 auth_revision 隔离健康和控制观测；不能以凭据内容代替修订号，否则换回曾用凭据时，轮换前的旧观测会被误作当前证据。
+0183-0327	apps/api/app/db/models/ml_backend_registry.py:68-69	-	一个 ML 后端注册项只认领一个稳定的物理 GPU 或 MIG 资源；CPU 后端或尚未配置 GPU 的存量项须将两个认领字段留空，不能靠推测建立可能指向错误设备的归属。
+0183-0328	apps/api/app/db/models/ml_backend_registry.py:118-119	-	项目不能保留对禁用主池的引用；禁用前须显式清空项目的主池配置或切换到另一主池，否则项目配置仍指向一个不能接流的池。
+0183-0329	apps/api/app/db/models/ml_backend_registry.py:126-127	-	后端阈值按 /setup.params 渲染，以 project.box_threshold 单值兜底；不能再把 box/text 两个固定字段当作通用覆盖格式，否则无法按各后端声明的参数处理覆盖。
+0183-0330	apps/api/app/db/models/original_cache.py:56;apps/api/app/db/models/task_original.py:71	-	OriginalCache 和 TaskOriginal 的保留不依赖原业务行，不能随业务外键级联删除：前者仍供对象清理和核算使用，后者须在原业务记录删除后继续保留快照。
+0183-0331	apps/api/app/db/models/prediction.py:36-38,126	-	Prediction 的池 ID 记录请求池（聚合时为根阶段池），ml_backend_id 记录实际执行实例；各阶段的两类 ID 保留在 PredictionMeta.extra.pipeline.selections。选实例前失败仍归属失败阶段的请求池，不能为填实例 ID 而改写这层归属。
+0183-0332	apps/api/app/db/models/prediction.py:52-53	-	interactive_accept 已被采纳，Prediction.source 必须将它与普通待审预测和外部导入区分开；采纳快照只供审计和模型溯源，不能再次进入待审队列。
+0183-0333	apps/api/app/db/models/prediction.py:61-62	-	驳回须按预测结果中的 shape 下标持久化；对整条预测标记会把未驳回的框一并排除，不持久化则会让已驳回的框在刷新后重新出现在待审列表。
+0183-0334	apps/api/app/db/models/prediction.py:69,77-78	-	Prediction 按 created_at 月分区，主键不能只用预测 ID；PredictionMeta 必须以预测 ID 和 prediction_created_at 建复合外键，其中时间值在 Prediction flush 后回填。
+0183-0335	apps/api/app/db/models/project.py:32-34	-	Project.data_type 只回答媒体是什么，供展示、筛选和媒体分流；不能用它替代 type_key 判断任务子类型，否则同一媒体下的不同任务会被当作同一类型。
+0183-0336	apps/api/app/db/models/project.py:43-47	-	Project 绑定服务池而非物理实例，否则请求会绕过池内活跃成员的选择。off 模式也保留池绑定，由单例池的 legacy_instance_id 解析实例；删池时由数据库外键清空项目绑定。
+0183-0337	apps/api/app/db/models/project.py:49-52	-	Project.default_variants 按服务池保存 VariantSelector 回写的偏好，不能用一份项目级偏好覆盖所有池。解析时优先用项目在该池的偏好，其次是后端注册默认值，最后才用后端环境默认值。
+0183-0338	apps/api/app/db/models/project.py:61-63	-	Project.tool_bindings 是工具类别与属性绑定的唯一事实来源；响应和导出的扁平视图须在读取时派生，否则双份持久化可能让同一绑定在不同出口呈现不同结果。
+0183-0339	apps/api/app/db/models/project.py:80-83	-	ai_interactive_enabled 属于 ML 模型设置，因为交互能力取决于绑定的后端；另设 tool_bindings 工具类别会把交互入口与现有 region/bbox 类别割裂。
+0183-0340	apps/api/app/db/models/project.py:107	-	guide_assets_revision 由数据库在指引资源列表实际改变时推进，不能按保存次数递增；否则一次无变化的写入也会被识别为资源版本变化。
+0183-0341	apps/api/app/db/models/project.py:124-127	-	视频采样只改变导航和打点视图，frame_index 仍指向源视频帧；若保存采样后的序号，改变采样方式就可能让已有标注指向另一帧。
+0183-0342	apps/api/app/db/models/project.py:134-135	-	scene_mode 不可默认开启：开启后 get_next_task 会优先派发用户上次提交任务的同场景下一帧，默认启用会在项目未选择场景派单时改变既有派单顺序。
+0183-0343	apps/api/app/db/models/project_member.py:36	-	ProjectMember.version 必须与角色变更在同一事务内递增；分开提交会暴露角色已变而版本未变的状态。旧写入方省略版本时仍由数据库初始化。
+0183-0344	apps/api/app/db/models/scene_pose.py:41-42	-	nuScenes 的 ScenePose 主帧时钟以 LIDAR_TOP 的 sample_data.timestamp（微秒）为准；缺少时钟时可留空，不能为了插值补造时间，因为线性插值只依赖 frame_index。
+0183-0345	apps/api/app/db/models/storage_connection.py:35-36	-	StorageConnection 的可见性不能统一按创建者或平台处理：global 仅由超管创建且全平台可见，owner 仅对创建者和超管可见，不能随全局连接一并向其他用户公开。
+0183-0346	apps/api/app/db/models/storage_connection.py:50-51,53	-	StorageConnection.config 只存非密钥参数；S3 密钥对和 SFTP 密码、私钥或口令须放在 Fernet 加密的 secret_enc，不能混入普通配置而失去加密存储的保护。
+0183-0347	apps/api/app/db/models/storage_fault.py:18;apps/api/app/db/models/storage_observation_rate.py:16	-	StorageFault 和 StorageObservationRate 的独立观测写入不设父级外键；引用检查可能等待调用方持有的父记录锁，使观测写入受调用方事务阻塞，甚至超出执行时限。
+0183-0348	apps/api/app/db/models/storage_maintenance.py:24-25	-	StorageMaintenanceGate 的准入必须独立于业务位置记录；外键会让准入等待尚未提交的位置记录，级联删除还可能抹掉尚未解除的访问限制。
+0183-0349	apps/api/app/db/models/storage_migration_finalization.py:76	-	迁移终结记录的 inventory_job_id 只是历史 UUID，不作为指向 AsyncJob 或报告的存续引用；否则清理过期任务或报告会影响终结记录的保留。
+0183-0350	apps/api/app/db/models/storage_migration_inventory.py:89	-	存储迁移盘点任务中断不等于底层操作已关闭；必须确认操作结束后才释放许可，否则新操作可能在旧操作仍运行时获得准入。
+0183-0351	apps/api/app/db/models/task.py:79-80	-	批次分派和任务单独分派都会写 Task.assignee_id，不能靠它是否等于当前批次默认值判断继承关系；即使两者相等，也须用 assignee_is_override 保留显式分派。
+0183-0352	apps/api/app/db/models/task.py:119-121	-	审核绩效须用稳定的 Task.review_round_id 将决定关联到原提交；审核员字段可变且可能被清空，不能替代轮次标识作为归因依据。
+0183-0353	apps/api/app/db/models/task.py:125-129	-	首次审核事实只对归因上线后新建的任务写一次：首次提交或跳过时固定贡献者，首次决定时定稿。历史资格留空，不能把审计留存缺口当作首审通过。
+0183-0354	apps/api/app/db/models/task.py:140-143	-	Task.annotation_contributor_ids 的 NULL 表示历史行或旧写入方未提供信息，不能用数据库默认空列表把未知变成无贡献者；ORM/Core 新建时的 Python 默认空列表才表示已知无人贡献。
+0183-0355	apps/api/app/db/models/task_original.py:81	-	TaskOriginal 的 ETag 和 version_id 是源对象写入回执，并不标识恢复后的目标对象；拿它们作为目标 HEAD 的条件，即使恢复成功也可能因标识不匹配而失败。
+0183-0356	apps/api/app/db/models/training_dataset.py:25-26	-	两类持久化所有者共用不含秘密的 storage_ref，但数据库通过结构校验不代表引用可用；运行时仍须核验平台身份和规范对象键，不能仅凭结构合法就解析对象。
+0183-0357	apps/api/app/db/models/user.py:31-34	-	省略 role 的普通员工账号依赖数据库默认 employee，不能为公开注册把该默认改成 viewer；公开自注册必须显式授予 viewer，不能沿用员工建号默认值。
+0183-0358	apps/api/app/db/models/user.py:60-62	-	仅开放注册且启用 require_email_verification 时，登录才检查 email_verified_at；邀请注册和管理员建号视为已验证。不能用 is_active 代替验证标记，否则会把未验证混同于停用或注销。
+0183-0359	apps/api/app/db/models/user.py:84-85	-	头像引用统一由 services/avatar.py 定义和解析；只有上传端点能写入 upload: 引用，不能让客户端直接指定，否则该引用就不再能保证来自上传流程。
+0183-0360	apps/api/app/db/models/user_invitation.py:19-20	-	邀请的 project_role 不能用平台 role 替代：项目邀请须携带与 project_id 兼容的项目角色，账号级邀请则不得携带项目角色。只有历史未回填记录可缺少该值。
+0183-0361	apps/api/app/db/models/user_invitation.py:23-26	-	UserInvitation.project_id 不设外键，避免遗留邀请阻止项目删除。接受邀请时必须确认项目仍存在；项目已删除就拒绝，不能把原本限定于项目的邀请当成账号级邀请。
+0183-0362	apps/api/app/db/models/video_tracker_job.py:28-30,98-100	-	追踪输出逐帧写入 staged_result，只有接受才写入正式标注，丢弃只清暂存，避免未审结果进入正式数据。取消可以保留部分结果供审查；暂存为空也不能据此断定没有产出，因为旧版可能已直接写入。
+0183-0363	apps/api/app/db/models/video_tracker_job.py:102-103	-	每次非幂等的追踪审查决定都必须在持有任务行锁时递增 revision，客户端须提交预览时收到的版本。只加锁不能识别过期预览，只传版本而不在锁内更新也不能避免并发决定基于同一版本生效。
+0183-0364	apps/api/app/middleware/audit.py:20	-	AuditMiddleware 不采集登录和注册请求，否则通用审计会把含明文密码的请求体纳入记录。注册事件由接口自行记录，而不是为补齐事件重新采集请求体。
+0183-0365	apps/api/app/middleware/request_id.py:23	-	RequestIDMiddleware 只为 /api/ 路径记录请求指标；将健康检查和指标抓取也纳入计数，会把探测流量误计为 API 请求。
+0183-0366	apps/api/app/middleware/request_id.py:34-36	-	RequestIDMiddleware 位于路由器外，不能指望 Starlette 通过 BaseHTTPMiddleware 的 scope 回传已匹配路由。指标标签应从应用静态路由表解析出模板；使用原始 URL 会把不同路径参数值拆成不同标签。
+0183-0367	apps/api/app/middleware/upload_body_limits.py:22,24	-	帧和头像上传的 multipart 请求体上限都要在文件上限之外预留边界及表单字段开销，否则合规的满尺寸文件也会被拦截。头像文件上限须与 services/avatar_image.MAX_AVATAR_FILE_BYTES 对齐。
+0183-0368	apps/api/app/middleware/upload_body_limits.py:27-28	-	AI mask 接受接口的解析前请求体上限不能直接套用规范对象的体量上限：内联 RLE 可用满该预算，外层仍须为回执、溯源、提示摘要和 JSON 字段名留出有限空间。
+0183-0369	apps/api/app/schemas/_jsonb_types.py:148-150,193	-	视频关键帧的 attributes 只覆盖 schema 标记为 mutable 的键，None 表示继承轨迹默认值。不能把单帧修改写回轨迹默认属性，否则会连带改变其他继承默认值的帧。
+0183-0370	apps/api/app/schemas/_jsonb_types.py:173-174	-	semantic_label 可编辑且可重复，只用于跨任务辨认对象；把它用作主键会因改名或重名破坏对象识别。track_number 由 derive_track_number 确定性派生，不另行持久化。
+0183-0371	apps/api/app/schemas/_jsonb_types.py:542-543	-	点云掩码索引上限设为 60 万，为前端抽稀后约 50 万点的全选留出余量；不能取消上限，否则单条几何在 JSONB、列表序列化和 AAP 导出中的体量将不再受此约束。
+0183-0372	apps/api/app/schemas/annotation.py:32-33	-	校验 Annotation 的 class_name 时须用 tool_unit_id 选择对应的 project.tool_bindings 条目，否则会按别的工具的类别集合放行或拒绝。只有旧调用方省略该字段时才按 bbox 校验。
+0183-0373	apps/api/app/schemas/annotation.py:126	-	下游写回请求必须拒绝未声明字段，不能静默忽略；否则前端发错字段时会收到成功响应，却看不到预期的写回变更。
+0183-0374	apps/api/app/schemas/annotation.py:134,148	-	标注下游请求的模型、变体和参数须沿用批量 build_predict_context 的协议语义，避免同样的配置在两条入口被不同地解释。ROI 外扩也沿用批量 ROI.pad 的 [0, 0.5] 范围，为贴边小目标保留上下文。
+0183-0375	apps/api/app/schemas/annotation.py:178-180	-	gap_mode 仅适用于 join_tracks：interpolate 在端点间线性插值且不写 outside；outside 则先标记间隙再合并，与 merge_tracks 默认行为相同。不能将两种模式合成同一路径，否则会改变间隙内对象是否可见。
+0183-0376	apps/api/app/schemas/annotation.py:205-206	-	传播时只对源帧和目标帧均有 ego pose、且未提供 override_psr 的 box_3d 做运动补偿。缺少任一帧位姿就没有完整的变换依据，显式给出的 override_psr 也不能再被补偿改写。
+0183-0377	apps/api/app/schemas/annotation.py:245	-	批量传播应跳过已有同组有效标注的中间帧，并通过 skipped_frames 报告这些帧；不能按空帧重新写入，否则重试也会改动原本已有有效标注的帧。
+0183-0378	apps/api/app/schemas/annotation.py:264-265	-	前端 3D 跨帧配对、插值和高亮都以 track_id 判断是否为同一对象；不能再从已移除的 group_id 高位段推导，否则这些操作无法可靠地关联同一轨迹。
+0183-0379	apps/api/app/schemas/annotation.py:305-306	-	读取旧视频轨迹关键帧 JSON 时必须保留来源缺失的语义，不能套用新关键帧写入时的 manual 默认值，否则会把没有来源记录的帧误报成手工标注。
+0183-0380	apps/api/app/schemas/annotation_comment.py:38-39,57-58;apps/api/app/schemas/annotation_feedback.py:219-222	-	富标注、像素和点云评论可只含附件或画布批注，不能套用无标注目标的原生任务评论的正文限制。更新时 None 表示不改，空串表示清除正文；应在加锁后检查整条评论是否仍有正文、附件或批注，不能单独拒绝空正文。
+0183-0381	apps/api/app/schemas/annotation_feedback.py:88	-	annotation_feedback 的 schema_version 必须是整数 1，不能只依赖 Pydantic 的 Literal[1]，否则布尔值 True 和浮点值 1.0 也会通过校验。
+0183-0382	apps/api/app/schemas/api_key.py:9	-	API 密钥的 expires_at 由后端按 expires_in_days 计算，不能依赖客户端提供的绝对时间，否则客户端时钟漂移会改变密钥的实际有效期。
+0183-0383	apps/api/app/schemas/batch.py:168-169	-	BatchSplitRequest 在 shuffle=False 时应按任务创建顺序切分，不能使用任意查询顺序，否则会打乱未归类任务的导入顺序；即便 n_batches=1，也应保留该顺序。
+0183-0384	apps/api/app/schemas/dashboard.py:128	-	缺少心跳数据时，active_minutes_today 和 streak_days 应返回 null 而不是 0，否则前端会把未知值误当成已确认没有活动或连续记录。
+0183-0385	apps/api/app/schemas/dataset.py:28,47	-	更新 axis_convention 时，省略表示保留原值，显式 null 才清除，具体值则覆盖。读取未设置约定的数据集时按 iso_8855 解释；把省略当成 null 会让未触及该字段的更新意外改变坐标解释。
+0183-0386	apps/api/app/schemas/dataset.py:98	-	DatasetItemMetadata 仅对点云相机项的 calibration 提供结构化视图，其余元数据键仍须保留；若用封闭的结构化模型替换整个元数据对象，会裁掉已有的扩展字段。
+0183-0387	apps/api/app/schemas/dataset_view.py:50	-	DatasetItemQuery 忽略无关参数以兼容现有条目查询调用方，但保存的查询仍须拒绝额外字段。复用宽松规则会让拼错或不支持的筛选条件在保存时被静默忽略。
+0183-0388	apps/api/app/schemas/invitation.py:18-19,23-25	-	邀请的 role 与 project_role 分属平台和项目，不能按同一套角色解析。旧 staff 在服务层归一为 employee，而旧调用方放在 role 中的项目角色仍须映射到 project_role，不能当作平台授权。
+0183-0389	apps/api/app/schemas/invitation.py:98-99	-	需验邮的注册响应只置 email_verification_required=true，不发登录令牌，否则前端会走入站流程而不是提示查收邮件。邀请注册或无需验邮时仍返回令牌。
+0183-0390	apps/api/app/schemas/labeling_assignment.py:41	-	任务分配变更须分别记录任务级原始覆盖值和应用批次回退后的生效值。只记录生效值会把从批次继承的结果误记成任务显式覆盖。
+0183-0391	apps/api/app/schemas/management.py:90-91	-	批量邀请的业务字段须逐项校验；若在请求级统一拒绝，单条无效邮箱就会挡住同批其他本可处理的邀请。
+0183-0392	apps/api/app/schemas/mask_mutation.py:160-161	-	切分请求的 expected_versions 即使缺省或为空，也须通过请求解析交由服务处理；改成模式层必填会让客户端拿不到稳定的 428 expected_versions_missing。
+0183-0393	apps/api/app/schemas/ml_backend.py:201;apps/api/app/schemas/ml_capabilities.py:161-162	-	模型市场只在 backend 声明 warmup_endpoint 时启用预热按钮；旧 backend 缺字段按不支持处理，否则会向未声明支持的后端发出 POST /warmup。
+0183-0394	apps/api/app/schemas/ml_backend.py:203-204	-	晋升至 enforce 必须有符合严格规范的 /setup.managed_lifecycle；不能把缺省声明视为兼容通过，否则未证明具备受管生命周期能力的后端也能晋升。
+0183-0395	apps/api/app/schemas/ml_backend.py:215	-	BackendCapabilities 的顶层扁平能力并集不能只用逐模型字段替换；尚未逐模型读取的调用方依赖该并集，移除后会漏判后端已提供的能力。
+0183-0396	apps/api/app/schemas/ml_backend.py:220;apps/api/app/schemas/ml_capabilities.py:116	-	实例模型须单列 text_driven_trackers，不能将其视为普通 tracker；这类 tracker 的 propagate 需要文本或示例，前端须能识别它并提供文本输入。
+0183-0397	apps/api/app/schemas/ml_backend.py:242,373,434	-	健康状态与 WebSocket 统计须报告实际计算设备，否则配置为 GPU 的实例静默回退到 CPU 时无法告警。若 cpu_fallback_supported=false，设备失效须显式失败，不能报告为已回退。
+0183-0398	apps/api/app/schemas/ml_backend.py:375	-	residency 须反映池或会话实际的 GPU 驻留情况；compute=cpu 仅说明计算设备，据此判定未驻留会把仍占用 GPU 的池或会话误报为已释放。
+0183-0399	apps/api/app/schemas/ml_backend.py:384-385,446	-	backend 注册全局共享，路径中的 project_id 只标识启用关系，不表示注册归属。项目清单须列出全局条目并附本项目状态和覆盖配置；只返回已启用项会让项目看不到可启用的 backend。
+0183-0400	apps/api/app/schemas/ml_backend.py:503,507	-	未指定变体的预热须沿用旧 /reload 的后端默认变体，避免改变既有调用预热的目标。modality 缺省为 image；video 须进入独立 tracker 池，且只识别 sam_variant。
+0183-0401	apps/api/app/schemas/ml_capabilities.py:53-54,184	-	PromptSpec 的输入要求和交互路由须独立表达；不能用路由反推所需输入，否则会把用户如何交互误当成模型需要什么输入。
+0183-0402	apps/api/app/schemas/ml_capabilities.py:111	-	源阶段未声明 default_input_type 时，以 supported_inputs 首项为默认值；不能将其当作无序集合或随意排序，否则会改变后端未显式指定时的默认输入。
+0183-0403	apps/api/app/schemas/ml_capabilities.py:122-126	-	/instances 的非空 classes 必须保留 backend 自报的 {index,name} 对象，不能简化为字符串数组；否则校验失败时会静默跳过整个 backend，而不只是丢失类别预填。
+0183-0404	apps/api/app/schemas/ml_capabilities.py:131-134	-	variants_shared_across_tasks 只在同一 backend 的多个任务共用物理权重时声明；同名不能作为合并依据，否则界面会把独立权重当成同一变体。缺省按任务分行并加后缀。
+0183-0405	apps/api/app/schemas/ml_capabilities.py:136-138;apps/api/app/schemas/project.py:105	-	用户未选变体时，按 backend_id 查项目偏好，再取 backend 自报默认组合，最后才用启动环境默认值。空映射表示项目未配置，不能用它阻断回退，也不能让环境值覆盖项目偏好。
+0183-0406	apps/api/app/schemas/ml_capabilities.py:140-141	-	编排下游只接纳单次推理的 atom；若把 composite 也当作原子阶段，就会把内部已编排的流程再次嵌入下游。旧后端未声明 composition 时仍按 atom 处理。
+0183-0407	apps/api/app/schemas/ml_routing.py:55-56,74,96	-	ML 路由运行时快照仅供超级管理员查看，不能原样复用为项目管理员视图，否则会暴露权重、状态、健康与 GPU 信息；项目投影将相应可空字段置空，routing_policy 返回 unknown。
+0183-0408	apps/api/app/schemas/ml_routing.py:115-116	-	路由账本缺乏新鲜证据时，route_inflight 和 circuit_open 须保留 None；若替换为零在途或熔断器关闭，就会把未知误作安全，允许本应因证据不足而被拒绝的卸载。
+0183-0409	apps/api/app/schemas/native_json.py:51	-	Native JSON 以 sensor_role 标识多相机成员，不能使用本地 DatasetItem UUID；UUID 只在来源实例有效，导入另一实例时不能据此匹配相机成员。
+0183-0410	apps/api/app/schemas/native_json.py:88-89	-	导入 Native JSON prediction 时，shapes 与 geometry 并存须以 shapes 为准，否则旧单几何字段会遮蔽多形状结果。仅有 geometry 的旧条目仍可导入。
+0183-0411	apps/api/app/schemas/native_json.py:164-165;apps/api/app/schemas/project.py:76,80,141-142	-	项目类和属性绑定以 tool_bindings 为唯一真值，兼容字段从它派生，不另存一套可能分叉的绑定。Native JSON 1.x 仍输出 classes_config 和 attribute_schema，供忽略 tool_bindings 的 1.0 读取器使用。
+0183-0412	apps/api/app/schemas/native_json.py:246	-	Native JSON 的 mask_objects 子键是上传对象引用，不是模式字段；校验错误路径须止于 mask_objects，不能把某次上传的对象引用当成固定字段路径。
+0183-0413	apps/api/app/schemas/prediction.py:17-22	-	预测读模型须允许用 MultiPolygon 表达掩码几何，不能统一降成单个 Polygon，否则无法保留掩码中的多个独立连通域。
+0183-0414	apps/api/app/schemas/prediction.py:37-39	-	OCR／文档布局预测的文本、语言和方向须从结果形状顶层带入读模型，不只供工作台展示；若只生成展示摘要，采纳时就无法将原属性写入 annotation.attributes。
+0183-0415	apps/api/app/schemas/prediction.py:41-42	-	GET /predictions 可过滤或重排形状，/accept 必须接收该形状在 predictions.result 中的原始 shape_index；用展示下标会在过滤或重排后采纳错误的形状。
+0183-0416	apps/api/app/schemas/prediction.py:44,56-57	-	混合阶段预测须按形状保留 tool_unit_id，不能让所有候选沿用预测级绑定；同一预测里的矩形和多边形可能分别需要 bbox 和 region，统一绑定会把其中一类交给错误工具。
+0183-0417	apps/api/app/schemas/project.py:119-120	-	编排 PATCH 中的批处理与产类能力检查仅返回 capability_warnings，不作持久化状态或保存门槛；保存成功不代表可派发，实际派发仍须校验并以 422 拒绝不合格编排。
+0183-0418	apps/api/app/schemas/project.py:206-208,210	-	成员 DTO 的项目角色必须由必填的 role 提供，不能因序列化漏传而静默缺失，也不能用 platform_role 代替。邀请 DTO 的 project_member_role 区分的是受邀后的项目职责，而非账号的平台角色。
+0183-0419	apps/api/app/schemas/project.py:212,276,278,284,286	-	角色变更既要用 expected_version 拒绝基于旧成员版本的写入，也要在持锁时重新验证 preview_token 覆盖的工作、锁和认领快照。只检查成员版本，会漏掉角色未变但交接范围已经变化的情况。
+0183-0420	apps/api/app/schemas/project.py:261,272	-	若目标角色要求先交接未完工作，不能只更新成员角色；请求须显式指定符合相应标注或审核职责的接替人，否则未完工作没有有效的承接者。
+0183-0421	apps/api/app/schemas/storage_connection.py:22-24	-	存储连接的 config 能解析成字典，不代表它具备对应存储类型的必填配置。必须由 Assets source 的管理校验器按类型检查，不能用 DTO 的结构校验替代。
+0183-0422	apps/api/app/schemas/storage_connection.py:26-28,39	-	连接密钥只收不回显，写入前加密。更新省略 secret 表示保留旧密钥，提供则整体轮换；逐字段合并会把本应替换的旧密钥字段带入新配置。
+0183-0423	apps/api/app/schemas/storage_reclamation.py:128	-	reclaimable_bytes 必须按实际存在的物理副本计量，不能累加声明大小：同一副本可能被多条声明引用，且仅有声明不能证明副本仍存在。
+0183-0424	apps/api/app/schemas/video_tracker_job.py:68-69,71-73	-	无源检测须显式指定目标类别和工具单元；有源延展从路径或源标注继承。多源延展须把每个 obj_id 绑定到自己的源 ID 并分别回填，不能用单个 job.annotation_id 代表多个回填目标。
+0183-0425	apps/api/app/services/accepted_input_manifests.py:144-146	0108-bulk-image-input-manifests.md	清单投递的一页预算只计入本次尝试的未完成成员。若已完成成员也占预算，重放就可能反复耗尽预算而无法推进后续成员；不必为此持久化整份 Task/Input 映射。
+0183-0426	apps/api/app/services/accepted_input_manifests.py:182-184;apps/api/app/services/accepted_video_inputs.py:215-216	0108-bulk-image-input-manifests.md,0109-retained-video-inputs-and-frame-plans.md	完整捕获集合是否就绪，由 Input owner 的 seal 根据持久化的复制终态判定，不能以本次投递的临时结果代替。权限或来源错误必须中止，不能当作尚未就绪而延后。
+0183-0427	apps/api/app/services/active_learning.py:542-543	archive/0083-human-reviewed-active-learning.md	保留 PNG 的读取回退须依据 S3Access 转换之前的原始 provider 结果分类，否则转换后可能无法区分是否应回退。客户端关闭失败须直接抛出，不得进入读取回退。
+0183-0428	apps/api/app/services/active_learning.py:792	archive/0083-human-reviewed-active-learning.md	主动学习选样报告中的派发计数记录的是选样时的派发结果；恢复操作不得用恢复后的计数覆盖它，否则同一份报告会随重放而改变。
+0183-0429	apps/api/app/services/active_learning_feedback.py:85	archive/0083-human-reviewed-active-learning.md	主动学习反馈中的合格事件只能作为会话已被记录的证据，不能作为完整生命周期已被观测的证据；存在事件并不排除其余阶段未被记录。
+0183-0430	apps/api/app/services/active_learning_feedback.py:302	archive/0083-human-reviewed-active-learning.md	主动学习反馈须先以各任务自己的接受时间截取事件，再跨任务汇总。用统一的接受时间筛选会错收其他任务的接受前事件，或漏掉其接受后事件。
+0183-0431	apps/api/app/services/active_learning_originals.py:50-51	archive/0083-human-reviewed-active-learning.md	原件授权读取与密钥或账号编辑发生锁冲突时，只回滚失败语句所在的保存点，不能连同外层事务一起撤销。一旦已观测到授权撤销，就不得把它当作可重试的锁冲突。
+0183-0432	apps/api/app/services/active_learning_pool.py:194	archive/0083-human-reviewed-active-learning.md	主动学习池须在拿最终领域锁之前完成外部资格核验和媒体 I/O；若先加锁，外部请求或媒体读取的等待时间就会延长领域锁的持有时间。
+0183-0433	apps/api/app/services/agent_storage.py:68	-	agent_storage 调用 transport.exchange 前，原调用方须提交持有来源及权限锁的事务，不能等交换返回后再提交，否则会把这些锁持有到传输交互结束。
+0183-0434	apps/api/app/services/agent_storage.py:97-98	-	质量检查须复用四槽图像解码器并执行完整 SHA 校验；使用第二次有界复制，而不是让快照在这段流程中持续存活，以免产生未计入资源预算的保留期。
+0183-0435	apps/api/app/services/agent_transport.py:193	-	Agent 租约派发须通过全局事务级锁在短事务内核算中继字节预算；进程内锁只能约束单个 API worker，多个 worker 分别派发会使合计用量超出预算。
+0183-0436	apps/api/app/services/agent_transport.py:215-216,230-232	-	租约响应丢失后，重投须返回原命令身份和截止时间，即使已过期也不能续期。过期命令由持久化日志在不读取源的情况下报告失败关闭，不能用心跳推断结果。
+0183-0437	apps/api/app/services/agent_transport.py:337	-	Agent 中继须先写 Redis 字节，再推进数据库进度，否则数据库可能确认尚未写入的数据。响应丢失可重放同一偏移，但字节必须不变，不能用重试改写已接收的数据。
+0183-0438	apps/api/app/services/agent_transport.py:546	-	Agent 身份退役不能一并禁止上报已有命令的关闭结果；若把关闭上报按新传输同样拒绝，上传中断的命令便无法由该 Agent 报告终态。
+0183-0439	apps/api/app/services/ai_mask_accept.py:312-313	-	AI mask receipt 证明的是推理发生时的路由，不能用当前实例是否仍在原池来否决 TTL 内的合法候选。当前实例记录只决定可空外键能否保留，完整 ID 仍须进入 meta 和审计。
+0183-0440	apps/api/app/services/ai_mask_accept.py:851-852	-	AI mask 新建分支通过 AnnotationService.create 记录操作者；细化分支直接修改源标注，不经过该入口，必须自行补记，否则细化写入会缺失操作者记录。
+0183-0441	apps/api/app/services/annotation.py:186-187	-	标注属性未带来源条目时按人工产物处理；既有 AI 溯源只在属性值未被人工改动时保留，否则会把人工修改后的值错误归因给 AI。
+0183-0442	apps/api/app/services/annotation.py:382-384,443-445,881	-	标注变更和预测采纳先经 record_annotation_actor 锁定 Task，再写标注或锁定 Annotation、SceneTrack，操作者记录随变更回滚。创建子标注要在该锁下校验父项，否则可能引用等待切片恢复期间已被停用的父项。
+0183-0443	apps/api/app/services/annotation.py:613	-	只持有 prediction_id 时须按 id 查询 Prediction，不能把它当作完整主键传给 db.get；该模型的主键还包含 created_at。
+0183-0444	apps/api/app/services/annotation.py:839-841	-	预测采纳须在构造或添加任何 Annotation 行前转换并校验所有选中的几何；不能边校验边挂接，否则可能绕过栅格创建校验，在 flush 前就关联上传记录。
+0183-0445	apps/api/app/services/annotation.py:893-896,1008-1009	-	属性溯源按键区分模型产出与人工修改：按 PredictionMeta.extra.pipeline 和预标注的 label_ 前缀规则定位富集阶段，记录 AI 与 model_ref；人工覆盖的键改归人工，内部键不记，缺失的置信度不补造。
+0183-0446	apps/api/app/services/annotation.py:917-920,953-955	-	DINO 类别的英文 alias 只在 prediction.tool_unit_id 对应的类别表反查，不能借用其他工具单元的同名类映射。标签与 alias 均未命中时由人工选类；非空 override_class_name 跳过反查，但仍走同一软校验。
+0183-0447	apps/api/app/services/annotation.py:963-964,1689-1690	-	预测采纳和 PATCH 改类都复用创建时的类别校验，不能因入口不同而绕过项目标签集检查，否则可能写入工具单元界面无法显示的类别。
+0183-0448	apps/api/app/services/annotation.py:924,989-990	-	预测采纳时，select/multiselect 属性超出选项集只告警并保留原值，避免模型输出抖动导致整框采纳失败；内部键不参与这项检查，硬校验留给人工提交。
+0183-0449	apps/api/app/services/annotation.py:968-971,976-977,986-987	-	v2 OCR/doc_layout 的富属性不能按绑定 schema 丢弃；审阅改值按键覆盖并随采纳原子写入。内部键不接受人工覆盖，服务端最后写入权威的 _shape_index，防止同名 shape 属性使前端按 (predictionId, shapeIndex) 查找时错位。
+0183-0450	apps/api/app/services/annotation.py:1286	-	ORM 更新子标注的 source 后，须把写入返回的 updated_at 同步回对象；不能依赖 ORM 自动刷新 Mask 触发器生成的版本，否则内存中仍是旧版本。
+0183-0451	apps/api/app/services/annotation.py:1746	-	PATCH 属性时先比较旧属性与新值，逐键把人工改动归给操作者，再替换 attributes；若先替换，就会失去判定哪些键应改记为人工的基准。
+0183-0452	apps/api/app/services/annotation_conversion.py:1306-1308	-	标注转换沿用共享锁序，依次锁 Task、segment、RLE、upload，再按 annotation UUID 加锁；取得行锁后重读来源，若锁前重建计划期间来源已变，则原子拒绝，不能沿用旧计划。
+0183-0453	apps/api/app/services/annotations_binding_change.py:82-83	-	绑定变更预览须覆盖所有已保存状态，并按责任记录分别计数，不能把各项相加当作对象总数：同一 Creation 也可能已有已发布的 TaskOriginal。
+0183-0454	apps/api/app/services/annotations_binding_change.py:217	-	绑定变更预览须先提交以释放权限、位置和绑定行锁，再调用存储提供方；不能让外部存储 I/O 延长这些数据库锁的持有时间。
+0183-0455	apps/api/app/services/annotations_import.py:184	-	导入旧格式时，只有 task_match 未提供 file_path 才回退到 task block 顶层的 file_path；不能让旧字段覆盖已提供的任务匹配路径。
+0183-0456	apps/api/app/services/annotations_import.py:204-206	-	导入包可按任意顺序访问任务，覆盖清理或插入前须以 NOWAIT 锁定任务行；遇忙回滚并返回可重试的 409，避免并发导入以相反顺序持锁时循环等待。
+0183-0457	apps/api/app/services/annotations_import.py:211	-	导入交换格式不要求调用方排序，因此须先建立主标注和 SceneTrack，再挂接相机成员；按包内顺序直接挂接会遇到尚未建立的轨迹。
+0183-0458	apps/api/app/services/annotations_import.py:287	-	导入时类别校验不通过只记该条错误并跳过，不能把单条类别不合规升级为批次失败，否则同批合规记录也无法导入。
+0183-0459	apps/api/app/services/annotations_import.py:316-317	-	覆盖导入只能在该任务首条通过基础校验的记录即将写入时清理旧标注，避免没有可写记录的任务被清空；dry-run 只在查询中模拟清理。
+0183-0460	apps/api/app/services/api_key_service.py:38	-	API 密钥签发须先记下使用情况并释放准入锁，再进入 bcrypt 阶段，不能让 bcrypt 的计算耗时延长准入锁的持有时间。
+0183-0461	apps/api/app/services/assets_catalog.py:457;apps/api/app/services/assets_operator.py:1193-1194	0097-independent-assets-catalog.md	资产目录调用原生能力时沿用调用方事务和操作者身份。辅助原件的业务发布也留在外层事务，不能单独提交，否则数据集范围可能在调用方绑定回滚后仍然生效。
+0183-0462	apps/api/app/services/assets_connections.py:480-481	0103-assets-connection-administration.md	存储连接探测台账与已接受键的防护状态独立持久化；不能把实际存储 I/O 纳入调用方的发布事务，也不能依赖发布提交来保留这些状态。
+0183-0463	apps/api/app/services/assets_connections.py:526-528	0103-assets-connection-administration.md	资产连接原生接口的可选 jsonb 参数缺省时须传 SQL NULL；JSON null 会被所有方当作已提供的值，使本可受理的请求被判为 invalid_request。
+0183-0464	apps/api/app/services/assets_import.py:124-126	0100-durable-connector-import.md	取消资产导入由原生接口授权当前已认证的取消者，但回执的 actor_id 属于原作业所有者；应按作业 ID 核对响应归属，不能要求回执身份等于取消者。
+0183-0465	apps/api/app/services/assets_media.py:166-167	0105-independent-video-media-owner.md	媒体所有方引用须保留绝对地址，不能改存只供浏览器使用的代理路径，否则 worker 和导出失去上游地址；浏览器代理须恢复签名所用的上游主机和路径。
+0183-0466	apps/api/app/services/assets_operator.py:77-78	-	资产 operator 依据受管原件所有方的稳定错误码映射到自身固定词表，不能解析错误文本或直接透传新错误码，以免把上游文案或词表变动变成自身契约变更。
+0183-0467	apps/api/app/services/assets_operator.py:155,1107-1108	-	资产 operator 仅能在同一调用方事务内复用网关已验证的创建回执，且仍须核对摘要与大小；不能把回执当作跨事务或内容不匹配时跳过读取与授权的凭据。
+0183-0468	apps/api/app/services/assets_operator.py:235-236	-	资产 operator 执行纯文本 SQL 原生调用前须显式 flush，因为这类调用不会触发 ORM autoflush，看不到尚未刷新的变更；不能用提前提交代替，变更仍由外层事务统一提交或回滚。
+0183-0469	apps/api/app/services/assets_operator.py:707-708	-	只有在操作仍持有客户端时，探测确认当前 HEAD 与固定版本相同，才能以此归因；不能用离开客户端上下文后的 HEAD 推断操作当时指向的版本。
+0183-0470	apps/api/app/services/assets_operator.py:721,757,771-772	-	进入客户端上下文失败时，即使未取得客户端对象，也可能已打开物理句柄，结果应记为未知。须等所有句柄收尾并保留原生阶段的失败；若已有写入回执且收尾完成，后续台账转换未响应也不改变物理结果已写入。
+0183-0471	apps/api/app/services/assets_source.py:358-359	-	托管存储错误映射到来源接口时，只有证实来源已变更才报告冲突；其余归为存储不可用，不能把无法访问来源误报为来源已变更。
+0183-0472	apps/api/app/services/assets_spatial.py:564	0102-assets-spatial-state.md	空间位姿导出的每个块必须从同一个原生快照读取；若改成块内各次查询独立取快照，并发更新时同一块会混入不同版本的位姿。
+0183-0473	apps/api/app/services/async_job_access.py:17	-	只有列入已审计全局名单的生产作业类型才允许省略项目作用域；未列出的类型必须绑定项目，不能把缺失作用域解释为全局访问。
+0183-0474	apps/api/app/services/async_job_notify.py:194	-	全局存储迁移盘点是私有报告作业，通知摘要只能取封闭字段集；透传结果对象会使新增的私有报告字段未经筛选进入通知。
+0183-0475	apps/api/app/services/audit_archive_binding_change.py:213;apps/api/app/services/audit_partition_service.py:293,455;apps/api/app/services/avatar_binding_change.py:234	-	审计归档和头像绑定的预览须先结束事务再调用存储提供方；归档物理操作则须等事务提交后启动。外部 I/O 不得延长授权、位置、绑定或源分区锁的持有时间，父表独占锁也只用于短时数据库操作。
+0183-0476	apps/api/app/services/audit_archive_partitions.py:63	-	SourcePartition.qualified 会直接拼接 SQL 限定名，因此只能用经过验证的规范目录名构造分区对象，不能把未经校验的名称当作普通参数交给它。
+0183-0477	apps/api/app/services/audit_archive_partitions.py:250;apps/api/app/services/audit_partition_service.py:215	-	归档删除绑定的是源分区身份，不是名称或月份：lock_source 按名称加锁后必须核对原 OID，已有 ready 归档也不能授权删除后来重建的同月分区。
+0183-0478	apps/api/app/services/audit_archive_partitions.py:275-277,326-327	-	归档流须用唯一命名的 SQL 游标并显式关闭服务端游标；asyncpg 经 SQLAlchemy 的 result.close() 只释放客户端引用，残留游标会阻止同事务 DROP。关闭失败不能掩盖原始错误或取消；事务已中止时由事务所有者回滚销毁游标。
+0183-0479	apps/api/app/services/audit_archive_partitions.py:290-291	-	归档流每次从前向服务端游标只取一条有大小上限的记录；单条可接近 16 MiB，批量预取会放大缓冲占用，改用键集分页则会反复扫描索引。
+0183-0480	apps/api/app/services/audit_archive_reads.py:56,96	-	归档读取须在首次等待行锁前保留请求实际出示的凭据，再在持有账户 SHARE 锁的同一事务内向 Identity 复验 JWT 黑名单及用户令牌代际；否则等待期间发生的撤销可能被漏过。
+0183-0481	apps/api/app/services/audit_archive_storage.py:634	-	归档压缩流必须按物理字节判定尾部是否干净，不能仅比较解压输出；额外成员即使解压为空、尾部即使只有零填充，也必须拒绝。
+0183-0482	apps/api/app/services/audit_archive_storage.py:656	-	归档解压不能把输入耗尽当作输出结束；此时仍须用空输入有界地排出 zlib 缓冲内容，否则会漏掉已解压但尚未交付的尾段。
+0183-0483	apps/api/app/services/audit_partition_service.py:234-235	-	归档本地流式读取即使有上限也可能耗时，期间不能持有作业行锁阻挡取消提交；取得归档所有权前再锁定作业并复验，避免在取消后继续接管。
+0183-0484	apps/api/app/services/audit_partition_service.py:261	-	归档所有权事务的提交结果未知时，不能按成功或失败猜测并执行物理写入或清理，否则可能在未取得所有权时写入，或误清理已提交事务关联的对象。
+0183-0485	apps/api/app/services/audit_partition_service.py:331-332	-	归档输入文件须由持有者在 storage_access.run 排空底层 I/O 后关闭，不能以写入验证通过或发布失败代替这一边界，否则仍在执行的底层操作可能读到已关闭的文件。
+0183-0486	apps/api/app/services/audit_partition_service.py:369-370	-	归档提升父表锁必须使用 NOWAIT：经父表路由的 INSERT 可能已持有父表锁并等待归档持有的子表 SHARE 锁，阻塞式升级会形成循环等待。
+0183-0487	apps/api/app/services/audit_partition_service.py:417	-	源分区 DROP、归档置为 ready、发布审计及作业部分结果必须同事务提交或回滚；拆开提交会使源分区已删除而归档未就绪，或让审计、作业结果与实际发布状态不一致。
+0183-0488	apps/api/app/services/audit_read_relations.py:13-15	-	公开审计关系须复用既有 AuditLog ORM 实体；另建实体即使映射相同数据，也不能复用同一身份映射，可能使同一行的脏字段处理和过期刷新表现不一致。
+0183-0489	apps/api/app/services/avatar.py:35	-	头像引用只接受符合白名单格式的预设 slug 或上传令牌，不能直接使用任意字符串，否则可能造成路径穿越或使不受控的值进入图片 src。
+0183-0490	apps/api/app/services/avatar.py:40	-	头像的 24 小时强缓存依赖每次上传生成新令牌；若替换内容时复用旧令牌，缓存键不变，客户端仍可能在有效期内显示旧图。
+0183-0491	apps/api/app/services/avatar_binding_change.py:88	-	头像绑定预览的显示计数与历史缺失判定须在同一条 SQL 中计算；拆成两次查询可能在并发变更时读到不同快照，使计数与判定互相矛盾。
+0183-0492	apps/api/app/services/avatar_image.py:18	-	头像服务与 upload_body_limits 中间件须使用相同的 2 MiB 上传文件上限；否则中间件可能提前拒绝服务本可接受的文件，或放行注定被服务拒绝的请求。
+0183-0493	apps/api/app/services/avatar_image.py:20	-	头像仍须在解码前独立限制总像素数为 4000 万；不能用 2 MiB 文件上限代替像素限制，因为很小的压缩图仍可能解码为上亿像素。
+0183-0494	apps/api/app/services/avatar_image.py:29	-	客户端声明的 MIME 只能用于提前拒绝不支持的类型，不能当作格式已验证的依据；缺失或为 octet-stream 时交由 Pillow 识别，避免误拒绝内容有效的图片。
+0183-0495	apps/api/app/services/avatar_uploads.py:150,272-275	-	头像规范化前须释放 API 密钥 SHARE 锁，不把锁带入 CPU 密集处理。规范化后、分配不可变目标前须重新认证并复核旧引用，不能因沿用旧检查而在凭据、权限或账户变化后生成待定所有权。
+0183-0496	apps/api/app/services/avatar_uploads.py:252-253,349-351,353-357	-	调用可能使用独立连接的 Identity.set_avatar_ref 前，API 须释放密钥 SHARE 锁、维护门闩和行锁。Identity 须在自己的事务中复验原凭据、旧引用、回执全字节及原密钥证明，并原子更新引用、退役旧上传和将新上传置为 ready。
+0183-0497	apps/api/app/services/avatar_uploads.py:465-466	-	头像退役不可逆，用户路由不能指定清理令牌，否则会把物理删除目标交给调用方选择；即使删除已独立登记，也须先释放业务锁再执行。
+0183-0498	apps/api/app/services/avatar_uploads.py:548-549	-	头像退役清理失败时，日志只能记录公开随机令牌；直接记录存储驱动异常或签名请求详情可能把存储凭据写入日志。
+0183-0499	apps/api/app/services/batch.py:90-91	-	批次 split 每 5000 条分块回写 batch_id，不能把十万级任务合成一次回写，否则会生成巨型 IN/UPDATE 请求。
+0183-0500	apps/api/app/services/batch.py:126-127	-	预标批次沿用 active 的调度语义进入 annotating；项目所有者回退到 active 是丢弃预标 predictions 的兜底操作，不是保留预标结果的暂停。
+0183-0501	apps/api/app/services/batch.py:177-179	-	批次责任人资格以项目成员角色为准，平台账户只需有 employee 或旧 staff 角色；若要求全局角色与分派角色一致，会拒绝在项目内具备资格的成员。
+0183-0502	apps/api/app/services/batch.py:397-398,972,1740	-	单次和批量改派都必须单独广播分派变更。改派不改变 batch.status，若只依赖 status_changed，其他管理员看到的 draft 批次可预标列表会停留在旧分派。
+0183-0503	apps/api/app/services/batch.py:441-442	-	approved 重开时清空原审核时间、审核人和反馈，避免旧审核被当作本轮结果；rejected 直接复审则保留反馈，否则复审人看不到上次拒绝原因。
+0183-0504	apps/api/app/services/batch.py:538-540,1647	-	单删和批量删批次都要在改写 batch_id 前，按原批次重置非 pending 任务并清除 AI 预标，但保留人工标注；否则审核中或已完成的任务会脱离流程，重新分包预标也可能叠加旧结果。
+0183-0505	apps/api/app/services/batch.py:565-566,1677	-	单删或批量删批次后，若不存在 B-DEFAULT，须直接同步项目物化计数；此时没有默认批次可通过 recalculate_counters 触发同步，强删含进行中或已完成任务的批次会留下旧计数。
+0183-0506	apps/api/app/services/batch.py:594-596	-	scene 模式下，BatchService.split 必须在后端只接受 by_scene；仅隐藏前端入口无法约束直接 API 调用，随机或顺序切分都可能把同一 scene 的连续帧分给不同标注员。
+0183-0507	apps/api/app/services/batch.py:841	-	_assign_tasks 必须分块执行 UPDATE；一键建包可能一次纳入十万级未归类任务，合成单条更新会生成同量级的 IN 列表。
+0183-0508	apps/api/app/services/batch.py:1174-1178	-	批次决策须先锁定与所有权转移共用的项目权限行，再鉴权；否则旧权限持有者可能在转移提交后仍持有批次和任务锁。锁序为账号→项目→成员关系→批次→任务。
+0183-0509	apps/api/app/services/batch.py:1289-1291;apps/api/app/services/batch_permissions.py:167-169	-	review_tasks > 0 且批次仍为 active 或 annotating 时，审核员或 owner 可经专用 /reject 整批软退回；不得把这两条迁移开放给通用 /transition，否则会绕开部分任务已送审的入口限制。
+0183-0510	apps/api/app/services/batch.py:1466-1467	-	清理预测须先锁任务，再判断 AI 内容损失，否则内容生产者可能在判断后改写任务。多批次调用方可能已持有其他锁，因此用 NOWAIT，避免持锁等待。
+0183-0511	apps/api/app/services/batch.py:1470-1472	-	预测软删除前须确认哪些任务实际会失去已采纳的 AI 内容，并记录删除操作者；系统清理无法归因时将原有已知证据降为未知，不能把旧证据当作本次删除的归因。
+0183-0512	apps/api/app/services/batch.py:1504	-	两次 Annotation 更新不能合并：每次更新都会触发掩码历史记录，合并后只会触发一次，无法分别记录两次变更。
+0183-0513	apps/api/app/services/batch.py:1509-1510	-	删除预测前须先解除 Annotation 持有的软引用，再由 PredictionService 删除分区中的预测行和元数据；倒序会留下指向已删除预测的引用。
+0183-0514	apps/api/app/services/batch.py:1898-1899,1962-1963	-	批量审批或退回遇到锁或权限能力失败时，须终止整个请求；事务可能已经回滚，不能把它当作单批失败并继续处理其余批次。
+0183-0515	apps/api/app/services/batch_permissions.py:21,26	-	逆向迁移只允许 owner 执行白名单内的操作，包括丢弃 AI 预标后从 pre_annotated 重置为 active；须将 1–500 字理由写入 audit_log.detail_json.reason，否则审计只能看到回退，不能说明为何回退。
+0183-0516	apps/api/app/services/batch_result_data.py:93-94	-	批次结果事务可能已提交但确认丢失；再次投递须凭不可变调用及其回执核实结果，不能把未收到确认当成未提交而重复执行。
+0183-0517	apps/api/app/services/batch_result_masks.py:76-78	-	生成掩码时须先续期内容写入许可，再存储字节，且续期留在调用方事务内；独立提交会连带提交无关工作流状态，并破坏检查点的原子性。
+0183-0518	apps/api/app/services/bug_attachment_binding_change.py:216;apps/api/app/services/bug_attachment_uploads.py:199	-	附件绑定变更预览须先释放权限、位置和绑定行锁，再调用存储提供方；上传也须先捕获权限并释放业务行锁，再流式读取请求或校验图像，避免让外部 I/O 或解析占用这些锁。
+0183-0519	apps/api/app/services/bug_attachment_storage.py:82;apps/api/app/services/comment_attachment_storage.py:86	-	Bug 和评论附件的存储错误都只对外返回固定文案；提供方异常文本的内容无法确认可安全公开，直接透传可能泄露敏感信息。
+0183-0520	apps/api/app/services/bug_attachment_storage.py:148-149	-	JPEG 的 verify() 不会解码扫描数据，单靠它可能放过截断文件；附件校验还须进行有界解码，并保持原始字节不变。
+0183-0521	apps/api/app/services/bug_attachment_storage.py:683	-	附件对象的版本为 None 或 null 时仍指向可变槽位；须核验已保存的字节，不能把该版本值当成不可变标识，否则槽位被覆盖后仍会被误认成原对象。
+0183-0522	apps/api/app/services/bug_attachment_uploads.py:221	-	附件图像解析一旦在线程中启动，即使请求反复取消，也须等解析结束再完成请求清理；取消等待不会停止线程，提前清理会让解析脱离请求生命周期。
+0183-0523	apps/api/app/services/bug_attachment_uploads.py:307	-	附件上传取得锁后须重新鉴权并检查附件有效期；等待锁期间 API 密钥或附件都可能过期，沿用等锁前的检查会接受已失效的操作。
+0183-0524	apps/api/app/services/bug_report.py:46	-	BugReport 与 annotation_feedbacks 镜像必须同事务写入；若独立提交，任一写入失败时另一方仍可能可见，导致原记录与镜像不一致。
+0183-0525	apps/api/app/services/comment_attachment_authority.py:29-30,168,227-228	-	评论附件只保留密钥验收事实，不保留凭据材料。重新授权须持账户 SHARE 锁，由 Identity 在其 SHARE 锁下确认同一密钥行并精确匹配准入时的 scopes，防止沿用已变更的授权。
+0183-0526	apps/api/app/services/comment_attachment_authority.py:279	-	评论附件授权预读只捕获标量定位值，不保留 ORM 对象作为定位依据；后续 populate_existing 会原地刷新对象，可能把原先用于定位的值改掉。
+0183-0527	apps/api/app/services/comment_attachment_storage.py:282	-	评论附件的冻结回执须用 JSON 文本保存定位信息；冻结外层对象并不会冻结嵌套结构，调用方仍可能经由属性修改定位数据。
+0183-0528	apps/api/app/services/comment_attachment_uploads.py:190	-	评论附件获准入队不等于获准写入：执行器排队期间准入可能失效，工作线程须在真正写入前用不可变的授权事实复查期限。
+0183-0529	apps/api/app/services/comment_attachment_uploads.py:281	-	评论附件绑定须沿用各所有者先取上下文锁的顺序，最后才取 gate 锁；先取 gate 会与先锁上下文的路径形成反向锁序。
+0183-0530	apps/api/app/services/comment_attachment_uploads.py:332	-	评论附件绑定预读须定位实际绑定的原始 Comment，并以该评论为授权依据；以 Feedback 元数据代替会让鉴权脱离实际绑定对象。
+0183-0531	apps/api/app/services/conditional_write_accounting.py:149-150	-	条件写入记账可复用读取方的校验，但两次 HEAD 和中间校验完整 SHA 与大小的 GET 必须绑定同一不可变版本；只按对象键执行会把不同版本的元数据与字节混在一起记账。
+0183-0532	apps/api/app/services/content_snapshot.py:200,216-217	-	快照截止时间只能协作执行：asyncio.run 清理 Task 不会取消执行器中仍在阻塞的 SDK 读取。必须等读取实际退出再释放句柄、快照槽位和源读取许可，否则仍在运行的读取会失去句柄或不再占用额度。
+0183-0533	apps/api/app/services/dataset.py:54-55,453-454,1585	-	Dataset.update 必须区分省略、显式 None 和具体轴约定：省略保留旧值，None 清除并回退到 iso_8855。JSONB 必须整体赋值，原地修改不会被 SQLAlchemy 跟踪。
+0183-0534	apps/api/app/services/dataset.py:170-172	-	点云标定必须独立于建任务提交。重导入时若所有帧已有任务，build_pointcloud 会提前返回且不提交；标定若只做 flush，会在会话关闭时回滚。
+0183-0535	apps/api/app/services/dataset.py:310	-	Dataset 列表筛选与项目关联准入必须共用媒体类型别名规则，将 lidar 和 point_cloud 视作同类；两处各自解释类型会导致同一数据集在筛选与准入时得到不同结果。
+0183-0536	apps/api/app/services/dataset.py:528	-	金字塔资源的所有者记录不能随 Dataset 级联删除；否则垃圾回收时，外部资源可能仍在，但已失去用于清理的持久记录。
+0183-0537	apps/api/app/services/dataset.py:670-671;apps/api/app/services/dataset_source_access.py:96-97	-	Dataset 写入按先数据集、后条目取锁；数据集用阻塞式 FOR NO KEY UPDATE，并由调用方事务持有。换成 FOR UPDATE 会与其他写入者已有的外键引用锁冲突，提前释放则不能保护后续条目写入。
+0183-0538	apps/api/app/services/dataset.py:1099-1103	-	同步还是异步建任务在关联 Dataset 的请求中确定。已排队的 CREATE_TASKS 不再按执行时的管理员阈值重新选择分支，否则改配置会改变已受理请求的执行方式。
+0183-0539	apps/api/app/services/dataset.py:1319-1320	-	upload、zip、scan 的同步导入每 5000 条分批 INSERT，避免把整批任务塞进一条过大的语句；拆分的是 SQL，不是同步建任务的语义。
+0183-0540	apps/api/app/services/dataset_assets.py:299	-	旧版 MD5 只用于缩小数据集资产去重的候选范围，最终必须比较实际字节；直接按 MD5 合并会把发生碰撞的不同内容当成同一资产。
+0183-0541	apps/api/app/services/dataset_binding_change.py:229	-	绑定变更预览必须在调用存储提供方前提交事务；把提供方调用放在事务内，会让授权、位置和绑定行锁的持有时间取决于外部 I/O。
+0183-0542	apps/api/app/services/dataset_content.py:50	-	dataset_content 比对授权凭据时使用非秘密的 API 密钥修订号；这里只需判断凭据对应的修订是否仍有效，改用原始校验值会把敏感校验材料带入比对路径。
+0183-0543	apps/api/app/services/dataset_content.py:77-78;apps/api/app/services/dataset_references.py:946-947	-	已认领的注册任务和引用读取以节点固定锚点及每次实际验证的读取为准；探测 TTL 到期既不应单独中断长时间注册，也不能作为更换锚点或定位符的依据。
+0183-0544	apps/api/app/services/dataset_content.py:123-124,145	-	设备号和 inode 只在节点本地可比，跨节点应比较持久化摘要；首次读取凭据只证明本次读到的字节。只有显式修复且尚无验证凭据才可刷新观测，普通重试不得改写已验证的内容身份。
+0183-0545	apps/api/app/services/dataset_quality.py:117	-	旧版已入队的质量任务固定归属 epoch 1；重试若取执行时的当前 epoch，会把同一任务重新归到另一个质量评估周期。
+0183-0546	apps/api/app/services/dataset_quality_review.py:254	-	重复确认质量审核批次必须沿用已有执行尝试，不能把确认请求的重试解释为再次执行，否则同一批次会因重复确认生成多次尝试。
+0183-0547	apps/api/app/services/dataset_quality_review.py:417	-	质量审核 worker 将决定、审计记录与检查点原子提交；若分别提交，中断后可能跳过尚未落库的决定，或重做已提交的审核并重复记审计。
+0183-0548	apps/api/app/services/dataset_reference_replicas.py:197	-	引用副本按主资产串行发布，并发重复 POST 也必须经过同一串行化点；若在锁外判定可发布，多个请求可能同时通过检查并重复发布。
+0183-0549	apps/api/app/services/dataset_reference_replicas.py:368-369;apps/api/app/services/dataset_references.py:1213	-	已发布的引用边只允许读取确切内容，不授予目标任务访问或源枚举权限。读取仍须复核原任务授权；原任务授权或 API 密钥失效时，不能用备用路径 B 恢复访问。
+0183-0550	apps/api/app/services/dataset_references.py:66-67,75	-	引用注册必须在绑定或源 I/O 前拒绝已归档或被取代的生命周期。绑定初始化在 Location、Source 加锁之前完成，最终回调也只能在 scan_context 已锁住 Source 后锁 Dataset，避免倒置锁顺序。
+0183-0551	apps/api/app/services/dataset_references.py:94-95	-	引用注册在业务锁外重新精确捕获同一来源；I/O 后的短校验事务必须先提交，再分配目标或写入存储，避免将业务行锁带入后续存储操作。
+0183-0552	apps/api/app/services/dataset_references.py:429	-	历史注册重放不能把当时的字节重新发布为当前预览；重放若沿用当前发布路径，会让旧内容取代当前预览。
+0183-0553	apps/api/app/services/dataset_references.py:494-495	-	提交确认丢失不等于预览发布失败；对象可能已被已提交的记录引用，不能立即删除，必须保留供后续核对。
+0183-0554	apps/api/app/services/dataset_references.py:544	-	旧版引用未保存读取选项时，沿用记录中所有者在本次操作中的客户端；换用其他客户端会改变解析或读取该引用所用的存储身份。
+0183-0555	apps/api/app/services/dataset_references.py:594,636-637	-	托管原件注册不跨目标存储 I/O 持有命名锁，因此发布时必须重新校验资格。若封存后已有另一注册胜出，保留本次独立的 Creation，由新尝试在 SQL 锁外复核胜出记录。
+0183-0556	apps/api/app/services/dataset_references.py:817-818	-	原始引用不可变；读取观测仅可用同一业务资产且已明确接受的凭据更新，否则更新观测就可能变相把既有引用绑定到另一资产。
+0183-0557	apps/api/app/services/dataset_references.py:1249-1250	-	引用资源事务不能提交调用方管理的 Connection 或外层事务。生产会话绑定 Engine，资源事务使用独立连接，否则提交引用资源可能提前提交调用方的其他修改。
+0183-0558	apps/api/app/services/dataset_scans.py:123-124,128-129	archive/0093-resumable-directory-inventory.md	扫描拿到 Source 锁后须重读 Run 与 Job 的关联，因为等待期间恢复操作可能已换掉尝试。随后先锁 Job 再锁 Run，旧终态 Job 也不例外，以免与先删 Job、再由外键清空 Run.async_job_id 的保留清理逆序。
+0183-0559	apps/api/app/services/dataset_source_access.py:25-26	-	授权查询改用文本 SQL 后，仅在 autoflush 开启时显式 flush；不补 flush 会读不到待写入的 ORM 变更，无条件 flush 又会破坏调用方的 no_autoflush 语义。
+0183-0560	apps/api/app/services/dataset_source_access.py:183-184	-	恢复流程替换 async_job_id 后，须用 Job payload 识别原先保留的尝试，不能再用已改写的字段判断归属。比较时使用字符串，避免畸形旧值在转换为 UUID 时中断恢复。
+0183-0561	apps/api/app/services/dataset_source_revisions.py:180;apps/api/app/services/dataset_source_sync.py:483	-	调度器、扫描和人工注册须通过同一个 Source 串行化修订选择。同步探测完成后还须在该边界内重新检查人工操作冲突，否则探测期间发生的人工选择会使先前的判断失效。
+0183-0562	apps/api/app/services/dataset_source_revisions.py:237	-	发布源修订时，最终校验须区分本事务已推进但尚未发布的 head 与外部选择变更；若把两者都视为并发冲突，事务会因自己的更新而拒绝发布。
+0183-0563	apps/api/app/services/dataset_source_rules.py:136-137	-	重新启用源规则须开启新的配置周期。旧运行仍可保留在历史中，但其已完成的审核关卡不能计入新周期，否则重新启用会跳过本周期应做的审核。
+0183-0564	apps/api/app/services/dataset_source_sync.py:119-120	-	归档恢复或维护周期结束后，新委托不得接管周期前的观测和任务；旧尝试仍按原有栅栏处理，不能因当前委托换新而取得跨周期执行资格。
+0183-0565	apps/api/app/services/dataset_source_sync.py:374-375	-	源同步只能恢复同一委托下明确标为自动执行的运行；仅凭委托一致不足以接管，人工确认路径只做观察，不能把观察变成自动执行。
+0183-0566	apps/api/app/services/dataset_source_sync.py:449,567	-	源同步须先提交空闲或审核观测及运行指针，再向消息代理发布。这样即使数据库已提交而消息未发出，仍能按持久指针重放，不必从内存还原待发布工作。
+0183-0567	apps/api/app/services/dataset_source_sync.py:549-550	-	嵌套业务入口会读取当前凭据，因此源同步遇到并发密钥轮换时须拒绝继续；若接受入口取得的新凭据，就会在未重新授权的情况下延长原委托。
+0183-0568	apps/api/app/services/dataset_storage_target.py:92-93,102	-	最终写入结果不明时，可以按上传标识中止确切的未完成分段上传，但中止不能证明最终对象不存在。没有明确的对象版本时也不能删除当前键，它可能已被一次尚未取得写入凭据的更新占用。
+0183-0569	apps/api/app/services/dataset_workbench.py:97	-	工作台按位置统计时，以数据集而非数据集与来源的关联为计数单位；须用 EXISTS 判断是否有匹配来源，直接对关联结果计数会重复计算有多个来源的数据集。
+0183-0570	apps/api/app/services/dataset_workbench.py:150-151,317-318	-	非引用条目的状态由托管原件决定，不得由可选的目录溯源改写；只有引用分支才按该引用保留的来源纳入变更和预览检查，避免给托管或未验证条目附加并不存在的引用可用性历史。
+0183-0571	apps/api/app/services/dataset_workbench.py:192-193	-	工作台须按已接受的修订匹配注册证据，而非按完成时间匹配。重验证或迁移可使注册再次完成，使用可变的完成时间会让旧证据重新生效。
+0183-0572	apps/api/app/services/dataset_workbench.py:491-492	-	已发布缓存须用完整的已保存成员记录校验；借用其他对象的根目录或当前分配绑定，会把校验指向不同于发布时所记录的成员。
+0183-0573	apps/api/app/services/dataset_workbench.py:605-606	-	工作台须从逻辑文件名的最后一个路径分量判定扩展名；引用键是 opaque 标识，不保证保留文件名或后缀，按它筛选会错分文件。
+0183-0574	apps/api/app/services/directory_previews.py:41	-	目录预览收尾可以处理与取消并发发生的 I/O 失败，但仍须传播取消；若改为抛出 I/O 错误，调用方将无法识别这次执行是被取消的。
+0183-0575	apps/api/app/services/directory_previews.py:79-80	-	目录预览清理失败时须保留原始错误并交由运维核对；不得为了完成清理而扩大前缀范围，否则可能删除其他所有者的对象。
+0183-0576	apps/api/app/services/directory_previews.py:209-210,422	-	目录预览的物理写入结果不明时，由独立于业务事务的持久化输出记录承担该写入的不确定性；派生预览失败不能回滚已通过验证的原件注册。
+0183-0577	apps/api/app/services/directory_previews.py:494-495	-	目录派生物是按旧 SHA 定位的只读管理预览；读取不得依赖外部源或其探测记录，否则后续源状态会改变既有历史预览的可读性。
+0183-0578	apps/api/app/services/discussion_notifications.py:98-99	-	讨论通知须沿用讨论读取的 404 隐藏语义；若仅按任务原有关系发送，任务转移或隐藏后，已经失去读取权限的人仍可能从通知得知任务或讨论的存在。
+0183-0579	apps/api/app/services/e2e_fixture_backend.py:272,380	-	E2E fixture 关闭时须先用 offline_seal 封住新执行，并保留对未完工作的控制；不能把 EOF 或服务关闭当成放行信号，否则被挂起的执行会在关闭时继续运行。
+0183-0580	apps/api/app/services/email.py:22-23	-	加载 SMTP 设置须绕过缓存，从同一份已保存配置读取服务器、凭据和发件人；分别使用缓存值会在另一 API 进程更新配置时混用新旧设置。
+0183-0581	apps/api/app/services/export_binding_change.py:220	-	导出绑定变更须先结束持锁事务，再调用存储提供方；否则外部 I/O 的等待时间会延长权限、位置或绑定行的锁定，阻塞这些行上的并发操作。
+0183-0582	apps/api/app/services/export_media_bundles.py:220	-	识别历史混合媒体 Bundle 的所有权时，只能将其私有 PCD 配套产物归入该 Bundle；不能按现有 Bundle 的产物范围回推，否则会误认其他历史产物的归属。
+0183-0583	apps/api/app/services/export_media_bundles.py:839	-	媒体 Bundle 读取需要保存点时，须使用连接级保存点；Session.begin_nested() 即使在关闭 autoflush 时也会刷出调用方尚未提交的工作，使读取产生额外写入。
+0183-0584	apps/api/app/services/export_media_bundles.py:943	-	媒体 Bundle 发布须在完整比对不可变 JSON 后重新检查自然到期；只在比对前检查，会让比对期间已到期的 Bundle 仍被发布。
+0183-0585	apps/api/app/services/export_media_removal_accounting.py:112-113	-	媒体对象已确认删除后，读回或回执观察失败不能把删除改判为业务失败；无法确定的是这个独立观察窗口的增量，应保留为未知。
+0183-0586	apps/api/app/services/export_media_retirement.py:256-257	-	媒体退役的最终状态迁移须以数据库时钟为准，而非 worker 的本地时钟；worker 时钟偏快时，按本地时间执行会在数据库允许迁移前删除对象。
+0183-0587	apps/api/app/services/export_media_retirement.py:451	-	媒体 Bundle 须先提交 retiring 状态，再校验元数据、构造客户端或访问存储；若把状态提交推迟到这些步骤之后，任一步失败都可能使已开始的退役没有持久状态。
+0183-0588	apps/api/app/services/export_media_storage.py:125	-	媒体存储身份须与 managed_storage_identity 的算法完全兼容，否则同一存储会得到不同身份；但身份计算不应为复用算法而引入其全局存储客户端。
+0183-0589	apps/api/app/services/export_media_storage.py:540	-	版本控制暂停的桶可以在旧版本之上保留当前 null 版本，因此不能把当前版本为 null 当成没有历史版本的证据，否则会漏掉仍存在的旧版本。
+0183-0590	apps/api/app/services/export_media_storage.py:908	-	媒体版本分页须记录所有已访问的标记对；只和前一页比较，只能发现原地重复，无法识别游标跳回更早页面形成的循环。
+0183-0591	apps/api/app/services/export_media_transfer.py:192	-	媒体传输为每个对象复制其对应的预校验清单条目即可；逐对象复制整份清单会反复复制无关条目，使清单复制开销随对象数和清单大小相乘。
+0183-0592	apps/api/app/services/export_media_transfer.py:506	-	媒体 PUT 一经验证，后续签名或客户端关闭失败不能撤销写入事实；须保留已取得的对象版本，不能按未写入处理。
+0183-0593	apps/api/app/services/export_media_transfer.py:591	-	媒体传输的迟到成功得到确认后，才可按成功结算继续关闭余下许可；结果仍未知时，不能把等待结束当成传输已结算。
+0183-0594	apps/api/app/services/export_outputs.py:93	-	只有历史轻量输出候选可以把缺失的关联字段解释为无关联；正式 ExportOutput 和 OutputSnapshot 不适用该规则，否则字段缺失会被当成有效的无关联状态。
+0183-0595	apps/api/app/services/export_outputs.py:147-148	-	临时 ZIP 须保留到哈希线程实际退出；软限制触发或再次收到中断并不代表线程已停止，提前释放会让仍在运行的线程失去输入文件。
+0183-0596	apps/api/app/services/export_outputs.py:319-320	-	HTTP Job 已预留的 ZIP 须沿用媒体 Bundle 保存的存储所有者；按当前用途的默认配置重新分配，会使 ZIP 的归属偏离 Bundle 已记录的绑定。
+0183-0597	apps/api/app/services/export_outputs.py:480-481	-	失效清理只能在缓存索引仍指向校验失败的候选时删除该索引；若只按索引键删除，可能误删并发 record() 刚改指的另一输出。
+0183-0598	apps/api/app/services/export_outputs.py:533-534	-	输出读取回执须在释放行锁时已持久可见，使退役方要么看到回执，要么让后来的读取在发起 I/O 前拒绝；若先解锁再保存回执，退役可能漏掉已获准的读取。
+0183-0599	apps/api/app/services/export_outputs.py:615	-	分配给新 worker 的快照可能早于独立提交的 PUT。快照里没有上传证明时，须重读 Output 并核对候选身份；否则会把已提交的上传误判为尚未发生。
+0183-0600	apps/api/app/services/export_outputs.py:758	-	关联输出的清理与发布须统一先锁 Bundle，再锁 Output；任一路径倒序取锁，都可能与另一条路径互相等待。
+0183-0601	apps/api/app/services/export_storage.py:455	-	不能用当前对象的 HEAD 补证回执记录的那次 PUT。即使内容一致，HEAD 也只说明当前对象的状态，不能证明它来自回执对应的写入。
+0183-0602	apps/api/app/services/export_storage_target.py:21-22	-	导出绑定检查仍须接受最长的合法历史根路径，否则无法识别已有绑定的桶；解析出桶只用于识别，不能据此授权分配新的 ZIP 键。
+0183-0603	apps/api/app/services/export_zip_accounting.py:265	-	ZIP 计量的 SDK 观察钩子必须返回 None；公开钩子的非 None 返回值可能替换实际响应，使计量代码改变调用结果。
+0183-0604	apps/api/app/services/feedback.py:86-87	-	反馈回复须原样继承已持久化的锚点；锚点版本较新，或所引用的对象和媒体后来变更，都不是重算的理由，否则回复可能偏离原反馈所指的位置。
+0183-0605	apps/api/app/services/feedback.py:235	-	反馈的 annotation_version 记录捕获反馈时的标注版本，不能用作乐观锁前置条件；否则捕获后发生的标注更新会使针对旧版本的反馈被拒绝。
+0183-0606	apps/api/app/services/feedback.py:309-315	-	旧反馈与统一反馈镜像须在同一 Session、同一事务中写入并一同提交；拆开提交会在其中一次写入失败时留下只有一侧存在的反馈。
+0183-0607	apps/api/app/services/feedback.py:319-320	-	统一反馈表要求 project_id 非空；登录页等无项目归属的 bug 反馈只写 bug_reports，不能为了写镜像而虚构项目归属。
+0183-0608	apps/api/app/services/feedback.py:720-721	-	当前任务的徽标与图钉分页只查询根反馈；根节点没有祖先需要追溯，遍历回复会让这两项查询依赖同项目下与当前任务无关的回复。
+0183-0609	apps/api/app/services/feedback.py:960-961	-	反馈防孤儿检查须为 Task 和 Annotation 使用独立别名；复用外层实体会使数据管理器计数等相关查询干扰根反馈的归属判定。
+0183-0610	apps/api/app/services/feedback_reconcile.py:21-23,31-35,72-74	-	镜像对账仅覆盖三类以旧表为准的记录：排除无项目的 bug 和软删评论，任务仅纳入有驳回理由的 rejected 项。按旧源主键求缺失，actual 为预期数减缺失数；按 kind 计数会混入原生 issue 和 comment。
+0183-0611	apps/api/app/services/filesystem_storage.py:211	-	打开源目录后仍须按预期锚点重新定位，才能发现源目录本身已被替换；原目录描述符仍可指向旧目录，不能证明原路径未变。
+0183-0612	apps/api/app/services/filesystem_storage.py:318	-	文件系统枚举探测须单独设限，且通过只表明能够列举目录；不能用枚举结果代替文件读取验证，否则会把可列举但不可读的文件判为可读。
+0183-0613	apps/api/app/services/fixture_media_execution.py:297-298	-	夹具媒体的提交异常须记为未决，不能直接当作回滚；生成记录可能已持久化，绑定提交也可能已在 PostgreSQL 生效，只是响应丢失。
+0183-0614	apps/api/app/services/fixture_run_ownership.py:346-348	-	夹具运行须在任何物理写入前持久化实际业务条目；否则中断恢复即使核验了 Creation，也无法关联原条目，只能事后补造业务身份。
+0183-0615	apps/api/app/services/guide_asset_references.py:266	-	新增指南资产引用须用 owner 锁串行化，持有该锁时不得反向获取 Project 锁；否则可能与先锁 Project 的路径互相等待。
+0183-0616	apps/api/app/services/guide_asset_storage.py:83	-	GuideAssetStorageError 对外只返回预设消息；不透传存储提供方的异常文本，因为其中可能包含不应暴露的存储信息。
+0183-0617	apps/api/app/services/guide_asset_storage.py:264	-	GuideAssetSnapshot 的冻结回执不能经属性暴露可变的定位器副本；冻结外层对象并不会冻结嵌套值，调用方仍可能改变回执表示的定位信息。
+0183-0618	apps/api/app/services/guide_asset_uploads.py:273-275	-	Workspace owner 发布指南图片时须按该修订重新获取存储门控，并确认 owner 行仍待发布，不能沿用早先的检查。引用与列表条目须在调用方事务内一同发布，以免只发布一侧。
+0183-0619	apps/api/app/services/identity_account_commands.py:74	-	准入阶段更新密钥最近使用时间所持的锁，不得延续到账户命令获取 User 锁时；否则会形成 Key → User 的反向锁序。
+0183-0620	apps/api/app/services/identity_account_commands.py:98-99	-	账户偏好接口原本没有全局字节上限；不能复用准入或密钥响应的大小限制，否则会拒绝原契约允许的偏好请求。
+0183-0621	apps/api/app/services/identity_account_lock_data.py:92-93;apps/api/app/services/identity_read_relations.py:37-38	0161-identity-current-authority-consumers.md,0162-identity-read-relations-and-consumer-grants.md	Identity 的文本锁查询与 Core SELECT 不触发 ORM 自动刷新；仅在启用 autoflush 时显式 flush，否则直接替换会看不到待处理变更，无条件刷新又会越过 no_autoflush。
+0183-0622	apps/api/app/services/identity_e2e_fixtures.py:22	-	Identity 端到端夹具须用独立元数据映射含 presence 的视图；复用迁移所用的元数据会把仅供夹具使用的映射纳入迁移。
+0183-0623	apps/api/app/services/identity_e2e_fixtures.py:84-85;apps/api/app/services/identity_provisioning_data.py:101-102	0132-identity-operational-provisioning-and-authority-reads.md	Identity 端到端夹具在调用 INSERT owner 前、原生账户创建在写入前，都须无条件 flush 调用方的待处理工作；若按 no_autoflush 跳过，就改变了旧 ORM helper 的写入顺序。
+0183-0624	apps/api/app/services/identity_invitation_commands.py:109-110	0122-independent-identity-invitations-and-mail-v2.md	邀请轮询须在各 owner 调用提交后才开始等待；把等待放进这些调用的事务或租约范围，会在轮询期间继续占用 SQL 锁或邮件发送租约。
+0183-0625	apps/api/app/services/identity_provisioning_data.py:55-56,75-76	0132-identity-operational-provisioning-and-authority-reads.md	Identity 播种的两处 owner 查询须与调用语句共享快照，批量账户查找不能拆成另一次查询再由 Python 选成员；否则候选可能来自不同快照。
+0183-0626	apps/api/app/services/identity_session_commands.py:100	0117-independent-identity-session-commands.md	本地会话命令返回 SessionFailure 时仍须提交事务中有效的登录失败审计；若把业务失败一律当作事务回滚，会同时丢掉本应保留的审计记录。
+0183-0627	apps/api/app/services/image_pyramid.py:332-333	0106-independent-image-media-owner.md	图片金字塔的复用者绑定实际生成代次，不继承原租约或发起授权；即使租约过期，也不能把复用误作接管生成的依据。
+0183-0628	apps/api/app/services/image_pyramid.py:527	0106-independent-image-media-owner.md	图片金字塔 owner 命令须在自己持锁后重读回执；交接前的读取不在这把锁的保护下，不能据此认定回执仍是交接前的状态。
+0183-0629	apps/api/app/services/image_pyramid_objects.py:136-137	0106-independent-image-media-owner.md	金字塔对象读门面须在构造提供方客户端前校验完整的不可变上下文；若推迟校验，混用的发布上下文就可能先被用于构造客户端。
+0183-0630	apps/api/app/services/image_pyramid_objects.py:583-586	0106-independent-image-media-owner.md	Native 写入方不能将已保存的输出键当作通用缩略图指针；概览须经 Images owner 的生成代次引用读取，否则会绕过代次绑定，回到用旧物理凭据签名的路径。
+0183-0631	apps/api/app/services/image_pyramid_objects.py:653-654	0106-independent-image-media-owner.md	金字塔候选清理须与过期扫描和 fail_generation 一样先锁 Asset、再锁 generation，且持锁重验归属后才能改状态；倒序可能互等，省去重验则可能按过期归属修改。
+0183-0632	apps/api/app/services/image_pyramid_objects.py:768-769	0106-independent-image-media-owner.md	业务级联删除不记录最后一条引用消失的时间，金字塔清理须从发现引用消失时起算宽限期；不能假定宽限期已过，否则可能删掉仍由有效签名 URL 引用的对象。
+0183-0633	apps/api/app/services/image_pyramid_objects.py:800	0106-independent-image-media-owner.md	金字塔对象清理不能越过结果未知的早先物理操作；未知不是失败，若将其当作已结束，会在先前操作仍可能生效时继续清理。
+0183-0634	apps/api/app/services/image_pyramid_originals.py:115	-	金字塔原图须按保存的定位器校验，不能用当前用途桶配置推断位置；配置变更后，当前桶不一定仍是原图所在的桶。
+0183-0635	apps/api/app/services/image_pyramid_originals.py:124-125	-	原图绑定摘要不纳入另行校验的 HTTP Task 关系；否则工作进程按规范的 DatasetItem 衍生物 owner 重载同一原图时，可能因没有该请求关系而无法匹配绑定。
+0183-0636	apps/api/app/services/image_pyramid_originals.py:229-230	-	原图凭据检查即使只读也锁 User/Key；NOWAIT 冲突须用连接级保存点隔离，避免使调用方事务失效，也避免触发其待处理工作刷新。
+0183-0637	apps/api/app/services/image_pyramid_originals.py:262-263	-	固定原图须先通过现有 Task 读取授权；已获授权的 Task 衍生操作不能再以 Dataset 管理权限或可写生命周期为条件，否则会拒绝原本允许的读取。
+0183-0638	apps/api/app/services/image_pyramid_originals.py:451	-	金字塔原图捕获必须先结束自己持有的只读事务，再开始物理操作；不能把事务留到操作结束，否则存储等待也会延长数据库事务。
+0183-0639	apps/api/app/services/image_pyramid_originals.py:469-471;apps/api/app/services/managed_original_creation.py:1234-1235,1653-1654	-	Celery 软超时是普通异常，不能只在任务取消分支收尾；与 asyncio 超时一样，应通知读取器停止并等到物理操作结果明确。原件创建须接管迟到的客户端、预备操作和回执，照常持久化结果并在 finally 关闭句柄，不得让取消掩盖后续写入、关闭或记账失败。
+0183-0640	apps/api/app/services/image_source_references.py:61	-	原图引用应先批量读取，仅在批次失败时二分隔离坏源；预先拆成逐条请求会让没有坏源的页面也付出逐条 RPC 的代价。
+0183-0641	apps/api/app/services/import_binding_change.py:228	-	导入绑定预览须在访问存储提供方前提交事务；把提供方调用移进事务会让授权、位置和绑定行锁的持有时间取决于外部 I/O。
+0183-0642	apps/api/app/services/inference_gpu_data.py:21	-	GPU 管理数据把连接交给原始驱动前，必须先执行 SQL 启动物理事务；仅取得 SQLAlchemy 连接不代表底层事务已经开始。
+0183-0643	apps/api/app/services/inference_health_data.py:112,242	0153-caller-owned-native-health-data.md	原生健康写入回填推理后端 ORM 对象时，只同步实际写过的非秘密字段，并保留调用方后来修改的值；整行刷新会吞掉本应由普通 ORM 工作单元处理的修改。
+0183-0644	apps/api/app/services/inference_health_data.py:140	0153-caller-owned-native-health-data.md	健康协调操作名使用封闭集合内的 SQL 字面量，而不是统一改成绑定参数；否则 SQL 跟踪无法从语句中区分并识别对应的旧写入宏。
+0183-0645	apps/api/app/services/inference_health_data.py:223	0153-caller-owned-native-health-data.md	启用 autoflush 时，原生健康写入必须保留旧 ORM UPDATE 的刷新时点；否则直接执行原生 SQL 会使该写入看不到调用方尚待刷新的修改。
+0183-0646	apps/api/app/services/inference_health_observation.py:49	0152-credential-owning-health-observations.md	健康观测采集和证据核验必须借用调用方的工作单元且不触发 autoflush；另开事务会改变证据的可见范围，而自动刷新会让一次观测提前发出调用方尚未刷新的写入。
+0183-0647	apps/api/app/services/inference_model_execution.py:215	-	推理执行的熔断提示只能作为提示，不能替代持久化准入；否则提示未拦截的尝试就能绕过实际执行所需的持久化判定。
+0183-0648	apps/api/app/services/inference_model_execution.py:359	-	HTTP 执行尝试须保留持久化执行作用域，直到确认尝试已经结束；发出关闭请求并不证明执行已停止，提前释放会把仍未结清的尝试当成已退出。
+0183-0649	apps/api/app/services/inference_pipelines_data.py:68-70	-	推理流水线事务由 API 请求拥有；readonly 是可移植数据协议的标记，不能直接映射成 PostgreSQL 的嵌套只读设置，因为请求事务此时已经开始。
+0183-0650	apps/api/app/services/inference_pipelines_data.py:85-86	-	流水线原生写入须沿用创建、更新和应用流程的显式 flush 边界，不能改靠 autoflush；否则关闭 autoflush 时，后续步骤可能看不到原流程在该处已刷新的修改。
+0183-0651	apps/api/app/services/inference_topology_data.py:494-495	0155-durable-inference-routing-authority.md	退役推理安装必须与 freeze、publish 同序，先锁 Inference 行，再取 Learning 部署锁，并持有两把锁直至提交；反序可能死锁，提前释放则允许并发操作在退役提交前进入。
+0183-0652	apps/api/app/services/jobs_dispatch.py:119-120	-	发布方回复不能替代持久化派发确认；确认丢失时，租约到期后必须仍能恢复同一个派发信封，不能因曾收到回复就把它视为已结清。
+0183-0653	apps/api/app/services/labeling_assignment.py:96-97	-	标注分派须先锁批次再锁任务，并在等待后复核任务当前仍属于已锁批次；若归属已变，应判定预览过期，不能把未受该批次锁保护的任务交给开放任务池。
+0183-0654	apps/api/app/services/labeling_assignment.py:251-254	-	批量评审分派只在任务已进入 review 后受理；submit 开启评审轮次时会清除评审人字段，提前受理会让已完成的认领被静默抹掉。
+0183-0655	apps/api/app/services/labeling_assignment.py:335-336	-	重新分派须使用标准写入栅栏，不能给操作者本人保留旧分派，否则旧编辑者仍可按旧归属写入。取不到 advisory 锁时不能持任务行锁等待，以免与先取栅栏的写入互相阻塞。
+0183-0656	apps/api/app/services/labeling_prediction_contract.py:68-69	-	预测写入回执由输入 owner 签发，并且只能附到实际执行该写入的事务；跨事务附用会让一个事务为并非由它提交的写入作证。
+0183-0657	apps/api/app/services/labeling_project_counter_data.py:32	0176-labeling-lifecycle-counter-deltas.md	项目计数器不能统一改成进入函数即写入或始终延后；Workspace 读取可触发 autoflush，而无来源的清理可推迟该写入，统一时点会改变计数器写入与读取或清理的先后顺序。
+0183-0658	apps/api/app/services/labeling_project_counter_data.py:96-97	0176-labeling-lifecycle-counter-deltas.md	原生项目计数器写入不能抹去 Project 上无关的 ORM 修改。只有其他列仍需走常规 Project UPDATE 时才保留 updated_at 的脏历史，避免仅为已由原生写入处理的时间戳再发 UPDATE。
+0183-0659	apps/api/app/services/labeling_project_counter_data.py:146	0176-labeling-lifecycle-counter-deltas.md	项目计数器的会话暂存状态须在最外层事务结束时清理，不能只靠 after_soft_rollback；Session.close() 可直接丢弃待处理工作而不触发该事件。
+0183-0660	apps/api/app/services/labeling_tasks.py:553	-	任务创建回执重放返回的是历史总数，不能拿它覆盖当前项目投影；应使已加载的 total_tasks 和 updated_at 失效，避免后续读取沿用旧值。
+0183-0661	apps/api/app/services/labeling_write_guard.py:234-235	-	运行中的预测项在既有条目边界响应协作式取消，但作业真正进入终态后必须拒收迟到结果；不能把允许当前条目收尾当成终态仍可写入的依据。
+0183-0662	apps/api/app/services/labeling_write_scope.py:71	-	旧版序列化写入作用域缺少来源绑定时须保留未知；以当前绑定回填会把现在的归属误当成历史写入的依据。
+0183-0663	apps/api/app/services/learning_policies.py:357-358	-	学习策略成功后，即使源内容未变也要推进基线数据集指针；指针变化和内容变化须分开判断，否则推进基线本身就会触发不必要的重新打包。
+0183-0664	apps/api/app/services/learning_policies.py:615-617	-	学习策略须先提交持久调度认领、释放业务锁，再读取物理源。读取返回后要逐字段重验持久状态，不能只看源内容是否变化，否则会覆盖并发编辑或更新的检查，即使后者判定输入未变。
+0183-0665	apps/api/app/services/learning_policies.py:796	-	训练数据集派发须在数据库提交时持久记录待发布触发器的身份；否则进程在提交后、消息代理发布前崩溃，恢复时就找不回原来的触发器。
+0183-0666	apps/api/app/services/managed_inference.py:198	-	禁用托管推理只应拦截新执行，停止控制句柄不能复用这一启用门槛，否则禁用后，旧请求连停止确认都无法完成。
+0183-0667	apps/api/app/services/managed_mask_repair.py:308-309	-	托管掩码修复恢复时可跳过已完成单元，但其不可变的计划来源只用于保留原计划证据，不能转成新的委托，否则会把历史来源误当作本次授权。
+0183-0668	apps/api/app/services/managed_mask_repair.py:424	-	托管掩码修复的只读回执可以并存，但回执不能充当写入许可；实际写入仍须独占任务编辑锁和行锁，否则并存回执就可能引入并发编辑。
+0183-0669	apps/api/app/services/managed_native_inference.py:56-57	-	已完成的原生推理 Decision 不随候选过期而失效；重放仍须匹配原请求和当前原件，但不能仅因候选过期而要求重新签名。
+0183-0670	apps/api/app/services/managed_native_inference.py:76	-	原生推理必须先关闭源句柄并释放许可，再取得最终业务锁；否则会把物理源的收尾和许可占用带进最终业务临界区。
+0183-0671	apps/api/app/services/managed_original_creation.py:399-401	-	恢复繁忙的原件发布目标时，仍须遵守管理员的 Connection→Location 锁序，且不能结束调用方的发布事务；逆序可能死锁，自行结束事务则会破坏调用方持有的源和业务行锁。
+0183-0672	apps/api/app/services/managed_original_creation.py:972-973	-	操作员追加回执可能比对应条目活得更久，不能用条目是否存在判断回执已无效；发布夹具归属前须用同一精确对象键串行化回执接纳，避免两者并发落定。
+0183-0673	apps/api/app/services/managed_original_creation.py:1103-1105	-	原件发布重试沿用预留对象键，但不能只靠该键识别当前 Creation；同一键可能留有早先失败尝试的不可变证据，应优先采用已验证的尝试。
+0183-0674	apps/api/app/services/managed_original_creation.py:1422-1423	-	原件创建若未通过冻结或配置检查，只能清理本次尚未开始完成的精确 MPU；不能删除或重试最终对象，因为检查失败并不证明最终对象属于这次可撤销的操作。
+0183-0675	apps/api/app/services/managed_original_creation.py:1473	-	原件创建许可必须等物理关闭和记账都结清后才能释放；只等请求返回或句柄关闭就释放，会让后续操作把仍未结清的工作视为已退出。
+0183-0676	apps/api/app/services/managed_original_creation.py:1700-1701	-	原件读取须先持久化许可，再进入精确键回收屏障；若回收已认领就拒绝读取，否则由已落库的许可阻止 GC，避免读取获准后对象仍被回收。
+0183-0677	apps/api/app/services/managed_original_probe.py:124	-	原件探测的构造调用即使抛错，也不能据此认定没有遗留物理句柄；结果须标为未结清，不能按已确认关闭处理。
+0183-0678	apps/api/app/services/managed_original_probe.py:271-272;apps/api/app/services/managed_original_writer.py:360-361,484-485	-	固定 VersionId 只能保证读到哪一版，不能证明源在读取字节或使用句柄期间仍是当前版本；新定位符的消费者尚未普遍按不可变版本读取。最终 HEAD 不带 VersionId 或 IfMatch，发现源版本已不再是当前版本就不得采纳。
+0183-0679	apps/api/app/services/managed_original_reader.py:202,384-386	-	构造响应没有可用 Body，不能证明远端流已结束；关闭本地临时文件也不能结清状态未知的服务商构造调用或远端句柄。即使本地关闭成功，显式池仍须保留未结清责任。
+0183-0680	apps/api/app/services/managed_original_reclaim.py:185-186	-	回收执行须绑定当前目标的确切配置，不能只比较地址；地址未变不能排除配置已被替换，否则旧配置下的回收决定可能被用于新配置。
+0183-0681	apps/api/app/services/managed_original_reclaim.py:885-886;apps/api/app/services/managed_original_reclaim_io.py:250-251	-	以持久化的 delete_started 检查点作为 DELETE 可能已发出的界线，而不是以 SDK 返回为准；检查点可能已提交而回复中断，SDK 未返回便失败也不能证明未发出删除。
+0183-0682	apps/api/app/services/managed_original_reclaim.py:981-982	-	进程收到信号不代表原生执行器已经停止；只要执行仍可能在继续，就必须保留回收所有者和许可，不能按 TTL 接管，以免两个执行器同时回收。
+0183-0683	apps/api/app/services/managed_original_reclaim.py:1022-1023,1052-1053	-	引用对账仍按 User/Key→所有者/Job 的顺序加锁，但只观察数据库快照。已知 Job 终止或缺失、或请求者已失权时，不应将该审计当成尚有物理工作而保留占用、阻塞后续审计。
+0183-0684	apps/api/app/services/managed_original_reclaim_fence.py:286-287	-	回收屏障不能只保留当前尝试的回执：新尝试成为当前记录，不代表旧尝试的物理操作已结清。即使旧回执对应的目标已不存在，其状态也仍是未知。
+0183-0685	apps/api/app/services/managed_original_reclamation.py:58-60	-	回收观察遇到结构未知的源记录时须全局阻断，不能让 JSON 展开丢掉无法识别的记录而漏判保护。历史值按文本比较，避免不符合 UUID 或数值格式的旧值在强制转换时使查询失败。
+0183-0686	apps/api/app/services/managed_original_retention.py:311-312	-	保留策略变更须先用与 GC、发布相同的对象身份进入共享屏障并检查持久回收认领，再取独占锁串行化变更。只在变更之间加锁，不能排除对象已被回收认领。
+0183-0687	apps/api/app/services/managed_original_retention.py:371-372	-	保留策略变更和审计须处于同一保存点；若仅依赖外层事务回滚，调用方捕获审计异常并继续提交时，就可能留下没有审计记录的局部变更。
+0183-0688	apps/api/app/services/managed_original_retirement.py:148	-	原件身份取证失败不能成为拒绝合法逻辑删除的理由；否则无法确认原件身份就会阻断退役，即便逻辑删除本身合法。
+0183-0689	apps/api/app/services/managed_original_verification.py:624-625	-	原件验证许可已持久化，也不能替代工作器发起物理 I/O 前的共享屏障；屏障必须按精确对象键取得，否则验证仍可能与同一对象的回收并发。
+0183-0690	apps/api/app/services/managed_original_writer.py:185-186	-	创建 MPU 的响应丢失且没有持久化 UploadId 时，只能保留未知状态；编造 ID 或扫描其他写入者的前缀都无法证明归属，还可能把别人的上传归到本次写入。
+0183-0691	apps/api/app/services/managed_original_writer.py:235-236	-	分片大小须按实际分配预算和最大分片数计算；固定用 8 MiB 会在分片数耗尽时拒绝本来仍在预算内的较大连接器流，相当于另加了文件大小上限。
+0183-0692	apps/api/app/services/managed_original_writer.py:563-566	-	S3 兼容服务不回显复制源版本时，不能凭请求参数认定复制了指定版本。先结清该 MPU，再由同一所有者在原截止时间内改用固定版本、独立计算哈希的流。
+0183-0693	apps/api/app/services/managed_repair_acceptance.py:239-240	-	畸形修复验收输入由路由按常规返回 422；不能先读取源或发放私有回执再报错，否则本应直接拒绝的请求也会触发源读取或取得回执。
+0183-0694	apps/api/app/services/managed_s3_target.py:207-208,238	-	托管 ZIP 可沿用 SDK 的重试和传输策略，但观察器只绑定独占客户端，避免影响同一共享客户端上的其他传输。借来的旧版 S3 客户端由进程持有，托管目标不得关闭它。
+0183-0695	apps/api/app/services/managed_s3_target.py:222-223	-	记账管理下的一条持久 S3 传输意图只允许提交一次；服务商响应丢失不代表提交未发生，复用该意图再次提交会让一条记录对应多次提交。
+0183-0696	apps/api/app/services/managed_s3_target.py:332-333	-	S3Access.client 须在已登记的 I/O 内重做实时主机检查；把 DNS 解析提前到分配阶段，会在持有分配行锁期间执行外部 I/O。
+0183-0697	apps/api/app/services/managed_s3_target.py:450	-	PUT 响应丢失时须保留未结清状态；没有收到响应不能证明对象未写入，更不能当成已证实删除而结清物理责任。
+0183-0698	apps/api/app/services/managed_s3_target.py:484-485	-	若服务商忽略写入条件，即使写入返回成功也不能通过托管目标资格核验；条件未生效时可能已产生额外版本，成功响应无法排除这一结果。
+0183-0699	apps/api/app/services/managed_secondary_inference.py:79	-	二级推理复核必须对照最初选定的 ROI 行；静默换用更新的 ROI，会让复核验证的是另一份输入，而不是当时选定的区域。
+0183-0700	apps/api/app/services/managed_secondary_inference.py:109-110	-	二级推理须先结束路由或几何调用方可能已打开的读事务，再解码、编码或交付目标对象；不能让这些处理及对象交付延长上游读事务。
+0183-0701	apps/api/app/services/management.py:65-67	-	管理分派须按分派优先级逐行加锁；共享锁接口的批量调用会按 ID 重排，即使锁的是同一批行，也会改变既有加锁顺序。
+0183-0702	apps/api/app/services/management.py:87	-	管理分派须从已持久化的任务记录聚合计数；若用批次缓存计数代替，缓存与落库记录不一致时，分派就会依据错误的任务数量。
+0183-0703	apps/api/app/services/mask_content.py:55	0111-independent-mask-content.md	掩码内容以选定的存储所有者为准；即使该所有者不可用或配置错误，也不能回退到其他来源，否则会把未经所选所有者确认的内容当作同一掩码。
+0183-0704	apps/api/app/services/mask_conversion.py:431-432	-	紧致掩码包围盒须保留显式的整数推导，不能把增量计算交给归一化舍入；后续调整舍入方式时，看似等价的计算可能悄悄产生负增量。
+0183-0705	apps/api/app/services/mask_gc.py:88	0112-durable-mask-gc-fences.md	掩码 GC 取得许可前须抑制 ORM 自动刷写；显式 flush 或提前建立会触发刷写的保存点，都可能让待处理对象在许可检查之前先建立引用。
+0183-0706	apps/api/app/services/mask_mutation.py:806-807,1724-1726	-	掩码持久化以当前 Task 行锁覆盖候选发现到行锁取得的间隙，否则 Labeling 写入可在其间改变候选。读取限定范围后先锁 RLE／上传，再锁 Annotation，以免与 GC 和常规写入的锁序相反。
+0183-0707	apps/api/app/services/mask_mutation.py:1222-1224,1657-1659	-	服务端短期修复计划和已核验的冻结源几何不能替代共享变更服务的校验：写回执只覆盖变更，写前仍须用 reference_value 核验每个源与结果 RLE，并复核范围指纹、版本、锁和写入契约。
+0183-0708	apps/api/app/services/mask_mutation.py:1689-1691	-	FastAPI 依赖预检不能作为最终判定；幂等重放或变更前须重读刚锁定的 Task，并复核本轮冻结的非本人证据，否则可能依据加锁前已失效的状态执行。
+0183-0709	apps/api/app/services/media_cache_accounting.py:136-137	-	媒体缓存记账的 Engine/Session 只由所属事件循环访问；SDK 线程必须等短事务持久提交后才发出该笔 PUT，否则外部写入可能已发生，账本却没有对应记录。
+0183-0710	apps/api/app/services/media_cache_binding_change.py:223	-	媒体缓存绑定变更不能跨存储提供方 I/O 持有授权、位置或绑定行锁；否则这些数据库行的解锁时间会受外部服务调用的延迟或阻塞支配。
+0183-0711	apps/api/app/services/media_cache_response.py:104-107	-	回收器持所属行排他锁复核精确用途；新读许可必须与这一步互斥，以免回收器通过复核后又出现新的读者。其他 retiring 读取也保守拒绝，ready 读取仍可并发。
+0183-0712	apps/api/app/services/media_cache_response.py:248	-	媒体缓存读取须先接管 get_object 返回的 Body，再验证响应；若先校验并因响应畸形而退出，已经返回的远端流可能没有清理责任方。
+0183-0713	apps/api/app/services/media_cache_response.py:346-347;apps/api/app/services/original_cache.py:960-961	-	媒体缓存不能沿用准入持久化前的凭据或 Gate 结论，须重新取凭据并复核；复核开启的元数据事务也须在 SDK 读取前结束，不能让物理 I/O 占着数据库连接或业务、发布锁。
+0183-0714	apps/api/app/services/media_process.py:62-64,111-112	-	媒体探测只接受受支持的自包含容器；即使 MOV 默认禁用外部引用，也要显式拒绝相对和绝对引用，免得解复用器打开未验证的第二个文件。探测头部不得改变后续读取共用的文件偏移。
+0183-0715	apps/api/app/services/media_process.py:154-156	-	发出终止信号不等于媒体子进程已退出；须确认退出才可释放其继承的输入或关闭管道。发信号失败时只限时观察，若仍不能确认退出，清理责任继续保留。
+0183-0716	apps/api/app/services/ml_backend.py:334	-	托管推理认证须先完成握手，再进入持有行锁的写事务；反过来会让外部握手的等待时间延长行锁占用。
+0183-0717	apps/api/app/services/ml_backend.py:376-378	-	项目启用关联以服务池为单位，不能用 Registry 实例 ID 代替池 ID，否则关联会落在实例而非目标服务池上；Registry 适配器须经拓扑协调器解析该映射。
+0183-0718	apps/api/app/services/ml_interaction_proxy.py:85-86	-	配对响应只在平台交互代理边界协商，不能在共享推理后端统一切换响应格式，否则仍只接受 Masks 的旧 API 实例会收到无法处理的响应。
+0183-0719	apps/api/app/services/model_catalog.py:88	-	多轴权重变体必须由模型配置声明，不能把各轴取值直接做笛卡尔积，否则目录会列出并无对应权重的组合。
+0183-0720	apps/api/app/services/model_catalog.py:491	-	checkpoint 验证记录描述制品当时的检查结果，不能用当前部署健康状态覆盖，否则部署故障会被误记为既有制品验证失败。
+0183-0721	apps/api/app/services/notification.py:146-148	-	通知偏好仍由原 owner 预检裁定；通知须在原有全量 flush 前加入工作单元，不能另行提前 flush，否则会打乱 no_autoflush 下调用方待写变更的刷新顺序。
+0183-0722	apps/api/app/services/notification_socket_bridge.py:16,26	-	通知 WebSocket 的握手调试日志会暴露 URI 中的凭据，因此须静默传输日志；也不能跟随重定向，否则凭据可能被送到配置的 owner 端点之外。
+0183-0723	apps/api/app/services/ordinary_thumbnails.py:59	-	普通缩略图只在 Dataset 项仍指向同一原件时保留错误元数据；仅凭 Dataset 项相同而沿用错误，会把旧原件的失败算到替换后的原件上。
+0183-0724	apps/api/app/services/ordinary_thumbnails.py:112	-	普通缩略图首次补齐尺寸须保留独立提交边界，并在提交后再固定源事实；不能把本次拟写入、尚未持久化的尺寸当成后续核验基准。
+0183-0725	apps/api/app/services/ordinary_thumbnails.py:165-167	-	普通缩略图须等 create() 关闭物理句柄并独立提交 ready，再用 NOWAIT 锁复核源和业务状态。若复核输掉竞态，只是不挂接候选，不能把已经持久化的候选随挂接失败一并撤销。
+0183-0726	apps/api/app/services/original_binary.py:133-134	-	原件读取必须拒绝当前已停止的 Gate，但不能把维护修订号当成源版本；若 Gate 已停止后恢复，仅修订号变化不足以推翻已验证的字节、权威归属或源身份。
+0183-0727	apps/api/app/services/original_binary.py:219	-	原件分类须在调用媒体 owner 的准入流程前结束数据库事务，不能把请求连接留在事务里跨该调用等待。
+0183-0728	apps/api/app/services/original_cache.py:286	-	旧原件缓存记录的 NULL 地址必须解释为历史位置 A，不能回退到当前存储绑定，否则重新绑定会把同一条旧记录解析到错误的存储位置。
+0183-0729	apps/api/app/services/original_cache.py:420	-	原件缓存等待预算锁后须重读配置和已有预留；等待前的观察看不到前一持锁事务刚提交的变化，继续使用可能按旧额度或旧用量分配。
+0183-0730	apps/api/app/services/original_cache.py:470	-	原件缓存的首次 PUT 必须晚于预留的独立提交；若只在未提交事务中预留，事务失败后物理对象可能已写入，却没有持久记录能证明归属。
+0183-0731	apps/api/app/services/original_cache.py:542-543	-	输入 Snapshot 已证明图像可解码并核实尺寸，缓存验证只需比较完整字节。字节完全相同时可沿用该证据，无需重新取快照、准入或解码。
+0183-0732	apps/api/app/services/original_cache.py:579	-	原件缓存清退只能解绑该记录所属代次和角色的定位器；只按原件匹配会误解绑后来发布的代次或其他角色仍在用的定位器。
+0183-0733	apps/api/app/services/original_cache.py:630-631	-	原件缓存留存是可选操作，发布事务须使用短锁超时；调用方可能尚未释放业务行锁，无限等待可能让发布反过来卡住调用方结束事务。
+0183-0734	apps/api/app/services/original_cache.py:653	-	原件缓存发布不能覆盖托管原件，也不能因已有定位器可用就接管它；归属无法证明时，不能把该定位器纳入缓存的发布和清退范围。
+0183-0735	apps/api/app/services/original_cache.py:886-887,1004	-	原件缓存临时读租约只能在确认物理流未启动，或有界捕获的 SDK 线程与句柄都已收尾后清除；仅凭请求结束就清除，会让仍在进行的读取失去租约保护。
+0183-0736	apps/api/app/services/original_cache.py:941-942	-	原件缓存重定向只把已保存缓存的传输端从 A 改到实际端 B，不能据此迁移规范权威或配额；否则会把仍归 C 的对象按传输端归属处理。
+0183-0737	apps/api/app/services/original_cache.py:981	-	原件缓存须区分对象损坏与读取未完成；准入受限或截止时间不足只说明本次不能完成检查，不能据此把缓存对象判坏。
+0183-0738	apps/api/app/services/original_content_access.py:45-46	-	已接受密钥的当前权限范围和有效期，由 Identity 在自身 SHARE 栅栏内确认；原件访问层不能自行读取凭据材料来替代这次确认。
+0183-0739	apps/api/app/services/original_content_access.py:72-73	-	非核心调用方通过原件访问助手读取旧版 User 或 Project 时，须等待短时自助写事务结束并沿用 SHARE 栅栏；绕开会让访问判断不再与这些写入串行。
+0183-0740	apps/api/app/services/original_content_access.py:119-120	-	没有 HTTP 证明时，原件访问仍须重新确认当前操作者；不能用 I/O 前留在 identity map 的角色授予可见性，因为该角色可能已在等待期间撤销。
+0183-0741	apps/api/app/services/original_content_access.py:130-131	-	原件访问须按 Task、Project 的顺序取读锁，与标注写入更新 Task 再更新 Project 计数的顺序一致；反序会让读方持有 Project 等 Task，写方持有 Task 等 Project。
+0183-0742	apps/api/app/services/original_playback_registry.py:137-138	-	原件播放注册表不能把调用方取消传给私有 close 任务；即使反复取消也须等它收尾，若关闭结果仍不明则保留配额，不能把可能尚未释放的资源算作已释放。
+0183-0743	apps/api/app/services/original_playback_registry.py:450-451	-	原件播放条目退役时须同时撤销键和全部租约；进行中的捕获仍由原 owner 收尾，但不能再发布，否则退役前开始的捕获会在退役后重新发布结果。
+0183-0744	apps/api/app/services/original_playback_response.py:56	-	If-Range 必须先于整个 Range 字段的解析；验证器不匹配时直接返回完整响应，不能让本应忽略的 Range 触发解析错误或改变响应。
+0183-0745	apps/api/app/services/original_playback_response.py:79-80	-	原件播放须先按请求头长度上限约束 Range 数字，使每次整数转换最多处理 511 个 ASCII 数字；传给 os.pread 的偏移还须受实际文件长度约束，不能直接使用客户端数值。
+0183-0746	apps/api/app/services/original_playback_response.py:91-92	-	按 RFC 9110，空表示可以忽略 Range；即使正数后缀在规则上可满足，空文件也没有可写入 206 响应的合法字节区间，因此返回完整响应。
+0183-0747	apps/api/app/services/original_request.py:33	-	原件请求主动停止 watcher 时仍须等它收尾，但应按正常终止处理；不能把主动发出的取消归类为接收故障。
+0183-0748	apps/api/app/services/original_sources.py:150-151	-	原件源读取须用连接级保存点隔离 NOWAIT 错误；Session.begin_nested() 即便在 no_autoflush 中也会 flush，可能提前写出调用方的待提交变更。连接级保存点不刷新或结束外层事务。
+0183-0749	apps/api/app/services/original_sources.py:189-190	-	原件源读取应取标量行，不能用 populate_existing 或 load_only 刷新调用方已加载的 ORM 对象，否则可能使其已纳入预算的状态过期，或重新加载无关 JSON。
+0183-0750	apps/api/app/services/original_sources.py:226-227	-	原件对象守卫须用 EXISTS 检查链接是否存在，不能只检查主链接；非主链接也与独立 TaskOriginal 冲突，且判定冲突不需要加载相机信息。
+0183-0751	apps/api/app/services/original_sources.py:350-351	-	原件源捕获只收集元数据；DNS 解析、解密和客户端构造须留在调用方已登记的物理操作内，不能在捕获阶段提前执行而绕开该操作的登记边界。
+0183-0752	apps/api/app/services/original_sources.py:440-442	-	原件保护检查必须以已登记的物理 Permit 为前提：GC 先占就拒绝申领；检查先通过则由持久操作记录继续保护 I/O，不能只靠可能在 I/O 完成前解绑的业务关系。
+0183-0753	apps/api/app/services/original_sources.py:530-531	-	解析原件源时，逻辑位置 A 的 Gate 与发布目标 B 的准入状态必须分开判断；不能因 A 已停止就提前拒绝，否则仍独立处于活动状态的 B 也会被挡住。
+0183-0754	apps/api/app/services/original_sources.py:550-551	-	有界位置查询在数据库中按完整 JSONB 值做精确相等判断，不改成逐字段宽松匹配或取回配置再比较；前者可能接受未知键或数字冒充的布尔值，后者可能返回无界大小的配置。
+0183-0755	apps/api/app/services/original_sources.py:705-706	-	判定原件副本歧义时也须先锁 Location 再锁副本，不能因预期拒绝就跳过锁定；现行用途桶和历史 Creation 不能作为候选过滤条件，否则可能把实际有歧义的结果误判为唯一。
+0183-0756	apps/api/app/services/original_sources.py:953	-	失败或已回滚的保存点中读取到的原件源事实不能进入解析缓存；否则后续解析可能复用只在已回滚事务状态下成立的观察结果。
+0183-0757	apps/api/app/services/pipeline_validation.py:60	-	流水线不能把分类下游必须输出 class 的约束套到 task=ocr；OCR 识别阶段的合法输出是 text，按分类规则校验会误拒合法流水线。
+0183-0758	apps/api/app/services/pipeline_validation.py:77	-	原生 ROI 父节点的裁剪边界必须从已验证的可移植 RLE 前景求出；使用整幅图像边界会把前景外区域也纳入 ROI，失去按掩膜限定裁剪范围的语义。
+0183-0759	apps/api/app/services/pipeline_validation.py:79	-	判断输出能否作为 ROI 裁剪来源前，先归一化 sam3 等后端的几何别名；直接按标准名称判断会把实际具备可裁剪几何的输出误判为不支持。
+0183-0760	apps/api/app/services/polygon_slice.py:84	-	polygon_slice._simple 按边的 X 区间扫描，只需对区间重叠的候选边检查相交；直接枚举所有边对会让普通复杂轮廓也承担二次比较成本。
+0183-0761	apps/api/app/services/polygon_slice.py:222-223	-	切线的区间检查必须在每个路径顶点处分段；两个交点之间也可能有拐角，只检查整段的中点会漏掉另一段越界的路径。
+0183-0762	apps/api/app/services/polygon_slice.py:259	-	切割所得两块面积相差不超过 EPS 时按质心定序；若仍直接比较面积，微小浮点误差就可能让等面积的两块交换身份。
+0183-0763	apps/api/app/services/prediction.py:69-71,226	-	显式工具白名单以 schema ToolUnitId 为准，避免手抄列表漏掉合法值；退役的 ai_interactive 不直接当作有效 ID，而按几何或 LS 类型派生，避免与迁移 0116 的转换结果分叉。
+0183-0764	apps/api/app/services/prediction.py:382-383	-	to_internal_shape 对已经是内部表示的字典只原地补齐缺失的 tool_unit_id；即便复制后的值完全相同，也会破坏调用方依赖的输入与返回值对象同一性。
+0183-0765	apps/api/app/services/prediction.py:397-399	-	协议 v2 的 OCR/doc_layout 富属性必须从 shape 顶层保留给 accept 写入 annotation.attributes；若只透传几何 value 中的数据，接受预测时就会丢失这些属性。
+0183-0766	apps/api/app/services/prediction.py:403-408	-	视频 bbox 轨迹从顶层读 class_name、从嵌套 keyframes 读坐标；坐标已归一化，百分比探测会误判小框。读取时沿用 worker 入库时映射的 trk_<uuid>，重建 UUID 会改变同一轨迹的身份。
+0183-0767	apps/api/app/services/prediction.py:456-462	-	LS 多边形适配兼容旧 points、带孔 points 和多连通 polygons，但不为旧形状显式增写 holes；即使空孔列表几何上等价，也会改变既有 JSONB 形状，空值默认由 PolygonGeometry 补齐。
+0183-0768	apps/api/app/services/prediction.py:1261-1262,1326,1375	-	原生写入不会替 ORM 保证待写数据的先后顺序，因此调用前须显式 flush：常规路径先落待写数据再写 Prediction 和元数据，测试播种与失败路径也不能让原生加锁或插入越过待写的 Task 编辑或计数。
+0183-0769	apps/api/app/services/prediction_execution.py:52	-	预测使用的归属行与分派或批次编辑共用，锁必须持有到预测提交；仅读取时加锁会留下归属被并发改写、预测却仍按旧归属提交的窗口。
+0183-0770	apps/api/app/services/prediction_execution.py:117	-	读模型只能把旧 checkpoint 声明视为配置，不能据此补造物理 checkpoint 身份；声明了某个 checkpoint 不等于已经解析或验证了对应的物理对象。
+0183-0771	apps/api/app/services/prediction_inputs.py:922	-	回执提交的确认失败不等于提交失败：此时无法确定哪些回执已持久化，必须标记为未决，不能猜测已经提交或全部回滚。
+0183-0772	apps/api/app/services/prediction_inputs.py:1100-1101,1247,1626-1627	-	物理许可覆盖实际资源操作的完整生命周期：借用描述符时由调用方持有至哈希和传输结束，等其他上传解锁时也不能提前释放。删除路径须持有许可直至原生客户端实际关闭，之后才能发布 deleted。
+0183-0773	apps/api/app/services/prediction_inputs.py:1410-1411	-	删除已验证的 S3 对象必须保留并指定不可变版本 ID；部分服务端会忽略条件 DELETE，而 ETag 或内容相同并不证明当前对象仍是已验证的那个版本。
+0183-0774	apps/api/app/services/prediction_originals.py:157	-	凭证指纹只绑定实际获准的事实，不混入请求令牌或 verifier；否则授权事实未变，仅请求或验证材料不同也会得到不同的指纹。
+0183-0775	apps/api/app/services/prediction_originals.py:419	-	读取器的容量槽位必须等底层文件实际关闭才归还；上层结束等待不代表文件已关闭，提早归还会让实际打开的文件超出槽位所限制的容量。
+0183-0776	apps/api/app/services/prediction_originals.py:459	-	images.adopt_stage 从调用时即接管暂存文件；等待中断不表示所有权退回，调用方不能按未移交处理。若快照随后才返回，仍须实际关闭，不能随等待一起丢弃。
+0183-0777	apps/api/app/services/prediction_references.py:507	-	Identity 读取已获准的 API key 事实后，仍须在当前事务内持有该 key 的 SHARE 锁；读完即释放会允许并发修改，使本事务继续依赖已经变化的授权事实。
+0183-0778	apps/api/app/services/prediction_retries.py:204,261-262	-	已有接受输入记录的重试必须经输入归属方重载当时保留的原始字节，当前源 URL 不能替代历史输入。视频帧还须使用自己的输入和结果回执，不能用整段视频的回执证明该帧。
+0183-0779	apps/api/app/services/predictions_import.py:196	-	导出 LabelStudio 旋转框时，锚点须是旋转后的左上角；内部表示以中心为锚，直接复用中心坐标会让导出的框发生偏移。
+0183-0780	apps/api/app/services/predictions_import.py:382	-	只有 task_match 缺少 file_path 时才用任务块顶层路径补足；禁用回退会拒绝客户手工组装的漏填数据，无条件回退则会覆盖显式指定的匹配路径。
+0183-0781	apps/api/app/services/predictions_import.py:845	-	COCO 的 file_name 必须按完整 file_path 匹配并保留子目录；只取 basename 会把不同目录下的同名文件混为同一匹配目标。
+0183-0782	apps/api/app/services/predictions_import.py:859-861,1087-1088	-	COCO 保留显式分数；缺分的 COCO GT 和无分数列的 YOLO 标签按 1.0 导入。若让缺省值在转内部形状时变成 0，工作台默认 50% 阈值会把这些标签过滤掉。
+0183-0783	apps/api/app/services/project_access.py:257-259,267-270	-	保持 Session.get 语义：未要求强刷时，部分过期或缺载的对象仍走缓存，避免额外 SQL 和 flush；完全过期的对象若刷新发现缺行，先移除身份再按主键查。完全过期的 Project 有待写改动时，先禁用 autoflush 恢复主键，待 Project/Task 写完再读，避免 flush 中另查 Project。
+0183-0784	apps/api/app/services/project_aggregates.py:41-43,180-182	-	个人标注和审核仪表盘的聚合授权不得宽于请求解析器；停用账号及历史或未知平台角色的授权范围为空，不能把历史 annotator、reviewer 值当作现行授权。
+0183-0785	apps/api/app/services/project_aggregates.py:94,141	-	成员和项目事实查询即使只投影部分字段，也须保留 ORM Select 的 autoflush，项目查询用 ORM 列别名维持该语义；改为不触发 autoflush 的查询可能漏读当前会话待写的变更。
+0183-0786	apps/api/app/services/project_performance.py:93-94	-	绩效统计把跳过记为审核轮次的起点以保留轮次快照，但不记为成功标注提交；完全忽略会丢失轮次快照，按成功处理则会虚增提交量。
+0183-0787	apps/api/app/services/project_performance.py:192-194	-	绩效区间上限按完整的本地日历日计算，不能用固定小时数硬切 90 天，否则 DST 会改变同一日期跨度是否有效；边界还须兼容 UI 按等时长构造的上一期。
+0183-0788	apps/api/app/services/project_performance.py:242-243	-	项目审计的 JSON 过滤采用 contains，以便同一查询谓词用于 PostgreSQL JSONB 和 API 单测的 SQLite；改用 PostgreSQL 专用运算符就不能在 SQLite 上沿用该谓词。
+0183-0789	apps/api/app/services/project_performance.py:257-260	-	项目绩效授权不能把项目所有权与管理类平台角色拆成两个独立入口。除超级管理员外，调用者必须同时是该项目所有者且当前平台角色为管理类。
+0183-0790	apps/api/app/services/project_performance.py:441-444	-	撤回或重开会清空旧审核轮次未持久化的提交时间，因而无法证明统计区间已被完整覆盖。即使审计已归档，也不能猜补轮次计数或用可变的归属反推。
+0183-0791	apps/api/app/services/project_performance.py:1153-1154	-	记录工时只纳入符合工时计量条件的 TaskEvent；旧事件能作为证据，却不能替代实测工时，否则会把仅有事件记录的活动算成已计量时长。
+0183-0792	apps/api/app/services/project_performance.py:1405-1406	-	项目标注总量必须独立聚合，不能累加成员行；同一图像可能包含多名成员分别保存的对象，按成员求和会重复计入该图像。
+0183-0793	apps/api/app/services/project_task_dataset.py:40-41	archive/0087-project-task-dataset-streams.md	对绑定的 PostgreSQL JSONB 参数使用 jsonb_extract_path；若改为下标访问，必须先用括号包住类型转换表达式，直接在未加括号的转换后接下标会生成无效 SQL。
+0183-0794	apps/api/app/services/project_task_dataset.py:69-70	archive/0087-project-task-dataset-streams.md	兼容历史图像时，只有整个 source 缺失或为 null 才按省略图像来源处理；显式 source.media_type=null 表示类型未知，不能使用同一默认值。
+0183-0795	apps/api/app/services/project_task_dataset.py:83	archive/0087-project-task-dataset-streams.md	数据集版本的 SQL 判别必须遵循 Python 侧的整数契约；不能用宽松转换把 JSON 字符串、布尔值或浮点值认作整数版本，否则两端会对同一记录得出不同结论。
+0183-0796	apps/api/app/services/project_task_dataset.py:119	archive/0087-project-task-dataset-streams.md	数据集诊断应先把旧格式判别得到的 SQL NULL 归为 false，再对谓词取反；直接用 NOT 不会把未知变为真，异常记录会被过滤掉。
+0183-0797	apps/api/app/services/project_task_dataset.py:401-402	archive/0087-project-task-dataset-streams.md	数据集版本一经关联就以已签发序列为准，不能将旧写入端尚未关联的版本混入该序列；待关联版本仍可在单独过滤的版本列表中查看。
+0183-0798	apps/api/app/services/project_workspace.py:89-92	-	Workspace 完整行的解码结果不能让普通刷新覆盖已加载字段，否则会抹掉调用方尚未提交的本地修改。普通刷新只补过期或未加载字段，显式 populate_existing 才允许覆盖。
+0183-0799	apps/api/app/services/project_workspace.py:179-180,214-217,245-246	-	Workspace 导入和原生 Project 写入前须显式 flush 调用方已有的 ORM 工作，不能依赖 no_autoflush 下不会发生的自动刷新。目录种子的待写 Dataset 必须先于空间初始化和对象写入；评估更新仍由工作流随后在同一事务内 flush。
+0183-0800	apps/api/app/services/raster_mask_objects.py:84	-	掩码 worker 的两次调用可能运行在不同事件循环，不能复用依赖前一次循环的会话。调用方未传入会话时，由本次调用的 task_session 管理。
+0183-0801	apps/api/app/services/raster_mask_objects.py:156-157	-	掩码读取凭据应记录源 Gate 的修订号，不可用目标 Permit 的修订号代替。源停止不等于已发布路由失去独立授权读取的能力。
+0183-0802	apps/api/app/services/raster_mask_objects.py:396	-	验证竞争中胜出的掩码对象前，先提交事务并释放发布锁和 owner 锁；不能把对象读取验证移入提交前，否则对象 I/O 会延长这两把锁的持有时间。
+0183-0803	apps/api/app/services/raster_mask_objects.py:499-500,548-550	-	掩码读取不得升级业务事务先前绑定对象时可能已取得的 owner SHARE 锁。删除 guard 时也不应为保护退役流程而保留该锁：提交前退役流程仍看得到 guard，而同批后续 store 可能需要独立 UPDATE 同一 owner。
+0183-0804	apps/api/app/services/raster_mask_objects.py:626-627	-	退役掩码对象必须按物理 UUID 删除，不能按可移植业务引用删除；新一代对象可以复用同一业务引用，但具有不同的 UUID。
+0183-0805	apps/api/app/services/raster_mask_objects.py:751-753	-	清理扫描的记账不应等待生命周期锁：不取内容、发布或业务锁，跳过有锁竞争的 owner。不论对象最终是否保留，都先提交扫描尝试记录，再进入有序生命周期流程或物理 I/O。
+0183-0806	apps/api/app/services/raster_mask_objects.py:786	-	掩码清理失败只表明这次清理未完成，不能据此认定 owner 已解除、guard 已移除或未决操作已结束；三者须分别判定。
+0183-0807	apps/api/app/services/raster_mask_storage.py:611-612	-	匿名掩码上传预留必须在待处理 ORM 工作 flush 前取得事务锁；迁移到 owner 命令后仍须用 no_autoflush 抑制隐式刷新，否则会把 ORM 写入提前到取锁之前。
+0183-0808	apps/api/app/services/raster_mask_storage.py:968-970,985-986	-	掩码字节须在取得 Task 锁前完成预检；已持业务锁的调用方应传入加锁前取得的不可变读取凭据，锁内不重读字节。最终取得 Task 锁后仍须重查任务、图像及尺寸资格，预检不能替代这一步。
+0183-0809	apps/api/app/services/raster_mask_storage.py:997-1000	-	掩码引用的 advisory 锁须按全局顺序一次取得，不能按帧逐批取锁。原子视频变更只需提交当前帧引用，前提是未改历史帧已关联且通过逐字节比较，无须重读旧对象。
+0183-0810	apps/api/app/services/raster_mask_storage.py:1024-1025	-	预检能证明 owner 已发布并校验字节，却不能替代最终绑定。发布 guard 与业务引用必须在同一事务中绑定，不能分开提交而只留下其中一项。
+0183-0811	apps/api/app/services/raster_mask_storage.py:1129-1130	-	掩码 gzip 必须单独限制压缩字节数；仅限制解压后的大小，不能保证读取端在读过 MAX_COMPRESSED_BYTES 之前就拒绝超限载荷。
+0183-0812	apps/api/app/services/raster_mask_storage.py:1192	-	掩码内容 owner 的可用性故障不能包装为 ValueError，否则现有处理器会把服务不可用误报成内容无效或冲突。
+0183-0813	apps/api/app/services/raster_mask_storage.py:1200	-	生产者可携带额外 RLE 元数据，但传给字节 owner 前必须规范化；不能让生产者自带的字段改变字节层接收的内容格式。
+0183-0814	apps/api/app/services/raster_mask_storage.py:1223,1298,1404	-	掩码引用必须先通过固定命名空间检查，越界引用不得送交字节 owner。对范围内的引用，一旦显式选定内容 owner，读写均以其为准，不能回退到已保存的归属记录。
+0183-0815	apps/api/app/services/reference_access.py:80,106,219	-	reference_access 的预解析不能抢先报请求校验错误；请求体无效应由端点 schema 报告，畸形路径 UUID 应由路由参数校验报告。
+0183-0816	apps/api/app/services/reference_access.py:278	-	引用写入分派须沿用 TaskLock 的顺序，先取任务范围 advisory 锁，再取 Task 外键涉及的行锁；反过来会让两个路径以相反顺序争用锁。
+0183-0817	apps/api/app/services/reference_access.py:287	-	删除编辑租约必须绕过后续源可用性门禁；若把释放租约也绑定到源在线状态，源离线时调用方将无法释放租约。
+0183-0818	apps/api/app/services/reference_access.py:322-323	-	源生命周期提交不能越过已经验证的写入，但等待源侧事务时不得持有 Task 锁；源写入方可能正等这把锁来创建关联任务。
+0183-0819	apps/api/app/services/reference_bindings.py:146	-	引用绑定的 SHARE 锁应由调用方的最终事务持有至发布完成；不能在中途释放，让并发修改发生在绑定确认与发布之间。
+0183-0820	apps/api/app/services/reference_inference.py:119-120,303	-	引用推理入口可能持有成员关系锁，读取原始数据、访问对象或调用模型前须先释放。清理也不能沿用响应阶段的锁，应先释放再执行清理的独立事务和 I/O。
+0183-0821	apps/api/app/services/reference_mask_repair.py:357	-	掩码修复须直接复用现行任务授权策略，而不是通过 reference_context 获取授权；后者会让修复路径再次进入自身的授权检查。
+0183-0822	apps/api/app/services/reference_mask_repair.py:618-619	-	修复候选的最终校验须与修复写入和 GC 同序，先取内容锁，再锁源 Annotation 行，避免相反顺序争锁；原生门禁与精确 RLE 校验仍由修复 owner 负责。
+0183-0823	apps/api/app/services/reference_native_predictions.py:460	-	原生预测证明须保留候选的原始注册表身份，不能从当前外键反推；注册项删除时合法的 SET NULL 会抹去外键，却不改变候选生成时的身份。
+0183-0824	apps/api/app/services/sample_evaluation_originals.py:198-199	archive/0079-frozen-sample-evaluation.md	样本评估须把内容读取或解码失败保留为比较结果，不能改走对象读取并签发当前源成功凭据；替代来源可读并不能证明当前源可读。
+0183-0825	apps/api/app/services/sample_evaluation_sources.py:197-198,202-203	archive/0079-frozen-sample-evaluation.md	样本评估须在标签处理与校验期间保留原始媒体暂存和 permit，退出上下文并实际关闭句柄后才能发布 JSON。关闭可能慢于标签比较，因此签发凭据前须重新核对任务、标注和源授权。
+0183-0826	apps/api/app/services/scene.py:209-210	-	scene 任务反查须分块查询：大数据集分包会一次传入全部待分包的 task ID，合成单个 IN 查询可能超过 asyncpg 约 32767 个绑定参数的上限。
+0183-0827	apps/api/app/services/scene_inference.py:47-48	-	scene 推断复用点云导入的角色目录规则，并识别视频、图像目录；命中的顶层目录是同一 scene 的不同角色，不能按目录名分别建 scene，否则同一场景会被拆开。
+0183-0828	apps/api/app/services/scene_inference.py:58	-	per_subdirectory 模式推断出超过 100 个 scene 时拒绝导入，不能把推断结果直接当作有效布局，否则大型 JPEG 序列可能被导入为大量伪 scene。
+0183-0829	apps/api/app/services/scheduler.py:29-31,490-493,578-579	-	候选查询不保留任务，派单只能返回实际 acquire 成功的任务。续标抢锁失败转常规派单；经典派题逐个尝试至多 20 个候选，常规候选窗口全部抢锁失败时返回 None，由客户端重试。
+0183-0830	apps/api/app/services/scheduler.py:48-50,87	-	批次查看不能统一按 assigned_user_ids 过滤：审核员须能跨批次查看 active、annotating、reviewing；标注员则须能打开本人被驳回的批次查看审核留言并返工。
+0183-0831	apps/api/app/services/scheduler.py:230-232,249-250,254-255	-	active、annotating 批次可用开放任务池，但显式任务指派收窄可见性，viewer 也不能靠批次范围绕过。未入批次的显式指派任务只向被指派标注员开放；reviewing 中也只有被指派标注员可恢复驳回或进行中的任务。
+0183-0832	apps/api/app/services/scheduler.py:452-454	-	认证通过不代表派单时账号仍活跃；返回已有锁或尝试抢锁前，须持有与 TaskLockService 相同的账号 SHARE 锁并复核状态，避免账号被停用后仍获派任务。
+0183-0833	apps/api/app/services/scheduler.py:459-461	-	切换任务可能在同一项目留下多把锁；派单须取最新一把作为当前任务，不能按唯一结果读取，否则合法的多行结果会触发 500。
+0183-0834	apps/api/app/services/scheduler.py:479-480	-	同 scene 续标须显式启用，不能默认改变既有项目的派单顺序；启用后才优先尝试用户最近提交任务在同 scene 的下一帧，无可用下一帧则回到原采样策略。
+0183-0835	apps/api/app/services/scheduler.py:500-502	-	排除用户已标任务时用相关 NOT EXISTS，不能简单换成 NOT IN；标注量大时后者可能让 PostgreSQL 物化整组 task_id，而前者可利用索引在找到匹配时停止。
+0183-0836	apps/api/app/services/scheduler.py:535-536	-	仅 super_admin 和项目 owner 可为代标注绕过批次分派；其他角色即使显式传入 batch_id，也只能从分派给自己的批次或未分派批次领取任务。
+0183-0837	apps/api/app/services/scheduler.py:556-557	-	不确定性采样须以每个任务的最低预测分排序，用相关标量子查询保持一任务一行；直接 outerjoin 会让有多条预测的任务在排序前被展开成多行。
+0183-0838	apps/api/app/services/secondary_inference.py:126-127	-	二次推理复用批量裁剪的 LS 百分比框时，初始结果不能携带 attributes；否则合并后无法仅凭属性键准确识别 AI 写入的属性。
+0183-0839	apps/api/app/services/secondary_inference.py:137-139	-	能转为 LS shape 不代表能裁 ROI；无法取得轴对齐外接框时，单条推理须报出实际几何类型，不能静默返回空，批量推理则记为 skipped_geometry。
+0183-0840	apps/api/app/services/secondary_inference.py:210-211	-	冻结源须在模型请求发送前立即复核，最终仍须由调用方持写锁再次校验；发送前检查无法覆盖模型请求期间发生的源状态变化。
+0183-0841	apps/api/app/services/secondary_inference.py:314	-	二次推理不能把非图像任务的引用型原件当作可直接裁剪的输入；引用能定位原件，并不意味着该原件支持就地裁剪。
+0183-0842	apps/api/app/services/seed_membership_data.py:98-99	-	经 Workspace 暂存的种子成员关系字段不能随 ORM flush 写入私有表，否则会提前落库；也不能靠禁止整个 flush 来规避，因为调用方仍须能刷新无关字段。
+0183-0843	apps/api/app/services/seed_membership_data.py:147-148	-	种子成员关系改走原生 SQL 后仍须使 ORM 中的 updated_at 失效，不能继续使用缓存旧值；保持原 onupdate 的读取边界，由下一次 SELECT 加载服务器值。
+0183-0844	apps/api/app/services/seed_membership_data.py:169-170	-	种子成员关系须在 before_commit 刷新，即使处于 no_autoflush 也不例外；提前刷新或依赖自动刷新，都无法保证重复插入错误与无关待提交改动留在同一提交边界。
+0183-0845	apps/api/app/services/site_agents.py:301	-	agent_out 必须按获准公开的字段投影，不可直接透传传输层对象；否则传输层新增内部字段时，公开响应也会随之扩大。
+0183-0846	apps/api/app/services/storage.py:36-39,339-340	-	预签名默认按 10 分钟对齐以复用同对象的完整 URL，避免 MinIO 不发 Cache-Control 时列表刷新触发重新下载。对齐最多延长一个窗口，必须严格遵守短时限时用 align=False。
+0183-0847	apps/api/app/services/storage.py:205-209	-	媒体缓存只自动过期可重抽的 frames/chunks，不能整桶过期；playback 代理和海报由 DB 持久引用且不惰性重建，必须与原视频同寿命，否则代理 URL 会返回 404。
+0183-0848	apps/api/app/services/storage.py:228	-	导入对象由所属流程负责清理，连 I/O 结果未决时可能遗留的对象也不能例外；不能用桶生命周期规则替代流程清理。
+0183-0849	apps/api/app/services/storage.py:251-254	-	audit-archive 按合规要求永久保留；avatars 则因 users.avatar_ref 持久引用且头像不可重建而不自动过期，换头像时由 API 显式清理旧对象。
+0183-0850	apps/api/app/services/storage.py:492-494	-	按缩略图、点云金字塔和 Assets 的既有键前缀将派生媒体路由到 media-cache；旧 datasets 对象可一次迁移，但无需保留旧桶读回退，因为缺失的派生缓存可重建。
+0183-0851	apps/api/app/services/storage_access.py:30	-	共享 ContentError 须在使用时导入，而不能移到 storage_access 的模块顶层；content_snapshot 已反向依赖 storage_access，顶层导入会形成循环。
+0183-0852	apps/api/app/services/storage_access.py:87	-	Gate 独立初始化时须先查行是否已存在；不能一律用 ON CONFLICT 代替存在性检查，否则可能触碰调用方事务已锁住的同一行并等待该锁。
+0183-0853	apps/api/app/services/storage_access.py:200-201;apps/api/app/services/storage_fault_events.py:53,111	-	存储操作结算失败时须保留未决记录的可见性。结算日志只标识位置和操作，故障观测只暴露归类结果；即使观测落库失败，也不能输出路径、异常载荷、供应商响应或连接凭据。
+0183-0854	apps/api/app/services/storage_fault_events.py:61-62	-	存储故障观测须用调用方的引擎以适配 API 与各 Worker 不同的运行模式，但使用独立事务，不能让观测写入提交或回滚业务事务。
+0183-0855	apps/api/app/services/storage_job_progress.py:132	-	存储任务进度不能只校验序号递增，还须拒绝倒退的时间戳，否则时钟回拨时会接受序号更新但记录时间更早的进度。
+0183-0856	apps/api/app/services/storage_location_change.py:174	-	存储位置变更须在影响查询结束后、写入前重新校验确认令牌；仅在查询前检查会让跨过令牌有效期的请求仍能执行变更。
+0183-0857	apps/api/app/services/storage_maintenance_impact.py:186-188;apps/api/app/services/storage_maintenance_targets.py:118-119	-	维护影响证明和目标指纹须在 SQL 内按语义身份散列聚合，不把历史明细、引用或业务文档拉回应用。心跳、轮询、访问和重试时间不是依赖，不能因这些字段变化使指纹失效；快照也不隔离所有 owner 写入。
+0183-0858	apps/api/app/services/storage_migration_artifact_reads.py:186-187	-	迁移产物读取仍须严格比对业务元数据，不能把差异一律视为传输所致；只有经独立验证的迁移创建字段才可按传输事实处理。
+0183-0859	apps/api/app/services/storage_migration_copies.py:622	-	协程取消不等于迁移复制的有界原生检查点已经关闭；必须等它实际关闭后再释放行锁，否则底层检查仍可能在锁保护之外继续。
+0183-0860	apps/api/app/services/storage_migration_copies.py:723	-	迁移复制须先取得授权、连接和位置锁，再取得 owner、attempt 和 job 锁；反向获取会与遵循原锁序的事务形成循环等待。
+0183-0861	apps/api/app/services/storage_migration_copies.py:1056,1207	-	迁移复制行的首个增量须以不可变计划的 pending 状态为基线；后续增量只能改可变字段，不能借增量更新改写既定计划身份。
+0183-0862	apps/api/app/services/storage_migration_copies.py:1081-1082,1103;apps/api/app/services/storage_migration_copy.py:1433,1458;apps/api/app/services/storage_migration_finalizations.py:783-786,802-803;apps/api/app/services/storage_migration_read_publications.py:413-414	-	取消、撤权或后续回读失败都不能抹掉 PUT 已确认的版本，也不能降级已验证状态；进度观测仍受当前权限约束。save_delta 按 Copy→Finalization→Publication 锁序提交物理 ACK 和资格撤销，短事务可等锁，不能因 NOWAIT 冲突或为保住发布资格而丢 ACK。
+0183-0863	apps/api/app/services/storage_migration_copy.py:132	-	迁移复制的对外错误契约只允许受控错误码；透传供应商异常会让 URL、对象键或凭据随错误响应泄露。
+0183-0864	apps/api/app/services/storage_migration_copy.py:245-246,882	-	跨代合并时，验证状态和回执时间只更新对同一次创建的观测，不得据此生成新物理身份或覆盖首次创建归属；未写入的映射只证明源端事实，不能证明目标已创建。
+0183-0865	apps/api/app/services/storage_migration_copy.py:507-508	-	检查点写端须规范序列化并按逻辑 JSON 排序，不能按本地插入 ID 排序，否则同一批事实会随本地插入次序改变；读端仍须逐条校验事实，不能把格式规范当作内容有效。
+0183-0866	apps/api/app/services/storage_migration_copy.py:543-544	-	远端写入意图或 ACK 须先于本地检查点持久化；否则本地落盘故障会让恢复流程丢掉已知回执，或把结果未明的写入误当作未发生而放行下一次 I/O。
+0183-0867	apps/api/app/services/storage_migration_copy.py:908-909,945	-	跨代复用须用有界磁盘连接查询历史，不能只看最近报告，否则会漏认中间缺失、后来重现的物理版本。候选中已确认回执优先于 ACK 未知的意图；有多个可用事实时保留最早的稳定映射。
+0183-0868	apps/api/app/services/storage_migration_copy.py:1182,1381-1383	-	恢复 ACK 未知的 PUT 时，回读必须绑定实际观测到的不可变版本，不能读取未指定版本的当前对象。删除标记可能遮住已写版本，只有确认该键的精确版本历史为空，才能再次执行条件 PUT。
+0183-0869	apps/api/app/services/storage_migration_copy.py:1217	-	保留的创建元数据只能在己方目标上作为创建证据；信任源端同名字段会把源对象携带的数据误认成此次目标写入的凭据。
+0183-0870	apps/api/app/services/storage_migration_copy.py:1264	-	检查点文件操作须限定在已验证私有目录内的确切文件；仅凭路径或文件名看起来正确就执行，可能把检查点操作施加到未经验证的文件上。
+0183-0871	apps/api/app/services/storage_migration_copy_target.py:13	-	解析迁移复制目标时先锁连接、再锁位置，与重定向和删除写入保持一致；反向取锁会与同时修改同一连接和位置的事务形成循环等待。
+0183-0872	apps/api/app/services/storage_migration_cutovers.py:423	-	迁移切换按 Window 控制面的顺序先锁源 Gate、再锁目标 Gate；不能因切换后以目标为主而反过来取锁，否则会与按原顺序取锁的操作形成循环等待。
+0183-0873	apps/api/app/services/storage_migration_finalization_evidence.py:260	-	证据投影在 _build 内才导入领域模型；领域所有者本身依赖该投影，若提升为模块顶层导入，会在模块初始化时形成循环依赖。
+0183-0874	apps/api/app/services/storage_migration_finalization_evidence.py:461	-	构建最终化证据时须让原生取消继续传播，不能将其转成普通构建失败；其他构建异常只返回固定错误，以免底层异常带出私有输入。
+0183-0875	apps/api/app/services/storage_migration_finalizations.py:289-290	-	最终化复验不能要求前后快照完全相等：领取操作日志会合法递增修订号，实时状态也会更新时间戳。但配置摘要、操作 ID、屏障摘要和源必须保持一致，否则复验可能放行已变更的操作。
+0183-0876	apps/api/app/services/storage_migration_finalizations.py:413	-	最终化父证据按物理源身份匹配历史源，而非要求历史修订号相同；否则只改变外观、未替换物理源的修订也会使有效证据被拒绝。
+0183-0877	apps/api/app/services/storage_migration_finalizations.py:721-723	-	最终化意图从未建立数据库预留时，绑定回滚后原窗口可能已经关闭；应锁当前 Gate 并排空实际工作，不能要求旧停机修订仍有效而卡住排空。
+0183-0878	apps/api/app/services/storage_migration_inventories.py:213-214	-	盘点启动用事务级 advisory lock 串行化，不靠跨原生读取持有源锁；部分唯一索引独立拒绝重复启动，不能把协调启动的锁当作唯一性约束。
+0183-0879	apps/api/app/services/storage_migration_inventories.py:572-573	-	收到信号不等于原生盘点句柄已经关闭；兜底结束须保留独立操作回执，且不得发布可下载报告，以免把尚未确认收尾的盘点当作完成。
+0183-0880	apps/api/app/services/storage_migration_inventory.py:211-212	-	盘点结果摘要须与对象记录共同封印；尾记录重复摘要只供有界读取，不能成为独立可改的结果来源，否则摘要会脱离其对应的对象记录。
+0183-0881	apps/api/app/services/storage_migration_inventory.py:270	-	盘点观测不构成报告有效性证据，也不能参与读取准入；否则旁路观测缺失就会阻断对有效报告的读取。
+0183-0882	apps/api/app/services/storage_migration_inventory.py:427-429	-	S3 盘点须显式请求 null 版本；兼容服务省略版本响应头时，仍以 ETag 和前后两次 HEAD 核验该可变槽位。这个例外不能推广到非 null 版本，否则会接受未精确回显所请求版本的响应。
+0183-0883	apps/api/app/services/storage_migration_read_publications.py:92,442-444	-	发布元数据读取只取调用方业务事务内的快照，不复用会因 savepoint 自动 flush 的准入路径，否则一次读取会提前写出无关待写数据；Gate 的持久化初始化留给实际 Permit。
+0183-0884	apps/api/app/services/storage_migration_read_publications.py:366	-	撤回发布所有者须沿用 Window→Finalization→Publication 锁序；先锁发布记录会与已经持有上游锁、正等待该发布记录的控制面事务形成循环等待。
+0183-0885	apps/api/app/services/storage_migration_read_publications.py:518-520	-	冻结成员没有独立字节长度时，仍须同时匹配完整逻辑地址和已保存的 SHA，长度取已封印映射中的核验值；不能因缺长度而省略 SHA，否则地址相同但内容不同的映射也可能命中。
+0183-0886	apps/api/app/services/storage_migration_reference_collector.py:37	-	FAMILIES 是封闭的定位器注册表，不能随实时分类器扩展；分类命中不等于该族已有可用定位规则，能定位也不等于允许清理。
+0183-0887	apps/api/app/services/storage_migration_reference_collector.py:95	-	只有已知线性模式修订早于表或列的引入版本时，才允许该结构缺失；把未知模式中的缺失也当作兼容情况，会把无法核实的引用来源静默跳过。
+0183-0888	apps/api/app/services/storage_migration_reference_collector.py:160	-	引用收集器的 SQL 标识符只能来自静态注册表；通过 quoted 字符校验只说明输入可被引用，不代表允许它选择查询的表或列。
+0183-0889	apps/api/app/services/storage_migration_reference_collector.py:445	-	最终原件保存的版本 ID 不能用于定位上传暂存对象；该 ID 不标识暂存阶段，复用会按另一个阶段的版本查找暂存引用。
+0183-0890	apps/api/app/services/storage_migration_reference_collector.py:765	-	write_catalog 只能在 collect() 退出数据库连接和事务后打开源；不能边收集边打开源，否则会把数据库连接和事务的生命期延长到源 I/O。
+0183-0891	apps/api/app/services/storage_migration_reference_collector.py:792	-	引用收集器 CLI 只输出有界结果计数；逐条输出或透传异常会把所有者 ID、原始路径等信息带入终端输出或日志。
+0183-0892	apps/api/app/services/storage_migration_references.py:313	-	引用文件的验证、索引和全文件摘要必须共用首次打开的文件描述符；按路径重开时若文件已被替换，验证的文件就可能与建立索引或计算摘要的文件不同。
+0183-0893	apps/api/app/services/storage_migration_windows.py:273	-	停止迁移窗口须与读取准入一样先锁源元数据，再锁 Window 和 Gate；先锁 Window 或 Gate 再回头取源元数据锁，会与准入事务形成循环等待。
+0183-0894	apps/api/app/services/storage_migration_windows.py:494-496	-	原生 Operation 提交后、交付物理源读取 Permit 前，须复查已持久化的 GC 领取记录；同一物理源的逻辑别名可能走不同 Gate，仅凭当前 Gate 无法排除并发领取。
+0183-0895	apps/api/app/services/storage_migration_windows.py:502-504	-	源读取复查失败时尚未调用 SDK，应由现有 Permit 只结算本次新建的责任；退出路径须承受重复取消，数据库结算失败也要保留回执，不能把未结算当成已清理。
+0183-0896	apps/api/app/services/storage_observation_rates.py:143	-	存储速率观测落库失败不重试，因为失败可能只意味着提交应答丢失；此时重试会把已经提交的同一观测再记一次。
+0183-0897	apps/api/app/services/storage_source_diagnostics.py:111-112	-	源诊断按当前业务身份匹配，并允许已显式接受的迁移；对保留引用使用 EXISTS 判断是否有匹配 head，避免普通连接在多个 head 命中时把同一引用重复计数。
+0183-0898	apps/api/app/services/storage_source_usage.py:28-29	-	源用量在 PostgreSQL 内解析和汇总，不把路径或逐文件行返回应用；解析时保留 S3 键中的重复分隔符，路径归一化会把不同对象键错误合并。
+0183-0899	apps/api/app/services/storage_usage.py:111	-	无效存储配置意味着用量覆盖范围未知，而不是存储为空；将其折算为零会把没有测量到的数据误报成已确认无用量。
+0183-0900	apps/api/app/services/storage_usage.py:118-119	-	用量接口必须先读任务状态再读观测；若反过来读，任务可能在两次读取之间完成，使接口把终态与完成前的观测配对，导致客户端提前停止轮询。
+0183-0901	apps/api/app/services/storage_usage.py:329-330	-	进程丢失只使旧投递失效，不能清除持久化分页检查点，否则重投会丢失续扫位置。由 Beat 在事务提交后重投，旧任务 ID 的迟到信号不得影响新投递。
+0183-0902	apps/api/app/services/storage_usage.py:391-392	-	定时盘点应与手动启动共用 start() 的盘点锁；若只是复用了正在运行的任务，就不能当作新投递推进到期时间，否则会推迟下一次定时盘点。
+0183-0903	apps/api/app/services/storage_usage_accounting.py:137-138,198-199	-	每次显式提交都要有独立的持久记账窗口。重试看到对象存在、缺失或收到 412，只说明重试时的结果，不能据此结清此前未决的请求或推算其字节增量。
+0183-0904	apps/api/app/services/storage_usage_accounting.py:297-298	-	盘点由数据库关联已持久化的有界分页，不能让 Python 一次装入全桶键和事件。只有整次桶观测成功才可判定对象缺失，不能把未扫到的对象当成已删除。
+0183-0905	apps/api/app/services/storage_usage_categories.py:259	-	退役记录须按桶和对象键的 MD5 匹配；只按键哈希会丢失桶边界，改用另一种键表示则不能沿用现有退役记录和等价定位器索引的匹配方式。
+0183-0906	apps/api/app/services/storage_usage_categories.py:433,576	-	恢复会改写当前定位器但保留创建历史，不能用创建时的地址判断现有对象归属。记录的逻辑身份也不能拿 expected_prefix 代替，后者只表示物理地址。
+0183-0907	apps/api/app/services/storage_usage_categories.py:634	-	旧证据失效或不适用时，只能判定归属未知，不能据此忽略已列出的对象；这些字节仍计入总用量，但不分配到有归属的类别。
+0183-0908	apps/api/app/services/system_settings_service.py:183-184	-	连接器主机允许列表不能因有专用 API 就从系统设置中移除；既有连接器服务仍通过系统设置解析数据库覆盖，并在没有覆盖时回退到环境值。
+0183-0909	apps/api/app/services/system_settings_service.py:247-248	-	历史 NULL 行只按继承环境值读取，写入 API 不能用 NULL 代替删除覆盖。调用方要恢复环境值，必须显式 reset。
+0183-0910	apps/api/app/services/system_settings_service.py:272-273	-	设置缓存 TTL 从查询开始计时，不能从结果返回时起算；慢查询可能读到另一进程提交前的旧值，从返回时起算会额外延长旧值的可见时间。
+0183-0911	apps/api/app/services/system_settings_service.py:308-309	-	并发令牌须反映部署值的变化，但不能暴露无密钥指纹，否则可用它离线验证 SMTP 密码猜测；应使用带密钥的 HMAC。
+0183-0912	apps/api/app/services/system_settings_service.py:394-397,400-401,528-529	-	读取时区分类型错误与超出当前 UI 范围：类型正确的旧值仍返回并标记 in_range=false，类型错误的覆盖才回退到部署默认值。写入值即使等于回退值，也不能跳过对坏行的修复。
+0183-0913	apps/api/app/services/system_settings_service.py:404-406	-	设置事务可以读到自己的未提交覆盖，但不得把它放入进程级缓存。嵌套事务提交并不代表外层已提交，否则外层回滚后，其他请求仍可能读到未生效的值。
+0183-0914	apps/api/app/services/system_settings_service.py:586-587	-	显式 reset 遇到覆盖行已被另一 worker 删除时，仍须使本地缓存失效；数据库没有可删行，并不意味着本进程没有缓存旧覆盖。
+0183-0915	apps/api/app/services/task_discussion.py:116-117	-	讨论服务生成游标时就要满足公开端点的长度上限；不能只在解析时限长，否则新增载荷字段后，服务可能发出客户端无法回传的游标。
+0183-0916	apps/api/app/services/task_discussion.py:173-174	-	讨论游标必须拒绝无时区的时间戳，不能等到执行查询再处理，否则与数据库中的带时区时间戳比较时可能失败。
+0183-0917	apps/api/app/services/task_discussion.py:212-214,517-518	-	讨论路由须分别检查项目访问权和任务可见性；可见性会用于跨项目流程，不能证明项目成员资格。评论操作按当前项目角色授权，不能沿用账号的旧全局角色。
+0183-0918	apps/api/app/services/task_discussion.py:356-358	-	筛选原生任务根评论时，锚点匹配且父项为空仍不够，还须核对任务实际所属项目，否则冗余 project_id 已失配的历史行可能被误纳入。
+0183-0919	apps/api/app/services/task_discussion.py:385-387	-	讨论计数须将 UNION 的每个来源子查询显式关联到外层 Task；UNION 会隐藏自动关联依赖的引用，只靠自动关联可能把来源整表计入单个任务。
+0183-0920	apps/api/app/services/task_discussion.py:475-477	-	跨来源讨论条目的身份须用 (source, id)，不能只用 UUID；两张来源表可能各有同一个 UUID，仅按 id 会把不同条目混为一条。
+0183-0921	apps/api/app/services/task_event_ingestion.py:176-179	-	持久化任务事件区间时，按当前账号在任务实际所属项目的成员权限判断，并锁住成员记录，避免校验后权限被并发变更。旧全局角色不授权，非管理员所有者缺少有效成员资格也须拒绝。
+0183-0922	apps/api/app/services/task_lock.py:237-238	-	Task 锁 upsert 前先逐出会话中缓存的旧 Task 行，成功后先 flush 再附加返回行；不能直接把返回行并入仍有旧状态的会话，否则 ORM 可能用旧状态覆盖新行。
+0183-0923	apps/api/app/services/task_originals.py:195-197	-	原件归属分别按行 ID 和收据所属的 Creation 保持唯一。独立发布者并发提交同一收据时，唯一性冲突须收敛到同一归属行，不能将已建立的归属判为未知。
+0183-0924	apps/api/app/services/task_originals.py:224-225	-	即使反复收到取消，原件归属事务也要等提交或回滚结束；取消导致未收到提交确认，并不能证明未提交，不能据此删除归属记录。
+0183-0925	apps/api/app/services/task_originals.py:288-289	-	配置和 Gate 的最终校验由调用方短暂持锁完成；独立原件归属事务只能引用已提交的不可变证据，不能把调用方尚未提交、仍可能回滚的状态当作归属依据。
+0183-0926	apps/api/app/services/task_originals.py:319-320	-	借用原件归属读取时，只同步返回的事实，不能把它当成对已发布 Task 的变更；否则 ORM 可能在 flush 时对该 Task 行发出非预期的 UPDATE。
+0183-0927	apps/api/app/services/task_scope.py:11	-	整项目任务选择可能超过 asyncpg 的绑定参数上限；大量 UUID 应作为单个数组参数交给 ANY，不能将 IN 展开成每个 UUID 一个绑定参数。
+0183-0928	apps/api/app/services/task_uploads.py:211-212;apps/api/app/services/training_binding_change.py:229	-	外部存储 I/O 前先提交事务：任务直传不把业务锁或凭证锁带过物理 I/O，后续发布失败由独立 Creation 台账处理；训练绑定预检也不在持有权限、位置或绑定行锁时探测提供方。
+0183-0929	apps/api/app/services/thumbnail_cleanup.py:148-149,220-221	-	缩略图删除响应丢失且无法证明对象已不存在时，删除仍未结清，须保留归属收据。条件 PUT 被拒绝则可结清本次失败记录，但它不证明已有 UUID 对象归本次输出，不能删除该键。
+0183-0930	apps/api/app/services/thumbnail_outputs.py:283-284	-	已验证的缩略图归属收据要先持久化，再传播收尾阶段收到的取消；若把取消当作跳过记账的理由，已确认的对象归属就可能没有持久凭据。
+0183-0931	apps/api/app/services/thumbnail_outputs.py:443-444	-	维护版本和读取路由不是就绪缩略图的内容身份，变化时不能据此判定内容已变；但操作前后仍须按各自当时的来源准入条件和读取路由校验，不能沿用旧校验结果。
+0183-0932	apps/api/app/services/trained_models.py:588	archive/0076-controlled-trained-model-identity.md	没有固定运行时配置的历史 LibreYOLO 试验按 CPU 解释；补录配置不能用 GPU 填补这段历史空缺，否则会改变对既有试验的运行时判定。
+0183-0933	apps/api/app/services/training_auxiliary_storage_adoption.py:283-285	-	重试会改写共享样本检查点，因此只有当前尝试可用现有检查点复核报告；不能用可能已被覆盖的检查点判断旧报告身份，旧报告须由自身发布收据佐证。
+0183-0934	apps/api/app/services/training_binding_change.py:84-85	-	训练存储绑定变更的统计须纳入各类独立责任记录的所有已保存状态，包括未知；记录数不是去重后的物理对象数，不能相加当作对象数，也不能作为接管门槛。
+0183-0935	apps/api/app/services/training_claims.py:78	-	训练 claim 读取学习策略时已经持有资源与运行行锁，不能改用会加策略锁的读取路径，否则会在现有持锁范围内再引入一条策略锁依赖。
+0183-0936	apps/api/app/services/training_dataset_analysis.py:578-579	-	划分集合不完整时，既不能判定成员已变，也不能判定未变；旧分析缺少未知成员计数时仍按未知处理，补零会误把缺失证据当成集合完整。
+0183-0937	apps/api/app/services/training_dataset_analysis.py:717-718	-	训练分析的紧凑投影不能另设分派规则或缓存身份，否则同一分析会因读取形式不同而走不同路径。缺失的历史字段与显式非法 null 也不能归并成同一种输入。
+0183-0938	apps/api/app/services/training_dataset_analysis.py:731	-	首次分析元数据构建须与版本删除及其他缓存创建者串行；首次查不到缓存并不意味着版本仍有效，也不能证明没有其他事务正在构建同一份缓存。
+0183-0939	apps/api/app/services/training_dataset_bridge.py:260;apps/api/app/services/training_dataset_insight_adapters.py:295-297	archive/0087-project-task-dataset-streams.md	自动输入去重前须累积样本的任务、内容和场景分组身份，再据此检查分区；只检查去重后留下的样本会漏掉跨分区冲突。遇到未知分组命名空间应拒绝，而非跳过无法解释的约束。
+0183-0940	apps/api/app/services/training_dataset_bridge.py:301	archive/0087-project-task-dataset-streams.md	训练数据桥接生成的 YAML 不写 `path`，让 Ultralytics 以 YAML 所在目录解析训练和验证的相对路径；另设根目录并非等价写法，可能使加载器到别处找样本。
+0183-0941	apps/api/app/services/training_dataset_insight_adapters.py:47-48	-	只有未声明媒体的历史冻结契约才默认按图像处理。契约显式声明非图像媒体时，即使沿用了同一个任务名，也不能据此选用图像适配器，否则会按错误的媒体契约分析。
+0183-0942	apps/api/app/services/training_dataset_insight_adapters.py:71-72	-	冻结分析的能力标记只证明数据契约通过适配器资格校验；不能据此判定预览字节仍可读取，也不能把它当作训练器或权重支持该任务的凭据。
+0183-0943	apps/api/app/services/training_dataset_insight_adapters.py:172-173	-	检测语义摘要沿用原生坐标的八位小数精度并保留重复项，不计入来源 ID 或类别位置；改变精度、折叠重复项或混入这些位置性标识，都会改变既有语义身份的判定。
+0183-0944	apps/api/app/services/training_datasets.py:408-409	-	在 PostgreSQL 的 READ COMMITTED 下，同一事务中的多条查询仍可能看到不同快照；类别、任务资格、媒体引用和标注必须由同一条语句读取，避免冻结出从未同时成立的数据组合。
+0183-0945	apps/api/app/services/training_datasets.py:596-597	-	读取任何样本图像前，先解析声明的内容引用并按权威大小执行版本预算；若等全部下载后才核算，超限请求在被拒绝前就已消耗了本应受预算约束的读取资源。
+0183-0946	apps/api/app/services/training_datasets.py:704	-	训练引用在同一 AsyncSession 内逐项解析，不把查询分发给共享该会话的并发任务；并发操作会争用同一会话的事务和连接状态，不能视为独立查询。
+0183-0947	apps/api/app/services/training_datasets.py:827-828	-	不可变版本须在持有栅格掩码内容锁的同一事务中插入并提交；GC 取得同一组锁后再复查引用根，否则可能依据旧引用视图删除正在被新版本固定的内容。
+0183-0948	apps/api/app/services/training_datasets.py:832-833	-	数据集可写性只约束新选择；已有不可变版本继续使用冻结内容，但仍按当前项目权限访问。重查来源可写性会误阻已有版本，而沿用历史授权则会绕过当前撤权。
+0183-0949	apps/api/app/services/training_initialization.py:358	-	训练初始化须先核实来源版本属于当前项目，再返回目标可用性详情；若先报告目标状态，跨项目的来源引用也能触发本不应披露的诊断。
+0183-0950	apps/api/app/services/training_observability.py:347	archive/0078-attempt-observability-and-redacted-logs.md	存储观测不是下载授权：不能因调用者无权读取观测结果或结论尚不确定而拦截下载；同样，下载未被拦截也不能成为隐去未结清物理操作的理由。
+0183-0951	apps/api/app/services/training_previews.py:421,443-444	archive/0077-native-augmentation-preview-cpu-ownership.md	CPU 预览在领取响应丢失或执行器重启后，先恢复与请求精确匹配的持久领取，再判断新运行时资格；否则可能丢掉已成立的领取。仅恢复请求若无匹配记录，不得用陈旧能力报告或新领排队工作来补偿。
+0183-0952	apps/api/app/services/training_previews.py:929-930	archive/0077-native-augmentation-preview-cpu-ownership.md	预览清理在开始存储 I/O 前须释放 CPU 资源锁；否则无关清理的存储延迟会让当前子进程无法及时更新心跳。
+0183-0953	apps/api/app/services/training_run_storage_adoption.py:103	-	运行存储接管不能用衍生日志本身证明其来源；它必须以一份已发布且经独立验证的日志为依据，否则未经验证的内容可能被当成接管证据。
+0183-0954	apps/api/app/services/training_run_storage_adoption.py:325-326	-	运行存储接管不跨物理 I/O 持有 API Key 行锁，以免存储延迟阻塞撤权；发布存储固定引用前必须以共享锁复核权限，否则 I/O 期间已完成的撤权仍可能被旧检查结果越过。
+0183-0955	apps/api/app/services/training_runs.py:632,1216-1217,1227-1228	-	训练心跳失联不是终态，须保留租约阻止后继启动。即使上传曾中断，精确匹配执行栅栏的完成、失败或停止收据仍可结清尝试，无须推测旧写入位置；失败或停止时须保留已记录的上传清单。
+0183-0956	apps/api/app/services/training_runs.py:639-640	-	训练执行栅栏按资源、操作者与项目、运行与尝试的顺序取锁，避免形成反向等待。公开取消不取资源锁，也不能释放活动租约，否则后继可能在旧执行尚未退出时启动。
+0183-0957	apps/api/app/services/training_storage_adoption.py:256-257	-	训练包接管须匹配现有归属方的确定性 YAML；可被加载器读取并不等于属于原训练包，接受替代配置可能改变加载行为，接受任意下载指令也会引入原包未授权的外部读取。
+0183-0958	apps/api/app/services/training_storage_adoption.py:414-415	-	训练包接管不能用当前字节一致来补证缺失的历史内容关联；旧版去重后未列入清单的样本也不能据此认领，否则会把内容相同误当作历史归属相同。
+0183-0959	apps/api/app/services/training_storage_adoption.py:425	-	接管时按原训练包构建器的 EXIF 方向规则核验图像逻辑尺寸；直接比较原始像素宽高会在方向交换宽高时误判同一图像不匹配。
+0183-0960	apps/api/app/services/training_storage_cleanup.py:17,50-51,94-95	-	存储删除墓碑不外键依附待删记录，否则项目删除可能一并抹掉清理意图。业务删除提交后不因物理失败改报失败；前缀可重复删除，墓碑须等物理删除及完成确认均成功才移除，以便崩溃或确认失败后重试。
+0183-0961	apps/api/app/services/training_storage_io.py:27-28	-	部署代理和 ML 域名只代表旧存储 A；注册存储 B 的下载 URL 必须使用 B 签发的端点，经 A 重写会把请求导向错误的物理存储。
+0183-0962	apps/api/app/services/training_storage_target.py:155-156	-	没有精确匹配写入收据的对象版本只能保留待核对；仅凭观测到对象就创建删除标记，会把尚未证实归属的版本纳入删除。
+0183-0963	apps/api/app/services/training_studies.py:210-211	archive/0082-budgeted-training-studies.md	Study 非键编辑用 `FOR NO KEY UPDATE` 串行，以兼容子行外键检查的 `KEY SHARE`；改用 `FOR UPDATE` 会阻塞该检查，使 Study→Run 协调与受栅栏保护的 Run 退出形成逆序。
+0183-0964	apps/api/app/services/video_asset_retry_jobs.py:53	0105-independent-video-media-owner.md	视频资产重试对外只返回错误码；直接透传存储提供方或解码器的异常文本会把内部诊断细节暴露给调用者。
+0183-0965	apps/api/app/services/video_derivative_objects.py:128-129	-	视频衍生对象须先经不打开客户端的门面核对完整不可变上下文，并拒绝混合发布；若延后到客户端构造之后，无效上下文就已经到达了存储客户端边界。
+0183-0966	apps/api/app/services/video_derivative_objects.py:384-385	-	取消等待不等于取消视频衍生对象的客户端构造；`physical()` 须等构造实际结束，由持有者清理迟到的结果，否则成功创建的客户端可能无人释放。
+0183-0967	apps/api/app/services/video_derivative_objects.py:738-739	-	视频衍生对象的 `access()` 许可只覆盖本次尝试，不能用它证明其他操作已结束；只要还有未结清的操作记录，就不得物理回收可能仍在使用的对象。
+0183-0968	apps/api/app/services/video_derivative_originals.py:134-135	-	视频元数据发布会写入尺寸，不能同时把这些尺寸固定为不可变输入；否则发布后的校验会将自身合法写入误判为输入漂移。
+0183-0969	apps/api/app/services/video_derivative_originals.py:234-235	-	视频读取沿用入口路由的授权，不再附加读取 scope，否则会拒绝入口已授权的请求；后续工作仍须绑定精确的密钥事实，不能把入口通过当作脱离原密钥的授权。
+0183-0970	apps/api/app/services/video_derivative_originals.py:294-295	-	项目所有权以 Workspace 为准，绑定前须对对应行取 `KEY SHARE`；先读所有者再无锁绑定，会留下并发所有权转移使绑定依据失效的窗口。
+0183-0971	apps/api/app/services/video_derivative_originals.py:537-538,623-625	-	Celery 软时限是普通异常，也须像 asyncio 超时一样通知视频原件读取器停止并等待物理操作收尾。等待再次被中断也不能丢下任务；须等任务结束再取 `result()`，否则无法确定物理操作结果。
+0183-0972	apps/api/app/services/video_derivatives.py:32-34	-	视频衍生槽位的 1 秒锁等待上限只针对分配者或发布者短暂持有的槽位行；读取方复用已提交尝试时不取写锁，否则本可复用的读取也会被写入竞争阻塞。
+0183-0973	apps/api/app/services/video_derivatives.py:106-107	-	逐帧时间表不完整时只对缺失项沿用估算 PTS；采用的精确时间戳必须来自当前派生代，不能用旧代时间表补缺而把帧映射到错误时间。
+0183-0974	apps/api/app/services/video_derivatives.py:296-298	-	并发分配者可能在唯一索引等待期间先提交槽位；须以保存点隔离插入冲突并复用胜出槽位，否则普通竞争就会让读请求失败或使调用方事务失效。
+0183-0975	apps/api/app/services/video_derivatives.py:421-422	-	消息代理重投尚未领取的视频衍生尝试时，须复用原尝试的所有权；重投不等于替换，另建存储前缀或授予替换权限会把同一尝试误当成新的所有者。
+0183-0976	apps/api/app/services/video_frame_service.py:244-245	-	加载已有归属的派生代时，不得用旧版可变元数据重新解释该代，否则元数据更新会改变既有产物的解释。仅构造元数据视图的路径仍沿用原有视图。
+0183-0977	apps/api/app/services/video_frame_service.py:273-274	-	同一元数据准备已有在建尝试时，强制重建也必须复用该尝试，不能另起并发构建争夺发布；新代发布前，读取仍以现有生效代为准。
+0183-0978	apps/api/app/services/video_frame_service.py:360-361	-	物理缓存故障不能作为跨版本替换的依据。只有失败者仍是当前尝试，且来源、元数据代和 Gate 均未变化时才可替换，否则旧故障可能覆盖更新后的结果。
+0183-0979	apps/api/app/services/video_frame_service.py:439-440,458-459,508-509	-	批量分块按槽位提交以保留已分配的所有权，并在推进前释放 Item 和来源锁，避免长批次预取长期持锁。逐槽就绪不代表可交付或派发：物理 I/O 完成后须在锁内复核整批，包括早先就绪的产物是否仍属当前代。
+0183-0980	apps/api/app/services/video_frame_service.py:647	-	样本偏移只对生成它的不可变 chunk 的精确字节内容有效；仅凭分块标识相同复用偏移，可能在替换文件中读到错误的字节位置。
+0183-0981	apps/api/app/services/video_frame_service.py:790-793	-	项目采样网格只决定导航和打点位置，不能把采样序号当作 frame_index，否则同一源帧会随采样设置改变身份。导出与前端共用采样派生逻辑，frame_index 始终保留源视频帧号。
+0183-0982	apps/api/app/services/video_frame_service.py:827-835	-	长视频的 VideoFrameIndex 只持久化真实 PTS 锚点，避免逐帧落库，也不把插值当成真值。稀疏路径可在锚间插值、超界按 FPS 估算；公开查询仍按源帧号查真实记录，未命中则按 FPS 估算。
+0183-0983	apps/api/app/services/video_prediction_acceptance.py:167-168	-	发布后重试可以追加指向替代候选的字段，验收须按当前状态核验该字段，不能把合法追加判为冻结元数据被篡改；其余原始元数据仍须与冻结值比对。
+0183-0984	apps/api/app/services/video_prediction_acceptance.py:570	-	验收时只锁住已有 Segment 不足以冻结工作范围，因为仍可新增引用同一 Item 的外键行。须锁住 Item 来阻挡这类新增，避免验收过程中范围变化。
+0183-0985	apps/api/app/services/video_prediction_acceptance.py:659-660	-	归属方内容按内容寻址，但内容可寻址不等于归属关系已发布；不能据此改写已保存的归属集合，集合变更仍须受 Labeling 写入代次约束。
+0183-0986	apps/api/app/services/video_prediction_acceptance.py:898	-	预测验收进入最终加锁阶段前，须释放来源句柄及独立会话句柄；只结束读取而把句柄留到最终事务中清理，会把物理 I/O 带入持锁阶段。
+0183-0987	apps/api/app/services/video_prediction_originals.py:72-73	0109-retained-video-inputs-and-frame-plans.md	交付的 proof 必须原本就是 JSON，不能靠转换 UUID 或时间值使不合约的 proof 通过。此类转换只允许用于可信的 source_receipt 数据类。
+0183-0988	apps/api/app/services/video_prediction_originals.py:358-359,377,420-421	0109-retained-video-inputs-and-frame-plans.md	来源退出即使遇取消也须等物理关闭收尾，以免 SQL 锁跨越未结束的 I/O。BinaryStage 只在描述符实际关闭后回调；关闭失败由 physical_close 标记，已收尾且未标为未结算的中断不等于关闭失败，许可和状态不明仍由外层所有者结算。
+0183-0989	apps/api/app/services/video_prediction_originals.py:525;apps/api/app/services/video_prediction_references.py:124	0109-retained-video-inputs-and-frame-plans.md	复核来源收据和预测引用的冻结 JSON 时，须比较规范编码而非 Python 对象相等性；否则 True 与 1 会被视为同一值，使类型已改变的绑定通过校验。
+0183-0990	apps/api/app/services/video_prediction_reads.py:238-240	-	已保存的人工关键帧是合法标注；为复用预测预算校验，只能改写校验副本的来源。若将改写带入收据指纹或最终对象比对，核对的就不再是真实标注几何。
+0183-0991	apps/api/app/services/video_prediction_reads.py:262-263	-	只有服务端在同一来源上克隆或切片时才能继承该命名空间；若凭调用方提供的 source、parent 或 attributes 建立命名空间，调用方即可伪造服务端归属。
+0183-0992	apps/api/app/services/video_prediction_references.py:558-559	-	掩码内容须在取得业务锁前验证，最终写事务只锁定已验证的精确引用。锁更宽泛的引用可能写入未经核验的内容，而在锁内重读又会把物理 I/O 带入持锁事务。
+0183-0993	apps/api/app/services/video_prediction_results.py:247-248	-	帧外区间列表只允许出现在未包装的聚合轨迹上，完整区间由 _track 校验；不能用逐帧标志校验替代，否则会遗漏对区间整体的校验。
+0183-0994	apps/api/app/services/video_prediction_results.py:315	-	掩码校验和须基于固定字段顺序的规范 JSON；若直接按后端返回的键顺序编码，字段和值完全相同的掩码也可能产生不同校验和。
+0183-0995	apps/api/app/services/video_prediction_results.py:347	-	现有追踪器的多边形关键帧无法表示孔洞，因此须拒绝带孔几何；若只保留外环，原本排除的区域会被错误标为前景。
+0183-0996	apps/api/app/services/video_segment_service.py:392-393	-	分段提交须先锁 Task 并刷新证据，再锁 Segment；只锁分段不能与进入审核时的证据冻结互斥，审核可能冻结未反映并发提交的证据。
+0183-0997	apps/api/app/services/video_segment_service.py:411-413	-	分段贡献归成功提交的实际操作者，即使该段没有留存标注也计入。用共享数据项分段的指派人或留存标注推断贡献，会将贡献错记给未提交者或漏掉空段提交。
+0183-0998	apps/api/app/services/video_sync_inference.py:94-95	-	请求指定的 registry 只用于定位逻辑池，活跃成员约束应用于实际派发目标。若也要求请求指定的实例当前接流量，会误拒仍可由池内其他活跃成员处理的请求。
+0183-0999	apps/api/app/services/video_sync_inference.py:303	-	同步推理用调用方会话完成路由后，须在调用 /predict 前结束路由事务；否则远程响应的等待时间也会计入数据库事务的存续时间。
+0183-1000	apps/api/app/services/workspace_configuration.py:107	-	Workspace 配置借用请求事务时仍须等待取得阻塞式 pool 锁；改成非阻塞取锁会把本应排队串行执行的请求变成即时争用失败。
+0183-1001	apps/api/app/services/workspace_configuration_data.py:45,59;apps/api/app/services/workspace_template_query_data.py:28	-	WorkspaceConfigurationData 和 WorkspaceTemplateQueryData 不拥有调用方事务，不能自行提交或回滚，以免一并结算调用方尚未完成的工作。WorkspaceConfigurationData 也不开嵌套事务。
+0183-1002	apps/api/app/services/workspace_configuration_data.py:106-107	-	Workspace 配置须把账户加锁前 flush 遇忙也映射为锁争用；只捕获取锁语句的错误会漏报同一加锁路径的争用。普通账户读取不适用该映射。
+0183-1003	apps/api/app/services/data_management/entities.py:66-67;apps/api/app/services/data_management/entity_filters.py:100-101	archive/0047-data-manager-entity-read-model.md	Data Manager 的计数与筛选须共用限定在当前标注内的 Workbench 未解决根问题口径；把回复或非问题反馈计入，会使计数及据此筛出的结果偏离实际未解决问题。
+0183-1004	apps/api/app/services/data_management/filter_tree.py:11;apps/api/app/services/data_management/task_filters.py:183	archive/0047-data-manager-entity-read-model.md	筛选树的深度、节点数与 in 列表长度上限是应用级防护，不交给部署配置；任务规则须在编译入口统一检查各字段的 in 长度，避免某个字段漏检而把超长列表送入数据库。
+0183-1005	apps/api/app/services/data_management/match_evidence.py:110-112	archive/0047-data-manager-entity-read-model.md	AND 组的直属标注叶条件必须由同一标注行作证，分别找行会让没有任何单行满足条件的任务误匹配。嵌套组独立解析见证，可以由不同标注行满足。
+0183-1006	apps/api/app/services/data_management/match_evidence.py:172-174,179-181	archive/0047-data-manager-entity-read-model.md	匹配证据须按实际为真的分支决定是否省略任务上下文：嵌套 OR 中为假的标注分支不能遮蔽真实任务分支，同组真实的实体见证则可省略任务上下文。空 AND 和空 OR 均按编译器的真值用任务上下文作证。
+0183-1007	apps/api/app/services/data_management/match_evidence.py:231-234	archive/0047-data-manager-entity-read-model.md	OR 子分支的真值须用一个 PostgreSQL 布尔数组列返回，逐分支投影会触及 1664 列上限。完整筛选已通过且进入已成立的 AND 分支后，不必重查其非 OR 后代。
+0183-1008	apps/api/app/services/data_management/service.py:95-96	archive/0047-data-manager-entity-read-model.md	媒体汇总按匹配任务而非按唯一媒体项计数；多个任务共享同一来源项时须保留重复 ID，否则会少算这些任务，偏离按 Task 连接的统计口径。
+0183-1009	apps/api/app/services/data_management/service.py:298-300	archive/0047-data-manager-entity-read-model.md	属性汇总按项目配置的属性字段查询，每次在 SQL 内聚合整个匹配范围；改为逐任务或逐标注查询，会让数据库往返次数随匹配结果规模增长。
+0183-1010	apps/api/app/services/data_management/service.py:570-572	archive/0047-data-manager-entity-read-model.md	匹配列表须按固定来源顺序对精确见证集分摊同一个 offset/limit 窗口，各来源独立分页会改变全局页边界。预测几何只在 SQL 选定当页后转换，避免处理未入页记录。
+0183-1011	apps/api/app/services/data_management/task_filters.py:77	archive/0047-data-manager-entity-read-model.md	任务指派筛选须用子查询补取批次指派人，不能依赖外层连接 TaskBatch；特权查询也会运行该筛选，但不保证提供这个连接。
+0183-1012	apps/api/app/services/data_management/task_filters.py:247,1096-1097	archive/0047-data-manager-entity-read-model.md	Data Manager 的 `feedback.unresolved_count` 是兼容键，必须与 `issue.unresolved_count` 一样沿用 FeedbackService 的根问题关系；把回复计入会使任务筛选与 Workbench 的未解决问题总数不一致。
+0183-1013	apps/api/app/services/data_management/task_filters.py:1107-1108	archive/0047-data-manager-entity-read-model.md	任务评论数以任务讨论读模型为准，同时计入标注评论和原生任务评论；只查其中一种会少算，无法与 Workbench 评论流的总数对齐。
+0183-1014	apps/api/app/services/data_management/views.py:689-692	archive/0047-data-manager-entity-read-model.md	Data Manager 必须沿用任务列表的可见性规则，而不能仅凭项目成员身份放行。非特权成员只可见任务或批次授权范围内的任务，包括显式分派的未分批任务；缺少项目角色则拒绝访问。
+0183-1015	apps/api/app/services/data_management/views.py:763-764	archive/0047-data-manager-entity-read-model.md	空 `columns_json` 表示旧客户端请求旧投影，不表示请求零列；只有显式指定列才按需投影，否则旧客户端会丢失原本返回的字段。
+0183-1016	apps/api/app/services/exporting/cache.py:95-96	-	Redis 单飞租约失效后，先后取得租约的写入者都可能合法完成，各自拥有独立对象；缓存索引保留首个仍有效的候选，不能把后完成视为替换有效条目的依据。
+0183-1017	apps/api/app/services/exporting/image_delivery.py:95-96;apps/api/app/services/exporting/lidar_sources.py:7-8	-	图像传输与共享地图副本可以去重，但不能合并绑定。共享地图仅按不可变所有者和已保存的物理事实判定复用，各引用仍保留最新的 Task／Item／Scene 绑定；图像实际 I/O 前后须核验全部复用绑定，不能只检查首个。
+0183-1018	apps/api/app/services/exporting/image_inputs.py:173-174;apps/api/app/services/exporting/lidar_inputs.py:206-207,290-292	-	点云和图像须在同一 PostgreSQL MVCC 语句中，按完整存储行保守计量后才物化；在 READ COMMITTED 下拆成两条语句，行可能在预检后膨胀。空结果或超限也必须返回计量。
+0183-1019	apps/api/app/services/exporting/image_inputs.py:488-489	-	图像导出不能只锁当前符合条件的标注；停用或取消的相关行也须锁定，否则它们可能在检查后恢复或被重分类，从而进入导出集。
+0183-1020	apps/api/app/services/exporting/image_jobs.py:79-80	-	图像导出的已存请求选项必须与 worker 收到的原始参数相符；若把修改后的 payload 当作权威，就能在不重新委托的情况下替换原有请求。
+0183-1021	apps/api/app/services/exporting/lidar_frozen.py:162-163	-	点云冻结按 COCO 消费范围要求当前标定：只有人工相机框需要标定。把标定设成所有图像的前置条件，会错误拒绝不消费标定的负样本。
+0183-1022	apps/api/app/services/exporting/lidar_inputs.py:167	-	计算点云 `source_key` 时须在展开数据类前排除 `relation`；展开后再删虽然得到相同的键，却已为一次对象去重物化了可能很大的整套关系。
+0183-1023	apps/api/app/services/exporting/lidar_inputs.py:227-228	-	点云快照的绑定事实可能重复，媒体和读取预算须在遍历时逐条累计；若先构造完整媒体文档再检查，超限输入已经被无界物化。
+0183-1024	apps/api/app/services/exporting/lidar_inputs.py:258-259	-	锁定读取先锁小型 ID，再计量 JSONB，避免已计量的行在物化前被写大。行锁只保护现有行，并发插入须由调用方持有的父级锁阻止。
+0183-1025	apps/api/app/services/exporting/lidar_inputs.py:447-448	-	点云导出按标定流程的 Dataset → Item 次序锁定父级，反序取锁可能与标定更新互相等待。导出只读取 Dataset，不应把可写或未归档当作前置条件。
+0183-1026	apps/api/app/services/exporting/lidar_inputs.py:638-640	-	nuScenes 完整性以整个 Scene 为边界，不能只检查批次内成员。按 Scene → Item 锁父级以阻止并发新增帧或链接，并冻结范围受限的现有 Task 集合。
+0183-1027	apps/api/app/services/exporting/lidar_inputs.py:869-871	-	冻结输入的摘要必须基于 worker 后续读到的 JSONB 表示；JSONB 会规范化负零等数字写法，直接散列落库前的 Python 表示可能使合法快照验签失败。
+0183-1028	apps/api/app/services/exporting/lidar_media_paths.py:18-19	-	持久化媒体路径的命名以 `packaging` 为准，但路径规划须在调用时导入其规则；改成模块级导入会在收集器和打包器共用该助手时形成循环依赖。
+0183-1029	apps/api/app/services/exporting/lidar_pcd.py:279-280	-	LZF 反向引用可以覆盖尚在生成的输出，不能把它当作源区间已经完整存在的一次切片复制；按回溯距离重复历史模式即可正确解码，无须保留完整解压体。
+0183-1030	apps/api/app/services/exporting/lidar_inputs.py:133-134;apps/api/app/services/exporting/lidar_preflight.py:317-320	-	KITTI 未选相机角色时，预检仍从新快照的完整 `snapshot.links` 列出可导出角色，但不得放行；逐对象守卫的相机链接和规范主链接不能替代完整集合，实际导出也不接受缺少角色。
+0183-1031	apps/api/app/services/exporting/media_jobs.py:9-11	-	分发回填只处理尚未认领的 Job。遇到 worker 持锁时须跳过，不能等待后覆盖；否则回填可能改写已获胜的执行身份或已确定的终态。
+0183-1032	apps/api/app/services/exporting/media_protocol.py:25-26	-	媒体协议须先按格式选定，再导入相应适配器；不能通过切换进程全局协议来实现选择，否则会改变同一进程中另一次正在执行的尝试所用的协议。
+0183-1033	apps/api/app/services/exporting/packaging.py:211	-	打包产物的预签名 URL 有效期与桶的 7 天生命周期对齐；设置得更长会使 URL 在签名仍有效时就可能指向已被清理的对象。
+0183-1034	apps/api/app/services/exporting/packaging.py:362-364,673-674	-	任务须分块消费，ZIP 写入临时文件，避免整个归档驻留内存。分块不能抹去格式差异：COCO 单文档的像素坐标需要累积条目的真实尺寸，纯 YOLO 则无需为此保留条目。
+0183-1035	apps/api/app/services/exporting/packaging.py:764	-	打包清单必须在 ZIP 外暂存；归档同一时刻只允许一个写入句柄，不能在写入其他成员时让清单成员也保持打开。
+0183-1036	apps/api/app/services/exporting/packaging.py:811	-	严格引用媒体读取器必须在分配临时文件前，按完整读取上界预留临时空间；文件生成后再记账无法防止这次读取已经突破空间预算。
+0183-1037	apps/api/app/services/exporting/packaging.py:968	-	单个非 YOLO 图片目标的 `data.yaml` 必须留在归档根目录；统一移入目标子目录会改变该导出形态的既有包布局。
+0183-1038	apps/api/app/services/exporting/packaging.py:1358-1360	-	nuScenes 每个 chunk 只按本块主点云的 `(scene, frame)` 对读取 pose；若每千个任务就重拉一次全场景，大场景的累计读取量约为 N²/1000 行。
+0183-1039	apps/api/app/services/exporting/packaging.py:2167	-	`coco-frames-seg` 要求整个包只有一份 `annotations.json`；各任务的序列帧与几何必须跨 chunk 汇总，不能用多份分块文档替代。
+0183-1040	apps/api/app/services/exporting/packaging.py:2603;apps/api/app/services/exporting/video_budget.py:174-175	-	视频预算须覆盖 manifest 交给 `fetch_frames.py` 的完整绝对帧网格，并额外计入 YouTube-VOS 的网格外精确帧；只按网格或只按标注帧计量都会漏算实际抽帧。
+0183-1041	apps/api/app/services/exporting/packaging.py:2745;apps/api/app/services/exporting/video.py:596,672	-	视频帧号不能统一平移：MOT 和 YOLO 从 1 开始，KITTI 标签从 0 开始。manifest 仅在 KITTI 为唯一目标时以 0 起始，混合导出不能沿用这一例外。
+0183-1042	apps/api/app/services/exporting/reference_media.py:111-112	-	单任务 reference 检查只把引用媒体的拒绝判定缩小到对应任务；不能用该检查替代或改写项目、批次层面的导出授权。
+0183-1043	apps/api/app/services/exporting/reference_media.py:243	-	引用媒体文件名必须用稳定 ID 区分任务；只按 Item 命名时，同一个 Item 对应的多个 Task 会生成相同文件名。
+0183-1044	apps/api/app/services/exporting/reference_media.py:292,304-305	-	读取引用媒体原件不得占用发布业务锁；但发布时须在短事务内拿锁后重新授权，并对已接受 key 的 Identity 持有 SHARE 锁直到事务结束，避免复用锁外已过时的授权判断。
+0183-1045	apps/api/app/services/exporting/service.py:190-191	-	便携 mask 的字节预算必须按最终缩进后的 JSON 核算，并为嵌套属性的每一输出行预留附加缩进；按紧凑 JSON 计量会低估实际输出。
+0183-1046	apps/api/app/services/exporting/service.py:673-676	-	分块导出须等消费者写完本块，再清理 Session identity map；仅分块查询而不清理，会使 ORM 行随任务总数线性滞留，已加载的属性则可在分离后继续读取。
+0183-1047	apps/api/app/services/exporting/service.py:895-898	-	COCO 类别按工具单元隔离，不能因类名相同就合并；类别 ID 全局唯一，优先按 `(tool_unit_id, class_name)` 查找。`tool_bindings` 为空时保留空类集，不回退到其他分类来源。
+0183-1048	apps/api/app/services/exporting/service.py:907-908,914	-	COCO 关键点的节点名和骨架以 `ToolBinding.keypoint_schema` 为准；骨架边端点必须用 COCO 的 1 基索引，有 sublabel 时用 `name_sublabel`，避免同名节点失去区分。
+0183-1049	apps/api/app/services/exporting/service.py:1037	-	COCO 分割的 iscrowd 不能统一写成同一个值：RLE 必须写 1，多边形必须写 0，否则标志与实际分割编码不符合目标格式约定。
+0183-1050	apps/api/app/services/exporting/service.py:1051-1052	-	COCO 启用属性导出时，跨帧对象身份用 attributes.__track_id 表示，不能再编码进 group_id 高位，否则普通分组值也会被当作轨迹身份解读。
+0183-1051	apps/api/app/services/exporting/service.py:1133	-	YOLO 伴生属性以 .txt 标签的行位置为关联键，不能分别对两份文件重排或过滤，否则下游按行读取时会把属性配给错误的目标。
+0183-1052	apps/api/app/services/exporting/video.py:31-34,55	-	polygon/polyline 的单帧标注和轨迹都可导出，但调用方必须显式区分保真与 bbox 兼容集合：MOT、KITTI 和 YOLO 检测使用顶点外接框，两个 JSON 目标保留 points，不能统一转换而丢失顶点。
+0183-1053	apps/api/app/services/exporting/video_budget.py:98-99,202	-	视频展开预算不能按关键帧原文字节线性外推：插值会拉长浮点表示，每帧还要计入字段、来源信息和缩进。便携 RLE 按带缩进的未压缩封套估算，压缩体积不能充当上界。
+0183-1054	apps/api/app/services/exporting/video_delivery.py:96-97	-	视频对象可以去重传输，但授权不能随对象去重；实际 I/O 前后都要核验每个来源绑定，否则首个绑定获准就可能掩盖其他绑定无权访问或权限已变化。
+0183-1055	apps/api/app/services/exporting/video_inputs.py:292-293	-	预算度量和数据投影必须共用同一 MVCC 视图；若分别读取，并发更新可能在度量通过后换入更大的采样数组或配对列表，使 Python 收到未经预算约束的数据。
+0183-1056	apps/api/app/services/exporting/video_inputs.py:515-516	-	视频质量结果的新鲜度以任务全部原始标注为准，最终校验也要锁定非活动及已取消行；只锁活动行会允许旧行在校验后、发布前恢复，使结果漏算。
+0183-1057	apps/api/app/services/exporting/video_jobs.py:80-81	-	Worker 的原始参数必须与持久化请求选项一致，不能把 payload 中的副本当作覆盖值，否则实际执行的选项可能偏离已获委托的请求。
+0183-1058	apps/api/app/services/exporting/video_probe.py:74	-	视频探测失败时不能直接向外返回原生 stderr；它不只是错误描述，还可能包含敏感的容器元数据或路径。
+0183-1059	apps/api/app/services/exporting/video_scope.py:129-130	-	Worker 必须先用完整验证后的真实视频探测结果核对源范围，再展开帧或轨迹；仅凭请求中的范围展开，可能生成落在实际源范围之外的数据。
+0183-1060	apps/api/app/services/mask_formats/service.py:174	archive/0055-mask-quality-and-format-contracts.md	旧版掩码上传初始化只签发逻辑命名空间，不创建记录；兼容解析不能把查不到行当作无效证明，否则会拒绝按旧契约正常初始化的上传。
+0183-1061	apps/api/app/services/mask_formats/service.py:265	archive/0055-mask-quality-and-format-contracts.md	旧版掩码上传不以对象版本为前提，内容仍须按 SHA 校验；强制提供版本会拒绝原契约允许的上传，也不能以版本标识代替内容校验。
+0183-1062	apps/api/app/services/mask_formats/service.py:376,473	archive/0055-mask-quality-and-format-contracts.md	掩码暂存导入应在读取服务商对象前结束建立依赖的初始授权事务；不能让调用方授权锁或批次行锁跨越物理 I/O，否则远端读取的延迟会延长这些锁的持有时间。
+0183-1063	apps/api/app/services/mask_qc/execution.py:247-248	archive/0055-mask-quality-and-format-contracts.md	掩码质检的展示读取与阻断查询必须同按 source_versions 判断过期，不能只靠工作器逐项确认；否则迟到的发现项仍可能被当作当前结果展示或用于阻断。
+0183-1064	apps/api/app/services/ml_routing/authority.py:272	archive/0050-ml-backend-service-pools-and-request-routing.md	后端控制请求一旦实际发出，确认失败不能当作未执行；结果未明时须保留持久占用，否则可能在后端已执行的情况下再次分配同一占用。
+0183-1065	apps/api/app/services/ml_routing/contracts.py:38-39	archive/0050-ml-backend-service-pools-and-request-routing.md	draining 要停止发放新租约但保留既有租约，不能把排空实现为撤销在途工作；disabled 不发新租约，也不能未经重新验证就恢复接单。
+0183-1066	apps/api/app/services/ml_routing/contracts.py:51,56,60	archive/0050-ml-backend-service-pools-and-request-routing.md	被动熔断只把传输故障计为失败；业务错误、模型校验失败、GPU 容量不足和调用方取消都不能混入，否则会把非传输问题误判为成员传输不健康。
+0183-1067	apps/api/app/services/ml_routing/contracts.py:89	archive/0050-ml-backend-service-pools-and-request-routing.md	enforce 模式下 Redis 不可用必须返回 ROUTER_UNAVAILABLE；继续发放路由会绕过共享租约账本，无法确认成员占用是否得到有效登记。
+0183-1068	apps/api/app/services/ml_routing/contracts.py:118;apps/api/app/services/ml_routing/router.py:199-201	archive/0050-ml-backend-service-pools-and-request-routing.md	候选能力指纹必须与服务池快照精确匹配，多成员池缺指纹时不能证明成员可替换，须拒绝路由。迁移 0132 的历史单成员池已有能力但尚缺指纹时可放行，下次健康刷新补写规范指纹。
+0183-1069	apps/api/app/services/ml_routing/diagnostics.py:304	archive/0050-ml-backend-service-pools-and-request-routing.md	诊断未采集 GPU 与驻留数据时，必须将其新鲜度标为过期；不能把未采集解释成刚观测过的数据。
+0183-1070	apps/api/app/services/ml_routing/ledger.py:76-81	archive/0050-ml-backend-service-pools-and-request-routing.md	Redis 账本必须原子地选择成员并获取租约；若把选择和占用拆开，并发申请可能都依据同一份可用容量选中该成员，造成超额占用。
+0183-1071	apps/api/app/services/ml_routing/ledger.py:190-193	archive/0050-ml-backend-service-pools-and-request-routing.md	心跳只能延长仍未过期且身份精确匹配的租约，不能改写所属池、实例或持有者；否则迟到的心跳可能复活已失效的占用，或延长别人的租约。
+0183-1072	apps/api/app/services/ml_routing/ledger.py:223-226,277-280	archive/0050-ml-backend-service-pools-and-request-routing.md	finish 必须原子结算释放、熔断和指标，重试不能重复记账；cancel 也须幂等释放，但不触发熔断，不能走会记录故障的终结路径。
+0183-1073	apps/api/app/services/ml_routing/metrics.py:17-18,40	archive/0050-ml-backend-service-pools-and-request-routing.md	Prometheus 计数器只覆盖当前进程生命周期，不能用其还原跨进程的占用状态；Redis 账本才是持久事实来源，仪表值须取账本快照。
+0183-1074	apps/api/app/services/ml_routing/policy.py:79-80,88-91	archive/0050-ml-backend-service-pools-and-request-routing.md	SWRR 同权时显式选择 UUID 十六进制字典序最小的实例；依赖 max 取首项会把决胜交给候选顺序，而确定性 UUID 让各进程对同一组候选作出相同选择。
+0183-1075	apps/api/app/services/point_cloud_quality/originals.py:488-489;apps/api/app/services/video_tracking/jobs.py:366-367	-	点云原件解析和追踪保存都先锁 Task，再锁下游行，避免与同任务写方形成反向锁序。点云解析沿用 Scene、Track、Annotation 的顺序，并由规范解析器额外锁定 Item、Asset、Location 和 Gate。
+0183-1076	apps/api/app/services/point_cloud_quality/service.py:848	-	PointCloudQualityIssue 的归属已写入后，用 set_committed_value 同步缓存中的 stale；普通 ORM 赋值会将其再次标为待写，导致 flush 多发一条 UPDATE。
+0183-1077	apps/api/app/services/source_readers/s3.py:269	0098-strict-external-s3-references.md	S3 LIST 只能证明对象键被列出，不能确认列出的是哪个版本；不能把列表条目当作对象版本身份的证据。
+0183-1078	apps/api/app/services/source_readers/s3.py:367,375-376	0098-strict-external-s3-references.md	连接器凭据仅能用于 owner 配置的精确端点，回环例外也只属于该端点。字面 IP 不查 DNS，但其他字面 IP 仍须经过连接器 IP 校验，不能借免解析绕过地址约束。
+0183-1079	apps/api/app/services/video_tracking/backend_identity.py:79	-	旧版聚合追踪能力声明只表明后端支持该能力，不包含逐模型制品身份；拿它代替制品身份会把同一聚合声明下的不同制品当成同一个。
+0183-1080	apps/api/app/services/video_tracking/execution.py:64	-	验证执行者的 claim 前必须禁止 ORM 自动 flush；否则连校验查询都可能先冲刷待写变更，让已经失去执行权的执行者抢先写入。
+0183-1081	apps/api/app/services/video_tracking/execution.py:75	-	数据库异常可能附带私有 SQL 参数，执行层只抛出 storage_unavailable 并切断原异常链；仅替换顶层错误消息仍可能从异常链泄露参数。
+0183-1082	apps/api/app/services/video_tracking/execution.py:161,171	-	明确的 NOWAIT 拒绝证明续租未写入，可以等待重试；响应丢失时则无法确认续租结果，必须按失去 claim 停止执行，不能假定续租成功。
+0183-1083	apps/api/app/services/video_tracking/execution.py:165-166,184-185	-	原生层先验证证明和租约，再判定 Job 终态，所以 job_not_active 返回时的证明可保留用于受约束的物理清理。终态本身不等于已结算：只有执行日志和每条保留路由都有明确结算证明，原生层才能释放 claim。
+0183-1084	apps/api/app/services/video_tracking/jobs.py:465-467	-	保存时先锁 RLE，再锁 Annotation，并在取得 Annotation 行锁后重查所有可变前提；旧写入路径可能绕过前一把锁，沿用锁前判断会覆盖其间的修改。
+0183-1085	apps/api/app/services/video_tracking/jobs.py:853-854	-	不可变意图须保留首次接受的执行 ID；退役后重派只更换传输 ID，否则原意图会被错误地归到后一次投递。
+0183-1086	apps/api/app/services/video_tracking/jobs.py:912-914	-	派发转换返回时，任务可能已抢先进入运行态或终态；只有摘要仍为 pending 且确证入队失败时，才同步失败状态，以免覆盖已经推进的结果。
+0183-1087	apps/api/app/services/video_tracking/jobs.py:1318-1321	-	多源追踪不能把结果统一回填到某个主标注；每颗种子须将起始帧几何和源标注 ID 与从 1 起的 obj_id 绑定，验收时按字符串化的 instance_id 找回各自来源。
+0183-1088	apps/api/app/services/video_tracking/jobs.py:1324-1327,1391-1393	-	创建任务时按字符串化的源标注 ID 记录各自版本，验收时锁行逐一复核；任一版本漂移或有源旧任务缺少版本证明都返回 409，否则可能覆盖并发修改。
+0183-1089	apps/api/app/services/video_tracking/jobs.py:1351-1352	-	有源 polyline 追踪须在入口返回 400，不能放给 runner 做 bbox 回退；回退会把关键帧静默改成空框，丢掉所有点。
+0183-1090	apps/api/app/services/video_tracking/journal.py:116-117	-	日志提交响应失败不代表提交未生效；重试只能幂等重放原提交请求，不能重新运行推理，否则可能重复执行已提交的模型工作。
+0183-1091	apps/api/app/services/video_tracking/journal.py:231-232	-	日志加载时将 Base64 分片暂存磁盘；若先在内存拼接完整编码，受限的解码窗口之外仍会额外驻留一整份编码副本。
+0183-1092	apps/api/app/services/video_tracking/recovery.py:27-28,52-53	-	已准备获取 scope 的意图时，scope 为空不能替代与该意图精确匹配的无作用域拒绝证明；物理退役时，Job 已终止或删除也不能替代本次退役证明，核验前不得释放 pin。
+0183-1093	apps/api/app/services/video_tracking/runner.py:175-176,864-867	-	combo 的 multiplex 发现不能用单帧窗：种子帧的 obj_id 要靠多帧传播才会填充。发现仅用短窗并取种子帧的框生成 PVS 种子；这些对象没有源标注，应各自新建轨迹。
+0183-1094	apps/api/app/services/video_tracking/runner.py:238-239	-	心跳不能替代当前 claim：它既没有提交模型工作，也不能证明工作已完成，因此接纳工作和每次写入时都仍须持有当前 claim。
+0183-1095	apps/api/app/services/video_tracking/runner.py:306-307,322,329-330	-	任务仍在运行时，Mask 写入或根引用登记争用不应重跑模型；保留 RLE，必要时重取字节保护锁后重试。若回收已改变内容 epoch，旧引用和字节存在性证明失效，须用保留的 RLE 在新 epoch 下重新发布。
+0183-1096	apps/api/app/services/video_tracking/runner.py:346,3110-3111	-	Mask 写入须从本次提交起保留生产者宽限期，因为后续窗口可能先于最终候选暂存提交；接受后引用已可从标注到达，无需再靠暂存保留，丢弃或失败时也立即清除暂存。
+0183-1097	apps/api/app/services/video_tracking/runner.py:380-384	-	SAM3 multiplex 显存随窗长线性增长，大窗在 24 GB 上会 OOM；PVS 虽省显存但后端默认限 16 帧，combo 追踪也按 PVS 分窗。不能把短窗套给 SAM2，否则会损害长程记忆。
+0183-1098	apps/api/app/services/video_tracking/runner.py:731-732	-	开启采样后仍须逐源帧推理以维持跨窗续追，但只持久化导航与导出网格上的帧；把采样用于推理会跳过续追帧，把所有推理帧落库则会产生编辑器无法到达的关键帧。
+0183-1099	apps/api/app/services/video_tracking/runner.py:752	-	多边形归一化后若不足三个顶点，应按 outside 处理而非作为预测写入，否则会违反几何 schema。
+0183-1100	apps/api/app/services/video_tracking/runner.py:823-824	-	推断主实例时优先考虑数字 ID，并按数值而非字符串排序，否则会把「10」排在「2」前；非数字兜底 ID 仍按字典序比较。
+0183-1101	apps/api/app/services/video_tracking/runner.py:895-898,3888-3890,4286-4287,4346,4357,4388	-	文本 multiplex 每窗重检测，obj_id 只可用于窗内预览；候选落库前须按边界几何的 IoU 映射到全局 instance_id，未匹配对象另开轨迹。取消时若暂存未完成窗，也须先关联已收结果。
+0183-1102	apps/api/app/services/video_tracking/runner.py:982-983	-	multiplex 遇到空窗或整窗 outside 时须保留上一有效边界；若用空结果覆盖，短暂遮挡后重新出现的同一对象可能被误建为新轨迹。
+0183-1103	apps/api/app/services/video_tracking/runner.py:1411,3292	-	执行权争用后重试，或认领返回已结算时，须重新读取权威 Job；调用方原先映射的对象可能已过期，不能用它继续处理或返回结算结果。
+0183-1104	apps/api/app/services/video_tracking/runner.py:1888-1890,2546-2547,2969-2971,2999	-	候选审核按账户共享锁、Job、Task 的顺序取锁，核验认领、分配和冻结的审核证据；分派 QC 或幂等、状态早退前仍须按当前项目成员资格和阶段权限校验显式 actor_id，不能借用创建者身份或旧决定绕过授权。
+0183-1105	apps/api/app/services/video_tracking/runner.py:2045	-	待写入的 Mask 审核证据和审计行须与审核命令留在同一工作单元，命令提交前只 flush；若独立提交，审核回滚后仍会留下证据或审计记录。
+0183-1106	apps/api/app/services/video_tracking/runner.py:3094-3095	-	接受候选时已持有源 Annotation 锁，记录操作者所需的 Task 锁必须用 NOWAIT 获取；阻塞等待可能形成锁环，遇忙应回滚并返回可重试的 409。
+0183-1107	apps/api/app/services/video_tracking/runner.py:3102-3104	-	将回填及新建轨迹 ID 写入终态 Job 的 prompt JSONB 时须重赋整个字典；原地修改不会触发 SQLAlchemy 脏检测，前端刷新和审计可能读不到结果。
+0183-1108	apps/api/app/services/video_tracking/runner.py:3340-3342	-	提交后的响应或发布丢失时，业务结果可能已经生效；恢复须核对权威结果并用同一执行凭证清退终态执行，不能按普通空结果退出而留下未清退的执行。
+0183-1109	apps/api/app/services/video_tracking/runner.py:3354-3356	-	续期结果不明或租约过期时须停止用当前凭证写入，但不能据此认定接替 worker 已经接手；应保留投递，以便过期后复查并重新认领。
+0183-1110	apps/api/app/services/video_tracking/runner.py:3388-3389,3445-3446	-	准备已接受的源字节时不持有 Job 行锁，因为独立 Assets worker 可能仍在生成不可变源计划；准备完成后须重新锁读 Job，不能用旧状态开跑而错过取消或状态变更。
+0183-1111	apps/api/app/services/video_tracking/runner.py:3556-3558,3568-3569	-	后端须按 tracker 声明的能力解析，不能沿用项目单一绑定，否则 sam3_video 可能静默落到 grounded-sam2。combo 按 PVS 能力解析同时支持两项能力的同一后端，分别取 PVS 追踪和 multiplex 发现适配器。
+0183-1112	apps/api/app/services/video_tracking/runner.py:3610-3613,3628-3629,3764-3765,3784	-	有状态 tracker 整个 Job 须固定实例，逐窗换实例会丢失追踪状态。enforce 持有并续期路由租约，结束只执行一次 finish 或 cancel；observe 只记录拟选结果，仍和 off 一样走旧分派。
+0183-1113	apps/api/app/services/video_tracking/runner.py:3870-3873,3884-3886,4227-4228,4407-4408	-	首窗用原种子，后续窗用上次非 outside 几何续种，否则移动目标会从原位置重启。至少有两个实例 ID 时须逐实例沿用原 obj_id，以免丢掉非主实例；单目标或无实例 ID 时仍走 source_geometry。
+0183-1114	apps/api/app/services/video_tracking/runner.py:4092-4094	-	combo 的 multiplex 发现与 PVS 追踪须串行，以便在两阶段之间卸载前者，避免双模型同驻的显存峰值；种子帧未发现对象时应失败，因为 PVS 无种子可追踪。
+0183-1115	apps/api/app/services/video_tracking/runner.py:4381-4382	-	后端结果数组不保证帧序，须先按追踪方向排序再取边界几何；直接取数组末项可能选错帧，导致续种或跨窗实例关联使用错误的位置。
+0183-1116	apps/api/app/services/video_tracking/runner.py:4399-4401	-	PVS 单目标有 instance_id 却没有 primary 标记时，须按落库规则识别主实例，并用它最后一次有效的几何续种。只认 primary 标记会让无源任务的第二个窗口因缺少种子而被拒绝。
+0183-1117	apps/api/app/services/video_tracking/writer.py:187-188	-	丢失 COMMIT 响应不能判定视频结果未发布；重发同一稳定命令前，须按操作 ID、执行身份和命令摘要查验原操作回执，避免把已经提交的操作当成未执行。
+0183-1118	apps/api/app/utils/raster_mask_gzip.py:24-30	-	raster_mask_storage 已依赖 raster_mask_gzip，不能让 gzip 模块反向导入存储模块的 4 MiB 上限，否则会形成循环导入；两处定义由单测校验一致。
+0183-1119	apps/api/app/utils/raster_mask_gzip.py:83	-	raster_mask_gzip 须在解压调用中以 max_length 限制输出分配；若等解压结束才检查大小，高膨胀比的数据流在被拒绝前就可能耗尽内存。
+0183-1120	apps/api/app/workers/active_learning.py:179,200	archive/0083-human-reviewed-active-learning.md	已提交的 active_learning 预扣费涵盖准入或传输失败，不能因传输失败自动退款；传输端报错也不能作为原生执行已经退出的依据。
+0183-1121	apps/api/app/workers/audit_partition.py:78	-	审计归档的重复投递不能作为原归档尝试已结束的证据；如果把投递状态当作执行状态，就可能在原尝试仍运行时把它视为已结束。
+0183-1122	apps/api/app/workers/audit_partition.py:100-101	-	历史上归属用户的归档任务须与取消路径同样按 User → Job 顺序加锁。终态通知会取得 users 外键锁，若先锁 Job，就可能与取消路径形成反向等待。
+0183-1123	apps/api/app/workers/audit_partition.py:140-141	-	归档源端 I/O 排空后，即使再次收到取消，也须完成记录实际已提交月份的终态事务；此时中止事务会让已提交的归档缺少对应记录。
+0183-1124	apps/api/app/workers/celery_app.py:90-93	-	未显式路由的 Celery 任务须进入 worker 实际订阅的 default 队列，使用内置 celery 队列会无人消费。定时任务仅配置 schedule 不会触发，还须运行独立 beat 或启用 worker --beat。
+0183-1125	apps/api/app/workers/celery_app.py:171	-	审计分区超过保留期后，须先完成到 MinIO 的归档，再删除数据库分区；先删分区会丢掉仍未归档的审计记录。
+0183-1126	apps/api/app/workers/celery_app.py:197	-	GPU 仲裁器修复与健康扫描使用独立队列和锁；修复须取得与当次挑战绑定的新鲜健康证明，扫描结果即使显示健康，也不能证明当次挑战已通过。
+0183-1127	apps/api/app/workers/celery_app.py:218-219	-	视频通用恢复任务只兜底本地 owner 的 worker 在租约到期前死亡所遗留的待处理作业；远程 owner 作业不能套用这条本地恢复路径。
+0183-1128	apps/api/app/workers/celery_app.py:271-272	-	Celery 心跳由每个 worker 的 bootstep 定时器直接写入 celery:hb:{node}；若改由 Redis broker 的 Broadcast 分发，广播丢失就可能使仍存活的 worker 缺少心跳。
+0183-1129	apps/api/app/workers/cross_frame_job.py:298-299,340-345	-	跨帧任务回滚后只沿用持久任务标识；每帧须重读账号并先取 FOR SHARE NOWAIT 锁，避免沿用旧角色或与账号停用竞态。账号锁忙时回滚并将该帧记为终态，不等待。
+0183-1130	apps/api/app/workers/cross_frame_job.py:362-364	-	跨帧任务须先取得各相关项目的操作者成员资格共享锁，再锁 Task；反过来会让最终写入校验持有 Task 锁等待成员资格。
+0183-1131	apps/api/app/workers/cross_frame_job.py:389-391	-	跨帧任务须在每帧事务中复核创建时的 Dataset 范围。若 Task、item、primary_lidar 或 Scene 的映射已变更，须在写 Annotation 前拒绝该帧，不能按新映射扩大原授权范围。
+0183-1132	apps/api/app/workers/cross_frame_job.py:402,409-412	-	跨帧任务即使只读 review 态源 Task，也须验证审核权限；写标注不能以审核员或查看者身份代替有效标注员或管理员权限，review 态还须验证冻结的贡献者证据。
+0183-1133	apps/api/app/workers/dataset_quality.py:69	-	dataset_quality 将持久化租约用作发件箱；派发失败不应使运行记录失去后续投递机会，Beat 会在租约过期后重试。
+0183-1134	apps/api/app/workers/dataset_registration.py:283	-	dataset_registration 重放文件前须先使崩溃或租约过期的旧分块失效；沿用旧代次会让已经失去有效租约的分块仍被当作本轮工作。
+0183-1135	apps/api/app/workers/dataset_scan.py:30-31	archive/0093-resumable-directory-inventory.md	dataset_scan 发布结果不明时不能假定消息未送达；原任务 ID 仍须受栅栏约束，由恢复流程原子替换，不能让可能已投递的旧任务和恢复任务同时有效。
+0183-1136	apps/api/app/workers/dataset_scan.py:181	archive/0093-resumable-directory-inventory.md	dataset_scan 收到排队消息时，不能把先前已获准排队当作当前仍有效的依据；否则迟到的消息可能重新激活已经删除或退役的契约。
+0183-1137	apps/api/app/workers/dataset_scan.py:193	archive/0093-resumable-directory-inventory.md	dataset_scan 回滚会使 ORM 属性过期，实际关闭证据也不例外；须重新加载回执再判定是否关闭，不能沿用回滚前读到的状态。
+0183-1138	apps/api/app/workers/dataset_scan.py:200	archive/0093-resumable-directory-inventory.md	dataset_scan 更新回执失败时，不能用回执写入错误替代 owner 的原始失败，也不能据此抹去回执已经持久化的状态。
+0183-1139	apps/api/app/workers/export.py:257-258	-	导出进度更新须与完成操作串行化；否则迟到的重复投递可能在作业已经完成后把进度从 100% 写回更低的值。
+0183-1140	apps/api/app/workers/export.py:289-292,1182,1198-1199	-	导出命中缓存也须复核当前账号、成员资格和规范化任务范围；worker 参数与存档范围不符就拒绝交付。最终发布须与取消和授权撤销串行化，签发 URL 时还须复查有效期，因为共享行锁挡不住凭据在等锁时过期。
+0183-1141	apps/api/app/workers/export.py:352-353	-	导出通知须由调用方在事务提交后发布；提前发送会让 WebSocket 投递门禁读不到尚未提交的通知记录。
+0183-1142	apps/api/app/workers/export.py:384	-	Celery eager retry 只在本地执行，不能作为 broker 已接收重试消息的凭据；本地发生重试不代表消息已入队。
+0183-1143	apps/api/app/workers/export.py:1039-1041	-	选中任务的导出缓存只在同一持久作业的重试间共享。没有覆盖预测、媒体和轨迹的完整内容修订标识时，新作业必须读取最新内容，否则可能交付旧产物。
+0183-1144	apps/api/app/workers/export.py:1101	-	导出首次未命中后，取得构建锁时仍须复查缓存；前一个任务可能在首次检查与取锁之间完成发布，不复查会重复构建。
+0183-1145	apps/api/app/workers/export.py:1121	-	导出缓存未命中时须将 ZIP 写入临时文件，而非在内存中攒完整压缩包；否则仅构建大导出就会让整个压缩包同时占用 worker 内存。
+0183-1146	apps/api/app/workers/export.py:1253-1254	-	持租约的导出分支每次写终态前都须验证确切租约，避免失去租约的执行者仍能落终态；通用异常处理也不得覆盖该分支写出的终态。
+0183-1147	apps/api/app/workers/export.py:1270-1272	-	PUT 失败、取消或提交结果不明都不是删除导出字节的依据；独立候选记录须保留处置责任，直至固定期限届满且该记录被显式退役。
+0183-1148	apps/api/app/workers/frame_preannotate.py:830-832	-	帧预标注是否已提交不能以结果非空判断，否则 broker 重投会重跑已提交的空结果。Labeling 写入器还须在 Task 锁内原子复查，防止推理期间另一投递先行提交。
+0183-1149	apps/api/app/workers/frame_preannotate.py:1580	-	帧预标注的进度表示计划帧的处理覆盖率，不是成功率。跳过和失败也必须计入已处理数，否则遍历完计划后，进度仍会误报有帧尚未处理。
+0183-1150	apps/api/app/workers/frame_preannotate.py:1771-1772	-	帧预标注 Job 只能在冻结计划中的每个逻辑段均有回执后结束；恢复后的 Celery canvas 可能重复交付，按收到的结果条数判定会把重复回执当成其他段的完成。
+0183-1151	apps/api/app/workers/heartbeat.py:35	-	心跳写入失败只告警，不能让异常中断 Worker 的任务消费，否则一次心跳写入故障也会使正常任务停止被消费。
+0183-1152	apps/api/app/workers/image_pyramid.py:530	0106-independent-image-media-owner.md	复用进行中的图像金字塔生成时，须复核最初发起者的授权引用；用后续请求者的权限替代，会掩盖原授权已失效的情况。
+0183-1153	apps/api/app/workers/image_pyramid.py:717	0106-independent-image-media-owner.md	图像金字塔生成失败不改变已有物理输出的归属；保留原归属供 GC 校验，不能仅凭本次失败推定谁有权删除这些输出。
+0183-1154	apps/api/app/workers/lidar_export.py:644-645	-	LiDAR 导出在回滚与复查之间可能被另一有效投递领取；即便 task ID 相同，也只有持有该次租约的尝试可写入终态，否则旧尝试会覆盖新领取者的状态。
+0183-1155	apps/api/app/workers/lidar_export.py:832-833	-	LiDAR 导出等待物理线程退出时，CPU 和逐帧处理不得占着 SQL 事务或序列化器连接。取消检查用独立短会话，避免把事务或连接的持有时间延长到线程退出。
+0183-1156	apps/api/app/workers/managed_original_reclaim.py:91-92	-	托管原件回收的检查点回调属于物理线程尚未完成的工作。拥有者取消并不等于回调已结束；回收线程须等待回调结束，才可继续或退出。
+0183-1157	apps/api/app/workers/managed_original_reclaim.py:115	-	托管原件回收在回滚前须保存后续所需的目标信息；回滚后再从 ORM 行取值可能碰到已失效的状态，不能依赖该行来确定回收目标。
+0183-1158	apps/api/app/workers/managed_original_verification.py:44-45	-	托管原件验证即使未收到发布确认也可能已投递，显式重派须复用同一 task ID。去重以持久化的 pending→running 领取为准，不依赖会过期的 TTL 标记。
+0183-1159	apps/api/app/workers/managed_original_verification.py:106-107	-	托管原件验证的回调报错不意味着其短事务已结束；发布前须先回滚，不能让最终校验沿用旧快照或继续持有回调留下的锁。
+0183-1160	apps/api/app/workers/media.py:122-123	-	libvips 方法失败后，异常栈帧可能仍引用图像对象。须先退出持有这些引用的栈帧，再向外抛出稳定错误，否则传播异常会延长图像对象的存活。
+0183-1161	apps/api/app/workers/media.py:336-339	-	视频回填不能以 frame_count 已有值认定完成：seed 可能只填了元数据，没生成 poster。thumbnail_path 为空也须触发回填，重复重建帧时间表和 poster 是安全的。
+0183-1162	apps/api/app/workers/media_derivatives.py:41-42	0105-independent-video-media-owner.md	视频分块使用将 moov 放在文件开头的 fragmented MP4，使读取方可从文件头取得编解码配置；否则读取这点配置也可能要扫描 GiB 级的 mdat。
+0183-1163	apps/api/app/workers/media_derivatives.py:124-125	0105-independent-video-media-owner.md	视频衍生物须按规范原件的编码与帧编号确定输入；元数据中的浏览器转码不是等价来源，使用它的编码或帧编号可能选错实际输入或目标帧。
+0183-1164	apps/api/app/workers/media_derivatives.py:185-186	0105-independent-video-media-owner.md	已知的探测失败不必阻断普通视频播放，但精确包表一旦提供，就须逐帧覆盖全部承诺帧；不能把部分探测结果充作精确映射。
+0183-1165	apps/api/app/workers/media_derivatives.py:352-353	0105-independent-video-media-owner.md	视频衍生物因内容繁忙而延期时须保持尝试未领取；后续请求可重投同一尝试，但不能借重投改写该尝试绑定的不可变授权。
+0183-1166	apps/api/app/workers/media_derivatives.py:378-379	0105-independent-video-media-owner.md	视频衍生物因内容繁忙而无法处理失败时，既不续租也不抹除原有责任；保留原截止时间和归属，协调器才能到期接手遗留输出。
+0183-1167	apps/api/app/workers/media_derivatives.py:527-528	0105-independent-video-media-owner.md	视频衍生物批次中，单个输出写完不等于可以就绪。须等全部解码器、输出文件、客户端和共享源暂存资源实际关闭，才能发布任何成员。
+0183-1168	apps/api/app/workers/media_dispatch.py:18-19,23,27-28	0105-independent-video-media-owner.md	旧媒体派发入口只唤醒 worker 池，传入 ID 不能代替工作受理，也不提供来源标识。生产者须先走 Assets 受理，回填须先完成原生受理，不能用一次唤醒绕过这两道入口。
+0183-1169	apps/api/app/workers/ml_health.py:269-270	-	ML 健康维护必须先完成数据库中待处理的回收回执，再执行 reset；顺序颠倒可能让仍持久存在的墓碑重新进入已关闭的域。
+0183-1170	apps/api/app/workers/presence.py:38-40	-	离线阈值须在每轮在线状态扫描开始时读取，而非在 worker 启动时固定或绑定到 beat 周期；通过设置服务的 30 秒进程缓存，运行时修改可在后续扫描生效。
+0183-1171	apps/api/app/workers/sample_evaluations.py:135,177	archive/0079-frozen-sample-evaluation.md	样本评估须先查远端缓存回执，即使上次 GPU 授权结果不明也不例外。传输错误只说明本地未得到结果，不能据此判定原生任务已停止，应再次查询回执。
+0183-1172	apps/api/app/workers/sample_evaluations.py:257,269	archive/0079-frozen-sample-evaluation.md	样本评估只有确认旧尝试不可能重新成为当前写入者，才可在事务外清理其候选输出，否则可能删除仍会使用的结果。无法确认时，候选报告留在该评估的清理前缀下。
+0183-1173	apps/api/app/workers/sample_evaluations.py:485,509	archive/0079-frozen-sample-evaluation.md	样本评估的远端停止确认不能依赖输出所有者仍在或授权仍有效，否则所有者消失或授权撤销后便无法确认停止；发布报告是另一道边界，仍须复核授权。
+0183-1174	apps/api/app/workers/storage_migration_copy.py:151	-	存储迁移复制须独立校验生成的检查点；核心返回的摘要不能代替对实际产物的完整性验证，否则摘要存在也无法证明将要发布的字节正确。
+0183-1175	apps/api/app/workers/storage_migration_copy.py:162	-	存储迁移复制须等核心把两份已封存输出都关闭，才可读取和发布；封存本身不能替代关闭确认，否则可能读取尚未写完的字节。
+0183-1176	apps/api/app/workers/storage_migration_copy.py:269	-	取消或授权撤销不能作为丢弃存储迁移复制 ACK 的理由；即便两者先于 ACK 落库，也须持久化 ACK，否则会丢掉已经收到的确认事实。
+0183-1177	apps/api/app/workers/storage_migration_inventory.py:211,235-236	-	存储迁移盘点关闭时须唤醒节流等待以冲刷末条进度，并在原生线程和许可退出后、关闭阶段首次 await 前接管最后一个待处理事件，否则立即取消可能使末条进度丢失。
+0183-1178	apps/api/app/workers/storage_migration_inventory.py:178,318-319	-	存储迁移盘点的原生回调只把基本类型值交给事件循环，不跨线程移交报告记录或 SDK 句柄。实时复查在事件循环用独立的短只读会话完成，不能把 SQL 事务或 Session 借给原生线程。
+0183-1179	apps/api/app/workers/storage_usage.py:131	-	存储用量盘点等待提供方响应时不持有数据库锁；因此发布时必须重新校验写入资格，不能假定外部等待前的资格仍然有效。
+0183-1180	apps/api/app/workers/tasks.py:50-52	-	Broker task ID 不能证明请求摘要匹配或当前租约归属。绑定预标注请求的 Job 只能由完成这些校验的工作流写入终态，首次领取前的拒收也不能绕过该限制。
+0183-1181	apps/api/app/workers/tasks.py:92-93	-	批量预测等待输入就绪或已存结果争用解除时，须沿用同一持久化 Job。等待可能超过 Celery 默认的三次重试，不能把重试耗尽当成可放弃输出的依据。
+0183-1182	apps/api/app/workers/training_dataset.py:822	-	训练数据集发布未收到确认不代表事务未提交。清理打包对象前须查询是否已有版本引用它，否则可能删除已发布版本所依赖的对象。
+0183-1183	apps/api/app/workers/video_tracker.py:83	-	视频跟踪双写的 async_jobs 只是汇总索引，不能把其写入成功当成跟踪主流程继续执行的条件，否则索引故障会中断跟踪本身。
+0183-1184	apps/api/scripts/audit_project_roles.py:68-70	-	直接运行 audit_project_roles.py 时，sys.path[0] 指向脚本目录而非 API 根目录；必须在导入 app.* 前加入 API 根目录，否则直接执行时可能找不到 app 包。
+0183-1185	apps/api/scripts/audit_project_roles.py:79-81,483-484,503-504,519-520	-	审计应区分旧版全局 annotator/reviewer 与项目成员角色不符的迁移差异，以及同一账号在不同项目担任不同角色的合法情况。平台 viewer 是例外：持有任何非 viewer 项目角色都应报冲突。
+0183-1186	apps/api/scripts/audit_project_roles.py:104-105	-	审计须先探测 0173 新增的 project_members.version、updated_at 和 user_invitations.project_role；直接引用这些列会使尚未升级的库无法运行迁移前报告。
+0183-1187	apps/api/scripts/audit_project_roles.py:538-539,556-557	-	普通员工成员行不是管理员授权依据，管理员持有此类成员行时应列出复核。项目所有者授权还要求有效的平台管理员角色，仅凭所有权放行会漏掉应阻断迁移的 employee 或未知平台角色。
+0183-1188	apps/api/scripts/audit_project_roles.py:755-757	-	旧版待处理项目邀请把项目角色写在平台 role 列，转换前须迁入 project_role，否则会把项目职责当成平台角色。若 0173 的新列尚不存在，所有待处理项目邀请都应列为待回填。
+0183-1189	apps/api/scripts/audit_project_roles.py:843-844	-	尚无评审活动的任务没有证据可冻结，NULL 不应算缺陷；用默认值填补旧写入端留下的空值，会把没有证据的记录误判为已有证据。
+0183-1190	apps/api/scripts/audit_project_roles.py:1142-1143	-	审计使用 REPEATABLE READ，避免并发提交使汇总与明细读到不同版本；事务由 PostgreSQL 强制只读，避免误写检查对象，不依赖脚本约定。
+0183-1191	apps/api/scripts/backfill_dataset_assets.py:52	-	资产回填在 apply 模式须和在线导入一样先初始化绑定、再锁定条目；反序会让并发操作各自持有对方需要的锁，形成死锁。
+0183-1192	apps/api/scripts/backfill_task_datasets.py:147	-	任务数据集回填失败时，CLI 不应原样打印数据库驱动异常；异常正文可能包含连接凭据或 SQL，直接输出会将其带入终端或日志。
+0183-1193	apps/api/scripts/import_images.py:117-118	-	图片导入须与 Web 扫描使用相同的路径标识：保留相对图片根目录的完整路径，并在 Windows 上也使用 POSIX 分隔符。压平会混淆不同目录下的同名图片，使用本机分隔符则会让同一路径产生不同标识。
+0183-1194	apps/api/scripts/import_nuscenes_scene.py:468	-	未指定 dataset_display_id 时，nuScenes 导入须从数据集名派生稳定 ID；若每次生成新 ID，同一数据集的重复导入就无法复用原记录。
+0183-1195	apps/api/scripts/import_nuscenes_scene.py:570-572,1283-1284	-	同名 nuScenes scene 不重建，以保留任务和标注；旧 ASCII PCD 原位替换并同步大小和哈希，相机尺寸从 sample_data 回填。已有 scene 会在逐帧 ego pose upsert 前跳过，历史缺失位姿须用 backfill_frame_poses.py 补写。
+0183-1196	apps/api/scripts/import_nuscenes_scene.py:1023-1025	-	nuScenes 多 scene 共用数据集时，存储键和文件名仍须带 scene 前缀；任务按 scene 分组并不能阻止同名帧在存储命名空间碰撞，去掉前缀也会改变既有路径和输出名。
+0183-1197	apps/api/scripts/prepare_e2e_db.py:33	-	prepare_e2e_db 须用会话级 advisory lock 覆盖同名数据库的检查和创建；只做存在性检查会让两个 runner 同时判定库不存在，并争抢创建。
+0183-1198	apps/api/scripts/prepare_original_catalog.py:33-34	-	prepare_original_catalog 须先锁 Location、再锁 Binding，并在 provisioning 期间保护两者；若不锁定 Location 就处理 Binding，并发 cutover 可能改写本次配置的目标。
+0183-1199	apps/api/scripts/seed_coco8.py:30-31	-	seed_coco8 不能无条件取 parents[3]：浅挂载下会在解析路径时越界，连夹具存在性检查都走不到。层级不足时退到文件系统根，让缺失夹具按正常路径跳过。
+0183-1200	apps/api/scripts/seed_coco8.py:43	-	COCO8 工具绑定须保留完整的 80 类官方索引顺序；只绑定样本出现的类或重排类别，会使未重映射的 YOLO class_idx 指向错误类别。
+0183-1201	apps/api/scripts/seed_coco8.py:329-330	-	seed_coco8 直接写 DatasetItem，不能依赖常规入口受理图像 owner 回填；须在条目提交后显式受理持久化回填，避免回填看不到对应行或根本未被受理。
+0183-1202	apps/api/scripts/seed_online_training.py:220-221	-	在线训练 seed 只能为本次确认写入成功的字节建立新的托管身份；若仅凭路径接管已有夹具或旧文件，就会把并非本次写入的内容认作本次托管对象。
+0183-1203	apps/api/scripts/seed_online_training.py:267-268,518-519	-	在线训练 seed 须先提交完整的源数据，再启动独立的栅格 owner 引导事务和准备会话；否则它们看不到新增绑定或源行，把准备放在提交前也会让实际存储读取期间继续持有 seed 事务的锁。
+0183-1204	apps/api/scripts/seed_online_training.py:529	-	在线训练准备结束后须重新取得项目锁并复查固定请求；只依赖准备前的检查，会重复创建其他 seed 已在准备期间发布的版本。
+0183-1205	apps/api/scripts/seed_online_training.py:575-576	-	构建器持有执行锁直至写入结束，因此成功取得该锁后，若版本仍为 running，应按中断处理；仅凭状态继续等待会把残留状态误认为仍有构建器写入。
+0183-1206	apps/api/scripts/seed_pointcloud.py:112	-	各点云来源须声明其原生轴向，由前端统一转换到 ISO 8855；直接把不同来源当作同一坐标约定，会按错误轴向解释点云。
+0183-1207	apps/api/app/services/ai_mask_accept.py:455	-	当前输出限定一条持久化 mask，不是假装所有新几何可从原请求重建；扩展必须走 owner 的持久化结果。

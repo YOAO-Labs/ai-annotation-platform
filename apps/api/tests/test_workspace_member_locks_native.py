@@ -154,7 +154,6 @@ async def test_assignment_member_cache_matches_legacy(test_engine, cache, autofl
                     (world["membership_id"],)
                 )
             )
-            # Only cached rows are strongly retained after the consumer returns.
             observed = {
                 "error": error,
                 "cached": _state(cached),
@@ -484,7 +483,6 @@ async def test_member_native_functions_have_exact_owner_and_grants(test_engine):
                 for item in artifact["x-native-capabilities"]["functions"]
             }
             for signature in signatures:
-                # The packaged migration descriptor keeps the historical spelling.
                 live_signature = current(signature)
                 row = (
                     await db.execute(

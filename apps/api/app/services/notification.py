@@ -20,16 +20,12 @@ from sqlalchemy import (
     update,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm.bulk_persistence import (
-    BulkORMDelete,
-    BulkORMUpdate,
-    BulkUDCompileState,
-)
 from sqlalchemy.orm import make_transient_to_detached
 
 from app.config import settings
 from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
+from app.db.owner_orm_compat import mark_missing_identity, synchronize_owner_evaluate
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from yoao_notifications.preferences import NotificationPreferenceManager
 from yoao_notifications.preferences_postgres import NotificationPreferencesPostgresData
@@ -96,9 +92,8 @@ class NotificationService:
         ).read_notification(notification_id)
         if row is not None:
             return row
-        if state is not None:
-            if state.expired:
-                session._remove_newly_deleted([state])
+        if state is not None and state.expired:
+            mark_missing_identity(session, state)
         return None
 
     async def terminal_notification_exists(
@@ -143,9 +138,6 @@ class NotificationService:
 
         notification_id = uuid.uuid4()
         notification_payload = payload or {}
-        # Preference policy remains authoritative in the existing owner
-        # preflight above. Append before the original full flush so pending
-        # caller changes keep the same unit-of-work ordering under no_autoflush.
         appended = await NotificationAppendManager(
             NotificationAppendPostgresData(self.db)
         ).append(
@@ -189,7 +181,7 @@ class NotificationService:
         target_id: uuid.UUID,
         payload: dict,
     ) -> Notification | None:
-        """Append and publish one terminal notification if this call won the race."""
+        """Append a terminal notice and its delivery handoff in the caller transaction."""
         if self.db.autoflush:
             await self.db.flush()
         connection = await self.db.connection()
@@ -220,9 +212,7 @@ class NotificationService:
         if not appended.created:
             return None
 
-        row = await self._attach_notification_snapshot(appended.notification)
-        await self.publish_committed([row])
-        return row
+        return await self._attach_notification_snapshot(appended.notification)
 
     async def notify_many(
         self,
@@ -520,27 +510,8 @@ class NotificationService:
         if excluded_job_ids:
             criteria.append(Notification.id.not_in(excluded_job_ids))
         statement = update(Notification).where(*criteria).values(read_at=read_at)
-        mapper = sa_inspect(Notification)
-        # shortcut: Uses pinned SQLAlchemy cache hooks; rebaseline on upgrades.
-        options = BulkUDCompileState.default_update_options + {
-            "_subject_mapper": mapper,
-            "_identity_token": None,
-        }
-        eval_condition = BulkUDCompileState._eval_condition_from_statement(
-            options, statement
-        )
-        options = options + {"_eval_condition": eval_condition}
-
-        # The SQLAlchemy post-evaluate hook only needs these fields from its
-        # Result. Compile the same UPDATE locally; this performs no SQL.
-        compiled = statement.compile()
-        result = SimpleNamespace(
-            context=SimpleNamespace(compiled_parameters=[compiled.construct_params()]),
-            prefetch_cols=lambda: compiled.prefetch,
-            postfetch_cols=lambda: compiled.postfetch,
-        )
         session = getattr(self.db, "sync_session", self.db)
-        BulkORMUpdate._do_post_synchronize_evaluate(session, statement, result, options)
+        synchronize_owner_evaluate(session, Notification, statement)
 
     async def delete_for_user(
         self,
@@ -613,21 +584,9 @@ class NotificationService:
         if excluded_job_ids:
             criteria.append(Notification.id.not_in(excluded_job_ids))
 
-        # This ORM statement is only the pinned identity-map evaluator input;
-        # the actual DELETE already ran through the Notifications owner.
         statement = delete(Notification).where(*criteria)
-        mapper = sa_inspect(Notification)
-        options = BulkUDCompileState.default_update_options + {
-            "_subject_mapper": mapper,
-            "_identity_token": None,
-        }
-        options = options + {
-            "_eval_condition": BulkORMDelete._eval_condition_from_statement(
-                options, statement
-            )
-        }
         session = getattr(self.db, "sync_session", self.db)
-        BulkORMDelete._do_post_synchronize_evaluate(session, statement, None, options)
+        synchronize_owner_evaluate(session, Notification, statement, deleting=True)
 
 
 async def _publish(*, user_id: uuid.UUID, message: dict) -> None:

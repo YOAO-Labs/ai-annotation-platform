@@ -142,7 +142,6 @@ async def test_tasks_query_separates_unresolved_issues_from_comments(
 
     db_session.add_all(
         [
-            # Two replies to the issue: never comments, never standalone issues.
             _feedback(
                 kind="comment",
                 anchor_type="task",
@@ -157,7 +156,6 @@ async def test_tasks_query_separates_unresolved_issues_from_comments(
                 task_id=task_a.id,
                 thread_parent_id=issue_root.id,
             ),
-            # Three native task comments.
             *[
                 _feedback(
                     kind="comment",
@@ -167,9 +165,6 @@ async def test_tasks_query_separates_unresolved_issues_from_comments(
                 )
                 for _ in range(3)
             ],
-            # Noise on task_b that must count as neither issue nor comment:
-            # resolved issue, mirrored annotation comment, bug and rejection
-            # records, and an inactive native comment.
             _feedback(
                 kind="issue",
                 anchor_type="task",
@@ -205,8 +200,6 @@ async def test_tasks_query_separates_unresolved_issues_from_comments(
             ),
         ]
     )
-    # One active annotation comment on task_a, and one on the soft-deleted
-    # annotation of task_c (retained like the Workbench comment feed).
     db_session.add_all(
         [
             AnnotationComment(
@@ -227,8 +220,6 @@ async def test_tasks_query_separates_unresolved_issues_from_comments(
             ),
         ]
     )
-    # task_c: deleted root issue with a surviving reply must not leave a
-    # phantom unresolved issue.
     deleted_root = AnnotationFeedback(
         kind="issue",
         anchor_type="task",
@@ -276,14 +267,12 @@ async def test_tasks_query_separates_unresolved_issues_from_comments(
     by_id = {item["id"]: item for item in body["items"]}
     assert by_id[str(task_a.id)]["unresolved_issue_count"] == 1
     assert by_id[str(task_a.id)]["comment_count"] == 4
-    # Legacy alias keeps the corrected issue count.
     assert by_id[str(task_a.id)]["unresolved_feedback_count"] == 1
     assert by_id[str(task_b.id)]["unresolved_issue_count"] == 0
     assert by_id[str(task_b.id)]["comment_count"] == 0
     assert by_id[str(task_c.id)]["unresolved_issue_count"] == 0
     assert by_id[str(task_c.id)]["comment_count"] == 1
 
-    # Both Workbench read surfaces agree with the two columns.
     discussion = await httpx_client.get(
         f"/api/v1/tasks/{task_a.id}/discussion/page",
         headers=headers,
@@ -308,7 +297,6 @@ async def test_tasks_query_separates_unresolved_issues_from_comments(
     assert issues.json()["total"] == 1
     assert issues.json()["status_counts"]["open"] == 1
 
-    # Numeric filters and both new sorts use the same predicates.
     filtered = await query(
         {
             "filter_json": {
@@ -334,7 +322,6 @@ async def test_tasks_query_separates_unresolved_issues_from_comments(
         str(task_c.id),
     ]
 
-    # The summary drill-down counts unresolved root issues only.
     summary = await httpx_client.post(
         f"/api/v1/projects/{project.id}/data-manager/summary",
         headers=headers,
@@ -343,7 +330,6 @@ async def test_tasks_query_separates_unresolved_issues_from_comments(
     assert summary.status_code == 200, summary.text
     assert summary.json()["unresolved_feedback"] == 1
 
-    # Resolving the issue keeps the comment column unchanged.
     issue_root.status = "resolved"
     await db_session.flush()
     body = await query({"filter_json": {}})
@@ -351,8 +337,6 @@ async def test_tasks_query_separates_unresolved_issues_from_comments(
     assert by_id[str(task_a.id)]["unresolved_issue_count"] == 0
     assert by_id[str(task_a.id)]["comment_count"] == 4
 
-    # Reopening restores the unresolved issue; deleting the root (with
-    # surviving replies) never leaves a phantom issue.
     issue_root.status = "open"
     await db_session.flush()
     body = await query({"filter_json": {}})
@@ -419,7 +403,6 @@ async def test_builtin_feedback_open_view_counts_unresolved_issues(
     assert columns["comment_count"]["label"] == "评论"
     assert columns["unresolved_issue_count"]["default"] is True
     assert columns["comment_count"]["default"] is True
-    # The legacy column remains valid for saved views but is no longer default.
     assert columns["unresolved_feedback_count"]["default"] is False
     assert "unresolved_issue_count" in schema.json()["default_columns"]
     assert "comment_count" in schema.json()["default_columns"]
@@ -429,7 +412,6 @@ async def test_builtin_feedback_open_view_counts_unresolved_issues(
     filter_fields = {item["key"] for item in schema.json()["filter_fields"]}
     assert {"issue.unresolved_count", "discussion.comment_count"} <= filter_fields
 
-    # A legacy saved-view column list keeps working as the compatibility alias.
     legacy = await httpx_client.post(
         f"/api/v1/projects/{project.id}/tasks/query",
         headers=headers,
@@ -656,7 +638,6 @@ async def test_task_views_list_reports_counts(
     )
     assert r.status_code == 200, r.text
     by_name = {item["name"]: item for item in r.json()["items"]}
-    # "全部任务" 内置视图 (filter {}) 计数应等于项目任务数。
     assert by_name["全部任务"]["task_count"] == 2
     assert by_name["待标注"]["task_count"] == 2
 
@@ -691,7 +672,6 @@ async def test_tasks_query_annotator_only_sees_visible_batches(
         db_session, project_id=project.id, display_id="T-DM-OTHER"
     )
     task_other.batch_id = batch_other.id
-    # 无 batch 的孤儿任务: 对非特权不可见
     await create_task(db_session, project_id=project.id, display_id="T-DM-ORPHAN")
     await db_session.flush()
 

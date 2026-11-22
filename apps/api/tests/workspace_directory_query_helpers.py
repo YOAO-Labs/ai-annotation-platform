@@ -216,8 +216,6 @@ async def capture_directory_scenario(
             actor_alias=actor_alias,
             path=f"/api/v1/projects/{project_id}/{view}",
         )
-        # This replay does not observe profiles inside the installed process.
-        # Keep the real response/SQL only; never synthesize a Briefs call record.
         result[2]["observation"].pop("briefs_calls", None)
         return result
 
@@ -427,8 +425,6 @@ async def capture_directory_scenario(
                 rows = await original_list_members(
                     project.id, db, actor_id=kwargs["assigner"].id
                 )
-                # The frozen caller probe uses attribute access; this only
-                # adapts the owner's real materialized row values.
                 return [
                     SimpleNamespace(**row) if isinstance(row, dict) else row
                     for row in rows

@@ -125,7 +125,6 @@ describe("deriveVideoFrameViews", () => {
     expect(atFrame.entries[0].open).toBeUndefined();
     expect(atFrame.entries[0].geom).toEqual({ x: 0.1, y: 0.1, w: 0.4, h: 0.5 });
     expect(atFrame.entries[0].dashed).toBe(false);
-    // 切到别的帧 → 不显示 (单帧几何不跨帧)。
     const otherFrame = deriveVideoFrameViews({ ...base, annotations: [ann], frameIndex: 4 });
     expect(otherFrame.entries).toHaveLength(0);
   });
@@ -163,7 +162,6 @@ describe("deriveVideoFrameViews", () => {
     } as unknown as AnnotationResponse;
     const atFrame = deriveVideoFrameViews({ ...base, annotations: [ann], frameIndex: 2 });
     expect(atFrame.entries).toHaveLength(1);
-    // angle=0 → 四角为轴对齐矩形角点
     expect(atFrame.entries[0].points).toEqual([
       [0.3, 0.4],
       [0.7, 0.4],
@@ -290,7 +288,7 @@ describe("deriveVideoFrameViews", () => {
     expect(atKf.entries[0].dashed).toBe(false);
 
     const atInterp = deriveVideoFrameViews({ ...base, annotations: [ann], frameIndex: 5 });
-    expect(atInterp.entries[0].dashed).toBe(true); // 插值 → 虚线
+    expect(atInterp.entries[0].dashed).toBe(true);
     expect(atInterp.entries[0].labelText).toContain("插值");
   });
 
@@ -388,7 +386,7 @@ describe("deriveVideoFrameViews", () => {
     const unsel = deriveVideoFrameViews({ ...base, annotations: [ann], frameIndex: 0 });
     expect(unsel.entries[0].selected).toBe(false);
     expect(unsel.previews[0].selected).toBe(false);
-    expect(unsel.previews[0].points).toHaveLength(2); // 中心点归一化
+    expect(unsel.previews[0].points).toHaveLength(2);
 
     const sel = deriveVideoFrameViews({
       ...base,
@@ -398,13 +396,9 @@ describe("deriveVideoFrameViews", () => {
     });
     expect(sel.entries[0].selected).toBe(true);
     expect(sel.previews[0].selected).toBe(true);
-    // 预览中心点 = bbox 中心(归一化)
     expect(sel.previews[0].points[0]).toMatchObject({ frame: 0, x: 0.1, y: 0.1 });
   });
 
-  // outside 区间落在两个关键帧之间: 无 outside 时该帧会插值出 entry, 有 outside 时不该有。
-  // (下面几条 ghost 用例的 outside 都在末关键帧之后, 无论 outside 是否生效都取不到 entry,
-  //  故测不出 outside 本身; 这条专测区间语义。)
   it("outside 区间内的插值帧 → 无 entry", () => {
     const keyframes = [
       { frame_index: 0, bbox: { x: 0, y: 0, w: 0.2, h: 0.2 }, source: "manual" },
@@ -435,7 +429,6 @@ describe("deriveVideoFrameViews", () => {
       ],
       "car",
     );
-    // outside 区间让第 50 帧无解析帧
     (ann.geometry as { outside?: VideoTrackOutsideRange[] }).outside = [{ from: 21, to: 100 }];
     const v = deriveVideoFrameViews({
       ...base,
@@ -471,7 +464,6 @@ describe("deriveVideoFrameViews", () => {
       { frame_index: 20, bbox: { x: 0.6, y: 0.6, w: 0.2, h: 0.2 }, source: "manual" },
     ]);
     (ann.geometry as { outside?: VideoTrackOutsideRange[] }).outside = [{ from: 21, to: 100 }];
-    // F10→F20 vx=0.02/帧;F25 = 0.6 + 0.02*5 = 0.7。
     const v = deriveVideoFrameViews({
       ...base,
       annotations: [ann],
@@ -502,7 +494,7 @@ describe("deriveVideoFrameViews", () => {
       selectedId: "t1",
       visual: { ...DEFAULT_ANNOTATION_VISUAL, labelVisibility: "selected" },
     });
-    expect(onlySel.labels).toHaveLength(1); // 只有选中的 t1
+    expect(onlySel.labels).toHaveLength(1);
     expect(onlySel.labels[0].key).toContain("t1");
   });
 
@@ -525,11 +517,11 @@ describe("deriveVideoFrameViews", () => {
 
     it("恰好上一网格帧有关键帧、当前帧未画 → 出现 carryOver ghost(取参考框)", () => {
       const ann = trackAnn("t1", "trk1", [kf(0, 0.1)]);
-      const v = deriveVideoFrameViews({ ...base, annotations: [ann], frameIndex: 1 }); // step 默认 1 → 上一网格帧=0
-      expect(v.entries).toHaveLength(0); // 只有 before 无 after → 不解析实框
+      const v = deriveVideoFrameViews({ ...base, annotations: [ann], frameIndex: 1 });
+      expect(v.entries).toHaveLength(0);
       expect(v.carryOverGhosts).toHaveLength(1);
       expect(v.carryOverGhosts[0].id).toBe("t1");
-      expect(v.carryOverGhosts[0].geom).toMatchObject({ x: 0.1 }); // off=最近关键帧原位
+      expect(v.carryOverGhosts[0].geom).toMatchObject({ x: 0.1 });
     });
 
     it("网格 step>1:上一网格帧按 gridPrev 判定", () => {
@@ -539,13 +531,12 @@ describe("deriveVideoFrameViews", () => {
         annotations: [ann],
         frameIndex: 10,
         samplingStep: 10,
-      }); // 上一网格帧=0
+      });
       expect(hit.carryOverGhosts).toHaveLength(1);
     });
 
     it("跳格(最近关键帧非上一网格帧)→ 不进 S", () => {
       const ann = trackAnn("t1", "trk1", [kf(0, 0.1)]);
-      // frame 20 / step 10 → 上一网格帧=10;kf 在 0(两格前)→ 不命中
       const v = deriveVideoFrameViews({
         ...base,
         annotations: [ann],
@@ -573,7 +564,7 @@ describe("deriveVideoFrameViews", () => {
           hiddenTrackIds: new Set(["trk1"]),
         }).carryOverGhosts,
       ).toHaveLength(0);
-      const drawn = trackAnn("t1", "trk1", [kf(0, 0.1), kf(1, 0.3)]); // 当前帧 1 已有关键帧
+      const drawn = trackAnn("t1", "trk1", [kf(0, 0.1), kf(1, 0.3)]);
       expect(
         deriveVideoFrameViews({ ...base, annotations: [drawn], frameIndex: 1 }).carryOverGhosts,
       ).toHaveLength(0);
@@ -637,7 +628,6 @@ describe("deriveVideoFrameViews", () => {
     });
 
     it("ghost 参考框只跟 primary 走, 不随多选扩散", () => {
-      // 两条轨迹都选中, 但 frame 20 超出关键帧范围 → 只有 primary 那条画参考框。
       const v = deriveVideoFrameViews({
         ...base,
         annotations: [t1, t2],
@@ -650,8 +640,6 @@ describe("deriveVideoFrameViews", () => {
   });
 
   describe("点集轨迹 ghost / carry-over (issue #54③)", () => {
-    // outside 覆盖 F20 (VideoTrackOutsideRange 字段是 from/to), 使 F10/F30 之间不插值
-    // → 该帧无实框、无插值 entry, 才走 ghost 路径。
     const OUTSIDE_20 = [{ from: 11, to: 29 }];
     const polyKfs = [
       {
@@ -703,9 +691,8 @@ describe("deriveVideoFrameViews", () => {
         frameIndex: 20,
         selectedId: "pt1",
       });
-      expect(v.entries).toHaveLength(0); // outside 覆盖 → 无插值实框
+      expect(v.entries).toHaveLength(0);
       expect(v.ghost).not.toBeNull();
-      // |20-10| == |20-30| 平局 → nearestPointsTrackKeyframe 的 <= 取靠前的 F10。
       expect(v.ghost!.points).toEqual([
         [0.1, 0.1],
         [0.3, 0.1],
@@ -713,7 +700,6 @@ describe("deriveVideoFrameViews", () => {
         [0.1, 0.3],
       ]);
       expect(v.ghost!.open).toBe(false);
-      // 外接框 = 顶点 bounds (w/h 有浮点误差, 逐分量 close 比较)。
       expect(v.ghost!.geom.x).toBeCloseTo(0.1);
       expect(v.ghost!.geom.y).toBeCloseTo(0.1);
       expect(v.ghost!.geom.w).toBeCloseTo(0.2);
@@ -760,7 +746,6 @@ describe("deriveVideoFrameViews", () => {
     });
 
     it("非选中 polygon 轨迹也纳入 carry-over ghost (回归 #54③: 此前只遍历 bbox 轨迹, 点集轨迹在此静默缺席)", () => {
-      // 单关键帧在上一网格帧 F0, 当前帧 F1 无关键帧、无插值 (only before, no after) → 应作续写虚影出现。
       const ann = polygonTrackAnn("pt1", "ptrk1", [
         {
           frame_index: 0,

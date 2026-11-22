@@ -158,9 +158,6 @@ def test_0222_tables_are_native_managed_and_grants_stay_with_exact_owners():
 
 
 def test_0222_upgrade_fails_closed_on_unmanifested_active_bulk_image_jobs():
-    # The pending Job payload does not freeze model recipes, so the cutover
-    # conservatively requires draining every active non-scene image-project
-    # bulk Job.
     migration = re.sub(r"\s+", " ", MIGRATION.read_text(encoding="utf-8"))
     assert "job.status IN ('pending', 'running')" in migration
     assert "project.data_type = 'image'" in migration

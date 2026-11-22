@@ -152,7 +152,6 @@ class Docker:
         except OSError as exc:
             raise SDKError("Docker CLI is unavailable") from exc
         if result.returncode:
-            # Docker errors may contain env values or other sensitive configuration.
             raise SDKError(f"Docker {args[0]} failed (exit {result.returncode})")
         return result.stdout.strip()
 

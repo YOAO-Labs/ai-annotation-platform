@@ -47,7 +47,6 @@ def _json_text(value):
 def preannotation_request_digest(request) -> str:
     """Bind every queued model/input parameter independently of broker identity."""
     value = {field.name: getattr(request, field.name) for field in fields(request)}
-    # The Job ID is already a separate immutable part of the execution scope.
     value.pop("async_job_id")
     return hashlib.sha256(_json_text(value).encode("utf-8")).hexdigest()
 
@@ -260,8 +259,6 @@ class BatchResultExecution:
                     if str(exc) == "lease_lost":
                         self._lost = "lease_lost"
                         return
-                    # Our own checkpoint transaction can briefly hold the Job
-                    # lock. Each write still validates owner time/token in SQL.
                     delay = 5
                     continue
                 self.lease = result.lease
@@ -269,7 +266,6 @@ class BatchResultExecution:
         except asyncio.CancelledError:
             raise
         except Exception:
-            # Unknown protocol failures cannot establish continued ownership.
             self._lost = "lease_lost"
 
     async def close(self):
@@ -316,8 +312,6 @@ class BatchResultExecution:
         from yoao_preannotation_results.contract import MAX_PART_BYTES, Scope
         from app.services.prediction import derive_tool_unit_from_result
 
-        # One archive keeps the number of open files constant for multi-result
-        # Tasks. Request bodies remain separate values with their own hashes.
         with tempfile.TemporaryFile(mode="w+b") as archive:
             snapshots = []
             for request in requests:
@@ -393,9 +387,6 @@ class BatchResultExecution:
         ]
         if not references:
             return await self.call("seal_batch_result", ordinal=ordinal, stage=stage)
-        # Snapshot roots need a fresh byte verification after any prior GC epoch.
-        # The executor cannot mint this business-writer permit. Read epochs
-        # before object I/O, then verify and link in one provider transaction.
         async with self.session_factory() as db:
             try:
                 epochs = await read_mask_write_epochs(

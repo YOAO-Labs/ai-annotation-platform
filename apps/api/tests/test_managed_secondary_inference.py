@@ -55,7 +55,6 @@ async def secondary_world(db_session, sync_world, super_admin, monkeypatch, requ
     actor = super_admin[0]
     project = await create_project(db_session, owner_id=actor.id)
     project.tool_bindings = build_tool_bindings(["car", "plate"])
-    # This operation is available even with the unrelated interactive UI off.
     project.ai_interactive_enabled = False
     backend, pool = await create_registry_with_pool(
         db_session,
@@ -412,7 +411,6 @@ async def test_final_drift_rejects_without_overwriting_current_parent(
 
     world.during = alter
     response = await submit(httpx_client, world, key_headers)
-    # Losing project visibility preserves the access resolver's existing 404.
     expected_statuses = {403, 404, 409} if change == "role" else {403, 409}
     assert response.status_code in expected_statuses, response.text
     await assert_no_results(
@@ -679,8 +677,6 @@ async def test_unknown_source_close_blocks_retirement_even_after_retention_clock
             ).state == "cleanup_pending"
             assert await db.scalar(select(StorageOperation.id))
     finally:
-        # Only this disposable namespace is dropped; no unresolved ledger is
-        # falsely settled to accommodate an idempotent second close.
         world.sources.source_close_hook = None
 
 

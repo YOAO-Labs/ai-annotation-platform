@@ -1,13 +1,3 @@
-/**
- * useHeartbeat 单测。
- *
- * 覆盖：
- *  - token 为空 → 不打心跳
- *  - 已登录 + visible → 立即一次 + 周期触发
- *  - visibilitychange 切到 hidden → 暂停；返回 visible → 立即触发 + 恢复
- *  - 卸载 → 清定时器
- *  - heartbeat 失败 → 静默不抛
- */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 

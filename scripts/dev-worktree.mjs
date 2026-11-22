@@ -2,7 +2,16 @@
 
 import { spawn } from "node:child_process";
 import { link, mkdir, readFile, rename, rmdir, unlink, writeFile } from "node:fs/promises";
-import { existsSync, readFileSync, realpathSync, unlinkSync } from "node:fs";
+import {
+  closeSync,
+  constants,
+  existsSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeSync,
+} from "node:fs";
 import { createServer, connect } from "node:net";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -162,9 +171,7 @@ export async function reserveAvailablePort({
       try {
         const currentOwner = JSON.parse(readFileSync(lockPath, "utf8"));
         if (currentOwner.token === token) unlinkSync(lockPath);
-      } catch {
-        // A best-effort exit handler must never mask the process exit.
-      }
+      } catch {}
       released = true;
     };
     const release = async () => {
@@ -278,9 +285,7 @@ async function waitForHttp(managed, url) {
       const response = await fetch(url, { signal: AbortSignal.timeout(1_000) });
       await response.body?.cancel();
       if (response.ok) return;
-    } catch {
-      // A listening socket is not yet an initialized API/Vite server.
-    }
+    } catch {}
     await delay(100);
   }
   throw new Error(`${managed.label} 未在 60 秒内通过 HTTP 就绪检查`);
@@ -320,7 +325,6 @@ export async function runDevWorktree(
   process.once("exit", releaseLocksOnExit);
 
   try {
-    // The Python runtime owns database preflight/migration and the environment lock.
     const apiReservation = await reserveAvailablePort({
       startPort: options.apiPort,
       worktree: repositoryRoot,
@@ -451,16 +455,26 @@ export function formatAcceptanceGuide(guide, webUrl) {
 
 export async function runIsolatedCommand(
   command,
-  { apiPort = defaultApiPort, webPort = defaultWebPort, cooperativeE2e = false } = {},
+  {
+    apiPort = defaultApiPort,
+    webPort = defaultWebPort,
+    cooperativeE2e = false,
+    exitReceiptFd,
+  } = {},
 ) {
+  const receipt =
+    exitReceiptFd === undefined
+      ? undefined
+      : openSync(`/proc/self/fd/${exitReceiptFd}`, constants.O_WRONLY | constants.O_NONBLOCK);
+  if (exitReceiptFd !== undefined) closeSync(exitReceiptFd);
   const children = new Set();
   const reservations = [];
   let interrupted = null;
+  let result;
   const stop = (signal, exitCode) => {
     if (cooperativeE2e) {
       if (interrupted !== null) return;
       interrupted = exitCode;
-      // Signal only the command, not its detached fixture owners or descendants.
       for (const managed of children) {
         if (!managed.done) managed.child.kill(signal);
       }
@@ -484,19 +498,25 @@ export async function runIsolatedCommand(
         PLAYWRIGHT_ISOLATED_WEB_PORT: String(reservations[1].port),
       },
     });
-    const result = await child.completion;
+    result = await child.completion;
     if (result.error) throw result.error;
     return interrupted ?? result.code ?? 1;
   } finally {
-    if (cooperativeE2e) {
-      // Do not escalate or report completion while the actual command is alive.
-      await Promise.all([...children].map(({ completion }) => completion));
-    } else {
-      await stopChildren(children);
+    try {
+      if (cooperativeE2e) {
+        await Promise.all([...children].map(({ completion }) => completion));
+      } else {
+        await stopChildren(children);
+      }
+      process.removeListener("SIGINT", onInterrupt);
+      process.removeListener("SIGTERM", onTerminate);
+      await Promise.all(reservations.map(({ release }) => release()));
+      if (receipt !== undefined && interrupted === null && Number.isInteger(result?.code)) {
+        writeSync(receipt, String(result.code));
+      }
+    } finally {
+      if (receipt !== undefined) closeSync(receipt);
     }
-    process.removeListener("SIGINT", onInterrupt);
-    process.removeListener("SIGTERM", onTerminate);
-    await Promise.all(reservations.map(({ release }) => release()));
   }
 }
 

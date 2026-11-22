@@ -99,8 +99,6 @@ class Measurement:
                 "identifier": self.identifier,
                 "kind": self.kind,
                 "started_monotonic": self.started,
-                # The HTTP app/task scope has returned; incomplete_observation
-                # counters below prevent confusing this with settled native I/O.
                 "settled_monotonic": ended,
                 "elapsed_seconds": ended - self.started,
                 "cpu_seconds": time.process_time() - self.cpu_started,
@@ -212,7 +210,6 @@ class ObservedBody:
             yield chunk
 
     def iter_lines(self, chunk_size=1024, keepends=False):
-        # Same StreamingBody algorithm; counting chunks preserves newline bytes.
         pending = b""
         for chunk in self.iter_chunks(chunk_size):
             lines = (pending + chunk).splitlines(True)
@@ -366,7 +363,7 @@ def persist(directory, record):
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        os.link(temporary, path)  # Never replace a measurement with the same ID.
+        os.link(temporary, path)
     finally:
         temporary.unlink(missing_ok=True)
 

@@ -148,8 +148,6 @@ async def image_role(backend, owner, action):
                 require(observed is not None, "raster_images_role_missing")
                 original_oid = observed["oid"]
                 backend._validate_runtime_role(observed, credentials)
-                # Persist the prospective OID before commit; the intent remains
-                # unresolved if either publication or the DB commit is ambiguous.
                 owner.data["raster"]["images"]["database_role_oid"] = original_oid
                 owner.save()
             else:
@@ -167,7 +165,6 @@ async def image_role(backend, owner, action):
                     "raster_images_role_drop_denied",
                 )
                 if action == "drop":
-                    # DROP ROLE refuses any remaining external dependency.
                     await connection.exec_driver_sql(f"DROP ROLE {quote(role)}")
                     require(
                         not await connection.scalar(
@@ -349,9 +346,6 @@ class RasterImagesProcess:
             requested = pidfd_alive(self.descriptor)
             if requested:
                 pidfd_send_signal(self.descriptor, signal.SIGTERM)
-                # The worker owns the current claim and its physical children.
-                # Its native policy bounds work; a process deadline is not a
-                # settlement receipt and must not cancel that work.
                 while pidfd_alive(self.descriptor):
                     _track_consumer_descendants(self.child.pid, self.tracked)
                     select.select([self.descriptor], [], [], 0.1)

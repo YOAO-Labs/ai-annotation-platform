@@ -158,8 +158,6 @@ async def reconcile_pool_capability(
         expected_member_state = member.traffic_state
         member.traffic_state = "disabled"
         if pool.legacy_instance_id == registry_id:
-            # Off/observe dispatch uses the legacy instance; drift disables the
-            # pool until an equivalent legacy is selected explicitly.
             pool.enabled = False
         pool.routing_generation += 1
         await data.stage_pool_reconciliation(
@@ -225,7 +223,6 @@ class BackendHealthCoordinator:
             raise ValueError("gpu_health_challenge requires a GPU backend membership")
 
         client = self._client_factory(backend)
-        # Fetch /health and its metadata together, preserving the backend's error.
         if gpu_health_challenge is None:
             healthy, meta = await client.health_meta()
         else:
@@ -239,7 +236,6 @@ class BackendHealthCoordinator:
             if isinstance(echoed, str):
                 echoed_challenge = echoed
 
-        # A failed or metadata-free probe invalidates the old device snapshot.
         next_health_meta = None
         next_is_interactive: bool | None = None
         caps: dict[str, Any] | None = None
@@ -253,8 +249,6 @@ class BackendHealthCoordinator:
                 )
             except Exception:
                 caps = None
-            # Model lineage consumers read the frozen metadata snapshot from
-            # health_meta; it stays inside the same /health+/setup evidence window.
             if (
                 caps is not None
                 and isinstance(setup, dict)
@@ -267,7 +261,6 @@ class BackendHealthCoordinator:
                 if metadata is not None:
                     meta = {**meta, "model_metadata": metadata}
 
-        # The evidence timestamp must enclose both /health and /setup.
         observed_at = await self._data.clock_timestamp()
         if observed_at is None:
             return False
@@ -325,14 +318,11 @@ class BackendHealthCoordinator:
         ):
             return False
         if requested_membership_epoch is not None:
-            # Keep registry -> resource -> try-global -> membership ordering.
-            # Promotion shares the resource -> try-global prefix.
             await self._data.lock_gpu_resource(requested_gpu_resource_id)
             promotion_barrier_acquired = await self._data.try_membership_promotion()
             if promotion_barrier_acquired is not True:
                 return False
 
-        # Prevent a slow /setup from overwriting a newer overlapping observation.
         commit_order_floor = probe_started_at or observed_at
         if current_backend.last_checked_at is not None and (
             current_backend.last_checked_at.tzinfo is None

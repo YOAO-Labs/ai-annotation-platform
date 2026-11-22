@@ -138,8 +138,6 @@ _REQUESTS = {
 }
 ACTIONS = frozenset(_REQUESTS)
 
-# Native errors are deliberately closed; arbitrary database/provider strings
-# cannot become a persisted public Job error or disclose a private proof.
 REJECTIONS = frozenset(
     {
         "capture_closed",
@@ -188,7 +186,6 @@ def validate_request(action: str, value: c.Value):
     try:
         if model is None or type(value) is not model:
             raise ValueError("wrong action request")
-        # Revalidate nested mutable geometry/model copies before serialization.
         raw = c.json_bytes(value)
         if len(raw) > MAX_BYTES:
             raise ValueError("request too large")

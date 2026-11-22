@@ -88,7 +88,6 @@ async def _seed_project_and_backend(
     db.add(proj)
     await db.flush()
 
-    # ADR-0044 · backend 现为全局注册项; worker 直接 db.get(registry), 无需项目启用关联
     backend = MLBackendRegistry(
         id=uuid.uuid4(),
         name="g-sam2",
@@ -191,7 +190,7 @@ async def test_mark_job_failed_skips_already_completed(
 
     fresh = await db_session.get(AsyncJob, job_id)
     assert fresh is not None
-    assert fresh.status == "completed"  # 不被覆盖
+    assert fresh.status == "completed"
     assert fresh.error_message is None
 
 
@@ -334,7 +333,6 @@ async def test_run_batch_accumulates_total_cost(
     job = res.scalar_one()
     assert job.status == "completed"
     assert job.result["success_count"] == 2
-    # 0.0012 × 2 = 0.0024 (格式化到 4 位)
     assert job.result["total_cost"] == "0.0024"
 
 
@@ -882,8 +880,6 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
     monkeypatch.setattr(sa_async, "create_async_engine", fake_engine)
     monkeypatch.setattr(sa_async, "async_sessionmaker", fake_factory)
 
-    # The worker's rollback path expires shared-session ORM state; capture ids
-    # before running so post-run asserts stay plain column queries.
     proj_id = proj.id
 
     await _run_batch(
@@ -906,8 +902,6 @@ async def test_run_batch_stops_writing_after_actor_disabled_mid_run(
     assert row.status == AsyncJobStatus.FAILED.value
     assert row.error_message == "preannotation_actor_revoked"
 
-    # The mid-run revocation rolls back the staged predictions; the second
-    # task never runs, so nothing was written for this project.
     pred_count = (
         await db_session.execute(
             select(func.count())
@@ -1063,14 +1057,11 @@ async def test_delete_backend_blocked_by_running_batch_predict(
         lambda: QuiescentRoutingOwner(),
     )
 
-    # The Native guard raises inside the caller transaction, so scope it to a
-    # SAVEPOINT to keep the rest of this test's seeded world usable.
     with pytest.raises(MLBackendDeleteBlocked):
         async with db_session.begin_nested():
             await delete_registry(db_session, backend.id)
     assert await MLBackendService(db_session).get_registry(backend.id) is not None
 
-    # 把 job 翻成终态后可删
     job.status = AsyncJobStatus.COMPLETED.value
     await db_session.flush()
     assert await delete_registry(db_session, backend.id) is True

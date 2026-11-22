@@ -63,8 +63,6 @@ def task_dataset_item_id_expr():
 
 
 def _feedback_count_sq(annotation):
-    # Corrected to the Workbench root-issue definition restricted to the
-    # annotation: replies and non-issue feedback never count.
     return annotation_unresolved_issue_count_sq(annotation)
 
 

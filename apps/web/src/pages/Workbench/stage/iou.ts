@@ -2,10 +2,8 @@ import polygonClipping, { type MultiPolygon, type Ring } from "polygon-clipping"
 
 export type Geom = { x: number; y: number; w: number; h: number };
 
-/** 用于 IoU 计算的形状：bbox 必填，polygon 可选；提供 polygon 时走精确算法。 */
 export type ShapeForIoU = Geom & { polygon?: [number, number][] };
 
-/** axis-aligned IoU on normalized geometry. 0 when 不重叠。 */
 export function iou(a: Geom, b: Geom): number {
   const ix1 = Math.max(a.x, b.x);
   const iy1 = Math.max(a.y, b.y);
@@ -18,8 +16,6 @@ export function iou(a: Geom, b: Geom): number {
   const union = a.w * a.h + b.w * b.h - inter;
   return union <= 0 ? 0 : inter / union;
 }
-
-// ── polygon helpers ────────────────────────────────────────────────────────
 
 function bboxToRing(g: Geom): Ring {
   return [
@@ -40,7 +36,6 @@ function pointsToRing(points: [number, number][]): Ring | null {
   return ring;
 }
 
-/** shoelace 面积（带闭合环：最后一点 == 首点）。 */
 function ringArea(ring: Ring): number {
   let a = 0;
   for (let i = 0; i < ring.length - 1; i++) {
@@ -52,7 +47,6 @@ function ringArea(ring: Ring): number {
 function multiArea(mp: MultiPolygon): number {
   let total = 0;
   for (const poly of mp) {
-    // 多边形 = 外环 - 所有内环（孔）。polygon-clipping 已把孔正确组织到 polygon[1..]。
     if (poly.length === 0) continue;
     total += ringArea(poly[0]);
     for (let i = 1; i < poly.length; i++) total -= ringArea(poly[i]);
@@ -69,13 +63,6 @@ function shapeToMulti(s: ShapeForIoU): MultiPolygon | null {
   return [[bboxToRing(s)]];
 }
 
-/**
- * 形状无关 IoU：
- * - bbox vs bbox：精确（走原 iou()）
- * - 任一为 polygon：用 polygon-clipping 求精确交并
- *
- * polygon-clipping 库失败 / 退化时回落到包围盒近似。
- */
 export function iouShape(a: ShapeForIoU, b: ShapeForIoU): number {
   const aIsPoly = !!(a.polygon && a.polygon.length >= 3);
   const bIsPoly = !!(b.polygon && b.polygon.length >= 3);

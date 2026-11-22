@@ -7,7 +7,6 @@ export function samePolygonPoint(a: Pt | undefined, b: Pt): boolean {
   return !!a && Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-10;
 }
 
-/** Resample cumulative screen distance, carrying the remainder across input events. */
 export function createPolygonSampler(start: Pt, width: number, height: number) {
   let previous = start;
   let remainder = 0;

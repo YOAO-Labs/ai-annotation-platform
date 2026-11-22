@@ -382,7 +382,6 @@ async def test_committed_owner_cleans_only_its_committed_keepers(
         async def run_case():
             nonlocal owned, concurrent, uncommitted_id
             async with _committed_owner(test_engine, fixture_and_fenced_http) as owner:
-                # Loading and modifying existing rows must not claim them.
                 for model, id_ in existing.items():
                     row = await owner.get(model, id_)
                     row.name = "updated"
@@ -399,8 +398,6 @@ async def test_committed_owner_cleans_only_its_committed_keepers(
                 rolled_back_id = rolled_back.id
                 await owner.rollback()
 
-                # This independent session commits after tracking started and
-                # reuses an ID whose owner-session insertion was rolled back.
                 async with async_sessionmaker(
                     test_engine, expire_on_commit=False
                 )() as peer:
@@ -420,7 +417,6 @@ async def test_committed_owner_cleans_only_its_committed_keepers(
                     raise CaseError
 
         if case_error:
-            # The same cleanup must run when a scenario raises.
             with pytest.raises(CaseError):
                 await run_case()
         else:

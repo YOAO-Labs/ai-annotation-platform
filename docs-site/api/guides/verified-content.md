@@ -76,6 +76,8 @@ GET支持完整200及单段206：`bytes=start-end`、`bytes=start-`和`bytes=-su
 
 成功响应为 `application/octet-stream`，含准确Content-Length、Content-Range（仅206）、`Accept-Ranges: bytes`、强ETag、`X-Content-SHA256`、no-store/nosniff及CORP same-origin。能力仅用于GET/HEAD，不放入URL、日志或业务元数据；跨站/跨源的浏览器请求拒绝。DELETE携带 `{"session_id":"<原会话UUID>"}`；准确本人租约释放成功204并清对应Cookie，错误资源/session或他人账号404，已过期或不存在410。
 
+客户端若只需确认租约已不存在，可在 DELETE 上发送 `Prefer: ignore-missing`：已撤销、过期或不存在时返回 204。普通 DELETE 仍返回 410；此偏好不改变认证、同源校验或活动租约的资源、账号和会话校验。204 不代表已有的范围响应被强制中断。
+
 每API进程最多两个stage、单个5GiB，声明暂存上限10GiB，另最多8个活动响应及每stage32个租约。容量429附 `Retry-After: 1`。准备900秒、远端transport30秒、单响应120秒均为合作式期限，实际线程收尾可能更长；这些额度与512MiB完整下载、图片快照、持久缓存分别计量。租约固定300秒，表示最迟3600秒退休，重复prepare可在原表示有效期内取得新租约。30秒回收器和API关闭收尾会先停止新读，再等待活动范围和真实文件关闭；未知关闭继续占额。
 
 当前暂存为单API进程资源。重启、reload、到期或命中没有该租约的其他实例返回410 `video_playback_expired`；客户端需重新Bearer准备，不能反复重试同一media_path。此协议不提供跨实例共享暂存或集群总预算；既有转码/帧/chunk具有独立字节事实，不使用原件SHA为派生表示背书。

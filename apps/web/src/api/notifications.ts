@@ -24,7 +24,6 @@ export interface NotificationPreferenceItem {
   type: string;
   in_app: boolean;
   email: boolean;
-  /** 有效弹出选择：显式存储值优先，否则按类型默认重要程度。 */
   toast: boolean;
 }
 

@@ -1,10 +1,7 @@
 import { normalizeTask } from "@/api/generated/capabilityVocab.gen";
-// 能力目录的标签映射与配色(从 CapabilityCatalogPanel.tsx 拆出,行为零变化)。
-// 受控 task / infra / modality 的中文短标签 + task → Badge variant 配色 + 列表行 task 后缀。
 
 import { inputLabel as generatedInputLabel } from "@/api/capabilityInputs";
 
-// 受控 task → 中文短标签 (协议 v2 边界枚举).
 const TASK_LABELS: Record<string, string> = {
   detect: "检测",
   obb: "旋转框",
@@ -17,7 +14,6 @@ const TASK_LABELS: Record<string, string> = {
   interactive_seg: "交互分割",
 };
 
-// 受控 infra → 中文短标签.
 const INFRA_LABELS: Record<string, string> = {
   pytorch: "PyTorch",
   onnx: "ONNX",
@@ -57,7 +53,6 @@ export function modalityLabel(m: string) {
   return MODALITY_LABELS[m] ?? m;
 }
 
-// task → badge 配色 (复用既有 Badge variant, 不引入新 token).
 export function taskVariant(task: string): "accent" | "ai" | "success" | "warning" | "outline" {
   task = normalizeTask(task);
   if (task === "detect" || task === "obb") return "accent";
@@ -72,8 +67,6 @@ export function taskSuffix(task: string | undefined): string {
   return TASK_SUFFIX[normalizeTask(task)] ?? task;
 }
 
-// composition → badge (协议 v2.2 · 原子 vs 内部编排)。atom=单次推理原子; composite=一个 model
-// 内部串多原子的内置流程。老 backend 缺字段 → 不渲染。ModelCard / ModelListTable 共用。
 export const COMPOSITION_BADGE: Record<
   string,
   { variant: "outline" | "ai"; label: string; title: string }

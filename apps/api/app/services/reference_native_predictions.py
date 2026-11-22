@@ -457,7 +457,6 @@ async def validate_receipt(db, task_id, project_id, receipt, write):
 
 
 def _candidate_digest(prediction, extra):
-    # Registry deletion may legitimately SET NULL; preserve original identity in the proof.
     return content_digest(
         {
             "id": str(prediction.id),

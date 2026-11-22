@@ -46,15 +46,12 @@ def _load_runtime():
     sys.path.insert(0, str(repo_root / "apps" / "training-executor"))
     from training_executor import worker
 
-    # Keep the worker implementation, but make its hardware identity explicit
-    # to this opt-in controlled-child fixture. No GPU or model code is loaded.
     worker.runtime_identity = lambda: runtime
     return worker
 
 
 def _supervisor(worker):
     supervisor = worker.Supervisor()
-    # Keep the real retry loop while avoiding five-second test backoff delays.
     supervisor.shutdown.wait = lambda _seconds: time.sleep(0.025)
     return supervisor
 
@@ -423,9 +420,6 @@ def _recover_and_claim(supervisor, worker):
     if previous.get("pid") and worker.live_group(previous["pid"]):
         raise RuntimeError("old child still holds the execution process group")
     old_attempt_id = journal["assignment"]["attempt_id"]
-    # Exercise the actual Supervisor recovery path after the replacement
-    # process has acquired the inherited resource flock and proven the child
-    # process group is gone. This terminal receipt is committed over real HTTP.
     supervisor.execute(journal, recovery=True)
     if supervisor.journal_path.exists():
         raise RuntimeError("recovered attempt journal was not acknowledged/retired")

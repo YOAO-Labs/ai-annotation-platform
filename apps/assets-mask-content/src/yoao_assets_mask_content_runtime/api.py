@@ -102,7 +102,6 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
-    # Admit before reading/parsing a body; a bounded byte payload expands in Python.
     admission = asyncio.Semaphore(1)
 
     @app.get("/health/live")
@@ -186,7 +185,6 @@ def create_app(
             try:
                 result = await asyncio.shield(work)
             except asyncio.CancelledError:
-                # Cancellation must not release admission while S3 work is still running.
                 await work
                 raise
             if not isinstance(result, result_type):
@@ -200,7 +198,6 @@ def create_app(
         except (ValueError, TypeError, AttributeError):
             return _reply(error="invalid_response", status=502)
         except Exception:
-            # Storage/provider messages can contain keys or credentials.
             return _reply(error="storage_unavailable", status=503)
 
     async def execute_gc(operation, request, request_type, result_type):
@@ -220,7 +217,6 @@ def create_app(
             try:
                 result = await asyncio.shield(work)
             except asyncio.CancelledError:
-                # Keep shared admission until the outstanding S3 work returns.
                 await work
                 raise
             if not isinstance(result, result_type):

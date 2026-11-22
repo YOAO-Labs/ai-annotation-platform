@@ -86,7 +86,6 @@ class StorageMigrationInventory(Base):
     authority: Mapped[dict] = mapped_column(JSONB, nullable=False)
     input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     maintenance_revision: Mapped[int] = mapped_column(nullable=False)
-    # The permit outlives an interrupted task until actual native close is proven.
     operation_id: Mapped[uuid.UUID | None] = mapped_column(unique=True)
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="pending"

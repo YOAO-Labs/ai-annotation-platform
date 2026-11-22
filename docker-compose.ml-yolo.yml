@@ -1,7 +1,4 @@
-# Optional official plugin overlay; combine with docker-compose.ml.yml.
 services:
-  # Official YOLO plugin; configure the accepted repository and manifest digest.
-  # The checkpoint volume and reviewed training asset cache remain platform-owned.
   yolo-backend:
     image: ${YOLO_IMAGE:?Set the accepted YOLO image repository}@${YOLO_IMAGE_DIGEST:?Set the YOLO manifest digest}
     labels:
@@ -33,8 +30,6 @@ services:
         bind:
           create_host_path: false
       - yolo_checkpoints:/app/checkpoints
-      # Same host: use the executor's resolved path to reuse one physical blob.
-      # Remote hosts prepare their own directory with the same immutable assets.
       - ${TRAINING_MODELS_PATH:-./training/models}:/model-assets:ro
     deploy:
       resources:

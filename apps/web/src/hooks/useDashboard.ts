@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { dashboardApi, type MyBatchItem, type ReviewingBatchItem } from "../api/dashboard";
 import { useAuthStore } from "@/stores/authStore";
 
-/** Fetch every batch page before consumers filter and sort the collection. */
 async function allBatches<T extends { batch_id: string }>(
   fetchPage: (limit: number, offset: number, signal?: AbortSignal) => Promise<T[]>,
   signal: AbortSignal,
@@ -17,7 +16,6 @@ async function allBatches<T extends { batch_id: string }>(
   }
 }
 
-/** Account identity for cache binding; `bindAuthQueryCache` also clears on change. */
 function useAccountScope() {
   const userId = useAuthStore((state) => state.user?.id ?? null);
   return { userId };
@@ -59,7 +57,6 @@ export function useMyBatches() {
   return useQuery({
     queryKey: ["dashboard", "annotator", "batches", userId],
     queryFn: ({ signal }) => allBatches<MyBatchItem>(dashboardApi.getMyBatches, signal),
-    // B-20：标注员看进度需实时性，10s 轻量轮询；窗口可见时才轮询，避免后台 tab 浪费
     refetchInterval: 10_000,
     refetchIntervalInBackground: false,
   });
@@ -82,7 +79,6 @@ export function useMyRecentReviews(limit = 20) {
   });
 }
 
-// 管理员人员看板
 export function useAdminPeople(params: {
   role?: string;
   project?: string;
@@ -113,7 +109,6 @@ export function useAdminPersonDetail(
   });
 }
 
-// 预测成本卡片
 export function usePredictionCostStats(range: "7d" | "30d" = "30d") {
   return useQuery({
     queryKey: ["dashboard", "admin", "prediction-cost-stats", range],
@@ -121,7 +116,6 @@ export function usePredictionCostStats(range: "7d" | "30d" = "30d") {
   });
 }
 
-// ReviewWorkbench mini 仪表（20s 自动 refetch）
 export function useReviewerTodayMini() {
   const { userId } = useAccountScope();
   return useQuery({

@@ -166,7 +166,6 @@ def _verify_image_worker_container(
 
 
 def _worker_logs(container_id: str) -> str:
-    # docker forwards the worker's Python logs to stderr, not stdout.
     result = subprocess.run(
         ["docker", "logs", container_id],
         stdout=subprocess.PIPE,

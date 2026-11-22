@@ -64,7 +64,6 @@ function sameWindow(left: TimelineWindow, right: TimelineWindow) {
   return left.from === right.from && left.to === right.to;
 }
 
-/** Coordinates one restore transaction; viewport and window remain owned by Stage and Overlay. */
 export function useVideoIssueView(options: Options) {
   const latestRef = useRef(options);
   latestRef.current = options;
@@ -182,7 +181,6 @@ export function useVideoIssueView(options: Options) {
 
   const beginIssueRestore = useCallback(
     (isRelevant: () => boolean, signal?: AbortSignal): VideoIssueRestoreLease | null => {
-      // A retained old handle must not retire a lease created by a newer source owner.
       if (
         !mountedRef.current ||
         !latestRef.current.taskId ||
@@ -311,7 +309,6 @@ export function useVideoIssueView(options: Options) {
       };
       if (!lease && latest.focusSelectionEnabled && latest.selectedId) {
         latest.focusObject(latest.selectedId);
-        // Selection focus can update the viewport. Observe that commit before readiness.
         wake();
         return;
       }

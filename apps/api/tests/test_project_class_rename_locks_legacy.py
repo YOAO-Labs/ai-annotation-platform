@@ -133,8 +133,6 @@ async def test_capture_real_legacy_project_class_rename_lock_modes(
                 transport=transport, base_url="http://legacy-rename-lock", timeout=10
             ) as client:
                 for label, table, mode, target, new_name in scenarios:
-                    # Both identifiers come exclusively from the fixed scenario
-                    # inventory above. The row UUID remains a bound parameter.
                     assert table in {"users", "projects"}
                     assert mode in {"UPDATE", "KEY SHARE"}
                     async with test_engine.connect() as holder:

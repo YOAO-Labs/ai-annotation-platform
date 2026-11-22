@@ -71,14 +71,12 @@ async def test_warmup_forwards_body_and_returns_backend_response(
     data = r.json()
     assert data["cache_hit"] is False
     assert data["model_load_ms"] == 4500
-    # body 原样转发: AsyncMock 绑到 method 时, args[0] 是 self, args[1]=backend_id, args[2]=body
     call_args = mock_warmup.await_args
-    # 兼容 mock 有/无 self 两种调用形态
     args = call_args.args
-    if len(args) == 3:  # (self, backend_id, body)
+    if len(args) == 3:
         assert args[1] == backend.id
         assert args[2] == body
-    else:  # (backend_id, body)
+    else:
         assert args[0] == backend.id
         assert args[1] == body
 
@@ -91,7 +89,6 @@ async def test_warmup_returns_404_when_backend_missing(
 
     from app.services import ml_backend as svc_module
 
-    # backend 不存在 → hidden 404 before svc.warmup / backend network call
     mock_warmup = AsyncMock(return_value=None)
     monkeypatch.setattr(svc_module.MLBackendService, "warmup", mock_warmup)
     fake_bid = uuid.uuid4()
@@ -114,7 +111,6 @@ async def test_warmup_propagates_upstream_4xx(
 
     from app.services import ml_backend as svc_module
 
-    # 用 httpx.HTTPStatusError 模拟 backend 返回 400
     fake_resp = httpx.Response(
         status_code=400,
         text='{"code": "INVALID_VARIANT", "message": "no weight"}',

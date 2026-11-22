@@ -66,7 +66,6 @@ async def dispatch(db, run):
         await asyncio.wait_for(asyncio.to_thread(_publish, run_id, task_id, node), 3)
     except Exception:
         log.warning("Quality dispatch unavailable run=%s", run_id)
-        # The persisted lease is the outbox. Beat retries it after expiry.
 
 
 async def process_one(db, run_id, job_id, task_id, generation, node_id):
@@ -96,7 +95,7 @@ async def process_one(db, run_id, job_id, task_id, generation, node_id):
     )
     reason, snapshot = row.reason_code, None
     key_id, config = run.authority["api_key_id"], dict(run.config)
-    await db.commit()  # No run/authority locks cross storage I/O.
+    await db.commit()
     try:
         if reason is None:
             identity = await content.quality_identity(

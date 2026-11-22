@@ -1,10 +1,6 @@
 import { ListPagination } from "@/components/ui/ListPagination";
 import { useListPagination } from "@/hooks/useListPagination";
 import { listStyles } from "@/components/ui/listStyles";
-/**
- * super_admin system health panel.
- * Tailwind/shadcn surface with semantic status colors.
- */
 
 import { useQuery } from "@tanstack/react-query";
 import { adminSystemHealthApi, type SystemHealthStatus } from "@/api/adminSystemHealth";
@@ -16,7 +12,6 @@ const STATUS_LABEL: Record<SystemHealthStatus, string> = {
   down: "不可用",
 };
 
-// 状态色 → 设计 §2.3:ok=emerald / degraded=amber / down=rose(柔底 + 边 + 暗色提亮)
 const STATUS_CLASS: Record<SystemHealthStatus, string> = {
   ok: "border-emerald-500/30 bg-status-positive-soft text-status-positive",
   degraded: "border-amber-500/30 bg-status-caution-soft text-status-caution",

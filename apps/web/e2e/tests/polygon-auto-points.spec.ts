@@ -30,8 +30,7 @@ async function json<T>(response: APIResponse | Response): Promise<T> {
 }
 
 const test = base.extend<{ polygonCase: Case }>({
-  polygonCase: async ({ page, request, seed, browser }, provideFixture, testInfo) => {
-    const data = await seed.owned();
+  polygonCase: async ({ page, request, seed, browser, owned: data }, provideFixture, testInfo) => {
     const taskId = data.task_ids[0];
     const headers = { Authorization: `Bearer ${await seed.accessToken(data.admin_email)}` };
     const project = await json<{ tool_bindings: Record<string, unknown> }>(
@@ -116,7 +115,6 @@ const test = base.extend<{ polygonCase: Case }>({
     let passed = false;
     try {
       await provideFixture(fixture);
-      // Reload can report keepalive session telemetry as aborted after the API accepts it.
       const expectedAborts = errors.filter((error) =>
         isExpectedRequestAbort(error, imageWorkbenchAborts),
       );
@@ -156,8 +154,6 @@ const test = base.extend<{ polygonCase: Case }>({
         page.removeAllListeners("requestfailed");
         page.removeAllListeners("request");
         await page.unrouteAll({ behavior: "ignoreErrors" });
-        if (!page.isClosed()) await page.goto("about:blank");
-        await seed.owned();
       }
     }
   },
@@ -224,7 +220,7 @@ async function startScreen(page: Page): Promise<Point> {
 }
 async function autoPath(page: Page, start: Point, deltas: Point[], steps = 1) {
   await page.mouse.move(...start);
-  await page.keyboard.down("Alt"); // Disable snapping to previously saved comparison contours.
+  await page.keyboard.down("Alt");
   await page.keyboard.down("Shift");
   try {
     await page.mouse.down();
@@ -245,7 +241,6 @@ function assertScreenPath(
     b.y + y * b.height - start[1],
   ]);
   expect(screen).toHaveLength(52);
-  // The intended path is 160 px right, 83 px down, 160 px left (403 px total).
   for (let i = 0; i < screen.length; i++) {
     const distance = i === screen.length - 1 ? 403 : i * 8;
     const expected =
@@ -282,7 +277,7 @@ test.describe("H2 polygon auto points", () => {
         await expect(stage(page)).not.toHaveAttribute("data-media-width", previous!);
       }
       for (const steps of [1, 40]) {
-        await page.keyboard.press("Escape"); // Clear the saved object's editable selection first.
+        await page.keyboard.press("Escape");
         await page.getByTestId("tool-btn-polygon").click();
         const b = await bounds(page);
         const start = await startScreen(page);
@@ -449,7 +444,6 @@ test.describe("H2 polygon auto points", () => {
     await page.keyboard.down("Alt");
     await page.keyboard.down("Shift");
     await page.mouse.down();
-    // A bounded repeated screen path exercises the interaction budget; it is intentionally not submitted as geometry.
     for (let i = 0; i < 500; i++) {
       await page.mouse.move(start[0] + (i % 2 === 0 ? 320 : 0), start[1] + (i % 4 < 2 ? 0 : 8));
       if (i % 50 === 49 && (await pointCount(page)) >= 20_000) break;

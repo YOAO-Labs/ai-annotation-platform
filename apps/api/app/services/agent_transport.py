@@ -190,7 +190,6 @@ async def observe(db, agent, credential, payload):
 
 
 async def lease(db, agent_id, session_id):
-    # A global, short dispatch transaction bounds aggregate relay bytes across API workers.
     await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": DISPATCH_LOCK})
     agent = await db.get(
         AgentRegistration,
@@ -212,8 +211,6 @@ async def lease(db, agent_id, session_id):
         .values(state="rejected", error_code="agent_command_expired", updated_at=now())
     )
     await cleanup_terminal(db)
-    # The response may have been lost before the Agent accepted it locally.
-    # Re-delivery keeps the original deadline and immutable command identity.
     prior = await db.scalar(
         select(Command)
         .where(
@@ -227,9 +224,6 @@ async def lease(db, agent_id, session_id):
         .limit(1)
     )
     if prior is not None:
-        # A lost delivery can outlive the grant. The original expired envelope
-        # lets the same durable journal report a closed failure without source I/O.
-        # Do not manufacture a new deadline or infer closure from a heartbeat.
         if now().timestamp() >= prior.payload["expires_at"]:
             return prior.payload
         try:
@@ -334,7 +328,6 @@ async def receive_chunk(
         raise failure("agent_chunk_offset_invalid")
     client = redis_client()
     try:
-        # Write first. A lost response can repeat the same immutable offset before DB progress.
         key = relay_key(row.id)
         existing = await client.hget(key, str(offset))
         if existing is not None and existing != data:
@@ -543,7 +536,6 @@ async def receive_result(db, command_id, agent, credential, value):
         await _authority(db, row)
     except (ContentError, SiteAgentError) as exc:
         rejected = exc.code
-    # Retired identities may report closure even if their upload was interrupted.
     if (
         not rejected
         and row.payload["operation"] == "read"

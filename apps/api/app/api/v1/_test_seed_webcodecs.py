@@ -54,7 +54,6 @@ WebCodecsFixture = Literal[
     "4k-30",
 ]
 
-# 每个真实编码 fixture 的 ffmpeg 参数与帧数。frame_count 控制在几秒内保证 E2E 速度。
 FIXTURE_SPECS: dict[str, dict[str, Any]] = {
     "h264-baseline-gop12": {
         "profile": "baseline",
@@ -106,13 +105,12 @@ QUALIFICATION_FIXTURE_SPECS: dict[str, dict[str, Any]] = {
     "4k-30": {"width": 3840, "height": 2160, "fps": 30, "bitrate": "8M"},
 }
 
-# 帧身份采样区(归一化坐标,相对视频帧;E2E 据此映射到 Konva canvas)。
 _BG_NORM = {"x": 0.40, "y": 0.04, "w": 0.20, "h": 0.05}
 _BIT_NORM = [
-    {"bit": 0, "x": 0.0375, "y": 0.0500, "w": 0.1375, "h": 0.1833},  # TL
-    {"bit": 1, "x": 0.8250, "y": 0.0500, "w": 0.1375, "h": 0.1833},  # TR
-    {"bit": 2, "x": 0.0375, "y": 0.7667, "w": 0.1375, "h": 0.1833},  # BL
-    {"bit": 3, "x": 0.8250, "y": 0.7667, "w": 0.1375, "h": 0.1833},  # BR
+    {"bit": 0, "x": 0.0375, "y": 0.0500, "w": 0.1375, "h": 0.1833},
+    {"bit": 1, "x": 0.8250, "y": 0.0500, "w": 0.1375, "h": 0.1833},
+    {"bit": 2, "x": 0.0375, "y": 0.7667, "w": 0.1375, "h": 0.1833},
+    {"bit": 3, "x": 0.8250, "y": 0.7667, "w": 0.1375, "h": 0.1833},
 ]
 _CENTER_BIT_PIXELS = [
     {"bit": bit, "x": 52 + (bit % 4) * 14, "y": 46 + (bit // 4) * 14}
@@ -136,7 +134,6 @@ def _make_frame(
     img = np.zeros((FRAME_H, FRAME_W, 3), dtype=np.uint8)
     bg = _background_luma(frame_index)
     img[:, :] = bg
-    # 中心场景色块(避开四角与背景采样条)。
     img[44:76, 60:100] = scene_rgb
     corners = [
         (6, 6),
@@ -147,8 +144,6 @@ def _make_frame(
     for j, (x, y) in enumerate(corners):
         on = (frame_index >> j) & 1
         img[y : y + BIT_EDGE, x : x + BIT_EDGE] = 235 if on else 18
-    # This separate long fixture keeps its full 8-bit identity visible after zoom/pan.
-    # Existing precise-frame fixtures retain their original pixels and signatures.
     if center_code:
         for cell in _CENTER_BIT_PIXELS:
             x, y = cell["x"], cell["y"]
@@ -194,7 +189,6 @@ def _ffmpeg_encode(spec: dict[str, Any], frames_dir: Path, out: Path) -> None:
         "+faststart",
     ]
     if spec.get("vfr"):
-        # VFR:累计增加每两个输入帧之间的时间,得到 1/30、2/30 秒交替且严格单调的 PTS。
         cmd += ["-vf", "setpts=PTS+floor(N/2)", "-fps_mode", "vfr"]
     cmd.append(str(out))
     proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -254,7 +248,6 @@ def generate_fixture(
         "duration_ms": duration_ms,
     }
     if fixture == "h264-issue-context" and include_chunks:
-        # Frame-count transcode keeps B-frame packet overlap out of chunk boundaries.
         meta["chunk_size_frames"] = chunk_size_frames
         meta["chunks"] = _generate_chunks(
             out,
@@ -285,7 +278,6 @@ def _generate_chunks(
         if generation_mode == "smart_copy":
             extract_video_chunk_smart_copy(source, chunk_path, start_ms, duration_ms)
         else:
-            # Seek just before fractional frame timestamps so rounding cannot drop the first frame.
             extract_video_chunk(
                 source, chunk_path, int(start_frame / fps * 1000), chunk_frames
             )
@@ -414,10 +406,8 @@ def _real_fixture_name(fixture: str) -> str:
 def apply_metadata_mutation(fixture: str, meta: dict[str, Any]) -> dict[str, Any]:
     """Pure response-fault helper; never persist this as an immutable output."""
     if fixture == "unsupported-config":
-        # 真实 avcC description 保留,codec string 改成浏览器必拒的值 → isConfigSupported false。
         meta = {**meta, "codec_string": "avc1.ffff00"}
     elif fixture == "malformed-samples":
-        # 把第二帧的字节偏移顶到 chunk 之外 → 前端切片越界 → demux fallback。
         mutated = [dict(s) for s in meta["samples"]]
         if len(mutated) > 1:
             mutated[1] = {**mutated[1], "offset_in_chunk": 10**9, "size_bytes": 10**9}

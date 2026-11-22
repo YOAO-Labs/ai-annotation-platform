@@ -386,7 +386,7 @@ async def test_resolver_neither_commits_nor_flushes_pending_writes(
     pending = DatasetItem(
         id=uuid.uuid4(), dataset_id=uuid.uuid4(), file_name="invalid-pending"
     )
-    db.add(pending)  # A flush would violate the required file_path column.
+    db.add(pending)
 
     async def forbidden():
         pytest.fail("source helpers must not commit the caller transaction")

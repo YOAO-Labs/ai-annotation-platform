@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
-import { useTask, useAnnotations, useReviewClaim } from "@/hooks/useTasks";
+import { useTask, useAnnotations } from "@/hooks/useTasks";
 import { usePredictions } from "@/hooks/usePredictions";
 import { useProject } from "@/hooks/useProjects";
 import { ImageStage } from "@/pages/Workbench/stage/ImageStage";
@@ -14,17 +14,14 @@ import { useViewportTransform } from "@/pages/Workbench/state/useViewportTransfo
 import { CommentsPanel } from "@/pages/Workbench/shell/CommentsPanel";
 import { ReviewerMiniPanel } from "./ReviewerMiniPanel";
 import { useAuthStore } from "@/stores/authStore";
-import type { ReviewClaimResponse } from "@/types";
-import {
-  useWorkbenchImageSource,
-  workbenchImagePreviewUrl,
-} from "@/pages/Workbench/stage/useWorkbenchImageSource";
+import { ReviewClaimNotice } from "./ReviewClaimNotice";
+import { workbenchImagePreviewUrl } from "@/pages/Workbench/stage/useWorkbenchImageSource";
+import { useWorkbenchTaskImage } from "@/pages/Workbench/state/useWorkbenchTaskImage";
 import { useSessionStats } from "@/pages/Workbench/state/useSessionStats";
 import { useAbortableImage } from "@/pages/Workbench/stage/useAbortableImage";
 
 type DiffMode = "final" | "raw" | "diff";
 
-// skip_reason 枚举到中文标签
 function skipReasonLabel(reason: string): string {
   switch (reason) {
     case "image_corrupt":
@@ -57,11 +54,14 @@ export function ReviewWorkbench({
 }: ReviewWorkbenchProps) {
   const { data: task } = useTask(taskId);
   const {
-    source: imageSource,
-    retry: retryImagePyramid,
-    refresh: refreshImage,
-    contentBlockedReason,
-  } = useWorkbenchImageSource(task, task?.dataset_item_id ?? task?.id ?? null, taskId);
+    reviewClaim: claim,
+    image: {
+      source: imageSource,
+      retry: retryImagePyramid,
+      refresh: refreshImage,
+      contentBlockedReason,
+    },
+  } = useWorkbenchTaskImage({ task, requestedTaskId: taskId, review: true });
   const imagePreviewUrl = workbenchImagePreviewUrl(imageSource);
   const [, previewStatus] = useAbortableImage(
     imageSource?.kind === "single" ? imageSource.url : (imagePreviewUrl ?? ""),
@@ -92,26 +92,13 @@ export function ReviewWorkbench({
   const meUserId = useAuthStore((s) => s.user?.id);
   useSessionStats(taskId, project?.id ?? task?.project_id ?? null, "review", meUserId ?? null);
 
-  // 进入审核页时调 claim（幂等），冻结标注员的 withdraw 入口；
-  // 仅在 status=review 时调用，避免对 completed/rejected 任务多余请求。
-  const claimMut = useReviewClaim();
-  const [claimInfo, setClaimInfo] = useState<ReviewClaimResponse | null>(null);
-  useEffect(() => {
-    if (!taskId || task?.status !== "review") return;
-    claimMut.mutate(taskId, {
-      onSuccess: (data) => setClaimInfo(data),
-      onError: () => {},
-    });
-    // claimMut intentionally omitted to keep effect single-fire per task
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [taskId, task?.status]);
+  const decisionBlocked = imageBlocked || !claim.canDecide;
 
   const selectedAnnotation = useMemo(
     () => (annotationsData ?? []).find((a) => a.id === selectedId && a.task_id === taskId) ?? null,
     [annotationsData, selectedId, taskId],
   );
 
-  // 遮挡样式 key 并集（跨工具单位），复核界面与工作台保持一致的遮挡视觉。
   const occludedKeys = useMemo(() => {
     const keys = new Set<string>();
     const tb = project?.tool_bindings ?? {};
@@ -127,14 +114,12 @@ export function ReviewWorkbench({
     () => (annotationsData ?? []).map((a) => annotationToBox(a, occludedKeys)),
     [annotationsData, occludedKeys],
   );
-  // 评论卡片绑定 chip 用：annotation_id → class_name。
   const annotationClassById = useMemo(
     () => Object.fromEntries((annotationsData ?? []).map((a) => [a.id, a.class_name])),
     [annotationsData],
   );
   const allAi = useMemo(() => predictionsToBoxes(predictionsData), [predictionsData]);
 
-  // 已被采纳的 prediction id 集合
   const acceptedPredIds = useMemo(() => {
     const s = new Set<string>();
     for (const a of annotationsData ?? []) {
@@ -156,13 +141,7 @@ export function ReviewWorkbench({
     <div className="flex h-full flex-row overflow-hidden">
       <div className="flex flex-1 flex-col overflow-hidden">
         <ReviewerMiniPanel />
-        {claimInfo && !claimInfo.is_self && (
-          <div className="flex items-center gap-1.5 border-b border-amber-500/30 bg-status-caution-soft px-3.5 py-1.5 text-xs text-status-caution">
-            <Icon name="warning" size={13} />
-            已被其他审核员认领（{new Date(claimInfo.reviewer_claimed_at).toLocaleString("zh-CN")}
-            ），仍可接力处理
-          </div>
-        )}
+        <ReviewClaimNotice message={claim.message} retry={claim.retry} />
         {task?.skip_reason && (
           <div
             className="flex items-center gap-1.5 border-b border-violet-500/30 bg-status-info-soft px-3.5 py-1.5 text-xs text-status-info"
@@ -227,9 +206,9 @@ export function ReviewWorkbench({
             <Button
               variant="primary"
               size="sm"
-              disabled={imageBlocked}
+              disabled={decisionBlocked}
               onClick={() => {
-                if (!imageBlocked) onApprove();
+                if (!imageBlocked && claim.ownsClaim()) onApprove();
               }}
               data-testid="review-approve"
             >
@@ -239,9 +218,9 @@ export function ReviewWorkbench({
             <Button
               variant="danger"
               size="sm"
-              disabled={imageBlocked}
+              disabled={decisionBlocked}
               onClick={() => {
-                if (!imageBlocked) onReject();
+                if (!imageBlocked && claim.ownsClaim()) onReject();
               }}
               data-testid="review-reject"
             >

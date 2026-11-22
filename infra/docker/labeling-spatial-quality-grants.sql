@@ -1,8 +1,3 @@
--- Grant a Labeling spatial quality data LOGIN exactly one owner command.
--- Run after migrations, module-data-grants.sql and lan-production-grants.sql.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v labeling_owner=labeling_code -v spatial_quality_role=yoao_labeling_spatial_quality_client \
---   -f infra/docker/labeling-spatial-quality-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

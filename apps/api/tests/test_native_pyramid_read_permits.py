@@ -66,8 +66,6 @@ async def test_close_before_admission_never_reopens_the_permit(test_engine):
                 "closed": True,
             }
 
-            # The tombstone is selected before any source authority work, so an
-            # actor that would otherwise fail cannot open a replacement permit.
             late = await _begin(session, operation_id, token)
             assert late["ok"] is False
             assert late["error"]["code"] == "operation_conflict"
@@ -82,7 +80,6 @@ async def test_close_before_admission_never_reopens_the_permit(test_engine):
                 == "closed"
             )
 
-            # Replayed physical closure is idempotent.
             replay = await _complete(session, operation_id, token)
             assert replay["data"] == closed["data"]
         finally:

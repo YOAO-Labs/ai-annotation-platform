@@ -48,7 +48,6 @@ def test_deadline_stops_process_while_main_owner_cannot_journal_or_call_api():
     timer = owner(on_deadline=called.set)
     process = timer.launch(spawn)
     try:
-        # The supervisor's main owner can be blocked; the deadline has no HTTP/IO dependency.
         assert timer.done.wait(3)
         assert called.is_set() and not live_group(process.pid)
         measured = timer.accounting()

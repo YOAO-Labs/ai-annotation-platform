@@ -1,12 +1,3 @@
-// useDirtyTracker 的 dirty bit 和 flush 行为单测。
-//
-// 覆盖：
-//  - markDirty / getDirtyFields 累积去重
-//  - clear / clearAll
-//  - flush 同步 / 异步 commit
-//  - flush 失败回滚（同步抛出 + Promise reject 都要把 dirty 放回去）
-//  - subscribe 通知
-
 import { renderHook, act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useDirtyTracker } from "./useDirtyTracker";
@@ -17,7 +8,7 @@ describe("useDirtyTracker", () => {
     act(() => {
       result.current.markDirty("a", "attributes");
       result.current.markDirty("a", "class_name");
-      result.current.markDirty("a", "attributes"); // 重复
+      result.current.markDirty("a", "attributes");
     });
     expect(result.current.getDirtyFields("a").sort()).toEqual(["attributes", "class_name"]);
     expect(result.current.getDirtyFields("b")).toEqual([]);
@@ -100,7 +91,6 @@ describe("useDirtyTracker", () => {
     });
     await act(async () => {
       result.current.flush("a", () => Promise.reject(new Error("net")));
-      // 等待 microtask 让 .catch 回滚
       await new Promise((r) => setTimeout(r, 0));
     });
     expect(result.current.getDirtyFields("a")).toEqual(["attributes"]);
@@ -121,7 +111,6 @@ describe("useDirtyTracker", () => {
     act(() => {
       result.current.flush("a");
     });
-    // markDirty x2 + flush 通知 = 至少 3 次
     expect(listener.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 

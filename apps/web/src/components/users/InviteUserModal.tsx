@@ -20,11 +20,6 @@ interface Props {
   onClose: () => void;
 }
 
-/**
- * Platform identity and project responsibility are separate invitation fields.
- * A project invitation carries a compatible pair (`role` + `project_member_role`);
- * a non-project invitation only creates the platform account.
- */
 const INVITABLE_PLATFORM_ROLES_BY_ACTOR: Record<PlatformRole, PlatformRole[]> = {
   super_admin: ["super_admin", "project_admin", "employee", "viewer"],
   project_admin: ["employee", "viewer"],

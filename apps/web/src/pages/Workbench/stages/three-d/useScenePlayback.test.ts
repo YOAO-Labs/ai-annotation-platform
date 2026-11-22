@@ -268,7 +268,6 @@ describe("useScenePlayback", () => {
     expect(onActiveChange).toHaveBeenCalledWith(false);
     const restart = vi.fn(async () => nextFrame);
     update({ active: false });
-    // The last accessible task can precede sceneEnd when trailing frames are missing.
     update({ active: true, atEnd: false, resolveNext: restart });
     await advance(500);
     expect(restart).toHaveBeenCalledWith(expect.objectContaining({ restart: true }));

@@ -1,10 +1,3 @@
--- Grant independent physical publication and export-execution capabilities.
--- Run after module-data-grants.sql; neither LOGIN receives private table access.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v jobs_owner=jobs_code -v export_owner=export_code \
---   -v jobs_publication_role=yoao_jobs_publication_client \
---   -v export_execution_role=yoao_export_execution_client \
---   -f infra/docker/module-execution-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

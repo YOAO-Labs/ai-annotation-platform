@@ -32,19 +32,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 import logging
 
+if settings.environment == "production" and (
+    "cors_allow_origins" not in settings.model_fields_set
+    or not any(origin.strip() for origin in settings.cors_allow_origins)
+):
+    raise RuntimeError(
+        "production 环境必须显式设置 CORS_ALLOW_ORIGINS（非空 JSON 列表或逗号分隔）"
+    )
+
 logger = logging.getLogger(__name__)
 
 setup_logging(level="DEBUG" if settings.debug else "INFO")
 
 
-# Sentry 初始化（DSN 留空则完全不启用）
 if settings.sentry_dsn:
     import sentry_sdk
     from sentry_sdk.integrations.fastapi import FastApiIntegration
     from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
 
     def _sentry_before_send(event, hint):
-        # 移除请求头中的 Authorization，避免 token 上报
         req = (event or {}).get("request") or {}
         headers = req.get("headers") or {}
         if isinstance(headers, dict):
@@ -78,8 +84,6 @@ async def lifespan(app: FastAPI):
             "PRODUCTION ENVIRONMENT DETECTED WITH DEFAULT SECRET KEY. "
             "Set SECRET_KEY to a strong random value in your .env file."
         )
-    # production 环境未配置 SENTRY_DSN 时启动告警（不阻断启动，
-    # 避免运维忘记填导致线上错误失踪）。
     if settings.environment == "production" and not settings.sentry_dsn:
         logger.warning(
             "Production environment has no SENTRY_DSN configured; "
@@ -91,8 +95,6 @@ async def lifespan(app: FastAPI):
     if "invalid" in credential_states.values():
         logger.warning("Some managed inference credential stores are unavailable")
     storage_service.ensure_all_buckets()
-    # ADR-0044 · env 配置的 ML backend 启动时 upsert 成全局注册项 (source=env)。
-    # 失败不阻断启动 (探测超时/DB 抖动仅告警)。
     try:
         from app.services.ml_backend_env_sync import sync_env_backends
 
@@ -268,19 +270,9 @@ async def _request_validation_error_handler(
 
 app.add_exception_handler(RequestValidationError, _request_validation_error_handler)
 
-# 中间件注册顺序：先注册 → 后执行（dispatch 包装）。
-# AuditMiddleware 在 CORS 之后注册，保证 CORS preflight 不被审计。
 app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(AuditMiddleware)
 app.add_middleware(RequestIDMiddleware)
-if settings.environment == "production" and not settings.cors_allow_origins:
-    raise RuntimeError(
-        "production 环境必须显式设置 CORS_ALLOW_ORIGINS（JSON 列表或逗号分隔）"
-    )
-
-# SecurityHeadersMiddleware production-only。
-# 注册顺序在 CORSMiddleware 之前 → dispatch 后执行 → 写 HSTS/CSP 时
-# CORS 头已就位，可以一并出站。
 if settings.environment == "production":
     app.add_middleware(SecurityHeadersMiddleware)
 
@@ -298,8 +290,6 @@ app.add_middleware(
     expose_headers=["Idempotency-Key"],
 )
 
-# Pure ASGI pre-parser guard: registered outermost so multipart/JSON parsing can
-# never spool an unbounded selected upload before endpoint validation runs.
 app.add_middleware(UploadBodyLimitMiddleware)
 
 app.include_router(api_router, prefix="/api/v1")
@@ -307,7 +297,6 @@ app.include_router(plugin_installations_router, prefix="/api/v1")
 app.include_router(ws_router)
 app.include_router(health_router, prefix="/health", tags=["health"])
 
-# Prometheus metrics — 仅供内部 scrape，不经过 AuditMiddleware
 from prometheus_client import (  # noqa: E402
     make_asgi_app as _prom_app,
     CONTENT_TYPE_LATEST,

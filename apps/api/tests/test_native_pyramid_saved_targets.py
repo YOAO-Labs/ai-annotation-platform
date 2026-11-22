@@ -242,7 +242,6 @@ async def test_written_closure_settles_its_operation_and_permits_retirement(
             assert written["state"] == "written"
             assert await _permits(session, output_id) == 2
 
-            # A live attempt admits verification while the permit is open.
             verified_capture = _reply(
                 await session.scalar(
                     _CAPTURE_WRITE,
@@ -260,8 +259,6 @@ async def test_written_closure_settles_its_operation_and_permits_retirement(
             assert verified_capture["data"]["members"][0]["etag"] == '"etag-manifest"'
             assert verified_capture["data"]["members"][0]["version_id"] == "null"
 
-            # Written-member physical closure keeps the receipt and closes
-            # only that member's own admitted operation.
             closed = _data(await _abandon(session, manifest, "written"))
             assert closed["state"] == "written"
             assert await _permits(session, output_id) == 1
@@ -288,7 +285,6 @@ async def test_written_closure_settles_its_operation_and_permits_retirement(
                 "version_id": "null",
             }
 
-            # A closed written member cannot regain a verification capability.
             refused_capture = _reply(
                 await session.scalar(
                     _CAPTURE_WRITE,
@@ -311,9 +307,6 @@ async def test_written_closure_settles_its_operation_and_permits_retirement(
 
             await _cancel(session, allocation)
 
-            # A known, fully drained PUT result still registers after the job
-            # lease and source authority are gone: this records an admitted
-            # physical fact and never authorizes new I/O.
             late = _data(await _write(session, overview, '"etag-overview"', None))
             assert late["state"] == "written"
             versions = (
@@ -331,7 +324,6 @@ async def test_written_closure_settles_its_operation_and_permits_retirement(
                 .all()
             )
             by_operation = {row["operation_id"]: row for row in versions}
-            # The literal S3 version is a durable string, distinct from NULL.
             assert by_operation[manifest]["version_id"] == "null"
             assert by_operation[manifest]["omitted"] is False
             assert by_operation[overview]["version_id"] is None
@@ -339,7 +331,6 @@ async def test_written_closure_settles_its_operation_and_permits_retirement(
 
             await _make_retirement_due(session, output_id)
 
-            # An open written operation still blocks retirement.
             assert await _claimable(session, output_id) is False
             blocked = await _claim(session, uuid.uuid4())
             assert blocked["ok"] is True
@@ -586,8 +577,6 @@ async def test_saved_targets_require_the_registered_connection_bucket(test_engin
             )
             assert wrong_bucket is None
 
-            # A mutated connection bucket is a refusal, never a redirect: the
-            # saved allocation keeps pointing at its own registered target.
             await session.execute(
                 text(
                     "UPDATE public.storage_connections SET config = CAST(:config AS jsonb) "
@@ -615,7 +604,6 @@ async def test_saved_targets_require_the_registered_connection_bucket(test_engin
             )
             assert mutated is None
 
-            # The same mismatch refuses to mint a fresh saved target.
             source = await _source(session, second_item)
             policy = ImagePolicy(
                 optional_pixels=1,
@@ -642,7 +630,6 @@ async def test_saved_targets_require_the_registered_connection_bucket(test_engin
                 c.decode_reply(refused, c.PyramidOutputAllocation)
             assert failure.value.code == "storage_unavailable"
 
-            # A non-string connection bucket is also refused.
             await session.execute(
                 text(
                     "UPDATE public.storage_connections SET config = CAST(:config AS jsonb) "
@@ -696,7 +683,6 @@ async def test_binding_switch_keeps_each_saved_target_at_its_own_location(test_e
             first = await _allocate(session, first_item, actor_id)
             assert first["storage_ref"]["location_id"] == str(location_a)
 
-            # The purpose binding switches A->B; the old saved target stays at A.
             connection_b, location_b = await _connection(
                 session, "https://cache-b.example", "registered-b"
             )
@@ -989,8 +975,6 @@ async def test_fixture_resolver_serves_only_verified_pyramid_members(test_engine
             )
             assert unknown is None
 
-            # A known fixture pyramid key whose receipt is not verified is a
-            # meaningful refusal, never an ordinary fallback or a silent NULL.
             with pytest.raises(DBAPIError):
                 await session.scalar(
                     _RESOLVE_FIXTURE_CACHE,
@@ -1058,7 +1042,6 @@ async def test_legacy_reconcile_never_fails_admitted_native_generation(
     job_id, asset_id, generation, claim, _ = await _native_generation(
         db_session, allocate=False
     )
-    # No saved output exists yet: admission is the generation's own work link.
     assert (
         await db_session.scalar(
             text(
@@ -1094,8 +1077,6 @@ async def test_legacy_reconcile_never_fails_admitted_native_generation(
     assert state.status == "building"
     assert state.lease_token == uuid.UUID(claim["lease_token"])
 
-    # Admission survives the business job anchor; a vanished job is still not
-    # permission for the legacy collector to mutate the generation.
     await db_session.execute(
         text(
             "DELETE FROM public.asset_image_jobs WHERE job_id = CAST(:job_id AS uuid)"
@@ -1170,7 +1151,6 @@ async def test_legacy_reconcile_never_retires_owned_native_saved_output(
     )
     calls = await _forbid_legacy_physical_work(monkeypatch)
 
-    # The stale-generation pass must not delete the admitted Native row.
     assert await objects.reconcile(db_session, None) == 0
     assert calls == []
     assert (
@@ -1183,8 +1163,6 @@ async def test_legacy_reconcile_never_retires_owned_native_saved_output(
         )
         == "failed"
     )
-    # The legacy collector deletes a stale generation first; the saved output's
-    # immutable attempt must still be excluded after generation and job vanish.
     await db_session.execute(
         text(
             "DELETE FROM public.image_pyramid_generations "
@@ -1242,8 +1220,6 @@ async def test_legacy_reconcile_never_retires_owned_native_saved_output(
         is False
     )
 
-    # Retained independent Native retirement is still possible after the
-    # legacy pass refused the same physical owner.
     await _make_retirement_due(db_session, output_id)
     claimed = await _claim(db_session, uuid.uuid4())
     retirement = claimed["data"]["claim"]

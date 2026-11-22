@@ -483,9 +483,6 @@ async def test_unlink_cleanup_queues_only_task_pyramids_and_completes_idempotent
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     try:
         async with maker() as session:
-            # Other committed suites legitimately leave their own pending
-            # deletions behind; compare against this test's baseline instead of
-            # assuming an empty global queue.
             baseline = {
                 row["operation_id"]
                 for row in await _rows(

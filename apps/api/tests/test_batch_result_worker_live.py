@@ -374,8 +374,6 @@ async def test_prefork_loss_resumes_captured_result_without_second_inference(
             )
 
             if not digest_bound_before_first_delivery:
-                # An unbound message cannot mint its own retry. The same failure
-                # must still recover after normal admission and actual worker loss.
                 unbound = await asyncio.to_thread(
                     sender.send_task,
                     "app.workers.predictions_retry.retry_failed_prediction",

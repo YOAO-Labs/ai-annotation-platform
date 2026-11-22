@@ -438,6 +438,22 @@ def _version(metadata):
     return value
 
 
+def cache_version(output, key):
+    versions = _field(output, "fixture_request_versions")
+    if versions is None:
+        return None, None
+    receipt = versions.get(key) if isinstance(versions, dict) else None
+    if (
+        not isinstance(receipt, dict)
+        or set(receipt) != {"version_id", "etag"}
+        or not _plain(receipt["version_id"], 1024)
+        or receipt["version_id"] == "null"
+        or not _plain(receipt["etag"], 1024)
+    ):
+        _reject("invalid_receipt")
+    return receipt["version_id"], receipt["etag"]
+
+
 def _http_ok(response):
     metadata = response.get("ResponseMetadata")
     if (
@@ -449,15 +465,29 @@ def _http_ok(response):
         _reject("integrity_mismatch")
 
 
-def _read(client, owner, key, receipt, *, collect=False, accounting_attempt=None):
+def _read(
+    client,
+    owner,
+    key,
+    receipt,
+    *,
+    collect=False,
+    accounting_attempt=None,
+    saved_version=None,
+    saved_etag=None,
+):
     owner.contains(key)
     _receipt(receipt)
     params = {"Bucket": owner.bucket, "Key": key}
+    if saved_version is not None:
+        params["VersionId"] = saved_version
     head = client.head_object(**params)
     _http_ok(head)
     etag, version = head.get("ETag"), _version(head)
     if (
         not _plain(etag, 1024)
+        or (saved_version is not None and version != saved_version)
+        or (saved_etag is not None and etag != saved_etag)
         or type(head.get("ContentLength")) is not int
         or head["ContentLength"] != receipt["size_bytes"]
     ):
@@ -465,7 +495,7 @@ def _read(client, owner, key, receipt, *, collect=False, accounting_attempt=None
     condition = {"IfMatch": etag}
     if version is not None:
         condition["VersionId"] = version
-    response = client.get_object(**params, **condition)
+    response = client.get_object(**(params | condition))
     with storage_access.closing_registered(response["Body"]) as body:
         _http_ok(response)
         if (
@@ -670,7 +700,10 @@ def verify_file(storage, output, key, expected=None):
     receipt = _expected(output, owner, key, expected)
     client = _reading_client(storage, owner, key, receipt)
     try:
-        return _read(client, owner, key, receipt)
+        version, etag = cache_version(output, key) if expected is None else (None, None)
+        return _read(
+            client, owner, key, receipt, saved_version=version, saved_etag=etag
+        )
     except Exception as exc:
         raise _translate(exc) from None
 
@@ -687,7 +720,16 @@ def verify_object(storage, output, key, expected=None, *, max_bytes=MAX_RESULT_B
     ):
         _reject("budget")
     try:
-        return _read(client, owner, key, receipt, collect=True)
+        version, etag = cache_version(output, key)
+        return _read(
+            client,
+            owner,
+            key,
+            receipt,
+            collect=True,
+            saved_version=version,
+            saved_etag=etag,
+        )
     except Exception as exc:
         raise _translate(exc) from None
 
@@ -763,7 +805,9 @@ def delete_output(storage, output, *, accounting=None, fixture=None):
 
         retirement, permit, versions = fixture
         return media_cache_storage.retire_fixture_versions(
-            client, owner, versions,
+            client,
+            owner,
+            versions,
             lambda identifier, state: retirement.physical_checkpoint(
                 uuid.UUID(identifier), permit, state
             ),

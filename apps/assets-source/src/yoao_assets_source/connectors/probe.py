@@ -86,8 +86,6 @@ async def probe_connection(
     )
 
     try:
-        # AnyIO and the connector SDKs are runtime-only dependencies. Keep them
-        # out of imports for applications that use just the portable contracts.
         import anyio
 
         count = await anyio.to_thread.run_sync(

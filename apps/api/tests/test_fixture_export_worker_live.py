@@ -262,8 +262,6 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
         await asyncio.wait_for(
             owner.prepare_suite(neighbor_suite.suite_id, "owned"), 60
         )
-        # A sibling with no Job must not hit the Dataset fence before the
-        # exporting sibling's native work is retired.
         run_c, run_a = sorted(
             [
                 suite.new_run("zip" + uuid.uuid4().hex[:8]),
@@ -433,7 +431,6 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
         early = await asyncio.wait_for(_cleanup_owned(owner, run_a), 120)
         assert early.status_code == 409, early.text
         assert early.json()["detail"]["code"] == "fixture_export_retirement_unsettled"
-        # Observe the actual database clock; never rewrite deadlines or lease state.
         while True:
             async with test_engine.connect() as db:
                 now = await db.scalar(text("SELECT clock_timestamp()"))

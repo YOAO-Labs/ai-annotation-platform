@@ -50,7 +50,6 @@ interface WorkbenchSettingsDialogProps {
   onToggleHideOrphans?: () => void;
   secondaryBarHidden?: boolean;
   onToggleSecondaryBar?: () => void;
-  /** 关闭遮罩背景模糊(3D / 点云工作台,见 workbenchDialogClasses)。 */
   backdropBlur?: boolean;
 }
 
@@ -75,7 +74,6 @@ export function WorkbenchSettingsDialog({
   onToggleSecondaryBar,
   backdropBlur = true,
 }: WorkbenchSettingsDialogProps) {
-  // 保持 hook 挂载，关闭窗口不取消待发送的防抖保存。
   const { config, loaded, loadError, retryLoad, lockedFields, setFields } =
     useWorkbenchConfig(projectRenderingConfig);
   const [, refreshLocalFields] = useReducer((n: number) => n + 1, 0);
@@ -90,7 +88,6 @@ export function WorkbenchSettingsDialog({
   const desktop = useMediaQuery("(min-width: 768px)");
   const visibleFields = getVisibleWorkbenchSettingFields();
   const categories = Object.keys(WORKBENCH_SETTING_GROUPS) as WorkbenchSettingGroup[];
-  // 通知偏好与渲染配置互相独立：搜索时只读共享缓存判断是否命中。
   const preferencesQ = useNotificationPreferences();
 
   useEffect(() => {
@@ -235,7 +232,6 @@ export function WorkbenchSettingsDialog({
             CSS.supports("selector(:open)") &&
             focused.matches(":open")
           ) {
-            // Radix 在捕获阶段处理 Esc；先关闭原生菜单，焦点留在该控件。
             event.preventDefault();
             focused.blur();
             focused.focus();
@@ -333,12 +329,7 @@ export function WorkbenchSettingsDialog({
             >
               {loaded && !loadError && category === "layout" && !searching && layoutSettings}
               {category === "notifications" && !searching ? (
-                // 通知偏好有独立的加载/重试状态；渲染配置加载失败不影响此处。
                 <NotificationPreferencesPanel />
-              ) : !loaded ? (
-                <p role="status" className="py-8 text-sm text-muted-foreground">
-                  正在加载设置…
-                </p>
               ) : loadError ? (
                 <Empty>
                   <EmptyHeader>
@@ -348,6 +339,10 @@ export function WorkbenchSettingsDialog({
                     重试
                   </Button>
                 </Empty>
+              ) : !loaded ? (
+                <p role="status" className="py-8 text-sm text-muted-foreground">
+                  正在加载设置…
+                </p>
               ) : !resultGroups.length && !notificationSearchMatch ? (
                 <Empty>
                   <EmptyHeader>

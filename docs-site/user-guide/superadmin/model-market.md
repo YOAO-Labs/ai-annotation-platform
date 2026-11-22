@@ -115,12 +115,14 @@ last_reviewed: 2026-10-21
 | 服务池 | 名称、ID 复制图标、策略                                                                                        |
 | 成员   | 可路由 / 总实例，按状态分段                                                                                    |
 | 容量   | inflight / 总并发、饱和拒绝；明确标注「暂无路由指标」当无计数                                                  |
-| 项目   | 启用项目数                                                                                                     |
+| 项目   | 以该池为主服务池且对当前账号可见的项目数                                                                       |
 | GPU    | 关联 GPU 的最高诊断严重度                                                                                      |
 | 状态   | 健康、configured → effective 路由、router mode、数据新鲜度分开显示                                             |
 | 操作   | 创建、重命名、启停、删除空池，加入 / 移除成员、修改权重、暂停 / 恢复接流、查看实例、审核能力变更（**仅超管**） |
 
 服务池行可展开成员实例；菜单中的「查看实例」会跳到实例子视图并按该池过滤（`registry_view=instances&instance_pool=<id>`）。项目管理员看不到 `routing_policy`、权重与 GPU 列（服务端裁剪为 `unknown` / `null`，非前端隐藏），也没有操作按钮。
+
+「项目」不统计仅启用了该池或池内实例的项目。不同池即使共用实例也独立计数，空成员池仍可能有主池绑定。超管看到全部项目的计数，项目管理员仅看到本人负责或作为有效成员可见的项目计数。`0` 表示已确认没有可见绑定；无法读取或没有统计权限时显示「不可用」。
 
 **实例**（super_admin + project_admin）：主表收敛为六列——实例身份（名称 + ID 复制图标 + URL 副行 + 来源轻标签）、所属服务池、健康及路由（健康 / 接流 / 路由分开显示）、并发与 GPU 摘要、最近检查、操作（详情 + 超管操作菜单：健康检查 / 编辑 / drain / resume / 审核能力变更 / unload / 删除，按风险排序）。详情 Sheet 提供完整实例 ID 的复制入口并展示 URL、所属服务池、接流与路由、权重、声明并发上限、GPU 静态预算与仲裁模式、GPU 诊断及健康自报摘要。当能力指纹变化导致成员被自动禁用时，「审核能力变更」会展示服务池基线与实例当前合同的差异；确认动作重新探活并复核候选指纹，只有池内其余接流成员仍然等价时才原子恢复成员和服务池。
 
@@ -139,7 +141,7 @@ last_reviewed: 2026-10-21
 
 <!-- TODO IMAGE_CHECKLIST: images/superadmin/model-market/registry-issue-center.png — 问题中心去重、严重度、受影响对象与筛选 [manual] -->
 
-对应后端端点：`GET /admin/ml-integrations/topology`（角色裁剪读模型）、`GET /admin/ml-integrations/runtime-snapshot`（仅超管）、`/admin/ml-integrations/service-pools/*`（pool/member CRUD + drain/resume，仅超管）、`POST/PUT/DELETE /admin/ml-integrations/registry/:id`（实例增删改）、`POST /admin/ml-integrations/registry/:id/health`（健康检查）。
+对应后端端点：`GET /admin/ml-integrations/topology`（角色裁剪读模型）、`GET /admin/ml-integrations/primary-pool-project-counts`（可见项目的主池绑定统计）、`GET /admin/ml-integrations/runtime-snapshot`（仅超管）、`/admin/ml-integrations/service-pools/*`（pool/member CRUD + drain/resume，仅超管）、`POST/PUT/DELETE /admin/ml-integrations/registry/:id`（实例增删改）、`POST /admin/ml-integrations/registry/:id/health`（健康检查）。
 
 > **角色门控**：超管看到全部五个 tab 与所有 mutation。项目管理员只看到「服务池 + 实例」两个只读视图，不显示 GPU 资源 / 项目绑定 / 问题中心，也看不到 `routing_policy` / 权重 / GPU UUID / 预算 / 内部 reason / 诊断拓扑——这些字段在服务端响应中已裁剪为 `unknown` / `null`（非前端隐藏）。项目管理员对自己项目的模型服务启用仍在项目设置里做（详见 [启用模型服务](../projects/ml-backends)）。
 

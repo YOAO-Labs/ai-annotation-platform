@@ -85,11 +85,9 @@ async def test_export_aap_json_project_envelope(
     super_admin,
     db_session: AsyncSession,
 ):
-    # 导出已异步化 (POST→job); 内容正确性直接断言 ExportService。
     user, _ = super_admin
     project, tasks, _ = await _seed(db_session, user.id)
 
-    # 加 1 条 annotation + 1 条 prediction
     ann = Annotation(
         id=uuid.uuid4(),
         task_id=tasks[0].id,
@@ -135,11 +133,9 @@ async def test_export_aap_json_project_envelope(
     assert body["project"]["annotation_guide"] == "# 测试指引\n请标注所有车辆."
     assert body["project"]["type_key"] == "image-det"
     assert len(body["tasks"]) == 2
-    # 非视频项目: media_type 默认 image, video 子块为 None
     assert all(t["media_type"] == "image" for t in body["tasks"])
     assert all(t["video"] is None for t in body["tasks"])
 
-    # task[0] 有 1 ann + 1 pred; task[1] 空
     t0 = next(
         t for t in body["tasks"] if t["task_match"]["display_id"] == tasks[0].display_id
     )
@@ -150,7 +146,6 @@ async def test_export_aap_json_project_envelope(
     pred_entry = t0["predictions"][0]
     assert pred_entry["geometry"]["type"] == "bbox"
     assert pred_entry["class_name"] == "car"
-    # 严格写满 null (导出 model_dump exclude_none=False)
     assert "external_id" in pred_entry
     assert pred_entry["model_version"] == "test-v1"
 
@@ -419,7 +414,6 @@ async def test_export_aap_json_round_trip_after_external_import(
     assert r.json()["skipped"] == 0
     assert r.json()["errors"] == []
 
-    # 立即导出, 应能读到刚导入的 prediction
     body = json.loads(await ExportService(db_session).export_native_json(project.id))
     t0 = next(
         t for t in body["tasks"] if t["task_match"]["display_id"] == tasks[0].display_id

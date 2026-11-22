@@ -53,9 +53,6 @@ from app.schemas._jsonb_types import (
 )
 
 
-# ── Geometry ────────────────────────────────────────────────────────
-
-
 def test_bbox_geometry_required_fields():
     g = BboxGeometry(x=0.1, y=0.2, w=0.3, h=0.4)
     assert g.type == "bbox"
@@ -73,25 +70,19 @@ def test_polygon_geometry_pair_shape():
         PolygonGeometry(points=[[0, 0, 0], [1, 0, 0], [1, 1, 0]])
 
 
-# ── rotated_bbox / polyline / keypoint ────────────────────
-
-
 def test_rotated_bbox_geometry_valid():
     g = RotatedBboxGeometry(cx=0.5, cy=0.5, w=0.2, h=0.1, angle=45)
     assert g.type == "rotated_bbox"
     assert g.angle == 45
-    # 边界: angle=0 合法, 359.9 合法
     RotatedBboxGeometry(cx=0.5, cy=0.5, w=0.2, h=0.1, angle=0)
     RotatedBboxGeometry(cx=0.5, cy=0.5, w=0.2, h=0.1, angle=359.9)
 
 
 def test_rotated_bbox_geometry_invalid():
-    # w/h 必须 > 0
     with pytest.raises(ValidationError):
         RotatedBboxGeometry(cx=0.5, cy=0.5, w=0, h=0.1, angle=10)
     with pytest.raises(ValidationError):
         RotatedBboxGeometry(cx=0.5, cy=0.5, w=0.2, h=-0.1, angle=10)
-    # angle 必须 [0, 360)
     with pytest.raises(ValidationError):
         RotatedBboxGeometry(cx=0.5, cy=0.5, w=0.2, h=0.1, angle=360)
     with pytest.raises(ValidationError):
@@ -105,10 +96,8 @@ def test_polyline_geometry_valid():
 
 
 def test_polyline_geometry_invalid():
-    # 至少 2 点
     with pytest.raises(ValidationError):
         PolylineGeometry(points=[[0, 0]])
-    # 每点必须 [x, y]
     with pytest.raises(ValidationError):
         PolylineGeometry(points=[[0, 0], [1, 1, 1]])
 
@@ -117,15 +106,12 @@ def test_keypoint_geometry_valid():
     g = KeypointGeometry(points=[Keypoint(x=0.1, y=0.2, v=2)])
     assert g.type == "keypoint"
     assert g.points[0].v == 2
-    # v 取 0/1/2 都合法
     KeypointGeometry(points=[Keypoint(x=0, y=0, v=0), Keypoint(x=1, y=1, v=1)])
 
 
 def test_keypoint_geometry_invalid():
-    # v 必须 in {0,1,2}
     with pytest.raises(ValidationError):
         Keypoint(x=0.1, y=0.2, v=3)
-    # 至少 1 个关键点
     with pytest.raises(ValidationError):
         KeypointGeometry(points=[])
 
@@ -140,19 +126,15 @@ def test_keypoint_schema_valid():
 
 
 def test_keypoint_schema_invalid_edge():
-    # edge 必须长度 2
     with pytest.raises(ValidationError):
         KeypointSchema(nodes=[KeypointNode(name="a")], edges=[[0]])
-    # edge 索引 >= 0
     with pytest.raises(ValidationError):
         KeypointSchema(nodes=[KeypointNode(name="a")], edges=[[0, -1]])
-    # node color 必须 #RRGGBB
     with pytest.raises(ValidationError):
         KeypointNode(name="a", color="red")
 
 
 def test_keypoint_node_sublabel_and_template_coords():
-    # sublabel + 模板坐标 (归一化) 均合法且默认 None
     n0 = KeypointNode(name="shoulder")
     assert n0.sublabel is None and n0.x is None and n0.y is None
     n = KeypointNode(name="shoulder", sublabel="left", x=0.25, y=0.75)
@@ -161,7 +143,6 @@ def test_keypoint_node_sublabel_and_template_coords():
 
 
 def test_keypoint_node_template_coords_out_of_range():
-    # x / y 必须在 [0, 1]
     with pytest.raises(ValidationError):
         KeypointNode(name="a", x=1.5)
     with pytest.raises(ValidationError):
@@ -169,10 +150,8 @@ def test_keypoint_node_template_coords_out_of_range():
 
 
 def test_tool_binding_keypoint_schema_optional():
-    # 默认 None
     b = ToolBinding()
     assert b.keypoint_schema is None
-    # keypoint 单元可携带骨骼拓扑
     b2 = ToolBinding(
         enabled=True,
         keypoint_schema=KeypointSchema(
@@ -185,17 +164,11 @@ def test_tool_binding_keypoint_schema_optional():
 
 
 def test_video_modes_config_at_least_one_enabled():
-    # 默认单帧 / 轨迹变体均可用
     assert VideoModesConfig() == VideoModesConfig(box=True, track=True)
-    # 单独保留任一合法
     assert VideoModesConfig(box=True, track=False).box is True
     assert VideoModesConfig(box=False, track=True).track is True
-    # 单帧 / 轨迹都 false 才非法：该几何单位 enabled 却什么都画不了
     with pytest.raises(ValidationError):
         VideoModesConfig(box=False, track=False)
-
-
-# ── Attribute schema ────────────────────────────────────────────────
 
 
 def test_attribute_schema_unique_keys():
@@ -214,14 +187,10 @@ def test_attribute_schema_unique_keys():
         )
 
 
-# ── mutable / immutable ──────────────────────────
-
-
 def test_attribute_field_mutable_defaults_unset():
     """旧 schema 不带 mutable 字段时序列化后仍是 None（向后兼容）。"""
     f = AttributeField(key="color", label="Color", type="text")
     assert f.mutable is None
-    # 同样接受显式 False / True
     assert (
         AttributeField(key="o", label="O", type="boolean", mutable=True).mutable is True
     )
@@ -444,9 +413,6 @@ def test_shared_rle_models_accept_structural_8k_envelope():
     ).size == (8192, 8192)
 
 
-# ── ClassConfigEntry alias ───────────────────────────────────────────
-
-
 def test_class_config_alias_optional_default_none():
     e = ClassConfigEntry(color="#ff0000", order=0)
     assert e.alias is None
@@ -467,9 +433,6 @@ def test_class_config_alias_rejects_chinese():
 def test_class_config_alias_rejects_overlong():
     with pytest.raises(ValidationError):
         ClassConfigEntry(alias="x" * 51)
-
-
-# ── alias 规范化 ───────────────────────────────────────────
 
 
 def test_class_config_alias_lowercased():
@@ -521,9 +484,6 @@ def test_attribute_field_select_requires_options():
         )
 
 
-# ── Comment 子类型 ──────────────────────────────────────────────────
-
-
 def test_mention_via_alias():
     m = Mention.model_validate(
         {
@@ -564,12 +524,8 @@ def test_canvas_drawing_shapes_typed():
     )
     assert cd.shapes[0].type == "line"
     assert cd.shapes[0].points == [0.1, 0.2, 0.3, 0.4]
-    # 不允许 extra
     with pytest.raises(ValidationError):
         CanvasShape.model_validate({"type": "line", "points": [0, 0], "extra": 1})
-
-
-# ── Audit detail：extra=allow + 已知字段类型化 ─────────────────────
 
 
 def test_audit_detail_extra_allowed():
@@ -584,11 +540,7 @@ def test_audit_detail_extra_allowed():
         }
     )
     assert d.request_id == "abc"
-    # extra 字段保留
     assert d.model_extra == {"anything": {"nested": True}}
-
-
-# ── AnnotationOut legacy bbox auto-normalize ───────────────────────
 
 
 def test_annotation_out_normalizes_legacy_bbox():
@@ -603,7 +555,6 @@ def test_annotation_out_normalizes_legacy_bbox():
             "source": "manual",
             "annotation_type": "bbox",
             "class_name": "car",
-            # 历史数据缺 type
             "geometry": {"x": 0.1, "y": 0.2, "w": 0.3, "h": 0.4},
             "is_active": True,
             "created_at": datetime.now(timezone.utc),
@@ -613,19 +564,12 @@ def test_annotation_out_normalizes_legacy_bbox():
     assert out.geometry.type == "bbox"
 
 
-# ── AnnotationAttributes 元素类型受限 ───────────────────────────────
-
-
 def test_annotation_attributes_value_types():
     from pydantic import TypeAdapter
 
     AA = TypeAdapter(AnnotationAttributes)
     AA.validate_python({"k1": "str", "k2": 1, "k3": True, "k4": ["a"], "k5": None})
-    # multiselect 列表必须 str
     AA.validate_python({"k": ["a", "b"]})
-
-
-# ── 点云 3D 几何（box_3d / point_mask_3d）─────────────────
 
 
 def test_box_3d_geometry_round_trip():
@@ -646,7 +590,6 @@ def test_box_3d_geometry_round_trip():
 
 
 def test_box_3d_geometry_length_enforced():
-    # center/size/rotation 必须长度 3
     with pytest.raises(ValidationError):
         Box3DGeometry(center=[1, 2], size=[4, 5, 6], rotation=[0, 0, 0])
     with pytest.raises(ValidationError):
@@ -668,7 +611,6 @@ def test_point_mask_geometry_round_trip():
     assert g2.decimate_stride == 3
     assert g2.source_point_count == 100
     assert g2.type == "point_mask_3d"
-    # 默认空列表
     assert PointMaskGeometry().point_indices == []
 
 
@@ -708,9 +650,6 @@ def test_geometry_union_still_dispatches_2d_types():
     assert bbox.x == 0.1
 
 
-# ── 相机标定 SensorCalibration / DatasetItemMetadata ───────
-
-
 def test_sensor_calibration_round_trip():
     extrinsic = [float(i) for i in range(16)]
     intrinsic = [float(i) for i in range(9)]
@@ -736,13 +675,10 @@ def test_sensor_calibration_round_trip_with_rect():
 def test_sensor_calibration_rejects_bad_lengths():
     intrinsic = [float(i) for i in range(9)]
     extrinsic = [float(i) for i in range(16)]
-    # extrinsic 长度 15
     with pytest.raises(ValidationError):
         SensorCalibration(extrinsic=[float(i) for i in range(15)], intrinsic=intrinsic)
-    # intrinsic 长度 8
     with pytest.raises(ValidationError):
         SensorCalibration(extrinsic=extrinsic, intrinsic=[float(i) for i in range(8)])
-    # rect 长度 10
     with pytest.raises(ValidationError):
         SensorCalibration(
             extrinsic=extrinsic,
@@ -762,16 +698,12 @@ def test_dataset_item_metadata_calibration_typed_extra_preserved():
         }
     )
     assert isinstance(m.calibration, SensorCalibration)
-    # extra="allow" 保留未声明 key
     assert m.model_dump()["foo"] == 123
 
 
 def test_dataset_item_metadata_empty_calibration_none():
     m = DatasetItemMetadata()
     assert m.calibration is None
-
-
-# ── 退役 ai_interactive 工具单位 ─────────────────────────────────────
 
 
 def test_map_retired_tool_unit_by_geometry():
@@ -799,7 +731,6 @@ def test_annotation_create_remaps_retired_ai_interactive_polygon_to_region():
             "geometry": {"type": "polygon", "points": [[0, 0], [1, 0], [1, 1]]},
         }
     )
-    # 遗留值按几何归位, 不 422。
     assert m.tool_unit_id == "region"
 
 
@@ -819,7 +750,6 @@ def test_annotation_create_remaps_retired_ai_interactive_bbox_to_bbox():
 def test_tool_unit_id_literal_rejects_ai_interactive_on_response_models():
     from app.schemas.annotation import AnnotationOut
 
-    # AnnotationOut (响应模型) 不套入口映射: 退役值直接被 Literal 拒绝。
     with pytest.raises(ValidationError):
         AnnotationOut.model_validate(
             {
@@ -839,7 +769,6 @@ def test_tool_unit_id_literal_rejects_ai_interactive_on_response_models():
 def test_derive_tool_unit_ignores_retired_ai_interactive():
     from app.services.prediction import derive_tool_unit_from_result
 
-    # result item 显式带退役值时, 按几何 type 派生, 不原样返回 'ai_interactive'。
     assert (
         derive_tool_unit_from_result(
             [{"tool_unit_id": "ai_interactive", "type": "polygonlabels"}]

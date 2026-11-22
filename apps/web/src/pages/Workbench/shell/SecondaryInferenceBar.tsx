@@ -1,5 +1,3 @@
-// Secondary inference keeps prompt, configuration and request ownership outside the toolbar.
-// The compact primary area runs the selected capability; full settings disclose inline parameters.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 
@@ -35,17 +33,13 @@ interface Props {
   taskId: string;
   annotation: AnnotationResponse;
   readOnly?: boolean;
-  /** 项目已有属性键: 判定 attributes-型能力的输出键是否有承接位 (无则产物看不见)。 */
   existingAttributeKeys?: Set<string>;
-  /** 一次把缺失属性字段补进项目 (复用工作台属性补全)。 */
   presentationHidden?: boolean;
   onEnsureAttributeFields?: (fields: AttributeField[]) => void;
 }
 
-// Match the interactive toolbar's field geometry and semantic theme tokens.
 const SELECT_CLASS =
   "h-8 min-w-0 w-full rounded-lg border border-border bg-muted/40 px-2 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring";
-// Older models may omit the platform role; only recognized confidence keys fall back.
 const CONFIDENCE_KEYS = new Set([
   "confidence",
   "conf",
@@ -74,7 +68,6 @@ const TARGET_HINT: Record<SecondaryCapability["writeTarget"], string> = {
   geometry: "检出建子框",
 };
 
-/** 按 task 把能力分桶, 保持原始顺序; 返回 [task, caps[]] 供 <optgroup> 渲染。 */
 function groupByTask(caps: SecondaryCapability[]): Array<[string, SecondaryCapability[]]> {
   const order: string[] = [];
   const buckets = new Map<string, SecondaryCapability[]>();
@@ -114,17 +107,12 @@ export function SecondaryInferenceBar({
   const pendingRef = useRef(new Set<string>());
   const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set());
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  // 每能力的推理参数 (阈值等); paramsOpen = 当前是否展开选中能力的参数面板。
   const [paramsByKey, setParamsByKey] = useState<Record<string, Record<string, unknown>>>({});
-  // 每能力已选的模型变体档位 (series/size 等); 与 default_variants 合并成实际下发档位。
   const [variantByKey, setVariantByKey] = useState<Record<string, Record<string, unknown>>>({});
-  // 开集文本模型的查询文本 (按能力); 每次运行的临时查询, 不持久化。
   const [promptByKey, setPromptByKey] = useState<Record<string, string>>({});
   const [paramsOpen, setParamsOpen] = useState(false);
-  // 用户级偏好 (按 backendId:modelId): 参数 + 变体跨框/跨设备记住。
   const { byModel, loaded: prefsLoaded, save: savePref } = useSecondaryParamPrefs();
 
-  // 偏好载入后, 把存过的 params/variants 灌进组件 state (仅未触碰的键, 不覆盖当前编辑)。
   useEffect(() => {
     if (!prefsLoaded) return;
     setParamsByKey((prev) => {
@@ -154,13 +142,11 @@ export function SecondaryInferenceBar({
   if (readOnly || capabilities.length === 0) return null;
 
   const existing = existingAttributeKeys ?? new Set<string>();
-  // 选中能力: 用户选过的; 未选/失效则回落首个。
   const selected = capabilities.find((c) => capKey(c) === selectedKey) ?? capabilities[0];
   const selKey = capKey(selected);
   const busy = pending.has(ownerKey);
   const missing = missingAttributeFields(selected, existing);
   const canParams = hasConfigurableParams(selected.model);
-  // 开集文本模型: 需用户输入检测/分割目标文本; 空文本禁运行 (跑了也检不出)。
   const wantsText = needsTextPrompt(selected);
   const promptMissing = wantsText && !(promptByKey[selKey] ?? "").trim();
 
@@ -195,7 +181,6 @@ export function SecondaryInferenceBar({
       if (latestOwner.current !== owner) return;
       const childCount = resp.created_children.length;
       const attrKeys = Object.keys(resp.annotation.attributes_meta ?? {});
-      // 写了但项目缺承接字段 → 属性面板看不见, 提示去补全 (避免"跑了没反应")。
       const invisible = attrKeys.filter((k) => !existing.has(k));
       const sub =
         cap.writeTarget === "geometry"
@@ -249,7 +234,6 @@ export function SecondaryInferenceBar({
     setParamsByKey((prev) => ({ ...prev, [selKey]: next }));
     savePref(selKey, { params: next });
   };
-  // Both surfaces edit the existing per-model owner; preserve other defaults and edited fields.
   const paramValues = {
     ...deriveDefaults(selected.model.params as JsonSchemaObject),
     ...paramsByKey[selKey],

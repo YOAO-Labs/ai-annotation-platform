@@ -1,7 +1,3 @@
-/**
- * Sparkline —— 迷你折线。
- * 颜色走 SVG fill/stroke(非 className,不入 token 门禁);默认使用 --sc-brand。
- */
 interface SparklineProps {
   values: number[];
   color?: string;

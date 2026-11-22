@@ -213,7 +213,6 @@ async def test_report_verification_recomputes_identity_matching_and_metrics(
         sample["evidence_digest"] = content_digest(
             {k: v for k, v in sample.items() if k != "evidence_digest"}
         )
-        # Even matching storage checksums cannot replace semantic verification.
         rows[0].evidence = copy.deepcopy(sample)
     with pytest.raises((ValueError, IndexError)):
         service.verify_report(altered, run, attempt, rows)
@@ -276,9 +275,6 @@ async def test_retained_references_block_storage_deletion_and_project_isolation(
     with pytest.raises(HTTPException) as blocked:
         await delete_project(db_session, world.project.id, actor_id=owner.id)
     assert blocked.value.status_code == 409
-    # The Inference owner reports the running-work block as a native error, so
-    # the caller transaction must be recovered before the same session is used
-    # by another request. Production sessions are per-request and discarded.
     savepoint = await db_session.begin_nested()
     try:
         with pytest.raises(HTTPException) as blocked:

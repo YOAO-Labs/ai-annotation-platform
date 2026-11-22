@@ -206,8 +206,6 @@ async def resolve_task_scene_frames(
         for task_id in task_ids
     }
 
-    # 按 chunk 反查,避免一次性把全量 task_id 灌进 IN(...) 撞 asyncpg 绑定参数上限
-    # (~32767);大数据集 scene 项目分包会传入全量待分包 task。
     for start in range(0, len(task_ids), _RESOLVE_CHUNK_SIZE):
         chunk = task_ids[start : start + _RESOLVE_CHUNK_SIZE]
 
@@ -303,7 +301,6 @@ async def get_scene_frame_task_map(
     for item_id_, tid in link_rows:
         item_to_task.setdefault(item_id_, tid)
 
-    # 按 frame_index 排,同 frame_index 取首个有 task 的(多模态去重)
     frame_to_task: dict[int, uuid.UUID] = {}
     for item_id_, fi in items_rows:
         tid = item_to_task.get(item_id_)
@@ -500,8 +497,6 @@ async def get_neighbors_for_task(
     if scene is None:
         return None
 
-    # scene 下所有"带 frame_index"的 item 反查 task(当前 task 的主 item 自身
-    # 带 scene+frame,故映射至少含当前帧;空 scene 不可达)
     frame_to_task = await get_scene_frame_task_map(db, scene_id)
     if not frame_to_task:
         return None
@@ -511,7 +506,6 @@ async def get_neighbors_for_task(
     try:
         cur_idx = ordered_frames.index(cur_frame)
     except ValueError:
-        # cur 本身找不到对应 task(理论不应发生),回空邻居
         return NeighborsResponse(
             scene_id=scene_id,
             scene_name=scene.name,

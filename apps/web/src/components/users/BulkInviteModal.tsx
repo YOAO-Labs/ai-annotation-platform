@@ -159,8 +159,6 @@ export function BulkInviteModal({ open, onClose }: Props) {
                     onChange={(event) => {
                       const nextRole = event.target.value as PlatformRole;
                       setRole(nextRole);
-                      // 后端规则：平台观察者仅可持有观察者职责。切换账号角色时
-                      // 同步归一项目职责，避免提交 stale 的组合被预览/后端拒绝。
                       if (nextRole === "viewer") setProjectRole("viewer");
                       else if (projectRole === "viewer") setProjectRole("annotator");
                     }}

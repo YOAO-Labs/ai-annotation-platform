@@ -116,7 +116,6 @@ async def test_restricted_api_can_lock_job_without_private_select_or_update(
     await db_session.flush()
     db_session.expunge(job)
 
-    # The owner test transaction restores this ACL change during fixture rollback.
     await db_session.execute(
         text("REVOKE SELECT, UPDATE ON public.async_jobs FROM identity_api_consumer")
     )

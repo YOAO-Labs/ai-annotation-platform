@@ -87,8 +87,6 @@ async def test_project_detail_matches_legacy_member_authority_timestamp_decoding
                 + create_access_token(str(actor.id), actor.role)
             },
         ) as client:
-            # The frozen legacy full-member read decoded both timestamps before
-            # permission; Directory and Project readers must retain that result.
             reference = await client.get(f"/api/v1/projects/{project_id}/members")
             assert reference.status_code == status, reference.text
             current = await client.get(f"/api/v1/projects/{project_id}")

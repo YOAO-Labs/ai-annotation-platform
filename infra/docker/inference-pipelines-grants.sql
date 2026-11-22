@@ -1,9 +1,3 @@
--- Grant the Inference pipelines LOGIN only its two closed native functions.
--- psql -v expected_database=annotation_test -v migration_role=owner
---   -v identity_owner=identity_code -v workspace_owner=workspace_code
---   -v inference_owner=inference_code
---   -v inference_pipelines_role=yoao_inference_pipelines_client
---   -f infra/docker/inference-pipelines-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);

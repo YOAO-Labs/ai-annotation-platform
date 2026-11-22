@@ -8,7 +8,6 @@ import {
   boxLocalClipPlanes,
 } from "./box3d";
 
-/** 把角点排成可比较的有序 [x,y,z] 元组列表 (按坐标字典序排序, 消除顺序差异)。 */
 function sortedTuples(pts: THREE.Vector3[]): number[][] {
   return pts.map((p) => [p.x, p.y, p.z]).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]);
 }
@@ -25,7 +24,6 @@ function expectCornersClose(got: number[][], want: number[][]) {
 describe("psrToCorners", () => {
   it("axis-aligned box: 8 corners are the (±l/2, ±w/2, ±h/2) combinations", () => {
     const corners = psrToCorners([0, 0, 0], [2, 4, 6], [0, 0, 0]);
-    // size=[2,4,6] → 半边长 (±1, ±2, ±3) 的全 8 组合
     const want = sortedTuples(
       [
         [-1, -2, -3],
@@ -42,9 +40,6 @@ describe("psrToCorners", () => {
   });
 
   it("yaw 90° about Z swaps x/y half-extents", () => {
-    // 绕 Z 转 +90°: 局部 +x 轴 → 世界 +y, 局部 +y 轴 → 世界 -x。
-    // size=[2,4,6] → 局部半边长 lx=1, ly=2, lz=3。
-    // 转 90° 后, 沿世界 x 的半边长来自原局部 y (=2), 沿世界 y 的来自原局部 x (=1)。
     const corners = psrToCorners([0, 0, 0], [2, 4, 6], [0, 0, Math.PI / 2]);
 
     const xs = corners.map((c) => c.x);
@@ -57,8 +52,6 @@ describe("psrToCorners", () => {
     expect(Math.max(...zs)).toBeCloseTo(3);
     expect(Math.min(...zs)).toBeCloseTo(-3);
 
-    // 局部角点 0 = (-0.5,-0.5,-0.5) → 半边长 (-1,-2,-3) → 绕 Z+90°: (x,y)→(-y, x)
-    // (-1,-2) → (2,-1), z 不变 = -3
     expect(corners[0].x).toBeCloseTo(2);
     expect(corners[0].y).toBeCloseTo(-1);
     expect(corners[0].z).toBeCloseTo(-3);
@@ -132,7 +125,6 @@ describe("worldToBox", () => {
     const corners = psrToCorners(center, size, rotation);
     corners.forEach((p) => {
       const local = p.clone().applyMatrix4(inv);
-      // 每个分量都应是 ±0.5
       expect(Math.abs(local.x)).toBeCloseTo(0.5);
       expect(Math.abs(local.y)).toBeCloseTo(0.5);
       expect(Math.abs(local.z)).toBeCloseTo(0.5);
@@ -143,7 +135,6 @@ describe("worldToBox", () => {
     const inv = worldToBox(center, size, rotation);
     const c = new THREE.Vector3(...center).applyMatrix4(inv);
     expect(c.length()).toBeCloseTo(0);
-    // 沿 local +X 走 2 个全边长的世界点 → local x ≈ 2 (>0.5, 框外)
     const far = new THREE.Vector3(...center)
       .addScaledVector(boxAxisWorldDir(rotation, 0), size[0] * 2)
       .applyMatrix4(inv);
@@ -161,14 +152,12 @@ describe("boxLocalClipPlanes", () => {
     const c = new THREE.Vector3(...center);
     expect(planes.every((p) => p.distanceToPoint(c) >= -1e-9)).toBe(true);
 
-    // 沿 local +X 走 1 个全边长 (出 +X 面, 半边长=2) → 框外
     const outside = c.clone().addScaledVector(boxAxisWorldDir(rotation, 0), size[0]);
     expect(planes.some((p) => p.distanceToPoint(outside) < 0)).toBe(true);
   });
 
   it("margin 放宽: 刚出 +X 面的点在 margin 内重新被保留", () => {
     const c = new THREE.Vector3(...center);
-    // +X 面在半边长 2 处; 取 2.3 处的点 (出界 0.3)
     const pt = c.clone().addScaledVector(boxAxisWorldDir(rotation, 0), 2.3);
     const tight = boxLocalClipPlanes(center, size, rotation, 0);
     const loose = boxLocalClipPlanes(center, size, rotation, 0.5);

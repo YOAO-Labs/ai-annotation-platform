@@ -12,7 +12,7 @@ from copy import deepcopy
 import json
 
 from fastapi import HTTPException
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.db.models.guide_asset_upload import GuideAssetUpload as Upload
@@ -213,6 +213,28 @@ async def apply(db, *, actor_id, project, expected_revision, assets):
     return execution
 
 
+async def clone_snapshot(db, project_id):
+    if db.autoflush:
+        await db.flush()
+    row = (
+        (
+            await db.execute(
+                text(
+                    "SELECT p.owner_id::text AS owner_id, p.annotation_guide, "
+                    "p.guide_assets, p.guide_assets_revision, ARRAY("
+                    "SELECT ref.upload_id::text FROM public.project_guide_assets AS ref "
+                    "WHERE ref.project_id=p.id ORDER BY ref.upload_id) AS upload_ids "
+                    "FROM yoao_workspace_v1.project_facts AS p WHERE p.id=:project_id"
+                ),
+                {"project_id": project_id},
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    return dict(row) if row is not None else None
+
+
 async def copy(db, *, actor_id, source, target):
     """Copy the current source list and references into an empty target."""
     source_refs = await _references(db, source.id)
@@ -263,7 +285,6 @@ async def _retire_unreferenced(db, owners):
 
 
 async def _has_reference(db, identifier):
-    # The owner lock serializes all new references. Never reverse-lock Project.
     return (
         await db.scalar(
             select(Reference.upload_id)

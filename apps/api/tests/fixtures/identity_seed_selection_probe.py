@@ -14,8 +14,6 @@ def main() -> None:
 
     environment = os.environ.copy()
     environment["ENVIRONMENT"] = "production"
-    # If the early guard regresses, an accidentally executed seed command can
-    # only fail to connect to this deliberately unreachable local endpoint.
     environment["DATABASE_URL"] = (
         "postgresql+asyncpg://seed_probe:unreachable@127.0.0.1:1/guard_probe"
     )

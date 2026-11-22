@@ -70,7 +70,6 @@ async def project_roles_seed_builds_multi_project_employee_matrix(
     assert body["users"]["owner_b"]["platform_role"] == "project_admin"
     assert body["users"]["viewer"]["platform_role"] == "viewer"
 
-    # Only this namespace's fixture accounts are counted.
     assert (
         await db_session.scalar(
             select(func.count())
@@ -87,7 +86,6 @@ async def project_roles_seed_builds_multi_project_employee_matrix(
     )
     assert employee is not None and employee.role == "employee"
 
-    # The no-project employee exists but holds no membership.
     solo = await db_session.scalar(select(User).where(User.email == body["solo_email"]))
     assert solo is not None and solo.role == "employee"
     assert (
@@ -116,8 +114,6 @@ async def project_roles_seed_builds_multi_project_employee_matrix(
     assert memberships[(d_id, employee.id)] == "annotator"
     assert (c_id, employee.id) not in memberships
 
-    # The employee can annotate A and review B, while C stays invisible even
-    # though one of its tasks is explicitly assigned to the employee.
     login = await httpx_client.post(
         "/api/v1/__test/seed/login", json={"email": body["employee_email"]}
     )
@@ -139,7 +135,6 @@ async def project_roles_seed_builds_multi_project_employee_matrix(
     )
     assert c_access.status_code in (403, 404)
 
-    # Review evidence must be freezable later: known-empty accumulator, not NULL.
     for key in (
         "annotation_task_id",
         "review_task_id",
@@ -150,8 +145,6 @@ async def project_roles_seed_builds_multi_project_employee_matrix(
         assert task is not None
         assert task.annotation_contributor_ids == []
 
-    # The revocation premise: D is an open pool, so the employee owns no
-    # assignment there and can be removed without a handoff blocker.
     open_task = await db_session.get(Task, uuid.UUID(body["open_pool_task_id"]))
     assert open_task is not None
     assert open_task.assignee_id is None
@@ -493,7 +486,6 @@ async def seed_owned_preserves_dev_data(httpx_client, db_session):
     from app.db.models.user import User
     from sqlalchemy import select
 
-    # 造 dev 数据（与 E2E fixture 用 distinct 命名）
     dev_user = User(
         id=uuid.uuid4(),
         email="dev-keeper@example.com",
@@ -518,7 +510,6 @@ async def seed_owned_preserves_dev_data(httpx_client, db_session):
     run = httpx_client.owner_suite.new_run(NAMESPACE)
     fixture = await _build_owned(httpx_client, run)
 
-    # dev 数据应保留
     kept_user = (
         await db_session.execute(
             select(User).where(User.email == "dev-keeper@example.com")
@@ -532,7 +523,6 @@ async def seed_owned_preserves_dev_data(httpx_client, db_session):
     ).scalar_one_or_none()
     assert kept_proj is not None, "dev 项目被误删"
 
-    # fixture 应存在
     e2e_admin = (
         await db_session.execute(
             select(User).where(User.email == fixture["admin_email"])

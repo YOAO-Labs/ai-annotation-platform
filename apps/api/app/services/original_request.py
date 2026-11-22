@@ -30,7 +30,7 @@ async def connected_snapshot(request, operation, *, close_result=True):
                     caller.cancel()
                     return
         except asyncio.CancelledError:
-            return  # Planned watcher shutdown is a successful, drained outcome.
+            return
         except Exception as exc:
             receive_error = exc
             caller.cancel()

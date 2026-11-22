@@ -972,7 +972,7 @@
   "guide_resource": "yoao/AGENT_GUIDE.md",
   "authority": "Descriptions do not grant permission or prove runtime availability; the server remains authoritative.",
   "invocation_note": "This catalog describes concrete SDK and CLI interfaces; it does not provide a generic JSON request executor.",
-  "operation_count": 767,
+  "operation_count": 768,
   "operations": [
     {
       "name": "DELETE /api/v1/admin/ml-integrations/registry/{registry_id}",
@@ -3607,6 +3607,43 @@
           }
         }
       }
+    },
+    {
+      "name": "GET /api/v1/admin/ml-integrations/primary-pool-project-counts",
+      "method": "GET",
+      "path": "/api/v1/admin/ml-integrations/primary-pool-project-counts",
+      "operation_id": "get_primary_pool_project_counts_api_v1_admin_ml_integrations_primary_pool_project_counts_get",
+      "summary": "Get Primary Pool Project Counts",
+      "description": "Count visible projects by their Workspace primary pool binding.",
+      "tags": [
+        "admin-ml-integrations"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrimaryPoolProjectCountsResponse"
+              }
+            }
+          }
+        },
+        "401": {
+          "description": "Authentication required"
+        },
+        "403": {
+          "description": "Project or super administrator with full-access credentials required"
+        },
+        "503": {
+          "description": "Project bindings unavailable"
+        }
+      },
+      "reason": "not-implemented"
     },
     {
       "name": "GET /api/v1/admin/ml-integrations/runtime-hints",

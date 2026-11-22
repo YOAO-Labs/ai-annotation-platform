@@ -49,7 +49,6 @@ test("strict checking accepts ad-hoc assets and fails for missing references and
   fs.mkdirSync(media, { recursive: true });
   const diagram = '<svg xmlns="http://www.w3.org/2000/svg" width="7" height="9"/>';
   fs.writeFileSync(path.join(root, images, "capture.svg"), diagram);
-  // Only file presence matters to the reference checker.
   fs.writeFileSync(path.join(media, "clip.mp4"), "");
   fs.writeFileSync(path.join(media, "poster.svg"), diagram);
   fs.writeFileSync(

@@ -34,7 +34,6 @@ class Family:
     version_column: str = "version_id"
 
 
-# A closed locator registry, not the live classifier or a list of cleanup permits.
 FAMILIES = (
     Family("prediction_input_leases", inventory=True, purposes=("import",)),
     Family("image_pyramid_outputs", inventory=True, purposes=("media-cache",)),
@@ -92,7 +91,6 @@ FAMILIES = (
         "thumbnail_outputs", form="thumbnail", schemas=(2,), purposes=("media-cache",)
     ),
 )
-# Absence is expected only in these known older linear schema revisions.
 KNOWN_REVISIONS = frozenset(f"{revision:04}" for revision in range(244, 255))
 TABLE_SINCE = {"mask_format_uploads": "0250", "thumbnail_outputs": "0252"}
 COLUMN_SINCE = {
@@ -157,7 +155,6 @@ CONTEXT = ("storage_locations", "storage_bindings")
 
 
 def quoted(name):
-    # Only static registry identifiers reach SQL, never operator input.
     if not name.replace("_", "").isalnum():
         raise ReferenceError("invalid_registry")
     return '"' + name + '"'
@@ -275,7 +272,6 @@ def saved_locator(family, row, *, column="storage_ref", purposes=None, schemas=N
             if key not in {"object_key", "prefix"}
         },
         "key": ref.get("object_key"),
-        # key_prefix is a physical owner prefix only when no object_key is saved.
         "prefix": ref.get("prefix")
         if ref.get("object_key") is not None
         else ref.get("prefix", ref.get("key_prefix")),
@@ -442,7 +438,6 @@ def references(family, row):
                 compare_locator(
                     staging, row, (("bucket", "staging_bucket"), ("key", "staging_key"))
                 )
-                # The final original's saved version is unrelated to its upload stage.
                 staging["version_id"] = None
             else:
                 staging.update(
@@ -762,7 +757,6 @@ async def configured(args, budget):
                 metadata = await collect(engine, spool, budget)
             finally:
                 spool.stream.close()
-            # collect() has exited its connection and transaction before source open.
             return write_catalog(
                 args.output,
                 spool_path,
@@ -789,7 +783,6 @@ def main(argv=None):
             if args.verify
             else asyncio.run(configured(args, Budget(limits)))
         )
-        # Only bounded result counters, never owner IDs, raw paths or exceptions.
         print(
             json.dumps(
                 {k: v for k, v in result.items() if k not in {"file_sha256", "type"}},

@@ -22,9 +22,6 @@ def _ctx(**kw):
     return build_predict_context(**base)
 
 
-# ── 协议 v2 结构化路径 (YOLO) ──────────────────────────────────────────────
-
-
 def test_v2_structured_context_for_yolo():
     ctx = _ctx(
         task_type="detection",
@@ -98,13 +95,13 @@ def test_prompt_takes_precedence_text_path():
         box_threshold=0.3,
         text_threshold=0.25,
     )
-    assert ctx["type"] == "text"  # 文本路径, 非几何 task type
+    assert ctx["type"] == "text"
     assert ctx["task"] == "segment"
     assert ctx["text"] == "car"
     assert ctx["output"] == "both"
     assert ctx["model_id"] == "grounded-sam2-segmentation"
     assert ctx["model_variants"] == {"sam_variant": "tiny", "dino_variant": "T"}
-    assert ctx["box_threshold"] == 0.3  # 顶层阈值 (后端按顶层读)
+    assert ctx["box_threshold"] == 0.3
 
 
 def test_text_path_without_model_id_back_compat():
@@ -113,9 +110,6 @@ def test_text_path_without_model_id_back_compat():
     assert ctx["type"] == "text"
     assert "model_id" not in ctx
     assert "model_variants" not in ctx
-
-
-# ── 既有扁平路径 (gsam2 文本 / OCR), 防回归 ─────────────────────────────────
 
 
 def test_flat_text_path_unchanged():
@@ -129,7 +123,6 @@ def test_flat_text_path_unchanged():
     assert ctx["type"] == "text"
     assert ctx["text"] == "car"
     assert ctx["output"] == "box"
-    # 项目级阈值先写入，再由 params 覆盖。
     assert ctx["box_threshold"] == 0.3
     assert ctx["text_threshold"] == 0.25
 
@@ -152,7 +145,7 @@ def test_flat_path_passes_through_params():
     assert ctx["task"] == "classify"
     assert "type" not in ctx
     assert ctx["model_id"] == "vehicle-attr-classify"
-    assert ctx["conf"] == 0.5  # 非保留键透传
+    assert ctx["conf"] == 0.5
 
 
 def test_flat_path_none_params_is_noop():
@@ -165,19 +158,14 @@ def test_no_prompt_no_task_returns_none():
     assert _ctx() is None
 
 
-# ── model_label: 与 backend 回传 model_version 一致的展示串 (series+size) ──
-
-
 def test_model_label_series_size():
     assert model_label({"series": "yolov8", "size": "l"}) == "yolov8l"
 
 
 def test_model_label_empty_or_none_returns_none():
-    # variant 轴未就位 (空 dict) / None: 不展示误导标签
     assert model_label({}) is None
     assert model_label(None) is None
 
 
 def test_model_label_partial_falls_back_to_concat_values():
-    # 缺 size 时退化为拼接所有非空值, 保证非空时有可读串
     assert model_label({"series": "rtdetr"}) == "rtdetr"

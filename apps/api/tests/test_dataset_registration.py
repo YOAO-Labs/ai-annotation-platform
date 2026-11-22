@@ -305,7 +305,6 @@ async def test_api_confirmation_skips_changed_candidate_and_keeps_stable_images(
     await db_session.flush()
     run, task_id, fence = await start(db_session, content_world)
     await drain(db_session, run, task_id, fence)
-    # Change the first ready candidate in the API's actual keyset order.
     digest = await db_session.scalar(
         select(Entry.path_digest)
         .where(Entry.run_id == run.id)
@@ -499,7 +498,6 @@ async def test_confirmation_reads_ready_candidate_after_eight_missing_files(
     db_session, content_world
 ):
     for i in range(8):
-        # Force missing entries ahead of the actual image in the keyset order.
         db_session.add(
             DatasetScanEntry(
                 run_id=content_world[6].id,

@@ -86,7 +86,6 @@ def gpu_shadow_observation_enabled(
     if resource_id is None:
         return config.gpu_arbiter_mode is GPUArbiterMode.OBSERVE
     if resource_id not in config.gpu_arbiter_resources:
-        # observe 仍需暴露未知/畸形 claim；enforce 下未知资源继续安全回落 off。
         return config.gpu_arbiter_mode is GPUArbiterMode.OBSERVE
     return (
         effective_gpu_arbiter_mode(resource_id, config=config) is GPUArbiterMode.OBSERVE

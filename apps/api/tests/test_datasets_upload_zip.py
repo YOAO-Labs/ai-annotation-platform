@@ -38,9 +38,6 @@ async def _source_storage_registry(test_engine):
         await bootstrap(db)
 
 
-# ──────────────────────────── helpers ────────────────────────────────────────
-
-
 def _bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
@@ -82,7 +79,6 @@ class _FakeDatasetSourceStorage:
             {
                 "ContentLength": len(body),
                 "ETag": etag,
-                # Managed publication pins the observed object identity.
                 "LastModified": datetime(2024, 1, 1, tzinfo=timezone.utc),
                 "ContentType": "application/octet-stream",
             }
@@ -156,7 +152,6 @@ class _FakeDatasetSourceStorage:
         self.objects.pop(Key, None)
 
     def head_bucket(self, *, Bucket):
-        # create_dataset → ensure_bucket 会先 head_bucket 探测;假装 bucket 已存在。
         return {}
 
 
@@ -209,9 +204,6 @@ def _use_local_source_runtime(monkeypatch) -> None:
 def _patch_storage_clients(monkeypatch, client: _FakeDatasetSourceStorage) -> None:
     monkeypatch.setattr(storage_service, "client", client)
     monkeypatch.setattr(storage_service, "spatial_source_client", client)
-
-
-# ──────────────────────────── test cases ─────────────────────────────────────
 
 
 async def test_delete_item_rejects_mismatched_dataset(
@@ -301,7 +293,6 @@ async def test_upload_zip_preserves_subdirectories(
     body = resp.json()
     assert body["added"] == 3, body
 
-    # Logical paths preserve the ZIP subtree under immutable publications.
     rows = (
         (
             await db_session.execute(
@@ -352,9 +343,7 @@ async def test_upload_zip_zipslip_rejected(
     )
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    # 正常文件入库
     assert body["added"] == 1, body
-    # Unsafe entries are excluded; safe hidden entries still count in total_in_zip.
     assert body["skipped"] == 2, body
     assert body["total_in_zip"] == 2, body
 
@@ -381,7 +370,6 @@ async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
     fake_client = _FakeDatasetSourceStorage()
     _patch_storage_clients(monkeypatch, fake_client)
 
-    # ── 情况 A：内容不同，两条都入库 ──
     ds_a = await _create_dataset(
         httpx_client, token, f"dedup-a-{uuid.uuid4().hex[:6]}", "image"
     )
@@ -418,7 +406,6 @@ async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
         {"camera/front/000970.jpg", "camera/left/000970.jpg"},
     )
 
-    # ── 情况 B：内容完全相同，只入 1 条 ──
     ds_b = await _create_dataset(
         httpx_client, token, f"dedup-b-{uuid.uuid4().hex[:6]}", "image"
     )
@@ -451,8 +438,6 @@ async def test_upload_zip_rollback_retains_old_and_new_immutable_source_bytes(
     _use_local_source_runtime(monkeypatch)
     fake_client = _FakeDatasetSourceStorage()
     _patch_storage_clients(monkeypatch, fake_client)
-    # Managed publications use a dedicated bounded client; bind it to the fake
-    # for this test only so the immutable source bytes stay inspectable.
     monkeypatch.setattr(assets_source, "_managed_client", lambda storage: fake_client)
     ds = await _create_dataset(
         httpx_client, token, f"immutable-{uuid.uuid4().hex[:6]}", "other"
@@ -480,8 +465,6 @@ async def test_upload_zip_rollback_retains_old_and_new_immutable_source_bytes(
     old_key = first_item.file_path
     assert fake_client.objects[old_key] == first_bytes
 
-    # The ingest endpoint commits twice while admitting authority before it
-    # parses the archive; fail only the publication commit that follows.
     original_commit = db_session.commit
     commits = {"count": 0}
 
@@ -562,10 +545,8 @@ async def test_upload_zip_scene_auto_inferred(
     body = resp.json()
     assert body["added"] == 5, body
 
-    # scene_inference_notes 非空（说明 scene 推断已运行）
     assert body["scene_inference_notes"], body
 
-    # 查 DB：1 个 scene
     scenes = (
         (
             await db_session.execute(
@@ -577,10 +558,6 @@ async def test_upload_zip_scene_auto_inferred(
     )
     assert len(scenes) == 1, f"expected 1 scene, got {len(scenes)}"
 
-    # lidar items frame_index 为 0 和 1。
-    # 注意:.pcd 经 mimetypes 猜不出类型,upload_zip 落 file_type="other";
-    # 但 scene_inference 的 group_frames 按后缀 .pcd 识别 lidar 并赋 frame_index,
-    # 故这里按路径 /lidar/ 过滤,而非 file_type。
     lidar_items = (
         (
             await db_session.execute(
@@ -709,7 +686,6 @@ async def test_upload_zip_temporal_validation_rejects_empty_archive(
 
     assert [key for key in fake_client.objects if not key.endswith("/")] == []
 
-    # 事务 rollback,DatasetItem 不应落库
     rows = (
         (
             await db_session.execute(

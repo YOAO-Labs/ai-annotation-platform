@@ -77,7 +77,6 @@ def test_partition_pixel_center_oracle_on_non_square_masks(cut):
     rng = random.Random(9481)
     for width, height in [(3, 2), (11, 7), (37, 19)]:
         for iteration in range(20):
-            # Dense, disconnected and holed sources; compare individual pixels.
             pixels = [
                 True if iteration == 0 else rng.random() < 0.6
                 for _ in range(width * height)
@@ -296,7 +295,6 @@ async def test_undo_gc_redo_and_reference_retention(
     operation = await db_session.get(AnnotationOperation, receipt.operation_id)
     new = await db_session.get(Annotation, receipt.created_annotation_id)
     assert not new.is_active
-    # Exercise finite retention plus infinity without shortening either kind.
     await db_session.execute(
         update(MaskAnnotationRevision)
         .where(MaskAnnotationRevision.annotation_id == source.id)

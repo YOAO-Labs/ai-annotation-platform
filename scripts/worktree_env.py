@@ -75,7 +75,7 @@ def atomic_json(path: Path, document: dict, *, exclusive: bool = False) -> None:
             try:
                 os.link(temporary, path)
             except FileExistsError:
-                pass  # Another complete identity won publication.
+                pass
         else:
             os.replace(temporary, path)
     finally:
@@ -287,7 +287,7 @@ def isolated_environment(
         "MINIO_ENDPOINT": minio_endpoint,
         "MINIO_PUBLIC_URL": "/minio",
         "MINIO_PROXY_TARGET": f"{'https' if minio_use_ssl else 'http'}://{minio_endpoint}",
-        "VITE_WS_HOST": "",  # Same-origin Vite proxy, never a shared checkout's API.
+        "VITE_WS_HOST": "",
         "DUCKDB_PATH": str(directory / "data" / "analytics.duckdb"),
         "TMPDIR": str(directory / "tmp"),
         "TMP": str(directory / "tmp"),
@@ -348,11 +348,38 @@ def isolated_environment(
         "SMTP_HOST": "",
         "SENTRY_DSN": "",
     }
+    if (
+        resources["mode"] == "e2e"
+        and inherited.get("PLAYWRIGHT_AI_REQUEST_WORKER") == "1"
+    ):
+        overrides.update(
+            {
+                "ASSETS_MEDIA_URL": "",
+                "ASSETS_MEDIA_TOKEN": "",
+                "ASSETS_IMAGES_NATIVE_STORAGE_URL": "",
+                "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN": "",
+                "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN_FILE": "",
+                "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL": "",
+                "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN": "",
+                "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE": "",
+                "JOBS_PUBLICATION_DATABASE_URL": "",
+                "JOBS_PUBLICATION_DATABASE_URL_FILE": "",
+                "PREANNOTATION_RESULTS_DATABASE_URL": "",
+                "PREANNOTATION_RESULTS_DATABASE_URL_FILE": "",
+            }
+        )
     if resources["mode"] == "e2e":
         overrides.update(
             {
                 f"INFERENCE_{owner}_{suffix}": ""
-                for owner in ("ROUTING", "HEALTH_OBSERVATION", "BACKEND_CONTROL")
+                for owner in (
+                    "ROUTING",
+                    "HEALTH_OBSERVATION",
+                    "BACKEND_CONTROL",
+                    "MODEL_EXECUTION",
+                    "REGISTRY_INGRESS",
+                    "GPU",
+                )
                 for suffix in (
                     "URL",
                     "TOKEN",
@@ -368,8 +395,6 @@ def isolated_environment(
                 for owner in ("ROUTING", "HEALTH_OBSERVATION")
             }
         )
-        # Fixture owners have their own credentials; never inherit another
-        # Inference owner's private database selectors into E2E consumers.
         for key in inherited:
             upper = key.upper()
             if upper.startswith(
@@ -386,7 +411,6 @@ def isolated_environment(
     fixture_target_keys = (
         FIXTURE_ORIGINAL_ENV_KEYS if resources["mode"] in {"test", "e2e"} else ()
     )
-    # Pydantic settings are case-insensitive; remove lower-case inherited aliases too.
     return {
         **{
             key: value

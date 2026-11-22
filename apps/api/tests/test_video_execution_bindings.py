@@ -169,7 +169,6 @@ async def test_compatibility_worker_can_claim_and_fence_without_private_jobs_acc
     )
     owners = async_sessionmaker(test_engine, expire_on_commit=False)
     if grant_profile == "lan":
-        # Prove the deployment script grants these capabilities by itself.
         async with owners.begin() as db:
             await db.execute(
                 text(

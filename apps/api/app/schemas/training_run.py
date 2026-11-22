@@ -106,7 +106,6 @@ class TrainingRunCreate(BaseModel):
         if self.task is None:
             payload.pop("task")
         if self.configuration is None:
-            # Preserve v1 digests exactly, including preflight_digest=None.
             payload.pop("configuration")
         else:
             payload.pop("parameters")

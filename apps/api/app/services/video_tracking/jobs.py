@@ -363,8 +363,6 @@ async def save_video_mask_keyframe(
     """Persist one Mask keyframe without accepting a whole-track geometry."""
 
     _assert_frame_range(ctx, frame_index, frame_index)
-    # Match atomic Mask mutation ordering. The Task row is the first database
-    # row lock and serializes same-task writers before content/annotation locks.
     task = await lock_task_for_core_read(db, task.id, populate_existing=True)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -462,9 +460,6 @@ async def save_video_mask_keyframe(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    # RLE locks precede the Annotation row lock. Recheck every mutable
-    # precondition after acquiring the row so a non-compliant legacy writer
-    # cannot publish over this save.
     try:
         rows = await _read_annotation_rows(
             db,
@@ -850,8 +845,6 @@ async def prepare_tracker_dispatch(
         purpose="tracker_retirement" if retirement else "execution",
     )
     if not retirement and summary.celery_task_id is None:
-        # Record the first accepted execution identity with its immutable intent.
-        # Retirement redrives use a new transport ID but retain this original ID.
         async_job_svc.bind_execution_id(summary, dispatch_lease.execution_id)
         await db.flush()
     return dispatch_lease
@@ -909,9 +902,6 @@ async def enqueue_tracker_job(
             raw.get("status") == VideoTrackerJobStatus.FAILED.value
             and raw.get("error_message") == "tracker_enqueue_failed"
         ):
-            # The control transition may return a running or terminal race winner;
-            # mirror only the proven enqueue failure, and only while the summary
-            # remains pending.
             await async_job_svc.mark_dispatch_failed(
                 db, row_id, error="tracker_enqueue_failed"
             )
@@ -1315,16 +1305,8 @@ async def create_tracker_job(
                     f"{payload.model_key}"
                 ),
             )
-    # M · 多选批量: source_annotation_ids 有 ≥1 条 → 多源分支。各源在 from_frame 处
-    # 的几何写成带 source_annotation_id + obj_id (1..N) 的 seed; annotation_id 强制 NULL (§8 ·
-    # 多源不认单主, accept 各 obj 各回填各源, 见 _seed_source_map)。obj_id 与 instance_id ==
-    # str(obj_id) 契约一致。单数 source_annotation_id (单源延展) / 无源路径保持现状不变。
     multi_source_ids = payload.source_annotation_ids or []
     seed_prompt: dict = {}
-    # record source annotation versions at job creation
-    # so accept_tracker_job can detect a concurrent mutation of any source
-    # annotation and refuse with 409 instead of last-writer-wins. Keyed by the
-    # stringified annotation id (matches ``_seed_source_map``'s keying).
     expected_source_versions: dict[str, int] = {}
     if multi_source_ids:
         annotation_id = None
@@ -1344,12 +1326,8 @@ async def create_tracker_job(
                 }
             )
         seed_prompt = {"seeds": seeds}
-    # B · 源轨迹可选: 无源检测 (annotation_id is None) 不加载 source / 不查 polyline,
-    # 新建轨迹类别由 payload.target_* 显式指定。有源延展保留 polyline 400 拒绝。
     elif annotation_id is not None:
         annotation = await _load_annotation(db, task, annotation_id, user.id)
-        # polyline 轨迹追踪暂不支持: runner 只识别 polygon/bbox track, polyline 会命中 bbox
-        # fallback → 原关键帧被静默改写成空 bbox 轨迹 (points 全丢), 故在入口用 400 明确拒绝。
         if is_polyline_track(annotation.geometry or {}):
             raise HTTPException(status_code=400, detail="polyline 轨迹追踪暂不支持")
         expected_source_versions[str(annotation_id)] = int(annotation.version or 1)
@@ -1371,10 +1349,8 @@ async def create_tracker_job(
         db, ctx, task, payload, user, privileged=privileged
     )
 
-    # B · 无源检测 (无单主且非多源) 才存显式目标类别; 有源延展 / 多源批量各自继承源。
     prompt = {
         **(payload.prompt or {}),
-        # M · 多源 seeds (各 obj_id ↔ 各源) 覆盖 payload.prompt 里同名键。
         **seed_prompt,
         **({"sam_variant": payload.sam_variant} if payload.sam_variant else {}),
         **({"text": payload.text} if payload.text else {}),
@@ -1388,9 +1364,6 @@ async def create_tracker_job(
             if payload.exemplars
             else {}
         ),
-        # snapshot of source annotation versions at job
-        # creation; accept_tracker_job re-reads with_for_update and 409s on
-        # any drift. Source-backed legacy jobs without this proof fail closed.
         **(
             {"expected_source_versions": expected_source_versions}
             if expected_source_versions

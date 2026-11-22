@@ -43,9 +43,6 @@ def reset_rate_limiter():
     limiter.reset()
 
 
-# ---- 环境派生默认值 ----
-
-
 def test_email_verification_required_derives_from_environment():
     """None → production 开、dev/staging 关；显式值覆盖派生。"""
     with patch("app.config.settings.require_email_verification", None):
@@ -55,13 +52,9 @@ def test_email_verification_required_derives_from_environment():
             assert settings.email_verification_required is False
         with patch("app.config.settings.environment", "staging"):
             assert settings.email_verification_required is False
-    # 显式 True 覆盖（即便 dev 环境）
     with patch("app.config.settings.require_email_verification", True):
         with patch("app.config.settings.environment", "development"):
             assert settings.email_verification_required is True
-
-
-# ---- 关闭（dev 默认）：行为同历史 ----
 
 
 @pytest.mark.asyncio
@@ -77,9 +70,6 @@ async def test_register_without_verification_auto_login(
     assert data["access_token"]
     assert data["email_verification_required"] is False
     assert data["user"]["email_verified_at"] is not None
-
-
-# ---- 打开（生产默认）：注册不自动登录 + 登录被挡 ----
 
 
 @pytest.mark.asyncio
@@ -132,9 +122,6 @@ async def test_login_blocked_when_unverified(
     )
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "email_not_verified"
-
-
-# ---- verify-email 消费 token → 可登录 ----
 
 
 @pytest.mark.asyncio
@@ -226,9 +213,6 @@ async def test_verify_token_reuse_rejected(
     assert second.status_code == 400
     await db_session.refresh(token)
     assert token.used_at is not None
-
-
-# ---- resend 防枚举：恒 202 ----
 
 
 @pytest.mark.asyncio

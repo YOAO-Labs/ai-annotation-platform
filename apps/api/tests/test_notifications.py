@@ -147,12 +147,10 @@ async def test_mark_read_and_mark_all(db_session, annotator):
     assert await svc.mark_read(user.id, n1.id) is True
     assert await svc.unread_count(user.id) == 1
 
-    # 已读再标 → False（rowcount=0）
     assert await svc.mark_read(user.id, n1.id) is False
 
-    # 标记全部
     n = await svc.mark_all_read(user.id)
-    assert n == 1  # 只剩 n2 未读
+    assert n == 1
     assert await svc.unread_count(user.id) == 0
 
 
@@ -180,8 +178,6 @@ async def test_read_state_cache_matches_legacy_evaluate_when_database_predicate_
     legacy_id = legacy_row.id
     owner_id = owner_row.id
 
-    # SQLAlchemy's old synchronize_session="auto" evaluates the current
-    # identity-map state, even though no database row matches this user.
     legacy_row.user_id = annotator_user.id
     with db_session.no_autoflush:
         old_result = await db_session.execute(
@@ -332,8 +328,6 @@ async def test_read_state_preserves_autoflush_no_autoflush_and_identity_state(
         assert deferred.read_at is None
 
     assert third.read_at is not None
-    # The legacy ORM evaluator writes the database row but leaves a flushed
-    # pending object untouched when read_at was absent from its state dict.
     assert pending.read_at is None
     with db_session.no_autoflush:
         assert (
@@ -366,7 +360,6 @@ async def test_read_state_preserves_autoflush_no_autoflush_and_identity_state(
 async def test_read_state_matches_legacy_orm_unit_of_work_baseline(
     db_session, annotator, reviewer
 ):
-    # The test-only owner session runs the former ORM operation as the UOW oracle.
     legacy_user, _ = annotator
     owner_user, _ = reviewer
 
@@ -904,9 +897,6 @@ async def test_self_action_does_not_notify_self(httpx_client, db_session, super_
     assert len(rows) == 0
 
 
-# ── Patch B：提交后发布 notifications.sync ─────────────────────────────
-
-
 def _commit_spy(db_session, monkeypatch):
     """Record handler commits so tests can assert publish happens after them."""
     commits: list[int] = []
@@ -992,7 +982,6 @@ async def test_read_and_delete_endpoints_publish_after_commit(
     assert resp.status_code == 200
     assert commits and messages == [{"type": "notifications.sync", "reason": "read"}]
 
-    # 已读行存在 → clear-read 删除并发布 deleted 同步
     messages.clear()
     resp = await httpx_client.post(
         "/api/v1/notifications/clear-read", headers=_bearer(token)
@@ -1001,7 +990,6 @@ async def test_read_and_delete_endpoints_publish_after_commit(
     assert resp.json() == {"deleted": 1}
     assert messages == [{"type": "notifications.sync", "reason": "deleted"}]
 
-    # no-op（没有已读行）不发布；已删除的行再删 → 404 不发布
     messages.clear()
     resp = await httpx_client.post(
         "/api/v1/notifications/clear-read", headers=_bearer(token)
@@ -1014,7 +1002,6 @@ async def test_read_and_delete_endpoints_publish_after_commit(
     assert resp.status_code == 404
     assert messages == []
 
-    # 已读再标 → 404，不发布
     await svc.mark_read(user.id, n2.id)
     await db_session.commit()
     resp = await httpx_client.post(
@@ -1045,7 +1032,6 @@ async def test_mark_all_read_publishes_only_with_changes(
         user_id=user.id, type="t", target_type="bug_report", target_id=uuid.uuid4()
     )
     await db_session.commit()
-    # notify 自身发布的是新通知消息，不是 sync；这里只关心 sync 事件
     messages.clear()
     resp = await httpx_client.post(
         "/api/v1/notifications/mark-all-read", headers=_bearer(token)
@@ -1103,9 +1089,6 @@ async def test_publication_failure_does_not_fail_committed_request(
     assert resp.json() == {"ok": True}
 
 
-# ── 通知偏好：接收(in_app)与弹出(toast)契约 ───────────────────────────
-
-
 def _pref_by_type(payload: dict) -> dict[str, dict]:
     return {item["type"]: item for item in payload["items"]}
 
@@ -1148,7 +1131,7 @@ async def test_legacy_row_without_toast_uses_type_default(
         "/api/v1/notification-preferences", headers=_bearer(token)
     )
     item = _pref_by_type(resp.json())["task.rejected"]
-    assert item["toast"] is True  # default_toast_for("task.rejected")
+    assert item["toast"] is True
 
 
 @pytest.mark.asyncio
@@ -1179,7 +1162,7 @@ async def test_receipt_only_update_keeps_stored_toast(
         ).json()
     )["task.rejected"]
     assert item["in_app"] is False
-    assert item["toast"] is False  # 保留显式关闭的弹出选择
+    assert item["toast"] is False
 
 
 @pytest.mark.asyncio
@@ -1220,17 +1203,14 @@ async def test_preference_update_validation(httpx_client, annotator):
     user, token = annotator
     base = "/api/v1/notification-preferences"
 
-    # 未知类型
     resp = await httpx_client.put(
         base, json={"type": "nope.nope", "in_app": True}, headers=_bearer(token)
     )
     assert resp.status_code == 400
-    # 两个开关都缺
     resp = await httpx_client.put(
         base, json={"type": "task.rejected"}, headers=_bearer(token)
     )
     assert resp.status_code == 400
-    # 显式 null 值拒绝（pydantic 校验失败 → 422）
     resp = await httpx_client.put(
         base,
         json={"type": "task.rejected", "in_app": None},

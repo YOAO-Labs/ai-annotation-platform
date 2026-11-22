@@ -803,8 +803,6 @@ class MaskMutationService:
             MAX_MASK_MUTATION_SCOPE_MEMBERS + 1
         )
         if for_update:
-            # The current Task lock serializes Labeling writers between candidate
-            # discovery and the fixed ordered row-lock capability.
             candidates = list(
                 (
                     await execute_core_read(
@@ -1219,9 +1217,6 @@ class MaskMutationService:
                         )
                         break
         else:
-            # Repair payloads are built from a server-side, short-lived plan.
-            # The shared mutation service still validates the exact source/result
-            # RLEs, scope fingerprint, versions, locks and write contract here.
             source_rle = source_rles[next(iter(source_ids))]
             result_rle = next(iter(result_rles.values()))
             if _rle_equal(source_rle, result_rle, algebra_budget):
@@ -1654,9 +1649,6 @@ class MaskMutationService:
                     message="mask mutation references too many RLE objects",
                 )
             try:
-                # The repair owner already qualifies frozen source geometries.
-                # Its write receipt covers only mutations; reference_value still
-                # verifies every source and result RLE before the write.
                 verified_mask_content = await preflight_mask_payload_for_write(
                     self.db,
                     preflight_task,
@@ -1686,9 +1678,6 @@ class MaskMutationService:
         )
         await task_access.assert_task_visible(self.db, task, actor.id, access=access)
         task_access.assert_annotation_write_allowed(task, access)
-        # The FastAPI dependency precheck is not authoritative: re-read the
-        # freshly locked task and revalidate the round's frozen non-self
-        # evidence before an idempotent replay or any mutation.
         await task_access.assert_review_adjustment_evidence(
             self.db, task, actor.id, access
         )
@@ -1721,9 +1710,6 @@ class MaskMutationService:
                 message="task is locked by another user",
             ) from exc
 
-        # Read the bounded scope before acquiring Annotation row locks.  The Task
-        # row above serializes every mask persistence path; RLE/upload locks must
-        # come before Annotation locks to match GC and ordinary writes.
         explicit_source_ids = (
             {
                 source_id

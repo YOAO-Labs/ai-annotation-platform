@@ -20,8 +20,6 @@ def preparation(monkeypatch):
             super().__init__(operation)
             self.response = response
 
-    # Storage SDKs belong to the administrator preparation environment, not the
-    # inference image. Keep contract tests independent of that optional SDK.
     monkeypatch.setitem(
         sys.modules, "botocore.exceptions", SimpleNamespace(ClientError=ClientError)
     )

@@ -1,8 +1,3 @@
--- Give one restricted LOGIN SELECT on Audit's published event and daily facts only.
--- Run after migrations and module-data-grants.sql.
--- psql -v expected_database=annotation_test -v migration_role=owner \
---   -v audit_owner=audit_code -v api_role=api_runtime \
---   -v read_client=yoao_audit_read_client -f infra/docker/audit-read-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
@@ -63,9 +58,6 @@ BEGIN
 END;
 $guard$;
 
--- Reset only this task-supplied LOGIN's relation/function grants. Column-level
--- public table rights are revoked explicitly because table ACL revocation does
--- not remove independently granted column privileges.
 REVOKE ALL ON SCHEMA yoao_audit_v1 FROM :"read_client";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_audit_v1 FROM :"read_client";
 REVOKE ALL ON ALL TABLES IN SCHEMA yoao_audit_v1 FROM :"read_client";

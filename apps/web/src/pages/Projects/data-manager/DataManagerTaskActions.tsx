@@ -84,13 +84,9 @@ export interface DataManagerTaskActionsProps {
   projectId: string;
   taskIds: readonly string[];
   onCompleted?: () => void;
-  /** Optional prebuilt payload from an existing AI panel; omitted uses the shared config form. */
   preannotation?: Omit<TriggerPreannotationPayload, "task_ids" | "batch_id"> | null;
-  /** Existing export preferences; the action opens a format selector before dispatch. */
   exportOptions?: DataManagerTaskExportOptions;
-  /** Project `project.manage` capability: gates assignment and preannotation. */
   canManage?: boolean;
-  /** Project `export.annotations` capability: gates selected-task export. */
   canExport?: boolean;
 }
 
@@ -808,7 +804,6 @@ function AssignmentSelect({
     user_id: string;
     user_name: string;
     user_email: string;
-    /** 头像引用；结构上是 ProjectMemberResponse 的子集，缺省 = 回退首字母。 */
     avatar_ref?: string | null;
   }>;
   loading: boolean;

@@ -79,8 +79,6 @@ async def task_creation_db(legacy_creation_db):
     db = legacy_creation_db
     async with service.storage_access.engine(db).begin() as connection:
         await connection.run_sync(lambda sync: migration(sync).upgrade())
-        # This fixture qualifies scope, while the current runtime also persists
-        # the additive nullable staging locator covered by its own migration.
         await connection.execute(
             text("ALTER TABLE managed_original_creations ADD COLUMN staging_ref jsonb")
         )
@@ -109,8 +107,6 @@ async def test_dataset_history_is_unchanged_and_downgrade_preserves_it(
 ):
     engine = service.storage_access.engine(legacy_creation_db)
     identifier, dataset_id = uuid.uuid4(), uuid.uuid4()
-    # This is the exact old INSERT shape, including a terminal fact. Constant
-    # column defaults must not UPDATE it through the terminal-history guard.
     async with engine.begin() as connection:
         await connection.execute(
             text("""

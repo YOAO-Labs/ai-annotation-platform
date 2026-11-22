@@ -25,7 +25,6 @@ export function FilterGroup({
       className={cn("flex min-w-0 flex-wrap items-center gap-2", compact && "gap-1.5", className)}
       {...props}
     >
-      {/* `hideLabel` 用于省去纯装饰的漏斗图标 + 文字，`label` 仍作为 group 的无障碍名称。 */}
       {!hideLabel && (
         <span
           className={cn(

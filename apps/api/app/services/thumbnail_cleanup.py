@@ -145,8 +145,6 @@ def remove(target, output, *, accounting=None, fixture=None):
                 raise
             raise storage_access.mark_unsettled(exc)
         except BaseException as exc:
-            # A lost delete response or failed absence proof cannot settle the
-            # independent physical operation or discard this owner's receipt.
             raise storage_access.mark_unsettled(exc)
     return 1
 
@@ -217,8 +215,6 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
                     await current.rollback()
                     continue
                 if output.sha256 is None:
-                    # A refused conditional PUT never proved ownership of any
-                    # pre-existing object at that UUID, so do not delete a key.
                     if output.state == "failed":
                         output.state = "deleted"
                         await current.commit()

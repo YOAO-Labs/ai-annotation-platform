@@ -160,8 +160,6 @@ def _install_unit_owner(monkeypatch, *, context, model_id, item_kind):
 
         async def note_committed_mutation(self, payload, response):
             assert response.operation_id is not None
-            # Match the owner's async post-write refresh before the worker
-            # serializes server-managed Annotation columns into after facts.
             for identifier in response.result_versions:
                 await self.db.get(
                     Annotation, uuid.UUID(identifier), populate_existing=True
@@ -827,7 +825,6 @@ async def test_dispatch_response_loss_does_not_overwrite_worker(
     world = repair_world
 
     async def lost_response(batch_id, *, dispatcher, execution_id, rollback=False):
-        # A worker that already claimed or settled the job wins the race.
         async with world.factory() as db:
             job = await db.scalar(
                 job_lock_statement(world.job_id, mode="update", populate_existing=True)
@@ -847,8 +844,6 @@ async def test_dispatch_response_loss_does_not_overwrite_worker(
     async with world.factory() as db:
         batch = await db.get(MaskRepairBatch, world.batch_id)
         lease = await prepare_repair_batch_dispatch(db, batch, rollback=False)
-        # The API route holds the caller UOW only while preparing the publication;
-        # release it so the concurrent worker can take its own row locks.
         await db.commit()
         with pytest.raises(HTTPException):
             await _dispatch_repair_or_fail(
@@ -952,10 +947,6 @@ async def test_tracker_unknown_publish_resumes_same_durable_child(
     async with world.factory() as db:
         assert (await db.get(VideoTrackerJob, child_id)).status == "queued"
 
-    # The owner ledger acknowledges an unknown reply as accepted=False and backs
-    # off (2^attempts seconds, so 2s after this first attempt). The resume may
-    # only republish once the exact envelope is due; a pending intent is its
-    # scheduled retry, not a new publication.
     await asyncio.sleep(2.5)
     async with world.factory() as db:
         actor = await db.get(User, world.owner_id)
@@ -976,8 +967,6 @@ async def test_tracker_unknown_publish_resumes_same_durable_child(
     assert batch.result_json["candidates"]["0"]["dispatch_state"] == "published"
     assert "reason" not in batch.result_json["candidates"]["0"]
 
-    # A late unknown reply on a still-live delivery must not demote a confirmed
-    # child publication, and the settled candidate must not republish.
     from app.application.mask_repair_execution import _dispatch_tracker_handoff
     from app.services.mask_repair_execution import RepairAttempt
 
@@ -1071,8 +1060,6 @@ async def test_rollback_checkpoint_survives_failure_and_uses_new_actor(
         assert len(batch.plan_json["shards"]) == 2
         await db.commit()
 
-    # Produce the real two-shard forward journal, including committed versions
-    # and after facts, before asking for a reverse-order rollback.
     await _forward(world)
     async with world.factory() as db:
         batch = await db.get(MaskRepairBatch, world.batch_id)
@@ -1117,8 +1104,6 @@ async def test_rollback_checkpoint_survives_failure_and_uses_new_actor(
         assert set(batch.result_json["rollback"]["shards"]) == {second_id}
         assert first_id not in batch.result_json["rollback"]["shards"]
         assert (await db.get(Annotation, world.annotation_id)).version == 2
-        # Ownership changes before continuation; the new manager, not the
-        # original requester or source author, must own the rollback writes.
         reviewer = await create_user(
             db,
             "project_admin",
@@ -1163,8 +1148,6 @@ async def test_deterministic_shards_follow_only_committed_versions(
     monkeypatch.setattr("app.services.mask_repair.MAX_SHARD_MUTATIONS", 1)
 
     async def freeze(db, task, actor, item, http_request=None):
-        # Physical original capture is covered by the managed integration tests;
-        # the plan only needs its frozen identity marker here.
         item["original_input"] = {"schema": 1, "digest": "frozen-original"}
 
     monkeypatch.setattr("app.services.reference_mask_repair.freeze_item", freeze)

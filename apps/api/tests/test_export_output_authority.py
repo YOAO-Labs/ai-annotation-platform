@@ -196,8 +196,6 @@ async def test_all_new_http_export_entries_preserve_and_hide_original_authority(
         await setup.commit()
         batch_id = batch.id
     if credential == "key":
-        # Reference exports also require tasks:read. The full-scope key keeps
-        # this test focused on original-credential and visibility behavior.
         async with world.owner.factory() as setup:
             await setup.execute(
                 update(ApiKey).where(ApiKey.id == world.key_id).values(scopes=["*"])

@@ -84,7 +84,6 @@ def _unique_mask():
         for y in range(height)
         for x in range(width)
     ]
-    # Keep this test's content key independent of other mask fixtures.
     marker = int.from_bytes(uuid.uuid4().bytes, "big")
     for bit in range(128):
         pixels[29 * width + bit] = (marker >> bit) & 1
@@ -142,7 +141,6 @@ async def _model(world, url, rle, mask):
         )
         backend.url = url
         await db.commit()
-        # The endpoint update invalidates its earlier health observation.
         await db.refresh(backend)
         backend.state = "connected"
         backend.last_checked_at = datetime.now(timezone.utc)
@@ -283,7 +281,6 @@ async def _owned_worker(tmp_path, test_db_url, queue, node, published):
 
 
 async def _cleanup_inputs(world):
-    # All writers have stopped. Only the owner's actual cleanup deadline is used.
     await retire_known_inputs(world.factory, world.task.id)
 
 

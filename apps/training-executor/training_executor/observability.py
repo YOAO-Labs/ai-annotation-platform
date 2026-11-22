@@ -85,8 +85,6 @@ class ObservationSpool:
                 return item
 
     def _reserve(self):
-        # Leave room for the durable outbox before SQLITE_FULL. A shortened
-        # window is explicitly reported through ACK/earliest-sequence gaps.
         maximum = self.db.execute("PRAGMA max_page_count").fetchone()[0]
         reserve = min(128, maximum // 4)
         while True:
@@ -257,7 +255,6 @@ class NativeProgress:
         now = self.clock()
         if not force and now - self.last_write < 5:
             return
-        # Observation failure must not interrupt a native callback or training.
         try:
             allocated = reserved = measurement(reason="cuda_uninitialized")
             torch = sys.modules.get("torch")
@@ -335,7 +332,6 @@ class ProcessSampler:
                     for process in [root, *root.children(recursive=True)]:
                         with process.oneshot():
                             identity = (process.pid, process.create_time())
-                            # An unrelated process/parallel preview cannot enter this tree.
                             if os.getpgid(process.pid) != root.pid:
                                 continue
                             rss += process.memory_info().rss

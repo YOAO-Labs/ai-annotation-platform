@@ -23,9 +23,6 @@ from yoao_task_contract import normalize_task
 
 from yoao_protocol_v2.lifecycle import canonical_managed_lifecycle_capabilities
 
-# 受控词表与 task→默认几何统一由 capability_registry SSOT 派生,
-# 协议元数据 (label / summary / suggested_backends) 同源, 供
-# `GET /v1/ml-capabilities/protocol` 直接对外暴露。
 from .capability_registry import (
     GEOMETRY_VALUES,
     INPUT_BBOX_PROMPT,
@@ -54,12 +51,8 @@ __all__ = [
     "derive_modalities",
 ]
 
-# 模态规范顺序 (image < video < lidar)。
 _MODALITY_ORDER = {"image": 0, "video": 1, "lidar": 2}
 _LIDAR_GEOMETRY = {"lidar_box_3d", "point_mask_3d"}
-
-# 交互式 prompt 集合统一由 capability_registry SSOT 派生 (PROMPTS_REQUIRES_INPUT,
-# 等价旧硬编码 8 元组)。语义不变: 含这类 prompt 的模型不默认走 crop 投递。
 
 
 def _synthesize_supported_inputs(prompts: list[str]) -> list[str]:
@@ -155,21 +148,14 @@ def _normalize_model(model: dict, backend_infra: str, limits: CapabilityLimits) 
         else backend_infra,
         "is_interactive": bool(model.get("is_interactive")),
         "supported_prompts": list(model.get("supported_prompts") or []),
-        # 一等输入契约 (与 supported_prompts 解耦): 模型能吃哪些投递形态
-        # (full_image | crop | bbox_prompt | point_prompt | video)。缺省按 prompts 合成兼容默认。
         "supported_inputs": supported_inputs,
         "default_input_type": default_input_type,
         "supported_geometric_outputs": geo,
         "output_attribute_types": list(model.get("output_attribute_types") or []),
-        # 协议③ · backend 自报的属性 schema (含 select options), 供平台一键导入项目 attribute_schema.
         "output_attribute_schema": list(model.get("output_attribute_schema") or []),
         "supported_text_outputs": list(model.get("supported_text_outputs") or []),
         "supported_trackers": list(model.get("supported_trackers") or []),
-        # text-driven tracker (sam3_video) 子集: 这些 tracker 的 propagate
-        # 请求需 text/exemplars 而非仅 seed bbox。前端据此在选中该 tracker 时显 text 框。
         "text_driven_trackers": list(model.get("text_driven_trackers") or []),
-        # 对前端暴露的是平台与 backend 两层限制的交集，与创建作业的
-        # fail-closed 校验保持同一个有效窗口。
         "max_window_frames": _effective_max_window_frames(model, limits),
         "tracker_context_mode": model.get("tracker_context_mode")
         if model.get("tracker_context_mode") in {"none", "session"}
@@ -183,21 +169,12 @@ def _normalize_model(model: dict, backend_infra: str, limits: CapabilityLimits) 
         "variants_shared_across_tasks": bool(
             model.get("variants_shared_across_tasks", False)
         ),
-        # backend 自报的默认 variant 组合 (dict[axis_key, value]).
-        # 前端 VariantSelector 在用户未选时取此作初值, 优先级低于项目级 default_variants.
         "default_variants": dict(model.get("default_variants") or {}),
         "default_thresholds": model.get("default_thresholds") or {},
         "resource_profile": model.get("resource_profile") or {},
-        # 协议 v2.2 · 原子 vs 内部编排维度。缺省 atom（绝大多数 model 是单次推理；
-        # 现存复合都在自管 backend 显式标）。编排下游 stage 据此过滤（只组合 atom）。
         "composition": model.get("composition") or "atom",
         "params": model.get("params") or {},
-        # 闭集检测器的原生类别表 (yolo model.names, [{index,name}]); 供前端类别白名单.
-        # 仅在该 task 模型已加载过 (warmup/predict) 时 backend /setup 才带, 否则为空。
         "classes": list(model.get("classes") or []),
-        # exemplar 模型的能力声明 (multi_box / negative_box / text_combination /
-        # threshold_refilter); 前端工作台据此渲染 exemplar 控件 (YOLOE 无负框 → 隐藏负极性)。
-        # 缺字段 = None, 前端按「全支持」向后兼容。
         "exemplar_capabilities": model.get("exemplar_capabilities") or None,
     }
     release, weights_digest = (
@@ -212,7 +189,6 @@ def _normalize_model(model: dict, backend_infra: str, limits: CapabilityLimits) 
         and len(weights_digest) == 64
         and all(character in "0123456789abcdef" for character in weights_digest)
     ):
-        # Legacy version labels do not prove an exact weight artifact.
         out.update(weights_release_id=release, weights_sha256=weights_digest)
     out["modality"] = _model_modality(out)
     return out
@@ -230,7 +206,7 @@ def _synthesize_single_model(setup: dict, backend_infra: str) -> dict:
     替代原硬编码 tuple, 修 text-only legacy backend (如 GroundingDINO) 被误判为 interactive_seg
     的 bug —— text 走批量线、非交互路由, 不应让 task=detection 的纯文本 backend 看起来像 SAM。
     """
-    from .capability_registry import PROMPTS_INTERACTIVE_ROUTE  # 局部 import 避免循环。
+    from .capability_registry import PROMPTS_INTERACTIVE_ROUTE
 
     prompts = list(setup.get("supported_prompts") or [])
     trackers = list(setup.get("supported_trackers") or [])
@@ -256,7 +232,6 @@ def _synthesize_single_model(setup: dict, backend_infra: str) -> dict:
         "infra": backend_infra,
         "is_interactive": bool(setup.get("is_interactive")),
         "supported_prompts": prompts,
-        # 老 backend 无 supported_inputs, 按 prompts 合成兼容默认 (零退化)。
         "supported_inputs": supported_inputs,
         "default_input_type": default_input_type,
         "supported_geometric_outputs": list(
@@ -265,15 +240,12 @@ def _synthesize_single_model(setup: dict, backend_infra: str) -> dict:
         "output_attribute_types": [],
         "supported_text_outputs": list(setup.get("supported_text_outputs") or []),
         "supported_trackers": trackers,
-        # text-driven tracker 子集 (见 _normalize_model)。
         "text_driven_trackers": list(setup.get("text_driven_trackers") or []),
         "supported_variants": setup.get("supported_variants") or [],
-        # 老 backend 均为单次推理原子（协议 v2.2）。
         "composition": "atom",
         "default_thresholds": {},
         "resource_profile": {},
         "params": setup.get("params") or {},
-        # 老 backend (sam3) 的 exemplar 能力在顶层声明, 透传供前端 exemplar 控件渲染。
         "exemplar_capabilities": setup.get("exemplar_capabilities") or None,
     }
     out["modality"] = _model_modality(out)
@@ -293,8 +265,7 @@ def _collect_warnings(models: list[dict]) -> list[dict]:
     (``modality`` 为派生, ``exemplar_capabilities`` 为协议外透传). 多余键发 info 级警告。
     """
     known_model_keys = set(ModelCapability.model_fields.keys()) | {
-        # ModelCapability 用 extra=allow 接以下透传 / 派生字段, 不算未知。
-        "exemplar_capabilities",  # 透传给前端 exemplar 控件
+        "exemplar_capabilities",
         "weights_release_id",
         "weights_sha256",
     }
@@ -364,8 +335,6 @@ def _collect_warnings(models: list[dict]) -> list[dict]:
                     g,
                     f"未知几何输出「{g}」不在受控词表。",
                 )
-        # claude[bot] P2 · ModelCapability extra=allow 不会拒未知键; 这里发 info 警告
-        # 抓 backend 字段名拼写错误 (如 output_attribute_typo) 让其在模型市场可见。
         unknown_keys = sorted(set(m.keys()) - known_model_keys)
         for k in unknown_keys:
             warn(
@@ -451,8 +420,6 @@ def extract_capabilities(
         warnings.append(compatibility_warning)
 
     caps: dict = {
-        # Stable compatibility/model identity fields participate in service-pool
-        # interchangeability checks.  Runtime and display metadata remain excluded.
         "version": setup.get("version"),
         "protocol_version": setup.get("protocol_version") or "1",
         "task_contract_revision": 1
@@ -462,15 +429,9 @@ def extract_capabilities(
         "compat_protocol_versions": list(setup.get("compat_protocol_versions") or []),
         "model_version": setup.get("model_version"),
         "weights_version": setup.get("weights_version"),
-        # 透传 backend 自报的 name (如 "grounded-sam2-backend"), 让前端
-        # 能力目录显示「源 backend 名」而非用户取的项目别名 (如 "gsam2.1")。
         "name": setup.get("name"),
         "infra": infra,
-        # backend 声明本端是否支持 POST /warmup (协议 §4.4); 前端模型市场
-        # "⚡ 预热" 按钮据此置灰. 老 backend 缺字段 = False.
         "warmup_endpoint": bool(setup.get("warmup_endpoint", False)),
-        # ADR-0049 · 远端声明必须显式携带全部冻结字段；平台不能用 Pydantic
-        # 默认值把 partial/legacy backend 静默升级成受管 backend。
         "managed_lifecycle": managed_lifecycle,
         "managed_model_compatibility": managed_compatibility,
         "models": models,
@@ -481,7 +442,6 @@ def extract_capabilities(
         "text_driven_trackers": _union(models, "text_driven_trackers"),
         "supported_text_outputs": _union(models, "supported_text_outputs"),
         "supported_geometric_outputs": _union(models, "supported_geometric_outputs"),
-        # 受控词表校验诊断 (越界 task/infra/prompt/geometry); 空 = 全合法。
         "warnings": warnings,
     }
     caps["modalities"] = derive_modalities(caps)

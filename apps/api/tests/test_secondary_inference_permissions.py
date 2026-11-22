@@ -51,14 +51,9 @@ def _access(user, project, platform_role, project_role, *, manager):
 @pytest.mark.parametrize(
     ("platform_role", "project_role", "manager", "admitted"),
     [
-        # A super administrator manages every project.
         ("super_admin", None, True, True),
-        # A platform project administrator who is only an annotator member gets
-        # that membership's capabilities, which include annotation write.
         ("project_admin", "annotator", False, True),
-        # A literal employee with an annotator membership may run inference.
         ("employee", "annotator", False, True),
-        # Reviewers and viewers have no annotation.write capability.
         ("employee", "reviewer", False, False),
         ("viewer", "viewer", False, False),
     ],
@@ -96,7 +91,6 @@ async def test_secondary_inference_capability_gate_precedes_inference(
     async def _resolve(db, *, actor_id, project, lock_membership=False):
         return access
 
-    # Keep the actual access/visibility guards; only replace external lookups.
     monkeypatch.setattr(
         task_access, "get_workspace_project", AsyncMock(return_value=project)
     )

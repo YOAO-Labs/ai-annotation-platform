@@ -18,7 +18,6 @@ async def bind_gpu_authority_data(db: AsyncSession) -> GPUCallerAdministrativeDa
     """Keep writes in the caller transaction without private owner authority."""
     try:
         connection = await db.connection()
-        # SQLAlchemy begins the physical transaction lazily, before raw-driver use.
         await connection.execute(text("SELECT pg_catalog.pg_current_xact_id()"))
         raw = await connection.get_raw_connection()
         return await bind_gpu_caller_administrative_data(raw.driver_connection)

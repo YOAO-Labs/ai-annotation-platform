@@ -127,8 +127,6 @@ export function ReviewerDashboard() {
     });
   };
 
-  // 退回走两步决策弹窗（原 RejectReasonModal，plan T2 迁移 choiceDialog + inputDialog）；
-  // taskId 为点击时的快照，await 后提交目标不变。
   const handleReject = async (taskId: string) => {
     const payload = await promptRejectReason({ count: 1 });
     if (!payload) return;
@@ -237,7 +235,6 @@ export function ReviewerDashboard() {
         </Card>
       )}
 
-      {/* 产能 */}
       <SectionDivider label="产能" hint="待审 / 今日 / 单题耗时" />
       <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3">
         <StatCard icon="flag" label="待审队列" value={stats.pending_review_count} />
@@ -263,7 +260,6 @@ export function ReviewerDashboard() {
         <StatCard icon="layers" label="累计审核" value={stats.total_reviewed} />
       </div>
 
-      {/* 质量 */}
       <SectionDivider label="质量" hint="通过率 / 二次返修率" />
       <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
         <StatCard icon="activity" label="24h 通过率" value={`${stats.approval_rate_24h}%`} />
@@ -446,7 +442,6 @@ export function ReviewerDashboard() {
 
 function RecentReviewRow({ item, onClick }: { item: RecentReviewItem; onClick: () => void }) {
   const reviewedAt = item.reviewed_at ? new Date(item.reviewed_at).toLocaleString("zh-CN") : "—";
-  // 与工作台任务队列 (TaskQueuePanel) 标签一致；并补 rejected 分支，避免 fallback 漏出原始英文 status
   const statusBadge =
     item.status === "completed" ? (
       <Badge variant="success" dot>

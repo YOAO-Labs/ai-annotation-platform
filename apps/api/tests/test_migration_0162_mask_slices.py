@@ -24,7 +24,6 @@ def test_empty_downgrade_upgrade_and_used_ledger_refuses_downgrade(
     migration = ScriptDirectory.from_config(config).get_revision("0162").module
 
     async def roundtrip(*, used: bool = False):
-        # Replay this revision only; never traverse irreversible 0174.
         engine = create_async_engine(test_db_url)
         try:
             async with engine.connect() as connection:

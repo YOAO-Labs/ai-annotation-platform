@@ -89,8 +89,6 @@ async def trained_retry_world(managed_worker_world, app_module):
                     app_module.dependency_overrides[get_db] = previous
                 await db.rollback()
     finally:
-        # Model owners RESTRICT project deletion. Remove only this world's
-        # training fixtures before its general business-row cleanup runs.
         async with world.factory() as db:
             versions = select(TrainedModelVersion.id).where(
                 TrainedModelVersion.project_id.in_(world.projects)
@@ -340,8 +338,6 @@ async def test_controlled_crop_uses_its_frozen_identity(
     from app.services.prediction_inputs import PredictionInputs
 
     original_upload = PredictionInputs.upload_crop
-    # This fixture uses the legacy retained-input adapter, not the live
-    # accepted-input path; bridge its task-object argument only within the test.
 
     async def upload_crop(snapshot, task_id, box_index, content):
         return await original_upload(
@@ -523,7 +519,6 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
         "id": str(snapshot.id),
         "digest": digest,
     }
-    # Close the observer transaction before independent worker guard sessions.
     await db_session.commit()
     calls = []
 
@@ -629,8 +624,6 @@ async def test_snapshot_retry_replays_root_and_crop_after_original_job_is_delete
     assert calls[1][1]["params"] == {"conf": 0.37}
     assert managed_worker_world.captured
 
-    # close_inputs retains cleanup responsibility until the source permit closes.
-    # Exercise the next due purge only after all physical permits have settled.
     async with managed_worker_world.factory() as db:
         assert not (await db.scalars(select(StorageOperation.id))).all()
         leases = (
@@ -778,8 +771,11 @@ async def test_workbench_member_requires_effective_assignment_but_cannot_bulk_ru
     assert denied.status_code == 403
 
 
-def test_builtin_defaults_are_frozen_and_invalid_combinations_rejected():
+@pytest.mark.parametrize("immutable", [False, True])
+def test_builtin_defaults_are_frozen_and_invalid_combinations_rejected(immutable):
     from fastapi import HTTPException
+    from yoao_inference_contract.topology import freeze_json
+
     from app.services.prediction_execution import freeze_builtin_defaults
 
     backend = SimpleNamespace(
@@ -793,14 +789,28 @@ def test_builtin_defaults_are_frozen_and_invalid_combinations_rejected():
             {"key": "size", "variants": [{"value": "n"}, {"value": "s"}]},
         ],
         "variant_combinations": [["yolo11", "n"], ["yolo12", "s"]],
-        "params": {"properties": {"conf": {"default": 0.25}}},
+        "params": {
+            "properties": {
+                "conf": {"default": 0.25},
+                "example": {"default": {"choices": ["one"]}},
+            }
+        },
     }
+    if immutable:
+        backend.health_meta = freeze_json(backend.health_meta)
+        model = freeze_json(model)
     stage = {"params": {"iou": 0.7}}
     freeze_builtin_defaults(backend, model, stage)
     assert stage["model_variants"] == {"series": "yolo11", "size": "n"}
-    assert stage["params"] == {"conf": 0.25, "iou": 0.7}
-    with pytest.raises(HTTPException, match="422"):
+    assert stage["params"] == {
+        "conf": 0.25,
+        "example": {"choices": ["one"]},
+        "iou": 0.7,
+    }
+    with pytest.raises(HTTPException) as exc:
         freeze_builtin_defaults(backend, model, {"model_variants": {"size": "s"}})
+    assert exc.value.status_code == 422
+    assert exc.value.detail == "管线模型变体组合无效"
 
 
 def test_freezing_preserves_project_thresholds_and_legacy_flat_parameters():

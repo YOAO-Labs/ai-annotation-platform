@@ -1,20 +1,3 @@
-/**
- * Central request-error classification for workbench E2E suites.
- *
- * One place decides which captured failure signals are legitimate lifecycle
- * cancellations. Every allowance is an exact method + path pair with a stated
- * reason, organized into product-domain rule groups so each suite composes
- * exactly the cancellations observed on its own flows; membership in another
- * suite's group never widens a whitelist. The engine only classifies
- * `net::ERR_ABORTED` request failures. Write-shaped allowances are restricted to
- * unload telemetry, best-effort playback lease revocation, and the read-only
- * frame-prefetch batch whose frame list requires a POST body. Derivative cache
- * work retains its server-side owner after cancellation; annotation and other
- * business writes never qualify. Console/page errors, HTTP responses and every
- * other failure stay errors.
- */
-
-/** A normalized failure signal recorded from page / console / request events. */
 export interface RequestErrorSignal {
   kind: "page" | "console" | "http" | "request";
   message: string;
@@ -24,24 +7,14 @@ export interface RequestErrorSignal {
   body?: string;
 }
 
-/**
- * One allow entry: a `net::ERR_ABORTED` request failure is expected only when
- * the method matches exactly and the URL pathname matches the given exact
- * string or fully-anchored regular expression.
- */
 export interface AbortAllowRule {
   method: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
   path: string | RegExp;
-  /** Why retiring this request is a legitimate lifecycle cancellation. */
   reason: string;
 }
 
 const UUID = "[0-9a-f-]{36}";
 
-/**
- * Keep-alive session telemetry may be reported as aborted on unload.
- * Session telemetry stays restricted to these two POST routes.
- */
 export const sessionTelemetryAborts: readonly AbortAllowRule[] = [
   {
     method: "POST",
@@ -55,7 +28,6 @@ export const sessionTelemetryAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/** Bootstrap reads observed on both image and video workbench flows. */
 export const coreBootstrapAborts: readonly AbortAllowRule[] = [
   {
     method: "GET",
@@ -71,10 +43,6 @@ export const coreBootstrapAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/**
- * Shell/dashboard navigation reads observed on image-workbench flows, which
- * enter through the dashboard; direct workbench entry never fetches them.
- */
 export const dashboardViewAborts: readonly AbortAllowRule[] = [
   {
     method: "GET",
@@ -89,7 +57,6 @@ export const dashboardViewAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/** Per-task context queries retired by switching tasks, reloading or leaving. */
 export const taskContextAborts: readonly AbortAllowRule[] = [
   {
     method: "GET",
@@ -113,7 +80,6 @@ export const taskContextAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/** Task-scoped context reads only exercised by the video Issue suites. */
 export const videoTaskContextAborts: readonly AbortAllowRule[] = [
   {
     method: "GET",
@@ -132,7 +98,6 @@ export const videoTaskContextAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/** Object comments panel read retired when the panel's owner unmounts. */
 export const objectCommentsAborts: readonly AbortAllowRule[] = [
   {
     method: "GET",
@@ -141,7 +106,6 @@ export const objectCommentsAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/** Mask content reads retire with their canvas or editor owner. */
 export const maskEditorAborts: readonly AbortAllowRule[] = [
   {
     method: "GET",
@@ -150,9 +114,6 @@ export const maskEditorAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/**
- * Verified original reads retire with their task, camera or dataset preview owner.
- */
 const originalMediaAborts: readonly AbortAllowRule[] = [
   {
     method: "GET",
@@ -166,13 +127,6 @@ const originalMediaAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/**
- * A leaving document can only revoke its native playback lease with a keepalive
- * DELETE, and the browser reports that request as aborted once the document is
- * discarded. Lease expiry and the registry reaper stay the final owner, so the
- * cancelled revoke is a documented lifecycle cancellation rather than a lost
- * write; HTTP failures and every other method stay errors.
- */
 export const originalPlaybackReleaseAborts: readonly AbortAllowRule[] = [
   {
     method: "DELETE",
@@ -186,11 +140,6 @@ export const originalPlaybackReleaseAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/**
- * Video media and manifest reads retired by switching tasks or reloading.
- * Both the standard and the precise video manifest queries are retired, and
- * chunk/chapter/segment prefetches abort with their owning task.
- */
 export const videoMediaAborts: readonly AbortAllowRule[] = [
   {
     method: "GET",
@@ -229,11 +178,6 @@ export const videoMediaAborts: readonly AbortAllowRule[] = [
   },
 ];
 
-/**
- * Image-workbench flows (dashboard → workbench → reload/leave/task switch).
- * Exactly the cancellations the image workbench specs observed before the
- * central policy existed.
- */
 export const imageWorkbenchAborts: readonly AbortAllowRule[] = [
   ...sessionTelemetryAborts,
   ...coreBootstrapAborts,
@@ -243,10 +187,6 @@ export const imageWorkbenchAborts: readonly AbortAllowRule[] = [
   ...maskEditorAborts,
 ];
 
-/**
- * Video workbench flows, which enter the workbench directly. Exactly the
- * cancellations `isVideoLifecycleCancellation` used to allow.
- */
 export const videoWorkbenchAborts: readonly AbortAllowRule[] = [
   ...sessionTelemetryAborts,
   ...coreBootstrapAborts,
@@ -257,7 +197,6 @@ export const videoWorkbenchAborts: readonly AbortAllowRule[] = [
   ...originalPlaybackReleaseAborts,
 ];
 
-/** Whether `signal`'s method + pathname satisfy one allow rule exactly. */
 export function matchesAbortRule(
   signal: Pick<RequestErrorSignal, "method" | "path">,
   rule: AbortAllowRule,
@@ -266,11 +205,6 @@ export function matchesAbortRule(
   return typeof rule.path === "string" ? rule.path === signal.path : rule.path.test(signal.path);
 }
 
-/**
- * True only for a `net::ERR_ABORTED` request failure matched by one of the
- * given rule groups. HTTP failures, other network errors, console/page errors
- * and every other write request stay errors unless a rule names it exactly.
- */
 export function isExpectedRequestAbort(
   error: RequestErrorSignal,
   ...ruleGroups: ReadonlyArray<readonly AbortAllowRule[]>

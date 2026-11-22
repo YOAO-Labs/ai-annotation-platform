@@ -1,10 +1,4 @@
 import { CopyableError } from "@/components/ui/CopyableError";
-/**
- * ADR-0044 · superadmin 全局 ML backend 注册/编辑弹窗。
- *
- * 字段：name / url / 认证 / GPU 静态 claim / max_concurrency / extra_params + 测试连接，
- * 调用全局注册表端点：新建 = createRegistry，编辑 = updateRegistry。
- */
 import { useEffect, useState } from "react";
 import { clsx } from "clsx";
 import { useQuery } from "@tanstack/react-query";
@@ -23,7 +17,6 @@ import {
 } from "@/api/adminMlIntegrations";
 import { useCreateRegistry, useUpdateRegistry } from "./useGlobalRegistry";
 
-/** 编辑模式入参：来自 GlobalBackendItem 的最小子集（不含 extra_params）。 */
 export interface GlobalRegistryEditTarget {
   id: string;
   name: string;
@@ -36,7 +29,6 @@ export interface GlobalRegistryEditTarget {
 
 interface Props {
   open: boolean;
-  /** 提供则进入编辑模式 */
   backend?: GlobalRegistryEditTarget | null;
   onClose: () => void;
 }
@@ -151,7 +143,6 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
       setUrl(backend.url);
       setAuthMethod((backend.auth_method as MLBackendAuthMethod) ?? "none");
       setAuthToken("");
-      // GlobalBackendItem 不含 extra_params，编辑时留空，提交时不下发以保留后端原值。
       setMaxConcurrency("");
       setExtraText("");
       setExtraOpen(false);
@@ -225,7 +216,6 @@ export function GlobalBackendFormModal({ open, backend, onClose }: Props) {
       }
     }
 
-    // extra_params：仅当用户填了 textarea 或 max_concurrency 时才构造并下发。
     let extraParams: Record<string, unknown> | undefined;
     if (extraText.trim()) {
       try {

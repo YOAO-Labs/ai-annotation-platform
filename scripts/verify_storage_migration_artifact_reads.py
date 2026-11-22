@@ -503,7 +503,6 @@ class ArtifactReads:
         withdrawn = op("withdraw-reads", expected_revision=current["revision"])["item"]
         require(withdrawn["state"] == "withdrawn", "publication_not_withdrawn")
         http.call("GET", path, expected=409)
-        # Already-issued S3 signatures keep their ordinary expiry contract.
         with urlopen(signed["url"], timeout=10) as response:
             require(
                 response.read(len(self.package) + 1) == self.package,

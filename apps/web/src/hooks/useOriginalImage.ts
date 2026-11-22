@@ -11,7 +11,6 @@ import { verifiedContentError } from "./useVerifiedImage";
 
 let addressVersion = 0;
 
-/** One image address belongs to a mounted session, resource and explicit attempt. */
 export function useOriginalImage(resource: OriginalResource | null, sourceKey?: string | null) {
   const userId = useAuthStore((state) => state.user?.id);
   const sessionId = useAuthStore((state) => state.sessionId);

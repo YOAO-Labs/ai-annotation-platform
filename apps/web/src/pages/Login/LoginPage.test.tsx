@@ -1,7 +1,3 @@
-/**
- * LoginPage 单测：已登录跳转 / 表单提交 / 错误提示 / loading 态 /
- * eye toggle / 注册入口可见性；Issue #123 · 登录返回目标过滤错误页与角色默认首页。
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { act, render, screen, fireEvent } from "@testing-library/react";
 import { MemoryRouter, Routes, Route } from "react-router-dom";
@@ -233,7 +229,6 @@ describe("LoginPage", () => {
     renderUI();
     const pwd = screen.getByPlaceholderText("••••••••") as HTMLInputElement;
     expect(pwd.type).toBe("password");
-    // 找到 toggle 按钮（type=button 且不含文字 "登录"）
     const buttons = document.querySelectorAll("button");
     const eyeBtn = Array.from(buttons).find((b) => b.getAttribute("type") === "button")!;
     fireEvent.click(eyeBtn);
@@ -271,7 +266,6 @@ describe("LoginPage", () => {
     expect(screen.getByText("PROJECTS")).toBeInTheDocument();
   });
 
-  // Issue #123 · 错误页不能成为登录后的返回目标;无效目标回落角色默认首页。
   it("来源是 /unauthorized → 回落 /dashboard,不再回错误页", () => {
     useAuthStore.setState({ token: "t", user: null });
     render(

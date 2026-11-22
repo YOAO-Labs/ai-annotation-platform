@@ -24,7 +24,6 @@ export const useAuthStore = create<AuthStore>()(
         localStorage.setItem("token", token);
         set((state) => ({
           token,
-          // Token refresh continues the current login, including pending writes.
           sessionId: state.token && state.sessionId ? state.sessionId : randomId(),
         }));
       },
@@ -66,14 +65,12 @@ export const useAuthStore = create<AuthStore>()(
         };
       },
       onRehydrateStorage: () => (state) => {
-        // Older persisted accounts acquire a stable, opaque session namespace.
         if (state?.token && state.user && !state.sessionId) state.setAuth(state.token, state.user);
       },
     },
   ),
 );
 
-/** A second tab may replace shared credentials before this tab updates its UI. */
 export function isCurrentAuthOwner(userId: string): boolean {
   const current = useAuthStore.getState();
   return (
@@ -83,7 +80,27 @@ export function isCurrentAuthOwner(userId: string): boolean {
   );
 }
 
-/** Adopt the complete token/user pair written by another tab, without writing it back. */
+export interface AuthSessionOwner {
+  userId: string;
+  sessionId: string;
+}
+
+export function authSessionToken(owner: AuthSessionOwner): string | null {
+  const { user, token, sessionId } = useAuthStore.getState();
+  if (!token || user?.id !== owner.userId || sessionId !== owner.sessionId) return null;
+  try {
+    if (localStorage.getItem("token") !== token) return null;
+    const saved = JSON.parse(localStorage.getItem("auth-storage") ?? "null")?.state;
+    return saved?.token === token &&
+      saved.user?.id === owner.userId &&
+      saved.sessionId === sessionId
+      ? token
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function bindAuthStorage(): () => void {
   const sync = (event: StorageEvent) => {
     if (event.storageArea !== localStorage) return;
@@ -91,12 +108,7 @@ export function bindAuthStorage(): () => void {
     try {
       const stored = JSON.parse(localStorage.getItem("auth-storage") ?? "null");
       const token = localStorage.getItem("token");
-      // Login writes its token before fetching the user. Wait for the complete
-      // persisted identity; authenticated requests reject this intermediate pair.
       if ((stored?.state?.token ?? null) !== token) return;
-      // Issue #123 · 另一个标签页主动退出(令牌被清除)时,把"主动退出"意图同步到
-      // 本标签页,避免本页 RequireAuth 把当前受限页写回 state.from。同标签页的
-      // logout 已在 useLogout 中置位;storage 事件不会回到发起页。
       if (!token && useAuthStore.getState().token) markProactiveLogout();
       void useAuthStore.persist.rehydrate();
     } catch {

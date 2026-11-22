@@ -1,9 +1,3 @@
-/**
- * VideoSamplingSection 单测 — 项目级视频帧采样配置.
- *
- * 覆盖: 初值加载 / mode 切换即时保存 / fps & step 失焦保存 / 预览文案 /
- *       非法态不提交.
- */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 
@@ -107,11 +101,11 @@ describe("VideoSamplingSection", () => {
   it("step 模式改成非法值 0（<1）失焦 → 不再追加提交（保留切换时的默认）", () => {
     render(<VideoSamplingSection project={makeProject()} />);
     fireEvent.click(screen.getByLabelText("按帧间隔"));
-    expect(mockUpdateMutate).toHaveBeenCalledTimes(1); // 切换时的默认提交
+    expect(mockUpdateMutate).toHaveBeenCalledTimes(1);
     const input = screen.getByRole("spinbutton");
     fireEvent.change(input, { target: { value: "0" } });
     fireEvent.blur(input);
-    expect(mockUpdateMutate).toHaveBeenCalledTimes(1); // 非法 blur 不再提交
+    expect(mockUpdateMutate).toHaveBeenCalledTimes(1);
   });
 
   it("从 fps 切回不采样 → 即时提交 { mode: none }", () => {

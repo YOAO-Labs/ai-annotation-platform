@@ -455,7 +455,6 @@ def test_me(client, respx_mock):
 
 
 def test_me_role_is_platform_role_not_legacy_staff(client, respx_mock):
-    # /auth/me 是实时账号契约: 平台角色, 不是历史全局 annotator/reviewer。
     respx_mock.get(f"{API}/auth/me").mock(
         return_value=httpx.Response(
             200,

@@ -71,8 +71,6 @@ def test_import_expiry_removal_reports_real_failures_and_tolerates_absence(
     service.client.get_bucket_lifecycle_configuration.side_effect = ClientError(
         {"Error": {"Code": code}}, "GetBucketLifecycleConfiguration"
     )
-    # Alembic's logging configuration can disable already imported loggers in
-    # a combined database suite; this test owns the warning capture itself.
     monkeypatch.setattr(logging.getLogger("app.services.storage"), "disabled", False)
     with caplog.at_level(logging.WARNING, logger="app.services.storage"):
         service._remove_import_artifact_lifecycle()

@@ -33,7 +33,6 @@ interface BuildImageContextMenuItemsArgs {
     flag: "z_order" | "is_locked" | "is_hidden",
     value: number | boolean,
   ) => void;
-  // 全局 UI 开关: 二次推理面板显隐 (非 per-标注状态)。缺省不显示该项。
   secondaryBarHidden?: boolean;
   onToggleSecondaryBar?: () => void;
 }
@@ -105,7 +104,6 @@ export function buildImageContextMenuItems({
     joinableSelected.length < 2 ||
     new Set(joinableSelected.map((item) => item.cls)).size > 1 ||
     !joinableSelected.some((item) => item.id === annotation.id);
-  // 裁切:基准框(右键的那个)减去其余选中多边形,不要求同类别(常用于遮挡:前景压背景)。
   const cropDisabled =
     readOnly ||
     !onCropSelected ||
@@ -211,7 +209,6 @@ export function buildImageContextMenuItems({
     },
   );
 
-  // 全局 UI 项 (独立分区): 二次推理面板显隐, 与上面 per-标注项区隔。
   if (onToggleSecondaryBar) {
     items.push(
       { id: "secondary-bar-divider", divider: true, label: "" },

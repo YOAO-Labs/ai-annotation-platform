@@ -1,5 +1,3 @@
-// 从 ThreeDWorkbench.tsx 抽出的模块级纯常量/类型/纯函数(无 React、无组件闭包)。
-// 逐字搬运,行为零变化;主组件 import 回这些符号使用。tsc 完整守护。
 import { acquireCameraImageAddress } from "./pointCloudAssetCache";
 import { originalOwnerKey } from "@/api/originals";
 import type { CSSProperties } from "react";
@@ -10,11 +8,8 @@ import { cameraAnchor, type Anchor } from "./geometry/cameraAnchor";
 import type { CameraSample } from "./geometry/colorize";
 import type { LidarAxisConvention } from "./geometry/axisConvention";
 import { LIDAR_BOX_3D_TOOL_UNIT } from "./geometry/box3dAttributes";
-// 新框默认尺寸(米,长宽高;约一辆轿车),放置后用面板/gizmo 精修。
 export const DEFAULT_BOX_SIZE: [number, number, number] = [4.0, 1.8, 1.6];
-// align 模式下邻帧点已预变换到当前帧 ego 系,渲染走 identity(共享单例,免重复分配)。
 export const IDENTITY_MATRIX = new THREE.Matrix4();
-// 种框空簇 fallback:沿中央射线的估计深度(米)。图上可见但无 lidar 返回时按此放默认框。
 export const SEED_FALLBACK_RANGE_M = 12;
 export const CAMERA_AUTO_COLLAPSE_WIDTH = 1366;
 export const CAMERA_STACK_VISIBLE = 2;
@@ -30,7 +25,6 @@ export const THREE_D_LAYOUT_PRESETS: ReadonlyArray<{
   { id: "point-segmentation", label: "点级分割", description: "隐藏三视图和相机面板" },
 ];
 
-// 框选预览矩形位置/尺寸经 CSS custom property 注入(逐帧动态值)。
 export type BoxSelectRectVars = CSSProperties & {
   "--rect-l": string;
   "--rect-t": string;
@@ -50,7 +44,6 @@ export function resolveBox3dDefaultSize(
   }
   return DEFAULT_BOX_SIZE;
 }
-// 点云项目的 3D 框工具单位(类别 / 属性绑定都挂在它下面)。
 export const LIDAR_TOOL_UNIT = LIDAR_BOX_3D_TOOL_UNIT;
 export const POINT_MASK_TOOL_UNIT = "point_mask_3d";
 
@@ -72,7 +65,6 @@ export function geometryConvention(
   return g?.convention_at_create ?? fallback;
 }
 
-/** Read camera pixels through an owned local image address; unsupported images are skipped. */
 export async function loadCameraSample(
   imageUrl: string | null | undefined,
   calib: SensorCalibration,
@@ -123,7 +115,7 @@ export async function loadCameraSample(
         const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
         finish({ calib, width: canvas.width, height: canvas.height, data });
       } catch {
-        finish(null); // 跨域污染
+        finish(null);
       }
     };
     img.onerror = () => finish(null);
@@ -131,9 +123,6 @@ export async function loadCameraSample(
   });
 }
 
-// PSR 数值面板字段(中心 cx/cy/cz、尺寸 l/w/h、朝向 yaw/pitch/roll)。
-// 朝向补齐三轴: yaw=rotation[2](绕Z)、pitch=rotation[1](绕Y)、roll=rotation[0](绕X),
-//   与三视图方向线(Top/Side/Front)一致, 避免数值编辑抹掉 pitch/roll。
 export type PsrField = "cx" | "cy" | "cz" | "l" | "w" | "h" | "yaw" | "pitch" | "roll";
 export const PSR_FIELDS: PsrField[] = ["cx", "cy", "cz", "l", "w", "h", "yaw", "pitch", "roll"];
 export const SIZE_FIELDS = new Set<PsrField>(["l", "w", "h"]);
@@ -167,15 +156,11 @@ export function psrToForm(b: {
   };
 }
 
-// 拆分(第 2 批)· PSR 数值面板纯逻辑,从 ThreeDWorkbench 的 schedulePatch / handleFieldBlur 提炼。
-
-// 单字段是否非法(空 / 非有限数 / 尺寸字段 ≤ 0)。失焦时据此从选中框当前值恢复。
 export function isPsrFieldBad(field: PsrField, value: string): boolean {
   const n = Number(value);
   return value.trim() === "" || !Number.isFinite(n) || (SIZE_FIELDS.has(field) && n <= 0);
 }
 
-// 解析整张表单为数值 + 是否全部有效(所有字段有限,且 l/w/h > 0)。防抖 PATCH 前校验。
 export function parsePsrForm(form: Record<PsrField, string>): {
   values: Record<PsrField, number>;
   valid: boolean;
@@ -190,7 +175,6 @@ export function parsePsrForm(form: Record<PsrField, string>): {
   return { values, valid };
 }
 
-// PSR 表单数值(朝向为°)→ box_3d geometry(朝向转弧度,rotation=[roll, pitch, yaw])。
 export function psrFormToGeometry(
   values: Record<PsrField, number>,
   convention: LidarAxisConvention,
@@ -206,8 +190,6 @@ export function psrFormToGeometry(
   );
 }
 
-// 取 front 相机光轴的水平「前方」(归一化 [x,y]),供 resetView 跟随车头朝向。
-// front = anchor 推为 top 的相机;无标定 / 退化 → null(回退默认 +Y)。
 export function frontCameraForward(
   cams: { calibration?: SensorCalibration | null; role: string; name: string }[],
 ): [number, number] | null {
@@ -220,7 +202,6 @@ export function frontCameraForward(
   return n < 1e-3 ? null : [x / n, y / n];
 }
 
-// 按朝向把悬浮定位容器贴到主视图对应边缘。
 export const ANCHOR_CLASS: Record<Anchor, string> = {
   top: "top-3 left-0 right-0 justify-center flex-row",
   bottom: "bottom-3 left-0 right-0 justify-center flex-row",
@@ -233,7 +214,6 @@ export const ANCHOR_CLASS: Record<Anchor, string> = {
   overflow: "bottom-3 left-0 right-0 justify-center flex-row",
 };
 
-/** Camera overlay navigation must leave task and propagation shortcuts to their owners. */
 export function enlargedCameraNavigationDirection(
   event: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "altKey" | "shiftKey">,
 ): -1 | 1 | null {

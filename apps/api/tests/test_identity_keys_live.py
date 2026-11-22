@@ -112,7 +112,6 @@ async def test_key_replay_survives_restart_without_reviving_revoked_material(
 
         rotated = _command(token, "rotate_api_key", {"key_id": str(key_id)})
         async with httpx.AsyncClient(trust_env=False, timeout=20) as client:
-            # Discard the committed response body, then recover by the saved operation.
             async with client.stream(
                 "POST",
                 identity.origin + "/v1/identity/api-keys/execute",
@@ -336,7 +335,6 @@ async def test_public_key_routes_use_remote_owner_without_identity_table_privile
             identity = _start_identity(
                 test_engine, tmp_path, secret, control, port=port, enable_keys=False
             )
-            # Admission stays healthy while absent key command capability fails closed.
             assert (
                 await client.get("/api/v1/me/api-keys", headers=headers)
             ).status_code == 503

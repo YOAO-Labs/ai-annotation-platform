@@ -27,7 +27,6 @@ SAFE_NODE = re.compile(r"[A-Za-z0-9_.:@-]{1,128}")
 
 
 def error(code, status=409):
-    # content_snapshot also uses this owner, so import the shared error lazily.
     from app.services.content_snapshot import ContentError
 
     return ContentError(code, status)
@@ -84,7 +83,6 @@ def unavailable(exc):
 async def ensure(db, location_id):
     """Commit initialization independently, never in the business transaction."""
     async with engine(db).begin() as connection:
-        # Avoid ON CONFLICT touching an existing row held by the caller itself.
         if await connection.scalar(
             select(Gate.location_id).where(Gate.location_id == location_id)
         ):
@@ -197,8 +195,6 @@ class Permit:
                     cancelled = interrupted
                     await finish(task)
             except BaseException:
-                # An unresolved record must remain visible; do not print paths,
-                # exception payloads, connection strings, or driver credentials.
                 logger.error(
                     "Storage operation settlement failed: location=%s operation=%s",
                     self.location_id,

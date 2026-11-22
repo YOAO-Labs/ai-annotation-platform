@@ -78,8 +78,6 @@ class BriefsClient:
 
         try:
             async with asyncio.timeout(self._timeout_seconds):
-                # Match IdentityGateway's current selector: an empty URL means no
-                # remote owner; any nonempty URL selects HTTP and must not fall back.
                 if self._identity_url:
                     return await self._execute_http(request)
                 return await self._execute_data(request)

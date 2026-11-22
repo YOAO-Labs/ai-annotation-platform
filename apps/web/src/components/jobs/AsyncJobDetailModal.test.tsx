@@ -413,7 +413,6 @@ describe("共享后台任务详情", () => {
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "查看数据集" }));
     await user.click(await screen.findByRole("button", { name: "继续绘制" }));
-    // The lower Radix layer defers outside-pointer dismissal until after click.
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog", { name: "后台任务详情" })).toBeInTheDocument();

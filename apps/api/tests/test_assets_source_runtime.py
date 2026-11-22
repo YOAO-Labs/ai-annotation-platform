@@ -562,7 +562,6 @@ async def test_independent_source_publication_legacy_replay_deletion_and_switchi
                 text("UPDATE public.datasets SET file_count=file_count+1 WHERE id=:id"),
                 {"id": world.dataset_id},
             )
-        # Legacy completion is not attributed to an invented historical uploader.
         async with _lost_response_proxy(stack.origin) as proxy:
             monkeypatch.setattr(settings, "assets_source_url", proxy)
             lost = await _complete(
@@ -805,7 +804,6 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
             ).get("Contents", [])
             assert len(objects) == 1
             orphan_key = objects[0]["Key"]
-            # Copy has finished, but no SQL completion reply or COMMIT has reached the service.
             await asyncio.to_thread(
                 _docker, "kill", "--signal", "KILL", stack.container
             )

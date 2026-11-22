@@ -197,8 +197,6 @@ def receipt_world(monkeypatch):
     )
     source = identity(task.id)
     actor_id = uuid.uuid4()
-    # The unit boundary is the existing canonical resolver; live owned tests
-    # separately register real TaskOriginal/direct/primary-only source facts.
     binding = {"source": "private canonical facts"}
     db = SimpleNamespace(sync_session=Session(), reads=[])
 

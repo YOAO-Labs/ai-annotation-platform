@@ -99,9 +99,6 @@ def send_message(config: SMTPConfig, message: EmailMessage) -> MailDeliveryResul
             phase = "send"
             refused = client.send_message(message, from_addr=config.sender)
             if refused:
-                # SMTP accepted at least one recipient and refused another. A
-                # retry is safer than claiming full delivery; it may duplicate
-                # delivery to accepted recipients, which mail is allowed to do.
                 return _result(MailOutcome.UNKNOWN, MailReason.RECIPIENT_REJECTED)
         return _result(MailOutcome.DELIVERED, MailReason.SENT)
     except smtplib.SMTPRecipientsRefused as exc:
@@ -139,8 +136,6 @@ def send_message(config: SMTPConfig, message: EmailMessage) -> MailDeliveryResul
             return _response_result(exc, MailReason.CONNECT_FAILED)
         return _result(MailOutcome.RETRY, MailReason.TRANSPORT_FAILED)
     except (TypeError, ValueError):
-        # Header serialization and address parsing happen before DATA. They are
-        # known message failures even if smtplib raises them from send_message.
         return _result(MailOutcome.REJECTED, MailReason.MESSAGE_INVALID)
     except Exception:
         if phase == "send":

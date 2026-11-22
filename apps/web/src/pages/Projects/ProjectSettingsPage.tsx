@@ -65,7 +65,6 @@ const SECTIONS: {
   { key: "batches", label: "批次管理", icon: "layers" },
   { key: "ml-backends", label: "模型服务", icon: "bot" },
   { key: "rendering", label: "工作台规范", icon: "eye" },
-  // 视频帧采样（仅 video 项目可见）
   { key: "video-sampling", label: "视频采样", icon: "target" },
   { key: "annotation-guide", label: "标注指引", icon: "book" },
   { key: "owner", label: "负责人", icon: "user" },
@@ -96,7 +95,6 @@ export function ProjectSettingsPage() {
   const { role } = usePermissions();
   const { data: project, isLoading, error } = useProject(id);
   const isOwner = useIsProjectOwner(project ?? null);
-  // B-12-④：解析 ?section=batches 等深链参数。
   const initialSection = (() => {
     const q = searchParams.get("section");
     if (!q || !(VALID_SECTIONS as string[]).includes(q)) return "general";
@@ -106,8 +104,6 @@ export function ProjectSettingsPage() {
   })();
   const [section, setSection] = useState<SectionKey>(initialSection);
 
-  // Keep deep links reactive when a readiness item, browser history entry, or
-  // another tab changes ?section after the page has mounted.
   useEffect(() => {
     const requested = searchParams.get("section");
     if (!requested || !(VALID_SECTIONS as string[]).includes(requested)) {
@@ -152,9 +148,7 @@ export function ProjectSettingsPage() {
   const visibleSections = SECTIONS.filter((s) => {
     if (s.key === "owner") return role === "super_admin";
     if (s.key === "danger") return isOwner;
-    // 视频帧采样仅对 video 项目展示。
     if (s.key === "video-sampling") return isVideoProject;
-    // Annotation Guide 前端暂时下线（见 featureFlags）。
     if (s.key === "annotation-guide") return ANNOTATION_GUIDE_UI_ENABLED;
     return true;
   });

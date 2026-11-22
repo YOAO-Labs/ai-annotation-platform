@@ -1,5 +1,5 @@
 <!-- AUTO-GENERATED — 由 docs-site/scripts/generate-settings.mjs 从 -->
-<!-- apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts + -->
+<!-- apps/web/src/pages/Workbench/state/workbenchSettingsFields.ts、workbenchLocalDefaults.ts 和 -->
 <!-- apps/web/src/api/auth.ts 生成。请勿手改。 -->
 
 ### 界面布局
@@ -138,6 +138,6 @@
 
 | 设置项 | 说明 | 默认 |
 |---|---|---|
-| 3D WebGPU 渲染器 | 仅当前浏览器，默认关闭；切换点云主视图和框体精修视图的渲染器，刷新或重新打开点云任务后生效。实际后端显示在 3D 状态栏 | 关闭 |
-| WebCodecs 精确解码 | 仅当前浏览器，默认开启；视频暂停、逐帧和 seek 优先精确解码，不支持时安全回退。刷新后生效；URL 的 webcodecs 参数优先于本机开关 | 开启 |
-| 参考框运动预测 | 仅当前浏览器，即时生效；视频轨迹当前帧无框时的参考框预测方式，默认取最近关键帧 | — |
+| 3D WebGPU 渲染器 | 仅当前浏览器；切换点云主视图和框体精修视图的渲染器，刷新或重新打开点云任务后生效。实际后端显示在 3D 状态栏 | 关闭 |
+| WebCodecs 精确解码 | 仅当前浏览器；视频暂停、逐帧和 seek 优先精确解码，不支持时安全回退。刷新后生效；URL 的 webcodecs 参数优先于本机开关 | 开启 |
+| 参考框运动预测 | 仅当前浏览器，即时生效；选择视频轨迹当前帧无框时的参考框运动预测方式 | 关(最近关键帧) |

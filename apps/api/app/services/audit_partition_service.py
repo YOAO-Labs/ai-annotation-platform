@@ -212,7 +212,6 @@ async def _ready_exists(db: AsyncSession, source: SourcePartition) -> None:
         )
         is not None
     ):
-        # A ready month is not permission to remove a subsequently recreated table.
         raise AuditArchiveError("audit_archive_month_already_ready")
 
 
@@ -231,8 +230,6 @@ async def _pending_owner(db: AsyncSession, receipt) -> AuditArchiveOutput:
 async def _candidate(db: AsyncSession, source: SourcePartition, job_id: UUID, file):
     await _begin(db)
     await month_mutex(db, source.month_start)
-    # Local streaming is bounded but may be lengthy; allow cancellation to
-    # commit while it runs, then lock and recheck immediately before ownership.
     await _running_job(db, job_id, lock=False)
     await _ready_exists(db, source)
     await lock_source(db, source)
@@ -258,7 +255,6 @@ async def _candidate(db: AsyncSession, source: SourcePartition, job_id: UUID, fi
     receipt = archive_storage.snapshot(row)
     await _running_job(db, job_id)
     _not_cancelled()
-    # Unknown commit acknowledgement must never lead to physical writes or cleanup.
     await db.commit()
     return receipt
 
@@ -290,7 +286,6 @@ async def _write_candidate(db: AsyncSession, receipt, file, *, accounting=None) 
         )
         _not_cancelled()
         revision = permit.revision
-        # No business or source locks survive into the physical operation.
         await db.commit()
 
     await storage_access.run(
@@ -328,8 +323,6 @@ async def _archive_partition(db, source, job_id, candidate_count):
     except BaseException as exc:
         failure = exc
     finally:
-        # run() drains native I/O before this real input owner closes its file.
-        # Publishing may fail after a verified write without changing that fact.
         try:
             file.close()
             input_settled = True
@@ -366,8 +359,6 @@ async def _publish(
         or observed.sha256 != receipt.source_sha256
     ):
         raise AuditArchiveError("audit_archive_source_changed")
-    # Never wait while upgrading: parent-routed INSERT may already hold the
-    # parent and be waiting for our child SHARE lock. NOWAIT breaks that cycle.
     await db.execute(
         text("LOCK TABLE ONLY public.audit_logs IN ACCESS EXCLUSIVE MODE NOWAIT")
     )
@@ -414,7 +405,6 @@ async def _publish(
     job.progress_pct = min(99, len(result["output_ids"]) * 100 // candidate_count)
     await db.flush()
     _not_cancelled()
-    # DROP, ready, publication audit and partial job result have one outcome.
     await db.commit()
     return result
 
@@ -452,7 +442,6 @@ class AuditPartitionService:
                 if name in children:
                     await verify_source(db, children[name])
                 else:
-                    # The parent lock is short and has no physical storage work.
                     await db.execute(
                         text(
                             "LOCK TABLE ONLY public.audit_logs IN ACCESS EXCLUSIVE MODE NOWAIT"

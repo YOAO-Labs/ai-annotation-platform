@@ -96,8 +96,6 @@ def parser():
 
 
 def application():
-    # Keep application settings and the database entirely out of native-only CLI
-    # startup. The existing runtime launcher supplies the intended database.
     from app.services import storage_migration_finalizations as service
     from app.services.prediction_inputs import settled_io
     from app.services.storage_migration_finalization_evidence import (
@@ -171,9 +169,6 @@ async def execute(args, journal, adapter, config):
         if existing is None:
             from app.services.storage_migration_observations import endpoint_identity
 
-            # Retain the short application locks through one private fsync and
-            # the reservation commit, so close cannot overtake a new intent.
-            # All native observations finish before opening this transaction.
             async with session() as db:
                 context = await service.preflight(
                     db, actor, uuid.UUID(args.window_id), args.expected_window_revision
@@ -207,7 +202,6 @@ async def execute(args, journal, adapter, config):
             ):
                 raise FenceError("application_claim_changed")
             result = await call(service.bind, actor, claim, native)
-        # A failed/unknown database commit never removes the durable intent.
         journal.mark_application_reserved(
             claim["finalization_id"], claim["reservation_nonce"]
         )
@@ -226,13 +220,9 @@ async def execute(args, journal, adapter, config):
                 )
             if result.state != "withdrawn":
                 raise FenceError("read_publication_unsettled")
-            # Keep the Journal claim and source fence. Read withdrawal does
-            # not transfer or release Finalization's native responsibility.
             return result
 
         if args.command == "status-reads":
-            # Durable publication status also recovers a withdrawal after the
-            # source becomes unavailable. It is not a current native proof.
             return await call(reads.status, actor, claim)
         before = native_proof(journal, adapter, config)
         prepared = await call(
@@ -266,7 +256,6 @@ async def execute(args, journal, adapter, config):
             )
         if result.state != "invalidated":
             raise FenceError("finalization_unsettled")
-        # Commit invalidation before removing the native release interlock.
         journal.unbind_application(claim["finalization_id"], claim["reservation_nonce"])
         return result
 
@@ -282,8 +271,6 @@ async def execute(args, journal, adapter, config):
         args.expected_revision,
         before,
     )
-    # Native/file work runs without a database transaction. Drain the real
-    # thread through cancellation before releasing the Journal's physical lock.
     proof = await settled_io(
         evidence,
         prepared["values"],

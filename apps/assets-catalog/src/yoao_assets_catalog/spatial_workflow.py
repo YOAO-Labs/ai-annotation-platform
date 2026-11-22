@@ -482,8 +482,6 @@ class SpatialWorkflow:
                     current_calibration
                 )
             except (TypeError, ValueError, ValidationError):
-                # The native mutation will report invalid current facts unless
-                # this stable operation already has a committed receipt.
                 current_document = ""
         apply_request = spatial.ApplyCalibrationRequest(
             **request.model_dump(),

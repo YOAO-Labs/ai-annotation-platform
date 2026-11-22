@@ -45,12 +45,10 @@ class MLBackendServicePool(Base):
 
     __tablename__ = "ml_backend_service_pools"
     __table_args__ = (
-        # 非空 enabled pool 必须有 legacy 成员 (ADR-0050 D15 / §5.1)
         CheckConstraint(
             "(enabled = false) OR (legacy_instance_id IS NOT NULL)",
             name="ck_ml_backend_service_pools_enabled_has_legacy",
         ),
-        # 首版只允许一种路由策略 (ADR-0050 D10)
         CheckConstraint(
             "routing_policy = 'smooth_weighted_round_robin'",
             name="ck_ml_backend_service_pools_routing_policy",
@@ -61,8 +59,6 @@ class MLBackendServicePool(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    # 全局接流开关。显式创建的空 pool 默认 false; singleton backfill 按既有
-    # registry 状态设置。空 pool (无成员) 只能 disabled。
     enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
@@ -72,25 +68,17 @@ class MLBackendServicePool(Base):
         default="smooth_weighted_round_robin",
         server_default="smooth_weighted_round_robin",
     )
-    # nullable FK → registry; 非空 enabled pool 必须指向本池 active 成员。
-    # off / observe 下实际 dispatch 走此实例; enforce 下 router 在全部 active
-    # 成员间选择, legacy 不参与优先级。FK RESTRICT — 删除 legacy 实例前必须
-    # 先换人或把空 pool 原子置 disabled。
     legacy_instance_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("ml_backend_registry.id", ondelete="RESTRICT"),
         nullable=True,
     )
-    # pool / member / weight / traffic_state 任何变更都单调 +1;
-    # router acquire 校验 generation 一致, 旧 generation 不得 acquire (D16)。
     routing_generation: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=1, server_default="1"
     )
-    # SHA-256 hex (64 chars) of canonical routing capability; null = 池不可路由。
     capability_fingerprint: Mapped[str | None] = mapped_column(
         String(64), nullable=True
     )
-    # canonical 路由相关能力快照 (仅路由相关字段, 排除 URL/auth/GPU/health 运行态)。
     capability_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -113,9 +101,7 @@ class MLBackendPoolMember(Base):
 
     __tablename__ = "ml_backend_pool_members"
     __table_args__ = (
-        # (pool_id, registry_id) unique — 同一实例在同一 pool 内不重复
         UniqueConstraint("pool_id", "registry_id", name="uq_ml_backend_pool_members"),
-        # registry_id 单列 unique — 一实例最多属于一个 pool (ADR-0050 D2)
         UniqueConstraint("registry_id", name="uq_ml_backend_pool_members_registry"),
         CheckConstraint(
             "traffic_state IN ('active', 'draining', 'disabled')",
@@ -135,8 +121,6 @@ class MLBackendPoolMember(Base):
         ForeignKey("ml_backend_service_pools.id", ondelete="CASCADE"),
         index=True,
     )
-    # 单列 unique 保证一实例只属于一个 pool。FK RESTRICT — 删除 registry 前
-    # 必须先 drain + inflight=0 + GPU retirement + 成员移除 (§5.2)。
     registry_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("ml_backend_registry.id", ondelete="RESTRICT"),

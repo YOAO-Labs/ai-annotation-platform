@@ -110,7 +110,6 @@ async def test_table_free_deactivation_api_and_two_celery_event_loops(
             assert cancelled.json()["deactivation_scheduled_at"] is None
             assert (await client.post(path, json={})).status_code == 200
 
-            # Model an old accepted request becoming due without waiting seven days.
             async with maker.begin() as db:
                 await db.execute(
                     text(
@@ -141,7 +140,6 @@ async def test_table_free_deactivation_api_and_two_celery_event_loops(
             )
             monkeypatch.setattr(settings, "notification_publish_database_url_file", "")
 
-            # Real Celery task entry points each construct and dispose a fresh loop/engine.
             for expected in (1, 0):
                 run_id = uuid.uuid4()
                 due_ids.append(uuid.uuid5(run_id, "batch:0"))

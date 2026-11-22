@@ -180,7 +180,6 @@ async def test_workbench_scope_allows_in_progress_draft_with_own_lock(
     assert set(_mock_celery["request"].accepted_input_ids) == {str(task.id)}
     assert len(_mock_celery["admission_requests"]) == 1
 
-    # issue #121 review · 工作台单题请求预建持久作业, 使 worker 早期校验失败也有终态记录。
     job_id = uuid.UUID(resp.json()["job_id"])
     job = await db_session.get(AsyncJob, job_id)
     assert job is not None
@@ -409,7 +408,6 @@ async def test_workbench_scope_rejects_foreign_lock_hidden_behind_own_lock(
     owner, token = super_admin
     other, _ = annotator
     proj, backend, _, task = await _seed(db_session, owner.id)
-    # 本人锁更晚过期 (active_lock 会先返回它), 但他人锁仍然存在。
     _own_lock(db_session, task.id, other.id)
     db_session.add(
         TaskLock(
@@ -446,14 +444,12 @@ async def test_workbench_validator_allows_own_lock_then_rejects_other_lock(
     other, _ = annotator
     proj, _, _, task = await _seed(db_session, owner.id)
 
-    # 本人锁 + in_progress + draft → 允许
     _own_lock(db_session, task.id, owner.id)
     await db_session.commit()
     assert await _validate_workbench_task_scope(
         db_session, project=proj, task_ids=[task.id], actor=owner
     ) == [task.id]
 
-    # 他人锁 → 409
     task_lock = (
         await db_session.execute(select(TaskLock).where(TaskLock.task_id == task.id))
     ).scalar_one()

@@ -245,8 +245,6 @@ async def _cleanup_fixture(
     """Delete only rows owned by this test's explicit IDs."""
 
     async with session_factory() as db:
-        # The audit table is append-only by default. Its documented GDPR cleanup
-        # escape hatch is scoped to this cleanup transaction only.
         await db.execute(text("SET LOCAL app.allow_audit_update = 'true'"))
         await db.execute(
             delete(Notification).where(Notification.target_id == fixture.root_id)
@@ -267,8 +265,6 @@ async def _cleanup_fixture(
                 AuditLog.actor_id.in_(fixture.user_ids),
             )
         )
-        # Reply IDs are generated inside the route. The root ID is the explicit
-        # parent scope, and no other test can reference this freshly generated root.
         await db.execute(
             delete(AnnotationFeedback).where(
                 AnnotationFeedback.thread_parent_id == fixture.root_id

@@ -34,7 +34,6 @@ describe("buildUnitBindings", () => {
     ]);
     expect(bindings.bbox?.enabled).toBe(true);
     expect(bindings.bbox?.classRows).toEqual([{ name: "car", color: "#0ea5e9" }]);
-    // region 现属视频单位, 保留其独立类别。
     expect(bindings.region?.enabled).toBe(true);
     expect(bindings.region?.classRows).toEqual([{ name: "person", color: "#22c55e" }]);
     expect(bindings.rotated_bbox?.enabled).toBe(true);
@@ -66,7 +65,6 @@ describe("buildUnitBindings", () => {
     expect(bindings.region?.enabled).toBe(false);
     expect(bindings.keypoint?.enabled).toBe(false);
     expect(bindings.rotated_bbox?.enabled).toBe(false);
-    // legacy 扁平类别落入 bbox 默认单位。
     expect(bindings.bbox?.enabled).toBe(true);
     expect(bindings.bbox?.classRows).toEqual([
       { name: "vehicle", color: "#0ea5e9", alias: "vehicle" },
@@ -93,7 +91,6 @@ describe("unitBindingsToPayload", () => {
     });
 
     expect(out.bbox?.enabled).toBe(true);
-    // 修复前: 禁用单位整体被丢弃；修复后: enabled:false 但配置保留。
     expect(out.region?.enabled).toBe(false);
     expect(out.region?.classes).toEqual([{ name: "road", color: "#22c55e", order: 0 }]);
     expect(out.region?.attribute_schema).toEqual({
@@ -115,7 +112,6 @@ describe("unitBindingsToPayload", () => {
     expect(out.region).toBeUndefined();
   });
 
-  // alias_to 软关联往返
   it("链接的类序列化时省略自身 color/alias, 只带 alias_to", () => {
     const ref = { tool_unit_id: "bbox", class_name: "person" };
     const out = unitBindingsToPayload({
@@ -131,7 +127,6 @@ describe("unitBindingsToPayload", () => {
       },
     });
     expect(out.region?.classes).toEqual([{ name: "pedestrian", order: 0, alias_to: ref }]);
-    // 未链接的类照旧带 color/alias。
     expect(out.bbox?.classes).toEqual([
       { name: "person", color: "#ff0000", order: 0, alias: "person" },
     ]);
@@ -152,7 +147,6 @@ describe("unitBindingsToPayload", () => {
       },
     });
     expect(out.bbox?.video_modes).toEqual({ box: true, track: false });
-    // 序列化对所有视频几何单位透传, 不再仅 bbox。
     expect(out.region?.video_modes).toEqual({ box: false, track: true });
   });
 });
@@ -170,7 +164,6 @@ describe("buildUnitBindings · video_modes", () => {
         },
       },
     });
-    // box 显式给出, track 缺省 → 补 true。
     expect(bindings.bbox?.videoModes).toEqual({ box: true, track: true });
   });
 });
@@ -180,7 +173,6 @@ describe("buildUnitBindings · 退役 ai_interactive 折叠", () => {
     const bindings = buildUnitBindings({
       data_type: "image",
       type_key: "image-det",
-      // ai_interactive 已从 ToolUnitId 删除; 老项目 JSONB 里仍可能有该 key。
       tool_bindings: {
         bbox: {
           enabled: true,
@@ -189,13 +181,11 @@ describe("buildUnitBindings · 退役 ai_interactive 折叠", () => {
         },
         region: {
           enabled: true,
-          // region 也有 car (不同色) → 与来源冲突, 保留 region 的 #22c55e。
           classes: [{ name: "car", color: "#22c55e", order: 0 }],
           attribute_schema: { fields: [] },
         },
         ai_interactive: {
           enabled: true,
-          // car 与 bbox / region 均同名 → 各自保留目标单位配色; prompt 新增 → 折进两者。
           classes: [
             { name: "car", color: "#a855f7", order: 0 },
             { name: "prompt", color: "#a855f7", order: 1 },
@@ -205,17 +195,14 @@ describe("buildUnitBindings · 退役 ai_interactive 折叠", () => {
       } as never,
     });
 
-    // 同名 car 保留目标单位配色, 来源被跳过; 新类 prompt 折进 bbox。
     expect(bindings.bbox?.classRows).toEqual([
       { name: "car", color: "#0ea5e9" },
       { name: "prompt", color: "#a855f7" },
     ]);
-    // 新类 prompt 也折进 region (退役前是共享调色板); car 保留 region 自己的配色。
     expect(bindings.region?.classRows).toEqual([
       { name: "car", color: "#22c55e" },
       { name: "prompt", color: "#a855f7" },
     ]);
-    // ai_interactive 不作为独立单位出现。
     expect(Object.keys(bindings)).not.toContain("ai_interactive");
   });
 });

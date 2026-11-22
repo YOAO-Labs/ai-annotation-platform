@@ -41,8 +41,6 @@ _CLAIM_OPERATIONS = frozenset(
 
 def image_storage_config(media_storage_config):
     """Use the existing image storage config for byte-only conditional source reads."""
-    # The video adapter selects only the datasets bucket. The transport's unused
-    # legacy slot aliases that same authorized bucket without image env settings.
     values = asdict(media_storage_config)
     values["additional_original"] = media_storage_config.additional_original
     return ImageStorageConfig(
@@ -71,7 +69,7 @@ async def _close_shared_s3_clients(storage) -> None:
             result = close()
             if inspect.isawaitable(result):
                 await result
-        except BaseException as exc:  # finish closing the other owned client too
+        except BaseException as exc:
             if first_error is None:
                 first_error = exc
     if first_error is not None:

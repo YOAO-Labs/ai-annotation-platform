@@ -32,8 +32,6 @@ def validate_coco_rle(
 ) -> tuple[int, int, list[int]]:
     """Validate the stable structural RLE envelope and return normalized values."""
     if isinstance(rle, RleContent):
-        # Revalidate typed values too: callers can construct a Pydantic model
-        # without validation, and these helpers are also a storage boundary.
         rle = {
             "encoding": rle.encoding,
             "size": rle.size,

@@ -1,6 +1,3 @@
-/**
- * useClipboard 单测：覆盖 copy / paste 偏移、polygon 平移、bbox clamp。
- */
 import { describe, expect, it, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useClipboard } from "./useClipboard";
@@ -193,7 +190,6 @@ describe("useClipboard", () => {
       geometry: { type: string; x?: number; points?: number[][] };
     };
     expect(payload.geometry.type).toBe("bbox");
-    // x clamped: 0.95 + 0.1 = 1.05 → cap to 1 - w = 0.96
     expect(payload.geometry.x).toBeCloseTo(0.96, 2);
     expect(pushBatch).toHaveBeenCalledTimes(1);
   });
@@ -221,7 +217,6 @@ describe("useClipboard", () => {
     expect(payload.geometry.type).toBe("polygon");
     const pts = (payload.geometry as { points: number[][] }).points;
     expect(pts).toHaveLength(3);
-    // 第 1 个点 0.1 + 0.1 = 0.2
     expect(pts[0][0]).toBeCloseTo(0.2, 2);
   });
 

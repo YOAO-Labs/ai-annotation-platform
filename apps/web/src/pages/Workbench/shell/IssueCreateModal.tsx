@@ -8,11 +8,9 @@ import type { IssuePinAnchor } from "../state/useIssuePins";
 import { validIssueFrameRange } from "../state/videoIssueContext";
 import { issueObjectLabel } from "../stage/issuePinVisuals";
 
-// UA-safe 文本输入基线(无全局 preflight 期间)。
 const FIELD_BASE =
   "appearance-none rounded border border-border bg-muted px-2 py-1.5 text-xs text-foreground outline-none [font:inherit] focus:border-brand";
 
-// 严重度语义色:提示=sky / 警告=amber / 阻断=rose。激活态用 brand 实心填充。
 const SEVERITY_TEXT: Record<FeedbackSeverity, string> = {
   info: "text-status-info-alt",
   warn: "text-status-caution",
@@ -27,11 +25,8 @@ interface Props {
   open: boolean;
   projectId: string;
   taskId: string;
-  /** useFeedbacks 当前订阅的 params; 提交后 invalidate 这个 key. */
   listParams: ListFeedbacksParams;
-  /** The clicked normalized point and, for video, its confirmed source frame. */
   prefilledAnchor?: IssuePinAnchor | null;
-  /** Explicit creation intent. Pixel creation is valid only with a confirmed anchor. */
   anchorMode?: "pixel" | "task";
   onClose: () => void;
 }
@@ -71,9 +66,6 @@ function IssueCreateSession({
   anchorMode,
   onClose,
 }: Props) {
-  // Each opening/task owns its form and mutation observer, including A → B → A.
-  // The intent and anchor are snapshots: a late parent update cannot move a
-  // submission to another point or silently turn a task Issue into a pixel one.
   const [snapshot] = useState(() => {
     const mode = anchorMode ?? (prefilledAnchor ? "pixel" : "task");
     return {

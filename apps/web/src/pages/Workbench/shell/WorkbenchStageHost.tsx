@@ -51,7 +51,6 @@ import type { VideoManagedTrackAnnotation, VideoSamPrompt } from "../stage/video
 import type { VideoMaskCandidate } from "../stage/videoMaskFrames";
 import { ImageWorkbench } from "../stages/image/ImageWorkbench";
 import type { StageKind } from "../stages/types";
-// 点云 3D 模块 lazy import：three(~600KB)只在打开 lidar 任务时加载，不进主 bundle。
 const ThreeDWorkbench = lazy(() => import("../stages/three-d/ThreeDWorkbench"));
 import { VideoWorkbench } from "../stages/video/VideoWorkbench";
 import type { VideoSamCandidateShape } from "../stage/VideoSamCandidateOverlay";
@@ -83,18 +82,9 @@ type VideoGeometry =
   | VideoTrackPolygonGeometry
   | VideoTrackPolylineGeometry;
 
-/**
- * WorkbenchStageHostProps 按语义嵌套:
- *   - common: stageKind / overlays / readOnly / activeClass / selectedId / annotations + selection 回调
- *   - video : video* / hidden|lockedVideoTrackIds + video 回调 (stageKind="video" 才消费)
- *   - image : fileUrl / blurhash / thumbnailUrl / tool / vp / image 标注回调 (stageKind="image" 才消费)
- *   - ai    : samCandidates / samActive* / sam 子工具 / onRefineSamCandidate
- *   - editors: maskEditor / polygonDraft / canvas* / projectRenderingConfig / issue* / comment badges
- */
 interface WorkbenchStageHostCommonProps {
   maskCompareStore?: MaskCompareTileStore | null;
   stageKind: StageKind;
-  /** 当前任务 id，点云 3D 舞台据此拉 point-cloud manifest。 */
   taskId: string | null;
   overlays: ReactNode;
   readOnly: boolean;
@@ -103,29 +93,21 @@ interface WorkbenchStageHostCommonProps {
   selectedIds: string[];
   annotations: AnnotationResponse[];
   pendingDrawing: PendingDrawing;
-  /** 边栏开合时 +1, 触发 image/video stage 重新适应窗口 (两个舞台共用)。 */
   fitTick: number;
   onSelectBox: (id: string | null, opts?: { shift?: boolean }) => void;
   onCursorMove: (pt: { x: number; y: number } | null) => void;
   onDeleteUserBox: (id: string) => void;
   onChangeUserBoxClass: (id: string) => void;
-  /** 点云 3D 台工具态(壳层共享,与 ToolDock 同源);非 3D 任务忽略。 */
   threeDTool: ThreeDTool;
   onSetThreeDTool: (t: ThreeDTool) => void;
-  /** 跨帧目标延续 (Shift+→ / Shift+←): 把选中框 propagate 到同 scene 邻帧。 */
   onCrossFramePropagate: (direction: "next" | "prev") => void;
-  /** 批量延续 (Ctrl+Shift+→/←): 当前帧全部 box_3d 延续到邻帧。 */
   onCrossFramePropagateBatch: (direction: "next" | "prev") => void;
-  /** 把选中框延续到 scene 内指定帧 task(插值工作流的建链一步)。 */
   onCrossFramePropagateToTask: (targetTaskId: string, targetFrameIndex: number) => void;
-  /** 区间插值: 当前 task(起点)与 toTask(终点)的同 track 框之间插值填充。 */
   onCrossFrameInterpolate: (trackId: string, toTaskId: string) => void;
-  /** Scene 时间轴复用壳层保存保护与 task 导航。 */
   onNavigateSceneFrame: (targetTaskId: string) => Promise<boolean>;
   scenePlaybackActive?: boolean;
   onScenePlaybackActiveChange?: (active: boolean) => void;
   scenePlaybackBlockedReason?: string | null;
-  /** 3D 浮层避让右栏 + 三视图浮窗偏好。 */
   rightSidebarOpen: boolean;
   rightSidebarWidth: number;
   workbenchLayout: WorkbenchLayoutPreferences;
@@ -143,35 +125,30 @@ interface WorkbenchStageHostVideoProps {
   videoFrameTimetable?: TaskVideoFrameTimetableResponse;
   videoManifestLoading?: boolean;
   videoManifestError?: unknown;
+  annotationWritesPending?: boolean;
   videoChapters?: VideoTimelineChapter[];
-  /** 章节 × 时间轴联动控制器 (刷选建章节 / resize / hover)。 */
   videoTimelineChapterControls?: VideoTimelineChapterControls;
-  /** AI 传播对话框打开时在时间轴高亮的影响范围。 */
   videoPropagateRange?: { startFrame: number; endFrame: number } | null;
   trackerReview?: TrackerReviewProjection | null;
   reviewReference?: VideoTrackContextBarProps["reviewReference"];
   onSeekReviewFrame?: (frame: number) => void;
   videoSegmentRange?: VideoSegmentTimelineRange | null;
-  /** 项目级采样配置 → VideoStage 软网格导航。 */
   videoSampling?: VideoSamplingConfig | null;
   videoTool: VideoTool;
   keypointSchema?: import("@/types").KeypointSchema | null;
   isVideoToolEnabled?: (t: VideoTool) => boolean;
-  /** 视频交互式 SAM: 提示派发 + 瞬态候选 / 点会话。 */
   onVideoSamPrompt?: (prompt: VideoSamPrompt) => void;
   samCandidates?: VideoSamCandidateShape[];
   samMaskRecords?: readonly RasterMaskRenderRecord<"interactive">[];
   onSelectSamMaskCandidate?: (candidateId: string) => void;
   samActiveIdx?: number;
   samSessionPoints?: { pt: [number, number]; polarity: 1 | 0; obj?: number }[];
-  /** 框修正 · 当前帧已落的 PVS 框种子 (归一化 xyxy)。 */
   samSessionBoxes?: { bbox: [number, number, number, number]; obj?: number }[];
   videoMaskCandidates?: VideoMaskCandidate[];
   videoMaskEditor?: UseMaskEditorReturn;
   videoMaskKeyframeActions?: VideoMaskKeyframeActionHandlers;
   onVideoMaskCommit?: () => void;
   onVideoMaskCancel?: () => void;
-  /** 工具条上的正/负切换; 与 Alt 等价 (图片侧 SmartPointTool 同语义)。 */
   samPolarity?: "positive" | "negative";
   spacePan: boolean;
   onSpacePanDragStart: () => void;
@@ -182,7 +159,6 @@ interface WorkbenchStageHostVideoProps {
   trackColorOverrides?: Record<string, string>;
   onVideoFrameIndexChange: (frameIndex: number) => void;
   onVideoCreate: (frameIndex: number, geom: Geom) => void;
-  /** 由绘制顶点新建 polygon/polyline track。 */
   onVideoCreatePointsTrack?: (
     type: "video_track_polygon" | "video_track_polyline",
     frameIndex: number,
@@ -207,7 +183,6 @@ interface WorkbenchStageHostVideoProps {
   onToggleHiddenVideoTrack?: (trackId: string) => void;
   onToggleLockedVideoTrack?: (trackId: string) => void;
   onPropagateVideoTrack?: (annotation: VideoManagedTrackAnnotation) => void;
-  // 视频单题 AI 候选(画布渲染 + 采纳/驳回)。
   aiBoxes?: AiBox[];
   onAcceptPrediction?: (b: AiBox) => void;
   onRejectPrediction?: (b: AiBox) => void;
@@ -228,14 +203,12 @@ interface WorkbenchStageHostImageProps {
   onRetryImagePyramid?: () => Promise<void>;
   mediaKey?: string | null;
   blurhash?: string | null;
-  // 已知图片尺寸 (task.image_width/height), 让 ImageStage 翻页时同步算 fit, 不必等 image onload。
   imageWidth?: number | null;
   imageHeight?: number | null;
   thumbnailUrl: string | null;
   tool: Tool;
   fadedAiIds: Set<string>;
   nudgeMap: Map<string, Geom>;
-  /** 提交在途几何 override, 见 usePendingGeom (防松手闪回原尺寸)。 */
   pendingGeomMap: Map<string, import("@/types").Geometry>;
   userBoxes: Annotation[];
   aiBoxes: AiBox[];
@@ -254,9 +227,7 @@ interface WorkbenchStageHostImageProps {
   onToggleSecondaryBar?: () => void;
   imageClipboardActions?: ImageContextMenuClipboardActions | null;
   onCommitDrawing: (geo: Geom) => void;
-  /** 旋转框: 拖出矩形 → 提交 angle=0 的 rotated_bbox。 */
   onCommitRotatedBbox: (geo: Geom) => void;
-  /** 旋转框: 旋转手柄落定 → 更新 angle。 */
   onCommitRotateBbox: (id: string, before: RotatedBboxGeometry, after: RotatedBboxGeometry) => void;
   onSamPrompt: (
     prompt:
@@ -277,7 +248,6 @@ interface WorkbenchStageHostImageProps {
     before: [number, number][],
     after: [number, number][],
   ) => void;
-  // keypoint 节点几何/可见性变更。
   onCommitKeypointGeometry?: (
     id: string,
     before: import("@/types").Keypoint[],
@@ -299,24 +269,20 @@ interface WorkbenchStageHostAiProps {
   samMaskRecords: readonly RasterMaskRenderRecord<"interactive">[];
   onSelectSamMaskCandidate: (candidateId: string) => void;
   samActiveIdx: number;
-  /** §5.5 当前点会话已落的正/负点, 透传到画布 overlay 渲染。 */
   samSessionPoints: { pt: [number, number]; polarity: 1 | 0 }[];
   samSessionScribbles: {
     points: [number, number][];
     polarity: 1 | 0;
     width: number;
   }[];
-  /** exemplar refine 会话已落的正/负框, 透传到画布 overlay 渲染。 */
   samSessionExemplars: { bbox: [number, number, number, number]; polarity: 1 | 0 }[];
   samSubTool: SamSubTool | null;
   samPolarity: SamPolarity;
-  /** SAM 候选「精修」入口（画布浮按钮 + R 键）。 */
   onRefineSamCandidate?: (idx: number) => void;
 }
 
 interface WorkbenchStageHostEditorProps {
   polygonDraft?: PolygonDraftHandle;
-  // keypoint 工具草稿 + 骨骼模板。
   keypointDraft?: import("../stage/tools").KeypointDraftHandle;
   keypointSchema?: import("@/types").KeypointSchema | null;
   canvasShapes: NonNullable<CommentCanvasDrawing["shapes"]>;
@@ -335,11 +301,8 @@ interface WorkbenchStageHostEditorProps {
   onCancelCanvasDraft: () => void;
   onDoneCanvasDraft: () => void;
   stageGeom: StageGeometry;
-  /** Mask 编辑器状态；仅图像舞台消费。 */
   maskEditor?: UseMaskEditorReturn;
-  /** 项目级 rendering_config 覆盖（仅图像舞台消费）。 */
   projectRenderingConfig?: import("@/api/projects").ProjectRenderingConfig | null;
-  // Issue pins and creation anchors are shared by image and video stages.
   issuePixelFeedbacks?: import("@/api/feedbacks").AnnotationFeedback[];
   highlightIssueId?: string | null;
   onIssuePinClick?: (id: string) => void;
@@ -347,9 +310,7 @@ interface WorkbenchStageHostEditorProps {
   issueNavigationPending?: boolean;
   onIssuePinDrop?: (x: number, y: number, frame?: number) => void;
   onSeekIssueFrame?: (frame: number) => void;
-  /** Per-annotation saved comment totals for the image and video canvases. */
   annotationCommentCounts?: Record<string, number>;
-  /** Open an annotation's comment list through the guarded Workbench shell. */
   onOpenAnnotationComments?: (annotationId: string) => void;
 }
 
@@ -423,6 +384,7 @@ export const WorkbenchStageHost = forwardRef<VideoStageControls, WorkbenchStageH
       videoFrameTimetable,
       videoManifestLoading,
       videoManifestError,
+      annotationWritesPending,
       videoChapters,
       videoTimelineChapterControls,
       videoPropagateRange,
@@ -435,7 +397,6 @@ export const WorkbenchStageHost = forwardRef<VideoStageControls, WorkbenchStageH
       keypointSchema: videoKeypointSchema,
       isVideoToolEnabled,
       onVideoSamPrompt,
-      // 别名: image 分支已有同名 samCandidates/samActiveIdx/samSessionPoints。
       samCandidates: videoSamCandidates,
       samMaskRecords: videoSamMaskRecords,
       onSelectSamMaskCandidate: onSelectVideoSamMaskCandidate,
@@ -468,7 +429,6 @@ export const WorkbenchStageHost = forwardRef<VideoStageControls, WorkbenchStageH
       onToggleHiddenVideoTrack,
       onToggleLockedVideoTrack,
       onPropagateVideoTrack,
-      // 视频单题 AI 候选(画布渲染 + 采纳/驳回); aiBoxes 属 video 组(非 image 组)。
       aiBoxes: videoAiBoxes,
       onAcceptPrediction: onVideoAcceptPrediction,
       onRejectPrediction: onVideoRejectPrediction,
@@ -617,6 +577,7 @@ export const WorkbenchStageHost = forwardRef<VideoStageControls, WorkbenchStageH
             isLoading={videoManifestLoading}
             error={videoManifestError}
             annotations={annotations}
+            annotationWritesPending={annotationWritesPending}
             aiBoxes={videoAiBoxes}
             selectedId={selectedId}
             activeClass={activeClass}

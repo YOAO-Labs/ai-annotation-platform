@@ -62,7 +62,6 @@ def _verify_bucket_scope():
 
 
 async def _put(url, content):
-    # The browser may use a frontend proxy path; this test uses its original MinIO origin.
     public = (
         settings.minio_public_url.rstrip("/") if settings.minio_public_url else None
     )
@@ -200,9 +199,6 @@ async def test_real_copy_etag_race_preserves_pending_intent_for_a_new_attempt(
     original, changed = _image("red"), _image("blue")
 
     def change_before_stream(**kwargs):
-        # The publication streams the pinned staging object with IfMatch; a
-        # changed object must abort the write. Header-only reads (Range) keep
-        # observing the original bytes so the race happens inside publication.
         if (
             kwargs.get("Bucket") == storage_service.import_bucket
             and kwargs.get("Key") == stage
@@ -239,8 +235,6 @@ async def test_real_copy_etag_race_preserves_pending_intent_for_a_new_attempt(
         final = await db_session.scalar(
             select(DatasetItem.file_path).where(DatasetItem.id == item_id)
         )
-        # The fixed publication identity keeps the same immutable destination
-        # for the retried attempt.
         assert final == initial_path
         final_keys.append(final)
     finally:
