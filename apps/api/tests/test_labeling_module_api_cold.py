@@ -191,6 +191,9 @@ def _minio_dependency(resources: dict) -> dict:
     if re.fullmatch(r"[0-9a-f]{64}", container_id) is None:
         pytest.fail("the verifier MinIO container ID was not immutable")
     shared = _shared_bootstrap_minio(settings, container_id=container_id)
+
+    from fixture_store import MINIO_IMAGE
+
     if endpoint.port is None or (
         shared is None and endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}
     ):
@@ -228,13 +231,7 @@ def _minio_dependency(resources: dict) -> dict:
         )
         == "minio"
         and image.get("Id") == image_id
-        and any(
-            re.fullmatch(
-                r"(?:minio/minio|quay\.io/minio/minio)@sha256:[0-9a-f]{64}", digest
-            )
-            for digest in digests
-            if isinstance(digest, str)
-        )
+        and MINIO_IMAGE in digests
         and len(matching_bindings) == 1
     ):
         pytest.fail("the verifier MinIO container, image, or published port differed")

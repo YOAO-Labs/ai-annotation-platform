@@ -152,7 +152,7 @@ assert not persist_audit_entry.acks_late
 celery_app.conf.include = ['app.workers.audit']
 celery_app.worker_main(sys.argv[1:])
 """
-    containers = []
+    containers = {}
     connected = []
     network_id = None
     redacted = [
@@ -227,7 +227,7 @@ celery_app.worker_main(sys.argv[1:])
             str(api_env_file),
             image,
         )
-        containers.append(api)
+        containers[api] = "api"
         worker = _docker(
             "create",
             "--name",
@@ -250,7 +250,7 @@ celery_app.worker_main(sys.argv[1:])
             "--without-heartbeat",
             "--loglevel=WARNING",
         )
-        containers.append(worker)
+        containers[worker] = "worker"
         for container in containers:
             _docker("start", container)
         api_binding = dict(
@@ -322,7 +322,7 @@ asyncio.run(main())
             }
     finally:
         errors = []
-        for container in reversed(containers):
+        for container, consumer in reversed(containers.items()):
             try:
                 try:
                     details = _inspect_docker(container)
@@ -334,6 +334,26 @@ asyncio.run(main())
                     (directory / (container[:12] + ".log")).write_text(logs)
                     record_property(
                         f"audit_cold_{directory.name}_{container[:12]}", logs
+                    )
+                    state = details["State"]
+                    process_state = json.dumps(
+                        {
+                            "consumer": consumer,
+                            "image_id": details["Image"],
+                            "status": state["Status"],
+                            "exit_code": state["ExitCode"],
+                            "oom_killed": state["OOMKilled"],
+                            "started_at": state["StartedAt"],
+                            "finished_at": state["FinishedAt"],
+                        },
+                        sort_keys=True,
+                    )
+                    record_property(
+                        f"audit_cold_state_{directory.name}_{container[:12]}",
+                        process_state,
+                    )
+                    (directory / (container[:12] + ".state.json")).write_text(
+                        process_state
                     )
                 finally:
                     _docker("rm", "--force", container)
