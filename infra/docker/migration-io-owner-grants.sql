@@ -15,3 +15,7 @@ ALTER FUNCTION yoao_assets_v1.migration_io_reconcile_flights(uuid) OWNER TO :"as
 GRANT USAGE ON SCHEMA yoao_identity_v1, yoao_jobs_v1 TO :"assets_owner";
 GRANT EXECUTE ON FUNCTION yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid),
     yoao_identity_v1.read_actor_facts(uuid), yoao_jobs_v1.read_job(uuid) TO :"assets_owner";
+GRANT SELECT (target) ON public.storage_migration_finalizations TO :"assets_owner";
+GRANT SELECT (window_id, finalization_revision, window_revision)
+    ON public.storage_migration_read_publications TO :"assets_owner";
+GRANT SELECT (id) ON public.storage_migration_cutovers TO :"assets_owner";

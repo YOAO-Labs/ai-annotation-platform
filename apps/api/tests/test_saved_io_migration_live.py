@@ -90,6 +90,13 @@ def _url(key, owner):
     return url
 
 
+_ABSENT_CUTOVER = """
+    SELECT yoao_assets_v1.migration_io_cutover(
+        gen_random_uuid(), 1, 1, 1, gen_random_uuid(), 'annotations', 1,
+        gen_random_uuid(), 1, 1)
+"""
+
+
 async def _permissions(url, *, source=False):
     conn = await asyncpg.connect(
         url.set(drivername="postgresql").render_as_string(hide_password=False)
@@ -103,6 +110,7 @@ async def _permissions(url, *, source=False):
             "SELECT * FROM public.storage_migration_io_probes LIMIT 1",
             "SELECT * FROM public.storage_migration_io_flights LIMIT 1",
             "SELECT * FROM public.storage_migration_copy_deltas LIMIT 1",
+            "SELECT id FROM public.storage_migration_cutovers LIMIT 1",
         ):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await conn.execute(statement)
@@ -114,9 +122,12 @@ async def _permissions(url, *, source=False):
             """)
                 is None
             )
+            assert await conn.fetchval(_ABSENT_CUTOVER) is None
             denied = "SELECT yoao_assets_v1.migration_io_bind_read(gen_random_uuid(), gen_random_uuid(), 1, '{}'::jsonb)"
         else:
             denied = "SELECT yoao_assets_v1.migration_io_copy(gen_random_uuid(), gen_random_uuid(), 'absent', gen_random_uuid(), 'run', 1, 1, NULL)"
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                await conn.execute(_ABSENT_CUTOVER)
         with pytest.raises(asyncpg.InsufficientPrivilegeError):
             await conn.execute(denied)
     finally:

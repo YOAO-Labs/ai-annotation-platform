@@ -190,6 +190,10 @@ async def probe_targets(session, context):
                     if exc.code in {"cutover_targets_changed", "migration_io_unproven"}
                     else "cutover_probe_failed"
                 )
+                error.add_note(
+                    f"Source probe: purpose={purpose} status={exc.status_code} "
+                    f"code={exc.code} storage_code={exc.storage_code}"
+                )
                 if exc.unsettled:
                     storage_access.mark_unsettled(error)
                 raise error from None
