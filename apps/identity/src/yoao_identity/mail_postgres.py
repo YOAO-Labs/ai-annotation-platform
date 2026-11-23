@@ -238,7 +238,7 @@ class MailSettingsPostgresData:
         self.command_timeout = command_timeout
 
     async def mail_delivery_policy(
-        self, fallbacks: dict[str, object]
+        self, fallbacks: dict[str, object], *, require_isolated_role: bool = False
     ) -> MailDeliveryPolicy:
         import asyncpg
 
@@ -265,6 +265,12 @@ class MailSettingsPostgresData:
                 server_settings={"application_name": "yoao-identity-mail-settings"},
             )
             async with connection.transaction():
+                if require_isolated_role:
+                    from .mail_v2_postgres import MailV2PostgresData
+
+                    await MailV2PostgresData._assert_capabilities(
+                        connection, {"yoao_settings_v1.mail_delivery_policy(jsonb)"}
+                    )
                 raw = await connection.fetchval(
                     "SELECT yoao_settings_v1.mail_delivery_policy($1::jsonb)", encoded
                 )

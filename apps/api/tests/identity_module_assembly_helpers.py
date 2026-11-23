@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json
 import os
 from pathlib import Path
@@ -94,7 +93,6 @@ _IDENTITY_DATABASES = {
 }
 
 _AUX_DATABASES = {
-    "MAIL": ("IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE", "identity_mail_database_url"),
     "MAIL_SETTINGS": (
         "IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE",
         "identity_mail_settings_database_url",
@@ -103,35 +101,21 @@ _AUX_DATABASES = {
         "IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE",
         "identity_mail_v2_database_url",
     ),
-    "NOTIFICATION_PUBLISH": (
-        "IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE",
-        "notification_publish_database_url",
-    ),
 }
 
 _DATABASES = {**_IDENTITY_DATABASES, **_AUX_DATABASES}
 _SERVICES = (
-    "identity-admission",
+    "identity-issuer",
     "identity-api",
-    "identity-mail",
     "identity-mail-v2",
-    "identity-notification-publisher",
 )
-_NOTIFICATIONS_SOCKET_SERVICE = "notifications-socket"
-_NOTIFICATIONS_SOCKET_IMAGE_ACCEPTANCE = "notifications-socket-runtime"
-_NOTIFICATIONS_PUBLISHER_IMAGE_ACCEPTANCE = "notifications-delivery-runtime"
-_JOBS_QUEUE_SERVICE = "jobs-queue"
-_JOBS_QUEUE_IMAGE_ACCEPTANCE = "jobs-queue-runtime"
-_JOBS_QUEUE_IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_JOBS_QUEUE_ACCEPTANCE_ID = re.compile(r"[0-9a-f]{24}\Z")
-_JOBS_QUEUE_SOURCE_REVISION = re.compile(r"[0-9a-f]{40}\Z")
 _BOOTSTRAP_MINIO_ALIAS = "labeling-cold-minio"
 _IDENTITY_OPTIONAL_SECRETS = {
     "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE": "identity_admission_token",
     "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE": "identity_actor_status_database_url",
 }
 _SERVICE_SECRET_MOUNTS = {
-    "identity-admission": {
+    "identity-issuer": {
         "identity_database_url",
         "identity_key_database_url",
         "identity_session_database_url",
@@ -154,27 +138,13 @@ _SERVICE_SECRET_MOUNTS = {
         "identity_token",
         "identity_signing_secret",
     },
-    "identity-mail": {
-        "identity_mail_database_url",
-        "identity_mail_settings_database_url",
-        "identity_recovery_mail_key",
-    },
     "identity-mail-v2": {
         "identity_mail_v2_database_url",
         "identity_mail_settings_database_url",
         "identity_recovery_mail_key",
-    },
-    "identity-notification-publisher": {
-        "notification_publish_database_url",
-        "notification_publish_redis_url",
+        "identity_mail_smtp_password",
     },
     "identity-api": set(),
-    _NOTIFICATIONS_SOCKET_SERVICE: {
-        "notification_socket_database_url",
-        "notification_socket_redis_url",
-        "notification_socket_identity_token",
-    },
-    _JOBS_QUEUE_SERVICE: {"jobs_queue_broker_url", "jobs_queue_token"},
 }
 _API_BINDING_NAMES = (
     "IDENTITY_AUTH_DATABASE_URL",
@@ -194,10 +164,6 @@ _API_BINDING_NAMES = (
     "IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL",
     "IDENTITY_PRESENCE_DATABASE_URL",
     "IDENTITY_RECOVERY_DATABASE_URL",
-    "IDENTITY_MAIL_DATABASE_URL",
-    "IDENTITY_MAIL_SETTINGS_DATABASE_URL",
-    "IDENTITY_MAIL_V2_DATABASE_URL",
-    "NOTIFICATION_PUBLISH_DATABASE_URL",
 )
 _API_DATABASE_FILE_NAMES = tuple(f"{name}_FILE" for name in _API_BINDING_NAMES)
 _READY_PROBE = (
@@ -248,91 +214,21 @@ def verifier_database_url(
         ) from None
 
 
-def _identity_optional_secret_selectors(
-    secret_directory: Path, notifications_socket_enabled: bool
-) -> dict[str, str]:
-    return {
-        environment_name: (
-            str(secret_directory / secret_name) if notifications_socket_enabled else ""
-        )
-        for environment_name, secret_name in _IDENTITY_OPTIONAL_SECRETS.items()
-    }
-
-
 def _expected_secret_mount_names(
-    service: str,
-    notifications_socket_enabled: bool,
-    notification_publication_enabled: bool = False,
-    jobs_queue_enabled: bool = False,
+    service: str, *, jobs_publication: bool = False, embedded: bool = False
 ) -> set[str] | None:
     expected = _SERVICE_SECRET_MOUNTS.get(service)
-    if (
-        expected is None
-        or (
-            service == _NOTIFICATIONS_SOCKET_SERVICE
-            and not notifications_socket_enabled
-        )
-        or (service == _JOBS_QUEUE_SERVICE and not jobs_queue_enabled)
-    ):
+    if expected is None:
         return None
     result = set(expected)
-    if service == "identity-admission":
+    if service == "identity-issuer":
         result.update(_IDENTITY_OPTIONAL_SECRETS.values())
-    if notification_publication_enabled and service in {
-        "identity-api",
-        "identity-notification-publisher",
-    }:
-        result.add("notification_publication_token")
-    if jobs_queue_enabled and service == "identity-api":
-        result.update({"jobs_queue_token", "jobs_publication_database_url"})
+    if service == "identity-api":
+        if jobs_publication:
+            result.add("jobs_publication_database_url")
+        if embedded:
+            result.add("identity_recovery_mail_key")
     return result
-
-
-def validate_jobs_queue_image_inputs(
-    image: str | None,
-    identity: str | None,
-    source_revision: str | None,
-    token: str | None,
-) -> bool:
-    """Require one immutable, source-bound image and its distinct service token."""
-    values = (image, identity, source_revision, token)
-    if all(value is None for value in values):
-        return False
-    if not all(isinstance(value, str) and value for value in values):
-        raise ValueError("Jobs queue runtime inputs are incomplete")
-    assert image is not None and identity is not None
-    assert source_revision is not None and token is not None
-    if (
-        _JOBS_QUEUE_IMAGE_ID.fullmatch(image) is None
-        or _JOBS_QUEUE_ACCEPTANCE_ID.fullmatch(identity) is None
-        or _JOBS_QUEUE_SOURCE_REVISION.fullmatch(source_revision) is None
-    ):
-        raise ValueError("Jobs queue runtime image provenance is invalid")
-    try:
-        token_bytes = token.encode("ascii")
-    except UnicodeError:
-        raise ValueError("Jobs queue service token is invalid") from None
-    if (
-        not token_bytes
-        or len(token_bytes) > 4096
-        or any(value < 33 or value > 126 for value in token_bytes)
-    ):
-        raise ValueError("Jobs queue service token is invalid")
-    return True
-
-
-def validate_jobs_queue_broker_url(value: str, reference: str, token: str) -> str:
-    broker, owner = make_url(value), make_url(reference)
-    if (broker.drivername, broker.host, broker.port, broker.database) != (
-        owner.drivername,
-        owner.host,
-        owner.port,
-        owner.database,
-    ):
-        raise ValueError("Jobs queue broker must use the verifier-owned Redis DB")
-    if broker.password is not None and token == broker.password:
-        raise ValueError("Jobs queue bearer must be distinct from broker credentials")
-    return broker.render_as_string(hide_password=False)
 
 
 class IdentityModuleStack:
@@ -348,22 +244,11 @@ class IdentityModuleStack:
         control: str,
         mail_key: str,
         login_redis_url: str,
-        publisher_redis_url: str,
         smtp_port: int,
-        notifications_socket_image: str | None = None,
-        notifications_socket_identity: str | None = None,
-        notification_delivery_database_url: str | None = None,
+        embedded: bool = False,
         identity_actor_status_database_url: str | None = None,
-        notifications_socket_redis_url: str | None = None,
         admission_token: str | None = None,
-        notifications_publisher_image: str | None = None,
-        notifications_publisher_identity: str | None = None,
-        notification_publication_token: str | None = None,
-        notification_api_redis_url: str | None = None,
-        jobs_queue_image: str | None = None,
-        jobs_queue_identity: str | None = None,
-        jobs_queue_source_revision: str | None = None,
-        jobs_queue_token: str | None = None,
+        jobs_publication: bool = False,
     ) -> None:
         self.test_engine = test_engine
         self._retention_guards = []
@@ -377,65 +262,22 @@ class IdentityModuleStack:
         self._api_secret = api_secret
         self._control = control
         self._mail_key = mail_key
-        notification_inputs = (
-            notifications_socket_image,
-            notifications_socket_identity,
-            notification_delivery_database_url,
-            identity_actor_status_database_url,
-            notifications_socket_redis_url,
-            admission_token,
-        )
-        if any(value is not None for value in notification_inputs) and not all(
-            isinstance(value, str) and value.strip() for value in notification_inputs
-        ):
-            raise ValueError("Notifications socket verifier inputs are incomplete")
-        self._notifications_socket_enabled = all(
-            value is not None for value in notification_inputs
-        )
-        self._notifications_socket_image = notifications_socket_image
-        self._notifications_socket_identity = notifications_socket_identity
+        self._embedded = embedded
+        self._jobs_publication = jobs_publication
         self._admission_token = admission_token
-        publication_inputs = (
-            notifications_publisher_image,
-            notifications_publisher_identity,
-            notification_publication_token,
-            notification_api_redis_url,
-        )
-        if any(value is not None for value in publication_inputs) and not all(
-            isinstance(value, str) and value.strip() for value in publication_inputs
-        ):
-            raise ValueError("Notifications publication verifier inputs are incomplete")
-        self._notification_publication_enabled = all(
-            value is not None for value in publication_inputs
-        )
-        if (
-            notification_publication_token is not None
-            and notification_publication_token
-            in {secret, api_secret, control, admission_token}
-        ):
-            raise ValueError("Notifications publication credential must be distinct")
-        self._notifications_publisher_image = notifications_publisher_image
-        self._notifications_publisher_identity = notifications_publisher_identity
-        self._notification_publication_token = notification_publication_token
-        self._jobs_queue_enabled = validate_jobs_queue_image_inputs(
-            jobs_queue_image,
-            jobs_queue_identity,
-            jobs_queue_source_revision,
-            jobs_queue_token,
-        )
-        self._jobs_queue_image = jobs_queue_image
-        self._jobs_queue_identity = jobs_queue_identity
-        self._jobs_queue_source_revision = jobs_queue_source_revision
-        self._jobs_queue_token = jobs_queue_token
-        if jobs_queue_token is not None and jobs_queue_token in {
+        if bool(identity_actor_status_database_url) != bool(admission_token):
+            raise ValueError("Scoped Identity issuer fixture inputs are incomplete")
+        if embedded and admission_token:
+            raise ValueError("Embedded Identity cannot expose a scoped issuer")
+        if len({secret, api_secret, control, mail_key}) != 4 or admission_token in {
             secret,
             api_secret,
             control,
             mail_key,
-            admission_token,
-            notification_publication_token,
         }:
-            raise ValueError("Jobs queue bearer must be distinct from other secrets")
+            raise ValueError(
+                "Identity issuer, media, control and Fernet keys must differ"
+            )
         _verify_postgres(test_engine.url)
         _verify_redis()
         self._postgres_name = self._required_environment(
@@ -448,53 +290,6 @@ class IdentityModuleStack:
             "AAP_MODULE_DATA_REDIS_CONTAINER_NAME"
         )
         self._login_redis_url = self._docker_url(login_redis_url)
-        self._publisher_redis_url = self._docker_url(publisher_redis_url)
-        if notification_api_redis_url is not None:
-            api_redis = make_url(notification_api_redis_url)
-            reference_redis = make_url(self._required_environment("REDIS_URL"))
-            if (
-                (
-                    api_redis.drivername,
-                    api_redis.host,
-                    api_redis.port,
-                    api_redis.database,
-                )
-                != (
-                    reference_redis.drivername,
-                    reference_redis.host,
-                    reference_redis.port,
-                    reference_redis.database,
-                )
-                or not api_redis.username
-                or not api_redis.password
-                or api_redis.username
-                in {
-                    make_url(login_redis_url).username,
-                    make_url(publisher_redis_url).username,
-                }
-            ):
-                raise ValueError(
-                    "API Redis credential does not match the owned scoped endpoint"
-                )
-        self._notification_api_redis_url = (
-            self._docker_url(notification_api_redis_url)
-            if notification_api_redis_url is not None
-            else None
-        )
-        self._jobs_queue_broker_url = None
-        if self._jobs_queue_enabled:
-            broker_url = validate_jobs_queue_broker_url(
-                os.environ.get("CELERY_BROKER_URL")
-                or self._required_environment("REDIS_URL"),
-                self._required_environment("REDIS_URL"),
-                jobs_queue_token,
-            )
-            self._jobs_queue_broker_url = self._docker_url(broker_url)
-        self._notifications_socket_redis_url = (
-            self._docker_url(notifications_socket_redis_url)
-            if notifications_socket_redis_url is not None
-            else None
-        )
         self._smtp_port = int(smtp_port)
         if not 1 <= self._smtp_port <= 65535:
             raise ValueError("SMTP port is outside the valid TCP range")
@@ -507,14 +302,15 @@ class IdentityModuleStack:
         )
         self.project_name = f"aap-identity-assembly-{uuid.uuid4().hex[:12]}"
         self._compose_environment = self._docker_environment()
-        self._database_urls: dict[str, URL] = {
+        self._database_urls = {
             kind: make_url(_dsn(kind, test_engine)).set(
                 host=self._postgres_name, port=5432
             )
-            for kind in _DATABASES
+            for kind in (_AUX_DATABASES if embedded else _DATABASES)
         }
-        self._database_name = str(test_engine.url.database or "")
-        self._validate_database_name(self._database_name)
+        self._database_name = self._validate_database_name(
+            str(test_engine.url.database or "")
+        )
         self._jobs_publication_database_url = (
             verifier_database_url(
                 self._required_environment("AAP_MODULE_DATA_JOBS_PUBLICATION_URL"),
@@ -522,17 +318,7 @@ class IdentityModuleStack:
                 expected_role="yoao_jobs_publication_client",
                 container_name=self._postgres_name,
             )
-            if self._jobs_queue_enabled
-            else None
-        )
-        self._notifications_socket_database_url = (
-            verifier_database_url(
-                notification_delivery_database_url,
-                test_engine.url,
-                expected_role="yoao_notification_delivery_read_client",
-                container_name=self._postgres_name,
-            )
-            if notification_delivery_database_url is not None
+            if jobs_publication
             else None
         )
         self._actor_status_database_url = (
@@ -545,40 +331,26 @@ class IdentityModuleStack:
             if identity_actor_status_database_url is not None
             else None
         )
-        api_host_url = make_url(
-            self._required_environment("AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL")
-        )
-        self._api_database_url = make_url(
-            self._required_environment(
-                "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_CONTAINER_URL"
+        api_dsn_var, api_role = (
+            (
+                "AAP_MODULE_DATA_IDENTITY_EMBEDDED_API_CONSUMER_URL",
+                "identity_embedded_api_consumer",
             )
+            if embedded
+            else ("AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL", "identity_api_consumer")
         )
-        if (
-            (api_host_url.host, api_host_url.port, api_host_url.database)
-            != (test_engine.url.host, test_engine.url.port, test_engine.url.database)
-            or api_host_url.username != "identity_api_consumer"
-            or api_host_url.database is None
-            or not api_host_url.database.endswith("_test")
-            or self._api_database_url.host != "host.docker.internal"
-            or self._api_database_url.port != api_host_url.port
-            or self._api_database_url.database != api_host_url.database
-            or self._api_database_url.username != api_host_url.username
-            or self._api_database_url.password != api_host_url.password
-        ):
-            raise RuntimeError("Verifier API consumer database identity did not match")
-        self._api_database_url = self._api_database_url.set(
-            host=self._postgres_name, port=5432
-        )
+        self._api_database_url = verifier_database_url(
+            self._required_environment(api_dsn_var),
+            test_engine.url,
+            expected_role=api_role,
+            container_name=self._postgres_name,
+        ).set(drivername="postgresql+asyncpg")
         self._service_ids: dict[str, str] = {}
         self._inspection_evidence: dict[str, dict] = {}
-        self._services = (
-            _SERVICES
-            + (
-                (_NOTIFICATIONS_SOCKET_SERVICE,)
-                if self._notifications_socket_enabled
-                else ()
-            )
-            + ((_JOBS_QUEUE_SERVICE,) if self._jobs_queue_enabled else ())
+        self._services = tuple(
+            service
+            for service in _SERVICES
+            if not embedded or service != "identity-issuer"
         )
         self._api_origin = ""
         self._identity_origin = ""
@@ -586,28 +358,6 @@ class IdentityModuleStack:
         self._minio_attachment: tuple[str, str] | None = None
         self._verify_image(self._identity_image, self._identity)
         self._verify_image(self._api_image, self._api_identity)
-        if getattr(self, "_notification_publication_enabled", False):
-            self._verify_image(
-                self._notifications_publisher_image or "",
-                self._notifications_publisher_identity or "",
-                acceptance=_NOTIFICATIONS_PUBLISHER_IMAGE_ACCEPTANCE,
-                expected_user="10004:10004",
-            )
-        if self._notifications_socket_enabled:
-            self._verify_image(
-                self._notifications_socket_image or "",
-                self._notifications_socket_identity or "",
-                acceptance=_NOTIFICATIONS_SOCKET_IMAGE_ACCEPTANCE,
-                expected_user="10004:10004",
-            )
-        if self._jobs_queue_enabled:
-            self._verify_image(
-                self._jobs_queue_image or "",
-                self._jobs_queue_identity or "",
-                acceptance=_JOBS_QUEUE_IMAGE_ACCEPTANCE,
-                expected_user="10005:10005",
-                expected_source_revision=self._jobs_queue_source_revision,
-            )
 
     @property
     def api_origin(self) -> str:
@@ -616,39 +366,6 @@ class IdentityModuleStack:
     @property
     def identity_origin(self) -> str:
         return self._identity_origin
-
-    @property
-    def jobs_queue_origin(self) -> str:
-        """Address only the live queue attachment on this verifier's owned network."""
-        network = self._dependency_network()
-        details = self._verify_project_ownership().get(_JOBS_QUEUE_SERVICE)
-        if network is None or details is None:
-            raise RuntimeError("Owned Jobs queue or network is unavailable")
-        state = details.get("State") or {}
-        attachments = (details.get("NetworkSettings") or {}).get("Networks") or {}
-        endpoint = attachments.get(network["Name"]) or {}
-        member = (network.get("Containers") or {}).get(details.get("Id")) or {}
-        if (
-            state.get("Running") is not True
-            or (state.get("Health") or {}).get("Status") != "healthy"
-            or set(attachments) != {network["Name"]}
-            or endpoint.get("NetworkID") != network["Id"]
-            or not endpoint.get("EndpointID")
-            or member.get("EndpointID") != endpoint["EndpointID"]
-        ):
-            raise RuntimeError("Jobs queue attachment is not the live owned endpoint")
-        try:
-            address = ipaddress.IPv4Address(endpoint["IPAddress"])
-            member_address = ipaddress.IPv4Interface(member["IPv4Address"]).ip
-        except (KeyError, ValueError):
-            raise RuntimeError(
-                "Jobs queue attachment has no valid IPv4 identity"
-            ) from None
-        if address != member_address or address.is_unspecified or address.is_loopback:
-            raise RuntimeError(
-                "Jobs queue attachment address does not match its network"
-            )
-        return f"http://{address}:8190"
 
     @property
     def service_ids(self) -> dict[str, str]:
@@ -673,12 +390,11 @@ class IdentityModuleStack:
             self._control,
             self._mail_key,
             self._admission_token or "",
-            getattr(self, "_notification_publication_token", None) or "",
-            getattr(self, "_jobs_queue_token", None) or "",
+            self._login_redis_url,
+            make_url(self._login_redis_url).password or "",
+            os.environ.get("AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY", ""),
         ]
         urls = [self._api_database_url, *self._database_urls.values()]
-        if self._notifications_socket_database_url is not None:
-            urls.append(self._notifications_socket_database_url)
         if self._actor_status_database_url is not None:
             urls.append(self._actor_status_database_url)
         if self._jobs_publication_database_url is not None:
@@ -687,21 +403,6 @@ class IdentityModuleStack:
             values.extend(
                 [url.render_as_string(hide_password=False), url.password or ""]
             )
-        values.extend(
-            [
-                self._login_redis_url,
-                self._publisher_redis_url,
-                self._notifications_socket_redis_url or "",
-                getattr(self, "_notification_api_redis_url", None) or "",
-                getattr(self, "_jobs_queue_broker_url", None) or "",
-                (
-                    make_url(self._jobs_queue_broker_url).password or ""
-                    if self._jobs_queue_broker_url
-                    else ""
-                ),
-                os.environ.get("AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY", ""),
-            ]
-        )
         for secret in sorted(set(values), key=len, reverse=True):
             if secret:
                 value = value.replace(secret, "<redacted>")
@@ -1049,72 +750,6 @@ class IdentityModuleStack:
         if self._secret_directory.is_symlink():
             raise RuntimeError("Identity secret directory must not be a symlink")
 
-        for kind, (_, secret_name) in _DATABASES.items():
-            url = self._database_urls[kind].set(database=self._database_name)
-            self._write_secret(secret_name, url.render_as_string(hide_password=False))
-
-        for env_name, secret_name in (
-            ("IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE", "identity_recovery_mail_key"),
-            ("IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE", "identity_login_redis_url"),
-            ("IDENTITY_RUNTIME_TOKEN_FILE", "identity_token"),
-            ("IDENTITY_RUNTIME_SIGNING_SECRET_FILE", "identity_signing_secret"),
-            (
-                "IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE",
-                "notification_publish_redis_url",
-            ),
-        ):
-            value = {
-                "identity_recovery_mail_key": self._mail_key,
-                "identity_login_redis_url": self._login_redis_url,
-                "identity_token": self._control,
-                "identity_signing_secret": self._secret,
-                "notification_publish_redis_url": self._publisher_redis_url,
-            }[secret_name]
-            self._write_secret(secret_name, value)
-
-        if self._notifications_socket_enabled:
-            assert self._notifications_socket_database_url is not None
-            assert self._actor_status_database_url is not None
-            assert self._notifications_socket_redis_url is not None
-            assert self._admission_token is not None
-            self._write_secret(
-                "identity_actor_status_database_url",
-                self._actor_status_database_url.set(
-                    database=self._database_name
-                ).render_as_string(hide_password=False),
-            )
-            self._write_secret("identity_admission_token", self._admission_token)
-            self._write_secret(
-                "notification_socket_database_url",
-                self._notifications_socket_database_url.set(
-                    database=self._database_name
-                ).render_as_string(hide_password=False),
-            )
-            self._write_secret(
-                "notification_socket_redis_url", self._notifications_socket_redis_url
-            )
-            self._write_secret(
-                "notification_socket_identity_token", self._admission_token
-            )
-        if getattr(self, "_notification_publication_enabled", False):
-            self._write_secret(
-                "notification_publication_token",
-                self._notification_publication_token,
-            )
-        if self._jobs_queue_enabled:
-            assert self._jobs_queue_token is not None
-            assert self._jobs_queue_broker_url is not None
-            self._write_secret("jobs_queue_token", self._jobs_queue_token)
-            self._write_secret("jobs_queue_broker_url", self._jobs_queue_broker_url)
-            assert self._jobs_publication_database_url is not None
-            self._write_secret(
-                "jobs_publication_database_url",
-                self._jobs_publication_database_url.set(
-                    database=self._database_name
-                ).render_as_string(hide_password=False),
-            )
-
-        self._write_environment_file(self._api_env_file, self._api_environment())
         compose_values = {
             "AAP_IDENTITY_RUNTIME_IMAGE": self._identity_image,
             "AAP_IDENTITY_API_RUNTIME_IMAGE": self._api_image,
@@ -1126,77 +761,54 @@ class IdentityModuleStack:
             "IDENTITY_RUNTIME_EXPIRE_MINUTES": "1440",
             "IDENTITY_MAIL_SMTP_HOST": "host.docker.internal",
             "IDENTITY_MAIL_SMTP_PORT": str(self._smtp_port),
-            "IDENTITY_MAIL_SMTP_USER": "",
-            "IDENTITY_MAIL_SMTP_PASSWORD": "",
             "IDENTITY_MAIL_SMTP_FROM": "noreply@example.test",
         }
-        if getattr(self, "_notification_publication_enabled", False):
-            compose_values.update(
-                {
-                    "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IMAGE": self._notifications_publisher_image,
-                    "NOTIFICATION_PUBLICATION_TOKEN_SECRET_FILE": str(
-                        self._secret_directory / "notification_publication_token"
-                    ),
-                }
-            )
-        compose_values.update(
-            _identity_optional_secret_selectors(
-                self._secret_directory, self._notifications_socket_enabled
-            )
+
+        def secret(selector, name, value):
+            self._write_secret(name, value)
+            compose_values[selector] = str(self._secret_directory / name)
+
+        for kind, (selector, name) in _DATABASES.items():
+            if kind in self._database_urls:
+                url = self._database_urls[kind].set(database=self._database_name)
+                secret(selector, name, url.render_as_string(hide_password=False))
+        secret(
+            "IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE",
+            "identity_recovery_mail_key",
+            self._mail_key,
         )
-        for kind, (environment_name, secret_name) in _DATABASES.items():
-            compose_values[environment_name] = str(self._secret_directory / secret_name)
-        for env_name, secret_name in (
-            ("IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE", "identity_recovery_mail_key"),
-            ("IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE", "identity_login_redis_url"),
-            ("IDENTITY_RUNTIME_TOKEN_FILE", "identity_token"),
-            ("IDENTITY_RUNTIME_SIGNING_SECRET_FILE", "identity_signing_secret"),
-            (
-                "IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE",
-                "notification_publish_redis_url",
-            ),
-        ):
-            compose_values[env_name] = str(self._secret_directory / secret_name)
-        if self._notifications_socket_enabled:
-            compose_values.update(
-                {
-                    "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IMAGE": (
-                        self._notifications_socket_image or ""
-                    ),
-                    "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IDENTITY": (
-                        self._notifications_socket_identity or ""
-                    ),
-                    "NOTIFICATION_SOCKET_DATABASE_URL_FILE": str(
-                        self._secret_directory / "notification_socket_database_url"
-                    ),
-                    "NOTIFICATION_SOCKET_REDIS_URL_FILE": str(
-                        self._secret_directory / "notification_socket_redis_url"
-                    ),
-                    "NOTIFICATION_SOCKET_IDENTITY_URL": (
-                        "http://identity-admission:8170"
-                    ),
-                    "NOTIFICATION_SOCKET_IDENTITY_TOKEN_FILE": str(
-                        self._secret_directory / "notification_socket_identity_token"
-                    ),
-                }
+        if not self._embedded:
+            secret(
+                "IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE",
+                "identity_login_redis_url",
+                self._login_redis_url,
             )
-        if self._jobs_queue_enabled:
-            compose_values.update(
-                {
-                    "AAP_JOBS_QUEUE_RUNTIME_IMAGE": self._jobs_queue_image,
-                    "AAP_JOBS_QUEUE_RUNTIME_IDENTITY": self._jobs_queue_identity,
-                    "AAP_JOBS_QUEUE_RUNTIME_SOURCE_REVISION": self._jobs_queue_source_revision,
-                    "JOBS_QUEUE_BROKER_URL_SECRET_FILE": str(
-                        self._secret_directory / "jobs_queue_broker_url"
-                    ),
-                    "JOBS_QUEUE_TOKEN_SECRET_FILE": str(
-                        self._secret_directory / "jobs_queue_token"
-                    ),
-                    "JOBS_PUBLICATION_DATABASE_URL_SECRET_FILE": str(
-                        self._secret_directory / "jobs_publication_database_url"
-                    ),
-                }
+            secret("IDENTITY_RUNTIME_TOKEN_FILE", "identity_token", self._control)
+            secret(
+                "IDENTITY_RUNTIME_SIGNING_SECRET_FILE",
+                "identity_signing_secret",
+                self._secret,
             )
+        if self._actor_status_database_url is not None:
+            url = self._actor_status_database_url.set(database=self._database_name)
+            secret(
+                "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE",
+                "identity_actor_status_database_url",
+                url.render_as_string(hide_password=False),
+            )
+            secret(
+                "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE",
+                "identity_admission_token",
+                self._admission_token,
+            )
+        if self._jobs_publication_database_url is not None:
+            url = self._jobs_publication_database_url.set(database=self._database_name)
+            secret(
+                "JOBS_PUBLICATION_DATABASE_URL_SECRET_FILE",
+                "jobs_publication_database_url",
+                url.render_as_string(hide_password=False),
+            )
+        self._write_environment_file(self._api_env_file, self._api_environment())
         self._write_environment_file(self._compose_env_file, compose_values)
         self._write_override_file()
 
@@ -1212,17 +824,8 @@ class IdentityModuleStack:
             "DATABASE_URL": database_url,
             "REDIS_URL": redis_url,
             "CELERY_BROKER_URL": celery_url,
-            "IDENTITY_URL": "http://identity-admission:8170",
-            "IDENTITY_TOKEN": self._control,
-            "NOTIFICATION_SOCKET_URL": "",
-            "NOTIFICATION_PUBLICATION_URL": "",
-            "NOTIFICATION_PUBLICATION_TOKEN": "",
-            "NOTIFICATION_PUBLICATION_TOKEN_FILE": "",
-            "JOBS_QUEUE_URL": "",
-            "JOBS_QUEUE_TOKEN": "",
-            "JOBS_QUEUE_TOKEN_FILE": "",
-            "JOBS_PUBLICATION_DATABASE_URL": "",
-            "JOBS_PUBLICATION_DATABASE_URL_FILE": "",
+            "IDENTITY_URL": "" if self._embedded else "http://identity-issuer:8170",
+            "IDENTITY_TOKEN": "" if self._embedded else self._control,
             "ALEMBIC_AUTO_UPGRADE": "false",
             "E2E_SEED_ENABLED": "false",
             "AUDIT_ASYNC": "true",
@@ -1242,26 +845,9 @@ class IdentityModuleStack:
                 "AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY"
             ),
         }
-        if self._notifications_socket_enabled:
-            values["NOTIFICATION_SOCKET_URL"] = "ws://notifications-socket:8180"
-        if getattr(self, "_notification_publication_enabled", False):
-            values.pop("NOTIFICATION_PUBLICATION_TOKEN")
-            values.update(
-                {
-                    "NOTIFICATION_PUBLICATION_URL": "http://identity-notification-publisher:8181",
-                    "NOTIFICATION_PUBLICATION_TOKEN_FILE": "/run/secrets/notification_publication_token",
-                    "REDIS_URL": self._notification_api_redis_url,
-                    "CELERY_BROKER_URL": self._notification_api_redis_url,
-                }
-            )
-        if self._jobs_queue_enabled:
-            values.pop("JOBS_QUEUE_TOKEN")
-            values.update(
-                {
-                    "JOBS_QUEUE_URL": "http://jobs-queue:8190",
-                    "JOBS_QUEUE_TOKEN_FILE": "/run/secrets/jobs_queue_token",
-                    "JOBS_PUBLICATION_DATABASE_URL_FILE": "/run/secrets/jobs_publication_database_url",
-                }
+        if self._jobs_publication:
+            values["JOBS_PUBLICATION_DATABASE_URL_FILE"] = (
+                "/run/secrets/jobs_publication_database_url"
             )
         for env_name, default in (
             ("MINIO_BUCKET", "annotations"),
@@ -1298,125 +884,42 @@ class IdentityModuleStack:
             )
         for name in _API_BINDING_NAMES + _API_DATABASE_FILE_NAMES:
             values[name] = ""
-        values["IDENTITY_RECOVERY_MAIL_KEY"] = ""
-        values["IDENTITY_RECOVERY_MAIL_KEY_FILE"] = ""
+        if self._embedded:
+            values["IDENTITY_EMBEDDED_SIGNING_SECRET"] = self._secret
+            values["IDENTITY_RECOVERY_MAIL_KEY_FILE"] = (
+                "/run/secrets/identity_recovery_mail_key"
+            )
         return values
 
     def _write_override_file(self) -> None:
         api_env_file = json.dumps(str(self._api_env_file))
-        publisher_image = "${AAP_IDENTITY_RUNTIME_IMAGE:?}"
-        publisher_overrides = ""
         api_secret_names = []
-        publication_dependency = ""
-        secret_definitions = []
-        if getattr(self, "_notification_publication_enabled", False):
-            publisher_image = "${AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IMAGE:?}"
-            publisher_overrides = """
-    command: ["yoao-notifications-publisher"]
-    user: "10004:10004"
-    environment:
-      NOTIFICATION_PUBLISH_API_TOKEN_FILE: /run/secrets/notification_publication_token
-      NOTIFICATION_PUBLISH_HOST: 0.0.0.0
-      NOTIFICATION_PUBLISH_PORT: "8181"
-    secrets: !override
-      - notification_publish_database_url
-      - notification_publish_redis_url
-      - notification_publication_token
-    healthcheck:
-      disable: false
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8181/health/ready', timeout=2)"]
-      interval: 1s
-      timeout: 3s
-      start_period: 3s
-      retries: 30
-"""
-            api_secret_names.append("notification_publication_token")
-            publication_dependency = """
-      identity-notification-publisher:
-        condition: service_healthy
-"""
-            secret_definitions.append(
-                """  notification_publication_token:
-    file: ${NOTIFICATION_PUBLICATION_TOKEN_SECRET_FILE:?}"""
-            )
-        socket_service = ""
-        socket_dependency = ""
-        if self._notifications_socket_enabled:
-            socket_service = """
-  notifications-socket:
-    image: ${AAP_NOTIFICATIONS_SOCKET_RUNTIME_IMAGE:?}
-    build: !reset null
-    depends_on:
-      identity-admission:
-        condition: service_healthy
-    labels: *identity-module-owner-labels
-"""
-            socket_dependency = """
-      notifications-socket:
-        condition: service_healthy
-"""
-        jobs_queue_service = ""
-        jobs_queue_dependency = ""
-        if self._jobs_queue_enabled:
-            jobs_queue_service = """
-  jobs-queue:
-    image: ${AAP_JOBS_QUEUE_RUNTIME_IMAGE:?}
-    build: !reset null
-    command: ["yoao-jobs-queue"]
-    user: "10005:10005"
-    environment:
-      JOBS_QUEUE_BROKER_URL_FILE: /run/secrets/jobs_queue_broker_url
-      JOBS_QUEUE_TOKEN_FILE: /run/secrets/jobs_queue_token
-      JOBS_QUEUE_HOST: 0.0.0.0
-      JOBS_QUEUE_PORT: "8190"
-    secrets: !override
-      - jobs_queue_broker_url
-      - jobs_queue_token
-    read_only: true
-    cap_drop: [ALL]
-    security_opt: [no-new-privileges:true]
-    pids_limit: 64
-    mem_limit: 256m
-    cpus: 1
-    healthcheck:
-      disable: false
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8190/health/ready', timeout=2)"]
-      interval: 1s
-      timeout: 3s
-      start_period: 3s
-      retries: 30
-    labels: *identity-module-owner-labels
-"""
-            jobs_queue_dependency = """
-      jobs-queue:
-        condition: service_healthy
-"""
-            api_secret_names.extend(
-                ("jobs_queue_token", "jobs_publication_database_url")
-            )
-            secret_definitions.extend(
-                [
-                    """  jobs_queue_broker_url:
-    file: ${JOBS_QUEUE_BROKER_URL_SECRET_FILE:?}""",
-                    """  jobs_queue_token:
-    file: ${JOBS_QUEUE_TOKEN_SECRET_FILE:?}""",
-                    """  jobs_publication_database_url:
-    file: ${JOBS_PUBLICATION_DATABASE_URL_SECRET_FILE:?}""",
-                ]
-            )
+        if self._embedded:
+            api_secret_names.append("identity_recovery_mail_key")
+        if self._jobs_publication:
+            api_secret_names.append("jobs_publication_database_url")
         api_secrets = (
             "    secrets:\n" + "".join(f"      - {name}\n" for name in api_secret_names)
             if api_secret_names
             else ""
         )
-        secrets_block = (
-            "secrets:\n" + "\n".join(secret_definitions) + "\n"
-            if secret_definitions
-            else ""
+        secrets_block = ""
+        if self._jobs_publication:
+            secrets_block = """secrets:
+  jobs_publication_database_url:
+    file: ${JOBS_PUBLICATION_DATABASE_URL_SECRET_FILE:?}
+"""
+        issuer_dependency = (
+            ""
+            if self._embedded
+            else """    depends_on:
+      identity-issuer:
+        condition: service_healthy
+"""
         )
         self._override_file.write_text(
             f"""services:
-  identity-admission:
+  identity-issuer:
     image: ${{AAP_IDENTITY_RUNTIME_IMAGE:?}}
     build: !reset null
     labels: &identity-module-owner-labels
@@ -1424,20 +927,13 @@ class IdentityModuleStack:
       org.aap.acceptance-id: ${{IDENTITY_MODULE_STACK_ID:?}}
     ports: !override
       - "127.0.0.1::8170"
-  identity-mail:
-    image: ${{AAP_IDENTITY_RUNTIME_IMAGE:?}}
-    build: !reset null
-    labels: *identity-module-owner-labels
   identity-mail-v2:
     image: ${{AAP_IDENTITY_RUNTIME_IMAGE:?}}
     build: !reset null
+    restart: "no"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     labels: *identity-module-owner-labels
-  identity-notification-publisher:
-    image: {publisher_image}
-    build: !reset null
-    labels: *identity-module-owner-labels
-{publisher_overrides.rstrip()}
-{jobs_queue_service.rstrip()}
   identity-api:
     image: ${{AAP_IDENTITY_API_RUNTIME_IMAGE:?}}
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--timeout-graceful-shutdown", "3"]
@@ -1446,12 +942,7 @@ class IdentityModuleStack:
       - "host.docker.internal:host-gateway"
     env_file:
       - {api_env_file}
-    depends_on:
-      identity-admission:
-        condition: service_healthy
-{socket_dependency.rstrip()}
-{publication_dependency.rstrip()}
-{jobs_queue_dependency.rstrip()}
+{issuer_dependency.rstrip()}
     ports: !override
       - "127.0.0.1::8000"
     read_only: true
@@ -1463,7 +954,6 @@ class IdentityModuleStack:
     tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
     labels: *identity-module-owner-labels
 {api_secrets.rstrip()}
-{socket_service.rstrip()}
 {secrets_block.rstrip()}
 """,
             encoding="utf-8",
@@ -1536,9 +1026,9 @@ class IdentityModuleStack:
             "-f",
             str(ROOT / "docker-compose.identity.yml"),
         ]
-        if self._notifications_socket_enabled:
-            arguments.extend(["-f", str(ROOT / "docker-compose.notifications.yml")])
-        arguments.extend(["-f", str(self._override_file), "--profile", "mail-v2"])
+        arguments.extend(["-f", str(self._override_file)])
+        if not self._embedded:
+            arguments.extend(["--profile", "identity-issuer"])
         return arguments
 
     def _compose(self, *arguments: str, timeout: int = 90) -> str:
@@ -1623,7 +1113,8 @@ class IdentityModuleStack:
         return containers
 
     def _refresh_origins(self) -> None:
-        self._identity_origin = self._published_origin("identity-admission", 8170)
+        if not self._embedded:
+            self._identity_origin = self._published_origin("identity-issuer", 8170)
         self._api_origin = self._published_origin("identity-api", 8000)
 
     def _published_origin(self, service: str, target_port: int) -> str:
@@ -1685,78 +1176,17 @@ class IdentityModuleStack:
             f"Owned Identity {service} did not become ready; see {self._log_file}"
         )
 
-    async def _wait_publisher_running(self, timeout: float = 30) -> None:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            containers = self._verify_project_ownership()
-            details = containers.get("identity-notification-publisher")
-            if details:
-                state = details.get("State") or {}
-                if state.get("Running") is True and (
-                    not getattr(self, "_notification_publication_enabled", False)
-                    or (state.get("Health") or {}).get("Status") == "healthy"
-                ):
-                    return
-            await asyncio.sleep(0.2)
-        self._write_log("identity-notification-publisher: did not remain running")
-        raise RuntimeError(
-            "Owned Identity notification publisher did not remain running; "
-            f"see {self._log_file}"
-        )
-
     async def _wait_service_ready(self, service: str) -> None:
-        if service == "identity-admission":
+        if service == "identity-issuer":
             await self._wait_http(self._identity_origin + "/ready", service)
         elif service == "identity-api":
             await self._wait_http(self._api_origin + "/health/db", service)
-        elif service in {"identity-mail", "identity-mail-v2"}:
+        elif service == "identity-mail-v2":
             await self._wait_mail_ready(service)
-        elif service == "identity-notification-publisher":
-            await self._wait_publisher_running()
-        elif service == _NOTIFICATIONS_SOCKET_SERVICE:
-            await self._wait_notifications_socket_ready()
-        elif service == _JOBS_QUEUE_SERVICE:
-            await self._wait_jobs_queue_ready()
 
     async def _wait_ready(self) -> None:
         for service in self._services:
             await self._wait_service_ready(service)
-
-    async def _wait_notifications_socket_ready(self, timeout: float = 60) -> None:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            details = self._verify_project_ownership().get(
-                _NOTIFICATIONS_SOCKET_SERVICE
-            )
-            if details is not None:
-                state = details.get("State") or {}
-                health = (state.get("Health") or {}).get("Status")
-                if state.get("Running") is True and health == "healthy":
-                    return
-                if state.get("Running") is False and state.get("Status") == "exited":
-                    break
-            await asyncio.sleep(0.2)
-        self._write_log("notifications-socket: readiness timed out")
-        raise RuntimeError(
-            f"Owned Notifications socket did not become ready; see {self._log_file}"
-        )
-
-    async def _wait_jobs_queue_ready(self, timeout: float = 60) -> None:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            details = self._verify_project_ownership().get(_JOBS_QUEUE_SERVICE)
-            if details is not None:
-                state = details.get("State") or {}
-                health = (state.get("Health") or {}).get("Status")
-                if state.get("Running") is True and health == "healthy":
-                    return
-                if state.get("Running") is False and state.get("Status") == "exited":
-                    break
-            await asyncio.sleep(0.2)
-        self._write_log("jobs-queue: readiness timed out")
-        raise RuntimeError(
-            f"Owned Jobs queue did not become ready; see {self._log_file}"
-        )
 
     def _refresh_inspection_evidence(self) -> None:
         containers = self._verify_project_ownership()
@@ -1776,14 +1206,6 @@ class IdentityModuleStack:
             self._assert_service_runtime(
                 service, config, host, state, mounts, env_values
             )
-            if service == _JOBS_QUEUE_SERVICE:
-                network_names = set(
-                    (details.get("NetworkSettings", {}).get("Networks") or {}).keys()
-                )
-                if network_names != {f"{self.project_name}_default"}:
-                    raise RuntimeError(
-                        "Jobs queue is outside its owned private network"
-                    )
             evidence[service] = {
                 "image_id": details.get("Image"),
                 "user": config.get("User"),
@@ -1815,17 +1237,8 @@ class IdentityModuleStack:
         mounts: list,
         env: dict,
     ) -> None:
-        if service == _JOBS_QUEUE_SERVICE:
-            expected_user = "10005:10005"
-        elif service == _NOTIFICATIONS_SOCKET_SERVICE or (
-            service == "identity-notification-publisher"
-            and getattr(self, "_notification_publication_enabled", False)
-        ):
-            expected_user = "10004:10004"
-        else:
-            expected_user = "10003:10003"
-        if config.get("User") != expected_user:
-            raise RuntimeError(f"{service} does not run as UID/GID {expected_user}")
+        if config.get("User") != "10003:10003":
+            raise RuntimeError(f"{service} does not run as UID/GID 10003:10003")
         if host.get("ReadonlyRootfs") is not True:
             raise RuntimeError(f"{service} does not have a read-only root filesystem")
         if "ALL" not in (host.get("CapDrop") or []):
@@ -1846,76 +1259,37 @@ class IdentityModuleStack:
         if state.get("OOMKilled") is True:
             raise RuntimeError(f"{service} was OOM-killed")
 
+        expected = _expected_secret_mount_names(
+            service, jobs_publication=self._jobs_publication, embedded=self._embedded
+        )
         targets = {
             mount.get("Destination")
             for mount in mounts
             if str(mount.get("Destination", "")).startswith("/run/secrets/")
         }
-        expected = _expected_secret_mount_names(
-            service,
-            self._notifications_socket_enabled,
-            getattr(self, "_notification_publication_enabled", False),
-            self._jobs_queue_enabled,
-        )
         if expected is None or targets != {f"/run/secrets/{name}" for name in expected}:
             raise RuntimeError(f"{service} secret mounts cross service boundaries")
-        if service == _JOBS_QUEUE_SERVICE:
-            actual_targets = {
-                mount.get("Destination") for mount in mounts if mount.get("Destination")
-            }
-            if actual_targets != targets:
-                raise RuntimeError("Jobs queue has an unexpected runtime mount")
-            if any(
-                mount.get("RW") is not False
-                for mount in mounts
-                if mount.get("Destination") in targets
-            ):
-                raise RuntimeError("Jobs queue secret mounts must be read-only")
         for mount in mounts:
             source = mount.get("Source")
             if source and Path(source).resolve().is_relative_to(ROOT):
                 raise RuntimeError(f"{service} mounts the application source tree")
-
-        if service == "identity-admission":
-            expected_optional_selectors = {
-                "IDENTITY_ADMISSION_TOKEN_FILE": (
-                    "/run/secrets/identity_admission_token"
-                    if self._notifications_socket_enabled
-                    else ""
+            if mount.get("Destination") in targets and mount.get("RW") is not False:
+                raise RuntimeError(f"{service} secret mounts must be read-only")
+        if service == "identity-issuer":
+            for name, target in (
+                ("IDENTITY_ADMISSION_TOKEN_FILE", "identity_admission_token"),
+                (
+                    "IDENTITY_ACTOR_STATUS_DATABASE_URL_FILE",
+                    "identity_actor_status_database_url",
                 ),
-                "IDENTITY_ACTOR_STATUS_DATABASE_URL_FILE": (
-                    "/run/secrets/identity_actor_status_database_url"
-                    if self._notifications_socket_enabled
-                    else ""
-                ),
-            }
-            if any(
-                env.get(name, "") != value
-                for name, value in expected_optional_selectors.items()
             ):
-                raise RuntimeError("Identity optional credential selectors differ")
-            if not self._notifications_socket_enabled and any(
-                (self._secret_directory / name).exists()
-                for name in _IDENTITY_OPTIONAL_SECRETS.values()
-            ):
-                raise RuntimeError("Disabled Identity secret files contain credentials")
+                selected = "/run/secrets/" + target if self._admission_token else ""
+                if env.get(name, "") != selected:
+                    raise RuntimeError("Identity scoped issuer credentials differ")
         elif service == "identity-api":
             if env.get("OPENBLAS_NUM_THREADS") != "1":
                 raise RuntimeError(
-                    "API native thread budget differs from the acceptance CPU limit"
-                )
-            if (
-                "IDENTITY_SIGNING_SECRET" in env
-                or "IDENTITY_SIGNING_SECRET_FILE" in env
-                or any(value == self._secret for value in env.values())
-            ):
-                raise RuntimeError("API runtime environment contains the owner signer")
-            if (
-                env.get("SECRET_KEY") != self._api_secret
-                or env.get("IDENTITY_TOKEN") != self._control
-            ):
-                raise RuntimeError(
-                    "API runtime does not have its explicit edge credentials"
+                    "API native thread budget differs from its CPU limit"
                 )
             if any(
                 env.get(name, "")
@@ -1924,161 +1298,62 @@ class IdentityModuleStack:
                 raise RuntimeError(
                     "API runtime contains a direct Identity database binding"
                 )
-            expected_socket_origin = (
-                "ws://notifications-socket:8180"
-                if self._notifications_socket_enabled
-                else ""
-            )
-            if env.get("NOTIFICATION_SOCKET_URL", "") != expected_socket_origin:
-                raise RuntimeError("API runtime socket owner binding does not match")
-            expected_publication_origin = (
-                "http://identity-notification-publisher:8181"
-                if getattr(self, "_notification_publication_enabled", False)
-                else ""
-            )
-            expected_publication_token_file = (
-                "/run/secrets/notification_publication_token"
-                if getattr(self, "_notification_publication_enabled", False)
-                else ""
-            )
-            if (
-                env.get("NOTIFICATION_PUBLICATION_URL", "")
-                != expected_publication_origin
-                or env.get("NOTIFICATION_PUBLICATION_TOKEN", "")
-                or env.get("NOTIFICATION_PUBLICATION_TOKEN_FILE", "")
-                != expected_publication_token_file
-                or (
-                    getattr(self, "_notification_publication_enabled", False)
-                    and any(
-                        env.get(name) != self._notification_api_redis_url
-                        for name in ("REDIS_URL", "CELERY_BROKER_URL")
-                    )
-                )
+            if env.get("SECRET_KEY") != self._api_secret:
+                raise RuntimeError("API runtime does not have its media URL secret")
+            if self._embedded:
+                if (
+                    env.get("IDENTITY_URL")
+                    or env.get("IDENTITY_TOKEN")
+                    or env.get("IDENTITY_EMBEDDED_SIGNING_SECRET") != self._secret
+                ):
+                    raise RuntimeError("API is not using its embedded Identity signer")
+            elif (
+                "IDENTITY_SIGNING_SECRET" in env
+                or "IDENTITY_SIGNING_SECRET_FILE" in env
+                or self._secret in env.values()
+                or env.get("IDENTITY_TOKEN") != self._control
+                or env.get("IDENTITY_URL") != "http://identity-issuer:8170"
             ):
                 raise RuntimeError(
-                    "API publication binding crosses credential boundaries"
+                    "API runtime does not isolate the opt-in issuer signer"
                 )
-            expected_jobs_url = (
-                "http://jobs-queue:8190" if self._jobs_queue_enabled else ""
-            )
-            expected_jobs_token_file = (
-                "/run/secrets/jobs_queue_token" if self._jobs_queue_enabled else ""
-            )
-            expected_publication_database_file = (
+            expected_publication = (
                 "/run/secrets/jobs_publication_database_url"
-                if self._jobs_queue_enabled
+                if self._jobs_publication
                 else ""
             )
             if (
-                env.get("JOBS_QUEUE_URL", "") != expected_jobs_url
-                or env.get("JOBS_QUEUE_TOKEN", "")
-                or env.get("JOBS_QUEUE_TOKEN_FILE", "") != expected_jobs_token_file
-                or env.get("JOBS_PUBLICATION_DATABASE_URL", "")
+                env.get("JOBS_PUBLICATION_DATABASE_URL")
                 or env.get("JOBS_PUBLICATION_DATABASE_URL_FILE", "")
-                != expected_publication_database_file
-                or (
-                    self._jobs_queue_enabled
-                    and any(value == self._jobs_queue_token for value in env.values())
+                != expected_publication
+                or any(
+                    value
+                    for key, value in env.items()
+                    if key.startswith(("JOBS_QUEUE_", "JOBS_DISPATCH_"))
                 )
             ):
                 raise RuntimeError(
-                    "API Jobs queue binding crosses credential boundaries"
+                    "API Jobs publication binding crosses credential boundaries"
                 )
-            if self._jobs_queue_enabled and any(
-                mount.get("RW") is not False
-                for mount in mounts
-                if mount.get("Destination")
-                in {
-                    "/run/secrets/jobs_queue_token",
-                    "/run/secrets/jobs_publication_database_url",
-                }
-            ):
-                raise RuntimeError("API Jobs credential mounts must be read-only")
-        elif service == _JOBS_QUEUE_SERVICE:
-            expected_environment = {
-                "JOBS_QUEUE_BROKER_URL_FILE": "/run/secrets/jobs_queue_broker_url",
-                "JOBS_QUEUE_TOKEN_FILE": "/run/secrets/jobs_queue_token",
-                "JOBS_QUEUE_HOST": "0.0.0.0",
-                "JOBS_QUEUE_PORT": "8190",
-            }
+        elif service == "identity-mail-v2":
+            if any(bindings for bindings in (host.get("PortBindings") or {}).values()):
+                raise RuntimeError("Identity mail must not publish a host port")
             if any(
-                env.get(name) != value for name, value in expected_environment.items()
-            ):
-                raise RuntimeError("Jobs queue credential selectors differ")
-            forbidden = (
-                "DATABASE",
-                "IDENTITY",
-                "API_",
-                "SECRET",
-                "MINIO",
-                "REDIS_URL",
-                "CELERY_BROKER_URL",
-            )
-            if any(any(part in name for part in forbidden) for name in env):
-                raise RuntimeError("Jobs queue received a domain or API credential")
-            if any(
+                (
+                    name.startswith("IDENTITY_")
+                    and name not in {"IDENTITY_HOST", "IDENTITY_PORT"}
+                    and not name.startswith("IDENTITY_MAIL_V2_")
+                )
+                or name
+                in {"DATABASE_URL", "REDIS_URL", "CELERY_BROKER_URL", "SECRET_KEY"}
+                for name in env
+            ) or any(
                 value in env.values()
-                for value in (
-                    self._jobs_queue_token,
-                    self._jobs_queue_broker_url,
-                    self._api_secret,
-                    self._control,
-                    self._secret,
-                )
+                for value in (self._secret, self._api_secret, self._control)
             ):
-                raise RuntimeError("Jobs queue runtime environment contains a secret")
-            if env.get("JOBS_QUEUE_BROKER_URL") or env.get("JOBS_QUEUE_TOKEN"):
-                raise RuntimeError("Jobs queue credentials must be mounted as files")
-            if any(bindings for bindings in (host.get("PortBindings") or {}).values()):
-                raise RuntimeError("Jobs queue must not publish a host port")
-            if state.get("Running") is True and (
-                (state.get("Health") or {}).get("Status") != "healthy"
-            ):
-                raise RuntimeError("Jobs queue broker readiness failed")
-        elif service == "identity-notification-publisher" and getattr(
-            self, "_notification_publication_enabled", False
-        ):
-            if (
-                env.get("NOTIFICATION_PUBLISH_API_TOKEN_FILE")
-                != "/run/secrets/notification_publication_token"
-                or env.get("NOTIFICATION_PUBLISH_HOST") != "0.0.0.0"
-                or env.get("NOTIFICATION_PUBLISH_PORT") != "8181"
-                or self._notification_publication_token in env.values()
-            ):
-                raise RuntimeError("Publisher API credential binding differs")
-            if any(bindings for bindings in (host.get("PortBindings") or {}).values()):
                 raise RuntimeError(
-                    "Notifications publisher must not publish a host port"
+                    "Identity mail received unrelated runtime credentials"
                 )
-        elif service == _NOTIFICATIONS_SOCKET_SERVICE:
-            expected_environment = {
-                "NOTIFICATION_SOCKET_DATABASE_URL_FILE": (
-                    "/run/secrets/notification_socket_database_url"
-                ),
-                "NOTIFICATION_SOCKET_REDIS_URL_FILE": (
-                    "/run/secrets/notification_socket_redis_url"
-                ),
-                "NOTIFICATION_SOCKET_IDENTITY_URL": ("http://identity-admission:8170"),
-                "NOTIFICATION_SOCKET_IDENTITY_TOKEN_FILE": (
-                    "/run/secrets/notification_socket_identity_token"
-                ),
-            }
-            if any(
-                env.get(name) != value for name, value in expected_environment.items()
-            ):
-                raise RuntimeError("Notifications socket secret file binding differs")
-            secret_values = (
-                self._admission_token,
-                self._notifications_socket_database_url.render_as_string(
-                    hide_password=False
-                ),
-                self._notifications_socket_redis_url,
-            )
-            if any(value and value in env.values() for value in secret_values):
-                raise RuntimeError("Notifications socket environment contains a secret")
-            port_bindings = host.get("PortBindings") or {}
-            if any(bindings for bindings in port_bindings.values()):
-                raise RuntimeError("Notifications socket must not publish a host port")
 
     def _validate_service(self, service: str) -> None:
         if service not in self._services:

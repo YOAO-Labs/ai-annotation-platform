@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,7 +13,6 @@ from app.services.audit import audit_origin_from_request
 from app.middleware.request_id import request_id_var
 from app.services.captcha_service import verify_turnstile_token
 from app.services import login_failed_counter
-from app.services.identity_mail_delivery import kick_credential_mail
 from app.services.identity_recovery_commands import RecoveryCommandsPort
 
 from app.config import settings
@@ -237,7 +236,6 @@ async def get_me(
 async def forgot_password(
     data: ForgotPasswordRequest,
     request: Request,
-    background_tasks: BackgroundTasks,
     commands: RecoveryCommandsPort = Depends(get_recovery_commands),
 ):
     if not await verify_turnstile_token(
@@ -245,15 +243,12 @@ async def forgot_password(
     ):
         raise HTTPException(status_code=400, detail="captcha_failed")
 
-    operation_id = uuid.uuid4()
     await execute_recovery(
         request,
         commands,
         "request_password_reset",
         {"email": data.email, "captcha_verified": True},
-        operation_id=operation_id,
     )
-    background_tasks.add_task(kick_credential_mail, operation_id)
     return {
         "message": (
             "如果该邮箱已注册，您将收到一封包含重置链接的邮件。"
@@ -299,19 +294,15 @@ async def verify_email(
 async def send_verification_email_endpoint(
     data: ResendVerificationRequest,
     request: Request,
-    background_tasks: BackgroundTasks,
     commands: RecoveryCommandsPort = Depends(get_recovery_commands),
 ):
     """持久受理验证邮件投递，响应不等待 SMTP。"""
-    operation_id = uuid.uuid4()
     await execute_recovery(
         request,
         commands,
         "resend_email_verification",
         {"email": data.email},
-        operation_id=operation_id,
     )
-    background_tasks.add_task(kick_credential_mail, operation_id)
     return {"message": "如果该邮箱待验证，您将收到一封包含验证链接的邮件"}
 
 
@@ -328,14 +319,12 @@ async def registration_status(
 async def register_open(
     payload: OpenRegisterRequest,
     request: Request,
-    background_tasks: BackgroundTasks,
     commands: RecoveryCommandsPort = Depends(get_recovery_commands),
 ):
     captcha_verified = await verify_turnstile_token(
         payload.captcha_token, request.client.host if request.client else None
     )
 
-    operation_id = uuid.uuid4()
     result = await execute_recovery(
         request,
         commands,
@@ -346,10 +335,7 @@ async def register_open(
             "password": payload.password,
             "captcha_verified": captcha_verified,
         },
-        operation_id=operation_id,
     )
-    if result["email_verification_required"]:
-        background_tasks.add_task(kick_credential_mail, operation_id)
     return RegisterResponse(
         access_token=result["access_token"],
         user=UserOut.model_validate(result["account"]),

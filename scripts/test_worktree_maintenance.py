@@ -143,6 +143,9 @@ class MaintenanceTests(unittest.TestCase):
             check=True,
         )
         routes = json.loads(result.stdout)
+        self.assertFalse(
+            any(name.startswith("app.workers.identity_mail") for name in routes)
+        )
         self.assertEqual(
             {name for name, route in routes.items() if route["queue"] == "maintenance"},
             MAINTENANCE_TASKS,

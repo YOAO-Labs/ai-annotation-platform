@@ -253,7 +253,6 @@ DOMAIN_PACKAGES = (
         ),
     ),
     DomainSpec(package="identity_invitation_commands", legacy_facades=()),
-    DomainSpec(package="identity_mail_v2_delivery", legacy_facades=()),
     DomainSpec(package="quality_job_dispatch", legacy_facades=()),
     DomainSpec(
         package="quality_job_lifecycle", legacy_facades=(), allowed_app_imports=()

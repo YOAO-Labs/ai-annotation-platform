@@ -108,7 +108,7 @@ class MailV2PostgresData:
             await self._close(connection)
 
     @staticmethod
-    async def _assert_capabilities(connection) -> None:
+    async def _assert_capabilities(connection, expected=_MAIL_V2_CAPABILITIES) -> None:
         try:
             rows = await connection.fetch(
                 """
@@ -142,7 +142,26 @@ class MailV2PostgresData:
             actual = {
                 f"{row['nspname']}.{row['proname']}({row['args']})" for row in rows
             }
-            if actual != _MAIL_V2_CAPABILITIES:
+            if actual != expected:
+                raise IdentityUnavailable()
+            isolated = await connection.fetchval(
+                """
+                SELECT role.rolcanlogin AND NOT (
+                    role.rolsuper OR role.rolcreatedb OR role.rolcreaterole
+                    OR role.rolreplication OR role.rolbypassrls OR role.rolinherit
+                    OR pg_catalog.has_database_privilege(
+                        current_user, current_database(), 'CREATE,TEMP'
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM pg_catalog.pg_auth_members AS membership
+                        WHERE membership.member = role.oid OR membership.roleid = role.oid
+                    )
+                )
+                FROM pg_catalog.pg_roles AS role
+                WHERE role.rolname = current_user AND current_user = session_user
+                """
+            )
+            if isolated is not True:
                 raise IdentityUnavailable()
             has_table_access = await connection.fetchval(
                 """

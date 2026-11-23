@@ -239,12 +239,25 @@ GRANT SELECT ON yoao_labeling_v1.task_rows,
 GRANT USAGE ON SCHEMA yoao_identity_v1, yoao_identity_keys_v1,
     yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1,
     yoao_identity_groups_v1, yoao_identity_deactivation_v1,
-    yoao_identity_invitations_v1, yoao_identity_mail_v2,
+    yoao_identity_invitations_v1,
     yoao_identity_directory_v1, yoao_identity_admin_passwords_v1,
     yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1,
     yoao_identity_deletions_v1, yoao_identity_offboarding_v1,
     yoao_identity_briefs_v1,
     yoao_settings_v1, yoao_notifications_v1 TO :"application_role";
+REVOKE ALL ON SCHEMA yoao_identity_mail_v2 FROM :"application_role", PUBLIC;
+REVOKE ALL ON TABLE public.identity_credential_mail_outbox FROM :"application_role", PUBLIC;
+REVOKE ALL (id, actor_id, challenge_id, purpose, email, frontend_base_url,
+    token_hash, token_ciphertext, encryption_id, expires_at, status, attempt,
+    available_at, worker_id, lease_token, lease_seconds, lease_expires_at, last_reason,
+    created_at, updated_at, invitation_id, invitation_context)
+    ON TABLE public.identity_credential_mail_outbox FROM :"application_role", PUBLIC;
+REVOKE ALL ON FUNCTION yoao_identity_recovery_v1.mail_policy(),
+    yoao_identity_recovery_v1.claim_mail(jsonb), yoao_identity_recovery_v1.renew_mail(jsonb),
+    yoao_identity_recovery_v1.finish_mail(jsonb), yoao_identity_mail_v2.mail_policy(),
+    yoao_identity_mail_v2.claim_mail(jsonb), yoao_identity_mail_v2.renew_mail(jsonb),
+    yoao_identity_mail_v2.finish_mail(jsonb), yoao_settings_v1.mail_delivery_policy(jsonb)
+    FROM :"application_role", PUBLIC;
 GRANT USAGE ON SCHEMA yoao_audit_v1 TO :"application_role";
 REVOKE ALL ON FUNCTION yoao_audit_v1.maintenance_command(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION yoao_audit_v1.append_events(jsonb),
@@ -683,10 +696,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_identity_recovery_v1.prepare_recovery_command(jsonb),
     yoao_identity_recovery_v1.apply_recovery_command(jsonb),
     yoao_identity_recovery_v1.read_registration_status(jsonb),
-    yoao_identity_recovery_v1.mail_policy(),
-    yoao_identity_recovery_v1.claim_mail(jsonb),
-    yoao_identity_recovery_v1.renew_mail(jsonb),
-    yoao_identity_recovery_v1.finish_mail(jsonb),
     yoao_identity_groups_v1.group_policy(),
     yoao_identity_groups_v1.execute_group_command(jsonb),
     yoao_identity_deactivation_v1.deactivation_policy(),
@@ -711,14 +720,9 @@ GRANT EXECUTE ON FUNCTION
     yoao_identity_offboarding_v1.apply_offboarding_command(jsonb),
     yoao_identity_briefs_v1.briefs_policy(),
     yoao_identity_briefs_v1.execute_briefs_command(jsonb),
-    yoao_identity_mail_v2.mail_policy(),
-    yoao_identity_mail_v2.claim_mail(jsonb),
-    yoao_identity_mail_v2.renew_mail(jsonb),
-    yoao_identity_mail_v2.finish_mail(jsonb),
     yoao_notifications_v1.identity_delivery_policy(),
     yoao_notifications_v1.claim_identity_deliveries(jsonb),
-    yoao_notifications_v1.finish_identity_delivery(jsonb),
-    yoao_settings_v1.mail_delivery_policy(jsonb)
+    yoao_notifications_v1.finish_identity_delivery(jsonb)
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION
     yoao_workspace_membership_v1.membership_policy(),

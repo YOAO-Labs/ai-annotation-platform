@@ -106,10 +106,6 @@ IDENTITY_RUNTIME_CAPABILITIES = (
     "yoao_identity_invitations_v1.invitation_policy()",
     "yoao_identity_invitations_v1.prepare_invitation_command(jsonb)",
     "yoao_identity_invitations_v1.apply_invitation_command(jsonb)",
-    "yoao_identity_mail_v2.mail_policy()",
-    "yoao_identity_mail_v2.claim_mail(jsonb)",
-    "yoao_identity_mail_v2.renew_mail(jsonb)",
-    "yoao_identity_mail_v2.finish_mail(jsonb)",
     "yoao_identity_accounts_v1.account_policy()",
     "yoao_identity_accounts_v1.prepare_account_command(jsonb)",
     "yoao_identity_accounts_v1.apply_account_command(jsonb)",
@@ -118,6 +114,12 @@ IDENTITY_RUNTIME_CAPABILITIES = (
     "yoao_identity_recovery_v1.prepare_recovery_command(jsonb)",
     "yoao_identity_recovery_v1.apply_recovery_command(jsonb)",
     "yoao_identity_recovery_v1.read_registration_status(jsonb)",
+)
+IDENTITY_MAIL_SENDER_CAPABILITIES = (
+    "yoao_identity_mail_v2.mail_policy()",
+    "yoao_identity_mail_v2.claim_mail(jsonb)",
+    "yoao_identity_mail_v2.renew_mail(jsonb)",
+    "yoao_identity_mail_v2.finish_mail(jsonb)",
     "yoao_identity_recovery_v1.mail_policy()",
     "yoao_identity_recovery_v1.claim_mail(jsonb)",
     "yoao_identity_recovery_v1.renew_mail(jsonb)",
@@ -1624,6 +1626,7 @@ class LocalResources:
                 f"FROM {role}",
             )
             identity_function_grant = ", ".join(IDENTITY_RUNTIME_CAPABILITIES)
+            identity_mail_sender_revoke = ", ".join(IDENTITY_MAIL_SENDER_CAPABILITIES)
             image_media_function_grant = ", ".join(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
             image_accepted_function_grant = ", ".join(
                 IMAGE_ACCEPTED_RUNTIME_CAPABILITIES
@@ -1676,8 +1679,16 @@ class LocalResources:
                     "state, attempt, available_at, worker_id, lease_id, lease_expires_at, "
                     "last_reason, created_at, delivered_at) "
                     f"ON TABLE public.notification_delivery_outbox FROM {role}, PUBLIC",
+                    f"REVOKE ALL ON TABLE public.identity_credential_mail_outbox FROM {role}, PUBLIC",
+                    "REVOKE ALL (id, actor_id, challenge_id, purpose, email, frontend_base_url, "
+                    "token_hash, token_ciphertext, encryption_id, expires_at, status, attempt, "
+                    "available_at, worker_id, lease_token, lease_seconds, lease_expires_at, "
+                    "last_reason, created_at, updated_at, invitation_id, invitation_context) "
+                    f"ON TABLE public.identity_credential_mail_outbox FROM {role}, PUBLIC",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA yoao_workspace_v1, yoao_workspace_membership_v1, yoao_workspace_owner_transfer_v1, yoao_workspace_configuration_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, yoao_inference_v1, yoao_inference_pipelines_v1, yoao_inference_backend_probe_v1, yoao_inference_health_observation_v1, yoao_inference_health_data_v1, yoao_inference_registry_ingress_v1, yoao_inference_routing_v1, yoao_assets_v1, yoao_labeling_v1, yoao_labeling_class_query_v1, yoao_jobs_v1, yoao_learning_v1, yoao_identity_v1, yoao_identity_keys_v1, yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1, yoao_identity_deactivation_v1, yoao_identity_invitations_v1, yoao_identity_mail_v2, yoao_identity_briefs_v1, yoao_identity_directory_v1, yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1, yoao_identity_deletions_v1, yoao_identity_offboarding_v1, yoao_audit_v1, yoao_notifications_v1, yoao_settings_v1 TO {role}",
+                    f"GRANT USAGE ON SCHEMA yoao_workspace_v1, yoao_workspace_membership_v1, yoao_workspace_owner_transfer_v1, yoao_workspace_configuration_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, yoao_inference_v1, yoao_inference_pipelines_v1, yoao_inference_backend_probe_v1, yoao_inference_health_observation_v1, yoao_inference_health_data_v1, yoao_inference_registry_ingress_v1, yoao_inference_routing_v1, yoao_assets_v1, yoao_labeling_v1, yoao_labeling_class_query_v1, yoao_jobs_v1, yoao_learning_v1, yoao_identity_v1, yoao_identity_keys_v1, yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1, yoao_identity_deactivation_v1, yoao_identity_invitations_v1, yoao_identity_briefs_v1, yoao_identity_directory_v1, yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1, yoao_identity_deletions_v1, yoao_identity_offboarding_v1, yoao_audit_v1, yoao_notifications_v1, yoao_settings_v1 TO {role}",
+                    f"REVOKE ALL ON SCHEMA yoao_identity_mail_v2 FROM {role}, PUBLIC",
+                    f"REVOKE ALL ON FUNCTION {identity_mail_sender_revoke} FROM {role}, PUBLIC",
                     "GRANT SELECT ON yoao_assets_v1.spatial_item_references, "
                     "yoao_assets_v1.spatial_scene_references, "
                     f"yoao_assets_v1.labeling_dataset_item_facts TO {role}",

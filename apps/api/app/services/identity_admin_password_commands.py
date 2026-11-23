@@ -63,13 +63,7 @@ class IdentityAdminPasswordCommands:
                     await data.admin_password_policy()
                 else:
                     data = IdentityAdminPasswordCommandData(self.db)
-                secret = (
-                    self.identity.signing_secret
-                    if self.identity.signing_secret is not None
-                    else settings.secret_key
-                )
-                if not secret:
-                    raise IdentityGatewayUnavailable()
+                secret = self.identity.require_signing_secret()
                 return await AdminPasswordManager(
                     _AccountAuthenticator(self.identity, self.db), data, secret
                 ).execute(request)

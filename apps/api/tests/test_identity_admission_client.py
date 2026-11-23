@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 import uuid
 
@@ -111,3 +112,42 @@ async def test_embedded_authentication_path_is_not_replaced_by_remote_client(
         == principal
     )
     assert calls == [("embedded-user-token", "caller-session")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_key", [False, True])
+async def test_socket_credentials_use_short_embedded_session(monkeypatch, is_key):
+    principal = _principal()
+    if is_key:
+        principal = principal.model_copy(
+            update={"credential_type": "api_key", "generation": None, "scopes": ["*"]}
+        )
+    gateway = IdentityGateway()
+    events = []
+
+    class Session:
+        async def commit(self):
+            events.append("commit")
+
+    @asynccontextmanager
+    async def session_factory():
+        events.append("open")
+        try:
+            yield Session()
+        finally:
+            events.append("close")
+
+    async def embedded(token, *, db):
+        assert token == "socket-credential" and isinstance(db, Session)
+        events.append("authenticate")
+        return principal
+
+    monkeypatch.setattr("app.db.base.async_session", session_factory)
+    monkeypatch.setattr(gateway, "_authenticate_embedded", embedded)
+    assert await gateway.authenticate("socket-credential") == principal
+    assert events == [
+        "open",
+        "authenticate",
+        *(["commit"] if is_key else []),
+        "close",
+    ]

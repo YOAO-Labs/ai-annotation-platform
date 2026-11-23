@@ -8,7 +8,7 @@ import pytest
 from yoao_identity.contract import IdentityUnavailable
 from app.services.identity_contracts import IdentityGatewayUnavailable
 
-_DSN = "postgresql://owner.example/identity"
+_DSN = "postgresql://capability@owner.example/identity"
 _CASES = (
     (
         "account",

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import parse_qsl, unquote, urlsplit
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +21,30 @@ def _read_secret_file(path: str, *, max_bytes: int | None = 4096) -> SecretStr:
         return SecretStr(value)
     except (OSError, ValueError, UnicodeError):
         raise ValueError("Invalid Mail v2 worker secret file") from None
+
+
+def _postgres_binding(secret: SecretStr) -> tuple[str, tuple[str, int, str]]:
+    value = secret.get_secret_value()
+    try:
+        url = urlsplit(value)
+        if (
+            url.scheme != "postgresql"
+            or not (url.hostname and url.username and url.path.strip("/"))
+            or url.fragment
+            or any(ord(character) < 33 for character in value)
+            or any(
+                key in {"host", "port", "user", "password", "dbname", "database"}
+                for key, _ in parse_qsl(url.query, keep_blank_values=True)
+            )
+        ):
+            raise ValueError()
+        return unquote(url.username), (
+            url.hostname,
+            url.port or 5432,
+            unquote(url.path.removeprefix("/")),
+        )
+    except ValueError:
+        raise ValueError("Invalid Mail v2 PostgreSQL LOGIN DSN") from None
 
 
 class MailV2WorkerSettings(BaseSettings):
@@ -53,6 +78,11 @@ class MailV2WorkerSettings(BaseSettings):
     connect_timeout_seconds: float = Field(default=5, gt=0, le=30)
     command_timeout_seconds: float = Field(default=10, gt=0, le=60)
 
+    @field_validator("smtp_password", "smtp_password_file", mode="before")
+    @classmethod
+    def blank_smtp_password_source_is_unset(cls, value):
+        return None if value == "" else value
+
     @model_validator(mode="after")
     def resolve_sources(self) -> MailV2WorkerSettings:
         for name in ("database_url", "settings_database_url", "encryption_key"):
@@ -72,6 +102,14 @@ class MailV2WorkerSettings(BaseSettings):
                     mail_encryption_id(value.get_secret_value())
                 except Exception:
                     raise ValueError("Invalid Mail v2 encryption key") from None
+        mail_login, mail_database = _postgres_binding(self.database_url)
+        settings_login, settings_database = _postgres_binding(
+            self.settings_database_url
+        )
+        if mail_database != settings_database:
+            raise ValueError("Mail and Settings must use the same PostgreSQL target")
+        if mail_login == settings_login:
+            raise ValueError("Mail and Settings must use distinct PostgreSQL LOGINs")
 
         if self.smtp_password_file is not None:
             if self.smtp_password is not None:

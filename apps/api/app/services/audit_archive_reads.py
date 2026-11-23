@@ -4,14 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import math
 import uuid
 
 from fastapi import HTTPException
-from jose import JWTError
 from sqlalchemy import select
 
-from app.core.security import decode_access_token
 from app.core import token_blacklist
 from app.db.enums import UserRole
 from app.db.models.audit_archive_output import AuditArchiveOutput
@@ -53,31 +50,14 @@ class ArchiveAuthority:
 
 
 def _jwt_proof(actor_id, request):
-    if getattr(request.state, "api_key_id", None) is not None:
-        return None
-    scheme, _, presented = request.headers.get("authorization", "").partition(" ")
-    try:
-        if scheme.lower() != "bearer" or not presented:
-            raise ValueError
-        claims = decode_access_token(presented)
-        if str(uuid.UUID(claims.get("sub", ""))) != str(actor_id):
-            raise ValueError
-        expiration = claims.get("exp")
-        generation = claims.get("gen", 0)
-        jti = claims.get("jti")
-        if (
-            type(expiration) not in {int, float}
-            or not math.isfinite(expiration)
-            or type(generation) is not int
-            or generation < 0
-            or (jti is not None and (not isinstance(jti, str) or not jti))
-        ):
-            raise ValueError
-        return JwtProof(
-            datetime.fromtimestamp(expiration, timezone.utc), generation, jti
-        )
-    except (JWTError, ValueError, TypeError, OverflowError, AttributeError):
+    principal = getattr(request.state, "identity_principal", None)
+    if principal is None or principal.actor_id != actor_id:
         reject("audit_archive_authority_revoked", 403)
+    if principal.credential_type == "api_key":
+        return None
+    return JwtProof(
+        principal.expires_at, principal.generation, str(principal.credential_id)
+    )
 
 
 def _check_clock(proof):

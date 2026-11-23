@@ -46,9 +46,10 @@ def create_app(
         connect_timeout=settings.connect_timeout_seconds,
         command_timeout=settings.command_timeout_seconds,
     )
+    smtp_fallbacks = _fallbacks(settings)
 
     async def policy():
-        return await settings_data.mail_delivery_policy(_fallbacks(settings))
+        return await settings_data.mail_delivery_policy(smtp_fallbacks)
 
     executor = executor or MailExecutor(
         data,
@@ -57,6 +58,19 @@ def create_app(
         lease_seconds=settings.lease_seconds,
         retry_delay_seconds=settings.retry_delay_seconds,
     )
+
+    async def validate_bindings() -> None:
+        from yoao_identity.recovery_crypto import mail_encryption_id
+
+        async with asyncio.timeout(settings.command_timeout_seconds + 1):
+            native = await data.mail_policy()
+            if native.policy != MAIL_V2_POLICY:
+                raise IdentityUnavailable()
+            await settings_data.mail_delivery_policy(
+                smtp_fallbacks, require_isolated_role=True
+            )
+            mail_encryption_id(executor._key_value())
+
     stop = asyncio.Event()
 
     @asynccontextmanager
@@ -74,14 +88,21 @@ def create_app(
                 pass
 
     async def poll_queue() -> None:
+        validated = False
         while not stop.is_set():
             try:
+                if not validated:
+                    await validate_bindings()
+                    validated = True
                 result = await executor.run_once()
+                if result.get("state") == "unavailable":
+                    validated = False
                 if result.get("state") in {"idle", "stale", "unavailable"}:
                     await asyncio.sleep(settings.poll_interval_seconds)
             except asyncio.CancelledError:
                 raise
             except Exception:
+                validated = False
                 await asyncio.sleep(settings.poll_interval_seconds)
 
     app = FastAPI(
@@ -99,14 +120,7 @@ def create_app(
     @app.get("/ready")
     async def ready():
         try:
-            from yoao_identity.recovery_crypto import mail_encryption_id
-
-            async with asyncio.timeout(settings.command_timeout_seconds + 1):
-                native = await data.mail_policy()
-                await policy()
-                if native.policy != MAIL_V2_POLICY:
-                    raise IdentityUnavailable()
-                mail_encryption_id(executor._key_value())
+            await validate_bindings()
         except Exception:
             return JSONResponse({"status": "unavailable"}, status_code=503)
         return {"status": "ok"}

@@ -27,10 +27,7 @@ from tests.factory import create_project, create_user
 from tests.identity_recovery_live_helpers import SMTPInbox, start_mail
 from tests.test_identity_admission_live import (
     ROOT,
-    _dsn,
     _inspect_docker,
-    _port,
-    _start,
     _start_container_identity,
     _start_identity,
     _token,
@@ -121,49 +118,6 @@ def _node_recovery(identity, control, request):
     )
     assert result.returncode == 0, "Recovery V1 peer failed"
     return json.loads(result.stdout)
-
-
-def _start_mail_v2(test_engine, directory, encryption_key, smtp, *, port=None):
-    port = port or _port()
-    values = {
-        "DATABASE_URL": _dsn("MAIL_V2", test_engine),
-        "SETTINGS_DATABASE_URL": _dsn("MAIL_SETTINGS", test_engine),
-        "ENCRYPTION_KEY": encryption_key,
-    }
-    environment = {
-        "PATH": os.environ.get("PATH", ""),
-        "IDENTITY_MAIL_V2_HOST": "127.0.0.1",
-        "IDENTITY_MAIL_V2_PORT": str(port),
-        "IDENTITY_MAIL_V2_SMTP_HOST": "127.0.0.1",
-        "IDENTITY_MAIL_V2_SMTP_PORT": str(smtp.port),
-        "IDENTITY_MAIL_V2_SMTP_FROM": "noreply@example.test",
-        "IDENTITY_MAIL_V2_POLL_INTERVAL_SECONDS": "0.1",
-        "IDENTITY_MAIL_V2_LEASE_SECONDS": "2",
-        "IDENTITY_MAIL_V2_RETRY_DELAY_SECONDS": "1",
-        "IDENTITY_MAIL_V2_CONNECT_TIMEOUT_SECONDS": "3",
-        "IDENTITY_MAIL_V2_COMMAND_TIMEOUT_SECONDS": "5",
-    }
-    for name, value in values.items():
-        path = directory / f"invitation-mail-v2-{name.lower()}"
-        path.write_text(value)
-        path.chmod(0o600)
-        environment[f"IDENTITY_MAIL_V2_{name}_FILE"] = str(path)
-    assert all(
-        name == "PATH" or name.startswith("IDENTITY_MAIL_V2_") for name in environment
-    )
-    return _start(
-        [
-            os.environ["AAP_IDENTITY_RUNTIME_PYTHON"],
-            "-I",
-            "-m",
-            "yoao_identity_runtime.mail_worker_v2",
-        ],
-        environment,
-        directory,
-        directory / f"invitation-mail-v2-{port}.log",
-        port,
-        "/ready",
-    )
 
 
 async def _set_daily_quota(maker, actor_id, limit):
@@ -1496,7 +1450,9 @@ async def test_mail_v2_recovers_unknown_delivery_keeps_v1_draining_and_suppresse
             )
 
         smtp_v1 = SMTPInbox()
-        mail_v1 = start_mail(test_engine, tmp_path, encryption_key, smtp_v1)
+        mail_v1 = start_mail(
+            test_engine, tmp_path, encryption_key, smtp_v1, legacy=True
+        )
         await smtp_v1.wait(1)
         await asyncio.to_thread(mail_v1.stop)
         mail_v1 = None
@@ -1527,7 +1483,7 @@ async def test_mail_v2_recovers_unknown_delivery_keeps_v1_draining_and_suppresse
             )
 
         smtp_v2 = SMTPInbox(lose_ack=1)
-        mail_v2 = _start_mail_v2(test_engine, tmp_path, encryption_key, smtp_v2)
+        mail_v2 = start_mail(test_engine, tmp_path, encryption_key, smtp_v2)
         await smtp_v2.wait(2)
         await _wait_row_status(maker, current_send_id, "delivered", timeout=20)
         current_rows = await _mail_rows(maker, current_row.id)
@@ -1558,7 +1514,7 @@ async def test_mail_v2_recovers_unknown_delivery_keeps_v1_draining_and_suppresse
         mail_v2 = None
 
         smtp_blocked = SMTPInbox(pause_ack=True)
-        mail_v2 = _start_mail_v2(test_engine, tmp_path, encryption_key, smtp_blocked)
+        mail_v2 = start_mail(test_engine, tmp_path, encryption_key, smtp_blocked)
         send_after_kill = _command(
             "send_invitation_email",
             manager_token,
@@ -1587,7 +1543,7 @@ async def test_mail_v2_recovers_unknown_delivery_keeps_v1_draining_and_suppresse
                 {"id": leased["id"]},
             )
         smtp_blocked.release.set()
-        mail_v2 = _start_mail_v2(test_engine, tmp_path, encryption_key, smtp_blocked)
+        mail_v2 = start_mail(test_engine, tmp_path, encryption_key, smtp_blocked)
         await smtp_blocked.wait(2)
         second_outbox = await _wait_row_status(
             maker, leased["id"], "delivered", timeout=20

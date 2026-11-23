@@ -199,7 +199,7 @@ class ForwardedIdentityStack(IdentityModuleStack):
         if not self.trace_enabled:
             return
         value = self._override_file.read_text()
-        owner = "  identity-admission:\n    image: ${AAP_IDENTITY_RUNTIME_IMAGE:?}\n"
+        owner = "  identity-issuer:\n    image: ${AAP_IDENTITY_RUNTIME_IMAGE:?}\n"
         api = '    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--timeout-graceful-shutdown", "3"]'
         assert value.count(owner) == value.count(api) == 1
         value = value.replace(
@@ -211,7 +211,7 @@ class ForwardedIdentityStack(IdentityModuleStack):
     def trace_records(self):
         records = []
         for service, details in self._verify_project_ownership().items():
-            if service not in {"identity-admission", "identity-api"}:
+            if service not in {"identity-issuer", "identity-api"}:
                 continue
             output = self._docker(
                 ["logs", details["Id"]], operation="sanitized RPC trace"

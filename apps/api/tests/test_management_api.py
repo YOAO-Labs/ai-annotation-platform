@@ -17,6 +17,7 @@ from app.db.models.task_batch import TaskBatch
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
 from tests.factory import create_membership, create_project, create_user
+from tests.identity_recovery_helpers import credential_mail_capture  # noqa: F401
 
 pytestmark = pytest.mark.asyncio
 
@@ -148,40 +149,32 @@ async def test_send_invitation_email_keeps_token_and_does_not_revoke_on_smtp_fai
     super_admin,
     db_session: AsyncSession,
     monkeypatch: pytest.MonkeyPatch,
+    credential_mail_capture,  # noqa: F811
 ):
-    from contextlib import asynccontextmanager
     import yoao_mail_transport
     from yoao_mail_transport import MailDeliveryResult, MailOutcome, MailReason
     from app.config import settings
-    from app.services import identity_mail_v2_delivery
+    from yoao_identity.invitation_manager import InvitationManager
 
     for name in (
         "identity_url",
         "identity_invitation_database_url",
         "identity_invitation_database_url_file",
-        "identity_mail_v2_database_url",
-        "identity_mail_v2_database_url_file",
-        "identity_mail_settings_database_url",
-        "identity_mail_settings_database_url_file",
     ):
         monkeypatch.setattr(settings, name, "")
 
-    @asynccontextmanager
-    async def session():
-        yield db_session
+    execute = InvitationManager.execute
 
-    monkeypatch.setattr(identity_mail_v2_delivery, "async_session", session)
-    monkeypatch.setattr(
-        identity_mail_v2_delivery,
-        "_smtp_fallbacks",
-        lambda: {
-            "smtp_host": "synthetic-smtp.invalid",
-            "smtp_port": 2525,
-            "smtp_user": "",
-            "smtp_password": "",
-            "smtp_from": "noreply@example.test",
-        },
-    )
+    async def execute_with_poll(manager, request):
+        reply = await execute(manager, request)
+        if (
+            request.operation == "send_invitation_email"
+            and reply.data.mail_status == "pending"
+        ):
+            await credential_mail_capture.poll(request.operation_id)
+        return reply
+
+    monkeypatch.setattr(InvitationManager, "execute", execute_with_poll)
 
     admin, _ = super_admin
     invitation = UserInvitation(
