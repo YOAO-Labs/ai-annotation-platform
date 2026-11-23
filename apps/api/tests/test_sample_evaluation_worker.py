@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import delete, select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.api_key import ApiKey
@@ -108,50 +109,42 @@ async def world(test_engine, monkeypatch):
 
 @pytest.mark.skipif(
     os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
-    reason="requires a disposable database with role creation privileges",
+    reason="requires the published Learning consumer LOGIN",
 )
-async def test_dispatch_without_private_jobs_read(world, db_session, monkeypatch):
-    role = "evaluation_jobs_dispatch_" + uuid.uuid4().hex
-    run = await db_session.get(Run, world.run.id)
+async def test_dispatch_without_private_jobs_read(world, test_engine, monkeypatch):
     attempt_id, job_id = world.attempt.id, world.attempt.async_job_id
-    await db_session.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
-    await db_session.execute(
-        text(f'GRANT USAGE ON SCHEMA public, yoao_jobs_v1 TO "{role}"')
-    )
-    await db_session.execute(
-        text(f'GRANT SELECT, UPDATE ON public.sample_evaluation_attempts TO "{role}"')
-    )
-    await db_session.execute(
-        text(
-            "GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_job(uuid), "
-            "yoao_jobs_v1.read_job_execution_snapshot(uuid), "
-            "yoao_jobs_v1.read_job_progress(uuid), "
-            f'yoao_jobs_v1.apply_lifecycle(uuid,jsonb) TO "{role}"'
-        )
-    )
     published = []
     monkeypatch.setattr(
         worker.run_sample_evaluation,
         "apply_async",
         lambda **values: published.append(values),
     )
-    await db_session.execute(text(f'SET LOCAL ROLE "{role}"'))
-    assert not await db_session.scalar(
-        text(
-            "SELECT has_any_column_privilege(current_user, 'public.async_jobs', 'SELECT')"
-        )
-    )
-    await worker.dispatch(db_session, run)
-    job = await worker.jobs.get_job(db_session, job_id, populate_existing=True)
-    attempt = await db_session.get(Attempt, attempt_id)
-    assert published == [{"args": [str(attempt_id)], "task_id": job.celery_task_id}]
-    assert attempt.dispatched_at is not None
+    async with learning_consumer(test_engine) as consumer, consumer() as db:
+        assert await db.scalar(text("SELECT current_user = session_user"))
+        for relation in ("public.async_jobs", "public.sample_evaluation_attempts"):
+            assert not await db.scalar(
+                text("SELECT has_any_column_privilege(:relation, 'SELECT')"),
+                {"relation": relation},
+            ), relation
+            with pytest.raises(DBAPIError) as denied:
+                async with db.begin_nested():
+                    await db.execute(text(f"SELECT id FROM {relation} LIMIT 0"))
+            assert denied.value.orig.sqlstate == "42501", relation
 
-    attempt.claim_id = uuid.uuid4()
-    await db_session.flush()
-    await worker.dispatch(db_session, run)
-    assert len(published) == 1
-    await db_session.execute(text("RESET ROLE"))
+        run = await evaluation_data.get_run(db, world.run.project_id, world.run.id)
+        assert run is not None
+        await worker.dispatch(db, run)
+        job = await worker.jobs.get_job(db, job_id, populate_existing=True)
+        attempt = await evaluation_data.get_attempt(db, run.id, attempt_id)
+        assert job is not None
+        assert published == [{"args": [str(attempt_id)], "task_id": job.celery_task_id}]
+        assert attempt is not None and attempt.dispatched_at is not None
+
+        assert await evaluation_data.claim(
+            db, run, attempt, uuid.uuid4(), at=service.now()
+        )
+        await worker.dispatch(db, run)
+        assert len(published) == 1
 
 
 async def test_dispatch_commit_failure_rolls_back_attempt_and_job(world, monkeypatch):
