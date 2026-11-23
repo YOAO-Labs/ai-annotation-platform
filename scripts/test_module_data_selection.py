@@ -370,10 +370,7 @@ class ModuleDataSelectionTests(unittest.TestCase):
     def test_default_profile_combines_reviewed_m2b_targets(self):
         inventory = "tests/test_m2b_private_access_live.py"
         jobs = "tests/test_jobs_ordinary_ledger_live.py"
-        replay = (
-            "tests/test_m2b_runtime_acl_replay.py"
-            "::test_ordinary_acl_removes_stale_grants_on_replay"
-        )
+        replay = "tests/test_m2b_runtime_acl_replay.py"
         fault = (
             "tests/test_storage_fault_states.py"
             "::test_real_login_observes_and_reads_without_private_storage_access"

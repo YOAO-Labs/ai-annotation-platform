@@ -1175,6 +1175,55 @@ FUNCTION_BODY_ARTIFACTS = {
         )
     },
     **{signature: "0503_source_saved_io.sql" for signature in SAVED_SOURCE_FUNCTIONS},
+    **{
+        signature: "0504_reference_io.sql"
+        for signature in (
+            "yoao_assets_v1.prepare_reference_io(uuid,text,uuid,uuid,text,jsonb)",
+            "yoao_assets_v1.capture_reference_io(uuid,text)",
+            "yoao_assets_v1.recheck_reference_io(uuid,text)",
+        )
+    },
+    **{
+        signature: "0505_saved_outputs_source.sql"
+        for signature in (
+            "yoao_assets_v1.saved_output_origin(jsonb,text,text)",
+            "yoao_assets_v1.saved_avatar_subject(text,uuid,text)",
+            "yoao_assets_v1.saved_bug_subject(uuid,uuid,text,uuid)",
+            "yoao_assets_v1.saved_archive_subject(uuid,uuid,text)",
+            "yoao_assets_v1.begin_saved_output_write(uuid,text,text,jsonb)",
+            "yoao_assets_v1.finish_saved_output_write(uuid,text,text,jsonb)",
+            "yoao_assets_v1.saved_output_write_status(uuid,text,text)",
+        )
+    },
+    **{
+        signature: "0506_media_io.sql"
+        for signature in (
+            "yoao_assets_v1.media_io_artifact(text,text,uuid,uuid,boolean)",
+            "yoao_assets_v1.media_io_cache_read(text,uuid,text,uuid)",
+            "yoao_assets_v1.media_io_original_read(text,uuid,uuid)",
+            "yoao_assets_v1.media_io_creation(uuid,uuid,uuid,text,boolean)",
+            "yoao_assets_v1.media_io_creation_evidence(uuid,uuid,text,jsonb)",
+            "yoao_assets_v1.media_io_thumbnail(text,uuid,uuid,boolean)",
+            "yoao_assets_v1.begin_saved_operator_original(jsonb)",
+        )
+    },
+    **{
+        signature: "0507_training_saved_io.sql"
+        for signature in (
+            "yoao_assets_v1.capture_training_saved_io(uuid,text,uuid,uuid,text,text,jsonb)",
+            "yoao_assets_v1.record_training_saved_io(uuid,text,uuid,uuid,text,text,jsonb,jsonb)",
+        )
+    },
+    **{
+        signature: "0508_migration_saved_io.sql"
+        for signature in (
+            "yoao_assets_v1.migration_io_copy(uuid,uuid,text,uuid,text,integer,integer,text)",
+            "yoao_assets_v1.migration_io_baseline(uuid,uuid,text,uuid,text,integer,integer,text)",
+            "yoao_assets_v1.migration_io_claim_write(uuid,uuid,text,uuid,text,integer,integer,text,integer,text)",
+            "yoao_assets_v1.migration_io_read(uuid,uuid,integer,text,text,integer,integer,boolean)",
+            "yoao_assets_v1.migration_io_cutover(uuid,integer,integer,integer,uuid,text,integer,uuid,integer,integer)",
+        )
+    },
 }
 AUDIT_APPEND_ROLE = "yoao_audit_append_client"
 AUDIT_QUERY_ROLE = "yoao_audit_query_client"
@@ -1827,6 +1876,11 @@ CURRENT_NAMESPACE_SQL = (
     "0499_labeling_artifact_boundaries.sql",
     "0501_identity_avatar_uploads.sql",
     "0503_source_saved_io.sql",
+    "0504_reference_io.sql",
+    "0505_saved_outputs_source.sql",
+    "0506_media_io.sql",
+    "0507_training_saved_io.sql",
+    "0508_migration_saved_io.sql",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -2492,6 +2546,7 @@ _SAVED_SOURCE_FILES = frozenset(
 _SAVED_SOURCE_NODES = frozenset(
     {
         "tests/test_saved_source_channel_live.py::test_saved_source_registered_binding_probe_and_denial",
+        "tests/test_saved_media_io_live.py::test_registered_media_round_trip_and_denial",
         _SAVED_MIGRATION_NODE,
         "tests/test_training_saved_io_live.py::test_training_attached_archive_publication_and_retirement",
     }
@@ -2518,6 +2573,7 @@ _M2B_DEFAULT_FILES = frozenset(
         "tests/test_jobs_ordinary_ledger_live.py",
         "tests/test_learning_selection_live.py",
         "tests/test_m2b_private_access_live.py",
+        "tests/test_m2b_runtime_acl_replay.py",
         "tests/test_media_ledger_private_live.py",
         *_SAVED_SOURCE_FILES,
         "tests/test_prediction_runtime_native.py",
@@ -2528,7 +2584,6 @@ _M2B_DEFAULT_NODES = frozenset(
     {
         *_SAVED_SOURCE_NODES,
         "tests/test_bug_attachment_uploads.py::test_live_diagnostics_login_preserves_report_and_exact_version_attachment_lifecycle",
-        "tests/test_m2b_runtime_acl_replay.py::test_ordinary_acl_removes_stale_grants_on_replay",
         "tests/test_mask_ai_observability.py::test_metrics_reads_current_tracker_and_accept_ledger_as_api_login",
         "tests/test_model_lineage.py::test_real_concurrent_decisions_and_publication_preserve_both_notes",
         "tests/test_sample_evaluation_worker.py::test_cancel_stays_pending_while_native_busy_and_seals_before_late_post",
@@ -5987,6 +6042,21 @@ def _ordinary_login_acl(
             password=password,
             database=database,
             sql=f"""
+WITH RECURSIVE scoped(oid) AS (
+    SELECT c.oid
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE (n.nspname = 'public' OR n.nspname ~ '^(aap_|yoao_)')
+      AND c.relkind IN ('r', 'p', 'm', 'f', 'S')
+    UNION
+    SELECT i.inhrelid FROM pg_catalog.pg_inherits i
+    JOIN scoped ON scoped.oid = i.inhparent
+), relations AS (
+    SELECT c.oid, c.relkind, pg_catalog.format('%I.%I', n.nspname, c.relname) AS name
+    FROM scoped
+    JOIN pg_catalog.pg_class c ON c.oid = scoped.oid
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+)
 SELECT pg_catalog.jsonb_build_object(
     'login', session_user,
     'effective_role', current_user,
@@ -5996,18 +6066,24 @@ SELECT pg_catalog.jsonb_build_object(
         OR rolcreaterole OR rolreplication OR rolbypassrls)
         AND NOT EXISTS (SELECT FROM pg_catalog.pg_auth_members WHERE member = r.oid)
         FROM pg_catalog.pg_roles r WHERE r.rolname = session_user),
+    'scanned_private_relations', (SELECT count(*) FROM relations WHERE relkind <> 'S'),
+    'scanned_private_sequences', (SELECT count(*) FROM relations WHERE relkind = 'S'),
     'unexpected_private_relations', ARRAY(
-        SELECT relation FROM unnest(ARRAY[
-            'public.async_jobs', 'public.avatar_uploads', 'public.users', 'public.api_keys',
-            'public.image_pyramid_assets', 'public.video_derivative_outputs'
-        ]) relation
-        WHERE pg_catalog.has_table_privilege(relation, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-           OR pg_catalog.has_any_column_privilege(relation, 'SELECT,INSERT,UPDATE,REFERENCES')
-        ORDER BY relation),
+        SELECT name FROM relations
+        WHERE CASE WHEN relkind <> 'S' THEN
+            pg_catalog.has_table_privilege(oid,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+                || CASE WHEN current_setting('server_version_num')::integer >= 170000
+                        THEN ',MAINTAIN' ELSE '' END)
+            OR pg_catalog.has_any_column_privilege(oid, 'SELECT,INSERT,UPDATE,REFERENCES')
+            ELSE false END
+        ORDER BY name),
     'unexpected_private_sequences', ARRAY(
-        SELECT sequence FROM unnest(ARRAY['public.display_seq_tasks', 'public.display_seq_bug_reports']) sequence
-        WHERE pg_catalog.has_sequence_privilege(sequence, 'SELECT,UPDATE,USAGE')
-        ORDER BY sequence),
+        SELECT name FROM relations
+        WHERE CASE WHEN relkind = 'S' THEN
+            pg_catalog.has_sequence_privilege(oid, 'SELECT,UPDATE,USAGE')
+            ELSE false END
+        ORDER BY name),
     'unexpected_private_functions', ARRAY(
         SELECT signature FROM unnest(ARRAY[{private_signatures}]) signature
         WHERE pg_catalog.has_function_privilege(signature, 'EXECUTE')
@@ -14066,6 +14142,8 @@ SELECT EXISTS (
                             or access["effective_role"] != username
                             or access["database_oid"] != database_oid
                             or access["restricted_login"] is not True
+                            or not access["scanned_private_relations"]
+                            or not access["scanned_private_sequences"]
                             or access["unexpected_private_relations"]
                             or access["unexpected_private_sequences"]
                             or access["unexpected_private_functions"]
