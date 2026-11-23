@@ -48,6 +48,7 @@
 - **首次上传及真实业务闭环**：首次失败发生在新库尚未建立内建 `import`／`datasets` 绑定时，未产生写入操作。补齐缺项、不覆盖已有绑定后，`flow-retained-native-job-uri.junit.xml` 用真实公开 API 完成签名上传、原字节读回、批次显式分派、插件注册与启用、Celery 调用 CPU 插件并持久化预测、提交标注、审核批准及收件箱通知。该项在先前保留的隔离命名空间通过；不冒充全新部署的一次性回执。
 - **全新默认档正式验收通过**：冻结 `8b1280a103`，从无 `.env` 的隔离 checkout 用真实 API、Celery、Inference、独立 CPU 插件（四个进程）完成同一条公开业务链。签名下载的原图摘要、持久预测、已审核任务和批准通知都有独立身份；与三种普通 LOGIN 的重放拒绝、迁移身份重置合计 **5/5，零跳过**。见 `flow-official-8b1280a1.qualification.json` 及其中绑定的 verifier／JUnit 摘要。独立 PostgreSQL、Redis、MinIO、桶及凭据均已退役，无保留数据库。
   同一轮中三个普通 LOGIN 调用旧 Inference 凭据函数都得到 `42501`，正确用途的独立角色仍可读回登记的原凭据；回执不包含该值。
+- **Jobs 在部分派发后的恢复**：`jobs-worker-crash-e800.evidence.json`：Redis 收到首条消息后强杀发送进程（`SIGKILL`），真正的 Beat 与 `jobs.recovery` worker 从原账本接管。首代物理尝试保留 `entered`，次代为 `settled`；重派仍是原来三个执行 ID。四次物理投递最终只保存三帧，各帧恰好一条预测。这个用例的模型与读图是夹具；真实插件另由上面的公开业务用例证明。早先的 `jobs-worker-crash-8b12`、`jobs-worker-crash-12e2` 分别保留测试提供错误 DSN 驱动与误读物理状态的失败。
 
 ## 验收结论与范围
 

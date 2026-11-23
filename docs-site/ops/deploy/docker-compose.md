@@ -53,7 +53,7 @@ psql -X "$MIGRATION_PSQL_URL" -v expected_database="$DB_NAME" \
 ```
 
 - 普通 Compose 调用方通过私网 `ASSETS_SOURCE_URL` 访问 Source。宿主选择器 `ASSETS_SOURCE_CLIENT_{READ,WRITE,CLEANUP}_TOKEN_FILE` 按服务映射成容器内的 `ASSETS_SOURCE_SAVED_IO_{READ,WRITE,CLEANUP}_TOKEN_FILE`；连接创建、更新和测试另从 `ASSETS_SOURCE_CLIENT_CONNECTIONS_TOKEN_FILE` 映射成 `ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE`。只挂载该进程所需的作用域，不复用 Native 签名或导入核验 token。
-- Source 才持 `ASSETS_SOURCE_SAVED_IO_DATABASE_URL[_FILE]` 的仅函数连接、连接器加密 key、主机白名单和所需的 SFTP 公钥。Source 端的 `ASSETS_SOURCE_SAVED_IO_{READ,WRITE,CLEANUP}_TOKEN_FILE` 分别与各调用方匹配；`ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE` 为独立可选的管理能力。`ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN[_FILE]` 只给 Source 与获准切换的 CLI。普通进程不接收连接器密钥、Source DSN 或通用 S3／SFTP 凭据。
+- Source 才持 `ASSETS_SOURCE_SAVED_IO_DATABASE_URL[_FILE]` 的仅函数连接、连接器加密 key、主机白名单和所需的 SFTP 公钥。Source 端的 `ASSETS_SOURCE_SAVED_IO_{READ,WRITE,CLEANUP}_TOKEN_FILE` 分别与各调用方匹配；`ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE` 为独立可选的管理能力。`ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN[_FILE]` 只给 Source 与获准切换的 CLI。运维 CLI 必须在明文值和 `_FILE` 路径中二选一，未选的变量应完全移除，不能留作空字符串。普通进程不接收连接器密钥、Source DSN 或通用 S3／SFTP 凭据。
 - Source overlay 的 `ASSETS_SOURCE_NETWORK` 默认是 `default`；叠加同一 LAN 项目时显式选 `shared`，先核对调用方和数据库可达，不对宿主发布 8767。启用保存 I/O 时，用 `install -d -o 10003 -g 10003 -m 0700 "$scratch"` 准备该 Source 副本独用的暂存目录，把绝对路径设为 `ASSETS_SOURCE_SAVED_IO_SPOOL_DIR`。每次重启挂回同一目录以恢复在途操作；不要用 tmpfs、ZIP 暂存目录或其他部署的目录。
 - 每个 Source 副本同时接收一次保存上传。暂存配额和可用空间须大于 `ASSETS_SOURCE_SAVED_IO_MAX_UPLOAD_BYTES`，默认 `68719476736`（64 GiB）；显式调低后会拒绝超限上传，不会改向或自动扩大分配。
 - 按原保存目标访问；缺 Source、身份不符或历史目标不可达时不改向、不回退。内建 MinIO、受控目录及站点 Agent 仍走原路径。升级前按[旧拓扑升级门禁](../upgrade-guide#split-topology-upgrade)验证真实连接器和恢复。
