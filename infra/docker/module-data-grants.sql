@@ -3299,6 +3299,19 @@ ALTER VIEW yoao_audit_v1.audit_events OWNER TO :"audit_owner";
 ALTER VIEW yoao_audit_v1.audit_daily_facts OWNER TO :"audit_owner";
 ALTER FUNCTION yoao_audit_v1.refresh_audit_bi_mv() OWNER TO :"audit_owner";
 ALTER FUNCTION yoao_audit_v1.maintenance_command(jsonb) OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1._assert_platform_partition(date,bigint,bigint) OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.platform_maintenance(text,date,bigint,bigint,text,uuid,timestamptz)
+    OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.archive_output_has_ready(integer,integer) OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.archive_output_ready_month(integer,integer) OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.archive_output_ready_list() OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.archive_output_pending(uuid) OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.archive_output_history() OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.archive_output_save_candidate(
+    uuid,uuid,date,bigint,bigint,bigint,bigint,text,bigint,text,jsonb,timestamptz
+) OWNER TO :"audit_owner";
+GRANT SELECT, INSERT, UPDATE (state, published_at)
+    ON public.audit_archive_outputs TO :"audit_owner";
 GRANT EXECUTE ON FUNCTION yoao_audit_v1.refresh_audit_bi_mv() TO :"migration_role";
 GRANT USAGE ON SCHEMA yoao_fixture_v1 TO :"audit_owner";
 GRANT SELECT (id, parent_run_id, scope_key, family, state), UPDATE (id)

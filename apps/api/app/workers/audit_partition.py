@@ -7,7 +7,7 @@ import hashlib
 import logging
 import re
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 from app.config import settings
 from app.services.audit_partition_service import AuditPartitionService
@@ -44,12 +44,14 @@ def archive_old_audit_partitions(self) -> dict:
 
 async def _archive_async(retain_months: int, celery_task_id: str | None = None) -> dict:
     """Commit job ownership before I/O and preserve each published month."""
-    from app.db.models.async_job import AsyncJob
-    from app.db.models.user import User
     from app.services import async_job as async_job_svc
     from app.services import storage_access
     from app.services.async_job_notify import notify_job_terminal
-    from app.services.jobs_lifecycle_data import job_lock_statement
+    from app.services.identity_account_lock_data import IdentityAccountLockData
+    from app.services.jobs_lifecycle_data import (
+        JobsLifecyclePostgresData,
+        job_lock_statement,
+    )
 
     async with task_session() as db:
         if celery_task_id:
@@ -61,16 +63,8 @@ async def _archive_async(retain_months: int, celery_task_id: str | None = None) 
             await db.execute(
                 text("SELECT pg_advisory_xact_lock(727279, :key)"), {"key": key}
             )
-            previous = list(
-                await db.scalars(
-                    select(AsyncJob)
-                    .where(
-                        AsyncJob.kind == "audit_archive",
-                        AsyncJob.celery_task_id == celery_task_id,
-                    )
-                    .order_by(AsyncJob.created_at, AsyncJob.id)
-                    .limit(2)
-                )
+            previous = await JobsLifecyclePostgresData(db).find_archive_deliveries(
+                celery_task_id
             )
             if len(previous) > 1:
                 raise RuntimeError("audit_archive_job_identity_conflict")
@@ -96,14 +90,11 @@ async def _archive_async(retain_months: int, celery_task_id: str | None = None) 
 
         async def terminal(*, error=None, cancelled=False, completed=None):
             await db.rollback()
-            owner_id = await db.scalar(
-                select(AsyncJob.user_id).where(AsyncJob.id == job_id)
-            )
+            observed = await async_job_svc.get_job(db, job_id, populate_existing=True)
+            owner_id = observed.user_id if observed is not None else None
             if owner_id is not None:
-                await db.scalar(
-                    select(User.id)
-                    .where(User.id == owner_id)
-                    .with_for_update(read=True, key_share=True)
+                await IdentityAccountLockData(db).lock_accounts(
+                    [owner_id], mode="key_share", nowait=False
                 )
             current = await db.scalar(
                 job_lock_statement(job_id, mode="update", populate_existing=True)
