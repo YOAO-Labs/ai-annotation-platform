@@ -65,7 +65,8 @@ from .ingest_storage import IngestStorage
 from .ingest_workflow import IngestWorkflow
 from .image_admission import ImageAdmission
 from .native_storage import NativeStorageSigner
-from .saved_io import SavedIOService
+from .saved_io import Context, SavedIOService
+from .saved_io_import import verify_registered
 
 _Result = TypeVar("_Result", bound=BaseModel)
 _SOURCE_SCHEMA = "aap-assets-source/v1"
@@ -258,15 +259,24 @@ class SourceRuntime:
                 return ImportVerificationReply.model_validate(payload).model_dump(
                     mode="json"
                 )
-            task = asyncio.create_task(
-                self._storage.managed.verify(
+            if material.connection_id is None:
+                read = self._storage.managed.verify(
                     material,
                     sha256=material.sha256,
                     size_bytes=material.size_bytes,
                     image=image,
                     timeout_seconds=remaining,
                 )
-            )
+            elif self.saved_io is not None:
+                read = verify_registered(
+                    Context(self.saved_io),
+                    material,
+                    image=image,
+                    timeout_seconds=remaining,
+                )
+            else:
+                raise ManagedStorageError("storage_write_failed")
+            task = asyncio.create_task(read)
         except (Exception, asyncio.CancelledError):
             cleanup = asyncio.create_task(settle_admission())
             while True:

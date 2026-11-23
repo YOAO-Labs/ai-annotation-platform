@@ -23,9 +23,10 @@ CHUNK_BYTES = 256 * 1024
 OCTETS = "application/octet-stream"
 JSON = "application/json"
 READ_WRITE_SCOPES = ("read", "write", "cleanup")
+IMPORT_SCOPES = ("import_read", "import_write")
 TOKEN_SETTINGS = {
     scope: f"ASSETS_SOURCE_SAVED_IO_{scope.upper()}_TOKEN"
-    for scope in (*READ_WRITE_SCOPES, "cutover")
+    for scope in (*READ_WRITE_SCOPES, *IMPORT_SCOPES, "cutover")
 }
 STORAGE_CODES = frozenset(
     {

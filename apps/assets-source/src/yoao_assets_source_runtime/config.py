@@ -19,7 +19,12 @@ from yoao_assets_source.connectors.host_guard import (
     ConnectorAllowlistInvalid,
     normalize_allowlist,
 )
-from yoao_assets_source.saved_io import READ_WRITE_SCOPES, TOKEN_SETTINGS, valid_token
+from yoao_assets_source.saved_io import (
+    IMPORT_SCOPES,
+    READ_WRITE_SCOPES,
+    TOKEN_SETTINGS,
+    valid_token,
+)
 
 
 class ConfigurationError(ValueError):
@@ -381,6 +386,10 @@ def _saved_io_settings(
         raise ConfigurationError(
             "Saved I/O requires the dedicated PostgreSQL URL, read/write/cleanup "
             "tokens and Source connector encryption key together"
+        )
+    if sum(bool(token_values[scope]) for scope in IMPORT_SCOPES) == 1:
+        raise ConfigurationError(
+            "Saved import I/O read and write tokens must be configured together"
         )
     tokens = {scope: token for scope, token in token_values.items() if token}
     if not all(valid_token(token) for token in tokens.values()) or len(

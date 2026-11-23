@@ -296,8 +296,12 @@ class SftpSource(SourceAdapter):
                     if recursive:
                         yield from walk(safe_child)
                     continue
-                relpath = self._relative_path(full_path)
-                relpath = normalize_relpath(relpath)
+                exact_relpath = self._relative_path(full_path)
+                relpath = normalize_relpath(exact_relpath)
+                if self._require_listing_identity and relpath != exact_relpath:
+                    raise SourcePathError(
+                        "SFTP source path cannot be decoded unambiguously"
+                    )
                 if not relpath or not matches_include_globs(relpath, include_globs):
                     continue
                 identity = _identity(entry)
