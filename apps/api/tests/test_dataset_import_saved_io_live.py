@@ -43,7 +43,9 @@ async def _dedicated(test_engine, variable):
     )
     assert url.username and url.username != test_engine.url.username
     _verify_postgres(url)
-    engine = create_async_engine(url, hide_parameters=True)
+    engine = create_async_engine(
+        url.set(drivername="postgresql+asyncpg"), hide_parameters=True
+    )
     try:
         async with engine.connect() as connection:
             assert await connection.scalar(text("SELECT session_user")) == url.username
