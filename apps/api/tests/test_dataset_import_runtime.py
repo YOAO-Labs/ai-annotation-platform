@@ -971,6 +971,130 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
         assert not imported
 
 
+async def test_import_retries_second_original_under_lease_row_lock(
+    test_engine, app_module, monkeypatch, importer_image, record_property
+):
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
+        data = _picture()
+        for name in ("a.png", "nested/b.png"):
+            stack.storage.client.put_object(
+                Bucket=stack.source_bucket,
+                Key=f"{stack.prefix}/batch/{name}",
+                Body=data,
+            )
+        job = await _accept(stack)
+        gate = secrets.randbits(60)
+        conflicts = "yoao_assets_v1._acceptance_original_allocation_conflicts"
+        async with stack.world.maker.begin() as owner:
+            original = await owner.scalar(
+                text(
+                    "SELECT pg_get_functiondef("
+                    "'yoao_assets_v1.begin_dataset_import_original(uuid,uuid,jsonb)'::regprocedure)"
+                )
+            )
+            initializer = "active jsonb := yoao_assets_v1._import_io_job(p_job, p_lease, 'importing');"
+            body = "BEGIN\n    IF active"
+            assert original.count(initializer) == original.count(body) == 1
+            gated = original.replace(initializer, "active jsonb;").replace(
+                body,
+                f"""BEGIN
+    IF p_job = '{job}' AND p_request #>> '{{authority,entry_index}}' = '1' THEN
+        PERFORM pg_catalog.pg_advisory_xact_lock({gate});
+        BEGIN
+            active := yoao_assets_v1._import_io_job(p_job, p_lease, 'importing');
+        EXCEPTION WHEN lock_not_available THEN
+            PERFORM pg_catalog.nextval('{conflicts}');
+            RAISE;
+        END;
+    ELSE
+        active := yoao_assets_v1._import_io_job(p_job, p_lease, 'importing');
+    END IF;
+    IF active""",
+            )
+            await owner.execute(text(f"CREATE SEQUENCE {conflicts}"))
+            await owner.execute(
+                text(f"ALTER SEQUENCE {conflicts} OWNER TO assets_code")
+            )
+            await owner.execute(text(gated))
+        try:
+            async with test_engine.connect() as gate_connection:
+                barrier = await gate_connection.begin()
+                await gate_connection.execute(
+                    text("SELECT pg_advisory_xact_lock(:gate)"), {"gate": gate}
+                )
+                worker = _start_importer(stack, "allocation-contention")
+                await _wait_healthy(worker)
+                async with test_engine.connect() as locker:
+                    async with asyncio.timeout(20):
+                        while not await locker.scalar(
+                            text(
+                                "SELECT EXISTS (SELECT FROM pg_locks WHERE locktype='advisory' "
+                                "AND NOT granted AND objsubid=1 "
+                                "AND classid=CAST(:hi AS oid) AND objid=CAST(:lo AS oid))"
+                            ),
+                            {"hi": gate >> 32, "lo": gate & 0xFFFFFFFF},
+                        ):
+                            await asyncio.sleep(0.02)
+                    await locker.execute(
+                        text(
+                            "SELECT id FROM public.datasets WHERE id=:dataset FOR NO KEY UPDATE"
+                        ),
+                        {"dataset": stack.world.dataset_id},
+                    )
+                    await barrier.commit()
+                    async with asyncio.timeout(10):
+                        while not await locker.scalar(
+                            text(f"SELECT is_called FROM {conflicts}")
+                        ):
+                            await asyncio.sleep(0.01)
+                    before = (
+                        await locker.execute(
+                            text(
+                                "SELECT j.cursor,j.total,j.added,j.skipped,j.error_count,j.lease_token,"
+                                "e.status,e.publication_id FROM public.dataset_import_operations j "
+                                "JOIN public.dataset_import_entries e ON e.job_id=j.job_id AND e.entry_index=1 "
+                                "WHERE j.job_id=:job"
+                            ),
+                            {"job": job},
+                        )
+                    ).one()
+                    await locker.rollback()
+            record_property("allocation_sqlstate", "55P03")
+            record_property("while_locked", str(before[:5]))
+            assert before[:5] == (1, 2, 1, 0, 0)
+            assert before.status == "pending"
+            facts = await _wait_job(stack, job)
+            result = facts.jobs[0]["result"]
+            counts = tuple(
+                result[key] for key in ("total", "added", "skipped", "error_count")
+            )
+            error_codes = [error.rsplit(": ", 1)[-1] for error in result["errors"]]
+            record_property("completed_counts", str(counts))
+            record_property("completed_error_codes", str(error_codes))
+            assert counts == (2, 1, 1, 0), (counts, error_codes)
+            assert facts.file_count == facts.tasks == facts.total_tasks == 1
+            async with stack.world.maker() as owner:
+                settled = (
+                    await owner.execute(
+                        text(
+                            "SELECT e.status,e.publication_id,v.lease_token "
+                            "FROM public.dataset_import_entries e "
+                            "JOIN yoao_assets_v1.import_original_verifications v "
+                            "ON v.job_id=e.job_id AND v.entry_index=e.entry_index AND v.state='completed' "
+                            "WHERE e.job_id=:job AND e.entry_index=1"
+                        ),
+                        {"job": job},
+                    )
+                ).one()
+                assert settled == ("skipped", before.publication_id, before.lease_token)
+        finally:
+            async with stack.world.maker.begin() as owner:
+                await owner.execute(text(original))
+                await owner.execute(text(f"DROP SEQUENCE {conflicts}"))
+
+
 async def _wait_unstarted_write_settlement(stack, job, data, *, timeout):
     async with asyncio.timeout(timeout):
         while True:
