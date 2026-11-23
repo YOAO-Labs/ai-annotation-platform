@@ -80,6 +80,7 @@ def real_source(test_engine, directory, *, s3_credentials, allowlist=None, encry
         yield SimpleNamespace(
             origin=origin, tokens=tokens, encryption_key=key,
             connections_token=connections, storage_origin=storage_origin,
+            process=service.process,
         )
 
 
