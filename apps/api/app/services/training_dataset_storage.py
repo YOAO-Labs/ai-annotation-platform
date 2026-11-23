@@ -15,18 +15,16 @@ import re
 from urllib.parse import urlsplit
 import uuid
 
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.storage_connection import StorageConnection
 from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.reference_keys import is_reference
 from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError
+from app.services.storage_registry_data import get_binding, get_connection, get_location
 
 _FIELDS = frozenset(
     {
@@ -315,7 +313,7 @@ async def target_for_ref(db, ref, *, require_enabled=True):
     if purpose not in _NAMESPACES:
         _reject()
     owner = _resolve_ref(ref, purpose=purpose)
-    location = await db.get(StorageLocation, owner.location_id, populate_existing=True)
+    location = await get_location(db, owner.location_id)
     target = await target_for(db, location, require_enabled=require_enabled)
     if owner.location_id == LEGACY_LOCATION_ID:
         target = replace(target, bucket=owner.bucket)
@@ -352,7 +350,7 @@ def resolve(version) -> Owner:
 
 async def _adoption_candidate(db, record, *, purpose) -> dict:
     """Read the persisted candidate; content adoption belongs to its verifier."""
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
+    location = await get_location(db, LEGACY_LOCATION_ID)
     if (
         location is None
         or location.kind != "s3"
@@ -394,32 +392,18 @@ async def _allocate(db, record, *, purpose) -> dict:
     savepoint = await connection.begin_nested()
     try:
         await ensure_legacy_bindings(db)
-        initial = await db.get(StorageBinding, "training", populate_existing=True)
+        initial = await get_binding(db, "training")
         if initial is None:
             _reject("training_storage_binding_unproven")
         facts = initial.location_id, initial.bucket, initial.generation
-        location = await db.get(StorageLocation, facts[0], populate_existing=True)
+        location = await get_location(db, facts[0])
         if location is None:
             _reject("training_storage_binding_unproven")
         connection_id = location.connection_id
         if connection_id is not None:
-            await db.execute(
-                select(StorageConnection.id)
-                .where(StorageConnection.id == connection_id)
-                .with_for_update(read=True, nowait=True)
-            )
-        location = await db.scalar(
-            select(StorageLocation)
-            .where(StorageLocation.id == facts[0])
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True)
-        )
-        binding = await db.scalar(
-            select(StorageBinding)
-            .where(StorageBinding.purpose == "training")
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True)
-        )
+            await get_connection(db, connection_id, lock="share_nowait")
+        location = await get_location(db, facts[0], lock="share_nowait")
+        binding = await get_binding(db, "training", lock="share_nowait")
         if (
             location is None
             or location.connection_id != connection_id
@@ -451,8 +435,13 @@ async def _allocate(db, record, *, purpose) -> dict:
         raise
     else:
         await savepoint.commit()
-    record.storage_ref = candidate
-    await db.flush()
+    if purpose == "training-dataset":
+        from app.services.training_dataset_data import set_storage
+
+        await set_storage(db, record, candidate)
+    else:
+        record.storage_ref = candidate
+        await db.flush()
     return _resolve(record, purpose=purpose).ref
 
 

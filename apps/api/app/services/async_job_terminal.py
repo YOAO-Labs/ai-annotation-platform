@@ -144,26 +144,9 @@ DOMAIN_TERMINAL_RECONCILERS = {
 
 
 async def reconcile_training_dataset(db, job, *, cancelled, error):
-    from app.db.models.training_dataset import TrainingDatasetVersion
+    from app.services.training_datasets import reconcile_job_terminal
 
-    version = (
-        await db.execute(
-            select(TrainingDatasetVersion)
-            .where(TrainingDatasetVersion.async_job_id == job.id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
-    if version is not None and _locks_open(version.status):
-        _finish_training_dataset(version, cancelled=cancelled)
-
-
-def _finish_training_dataset(version, *, cancelled):
-    version.status = "cancelled" if cancelled else "failed"
-    version.error_code = "cancelled" if cancelled else "worker_failed"
-    version.error_message = (
-        "训练数据构建已取消" if cancelled else "构建进程异常终止，可重试同一快照"
-    )
-    version.completed_at = _now()
+    await reconcile_job_terminal(db, JobTerminal(job.id, job.kind, cancelled, error))
 
 
 def _training_execution(args, kwargs):
@@ -191,19 +174,15 @@ async def signal_training_dataset(
     db, job_id, celery_task_id, *, task_args=None, task_kwargs=None, cancelled, error
 ):
     """Match the worker's Version -> Job lock order and exact execution fence."""
-    from app.db.models.training_dataset import TrainingDatasetVersion
     from app.services import async_job as jobs
+    from app.services.training_dataset_data import read_version_facts
+    from app.services.training_datasets import finish_interrupted_version
 
     expected = _training_execution(task_args, task_kwargs)
     if expected is None or expected[1] != job_id:
         return False
     version_id, expected_job_id, attempt_id = expected
-    version = await db.scalar(
-        select(TrainingDatasetVersion)
-        .where(TrainingDatasetVersion.id == version_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    version = await read_version_facts(db, version_id, lock=True)
     if (
         version is None
         or version.async_job_id != expected_job_id
@@ -229,7 +208,7 @@ async def signal_training_dataset(
         await jobs.mark_cancelled(db, job.id)
     else:
         await jobs.mark_failed(db, job.id, error=error or "")
-    _finish_training_dataset(version, cancelled=cancelled)
+    await finish_interrupted_version(db, version, expected_job_id, cancelled=cancelled)
     return True
 
 

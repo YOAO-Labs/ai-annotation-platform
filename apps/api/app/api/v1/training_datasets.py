@@ -7,13 +7,8 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import defer
 
 from app.db.models.project import Project
-from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.training_run import TrainingRun
-from app.db.models.training_preview import TrainingPreview
-from app.db.models.project_task_dataset import ProjectTaskDataset
 from app.deps import (
     get_current_user,
     get_db,
@@ -28,10 +23,10 @@ from app.schemas.training_dataset import (
     TrainingDatasetPage,
     TrainingDatasetPreflight,
     TrainingDatasetSelection,
-    TrainingDatasetSummary,
 )
 from app.services import training_datasets as service
 from app.services import project_task_dataset as task_datasets
+from app.services import training_dataset_data as data
 from app.services import training_storage_cleanup as cleanup
 from app.services import training_dataset_storage as storage_owners
 from app.services import training_storage_io
@@ -63,15 +58,20 @@ def fail(exc: TrainingDatasetError):
 
 
 async def load_version(db, project, version_id, *, lock=False):
-    stmt = select(TrainingDatasetVersion).where(
-        TrainingDatasetVersion.id == version_id,
-        TrainingDatasetVersion.project_id == project.id,
-    )
-    if lock:
-        stmt = stmt.with_for_update().execution_options(populate_existing=True)
-    version = (await db.execute(stmt)).scalar_one_or_none()
+    version = await data.read_version(db, version_id, project_id=project.id, lock=lock)
     if version is None:
         raise HTTPException(status_code=404, detail="训练数据版本不存在")
+    return version
+
+
+async def load_version_output(db, project_id, version_id, *, include_manifest=True):
+    version = await data.read_summary(
+        db, project_id, version_id, include_manifest=include_manifest
+    )
+    if version is None:
+        raise HTTPException(status_code=404, detail="训练数据版本不存在")
+    if not include_manifest:
+        version["manifest"] = {}
     return version
 
 
@@ -125,25 +125,18 @@ async def create_version(
         select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
     )
     await lock_project_manager(db, user.id, project.id)
-    existing = (
-        await db.execute(
-            select(TrainingDatasetVersion).where(
-                TrainingDatasetVersion.project_id == project.id,
-                TrainingDatasetVersion.request_id == body.request_id,
-            )
-        )
-    ).scalar_one_or_none()
+    existing = await data.read_request(db, project.id, body.request_id)
     if existing:
         if existing.request_digest != request_digest:
             raise HTTPException(
                 status_code=409, detail="同一请求标识不能用于不同数据版本"
             )
         try:
-            await task_datasets.ensure_membership(db, existing, project_locked=True)
+            await data.ensure_membership(db, project.id, existing.id)
         except TrainingDatasetError as exc:
             fail(exc)
         await db.commit()
-        return await task_datasets.attach_read_metadata(db, existing)
+        return await load_version_output(db, project.id, existing.id)
     await db.commit()
     try:
         prepared = await connected_preparation(
@@ -168,48 +161,40 @@ async def create_version(
             )
         )
         await lock_project_manager(db, user.id, project.id)
-        existing = await db.scalar(
-            select(TrainingDatasetVersion)
-            .where(
-                TrainingDatasetVersion.project_id == project.id,
-                TrainingDatasetVersion.request_id == body.request_id,
-            )
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
+        existing = await data.read_request(db, project.id, body.request_id, lock=True)
         if existing:
             if existing.request_digest != request_digest:
                 raise HTTPException(409, "同一请求标识不能用于不同数据版本")
-            await task_datasets.ensure_membership(db, existing, project_locked=True)
+            await data.ensure_membership(db, project.id, existing.id)
             service.check_prepared_clock(prepared)
             await db.commit()
-            return await task_datasets.attach_read_metadata(db, existing)
+            return await load_version_output(db, project.id, existing.id)
         snapshot, report = await service.finalize_selection(db, prepared)
-        version = TrainingDatasetVersion(
-            project_id=project.id,
-            creator_id=user.id,
-            parent_id=body.parent_id,
-            request_id=body.request_id,
-            request_digest=request_digest,
-            name=body.name.strip(),
-            snapshot=snapshot,
-            snapshot_digest=report["digest"],
-            preparation_report=service.frozen_preparation_report(
-                report["digest"], report
+        version = await data.insert_version(
+            db,
+            data.NewVersion(
+                project_id=project.id,
+                creator_id=user.id,
+                parent_id=body.parent_id,
+                request_id=body.request_id,
+                request_digest=request_digest,
+                name=body.name.strip(),
+                snapshot=snapshot,
+                snapshot_digest=report["digest"],
+                preparation_report=service.frozen_preparation_report(
+                    report["digest"], report
+                ),
             ),
         )
-        db.add(version)
-        await db.flush()
         await storage_owners.allocate(db, version)
-        await task_datasets.ensure_membership(db, version, project_locked=True)
-        await service.enqueue_dataset(db, version)
+        await task_datasets.ensure_membership(db, version)
+        version = await service.enqueue_dataset(db, version)
         service.check_prepared_clock(prepared)
         if await request.is_disconnected():
             raise HTTPException(499, {"code": "client_disconnected"})
         await db.commit()
         await service.dispatch_dataset(db, version, dispatcher=dataset_dispatcher)
-        await db.refresh(version)
-        return await task_datasets.attach_read_metadata(db, version)
+        return await load_version_output(db, project.id, version.id)
     except TrainingDatasetError as exc:
         fail(exc)
     except ContentError as exc:
@@ -237,12 +222,9 @@ async def list_versions(
 ):
     start, end = created_date_bounds(created_from, created_to)
     if task_dataset_id is not None:
-        stream = await db.scalar(
-            select(ProjectTaskDataset).where(
-                ProjectTaskDataset.id == task_dataset_id,
-                ProjectTaskDataset.project_id == project.id,
-            )
-        )
+        stream = (
+            await db.execute(select(data.stream_rows(project.id, task_dataset_id)))
+        ).one_or_none()
         if stream is None:
             raise HTTPException(status_code=404, detail="任务数据集不存在")
         if task is not None and task != stream.task:
@@ -251,39 +233,32 @@ async def list_versions(
                 detail={"code": "task_mismatch", "message": "任务与任务数据集不一致"},
             )
         task = stream.task
-    stmt = (
-        task_datasets.version_metadata_statement()
-        .options(
-            defer(TrainingDatasetVersion.snapshot),
-            defer(TrainingDatasetVersion.manifest),
-            defer(TrainingDatasetVersion.preparation_report),
-        )
-        .where(TrainingDatasetVersion.project_id == project.id)
-    )
+    version = data.dataset_lineage_row.c
+    stmt = data.version_summaries().where(version.project_id == project.id)
     if status is not None:
-        stmt = stmt.where(TrainingDatasetVersion.status == status)
+        stmt = stmt.where(version.status == status)
     pattern = literal_search_pattern(q)
     if pattern is not None:
-        stmt = stmt.where(TrainingDatasetVersion.name.ilike(pattern, escape="\\"))
+        stmt = stmt.where(version.name.ilike(pattern, escape="\\"))
     if start is not None:
-        stmt = stmt.where(TrainingDatasetVersion.created_at >= start)
+        stmt = stmt.where(version.created_at >= start)
     if end is not None:
-        stmt = stmt.where(TrainingDatasetVersion.created_at <= end)
+        stmt = stmt.where(version.created_at <= end)
     if task is not None:
-        stmt = stmt.where(task_datasets.recognized_task_expression() == task)
+        stmt = stmt.where(version.recognized_task == task)
     total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
     rows = (
-        await db.execute(
-            stmt.order_by(
-                TrainingDatasetVersion.created_at.desc(),
-                TrainingDatasetVersion.id.desc(),
+        (
+            await db.execute(
+                stmt.order_by(version.created_at.desc(), version.id.desc())
+                .limit(limit)
+                .offset(offset)
             )
-            .limit(limit)
-            .offset(offset)
         )
-    ).all()
-    items = [task_datasets.summary_metadata(row) for row in rows]
-    return {"items": items, "total": total}
+        .mappings()
+        .all()
+    )
+    return {"items": rows, "total": total}
 
 
 @router.get("/{version_id}", response_model=TrainingDatasetOut)
@@ -293,30 +268,9 @@ async def get_version(
     db: AsyncSession = Depends(get_db),
     include_manifest: bool = True,
 ):
-    if not include_manifest:
-        row = (
-            await db.execute(
-                task_datasets.version_metadata_statement()
-                .options(
-                    defer(TrainingDatasetVersion.snapshot),
-                    defer(TrainingDatasetVersion.manifest),
-                    defer(TrainingDatasetVersion.preparation_report),
-                )
-                .where(
-                    TrainingDatasetVersion.id == version_id,
-                    TrainingDatasetVersion.project_id == project.id,
-                )
-            )
-        ).one_or_none()
-        if row is None:
-            raise HTTPException(status_code=404, detail="训练数据版本不存在")
-        version = task_datasets.summary_metadata(row)
-        return {
-            **TrainingDatasetSummary.model_validate(version).model_dump(),
-            "manifest": {},
-        }
-    version = await load_version(db, project, version_id)
-    return await task_datasets.attach_read_metadata(db, version)
+    return await load_version_output(
+        db, project.id, version_id, include_manifest=include_manifest
+    )
 
 
 @router.post("/{version_id}/retry", response_model=TrainingDatasetOut, status_code=202)
@@ -345,11 +299,10 @@ async def retry_version(
         storage_owners.resolve(version)
     except TrainingDatasetError as exc:
         fail(exc)
-    await service.enqueue_dataset(db, version)
+    version = await service.enqueue_dataset(db, version)
     await db.commit()
     await service.dispatch_dataset(db, version, dispatcher=dataset_dispatcher)
-    await db.refresh(version)
-    return await task_datasets.attach_read_metadata(db, version)
+    return await load_version_output(db, project.id, version.id)
 
 
 @router.get("/{version_id}/download")
@@ -440,11 +393,9 @@ async def pin_legacy_storage(
     user: IdentityActorFacts = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.db.models.api_key import ApiKey
-    from app.db.models.dataset_asset import StorageLocation
     from app.services import storage_access
-    from app.services.content_snapshot import ContentError
     from app.services.dataset_content import key_authority
+    from app.services.storage_registry_data import get_location
 
     await lock_project_manager(db, user.id, project.id)
     key_id = getattr(request.state, "api_key_id", None)
@@ -461,7 +412,7 @@ async def pin_legacy_storage(
         version = await load_version(db, project, version_id)
         if version.storage_ref is not None:
             storage_owners.resolve(version)
-            return await task_datasets.attach_read_metadata(db, version)
+            return await load_version_output(db, project.id, version.id)
         if version.status not in {"ready", "failed", "cancelled"}:
             raise TrainingDatasetError(
                 "legacy_storage_version_active",
@@ -501,17 +452,9 @@ async def pin_legacy_storage(
             if not unsettled:
                 _adoption_capacity.release()
         await lock_project_manager(db, user.id, project.id)
-        if key_id is not None:
-            await db.execute(
-                select(ApiKey.id).where(ApiKey.id == key_id).with_for_update(read=True)
-            )
         if await proof() != initial_authority:
             raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-        await db.execute(
-            select(StorageLocation.id)
-            .where(StorageLocation.id == uuid.UUID(candidate["location_id"]))
-            .with_for_update(read=True)
-        )
+        await get_location(db, uuid.UUID(candidate["location_id"]), lock="share")
         version = await load_version(db, project, version_id, lock=True)
         if (
             version.storage_ref is not None
@@ -529,17 +472,21 @@ async def pin_legacy_storage(
             expected_revision=acquired_revision,
             lock=True,
         )
-        version.storage_ref = {
-            **candidate,
-            "evidence": {
-                **evidence,
-                "verified_at": datetime.now(timezone.utc).isoformat(),
-                "actor_id": str(user.id),
-                "api_key_id": str(key_id) if key_id else None,
+        await data.set_storage(
+            db,
+            version,
+            {
+                **candidate,
+                "evidence": {
+                    **evidence,
+                    "verified_at": datetime.now(timezone.utc).isoformat(),
+                    "actor_id": str(user.id),
+                    "api_key_id": str(key_id) if key_id else None,
+                },
             },
-        }
+        )
         await db.commit()
-        return await task_datasets.attach_read_metadata(db, version)
+        return await load_version_output(db, project.id, version.id)
     except TrainingDatasetError as exc:
         fail(exc)
     except ContentError as exc:
@@ -570,67 +517,44 @@ async def delete_version(
     from app.services.active_learning_references import guard_source
 
     await guard_source(db, version_id=version.id)
-    from app.db.models.learning_policy import LearningPolicy, LearningTrigger
-    from app.db.models.sample_evaluation import SampleEvaluationRun
-    from app.db.models.training_study import TrainingStudy
+    from app.services.evaluation_data import dataset_has_evaluation
+    from app.services.learning_selection_data import dataset_references
+    from app.services.training_run_data import dataset_run_dependencies
 
-    if await db.scalar(
-        select(TrainingStudy.id).where(TrainingStudy.dataset_id == version.id).limit(1)
-    ):
+    references = await dataset_references(db, version.id)
+    if references.has_study:
         raise HTTPException(
             status_code=409, detail="数据版本被参数搜索的冻结计划引用，不能删除"
         )
 
-    if await db.scalar(
-        select(SampleEvaluationRun.id)
-        .where(SampleEvaluationRun.dataset_id == version.id)
-        .limit(1)
-    ):
+    if await dataset_has_evaluation(db, project.id, version.id):
         raise HTTPException(
             status_code=409, detail="数据版本被冻结样本评估引用，请先删除已结束的评估"
         )
 
-    if await db.scalar(
-        select(LearningTrigger.id)
-        .where(LearningTrigger.dataset_id == version.id)
-        .limit(1)
-    ) or await db.scalar(
-        select(LearningPolicy.id)
-        .where(
-            (LearningPolicy.baseline_dataset_id == version.id)
-            | (LearningPolicy.config["parent_id"].astext == str(version.id))
-        )
-        .limit(1)
-    ):
+    if references.has_policy:
         raise HTTPException(
             status_code=409, detail="数据被自动策略或触发记录引用，请先移除对应依赖"
         )
     if (
         version.status in {"pending", "running"}
         or await db.scalar(
-            select(TrainingDatasetVersion.id)
-            .where(TrainingDatasetVersion.parent_id == version.id)
+            select(data.dataset_lineage_row.c.id)
+            .where(data.dataset_lineage_row.c.parent_id == version.id)
             .limit(1)
         )
-        or await db.scalar(
-            select(TrainingRun.id).where(TrainingRun.dataset_id == version.id).limit(1)
-        )
-        or await db.scalar(
-            select(TrainingPreview.id)
-            .where(TrainingPreview.dataset_id == version.id)
-            .limit(1)
-        )
+        or await dataset_run_dependencies(db, project.id, version.id)
     ):
         raise HTTPException(
             status_code=409,
             detail="运行中或被后续版本、训练实验、未清理增强预览引用的数据版本不能删除",
         )
     try:
-        intent = cleanup.stage_deletion(
+        intent_id = await cleanup.stage_deletion(
             db, version, f"projects/{project.id}/datasets/{version.id}/"
         )
+        await data.delete_version(db, version)
     except TrainingDatasetError as exc:
         fail(exc)
-    await service.stage_version_deletion(db, version)
     await db.commit()
-    await cleanup.purge_committed(db, intent.id)
+    await cleanup.purge_committed(db, intent_id)

@@ -5,15 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 import logging
 import uuid
-from datetime import datetime, timezone
+from typing import NamedTuple
 
 from fastapi import HTTPException
 from sqlalchemy import String, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models.dataset import DatasetItem
 from app.db.models.project import Project
-from app.db.models.training_dataset import TrainingDatasetVersion
+from app.services import training_dataset_data as data
+from app.services.assets_spatial_views import (
+    labeling_dataset_item_facts,
+    spatial_item_references,
+)
 from app.schemas.training_dataset import TrainingDatasetSelection
 from app.services import async_job as jobs
 from app.services import training_dataset_originals as originals
@@ -68,6 +71,14 @@ MAX_IMAGE_BYTES = 256 * 1024 * 1024
 MAX_DATASET_BYTES = 20 * 1024 * 1024 * 1024
 
 
+class SourceItem(NamedTuple):
+    id: uuid.UUID
+    dataset_id: uuid.UUID
+    scene_id: uuid.UUID | None
+    width: int | None
+    height: int | None
+
+
 def frozen_preparation_report(snapshot_digest: str, report: dict) -> dict:
     return {
         "schema": 1,
@@ -87,7 +98,7 @@ def selection_of(body) -> TrainingDatasetSelection:
 
 async def dataset_authority(
     db: AsyncSession,
-    version: TrainingDatasetVersion,
+    version: data.DatasetVersion,
     *,
     training_authority: TrainingAuthorityPort,
 ) -> None:
@@ -167,13 +178,6 @@ class SqlTrainingAuthority(TrainingAuthorityPort):
 def bind_training_authority(db: AsyncSession) -> TrainingAuthorityPort:
     """Bind the authority port to the Session owned by HTTP or worker composition."""
     return SqlTrainingAuthority(db)
-
-
-async def stage_version_deletion(
-    db: AsyncSession, version: TrainingDatasetVersion
-) -> None:
-    """Stage SQL deletion; the workflow commits it with its storage intent."""
-    await db.delete(version)
 
 
 def capture_source_media(sample: dict) -> dict:
@@ -366,8 +370,8 @@ async def _freeze_selection(
         else DETECTION_CONTRACT
     )
     if selection.parent_id:
-        parent = await db.get(TrainingDatasetVersion, selection.parent_id)
-        if parent is None or parent.project_id != project.id:
+        parent = await data.read_version(db, selection.parent_id, project_id=project.id)
+        if parent is None:
             raise TrainingDatasetError(
                 "parent_not_found", "父数据版本不属于当前项目", status_code=404
             )
@@ -406,10 +410,22 @@ async def _freeze_selection(
         .scalar_subquery()
     )
     project_row = project_facts()
+    item = spatial_item_references.c
+    dimensions = labeling_dataset_item_facts
     stmt = (
-        select(task_row, DatasetItem, project_row.c.tool_bindings, annotation_json)
+        select(
+            task_row,
+            project_row.c.tool_bindings,
+            annotation_json,
+            item.item_id,
+            item.dataset_id,
+            item.scene_id,
+            dimensions.width,
+            dimensions.height,
+        )
         .join(project_row, project_row.c.id == task_row.project_id)
-        .outerjoin(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
+        .outerjoin(spatial_item_references, item.item_id == task_row.dataset_item_id)
+        .outerjoin(dimensions, dimensions.id == item.item_id)
         .where(task_row.project_id == project.id)
         .order_by(task_row.id)
         .limit(MAX_SAMPLES + 1)
@@ -417,18 +433,13 @@ async def _freeze_selection(
     if selection.batch_id:
         stmt = stmt.where(task_row.batch_id == selection.batch_id)
     if selection.dataset_id:
-        from app.db.models.dataset import ProjectDataset
+        from app.services.assets_dataset_data import project_dataset_exists
 
-        if not await db.scalar(
-            select(ProjectDataset.project_id).where(
-                ProjectDataset.project_id == project.id,
-                ProjectDataset.dataset_id == selection.dataset_id,
-            )
-        ):
+        if not await project_dataset_exists(db, project.id, selection.dataset_id):
             raise TrainingDatasetError(
                 "dataset_not_linked", "数据集未关联当前项目", status_code=404
             )
-        stmt = stmt.where(DatasetItem.dataset_id == selection.dataset_id)
+        stmt = stmt.where(item.dataset_id == selection.dataset_id)
     if selection.dataset_filter is not None:
         from app.services.dataset_workbench import project_filtered_item_ids
 
@@ -443,7 +454,10 @@ async def _freeze_selection(
         stmt = stmt.where(task_row.dataset_item_id.in_(item_ids))
     if selection.task_ids:
         stmt = stmt.where(task_row.id.in_(selection.task_ids))
-    rows = (await db.execute(stmt.execution_options(populate_existing=True))).all()
+    rows = [
+        (row[0], SourceItem(*row[3:]) if row[3] is not None else None, row[1], row[2])
+        for row in (await db.execute(stmt.execution_options(populate_existing=True)))
+    ]
     from app.services.reference_keys import is_reference
 
     if len(rows) > MAX_SAMPLES:
@@ -834,7 +848,9 @@ async def _freeze_selection(
     return snapshot, report
 
 
-async def enqueue_dataset(db: AsyncSession, version: TrainingDatasetVersion) -> None:
+async def enqueue_dataset(
+    db: AsyncSession, version: data.DatasetVersion
+) -> data.DatasetVersion:
     job = await jobs.create_job(
         db,
         kind="training_dataset",
@@ -842,18 +858,12 @@ async def enqueue_dataset(db: AsyncSession, version: TrainingDatasetVersion) -> 
         project_id=version.project_id,
         payload={"training_dataset_id": str(version.id)},
     )
-    version.async_job_id = job.id
-    version.attempt_id = uuid.uuid4()
-    version.status = "pending"
-    version.progress_pct = 0
-    version.error_code = version.error_message = None
-    version.completed_at = None
-    await db.flush()
+    return await data.queue_version(db, version, job.id)
 
 
 async def dispatch_dataset(
     db: AsyncSession,
-    version: TrainingDatasetVersion,
+    version: data.DatasetVersion,
     *,
     dispatcher: TrainingDatasetDispatcher,
 ) -> None:
@@ -872,25 +882,23 @@ async def dispatch_dataset(
         )
     except Exception:
         await db.rollback()
-        current = (
-            await db.execute(
-                select(TrainingDatasetVersion)
-                .where(TrainingDatasetVersion.id == version_id)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        ).scalar_one_or_none()
+        current = await data.read_version_facts(db, version_id, lock=True)
         if (
             current is not None
             and current.status == "pending"
             and current.async_job_id == job_id
             and current.attempt_id == attempt_id
         ):
-            current.status = "failed"
-            current.error_code = "dispatch_failed"
-            current.error_message = "任务队列暂不可用，可重试同一数据快照"
-            current.completed_at = datetime.now(timezone.utc)
-            await jobs.mark_failed(db, job_id, error=current.error_message)
+            message = "任务队列暂不可用，可重试同一数据快照"
+            await data.fail_version(
+                db,
+                current,
+                job_id,
+                cancelled=False,
+                code="dispatch_failed",
+                message=message,
+            )
+            await jobs.mark_failed(db, job_id, error=message)
             await notify_job_terminal(db, job_id=job_id)
         await db.commit()
 
@@ -906,13 +914,9 @@ async def lock_dataset_execution(db: AsyncSession, version_id: uuid.UUID) -> Non
         raise TrainingDatasetError(
             "execution_stopping", "上次构建仍在停止，请稍后重试", status_code=409
         )
-    from app.db.models.storage_maintenance import StorageOperation
+    from app.services import storage_access
 
-    if await db.scalar(
-        select(StorageOperation.id)
-        .where(StorageOperation.purpose == originals.output_purpose(version_id))
-        .limit(1)
-    ):
+    if await storage_access.operation_is_open(db, originals.output_purpose(version_id)):
         raise TrainingDatasetError(
             "execution_stopping", "上次构建的存储操作尚未确认收尾", status_code=409
         )
@@ -920,22 +924,24 @@ async def lock_dataset_execution(db: AsyncSession, version_id: uuid.UUID) -> Non
 
 async def reconcile_job_terminal(db: AsyncSession, terminal: JobTerminal) -> None:
     """Reconcile an interrupted build without changing an already-terminal version."""
-    version = (
-        await db.execute(
-            select(TrainingDatasetVersion)
-            .where(TrainingDatasetVersion.async_job_id == terminal.job_id)
-            .with_for_update()
-        )
-    ).scalar_one_or_none()
+    version = await data.lock_job_version(db, terminal.job_id)
     if version is not None and version.status in {"pending", "running"}:
-        version.status = "cancelled" if terminal.cancelled else "failed"
-        version.error_code = "cancelled" if terminal.cancelled else "worker_failed"
-        version.error_message = (
-            "训练数据构建已取消"
-            if terminal.cancelled
-            else "构建进程异常终止，可重试同一快照"
+        await finish_interrupted_version(
+            db, version, terminal.job_id, cancelled=terminal.cancelled
         )
-        version.completed_at = datetime.now(timezone.utc)
+
+
+async def finish_interrupted_version(db, version, job_id, *, cancelled: bool) -> None:
+    await data.fail_version(
+        db,
+        version,
+        job_id,
+        cancelled=cancelled,
+        code="cancelled" if cancelled else "worker_failed",
+        message="训练数据构建已取消"
+        if cancelled
+        else "构建进程异常终止，可重试同一快照",
+    )
 
 
 class SqlTrainingDatasetCancellation(TrainingDatasetCancellationPort):
@@ -961,17 +967,12 @@ class SqlTrainingDatasetCancellation(TrainingDatasetCancellationPort):
                 project_id,
                 denial_detail="需要项目管理权限",
             )
-            version = (
-                await self.__db.execute(
-                    select(TrainingDatasetVersion)
-                    .where(TrainingDatasetVersion.async_job_id == job_id)
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
-                )
-            ).scalar_one_or_none()
+            version = await data.lock_job_version(self.__db, job_id)
             job = await jobs.get_job(self.__db, job_id, populate_existing=True)
             if (
                 version is None
+                or version.project_id != project_id
+                or job is None
                 or version.status not in {"pending", "running"}
                 or job.status not in {"pending", "running"}
             ):
@@ -982,9 +983,7 @@ class SqlTrainingDatasetCancellation(TrainingDatasetCancellationPort):
                 except Exception:
                     log.exception("Training dataset revoke failed job=%s", job.id)
             await jobs.mark_cancelled(self.__db, job.id)
-            await reconcile_job_terminal(
-                self.__db, JobTerminal(job.id, job.kind, cancelled=True)
-            )
+            await finish_interrupted_version(self.__db, version, job_id, cancelled=True)
             await notify_job_terminal(self.__db, job_id=job.id)
         except HTTPException as exc:
             raise TrainingDatasetCancellationFailure(

@@ -66,38 +66,15 @@ async def candidates(db, *, limit, offset):
 
 
 async def history(db):
-    from app.db.models.training_dataset import TrainingDatasetVersion
-    from app.db.models.training_run import TrainingRun
-    from app.db.models.training_preview import TrainingPreview
-    from app.db.models.sample_evaluation import SampleEvaluationRun
-    from app.db.models.active_learning import ActiveLearningRound
-    from app.db.models.training_storage_deletion import TrainingStorageDeletion
-
-    models = {
-        "training_versions": TrainingDatasetVersion,
-        "training_runs": TrainingRun,
-        "training_previews": TrainingPreview,
-        "sample_evaluations": SampleEvaluationRun,
-        "active_learning_rounds": ActiveLearningRound,
-        "deletion_intents": TrainingStorageDeletion,
-    }
-    return dict(
-        (
-            await db.execute(
-                select(
-                    *(
-                        select(func.count())
-                        .select_from(model)
-                        .scalar_subquery()
-                        .label(name)
-                        for name, model in models.items()
-                    )
-                )
-            )
-        )
-        .mappings()
-        .one()
+    facts = func.yoao_learning_v1.training_binding_history().table_valued(
+        "training_versions",
+        "training_runs",
+        "training_previews",
+        "sample_evaluations",
+        "active_learning_rounds",
+        "deletion_intents",
     )
+    return dict((await db.execute(select(facts))).mappings().one())
 
 
 async def _binding(db, *, lock=False):
