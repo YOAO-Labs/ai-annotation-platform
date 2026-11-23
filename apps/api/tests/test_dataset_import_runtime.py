@@ -321,7 +321,7 @@ async def _wait_job(stack, job_id, status="completed", seconds=25):
                     check=False,
                 )
             ).stderr.splitlines()
-            if f"job={job_id} " in line and "Dataset import" in line
+            if f"job={job_id}" in line and "Dataset import" in line
         ]
         pytest.fail(f"import did not reach {status}: {last}, {cursor}, {logs}")
 
@@ -844,12 +844,13 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
         worker = _start_importer(stack, "initial")
         await _wait_healthy(worker)
         facts = await _wait_job(stack, job)
-        assert facts.file_count == facts.tasks == facts.total_tasks == 1, facts.jobs[0][
-            "result"
-        ]
-        assert facts.jobs[0]["result"]["added"] == 1
-        assert facts.jobs[0]["result"]["skipped"] == 1
-        assert facts.jobs[0]["result"]["error_count"] == 0
+        result = facts.jobs[0]["result"]
+        assert facts.file_count == facts.tasks == facts.total_tasks == 1, result
+        assert (result["added"], result["skipped"], result["error_count"]) == (
+            1,
+            1,
+            0,
+        ), result
         assert len(facts.items) == 1 and facts.items[0]["file_path"].startswith(
             f"dataset-sources/{stack.world.dataset_id}/"
         )
@@ -3238,12 +3239,10 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
                             text(
                                 "SELECT v.lease_token,v.creation_id,v.operation_id,v.item_id,v.entry_index,"
                                 "v.mode,v.state,v.result,c.authority->>'publication_id' AS publication_id,"
-                                "c.prepared ? 'parts' AS retained_parts,c.bucket,c.object_key,"
-                                "jsonb_array_length(preparation.evidence->'parts') AS physical_part_count "
+                                "c.prepared ?| ARRAY['parts','upload_id'] AS retained_multipart,"
+                                "c.bucket,c.object_key "
                                 "FROM yoao_assets_v1.import_original_verifications AS v "
                                 "JOIN public.managed_original_creations AS c ON c.id=v.creation_id "
-                                "LEFT JOIN yoao_assets_v1.media_io_claims AS preparation "
-                                "ON preparation.permit_id=v.operation_id AND preparation.step='original_prepare' "
                                 "WHERE v.job_id=:job"
                             ),
                             {"job": job},
@@ -3259,8 +3258,11 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
             assert receipt["bucket"] == stack.destination_bucket
             assert receipt["object_key"] in old_paths
             if target_kind == "registered":
-                assert receipt["retained_parts"] is False
-                assert receipt["physical_part_count"] >= 2
+                assert receipt["retained_multipart"] is False
+                _, separator, part_count = (
+                    receipt["result"]["etag"].strip('"').rpartition("-")
+                )
+                assert separator and part_count.isdecimal() and int(part_count) >= 2
             _docker("kill", "--signal", "KILL", worker)
             await release()
         await asyncio.sleep(0.2)
