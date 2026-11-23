@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import ExitStack, closing, contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
@@ -35,10 +35,58 @@ ROOT = Path(__file__).resolve().parents[3]
 API_LOGIN = "identity_embedded_api_consumer"
 QUEUES = {"default", "media", "cleanup", "audit", "ml.cpu"}
 _OBSERVATION = "m2b-physical-prediction "
+_INFERENCE_CAPABILITIES = {
+    "pipelines": "data",
+    "backend_probe": "backend_probe_manager",
+    "health_observation": "health_observation_manager",
+    "registry_ingress": "registry_ingress_manager",
+    "routing": "routing_manager",
+    "execution": "model_execution_manager",
+    "backend_control": "backend_control_manager",
+}
+_LOG_FAULTS = {
+    b"InsufficientPrivilegeError": "42501",
+    b"UndefinedFunctionError": "42883",
+    b"UndefinedTableError": "42P01",
+    b"UndefinedColumnError": "42703",
+    b"InvalidPasswordError": "28P01",
+    b"NotNullViolationError": "23502",
+    b"UniqueViolationError": "23505",
+    b"ConnectionRefusedError": "connection_refused",
+    b"ModuleNotFoundError": "module_not_found",
+    b"ValidationError": "validation_error",
+}
+
+_INFERENCE_READINESS = """
+import json
+import sys
+import time
+
+from yoao_inference.__main__ import main
+from yoao_inference.pipeline_server import PipelineHttpServer
+
+async def report(owner):
+    checks = json.loads(sys.argv[1])
+    started = time.monotonic()
+    status, _ = await owner._dispatch("GET", "/health", {}, b"")
+    elapsed_ms = round((time.monotonic() - started) * 1000)
+    results = {}
+    for name in owner.required_capabilities:
+        try:
+            results[name] = await getattr(owner, checks[name]).readiness() is True
+        except Exception:
+            results[name] = False
+    print(json.dumps([status, elapsed_ms, results]))
+
+# Inspect a separate startup with the same owner configuration, without listening.
+PipelineHttpServer.serve_forever = report
+main()
+"""
 
 _AUTHOR = r"""
 from importlib.util import find_spec
 import json
+import os
 from pathlib import Path
 import sys
 from urllib.parse import parse_qs, urlsplit
@@ -73,6 +121,7 @@ async def observe_prediction(request, call_next):
             url = urlsplit(task['file_path'])
             params = parse_qs(url.query)
             print(marker + json.dumps({
+                'pid': os.getpid(),
                 'task_id': str(task['id']),
                 'object_store': f'{url.scheme}://{url.netloc}' == storage_origin,
                 'signed_and_versioned': all(params.get(key) for key in (
@@ -126,37 +175,106 @@ def _private(path, flags):
     return os.open(path, flags, 0o600)
 
 
-def _wait_http(client, service, component: str, health: str) -> None:
-    deadline = time.monotonic() + 45
-    while time.monotonic() < deadline:
-        assert service.process.poll() is None, (
-            f"{component} exited; see {service.log.name}"
+def _process_status(service) -> str:
+    try:
+        with open(service.log.name, "rb") as log:
+            log.seek(-min(os.fstat(log.fileno()).st_size, 32768), os.SEEK_END)
+            tail = log.read(32768)
+    except OSError:
+        return f"exit={service.process.poll()}, private log unavailable"
+    faults = ",".join(code for marker, code in _LOG_FAULTS.items() if marker in tail)
+    return f"exit={service.process.poll()}, known_faults={faults or 'none'}"
+
+
+def _inference_readiness(directory, environment) -> str:
+    try:
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                _INFERENCE_READINESS,
+                json.dumps(_INFERENCE_CAPABILITIES),
+            ],
+            cwd=directory,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=30,
         )
+    except (OSError, subprocess.TimeoutExpired):
+        return "private readiness probe unavailable"
+    if result.returncode != 0:
+        return f"private readiness probe exit={result.returncode}"
+    try:
+        status, elapsed_ms, readiness = json.loads(result.stdout)
+    except (TypeError, UnicodeError, ValueError):
+        return "private readiness probe did not return a report"
+    if (
+        type(status) is not int
+        or status not in (200, 503)
+        or type(elapsed_ms) is not int
+        or not 0 <= elapsed_ms <= 30000
+        or not isinstance(readiness, dict)
+        or readiness.keys() != _INFERENCE_CAPABILITIES.keys()
+        or not all(type(ready) is bool for ready in readiness.values())
+    ):
+        return "private readiness probe did not report every required capability"
+    failed = ",".join(name for name, ready in readiness.items() if not ready)
+    return (
+        f"private readiness HTTP={status}, elapsed_ms={elapsed_ms}, "
+        f"not_ready={failed or 'none'}"
+    )
+
+
+def _wait_http(
+    client, service, component: str, health: str, *, timeout=2, diagnose=None
+) -> None:
+    deadline = time.monotonic() + 45
+    last_result = "no response"
+    while time.monotonic() < deadline and service.process.poll() is None:
         try:
-            if client.get(service.origin + health).status_code == 200:
+            status = client.get(service.origin + health, timeout=timeout).status_code
+            last_result = f"HTTP {status}"
+            if status == 200:
                 return
+        except httpx.TimeoutException:
+            last_result = "request timeout"
         except httpx.RequestError:
             pass
         time.sleep(0.2)
-    raise AssertionError(f"{component} did not become ready; see {service.log.name}")
+    details = f"; {diagnose()}" if diagnose is not None else ""
+    raise AssertionError(
+        f"{component} {health} not ready: {last_result}, "
+        f"{_process_status(service)}{details}"
+    )
 
 
-def _wait_worker(worker, redis_url, name: str) -> None:
+def _wait_worker(worker, redis_url, name: str) -> tuple[str, ...]:
+    from worktree_runtime import worker_queues_match
+
+    configured = ",".join(sorted(QUEUES))
     with Celery(broker=redis_url) as probe:
         inspector = probe.control.inspect(destination=[name], timeout=1)
         deadline = time.monotonic() + 45
         while time.monotonic() < deadline:
             assert worker.process.poll() is None, (
-                f"Celery exited; see {worker.log.name}"
+                f"Celery exited: {_process_status(worker)}"
             )
             registered = (inspector.registered() or {}).get(name, [])
             if "app.workers.tasks.batch_predict" in registered:
                 queues = (inspector.active_queues() or {}).get(name)
                 if queues is not None:
-                    assert {queue["name"] for queue in queues} == QUEUES
-                    return
+                    assert worker_queues_match(name, configured, queues), (
+                        "Celery subscribed to unexpected queues"
+                    )
+                    stats = (inspector.stats() or {}).get(name)
+                    if stats is None:
+                        continue
+                    assert stats.get("pid") == worker.process.pid
+                    return tuple(sorted(queue["name"] for queue in queues))
         raise AssertionError(
-            f"Celery did not register batch_predict; see {worker.log.name}"
+            f"Celery did not register batch_predict: {_process_status(worker)}"
         )
 
 
@@ -164,10 +282,8 @@ def _inference_environment(test_engine, common, port):
     owner = {
         **common,
         "INFERENCE_PORT": str(port),
-        "INFERENCE_REQUIRED_CAPABILITIES": (
-            "pipelines,backend_probe,health_observation,registry_ingress,routing,"
-            "execution,backend_control"
-        ),
+        "INFERENCE_REQUIRED_CAPABILITIES": ",".join(_INFERENCE_CAPABILITIES),
+        "GPU_ARBITER_MODE": "off",
     }
     caller = {}
     origin = f"http://127.0.0.1:{port}"
@@ -263,16 +379,15 @@ class BusinessStack:
     worker: Process
     inference: Process
     author: Process
-    author_token: str
-    database_url: str
+    author_token: str = field(repr=False)
+    database_url: str = field(repr=False)
     storage_origin: str
     inputs_bucket: str
+    worker_queues: tuple[str, ...]
 
     def assert_alive(self) -> None:
-        for service in (self.api, self.worker, self.inference, self.author):
-            assert service.process.poll() is None, (
-                f"Service exited; see {service.log.name}"
-            )
+        for name, service in self._processes().items():
+            assert service.process.poll() is None, f"{name}: {_process_status(service)}"
 
     def model_calls(self) -> list[dict]:
         return [
@@ -280,6 +395,27 @@ class BusinessStack:
             for line in Path(self.author.log.name).read_text().splitlines()
             if line.startswith(_OBSERVATION)
         ]
+
+    def _processes(self) -> dict[str, Process]:
+        return {
+            "api": self.api,
+            "celery": self.worker,
+            "inference": self.inference,
+            "cpu_plugin": self.author,
+        }
+
+    def process_ids(self) -> dict[str, int]:
+        pids = {
+            name: service.process.pid for name, service in self._processes().items()
+        }
+        assert len({os.getpid(), *pids.values()}) == len(pids) + 1
+        return pids
+
+    def diagnostics(self) -> str:
+        return "; ".join(
+            f"{name}: {_process_status(service)}"
+            for name, service in self._processes().items()
+        )
 
 
 @contextmanager
@@ -359,7 +495,14 @@ def business_stack(test_engine, directory):
             owner_env,
             origin=inference_origin,
         )
-        _wait_http(readiness, inference, "Inference owner", "/health")
+        _wait_http(
+            readiness,
+            inference,
+            "Inference owner",
+            "/health",
+            timeout=8,
+            diagnose=lambda: _inference_readiness(directory, owner_env),
+        )
 
         app_env = {
             **common,
@@ -441,8 +584,8 @@ def business_stack(test_engine, directory):
                 ),
             },
         )
-        _wait_worker(worker, redis_url, worker_name)
-        yield BusinessStack(
+        worker_queues = _wait_worker(worker, redis_url, worker_name)
+        stack = BusinessStack(
             api,
             worker,
             inference,
@@ -451,4 +594,10 @@ def business_stack(test_engine, directory):
             db_url,
             storage_origin,
             inputs_bucket,
+            worker_queues,
         )
+        try:
+            yield stack
+        except Exception as error:
+            error.add_note(stack.diagnostics())
+            raise
