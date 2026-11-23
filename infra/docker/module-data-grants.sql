@@ -4311,8 +4311,6 @@ GRANT USAGE, CREATE ON SCHEMA yoao_identity_v1 TO :"identity_owner";
 ALTER FUNCTION yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid) OWNER TO :"identity_owner";
 REVOKE CREATE ON SCHEMA yoao_identity_v1 FROM :"identity_owner";
 GRANT USAGE, CREATE ON SCHEMA yoao_labeling_v1 TO :"labeling_owner";
-ALTER FUNCTION yoao_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,text,uuid)
-    OWNER TO :"labeling_owner";
 ALTER FUNCTION yoao_labeling_v1.lock_task_rows_for_core_read_share(uuid[],uuid,uuid)
     OWNER TO :"labeling_owner";
 ALTER FUNCTION yoao_labeling_v1.lock_task_dataset_item_link_rows_for_core_read_share(uuid[],integer)
