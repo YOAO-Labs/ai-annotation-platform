@@ -76,9 +76,6 @@ async def test_api_login_clones_published_guide_and_retires_last_reference(
     api_url = _api_url(test_engine)
     assert api_url.host == "127.0.0.1" and not api_url.query
     _configure_actual_api(test_engine, monkeypatch)
-    for capability in ("configuration", "project_query"):
-        for suffix in ("url", "database_url", "database_url_file"):
-            monkeypatch.setattr(settings, f"workspace_{capability}_{suffix}", "")
 
     owner_db = async_sessionmaker(test_engine, expire_on_commit=False)
     upload_id = uuid4()

@@ -3,7 +3,7 @@ title: 环境变量参考
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-11-21
+last_reviewed: 2026-11-23
 ---
 
 # 环境变量参考
@@ -834,59 +834,11 @@ last_reviewed: 2026-11-21
 | `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN` | `—` | — |
 | `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE` | `—` | — |
 
-## Workspace 成员与项目负责人转移命令（可选独立运行）。API 可选择私有 runtime URL、
+## Workspace 六项操作使用 API 调用方事务；成员命令和负责人移交沿用同一超时。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `WORKSPACE_MEMBERSHIP_URL` | `—` | 专用事务 DSN 或默认 caller Session；直接值与 _FILE 二选一，显式失败不回退。 |
-| `WORKSPACE_MEMBERSHIP_CONTROL_TOKEN` | `—` | — |
-| `WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE` | `—` | — |
-| `WORKSPACE_MEMBERSHIP_DATABASE_URL` | `—` | — |
-| `WORKSPACE_MEMBERSHIP_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS` | `30` | — |
-| `WORKSPACE_OWNER_TRANSFER_URL` | `—` | 转移命令复用上面的 control token 和 timeout；默认借用 caller transaction 且不提交。 |
-| `WORKSPACE_OWNER_TRANSFER_DATABASE_URL` | `—` | — |
-| `WORKSPACE_OWNER_TRANSFER_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_CONFIGURATION_URL` | `—` | Configuration writes: empty borrows the caller transaction without committing. See ADR-0136 for the current qualification status. Select URL or DSN, never both. Remote failures do not select another writer. |
-| `WORKSPACE_CONFIGURATION_DATABASE_URL` | `—` | — |
-| `WORKSPACE_CONFIGURATION_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_CONFIGURATION_TIMEOUT_SECONDS` | `30` | — |
-| `WORKSPACE_INFERENCE_PROBE_URL` | `—` | Standalone Workspace calls the credential-owning Inference probe for backend modalities. These are independent-runtime settings; API probe selectors are below. |
-| `WORKSPACE_INFERENCE_PROBE_TOKEN` | `—` | — |
-| `WORKSPACE_INFERENCE_PROBE_TOKEN_FILE` | `—` | — |
-| `WORKSPACE_INFERENCE_PROBE_TIMEOUT_SECONDS` | `30` | — |
-| `WORKSPACE_TEMPLATE_QUERY_URL` | `—` | Template reads: empty borrows the caller transaction. Select URL or DSN. Explicit remote failures do not fall back to another reader. |
-| `WORKSPACE_TEMPLATE_QUERY_DATABASE_URL` | `—` | — |
-| `WORKSPACE_TEMPLATE_QUERY_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_TEMPLATE_QUERY_TIMEOUT_SECONDS` | `30` | — |
-
-## Project query provider: unset uses the caller transaction; select URL or DSN/file.
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `WORKSPACE_PROJECT_QUERY_URL` | `—` | — |
-| `WORKSPACE_PROJECT_QUERY_DATABASE_URL` | `—` | — |
-| `WORKSPACE_PROJECT_QUERY_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_PROJECT_QUERY_TIMEOUT_SECONDS` | `30` | — |
-| `WORKSPACE_DIRECTORY_QUERY_URL` | `—` | Directory reads share the runtime Identity profile dependency below. |
-| `WORKSPACE_DIRECTORY_QUERY_DATABASE_URL` | `—` | — |
-| `WORKSPACE_DIRECTORY_QUERY_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_DIRECTORY_QUERY_TIMEOUT_SECONDS` | `30` | — |
-| `WORKSPACE_PROJECT_QUERY_IDENTITY_URL` | `—` | Standalone Workspace profile dependency; evaluated only for nonempty display IDs. HTTP takes precedence over the Briefs DSN; these credentials never enter query wire. |
-| `WORKSPACE_PROJECT_QUERY_IDENTITY_TOKEN` | `—` | — |
-| `WORKSPACE_PROJECT_QUERY_IDENTITY_TOKEN_FILE` | `—` | — |
-| `WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL` | `—` | — |
-| `WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_PROJECT_QUERY_IDENTITY_TIMEOUT_SECONDS` | `2` | — |
-| `WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE` | `—` | 独立 Compose runtime 的宿主 secret-file selectors，容器内映射为上面的数据库与控制 token 配置。 |
-| `WORKSPACE_RUNTIME_OWNER_TRANSFER_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_RUNTIME_CONFIGURATION_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_RUNTIME_TEMPLATE_QUERY_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_RUNTIME_PROJECT_QUERY_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_RUNTIME_DIRECTORY_QUERY_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE` | `—` | — |
-| `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` | `—` | — |
-| `WORKSPACE_RUNTIME_INFERENCE_PROBE_TOKEN_FILE` | `—` | — |
+| `WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS` | `30` | 已配置独立 Workspace URL 或专用 DSN 的部署须另行迁移，不能直接切换。 |
 
 ## Labeling class usage: API first checks current Workspace management authority.
 

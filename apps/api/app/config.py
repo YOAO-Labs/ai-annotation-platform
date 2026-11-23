@@ -257,31 +257,7 @@ class Settings(BaseSettings):
     identity_mail_settings_database_url: str = Field(default="", repr=False)
     identity_mail_settings_database_url_file: str = ""
 
-    workspace_membership_url: str = ""
-    workspace_membership_control_token: str = Field(default="", repr=False)
-    workspace_membership_control_token_file: str = ""
-    workspace_membership_database_url: str = Field(default="", repr=False)
-    workspace_membership_database_url_file: str = ""
     workspace_membership_timeout_seconds: float = Field(default=30, gt=0, le=3600)
-    workspace_owner_transfer_url: str = ""
-    workspace_owner_transfer_database_url: str = Field(default="", repr=False)
-    workspace_owner_transfer_database_url_file: str = ""
-    workspace_configuration_url: str = ""
-    workspace_configuration_database_url: str = Field(default="", repr=False)
-    workspace_configuration_database_url_file: str = ""
-    workspace_configuration_timeout_seconds: float = Field(default=30, gt=0, le=3600)
-    workspace_template_query_url: str = ""
-    workspace_template_query_database_url: str = Field(default="", repr=False)
-    workspace_template_query_database_url_file: str = ""
-    workspace_template_query_timeout_seconds: float = Field(default=30, gt=0, le=3600)
-    workspace_project_query_url: str = ""
-    workspace_project_query_database_url: str = Field(default="", repr=False)
-    workspace_project_query_database_url_file: str = ""
-    workspace_project_query_timeout_seconds: float = Field(default=30, gt=0, le=3600)
-    workspace_directory_query_url: str = ""
-    workspace_directory_query_database_url: str = Field(default="", repr=False)
-    workspace_directory_query_database_url_file: str = ""
-    workspace_directory_query_timeout_seconds: float = Field(default=30, gt=0, le=3600)
 
     labeling_class_query_url: str = ""
     labeling_class_query_database_url: str = Field(default="", repr=False)
@@ -619,6 +595,32 @@ class Settings(BaseSettings):
         if self.require_email_verification is not None:
             return self.require_email_verification
         return self.environment == "production"
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls,
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        for operation in (
+            "membership",
+            "owner_transfer",
+            "configuration",
+            "template_query",
+            "project_query",
+            "directory_query",
+        ):
+            for suffix in ("url", "database_url", "database_url_file"):
+                key = f"workspace_{operation}_{suffix}"
+                if env_settings.env_vars.get(key, dotenv_settings.env_vars.get(key)):
+                    raise RuntimeError(
+                        f"{key.upper()} selects a retired Workspace service; "
+                        "migrate the deployment before starting the embedded API"
+                    )
+        return init_settings, env_settings, dotenv_settings, file_secret_settings
 
     class Config:
         env_file = str(_REPO_ROOT_ENV)
