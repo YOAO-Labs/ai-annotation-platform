@@ -19,7 +19,18 @@ def _read_secret_file(path: str) -> SecretStr:
             raise ValueError()
         return SecretStr(value)
     except (OSError, ValueError, UnicodeError):
-        raise ValueError("Invalid notification publisher secret file") from None
+        raise ValueError("Invalid Notifications secret file") from None
+
+
+def optional_notification_secret(value: str, path: str) -> str | None:
+    """Resolve one explicitly selected inline or file source without a fallback."""
+    if value and path:
+        raise ValueError("Select only one Notifications credential source")
+    if path:
+        return _read_secret_file(path).get_secret_value()
+    if value and not value.strip():
+        raise ValueError("Empty Notifications credential")
+    return value or None
 
 
 class NotificationPublisherSettings(BaseSettings):

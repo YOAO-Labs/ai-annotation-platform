@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import json
 import os
 import secrets
-from collections.abc import AsyncIterator
 from uuid import UUID, uuid4
 
 import asyncpg
@@ -17,10 +18,12 @@ import redis.asyncio as redis
 from redis.exceptions import ResponseError
 from sqlalchemy.engine import URL, make_url
 
-from tests.test_notifications_publisher_image_live import _redis_dependency
-from tests.test_notifications_socket_runtime_live import (
+from tests.identity_module_assembly_helpers import (
+    ROOT,
+    IdentityModuleStack,
     asyncpg_connection_url,
 )
+from tests.test_notifications_publisher_image_live import _redis_dependency
 
 
 _NOTIFICATION_PUBLISH_FUNCTIONS = {
@@ -101,23 +104,276 @@ def _verify_kombu_api_redis(host_url: str) -> None:
             bound_queue.delete()
 
 
-def required_module_inputs() -> dict[str, str]:
-    from tests.test_notifications_socket_runtime_live import _required_native_inputs
-
-    values = _required_native_inputs()
+def required_module_inputs(*, isolated=False) -> dict[str, str]:
     names = (
-        "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IMAGE",
-        "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IDENTITY",
-        "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_SOURCE_REVISION",
+        "AAP_IDENTITY_RUNTIME_IMAGE",
+        "AAP_IDENTITY_RUNTIME_IDENTITY",
+        "AAP_IDENTITY_API_RUNTIME_IMAGE",
+        "AAP_IDENTITY_API_RUNTIME_IDENTITY",
+        "AAP_MODULE_DATA_NOTIFICATION_DELIVERY_READ_URL",
+        "AAP_MODULE_DATA_IDENTITY_ACTOR_STATUS_URL",
         "AAP_MODULE_DATA_IDENTITY_NOTIFICATION_PUBLISH_URL",
     )
+    if isolated:
+        names += (
+            "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IMAGE",
+            "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IDENTITY",
+            "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_SOURCE_REVISION",
+        )
     missing = [name for name in names if not os.environ.get(name)]
     if missing:
-        pytest.fail(
-            "Owned Notifications module inputs are missing: " + ", ".join(missing)
+        pytest.fail("Owned Notifications inputs are missing: " + ", ".join(missing))
+    return {name: os.environ[name] for name in names}
+
+
+class NotificationsModuleStack(IdentityModuleStack):
+    """Host the real API socket, and choose the real publisher or scheduled worker."""
+
+    def __init__(
+        self,
+        *args,
+        subscribe_redis_url,
+        general_redis_url=None,
+        publish_database_url=None,
+        publish_redis_url=None,
+        isolated_publisher=None,
+        publication_token=None,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self._notifications_override = self.directory / "notifications-compose.yml"
+        self._subscribe_redis = self._docker_url(subscribe_redis_url)
+        self._general_redis = (
+            self._docker_url(general_redis_url) if general_redis_url else None
         )
-    values.update({name: os.environ[name] for name in names})
-    return values
+        self._publish_database = (
+            notification_publish_database_url(
+                publish_database_url, self.test_engine.url
+            ).set(host=self._postgres_name, port=5432)
+            if publish_database_url
+            else None
+        )
+        self._publish_redis = (
+            self._docker_url(publish_redis_url) if publish_redis_url else None
+        )
+        assert bool(self._publish_database) == bool(self._publish_redis)
+        self._isolated_publisher = isolated_publisher
+        self._publication_bearer = publication_token
+        assert bool(isolated_publisher) == bool(publication_token)
+        if isolated_publisher:
+            assert self._publish_database is not None
+            self._services += ("notifications-publisher",)
+        elif self._publish_database:
+            self._services += ("celery-worker", "celery-beat")
+
+    def redact(self, value: str) -> str:
+        for url in (
+            self._subscribe_redis,
+            self._general_redis,
+            self._publish_redis,
+            self._publish_database,
+        ):
+            if url:
+                parsed = make_url(url)
+                for secret in (
+                    parsed.render_as_string(hide_password=False),
+                    parsed.password,
+                ):
+                    if secret:
+                        value = value.replace(secret, "<redacted>")
+        if self._publication_bearer:
+            value = value.replace(self._publication_bearer, "<redacted>")
+        return super().redact(value)
+
+    def _api_environment(self):
+        env = super()._api_environment()
+        if self._general_redis:
+            env.update(
+                REDIS_URL=self._general_redis, CELERY_BROKER_URL=self._general_redis
+            )
+        if not self._isolated_publisher:
+            env["NOTIFICATION_SUBSCRIBE_REDIS_URL"] = self._subscribe_redis
+        return env
+
+    def _compose_arguments(self):
+        return super()._compose_arguments() + ["-f", str(self._notifications_override)]
+
+    def _prepare_files(self):
+        super()._prepare_files()
+        if self._publish_database:
+            self._write_secret(
+                "notification_publish_database_url",
+                self._publish_database.set(
+                    database=self._database_name
+                ).render_as_string(hide_password=False),
+            )
+            self._write_secret("notification_publish_redis_url", self._publish_redis)
+        if self._isolated_publisher:
+            self._write_secret(
+                "notification_publication_token", self._publication_bearer
+            )
+            self._write_secret(
+                "notification_subscribe_redis_url", self._subscribe_redis
+            )
+            for key, name in {
+                "NOTIFICATION_PUBLISH_API_TOKEN_FILE": "notification_publication_token",
+                "NOTIFICATION_PUBLISH_DATABASE_URL_FILE": "notification_publish_database_url",
+                "NOTIFICATION_PUBLISH_REDIS_URL_FILE": "notification_publish_redis_url",
+                "NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE": "notification_subscribe_redis_url",
+            }.items():
+                self._compose_environment[key] = str(self._secret_directory / name)
+            config = self._isolated_override()
+        elif self._publish_database:
+            config = self._hosted_override()
+        else:
+            config = "services: {}\n"
+        self._notifications_override.write_text(config, encoding="utf-8")
+        self._notifications_override.chmod(0o600)
+
+    def _isolated_override(self):
+        overlay = json.dumps(str(ROOT / "docker-compose.notifications-publisher.yml"))
+        return f"""services:
+  identity-api:
+    extends:
+      file: {overlay}
+      service: api
+  notifications-publisher:
+    extends:
+      file: {overlay}
+      service: notifications-publisher
+    image: {json.dumps(self._isolated_publisher["id"])}
+    build: !reset null
+    networks:
+      default: {{}}
+    labels:
+      org.aap.acceptance: module-data-boundary
+      org.aap.acceptance-id: ${{IDENTITY_MODULE_STACK_ID:?}}
+    healthcheck:
+      interval: 1s
+      retries: 30
+networks:
+  production: {{}}
+  shared: {{}}
+secrets:
+  notification_publish_database_url:
+    file: ${{NOTIFICATION_PUBLISH_DATABASE_URL_FILE:?}}
+  notification_publish_redis_url:
+    file: ${{NOTIFICATION_PUBLISH_REDIS_URL_FILE:?}}
+  notification_publication_token:
+    file: ${{NOTIFICATION_PUBLISH_API_TOKEN_FILE:?}}
+"""
+
+    def _hosted_override(self):
+        api_env = self._api_environment()
+        scheduler_env = self._secret_directory / "notifications-scheduler.env"
+        self._write_environment_file(
+            scheduler_env,
+            {
+                "REDIS_URL": api_env["REDIS_URL"],
+                "CELERY_BROKER_URL": api_env["CELERY_BROKER_URL"],
+                "DATABASE_URL": api_env["DATABASE_URL"],
+                "ALEMBIC_AUTO_UPGRADE": "false",
+                "OPENBLAS_NUM_THREADS": "1",
+            },
+        )
+        return f"""x-celery: &celery
+  image: ${{AAP_IDENTITY_API_RUNTIME_IMAGE:?}}
+  user: "10003:10003"
+  env_file: [{json.dumps(str(scheduler_env))}]
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 64
+  mem_limit: 256m
+  cpus: 1
+  tmpfs: ["/tmp:rw,noexec,nosuid,size=16m"]
+  labels:
+    org.aap.acceptance: module-data-boundary
+    org.aap.acceptance-id: ${{IDENTITY_MODULE_STACK_ID:?}}
+services:
+  celery-worker:
+    <<: *celery
+    command: ["celery", "-A", "app.workers.celery_app", "worker", "-l", "info", "-Q", "default", "--pool=solo"]
+    environment:
+      NOTIFICATION_PUBLISH_DATABASE_URL_FILE: /run/secrets/notification_publish_database_url
+      NOTIFICATION_PUBLISH_REDIS_URL_FILE: /run/secrets/notification_publish_redis_url
+    volumes:
+      - {json.dumps(str(self._secret_directory / "notification_publish_database_url") + ":/run/secrets/notification_publish_database_url:ro")}
+      - {json.dumps(str(self._secret_directory / "notification_publish_redis_url") + ":/run/secrets/notification_publish_redis_url:ro")}
+  celery-beat:
+    <<: *celery
+    command: ["celery", "-A", "app.workers.celery_app", "beat", "-l", "info", "--schedule=/tmp/notifications-beat"]
+"""
+
+    async def _wait_service_ready(self, service: str) -> None:
+        if service not in {"notifications-publisher", "celery-worker", "celery-beat"}:
+            await super()._wait_service_ready(service)
+            return
+        async with asyncio.timeout(45):
+            while True:
+                data = self._verify_project_ownership().get(service, {})
+                state = data.get("State", {})
+                if state.get("Running") and (
+                    service != "notifications-publisher"
+                    or (state.get("Health") or {}).get("Status") == "healthy"
+                ):
+                    return
+                await asyncio.sleep(0.2)
+
+    def _assert_service_runtime(self, service, config, host, state, mounts, env):
+        publish_targets = {
+            "/run/secrets/notification_publish_database_url",
+            "/run/secrets/notification_publish_redis_url",
+        }
+        publication_token = "/run/secrets/notification_publication_token"
+        subscribe_credential = "/run/secrets/notification_subscribe_redis_url"
+        if service == "identity-api" and self._isolated_publisher:
+            scoped_targets = {publication_token, subscribe_credential}
+            assert {
+                (mount["Destination"], mount["RW"])
+                for mount in mounts
+                if mount["Destination"] in scoped_targets
+            } == {(target, False) for target in scoped_targets}
+            assert env.get("NOTIFICATION_PUBLICATION_URL") == (
+                "http://notifications-publisher:8181"
+            )
+            assert env.get("NOTIFICATION_PUBLICATION_TOKEN_FILE") == publication_token
+            assert (
+                env.get("NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE") == subscribe_credential
+            )
+            assert not env.get("NOTIFICATION_PUBLICATION_TOKEN")
+            mounts = [m for m in mounts if m["Destination"] not in scoped_targets]
+        if service not in {"notifications-publisher", "celery-worker", "celery-beat"}:
+            return super()._assert_service_runtime(
+                service, config, host, state, mounts, env
+            )
+        isolated = service == "notifications-publisher"
+        assert config["User"] == ("10004:10004" if isolated else "10003:10003")
+        assert host["ReadonlyRootfs"] is True
+        assert "ALL" in (host.get("CapDrop") or [])
+        assert "no-new-privileges:true" in (host.get("SecurityOpt") or [])
+        assert not any((host.get("PortBindings") or {}).values())
+        assert not state.get("OOMKilled")
+        targets = (
+            publish_targets | {publication_token}
+            if isolated
+            else publish_targets
+            if service == "celery-worker"
+            else set()
+        )
+        assert {
+            (mount["Destination"], mount["RW"])
+            for mount in mounts
+            if mount["Destination"].startswith("/run/secrets/")
+        } == {(target, False) for target in targets}
+        if isolated:
+            assert {name for name in env if name.startswith("NOTIFICATION_")} == {
+                "NOTIFICATION_PUBLISH_DATABASE_URL_FILE",
+                "NOTIFICATION_PUBLISH_REDIS_URL_FILE",
+                "NOTIFICATION_PUBLISH_API_TOKEN_FILE",
+                "NOTIFICATION_PUBLISH_HOST",
+                "NOTIFICATION_PUBLISH_PORT",
+            }
 
 
 def notification_publish_database_url(dsn: str, reference_url: URL) -> URL:

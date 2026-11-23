@@ -27,7 +27,7 @@ last_reviewed: 2026-10-25
   caption="审计与通知的写入、持久化和在线分发边界"
 />
 
-一般通知创建不是事务型 outbox。普通默认调用仍先 `flush` 通知行、再尽力发布 Redis，由调用方稍后提交；调用方最终回滚时，在线端可能已经收到消息。讨论事件使用显式延迟发布：业务与通知同事务提交成功后才推送，Redis 失败不改变已提交结果，也没有后台重试或恰好一次推送保证。自助注销的两种通知是窄范围例外：Notifications owner 同事务写持久投递 outbox，由独立 publisher 领取和重试；这不改变其他通知语义。
+一般通知创建不是事务型 outbox。普通调用方按原顺序决定何时发布；讨论事件显式在提交后尽力投递，Redis 失败不改变已提交结果，也没有后台重试。自助注销与白名单作业终态是例外：Notifications owner 同事务写持久投递 outbox，只有提交后才可领取和重试。
 
 ## 代码入口
 
@@ -65,7 +65,7 @@ last_reviewed: 2026-10-25
 | `apps/notifications/src/yoao_notifications/delivery_worker.py`                     | `NotificationPublisher` 执行器与独立 CLI                     |
 | `apps/notifications/src/yoao_notifications/delivery_config.py`                     | `NotificationPublisherSettings` 环境配置                     |
 | `apps/notifications/Dockerfile`                                                    | 锁定依赖、非 editable 安装的独立 publisher 工件定义          |
-| `apps/identity/src/yoao_identity_runtime/notification_worker.py`                   | 既有 Identity publisher 命令的兼容入口                       |
+| `apps/api/app/workers/notification_delivery.py`                                    | 默认队列的 durable relay 装配，不依赖 Identity 运行位置      |
 | `apps/api/app/services/job_execution_control.py`                                   | 不依赖 broker 的协作取消执行端口                             |
 | 各领域服务的 `reconcile_job_terminal`                                              | 只回填所属账本，保留各自终态语义                             |
 | `apps/api/app/workers/signals.py`                                                  | Celery 信号适配、连接与调用方提交/释放                       |
@@ -260,7 +260,7 @@ Notifications 的纯投递策略先按需读取 Jobs 实际范围，再分别查
 
 ### 即时发布与独立运行
 
-普通发布编排由 `yoao_notifications.publication.NotificationPublicationManager` 持有，API 继续控制业务事务和调用时点。空 `NOTIFICATION_PUBLICATION_URL` 使用内嵌 Redis transport；配置私网地址后，经 `aap-notifications-immediate-publication/v1` 调用现有独立 publisher 的可选 HTTP 接口，故障不回退本地 Redis。
+普通发布编排由 `yoao_notifications.publication.NotificationPublicationManager` 持有，API 继续控制业务事务和调用时点。默认使用内嵌 Redis transport；只有发布 Redis 凭据必须隔离时，才启用独立 publisher 的 `aap-notifications-immediate-publication/v1` 私网接口，显式远端故障不回退本地 transport。订阅仍在 API 的 `/ws/notifications`，登录过期、身份撤销和范围变化均会在后续业务帧重新检查。
 
 API 在原借用 Session 中读取通知、Jobs 范围和四组授权事实，将事件及该次受信快照交给 publisher；publisher 不重新查询未提交的业务行，并再次执行同一授权策略。服务 bearer 只授予这项发布能力，不能作为用户 JWT 或 Identity 控制凭据。消息频道由收件人 UUID 生成，调用方不能指定任意 Redis channel。
 
@@ -377,7 +377,7 @@ ORM DELETE evaluator 同步身份缓存，因此已有、脏、过期对象及�
 
 独立 `yoao_notification_publish_client` LOGIN 仅有 `identity_delivery_policy()`、`claim_identity_deliveries(jsonb)` 和 `finish_identity_delivery(jsonb)` 三项能力，不能查询或更新 Notification 表，也不持 Identity/AUTH/mail 凭据。领取 transaction 提交后才向 Redis `notify:{user_id}` 发消息；只有 Redis 接受以后才能确认 lease。锁等待后的时间由数据库检查，旧 worker lease 不能确认新领取。Redis 未确认或 publisher 崩溃时允许下一次 claim 重试；消息使用同一 Notification id，投递是 at-least-once 而非 exactly-once。
 
-独立命令 `yoao-notifications-publisher` 或 `python -m yoao_notifications.delivery_worker` 由 Notifications 包持有，使用原 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 和 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`，没有 HTTP 监听。`apps/notifications/Dockerfile` 定义独立、锁定、非 editable 的运行工件；Identity 原导入路径和 `python -m yoao_identity_runtime.notification_worker` 保留兼容转发，现有 Identity Compose 仍使用该入口。主 API/Celery 的每 10 秒 relay 直接复用 Notifications executor；owner 内部故障在 API 外层仍翻译成既有 Identity 错误。两种执行路径共享 lease 和同一 durable outbox，不改变至少一次投递、取消或确认顺序。详见 [Identity 私有协议](/api/guides/identity-runtime#注销通知的-durable-publisher) 和 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
+默认由现有 Beat 每 10 秒安排 Notifications worker 领取注销和作业终态，不再从 Identity 是否远端推断是否处理。只有在 Redis ACL 隔离部署中使用单一 `notifications-publisher`，同时提供私网即时发布和同一 durable 循环，且不并行调度嵌入 relay。两种宿主共享 lease 和同一 outbox，不改变至少一次投递、取消或确认顺序。发布凭据只交给实际 publisher，API 订阅连接可限定为 subscribe-only。详见[部署配置](/api/guides/module-data#notifications-即时发布)和 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
 
 新增可配置通知类型时要同步更新后端 `KNOWN_NOTIFICATION_TYPES` 与前端设置页标签；
 不可配置的运维类通知则刻意不进 `KNOWN`，避免被错误静音。

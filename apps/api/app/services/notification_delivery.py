@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 
-from yoao_identity.contract import IdentityUnavailable
+from yoao_notifications.delivery_config import optional_notification_secret
+from yoao_notifications.delivery_worker import NotificationPublisher
 from yoao_notifications.notification_delivery_contract import (
+    NOTIFICATION_DELIVERY_POLICY,
     NOTIFICATION_DELIVERY_PROTOCOL,
     NotificationDeliveryUnavailable,
     NotificationFinishRequest,
@@ -21,17 +24,13 @@ from yoao_notifications.notification_delivery_contract import (
 from yoao_notifications.notification_delivery_postgres import (
     NotificationDeliveryPostgresData,
 )
-from yoao_notifications.delivery_worker import NotificationPublisher
 from app.config import settings
-from app.db.base import async_session
-from app.services.identity_gateway import get_identity_gateway, identity_database_source
-from app.services.identity_session_data import _json_value
 
 
 class NotificationDeliveryData:
     """Commit the claim before Redis, using a separate session for each finish."""
 
-    def __init__(self, session_factory=async_session, *, include_terminal=False):
+    def __init__(self, session_factory, *, include_terminal=False):
         self.session_factory = session_factory
         self.include_terminal = include_terminal
 
@@ -46,9 +45,7 @@ class NotificationDeliveryData:
                         parameters["command"] = native_notification_command_json(
                             request
                         )
-                    raw = _json_value(
-                        await db.scalar(text(statement + ")"), parameters)
-                    )
+                    raw = await db.scalar(text(statement + ")"), parameters)
                     result = decode(raw)
                     await db.commit()
                     return result
@@ -93,33 +90,46 @@ class NotificationDeliveryData:
         )
 
 
-async def run_identity_notifications(*, session_factory=None, redis=None):
-    dsn = identity_database_source(
-        settings.notification_publish_database_url,
-        settings.notification_publish_database_url_file,
-    )
-    if not dsn and get_identity_gateway().identity_url is not None:
-        return {"state": "remote"}
+async def run_notifications(*, session_factory, redis=None):
+    try:
+        dsn = optional_notification_secret(
+            settings.notification_publish_database_url,
+            settings.notification_publish_database_url_file,
+        )
+        redis_url = optional_notification_secret(
+            settings.notification_publish_redis_url,
+            settings.notification_publish_redis_url_file,
+        )
+        if dsn:
+            dsn = (
+                make_url(dsn)
+                .set(drivername="postgresql")
+                .render_as_string(hide_password=False)
+            )
+    except (ArgumentError, ValueError):
+        raise NotificationDeliveryUnavailable() from None
+
     data = (
         NotificationDeliveryPostgresData(dsn, include_terminal=True)
         if dsn
-        else NotificationDeliveryData(
-            session_factory or async_session, include_terminal=True
-        )
+        else NotificationDeliveryData(session_factory, include_terminal=True)
     )
     owns_redis = redis is None
-    if owns_redis:
-        from redis.asyncio import Redis
-
-        redis = Redis.from_url(
-            settings.redis_url, socket_connect_timeout=5, socket_timeout=5
-        )
     try:
-        await data.delivery_policy()
+        if owns_redis:
+            from redis.asyncio import Redis
+
+            redis = Redis.from_url(
+                redis_url or settings.redis_url,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            )
+        if (await data.delivery_policy()).policy != NOTIFICATION_DELIVERY_POLICY:
+            raise NotificationDeliveryUnavailable()
         result = await NotificationPublisher(data, redis).run_once()
         return {"state": "idle" if result["claimed"] == 0 else "processed", **result}
-    except NotificationDeliveryUnavailable:
-        raise IdentityUnavailable() from None
+    except ValueError:
+        raise NotificationDeliveryUnavailable() from None
     finally:
-        if owns_redis:
+        if owns_redis and redis is not None:
             await redis.aclose()

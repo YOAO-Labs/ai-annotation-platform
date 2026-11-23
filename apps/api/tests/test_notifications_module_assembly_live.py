@@ -1,4 +1,4 @@
-"""Cold API, Notifications publisher, and socket composition plus database restore."""
+"""Cold hosted sockets, Notifications publishing, and durable database restore."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ import asyncpg
 import httpx
 import pytest
 from sqlalchemy import select, text, update
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import websockets
 
@@ -32,9 +33,9 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.notification import Notification
 from app.db.models.user import User
 from tests.factory import DEFAULT_PASSWORD, create_membership, create_task, create_user
-from tests.identity_module_assembly_helpers import IdentityModuleStack
 from tests.identity_recovery_live_helpers import SMTPInbox
 from tests.notifications_module_acceptance_helpers import (
+    NotificationsModuleStack,
     actor_socket_redis_url,
     api_redis_url,
     new_fernet_mail_key,
@@ -153,9 +154,7 @@ async def _publish_from_node_consumer(
         {
             "AAP_PUBLICATION_PEER_CONTAINER": api_container_id,
             "AAP_PUBLICATION_PEER_PROJECT": stack.project_name,
-            "AAP_PUBLICATION_PEER_ORIGIN": (
-                "http://identity-notification-publisher:8181"
-            ),
+            "AAP_PUBLICATION_PEER_ORIGIN": "http://notifications-publisher:8181",
             "AAP_PUBLICATION_PEER_TOKEN": token,
             "AAP_PUBLICATION_PEER_EXPECTED": str(expected_published).lower(),
         }
@@ -299,7 +298,7 @@ raise RuntimeError("terminal relay never reached its finish boundary")
         "--entrypoint",
         "python",
         "-T",
-        "identity-notification-publisher",
+        "notifications-publisher",
         "-c",
         source,
         str(job_id),
@@ -417,7 +416,7 @@ async def _wait_for_delivery_state(maker, operation_id, state, *, timeout=20):
 async def test_notifications_module_cold_composition_and_full_restore(
     test_engine, socket_world, tmp_path, record_property
 ):
-    inputs = required_module_inputs()
+    inputs = required_module_inputs(isolated=True)
     publisher_image = _publisher_environment()
     seed, actor, project, membership = socket_world
     async with seed() as db:
@@ -459,7 +458,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
             api_redis_url((actor.id, owner_id)) as api_redis_dsn,
             actor_socket_redis_url(actor.id) as socket_redis_dsn,
         ):
-            stack = IdentityModuleStack(
+            stack = NotificationsModuleStack(
                 test_engine,
                 tmp_path,
                 secret=identity_secret,
@@ -467,36 +466,24 @@ async def test_notifications_module_cold_composition_and_full_restore(
                 control=control,
                 mail_key=new_fernet_mail_key(),
                 login_redis_url=login_redis_url,
-                publisher_redis_url=publisher_redis_url,
                 smtp_port=inbox.port,
-                notifications_socket_image=inputs[
-                    "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IMAGE"
-                ],
-                notifications_socket_identity=inputs[
-                    "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IDENTITY"
-                ],
-                notification_delivery_database_url=inputs[
-                    "AAP_MODULE_DATA_NOTIFICATION_DELIVERY_READ_URL"
-                ],
                 identity_actor_status_database_url=inputs[
                     "AAP_MODULE_DATA_IDENTITY_ACTOR_STATUS_URL"
                 ],
-                notifications_socket_redis_url=socket_redis_dsn,
+                subscribe_redis_url=socket_redis_dsn,
                 admission_token=admission_token,
-                notifications_publisher_image=inputs[
-                    "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IMAGE"
+                isolated_publisher=publisher_image,
+                publication_token=publication_token,
+                general_redis_url=api_redis_dsn,
+                publish_database_url=inputs[
+                    "AAP_MODULE_DATA_IDENTITY_NOTIFICATION_PUBLISH_URL"
                 ],
-                notifications_publisher_identity=inputs[
-                    "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IDENTITY"
-                ],
-                notification_publication_token=publication_token,
-                notification_api_redis_url=api_redis_dsn,
+                publish_redis_url=publisher_redis_url,
             )
             try:
                 await stack.start()
                 evidence = stack.inspection_evidence
-                publisher = evidence["identity-notification-publisher"]
-                socket_evidence = evidence["notifications-socket"]
+                publisher = evidence["notifications-publisher"]
                 api_evidence = evidence["identity-api"]
                 assert publisher["image_id"] == publisher_image["id"]
                 assert publisher["user"] == "10004:10004"
@@ -515,28 +502,26 @@ async def test_notifications_module_cold_composition_and_full_restore(
                     "NOTIFICATION_PUBLISH_PORT",
                 } <= publisher_environment
                 assert "NOTIFICATION_PUBLISH_API_TOKEN" not in publisher_environment
-                assert socket_evidence["user"] == "10004:10004"
-                assert socket_evidence["running"] is True
-                assert socket_evidence["health"] == "healthy"
                 assert api_evidence["user"] == "10003:10003"
-                assert "/run/secrets/notification_publication_token" in set(
-                    api_evidence["secret_mount_targets"]
-                )
+                assert set(api_evidence["secret_mount_targets"]) & {
+                    "/run/secrets/notification_publish_database_url",
+                    "/run/secrets/notification_publish_redis_url",
+                    "/run/secrets/notification_publication_token",
+                    "/run/secrets/notification_subscribe_redis_url",
+                } == {
+                    "/run/secrets/notification_publication_token",
+                    "/run/secrets/notification_subscribe_redis_url",
+                }
                 assert "NOTIFICATION_PUBLICATION_TOKEN_FILE" in set(
                     api_evidence["environment_names"]
                 )
-                assert "NOTIFICATION_PUBLICATION_TOKEN" not in set(
-                    api_evidence["environment_names"]
+                assert not any(
+                    name.startswith("NOTIFICATION_PUBLISH_")
+                    for name in api_evidence["environment_names"]
                 )
                 containers = stack._verify_project_ownership()
-                for service in (
-                    "identity-notification-publisher",
-                    "notifications-socket",
-                ):
-                    ports = (containers[service].get("HostConfig") or {}).get(
-                        "PortBindings"
-                    ) or {}
-                    assert not any(ports.values())
+                assert "notifications-socket" not in containers
+                assert "identity-notification-publisher" not in containers
 
                 async with httpx.AsyncClient(
                     base_url=stack.api_origin,
@@ -786,7 +771,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         delivery = await _claim_notification_import_delivery(
                             test_engine, leased_notice_id
                         )
-                        await stack.stop_service("identity-notification-publisher")
+                        await stack.stop_service("notifications-publisher")
                         assert (
                             await _deliver_notification_import_in_worker(
                                 stack, delivery
@@ -824,7 +809,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                 {"id": failed_notice_id},
                             )
                         assert outbox_count == 0
-                        await stack.start_service("identity-notification-publisher")
+                        await stack.start_service("notifications-publisher")
                         await _assert_no_published(owner_subscriber, timeout=0.6)
                         await _assert_no_socket_delivery(socket, timeout=0.6)
 
@@ -881,7 +866,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                 is None
                             )
 
-                        await stack.stop_service("identity-notification-publisher")
+                        await stack.stop_service("notifications-publisher")
                         for _ in range(2):
                             await _run_terminal_in_api(
                                 stack, replay_job_id, commit=True, delay=0
@@ -897,7 +882,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         assert lost_ack_rows[0]["attempt"] == 1
                         assert lost_ack_rows[0]["lease_id"] is not None
                         await _expire_dead_leases(seed, replay_job_id, 1)
-                        await stack.start_service("identity-notification-publisher")
+                        await stack.start_service("notifications-publisher")
                         assert await _next_published(owner_subscriber) == first
                         delivered_rows = await _wait_for_delivery_state(
                             seed, replay_job_id, "done"
@@ -914,7 +899,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                 )
                             ) == [uuid.UUID(first["id"])]
 
-                        await stack.stop_service("identity-notification-publisher")
+                        await stack.stop_service("notifications-publisher")
                         await _run_terminal_in_api(
                             stack, denied_job_id, commit=True, delay=0
                         )
@@ -931,7 +916,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         assert denied_terminal["target_id"] == str(denied_job_id)
                         await _assert_no_socket_delivery(socket, timeout=0.6)
                         await _expire_dead_leases(seed, denied_job_id, 1)
-                        await stack.start_service("identity-notification-publisher")
+                        await stack.start_service("notifications-publisher")
                         assert (
                             await _next_published(owner_subscriber) == denied_terminal
                         )
@@ -945,7 +930,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                 assigned_by=owner_id,
                             )
 
-                        await stack.stop_service("identity-notification-publisher")
+                        await stack.stop_service("notifications-publisher")
                         await _run_terminal_in_api(
                             stack, disabled_job_id, commit=True, delay=0
                         )
@@ -960,7 +945,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         assert disabled_terminal["target_id"] == str(disabled_job_id)
                         await _assert_no_socket_delivery(socket, timeout=0.6)
                         await _expire_dead_leases(seed, disabled_job_id, 1)
-                        await stack.start_service("identity-notification-publisher")
+                        await stack.start_service("notifications-publisher")
                         assert (
                             await _next_published(owner_subscriber) == disabled_terminal
                         )
@@ -990,7 +975,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         assert extra_admin.is_active is True
                         assert extra_admin.id not in {actor.id, owner_id}
 
-                        await stack.stop_service("identity-notification-publisher")
+                        await stack.stop_service("notifications-publisher")
                         operation_id, pending_rows = await _create_deactivation(
                             async_sessionmaker(test_engine, expire_on_commit=False),
                             SimpleNamespace(origin=stack.identity_origin),
@@ -1255,7 +1240,7 @@ async def test_notifications_module_cold_composition_and_full_restore(
                                     "publisher_source_revision": publisher_image[
                                         "source_revision"
                                     ],
-                                    "api_same_origin_socket_bridge": True,
+                                    "api_hosted_socket": True,
                                     "node_consumer_publication_byte_preserved": True,
                                     "node_consumer_scope_denial_suppressed": True,
                                     "ordinary_api_publication": True,
@@ -1308,3 +1293,193 @@ async def test_notifications_module_cold_composition_and_full_restore(
         inbox.close()
         if stack is not None:
             await stack.stop()
+
+
+async def test_notifications_hosted_beat_recovers_after_redis_acl_outage(
+    test_engine, socket_world, tmp_path, record_property
+):
+    inputs = required_module_inputs()
+    seed, actor, project, _membership = socket_world
+    publish_dsn = inputs["AAP_MODULE_DATA_IDENTITY_NOTIFICATION_PUBLISH_URL"]
+    await verify_notification_publish_database_role(
+        publish_dsn, reference_url=test_engine.url
+    )
+    identity_secret, api_secret, control = (secrets.token_urlsafe(32) for _ in range(3))
+    inbox = SMTPInbox()
+    stack = None
+    try:
+        async with (
+            _login_redis() as (login_redis_dsn, _),
+            _publisher_redis() as (publish_redis_dsn, owner_redis),
+            api_redis_url((actor.id, project.owner_id)) as general_redis_dsn,
+            actor_socket_redis_url(actor.id) as subscribe_dsn,
+        ):
+            stack = NotificationsModuleStack(
+                test_engine,
+                tmp_path,
+                secret=identity_secret,
+                api_secret=api_secret,
+                control=control,
+                mail_key=new_fernet_mail_key(),
+                login_redis_url=login_redis_dsn,
+                smtp_port=inbox.port,
+                subscribe_redis_url=subscribe_dsn,
+                general_redis_url=general_redis_dsn,
+                publish_database_url=publish_dsn,
+                publish_redis_url=publish_redis_dsn,
+            )
+            try:
+                await stack.start()
+                evidence = stack.inspection_evidence
+                assert "notifications-publisher" not in evidence
+                assert evidence["celery-worker"]["running"]
+                assert evidence["celery-beat"]["running"]
+                publish_mounts = {
+                    "/run/secrets/notification_publish_redis_url",
+                    "/run/secrets/notification_publish_database_url",
+                }
+                assert publish_mounts <= set(
+                    evidence["celery-worker"]["secret_mount_targets"]
+                )
+                for service, details in evidence.items():
+                    if service != "celery-worker":
+                        assert publish_mounts.isdisjoint(
+                            details["secret_mount_targets"]
+                        )
+                        assert not any(
+                            key.startswith("NOTIFICATION_PUBLISH_")
+                            for key in details["environment_names"]
+                        )
+
+                async with httpx.AsyncClient(
+                    base_url=stack.api_origin, timeout=15, trust_env=False
+                ) as api:
+                    login = await _request(
+                        api,
+                        "POST",
+                        "/api/v1/auth/login",
+                        json={"email": actor.email, "password": DEFAULT_PASSWORD},
+                    )
+                    token = login["access_token"]
+                    api.headers["Authorization"] = "Bearer " + token
+                    terminal_channel = f"notify:{actor.id}"
+                    deactivation_channel = f"notify:{project.owner_id}"
+                    async with (
+                        owner_redis.pubsub() as observer,
+                        websockets.connect(
+                            _websocket_url(stack.api_origin, token),
+                            proxy=None,
+                            open_timeout=10,
+                            close_timeout=3,
+                            ping_interval=None,
+                        ) as socket,
+                    ):
+                        await observer.subscribe(terminal_channel, deactivation_channel)
+                        await _wait_for_subscribers(owner_redis, terminal_channel, 2)
+                        await _wait_for_subscribers(
+                            owner_redis, deactivation_channel, 1
+                        )
+                        await stack.stop_service("celery-worker")
+
+                        job_id = uuid.uuid4()
+                        async with seed.begin() as db:
+                            db.add(
+                                _batch_predict_terminal_job(
+                                    job_id, user_id=actor.id, project_id=project.id
+                                )
+                            )
+                        await _run_terminal_in_api(stack, job_id, commit=True, delay=0)
+                        deactivation_id = uuid.uuid4()
+                        await _request(
+                            api,
+                            "POST",
+                            "/api/v1/auth/me/deactivation-request",
+                            headers={"Idempotency-Key": str(deactivation_id)},
+                            json={"reason": "hosted notification outage"},
+                        )
+
+                        operation_ids = (job_id, deactivation_id)
+                        for operation_id in operation_ids:
+                            rows = await _delivery_rows(seed, operation_id)
+                            assert rows and all(
+                                row["state"] == "pending" and row["attempt"] == 0
+                                for row in rows
+                            )
+                        await _assert_no_published(observer)
+
+                        publisher_login = make_url(publish_redis_dsn).username
+                        await owner_redis.execute_command(
+                            "ACL", "SETUSER", publisher_login, "-publish"
+                        )
+                        try:
+                            await stack.start_service("celery-worker")
+                            async with asyncio.timeout(35):
+                                while True:
+                                    rows_by_op = [
+                                        await _delivery_rows(seed, operation_id)
+                                        for operation_id in operation_ids
+                                    ]
+                                    if all(
+                                        row["state"] == "pending"
+                                        and row["last_reason"] == "redis_error"
+                                        for rows in rows_by_op
+                                        for row in rows
+                                    ):
+                                        break
+                                    await asyncio.sleep(0.2)
+                            await _assert_no_published(observer)
+                            await _assert_no_socket_delivery(socket)
+                        finally:
+                            await owner_redis.execute_command(
+                                "ACL", "SETUSER", publisher_login, "+publish"
+                            )
+
+                        frames = [
+                            await _next_published(observer, timeout=35)
+                            for _ in range(2)
+                        ]
+                        events = {frame["type"]: frame for frame in frames}
+                        terminal = events["job.completed"]
+                        deactivation = events["user.deactivation_requested"]
+                        assert terminal["target_id"] == str(job_id)
+                        assert deactivation["target_id"] == str(actor.id)
+                        assert "reason" not in deactivation["payload"]
+                        assert await _next_socket_delivery(socket) == terminal
+                        completed = {}
+                        for operation_id, event in zip(
+                            operation_ids, (terminal, deactivation), strict=True
+                        ):
+                            rows = await _wait_for_delivery_state(
+                                seed, operation_id, "done", timeout=30
+                            )
+                            assert event["id"] in {
+                                str(row["notification_id"]) for row in rows
+                            }
+                            assert all(row["attempt"] >= 2 for row in rows)
+                            completed[operation_id] = rows
+
+                        await _run_terminal_in_api(stack, job_id, commit=True, delay=0)
+                        await _request(
+                            api,
+                            "POST",
+                            "/api/v1/auth/me/deactivation-request",
+                            headers={"Idempotency-Key": str(deactivation_id)},
+                            json={"reason": "hosted notification outage"},
+                        )
+                        await _assert_no_published(observer)
+                        await _assert_no_socket_delivery(socket)
+                        assert len(completed[job_id]) == 1
+                        for operation_id in operation_ids:
+                            assert (
+                                await _delivery_rows(seed, operation_id)
+                                == (completed[operation_id])
+                            )
+                record_property("notifications_hosted_beat_redis_recovered", "true")
+            except Exception:
+                with suppress(Exception):
+                    record_property("runtime_diagnostics", stack.capture_diagnostics())
+                raise
+            finally:
+                await stack.stop()
+    finally:
+        inbox.close()

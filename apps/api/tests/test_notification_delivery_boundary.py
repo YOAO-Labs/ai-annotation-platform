@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 import json
 from types import SimpleNamespace
 import uuid
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -16,7 +17,6 @@ from yoao_notifications.notification_delivery_contract import (
 )
 from app.config import settings
 from app.services import notification_delivery
-from app.services.identity_contracts import IdentityGatewayUnavailable
 
 
 def claim(worker_id):
@@ -167,24 +167,29 @@ async def test_invalid_finish_rolls_back_after_redis_without_acknowledging_deliv
     assert sessions.commits == 1 and sessions.rollbacks == 1
 
 
-async def test_remote_identity_without_publisher_binding_selects_external_publisher(
-    monkeypatch,
-):
+async def test_remote_identity_does_not_select_notification_relay(monkeypatch):
+    monkeypatch.setattr(settings, "identity_url", "http://identity.test")
     monkeypatch.setattr(settings, "notification_publish_database_url", "")
     monkeypatch.setattr(settings, "notification_publish_database_url_file", "")
-    monkeypatch.setattr(
-        notification_delivery,
-        "get_identity_gateway",
-        lambda: SimpleNamespace(identity_url="http://identity.test"),
+    sessions = Sessions(
+        [
+            {
+                "schema": "aap-notifications-delivery-policy/v1",
+                "policy": "aap-notifications-delivery/v1",
+            },
+            {
+                "schema": "aap-notifications-delivery/v2",
+                "ok": True,
+                "data": {"items": []},
+            },
+        ]
     )
-
-    def forbidden(*args):
-        raise AssertionError("An external publisher must not select caller SQL")
-
-    monkeypatch.setattr(notification_delivery, "NotificationDeliveryData", forbidden)
-    assert await notification_delivery.run_identity_notifications() == {
-        "state": "remote"
-    }
+    result = await notification_delivery.run_notifications(
+        session_factory=sessions, redis=object()
+    )
+    assert result["state"] == "idle"
+    assert sessions.commits == 2
+    assert "claim_identity_deliveries" in sessions.commands[1][0]
 
 
 async def test_explicit_publisher_binding_failure_never_selects_caller_sql(monkeypatch):
@@ -197,8 +202,10 @@ async def test_explicit_publisher_binding_failure_never_selects_caller_sql(monke
         raise AssertionError("Invalid explicit publisher binding must fail closed")
 
     monkeypatch.setattr(notification_delivery, "NotificationDeliveryData", forbidden)
-    with pytest.raises(IdentityGatewayUnavailable):
-        await notification_delivery.run_identity_notifications(redis=object())
+    with pytest.raises(NotificationDeliveryUnavailable):
+        await notification_delivery.run_notifications(
+            session_factory=forbidden, redis=object()
+        )
 
 
 async def test_explicit_publisher_binding_can_run_alongside_remote_identity(
@@ -210,11 +217,7 @@ async def test_explicit_publisher_binding_can_run_alongside_remote_identity(
         "postgresql://publisher.invalid/fixture",
     )
     monkeypatch.setattr(settings, "notification_publish_database_url_file", "")
-    monkeypatch.setattr(
-        notification_delivery,
-        "get_identity_gateway",
-        lambda: SimpleNamespace(identity_url="http://identity.test"),
-    )
+    monkeypatch.setattr(settings, "identity_url", "http://identity.test")
 
     class Data:
         def __init__(self, dsn, *, include_terminal):
@@ -228,5 +231,19 @@ async def test_explicit_publisher_binding_can_run_alongside_remote_identity(
             return []
 
     monkeypatch.setattr(notification_delivery, "NotificationDeliveryPostgresData", Data)
-    result = await notification_delivery.run_identity_notifications(redis=object())
+    result = await notification_delivery.run_notifications(
+        session_factory=None, redis=object()
+    )
     assert result["state"] == "idle" and result["claimed"] == 0
+
+
+async def test_queued_hosted_relay_does_not_publish_in_isolated_mode(monkeypatch):
+    from app.workers import notification_delivery as worker
+
+    monkeypatch.setattr(
+        settings, "notification_publication_url", "http://isolated.test"
+    )
+    run = AsyncMock()
+    monkeypatch.setattr(worker, "run_notifications", run)
+    assert await worker._run() == {"state": "isolated"}
+    run.assert_not_awaited()

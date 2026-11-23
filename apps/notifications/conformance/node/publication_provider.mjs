@@ -108,7 +108,7 @@ async function live() {
   const container = process.env.AAP_PUBLICATION_PEER_CONTAINER;
   const project = process.env.AAP_PUBLICATION_PEER_PROJECT;
   const origin = new URL(process.env.AAP_PUBLICATION_PEER_ORIGIN);
-  assert.equal(origin.origin, "http://identity-notification-publisher:8181");
+  assert.equal(origin.origin, "http://notifications-publisher:8181");
   assert.equal(origin.pathname, "/");
   assert.equal(origin.username + origin.password + origin.search + origin.hash, "");
   const token = process.env.AAP_PUBLICATION_PEER_TOKEN;

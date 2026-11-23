@@ -1,4 +1,64 @@
+x-publication-env: &publication-env
+  NOTIFICATION_PUBLICATION_URL: http://notifications-publisher:8181
+  NOTIFICATION_PUBLICATION_TOKEN: ""
+  NOTIFICATION_PUBLICATION_TOKEN_FILE: /run/secrets/notification_publication_token
+
+x-publication-token: &publication-token
+  type: bind
+  source: ${NOTIFICATION_PUBLISH_API_TOKEN_FILE:?Set Notifications private publication bearer file}
+  target: /run/secrets/notification_publication_token
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-publication-dependency: &publication-dependency
+  notifications-publisher:
+    condition: service_started
+
 services:
+  api:
+    environment:
+      <<: *publication-env
+      NOTIFICATION_SUBSCRIBE_REDIS_URL: ""
+      NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE: /run/secrets/notification_subscribe_redis_url
+    volumes:
+      - *publication-token
+      - type: bind
+        source: ${NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE:?Set Notifications subscribe-only Redis DSN file}
+        target: /run/secrets/notification_subscribe_redis_url
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on: *publication-dependency
+
+  celery-worker:
+    environment:
+      <<: *publication-env
+      NOTIFICATION_PUBLISH_DATABASE_URL: ""
+      NOTIFICATION_PUBLISH_DATABASE_URL_FILE: ""
+      NOTIFICATION_PUBLISH_REDIS_URL: ""
+      NOTIFICATION_PUBLISH_REDIS_URL_FILE: ""
+    volumes:
+      - *publication-token
+      - type: bind
+        source: /dev/null
+        target: /run/secrets/notification_publish_database_url
+        read_only: true
+      - type: bind
+        source: /dev/null
+        target: /run/secrets/notification_publish_redis_url
+        read_only: true
+    depends_on: *publication-dependency
+
+  celery-worker-export:
+    environment: *publication-env
+    volumes: [*publication-token]
+    depends_on: *publication-dependency
+
+  celery-beat:
+    environment:
+      NOTIFICATION_PUBLICATION_URL: http://notifications-publisher:8181
+
   notifications-publisher:
     image: aap-notifications:local
     build:
@@ -21,6 +81,8 @@ services:
     pids_limit: 64
     mem_limit: 256m
     cpus: 1
+    networks: [production, shared]
+    restart: unless-stopped
     healthcheck:
       test:
         - CMD
