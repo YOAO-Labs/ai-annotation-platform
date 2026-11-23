@@ -6,6 +6,7 @@ import uuid
 import zipfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -14,6 +15,7 @@ from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.schemas.training_dataset import TrainingDatasetSelection
+from app.services import training_dataset_data
 from app.services import training_datasets as service
 from app.services.training_dataset_bridge import TrainingDatasetError
 from tests.factory import (
@@ -449,8 +451,11 @@ async def test_dispatch_exception_never_overwrites_an_accepted_attempt(
         await db_session.commit()
         raise OSError("broker response lost")
 
-    monkeypatch.setattr(service.asyncio, "to_thread", broker_response_lost)
-    await dispatch_dataset(db_session, version)
+    await dispatch_dataset(
+        db_session,
+        version,
+        dispatcher=SimpleNamespace(dispatch_dataset=broker_response_lost),
+    )
     await db_session.refresh(version)
     assert version.status == (
         "failed" if accepted_status == "pending" else accepted_status
@@ -619,7 +624,14 @@ async def test_real_storage_materialization_retry_preserves_originals(
             authority_calls += 1
             await original_authority(db, current)
             if authority_calls == 2:
-                current.status = "cancelled"
+                await training_dataset_data.fail_version(
+                    db,
+                    current,
+                    current.async_job_id,
+                    cancelled=True,
+                    code=None,
+                    message=None,
+                )
                 await service.jobs.mark_cancelled(db, current.async_job_id)
                 await db.commit()
 

@@ -362,7 +362,6 @@ async def version(
         snapshot_digest=digest,
         manifest=manifest,
         preparation_report=report,
-        status="ready",
         package_sha256="f" * 64,
     )
     db.add(value)
@@ -370,6 +369,8 @@ async def version(
     from app.services.training_dataset_storage import allocate
 
     await allocate(db, value)
+    value.status = "ready"
+    await db.flush()
     return project, value
 
 

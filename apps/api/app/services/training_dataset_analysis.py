@@ -10,19 +10,17 @@ import re
 import tempfile
 import uuid
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from botocore.exceptions import BotoCoreError, ClientError
 from PIL import Image, ImageOps
 from fastapi import HTTPException
-from sqlalchemy import delete, func, insert, select
-from sqlalchemy.orm import defer
+from sqlalchemy import Text, func, literal, select
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
-from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.training_dataset_analysis import (
-    TrainingDatasetAnalysis,
-    TrainingDatasetAnalyzedSample,
-)
+from app.schemas.training_dataset_analysis import TrainingDatasetAnalyzedSampleOut
+from app.services import training_dataset_data as data
 from app.services.storage import storage_service as storage
 from app.services import training_dataset_storage, storage_access
 from app.services.training_dataset_bridge import (
@@ -662,80 +660,44 @@ def analysis_input_digest(
     )
 
 
-async def ensure_analysis(db, project_id, version_id):
-    statement = (
-        select(TrainingDatasetVersion)
-        .options(
-            defer(TrainingDatasetVersion.snapshot),
-            defer(TrainingDatasetVersion.manifest),
-            defer(TrainingDatasetVersion.preparation_report),
-        )
-        .where(
-            TrainingDatasetVersion.id == version_id,
-            TrainingDatasetVersion.project_id == project_id,
-        )
+@dataclass(frozen=True)
+class Analysis:
+    input_digest: str
+    summary: dict
+
+
+class AnalyzedMember(TrainingDatasetAnalyzedSampleOut):
+    labels: list[dict]
+
+
+async def read_analysis(db, version_id) -> Analysis | None:
+    source = func.yoao_learning_v1.training_analysis_read(version_id).table_valued(
+        "input_digest", "summary"
     )
-    version = await db.scalar(statement)
+    row = (await db.execute(select(source))).mappings().one_or_none()
+    return Analysis(**row) if row else None
+
+
+async def ensure_analysis(db, project_id, version_id):
+    version = await data.read_version_facts(db, version_id, project_id=project_id)
     if not version:
         raise HTTPException(status_code=404, detail="数据版本不存在或不属于当前项目")
     if version.status != "ready":
         raise HTTPException(
             status_code=409, detail="数据版本尚未就绪；分析不会改变构建状态"
         )
-    manifest_identity = await db.scalar(
-        select(
-            func.jsonb_build_object(
-                *[
-                    part
-                    for key in (
-                        "content_digest",
-                        "schema",
-                        "task",
-                        "media_type",
-                        "format",
-                        "geometry",
-                        "bridge",
-                        "source_lineage_contract",
-                    )
-                    for part in (
-                        key,
-                        func.jsonb_build_object(
-                            "present",
-                            TrainingDatasetVersion.manifest.has_key(key),
-                            "value",
-                            TrainingDatasetVersion.manifest[key],
-                        ),
-                    )
-                ]
-            )
-        ).where(TrainingDatasetVersion.id == version.id)
-    )
-    if manifest_identity is None:
-        raise HTTPException(status_code=404, detail="数据版本已删除")
-    manifest_identity = {
-        key: entry["value"]
-        for key, entry in manifest_identity.items()
-        if entry["present"]
-    }
+    manifest_identity = version.manifest
     manifest_digest = manifest_identity.get("content_digest")
     fingerprint = analysis_input_digest(
         version.snapshot_digest, manifest_identity, version.package_sha256
     )
-    cached = await db.get(TrainingDatasetAnalysis, version.id)
+    cached = await read_analysis(db, version.id)
     if cached and cached.input_digest == fingerprint:
         return version, cached, manifest_digest or ""
-    version = await db.scalar(
-        select(TrainingDatasetVersion)
-        .where(
-            TrainingDatasetVersion.id == version_id,
-            TrainingDatasetVersion.project_id == project_id,
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    version = await data.read_version(db, version_id, project_id=project_id, lock=True)
     if not version:
         raise HTTPException(status_code=404, detail="数据版本已删除")
-    cached = await db.get(TrainingDatasetAnalysis, version.id, populate_existing=True)
+    cached = await read_analysis(db, version.id)
     current_manifest_digest = version.manifest.get("content_digest")
     fingerprint = analysis_input_digest(
         version.snapshot_digest, version.manifest, version.package_sha256
@@ -775,28 +737,19 @@ async def ensure_analysis(db, project_id, version_id):
         raise HTTPException(status_code=409, detail=message) from exc
     media_observations = {}
     if cached:
-        observed = (
-            await db.execute(
-                select(
-                    TrainingDatasetAnalyzedSample.task_id,
-                    TrainingDatasetAnalyzedSample.sha256,
-                    TrainingDatasetAnalyzedSample.size_bytes,
-                    TrainingDatasetAnalyzedSample.included,
-                    TrainingDatasetAnalyzedSample.media_state,
-                    TrainingDatasetAnalyzedSample.media_checked_at,
-                ).where(
-                    TrainingDatasetAnalyzedSample.version_id == version.id,
-                    TrainingDatasetAnalyzedSample.media_state != "unchecked",
-                )
-            )
-        ).all()
-        media_observations = {tuple(row[:4]): tuple(row[4:]) for row in observed}
-        await db.execute(
-            delete(TrainingDatasetAnalysis)
-            .where(TrainingDatasetAnalysis.version_id == version.id)
-            .execution_options(synchronize_session=False)
+        source = func.yoao_learning_v1.training_analysis_observations(
+            version.id
+        ).table_valued(
+            "task_id",
+            "sha256",
+            "size_bytes",
+            "included",
+            "media_state",
+            "media_checked_at",
         )
-        db.expunge(cached)
+        media_observations = {
+            tuple(row[:4]): tuple(row[4:]) for row in await db.execute(select(source))
+        }
     rows = result.pop("samples")
     for row in rows:
         identity = tuple(
@@ -804,35 +757,49 @@ async def ensure_analysis(db, project_id, version_id):
         )
         if identity in media_observations:
             row["media_state"], row["media_checked_at"] = media_observations[identity]
-    cached = TrainingDatasetAnalysis(
-        version_id=version.id, input_digest=fingerprint, summary=result
-    )
-    db.add(cached)
-    await db.flush()
-    for offset in range(0, len(rows), 300):
-        await db.execute(
-            insert(TrainingDatasetAnalyzedSample),
-            [{**row, "version_id": version.id} for row in rows[offset : offset + 300]],
+    opened = await db.scalar(
+        select(
+            func.yoao_learning_v1.training_analysis_start(
+                version.id,
+                project_id,
+                version.snapshot_digest,
+                version.package_sha256,
+                fingerprint,
+                literal(result, JSONB),
+            )
         )
+    )
+    if not opened:
+        raise HTTPException(status_code=409, detail="数据版本状态已变化")
+    for offset in range(0, len(rows), 300):
+        members = [
+            {
+                **row,
+                "task_id": str(row["task_id"]),
+                "media_checked_at": checked_at.isoformat()
+                if (checked_at := row.get("media_checked_at"))
+                else None,
+            }
+            for row in rows[offset : offset + 300]
+        ]
+        inserted = await db.scalar(
+            select(
+                func.yoao_learning_v1.training_analysis_add_members(
+                    version.id, fingerprint, literal(members, JSONB)
+                )
+            )
+        )
+        if not inserted:
+            raise HTTPException(status_code=409, detail="冻结分析状态已变化")
     await db.commit()
-    return version, cached, current_manifest_digest or ""
+    return version, Analysis(fingerprint, result), current_manifest_digest or ""
 
 
 async def media_observations(db, version_id):
-    rows = (
-        await db.execute(
-            select(
-                TrainingDatasetAnalyzedSample.media_state,
-                func.count(),
-                func.max(TrainingDatasetAnalyzedSample.media_checked_at),
-            )
-            .where(
-                TrainingDatasetAnalyzedSample.version_id == version_id,
-                TrainingDatasetAnalyzedSample.included.is_(True),
-            )
-            .group_by(TrainingDatasetAnalyzedSample.media_state)
-        )
-    ).all()
+    source = func.yoao_learning_v1.training_analysis_media_counts(
+        version_id
+    ).table_valued("state", "count", "checked_at")
+    rows = await db.execute(select(source))
     result = {"verified": 0, "unavailable": 0, "unchecked": 0, "last_checked_at": None}
     for state, count, checked_at in rows:
         result[state] = count
@@ -844,13 +811,64 @@ async def media_observations(db, version_id):
 
 
 async def record_media_observation(db, sample, *, error_code=None):
-    sample.media_state = (
+    state = (
         "verified"
         if error_code in {None, "frozen_preview_unavailable"}
         else "unavailable"
     )
-    sample.media_checked_at = datetime.now(timezone.utc)
+    updated = await db.scalar(
+        select(
+            func.yoao_learning_v1.training_analysis_observe_media(
+                sample.version_id,
+                sample.task_id,
+                sample.sha256,
+                sample.size_bytes,
+                state,
+                datetime.now(timezone.utc),
+            )
+        )
+    )
+    if not updated:
+        raise HTTPException(status_code=409, detail="冻结分析状态已变化")
     await db.commit()
+
+
+async def sample_page(
+    db,
+    version_id,
+    input_digest,
+    *,
+    limit,
+    offset,
+    split,
+    class_index,
+    content_sha256,
+    kind,
+    selected_contents,
+):
+    source = func.yoao_learning_v1.training_analysis_sample_page(
+        version_id,
+        input_digest,
+        limit,
+        offset,
+        split,
+        class_index,
+        content_sha256,
+        kind,
+        literal(
+            sorted(selected_contents) if selected_contents is not None else None,
+            ARRAY(Text),
+        ),
+    ).table_valued("total", "items")
+    row = (await db.execute(select(source))).mappings().one()
+    return row["total"], row["items"]
+
+
+async def read_sample(db, version_id, task_id) -> AnalyzedMember | None:
+    row = await db.scalar(
+        select(func.yoao_learning_v1.training_analysis_member(version_id, task_id))
+    )
+    return AnalyzedMember.model_validate(row) if row is not None else None
 
 
 def read_media(project_id, version, sample, *, preview=False, transport=None):
