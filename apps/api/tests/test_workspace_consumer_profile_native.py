@@ -315,8 +315,19 @@ async def test_insights_refresh_is_concurrent_and_uses_the_callers_transaction(
     from datetime import timedelta
 
     from app.db.models.task_event import TaskEvent
+    from tests.test_grant_namespace_security import _login
 
-    async with _world(test_engine) as (owner, api, _role, _url):
+    async with (
+        _world(test_engine) as (owner, api, _role, _url),
+        _login(test_engine, "insights_tx") as (refresh_role, password),
+    ):
+        installed = await _grants(
+            test_engine,
+            ROOT / "infra/docker/insights-refresh-grants.sql",
+            refresh_role,
+            refresh_role=refresh_role,
+        )
+        assert installed.returncode == 0, installed.stderr
         async with owner.begin() as db:
             actor = await create_user(
                 db, "project_admin", f"perf-{uuid.uuid4()}@example.test", "Insight"
@@ -343,30 +354,51 @@ async def test_insights_refresh_is_concurrent_and_uses_the_callers_transaction(
             "FROM public.mv_user_perf_daily WHERE user_id=:actor"
         )
         args = {"actor": actor.id}
-        refresh = text("SELECT yoao_insights_v1.refresh_user_perf_daily()")
-        async with owner() as reader, api() as worker:
+        refresh_sql = "SELECT yoao_insights_v1.refresh_user_perf_daily()"
+        refresh = text(refresh_sql)
+        async with owner() as reader:
             assert (await reader.execute(projection, args)).one_or_none() is None
-            for statement in (
-                "SELECT day FROM public.mv_user_perf_daily",
-                "CREATE TABLE yoao_insights_v1.denied(id integer)",
-                "SET ROLE insights_code",
-                "REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_user_perf_daily",
-            ):
-                with pytest.raises(DBAPIError) as denied:
-                    async with worker.begin_nested():
-                        await worker.execute(text(statement))
-                assert denied.value.orig.sqlstate == "42501"
-            await worker.execute(
-                text("CREATE TEMP TABLE mv_user_perf_daily (shadow int)")
+            async with api() as ordinary:
+                for statement in (
+                    "SELECT day FROM public.mv_user_perf_daily",
+                    "CREATE TABLE yoao_insights_v1.denied(id integer)",
+                    "SET ROLE insights_code",
+                    "REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_user_perf_daily",
+                    refresh_sql,
+                ):
+                    with pytest.raises(DBAPIError) as denied:
+                        async with ordinary.begin_nested():
+                            await ordinary.execute(text(statement))
+                    assert denied.value.orig.sqlstate == "42501"
+            async with owner() as shadow:
+                await shadow.execute(
+                    text("CREATE TEMP TABLE mv_user_perf_daily (shadow int)")
+                )
+                await shadow.execute(
+                    text(f"SET LOCAL SESSION AUTHORIZATION {refresh_role}")
+                )
+                assert await shadow.scalar(
+                    text(
+                        "SELECT current_user = session_user AND current_user::text = :role "
+                        "AND NOT has_database_privilege(current_user, current_database(), 'TEMP')"
+                    ),
+                    {"role": refresh_role},
+                )
+                await shadow.execute(text("SET LOCAL search_path = pg_temp, public"))
+                await shadow.execute(text("SET LOCAL lock_timeout = '2s'"))
+                await shadow.execute(refresh)
+                await shadow.rollback()
+            assert (await reader.execute(projection, args)).one_or_none() is None
+            worker_engine = create_async_engine(
+                test_engine.url.set(username=refresh_role, password=password),
+                hide_parameters=True,
             )
-            await worker.execute(text("SET LOCAL search_path = pg_temp, public"))
-            await worker.execute(text("SET LOCAL lock_timeout = '2s'"))
-            await worker.execute(refresh)
-            await worker.rollback()
-            assert (await reader.execute(projection, args)).one_or_none() is None
-            await worker.execute(text("SET LOCAL lock_timeout = '2s'"))
-            await worker.execute(refresh)
-            await worker.commit()
+            try:
+                async with worker_engine.begin() as worker:
+                    await worker.execute(text("SET LOCAL lock_timeout = '2s'"))
+                    await worker.execute(refresh)
+            finally:
+                await worker_engine.dispose()
             row = (await reader.execute(projection, args)).one()
             assert row[0].isoformat() == "2026-09-10"
             assert tuple(row[1:]) == (1, 7, 60_000, 60_000, 1, 1)
