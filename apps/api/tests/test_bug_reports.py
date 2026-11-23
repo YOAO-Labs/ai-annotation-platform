@@ -8,11 +8,12 @@ from __future__ import annotations
 import uuid
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.bug_report import BugReport
+from app.schemas.bug_report import BugReportUpdate
 from app.services.bug_report import BugReportService
-from app.services.display_id import next_display_id
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -22,10 +23,12 @@ def _bearer(token: str) -> dict[str, str]:
 async def _seed_bug(
     db: AsyncSession, reporter_id: uuid.UUID, status: str = "fixed"
 ) -> BugReport:
-    display_id = await next_display_id(db, "bug_reports")
+    number = await db.scalar(
+        text("SELECT pg_catalog.nextval('public.display_seq_bug_reports')")
+    )
     report = BugReport(
         id=uuid.uuid4(),
-        display_id=display_id,
+        display_id=f"B-{number}",
         reporter_id=reporter_id,
         route="/foo",
         user_role="annotator",
@@ -48,18 +51,16 @@ async def test_reporter_comment_on_fixed_triggers_reopen(db_session, annotator):
 
     svc = BugReportService(db_session)
     result = await svc.add_comment(report.id, user.id, "依然有问题")
-    assert result is not None
-    comment, was_reopened, name, role = result
-
+    comment, was_reopened, _ = result
     assert was_reopened is True
-    assert role == "employee"
-    assert name == "Annotator"
+    assert comment.author_role == "employee"
+    assert comment.author_name == "Annotator"
 
-    refreshed = await db_session.get(BugReport, report.id)
-    assert refreshed.status == "triaged"
-    assert refreshed.reopen_count == 1
-    assert refreshed.last_reopened_at is not None
-    assert refreshed.triaged_at is not None
+    await db_session.refresh(report)
+    assert report.status == "triaged"
+    assert report.reopen_count == 1
+    assert report.last_reopened_at is not None
+    assert report.triaged_at is not None
 
 
 @pytest.mark.asyncio
@@ -74,16 +75,18 @@ async def test_admin_comment_on_fixed_does_not_reopen(
     svc = BugReportService(db_session)
     result = await svc.add_comment(report.id, admin.id, "已修复，请验收")
     assert result is not None
-    _, was_reopened, _, _ = result
+    _, was_reopened, _ = result
     assert was_reopened is False
 
-    refreshed = await db_session.get(BugReport, report.id)
-    assert refreshed.status == "fixed"
-    assert refreshed.reopen_count == 0
+    await db_session.refresh(report)
+    assert report.status == "fixed"
+    assert report.reopen_count == 0
 
 
 @pytest.mark.asyncio
-async def test_bug_report_update_can_clear_nullable_fields(db_session, annotator):
+async def test_bug_report_update_can_clear_nullable_fields(
+    db_session, annotator, super_admin
+):
     """PATCH 使用 exclude_unset 后，显式 null 应能清空 nullable 字段。"""
     user, _ = annotator
     report = await _seed_bug(db_session, user.id, status="fixed")
@@ -91,9 +94,11 @@ async def test_bug_report_update_can_clear_nullable_fields(db_session, annotator
     await db_session.flush()
 
     svc = BugReportService(db_session)
-    updated = await svc.update(report.id, resolution=None)
-
-    assert updated is not None
+    updated, _ = await svc.update(
+        report.id,
+        super_admin[0].id,
+        BugReportUpdate(resolution=None),
+    )
     assert updated.resolution is None
 
 
@@ -106,12 +111,12 @@ async def test_reporter_comment_on_new_does_not_reopen(db_session, annotator):
     svc = BugReportService(db_session)
     result = await svc.add_comment(report.id, user.id, "补充信息")
     assert result is not None
-    _, was_reopened, _, _ = result
+    _, was_reopened, _ = result
     assert was_reopened is False
 
-    refreshed = await db_session.get(BugReport, report.id)
-    assert refreshed.status == "new"
-    assert refreshed.reopen_count == 0
+    await db_session.refresh(report)
+    assert report.status == "new"
+    assert report.reopen_count == 0
 
 
 @pytest.mark.asyncio
@@ -124,16 +129,16 @@ async def test_reopen_increments_on_repeated_cycles(db_session, annotator, super
     svc = BugReportService(db_session)
 
     await svc.add_comment(report.id, reporter.id, "no.1")
-    refreshed = await db_session.get(BugReport, report.id)
-    assert refreshed.reopen_count == 1
+    await db_session.refresh(report)
+    assert report.reopen_count == 1
 
-    refreshed.status = "fixed"
+    report.status = "fixed"
     await db_session.flush()
 
     await svc.add_comment(report.id, reporter.id, "no.2")
-    refreshed2 = await db_session.get(BugReport, report.id)
-    assert refreshed2.reopen_count == 2
-    assert refreshed2.status == "triaged"
+    await db_session.refresh(report)
+    assert report.reopen_count == 2
+    assert report.status == "triaged"
 
 
 @pytest.mark.asyncio
