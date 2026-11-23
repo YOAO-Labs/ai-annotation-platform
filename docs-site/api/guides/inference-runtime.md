@@ -88,7 +88,7 @@ Assets 提供输入与 crop 发布；Jobs 持有领取／派发／代次；Label
 
 Workspace 只传 registry UUID、不透明 `probe_subject`、timeout 和 `CapabilityLimits`。Inference 打开端点并实际请求 `/setup`，返回绑定后的 modalities，不把 URL、auth 或 extra_params 交给 Workspace。内部 owner／权限失败返回503；真实 backend setup 失败保持 null modalities 的既有 fail-open 行为。
 
-独立 Workspace 使用 `WORKSPACE_INFERENCE_PROBE_URL`、`WORKSPACE_INFERENCE_PROBE_TOKEN(_FILE)` 与 `WORKSPACE_INFERENCE_PROBE_TIMEOUT_SECONDS`。API 的同名 Inference client 也必须选择 HTTP。独立 probe 进程使用 `INFERENCE_BACKEND_PROBE_DATABASE_URL(_FILE)` 与 `INFERENCE_BACKEND_PROBE_CONTROL_TOKEN(_FILE)`。
+Workspace 配置 owner 运行在 API 内；需要探测时，API 使用 `INFERENCE_BACKEND_PROBE_URL`、`INFERENCE_BACKEND_PROBE_TOKEN(_FILE)` 和 `INFERENCE_BACKEND_PROBE_TIMEOUT_SECONDS` 调用 Inference。缺少配置或探测 owner 不可用时不回退本地。`INFERENCE_BACKEND_PROBE_DATABASE_URL(_FILE)` 与 `INFERENCE_BACKEND_PROBE_CONTROL_TOKEN(_FILE)` 仅由 Inference 进程使用；不要把该 DSN 或后端凭据挂给 API。
 
 ## 健康观察与调用方写回
 

@@ -3,13 +3,17 @@
 This private package is a local single-command language-replacement experiment.
 It uses `pg` directly over PostgreSQL TCP and does not import or proxy Python.
 Native SQL owns business authorization, locks, the owner write and receipts.
-It does not replace the complete Workspace module or select a production language.
+This is package conformance only, not a product provider or a deployment
+option for the API.
 
-Run `pnpm install --ignore-workspace --frozen-lockfile --ignore-scripts` in this directory, then `pnpm run check`. Start with
-`node provider.mjs`; supply `WORKSPACE_OWNER_TRANSFER_DATABASE_URL_FILE` and
-`WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE`. The DSN must use the exact-two-function
-`yoao_workspace_owner_transfer_client` LOGIN. `WORKSPACE_HOST` defaults to loopback
-and `WORKSPACE_PORT` to 8173. The Dockerfile is built from the repository root.
+Run `pnpm install --ignore-workspace --frozen-lockfile --ignore-scripts` in this
+directory, then `pnpm run check`. To start `node provider.mjs` against a disposable
+conformance database, supply `WORKSPACE_OWNER_TRANSFER_DATABASE_URL_FILE` and
+`WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE` only to the fixture process. The DSN
+must use the exact-two-function `yoao_workspace_owner_transfer_client` LOGIN
+from the [owner-transfer grant script](../../../../infra/docker/workspace-owner-transfer-grants.sql).
+`WORKSPACE_HOST` defaults to loopback and `WORKSPACE_PORT` to 8173. The Dockerfile
+is built from the repository root. Never use production or daily credentials.
 
 `GET /health` reports liveness. `GET /ready` checks policy and actual grants.
 `POST /v1/workspace/owner-transfer/execute` requires the private bearer and the

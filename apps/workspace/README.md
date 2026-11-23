@@ -1,54 +1,60 @@
 # yoao-workspace
 
-`yoao-workspace` contains portable contracts and policy for project membership
-creation, role previews, role changes, member removal, project owner transfer,
-and six project/template configuration commands. The core package
-uses Pydantic and shared Workspace, Inference, task, Audit and owner-data contracts.
-Saved pipeline structure and normalization come from `yoao-inference-contract`;
-the core and standalone image do not install the Inference provider. Runtime and PostgreSQL bindings are optional;
-the PostgreSQL extra includes HTTP dependencies for the credential-owning Inference probe.
+`yoao-workspace` contains portable policy and contracts for project membership,
+owner transfer, project and template configuration, and template, project and
+directory queries.
+The core uses Pydantic and shared Workspace, Inference, task, Audit, and
+owner-data contracts. Saved pipeline structure and normalization come from
+`yoao-inference-contract`; the core and conformance image do not install the
+Inference provider. The PostgreSQL extra includes the HTTP client used for the
+credential-owning Inference probe.
+
+The product API runs all six Workspace paths in process with the same managers
+as the portable package. It passes its existing `AsyncSession` to each SQL data
+adapter; request authorization, commit, rollback, and public responses remain
+with the original caller. The API uses its ordinary application database role,
+not a per-operation Workspace URL, DSN, or bearer. Frozen PostgreSQL functions
+and the package contracts stay in place. See the [runtime guide](../../docs-site/api/guides/workspace-runtime.md#workspace-deployment)
+for the default deployment and the separately planned migration of old split installations.
 
 The manager accepts a small data port that owns transaction boundaries and
 executes the Workspace native prepare/apply capabilities. It contains no API,
 ORM, task-runner, or storage integration. Role-change snapshots preserve the
 existing JSON digest format so a preview can be checked again before a handoff.
 
-Install `yoao-workspace[postgres]` for the PostgreSQL client layer,
-`yoao-workspace[runtime]` for a standalone service, or
-`yoao-workspace[client]` for HTTP clients. Test dependencies are available via
-`yoao-workspace[test]`.
+The `postgres`, `runtime`, `client`, and `test` extras remain for portable SQL,
+HTTP, and package conformance. Standalone HTTP or Node providers are run in
+isolated conformance fixtures, not as services for the product API. Use only
+the existing function-scoped test roles and never put an owner or migrator DSN
+in the API environment. See [DEV.md](../../DEV.md#workspace-宿主与包一致性验收)
+for the supported checks.
 
-Owner transfer uses `aap-workspace-owner-transfer/v1` and a separate two-RPC
-function-only credential. The caller-session adapter never commits; standalone
-adapters own their transaction. Matching immutable receipts allow a lost reply
-to be retried without reapplying an old transfer. The runtime can enable
-membership, owner transfer, or both, with readiness checking every enabled
-capability. The optional Node conformance provider under `conformance/node`
-is a local transport replacement experiment; Native still owns business policy.
+Owner transfer uses `aap-workspace-owner-transfer/v1`. The caller-session
+adapter never commits; the standalone conformance adapter owns its transaction
+under the separate two-RPC credential. Matching immutable receipts allow a lost
+reply to be retried without reapplying an old transfer. The optional
+[Node conformance provider](conformance/node/README.md) tests the owner-transfer
+transport against the same Native business policy.
 
 Project/template configuration values and pure kind, clone and authorization
 policy also live here. The API directly consumes those models and policy; its
 configuration calls use the portable manager and fixed Native writes. The
 four initial Native cross-owner configuration dependencies are complemented by
 phased facts and a six-command owner under `aap-workspace-configuration/v1`.
-Its fixed step capability uses function-only credentials and one transaction;
-the standalone HTTP runtime can enable configuration without membership or
-owner transfer. Public API callers use the same owner with a borrowed session
-by default; the old configuration ORM writers are removed. These six commands
-passed bounded local package, restricted database, process, container, restart,
-restore and concurrency qualification. See ADR-0136 for evidence and scope.
-Current query and maintenance capabilities are described below; complete-module
-status is maintained in the [module ledger](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账).
+Its fixed step capability and immutable receipts still run in the original
+caller transaction. Class rename preserves the same-transaction Labeling write;
+Guide commands leave byte I/O to the existing managed storage adapter. The old
+configuration ORM writers are removed. ADR-0136 records the earlier bounded
+package, restricted database, process, container, restart, restore and concurrency
+qualification; it does not qualify a new host arrangement. Current scope is
+tracked in the [module ledger](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账).
 
 Template list/detail and receipt-bound response projection now have a portable
-query contract, policy manager and raw scalar materializer. Public callers now
-select the same owner with borrowed, dedicated DSN or HTTP bindings. All three
-match the frozen40 HTTP observations; default caller/GUC probes pass. Query-only
-runtime startup and the function-only read credential are verified. Installed
-packages, restricted owner/API images, real container reads and response
-projection, fault recovery, backup restore and full migration qualification pass.
-The bounded local concurrency sample is not a production capacity claim;
-see ADR-0137 for scope.
+query contract, policy manager and raw scalar materializer. The API borrows
+the caller's transaction, retaining autoflush and response projection after the
+original configuration commit. ADR-0137 records the frozen 40-response baseline
+and the earlier package, restricted SQL, process, restore and migration evidence.
+Its container sample does not establish production capacity.
 
 Project access values and capability policy live in the shared
 `yoao_workspace_contract.access` module, including the membership compatibility
@@ -65,26 +71,25 @@ setuptools staging directory from retaining removed modules in a later wheel.
 
 Project query requests, typed read facts, raw value codecs, and row authority
 phases live in the shared `yoao_workspace_contract` package. Workspace retains
-the query manager, data/SQL adapters, and runtime bindings. API callers select
-borrowed, dedicated PostgreSQL or HTTP bindings. Native0261 and its
-function-only credential pass owned database checks; the standalone runtime
-resolves Identity Briefs through its explicit public client dependency. Fifty
-frozen HTTP observations match all three bindings; noneditable package
-manifests and bounded process-failure/restart checks pass. Restricted owner/API
-images, real container response projection and restart, backup/restore and full
-migration261 pass. The bounded local concurrency sample does not establish
-production capacity. Remaining complete-module scope is maintained in the
-module ledger rather than inferred from this query qualification.
-See ADR-0139 for authority phases and the current acceptance boundary.
+the query manager, data/SQL adapters, and portable runtime bindings. Project
+and directory reads in the API borrow the same session. Display data still
+comes from the existing Identity UserBrief adapter, not from direct User-table
+reads; empty results and reads that do not need briefs skip that dependency.
+ADR-0139 records authority phases, the 50 frozen HTTP observations, and earlier
+restricted package, process, restore and migration evidence. That split-runtime
+evidence is not a deployment recommendation or a production capacity claim.
 
-Configuration managers no longer read backend URL/auth/token/extra_params or execute
-setup HTTP directly. The backend fact is exactly `{id, probe_subject}`; the injected
-Inference probe returns only modalities. Standalone configuration uses
-`WORKSPACE_INFERENCE_PROBE_URL`, `WORKSPACE_INFERENCE_PROBE_TOKEN(_FILE)` and
-`WORKSPACE_INFERENCE_PROBE_TIMEOUT_SECONDS`. It has no credential fallback; missing
-provider is unavailable only when a backend modality probe is needed. Backend
+Configuration managers no longer read backend URL, auth, token, or
+`extra_params`, or send HTTP `/setup` requests directly. The backend fact is
+exactly `{id, probe_subject}`; the injected
+Inference probe returns only modalities. The host calls the authenticated
+Inference owner using `INFERENCE_BACKEND_PROBE_URL`,
+`INFERENCE_BACKEND_PROBE_TOKEN(_FILE)`, and `INFERENCE_BACKEND_PROBE_TIMEOUT_SECONDS`.
+The `WORKSPACE_INFERENCE_PROBE_` settings are only for standalone conformance
+and are not read by the host API. There is no credential fallback.
+A missing provider is unavailable only when a modality probe is needed. Backend
 setup failure keeps legacy fail-open behavior; internal provider failure aborts,
-and legacy materialization failure retains generic500/rollback. See ADR-0149.
+and legacy materialization failure retains generic 500/rollback. See ADR-0149.
 
 Adjacent import and point-cloud quality writes use three fixed SQL capabilities
 in `yoao_workspace_v1`, described by `aap-workspace-project-maintenance/v1`.
@@ -175,7 +180,7 @@ functions remain supported; this shared runtime is not the strict 32-function
 consumer. The default storage boundary has separate local qualification in the
 single module ledger; no daily or independent-topology cutover is implied.
 
-The image health probe follows the existing `WORKSPACE_PORT` setting (default
-8172), including owner transfer on8173 and configuration on8174. It checks the
-selected service's `/ready` endpoint; lazy external dependencies still need their
-actual operation acceptance.
+The portable conformance image checks its configured `/ready` endpoint. This
+checks the enabled SQL capabilities, not the lazy Inference or Identity
+dependencies. There is no Workspace runtime readiness endpoint to deploy for
+the host API.

@@ -408,7 +408,7 @@ API image SHA-256 `12eadf471566c1487a5830961928232e9abf4b01728912b03fb18fa70fc60
 
 Live 用 540 个 synthetic users 覆盖超过 500 行与 64 KiB 的 list/export；int64 大页、生命周期引用类别、stale role 403、profile/context frozen export、no-repeat Audit、当前可见性 409、credential-generation fence 与 restart 也通过。受限 remote Identity container 的 1 CPU／256 MiB 边界只适用于该容器。另一个 12 次读取、并发 4 的 host-process sample 为 elapsed 0.232s、p50 0.077s、p95 0.081s，包含 Node process overhead；它不对应上述容器预算，也不是生产容量或 SLO。Node fixture 保留输入 JSON 数值 token 与 wide integers；20 位小数 `0.12345678901234568` 只验证既有后端 canonical form，不主张新的后端十进制精度。此前 Invitation/MailV2 的 68/375/324 counts 仍只属于该 slice。
 
-## 内部批量 UserBrief 读取（已通过限定本地资格）
+## 内部批量 UserBrief 读取（已通过限定本地资格） {#identity-user-briefs}
 
 此 owner 抽取的是现有 API enrichment helper `app.services.user_brief.resolve_briefs` 与 `resolve_briefs_with_project_role`，不是可供用户任意查询的 public profile endpoint。所有调用方仍先授权自己的 task/project/result rows，再 enrichment 相关 user IDs；helper 没有 actor 参数，不使用 Directory 的 manager gate，也不改变公开 API／SDK schemas、paths、pagination 或 errors。
 

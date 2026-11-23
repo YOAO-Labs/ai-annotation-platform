@@ -7,7 +7,26 @@ last_reviewed: 2026-10-26
 
 # Workspace 私有运行与事务能力
 
-项目成员创建、职责预览／变更与移除由 Workspace membership owner 组合。现有公开 API 路径、DTO、权限入口、错误映射和 SDK 不变；本页描述 API 到领域 owner 的内部边界，不是新的用户 API。
+本页描述 API 到领域 owner 的内部调用，不是新的用户 API。公开路由、DTO、权限入口、错误映射和 SDK 不变。
+
+## 默认部署与旧拆分安装 {#workspace-deployment}
+
+API 在同一进程内调用六组 Workspace owner，每组都借用调用方的 `AsyncSession`。不启动 Workspace 容器，也不为这六组操作配置单独的 URL、命令／查询 DSN 或共享 HTTP bearer。普通 API 继续通过 `DATABASE_URL` 使用已有应用角色和[固定 SQL 能力](#普通消费者的-sql-凭据边界)，不获得 owner 或迁移凭据。成员和负责人转移仍受 `WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS`（默认 30 秒）约束。
+
+| API 入口文件（`apps/api/app/services/`） | 调用的 Workspace owner  | 保留的事务边界                         |
+| ---------------------------------------- | ----------------------- | -------------------------------------- |
+| `workspace_membership.py`                | `MembershipManager`     | 职责交接、成员写入、Audit 和回执同事务 |
+| `workspace_owner_transfer.py`            | `OwnerTransferManager`  | 当前账号／项目锁及原提交前、提交后投影 |
+| `workspace_configuration.py`             | `ConfigurationManager`  | 配置、类别改名和指南操作沿用原事务     |
+| `workspace_template_query.py`            | `TemplateQueryManager`  | 原 autoflush 及回执绑定的提交后投影    |
+| `workspace_project_query.py`             | `ProjectQueryManager`   | 原权限读取阶段、缓存和响应投影         |
+| `workspace_directory_query.py`           | `DirectoryQueryManager` | 成员／提及可见性及原调用方快照         |
+
+跨 owner 的边界不变：配置需要后端能力时，通过 [Inference 的认证探测](/api/guides/inference-runtime#workspace-的后端能力探测)调用实际 owner。项目和目录仅在需要显示资料时调用 [Identity UserBrief](/api/guides/identity-runtime#identity-user-briefs)，沿用 API 自己的 Identity 装配，不为 Workspace 单独配置资料源。这两项依赖都不是 Workspace 自身的远程装配选项。
+
+如果现有安装仍将 Workspace 六组操作发往独立服务或专用数据连接，**不要带着旧选择器、Compose 文件链或 secret 挂载进行滚动升级**。暂停升级，按[升级指南](/ops/upgrade-guide#workspace-split-upgrade)另行安排维护窗口。不要把旧专用 DSN、owner DSN 或迁移连接抄到 API 运行连接中。本次默认装配变更不会迁移日常环境、撤销既有账号或修改数据库授权。
+
+版本化请求／回复、冻结 SQL、专用测试角色及独立 Python HTTP／Node 对照保留，用于可移植包一致性、错误与回执恢复验收，不是产品部署入口。退役前的[拆分拓扑验收](/dev/concepts/module-deployment#workspace-组合运行与恢复验收)和[本机采用记录](/dev/concepts/module-deployment#workspace-daily-adoption)仅供追溯，不是当前部署配方。
 
 ## 所有权与事务
 
@@ -15,96 +34,56 @@ last_reviewed: 2026-10-26
 
 Labeling 只按项目返回成员职责变更所需的窄工作事实，并提供对应的 lock、handoff 与 release 能力；Workspace 不读取 Labeling 原表。历史 contributor evidence 保留原始 JSON：`NULL` 表示未知，空数组表示已知为空，不能相互替换；原 `assigned_user_ids` 列表也不能先去重再交给既有 policy。Reviewer blocker 仍按所有未完成的 effective-reviewer tasks 计算，不缩窄成只看当前 review phase 的任务。
 
-一次命令在同一个 PostgreSQL 连接和事务中依次执行 `prepare_membership_command(jsonb)`、portable policy 和必要的 `apply_membership_command(jsonb)`。Preview 不提交；mutations 在 prepare/apply 间保留目标账号、Project、membership 和 Labeling 的现有锁序与 NOWAIT 语义。Apply 在同一事务完成所需的 Labeling 职责交接、Workspace membership 写入、固定 Audit 与成功 receipt。默认 caller Session 装配沿用旧服务的成功提交边界；业务拒绝不会额外提交，需 rollback 的失败仍回滚调用方事务。专用 DSN／HTTP owner 持有自己的事务。邀请接受继续使用既有 Identity invitation owner，不增加第二个 membership writer。
+一次命令在同一个 PostgreSQL 连接和事务中依次执行 `prepare_membership_command(jsonb)`、portable policy 和必要的 `apply_membership_command(jsonb)`。Preview 不提交；mutations 在 prepare/apply 间保留目标账号、Project、membership 和 Labeling 的现有锁序与 NOWAIT 语义。Apply 在同一事务完成所需的 Labeling 职责交接、Workspace membership 写入、固定 Audit 与成功 receipt。API 沿用原成功提交边界；业务拒绝不会额外提交，需 rollback 的失败仍回滚调用方事务。邀请接受继续使用既有 Identity invitation owner，不增加第二个 membership writer。
 
 SQL 传输对 `change_role` 的 `preview_token` 和 `reason` 使用 `json-string-ascii/v1`：字段值承载原字符串的 ASCII JSON 字符串字面量，HTTP 仍传原始逻辑字符串。Native policy 必须声明相同的 `opaque_text_codec`，每次执行都在同一事务内核对；进程与迁移需要一起更新。请求指纹绑定编码后的原值，便携策略仍比较原 token；reason 只在 Audit detail 处转换为 JSONB。这样，含 NUL 的过期版本／快照仍先返回 409，有效请求的 NUL reason 则保留后续审计写入的原生错误和原子回滚。
 
-命令只返回契约值，不返回 ORM `User` 或凭据。所需用户显示字段仍由 API 在 owner 命令完成后按现有路径组合。跨 owner 的 Project/Identity/Labeling/Audit 权限使用窄 Native 函数；Workspace 不获得这些 owner 的原始表权限。Labeling 的交接、职责锁定与任务锁释放 helper 只授权给 Workspace owner。专用 `yoao_workspace_membership_client` LOGIN 仅能执行 `yoao_workspace_membership_v1` 中的 `membership_policy()`、`prepare_membership_command(jsonb)` 和 `apply_membership_command(jsonb)`，不获得 AUTH、credential FENCE 或 workflow append 权限。
+命令只返回契约值，不返回 ORM `User` 或凭据。所需用户显示字段仍由 API 在 owner 命令完成后按现有路径组合。跨 owner 的 Project/Identity/Labeling/Audit 权限使用窄 Native 函数；Workspace 不获得这些 owner 的原始表权限。用于独立一致性检查的 `yoao_workspace_membership_client` LOGIN 仅能执行 `yoao_workspace_membership_v1` 中的 `membership_policy()`、`prepare_membership_command(jsonb)` 和 `apply_membership_command(jsonb)`，不获得 AUTH、credential FENCE 或 workflow append 权限。
 
 成功 receipt 冻结原响应并绑定 operation UUID、actor、project、operation、请求与 audit context。同一 UUID 的匹配重放返回冻结成功结果、不重复写入或 Audit；绑定不同的请求返回冲突。重放会重新检查当前 actor 和 Project 管理权，但不要求已删除的目标成员外键仍存在。公开调用仍生成新 operation UUID，现有 version CAS 不变；没有新增公开幂等键，也不会把过期 preview 当成成功。
 
-已有数据库切换 namespace 前须保留恢复点、停止旧准入并把旧 `workspace_membership_client` 设为 `NOLOGIN`、排空可调用 prepare／apply／policy 的连接，再执行前向迁移 `0467`。迁移拒绝仍启用的旧 LOGIN、旧 namespace 的可调用连接、目标 namespace 冲突或未预期函数依赖；不主动停用账号或终止会话，也不提供旧 namespace 别名。切换后安装 `yoao_workspace_membership_client` 的精确 grants、更新 DSN secret，再启动匹配的新消费者。wire schema、receipt、operation UUID、GUC 绑定的事务语义及历史 `0253` 工件保持不变；当前阶段不要求 schema downgrade。
+来自迁移 `bo0467` 之前的数据库仍须满足原 namespace 切换门禁：核对备份、停止旧准入、将旧 `workspace_membership_client` 设为 `NOLOGIN`，并排空可调用 prepare／apply／policy 的连接。迁移拒绝未排空的旧入口、目标 namespace 冲突或未预期函数依赖，不主动停用账号或终止会话，也不提供旧 namespace 别名。wire schema、receipt、operation UUID、GUC 绑定的事务语义及历史 `0253` 工件不变。此历史 schema 门禁不是启用专用 API DSN 的步骤。
 
-## 私有运行配置
-
-API 默认使用本地 caller Session；可选 `WORKSPACE_MEMBERSHIP_DATABASE_URL` 或 `_FILE` 绑定本地专用数据 caller，也可通过 `WORKSPACE_MEMBERSHIP_URL` 和独立 control bearer 调用私有 runtime。API timeout 配置 `WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS` 默认为 30 秒。直接 DSN 与 `_FILE` 同时设置时视为配置错误；显式选择的远程服务不可用时返回 unavailable，不回退到 ORM 或另一条 owner 路径。
-
-私有 HTTP endpoint 为 `POST /v1/workspace/membership/execute`。内部 Bearer 是控制凭据，不是最终用户身份；当前操作人由已认证的 API 绑定到请求。业务失败使用 HTTP 200 返回版本化失败封套，保留原 `status_code/detail/headers` 供 public API 映射；畸形请求为 400，缺少或错误的内部 Bearer 为 401，未配置能力、连接故障或超时为 503。原生数据错误保留 500 路径，专用 SQL caller 保留原生 SQLSTATE。`GET /health` 只报告存活；`GET /ready` 检查精确的 Native policy、文本 codec 与函数权限。
-
-成员能力要求 `WORKSPACE_MEMBERSHIP_DATABASE_URL` 或 `_FILE`；runtime 还要求共享的 `WORKSPACE_MEMBERSHIP_CONTROL_TOKEN` 或 `_FILE`。运行默认值为 `WORKSPACE_HOST=0.0.0.0`、`WORKSPACE_PORT=8172`、`WORKSPACE_TIMEOUT_SECONDS=30`、`WORKSPACE_MAX_CONCURRENCY=8`。可选 Compose 使用宿主机 `WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE` 与 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` 选择 secret 文件，再映射为 runtime 内部变量。API runtime URL、API data DSN 与 standalone runtime DSN 是三种明确的绑定方式；空 selector 不会阻止现有 API 启动，API 的默认 caller Session 仍可用。
-
-## 当前范围
-
-成员命令切片已通过独立安装包、受限Native权限、进程／镜像、真实API、并发交接、重启重放和备份恢复的本地验收；该切片原始计数见[ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner)。命令owner只持有三项RPC权限；普通消费者与默认内嵌装配的现行凭据组合见后文。
-
-当前Workspace六组HTTP能力、31项具名操作、同事务Native能力及维护／seed／夹具调用已完成盘点与消费者迁移。源码、非editable安装、受限冷工件、整库恢复、实际worker和并发1／4／8混合读写的本地资格见[模块审计](/dev/concepts/module-deployment#workspace-module-audit)。本机主部署已完成[日常普通账号与独立拓扑采用](/dev/concepts/module-deployment#workspace-daily-adoption)；其他环境不会自动切换。[实际盘点](/dev/concepts/module-deployment#workspace-local-history-applicability)没有历史作业；通用旧库退役入口仍未实现，未知旧作业继续409并保留输入。这不代表生产容量、完整另一语言提供方或其他模块完成；Go仍是实验。
+成员命令的独立安装包、受限 Native 权限、锁语义、重启重放和备份恢复证据见 [ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner)。这些历史结果限定原候选和运行拓扑。
 
 ## 项目负责人转移
 
-负责人转移使用封闭的 `aap-workspace-owner-transfer/v1`，请求仅含 schema、operation UUID、actor UUID、project UUID 与 new-owner UUID。私有入口为 `POST /v1/workspace/owner-transfer/execute`。原公开转移路由、super-admin 准入、ProjectOut 与 SDK 不变。
+负责人转移使用封闭的 `aap-workspace-owner-transfer/v1`，请求仅含 schema、operation UUID、actor UUID、project UUID 与 new-owner UUID。原公开转移路由、super-admin 准入、ProjectOut 与 SDK 不变。
 
-Native 先按 UUID 顺序锁当前操作人与接收账号，再取 Project 排他 NOWAIT 锁；目标账号启用检查在 Project 之前，目标 `project_admin` 角色检查在 Project 之后。只修改 owner；同一 owner 不执行 UPDATE，保留 updated_at。不额外写业务 Audit 或 membership。默认 API 数据适配器始终借用调用方事务，成功不提交；账号锁异常回滚，项目锁冲突保留原失败事务状态。专用 DSN／HTTP owner 提交或回滚自己的事务。
+Native 先按 UUID 顺序锁当前操作人与接收账号，再取 Project 排他 NOWAIT 锁；目标账号启用检查在 Project 之前，目标 `project_admin` 角色检查在 Project 之后。只修改 owner；同一 owner 不执行 UPDATE，保留 updated_at。不额外写业务 Audit 或 membership。API 数据适配器借用调用方事务，成功不提交；账号锁异常回滚，项目锁冲突保留原失败事务状态。
 
-受限 `yoao_workspace_owner_transfer_client` LOGIN 仅能执行 `yoao_workspace_owner_transfer_v1` 中的 `owner_transfer_policy()` 和 `transfer_project_owner(jsonb)`。成功回执与 owner 更新原子提交；匹配重放返回原成功内容，即使之后再次转移也不重做旧写入。每次重放仍检查当前 active super-admin 与 Project 存在并锁定，不要求旧接收者仍存在或仍有原角色。operation UUID 与 actor／project／target 不匹配返回 409。公开调用不增加幂等头；API 仅在传输失败时，用同一私有 UUID 最多重试一次。
+成功回执与 owner 更新原子提交；匹配重放返回原成功内容，即使之后再次转移也不重做旧写入。每次重放仍检查当前 active super-admin 与 Project 存在并锁定，不要求旧接收者仍存在或仍有原角色。operation UUID 与 actor／project／target 不匹配返回 409。公开调用不增加幂等头，也不重发 Workspace 命令。
 
-API 可选 `WORKSPACE_OWNER_TRANSFER_URL`，或二选一的 `WORKSPACE_OWNER_TRANSFER_DATABASE_URL(_FILE)`；未配置时使用 caller Session，显式失败不回退。共享成员命令的 control token 与 timeout。独立 runtime 支持只启用成员、只启用转移或同时启用，`/ready` 检查每个已配置能力和受限权限。可选 `docker-compose.workspace-owner-transfer.yml` 使用宿主端口 8173，通过 `WORKSPACE_RUNTIME_OWNER_TRANSFER_DATABASE_URL_FILE` 与 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` 挂载 secret。
+独立一致性检查继续使用受限的 `yoao_workspace_owner_transfer_client` LOGIN，仅能执行 `yoao_workspace_owner_transfer_v1` 中的 `owner_transfer_policy()` 和 `transfer_project_owner(jsonb)`。Node provider 用标准 PostgreSQL 协议调用相同两项函数，不代理 Python／API，业务规则仍由 Native 执行。
 
-已有数据库必须先安排维护窗口：保留恢复点、停止旧写入并排空可调用转移函数的连接，
-显式关闭旧 `workspace_owner_transfer_client` LOGIN，再执行前向迁移。旧 LOGIN 是集群级身份，
-须协调共享它的调用方；迁移只校验停写条件，不代替操作者停用账号或终止连接。
-目标 namespace 冲突、旧入口仍可接入或仍有可写连接时，迁移拒绝且不留下部分切换。
-升级后安装新 LOGIN 的精确授权、更新 DSN secret，再启动匹配的新消费者；
-不提供旧 namespace 别名。wire schema、请求／回执身份及事务／锁语义不变。
-当前阶段不要求 schema downgrade；故障事务回滚与当前库恢复仍须验证。
+来自旧 namespace 的数据库仍受既有前向迁移门禁保护：先安排维护窗口、保留恢复点、停止旧写入并排空可调用转移函数的连接，显式关闭旧 `workspace_owner_transfer_client` LOGIN。旧 LOGIN 是集群级身份，须协调共享调用方；迁移不代替操作者停用账号或终止连接。旧 namespace 不留别名，也不改变 wire schema、回执身份或锁语义。
 
-Node conformance provider以标准PostgreSQL协议调用相同的两项函数，不代理Python／API；业务规则仍由Native执行。该提供方仅用于本地单命令替换实验，不代表完整Workspace的另一语言提供方、独立数据库或生产容量资格。
-
-当前命名试点的本地限定验收通过 70 个去重案例：20 项双 namespace 安全识别／授权，50 项负责人转移；另有 34 项单元检查通过。覆盖有数据旧库的前向切换与拒绝路径、四条绑定与旧响应对照、受限 LOGIN、事务失败、丢响应／当前备份恢复，以及 Python／Node 受限镜像重启重放。结果由 66 项未变更的通过证据和四条最终兼容路径复验组成，不代表完整默认资格或全部 namespace 切换。独立 Node 提供方只覆盖这个命令的传输与事务，完整 Workspace 的语言替换仍待后续工作。验证范围见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer)。
+退役前命名试点通过 70 个去重案例：20 项双 namespace 安全识别／授权，50 项负责人转移；另有 34 项单元检查通过。覆盖有数据旧库的前向切换与拒绝路径、四条绑定与旧响应对照、受限 LOGIN、事务失败、丢响应／当前备份恢复，以及 Python／Node 受限镜像重启重放。结果由 66 项未变更的通过证据和四条最终兼容路径复验组成，不代表新装配资格或全部 namespace 切换。验证范围见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer)。
 
 ## 配置命令实现与验收状态
 
-项目创建／更新及模板创建／更新／删除／复制已有封闭私有协议
-`aap-workspace-configuration/v1`，入口为
-`POST /v1/workspace/configuration/execute`。受限
-`yoao_workspace_configuration_client` 只有 `configuration_policy()` 和
-`configuration_step(jsonb,text,jsonb,text[],text[])` 两项能力。配置独立运行使用
-`WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)`，复用 control token；本地 Compose
-文件为 `docker-compose.workspace-configuration.yml`，端口8174。
+项目创建／更新及模板创建／更新／删除／复制使用封闭的 `aap-workspace-configuration/v1`。
+受限包对照角色 `yoao_workspace_configuration_client` 的核心命令仍使用
+`configuration_policy()` 和 `configuration_step(jsonb,text,jsonb,text[],text[])`。
 
 上述六种配置命令保存不可变成功回执，在同一事务中执行分阶段写入和当前权限围栏。
-默认 API 数据端口借用调用方事务；独立连接只持有自己的业务事务，不提交 API
-连接上的无关 pending work。后端探测超时及视频参数需要与 API 保持一致，具体变量见
-[环境变量参考](/dev/reference/env-vars)。
+API 借用调用方事务，保留提交与响应。配置使用 API 的 `ML_HEALTH_TIMEOUT`、
+`VIDEO_SEGMENT_SIZE_FRAMES`、`VIDEO_TRACKER_WINDOW_SIZE_FRAMES` 和
+`VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES`；跨 owner 探测使用 Inference 自己的 URL、bearer 和调用期限。
 
-公开配置路由已接入同一个配置 owner，默认借用调用方事务，HTTP 保留提交与响应。
-专用 DSN／HTTP 通过 `WORKSPACE_CONFIGURATION_DATABASE_URL(_FILE)`／
-`WORKSPACE_CONFIGURATION_URL` 选择，不能同时配置；显式失败不回退。
-三条绑定路径各已对照106项原公开响应；独立进程的丢响应重试、重启重放及不可用不回退也已通过本地检查。失败事务、备份恢复、9项关联恢复及0257完整迁移验证均已通过。独立安装包、受限镜像与本地并发执行也已完成限定验收；项目与模板读取的接入状态见后文。这一步不代表完整
-Workspace 已独立部署。状态与事务取舍见
+退役前的三条绑定各对照了 106 项原公开响应，独立进程的丢响应重试、重启重放及不可用不回退也通过本地检查。失败事务、备份恢复、9 项关联恢复及 `0257` 完整迁移的证据保留；独立安装包、受限镜像与并发结果不代表当前拓扑已经验收。状态与事务取舍见
 [ADR-0136](/dev/adr/0136-workspace-configuration-command-owner)。
 
 ### 类别重命名
 
-`rename_project_class` 复用同一个配置端点、数据账号和进程。公开入口仍先检查
+`rename_project_class` 复用同一个配置 owner 和调用方事务。公开入口仍先检查
 项目管理权，再校验非空名称；账户、项目和成员权限围栏保持原顺序。
 实际改名在同一事务内先调用 Labeling 的窄标注类名能力，再写项目绑定。
 公开响应继续在提交后读取项目投影；此时查询失败不会撤销已经提交的改名。
 
 同名请求不写业务数据或操作回执，也不检查类别和工具单位是否存在。
-借用事务时，API 在调用方仍持锁时读取投影。独立连接／HTTP 提供方在自己的
-事务内完成投影，随后回滚这个无写入事务，并把绑定的投影结果交回 API。
-独立提供方因此需要 Project Query 与 Identity Briefs 能力；缺失时返回不可用。
-改名没有持久成功收据，传输失败不会自动重发；原有六种配置命令的重试保持不变。
-
-独立 Configuration 进程可在原 Compose 文件上叠加
-`docker-compose.workspace-class-rename.yml`，为同一服务补充项目查询与身份资料的
-两份只读 secret。四份 secret 分别由
-`WORKSPACE_RUNTIME_CONFIGURATION_DATABASE_URL_FILE`、
-`WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`、
-`WORKSPACE_RUNTIME_PROJECT_QUERY_DATABASE_URL_FILE` 和
-`WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE` 指定。
-不增加服务或对外端口；原六种配置操作仍可使用原来的两份 secret 部署。
-此切片的三路径、独立安装包、受限镜像、重启、恢复和完整迁移已通过限定本地验收，范围见
+API 在调用方仍持锁时读取投影。改名没有持久成功收据，不会自动重发。
+退役前的三路径、独立安装包、受限镜像、重启、恢复和完整迁移已通过限定本地验收，范围见
 [ADR-0143](/dev/adr/0143-workspace-project-class-rename-owner)。
 
 ## 模板列表、详情与响应投影
@@ -113,18 +92,13 @@ Workspace 已独立部署。状态与事务取舍见
 API 保留参数与身份准入、写入提交和公开 DTO 校验；读取 owner 使用本次已认证的身份快照，
 不增加第二次账号／角色检查。模板可见性、组织成员事实、过滤、排序及创建者显示的读取顺序保持不变。
 
-默认绑定借用调用方事务。独立连接使用 `WORKSPACE_TEMPLATE_QUERY_DATABASE_URL(_FILE)`，
-HTTP 使用 `WORKSPACE_TEMPLATE_QUERY_URL`，二者互斥，显式失败不回退；远程 timeout
-由 `WORKSPACE_TEMPLATE_QUERY_TIMEOUT_SECONDS` 控制。私有服务端点为
-`POST /v1/workspace/template-queries/execute`，复用 Workspace control bearer。
-独立服务可只配置模板读取能力，专用 LOGIN 只有 policy／step 两项函数权限；
-本地 Compose 使用8175和两份只读 secret 文件。
+模板读取借用调用方事务，保留原 autoflush。包对照中的专用 LOGIN 仍只有 policy／step 两项函数权限。
 
 提交后投影绑定成功配置命令的私有回执，不增加公开参数，也不重新校验模板可见性。
 此时查询或公开响应校验失败，不能回滚已经提交的配置；JSONB-null 的旧500行为保留。
 原模板 ORM 读适配器已删除；命名流水线通过 Identity 窄能力读取组织范围，其他命名流水线写入仍由原入口持有。
 
-三条路径各已对照40项实际旧 HTTP 观测，默认绑定另核对调用方自动刷新和时区；
+退役前的三条路径各对照了 40 项实际旧 HTTP 观测，借用绑定另核对了调用方自动刷新和时区；
 源码、受限数据账号与实际进程验证通过。独立安装包、受限 owner/API 镜像、
 真实容器响应投影、故障恢复、备份恢复与0259完整迁移均已完成限定本地验收；
 16次详情读取在并发4下全部成功，无 OOM，该本地样本不代表生产容量。
@@ -133,25 +107,22 @@ HTTP 使用 `WORKSPACE_TEMPLATE_QUERY_URL`，二者互斥，显式失败不回�
 ## 项目查询
 
 项目列表、分页、详情、统计、就绪度、访问上下文、接受操作后的投影和项目搜索使用
-`aap-workspace-project-query/v1`。API 保留原公开 DTO；默认借用调用方事务，
-可用 `WORKSPACE_PROJECT_QUERY_DATABASE_URL(_FILE)` 或 `WORKSPACE_PROJECT_QUERY_URL`
-选择独立 owner。两种选择互斥，显式失败不回退。
-私有入口是 `POST /v1/workspace/project-queries/execute`。
+`aap-workspace-project-query/v1`。API 借用调用方事务并保留原公开 DTO。
 
 详情保留完整项目读取、当前账号、刷新项目、成员职责的原顺序；成员两个时间戳的
 有限值超出 Python 范围时同样保留原内部错误，真实无穷值仍按原驱动处理。
-非空响应的显示资料使用显式 `WORKSPACE_PROJECT_QUERY_IDENTITY_*` 配置；
-空页、统计和就绪度不访问 Briefs。限定本地验收与剩余边界见
+需要显示资料时调用 Identity 的既有批量 UserBrief 适配器；空页、统计和就绪度不访问 Briefs。
+限定本地验收与剩余边界见
 [ADR-0139](/dev/adr/0139-workspace-project-query-owner)。
 
-访问上下文的 `get_project_access` 复用同一端点和凭据，返回原有成员 ID、版本与能力字段。
+访问上下文的 `get_project_access` 复用同一个查询 owner，返回原有成员 ID、版本与能力字段。
 第一轮保留初始项目、当前账号、刷新项目和成员读取，第二轮从当前账号开始再查项目与成员；
 最终职责和版本来自同一次成员读取。该操作不需要 Briefs，不增加权限锁或更强事务快照。
-原本地锁定解析器的 I/O 和锁序保留，共享纯权限策略。三路径响应、受限镜像、重启、
-恢复和完整迁移已通过限定本地验收；完整 Workspace 与生产容量仍未完成，证据见
+原本地锁定解析器的 I/O 和锁序保留，共享纯权限策略。退役前的三路径响应、受限镜像、重启、
+恢复和完整迁移已通过限定本地验收；历史证据见
 [ADR-0141](/dev/adr/0141-workspace-project-access-query)。
 
-供类别／属性统计使用的 `require_project_manager` 复用同一 Project Query 配置，
+供类别／属性统计使用的 `require_project_manager` 复用同一 Project Query owner，
 只执行原来一轮当前权限检查，成功仅返回目标项目 ID。可见的普通成员在完整成员行解码后
 返回原管理权限错误，不使用 `/access` 的第二轮读取，也不访问显示资料。
 API 随后调用独立 Labeling 统计边界，配置见 [Labeling 运行协议](labeling-runtime)。
@@ -164,22 +135,12 @@ API 随后调用独立 Labeling 统计边界，配置见 [Labeling 运行协议]
 提及候选按负责人、启用超管、成员三组分别读取，并按 UUID 保留第一个种类。
 成员组不额外过滤停用账号，不能把三组统一改成仅启用账号。
 
-默认绑定保留 caller autoflush／no*autoflush，不提交或回滚；专用连接与 HTTP 使用
-自己的只读事务，不能读取其他连接未提交的修改。API 可选
-`WORKSPACE_DIRECTORY_QUERY_DATABASE_URL(_FILE)` 或 `WORKSPACE_DIRECTORY_QUERY_URL`，
-两者互斥，独立调用使用 `WORKSPACE_DIRECTORY_QUERY_TIMEOUT_SECONDS`，失败不回退。
-私有 `POST /v1/workspace/directory-queries/execute` 复用 Workspace control bearer。
-非空成员列表复用 `WORKSPACE_PROJECT_QUERY_IDENTITY*\*` Briefs 配置；提及候选不依赖 Briefs。
-
-独立进程可只启用目录能力。`yoao_workspace_directory_query_client` 只有 policy 与 step
-两项函数权限；Identity 通过窄账号函数提供提及资料，不向 Workspace 授予 User 原表。
-可选 Compose 文件为 `docker-compose.workspace-directory-query.yml`，本机端口8177，
-三份只读 secret 的宿主选择器为 `WORKSPACE_RUNTIME_DIRECTORY_QUERY_DATABASE_URL_FILE`、
-`WORKSPACE_RUNTIME_PROJECT_QUERY_BRIEFS_DATABASE_URL_FILE` 和 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。
+读取保留调用方的 autoflush／`no_autoflush`，不提交或回滚。非空成员列表调用 Identity Briefs；
+提及候选不读取 Briefs，只消费 Identity 的窄账号事实，不获得 User 原表权限。
+包对照角色 `yoao_workspace_directory_query_client` 仍只有 policy 和 step 两项函数权限。
 协议与验证范围见 [ADR-0140](/dev/adr/0140-workspace-directory-query-owner)。
 
-此目录切片已通过三路径公开响应对照、独立安装包、受限 owner/API 镜像、故障与重启、
-备份恢复及完整迁移的限定本地验收。1 CPU／256 MiB 下的16次并发读取不代表生产容量；
+该目录切片在退役前完成了三路径响应对照、独立安装包、受限镜像、故障重启、备份恢复及完整迁移的限定本地验收。1 CPU／256 MiB 下的 16 次并发读取不代表生产容量；
 API 与数据库不在该容器预算内。完整模块当前状态见[模块台账](/dev/concepts/module-deployment#剩余工作台账)。
 
 ## 保存流水线结构
@@ -539,10 +500,10 @@ membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列
 未来 public 表／序列不再自动获得宽权限；迁移或重新应用兼容授权后应重新执行配置。
 显式 seed 使用单独操作账号；普通账号不再直接读写这些私表。
 
-兼容部署脚本也提供默认同事务配置、模板及目录查询的 policy／step 和成员搜索能力，
-无需为了补权限而改选连接。13项本地定向案例通过，含真实HTTP生命周期与搜索、
-Node、worker计数及回滚，另有8项既有角色回归通过。兼容授权保持清理 worker
-已有的八项函数，避免重新授权API时退回两项outbox能力。当前完整模块冷工件／装配／恢复的本地集中资格已通过，见[模块审计](/dev/concepts/module-deployment#workspace-module-audit)；这份凭据切片的原始范围见
+兼容部署脚本保留六组借用调用所需的固定函数权限和成员搜索能力，无需为了补权限而改选连接。
+此前 13 项本地定向案例通过，含真实 HTTP 生命周期与搜索、Node、worker 计数及回滚，
+另有 8 项既有角色回归通过。兼容授权保持清理 worker 的八项函数，避免重新授权 API 时退回
+两项 outbox 能力。完整模块的既往冷工件／装配／恢复结果见[历史模块审计](/dev/concepts/module-deployment#workspace-module-audit)；凭据切片的原始范围见
 [ADR-0179](/dev/adr/0179-workspace-consumer-credential-closure)。
 
 默认内嵌运行采用不同的权限组合：LAN 和 worktree 共用 Workspace 私有存储 ACL，
@@ -552,11 +513,5 @@ Node、worker计数及回滚，另有8项既有角色回归通过。兼容授权
 
 共享开发账号保留既有固定导入、seed、scale、维护函数和仅 `_test`／`_e2e` 库启用的
 夹具能力；不会为了采用存储围栏而收回受支持脚本的执行权，也不把它描述为32函数
-最小账号。显式最小配置、专用操作配置及其NOLOGIN owner校验保持不变。采用前仍须
-核对并排空旧直接访问消费者，应用匹配授权；当前本机主API已按此边界切换普通账号，
-六个HTTP能力运行于独立Compose项目，见[本机日常采用](/dev/concepts/module-deployment#workspace-daily-adoption)。
-其他环境不自动采用，原默认存储围栏证据仍见[限定资格](/dev/concepts/module-deployment#workspace-default-private-storage)。
-
-镜像健康探针读取既有 `WORKSPACE_PORT`，默认8172，负责人转移8173和配置8174也使用
-各自的 `/ready`。该探针只检查已选择的 Native SQL policy；不能代替 Guide、后端探测
-和 Identity Briefs 等延迟依赖的实际操作验收。
+最小账号。显式最小配置、专用操作配置及其 NOLOGIN owner 校验保持不变。应用匹配授权前仍须
+核对并排空旧直接访问消费者；原默认存储围栏证据见[限定资格](/dev/concepts/module-deployment#workspace-default-private-storage)。
