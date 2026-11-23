@@ -15,6 +15,7 @@ from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.config import settings
 from app.db.models.dataset_asset import StorageLocation, StorageLocationProbe
 from app.db.models.project import Project
+from app.db.models.storage_maintenance import StorageMaintenanceGate
 from app.db.models.user import User
 from app.schemas.dataset_source import DatasetSourceCreate
 from app.schemas.scene_pose import FramePose
@@ -59,10 +60,7 @@ async def assert_denied(db, statement):
     assert error.value.orig.sqlstate == "42501"
 
 
-async def test_catalog_project_link_and_pose_evidence_under_ordinary_login(
-    test_engine, monkeypatch
-):
-    monkeypatch.setattr(settings, "assets_catalog_url", "")
+async def test_catalog_project_link_and_pose_evidence_under_ordinary_login(test_engine):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as owner:
         actor, _ = await _create_user(
@@ -142,7 +140,6 @@ async def test_real_directory_checkpoint_fences_old_attempt_under_ordinary_login
     root.mkdir()
     (root / "child").mkdir()
     (root / "child" / "a.jpg").write_bytes(b"retained directory observation")
-    monkeypatch.setattr(settings, "assets_catalog_url", "")
     monkeypatch.setattr(settings, "storage_filesystem_roots", {"test": str(root)})
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as owner:
@@ -153,15 +150,15 @@ async def test_real_directory_checkpoint_fences_old_attempt_under_ordinary_login
             owner,
             FilesystemLocationCreate(name=f"Scan {uuid4().hex}", root_handle="test"),
         )
-    async with maker.begin() as owner:
-        await storage_location.store_probe(
-            owner,
-            location,
-            "worker:scan@test",
-            filesystem.probe_directory(location.config),
-            datetime.now(timezone.utc),
-        )
     try:
+        async with maker.begin() as owner:
+            await storage_location.store_probe(
+                owner,
+                location,
+                "worker:scan@test",
+                filesystem.probe_directory(location.config),
+                datetime.now(timezone.utc),
+            )
         async with ordinary() as db:
             await assert_denied(
                 db, "SELECT status FROM public.dataset_scan_runs LIMIT 0"
@@ -198,6 +195,7 @@ async def test_real_directory_checkpoint_fences_old_attempt_under_ordinary_login
             fence = await scans.claim(db, run.id, original.celery_task_id, "scan@test")
             assert fence is not None
             first = await next_work(db, run, original, fence)
+            assert first["relative_path"] == "" and first["phase"] == "enumerating"
             await scans.apply_directory(
                 db, run.id, original.celery_task_id, fence, first, manifest(first)
             )
@@ -206,6 +204,7 @@ async def test_real_directory_checkpoint_fences_old_attempt_under_ordinary_login
             run = await scans.resume_scan(db, run.id, actor)
             current = await jobs.get_job(db, run.async_job_id)
             assert current.id != original.id
+            assert current.celery_task_id != original.celery_task_id
             fresh = await scans.claim(db, run.id, current.celery_task_id, "scan@test")
             assert fresh is not None
             with pytest.raises(scans.LostScanLease):
@@ -213,11 +212,31 @@ async def test_real_directory_checkpoint_fences_old_attempt_under_ordinary_login
                     db, run.id, original.celery_task_id, fence, first, manifest(first)
                 )
             await scans.signal_interrupted(db, original, cancelled=False)
-            assert (await read_scan(db, run.id)).status == "running"
+            resumed = await read_scan(db, run.id)
+            assert resumed.status == "running" and resumed.async_job_id == current.id
+            checkpoint = await next_work(db, run, current, fresh)
+            assert checkpoint["path_digest"] == first["path_digest"]
+            assert checkpoint["phase"] == "resume_validation"
+            await scans.apply_directory(
+                db,
+                run.id,
+                current.celery_task_id,
+                fresh,
+                checkpoint,
+                manifest(checkpoint),
+            )
             await drain(db, run, current, fresh)
             finished = await read_scan(db, run.id)
             assert finished.complete and finished.generation == 2
             assert finished.counts["file_count"] == 1
+            retired_job = await jobs.get_job(db, original.id, populate_existing=True)
+            completed_job = await jobs.get_job(db, current.id, populate_existing=True)
+            assert retired_job.status == "cancelled"
+            assert completed_job.status == "completed"
+            assert completed_job.progress_pct == 100
+            assert completed_job.result["run_id"] == str(run.id)
+            assert completed_job.result["complete"]
+            assert completed_job.result["file_count"] == 1
     finally:
         async with maker.begin() as owner:
             await owner.execute(
@@ -227,5 +246,10 @@ async def test_real_directory_checkpoint_fences_old_attempt_under_ordinary_login
             )
             await owner.execute(
                 delete(StorageLocation).where(StorageLocation.id == location.id)
+            )
+            await owner.execute(
+                delete(StorageMaintenanceGate).where(
+                    StorageMaintenanceGate.location_id == location.id
+                )
             )
             await owner.execute(delete(User).where(User.id == actor.id))

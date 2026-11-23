@@ -70,23 +70,27 @@ _PRIVATE = (
 
 
 @pytest.mark.parametrize(
-    "selector",
+    ("selector", "role"),
     [
-        "AAP_MODULE_DATA_IDENTITY_EMBEDDED_API_CONSUMER_URL",
-        "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL",
-        "AAP_MODULE_DATA_LEGACY_RUNTIME_URL",
+        (
+            "AAP_MODULE_DATA_IDENTITY_EMBEDDED_API_CONSUMER_URL",
+            "identity_embedded_api_consumer",
+        ),
+        ("AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL", "identity_api_consumer"),
+        ("AAP_MODULE_DATA_LEGACY_RUNTIME_URL", "legacy_runtime"),
     ],
-    ids=["lan-embedded", "lan-isolated-issuer", "worktree"],
+    ids=["lan-embedded", "lan-isolated-issuer", "legacy-runtime"],
 )
 async def test_media_ledgers_require_fixed_transitional_capabilities(
-    test_engine, selector
+    test_engine, selector, role
 ):
     endpoint = _api_url(test_engine)
     runtime = make_url(os.environ[selector])
-    assert (runtime.host, runtime.port, runtime.database) == (
+    assert (runtime.host, runtime.port, runtime.database, runtime.username) == (
         endpoint.host,
         endpoint.port,
         endpoint.database,
+        role,
     )
     engine = create_async_engine(runtime, hide_parameters=True)
     owner = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -178,7 +182,9 @@ async def test_media_ledgers_require_fixed_transitional_capabilities(
                 )
             )
         async with business() as db:
-            assert await db.scalar(text("SELECT session_user")) == runtime.username
+            assert (
+                await db.execute(text("SELECT session_user, current_user"))
+            ).one() == (role, role)
             for table in _PRIVATE:
                 with pytest.raises(DBAPIError) as refusal:
                     async with db.begin_nested():
@@ -265,6 +271,7 @@ async def test_media_ledgers_require_fixed_transitional_capabilities(
                 delete(ImagePyramidOutput).where(ImagePyramidOutput.id == output_id)
             )
             if task is not None:
+                await db.execute(delete(Task).where(Task.id == task.id))
                 await db.execute(delete(Project).where(Project.id == task.project_id))
             if item is not None:
                 await db.execute(delete(Dataset).where(Dataset.id == item.dataset_id))

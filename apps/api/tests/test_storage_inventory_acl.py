@@ -1,5 +1,7 @@
 """The ordinary LOGIN observes exact references without private relation grants."""
 
+import asyncio
+from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 import json
 import os
@@ -70,25 +72,77 @@ def archive(identifier, *, ready):
     )
 
 
+@asynccontextmanager
+async def _archive_snapshot_engines(test_engine):
+    """Give the real LOGIN a separate snapshot of committed, permanent archive facts."""
+    from tests.managed_image_inference_fixtures import _owned_database
+    from tests.test_identity_recovery import _alembic
+    from tests.test_labeling_video_writer_restore import (
+        ROOT,
+        _grant_variables,
+        _run_psql_file,
+    )
+    from tests.test_workspace_consumer_profile_native import _grants
+
+    runtime_url = _api_url(test_engine)
+    grants = ROOT / "infra/docker"
+    async with _owned_database(test_engine) as owner:
+        name = owner.url.database
+        quoted = owner.dialect.identifier_preparer.quote_identifier(name)
+        async with owner.begin() as db:
+            await db.exec_driver_sql(f"REVOKE ALL ON DATABASE {quoted} FROM PUBLIC")
+        migration = await asyncio.to_thread(_alembic, owner.url, "upgrade", "head")
+        assert migration.returncode == 0, "archive snapshot database migration failed"
+        await asyncio.to_thread(
+            _run_psql_file,
+            owner,
+            name,
+            grants / "module-data-grants.sql",
+            _grant_variables(name),
+        )
+        profile = await _grants(
+            owner,
+            grants / "identity-consumer-grants.sql",
+            runtime_url.username,
+            identity_avatar_runtime="1",
+        )
+        assert profile.returncode == 0, "archive snapshot API grant installation failed"
+        ordinary = create_async_engine(
+            runtime_url.set(database=name), hide_parameters=True
+        )
+        try:
+            yield owner, ordinary
+        finally:
+            await ordinary.dispose()
+
+
 async def test_ordinary_snapshot_sees_all_reference_families_and_pages_audit_claims(
     test_engine, tmp_path
 ):
     pending, published = sorted((uuid.uuid4(), uuid.uuid4()))
     archives = [archive(pending, ready=False), archive(published, ready=True)]
-    owner = async_sessionmaker(test_engine, expire_on_commit=False)
-    async with owner.begin() as db:
-        db.add_all(archives)
-        revisions = list(
-            await db.scalars(
-                text(
-                    "SELECT version_num FROM public.alembic_version ORDER BY version_num"
+    async with _archive_snapshot_engines(test_engine) as (owner, ordinary):
+        async with async_sessionmaker(owner, expire_on_commit=False).begin() as db:
+            db.add_all(archives)
+            revisions = list(
+                await db.scalars(
+                    text(
+                        "SELECT version_num FROM public.alembic_version ORDER BY version_num"
+                    )
                 )
             )
-        )
 
-    ordinary = create_async_engine(_api_url(test_engine), hide_parameters=True)
-    try:
         async with ordinary.connect() as conn:
+            login = (
+                await conn.execute(
+                    text("SELECT session_user, current_user, current_database()")
+                )
+            ).one()
+            assert login == (
+                ordinary.url.username,
+                ordinary.url.username,
+                owner.url.database,
+            )
             visible = (
                 await conn.scalars(
                     text(
@@ -171,14 +225,6 @@ async def test_ordinary_snapshot_sees_all_reference_families_and_pages_audit_cla
                 "object_count": 2,
                 "size_bytes": 30,
             }
-    finally:
-        await ordinary.dispose()
-        async with owner.begin() as db:
-            await db.execute(
-                delete(AuditArchiveOutput).where(
-                    AuditArchiveOutput.id.in_((pending, published))
-                )
-            )
 
 
 async def test_ordinary_usage_intent_replay_and_exact_settlement(test_engine):
