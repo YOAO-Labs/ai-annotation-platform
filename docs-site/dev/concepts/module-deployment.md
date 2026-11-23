@@ -19,7 +19,7 @@ last_reviewed: 2026-11-23
 
 当前模块 schema、函数专用 LOGIN 与三个可选角色审计 schema 使用 `yoao_*` 名称；产品事务内 GUC 随同一前向迁移改为 `yoao.*`。消费者、协议描述和 Node 验收与安装后的实际对象一致。历史迁移、冻结 SQL、冻结 JSON Schema、签名与 wire 身份、错误码、日志名、工作树资源和已存对象前缀保留原名称，不提供旧 schema 或旧 LOGIN 别名。旧库拒绝、混合发布排空和基线比对仍按各切片契约执行；十模块／七门槛与生产切换不属于本次改名。
 
-按模块观察 PostgreSQL 连接时，在 `pg_stat_activity.application_name` 上按 `yoao-` 前缀过滤，例如 `yoao-workspace-membership`。升级外部看板和告警时，滚动部署期间保留旧 `aap-` 过滤条件，等旧进程退出、旧连接关闭后再移除。显示名由客户端自报，不是凭据或资源归属证明；核对占用须同时看目标库和登录角色，不按显示名授权或终止连接。
+按模块观察独立进程的 PostgreSQL 连接时，在 `pg_stat_activity.application_name` 上按 `yoao-` 前缀过滤。内嵌 Workspace 调用使用 API 的连接，不建立独立连接池。升级外部看板和告警时，等旧进程退出、旧连接关闭后再移除旧 `aap-` 过滤条件。显示名由客户端自报，不是凭据或资源归属证明；核对占用须同时看目标库和登录角色，不按显示名授权或终止连接。
 
 `scripts/verify_module_data_boundary.py` 在同一自有临时 PostgreSQL 容器中使用两个数据库核对迁移与冻结 SQL：一个正常升级至当前 head；另一个从空库升级至主线基线 `0267`，在事务中安装并回滚冻结 SQL，再沿正常迁移升级至 head。两边核对公开关系定义、列元数据与固定函数体，不为验收恢复已经禁止的旧认证写入能力。数据库、角色和对象存储的受限场景仍分别核验；此步骤不等于全模块生产资格。
 
@@ -140,7 +140,7 @@ LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第
 
 ## 剩余工作台账
 
-这是平台插件化计划（仓库 `docs/plans/1795366269_platform-pluginization.md`）的实时状态入口。原后端解耦计划已归档；历史资格继续有效，不代表新默认档已经验收。推理扩展的[直连入门](/dev/ml-backend/starter#direct-registration)与安装档分开。部署收敛先按下面的逐项决定表评审，不直接删除 overlay。
+这是平台插件化计划（仓库 `docs/plans/1795366269_platform-pluginization.md`）的实时状态入口。原后端解耦计划已归档；历史资格仍限定原源码与拓扑，不代表新默认档已经验收。推理扩展的[直连入门](/dev/ml-backend/starter#direct-registration)与安装档分开。部署收敛已实施首批 Workspace 六项，其余动作仍按下表确认。
 主线在线学习、数据集原件与受控存储纳入后，重构重点从“等待功能落地”转为提取完整 owner 边界：
 Assets 必须统一原件身份、物理 I/O 责任、存储计量、来源保留与业务发布；
 Learning 必须收口数据版本、训练、评估、主动学习和模型发布账本，再撤销跨领域私表读取。
@@ -150,29 +150,31 @@ Learning 必须收口数据版本、训练、评估、主动学习和模型发�
 已使用旧重构数字修订的数据库不能自动 `stamp` 到新图；必须先在隔离副本审计实际结构和数据，
 再单独安排迁移。本轮隔离验证不改动日常数据库。
 
-### 部署收敛决定表：待维护者确认 {#deployment-convergence}
+### 部署收敛决定表 {#deployment-convergence}
 
-盘点根目录全部 44 个 `docker-compose*.yml` 的 `services` 键：去重后 59 个。基础文件定义 15 个，连同 `prod`／`lan-prod` 独有的 `api`、`web`、`gateway`、`migrate`、`redis-production` 共 20 个核心键；其余 39 个逐项列在下面。同名覆盖只算一次，数量不是实际运行进程数。`hostvols`、`ml` 只改卷。**以下是基于源码、授权 SQL 和部署配置的建议，不是已执行的合并，也不是默认档冷启动验收。**
+M2a 历史盘点：根目录 44 个 `docker-compose*.yml`，去重后 59 个 `services` 键。基础定义 15 个，连同 `prod`／`lan-prod` 独有的 `api`、`web`、`gateway`、`migrate`、`redis-production` 共 20 个核心键，其余 39 个列在下表。`hostvols`、`ml` 只改卷。
+
+M2b 首批退役 Workspace 的九份 Compose 文件和六个服务键。当前根目录为 35 份 Compose 定义、53 个不同服务键，基础及两份生产叠加之外为 33 个。同名覆盖只算一次，数量不是实际运行进程数。**仅标为「已合并」的 Workspace 六项已变更**；其余行仍是待确认的建议，不是默认档冷启动或生产验收结论。
 
 “合并”指复用现有 owner 入口、保留固定函数、调用方事务和失败语义；不是给普通账号授予私表或拆出进程的全部权限。表中的 `*_client` 是受限 LOGIN，不是拥有对象的 NOLOGIN 角色。显式选择远端时，其故障不能回退到权限更宽的本地连接。
 
 #### Workspace 与 Labeling
 
-Workspace 的六个 API 入口位于 `apps/api/app/services/workspace_*.py`。每个 split 服务持相应的 `yoao_workspace_<能力>_client` DSN 和控制 bearer；默认档可以把当前 Session 传给同一个 manager。`workspace-development` 只修改六个既有键，`workspace-class-rename`、`workspace-inference-probe` 只修改 `workspace-configuration`。
+Workspace 的六个入口 `apps/api/app/services/workspace_*.py` 现在使用与原调用方 `AsyncSession` 绑定的数据适配器和现有 manager，登录仍是普通应用 SQL 角色。冻结 SQL、专用一致性凭据及可移植合同保留；产品不再读取按操作的 URL、专用命令／查询 DSN 或共享 Workspace HTTP bearer。M2b 不切换本机日常环境；旧安装先阅读[升级门禁](/ops/upgrade-guide#workspace-split-upgrade)，不得照旧拓扑滚动升级或把 owner 连接交给 API。
 
-| 服务键                      | 已有入口与凭据                                                                                              | 建议及切换条件                                                                                                                        |
+| 服务键                      | 已有入口与凭据                                                                                              | 状态及切换条件                                                                                                                        |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace-membership`      | `MembershipManager`；membership 的 prepare／apply                                                           | 合并；成员、职责交接、Audit 与成功回执仍同事务。                                                                                      |
-| `workspace-owner-transfer`  | `OwnerTransferManager`；owner_transfer 的 transfer                                                          | 合并；保留账号／项目锁和提交后投影。                                                                                                  |
-| `workspace-configuration`   | `ConfigurationManager`；configuration、guide 能力，另用 Inference probe bearer                              | 合并配置；改类名仍与 Labeling 写入同事务；推理凭据只由远端 probe 打开。                                                               |
-| `workspace-template-query`  | `TemplateQueryManager`；template_query 的 policy／step                                                      | 合并；保留 caller autoflush 和模板投影。                                                                                              |
-| `workspace-project-query`   | `ProjectQueryManager`；project_query，显示资料另用 Identity Briefs                                          | 合并；不要用读账号代替权限复核或直接读用户表。                                                                                        |
-| `workspace-directory-query` | `DirectoryQueryManager`；directory_query，必要时取 Briefs                                                   | 合并；目录与 mention 的可见性、原 Session 的未提交状态不变。                                                                          |
+| `workspace-membership`      | `MembershipManager`；membership 的 prepare／apply                                                           | 已合并；成员、职责交接、Audit 与成功回执仍同事务。                                                                                    |
+| `workspace-owner-transfer`  | `OwnerTransferManager`；owner_transfer 的 transfer                                                          | 已合并；保留账号／项目锁和提交后投影。                                                                                                |
+| `workspace-configuration`   | `ConfigurationManager`；configuration、guide 能力，另用 Inference probe bearer                              | 已合并；改类名仍与 Labeling 写入同事务；推理凭据只由 Inference probe 打开。                                                           |
+| `workspace-template-query`  | `TemplateQueryManager`；template_query 的 policy／step                                                      | 已合并；保留 caller autoflush 和模板投影。                                                                                            |
+| `workspace-project-query`   | `ProjectQueryManager`；project_query，显示资料另用 Identity Briefs                                          | 已合并；不要用资料读取代替权限复核或直接读用户表。                                                                                    |
+| `workspace-directory-query` | `DirectoryQueryManager`；directory_query，必要时取 Briefs                                                   | 已合并；目录与 mention 的可见性、原 Session 的未提交状态不变。                                                                        |
 | `labeling-class-query`      | 进程内 Class Query；`yoao_labeling_class_query_client` 的三个函数                                           | 有条件合并；工作树已有函数授权，LAN 普通登录未配齐，不能授私表补足。                                                                  |
 | `labeling-video-writer`     | tracker worker 的 `video_tracking/writer.py`；`yoao_labeling_video_writer_client`，split 另需 Mask 字节核验 | 合并到原 worker；保留窗口代次、最终写入复核及历史字节归属。                                                                           |
 | `labeling-mask-gc`          | `mask_gc_collection.run_cycle`；`yoao_labeling_mask_gc_client` 和独立 Assets cleanup token                  | 暂留操作入口。现有 Beat 清理的是保存目标对象，开发 overlay 也关闭轮询；先验证同一 GC 的 dry-run、恢复和历史对象清理，再决定合并调度。 |
 
-切换涉及 `test_workspace_module_assembly_live.py`（`AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE`）、Workspace／Labeling 的容器测试、`test_mask_gc_runtime_image.py`（`AAP_MASK_CONTENT_ACCEPTANCE`）；保留 manager／SQL／第二语言对照。同步 `DEV.md` 和 [Workspace](/api/guides/workspace-runtime)、[Labeling](/api/guides/labeling-runtime)、[Mask](/api/guides/mask-content) 运行指南。
+Workspace 的真实宿主装配用例通过模块数据验证器显式选择 `tests/test_workspace_module_assembly_live.py`，配方见 `DEV.md` 的“Workspace 宿主与包一致性验收”；包级 manager、SQL、第二语言对照及独立冷 worker 验收仍保留。Labeling 继续使用其容器测试及 `test_mask_gc_runtime_image.py`（`AAP_MASK_CONTENT_ACCEPTANCE`）。运行边界见 [Workspace](/api/guides/workspace-runtime)、[Labeling](/api/guides/labeling-runtime)、[Mask](/api/guides/mask-content)。
 
 #### Identity、Notifications、Jobs 与 Audit
 
@@ -229,9 +231,9 @@ Inference 的定向选择是 registry ingress、health observation、Workspace p
 
 两个不计入 Compose 的边界：**Storage Agent** 从站点出站 HTTPS，持站点 token、只读文件根和 SQLite 日志，无中心 DB；保留远端进程、`storage-agent-tests` 与[站点部署指南](/ops/deploy/site-agents)。**LibreYOLO** 由独立制品和安装器交付，不是遗漏的第六个 ML 服务键。
 
-#### 转入合并前的验收门
+#### 验收与后续收敛
 
-1. 建议先选 **Workspace 六项**：已有内嵌 manager，切换不需要把 signer、broker 或存储删除身份交给 API。用真实项目验证权限拒绝、回滚、改名与 Inference 探测，然后再退对应的容器装配选择器。其余组按上表前置条件单独确认。
+1. **Workspace 六项已完成源码与部署定义合并。** 现有嵌入 manager 不需要把 signer、broker、存储删除身份或 probe DSN 交给 API。验收须用真实请求核对权限拒绝、回滚、改名与跨 owner Inference 探测。其余组仍按上表前置条件单独确认；日常切换属于另行授权的 M2c。
 2. CI 入口为 `ci.yml` 的 owner matrix（`scripts/test-suite-inventory.mjs`／`scripts/test-suites.json`）及 `backend-test.yml` 的消费者分片；后者直接调用模块验证器时仅跑 `--reclamation-only`。逐 overlay 的冷验收另走 `scripts/verify_module_data_boundary.py --test-file`。只迁移装配选择器，不删除第二语言 peer、协议、SQL／角色拒绝与恢复检查。环境选择器变化时同步 `.env.example`、生成的环境变量页和部署说明。
 3. **两个旧阻塞都未关闭。** [宿主机转发](#runtime-host-forwarding)是特定 Docker Desktop 路径的 TCP 故障；不经过它不等于修复，保留的 split 仍需实际私网连通验证。基础及标准生产的混合维护 worker 优先选迁移 DSN，且还跑预测分区与物化视图；LAN 配置不同。删除 Audit overlay 既不能收掉该权限，也不能把整条队列换成 Audit 单函数账号。
 
@@ -299,9 +301,9 @@ PostgreSQL 副本恢复后验证原数据、对象 owner 和本次迁移，再�
 
 Audit 与 Labeling 未暂缓范围的实现和已知调用方收口阶段已交付。Audit 独立维护 CLI、当前 API 查询／导出与元数据 worker、既有 Beat／维护队列三项任务的集中冷验收及 PostgreSQL 恢复均已通过。旧视频的 [PostgreSQL](#legacy-video-postgres-fence)、[精确 worker 与作用域 S3](#legacy-video-worker-storage-facts)事实采集已独立于测试图，并通过[当前本地组合验收](#legacy-video-current-combination)：真实 scope 退役、同任务旧凭据重投失败及 Native 删除／输入保留守卫均保持。Workspace 当前支持协议的实现、消费者迁移与本地模块资格已通过；[实际本机盘点](#workspace-local-history-applicability)没有历史作业，不能再将假定缺少历史清单作为当前外部阻塞。通用旧库退役入口尚未实现，未知旧状态继续 409 并保留输入，不冒充历史迁移已通过。完整 Audit 保留暂缓 Learning 读取，默认混合维护 worker 凭据由 Runtime assembly 单列；不扩修业务 request ID 遗留问题，训练／Learning、Assets 和 Go 范围保持。
 
-Workspace 已按[本机日常采用](#workspace-daily-adoption)切换普通 API 数据库账号与独立运行进程。
-下文原始操作切片中的“日常未切换”限定其当时证据；当前状态以上方说明、唯一台账及采用节为准，
-不据此将其他模块或生产环境一并标为已采用。
+当前源码的 Workspace 默认装配已将六项合并回 API。[本机日常采用记录](#workspace-daily-adoption)
+描述此前的拆分拓扑及普通数据库账号；本次没有刷新该环境、轮换凭据或撤销授权。
+下文操作级验收和历史日常状态各限于原候选，不据此将新默认档、其他模块或生产一并标为已采用。
 
 Labeling 未暂缓范围的运维、当前工件与本地模块门槛现已闭合，并在本机采用五个独立
 进程；[采用证据](#labeling-operational-boundary)单列实际权限、HTTP／S3 与只读预览。
@@ -319,8 +321,8 @@ Workspace probe 已切到同一独立 owner；[完整证据与采用范围](#inf
 | 模块／操作组                             | 实现                                                                                                               | 消费者迁移                                                                                       | 独立运行验收与证据                                                                                                                                       | 剩余阻塞／下一交付                                                                                                                                                                                                                                                                                                                                               |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Identity：完整模块                       | 九组业务能力、账号事实／事务锁、provisioning 及独立工件已实现                                                      | 生产 API／worker、邮件、种子／截图、运维及门控测试的 Identity 操作已迁移                         | [整模块装配](#identity-整模块独立装配)与主工作树采用检查点 d2ea90f3f 保留，本地冷安装／真实消费者／完整恢复通过                                          | 本地模块资格和源码采用完成；日常独立拓扑未切换，另一语言完整提供方、其他网络拓扑及生产容量未验收。宿主机转发仍见 Runtime assembly                                                                                                                                                                                                                                |
-| Workspace：项目、成员、配置及访问 | 六组 HTTP 能力、31项具名操作及既有同事务 Native 能力已盘点；契约环与默认存储围栏已收口 | 普通 Project／成员／模板／回执、固定 seed／运维调用已审计，不改 caller UOW | [当前模块资格](#workspace-module-audit)保留源码／非editable各547项、626项Native及恢复／worker／混合负载证据；[本机日常采用](#workspace-daily-adoption)的实际普通账号、六个HTTP边界、八个服务及真实Guide字节检查通过 | 当前支持协议的本地模块门槛与本机日常独立拓扑采用完成；[本机历史迁移不适用](#workspace-local-history-applicability)；通用旧库退役入口未实现，未知旧状态仍409；不代表生产或其他环境采用 |
-| Workspace／Jobs：取消后重投 | 取消和审计先提交，再复用现有派发器重投同一作业；不确定投递返回可重试503 | 当前 API 入口已迁移；重复取消不重建作业、不重复审计 | [取消恢复](#video-cancel-redrive)：真实队列／prefork 丢失恢复、退役与删除门禁通过 | 操作及当前组合的本地资格完成，Workspace本机日常采用完成；未知旧库仍须真实围栏／退役，不据空库生成凭证；Jobs整模块另列，本次不新增Celery消费者 |
+| Workspace：项目、成员、配置及访问 | 六个调用方事务入口、31 项具名操作及已有同事务 Native 能力；固定合同与普通存储围栏不变 | API 仅用进程内 owner，按需保留 Inference 探测和 Identity Briefs；固定 seed／运维不改 caller UOW | [历史模块资格](#workspace-module-audit)保留源码／非 editable 各 547 项、626 项 Native 及恢复／worker／混合负载证据；[旧日常采用](#workspace-daily-adoption)保留八个服务、实际普通 SQL 账号及 Guide 字节证据 | M2b 源码合并不等于 M2c 日常迁移或生产资格；[当时本机历史迁移不适用](#workspace-local-history-applicability)，未知旧状态仍返回 409 |
+| Workspace／Jobs：取消后重投 | 取消和审计先提交，再复用现有派发器重投同一作业；不确定投递返回可重试503 | 当前 API 入口已迁移；重复取消不重建作业、不重复审计 | [取消恢复](#video-cancel-redrive)：真实队列／prefork 丢失恢复、退役与删除门禁通过 | 操作及原组合的本地资格保留；未知旧库仍须真实围栏／退役，不据空库生成凭证；Jobs 整模块另列，本次不新增 Celery 消费者 |
 | Workspace：项目删除 | 原子 Native 协调器及 Workspace 可移植命令／连接式客户端已实现 | API 已通过同一请求事务调用 owner；不新增独立提交点 | [项目删除](#workspace-项目删除事务切片)通过76项源码／受限 PG／Node／实际 API 定向检查，当前组合冷恢复通过 | 当前支持协议与[退役门禁](#video-deletion-retirement)已通过；未知旧作业仍409；通用旧库排空／修复是条件性未实现能力，不作为本机缺资料阻塞 |
 | Workspace：数据集解绑 | 原协调器、可移植合同／管理器及借用事务 PostgreSQL 绑定已实现 | API 通过相同 Session 调用 Workspace；原响应／缓存／提交保持 | [解绑切片](#workspace-数据集解绑事务切片)通过72项不同案例，含受限双函数 LOGIN、Node、实际 HTTP 与当前组合冷恢复 | 当前调用、退役门禁、受限凭据与恢复已通过；未知旧作业仍409；通用旧库排空／修复适用性与项目删除相同 |
 | Assets：来源、目录、连接及媒体／输入     | 已有 Source、Catalog、Media、Images、accepted inputs 和视频输入能力                                                | 已迁移选定导入、Workbench 和推理输入消费者                                                       | [数据能力协议](/api/guides/module-data)及既有 ADR 保留受限进程／容器证据；[辅助保留](#来源删除的辅助引用)的实际删除与 HTTP 映射通过 11 项定向检查        | 已确认沿用既有辅助引用 409 guard；部分相机／轨迹引用缺少独立解除入口，任务、标注及学习证据保留；一般 Blob、其余输入、运维写入与完整装配仍待收口                                                                                                                                                                                                                  |
@@ -343,7 +345,7 @@ Workspace probe 已切到同一独立 owner；[完整证据与采用范围](#inf
 | Audit：分区、保留与冷归档 | 固定维护合同／Native 能力与调用方事务适配已实现，上传成功后以同事务快照锁退役分区 | 原 API／Celery 入口已迁移；独立 CLI 使用专用写凭据，管理员列表／读取使用独立只读凭据 | [维护冷验收](#audit-maintenance-cold-qualification)：真实 CLI、上传后 SIGKILL／回滚、孤儿接管、整库恢复、重复执行及原 ASGI HTTP 权限通过 | 独立 CLI 与[既有 Beat／Celery 消费者](#audit-maintenance-consumers)的限定本地资格通过；归档桶在 PostgreSQL 恢复期间保留，未验证对象存储灾难恢复；日常调度未切换 |
 | Audit：独立工件、凭据与恢复 | 独立一次性 CLI、锁定包／镜像／Compose、单函数 LOGIN 与 owner 收权源码已齐 | 现有 API／Celery 调用保持事务和签名；公开归档读者保留授权与只读绑定 | [维护冷验收](#audit-maintenance-cold-qualification)：非 editable ARM64 镜像、29 份安装文件、真实 DB／分离 S3 凭据及完整 PostgreSQL 恢复通过 | 维护／归档工件、[当前 API／元数据 worker](#audit-cold-consumers)及[既有维护调度消费者](#audit-maintenance-consumers)均通过；存量父表 SELECT 的整体收权、独立拓扑采用及单列的业务 request ID 遗留边界仍保留 |
 | Notifications：完整 Python 模块 | 固定数据合同、独立 publisher／socket、共享准入及兼容绑定已实现并冻结 | 既有 SQL 操作、API 即时发布与原 WS 地址已迁移；候选保留主线 Jobs 读取 | [候选整模块资格](#notifications-primary-adoption-candidate)：源码 913d3fc5c 的四镜像、真实 REST／Node／WS 组合、最终凭据及 0325 完整恢复通过；224／48／50 项未变组件证据复用 | 历史本地模块与采用候选资格保留；本轮仅源码整合，未迁移当前工作树的日常库，独立拓扑仍未切换。新纳入的 Learning／Assets 调用链仍须复核；完整替代语言 owner 与生产容量未验证 |
-| Runtime assembly：全模块启动、迁移和运维 | 已有独立包、受限角色及 Compose 模式可复用 | 主 API 仍承担过渡装配；旧绑定继续工作 | 各切片冷镜像证据单独保存，Workspace／Labeling本机采用分别核实 | 逐模块完成启动、凭据和恢复；混合维护worker整体凭据切换仍待其他维护操作收口。既有普通workflow profile全量重施的洁净凭据要求，以及5项未改API分层失败见[本阶段界限](#labeling-operational-boundary)，不以放宽权限解决。[宿主机转发](#runtime-host-forwarding)旧路径仍未修复，保留已验收私网数据库路径；历史业务503逐次归因未证实 |
+| Runtime assembly：全模块启动、迁移和运维 | 已有独立包、受限角色及 Compose 模式可复用 | 主 API 负责装配；Workspace 六项已收敛到同事务，其余组保持原选择 | 各切片冷镜像证据单独保存，Workspace／Labeling 本机历史采用分别核实 | 混合维护 worker 整体凭据切换仍待其他维护操作收口。既有普通 workflow profile 全量重施的洁净凭据要求，以及 5 项未改 API 分层失败见[本阶段界限](#labeling-operational-boundary)，不以放宽权限解决。[宿主机转发](#runtime-host-forwarding)旧路径仍未修复，保留已验收私网数据库路径；历史业务 503 逐次归因未证实 |
 | 插件装配与扩展安装 | 推理准入、作者 SDK、管理员安装器与 HTTP 适配分工明确；全扩展点装配仍未交付 | SDK／运行时／Mask 工具归独立 Plugin-SDK；六个官方插件实现归 YOAO-Plugins，平台旧模型源码已退役，Compose 使用独立固定镜像 overlay | 阶段 D、E 的限定本机资格保留；两种 SAM 均通过原生 Mask、正反向跨窗视频、全池两轮 GPU 生命周期及正常退役；SAM3 另覆盖 exemplar、PVS 和 multiplex | 新部署仍须按真实镜像、设备与权重验收并明确切换项目；核心装配、其他扩展、第三方许可与生产容量门禁独立推进 |
 
 这些模块的公开 HTTP 仍由主 API 聚合。端口、owner 表台账和架构守卫本身不能证明独立二进制、独立部署、最小凭据或跨语言兼容；各模块以其实际运行证据为准。下述建题数据接口只覆盖选定的事务操作，不能代替整模块验收。
@@ -792,17 +794,23 @@ Identity account-lock boundary 用三项 typed SQL functions（SHARE／UPDATE／
 
 ## Workspace 组合运行与恢复验收
 
+> 以下为退役前拆分拓扑的历史验收，不是当前部署步骤或宿主装配结果。
+
+当前复验见 [Workspace 运行指南](/api/guides/workspace-runtime#workspace-deployment) 与 `DEV.md` 的“Workspace 宿主与包一致性验收”；旧拆分测试配方已退役。
+
 复用六个既有 Compose 片段，用同一个 Workspace 冷镜像启动成员、交接、配置、模板、项目及目录服务；另起 API、Inference probe 和 Guide 对象服务。九个进程经独占私网访问本轮 PostgreSQL／Redis。API 使用独立冷镜像，Workspace 权限限定为 32 个函数和两张事实视图，私表及回执不可读；六项 HTTP 选择器与借用调用方事务的 Native 能力共同装配。
 
 非 editable 安装通过 439 项适用检查，274 个包文件、12 个命名空间与安装及 owner 镜像一致；环境不含 API、SQLAlchemy、Celery、对象存储 SDK 或 ML 框架。API 镜像另核对 1,273 个应用与安装文件。镜像健康探针读取已有 `WORKSPACE_PORT`，六个既定端口均通过真实容器检查。
 
 组合案例覆盖模板、项目／类别、成员预览和撤权、负责人交接、实际后端探测和 Guide 对象操作；选定服务停止后返回 503，重启后重放同一回执。六个 HTTP owner 均停止时，借用 Native 事务的读取、维护、项目删除及数据集解绑仍保持现有行为。点云质量晋升通过真实 API 验证：Audit 后置失败时项目配置和评估共同回滚，成功时三个状态一起提交，旧基线返回 409。
 
-带业务数据和删除／解绑回执的数据库完整恢复后，九个进程在恢复库重新启动；项目鉴权、无效令牌拒绝、回执重放、受限 ACL 及未退役旧视频的 409 均通过。旧视频的项目／作业和零删除回执保持。迁移工件安装、回滚及升级检查通过，验收器删除全部自有资源且无清理错误。可重复入口见 `DEV.md` 的“Workspace 组合私网验收”。
+带业务数据和删除／解绑回执的数据库完整恢复后，九个进程在恢复库重新启动；项目鉴权、无效令牌拒绝、回执重放、受限 ACL 及未退役旧视频的 409 均通过。旧视频的项目／作业和零删除回执保持。迁移工件安装、回滚及升级检查通过，验收器删除全部自有资源且无清理错误。
 
 16 次项目读取、并发 4 的本机样本耗时 1.180 秒，观测 p95 为 0.335 秒。这是 macOS ARM64 的有限正确性样本。独占 worker 案例另起同一个 API 冷工件中的真实 prefork Celery 进程：受限 `identity_api_consumer` 连接通过 Native 读取项目，重启前后两个 retry 均写入 Prediction／元信息及作业终态，真实队列与 Redis 未确认消息数归零。容器保持普通 UID、只读根文件系统、1 CPU／512 MiB；该案例通过后清理全部自有资源。它不覆盖公共 retry 入队、池路由、源对象读取或 ML 正确性。冷 nuScenes 运维入口的限定资格见下节；旧视频无证明的退役修复、其余运行路径与更完整容量仍按台账跟踪；未切日常主环境，也未获得 AMD64、远程 CI、生产或另一语言完整提供方资格。Inference peer 是确定性 HTTP 协议夹具。
 
 ### Workspace 整模块源码与资格审计 {#workspace-module-audit}
+
+> 本节保留当时的候选及源／工件对照，不把拆分配置的资格移记为当前版本。
 
 当前源码已按六个 HTTP 能力、同事务 Native 读锁／删除／解绑、维护、seed、夹具与
 历史角色审计入口盘点；没有发现需要再拆一个普通 Workspace 业务服务的缺口。
@@ -854,7 +862,7 @@ ORM缓存同步适配器迁入 `labeling_batch_control_data.py`，所有实际�
 清理AI／保留人工内容、贡献者记录与指派覆盖等10个行为案例通过。原失败收据保留，
 没有关闭或收窄图守卫。
 
-### 当前混合读写补验 {#workspace-current-mixed-load}
+### 旧拆分拓扑混合读写补验 {#workspace-current-mixed-load}
 
 当前工件补验使用现有并发1／4／8场景；只移除“全库 users／projects 必须为空”的过时
 前置断言，保留独占数据库身份、受限消费者、UUID隔离、全部业务与最终持久状态检查。
@@ -906,7 +914,9 @@ API应用／迁移／CLI、安装包和其他运行字节未变；没有重建�
 SHA-256为`f1c3386a76083881c5ab25e17c7e344fc95b05d856529aa9aca0b847c8adfc53`。
 此前139份证据包保持不变，原失败与旧范围不重写、不重计。
 
-### 本机日常采用 {#workspace-daily-adoption}
+### 本机日常采用记录：旧拆分拓扑 {#workspace-daily-adoption}
+
+> 以下保留当时实际部署与授权证据，不是当前安装说明。旧 Workspace Compose 配方已退役；本轮没有迁移该环境，需按[升级门禁](/ops/upgrade-guide#workspace-split-upgrade)另行安排。
 
 本机主checkout的`annotation`库保持原OID16384、迁移head0366与原PostgreSQL容器。
 采用前已保存私有数据库、角色与API LaunchAgent备份；没有清库、播种用户／项目或
@@ -947,7 +957,6 @@ Inference probe证明了真实SQL配置与健康，不据此宣称真实模型`/
 Workspace／Inference／AssetsSource的完整583／135／162项COPY名称及哈希仍与已验镜像相等，
 复用三个不可变镜像及离线证明。API使用当前宿主源码，不把旧API冷镜像记作本次新源码工件。
 本机原无Celery消费者，本次没有新起普通／ML／maintenance worker；其他模块的采用门槛不变。
-部署与迁移后重新授权命令见仓库`DEV.md`的“本机日常Workspace独立运行”。
 
 规范收据`.worktree/workspace-daily-adoption.json` SHA-256为
 `619925b66c0143847e67bfe515a563ad0f045fcf3b6e49039fbae57c0605d805`；
@@ -1501,7 +1510,7 @@ Node、排序锁等待、缓存与时间字段、精确授权和异常回复回�
 
 ## Workspace 项目负责人转移命令
 
-直接负责人转移已使用 `aap-workspace-owner-transfer/v1` 和独立两项 RPC 凭据；当前 Native namespace 为 `yoao_workspace_owner_transfer_v1`，专用 LOGIN 为 `yoao_workspace_owner_transfer_client`。前向迁移要求先关闭旧 LOGIN、停止旧写入并排空可调用连接；迁移拒绝不满足条件的旧库，不主动终止连接，也不提供旧入口别名。保留公开路由、错误顺序、默认调用方提交边界、账号／项目锁冲突差异、事务时间戳及同一负责人不写入的行为。私有回执与 owner 更新原子提交；响应丢失后可用同一私有 UUID 重放，后续转移不会被旧回执重新覆盖。无需公开幂等头，也不额外写业务 Audit。
+直接负责人转移在 API 内用调用方事务执行 `aap-workspace-owner-transfer/v1`。Native namespace 为 `yoao_workspace_owner_transfer_v1`；包一致性仍使用专用 `yoao_workspace_owner_transfer_client` 的两项 RPC。旧 namespace 的前向迁移要求先关闭旧 LOGIN、停止旧写入并排空可调用连接；迁移不主动终止连接，不提供旧入口别名。保留公开路由、错误顺序、提交边界、账号／项目锁冲突差异、事务时间戳及同一负责人不写入的行为。私有回执与 owner 更新原子提交；包对照可用同一私有 UUID 验证重放，后续转移不会被旧回执重新覆盖。无需公开幂等头，也不额外写业务 Audit。
 
 当前命名试点通过 70 个去重选定案例：20 项双 namespace 安全识别／授权及 50 项负责人转移，另有 34 项单元检查通过。最终结果组合了 66 项未变更的通过证据与四条兼容路径的定向复验，并非一次全量运行。填充历史状态的前向切换与拒绝原子性、四条绑定的旧响应和调用方事务、受限权限、丢响应恢复、当前备份恢复，以及 Python／Node 受限镜像的真实调用和重启重放均通过。两个镜像和非 editable 安装包保留原始来源；按当前输入摘要复用，没有因测试修正重新构建或改贴标签。
 
@@ -1509,12 +1518,12 @@ Node 仅提供本地单命令 transport conformance；Native 继续持有业务�
 
 ## Workspace 模板查询
 
-模板、项目和成员目录读取分别使用 `yoao_workspace_template_query_client`、`yoao_workspace_project_query_client` 和 `yoao_workspace_directory_query_client`。已有数据库升级时，先停止旧服务接入、将三个旧查询角色设为 `NOLOGIN`，再排空已建立的查询连接；仅改密码不会断开已有连接。完成前向迁移后应用当前 owner 与各查询角色的 grants，更新专用 DSN，再启动读者。默认调用方事务不需要专用 DSN。旧凭据不作为备用入口。
+模板、项目和成员目录都在 API 原事务内读取。`yoao_workspace_template_query_client`、`yoao_workspace_project_query_client` 和 `yoao_workspace_directory_query_client` 保留供独立包一致性验证，不用作 API DSN。来自旧 namespace 的数据库仍须满足原迁移围栏：停止旧读者接入、关闭三个旧 LOGIN 并排空已建立的连接；仅改密码不会断开连接。旧凭据不作为备用入口。
 
 项目删除和数据集解绑通过 `yoao_diagnostics_v1` 与 `yoao_insights_v1` 清理关联；权限仍归原 owner，失败随调用方事务回滚。Jobs、Notifications、Inference 和 Workspace 配置调用当前查询函数，不重写已保存的协议、查询结果或回执。编号 SQL 供历史迁移使用，不在现行数据库上重放。
 
-模板列表、详情与配置提交后的响应投影通过独立查询能力接入 Workspace owner。
-默认调用方事务、专用 DSN 和独立 HTTP 三条路径均对照原40项 HTTP 观测；
+模板列表、详情与配置提交后的响应投影使用既有 Workspace 查询 owner。
+退役前的调用方事务、专用 DSN 和独立 HTTP 三条路径均对照原 40 项 HTTP 观测；
 默认绑定保留自动刷新，远程显式故障不回退。查询角色只有两项函数权限，
 独立连接使用只读事务。它接收可信 API 的已认证身份快照，投影绑定成功配置回执。
 独立安装包、受限 owner/API 镜像、故障恢复、备份恢复和0259完整迁移均已通过限定本地验收。
@@ -1528,7 +1537,7 @@ Node 仅提供本地单命令 transport conformance；Native 继续持有业务�
 
 Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事实和 Inference 服务池启用的初始 typed Native 能力已通过隔离权限、真实旧／新写入顺序、时间戳、回滚和迁移恢复检查；命令实现补充了按原阶段读取的类型化能力。
 
-项目创建／更新、模板创建／更新／删除／复制已使用封闭协议和同一个 Workspace owner，原 API 配置工作流与 ORM 命令已移除。默认端口借用调用方事务，HTTP 保留提交与响应；专用 DSN／HTTP 自行拥有业务事务。成功回执、未完成草稿提交围栏、两项 RPC 的专用 LOGIN 及配置独立运行入口均已实现。
+项目创建／更新、模板创建／更新／删除／复制使用封闭协议和同一个 Workspace owner，原 API 配置工作流与 ORM 命令已移除。产品端口借用调用方事务，HTTP 路由保留提交与响应。成功回执、未完成草稿提交围栏、两项 RPC 的专用包对照 LOGIN 与便携 HTTP 合同保持；后者不再是产品装配。
 
 基础 Native 验收通过5项，包含全部六种命令及重放；相关公开 API 通过57项。调用方事务、专用 DSN 和独立 HTTP 三条路径各已对照106项实际旧 HTTP 响应，默认路径另核对17项调用方记录，保留公开错误、外部探测顺序和业务回滚。三项写入转换错误的 SQLAlchemy 内部 active 标记不作兼容承诺；原客户端 SQL trace 无法观测 Native 内部语句，未计为已匹配。实际 PostgreSQL 更新次数、锁竞争、探测期间撤权回滚，以及独立进程的丢响应重试和重启重放均已通过。失败事务与恢复通过4项，另有9项关联恢复无跳过通过；0257 完整迁移验证通过，派生数据库均已清理。非 editable 安装通过132项 Workspace 与27项 Inference 检查，46个包文件指纹匹配。受限 owner/API 镜像和实际容器联调通过；1 CPU／256 MiB 下，16个独立项目、并发4全部完成，无 OOM，本地观察 p95 约114 ms。六项配置命令的限定本地验收已完成，完整 Workspace 的读取投影、相邻写入和全模块资格仍待推进。边界、基线与剩余门槛见 [ADR-0136](/dev/adr/0136-workspace-configuration-command-owner)。
 
@@ -1536,8 +1545,8 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 
 类别重命名已接入同一个 Configuration owner，使用独立的无状态命令分支，
 在一个事务内组合 Workspace 绑定策略和 Labeling 的窄类名写入。
-同名操作的独立提供方在权限锁释放前完成项目投影，不额外写入成功回执；
-改名传输不自动重发。47 个去重选定数据库／进程检查已通过，包括三路径、
+同名操作在原调用方持锁期间完成项目投影，不额外写入成功回执，不自动重发。
+历史拆分切片的 47 个去重选定数据库／进程检查已通过，包括三路径、
 当前受限镜像、真实撤权竞争、重启、源库及克隆恢复和完整迁移。
 源码与非 editable 安装各通过 273 项 Workspace 检查；本地并发样本不代表生产容量。见
 [ADR-0143](/dev/adr/0143-workspace-project-class-rename-owner)。
@@ -1620,9 +1629,9 @@ Labeling writer、提供方资格和完整崩溃续跑验收仍待完成，不�
 
 ## Workspace 后端能力探测
 
-Workspace 配置路径只持有 registry ID 和不透明事务快照；Inference 独立持有凭据并执行
-setup。API 支持借用连接、专用 DSN 和 HTTP，独立 Workspace 使用同一私有 HTTP 协议。
-三种模式保持原读取时点、后端故障 fail-open、内部故障503与旧物化错误的回滚阶段；
+Workspace 配置在 API 进程内借用原 Session，只持有 registry ID 和不透明事务快照。
+真实探测仍由 [Inference 的认证 HTTP owner](/api/guides/inference-runtime#workspace-的后端能力探测)
+持有凭据并执行。原读取时点、后端故障 fail-open、内部故障 503 与旧物化错误的回滚阶段保持；
 原事务结束后拒绝重新打开快照。没有额外业务提交或外部 I/O 前的 registry 行锁。
 
 `yoao-inference-contract` 单独发布值、wire schema 和客户端；专用 probe LOGIN 只有两个
@@ -1630,7 +1639,7 @@ setup。API 支持借用连接、专用 DSN 和 HTTP，独立 Workspace 使用�
 health apply、路由/GPU、发布与部署等其余控制面，也不代表全模块语言替换。运行配置及
 限定验收见 [ADR-0149](/dev/adr/0149-credential-owning-workspace-backend-probe)。
 
-本切片54项去重选定验收通过，三路径各匹配106项原公开响应，借用路径另匹配17项调用方记录；
+退役前本切片 54 项去重选定验收通过，三路径各匹配 106 项原公开响应，借用路径另匹配 17 项调用方记录；
 源码445项，独立安装的 Inference／Workspace 分别128／445项通过。非空恢复、完整迁移、
 当前三镜像指纹及实际受限容器链路均通过；停止 Inference 后明确503且不新增业务写入。
 单次链路验证不代表容量、优雅交接、真实 GPU、AMD64 或全模块资格。
@@ -1639,8 +1648,8 @@ health apply、路由/GPU、发布与部署等其余控制面，也不代表全�
 
 指南使用受管上传、不可变存储引用与维护门。Workspace Configuration 的 `guide_assets_step`
 持有发布、解除引用、列表 CAS 和跨项目复制；项目删除单独退休引用。字节 I/O 不进入
-Workspace 进程，解除最后一个引用后由清理流程处理物理对象。配置 owner 的专用 LOGIN
-仅执行封闭命令能力，不读取上传原表，也不持有 S3 凭据。
+Workspace owner，解除最后一个引用后由清理流程处理物理对象。配置命令使用原
+调用方 SQL 能力，不读取上传原表，也不持有 S3 凭据。
 
 旧指南字节服务及其部署 overlay 已移除。[原指南 ADR](/dev/adr/0144-workspace-guide-assets-owner)
 保留历史设计与验收记录，但其中的三绑定、容器、恢复和容量数据不覆盖当前发布流程。
@@ -1651,7 +1660,7 @@ Workspace 进程，解除最后一个引用后由清理流程处理物理对象�
 
 项目成员新增、角色预览／变更与移除已收口到 `apps/workspace` 的可移植 owner。命令协议为 `aap-workspace-membership/v1`，以 prepare → portable policy → apply 在同一 PostgreSQL 事务中组合 Workspace member row、Identity/Project 当前权威、Labeling 工作事实与交接、typed Audit 及不可变成功 receipt。现有 Python preview digest、blocker 顺序、CAS、NOWAIT/rollback 和公开 API/DTO/error mapping 保持；邀请接受继续由 Identity invitation owner 处理，不另建 membership writer。
 
-独立运行时的 private endpoint 为 `POST /v1/workspace/membership/execute`，health/readiness 分别是 `GET /health` 与 `GET /ready`；仅 `yoao_workspace_membership_client` LOGIN 可调用 `yoao_workspace_membership_v1` 中的 policy、prepare、apply 三项函数。runtime 默认 `0.0.0.0:8172`、30 秒请求超时、8 个并发；API client timeout 默认 30 秒。API 可用 `WORKSPACE_MEMBERSHIP_URL` 与 control token 选择独立服务，或用 `WORKSPACE_MEMBERSHIP_DATABASE_URL(_FILE)` 选择本地专用 caller，未配置时保留 caller Session。Compose host selectors 为 `WORKSPACE_RUNTIME_MEMBERSHIP_DATABASE_URL_FILE` 与 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`。
+API 的成员适配器借用调用方事务，保留现有 `WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS`。专用包对照角色 `yoao_workspace_membership_client` 仍只有 `yoao_workspace_membership_v1` 的 policy、prepare、apply 三项固定函数；其 private HTTP、health/readiness 与 bearer 仅在可移植包一致性验证使用。
 
 此切片已通过 119 个去重选定案例（96 DB/process、23 pure/static），无有效跳过；源码与独立安装包各通过 51 项。独立 owner 镜像匹配 9 个包文件，API 镜像核对 131 个包文件、65 个本轮应用／Native 输入及 head 0253。真实 API、职责交接、重启重放、备份恢复及错误优先级均已在隔离本地验证。API 仍为过渡期 `legacy_runtime` 装配；这些结果不等于整个 API 的凭据收口、完整 Workspace 或跨语言提供方资格。owner、精确范围和未完成项见 [ADR-0133](/dev/adr/0133-workspace-membership-lifecycle-owner) 和[运行指南](/api/guides/workspace-runtime)。
 
@@ -2137,8 +2146,9 @@ Root 的限定本地 qualification 通过 77 个 distinct selected cases（76 DB
 Identity briefs 的当前能力位于 `yoao_identity_briefs_v1`，专用 LOGIN 为
 `yoao_identity_briefs_client`。已有数据库升级时，先停止旧 briefs 客户端接入、将旧
 `identity_briefs_client` 设为 `NOLOGIN` 并排空已建立的连接，再执行前向迁移；随后用
-`infra/docker/identity-briefs-grants.sql` 为新 LOGIN 安装仅两函数的授权，更新 API 与
-Workspace 读者进程的专用 DSN 后再启动。历史 0249 安装文件、冻结函数体和
+`infra/docker/identity-briefs-grants.sql` 为选择该专用身份的 Identity Briefs 消费者
+安装仅两函数的授权。Workspace 项目／目录读取使用 API 既有 Identity Briefs 装配，
+不新增 Workspace 读者进程或资料 DSN。历史 0249 安装文件、冻结函数体和
 `aap-identity-briefs/v1` wire 身份保持不变；旧凭据不作为备用入口。
 
 此 slice 把既有 `app.services.user_brief.resolve_briefs` 与

@@ -51,6 +51,14 @@ last_reviewed: 2026-10-28
 
 ## 重点注意事项
 
+### Workspace 旧拆分安装 {#workspace-split-upgrade}
+
+当前默认 API 在原数据库事务中调用六组 Workspace owner，不再有按操作选定 Workspace URL、专用 DSN 或控制 bearer 的部署档。默认安装沿用原普通应用 SQL 角色；此变更没有新的 Workspace schema 迁移或授权。
+
+若当前安装仍有这六组独立服务，或 API 环境仍设置其旧选择器，**不要带旧环境与 Compose 文件链滚动升级**。暂停升级，单独取得切换授权与维护窗口，核对现用 API／worker 角色、旧服务、配置注入及 secret 挂载，先备份并在隔离副本验证。再按批准的方案排空旧消费者、改用当前默认装配并复验权限与真实业务。代码合并不切换维护者日常环境，也不自动撤销既有凭据。
+
+不要把旧专用 DSN、数据库 owner 或迁移账号复制到 API `DATABASE_URL`，也不要扩大普通角色的私表权限。保留实际需要的 Inference 认证探测和 Identity 资料依赖，见 [Workspace 部署说明](/api/guides/workspace-runtime#workspace-deployment)。较老数据库若要跨过已有迁移，仍须满足相应迁移的原门禁。
+
 ### 训练、数据集与存储演进迁移索引（0175–0267）
 
 升级时按实际数据库版本选择下表涉及的迁移段，核对受影响表族、进程刷新要求及降级保护边界。训练执行器还须使用与 API 目录匹配的共享契约和镜像；数据集与对象存储的逐项恢复、切换顺序见[一致备份与隔离恢复演练](/ops/deploy/storage-recovery)与[对象存储迁移与切换](/ops/deploy/storage-migration-inventory)：

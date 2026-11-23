@@ -37,7 +37,7 @@ GET /api/v1/projects/query?page=1&page_size=20
 空项目返回空数组，缺失用户资料的成员继续省略。`GET /api/v1/projects/{project_id}/mention-candidates`
 按负责人、启用超级管理员、成员的顺序返回，重复用户保留首次出现的种类。
 成员组保留停用账号的现有展示规则。两条读取都按当前账号和项目可见性授权，
-没有可见权限时返回404。内部独立部署配置见 [Workspace 运行协议](workspace-runtime#项目成员与提及候选)。
+没有可见权限时返回 404。内部事务与资料读取见 [Workspace 运行协议](./workspace-runtime#项目成员与提及候选)。
 
 ## 类别与属性用量
 

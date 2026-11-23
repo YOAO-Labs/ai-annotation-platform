@@ -34,6 +34,8 @@ last_reviewed: 2026-10-26
 
 最小生产部署：1 台 4C8G + 1 个独立 PG 实例（托管 RDS 优先）。
 
+默认部署不启动 Workspace 按操作拆分的容器。项目、成员、配置与查询由 API 在原请求事务中调用 Workspace owner，继续使用普通应用数据库角色。曾使用拆分装配的安装先看[升级门禁](../upgrade-guide#workspace-split-upgrade)，不要把旧配置直接带入当前 Compose。
+
 ---
 
 ## 2. 环境变量
