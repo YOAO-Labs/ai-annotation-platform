@@ -13,7 +13,7 @@ import uuid
 from PIL import Image
 import pytest
 from sqlalchemy import select, text, update
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
 from app.db.models.dataset import Dataset, DatasetItem
@@ -23,7 +23,12 @@ from app.db.models.dataset_asset import (
     StorageBinding,
     StorageLocation,
 )
-from app.db.models.dataset_source import DatasetSourceRevision
+from app.db.models.dataset_source import (
+    DatasetScanEntry,
+    DatasetScanRun,
+    DatasetSource,
+    DatasetSourceRevision,
+)
 from app.db.models.storage_connection import StorageConnection
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.db.models.managed_original_creation import ManagedOriginalCreation
@@ -104,193 +109,9 @@ class Client:
 
 
 @asynccontextmanager
-async def isolated_world(test_engine, monkeypatch):
-    schema = "ordinary_thumbnails_" + uuid.uuid4().hex
-    tables = (
-        "storage_connections",
-        "storage_locations",
-        "storage_bindings",
-        "storage_maintenance_gates",
-        "storage_operations",
-        "datasets",
-        "dataset_items",
-        "dataset_assets",
-        "dataset_asset_locations",
-        "tasks",
-        "task_originals",
-        "task_dataset_item_links",
-        "dataset_source_revisions",
-        "thumbnail_outputs",
-    )
-    async with test_engine.begin() as connection:
-        original_schema = await connection.scalar(text("SELECT current_schema()"))
-        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        for table in tables:
-            await connection.execute(
-                text(
-                    f'CREATE TABLE "{schema}"."{table}" (LIKE "{original_schema}"."{table}" INCLUDING ALL)'
-                )
-            )
-        await connection.execute(
-            text(
-                f'CREATE TRIGGER trg_thumbnail_output_owner BEFORE UPDATE OR DELETE ON "{schema}".thumbnail_outputs FOR EACH ROW EXECUTE FUNCTION "{original_schema}".guard_thumbnail_output_owner()'
-            )
-        )
-    engine = create_async_engine(
-        test_engine.url,
-        connect_args={"server_settings": {"search_path": schema + ",public"}},
-    )
-    value = SimpleNamespace(
-        engine=engine,
-        factory=async_sessionmaker(engine, expire_on_commit=False),
-        objects={},
-        calls=[],
-        clients=[],
-        bodies=[],
-        lock_probe=None,
-    )
-    try:
-        raw = io.BytesIO()
-        with Image.new("RGB", (32, 16), (30, 60, 90)) as image:
-            image.save(raw, format="PNG")
-        value.raw = raw.getvalue()
-        raw.close()
-        value.sha = hashlib.sha256(value.raw).hexdigest()
-        monkeypatch.setattr(
-            "app.services.connector_guard.get_allowlist",
-            AsyncMock(return_value=["objects.example.test"]),
-        )
-
-        @contextmanager
-        def client(access, **kwargs):
-            instance = Client(value, access.endpoint)
-            try:
-                yield instance
-            finally:
-                instance.close()
-
-        monkeypatch.setattr(S3Access, "client", client)
-
-        class OwnedStorage(storage_module.StorageService):
-            def __init__(self, **kwargs):
-                self.client = Client(value, storage_service.client.meta.endpoint_url)
-
-        monkeypatch.setattr(storage_module, "StorageService", OwnedStorage)
-        monkeypatch.setattr(
-            reader,
-            "create_client",
-            lambda **kwargs: Client(value, storage_service.client.meta.endpoint_url),
-        )
-        monkeypatch.setattr(settings, "image_pyramid_auto_generate", False)
-        async with value.factory() as db:
-            await ensure_legacy_bindings(db)
-            dataset = Dataset(
-                id=uuid.uuid4(),
-                display_id="ot-" + uuid.uuid4().hex[:12],
-                name="Ordinary thumbnails",
-                created_by=uuid.uuid4(),
-            )
-            item = DatasetItem(
-                id=uuid.uuid4(),
-                dataset_id=dataset.id,
-                file_name="saved.png",
-                file_path="pending",
-                file_type="image",
-                width=32,
-                height=16,
-            )
-            connection = StorageConnection(
-                id=uuid.uuid4(),
-                name="B-" + uuid.uuid4().hex,
-                kind="s3",
-                scope="global",
-                config={
-                    "endpoint": "https://objects.example.test",
-                    "bucket": "saved-b",
-                    "base_prefix": "公司/root",
-                    "use_ssl": True,
-                },
-                secret_enc=b"encrypted-current-credentials",
-                revision=2,
-            )
-            location = StorageLocation(
-                id=uuid.uuid4(),
-                name="B-" + uuid.uuid4().hex,
-                kind="s3",
-                config={},
-                config_revision=2,
-                connection_id=connection.id,
-            )
-            db.add_all([dataset, item, connection, location])
-            await db.flush()
-            target = Target(
-                location.id,
-                2,
-                2,
-                "https://objects.example.test",
-                "saved-b",
-                "公司/root/_aap_managed/datasets/",
-                purpose="datasets",
-            )
-            item.file_path = target.key_prefix + "originals/" + uuid.uuid4().hex
-            asset = DatasetAsset(
-                id=uuid.uuid4(),
-                dataset_item_id=item.id,
-                media_type="image",
-                verification_state="verified",
-                checksum_algorithm="sha256",
-                checksum_value=value.sha,
-                size_bytes=len(value.raw),
-            )
-            replica = DatasetAssetLocation(
-                asset_id=asset.id,
-                location_id=location.id,
-                bucket=target.bucket,
-                object_key=item.file_path,
-                storage_ref=dataset_storage.make_ref(target, 2, item.file_path),
-                role="managed_original",
-                reference_state="present",
-                etag='"old-write-etag"',
-            )
-            task = Task(
-                id=uuid.uuid4(),
-                project_id=uuid.uuid4(),
-                display_id="ot-" + uuid.uuid4().hex[:12],
-                file_name=item.file_name,
-                file_path=item.file_path,
-                file_type="image",
-                dataset_item_id=item.id,
-            )
-            db.add_all([asset, replica, task])
-            await db.execute(
-                update(StorageBinding)
-                .where(StorageBinding.purpose == "media-cache")
-                .values(location_id=location.id, bucket=target.bucket, generation=2)
-            )
-            await db.commit()
-            value.dataset_id, value.item_id, value.task_id = (
-                dataset.id,
-                item.id,
-                task.id,
-            )
-            value.asset_id, value.location_id, value.connection_id = (
-                asset.id,
-                location.id,
-                connection.id,
-            )
-            value.key = item.file_path
-            value.objects[target.bucket, value.key] = value.raw
-        yield value
-    finally:
-        await engine.dispose()
-        async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
-        assert all(client.closed for client in value.clients)
-        assert all(body.closed for body in value.bodies)
-
-
-@asynccontextmanager
-async def native_world(test_engine, monkeypatch, *, standalone=False):
+async def native_world(
+    test_engine, monkeypatch, *, standalone=False, oversized=False, unsettled=False
+):
     """Use native public owners in one guarded, test-owned PostgreSQL database."""
     value = SimpleNamespace(
         ready=False,
@@ -324,15 +145,21 @@ async def native_world(test_engine, monkeypatch, *, standalone=False):
             assert set(value.original_client.objects) <= value.original_keys
             assert not value.original_client.versions
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
-            assert not await db.scalar(select(StorageOperation.id).limit(1))
-            assert not await db.scalar(
-                select(ThumbnailOutput.id)
-                .where(
-                    (ThumbnailOutput.state == "building")
-                    | ThumbnailOutput.uncertain_write.is_(True)
+            open_operations = list(await db.scalars(select(StorageOperation.purpose)))
+            incomplete = list(
+                await db.scalars(
+                    select(ThumbnailOutput).where(
+                        (ThumbnailOutput.state == "building")
+                        | ThumbnailOutput.uncertain_write.is_(True)
+                    )
                 )
-                .limit(1)
             )
+            if unsettled:
+                assert len(incomplete) == 1 and incomplete[0].state == "failed"
+                assert open_operations == [thumbnail_outputs.purpose(incomplete[0].id)]
+            else:
+                assert not incomplete
+                assert not open_operations
             assert not await db.scalar(
                 select(ManagedOriginalCreation.id)
                 .where(
@@ -524,7 +351,11 @@ async def native_world(test_engine, monkeypatch, *, standalone=False):
                 verification_state="verified",
                 checksum_algorithm="sha256",
                 checksum_value=value.sha,
-                size_bytes=len(value.raw),
+                size_bytes=(
+                    media.THUMBNAIL_MAX_SOURCE_BYTES + 1
+                    if oversized
+                    else len(value.raw)
+                ),
             )
             db.add(asset)
             await db.flush()
@@ -636,13 +467,14 @@ async def native_world(test_engine, monkeypatch, *, standalone=False):
 
 @pytest.fixture
 async def world(test_engine, monkeypatch, request):
-    mode = getattr(request, "param", "isolated")
-    fixture = (
-        native_world(test_engine, monkeypatch, standalone=mode == "standalone")
-        if mode != "isolated"
-        else isolated_world(test_engine, monkeypatch)
-    )
-    async with fixture as value:
+    mode = getattr(request, "param", "native")
+    async with native_world(
+        test_engine,
+        monkeypatch,
+        standalone=mode == "standalone",
+        oversized=mode == "oversized",
+        unsettled=mode == "unsettled",
+    ) as value:
         yield value
 
 
@@ -684,7 +516,7 @@ async def result(world, kind="dataset_item"):
 
 @pytest.mark.parametrize(
     "kind,world",
-    [("dataset_item", "isolated"), ("task", "native")],
+    [("dataset_item", "native"), ("task", "native")],
     indirect=["world"],
 )
 async def test_worker_entries_read_saved_b_and_publish_independent_b_thumbnail(
@@ -759,6 +591,7 @@ async def test_missing_dataset_dimensions_commit_then_repin_actual_facts(world):
     assert output.input_ref["source"]["item_facts"]["height"] == 16
 
 
+@pytest.mark.parametrize("world", ["unsettled"], indirect=True)
 async def test_unsettled_output_failure_propagates_without_linking(world, monkeypatch):
     from app.services import storage_access
 
@@ -812,9 +645,9 @@ async def test_final_source_and_business_race_leaves_durable_unattached_candidat
         async with world.factory() as db:
             if race == "source":
                 await db.execute(
-                    update(DatasetAsset)
-                    .where(DatasetAsset.id == world.asset_id)
-                    .values(checksum_value="0" * 64)
+                    update(DatasetAssetLocation)
+                    .where(DatasetAssetLocation.asset_id == world.asset_id)
+                    .values(reference_state="changed")
                 )
             elif race == "archive":
                 await db.execute(
@@ -829,11 +662,37 @@ async def test_final_source_and_business_race_leaves_durable_unattached_candidat
                     .values(state="retiring", retired_at=thumbnail_outputs.now())
                 )
             elif race == "directory":
+                directory = DatasetSource(
+                    id=uuid.uuid4(),
+                    dataset_id=world.dataset_id,
+                    location_id=world.location_id,
+                    name="Accepted directory",
+                    config={},
+                    ownership_mode="managed_copy",
+                )
+                db.add(directory)
+                await db.flush()
+                scan = DatasetScanRun(
+                    id=uuid.uuid4(), source_id=directory.id, snapshot={}
+                )
+                db.add(scan)
+                await db.flush()
+                db.add(
+                    DatasetScanEntry(
+                        run_id=scan.id,
+                        path_digest="1" * 64,
+                        relative_path="saved.png",
+                        kind="file",
+                        state="observed",
+                        observed={},
+                    )
+                )
+                await db.flush()
                 db.add(
                     DatasetSourceRevision(
-                        source_id=uuid.uuid4(),
+                        source_id=directory.id,
                         path_digest="1" * 64,
-                        run_id=uuid.uuid4(),
+                        run_id=scan.id,
                         revision_number=1,
                         item_id_at_accept=world.item_id,
                         asset_id_at_accept=world.asset_id,
@@ -869,14 +728,8 @@ async def test_final_source_and_business_race_leaves_durable_unattached_candidat
         ]
 
 
+@pytest.mark.parametrize("world", ["oversized"], indirect=True)
 async def test_source_limit_is_512_mib_before_any_physical_capture(world):
-    async with world.factory() as db:
-        await db.execute(
-            update(DatasetAsset)
-            .where(DatasetAsset.id == world.asset_id)
-            .values(size_bytes=media.THUMBNAIL_MAX_SOURCE_BYTES + 1)
-        )
-        await db.commit()
     await run(world)
     row, output = await result(world)
     assert (

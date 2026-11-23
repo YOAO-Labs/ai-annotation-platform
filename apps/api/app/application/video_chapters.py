@@ -3,21 +3,24 @@ from __future__ import annotations
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.task_workflow_locks import (
     lock_current_task_target,
-    lock_row_nowait,
+    lock_core_nowait,
 )
-from app.db.models.dataset import DatasetItem
-from app.db.models.video_chapter import VideoChapter
-from app.schemas.video_chapter import VideoChapterCreate, VideoChapterUpdate
+from app.schemas.video_chapter import (
+    VideoChapterCreate,
+    VideoChapterOut,
+    VideoChapterUpdate,
+)
 from app.services import task_access
 from yoao_workspace_contract.access import ProjectAccess
 from app.services.video_chapter_service import (
     create_chapter,
     delete_chapter,
+    lock_chapter,
+    lock_chapter_source,
     update_chapter,
 )
 
@@ -36,7 +39,7 @@ class VideoChapterWorkflow:
         actor_id: uuid.UUID,
         expected_access: ProjectAccess,
         payload: VideoChapterCreate,
-    ) -> VideoChapter:
+    ) -> VideoChapterOut:
         await self._lock_current_video_target(
             dataset_item_id=dataset_item_id,
             task_id=task_id,
@@ -47,6 +50,7 @@ class VideoChapterWorkflow:
             self.db,
             dataset_item_id=dataset_item_id,
             actor_id=actor_id,
+            task_id=task_id,
             payload=payload,
         )
 
@@ -59,15 +63,27 @@ class VideoChapterWorkflow:
         expected_access: ProjectAccess,
         chapter_id: uuid.UUID,
         payload: VideoChapterUpdate,
-    ) -> tuple[VideoChapter, dict[str, object]]:
+    ) -> tuple[VideoChapterOut, dict[str, object]]:
         await self._lock_current_video_target(
             dataset_item_id=dataset_item_id,
             task_id=task_id,
             actor_id=actor_id,
             expected_access=expected_access,
         )
-        chapter = await self._lock_chapter(dataset_item_id, chapter_id)
-        return await update_chapter(self.db, chapter=chapter, payload=payload)
+        chapter = await lock_core_nowait(
+            self.db,
+            lambda: lock_chapter(
+                self.db, dataset_item_id, task_id, actor_id, chapter_id
+            ),
+            reason="video_chapter_busy",
+        )
+        return await update_chapter(
+            self.db,
+            chapter=chapter,
+            task_id=task_id,
+            actor_id=actor_id,
+            payload=payload,
+        )
 
     async def delete(
         self,
@@ -84,8 +100,17 @@ class VideoChapterWorkflow:
             actor_id=actor_id,
             expected_access=expected_access,
         )
-        chapter = await self._lock_chapter(dataset_item_id, chapter_id)
-        return await delete_chapter(self.db, chapter=chapter)
+        return await lock_core_nowait(
+            self.db,
+            lambda: delete_chapter(
+                self.db,
+                dataset_item_id=dataset_item_id,
+                task_id=task_id,
+                actor_id=actor_id,
+                chapter_id=chapter_id,
+            ),
+            reason="video_chapter_busy",
+        )
 
     async def _lock_current_video_target(
         self,
@@ -112,32 +137,10 @@ class VideoChapterWorkflow:
                 status_code=403,
                 detail="仅项目负责人或超级管理员可管理章节",
             )
-
-        item = await lock_row_nowait(
+        found = await lock_core_nowait(
             self.db,
-            select(DatasetItem)
-            .where(DatasetItem.id == dataset_item_id)
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True),
+            lambda: lock_chapter_source(self.db, dataset_item_id, task_id, actor_id),
             reason="video_source_busy",
         )
-        if item is None or item.file_type != "video" or task.dataset_item_id != item.id:
+        if not found:
             raise HTTPException(status_code=404, detail="Video not found")
-
-    async def _lock_chapter(
-        self, dataset_item_id: uuid.UUID, chapter_id: uuid.UUID
-    ) -> VideoChapter:
-        chapter = await lock_row_nowait(
-            self.db,
-            select(VideoChapter)
-            .where(
-                VideoChapter.id == chapter_id,
-                VideoChapter.dataset_item_id == dataset_item_id,
-            )
-            .with_for_update(nowait=True)
-            .execution_options(populate_existing=True),
-            reason="video_chapter_busy",
-        )
-        if chapter is None:
-            raise HTTPException(status_code=404, detail="章节不存在")
-        return chapter

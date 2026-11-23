@@ -10,7 +10,6 @@ from app.db.models.dataset_source import (
     DatasetSourceItem,
     DatasetSourcePreview,
 )
-from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.dataset_workbench import STATES, available_cache_ids, observations
 from app.services.directory_previews import SPEC
@@ -25,18 +24,7 @@ async def available_preview_keys(db, source_ids):
     from app.services import media_cache_storage, storage_access, thumbnail_outputs
     from app.services.content_snapshot import ContentError
 
-    rows = await db.execute(
-        select(DatasetSourcePreview, ThumbnailOutput, DatasetSource.location_id)
-        .join(DatasetSource, DatasetSource.id == DatasetSourcePreview.source_id)
-        .outerjoin(
-            ThumbnailOutput,
-            ThumbnailOutput.id == DatasetSourcePreview.thumbnail_output_id,
-        )
-        .where(
-            DatasetSourcePreview.source_id.in_(source_ids),
-            DatasetSourcePreview.state == "ready",
-        )
-    )
+    rows = await thumbnail_outputs.directory_evidence(db, source_ids)
     targets, sources, available = {}, {}, []
     for preview, output, source_location_id in rows:
         try:

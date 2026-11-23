@@ -11,6 +11,7 @@ from functools import partial
 import re
 import sys
 import uuid
+from types import SimpleNamespace
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -44,7 +45,7 @@ async def _physical(call, *args):
         raise
 
 
-async def _retire_output(db, control, kind, identifier, model, remove):
+async def _retire_output(db, control, kind, identifier, remove):
     from app.services import media_cache_storage
 
     manifest = await control.output(kind, identifier)
@@ -58,26 +59,17 @@ async def _retire_output(db, control, kind, identifier, model, remove):
         version_ids = [uuid.UUID(value) for value in versions]
     except (TypeError, ValueError):
         raise ContentError("fixture_media_version_unavailable", 503) from None
+    state = manifest.get("state")
+    if state == "deleted":
+        if not await control.output_done(kind, identifier):
+            raise ContentError("fixture_media_output_unsettled", 409)
+        return
+    if state not in {"building", "ready", "failed", "retiring"}:
+        raise ContentError("fixture_media_owner_changed", 409)
+    if state != "retiring":
+        await control.transition(kind, identifier, state, "retiring")
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
     async with factory() as owner:
-        current = await owner.get(model, identifier)
-        if (
-            current is None
-            or current.state != manifest.get("state")
-            or current.storage_ref != reference
-        ):
-            raise ContentError("fixture_media_owner_changed", 409)
-        if current.state == "deleted":
-            await owner.rollback()
-            if not await control.output_done(kind, identifier):
-                raise ContentError("fixture_media_output_unsettled", 409)
-            return
-        if current.state not in {"building", "ready", "failed", "retiring"}:
-            raise ContentError("fixture_media_owner_changed", 409)
-        state = current.state
-        await owner.rollback()
-        if state != "retiring":
-            await control.transition(kind, identifier, state, "retiring")
         if version_ids:
             saved = media_cache_storage.resolve_ref(reference)
             await storage_access.ensure(owner, saved.location_id)
@@ -107,15 +99,7 @@ async def _retire_output(db, control, kind, identifier, model, remove):
             await owner.commit()
             permit = await control.acquire(kind, identifier)
             async with permit:
-                current = await owner.get(
-                    model, identifier, with_for_update=True, populate_existing=True
-                )
-                if (
-                    current is None
-                    or current.state != "retiring"
-                    or current.storage_ref != reference
-                    or permit.location_id != saved.location_id
-                ):
+                if permit.location_id != saved.location_id:
                     raise ContentError("fixture_media_owner_changed", 409)
                 await storage_access.check(
                     owner,
@@ -128,7 +112,10 @@ async def _retire_output(db, control, kind, identifier, model, remove):
                     await control.version(version_id, permit)
                     for version_id in version_ids
                 ]
-                await _physical(remove, target, current, (control, permit, receipts))
+                if any(receipt.get("storage_ref") != reference for receipt in receipts):
+                    raise ContentError("fixture_media_owner_changed", 409)
+                output = SimpleNamespace(id=identifier, storage_ref=reference)
+                await _physical(remove, target, output, (control, permit, receipts))
         if not await control.output_done(kind, identifier):
             raise ContentError("fixture_media_output_unsettled", 409)
         await control.transition(kind, identifier, "retiring", "deleted")

@@ -9,7 +9,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db.models.dataset import DatasetItem
+from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services.dataset_assets import LEGACY_LOCATION_ID
@@ -18,7 +18,7 @@ from app.services import (
     thumbnail_cleanup as cleanup,
     thumbnail_outputs as outputs,
 )
-from tests.test_media_cache_targets import media_db as media_db, switch
+from tests.test_thumbnail_output_creation import media_db as media_db, switch
 from tests.test_thumbnail_output_creation import client as client
 
 
@@ -115,10 +115,13 @@ async def test_read_operation_blocks_retiring_collection(
 
 async def test_business_pointer_prevents_retirement(media_db, client, monkeypatch):
     output = await create(media_db)
+    dataset = Dataset(display_id="thumb-gc", name="Thumbnail cleanup")
+    media_db.add(dataset)
+    await media_db.flush()
     media_db.add(
         DatasetItem(
             id=output.owner_id,
-            dataset_id=uuid.uuid4(),
+            dataset_id=dataset.id,
             file_name="preview.png",
             file_path="original",
             file_type="image",

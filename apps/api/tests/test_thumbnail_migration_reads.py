@@ -72,8 +72,9 @@ class Session:
     async def __aexit__(self, *args):
         return None
 
-    async def get(self, model, identifier, **kwargs):
-        self.gets.append(kwargs)
+    async def get_output(self, db, identifier, *, lock=False):
+        assert db is self and identifier == self.row.id
+        self.gets.append(lock)
         return self.row
 
 
@@ -88,6 +89,7 @@ def bind_session(monkeypatch, row):
     monkeypatch.setattr(storage_access, "engine", lambda db: object())
     monkeypatch.setattr(outputs, "async_sessionmaker", lambda *a, **kw: lambda: session)
     monkeypatch.setattr(original_sources, "_reads", locked_reads)
+    monkeypatch.setattr(outputs, "get_output", session.get_output)
     return session
 
 
@@ -233,7 +235,7 @@ async def test_read_bytes_admits_b_owner_purpose_and_rechecks_before_delivery(
             selected.maintenance_revision,
         ),
     ]
-    assert session.gets[-1]["with_for_update"] == {"read": True, "nowait": True}
+    assert session.gets == [False, True]
     assert recheck.await_count == 3
     recheck.assert_any_await(session, selected, lock=True)
     assert sdk.bodies[0].closed and sdk.closes == 1
@@ -411,6 +413,7 @@ async def test_directory_owner_qualification_uses_its_published_thumbnail(monkey
     row, selected = saved()
     preview = directory(row)
     db = Session(row)
+    monkeypatch.setattr(outputs, "get_output", db.get_output)
     metadata(monkeypatch, selected)
     assert await previews.output_for_row(db, preview) is row
     preview.sha256 = "f" * 64
@@ -425,9 +428,9 @@ async def test_diagnostics_qualifies_each_saved_member_and_keeps_original_direct
     second, _ = saved()
     a, b = directory(first), directory(second)
     external = uuid.UUID(int=90)
-    db = SimpleNamespace(
-        execute=AsyncMock(return_value=[(a, first, external), (b, second, external)])
-    )
+    db = object()
+    evidence = AsyncMock(return_value=[(a, first, external), (b, second, external)])
+    monkeypatch.setattr(outputs, "directory_evidence", evidence)
     metadata(monkeypatch, selected)
     monkeypatch.setattr(publications, "lookup", AsyncMock(side_effect=[selected, None]))
     check = AsyncMock(return_value=1)
@@ -435,6 +438,7 @@ async def test_diagnostics_qualifies_each_saved_member_and_keeps_original_direct
     assert await diagnostics.available_preview_keys(db, [a.source_id]) == [
         (a.source_id, a.path_digest)
     ]
+    evidence.assert_awaited_once_with(db, [a.source_id])
     check.assert_awaited_once_with(db, external)
 
 

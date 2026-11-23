@@ -93,7 +93,6 @@ async def switch(db, monkeypatch):
             "use_ssl": True,
         },
         secret_enc=encrypt_secret({"access_key": "private", "secret_key": "private"}),
-        created_by=uuid.uuid4(),
     )
     db.add(connection)
     await db.flush()

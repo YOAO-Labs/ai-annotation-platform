@@ -7,12 +7,8 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 
-from app.db.models.dataset import (
-    VideoChunk,
-    VideoFrameCache,
-)
 from app.observability.metrics import (
     VIDEO_FRAME_ASSET_BYTES,
 )
@@ -481,7 +477,6 @@ async def _backfill_tasks(project_id: str, *, allow_pyramid: bool = False) -> No
         async_sessionmaker,
         AsyncSession,
     )
-    from sqlalchemy import select
     from app.services.labeling_core_read_relations import (
         execute_core_read,
         task_row,
@@ -606,24 +601,13 @@ async def _cleanup_video_frame_assets() -> None:
 
 
 async def _refresh_video_asset_bytes(db) -> None:
-    frame_bytes = sum(
-        row.byte_size or 0
-        for row in (
-            await db.execute(
-                select(VideoFrameCache).where(VideoFrameCache.status == "ready")
-            )
+    if db.autoflush:
+        await db.flush()
+    frame_bytes, chunk_bytes = (
+        await db.execute(
+            text("SELECT * FROM yoao_assets_v1.legacy_video_ready_bytes()")
         )
-        .scalars()
-        .all()
-    )
-    chunk_bytes = sum(
-        row.byte_size or 0
-        for row in (
-            await db.execute(select(VideoChunk).where(VideoChunk.status == "ready"))
-        )
-        .scalars()
-        .all()
-    )
+    ).one()
     VIDEO_FRAME_ASSET_BYTES.labels(asset_type="frame").set(frame_bytes)
     VIDEO_FRAME_ASSET_BYTES.labels(asset_type="chunk").set(chunk_bytes)
 

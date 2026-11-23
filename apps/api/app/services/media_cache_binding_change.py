@@ -66,34 +66,12 @@ async def candidates(db, *, limit, offset):
 
 
 async def history(db):
-    from app.db.models.dataset import DatasetItem
-    from app.db.models.task import Task
-    from app.db.models.dataset_source import DatasetSourcePreview
-    from app.db.models.original_cache import OriginalCacheEntry
-    from app.db.models.image_pyramid import ImagePyramidOutput
-    from app.db.models.video_derivative import VideoDerivativeOutput
-    from app.db.models.thumbnail_output import ThumbnailOutput
+    from sqlalchemy import text
 
-    models = {
-        "directory_previews": DatasetSourcePreview,
-        "original_cache_entries": OriginalCacheEntry,
-        "image_pyramid_outputs": ImagePyramidOutput,
-        "video_derivative_outputs": VideoDerivativeOutput,
-        "thumbnail_outputs": ThumbnailOutput,
-    }
-    fields = [
-        select(func.count()).select_from(model).scalar_subquery().label(name)
-        for name, model in models.items()
-    ]
-    legacy = [
-        select(func.count())
-        .select_from(model)
-        .where(model.thumbnail_path.is_not(None), model.thumbnail_output_id.is_(None))
-        .scalar_subquery()
-        for model in (DatasetItem, Task)
-    ]
-    fields.append((legacy[0] + legacy[1]).label("legacy_thumbnails"))
-    return dict((await db.execute(select(*fields))).mappings().one())
+    result = await db.execute(
+        text("SELECT * FROM yoao_assets_v1.read_media_cache_binding_history()")
+    )
+    return dict(result.mappings().one())
 
 
 async def _binding(db, *, lock=False):

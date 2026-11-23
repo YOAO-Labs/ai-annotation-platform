@@ -321,9 +321,6 @@ async def test_common_thumbnail_pointer_never_signs_saved_native_output(monkeypa
         async def __aexit__(self, *args):
             return False
 
-        async def get(self, model, key):
-            return fixture.generation
-
         async def commit(self):
             return None
 
@@ -340,6 +337,11 @@ async def test_common_thumbnail_pointer_never_signs_saved_native_output(monkeypa
     monkeypatch.setattr(objects.storage_access, "engine", lambda db: object())
     monkeypatch.setattr(pyramids, "load_owner", load_owner)
     monkeypatch.setattr(pyramids, "get_asset_for_owner", asset_for_owner)
+
+    async def read_generation(db, asset_id, number):
+        return fixture.generation
+
+    monkeypatch.setattr(objects.data, "read_generation", read_generation)
     monkeypatch.setattr(objects, "reading", forbidden)
     monkeypatch.setattr(objects, "transport", forbidden)
 
