@@ -1,7 +1,4 @@
 GRANT USAGE ON SCHEMA yoao_settings_v1, yoao_diagnostics_v1 TO :"application_role";
-REVOKE EXECUTE ON FUNCTION yoao_settings_v1.mail_delivery_policy(jsonb),
-    yoao_settings_v1.claim_smtp_test(), yoao_settings_v1.finish_smtp_test(uuid,uuid,text,text,text,integer)
-    FROM :"application_role";
 GRANT EXECUTE ON FUNCTION
     yoao_settings_v1.runtime_knob(text),
     yoao_settings_v1.connector_override(),

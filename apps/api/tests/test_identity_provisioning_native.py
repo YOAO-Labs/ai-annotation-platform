@@ -38,7 +38,7 @@ _CANONICAL_SCHEMA = (
 )
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
 _ROLE_GRANTS = _ROOT / "infra/docker/identity-provisioning-grants.sql"
-_LAN_GRANTS = _ROOT / "infra/docker/lan-production-grants.sql"
+_LAN_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
 _VERIFIER = _ROOT / "scripts/verify_module_data_boundary.py"
 
 

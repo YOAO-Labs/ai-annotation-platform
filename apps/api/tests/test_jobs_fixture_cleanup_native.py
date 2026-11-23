@@ -282,7 +282,7 @@ async def test_fixture_cleanup_owner_login_preserves_scope_and_transactions(
                     await api.execute(
                         text(
                             "SELECT session_user::text,current_user::text, "
-                            "pg_catalog.has_table_privilege(current_user,'public.async_jobs','SELECT'), "
+                            "pg_catalog.has_any_column_privilege(current_user,'public.async_jobs','SELECT'), "
                             "pg_catalog.has_table_privilege(current_user,'public.async_jobs','INSERT'), "
                             "pg_catalog.has_any_column_privilege(current_user,'public.async_jobs','INSERT'), "
                             "pg_catalog.has_table_privilege(current_user,'public.async_jobs','UPDATE'), "
@@ -293,7 +293,7 @@ async def test_fixture_cleanup_owner_login_preserves_scope_and_transactions(
                 assert identity == (
                     _ROLE,
                     _ROLE,
-                    True,
+                    False,
                     False,
                     False,
                     False,

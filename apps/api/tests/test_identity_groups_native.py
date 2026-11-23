@@ -26,7 +26,7 @@ _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0240_identity_groups.
 _NATIVE_SCHEMA = Path(__file__).parents[1] / "app/db/native_schema.py"
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
 _GROUP_GRANTS = _ROOT / "infra/docker/identity-groups-grants.sql"
-_LEGACY_GRANTS = _ROOT / "infra/docker/lan-production-grants.sql"
+_LEGACY_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
 
 
 def _context() -> dict[str, str]:

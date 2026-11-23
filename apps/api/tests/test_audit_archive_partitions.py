@@ -309,16 +309,16 @@ async def test_audit_acl_reclaims_column_grants_and_rejects_future_default_grant
 ):
     url = _api_url(test_engine)
     role = test_engine.dialect.identifier_preparer.quote_identifier(url.username)
-    profile = (
-        Path(__file__).resolve().parents[3] / "infra/docker/lan-production-grants.sql"
+    block = (
+        Path(__file__).resolve().parents[3] / "infra/docker/ordinary-runtime-revoke.sql"
     ).read_text()
-    begin, end = "DO $audit_private_acl$", "$audit_private_acl$;"
-    block = begin + profile.split(begin, 1)[1].split(end, 1)[0] + end
     async with test_engine.connect() as owner:
+        await owner.exec_driver_sql("SET LOCAL search_path = pg_catalog, pg_temp")
         await owner.execute(
             text(
                 "SELECT set_config('yoao.application_role', :role, true), "
-                "set_config('yoao.expected_database', current_database(), true)"
+                "set_config('yoao.expected_database', current_database(), true), "
+                "set_config('yoao.migration_role', current_user, true)"
             ),
             {"role": url.username},
         )
@@ -361,7 +361,7 @@ async def test_audit_acl_reclaims_column_grants_and_rejects_future_default_grant
             f"SELECT ON TABLES TO {role}",
             "USAGE ON SEQUENCES TO PUBLIC",
         ):
-            with pytest.raises(DBAPIError, match="future private storage"):
+            with pytest.raises(DBAPIError, match="Unsafe ordinary default privileges"):
                 async with owner.begin_nested():
                     await owner.exec_driver_sql(
                         f"ALTER DEFAULT PRIVILEGES FOR ROLE {audit_owner} IN SCHEMA public "

@@ -1,7 +1,7 @@
 DO $ordinary_runtime_verify$
 DECLARE
     runtime_role text := pg_catalog.current_setting('yoao.application_role');
-    runtime_oid oid := runtime_role::pg_catalog.regrole;
+    runtime_oid oid := (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = runtime_role);
     creation_view oid := 'yoao_jobs_v1.async_job_creation'::pg_catalog.regclass;
     target record;
     signature text;
@@ -42,6 +42,12 @@ BEGIN
        OR NOT pg_catalog.has_table_privilege(runtime_oid, creation_view, 'INSERT') THEN
         RAISE EXCEPTION 'Ordinary runtime is missing the Jobs creation view';
     END IF;
+    IF (SELECT relowner FROM pg_catalog.pg_class
+        WHERE oid = 'public.mv_user_perf_daily'::pg_catalog.regclass)
+       IS DISTINCT FROM (SELECT proowner FROM pg_catalog.pg_proc
+        WHERE oid = 'yoao_insights_v1.refresh_user_perf_daily()'::pg_catalog.regprocedure) THEN
+        RAISE EXCEPTION 'Insights materialized view and refresh capability must share their trusted owner';
+    END IF;
     FOREACH signature IN ARRAY ARRAY[
         'public.v_annotation_feedback_unified',
         'yoao_audit_v1.audit_events',
@@ -61,6 +67,7 @@ BEGIN
         'yoao_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)',
         'yoao_jobs_v1._directory_job_ids(uuid,uuid)',
         'yoao_jobs_v1.dataset_active_job_facts(uuid)',
+        'yoao_jobs_v1.read_storage_fault_job(uuid)',
         'yoao_jobs_v1.settle_dataset_scan_job(uuid,text,text,timestamptz,text,jsonb)',
         'yoao_jobs_v1.transition_directory_registration_job(uuid,uuid,text,text,text,timestamptz,text,jsonb)',
         'yoao_notifications_v1._visible_inbox_rows(uuid,text)',
@@ -69,12 +76,31 @@ BEGIN
         'yoao_audit_v1.refresh_audit_bi_mv()',
         'yoao_insights_v1.refresh_user_perf_daily()',
         'yoao_identity_mail_v2.claim_mail(jsonb)',
+        'yoao_identity_mail_v2.finish_mail(jsonb)',
+        'yoao_identity_mail_v2.renew_mail(jsonb)',
         'yoao_identity_recovery_v1.claim_mail(jsonb)',
+        'yoao_identity_recovery_v1.finish_mail(jsonb)',
+        'yoao_identity_recovery_v1.renew_mail(jsonb)',
         'yoao_settings_v1.mail_delivery_policy(jsonb)',
+        'yoao_settings_v1.claim_smtp_test()',
+        'yoao_settings_v1.finish_smtp_test(uuid,uuid,text,text,text,integer)',
         'yoao_assets_v1.matches_avatar_reservation(text,jsonb)',
         'yoao_assets_v1.capture_storage_connection(uuid,uuid,text)',
         'yoao_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[])',
         'yoao_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean)',
+        'yoao_assets_v1.capture_reference_io(uuid,text)',
+        'yoao_assets_v1.recheck_reference_io(uuid,text)',
+        'yoao_assets_v1.capture_saved_binding_probe(uuid,uuid,boolean)',
+        'yoao_assets_v1.saved_io_connector(uuid,integer,jsonb)',
+        'yoao_assets_v1.saved_io_target(uuid,integer,integer,jsonb)',
+        'yoao_assets_v1.saved_output_origin(jsonb,text,text)',
+        'yoao_assets_v1.capture_training_saved_io(uuid,text,uuid,uuid,text,text,jsonb)',
+        'yoao_assets_v1.media_io_creation(uuid,uuid,uuid,text,boolean)',
+        'yoao_assets_v1.migration_io_read(uuid,uuid,integer,text,text,integer,integer,boolean)',
+        'yoao_assets_v1.begin_operator_auxiliary(jsonb)',
+        'yoao_assets_v1.begin_saved_operator_original(jsonb)',
+        'yoao_assets_v1.saved_operator_item_original(uuid,uuid)',
+        'yoao_assets_v1.saved_operator_auxiliary_original(uuid,uuid)',
         'yoao_assets_v1.operator_auxiliary_material(uuid,uuid)',
         'yoao_assets_v1.operator_item_original_material(uuid,uuid)',
         'yoao_assets_v1.capture_native_pyramid_write_io(uuid,uuid,bigint,uuid,text)',
@@ -83,7 +109,7 @@ BEGIN
         'public.retire_fixture_native_export_output(uuid)',
         'public.confirm_fixture_export_zip_absent(uuid)'
     ] LOOP
-        IF pg_catalog.has_function_privilege(runtime_oid, signature, 'EXECUTE') THEN
+        IF pg_catalog.has_function_privilege(runtime_oid, pg_catalog.to_regprocedure(signature), 'EXECUTE') THEN
             RAISE EXCEPTION 'Ordinary runtime can execute private capability %', signature;
         END IF;
     END LOOP;

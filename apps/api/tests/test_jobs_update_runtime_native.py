@@ -176,7 +176,7 @@ async def _assert_contract(test_engine, runtime) -> None:
         privilege = (
             await connection.execute(
                 text(
-                    "SELECT pg_catalog.has_table_privilege(current_user,'public.async_jobs','SELECT'), "
+                    "SELECT pg_catalog.has_any_column_privilege(current_user,'public.async_jobs','SELECT'), "
                     "pg_catalog.has_table_privilege(current_user,'public.async_jobs','INSERT'), "
                     "pg_catalog.has_any_column_privilege(current_user,'public.async_jobs','INSERT'), "
                     "pg_catalog.has_table_privilege(current_user,'public.async_jobs','UPDATE'), "
@@ -190,7 +190,7 @@ async def _assert_contract(test_engine, runtime) -> None:
             )
         ).one()
         assert tuple(privilege) == (
-            True,
+            False,
             False,
             False,
             False,

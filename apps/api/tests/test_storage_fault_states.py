@@ -24,6 +24,7 @@ from app.services import storage_observation_rates as rates
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_directory_policies import object_store as object_store
 from tests.test_storage_observation_rates_db import committed_world as committed_world
+from tests.test_workspace_consumer_profile_native import _grants
 from tests.test_workspace_project_authority_locking import _api_url
 
 
@@ -642,13 +643,7 @@ async def test_storage_fault_capabilities_use_existing_safe_owners(db_session):
 
 
 async def _replay_fault_grants(test_engine, role):
-    grant_file = (
-        Path(__file__).resolve().parents[3] / "infra/docker/lan-production-grants.sql"
-    )
-    start = "DO $storage_fault_private_acl$"
-    end = "$storage_fault_private_acl$;"
-    script = grant_file.read_text(encoding="utf-8")
-    block = start + script.split(start, 1)[1].split(end, 1)[0] + end
+    directory = Path(__file__).resolve().parents[3] / "infra/docker"
     async with test_engine.begin() as connection:
         target = connection.dialect.identifier_preparer.quote_identifier(role)
         for privileges in (
@@ -660,11 +655,11 @@ async def _replay_fault_grants(test_engine, role):
             "EXECUTE ON FUNCTION yoao_jobs_v1.read_storage_fault_job(uuid)",
         ):
             await connection.exec_driver_sql(f"GRANT {privileges} TO {target}")
-        await connection.execute(
-            text("SELECT set_config('yoao.application_role', :role, true)"),
-            {"role": role},
-        )
-        await connection.exec_driver_sql(block)
+    remote = role == "identity_api_consumer"
+    script = "identity-consumer-grants.sql" if remote else "lan-production-grants.sql"
+    variables = {"identity_avatar_runtime": "1"} if remote else {}
+    applied = await _grants(test_engine, directory / script, role, **variables)
+    assert applied.returncode == 0, applied.stderr
 
 
 @pytest.mark.skipif(

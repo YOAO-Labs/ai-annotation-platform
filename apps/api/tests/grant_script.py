@@ -3,6 +3,6 @@
 from pathlib import Path
 from runpy import run_path
 
-read_psql_grant_script = run_path(
-    str(Path(__file__).resolve().parents[3] / "scripts/grant_sql.py")
-)["read_psql_grant_script"]
+_loader = run_path(str(Path(__file__).resolve().parents[3] / "scripts/grant_sql.py"))
+read_psql_grant_script = _loader["read_psql_grant_script"]
+read_runtime_grant_statements = _loader["read_runtime_grant_statements"]

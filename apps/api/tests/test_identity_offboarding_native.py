@@ -58,7 +58,7 @@ _ARTIFACT = _SQL_DIR / "0248_identity_offboarding.sql"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0248_identity_offboarding.py"
 _MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
 _ROLE_GRANTS = _ROOT / "infra/docker/identity-offboarding-grants.sql"
-_LAN_GRANTS = _ROOT / "infra/docker/lan-production-grants.sql"
+_LAN_GRANTS = _ROOT / "infra/docker/ordinary-published-runtime-grants.sql"
 _CANONICAL_SCHEMA = (
     _ROOT / "apps/identity/src/yoao_identity/native_offboarding_protocol.schema.json"
 )

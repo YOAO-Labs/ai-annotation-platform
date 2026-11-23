@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from tests.grant_script import read_runtime_grant_statements
 from tests.test_asset_storage_cleanup_runtime import _sqlstate, _verify_postgres
 from tests.test_jobs_creation_runtime_native import _lan_runtime
 
@@ -25,14 +26,7 @@ ROLE = "identity_api_consumer"
 
 
 def _acl() -> str:
-    sql = (ROOT / "infra/docker/lan-production-grants.sql").read_text()
-    return (
-        "DO $labeling_private_acl$"
-        + sql.split("DO $labeling_private_acl$", 1)[1].split(
-            "$labeling_private_acl$;", 1
-        )[0]
-        + "$labeling_private_acl$;"
-    )
+    return (ROOT / "infra/docker/ordinary-runtime-revoke.sql").read_text()
 
 
 async def test_labeling_acl_removes_columns_partitions_sequences_and_defaults(
@@ -63,14 +57,22 @@ async def test_labeling_acl_removes_columns_partitions_sequences_and_defaults(
                         f"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {target}",
                     ):
                         await connection.exec_driver_sql(statement)
+                await connection.exec_driver_sql(
+                    "SET LOCAL search_path = pg_catalog, pg_temp"
+                )
                 await connection.execute(
                     text(
                         "SELECT set_config('yoao.application_role',:role,true), "
-                        "set_config('yoao.expected_database',current_database(),true)"
+                        "set_config('yoao.expected_database',current_database(),true), "
+                        "set_config('yoao.migration_role',current_user,true)"
                     ),
                     {"role": ROLE},
                 )
                 await connection.exec_driver_sql(_acl())
+                for statement in read_runtime_grant_statements(
+                    ROOT / "infra/docker/m2b-runtime-grants.sql", role=ROLE
+                ):
+                    await connection.exec_driver_sql(statement)
                 await connection.exec_driver_sql(
                     "CREATE TABLE public.labeling_acl_future_probe(id bigserial PRIMARY KEY)"
                 )
@@ -142,15 +144,20 @@ async def test_labeling_acl_rejects_inherited_storage_access(test_engine):
                 await connection.exec_driver_sql(
                     f"GRANT labeling_acl_bypass TO {ROLE} WITH INHERIT TRUE"
                 )
+                await connection.exec_driver_sql(
+                    "SET LOCAL search_path = pg_catalog, pg_temp"
+                )
                 await connection.execute(
                     text(
                         "SELECT set_config('yoao.application_role',:role,true), "
-                        "set_config('yoao.expected_database',current_database(),true)"
+                        "set_config('yoao.expected_database',current_database(),true), "
+                        "set_config('yoao.migration_role',current_user,true)"
                     ),
                     {"role": ROLE},
                 )
                 with pytest.raises(
-                    DBAPIError, match="Runtime retains private Labeling access"
+                    DBAPIError,
+                    match="Ordinary runtime must be a distinct non-admin LOGIN",
                 ):
                     await connection.exec_driver_sql(_acl())
             finally:
