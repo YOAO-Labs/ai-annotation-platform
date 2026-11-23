@@ -43,12 +43,7 @@ from yoao_assets_source.connectors.registry import (
     target_host as connector_target_host,
     validate_source_path as validate_connector_source_path,
 )
-from yoao_assets_catalog import (
-    CreateDatasetRequest,
-    DatasetPatch,
-    GetDatasetRequest,
-    UpdateDatasetRequest,
-)
+from yoao_assets_catalog import CreateDatasetRequest, GetDatasetRequest
 from yoao_assets_catalog.associations_contract import ListDatasetProjectsRequest
 from app.deps import (
     get_db,
@@ -83,11 +78,7 @@ from app.schemas.dataset import (
 from app.schemas.dataset_view import DatasetItemQuery
 from app.schemas.project import ProjectOut
 from app.services.audit import AuditAction, AuditService
-from app.services.dataset import (
-    DatasetService,
-    ensure_dataset_storage_name_is_writable,
-    writable_dataset,
-)
+from app.services.dataset import DatasetService
 from app.services.assets_catalog import AssetsCatalogGateway
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.application.dataset_deletion import (

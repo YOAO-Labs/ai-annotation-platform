@@ -349,7 +349,7 @@ class MailSettingsPostgresData:
                     from .mail_v2_postgres import MailV2PostgresData
 
                     await MailV2PostgresData._assert_capabilities(
-                        connection, {"yoao_settings_v1.mail_delivery_policy(jsonb)"}
+                        connection, SMTP_SETTINGS_CAPABILITIES
                     )
                 raw = await connection.fetchval(
                     "SELECT yoao_settings_v1.mail_delivery_policy($1::jsonb)", encoded

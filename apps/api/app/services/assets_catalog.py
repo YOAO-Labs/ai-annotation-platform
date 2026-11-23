@@ -309,12 +309,10 @@ class AssetsCatalogGateway:
         self,
         request: UpdateDatasetRequest,
         *,
-        same_session_native: bool = False,
         commit: bool = True,
     ) -> DatasetMutationResult:
-        body = _encode_request(request)
-        reply, remote = await self._call(
-            "update",
+        _require_request_budget(request)
+        reply = await self._call(
             """
             SELECT yoao_assets_v1.update_catalog_dataset(
                 CAST(:operation_id AS uuid), CAST(:actor_id AS uuid),
@@ -328,7 +326,6 @@ class AssetsCatalogGateway:
                 "payload": json.dumps(request.native_payload(), separators=(",", ":")),
             },
             DatasetMutationResult,
-            same_session_native=same_session_native,
         )
         if (
             reply.operation_id != request.operation_id
@@ -336,7 +333,7 @@ class AssetsCatalogGateway:
             or reply.dataset.id != request.dataset_id
         ):
             raise self._invalid_scope()
-        if not remote and commit:
+        if commit:
             await self.db.commit()
         return reply
 

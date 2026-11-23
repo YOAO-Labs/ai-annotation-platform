@@ -359,7 +359,7 @@ class DatasetService:
         patch = {}
         if name is not None:
             ensure_dataset_storage_name_is_writable(name)
-            if ds.storage_scan_prefix is None:
+            if ds.storage_scan_prefix is None and ds.name != name:
                 await self.db.execute(
                     text(
                         "SELECT yoao_assets_v1.pin_legacy_dataset_prefix("
@@ -379,7 +379,6 @@ class DatasetService:
                 dataset_id=dataset_id,
                 patch=DatasetPatch(**patch),
             ),
-            same_session_native=True,
             commit=False,
         )
         return {

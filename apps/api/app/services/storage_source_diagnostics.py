@@ -4,8 +4,6 @@ from sqlalchemy import Text, Uuid, cast, func, select
 from sqlalchemy.dialects.postgresql import ARRAY
 
 from app.db.models.dataset_asset import StorageLocation
-from app.db.models.dataset_source import DatasetSource, DatasetSourcePreview
-from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.dataset_workbench import STATES, available_cache_ids
 from app.services.storage import storage_service

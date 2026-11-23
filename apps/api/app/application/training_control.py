@@ -5,10 +5,8 @@ from __future__ import annotations
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.learning_policy import LearningTrigger
 from app.services import (
     learning_selection_data as selection,
     learning_policies,
@@ -110,7 +108,7 @@ async def resume_run(
     if study:
         await training_runs.reserve_study_budget(db, attempt, run, allowance)
         await training_runs.mark_study_manual_resume(db, run)
-        training_studies.stage_manual_resume(study)
+        await training_studies.stage_manual_resume(db, study, run)
     if run.auto_trigger_id:
         await training_runs.mark_policy_manual_resume(db, run)
         await learning_policies.requeue_after_manual_resume(db, run.auto_trigger_id)
