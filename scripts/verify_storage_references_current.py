@@ -1,7 +1,7 @@
 """Qualify current saved locators using an owned empty test database and S3.
 
 This verifies the migration catalog, not application workflows or a cutover.
-The CLI runs with column-only SELECT grants; no application services are started.
+The CLI runs through the installed ordinary LOGIN; no application services are started.
 """
 
 import argparse
@@ -12,7 +12,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import secrets
 import subprocess
 import sys
 import tempfile
@@ -24,7 +23,7 @@ from storage_migration_copy import Checkpoint, plan
 from storage_migration_inventory import PURPOSES, InventoryLimits, write_inventory
 from storage_migration_references import identity, verify
 from verify_legacy_storage_rollback import ROOT, require, verified_environment
-from verify_storage_references import grants, object_facts
+from verify_storage_references import object_facts
 from worktree_env import WorktreeError, atomic_json
 from worktree_recovery_fixture import database_facts
 
@@ -617,10 +616,27 @@ async def qualify(backend):
     from sqlalchemy.ext.asyncio import create_async_engine
 
     owner = create_async_engine(backend.url, echo=False, hide_parameters=True)
-    role = "aap_reference_current_" + uuid.uuid4().hex[:12]
-    created = False
-    readonly = None
+    runtime_url = backend.runtime_url()
+    runtime = create_async_engine(runtime_url, echo=False, hide_parameters=True)
     try:
+        require(
+            runtime_url.username != backend.url.username,
+            "Requires the ordinary LOGIN, not the migration owner",
+        )
+        async with runtime.connect() as connection:
+            observed = (
+                await connection.execute(
+                    text(
+                        "SELECT current_user, current_database(), "
+                        "pg_catalog.current_setting('transaction_read_only')"
+                    )
+                )
+            ).one()
+            require(
+                tuple(observed)
+                == (runtime_url.username, backend.resources["database"], "off"),
+                "Unexpected or read-only LOGIN; verify the installed application role",
+            )
         async with owner.connect() as connection:
             facts = await database_facts(connection)
             require(
@@ -631,10 +647,23 @@ async def qualify(backend):
                 ),
                 "Requires empty owned test database",
             )
-            revision = await connection.scalar(
-                text("SELECT version_num FROM alembic_version")
+            revisions = list(
+                await connection.scalars(
+                    text(
+                        "SELECT version_num FROM public.alembic_version ORDER BY version_num"
+                    )
+                )
             )
-            require(revision == "0254", "Current fixture requires schema 0254")
+            require(
+                revisions
+                and await connection.scalar(
+                    text(
+                        "SELECT pg_catalog.to_regprocedure('yoao_assets_v1.migration_inventory_revisions()') IS NOT NULL "
+                        "AND pg_catalog.to_regprocedure('yoao_export_v1.export_zip_inventory(uuid,integer)') IS NOT NULL"
+                    )
+                ),
+                "Install the storage collector and Export owner capabilities before qualification",
+            )
         require(
             object_facts(backend.s3, backend.resources["buckets"].values())[1] == 0,
             "Requires empty owned test buckets",
@@ -646,21 +675,6 @@ async def qualify(backend):
         )
         fixture = Fixture(backend, address)
         await fixture.seed(owner)
-        password = secrets.token_hex(24)
-        async with owner.begin() as connection:
-            await connection.exec_driver_sql(
-                f"CREATE ROLE \"{role}\" LOGIN PASSWORD '{password}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS"
-            )
-            created = True
-            for query in (
-                f'GRANT CONNECT ON DATABASE "{backend.resources["database"]}" TO "{role}"',
-                f'GRANT USAGE ON SCHEMA public TO "{role}"',
-                f'ALTER ROLE "{role}" SET default_transaction_read_only=on',
-            ):
-                await connection.exec_driver_sql(query)
-        await grants(owner, role)
-        readonly_url = backend.url.set(username=role, password=password)
-        readonly = create_async_engine(readonly_url, echo=False, hide_parameters=True)
         async with owner.connect() as connection:
             before = await database_facts(connection)
         physical_before = object_facts(
@@ -713,7 +727,7 @@ async def qualify(backend):
                 cwd=ROOT,
                 env={
                     **os.environ,
-                    "DATABASE_URL": readonly_url.render_as_string(hide_password=False),
+                    "DATABASE_URL": runtime_url.render_as_string(hide_password=False),
                     "DEBUG": "false",
                     "PYTHONDONTWRITEBYTECODE": "1",
                 },
@@ -732,7 +746,7 @@ async def qualify(backend):
                 "Current SQL enumeration incomplete",
             )
             require(
-                header["database"]["revisions"] == [revision], "Wrong observed revision"
+                header["database"]["revisions"] == revisions, "Wrong observed revisions"
             )
             require(
                 len(header["database"]["families"]) == len(FAMILIES) == 27,
@@ -779,7 +793,10 @@ async def qualify(backend):
                 )
             raw = output.read_bytes() + response.stdout + response.stderr
             require(
-                SENTINEL.encode() not in raw and password.encode() not in raw,
+                SENTINEL.encode() not in raw
+                and (
+                    not runtime_url.password or runtime_url.password.encode() not in raw
+                ),
                 "Sensitive field escaped projection",
             )
             require(output.stat().st_mode & 0o777 == 0o600, "Catalog not private")
@@ -833,24 +850,30 @@ async def qualify(backend):
             "CLI modified source objects",
         )
         denials = 0
-        for query in (
-            "UPDATE storage_locations SET name=name WHERE false",
-            "SELECT secret_enc FROM storage_connections",
-        ):
+        private_queries = (
+            "UPDATE public.storage_locations SET name=name WHERE false",
+            "SELECT secret_enc FROM public.storage_connections LIMIT 0",
+            "SELECT version_num FROM public.alembic_version LIMIT 0",
+            "SELECT id FROM public.training_dataset_versions LIMIT 0",
+            "SELECT id FROM public.audit_archive_outputs LIMIT 0",
+        )
+        for query in private_queries:
             try:
-                async with readonly.begin() as connection:
+                async with runtime.begin() as connection:
                     await connection.execute(text(query))
             except Exception as exc:
                 require(
-                    getattr(getattr(exc, "orig", None), "sqlstate", None)
-                    in {"25006", "42501"},
-                    "Readonly denial had an unexpected cause",
+                    getattr(getattr(exc, "orig", None), "sqlstate", None) == "42501",
+                    "Ordinary privilege denial had an unexpected cause",
                 )
                 denials += 1
-        require(denials == 2, "Readonly role has unintended privileges")
+        require(
+            denials == len(private_queries),
+            "Ordinary LOGIN has unintended private privileges",
+        )
         return {
             "scope": "current saved-locator catalog; owned test; no app workflows or cutover",
-            "revision": revision,
+            "revisions": revisions,
             "families_enumerated": len(FAMILIES),
             "populated_families": len(
                 {
@@ -867,7 +890,7 @@ async def qualify(backend):
             "business_fingerprint_unchanged": True,
             "source_fingerprint_unchanged": True,
             "source_report_unchanged": True,
-            "readonly_denials": denials,
+            "ordinary_denials": denials,
             "private_output": True,
             "spills_cleaned": True,
             "existing_copy_plan_matches": copy["source"]["exact_catalog_matches"],
@@ -875,20 +898,7 @@ async def qualify(backend):
             "migration_ready": False,
         }
     finally:
-        if readonly:
-            await readonly.dispose()
-        if created:
-            async with owner.begin() as connection:
-                await connection.exec_driver_sql(f'DROP OWNED BY "{role}"')
-                await connection.exec_driver_sql(f'DROP ROLE "{role}"')
-            async with owner.connect() as connection:
-                require(
-                    not await connection.scalar(
-                        text("SELECT 1 FROM pg_roles WHERE rolname=:role"),
-                        {"role": role},
-                    ),
-                    "Owned readonly role remains",
-                )
+        await runtime.dispose()
         await owner.dispose()
         backend.s3.close()
 
@@ -899,7 +909,6 @@ def main():
     args = command.parse_args()
     try:
         result = asyncio.run(qualify(verified_environment()))
-        result["temporary_role_removed"] = True
         atomic_json(args.report, result)
         print(json.dumps(result, sort_keys=True))
         return 0

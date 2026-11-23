@@ -10,6 +10,9 @@ import sys
 import tempfile
 import time
 
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
+
 from app.services.storage_migration_references import (
     Budget,
     Limits,
@@ -91,57 +94,28 @@ FAMILIES = (
         "thumbnail_outputs", form="thumbnail", schemas=(2,), purposes=("media-cache",)
     ),
 )
-KNOWN_REVISIONS = frozenset(f"{revision:04}" for revision in range(244, 255))
-TABLE_SINCE = {"mask_format_uploads": "0250", "thumbnail_outputs": "0252"}
-COLUMN_SINCE = {
-    ("bug_attachment_uploads", "object_version_id"): "0245",
-    ("managed_original_creations", "staging_ref"): "0250",
-    ("mask_format_imports", "staging_ref"): "0250",
-    ("dataset_asset_locations", "storage_ref"): "0251",
-    ("dataset_auxiliary_originals", "storage_ref"): "0251",
-    ("original_cache_entries", "storage_ref"): "0252",
-    ("task_originals", "storage_ref"): "0253",
+_OWNER_SCHEMAS = {
+    "training_dataset_versions": "yoao_learning_v1",
+    "training_runs": "yoao_learning_v1",
+    "training_previews": "yoao_learning_v1",
+    "sample_evaluation_runs": "yoao_learning_v1",
+    "active_learning_rounds": "yoao_learning_v1",
+    "training_storage_deletions": "yoao_learning_v1",
+    "avatar_uploads": "yoao_identity_v1",
+    "bug_attachment_uploads": "yoao_diagnostics_v1",
+    "comment_attachment_uploads": "yoao_labeling_v1",
+    "guide_asset_uploads": "yoao_workspace_v1",
+    "raster_mask_objects": "yoao_labeling_v1",
+    "audit_archive_outputs": "yoao_audit_v1",
+    "mask_format_uploads": "yoao_labeling_v1",
+    "mask_format_imports": "yoao_labeling_v1",
 }
-REQUIRED = {
-    "ref": {"storage_ref"},
-    "deletion": {"storage_ref", "bucket", "prefix"},
-    "current": {"bucket", "object_key", "location_id"},
-    "creation": {"configuration", "bucket", "object_key"},
-    "retirement": {"bucket", "object_key"},
-    "preview": {"bucket", "object_key", "location_id"},
-    "cache": {"bucket", "asset_id", "sha256", "location_id", "storage_identity"},
-    "mask-upload": {"storage_ref", "logical_object_key"},
-    "mask-import": {"staged_object_key"},
-    "thumbnail": {"storage_ref"},
+_EXPORT_PROJECTIONS = {
+    "export_outputs": "yoao_export_v1.export_zip_inventory",
+    "export_media_bundles": "yoao_export_v1.export_media_inventory",
 }
-SCALARS = (
-    "id",
-    "asset_id",
-    "location_id",
-    "bucket",
-    "object_key",
-    "prefix",
-    "storage_identity",
-    "state",
-    "status",
-    "reference_state",
-    "identity_state",
-    "object_version_id",
-    "version_id",
-    "sha256",
-    "size_bytes",
-    "stored_sha256",
-    "stored_size_bytes",
-    "canonical_sha256",
-    "etag",
-    "staging_bucket",
-    "staging_key",
-    "package_key",
-    "package_sha256",
-    "logical_object_key",
-    "staged_object_key",
-    "staged_sha256",
-)
+_TEXT_CURSORS = {"bucket", "inventory_key", "path_digest", "purpose", "token"}
+
 DOCUMENTS = (
     "input_snapshot",
     "snapshot",
@@ -151,94 +125,6 @@ DOCUMENTS = (
     "upload_inventory",
     "manifest",
 )
-CONTEXT = ("storage_locations", "storage_bindings")
-
-
-def quoted(name):
-    if not name.replace("_", "").isalnum():
-        raise ReferenceError("invalid_registry")
-    return '"' + name + '"'
-
-
-def ref_projection(alias="r", column="storage_ref"):
-    if column not in {"storage_ref", "staging_ref"}:
-        raise ReferenceError("invalid_registry")
-    return (
-        "jsonb_build_object("
-        + ",".join(
-            "'%s',%s.%s->'%s'" % (field, alias, column, field) for field in REF_FIELDS
-        )
-        + ") AS "
-        + column
-    )
-
-
-def before_revision(revisions, introduced):
-    return (
-        len(revisions) == 1
-        and revisions[0] in KNOWN_REVISIONS
-        and revisions[0] < introduced
-    )
-
-
-def family_available(family, columns, revisions):
-    return not (
-        family.table not in columns
-        and family.table in TABLE_SINCE
-        and before_revision(revisions, TABLE_SINCE[family.table])
-    )
-
-
-def projection(family, columns, *, revisions=()):
-    required = set(family.keys) | REQUIRED[family.form]
-    if family.inventory:
-        required.add("inventory")
-    for (table, column), introduced in COLUMN_SINCE.items():
-        if table == family.table and not before_revision(revisions, introduced):
-            required.add(column)
-    if not required <= columns:
-        raise ReferenceError("family_columns_missing")
-    fields = list(
-        dict.fromkeys((*family.keys, *[name for name in SCALARS if name in columns]))
-    )
-    result = [f"r.{quoted(name)}" for name in fields]
-    for column, flag in (
-        ("storage_ref", "ref_present"),
-        ("staging_ref", "staging_ref_present"),
-    ):
-        if column in columns:
-            result.append(ref_projection(column=column))
-            result.append(f"r.{column} IS NOT NULL AS {flag}")
-    if family.form == "creation":
-        result.append("r.configuration->>'endpoint' AS saved_endpoint")
-        result.append("r.configuration->'buckets'->>'import' AS legacy_staging_bucket")
-    for name in DOCUMENTS:
-        if name in columns:
-            result.append(
-                f"r.{quoted(name)} IS NOT NULL AS {quoted(name + '_unexpanded')}"
-            )
-    if family.inventory:
-        result.extend(
-            [
-                "r.inventory IS NOT NULL AS inventory_present",
-                "r.inventory->'schema' AS inventory_schema",
-                "jsonb_typeof(r.inventory->'objects') AS inventory_objects_type",
-            ]
-        )
-    return ",".join(result)
-
-
-def allowed_columns(family, columns):
-    names = set(family.keys) | (set(SCALARS) & columns) | (set(DOCUMENTS) & columns)
-    if "storage_ref" in columns:
-        names.add("storage_ref")
-    if "staging_ref" in columns:
-        names.add("staging_ref")
-    if family.form == "creation":
-        names.add("configuration")
-    if family.inventory:
-        names.add("inventory")
-    return names
 
 
 def _text(value):
@@ -490,11 +376,15 @@ class Spool:
         self.size += len(data)
 
 
-async def paged(connection, base, keys, budget):
-    from sqlalchemy import text
-
-    last = None
-    order = ",".join(expression for expression, _ in keys)
+async def paged(connection, capability, keys, budget, *, record=False):
+    cursor = {key: None for key in keys}
+    arguments = ", ".join(
+        f"CAST(:{key} AS {'text' if key in _TEXT_CURSORS else 'uuid'})" for key in keys
+    )
+    source = f"{capability}({arguments}, :limit)"
+    query = text(
+        f"SELECT * FROM {source}" if record else f"SELECT value FROM {source} AS value"
+    )
     while True:
         budget.take("pages")
         remaining = budget.limits.max_seconds - (time.monotonic() - budget.started)
@@ -502,36 +392,35 @@ async def paged(connection, base, keys, budget):
             1, math.ceil(min(remaining, budget.limits.statement_seconds) * 1000)
         )
         await connection.execute(
-            text("SET LOCAL statement_timeout = '%dms'" % milliseconds)
+            text("SELECT pg_catalog.set_config('statement_timeout', :value, true)"),
+            {"value": f"{milliseconds}ms"},
         )
-        params = {"limit": budget.limits.page_size + 1}
-        where = ""
-        if last is not None:
-            params.update({"last" + str(i): value for i, value in enumerate(last)})
-            where = (
-                " WHERE ("
-                + order
-                + ") > ("
-                + ",".join(":last" + str(i) for i in range(len(last)))
-                + ")"
-            )
-        rows = (
-            (
-                await connection.execute(
-                    text(base + where + " ORDER BY " + order + " LIMIT :limit"), params
-                )
-            )
-            .mappings()
-            .all()
+        result = await connection.execute(
+            query, {**cursor, "limit": budget.limits.page_size + 1}
         )
+        rows = result.mappings().all() if record else result.scalars().all()
         yield rows[: budget.limits.page_size]
         if len(rows) <= budget.limits.page_size:
             return
-        last = tuple(rows[budget.limits.page_size - 1][column] for _, column in keys)
+        last = rows[budget.limits.page_size - 1]
+        cursor = {key: last[key] for key in keys}
+
+
+def _snapshot_issue(exc):
+    if isinstance(exc, ReferenceError):
+        return exc.code
+    if isinstance(exc, TimeoutError):
+        return "time_budget"
+    if isinstance(exc, DBAPIError):
+        sqlstate = getattr(exc.orig, "sqlstate", None)
+        if sqlstate == "42501":
+            return "database_snapshot_denied"
+        if sqlstate in {"42883", "42P01", "42703"}:
+            return "inventory_capabilities_unavailable"
+    return "database_snapshot_failed"
 
 
 async def collect(engine, spool, budget):
-    from sqlalchemy import text
     from app.services.storage_migration_references import endpoint
 
     result = {
@@ -557,37 +446,18 @@ async def collect(engine, spool, budget):
                     % max(1, math.ceil(budget.limits.statement_seconds * 1000))
                 )
             )
-            tables = (
-                *[family.table for family in FAMILIES],
-                *CONTEXT,
-                "storage_connections",
-                "alembic_version",
+            revisions = await connection.scalar(
+                text("SELECT yoao_assets_v1.migration_inventory_revisions()")
             )
-            table_list = ",".join("'" + name + "'" for name in tables)
-            rows = await connection.execute(
-                text(
-                    "SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='public' AND table_name IN ("
-                    + table_list
-                    + ") ORDER BY table_name,column_name"
-                )
-            )
-            columns = {}
-            for table, column in rows:
-                columns.setdefault(table, set()).add(column)
-            result["revisions"] = list(
-                await connection.scalars(
-                    text("SELECT version_num FROM alembic_version ORDER BY version_num")
-                )
-            )
-            context_sql = (
-                "SELECT l.id,l.kind,l.config_revision,l.enabled,l.connection_id,"
-                "CASE WHEN l.connection_id IS NULL THEN l.config->>'endpoint' ELSE c.config->>'endpoint' END AS endpoint,"
-                "CASE WHEN l.connection_id IS NULL THEN l.config->>'use_ssl' ELSE c.config->>'use_ssl' END AS use_ssl,"
-                "c.kind AS connection_kind,c.scope AS connection_scope,c.revision AS connection_revision,"
-                "c.config->>'bucket' AS bucket,c.config->>'base_prefix' AS base_prefix "
-                "FROM storage_locations l LEFT JOIN storage_connections c ON c.id=l.connection_id"
-            )
-            async for page in paged(connection, context_sql, (("l.id", "id"),), budget):
+            if not revisions:
+                raise ReferenceError("database_revision_unavailable")
+            result["revisions"] = revisions
+            async for page in paged(
+                connection,
+                "yoao_assets_v1.migration_inventory_locations",
+                ("id",),
+                budget,
+            ):
                 for row in page:
                     budget.take("rows")
                     value = dict(row)
@@ -608,8 +478,8 @@ async def collect(engine, spool, budget):
                     spool.emit({"type": "location", **value})
             async for page in paged(
                 connection,
-                "SELECT b.purpose,b.location_id,b.bucket,b.generation FROM storage_bindings b",
-                (("b.purpose", "purpose"),),
+                "yoao_assets_v1.migration_inventory_bindings",
+                ("purpose",),
                 budget,
             ):
                 for row in page:
@@ -624,32 +494,33 @@ async def collect(engine, spool, budget):
                         }
                     )
             for family in FAMILIES:
-                if not family_available(family, columns, result["revisions"]):
-                    result.setdefault("families_not_present_in_schema", []).append(
-                        family.table
-                    )
-                    continue
-                fields = columns.get(family.table, set())
-                projected = projection(family, fields, revisions=result["revisions"])
-                base = f"SELECT {projected} FROM {quoted(family.table)} r"
-                keys = tuple(("r." + quoted(key), key) for key in family.keys)
-                async for page in paged(connection, base, keys, budget):
+                export_projection = _EXPORT_PROJECTIONS.get(family.table)
+                owner = _OWNER_SCHEMAS.get(family.table, "yoao_assets_v1")
+                capability = export_projection or f"{owner}.inventory_{family.table}"
+                async for page in paged(
+                    connection,
+                    capability,
+                    family.keys,
+                    budget,
+                    record=export_projection is not None,
+                ):
                     for row in page:
                         budget.take("rows")
                         for record in references(family, dict(row)):
                             spool.emit(record)
                 if family.inventory:
-                    await expand_inventory(connection, family, spool, budget, fields)
+                    await expand_inventory(
+                        connection,
+                        family,
+                        spool,
+                        budget,
+                        capability + "_objects",
+                        record=export_projection is not None,
+                    )
                 result["families"].append(family.table)
     except Exception as exc:
         result["enumeration_complete"] = False
-        result["issue"] = (
-            exc.code
-            if isinstance(exc, ReferenceError)
-            else "time_budget"
-            if isinstance(exc, TimeoutError)
-            else "database_snapshot_failed"
-        )
+        result["issue"] = _snapshot_issue(exc)
     finally:
         result.update(
             finished_at=now(),
@@ -661,23 +532,10 @@ async def collect(engine, spool, budget):
     return result
 
 
-async def expand_inventory(connection, family, spool, budget, columns=()):
-    keys = ",".join("r." + quoted(k) for k in family.keys)
-    states = "".join(
-        ",r." + quoted(name) for name in ("state", "status") if name in columns
-    )
-    query = (
-        f"SELECT {keys}{states},{ref_projection()},o.key AS inventory_key,"
-        "o.value->>'sha256' AS object_sha256,o.value->'size_bytes' AS object_size,"
-        "o.value->>'version_id' AS object_version,o.value->>'state' AS object_state "
-        f"FROM {quoted(family.table)} r CROSS JOIN LATERAL jsonb_each("
-        "CASE WHEN r.inventory->'schema'='1'::jsonb AND jsonb_typeof(r.inventory->'objects')='object' "
-        "THEN r.inventory->'objects' ELSE '{}'::jsonb END) o"
-    )
-    keyset = tuple(("r." + quoted(key), key) for key in family.keys) + (
-        ('o.key COLLATE "C"', "inventory_key"),
-    )
-    async for page in paged(connection, query, keyset, budget):
+async def expand_inventory(connection, family, spool, budget, capability, *, record):
+    async for page in paged(
+        connection, capability, (*family.keys, "inventory_key"), budget, record=record
+    ):
         for row in page:
             budget.take("expanded")
             ref = row["storage_ref"] or {}
@@ -693,7 +551,7 @@ async def expand_inventory(connection, family, spool, budget, columns=()):
                     if isinstance(prefix, str) and isinstance(key, str)
                     else None
                 )
-            record = {
+            entry = {
                 "type": "reference",
                 **owner_record(family, row),
                 "role": "inventory_object",
@@ -711,16 +569,16 @@ async def expand_inventory(connection, family, spool, budget, columns=()):
             }
             saved = saved_locator(family, row)
             if saved.get("unknown"):
-                record["unknown"] = saved["unknown"]
+                entry["unknown"] = saved["unknown"]
             if not isinstance(prefix, str) or not prefix or not prefix.endswith("/"):
-                record.setdefault("unknown", "inventory_prefix_unknown")
+                entry.setdefault("unknown", "inventory_prefix_unknown")
             elif (
                 not isinstance(key, str)
                 or not key.startswith(prefix)
                 or len(key) <= len(prefix)
             ):
-                record.setdefault("unknown", "inventory_key_outside_saved_prefix")
-            spool.emit(record)
+                entry.setdefault("unknown", "inventory_key_outside_saved_prefix")
+            spool.emit(entry)
 
 
 def parser():

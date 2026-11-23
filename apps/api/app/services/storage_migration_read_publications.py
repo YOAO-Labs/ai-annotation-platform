@@ -12,12 +12,9 @@ import uuid
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import func, insert, select, text
 from sqlalchemy.exc import DBAPIError
 
-from app.db.models.dataset_asset import StorageLocation
-from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
-from app.db.models.storage_migration_copy import StorageMigrationCopy as Copy
 from app.db.models.storage_migration_read_publication import (
     StorageMigrationReadPublication as Publication,
     StorageMigrationReadRoute as Route,
@@ -27,6 +24,7 @@ from app.services import (
     storage_migration_copy as core,
     storage_migration_copy_target as targets,
     storage_migration_finalizations as finalizations,
+    storage_registry_data,
 )
 from app.services.original_read_plan import ReadRoute
 from app.services.content_snapshot import ContentError
@@ -124,10 +122,10 @@ def item(row):
     )
 
 
-async def _owner(db, publication_id, *, lock=False, read=False):
+async def _owner(db, publication_id, *, lock=False):
     query = select(Publication).where(Publication.id == publication_id)
     if lock:
-        query = query.with_for_update(read=read, nowait=True)
+        query = query.with_for_update(nowait=True)
     try:
         return await db.scalar(query.execution_options(populate_existing=True))
     except DBAPIError as exc:
@@ -155,13 +153,11 @@ async def require_unpublished(db, finalization_id):
 
 
 async def frozen_copy(db, copy_id):
-    return (
-        await db.scalar(
-            select(Publication.id)
-            .where(Publication.copy_id == copy_id, Publication.state.in_(ACTIVE))
-            .limit(1)
-        )
-        is not None
+    if db.autoflush:
+        await db.flush()
+    return await db.scalar(
+        text("SELECT yoao_assets_v1.migration_read_publication_holds_copy(:id)"),
+        {"id": copy_id},
     )
 
 
@@ -192,7 +188,7 @@ async def _prepared(db, actor_id, claim, expected_revision, native):
     attempt = await finalizations._verified(db, row, window, copy)
     if row.token != finalizations._token(copy, attempt, window):
         reject("finalization_checkpoint_changed")
-    target, revisions, _, _ = await targets.resolve(db, row.target_location_id)
+    target, revisions, _ = await targets.facts(db, row.target_location_id)
     if target != row.target:
         reject("read_publication_target_changed")
     existing = await _owner(db, row.id, lock=True)
@@ -397,83 +393,59 @@ async def finish_withdrawal(db, actor_id, claim, expected_revision):
         return item(row)
     if row.state != "withdrawing":
         reject("read_publication_changed")
-    if await db.scalar(
-        select(StorageOperation.id)
-        .where(StorageOperation.purpose == purpose(row.id))
-        .limit(1)
-    ):
+    if await storage_access.operation_is_open(db, purpose(row.id)):
         reject("read_publication_unsettled")
     await _change(db, row, "withdrawn")
     return item(row)
 
 
-async def changed_checkpoint(db, copy_id):
-    await db.execute(
-        update(Publication)
-        .where(Publication.copy_id == copy_id, Publication.state == "active")
-        .values(
-            state="withdrawing",
-            revision=Publication.revision + 1,
-            updated_at=func.statement_timestamp(),
-            withdrawing_at=func.statement_timestamp(),
-        )
-    )
-
-
 async def _physical(db, row, *, lock=False, expected_revision=None):
-    source = await db.get(
-        StorageLocation, row.source_location_id, populate_existing=True
-    )
+    source = await storage_registry_data.get_location(db, row.source_location_id)
     if (
         source is None
         or not source.enabled
-        or source.config_revision != row.source["location_revision"]
+        or source.config_revision != row.source_location_revision
     ):
         reject("read_publication_source_changed")
-    identity, revisions, access, _ = await targets.resolve(
-        db, row.target_location_id, lock=lock
-    )
-    if identity != row.target:
+    identity, revisions, _ = await targets.facts(db, row.target_location_id, lock=lock)
+    if identity != row.target_identity:
         reject("read_publication_target_changed")
-    query = select(StorageMaintenanceGate.state, StorageMaintenanceGate.revision).where(
-        StorageMaintenanceGate.location_id == row.target_location_id
+    gate = await storage_access.gate_facts(
+        db, row.target_location_id, lock="share_nowait" if lock else None
     )
-    if lock:
-        query = query.with_for_update(read=True, nowait=True)
-    gate = (await db.execute(query)).mappings().one_or_none()
     gate_revision = storage_access.validate(
         gate if gate is not None else {"state": "active", "revision": 1},
         expected_revision,
     )
-    return identity, revisions, gate_revision, access
+    return identity, revisions, gate_revision
 
 
-def _route(row, route, identity, revisions, gate_revision):
+def _route(row, identity, revisions, gate_revision):
     return ReadRoute(
-        publication_id=row.id,
-        publication_revision=row.revision,
-        source_object_id=route.source_object_id,
+        publication_id=row.publication_id,
+        publication_revision=row.publication_revision,
+        source_object_id=row.source_object_id,
         source_location_id=row.source_location_id,
-        source_endpoint_url=route.endpoint_url,
-        source_bucket=route.bucket,
-        source_object_key=route.object_key,
-        source_version_id=route.source_version_id,
-        sha256=route.sha256,
-        size_bytes=route.size_bytes,
-        source_etag=route.source_etag,
-        is_latest=route.is_latest,
+        source_endpoint_url=row.source_endpoint_url,
+        source_bucket=row.source_bucket,
+        source_object_key=row.source_object_key,
+        source_version_id=row.source_version_id,
+        sha256=row.sha256,
+        size_bytes=row.size_bytes,
+        source_etag=row.source_etag,
+        is_latest=row.is_latest,
         target_location_id=row.target_location_id,
         target_location_revision=revisions["location"],
         target_connection_id=uuid.UUID(identity["connection_id"]),
         target_connection_revision=revisions["connection"],
         target_endpoint_url=identity["endpoint_url"],
         target_bucket=identity["bucket"],
-        target_object_key=route.target_key,
-        target_version_id=route.target_version_id,
-        target_etag=route.target_etag,
-        target_content_sha256=route.target_content_sha256,
-        creation_nonce=route.nonce,
-        creation_plan_uuid=route.creation_plan_uuid,
+        target_object_key=row.target_object_key,
+        target_version_id=row.target_version_id,
+        target_etag=row.target_etag,
+        target_content_sha256=row.target_content_sha256,
+        creation_nonce=row.creation_nonce,
+        creation_plan_uuid=row.creation_plan_uuid,
         maintenance_revision=gate_revision,
     )
 
@@ -492,70 +464,61 @@ async def lookup(
     source_etag=None,
     lock=False,
 ):
-    query = select(Publication).where(
-        Publication.source_location_id == source_location_id,
-        Publication.state == "active",
-    )
-    if lock:
-        query = query.with_for_update(read=True, nowait=True)
-    row = await db.scalar(query.execution_options(populate_existing=True))
+    match_version = source_version_id is not ANY_VERSION
+    row = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.migration_read_route_lookup("
+                ":source_id, :endpoint, :bucket, :key, :sha256, :size_bytes, "
+                ":match_version, :version_id, :etag, :lock)"
+            ),
+            {
+                "source_id": source_location_id,
+                "endpoint": endpoint_url,
+                "bucket": bucket,
+                "key": object_key,
+                "sha256": sha256,
+                "size_bytes": size_bytes,
+                "match_version": match_version,
+                "version_id": source_version_id if match_version else None,
+                "etag": source_etag,
+                "lock": lock,
+            },
+        )
+    ).one_or_none()
     if row is None:
         return None
-    conditions = [
-        Route.publication_id == row.id,
-        Route.endpoint_url == endpoint_url,
-        Route.bucket == bucket,
-        Route.object_key == object_key,
-        Route.sha256 == sha256,
-    ]
-    if size_bytes is not None:
-        conditions.append(Route.size_bytes == size_bytes)
-    if source_version_id is not ANY_VERSION:
-        conditions.append(Route.source_version_id == source_version_id)
-    if source_etag is not None:
-        conditions.append(Route.source_etag == source_etag)
-    query = (
-        select(Route)
-        .where(*conditions)
-        .order_by(Route.is_latest.desc(), Route.source_object_id)
-        .limit(1)
-    )
-    route = await db.scalar(query.execution_options(populate_existing=True))
-    if route is None:
-        return None
-    identity, revisions, gate_revision, _ = await _physical(db, row, lock=lock)
-    return _route(row, route, identity, revisions, gate_revision)
+    identity, revisions, gate_revision = await _physical(db, row, lock=lock)
+    return _route(row, identity, revisions, gate_revision)
 
 
 async def _rechecked(db, route, *, lock=False):
-    row = await _owner(db, route.publication_id, lock=lock, read=lock)
-    if (
-        row is None
-        or row.state != "active"
-        or row.revision != route.publication_revision
-    ):
+    row = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.migration_read_route_recheck("
+                ":id, :revision, :object_id, :lock)"
+            ),
+            {
+                "id": route.publication_id,
+                "revision": route.publication_revision,
+                "object_id": route.source_object_id,
+                "lock": lock,
+            },
+        )
+    ).one_or_none()
+    if row is None:
         reject("read_publication_changed")
-    stored = await db.get(
-        Route, (row.id, route.source_object_id), populate_existing=True
-    )
-    if stored is None:
-        reject("read_publication_changed")
-    identity, revisions, gate_revision, access = await _physical(
+    identity, revisions, gate_revision = await _physical(
         db, row, lock=lock, expected_revision=route.maintenance_revision
     )
-    if _route(row, stored, identity, revisions, gate_revision) != route:
+    if _route(row, identity, revisions, gate_revision) != route:
         reject("read_publication_changed")
-    return access
 
 
 @_read_boundary
 async def recheck(db, route, *, lock=False):
     await _rechecked(db, route, lock=lock)
-
-
-@_read_boundary
-async def target_for_route(db, route):
-    return await _rechecked(db, route)
 
 
 @_read_boundary
@@ -569,45 +532,22 @@ async def prefix_inventory(db, route, *, prefix, lock=False):
     if not _text(prefix, 1024) or not route.source_object_key.startswith(prefix):
         reject("read_publication_prefix_invalid")
     await _rechecked(db, route, lock=lock)
-    publication = await _owner(db, route.publication_id)
-    saved = (
-        await db.execute(
-            select(Copy.source, Copy.handling, Copy.source_report_sha256).where(
-                Copy.id == publication.copy_id
-            )
-        )
-    ).one_or_none()
-    if (
-        saved is None
-        or saved.source != publication.source
-        or saved.source_report_sha256 != publication.evidence["source_report_sha256"]
-    ):
-        reject("read_publication_prefix_incomplete")
-    purposes = [
-        purpose
-        for purpose, bucket in saved.source["purpose_buckets"].items()
-        if bucket == route.source_bucket
-    ]
-    if not purposes or any(
-        saved.handling.get(purpose) != "migrate" for purpose in purposes
-    ):
-        reject("read_publication_prefix_incomplete")
-    rows = (
-        await db.execute(
-            select(Route.object_key, Route.sha256, Route.size_bytes)
-            .where(
-                Route.publication_id == route.publication_id,
-                Route.endpoint_url == route.source_endpoint_url,
-                Route.bucket == route.source_bucket,
-                Route.object_key.startswith(prefix, autoescape=True),
-                Route.is_latest.is_(True),
-            )
-            .order_by(Route.object_key, Route.source_object_id)
-            .limit(100001)
-        )
-    ).all()
+    rows = await db.execute(
+        text(
+            "SELECT * FROM yoao_assets_v1.migration_read_prefix_inventory("
+            ":id, :revision, :object_id, :prefix)"
+        ),
+        {
+            "id": route.publication_id,
+            "revision": route.publication_revision,
+            "object_id": route.source_object_id,
+            "prefix": prefix,
+        },
+    )
     result = {}
-    for key, sha256, size in rows:
+    for error_code, key, sha256, size in rows:
+        if error_code is not None:
+            reject(error_code)
         if key in result or len(result) >= 100000:
             reject("read_publication_prefix_incomplete")
         result[key] = {"sha256": sha256, "size_bytes": size}

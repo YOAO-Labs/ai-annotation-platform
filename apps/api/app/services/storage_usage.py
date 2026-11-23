@@ -6,19 +6,10 @@ import json
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text
 
 from app.config import settings
 from app.db.enums import UserRole
-from app.db.models.async_job import AsyncJob
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.storage_connection import StorageConnection
-from app.db.models.storage_usage import (
-    StorageUsageInventory as Inventory,
-    StorageUsageSnapshot as Snapshot,
-    StorageUsageSchedule as Schedule,
-)
 from app.schemas.storage import BucketSummary, BucketsResponse
 from app.services import async_job as jobs
 from app.services.async_job_notify import notify_job_terminal
@@ -83,30 +74,28 @@ async def uncovered_bindings(db, scope):
     ).rstrip("/")
     buckets = {target["name"] for target in scope}
     uncovered = set(PURPOSE_BUCKET_ATTRIBUTES)
-    for binding, location, connection in await db.execute(
-        select(StorageBinding, StorageLocation, StorageConnection)
-        .outerjoin(StorageLocation, StorageLocation.id == StorageBinding.location_id)
-        .outerjoin(
-            StorageConnection, StorageConnection.id == StorageLocation.connection_id
-        )
-        .where(StorageBinding.purpose.in_(PURPOSE_BUCKET_ATTRIBUTES))
+    for row in await db.execute(
+        text("SELECT * FROM yoao_assets_v1.migration_inventory_binding_context()")
     ):
-        if location is None or location.kind != "s3" or binding.bucket not in buckets:
-            continue
-        if location.id == LEGACY_LOCATION_ID and location.connection_id is None:
-            config = location.config
-        elif (
-            connection is not None
-            and connection.kind == "s3"
-            and connection.scope == "global"
-            and connection.config.get("bucket") == binding.bucket
+        if (
+            row.purpose not in uncovered
+            or row.location_kind != "s3"
+            or row.bucket not in buckets
         ):
-            config = connection.config
+            continue
+        if row.location_id == LEGACY_LOCATION_ID and row.connection_id is None:
+            config = row.location_config
+        elif (
+            row.connection_kind == "s3"
+            and row.connection_scope == "global"
+            and row.connection_config.get("bucket") == row.bucket
+        ):
+            config = row.connection_config
         else:
             continue
         try:
             if S3Access(config, b"", ()).endpoint == endpoint:
-                uncovered.discard(binding.purpose)
+                uncovered.discard(row.purpose)
         except (ValueError, KeyError, TypeError):
             continue
     return sorted(uncovered)
@@ -114,11 +103,16 @@ async def uncovered_bindings(db, scope):
 
 async def read_usage(db):
     scope = configured_scope()
-    inventory = await db.get(Inventory, "platform", populate_existing=True)
+    inventory = (
+        await db.execute(text("SELECT * FROM yoao_assets_v1.usage_inventory_status()"))
+    ).one_or_none()
     rows = {
-        r.scope_key: r
-        for r in await db.scalars(
-            select(Snapshot).where(Snapshot.scope_key.in_([s["key"] for s in scope]))
+        row.scope_key: row
+        for row in await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.usage_snapshot_facts(CAST(:keys AS text[]))"
+            ),
+            {"keys": [item["key"] for item in scope]},
         )
     }
     items = []
@@ -175,13 +169,88 @@ async def read_usage(db):
     )
 
 
-async def locked(db):
-    return await db.scalar(
-        select(Inventory)
-        .where(Inventory.id == "platform")
-        .with_for_update()
-        .execution_options(populate_existing=True)
+async def locked(db, *, bootstrap_at=None):
+    return (
+        await db.execute(
+            text("SELECT * FROM yoao_assets_v1.lock_usage_inventory(:at)"),
+            {"at": bootstrap_at},
+        )
+    ).one_or_none()
+
+
+async def expired(db):
+    return (
+        await db.execute(
+            text("SELECT * FROM yoao_assets_v1.lock_expired_usage_inventory(:at)"),
+            {"at": now()},
+        )
+    ).one_or_none()
+
+
+async def _transition(db, statement, params):
+    if not await db.scalar(text(statement), params):
+        raise HTTPException(409, detail={"code": "inventory_changed"})
+
+
+async def claim(db, inventory):
+    await _transition(
+        db,
+        "SELECT yoao_assets_v1.claim_usage_inventory(:job, :generation, :lease)",
+        {
+            "job": inventory.async_job_id,
+            "generation": inventory.generation,
+            "lease": now() + timedelta(seconds=LEASE_SECONDS),
+        },
     )
+
+
+async def begin_page(db, inventory, checkpoint):
+    await _transition(
+        db,
+        "SELECT yoao_assets_v1.begin_usage_inventory_page("
+        ":job, :generation, :index, CAST(:checkpoint AS jsonb))",
+        {
+            "job": inventory.async_job_id,
+            "generation": inventory.generation,
+            "index": inventory.bucket_index,
+            "checkpoint": json.dumps(checkpoint),
+        },
+    )
+
+
+async def record_page(
+    db, inventory, checkpoint, *, error, terminal, started, measured, categories
+):
+    outcome = "failed" if error else "completed" if terminal else "continue"
+    await _transition(
+        db,
+        "SELECT yoao_assets_v1.record_usage_inventory_page("
+        ":job, :generation, :index, CAST(:checkpoint AS jsonb), :lease,"
+        ":outcome, :error, :count, :size, CAST(:categories AS jsonb), :started, :measured)",
+        {
+            "job": inventory.async_job_id,
+            "generation": inventory.generation,
+            "index": inventory.bucket_index,
+            "checkpoint": json.dumps(checkpoint),
+            "lease": now() + timedelta(seconds=LEASE_SECONDS),
+            "outcome": outcome,
+            "error": error,
+            "count": checkpoint.get("count"),
+            "size": checkpoint.get("bytes"),
+            "categories": json.dumps(categories) if categories is not None else None,
+            "started": started,
+            "measured": measured,
+        },
+    )
+
+
+async def release_chunk(db, inventory, job, *, lease=None):
+    await _transition(
+        db,
+        "SELECT yoao_assets_v1.release_usage_inventory_chunk(:job, :generation, :lease)",
+        {"job": job.id, "generation": inventory.generation, "lease": lease},
+    )
+    jobs.bind_execution_id(job, str(uuid.uuid4()))
 
 
 async def start(db, actor, api_key_id=None):
@@ -189,48 +258,25 @@ async def start(db, actor, api_key_id=None):
     proof = await key_authority(db, actor, api_key_id, "*")
     if await validate_legacy_bindings(db):
         raise HTTPException(409, detail={"code": "configuration_changed"})
-    await db.execute(
-        insert(Inventory)
-        .values(
-            id="platform",
-            status="never",
-            authority={},
-            scope=[],
-            bucket_index=0,
-            checkpoint={},
-            success_count=0,
-            failed_count=0,
-            generation=0,
-            started_at=now(),
-        )
-        .on_conflict_do_nothing()
-    )
-    inventory = await locked(db)
+    inventory = await locked(db, bootstrap_at=now())
+    generation = inventory.generation
     if inventory.status in ACTIVE:
-        job = await db.get(AsyncJob, inventory.async_job_id, populate_existing=True)
+        job = (
+            await jobs.get_job(db, inventory.async_job_id, populate_existing=True)
+            if inventory.async_job_id
+            else None
+        )
         if job and job.status in ACTIVE:
             return job, True
         await finish(db, inventory, "failed", "worker_failed")
+        generation += 1
     scope = configured_scope()
-    for target in scope:
-        await db.execute(
-            insert(Snapshot)
-            .values(scope_key=target["key"], attempt_status="never")
-            .on_conflict_do_nothing()
-        )
-        row = await db.get(Snapshot, target["key"], populate_existing=True)
-        row.attempt_status, row.attempted_at, row.error_code = "pending", now(), None
-    inventory.scope, inventory.status = scope, "pending"
-    inventory.authority = {
+    authorization = {
         "actor_id": str(actor.id),
         "api_key_id": str(api_key_id) if api_key_id else None,
         "key_proof": proof,
     }
-    inventory.bucket_index, inventory.checkpoint = 0, {}
-    inventory.success_count = inventory.failed_count = 0
-    inventory.generation += 1
-    inventory.started_at = now()
-    inventory.lease_until = now() + timedelta(seconds=LEASE_SECONDS)
+    started = now()
     job = await jobs.create_job(
         db,
         kind="storage_usage",
@@ -238,13 +284,25 @@ async def start(db, actor, api_key_id=None):
         celery_task_id=str(uuid.uuid4()),
         payload={"scope": "platform_current_objects", "bucket_count": len(scope)},
     )
-    inventory.async_job_id = job.id
+    await _transition(
+        db,
+        "SELECT yoao_assets_v1.start_usage_inventory("
+        ":job, :generation, CAST(:authority AS jsonb), CAST(:scope AS jsonb), :started, :lease)",
+        {
+            "job": job.id,
+            "generation": generation,
+            "authority": json.dumps(authorization),
+            "scope": json.dumps(scope),
+            "started": started,
+            "lease": now() + timedelta(seconds=LEASE_SECONDS),
+        },
+    )
     return job, False
 
 
 async def fenced(db, job_id, task_id, generation):
     inventory = await locked(db)
-    job = await db.get(AsyncJob, job_id, populate_existing=True)
+    job = await jobs.get_job(db, job_id, populate_existing=True)
     if (
         not inventory
         or not job
@@ -260,10 +318,10 @@ async def fenced(db, job_id, task_id, generation):
     return inventory
 
 
-def result(inventory):
+def result(inventory, *, success=0, failure=0):
     return {
-        "success_count": inventory.success_count,
-        "failed_count": inventory.failed_count,
+        "success_count": inventory.success_count + success,
+        "failed_count": inventory.failed_count + failure,
         "bucket_count": len(inventory.scope),
         "stage": "enumerating",
     }
@@ -272,12 +330,16 @@ def result(inventory):
 async def finish(db, inventory, status, error=None):
     if inventory.async_job_id:
         await accounting.discard_staging(db, inventory.async_job_id)
-    for target in inventory.scope[inventory.bucket_index :]:
-        row = await db.get(Snapshot, target["key"], populate_existing=True)
-        if row:
-            row.attempt_status, row.error_code = status, error
-    inventory.status, inventory.lease_until = status, None
-    inventory.generation += 1
+    await _transition(
+        db,
+        "SELECT yoao_assets_v1.finish_usage_inventory(:job, :generation, :status, :error)",
+        {
+            "job": inventory.async_job_id,
+            "generation": inventory.generation,
+            "status": status,
+            "error": error,
+        },
+    )
     if inventory.async_job_id:
         summary = result(inventory)
         if status == "completed":
@@ -296,7 +358,7 @@ async def finish(db, inventory, status, error=None):
 
 async def cancel(db, job_id):
     inventory = await locked(db)
-    job = await db.get(AsyncJob, job_id, populate_existing=True)
+    job = await jobs.get_job(db, job_id, populate_existing=True)
     if (
         not inventory
         or inventory.async_job_id != job_id
@@ -310,7 +372,7 @@ async def cancel(db, job_id):
 
 async def signal_interrupted(db, job_id, task_id, *, cancelled):
     inventory = await locked(db)
-    job = await db.get(AsyncJob, job_id, populate_existing=True)
+    job = await jobs.get_job(db, job_id, populate_existing=True)
     if (
         not inventory
         or inventory.async_job_id != job_id
@@ -323,10 +385,7 @@ async def signal_interrupted(db, job_id, task_id, *, cancelled):
     if cancelled:
         await finish(db, inventory, "cancelled", "cancelled")
         return
-    inventory.status = "pending"
-    inventory.generation += 1
-    inventory.lease_until = now()
-    job.celery_task_id = str(uuid.uuid4())
+    await release_chunk(db, inventory, job, lease=now())
 
 
 async def configure_schedule(db, actor, enabled, interval_hours, api_key_id=None):
@@ -334,50 +393,50 @@ async def configure_schedule(db, actor, enabled, interval_hours, api_key_id=None
     proof = await key_authority(db, actor, api_key_id, "*")
     if enabled and await validate_legacy_bindings(db):
         raise HTTPException(409, detail={"code": "configuration_changed"})
-    await db.execute(
-        insert(Schedule)
-        .values(id="platform", authority={}, scope=[])
-        .on_conflict_do_nothing()
-    )
-    row = await db.scalar(
-        select(Schedule).where(Schedule.id == "platform").with_for_update()
-    )
-    row.enabled, row.interval_hours = enabled, interval_hours
-    row.status, row.pause_reason = ("active" if enabled else "off"), None
-    row.next_due_at = now() if enabled else None
-    row.authority = {
-        "actor_id": str(actor.id),
-        "api_key_id": str(api_key_id) if api_key_id else None,
-        "key_proof": proof,
-    }
-    row.scope = configured_scope()
-    await db.flush()
+    row = (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.configure_usage_schedule("
+                ":enabled, :hours, CAST(:authority AS jsonb), CAST(:scope AS jsonb), :now)"
+            ),
+            {
+                "enabled": enabled,
+                "hours": interval_hours,
+                "authority": json.dumps(
+                    {
+                        "actor_id": str(actor.id),
+                        "api_key_id": str(api_key_id) if api_key_id else None,
+                        "key_proof": proof,
+                    }
+                ),
+                "scope": json.dumps(configured_scope()),
+                "now": now(),
+            },
+        )
+    ).one()
     return accounting.schedule_summary(row)
 
 
 async def start_due(db):
-    row = await db.scalar(
-        select(Schedule)
-        .where(
-            Schedule.id == "platform",
-            Schedule.enabled.is_(True),
-            Schedule.status == "active",
+    row = (
+        await db.execute(
+            text("SELECT * FROM yoao_assets_v1.lock_active_usage_schedule()")
         )
-        .with_for_update(skip_locked=True)
-    )
+    ).one_or_none()
     if row is None:
         await db.commit()
         return None
     try:
         await authority(db, row)
     except HTTPException as exc:
-        row.status = "paused"
-        row.pause_reason = (
-            "access_revoked"
-            if exc.status_code in {401, 403, 404}
-            else "configuration_changed"
+        await db.execute(
+            text("SELECT yoao_assets_v1.pause_usage_schedule(:reason)"),
+            {
+                "reason": "access_revoked"
+                if exc.status_code in {401, 403, 404}
+                else "configuration_changed",
+            },
         )
-        row.next_due_at = None
         await db.commit()
         return None
     if row.next_due_at is None or row.next_due_at > now():
@@ -389,7 +448,9 @@ async def start_due(db):
     if reused:
         await db.commit()
         return None
-    row.last_started_at = now()
-    row.next_due_at = row.last_started_at + timedelta(hours=row.interval_hours)
+    await db.execute(
+        text("SELECT yoao_assets_v1.advance_usage_schedule(:started)"),
+        {"started": now()},
+    )
     await db.commit()
     return job

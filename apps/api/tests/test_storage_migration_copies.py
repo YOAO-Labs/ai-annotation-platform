@@ -24,7 +24,7 @@ from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage_location import location_is_referenced, register_connection
 from app.services.storage_maintenance_impact import dependencies
 from app.workers import storage_migration_copy as worker
-from tests.test_storage_migration_inventories import report
+from tests.test_storage_migration_inventories import report, settled_inventory_fixture
 
 PATH = "/api/v1/storage/migration-copies"
 
@@ -33,7 +33,7 @@ async def seed(db, actor):
     await ensure_legacy_bindings(db)
     inventory, job, _ = await inventories.start(db, actor)
     await inventories.claim(db, job.id, inventory.task_id)
-    inventory.operation_id = uuid.uuid4()
+    inventory = await settled_inventory_fixture(db, job.id)
     await inventories.publish(db, job.id, inventory.task_id, report=report(inventory))
     connection = StorageConnection(
         name="Copy target",
@@ -233,9 +233,8 @@ async def test_frozen_owner_survives_job_purge_and_protects_location(
         delete(AsyncJob).where(AsyncJob.id.in_([job.id, seeded[0].async_job_id]))
     )
     await db_session.flush()
-    await db_session.refresh(row)
+    row = await service.owner(db_session, row.id)
     a = await service.last(db_session, row)
-    await db_session.refresh(a)
     assert row.source_inventory_job_id is None and a.async_job_id is None
     assert await location_is_referenced(db_session, row.target_location_id)
     impact = (

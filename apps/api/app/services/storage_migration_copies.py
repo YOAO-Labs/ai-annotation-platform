@@ -1,8 +1,8 @@
 """Frozen copy ownership, explicit attempts and independent object receipt commits."""
 
 import asyncio
+from dataclasses import replace
 import hashlib
-import json
 import logging
 import os
 from pathlib import Path
@@ -12,20 +12,8 @@ from types import SimpleNamespace
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, text
-from sqlalchemy.orm import undefer
 
-from app.db.models.dataset_asset import StorageLocation
-from app.db.models.storage_connection import StorageConnection
-from app.db.models.storage_maintenance import StorageOperation
-from app.db.models.storage_migration_copy import (
-    BASELINE_LIMIT,
-    StorageMigrationCopy as Copy,
-    StorageMigrationCopyAttempt as Attempt,
-    StorageMigrationCopyDelta as Delta,
-)
-from app.db.models.storage_migration_inventory import StorageMigrationInventory
-from app.db.models.user import User
+from app.db.models.storage_migration_copy import BASELINE_LIMIT
 from app.schemas.storage_migration_copy import (
     StorageMigrationCopyGenerationSummary,
     StorageMigrationCopyItem,
@@ -33,12 +21,16 @@ from app.schemas.storage_migration_copy import (
 )
 from app.services import (
     async_job as jobs,
+    connector_guard,
     storage_access,
-    storage_migration_inventories as inventories,
-    storage_migration_copy_target as targets,
     storage_job_progress as progress,
+    storage_migration_copy_data as data,
+    storage_migration_copy_target as targets,
+    storage_migration_inventories as inventories,
+    storage_registry_data as registry,
 )
 from app.services.audit import AuditService
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.storage_migration_copy import (
     Checkpoint,
@@ -100,43 +92,38 @@ def proven_dead(proof):
 
 
 async def owner(db, copy_id, *, lock=False, private=False):
-    q = select(Copy).where(Copy.id == copy_id).execution_options(populate_existing=True)
-    if lock:
-        q = q.with_for_update()
-    if private:
-        q = q.options(
-            undefer(Copy.source_report), undefer(Copy.catalog), undefer(Copy.baseline)
-        )
-    row = await db.scalar(q)
+    row = await data.plan(db, copy_id, lock=_write_lock(lock), private=private)
     if row is None:
         raise HTTPException(404, "Copy not found")
     return row
 
 
+def _write_lock(lock):
+    return "update" if lock is True else lock or "read"
+
+
 async def last(db, row, *, lock=False):
-    q = (
-        select(Attempt)
-        .where(Attempt.id == row.last_attempt_id)
-        .execution_options(populate_existing=True)
+    return await data.attempt(
+        db, attempt_id=row.last_attempt_id, lock=_write_lock(lock)
     )
-    if lock:
-        q = q.with_for_update()
-    return await db.scalar(q)
 
 
 async def by_job(db, job_id, *, lock=False):
-    q = (
-        select(Attempt)
-        .where(Attempt.async_job_id == job_id)
-        .execution_options(populate_existing=True)
+    return await data.attempt(db, job_id=job_id, lock=_write_lock(lock))
+
+
+async def by_attempt(db, attempt_id, *, lock=False):
+    return await data.attempt(
+        db, attempt_id=attempt_id, lock="update_nowait" if lock else "read"
     )
-    if lock:
-        q = q.with_for_update()
-    return await db.scalar(q)
+
+
+async def window_copy(db, copy_id, *, lock=False):
+    return await data.plan(db, copy_id, lock="share_nowait" if lock else "read")
 
 
 async def successor(db, copy_id):
-    return await db.scalar(select(Copy.id).where(Copy.parent_copy_id == copy_id))
+    return await data.successor(db, copy_id)
 
 
 async def writable(db, row):
@@ -150,10 +137,11 @@ async def item(db, row):
     from app.services.storage_migration_finalizations import frozen_copy
 
     a = await last(db, row)
-    name = await db.scalar(
-        select(StorageConnection.name)
-        .join(StorageLocation, StorageLocation.connection_id == StorageConnection.id)
-        .where(StorageLocation.id == row.target_location_id)
+    location = await registry.get_location(db, row.target_location_id)
+    connection = (
+        await registry.get_connection(db, location.connection_id)
+        if location is not None and location.connection_id is not None
+        else None
     )
     summary, result = row.summary or {}, (a.result or {}) if a else {}
     successor_id = await successor(db, row.id)
@@ -173,7 +161,7 @@ async def item(db, row):
         source_report_sha256=row.source_report_sha256,
         source_complete=row.source_complete,
         target_location_id=row.target_location_id,
-        target_name=name,
+        target_name=connection.name if connection is not None else None,
         handling=row.handling,
         limits=row.limits,
         prepared=row.baseline_sha256 is not None,
@@ -205,13 +193,7 @@ async def view(db, copy_id, actor, *, api_key_id=None):
 
 async def history(db, actor, *, api_key_id=None, limit=20, offset=0):
     actor, proof = await authority(db, actor, api_key_id)
-    total = await db.scalar(select(func.count()).select_from(Copy))
-    rows = await db.scalars(
-        select(Copy)
-        .order_by(Copy.created_at.desc(), Copy.id.desc())
-        .limit(limit)
-        .offset(offset)
-    )
+    total, rows = await data.history(db, limit, offset)
     values = [await item(db, row) for row in rows]
     if (await authority(db, actor, api_key_id))[1] != proof:
         reject("copy_authority_changed", 403)
@@ -224,33 +206,12 @@ async def candidates(
     db, inventory_job_id, actor, *, api_key_id=None, limit=20, offset=0
 ):
     await authority(db, actor, api_key_id)
-    report = await db.get(StorageMigrationInventory, inventory_job_id)
+    report = await inventories.by_job(db, inventory_job_id)
     if report is None or report.report_sha256 is None:
         reject("copy_source_report_unavailable")
-    q = (
-        select(
-            StorageLocation.id.label("location_id"),
-            StorageConnection.name,
-            StorageLocation.config_revision,
-        )
-        .join(StorageConnection, StorageConnection.id == StorageLocation.connection_id)
-        .where(
-            StorageLocation.enabled,
-            StorageLocation.kind == "s3",
-            StorageConnection.kind == "s3",
-            StorageConnection.scope == "global",
-            StorageConnection.project_id.is_(None),
-            StorageConnection.secret_enc.is_not(None),
-        )
-    )
-    total = await db.scalar(select(func.count()).select_from(q.subquery()))
-    rows = await db.execute(
-        q.order_by(StorageConnection.name, StorageLocation.id)
-        .limit(limit)
-        .offset(offset)
-    )
+    total, rows = await data.candidates(db, limit, offset)
     return {
-        "items": [dict(row._mapping) for row in rows],
+        "items": rows,
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -259,31 +220,8 @@ async def candidates(
 
 async def scope(db, row, *, lock=False):
     if lock:
-        locations = sorted({inventories.LEGACY_LOCATION_ID, row.target_location_id})
-        connection_ids = list(
-            await db.scalars(
-                select(StorageLocation.connection_id).where(
-                    StorageLocation.id.in_(locations),
-                    StorageLocation.connection_id.is_not(None),
-                )
-            )
-        )
-        if connection_ids:
-            await db.execute(
-                select(StorageConnection.id)
-                .where(StorageConnection.id.in_(connection_ids))
-                .order_by(StorageConnection.id)
-                .with_for_update(read=True)
-            )
-        await db.execute(
-            select(StorageLocation.id)
-            .where(StorageLocation.id.in_(locations))
-            .order_by(StorageLocation.id)
-            .with_for_update(read=True)
-        )
-    identity, revisions, access, _ = await targets.resolve(
-        db, row.target_location_id, lock=False
-    )
+        await targets.lock_scope(db, row.target_location_id)
+    identity, revisions, _ = await targets.facts(db, row.target_location_id)
     if identity != row.target:
         reject("copy_target_changed")
     source = await inventories.source_scope(db, lock=False)
@@ -296,14 +234,9 @@ async def scope(db, row, *, lock=False):
         getattr(row, "window_revision", None),
     )
     if window_id is not None:
-        from app.db.models.storage_migration_window import StorageMigrationWindow
+        from app.services import storage_migration_windows as windows
 
-        statement = select(StorageMigrationWindow).where(
-            StorageMigrationWindow.id == window_id
-        )
-        if lock:
-            statement = statement.with_for_update(read=True)
-        window = await db.scalar(statement.execution_options(populate_existing=True))
+        window = await windows.copy_scope(db, window_id, lock=lock)
         if (
             window is None
             or window.parent_copy_id != row.parent_copy_id
@@ -321,30 +254,31 @@ async def scope(db, row, *, lock=False):
             maintenance[str(location)] = await inventories.gate_revision(
                 db, location, lock=lock
             )
+    allowlist = await connector_guard.get_allowlist(db)
     result = {
         "target": revisions,
         "source": source["location_revision"],
         "maintenance": maintenance,
-        "allowlist": sorted(access.allowlist),
+        "allowlist": sorted(allowlist),
         "target_location_id": str(row.target_location_id),
     }
     if window_id is not None:
         result.update(window_id=str(window_id), window_revision=window_revision)
-    return result, access
+    return result, identity
 
 
 async def current(db, row, a, *, lock=False):
     await writable(db, row)
-    actor = await db.get(User, a.requested_by, populate_existing=True)
+    actor = await IdentityAccountLockData(db).read_actor_status(a.requested_by)
     if actor is None:
         reject("copy_authority_changed", 403)
     _, proof = await authority(db, actor, a.authority.get("api_key_id"), lock=lock)
     if proof != a.authority.get("key_proof"):
         reject("copy_authority_changed", 403)
-    actual, access = await scope(db, row, lock=lock)
+    actual, identity = await scope(db, row, lock=lock)
     if actual != a.scope:
         reject("copy_context_changed")
-    return access
+    return identity
 
 
 def matches(row, a, job):
@@ -393,7 +327,9 @@ def public_result(row, a, *, stage=None):
     }
 
 
-async def new_attempt(db, row, actor, proof, key_id, body, *, request=None):
+async def new_attempt(
+    db, row, actor, proof, key_id, body, *, request=None, recovering=False
+):
     await writable(db, row)
     attempt_scope, _ = await scope(db, row, lock=True)
     task_id = str(uuid.uuid4())
@@ -408,24 +344,25 @@ async def new_attempt(db, row, actor, proof, key_id, body, *, request=None):
             "migration_ready": False,
         },
     )
-    a = Attempt(
-        id=uuid.uuid4(),
-        copy_id=row.id,
-        async_job_id=job.id,
-        task_id=task_id,
-        requested_by=actor.id,
-        authority={"api_key_id": str(key_id) if key_id else None, "key_proof": proof},
-        scope=attempt_scope,
-        operation=body.operation,
-        retry_failed=body.retry_failed,
-        retry_object_ids=sorted(body.retry_object_ids)
-        if body.retry_object_ids
-        else None,
-        status="pending",
-    )
-    db.add(a)
-    row.last_attempt_id, row.updated_at = a.id, now()
-    job.result = public_result(row, a, stage="queued")
+    attempt_id, at = uuid.uuid4(), now()
+    if not await data.queue(
+        db,
+        row,
+        attempt_id,
+        job.id,
+        task_id,
+        actor.id,
+        uuid.UUID(str(key_id)) if key_id else None,
+        proof,
+        attempt_scope,
+        body,
+        recovering,
+        at,
+    ):
+        reject("copy_context_changed")
+    row = replace(row, last_attempt_id=attempt_id, updated_at=at)
+    a = await last(db, row)
+    await jobs.replace_result(db, job.id, result=public_result(row, a, stage="queued"))
     await db.flush()
     await AuditService.log(
         db,
@@ -441,18 +378,22 @@ async def new_attempt(db, row, actor, proof, key_id, body, *, request=None):
             "migration_ready": False,
         },
     )
-    return a, job
+    return row, job
 
 
 async def start(db, actor, body, *, api_key_id=None, request=None):
     from app.schemas.storage_migration_copy import StorageMigrationCopyAttemptRequest
 
     actor, proof = await authority(db, actor, api_key_id, lock=True)
-    await db.execute(text("SELECT pg_advisory_xact_lock(8592650718001)"))
-    raw, report_sha = await inventories.download(
-        db, body.inventory_job_id, actor, api_key_id=api_key_id
-    )
-    inventory = await db.get(StorageMigrationInventory, body.inventory_job_id)
+    await data.serialize_planning(db)
+    report_sha = (
+        await inventories.download(
+            db, body.inventory_job_id, actor, api_key_id=api_key_id
+        )
+    )[1]
+    inventory = await inventories.by_job(db, body.inventory_job_id)
+    if inventory is None:
+        raise HTTPException(404, "Inventory not found")
     if inventory.window_id is not None:
         reject("copy_window_requires_generation")
     source = await inventories.source_scope(db, lock=False)
@@ -460,7 +401,7 @@ async def start(db, actor, body, *, api_key_id=None, request=None):
         k: source[k] for k in ("endpoint", "purpose_buckets")
     }:
         reject("copy_source_changed")
-    identity, _, _, _ = await targets.resolve(db, body.target_location_id, lock=False)
+    identity, _, _ = await targets.facts(db, body.target_location_id)
     await scope(
         db,
         SimpleNamespace(
@@ -473,12 +414,9 @@ async def start(db, actor, body, *, api_key_id=None, request=None):
         and identity["bucket"] in source["purpose_buckets"].values()
     ):
         reject("target_is_source")
-    fingerprint = inventories.digest(
-        [report_sha, identity, body.handling, body.limits.model_dump()]
-    )
-    row = await db.scalar(
-        select(Copy).where(Copy.input_fingerprint == fingerprint).with_for_update()
-    )
+    limits = body.limits.model_dump()
+    fingerprint = inventories.digest([report_sha, identity, body.handling, limits])
+    row = await data.plan_by_input(db, fingerprint)
     if row:
         a = await last(db, row, lock=True)
         if a and a.status in ACTIVE and a.requested_by != actor.id:
@@ -493,26 +431,23 @@ async def start(db, actor, body, *, api_key_id=None, request=None):
             else None
         )
         return row, job, True
-    row = Copy(
-        id=uuid.uuid4(),
-        input_fingerprint=fingerprint,
-        source_inventory_job_id=body.inventory_job_id,
-        source_report=raw,
-        source_report_sha256=report_sha,
-        source_complete=inventory.complete,
-        source=source,
-        target_location_id=body.target_location_id,
-        target=identity,
-        handling=body.handling,
-        limits=body.limits.model_dump(),
-        delta_sequence=0,
-        delta_bytes=0,
-    )
-    db.add(row)
-    await db.flush()
-    a, job = await new_attempt(
+    copy_id = uuid.uuid4()
+    if not await data.freeze_plan(
         db,
-        row,
+        copy_id,
+        body.inventory_job_id,
+        report_sha,
+        fingerprint,
+        source,
+        body.target_location_id,
+        identity,
+        body.handling,
+        limits,
+    ):
+        reject("copy_context_changed")
+    row, job = await new_attempt(
+        db,
+        await owner(db, copy_id),
         actor,
         proof,
         api_key_id,
@@ -531,25 +466,10 @@ def evidence(values):
 
 
 async def settled_parent(db, row):
-    attempts = list(
-        await db.scalars(
-            select(Attempt)
-            .where(Attempt.copy_id == row.id)
-            .order_by(Attempt.id)
-            .with_for_update()
-        )
-    )
-    if any(a.status in ACTIVE for a in attempts):
+    state = await data.parent_settlement(db, row.id)
+    if state == "active":
         reject("copy_active_conflict")
-    ids = [
-        p for a in attempts for p in (a.source_operation_id, a.target_operation_id) if p
-    ]
-    if ids and await db.scalar(
-        select(StorageOperation.id)
-        .where(StorageOperation.id.in_(ids))
-        .with_for_update()
-        .limit(1)
-    ):
+    if state != "settled":
         reject("copy_execution_unsettled")
 
 
@@ -557,11 +477,15 @@ async def generation(db, parent_id, actor, body, *, api_key_id=None, request=Non
     from app.schemas.storage_migration_copy import StorageMigrationCopyAttemptRequest
 
     actor, proof = await authority(db, actor, api_key_id, lock=True)
-    await db.execute(text("SELECT pg_advisory_xact_lock(8592650718001)"))
-    raw, report_sha = await inventories.download(
-        db, body.inventory_job_id, actor, api_key_id=api_key_id
-    )
-    inventory = await db.get(StorageMigrationInventory, body.inventory_job_id)
+    await data.serialize_planning(db)
+    report_sha = (
+        await inventories.download(
+            db, body.inventory_job_id, actor, api_key_id=api_key_id
+        )
+    )[1]
+    inventory = await inventories.by_job(db, body.inventory_job_id)
+    if inventory is None:
+        raise HTTPException(404, "Inventory not found")
     initial = await owner(db, parent_id)
     from app.services.storage_migration_finalizations import frozen_copy
 
@@ -580,7 +504,7 @@ async def generation(db, parent_id, actor, body, *, api_key_id=None, request=Non
         else initial
     )
     await scope(db, bound, lock=True)
-    parent = await owner(db, parent_id, lock=True, private=True)
+    parent = await owner(db, parent_id, lock=True)
     if await frozen_copy(db, parent.id):
         reject("copy_read_only")
     child_id = await successor(db, parent.id)
@@ -614,7 +538,7 @@ async def generation(db, parent_id, actor, body, *, api_key_id=None, request=Non
     }:
         reject("copy_source_changed")
     await settled_parent(db, parent)
-    values = await input_values(db, parent)
+    values = await input_values(db, await owner(db, parent_id, private=True))
     native = asyncio.create_task(asyncio.to_thread(evidence, values))
     try:
         parent_digest = await asyncio.shield(native)
@@ -623,41 +547,29 @@ async def generation(db, parent_id, actor, body, *, api_key_id=None, request=Non
         raise
     except (CopyError, ValueError) as exc:
         reject(safe_error(exc))
-    row = Copy(
-        id=uuid.uuid4(),
-        parent_copy_id=parent.id,
-        generation=parent.generation + 1,
-        parent_evidence_sha256=parent_digest,
-        window_id=inventory.window_id,
-        window_revision=inventory.window_revision,
-        input_fingerprint=inventories.digest(
-            ["generation", str(parent.id), parent_digest, report_sha]
-            + (
-                [str(inventory.window_id), inventory.window_revision]
-                if inventory.window_id
-                else []
-            )
-        ),
-        source_inventory_job_id=body.inventory_job_id,
-        source_report=raw,
-        source_report_sha256=report_sha,
-        source_complete=inventory.complete,
-        source=json.loads(
-            json.dumps(inventory.source if inventory.window_id else parent.source)
-        ),
-        target_location_id=parent.target_location_id,
-        target=json.loads(json.dumps(parent.target)),
-        handling=json.loads(json.dumps(parent.handling)),
-        limits=json.loads(json.dumps(parent.limits)),
-        delta_sequence=0,
-        delta_bytes=0,
+    copy_id = uuid.uuid4()
+    fingerprint = inventories.digest(
+        ["generation", str(parent.id), parent_digest, report_sha]
+        + (
+            [str(inventory.window_id), inventory.window_revision]
+            if inventory.window_id
+            else []
+        )
     )
-    db.add(row)
-    await db.flush()
-    parent.updated_at = now()
-    _, job = await new_attempt(
+    if not await data.reserve_successor(
         db,
-        row,
+        copy_id,
+        parent.id,
+        body.inventory_job_id,
+        report_sha,
+        parent_digest,
+        fingerprint,
+        now(),
+    ):
+        reject("copy_context_changed")
+    row, job = await new_attempt(
+        db,
+        await owner(db, copy_id),
         actor,
         proof,
         api_key_id,
@@ -668,50 +580,29 @@ async def generation(db, parent_id, actor, body, *, api_key_id=None, request=Non
 
 
 async def settle_dead(db, a):
-    ids = [value for value in (a.source_operation_id, a.target_operation_id) if value]
-    existing = (
-        list(
-            await db.scalars(
-                select(StorageOperation)
-                .where(StorageOperation.id.in_(ids))
-                .with_for_update()
-            )
-        )
-        if ids
-        else []
-    )
-    if (a.status == "running" or existing) and not proven_dead(a.process):
+    existing = await data.permits_open(db, a, lock=True)
+    if existing is None:
         reject("copy_execution_unsettled")
-    for operation in existing:
-        expected = (
-            str(inventories.LEGACY_LOCATION_ID)
-            if operation.id == a.source_operation_id
-            else a.scope.get("target_location_id")
+    if a.status != "running" and not existing:
+        return
+    if not proven_dead(a.process):
+        reject("copy_execution_unsettled")
+    job = (
+        await db.scalar(
+            job_lock_statement(a.async_job_id, mode="update", populate_existing=True)
         )
-        if (
-            str(operation.location_id) != expected
-            or operation.purpose != KIND
-            or operation.node_id != f"migration:{a.process['pid']}"
-        ):
-            reject("copy_execution_unsettled")
-        await db.delete(operation)
-    if a.status in ACTIVE:
-        job = (
-            await db.scalar(
-                job_lock_statement(
-                    a.async_job_id, mode="update", populate_existing=True
-                )
-            )
-            if a.async_job_id
-            else None
+        if a.status == "running" and a.async_job_id
+        else None
+    )
+    at = now()
+    if not await data.settle_process(db, a, at):
+        reject("copy_execution_unsettled")
+    if job:
+        job.status, job.completed_at, job.error_message = (
+            "failed",
+            at,
+            "copy_process_ended",
         )
-        a.status, a.completed_at, a.error_code = "failed", now(), "copy_process_ended"
-        if job:
-            job.status, job.completed_at, job.error_message = (
-                "failed",
-                a.completed_at,
-                a.error_code,
-            )
     await db.flush()
 
 
@@ -763,19 +654,15 @@ async def attempt(db, copy_id, actor, body, *, api_key_id=None, request=None):
             if body.operation == "prepare"
             else "copy_not_prepared"
         )
-    if body.retry_object_ids and not recovering:
-        ids = set(
-            await db.scalars(
-                select(Delta.object_id).where(
-                    Delta.copy_id == row.id,
-                    Delta.object_id.in_(body.retry_object_ids),
-                    Delta.data["state"].astext == "failed",
-                )
-            )
-        )
-        if ids != set(body.retry_object_ids):
-            reject("selection_changed")
-    a, job = await new_attempt(db, row, actor, proof, api_key_id, body, request=request)
+    if (
+        body.retry_object_ids
+        and not recovering
+        and not await data.failed_selection(db, row.id, body.retry_object_ids)
+    ):
+        reject("selection_changed")
+    row, job = await new_attempt(
+        db, row, actor, proof, api_key_id, body, request=request, recovering=recovering
+    )
     return row, job, False
 
 
@@ -801,23 +688,9 @@ async def redispatch(db, copy_id, actor, *, api_key_id=None):
 async def failed_objects(db, copy_id, actor, *, api_key_id=None, limit=20, offset=0):
     await authority(db, actor, api_key_id)
     await owner(db, copy_id)
-    q = select(Delta).where(
-        Delta.copy_id == copy_id, Delta.data["state"].astext == "failed"
-    )
-    total = await db.scalar(select(func.count()).select_from(q.subquery()))
-    rows = await db.scalars(q.order_by(Delta.object_id).limit(limit).offset(offset))
+    total, rows = await data.failed_objects(db, copy_id, limit, offset)
     return {
-        "items": [
-            {
-                "object_id": r.object_id,
-                "size_bytes": r.data["size_bytes"],
-                "error_code": r.data.get("error")
-                if isinstance(r.data.get("error"), str)
-                and inventories.SAFE_CODE.fullmatch(r.data["error"])
-                else "copy_object_failed",
-            }
-            for r in rows
-        ],
+        "items": rows,
         "total": total,
         "limit": limit,
         "offset": offset,
@@ -825,19 +698,28 @@ async def failed_objects(db, copy_id, actor, *, api_key_id=None, limit=20, offse
 
 
 async def finish(db, row, a, job, status, error_code=None):
-    a.status, a.completed_at, a.error_code = status, now(), error_code
-    row.updated_at = a.completed_at
-    if status == "cancelled":
-        a.cancel_requested_at = a.cancel_requested_at or now()
+    at = now()
+    if not await data.finish(db, a, status, error_code, a.result, at):
+        return False
+    a = replace(
+        a,
+        status=status,
+        completed_at=at,
+        error_code=error_code,
+        cancel_requested_at=(a.cancel_requested_at or at)
+        if status == "cancelled"
+        else a.cancel_requested_at,
+    )
     if job:
         job.status, job.completed_at, job.error_message = (
             status,
             a.completed_at,
             error_code,
         )
-        job.result = public_result(row, a)
         if status == "completed":
-            job.progress_pct = 100
+            await jobs.update_progress(db, job.id, 100, result=public_result(row, a))
+        else:
+            await jobs.replace_result(db, job.id, result=public_result(row, a))
     await db.flush()
     return True
 
@@ -858,12 +740,16 @@ async def cancel(db, job_id):
         if a.status == "cancelled":
             return "cancelled"
         reject("copy_terminal")
-    a.cancel_requested_at = a.cancel_requested_at or now()
     if a.status == "pending":
-        await finish(db, row, a, job, "cancelled")
+        if not await finish(db, row, a, job, "cancelled"):
+            reject("copy_context_changed")
         return "cancelled"
+    at = await data.request_cancel(db, a, now())
+    if at is None:
+        reject("copy_context_changed")
+    a = replace(a, cancel_requested_at=at)
     await jobs.request_cancel(db, job_id)
-    job.result = public_result(row, a)
+    await jobs.replace_result(db, job.id, result=public_result(row, a))
     await db.flush()
     return "cancel_requested"
 
@@ -885,7 +771,7 @@ async def claim(db, job_id, task_id):
     job = await db.scalar(
         job_lock_statement(job_id, mode="update", populate_existing=True)
     )
-    if a.status != "pending" or a.task_id != task_id or not matches(row, a, job):
+    if not matches(row, a, job) or a.status != "pending" or a.task_id != task_id:
         return None
     if a.cancel_requested_at or failure:
         await finish(
@@ -897,17 +783,19 @@ async def claim(db, job_id, task_id):
             None if a.cancel_requested_at else failure,
         )
         return None
-    a.status, a.started_at, a.process = "running", now(), process_identity()
+    at, process = now(), process_identity()
+    if not await data.claim(db, a, process, at):
+        return None
+    a = replace(a, status="running", started_at=at, process=process)
     job.status, job.started_at = "running", a.started_at
-    job.result = public_result(
+    result = public_result(
         row,
         a,
-        stage="preparing"
-        if a.operation == "prepare"
-        else "copying"
-        if a.operation == "run"
-        else "verifying",
+        stage={"prepare": "preparing", "run": "copying", "verify": "verifying"}[
+            a.operation
+        ],
     )
+    await jobs.replace_result(db, job.id, result=result)
     await db.flush()
     return a
 
@@ -931,13 +819,16 @@ async def checkpoint(db, job_id, task_id):
 
 async def acquired(db, job_id, task_id, permits):
     a = await by_job(db, job_id)
+    if a is None:
+        reject("copy_context_changed")
     row = await owner(db, a.copy_id)
     await current(db, row, a, lock=True)
     row = await owner(db, row.id, lock=True)
     await writable(db, row)
     a = await by_job(db, job_id, lock=True)
     if (
-        a.status != "running"
+        a is None
+        or a.status != "running"
         or a.task_id != task_id
         or row.last_attempt_id != a.id
         or a.cancel_requested_at
@@ -948,18 +839,17 @@ async def acquired(db, job_id, task_id, permits):
     by_location = {p.location_id: p for p in permits}
     if set(by_location) != {inventories.LEGACY_LOCATION_ID, row.target_location_id}:
         reject("copy_context_changed")
-    a.source_operation_id = by_location[inventories.LEGACY_LOCATION_ID].id
-    a.target_operation_id = by_location[row.target_location_id].id
-    a.scope = {**a.scope, "target_location_id": str(row.target_location_id)}
+    if not await data.attach_permits(
+        db,
+        a,
+        by_location[inventories.LEGACY_LOCATION_ID].id,
+        by_location[row.target_location_id].id,
+    ):
+        reject("copy_context_changed")
     await db.commit()
 
 
 async def input_values(db, row):
-    deltas = list(
-        await db.scalars(
-            select(Delta).where(Delta.copy_id == row.id).order_by(Delta.sequence)
-        )
-    )
     values = {
         name: getattr(row, name)
         for name in (
@@ -980,7 +870,7 @@ async def input_values(db, row):
             "window_revision",
         )
     }
-    values["deltas"] = [(r.object_id, r.data, r.digest) for r in deltas]
+    values["deltas"] = await data.deltas(db, row.id)
     for field in ("source_report", "catalog", "baseline"):
         if (
             values[field] is not None
@@ -1027,7 +917,7 @@ def safe_summary(result):
     return summary
 
 
-async def save_delta(db, job_id, task_id, data, checksum):
+async def save_delta(db, job_id, task_id, delta, checksum):
     """Persist physical facts independently of current permission/cancellation."""
     a = await by_job(db, job_id)
     if a is None:
@@ -1035,45 +925,17 @@ async def save_delta(db, job_id, task_id, data, checksum):
     row = await owner(db, a.copy_id, lock=True)
     a = await by_job(db, job_id, lock=True)
     if (
-        a.task_id != task_id
+        a is None
+        or a.task_id != task_id
         or row.last_attempt_id != a.id
         or row.baseline_sha256 is None
         or a.operation == "prepare"
     ):
         reject("copy_context_changed")
-    size = len(packed(data).encode()) + 1
-    if row_digest(data) != checksum or size > 262144 or data.get("state") not in STATES:
-        reject("copy_checkpoint_integrity")
-    old = await db.get(Delta, (row.id, data["id"]), populate_existing=True)
-    changed = old is None or old.digest != checksum
-    updated_size = row.delta_bytes + size - (old.size_bytes if old else 0)
-    if updated_size > BASELINE_LIMIT:
-        reject("copy_delta_budget")
-    summary = json.loads(json.dumps(row.summary))
-    previous = old.data["state"] if old else "pending"
-    summary["counts"][previous] -= 1
-    summary["counts"][data["state"]] += 1
-    if any(n < 0 for n in summary["counts"].values()):
-        reject("copy_checkpoint_integrity")
-    summary["copy_subset_complete"] = not any(
-        summary["counts"][k] for k in ("pending", "writing", "uncertain", "failed")
-    )
-    row.summary, row.delta_sequence, row.delta_bytes, row.updated_at = (
-        summary,
-        row.delta_sequence + 1,
-        updated_size,
-        now(),
-    )
-    if old is None:
-        old = Delta(copy_id=row.id, object_id=data["id"])
-        db.add(old)
-    old.sequence, old.data, old.digest, old.size_bytes = (
-        row.delta_sequence,
-        data,
-        checksum,
-        size,
-    )
-    if changed:
+    receipt = await data.record_delta(db, a, packed(delta), checksum, now())
+    if receipt["error_code"]:
+        reject(receipt["error_code"])
+    if receipt["changed"]:
         try:
             async with db.begin_nested():
                 job = await db.scalar(
@@ -1087,17 +949,12 @@ async def save_delta(db, job_id, task_id, data, checksum):
                         task_id=task_id,
                         stage="verifying" if a.operation == "verify" else "copying",
                         unit="objects",
-                        completed=sum(
-                            summary["counts"][k] for k in ("verified", "skipped")
-                        ),
-                        marker=f"{a.id}:{data['id']}:{checksum}",
-                        sequence=row.delta_sequence,
+                        completed=receipt["completed"],
+                        marker=f"{a.id}:{delta['id']}:{checksum}",
+                        sequence=receipt["sequence"],
                     )
         except Exception:
             log.warning("Copy progress observation failed: job=%s", job_id)
-    from app.services.storage_migration_finalizations import changed_checkpoint
-
-    await changed_checkpoint(db, row.id)
     await db.commit()
 
 
@@ -1118,23 +975,27 @@ async def publish(
     job = await db.scalar(
         job_lock_statement(job_id, mode="update", populate_existing=True)
     )
-    if a.status != "running" or a.task_id != task_id or not matches(row, a, job):
+    if not matches(row, a, job) or a.status != "running" or a.task_id != task_id:
         return False
-    ids = [p for p in (a.source_operation_id, a.target_operation_id) if p]
-    if len(ids) != 2 or await db.scalar(
-        select(StorageOperation.id).where(StorageOperation.id.in_(ids)).limit(1)
+    if (
+        not a.source_operation_id
+        or not a.target_operation_id
+        or await data.permits_open(db, a) is not False
     ):
         return await finish(db, row, a, job, "failed", "storage_operation_unsettled")
     if result is not None:
-        a.result = {
-            k: result.get(k)
-            for k in (
-                "io",
-                "attempt_subset_complete",
-                "selected_count",
-                "selected_verified_count",
-            )
-        }
+        a = replace(
+            a,
+            result={
+                k: result.get(k)
+                for k in (
+                    "io",
+                    "attempt_subset_complete",
+                    "selected_count",
+                    "selected_verified_count",
+                )
+            },
+        )
     if cancelled or a.cancel_requested_at:
         return await finish(db, row, a, job, "cancelled")
     if failure or auth_failure:
@@ -1143,9 +1004,11 @@ async def publish(
         if a.operation != "prepare" or row.baseline_sha256:
             reject("copy_context_changed")
         baseline, catalog, summary = prepared
-        row.baseline, row.baseline_sha256 = baseline, sha(baseline)
-        row.catalog, row.catalog_sha256 = catalog, sha(catalog)
-        row.summary = safe_summary(summary)
+        summary = safe_summary(summary)
+        baseline_sha = await data.publish_plan(db, a, baseline, catalog, summary)
+        if baseline_sha is None:
+            reject("copy_context_changed")
+        row = replace(row, baseline_sha256=baseline_sha, summary=summary)
         await progress.record(
             db,
             job,
@@ -1228,7 +1091,7 @@ async def download(db, copy_id, actor, *, api_key_id=None):
     except asyncio.CancelledError:
         await storage_access.finish(task)
         raise
-    actor = await db.get(User, actor_id, populate_existing=True)
+    actor = await IdentityAccountLockData(db).read_actor_status(actor_id)
     if actor is None or (await authority(db, actor, api_key_id))[1] != proof:
         reject("copy_authority_changed", 403)
     await db.rollback()
@@ -1244,7 +1107,7 @@ async def signal_interrupted(db, job_id, task_id, *, cancelled):
     job = await db.scalar(
         job_lock_statement(job_id, mode="update", populate_existing=True)
     )
-    if a.status not in ACTIVE or a.task_id != task_id or not matches(row, a, job):
+    if not matches(row, a, job) or a.status not in ACTIVE or a.task_id != task_id:
         return False
     return await finish(
         db,

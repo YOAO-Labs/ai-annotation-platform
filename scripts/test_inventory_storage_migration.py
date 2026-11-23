@@ -161,9 +161,9 @@ class SnapshotTests(unittest.IsolatedAsyncioTestCase):
                 self.assert_open()
                 query = str(statement)
                 state["queries"].append(query)
-                if "FROM async_jobs" in query:
+                if "active_storage_writer_job_counts()" in query:
                     return Result([{"kind": "export", "status": "running", "count": 2}])
-                if "GROUP BY kind ORDER" in query:
+                if "migration_location_kind_counts()" in query:
                     return Result([{"kind": "s3", "count": i} for i in range(101)])
                 return Result([])
 
@@ -185,7 +185,14 @@ class SnapshotTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(state["open"] or state["transaction"])
         self.assertIn("REPEATABLE READ READ ONLY", state["queries"][0])
-        self.assertTrue(all("LIMIT 101" in query for query in state["queries"][2:]))
+        self.assertEqual(
+            state["queries"][2:],
+            [
+                "SELECT * FROM yoao_assets_v1.migration_inventory_binding_context()",
+                "SELECT * FROM yoao_jobs_v1.active_storage_writer_job_counts()",
+                "SELECT * FROM yoao_assets_v1.migration_location_kind_counts()",
+            ],
+        )
         self.assertFalse(observed["complete"])
         self.assertEqual(len(observed["saved_locations_by_kind"]), 100)
         self.assertEqual(observed["potential_writers"][0]["count"], 2)

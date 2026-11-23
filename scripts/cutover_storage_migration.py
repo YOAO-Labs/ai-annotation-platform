@@ -1,6 +1,6 @@
 """Atomically switch nine purposes and resume a retained-object rollback.
 
-Run with the trusted deployment operator's application environment. Native
+Run with STORAGE_MIGRATION_CONTROL_DATABASE_URL for the dedicated control LOGIN.
 Docker authority and the two independent fence credentials stay in this CLI.
 The target remains physically read-only after rollback; saved B locators are
 never rewritten to A or discarded by a database snapshot restore.
@@ -20,6 +20,7 @@ import sys
 import uuid
 
 from finalize_storage_migration import (
+    control_session_factory,
     identifier,
     matching_claim,
     native_proof,
@@ -83,9 +84,8 @@ def application():
         storage_migration_windows as windows,
     )
     from app.services.prediction_inputs import settled_io
-    from app.workers._db import task_session
 
-    return service, finalizations, reads, windows, task_session, settled_io
+    return service, finalizations, reads, windows, control_session_factory(), settled_io
 
 
 def public_item(value):
@@ -204,11 +204,13 @@ def rollback_claim(journal, cutover_id):
 
 
 async def close_source_window(session, windows, actor, window_id):
-    from app.db.models.user import User
     from app.schemas.storage_migration_window import StorageMigrationWindowTransition
+    from app.services.identity_account_lock_data import IdentityAccountLockData
 
     async with session() as db:
-        user = await db.get(User, actor, populate_existing=True)
+        user = await IdentityAccountLockData(db).read_actor_status(actor)
+        if user is None:
+            raise FenceError("finalization_authority_changed")
         row = await windows.owner(db, uuid.UUID(window_id))
         result = await windows.transition(
             db,
