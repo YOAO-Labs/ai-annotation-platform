@@ -11,6 +11,7 @@ import warnings
 import asyncpg
 import pytest
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.db.models.async_job import AsyncJob
@@ -55,7 +56,8 @@ async def _function_metadata(engine) -> list[dict]:
             """SELECT namespace.nspname || '.' || function.proname || '(' ||
                          pg_catalog.oidvectortypes(function.proargtypes) || ')' AS signature,
                       pg_catalog.pg_get_userbyid(function.proowner) AS owner,
-                      function.proacl::text AS acl,
+                      ARRAY(SELECT entry::text FROM unnest(function.proacl) AS entry
+                            ORDER BY entry::text) AS acl,
                       function.prosecdef AS security_definer,
                       function.proconfig AS configuration,
                       function.provolatile::text AS volatility,
@@ -205,6 +207,54 @@ async def _assert_inference_has_no_raw_reads(engine) -> None:
         await connection.close()
 
 
+async def _assert_ordinary_dependency_reads(engine, world) -> None:
+    url = make_url(os.environ["AAP_MODULE_DATA_LEGACY_RUNTIME_URL"])
+    assert (url.host, url.port, url.username) == (
+        engine.url.host,
+        engine.url.port,
+        "legacy_runtime",
+    )
+    connection = await asyncpg.connect(
+        url.set(drivername="postgresql", database=engine.url.database).render_as_string(
+            hide_password=False
+        ),
+        timeout=5,
+    )
+    try:
+        observed = await connection.fetchrow(
+            "SELECT session_user, current_user, current_database()"
+        )
+        assert tuple(observed) == (url.username, url.username, engine.url.database)
+        async with connection.transaction():
+            for relation in (
+                "public.async_jobs",
+                "public.sample_evaluation_runs",
+                "public.trained_model_deployments",
+            ):
+                assert not await connection.fetchval(
+                    "SELECT pg_catalog.has_table_privilege($1::text,"
+                    "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR "
+                    "pg_catalog.has_any_column_privilege($1::text,'SELECT,INSERT,UPDATE,REFERENCES')",
+                    relation,
+                )
+                with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                    async with connection.transaction():
+                        await connection.fetch(f"SELECT id FROM {relation} LIMIT 0")
+            assert await connection.fetchval(
+                "SELECT yoao_learning_v1.registry_evaluation_reference_exists($1::uuid)",
+                world["target_registry_id"],
+            )
+            assert (
+                await connection.fetchval(
+                    "SELECT yoao_jobs_v1.count_running_registry_predictions($1::uuid)",
+                    world["target_registry_id"],
+                )
+                == 2
+            )
+    finally:
+        await connection.close()
+
+
 async def _assert_clone_identity(engine, database: str, ownership: str) -> None:
     _verify_postgres(engine.url)
     async with engine.connect() as connection:
@@ -263,14 +313,33 @@ async def _assert_copied_authority_quarantined(engine) -> None:
         )
 
 
-async def _initialize_fresh_source(test_engine, admin, engine) -> None:
-    """Install a new source through the forward chain, never from copied authority."""
+def _replay_installers(test_engine, database: str) -> None:
     from tests.test_labeling_video_writer_restore import (
         ROOT,
         _grant_variables,
-        _revoke_public_temp,
         _run_psql_file,
     )
+
+    variables = _grant_variables(database)
+    _run_psql_file(
+        test_engine, database, ROOT / "infra/docker/module-data-grants.sql", variables
+    )
+    _run_psql_file(
+        test_engine,
+        database,
+        ROOT / "infra/docker/lan-production-grants.sql",
+        {
+            "expected_database": database,
+            "migration_role": variables["migration_role"],
+            "application_role": "legacy_runtime",
+            "asset_cleanup_role": variables["asset_cleanup_role"],
+        },
+    )
+
+
+async def _initialize_fresh_source(test_engine, admin, engine) -> None:
+    """Install a new source through the forward chain, never from copied authority."""
+    from tests.test_labeling_video_writer_restore import _revoke_public_temp
 
     async with engine.connect() as connection:
         assert (
@@ -284,12 +353,7 @@ async def _initialize_fresh_source(test_engine, admin, engine) -> None:
     await engine.dispose()
     migration = _alembic(engine.url, "upgrade", "head")
     assert migration.returncode == 0, "fresh restore source migration failed"
-    _run_psql_file(
-        test_engine,
-        database,
-        ROOT / "infra/docker/module-data-grants.sql",
-        _grant_variables(database),
-    )
+    _replay_installers(test_engine, database)
     assert await _database_head(engine) == await _database_head(test_engine)
     async with engine.connect() as connection:
         assert await connection.scalar(
@@ -471,7 +535,7 @@ async def _seed_database(engine) -> dict:
 
 
 async def test_dependency_functions_survive_nonempty_owned_dump_restore(
-    test_engine, tmp_path
+    test_engine, tmp_path, record_property
 ):
     await assert_owned_test_database(test_engine)
     assert test_engine.url.database and test_engine.url.database.endswith("_test")
@@ -526,6 +590,7 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
             "running_missing": 0,
         }
         await _assert_inference_has_no_raw_reads(source_engine)
+        await _assert_ordinary_dependency_reads(source_engine, world)
         database_acl = await _database_acl(source_engine)
 
         source_dump.touch(mode=0o600)
@@ -554,6 +619,8 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
                 "-U",
                 "owner",
                 "--exit-on-error",
+                "--no-owner",
+                "--no-privileges",
                 "--dbname",
                 restored_database,
             ],
@@ -565,10 +632,18 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
         await _assert_clone_identity(restored_engine, restored_database, restored_owner)
 
         await _assert_copied_authority_quarantined(restored_engine)
+        assert {row["owner"] for row in await _function_metadata(restored_engine)} == {
+            "owner"
+        }
+        _replay_installers(test_engine, restored_database)
+        await _assert_copied_authority_quarantined(restored_engine)
         assert await _function_metadata(restored_engine) == source_function_metadata
         assert await _row_state(restored_engine, world) == source_rows
         assert await _answers(restored_engine, world) == source_answers
         await _assert_inference_has_no_raw_reads(restored_engine)
+        await _assert_ordinary_dependency_reads(restored_engine, world)
+        record_property("restore_mode", "no-owner,no-privileges; replay owner and LAN")
+        record_property("restored_consumer_login", "legacy_runtime")
 
         mutation = await asyncpg.connect(_owner_dsn(restored_engine), timeout=5)
         try:
