@@ -329,6 +329,5 @@ async def test_saved_source_registered_binding_probe_and_denial(
                     StorageConnection.name == connector_name
                 )
             )
-            await db.execute(delete(User).where(User.id == actor_id))
         await ordinary.dispose()
         await source.dispose()
