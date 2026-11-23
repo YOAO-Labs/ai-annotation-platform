@@ -15,7 +15,7 @@ last_reviewed: 2026-10-20
 
 ## 1. 一句话形态
 
-`docker-compose.yml` 只起**基础设施 + Celery**（PG / Redis / MinIO / mailpit / worker / beat）。API 和 Web **不在任何 compose 文件里**，由你在宿主机直接跑，改码即时生效：
+默认 `docker-compose.yml` 起**基础设施 + Celery**（PG／Redis／MinIO／Mailpit、八类 worker 和单实例 Beat）。开发的 API 与 Web 留在宿主机，源码改动可热重载：
 
 - API：`uvicorn --reload`，改 Python 业务码自动重载
 - Web：`vite` dev server，HMR 热替换
@@ -27,7 +27,7 @@ last_reviewed: 2026-10-20
 │ vite     :3000 (HMR)      │   │ redis    :6379                │
 │   └ /api,/ws → 127.0.0.1:8000 │ minio    :9000 / :9001        │
 └───────────────────────────┘   │ mailpit  :1025 / :8025        │
-                                 │ five workers + celery-beat    │
+                                 │ 8 workers + celery-beat      │
                                  └───────────────────────────────┘
 ```
 
@@ -37,30 +37,44 @@ last_reviewed: 2026-10-20
 
 ## 2. 启动步骤
 
-### 2.1 起基础设施
+### 2.1 首次启动基础设施 {#development-cold-start}
+
+只在新的本地环境执行本节。已有拆分栈和维护者日常环境先看[升级门禁](/ops/upgrade-guide#split-topology-upgrade)；并行 checkout 使用 `pnpm dev:worktree`，不要另起会占用同一端口的默认项目。
+
+从 `.env.example` 创建自己的 `.env`，配置本机数据库和存储。首先只起基础设施，避免 worker 在未授权的数据库上启动：
 
 ```bash
-docker compose up -d
+docker compose up -d --wait postgres redis minio mailpit
 ```
 
-默认（不带 `--profile`）启动 PostgreSQL、Redis、MinIO、Mailpit、各队列 worker 和 beat。五个 ML backend profile（`gpu` / `gpu-sam3` / `gpu-yolo` / `gpu-onnxtools` / `gpu-rapidocr`）与监控（`monitoring`）默认不启动，按需单独开。
+Mailpit 只收不发，在 `http://localhost:8025` 查看。`identity-mail-v2` 用 `mailpit:1025` 作为开发中继；宿主机仅执行管理员 SMTP 测试时才用 `localhost:1025`。生产不启动 Mailpit。监控 `monitoring` 和五个模型插件 `gpu*` profile 默认不启用。
 
-Mailpit 仅收信、不外发。可单独执行 `docker compose up -d mailpit`，在 `http://localhost:8025` 查看收件箱；宿主机 API 配 `SMTP_HOST=localhost`、`SMTP_PORT=1025`、`SMTP_FROM=noreply@local.test`，同一开发 Compose 网络内将 `SMTP_HOST` 改为 `mailpit`。仅启动开发监控服务时也需启动 `mailpit`，开发 Alertmanager 通过该内部服务投递。整栈生产不会启动 Mailpit，配置方式见[生产邮件与告警](./docker-compose#production-mail)。
+### 2.2 迁移、授权及启动 worker
 
-### 2.2 跑数据库迁移
+准备普通应用 LOGIN 与独立迁移 LOGIN。宿主 API 的 `DATABASE_URL` 连回环数据库；`.env` 的 `DATABASE_URL_DOCKER` 用容器地址 `postgres:5432`。二者使用同一个普通角色，迁移连接用 `MIGRATION_DATABASE_URL`。先应用当前迁移：
 
 ```bash
-cd apps/api
-uv sync
-uv run alembic upgrade head
+(cd apps/api && uv sync --locked --extra test && uv run alembic upgrade head)
 ```
+
+按[受限 Jobs 账号初始化](./docker-compose#jobs-recovery-provisioning)安装普通运行授权及 claim／publication LOGIN。用 `docker compose exec postgres sh -c 'exec psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB"'` 进入内置数据库交互终端设置密码。配置容器可达的 `JOBS_DISPATCH_DATABASE_URL_FILE`、`JOBS_PUBLICATION_DATABASE_URL_FILE`，并按[媒体执行角色](./docker-compose#media-executor-provisioning)准备 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`。下节另为宿主 API 提供宿主可达的 publication DSN。授权后再启动：
+
+```bash
+docker compose up -d --wait
+docker compose ps celery-worker-jobs-recovery celery-beat
+```
+
+`celery-worker-jobs-recovery` 只消费 `jobs.recovery`。缺少或混用受限凭据时不能启动该 worker；Beat 等待恢复 worker 就绪。其余服务不挂载 claim 文件。
 
 ### 2.3 起 API（宿主机，热更新）
 
+宿主进程不一定能解析 Compose 的 `postgres`。把同一 publication LOGIN 的宿主可达 DSN 存入独立私有文件（`HOST_JOBS_PUBLICATION_FILE`）；只覆盖 API 子进程环境，不修改容器的连接：
+
 ```bash
-pnpm dev:api
-# 先执行数据库迁移，再启动当前 checkout 的 Uvicorn 热重载进程
+JOBS_PUBLICATION_DATABASE_URL_FILE="$HOST_JOBS_PUBLICATION_FILE" pnpm dev:api
 ```
+
+`pnpm dev:api` 先显式运行 Alembic，再启动当前 checkout 的 Uvicorn。
 
 `--reload` 监听 `apps/api/**` 改动自动重启。`ENVIRONMENT` 默认 `development`，使用本地
 CORS 策略（见[运行环境形态](/dev/concepts/runtime-environments)）。测试 seed 路由默认不挂载；
@@ -144,15 +158,16 @@ docker compose down -v       # 连数据卷一起删（清空 PG / MinIO，慎�
 
 宿主机的 `pnpm dev:api` / `pnpm dev:web` 直接 Ctrl-C。
 
-## 可选 Identity owner 进程
+## 可选邮件 sender 和 Identity issuer
 
-默认开发栈仍由宿主机 API 内嵌装配 Identity owner；分组操作不需要单独数据库，也不能改成和 Workspace 分开的数据库，因为 assignment scope 投影和分组写入要在共享 PostgreSQL 事务中持锁。
+API 默认内嵌 Identity 签发与查询，Notifications WebSocket 留在 API；不为此启动独立容器。若要用 Mailpit 测试真实恢复／验证／邀请，按[邮件配置](./docker-compose#production-mail)在当前隔离库准备 MailV2／Settings 登录和 Fernet key。将 `IDENTITY_MAIL_SMTP_HOST=mailpit`、`IDENTITY_MAIL_SMTP_PORT=1025`、`IDENTITY_MAIL_SMTP_FROM` 和专用 secret 文件路径写在独立的 `IDENTITY_OWNER_ENV`；嵌入 producer 使用相同 key 的 API 专用文件。
 
-需要检查独立私有运行时配置时，可参考仓库根 `DEV.md` 中的 Identity grant 与 `docker-compose.identity.yml` 说明。该 Compose 文件不是默认开发栈；使用时需给已启用 capability 提供 secret 文件。Admission、Recovery credential-mail 和 notification-publisher 是常规运行服务，邀请邮件 sender `identity-mail-v2` 则只在显式启用 `mail-v2` profile 后启动；这些容器均使用非 root、只读运行约束。不同 owner 使用独立函数能力与 DSN：邀请 producer 使用 Identity invitation DSN，V1 Recovery mail、Notifications publisher、deactivation 和 group 继续使用各自已有凭据。
+```bash
+docker compose --env-file .env --env-file "$IDENTITY_OWNER_ENV" \
+  -f docker-compose.yml -f docker-compose.identity.yml up -d --build --wait identity-mail-v2
+```
 
-API 可用 `IDENTITY_GROUP_DATABASE_URL(_FILE)` 选择 GROUP DSN；自助注销使用 `IDENTITY_DEACTIVATION_DATABASE_URL(_FILE)` 与 `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL(_FILE)`，邀请 producer 使用 `IDENTITY_INVITATION_DATABASE_URL(_FILE)`。这些显式连接故障都不回退。Identity 命令、最后超管 fence、到期页、邀请生命周期与 Notifications publisher 的合同见[Identity 私有运行协议](/api/guides/identity-runtime)。Admission 只取得自己的 Identity capability DSN；它不接收 MailV2 DSN 或 SMTP 凭据。notification-publisher 只取得 `NOTIFICATION_PUBLISH_DATABASE_URL_FILE` 与 `NOTIFICATION_PUBLISH_REDIS_URL_FILE`，没有 control bearer、Identity DSN、JWT signing secret、SMTP 或 HTTP health endpoint。邀请 producer 和 MailV2 sender 各有独立 DSN；Compose host selector 为 `IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE` 与 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`。Publisher 使用与 Identity、Audit 和 Notifications outbox 相同的 PostgreSQL 数据库；不能拆成异库提交。
-
-注销 due worker 仍由原 API/Celery task 名按每日 04:00 UTC 启动；任务每页提交固定操作回执并继续排空，页大小不是总体 cap。独立 publisher 运行 `python -m yoao_identity_runtime.notification_worker`，没有 HTTP health endpoint；它先 commit claim，再连接 Redis，送达后提交 finish。同一 Notification ID 重试时保持稳定，at-least-once 可能导致重复 broker 消息。邀请 MailV2 sender 运行 `python -m yoao_identity_runtime.mail_worker_v2`，默认不在 profile 外启动；`--profile mail-v2` 时必须提供 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`。它复用 `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` 文件，并把主机 `IDENTITY_MAIL_SMTP_*` fallback 映射至 `IDENTITY_MAIL_V2_SMTP_*`；容器仅有 MailV2、MAIL_SETTINGS、Fernet 与 SMTP 能力，在独立 8171 端口提供 `/health`、`/ready`。邮件 producer 不持有 SMTP 凭据，且发送过程不跨 SQL 锁执行网络 I/O。邀请 intent 与 V1 Recovery worker 相互隔离，发送结果不确定时稳定 Message-ID 的 at-least-once 语义可能造成重复邮件。该 Compose 配置用于可选本地进程；邀请／MailV2 已通过独立进程、真实 API／SMTP 和恢复验收，证据见[模块台账](/dev/concepts/module-deployment#identity-邀请与-mailv2-独立投递)。Identity 全模块切换和生产容量仍待验证。
+测试私有 signer 时，另配置独立登录 Redis、函数 LOGIN 与 `IDENTITY_RUNTIME_SIGNING_SECRET_FILE`，用同一文件链加 `--profile identity-issuer`，显式启动 `identity-issuer identity-mail-v2`。宿主 API 用 `IDENTITY_URL=http://127.0.0.1:8170` 和私有 `IDENTITY_TOKEN`，不带远程 signer、producer key 或 SMTP／mail LOGIN。若只验嵌入签发，不开启 issuer。节点健康不替代真实邮件投递或授权拒绝测试。
 
 ---
 

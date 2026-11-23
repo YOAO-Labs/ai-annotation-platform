@@ -13,16 +13,18 @@ last_reviewed: 2026-11-16
 
 ## 服务边界
 
-| 服务或数据 | 生产安排                                                                  |
-| ---------- | ------------------------------------------------------------------------- |
-| Web        | Caddy 的 HTTPS 3030 → Nginx 静态站点；同源代理 `/api/`、`/ws/`、`/minio/` |
-| API        | Caddy 的 HTTPS 8080 → Uvicorn 容器 8000；不发布原生 HTTP 端口             |
-| PostgreSQL | 复用实例，新库 `annotation_production`；不复制旧业务表内容                |
-| MinIO      | 复用实例，十个独立 `prod-` 桶与受限访问凭据                               |
-| Redis      | 独立 `redis-production` 容器与 AOF 卷；无宿主端口                         |
-| 异步任务   | 七类 Worker 与一个 Beat，全部连接生产库和生产 Redis                       |
-| 模型       | 复用运行中的实例及权重，在新库重新注册和探测能力                          |
-| DuckDB     | 生产独立卷，通用 Worker 写，API 只读                                      |
+| 服务或数据 | 生产安排                                                                     |
+| ---------- | ---------------------------------------------------------------------------- |
+| Web        | Caddy 的 HTTPS 3030 → Nginx 静态站点；同源代理 `/api/`、`/ws/`、`/minio/`    |
+| API        | Caddy 的 HTTPS 8080 → Uvicorn 容器 8000；不发布原生 HTTP 端口                |
+| PostgreSQL | 复用实例，新库 `annotation_production`；不复制旧业务表内容                   |
+| MinIO      | 复用实例，十个独立 `prod-` 桶与受限访问凭据                                  |
+| Redis      | 独立 `redis-production` 容器与 AOF 卷；无宿主端口                            |
+| 异步任务   | 八类 Worker 与一个 Beat；Jobs 恢复单独使用 `jobs.recovery` 和两种窄 SQL 身份 |
+| 模型       | 复用运行中的实例及权重，在新库重新注册和探测能力                             |
+| DuckDB     | 生产独立卷，通用 Worker 写，API 只读                                         |
+
+默认 API 内嵌 Identity、Notifications socket、Workspace、Labeling 类目和 Assets Catalog；视频最终写入由 tracker worker 持有。需要额外邮件、推理或媒体隔离时再按[部署与凭据矩阵](./docker-compose#module-process-selection)选配，不重启旧按操作拆分服务。
 
 Redis 使用新实例，因为目前全局任务和模型状态推送使用固定频道。Redis Pub/Sub **不按逻辑数据库编号隔离**，仅把 `/0` 改成 `/1` 会让新旧环境仍然收到同一频道消息。[Redis 官方说明](https://redis.io/docs/latest/develop/pubsub/)
 
@@ -34,26 +36,27 @@ Redis 使用新实例，因为目前全局任务和模型状态推送使用固�
 
 从当前 `.env` 按用途派生被 Git 忽略的 `.env.production`，文件权限设为 `0600`。只复制应用实际需要的模型地址、能力和资源配置；不要把模型下载令牌、旧数据库 collector 凭据或旧业务设置整体复制过去。
 
-| 变量                                               | 设置                                                                      |
-| -------------------------------------------------- | ------------------------------------------------------------------------- |
-| `AAP_IMAGE_TAG`                                    | 本次构建的源代码标识；保留上一镜像标识用于回退                            |
-| `LAN_BIND_IP`                                      | 服务器固定局域网 IPv4 地址，例如 `192.168.1.20`；不填 `0.0.0.0`           |
-| `AAP_SHARED_NETWORK`                               | `docker network ls` 中已有基础设施网络名称                                |
-| `AAP_PRODUCTION_STATE_DIR`                         | 宿主绝对路径，权限 `0700`，存放迁移凭据及本机部署资料                     |
-| `ENVIRONMENT` / `DEBUG`                            | `production` / `false`                                                    |
-| `E2E_SEED_ENABLED` / `ALEMBIC_AUTO_UPGRADE`        | 均为 `false`                                                              |
-| `DATABASE_URL`                                     | 新运行角色的 `postgresql+asyncpg://…@postgres:5432/annotation_production` |
-| `REDIS_URL`                                        | `redis://redis-production:6379/0`；不沿用旧 `CELERY_BROKER_URL`           |
-| `MINIO_ENDPOINT` / `MINIO_USE_SSL`                 | `minio:9000` / `false`，这里是内部连接协议                                |
-| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY`            | 只允许生产桶的新凭据                                                      |
-| `MINIO_PUBLIC_URL`                                 | `/minio`，浏览器经 HTTPS 同源访问                                         |
-| `ML_BACKEND_STORAGE_HOST`                          | 模型可达的 `minio:9000`，避免模型取文件时依赖客户端 CA                    |
-| `GPU_ARBITER_MODE` / `GPU_ARBITER_ROLLOUT_ENABLED` | `observe` / `false`                                                       |
-| `DUCKDB_PATH`                                      | `/var/lib/duckdb/analytics.duckdb`                                        |
-| `FRONTEND_BASE_URL`                                | `https://192.168.1.20:3030`，替换为实际 IP                                |
-| `CORS_ALLOW_ORIGINS`                               | 上述前端 origin 的 JSON 数组                                              |
-| `SECRET_KEY`                                       | 新生成的独立随机密钥                                                      |
-| `ALLOW_OPEN_REGISTRATION`                          | `false`，先由管理员创建账号                                               |
+| 变量                                                                     | 设置                                                                                            |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `AAP_IMAGE_TAG`                                                          | 本次构建的源代码标识；保留上一镜像标识用于回退                                                  |
+| `LAN_BIND_IP`                                                            | 服务器固定局域网 IPv4 地址，例如 `192.168.1.20`；不填 `0.0.0.0`                                 |
+| `AAP_SHARED_NETWORK`                                                     | `docker network ls` 中已有基础设施网络名称                                                      |
+| `AAP_PRODUCTION_STATE_DIR`                                               | 宿主绝对路径，权限 `0700`，存放迁移凭据及本机部署资料                                           |
+| `ENVIRONMENT` / `DEBUG`                                                  | `production` / `false`                                                                          |
+| `E2E_SEED_ENABLED` / `ALEMBIC_AUTO_UPGRADE`                              | 均为 `false`                                                                                    |
+| `DATABASE_URL`                                                           | 新运行角色的 `postgresql+asyncpg://…@postgres:5432/annotation_production`                       |
+| `REDIS_URL`                                                              | `redis://redis-production:6379/0`；不沿用旧 `CELERY_BROKER_URL`                                 |
+| `MINIO_ENDPOINT` / `MINIO_USE_SSL`                                       | `minio:9000` / `false`，这里是内部连接协议                                                      |
+| `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY`                                  | 只允许生产桶的新凭据                                                                            |
+| `MINIO_PUBLIC_URL`                                                       | `/minio`，浏览器经 HTTPS 同源访问                                                               |
+| `ML_BACKEND_STORAGE_HOST`                                                | 模型可达的 `minio:9000`，避免模型取文件时依赖客户端 CA                                          |
+| `GPU_ARBITER_MODE` / `GPU_ARBITER_ROLLOUT_ENABLED`                       | `observe` / `false`                                                                             |
+| `DUCKDB_PATH`                                                            | `/var/lib/duckdb/analytics.duckdb`                                                              |
+| `FRONTEND_BASE_URL`                                                      | `https://192.168.1.20:3030`，替换为实际 IP                                                      |
+| `CORS_ALLOW_ORIGINS`                                                     | 上述前端 origin 的 JSON 数组                                                                    |
+| `SECRET_KEY`                                                             | API 媒体等用途的独立强随机密钥；可用 `IDENTITY_EMBEDDED_SIGNING_SECRET(_FILE)` 专门签发本地 JWT |
+| `ALLOW_OPEN_REGISTRATION`                                                | `false`，先由管理员创建账号                                                                     |
+| `JOBS_DISPATCH_DATABASE_URL_FILE` / `JOBS_PUBLICATION_DATABASE_URL_FILE` | 两个外置单行 DSN 文件，须在迁移及授权后、启动完整栈前准备                                       |
 
 应用 `.env.production` 中**不放 `MIGRATION_DATABASE_URL`**。将完整迁移连接字符串作为一行写入 `$AAP_PRODUCTION_STATE_DIR/migration-database-url`，权限设为 `0400`；仅一次性 `migrate` 服务获得该文件。常驻服务不自动迁移，也不接收迁移 owner 的登录凭据。
 
@@ -86,13 +89,15 @@ Redis 使用新实例，因为目前全局任务和模型状态推送使用固�
 CREATE ROLE anno_prod_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE anno_prod_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE yoao_asset_cleanup_client LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE anno_prod_jobs_dispatch LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE anno_prod_jobs_publication LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 GRANT anno_prod_app TO anno_prod_owner WITH INHERIT TRUE, SET TRUE;
 CREATE DATABASE annotation_production OWNER anno_prod_owner;
 REVOKE ALL ON DATABASE annotation_production FROM PUBLIC;
 GRANT CONNECT ON DATABASE annotation_production TO anno_prod_app;
 ```
 
-通过交互式 `psql` 的 `\password anno_prod_owner`、`\password anno_prod_app` 和 `\password yoao_asset_cleanup_client` 分别设置新密码，并写入对应的本机配置文件，避免把密码放进命令历史。迁移需要安装 `pgcrypto` 和 `btree_gist` 扩展；当前 PostgreSQL 镜像支持由新库 owner 安装这些受信任扩展。
+用交互式 `psql` 的 `\password` 分别设置应用、迁移和两个 Jobs 登录的独立密码（启用专用 Assets cleanup 角色时也独立配置）。不要将密码放进命令历史，也不从开发环境复用同名角色。迁移需要 `pgcrypto` 和 `btree_gist` 扩展；当前 PostgreSQL 支持新库 owner 安装这些受信任扩展。
 
 由 MinIO 管理员预建十个空桶及一个新的应用账号；启用 `MINIO_INPUTS_BUCKET` 的 versioning 并核验状态为 `Enabled`，然后附加仓库中的 `infra/docker/lan-production-minio-policy.json`。该策略只授予这些桶的对象操作及当前应用实际使用的生命周期设置权限，不授予旧桶访问或 MinIO 管理权限。输入对象的读取和删除必须指定非空且非 `null` VersionId；输入清理逐版本删除，不使用无版本 ID 或批量删除。
 
@@ -102,7 +107,7 @@ GRANT CONNECT ON DATABASE annotation_production TO anno_prod_app;
 
 API 启动设置媒体缓存的 `videos/` 前缀 30 天、导入和导出桶 7 天的生命周期，并移除应用拥有的评论附件90天规则及反馈桶旧的整桶过期规则。评论附件90天与软删7天宽限、反馈附件180天期限由独立归属和清理流程执行；独立检查旧规则实际已移除，运维自设规则不得绕过未收尾读取保护。数据集、审计归档、训练、输入与头像桶没有自动过期（头像不可重生，过期会造成破图）；审计归档永久保留，不能用整桶过期绕过应用责任。必须确认这些配置全部指向新桶。
 
-## 构建、迁移和启动
+## 构建、迁移和启动 {#lan-cold-start}
 
 从仓库根目录执行，所有命令显式选择独立 Compose 文件：
 
@@ -113,13 +118,13 @@ docker compose --env-file .env.production -f docker-compose.lan-prod.yml up -d r
 docker compose --env-file .env.production -f docker-compose.lan-prod.yml run --rm migrate
 ```
 
-随后以 `anno_prod_owner` 连接 **`annotation_production`**，执行 `infra/docker/lan-production-grants.sql`，向 `psql` 传入：
+随后以 `anno_prod_owner` 连接 **`annotation_production`**，执行普通运行授权：
 
-```text
--v expected_database=annotation_production
--v application_role=anno_prod_app
--v migration_role=anno_prod_owner
--v asset_cleanup_role=yoao_asset_cleanup_client
+```bash
+psql -X -U anno_prod_owner -d annotation_production \
+  -v expected_database=annotation_production -v application_role=anno_prod_app \
+  -v migration_role=anno_prod_owner -v asset_cleanup_role=yoao_asset_cleanup_client \
+  -f infra/docker/lan-production-grants.sql
 ```
 
 每次迁移后都重新执行该授权脚本。它检查当前数据库和角色方向，授予业务 DML，禁止运行角色修改迁移版本或删除 GPU membership/fence 真值；同时把审计、预测父表及全部子分区、两个统计物化视图交给运行角色维护。
@@ -127,7 +132,7 @@ docker compose --env-file .env.production -f docker-compose.lan-prod.yml run --r
 Identity 私表及列权限在同一授权事务中撤销，内嵌 API 保留固定公开关系与 Native 命令能力。
 应用角色必须没有角色成员资格；`NOINHERIT` 不能阻止 `SET ROLE`。PUBLIC 或所有权仍提供
 私表访问时，脚本会拒绝并回滚授权；先解除冲突再重试，勿给应用进程迁移 owner 凭据。
-这不代表日常或生产环境已经切换，详见 [Identity 内嵌权限](../../api/guides/identity-runtime.md#内嵌运行角色的私表权限)。
+Labeling 类目查询只向普通运行角色开放三个类目查询函数，不用 Labeling 私表权限填补其他能力。各域应用权限只以当前角色的实际授权和验收为准；运行授权源码变更不代表日常环境或任一套生产库已应用。
 
 应用角色保留本地 API/Celery 适配所需的图片媒体 22 项能力，以及已受理图片输入、清单和 Labeling 引用的 16 项能力。受理图片的后台 sweep、垃圾回收和私有回执/Pin helper 不会授给应用角色。这里的 `yoao_asset_cleanup_client` 仅有旧存储删除 outbox 的领取/确认能力；LAN Compose 没有启动独立 `assets-cleanup`。若另行部署清理 overlay，按其 [清理工件说明](../../dev/concepts/module-deployment.md) 单独安装完整角色授权，不要把 overlay 的权限叠加到这个 LAN 配置中。
 
@@ -137,13 +142,26 @@ Identity 私表及列权限在同一授权事务中撤销，内嵌 API 保留固
 
 `celery-worker-maintenance` 专门消费 `maintenance` 队列，沿用下面限定维护对象的运行角色权限，不挂载迁移账号 secret。
 
+迁移与普通授权完成后，在同一数据库追加 Jobs 恢复授权。以下命令以实际迁移 LOGIN 连接已核对的实例（`PGHOST`／认证文件需由操作者指定）：
+
+```bash
+psql -X -U anno_prod_owner -d annotation_production \
+  -v expected_database=annotation_production -v migration_role=anno_prod_owner \
+  -v application_role=anno_prod_app -v dispatch_role=anno_prod_jobs_dispatch \
+  -v publication_role=anno_prod_jobs_publication -f infra/docker/jobs-recovery-grants.sql
+```
+
+在 `$AAP_PRODUCTION_STATE_DIR` 写两份独立文件，内容为各自 LOGIN 的 `postgresql://` DSN，使用实际共享私网数据库地址和 `annotation_production`，密码按 URL 编码。在 `.env.production` 只设绝对宿主路径，不保存原始 DSN。Compose 只把 claim 文件给 `celery-worker-jobs-recovery`；publication 文件只给恢复者和必要的应用生产／执行进程。恢复 worker 加入生产 Redis 与共享 PostgreSQL 网络，不持有迁移／维护 DSN，也没有共享应用权限回退。Beat 等待其就绪。
+
+默认 `ASSETS_VIDEO_EXECUTOR=celery` 需要窄视频执行 LOGIN。按[媒体执行角色](./docker-compose#media-executor-provisioning)安装后设置 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`。需要 Native 图片写入时也安装独立 image LOGIN，配置 `ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`；普通非 Native 图片路径不因此要求新的 DSN。API／Beat 不挂载这些凭据，不向应用 LOGIN 增补执行函数。
+
 **运行角色并非纯 DML 账号**：现有月分区任务需要 CREATE/DROP 子分区，PostgreSQL 的统计刷新需要视图所有权和数据库 TEMPORARY 权限。因此它拥有上述限定维护对象及 `public` schema CREATE 权限；其余业务对象仍由迁移角色所有。迁移角色单向继承运行角色，运行角色不能反过来成为迁移角色，也没有集群管理权限。
 
 启动常驻服务：
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.lan-prod.yml up -d
-docker compose --env-file .env.production -f docker-compose.lan-prod.yml ps
+docker compose --env-file .env.production -f docker-compose.lan-prod.yml up -d --wait
+docker compose --env-file .env.production -f docker-compose.lan-prod.yml ps celery-worker-jobs-recovery celery-beat api web gateway
 ```
 
 新库从零创建账号。首个管理员通过现有 `python -m scripts.bootstrap_admin` 初始化，交互指定 `ADMIN_EMAIL`、`ADMIN_NAME` 与随机初始密码；不要运行开发 seed。参数传递方式见[首个管理员](./docker-compose#_4-3-首个-super-admin-bootstrap-admin)。密码不写入提交或文档，初始化结束后删除临时环境文件。
@@ -194,13 +212,13 @@ docker compose --env-file .env.production -f docker-compose.lan-prod.yml stop
 
 该独立 Compose 的常驻服务使用 `restart: unless-stopped`，处理进程退出和 Docker 启动后的恢复；Docker 不会仅因为容器变为 `unhealthy` 自动重启它。宿主机的开发服务仍使用 3000/8000，生产入口使用 HTTPS 3030/8080。
 
-`scripts/production-health-recover.py` 配合 `infra/systemd/aap-production-health.{service,timer}` 每两分钟检查生产环境：
+`scripts/production-health-recover.py` 配合 `infra/systemd/aap-production-health.{service,timer}` 每两分钟检查**默认 LAN 拓扑**，不适用于叠加选配 owner 的项目：
 
 - 固定使用本机 Docker `default` context，校验 `aap-production` 项目、服务、Compose 文件及工作目录标签。只操作当前已有容器 ID，不执行 Compose 部署、构建、迁移或共享基础设施重启，也不向宿主进程发送信号。
 - 连续三次异常后，恢复一个已停止或不健康的容器；单服务两次恢复至少间隔 15 分钟，每小时最多三次。恢复后由下一轮检查确认状态，启动中、Docker 正在重启或人工暂停的容器不会被抢先操作。
 - API 的无外部依赖路由能返回 HTTP 响应时，依赖检查失败只记录降级；Redis 异常时不连带重启 worker。数据库、MinIO 和共享模型服务需要按各自运维流程处理。
 - 通过容器实际绑定 IP，使用导出的 Caddy 公共根证书校验 HTTPS `/healthz` 和 `/health/db`，不跳过证书检查，不使用代理环境变量。仅在 API、Web 均健康时尝试恢复入口。
-- 缺失容器、标签冲突或重复副本会停止自动恢复并记录错误，需要人工核对部署。迁移容器不在恢复范围内。beat 当前只有运行状态检查，无法据此证明定时任务持续调度。
+- 缺失容器、额外 split 服务、标签冲突或重复副本均停止自动恢复。对 Jobs 恢复核对准确命令、隔离凭据与关闭迁移；只在 broker 健康时恢复现有容器。Beat 不持 claim／publication，且不会在恢复 worker 未就绪时被自动启动；检查不证明周期任务实际执行。
 
 ### 本机安装与检查
 
@@ -232,6 +250,8 @@ journalctl --user -u aap-production-health.service -n 40 --no-pager
 开发环境如需每天定时重启，应另设 `aap-development-restart.timer`，仅重启开发 Web/API 与开发专用 worker/beat；不要重新启用旧的全栈 cron。其配置和暂停方式见仓库 `DEV.md` 的“本机开发服务定时重启”。两个定时器使用独立入口、锁和维护开关。
 
 ### 暂停、升级和回退
+
+已有旧拆分服务时先按[升级门禁](../upgrade-guide#split-topology-upgrade)备份、排空并准备新角色和密钥。定时器不会创建 Jobs 恢复角色／容器或切换拓扑；部署就绪并核对 `--check` 后，才在批准的目标环境安装对应脚本版本。
 
 计划停止生产、部署或人工诊断前，先暂停恢复；否则已经停止但仍存在的生产容器会被视为待恢复：
 

@@ -29,6 +29,7 @@ last_reviewed: 2026-10-26
 | `ml.cpu`                               | `celery-worker-cpu`           | CPU 预标注                               |
 | `export`                               | `celery-worker-export`        | 导出                                     |
 | `image-pyramid`                        | `celery-worker-image-pyramid` | 图像金字塔生成                           |
+| `jobs.recovery`                        | `celery-worker-jobs-recovery` | 未确认 Jobs 派发恢复；不消费实际模型任务 |
 
 同一症状可能涉及多个队列。先记下受影响的 Job 或任务类型，再只处理对应服务；定时任务没有触发时，同时检查 `celery-beat` 是否运行。
 
@@ -40,7 +41,7 @@ last_reviewed: 2026-10-26
 
 ```bash
 # 1. 查看实际服务状态
-docker compose ps --all celery-worker celery-worker-maintenance celery-worker-gpu-control celery-worker-gpu celery-worker-cpu celery-worker-export celery-worker-image-pyramid celery-beat
+docker compose ps --all celery-worker celery-worker-maintenance celery-worker-gpu-control celery-worker-gpu celery-worker-cpu celery-worker-export celery-worker-image-pyramid celery-worker-jobs-recovery celery-beat
 
 # 2. 查看目标服务最近日志（把 <worker-service> 替换为上表中的服务）
 docker compose logs --tail=100 <worker-service>
@@ -54,6 +55,8 @@ docker compose exec <worker-service> celery -A app.workers.celery_app inspect re
 ```
 
 如果服务状态正常但队列持续增长，比较该队列长度和 `inspect active/reserved` 的结果：没有消费记录通常指向错误的 `-Q`、worker 未连接 Redis 或 worker 没有运行；有活动任务但没有完成记录则进入“容器运行但无进展”分支。
+
+若只有 Jobs 恢复停滞，先看恢复 worker 与单实例 Beat：恢复 worker 缺少同库的两个独立 LOGIN 会在启动检查失败，普通／维护 worker 不可代替。按[受限 Jobs 账号初始化](../deploy/docker-compose#jobs-recovery-provisioning)核对文件、身份及授权，不输出 DSN。修复后确认实际原执行 ID 进展，不删 intent、尝试记录或清空队列。
 
 :::
 

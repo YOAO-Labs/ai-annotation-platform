@@ -8,13 +8,13 @@ last_reviewed: 2026-11-16
 
 # 图片金字塔运行手册
 
-图片控制与视频媒体共用 `apps/assets-media`；图片工作由独立轮询 Worker 执行，派生对象由既有 Assets 清理进程删除。自动生成默认关闭。仓库包含可选部署配置；此文不代表已部署到主环境/生产环境，也不构成生产容量验收。Native 输出的保存目标、Source 有限签名与 Cleanup 回收见[动态保存目标与 Native 清理](#动态保存目标与-native-清理)；这些是可选的独立服务路径，不改变自动受理默认关闭的状态。
+默认由 API 内嵌图片控制、`celery-worker-image-pyramid` 执行；只在需要独立内存或临时盘限制时切换到 `assets-images-worker`。派生对象由既有 Assets 清理进程处理。自动生成默认关闭。Native 输出保存、Source 签名与 Cleanup 回收见[动态保存目标与 Native 清理](#动态保存目标与-native-清理)；本配方不是生产容量或现网切换结论。
 
 ## 运行边界与授权
 
 | 身份                                                 | 数据库能力                                                                      | 对象存储范围                                                                                                               |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| API/共享控制端 `yoao_asset_media_control_client`     | 当前共享控制能力集（视频、图片、输入、清单与跟踪），仅函数执行权                | HEAD/GET 注册源图和缓存、签发读取 URL；Native 读取只执行 Source 签发的有限请求；不写源、不清理                             |
+| 独立共享控制端 `yoao_asset_media_control_client`     | 当前共享控制能力集（视频、图片、输入、清单与跟踪），仅函数执行权                | HEAD/GET 注册源图和缓存、签发读取 URL；Native 读取只执行 Source 签发的有限请求；不写源、不清理                             |
 | 图片 Worker `yoao_asset_image_worker_client`         | 图片执行 16 项、输入 6 项函数                                                   | 只读已登记原件（TaskOriginal／DatasetItem 源）；只在派生前缀读写；Native 写入/校验只执行 Source 签发的请求；不写源、不删源 |
 | 清理端 `yoao_asset_cleanup_client`                   | 11 项清理函数（五条 lane：outbox、图片垃圾、Native 保存输出回收、两类输入墓碑） | 对缓存桶派生前缀列举、删除；Native lane 只执行 Source 签发的保存成员/前缀请求，不持有 Native 对象凭据；不读写源对象        |
 | Source `yoao_asset_source_client`（Native 签名子集） | 3 项 Native 捕获能力                                                            | 只为精确保存成员/前缀签发有限 S3 请求；内建目标使用独立 Native 身份；不执行 PUT/GET/DELETE/列举 I/O                        |
@@ -25,7 +25,9 @@ last_reviewed: 2026-11-16
 
 先将数据库迁移到当前 head，按既有 module-data 流程安装 owner 辅助授权，再应用共享媒体授权 `infra/docker/assets-media-grants.sql` 和图片 Worker 授权 `infra/docker/assets-image-grants.sql`。Native 私有表归属及保存输出的必要列权限由 `infra/docker/module-data-grants.sql` 安装给 NOLOGIN Assets owner；control/worker/cleanup LOGIN 仍只有有限函数能力，迁移身份单独使用。cleanup 的 11 项能力（五条 lane）沿用 module-data 授权流程；Native 保存输出 lane 不增加直接对象权限。
 
-`docker-compose.assets-media.yml` 不属于默认 Compose。按部署环境准备独立 DSN、token 与 S3 secret 文件，确认容器 UID 10005 可读；API 通过 `ASSETS_MEDIA_URL` 和对应 token 接入控制端。独立 Worker 使用 `ASSETS_IMAGES_DATABASE_URL_FILE`、`ASSETS_IMAGES_S3_ACCESS_KEY_FILE`、`ASSETS_IMAGES_S3_SECRET_KEY_FILE`。控制、Worker、清理身份不可共用高权限凭据。
+`docker-compose.assets-media.yml` 不属于默认 Compose。分离执行选 `ASSETS_IMAGE_EXECUTOR=split` 与 `assets-image-executor` profile，配置 `ASSETS_IMAGES_DATABASE_URL_FILE`、`ASSETS_IMAGES_S3_ACCESS_KEY_FILE`、`ASSETS_IMAGES_S3_SECRET_KEY_FILE`（UID 10005 可读）。`ASSETS_MEDIA_URL/TOKEN` 只选择独立控制；需要时另启 `assets-media-control` profile。显式远程配置失败不回退，三个进程不共用数据库或高权限 S3 身份。
+
+普通 Celery 生成沿用当前本地队列；启用 Native 成员写入时另为所选 Celery 执行器准备函数 LOGIN 和 `ASSETS_CELERY_IMAGE_DATABASE_URL(_FILE)`，不把 Native writer 权限给 API。切到 split 时移除该 Celery 绑定，改用 split worker 的 `ASSETS_IMAGES_DATABASE_URL_FILE`。见[媒体执行角色](../deploy/docker-compose#media-executor-provisioning)。
 
 S3 权限应限定为：
 
@@ -37,7 +39,7 @@ S3 权限应限定为：
 
 输入桶需通过 `MINIO_INPUTS_BUCKET` 与 `ASSETS_MEDIA_INPUTS_BUCKET` 配置，并且必须启用 versioning；不要给它或 `media-cache` 添加桶级生命周期。Compose overlay 默认让独立控制与图片 Worker 继承 API bucket 名称。清理 worker 依照输入保留账本逐版本回收，不能按 age 或生命周期直接删除对象版本。
 
-共享控制端与图片 Worker 的 endpoint、region、桶配置要一致；API 通过共享控制端 URL/token 接入。公共 S3 endpoint 必须对浏览器可达，不要改写签名 URL。历史 Task 图像必须先登记 TaskOriginal；缺少原件归属的历史 Task 不按当前 annotations 桶猜读。
+实际控制端与执行器使用同一数据库，核对 endpoint、region、桶与保存身份配置。公共 S3 endpoint 必须对浏览器可达，不改写签名 URL。历史 Task 图像先登记 TaskOriginal；缺少原件归属时不按当前 annotations 桶猜读。
 
 ### Native 签名与保存输出配置
 
@@ -45,13 +47,13 @@ Native 金字塔以 Source 为唯一保存目标凭据 owner 和有限签名方�
 
 Source 的五项设置必须同时配置，否则拒绝启动；三项 token 互不相同，并区别于 `ASSETS_SOURCE_TOKEN`、`ASSETS_SOURCE_IMPORT_VERIFY_TOKEN`；Native access key 必须区别于普通 Source 身份。全部留空时功能关闭，Native 路由返回 `source_unavailable`，调用方不会回退其他签名方或当前缓存桶。
 
-| 调用方                       | 设置                                                                                                  | 运行用户         |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------- |
-| 图片 Worker / API 本地执行器 | `ASSETS_IMAGES_NATIVE_STORAGE_URL`、`ASSETS_IMAGES_NATIVE_STORAGE_TOKEN` 或 `_TOKEN_FILE`             | 10005 / API 进程 |
-| 共享控制端 / API 本地控制    | `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL`、`ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN` 或 `_TOKEN_FILE`   | 10005 / API 进程 |
-| Assets Cleanup               | `ASSET_CLEANUP_NATIVE_STORAGE_URL`、`ASSET_CLEANUP_NATIVE_STORAGE_TOKEN` 或 `_TOKEN_FILE`（两项必填） | 10001            |
+| 调用方                    | 设置                                                                                                  | 运行用户         |
+| ------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------- |
+| 所选图片执行器            | `ASSETS_IMAGES_NATIVE_STORAGE_URL`、`ASSETS_IMAGES_NATIVE_STORAGE_TOKEN` 或 `_TOKEN_FILE`             | 所选 worker 用户 |
+| 共享控制端 / API 本地控制 | `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL`、`ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN` 或 `_TOKEN_FILE`   | 10005 / API 进程 |
+| Assets Cleanup            | `ASSET_CLEANUP_NATIVE_STORAGE_URL`、`ASSET_CLEANUP_NATIVE_STORAGE_TOKEN` 或 `_TOKEN_FILE`（两项必填） | 10001            |
 
-各调用方的 token 值与 Source 对应角色 token 相同，但必须放在各自用户可读的独立文件中，不要用放宽权限的方式共用 Source 的 token 文件。`docker-compose.assets-native.yml` 将五类签名 secret 挂入 Source，并把 writer、reader 两项分别挂入图片 Worker/API 本地执行器和共享控制；`docker-compose.assets-cleanup.yml` 自带其必需的 cleanup token secret。必须与 Source、media、cleanup 三个 overlay 一起使用。默认文件名为：
+各 token 值与 Source 对应角色相同，但用各自运行用户可读的不同文件。`docker-compose.assets-native.yml` 为 Source 提供五类 secret，为 `assets-media-control` 提供 reader，为图片执行器提供 writer；`docker-compose.assets-cleanup.yml` 自带清理 token。内嵌 API 控制须另设 reader 的 URL 与 `_TOKEN_FILE` 宿主路径；不把执行或清理 token 挂给 API。默认文件名：
 
 ```text
 .secrets/assets-source-native-pyramid-writer-token
@@ -64,64 +66,38 @@ Source 的五项设置必须同时配置，否则拒绝启动；三项 token 互
 .secrets/assets-media-native-image-storage-token
 ```
 
-Cleanup 的两项设置由当前清理配置强制要求；即使 `IMAGE_PYRAMID_AUTO_GENERATE=false`，运行清理进程也要求 Source Native signer 已启用。API 宿主进程若承担本地控制或本地图片执行，需要按上表配置对应 URL 与 token 文件；URL 必须是该进程可达的 origin，不能直接使用 Compose 服务名。远程 `ASSETS_MEDIA_URL` 模式下由共享控制端和图片 Worker 承担。部分配置会明确失败，不会静默降级为当前缓存桶或普通凭据。Native 公开 URL 的有效期取自冻结的 `IMAGE_PYRAMID_URL_EXPIRY_SECONDS`，并受 SigV4 的 604800 秒上限约束；显式请求超过上限会拒绝，而不是静默缩短。
+Cleanup 要求 Native URL/token，即使 `IMAGE_PYRAMID_AUTO_GENERATE=false`；使用它前需先启用 Source signer 和合格的保存目标。URL 从实际调用进程验证可达，宿主 API 不能直接使用 Compose 服务名。控制模式不改变所选执行器的 writer。部分配置明确失败，不降级为当前缓存桶或普通凭据。公开 URL 有效期依据冻结策略 `IMAGE_PYRAMID_URL_EXPIRY_SECONDS` 和 SigV4 604800 秒上限，超限明确失败。
 
 ## 启动与健康检查
 
 运行环境必须包含 libvips、pyvips 和可用的 sRGB ICC profile。先检查实际挂载：挂载 Python 源码变更只需刷新对应 Worker；依赖、Dockerfile 或镜像内源码变化才需要重建。
 
-图片执行使用 `apps/assets-media/Dockerfile` 的 `image-worker` target，不消费 Celery 队列，也不依赖 Redis/beat。`ASSETS_IMAGES_POLL_SECONDS` 默认 5 秒；Worker 启动时以及此后约每日运行一次有界协调。Native 保存输出需要把 Native overlay 与三个既有 overlay 一起使用；Source 必须在同一 Compose 网络中可达：
+默认执行设 `ASSETS_IMAGE_EXECUTOR=celery`，使用已迁移、授权和启动的默认栈；不需要媒体 overlay。用 `docker compose ps celery-worker-image-pyramid` 确认对应 worker，主 worker 不是该队列的执行者。
+
+需要 split 时暂停新受理，排空旧执行器与实际对象 I/O 后，把 `ASSETS_IMAGE_EXECUTOR=split` 同步给 API／worker；再启独立 `assets-images-worker`。它轮询数据库而不依赖 Redis／Beat，默认间隔 `ASSETS_IMAGES_POLL_SECONDS=5`。以下为同项目 Native 保存输出示例；确保 [Native 授权](#native-签名与保存输出配置)已配置：
 
 ```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.assets-source.yml \
-  -f docker-compose.assets-media.yml \
-  -f docker-compose.assets-cleanup.yml \
-  -f docker-compose.assets-native.yml \
-  up -d --build assets-source assets-media-control assets-images-worker assets-cleanup
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.assets-source.yml \
-  -f docker-compose.assets-media.yml \
-  -f docker-compose.assets-cleanup.yml \
-  -f docker-compose.assets-native.yml \
-  ps
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.assets-source.yml \
-  -f docker-compose.assets-media.yml \
-  -f docker-compose.assets-cleanup.yml \
-  -f docker-compose.assets-native.yml \
-  logs --tail=100 assets-source assets-images-worker assets-cleanup
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.assets-source.yml \
-  -f docker-compose.assets-media.yml \
-  -f docker-compose.assets-cleanup.yml \
-  -f docker-compose.assets-native.yml \
-  exec assets-images-worker python -m yoao_assets_images_runtime.worker --healthcheck
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.assets-source.yml \
-  -f docker-compose.assets-media.yml \
-  -f docker-compose.assets-cleanup.yml \
-  -f docker-compose.assets-native.yml \
-  exec assets-cleanup python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health/ready', timeout=2)"
+images_stack() {
+  docker compose -f docker-compose.yml -f docker-compose.assets-source.yml \
+    -f docker-compose.assets-media.yml -f docker-compose.assets-cleanup.yml \
+    -f docker-compose.assets-native.yml --profile assets-image-executor "$@"
+}
+images_stack up -d --build --wait assets-source assets-images-worker assets-cleanup
+images_stack ps
+images_stack exec assets-images-worker python -m yoao_assets_images_runtime.worker --healthcheck
+images_stack exec assets-cleanup python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health/ready', timeout=2)"
 ```
 
-只启动 Source、控制、图片 Worker 或清理中的子集时，保留同一组 `-f` 文件；Native overlay 依赖这三个既有 overlay 的服务定义。Cleanup 需要 `ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN` 对应值和可用的 Source signer，否则 Native lane 明确失败。
+不使用 Native 时只给基础文件叠加 `docker-compose.assets-media.yml` 启动图片执行器；要使用独立控制，另选 `--profile assets-media-control`、启动 `assets-media-control` 并设置控制 URL/token。Native 组合保留完整 `-f` 文件链。Source 在同一网络使用 `http://assets-source:8767`；独立控制只 expose 8768，不发布宿主端口。容器预算 4 CPU／16 GiB 内存／12 GiB 临时盘是启动配置，不是容量证明。
 
-API 必须能经私有网络访问 `http://assets-media-control:8768`；控制、图片 Worker 与 Cleanup 必须能访问 Source 的 `http://assets-source:8767`（由 Native/cleanup overlay 提供）。overlay 只在容器网络 expose 8768，不发布宿主端口。图片 Worker 的可选 Compose 限制为 4 CPU、16 GiB 内存和 12 GiB 临时盘；这是本地配置，不代表生产容量。控制端 `GET /health/live` 表示进程可响应，`GET /health/ready` 检查 SQL 能力；Worker `--healthcheck` 检查配置、数据库连接与图片 16 项、输入 6 项精确权限；Cleanup readiness 检查数据库和存储探测，Native lane 的签名连通性通过实际回收轮次体现。它们都不验证实际 S3 IAM、Native 签名、图片解码或发布。小批量验收应至少走通源 HEAD/GET、Job、manifest/asset URL、对象身份校验和 cleanup 精确删除；使用专用环境和素材，不据此声称生产验收。
+实际 `--healthcheck` 只检查配置、连接和受限函数权限。不要用健康检查代替真实源 HEAD／GET、Job 推进、manifest／asset URL、读回核验及精确清理测试。验证 split 时，还要确认未开启相同工作流的 Celery 领取。
 
-宿主直接运行入口：
+独立控制与 split 图片执行器的宿主直启入口（分别注入自己的环境）：
 
 ```bash
 uv run --project apps/assets-media --extra runtime --extra server python -m yoao_assets_media_runtime
-uv run --project apps/assets-media --extra runtime python -m yoao_assets_images_runtime.worker
+ASSETS_IMAGE_EXECUTOR=split uv run --project apps/assets-media --extra runtime python -m yoao_assets_images_runtime.worker
 ```
-
-API 配置 `ASSETS_MEDIA_URL` 后使用远程共享控制；远程配置/请求失败不回退本地。地址留空时，当前开发兼容路径仍可本地装配控制和轻量 Celery 唤醒；要验证独立边界，确认 API 走远程控制且作业由 `assets-images-worker` 执行。
 
 ## 动态保存目标与 Native 清理
 
@@ -183,7 +159,7 @@ Task 接口为 `GET /api/v1/tasks/{task_id}/image-pyramid`（manifest/状态）�
 
 当前 API 侧 Prometheus 指标只有与图片有关的 `image_pyramid_api_requests_total{operation,outcome}`（manifest/asset URL/retry 结果）和 `image_pyramid_asset_url_items_total{kind}`（签发 URL 条目）。独立 Worker 不再发布旧版的生成总数、阶段耗时、解码像素、tile、临时盘、派生字节或 GC 指标，不要配置基于这些旧名称的告警。
 
-原生 `read_image_usage` 返回 `source_bytes`、`thumbnail_bytes`、`pyramid_bytes`、`pending`、`running`、`failed` 和 `garbage_pending`。通过受限共享控制端查看：
+原生 `read_image_usage` 返回 `source_bytes`、`thumbnail_bytes`、`pyramid_bytes`、`pending`、`running`、`failed` 和 `garbage_pending`。如果显式启用了私有共享控制端，可调用：
 
 ```bash
 curl --fail --silent --show-error -H 'Authorization: Bearer '"$ASSETS_MEDIA_TOKEN" -H 'Content-Type: application/json' -d '{}' "$ASSETS_MEDIA_URL/v1/images/commands/read_image_usage"
@@ -230,6 +206,6 @@ reconciliation 每日运行，按 Asset→Generation→Output 锁序复验过期
 
 旧无 output owner 的代不自动采纳、签名或物理删除；先完成原件登记，再显式重试生成新代，旧未知文件保留待单独核验。reconciliation 不裸扫默认缓存桶，也不按目录年龄删除其他任务临时文件。0232 迁移新增独立责任表和输入／授权回执；存在责任记录时不做破坏性降级。
 
-紧急回退：关闭 `IMAGE_PYRAMID_AUTO_GENERATE` 以暂停自动金字塔受理，并停止显式重试/回填；尺寸和缩略图仍会受理。若需暂停全部新图片工作，还应暂停上传/导入生产者。需要暂停浏览器选择时，将 `VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 设为 `false` 并重建 Web；停止 `assets-images-worker`，保留共享控制与清理职责。保留 Job、操作回执、ready 对象及未确认垃圾，等待在途租约排空/到期。不要直接删除图片表或批量删对象；降级迁移会拒绝丢弃仍有作业、回执或清理责任的状态。停用 Native 前先保留 Source 的 Native signer 配置、Native S3 身份和旧保存目标的 endpoint/bucket/prefix 访问，直到 Cleanup 已排空对应责任；切换用途绑定不要求删除 A，也不要把 A 的凭据或对象转交给 Images/Cleanup。无法确认在途进程和 I/O 结束时先隔离 Native 清理 token，而不是删除保存目标账本。
+紧急暂停：关闭 `IMAGE_PYRAMID_AUTO_GENERATE` 并停止显式重试／回填；若需停全部新工作，还应暂停上传／导入生产者（尺寸和缩略图仍会受理）。按当前选档暂停 `celery-worker-image-pyramid` 或 `assets-images-worker`，保留控制、清理与待确认责任。要暂停浏览器切片选择，设 `VITE_EXPERIMENTAL_LARGE_IMAGE_TILES=false` 后重建 Web。保留 Job、回执、ready 对象及账本，不删表或批量删对象。停用 Native 前先保留 signer、存储身份和旧保存目标访问，直到 Cleanup 实际排空；无法确认在途 I/O 结束时隔离相应清理 token，不删保存目标账本。
 
 常见新增拒绝包括 `no_readable_original`／`content_unverified`（先登记并核验原件）、`pyramid_authority_unrecorded`（旧队列缺准确委派，重新发起）、`image_pyramid_storage_unpinned`（未知旧输出，显式重建）、`image_pyramid_storage_integrity_mismatch`／`image_pyramid_storage_invalid_receipt`（核对对象与内容清单）以及 `storage_operation_unsettled`（物理工作尚未确认结束）。维护或撤权拒绝不代表文件丢失，也不应通过更换当前用途桶绕过。
