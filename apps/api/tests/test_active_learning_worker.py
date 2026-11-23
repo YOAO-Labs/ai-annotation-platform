@@ -135,10 +135,14 @@ async def test_dispatch_recovery_without_private_jobs_select(
     role = "learning_jobs_dispatch_" + uuid.uuid4().hex
     await db_session.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
     await db_session.execute(
-        text(f'GRANT USAGE ON SCHEMA public, yoao_jobs_v1 TO "{role}"')
+        text(f'GRANT USAGE ON SCHEMA yoao_learning_v1, yoao_jobs_v1 TO "{role}"')
     )
     await db_session.execute(
-        text(f'GRANT SELECT, UPDATE ON public.active_learning_attempts TO "{role}"')
+        text(
+            f"GRANT EXECUTE ON FUNCTION yoao_learning_v1.selection_attempt(uuid,uuid), "
+            f"yoao_learning_v1.selection_touch_attempt(uuid,integer,uuid,text,timestamptz), "
+            f'yoao_learning_v1.selection_claim_attempt(uuid,integer,uuid,timestamptz) TO "{role}"'
+        )
     )
     await db_session.execute(
         text(
@@ -161,10 +165,11 @@ async def test_dispatch_recovery_without_private_jobs_select(
     await worker.dispatch(db_session, round)
     job = await worker.jobs.get_job(db_session, job_id, populate_existing=True)
     assert job.celery_task_id == dispatched[0]["task_id"]
-    attempt = await db_session.get(Attempt, attempt.id)
+    attempt = await worker.data.get_attempt(db_session, attempt.id)
     assert attempt.dispatched_at is not None
-    attempt.claim_id = uuid.uuid4()
-    await db_session.flush()
+    assert await worker.data.claim_attempt(
+        db_session, attempt, uuid.uuid4(), service.now()
+    )
     await worker.dispatch(db_session, round)
     assert len(dispatched) == 1
     await db_session.execute(text("RESET ROLE"))

@@ -6,16 +6,9 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.project_write_guard import lock_project_manager
-from app.db.models.active_learning import (
-    ActiveLearningAttempt as Attempt,
-    ActiveLearningDecision as Decision,
-    ActiveLearningFeedback as Feedback,
-    ActiveLearningRound as Round,
-)
 from app.db.models.project import Project
 from app.deps import (
     get_current_user,
@@ -33,6 +26,7 @@ from app.schemas.active_learning import (
 )
 from app.services import (
     active_learning as service,
+    active_learning_data as data,
     active_learning_feedback as feedback,
     active_learning_pool as pool,
 )
@@ -79,7 +73,7 @@ async def pin_legacy_round_storage(
 
 
 async def attempt_for(db, round, attempt_id):
-    attempt = await db.get(Attempt, attempt_id)
+    attempt = await data.get_attempt(db, attempt_id, round_id=round.id)
     if not attempt or attempt.round_id != round.id:
         raise service.reject("attempt_missing", "选样执行尝试不存在", 404)
     return attempt
@@ -173,11 +167,7 @@ async def create(
     training_authority: TrainingAuthorityPort = Depends(get_training_authority),
 ):
     digest = content_digest(body.model_dump(mode="json"))
-    existing = await db.scalar(
-        select(Round).where(
-            Round.project_id == project.id, Round.request_id == body.request_id
-        )
-    )
+    existing = await data.round_request(db, project.id, body.request_id)
     if existing:
         if existing.request_digest != digest:
             raise service.reject("request_conflict", "同一请求标识不能用于不同选样轮次")
@@ -237,31 +227,8 @@ async def list_rounds(
     offset: int = Query(0, ge=0),
     task: Literal["detect", "segment"] | None = None,
 ) -> dict:
-    predicates = [Round.project_id == project.id]
-    if task is not None:
-        aliases = (
-            [
-                "segment",
-                "segmentation",
-                "image-instance-segmentation",
-                "instance-segmentation",
-            ]
-            if task == "segment"
-            else ["detect", "detection", "image-detection"]
-        )
-        predicates.append(
-            func.coalesce(Round.spec["model_ref"]["task"].astext, "detect").in_(aliases)
-        )
-    total = await db.scalar(select(func.count()).select_from(Round).where(*predicates))
-    rows = (
-        await db.scalars(
-            select(Round)
-            .where(*predicates)
-            .order_by(Round.created_at.desc(), Round.id.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-    ).all()
+    total = await data.round_count(db, project.id, task)
+    rows = await data.rounds_page(db, project.id, task, limit, offset)
     return {"total": total, "items": [await service.output(db, row) for row in rows]}
 
 
@@ -317,7 +284,7 @@ async def retry(
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
     previous = await attempt_for(db, round, round.current_attempt_id)
-    await service.retry_round(db, round, previous, rows)
+    await service.retry_round(db, round, previous)
     await db.commit()
     from app.workers.active_learning import dispatch
 
@@ -410,18 +377,8 @@ async def decisions(
     offset: int = Query(0, ge=0),
 ) -> dict:
     round = await service.load_round(db, project.id, round_id)
-    rows = (
-        await db.scalars(
-            select(Decision)
-            .where(Decision.round_id == round.id)
-            .order_by(Decision.created_at.desc(), Decision.id.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-    ).all()
-    total = await db.scalar(
-        select(func.count()).select_from(Decision).where(Decision.round_id == round.id)
-    )
+    rows = await data.decisions_page(db, round.id, limit, offset)
+    total = await data.receipt_count(db, round.id)
     return {
         "items": [service.decision_output(row) for row in rows],
         "total": total or 0,
@@ -477,18 +434,8 @@ async def feedback_list(
     offset: int = Query(0, ge=0),
 ) -> dict:
     round = await service.load_round(db, project.id, round_id)
-    rows = (
-        await db.scalars(
-            select(Feedback)
-            .where(Feedback.round_id == round.id)
-            .order_by(Feedback.created_at.desc(), Feedback.id.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-    ).all()
-    total = await db.scalar(
-        select(func.count()).select_from(Feedback).where(Feedback.round_id == round.id)
-    )
+    rows = await data.feedback_page(db, round.id, limit, offset)
+    total = await data.receipt_count(db, round.id, feedback=True)
     return {"items": [feedback.output(row) for row in rows], "total": total or 0}
 
 

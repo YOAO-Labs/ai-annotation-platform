@@ -14,7 +14,12 @@ from app.schemas.active_learning import DecisionCreate
 from app.services import active_learning as service, active_learning_engine as engine
 from app.services import active_learning_pool as pool, trained_models
 from app.services.training_dataset_bridge import content_digest
-from tests.active_learning_fixtures import seed, create
+from tests.active_learning_fixtures import (
+    candidate_seed_rows,
+    create,
+    decide_with_ports,
+    seed,
+)
 from tests.sample_evaluation_fixtures import prediction
 from tests.test_original_binary import request
 from tests.test_sample_evaluation_masks import predictions, rle, wire
@@ -103,7 +108,9 @@ async def test_mask_round_revalidates_pixel_evidence_and_accepts_only_human_task
     round, attempt, _ = await create(db_session, owner, world)
     assert round.spec["schema"] == round.spec["schema_version"] == 2
     assert round.spec["strategy"] == engine.MASK_STRATEGY
-    rows = await service.candidate_rows(db_session, round)
+    rows = await candidate_seed_rows(db_session, round.id)
+    round.status = attempt.status = "running"
+    attempt.claim_id = uuid.uuid4()
     for row in rows:
         sample = round.spec["samples"][row.ordinal]
         await service.prepare_image(db_session, round, sample)
@@ -145,7 +152,7 @@ async def test_mask_round_revalidates_pixel_evidence_and_accepts_only_human_task
         row["task_id"] for row in arms["random_control"]
     }
     selected = [arms[arm][0]["ordinal"] for arm in arms]
-    await service.decide(
+    await decide_with_ports(
         db_session,
         world.project,
         owner,

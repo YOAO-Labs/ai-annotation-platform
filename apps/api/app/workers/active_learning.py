@@ -9,18 +9,13 @@ import uuid
 from datetime import timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
-from app.db.models.active_learning import (
-    ActiveLearningAttempt as Attempt,
-    ActiveLearningCandidate as Candidate,
-    ActiveLearningRound as Round,
-)
 from app.services import (
     active_learning as service,
+    active_learning_data as data,
     async_job as jobs,
     managed_inference as managed,
 )
@@ -43,21 +38,19 @@ class RoundFailure(Exception):
 
 
 async def fenced(db, attempt_id, claim_id, *, check_authority=False):
-    attempt = await db.get(Attempt, attempt_id)
-    round = await db.get(Round, attempt.round_id) if attempt else None
+    attempt = await data.get_attempt(db, attempt_id)
+    round = await data.get_round(db, None, attempt.round_id) if attempt else None
     if not round:
         raise FencedOut
     if check_authority:
-        await bind_training_authority(db).assert_authority(
-            project_id=round.project_id,
-            actor_id=round.creator_id,
-            api_key_id=round.authorization.get("api_key_id"),
-            required_scopes=service.pool.SCOPES,
+        await service.authority(
+            db, round, training_authority=bind_training_authority(db)
         )
     round = await service.load_round(db, round.project_id, round.id, lock=True)
-    attempt = await db.get(Attempt, attempt_id, populate_existing=True)
+    attempt = await data.get_attempt(db, attempt_id, round_id=round.id)
     if (
-        round.current_attempt_id != attempt.id
+        attempt is None
+        or round.current_attempt_id != attempt.id
         or round.generation != attempt.generation
         or attempt.claim_id != claim_id
         or round.status not in {"running", "cancelling"}
@@ -68,16 +61,13 @@ async def fenced(db, attempt_id, claim_id, *, check_authority=False):
 
 async def claim(factory, attempt_id, celery_task_id):
     async with factory() as db:
-        attempt = await db.get(Attempt, attempt_id)
-        round = await db.get(Round, attempt.round_id) if attempt else None
+        attempt = await data.get_attempt(db, attempt_id)
+        round = await data.get_round(db, None, attempt.round_id) if attempt else None
         if not round:
             return None
         try:
-            await bind_training_authority(db).assert_authority(
-                project_id=round.project_id,
-                actor_id=round.creator_id,
-                api_key_id=round.authorization.get("api_key_id"),
-                required_scopes=service.pool.SCOPES,
+            await service.authority(
+                db, round, training_authority=bind_training_authority(db)
             )
             service.owners.resolve(round)
         except TrainingDatasetError as exc:
@@ -89,14 +79,17 @@ async def claim(factory, attempt_id, celery_task_id):
                 await db.commit()
             return None
         round = await service.load_round(db, round.project_id, round.id, lock=True)
-        attempt = await db.get(Attempt, attempt_id, populate_existing=True)
+        attempt = await data.get_attempt(db, attempt_id, round_id=round.id)
         if (
-            round.current_attempt_id != attempt_id
+            attempt is None
+            or round.current_attempt_id != attempt_id
             or round.status != "queued"
             or attempt.claim_id
         ):
             return None
-        claim_id = service.claim_attempt(round, attempt)
+        claim_id = await service.claim_attempt(db, attempt)
+        if claim_id is None:
+            return None
         await jobs.mark_running(db, attempt.async_job_id, celery_task_id=celery_task_id)
         await db.commit()
         return claim_id
@@ -112,7 +105,10 @@ async def heartbeat(factory, attempt_id, claim_id, stop):
         try:
             async with factory() as db:
                 _round, attempt = await fenced(db, attempt_id, claim_id)
-                service.record_heartbeat(attempt)
+                if not await data.touch_attempt(
+                    db, attempt, "heartbeat", service.now()
+                ):
+                    return
                 await db.commit()
         except FencedOut:
             return
@@ -122,7 +118,7 @@ async def heartbeat(factory, attempt_id, claim_id, stop):
 
 async def debit(factory, attempt_id, claim_id):
     async with factory() as db:
-        round, _attempt = await fenced(db, attempt_id, claim_id, check_authority=True)
+        round, attempt = await fenced(db, attempt_id, claim_id, check_authority=True)
         if round.status != "running":
             raise FencedOut
         if time.time() >= round.spec["expires_at"]:
@@ -134,7 +130,8 @@ async def debit(factory, attempt_id, claim_id):
                 "inference_budget_exhausted",
                 "推理派发预算已用尽；未退还超时或失败的派发",
             )
-        service.record_inference_dispatch(round)
+        if not await data.debit_round(db, attempt, service.now()):
+            raise FencedOut
         await db.commit()
 
 
@@ -212,12 +209,13 @@ async def checkpoint(factory, attempt_id, claim_id, ordinal, result):
         round, attempt = await fenced(db, attempt_id, claim_id, check_authority=True)
         if round.status != "running":
             raise FencedOut
-        row = await db.get(Candidate, (round.id, ordinal))
+        row = await data.get_candidate(db, round.id, ordinal)
         if row.evidence:
             service.verified_evidence(round, row)
             return
         evidence = service.successful_evidence(round, attempt, row, result)
-        service.record_candidate_success(row, attempt, evidence)
+        if not await data.record_candidate_evidence(db, attempt, ordinal, evidence):
+            raise FencedOut
         rows = await service.candidate_rows(db, round)
         await jobs.update_progress(
             db,
@@ -236,13 +234,14 @@ async def mark_lost(factory, attempt_id, claim_id):
         round, attempt = await fenced(db, attempt_id, claim_id)
         if round.status != "running":
             return
-        service.mark_lost(
+        if not await service.mark_lost(
+            db,
             round,
             attempt,
             code="remote_execution_uncertain",
             message="远端执行或结果尚未确认；恢复将先读取同一请求的原始收据",
-        )
-        service.release_claim(attempt)
+        ):
+            return
         await jobs.mark_failed(db, attempt.async_job_id, error=round.error_message)
         await service.notify_job_terminal(db, job_id=attempt.async_job_id)
         await db.commit()
@@ -287,18 +286,20 @@ async def execute(factory, attempt_id, celery_task_id=None):
                 )
                 if round.status != "running":
                     return
-                row = await db.get(Candidate, (round.id, sample["ordinal"]))
+                row = await data.get_candidate(db, round.id, sample["ordinal"])
                 if row.evidence:
                     service.verified_evidence(round, row)
                     continue
                 await db.commit()
                 expected_spec = round.spec_digest
+                expected_storage = round.storage_ref
 
                 async def input_guard():
                     current, _ = await fenced(db, attempt_id, claim_id)
                     if (
                         current.status != "running"
                         or current.spec_digest != expected_spec
+                        or current.storage_ref != expected_storage
                     ):
                         raise FencedOut
 
@@ -321,20 +322,23 @@ async def execute(factory, attempt_id, celery_task_id=None):
                         "冻结图片未通过来源、字节或解码核验；未生成评分",
                     ) from exc
             async with factory() as db:
-                round, _attempt = await fenced(
+                round, attempt = await fenced(
                     db, attempt_id, claim_id, check_authority=True
                 )
                 if round.status != "running":
                     return
-                row = await db.get(Candidate, (round.id, sample["ordinal"]))
+                row = await data.get_candidate(db, round.id, sample["ordinal"])
                 request = managed.request_identity(spec, row, sample["preprocessing"])
                 if row.request and row.request != request:
                     raise RoundFailure(
                         "request_invalid", "持久化请求与本轮冻结输入身份不一致"
                     )
-                service.record_candidate_inflight(
-                    row, request, service.media_descriptor(round, sample)
-                )
+                media = service.media_descriptor(round, sample)
+                if not await data.record_candidate_request(
+                    db, attempt, row.ordinal, request, media
+                ):
+                    raise FencedOut
+                row.request, row.media, row.status = request, media, "inflight"
                 await db.commit()
             result = await obtain_result(factory, round, row, png, attempt_id, claim_id)
             await checkpoint(factory, attempt_id, claim_id, sample["ordinal"], result)
@@ -376,7 +380,7 @@ async def execute(factory, attempt_id, celery_task_id=None):
 
 async def settle_cancel(factory, round_id):
     async with factory() as db:
-        round = await db.get(Round, round_id)
+        round = await data.get_round(db, None, round_id)
         if not round or round.status != "cancelling":
             return False
         attempt_id = round.current_attempt_id
@@ -403,7 +407,7 @@ async def settle_cancel(factory, round_id):
         current = await service.load_round(db, round.project_id, round_id, lock=True)
         if current.status != "cancelling" or current.current_attempt_id != attempt_id:
             return False
-        attempt = await db.get(Attempt, attempt_id)
+        attempt = await data.get_attempt(db, attempt_id, round_id=current.id)
         await service.mark_terminal(
             db,
             current,
@@ -417,11 +421,12 @@ async def settle_cancel(factory, round_id):
 
 
 async def dispatch(db, round):
-    attempt = await db.get(Attempt, round.current_attempt_id)
+    attempt = await data.get_attempt(db, round.current_attempt_id, round_id=round.id)
     if round.status != "queued" or not attempt or attempt.claim_id:
         return
     task_id = str(uuid.uuid4())
-    service.record_dispatched(attempt)
+    if not await data.touch_attempt(db, attempt, "dispatch", service.now()):
+        return
     job = await jobs.get_job(db, attempt.async_job_id)
     if job:
         jobs.bind_execution_id(job, task_id)
@@ -435,59 +440,31 @@ async def dispatch(db, round):
 async def maintain(factory):
     cutoff = service.now()
     async with factory() as db:
-        ids = list(
-            (
-                await db.scalars(
-                    select(Round.id)
-                    .join(Attempt, Attempt.id == Round.current_attempt_id)
-                    .where(
-                        or_(
-                            Round.status == "cancelling",
-                            and_(
-                                Round.status == "queued",
-                                or_(
-                                    Attempt.dispatched_at.is_(None),
-                                    Attempt.dispatched_at
-                                    < cutoff - timedelta(seconds=30),
-                                ),
-                            ),
-                            and_(
-                                Round.status == "running",
-                                or_(
-                                    Attempt.heartbeat_at.is_(None),
-                                    Attempt.heartbeat_at
-                                    < cutoff - timedelta(seconds=45),
-                                ),
-                            ),
-                        )
-                    )
-                    .order_by(Attempt.maintenance_at.asc().nulls_first(), Round.id)
-                    .limit(100)
-                )
-            ).all()
-        )
+        ids = await data.due_rounds(db, cutoff)
     for identity in ids:
         async with factory() as db:
-            round = await db.scalar(
-                select(Round)
-                .where(Round.id == identity)
-                .with_for_update(skip_locked=True)
-            )
+            round = await data.lock_round_for_maintenance(db, identity)
             if not round:
                 continue
-            attempt = await db.get(Attempt, round.current_attempt_id)
-            service.record_maintenance(attempt, cutoff)
+            attempt = await data.get_attempt(
+                db, round.current_attempt_id, round_id=round.id
+            )
+            if attempt is None or not await data.touch_attempt(
+                db, attempt, "maintenance", cutoff
+            ):
+                continue
             if round.status == "running" and (
                 not attempt.heartbeat_at
                 or attempt.heartbeat_at < cutoff - timedelta(seconds=45)
             ):
-                service.mark_lost(
+                if not await service.mark_lost(
+                    db,
                     round,
                     attempt,
                     code="execution_lost",
                     message="执行心跳超时；原请求可能仍在运行，恢复须核对收据",
-                )
-                service.release_claim(attempt)
+                ):
+                    continue
                 await jobs.mark_failed(
                     db, attempt.async_job_id, error=round.error_message
                 )
