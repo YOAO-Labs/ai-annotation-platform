@@ -7,11 +7,9 @@ from types import SimpleNamespace
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.db.models.dataset_source import DatasetSourcePreview, DatasetSourceItem
-from app.db.models.dataset_asset import DatasetAsset, StorageLocation
-from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import directory_policy as policy
 from app.services import storage_access, storage_fault_events, storage_location
 from app.services import storage_observation_rates as rates
@@ -19,6 +17,7 @@ from app.services import thumbnail_outputs as outputs
 from app.services import original_sources
 from app.services.content_snapshot import ContentError, capture
 from app.services.dataset_content import key_authority, stored_content
+from app.services.storage_registry_data import get_location
 from app.services.storage import storage_service
 
 SPEC = "webp-256-exif-q80"
@@ -110,6 +109,45 @@ def preview_facts(row):
     )
 
 
+async def preview_for_path(db, source_id, path_digest):
+    result = await db.execute(
+        text(
+            "SELECT * FROM yoao_assets_v1.directory_preview_slot(CAST(:id AS uuid), :digest)"
+        ),
+        {"id": source_id, "digest": path_digest},
+    )
+    row = result.mappings().one_or_none()
+    return SimpleNamespace(**row) if row is not None else None
+
+
+async def publish(
+    db, source, location, path_digest, asset_id, source_sha, generation, output_id
+):
+    published = await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.publish_directory_preview("
+            "CAST(:source_id AS uuid), :digest, CAST(:asset_id AS uuid), :sha, "
+            ":source_revision, :policy_revision, :location_revision, :generation, "
+            ":measured_at, CAST(:output_id AS uuid))"
+        ),
+        {
+            "source_id": source.id,
+            "digest": path_digest,
+            "asset_id": asset_id,
+            "sha": source_sha,
+            "source_revision": source.config_revision,
+            "policy_revision": source.policy_revision,
+            "location_revision": location.config_revision,
+            "generation": generation,
+            "measured_at": datetime.now(timezone.utc),
+            "output_id": output_id,
+        },
+    )
+    if not published:
+        raise ContentError("preview_binding_changed")
+    return await preview_for_path(db, source.id, path_digest)
+
+
 @dataclass(frozen=True)
 class PreparedPreview:
     directory: dict
@@ -122,14 +160,12 @@ class PreparedPreview:
 
 async def prepare(db, source, entry, snapshot):
     """Seal candidates before the caller takes source and business locks."""
-    location = await db.get(StorageLocation, source.location_id, populate_existing=True)
+    location = await get_location(db, source.location_id)
     if location is None or not policy.permits_preview(
         policy.effective_cache_policy(source, location)
     ):
         return None
-    row = await db.get(
-        DatasetSourcePreview, (source.id, entry.path_digest), populate_existing=True
-    )
+    row = await preview_for_path(db, source.id, entry.path_digest)
     prepared = PreparedPreview(
         directory_facts(source.id, entry.path_digest, snapshot.sha256),
         (source.config_revision, source.policy_revision, location.config_revision),
@@ -228,9 +264,7 @@ async def prepare(db, source, entry, snapshot):
 
 
 async def output_for_row(db, row):
-    output = await db.get(
-        ThumbnailOutput, row.thumbnail_output_id, populate_existing=True
-    )
+    output = await outputs.get_output(db, row.thumbnail_output_id)
     if (
         output is None
         or output.state != "ready"
@@ -259,19 +293,11 @@ async def retire_output(db, output_id):
     if output_id is not None:
         try:
             async with original_sources._reads(db, True):
-                output = await db.get(
-                    ThumbnailOutput,
-                    output_id,
-                    with_for_update={"nowait": True},
-                    populate_existing=True,
-                )
+                await outputs.retire_directory_output(db, output_id)
         except ContentError as exc:
             if exc.code == "storage_original_busy":
                 return
             raise
-        if output is not None and output.state == "ready":
-            output.state, output.retired_at = "retiring", outputs.now()
-            output.next_check_at = outputs.now()
 
 
 async def generate(
@@ -332,7 +358,7 @@ async def generate(
         )
 
     observation = await observe()
-    row = await db.get(DatasetSourcePreview, (source.id, mapping.path_digest))
+    row = await preview_for_path(db, source.id, mapping.path_digest)
     valid = (
         isinstance(prepared, PreparedPreview)
         and prepared.directory
@@ -343,6 +369,7 @@ async def generate(
     if (
         valid
         and prepared.reuse
+        and row is not None
         and preview_facts(row) == prepared.baseline
         and row.asset_id == mapping.asset_id
     ):
@@ -362,39 +389,20 @@ async def generate(
             await retire_output(db, row.thumbnail_output_id)
         else:
             retired.append((row.bucket, row.object_key))
-        row.thumbnail_output_id = None
-        row.object_key = row.bucket = row.location_id = row.sha256 = row.size_bytes = (
-            None
-        )
-    if row is None:
-        row = DatasetSourcePreview(
-            source_id=source.id, path_digest=mapping.path_digest, generation=0
-        )
-        db.add(row)
-    row.asset_id, row.source_sha256, row.spec = mapping.asset_id, snapshot.sha256, SPEC
-    row.policy_revision = source.policy_revision
-    row.generation += 1
-    row.measured_at = datetime.now(timezone.utc)
-    row.state, row.error_code = "failed", "preview_generation_failed"
+    generation = row.generation if row is not None else 0
+    output_id = None
     try:
         if not valid or prepared.output_id is None:
             raise ContentError("preview_preparation_failed")
         async with original_sources._reads(db, True):
-            output = await db.get(
-                ThumbnailOutput,
+            output = await outputs.directory_candidate(
+                db,
                 prepared.output_id,
-                populate_existing=True,
-                with_for_update={"read": True, "nowait": True},
+                source.id,
+                mapping.path_digest,
+                prepared.directory,
             )
-        if (
-            output is None
-            or output.state != "ready"
-            or output.uncertain_write
-            or output.owner_kind != "directory_preview"
-            or output.owner_id != source.id
-            or output.path_digest != mapping.path_digest
-            or output.input_ref.get("directory") != prepared.directory
-        ):
+        if output is None:
             raise ContentError("preview_preparation_changed")
         saved = outputs.owner(output)
         await outputs.media_cache_storage.target_for_ref(db, saved.ref)
@@ -406,15 +414,18 @@ async def generate(
                 bucket=saved.bucket,
             )
         )
-        row.thumbnail_output_id = output.id
-        row.location_id, row.bucket, row.object_key = (
-            saved.location_id,
-            saved.bucket,
-            saved.key(outputs.RELATIVE_KEY),
-        )
-        row.sha256, row.size_bytes = output.sha256, output.size_bytes
-        row.state, row.error_code = "ready", None
+        output_id = output.id
     except Exception:
+        row = await publish(
+            db,
+            source,
+            location,
+            mapping.path_digest,
+            mapping.asset_id,
+            snapshot.sha256,
+            generation,
+            None,
+        )
         if fault_validate is not None:
             try:
                 await fault_validate()
@@ -436,17 +447,27 @@ async def generate(
             job_id=job_id,
             registration_id=registration_id,
         )
+    else:
+        row = await publish(
+            db,
+            source,
+            location,
+            mapping.path_digest,
+            mapping.asset_id,
+            snapshot.sha256,
+            generation,
+            output_id,
+        )
     row._fault_observation = observation
     return row
 
 
 async def preview_identity(db, source_id, path_digest, actor):
     from app.services.dataset_source_access import require_source
-    from app.db.models.dataset_asset import StorageLocation
     from app.services.dataset_assets import LEGACY_LOCATION_ID
 
     source = await require_source(db, source_id, actor)
-    location = await db.get(StorageLocation, source.location_id, populate_existing=True)
+    location = await get_location(db, source.location_id)
     if (
         not source.enabled
         or source.unregistered_at
@@ -455,25 +476,22 @@ async def preview_identity(db, source_id, path_digest, actor):
         or not policy.permits_preview(policy.effective_cache_policy(source, location))
     ):
         raise ContentError("preview_unavailable")
-    mapping = await db.get(
-        DatasetSourceItem, (source.id, path_digest), populate_existing=True
-    )
-    row = await db.get(
-        DatasetSourcePreview, (source.id, path_digest), populate_existing=True
-    )
-    asset = (
-        await db.get(DatasetAsset, mapping.asset_id, populate_existing=True)
-        if mapping
-        else None
-    )
+    row = await preview_for_path(db, source.id, path_digest)
     if (
         not row
         or row.state != "ready"
-        or not mapping
-        or not asset
-        or row.source_sha256 != mapping.content_sha256
-        or asset.checksum_value != row.source_sha256
-        or row.asset_id != asset.id
+        or not await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.directory_preview_is_current("
+                "CAST(:source_id AS uuid), :digest, CAST(:asset_id AS uuid), :sha)"
+            ),
+            {
+                "source_id": source.id,
+                "digest": path_digest,
+                "asset_id": row.asset_id,
+                "sha": row.source_sha256,
+            },
+        )
         or row.spec != SPEC
     ):
         raise ContentError("preview_unavailable")

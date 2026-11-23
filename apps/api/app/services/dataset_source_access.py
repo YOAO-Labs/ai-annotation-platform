@@ -4,19 +4,15 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import String, and_, cast, false, or_, select, text, true
+from sqlalchemy import select, text
 
 from app.db.enums import UserRole
-from app.db.models.async_job import AsyncJob
-from app.db.models.dataset import Dataset
-from app.db.models.dataset_asset import StorageLocation
 from app.db.models.dataset_source import (
-    DatasetSource,
     DatasetScanRun,
     DatasetRegistrationRun,
 )
+from app.services.assets_dataset_data import visible_sources
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services.storage_location import visible_clause
 
 MANAGERS = {UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN}
 
@@ -128,23 +124,6 @@ async def require_manager(db, actor_id):
     return actor
 
 
-def source_scope_clause(actor):
-    if not actor.is_active:
-        return false()
-    if actor.role == UserRole.SUPER_ADMIN:
-        return true()
-    if actor.role != UserRole.PROJECT_ADMIN or not actor.is_active:
-        return false()
-    return and_(
-        DatasetSource.dataset_id.in_(
-            select(Dataset.id).where(Dataset.created_by == actor.id)
-        ),
-        DatasetSource.location_id.in_(
-            select(StorageLocation.id).where(visible_clause(actor))
-        ),
-    )
-
-
 async def assert_dataset_manage(db, dataset_id, actor):
     actor = await require_manager(db, actor.id)
     dataset = await _dataset_authority(db, dataset_id)
@@ -157,56 +136,25 @@ async def assert_dataset_manage(db, dataset_id, actor):
 
 async def require_source(db, source_id, actor):
     actor = await require_manager(db, actor.id)
-    source = await db.scalar(
-        select(DatasetSource)
-        .where(DatasetSource.id == source_id, source_scope_clause(actor))
-        .execution_options(populate_existing=True)
-    )
+    sources = visible_sources(actor.id, source_id=source_id)
+    source = (await db.execute(select(sources))).one_or_none()
     if source is None:
         raise HTTPException(404, "Dataset source not found")
     return source
 
 
 async def require_run(db, model, run_id, actor):
-    run = await db.get(model, run_id, populate_existing=True)
+    if model is DatasetScanRun:
+        from app.services.dataset_scan_data import read_scan_snapshot
+
+        run = await read_scan_snapshot(db, run_id)
+    elif model is DatasetRegistrationRun:
+        from app.services.dataset_registration_data import read_run
+
+        run = await read_run(db, run_id)
+    else:
+        raise ValueError("Unknown directory run type")
     if run is None:
         raise HTTPException(404, "Dataset source run not found")
     await require_source(db, run.source_id, actor)
     return run
-
-
-def job_scope_clause(actor, source_ids=None):
-    scope = source_scope_clause(actor)
-    if source_ids is not None:
-        scope = and_(scope, DatasetSource.id.in_(source_ids))
-    scan = (
-        select(1)
-        .select_from(DatasetScanRun)
-        .join(DatasetSource, DatasetSource.id == DatasetScanRun.source_id)
-        .where(
-            scope,
-            or_(
-                DatasetScanRun.async_job_id == AsyncJob.id,
-                cast(DatasetScanRun.id, String) == AsyncJob.payload["run_id"].astext,
-            ),
-        )
-        .exists()
-    )
-    registration = (
-        select(1)
-        .select_from(DatasetRegistrationRun)
-        .join(DatasetSource, DatasetSource.id == DatasetRegistrationRun.source_id)
-        .where(
-            scope,
-            or_(
-                DatasetRegistrationRun.async_job_id == AsyncJob.id,
-                cast(DatasetRegistrationRun.id, String)
-                == AsyncJob.payload["registration_id"].astext,
-            ),
-        )
-        .exists()
-    )
-    return or_(
-        and_(AsyncJob.kind == "dataset_scan", scan),
-        and_(AsyncJob.kind == "dataset_registration", registration),
-    )

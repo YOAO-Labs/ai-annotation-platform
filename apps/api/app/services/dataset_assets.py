@@ -5,19 +5,17 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import hashlib
 import logging
+import json
 import uuid
 from types import SimpleNamespace
 
 from botocore.exceptions import BotoCoreError, ClientError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
-from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import (
-    DatasetAsset,
-    DatasetAssetLocation,
     StorageBinding,
     StorageLocation,
 )
@@ -211,59 +209,45 @@ async def register_item_asset(
     elif binding is None:
         await ensure_legacy_bindings(db)
         binding = legacy_dataset_binding()
-    await db.execute(
-        select(DatasetItem.id).where(DatasetItem.id == item.id).with_for_update()
-    )
+    if db.autoflush:
+        await db.flush()
+    if not await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.lock_managed_item_asset_slot("
+            "CAST(:item_id AS uuid), :file_path)"
+        ),
+        {"item_id": item.id, "file_path": item.file_path},
+    ):
+        raise ValueError("Dataset locator differs from its pinned Item")
     from app.services.managed_original_reclaim_fence import shared
 
     await shared(db, binding.bucket, item.file_path)
-    asset = await db.scalar(
-        select(DatasetAsset)
-        .where(DatasetAsset.dataset_item_id == item.id)
-        .execution_options(populate_existing=True)
-    )
-    if asset is None:
-        asset = DatasetAsset(
-            id=uuid.uuid5(uuid.NAMESPACE_URL, f"aap:dataset-item:{item.id}"),
-            dataset_item_id=item.id,
-            media_type=item.file_type,
-            size_bytes=item.file_size,
-            legacy_hash_hint=item.content_hash,
-            verification_state="unverified",
+    return (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_assets_v1.register_managed_item_asset("
+                "CAST(:item_id AS uuid), CAST(:asset_id AS uuid), :file_path, "
+                "CAST(:location_id AS uuid), :bucket, CAST(:storage_ref AS jsonb), "
+                ":sha256, CAST(:size_bytes AS bigint), :etag, :verified_at)"
+            ),
+            {
+                "item_id": item.id,
+                "asset_id": uuid.uuid5(
+                    uuid.NAMESPACE_URL, f"aap:dataset-item:{item.id}"
+                ),
+                "file_path": item.file_path,
+                "location_id": binding.location_id,
+                "bucket": binding.bucket,
+                "storage_ref": json.dumps(storage_ref, separators=(",", ":"))
+                if storage_ref is not None
+                else None,
+                "sha256": sha256,
+                "size_bytes": size_bytes,
+                "etag": etag,
+                "verified_at": datetime.now(timezone.utc),
+            },
         )
-        db.add(asset)
-        await db.flush()
-    if sha256 is not None:
-        if asset.verification_state == "verified" and (
-            asset.checksum_value != sha256 or asset.size_bytes != size_bytes
-        ):
-            raise ValueError("Dataset content differs from its verified identity")
-        asset.checksum_algorithm = "sha256"
-        asset.checksum_value = sha256
-        asset.size_bytes = size_bytes
-        asset.verification_state = "verified"
-    replica = await db.get(
-        DatasetAssetLocation, (asset.id, binding.location_id, binding.bucket)
-    )
-    if replica is None:
-        replica = DatasetAssetLocation(
-            asset_id=asset.id,
-            location_id=binding.location_id,
-            bucket=binding.bucket,
-            object_key=item.file_path,
-            storage_ref=storage_ref,
-            reference_state="unverified",
-        )
-        db.add(replica)
-    elif replica.object_key != item.file_path or replica.storage_ref != storage_ref:
-        raise ValueError("Dataset locator differs from its pinned mapping")
-    if sha256 is not None:
-        replica.reference_state = "present"
-        replica.verified_at = datetime.now(timezone.utc)
-    if etag is not None:
-        replica.etag = etag
-    await db.flush()
-    return asset
+    ).one()
 
 
 def legacy_dataset_binding():
@@ -279,40 +263,23 @@ def legacy_dataset_binding():
 async def find_verified_content(
     db, dataset_id, sha256, *, exclude_item_id=None, legacy_md5=None
 ):
-    from app.services.reference_keys import PREFIX
-
-    stmt = (
-        select(DatasetItem)
-        .join(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
-        .where(
-            DatasetItem.dataset_id == dataset_id,
-            ~DatasetItem.file_path.startswith(PREFIX, autoescape=True),
-            DatasetAsset.verification_state == "verified",
-            DatasetAsset.checksum_value == sha256,
-        )
+    if db.autoflush:
+        await db.flush()
+    candidates = await db.execute(
+        text(
+            "SELECT * FROM yoao_assets_v1.dataset_managed_duplicate_candidates("
+            "CAST(:dataset_id AS uuid), CAST(:exclude AS uuid), :sha256, :legacy_md5)"
+        ),
+        {
+            "dataset_id": dataset_id,
+            "exclude": exclude_item_id,
+            "sha256": sha256,
+            "legacy_md5": legacy_md5,
+        },
     )
-    if exclude_item_id:
-        stmt = stmt.where(DatasetItem.id != exclude_item_id)
-    existing = await db.scalar(stmt.limit(1))
-    if existing is not None or not legacy_md5:
-        return existing
-    candidates = (
-        select(DatasetItem)
-        .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
-        .where(
-            DatasetItem.dataset_id == dataset_id,
-            ~DatasetItem.file_path.startswith(PREFIX, autoescape=True),
-            DatasetItem.content_hash == legacy_md5,
-            (
-                DatasetAsset.id.is_(None)
-                | (DatasetAsset.verification_state == "unverified")
-            ),
-        )
-        .order_by(DatasetItem.id)
-    )
-    if exclude_item_id:
-        candidates = candidates.where(DatasetItem.id != exclude_item_id)
-    for candidate in await db.scalars(candidates):
+    for candidate in candidates:
+        if candidate.verified:
+            return candidate
         try:
             actual_md5, actual_sha256, size, etag = await run_in_threadpool(
                 hash_stored_object, candidate.file_path

@@ -359,7 +359,13 @@ class AssetsCatalogGateway:
             await self.db.commit()
         return reply
 
-    async def update(self, request: UpdateDatasetRequest) -> DatasetMutationResult:
+    async def update(
+        self,
+        request: UpdateDatasetRequest,
+        *,
+        same_session_native: bool = False,
+        commit: bool = True,
+    ) -> DatasetMutationResult:
         body = _encode_request(request)
         reply, remote = await self._call(
             "update",
@@ -377,6 +383,7 @@ class AssetsCatalogGateway:
             },
             body,
             DatasetMutationResult,
+            same_session_native=same_session_native,
         )
         if (
             reply.operation_id != request.operation_id
@@ -384,7 +391,7 @@ class AssetsCatalogGateway:
             or reply.dataset.id != request.dataset_id
         ):
             raise self._invalid_scope()
-        if not remote:
+        if not remote and commit:
             await self.db.commit()
         return reply
 

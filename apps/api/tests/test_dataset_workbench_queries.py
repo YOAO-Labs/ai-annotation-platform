@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import uuid
 
 import pytest
-from sqlalchemy import event, select
+from sqlalchemy import event, select, text
 
 from app.db.models.dataset import DatasetItem, ProjectDataset, Scene
 from app.db.models.dataset_asset import StorageLocation
@@ -15,6 +15,14 @@ from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_source_changes import accept_all_files
 from tests.test_dataset_views import dataset
 from tests.training_original_fixtures import register_original
+
+
+async def workbench_definition(db, signature):
+    definition = await db.scalar(
+        text("SELECT pg_catalog.pg_get_functiondef(CAST(:signature AS regprocedure))"),
+        {"signature": f"yoao_assets_v1.{signature}"},
+    )
+    return definition.lower()
 
 
 async def indexed_dataset(db, actor, count=64):
@@ -90,21 +98,36 @@ async def test_membership_count_omits_display_only_relations(
     assert total == 64 and len(page) == 2
     counts = [sql for sql in statements if sql.lstrip().startswith("select count(")]
     assert counts
-    assert "original_cache_entries" not in counts[0]
-    if state is None:
-        assert "dataset_source_changes" not in counts[0]
-        assert "dataset_source_previews" not in counts[0]
-    else:
-        assert "dataset_source_changes" in counts[0]
-        assert "dataset_source_previews" in counts[0]
-    assert any("original_cache_entries" in sql for sql in statements)
+    assert "yoao_assets_v1.dataset_workbench_item_matches(" in counts[0]
+    assert "dataset_workbench_page_observations" not in counts[0]
+    assert "dataset_workbench_cache_candidates" not in counts[0]
+    assert any(
+        "dataset_workbench_cache_candidates" in sql
+        and "dataset_page as materialized" in sql
+        for sql in statements
+    )
+    membership = await workbench_definition(
+        db,
+        "dataset_workbench_item_matches(uuid,uuid,uuid,text,text,uuid,text,text,"
+        "text,integer,integer,integer,integer,uuid)",
+    )
+    assert "original_cache_entries" not in membership
+    assert "_dataset_workbench_cache_evidence" not in membership
+    assert "dataset_source_changes" not in membership
+    assert "dataset_source_previews" not in membership
+    basic, state_match = membership.split(
+        "case when p_state is null then true else item.id in", 1
+    )
+    assert "_dataset_workbench_observations(" not in basic
+    assert "_dataset_workbench_observations(" in state_match
+    assert "observation.state = p_state" in state_match
 
 
 async def test_state_aggregate_omits_cache_details_but_retains_state_evidence(
     db_session, super_admin
 ):
     db, actor = db_session, super_admin[0]
-    ds, _ = await indexed_dataset(db, actor)
+    ds, ordered = await indexed_dataset(db, actor)
     statements = []
     connection = (await db.connection()).sync_connection
 
@@ -119,11 +142,30 @@ async def test_state_aggregate_omits_cache_details_but_retains_state_evidence(
     assert result["availability_counts"]["unverified"] == 64
     aggregates = [sql for sql in statements if "group by" in sql]
     assert len(aggregates) == 1
-    assert "original_cache_entries" not in aggregates[0]
-    assert "dataset_source_changes" in aggregates[0]
-    assert "dataset_source_previews" in aggregates[0]
-    full = svc.observations(ds.id, actor)
-    assert "original_cache_entries" in str(select(full)).lower()
+    assert "yoao_assets_v1.dataset_workbench_item_states(" in aggregates[0]
+    assert "dataset_workbench_page_observations" not in aggregates[0]
+    states = await workbench_definition(db, "dataset_workbench_item_states(uuid,uuid)")
+    assert (
+        "_dataset_workbench_observations(p_actor_id, p_dataset_id, null, null, null, false)"
+        in states
+    )
+    observations = await workbench_definition(
+        db, "_dataset_workbench_observations(uuid,uuid,uuid[],uuid[],uuid,boolean)"
+    )
+    assert "original_cache_entries" not in observations
+    assert "_dataset_workbench_cache_evidence" not in observations
+    assert "dataset_source_changes" in observations
+    assert "dataset_source_previews" in observations
+    full = svc.observations(ds.id, actor, item_ids=[ordered[0].id])
+    assert "dataset_workbench_page_observations" in str(select(full)).lower()
+    details = await workbench_definition(
+        db, "dataset_workbench_page_observations(uuid,uuid,uuid,uuid[],uuid[])"
+    )
+    assert "_dataset_workbench_cache_evidence(" in details
+    cache = await workbench_definition(
+        db, "_dataset_workbench_cache_evidence(uuid,uuid,uuid[],uuid[])"
+    )
+    assert "original_cache_entries" in cache
 
 
 @pytest.mark.parametrize("offset", [0, 9999])
@@ -189,7 +231,7 @@ async def test_state_projection_matches_full_reference_and_managed_evidence(
     db_session, content_world, super_admin, project_admin, annotator
 ):
     db, world = db_session, content_world
-    await accept_all_files(db, world)
+    accepted = await accept_all_files(db, world)
     project = await create_project(db, owner_id=world[2].id)
     managed = []
     for index in range(2):
@@ -206,9 +248,12 @@ async def test_state_projection_matches_full_reference_and_managed_evidence(
         replica.verified_at = datetime.now(timezone.utc) if index == 0 else None
         managed.append((item, replica))
     await db.flush()
+    item_ids = [row["item_id"] for row in accepted.values()] + [
+        item.id for item, _ in managed
+    ]
 
     async def compare(actor):
-        full = svc.observations(world[3].id, actor)
+        full = svc.observations(world[3].id, actor, item_ids=item_ids)
         lean = svc.observations(world[3].id, actor, state_only=True)
         full_rows = dict((await db.execute(select(full.c.item_id, full.c.state))).all())
         lean_rows = dict((await db.execute(select(lean.c.item_id, lean.c.state))).all())

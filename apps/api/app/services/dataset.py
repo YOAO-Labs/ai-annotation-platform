@@ -12,7 +12,7 @@ from sqlalchemy import select, func, delete, insert, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.async_job import AsyncJobKind
-from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
+from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
@@ -37,6 +37,7 @@ from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 from app.services.system_settings_service import SystemSettingsService
 from app.services.reference_keys import is_reference, PREFIX
 from app.services.dataset_source_access import validate_dataset_write
+from app.services.assets_dataset_data import dataset_metadata
 from app.services.dataset_lifecycle import require_writable
 from yoao_assets_catalog.spatial_contract import (
     ProvenanceEntry,
@@ -114,9 +115,8 @@ class DatasetDeleteCleanup:
 async def writable_dataset(db, dataset_id):
     """Preserve managed-writer serialization before validating lifecycle state."""
     await db.scalar(
-        select(Dataset.id)
-        .where(Dataset.id == dataset_id)
-        .with_for_update(key_share=True)
+        text("SELECT yoao_assets_v1.lock_dataset_reference(CAST(:id AS uuid))"),
+        {"id": dataset_id},
     )
     return await require_writable(db, dataset_id)
 
@@ -278,118 +278,32 @@ class DatasetService:
         actor=None,
         state: str = "active",
     ) -> tuple[list[dict], int]:
-        q = select(Dataset)
-        count_q = select(func.count()).select_from(Dataset)
-        if state != "all":
-            clause = (
-                Dataset.archived_at.is_not(None)
-                if state == "archived"
-                else Dataset.archived_at.is_(None)
-            )
-            q, count_q = q.where(clause), count_q.where(clause)
-        if location_id is not None:
-            from app.services.dataset_workbench import location_dataset_scope
-
-            if actor is None:
-                raise HTTPException(403, "Location filtering requires an actor")
-            clause = location_dataset_scope(location_id, actor)
-            q = q.where(clause)
-            count_q = count_q.where(clause)
-
-        if search:
-            q = q.where(Dataset.name.ilike(f"%{search}%"))
-            count_q = count_q.where(Dataset.name.ilike(f"%{search}%"))
-        if data_type:
-            data_type_cond = Dataset.data_type.in_(media_kind_aliases(data_type))
-            q = q.where(data_type_cond)
-            count_q = count_q.where(data_type_cond)
-        if has_scenes is not None:
-            scenes_exists = (
-                select(Scene.id).where(Scene.dataset_id == Dataset.id).limit(1).exists()
-            )
-            q = q.where(scenes_exists if has_scenes else ~scenes_exists)
-            count_q = count_q.where(scenes_exists if has_scenes else ~scenes_exists)
-
-        total = (await self.db.execute(count_q)).scalar() or 0
-        result = await self.db.execute(
-            q.order_by(Dataset.created_at.desc(), Dataset.id)
-            .limit(limit)
-            .offset(offset)
+        if location_id is not None and actor is None:
+            raise HTTPException(403, "Location filtering requires an actor")
+        if self.db.autoflush:
+            await self.db.flush()
+        page = await self.db.scalar(
+            text(
+                "SELECT yoao_assets_v1.filtered_dataset_catalog("
+                "CAST(:actor_id AS uuid), :search, CAST(:types AS text[]), "
+                ":has_scenes, :state, CAST(:location_id AS uuid), "
+                ":limit, CAST(:offset AS bigint))"
+            ),
+            {
+                "actor_id": actor.id if actor else None,
+                "search": search or None,
+                "types": list(media_kind_aliases(data_type)) if data_type else None,
+                "has_scenes": has_scenes,
+                "state": state,
+                "location_id": location_id,
+                "limit": limit,
+                "offset": offset,
+            },
         )
-        datasets = result.scalars().all()
+        return page["items"], page["total"]
 
-        ds_ids = [ds.id for ds in datasets]
-
-        if ds_ids:
-            pc_rows = await self.db.execute(
-                select(ProjectDataset.dataset_id, func.count())
-                .where(ProjectDataset.dataset_id.in_(ds_ids))
-                .group_by(ProjectDataset.dataset_id)
-            )
-            pc_map = {r[0]: r[1] for r in pc_rows.all()}
-
-            sz_rows = await self.db.execute(
-                select(
-                    DatasetItem.dataset_id,
-                    func.coalesce(func.sum(DatasetItem.file_size), 0),
-                )
-                .where(DatasetItem.dataset_id.in_(ds_ids))
-                .group_by(DatasetItem.dataset_id)
-            )
-            sz_map = {r[0]: int(r[1]) for r in sz_rows.all()}
-
-            scene_rows = await self.db.execute(
-                select(Scene.dataset_id)
-                .where(Scene.dataset_id.in_(ds_ids))
-                .group_by(Scene.dataset_id)
-            )
-            has_scenes_map = {r[0]: True for r in scene_rows.all()}
-        else:
-            pc_map: dict = {}
-            sz_map: dict = {}
-            has_scenes_map: dict = {}
-
-        items = []
-        for ds in datasets:
-            items.append(
-                {
-                    **_dataset_dict(ds),
-                    "project_count": pc_map.get(ds.id, 0),
-                    "total_size": sz_map.get(ds.id, 0),
-                    "has_scenes": has_scenes_map.get(ds.id, False),
-                }
-            )
-
-        return items, total
-
-    async def get(self, dataset_id: uuid.UUID) -> Dataset | None:
-        return await self.db.get(Dataset, dataset_id)
-
-    async def get_with_project_count(self, dataset_id: uuid.UUID) -> dict | None:
-        ds = await self.db.get(Dataset, dataset_id)
-        if not ds:
-            return None
-        pc = (
-            await self.db.execute(
-                select(func.count())
-                .select_from(ProjectDataset)
-                .where(ProjectDataset.dataset_id == ds.id)
-            )
-        ).scalar() or 0
-        total_size = (
-            await self.db.execute(
-                select(func.coalesce(func.sum(DatasetItem.file_size), 0)).where(
-                    DatasetItem.dataset_id == ds.id
-                )
-            )
-        ).scalar() or 0
-        has_scenes = await dataset_has_scenes(self.db, ds.id)
-        return {
-            **_dataset_dict(ds),
-            "project_count": pc,
-            "total_size": int(total_size),
-            "has_scenes": has_scenes,
-        }
+    async def get(self, dataset_id: uuid.UUID):
+        return await dataset_metadata(self.db, dataset_id)
 
     async def create(
         self,
@@ -427,28 +341,53 @@ class DatasetService:
         name: str | None,
         description: str | None,
         *,
+        actor_id: uuid.UUID,
+        operation_id: uuid.UUID | None = None,
         axis_convention=_UNSET,
-    ) -> Dataset | None:
-        ds = await self.db.get(Dataset, dataset_id)
-        if not ds:
+    ) -> dict | None:
+        from yoao_assets_catalog import DatasetPatch, UpdateDatasetRequest
+
+        from app.services.assets_catalog import AssetsCatalogGateway
+        from app.services.identity_account_lock_data import IdentityAccountLockData
+
+        if await self.get(dataset_id) is None:
             return None
+        await IdentityAccountLockData(self.db).lock_accounts(
+            [actor_id], mode="key_share", nowait=False
+        )
         ds = await writable_dataset(self.db, dataset_id)
+        patch = {}
         if name is not None:
             ensure_dataset_storage_name_is_writable(name)
             if ds.storage_scan_prefix is None:
-                ds.storage_scan_prefix = f"{ds.name}/"
-            ds.name = name
+                await self.db.execute(
+                    text(
+                        "SELECT yoao_assets_v1.pin_legacy_dataset_prefix("
+                        "CAST(:id AS uuid), :revision)"
+                    ),
+                    {"id": ds.id, "revision": ds.lifecycle_revision},
+                )
+            patch["name"] = name
         if description is not None:
-            ds.description = description
+            patch["description"] = description
         if axis_convention is not _UNSET:
-            meta = dict(ds.metadata_ or {})
-            if axis_convention is None:
-                meta.pop("axis_convention", None)
-            else:
-                meta["axis_convention"] = axis_convention
-            ds.metadata_ = meta
-        await self.db.flush()
-        return ds
+            patch["axis_convention"] = axis_convention
+        result = await AssetsCatalogGateway(self.db).update(
+            UpdateDatasetRequest(
+                operation_id=operation_id or uuid.uuid4(),
+                actor_id=actor_id,
+                dataset_id=dataset_id,
+                patch=DatasetPatch(**patch),
+            ),
+            same_session_native=True,
+            commit=False,
+        )
+        return {
+            **result.dataset.model_dump(),
+            "archived_at": ds.archived_at,
+            "archived_by": ds.archived_by,
+            "lifecycle_revision": ds.lifecycle_revision,
+        }
 
     async def delete(self, dataset_id: uuid.UUID) -> DatasetDeleteCleanup | None:
         ds = await self.db.get(
@@ -521,31 +460,31 @@ class DatasetService:
         item_ids: list[uuid.UUID] | None = None,
         actor_id: uuid.UUID | None = None,
     ) -> tuple[list[dict], int]:
-        count_q = (
-            select(func.count())
-            .select_from(DatasetItem)
-            .where(DatasetItem.dataset_id == dataset_id)
+        if self.db.autoflush:
+            await self.db.flush()
+        total = await self.db.scalar(
+            text("SELECT yoao_assets_v1.dataset_item_count(CAST(:id AS uuid))"),
+            {"id": dataset_id},
         )
-        total = (await self.db.execute(count_q)).scalar() or 0
-
-        q = (
-            select(DatasetItem)
-            .where(DatasetItem.dataset_id == dataset_id)
-            .order_by(DatasetItem.created_at.desc(), DatasetItem.id)
-            .limit(limit)
-            .offset(offset)
-        )
-        if item_ids is not None:
-            q = q.where(DatasetItem.id.in_(item_ids))
-        result = await self.db.execute(q)
-        items = result.scalars().all()
+        items = (
+            await self.db.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.dataset_display_item_page("
+                    "CAST(:id AS uuid), CAST(:item_ids AS uuid[]), :limit, CAST(:offset AS bigint))"
+                ),
+                {
+                    "id": dataset_id,
+                    "item_ids": item_ids,
+                    "limit": limit,
+                    "offset": offset,
+                },
+            )
+        ).all()
 
         out = []
         for item in items:
             d = _item_dict(item)
-            from app.services.directory_policy import owns_media
-
-            directory_owned = await owns_media(self.db, item.id)
+            directory_owned = item.directory_owned
             if directory_owned:
                 d["blurhash"] = None
                 d["thumbnail_url"] = None
@@ -582,17 +521,6 @@ class DatasetService:
             out.append(d)
         return out, total
 
-    async def find_by_hash(
-        self, dataset_id: uuid.UUID, content_hash: str
-    ) -> DatasetItem | None:
-        result = await self.db.execute(
-            select(DatasetItem).where(
-                DatasetItem.dataset_id == dataset_id,
-                DatasetItem.content_hash == content_hash,
-            )
-        )
-        return result.scalar_one_or_none()
-
     async def add_item(
         self,
         dataset_id: uuid.UUID,
@@ -608,29 +536,36 @@ class DatasetService:
         storage_binding=None,
         storage_ref=None,
         logical_path: str | None = None,
-    ) -> DatasetItem:
+        directory_owned_media: bool = False,
+    ):
         ds = await writable_dataset(self.db, dataset_id)
-        item = DatasetItem(
-            dataset_id=dataset_id,
-            file_name=file_name,
-            file_path=file_path,
-            file_type=file_type,
-            file_size=file_size,
-            content_hash=content_hash,
-            width=width,
-            height=height,
-            metadata_=(
-                {"storage_relative_path": normalize_dataset_relative_path(logical_path)}
-                if logical_path is not None
-                else {}
-            ),
-        )
-        self.db.add(item)
-
-        if ds:
-            ds.file_count = (ds.file_count or 0) + 1
-
-        await self.db.flush()
+        item = (
+            await self.db.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.publish_managed_dataset_item("
+                    "CAST(:id AS uuid), :revision, :file_name, :file_path, :file_type, "
+                    "CAST(:size AS bigint), :content_hash, :width, :height, "
+                    ":logical_path, :directory_owned_media)"
+                ),
+                {
+                    "id": dataset_id,
+                    "revision": ds.lifecycle_revision,
+                    "file_name": file_name,
+                    "file_path": file_path,
+                    "file_type": file_type,
+                    "size": file_size,
+                    "content_hash": content_hash,
+                    "width": width,
+                    "height": height,
+                    "logical_path": normalize_dataset_relative_path(logical_path)
+                    if logical_path is not None
+                    else None,
+                    "directory_owned_media": directory_owned_media,
+                },
+            )
+        ).one_or_none()
+        if item is None:
+            raise HTTPException(409, detail={"code": "dataset_lifecycle_changed"})
         await register_item_asset(
             self.db,
             item,
@@ -735,7 +670,7 @@ class DatasetService:
         storage_key 后缀（如 `a/img.jpg`）；不给时退回纯文件名（basename），其它调用零影响。
         """
         await validate_dataset_write(self.db, dataset_id, directory_authority)
-        ds = await self.db.get(Dataset, dataset_id)
+        ds = await self.get(dataset_id)
         if not ds:
             return IngestOutcome(
                 status="error", relpath=relpath, error="dataset missing"
@@ -883,7 +818,11 @@ class DatasetService:
         )
         if creation is not None:
             await originals.attach(self.db, item, creation.creation_id)
-        linked_tasks = await self.create_tasks_for_items(dataset_id, [item.id])
+        from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
+
+        linked_tasks = await DatasetTaskCreationWorkflow(self.db).append_items(
+            dataset_id, [item.id]
+        )
         await check_authority()
         return IngestOutcome(
             status="added",
@@ -902,10 +841,11 @@ class DatasetService:
         unique_item_ids = list(dict.fromkeys(item_ids))
         if not unique_item_ids:
             return
+        from app.services.assets_spatial_views import labeling_dataset_item_facts
+
+        item = labeling_dataset_item_facts
         rows = await self.db.execute(
-            select(DatasetItem.id, DatasetItem.file_type).where(
-                DatasetItem.id.in_(unique_item_ids)
-            )
+            select(item.id, item.file_type).where(item.id.in_(unique_item_ids))
         )
         for item_id, file_type in rows.all():
             if file_type == "image":
@@ -923,29 +863,28 @@ class DatasetService:
                 )
                 generate_video_metadata.delay(str(item_id), delegation=delegation)
 
-    async def _find_by_file_path(
-        self, dataset_id: uuid.UUID, file_path: str
-    ) -> DatasetItem | None:
-        result = await self.db.execute(
-            select(DatasetItem).where(
-                DatasetItem.dataset_id == dataset_id,
-                DatasetItem.file_path == file_path,
+    async def _find_by_file_path(self, dataset_id: uuid.UUID, file_path: str):
+        return (
+            await self.db.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.dataset_item_at_object_key("
+                    "CAST(:id AS uuid), :key)"
+                ),
+                {"id": dataset_id, "key": file_path},
             )
-        )
-        return result.scalar_one_or_none()
+        ).one_or_none()
 
     async def _existing_file_names(self, dataset_id: uuid.UUID) -> set[str]:
-        ds = await self.db.get(
-            Dataset,
-            dataset_id,
-            with_for_update={"key_share": True},
-            populate_existing=True,
-        )
+        await self.lock_dataset_reference(dataset_id)
+        ds = await self.get(dataset_id)
         existing_rows = await self.db.execute(
-            select(DatasetItem).where(DatasetItem.dataset_id == dataset_id)
+            text(
+                "SELECT * FROM yoao_assets_v1.dataset_item_path_facts(CAST(:id AS uuid))"
+            ),
+            {"id": dataset_id},
         )
         existing = set()
-        for item in existing_rows.scalars():
+        for item in existing_rows:
             name, path = item.file_name, item.file_path
             existing.add(name)
             if (item.metadata_ or {}).get("storage_relative_path"):
@@ -987,7 +926,7 @@ class DatasetService:
         self, dataset_id: uuid.UUID, *, directory_authority=None
     ) -> list[IngestOutcome]:
         await validate_dataset_write(self.db, dataset_id, directory_authority)
-        ds = await self.db.get(Dataset, dataset_id)
+        ds = await self.get(dataset_id)
         if not ds:
             return []
         ensure_dataset_storage_name_is_writable(ds.name)
@@ -1154,28 +1093,6 @@ class DatasetService:
                 )
             )
 
-    async def set_item_dimensions(
-        self, item_id: uuid.UUID, dimensions: tuple[int, int]
-    ) -> None:
-        item = await self.db.get(DatasetItem, item_id)
-        if item is not None:
-            item.width, item.height = dimensions
-
-    async def record_thumbnail_error(self, item_id: uuid.UUID, error: str) -> None:
-        item = await self.db.get(DatasetItem, item_id)
-        if item is not None:
-            metadata = dict(item.metadata_ or {})
-            metadata["thumbnail_error"] = error
-            item.metadata_ = metadata
-
-    async def set_item_thumbnail(
-        self, item_id: uuid.UUID, thumbnail_path: str, *, blurhash: str
-    ) -> None:
-        item = await self.db.get(DatasetItem, item_id)
-        if item is not None:
-            item.thumbnail_path = thumbnail_path
-            item.blurhash = blurhash
-
     async def associate_project(
         self, dataset_id: uuid.UUID, project_id: uuid.UUID, *, actor_id: uuid.UUID
     ) -> DatasetAssociationFacts:
@@ -1212,7 +1129,7 @@ class DatasetService:
         )
 
     async def assert_temporal_dataset_has_scenes(self, dataset_id: uuid.UUID) -> None:
-        ds = await self.db.get(Dataset, dataset_id)
+        ds = await self.get(dataset_id)
         if ds is None or not ds.is_temporal:
             return
         if not await dataset_has_scenes(self.db, dataset_id):
@@ -1393,11 +1310,18 @@ class DatasetService:
 
         if ann_ids:
             from app.services.comment_attachment_uploads import retire_for_comments
+            from app.services.labeling_discussion_relations import (
+                annotation_comment_facts,
+            )
 
             await retire_for_comments(
                 self.db,
-                select(AnnotationComment.id).where(
-                    AnnotationComment.annotation_id.in_(ann_ids)
+                list(
+                    await self.db.scalars(
+                        select(annotation_comment_facts.id).where(
+                            annotation_comment_facts.annotation_id.in_(ann_ids)
+                        )
+                    )
                 ),
             )
             await self.db.execute(
@@ -1529,28 +1453,7 @@ def _infer_file_type_from_ext(ext: str) -> str:
     return "other"
 
 
-def _dataset_dict(ds: Dataset) -> dict:
-    return {
-        "id": ds.id,
-        "display_id": ds.display_id,
-        "name": ds.name,
-        "description": ds.description,
-        "data_type": ds.data_type,
-        "is_temporal": ds.is_temporal,
-        "has_scenes": False,
-        "file_count": ds.file_count,
-        "total_size": 0,
-        "created_by": ds.created_by,
-        "archived_at": ds.archived_at,
-        "archived_by": ds.archived_by,
-        "lifecycle_revision": ds.lifecycle_revision,
-        "axis_convention": (ds.metadata_ or {}).get("axis_convention"),
-        "created_at": ds.created_at,
-        "updated_at": ds.updated_at,
-    }
-
-
-def _item_dict(item: DatasetItem) -> dict:
+def _item_dict(item) -> dict:
     return {
         "id": item.id,
         "dataset_id": item.dataset_id,

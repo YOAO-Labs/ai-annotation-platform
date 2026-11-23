@@ -3,13 +3,8 @@
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import func, select
 
 from app.deps import get_current_user, get_db, require_scopes
-from app.db.models.dataset_quality_review import (
-    DatasetQualityReviewBatch as Batch,
-    DatasetQualityReviewMember as Member,
-)
 from app.schemas.dataset_quality_review import (
     QualityReviewPreview,
     QualityReviewExecute,
@@ -17,7 +12,7 @@ from app.schemas.dataset_quality_review import (
     QualityReviewBatchList,
     QualityReviewMemberList,
 )
-from app.services import dataset_quality_review as svc, dataset_quality as quality
+from app.services import dataset_quality_review as svc
 from app.services.dataset_content import key_authority
 
 router = APIRouter(
@@ -58,19 +53,9 @@ async def list_batches(
     db=Depends(get_db),
     actor=Depends(get_current_user),
 ):
-    await quality.require_run(db, dataset_id, run_id, actor)
-    stmt = select(Batch).where(
-        Batch.quality_run_id == run_id, svc.visible_clause(actor)
+    return await svc.list_batches(
+        db, dataset_id, run_id, actor, limit=limit, offset=offset
     )
-    total = await db.scalar(select(func.count()).select_from(stmt.subquery()))
-    rows = list(
-        await db.scalars(
-            stmt.order_by(Batch.created_at.desc(), Batch.id.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-    )
-    return {"items": rows, "total": total}
 
 
 @router.get("/{batch_id}", response_model=QualityReviewBatchOut)
@@ -95,16 +80,7 @@ async def members(
     actor=Depends(get_current_user),
 ):
     batch = await svc.require_batch(db, dataset_id, run_id, batch_id, actor)
-    rows = list(
-        await db.scalars(
-            select(Member)
-            .where(Member.batch_id == batch.id)
-            .order_by(Member.id)
-            .limit(limit)
-            .offset(offset)
-        )
-    )
-    return {"items": rows, "total": batch.total}
+    return await svc.member_page(db, batch, actor, limit=limit, offset=offset)
 
 
 @router.post(

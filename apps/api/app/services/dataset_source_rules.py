@@ -4,15 +4,10 @@ import hashlib
 import json
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import text
 
-from app.db.models.dataset_source import (
-    DatasetSourceItem as Head,
-    DatasetScanEntry as Entry,
-    DatasetScanRun as Scan,
-    DatasetRegistrationRun as Registration,
-    DatasetSourceSyncSchedule as Schedule,
-)
+from app.services.dataset_source_access import require_source
+from app.services.dataset_source_lifecycle import active_attempts
 from app.services import dataset_scans as scans, source_selection as selection
 from app.services.dataset_content import key_authority
 from app.services.audit import AuditService
@@ -31,28 +26,19 @@ async def preview(
         raise HTTPException(409, detail={"code": "rules_impact_changed"})
     rows = (
         await db.execute(
-            select(Head.path_digest, Head.current_revision_id, Entry.relative_path)
-            .outerjoin(
-                Entry,
-                (Entry.run_id == Head.run_id) & (Entry.path_digest == Head.path_digest),
-            )
-            .where(Head.source_id == source.id)
-            .order_by(Head.path_digest)
-            .limit(50001)
+            text(
+                "SELECT * FROM yoao_assets_v1.directory_source_selection_heads("
+                "CAST(:actor_id AS uuid), CAST(:source_id AS uuid))"
+            ),
+            {"actor_id": actor.id, "source_id": source.id},
         )
     ).all()
     if len(rows) > 50000:
         raise HTTPException(409, detail={"code": "comparison_budget_exceeded"})
-    attempts = []
-    for model in (Scan, Registration):
-        attempts.extend(
-            (str(row.id), row.generation, row.status)
-            for row in await db.scalars(
-                select(model)
-                .where(model.source_id == source.id, model.status.in_(scans.ACTIVE))
-                .order_by(model.id)
-            )
-        )
+    attempts = [
+        (str(row.id), row.generation, row.status)
+        for row in await active_attempts(db, actor.id, source.id)
+    ]
     if any(path is None for _, _, path in rows):
         raise HTTPException(409, detail={"code": "content_binding_changed"})
     rules = payload.model_dump(include=selection.RULE_KEYS)
@@ -119,21 +105,22 @@ async def apply(db, source_id, payload, actor, api_key_id=None):
     old = {key: source.config[key] for key in selection.RULE_KEYS}
     if old == rules:
         return source
-    source.config = {**source.config, **rules}
-    source.config_revision += 1
-    source.generation += 1
-    schedule = await db.get(
-        Schedule, source.id, with_for_update=True, populate_existing=True
+    changed = await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.apply_directory_source_selection("
+            "CAST(:actor_id AS uuid), CAST(:source_id AS uuid), "
+            ":revision, :generation, CAST(:rules AS jsonb))"
+        ),
+        {
+            "actor_id": actor.id,
+            "source_id": source.id,
+            "revision": source.config_revision,
+            "generation": source.generation,
+            "rules": json.dumps(rules, separators=(",", ":")),
+        },
     )
-    if schedule is not None:
-        schedule.enabled, schedule.state, schedule.last_error = (
-            False,
-            "blocked",
-            "configuration_changed",
-        )
-        schedule.revision += 1
-        schedule.dispatch_token = schedule.dispatch_expires_at = None
-        schedule.scan_id = schedule.registration_id = None
+    if not changed:
+        raise HTTPException(409, detail={"code": "rules_impact_changed"})
     await AuditService.log(
         db,
         actor=actor,
@@ -143,5 +130,4 @@ async def apply(db, source_id, payload, actor, api_key_id=None):
         detail={"before": old, "after": rules, "counts": impact["counts"]},
         status_code=200,
     )
-    await db.flush()
-    return source
+    return await require_source(db, source_id, actor)

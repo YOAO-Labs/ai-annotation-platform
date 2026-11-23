@@ -6,31 +6,17 @@ import json
 
 from fastapi import HTTPException
 from jose import ExpiredSignatureError, JWTError, jwt
-from sqlalchemy import Text, case, cast, func, literal, select, union
-from sqlalchemy.dialects.postgresql import JSONB, aggregate_order_by
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
 from app.db.enums import UserRole
-from app.db.models.annotation import Annotation
-from app.db.models.api_key import ApiKey
-from app.db.models.async_job import AsyncJob
-from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-from app.db.models.dataset_source import (
-    DatasetRegistrationRun,
-    DatasetScanRun,
-    DatasetSource,
-    DatasetSourceSyncSchedule,
-)
-from app.db.models.task import Task
-from app.db.models.task_dataset_item_link import TaskDatasetItemLink
-from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.user import User
+from app.services.assets_dataset_data import dataset_metadata
 from app.services.audit import AuditService
+from app.services.identity_account_lock_data import IdentityAccountLockData
 
 PREVIEW_TTL = timedelta(minutes=5)
 AUDIENCE = "dataset-lifecycle-change"
-ACTIVE = ("pending", "running")
 
 
 def state(dataset):
@@ -44,19 +30,12 @@ def digest(value):
 
 
 async def _dataset(db, dataset_id, *, lock=False):
-    stmt = (
-        select(Dataset)
-        .where(Dataset.id == dataset_id)
-        .execution_options(populate_existing=True)
-    )
     if not lock:
-        dataset = await db.scalar(stmt)
+        dataset = await dataset_metadata(db, dataset_id)
     else:
         try:
             async with db.begin_nested():
-                dataset = await db.scalar(
-                    stmt.with_for_update(key_share=True, nowait=True)
-                )
+                dataset = await dataset_metadata(db, dataset_id, lock_nowait=True)
         except DBAPIError as exc:
             code = getattr(exc.orig, "sqlstate", None) or getattr(
                 exc.orig, "pgcode", None
@@ -86,180 +65,25 @@ async def lock_actor(db, actor, api_key_id):
     from app.services.dataset_content import key_authority
 
     proof = await key_authority(db, actor, api_key_id, "datasets:write")
-    actor = await db.scalar(
-        select(User)
-        .where(User.id == actor.id)
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
+    accounts = await IdentityAccountLockData(db).lock_accounts(
+        [actor.id], mode="share", nowait=False
     )
+    actor = accounts.get(actor.id)
     if (
         actor is None
         or not actor.is_active
         or actor.role not in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
     ):
         raise HTTPException(403, detail={"code": "access_revoked"})
-    if api_key_id is not None:
-        await db.scalar(
-            select(ApiKey)
-            .where(ApiKey.id == api_key_id)
-            .with_for_update(read=True)
-            .execution_options(populate_existing=True)
-        )
     if await key_authority(db, actor, api_key_id, "datasets:write") != proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     return actor, proof
 
 
 def dependencies(dataset_id):
-    """Count and fingerprint stored relationships in one database statement."""
-    items = select(DatasetItem.id).where(DatasetItem.dataset_id == dataset_id)
-    sources = select(DatasetSource.id).where(DatasetSource.dataset_id == dataset_id)
-    task_ids = union(
-        select(Task.id).where(Task.dataset_item_id.in_(items)),
-        select(TaskDatasetItemLink.task_id).where(
-            TaskDatasetItemLink.dataset_item_id.in_(items)
-        ),
-    )
-    projects = union(
-        select(ProjectDataset.project_id).where(
-            ProjectDataset.dataset_id == dataset_id
-        ),
-        select(Task.project_id).where(Task.id.in_(task_ids)),
-    )
-    jobs = (
-        AsyncJob.payload["dataset_id"].astext == str(dataset_id)
-    ) & AsyncJob.status.in_(ACTIVE)
-    members = (
-        func.jsonb_array_elements(
-            case(
-                (
-                    func.jsonb_typeof(TrainingDatasetVersion.snapshot["samples"])
-                    == "array",
-                    TrainingDatasetVersion.snapshot["samples"],
-                ),
-                else_=literal([], type_=JSONB),
-            )
-        )
-        .table_valued("value")
-        .alias("lifecycle_member")
-    )
-    lineage = (
-        select(1)
-        .select_from(members)
-        .where(cast(members.c.value, JSONB)["dataset_id"].astext == str(dataset_id))
-        .correlate(TrainingDatasetVersion)
-        .exists()
-    )
-
-    def rows(model, *where):
-        return select(func.count()).select_from(model).where(*where).scalar_subquery()
-
-    def count(statement):
-        return select(func.count()).select_from(statement.subquery()).scalar_subquery()
-
-    def sql_digest(value):
-        return func.encode(func.sha256(func.convert_to(value, "UTF8")), "hex")
-
-    def footprint(model, fields, *where):
-        values = [getattr(model, field) for field in fields.split()]
-        row_digest = sql_digest(cast(func.jsonb_build_array(*values), Text))
-        return (
-            select(
-                sql_digest(
-                    func.coalesce(
-                        func.string_agg(
-                            row_digest, aggregate_order_by(literal(""), *values)
-                        ),
-                        "",
-                    )
-                )
-            )
-            .select_from(model)
-            .where(*where)
-            .scalar_subquery()
-        )
-
-    counts = {
-        "items": count(items),
-        "sources": count(sources),
-        "projects": count(projects),
-        "tasks": count(task_ids),
-        "annotations": rows(Annotation, Annotation.task_id.in_(task_ids)),
-        "active_scans": rows(
-            DatasetScanRun,
-            DatasetScanRun.source_id.in_(sources),
-            DatasetScanRun.status.in_(ACTIVE),
-        ),
-        "active_registrations": rows(
-            DatasetRegistrationRun,
-            DatasetRegistrationRun.source_id.in_(sources),
-            DatasetRegistrationRun.status.in_(ACTIVE),
-        ),
-        "enabled_schedules": rows(
-            DatasetSourceSyncSchedule,
-            DatasetSourceSyncSchedule.source_id.in_(sources),
-            DatasetSourceSyncSchedule.enabled,
-        ),
-        "pending_jobs": rows(AsyncJob, jobs),
-        "ready_lineage_versions": rows(
-            TrainingDatasetVersion, lineage, TrainingDatasetVersion.status == "ready"
-        ),
-        "unfinished_lineage_versions": rows(
-            TrainingDatasetVersion, lineage, TrainingDatasetVersion.status.in_(ACTIVE)
-        ),
-    }
-    fingerprints = [
-        footprint(DatasetItem, "id dataset_id", DatasetItem.dataset_id == dataset_id),
-        footprint(
-            DatasetSource,
-            "id location_id config_revision policy_revision enabled unregistered_at generation",
-            DatasetSource.dataset_id == dataset_id,
-        ),
-        footprint(
-            ProjectDataset,
-            "id dataset_id project_id",
-            ProjectDataset.dataset_id == dataset_id,
-        ),
-        footprint(Task, "id dataset_item_id project_id", Task.id.in_(task_ids)),
-        footprint(
-            TaskDatasetItemLink,
-            "id task_id dataset_item_id role",
-            TaskDatasetItemLink.dataset_item_id.in_(items),
-        ),
-        footprint(Annotation, "id task_id", Annotation.task_id.in_(task_ids)),
-        footprint(
-            DatasetScanRun,
-            "id source_id status generation",
-            DatasetScanRun.source_id.in_(sources),
-            DatasetScanRun.status.in_(ACTIVE),
-        ),
-        footprint(
-            DatasetRegistrationRun,
-            "id source_id status generation",
-            DatasetRegistrationRun.source_id.in_(sources),
-            DatasetRegistrationRun.status.in_(ACTIVE),
-        ),
-        footprint(
-            DatasetSourceSyncSchedule,
-            "source_id revision enabled",
-            DatasetSourceSyncSchedule.source_id.in_(sources),
-            DatasetSourceSyncSchedule.enabled,
-        ),
-        footprint(AsyncJob, "id kind status", jobs),
-        footprint(
-            TrainingDatasetVersion,
-            "id status snapshot_digest",
-            lineage,
-            TrainingDatasetVersion.status.in_((*ACTIVE, "ready")),
-        ),
-    ]
-    return select(
-        func.statement_timestamp().label("measured_at"),
-        *(value.label(name) for name, value in counts.items()),
-        sql_digest(cast(func.jsonb_build_array(*fingerprints), Text)).label(
-            "fingerprint"
-        ),
-    )
+    return text(
+        "SELECT * FROM yoao_assets_v1.dataset_archive_impact(CAST(:id AS uuid))"
+    ).bindparams(id=dataset_id)
 
 
 async def review(db, dataset_id, payload, actor, *, api_key_id=None):
@@ -295,7 +119,7 @@ async def review(db, dataset_id, payload, actor, *, api_key_id=None):
     measured_at = snapshot.pop("measured_at")
     fingerprint = snapshot.pop("fingerprint")
     counts = {key: int(value) for key, value in snapshot.items()}
-    current = await db.get(User, actor.id, populate_existing=True)
+    current = await IdentityAccountLockData(db).read_actor_status(actor.id)
     if (
         not current
         or not current.is_active
@@ -308,7 +132,7 @@ async def review(db, dataset_id, payload, actor, *, api_key_id=None):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     return (
         dataset,
-        current,
+        actor,
         {
             "dataset_id": dataset.id,
             "lifecycle_revision": dataset.lifecycle_revision,
@@ -372,13 +196,27 @@ async def apply(db, dataset_id, payload, actor, *, api_key_id=None, request=None
         raise HTTPException(409, detail={"code": "dataset_lifecycle_preview_changed"})
     decode_token(payload.impact_token)
     previous_revision = dataset.lifecycle_revision
-    dataset.archived_at = (
-        reviewed["measured_at"] if payload.operation == "archive" else None
+    archive = payload.operation == "archive"
+    measured_at = reviewed["measured_at"]
+    changed = await db.scalar(
+        text(
+            "SELECT yoao_assets_v1.change_dataset_archive_state("
+            "CAST(:id AS uuid), CAST(:actor AS uuid), :revision, :archive, :measured_at)"
+        ),
+        {
+            "id": dataset.id,
+            "actor": actor.id,
+            "revision": previous_revision,
+            "archive": archive,
+            "measured_at": measured_at,
+        },
     )
-    dataset.archived_by = actor.id if payload.operation == "archive" else None
-    dataset.lifecycle_revision += 1
-    await db.flush()
-    await db.refresh(dataset, attribute_names=["updated_at"])
+    if not changed:
+        raise HTTPException(409, detail={"code": "dataset_lifecycle_preview_changed"})
+    archived_at = measured_at if archive else None
+    archived_by = actor.id if archive else None
+    lifecycle_revision = previous_revision + 1
+    new_state = "archived" if archive else "active"
     await AuditService.log(
         db,
         actor=actor,
@@ -389,8 +227,8 @@ async def apply(db, dataset_id, payload, actor, *, api_key_id=None, request=None
         status_code=200,
         detail={
             "previous_revision": previous_revision,
-            "lifecycle_revision": dataset.lifecycle_revision,
-            "state": state(dataset),
+            "lifecycle_revision": lifecycle_revision,
+            "state": new_state,
             "reviewed_at": token["measured_at"],
             "preview_expires_at": datetime.fromtimestamp(
                 token["exp"], timezone.utc
@@ -402,8 +240,8 @@ async def apply(db, dataset_id, payload, actor, *, api_key_id=None, request=None
     )
     return {
         "dataset_id": dataset.id,
-        "lifecycle_revision": dataset.lifecycle_revision,
-        "state": state(dataset),
-        "archived_at": dataset.archived_at,
-        "archived_by": dataset.archived_by,
+        "lifecycle_revision": lifecycle_revision,
+        "state": new_state,
+        "archived_at": archived_at,
+        "archived_by": archived_by,
     }
