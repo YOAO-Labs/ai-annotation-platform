@@ -20,6 +20,7 @@ from app.db.models.storage_connection import StorageConnection
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.db.models.user import User
 from app.deps import get_db
+from app.services import storage_access
 from app.services.dataset_assets import ensure_legacy_bindings
 from tests.saved_io_live import real_source, registered_sink
 
@@ -225,6 +226,65 @@ async def test_saved_source_registered_binding_probe_and_denial(
                         denied.value.status_code == status
                         and not denied.value.unsettled
                     )
+
+                expired_subject = {}
+
+                async def admit_then_expire(permit):
+                    async with ordinary.begin() as db:
+                        admitted = await db.scalar(
+                            text("""
+                                SELECT yoao_assets_v1.begin_saved_binding_probe(
+                                    :operation, :actor, NULL::uuid, NULL::text,
+                                    'avatars', :location, :config, :connection, :generation
+                                )
+                            """),
+                            {
+                                "operation": permit.id,
+                                "actor": actor_id,
+                                "location": target_id,
+                                "config": revision,
+                                "connection": preview.json()["target"][
+                                    "connection_revision"
+                                ],
+                                "generation": before[1],
+                            },
+                        )
+                        assert admitted is True
+                    async with owner_session.begin() as db:
+                        expired = await db.scalar(
+                            text("""
+                                UPDATE yoao_assets_v1.saved_binding_probe
+                                SET expires_at = clock_timestamp() - interval '1 second'
+                                WHERE operation_id = :operation AND attempt_id IS NULL
+                                  AND expires_at > clock_timestamp()
+                                RETURNING operation_id
+                            """),
+                            {"operation": permit.id},
+                        )
+                        assert expired == permit.id
+                    expired_subject["operation_id"] = str(permit.id)
+
+                def probe_expired():
+                    try:
+                        writer.command("binding", "probe", expired_subject)
+                    except SavedIOError as exc:
+                        if exc.unsettled:
+                            storage_access.mark_unsettled(exc)
+                        raise
+
+                async with open_session() as db:
+                    with pytest.raises(SavedIOError) as expired:
+                        await storage_access.run(
+                            db,
+                            target_id,
+                            "avatar_binding_probe",
+                            probe_expired,
+                            on_acquired=admit_then_expire,
+                        )
+                assert expired.value.status_code == 409
+                assert expired.value.code == "probe_scope_unproven"
+                assert not expired.value.unsettled
+
                 observed = await asyncio.to_thread(
                     sink.storage.list_object_versions,
                     Bucket=sink.bucket,
