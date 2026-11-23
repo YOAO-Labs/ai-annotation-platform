@@ -1,14 +1,5 @@
-"""Guide reference publication through the native Workspace owner.
+"""Guide publication and immutable clone facts from the Workspace owner."""
 
-Read helpers stay local for authenticated byte reads and durable cleanup. Every
-publication write of ``projects.guide_assets``, its revision and
-``project_guide_assets`` travels through
-``yoao_workspace_configuration_v1.guide_assets_step`` in the caller's
-transaction. Project deletion is the separate Workspace retirement path that
-removes a project's references and retires its last-reference uploads.
-"""
-
-from copy import deepcopy
 import json
 
 from fastapi import HTTPException
@@ -109,23 +100,6 @@ def grouped_existing_assets(assets):
     return result
 
 
-async def _references(db, project_id, *, lock=False):
-    statement = select(Reference).where(Reference.project_id == project_id)
-    if lock:
-        statement = statement.with_for_update(nowait=True)
-    try:
-        with db.no_autoflush:
-            return list(
-                await db.scalars(
-                    statement.order_by(Reference.upload_id).execution_options(
-                        populate_existing=True
-                    )
-                )
-            )
-    except DBAPIError as exc:
-        db_error(exc)
-
-
 def forget_cached_references(db, project_ids):
     """Native owner writes bypass this assembly's ORM identity map.
 
@@ -216,35 +190,18 @@ async def apply(db, *, actor_id, project, expected_revision, assets):
 async def clone_snapshot(db, project_id):
     if db.autoflush:
         await db.flush()
-    row = (
-        (
-            await db.execute(
-                text(
-                    "SELECT p.owner_id::text AS owner_id, p.annotation_guide, "
-                    "p.guide_assets, p.guide_assets_revision, ARRAY("
-                    "SELECT ref.upload_id::text FROM public.project_guide_assets AS ref "
-                    "WHERE ref.project_id=p.id ORDER BY ref.upload_id) AS upload_ids "
-                    "FROM yoao_workspace_v1.project_facts AS p WHERE p.id=:project_id"
-                ),
-                {"project_id": project_id},
-            )
-        )
-        .mappings()
-        .one_or_none()
+    return await db.scalar(
+        text("SELECT yoao_workspace_v1.guide_clone_snapshot(:project_id)"),
+        {"project_id": project_id},
     )
-    return dict(row) if row is not None else None
 
 
 async def copy(db, *, actor_id, source, target):
     """Copy the current source list and references into an empty target."""
-    source_refs = await _references(db, source.id)
-    snapshot = {
-        "owner_id": str(source.owner_id),
-        "annotation_guide": source.annotation_guide,
-        "guide_assets": deepcopy(source.guide_assets or []),
-        "guide_assets_revision": source.guide_assets_revision,
-        "upload_ids": [str(ref.upload_id) for ref in source_refs],
-    }
+    snapshot = await clone_snapshot(db, source.id)
+    if snapshot is None:
+        reject("guide_asset_source_changed")
+    snapshot["guide_assets"] = snapshot["guide_assets"] or []
     try:
         await execute_guide_action(
             db,

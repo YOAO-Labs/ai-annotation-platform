@@ -159,12 +159,16 @@ async def test_api_login_clones_published_guide_and_retires_last_reference(
                 "identity_api_consumer",
                 int(os.environ["AAP_MODULE_DATA_PG_DATABASE_OID"]),
             )
-            with pytest.raises(DBAPIError) as denied:
-                async with db.begin_nested():
-                    await db.execute(
-                        text("SELECT guide_assets FROM public.projects LIMIT 1")
-                    )
-            assert denied.value.orig.sqlstate == "42501"
+            for statement in (
+                "SELECT guide_assets FROM public.projects LIMIT 1",
+                "SELECT upload_id FROM public.project_guide_assets LIMIT 1",
+                "SELECT storage_ref FROM public.guide_asset_uploads LIMIT 1",
+                "UPDATE public.guide_asset_uploads SET state = state WHERE false",
+            ):
+                with pytest.raises(DBAPIError) as denied:
+                    async with db.begin_nested():
+                        await db.execute(text(statement))
+                assert denied.value.orig.sqlstate == "42501"
             snapshot = await guide_asset_references.clone_snapshot(db, source_id)
             assert snapshot == {**source_facts, "upload_ids": [str(upload_id)]}
             staged = await execute_configuration(
@@ -177,7 +181,9 @@ async def test_api_login_clones_published_guide_and_retires_last_reference(
                     "source_guide_snapshot": snapshot,
                 },
             )
-            assert await _references(db, upload_id) == {source_id, staged.resource_id}
+            for project_id in (source_id, staged.resource_id):
+                mounted = await guide_asset_references.clone_snapshot(db, project_id)
+                assert mounted["upload_ids"] == [str(upload_id)]
             await db.rollback()
         async with owner_db() as observer:
             assert await observer.get(Project, staged.resource_id) is None
@@ -201,6 +207,7 @@ async def test_api_login_clones_published_guide_and_retires_last_reference(
                     )
                     is None
                 )
+            async with owner_db() as db:
                 assert await _references(db, upload_id) == {source_id}
 
             target_ids = []
@@ -218,14 +225,14 @@ async def test_api_login_clones_published_guide_and_retires_last_reference(
                 )
                 assert _guide_facts(project) == source_facts
                 target_ids.append(UUID(project["id"]))
-            async with api_db() as db:
+            async with owner_db() as db:
                 assert await _references(db, upload_id) == {source_id, *target_ids}
 
             removed = await client.delete(source_url, headers=headers)
             assert removed.status_code == 204, removed.text
             missing = await client.get(source_url, headers=headers)
             assert missing.status_code == 404, missing.text
-            async with api_db() as db:
+            async with owner_db() as db:
                 assert await _references(db, upload_id) == set(target_ids)
                 upload = await db.get(GuideAssetUpload, upload_id)
                 assert (
@@ -258,7 +265,7 @@ async def test_api_login_clones_published_guide_and_retires_last_reference(
                     "guide_assets_revision": source_facts["guide_assets_revision"] + 1,
                 }
                 remaining = set(target_ids[index + 1 :])
-                async with api_db() as db:
+                async with owner_db() as db:
                     assert await _references(db, upload_id) == remaining
                     upload = await db.get(GuideAssetUpload, upload_id)
                     assert upload.state == ("ready" if remaining else "retired")

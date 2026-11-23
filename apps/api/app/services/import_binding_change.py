@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from jose import ExpiredSignatureError, JWTError, jwt
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
@@ -66,39 +66,15 @@ async def candidates(db, *, limit, offset):
 
 
 async def history(db):
-    from app.db.models.prediction_input import PredictionInputLease
-    from app.db.models.managed_original_creation import ManagedOriginalCreation
-    from app.db.models.mask_format_upload import MaskFormatUpload
-    from app.db.models.mask_format_import import MaskFormatImport
-
-    counts = dict(
-        (
-            await db.execute(
-                select(
-                    *(
-                        func.count()
-                        .filter(PredictionInputLease.state == state)
-                        .label("lease_" + state)
-                        for state in ("active", "cleanup_pending", "deleted")
-                    )
-                ).select_from(PredictionInputLease)
-            )
+    row = await db.execute(
+        text(
+            "SELECT leases.*, originals.creation_staging, masks.mask_uploads, masks.mask_batches "
+            "FROM yoao_assets_v1.prediction_input_binding_history() AS leases "
+            "CROSS JOIN yoao_assets_v1.original_binding_history() AS originals "
+            "CROSS JOIN yoao_labeling_v1.mask_format_binding_history() AS masks"
         )
-        .mappings()
-        .one()
     )
-    counts["creation_staging"] = await db.scalar(
-        select(func.count())
-        .select_from(ManagedOriginalCreation)
-        .where(ManagedOriginalCreation.staging_key.is_not(None))
-    )
-    counts["mask_uploads"] = await db.scalar(
-        select(func.count()).select_from(MaskFormatUpload)
-    )
-    counts["mask_batches"] = await db.scalar(
-        select(func.count()).select_from(MaskFormatImport)
-    )
-    return counts
+    return dict(row.mappings().one())
 
 
 async def _binding(db, *, lock=False):

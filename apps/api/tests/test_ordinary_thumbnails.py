@@ -588,13 +588,12 @@ async def native_world(test_engine, monkeypatch, *, standalone=False):
                 assert await db.scalar(
                     text(
                         "SELECT yoao_labeling_v1.create_uploading_task("
-                        ":task_id, :project_id, :display_id, :file_name, "
+                        ":task_id, :project_id, :file_name, "
                         ":file_path, :file_type, :actor_id)"
                     ),
                     {
                         "task_id": task_id,
                         "project_id": project.id,
-                        "display_id": "ot-" + uuid.uuid4().hex[:12],
                         "file_name": "saved.png",
                         "file_path": allocation["object_key"],
                         "file_type": "image",

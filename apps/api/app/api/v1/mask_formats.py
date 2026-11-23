@@ -1,18 +1,17 @@
 from __future__ import annotations
 
+import json
 import re
 import uuid
-from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from yoao_jobs.dispatch_contract import DispatchLease
 
-from app.db.models.mask_format_upload import MaskFormatUpload
 from app.db.models.project import Project
 from app.services.quality_job_dispatch import QualityJobDispatcher
 from app.deps import (
@@ -48,6 +47,7 @@ from app.services.mask_formats.service import (
     execute_import,
     fail_import_dispatch,
     prepare_import_dispatch,
+    mask_upload_facts,
     preflight_import,
     read_import,
     record_import_dispatch_task,
@@ -71,7 +71,6 @@ def _raise_format_error(exc: MaskFormatError) -> None:
 
 
 async def _upload_authority(db, project_id, user, key_id, key_proof):
-    from app.db.models.api_key import ApiKey
     from app.services.dataset_content import key_authority
     from app.services.project_write_guard import lock_actor_project_authority
 
@@ -79,19 +78,13 @@ async def _upload_authority(db, project_id, user, key_id, key_proof):
     project = await require_project_owner(
         project_id=project_id, db=db, actor_id=user.id
     )
-    if key_id is not None:
-        try:
-            await db.scalar(
-                select(ApiKey)
-                .where(ApiKey.id == key_id)
-                .with_for_update(read=True, nowait=True)
-                .execution_options(populate_existing=True)
-            )
-        except DBAPIError as exc:
-            if storage_access.unavailable(exc):
-                raise HTTPException(409, detail={"reason": "api_key_busy"}) from None
-            raise
-    if await key_authority(db, user, key_id, "annotations:write") != key_proof:
+    try:
+        current_key = await key_authority(db, user, key_id, "annotations:write")
+    except DBAPIError as exc:
+        if storage_access.unavailable(exc):
+            raise HTTPException(409, detail={"reason": "api_key_busy"}) from None
+        raise
+    if current_key != key_proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     return project
 
@@ -234,21 +227,24 @@ async def init_mask_format_upload(
     ref = await _upload_storage_call(import_storage.allocate, db, prefix)
     owner = await _upload_storage_call(staging_owner, db, object_key, ref)
     revision = await _upload_storage_call(import_storage.check_location, db, owner)
-    upload = MaskFormatUpload(
-        id=upload_id,
-        project_id=project.id,
-        uploader_id=user.id,
-        logical_object_key=object_key,
-        content_type=body.content_type,
-        storage_ref=deepcopy(ref),
-        created_at=started,
-        upload_expires_at=started + timedelta(seconds=900),
+    await db.execute(
+        text(
+            "SELECT yoao_labeling_v1.stage_mask_format_upload("
+            ":id, :project, :actor, :key, :content_type, CAST(:ref AS jsonb), :created_at)"
+        ),
+        {
+            "id": upload_id,
+            "project": project.id,
+            "actor": user.id,
+            "key": object_key,
+            "content_type": body.content_type,
+            "ref": json.dumps(ref),
+            "created_at": started,
+        },
     )
-    db.add(upload)
+    upload_expires_at = started + timedelta(seconds=900)
     await db.commit()
-    expires_in = int(
-        (upload.upload_expires_at - datetime.now(timezone.utc)).total_seconds()
-    )
+    expires_in = int((upload_expires_at - datetime.now(timezone.utc)).total_seconds())
     if expires_in <= 0:
         raise HTTPException(410, detail={"reason": "staged_upload_expired"})
     upload_url = await _upload_storage_call(
@@ -273,25 +269,21 @@ async def init_mask_format_upload(
         check_staging, db, object_key, ref, revision=revision, lock=True
     )
     try:
-        current = await db.scalar(
-            select(MaskFormatUpload)
-            .where(MaskFormatUpload.id == upload_id)
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True)
-        )
+        current = await mask_upload_facts(db, object_key, lock=True)
     except DBAPIError as exc:
         if storage_access.unavailable(exc):
             raise HTTPException(409, detail={"reason": "staged_upload_busy"}) from None
         raise
     if (
         current is None
+        or current.id != upload_id
         or current.storage_ref != ref
         or current.logical_object_key != object_key
         or current.project_id != project.id
         or current.uploader_id != user.id
         or current.content_type != body.content_type
         or current.created_at != started
-        or current.upload_expires_at != started + timedelta(seconds=900)
+        or current.upload_expires_at != upload_expires_at
         or current.upload_expires_at <= datetime.now(timezone.utc)
     ):
         raise HTTPException(409, detail={"reason": "staged_object_owner_changed"})

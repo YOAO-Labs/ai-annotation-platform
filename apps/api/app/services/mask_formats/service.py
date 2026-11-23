@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 from botocore.exceptions import ClientError
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -21,7 +21,6 @@ from yoao_jobs.dispatch_contract import DispatchLease
 
 from app.config import settings
 from app.db.models.async_job import AsyncJobKind
-from app.db.models.mask_format_upload import MaskFormatUpload
 from app.db.models.project import Project
 from app.schemas.mask_format import (
     MaskFormatImportBatchOut,
@@ -156,14 +155,20 @@ async def staging_owner(db, object_key, staging_ref=None):
     return owner
 
 
+async def mask_upload_facts(db, object_key, *, lock=False):
+    return (
+        await db.execute(
+            text(
+                "SELECT * FROM yoao_labeling_v1.mask_format_upload_source(:key, :lock)"
+            ),
+            {"key": object_key, "lock": lock},
+        )
+    ).one_or_none()
+
+
 async def _upload_source(db, object_key, project_id, user_id, *, lock=False):
-    query = select(MaskFormatUpload).where(
-        MaskFormatUpload.logical_object_key == object_key
-    )
-    if lock:
-        query = query.with_for_update(read=True, nowait=True)
     try:
-        row = await db.scalar(query.execution_options(populate_existing=True))
+        row = await mask_upload_facts(db, object_key, lock=lock)
     except DBAPIError as exc:
         if storage_access.unavailable(exc):
             raise MaskFormatError(
