@@ -42,7 +42,6 @@ async def test_committed_annotation_between_real_labeling_reads_is_visible_to_at
             app_module,
             monkeypatch,
             binding=binding,
-            workspace_token="test-workspace-phase-control",
             labeling_token="test-labeling-phase-control",
             application_name="labeling-class-query-phase",
         ) as (client, _runtime_engine, _native_rpc):

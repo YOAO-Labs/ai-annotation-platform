@@ -1,162 +1,75 @@
-"""Selected directory owners bind replies and preserve public failure phases."""
+"""Directory HTTP reads preserve caller writes and the separate Identity port."""
 
-from __future__ import annotations
-
-import asyncio
-import json
-import uuid
-
-from fastapi import HTTPException
-import httpx
 import pytest
 
-from yoao_workspace.directory_query_contract import (
-    DIRECTORY_QUERY_PROTOCOL,
-    DirectoryQuerySuccess,
-    decode_directory_query_request,
-)
 from app.config import settings
-from app.services import workspace_directory_query as queries
+from tests.factory import create_membership, create_project
 
 
-@pytest.fixture(autouse=True)
-def selectors(monkeypatch):
-    for name in (
-        "workspace_directory_query_url",
-        "workspace_directory_query_database_url",
-        "workspace_directory_query_database_url_file",
-        "workspace_membership_control_token_file",
+@pytest.mark.asyncio
+async def test_member_reads_see_pending_membership_and_keep_profile_failure_separate(
+    db_session, httpx_client, project_admin, annotator, reviewer, monkeypatch, tmp_path
+):
+    for field in (
+        "identity_url",
+        "identity_auth_database_url",
+        "identity_auth_database_url_file",
+        "identity_briefs_database_url",
+        "identity_briefs_database_url_file",
     ):
-        monkeypatch.setattr(settings, name, "")
-    monkeypatch.setattr(settings, "workspace_membership_control_token", "test-token")
+        monkeypatch.setattr(settings, field, "")
+    owner, owner_token = project_admin
+    member, member_token = annotator
+    _, outsider_token = reviewer
+    member.avatar_ref = "preset:blue"
+    project = await create_project(db_session, owner_id=owner.id)
+    target = f"/api/v1/projects/{project.id}"
+    members = f"{target}/members"
+    mentions = f"{target}/mention-candidates"
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    member_headers = {"Authorization": f"Bearer {member_token}"}
+    outsider_headers = {"Authorization": f"Bearer {outsider_token}"}
 
-
-async def _list():
-    return await queries.execute_directory_query(
-        object(),
-        operation="list_members",
-        actor_id=uuid.UUID(int=1),
-        target_id=uuid.UUID(int=3),
-    )
-
-
-def _select_http(monkeypatch, handler):
-    client_type = httpx.AsyncClient
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("A selected owner must not fall back to a local reader")
-
-    monkeypatch.setattr(settings, "workspace_directory_query_url", "http://workspace")
-    monkeypatch.setattr(queries, "DirectoryQueryManager", forbidden)
-    monkeypatch.setattr(
-        queries.httpx,
-        "AsyncClient",
-        lambda **kwargs: client_type(transport=httpx.MockTransport(handler), **kwargs),
-    )
-
-
-async def test_http_owner_preserves_admission_and_validates_the_bound_reply(
-    monkeypatch,
-):
-    requests = []
-
-    def handle(request):
-        command = decode_directory_query_request(request.content)
-        requests.append(command)
-        assert request.url.path == "/v1/workspace/directory-queries/execute"
-        assert request.headers["authorization"] == "Bearer test-token"
-        assert command.actor_id == uuid.UUID(int=1)
-        reply = DirectoryQuerySuccess(
-            schema=DIRECTORY_QUERY_PROTOCOL, ok=True, request=command, data_json="[]"
+    async with db_session.begin_nested() as savepoint:
+        await create_membership(
+            db_session, project_id=project.id, user_id=member.id, role="annotator"
         )
-        return httpx.Response(200, json=reply.model_dump(mode="json", by_alias=True))
+        visible = await httpx_client.get(members, headers=member_headers)
+        assert visible.status_code == 200, visible.text
+        (row,) = visible.json()
+        assert set(row) == {
+            "id",
+            "user_id",
+            "user_name",
+            "user_email",
+            "role",
+            "platform_role",
+            "version",
+            "assigned_at",
+            "updated_at",
+            "avatar_ref",
+        }
+        assert row["user_name"] == member.name and row["avatar_ref"] == "preset:blue"
 
-    _select_http(monkeypatch, handle)
-    assert await _list() == []
-    assert len(requests) == 1
-
-
-@pytest.mark.parametrize("status", [400, 500, 503])
-async def test_remote_status_preserves_plain_internal_error_without_fallback(
-    monkeypatch, status
-):
-    _select_http(monkeypatch, lambda _: httpx.Response(status))
-    expected = (
-        queries.DirectoryQueryOwnerInternalError if status == 500 else HTTPException
-    )
-    with pytest.raises(expected) as failure:
-        await _list()
-    if status != 500:
-        assert failure.value.status_code == 503
-        assert failure.value.detail == "项目目录服务暂不可用"
-
-
-async def test_profile_refusal_keeps_its_specific_public_detail(monkeypatch):
-    def handle(request):
-        command = json.loads(request.content)
-        return httpx.Response(
-            200,
-            json={
-                "schema": DIRECTORY_QUERY_PROTOCOL,
-                "ok": False,
-                "request": command,
-                "error": {
-                    "status_code": 503,
-                    "detail": "身份资料服务暂不可用",
-                    "headers": None,
-                },
-            },
+        empty_dsn = tmp_path / "identity-briefs-dsn"
+        empty_dsn.write_text("\n")
+        monkeypatch.setattr(
+            settings, "identity_briefs_database_url_file", str(empty_dsn)
         )
+        hidden = await httpx_client.get(members, headers=outsider_headers)
+        assert hidden.status_code == 404
+        assert hidden.json() == {"detail": "项目不存在"}
+        unavailable = await httpx_client.get(members, headers=member_headers)
+        assert unavailable.status_code == 503
+        assert unavailable.json() == {"detail": "身份资料服务暂不可用"}
+        candidates = await httpx_client.get(mentions, headers=member_headers)
+        assert candidates.status_code == 200, candidates.text
+        assert candidates.json()[0]["user_id"] == str(owner.id)
+        assert any(item["user_id"] == str(member.id) for item in candidates.json()[1:])
+        await savepoint.rollback()
 
-    _select_http(monkeypatch, handle)
-    with pytest.raises(HTTPException) as failure:
-        await _list()
-    assert failure.value.status_code == 503
-    assert failure.value.detail == "身份资料服务暂不可用"
-
-
-async def test_success_for_another_request_is_unavailable(monkeypatch):
-    def handle(request):
-        command = json.loads(request.content)
-        command["actor_id"] = str(uuid.UUID(int=2))
-        return httpx.Response(
-            200,
-            json={
-                "schema": DIRECTORY_QUERY_PROTOCOL,
-                "ok": True,
-                "request": command,
-                "data_json": "[]",
-            },
-        )
-
-    _select_http(monkeypatch, handle)
-    with pytest.raises(HTTPException) as failure:
-        await _list()
-    assert failure.value.status_code == 503
-
-
-async def test_http_deadline_never_retries_locally(monkeypatch):
-    calls = []
-
-    async def handle(request):
-        calls.append(request)
-        await asyncio.Event().wait()
-
-    _select_http(monkeypatch, handle)
-    monkeypatch.setattr(settings, "workspace_directory_query_timeout_seconds", 0.01)
-    with pytest.raises(HTTPException) as failure:
-        await asyncio.wait_for(_list(), timeout=1)
-    assert failure.value.status_code == 503 and len(calls) == 1
-
-
-async def test_conflicting_provider_selection_fails_before_io(monkeypatch):
-    def forbidden(_request):
-        raise AssertionError("Conflicting configuration must not make a request")
-
-    _select_http(monkeypatch, forbidden)
-    monkeypatch.setattr(
-        settings, "workspace_directory_query_database_url", "postgresql://unused"
-    )
-    with pytest.raises(HTTPException) as failure:
-        await _list()
-    assert failure.value.status_code == 503
+    rolled_back = await httpx_client.get(members, headers=owner_headers)
+    assert rolled_back.status_code == 200, rolled_back.text
+    assert rolled_back.json() == []
+    former_member = await httpx_client.get(members, headers=member_headers)
+    assert former_member.status_code == 404

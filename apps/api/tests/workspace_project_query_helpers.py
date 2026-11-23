@@ -1,21 +1,34 @@
-"""Owned Project-query credentials, selectors and installed runtime processes."""
+"""Restricted query credentials and a portable Workspace wire harness."""
 
 from __future__ import annotations
 
-import asyncio
-from contextlib import asynccontextmanager
-import os
-from pathlib import Path
-import tempfile
-
+import httpx
 from sqlalchemy.engine import make_url
 
-from app.config import settings
+from yoao_workspace.api import create_app
+from yoao_workspace.config import RuntimeSettings
+from yoao_workspace_contract.project_query_contract import (
+    ProjectQueryReply,
+    ProjectQueryRequest,
+)
+from yoao_workspace_contract.project_query_values import decode_project_query_reply
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
-from tests.test_identity_admission_live import _port, _start
 from tests.test_module_data_roles import _role_url
 
-ROOT = Path(__file__).resolve().parents[3]
+
+def workspace_query_client(*, token: str, **options) -> httpx.AsyncClient:
+    settings = RuntimeSettings(
+        _env_prefix="__TEST_WORKSPACE_QUERY__",
+        membership_control_token=token,
+        timeout_seconds=15,
+        **options,
+    )
+    return httpx.AsyncClient(
+        base_url="http://workspace-owner",
+        transport=httpx.ASGITransport(
+            app=create_app(settings), raise_app_exceptions=False
+        ),
+    )
 
 
 def _dsn(test_engine, variable, role, database=None):
@@ -52,82 +65,33 @@ def project_query_briefs_dsn(test_engine, database=None):
     )
 
 
-@asynccontextmanager
-async def api_project_query_binding(*, url=None, dsn=None, token, timeout=20):
-    if url and dsn:
-        raise ValueError("Select at most one independent Project-query provider")
-    changes = {
-        "workspace_project_query_url": url or "",
-        "workspace_project_query_database_url": dsn or "",
-        "workspace_project_query_database_url_file": "",
-        "workspace_project_query_timeout_seconds": timeout,
-        "workspace_membership_control_token": token,
-        "workspace_membership_control_token_file": "",
+async def execute_project_query_contract(
+    client: httpx.AsyncClient, token: str, request: ProjectQueryRequest
+) -> ProjectQueryReply:
+    response = await client.post(
+        "/v1/workspace/project-queries/execute",
+        headers={"Authorization": f"Bearer {token}"},
+        json=request.model_dump(mode="json", by_alias=True),
+    )
+    response.raise_for_status()
+    return decode_project_query_reply(request, response.content)
+
+
+def expected_project_sample(sample: dict) -> dict:
+    """ProjectOut gained a guide revision after the frozen HTTP captures."""
+
+    def current_body(body):
+        if isinstance(body, list):
+            return [current_body(row) for row in body]
+        if isinstance(body, dict):
+            if "guide_assets" in body and "owner_id" in body:
+                return {"guide_assets_revision": 1, **body}
+            if "items" in body:
+                return {**body, "items": current_body(body["items"])}
+        return body
+
+    response = sample["response"]
+    return {
+        **sample,
+        "response": {**response, "body": current_body(response["body"])},
     }
-    original = {key: getattr(settings, key) for key in changes}
-    try:
-        for key, value in changes.items():
-            setattr(settings, key, value)
-        yield
-    finally:
-        for key, value in original.items():
-            setattr(settings, key, value)
-
-
-@asynccontextmanager
-async def project_query_provider(dsn, token, *, briefs_dsn=None):
-    assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
-    parsed = make_url(dsn)
-    assert parsed.username == "yoao_workspace_project_query_client"
-    assert parsed.database and parsed.database.endswith("_test")
-    _verify_postgres(parsed)
-    interpreter = Path(os.environ["AAP_WORKSPACE_RUNTIME_PYTHON"])
-    assert interpreter.is_file()
-    with tempfile.TemporaryDirectory(
-        prefix="workspace-project-query-", dir=ROOT / ".worktree"
-    ) as temporary:
-        directory = Path(temporary)
-        port = _port()
-        environment = {
-            "PATH": os.environ.get("PATH", ""),
-            "WORKSPACE_HOST": "127.0.0.1",
-            "WORKSPACE_PORT": str(port),
-            "WORKSPACE_TIMEOUT_SECONDS": "15",
-        }
-        secrets = [
-            ("WORKSPACE_PROJECT_QUERY_DATABASE_URL_FILE", "query-database", dsn),
-            ("WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE", "control-token", token),
-        ]
-        if briefs_dsn is not None:
-            briefs = make_url(briefs_dsn)
-            assert briefs.username == "yoao_identity_briefs_client"
-            assert (briefs.host, briefs.port, briefs.database) == (
-                parsed.host,
-                parsed.port,
-                parsed.database,
-            )
-            secrets.append(
-                (
-                    "WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE",
-                    "briefs-database",
-                    briefs_dsn,
-                )
-            )
-        for variable, filename, value in secrets:
-            path = directory / filename
-            path.write_text(value, encoding="utf-8")
-            path.chmod(0o600)
-            environment[variable] = str(path)
-        owner = await asyncio.to_thread(
-            _start,
-            [str(interpreter), "-I", "-m", "yoao_workspace"],
-            environment,
-            directory,
-            directory / "owner.log",
-            port,
-            "/ready",
-        )
-        try:
-            yield owner.origin
-        finally:
-            owner.stop()

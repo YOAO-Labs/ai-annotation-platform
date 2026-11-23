@@ -1,6 +1,5 @@
-"""Frozen Search and accepted-write response scenarios on current query bindings."""
+"""Frozen Search and accepted-write projections through the borrowed API owner."""
 
-from contextlib import AsyncExitStack
 import json
 import os
 from pathlib import Path
@@ -10,12 +9,7 @@ import pytest
 
 from app.api.v1 import projects as projects_api
 from tests import test_workspace_project_query_consumers_legacy as scenarios
-from tests.workspace_project_query_helpers import (
-    api_project_query_binding,
-    project_query_briefs_dsn,
-    project_query_dsn,
-    project_query_provider,
-)
+from tests.workspace_project_query_helpers import expected_project_sample
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -47,9 +41,8 @@ def _comparable(sample):
     }
 
 
-@pytest.mark.parametrize("binding", ["borrowed", "dedicated", "http"])
 async def test_current_owner_matches_frozen_consumers_and_postcommit_authority(
-    test_engine, app_module, monkeypatch, tmp_path, binding
+    test_engine, app_module, monkeypatch, tmp_path
 ):
     reference = json.loads(
         (
@@ -61,7 +54,7 @@ async def test_current_owner_matches_frozen_consumers_and_postcommit_authority(
 
     def compare(current):
         assert [_comparable(item) for item in current["samples"]] == [
-            _comparable(item) for item in reference["samples"]
+            _comparable(expected_project_sample(item)) for item in reference["samples"]
         ]
         comparisons.append(len(current["samples"]))
 
@@ -82,27 +75,7 @@ async def test_current_owner_matches_frozen_consumers_and_postcommit_authority(
     monkeypatch.setattr(scenarios, "_CAPTURE_PATH", tmp_path / "unused-current-run")
     monkeypatch.setattr(scenarios, "_source_metadata", lambda: {"current_owner": True})
     monkeypatch.setattr(scenarios, "_write_capture", compare)
-    async with AsyncExitStack() as stack:
-        token = "test-consumer-query"
-        url = dsn = None
-        if binding == "dedicated":
-            dsn = project_query_dsn(test_engine)
-        elif binding == "http":
-            url = await stack.enter_async_context(
-                project_query_provider(
-                    project_query_dsn(test_engine),
-                    token,
-                    briefs_dsn=project_query_briefs_dsn(test_engine),
-                )
-            )
-        await stack.enter_async_context(
-            api_project_query_binding(
-                url=url,
-                dsn=dsn,
-                token=token,
-            )
-        )
-        await scenarios.test_capture_legacy_project_query_consumers_and_postcommit_projections(
-            test_engine, app_module, monkeypatch
-        )
+    await scenarios.test_capture_legacy_project_query_consumers_and_postcommit_projections(
+        test_engine, app_module, monkeypatch
+    )
     assert comparisons == [15]

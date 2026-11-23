@@ -12,16 +12,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from yoao_workspace_contract.project_query_contract import ProjectQueryProjectionMissing
 from app.application.project_workspace import transfer_project_owner
-from app.config import settings
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_project_query import execute_project_query
 from tests.factory import create_project, create_user
-from tests.workspace_project_query_helpers import (
-    api_project_query_binding,
-    project_query_dsn,
-)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -33,13 +28,7 @@ pytestmark = [
 
 
 @asynccontextmanager
-async def _world(test_engine, monkeypatch):
-    for field in (
-        "workspace_owner_transfer_url",
-        "workspace_owner_transfer_database_url",
-        "workspace_owner_transfer_database_url_file",
-    ):
-        monkeypatch.setattr(settings, field, "")
+async def _world(test_engine):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     ids = []
     project_id = None
@@ -75,10 +64,8 @@ async def _world(test_engine, monkeypatch):
                 await db.execute(delete(User).where(User.id.in_(ids)))
 
 
-async def test_precommit_decode_failure_keeps_caller_transfer_uncommitted(
-    test_engine, monkeypatch
-):
-    async with _world(test_engine, monkeypatch) as (maker, actor, target, old, new):
+async def test_precommit_decode_failure_keeps_caller_transfer_uncommitted(test_engine):
+    async with _world(test_engine) as (maker, actor, target, old, new):
         async with maker.begin() as db:
             await db.execute(
                 text(
@@ -116,9 +103,9 @@ async def test_precommit_decode_failure_keeps_caller_transfer_uncommitted(
 
 @pytest.mark.parametrize("mutation", ["rename", "delete", "temporal_extreme"])
 async def test_accepted_transfer_projection_rereads_after_commit_without_reauthorization(
-    test_engine, monkeypatch, mutation
+    test_engine, mutation
 ):
-    async with _world(test_engine, monkeypatch) as (maker, actor, target, _old, new):
+    async with _world(test_engine) as (maker, actor, target, _old, new):
         async with maker() as caller:
             evidence = await transfer_project_owner(
                 caller, actor=actor, project_id=target, new_owner_id=new
@@ -143,29 +130,26 @@ async def test_accepted_transfer_projection_rereads_after_commit_without_reautho
                     text("UPDATE public.projects SET name='After commit' WHERE id=:id"),
                     {"id": target},
                 )
-        async with api_project_query_binding(
-            dsn=project_query_dsn(test_engine), token="test-query"
-        ):
 
-            async def projection():
-                async with maker() as caller:
-                    return await execute_project_query(
-                        caller,
-                        operation="get_project_projection",
-                        actor=actor,
-                        target_id=target,
-                        projection_evidence=evidence,
-                    )
+        async def projection():
+            async with maker() as caller:
+                return await execute_project_query(
+                    caller,
+                    operation="get_project_projection",
+                    actor=actor,
+                    target_id=target,
+                    projection_evidence=evidence,
+                )
 
-            if mutation == "delete":
-                with pytest.raises(ProjectQueryProjectionMissing):
-                    await projection()
-            elif mutation == "temporal_extreme":
-                with pytest.raises(ValueError, match="year 10000"):
-                    await projection()
-            else:
-                result = await projection()
-                assert result["name"] == "After commit" and result["owner_id"] == new
+        if mutation == "delete":
+            with pytest.raises(ProjectQueryProjectionMissing):
+                await projection()
+        elif mutation == "temporal_extreme":
+            with pytest.raises(ValueError, match="year 10000"):
+                await projection()
+        else:
+            result = await projection()
+            assert result["name"] == "After commit" and result["owner_id"] == new
         async with maker() as observer:
             assert (
                 await observer.scalar(

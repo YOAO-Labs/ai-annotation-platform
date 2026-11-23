@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import hashlib
+import json
 import math
 import os
+from pathlib import Path
 import uuid
 
 import pytest
@@ -28,9 +31,11 @@ from yoao_workspace.template_query_contract import (
 from yoao_workspace.template_query_postgres import TemplateQueryPostgresData
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
-from app.services.workspace_template_query_data import WorkspaceTemplateQueryData
+from app.services.workspace_template_query import execute_template_query
+from tests import test_workspace_template_queries_legacy as scenarios
 from tests.factory import create_user
 from tests.workspace_configuration_helpers import configuration_dsn
+from tests.workspace_project_query_helpers import expected_project_sample
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -226,23 +231,20 @@ async def test_borrowed_reader_preserves_pending_work_and_caller_timezone(
             created_at=datetime(2020, 1, 1, tzinfo=UTC),
             updated_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
-        request = template_query_request(
-            "list_templates",
-            actor_id,
-            "project_admin",
-            filters={"scope": "private", "type_key": None, "search": None},
-        )
+        arguments = {
+            "operation": "list_templates",
+            "actor": actor,
+            "filters": {"scope": "private", "type_key": None, "search": None},
+        }
         async with caller() as db:
             await db.execute(text("SET LOCAL TIME ZONE 'Asia/Shanghai'"))
             await db.execute(text("SET LOCAL extra_float_digits=0"))
             db.add(pending)
-            reader = TemplateQueryManager(WorkspaceTemplateQueryData(db))
             if no_autoflush:
                 with db.no_autoflush:
-                    result = await reader.execute(request)
+                    rows = await execute_template_query(db, **arguments)
             else:
-                result = await reader.execute(request)
-            rows = materialize_template_query_data(result)
+                rows = await execute_template_query(db, **arguments)
             assert any(row["id"] == pending.id for row in rows) is (not no_autoflush)
             assert (pending in db.new) is no_autoflush
             assert db.in_transaction()
@@ -257,7 +259,40 @@ async def test_borrowed_reader_preserves_pending_work_and_caller_timezone(
             async with maker() as observer:
                 assert await observer.get(ProjectTemplate, pending.id) is None
             await db.rollback()
+            assert await execute_template_query(db, **arguments) == []
     finally:
         await engine.dispose()
         if actor_id is not None:
             await _remove_actor(maker, actor_id)
+
+
+async def test_borrowed_template_owner_matches_frozen_http_and_caller_probes(
+    test_engine, app_module, monkeypatch, tmp_path
+):
+    fixture_path = (
+        Path(__file__).parent
+        / "fixtures/workspace_template_queries_legacy/samples.json"
+    )
+    fixture_bytes = fixture_path.read_bytes()
+    assert hashlib.sha256(fixture_bytes).hexdigest() == (
+        "9c2d7207b6baf0168001b474885e9eccf83449de2cfde7903834cfa1abbb5634"
+    )
+    reference = json.loads(fixture_bytes)
+    assert len(reference["samples"]) == 40
+    compared = []
+
+    def compare(current):
+        assert current["samples"] == [
+            expected_project_sample(sample) for sample in reference["samples"]
+        ]
+        assert current["direct_read_probes"] == reference["direct_read_probes"]
+        assert current["timezone_read_probe"] == reference["timezone_read_probe"]
+        compared.append(len(current["samples"]))
+
+    monkeypatch.setattr(scenarios, "_CAPTURE_PATH", tmp_path / "unused-current-run")
+    monkeypatch.setattr(scenarios, "_source_metadata", lambda: {"current_owner": True})
+    monkeypatch.setattr(scenarios, "_write_capture", compare)
+    await scenarios.test_capture_legacy_template_query_and_projection_samples(
+        test_engine, app_module, monkeypatch
+    )
+    assert compared == [40]

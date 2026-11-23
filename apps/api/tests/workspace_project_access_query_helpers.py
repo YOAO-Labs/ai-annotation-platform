@@ -1,4 +1,4 @@
-"""Replay frozen Project-access responses against current query providers."""
+"""Replay frozen Project-access responses through the borrowed API owner."""
 
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ from tests.test_workspace_access_reads_legacy import (
     _normalise,
     _resolver_caller_probe,
 )
-from tests.workspace_project_query_helpers import api_project_query_binding
 
 
 _HEADERS = ("content-type", "location", "www-authenticate", "retry-after")
@@ -34,8 +33,6 @@ async def replay_workspace_project_access(
     app_module,
     monkeypatch,
     frozen_samples: list[dict],
-    *,
-    token: str,
 ) -> dict:
     """Seed one isolated world, replay its public requests and resolver probes."""
     from app.config import settings
@@ -339,29 +336,28 @@ async def replay_workspace_project_access(
                     }
                 )
 
-        async with api_project_query_binding(token=token):
-            default_probe = await _resolver_caller_probe(
-                runtime_maker=runtime_maker,
-                owner_maker=owner_maker,
-                actor=pending_user,
-                project=target,
-                pending_user=pending_user,
-                assigned_by=super_admin,
-                no_autoflush=False,
-                aliases=aliases,
-                state=state,
-            )
-            no_autoflush_probe = await _resolver_caller_probe(
-                runtime_maker=runtime_maker,
-                owner_maker=owner_maker,
-                actor=pending_user,
-                project=target,
-                pending_user=pending_user,
-                assigned_by=super_admin,
-                no_autoflush=True,
-                aliases=aliases,
-                state=state,
-            )
+        default_probe = await _resolver_caller_probe(
+            runtime_maker=runtime_maker,
+            owner_maker=owner_maker,
+            actor=pending_user,
+            project=target,
+            pending_user=pending_user,
+            assigned_by=super_admin,
+            no_autoflush=False,
+            aliases=aliases,
+            state=state,
+        )
+        no_autoflush_probe = await _resolver_caller_probe(
+            runtime_maker=runtime_maker,
+            owner_maker=owner_maker,
+            actor=pending_user,
+            project=target,
+            pending_user=pending_user,
+            assigned_by=super_admin,
+            no_autoflush=True,
+            aliases=aliases,
+            state=state,
+        )
 
         return {
             "samples": samples,
