@@ -75,7 +75,7 @@ last_reviewed: 2026-10-28
 
 **迁移与恢复授权顺序**：先对准确目标使用迁移 LOGIN 应用 Alembic head。采用独立 NOLOGIN owner 的库，在装配普通授权前，以该迁移操作者运行 `psql -X -v ON_ERROR_STOP=1 … -f infra/docker/module-data-grants.sql`，使用脚本头所列目标库和角色变量；保持同版本脚本及相邻 SQL 的目录结构。`pg_restore --no-owner --no-privileges` 的隔离副本也要重放实际 owner 和窄角色授权，不能跳过。标准工作树按启动器的迁移角色和普通授权装配，不用伪造 NOLOGIN owner 去执行拆分配方。分别检查 LAN 内嵌、LAN 远程 issuer 的 API consumer 与生成工作树的实际运行 LOGIN 对私表、列、物化视图、外表、父子分区及序列均无有效权限；重点核对实际所有权、PUBLIC 与成员关系。维护／迁移另用授权身份，不给普通 API／worker DDL 连接。
 
-**登记的自定义 S3／SFTP**：切换前逐项盘点保存的版本、未结算的 I/O 和仍需历史访问的位置。既有 `assets-source` 是经确认的物理 I/O 归属；此能力仍在实施，保留内建 MinIO、受控目录及站点 Agent。不能把连接器秘密、开封函数或 Source 的数据库连接下放给普通 API／worker。只有在独立副本中用原保存身份验证真实连接器字节、拒绝回退与原记录接续后，才考虑切换该档，见[普通角色与 Source 边界](../dev/concepts/module-deployment#m2b-runtime-boundary)。
+**登记的自定义 S3／SFTP**：切换前逐项盘点保存的版本、未结算的 I/O 和仍需历史访问的位置。为既有 `assets-source` 安装[窄 SQL 授权、作用域 token 和持久暂存](./deploy/docker-compose#source-registered-io)，不要改向内建 MinIO、受控目录或站点 Agent。不能把连接器秘密、开封函数或 Source 的数据库连接下放给普通 API／worker。仅在隔离副本上用原保存身份验证真实连接器字节、拒绝回退与原记录接续后，才能放行该部署，见[普通角色与 Source 边界](../dev/concepts/module-deployment#m2b-runtime-boundary)。
 
 **需要保留的 Recovery 邮件密文**：原来设置了独立 Recovery Fernet key 的，继续使用原 key。若旧内嵌 producer 曾自动由其有效 JWT 密钥派生，则在可信离线环境用已安装的 Identity 包一次性派生到新文件；`OLD_EFFECTIVE_JWT_FILE` 是只含旧有效 JWT key 的只读单行文件，`RECOVERY_FERNET_FILE` 是受限目录内尚不存在的目标：
 

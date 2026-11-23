@@ -19,7 +19,8 @@
 - **Mask GC 保留档**：`mask-gc-operator-cold.json` 与同名 JUnit 的两项用例均通过，零跳过。实际 Compose 中非 root GC 恢复原 claim，三轮删除 3／3／1 项，保留 1001 项；另验证一次性 operator 重启与权限拒绝。此内核不提供最终 cgroup `memory.peak`，故无实测峰值，不能据此通过独立容量基准。
 - **Audit operator**：`audit-cold-source-receipt.json` 与同名 JUnit：1 项通过，零跳过。实际 Compose CLI 在上传后失去进程，继任者接管，整库还原后保留归档及分区退役事实；镜像 `sha256:e582ed36f86c0af42f9bec7cbb21ad911aaecd2b06063e8794561c51f37de0c3` 绑定 22 个源码输入。该轮早于新 owner 授权，不以其代替新账号恢复。
 - **媒体探针**：`media-probe-cold.json` 记录发布用 Compose 的隔离项目及镜像，实际 `/health` 返回 `{"status":"ok"}`。这是探针进程冷启动，不是完整的视频／图片执行测试。
-- **新建数据库**：`schema-all-private-owner-502.json` 记录提交 `910804c179108cd99c75109debfafcb317d3d3c7`、PostgreSQL 16 镜像 ID 和实测 `bo0502`。空卷从头升级成功；这不证明后续 Source 修订、权限重放或业务通过。
+- **Audit Summary 实验档**：`audit-summary-experiment-cold.json` 记录 `3d75a3d45` 上用发布的 `docker-compose.experiments.yml` 冷启 `audit-summary-experiment`；真实健康响应报告协议 1，`mixed.request.json` 的汇总响应与预期完全匹配。它不替代 Audit 核心写入与归档恢复测试。
+- **新建数据库**：`schema-all-private-owner-502.json` 保留首次完整模块 owner 迁移；`native-schema-508-ddl.json` 在 `55e7cb4108` 上用全新 PostgreSQL 16 从空库迁至 `bo0508`，包括已登记 Source 的固定能力。`native-schema-508-ddl-reset-cli.json` 另验证普通连接不可达时，重置 CLI 只用显式迁移身份删除目标数据集和其中一项，并保留无关用户。两项均不是运行账号或连接器字节路径的证明。
 - **默认业务**：`hosted-business.json` 首次停在资源准备；`native-grant-hosted-business.json` 已进入独立插件及服务启动，因 Inference 就绪探针未通过而中止。两者都是失败回执，不是业务通过。
 
 ## 完整 M2b 仍需独立回执
