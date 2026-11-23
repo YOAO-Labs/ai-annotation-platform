@@ -144,7 +144,7 @@ psql -X -U anno_prod_owner -d annotation_production \
 
 在 `$AAP_PRODUCTION_STATE_DIR` 写两份独立文件，内容为各自 LOGIN 的 `postgresql://` DSN，使用实际共享私网数据库地址和 `annotation_production`，密码按 URL 编码。在 `.env.production` 只设绝对宿主路径，不保存原始 DSN。Compose 只把 claim 文件给 `celery-worker-jobs-recovery`；publication 文件只给恢复者和必要的应用生产／执行进程。恢复 worker 加入生产 Redis 与共享 PostgreSQL 网络，不持有迁移／维护 DSN，也没有共享应用权限回退。Beat 等待其就绪。
 
-默认 `ASSETS_VIDEO_EXECUTOR=celery` 需要窄视频执行 LOGIN。按[媒体执行角色](./docker-compose#media-executor-provisioning)安装后设置 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`。需要 Native 图片写入时也安装独立 image LOGIN，配置 `ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`；普通非 Native 图片路径不因此要求新的 DSN。API／Beat 不挂载这些凭据，不向应用 LOGIN 增补执行函数。
+默认 Celery 视频和图片执行分别使用独立的窄 LOGIN。按[媒体执行角色](./docker-compose#media-executor-provisioning)授权并设置 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`、`ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`。普通图片领取和写入也用 image LOGIN，Native writer token 只在启用 Native 时另挂给实际执行者。API／Beat 不挂载这些凭据，也不给应用 LOGIN 增授执行函数。
 
 `celery-worker-maintenance` 使用自己的文件执行 Insights 每日统计刷新。创建独立的 `anno_prod_insights_refresh` LOGIN（不授角色成员关系或对象所有权），在目标库重放以下脚本。将这个 LOGIN 的单行 PostgreSQL DSN 存入独立私密文件，`INSIGHTS_REFRESH_DATABASE_URL_FILE` 只填写其宿主绝对路径。其唯一业务函数是无参 `yoao_insights_v1.refresh_user_perf_daily()`；普通 API、Beat 和其他 worker 不挂载该文件。
 

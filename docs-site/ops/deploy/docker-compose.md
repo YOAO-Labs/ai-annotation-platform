@@ -390,7 +390,7 @@ psql -X -U "$AAP_MIGRATION_ROLE" -d "$AAP_DB" \
 
 #### 媒体执行角色 {#media-executor-provisioning}
 
-严格应用账号只装配视频控制，默认 `ASSETS_VIDEO_EXECUTOR=celery` 的视频执行需独立函数 LOGIN。创建本部署专用 `yoao_asset_media_worker_client`，使用与 Jobs LOGIN 相同的非管理、`NOINHERIT`、无成员关系约束。若采用 Native 图片写入，另建 `yoao_asset_image_worker_client`；普通非 Native 图片不要求该 LOGIN。分别设置密码并保存在各自只读文件。
+默认 Celery 视频和图片执行分别持有独立的 `yoao_asset_media_worker_client`、`yoao_asset_image_worker_client`，包括普通图片领取／写入与已受理输入准备。按 Jobs LOGIN 的非管理、`NOINHERIT`、无成员关系约束创建，分别设置密码并写到只读文件。Native 图片保存另需 worker 专用 writer token，但是否启用 Native 不改变图片执行的 LOGIN 要求。
 
 对于迁移角色持有 Assets 函数的普通数据库，迁移及普通授权后执行：
 
@@ -400,18 +400,17 @@ psql -X -U "$AAP_MIGRATION_ROLE" -d "$AAP_DB" \
   -v assets_owner="$AAP_MIGRATION_ROLE" -v asset_media_worker_role=yoao_asset_media_worker_client \
   < infra/docker/assets-media-grants.sql
 
-# 仅在启用 Native 图片写入时安装相应角色
 psql -X -U "$AAP_MIGRATION_ROLE" -d "$AAP_DB" \
   -v expected_database="$AAP_DB" -v migration_role="$AAP_MIGRATION_ROLE" \
   -v assets_owner="$AAP_MIGRATION_ROLE" -v asset_image_worker_role=yoao_asset_image_worker_client \
   < infra/docker/assets-image-grants.sql
 ```
 
-不启动私有控制端就不用 `asset_media_control_role`。以上不会移交函数或改写 Jobs 所有权，不为默认单体运行 `module-data-grants.sql`。已有 Assets NOLOGIN owner 的库用相同脚本明确指定实际 `assets_owner`，并沿用原模块授权。文件设为 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`、按需 `ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`，同库且绑定上述独立角色。视频只挂通用、GPU、CPU worker；图片还挂图片 worker。API、Beat、Jobs 恢复、维护、导出及 GPU 控制 worker 不得到执行 DSN。
+不启动私有控制端就不用 `asset_media_control_role`。以上不会移交函数或改写 Jobs 所有权，不为默认单体运行 `module-data-grants.sql`。已有 Assets NOLOGIN owner 的库用相同脚本明确指定实际 `assets_owner`，并沿用原模块授权。文件设为 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`、`ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`，同库且绑定上述独立角色。视频只挂通用、GPU、CPU worker；图片还挂图片 worker。API、Beat、Jobs 恢复、维护、导出及 GPU 控制 worker 不得到执行 DSN。
 
 显式切换 `split` 时移除该执行通道的 Celery 绑定；独立服务改用 `ASSETS_MEDIA_WORKER_DATABASE_URL_FILE` 或 `ASSETS_IMAGES_DATABASE_URL_FILE`。不把执行 DSN、Native writer／cleanup token 或存储写身份交给控制端。`ASSETS_MEDIA_URL` 不选择执行器。
 
-安装普通、Jobs 与视频授权和所需 secret 后启动完整默认栈：
+安装普通、Jobs 与媒体执行授权并准备所需 secret 后启动完整默认栈：
 
 ```bash
 stack up -d --build --wait

@@ -38,7 +38,7 @@ cd ../..
 docker compose up -d --wait postgres redis minio mailpit
 ```
 
-按[本地冷启动](/ops/deploy/development#development-cold-start)迁移目标库，安装普通角色、Jobs claim／publication 和视频执行授权，准备各自的文件。不要在未配置受限凭据时启动完整栈，也不要用现有日常拆分环境试跑新配方；多工作树使用下节的隔离 launcher。
+按[本地冷启动](/ops/deploy/development#development-cold-start)迁移目标库，安装普通角色、Jobs claim／publication、视频及图片执行授权，准备各自的文件。不要在未配置受限凭据时启动完整栈，也不要用现有日常拆分环境试跑新配方；多工作树使用下节的隔离 launcher。
 
 ---
 

@@ -27,7 +27,7 @@ last_reviewed: 2026-11-16
 
 `docker-compose.assets-media.yml` 不属于默认 Compose。分离执行选 `ASSETS_IMAGE_EXECUTOR=split` 与 `assets-image-executor` profile，配置 `ASSETS_IMAGES_DATABASE_URL_FILE`、`ASSETS_IMAGES_S3_ACCESS_KEY_FILE`、`ASSETS_IMAGES_S3_SECRET_KEY_FILE`（UID 10005 可读）。`ASSETS_MEDIA_URL/TOKEN` 只选择独立控制；需要时另启 `assets-media-control` profile。显式远程配置失败不回退，三个进程不共用数据库或高权限 S3 身份。
 
-普通 Celery 生成沿用当前本地队列；启用 Native 成员写入时另为所选 Celery 执行器准备函数 LOGIN 和 `ASSETS_CELERY_IMAGE_DATABASE_URL(_FILE)`，不把 Native writer 权限给 API。切到 split 时移除该 Celery 绑定，改用 split worker 的 `ASSETS_IMAGES_DATABASE_URL_FILE`。见[媒体执行角色](../deploy/docker-compose#media-executor-provisioning)。
+默认 Celery 图片执行使用固定函数 LOGIN 和 `ASSETS_CELERY_IMAGE_DATABASE_URL(_FILE)`，包括普通图片领取、写入和已受理输入准备。启用 Native 另给实际执行者 writer token，不给 API。切到 split 时移除该 Celery 绑定，改用 split worker 的 `ASSETS_IMAGES_DATABASE_URL_FILE`。见[媒体执行角色](../deploy/docker-compose#media-executor-provisioning)。
 
 S3 权限应限定为：
 
