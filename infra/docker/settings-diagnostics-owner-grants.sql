@@ -6,6 +6,21 @@ GRANT SELECT (key, value_type, value_json, updated_at, updated_by, runtime_revis
     ON public.system_settings TO :"settings_owner";
 GRANT USAGE, CREATE ON SCHEMA yoao_settings_v1 TO :"settings_owner";
 ALTER TABLE yoao_settings_v1.smtp_test_attempts OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1._rekey_override() OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1._setting_type(text) OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1._override_stamp() OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1._super_admin(uuid,boolean) OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.runtime_knob(text) OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.connector_override() OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.import_limits() OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.management_snapshot(uuid,boolean) OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.apply_settings_edit(uuid,text,jsonb,text[],text)
+    OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.queue_smtp_test(uuid) OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.read_smtp_test(uuid,uuid) OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.claim_smtp_test() OWNER TO :"settings_owner";
+ALTER FUNCTION yoao_settings_v1.finish_smtp_test(uuid,uuid,text,text,text,integer)
+    OWNER TO :"settings_owner";
 REVOKE CREATE ON SCHEMA yoao_settings_v1 FROM :"settings_owner";
 
 GRANT USAGE ON SCHEMA yoao_identity_v1 TO :"settings_owner", :"diagnostics_owner";
