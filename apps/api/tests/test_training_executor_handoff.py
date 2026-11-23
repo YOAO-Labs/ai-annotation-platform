@@ -1,10 +1,13 @@
 """Opt-in real-TCP handoff checks for the existing Training Executor contract.
 
 Run only from this worktree's explicitly provisioned disposable test mode with
-``AAP_TRAINING_EXECUTOR_HANDOFF_ACCEPTANCE=1``. The API uses its normal
-``get_db`` factory; executor peers use the production Supervisor's journal,
-claim, fence and publication code with a controlled runtime identity and tiny
-CPU child. These checks do not qualify a model, GPU, production capacity or Go.
+``AAP_TRAINING_EXECUTOR_HANDOFF_ACCEPTANCE=1``. Before running the peer test,
+prepare its own locked environment from the checkout root:
+``uv sync --locked --project apps/training-executor``.
+The API uses its normal ``get_db`` factory; executor peers use the production
+Supervisor's journal, claim, fence and publication code with a controlled
+runtime identity and tiny CPU child. These checks do not qualify a model,
+GPU, production capacity or Go.
 """
 
 from __future__ import annotations
@@ -86,7 +89,8 @@ pytestmark = pytest.mark.skipif(
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _API_ROOT = _REPO_ROOT / "apps" / "api"
-_PEER_MODULE = "tests.fixtures.training_executor_handoff_peer"
+_PEER_SCRIPT = _API_ROOT / "tests" / "fixtures" / "training_executor_handoff_peer.py"
+_PEER_PYTHON = _REPO_ROOT / "apps" / "training-executor" / ".venv" / "bin" / "python"
 _TOKEN = "local-handoff-executor-test-credential-" + "x" * 40
 _GPU = "GPU-11111111-2222-3333-4444-555555555555"
 _IMAGE = "sha256:" + "1" * 64
@@ -229,17 +233,17 @@ def _spawn_peer(
     stop_gate: Path | None = None,
     retry_gate: Path | None = None,
 ) -> subprocess.Popen[bytes]:
+    if not _PEER_PYTHON.is_file():
+        pytest.fail(
+            "Prepare this checkout's isolated Training Executor environment with "
+            "`uv sync --locked --project apps/training-executor` before running the peer test"
+        )
     state_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     env = {
         name: os.environ[name]
-        for name in ("PATH", "HOME", "TMPDIR", "PYTHONPATH")
+        for name in ("PATH", "HOME", "TMPDIR")
         if name in os.environ
     }
-    training_executor = str(_REPO_ROOT / "apps" / "training-executor")
-    existing_pythonpath = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = os.pathsep.join(
-        item for item in (training_executor, existing_pythonpath) if item
-    )
     env.update(
         TRAINING_API_URL=world.internal_api,
         TRAINING_EXECUTOR_TOKEN=world.executor_token,
@@ -259,8 +263,8 @@ def _spawn_peer(
     if retry_gate is not None:
         env["AAP_HANDOFF_RETRY_GATE"] = str(retry_gate)
     process = subprocess.Popen(
-        [sys.executable, "-m", _PEER_MODULE, mode],
-        cwd=_API_ROOT,
+        [str(_PEER_PYTHON), "-I", str(_PEER_SCRIPT), mode],
+        cwd=state_dir,
         env=env,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
