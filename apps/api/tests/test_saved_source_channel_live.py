@@ -57,7 +57,9 @@ async def test_saved_source_registered_binding_probe_and_denial(
     assert source_url.username == "yoao_asset_source_saved_io_client"
     assert ordinary_url.username not in {source_url.username, test_engine.url.username}
     ordinary = create_async_engine(ordinary_url, hide_parameters=True)
-    source = create_async_engine(source_url, hide_parameters=True)
+    source = create_async_engine(
+        source_url.set(drivername="postgresql+asyncpg"), hide_parameters=True
+    )
     open_session = async_sessionmaker(ordinary, expire_on_commit=False)
     owner_session = async_sessionmaker(test_engine, expire_on_commit=False)
     actor_id = uuid4()
