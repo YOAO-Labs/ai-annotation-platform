@@ -526,7 +526,10 @@ def business_stack(test_engine, directory):
             "ML_MANAGED_BACKEND_URLS": "{}",
             "ML_BACKEND_STORAGE_HOST": settings.minio_endpoint,
             "JOBS_PUBLICATION_DATABASE_URL": _role_dsn(
-                test_engine, "JOBS_PUBLICATION", "yoao_jobs_publication_client"
+                test_engine,
+                "JOBS_PUBLICATION",
+                "yoao_jobs_publication_client",
+                native=True,
             ),
         }
         api_port = _port()
@@ -581,6 +584,7 @@ def business_stack(test_engine, directory):
                     test_engine,
                     "PREANNOTATION_RESULT",
                     "yoao_preannotation_result_client",
+                    native=True,
                 ),
             },
         )
