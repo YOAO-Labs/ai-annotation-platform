@@ -156,9 +156,9 @@ BEGIN
     END IF;
     FOR v_key, v_value IN SELECT key, value FROM pg_catalog.jsonb_each(p_set) LOOP
         v_type := yoao_settings_v1._setting_type(v_key);
-        IF v_type IS NULL OR pg_catalog.jsonb_typeof(v_value) <> CASE v_type
+        IF v_type IS NULL OR pg_catalog.jsonb_typeof(v_value) <> (CASE v_type
                 WHEN 'int' THEN 'number' WHEN 'str' THEN 'string'
-                WHEN 'bool' THEN 'boolean' ELSE 'array' END
+                WHEN 'bool' THEN 'boolean' ELSE 'array' END)
            OR (v_type = 'int' AND v_value::text !~ '^(0|[1-9][0-9]*)$') THEN
             RAISE EXCEPTION 'invalid settings override' USING ERRCODE = '22023';
         END IF;
