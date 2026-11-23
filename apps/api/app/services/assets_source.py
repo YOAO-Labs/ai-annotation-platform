@@ -83,6 +83,11 @@ def _peer_url() -> str | None:
     value = settings.assets_source_url
     if not value:
         return None
+    if not settings.assets_source_token:
+        from app.services.saved_io import source_scoped_configured
+
+        if source_scoped_configured():
+            return None
     try:
         parsed = urlsplit(value)
         parsed.port

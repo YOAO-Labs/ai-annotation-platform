@@ -82,6 +82,7 @@ NATIVE_MANAGED_RELATIONS = frozenset(
         ("yoao_labeling_v1", "video_writer_receipts"),
         ("yoao_inference_routing_v1", "video_execution_scope_permits"),
         ("yoao_inference_backend_endpoint_v1", "endpoint_secret"),
+        ("yoao_assets_v1", "saved_binding_probe"),
     }
     | {
         ("yoao_inference_routing_v1", name)

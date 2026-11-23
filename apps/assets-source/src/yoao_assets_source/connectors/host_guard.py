@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import socket
+from time import monotonic
 from urllib.parse import urlparse
 
 
@@ -173,3 +174,18 @@ def resolve_allowed_ips(host_or_endpoint: str, allowlist: list[str]) -> list[str
 def assert_host_allowed(host_or_endpoint: str, allowlist: list[str]) -> None:
     """Reject unlisted, loopback, link-local, multicast, or reserved targets."""
     resolve_allowed_ips(host_or_endpoint, allowlist)
+
+
+def open_allowed_socket(host: str, port: int, allowlist: list[str], *, timeout: float):
+    """Dial only the validated numeric addresses while retaining the host for SSH."""
+    addresses = resolve_allowed_ips(host, allowlist)
+    deadline = monotonic() + timeout
+    for address in addresses:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            break
+        try:
+            return socket.create_connection((address, port), timeout=remaining)
+        except OSError:
+            continue
+    raise OSError("Registered connector could not be reached")

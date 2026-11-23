@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .host_guard import assert_host_allowed, normalize_allowlist
+from .host_guard import assert_host_allowed, normalize_allowlist, open_allowed_socket
 from .s3 import S3CompatibleSource, validate_s3_endpoint, validate_s3_source_path
 from .sftp import SftpSource, validate_sftp_source_path
 
@@ -70,13 +70,15 @@ def build_source_adapter(
     require_conditional_reads: bool = False,
     s3_client: Any | None = None,
     sftp_client: Any | None = None,
+    pin_transport: bool = False,
 ) -> S3CompatibleSource | SftpSource:
     """Validate host, path, and credentials immediately before opening a source."""
     normalized_allowlist = normalize_allowlist(allowlist)
     if source_path is not None:
         validate_source_path(kind, config, source_path)
     validate_secret(kind, secret, config)
-    assert_host_allowed(target_host(kind, config), normalized_allowlist)
+    if not (kind == "sftp" and pin_transport):
+        assert_host_allowed(target_host(kind, config), normalized_allowlist)
     if kind == "s3":
         return S3CompatibleSource(
             config,
@@ -85,12 +87,26 @@ def build_source_adapter(
             require_conditional_reads=require_conditional_reads,
         )
     if kind == "sftp":
-        return SftpSource(
-            config,
-            secret,
-            known_hosts_file=known_hosts_file,
-            timeout_seconds=sftp_timeout_seconds,
-            require_listing_identity=require_conditional_reads,
-            client=sftp_client,
-        )
+        sock = None
+        if pin_transport:
+            sock = open_allowed_socket(
+                config["host"],
+                int(config.get("port", 22)),
+                normalized_allowlist,
+                timeout=sftp_timeout_seconds,
+            )
+        try:
+            return SftpSource(
+                config,
+                secret,
+                known_hosts_file=known_hosts_file,
+                timeout_seconds=sftp_timeout_seconds,
+                require_listing_identity=require_conditional_reads,
+                client=sftp_client,
+                **({"sock": sock} if sock is not None else {}),
+            )
+        except BaseException:
+            if sock is not None:
+                sock.close()
+            raise
     raise ValueError("unsupported storage connector")

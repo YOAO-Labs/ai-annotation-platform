@@ -48,6 +48,7 @@ from yoao_assets_source.connections_contract import (
     decode_connection_reply,
 )
 from yoao_assets_source.import_verification_contract import ImportVerificationRequest
+from yoao_assets_source.saved_io import SAVED_IO_PATH
 from yoao_assets_images.contract import (
     IMAGE_SCHEMA,
     REPLY_BYTES,
@@ -73,6 +74,7 @@ from yoao_assets_images.native_storage_contract import (
 )
 from .config import NativeSignerSettings
 from .runtime import SourceRuntime
+from .saved_io import dispatch as dispatch_saved_io
 
 logger = logging.getLogger("yoao_assets_source_runtime")
 _SOURCE_SCHEMA = "aap-assets-source/v1"
@@ -99,6 +101,9 @@ class BoundedHttpBodyMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        if scope.get("path", "").startswith(SAVED_IO_PATH + "/"):
             await self.app(scope, receive, send)
             return
 
@@ -477,6 +482,25 @@ async def _require_gateway(request: Request) -> None:
         )
 
 
+async def _require_connections(request: Request) -> None:
+    config = request.app.state.config
+    if not config.connections_token:
+        await _require_gateway(request)
+        return
+    headers = request.headers.getlist("authorization")
+    scheme, _, token = (headers[0] if len(headers) == 1 else "").partition(" ")
+    if (
+        scheme.casefold() != "bearer"
+        or not token.isascii()
+        or not hmac.compare_digest(token, config.connections_token)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid service credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 async def _require_import_verifier(request: Request) -> None:
     authorization = request.headers.get("authorization", "")
     scheme, separator, token = authorization.partition(" ")
@@ -551,7 +575,8 @@ def create_app(
     @app.get("/ready")
     async def ready(request: Request) -> dict[str, str]:
         try:
-            await request.app.state.runtime.ready()
+            if await request.app.state.runtime.ready() is False:
+                raise RuntimeError("Source runtime is not ready")
         except Exception as exc:
             logger.error("Assets source readiness failed (%s)", type(exc).__name__)
             raise HTTPException(
@@ -559,6 +584,12 @@ def create_app(
                 detail="Assets source is not ready",
             ) from None
         return {"status": "ready"}
+
+    @app.post(SAVED_IO_PATH + "/{family}/{action}")
+    async def saved_io(request: Request, family: str, action: str) -> Response:
+        return await dispatch_saved_io(
+            request.app.state.runtime.saved_io, request, family, action
+        )
 
     @app.post("/v1/import/verify", dependencies=[Depends(_require_import_verifier)])
     async def verify_import(request: Request, body: ImportVerificationRequest) -> dict:
@@ -661,42 +692,42 @@ def create_app(
             return Response(status_code=status.HTTP_204_NO_CONTENT)
         return Response(content=payload, media_type="application/json")
 
-    @app.post("/v1/connections/list", dependencies=[Depends(_require_gateway)])
+    @app.post("/v1/connections/list", dependencies=[Depends(_require_connections)])
     async def list_connections(
         request: Request, body: ListConnectionsRequest
     ) -> Response:
         payload = await request.app.state.runtime.manage_connection("list", body)
         return Response(content=payload, media_type="application/json")
 
-    @app.post("/v1/connections/read", dependencies=[Depends(_require_gateway)])
+    @app.post("/v1/connections/read", dependencies=[Depends(_require_connections)])
     async def read_connection(
         request: Request, body: ReadConnectionRequest
     ) -> Response:
         payload = await request.app.state.runtime.manage_connection("read", body)
         return Response(content=payload, media_type="application/json")
 
-    @app.post("/v1/connections/create", dependencies=[Depends(_require_gateway)])
+    @app.post("/v1/connections/create", dependencies=[Depends(_require_connections)])
     async def create_connection(
         request: Request, body: CreateConnectionRequest
     ) -> Response:
         payload = await request.app.state.runtime.manage_connection("create", body)
         return Response(content=payload, media_type="application/json")
 
-    @app.post("/v1/connections/update", dependencies=[Depends(_require_gateway)])
+    @app.post("/v1/connections/update", dependencies=[Depends(_require_connections)])
     async def update_connection(
         request: Request, body: UpdateConnectionRequest
     ) -> Response:
         payload = await request.app.state.runtime.manage_connection("update", body)
         return Response(content=payload, media_type="application/json")
 
-    @app.post("/v1/connections/delete", dependencies=[Depends(_require_gateway)])
+    @app.post("/v1/connections/delete", dependencies=[Depends(_require_connections)])
     async def delete_connection(
         request: Request, body: DeleteConnectionRequest
     ) -> Response:
         payload = await request.app.state.runtime.manage_connection("delete", body)
         return Response(content=payload, media_type="application/json")
 
-    @app.post("/v1/connections/test", dependencies=[Depends(_require_gateway)])
+    @app.post("/v1/connections/test", dependencies=[Depends(_require_connections)])
     async def test_connection(
         request: Request, body: TestConnectionRequest
     ) -> Response:

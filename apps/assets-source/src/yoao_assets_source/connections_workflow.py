@@ -77,6 +77,7 @@ class ConnectionsOptions:
     encryption_key: str = field(default="", repr=False)
     fallback_allowlist: tuple[str, ...] = ()
     known_hosts_file: str | None = None
+    pin_transport: bool = False
 
 
 class ConnectionsNativePort(Protocol):
@@ -375,6 +376,7 @@ class ConnectionsWorkflow:
                 else self._decrypt(capture),
                 allowlist=entries,
                 known_hosts_file=self._options.known_hosts_file,
+                **({"pin_transport": True} if self._options.pin_transport else {}),
             )
             if not ok:
                 raise ConnectionFailure("validation_failed", message)
@@ -509,6 +511,7 @@ class ConnectionsWorkflow:
                     secret,
                     allowlist=entries,
                     known_hosts_file=self._options.known_hosts_file,
+                    **({"pin_transport": True} if self._options.pin_transport else {}),
                 )
             )
         except BaseException as exc:

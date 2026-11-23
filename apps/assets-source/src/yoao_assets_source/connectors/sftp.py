@@ -160,6 +160,7 @@ class SftpSource(SourceAdapter):
         timeout_seconds: float = 10,
         require_listing_identity: bool = False,
         client: Any | None = None,
+        sock: Any | None = None,
     ) -> None:
         import paramiko
 
@@ -186,6 +187,7 @@ class SftpSource(SourceAdapter):
                 auth_timeout=timeout_seconds,
                 allow_agent=False,
                 look_for_keys=False,
+                **({"sock": sock} if sock is not None else {}),
             )
             self._sftp = self._client.open_sftp()
             channel = self._sftp.get_channel()

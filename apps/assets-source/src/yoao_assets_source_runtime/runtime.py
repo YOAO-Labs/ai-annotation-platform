@@ -65,6 +65,7 @@ from .ingest_storage import IngestStorage
 from .ingest_workflow import IngestWorkflow
 from .image_admission import ImageAdmission
 from .native_storage import NativeStorageSigner
+from .saved_io import SavedIOService
 
 _Result = TypeVar("_Result", bound=BaseModel)
 _SOURCE_SCHEMA = "aap-assets-source/v1"
@@ -83,29 +84,35 @@ class SourceRuntime:
         database: SourceDatabase | None,
         storage: SourceStorage | None,
         native: NativeStorageSigner | None = None,
+        saved_io: SavedIOService | None = None,
     ) -> None:
         self._config = config
         self._database = database
         self._storage = storage
         self._native = native
+        self.saved_io = saved_io
         self._recovery_task: asyncio.Task[None] | None = None
 
     @classmethod
     async def start(cls, config: SourceConfig) -> SourceRuntime:
         database = await SourceDatabase.connect(config)
+        saved_io = None
         try:
             native = (
                 NativeStorageSigner(config, config.native, database)
                 if config.native is not None
                 else None
             )
-            runtime = cls(config, database, SourceStorage(config), native)
+            saved_io = await SavedIOService.start(config)
+            runtime = cls(config, database, SourceStorage(config), native, saved_io)
             runtime._recovery_task = asyncio.create_task(
                 runtime._recover_import_verifications(),
                 name="source-import-verification-recovery",
             )
             return runtime
-        except Exception:
+        except BaseException:
+            if saved_io is not None:
+                await saved_io.close()
             await database.close()
             raise
 
@@ -323,6 +330,9 @@ class SourceRuntime:
                     encryption_key=self._config.connector_encryption_key,
                     fallback_allowlist=self._config.connector_host_allowlist,
                     known_hosts_file=self._config.sftp_known_hosts_file,
+                    pin_transport=bool(
+                        self._config.connections_token or self._config.saved_io
+                    ),
                 ),
             )
             result = await workflow.invoke(operation_name, request)
@@ -374,6 +384,8 @@ class SourceRuntime:
         return self._native
 
     async def ready(self) -> bool:
+        if self.saved_io is not None and not await self.saved_io.ready():
+            return False
         return await self._database.ready()
 
     async def close(self) -> None:
@@ -381,7 +393,11 @@ class SourceRuntime:
             self._recovery_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._recovery_task
-        await self._database.close()
+        try:
+            if self.saved_io is not None:
+                await self.saved_io.close()
+        finally:
+            await self._database.close()
 
     def _workflow(self, ports: SourceDataPorts) -> UploadWorkflow:
         return UploadWorkflow(

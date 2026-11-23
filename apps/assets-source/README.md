@@ -227,6 +227,51 @@ Neither operation creates a connector Job or uses the connector-import
 protocol. ZIP runs in the existing Source HTTP runtime and uses its existing
 configuration; no bulk-ingest environment variables are added.
 
+## Registered S3/SFTP physical operations
+
+The existing Source process also handles configured, non-builtin storage. The
+ordinary API continues to admit the operation in its own transaction and passes
+only owner evidence through `POST /v1/saved-io/{family}/{action}`. Reference,
+outputs, media, training, migration and binding probes have finite actions and
+fixed database functions. Source resolves the saved revision and decrypts the
+registered connector locally. It does not return credentials or a generic
+signer; only existing public signed transfers may return a URL for the exact
+authorized method/object/version. Builtin locations retain their existing
+paths. Metadata capture does not open a connection or resolve DNS.
+
+Enable the Source channel with `ASSETS_SOURCE_SAVED_IO_DATABASE_URL[_FILE]`
+and the distinct `ASSETS_SOURCE_SAVED_IO_READ_TOKEN[_FILE]`,
+`ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN[_FILE]`, and
+`ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN[_FILE]`. Install the Source-only grant
+profile (shared and all five owner-family fragments) after the Assets migrations.
+The Saved I/O login cannot read relations or execute management or unrelated
+owner functions; an incomplete or broadened login prevents startup. Keep the
+connector key (`ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY[_FILE]`), saved-I/O DSN,
+and SFTP host trust (`ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` and, for jailed
+references, `STORAGE_SFTP_ROOTS`) only in Source. Configure the existing Source
+allowlist fallback; an explicit database policy, including an empty policy,
+takes precedence. Source pins checked network addresses and preserves TLS
+hostname/SFTP host key verification.
+
+Consumers receive `ASSETS_SOURCE_URL` and only the bearer values needed for
+their own work. Configure `ASSETS_SOURCE_CONNECTIONS_TOKEN[_FILE]` separately
+on Source and the API for existing connector create/update/test; this credential
+does not activate retired Source submission routes or authorize saved I/O. The
+optional `ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN[_FILE]` goes only to Source and
+the migration cutover CLI. Omitted cutover configuration does not enable the
+operation using a different bearer.
+
+The binary channel bounds headers, command payloads and concurrent work. It
+spools one seekable upload at a time to the explicitly configured writable
+`ASSETS_SOURCE_SAVED_IO_SPOOL_DIR` (Source-owned, outside the legacy `/tmp`
+tmpfs). `ASSETS_SOURCE_SAVED_IO_MAX_UPLOAD_BYTES` defaults to `68719476736`
+(64 GiB); size scratch to the selected limit per Source instance. A lower site
+limit refuses larger uploads before provider I/O. Downloads stream without
+spooling their complete contents in the shared transport; an interrupted
+receipt never triggers an automatic replay or substitutes a local connection.
+Mixed managed-original operations that use the existing builtin annotations
+bucket also need `ASSETS_SOURCE_ANNOTATIONS_BUCKET` set on Source.
+
 ## Configuration
 
 ### Source operations

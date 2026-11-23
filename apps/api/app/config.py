@@ -345,6 +345,18 @@ class Settings(BaseSettings):
 
     assets_source_url: str = ""
     assets_source_token: str = Field(default="", repr=False)
+    assets_source_connections_token: str = Field(default="", repr=False, exclude=True)
+    assets_source_connections_token_file: str = ""
+    assets_source_saved_io_read_token: str = Field(default="", repr=False, exclude=True)
+    assets_source_saved_io_read_token_file: str = ""
+    assets_source_saved_io_write_token: str = Field(
+        default="", repr=False, exclude=True
+    )
+    assets_source_saved_io_write_token_file: str = ""
+    assets_source_saved_io_cleanup_token: str = Field(
+        default="", repr=False, exclude=True
+    )
+    assets_source_saved_io_cleanup_token_file: str = ""
     assets_source_timeout_seconds: float = Field(default=300, gt=0, le=3600)
     assets_media_url: str = ""
     assets_media_token: str = Field(default="", repr=False)
