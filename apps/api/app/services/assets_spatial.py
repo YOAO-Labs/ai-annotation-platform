@@ -843,7 +843,7 @@ class AssetsSpatialGateway:
         seen: set[uuid.UUID] = set()
         while True:
             page_request = request.model_copy(update={"after": cursor})
-            page, _ = await self._call(
+            page = await self._call(
                 "list_spatial_scenes",
                 page_request,
                 (
@@ -911,7 +911,7 @@ class AssetsSpatialGateway:
         first: LayoutPage | None = None
         while True:
             page_request = request.model_copy(update={"after_item_id": cursor})
-            page, _ = await self._call(
+            page = await self._call(
                 "read_spatial_layout",
                 page_request,
                 (
@@ -966,7 +966,7 @@ class AssetsSpatialGateway:
         first: ItemFactsPage | None = None
         while True:
             page_request = request.model_copy(update={"after_item_id": cursor})
-            page, _ = await self._call(
+            page = await self._call(
                 "read_spatial_items",
                 page_request,
                 (
@@ -1017,7 +1017,7 @@ class AssetsSpatialGateway:
         total: int | None = None
         while True:
             page_request = request.model_copy(update={"after_frame_index": cursor})
-            page, _ = await self._call(
+            page = await self._call(
                 "read_spatial_poses",
                 page_request,
                 (
@@ -1092,7 +1092,7 @@ class AssetsSpatialGateway:
             seen: set[tuple[uuid.UUID, int]] = set()
             while True:
                 page_request = request.model_copy(update={"after": cursor})
-                page, _ = await self._call(
+                page = await self._call(
                     "read_spatial_calibrations",
                     page_request,
                     (
@@ -1373,7 +1373,7 @@ class AssetsSpatialGateway:
         first: PreparationPage | None = None
         while True:
             page_request = request.model_copy(update={"after_item_id": cursor})
-            page, _ = await self._call(
+            page = await self._call(
                 "read_pointcloud_preparation",
                 page_request,
                 (
