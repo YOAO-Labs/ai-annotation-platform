@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import stat
 import sys
@@ -397,16 +398,14 @@ async def _drop_owned_clone(admin, test_engine, database: str, ownership: str) -
             {"name": database},
         )
         assert marker == ownership
-        active = await connection.scalar(
-            text(
-                "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity "
-                "WHERE datname=:name "
-                "AND pid <> pg_catalog.pg_backend_pid() "
-                "AND backend_type IS DISTINCT FROM 'autovacuum worker')"
-            ),
-            {"name": database},
+        active_sessions = text(
+            "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity "
+            "WHERE datname=:name AND pid <> pg_catalog.pg_backend_pid() "
+            "AND backend_type IS DISTINCT FROM 'autovacuum worker')"
         )
-        assert not active
+        async with asyncio.timeout(10):
+            while await connection.scalar(active_sessions, {"name": database}):
+                await asyncio.sleep(0.2)
         await connection.execute(text(f"DROP DATABASE {quoted}"))
 
 

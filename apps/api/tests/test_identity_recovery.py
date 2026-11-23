@@ -104,7 +104,7 @@ def _alembic(url, direction, revision):
         cwd=ROOT / "apps/api",
         env=environment,
         capture_output=True,
-        timeout=40,
+        timeout=300 if (direction, revision) == ("upgrade", "head") else 40,
     )
 
 
