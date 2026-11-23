@@ -5,6 +5,7 @@ from hashlib import sha256
 from io import BytesIO
 import json
 import os
+from types import SimpleNamespace
 from uuid import uuid4
 
 from botocore.exceptions import ClientError
@@ -39,12 +40,106 @@ pytestmark = [
 ]
 
 
+@pytest.fixture
+async def media_actor(test_engine):
+    async with seeded_embedded_accounts(test_engine) as (actor, _):
+        yield actor
+
+
+async def _restore_binding(owner_db, rows, purpose):
+    async with owner_db.begin() as owner:
+        await owner.execute(
+            text(
+                "UPDATE public.storage_bindings SET location_id=:location_id, bucket=:bucket, generation=:generation "
+                "WHERE purpose=:purpose AND location_id=:ours"
+            ),
+            rows.previous[purpose] | {"purpose": purpose, "ours": rows.location},
+        )
+
+
+@pytest.fixture
+async def media_rows(test_engine, media_actor):
+    assert test_engine.url.database.endswith("_test")
+    rows = SimpleNamespace(
+        connection_id=uuid4(),
+        dataset_id=uuid4(),
+        output_id=uuid4(),
+        retiring_id=uuid4(),
+        project_id=None,
+        location=None,
+        previous={},
+    )
+    yield rows
+    owner_db = async_sessionmaker(test_engine)
+    for purpose in rows.previous:
+        await _restore_binding(owner_db, rows, purpose)
+    async with owner_db.begin() as owner:
+        for table, trigger, column, identifiers in (
+            (
+                "thumbnail_outputs",
+                "trg_thumbnail_output_owner",
+                "id",
+                [rows.output_id, rows.retiring_id],
+            ),
+            (
+                "managed_original_creations",
+                "trg_managed_original_creation_history",
+                "dataset_id",
+                [rows.dataset_id],
+            ),
+        ):
+            await owner.execute(
+                text(f"ALTER TABLE public.{table} DISABLE TRIGGER {trigger}")
+            )
+            await owner.execute(
+                text(
+                    f"DELETE FROM public.{table} WHERE {column}=ANY(CAST(:ids AS uuid[]))"
+                ),
+                {"ids": identifiers},
+            )
+            await owner.execute(
+                text(f"ALTER TABLE public.{table} ENABLE TRIGGER {trigger}")
+            )
+        if rows.project_id is not None:
+            for table, column in (
+                ("project_guide_assets", "project_id"),
+                ("guide_asset_uploads", "project_id"),
+                ("projects", "id"),
+            ):
+                await owner.execute(
+                    text(f"DELETE FROM public.{table} WHERE {column}=:id"),
+                    {"id": rows.project_id},
+                )
+        await owner.execute(
+            text("DELETE FROM public.datasets WHERE id=:id"), {"id": rows.dataset_id}
+        )
+        for table in (
+            "storage_operations",
+            "storage_maintenance_gates",
+            "storage_location_probes",
+        ):
+            await owner.execute(
+                text(f"DELETE FROM public.{table} WHERE location_id=:id"),
+                {"id": rows.location},
+            )
+        await owner.execute(
+            text("DELETE FROM public.storage_locations WHERE id=:id"),
+            {"id": rows.location},
+        )
+        await owner.execute(
+            text("DELETE FROM public.storage_connections WHERE id=:id"),
+            {"id": rows.connection_id},
+        )
+
+
 async def test_registered_media_round_trip_and_denial(
-    test_engine, tmp_path, app_module, monkeypatch
+    test_engine, tmp_path, app_module, monkeypatch, media_actor, media_rows
 ):
     async with async_sessionmaker(test_engine).begin() as owner:
         await ensure_legacy_bindings(owner)
-    connection_id, item_id, dataset_id, output_id = (uuid4() for _ in range(4))
+    admin, rows = media_actor, media_rows
+    connection_id = rows.connection_id
+    dataset_id, output_id, item_id = rows.dataset_id, rows.output_id, uuid4()
     with (
         registered_sink(test_engine) as sink,
         real_source(
@@ -65,7 +160,6 @@ async def test_registered_media_round_trip_and_denial(
                 source.tokens[access],
             )
         async with (
-            seeded_embedded_accounts(test_engine) as (admin, _),
             runtime(
                 test_engine,
                 "AAP_MODULE_DATA_IDENTITY_EMBEDDED_API_CONSUMER_URL",
@@ -109,18 +203,11 @@ async def test_registered_media_round_trip_and_denial(
                     ),
                     {"id": connection_id},
                 )
+            rows.location = location
             assert location is not None
-            previous, project_id = {}, None
 
             async def restore(purpose):
-                async with owner_db.begin() as owner:
-                    await owner.execute(
-                        text(
-                            "UPDATE public.storage_bindings SET location_id=:location_id, bucket=:bucket, generation=:generation "
-                            "WHERE purpose=:purpose AND location_id=:ours"
-                        ),
-                        previous[purpose] | {"purpose": purpose, "ours": location},
-                    )
+                await _restore_binding(owner_db, rows, purpose)
 
             try:
                 for purpose in ("annotations", "import", "datasets", "media-cache"):
@@ -137,7 +224,7 @@ async def test_registered_media_round_trip_and_denial(
                             .mappings()
                             .one()
                         )
-                        previous[purpose] = dict(row)
+                        rows.previous[purpose] = dict(row)
                     route = f"/api/v1/storage-locations/bindings/{purpose}"
                     change = {
                         "expected_generation": row["generation"],
@@ -162,6 +249,7 @@ async def test_registered_media_round_trip_and_denial(
 
                 async with owner_db.begin() as owner:
                     project_id = (await create_project(owner, owner_id=admin.id)).id
+                    rows.project_id = project_id
                     owner.add(
                         Dataset(
                             id=dataset_id,
@@ -185,7 +273,8 @@ async def test_registered_media_round_trip_and_denial(
                     headers=headers,
                     params={"key": uploaded.json()["key"]},
                 )
-                assert guide.status_code == 200 and guide.content == png
+                assert guide.status_code == 200, guide.text
+                assert guide.content == png
 
                 payload = b"multipart-original\x00" * (512 * 1024)
                 content_type = "application/octet-stream"
@@ -275,7 +364,7 @@ async def test_registered_media_round_trip_and_denial(
                     await owner.execute(
                         text(
                             "UPDATE public.thumbnail_outputs SET state='ready', sha256=:sha256, size_bytes=:size_bytes, "
-                            "etag=:etag, version_id=:version_id, ready_at=now(), writer_until=now()-interval '2 hours' WHERE id=:id"
+                            "etag=:etag, version_id=:version_id, ready_at=now() WHERE id=:id"
                         ),
                         receipt | {"id": output_id},
                     )
@@ -311,82 +400,59 @@ async def test_registered_media_round_trip_and_denial(
                 sink.storage.put_object(
                     Bucket=sink.bucket, Key=protected_key, Body=b"untouched"
                 )
+                retiring_ref = ref | {
+                    "prefix": ref["key_prefix"]
+                    + thumbnail_outputs.prefix_for(rows.retiring_id)
+                }
+                retiring_key = retiring_ref["prefix"] + "thumbnail.webp"
+                retiring = sink.storage.put_object(
+                    Bucket=sink.bucket,
+                    Key=retiring_key,
+                    Body=png,
+                    ContentType="image/webp",
+                )
                 async with owner_db.begin() as owner:
                     await owner.execute(
                         text(
-                            "UPDATE public.thumbnail_outputs SET state='retiring', retired_at=now()-interval '2 hours' WHERE id=:id"
+                            "INSERT INTO public.thumbnail_outputs "
+                            "(id, owner_kind, owner_id, input_ref, storage_ref, state, sha256, size_bytes, "
+                            "etag, version_id, writer_until, ready_at, retired_at, next_check_at) "
+                            "VALUES (:id, 'dataset_thumbnail', :dataset, '{}', CAST(:ref AS jsonb), "
+                            "'retiring', :sha, :size, :etag, :version, now()-interval '3 hours', "
+                            "now()-interval '3 hours', now()-interval '2 hours', now()-interval '1 hour')"
                         ),
-                        {"id": output_id},
+                        {
+                            "id": rows.retiring_id,
+                            "dataset": dataset_id,
+                            "ref": json.dumps(retiring_ref),
+                            "sha": sha256(png).hexdigest(),
+                            "size": len(png),
+                            "etag": retiring["ETag"],
+                            "version": retiring["VersionId"],
+                        },
                     )
                 async with async_sessionmaker(engine)() as ordinary:
                     async with await storage_access.acquire(
-                        ordinary, location, thumbnail_outputs.purpose(output_id)
+                        ordinary, location, thumbnail_outputs.purpose(rows.retiring_id)
                     ) as permit:
                         result = await asyncio.to_thread(
                             saved_media_io.command,
                             "thumbnail-delete",
-                            saved_media_io.subject(output_id, permit),
+                            saved_media_io.subject(rows.retiring_id, permit),
                             access="cleanup",
                         )
                         assert result == {"deleted": 1}
                 with pytest.raises(ClientError):
                     sink.storage.head_object(
-                        Bucket=sink.bucket, Key=ref["prefix"] + "thumbnail.webp"
+                        Bucket=sink.bucket,
+                        Key=retiring_key,
+                        VersionId=retiring["VersionId"],
                     )
                 assert sink.storage.head_object(Bucket=sink.bucket, Key=protected_key)[
                     "ContentLength"
                 ] == len(b"untouched")
-            finally:
-                for purpose in previous:
-                    await restore(purpose)
-                async with owner_db.begin() as owner:
-                    await owner.execute(
-                        text("DELETE FROM public.thumbnail_outputs WHERE id=:id"),
-                        {"id": output_id},
-                    )
-                    await owner.execute(
-                        text(
-                            "DELETE FROM public.managed_original_creations WHERE dataset_id=:id"
-                        ),
-                        {"id": dataset_id},
-                    )
-                    if project_id is not None:
-                        for table, column in (
-                            ("project_guide_assets", "project_id"),
-                            ("guide_asset_uploads", "project_id"),
-                            ("projects", "id"),
-                        ):
-                            await owner.execute(
-                                text(f"DELETE FROM public.{table} WHERE {column}=:id"),
-                                {"id": project_id},
-                            )
-                    await owner.execute(
-                        text("DELETE FROM public.datasets WHERE id=:id"),
-                        {"id": dataset_id},
-                    )
-                    await owner.execute(
-                        text(
-                            "DELETE FROM public.storage_operations WHERE location_id=:id"
-                        ),
-                        {"id": location},
-                    )
-                    await owner.execute(
-                        text(
-                            "DELETE FROM public.storage_maintenance_gates WHERE location_id=:id"
-                        ),
-                        {"id": location},
-                    )
-                    await owner.execute(
-                        text(
-                            "DELETE FROM public.storage_location_probes WHERE location_id=:id"
-                        ),
-                        {"id": location},
-                    )
-                    await owner.execute(
-                        text("DELETE FROM public.storage_locations WHERE id=:id"),
-                        {"id": location},
-                    )
-                    await owner.execute(
-                        text("DELETE FROM public.storage_connections WHERE id=:id"),
-                        {"id": connection_id},
-                    )
+            except Exception as exc:
+                exc.add_note(
+                    f"Assets Source process log: {tmp_path / 'saved-io-source.log'}"
+                )
+                raise
