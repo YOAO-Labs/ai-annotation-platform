@@ -95,13 +95,20 @@ BEGIN
     END IF;
 END $$;
 
-REVOKE ALL ON SCHEMA yoao_identity_v1, yoao_identity_keys_v1, yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1, yoao_identity_deactivation_v1, yoao_identity_invitations_v1, yoao_identity_mail_v2, yoao_identity_directory_v1, yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1, yoao_identity_deletions_v1, yoao_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_owner_transfer_v1, yoao_workspace_configuration_v1, yoao_workspace_membership_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, yoao_workspace_v1, yoao_assets_v1,
-    yoao_labeling_class_query_v1, yoao_labeling_v1, yoao_jobs_v1, yoao_learning_v1, yoao_inference_v1, yoao_inference_registry_ingress_v1, yoao_inference_routing_v1,
-    yoao_insights_v1, yoao_diagnostics_v1, yoao_export_v1, yoao_audit_v1, yoao_settings_v1, yoao_notifications_v1 FROM PUBLIC;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, yoao_workspace_v1,
-    yoao_identity_keys_v1, yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1, yoao_identity_deactivation_v1, yoao_identity_invitations_v1, yoao_identity_mail_v2, yoao_identity_directory_v1, yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1, yoao_identity_deletions_v1, yoao_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_owner_transfer_v1, yoao_workspace_configuration_v1, yoao_workspace_membership_v1, yoao_assets_v1, yoao_labeling_class_query_v1, yoao_labeling_v1, yoao_jobs_v1, yoao_learning_v1,
-    yoao_inference_v1, yoao_inference_registry_ingress_v1, yoao_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, yoao_export_v1,
-    yoao_audit_v1, yoao_settings_v1, yoao_notifications_v1 FROM PUBLIC;
+DO $private_routines$
+DECLARE
+    namespace name;
+BEGIN
+    FOR namespace IN
+        SELECT n.nspname FROM pg_catalog.pg_namespace AS n
+        WHERE pg_catalog.left(n.nspname, 5) = 'yoao_'
+           OR pg_catalog.left(n.nspname, 4) = 'aap_'
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON SCHEMA %I FROM PUBLIC', namespace);
+        EXECUTE pg_catalog.format('REVOKE ALL ON ALL ROUTINES IN SCHEMA %I FROM PUBLIC', namespace);
+    END LOOP;
+END;
+$private_routines$;
 REVOKE ALL ON SCHEMA yoao_identity_v1, yoao_identity_keys_v1, yoao_identity_sessions_v1, yoao_identity_accounts_v1, yoao_identity_recovery_v1, yoao_identity_groups_v1, yoao_identity_deactivation_v1, yoao_identity_invitations_v1, yoao_identity_mail_v2, yoao_identity_directory_v1, yoao_identity_admin_passwords_v1, yoao_identity_platform_roles_v1, yoao_identity_suspensions_v1, yoao_identity_deletions_v1, yoao_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, yoao_workspace_v1, yoao_assets_v1,
     yoao_labeling_class_query_v1, yoao_labeling_v1, yoao_jobs_v1, yoao_learning_v1, yoao_inference_v1, yoao_inference_registry_ingress_v1, yoao_inference_routing_v1,
     yoao_insights_v1, yoao_diagnostics_v1, yoao_export_v1, yoao_audit_v1, yoao_settings_v1, yoao_notifications_v1
