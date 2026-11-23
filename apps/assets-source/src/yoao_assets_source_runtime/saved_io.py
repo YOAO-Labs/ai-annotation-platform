@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass
 import hmac
 from importlib import import_module
@@ -92,6 +92,10 @@ class Registry:
         self.actions = {}
         self.signatures = {}
         self.statements = {}
+        self.lifespans = []
+
+    def lifespan(self, factory):
+        self.lifespans.append(factory)
 
     def add(self, family, action, mode, handler, *, access):
         pair = family, action
@@ -204,9 +208,16 @@ class Context:
 
     run = staticmethod(physical_thread)
 
-    def download(self, body, *, length, metadata, close=None, after_body=None):
+    def download(
+        self, body, *, length, metadata, close=None, after_body=None, after_close=None
+    ):
         return Download(
-            body, length=length, metadata=metadata, close=close, after_body=after_body
+            body,
+            length=length,
+            metadata=metadata,
+            close=close,
+            after_body=after_body,
+            after_close=after_close,
         )
 
     def _policy(self, value):
@@ -484,7 +495,7 @@ class _Stream(StreamingResponse):
         finally:
             with CancelScope(shield=True):
                 try:
-                    await physical_thread(self.download.close)
+                    await _close_download(self.download)
                 finally:
                     self.release()
 
@@ -492,9 +503,17 @@ class _Stream(StreamingResponse):
 async def _complete_download(download):
     if await physical_thread(download.body.read, 1):
         raise SavedIOError("download_length_mismatch", status_code=502, unsettled=True)
-    await physical_thread(download.close)
+    await _close_download(download)
     if download.after_body is not None:
         await download.after_body()
+
+
+async def _close_download(download):
+    await physical_thread(download.close)
+    callback = download.after_close
+    if callback is not None:
+        download.after_close = None
+        await callback()
 
 
 class SavedIOService:
@@ -502,6 +521,7 @@ class SavedIOService:
         self.config = config
         self.registry = registry
         self.pool = pool
+        self._lifespan = AsyncExitStack()
         self._upload_slot = asyncio.Semaphore(1)
         self._requests = asyncio.Semaphore(config.pool_max_size)
 
@@ -519,6 +539,7 @@ class SavedIOService:
             init=_init_connection,
             server_settings={"search_path": "pg_catalog,pg_temp"},
         )
+        service = cls(config, registry, pool)
         try:
             signatures = sorted(registry.signatures.values())
             schemas = sorted({signature.split(".", 1)[0] for signature in signatures})
@@ -530,9 +551,12 @@ class SavedIOService:
                     raise RuntimeError(
                         "Saved I/O login exceeds or lacks the fixed SQL capability set"
                     )
-            return cls(config, registry, pool)
+            context = Context(service)
+            for factory in registry.lifespans:
+                await service._lifespan.enter_async_context(factory(context))
+            return service
         except BaseException:
-            await pool.close()
+            await service.close()
             raise
 
     async def ready(self):
@@ -542,7 +566,10 @@ class SavedIOService:
             return await connection.fetchval("SELECT 1") == 1
 
     async def close(self):
-        await self.pool.close()
+        try:
+            await self._lifespan.aclose()
+        finally:
+            await self.pool.close()
 
     async def _upload(self, request, action, length, context):
         if length is None or length < 6:
@@ -677,7 +704,7 @@ class SavedIOService:
                 try:
                     if isinstance(result, Download):
                         with CancelScope(shield=True):
-                            await physical_thread(result.close)
+                            await _close_download(result)
                 finally:
                     if acquired:
                         self._requests.release()

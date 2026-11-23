@@ -272,8 +272,7 @@ def _training(client, bucket, prefix):
             raise SavedIOError("storage_invalid_receipt")
     finally:
         _delete(client, receipts, batch=True)
-    if _list(client, bucket, prefix, 3):
-        raise _unsettled()
+    _version_lists(client, bucket, prefix)
     return {
         "write": True,
         "multipart": True,

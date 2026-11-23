@@ -135,16 +135,25 @@ class Download:
     metadata: dict
     close_action: object = None
     after_body: object = None
+    after_close: object = None
 
-    def __init__(self, body, *, length, metadata, close=None, after_body=None):
+    def __init__(
+        self, body, *, length, metadata, close=None, after_body=None, after_close=None
+    ):
         self.body = body
         self.length = length
         self.metadata = metadata
         self.close_action = close
         self.after_body = after_body
+        self.after_close = after_close
         self._closed = False
+        self._close_failed = False
 
     def close(self):
+        if self._close_failed:
+            raise SavedIOError(
+                "source_close_unsettled", status_code=503, unsettled=True
+            )
         if self._closed:
             return
         self._closed = True
@@ -155,6 +164,7 @@ class Download:
                 if self.close_action is not None:
                     self.close_action()
         except Exception:
+            self._close_failed = True
             raise SavedIOError(
                 "source_close_unsettled", status_code=503, unsettled=True
             ) from None

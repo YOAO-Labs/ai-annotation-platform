@@ -31,13 +31,6 @@ _BEGIN_PROBE = text("""
 """)
 
 
-def source_scoped_configured() -> bool:
-    return any(
-        getattr(settings, name) or getattr(settings, f"{name}_file")
-        for name in _TOKEN_ATTRIBUTES.values()
-    )
-
-
 def source_token(access: str) -> str:
     tokens = {}
     for scope, name in _TOKEN_ATTRIBUTES.items():

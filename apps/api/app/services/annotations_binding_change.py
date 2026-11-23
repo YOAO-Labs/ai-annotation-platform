@@ -16,6 +16,7 @@ from app.services.annotations_storage_target import probe_target, target_for
 from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import validate_legacy_bindings
 from app.services.filesystem_storage import FilesystemStorageError
+from app.services.saved_io import probe_binding
 from app.services.storage_location_change import digest
 
 AUDIENCE = "annotations-binding-change"
@@ -151,13 +152,12 @@ async def preview(db, payload, actor, *, api_key_id=None):
     _, target, _, initial = await capture(db, payload, actor, api_key_id)
     await db.commit()
     try:
-        capabilities = await storage_access.run(
+        capabilities = await probe_binding(
             db,
-            target.location_id,
-            "annotations_binding_probe",
-            probe_target,
             target,
-            expected_revision=initial["maintenance_revision"],
+            initial,
+            probe_target,
+            permit_purpose="annotations_binding_probe",
         )
     except PUBLIC_ERRORS:
         raise
