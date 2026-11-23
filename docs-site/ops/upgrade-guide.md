@@ -36,6 +36,9 @@ last_reviewed: 2026-10-28
 
 3. **先显式应用迁移**：使用目标部署的迁移连接运行 `alembic upgrade head`，确认单 head 及数据库版本可达；不要对日常业务库运行测试初始化。开发 Worker 关闭自动迁移，不能用重启代替此步骤。
 4. **同步刷新所有消费者**：启动匹配版本的 API、全部相关 Worker、Beat 与 Web。Celery 不会因挂载源码变化而热重载；环境变量变化需要重建容器，而不是只执行 `restart`。
+
+   从使用 Redis 锁的旧导出 worker 切到使用 PostgreSQL advisory lock 的版本前，须先排空并停止旧导出 worker。两种锁不能互相排斥，不得并存领取导出任务。
+
 5. **验证后恢复入口**：分别检查数据库、Redis、对象存储、Worker 注册与实际业务读取。主 checkout 默认开发地址如下；其他部署使用其实际协议和端口：
 
    ```bash

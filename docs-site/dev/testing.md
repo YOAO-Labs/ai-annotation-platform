@@ -217,7 +217,9 @@ Workspace 的冷 worker 与 CLI 用例使用当前源码构建的 `infra/docker/
 | `AAP_IDENTITY_SEED_SELECTION_LIVE`        | `tests/test_identity_seed_selection_live.py`        |
 | `AAP_LEGACY_VIDEO_FENCE_LIVE`             | `tests/test_legacy_video_fence_live.py`             |
 
-旧视频围栏还要求设置 `AAP_LEGACY_VIDEO_FENCE_API_SOURCE_REVISION`，与镜像的源码标签一致。最后单独运行这一场景；它会撤销验收库里非 owner 角色的登录，不接触日常数据库。它不产生旧 Jobs 的退役证明。[模块台账](./concepts/module-deployment#剩余工作台账)记录各场景覆盖与既有结果。
+旧视频围栏还要求设置 `AAP_LEGACY_VIDEO_FENCE_API_SOURCE_REVISION`，与镜像的源码标签一致。最后单独运行这一场景；它会撤销验收库里非 owner 角色的登录，不接触日常数据库。它不产生旧 Jobs 的退役证明。历史结果见[验收索引](./concepts/module-deployment#legacy-video-postgres-fence)。
+
+在隔离环境单独排查时，可从仓库根目录运行 `apps/api/.venv/bin/python -m scripts.video_worker_fence --input-file <私有 JSON>` 检查 PostgreSQL，或用同样参数运行 `scripts.video_worker_observation` 检查退出的容器。容器观察在删除容器之前完成。对象存储探针须先证明同一凭据可以写入并读回，再验证围栏后同一写入被明确拒绝。超时、容器缺失或租约到期都不能当作退役证明。
 
 Identity 整模块冷验收另使用当前源码的非 editable Identity 安装（`uv sync --project apps/identity --locked --extra runtime --no-editable --reinstall-package yoao-identity`）及 `apps/identity/Dockerfile`、`infra/docker/Dockerfile.api` 两个镜像。将 `AAP_IDENTITY_RUNTIME_PYTHON` 指向该安装的解释器。两个镜像都设置 `org.aap.acceptance=identity-admission`，各用不同的唯一 `org.aap.acceptance-id`，依次配置 `AAP_IDENTITY_RUNTIME_IMAGE`、`AAP_IDENTITY_RUNTIME_IDENTITY` 以及 `AAP_IDENTITY_API_RUNTIME_IMAGE`、`AAP_IDENTITY_API_RUNTIME_IDENTITY`。
 

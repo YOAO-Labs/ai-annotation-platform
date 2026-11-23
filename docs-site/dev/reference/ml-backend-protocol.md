@@ -87,6 +87,8 @@ base URL 由超级管理员在「模型市场 → 注册管理」录入；项目
 
 `gpu_arbiter_probe` 只是实时证据候选，不单独授权减记显存或重置 Redis 账本。消费方还必须重新读取当前 membership/fence，校验证据时效与完整 residency，并把最终核验和账本提交放在同一个受保护的流程中。周期 proof reset 额外要求 `probe_started_at > token_expiry_high_water`；cold 响应后终态对账则以「challenge 在完整响应后才生成」绑定该次调用，并要求 durable generation 仍与 prepared generation 精确相等。退役记录中的历史 health 只能用于诊断。
 
+同一派发的 resident 与 cold 证明都明确返回运行时未就绪时，派发 owner 只重新获取一次带新 challenge 的健康结果，再核对原派发的资格。不会重放推理请求、改选实例或放宽证明条件。
+
 ### 1.2 `compute` 计算设备观测
 
 GPU backend 应在 `/health` 顶层返回 `compute`：

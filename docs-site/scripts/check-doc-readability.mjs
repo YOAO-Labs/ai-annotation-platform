@@ -7,8 +7,14 @@ import { dirname } from "node:path";
 
 const __here = dirname(fileURLToPath(import.meta.url));
 const DOCS_ROOT = join(__here, "..");
-const DEV_GUIDE = join(DOCS_ROOT, "..", "DEV.md");
-const DEV_GUIDE_MAX_LINES = 120;
+const PAGE_LINE_LIMITS = [
+  ["DEV.md", join(DOCS_ROOT, "..", "DEV.md"), 120],
+  [
+    "docs-site/dev/concepts/module-deployment.md",
+    join(DOCS_ROOT, "dev/concepts/module-deployment.md"),
+    140,
+  ],
+];
 
 const SKIP_ROOTS = new Set([
   ".vitepress",
@@ -79,12 +85,14 @@ function checkFile(filePath) {
   }
 }
 
-const devGuideLines = readFileSync(DEV_GUIDE, "utf8").trimEnd().split("\n").length;
-if (devGuideLines > DEV_GUIDE_MAX_LINES) {
-  console.error(
-    `[error] DEV.md has ${devGuideLines} lines (limit ${DEV_GUIDE_MAX_LINES}). Move the details to their owning guide and link to it.`,
-  );
-  errors++;
+for (const [label, path, maxLines] of PAGE_LINE_LIMITS) {
+  const lines = readFileSync(path, "utf8").trimEnd().split("\n").length;
+  if (lines > maxLines) {
+    console.error(
+      `[error] ${label} has ${lines} lines (limit ${maxLines}). Move procedures to their owning guides and dated results to evidence ledgers.`,
+    );
+    errors++;
+  }
 }
 
 walk(DOCS_ROOT);

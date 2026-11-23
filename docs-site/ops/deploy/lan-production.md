@@ -146,7 +146,7 @@ psql -X -U anno_prod_owner -d annotation_production \
 
 默认 Celery 视频和图片执行分别使用独立的窄 LOGIN。按[媒体执行角色](./docker-compose#media-executor-provisioning)授权并设置 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`、`ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`。普通图片领取和写入也用 image LOGIN，Native writer token 只在启用 Native 时另挂给实际执行者。API／Beat 不挂载这些凭据，也不给应用 LOGIN 增授执行函数。
 
-`celery-worker-maintenance` 使用自己的文件执行 Insights 每日统计刷新。创建独立的 `anno_prod_insights_refresh` LOGIN（不授角色成员关系或对象所有权），在目标库重放以下脚本。将这个 LOGIN 的单行 PostgreSQL DSN 存入独立私密文件，`INSIGHTS_REFRESH_DATABASE_URL_FILE` 只填写其宿主绝对路径。其唯一业务函数是无参 `yoao_insights_v1.refresh_user_perf_daily()`；普通 API、Beat 和其他 worker 不挂载该文件。
+Beat 每小时 UTC 第 5 分钟调度一次 Insights 按日统计刷新，由 `celery-worker-maintenance` 执行。创建独立的 `anno_prod_insights_refresh` LOGIN（不授角色成员关系或对象所有权），在目标库重放以下脚本。将这个 LOGIN 的单行 PostgreSQL DSN 存入独立私密文件，`INSIGHTS_REFRESH_DATABASE_URL_FILE` 只填写其宿主绝对路径。其唯一业务函数是无参 `yoao_insights_v1.refresh_user_perf_daily()`；普通 API、Beat 和其他 worker 不挂载该文件。
 
 ```bash
 psql -X -v ON_ERROR_STOP=1 -U anno_prod_owner -d annotation_production \
