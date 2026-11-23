@@ -449,7 +449,7 @@ async def _managed_snapshot(
             plan.purpose(purpose),
             expected_revision=plan.maintenance_revision,
             node_id=node_id,
-        ):
+        ) as permit:
             await validate()
             await original_sources.recheck_read_route(db, source)
             await db.commit()
@@ -460,7 +460,7 @@ async def _managed_snapshot(
                 timeout_seconds=snapshots.COPY_SECONDS,
                 **(
                     await original_sources.read_options(
-                        db, source, read_timeout=snapshots.COPY_SECONDS
+                        db, source, read_timeout=snapshots.COPY_SECONDS, permit=permit
                     )
                 ),
             )

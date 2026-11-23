@@ -182,7 +182,9 @@ async def read_access(db, receipt, plan, guard):
             admitted = None
             if plan.routes:
                 admitted = await admissions.enter_async_context(
-                    migration_reads.admit(session, plan.routes[0], purpose(receipt.id))
+                    migration_reads.admit(
+                        session, plan.routes[0], purpose(receipt.id), routes=plan.routes
+                    )
                 )
             await guard(plan.revision)
             await check_reads(session, receipt, plan, lock=True)

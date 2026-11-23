@@ -20,6 +20,7 @@ from app.db.models.storage_migration_copy import (
     ROW_LIMIT,
 )
 from app.services import storage_access, storage_migration_copies as service
+from app.services import storage_migration_copy_target as targets
 from app.services import storage_migration_source_read as source_read
 from app.services.async_job_notify import notify_job_terminal
 from app.services.storage import StorageService
@@ -197,9 +198,7 @@ def native(
             "/"
         ):
             raise CopyStopped("copy_source_changed")
-        target = stack.enter_context(
-            access.client(read_timeout=values["limits"]["read_timeout_seconds"])
-        )
+        target = stack.enter_context(access)
         result = copy_execute(
             state,
             GuardedClient(
@@ -231,6 +230,7 @@ async def execute(db, job_id, task_id):
         a.retry_object_ids,
     )
     revisions = dict(a.scope["maintenance"])
+    target_revisions = dict(a.scope["target"])
     attempt_id = a.id
     values = await service.inputs(db, copy_id)
     bind, loop, stop = (
@@ -320,7 +320,23 @@ async def execute(db, job_id, task_id):
                     )
                 permits.append(await stack.enter_async_context(permit))
             await service.acquired(db, job_id, task_id, permits)
-            access = await fresh()
+            await fresh()
+            access = None
+            if operation != "prepare":
+                target_location = uuid.UUID(values["target"]["location_id"])
+                target_permit = next(
+                    p for p in permits if p.location_id == target_location
+                )
+                access = targets.copy_io(
+                    copy_id=copy_id,
+                    attempt_id=attempt_id,
+                    task_id=task_id,
+                    operation_id=target_permit.id,
+                    phase=operation,
+                    identity=values["target"],
+                    revisions=target_revisions,
+                    timeout=values["limits"]["read_timeout_seconds"],
+                )
             with tempfile.TemporaryDirectory(prefix="copy-attempt-") as directory:
                 metadata, reference_limits = (
                     None,

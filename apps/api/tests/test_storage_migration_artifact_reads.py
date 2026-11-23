@@ -493,9 +493,7 @@ def runtime(monkeypatch):
         return permit
 
     monkeypatch.setattr(storage_access, "acquire", acquire)
-    monkeypatch.setattr(
-        publications, "target_for_route", AsyncMock(return_value=world.target)
-    )
+    monkeypatch.setattr(service, "bind_routes", AsyncMock(return_value=world.target))
     monkeypatch.setattr(publications, "recheck", AsyncMock())
     return world
 

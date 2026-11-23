@@ -116,7 +116,7 @@ class World:
         monkeypatch.setattr(publications, "lookup", self.lookup)
         monkeypatch.setattr(publications, "recheck", recheck)
         monkeypatch.setattr(
-            publications, "target_for_route", AsyncMock(return_value=self.target)
+            service.migration_reads, "bind_routes", AsyncMock(return_value=self.target)
         )
         monkeypatch.setattr(storage_access, "acquire", acquire)
         self.old_target = AsyncMock(side_effect=AssertionError("A was opened"))

@@ -138,49 +138,70 @@ def target_native_proof(journal, adapter, config):
 
 
 async def probe_targets(session, context):
-    from app.db.models.dataset_asset import StorageLocation
-    from app.services import managed_s3_target, storage_access
-    from app.services import (
-        annotations_storage_target,
-        audit_archive_storage_target,
-        avatar_storage_target,
-        bug_attachment_storage_target,
-        dataset_storage_target,
-        export_storage_target,
-        import_storage_target,
-        media_cache_storage_target,
-        training_storage_target,
-    )
+    from yoao_assets_source.saved_io import SavedIOClient, SavedIOError
 
-    probes = {
-        "annotations": annotations_storage_target.probe_target,
-        "audit-archive": audit_archive_storage_target.probe_target,
-        "avatars": avatar_storage_target.probe_target,
-        "bug-reports": bug_attachment_storage_target.probe_target,
-        "datasets": dataset_storage_target.probe_target,
-        "export": export_storage_target.probe_target,
-        "import": import_storage_target.probe_target,
-        "media-cache": media_cache_storage_target.probe_target,
-        "training": training_storage_target.probe_target,
-    }
-    if set(context["targets"]) != set(probes):
+    from app.services import storage_access
+    from app.services.storage_migration_inventory import PURPOSES
+
+    name = "ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN"
+    credential, path = os.getenv(name), os.getenv(name + "_FILE")
+    if credential is not None and path is not None:
+        raise FenceError("cutover_source_unavailable")
+    try:
+        if path is not None:
+            with Path(path).open("r", encoding="utf-8") as source:
+                credential = source.read(1024).strip()
+        channel = SavedIOClient(os.getenv("ASSETS_SOURCE_URL"), credential)
+    except (OSError, UnicodeError, SavedIOError):
+        raise FenceError("cutover_source_unavailable") from None
+
+    if (
+        set(context["targets"]) != PURPOSES
+        or set(context["before_bindings"]) != PURPOSES
+    ):
         raise FenceError("cutover_targets_changed")
     capabilities = {}
-    for purpose in sorted(probes):
+    for purpose in sorted(PURPOSES):
         facts = context["targets"][purpose]
+        if facts["location_id"] != context["target_location_id"]:
+            raise FenceError("cutover_targets_changed")
+        subject = {
+            "publication_id": context["id"],
+            "publication_revision": context["publication_revision"],
+            "finalization_revision": context["finalization_revision"],
+            "window_revision": context["window_revision"],
+            "actor_id": context["actor_id"],
+            "purpose": purpose,
+            "generation": context["before_bindings"][purpose]["generation"],
+            "phase": "preview",
+            "location_revision": facts["config_revision"],
+            "connection_revision": facts["connection_revision"],
+        }
+
+        async def acquired(permit):
+            subject["operation_id"] = str(permit.id)
+
+        def probe():
+            try:
+                return channel.command("migration", "probe_cutover_target", subject)
+            except SavedIOError as exc:
+                error = FenceError(
+                    "cutover_targets_changed"
+                    if exc.code in {"cutover_targets_changed", "migration_io_unproven"}
+                    else "cutover_probe_failed"
+                )
+                if exc.unsettled:
+                    storage_access.mark_unsettled(error)
+                raise error from None
+
         async with session() as db:
-            location = await db.get(StorageLocation, uuid.UUID(facts["location_id"]))
-            target = await managed_s3_target.target_for(db, location, purpose=purpose)
-            if target.facts != facts:
-                raise FenceError("cutover_targets_changed")
-            await db.commit()
             capabilities[purpose] = await storage_access.run(
                 db,
-                target.location_id,
+                uuid.UUID(facts["location_id"]),
                 "migration_cutover_probe",
-                probes[purpose],
-                target,
+                probe,
                 expected_revision=context["target_gate_revision"],
+                on_acquired=acquired,
             )
     return capabilities
 
