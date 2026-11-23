@@ -24,6 +24,11 @@ _FILES = (
     "docker-compose.assets-source.yml",
     "docker-compose.assets-native.yml",
 )
+_RFC1918 = (
+    ipaddress.IPv4Network("10.0.0.0/8"),
+    ipaddress.IPv4Network("172.16.0.0/12"),
+    ipaddress.IPv4Network("192.168.0.0/16"),
+)
 
 
 class CleanupCompose:
@@ -174,6 +179,15 @@ class CleanupCompose:
             raise RuntimeError("cleanup Compose project already exists")
         self.receipt["compose_version"] = self._docker("compose", "version", "--short")
         labels = {_LABEL: _OWNER, _ID_LABEL: self.identity}
+        default_network: dict = {"labels": labels}
+        configured_subnet = os.environ.get("AAP_ASSET_CLEANUP_COMPOSE_SUBNET")
+        if configured_subnet:
+            subnet = ipaddress.IPv4Network(configured_subnet)
+            if subnet.prefixlen != 28 or not any(
+                subnet.subnet_of(block) for block in _RFC1918
+            ):
+                raise RuntimeError("cleanup Compose requires an RFC1918 /28")
+            default_network["ipam"] = {"config": [{"subnet": str(subnet)}]}
         override = {
             "services": {
                 **{
@@ -193,7 +207,7 @@ class CleanupCompose:
                     )
                 },
             },
-            "networks": {"default": {"labels": labels}},
+            "networks": {"default": default_network},
         }
         self.files[-1].write_text(json.dumps(override), encoding="utf-8")
         self.receipt["private_override_sha256"] = sha256(
@@ -212,8 +226,17 @@ class CleanupCompose:
             self.containers.values()
         ):
             raise RuntimeError("cleanup Compose network was not exclusively owned")
+        if configured_subnet and configured_subnet not in {
+            allocation.get("Subnet") for allocation in network["IPAM"]["Config"]
+        }:
+            raise RuntimeError(
+                "cleanup Compose did not use its reserved private subnet"
+            )
         self.postgres_id = postgres_id
         self.receipt["bridge_network"] = network["Id"]
+        self.receipt["bridge_subnets"] = [
+            allocation["Subnet"] for allocation in network["IPAM"]["Config"]
+        ]
         self.receipt["postgres_container"] = postgres_id
         self._docker(
             "network", "connect", "--alias", "cleanup-db", network["Id"], postgres_id
