@@ -15,7 +15,7 @@ import uuid
 from fastapi import HTTPException
 from PIL import Image
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete
 
 from app.db.models.original_cache import (
     OriginalCacheEntry as Entry,
@@ -547,24 +547,26 @@ async def test_workbench_qualifies_each_saved_member_and_still_checks_canonical_
     second = deepcopy(first)
     second.id = uuid.UUID(int=11)
     second.storage_ref["prefix"] = cache.logical_prefix(second)
-    db = SimpleNamespace(scalars=AsyncMock(return_value=[first, second]))
-    monkeypatch.setattr(
-        dataset_workbench,
-        "observations",
-        lambda *_args, **_kwargs: select(
-            Entry.id.label("original_cache_entry_id")
-        ).subquery(),
+    db = SimpleNamespace(
+        autoflush=False,
+        execute=AsyncMock(
+            return_value=SimpleNamespace(mappings=lambda: [vars(first), vars(second)])
+        ),
     )
+    actor = SimpleNamespace(id=uuid.uuid4())
     prepare = AsyncMock(
         side_effect=[object(), ContentError("read_publication_changed")]
     )
     gate = AsyncMock()
     monkeypatch.setattr(cache, "prepare_read", prepare)
     monkeypatch.setattr(storage_access, "check", gate)
-    assert await dataset_workbench.available_cache_ids(db, uuid.uuid4(), object()) == [
+    assert await dataset_workbench.available_cache_ids(db, uuid.uuid4(), actor) == [
         first.id
     ]
-    assert prepare.await_count == 2
+    assert [call.args[1].id for call in prepare.await_args_list] == [
+        first.id,
+        second.id,
+    ]
     gate.assert_awaited_once_with(db, first.scope_location_id)
 
 

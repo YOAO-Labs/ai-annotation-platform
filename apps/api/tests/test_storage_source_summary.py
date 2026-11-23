@@ -4,13 +4,12 @@ from datetime import datetime, timedelta, timezone
 import uuid
 
 import pytest
-from sqlalchemy import select
 
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset
 from app.db.models.dataset_asset import StorageLocation
 from app.db.models.dataset_source import DatasetSource, DatasetScanRun
-from app.services import dataset_source_access as access
+from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 from tests.test_dataset_content import content_world as content_world, headers
 from tests.test_dataset_source_access import managed_world as managed_world
 
@@ -112,17 +111,10 @@ async def test_summary_scopes_counts_and_jobs_across_source_pages(
         )
     ).json()
     assert elsewhere["total"] == elsewhere["jobs"]["total"] == 0
-    assert not list(
-        await db.scalars(select(AsyncJob).where(access.job_scope_clause(actor, [])))
-    )
-    assert (
-        len(
-            list(
-                await db.scalars(select(AsyncJob).where(access.job_scope_clause(actor)))
-            )
-        )
-        == 2
-    )
+    jobs = JobsDomainQueryPostgresData(db)
+    assert not await jobs.directory_job_page(actor.id, other_location.id, 20, 0)
+    scoped = await jobs.directory_job_page(actor.id, location.id, 20, 0)
+    assert {job["id"] for job in scoped} == {run.async_job_id, old_job.id}
 
 
 async def test_summary_retains_orphan_history_only_for_superadmin(

@@ -252,40 +252,18 @@ async def reconcile_domain_terminal(
 
 
 async def reconcile_dataset_quality(db, job, *, cancelled, error):
-    from app.db.models.dataset_quality import DatasetQualityRun
-    from app.services.dataset_quality import now
+    from app.services.dataset_quality import reconcile_terminal
 
-    run = await db.scalar(
-        select(DatasetQualityRun)
-        .where(DatasetQualityRun.async_job_id == job.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if run is not None and _locks_open(run.status):
-        run.status = "cancelled" if cancelled else "failed"
-        run.error_code = "cancelled" if cancelled else "worker_failed"
-        run.completed_at, run.lease_until = now(), None
-        run.generation += 1
+    await reconcile_terminal(db, job.id, cancelled=cancelled)
 
 
 DOMAIN_TERMINAL_RECONCILERS["dataset_quality"] = reconcile_dataset_quality
 
 
 async def reconcile_dataset_quality_review(db, job, *, cancelled, error):
-    from app.db.models.dataset_quality_review import DatasetQualityReviewBatch
-    from app.services.dataset_quality_review import now
+    from app.services.dataset_quality_review import reconcile_terminal
 
-    batch = await db.scalar(
-        select(DatasetQualityReviewBatch)
-        .where(DatasetQualityReviewBatch.async_job_id == job.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if batch is not None and _locks_open(batch.status):
-        batch.status = "cancelled" if cancelled else "failed"
-        batch.error_code = "cancelled" if cancelled else "worker_failed"
-        batch.completed_at, batch.lease_until = now(), None
-        batch.generation += 1
+    await reconcile_terminal(db, job.id, cancelled=cancelled)
 
 
 DOMAIN_TERMINAL_RECONCILERS["dataset_quality_review"] = reconcile_dataset_quality_review

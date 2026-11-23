@@ -1,13 +1,13 @@
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, and_, or_, true
 from app.deps import (
     get_db,
     require_roles,
 )
 from app.db.models.user import User
-from app.db.models.dataset import DatasetItem
+from app.services.directory_policy import legacy_cover_facts
 from app.services.scheduler import batch_visibility_clause
 from yoao_workspace_contract.access import platform_role_is_manager
 from app.services.project_aggregates import (
@@ -136,21 +136,13 @@ async def _reviewing_batches(
     cover_map: dict = {}
     cover_batch_ids = [b.id for b, _ in batch_rows]
     if cover_batch_ids:
-        from app.services.directory_policy import legacy_media_column
-
-        eff_thumb = legacy_media_column(
-            func.coalesce(DatasetItem.thumbnail_path, task_row.thumbnail_path).label(
-                "thumbnail_path"
-            )
-        )
-        eff_blur = legacy_media_column(
-            func.coalesce(DatasetItem.blurhash, task_row.blurhash).label("blurhash")
-        )
+        item, eff_thumb, eff_blur = legacy_cover_facts(task_row)
         cover_rows = await db.execute(
             select(
                 task_row.batch_id, eff_thumb, eff_blur, task_row.id, task_row.file_type
             )
-            .outerjoin(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
+            .select_from(task_row)
+            .outerjoin(item, true())
             .where(
                 task_row.batch_id.in_(cover_batch_ids),
                 eff_thumb.is_not(None),

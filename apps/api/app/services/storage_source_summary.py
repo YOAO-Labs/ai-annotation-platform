@@ -1,12 +1,11 @@
 """Bounded navigation over visible sources and their retained job attempts."""
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
-from app.db.models.async_job import AsyncJob
-from app.db.models.dataset import Dataset
-from app.db.models.dataset_source import DatasetSource
 from app.services import dataset_source_access as access
 from app.services import storage_location
+from app.services.assets_dataset_data import visible_sources
+from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 from app.services.storage_source_diagnostics import diagnostics
 from app.services.storage_source_usage import read_usage
 from app.services.dataset_source_protection import declaration
@@ -16,34 +15,41 @@ async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_off
     actor = await access.require_manager(db, actor.id)
     location = await storage_location.get_visible(db, location_id, actor)
     usage = await read_usage(db, location, actor)
-    scope = (
-        DatasetSource.location_id == location_id,
-        access.source_scope_clause(actor),
-    )
-    source_ids = select(DatasetSource.id).where(*scope)
-    total = await db.scalar(
-        select(func.count()).select_from(DatasetSource).where(*scope)
-    )
-    dataset_count = await db.scalar(
-        select(func.count(func.distinct(DatasetSource.dataset_id))).where(*scope)
-    )
+    sources = visible_sources(actor.id, location_id=location_id)
+    totals = (
+        await db.execute(
+            select(func.count(), func.count(func.distinct(sources.c.dataset_id)))
+        )
+    ).one()
     rows = (
         await db.execute(
-            select(DatasetSource, Dataset.name)
-            .outerjoin(Dataset, Dataset.id == DatasetSource.dataset_id)
-            .where(*scope)
-            .order_by(DatasetSource.created_at.desc(), DatasetSource.id)
+            select(sources)
+            .order_by(sources.c.created_at.desc(), sources.c.id)
             .limit(limit)
             .offset(offset)
         )
     ).all()
-    evidence = await diagnostics(db, [source.id for source, _ in rows], actor)
-    jobs = select(AsyncJob).where(access.job_scope_clause(actor, source_ids))
-    job_total = await db.scalar(select(func.count()).select_from(jobs.subquery()))
-    job_rows = await db.scalars(
-        jobs.order_by(AsyncJob.created_at.desc(), AsyncJob.id)
-        .limit(jobs_limit)
-        .offset(jobs_offset)
+    dataset_ids = {source.dataset_id for source in rows if source.dataset_id}
+    names = dict(
+        (
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_assets_v1.directory_dataset_names("
+                    "CAST(:actor_id AS uuid), CAST(:location_id AS uuid), CAST(:ids AS uuid[]))"
+                ),
+                {
+                    "actor_id": actor.id,
+                    "location_id": location_id,
+                    "ids": list(dataset_ids),
+                },
+            )
+        ).all()
+    )
+    evidence = await diagnostics(db, [source.id for source in rows], actor)
+    jobs = JobsDomainQueryPostgresData(db)
+    job_total = await jobs.directory_job_total(actor.id, location_id)
+    job_rows = await jobs.directory_job_page(
+        actor.id, location_id, jobs_limit, jobs_offset
     )
     return {
         "location_id": location_id,
@@ -53,15 +59,15 @@ async def summary(db, location_id, actor, *, limit, offset, jobs_limit, jobs_off
                 "source_id": source.id,
                 "source_name": source.name,
                 "dataset_id": source.dataset_id,
-                "dataset_name": name,
+                "dataset_name": names.get(source.dataset_id),
                 "enabled": source.enabled,
                 "unregistered_at": source.unregistered_at,
                 "external_protection": declaration(source),
                 "diagnostics": evidence[source.id],
             }
-            for source, name in rows
+            for source in rows
         ],
-        "total": total,
-        "dataset_count": dataset_count,
+        "total": totals[0],
+        "dataset_count": totals[1],
         "jobs": {"items": list(job_rows), "total": job_total},
     }

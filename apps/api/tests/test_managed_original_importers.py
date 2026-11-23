@@ -170,6 +170,8 @@ async def test_scan_of_existing_object_never_invents_creation(creation, ingest):
 async def test_directory_copy_rechecks_sealed_creation_without_preview_ownership(
     creation, monkeypatch, mismatch
 ):
+    from app.application import dataset_task_creation
+
     originals, allocation, receipt = creation
     db = SimpleNamespace(flush=AsyncMock())
     dataset = SimpleNamespace(id=uuid.uuid4())
@@ -177,9 +179,12 @@ async def test_directory_copy_rechecks_sealed_creation_without_preview_ownership
     service = SimpleNamespace(
         _existing_file_names=AsyncMock(return_value=set()),
         add_item=AsyncMock(return_value=item),
-        create_tasks_for_items=AsyncMock(),
     )
     monkeypatch.setattr(datasets, "DatasetService", lambda _db: service)
+    workflow = SimpleNamespace(append_items=AsyncMock())
+    monkeypatch.setattr(
+        dataset_task_creation, "DatasetTaskCreationWorkflow", lambda _db: workflow
+    )
     monkeypatch.setattr(
         dataset_assets, "find_verified_content", AsyncMock(return_value=None)
     )

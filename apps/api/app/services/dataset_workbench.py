@@ -1,42 +1,38 @@
 """Stored observations for navigation; original reads always revalidate content."""
 
+from types import SimpleNamespace
+
 from fastapi import HTTPException
-from sqlalchemy import and_, case, cast, func, literal, or_, select, String, union_all
+from sqlalchemy import (
+    DateTime,
+    Integer,
+    Select,
+    String,
+    Uuid,
+    and_,
+    any_,
+    cast,
+    column,
+    func,
+    select,
+    union_all,
+)
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import aliased
 
-from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
-from app.db.models.dataset_asset import (
-    DatasetAsset,
-    DatasetAssetLocation,
-    StorageLocation,
-)
-from app.db.models.original_cache import OriginalCacheEntry
-from app.db.models.dataset_source import (
-    DatasetReference,
-    DatasetRegistrationRun,
-    DatasetSource,
-    DatasetSourceChange,
-    DatasetSourceItem,
-    DatasetSourcePreview,
-    DatasetSourceRevision,
-    DatasetScanRun,
-)
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
-from app.db.models.training_dataset import TrainingDatasetVersion
+from app.services import agent_availability, assets_dataset_data
 from app.services.data_management.task_filters import (
     apply_task_visibility,
     compile_filter,
 )
-from app.services.dataset_source_access import source_scope_clause
-from app.services import agent_availability, dataset_reference_replicas
-from app.services.directory_policy import preview_policy_clause
+from app.services.labeling_core_read_relations import task_row
 from app.services.project_access import is_privileged_for_project
 from app.services.project_aggregates import (
     managed_project_scope_clause,
     project_scope_clause,
 )
-from app.services.labeling_core_read_relations import task_row
 from app.services.workspace_read_relations import (
     project_facts,
     project_member_facts,
@@ -47,21 +43,18 @@ STATES = ("verified", "missing", "changed", "preview_only", "unavailable", "unve
 
 
 async def require_dataset(db, dataset_id):
-    dataset = await db.get(Dataset, dataset_id, populate_existing=True)
+    dataset = await assets_dataset_data.dataset_metadata(db, dataset_id)
     if dataset is None:
         raise HTTPException(404, "Dataset not found")
     return dataset
 
 
 async def require_filter_scene(db, dataset_id, scene_id):
+    if db.autoflush:
+        await db.flush()
+    scenes = assets_dataset_data.dataset_scene_choices(dataset_id, scene_id)
     row = (
-        (
-            await db.execute(
-                select(Scene.id, Scene.display_id, Scene.name).where(
-                    Scene.id == scene_id, Scene.dataset_id == dataset_id
-                )
-            )
-        )
+        (await db.execute(select(scenes).where(scenes.c.id == scene_id)))
         .mappings()
         .one_or_none()
     )
@@ -77,14 +70,13 @@ async def scene_options(db, dataset_id, *, limit, offset, search, selected_id):
         if selected_id is not None
         else None
     )
-    query = select(Scene.id, Scene.display_id, Scene.name).where(
-        Scene.dataset_id == dataset_id
-    )
+    scenes = assets_dataset_data.dataset_scene_choices(dataset_id)
+    query = select(scenes)
     if search and search.strip():
-        query = query.where(Scene.name.ilike(f"%{search.strip()}%"))
+        query = query.where(scenes.c.name.ilike(f"%{search.strip()}%"))
     total = await db.scalar(select(func.count()).select_from(query.subquery()))
     rows = await db.execute(
-        query.order_by(Scene.name, Scene.id).limit(limit).offset(offset)
+        query.order_by(scenes.c.name, scenes.c.id).limit(limit).offset(offset)
     )
     return {
         "items": [dict(row) for row in rows.mappings()],
@@ -93,43 +85,19 @@ async def scene_options(db, dataset_id, *, limit, offset, search, selected_id):
     }
 
 
-def location_dataset_scope(location_id, actor):
-    return (
-        select(1)
-        .select_from(DatasetSource)
-        .where(
-            DatasetSource.dataset_id == Dataset.id,
-            DatasetSource.location_id == location_id,
-            source_scope_clause(actor),
-        )
-        .exists()
-    )
+async def preferred_preview_mapping(db, dataset_id, item_id, actor):
+    if db.autoflush:
+        await db.flush()
+    mapping = func.yoao_assets_v1.dataset_workbench_preview_mapping(
+        cast(actor.id, Uuid), cast(dataset_id, Uuid), cast(item_id, Uuid)
+    ).table_valued("source_id", "path_digest")
+    return (await db.execute(select(mapping))).one_or_none()
 
 
-def visible_mapping_query(item_id, actor):
-    ready = and_(
-        DatasetSource.enabled.is_(True),
-        DatasetSource.unregistered_at.is_(None),
-        StorageLocation.enabled.is_(True),
-        preview_policy_clause(),
-        DatasetSourcePreview.state == "ready",
-        DatasetSourcePreview.asset_id == DatasetSourceItem.asset_id,
-        DatasetSourcePreview.source_sha256 == DatasetSourceItem.content_sha256,
-    )
-    return (
-        select(DatasetSourceItem)
-        .join(DatasetSource, DatasetSource.id == DatasetSourceItem.source_id)
-        .join(StorageLocation, StorageLocation.id == DatasetSource.location_id)
-        .outerjoin(
-            DatasetSourcePreview,
-            and_(
-                DatasetSourcePreview.source_id == DatasetSourceItem.source_id,
-                DatasetSourcePreview.path_digest == DatasetSourceItem.path_digest,
-            ),
-        )
-        .where(DatasetSourceItem.dataset_item_id == item_id, source_scope_clause(actor))
-        .order_by(case((ready, 0), else_=1), DatasetSourceItem.source_id)
-    )
+def _uuid_array(ids):
+    if isinstance(ids, Select):
+        ids = func.array(ids.correlate(None).scalar_subquery())
+    return cast(ids, ARRAY(Uuid))
 
 
 def observations(
@@ -137,358 +105,96 @@ def observations(
     actor,
     *,
     preferred_source_id=None,
-    reference_source_ids=None,
     item_ids=None,
     state_only=False,
     cache_entry_ids=(),
 ):
-    """One SQL relation for both filtering and display, without source I/O."""
-    if dataset_id is None and reference_source_ids is None:
-        raise ValueError("Observations require a dataset or explicit reference sources")
     if state_only:
-        source_id = DatasetReference.source_id
-    else:
-        provenance_query = visible_mapping_query(
-            DatasetItem.id, actor
-        ).with_only_columns(DatasetSourceItem.source_id)
-        if preferred_source_id is not None:
-            provenance_query = provenance_query.where(
-                DatasetSourceItem.source_id == preferred_source_id
+        states = func.yoao_assets_v1.dataset_workbench_item_states(
+            cast(actor.id, Uuid), cast(dataset_id, Uuid)
+        ).table_valued(column("item_id", Uuid), column("state", String))
+        if item_ids is not None:
+            return (
+                select(states)
+                .where(states.c.item_id == any_(_uuid_array(item_ids)))
+                .subquery()
             )
-        provenance = provenance_query.limit(1).correlate(DatasetItem).scalar_subquery()
-        source_id = func.coalesce(DatasetReference.source_id, provenance)
-    accepted = (
-        select(DatasetSourceRevision.accepted_at)
-        .where(
-            DatasetSourceRevision.source_id == DatasetReference.source_id,
-            DatasetSourceRevision.item_id_at_accept == DatasetItem.id,
-            DatasetSourceRevision.asset_id_at_accept == DatasetAsset.id,
-        )
-        .order_by(DatasetSourceRevision.acceptance_order.desc())
-        .limit(1)
-        .correlate(DatasetItem, DatasetAsset, DatasetReference)
+        return states
+    if item_ids is None:
+        raise ValueError("Display observations require page members")
+    return func.yoao_assets_v1.dataset_workbench_page_observations(
+        cast(actor.id, Uuid),
+        cast(dataset_id, Uuid),
+        cast(preferred_source_id, Uuid),
+        _uuid_array(item_ids),
+        _uuid_array(cache_entry_ids),
+    ).table_valued(
+        column("item_id", Uuid),
+        "state",
+        "observed_at",
+        "preview_available",
+        "original_cache_entry_id",
+        "original_cache_recorded",
+        "original_cache_recorded_at",
+        "original_cache_expires_at",
+        "source_id",
+        "source_name",
+        "location_id",
+        "is_reference",
+        "can_manage",
+        "agent_unavailable_reason",
+        "reference_replica_recorded",
+        "agent_state",
+        "agent_reason_code",
+        "agent_site_name",
+        "agent_name",
+        "agent_last_seen",
+        "agent_measured_at",
     )
-    accepted_at = func.coalesce(accepted.scalar_subquery(), DatasetItem.created_at)
-    accepted_revision = accepted.with_only_columns(
-        DatasetSourceRevision.id
-    ).scalar_subquery()
-    changes = (
-        select(
-            DatasetSourceChange.kind.label("kind"),
-            DatasetScanRun.completed_at.label("observed_at"),
-        )
-        .join(
-            DatasetRegistrationRun,
-            DatasetRegistrationRun.id == DatasetSourceChange.run_id,
-        )
-        .join(DatasetScanRun, DatasetScanRun.id == DatasetRegistrationRun.scan_run_id)
-        .where(
-            DatasetSourceChange.before_item_id == DatasetItem.id,
-            DatasetRegistrationRun.source_id == DatasetReference.source_id,
-            DatasetRegistrationRun.comparison_complete.is_(True),
-            DatasetSourceChange.before_revision_id == accepted_revision,
-        )
-        .order_by(
-            DatasetScanRun.completed_at.desc().nulls_last(),
-            DatasetScanRun.created_at.desc(),
-            DatasetScanRun.id,
-        )
-        .limit(1)
-        .correlate(DatasetItem, DatasetReference, DatasetAsset)
-        .lateral("last_change")
-    )
-    replica = (
-        select(DatasetAssetLocation.verified_at)
-        .join(StorageLocation, StorageLocation.id == DatasetAssetLocation.location_id)
-        .where(
-            DatasetAssetLocation.asset_id == DatasetAsset.id,
-            DatasetAssetLocation.role == "managed_original",
-            DatasetAssetLocation.reference_state == "present",
-            DatasetAssetLocation.object_key == DatasetItem.file_path,
-            StorageLocation.enabled.is_(True),
-        )
-        .order_by(DatasetAssetLocation.verified_at.desc().nulls_last())
-        .limit(1)
-        .correlate(DatasetItem, DatasetAsset)
-        .scalar_subquery()
-    )
-    manageable = source_scope_clause(actor)
-    preview = and_(
-        manageable,
-        DatasetSource.enabled.is_(True),
-        DatasetSource.unregistered_at.is_(None),
-        StorageLocation.enabled.is_(True),
-        preview_policy_clause(),
-        (
-            select(1)
-            .select_from(DatasetSourcePreview)
-            .join(
-                DatasetSourceItem,
-                and_(
-                    DatasetSourceItem.source_id == DatasetSourcePreview.source_id,
-                    DatasetSourceItem.path_digest == DatasetSourcePreview.path_digest,
-                ),
-            )
-            .where(
-                DatasetSourcePreview.source_id == DatasetSource.id,
-                DatasetSourceItem.dataset_item_id == DatasetItem.id,
-                DatasetSourcePreview.asset_id == DatasetAsset.id,
-                DatasetSourcePreview.source_sha256 == DatasetAsset.checksum_value,
-                DatasetSourcePreview.state == "ready",
-            )
-            .correlate(DatasetSource, DatasetItem, DatasetAsset)
-            .exists()
-        ),
-    )
-    ref = DatasetReference.dataset_item_id.is_not(None)
-    verified = DatasetAsset.verification_state == "verified"
-    disabled = or_(
-        DatasetSource.enabled.is_(False),
-        DatasetSource.unregistered_at.is_not(None),
-        StorageLocation.enabled.is_(False),
-    )
-    agent_reason = agent_availability.reason()
-    agent_blocked = and_(
-        StorageLocation.kind == "agent", agent_reason != "agent_online"
-    )
-    replaced = (
-        select(1)
-        .select_from(DatasetSourceItem)
-        .where(
-            DatasetSourceItem.source_id == DatasetReference.source_id,
-            DatasetSourceItem.path_digest == DatasetReference.path_digest,
-            DatasetSourceItem.dataset_item_id != DatasetItem.id,
-        )
-        .correlate(DatasetItem, DatasetReference)
-        .exists()
-    )
-    state = case(
-        (and_(ref, replaced), "changed"),
-        (and_(ref, disabled), case((preview, "preview_only"), else_="unavailable")),
-        (and_(ref, changes.c.kind == "changed"), "changed"),
-        (and_(ref, changes.c.kind == "not_seen"), "missing"),
-        (
-            and_(ref, changes.c.kind == "unreadable"),
-            case((preview, "preview_only"), else_="unavailable"),
-        ),
-        (
-            and_(ref, agent_blocked),
-            case((preview, "preview_only"), else_="unavailable"),
-        ),
-        (and_(ref, verified, DatasetSource.id.is_not(None)), "verified"),
-        (and_(~ref, verified, replica.is_not(None)), "verified"),
-        else_="unverified",
-    )
-    if state_only:
-
-        def scoped(query):
-            if dataset_id is not None:
-                query = query.where(DatasetItem.dataset_id == dataset_id)
-            if item_ids is not None:
-                query = query.where(DatasetItem.id.in_(item_ids))
-            return query
-
-        reference_states = scoped(
-            agent_availability.join_status(
-                select(DatasetItem.id.label("item_id"), state.label("state"))
-                .select_from(DatasetItem)
-                .join(
-                    DatasetReference, DatasetReference.dataset_item_id == DatasetItem.id
-                )
-                .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
-                .outerjoin(
-                    DatasetSource, DatasetSource.id == DatasetReference.source_id
-                )
-                .outerjoin(
-                    StorageLocation, StorageLocation.id == DatasetSource.location_id
-                )
-                .outerjoin(changes, literal(True))
-            )
-        )
-        if reference_source_ids is not None:
-            return reference_states.where(
-                DatasetReference.source_id.in_(reference_source_ids)
-            ).subquery("item_observations")
-        managed_states = scoped(
-            select(
-                DatasetItem.id.label("item_id"),
-                case(
-                    (and_(verified, replica.is_not(None)), "verified"),
-                    else_="unverified",
-                ).label("state"),
-            )
-            .select_from(DatasetItem)
-            .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
-            .where(
-                ~select(1)
-                .select_from(DatasetReference)
-                .where(DatasetReference.dataset_item_id == DatasetItem.id)
-                .correlate(DatasetItem)
-                .exists()
-            )
-        )
-        return union_all(reference_states, managed_states).subquery("item_observations")
-    cache = (
-        select(
-            OriginalCacheEntry.id,
-            OriginalCacheEntry.verified_at,
-            OriginalCacheEntry.expires_at,
-        )
-        .join(
-            DatasetAssetLocation,
-            and_(
-                DatasetAssetLocation.asset_id == OriginalCacheEntry.asset_id,
-                DatasetAssetLocation.location_id == OriginalCacheEntry.location_id,
-                DatasetAssetLocation.bucket == OriginalCacheEntry.bucket,
-                DatasetAssetLocation.role == "original_cache",
-                DatasetAssetLocation.reference_state == "present",
-                DatasetAssetLocation.object_key
-                == case(
-                    (
-                        OriginalCacheEntry.storage_ref.is_not(None),
-                        OriginalCacheEntry.storage_ref["prefix"].astext + "payload",
-                    ),
-                    else_=func.concat(
-                        "original-cache/v1/",
-                        OriginalCacheEntry.asset_id,
-                        "/",
-                        OriginalCacheEntry.sha256,
-                        "/",
-                        OriginalCacheEntry.id,
-                    ),
-                ),
-            ),
-        )
-        .where(
-            ref,
-            verified,
-            manageable,
-            ~disabled,
-            DatasetSource.ownership_mode == "reference",
-            DatasetSource.cache_policy == "on_demand",
-            StorageLocation.config["cache_policy"].astext == "on_demand",
-            StorageLocation.config["original_cache_quota_bytes"].astext != "0",
-            OriginalCacheEntry.scope_location_id == DatasetSource.location_id,
-            OriginalCacheEntry.source_id == DatasetReference.source_id,
-            OriginalCacheEntry.asset_id == DatasetAsset.id,
-            OriginalCacheEntry.sha256 == DatasetAsset.checksum_value,
-            OriginalCacheEntry.size_bytes == DatasetAsset.size_bytes,
-            OriginalCacheEntry.source_revision == DatasetSource.config_revision,
-            OriginalCacheEntry.policy_revision == DatasetSource.policy_revision,
-            OriginalCacheEntry.location_revision == StorageLocation.config_revision,
-            OriginalCacheEntry.state == "ready",
-            OriginalCacheEntry.expires_at > func.now(),
-            OriginalCacheEntry.id.in_(cache_entry_ids)
-            if cache_entry_ids is not None
-            else literal(True),
-        )
-        .correlate(
-            DatasetItem, DatasetAsset, DatasetReference, DatasetSource, StorageLocation
-        )
-        .limit(1)
-        .lateral("original_cache_record")
-    )
-    columns = [DatasetItem.id.label("item_id"), state.label("state")]
-    if not state_only:
-        columns.extend(
-            [
-                case(
-                    (ref, func.coalesce(changes.c.observed_at, accepted_at)),
-                    else_=replica,
-                ).label("observed_at"),
-                func.coalesce(preview, False).label("preview_available"),
-                cache.c.id.label("original_cache_entry_id"),
-                cache.c.verified_at.is_not(None).label("original_cache_recorded"),
-                cache.c.verified_at.label("original_cache_recorded_at"),
-                cache.c.expires_at.label("original_cache_expires_at"),
-                case((manageable, DatasetSource.id), else_=None).label("source_id"),
-                case((manageable, DatasetSource.name), else_=None).label("source_name"),
-                case((manageable, DatasetSource.location_id), else_=None).label(
-                    "location_id"
-                ),
-                ref.label("is_reference"),
-                func.coalesce(manageable, False).label("can_manage"),
-                case(
-                    (
-                        and_(
-                            manageable,
-                            ref,
-                            ~disabled,
-                            ~replaced,
-                            or_(
-                                changes.c.kind.is_(None),
-                                ~changes.c.kind.in_(
-                                    ["changed", "not_seen", "unreadable"]
-                                ),
-                            ),
-                            agent_blocked,
-                        ),
-                        agent_reason,
-                    ),
-                    else_=None,
-                ).label("agent_unavailable_reason"),
-                and_(
-                    manageable,
-                    ref,
-                    ~disabled,
-                    dataset_reference_replicas.active_replica_exists(
-                        DatasetAsset.id, actor=actor
-                    ),
-                ).label("reference_replica_recorded"),
-                *agent_availability.projection(manageable),
-            ]
-        )
-    base = agent_availability.join_status(
-        select(*columns)
-        .select_from(DatasetItem)
-        .outerjoin(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
-        .outerjoin(DatasetReference, DatasetReference.dataset_item_id == DatasetItem.id)
-        .outerjoin(DatasetSource, DatasetSource.id == source_id)
-        .outerjoin(StorageLocation, StorageLocation.id == DatasetSource.location_id)
-        .outerjoin(changes, literal(True))
-    )
-    if not state_only:
-        base = base.outerjoin(cache, literal(True))
-    if dataset_id is not None:
-        base = base.where(DatasetItem.dataset_id == dataset_id)
-    if reference_source_ids is not None:
-        base = base.where(DatasetReference.source_id.in_(reference_source_ids))
-    if item_ids is not None:
-        base = base.where(DatasetItem.id.in_(item_ids))
-    return base.subquery("item_observations")
 
 
 async def available_cache_ids(
     db, dataset_id, actor, *, reference_source_ids=None, item_ids=None
 ):
-    """Check page-scoped saved destinations without opening provider clients."""
+    """Check saved cache owners without opening provider clients."""
     from app.services import original_cache, storage_access
     from app.services.content_snapshot import ContentError
 
-    candidates = observations(
-        dataset_id,
-        actor,
-        reference_source_ids=reference_source_ids,
-        item_ids=item_ids,
-        cache_entry_ids=None,
-    )
-    records = await db.scalars(
-        select(OriginalCacheEntry).join(
-            candidates,
-            candidates.c.original_cache_entry_id == OriginalCacheEntry.id,
+    if dataset_id is None and reference_source_ids is None:
+        raise ValueError(
+            "Cache evidence requires a dataset or explicit reference sources"
         )
+    if db.autoflush:
+        await db.flush()
+    candidates = func.yoao_assets_v1.dataset_workbench_cache_candidates(
+        cast(actor.id, Uuid),
+        cast(dataset_id, Uuid),
+        _uuid_array(reference_source_ids),
+        _uuid_array(item_ids),
+    ).table_valued(
+        "id",
+        "scope_location_id",
+        "asset_id",
+        "sha256",
+        "size_bytes",
+        "location_id",
+        "bucket",
+        "binding_generation",
+        "storage_identity",
+        column("storage_ref", JSONB),
     )
+    records = await db.execute(select(candidates))
     sources, available = {}, []
-    for record in records:
+    for data in records.mappings():
+        record = SimpleNamespace(**data)
         try:
             await original_cache.prepare_read(db, record)
             if record.scope_location_id not in sources:
                 sources[record.scope_location_id] = False
                 await storage_access.check(db, record.scope_location_id)
                 sources[record.scope_location_id] = True
-            if not sources[record.scope_location_id]:
-                continue
-            available.append(record.id)
+            if sources[record.scope_location_id]:
+                available.append(record.id)
         except (ContentError, ValueError):
             continue
     return available
@@ -532,116 +238,49 @@ def availability(row):
 
 
 async def require_filter_source(db, dataset_id, source_id, actor):
-    visible = await db.scalar(
-        select(DatasetSource.id).where(
-            DatasetSource.id == source_id,
-            DatasetSource.dataset_id == dataset_id,
-            source_scope_clause(actor),
-        )
+    if db.autoflush:
+        await db.flush()
+    sources = assets_dataset_data.visible_sources(
+        actor.id, dataset_id=dataset_id, source_id=source_id
     )
+    visible = await db.scalar(select(sources.c.id).where(sources.c.id == source_id))
     if visible is None:
         raise HTTPException(404, "Dataset source not found")
 
 
-async def item_query(
-    db, dataset_id, actor, *, source_id=None, state=None, search=None, filters=None
+async def _item_matches(
+    db, dataset_id, actor, *, source_id, state, search, filters, item_id=None
 ):
-    """Authorized item relation shared by pages and immutable training selection."""
     await require_dataset(db, dataset_id)
-    obs = (
-        observations(dataset_id, actor, preferred_source_id=source_id, state_only=True)
-        if state
-        else select(DatasetItem.id.label("item_id"))
-        .where(DatasetItem.dataset_id == dataset_id)
-        .subquery("item_membership")
-    )
-    query = select(obs)
     if source_id is not None:
         await require_filter_source(db, dataset_id, source_id, actor)
-        membership = (
-            select(1)
-            .select_from(DatasetSourceItem)
-            .where(
-                DatasetSourceItem.dataset_item_id == obs.c.item_id,
-                DatasetSourceItem.source_id == source_id,
-            )
-            .exists()
-        )
-        reference = (
-            select(1)
-            .select_from(DatasetReference)
-            .where(
-                DatasetReference.dataset_item_id == obs.c.item_id,
-                DatasetReference.source_id == source_id,
-            )
-            .exists()
-        )
-        query = query.where(or_(membership, reference))
-    if state:
-        query = query.where(obs.c.state == state)
-    if search:
-        query = query.where(
-            obs.c.item_id.in_(
-                select(DatasetItem.id).where(DatasetItem.file_name.ilike(f"%{search}%"))
-            )
-        )
-    if filters is not None:
-        predicates = []
-        if filters.scene_id is not None:
-            await require_filter_scene(db, dataset_id, filters.scene_id)
-            predicates.append(DatasetItem.scene_id == filters.scene_id)
-        if filters.media_type:
-            predicates.append(DatasetItem.file_type == filters.media_type)
-        if filters.extension:
-            extension = func.lower(func.substring(DatasetItem.file_name, r"[^/.]+$"))
-            has_extension = DatasetItem.file_name.op("~")(r"[^/]+\.[^/.]+$")
-            extensions = (
-                ["jpg", "jpeg"] if filters.extension == "jpg" else [filters.extension]
-            )
-            predicates.extend([has_extension, extension.in_(extensions)])
-        known = and_(DatasetItem.width > 0, DatasetItem.height > 0)
-        if filters.dimension_state == "known":
-            predicates.append(known)
-        elif filters.dimension_state == "unknown":
-            predicates.append(
-                or_(
-                    DatasetItem.width.is_(None),
-                    DatasetItem.height.is_(None),
-                    DatasetItem.width <= 0,
-                    DatasetItem.height <= 0,
-                )
-            )
-        has_range = False
-        for axis in ("width", "height"):
-            column = getattr(DatasetItem, axis)
-            lower, upper = (
-                getattr(filters, f"min_{axis}"),
-                getattr(filters, f"max_{axis}"),
-            )
-            if lower is not None:
-                predicates.append(column >= lower)
-                has_range = True
-            if upper is not None:
-                predicates.append(column <= upper)
-                has_range = True
-        if has_range:
-            predicates.append(known)
-        if predicates:
-            query = query.where(
-                obs.c.item_id.in_(select(DatasetItem.id).where(*predicates))
-            )
-    return query, obs
+    scene_id = getattr(filters, "scene_id", None)
+    if scene_id is not None:
+        await require_filter_scene(db, dataset_id, scene_id)
+    return func.yoao_assets_v1.dataset_workbench_item_matches(
+        cast(actor.id, Uuid),
+        cast(dataset_id, Uuid),
+        cast(source_id, Uuid),
+        cast(state or None, String),
+        cast(search or None, String),
+        cast(scene_id, Uuid),
+        cast(getattr(filters, "media_type", None), String),
+        cast(getattr(filters, "extension", None), String),
+        cast(getattr(filters, "dimension_state", None), String),
+        cast(getattr(filters, "min_width", None), Integer),
+        cast(getattr(filters, "max_width", None), Integer),
+        cast(getattr(filters, "min_height", None), Integer),
+        cast(getattr(filters, "max_height", None), Integer),
+        cast(item_id, Uuid),
+    ).table_valued(
+        column("item_id", Uuid), column("created_at", DateTime(timezone=True))
+    )
 
 
 async def project_filtered_item_ids(db, project_id, dataset_id, filters, actor):
-    if not await db.scalar(
-        select(ProjectDataset.project_id).where(
-            ProjectDataset.project_id == project_id,
-            ProjectDataset.dataset_id == dataset_id,
-        )
-    ):
+    if not await assets_dataset_data.project_dataset_exists(db, project_id, dataset_id):
         raise HTTPException(404, "数据集未关联当前项目")
-    query, _ = await item_query(
+    matches = await _item_matches(
         db,
         dataset_id,
         actor,
@@ -650,7 +289,7 @@ async def project_filtered_item_ids(db, project_id, dataset_id, filters, actor):
         search=filters.search,
         filters=filters,
     )
-    return select(query.subquery().c.item_id)
+    return select(matches.c.item_id)
 
 
 async def item_page(
@@ -666,7 +305,7 @@ async def item_page(
     item_id=None,
     filters=None,
 ):
-    query, obs = await item_query(
+    matches = await _item_matches(
         db,
         dataset_id,
         actor,
@@ -674,14 +313,12 @@ async def item_page(
         state=state,
         search=search,
         filters=filters,
+        item_id=item_id,
     )
-    if item_id is not None:
-        query = query.where(obs.c.item_id == item_id)
-    total = await db.scalar(select(func.count()).select_from(query.subquery()))
+    total = await db.scalar(select(func.count()).select_from(matches))
     members = (
-        query.with_only_columns(obs.c.item_id)
-        .join(DatasetItem, DatasetItem.id == obs.c.item_id)
-        .order_by(DatasetItem.created_at.desc(), DatasetItem.id)
+        select(matches.c.item_id, matches.c.created_at)
+        .order_by(matches.c.created_at.desc(), matches.c.item_id)
         .limit(limit)
         .offset(offset)
         .cte("dataset_page")
@@ -701,14 +338,16 @@ async def item_page(
         (
             await db.execute(
                 select(details)
-                .join(DatasetItem, DatasetItem.id == details.c.item_id)
-                .order_by(DatasetItem.created_at.desc(), DatasetItem.id)
+                .join(members, members.c.item_id == details.c.item_id)
+                .order_by(members.c.created_at.desc(), members.c.item_id)
             )
         ).mappings()
     )
     from app.services.dataset import DatasetService
 
     ids = [row["item_id"] for row in rows]
+    if not ids:
+        return [], total
     items, _ = await DatasetService(db).list_items(
         dataset_id, limit=limit, item_ids=ids
     )
@@ -728,19 +367,25 @@ async def workbench(db, dataset_id, actor):
             await db.execute(select(obs.c.state, func.count()).group_by(obs.c.state))
         ).all()
     )
-    sources = list(
-        await db.scalars(
-            select(DatasetSource)
-            .where(DatasetSource.dataset_id == dataset_id, source_scope_clause(actor))
-            .order_by(DatasetSource.created_at, DatasetSource.id)
-        )
+    visible_sources = assets_dataset_data.visible_sources(
+        actor.id, dataset_id=dataset_id
+    )
+    sources = await db.execute(
+        select(
+            visible_sources.c.id,
+            visible_sources.c.name,
+            visible_sources.c.location_id,
+            visible_sources.c.enabled,
+            visible_sources.c.unregistered_at,
+        ).order_by(visible_sources.c.created_at, visible_sources.c.id)
     )
     project_entity = aliased(Project, project_rows(), adapt_on_names=True)
     member_entity = aliased(ProjectMember, project_member_facts(), adapt_on_names=True)
     scope = project_scope_clause(actor, project_entity.id)
+    links = assets_dataset_data.dataset_project_ids(dataset_id)
     projects_query = (
         select(project_entity, member_entity.role)
-        .join(ProjectDataset, ProjectDataset.project_id == project_entity.id)
+        .join(links, links.c.project_id == project_entity.id)
         .outerjoin(
             member_entity,
             and_(
@@ -748,7 +393,6 @@ async def workbench(db, dataset_id, actor):
                 member_entity.user_id == actor.id,
             ),
         )
-        .where(ProjectDataset.dataset_id == dataset_id)
         .execution_options(populate_existing=True)
     )
     if scope is not None:
@@ -837,45 +481,19 @@ async def workbench(db, dataset_id, actor):
 
 
 async def training_versions(db, dataset_id, actor, *, limit, offset):
+    from app.services.training_dataset_data import dataset_asset_versions
+
     await require_dataset(db, dataset_id)
-    version = TrainingDatasetVersion
+    version = dataset_asset_versions(dataset_id, workbench=True).c
     project = project_facts()
-    task_match = (
-        select(1)
-        .select_from(task_row)
-        .join(DatasetItem, DatasetItem.id == task_row.dataset_item_id)
-        .where(
-            DatasetItem.dataset_id == dataset_id,
-            task_row.project_id == version.project_id,
-            version.snapshot.contains(
-                func.jsonb_build_object(
-                    "samples",
-                    func.jsonb_build_array(
-                        func.jsonb_build_object("task_id", cast(task_row.id, String))
-                    ),
-                )
-            ),
-        )
-        .correlate(version)
-        .exists()
-    )
-    match = or_(
-        version.snapshot["source"]["dataset_id"].astext == str(dataset_id),
-        version.snapshot.contains({"samples": [{"dataset_id": str(dataset_id)}]}),
-        task_match,
-    )
-    query = (
-        select(
-            version.id,
-            version.project_id,
-            project.c.name.label("project_name"),
-            version.name,
-            version.status,
-            version.created_at,
-        )
-        .join(project, project.c.id == version.project_id)
-        .where(match)
-    )
+    query = select(
+        version.id,
+        version.project_id,
+        project.c.name.label("project_name"),
+        version.name,
+        version.status,
+        version.created_at,
+    ).join(project, project.c.id == version.project_id)
     scope = managed_project_scope_clause(actor, version.project_id)
     if scope is not None:
         query = query.where(scope)

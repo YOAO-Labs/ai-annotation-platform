@@ -8,35 +8,21 @@ import uuid
 
 from celery.utils.nodenames import worker_direct
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
-from app.db.models.dataset_source import DatasetSource
-from app.db.models.async_job import AsyncJob
-from app.db.models.dataset_quality import (
-    DatasetQualityRun as Run,
-    DatasetQualityResult as Result,
-)
-from app.services import dataset_quality as svc, dataset_content as content
+from app.services import async_job as jobs
+from app.services import dataset_content as content, dataset_quality as svc
 from app.services.content_snapshot import ContentError
-from app.services.async_job import mark_running, update_progress
+from app.services.dataset_quality_data import QualityData
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
 
 
 async def next_node(db, run_id):
-    row = (
-        await db.execute(
-            select(Result.reason_code, DatasetSource.config)
-            .outerjoin(DatasetSource, DatasetSource.id == Result.source_id)
-            .where(Result.run_id == run_id, Result.state == "pending")
-            .order_by(Result.id)
-            .limit(1)
-        )
-    ).first()
-    return row[1].get("node_id") if row and row[0] is None and row[1] else None
+    row = await QualityData(db).next_result(run_id)
+    return row.node_id if row is not None else None
 
 
 def _publish(run_id, task_id, node):
@@ -58,7 +44,7 @@ def _publish(run_id, task_id, node):
 
 
 async def dispatch(db, run):
-    job = await db.get(AsyncJob, run.async_job_id)
+    job = await jobs.get_job(db, run.async_job_id)
     task_id, run_id = job.celery_task_id, run.id
     node = await next_node(db, run_id)
     await db.commit()
@@ -74,17 +60,13 @@ async def process_one(db, run_id, job_id, task_id, generation, node_id):
         await db.rollback()
         return False
     actor = await svc.authority(db, run)
-    row = await db.scalar(
-        select(Result)
-        .where(Result.run_id == run_id, Result.state == "pending")
-        .order_by(Result.id)
-        .limit(1)
-    )
+    data = QualityData(db)
+    row = await data.next_result(run_id)
     if row is None:
-        await svc.finish(db, run, "completed")
+        await svc.finish(db, run, "completed", task_id=task_id)
         await db.commit()
         return False
-    node = await next_node(db, run_id)
+    node = row.node_id
     if node and node_id != f"worker:{node}":
         await db.commit()
         return "yield"
@@ -94,7 +76,7 @@ async def process_one(db, run_id, job_id, task_id, generation, node_id):
         (row.asset_id, row.sha256, row.size_bytes),
     )
     reason, snapshot = row.reason_code, None
-    key_id, config = run.authority["api_key_id"], dict(run.config)
+    key_id, config = run.authority["api_key_id"], run.config
     await db.commit()
     try:
         if reason is None:
@@ -124,33 +106,43 @@ async def process_one(db, run_id, job_id, task_id, generation, node_id):
             await db.rollback()
             return False
         await svc.authority(db, run)
-        row = await db.get(Result, row_id, populate_existing=True)
-        row.observed_at, row.reason_code = svc.now(), reason
-        row.state = "skipped" if reason else "checked"
+        state = "skipped" if reason else "checked"
+        findings, width, height = [], None, None
         if snapshot is not None:
-            row.bytes_verified = True
-            row.reason_code = snapshot.inspection_error
-            if snapshot.inspection_error == "invalid_image":
-                row.findings = ["decode_failed"]
-            elif snapshot.inspection_error:
-                row.state = "skipped"
+            reason = snapshot.inspection_error
+            if reason == "invalid_image":
+                findings = ["decode_failed"]
+            elif reason:
+                state = "skipped"
             else:
-                row.width, row.height = snapshot.width, snapshot.height
-                row.findings = (
-                    []
-                    if (
-                        config["min_width"] <= row.width <= config["max_width"]
-                        and config["min_height"] <= row.height <= config["max_height"]
-                    )
-                    else ["dimensions_out_of_range"]
-                )
-        run.processed += 1
-        run.lease_until = svc.now() + timedelta(seconds=svc.LEASE_SECONDS)
-        await update_progress(
+                width, height = snapshot.width, snapshot.height
+                if not (
+                    config["min_width"] <= width <= config["max_width"]
+                    and config["min_height"] <= height <= config["max_height"]
+                ):
+                    findings = ["dimensions_out_of_range"]
+        observed_at = svc.now()
+        processed = await data.record_result(
+            run,
+            task_id,
+            row_id,
+            observed_at,
+            state=state,
+            reason=reason,
+            bytes_verified=snapshot is not None,
+            findings=findings,
+            width=width,
+            height=height,
+            lease_until=observed_at + timedelta(seconds=svc.LEASE_SECONDS),
+        )
+        if processed is None:
+            await db.rollback()
+            return False
+        await jobs.update_progress(
             db,
             job_id,
-            int(run.processed * 100 / max(1, run.total)),
-            extra_payload={"processed_count": run.processed},
+            int(processed * 100 / max(1, run.total)),
+            extra_payload={"processed_count": processed},
         )
         await db.commit()
         return True
@@ -160,29 +152,32 @@ async def process_one(db, run_id, job_id, task_id, generation, node_id):
 
 
 async def execute(db, run_id, task_id, node_id):
-    run = await db.scalar(
-        select(Run)
-        .where(Run.id == run_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if run is None or run.status != "pending":
-        await db.rollback()
-        return
-    job = await db.get(AsyncJob, run.async_job_id, populate_existing=True)
-    if job is None or job.celery_task_id != task_id or job.status not in svc.ACTIVE:
+    data = QualityData(db)
+    run = await data.run_attempt("claim", svc.now(), run_id=run_id, task_id=task_id)
+    if run is None:
         await db.rollback()
         return
     try:
         await svc.authority(db, run)
     except (HTTPException, ContentError) as exc:
-        await svc.finish(db, run, "failed", svc.failure_code(exc))
+        await svc.finish(db, run, "failed", svc.failure_code(exc), task_id=task_id)
         await db.commit()
         return
-    generation, job_id = run.generation, job.id
-    run.status = "running"
-    run.lease_until = svc.now() + timedelta(seconds=svc.LEASE_SECONDS)
-    await mark_running(db, job_id)
+    generation, job_id = run.generation, run.async_job_id
+    claimed_at = svc.now()
+    if (
+        await data.transition_run(
+            run,
+            "claim",
+            claimed_at,
+            task_id=task_id,
+            lease_until=claimed_at + timedelta(seconds=svc.LEASE_SECONDS),
+        )
+        is None
+    ):
+        await db.rollback()
+        return
+    await jobs.mark_running(db, job_id)
     await db.commit()
     try:
         started = time.monotonic()
@@ -199,44 +194,44 @@ async def execute(db, run_id, task_id, node_id):
         run = await svc.fenced(db, run_id, job_id, task_id, generation)
         if run:
             await svc.authority(db, run)
-            job = await db.get(AsyncJob, job_id)
-            run.status = "pending"
-            run.generation += 1
-            job.celery_task_id = str(uuid.uuid4())
-            await dispatch(db, run)
+            await _redispatch(db, data, run, task_id)
     except Exception as exc:
         await db.rollback()
         run = await svc.fenced(db, run_id, job_id, task_id, generation)
         if run:
-            await svc.finish(db, run, "failed", svc.failure_code(exc))
+            await svc.finish(db, run, "failed", svc.failure_code(exc), task_id=task_id)
             await db.commit()
         log.warning(
             "Quality attempt stopped run=%s exception=%s", run_id, type(exc).__name__
         )
 
 
-async def recover(db):
-    ids = list(
-        await db.scalars(
-            select(Run.id)
-            .where(Run.status.in_(svc.ACTIVE), Run.lease_until <= svc.now())
-            .limit(50)
-        )
+async def _redispatch(db, data, run, task_id, *, recovered=False):
+    queued_at = svc.now()
+    updated = await data.transition_run(
+        run,
+        "redispatch",
+        queued_at,
+        task_id=task_id,
+        lease_until=queued_at + timedelta(seconds=svc.LEASE_SECONDS)
+        if recovered
+        else None,
     )
-    for run_id in ids:
-        run = await db.scalar(
-            select(Run)
-            .where(
-                Run.id == run_id,
-                Run.status.in_(svc.ACTIVE),
-                Run.lease_until <= svc.now(),
-            )
-            .with_for_update(skip_locked=True)
-            .execution_options(populate_existing=True)
-        )
+    if updated is None:
+        await db.rollback()
+        return
+    job = await jobs.get_job(db, run.async_job_id, populate_existing=True)
+    jobs.bind_execution_id(job, str(uuid.uuid4()))
+    await dispatch(db, updated)
+
+
+async def recover(db):
+    data = QualityData(db)
+    for run_id in await data.expired_runs(svc.now()):
+        run = await data.run_attempt("recover", svc.now(), run_id=run_id)
         if run is None:
             continue
-        job = await db.get(AsyncJob, run.async_job_id, populate_existing=True)
+        job = await jobs.get_job(db, run.async_job_id, populate_existing=True)
         if job is None or job.status not in svc.ACTIVE:
             await svc.finish(db, run, "failed", "worker_failed")
             await db.commit()
@@ -244,14 +239,12 @@ async def recover(db):
         try:
             await svc.authority(db, run)
         except (HTTPException, ContentError) as exc:
-            await svc.finish(db, run, "failed", svc.failure_code(exc))
+            await svc.finish(
+                db, run, "failed", svc.failure_code(exc), task_id=job.celery_task_id
+            )
             await db.commit()
             continue
-        run.status = "pending"
-        run.generation += 1
-        run.lease_until = svc.now() + timedelta(seconds=svc.LEASE_SECONDS)
-        job.celery_task_id = str(uuid.uuid4())
-        await dispatch(db, run)
+        await _redispatch(db, data, run, job.celery_task_id, recovered=True)
 
 
 async def _session(work):
