@@ -127,7 +127,8 @@ psql -X -U anno_prod_owner -d annotation_production \
   -f infra/docker/lan-production-grants.sql
 ```
 
-每次迁移后都重新执行该授权脚本。它检查当前数据库和角色方向，授予业务 DML，禁止运行角色修改迁移版本或删除 GPU membership/fence 真值；同时把审计、预测父表及全部子分区、两个统计物化视图交给运行角色维护。
+每次迁移后都重新执行该授权脚本。它检查当前数据库和角色方向，为应用授权已发布的操作，
+不把 `mv_user_perf_daily`、`project_task_views` 或 `dataset_saved_views` 交给运行角色。
 
 Identity 私表及列权限在同一授权事务中撤销，内嵌 API 保留固定公开关系与 Native 命令能力。
 应用角色必须没有角色成员资格；`NOINHERIT` 不能阻止 `SET ROLE`。PUBLIC 或所有权仍提供
