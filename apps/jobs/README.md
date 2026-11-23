@@ -23,20 +23,18 @@ existing owners.
 
 The strict `jobs-lifecycle-grants.sql` profile permits only this creation
 relation and eight public functions. Ordinary LAN and worktree runtime profiles
-revoke private table and column INSERT from the runtime and PUBLIC, and reject
-inherited INSERT or Jobs creation ownership. They keep SELECT/INSERT on the
-creation view and the existing video-summary function. Migration/test owners
-may still use legacy initializers with their own private INSERT right.
+revoke table and column access to `public.async_jobs` from the runtime and
+PUBLIC, including inherited SELECT and INSERT checks. They keep SELECT/INSERT
+on the pending-only creation view and the existing video-summary function.
+Migration/test owners may still use legacy initializers with their own private
+INSERT right.
 
 Legacy column edits and explicit timestamps require the corresponding private
 UPDATE plus primary-key SELECT. These checks resolve the actual PostgreSQL
-invoker, never a client JSON field. The API retains SELECT for readers not yet migrated. Ordinary runtime profiles
-revoke private UPDATE (table and all current columns) and DELETE after broad
-grants, and reject inherited rights. Legacy column edits and timestamp overrides
+invoker, never a client JSON field. Legacy column edits and timestamp overrides
 remain denied for ordinary roles; schema-owner fixture tools keep their own
 private rights. Production commands and payload/result projections retain the
-existing owner path. Closing write rights does not complete Jobs read credential
-closure or runtime recovery.
+existing owner path.
 
 ## Test project fixture cleanup
 
@@ -116,9 +114,9 @@ API 借用 Session 时只重定向 ORM 生成的单主键、无锁列刷新，�
 
 The API routes ordinary domain reads and supported unlocked ORM column refreshes
 through `read_job`. Partial refreshes retain their selected fields, dirty cache,
-autoflush and concurrent database timestamp behavior. Explicit locked refreshes
-and unsupported ORM query shapes retain their original path. Remaining filtered
-queries, domain readers and legacy edits still prevent blanket private ACL removal.
+autoflush and concurrent database timestamp behavior. Ordinary locking queries
+use the three named lock functions; the column-refresh hook does not rewrite
+custom query shapes.
 See [the operation ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-row-access)
 for the bounded native and packaging evidence.
 
@@ -143,8 +141,16 @@ mapped lookup does. The count and aggregate retain their original query flush.
 No capability commits, retries, authorizes the actor, or changes execution
 ownership. Ordinary runtime profiles require these six functions; the strict
 lifecycle LOGIN retains the eight lifecycle functions and the three existing
-snapshot/progress capabilities required by the borrowed session. Other private reads
-and legacy edits still prevent global Jobs credential retirement.
+snapshot/progress capabilities required by the borrowed session.
+
+`bo0502` adds a dataset-job visibility check that uses Assets' current directory
+and quality authority, a location-scoped directory-job page and count, and a
+bounded aggregate of pending/running job kinds for migration diagnostics.
+Directory pages preserve retained attempts and order by descending creation
+time then ascending Job UUID; the response includes only identity, status,
+kind and timestamps. A current link and matching historical reference never
+duplicate the same Job. The active dataset dependency projection and scan /
+registration state synchronization are reserved for the Assets owner.
 
 ## Action idempotency
 
@@ -166,8 +172,7 @@ No capability commits, retries or adds a business status predicate.
 
 Ordinary roles receive these two functions while strict lifecycle/list/domain
 profiles retain their existing scopes. This removes the filtered locking read's
-private UPDATE dependency. Other private SELECT consumers remain tracked in
-[the operation ledger](../../docs-site/dev/concepts/module-deployment.md#jobs-action-idempotency).
+private UPDATE dependency.
 Point-cloud quality cancellation uses only status/payload from existing
 `read_job`, preserving dirty cache state under `no_autoflush`; dispatch uses
 the existing cached getter without forced refresh.

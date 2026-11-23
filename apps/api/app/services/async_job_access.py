@@ -10,6 +10,7 @@ from app.services.project_access import get_workspace_project
 from app.db.models.async_job import AsyncJob, AsyncJobKind
 from app.services import async_job as jobs, task_access
 from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 from yoao_workspace_contract.access import ProjectCapability
 from app.services.project_access import resolve_project_access
 
@@ -38,45 +39,14 @@ async def _can_access_job(
         "storage_migration_copy",
     }:
         return actor.role == PlatformRole.SUPER_ADMIN.value
-    if job.kind in {"dataset_quality", "dataset_quality_review"}:
-        from app.services import (
-            dataset_quality as quality_svc,
-            dataset_quality_review as review_svc,
-            dataset_source_access as source_access,
-        )
-        from sqlalchemy import select
-
-        try:
-            manager = await source_access.require_manager(db, actor.id)
-        except HTTPException:
-            return False
-        return bool(
-            await db.scalar(
-                select(AsyncJob.id).where(
-                    AsyncJob.id == job.id,
-                    (
-                        review_svc
-                        if job.kind == "dataset_quality_review"
-                        else quality_svc
-                    ).job_scope_clause(manager),
-                )
-            )
-        )
-    if job.kind in {"dataset_scan", "dataset_registration"}:
-        from app.services import dataset_source_access as source_access
-        from sqlalchemy import select
-
-        try:
-            manager = await source_access.require_manager(db, actor.id)
-        except HTTPException:
-            return False
-        return bool(
-            await db.scalar(
-                select(AsyncJob.id).where(
-                    AsyncJob.id == job.id, source_access.job_scope_clause(manager)
-                )
-            )
-        )
+    if job.kind in {
+        "dataset_scan",
+        "dataset_registration",
+        "dataset_quality",
+        "dataset_quality_review",
+    }:
+        data = JobsDomainQueryPostgresData(db)
+        return await data.dataset_job_visible(actor.id, job.id)
     project_id = job.project_id or job.retained_project_id
     if project_id is None:
         if job.kind == EXPORT_JOB_KIND:
