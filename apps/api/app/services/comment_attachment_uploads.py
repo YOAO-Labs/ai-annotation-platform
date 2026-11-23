@@ -196,6 +196,7 @@ async def upload(db, proof, original, data, mime_type, file_name):
                 "write",
                 receipt,
                 data,
+                permit=owned_permit,
                 accounting=recorder,
             )
 
@@ -379,10 +380,11 @@ async def read(db, actor, request, annotation_id, key):
         await db.commit()
         check_deadlines(proof, expiries)
         revision = None
-        target = None
+        target = physical_permit = None
 
         async def acquired(permit):
-            nonlocal revision, target
+            nonlocal revision, target, physical_permit
+            physical_permit = permit
             actor = await reauthorize(db, proof)
             await _read_binding(
                 db, actor, annotation_id, key, expected=original, receipt=receipt
@@ -396,7 +398,9 @@ async def read(db, actor, request, annotation_id, key):
 
         def read_saved():
             check_deadlines(proof, expiries)
-            return storage.run_io(target, storage_service.client, "read", receipt)
+            return storage.run_io(
+                target, storage_service.client, "read", receipt, permit=physical_permit
+            )
 
         if read_route is None:
             data = await storage_access.run(
@@ -533,10 +537,11 @@ async def _cleanup_one(db, identifier):
         return None
     await db.commit()
 
-    target = None
+    target = physical_permit = None
 
     async def acquired(permit):
-        nonlocal target
+        nonlocal target, physical_permit
+        physical_permit = permit
         current = await _locked(db, identifier)
         if (
             current is None
@@ -554,7 +559,9 @@ async def _cleanup_one(db, identifier):
         db,
         uuid.UUID(receipt.storage_ref["location_id"]),
         "comment_attachment_delete_" + receipt.id.hex,
-        lambda: storage.run_io(target, storage_service.client, "delete", receipt),
+        lambda: storage.run_io(
+            target, storage_service.client, "delete", receipt, permit=physical_permit
+        ),
         on_acquired=acquired,
     )
     current = await _locked(db, identifier)

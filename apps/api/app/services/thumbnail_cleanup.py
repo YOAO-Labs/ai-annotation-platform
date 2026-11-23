@@ -58,7 +58,7 @@ def absent(exc):
     }
 
 
-def remove(target, output, *, accounting=None, fixture=None):
+def remove(target, output, *, accounting=None, fixture=None, physical_permit=None):
     """Read back the receipt, then delete and prove absence of that exact version."""
     saved = outputs.owner(output)
     if fixture is not None:
@@ -72,6 +72,46 @@ def remove(target, output, *, accounting=None, fixture=None):
                     uuid.UUID(identifier), permit, state
                 ),
             )
+    from app.services import saved_media_io as source
+
+    if source.registered(target):
+        attempt = (
+            accounting.begin(
+                saved.key(outputs.RELATIVE_KEY), {"version_id": output.version_id}
+            )
+            if accounting is not None
+            else None
+        )
+        try:
+            result = source.command(
+                "thumbnail-delete",
+                source.subject(output.id, physical_permit),
+                access="cleanup",
+                timeout=30,
+            )
+        except source.SavedIOError as exc:
+            if not exc.unsettled and exc.storage_code in source.CONFLICT | {
+                "403",
+                "AccessDenied",
+            }:
+                raise ContentError("thumbnail_cleanup_refused", 503) from None
+            error = ContentError(exc.code, 503)
+            if exc.unsettled:
+                storage_access.mark_unsettled(error)
+            raise error from None
+        if (
+            attempt is not None
+            and result["deleted"]
+            and output.version_id not in (None, "null")
+        ):
+            attempt.evidence.update(
+                physical_outcome="deleted",
+                physical_size_bytes=output.size_bytes,
+                returned_version=output.version_id,
+                version_removed=True,
+                removed_kind="object",
+            )
+        return result["deleted"]
     params = {"Bucket": saved.bucket, "Key": saved.key(outputs.RELATIVE_KEY)}
     if output.version_id not in (None, "null"):
         params["VersionId"] = output.version_id
@@ -296,7 +336,12 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
                         current,
                         saved.location_id,
                         outputs.purpose(identifier),
-                        lambda: remove(target, output, accounting=recorder),
+                        lambda: remove(
+                            target,
+                            output,
+                            accounting=recorder,
+                            physical_permit=owned_permit,
+                        ),
                         expected_revision=revision,
                         on_acquired=admitted,
                         timeout=outputs.WRITE_SECONDS,

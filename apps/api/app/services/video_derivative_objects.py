@@ -176,7 +176,7 @@ async def read_access(db, receipt, plan, guard):
         await session.commit()
         async with AsyncExitStack() as admissions:
             if plan.source_revision is not None:
-                await admissions.enter_async_context(
+                source_permit = await admissions.enter_async_context(
                     await storage_access.acquire(
                         session,
                         uuid.UUID(receipt.storage_ref["location_id"]),
@@ -200,11 +200,13 @@ async def read_access(db, receipt, plan, guard):
                     if plan.source_revision is not None:
                         source = contexts.enter_context(
                             physical.open_storage(
+                                output=receipt,
+                                permit=source_permit,
                                 **(
                                     {"target": source_target}
                                     if source_target is not None
                                     else {}
-                                )
+                                ),
                             )
                         )
                     readers = (
@@ -375,6 +377,8 @@ async def access(
                 if target is None
                 else physical.open_storage(
                     target=target,
+                    output=receipt,
+                    permit=permit,
                     **({"single_attempt": True} if single_attempt else {}),
                     **({"owned": True} if owned else {}),
                 )

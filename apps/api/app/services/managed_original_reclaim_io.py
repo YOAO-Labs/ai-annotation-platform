@@ -300,3 +300,84 @@ def run_reclaim(
             observed_size,
             observation,
         )
+
+
+def run_registered(candidate, attempt_id, permit, *, checkpoint):
+    """Keep the existing owner checkpoints between the Source's finite steps."""
+    from app.services import saved_media_io
+
+    payload = saved_media_io.subject(attempt_id, permit)
+    read = saved_media_io.command(
+        "retired-original-reclaim-probe",
+        payload,
+        access="cleanup",
+        timeout=TIMEOUT_SECONDS,
+    )
+    if read["outcome"] == "missing":
+        if not candidate.recover_may_delete:
+            return ReclaimResult("missing", "reclaim_version_missing")
+        checkpoint(
+            "version_absent", {"version_id": candidate.version_id, "recovered": True}
+        )
+        return ReclaimResult("already_absent", absence_proven=True)
+    observation = read.get("observation", {})
+    digest, size = read.get("observed_sha256"), read.get("observed_size")
+    if read["outcome"] != "matched":
+        return ReclaimResult(
+            "changed" if read["outcome"] == "changed" else "failed",
+            read["error_code"],
+            observed_sha256=digest,
+            observed_size=size,
+            observation=observation,
+        )
+    if (digest, size) != (candidate.sha256, candidate.size_bytes):
+        return ReclaimResult("changed", "reclaim_content_changed")
+    verified = {
+        "version_id": candidate.version_id,
+        "sha256": digest,
+        "size_bytes": size,
+        "etag": observation["initial"]["etag"],
+    }
+    checkpoint("read_verified", verified)
+    checkpoint("delete_started", verified)
+    ack = None
+    try:
+        ack = saved_media_io.command(
+            "retired-original-reclaim-delete",
+            payload,
+            access="cleanup",
+            timeout=TIMEOUT_SECONDS,
+        )
+        checkpoint("delete_ack", ack)
+        absence = saved_media_io.command(
+            "retired-original-reclaim-absence",
+            payload,
+            access="cleanup",
+            timeout=TIMEOUT_SECONDS,
+        )
+        if absence != {"absent": True}:
+            raise saved_media_io.SavedIOError("reclaim_version_still_present")
+        checkpoint(
+            "version_absent", {"version_id": candidate.version_id, "recovered": False}
+        )
+    except Exception as exc:
+        if getattr(exc, "storage_operation_unsettled", False):
+            raise
+        return ReclaimResult(
+            "unknown",
+            _error(exc),
+            delete_started=True,
+            delete_ack=ack,
+            observed_sha256=digest,
+            observed_size=size,
+            observation=observation,
+        )
+    return ReclaimResult(
+        "deleted",
+        delete_started=True,
+        delete_ack=ack,
+        absence_proven=True,
+        observed_sha256=digest,
+        observed_size=size,
+        observation=observation,
+    )

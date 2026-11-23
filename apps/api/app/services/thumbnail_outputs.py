@@ -17,6 +17,7 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import media_cache_storage, media_cache_urls, original_sources
 from app.services import media_cache_accounting
+from app.services import saved_media_io as source
 from app.services import storage_access
 from app.services import storage_migration_artifact_reads as migrated_reads
 from app.services import storage_migration_read_publications as publications
@@ -56,10 +57,40 @@ def source_facts(source):
     return json.loads(json.dumps(asdict(source), default=str))
 
 
-def _write(target, reference, data, *, accounting=None):
+def _write(target, reference, data, *, accounting=None, permit=None, output_id=None):
     saved = media_cache_storage.resolve_ref(reference)
     key = saved.key(RELATIVE_KEY)
     expected = hashlib.sha256(data).hexdigest()
+    if source.registered(target):
+        try:
+            result = source.write_checked(
+                "thumbnail-write",
+                source.subject(output_id, permit),
+                data,
+                key,
+                {"sha256": expected, "size_bytes": len(data)},
+                accounting=accounting,
+                timeout=30,
+            )
+        except source.SavedIOError as exc:
+            if not exc.unsettled and exc.storage_code in source.CONFLICT | {
+                "403",
+                "404",
+                "AccessDenied",
+                "InvalidAccessKeyId",
+                "SignatureDoesNotMatch",
+                "NoSuchBucket",
+            }:
+                error = ContentError("thumbnail_write_rejected", 503)
+                error.thumbnail_write_refused = True
+                raise error from None
+            raise
+        return {
+            "sha256": expected,
+            "size_bytes": len(data),
+            "etag": result["etag"],
+            "version_id": result["version_id"],
+        }
     attempted = False
     try:
         with target.client(
@@ -258,10 +289,22 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
             target = await media_cache_storage.target_for_ref(current, saved.ref)
             revision = await storage_access.check(current, saved.location_id)
             await current.commit()
+            physical_permit = None
+
+            async def acquired(permit):
+                nonlocal physical_permit
+                physical_permit = permit
 
             def write():
                 entered.append(True)
-                result = _write(target, reference, body, accounting=recorder)
+                result = _write(
+                    target,
+                    reference,
+                    body,
+                    accounting=recorder,
+                    permit=physical_permit,
+                    output_id=identifier,
+                )
                 observed.append(result)
                 return result
 
@@ -272,6 +315,7 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
                 write,
                 expected_revision=revision,
                 timeout=WRITE_SECONDS,
+                on_acquired=acquired,
             )
     except BaseException as exc:
         if not entered and not storage_access.failure_unsettled(exc):
@@ -351,7 +395,21 @@ def _legacy_path(path):
     )
 
 
-def _verified_bytes(target, output):
+def _verified_bytes(target, output, *, permit=None):
+    if source.registered(target):
+        try:
+            return source.read_checked(
+                "cache-download",
+                source.cache_subject("thumbnail", output.id, RELATIVE_KEY, permit),
+                output.size_bytes,
+                output.sha256,
+                timeout=30,
+            )
+        except source.SavedIOError as exc:
+            error = ContentError("thumbnail_content_changed")
+            if exc.unsettled:
+                storage_access.mark_unsettled(error)
+            raise error from None
     with target.client(read_timeout=30) as client:
         return read_from_client(client, output)
 
@@ -489,7 +547,7 @@ async def read_bytes(db, output_id):
         ) as permit:
             await acquired(permit)
             pending = asyncio.create_task(
-                asyncio.to_thread(_verified_bytes, target, output)
+                asyncio.to_thread(_verified_bytes, target, output, permit=permit)
             )
             try:
                 return await asyncio.shield(pending)

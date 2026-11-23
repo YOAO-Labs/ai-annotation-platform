@@ -192,6 +192,9 @@ def _chunk(output, metadata, input_path, fds, directory):
 def build(storage, output, stage, metadata=None, *, accounting=None, native_stage):
     """No ORM or remote-original I/O; the caller retains both durable permits."""
     from app.services.media_process import decoder_input
+    import time
+
+    from app.services import saved_media_io
     from app.workers.media_frames import extract_video_frame_image
 
     input_path, fds = decoder_input(stage)
@@ -223,6 +226,21 @@ def build(storage, output, stage, metadata=None, *, accounting=None, native_stag
         else:
             contract.reject("video_derivative_result_invalid")
         owner = physical.resolve(output)
+        if isinstance(storage, saved_media_io.Derivative):
+            members = {relative: physical._file(path) for path, relative, _ in paths}
+            members["metadata.json"] = physical._json_result(result)
+            try:
+                _, inventory = storage.build(
+                    owner,
+                    members,
+                    maximum=physical.MAX_OUTPUT_BYTES,
+                    deadline=time.monotonic() + originals.JOB_SECONDS,
+                    accounting=accounting,
+                )
+            except Exception as exc:
+                raise physical._translate(exc) from None
+            contract.validate_result(output, result, inventory)
+            return result, inventory
         inventory = {"schema": 1, "objects": {}}
         for path, relative, content_type in paths:
             inventory["objects"][owner.key(relative)] = physical.upload_file(

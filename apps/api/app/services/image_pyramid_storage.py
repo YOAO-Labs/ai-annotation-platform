@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.services import media_cache_accounting
+from app.services import saved_media_io
 from app.services import storage_access
 from app.services import storage_migration_artifact_reads as migration_reads
 from app.services import storage_presigning
@@ -284,6 +285,8 @@ def _reading_client(storage, owner, key, receipt):
 
 
 def _client(storage, owner):
+    if isinstance(storage, saved_media_io.Derivative):
+        return storage
     endpoint = getattr(getattr(storage.client, "meta", None), "endpoint_url", None)
     if (
         not isinstance(endpoint, str)
@@ -361,6 +364,8 @@ def _read(
     owner.contains(key)
     _receipt(receipt)
     _budget(deadline)
+    if isinstance(client, saved_media_io.Derivative):
+        return client.read(owner, key, receipt, collect=collect)
     params = {"Bucket": owner.bucket, "Key": key}
     head = client.head_object(**params)
     etag, version = head.get("ETag"), _version(head)
@@ -442,7 +447,9 @@ def _translate(exc):
         exc, "storage_operation_unsettled", False
     ):
         return exc
-    code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+    code = getattr(exc, "storage_code", None) or str(
+        getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+    )
     suffix = (
         "missing"
         if code in {"404", "NoSuchKey", "NoSuchVersion", "NotFound"}
@@ -457,8 +464,13 @@ def _translate(exc):
 
 
 @contextmanager
-def open_storage(*, target, single_attempt=False, owned=False):
+def open_storage(
+    *, target, single_attempt=False, owned=False, output=None, permit=None
+):
     """Open and close the registered transport inside the caller's permit."""
+    if saved_media_io.registered(target):
+        yield saved_media_io.Derivative("pyramid", output, permit)
+        return
     try:
         context = target.client(
             read_timeout=30,
@@ -484,7 +496,6 @@ def upload_and_verify(
 ):
     """Create an independent prefix, then fully read back every exact receipt."""
     owner = resolve(output)
-    client = _client(storage, owner)
     if (
         not isinstance(tiles, list)
         or not 0 < len(tiles) <= settings.image_pyramid_max_tiles
@@ -503,6 +514,21 @@ def upload_and_verify(
     overview = owner.key("overview.webp")
     manifest = owner.key("manifest.json")
     paths[overview] = Path(overview_path)
+    if isinstance(storage, saved_media_io.Derivative):
+        members = {key[len(owner.prefix) :]: path for key, path in paths.items()}
+        members["manifest.json"] = manifest_bytes
+        try:
+            total, inventory = storage.build(
+                owner,
+                members,
+                maximum=settings.image_pyramid_max_derived_bytes,
+                deadline=deadline,
+                accounting=accounting,
+            )
+            return manifest, overview, total, inventory
+        except Exception as exc:
+            raise _translate(exc) from None
+    client = _client(storage, owner)
     inventory, attempts = {}, {}
     try:
         if _objects(client, owner, deadline):
@@ -654,13 +680,24 @@ def signed_url(storage, output, key, expires):
 def delete(storage, output, *, accounting=None, fixture=None):
     """Delete only this saved UUID prefix and prove it is empty afterwards."""
     owner = resolve(output)
+    if isinstance(storage, saved_media_io.Derivative):
+        try:
+            return storage.delete(
+                output,
+                accounting=accounting,
+                timeout=settings.image_pyramid_job_timeout_seconds,
+            )
+        except Exception as exc:
+            raise _translate(exc) from None
     client = _client(storage, owner)
     if fixture is not None:
         from app.services import media_cache_storage
 
         retirement, permit, versions = fixture
         return media_cache_storage.retire_fixture_versions(
-            client, owner, versions,
+            client,
+            owner,
+            versions,
             lambda identifier, state: retirement.physical_checkpoint(
                 uuid.UUID(identifier), permit, state
             ),

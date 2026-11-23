@@ -543,7 +543,7 @@ class AssetsOperatorGateway:
         from types import SimpleNamespace
 
         data = await self._managed_original_data(
-            "yoao_assets_v1.operator_item_original_material",
+            "yoao_assets_v1.saved_operator_item_original",
             {"dataset_id": dataset_id, "item_id": item_id},
             {"dataset_id": "uuid", "item_id": "uuid"},
         )
@@ -576,45 +576,24 @@ class AssetsOperatorGateway:
             version_id=source.get("version_id"),
             storage_ref=source.get("storage_ref"),
             endpoint_url=source.get("endpoint_url"),
-            destination=source.get("destination"),
         )
 
     def _material_client(self, material):
-        import base64
+        from app.config import settings
+        from app.services.dataset_assets import LEGACY_LOCATION_ID
+        from app.services.storage import storage_service
 
-        destination = material.get("destination")
-        if not destination:
-            from app.services.dataset_assets import LEGACY_LOCATION_ID
-            from app.services.storage import storage_service
-
-            from app.config import settings
-
-            expected_endpoint = (
-                f"{'https' if settings.minio_use_ssl else 'http'}://"
-                f"{settings.minio_endpoint}"
-            ).rstrip("/")
-            actual_endpoint = str(material.get("endpoint_url") or "").rstrip("/")
-            if (
-                str(material.get("location_id")) != str(LEGACY_LOCATION_ID)
-                or material.get("bucket") != storage_service.datasets_bucket
-                or actual_endpoint != expected_endpoint
-            ):
-                raise _operator_failure("creation_target_unavailable")
-            return _SharedClient(storage_service.client)
-        from urllib.parse import urlsplit
-
-        from app.services.source_readers.s3 import S3Access
-
-        config = destination["config"]
-        endpoint = config["endpoint"]
-        if "://" not in endpoint:
-            endpoint = ("https://" if config.get("use_ssl") else "http://") + endpoint
-        access = S3Access(
-            dict(config),
-            base64.b64decode(destination["secret_enc"]),
-            (urlsplit(endpoint).hostname or "",),
-        )
-        return access.client(read_timeout=60)
+        expected_endpoint = (
+            f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+        ).rstrip("/")
+        actual_endpoint = str(material.get("endpoint_url") or "").rstrip("/")
+        if (
+            str(material.get("location_id")) != str(LEGACY_LOCATION_ID)
+            or material.get("bucket") != storage_service.datasets_bucket
+            or actual_endpoint != expected_endpoint
+        ):
+            raise _operator_failure("creation_target_unavailable")
+        return _SharedClient(storage_service.client)
 
     async def _material_attr(self, material, name):
         return material[name] if isinstance(material, dict) else getattr(material, name)
@@ -626,12 +605,30 @@ class AssetsOperatorGateway:
         from types import SimpleNamespace
 
         from app.services import managed_original_writer as writer
+        from app.services import saved_media_io
+        from app.services.dataset_assets import LEGACY_LOCATION_ID
+        from app.services.prediction_inputs import settled_io
 
         bucket = await self._material_attr(material, "bucket")
         key = await self._material_attr(material, "object_key")
         creation_id = str(await self._material_attr(material, "creation_id"))
         if operation.mode != "write":
             raise OperatorFailure("creation_state_conflict")
+        remote = None
+        if str(await self._material_attr(material, "location_id")) != str(
+            LEGACY_LOCATION_ID
+        ):
+            remote = saved_media_io.OriginalWrite(
+                {
+                    "id": UUID(creation_id),
+                    "bucket": bucket,
+                    "object_key": key,
+                    "max_bytes": len(data),
+                    "timeout_seconds": 60,
+                },
+                SimpleNamespace(id=operation.operation_id),
+                None,
+            )
         prepared = receipt = verified = None
         head_matches: bool | None = None
         completion_started = False
@@ -640,16 +637,19 @@ class AssetsOperatorGateway:
         failure = None
         unknown = False
         try:
-            client_context = self._material_client(material)
-            client = client_context.__enter__()
-            prepared = writer.prepare_stream(
-                client,
-                bucket,
-                key,
-                io.BytesIO(data),
-                content_type=content_type,
-                max_bytes=len(data),
-            )
+            if remote is not None:
+                prepared = await settled_io(remote.prepare_stream, data)
+            else:
+                client_context = self._material_client(material)
+                client = client_context.__enter__()
+                prepared = writer.prepare_stream(
+                    client,
+                    bucket,
+                    key,
+                    io.BytesIO(data),
+                    content_type=content_type,
+                    max_bytes=len(data),
+                )
             await self._native_call(
                 "yoao_assets_v1.record_operator_original_prepared",
                 {
@@ -663,6 +663,7 @@ class AssetsOperatorGateway:
                         "bucket": bucket,
                         "object_key": key,
                         "content_type": content_type,
+                        **({"source_owned": True} if remote is not None else {}),
                     },
                 },
                 {"creation_id": "uuid", "prepared": "jsonb"},
@@ -673,8 +674,12 @@ class AssetsOperatorGateway:
                 {"creation_id": "uuid"},
             )
             completion_started = True
-            receipt = writer.complete(
-                client, bucket, key, prepared, content_type=content_type
+            receipt = (
+                await settled_io(remote.complete)
+                if remote is not None
+                else writer.complete(
+                    client, bucket, key, prepared, content_type=content_type
+                )
             )
             await self._native_call(
                 "yoao_assets_v1.record_operator_original_written",
@@ -689,24 +694,31 @@ class AssetsOperatorGateway:
                 },
                 {"creation_id": "uuid", "receipt": "jsonb"},
             )
-            verified = writer.verify(
-                client,
-                bucket,
-                key,
-                receipt,
-                sha256=prepared.sha256,
-                size_bytes=prepared.size_bytes,
-                max_bytes=len(data),
-            )
-            if receipt.version_id not in {None, "", "null"}:
-                from app.services import storage_usage_accounting as accounting
-
-                head_matches = accounting.current_matches(
+            if remote is not None:
+                verified = await settled_io(remote.verify)
+            else:
+                verified = writer.verify(
                     client,
                     bucket,
                     key,
-                    receipt.version_id,
-                    prepared.size_bytes,
+                    receipt,
+                    sha256=prepared.sha256,
+                    size_bytes=prepared.size_bytes,
+                    max_bytes=len(data),
+                )
+            if receipt.version_id not in {None, "", "null"}:
+                from app.services import storage_usage_accounting as accounting
+
+                head_matches = (
+                    verified.current_head_matches
+                    if remote is not None
+                    else accounting.current_matches(
+                        client,
+                        bucket,
+                        key,
+                        receipt.version_id,
+                        prepared.size_bytes,
+                    )
                 )
         except BaseException as exc:
             failure = exc
@@ -714,7 +726,10 @@ class AssetsOperatorGateway:
                 unknown = True
             if not completion_started and prepared is not None:
                 try:
-                    writer.abort_prepared(client, bucket, key, prepared)
+                    if remote is not None:
+                        await settled_io(remote.abort)
+                    else:
+                        writer.abort_prepared(client, bucket, key, prepared)
                 except BaseException:
                     unknown = True
         finally:
@@ -754,6 +769,7 @@ class AssetsOperatorGateway:
             settled = not (
                 unknown
                 or completion_unknown
+                or getattr(failure, "storage_operation_unsettled", False)
                 or isinstance(failure, asyncio.CancelledError)
             )
             if not settled:
@@ -826,9 +842,11 @@ class AssetsOperatorGateway:
             md5=prepared.md5,
         )
 
-    async def _open_operation(self, creation_id):
+    async def _open_operation(self, creation_id, *, fixture=False):
         data = await self._native_data(
-            "yoao_assets_v1.open_operator_storage_operation",
+            "yoao_assets_v1.open_operator_storage_operation"
+            if fixture
+            else "yoao_assets_v1.open_saved_operator_original_operation",
             {"creation_id": creation_id},
             {"creation_id": "uuid"},
         )
@@ -841,6 +859,9 @@ class AssetsOperatorGateway:
         self, material, sha256: str, size_bytes: int, operation
     ) -> None:
         from app.services import managed_original_writer as writer
+        from app.services import saved_media_io, storage_access
+        from app.services.dataset_assets import LEGACY_LOCATION_ID
+        from app.services.prediction_inputs import settled_io
 
         bucket = await self._material_attr(material, "bucket")
         key = await self._material_attr(material, "object_key")
@@ -849,20 +870,32 @@ class AssetsOperatorGateway:
         version_id = await self._material_attr(material, "version_id")
         receipt = writer.WriteReceipt(etag, version_id, None, {})
         try:
-            with self._material_client(material) as client:
-                verified = writer.verify(
-                    client,
-                    bucket,
-                    key,
-                    receipt,
-                    sha256=sha256,
-                    size_bytes=size_bytes,
-                    max_bytes=size_bytes,
+            if str(await self._material_attr(material, "location_id")) != str(
+                LEGACY_LOCATION_ID
+            ):
+                proof = await settled_io(
+                    saved_media_io.command,
+                    "operator-verify",
+                    {"id": creation_id, "permit": str(operation.operation_id)},
                 )
-        except BaseException:
-            await self._abandon_read_operation(creation_id, operation)
+                observed = proof["sha256"], proof["size_bytes"]
+            else:
+                with self._material_client(material) as client:
+                    verified = writer.verify(
+                        client,
+                        bucket,
+                        key,
+                        receipt,
+                        sha256=sha256,
+                        size_bytes=size_bytes,
+                        max_bytes=size_bytes,
+                    )
+                observed = verified.sha256, verified.size_bytes
+        except BaseException as exc:
+            if not storage_access.failure_unsettled(exc):
+                await self._abandon_read_operation(creation_id, operation)
             raise
-        if verified.sha256 != sha256 or verified.size_bytes != size_bytes:
+        if observed != (sha256, size_bytes):
             await self._abandon_read_operation(creation_id, operation)
             raise ValueError("existing scene source drift for canonical media")
         await self._native_call(
@@ -935,7 +968,7 @@ class AssetsOperatorGateway:
         from types import SimpleNamespace
 
         material = await self._native_data(
-            "yoao_assets_v1.begin_operator_auxiliary",
+            "yoao_assets_v1.begin_saved_operator_original",
             {
                 "request": {
                     "dataset_id": str(dataset_id),
@@ -1085,11 +1118,16 @@ class AssetsOperatorGateway:
                 or requested.get("size_bytes") != size
             ):
                 raise ValueError("existing scene source drift for auxiliary original")
-            material = await self._managed_original_data(
-                "yoao_assets_v1.operator_auxiliary_material",
-                {"dataset_id": dataset_id, "owner_id": UUID(requested["id"])},
-                {"dataset_id": "uuid", "owner_id": "uuid"},
-            )
+            if fixture_scope is None:
+                material = await self._managed_original_data(
+                    "yoao_assets_v1.saved_operator_auxiliary_original",
+                    {"dataset_id": dataset_id, "owner_id": UUID(requested["id"])},
+                    {"dataset_id": "uuid", "owner_id": "uuid"},
+                )
+            else:
+                material = requested | {
+                    "endpoint_url": requested["storage_ref"]["endpoint_url"]
+                }
             creation_id = UUID(material["creation_id"])
             remembered = self._same_uow_receipt(creation_id)
             if remembered is not None:
@@ -1098,7 +1136,9 @@ class AssetsOperatorGateway:
                         "existing scene source drift for auxiliary original"
                     )
                 return SimpleNamespace(**requested)
-            operation = await self._open_operation(creation_id)
+            operation = await self._open_operation(
+                creation_id, fixture=fixture_scope is not None
+            )
             if operation.mode != "read":
                 await self._abandon_read_operation(creation_id, operation)
                 raise ValueError("existing auxiliary original is not verified")
@@ -1116,7 +1156,7 @@ class AssetsOperatorGateway:
         }
         if fixture_scope is None:
             material = await self._native_data(
-                "yoao_assets_v1.begin_operator_auxiliary",
+                "yoao_assets_v1.begin_saved_operator_original",
                 {"request": request},
                 {"request": "jsonb"},
             )
@@ -1139,7 +1179,9 @@ class AssetsOperatorGateway:
             )
         creation_id = UUID(material["creation_id"])
         try:
-            operation = await self._open_operation(creation_id)
+            operation = await self._open_operation(
+                creation_id, fixture=fixture_scope is not None
+            )
         except BaseException as failure:
             if fixture_scope is not None:
                 from app.services.managed_original_creation import (

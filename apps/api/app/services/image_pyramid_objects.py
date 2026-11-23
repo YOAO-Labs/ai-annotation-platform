@@ -176,7 +176,7 @@ async def read_access(db, receipt, plan, guard):
         await session.commit()
         async with AsyncExitStack() as admissions:
             if plan.source_revision is not None:
-                await admissions.enter_async_context(
+                source_permit = await admissions.enter_async_context(
                     await storage_access.acquire(
                         session,
                         uuid.UUID(receipt.storage_ref["location_id"]),
@@ -200,7 +200,11 @@ async def read_access(db, receipt, plan, guard):
                     if plan.source_revision is not None:
                         source = (
                             contexts.enter_context(
-                                physical.open_storage(target=source_target)
+                                physical.open_storage(
+                                    target=source_target,
+                                    output=receipt,
+                                    permit=source_permit,
+                                )
                             )
                             if source_target is not None
                             else storage_service
@@ -541,6 +545,14 @@ async def transport(db, output):
     if target is None:
         yield storage_service
         return
+    from app.services import saved_media_io
+
+    if saved_media_io.registered(target):
+        async with await storage_access.acquire(
+            db, target.location_id, purpose(output.id)
+        ) as permit:
+            yield saved_media_io.Derivative("pyramid", output, permit)
+        return
     context, entered = physical.open_storage(target=target), []
 
     def open_owned():
@@ -803,7 +815,12 @@ async def reconcile(db, storage):
 
             def remove():
                 if target is not None:
-                    with physical.open_storage(target=target, owned=True) as owned:
+                    with physical.open_storage(
+                        target=target,
+                        owned=True,
+                        output=receipt,
+                        permit=owned_permit,
+                    ) as owned:
                         return physical.delete(owned, receipt, accounting=accounting)
                 owned = None
                 try:

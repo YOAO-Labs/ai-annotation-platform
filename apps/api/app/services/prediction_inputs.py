@@ -838,16 +838,21 @@ class PredictionInputs:
                 expected_revision=self.record.maintenance_revision,
             )
 
-    async def _io(self, call, *, publish=None):
+    async def _io(self, call, *, registered_call, publish=None):
+        from app.services import saved_media_io
+
         permit = await _async(self._acquire(), late=_settle)
         failure, result = None, None
         try:
             await self.check_live_for_write()
             async with self.factory() as db:
                 target = await _target_for_record(db, self.record)
-            result = await settled_io(
-                _using_storage, self.record, call, self.storage, target=target
-            )
+            if saved_media_io.registered(target):
+                result = await settled_io(registered_call, permit)
+            else:
+                result = await settled_io(
+                    _using_storage, self.record, call, self.storage, target=target
+                )
             await self.check_live_for_write()
             if publish is not None:
                 await publish(result)
@@ -925,6 +930,7 @@ class PredictionInputs:
 
     async def _upload(self, relative, content, *, sha256, size, media_type, video=None):
         from app.services import import_storage
+        from app.services import saved_media_io
 
         import_storage.resolve_ref(
             self.record.storage_ref, expected_prefix=input_prefix(self.record.id)
@@ -1048,6 +1054,58 @@ class PredictionInputs:
                     except BaseException as exc:
                         raise storage_access.mark_unsettled(exc)
 
+        def registered(permit):
+            payload = saved_media_io.subject(self.record.id, permit, relative=relative)
+            if expected["state"] == "planned":
+                if type(content) is bytes:
+                    result = saved_media_io.upload(
+                        "prediction-input-write",
+                        payload,
+                        content,
+                        length=size,
+                        timeout=IO_SECONDS,
+                    )
+                else:
+                    position = content.tell()
+                    try:
+                        content.seek(0)
+                        result = saved_media_io.upload(
+                            "prediction-input-write",
+                            payload,
+                            content,
+                            length=size,
+                            timeout=IO_SECONDS,
+                        )
+                    finally:
+                        try:
+                            content.seek(position)
+                        except BaseException as exc:
+                            raise storage_access.mark_unsettled(exc)
+                if result["reused"]:
+                    evidence.update(
+                        physical_outcome="not_written", current_delta_bytes=0
+                    )
+                else:
+                    matched = result["current_head_matches"]
+                    evidence.update(
+                        physical_outcome="written",
+                        returned_version=result["version_id"],
+                        physical_size_bytes=size,
+                        body_verified=True,
+                        current_version_matches=matched,
+                        current_delta_bytes=size if matched else None,
+                    )
+            else:
+                result = saved_media_io.command(
+                    "prediction-input-reference", payload, timeout=IO_SECONDS
+                )
+            return {
+                **expected,
+                "state": "verified",
+                "etag": result["etag"],
+                "version_id": result["version_id"],
+            }, result["url"]
+
         try:
 
             async def publish(result):
@@ -1058,7 +1116,9 @@ class PredictionInputs:
                 if expected != verified:
                     await self._publish(relative, expected, verified)
 
-            verified, url = await self._io(physical, publish=publish)
+            verified, url = await self._io(
+                physical, registered_call=registered, publish=publish
+            )
             self._uploaded.add(relative)
             if self.record.contract_version == 3:
                 self._video_receipt = {"relative": relative, **deepcopy(verified)}
@@ -1481,6 +1541,8 @@ def _delete_known(storage, record, inventory, prepared, evidence):
 
 async def purge_input(factory, input_id, *, storage=None):
     """Only exact saved inventory may be removed; unknown operations never age out."""
+    from app.services import saved_media_io
+
     input_id = uuid.UUID(str(input_id))
     record, inventory, permit = None, None, None
     accounting_handles, accounting_evidence, physical_holder = {}, {}, {}
@@ -1600,25 +1662,70 @@ async def purge_input(factory, input_id, *, storage=None):
                 close=False,
             )
 
-        prepared = await settled_io(prepare)
-        for relative, (item, _) in prepared.items():
-            accounting_handles[relative] = await _async(
-                accounting.begin(
-                    factory, record, relative, "delete", version=item["VersionId"]
-                )
+        if saved_media_io.registered(current_target):
+            subject = saved_media_io.subject(record.id, permit)
+            planned = await settled_io(
+                saved_media_io.command,
+                "prediction-input-delete-plan",
+                subject,
+                access="cleanup",
+                timeout=IO_SECONDS,
             )
-            accounting_evidence[relative] = {}
-        await _async(fresh(lock=True))
-        await settled_io(
-            _using_storage,
-            record,
-            lambda client: _delete_known(
-                client, record, inventory, prepared, accounting_evidence
-            ),
-            physical_holder["storage"],
-            close=False,
-        )
-        await close_physical()
+            versions = planned["versions"]
+            if not versions.keys() <= inventory.keys():
+                reject("cleanup_unproven", 503)
+            for relative, version in versions.items():
+                accounting_handles[relative] = await _async(
+                    accounting.begin(
+                        factory,
+                        record,
+                        relative,
+                        "delete",
+                        version=version,
+                    )
+                )
+                accounting_evidence[relative] = {}
+            await _async(fresh(lock=True))
+            removed = (
+                await settled_io(
+                    saved_media_io.command,
+                    "prediction-input-delete",
+                    subject | {"plan": planned["plan"]},
+                    access="cleanup",
+                    timeout=IO_SECONDS,
+                )
+            )["removed"]
+            if removed.keys() != versions.keys():
+                raise storage_access.mark_unsettled(
+                    ContentError("prediction_input_cleanup_unproven", 503)
+                )
+            for relative, observed in removed.items():
+                version = observed.pop("version_id")
+                if version != versions[relative]:
+                    raise storage_access.mark_unsettled(
+                        ContentError("prediction_input_cleanup_unproven", 503)
+                    )
+                accounting_evidence[relative] = observed
+        else:
+            prepared = await settled_io(prepare)
+            for relative, (item, _) in prepared.items():
+                accounting_handles[relative] = await _async(
+                    accounting.begin(
+                        factory, record, relative, "delete", version=item["VersionId"]
+                    )
+                )
+                accounting_evidence[relative] = {}
+            await _async(fresh(lock=True))
+            await settled_io(
+                _using_storage,
+                record,
+                lambda client: _delete_known(
+                    client, record, inventory, prepared, accounting_evidence
+                ),
+                physical_holder["storage"],
+                close=False,
+            )
+            await close_physical()
         await _async(fresh(lock=True))
 
         async def finish():

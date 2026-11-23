@@ -195,19 +195,25 @@ async def allocate(db, logical_prefix):
         )
         target = await target_for(db, location)
         if (
-            target.endpoint_url != binding["endpoint"] or target.bucket != binding["bucket"]
+            target.endpoint_url != binding["endpoint"]
+            or target.bucket != binding["bucket"]
             or target.key_prefix != MANAGED_NAMESPACE
-            or managed_storage_identity(target.endpoint_url, target.bucket) != binding["storage_identity"]
+            or managed_storage_identity(target.endpoint_url, target.bucket)
+            != binding["storage_identity"]
         ):
             _reject("media_cache_storage_binding_unproven")
         await storage_access.check(db, location.id, lock=True)
         return resolve_ref(
             {
-                "schema": 2, "purpose": "media-cache", "location_id": str(location.id),
+                "schema": 2,
+                "purpose": "media-cache",
+                "location_id": str(location.id),
                 "config_revision": location.config_revision,
                 "binding_generation": binding["binding_generation"],
-                "endpoint_url": target.endpoint_url, "bucket": target.bucket,
-                "key_prefix": target.key_prefix, "prefix": target.key_prefix + logical,
+                "endpoint_url": target.endpoint_url,
+                "bucket": target.bucket,
+                "key_prefix": target.key_prefix,
+                "prefix": target.key_prefix + logical,
                 "storage_identity": binding["storage_identity"],
             },
             expected_prefix=logical,
@@ -304,33 +310,35 @@ async def target_for_ref(db, ref, *, require_enabled=True):
         binding = await execution.target()
         if str(owner.location_id) == binding["location_id"]:
             if (
-                owner.bucket != binding["bucket"] or ref["endpoint_url"] != binding["endpoint"]
+                owner.bucket != binding["bucket"]
+                or ref["endpoint_url"] != binding["endpoint"]
                 or ref["storage_identity"] != binding["storage_identity"]
                 or ref["binding_generation"] != binding["binding_generation"]
             ):
                 _reject()
-            from app.services.source_readers.s3 import ScopedS3Access
+            from app.services.saved_media_io import scoped_fixture_target
             from yoao_assets_media_runtime.fixture_native_outputs import load_target
 
-            control_url = fixture_media_execution._control_url().render_as_string(hide_password=False)
+            control_url = fixture_media_execution._control_url().render_as_string(
+                hide_password=False
+            )
             writer = load_target(
-                "AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE", control_url, "aap_fixture_media_"
+                "AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE",
+                control_url,
+                "aap_fixture_media_",
             )
-            if any(writer[name] != binding[name] for name in (
-                "run_id", "endpoint", "bucket", "storage_identity", "receipt_sha256",
-            )):
+            if any(
+                writer[name] != binding[name]
+                for name in (
+                    "run_id",
+                    "endpoint",
+                    "bucket",
+                    "storage_identity",
+                    "receipt_sha256",
+                )
+            ):
                 _reject()
-            access = target._access
-            if access is None:
-                _reject()
-            target = replace(
-                target,
-                _access=ScopedS3Access(
-                    access.config,
-                    writer,
-                    access.allowlist,
-                ),
-            )
+            target = await scoped_fixture_target(db, target, writer)
     return target
 
 
@@ -353,7 +361,9 @@ def retire_fixture_versions(client, owner, versions, checkpoint):
     marker = {}
     visited = set()
     while True:
-        page = client.list_object_versions(Bucket=owner.bucket, Prefix=owner.prefix, **marker)
+        page = client.list_object_versions(
+            Bucket=owner.bucket, Prefix=owner.prefix, **marker
+        )
         if (
             page.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
             or type(page.get("IsTruncated")) is not bool
@@ -383,8 +393,13 @@ def retire_fixture_versions(client, owner, versions, checkpoint):
             marker["VersionIdMarker"] = version_marker
 
     def absent(exc):
-        return isinstance(exc, ClientError) and exc.response.get("Error", {}).get("Code") in {
-            "NoSuchKey", "NoSuchVersion", "NotFound", "404",
+        return isinstance(exc, ClientError) and exc.response.get("Error", {}).get(
+            "Code"
+        ) in {
+            "NoSuchKey",
+            "NoSuchVersion",
+            "NotFound",
+            "404",
         }
 
     for identity, receipt in expected.items():
@@ -437,9 +452,11 @@ def retire_fixture_versions(client, owner, versions, checkpoint):
             try:
                 deleted = client.delete_object(**params, IfMatch=receipt["etag"])
                 if (
-                    deleted.get("ResponseMetadata", {}).get("HTTPStatusCode") not in (200, 204)
+                    deleted.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                    not in (200, 204)
                     or deleted.get("DeleteMarker")
-                    or deleted.get("VersionId", receipt["version_id"]) != receipt["version_id"]
+                    or deleted.get("VersionId", receipt["version_id"])
+                    != receipt["version_id"]
                 ):
                     raise ContentError("fixture_media_delete_unproven", 503)
             except BaseException as exc:

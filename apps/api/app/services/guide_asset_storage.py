@@ -319,7 +319,7 @@ async def io_target(db, record):
         _reject()
 
 
-def run_io(target, client, operation, record, *args, **kwargs):
+def run_io(target, client, operation, record, *args, permit=None, **kwargs):
     """Open and close the captured transport inside the caller's existing permit."""
     owner = resolve(record)
     ref = owner.ref
@@ -330,6 +330,36 @@ def run_io(target, client, operation, record, *args, **kwargs):
         or target.key_prefix != ref.get("key_prefix", "")
     ):
         _reject()
+    from app.services import saved_media_io as source
+
+    if source.registered(target):
+        try:
+            return source.artifact(
+                "guide",
+                operation,
+                record,
+                permit,
+                key=owner.object_key,
+                size=record.size_bytes,
+                digest=record.sha256,
+                data=args[0] if args else None,
+                accounting=kwargs.get("accounting"),
+            )
+        except source.SavedIOError as exc:
+            if not exc.unsettled and (
+                exc.storage_code in source.CONFLICT
+                or exc.code == "media_content_mismatch"
+            ):
+                _reject("guide_asset_storage_integrity_mismatch")
+            if (
+                operation == "read"
+                and not exc.unsettled
+                and exc.storage_code in source.MISSING
+            ):
+                raise GuideAssetStorageError(
+                    "guide_asset_storage_missing", 404
+                ) from None
+            raise _unavailable(exc) from None
     if target.location_id == LEGACY_LOCATION_ID:
         target = replace(target, _legacy_client=client)
     try:

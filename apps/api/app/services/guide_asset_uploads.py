@@ -258,6 +258,7 @@ async def upload(db, proof, project_id, data, mime_type, file_name):
                 "write",
                 receipt,
                 data,
+                permit=owned_permit,
                 accounting=recorder,
             )
 
@@ -378,10 +379,11 @@ async def read(db, actor, request, project_id, key):
         await db.commit()
         check_clock(proof)
         revision = None
-        target = None
+        target = physical_permit = None
 
         async def acquired(permit):
-            nonlocal revision, target
+            nonlocal revision, target, physical_permit
+            physical_permit = permit
             actor = await reauthorize(db, proof)
             await _read_binding(db, actor, project_id, key, receipt=receipt)
             await reauthorize(db, proof)
@@ -393,7 +395,9 @@ async def read(db, actor, request, project_id, key):
 
         def read_saved():
             check_clock(proof)
-            return storage.run_io(target, storage_service.client, "read", receipt)
+            return storage.run_io(
+                target, storage_service.client, "read", receipt, permit=physical_permit
+            )
 
         if read_route is None:
             data = await storage_access.run(
@@ -491,10 +495,11 @@ async def _cleanup_one(db, identifier):
         return "retained"
     await db.commit()
 
-    target = None
+    target = physical_permit = None
 
     async def acquired(permit):
-        nonlocal target
+        nonlocal target, physical_permit
+        physical_permit = permit
         current = await locked_owner(db, identifier)
         if (
             current is None
@@ -511,7 +516,9 @@ async def _cleanup_one(db, identifier):
         db,
         uuid.UUID(receipt.storage_ref["location_id"]),
         purpose("delete", receipt.id),
-        lambda: storage.run_io(target, storage_service.client, "delete", receipt),
+        lambda: storage.run_io(
+            target, storage_service.client, "delete", receipt, permit=physical_permit
+        ),
         on_acquired=acquired,
     )
     current = await locked_owner(db, identifier)

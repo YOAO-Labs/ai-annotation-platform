@@ -20,6 +20,7 @@ from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.db.models.video_derivative import VideoDerivativeOutput
 from app.services import media_cache_storage, media_cache_urls, storage_access
+from app.services import saved_media_io
 from app.services import storage_migration_artifact_reads as artifact_reads
 from app.services import storage_migration_read_publications as publications
 from app.services.content_snapshot import ContentError
@@ -194,10 +195,14 @@ class Transfer:
         self.route, self.publication_permit = route, publication_permit
         self.capability = capability
         self.context = self.client = self.body = None
+        self.source_context = None
         self.entered = False
         self.unsettled = False
 
     def open(self, selected, *, head=False):
+        if self.route is None and saved_media_io.registered(self.target):
+            self._open_registered(selected, head=head)
+            return
         self.context = self.target.client(read_timeout=READ_SECONDS)
         try:
             self.client = self.context.__enter__()
@@ -271,17 +276,72 @@ class Transfer:
         ):
             raise _error("media_cache_mismatch")
 
+    def _open_registered(self, selected, *, head):
+        kind = {
+            "thumbnail": "thumbnail",
+            "image-pyramid": "pyramid",
+            "video-derivative": "video",
+        }[self.capability.kind]
+        subject = saved_media_io.cache_subject(
+            kind,
+            self.capability.output_id,
+            self.capability.relative,
+            self.permit,
+        )
+        try:
+            if head:
+                saved_media_io.command("cache-head", subject, timeout=READ_SECONDS)
+                return
+            if selected.status_code == 206:
+                subject["range"] = [
+                    selected.start,
+                    selected.start + selected.length - 1,
+                ]
+            context = saved_media_io.download(
+                "cache-download", subject, timeout=READ_SECONDS
+            )
+            self.body = context.__enter__()
+            self.source_context = context
+        except saved_media_io.SavedIOError as exc:
+            if not exc.unsettled and exc.storage_code in saved_media_io.MISSING:
+                _missing()
+            error = _error(
+                "media_cache_mismatch"
+                if exc.code == "media_content_mismatch"
+                else "media_cache_unavailable"
+            )
+            if exc.unsettled:
+                storage_access.mark_unsettled(error)
+            raise error from None
+
     async def recheck(self):
         """Revalidate current saved ownership and publication before delivery."""
-        if self.route is None:
+        if self.route is None and not saved_media_io.registered(self.target):
             return
         async with async_session() as db:
             if await _object(db, self.capability, permit=self.permit) != self.pinned:
                 _missing()
-            await publications.recheck(db, self.route, lock=True)
+            if self.route is None:
+                await storage_access.check(
+                    db,
+                    self.permit.location_id,
+                    expected_revision=self.permit.revision,
+                    lock=True,
+                )
+            else:
+                await publications.recheck(db, self.route, lock=True)
             await db.commit()
 
     def close(self):
+        if self.source_context is not None:
+            context, self.source_context = self.source_context, None
+            self.body = None
+            try:
+                context.__exit__(None, None, None)
+            except BaseException as exc:
+                self.unsettled = True
+                raise storage_access.mark_unsettled(exc)
+            return
         failure = None
         if self.body is not None:
             try:

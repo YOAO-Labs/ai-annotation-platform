@@ -237,12 +237,42 @@ def read_staged_from_client(client, owner, object_key, expected_sha256, local_pa
     )
 
 
+def _copy_staged(body, object_key, expected_sha256, local_path, budget):
+    digest, written = hashlib.sha256(), 0
+    with local_path.open("wb") as sink:
+        while True:
+            budget()
+            chunk = body.read(1024 * 1024)
+            if not chunk:
+                break
+            written += len(chunk)
+            if written > settings.mask_format_temp_quota_bytes:
+                raise _quota(written, "staged object exceeded the streaming byte quota")
+            digest.update(chunk)
+            sink.write(chunk)
+    budget()
+    actual_sha256 = digest.hexdigest()
+    if actual_sha256 != expected_sha256:
+        raise MaskFormatError(
+            "staged_object_digest_conflict",
+            "staged object digest changed after preflight",
+            detail={"expected_sha256": expected_sha256, "actual_sha256": actual_sha256},
+        )
+    return StagedObject(
+        object_key=object_key,
+        sha256=actual_sha256,
+        local_path=os.fspath(local_path),
+        size_bytes=written,
+    )
+
+
 def _materialize(
-    target, owner, object_key, expected_sha256, local_path, *, reader=None
+    target, owner, object_key, expected_sha256, local_path, *, reader=None, permit=None
 ):
     from app.services import import_storage
+    from app.services import saved_media_io as source
 
-    _, relative = staged_parts(object_key)
+    prefix, relative = staged_parts(object_key)
     physical_key = owner.key(relative)
     deadline = time.monotonic() + STAGING_IO_SECONDS
 
@@ -251,6 +281,40 @@ def _materialize(
             raise MaskFormatError(
                 "staged_object_timeout", "staged read timed out", status_code=503
             )
+
+    if reader is None and source.registered(target):
+        identifier = uuid.UUID(prefix.rstrip("/").rsplit("/", 1)[-1])
+        try:
+            with source.download(
+                "mask-format-read",
+                source.subject(identifier, permit),
+                timeout=STAGING_IO_SECONDS,
+            ) as response:
+                size = response.metadata["ContentLength"]
+                if size > settings.mask_format_temp_quota_bytes:
+                    raise _quota(size, "staged object exceeds the temporary byte quota")
+                return _copy_staged(
+                    response, object_key, expected_sha256, local_path, budget
+                )
+        except source.SavedIOError as exc:
+            if exc.unsettled:
+                raise
+            if exc.storage_code in source.MISSING:
+                raise MaskFormatError(
+                    "staged_object_missing", "staged object is missing", status_code=404
+                ) from None
+            if exc.storage_code in source.CONFLICT or exc.code in {
+                "media_owner_changed",
+                "media_content_mismatch",
+            }:
+                raise MaskFormatError(
+                    "staged_object_digest_conflict", "staged object changed"
+                ) from None
+            raise MaskFormatError(
+                "staged_object_unavailable",
+                "staged object is unavailable",
+                status_code=503,
+            ) from None
 
     try:
         context = (
@@ -280,39 +344,10 @@ def _materialize(
             if meta.get("VersionId") not in {None, "null"}:
                 params["VersionId"] = meta["VersionId"]
             response = client.get_object(**params)
-            digest, written = hashlib.sha256(), 0
             with storage_access.closing_registered(response["Body"]) as body:
-                with local_path.open("wb") as sink:
-                    while True:
-                        budget()
-                        chunk = body.read(1024 * 1024)
-                        if not chunk:
-                            break
-                        written += len(chunk)
-                        if written > settings.mask_format_temp_quota_bytes:
-                            raise _quota(
-                                written,
-                                "staged object exceeded the streaming byte quota",
-                            )
-                        digest.update(chunk)
-                        sink.write(chunk)
-            budget()
-            actual_sha256 = digest.hexdigest()
-            if actual_sha256 != expected_sha256:
-                raise MaskFormatError(
-                    "staged_object_digest_conflict",
-                    "staged object digest changed after preflight",
-                    detail={
-                        "expected_sha256": expected_sha256,
-                        "actual_sha256": actual_sha256,
-                    },
+                return _copy_staged(
+                    body, object_key, expected_sha256, local_path, budget
                 )
-            return StagedObject(
-                object_key=object_key,
-                sha256=actual_sha256,
-                local_path=os.fspath(local_path),
-                size_bytes=written,
-            )
     except ClientError as exc:
         if getattr(exc, "storage_operation_unsettled", False):
             raise
@@ -353,11 +388,12 @@ async def materialize_staged_object(
     observation: dict | None = None,
 ) -> AsyncIterator[StagedObject]:
     from app.services import import_storage
+    from app.services import saved_media_io as source
 
     sessions = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
     async with sessions() as reading:
         owner = await staging_owner(reading, object_key, staging_ref)
-        _, relative = staged_parts(object_key)
+        prefix, relative = staged_parts(object_key)
         read_route = await storage_call(
             migration_reads.resolve,
             reading,
@@ -374,19 +410,34 @@ async def materialize_staged_object(
         with tempfile.TemporaryDirectory(prefix="mask-format-") as temp_dir:
             local_path = Path(temp_dir) / "staged-object"
             if read_route is None:
+                purpose, physical_permit = "mask_format_staging", None
+                if source.registered(target):
+                    identifier = uuid.UUID(prefix.rstrip("/").rsplit("/", 1)[-1])
+                    purpose = "mask_format_read_" + identifier.hex
+
+                async def acquired(permit):
+                    nonlocal physical_permit
+                    physical_permit = permit
+
+                def read_saved():
+                    return _materialize(
+                        target,
+                        owner,
+                        object_key,
+                        expected_sha256,
+                        local_path,
+                        permit=physical_permit,
+                    )
+
                 staged = await storage_call(
                     storage_access.run,
                     reading,
                     owner.location_id,
-                    "mask_format_staging",
-                    _materialize,
-                    target,
-                    owner,
-                    object_key,
-                    expected_sha256,
-                    local_path,
+                    purpose,
+                    read_saved,
                     expected_revision=revision,
                     timeout=STAGING_IO_SECONDS,
+                    on_acquired=acquired,
                 )
             else:
                 staged = await storage_call(

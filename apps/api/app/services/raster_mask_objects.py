@@ -330,10 +330,11 @@ async def _io(
             lambda reader: physical.read_routed(reader, receipt),
             on_acquired=read_acquired,
         )
-    target = None
+    target = physical_permit = None
 
     async def acquired(permit):
-        nonlocal target
+        nonlocal target, physical_permit
+        physical_permit = permit
         if permits is not None:
             permits.append(permit)
         async with _session(db) as session:
@@ -355,6 +356,7 @@ async def _io(
             operation,
             receipt,
             *args,
+            permit=physical_permit,
             **({"accounting": accounting} if accounting is not None else {}),
         ),
         expected_revision=revision,
@@ -660,10 +662,11 @@ async def _gc_one(db, receipt, cutoff, storage):
             return "retired"
         await _commit(session)
 
-    target = None
+    target = physical_permit = None
 
     async def acquired(permit):
-        nonlocal target
+        nonlocal target, physical_permit
+        physical_permit = permit
         async with _session(db) as session:
             row = await _gc_owner(session, receipt, cutoff, excluded=permit.id)
             if row is None or row.state != "retired":
@@ -677,7 +680,9 @@ async def _gc_one(db, receipt, cutoff, storage):
         db,
         _location(receipt),
         purpose("delete", receipt.id),
-        lambda: physical.run_io(target, storage.client, "delete", receipt),
+        lambda: physical.run_io(
+            target, storage.client, "delete", receipt, permit=physical_permit
+        ),
         expected_revision=revision,
         on_acquired=acquired,
     )
