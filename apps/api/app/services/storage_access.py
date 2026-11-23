@@ -11,19 +11,30 @@ import re
 import socket
 import uuid
 
-from sqlalchemy import delete, select, text
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from app.db.models.storage_maintenance import (
-    StorageMaintenanceGate as Gate,
-    StorageOperation,
-)
 
 logger = logging.getLogger(__name__)
 SAFE_LABEL = re.compile(r"[a-z][a-z0-9_]{0,63}")
 SAFE_NODE = re.compile(r"[A-Za-z0-9_.:@-]{1,128}")
+
+_INITIALIZE_GATE = text("SELECT yoao_assets_storage_v1.initialize_gate(:location)")
+_GATE_FACTS = text("SELECT * FROM yoao_assets_storage_v1.gate_facts(:location, :mode)")
+_BEGIN_IO = text(
+    "SELECT yoao_assets_storage_v1.begin_physical_io"
+    "(:operation, :location, :purpose, :node, :revision)"
+)
+_SETTLE_IO = text(
+    "SELECT yoao_assets_storage_v1.settle_physical_io(:operation, :location, :revision)"
+)
+_IO_OPEN = text(
+    "SELECT yoao_assets_storage_v1.physical_io_is_open(:purpose, :location, :excluding)"
+)
+_IO_RECEIPT = text(
+    "SELECT * FROM yoao_assets_storage_v1.physical_io_receipt(:operation)"
+)
 
 
 def error(code, status=409):
@@ -73,43 +84,46 @@ def engine(db):
     raise TypeError("Storage admission requires an asynchronous engine or connection")
 
 
+def _sqlstate(exc):
+    return getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+
+
 def unavailable(exc):
-    original = exc.orig
-    return getattr(original, "sqlstate", None) in {"55P03", "40P01"} or getattr(
-        original, "pgcode", None
-    ) in {"55P03", "40P01"}
+    return _sqlstate(exc) in {"55P03", "40P01"}
 
 
 async def ensure(db, location_id):
     """Commit initialization independently, never in the business transaction."""
-    async with engine(db).begin() as connection:
-        if await connection.scalar(
-            select(Gate.location_id).where(Gate.location_id == location_id)
-        ):
-            return
-        try:
-            await connection.execute(text("SET LOCAL lock_timeout = '1s'"))
-            await connection.execute(
-                insert(Gate).values(location_id=location_id).on_conflict_do_nothing()
-            )
-        except DBAPIError as exc:
-            if unavailable(exc):
-                raise error("storage_maintenance_busy") from None
-            raise
+    try:
+        async with engine(db).begin() as connection:
+            await connection.execute(_INITIALIZE_GATE, {"location": location_id})
+    except DBAPIError as exc:
+        if unavailable(exc):
+            raise error("storage_maintenance_busy") from None
+        raise
+
+
+async def gate_facts(db, location_id, *, lock=None):
+    result = await db.execute(_GATE_FACTS, {"location": location_id, "mode": lock})
+    return result.mappings().one_or_none()
+
+
+async def operation_is_open(db, purpose, *, location_id=None, excluding=None):
+    return bool(
+        await db.scalar(
+            _IO_OPEN,
+            {"purpose": purpose, "location": location_id, "excluding": excluding},
+        )
+    )
+
+
+async def operation_receipt(db, operation_id):
+    result = await db.execute(_IO_RECEIPT, {"operation": operation_id})
+    return result.mappings().one_or_none()
 
 
 async def state(db, location_id):
-    row = (
-        (
-            await db.execute(
-                select(
-                    Gate.state, Gate.revision, Gate.changed_at, Gate.changed_by
-                ).where(Gate.location_id == location_id)
-            )
-        )
-        .mappings()
-        .one_or_none()
-    )
+    row = await gate_facts(db, location_id)
     return (
         dict(row)
         if row
@@ -131,17 +145,7 @@ async def check(db, location_id, *, expected_revision=None, lock=False):
     await ensure(db, location_id)
     try:
         async with db.begin_nested():
-            row = (
-                (
-                    await db.execute(
-                        select(Gate.state, Gate.revision)
-                        .where(Gate.location_id == location_id)
-                        .with_for_update(read=True, nowait=True)
-                    )
-                )
-                .mappings()
-                .one()
-            )
+            row = await gate_facts(db, location_id, lock="share_nowait")
     except DBAPIError as exc:
         if unavailable(exc):
             raise error("storage_maintenance_busy") from None
@@ -174,12 +178,16 @@ class Permit:
 
     async def _settle(self):
         async with self.bind.begin() as connection:
-            await connection.execute(
-                delete(StorageOperation).where(
-                    StorageOperation.id == self.id,
-                    StorageOperation.location_id == self.location_id,
-                )
+            settled = await connection.scalar(
+                _SETTLE_IO,
+                {
+                    "operation": self.id,
+                    "location": self.location_id,
+                    "revision": self.revision,
+                },
             )
+            if not settled:
+                raise mark_unsettled(error("storage_operation_unsettled", 503))
         self._settled = True
 
     async def __aexit__(self, exc_type, exc, traceback):
@@ -227,30 +235,23 @@ async def acquire(db, location_id, purpose, *, expected_revision=None, node_id=N
     operation_id = uuid.uuid4()
     try:
         async with engine(db).begin() as connection:
-            current = (
-                (
-                    await connection.execute(
-                        select(Gate.state, Gate.revision)
-                        .where(Gate.location_id == location_id)
-                        .with_for_update(read=True, nowait=True)
-                    )
-                )
-                .mappings()
-                .one()
-            )
-            revision = validate(current, expected_revision)
-            await connection.execute(
-                insert(StorageOperation).values(
-                    id=operation_id,
-                    location_id=location_id,
-                    revision=revision,
-                    purpose=purpose,
-                    node_id=node,
-                )
+            revision = await connection.scalar(
+                _BEGIN_IO,
+                {
+                    "operation": operation_id,
+                    "location": location_id,
+                    "purpose": purpose,
+                    "node": node,
+                    "revision": expected_revision,
+                },
             )
     except DBAPIError as exc:
         if unavailable(exc):
             raise error("storage_maintenance_busy") from None
+        if _sqlstate(exc) == "YS001":
+            raise error("storage_maintenance_changed") from None
+        if _sqlstate(exc) == "YS002":
+            raise error("storage_maintenance") from None
         raise
     return Permit(engine(db), operation_id, location_id, revision)
 
