@@ -31,6 +31,8 @@ import shutil
 from urllib.parse import quote, urlsplit
 import xml.etree.ElementTree as ET
 
+from grant_sql import read_psql_grant_script
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/api"))
@@ -8290,7 +8292,7 @@ def main(
                 or not isinstance(contract.get("$defs", {}), dict)
             ):
                 raise RuntimeError(f"invalid frozen module-data schema: {path.name}")
-        grant_sql = grants_path.read_text(encoding="utf-8")
+        grant_sql = read_psql_grant_script(grants_path)
         catalog_grant_sql = catalog_grants_path.read_text(encoding="utf-8")
         source_grant_sql = source_grants_path.read_text(encoding="utf-8")
         import_grant_sql = import_grants_path.read_text(encoding="utf-8")
@@ -8480,11 +8482,9 @@ def main(
         identity_recovery_grant_sql = identity_recovery_grants_path.read_text(
             encoding="utf-8"
         )
-        lan_production_grant_sql = lan_production_grants_path.read_text(
-            encoding="utf-8"
-        )
-        identity_consumer_grant_sql = identity_consumer_grants_path.read_text(
-            encoding="utf-8"
+        lan_production_grant_sql = read_psql_grant_script(lan_production_grants_path)
+        identity_consumer_grant_sql = read_psql_grant_script(
+            identity_consumer_grants_path
         )
 
         from sqlalchemy.engine import URL, make_url
@@ -12386,7 +12386,7 @@ SELECT id FROM removed;
                         username="owner",
                         password=owner_password,
                         database=database,
-                        sql=(ROOT / "infra/docker" / profile).read_text(),
+                        sql=read_psql_grant_script(ROOT / "infra/docker" / profile),
                         variables={
                             "expected_database": database,
                             "migration_role": "owner",

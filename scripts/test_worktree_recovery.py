@@ -11,7 +11,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 import uuid
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 from worktree_env import BUCKETS, WorktreeError
 from worktree_recovery_mapping import (
@@ -74,9 +74,50 @@ class RecoveryGuards(unittest.TestCase):
             backend.inspect.return_value = inventory
             with self.assertRaises(WorktreeError):
                 prepare_empty_target(backend)
+            backend.owned_runtime_role.assert_not_called()
+            backend.manage_worker_roles.assert_not_called()
             backend.database.assert_not_called()
             backend.s3.create_bucket.assert_not_called()
             backend.start_redis.assert_not_called()
+
+    def test_empty_target_provisions_its_own_logins_before_restore(self):
+        with tempfile.TemporaryDirectory() as directory:
+            backend = Mock(
+                root=Path(directory),
+                manifest={},
+                resources={
+                    "owner": "target-owner",
+                    "database": "target",
+                    "redis_name": "redis",
+                    "buckets": {},
+                },
+                owned_runtime_role=AsyncMock(),
+                database=AsyncMock(),
+            )
+            backend.inspect.return_value = {
+                "database": None,
+                "redis": None,
+                "buckets": {},
+            }
+            with (
+                patch("verify_worktree_recovery.atomic_json"),
+                patch(
+                    "verify_worktree_recovery.require_empty_database", new=AsyncMock()
+                ),
+            ):
+                prepare_empty_target(backend)
+            self.assertEqual(
+                backend.mock_calls,
+                [
+                    call.inspect(),
+                    call.owned_runtime_role("check_create"),
+                    call.manage_worker_roles("check_create"),
+                    call.owned_runtime_role("create"),
+                    call.manage_worker_roles("create"),
+                    call.database("create"),
+                    call.start_redis(),
+                ],
+            )
 
     def test_an_unknown_client_blocks_offline_capture(self):
         backend = Mock(
