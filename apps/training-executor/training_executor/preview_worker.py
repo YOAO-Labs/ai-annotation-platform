@@ -23,6 +23,7 @@ from .worker import (
     StopTraining,
     Supervisor,
     live_group,
+    require_upload_response,
     retryable_publication_response,
     stop_process,
 )
@@ -204,7 +205,7 @@ class PreviewSupervisor:
                                 timeout=15,
                                 trust_env=False,
                             )
-                        response.raise_for_status()
+                        require_upload_response(response, target)
                 journal["finish_body"] = self.finish_body(journal)
                 self.save(journal)
                 stage = "finish"

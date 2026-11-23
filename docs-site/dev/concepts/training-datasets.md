@@ -122,7 +122,7 @@ last_reviewed: 2026-10-24
 
 `TrainingDatasetVersion.storage_ref` 在新版本创建事务中、首个对象写入前保存平台 Location、配置修订、training 绑定代次、精确 endpoint/bucket/prefix 和物理身份。逻辑前缀为 `projects/{project_id}/datasets/{version_id}/`；schema2 在受控根下保存完整物理前缀，涵盖 `media/`、`masks/` 及各 attempt 的 ZIP；归属与内容 snapshot/manifest 分开，不改变历史训练摘要。`training_dataset_storage` 是共同解析 owner，已有版本不再依据当前 `training_bucket` 解释历史键。
 
-Worker 的保留媒体读取/写入、包发布与尝试清理，analysis 的图片/掩码读取（包括逐样本评估），训练 assignment 的 dataset URL 和增强 preview 的源 URL 均解析同一归属。解析在 I/O 前核对实际客户端端点和精确子键；当前用途桶变化不改已有归属，同端点凭据仍由原 StorageService 管理。端点变化、未知身份或越界键明确失败，不试探其他桶，也不改冻结 `run.config`、preview.spec 或 input_digest。实验权重由下述 Run 归属解析，预览结果仍保留独立存储 owner。
+Worker 的保留媒体读取、包发布与尝试清理，analysis 的图片／掩码读取（包括逐样本评估），训练 assignment 的数据包 URL 和增强 preview 的源 URL 均解析同一归属。内建桶仍由 `StorageService` 管理；已登记的独立 S3 连接由现有 Assets Source 执行，API 与 worker 不打开连接器凭据。Source 依据已提交版本／尝试、冻结成员或产物清单和维护许可确定对象键；条件写入完整读回后保存 ETag 与（提供方支持时的）确切版本，之后的读取和签名不会改用同键的新版本。当前用途桶变化不改已有归属；端点变化、未知身份或越界键明确失败，不试探其他桶，也不改冻结 `run.config`、preview.spec 或 input_digest。实验权重仍按原 Run 定位，预览结果仍有独立的存储归属。
 
 旧 NULL 归属通过显式 `storage-pin` 操作核验当前保留副本后一次性固定，迁移和普通 GET 不自动接管。候选只读已持久绑定，版本 advisory 执行锁排除活跃构建；有界完整核验后再次复查当前管理权限、API Key、版本状态/attempt/内容摘要、候选及维护代次，再原子保存归属和核验范围/清单摘要。就绪包与独立媒体/掩码都要验证；失败/取消版本已有副本须有独立输入 SHA，对象自报摘要不能补成历史内容证据。未知键、无法解释的旧 attempt 或核验不确定均不写归属、不删对象。
 

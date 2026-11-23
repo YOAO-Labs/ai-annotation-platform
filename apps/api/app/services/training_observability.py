@@ -215,7 +215,7 @@ def read_redacted_log(run, attempt, name, artifact, *, transport=None):
         raise HTTPException(
             status_code=409, detail="历史日志超出脱敏下载上限或归属不符"
         )
-    response = transport.client.get_object(Bucket=owner.bucket, Key=expected)
+    response = storage_io.get_object(transport, owner.bucket, expected)
     digest = hashlib.sha256()
     total = 0
     redactor = RedactedLines((settings.training_executor_token,))
@@ -319,7 +319,7 @@ def verify_summary(run, attempt, artifact, *, transport=None):
     owner = training.attempt_storage_owner(run, attempt, artifact["key"])
     if artifact["size_bytes"] > SUMMARY_BYTES:
         raise ValueError("Observation artifact exceeds its bound")
-    response = transport.client.get_object(Bucket=owner.bucket, Key=artifact["key"])
+    response = storage_io.get_object(transport, owner.bucket, artifact["key"])
     try:
         body = json_load_bounded(response["Body"].read(SUMMARY_BYTES + 1))
     finally:
@@ -345,9 +345,7 @@ def checkpoint_available(run, attempt, checkpoint, *, transport=None):
     transport = storage if transport is None else transport
     try:
         owner = training.attempt_storage_owner(run, attempt, checkpoint["key"])
-        response = transport.client.head_object(
-            Bucket=owner.bucket, Key=checkpoint["key"]
-        )
+        response = storage_io.head_object(transport, owner.bucket, checkpoint["key"])
         metadata = response.get("Metadata", {})
         return (
             response["ContentLength"] == checkpoint["size_bytes"]

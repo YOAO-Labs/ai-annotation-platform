@@ -1,0 +1,10 @@
+GRANT USAGE ON SCHEMA yoao_learning_v1 TO :"assets_owner", :"learning_owner";
+GRANT CREATE ON SCHEMA yoao_learning_v1 TO :"learning_owner";
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER TABLE public.training_saved_objects OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_learning_v1.training_saved_owner_scope(text,uuid,uuid,text,text,text,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_assets_v1.capture_training_saved_io(uuid,text,uuid,uuid,text,text,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_training_saved_io(uuid,text,uuid,uuid,text,text,jsonb,jsonb) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_learning_v1 FROM :"learning_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_learning_v1.training_saved_owner_scope(text,uuid,uuid,text,text,text,jsonb) TO :"assets_owner";

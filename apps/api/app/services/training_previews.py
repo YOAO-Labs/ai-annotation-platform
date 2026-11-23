@@ -364,10 +364,13 @@ async def assignment(db, preview, *, stop=False):
                 db,
                 owner,
                 "training_preview_assignment",
-                lambda transport: transport.client.generate_presigned_url(
-                    "get_object",
-                    Params={"Bucket": owner.bucket, "Key": source["media_key"]},
-                    ExpiresIn=LIMITS["execution_seconds"],
+                lambda transport: storage_io.sign_download(
+                    transport,
+                    source["media_key"],
+                    bucket=owner.bucket,
+                    expires_in=LIMITS["execution_seconds"],
+                    align=False,
+                    audience="internal",
                 ),
                 object_key=source["media_key"],
                 sha256=source.get("sha256"),
@@ -618,18 +621,13 @@ def _upload_urls(transport, owner, preview, inventory):
             "input-digest": preview.input_digest,
             "sha256": spec["sha256"],
         }
-        result[name] = dict(
-            url=transport.client.generate_presigned_url(
-                "put_object",
-                Params={
-                    "Bucket": owner.bucket,
-                    "Key": artifact_key(owner, name),
-                    "ContentLength": spec["size_bytes"],
-                    "Metadata": metadata,
-                },
-                ExpiresIn=LIMITS["put_seconds"],
-            ),
-            headers={"x-amz-meta-" + key: value for key, value in metadata.items()},
+        result[name] = storage_io.sign_upload(
+            transport,
+            owner.bucket,
+            artifact_key(owner, name),
+            size=spec["size_bytes"],
+            metadata=metadata,
+            expires_in=LIMITS["put_seconds"],
         )
     return result
 
@@ -723,7 +721,7 @@ def read_image(preview, output, artifacts=None, *, transport=None):
     artifacts = preview.artifacts if artifacts is None else artifacts
     spec = artifacts[output.image]
     key = artifact_key(owner, output.image, spec["key"])
-    response = transport.client.get_object(Bucket=owner.bucket, Key=key)
+    response = storage_io.get_object(transport, owner.bucket, key)
     target = tempfile.SpooledTemporaryFile(max_size=8 * 1024**2, mode="w+b")
     try:
         metadata = response.get("Metadata", {})
@@ -956,8 +954,8 @@ async def cleanup(db):
                 db,
                 owner,
                 "training_preview_cleanup",
-                lambda transport: transport.delete_prefix(
-                    owner.prefix, bucket=owner.bucket
+                lambda transport: storage_io.retire(
+                    transport, owner.prefix, bucket=owner.bucket
                 ),
             )
         except Exception:

@@ -395,12 +395,13 @@ def read_retained_png(round, sample, *, transport=None, observation=None):
     owner = owners.resolve(round)
     artifact = media_descriptor(round, sample)
     owners.expect_media(owner, sample["ordinal"], artifact["key"])
-    params = {"Bucket": owner.bucket, "Key": artifact["key"]}
-    head = transport.client.head_object(**params)
+    head = storage_io.head_object(transport, owner.bucket, artifact["key"])
     size = head.get("ContentLength")
     if type(size) is not int or not 0 < size <= detection.MAX_PNG_BYTES:
         raise ValueError("Retained source exceeds image budget")
-    response = transport.client.get_object(**params, IfMatch=head["ETag"])
+    response = storage_io.get_object(
+        transport, owner.bucket, artifact["key"], if_match=head["ETag"]
+    )
     try:
         png = response["Body"].read(size + 1)
     finally:
@@ -468,10 +469,18 @@ async def prepare_image(db, round, sample, *, guard=None):
                         return None
                     raise
 
+            source = storage_io.source_for(
+                target,
+                owner,
+                permit,
+                attempt=round.current_attempt_id,
+            )
+
             png = await originals.bounded_thread(
                 storage_io.physical,
                 target,
                 retained_or_missing,
+                **({"source": source} if source is not None else {}),
             )
             if png is None:
                 if round.spec.get("original_contract") != 1:
@@ -499,6 +508,13 @@ async def prepare_image(db, round, sample, *, guard=None):
                         producer="active_learning_media",
                         purpose="other_platform",
                     )
+                    source = storage_io.source_for(
+                        target,
+                        owner,
+                        permit,
+                        attempt=round.current_attempt_id,
+                        accounting=accounting,
+                    )
                     await originals.bounded_thread(
                         storage_io.physical,
                         target,
@@ -506,6 +522,7 @@ async def prepare_image(db, round, sample, *, guard=None):
                             round, sample, owner, png, transport=transport
                         ),
                         accounting=accounting,
+                        **({"source": source} if source is not None else {}),
                     )
             await originals.check(db, context, commit=False, guard=guard)
             if owners.resolve(round) != owner:
@@ -532,6 +549,15 @@ def _store_png(round, sample, owner, png, *, transport=None):
     transport = storage if transport is None else transport
     artifact = media_descriptor(round, sample)
     owners.expect_media(owner, sample["ordinal"], artifact["key"])
+    if isinstance(transport, storage_io.TrainingSavedIO):
+        transport.upload(
+            artifact["key"],
+            png,
+            sha256=artifact["sha256"],
+            size_bytes=len(png),
+            content_type="image/png",
+        )
+        return
     accounting = getattr(transport, "_write_accounting", None)
     observation = (
         write_accounting.Observation(

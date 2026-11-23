@@ -1,6 +1,6 @@
 """Bounded artifact verification and cached JSON parsing."""
 
-from app.services import storage_access
+from app.services import storage_access, training_storage_io
 import copy
 import hashlib
 import json
@@ -54,8 +54,8 @@ def read_json_artifact(
     transport = storage if transport is None else transport
     if not spec or not 0 < spec["size_bytes"] <= MAX_REPORT_BYTES:
         raise ValueError("Evaluation artifact is missing or too large")
-    response = transport.client.get_object(
-        Bucket=transport.training_bucket if bucket is None else bucket, Key=spec["key"]
+    response = training_storage_io.get_object(
+        transport, transport.training_bucket if bucket is None else bucket, spec["key"]
     )
     try:
         raw = response["Body"].read(spec["size_bytes"] + 1)

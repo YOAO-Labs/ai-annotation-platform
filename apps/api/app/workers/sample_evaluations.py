@@ -258,8 +258,10 @@ async def cleanup_candidate(factory, run_id, attempt_id, artifact, *, storage_re
                 db,
                 owner,
                 "sample_evaluation_cleanup",
-                lambda transport: transport.client.delete_object(
-                    Bucket=owner.bucket, Key=artifact["key"]
+                lambda transport: service.storage_io.discard_report(
+                    transport,
+                    owner.bucket,
+                    artifact["key"],
                 ),
             )
     except Exception:

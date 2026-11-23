@@ -776,6 +776,15 @@ def upload_report(run, attempt, report, *, transport=None):
         "size_bytes": len(raw),
     }
     owners.expect_report(owner, attempt.id, artifact["key"], sha)
+    if isinstance(transport, storage_io.TrainingSavedIO):
+        transport.upload(
+            artifact["key"],
+            raw,
+            sha256=sha,
+            size_bytes=len(raw),
+            content_type="application/json",
+        )
+        return artifact
     accounting = getattr(transport, "_write_accounting", None)
     observation = (
         write_accounting.Observation(
@@ -1032,7 +1041,9 @@ async def purge_requested(db, run_id):
         db,
         owner,
         "sample_evaluation_cleanup",
-        lambda transport: transport.delete_prefix(owner.prefix, bucket=owner.bucket),
+        lambda transport: storage_io.retire(
+            transport, owner.prefix, bucket=owner.bucket
+        ),
     )
     run = await db.scalar(
         select(Run)
