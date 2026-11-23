@@ -3242,6 +3242,7 @@ ALTER FUNCTION yoao_export_v1.clear_project_export_artifacts(uuid)
 REVOKE CREATE ON SCHEMA yoao_export_v1 FROM :"export_owner";
 
 GRANT CREATE ON SCHEMA public TO :"audit_owner";
+GRANT EXECUTE ON FUNCTION public.deny_audit_log_mutation() TO :"audit_owner";
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 DO $audit_storage_owner$
 DECLARE
