@@ -38,6 +38,7 @@ from app.services.notification import NotificationService
 from app.services.project_aggregates import member_user_ids, membership_project_ids
 from tests.factory import create_project
 from tests.frozen_namespaces import historical
+from tests.grant_script import read_psql_grant_script
 from tests.test_identity_auth_native import _cleanup, _seed
 from tests.test_identity_recovery import _postgres_tool
 
@@ -205,7 +206,7 @@ def _grants(test_engine, filename, **variables):
                 for part in ("-v", f"{key}={value}")
             ],
         ],
-        body=(_ROOT / "infra/docker" / filename).read_bytes(),
+        body=read_psql_grant_script(_ROOT / "infra/docker" / filename).encode(),
     )
 
 

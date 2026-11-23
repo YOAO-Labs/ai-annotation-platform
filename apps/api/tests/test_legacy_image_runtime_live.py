@@ -95,6 +95,7 @@ async def _apply_lan_grants(test_engine, monkeypatch):
     """Apply the actual deployment script after removing inherited test grants."""
     _verify_postgres(test_engine.url)
     monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    from grant_sql import read_psql_grant_script
     from verify_module_data_boundary import _psql
 
     await asyncio.to_thread(
@@ -105,11 +106,7 @@ async def _apply_lan_grants(test_engine, monkeypatch):
         username=test_engine.url.username,
         password=test_engine.url.password,
         database=test_engine.url.database,
-        sql=(
-            "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_assets_v1, "
-            "yoao_labeling_v1 FROM legacy_runtime;\n"
-            + (ROOT / "infra/docker/lan-production-grants.sql").read_text()
-        ),
+        sql=read_psql_grant_script(ROOT / "infra/docker/lan-production-grants.sql"),
         variables={
             "expected_database": test_engine.url.database,
             "application_role": "legacy_runtime",
