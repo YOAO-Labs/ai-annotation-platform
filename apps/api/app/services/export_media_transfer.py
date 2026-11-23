@@ -414,11 +414,14 @@ async def copy_source(
             _fresh(db, snapshot, binding, resolve_source, guard, expected=source)
         )
         admission = Admission()
-        read_options = (
-            None
-            if actor_id is not None
-            else await _async(original_sources.read_options(db, source))
-        )
+        if actor_id is not None:
+            read_options = None
+        elif plan.read_route is not None:
+            read_options = await _async(
+                original_sources.read_options(db, source, permit=permits[0])
+            )
+        else:
+            read_options = await _async(original_sources.read_options(db, source))
         await export_execution_context.enter_io()
         entered = True
         if actor_id is not None:
