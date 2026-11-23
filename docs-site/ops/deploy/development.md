@@ -51,6 +51,8 @@ Mailpit 只收不发，在 `http://localhost:8025` 查看。`identity-mail-v2` �
 
 若与其他部署共用 MinIO，开发 API 和 Celery 使用仅授权开发桶的 `MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`。已有 MinIO 服务沿用自己的 root 凭据和数据目录；不要用应用凭据重建共享服务。
 
+有历史数据时，对照已登记的存储端点配置宿主 `MINIO_ENDPOINT`、容器 `MINIO_ENDPOINT_DOCKER` 和 Vite 的 `MINIO_PROXY_TARGET`，不要改写原件地址。给开发导出桶单独授权 `s3:GetBucketVersioning`：即使桶未开启版本控制，worker 也需要读取版本状态以核验写入回执；不需要开启版本控制或授权修改其设置。
+
 ### 2.2 迁移、授权及启动 worker
 
 准备普通应用 LOGIN 与独立迁移 LOGIN。宿主 API 的 `DATABASE_URL` 连回环数据库；`.env` 的 `DATABASE_URL_DOCKER` 用容器地址 `postgres:5432`。二者使用同一个普通角色，迁移连接用 `MIGRATION_DATABASE_URL`。先应用当前迁移：
