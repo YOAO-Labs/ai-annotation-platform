@@ -1495,7 +1495,9 @@ class LocalResources:
                 if self.url.host != "127.0.0.1":
                     raise WorktreeError("Raster PostgreSQL 必须使用原始 loopback 端口")
                 verified_postgres(raster, self.resources, port=self.url.port or 5432)
-        runtime = make_url(self.settings.database_url).set(database="postgres")
+        runtime = make_url(self.settings.database_url).set(
+            database=owner_connection.engine.url.database
+        )
         engine = create_async_engine(
             runtime,
             poolclass=NullPool,
