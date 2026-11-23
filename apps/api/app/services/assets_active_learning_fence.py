@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.dataset import DatasetItem
 from app.services.assets_active_learning_fence_contract import (
     AssetsActiveLearningFence,
     CandidateItemFence,
@@ -14,6 +13,16 @@ from app.services.assets_active_learning_fence_contract import (
 )
 
 _BUSY_LOCK_SQLSTATES = {"55P03", "40001", "40P01"}
+_LOCK_CANDIDATE_ITEMS = text(
+    """
+    WITH items AS MATERIALIZED (
+        SELECT DISTINCT id FROM pg_catalog.unnest(CAST(:ids AS uuid[])) AS requested(id)
+        ORDER BY id
+    )
+    SELECT count(*) FROM items
+    CROSS JOIN LATERAL yoao_assets_v1.lock_original_item(items.id, false)
+    """
+)
 
 
 class SqlAlchemyAssetsActiveLearningFence(AssetsActiveLearningFence):
@@ -26,12 +35,9 @@ class SqlAlchemyAssetsActiveLearningFence(AssetsActiveLearningFence):
         if not request.item_ids:
             return
         try:
-            await self._db.execute(
-                select(DatasetItem.id)
-                .where(DatasetItem.id.in_(request.item_ids))
-                .order_by(DatasetItem.id)
-                .with_for_update(read=True, nowait=True)
-            )
+            if self._db.autoflush:
+                await self._db.flush()
+            await self._db.execute(_LOCK_CANDIDATE_ITEMS, {"ids": request.item_ids})
         except DBAPIError as exc:
             original = getattr(exc, "orig", None)
             sqlstate = getattr(original, "sqlstate", None) or getattr(
