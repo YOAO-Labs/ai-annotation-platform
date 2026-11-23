@@ -62,7 +62,6 @@ from app.services import (
 from app.services import image_pyramid_storage as physical, storage_access
 from app.services.content_snapshot import ContentError
 from app.services.storage import StorageService
-from app.workers._db import task_session_factory
 from app.workers.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -74,17 +73,13 @@ _ORPHAN_KEY_RE = re.compile(
 async def _execute_image_media(job_id: str | None) -> bool:
     from app.services.assets_images import run_image_job
 
-    async with task_session_factory() as factory:
-        return await run_image_job(
-            uuid.UUID(job_id) if job_id else None, session_factory=factory
-        )
+    return await run_image_job(uuid.UUID(job_id) if job_id else None)
 
 
 async def _reconcile_image_media() -> None:
     from app.services.assets_images import maintain_images
 
-    async with task_session_factory() as factory:
-        result = await maintain_images(session_factory=factory)
+    result = await maintain_images()
     if result is not None:
         execute_image_media.delay(None)
 
@@ -115,7 +110,7 @@ def execute_image_media(self, job_id: str | None = None) -> None:
     queue="cleanup",
 )
 def reconcile_image_media(self) -> None:
-    """Run local Assets reconciliation; a selected remote owner polls itself."""
+    """Reconcile Celery-owned image work; split executors maintain themselves."""
     try:
         asyncio.run(_reconcile_image_media())
     except Exception as exc:  # noqa: BLE001 - celery boundary hides source details

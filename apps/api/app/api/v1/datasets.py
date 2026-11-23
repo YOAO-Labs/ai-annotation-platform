@@ -45,7 +45,9 @@ from yoao_assets_source.connectors.registry import (
 )
 from yoao_assets_catalog import (
     CreateDatasetRequest,
+    DatasetPatch,
     GetDatasetRequest,
+    UpdateDatasetRequest,
 )
 from yoao_assets_catalog.associations_contract import ListDatasetProjectsRequest
 from app.deps import (
@@ -81,7 +83,11 @@ from app.schemas.dataset import (
 from app.schemas.dataset_view import DatasetItemQuery
 from app.schemas.project import ProjectOut
 from app.services.audit import AuditAction, AuditService
-from app.services.dataset import DatasetService
+from app.services.dataset import (
+    DatasetService,
+    ensure_dataset_storage_name_is_writable,
+    writable_dataset,
+)
 from app.services.assets_catalog import AssetsCatalogGateway
 from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
 from app.application.dataset_deletion import (
@@ -419,22 +425,25 @@ async def update_dataset(
     idempotency_key: uuid.UUID | None = Header(default=None, alias="Idempotency-Key"),
 ):
     await recheck_directory_write(request, db, dataset_id)
-    svc = DatasetService(db)
-    update_kwargs: dict = {}
-    if "axis_convention" in data.model_fields_set:
-        update_kwargs["axis_convention"] = data.axis_convention
-    ds = await svc.update(
-        dataset_id,
-        name=data.name,
-        description=data.description,
-        **update_kwargs,
+    dataset = await writable_dataset(db, dataset_id)
+    if data.name is not None:
+        ensure_dataset_storage_name_is_writable(data.name)
+        if dataset.storage_scan_prefix is None and dataset.name != data.name:
+            dataset.storage_scan_prefix = f"{dataset.name}/"
+            await db.flush()
+    operation_id = idempotency_key or uuid.uuid4()
+    result = await AssetsCatalogGateway(db).update(
+        UpdateDatasetRequest(
+            operation_id=operation_id,
+            actor_id=current_user.id,
+            dataset_id=dataset_id,
+            patch=DatasetPatch.model_validate(data.model_dump(exclude_unset=True)),
+        )
     )
-    if not ds:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    await db.commit()
-    await db.refresh(ds)
-    result = await svc.get_with_project_count(dataset_id)
-    return result
+    response.headers["Idempotency-Key"] = str(operation_id)
+    return DatasetOut.model_validate(result.dataset).model_copy(
+        update={"lifecycle_revision": dataset.lifecycle_revision}
+    )
 
 
 @router.post(
@@ -514,8 +523,7 @@ async def delete_dataset(
             audit_context=_deletion_audit_context(request),
         )
     )
-    if not gateway.is_remote:
-        await db.commit()
+    await db.commit()
     response.headers["Idempotency-Key"] = str(receipt.operation_id)
 
 
@@ -779,8 +787,7 @@ async def upload_init(
             content_type=data.content_type,
         )
     )
-    if not gateway.is_remote:
-        await db.commit()
+    await db.commit()
     response.headers["Idempotency-Key"] = str(result.item_id)
     return DatasetUploadInitResponse(
         item_id=result.item_id,
@@ -819,8 +826,7 @@ async def upload_complete(
     )
     gateway = AssetsSourceGateway(db)
     outcome = await gateway.complete_upload(request)
-    if not gateway.is_remote:
-        await db.commit()
+    await db.commit()
     response.headers["Idempotency-Key"] = str(request.operation_id)
     if outcome.duplicate_of is not None:
         raise HTTPException(
@@ -852,14 +858,12 @@ async def upload_complete(
 
 async def _ingest_public_response(
     db: AsyncSession,
-    gateway: AssetsSourceGateway,
     receipt: IngestReceipt,
     operation_id: uuid.UUID,
 ) -> Response:
     try:
         body = encode_ingest_public_result(receipt)
-        if not gateway.is_remote:
-            await db.commit()
+        await db.commit()
     except SQLAlchemyError as exc:
         await db.rollback()
         raise HTTPException(503, detail="Assets source service is unavailable") from exc
@@ -971,7 +975,7 @@ async def upload_zip(
     except Exception:
         await db.rollback()
         raise
-    return await _ingest_public_response(db, gateway, receipt, operation_id)
+    return await _ingest_public_response(db, receipt, operation_id)
 
 
 @router.post(
@@ -1009,7 +1013,7 @@ async def scan_items(
     except Exception:
         await db.rollback()
         raise
-    return await _ingest_public_response(db, gateway, receipt, operation_id)
+    return await _ingest_public_response(db, receipt, operation_id)
 
 
 _MEDIA_BACKFILL_STATUS = {
@@ -1354,8 +1358,7 @@ async def delete_item(
             audit_context=_deletion_audit_context(request),
         )
     )
-    if not gateway.is_remote:
-        await db.commit()
+    await db.commit()
     response.headers["Idempotency-Key"] = str(receipt.operation_id)
 
 

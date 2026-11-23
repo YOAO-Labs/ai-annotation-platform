@@ -15,6 +15,7 @@ from yoao_assets_video_inputs import tracker as t
 from yoao_assets_video_inputs import tracker_http
 from yoao_assets_video_inputs import execution as video_execution
 from app.config import settings
+from app.services.assets_executor_db import executor_sessions
 
 
 _HTTP_STATUS_BY_ERROR = {
@@ -233,7 +234,10 @@ async def tracker_video_input_gateway(*, session_factory=None):
         async with TrackerVideoInputClient(
             settings.assets_media_url, settings.assets_media_token
         ) as client:
-            yield TrackerVideoInputGateway(client)
+            async with embedded_tracker_video_input_gateway(
+                session_factory=session_factory, provider=client
+            ) as gateway:
+                yield gateway
         return
 
     async with embedded_tracker_video_input_gateway(
@@ -243,7 +247,7 @@ async def tracker_video_input_gateway(*, session_factory=None):
 
 
 @asynccontextmanager
-async def embedded_tracker_video_input_gateway(*, session_factory=None):
+async def embedded_tracker_video_input_gateway(*, session_factory=None, provider=None):
     from yoao_assets_video_inputs_runtime.tracker_control import (
         TrackerVideoInputControl,
     )
@@ -257,8 +261,13 @@ async def embedded_tracker_video_input_gateway(*, session_factory=None):
     from yoao_assets_video_inputs_runtime.worker import VideoInputExecutor
     from app.services.assets_images import image_policy, image_storage
 
+    local_execution = settings.assets_video_executor == "celery"
+    if provider is not None and not local_execution:
+        yield TrackerVideoInputGateway(provider)
+        return
+
     async with AsyncExitStack() as resources:
-        source = image_storage()
+        source = image_storage(control=not local_execution)
         resources.push_async_callback(source.close)
         scheme = "https" if settings.minio_use_ssl else "http"
         config = replace(
@@ -275,16 +284,21 @@ async def embedded_tracker_video_input_gateway(*, session_factory=None):
         control_database = _IndependentTrackerVideoInputDatabase(
             session_factory, allowed_roles=("control",)
         )
-        worker_database = _IndependentTrackerVideoInputDatabase(
-            session_factory, allowed_roles=("worker",)
-        )
-        control = TrackerVideoInputControl(
+        control = provider or TrackerVideoInputControl(
             control_database,
             storage,
             url_expiry_seconds=min(image_policy().url_expiry_seconds, 900),
         )
-        executor_database = TrackerVideoInputExecutorDatabase(worker_database)
-        executor = VideoInputExecutor(database=executor_database, storage=storage)
+        executor = None
+        if local_execution:
+            factory = await resources.enter_async_context(executor_sessions("video"))
+            worker_database = _IndependentTrackerVideoInputDatabase(
+                factory, allowed_roles=("worker",)
+            )
+            executor = VideoInputExecutor(
+                database=TrackerVideoInputExecutorDatabase(worker_database),
+                storage=storage,
+            )
         yield TrackerVideoInputGateway(control, executor=executor)
 
 

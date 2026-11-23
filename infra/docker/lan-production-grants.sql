@@ -891,6 +891,7 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.apply_pointcloud_preparation(uuid,jsonb,jsonb,jsonb),
     yoao_assets_v1.read_spatial_camera_target(uuid,uuid,text),
     yoao_assets_v1.record_spatial_calibration_provenance(uuid,uuid,jsonb),
+    yoao_assets_v1.is_fixture_spatial_dataset(uuid),
     yoao_assets_v1.set_spatial_dataset_axis(uuid,uuid,text)
     TO :"application_role";
 
@@ -905,15 +906,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.read_accepted_video_times(uuid, uuid, uuid, uuid, text, bigint, integer),
     yoao_assets_v1.require_accepted_video_frame(uuid, uuid, uuid, uuid, text, bigint),
     yoao_assets_v1.read_accepted_video_frame(uuid, uuid, uuid, uuid, text, bigint),
-    yoao_assets_v1.claim_accepted_video_input(uuid, uuid, integer),
-    yoao_assets_v1.heartbeat_accepted_video_input(uuid, bigint, uuid, integer),
-    yoao_assets_v1.stage_accepted_video_times(uuid, bigint, uuid, bigint, jsonb),
-    yoao_assets_v1.finish_accepted_video_input(uuid, bigint, uuid, jsonb),
-    yoao_assets_v1.fail_accepted_video_input(uuid, bigint, uuid, text),
-    yoao_assets_v1.claim_accepted_video_frame(uuid, uuid, integer),
-    yoao_assets_v1.heartbeat_accepted_video_frame(uuid, bigint, uuid, integer),
-    yoao_assets_v1.finish_accepted_video_frame(uuid, bigint, uuid, jsonb),
-    yoao_assets_v1.fail_accepted_video_frame(uuid, bigint, uuid, text),
     yoao_assets_v1.lock_accepted_video_frame(uuid, uuid, uuid, uuid, text, bigint, jsonb, jsonb),
     yoao_assets_v1.lock_accepted_video_input(uuid, uuid, uuid, uuid, text),
     yoao_assets_v1._lock_accepted_video_input_pin(uuid, uuid, jsonb, uuid),
@@ -930,9 +922,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.finish_image_original_read(uuid,uuid),
     yoao_assets_v1.begin_image_original_system(text,uuid,text,text),
     yoao_assets_v1.finish_image_original_system(uuid,uuid),
-    yoao_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text),
-    yoao_assets_v1.finish_image_original_worker(uuid,uuid),
-    yoao_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text),
     yoao_assets_v1.observe_image_source(uuid,uuid,uuid,text,jsonb),
     yoao_assets_v1.read_image_summaries(uuid,jsonb,text),
     yoao_assets_v1.prepare_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean),
@@ -947,15 +936,7 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean),
     yoao_assets_v1.read_internal_image_work(uuid),
     yoao_assets_v1.scan_image_backfill(jsonb,text,uuid,integer),
-    yoao_assets_v1.read_image_usage(),
-    yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[]),
-    yoao_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer),
-    yoao_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb),
-    yoao_assets_v1.fail_image_media(uuid,bigint,uuid,text,text),
-    yoao_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb),
-    yoao_assets_v1.reconcile_image_media(jsonb,integer),
-    yoao_assets_v1.claim_image_garbage(uuid,integer,integer),
-    yoao_assets_v1.complete_image_garbage(uuid,uuid)
+    yoao_assets_v1.read_image_usage()
     TO :"application_role";
 
 GRANT EXECUTE ON FUNCTION
@@ -963,12 +944,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb),
     yoao_assets_v1.read_accepted_image_input(uuid,uuid,uuid),
     yoao_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid),
-    yoao_assets_v1.claim_accepted_image_input(uuid,uuid,integer),
-    yoao_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer),
-    yoao_assets_v1.begin_accepted_image_original(uuid,bigint,uuid),
-    yoao_assets_v1.finish_accepted_image_original(uuid,uuid),
-    yoao_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb),
-    yoao_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text),
     yoao_assets_v1.lock_accepted_image_input(uuid,uuid,uuid),
     yoao_assets_v1.capture_accepted_image_input_manifest(uuid,uuid,uuid,jsonb),
     yoao_assets_v1.read_accepted_image_input_manifest(uuid,uuid,uuid),
@@ -1637,4 +1612,168 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[]),
     yoao_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean)
     TO :"application_role";
+DO $assets_private_acl$
+DECLARE
+    runtime_name name := current_setting('yoao.application_role');
+    private_relation regclass;
+    private_function regprocedure;
+BEGIN
+    EXECUTE pg_catalog.format(
+        'GRANT EXECUTE ON FUNCTION
+            yoao_assets_v1.list_catalog_datasets(uuid,text,text,boolean,integer,bigint),
+            yoao_assets_v1.get_catalog_dataset(uuid,uuid),
+            yoao_assets_v1.list_catalog_items(uuid,uuid,integer,bigint),
+            yoao_assets_v1.create_catalog_dataset(uuid,uuid,jsonb),
+            yoao_assets_v1.update_catalog_dataset(uuid,uuid,uuid,jsonb),
+            yoao_assets_v1.list_dataset_projects(uuid,uuid),
+            yoao_assets_v1.list_project_datasets(uuid,uuid),
+            yoao_assets_v1.lock_legacy_dataset_upload(uuid,uuid,uuid,uuid),
+            yoao_assets_v1.read_legacy_dataset_upload(uuid,uuid,uuid,uuid),
+            yoao_assets_v1.complete_legacy_dataset_upload(uuid,uuid,uuid,uuid,text,bigint,text,integer,integer),
+            yoao_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb),
+            yoao_assets_v1.prepare_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
+            yoao_assets_v1.stage_dataset_ingest_batch(uuid,uuid,uuid,jsonb),
+            yoao_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb),
+            yoao_assets_v1.read_dataset_ingest_layout(uuid,uuid,uuid,uuid,integer),
+            yoao_assets_v1.finish_dataset_ingest(uuid,uuid,uuid,jsonb),
+            yoao_assets_v1.claim_dataset_source_ingest_delivery(uuid,integer),
+            yoao_assets_v1.complete_dataset_source_ingest_delivery(uuid,uuid),
+            yoao_assets_v1.prepare_dataset_import(uuid,uuid,uuid),
+            yoao_assets_v1.accept_dataset_import(uuid,uuid,uuid,uuid,jsonb,jsonb,jsonb),
+            yoao_assets_v1.cancel_dataset_import(uuid,uuid),
+            yoao_assets_v1.claim_dataset_import_delivery(uuid,integer),
+            yoao_assets_v1.dataset_import_delivery_target_is_current(text,uuid),
+            yoao_assets_v1.complete_dataset_import_delivery(uuid,uuid),
+            yoao_assets_v1.begin_media_original_actor(uuid,uuid,uuid,text,text),
+            yoao_assets_v1.finish_media_original_read(uuid,uuid),
+            yoao_assets_v1.begin_media_original_system(uuid,text,text),
+            yoao_assets_v1.finish_media_original_system(uuid,uuid),
+            yoao_assets_v1.read_media_source(uuid,uuid,uuid),
+            yoao_assets_v1.read_media_summaries(uuid[]),
+            yoao_assets_v1.ensure_video_media(uuid,uuid,uuid,jsonb),
+            yoao_assets_v1.observe_media_source(uuid,uuid,uuid,text,jsonb),
+            yoao_assets_v1.request_video_media(uuid,uuid,uuid,jsonb,boolean),
+            yoao_assets_v1.read_video_timetable(uuid,uuid,uuid,integer,integer,integer,integer),
+            yoao_assets_v1.read_video_samples(uuid,uuid,uuid,integer,integer,integer),
+            yoao_assets_v1.read_video_failures(uuid,integer,bigint),
+            yoao_assets_v1.retry_video_media(uuid,uuid,jsonb),
+            yoao_assets_v1.invalidate_video_media(uuid,uuid,uuid,jsonb),
+            yoao_assets_v1.cancel_video_media(uuid,uuid,uuid),
+            yoao_assets_v1.read_media_preferences(),
+            yoao_assets_v1.resolve_internal_media_source(uuid,text,jsonb),
+            yoao_assets_v1.schedule_video_media(uuid,uuid,jsonb,boolean),
+            yoao_assets_v1.read_video_work(uuid,uuid),
+            yoao_assets_v1.scan_video_backfill(jsonb,uuid,integer),
+            yoao_assets_v1.read_video_media_totals(uuid[]),
+            yoao_assets_v1.read_internal_video_frame(uuid,integer,integer,text),
+            yoao_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text),
+            yoao_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text),
+            yoao_assets_v1.finish_video_control_original(uuid,uuid),
+            yoao_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text),
+            yoao_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text),
+            yoao_assets_v1.finish_tracker_control_original(uuid,uuid),
+            yoao_assets_v1.read_video_tracker_input(uuid,uuid,uuid),
+            yoao_assets_v1.prepare_video_tracker_input(uuid,uuid,uuid,uuid,text,text,bigint,jsonb,text),
+            yoao_assets_v1.reference_video_tracker_source(uuid,uuid,uuid,uuid,text,text),
+            yoao_assets_v1.prepare_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb),
+            yoao_assets_v1.retry_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb)
+          TO %I',
+        runtime_name
+    );
+    FOREACH private_relation IN ARRAY ARRAY[
+        'public.dataset_catalog_operations', 'public.dataset_source_deletion_operations',
+        'public.dataset_source_ingest_operations', 'public.dataset_source_ingest_entries',
+        'public.dataset_source_ingest_deliveries', 'public.asset_media_jobs',
+        'public.asset_media_operations', 'public.asset_media_timetable_staging',
+        'public.asset_media_garbage', 'public.asset_image_jobs', 'public.asset_image_operations',
+        'public.asset_image_garbage', 'yoao_assets_v1.import_original_verifications'
+    ]::regclass[]
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %s FROM %I, PUBLIC',
+            private_relation, runtime_name);
+        IF pg_catalog.has_table_privilege(runtime_name, private_relation,
+               'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           OR pg_catalog.has_any_column_privilege(runtime_name, private_relation,
+               'SELECT,INSERT,UPDATE,REFERENCES') THEN
+            RAISE EXCEPTION 'Runtime retains private Assets relation access: %', private_relation;
+        END IF;
+    END LOOP;
+    FOREACH private_function IN ARRAY ARRAY[
+        'yoao_assets_v1.reserve_import_original_read(jsonb)',
+        'yoao_assets_v1.cancel_unstarted_import_original_read(jsonb)',
+        'yoao_assets_v1.begin_import_original_verification(jsonb)',
+        'yoao_assets_v1.record_import_original_read(jsonb,jsonb)',
+        'yoao_assets_v1.finish_import_original_verification(jsonb,jsonb)',
+        'yoao_assets_v1.recover_import_original_verification(jsonb)',
+        'yoao_assets_v1.status_import_original_verification(jsonb)',
+        'yoao_assets_v1.resume_import_original_verification(jsonb)',
+        'yoao_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text)',
+        'yoao_assets_v1.finish_media_original_worker(uuid,uuid)',
+        'yoao_assets_v1.claim_video_media(uuid,uuid,integer,text[])',
+        'yoao_assets_v1.heartbeat_video_media(uuid,bigint,uuid,integer)',
+        'yoao_assets_v1.stage_video_timetable(uuid,bigint,uuid,jsonb)',
+        'yoao_assets_v1.finish_video_media(uuid,bigint,uuid,jsonb)',
+        'yoao_assets_v1.fail_video_media(uuid,bigint,uuid,text,text)',
+        'yoao_assets_v1.expire_video_media(integer,integer,integer)',
+        'yoao_assets_v1.claim_video_media_garbage(uuid,integer,integer)',
+        'yoao_assets_v1.complete_video_media_garbage(uuid,uuid)',
+        'yoao_assets_v1.advance_video_backfill(uuid,bigint,uuid,integer)',
+        'yoao_assets_v1.read_video_media_usage()',
+        'yoao_assets_v1.begin_accepted_video_original(uuid,bigint,uuid)',
+        'yoao_assets_v1.finish_accepted_video_original(uuid,uuid)',
+        'yoao_assets_v1.claim_accepted_video_input(uuid,uuid,integer)',
+        'yoao_assets_v1.heartbeat_accepted_video_input(uuid,bigint,uuid,integer)',
+        'yoao_assets_v1.stage_accepted_video_times(uuid,bigint,uuid,bigint,jsonb)',
+        'yoao_assets_v1.finish_accepted_video_input(uuid,bigint,uuid,jsonb)',
+        'yoao_assets_v1.fail_accepted_video_input(uuid,bigint,uuid,text)',
+        'yoao_assets_v1.claim_accepted_video_frame(uuid,uuid,integer)',
+        'yoao_assets_v1.heartbeat_accepted_video_frame(uuid,bigint,uuid,integer)',
+        'yoao_assets_v1.finish_accepted_video_frame(uuid,bigint,uuid,jsonb)',
+        'yoao_assets_v1.fail_accepted_video_frame(uuid,bigint,uuid,text)',
+        'yoao_assets_v1.sweep_accepted_video_inputs(integer)',
+        'yoao_assets_v1.begin_tracker_video_original(uuid,bigint,uuid)',
+        'yoao_assets_v1.finish_tracker_video_original(uuid,uuid)',
+        'yoao_assets_v1.claim_video_tracker_input(uuid,uuid,integer)',
+        'yoao_assets_v1.heartbeat_video_tracker_input(uuid,bigint,uuid,integer)',
+        'yoao_assets_v1.stage_video_tracker_times(uuid,bigint,uuid,bigint,jsonb)',
+        'yoao_assets_v1.finish_video_tracker_input(uuid,bigint,uuid,jsonb)',
+        'yoao_assets_v1.fail_video_tracker_input(uuid,bigint,uuid,text)',
+        'yoao_assets_v1.sweep_video_tracker_inputs(integer)',
+        'yoao_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)',
+        'yoao_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)',
+        'yoao_assets_v1.finish_image_original_worker(uuid,uuid)',
+        'yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[])',
+        'yoao_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)',
+        'yoao_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)',
+        'yoao_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)',
+        'yoao_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)',
+        'yoao_assets_v1.reconcile_image_media(jsonb,integer)',
+        'yoao_assets_v1.claim_image_garbage(uuid,integer,integer)',
+        'yoao_assets_v1.complete_image_garbage(uuid,uuid)',
+        'yoao_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)',
+        'yoao_assets_v1.finish_accepted_image_original(uuid,uuid)',
+        'yoao_assets_v1.claim_accepted_image_input(uuid,uuid,integer)',
+        'yoao_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)',
+        'yoao_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)',
+        'yoao_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)',
+        'yoao_assets_v1.capture_native_pyramid_write_io(uuid,uuid,bigint,uuid,text)',
+        'yoao_assets_v1.capture_native_pyramid_read_io(uuid,uuid,jsonb)',
+        'yoao_assets_v1.capture_native_pyramid_retirement_io(uuid,uuid,uuid)',
+        'yoao_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)',
+        'yoao_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)',
+        'yoao_assets_v1.submit_native_pyramid_member(uuid)',
+        'yoao_assets_v1.write_native_pyramid_member(uuid,text,text)',
+        'yoao_assets_v1.verify_native_pyramid_member(uuid)',
+        'yoao_assets_v1.abandon_native_pyramid_member(uuid,text)',
+        'yoao_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)'
+    ]::regprocedure[]
+    LOOP
+        EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I, PUBLIC',
+            private_function, runtime_name);
+        IF pg_catalog.has_function_privilege(runtime_name, private_function, 'EXECUTE') THEN
+            RAISE EXCEPTION 'Runtime retains private Assets function access: %', private_function;
+        END IF;
+    END LOOP;
+END;
+$assets_private_acl$;
 COMMIT;

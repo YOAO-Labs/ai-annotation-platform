@@ -5,9 +5,9 @@ status: stable
 last_reviewed: 2026-10-19
 ---
 
-# 独立素材目录
+# 素材目录及可移植合同
 
-`apps/assets-catalog` 提供数据集目录查询、创建和更新。它有自己的 Python 依赖、锁文件、镜像、受限 PostgreSQL 身份和只读 S3 身份，不导入主 API、ORM、Celery 或 Redis。公开 REST 仍通过主 API 完成 JWT/API key 与 scope 检查；仅可信网关可以调用内部服务。
+公开目录、关联及空间素材由 API 在调用方数据库会话内执行 `yoao_assets_v1` 能力。创建、更新与回执使用同一事务，文件引用按当前认证主体交给媒体 owner 校验。`apps/assets-catalog` 保留独立依赖、锁文件、镜像、受限 PostgreSQL LOGIN、只读 S3 签名身份和冻结 HTTP 合同，用于制品及互操作验收，不再是产品目录配置。
 
 该工件覆盖五项目录操作和两项关联读取。关联写入、建题、导入、上传、来源删除与派生处理继续使用各自已有的事务或执行边界；完整 Assets 模块尚未独立部署。目录 SQL 仍依赖共享 PostgreSQL。
 
@@ -21,7 +21,7 @@ last_reviewed: 2026-10-19
 | `POST /api/v1/datasets`           | 当前素材库管理员，`datasets:write` | 201，已创建数据集                      |
 | `PUT /api/v1/datasets/{id}`       | 当前素材库管理员，`datasets:write` | 200，已更新数据集                      |
 
-创建和更新接受可选 UUID `Idempotency-Key`，成功时回传实际使用的键。响应中断后使用相同请求、账号和键重试；原结果和资源 UUID 不变。同键换内容、换操作或换目标返回 409。回执保留原快照，后续更新或删除不修改该回执，也不会因重放复建已删除的数据集。每次写入和重放均检查当前活跃账号及全局管理角色。
+创建和更新接受可选 UUID `Idempotency-Key`，成功时回传实际使用的键。响应中断后使用相同请求、账号和键重试；原结果和资源 UUID 不变。同键换内容、换操作或换目标返回 409。回执保留原快照，后续更新或删除不修改该回执；旧键不会复建已删除的数据集。公开更新仍检查当前目录写入权限和 Dataset 生命周期。
 
 SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idempotency_key=key)`、CLI 的 `datasets create/update --idempotency-key UUID` 和 Web 包装器支持传入保存的键。省略键时每次新调用都会选择新 UUID；要跨调用确认不确定结果，应事先保存并复用自己的键。
 
@@ -47,21 +47,19 @@ SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idem
 
 补算受理复用数据集写入许可和同一事务内的生命周期锁，不要求受限 API 身份再次执行目录私有查询。不存在或已归档的数据集不会进入作业；原件读取仍受媒体 owner 的当前许可与准确来源约束，不能用目录读取权限代替。
 
-网关内部请求上限 1 MiB，响应上限 16 MiB；超出时明确失败，不截断或自动回退。HTTP 各 I/O 阶段默认超时 5 秒，可通过 `ASSETS_CATALOG_TIMEOUT_SECONDS` 在 60 秒内调整。这些传输预算不构成大库、超大元数据或生产容量资格。
+内部请求上限 1 MiB，独立 HTTP 响应上限 16 MiB；超出时明确失败，不截断。API 使用有界的原生页面，不为正常请求建立 Catalog HTTP 连接。这些预算不构成生产容量资格。
 
 ## 数据与凭据
 
 原生入口位于 `yoao_assets_v1`：`list_catalog_datasets`、`get_catalog_dataset`、`list_catalog_items`、`create_catalog_dataset`、`update_catalog_dataset`。冻结 SQL 和 JSON Schema 位于 `apps/api/alembic/sql/0211_dataset_catalog.*`。写入和 `dataset_catalog_operations` 回执共用一项调用方事务；函数不自行提交，不执行 S3 或 broker 操作。
 
-先完成常规模块 owner 授权，再运行 `infra/docker/assets-catalog-grants.sql`。目录 LOGIN 只能执行目录、关联与空间素材的 29 项公开能力；不能读取业务表、视图、序列或 Identity/Workspace/Labeling schema。Assets 函数 owner 通过 Identity 当前账号合同检查权限，并通过 Workspace/Labeling 的版本化只读投影组合关联结果。当前主 API 仍使用迁移期宽权限角色。
+独立制品验收先完成 module-data owner 授权，再运行 `infra/docker/assets-catalog-grants.sql`。其 LOGIN 只能执行目录、关联与空间素材的 29 项公开能力，不获业务表、视图、序列或其他 owner schema 权限。内嵌 API 使用自己的 LOGIN，由当前账号事实和 Workspace／Labeling 投影复核权限；目录回执仍是 owner 私表。
 
 目录 S3 身份仅需 `GetObject`：一个 datasets 桶的历史及新来源路径，以及固定 media-cache 桶中的 `thumbnails/`、`videos/`、`playback/`、`image-pyramids/`。不授予列桶、写入、删除或桶管理权限。公开签名 origin 显式配置；不能从请求指定 bucket、endpoint 或任意 key。空间素材准备还使用同一只读身份条件读取有限字节的标定 JSON；固定连接 origin 可通过 `ASSETS_CATALOG_S3_ENDPOINT` 与公开签名地址分开配置。
 
 ## 切换与恢复
 
-`ASSETS_CATALOG_URL` 留空时，网关通过自己的连接调用相同原生 SQL 合同；显式配置后调用独立服务，故障返回不可用错误，不自动改为本地写入。切换须先部署兼容 SQL、授权和服务，检查 `/health`、`/ready`，再刷新网关配置。响应不确定时恢复原服务或切回同一数据库上的本地合同，用原操作键确认结果。
-
-目录服务的数据库 URL、token、S3 access key 和 secret key 均使用专属变量或对应 `_FILE`，不读取主 API 的通用数据库/AWS 凭据。独立 Compose 默认不向宿主公开端口；网关需能到达该服务的内部网络。部署命令与回退次序见仓库 `DEV.md`。
+产品不再读取 `ASSETS_CATALOG_URL`、专用 token 或 timeout，旧 Compose 文件已退役。停止旧写入口、保留同一数据库和回执，再刷新已配置普通运行 LOGIN 的 API；发现不确定结果时沿用原键，不另发一次写入。独立制品仍以专属数据库 URL、token 和只读 S3 运行，不把这些凭据交给 API。
 
 回退服务实现可保留兼容 SQL 和回执；如要回退迁移，先停止所有目录写入并保存尚需重放的操作。删除回执表会失去不确定提交的确认能力，不能直接按空库迁移测试推断在途回退安全。当前回执没有自动清理。
 
@@ -82,6 +80,4 @@ SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idem
 
 原生入口为 `yoao_assets_v1.list_dataset_projects(uuid,uuid)` 与 `list_project_datasets(uuid,uuid)`；SQL 和冻结 schema 位于 `0212_asset_association_reads.*`。Identity 提供最小账号事实，Workspace 提供配置/当前可见性，Labeling 通过 Assets 的来源投影做整组计数；消费者不读取其他 owner 的私有表，也不传输大批素材 UUID。一次顶层 SQL 语句的快照同时决定权限、关联、配置和计数；正在执行的读取按该快照完成，后续请求看到已提交的撤权或关联代次变化。
 
-新业务错误码为 `invalid_request,account_not_active,invalid_account_role,project_missing,invalid_project_role,incompatible_project_role`。错误 schema、错父级或重复 UUID 会明确失败，不返回部分列表。两个读取沿用同一传输预算、服务停服失败和本地/远程选择规则。
-
-升级时先停止受影响写入，应用 0216 与 owner/Catalog 授权，再更新目录镜像并通过就绪检查，最后切换网关。旧镜像的权限预检会拒绝新的 29 项执行权，需要协调升级。Scene、位姿、标定、来源快照与同事务导入详见[空间素材协议](./assets-spatial)。
+业务错误码为 `invalid_request,account_not_active,invalid_account_role,project_missing,invalid_project_role,incompatible_project_role`。错误 schema、错父级或重复 UUID 会明确失败，不返回部分列表。Scene、位姿、标定、来源快照与同事务导入详见[空间素材协议](./assets-spatial)。

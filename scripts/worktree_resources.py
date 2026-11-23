@@ -484,6 +484,7 @@ BEGIN
 END
 $audit_private_acl$;
 """
+ASSETS_EXECUTION_LANES = ("video", "image")
 VIDEO_RUNTIME_CAPABILITIES = (
     "yoao_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)",
     "yoao_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text)",
@@ -491,10 +492,6 @@ VIDEO_RUNTIME_CAPABILITIES = (
     "yoao_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text)",
     "yoao_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text)",
     "yoao_assets_v1.finish_tracker_control_original(uuid,uuid)",
-    "yoao_assets_v1.begin_accepted_video_original(uuid,bigint,uuid)",
-    "yoao_assets_v1.finish_accepted_video_original(uuid,uuid)",
-    "yoao_assets_v1.begin_tracker_video_original(uuid,bigint,uuid)",
-    "yoao_assets_v1.finish_tracker_video_original(uuid,uuid)",
     "yoao_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)",
     "yoao_assets_v1.read_accepted_video_manifest(uuid,uuid,uuid)",
     "yoao_assets_v1.read_accepted_video_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)",
@@ -505,15 +502,6 @@ VIDEO_RUNTIME_CAPABILITIES = (
     "yoao_assets_v1.read_accepted_video_times(uuid,uuid,uuid,uuid,text,bigint,integer)",
     "yoao_assets_v1.require_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)",
     "yoao_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)",
-    "yoao_assets_v1.claim_accepted_video_input(uuid,uuid,integer)",
-    "yoao_assets_v1.heartbeat_accepted_video_input(uuid,bigint,uuid,integer)",
-    "yoao_assets_v1.stage_accepted_video_times(uuid,bigint,uuid,bigint,jsonb)",
-    "yoao_assets_v1.finish_accepted_video_input(uuid,bigint,uuid,jsonb)",
-    "yoao_assets_v1.fail_accepted_video_input(uuid,bigint,uuid,text)",
-    "yoao_assets_v1.claim_accepted_video_frame(uuid,uuid,integer)",
-    "yoao_assets_v1.heartbeat_accepted_video_frame(uuid,bigint,uuid,integer)",
-    "yoao_assets_v1.finish_accepted_video_frame(uuid,bigint,uuid,jsonb)",
-    "yoao_assets_v1.fail_accepted_video_frame(uuid,bigint,uuid,text)",
     "yoao_assets_v1.lock_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint,jsonb,jsonb)",
     "yoao_assets_v1.lock_accepted_video_input(uuid,uuid,uuid,uuid,text)",
     "yoao_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)",
@@ -526,9 +514,6 @@ IMAGE_MEDIA_RUNTIME_CAPABILITIES = (
     "yoao_assets_v1.finish_image_original_read(uuid,uuid)",
     "yoao_assets_v1.begin_image_original_system(text,uuid,text,text)",
     "yoao_assets_v1.finish_image_original_system(uuid,uuid)",
-    "yoao_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
-    "yoao_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)",
-    "yoao_assets_v1.finish_image_original_worker(uuid,uuid)",
     "yoao_assets_v1.read_video_derivative_links(uuid[])",
     "yoao_assets_v1.publish_image_pyramid_thumbnail(uuid,integer,uuid)",
     "yoao_assets_v1.read_image_source(uuid,uuid,uuid)",
@@ -545,14 +530,6 @@ IMAGE_MEDIA_RUNTIME_CAPABILITIES = (
     "yoao_assets_v1.read_internal_image_work(uuid)",
     "yoao_assets_v1.scan_image_backfill(jsonb,text,uuid,integer)",
     "yoao_assets_v1.read_image_usage()",
-    "yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
-    "yoao_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)",
-    "yoao_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)",
-    "yoao_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)",
-    "yoao_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)",
-    "yoao_assets_v1.reconcile_image_media(jsonb,integer)",
-    "yoao_assets_v1.claim_image_garbage(uuid,integer,integer)",
-    "yoao_assets_v1.complete_image_garbage(uuid,uuid)",
 )
 INFERENCE_ROUTING_RUNTIME_CAPABILITIES = (
     "yoao_inference_routing_v1.model_dispatch_step(text)",
@@ -565,16 +542,10 @@ INFERENCE_ROUTING_RUNTIME_CAPABILITIES = (
     "yoao_inference_routing_v1.video_execution_scope_step(text,text)",
 )
 IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES = (
-    "yoao_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)",
-    "yoao_assets_v1.finish_accepted_image_original(uuid,uuid)",
     "yoao_assets_v1.find_accepted_image_input(uuid,uuid,uuid)",
     "yoao_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb)",
     "yoao_assets_v1.read_accepted_image_input(uuid,uuid,uuid)",
     "yoao_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)",
-    "yoao_assets_v1.claim_accepted_image_input(uuid,uuid,integer)",
-    "yoao_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)",
-    "yoao_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)",
-    "yoao_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)",
     "yoao_assets_v1.lock_accepted_image_input(uuid,uuid,uuid)",
 )
 IMAGE_MANIFEST_RUNTIME_CAPABILITIES = (
@@ -850,6 +821,8 @@ class LocalResources:
                 "run.json",
                 "services.json",
                 "runtime-credentials.json",
+                "assets-image-credentials.json",
+                "assets-video-credentials.json",
                 "fixture-store-owner.json",
             )
         ):
@@ -920,8 +893,8 @@ class LocalResources:
         if getattr(self, "_retire_finished_bootstrap", False):
             raise WorktreeError("退休模式不能准备或接管环境")
 
-    def _runtime_credentials(self, *, required: bool = False) -> dict | None:
-        path = state_path(self.root, self.resources["mode"], "runtime-credentials.json")
+    def _runtime_credentials(self, *, required: bool = False, lane=None) -> dict | None:
+        path = self._runtime_credentials_path(lane)
         if not path.exists():
             if required:
                 raise WorktreeError("独立运行账号尚未准备；请先运行 init")
@@ -945,7 +918,7 @@ class LocalResources:
                 ) from None
         if not isinstance(document, dict):
             raise WorktreeError("运行账号凭据格式无效；拒绝接管")
-        expected = self._runtime_credential_identity()
+        expected = self._runtime_credential_identity(lane)
         if (
             set(document) != {*expected, "password"}
             or any(document.get(key) != value for key, value in expected.items())
@@ -955,11 +928,16 @@ class LocalResources:
             raise WorktreeError("运行账号凭据与本环境或原迁移账号不一致；拒绝接管")
         return document
 
-    def _runtime_credential_identity(self) -> dict:
+    def _runtime_credentials_path(self, lane=None) -> Path:
+        name = f"assets-{lane}-credentials.json" if lane else "runtime-credentials.json"
+        return state_path(self.root, self.resources["mode"], name)
+
+    def _runtime_credential_identity(self, lane=None) -> dict:
         return {
             "schema": 1,
             "owner": self.resources["owner"],
-            "role": self.resources["database"] + "_app",
+            "role": self.resources["database"]
+            + (f"_assets_{lane}" if lane else "_app"),
             "postgres": {
                 "host": self.url.host,
                 "port": self.url.port or 5432,
@@ -977,6 +955,20 @@ class LocalResources:
             username=credentials["role"],
             password=credentials["password"],
         )
+
+    def assets_worker_url(self, lane):
+        credentials = self._runtime_credentials(required=True, lane=lane)
+        return self.url.set(
+            username=credentials["role"], password=credentials["password"]
+        )
+
+    def assets_worker_environment(self) -> dict:
+        return {
+            f"ASSETS_CELERY_{lane.upper()}_DATABASE_URL": self.assets_worker_url(
+                lane
+            ).render_as_string(hide_password=False)
+            for lane in ASSETS_EXECUTION_LANES
+        }
 
     async def _runtime_role_record(self, connection, operator_oid, *, role=None):
         result = (
@@ -1024,14 +1016,18 @@ class LocalResources:
         ):
             raise WorktreeError("自有运行账号权限、成员资格或外部依赖已变化；拒绝继续")
 
-    async def owned_runtime_role(self, action: str = "inspect") -> dict | None:
+    async def owned_runtime_role(
+        self, action: str = "inspect", *, lane=None
+    ) -> dict | None:
         """Keep generated LOGIN creation and deletion bound to this exact mode."""
         if action not in {"inspect", "check_create", "create", "check_drop", "drop"}:
             raise WorktreeError("无效的运行账号操作")
         if action in {"check_create", "create"}:
             self._require_preparation_allowed()
-        credentials = self._runtime_credentials()
-        shared_owner = (
+        if lane is not None and lane not in ASSETS_EXECUTION_LANES:
+            raise WorktreeError("无效的 Assets 执行环境")
+        credentials = self._runtime_credentials(lane=lane)
+        shared_owner = lane is not None or (
             make_url(self.settings.database_url).username == self.url.username
         )
         if credentials is None and not shared_owner:
@@ -1040,7 +1036,7 @@ class LocalResources:
             raise WorktreeError(
                 "此环境已有自有运行账号；先用原配置销毁，再更换账号配置"
             )
-        identity = self._runtime_credential_identity()
+        identity = self._runtime_credential_identity(lane)
         role = identity["role"]
         engine = create_async_engine(
             self.url.set(database="postgres"),
@@ -1068,11 +1064,17 @@ class LocalResources:
                     .one()
                 )
 
-                observed = await self._runtime_role_record(connection, operator["oid"])
+                observed = await self._runtime_role_record(
+                    connection, operator["oid"], role=role
+                )
                 if observed is not None:
                     self._validate_runtime_role(observed, credentials)
                 if action in {"check_create", "create"} and observed is None:
                     if not (operator["rolsuper"] or operator["rolcreaterole"]):
+                        if lane:
+                            raise WorktreeError(
+                                "独立 Assets worker 需要可创建专用 LOGIN 的 worktree 迁移账号"
+                            )
                         raise WorktreeError(
                             "同账号配置需要迁移账号具备 CREATEROLE；请由管理员预配置普通运行账号，"
                             "并分开 DATABASE_URL 与 MIGRATION_DATABASE_URL；不会回退 owner"
@@ -1085,15 +1087,13 @@ class LocalResources:
                             "password": secrets.token_urlsafe(32),
                         }
                         atomic_json(
-                            state_path(
-                                self.root,
-                                self.resources["mode"],
-                                "runtime-credentials.json",
-                            ),
+                            self._runtime_credentials_path(lane),
                             credentials,
                             exclusive=True,
                         )
-                        credentials = self._runtime_credentials(required=True)
+                        credentials = self._runtime_credentials(
+                            required=True, lane=lane
+                        )
                     await connection.execute(
                         text(
                             "SELECT set_config('yoao.worktree_runtime_role',:role,true),"
@@ -1115,7 +1115,7 @@ class LocalResources:
                     END;
                     $create_runtime$;""")
                     observed = await self._runtime_role_record(
-                        connection, operator["oid"]
+                        connection, operator["oid"], role=role
                     )
                     if (
                         not observed
@@ -1142,7 +1142,7 @@ class LocalResources:
                         )
                         await connection.exec_driver_sql(f"DROP ROLE {quoted}")
                         observed = await self._runtime_role_record(
-                            connection, operator["oid"]
+                            connection, operator["oid"], role=role
                         )
                         if observed is not None:
                             raise WorktreeError("运行账号删除未能验证")
@@ -1171,6 +1171,74 @@ class LocalResources:
                 return True
         finally:
             await engine.dispose()
+
+    async def prepare_assets_worker_roles(self) -> None:
+        self._require_preparation_allowed()
+        from yoao_assets_images_runtime.health import check_connection as check_image
+        from yoao_assets_media_runtime.health import (
+            check_worker_connection as check_video,
+        )
+
+        engine = create_async_engine(self.url, poolclass=NullPool, hide_parameters=True)
+        try:
+            async with engine.begin() as connection:
+                await self.verify_database_server(connection)
+                quote = connection.dialect.identifier_preparer.quote_identifier
+                await connection.exec_driver_sql(
+                    f"REVOKE TEMPORARY ON DATABASE {quote(self.url.database)} FROM PUBLIC"
+                )
+                operator_oid = await connection.scalar(
+                    text("SELECT oid FROM pg_roles WHERE rolname=current_user")
+                )
+                for lane, script, variable in (
+                    ("video", "media", "asset_media_worker_role"),
+                    ("image", "image", "asset_image_worker_role"),
+                ):
+                    url = self.assets_worker_url(lane)
+                    role = await self._runtime_role_record(
+                        connection, operator_oid, role=url.username
+                    )
+                    if role is None:
+                        raise WorktreeError("Assets worker LOGIN 在授权期间消失")
+                    self._validate_runtime_role(
+                        role, self._runtime_credentials(required=True, lane=lane)
+                    )
+                    role_name = quote(url.username)
+                    grant_sql = (
+                        self.code_root / f"infra/docker/assets-{script}-grants.sql"
+                    ).read_text()
+                    prefix = f'\n    TO :"{variable}";'
+                    if grant_sql.count(prefix) != 1:
+                        raise WorktreeError("Assets worker 授权片段缺失或重复")
+                    worker_functions = (
+                        grant_sql.split(prefix, 1)[0]
+                        .rsplit("\nGRANT EXECUTE ON FUNCTION\n", 1)[-1]
+                        .strip()
+                    )
+                    await connection.exec_driver_sql(
+                        f"GRANT CONNECT ON DATABASE {quote(self.url.database)} TO {role_name}"
+                    )
+                    await connection.exec_driver_sql(
+                        f"GRANT USAGE ON SCHEMA yoao_assets_v1 TO {role_name}"
+                    )
+                    await connection.exec_driver_sql(
+                        f"GRANT EXECUTE ON FUNCTION {worker_functions} TO {role_name}"
+                    )
+        finally:
+            await engine.dispose()
+        for lane, check in (("video", check_video), ("image", check_image)):
+            worker_engine = create_async_engine(
+                self.assets_worker_url(lane), poolclass=NullPool, hide_parameters=True
+            )
+            try:
+                async with worker_engine.connect() as connection:
+                    raw = await connection.get_raw_connection()
+                    if not await check(raw.driver_connection):
+                        raise WorktreeError(
+                            f"Assets {lane} worker LOGIN 不符合精确权限"
+                        )
+            finally:
+                await worker_engine.dispose()
 
     def environment(self) -> dict:
         if getattr(self, "_retire_finished_bootstrap", False):
@@ -2097,6 +2165,7 @@ class LocalResources:
                 await connection.exec_driver_sql(self.private_runtime_acl("labeling"))
                 await connection.exec_driver_sql(self.private_runtime_acl("workspace"))
                 await connection.exec_driver_sql(self.private_runtime_acl("inference"))
+                await connection.exec_driver_sql(self.private_runtime_acl("assets"))
                 notification_result = await connection.execute(
                     text(
                         "SELECT pg_catalog.has_function_privilege("
@@ -2538,6 +2607,8 @@ class LocalResources:
         current = asyncio.run(self.revisions()) if inventory["database"] else []
         validate_revisions(revisions, heads, current, skip=skip_migrations)
         asyncio.run(self.owned_runtime_role("check_create"))
+        for lane in ASSETS_EXECUTION_LANES:
+            asyncio.run(self.owned_runtime_role("check_create", lane=lane))
         self.touched = True
         path = state_path(self.root, self.resources["mode"], "resources.json")
         if not path.exists():
@@ -2551,6 +2622,8 @@ class LocalResources:
             self.manifest,
         )
         asyncio.run(self.owned_runtime_role("create"))
+        for lane in ASSETS_EXECUTION_LANES:
+            asyncio.run(self.owned_runtime_role("create", lane=lane))
         asyncio.run(self.database("create"))
         raster_owner = getattr(self, "_raster_redis_birth_owner", None)
         if raster_owner is not None and "postgres" in raster_owner.data["raster"]:
@@ -2608,6 +2681,7 @@ class LocalResources:
             asyncio.run(_verified_database(self.environment()))
         asyncio.run(self.grant_runtime())
         asyncio.run(self.verify_runtime_login())
+        asyncio.run(self.prepare_assets_worker_roles())
         if self.resources["mode"] in {"test", "e2e"}:
             from fixture_suite_coordinator import prepare_worktree_store
 
@@ -3121,6 +3195,8 @@ class LocalResources:
         inventory = self.inspect()
         validate_destruction(self.resources, inventory, confirmation)
         asyncio.run(self.owned_runtime_role("check_drop"))
+        for lane in ASSETS_EXECUTION_LANES:
+            asyncio.run(self.owned_runtime_role("check_drop", lane=lane))
         inference = None
         if self.resources["mode"] == "e2e":
             from fixture_inference_services import FixtureInferenceServices
@@ -3498,6 +3574,8 @@ class LocalResources:
         if inference is not None:
             inference.finish_destroy()
         asyncio.run(self.owned_runtime_role("drop"))
+        for lane in ASSETS_EXECUTION_LANES:
+            asyncio.run(self.owned_runtime_role("drop", lane=lane))
         if prepared.storage != "raster_provider_retired" and require_owner(
             self.resources["redis_name"], self.redis_info(), self.resources["owner"]
         ):

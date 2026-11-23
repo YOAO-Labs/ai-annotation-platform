@@ -1,18 +1,16 @@
-"""Bind Dataset source operations to the local workflow or independent owner."""
+"""Bind Dataset source operations to the caller's transaction."""
 
 from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
 import json
-from typing import BinaryIO, NoReturn, TypeVar
-from urllib.parse import urlsplit
+from typing import BinaryIO, NoReturn
 
 from anyio import CancelScope
-import httpx
 from botocore.exceptions import BotoCoreError, ClientError
 from fastapi import HTTPException
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +22,6 @@ from yoao_assets_source.contract import (
     UploadInitRequest,
     UploadInitResult,
     UploadOutcome,
-    decode_source_reply,
 )
 from yoao_assets_source.deletion_contract import DatasetSourceDeletionReceipt
 from yoao_assets_source.legacy_upload_contract import (
@@ -37,12 +34,10 @@ from yoao_assets_source.ingest_contract import (
     IngestCommand,
     IngestFailure,
     IngestReceipt,
-    decode_ingest_reply,
     require_ingest_scope,
 )
 from yoao_assets_source.upload_contract import DatasetUploadFailure
 from yoao_assets_source_runtime.image_admission import ImageAdmission
-from app.config import settings
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset, Scene
 from app.db.models.project import Project
 from app.db.models.task_batch import TaskBatch
@@ -52,10 +47,7 @@ from app.services.assets_images import image_gateway, image_policy
 from app.services.storage import StorageService, storage_service
 from app.services.storage_access import finish
 
-_RESULT = TypeVar("_RESULT", bound=BaseModel)
-_MAX_REQUEST_BYTES = 1 * 1024 * 1024
 MAX_SOURCE_RESPONSE_BYTES = 16 * 1024 * 1024
-_MAX_RESPONSE_BYTES = MAX_SOURCE_RESPONSE_BYTES
 _TRANSIENT_SOURCE_CODES = {"source_busy", "account_busy", "dataset_busy"}
 _RETAINED_SOURCE_CODES = {
     "source_in_use",
@@ -77,62 +69,6 @@ class AssetsSourceGatewayError(HTTPException):
     ) -> None:
         self.code = code
         super().__init__(status_code=status_code, detail=message, headers=headers)
-
-
-def _peer_url() -> str | None:
-    value = settings.assets_source_url
-    if not value:
-        return None
-    try:
-        parsed = urlsplit(value)
-        parsed.port
-        valid = (
-            parsed.scheme in {"http", "https"}
-            and bool(parsed.hostname)
-            and parsed.username is None
-            and parsed.password is None
-            and not parsed.query
-            and not parsed.fragment
-        )
-    except ValueError:
-        valid = False
-    token = settings.assets_source_token
-    if (
-        not valid
-        or len(token) < 32
-        or not token.isascii()
-        or any(character.isspace() for character in token)
-        or any(ord(character) < 32 or ord(character) == 127 for character in token)
-    ):
-        raise AssetsSourceGatewayError(
-            "service_unavailable", "Assets source service is unavailable", 503
-        )
-    return value.rstrip("/")
-
-
-def _encode_request(request: BaseModel) -> bytes:
-    body = request.model_dump_json(exclude_unset=True).encode("utf-8")
-    if len(body) > _MAX_REQUEST_BYTES:
-        raise AssetsSourceGatewayError(
-            "invalid_request", "Assets source request is too large", 422
-        )
-    return body
-
-
-async def _read_response(response: httpx.Response) -> bytes:
-    length = response.headers.get("content-length", "")
-    if length.isdecimal() and int(length) > _MAX_RESPONSE_BYTES:
-        raise AssetsSourceGatewayError(
-            "invalid_response", "Assets source returned an invalid response", 502
-        )
-    body = bytearray()
-    async for chunk in response.aiter_bytes(chunk_size=16 * 1024):
-        body.extend(chunk)
-        if len(body) > _MAX_RESPONSE_BYTES:
-            raise AssetsSourceGatewayError(
-                "invalid_response", "Assets source returned an invalid response", 502
-            )
-    return bytes(body)
 
 
 def _raise_failure(exc: SourceFailure, *, operation: str) -> NoReturn:
@@ -268,14 +204,6 @@ async def run_zip_file_io(function, *args):
         with CancelScope(shield=True), suppress(BaseException):
             await finish(worker)
         raise
-
-
-async def _stream_binary(source: BinaryIO):
-    while True:
-        chunk = await run_zip_file_io(source.read, 64 * 1024)
-        if not chunk:
-            return
-        yield chunk if isinstance(chunk, bytes) else bytes(chunk)
 
 
 def encode_ingest_public_result(receipt: IngestReceipt) -> bytes:
@@ -526,7 +454,7 @@ class _LegacyUploadData:
 
 
 class AssetsSourceGateway:
-    """Select local composition once or proxy the whole operation without fallback."""
+    """Compose the shared source workflow using the outer Dataset transaction."""
 
     def __init__(
         self,
@@ -534,30 +462,20 @@ class AssetsSourceGateway:
         *,
         storage: StorageService | None = None,
         cleanup_bucket: str | None = None,
-        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._db = db
         self._storage = storage or storage_service
         self._cleanup_bucket = cleanup_bucket or self._storage.media_cache_bucket
-        self._transport = transport
-        self._peer = _peer_url()
-
-    @property
-    def is_remote(self) -> bool:
-        return self._peer is not None
 
     async def init_upload(self, request: UploadInitRequest) -> UploadInitResult:
-        if self._peer is not None:
-            result = await self._remote("upload-init", request, UploadInitResult)
-        else:
-            try:
-                result = await self._local_workflow().init_upload(request)
-            except SourceFailure as exc:
-                _raise_failure(exc, operation="upload-init")
-            except SQLAlchemyError as exc:
-                raise self._unavailable() from exc
-            except (ValidationError, ValueError, TypeError) as exc:
-                raise self._invalid_response() from exc
+        try:
+            result = await self._local_workflow().init_upload(request)
+        except SourceFailure as exc:
+            _raise_failure(exc, operation="upload-init")
+        except SQLAlchemyError as exc:
+            raise self._unavailable() from exc
+        except (ValidationError, ValueError, TypeError) as exc:
+            raise self._invalid_response() from exc
         if (result.actor_id, result.dataset_id, result.item_id) != (
             request.actor_id,
             request.dataset_id,
@@ -567,19 +485,16 @@ class AssetsSourceGateway:
         return result
 
     async def complete_upload(self, request: UploadCompleteRequest) -> UploadOutcome:
-        if self._peer is not None:
-            result = await self._remote("upload-complete", request, UploadOutcome)
-        else:
-            try:
-                result = await self._local_workflow().complete_upload(request)
-            except SourceFailure as exc:
-                _raise_failure(exc, operation="upload-complete")
-            except SQLAlchemyError as exc:
-                raise self._unavailable() from exc
-            except (ValidationError, ValueError, TypeError) as exc:
-                raise self._invalid_response() from exc
-            if result.result is not None:
-                self._invalidate_upload_counters(request.dataset_id)
+        try:
+            result = await self._local_workflow().complete_upload(request)
+        except SourceFailure as exc:
+            _raise_failure(exc, operation="upload-complete")
+        except SQLAlchemyError as exc:
+            raise self._unavailable() from exc
+        except (ValidationError, ValueError, TypeError) as exc:
+            raise self._invalid_response() from exc
+        if result.result is not None:
+            self._invalidate_upload_counters(request.dataset_id)
         if (
             result.operation_id,
             result.actor_id,
@@ -599,18 +514,15 @@ class AssetsSourceGateway:
     async def delete_source(
         self, request: SourceDeletionRequest
     ) -> DatasetSourceDeletionReceipt:
-        if self._peer is not None:
-            result = await self._remote("delete", request, DatasetSourceDeletionReceipt)
-        else:
-            try:
-                result = await self._local_workflow().delete_source(request)
-            except SourceFailure as exc:
-                _raise_failure(exc, operation="delete")
-            except SQLAlchemyError as exc:
-                raise self._unavailable() from exc
-            except (ValidationError, ValueError, TypeError) as exc:
-                raise self._invalid_response() from exc
-            self._invalidate_source_rows(request.dataset_id, request.item_id)
+        try:
+            result = await self._local_workflow().delete_source(request)
+        except SourceFailure as exc:
+            _raise_failure(exc, operation="delete")
+        except SQLAlchemyError as exc:
+            raise self._unavailable() from exc
+        except (ValidationError, ValueError, TypeError) as exc:
+            raise self._invalid_response() from exc
+        self._invalidate_source_rows(request.dataset_id, request.item_id)
         if (
             result.operation_id,
             result.actor_id,
@@ -628,99 +540,26 @@ class AssetsSourceGateway:
     async def ingest_zip(
         self, command: IngestCommand, source: BinaryIO
     ) -> IngestReceipt:
-        if self._peer is not None:
-            result = await self._remote_ingest("upload-zip", command, source=source)
-        else:
-            try:
-                result = await self._local_ingest_workflow().upload_zip(command, source)
-            except IngestFailure as exc:
-                _raise_ingest_failure(exc, kind="zip")
-            except SQLAlchemyError as exc:
-                raise self._unavailable() from exc
-            except (ValidationError, ValueError, TypeError, KeyError):
-                raise self._invalid_response() from None
+        try:
+            result = await self._local_ingest_workflow().upload_zip(command, source)
+        except IngestFailure as exc:
+            _raise_ingest_failure(exc, kind="zip")
+        except SQLAlchemyError as exc:
+            raise self._unavailable() from exc
+        except (ValidationError, ValueError, TypeError, KeyError):
+            raise self._invalid_response() from None
         return self._validate_ingest_result(result, command, kind="zip")
 
     async def ingest_scan(self, command: IngestCommand) -> IngestReceipt:
-        if self._peer is not None:
-            result = await self._remote_ingest("scan", command)
-        else:
-            try:
-                result = await self._local_ingest_workflow().scan(command)
-            except IngestFailure as exc:
-                _raise_ingest_failure(exc, kind="scan")
-            except SQLAlchemyError as exc:
-                raise self._unavailable() from exc
-            except (ValidationError, ValueError, TypeError, KeyError):
-                raise self._invalid_response() from None
-        return self._validate_ingest_result(result, command, kind="scan")
-
-    async def _remote_ingest(
-        self,
-        endpoint: str,
-        command: IngestCommand,
-        *,
-        source: BinaryIO | None = None,
-    ) -> IngestReceipt:
-        kind = "zip" if source is not None else "scan"
-        headers = {
-            "Authorization": f"Bearer {settings.assets_source_token}",
-            "Accept": "application/json",
-        }
-        params = None
-        if source is not None:
-            headers["Content-Type"] = "application/zip"
-            params = {
-                "operation_id": str(command.operation_id),
-                "actor_id": str(command.actor_id),
-                "dataset_id": str(command.dataset_id),
-                "authority": command.authority.model_dump_json(),
-            }
-            content = _stream_binary(source)
-        else:
-            headers["Content-Type"] = "application/json"
-            content = _encode_request(command)
         try:
-            async with httpx.AsyncClient(
-                timeout=settings.assets_source_timeout_seconds,
-                trust_env=False,
-                follow_redirects=False,
-                transport=self._transport,
-            ) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self._peer}/v1/source/{endpoint}",
-                    params=params,
-                    headers=headers,
-                    content=content,
-                ) as response:
-                    if response.status_code >= 500:
-                        if response.status_code == 502:
-                            raise self._invalid_response()
-                        raise self._unavailable()
-                    content_type = (
-                        response.headers.get("content-type", "")
-                        .split(";", 1)[0]
-                        .strip()
-                        .lower()
-                    )
-                    if content_type != "application/json":
-                        raise self._invalid_response()
-                    try:
-                        payload = json.loads(await _read_response(response))
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        raise self._invalid_response() from None
-                    try:
-                        result = decode_ingest_reply(payload, IngestReceipt)
-                    except IngestFailure as exc:
-                        _raise_ingest_failure(exc, kind=kind)
-                    if response.status_code != 200 or result is None:
-                        raise self._invalid_response()
-        except AssetsSourceGatewayError:
-            raise
-        except (httpx.HTTPError, OSError) as exc:
+            result = await self._local_ingest_workflow().scan(command)
+        except IngestFailure as exc:
+            _raise_ingest_failure(exc, kind="scan")
+        except SQLAlchemyError as exc:
             raise self._unavailable() from exc
-        return self._validate_ingest_result(result, command, kind=kind)
+        except (ValidationError, ValueError, TypeError, KeyError):
+            raise self._invalid_response() from None
+        return self._validate_ingest_result(result, command, kind="scan")
 
     @staticmethod
     def _validate_ingest_result(
@@ -735,50 +574,6 @@ class AssetsSourceGateway:
                 "invalid_response", "Assets source returned an invalid response", 502
             )
         return result
-
-    async def _remote(
-        self,
-        endpoint: str,
-        request: BaseModel,
-        result_model: type[_RESULT],
-    ) -> _RESULT:
-        body = _encode_request(request)
-        try:
-            async with httpx.AsyncClient(
-                timeout=settings.assets_source_timeout_seconds,
-                trust_env=False,
-                follow_redirects=False,
-                transport=self._transport,
-            ) as client:
-                async with client.stream(
-                    "POST",
-                    f"{self._peer}/v1/source/{endpoint}",
-                    headers={
-                        "Authorization": f"Bearer {settings.assets_source_token}",
-                        "Content-Type": "application/json",
-                        "Accept": "application/json",
-                    },
-                    content=body,
-                ) as response:
-                    if response.status_code != 200:
-                        raise self._unavailable()
-                    content_type = (
-                        response.headers.get("content-type", "")
-                        .split(";", 1)[0]
-                        .strip()
-                        .lower()
-                    )
-                    if content_type != "application/json":
-                        raise self._invalid_response()
-                    payload = json.loads(await _read_response(response))
-        except AssetsSourceGatewayError:
-            raise
-        except (httpx.HTTPError, json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise self._unavailable() from exc
-        try:
-            return decode_source_reply(payload, result_model)
-        except SourceFailure as exc:
-            _raise_failure(exc, operation=endpoint)
 
     def _local_workflow(self):
         from yoao_assets_source_runtime.workflow import UploadWorkflow

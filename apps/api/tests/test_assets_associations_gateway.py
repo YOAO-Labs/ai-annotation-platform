@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import json
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import httpx
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.exc import SQLAlchemyError
@@ -151,46 +149,6 @@ async def test_project_datasets_local_call_uses_current_actor_and_scope():
     sql, params = db.execute.await_args.args
     assert "yoao_assets_v1.list_project_datasets" in str(sql)
     assert params == {"actor_id": actor_id, "project_id": project_id}
-
-
-@pytest.mark.asyncio
-async def test_remote_association_call_is_authenticated_and_never_falls_back(
-    monkeypatch,
-):
-    actor_id = uuid.uuid4()
-    dataset_id = uuid.uuid4()
-    db = AsyncMock(spec=AsyncSession)
-
-    monkeypatch.setattr(
-        assets_catalog.settings, "assets_catalog_url", "http://catalog.local"
-    )
-    monkeypatch.setattr(assets_catalog.settings, "assets_catalog_token", "s" * 40)
-    original_client = httpx.AsyncClient
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/catalog/dataset-projects"
-        assert request.headers["Authorization"] == "Bearer " + "s" * 40
-        assert json.loads(request.content) == {
-            "actor_id": str(actor_id),
-            "dataset_id": str(dataset_id),
-        }
-        return httpx.Response(
-            200,
-            json=_reply({"dataset_id": str(dataset_id), "projects": []}),
-        )
-
-    def make_client(**kwargs):
-        assert kwargs["trust_env"] is False
-        assert kwargs["follow_redirects"] is False
-        return original_client(transport=httpx.MockTransport(handler), **kwargs)
-
-    monkeypatch.setattr(assets_catalog.httpx, "AsyncClient", make_client)
-    result = await assets_catalog.AssetsCatalogGateway(db).list_dataset_projects(
-        ListDatasetProjectsRequest(actor_id=actor_id, dataset_id=dataset_id)
-    )
-
-    assert result.projects == []
-    db.execute.assert_not_awaited()
 
 
 @pytest.mark.asyncio

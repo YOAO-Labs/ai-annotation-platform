@@ -135,6 +135,20 @@ async def test_legacy_login_materializes_images_manifests_and_annotation_pins(
         await _apply_lan_grants(test_engine, monkeypatch)
 
     monkeypatch.setattr(settings, "assets_media_url", "")
+    monkeypatch.setattr(settings, "assets_image_executor", "celery")
+    worker_dsn = _required_env("AAP_MODULE_DATA_ASSET_IMAGE_WORKER_URL")
+    worker_url = make_url(worker_dsn)
+    assert worker_url.username == "yoao_asset_image_worker_client"
+    assert (worker_url.host, worker_url.port, worker_url.database) == (
+        runtime_url.host,
+        runtime_url.port,
+        runtime_url.database,
+    )
+    monkeypatch.setattr(
+        settings, "database_url", runtime_url.render_as_string(hide_password=False)
+    )
+    monkeypatch.setattr(settings, "assets_celery_image_database_url", worker_dsn)
+    monkeypatch.setattr(settings, "assets_celery_image_database_url_file", "")
     monkeypatch.setattr(settings, "minio_public_url", "")
     monkeypatch.setattr(settings, "ml_backend_storage_host", "")
     monkeypatch.setattr(settings, "image_pyramid_srgb_profile", str(_srgb_profile()))
@@ -169,6 +183,9 @@ async def test_legacy_login_materializes_images_manifests_and_annotation_pins(
                 "yoao_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
                 "yoao_assets_v1._lock_accepted_image_input_receipt(uuid,uuid,uuid)",
                 "yoao_assets_v1._lock_accepted_image_input_pin(uuid,uuid,text)",
+                "yoao_assets_v1.claim_accepted_image_input(uuid,uuid,integer)",
+                "yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
+                "yoao_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)",
             ):
                 assert not await db.scalar(
                     text(
@@ -341,7 +358,7 @@ async def test_legacy_login_materializes_images_manifests_and_annotation_pins(
                     policy=image_policy(),
                 )
             )
-        assert await run_image_job(work.work.job_id, session_factory=sessions)
+        assert await run_image_job(work.work.job_id)
         async with sessions() as db, image_gateway(db) as gateway:
             reference = await gateway.source_reference(
                 images.ReadImageSourceRequest(actor_id=actor, task_id=task_id)

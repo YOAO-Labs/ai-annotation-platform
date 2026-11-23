@@ -744,25 +744,25 @@ async def test_connections_real_source_crud_probes_replay_restart_and_pages(
             )
         from app.services import assets_connections
 
-        private_page_bytes = []
-        read_response = assets_connections._read_response
+        page_bytes = []
+        result_bytes = assets_connections._result_bytes
 
-        async def observe_page(response):
-            body = await read_response(response)
-            private_page_bytes.append(len(body))
+        def observe_page(result):
+            body = result_bytes(result)
+            page_bytes.append(len(body))
             return body
 
         list_started = time.perf_counter()
         with monkeypatch.context() as observed:
-            observed.setattr(assets_connections, "_read_response", observe_page)
+            observed.setattr(assets_connections, "_result_bytes", observe_page)
             complete = await stack.api.get(
                 "/api/v1/storage-connections", headers=stack.headers["employee"]
             )
         list_seconds = time.perf_counter() - list_started
         assert complete.status_code == 200 and len(complete.content) > 16_777_216
         assert len(complete.json()) >= 1033
-        assert len(private_page_bytes) >= 6
-        assert max(private_page_bytes) <= 16_777_216
+        assert len(page_bytes) >= 6
+        assert max(page_bytes) <= 16_777_216
         peak_after_list = int(
             await asyncio.to_thread(
                 _docker,
@@ -776,6 +776,16 @@ async def test_connections_real_source_crud_probes_replay_restart_and_pages(
         await asyncio.to_thread(_stop_remove_container, stack.container, stack.identity)
         stack.containers.remove(stack.container)
         stack.container = None
+        offline_list = await stack.api.get(
+            "/api/v1/storage-connections", headers=stack.headers["employee"]
+        )
+        assert offline_list.status_code == 200
+        unavailable = await stack.api.patch(
+            path,
+            headers=stack.headers["super"],
+            json={"name": "source host offline"},
+        )
+        assert unavailable.status_code == 503
         monkeypatch.setattr(settings, "assets_source_url", "")
         local = await stack.api.patch(
             path,
@@ -797,7 +807,7 @@ async def test_connections_real_source_crud_probes_replay_restart_and_pages(
             "public_list_bytes": len(complete.content),
             "public_list_count": len(complete.json()),
             "public_list_seconds": list_seconds,
-            "private_page_bytes": private_page_bytes,
+            "private_page_bytes": page_bytes,
             "real_s3": True,
             "real_sftp_known_host": True,
             "unknown_host_rejected": True,

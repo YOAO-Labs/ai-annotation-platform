@@ -8820,6 +8820,124 @@ def main(
             raise RuntimeError(
                 "installed SQL function bodies differ after fresh-base upgrade"
             )
+        if not collect_only:
+            phase = "preflight-migration-owned-assets-executors"
+            fresh_password = secrets.token_hex(32)
+            fresh_roles = (
+                "fresh_lan_asset_cleanup",
+                "fresh_lan_asset_video",
+                "fresh_lan_asset_image",
+            )
+            fresh_owner = {
+                "username": "owner",
+                "password": owner_password,
+                "database": frozen_database,
+            }
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                **fresh_owner,
+                sql="\n".join(
+                    f"CREATE ROLE {role} LOGIN PASSWORD '{fresh_password}' "
+                    "NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE "
+                    "NOREPLICATION NOBYPASSRLS;"
+                    for role in fresh_roles
+                ),
+            )
+            grant_scope = {
+                "expected_database": frozen_database,
+                "migration_role": "owner",
+            }
+            for grant_sql, parameters in (
+                (
+                    lan_production_grant_sql,
+                    {
+                        "application_role": "legacy_runtime",
+                        "asset_cleanup_role": fresh_roles[0],
+                    },
+                ),
+                (
+                    media_grant_sql,
+                    {
+                        "assets_owner": "owner",
+                        "asset_media_worker_role": fresh_roles[1],
+                    },
+                ),
+                (
+                    image_grant_sql,
+                    {
+                        "assets_owner": "owner",
+                        "asset_image_worker_role": fresh_roles[2],
+                    },
+                ),
+            ):
+                _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    **fresh_owner,
+                    sql=grant_sql,
+                    variables={**grant_scope, **parameters},
+                )
+            fresh_app_probe = _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=frozen_database,
+                sql="""
+                    SELECT current_user = 'legacy_runtime'
+                      AND has_function_privilege(
+                        'yoao_assets_v1.get_catalog_dataset(uuid,uuid)', 'EXECUTE')
+                      AND has_function_privilege(
+                        'yoao_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb)', 'EXECUTE')
+                      AND has_function_privilege(
+                        'yoao_assets_v1.read_media_summaries(uuid[])', 'EXECUTE')
+                      AND has_function_privilege(
+                        'yoao_assets_v1.read_image_usage()', 'EXECUTE')
+                      AND NOT EXISTS (
+                        SELECT 1 FROM unnest(ARRAY[
+                          'yoao_assets_v1.begin_import_original_verification(jsonb)',
+                          'yoao_assets_v1.capture_native_pyramid_read_io(uuid,uuid,jsonb)',
+                          'yoao_assets_v1.claim_video_media(uuid,uuid,integer,text[])',
+                          'yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[])'
+                        ]) signature WHERE has_function_privilege(signature, 'EXECUTE')
+                      )
+                      AND NOT has_table_privilege(
+                        'yoao_assets_v1.import_original_verifications', 'SELECT');
+                """,
+            ).strip()
+            if fresh_app_probe != "t":
+                raise RuntimeError(
+                    "Fresh LAN Assets control LOGIN has an incorrect capability set"
+                )
+            for role, function in (
+                (fresh_roles[1], "read_video_media_usage()"),
+                (
+                    fresh_roles[2],
+                    "claim_image_media(gen_random_uuid(),NULL,30,ARRAY['thumbnail'])",
+                ),
+            ):
+                reply_ok = _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username=role,
+                    password=fresh_password,
+                    database=frozen_database,
+                    sql=f"SELECT (yoao_assets_v1.{function}->>'ok')::boolean;",
+                ).strip()
+                if reply_ok != "t":
+                    raise RuntimeError(
+                        "Fresh LAN Assets executor could not call its worker authority"
+                    )
+            evidence["assets_migration_owned_execution"] = {
+                "ordinary_control": "passed",
+                "celery_video_login": "passed",
+                "celery_image_login": "passed",
+            }
         phase = "retire-frozen-sql-database"
         observed_frozen_identity = json.loads(
             _psql(

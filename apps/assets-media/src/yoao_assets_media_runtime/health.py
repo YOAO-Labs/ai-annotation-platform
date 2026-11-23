@@ -48,11 +48,18 @@ async def check_capabilities(pool, role: str) -> bool:
         )
 
         return await shared_control(pool, "control")
-    wanted_roles = {"control", "system"} if role == "control" else {"worker"}
+    try:
+        async with pool.acquire(timeout=2) as connection:
+            return await check_worker_connection(connection)
+    except Exception:
+        return False
+
+
+async def check_worker_connection(connection) -> bool:
     expected = {
         "yoao_assets_v1." + name + "(" + ", ".join(op.sql_types) + ")"
         for name, op in OPERATIONS.items()
-        if op.role in wanted_roles
+        if op.role == "worker"
     }
     expected.update(
         "yoao_assets_v1." + name + "(" + ", ".join(op.sql_types) + ")"
@@ -65,14 +72,13 @@ async def check_capabilities(pool, role: str) -> bool:
         if op.namespace == "yoao_assets_v1" and op.role == "worker"
     )
     try:
-        async with pool.acquire(timeout=2) as connection:
-            async with connection.transaction(readonly=True):
-                await connection.execute("SET LOCAL statement_timeout='5s'")
-                if not await connection.fetchval(_IDENTITY):
-                    return False
-                rows = await connection.fetch(_FUNCTIONS)
-                return {row["signature"] for row in rows} == expected and all(
-                    row["prosecdef"] for row in rows
-                )
+        async with connection.transaction(readonly=True):
+            await connection.execute("SET LOCAL statement_timeout='5s'")
+            if not await connection.fetchval(_IDENTITY):
+                return False
+            rows = await connection.fetch(_FUNCTIONS)
+            return {row["signature"] for row in rows} == expected and all(
+                row["prosecdef"] for row in rows
+            )
     except Exception:
         return False

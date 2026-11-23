@@ -382,6 +382,8 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
         monkeypatch.setenv("ASSETS_MEDIA_URL", settings.assets_media_url)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN", media.control_token)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN_FILE", "")
+        monkeypatch.setattr(settings, "assets_image_executor", "split")
+        monkeypatch.setenv("ASSETS_IMAGE_EXECUTOR", "split")
         owner_log = tempfile.TemporaryFile()
         process = subprocess.Popen(
             [sys.executable, str(ROOT / "apps/web/e2e/fixtures/seed-request.py")],
@@ -710,7 +712,6 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                 f'TO "{role}"'
             )
         )
-    monkeypatch.setattr(settings, "assets_catalog_url", "")
     if str(ROOT / "scripts") not in sys.path:
         sys.path.insert(0, str(ROOT / "scripts"))
     import fixture_media_control
@@ -740,6 +741,8 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         monkeypatch.setenv("ASSETS_MEDIA_URL", media_url)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN", media.control_token)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN_FILE", "")
+        monkeypatch.setattr(settings, "assets_image_executor", "split")
+        monkeypatch.setenv("ASSETS_IMAGE_EXECUTOR", "split")
         runtime_url = _guard_role_url(
             "AAP_MODULE_DATA_LEGACY_RUNTIME_URL", "legacy_runtime", test_engine
         )

@@ -473,6 +473,8 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
         monkeypatch.setenv("ASSETS_MEDIA_URL", settings.assets_media_url)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN", media.control_token)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN_FILE", "")
+        monkeypatch.setattr(settings, "assets_video_executor", "split")
+        monkeypatch.setenv("ASSETS_VIDEO_EXECUTOR", "split")
         worker_url, env = _worker_environment(media, test_engine, tmp_path)
         await _assert_sql_role_is_narrow(
             worker_url.render_as_string(hide_password=False),

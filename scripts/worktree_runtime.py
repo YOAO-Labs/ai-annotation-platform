@@ -1195,6 +1195,11 @@ def run_processes(
                             **application_environment(environment),
                             "DATABASE_URL": database_url,
                             **(
+                                backend.assets_worker_environment()
+                                if role == "worker"
+                                else {}
+                            ),
+                            **(
                                 {"JOBS_PUBLICATION_DATABASE_URL": ""}
                                 if ai_request_worker
                                 else {}

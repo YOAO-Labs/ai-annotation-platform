@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import httpx
 import pytest
 from fastapi import Response
 from pydantic import ValidationError
@@ -172,84 +171,36 @@ async def test_local_update_keeps_explicit_null_and_omitted_fields_distinct():
     db.commit.assert_awaited_once()
 
 
-def _select_remote(monkeypatch, handler):
-    monkeypatch.setattr(
-        assets_catalog.settings, "assets_catalog_url", "http://catalog.local"
-    )
-    monkeypatch.setattr(assets_catalog.settings, "assets_catalog_token", "s" * 40)
-    original_client = httpx.AsyncClient
-
-    def make_client(**kwargs):
-        assert kwargs["trust_env"] is False
-        assert kwargs["follow_redirects"] is False
-        return original_client(transport=httpx.MockTransport(handler), **kwargs)
-
-    monkeypatch.setattr(assets_catalog.httpx, "AsyncClient", make_client)
-
-
 @pytest.mark.asyncio
-async def test_remote_get_authenticates_and_never_queries_local_session(monkeypatch):
+async def test_get_uses_scoped_catalog_owner_on_caller_session():
     actor_id = uuid.uuid4()
     dataset_id = uuid.uuid4()
     db = AsyncMock(spec=AsyncSession)
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        assert request.url.path == "/v1/catalog/get"
-        assert request.url.query == b""
-        assert request.headers["Authorization"] == "Bearer " + "s" * 40
-        assert json.loads(request.content) == {
-            "actor_id": str(actor_id),
-            "dataset_id": str(dataset_id),
-        }
-        return httpx.Response(
-            200,
-            json=_reply({"dataset": _dataset_payload(dataset_id, actor_id)}),
-        )
-
-    _select_remote(monkeypatch, handler)
+    _set_sql_reply(db, _reply({"dataset": _dataset_payload(dataset_id, actor_id)}))
     result = await assets_catalog.AssetsCatalogGateway(db).get(
         GetDatasetRequest(actor_id=actor_id, dataset_id=dataset_id)
     )
 
     assert result.dataset.id == dataset_id
-    db.execute.assert_not_awaited()
+    statement, params = db.execute.await_args.args
+    assert "yoao_assets_v1.get_catalog_dataset" in str(statement)
+    assert params == {"actor_id": actor_id, "dataset_id": dataset_id}
     db.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_remote_failure_does_not_fall_back_to_local_sql(monkeypatch):
-    db = AsyncMock(spec=AsyncSession)
-    _select_remote(
-        monkeypatch,
-        lambda request: httpx.Response(503, json={"error": "private upstream detail"}),
-    )
-
-    with pytest.raises(assets_catalog.CatalogGatewayError) as failure:
-        await assets_catalog.AssetsCatalogGateway(db).list(
-            ListDatasetsRequest(actor_id=uuid.uuid4())
-        )
-
-    assert failure.value.status_code == 503
-    assert failure.value.detail == "Assets catalog service is unavailable"
-    db.execute.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_remote_rejects_mismatched_operation_receipt(monkeypatch):
+async def test_rejects_mismatched_operation_receipt_without_commit():
     actor_id = uuid.uuid4()
     operation_id = uuid.uuid4()
     db = AsyncMock(spec=AsyncSession)
-    _select_remote(
-        monkeypatch,
-        lambda request: httpx.Response(
-            200,
-            json=_reply(
-                {
-                    "operation_id": str(uuid.uuid4()),
-                    "actor_id": str(actor_id),
-                    "dataset": _dataset_payload(uuid.uuid4(), actor_id),
-                }
-            ),
+    _set_sql_reply(
+        db,
+        _reply(
+            {
+                "operation_id": str(uuid.uuid4()),
+                "actor_id": str(actor_id),
+                "dataset": _dataset_payload(uuid.uuid4(), actor_id),
+            }
         ),
     )
 
@@ -263,88 +214,11 @@ async def test_remote_rejects_mismatched_operation_receipt(monkeypatch):
         )
 
     assert failure.value.status_code == 502
-    db.execute.assert_not_awaited()
     db.commit.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_remote_update_preserves_omitted_patch_fields(monkeypatch):
-    actor_id = uuid.uuid4()
-    dataset_id = uuid.uuid4()
-    operation_id = uuid.uuid4()
-    db = AsyncMock(spec=AsyncSession)
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        assert body["patch"] == {"description": "updated"}
-        return httpx.Response(
-            200,
-            json=_reply(
-                {
-                    "operation_id": str(operation_id),
-                    "actor_id": str(actor_id),
-                    "dataset": _dataset_payload(dataset_id, actor_id),
-                }
-            ),
-        )
-
-    _select_remote(monkeypatch, handler)
-    result = await assets_catalog.AssetsCatalogGateway(db).update(
-        UpdateDatasetRequest(
-            operation_id=operation_id,
-            actor_id=actor_id,
-            dataset_id=dataset_id,
-            patch=DatasetPatch.model_validate({"description": "updated"}),
-        )
-    )
-
-    assert result.dataset.id == dataset_id
-    db.execute.assert_not_awaited()
-    db.commit.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_remote_stream_wait_keeps_event_loop_responsive(monkeypatch):
-    actor_id = uuid.uuid4()
-    dataset_id = uuid.uuid4()
-    db = AsyncMock(spec=AsyncSession)
-    started = asyncio.Event()
-    release = asyncio.Event()
-    payload = json.dumps(
-        _reply({"dataset": _dataset_payload(dataset_id, actor_id)})
-    ).encode()
-
-    class DelayedBody(httpx.AsyncByteStream):
-        async def __aiter__(self):
-            started.set()
-            await release.wait()
-            yield payload
-
-        async def aclose(self):
-            return None
-
-    _select_remote(
-        monkeypatch,
-        lambda request: httpx.Response(
-            200,
-            headers={"content-type": "application/json"},
-            stream=DelayedBody(),
-        ),
-    )
-    pending = asyncio.create_task(
-        assets_catalog.AssetsCatalogGateway(db).get(
-            GetDatasetRequest(actor_id=actor_id, dataset_id=dataset_id)
-        )
-    )
-    await asyncio.wait_for(started.wait(), timeout=1)
-    await asyncio.sleep(0)
-    assert not pending.done()
-    release.set()
-    assert (await pending).dataset.id == dataset_id
-
-
-@pytest.mark.asyncio
-async def test_encoded_request_budget_applies_before_any_native_or_remote_call():
+async def test_encoded_request_budget_applies_before_any_native_call():
     db = AsyncMock(spec=AsyncSession)
     request = CreateDatasetRequest(
         operation_id=uuid.uuid4(),
@@ -507,9 +381,8 @@ def _image_source_reference(
     )
 
 
-@pytest.mark.parametrize("remote", [False, True])
 @pytest.mark.asyncio
-async def test_catalog_video_links_always_use_owner_reference(monkeypatch, remote):
+async def test_catalog_video_links_always_use_owner_reference(monkeypatch):
     actor_id, dataset_id = uuid.uuid4(), uuid.uuid4()
     video_ids = [uuid.uuid4() for _ in range(3)]
     image_id = uuid.uuid4()
@@ -549,7 +422,7 @@ async def test_catalog_video_links_always_use_owner_reference(monkeypatch, remot
     gateway = assets_catalog.AssetsCatalogGateway(db)
 
     async def fake_call(*_args):
-        return page, remote
+        return page
 
     monkeypatch.setattr(gateway, "_call", fake_call)
     signed = []
@@ -609,20 +482,13 @@ async def test_catalog_video_links_always_use_owner_reference(monkeypatch, remot
     assert result.items[3].file_url is None
     assert result.items[3].thumbnail_url is None
     assert result.items[3].blurhash is None
-    if not remote:
-        assert f"media-assets/old/{video_ids[0]}.webp" not in signed
-        assert f"media-assets/old/{video_ids[1]}.webp" not in signed
-        assert f"media-assets/old/{video_ids[2]}.webp" not in signed
-        assert f"source/{video_ids[0]}" not in signed
-        assert f"source/{video_ids[1]}" not in signed
-        assert f"source/{video_ids[2]}" not in signed
+    assert signed == []
 
 
-@pytest.mark.parametrize("remote", [False, True])
 @pytest.mark.parametrize("mismatch", [False, True])
 @pytest.mark.asyncio
 async def test_catalog_image_links_withhold_unverified_urls_without_storage_fallback(
-    monkeypatch, remote, mismatch
+    monkeypatch, mismatch
 ):
     actor_id, dataset_id, item_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     item = _catalog_item(
@@ -641,7 +507,7 @@ async def test_catalog_image_links_withhold_unverified_urls_without_storage_fall
     gateway = assets_catalog.AssetsCatalogGateway(AsyncMock(spec=AsyncSession))
 
     async def fake_call(*_args):
-        return page, remote
+        return page
 
     monkeypatch.setattr(gateway, "_call", fake_call)
     signed = []
@@ -831,7 +697,6 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
     monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
     monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL", publication_url)
     monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL_FILE", "")
-    monkeypatch.setattr(settings, "jobs_queue_url", "")
     routing = fixture_routing_owner(test_engine, monkeypatch)
     owner = suite = media = worker = sender = scope = store = output_store = (
         owner_log
@@ -844,9 +709,13 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         media_url = str(media.control_client.base_url).rstrip("/")
         monkeypatch.setattr(settings, "assets_media_url", media_url)
         monkeypatch.setattr(settings, "assets_media_token", media.control_token)
+        monkeypatch.setattr(settings, "assets_video_executor", "split")
+        monkeypatch.setattr(settings, "assets_image_executor", "split")
         monkeypatch.setenv("ASSETS_MEDIA_URL", media_url)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN", media.control_token)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN_FILE", "")
+        monkeypatch.setenv("ASSETS_VIDEO_EXECUTOR", "split")
+        monkeypatch.setenv("ASSETS_IMAGE_EXECUTOR", "split")
         suite_id = uuid.uuid4()
         owner_environment = {
             **os.environ,

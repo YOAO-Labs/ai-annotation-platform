@@ -1352,6 +1352,7 @@ async def test_retained_video_consumers_run_in_owned_api_and_worker_containers(
             "DEBUG": "false",
             "ASSETS_MEDIA_URL": control_internal_url,
             "ASSETS_MEDIA_TOKEN": token,
+            "ASSETS_VIDEO_EXECUTOR": "split",
             "MINIO_ENDPOINT": f"host.docker.internal:{minio_port}",
             "MINIO_USE_SSL": "true" if settings.minio_use_ssl else "false",
             "MINIO_ACCESS_KEY": api_access,

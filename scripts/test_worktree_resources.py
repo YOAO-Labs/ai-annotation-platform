@@ -107,7 +107,7 @@ class BucketUpgradeTests(unittest.TestCase):
         async def database(action="inspect"):
             return {"owner": owner, "sessions": 0} if action == "inspect" else None
 
-        async def owned_runtime_role(action="inspect"):
+        async def owned_runtime_role(action="inspect", *, lane=None):
             return None
 
         backend.database = database
@@ -165,6 +165,7 @@ class BucketUpgradeTests(unittest.TestCase):
         self.backend.revisions = revisions
         self.backend.grant_runtime = granted
         self.backend.verify_runtime_login = granted
+        self.backend.prepare_assets_worker_roles = granted
         self.backend.start_redis = lambda: None
         with patch(
             "worktree_resources.migration_graph",
