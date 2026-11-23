@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from ipaddress import IPv4Network
 import json
 import os
 from pathlib import Path
@@ -225,12 +226,18 @@ class MediaCompose:
             for path in self.secret_paths[service].values()
             if path.name in spec.get("secrets", [])
         }
+        network_config = {"labels": {_OWNER_LABEL: self.owner}}
+        subnet_value = os.environ.get("AAP_ASSETS_MEDIA_COMPOSE_SUBNET")
+        if subnet_value:
+            subnet = IPv4Network(subnet_value)
+            assert subnet.is_private
+            network_config["ipam"] = {"config": [{"subnet": str(subnet)}]}
         self.override.write_text(
             json.dumps(
                 {
                     "services": self.services,
                     "secrets": secrets,
-                    "networks": {"default": {"labels": {_OWNER_LABEL: self.owner}}},
+                    "networks": {"default": network_config},
                 }
             ),
             encoding="utf-8",
@@ -249,9 +256,20 @@ class MediaCompose:
         self._owned_labels(network)
         assert network["Driver"] == "bridge" and not network["Containers"]
         self.network = network["Id"]
-        _docker("network", "connect", "--alias", _DATABASE_ALIAS, self.network, self.pg)
+        _docker(
+            "network",
+            "connect",
+            "--gw-priority=-1",
+            "--alias",
+            _DATABASE_ALIAS,
+            self.network,
+            self.pg,
+        )
         self.record("media_compose_project", self.project)
         self.record("media_compose_network", self.network)
+        if subnet_value:
+            assert network["IPAM"]["Config"][0]["Subnet"] == str(subnet)
+            self.record("media_compose_subnet", str(subnet))
 
     def start(self, role):
         self._compose("up", "-d", "--no-build", "--pull", "never", role.service)
@@ -402,6 +420,8 @@ class MediaCompose:
             service = observed["Config"]["Labels"][_SERVICE_LABEL]
             assert service in self.roles
             self._owned_labels(observed, service)
+        if ids:
+            self._compose("stop", timeout=160)
         for network_id in _docker("network", "ls", "-q", *filters).splitlines():
             network = _inspect_docker(network_id)
             self._owned_labels(network)

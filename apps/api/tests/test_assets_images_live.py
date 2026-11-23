@@ -887,13 +887,15 @@ async def test_independent_image_worker_publishes_thumbnail_after_response_loss_
                         json=request,
                     )
                 assert transport.dropped is True
-                compose.restart(CONTROL)
-                await _wait_healthy(compose.containers[CONTROL.service])
-                replay = await uncertain_client.post(
-                    "/v1/images/commands/prepare_image_media",
-                    headers={"Authorization": f"Bearer {runtime.control_token}"},
-                    json=request,
-                )
+            compose.restart(CONTROL)
+            await _wait_healthy(compose.containers[CONTROL.service])
+            runtime.control_client.base_url = compose.origin()
+            replay = await _post(
+                runtime.control_client,
+                runtime.control_token,
+                "/v1/images/commands/prepare_image_media",
+                request,
+            )
             assert replay.status_code == 200, replay.text[:500]
             accepted = replay.json()["data"]
             assert accepted["operation_id"] == str(operation_id)
@@ -953,7 +955,8 @@ async def test_independent_image_worker_publishes_thumbnail_after_response_loss_
                 "/v1/images/source-reference",
                 {"actor_id": str(actor_id), "dataset_item_id": str(item_id)},
             )
-            assert denied.status_code == 403
+            assert denied.status_code == 401
+            assert denied.json()["error"]["code"] == "account_not_active"
             container_id = compose.start(IMAGE)
             await _wait_healthy(container_id)
             worker = _ContainerWatch(container_id)

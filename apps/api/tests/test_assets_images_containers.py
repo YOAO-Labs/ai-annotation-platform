@@ -279,7 +279,10 @@ async def test_restricted_image_worker_container_generates_thumbnail_and_vips_py
                     assert (
                         ready.pyramid.generation == generation["pyramid"]["generation"]
                     )
-                    assert ready.manifest.model_dump(mode="json") == manifest
+                    assert (
+                        ready.manifest.model_dump(mode="json", by_alias=True)
+                        == manifest
+                    )
                     assert (
                         await runtime.control_client.get(ready.overview_url)
                     ).status_code == 200
