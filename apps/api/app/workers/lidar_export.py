@@ -490,7 +490,11 @@ async def _lookup(db, receipt, key, *, guard):
                         )
 
                 await _io(
-                    db, previous, verify, guard=exact_guard, published=True,
+                    db,
+                    previous,
+                    verify,
+                    guard=exact_guard,
+                    published=True,
                     **({"source": member_source} if member_source is not None else {}),
                 )
 
@@ -518,7 +522,11 @@ async def _lookup(db, receipt, key, *, guard):
                 await _published(owned, previous)
         else:
             await _io(
-                db, previous, inventory, guard=source_guard, published=True,
+                db,
+                previous,
+                inventory,
+                guard=source_guard,
+                published=True,
                 **({"source": media_source} if media_source is not None else {}),
             )
     except (
@@ -879,7 +887,9 @@ async def run_owned(
         from app.services import export_zip_accounting
 
         zip_accounting = export_zip_accounting.recorder(db, candidate)
-        save_proof = export_outputs.proof_writer(db, candidate) if source is None else None
+        save_proof = (
+            export_outputs.proof_writer(db, candidate) if source is None else None
+        )
         _, revision = await _io(
             db,
             receipt,

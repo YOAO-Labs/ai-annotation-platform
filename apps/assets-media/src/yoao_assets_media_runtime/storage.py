@@ -7,7 +7,6 @@ import builtins
 from hashlib import sha256
 from pathlib import Path
 import re
-import sys
 from typing import Protocol
 
 from yoao_assets_media.contract import (
@@ -315,17 +314,20 @@ class S3MediaStorage:
         try:
             fixture_url = (
                 await self._fixture_cache_resolver.url(key, 300)
-                if self._fixture_cache_resolver is not None else None
+                if self._fixture_cache_resolver is not None
+                else None
             )
             if fixture_url is not None:
                 response = await self._fixture_cache_resolver.http.head(fixture_url)
                 if response.status_code != 200:
                     raise MediaFailure("storage_unavailable")
-                return _identity({
-                    "ETag": response.headers.get("etag"),
-                    "ContentLength": int(response.headers["content-length"]),
-                    "VersionId": response.headers.get("x-amz-version-id"),
-                })
+                return _identity(
+                    {
+                        "ETag": response.headers.get("etag"),
+                        "ContentLength": int(response.headers["content-length"]),
+                        "VersionId": response.headers.get("x-amz-version-id"),
+                    }
+                )
             response = await asyncio.to_thread(
                 self._client.head_object,
                 Bucket=self.cache_bucket,
@@ -382,7 +384,6 @@ class S3MediaStorage:
         ):
             raise MediaFailure("storage_unavailable")
         return Artifact(key=key, byte_size=byte_size, sha256=digest)
-
 
     def _fixture_key_absent(self, client, bucket, key):
         cursor = None
@@ -455,6 +456,7 @@ class S3MediaStorage:
     async def _upload_fixture_cache(self, path, key, writer):
         from .fixture_native_outputs import verify_object
         from .original_read import fixture_upload_started
+
         content_type = {
             ".webp": "image/webp",
             ".jpeg": "image/jpeg",

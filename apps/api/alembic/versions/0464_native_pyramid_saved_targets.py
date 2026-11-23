@@ -28,6 +28,4 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    raise NotImplementedError(
-        "Dynamic Native saved-target lifecycle is forward-only"
-    )
+    raise NotImplementedError("Dynamic Native saved-target lifecycle is forward-only")

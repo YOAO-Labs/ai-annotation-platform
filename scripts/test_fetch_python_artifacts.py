@@ -68,6 +68,11 @@ class ArtifactIntegrityTests(unittest.TestCase):
                     ARTIFACTS.fetch(str(self.manifest), digest, self.output, selected)
                 self.assertFalse(self.output.exists())
 
+    def test_empty_manifest_or_digest_raises_clear_value_error(self):
+        with self.assertRaisesRegex(ValueError, "manifest path or URL is required"):
+            ARTIFACTS.fetch("", "", self.output)
+        self.assertFalse(self.output.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

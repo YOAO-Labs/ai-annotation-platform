@@ -238,8 +238,10 @@ async def test_close_failure_cannot_confirm_even_with_complete_verification(
     assert failure.value.storage_operation_unsettled is True
     assert (
         failure.value.subgroup(
-            lambda error: isinstance(error, ContentError)
-            and error.code == "managed_original_close_unknown"
+            lambda error: (
+                isinstance(error, ContentError)
+                and error.code == "managed_original_close_unknown"
+            )
         )
         is not None
     )

@@ -15,9 +15,11 @@ _SCHEMA_ARTIFACTS = (
 
 
 def upgrade() -> None:
-    source = files("yoao_assets_source").joinpath(
-        "0453_import_original_verification.sql"
-    ).read_text(encoding="utf-8")
+    source = (
+        files("yoao_assets_source")
+        .joinpath("0453_import_original_verification.sql")
+        .read_text(encoding="utf-8")
+    )
     for statement in source.split("-- aap-statement-break"):
         if statement.strip():
             op.execute(

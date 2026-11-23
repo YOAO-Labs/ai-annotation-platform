@@ -300,7 +300,9 @@ class ForwardPhaseTests(unittest.IsolatedAsyncioTestCase):
             with (
                 self.subTest(revisions=revisions),
                 patch("validate_migrations.graph_policy", return_value=policy),
-                patch("validate_migrations.create_owned_database", new_callable=AsyncMock),
+                patch(
+                    "validate_migrations.create_owned_database", new_callable=AsyncMock
+                ),
                 patch(
                     "validate_migrations.assert_sentinel_columns",
                     new_callable=AsyncMock,

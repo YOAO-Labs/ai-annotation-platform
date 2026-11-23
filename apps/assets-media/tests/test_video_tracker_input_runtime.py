@@ -421,6 +421,8 @@ async def test_tracker_worker_adapter_maps_only_the_existing_video_input_executo
         "stage_accepted_video_times",
         "finish_accepted_video_input",
         "fail_accepted_video_input",
+        "begin_accepted_video_original",
+        "finish_accepted_video_original",
     ):
         request = object()
         assert await adapter.call(operation, request) == (

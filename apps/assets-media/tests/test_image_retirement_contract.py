@@ -169,13 +169,9 @@ def test_page_cursor_and_terminal_page_are_exact():
     with pytest.raises(ValueError):
         c.require_scope(request, escaped)
     with pytest.raises(ValueError):
-        c.require_scope(
-            request.model_copy(update={"lease_token": uuid4()}), page
-        )
+        c.require_scope(request.model_copy(update={"lease_token": uuid4()}), page)
     with pytest.raises(ValueError):
-        c.require_scope(
-            request.model_copy(update={"page_size": 1}), page
-        )
+        c.require_scope(request.model_copy(update={"page_size": 1}), page)
 
 
 def test_complete_request_binds_exactly_one_outcome_shape():

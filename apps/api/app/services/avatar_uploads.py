@@ -420,7 +420,9 @@ async def _cleanup_one(db, token):
             *(() if source is not None else (receipt_row,)),
             on_acquired=acquired,
             accounting=recorder,
-            **({"version": receipt_row.object_version_id} if source is not None else {}),
+            **(
+                {"version": receipt_row.object_version_id} if source is not None else {}
+            ),
             **({"target": target} if target is not None and source is None else {}),
         )
     except BaseException as exc:

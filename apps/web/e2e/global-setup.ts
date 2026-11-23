@@ -1,5 +1,9 @@
 import type { FullConfig } from "@playwright/test";
-import { closeFixtureTransport, prepareFixtureSuite, verifyFixtureSuite } from "./helpers/seed-owner-transport.mjs";
+import {
+  closeFixtureTransport,
+  prepareFixtureSuite,
+  verifyFixtureSuite,
+} from "./helpers/seed-owner-transport.mjs";
 
 export default async function globalSetup(_config: FullConfig): Promise<void> {
   let failure: unknown;

@@ -34,7 +34,9 @@ try {
   assert.equal(initial.phase, "read_project_row");
   assert.equal(JSON.parse(initial.facts.row_json).id, input.project_id);
   const actor = (
-    await client.query("SELECT * FROM yoao_identity_v1.read_actor_facts($1::uuid)", [input.actor_id])
+    await client.query("SELECT * FROM yoao_identity_v1.read_actor_facts($1::uuid)", [
+      input.actor_id,
+    ])
   ).rows[0];
   assert.equal(actor.actor_id, input.actor_id);
   assert.equal(actor.is_active, true);

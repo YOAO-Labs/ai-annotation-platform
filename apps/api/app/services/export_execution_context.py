@@ -100,7 +100,8 @@ async def run_sync(call, *args, **kwargs):
             except BaseException as later:
                 if later is not exc:
                     failure = BaseExceptionGroup(
-                        "Export operation and drained physical work failed", [exc, later]
+                        "Export operation and drained physical work failed",
+                        [exc, later],
                     )
                     raise failure from None
         raise

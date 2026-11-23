@@ -23,9 +23,7 @@ def _execute_source(source: str) -> None:
 
 def _execute(name: str) -> None:
     _execute_source(
-        (Path(__file__).resolve().parents[1] / "sql" / name).read_text(
-            encoding="utf-8"
-        )
+        (Path(__file__).resolve().parents[1] / "sql" / name).read_text(encoding="utf-8")
     )
 
 

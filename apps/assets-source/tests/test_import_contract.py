@@ -230,7 +230,9 @@ def test_import_entry_freezes_safe_publication_path_and_completion_result():
     assert entry.file_type == "image"
     assert (
         ImportEntryCompletion(
-            status="copied", file_size=25, content_hash="a" * 32,
+            status="copied",
+            file_size=25,
+            content_hash="a" * 32,
             verification_operation_id=PUBLICATION,
         ).file_size
         == 25
@@ -351,10 +353,17 @@ def test_packaged_schema_tracks_public_import_models_and_failure_codes():
     assert definitions["ImportFailureCode"]["enum"] == list(ImportFailureCode.__args__)
     assert schema["x-completion-schema-resource"] == IMPORT_COMPLETION_SCHEMA_RESOURCE
     completion_schema = json.loads(
-        files("yoao_assets_source").joinpath(IMPORT_COMPLETION_SCHEMA_RESOURCE).read_text(encoding="utf-8")
+        files("yoao_assets_source")
+        .joinpath(IMPORT_COMPLETION_SCHEMA_RESOURCE)
+        .read_text(encoding="utf-8")
     )
     copied, error = completion_schema["oneOf"]
-    assert set(copied["required"]) == {"status", "file_size", "content_hash", "verification_operation_id"}
+    assert set(copied["required"]) == {
+        "status",
+        "file_size",
+        "content_hash",
+        "verification_operation_id",
+    }
     assert set(error["required"]) == {"status", "error_code"}
     assert "reply" in definitions
 

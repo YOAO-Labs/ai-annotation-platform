@@ -89,10 +89,10 @@ def _admin(actor):
 
 
 def _authority_error(exc):
-    if (
-        isinstance(exc.detail, dict)
-        and exc.detail.get("code") in {"bug_attachment_authority_revoked", "api_key_authority_revoked"}
-    ):
+    if isinstance(exc.detail, dict) and exc.detail.get("code") in {
+        "bug_attachment_authority_revoked",
+        "api_key_authority_revoked",
+    }:
         return HTTPException(403, {"code": "audit_archive_authority_revoked"})
     return exc
 

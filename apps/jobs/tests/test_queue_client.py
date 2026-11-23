@@ -382,18 +382,26 @@ def test_sync_client_fails_closed_without_retry_or_async_fallback(monkeypatch, f
         "late_refusal",
     ],
 )
-def test_only_proved_pre_request_failure_is_not_sent(monkeypatch, asynchronous, failure):
+def test_only_proved_pre_request_failure_is_not_sent(
+    monkeypatch, asynchronous, failure
+):
     def handler(request):
         if failure == "refused":
             try:
                 raise ConnectionRefusedError(errno.ECONNREFUSED, "refused")
             except ConnectionRefusedError as cause:
-                raise httpx.ConnectError("connection refused", request=request) from cause
+                raise httpx.ConnectError(
+                    "connection refused", request=request
+                ) from cause
         if failure in {"wrapped_refused", "dns_absent", "dns_temporary"}:
             cause = {
-                "wrapped_refused": ConnectionRefusedError(errno.ECONNREFUSED, "refused"),
+                "wrapped_refused": ConnectionRefusedError(
+                    errno.ECONNREFUSED, "refused"
+                ),
                 "dns_absent": socket.gaierror(socket.EAI_NONAME, "no address"),
-                "dns_temporary": socket.gaierror(socket.EAI_AGAIN, "resolver unavailable"),
+                "dns_temporary": socket.gaierror(
+                    socket.EAI_AGAIN, "resolver unavailable"
+                ),
             }[failure]
             raise httpx.ConnectError(
                 "connection failed", request=request

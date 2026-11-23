@@ -30,11 +30,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -57,11 +53,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -118,9 +110,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -152,11 +142,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -179,11 +165,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -240,9 +222,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -274,11 +254,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -301,11 +277,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -362,9 +334,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -396,11 +366,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -423,11 +389,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -484,9 +446,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -518,11 +478,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -545,11 +501,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -606,9 +558,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -640,11 +590,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -667,11 +613,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -728,9 +670,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -762,11 +702,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -789,11 +725,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -850,9 +782,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -884,11 +814,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -911,11 +837,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -972,9 +894,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1006,11 +926,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1033,11 +949,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1094,9 +1006,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1128,11 +1038,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1155,11 +1061,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1216,9 +1118,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1250,11 +1150,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1277,11 +1173,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1338,9 +1230,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1372,11 +1262,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1399,11 +1285,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1460,9 +1342,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1494,11 +1374,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1521,11 +1397,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1582,9 +1454,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1616,11 +1486,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1643,11 +1509,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1704,9 +1566,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1738,11 +1598,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1765,11 +1621,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1826,9 +1678,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1860,11 +1710,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1887,11 +1733,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1948,9 +1790,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1982,11 +1822,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2009,11 +1845,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2070,9 +1902,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2104,11 +1934,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2131,11 +1957,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2192,9 +2014,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2226,11 +2046,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2253,11 +2069,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2314,9 +2126,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2348,11 +2158,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2375,11 +2181,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2436,9 +2238,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2470,11 +2270,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2497,11 +2293,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2558,9 +2350,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2592,11 +2382,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2619,11 +2405,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2680,9 +2462,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2714,11 +2494,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2741,11 +2517,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2802,9 +2574,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2836,11 +2606,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2863,11 +2629,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2924,9 +2686,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2958,11 +2718,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2985,11 +2741,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -3046,9 +2798,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -3080,11 +2830,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -3107,11 +2853,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -3168,9 +2910,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -3202,11 +2942,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -3229,11 +2965,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -3290,9 +3022,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -3324,11 +3054,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -3351,11 +3077,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -3412,9 +3134,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -3446,11 +3166,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "data"
-                  ],
+                  "required": ["schema", "ok", "data"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -3473,11 +3189,7 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": [
-                    "schema",
-                    "ok",
-                    "error"
-                  ],
+                  "required": ["schema", "ok", "error"],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -3534,9 +3246,7 @@
                           "type": "string"
                         }
                       },
-                      "required": [
-                        "code"
-                      ],
+                      "required": ["code"],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -3603,11 +3313,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "actor_id",
-          "source_snapshot",
-          "object_key"
-        ],
+        "required": ["actor_id", "source_snapshot", "object_key"],
         "title": "ActorOriginalReadRequest",
         "type": "object"
       },
@@ -3615,10 +3321,7 @@
         "additionalProperties": false,
         "properties": {
           "ownership": {
-            "enum": [
-              "ordinary",
-              "fixture"
-            ],
+            "enum": ["ordinary", "fixture"],
             "title": "Ownership",
             "type": "string"
           },
@@ -3786,10 +3489,7 @@
             "title": "Sha256"
           }
         },
-        "required": [
-          "ownership",
-          "object_key"
-        ],
+        "required": ["ownership", "object_key"],
         "title": "OriginalRead",
         "type": "object"
       },
@@ -3797,10 +3497,7 @@
         "additionalProperties": false,
         "properties": {
           "owner_kind": {
-            "enum": [
-              "dataset_item",
-              "task"
-            ],
+            "enum": ["dataset_item", "task"],
             "title": "Owner Kind",
             "type": "string"
           },
@@ -3821,12 +3518,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "owner_kind",
-          "owner_id",
-          "source_snapshot",
-          "object_key"
-        ],
+        "required": ["owner_kind", "owner_id", "source_snapshot", "object_key"],
         "title": "SystemOriginalReadRequest",
         "type": "object"
       },
@@ -3844,10 +3536,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "creation_id",
-          "operation_id"
-        ],
+        "required": ["creation_id", "operation_id"],
         "title": "FinishOriginalReadRequest",
         "type": "object"
       },
@@ -3865,10 +3554,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "creation_id",
-          "operation_id"
-        ],
+        "required": ["creation_id", "operation_id"],
         "title": "FinishedOriginalRead",
         "type": "object"
       },
@@ -3907,9 +3593,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "actor_id"
-        ],
+        "required": ["actor_id"],
         "title": "ReadImageSourceRequest",
         "type": "object"
       },
@@ -3917,10 +3601,7 @@
         "additionalProperties": false,
         "properties": {
           "kind": {
-            "enum": [
-              "dataset_item",
-              "task"
-            ],
+            "enum": ["dataset_item", "task"],
             "title": "Kind",
             "type": "string"
           },
@@ -3930,10 +3611,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "kind",
-          "id"
-        ],
+        "required": ["kind", "id"],
         "title": "ImageOwner",
         "type": "object"
       },
@@ -3966,10 +3644,7 @@
             "title": "Version Id"
           }
         },
-        "required": [
-          "etag",
-          "byte_size"
-        ],
+        "required": ["etag", "byte_size"],
         "title": "ObjectIdentity",
         "type": "object"
       },
@@ -4075,10 +3750,7 @@
             "type": "string"
           },
           "bucket_kind": {
-            "enum": [
-              "datasets",
-              "legacy"
-            ],
+            "enum": ["datasets", "legacy"],
             "title": "Bucket Kind",
             "type": "string"
           },
@@ -4254,11 +3926,7 @@
             "$ref": "#/components/schemas/ObjectIdentity"
           }
         },
-        "required": [
-          "actor_id",
-          "source_snapshot",
-          "object_identity"
-        ],
+        "required": ["actor_id", "source_snapshot", "object_identity"],
         "title": "ObserveImageSourceRequest",
         "type": "object"
       },
@@ -4326,10 +3994,7 @@
             "title": "Profile Version"
           }
         },
-        "required": [
-          "actor_id",
-          "selectors"
-        ],
+        "required": ["actor_id", "selectors"],
         "title": "ReadImageSummariesRequest",
         "type": "object"
       },
@@ -4402,10 +4067,7 @@
           "building_status": {
             "anyOf": [
               {
-                "enum": [
-                  "pending",
-                  "building"
-                ],
+                "enum": ["pending", "building"],
                 "type": "string"
               },
               {
@@ -4522,12 +4184,7 @@
             "$ref": "#/components/schemas/ImagePyramidSummary"
           }
         },
-        "required": [
-          "selector",
-          "source",
-          "thumbnail_current",
-          "pyramid"
-        ],
+        "required": ["selector", "source", "thumbnail_current", "pyramid"],
         "title": "ImageSummaryItem",
         "type": "object"
       },
@@ -4543,9 +4200,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "items"
-        ],
+        "required": ["items"],
         "title": "ImageSummaries",
         "type": "object"
       },
@@ -4726,11 +4381,7 @@
             "type": "string"
           },
           "purpose": {
-            "enum": [
-              "dimensions",
-              "thumbnail",
-              "pyramid"
-            ],
+            "enum": ["dimensions", "thumbnail", "pyramid"],
             "title": "Purpose",
             "type": "string"
           },
@@ -4756,11 +4407,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "actor_id",
-          "operation_id",
-          "purpose"
-        ],
+        "required": ["actor_id", "operation_id", "purpose"],
         "title": "PrepareImageMediaRequest",
         "type": "object"
       },
@@ -4787,9 +4434,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "expected_source_snapshot"
-        ],
+        "required": ["expected_source_snapshot"],
         "title": "DimensionsWorkSpec",
         "type": "object"
       },
@@ -4797,10 +4442,7 @@
         "additionalProperties": false,
         "properties": {
           "owner_kind": {
-            "enum": [
-              "dataset_item",
-              "task"
-            ],
+            "enum": ["dataset_item", "task"],
             "title": "Owner Kind",
             "type": "string"
           },
@@ -4845,11 +4487,7 @@
             "type": "boolean"
           },
           "purpose": {
-            "enum": [
-              "dimensions",
-              "thumbnail",
-              "pyramid"
-            ],
+            "enum": ["dimensions", "thumbnail", "pyramid"],
             "title": "Purpose",
             "type": "string"
           },
@@ -4872,10 +4510,7 @@
             "title": "Accepted Before"
           }
         },
-        "required": [
-          "owner_kind",
-          "purpose"
-        ],
+        "required": ["owner_kind", "purpose"],
         "title": "ImageBackfillSelection",
         "type": "object"
       },
@@ -4895,9 +4530,7 @@
             "$ref": "#/components/schemas/ImagePolicy"
           }
         },
-        "required": [
-          "selection"
-        ],
+        "required": ["selection"],
         "title": "ImageBackfillSpec",
         "type": "object"
       },
@@ -4932,35 +4565,17 @@
             "type": "integer"
           },
           "kind": {
-            "enum": [
-              "dimensions",
-              "thumbnail",
-              "pyramid",
-              "image_backfill"
-            ],
+            "enum": ["dimensions", "thumbnail", "pyramid", "image_backfill"],
             "title": "Kind",
             "type": "string"
           },
           "status": {
-            "enum": [
-              "pending",
-              "running",
-              "ready",
-              "failed",
-              "canceled"
-            ],
+            "enum": ["pending", "running", "ready", "failed", "canceled"],
             "title": "Status",
             "type": "string"
           }
         },
-        "required": [
-          "job_id",
-          "generation",
-          "owner",
-          "source_generation",
-          "kind",
-          "status"
-        ],
+        "required": ["job_id", "generation", "owner", "source_generation", "kind", "status"],
         "title": "ImageWorkReference",
         "type": "object"
       },
@@ -4982,9 +4597,7 @@
             "$ref": "#/components/schemas/ImagePolicy"
           }
         },
-        "required": [
-          "expected_source_snapshot"
-        ],
+        "required": ["expected_source_snapshot"],
         "title": "PyramidWorkSpec",
         "type": "object"
       },
@@ -5006,9 +4619,7 @@
             "$ref": "#/components/schemas/ImagePolicy"
           }
         },
-        "required": [
-          "expected_source_snapshot"
-        ],
+        "required": ["expected_source_snapshot"],
         "title": "ThumbnailWorkSpec",
         "type": "object"
       },
@@ -5067,12 +4678,7 @@
             "title": "Spec"
           }
         },
-        "required": [
-          "operation_id",
-          "source",
-          "work",
-          "spec"
-        ],
+        "required": ["operation_id", "source", "work", "spec"],
         "title": "AcceptedImageWork",
         "type": "object"
       },
@@ -5151,11 +4757,7 @@
             "type": "object"
           }
         },
-        "required": [
-          "actor_id",
-          "operation_id",
-          "delegation"
-        ],
+        "required": ["actor_id", "operation_id", "delegation"],
         "title": "PrepareOwnedPyramidRequest",
         "type": "object"
       },
@@ -5233,11 +4835,7 @@
             "type": "object"
           }
         },
-        "required": [
-          "actor_id",
-          "operation_id",
-          "delegation"
-        ],
+        "required": ["actor_id", "operation_id", "delegation"],
         "title": "RetryOwnedPyramidRequest",
         "type": "object"
       },
@@ -5304,9 +4902,7 @@
             "title": "Profile Version"
           }
         },
-        "required": [
-          "actor_id"
-        ],
+        "required": ["actor_id"],
         "title": "ReadImageGenerationRequest",
         "type": "object"
       },
@@ -5380,10 +4976,7 @@
           "building_status": {
             "anyOf": [
               {
-                "enum": [
-                  "pending",
-                  "building"
-                ],
+                "enum": ["pending", "building"],
                 "type": "string"
               },
               {
@@ -5645,14 +5238,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "level",
-          "scaleFactor",
-          "width",
-          "height",
-          "columns",
-          "rows"
-        ],
+        "required": ["level", "scaleFactor", "width", "height", "columns", "rows"],
         "title": "ImagePyramidLevel",
         "type": "object"
       },
@@ -5757,11 +5343,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "width",
-          "height",
-          "contentDigest"
-        ],
+        "required": ["width", "height", "contentDigest"],
         "title": "ImagePyramidOverview",
         "type": "object"
       },
@@ -5787,12 +5369,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "output_id",
-          "storage_ref",
-          "url_expiry_seconds",
-          "fixture_owned"
-        ],
+        "required": ["output_id", "storage_ref", "url_expiry_seconds", "fixture_owned"],
         "title": "NativePyramidOutputReference",
         "type": "object"
       },
@@ -5884,10 +5461,7 @@
             "$ref": "#/components/schemas/ImagePyramidGeneration"
           }
         },
-        "required": [
-          "source",
-          "pyramid"
-        ],
+        "required": ["source", "pyramid"],
         "title": "ImageGenerationRead",
         "type": "object"
       },
@@ -5905,10 +5479,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "actor_id",
-          "job_id"
-        ],
+        "required": ["actor_id", "job_id"],
         "title": "ReadImageWorkRequest",
         "type": "object"
       },
@@ -5988,14 +5559,7 @@
             "title": "Lease Expires At"
           }
         },
-        "required": [
-          "work",
-          "spec",
-          "progress",
-          "error_code",
-          "error_detail",
-          "lease_expires_at"
-        ],
+        "required": ["work", "spec", "progress", "error_code", "error_detail", "lease_expires_at"],
         "title": "ImageWorkStatus",
         "type": "object"
       },
@@ -6039,11 +5603,7 @@
             "type": "string"
           },
           "purpose": {
-            "enum": [
-              "dimensions",
-              "thumbnail",
-              "pyramid"
-            ],
+            "enum": ["dimensions", "thumbnail", "pyramid"],
             "title": "Purpose",
             "type": "string"
           },
@@ -6069,11 +5629,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "actor_id",
-          "operation_id",
-          "purpose"
-        ],
+        "required": ["actor_id", "operation_id", "purpose"],
         "title": "RetryImageMediaRequest",
         "type": "object"
       },
@@ -6086,12 +5642,7 @@
             "type": "string"
           },
           "kind": {
-            "enum": [
-              "thumbnail",
-              "overview",
-              "manifest",
-              "tile"
-            ],
+            "enum": ["thumbnail", "overview", "manifest", "tile"],
             "title": "Kind",
             "type": "string"
           },
@@ -6166,10 +5717,7 @@
             "title": "Y"
           }
         },
-        "required": [
-          "source_snapshot",
-          "kind"
-        ],
+        "required": ["source_snapshot", "kind"],
         "title": "ImageInvalidation",
         "type": "object"
       },
@@ -6211,10 +5759,7 @@
             "$ref": "#/components/schemas/ImageInvalidation"
           }
         },
-        "required": [
-          "actor_id",
-          "invalidation"
-        ],
+        "required": ["actor_id", "invalidation"],
         "title": "InvalidateImageMediaRequest",
         "type": "object"
       },
@@ -6229,10 +5774,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "source",
-          "changed"
-        ],
+        "required": ["source", "changed"],
         "title": "InvalidationResult",
         "type": "object"
       },
@@ -6255,11 +5797,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "operation_id",
-          "actor_id",
-          "job_id"
-        ],
+        "required": ["operation_id", "actor_id", "job_id"],
         "title": "CancelImageMediaRequest",
         "type": "object"
       },
@@ -6281,11 +5819,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "operation_id",
-          "job_id",
-          "canceled"
-        ],
+        "required": ["operation_id", "job_id", "canceled"],
         "title": "CancelImageMediaResult",
         "type": "object"
       },
@@ -6293,10 +5827,7 @@
         "additionalProperties": false,
         "properties": {
           "owner_kind": {
-            "enum": [
-              "dataset_item",
-              "task"
-            ],
+            "enum": ["dataset_item", "task"],
             "title": "Owner Kind",
             "type": "string"
           },
@@ -6330,10 +5861,7 @@
             "default": null
           }
         },
-        "required": [
-          "owner_kind",
-          "owner_id"
-        ],
+        "required": ["owner_kind", "owner_id"],
         "title": "ResolveInternalImageSourceRequest",
         "type": "object"
       },
@@ -6355,10 +5883,7 @@
           "owner_kind": {
             "anyOf": [
               {
-                "enum": [
-                  "dataset_item",
-                  "task"
-                ],
+                "enum": ["dataset_item", "task"],
                 "type": "string"
               },
               {
@@ -6411,12 +5936,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "operation_id",
-          "owner_kind",
-          "owner_id",
-          "spec"
-        ],
+        "required": ["operation_id", "owner_kind", "owner_id", "spec"],
         "title": "ScheduleImageMediaRequest",
         "type": "object"
       },
@@ -6429,9 +5949,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "job_id"
-        ],
+        "required": ["job_id"],
         "title": "ReadInternalImageWorkRequest",
         "type": "object"
       },
@@ -6444,10 +5962,7 @@
           "after_owner_kind": {
             "anyOf": [
               {
-                "enum": [
-                  "dataset_item",
-                  "task"
-                ],
+                "enum": ["dataset_item", "task"],
                 "type": "string"
               },
               {
@@ -6478,9 +5993,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "selection"
-        ],
+        "required": ["selection"],
         "title": "ScanImageBackfillRequest",
         "type": "object"
       },
@@ -6514,10 +6027,7 @@
           "after_owner_kind": {
             "anyOf": [
               {
-                "enum": [
-                  "dataset_item",
-                  "task"
-                ],
+                "enum": ["dataset_item", "task"],
                 "type": "string"
               },
               {
@@ -6541,10 +6051,7 @@
           "next_owner_kind": {
             "anyOf": [
               {
-                "enum": [
-                  "dataset_item",
-                  "task"
-                ],
+                "enum": ["dataset_item", "task"],
                 "type": "string"
               },
               {
@@ -6721,11 +6228,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "actor_id",
-          "operation_id",
-          "token"
-        ],
+        "required": ["actor_id", "operation_id", "token"],
         "title": "BeginNativePyramidReadRequest",
         "type": "object"
       },
@@ -6790,10 +6293,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "operation_id",
-          "token"
-        ],
+        "required": ["operation_id", "token"],
         "title": "CompleteNativePyramidReadRequest",
         "type": "object"
       },
@@ -6816,11 +6316,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "operation_id",
-          "token",
-          "closed"
-        ],
+        "required": ["operation_id", "token", "closed"],
         "title": "NativePyramidReadClosure",
         "type": "object"
       },
@@ -6872,12 +6368,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "source",
-          "original_url",
-          "thumbnail_url",
-          "expires_in"
-        ],
+        "required": ["source", "original_url", "thumbnail_url", "expires_in"],
         "title": "ImageSourceReference",
         "type": "object"
       },
@@ -6916,9 +6407,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "actor_id"
-        ],
+        "required": ["actor_id"],
         "title": "ActorImageSourceRequest",
         "type": "object"
       },
@@ -6939,9 +6428,7 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "requests"
-        ],
+        "required": ["requests"],
         "title": "ImageSourceReferencesRequest",
         "type": "object"
       },
@@ -6957,9 +6444,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "references"
-        ],
+        "required": ["references"],
         "title": "ImageSourceReferences",
         "type": "object"
       },
@@ -6994,9 +6479,7 @@
             "default": null
           }
         },
-        "required": [
-          "owner"
-        ],
+        "required": ["owner"],
         "title": "InternalImageSourceRequest",
         "type": "object"
       },
@@ -7021,9 +6504,7 @@
             "title": "Expires In"
           }
         },
-        "required": [
-          "source"
-        ],
+        "required": ["source"],
         "title": "InternalImageSourceReferenceRequest",
         "type": "object"
       },
@@ -7117,9 +6598,7 @@
             "title": "Expires In"
           }
         },
-        "required": [
-          "actor_id"
-        ],
+        "required": ["actor_id"],
         "title": "ImageGenerationReferenceRequest",
         "type": "object"
       },
@@ -7213,9 +6692,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "generation"
-        ],
+        "required": ["generation"],
         "title": "ImageOverviewRequest",
         "type": "object"
       },
@@ -7253,12 +6730,7 @@
             "type": "integer"
           }
         },
-        "required": [
-          "generation",
-          "level",
-          "x",
-          "y"
-        ],
+        "required": ["generation", "level", "x", "y"],
         "title": "ImageTileRequest",
         "type": "object"
       },
@@ -7347,10 +6819,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "actor_id",
-          "items"
-        ],
+        "required": ["actor_id", "items"],
         "title": "ImageAssetReferencesRequest",
         "type": "object"
       },
@@ -7358,10 +6827,7 @@
         "additionalProperties": false,
         "properties": {
           "kind": {
-            "enum": [
-              "overview",
-              "tile"
-            ],
+            "enum": ["overview", "tile"],
             "title": "Kind",
             "type": "string"
           },
@@ -7409,14 +6875,7 @@
             "type": "string"
           }
         },
-        "required": [
-          "kind",
-          "generation",
-          "level",
-          "x",
-          "y",
-          "url"
-        ],
+        "required": ["kind", "generation", "level", "x", "y", "url"],
         "title": "ImageAssetReference",
         "type": "object"
       },
@@ -7454,12 +6913,7 @@
             "type": "array"
           }
         },
-        "required": [
-          "source",
-          "generation",
-          "expires_in",
-          "items"
-        ],
+        "required": ["source", "generation", "expires_in", "items"],
         "title": "ImageAssetReferences",
         "type": "object"
       }

@@ -258,9 +258,17 @@ async def test_preoverwrite_checks_captured_source_identity_without_resolving_ne
 ):
     control, database, storage, _ = setup()
     accepted = record("ready")
-    database.call = AsyncMock(
-        return_value=c.VideoInputWork(input=accepted, source=source())
-    )
+
+    async def call(operation, request):
+        if operation == "read_accepted_video_input_work":
+            return c.VideoInputWork(input=accepted, source=source())
+        if operation == "begin_video_control_original":
+            return OriginalRead(ownership="ordinary", object_key=source().file_path)
+        if operation == "finish_video_control_original":
+            return None
+        raise AssertionError(f"Unexpected video control operation: {operation}")
+
+    database.call = AsyncMock(side_effect=call)
     if fault == "changed":
         storage.head_source.return_value = source().object_identity.model_copy(
             update={"etag": "new"}

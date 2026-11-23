@@ -69,10 +69,7 @@ def _saved_target(
             "endpoint_url": endpoint,
             "bucket": bucket,
             "key_prefix": key_prefix,
-            "prefix": key_prefix
-            + "image-pyramids/objects/"
-            + str(output_id)
-            + "/",
+            "prefix": key_prefix + "image-pyramids/objects/" + str(output_id) + "/",
             "storage_identity": "a" * 64,
         }
     )
@@ -132,9 +129,7 @@ class _Data:
     async def _next(self, *arguments):
         self.calls.append(arguments)
         context = (
-            self._contexts.pop(0)
-            if len(self._contexts) > 1
-            else self._contexts[0]
+            self._contexts.pop(0) if len(self._contexts) > 1 else self._contexts[0]
         )
         return context
 
@@ -398,16 +393,20 @@ async def test_retirement_prefix_signs_only_the_exact_absence_probe(kind, expect
     else:
         assert query["prefix"] == context.storage_ref.prefix
     assert query["X-Amz-SignedHeaders"] == "host"
-    assert set(query) - {
-        "X-Amz-Algorithm",
-        "X-Amz-Credential",
-        "X-Amz-Date",
-        "X-Amz-Expires",
-        "X-Amz-SignedHeaders",
-        "X-Amz-Signature",
-        "prefix",
-        *expected,
-    } == set()
+    assert (
+        set(query)
+        - {
+            "X-Amz-Algorithm",
+            "X-Amz-Credential",
+            "X-Amz-Date",
+            "X-Amz-Expires",
+            "X-Amz-SignedHeaders",
+            "X-Amz-Signature",
+            "prefix",
+            *expected,
+        }
+        == set()
+    )
 
 
 async def test_prefix_route_refuses_a_nonterminal_or_changed_scope():
@@ -439,9 +438,7 @@ async def test_prefix_route_refuses_a_nonterminal_or_changed_scope():
         members=[_member(page_id, etag=None, version_id=None)],
     )
     with pytest.raises(ImageFailure) as caught:
-        await _signer(changed).write_reference(
-            _write_request(uuid4(), lease_token)
-        )
+        await _signer(changed).write_reference(_write_request(uuid4(), lease_token))
     assert caught.value.code == "invalid_response"
 
 
@@ -603,7 +600,8 @@ async def test_mutated_saved_target_and_host_policy_are_refused():
         secret_enc="c2VjcmV0",
     )
     target = _saved_target(
-        output_id, key_prefix="_aap_managed/media-cache/",
+        output_id,
+        key_prefix="_aap_managed/media-cache/",
         endpoint="http://conn.internal:9000",
     )
     denied = _context(
@@ -617,9 +615,7 @@ async def test_mutated_saved_target_and_host_policy_are_refused():
         host_allowlist=[],
     )
     with pytest.raises(ImageFailure) as caught:
-        await _signer(denied).write_reference(
-            _write_request(operation_id, lease_token)
-        )
+        await _signer(denied).write_reference(_write_request(operation_id, lease_token))
     assert caught.value.code == "storage_unavailable"
     assert "c2VjcmV0" not in repr(denied)
 
@@ -726,14 +722,17 @@ async def test_frozen_policy_above_sigv4_max_caps_only_issued_lifetimes():
         )
     )
     assert defaulted.expires_in == 604800
-    assert _query(
-        NativePyramidSignedRequest(
-            method="GET",
-            url=defaulted.members[0].public_url,
-            headers={},
-            expires_at=defaulted.members[0].public_expires_at,
-        )
-    )["X-Amz-Expires"] == "604800"
+    assert (
+        _query(
+            NativePyramidSignedRequest(
+                method="GET",
+                url=defaulted.members[0].public_url,
+                headers={},
+                expires_at=defaulted.members[0].public_expires_at,
+            )
+        )["X-Amz-Expires"]
+        == "604800"
+    )
 
     explicit = await signer.read_references(
         NativePyramidReadIoRequest(
@@ -818,7 +817,7 @@ def _api_client(config, runtime):
 
 
 def test_native_routes_require_their_own_role_token():
-    output_id, operation_id, lease_token = uuid4(), uuid4(), uuid4()
+    operation_id, lease_token = uuid4(), uuid4()
     body = _write_request(operation_id, lease_token).model_dump(mode="json")
     runtime = _ApiRuntime()
     with _api_client(_config(**_NATIVE_ENV), runtime) as client:
@@ -901,13 +900,20 @@ def test_native_routes_fail_clearly_when_disabled_or_misused():
 async def test_multipart_cursor_is_signed_only_for_the_captured_bucket():
     output_id, page_id, lease_token = uuid4(), uuid4(), uuid4()
     context = _context(
-        "retirement_prefix", output_id=output_id, scope_id=page_id,
-        scope_token=lease_token, members=[],
+        "retirement_prefix",
+        output_id=output_id,
+        scope_id=page_id,
+        scope_token=lease_token,
+        members=[],
     )
     result = await _signer(context).retirement_prefix_reference(
         NativePyramidRetirementPrefixIoRequest(
-            output_id=output_id, lease_token=lease_token, page_id=page_id,
-            kind="uploads", key_marker="other prefix/key", upload_id_marker="part+/=",
+            output_id=output_id,
+            lease_token=lease_token,
+            page_id=page_id,
+            kind="uploads",
+            key_marker="other prefix/key",
+            upload_id_marker="part+/=",
         )
     )
     query = _query(result.request)

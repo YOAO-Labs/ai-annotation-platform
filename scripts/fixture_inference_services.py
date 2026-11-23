@@ -11,6 +11,7 @@ from pathlib import Path
 import re
 import secrets
 import select
+import shutil
 import socket
 import stat
 import struct
@@ -19,6 +20,7 @@ import sys
 import threading
 import time
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 from urllib.request import ProxyHandler, build_opener
 
 from sqlalchemy import text
@@ -114,6 +116,27 @@ def _control_profiles():
     }
 
 
+def _source_profiles():
+    """Exact read-only and saved-I/O function profiles for Assets Source."""
+    from yoao_assets_source_runtime.database import EXPECTED_ASSET_SOURCE_FUNCTIONS
+    from yoao_assets_source_runtime.saved_io import _registry
+
+    saved_io_functions = tuple(sorted(_registry().signatures.values()))
+    saved_io_schemas = tuple(
+        sorted({signature.split(".", 1)[0] for signature in saved_io_functions})
+    )
+    return {
+        "assets_source": (
+            ("yoao_assets_v1",),
+            tuple(
+                f"yoao_assets_v1.{signature}"
+                for signature in sorted(EXPECTED_ASSET_SOURCE_FUNCTIONS)
+            ),
+        ),
+        "assets_source_saved_io": (saved_io_schemas, saved_io_functions),
+    }
+
+
 def _port() -> int:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -172,6 +195,8 @@ class FixtureInferenceServices:
             },
             "routing_role": self.resources["database"] + "_routing",
             "health_role": self.resources["database"] + "_health",
+            "assets_source_role": self.resources["database"] + "_src",
+            "assets_source_saved_io_role": self.resources["database"] + "_sio",
             **{
                 kind + "_role": self.resources["database"] + f"_inf{index}"
                 for index, kind in enumerate(_control_profiles())
@@ -187,6 +212,8 @@ class FixtureInferenceServices:
                 **self._identity(),
                 "routing_password": secrets.token_urlsafe(32),
                 "health_password": secrets.token_urlsafe(32),
+                "assets_source_password": secrets.token_urlsafe(32),
+                "assets_source_saved_io_password": secrets.token_urlsafe(32),
                 "routing_token": secrets.token_urlsafe(32),
                 "health_token": secrets.token_urlsafe(32),
                 "backend_control_token": secrets.token_urlsafe(32),
@@ -195,6 +222,7 @@ class FixtureInferenceServices:
                     for kind in _control_profiles()
                 },
                 "port": _port(),
+                "source_port": _port(),
             }
             atomic_json(path, value, exclusive=True)
         descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
@@ -214,6 +242,8 @@ class FixtureInferenceServices:
         secret_keys = (
             "routing_password",
             "health_password",
+            "assets_source_password",
+            "assets_source_saved_io_password",
             "routing_token",
             "health_token",
             "backend_control_token",
@@ -221,7 +251,7 @@ class FixtureInferenceServices:
         )
         if (
             not isinstance(value, dict)
-            or set(value) != {*expected, *secret_keys, "port"}
+            or set(value) != {*expected, *secret_keys, "port", "source_port"}
             or any(value.get(key) != item for key, item in expected.items())
             or any(
                 not isinstance(value.get(key), str)
@@ -230,6 +260,8 @@ class FixtureInferenceServices:
             )
             or type(value.get("port")) is not int
             or not 1 <= value["port"] <= 65535
+            or type(value.get("source_port")) is not int
+            or not 1 <= value["source_port"] <= 65535
         ):
             raise WorktreeError("推理夹具凭据与资源身份不一致；拒绝接管")
         return value
@@ -353,6 +385,7 @@ class FixtureInferenceServices:
                     "routing": ("yoao_inference_routing_v1", _ROUTING),
                     "health": ("yoao_inference_health_observation_v1", _HEALTH),
                     **_control_profiles(),
+                    **_source_profiles(),
                 }
                 if action != "create":
                     profiles["jobs_publication"] = (
@@ -408,9 +441,11 @@ class FixtureInferenceServices:
                             f"GRANT CONNECT ON DATABASE {quote(self.resources['database'])} "
                             f"TO {quote(role)}"
                         )
-                        await connection.exec_driver_sql(
-                            f"GRANT USAGE ON SCHEMA {quote(schema)} TO {quote(role)}"
-                        )
+                        schemas = (schema,) if isinstance(schema, str) else schema
+                        for item in schemas:
+                            await connection.exec_driver_sql(
+                                f"GRANT USAGE ON SCHEMA {quote(item)} TO {quote(role)}"
+                            )
                         await connection.exec_driver_sql(
                             f"GRANT EXECUTE ON FUNCTION {', '.join(functions)} TO {quote(role)}"
                         )
@@ -561,6 +596,37 @@ class FixtureInferenceServices:
         self.record = {**marker, **handle, "phase": "running"}
         atomic_json(self.marker_path, self.record)
         values = self._credentials
+        backend_env = self.backend.environment()
+        minio_endpoint = backend_env.get("MINIO_ENDPOINT", "")
+        minio_use_ssl = str(backend_env.get("MINIO_USE_SSL", "")).lower() in {
+            "1",
+            "true",
+            "yes",
+        }
+        storage_origin = (
+            minio_endpoint
+            if "://" in minio_endpoint
+            else f"{'https' if minio_use_ssl else 'http'}://{minio_endpoint}"
+        )
+        raw_allowlist = backend_env.get("CONNECTOR_HOST_ALLOWLIST") or "[]"
+        try:
+            allowlist = [
+                host for host in json.loads(raw_allowlist) if isinstance(host, str)
+            ]
+        except (ValueError, TypeError):
+            allowlist = []
+        for candidate in (
+            urlsplit(storage_origin).hostname,
+            urlsplit(
+                backend_env.get("AAP_ASSETS_ADDITIONAL_ORIGINAL_ENDPOINT", "")
+            ).hostname,
+            "127.0.0.1",
+            "localhost",
+        ):
+            if candidate and candidate not in allowlist:
+                allowlist.append(candidate)
+        source_spool = control_directory / "saved-io-spool"
+        source_spool.mkdir(mode=0o700)
         payload = {
             "control_path": str(self.control_path),
             "control_directory_identity": marker["control_directory_identity"],
@@ -574,13 +640,70 @@ class FixtureInferenceServices:
                     "username": values[kind + "_role"],
                     "password": values[kind + "_password"],
                 }
-                for kind in ("routing", "health", *_control_profiles())
+                for kind in (
+                    "routing",
+                    "health",
+                    *_control_profiles(),
+                    "assets_source",
+                    "assets_source_saved_io",
+                )
             },
             "routing_token": values["routing_token"],
             "health_token": values["health_token"],
             "backend_control_token": values["backend_control_token"],
             "model_execution_token": _derive_secret(values, b"model-execution/v1"),
             "port": values["port"],
+            "assets_source": {
+                "port": values["source_port"],
+                "spool_dir": str(source_spool),
+                "connector_encryption_key": backend_env.get(
+                    "CONNECTOR_ENCRYPTION_KEY", ""
+                ),
+                "connector_host_allowlist": allowlist,
+                "s3_endpoint": storage_origin,
+                "s3_public_endpoint": storage_origin,
+                "s3_access_key": backend_env.get("MINIO_ACCESS_KEY", ""),
+                "s3_secret_key": backend_env.get("MINIO_SECRET_KEY", ""),
+                "datasets_bucket": backend_env.get(
+                    "MINIO_DATASETS_BUCKET",
+                    self.resources["buckets"]["MINIO_DATASETS_BUCKET"],
+                ),
+                "import_bucket": backend_env.get(
+                    "MINIO_IMPORT_BUCKET",
+                    self.resources["buckets"]["MINIO_IMPORT_BUCKET"],
+                ),
+                "media_cache_bucket": backend_env.get(
+                    "MINIO_MEDIA_CACHE_BUCKET",
+                    self.resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"],
+                ),
+                "tokens": {
+                    "ASSETS_SOURCE_TOKEN": _derive_secret(values, b"assets-source/v1"),
+                    "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN": _derive_secret(
+                        values, b"assets-source-import-verify/v1"
+                    ),
+                    "ASSETS_SOURCE_CONNECTIONS_TOKEN": _derive_secret(
+                        values, b"assets-source-connections/v1"
+                    ),
+                    "ASSETS_SOURCE_SAVED_IO_READ_TOKEN": _derive_secret(
+                        values, b"assets-source-saved-io-read/v1"
+                    ),
+                    "ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN": _derive_secret(
+                        values, b"assets-source-saved-io-write/v1"
+                    ),
+                    "ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN": _derive_secret(
+                        values, b"assets-source-saved-io-cleanup/v1"
+                    ),
+                    "ASSETS_SOURCE_SAVED_IO_IMPORT_READ_TOKEN": _derive_secret(
+                        values, b"assets-source-saved-io-import-read/v1"
+                    ),
+                    "ASSETS_SOURCE_SAVED_IO_IMPORT_WRITE_TOKEN": _derive_secret(
+                        values, b"assets-source-saved-io-import-write/v1"
+                    ),
+                    "ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN": _derive_secret(
+                        values, b"assets-source-saved-io-cutover/v1"
+                    ),
+                },
+            },
             "nonce": nonce,
             "health_max_age_seconds": (
                 self.backend.settings.ml_backend_router_health_max_age_seconds
@@ -819,6 +942,7 @@ class FixtureInferenceServices:
     def _selection(self):
         value = self._credentials
         origin = f"http://127.0.0.1:{value['port']}"
+        source_origin = f"http://127.0.0.1:{value['source_port']}"
         return {
             "INFERENCE_ROUTING_URL": origin,
             "INFERENCE_ROUTING_TOKEN": value["routing_token"],
@@ -835,6 +959,19 @@ class FixtureInferenceServices:
             ),
             "INFERENCE_MODEL_EXECUTION_TOKEN_FILE": "",
             "ML_BACKEND_ROUTER_MODE": "enforce",
+            "ASSETS_SOURCE_URL": source_origin,
+            "ASSETS_SOURCE_SAVED_IO_READ_TOKEN": _derive_secret(
+                value, b"assets-source-saved-io-read/v1"
+            ),
+            "ASSETS_SOURCE_SAVED_IO_READ_TOKEN_FILE": "",
+            "ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN": _derive_secret(
+                value, b"assets-source-saved-io-write/v1"
+            ),
+            "ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE": "",
+            "ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN": _derive_secret(
+                value, b"assets-source-saved-io-cleanup/v1"
+            ),
+            "ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE": "",
         }
 
     def pause(self):
@@ -1184,7 +1321,49 @@ async def _serve(payload):
         ):
             raise RuntimeError("Inference control directory identity changed")
 
+    source = payload["assets_source"]
+    import uvicorn
+    from yoao_assets_source_runtime.api import create_app as create_source_app
+    from yoao_assets_source_runtime.config import load_config as load_source_config
+
+    source_env = {
+        "ASSETS_SOURCE_HOST": "127.0.0.1",
+        "ASSETS_SOURCE_PORT": str(source["port"]),
+        "ASSETS_SOURCE_DATABASE_URL": dsn("assets_source"),
+        "ASSETS_SOURCE_SAVED_IO_DATABASE_URL": dsn("assets_source_saved_io"),
+        "ASSETS_SOURCE_SAVED_IO_SPOOL_DIR": source["spool_dir"],
+        "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY": source["connector_encryption_key"],
+        "ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST": json.dumps(
+            source["connector_host_allowlist"]
+        ),
+        "ASSETS_SOURCE_S3_ENDPOINT": source["s3_endpoint"],
+        "ASSETS_SOURCE_S3_PUBLIC_ENDPOINT": source["s3_public_endpoint"],
+        "ASSETS_SOURCE_S3_ACCESS_KEY": source["s3_access_key"],
+        "ASSETS_SOURCE_S3_SECRET_KEY": source["s3_secret_key"],
+        "ASSETS_SOURCE_DATASETS_BUCKET": source["datasets_bucket"],
+        "ASSETS_SOURCE_IMPORT_BUCKET": source["import_bucket"],
+        "ASSETS_SOURCE_MEDIA_CACHE_BUCKET": source["media_cache_bucket"],
+        **source["tokens"],
+    }
+    source_server = uvicorn.Server(
+        uvicorn.Config(
+            create_source_app(load_source_config(source_env)),
+            host="127.0.0.1",
+            port=source["port"],
+            access_log=False,
+            log_level="warning",
+            proxy_headers=False,
+            server_header=False,
+        )
+    )
+    source_server.install_signal_handlers = lambda: None
+    source_task = None
+
     async def drain():
+        if source_task is not None:
+            source_server.should_exit = True
+            await source_task
+        shutil.rmtree(source["spool_dir"], ignore_errors=True)
         await server.close()
         await routing.close()
         await health_data.close()
@@ -1265,6 +1444,17 @@ async def _serve(payload):
     control_info = control_path.lstat()
     socket_identity = (control_info.st_dev, control_info.st_ino)
     await server.start()
+    source_task = asyncio.create_task(source_server.serve())
+    deadline = time.monotonic() + 20
+    while not source_server.started:
+        if source_task.done():
+            await source_task
+            raise RuntimeError("Assets Source server exited before starting")
+        if time.monotonic() >= deadline:
+            source_server.should_exit = True
+            await source_task
+            raise RuntimeError("Assets Source server did not start in time")
+        await asyncio.sleep(0.05)
     print(f"ready:{payload['nonce']}", flush=True)
     await shutdown.wait()
     await controller.wait_closed()

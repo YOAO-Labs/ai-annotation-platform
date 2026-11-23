@@ -13,9 +13,11 @@ _SQL = Path(__file__).resolve().parents[1] / "sql"
 
 
 def upgrade() -> None:
-    for statement in (_SQL / "0413_tracker_retirement_function_settings.sql").read_text(
-        encoding="utf-8"
-    ).split("-- aap-statement-break"):
+    for statement in (
+        (_SQL / "0413_tracker_retirement_function_settings.sql")
+        .read_text(encoding="utf-8")
+        .split("-- aap-statement-break")
+    ):
         if statement.strip():
             op.execute(sa.text(statement.strip().replace(":", r"\:")))
 

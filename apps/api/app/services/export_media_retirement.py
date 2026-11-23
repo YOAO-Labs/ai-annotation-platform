@@ -241,8 +241,16 @@ async def _physical_delete(db, receipt, *, zip_output=None, zip_proof=None):
                 source.delete if source is not None else export_storage.delete,
                 *(() if source is not None else (zip_output,)),
                 accounting=accounting,
-                **({"version": zip_proof["version_id"]} if source is not None and zip_proof is not None else {}),
-                **({"proof": zip_proof} if zip_proof is not None and source is None else {}),
+                **(
+                    {"version": zip_proof["version_id"]}
+                    if source is not None and zip_proof is not None
+                    else {}
+                ),
+                **(
+                    {"proof": zip_proof}
+                    if zip_proof is not None and source is None
+                    else {}
+                ),
                 **({"target": target} if target is not None and source is None else {}),
             )
         await transfer._async(_guard(db, receipt, permit, zip_output=zip_output))

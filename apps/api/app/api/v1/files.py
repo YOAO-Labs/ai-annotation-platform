@@ -78,12 +78,18 @@ async def upload_complete(
 
         source = await originals.pin(db, "task", task_id)
         prepared = await media_dispatch.prepare(
-            db, owner_kind="task", owner_id=task_id, producer_kind="task_thumbnail",
-            source=originals.receipt(source), task_name="app.workers.media.generate_task_thumbnail",
+            db,
+            owner_kind="task",
+            owner_id=task_id,
+            producer_kind="task_thumbnail",
+            source=originals.receipt(source),
+            task_name="app.workers.media.generate_task_thumbnail",
             args=[str(task_id)],
         )
         await db.commit()
-        await media_dispatch.publish(prepared, lambda: generate_task_thumbnail.delay(str(task_id)))
+        await media_dispatch.publish(
+            prepared, lambda: generate_task_thumbnail.delay(str(task_id))
+        )
 
     return {"status": "ok", "task_id": str(task_id)}
 

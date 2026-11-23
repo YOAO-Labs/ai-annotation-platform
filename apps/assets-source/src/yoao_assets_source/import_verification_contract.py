@@ -56,7 +56,16 @@ class ImportVerificationResult(_Value):
 
 
 class ImportVerificationReply(_Value):
-    state: Literal["reserved", "pending", "drained", "completed", "failed", "fenced", "cancelled", "missing"]
+    state: Literal[
+        "reserved",
+        "pending",
+        "drained",
+        "completed",
+        "failed",
+        "fenced",
+        "cancelled",
+        "missing",
+    ]
     result: ImportVerificationResult | None = None
 
     @model_validator(mode="after")

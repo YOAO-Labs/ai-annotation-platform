@@ -76,9 +76,7 @@ def _target(output_id, *, endpoint=None, bucket=None, prefix=None):
         "bucket": "media-cache" if bucket is None else bucket,
         "key_prefix": "",
         "prefix": (
-            prefix
-            if prefix is not None
-            else f"image-pyramids/objects/{output_id}/"
+            prefix if prefix is not None else f"image-pyramids/objects/{output_id}/"
         ),
         "storage_identity": "c" * 64,
     }
@@ -141,8 +139,6 @@ def _ack_payload(*, output_id, after=None, completed=False):
     }
 
 
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "target",
@@ -159,17 +155,15 @@ async def test_claim_rejects_a_target_outside_its_saved_scope(target):
         "storage_ref": target(output_id),
         "after_operation_id": None,
     }
-    connection = _Connection(
-        {CLAIM_NATIVE_RETIREMENT_SQL: _claim_payload(claim)}
-    )
+    connection = _Connection({CLAIM_NATIVE_RETIREMENT_SQL: _claim_payload(claim)})
     request = ClaimNativePyramidRetirementRequest(
         worker_id=uuid4(),
     )
 
     with pytest.raises(DataContractError) as failure:
-        await StorageDeletionData(
-            _Pool(connection)
-        ).claim_native_pyramid_retirement(request)
+        await StorageDeletionData(_Pool(connection)).claim_native_pyramid_retirement(
+            request
+        )
 
     assert failure.value.code == "invalid_response"
 
@@ -190,9 +184,9 @@ async def test_claim_error_envelope_keeps_its_code_and_does_not_mutate():
     )
 
     with pytest.raises(DataContractError) as failure:
-        await StorageDeletionData(
-            _Pool(connection)
-        ).claim_native_pyramid_retirement(request)
+        await StorageDeletionData(_Pool(connection)).claim_native_pyramid_retirement(
+            request
+        )
 
     assert failure.value.code == "lease_lost"
 
@@ -406,5 +400,3 @@ async def test_stale_or_foreign_completion_ack_is_rejected():
         await StorageDeletionData(
             _Pool(not_advanced)
         ).complete_native_pyramid_retirement_page(request)
-
-
