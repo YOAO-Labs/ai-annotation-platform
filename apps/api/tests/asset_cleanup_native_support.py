@@ -115,7 +115,8 @@ class NativeCleanupProbe:
             output_id, operation_id, prefix, put["ETag"], version, digest, body
         )
 
-    async def __aenter__(self):
+    async def seed(self) -> None:
+        """Create fixtures whose immutable receipts live until verifier retirement."""
         async with self.sessions.begin() as db:
             await ensure_legacy_bindings(db)
             await db.execute(
@@ -150,7 +151,6 @@ class NativeCleanupProbe:
             self.rejected = await self._seed(
                 db, binding, 3, b"retained member", b"declared member"
             )
-        return self
 
     @property
     def rejected_object(self) -> dict[str, str]:
@@ -233,24 +233,3 @@ class NativeCleanupProbe:
                 "outcome": "closed_without_ack",
             },
         }
-
-    async def __aexit__(self, exc_type, exc, tb):
-        if exc_type is not None:
-            return
-        parameters = {"output": self.verified.output_id}
-        async with self.sessions.begin() as db:
-            for relation in (
-                "yoao_assets_v1.native_pyramid_retirement_pages",
-                "yoao_assets_v1.native_pyramid_retirements",
-                "yoao_assets_v1.native_pyramid_retirement_targets",
-            ):
-                await db.execute(
-                    text(f"DELETE FROM {relation} WHERE output_id=:output"), parameters
-                )
-            result = await db.execute(
-                text(
-                    "DELETE FROM public.image_pyramid_outputs WHERE id=:output AND state='deleted'"
-                ),
-                parameters,
-            )
-            assert result.rowcount == 1

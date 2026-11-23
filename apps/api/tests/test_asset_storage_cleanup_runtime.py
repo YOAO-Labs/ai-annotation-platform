@@ -1576,13 +1576,13 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
         native_probe = NativeCleanupProbe(
             owner_engine, owner_client, media_bucket, endpoint, fixture
         )
-        async with native_probe:
-            _expect_s3_denied(
-                lambda: scoped_client.delete_object(**native_probe.rejected_object)
-            )
-            compose.receipt["native_cleanup"] = await native_probe.exercise(
-                compose.worker_log_contains
-            )
+        await native_probe.seed()
+        _expect_s3_denied(
+            lambda: scoped_client.delete_object(**native_probe.rejected_object)
+        )
+        compose.receipt["native_cleanup"] = await native_probe.exercise(
+            compose.worker_log_contains
+        )
     finally:
         cleanup_errors: list[str] = []
         try:
