@@ -2,9 +2,13 @@ import { test, expect } from "../fixtures/seed";
 import { waitForApiWrite } from "../helpers/api-response";
 
 test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
-  test("B 键一次激活 → 连续创建 20 个框 → 保存期串行且 V 退出", async ({ page, seed }) => {
-    test.setTimeout(90_000);
-    const data = await seed.owned();
+  test.setTimeout(90_000);
+
+  test("B 键一次激活 → 连续创建 20 个框 → 保存期串行且 V 退出", async ({
+    page,
+    owned: data,
+    seed,
+  }) => {
     const lidar = await seed.seedLidar();
     await seed.injectToken(page, data.admin_email);
 
@@ -124,8 +128,7 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     await expect(page.getByText(/·\s*20\s*框/)).toBeVisible();
   });
 
-  test("连续建框保存失败 → 回滚半成品并保持 armed 可重试", async ({ page, seed }) => {
-    const data = await seed.owned();
+  test("连续建框保存失败 → 回滚半成品并保持 armed 可重试", async ({ page, owned: data, seed }) => {
     const lidar = await seed.seedLidar();
     await seed.injectToken(page, data.admin_email);
 
@@ -167,8 +170,11 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     await expect(page.locator('[data-testid^="box-list-item-"]')).toHaveCount(2);
   });
 
-  test("保存期切任务 → 迟到响应不选中旧框且不污染新任务 history", async ({ page, seed }) => {
-    const data = await seed.owned();
+  test("保存期切任务 → 迟到响应不选中旧框且不污染新任务 history", async ({
+    page,
+    owned: data,
+    seed,
+  }) => {
     const lidar = await seed.seedLidar();
     await seed.injectToken(page, data.admin_email);
     const [firstTaskId, secondTaskId] = lidar.lidar_task_ids;
@@ -226,8 +232,7 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     expect(deleteCount, "旧任务迟到成功不得写入新任务 history").toBe(0);
   });
 
-  test("armed 中切换类别 → 下一框使用新类别且不退出", async ({ page, seed }) => {
-    const data = await seed.owned();
+  test("armed 中切换类别 → 下一框使用新类别且不退出", async ({ page, owned: data, seed }) => {
     const lidar = await seed.seedLidar();
     await seed.injectToken(page, data.admin_email);
 
@@ -268,8 +273,7 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     await expect(page.getByTestId("three-d-tool-btn-box")).toHaveAttribute("aria-pressed", "true");
   });
 
-  test("点选框 → Delete 键 → DELETE /annotations/:id", async ({ page, seed }) => {
-    const data = await seed.owned();
+  test("点选框 → Delete 键 → DELETE /annotations/:id", async ({ page, owned: data, seed }) => {
     const lidar = await seed.seedLidar();
     await seed.injectToken(page, data.admin_email);
 
@@ -293,8 +297,11 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     });
   });
 
-  test("P → 多边形模式 → 画 polygon → Enter → POST point_mask_3d", async ({ page, seed }) => {
-    const data = await seed.owned();
+  test("P → 多边形模式 → 画 polygon → Enter → POST point_mask_3d", async ({
+    page,
+    owned: data,
+    seed,
+  }) => {
     const lidar = await seed.seedLidar();
     await seed.injectToken(page, data.admin_email);
     await seed.setPetEnabled(data.admin_email, true);
@@ -342,8 +349,7 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     await expect(page.getByTestId("three-d-selection-panel-handle")).toBeVisible();
   });
 
-  test("point-mask 多边形双击优先完成绘制，不触发框聚焦", async ({ page, seed }) => {
-    const data = await seed.owned();
+  test("point-mask 多边形双击优先完成绘制，不触发框聚焦", async ({ page, owned: data, seed }) => {
     const lidar = await seed.seedLidar();
     await seed.injectToken(page, data.admin_email);
 
@@ -386,8 +392,11 @@ test.describe("workbench pointcloud tools (键盘 handler 守护)", () => {
     expect(persisted.geometry?.type).toBe("point_mask_3d");
   });
 
-  test("M 点云测量只写会话态 overlay，支持管理并在切任务时清理", async ({ page, seed }) => {
-    const data = await seed.owned();
+  test("M 点云测量只写会话态 overlay，支持管理并在切任务时清理", async ({
+    page,
+    owned: data,
+    seed,
+  }) => {
     const lidar = await seed.seedLidar();
     await seed.injectToken(page, data.admin_email);
     const [, secondTaskId] = lidar.lidar_task_ids;

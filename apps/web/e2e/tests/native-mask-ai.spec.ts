@@ -207,6 +207,9 @@ async function generateAndAccept(
   await page.goto(`/projects/${projectId}/annotate?task=${taskId}`);
   const stage = page.getByTestId(media === "image" ? "workbench-stage" : "video-konva-stage");
   await expect(stage).toBeVisible({ timeout: 20_000 });
+  if (media === "image") {
+    await expect(stage).toHaveAttribute("data-image-ready", "true", { timeout: 20_000 });
+  }
 
   const point = page.getByTestId(
     media === "image" ? "tool-btn-smart-point" : "video-tool-btn-smart-point",

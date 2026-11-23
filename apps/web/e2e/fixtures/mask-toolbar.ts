@@ -26,6 +26,14 @@ export async function openMaskSettings(page: Page) {
 export async function closeMaskSettings(page: Page) {
   const toolbar = page.getByTestId("mask-toolbar");
   if ((await toolbar.locator(':scope:not([aria-hidden="true"])').count()) > 0) {
+    await toolbar.evaluate((node) =>
+      Promise.allSettled(
+        node
+          .getAnimations({ subtree: true })
+          .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+          .map((animation) => animation.finished),
+      ),
+    );
     await page.getByRole("button", { name: "收起 Mask 设置", exact: true }).click();
   }
   await expect(toolbar).toBeHidden();

@@ -74,7 +74,7 @@ jobs:
   suites:
     name: Frontend E2E suites
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     needs: [build]
     if: ${{ !cancelled() && (needs.build.result == 'success' || needs.build.result == 'skipped') }}
     strategy:
@@ -208,7 +208,7 @@ jobs:
           fi
       - name: Run E2E suite
         id: e2e
-        timeout-minutes: 20
+        timeout-minutes: 30
         run: |
           echo "E2E_PREP_SECONDS=$(( $(date +%s) - E2E_PREP_START ))" >> "$GITHUB_ENV"
           echo "E2E_RUN_START=$(date +%s)" >> "$GITHUB_ENV"

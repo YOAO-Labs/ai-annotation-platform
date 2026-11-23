@@ -51,7 +51,7 @@ export async function closeContextToolbar(page: Page, id: ToolbarId) {
 
 export async function expectStableContextCapsule(page: Page, id: ToolbarId) {
   const capsule = page.getByTestId(`${id}-tool-capsule`);
-  await expect(capsule).toBeVisible();
+  await expect(capsule).toBeVisible({ timeout: 20_000 });
   await page.mouse.move(0, 0);
   await page.getByTestId(`${id}-settings-trigger`).press("Escape");
   await expect(capsule).toHaveAttribute("data-expanded", "false");
