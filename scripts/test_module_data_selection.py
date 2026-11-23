@@ -1,5 +1,6 @@
 """Selected acceptance targets must remain inside the API test tree."""
 
+from collections import Counter
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
@@ -10,13 +11,27 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 from scripts.verify_module_data_boundary import (
+    ROOT,
     TEST_FILES,
     _RECLAMATION_PROFILES,
+    _STRICT_PROFILE_TARGETS,
     _append_profile_junit,
     _arguments,
     _passed_test_count,
     _run_strict_default,
     main,
+)
+
+RETIRED_MODULE_DATA_SELECTORS = frozenset(
+    {
+        "tests/test_screenshot_seed_catalog.py",
+        "tests/test_identity_recording_live.py",
+        "tests/test_identity_recording_native.py",
+        "tests/test_inference_registry_ingress_binding.py",
+        "tests/test_inference_registry_ingress_uow.py",
+        "tests/test_workspace_capacity_live.py",
+        "tests/test_workspace_module_healthcheck.py",
+    }
 )
 
 
@@ -236,6 +251,95 @@ class ModuleDataSelectionTests(unittest.TestCase):
                 },
             )
 
+    def test_fast_native_fixture_guards_and_audit_migration_profile_routing(self):
+        ordinary_guards = (
+            "tests/test_jobs_fixture_cleanup_native.py",
+            "tests/test_jobs_fixture_media_publication_native.py",
+            "tests/test_fixture_export_owner_native.py",
+        )
+        migration_guard = "tests/test_fixture_audit_migration.py"
+        selected = (*ordinary_guards, migration_guard)
+        self.assertTrue(set(selected) <= set(TEST_FILES))
+        self.assertEqual(
+            _STRICT_PROFILE_TARGETS.get(migration_guard), "fixture-audit-migration"
+        )
+        for target in ordinary_guards:
+            self.assertNotIn(target, _STRICT_PROFILE_TARGETS)
+
+        collected = {
+            "tests/test_jobs_fixture_cleanup_native.py": [
+                "tests/test_jobs_fixture_cleanup_native.py::test_cleanup"
+            ],
+            "tests/test_jobs_fixture_media_publication_native.py": [
+                "tests/test_jobs_fixture_media_publication_native.py::test_publication"
+            ],
+            "tests/test_fixture_export_owner_native.py": [
+                "tests/test_fixture_export_owner_native.py::test_export_owner"
+            ],
+            "tests/test_fixture_audit_migration.py": [
+                "tests/test_fixture_audit_migration.py::test_audit_receipt_forward_migration[legacy-audit]",
+                "tests/test_fixture_audit_migration.py::test_audit_receipt_forward_migration[empty-audit]",
+            ],
+        }
+        invocations = {}
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "acceptance.json"
+            args = _arguments(["--output", str(output)])
+
+            def profile_run(argv, *, collect_only=False, partition_default=True):
+                receipt = Path(argv[1])
+                manifest = receipt.with_suffix(".collection.json")
+                if collect_only:
+                    manifest.write_text(
+                        json.dumps(
+                            [node for nodes in collected.values() for node in nodes]
+                        )
+                    )
+                    return 0
+                selection = tuple(argv[3::2])
+                invocations[receipt.stem] = selection
+                actual = [node for target in selection for node in collected[target]]
+                manifest.write_text(json.dumps(actual))
+                receipt.write_text(
+                    json.dumps(
+                        {
+                            "status": "passed",
+                            "test_exit_code": 0,
+                            "cleanup": {"errors": []},
+                        }
+                    )
+                )
+                suite = ET.Element("testsuite", tests=str(len(actual)))
+                for node in actual:
+                    target, bracket, parameter = node.partition("[")
+                    path, *parts = target.split("::")
+                    ET.SubElement(
+                        suite,
+                        "testcase",
+                        classname=".".join(
+                            [path.removesuffix(".py").replace("/", "."), *parts[:-1]]
+                        ),
+                        name=parts[-1] + bracket + parameter,
+                    )
+                ET.ElementTree(suite).write(receipt.with_suffix(".junit.xml"))
+                return 0
+
+            with (
+                patch(
+                    "scripts.verify_module_data_boundary.main", side_effect=profile_run
+                ),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(_run_strict_default(args, selected), 0)
+
+            self.assertEqual(
+                invocations,
+                {
+                    "ordinary": ordinary_guards,
+                    "fixture-audit-migration": (migration_guard,),
+                },
+            )
+
     def test_default_interruption_cannot_leave_a_prior_pass(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "acceptance.json"
@@ -433,6 +537,34 @@ class ModuleDataSelectionTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as rejected:
                     _arguments(args)
                 self.assertEqual(rejected.exception.code, 2)
+
+    def test_default_test_files_have_no_duplicates(self):
+        duplicates = sorted(
+            target for target, count in Counter(TEST_FILES).items() if count > 1
+        )
+        self.assertEqual(duplicates, [])
+
+    def test_selected_and_strict_profile_targets_exist_under_api_tests(self):
+        api_root = (ROOT / "apps/api").resolve()
+        tests_root = (api_root / "tests").resolve()
+        for target in (*TEST_FILES, *_STRICT_PROFILE_TARGETS):
+            relative = Path(target.split("::", 1)[0])
+            resolved = (api_root / relative).resolve()
+            with self.subTest(target=target):
+                self.assertFalse(relative.is_absolute())
+                self.assertTrue(resolved.is_relative_to(tests_root))
+                self.assertEqual(resolved.suffix, ".py")
+                self.assertTrue(resolved.is_file())
+
+    def test_strict_profile_targets_are_subset_of_default_test_files(self):
+        missing = sorted(set(_STRICT_PROFILE_TARGETS) - set(TEST_FILES))
+        self.assertEqual(missing, [])
+
+    def test_retired_selectors_do_not_return_to_default_selection(self):
+        selected_paths = {target.split("::", 1)[0] for target in TEST_FILES}
+        strict_paths = {target.split("::", 1)[0] for target in _STRICT_PROFILE_TARGETS}
+        self.assertEqual(sorted(selected_paths & RETIRED_MODULE_DATA_SELECTORS), [])
+        self.assertEqual(sorted(strict_paths & RETIRED_MODULE_DATA_SELECTORS), [])
 
 
 if __name__ == "__main__":

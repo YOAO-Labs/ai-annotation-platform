@@ -89,6 +89,22 @@ last_reviewed: 2026-10-26
 准确路径、SHA256 及 `fixture_evidence` 原因。保留这些文件不表示环境仍在运行，也不是清理失败；
 没有证据的空资源根则会移除。实际销毁与剩余责任仍以报告中的独立清理结果为准。
 
+现行 T1 默认模块边界选集、执行组路由、历史替代与已退役选择器映射保存在
+`docs/plans/evidence/1793261328_test-governance-module-plugin-contracts/t1-current-scope-mapping.json`，
+并由 `scripts/test_module_data_selection.py` 守卫无重复条目、路径存在、profile 子集约束以及已退役选择器不回流。
+`scripts/verify_module_data_boundary.py::TEST_FILES` 默认纳入
+`tests/test_jobs_fixture_cleanup_native.py`、`tests/test_jobs_fixture_media_publication_native.py`、
+`tests/test_fixture_export_owner_native.py` 与 `tests/test_fixture_audit_migration.py`，其中创建独立迁移库的
+`tests/test_fixture_audit_migration.py` 路由至独立 `fixture-audit-migration` profile，避免污染 `ordinary`。
+日常变更仅验证受影响的消费者，不授权全仓测试、32 路 E2E 或默认全量重跑；如需正式默认资格，应由维护者另定范围与窗口，在同一冻结候选上对账
+collection、JUnit、退出码与资源清退，并分别记录未运行、跳过与延期项，不以历史 3,337 项数量为目标，也不复活已退役的截图、录屏或拆分
+Workspace 夹具。与 `#188`、`#189` 的分界保持显式：Spatial 与 Mask GC 的两项严格 `cgroup memory.peak` 延期用例（`#188`）由外围账本单列，不修改验证器判定逻辑或阈值。
+
+跨运行清理与邻居保护（T2，`#189`）仅从现行实际创建、读取、排空与退役资源的功能和规模夹具核定消费边界：不恢复已退役的文档截图／录屏工具或夹具，保留
+`_test_seed.py::seed_screenshot_cleanup` 与 `_RETIRED_PRODUCER_FUNCTIONS` 的零权限守卫；受监督 Playwright 退役验收同时断言
+`playback.sock` 与 `playback-control.json` 在 `NativeSuiteControl._retire_api()` 后已物理移除。正式默认通过与 T1（`#190`）在同一已批准冻结候选上对账，共用该次
+`scripts/verify_module_data_boundary.py` 默认验收运行回执，不重复执行，也不以定向单测或另一项结果相互代签。验证结果严格区分产品／夹具运行级清退与外围环境销毁：运行级清退仅精确删除本运行已登记的身份、业务记录与准确对象版本，遇在途读取、活跃写入或忙锁必须拒绝退役并保留原始责任，保障邻居继续读回原版本并完成自身清退；外围销毁仅回收一次性工作树／测试模式容器、数据库与桶，不能替代或掩盖产品清退失败。
+
 | 责任边界／实际测试根                                                                                                                                                                                                                      | 入口与资源                                                                                                                                                                                         | 范围和遗漏边界                                                                                                                                                            |
 | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 平台 API 与跨 owner 消费者：`apps/api/tests`                                                                                                                                                                                              | `cd apps/api && uv run pytest`；集成需要隔离 PostgreSQL、Redis、MinIO，使用下文 worktree test 入口                                                                                                 | `pyproject.toml` 的默认 `testpaths` 只有 `tests`；CI 为该根按文件分四片。Learning／Insights 尚在现有 API 位置，不虚构独立包。纯规则与真实事务／独立进程验收不能互相替代。 |

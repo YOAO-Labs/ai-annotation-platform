@@ -1,0 +1,1169 @@
+{
+  "schema": 1,
+  "issue": "#190",
+  "scope": "Machine-readable current T1 module-data default scope, execution-profile routing, historical f6e349674 -> dev delta, retired selector ledger, #188/#189 boundaries, and external prerequisites. Read-only collection reconciliation only; NOT a formal default T1/T2 pass receipt.",
+  "execution_principles": {
+    "routine_changes": "Verify affected consumers only; this inventory does not authorize full-repo pytest, 32-suite E2E, or default verify_module_data_boundary.py reruns.",
+    "formal_default_qualification": "Requires a maintainer-confirmed scope and window reconciling collection, JUnit, exit status, and owned resource retirement on one frozen candidate; record not-run, skipped, and deferred items separately.",
+    "historical_count_policy": "Do not treat historical 3,337 collected nodes as a target and do not resurrect retired screenshot, recording, or split Workspace deployment fixtures."
+  },
+  "baseline": {
+    "historical_default": {
+      "candidate": "f6e349674370fc5bfe94636cedd530950c750c83",
+      "run": "t1-t2-prereqs-f6e349674-1",
+      "status": "failed",
+      "static_selector_entries": 429,
+      "unique_selectors": 428,
+      "duplicate_selectors": ["tests/test_notification_delivery_scope.py"],
+      "profiles_total": 25,
+      "isolated_profiles": 24,
+      "collected_nodes": 3337,
+      "outcomes": {
+        "passed": 3241,
+        "failed": 0,
+        "error": 3,
+        "skipped_deferred": 1,
+        "not_run": 92
+      },
+      "ledger_reference": "docs/plans/evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md#默认联合轮终局-f6e349674",
+      "g7_evidence_reference": "docs/plans/evidence/1793261328_test-governance-module-plugin-contracts/g7-current-consumers.json"
+    },
+    "current_base": {
+      "branch": "dev",
+      "commit": "2f99ea65b0065ad7df17e4e73b062919be0cbeaf",
+      "origin_dev_at_mapping": "2f99ea65b0065ad7df17e4e73b062919be0cbeaf",
+      "commits_ahead_of_origin": 0,
+      "deduplication_applied": {
+        "file": "scripts/verify_module_data_boundary.py",
+        "removed_duplicate_selector": "tests/test_notification_delivery_scope.py",
+        "removed_line_on_base": 2914,
+        "retained_line_on_base": 2897,
+        "anti_drift_guard": "scripts/test_module_data_selection.py"
+      }
+    }
+  },
+  "current_collection": {
+    "mode": "Read-only pytest --collect-only via CollectionManifest over scripts.verify_module_data_boundary.TEST_FILES; no test execution.",
+    "exit_code": 0,
+    "selectors_total": 438,
+    "selectors_unique": 438,
+    "distinct_test_files": 430,
+    "duplicate_selectors": 0,
+    "collected_nodes": 3320,
+    "collected_unique_nodes": 3320,
+    "duplicate_nodes": 0,
+    "unmatched_nodes": 0,
+    "zero_node_selectors": 0,
+    "profiles_total": 33,
+    "ordinary_profile": {
+      "selector_count": 404,
+      "collected_nodes": 3217
+    },
+    "isolated_profiles_summary": {
+      "profile_count": 32,
+      "selector_count": 34,
+      "collected_nodes": 103
+    },
+    "selector_overlap_notes": [
+      {
+        "file": "tests/test_dataset_import_delivery.py",
+        "selectors": [
+          "tests/test_dataset_import_delivery.py::test_notification_delivery_acks_after_publish_by_persisted_id",
+          "tests/test_dataset_import_delivery.py"
+        ],
+        "note": "Selected both by nodeid and whole file in TEST_FILES; pytest deduplicates overlapping collection arguments to 0 duplicate collected nodes."
+      }
+    ]
+  },
+  "profile_routing": {
+    "ordinary": {
+      "selector_count": 404,
+      "collected_nodes": 3217,
+      "selectors": [
+        "tests/test_video_frame_service.py",
+        "tests/test_video_control_worker_binding.py",
+        "tests/test_video_derivative_seeds.py::test_request_ownership_marker_cannot_be_supplied_by_caller",
+        "tests/test_video_derivative_seeds.py::test_fixture_video_publication_proof_uses_private_postgres_state",
+        "tests/test_jobs_fixture_cleanup_binding.py",
+        "tests/test_jobs_fixture_cleanup_native.py",
+        "tests/test_jobs_fixture_media_publication_native.py",
+        "tests/test_predictions_import.py::test_owned_prediction_import_cleanup",
+        "tests/test_fixture_run_ownership.py::test_synchronous_fixture_import_proof",
+        "tests/test_fixture_run_ownership.py::test_synchronous_fixture_import_proof_rejects",
+        "tests/test_retry_born_dataset_scope.py",
+        "tests/test_cross_frame_born_dataset_scope.py",
+        "tests/test_task_upload_managed_contract.py",
+        "tests/test_inference_pool_reference_native.py",
+        "tests/test_labeling_video_control_native.py",
+        "tests/test_labeling_annotation_transfer_native.py",
+        "tests/test_labeling_core_read_native.py",
+        "tests/test_labeling_export_core_locks_native.py",
+        "tests/test_image_export_scope_native.py",
+        "tests/test_fixture_export_owner_native.py",
+        "tests/test_labeling_mask_quality_native.py",
+        "tests/test_labeling_spatial_quality_native.py",
+        "tests/test_labeling_task_maintenance_native.py",
+        "tests/test_audit_fixture_cleanup_native.py",
+        "tests/test_audit_metadata_delivery_live.py",
+        "tests/test_scale_seed_workspace_native.py",
+        "tests/test_workspace_e2e_native.py",
+        "tests/test_gpu_registry_delete_noop_native.py",
+        "tests/test_identity_e2e_replay.py",
+        "tests/test_identity_e2e_native.py",
+        "tests/test_identity_fixture_preferences_native.py",
+        "tests/test_identity_role_audit_native.py",
+        "tests/test_identity_seed_selection_native.py",
+        "tests/test_media_seed_identity_native.py",
+        "tests/test_workspace_seed_operator_native.py",
+        "tests/test_workspace_worker_assembly_live.py",
+        "tests/test_workspace_cross_frame_worker_live.py",
+        "tests/test_workspace_export_worker_live.py",
+        "tests/test_workspace_consumer_profile_native.py",
+        "tests/test_video_deletion_retirement_native.py",
+        "tests/test_video_tracker_input_retention_roles.py",
+        "tests/test_video_deletion_retirement_bindings.py",
+        "tests/test_workspace_dataset_unlink_native.py",
+        "tests/test_labeling_counter_deltas_native.py",
+        "tests/test_labeling_counter_deltas_workflows_native.py",
+        "tests/test_workspace_project_facts_legacy.py",
+        "tests/test_workspace_project_facts_native.py",
+        "tests/test_workspace_project_facts_consumers_native.py",
+        "tests/test_workspace_member_facts_legacy.py",
+        "tests/test_workspace_member_facts_native.py",
+        "tests/test_workspace_actor_scope_legacy.py",
+        "tests/test_workspace_actor_scope_native.py",
+        "tests/test_project_owner_persistence_native.py",
+        "tests/test_labeling_project_counter_owner_native.py",
+        "tests/test_workspace_actorless_project_read_native.py",
+        "tests/test_workspace_member_locks_native.py",
+        "tests/test_workspace_project_get_native.py",
+        "tests/test_workspace_project_reference_native.py",
+        "tests/test_workspace_project_exclusive_native.py",
+        "tests/test_workspace_project_access_unlocked_native.py",
+        "tests/test_workspace_project_deletion_native.py",
+        "tests/test_workspace_project_maintenance_native.py",
+        "tests/test_identity_registration_status_native.py",
+        "tests/test_identity_read_relations_native.py",
+        "tests/test_identity_accepted_api_key_native.py",
+        "tests/test_training_authority_contract.py",
+        "tests/test_training_dataset_original_boundaries.py::test_http_training_authority_without_private_identity_select",
+        "tests/test_training_dataset_owner_fences.py::test_finalization_fails_closed_on_locked_snapshot_rows",
+        "tests/test_inference_gpu_routing_native.py::test_gpu_endpoint_opens_large_native_capture_without_losing_metadata",
+        "tests/test_video_restore_native.py",
+        "tests/test_video_restore_live.py",
+        "tests/test_video_restore_worker_live.py",
+        "tests/test_labeling_video_writer_native.py",
+        "tests/test_labeling_task_locks_native.py",
+        "tests/test_labeling_task_workflow_native.py",
+        "tests/test_labeling_annotation_statistics_native.py",
+        "tests/test_labeling_scene_track_domain_native.py",
+        "tests/test_labeling_annotation_writes_native.py",
+        "tests/test_labeling_annotation_bulk_native.py",
+        "tests/test_labeling_video_bbox_editing_native.py",
+        "tests/test_labeling_batch_control_native.py",
+        "tests/test_labeling_runtime_acl_native.py",
+        "tests/test_labeling_e2e_fixture_writes_native.py",
+        "tests/test_labeling_prediction_records_native.py",
+        "tests/test_labeling_scene_track_commands_native.py",
+        "tests/test_labeling_cross_frame_writes_native.py",
+        "tests/test_labeling_annotation_prediction_native.py",
+        "tests/test_labeling_annotation_maintenance_native.py",
+        "tests/test_labeling_discussion_native.py",
+        "tests/test_labeling_mask_edits_native.py",
+        "tests/test_labeling_scene_read_native.py",
+        "tests/test_labeling_module_restore.py",
+        "tests/test_labeling_module_api_cold.py",
+        "tests/test_labeling_video_writer_live.py",
+        "tests/test_labeling_video_writer_restore.py",
+        "tests/test_video_execution_checkpoints_native.py",
+        "tests/test_video_window_journal_native.py",
+        "tests/test_video_execution_plan_native_validation.py",
+        "tests/test_video_window_recovery_live.py",
+        "tests/test_video_window_delivery_live.py",
+        "tests/test_video_window_journal.py",
+        "tests/test_inference_scope_retirement_native.py",
+        "tests/test_video_execution_native.py",
+        "tests/test_video_execution_fences.py",
+        "tests/test_video_execution_summary.py",
+        "tests/test_video_execution_bindings.py",
+        "tests/test_inference_scope_retirement_live.py",
+        "tests/test_inference_scope_retirement_bindings.py",
+        "tests/test_inference_routing_native.py",
+        "tests/test_inference_registry_ingress_native.py",
+        "tests/test_inference_registry_ingress_postgres.py",
+        "tests/test_inference_registry_ingress_selection.py",
+        "tests/test_inference_registry_ingress_bindings.py",
+        "tests/test_inference_registry_ingress_restore.py",
+        "tests/test_inference_registry_ingress_migrations.py",
+        "tests/test_inference_health_data_native.py",
+        "tests/test_inference_health_data_binding.py",
+        "tests/test_inference_health_data_postgres.py",
+        "tests/test_inference_backend_probe_native.py",
+        "tests/test_inference_backend_probe_bindings.py",
+        "tests/test_inference_backend_probe_restore.py",
+        "tests/test_inference_backend_dependency_reads_native.py",
+        "tests/test_inference_backend_dependency_reads_restore.py",
+        "tests/test_workspace_backend_bindings_native.py",
+        "tests/test_workspace_backend_bindings_restore.py",
+        "tests/test_inference_pipeline_native.py",
+        "tests/test_workspace_project_access_step_native.py",
+        "tests/test_workspace_project_authority_locking.py",
+        "tests/test_workspace_project_access_step_restore.py",
+        "tests/test_workspace_class_rename_native.py",
+        "tests/test_project_class_rename_owner.py",
+        "tests/test_project_class_rename_owner_fences.py",
+        "tests/test_labeling_class_rename_effect.py",
+        "tests/test_labeling_class_query_native.py",
+        "tests/test_workspace_project_access_queries_native.py",
+        "tests/test_workspace_project_access_migration.py",
+        "tests/test_workspace_project_access_read_phases.py",
+        "tests/test_workspace_directory_queries_native.py",
+        "tests/test_workspace_member_authority_migration.py",
+        "tests/test_workspace_member_authority_temporals.py",
+        "tests/test_identity_admin_passwords_native.py",
+        "tests/test_identity_admin_passwords_roles.py",
+        "tests/test_identity_admin_passwords_restore.py",
+        "tests/test_identity_platform_roles_native.py",
+        "tests/test_identity_platform_roles_roles.py",
+        "tests/test_identity_platform_roles_restore.py",
+        "tests/test_identity_suspensions_native.py",
+        "tests/test_identity_suspensions_roles.py",
+        "tests/test_identity_suspensions_restore.py",
+        "tests/test_identity_deletions_native.py",
+        "tests/test_identity_deletions_roles.py",
+        "tests/test_identity_deletions_restore.py",
+        "tests/test_identity_offboarding_native.py",
+        "tests/test_identity_offboarding_roles.py",
+        "tests/test_identity_offboarding_restore.py",
+        "tests/test_identity_briefs_native.py",
+        "tests/test_identity_briefs_roles.py",
+        "tests/test_identity_briefs_restore.py",
+        "tests/test_identity_provisioning_native.py",
+        "tests/test_workspace_membership_native.py",
+        "tests/test_workspace_membership_roles.py",
+        "tests/test_workspace_membership_restore.py",
+        "tests/test_workspace_owner_transfer_native.py",
+        "tests/test_workspace_owner_transfer_roles.py",
+        "tests/test_workspace_owner_transfer_restore.py",
+        "tests/test_workspace_owner_transfer_namespace_migration.py",
+        "tests/test_workspace_owner_transfer_failures.py",
+        "tests/test_owner_data_namespace_security.py",
+        "tests/test_grant_namespace_security.py",
+        "tests/test_workspace_configuration_dependencies_native.py",
+        "tests/test_workspace_configuration_dependencies_roles.py",
+        "tests/test_workspace_project_query_support_native.py",
+        "tests/test_identity_actor_context_native.py",
+        "tests/test_identity_account_locks_native.py",
+        "tests/test_users_role_matrix.py::TestRoleMatrix::test_sa_cannot_demote_last_super_admin",
+        "tests/test_identity_directory_native.py",
+        "tests/test_identity_directory_roles.py",
+        "tests/test_identity_invitations_native.py",
+        "tests/test_identity_invitations_roles.py",
+        "tests/test_identity_invitation_gateway.py",
+        "tests/test_identity_mail_topology.py",
+        "tests/test_identity_deactivation_native.py",
+        "tests/test_identity_deactivation_roles.py",
+        "tests/test_identity_groups_native.py",
+        "tests/test_identity_groups_roles.py",
+        "tests/test_identity_challenges_native.py",
+        "tests/test_identity_challenges_roles.py",
+        "tests/test_identity_credential_mail_native.py",
+        "tests/test_identity_recovery_gateway.py",
+        "tests/test_identity_accounts_native.py",
+        "tests/test_identity_presence_separation.py",
+        "tests/test_identity_preferences_separation.py",
+        "tests/test_identity_accounts_roles.py",
+        "tests/test_identity_sessions_native.py",
+        "tests/test_identity_sessions_roles.py",
+        "tests/test_identity_auth_native.py",
+        "tests/test_identity_auth_roles.py",
+        "tests/test_workspace_data_contract.py",
+        "tests/test_task_append_data_contract.py",
+        "tests/test_task_append_consumer.py",
+        "tests/test_creation_authority_contract.py",
+        "tests/test_task_creation_job_contract.py",
+        "tests/test_initial_task_creation_contract.py",
+        "tests/test_task_creation_bindings.py",
+        "tests/test_task_creation_runtime.py",
+        "tests/test_task_creation_handoff.py",
+        "tests/test_project_owned_cleanup_contract.py",
+        "tests/test_project_labeling_delete_contract.py",
+        "tests/test_project_deletion_retention.py",
+        "tests/test_project_deletion_bindings.py",
+        "tests/test_deleted_project_job_scope.py",
+        "tests/test_project_deletion_data.py",
+        "tests/test_model_lineage.py",
+        "tests/test_project_task_datasets.py",
+        "tests/test_sample_evaluations.py",
+        "tests/test_async_jobs.py",
+        "tests/test_jobs_lifecycle_refresh_loader.py",
+        "tests/test_jobs_lifecycle_native.py",
+        "tests/test_jobs_list_query.py",
+        "tests/test_jobs_list_query_native.py",
+        "tests/test_async_job_actor_freshness.py",
+        "tests/test_notifications.py",
+        "tests/test_notification_terminal_append.py",
+        "tests/test_notification_jobs_scope.py",
+        "tests/test_notification_inbox_query.py",
+        "tests/test_notification_delivery_read.py",
+        "tests/test_notification_delivery_read_native.py",
+        "tests/test_notification_read_relations_baseline.py",
+        "tests/test_notification_delivery_scope.py",
+        "tests/test_notification_read_state_cache.py",
+        "tests/test_notification_delete_cache.py",
+        "tests/test_notifications_delete_baseline.py",
+        "tests/test_notification_read_relations.py",
+        "tests/test_dataset_import_delivery.py::test_notification_delivery_acks_after_publish_by_persisted_id",
+        "tests/test_ws_revalidation.py::test_notification_parser_resolves_stored_row",
+        "tests/test_notifications_socket_lifecycle.py",
+        "tests/test_notifications_socket_live.py",
+        "tests/test_audit_append_adapter.py",
+        "tests/test_audit_append_native.py",
+        "tests/test_audit_logs.py",
+        "tests/test_audit_query_routes.py",
+        "tests/test_audit_read_relations_native.py",
+        "tests/test_audit_project_scope.py::test_project_admin_audit_scope_and_superadmin_global_access",
+        "tests/test_audit_project_scope.py::test_project_admin_audit_relation_preserves_native_inet_dto_values",
+        "tests/test_audit_metadata_append.py",
+        "tests/test_pointcloud_box3d_annotation.py",
+        "tests/test_pointcloud_import.py",
+        "tests/test_pointcloud_manifest.py",
+        "tests/test_pointcloud_scene_e2e.py",
+        "tests/test_module_data_roles.py",
+        "tests/test_datasets_upload_zip.py",
+        "tests/test_scene_inference.py",
+        "tests/test_mask_formats_m6.py",
+        "tests/test_assets_source_ingest.py",
+        "tests/test_dataset_source_ingest_native.py",
+        "tests/test_dataset_source_ingest_runtime.py",
+        "tests/test_dataset_source_ingest_authority_runtime.py",
+        "tests/test_dataset_source_ingest_delivery.py",
+        "tests/test_dataset_import.py",
+        "tests/test_dataset_import_native.py",
+        "tests/test_dataset_import_migration.py",
+        "tests/test_assets_import_bindings.py",
+        "tests/test_dataset_import_runtime.py",
+        "tests/test_dataset_import_delivery.py",
+        "tests/test_dataset_import_delivery_native.py",
+        "tests/test_dataset_link.py",
+        "tests/test_dataset_link_kind_match.py",
+        "tests/test_dataset_source_deletion_bindings.py",
+        "tests/test_dataset_source_deletion.py",
+        "tests/test_dataset_source_http.py",
+        "tests/test_dataset_source_guards.py",
+        "tests/test_dataset_source_aux_retention.py",
+        "tests/test_dataset_source_auxiliary_references.py",
+        "tests/test_dataset_source_support.py",
+        "tests/test_dataset_upload_data.py",
+        "tests/test_dataset_upload_native.py",
+        "tests/test_dataset_upload_storage.py",
+        "tests/test_dataset_upload_s3_runtime.py",
+        "tests/test_upload_retry_migration.py",
+        "tests/test_dataset_source_retention.py",
+        "tests/test_dataset_unlink_labeling.py",
+        "tests/test_dataset_unlink_assets.py",
+        "tests/test_dataset_unlink_jobs_audit.py",
+        "tests/test_dataset_unlink_coordinator.py",
+        "tests/test_dataset_unlink_bindings.py",
+        "tests/test_dataset_unlink_http.py",
+        "tests/test_asset_storage_cleanup_runtime.py",
+        "tests/test_assets_source_native.py",
+        "tests/test_assets_source_runtime.py",
+        "tests/test_assets_source_gateway.py",
+        "tests/test_assets_catalog_native.py",
+        "tests/test_assets_spatial_native.py",
+        "tests/test_assets_spatial_calibration_native.py",
+        "tests/test_assets_spatial_native_peer.py",
+        "tests/test_assets_spatial_preparation.py",
+        "tests/test_assets_spatial_concurrency.py",
+        "tests/test_assets_spatial_receipt_native.py",
+        "tests/test_assets_spatial_workflow_native.py",
+        "tests/test_assets_spatial_pose_pairs_native.py",
+        "tests/test_storage_connections_native.py",
+        "tests/test_storage_connections_peer.py",
+        "tests/test_assets_operator_native.py",
+        "tests/test_assets_operator_peer.py",
+        "tests/test_assets_operator_runtime.py",
+        "tests/test_assets_media_native.py",
+        "tests/test_assets_media_control_native.py",
+        "tests/test_image_source_authorities.py",
+        "tests/test_assets_images_sources.py",
+        "tests/test_assets_images_control.py",
+        "tests/test_assets_images_execution.py",
+        "tests/test_assets_images_retention.py",
+        "tests/test_image_cleanup_native.py",
+        "tests/test_native_pyramid_saved_targets.py",
+        "tests/test_image_admission_share.py",
+        "tests/test_image_thumbnail_publication.py",
+        "tests/test_image_pyramid.py",
+        "tests/test_image_backfill_maintenance.py",
+        "tests/test_image_worker_compatibility.py",
+        "tests/test_media_celery_loops.py",
+        "tests/test_image_pyramid_http.py",
+        "tests/test_assets_images_live.py",
+        "tests/test_assets_images_containers.py",
+        "tests/test_assets_images_migration_contract.py",
+        "tests/test_assets_images_migration_guards.py",
+        "tests/test_assets_accepted_inputs_migration.py",
+        "tests/test_assets_input_manifests_migration.py",
+        "tests/test_assets_input_manifests_native.py",
+        "tests/test_scene_image_input_manifests_migration.py",
+        "tests/test_scene_image_input_manifests_native.py",
+        "tests/test_video_input_authority_migration.py",
+        "tests/test_video_input_authorities_native.py",
+        "tests/test_video_input_authority_roles.py",
+        "tests/test_video_input_selection_migration.py",
+        "tests/test_video_input_selection_native.py",
+        "tests/test_video_input_selection_roles.py",
+        "tests/test_video_input_ledger_state.py",
+        "tests/test_video_input_ledger_migration.py",
+        "tests/test_video_input_ledger_control.py",
+        "tests/test_video_input_ledger_execution.py",
+        "tests/test_video_input_ledger_retention.py",
+        "tests/test_video_input_ledger_lifecycle.py",
+        "tests/test_video_input_ledger_roles.py",
+        "tests/test_video_input_claim_authority.py",
+        "tests/test_video_tracker_input_migration.py",
+        "tests/test_video_tracker_input_native.py",
+        "tests/test_video_tracker_input_roles.py",
+        "tests/test_video_input_s3_scope.py",
+        "tests/test_native_schema_autogeneration.py",
+        "tests/test_accepted_input_preannotation.py",
+        "tests/test_preannotation_result_consumer.py",
+        "tests/test_preannotation_results_native.py",
+        "tests/test_preannotation_results_migration.py",
+        "tests/test_preannotation_result_roles.py",
+        "tests/test_batch_result_consumers_native.py",
+        "tests/test_batch_result_native_peer.py",
+        "tests/test_preannotation_result_mask_roots.py",
+        "tests/test_batch_result_reset.py",
+        "tests/test_batch_result_worker_live.py",
+        "tests/test_preannotation_results_runtime_image.py",
+        "tests/test_prediction_retry_input_deferral.py",
+        "tests/test_prediction_retry_native_migration.py",
+        "tests/test_prediction_retries_native.py",
+        "tests/test_tracker_running_mask_roots.py",
+        "tests/test_tracker_running_mask_roots_native.py",
+        "tests/test_migration_0232_tracker_running_mask_roots.py",
+        "tests/test_raster_mask_lock_boundary.py",
+        "tests/test_mask_gc_migration.py",
+        "tests/test_mask_gc_bindings.py",
+        "tests/test_mask_gc_preview_native.py",
+        "tests/test_mask_gc_preview_authority.py",
+        "tests/test_mask_gc_cutover_peer.py",
+        "tests/test_assets_accepted_inputs_native.py",
+        "tests/test_accepted_inputs_api_bridge.py",
+        "tests/test_accepted_inputs_live.py",
+        "tests/test_video_input_live.py",
+        "tests/test_fixture_native_media_admissions.py::test_legacy_native_reader_origin_is_not_reused_until_retired",
+        "tests/test_task_views.py",
+        "tests/test_task_views_filter.py",
+        "tests/test_tasks_drill_filters.py",
+        "tests/test_tasks_list_sequence_order.py",
+        "tests/test_assets_catalog_gateway.py",
+        "tests/test_assets_media_peer.py",
+        "tests/test_assets_media_live.py",
+        "tests/test_assets_media_containers.py",
+        "tests/test_assets_spatial_gateway.py",
+        "tests/test_assets_spatial_runtime.py",
+        "tests/test_assets_catalog_runtime.py",
+        "tests/test_asset_association_reads.py",
+        "tests/test_asset_association_runtime.py",
+        "tests/test_assets_associations_gateway.py",
+        "tests/test_dataset_api_scopes.py",
+        "tests/test_datasets_list_has_scenes.py",
+        "tests/test_dataset_axis_convention.py",
+        "tests/test_tool_bindings_helpers.py",
+        "tests/test_worker_signals.py",
+        "tests/test_security_headers.py",
+        "tests/test_create_tasks_worker.py",
+        "tests/test_batch_delete_force.py",
+        "tests/test_batch_delete_reset.py",
+        "tests/test_batch_split_by_scene.py",
+        "tests/test_batch_split_semantics.py",
+        "tests/test_project_scene_mode.py",
+        "tests/test_operational_ingest_boundaries.py",
+        "tests/test_storage_connections_api.py"
+      ]
+    },
+    "isolated_profiles": {
+      "identity-image-import": {
+        "selector_count": 1,
+        "collected_nodes": 2,
+        "selectors": ["tests/test_image_import_identity_profile.py"]
+      },
+      "fixture-auxiliary-retirement": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_fixture_auxiliary_retirement.py"]
+      },
+      "fixture-audit-migration": {
+        "selector_count": 1,
+        "collected_nodes": 2,
+        "selectors": ["tests/test_fixture_audit_migration.py"]
+      },
+      "audit-maintenance-native": {
+        "selector_count": 1,
+        "collected_nodes": 2,
+        "selectors": ["tests/test_audit_maintenance_native.py"]
+      },
+      "audit-maintenance-module": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_audit_maintenance_module_live.py"]
+      },
+      "audit-consumers-cold": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_audit_consumers_cold.py"]
+      },
+      "audit-maintenance-consumers-cold": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_audit_maintenance_consumers_cold.py"]
+      },
+      "parent-seed-native": {
+        "selector_count": 1,
+        "collected_nodes": 27,
+        "selectors": ["tests/test_seed_parent_operator_native.py"]
+      },
+      "identity-role-audit": {
+        "selector_count": 1,
+        "collected_nodes": 2,
+        "selectors": ["tests/test_identity_role_audit_live.py"]
+      },
+      "identity-e2e": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_identity_e2e_live.py"]
+      },
+      "scale-seed": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_identity_seed_selection_live.py"]
+      },
+      "notifications-restore": {
+        "selector_count": 1,
+        "collected_nodes": 2,
+        "selectors": ["tests/test_notifications_module_assembly_live.py"]
+      },
+      "media-seed": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_media_seed_identity_live.py"]
+      },
+      "parent-seed": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_seed_parent_operator_live.py"]
+      },
+      "workspace-assembly": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_workspace_module_assembly_live.py"]
+      },
+      "workspace-seed": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_workspace_seed_operator_live.py"]
+      },
+      "workspace-import": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_workspace_import_cli_live.py"]
+      },
+      "workspace-video-tracker": {
+        "selector_count": 1,
+        "collected_nodes": 2,
+        "selectors": ["tests/test_workspace_video_tracker_worker_live.py"]
+      },
+      "video-deletion-http": {
+        "selector_count": 1,
+        "collected_nodes": 8,
+        "selectors": ["tests/test_video_deletion_retirement_http_native.py"]
+      },
+      "pre-retry-migration": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_prediction_retry_legacy_migration.py"]
+      },
+      "video-input-lanes": {
+        "selector_count": 1,
+        "collected_nodes": 13,
+        "selectors": ["tests/test_video_tracker_input_lifecycle.py"]
+      },
+      "mask-gc-fences": {
+        "selector_count": 3,
+        "collected_nodes": 20,
+        "selectors": [
+          "tests/test_mask_gc_native.py",
+          "tests/test_mask_gc_protocol_native.py",
+          "tests/test_mask_gc_live.py"
+        ]
+      },
+      "native-lifecycle": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_native_pyramid_lifecycle_live.py"]
+      },
+      "mask-gc-collection": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": ["tests/test_mask_gc_collection_live.py"]
+      },
+      "mask-gc-runtime": {
+        "selector_count": 1,
+        "collected_nodes": 2,
+        "selectors": ["tests/test_mask_gc_runtime_image.py"]
+      },
+      "reclaim-scope": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": [
+          "tests/test_managed_original_reclaim_fences.py::test_selected_group_and_global_pages_share_facts_but_not_scope"
+        ]
+      },
+      "reclaim-unknown": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": [
+          "tests/test_managed_original_reclaim_fences.py::test_reconciliation_unknown_coverage_survives_empty_retirement_table"
+        ]
+      },
+      "reclaim-operation": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": [
+          "tests/test_managed_original_reclaim_fences.py::test_only_valid_current_attempt_can_exclude_its_exact_operation"
+        ]
+      },
+      "reclaim-read-only": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": [
+          "tests/test_managed_original_reclaim.py::test_observation_gets_do_not_claim_reclamation_in_read_only_transactions"
+        ]
+      },
+      "reclaim-version-delete": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": [
+          "tests/test_managed_original_reclaim.py::test_http_preview_commit_and_worker_real_small_version_delete"
+        ]
+      },
+      "reclaim-original-lock": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": [
+          "tests/test_original_owner_acl_live.py::test_restricted_original_wait_and_permission_recheck"
+        ]
+      },
+      "reclaim-original-retention": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": [
+          "tests/test_original_owner_acl_live.py::test_restricted_original_retention_refuses_claimed_object"
+        ]
+      }
+    }
+  },
+  "delta_from_f6e349674": {
+    "added_selectors": [
+      {
+        "selector": "tests/test_fixture_native_media_admissions.py::test_legacy_native_reader_origin_is_not_reused_until_retired",
+        "profile": "ordinary",
+        "commit": "765f8ec779cb943cde48b054cc0327cd962f03a2",
+        "reason": "Retains bo0478 proxy-origin reuse regression after retiring screenshot catalog automation."
+      },
+      {
+        "selector": "tests/test_video_derivative_seeds.py::test_request_ownership_marker_cannot_be_supplied_by_caller",
+        "profile": "ordinary",
+        "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Video derivative fixture ownership marker boundary."
+      },
+      {
+        "selector": "tests/test_video_derivative_seeds.py::test_fixture_video_publication_proof_uses_private_postgres_state",
+        "profile": "ordinary",
+        "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Video derivative fixture publication proof private-state guard."
+      },
+      {
+        "selector": "tests/test_predictions_import.py::test_owned_prediction_import_cleanup",
+        "profile": "ordinary",
+        "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Owned synchronous prediction import cleanup boundary."
+      },
+      {
+        "selector": "tests/test_fixture_run_ownership.py::test_synchronous_fixture_import_proof",
+        "profile": "ordinary",
+        "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Synchronous fixture import ownership proof."
+      },
+      {
+        "selector": "tests/test_fixture_run_ownership.py::test_synchronous_fixture_import_proof_rejects",
+        "profile": "ordinary",
+        "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Synchronous fixture import ownership rejection boundaries."
+      },
+      {
+        "selector": "tests/test_jobs_lifecycle_refresh_loader.py",
+        "profile": "ordinary",
+        "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Jobs lifecycle refresh loader boundary."
+      },
+      {
+        "selector": "tests/test_jobs_lifecycle_native.py",
+        "profile": "ordinary",
+        "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Jobs lifecycle native LOGIN boundary."
+      },
+      {
+        "selector": "tests/test_managed_original_reclaim_fences.py::test_selected_group_and_global_pages_share_facts_but_not_scope",
+        "profile": "reclaim-scope",
+        "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Managed-original reclamation isolated profile (empty-DB requirement)."
+      },
+      {
+        "selector": "tests/test_managed_original_reclaim_fences.py::test_reconciliation_unknown_coverage_survives_empty_retirement_table",
+        "profile": "reclaim-unknown",
+        "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Managed-original reclamation isolated profile (empty-DB requirement)."
+      },
+      {
+        "selector": "tests/test_managed_original_reclaim_fences.py::test_only_valid_current_attempt_can_exclude_its_exact_operation",
+        "profile": "reclaim-operation",
+        "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Managed-original reclamation isolated profile (empty-DB requirement)."
+      },
+      {
+        "selector": "tests/test_managed_original_reclaim.py::test_observation_gets_do_not_claim_reclamation_in_read_only_transactions",
+        "profile": "reclaim-read-only",
+        "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Managed-original reclamation isolated profile (empty-DB requirement)."
+      },
+      {
+        "selector": "tests/test_managed_original_reclaim.py::test_http_preview_commit_and_worker_real_small_version_delete",
+        "profile": "reclaim-version-delete",
+        "commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Managed-original reclamation isolated profile (empty-DB requirement)."
+      },
+      {
+        "selector": "tests/test_jobs_fixture_cleanup_native.py",
+        "profile": "ordinary",
+        "test_introduced_commit": "9873647a4a8ba5dc3da3310fbb0f2ea7c9149b28",
+        "selection_issue": "#189",
+        "reason": "Fast native Jobs fixture cleanup ownership, rollback-only workspace guard, and non-test DB rejection contracts."
+      },
+      {
+        "selector": "tests/test_jobs_fixture_media_publication_native.py",
+        "profile": "ordinary",
+        "test_introduced_commit": "05bb30bd2bc946627a8a99039e6b1ca49f132f57",
+        "selection_issue": "#189",
+        "reason": "Fast native fixture media publication settlement boundary."
+      },
+      {
+        "selector": "tests/test_fixture_export_owner_native.py",
+        "profile": "ordinary",
+        "test_introduced_commit": "9222592619b4124d17c6dc67ebc0f3ed62b639b3",
+        "selection_issue": "#189",
+        "reason": "Fast native fixture export receipt private-owner boundary."
+      },
+      {
+        "selector": "tests/test_fixture_audit_migration.py",
+        "profile": "fixture-audit-migration",
+        "test_introduced_commit": "859e7af699364f76c8ce40aafab88b40f32a509d",
+        "selection_issue": "#189",
+        "reason": "Fast native audit receipt forward-migration guard routed to isolated fixture-audit-migration profile because it creates standalone migration databases."
+      },
+      {
+        "selector": "tests/test_identity_mail_topology.py",
+        "profile": "ordinary",
+        "commit": "08a7df163efe8548ffc9d1f6c0d839ccf844facd",
+        "test_introduced_commit": "40f8ba593ef173fb8f158d7777917fbef99a9676",
+        "reason": "Replaces retired test_identity_mail_v2_gateway.py after embedding identity admission and consolidating durable mail delivery."
+      },
+      {
+        "selector": "tests/test_original_owner_acl_live.py::test_restricted_original_wait_and_permission_recheck",
+        "profile": "reclaim-original-lock",
+        "commit": "8fd3c64dced0c2a9a890902d47f79db4f36c51f1",
+        "reason": "Original-owner live permission and lock recheck isolated profile (requires empty registration and Jobs ledger)."
+      },
+      {
+        "selector": "tests/test_original_owner_acl_live.py::test_restricted_original_retention_refuses_claimed_object",
+        "profile": "reclaim-original-retention",
+        "commit": "8fd3c64dced0c2a9a890902d47f79db4f36c51f1",
+        "reason": "Original-owner live retention refusal isolated profile (requires empty registration and Jobs ledger)."
+      }
+    ],
+    "profile_routing_changes": [
+      {
+        "selector": "tests/test_workspace_module_assembly_live.py",
+        "from_profile": "ordinary",
+        "to_profile": "workspace-assembly",
+        "commit": "52c234c9b14d5bc210e6277d29ba65c76235e49a",
+        "follow_up_commit": "2cdcf9fed62447089cbc40e10478630dbed7fda4",
+        "reason": "Isolated embedded Workspace consumer assembly profile without split deployments; subsequently qualified guide publication per consumer profile."
+      },
+      {
+        "selector": "tests/test_identity_recording_live.py",
+        "from_profile": "recording",
+        "to_profile": null,
+        "commit": "765f8ec779cb943cde48b054cc0327cd962f03a2",
+        "reason": "Retired along with video/screenshot recording fixture automation."
+      }
+    ],
+    "replacements": [
+      {
+        "historical_selector": "tests/test_screenshot_seed_catalog.py",
+        "replacement_selectors": [
+          "tests/test_fixture_native_media_admissions.py::test_legacy_native_reader_origin_is_not_reused_until_retired"
+        ],
+        "commit": "765f8ec779cb943cde48b054cc0327cd962f03a2",
+        "scope_note": "Preserves the native reader proxy-origin reuse guard after retirement without resurrecting screenshot catalog seeding or capture automation."
+      },
+      {
+        "historical_selector": "tests/test_workspace_capacity_live.py",
+        "replacement_selectors": [
+          "tests/test_workspace_module_assembly_live.py",
+          "tests/test_workspace_consumer_profile_native.py"
+        ],
+        "commit": "52c234c9b14d5bc210e6277d29ba65c76235e49a",
+        "scope_note": "Split Workspace service deployments and Compose overlays were retired (8c17c89def0b4c6fc8ac6ec51edcf9574fda73c9); embedded consumer ACL, Node, receipt, probe-loss, and restore checks remain in workspace-assembly."
+      },
+      {
+        "historical_selector": "tests/test_workspace_module_healthcheck.py",
+        "replacement_selectors": ["tests/test_workspace_module_assembly_live.py"],
+        "commit": "52c234c9b14d5bc210e6277d29ba65c76235e49a",
+        "scope_note": "Split Workspace service healthcheck retired alongside split Workspace deployments."
+      },
+      {
+        "historical_selector": "tests/test_inference_registry_ingress_binding.py",
+        "replacement_selectors": [
+          "tests/test_inference_registry_ingress_native.py",
+          "tests/test_inference_registry_ingress_postgres.py",
+          "tests/test_inference_registry_ingress_selection.py",
+          "tests/test_inference_registry_ingress_bindings.py",
+          "tests/test_inference_registry_ingress_restore.py",
+          "tests/test_inference_registry_ingress_migrations.py"
+        ],
+        "commit": "765f8ec779cb943cde48b054cc0327cd962f03a2",
+        "scope_note": "Legacy screenshot/recording ingress binding test retired; active ingress contracts remain in the six retained modules."
+      },
+      {
+        "historical_selector": "tests/test_inference_registry_ingress_uow.py",
+        "replacement_selectors": [
+          "tests/test_inference_registry_ingress_native.py",
+          "tests/test_inference_registry_ingress_bindings.py"
+        ],
+        "commit": "765f8ec779cb943cde48b054cc0327cd962f03a2",
+        "scope_note": "Legacy screenshot/recording ingress UoW helper test retired; active ingress contracts remain in retained modules."
+      },
+      {
+        "historical_selector": "tests/test_labeling_video_writer_containers.py",
+        "replacement_selectors": [
+          "tests/test_labeling_video_writer_live.py",
+          "tests/test_labeling_video_writer_native.py",
+          "tests/test_labeling_video_writer_restore.py"
+        ],
+        "commit": "08a7df163efe8548ffc9d1f6c0d839ccf844facd",
+        "scope_note": "Split labeling video writer container deployment qualifier retired in 24d225f7873af9357514ee13e46d07352bef6f00 when video publication was hosted in its callers."
+      },
+      {
+        "historical_selector": "tests/test_labeling_video_writer_capacity.py",
+        "replacement_selectors": [
+          "tests/test_labeling_video_writer_live.py",
+          "tests/test_labeling_video_writer_native.py",
+          "tests/test_labeling_video_writer_restore.py"
+        ],
+        "commit": "08a7df163efe8548ffc9d1f6c0d839ccf844facd",
+        "scope_note": "Split labeling video writer capacity deployment qualifier retired in 24d225f7873af9357514ee13e46d07352bef6f00 when video publication was hosted in its callers."
+      },
+      {
+        "historical_selector": "tests/test_identity_mail_v2_gateway.py",
+        "replacement_selectors": ["tests/test_identity_mail_topology.py"],
+        "commit": "08a7df163efe8548ffc9d1f6c0d839ccf844facd",
+        "scope_note": "Consolidated into test_identity_mail_topology.py in 40f8ba593ef173fb8f158d7777917fbef99a9676 after embedding admission and deploying one signer-free MailV2 poller."
+      }
+    ],
+    "retired_selectors": [
+      {
+        "selector": "tests/test_screenshot_seed_catalog.py",
+        "category": "screenshot_automation",
+        "commit": "765f8ec779cb943cde48b054cc0327cd962f03a2",
+        "basis": "Screenshot seed catalog and capture automation retired; on-demand manual UI capture replaced scheduled visual baselines.",
+        "must_not_resurrect": true
+      },
+      {
+        "selector": "tests/test_identity_recording_live.py",
+        "category": "recording_automation",
+        "commit": "765f8ec779cb943cde48b054cc0327cd962f03a2",
+        "basis": "Recording fixture live CLI and recording profile retired with video capture automation.",
+        "must_not_resurrect": true
+      },
+      {
+        "selector": "tests/test_identity_recording_native.py",
+        "category": "recording_automation",
+        "commit": "765f8ec779cb943cde48b054cc0327cd962f03a2",
+        "basis": "Recording fixture native grants and helpers retired with video capture automation.",
+        "must_not_resurrect": true
+      },
+      {
+        "selector": "tests/test_inference_registry_ingress_binding.py",
+        "category": "screenshot_and_recording_fixture_consumer",
+        "commit": "765f8ec779cb943cde48b054cc0327cd962f03a2",
+        "basis": "Removed with screenshot/recording seed-registry fixture automation.",
+        "must_not_resurrect": true
+      },
+      {
+        "selector": "tests/test_inference_registry_ingress_uow.py",
+        "category": "screenshot_and_recording_fixture_consumer",
+        "commit": "765f8ec779cb943cde48b054cc0327cd962f03a2",
+        "basis": "Removed with screenshot/recording seed-registry fixture automation.",
+        "must_not_resurrect": true
+      },
+      {
+        "selector": "tests/test_workspace_capacity_live.py",
+        "category": "split_workspace_deployment",
+        "commit": "52c234c9b14d5bc210e6277d29ba65c76235e49a",
+        "basis": "Split Workspace service deployment and capacity gate retired under modular-monolith topology (8c17c89def0b4c6fc8ac6ec51edcf9574fda73c9).",
+        "must_not_resurrect": true
+      },
+      {
+        "selector": "tests/test_workspace_module_healthcheck.py",
+        "category": "split_workspace_deployment",
+        "commit": "52c234c9b14d5bc210e6277d29ba65c76235e49a",
+        "basis": "Split Workspace service image-port healthcheck retired under modular-monolith topology.",
+        "must_not_resurrect": true
+      },
+      {
+        "selector": "tests/test_labeling_video_writer_containers.py",
+        "category": "split_labeling_video_writer_deployment",
+        "commit": "24d225f7873af9357514ee13e46d07352bef6f00",
+        "basis": "Split video writer container qualifier retired when video publication was hosted in its callers; removed from TEST_FILES in 08a7df163efe8548ffc9d1f6c0d839ccf844facd.",
+        "must_not_resurrect": true
+      },
+      {
+        "selector": "tests/test_labeling_video_writer_capacity.py",
+        "category": "split_labeling_video_writer_deployment",
+        "commit": "24d225f7873af9357514ee13e46d07352bef6f00",
+        "basis": "Split video writer capacity qualifier retired when video publication was hosted in its callers; removed from TEST_FILES in 08a7df163efe8548ffc9d1f6c0d839ccf844facd.",
+        "must_not_resurrect": true
+      },
+      {
+        "selector": "tests/test_identity_mail_v2_gateway.py",
+        "category": "consolidated_identity_mail_topology",
+        "commit": "40f8ba593ef173fb8f158d7777917fbef99a9676",
+        "basis": "Retired when durable mail delivery was consolidated into tests/test_identity_mail_topology.py; replaced in TEST_FILES in 08a7df163efe8548ffc9d1f6c0d839ccf844facd.",
+        "must_not_resurrect": true
+      }
+    ],
+    "not_added_in_minimal_pr": [
+      {
+        "selector": "tests/test_feedback_task_scope_native.py",
+        "added_in_commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Maintainer scoped this minimal PR to deduplication and drift guards without expanding default TEST_FILES."
+      },
+      {
+        "selector": "tests/test_managed_secondary_parent_native.py",
+        "added_in_commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Maintainer scoped this minimal PR to deduplication and drift guards without expanding default TEST_FILES."
+      },
+      {
+        "selector": "tests/test_video_candidate_decision_native.py",
+        "added_in_commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Maintainer scoped this minimal PR to deduplication and drift guards without expanding default TEST_FILES."
+      },
+      {
+        "selector": "tests/test_guide_clone_api_login_native.py",
+        "added_in_commit": "a87ea1894ae555a59456691729432061a0edeb1c",
+        "reason": "Explicitly requires --workspace-consumer-profile default and is rejected under strict default selection."
+      }
+    ]
+  },
+  "issue_188_deferred_memory_peak": {
+    "issue": "#188",
+    "status": "deferred_unverified",
+    "accounting_policy": "Tracked in this external ledger only; scripts/verify_module_data_boundary.py skip/deferral logic and thresholds remain unchanged. Business invariants, 8K browser results, RSS, or memory.current do not substitute for kernel cgroup memory.peak.",
+    "cases": [
+      {
+        "nodeid": "tests/test_assets_spatial_runtime.py::test_spatial_container_complete_reads_replay_and_accepted_source_preparation",
+        "selector": "tests/test_assets_spatial_runtime.py",
+        "profile": "ordinary",
+        "historical_f6e349674_outcome": "skipped_deferred",
+        "requirement": "Readable /sys/fs/cgroup/memory.peak inside target spatial container cgroup."
+      },
+      {
+        "nodeid": "tests/test_mask_gc_runtime_image.py::test_installed_gc_progresses_past_retained_prefix_with_independent_budgets",
+        "selector": "tests/test_mask_gc_runtime_image.py",
+        "profile": "mask-gc-runtime",
+        "historical_f6e349674_outcome": "not_run",
+        "requirement": "Readable /sys/fs/cgroup/memory.peak inside target Mask GC/content container cgroups."
+      }
+    ]
+  },
+  "issue_189_t2_shared_receipt_boundary": {
+    "issue": "#189",
+    "policy": "T2 cross-run cleanup and neighbor protection shares receipts with T1 during any maintainer-approved formal default run on one frozen candidate: do not duplicate execution, do not cross-sign across different candidates, and do not resurrect retired screenshot/recording fixtures to match the historical 44-node count.",
+    "combined_baseline_alignment": "Integrated with #190 on the same dev baseline: adds 4 fast native fixture guards (tests/test_jobs_fixture_cleanup_native.py, tests/test_jobs_fixture_media_publication_native.py, tests/test_fixture_export_owner_native.py, and tests/test_fixture_audit_migration.py routed to isolated fixture-audit-migration) while scripts/test_module_data_selection.py enforces structural invariants instead of hard-coding len(TEST_FILES).",
+    "active_t2_related_selectors_in_current_default": [
+      {
+        "selector": "tests/test_identity_e2e_live.py",
+        "profile": "identity-e2e",
+        "collected_nodes": 1,
+        "historical_t2_role": "live_cross_run_identity"
+      },
+      {
+        "selector": "tests/test_identity_seed_selection_live.py",
+        "profile": "scale-seed",
+        "collected_nodes": 1,
+        "historical_t2_role": "live_scale_seed_cleanup"
+      },
+      {
+        "selector": "tests/test_fixture_auxiliary_retirement.py",
+        "profile": "fixture-auxiliary-retirement",
+        "collected_nodes": 1,
+        "historical_t2_role": "auxiliary_original_retirement"
+      },
+      {
+        "selector": "tests/test_fixture_audit_migration.py",
+        "profile": "fixture-audit-migration",
+        "collected_nodes": 2,
+        "historical_t2_role": "fixture_audit_receipt_forward_migration_guard"
+      },
+      {
+        "selector": "tests/test_jobs_fixture_cleanup_native.py",
+        "profile": "ordinary",
+        "collected_nodes": 9,
+        "historical_t2_role": "jobs_fixture_cleanup_owner_and_rollback_guards"
+      },
+      {
+        "selector": "tests/test_jobs_fixture_media_publication_native.py",
+        "profile": "ordinary",
+        "collected_nodes": 1,
+        "historical_t2_role": "jobs_fixture_media_publication_settlement_guard"
+      },
+      {
+        "selector": "tests/test_fixture_export_owner_native.py",
+        "profile": "ordinary",
+        "collected_nodes": 1,
+        "historical_t2_role": "fixture_export_receipt_owner_guard"
+      },
+      {
+        "selector": "tests/test_identity_e2e_native.py",
+        "profile": "ordinary",
+        "collected_nodes": 26,
+        "historical_t2_role": "owned_identity_fixture_contracts"
+      },
+      {
+        "selector": "tests/test_identity_e2e_replay.py",
+        "profile": "ordinary",
+        "collected_nodes": 5,
+        "historical_t2_role": "owned_identity_cleanup_scope"
+      },
+      {
+        "selector": "tests/test_workspace_e2e_native.py",
+        "profile": "ordinary",
+        "collected_nodes": 22,
+        "historical_t2_role": "owned_workspace_e2e_fixture_contracts"
+      },
+      {
+        "selector": "tests/test_scale_seed_workspace_native.py",
+        "profile": "ordinary",
+        "collected_nodes": 14,
+        "historical_t2_role": "scale_seed_owned_scope_contracts"
+      },
+      {
+        "selector": "tests/test_fixture_native_media_admissions.py::test_legacy_native_reader_origin_is_not_reused_until_retired",
+        "profile": "ordinary",
+        "collected_nodes": 1,
+        "historical_t2_role": "reader_origin_retirement_guard"
+      },
+      {
+        "selector": "tests/test_fixture_run_ownership.py::test_synchronous_fixture_import_proof",
+        "profile": "ordinary",
+        "collected_nodes": 2,
+        "historical_t2_role": "synchronous_fixture_import_ownership"
+      },
+      {
+        "selector": "tests/test_fixture_run_ownership.py::test_synchronous_fixture_import_proof_rejects",
+        "profile": "ordinary",
+        "collected_nodes": 20,
+        "historical_t2_role": "synchronous_fixture_import_rejection_guards"
+      }
+    ],
+    "retired_historical_t2_selector": {
+      "selector": "tests/test_screenshot_seed_catalog.py",
+      "historical_nodes": 15,
+      "commit": "765f8ec779cb943cde48b054cc0327cd962f03a2",
+      "note": "Retired; must not be restored for T2 count alignment."
+    }
+  },
+  "external_prerequisites": {
+    "verifier_owned_runtime": {
+      "postgres_image": "postgres:16-alpine",
+      "local_resources": "Disposable LocalResources test topology (Redis, MinIO, owned _test database, restricted LOGIN roles, AAP_MODULE_DATA_* DSNs).",
+      "docker_daemon": "Required for disposable PostgreSQL, isolated MinIO/storage, and installed container/image consumer suites."
+    },
+    "live_opt_in_env_flags": [
+      "AAP_AUDIT_COLD_CONSUMER_ACCEPTANCE",
+      "AAP_AUDIT_MAINTENANCE_CONSUMER_ACCEPTANCE",
+      "AAP_AUDIT_MAINTENANCE_MODULE_ACCEPTANCE",
+      "AAP_AUDIT_METADATA_DELIVERY_ACCEPTANCE",
+      "AAP_IDENTITY_BRIEFS_LIVE_ACCEPTANCE",
+      "AAP_IDENTITY_E2E_FIXTURE_LIVE",
+      "AAP_IDENTITY_LIVE_ACCEPTANCE",
+      "AAP_IDENTITY_ROLE_AUDIT_LIVE",
+      "AAP_IDENTITY_SEED_SELECTION_LIVE",
+      "AAP_JOBS_HOST_ASSEMBLY_LIVE",
+      "AAP_LABELING_COLD_API_ACCEPTANCE",
+      "AAP_LEGACY_VIDEO_FENCE_LIVE",
+      "AAP_MASK_CONTENT_ACCEPTANCE",
+      "AAP_MASK_GC_CUTOVER_ACCEPTANCE",
+      "AAP_MEDIA_SEED_IDENTITY_LIVE",
+      "AAP_SEED_PARENT_OPERATOR_LIVE",
+      "AAP_WORKSPACE_CROSS_FRAME_WORKER_LIVE",
+      "AAP_WORKSPACE_EXPORT_WORKER_LIVE",
+      "AAP_WORKSPACE_IMPORT_CLI_LIVE",
+      "AAP_WORKSPACE_MEDIA_SEED_LIVE",
+      "AAP_WORKSPACE_OWNER_TRANSFER_LIVE",
+      "AAP_WORKSPACE_SEED_OPERATOR_LIVE",
+      "AAP_WORKSPACE_VIDEO_TRACKER_WORKER_LIVE",
+      "AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE"
+    ],
+    "installed_images_and_interpreters": [
+      "AAP_AUDIT_MAINTENANCE_MODULE_IMAGE_ARTIFACT",
+      "AAP_AUDIT_MAINTENANCE_MODULE_IMAGE_ID",
+      "AAP_LABELING_COLD_API_IMAGE_ARTIFACT",
+      "AAP_LABELING_COLD_API_IMAGE_ID",
+      "AAP_LABELING_COLD_API_IMAGE_REF",
+      "AAP_MASK_CONTENT_IMAGE",
+      "AAP_MASK_GC_IMAGE",
+      "AAP_MASK_GC_RUNTIME_PYTHON",
+      "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IDENTITY",
+      "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IMAGE",
+      "AAP_PREANNOTATION_RESULT_RUNTIME_IDENTITY",
+      "AAP_PREANNOTATION_RESULT_RUNTIME_IMAGE",
+      "AAP_VIDEO_RESTORE_CLI",
+      "AAP_WORKSPACE_MODULE_API_IMAGE",
+      "AAP_WORKSPACE_RUNTIME_PYTHON"
+    ],
+    "external_fixtures": [
+      {
+        "name": "third-party/SUSTechPOINTS/data/example",
+        "consumer": "tests/test_pointcloud_scene_e2e.py::test_scene_import_end_to_end",
+        "profile": "ordinary",
+        "tracked_in_repo": false,
+        "behavior_when_absent": "Skipped by pytest.mark.skipif when third-party/SUSTechPOINTS/data/example/lidar is absent; under strict zero-skip default verification, must be provisioned as a read-only external fixture or the skip fails closed."
+      },
+      {
+        "name": "cgroup_v2_memory_peak",
+        "consumers": [
+          "tests/test_assets_spatial_runtime.py::test_spatial_container_complete_reads_replay_and_accepted_source_preparation",
+          "tests/test_mask_gc_runtime_image.py::test_installed_gc_progresses_past_retained_prefix_with_independent_budgets"
+        ],
+        "tracked_in_repo": false,
+        "behavior_when_absent": "Requires host kernel/cgroup v2 exposing readable /sys/fs/cgroup/memory.peak inside workload containers; currently deferred under #188."
+      }
+    ]
+  }
+}

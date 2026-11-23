@@ -6,6 +6,7 @@ import secrets
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 from fixture_playback_control import (
@@ -152,6 +153,98 @@ class PlaybackControlTests(unittest.IsolatedAsyncioTestCase):
         retire_playback_control(self.directory, self.suite)
         self.assertFalse((self.directory / "playback.sock").exists())
         self.assertFalse(capability_path.exists())
+
+    async def test_verify_retired_requires_playback_control_files_physically_removed(
+        self,
+    ):
+        import verify_playwright_fixture_teardown as teardown
+
+        run = uuid4()
+        resources = {"mode": "e2e"}
+        nonce = secrets.token_hex(32)
+        case_dir = Path(self.workspace.name) / "case"
+        case_dir.mkdir(mode=0o700)
+        for phase in ("teardown-entered.json", "teardown-returned.json"):
+            atomic_json(case_dir / phase, {"suite_id": str(self.suite), "phase": phase})
+
+        api_identity = {"pid": os.getpid() + 1000, "start": 101}
+        control_identity = {"pid": os.getpid() + 1001, "start": 102}
+        generation = {"resources": resources, "nonce": nonce, "state": "running"}
+        atomic_json(
+            self.directory / "generation.json", {**generation, "state": "closed"}
+        )
+        atomic_json(
+            self.directory / "native-supervisor.json",
+            {
+                "schema": "aap-fixture-native-supervisor/v1",
+                "suite_id": str(self.suite),
+                "resources": resources,
+                "state": "retired",
+                "pid": self.owner["pid"],
+                "start": self.owner["start"],
+                "native_run_ids": [str(run)],
+                "resolver_retired": True,
+                "business_retired": True,
+                "api_disposition": {
+                    **api_identity,
+                    "exit_code": 0,
+                    "pidfd_exit": True,
+                    "descendants_drained": True,
+                    "lifespan_shutdown": True,
+                },
+                "control_disposition": {
+                    **control_identity,
+                    "exit_code": 0,
+                    "pidfd_exit": True,
+                    "descendants_drained": True,
+                    "settled_ack": True,
+                },
+            },
+        )
+        instance = {
+            "suite": self.suite,
+            "run": run,
+            "dir": case_dir,
+            "directory": self.directory,
+            "generation": generation,
+            "processes": {
+                "supervisor": self.owner,
+                "api": api_identity,
+                "control": control_identity,
+            },
+        }
+
+        class _ReachedReceipts(RuntimeError):
+            pass
+
+        with patch.object(
+            teardown, "_verify_run_receipts", side_effect=_ReachedReceipts
+        ):
+            endpoint, _ = bind_playback_control(self.directory, self.suite)
+            endpoint.close()
+            with self.assertRaisesRegex(RuntimeError, "^playback_control_not_retired$"):
+                await teardown.verify_retired(instance, resources, None, None)
+
+            (self.directory / "playback.sock").unlink()
+            with self.assertRaisesRegex(RuntimeError, "^playback_control_not_retired$"):
+                await teardown.verify_retired(instance, resources, None, None)
+
+            (self.directory / "playback-control.json").unlink()
+            (self.directory / "playback.sock").symlink_to("missing-target")
+            with self.assertRaisesRegex(RuntimeError, "^playback_control_not_retired$"):
+                await teardown.verify_retired(instance, resources, None, None)
+
+            (self.directory / "playback.sock").unlink()
+            (self.directory / "playback-control.json").symlink_to("missing-target")
+            with self.assertRaisesRegex(RuntimeError, "^playback_control_not_retired$"):
+                await teardown.verify_retired(instance, resources, None, None)
+
+            (self.directory / "playback-control.json").unlink()
+            endpoint, _ = bind_playback_control(self.directory, self.suite)
+            endpoint.close()
+            retire_playback_control(self.directory, self.suite)
+            with self.assertRaises(_ReachedReceipts):
+                await teardown.verify_retired(instance, resources, None, None)
 
     @staticmethod
     async def stop_peer(peer):
