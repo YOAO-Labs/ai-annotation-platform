@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -20,11 +21,25 @@ from urllib.parse import urlsplit
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+from tests.asset_cleanup_compose_support import CleanupCompose
+from tests.native_signer_support import (
+    CLEANUP_TOKEN_SETTING,
+    NATIVE_ACCESS_SETTING,
+    NATIVE_SECRET_SETTING,
+    READER_TOKEN_SETTING,
+    WRITER_TOKEN_SETTING,
+)
+from yoao_assets_images.native_storage_contract import (
+    NATIVE_RETIREMENT_REFERENCES_PATH,
+    NATIVE_WRITE_REFERENCE_PATH,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -375,7 +390,7 @@ async def _assert_denied(connection, statement: str, parameters: dict | None = N
     await connection.rollback()
 
 
-async def _assert_cleanup_login(test_engine, cleanup_engine, media_bucket: str):
+async def _assert_cleanup_login(cleanup_engine, media_bucket: str):
     async with cleanup_engine.connect() as cleanup:
         assert (
             await cleanup.scalar(text("SELECT current_user"))
@@ -435,6 +450,32 @@ async def _assert_cleanup_login(test_engine, cleanup_engine, media_bucket: str):
             cleanup, "SELECT count(*) FROM public.dataset_source_deletion_operations"
         )
         await _assert_denied(cleanup, "SELECT count(*) FROM public.dataset_items")
+        await _assert_denied(
+            cleanup,
+            "SELECT yoao_assets_v1.capture_native_pyramid_retirement_io(NULL, NULL, NULL)",
+        )
+
+
+async def _assert_source_login(source_engine) -> None:
+    async with source_engine.connect() as source:
+        role = "yoao_asset_source_client"
+        assert await source.scalar(text("SELECT current_user")) == role
+        assert await source.scalar(text("SELECT session_user")) == role
+        assert await source.scalar(
+            text(
+                "SELECT has_function_privilege(current_user, "
+                "'yoao_assets_v1.capture_native_pyramid_retirement_io(uuid,uuid,uuid)', 'EXECUTE')"
+            )
+        )
+        await _assert_denied(
+            source, "SELECT count(*) FROM yoao_assets_v1.native_pyramid_retirements"
+        )
+        await _assert_denied(
+            source, "SELECT count(*) FROM public.asset_storage_deletions"
+        )
+        await _assert_denied(
+            source, "SELECT yoao_assets_v1.complete_storage_deletion(NULL, NULL)"
+        )
 
 
 def _container_database_url(cleanup_url: URL) -> str:
@@ -459,129 +500,99 @@ def _container_database_url(cleanup_url: URL) -> str:
     ).render_as_string(hide_password=False)
 
 
-def _write_worker_environment(
-    path: Path,
-    *,
-    database_url: str,
-    endpoint: str,
-    bucket: str,
-    access_key: str,
-    secret_key: str,
-    native_storage_url: str,
-    native_storage_token: str,
-) -> None:
-    values = {
-        "ASSET_CLEANUP_DATABASE_URL": database_url,
-        "ASSET_CLEANUP_S3_ENDPOINT": endpoint,
-        "ASSET_CLEANUP_S3_REGION": "us-east-1",
-        "ASSET_CLEANUP_BUCKET": bucket,
-        "ASSET_CLEANUP_INPUTS_BUCKET": _required_env("MINIO_INPUTS_BUCKET"),
-        "ASSET_CLEANUP_S3_ACCESS_KEY": access_key,
-        "ASSET_CLEANUP_S3_SECRET_KEY": secret_key,
-        "ASSET_CLEANUP_NATIVE_STORAGE_URL": native_storage_url,
-        "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN": native_storage_token,
-        "ASSET_CLEANUP_POLL_SECONDS": "0.1",
-        "ASSET_CLEANUP_PAGE_SIZE": "1",
-    }
-    if any("\n" in value or "\r" in value for value in values.values()):
-        pytest.fail("cleanup worker environment contains a line break")
-    path.write_text(
-        "".join(f"{name}={value}\n" for name, value in values.items()),
-        encoding="utf-8",
-    )
-    path.chmod(0o600)
-
-
-def _build_worker_image(tag: str, identity: str) -> None:
-    result = subprocess.run(
-        [
-            "docker",
-            "build",
-            "--file",
-            "apps/assets-cleanup/Dockerfile",
-            "--tag",
-            tag,
-            "--label",
-            f"{_CONTAINER_LABEL}=module-data-boundary",
-            "--label",
-            f"{_CONTAINER_ID_LABEL}={identity}",
-            ".",
-        ],
-        cwd=_REPO_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=900,
-        check=False,
-    )
-    if result.returncode != 0:
-        pytest.fail("standalone Assets cleanup image build failed")
-
-
-def _start_worker(name: str, image: str, identity: str, environment_file: Path) -> str:
-    container_id = _docker(
-        "run",
-        "--detach",
-        "--name",
-        name,
-        "--label",
-        f"{_CONTAINER_LABEL}=module-data-boundary",
-        "--label",
-        f"{_CONTAINER_ID_LABEL}={identity}",
-        "--add-host",
-        "host.docker.internal:host-gateway",
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges:true",
-        "--pids-limit",
-        "64",
-        "--health-interval",
-        "1s",
-        "--tmpfs",
-        "/tmp:rw,noexec,nosuid,size=16m",
-        "--stop-timeout",
-        "45",
-        "--env-file",
-        str(environment_file),
-        image,
-        timeout=120,
-    )
-    return container_id
-
-
-def _verify_worker_container(container_id: str, name: str, image: str, identity: str):
-    observed = _inspect_docker(container_id)
-    labels = observed.get("Config", {}).get("Labels") or {}
-    config = observed.get("Config", {})
-    environment = config.get("Env") or []
-    if not (
-        observed.get("Id") == container_id
-        and observed.get("Name") == f"/{name}"
-        and config.get("Image") == image
-        and config.get("User") == "10001:10001"
-        and labels.get(_CONTAINER_LABEL) == "module-data-boundary"
-        and labels.get(_CONTAINER_ID_LABEL) == identity
-        and not observed.get("Mounts")
-        and not (observed.get("NetworkSettings", {}).get("Ports") or {})
-        and config.get("Cmd") == ["python", "-m", "yoao_assets_cleanup"]
-        and not any(
-            value.startswith(
-                (
-                    "DATABASE_URL=",
-                    "REDIS_URL=",
-                    "CELERY_",
-                    "MINIO_",
-                    "AWS_ACCESS_KEY_ID=",
-                    "AWS_SECRET_ACCESS_KEY=",
-                )
-            )
-            for value in environment
-        )
+def _configure_cleanup_compose(
+    compose: CleanupCompose, settings, cleanup_url: URL, source_url: URL, endpoint: str
+) -> str:
+    cleanup = "assets-cleanup"
+    source = "assets-source"
+    native_token = _required_env(CLEANUP_TOKEN_SETTING)
+    native_access = _required_env(NATIVE_ACCESS_SETTING)
+    source_access = _required_env("AAP_MODULE_DATA_ASSET_SOURCE_S3_ACCESS_KEY")
+    cleanup_access = _required_env("AAP_MODULE_DATA_ASSET_CLEANUP_S3_ACCESS_KEY")
+    if (
+        len({native_access, source_access, settings.minio_access_key, cleanup_access})
+        != 4
     ):
         pytest.fail(
-            "cleanup container is not isolated to its standalone runtime contract"
+            "Source, Native Source, cleanup and provisioning must use distinct S3 principals"
         )
+    compose.environment.update(
+        ASSET_CLEANUP_BUCKET=settings.minio_media_cache_bucket,
+        ASSET_CLEANUP_S3_ENDPOINT=endpoint,
+        ASSET_CLEANUP_POLL_SECONDS="0.1",
+        ASSET_CLEANUP_PAGE_SIZE="1",
+        MINIO_INPUTS_BUCKET=_required_env("MINIO_INPUTS_BUCKET"),
+        ASSETS_SOURCE_S3_ENDPOINT=endpoint,
+        ASSETS_SOURCE_S3_PUBLIC_ENDPOINT=endpoint,
+        ASSETS_SOURCE_DATASETS_BUCKET=settings.minio_datasets_bucket,
+        ASSETS_SOURCE_IMPORT_BUCKET=settings.minio_import_bucket,
+        ASSETS_SOURCE_MEDIA_CACHE_BUCKET=settings.minio_media_cache_bucket,
+    )
+    for service, prefix, url in (
+        (cleanup, "ASSET_CLEANUP", cleanup_url),
+        (source, "ASSETS_SOURCE", source_url),
+    ):
+        compose.secret(
+            service,
+            prefix + "_DATABASE_URL",
+            url.set(
+                drivername="postgresql", host="cleanup-db", port=5432
+            ).render_as_string(hide_password=False),
+        )
+    for setting, value in {
+        "ASSET_CLEANUP_S3_ACCESS_KEY": cleanup_access,
+        "ASSET_CLEANUP_S3_SECRET_KEY": _required_env(
+            "AAP_MODULE_DATA_ASSET_CLEANUP_S3_SECRET_KEY"
+        ),
+        "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN": native_token,
+    }.items():
+        compose.secret(cleanup, setting, value)
+    for setting, value in {
+        "ASSETS_SOURCE_TOKEN": secrets.token_urlsafe(48),
+        "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN": secrets.token_urlsafe(48),
+        "ASSETS_SOURCE_S3_ACCESS_KEY": source_access,
+        "ASSETS_SOURCE_S3_SECRET_KEY": _required_env(
+            "AAP_MODULE_DATA_ASSET_SOURCE_S3_SECRET_KEY"
+        ),
+        "ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN": _required_env(
+            WRITER_TOKEN_SETTING
+        ),
+        "ASSETS_SOURCE_NATIVE_PYRAMID_READER_TOKEN": _required_env(
+            READER_TOKEN_SETTING
+        ),
+        "ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN": native_token,
+        "ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY": native_access,
+        "ASSETS_SOURCE_NATIVE_S3_SECRET_KEY": _required_env(NATIVE_SECRET_SETTING),
+    }.items():
+        compose.secret(source, setting, value)
+    return native_token
+
+
+async def _assert_native_token_scopes(
+    origin: str, cleanup_token: str
+) -> dict[str, int]:
+    async with httpx.AsyncClient(base_url=origin, timeout=5, trust_env=False) as client:
+        body = {
+            name: str(uuid.uuid4()) for name in ("output_id", "lease_token", "page_id")
+        }
+        response = await client.post(
+            NATIVE_RETIREMENT_REFERENCES_PATH,
+            json=body,
+            headers={"Authorization": f"Bearer {_required_env(READER_TOKEN_SETTING)}"},
+        )
+        assert response.status_code == 401
+        response = await client.post(
+            NATIVE_WRITE_REFERENCE_PATH,
+            json={
+                "operation_id": str(uuid.uuid4()),
+                "job_id": str(uuid.uuid4()),
+                "job_generation": 1,
+                "lease_token": str(uuid.uuid4()),
+            },
+            headers={"Authorization": f"Bearer {cleanup_token}"},
+        )
+        assert response.status_code == 401
+    return {"reader_cannot_sign_retirement": 401, "cleanup_cannot_sign_write": 401}
 
 
 async def _fail_container_readiness(container_id: str, observed: dict, reason: str):
@@ -1229,16 +1240,16 @@ async def _cleanup_database_rows(
 
 
 async def test_standalone_cleanup_container_respects_source_lease_and_recovers_lost_ack(
-    test_engine, native_signer
+    test_engine, record_property
 ):
     from app.config import settings
-
-    native_signer.assert_running()
+    from tests.asset_cleanup_native_support import NativeCleanupProbe
 
     raw_cleanup_url = _required_env("AAP_MODULE_DATA_ASSET_CLEANUP_URL")
     cleanup_url = make_url(raw_cleanup_url)
     raw_append_url = _required_env("AAP_MODULE_DATA_APPEND_URL")
     append_url = make_url(raw_append_url)
+    source_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL"))
     target_url = test_engine.url
     if not (
         cleanup_url.drivername == "postgresql+asyncpg"
@@ -1257,6 +1268,13 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
         and append_url.database == target_url.database
         and append_url.password
         and not append_url.query
+        and source_url.drivername == "postgresql+asyncpg"
+        and source_url.username == "yoao_asset_source_client"
+        and source_url.host == cleanup_url.host
+        and source_url.port == cleanup_url.port
+        and source_url.database == cleanup_url.database
+        and source_url.password
+        and not source_url.query
     ):
         pytest.fail("module LOGIN URLs do not match the disposable test database")
     _verify_postgres(cleanup_url)
@@ -1267,13 +1285,21 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
     if (
         media_bucket != resource["buckets"]["MINIO_MEDIA_CACHE_BUCKET"]
         or datasets_bucket != resource["buckets"]["MINIO_DATASETS_BUCKET"]
+        or settings.minio_import_bucket != resource["buckets"]["MINIO_IMPORT_BUCKET"]
+        or _required_env("MINIO_INPUTS_BUCKET")
+        != resource["buckets"]["MINIO_INPUTS_BUCKET"]
     ):
         pytest.fail("app buckets do not match the verifier-owned resources")
     owner_client = _local_s3_client(
         settings, settings.minio_access_key, settings.minio_secret_key
     )
-    _verify_bucket_owner(owner_client, media_bucket, resource["owner"])
-    _verify_bucket_owner(owner_client, datasets_bucket, resource["owner"])
+    for bucket in (
+        media_bucket,
+        datasets_bucket,
+        settings.minio_import_bucket,
+        _required_env("MINIO_INPUTS_BUCKET"),
+    ):
+        _verify_bucket_owner(owner_client, bucket, resource["owner"])
     cleanup_s3_key = _required_env("AAP_MODULE_DATA_ASSET_CLEANUP_S3_ACCESS_KEY")
     cleanup_s3_secret = _required_env("AAP_MODULE_DATA_ASSET_CLEANUP_S3_SECRET_KEY")
     if (
@@ -1293,11 +1319,11 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
         connect_args={"timeout": 5, "command_timeout": 10},
     )
 
-    image_identity = uuid.uuid4().hex[:24]
-    image_tag = f"aap-assets-cleanup:acceptance-{image_identity[:12]}"
-    container_name = f"aap-assets-cleanup-{image_identity[:12]}"
-    container_id: str | None = None
-    image_built = False
+    source_engine = create_async_engine(
+        source_url,
+        hide_parameters=True,
+        connect_args={"timeout": 5, "command_timeout": 10},
+    )
     ack_revoked = False
     fixture: dict | None = None
     operation_id = uuid.uuid4()
@@ -1306,18 +1332,41 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
     poison_asset_id = uuid.uuid4()
     poison_inserted = False
     owned_objects: list[tuple[str, str]] = []
-    tmpdir = Path(_required_env("TMPDIR")).resolve()
+    compose = CleanupCompose(
+        _REPO_ROOT, Path(_required_env("TMPDIR")).resolve(), record_property
+    )
+    compose.receipt.update(
+        postgres_database=cleanup_url.database,
+        cleanup_role=cleanup_url.username,
+        source_role=source_url.username,
+        media_bucket=media_bucket,
+    )
 
     try:
-        _build_worker_image(image_tag, image_identity)
-        image_built = True
-        image = _inspect_docker(image_tag)
-        image_labels = image.get("Config", {}).get("Labels") or {}
-        if not (
-            image_labels.get(_CONTAINER_LABEL) == "module-data-boundary"
-            and image_labels.get(_CONTAINER_ID_LABEL) == image_identity
-        ):
-            pytest.fail("standalone worker image ownership could not be verified")
+        async with test_engine.connect() as owner:
+            compose.receipt["schema_head"] = await owner.scalar(
+                text("SELECT version_num FROM public.alembic_version")
+            )
+        compose.receipt["source_commit"] = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=_REPO_ROOT, text=True
+        ).strip()
+        endpoint = _container_s3_endpoint(settings)
+        native_token = _configure_cleanup_compose(
+            compose, settings, cleanup_url, source_url, endpoint
+        )
+        await asyncio.to_thread(
+            compose.create, _required_env("AAP_MODULE_DATA_PG_CONTAINER_ID")
+        )
+        await asyncio.gather(
+            compose.wait_ready("assets-source"), compose.wait_ready("assets-cleanup")
+        )
+        source_origin = await asyncio.to_thread(compose.verify)
+        await _assert_cleanup_login(cleanup_engine, media_bucket)
+        await _assert_source_login(source_engine)
+        compose.receipt["source_http_denials"] = await _assert_native_token_scopes(
+            source_origin, native_token
+        )
+        compose.receipt["postgres_role_denials"] = True
 
         fixture = await _seed_dataset_case(test_engine, lease_seconds=20)
         target_prefix = fixture["target_prefix"]
@@ -1353,32 +1402,10 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
             owned_objects=owned_objects,
         )
 
-        secret_directory = tempfile.TemporaryDirectory(
-            dir=tmpdir, prefix="asset-cleanup-"
-        )
-        try:
-            environment_file = Path(secret_directory.name) / "worker.env"
-            _write_worker_environment(
-                environment_file,
-                database_url=_container_database_url(cleanup_url),
-                endpoint=_container_s3_endpoint(settings),
-                bucket=media_bucket,
-                access_key=cleanup_s3_key,
-                secret_key=cleanup_s3_secret,
-                native_storage_url=native_signer.url,
-                native_storage_token=native_signer.cleanup_token,
-            )
-            container_id = _start_worker(
-                container_name, image_tag, image_identity, environment_file
-            )
-            if not container_id:
-                pytest.fail("cleanup container ID was unavailable")
-            _verify_worker_container(
-                container_id, container_name, image_tag, image_identity
-            )
-            await _wait_healthy(container_id)
-            await _assert_cleanup_login(test_engine, cleanup_engine, media_bucket)
+        compose.receipt["cleanup_s3_denials"] = True
 
+        async def exercise_outbox():
+            nonlocal ack_revoked, poison_inserted
             reply = await _call_native_item_delete(
                 append_engine,
                 operation_id=operation_id,
@@ -1506,18 +1533,32 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
             poison_after_lost_ack = await _outbox_row(test_engine, poison_operation_id)
             assert poison_after_lost_ack is not None
             assert poison_after_lost_ack["completed_at"] is None
-            assert _object_exists(owner_client, media_bucket, keys["sibling"][0])
-            assert _object_exists(
-                owner_client, datasets_bucket, fixture["target_source_key"]
+            await _wait_until(
+                lambda: asyncio.to_thread(
+                    compose.worker_log_contains,
+                    f"Cleanup acknowledgement failed operation_id={operation_id} ",
+                ),
+                timeout=10,
+                message="cleanup did not observe the failed outbox acknowledgement",
             )
-            await asyncio.to_thread(_stop_owned_container, container_id, image_identity)
-            stopped = _inspect_docker(container_id)
-            assert stopped.get("State", {}).get("Running") is False
+            preserved = _verify_retained_objects(
+                owner_client, media_bucket, datasets_bucket, keys
+            )
+            compose.receipt["lost_ack"] = {
+                "pending_operations": [
+                    str(operation_id),
+                    str(unlink_operation_id),
+                    str(poison_operation_id),
+                ],
+                "target_objects_absent": 6,
+                "retained_objects": preserved,
+            }
+            await asyncio.to_thread(compose.stop_worker)
 
             await _set_complete_permission(test_engine, enabled=True)
             ack_revoked = False
-            _docker("start", container_id, timeout=30)
-            await _wait_healthy(container_id)
+            await asyncio.to_thread(compose.restart_worker)
+            await compose.wait_ready("assets-cleanup")
             completed = await _wait_outbox_complete(test_engine, operation_id)
             assert completed["completed_at"] is not None
             task_completed = await _wait_outbox_complete(
@@ -1530,16 +1571,29 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
             _verify_expected_objects(
                 owner_client, media_bucket, datasets_bucket, fixture, keys
             )
-        finally:
-            secret_directory.cleanup()
+            compose.receipt["recovered_outbox_rows"] = [
+                str(operation_id),
+                str(unlink_operation_id),
+                str(poison_operation_id),
+            ]
+
+        await exercise_outbox()
+        native_probe = NativeCleanupProbe(
+            test_engine, owner_client, media_bucket, endpoint, fixture
+        )
+        async with native_probe:
+            _expect_s3_denied(
+                lambda: scoped_client.delete_object(**native_probe.rejected_object)
+            )
+            compose.receipt["native_cleanup"] = await native_probe.exercise(
+                compose.worker_log_contains
+            )
     finally:
         cleanup_errors: list[str] = []
-        if container_id is not None:
-            try:
-                _stop_remove_container(container_id, image_identity)
-            except Exception:
-                cleanup_errors.append("worker container")
-            container_id = None
+        try:
+            await asyncio.to_thread(compose.close)
+        except Exception as error:
+            cleanup_errors.append(f"owned Compose project ({error})")
         if ack_revoked:
             try:
                 await _set_complete_permission(test_engine, enabled=True)
@@ -1563,16 +1617,11 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
                 )
             except Exception:
                 cleanup_errors.append("owned MinIO objects")
-        for engine in (append_engine, cleanup_engine):
+        for engine in (append_engine, cleanup_engine, source_engine):
             try:
                 await engine.dispose()
             except Exception:
                 cleanup_errors.append("database engine")
-        if image_built:
-            try:
-                _remove_worker_image(image_tag, image_identity)
-            except Exception:
-                cleanup_errors.append("acceptance worker image")
         for client in (owner_client, scoped_client):
             try:
                 client.close()
@@ -1588,8 +1637,24 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
 def _verify_expected_objects(client, media_bucket, datasets_bucket, fixture, keys):
     for key in keys["target"] + [keys["late"]] + keys["task"] + [keys["task_late"]]:
         assert not _object_exists(client, media_bucket, key)
-    for key in keys["sibling"] + [keys["adjacent"], keys["video"]]:
-        assert _object_exists(client, media_bucket, key)
-    for key in keys["sources"]:
-        assert _object_exists(client, datasets_bucket, key)
+    _verify_retained_objects(client, media_bucket, datasets_bucket, keys)
     assert fixture["target_item_id"] != fixture["sibling_item_id"]
+
+
+def _verify_retained_objects(
+    client, media_bucket, datasets_bucket, keys
+) -> dict[str, str]:
+    preserved = {}
+    for bucket, objects in (
+        (media_bucket, keys["sibling"] + [keys["adjacent"], keys["video"]]),
+        (datasets_bucket, keys["sources"]),
+    ):
+        for key in objects:
+            body = client.get_object(Bucket=bucket, Key=key)["Body"]
+            try:
+                actual = body.read()
+            finally:
+                body.close()
+            assert actual == key.encode("utf-8")
+            preserved[f"{bucket}/{key}"] = hashlib.sha256(actual).hexdigest()
+    return preserved
