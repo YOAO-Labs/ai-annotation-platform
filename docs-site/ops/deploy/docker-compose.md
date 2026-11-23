@@ -48,8 +48,8 @@ last_reviewed: 2026-10-26
 
 - **普通 Compose 调用方**：`ASSETS_SOURCE_URL=http://assets-source:8767` 选私网 origin。只在需要的容器装配宿主选择器 `ASSETS_SOURCE_CLIENT_READ_TOKEN_FILE`、`ASSETS_SOURCE_CLIENT_WRITE_TOKEN_FILE`、`ASSETS_SOURCE_CLIENT_CLEANUP_TOKEN_FILE` 或 `ASSETS_SOURCE_CLIENT_CONNECTIONS_TOKEN_FILE`。它们在容器内映射为 `ASSETS_SOURCE_SAVED_IO_{READ,WRITE,CLEANUP}_TOKEN_FILE` 或 `ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE`；连接管理不复用字节 token、现有私有 `ASSETS_SOURCE_TOKEN_FILE` 或 Native／Import 凭据。不启用时同时清空 URL 和对应的 client-file 选择器。
 - **Source Compose**：保留 Source 自己的 `ASSETS_SOURCE_SAVED_IO_DATABASE_URL_FILE`（仅函数 LOGIN）、`ASSETS_SOURCE_SAVED_IO_{READ,WRITE,CLEANUP}_TOKEN_FILE`、原连接器加密 key、主机白名单及所需 SFTP 公钥。已保存 I/O 的此组配置与暂存目录须同时就绪；`ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE` 是独立的可选能力。各作用域两端使用匹配值，但 Source 与调用方的只读文件分别归各自运行身份，不共用宿主文件。`ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE` 可选，只给 Source 和获准运行 `scripts/cutover_storage_migration.py` 的操作者。普通进程不接收连接器密钥、Source DSN 或通用 S3／SFTP 凭据。
-- **私网与暂存**：Source overlay 的 `ASSETS_SOURCE_NETWORK` 默认使用 `default`；叠加同一 LAN 项目时显式选 `shared`，先核对数据库与调用方可达性，不发布 8767。为每个使用已保存上传的 Source 副本准备 `ASSETS_SOURCE_SAVED_IO_SPOOL_DIR`：独立且限额的宿主磁盘目录，UID/GID `10003:10003`、权限 `0700`；每副本最多一个保存上传，默认上限 5 GiB，预留超过 5 GiB 可用空间。不要与 `/tmp` 的 ZIP 暂存混用。未选择已保存 I/O 的原有 Source／Native／Import 配方不因此要求这组凭据或暂存目录。
-- **大导出与审计归档**：如果自定义目标须写入业务允许的最大 64 GiB 产物，为每个 Source 副本准备超过 64 GiB 的暂存配额和可用空间，并显式设置 `ASSETS_SOURCE_SAVED_IO_MAX_UPLOAD_BYTES=68719476736`。保留 5 GiB 默认值时，超限上传会被拒绝，不会自动扩大分配。
+- **私网与暂存**：Source overlay 的 `ASSETS_SOURCE_NETWORK` 默认使用 `default`；叠加同一 LAN 项目时显式选 `shared`，先核对数据库与调用方可达性，不发布 8767。为每个 Source 副本在独立限额磁盘上准备暂存目录，例如 `install -d -o 10003 -g 10003 -m 0700 "$scratch"`，再把绝对路径设为 `ASSETS_SOURCE_SAVED_IO_SPOOL_DIR`。不要与 `/tmp` 的 ZIP 暂存混用。未选择已保存 I/O 的原有 Source／Native／Import 配方不要求这组凭据或暂存目录。
+- **上传上限和容量**：每个 Source 副本同时最多一个保存上传。`ASSETS_SOURCE_SAVED_IO_MAX_UPLOAD_BYTES` 默认 `68719476736`（64 GiB），保留大导出和审计归档的业务上限；每副本的暂存配额和可用空间都须超过配置值。小规模部署可显式设 `5368709120`（5 GiB），但超限上传会被拒绝，不会自动扩大分配。
 - 按原保存目标访问；缺 Source、身份不符或历史目标不可达时不改向、不回退。内建 MinIO、受控目录及站点 Agent 仍走原路径。升级前按[旧拓扑升级门禁](../upgrade-guide#split-topology-upgrade)验证真实连接器和恢复。
 
 #### 独立 Notifications 发布者 {#notification-publisher-split}
