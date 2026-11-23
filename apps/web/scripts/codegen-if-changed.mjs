@@ -25,7 +25,7 @@ function runCodegen() {
     stdio: "inherit",
     shell: true,
   });
-  process.exit(result.status ?? 0);
+  process.exit(result.status ?? 1);
 }
 
 if (process.env.OPENAPI_URL) {

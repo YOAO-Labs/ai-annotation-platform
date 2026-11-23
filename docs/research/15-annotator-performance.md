@@ -87,13 +87,13 @@
 ### 2.1 工时:客户端事件流 + 服务端聚合
 
 - 客户端收集 `draw:object` / `change:frame` / ... 事件,3 触发器(90s 定时 / Save / 开关视图)批量推送。
-- 服务端 `compute_working_time_per_ids`([events/utils.py:84-121](../../../cvat/cvat/apps/events/handlers.py)):事件间隔 **<100s** 才计入工时(空闲剔除),`change:frame` 这类带 duration 的累加。落 `send:working_time` 事件。
+- 服务端 [`compute_working_time_per_ids`](https://github.com/cvat-ai/cvat/blob/93ce5c8617dd2d6e0ca08be8f7099ea38c11b3a7/cvat/apps/events/utils.py#L84-L121)：事件间隔 **<100s** 才计入工时（剔除空闲），`change:frame` 这类带 duration 的事件按时长累加。落 `send:working_time` 事件。
 - 存 ClickHouse `events` 表(scope/obj_id/duration/count/user_id/project/task/job + payload JSON),按月分区。Grafana 看板 `sum(working_time)` + `count() as Activity` GROUP BY user×project×task×job。
 - **借鉴**:工时"空闲剔除"规则要透明(我们 active_minutes 口径需明确);ClickHouse 路线我们已有 DuckDB 离线档对应,暂不上。
 
 ### 2.2 质量:GT job + 8 类冲突 + 混淆矩阵
 
-- `quality_control` app:把某 job 标为 `GROUND_TRUTH`,`DatasetComparator` 用 IoU/OKS 匹配标注员标注 vs GT,产出 **Job→Task→Project 三级报告**([quality_control/models.py:91-246](../../../cvat/cvat/apps/quality_control/models.py))。
+- `quality_control` app：把某 job 标为 `GROUND_TRUTH`，`DatasetComparator` 用 IoU/OKS 匹配标注员标注与 GT，产出 [Job、Task、Project 三级报告](https://github.com/cvat-ai/cvat/blob/93ce5c8617dd2d6e0ca08be8f7099ea38c11b3a7/cvat/apps/quality_control/models.py#L91-L246)。
 - **8 类冲突**(比我们 4 类 reject 原因更细):`MISSING_ANNOTATION`/`EXTRA_ANNOTATION`/`MISMATCHING_LABEL`(error)、`LOW_OVERLAP`/`MISMATCHING_ATTRIBUTES`/`MISMATCHING_DIRECTION`/`MISMATCHING_GROUPS`/`COVERED_ANNOTATION`(warning)。
 - 指标:accuracy = valid/(ds∪gt)、precision = valid/ds_count、recall = valid/gt_count、mean_iou、**confusion_matrix**(label×label,带 jaccard_index)。
 - 可配阈值:`iou_threshold`(0.4)、`low_overlap_threshold`(0.8)、`oks_sigma`(0.09)、`target_metric`(accuracy)+ `target_metric_threshold`(0.7)。
@@ -108,7 +108,7 @@
 
 ### 3.1 lead_time / 成员统计(OSS 已有)
 
-- `Annotation.lead_time`(秒,[tasks/models.py:723](../../../label-studio/label_studio/tasks/models.py)),FSM `annotation_created` transition 捕获;Data Manager `Avg('annotations__lead_time')` 出 per-task `avg_lead_time`。
+- [`Annotation.lead_time`](https://github.com/HumanSignal/label-studio/blob/cf0cf44b0a11c9d2199f5000ff179af08051f763/label_studio/tasks/models.py#L723-L728) 以秒计，FSM `annotation_created` transition 捕获。Data Manager 用 `Avg('annotations__lead_time')` 计算每个任务的 `avg_lead_time`。
 - `annotators` 列 = `ArrayAgg('annotations__completed_by')` 任务级标注员聚合;`total_annotations`/`cancelled_annotations` per-task 计数。
 - **借鉴**:per-task-annotator 对的聚合(我们按 user 聚合,缺"某题谁标的"维度)。
 

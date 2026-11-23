@@ -7,6 +7,15 @@ import { dirname } from "node:path";
 
 const __here = dirname(fileURLToPath(import.meta.url));
 const DOCS_ROOT = join(__here, "..");
+const PAGE_LINE_LIMITS = [
+  ["DEV.md", join(DOCS_ROOT, "..", "DEV.md"), 120],
+  [
+    "docs-site/dev/concepts/module-deployment.md",
+    join(DOCS_ROOT, "dev/concepts/module-deployment.md"),
+    140,
+  ],
+  ["docs-site/dev/testing.md", join(DOCS_ROOT, "dev/testing.md"), 150],
+];
 
 const SKIP_ROOTS = new Set([
   ".vitepress",
@@ -74,6 +83,16 @@ function checkFile(filePath) {
         warnings++;
       }
     }
+  }
+}
+
+for (const [label, path, maxLines] of PAGE_LINE_LIMITS) {
+  const lines = readFileSync(path, "utf8").trimEnd().split("\n").length;
+  if (lines > maxLines) {
+    console.error(
+      `[error] ${label} has ${lines} lines (limit ${maxLines}). Move procedures to their owning guides and dated results to evidence ledgers.`,
+    );
+    errors++;
   }
 }
 

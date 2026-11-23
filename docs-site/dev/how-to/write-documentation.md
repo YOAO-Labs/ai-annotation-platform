@@ -27,6 +27,8 @@ last_reviewed: 2026-10-19
 
 不要为了让内容更容易被搜到而把整篇文档复制到另一个栏目。请将权威解释放在归属该主题的页面中，再从栏目导览页（Hub）或相关文章通过链接指向它。
 
+仓库根的 `DEV.md` 只保留本地开发命令和专题入口。`pnpm --filter docs-site check:readability` 在 CI 检查其上限为 120 行。把具体操作、故障排查和架构说明写在对应专题，历史验收结果留在 ADR、计划证据或 Git 历史。
+
 <span id="open-with-the-readers-next-action" aria-hidden="true"></span>
 
 ## 以读者的下一步行动开篇

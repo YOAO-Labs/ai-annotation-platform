@@ -46,6 +46,23 @@ WITH namespaces AS MATERIALIZED (
     FROM objects o JOIN pg_depend d ON d.refclassid=o.classid AND d.refobjid=o.oid
     WHERE NOT EXISTS (SELECT FROM pg_trigger t WHERE d.classid='pg_trigger'::regclass
                       AND t.oid=d.objid AND t.tgisinternal)
+      AND NOT EXISTS (
+          SELECT FROM pg_trigger t
+          JOIN pg_trigger parent ON parent.oid=t.tgparentid
+          JOIN pg_class child ON child.oid=t.tgrelid
+          JOIN pg_inherits i ON i.inhrelid=child.oid AND i.inhparent=parent.tgrelid
+          WHERE d.classid='pg_trigger'::regclass AND d.objid=t.oid
+            AND o.classid='pg_proc'::regclass AND o.oid=t.tgfoid
+            AND parent.tgrelid='public.predictions'::regclass
+            AND parent.tgname='trg_mask_gc_roots_predictions'
+            AND parent.tgfoid='aap_labeling_v1._mask_gc_sync_root_trigger()'::regprocedure
+            AND parent.tgenabled='O' AND t.tgenabled='O'
+            AND child.relispartition AND child.relnamespace='public'::regnamespace
+            AND child.relname ~ '^predictions_y[0-9]{4}m(0[1-9]|1[0-2])$'
+            AND pg_get_triggerdef(t.oid)=replace(pg_get_triggerdef(parent.oid),
+                ' ON public.predictions FOR EACH ROW ',
+                format(' ON %s FOR EACH ROW ', child.oid::regclass))
+      )
 )
 SELECT nspname, kind, identity, definition FROM entries
 ORDER BY nspname COLLATE "C", kind COLLATE "C", identity COLLATE "C", definition COLLATE "C"

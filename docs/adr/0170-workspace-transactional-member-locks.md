@@ -52,7 +52,7 @@ Node 可直接使用这两项 SQL 能力；API ORM 兼容绑定不要求 owner �
 
 旧源 025b801e6 的 22 项真实基线先通过并冻结：十二项分派缓存／autoflush 组合和十项
 标量缺失／空值／异常时间语义。捕获拒绝覆盖既有案例；原始执行不累计为新实现数量。
-验收入口和原始报告分别见 DEV.md 与 `.worktree/workspace-member-locks-qualification.json`。
+当前复验入口见 `docs-site/dev/testing.md` 的“模块边界定向验收”；原始报告为 `.worktree/workspace-member-locks-qualification.json`。
 
 本轮 224 项不同定向检查通过，无有效失败或跳过；其中三十八项成员锁合同／真实
 消费者检查、十九项 Identity 适配检查，以及一百六十七项分派、跨帧、视频、导出与

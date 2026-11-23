@@ -62,6 +62,7 @@ def validate(containers, project_dir):
                 str(project_dir / "docker-compose.ml-yolo.yml"),
                 str(project_dir / "docker-compose.ml-onnxtools.yml"),
                 str(project_dir / "docker-compose.ml-rapidocr.yml"),
+                str(project_dir / "docker-compose.inference-workers-development.yml"),
             }
             or service in found
         ):

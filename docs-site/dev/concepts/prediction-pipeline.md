@@ -161,7 +161,7 @@ WorkBench 请求要求项目 `annotation.write` 和当前题有效编辑／分�
 - `to_internal_shape()` 出参也带 `tool_unit_id`, 供前端候选层 / 原生 JSON 导出消费
 - `CandidateDecisionPort.accept()` 创建的 annotation 沿用 prediction 的 `tool_unit_id` (与项目 `tool_bindings[unit].classes` 软校验保一致)
 
-详见 [annotation-module · 工具单位](./annotation-module#工具单位tool_unit维度) 与 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)。
+详见 [annotation-module · 工具单位](./annotation-module#工具单位-tool-unit-维度) 与 [ADR-0026](../adr/archive/0026-tool-unit-class-and-attribute-binding)。
 
 ## 普通逐题批量的结果恢复
 
@@ -402,6 +402,8 @@ worker 累加各阶段 stats（源阶段 `{detected}`、下游 `{targeted, ok, f
 发布由 `services/prediction_progress.py::publish_progress` 持有：普通进度只推项目频道，调用方提供 `job_meta` 时才另推 `global:prediction-jobs`；项目消息不混入该元数据。批量与逐帧执行直接调用共享发布者，仍沿用原节流、阶段统计和终态事务，不新建频道或作业状态机。
 
 若 GPU 仲裁在下游派发前拒绝，阶段仍按配置的 `keep_parent|drop_box` 处理，同时把完整根因记入 `PredictionMeta.extra.pipeline.gpu_arbiter_failures`。作业终态的 `async_jobs.result.gpu_arbiter_failures` 则按稳定错误码聚合 `status_code` / `retry_after_s` / `count`；`count` 表示被拒绝的派发次数，不替代 `pipeline_stages[].failed` 的受影响 ROI 计数。
+
+批量任务自身失败写 `failed_predictions` 后继续处理下一个任务。模型 HTTP 前的 GPU 拒绝保存稳定错误码，`FailedPrediction.extra.gpu_arbiter_error` 保存状态及 `retry_after_s`；逐帧预标只在作业结果中聚合，不创建无法按原帧上下文重试的行。摘要按错误码合并并取保守的最大重试窗口，worker 不据此自动等待或重派。
 
 ### 拓扑落库与可追溯
 

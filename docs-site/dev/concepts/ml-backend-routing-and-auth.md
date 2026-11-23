@@ -26,6 +26,10 @@ last_reviewed: 2026-10-19
 
 服务池用于组合可互换的实例。平台核对模型目录、请求结构、变体和追踪器等稳定能力的指纹；模型名字相似不代表可以放在同一个池。实例 URL、GPU 和实时显存占用是运行信息，不作为模型能力相同的依据。
 
+每个 Registry 实例最多属于一个池。注册自动生成单实例池；路由 lineage 保存 pool ID 和实际 registry ID，前者不是物理端点。流水线、项目默认变体和账户偏好按实例保存的配置仍用 registry ID，不从 UUID 形状猜测身份。跨实例选择前按当前绑定解析。预测和失败记录保留两者，多阶段结果在 stage lineage 保留该段的实例。
+
+环境配置和手动注册进入同一 Registry；从环境移除实例会将其标为 `disconnected`，而不是删除历史。项目启用的操作见[用户指南](/user-guide/projects/ml-backends)，项目池和管理员端点见 [ML Backend 平台 API](/api/guides/ml-backend#服务池管理与观测)。
+
 ## 一个推理请求如何到达 Backend
 
 ```mermaid
@@ -42,15 +46,17 @@ flowchart TD
 
 `ML_BACKEND_ROUTER_MODE` 决定服务池如何选择实际接收请求的实例：
 
-| 模式      | 实际请求的去向                               | Redis 路由账本的作用                                                     |
-| --------- | -------------------------------------------- | ------------------------------------------------------------------------ |
-| `off`     | 池中的既有默认实例 `legacy_instance_id`      | 不申请 route lease                                                       |
-| `observe` | 仍发给既有默认实例，同时记录新策略会选择谁   | 记录影子选择，不以此阻断实际请求                                         |
-| `enforce` | 在合格的 active 成员中按平滑加权轮询选择实例 | 原子申请有时限的 route lease，约束跨进程并发；账本或拓扑不确定时拒绝接流 |
+| 模式      | 实际请求的去向                          | 选择与运行限制                                               |
+| --------- | --------------------------------------- | ------------------------------------------------------------ |
+| `off`     | 池中的既有默认实例 `legacy_instance_id` | 单进程 semaphore，保留持久执行计数和管理围栏                 |
+| `observe` | 仍发给既有默认实例                      | 记录影子选择，不据此阻断既有选择                             |
+| `enforce` | 在合格 active 成员中按平滑加权轮询选择  | 持久准入与单进程 semaphore 共用实例的 `max_concurrency` 上限 |
 
-route lease 记录某个实例正在承接的请求，用于跨 API 和 worker 计算并发与维护时的在途数量。它与 HTTP Token、GPU 显存许可分别管理。`enforce` 接流检查项目启用、池状态、健康新鲜度、能力指纹、并发容量和熔断状态。
+PostgreSQL 是路由 scope、HTTP attempt、管理占用与连续性记录的权威。Redis 路由数据仅供诊断，清空、超时或租约到期不能证明实际工作结束。三种模式均保留持久执行计数和管理围栏；不能确认 owner 或拓扑时拒绝执行。`enforce` 另校验项目启用、池状态、健康新鲜度、能力指纹、并发容量和熔断状态。这里的 Redis 路由观测与 GPU 仲裁的逐卡账本不同。见 [ADR-0155](/dev/adr/0155-durable-inference-routing-authority)。
 
 成员的 `active` 表示可接新流量，`draining` 表示停止接受新 route lease 并等待已有请求结束，`disabled` 表示不可参与选择。停流只在路由 `enforce` 下真正约束新请求；它不会自行卸载 GPU 模型。GPU 仲裁另有自己的 effective mode，负责资源准入、驱逐和驻留证明。
+
+管理员卸载／重载、移除成员或删除实例须验证精确停流、持久账本、后端连续性及控制状态；未决工作保持阻塞。GPU 自动驻留驱逐使用独立 GPU 授权和执行 scope，不要求先手动停流服务池。Provider 的定向退役 wire 见[后端执行范围的定向退役](../reference/ml-backend-protocol#后端执行范围的定向退役)。
 
 受控训练模型还会固定完成部署检查的确切实例。平台不会因为该实例不可用，就把相同请求交给池内另一个尚未安装该权重的实例，也不会替换成基础模型继续执行。
 
@@ -61,6 +67,14 @@ GPU 冷启动或驱逐可能在模型请求发送前刷新目标实例的健康�
 应用 `bo0404` 迁移并重启 Inference owner 与消费者前，先排空并完成旧路由 scope，或明确将其退役，再停止旧执行进程。旧 scope 没有历史预留时的进程启动身份和健康资格绑定，不能从当前健康状态回填，也不能作为例外继续放行。
 
 模型 HTTP 发送前，Inference owner 将已准备的精确 attempt 与冻结的模型、变体和插件资产批准快照绑定，在持有 Registry 锁的同一事务内重新检查当前批准、端点与路由身份，再把 attempt 标记为已开始。批准变更先于该事务提交时请求被拒绝且不会发送；开始标记先提交时该请求视为已在途。发送前的确定拒绝或取消记录为 `not_sent`，已开始后的中断仍按不确定结果处理；不会通过重选成员或重试 HTTP 来绕过检查。
+
+### 受管派发与显存驱逐
+
+`BackendTransport` 将预测、交互预测、预热、重载和卸载纳入派发上下文；`health` 和 `setup` 不申请执行许可。预测先取得本地并发槽再申请 GPU 许可。完整响应已收到时先报告 `response_received` 再解析；传输断开、超时或取消视为 `uncertain`，不据此减账。GPU `off/observe` 不签发 admission token，旧式驻留仍是 `generation=null, evictable=false`。逐卡策略降级握手完成前继续使用原有效模式；存在受管卡时，缺少或未知的非 CPU 资源绑定在 HTTP 前返回 `gpu_config_invalid`。
+
+冷准入使用新 challenge 核对实际驻留。预算不足时先驱逐同一资源上有合格证明且无 lease 的空闲模型，使用稳定优先级和 LRU，保留冷却时间。受签 DRAIN、空闲证明、受签 UNLOAD 和全空证明全部成立后才减账。空闲项不足才排空 busy victim；平台 lease 与后端活动数都归零才能卸载。取消与卸载在同一逐卡 owner 中互斥，超时先记录取消意图，结合 ACK 和新鲜健康证据恢复，不能确认则保持 `Unknown`。
+
+等待受 admission deadline 和票据期限约束，不自动续期。冻结标记不会随 owner TTL 消失，只能由匹配的终态或 challenge-bound reset 清除。旧式卸载、非法授权、损坏账本或未知证明都不能放行。签名、回包和提供方设备要求见[受管 GPU 生命周期](../reference/ml-backend-protocol#_1-3-受管-gpu-生命周期-能力协商)。真实设备部署用[逐资源验收](/ops/runbooks/gpu-arbitration-acceptance)，不能用 CPU 样例或历史验证代替。
 
 ## 可安装插件的身份与退出
 

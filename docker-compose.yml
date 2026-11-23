@@ -1,5 +1,9 @@
 x-celery-env: &celery-env
   CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+  MINIO_ENDPOINT: ${MINIO_ENDPOINT_DOCKER:-minio:9000}
+  MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-}
+  MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+  MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
   ASSETS_VIDEO_EXECUTOR: ${ASSETS_VIDEO_EXECUTOR:-celery}
   ASSETS_IMAGE_EXECUTOR: ${ASSETS_IMAGE_EXECUTOR:-celery}
   INSIGHTS_REFRESH_DATABASE_URL: ""
@@ -183,11 +187,8 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
-      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
-      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_AUDIT_ARCHIVE_BUCKET: ${MINIO_AUDIT_ARCHIVE_BUCKET:-audit-archive}
     volumes:
       - *assets-source-read-secret
@@ -244,7 +245,6 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
       TRAINING_ENABLED: ${TRAINING_ENABLED:-false}
@@ -252,8 +252,6 @@ services:
       TRAINING_NODE_ID: ${TRAINING_NODE_ID:-local}
       TRAINING_GPU_UUID: ${TRAINING_GPU_UUID:-}
       TRAINING_CATALOG_JSON: ${TRAINING_CATALOG_JSON:-{}}
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
       CONNECTOR_HOST_ALLOWLIST: ${CONNECTOR_HOST_ALLOWLIST:-}
       STORAGE_FILESYSTEM_ROOTS: "${STORAGE_FILESYSTEM_ROOTS:-{}}"
       STORAGE_SFTP_ROOTS: "${STORAGE_SFTP_ROOTS:-{}}"
@@ -322,11 +320,8 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
       IMAGE_PYRAMID_AUTO_GENERATE: ${IMAGE_PYRAMID_AUTO_GENERATE:-false}
       IMAGE_PYRAMID_PROFILE_VERSION: ${IMAGE_PYRAMID_PROFILE_VERSION:-pyramid-v1}
       IMAGE_PYRAMID_NORMALIZATION_VERSION: ${IMAGE_PYRAMID_NORMALIZATION_VERSION:-exif-autorotate-srgb-v1}
@@ -378,11 +373,8 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
       GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}
       GPU_ARBITER_ROLLOUT_ENABLED: ${GPU_ARBITER_ROLLOUT_ENABLED:-false}
       GPU_ARBITER_COLLECTOR_DATABASE_URL_FILE: /run/secrets/gpu_arbiter_collector_database_url
@@ -442,11 +434,8 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
       GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}
       GPU_ARBITER_ROLLOUT_ENABLED: ${GPU_ARBITER_ROLLOUT_ENABLED:-false}
@@ -509,11 +498,8 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
       GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}
       GPU_ARBITER_ROLLOUT_ENABLED: ${GPU_ARBITER_ROLLOUT_ENABLED:-false}
@@ -567,11 +553,8 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
       GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}
       GPU_ARBITER_ROLLOUT_ENABLED: ${GPU_ARBITER_ROLLOUT_ENABLED:-false}
       GPU_ARBITER_RESOURCES_JSON: ${GPU_ARBITER_RESOURCES_JSON:-{}}
@@ -617,6 +600,7 @@ services:
     environment:
       <<: *jobs-publication-env
       ALEMBIC_AUTO_UPGRADE: "false"
+      OPENBLAS_NUM_THREADS: "1"
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
       JOBS_DISPATCH_DATABASE_URL: ${JOBS_DISPATCH_DATABASE_URL:-}
@@ -652,11 +636,8 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin
       GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}
       GPU_ARBITER_ROLLOUT_ENABLED: ${GPU_ARBITER_ROLLOUT_ENABLED:-false}
       GPU_ARBITER_RESOURCES_JSON: ${GPU_ARBITER_RESOURCES_JSON:-{}}

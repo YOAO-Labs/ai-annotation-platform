@@ -1,6 +1,6 @@
 # 平台插件化：模块化单体、语言无关契约与扩展点
 
-> 状态：M0、M1a、M2a、M2b 已完成。M2b 在隔离环境通过验收；M2c 日常环境迁移未获授权。
+> 状态：M0、M1a、M2a、M2b 已完成。M2b 在隔离环境通过验收；M2c 已将维护者日常主 checkout 和存量开发库切到默认档。
 >
 > 创建日期：2026-11-23。
 >
@@ -88,7 +88,7 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
    | 待盘点决定 | Notifications publisher／socket、Identity mail、Assets source／catalog／import／cleanup、Labeling video-writer／mask-gc     |
 
 2. **M2b 合并**：默认档改用已有的进程内 owner 路径；只服务按操作拆分的 overlay、CI 选择器和文档一并退役。模块代码、契约、冻结 SQL 和一致性检查保留。
-3. **M2c 日常环境迁移**：维护者本机从独立拓扑切回默认档需要单独授权，按 runtime 技能先备份、再切换、再验证，不在合并提交中自动切换。
+3. **M2c 日常环境迁移**：仅在维护者明确授权后，按维护窗口、存量数据库和存储身份核对、切换、真实业务验证的顺序执行。此次维护者明确选择原地迁移且不备份；代码合并不触发其他部署迁移。
 
 验收：新 checkout 以默认档冷启动，完成登录、建项目、导入、标注、审核、通知、预标注（任一插件）的真实业务冒烟和约定的恢复；LAN 内嵌、LAN 远程 issuer 的普通消费者、工作树生成的普通运行 LOGIN，对所有模块私表（含列、分区、外表与物化视图）和序列均无有效权限。保留的独立服务须以实际 split overlay 冷启和取证。拓扑、凭据边界与通过范围见[进程清单](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)。
 
@@ -159,7 +159,7 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 | 风险                             | 处理                                                                                                           |
 | -------------------------------- | -------------------------------------------------------------------------------------------------------------- |
 | 合并进程时破坏最小权限或事务语义 | 边界本来就是 PostgreSQL 固定函数能力，进程内调用同一能力；用受限角色验证私表仍不可直接访问                     |
-| 维护者日常环境中断               | M2c 单独授权、先备份，不随代码合并自动切换                                                                     |
+| 维护者日常环境中断               | 单独确认切换窗口与是否备份；无备份的原地迁移不承诺回滚，不触碰其他部署                                         |
 | 飞书外部依赖与凭据               | 契约检查用替身；真实验证使用维护者提供的测试应用，凭据不进仓库                                                 |
 | 计划和台账再次膨胀               | 本计划只写目标、决定和去向；运行证据写入 `docs/plans/evidence/1795366269_platform-pluginization/` 下的运行账本 |
 
@@ -168,4 +168,5 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 - **M1a 已通过。** 无平台源码的作者环境构建并部署 CPU 服务；经真实 Registry、项目服务池及签名原图，默认路由和同代契约完成绑定后的强制路由均返回预期预测。制品范围、被拒绝的旧契约与隔离证据见[运行账本](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md)。作者从[直连教程](../../docs-site/dev/tutorials/ml-backend-starter.md#direct-registration)开始。
 - **M2a 已完成。** 历史数目和当前源码装配统一索引在[进程清单](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)。
 - **M2b 已通过隔离验收。** 从[Workspace 六项首批](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md#m2b-workspace)扩展到[完整进程清单](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)。新 checkout 完成登录、建项目、导入、真实 CPU 插件预标注、标注、审核和通知；三个实际普通 LOGIN 在新装、重放授权和非空恢复后均无私表权限。保留服务已分别冷启取证，已登记 S3／SFTP 的 12 个场景均通过，包含复制中断后的接管和原版本读回。各档提交、回执及模型权重等未覆盖范围见[全量账本](evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md)。
-- M1b、M1c、M3、M4 尚未实施。正式发布和 M2c 日常切换仍需分别授权。
+- **M2c 已切换维护者日常环境。** 主 checkout 跟踪 `dev`，`annotation` 原地迁移，保留原存储身份；宿主 API/Web、八个 worker 和单实例 Beat 已启用。实测和未覆盖项见[日常迁移回执](evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md#m2c)。
+- M1b、M1c、M3、M4 尚未实施。正式发布仍需单独授权。

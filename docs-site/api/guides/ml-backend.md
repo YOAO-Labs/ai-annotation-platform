@@ -183,6 +183,167 @@ POST /api/v1/projects/:id/ml-backends/:bid/capabilities/refresh
 
 字段语义与受控词表见 [ML Backend 协议 §4.1](../../dev/reference/ml-backend-protocol)。
 
+### 项目能力快照
+
+前端通过 `GET /api/v1/projects/{pid}/ml-backends/{bid}/setup` 查询原始能力声明；更新或删除实例时失效已有缓存。缺少 `supported_prompts` 的旧服务兼容点、框和文本；502 表示能力无法读取，不当作支持所有工具。已持久化的 `is_interactive` 派生自 Backend `/setup`，不要求手工录入。
+
+`extract_capabilities(setup)`（`yoao_inference.capabilities`）遍历 `models[]` 派生 model 列表，落进 `ml_backend_registry.health_meta["capabilities"]`：
+
+```jsonc
+{
+  "infra": "pytorch", // backend 默认
+  "models": [
+    {
+      "id": "detect",
+      "task": "detect",
+      "model_family": "yolo",
+      "infra": "pytorch",
+      "supported_prompts": ["none"],
+      "supported_inputs": ["full_image", "crop"],
+      "supported_geometric_outputs": ["bbox"],
+      "output_attribute_types": [],
+      "supported_variants": [
+        /*…*/
+      ],
+      "default_thresholds": {
+        /*…*/
+      },
+      "resource_profile": {
+        /*…*/
+      },
+      "modality": "image",
+    },
+    /* … */
+  ],
+  // 兼容字段:老消费方仍能读到「扁平并集」(所有 model 的 prompts/geometry 去重合并)
+  "supported_prompts": ["none"],
+  "supported_inputs": ["full_image", "crop"],
+  "supported_geometric_outputs": ["bbox", "polygon", "keypoint", "rotated_bbox"],
+  "modalities": ["image"],
+  "warnings": [],
+}
+```
+
+保留顶层「扁平并集」字段，供仍读取扁平结果的消费者使用。模态派生升级为 **per-model 派生 + backend 汇总**：`task=tracker` 或 `supported_trackers` 非空 ⇒ video；几何含 `lidar_box_3d` / `point_mask_3d` ⇒ lidar；否则 ⇒ image（含 `supported_prompts=["none"]` 的批量模型）。backend `modalities` = 各 model modality 去重并集。
+
+`warnings` 是非阻断诊断列表，由平台校验规范化后的 `task` / `infra` / `supported_prompts` / `supported_geometric_outputs` 是否落在受控词表内后生成。每条包含 `{level, model_id, field, value, message}`；可用它定位拼写或枚举漂移，平台不会因此丢弃该 model。
+
+项目能力目录返回各模型的 `last_seen_at` 和顶层 `warnings`。批量预标的 `model_id` 选择目录条目；未提供时兼容隐式单模型。
+
+运行时观测 `GET /api/v1/admin/ml-integrations/observe` 可透传 `ObserveTarget.supported_variants`，顶层缺失时合并 `models[].supported_variants` 并按轴去重；历史 SAM enum 仍可从 `variant_catalog` 读取。仅提供变体目录不代表支持预热。
+
+### 协议能力目录端点
+
+[ADR-0037](/dev/adr/archive/0037-protocol-capability-catalog-decoupling)将平台支持的词表与已注册 Backend 解耦。`GET /api/v1/ml-capabilities/protocol` 不依赖实例注册。
+
+- **数据源**：`apps/inference/src/yoao_inference/capability_registry.py`，与 `yoao_inference.capabilities` 的受控词表同源（归一化层显式消费同一词表）。
+- **鉴权**：登录用户即可访问；不暴露任何 backend 实例信息，无需 super_admin。
+- **缓存**：`Cache-Control: private, max-age=300` + ETag；二次请求带 `If-None-Match` 返回 304。
+
+**响应结构**：
+
+```jsonc
+{
+  "version": "v2",        // 与协议 v2 对齐, 受控词表不兼容变更才 bump
+  "tasks": [
+    {
+      "id": "detection",
+      "label": "目标检测",
+      "summary": "在图像或视频帧中输出 bbox + 类别标签。",
+      "default_geometry": ["bbox"],
+      "default_modalities": ["image", "video"],
+      "typical_models": ["YOLO 系", "DETR 系", "Grounding DINO"],
+      "protocol_notes": "/predict 响应 result.type=rectanglelabels, ...",
+      "suggested_backends": [
+        {
+          "name": "Label Studio ML Backend (YOLO)",
+          "repo_url": "https://github.com/HumanSignal/label-studio-ml-backend",
+          "summary": "官方示例覆盖 YOLOv8 / DETR, 适合上手。",
+          "research_link": "docs/research/01-label-studio.md"
+        }
+      ]
+    }
+    // 共 9 个 task
+  ],
+  "infras":     [ { "id": "pytorch", "label": "PyTorch", "summary": "..." }, ... ],   // 6 项
+  "modalities": [ { "id": "image",   "label": "图像",   "summary": "..." }, ... ],   // 3 项 (image/video/lidar)
+  "geometries": [ { "id": "bbox",    "label": "bbox",   "summary": "..." }, ... ],  // 8 项
+  "prompts": [
+    {
+      "id": "interactive_box",
+      "label": "框提示",
+      "summary": "SAM-style 单框单 mask 交互分割。",
+      "requires_input": true,
+      "interactive_route": true
+    },
+    {
+      "id": "text",
+      "label": "文本提示",
+      "summary": "开放词汇文本驱动检测/分割; 走批量线, 不进画布交互工具。",
+      "requires_input": true,
+      "interactive_route": false
+    }
+    // 共 9 个 prompt
+  ]
+}
+```
+
+模型市场的协议视图使用 `tasks`；模型数量由模型目录提供。目录读取失败不显示为零。词表与快照的维护见 [Capability Registry Codegen](/dev/concepts/api-schema-boundary#capability-registry-codegen)。
+
+### 实例能力清单端点
+
+`GET /api/v1/ml-capabilities/instances` 从全局 `ml_backend_registry` 返回 connected backend 的 model 清单。env 配置的 backend 在启动 / 初始化时自动 upsert 为 `source="env"` 的一等注册项；超管手动注册的是 `source="manual"`。因此实例能力不再维护“env-only 临时探测 + 项目内重复注册”两套来源。
+
+**数据源合并**：
+
+1. 从 `ml_backend_registry` 读取 `state="connected"` 的注册项（env 自动注册与 manual 手动注册同表）。
+2. 直接消费每项 `health_meta["capabilities"]` 的 `models[]` 快照，并带出 `backend_id / state / source / name`。
+3. URL 唯一性与 env upsert 在注册表层解决，instances 端点无需再做临时来源去重。
+
+**字段裁剪**（与项目级 `/capabilities` 的差别）：
+
+| 字段                                                                                                                                               | `/projects/.../capabilities` | `/v1/ml-capabilities/instances`                  |
+| -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------ |
+| url                                                                                                                                                | ✓                            | ✗（避免暴露内网拓扑）                            |
+| gpu_info / cache / pool / video_pool                                                                                                               | ✓                            | ✗（运维敏感）                                    |
+| params                                                                                                                                             | ✓                            | ✗（运维细节给项目级视图）                        |
+| `models[]` 的核心字段（id / display_name / task / infra / prompts / geometry / trackers / modality / output_attribute_types / supported_variants） | ✓                            | ✓                                                |
+| supported_inputs / resource_profile                                                                                                                | ✓                            | ✓（全局编排选择器需投递契约 + 批量画像，故透传） |
+
+**响应结构**：
+
+```jsonc
+{
+  "instances": [
+    {
+      "backend_id": "9f1c…", // ml_backend_registry.id
+      "state": "connected", // 注册表状态; disconnected 已在服务层过滤
+      "source": "env", // ml_backend_registry.source: "env"(docker-compose/env 自动注册) | "manual"(superadmin 手动注册)
+      "name": "grounded-sam2", // ml_backend_registry.name
+      "infra": "pytorch",
+      "models": [
+        {
+          "id": "grounded-sam2-detection",
+          "display_name": "Grounded-SAM 2 · 文本检测 (DINO)",
+          "task": "detect",
+          "infra": "pytorch",
+          "is_interactive": false,
+          "supported_prompts": ["text"],
+          "supported_inputs": ["full_image", "crop"],
+          "supported_geometric_outputs": ["bbox"],
+          "supported_trackers": [],
+          "resource_profile": { "device": "gpu", "batchable": true },
+          "modality": "image",
+        },
+        // ...
+      ],
+    },
+  ],
+}
+```
+
+预标流水线库与项目类别配置使用实例能力清单。`source` 描述注册来源（环境自动注册或人工注册），不能据此断定项目已启用该模型。模型市场的模型目录读取 `/model-catalog`，不是用实例清单拼装项目可见目录。
+
 ## 交互式示例候选
 
 图片通过 `POST /api/v1/projects/:id/ml-backends/:backend_id/interactive-annotating` 发起；视频当前帧使用同前缀的 `interactive-annotating-frame`，附带帧图和 `frame_index`。SAM3 的 `context.type=exemplar` 支持以下组合：

@@ -37,7 +37,9 @@ last_reviewed: 2026-10-20
 
 ## 2. 启动步骤
 
-### 2.1 首次启动基础设施 {#development-cold-start}
+<span id="development-cold-start" aria-hidden="true"></span>
+
+### 2.1 首次启动基础设施
 
 只在新的本地环境执行本节。已有拆分栈和维护者日常环境先看[升级门禁](/ops/upgrade-guide#split-topology-upgrade)；并行 checkout 使用 `pnpm dev:worktree`，不要另起会占用同一端口的默认项目。
 
@@ -48,6 +50,10 @@ docker compose up -d --wait postgres redis minio mailpit
 ```
 
 Mailpit 只收不发，在 `http://localhost:8025` 查看。`identity-mail-v2` 用 `mailpit:1025` 作为开发中继；宿主机仅执行管理员 SMTP 测试时才用 `localhost:1025`。生产不启动 Mailpit。监控 `monitoring` 和五个模型插件 `gpu*` profile 默认不启用。
+
+若与其他部署共用 MinIO，开发 API 和 Celery 使用仅授权开发桶的 `MINIO_ACCESS_KEY`、`MINIO_SECRET_KEY`。已有 MinIO 服务沿用自己的 root 凭据和数据目录；不要用应用凭据重建共享服务。
+
+有历史数据时，对照已登记的存储端点配置宿主 `MINIO_ENDPOINT`、容器 `MINIO_ENDPOINT_DOCKER` 和 Vite 的 `MINIO_PROXY_TARGET`。宿主和 worker 必须解析到原服务，浏览器 `/minio` 代理使用与签名匹配的 Host。不要改写原件地址或重置桶。给开发导出桶单独授权 `s3:GetBucketVersioning`：即使桶未开启版本控制，worker 也需要读取版本状态以核验写入回执；不需要开启版本控制或授权修改其设置。
 
 ### 2.2 迁移、授权及启动 worker
 
@@ -82,10 +88,11 @@ CORS 策略（见[运行环境形态](/dev/concepts/runtime-environments)）。�
 
 安装或更新 editable 共享包后，必须重启 Uvicorn 父进程；已有父进程会把旧
 `sys.path` 交给热重载子进程。若新解释器能导入包、常驻 API 却报缺包，先核对服务
-工作目录和虚拟环境，再重启拥有该 API 的服务，而非反复触碰源码。macOS 使用
-LaunchAgent 的主 checkout 可按仓库根 `DEV.md` 的启动说明核对 label 并重启；
-独立工作树继续使用自己的 launcher。检查三个基础服务健康端点，
-并再执行一次热重载，确认新子进程可以正常启动。
+工作目录和虚拟环境，再重启拥有该 API 的服务，而非反复触碰源码。macOS 主 checkout 若由
+`local.ai-annotation-platform.api` LaunchAgent 管理，先确认其 `WorkingDirectory` 和
+`ProgramArguments` 指向该 checkout，再执行
+`launchctl kickstart -k "gui/$(id -u)/local.ai-annotation-platform.api"`。独立工作树仍用自己的 launcher。
+重启后检查 `/health/db`、`/health/redis` 和 `/health/minio`，再确认一次源码热重载。
 
 ### 2.4 起 Web（宿主机，HMR）
 
@@ -131,6 +138,27 @@ uv run python -m scripts.bootstrap_admin
 | `package.json` / `pnpm-lock.yaml`    | `pnpm install`                                                              |
 
 ---
+
+### 本机开发服务定时重启 {#development-restart}
+
+只为已完成[本地冷启动](#development-cold-start)的主 checkout 安装。独立工作树仍用 `pnpm dev:worktree`，旧拆分环境和生产不接入该定时器。
+
+1. 用 `infra/systemd/aap-development-{api,web}.service.in` 安装用户服务，替换 `@PROJECT_DIR@` 和 `@NODE_BIN_DIR@` 为实际绝对路径。接管已有进程前，核对 PID、会话和工作目录。
+2. 将 `scripts/development-restart.py` 安装到 `~/.local/lib/ai-annotation-platform/`。让 `~/.local/bin/ai-annotation-platform-dev-restart` 调用该脚本，传入 `--project-dir` 主 checkout 绝对路径和 `--state-dir ~/.local/state/ai-annotation-platform/development-restart`，并透传参数。
+3. 将 `infra/systemd/aap-development-restart.{service,timer}` 安装到 `~/.config/systemd/user/`。启用用户 linger 后执行：
+
+   ```bash
+   systemctl --user daemon-reload
+   ~/.local/bin/ai-annotation-platform-dev-restart --check
+   systemctl --user start aap-development-restart.service
+   systemctl --user enable --now aap-development-restart.timer
+   systemctl --user list-timers aap-development-restart.timer
+   journalctl --user -u aap-development-restart.service -n 30 --no-pager
+   ```
+
+定时器每天北京时间 04:00 重启开发 API、Web、Celery worker 和 Beat。脚本先验证容器归属和配置。它不创建容器、不重建、不迁移，也不重启共享基础设施。
+
+部署前，在状态目录创建 `maintenance` 文件，再运行 `flock ~/.local/state/ai-annotation-platform/development-restart/restart.lock true` 等待已开始的重启退出。部署验证后删除标记。彻底停用用 `systemctl --user disable --now aap-development-restart.timer`。
 
 ## 4. dev 环境用 SDK / CLI
 

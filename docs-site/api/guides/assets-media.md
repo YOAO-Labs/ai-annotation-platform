@@ -42,9 +42,21 @@ Task 列表的原始文件引用不依赖 S3 HEAD，避免存储短时不可用�
 
 ## 部署与范围
 
-迁移、精确 grants、secret 文件、就绪探针及显式 Compose 入口见仓库 `DEV.md` 的“视频媒体的独立控制与执行”。可选 worker 会继续使用显式配置的 `MEDIA_PROBE_URL`，远程探测故障也不会回退。Go 仅保留为单独实验。
+默认 Celery 与独立执行器的角色配置见[媒体执行角色](/ops/deploy/docker-compose#media-executor-provisioning)。启用独立控制或执行前，先应用迁移和模块 owner 授权，再按 `infra/docker/assets-media-grants.sql` 安装分别使用的控制和执行 LOGIN。专用文件按 `docker-compose.assets-media.yml` 挂载。可选 worker 仍可选择 `MEDIA_PROBE_URL`，远程探测故障不回退。
 
 `docker-compose.assets-media.yml` 提供 `assets-video-executor`、`assets-image-executor`、`assets-media-control` 三个显式 profile。开启某个执行 profile 前，先停止旧领取、确认在途操作已排空，再将对应 `*_EXECUTOR` 在 API 和相关 Worker 统一改为 `split`；该值会关闭该 lane 的 Celery 领取，独立容器拒绝 `celery` 配置。独立执行器不需要控制容器或 broker。常驻 Celery 两项执行各需专用窄 LOGIN，通过 `ASSETS_CELERY_VIDEO_DATABASE_URL[_FILE]`、`ASSETS_CELERY_IMAGE_DATABASE_URL[_FILE]` 安装。API 与 Beat 不挂载这些数据库凭据。
+
+例如，完成权限配置及排空后，只启动独立视频执行器：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml \
+  --profile assets-video-executor up -d --build --wait assets-media-worker
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml \
+  --profile assets-video-executor exec assets-media-worker \
+  python -m yoao_assets_media_runtime.worker --healthcheck
+```
+
+`SIGTERM` 停止领取新单位，继续处理并续租当前单位。为已领取工作留出退出时间；过期或强制退出不代表已排空。`--healthcheck` 核对 SQL 身份，不代替对象权限和实际解码验证。
 
 内嵌图片控制读取保存的 Native 代次时，只使用 `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL` 与其 reader token；独立 writer 和 Cleanup 继续分别使用自己的 token。未配 reader 即明确拒绝 Native 历史读取，不猜当前缓存桶。文件、DB 与 S3 范围详见[金字塔手册](/ops/runbooks/image-pyramid)。
 
@@ -84,7 +96,7 @@ Accepted-input 垃圾回收还会查询 Jobs 当前 execution 的退役事实。
 
 垃圾领取时也会重新核对尚未处理的 tracker tombstone：当前不可回收的 source 前缀会按清理租约时长延后，本页继续扫描，因此前面的保留项不会阻塞后续过期或已被新一代替代的前缀。清理 worker 默认租约为 600 秒，Native claim 接受 60–7200 秒。已领取的旧租约无法由 SQL 撤销；升级领取围栏前应停止 `apps/assets-cleanup` 并确认进程退出，再等待未完成租约到期。若不能确认进程退出，应先隔离其对象存储删除凭据。已经删除的对象版本不能通过此迁移恢复。
 
-升级排空、Worker 选择与精确 grants 见 `DEV.md`；来源快照、保留和回退责任见 [ADR-0110](/dev/adr/0110-retained-tracker-video-inputs)。这条专用协议不扩大旧批量预标的 frame-only 准入。
+回退领取围栏也须先确认旧清理者退出和在途删除结束，再等待已领取租约到期。跟踪输入切换见[媒体输入升级](/ops/upgrade-guide#media-input-cutover)，来源快照和保留规则见 [ADR-0110](/dev/adr/0110-retained-tracker-video-inputs)。这条专用协议不扩大旧批量预标的 frame-only 准入。
 
 ## 已受理图片输入
 
@@ -109,4 +121,4 @@ header 保留 `candidate_count`、`selected_count`、`prepared_count`；`ready_c
 
 prepare 先读取原成员，已有 Input 或固定失败时直接重放。控制服务根据捕获快照观察来源，再提交 native 准备；HTTP 调用方不能提供伪造对象身份。已知对象身份必须匹配；首次未知身份以准备时首次成功 HEAD 为字节受理时点，提交瞬间不证明未知历史内容。来源或任务绑定变化使该成员失败，不会替换为当前源。
 
-输入物化和准备等待发生在 Job 认领与模型调用之前；临时繁忙继续等待同一作业。封存后逐页、逐题使用原输入，图片旧预测与已采纳 AI 标注直到准备结果通过最终写入准入后才同事务替换；推理失败、写入回滚或取消先取得写入资格时保留旧内容。推理结果完整保存后，临时存储／写入故障及进程接管继续使用同一检查点，不重新选择任务或调用模型；确定性来源／权限拒绝仍明确失败。完整租约、回执与恢复边界见[普通批量结果检查点](./module-data#普通批量结果检查点)。升级排空与凭据配置见 `DEV.md`；输入清单设计取舍见 [ADR-0108](/dev/adr/0108-bulk-image-input-manifests)。
+输入物化和准备等待发生在 Job 认领与模型调用之前；临时繁忙继续等待同一作业。封存后逐页、逐题使用原输入，图片旧预测与已采纳 AI 标注直到准备结果通过最终写入准入后才同事务替换；推理失败、写入回滚或取消先取得写入资格时保留旧内容。推理结果完整保存后，临时存储／写入故障及进程接管继续使用同一检查点，不重新选择任务或调用模型；确定性来源／权限拒绝仍明确失败。完整租约、回执与恢复边界见[普通批量结果检查点](./module-data#普通批量结果检查点)。升级排空见[媒体输入升级](/ops/upgrade-guide#media-input-cutover)，设计取舍见 [ADR-0108](/dev/adr/0108-bulk-image-input-manifests)。
