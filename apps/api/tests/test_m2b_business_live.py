@@ -175,7 +175,12 @@ async def _import_task(client, owner, stack, nonce, project_id, image, digest):
     )
     put_url = urlsplit(upload["upload_url"])
     assert f"{put_url.scheme}://{put_url.netloc}" == stack.storage_origin
-    assert "X-Amz-Signature" in parse_qs(put_url.query)
+    query_fields = set(parse_qs(put_url.query))
+    assert {"X-Amz-Signature", "X-Amz-Expires", "X-Amz-Credential"} <= query_fields or {
+        "Signature",
+        "Expires",
+        "AWSAccessKeyId",
+    } <= query_fields, "upload URL is not signed"
     try:
         put = await client.put(
             upload["upload_url"], content=image, headers={"Content-Type": "image/png"}
