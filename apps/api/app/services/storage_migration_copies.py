@@ -13,6 +13,7 @@ import uuid
 
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
+from yoao_jobs.lifecycle import JobsLifecycleManager
 
 from app.db.models.storage_migration_copy import BASELINE_LIMIT
 from app.schemas.storage_migration_copy import (
@@ -32,7 +33,10 @@ from app.services import (
 )
 from app.services.audit import AuditService
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services.jobs_lifecycle_data import job_lock_statement
+from app.services.jobs_lifecycle_data import (
+    JobsLifecyclePostgresData,
+    job_lock_statement,
+)
 from app.services.storage_migration_copy import (
     Checkpoint,
     CopyError,
@@ -606,11 +610,9 @@ async def settle_dead(db, a):
     if not settled:
         reject("copy_execution_unsettled")
     if job:
-        job.status, job.completed_at, job.error_message = (
-            "failed",
-            at,
-            "copy_process_ended",
-        )
+        JobsLifecycleManager(
+            JobsLifecyclePostgresData(db), clock=lambda: at
+        ).mark_failed(job, error="copy_process_ended")
     await db.flush()
 
 
@@ -719,15 +721,16 @@ async def finish(db, row, a, job, status, error_code=None):
         else a.cancel_requested_at,
     )
     if job:
-        job.status, job.completed_at, job.error_message = (
-            status,
-            a.completed_at,
-            error_code,
+        lifecycle = JobsLifecycleManager(
+            JobsLifecyclePostgresData(db), clock=lambda: at
         )
+        result = public_result(row, a)
         if status == "completed":
-            await jobs.update_progress(db, job.id, 100, result=public_result(row, a))
+            lifecycle.mark_complete(job, result=result)
+        elif status == "cancelled":
+            lifecycle.mark_cancelled(job, result=result)
         else:
-            await jobs.replace_result(db, job.id, result=public_result(row, a))
+            lifecycle.mark_failed(job, error=error_code, result=result)
     await db.flush()
     return True
 
@@ -795,7 +798,6 @@ async def claim(db, job_id, task_id):
     if not await data.claim(db, a, process, at):
         return None
     a = replace(a, status="running", started_at=at, process=process)
-    job.status, job.started_at = "running", a.started_at
     result = public_result(
         row,
         a,
@@ -803,7 +805,9 @@ async def claim(db, job_id, task_id):
             a.operation
         ],
     )
-    await jobs.replace_result(db, job.id, result=result)
+    lifecycle = JobsLifecycleManager(JobsLifecyclePostgresData(db), clock=lambda: at)
+    lifecycle.mark_running(job)
+    lifecycle.replace_result(job, result=result)
     await db.flush()
     return a
 

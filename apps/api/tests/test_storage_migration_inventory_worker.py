@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.models.notification import Notification
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.user import User
+from app.services import async_job as jobs
 from app.services import storage_migration_inventories as service
 from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage_migration_inventory import InventoryStopped
@@ -90,6 +91,13 @@ async def test_two_independent_deliveries_run_core_once_and_close_client(
     async with world.maker() as db:
         row = await service.by_job(db, world.job_id)
         assert row.status == "completed" and row.complete
+        job = await jobs.get_job(db, world.job_id)
+        assert job.status == row.status and job.progress_pct == 100
+        assert (job.started_at, job.completed_at) == (
+            row.started_at,
+            row.completed_at,
+        )
+        assert job.result["stage"] == "sealed"
         assert row.counts["buckets"] == len(
             set(world.source["purpose_buckets"].values())
         )
@@ -215,6 +223,10 @@ async def test_stop_does_not_publish_before_native_drain(world, monkeypatch, sto
             assert row.status == (
                 "cancelled" if stop_kind in {"caller", "domain"} else "failed"
             )
+            job = await jobs.get_job(db, world.job_id)
+            assert job.status == row.status and job.error_message == row.error_code
+            assert job.completed_at == row.completed_at
+            assert job.result["stage"] == "ended"
             assert await db.get(StorageOperation, row.operation_id) is None
             assert not service.item(row).report_available
     finally:

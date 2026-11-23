@@ -14,6 +14,7 @@ from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
+from yoao_jobs.lifecycle import JobsLifecycleManager
 
 from app.config import settings
 from app.db.models.storage_migration_inventory import REPORT_LIMIT
@@ -27,7 +28,10 @@ from app.services import storage_access, storage_maintenance, storage_registry_d
 from app.services.audit import AuditService
 from app.services.dataset_assets import LEGACY_LOCATION_ID, PURPOSE_BUCKET_ATTRIBUTES
 from app.services.identity_account_lock_data import IdentityAccountLockData
-from app.services.jobs_lifecycle_data import job_lock_statement
+from app.services.jobs_lifecycle_data import (
+    JobsLifecyclePostgresData,
+    job_lock_statement,
+)
 from app.services.storage import storage_service
 from app.services.storage_migration_inventory import PURPOSES, verify_inventory
 from app.services.storage_migration_observations import endpoint_identity
@@ -436,7 +440,6 @@ async def finish(db, row: InventoryFacts, job, status, *, error_code=None, repor
         )
     if not changed:
         return False
-    job.status, job.completed_at, job.error_message = status, completed_at, error_code
     result = {
         "stage": "sealed" if report is not None else "ended",
         "migration_ready": False,
@@ -449,10 +452,15 @@ async def finish(db, row: InventoryFacts, job, status, *, error_code=None, repor
         "report_sha256": sha256,
         "report_size_bytes": size,
     }
+    lifecycle = JobsLifecycleManager(
+        JobsLifecyclePostgresData(db), clock=lambda: completed_at
+    )
     if status == "completed":
-        await jobs.update_progress(db, job.id, 100, result=result)
+        lifecycle.mark_complete(job, result=result)
+    elif status == "cancelled":
+        lifecycle.mark_cancelled(job, result=result)
     else:
-        await jobs.replace_result(db, job.id, result=result)
+        lifecycle.mark_failed(job, error=error_code, result=result)
     await db.flush()
     return True
 
@@ -532,10 +540,11 @@ async def claim(db, job_id, task_id):
     )
     if not changed:
         return None
-    job.status, job.started_at = "running", started_at
-    await jobs.replace_result(
-        db, job.id, result={"stage": "reading", "migration_ready": False}
+    lifecycle = JobsLifecycleManager(
+        JobsLifecyclePostgresData(db), clock=lambda: started_at
     )
+    lifecycle.mark_running(job)
+    lifecycle.replace_result(job, result={"stage": "reading", "migration_ready": False})
     await db.flush()
     return replace(row, status="running", started_at=started_at)
 
