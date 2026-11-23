@@ -75,11 +75,13 @@ def _model_execution_port(db, *, prediction_execution):
     return model_execution_port(db, prediction_execution=prediction_execution)
 
 
-async def call_retry(database, operation, **values):
+async def call_retry(database, operation, *, pipeline_errors=None, **values):
     from yoao_preannotation_results import retry_contract as c
 
     request = c.OPERATIONS[operation].request.model_validate_json(_json_text(values))
     try:
+        if pipeline_errors:
+            return await database.finish_pipeline_failure(request, pipeline_errors)
         return await database.call(operation, request)
     except c.PredictionRetryFailure as error:
         if error.code in _DEFER_CODES:
@@ -735,6 +737,7 @@ async def _finish_failure(
                 SqlAlchemyPredictionRetryData(db, writer=True),
                 "finish_prediction_retry_failure",
                 **execution._values(),
+                pipeline_errors=getattr(error, "pipeline_errors", None),
                 abandon=abandon,
                 error_code=code,
                 reason=gpu_error["message"]
@@ -745,20 +748,6 @@ async def _finish_failure(
                 gpu_arbiter_error=gpu_error,
                 context=context,
             )
-            pipeline_errors = getattr(error, "pipeline_errors", None)
-            if pipeline_errors:
-                from app.db.models.prediction import FailedPrediction
-
-                failed = await db.get(
-                    FailedPrediction,
-                    attempt.failed_prediction_id,
-                    populate_existing=True,
-                )
-                if failed is not None:
-                    failed.extra = {
-                        **(failed.extra or {}),
-                        "last_pipeline_errors": pipeline_errors,
-                    }
             await _notify_terminal(db, attempt.job_id)
             await db.commit()
             return finished.outcome

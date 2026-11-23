@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from contextvars import copy_context
 from copy import deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from functools import partial
 import hashlib
 import io
@@ -21,13 +21,9 @@ import uuid
 
 from botocore.config import Config
 from PIL import Image, ImageOps
-from sqlalchemy import Text, cast, func, or_, select, update
-from sqlalchemy.dialects.postgresql import JSONB, JSONPATH, array
-from sqlalchemy.orm import load_only
 
 from app.config import settings
-from app.db.models.prediction_input import PredictionInputLease as InputRecord
-from app.db.models.storage_maintenance import StorageOperation
+from app.services import prediction_input_data as lease_data
 from app.services import storage_access, storage_usage_accounting as accounting
 from app.services.content_snapshot import ContentError, MAX_BYTES, MAX_PIXELS, Snapshot
 from app.services.managed_original_reader import BinaryStage
@@ -35,9 +31,6 @@ from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.storage import StorageService
 
 log = logging.getLogger(__name__)
-ACTIVE_SECONDS = 2 * 60 * 60
-RECOVERY_DAYS = 7
-RETRY_SECONDS = 60
 MAX_VIDEO_BYTES = 5 * 1024**3
 VIDEO_KINDS = frozenset(
     {
@@ -107,14 +100,6 @@ _FACTS = (
     "expires_at",
     "retain_until",
     "source_ref",
-)
-_COLUMNS = tuple(getattr(InputRecord, name) for name in _FACTS) + (
-    InputRecord.state,
-    InputRecord.uncertain_write,
-    InputRecord.next_cleanup_at,
-    InputRecord.deleted_at,
-    InputRecord.object_count,
-    InputRecord.size_bytes,
 )
 
 
@@ -305,14 +290,7 @@ def _snapshot(row):
 
 
 async def _row(db, identifier, *, lock=False):
-    query = (
-        select(InputRecord)
-        .options(load_only(*_COLUMNS))
-        .where(InputRecord.id == identifier)
-    )
-    if lock:
-        query = query.with_for_update(nowait=True)
-    row = await db.scalar(query.execution_options(populate_existing=True))
+    row = await lease_data.lease_facts(db, identifier, lock=lock)
     if row is None:
         reject("expired")
     return row
@@ -347,17 +325,7 @@ async def check_metadata(db, inputs, *, lock=True):
         expected_revision=inputs.record.maintenance_revision,
         lock=lock,
     )
-    pending = await db.scalar(
-        select(
-            func.jsonb_path_exists(
-                InputRecord.inventory,
-                cast(
-                    '$.objects.* ? (@.state != "verified" || @.version_id == null || @.version_id == "null")',
-                    JSONPATH,
-                ),
-            )
-        ).where(InputRecord.id == row.id)
-    )
+    pending = await lease_data.objects_pending(db, row.id)
     if pending:
         reject("object_not_verified")
     if inputs.record.contract_version == 3:
@@ -672,32 +640,39 @@ class PredictionInputs:
                     await guard(db)
                 ref = await _allocate_ref(db, identifier)
                 revision = await storage_access.check(db, uuid.UUID(ref["location_id"]))
-                row = InputRecord(
-                    id=identifier,
-                    owner_id=uuid.UUID(str(owner_id)),
+                owner_id_value = uuid.UUID(str(owner_id))
+                task_id_value = uuid.UUID(str(task_id))
+                contract_version = 3 if owner_kind in VIDEO_KINDS else 2
+                deadlines = await lease_data.create_lease(
+                    db,
+                    identifier,
+                    owner_id=owner_id_value,
                     owner_kind=owner_kind,
-                    task_id=uuid.UUID(str(task_id)),
-                    contract_version=3 if owner_kind in VIDEO_KINDS else 2,
+                    task_id=task_id_value,
+                    contract_version=contract_version,
+                    storage_ref=ref,
+                    maintenance_revision=revision,
+                    source_ref=source_ref,
+                    started=started,
+                )
+                record = InputSnapshot(
+                    id=identifier,
+                    owner_id=owner_id_value,
+                    owner_kind=owner_kind,
+                    task_id=task_id_value,
+                    contract_version=contract_version,
                     storage_ref=ref,
                     bucket=ref["bucket"],
                     storage_identity=ref["storage_identity"],
                     maintenance_revision=revision,
                     source_ref=source_ref,
-                    inventory={"schema": 1, "objects": {}},
-                    object_count=0,
-                    size_bytes=0,
-                    state="active",
-                    uncertain_write=False,
+                    expires_at=deadlines.expires_at,
+                    retain_until=deadlines.retain_until,
                     created_at=started,
-                    expires_at=started + timedelta(seconds=ACTIVE_SECONDS),
-                    retain_until=started
-                    + timedelta(seconds=ACTIVE_SECONDS, days=RECOVERY_DAYS),
-                    next_cleanup_at=started + timedelta(seconds=ACTIVE_SECONDS),
                 )
-                db.add(row)
-                result = _snapshot(row)
+                _resolve(record)
                 await db.commit()
-                return result
+                return record
 
         record = await _async(allocate())
         return cls(factory, record, storage, guard=guard)
@@ -729,17 +704,7 @@ class PredictionInputs:
         async def check():
             async with self.factory() as db:
                 await self._fresh(db)
-                pending = await db.scalar(
-                    select(
-                        func.jsonb_path_exists(
-                            InputRecord.inventory,
-                            cast(
-                                '$.objects.* ? (@.state != "verified" || @.version_id == null || @.version_id == "null")',
-                                JSONPATH,
-                            ),
-                        )
-                    ).where(InputRecord.id == self.record.id)
-                )
+                pending = await lease_data.objects_pending(db, self.record.id)
                 if pending:
                     reject("object_not_verified")
                 if self.record.contract_version == 3:
@@ -755,16 +720,9 @@ class PredictionInputs:
 
     async def _check_video_inventory(self, db, row=None):
         row = row or await _row(db, self.record.id)
-        size = await db.scalar(
-            select(func.octet_length(cast(InputRecord.inventory, Text))).where(
-                InputRecord.id == self.record.id
-            )
-        )
-        if size is None or size > MAX_INVENTORY_BYTES:
+        value = await lease_data.read_inventory(db, self.record.id)
+        if value is None:
             reject("budget_exceeded", 413)
-        value = await db.scalar(
-            select(InputRecord.inventory).where(InputRecord.id == self.record.id)
-        )
         objects = _inventory(row, value)
         if len(objects) != 1:
             reject("object_not_verified")
@@ -782,11 +740,7 @@ class PredictionInputs:
         async def reserve():
             async with self.factory() as db:
                 row = await self._fresh(db, lock=True)
-                old = await db.scalar(
-                    select(InputRecord.inventory["objects"][relative]).where(
-                        InputRecord.id == row.id
-                    )
-                )
+                old = await lease_data.read_object(db, row.id, relative)
                 if old is not None:
                     old = _entry(
                         relative, old, contract_version=self.record.contract_version
@@ -806,21 +760,8 @@ class PredictionInputs:
                     or row.size_bytes + expected["size_bytes"] > max_bytes
                 ):
                     reject("budget_exceeded", 413)
-                await db.execute(
-                    update(InputRecord)
-                    .where(InputRecord.id == row.id)
-                    .values(
-                        inventory=func.jsonb_set(
-                            InputRecord.inventory,
-                            array(["objects", relative]),
-                            cast(expected, JSONB),
-                            True,
-                        ),
-                        object_count=row.object_count + 1,
-                        size_bytes=row.size_bytes + expected["size_bytes"],
-                    )
-                    .execution_options(synchronize_session=False)
-                )
+                if not await lease_data.reserve_object(db, row.id, relative, expected):
+                    reject()
                 await db.commit()
                 return expected
 
@@ -896,26 +837,15 @@ class PredictionInputs:
         async def publish():
             async with self.factory() as db:
                 row = await self._fresh(db, lock=True)
-                current = await db.scalar(
-                    select(InputRecord.inventory["objects"][relative]).where(
-                        InputRecord.id == row.id
-                    )
-                )
-                if current != expected:
+                if not await lease_data.verify_object(
+                    db,
+                    row.id,
+                    relative,
+                    expected,
+                    etag=verified["etag"],
+                    version_id=verified["version_id"],
+                ):
                     reject()
-                await db.execute(
-                    update(InputRecord)
-                    .where(InputRecord.id == row.id)
-                    .values(
-                        inventory=func.jsonb_set(
-                            InputRecord.inventory,
-                            array(["objects", relative]),
-                            cast(verified, JSONB),
-                            True,
-                        )
-                    )
-                    .execution_options(synchronize_session=False)
-                )
                 try:
                     await db.commit()
                 except BaseException as exc:
@@ -1236,9 +1166,12 @@ class PredictionInputs:
                 return
             if not _same(row, self.record):
                 reject()
-            row.state = "cleanup_pending"
-            row.uncertain_write |= self._uncertain_write or self._unsettled
-            row.next_cleanup_at = now()
+            await lease_data.seal_lease(
+                db,
+                row.id,
+                uncertain=self._uncertain_write or self._unsettled,
+                closed_at=now(),
+            )
             await db.commit()
 
     async def close(self):
@@ -1300,15 +1233,6 @@ async def prediction_inputs(factory, **owner):
         yield inputs
     finally:
         await inputs.close()
-
-
-def _operations(identifier, *, ignore=None):
-    query = select(StorageOperation.id).where(
-        StorageOperation.purpose == purpose(identifier)
-    )
-    if ignore is not None:
-        query = query.where(StorageOperation.id != ignore)
-    return query.exists()
 
 
 def _inventory(record, value):
@@ -1496,43 +1420,16 @@ async def purge_input(factory, input_id, *, storage=None):
 
     async def select_owner():
         async with factory() as db:
-            row = await db.scalar(
-                select(InputRecord)
-                .options(load_only(*_COLUMNS))
-                .where(InputRecord.id == input_id)
-                .with_for_update(skip_locked=True)
-                .execution_options(populate_existing=True)
-            )
             checked = now()
-            if (
-                row is None
-                or row.state == "deleted"
-                or row.next_cleanup_at > checked
-                or (row.state == "active" and row.expires_at > checked)
-            ):
+            row = await lease_data.lease_facts(db, input_id, due_at=checked)
+            if row is None:
                 return None
-            row.next_cleanup_at = checked + timedelta(seconds=RETRY_SECONDS)
-            row.last_cleanup_at = checked
-            if row.contract_version not in {2, 3} or row.storage_ref is None:
-                row.error_code = "legacy_unpinned"
+            if not await lease_data.prepare_cleanup(db, input_id, checked_at=checked):
                 await db.commit()
                 return "deferred"
-            if await db.scalar(select(_operations(input_id))):
-                row.error_code = "storage_operation_unsettled"
-                await db.commit()
-                return "deferred"
-            if row.state == "active":
-                row.state, row.uncertain_write = "cleanup_pending", True
-            size = await db.scalar(
-                select(func.octet_length(cast(InputRecord.inventory, Text))).where(
-                    InputRecord.id == input_id
-                )
-            )
-            if size is None or size > MAX_INVENTORY_BYTES:
+            document = await lease_data.read_inventory(db, input_id)
+            if document is None:
                 reject("budget_exceeded", 413)
-            document = await db.scalar(
-                select(InputRecord.inventory).where(InputRecord.id == input_id)
-            )
             objects = _inventory(row, document)
             saved = _snapshot(row)
             await db.commit()
@@ -1544,7 +1441,9 @@ async def purge_input(factory, input_id, *, storage=None):
             if (
                 row.state != "cleanup_pending"
                 or not _same(row, record)
-                or await db.scalar(select(_operations(input_id, ignore=permit.id)))
+                or await storage_access.operation_is_open(
+                    db, purpose(input_id), excluding=permit.id
+                )
             ):
                 reject("cleanup_busy")
             await _target_for_record(db, record)
@@ -1557,11 +1456,14 @@ async def purge_input(factory, input_id, *, storage=None):
         async with factory() as db:
             row = await _row(db, input_id, lock=True)
             if row.state != "deleted":
-                row.error_code = getattr(
-                    exc, "code", "prediction_input_storage_cleanup_failed"
+                await lease_data.record_cleanup_failure(
+                    db,
+                    row.id,
+                    code=getattr(
+                        exc, "code", "prediction_input_storage_cleanup_failed"
+                    ),
+                    uncertain=getattr(exc, "storage_operation_unsettled", False),
                 )
-                if getattr(exc, "storage_operation_unsettled", False):
-                    row.uncertain_write = True
                 await db.commit()
 
     selected = await _async(select_owner())
@@ -1624,22 +1526,21 @@ async def purge_input(factory, input_id, *, storage=None):
         async def finish():
             async with factory() as db:
                 row = await _row(db, input_id, lock=True)
-                if (
-                    row.state != "cleanup_pending"
-                    or not _same(row, record)
-                    or await db.scalar(select(_operations(input_id, ignore=permit.id)))
-                ):
+                if row.state != "cleanup_pending" or not _same(row, record):
                     reject("cleanup_busy")
                 await _target_for_record(db, record)
                 await storage_access.check(
                     db, _location(record), expected_revision=permit.revision, lock=True
                 )
-                if row.uncertain_write and row.retain_until > now():
-                    result = "retained"
-                else:
-                    row.state, row.deleted_at = "deleted", now()
-                    result = "removed"
-                row.error_code = None
+                result = await lease_data.finish_cleanup(
+                    db,
+                    row.id,
+                    permit_id=permit.id,
+                    permit_revision=permit.revision,
+                    finished_at=now(),
+                )
+                if result is None:
+                    reject("cleanup_busy")
                 await db.commit()
                 return result
 
@@ -1692,23 +1593,7 @@ async def purge_input(factory, input_id, *, storage=None):
 
 async def maintain(factory, *, limit=50):
     async with factory() as db:
-        ids = list(
-            (
-                await db.scalars(
-                    select(InputRecord.id)
-                    .where(
-                        InputRecord.state != "deleted",
-                        InputRecord.next_cleanup_at <= now(),
-                        or_(
-                            InputRecord.state == "cleanup_pending",
-                            InputRecord.expires_at <= now(),
-                        ),
-                    )
-                    .order_by(InputRecord.next_cleanup_at, InputRecord.id)
-                    .limit(limit)
-                )
-            ).all()
-        )
+        ids = await lease_data.due_cleanups(db, checked_at=now(), limit=limit)
     counts = {"removed": 0, "retained": 0, "deferred": 0, "skipped": 0}
     for identifier in ids:
         try:

@@ -6,15 +6,14 @@ import math
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
 
-from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
-from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
-from app.db.models.project import Project
-from app.db.models.task import Task
 from app.services import controlled_segmentation, trained_models
 from app.services.content_snapshot import ContentError
+from app.services.inference_topology_data import InferenceTopologyData
+from app.services.labeling_core_read_relations import get_core_row, task_row
+from app.services.learning_models_data import lock_prediction_reference
 from app.services.prediction_execution import execution_summary, load_snapshot
+from app.services.project_access import get_workspace_project
 from app.services.raster_mask_storage import (
     RasterMaskContractError,
     assert_raster_mask_write_enabled,
@@ -291,66 +290,21 @@ def _validate_payload(task_id, dimensions, payload, extra, result, meta, result_
 
 async def _lock_model(db, project_id, ref, selected):
     """No network I/O under these final model/routing locks."""
-    from app.db.models.trained_model import (
-        ModelDeployment,
-        ModelRelease,
-        TrainedModelVersion,
-    )
-
-    for model, key in [
-        (TrainedModelVersion, "model_version_id"),
-        (ModelDeployment, "deployment_id"),
-        (ModelRelease, "release_id"),
-    ]:
-        if ref.get(key):
-            row = await db.scalar(
-                select(model)
-                .where(model.id == uuid.UUID(ref[key]))
-                .with_for_update(read=True, nowait=True)
-                .execution_options(populate_existing=True)
-            )
-            if row is None:
-                raise ContentError("reference_native_model_invalid")
-    pool_id = uuid.UUID(selected["pool_id"]) if selected.get("pool_id") else None
-    pool = await db.scalar(
-        select(MLBackendServicePool)
-        .where(MLBackendServicePool.id == pool_id)
-        .with_for_update(read=True, nowait=True)
-        .execution_options(populate_existing=True)
-    )
-    assoc = await db.scalar(
-        select(ProjectMLBackendPool)
-        .where(
-            ProjectMLBackendPool.project_id == project_id,
-            ProjectMLBackendPool.pool_id == pool_id,
-        )
-        .with_for_update(read=True, nowait=True)
-        .execution_options(populate_existing=True)
-    )
-    registry_id = uuid.UUID(ref["registry_id"])
-    member = await db.scalar(
-        select(MLBackendPoolMember)
-        .where(
-            MLBackendPoolMember.pool_id == pool_id,
-            MLBackendPoolMember.registry_id == registry_id,
-        )
-        .with_for_update(read=True, nowait=True)
-        .execution_options(populate_existing=True)
-    )
-    backend = await db.scalar(
-        select(MLBackendRegistry)
-        .where(MLBackendRegistry.id == registry_id)
-        .with_for_update(read=True, nowait=True)
-        .execution_options(populate_existing=True)
-    )
     if (
-        not pool
-        or not pool.enabled
-        or not assoc
-        or not assoc.enabled
-        or not member
-        or member.traffic_state != "active"
-        or backend is None
+        not ref.get("model_version_id")
+        or not ref.get("deployment_id")
+        or not await lock_prediction_reference(
+            db,
+            project_id,
+            uuid.UUID(ref["model_version_id"]),
+            uuid.UUID(ref["deployment_id"]),
+            uuid.UUID(ref["release_id"]) if ref.get("release_id") else None,
+        )
+    ):
+        raise ContentError("reference_native_model_invalid")
+    pool_id = uuid.UUID(selected["pool_id"]) if selected.get("pool_id") else None
+    if not await InferenceTopologyData(db).lock_native_prediction_route(
+        project_id, pool_id, uuid.UUID(ref["registry_id"])
     ):
         raise ContentError("reference_native_model_invalid")
     from app.services.trained_model_reference_contract import (
@@ -378,7 +332,9 @@ async def qualify_results(owner, task, anchor, writes):
     )
     if digest != owner.proof["snapshot_digest"]:
         raise ContentError("prediction_scope_changed")
-    project = await owner.db.get(Project, task.project_id, populate_existing=True)
+    project = await get_workspace_project(
+        owner.db, project_id=task.project_id, populate_existing=True
+    )
     assert_raster_mask_write_enabled(project)
     ref = owner.bindings[task.id]["reference"]
     qualified = []
@@ -450,7 +406,7 @@ async def validate_receipt(db, task_id, project_id, receipt, write):
     ):
         raise ContentError("background_native_reference_receipt_invalid")
     evidence = await validate_anchor(db, task_id, project_id, receipt.anchor)
-    task = await db.get(Task, task_id, populate_existing=True)
+    task = await get_core_row(db, task_row, task_id, populate_existing=True)
     receipt.owner.resolve_url(task)
     await receipt.owner.authorize()
     return evidence, deepcopy(receipt.qualification)

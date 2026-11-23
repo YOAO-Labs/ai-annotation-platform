@@ -12,6 +12,7 @@ from yoao_inference.pipeline_contract import (
     PipelineInvalidRequest,
     PipelinePostCommitFailure,
     PipelineRejected,
+    PipelineRow,
     PipelineUnavailable,
     pipeline_command_request,
     pipeline_query_request,
@@ -232,15 +233,20 @@ async def list_pipeline_rows(
     return [_pipeline_output(row, briefs) for row in reply.rows]
 
 
-async def get_pipeline_row(db, *, actor, pipeline_id):
+async def get_visible_pipeline(db, *, actor, pipeline_id) -> PipelineRow:
     reply = await _query(
         db,
         operation="get_pipeline",
         actor=actor,
         target_id=pipeline_id,
     )
-    briefs = await _resolve_pipeline_briefs(db, [reply.rows[0].created_by])
-    return _pipeline_output(reply.rows[0], briefs)
+    return reply.rows[0]
+
+
+async def get_pipeline_row(db, *, actor, pipeline_id):
+    row = await get_visible_pipeline(db, actor=actor, pipeline_id=pipeline_id)
+    briefs = await _resolve_pipeline_briefs(db, [row.created_by])
+    return _pipeline_output(row, briefs)
 
 
 async def get_pipeline_projection(db, mutation: PipelineMutation, *, actor):
