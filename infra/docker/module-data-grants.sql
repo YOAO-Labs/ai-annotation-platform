@@ -3460,6 +3460,8 @@ BEGIN
         'public.dataset_spatial_operations', 'public.sensor_calibration_revisions',
         'public.dataset_operator_operations',
         'public.scene_frame_poses',
+        'public.storage_fault_states', 'public.storage_observation_buckets',
+        'yoao_assets_v1.storage_fault_observation_key',
         'public.notification_preferences','public.system_settings',
         'public.dataset_items', 'public.project_datasets',
         'public.storage_connections', 'public.storage_connection_operations',
@@ -4170,6 +4172,17 @@ GRANT SELECT, INSERT ON public.storage_maintenance_gates TO :"assets_owner";
 GRANT UPDATE (location_id, state, revision, changed_at)
     ON public.storage_maintenance_gates TO :"assets_owner";
 GRANT SELECT (location_id) ON public.storage_location_probes TO :"assets_owner";
+GRANT SELECT (node_id, result) ON public.storage_location_probes TO :"assets_owner";
+GRANT SELECT (id, dataset_id, location_id, name, enabled, unregistered_at, config,
+              config_revision, policy_revision, cache_policy)
+    ON public.dataset_sources TO :"assets_owner";
+GRANT SELECT (source_id, path_digest, content_sha256, asset_id)
+    ON public.dataset_source_items TO :"assets_owner";
+GRANT SELECT (id, source_id, async_job_id)
+    ON public.dataset_scan_runs, public.dataset_registration_runs TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.storage_fault_states, public.storage_observation_buckets
+    TO :"assets_owner";
+GRANT USAGE ON SEQUENCE public.storage_fault_observation_seq TO :"assets_owner";
 GRANT SELECT ON public.image_pyramid_assets, public.image_pyramid_generations,
     public.image_pyramid_outputs TO :"assets_owner";
 GRANT UPDATE (id) ON public.image_pyramid_assets TO :"assets_owner";
@@ -4872,4 +4885,32 @@ BEGIN
     END IF;
 END;
 $fixture_owner$;
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.storage_fault_observation_key OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._storage_fault_seal(bigint,uuid,uuid,text,text,jsonb,jsonb)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._storage_fault_location_visible(uuid,text,uuid,boolean)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._storage_fault_job_visible(uuid,text,uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reserve_storage_fault_observation(uuid,uuid,text,text,jsonb,jsonb)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_storage_fault_observation(bigint,bytea,uuid,uuid,text,text,jsonb,jsonb,text)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_storage_fault_facts(uuid,uuid,text,boolean,boolean)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.storage_fault_location_visible(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.storage_fault_page(uuid,uuid,text,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_storage_observation_rate(uuid,uuid,text,boolean)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_storage_observation_rates(uuid,uuid) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.read_storage_fault_job(uuid) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_storage_fault_job(uuid) TO :"assets_owner";
+REVOKE ALL ON TABLE yoao_assets_v1.storage_fault_observation_key FROM PUBLIC;
+REVOKE ALL ON SEQUENCE public.storage_fault_observation_seq
+    FROM PUBLIC, :"workflow_role", :"asset_cleanup_role", :"mask_gc_role";
 COMMIT;

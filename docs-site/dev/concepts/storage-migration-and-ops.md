@@ -140,8 +140,14 @@ Agent 执行本地受控 I/O，传输命令的 `received` 与业务 `applied` �
 
 `storage_fault_states` 是独立于对象占用、业务许可和保留账本的稀疏观测表。现有来源扫描、核验／原件读取和预览生成在实际 I/O 前取得数据库观测序号；故障去重、次数和水位更新与转换审计同事务，成功仅更新已有匹配状态，不为所有健康文件建行。恢复必须位于现有最终验证／业务提交之后；原图缓存命中不证明源在线。观测通过当前调用者 Engine 的独立有界连接执行，不提交调用者业务、不持有父 Location／Source 锁。
 
+迁移 `bo0486` 保留现有状态行、scope 摘要与序列水位。API 和 Worker 通过 `yoao_assets_v1` 的固定函数在 I/O 前保留序号，Assets owner 用数据库私有密钥封存位置、来源、阶段、范围和白名单事实；完成时凭同一份证明更新水位，调用方不能替换序号或改写已封存的范围。封存不为成功尝试新增持久明细。状态转换和 Audit 追加仍共用观察事务；锁等待 250 ms、语句 1 秒、协作预算 2 秒，失败不污染业务事务。
+
+`faults` 分页和计数使用同一有界的当前来源可见范围；SQL 检查当前管理员、连接器授权和来源归属，Jobs 仅向 Assets owner 投影精确 Job 的存在、类型和关联 Run 标识。超级管理员仍可看到孤立来源，项目管理员不能看到其他所有者的来源或无权查看的作业。已保存的节点、配置、内容与绑定事实只用于判断 `current` / `historical` / `unknown`；HTTP 不返回内部摘要或凭据，也不访问外部存储。
+
 ### 原图与预览的窗口观测率（迁移 0261）
 
 `storage_observation_rates` 为实际严格回源和新建预览提供独立的完成尝试计数。`scan_snapshot` 与 `reference_snapshot` 的回源阶段建立内存尝试；成功在现有最终身份、内容、Key 及提交核验后结算，缓存命中不计。预览在 `directory_previews.prepare` 真正 encode/create 前建立尝试，原登记最终 commit 成功后按发布的 `ready/failed` 一次结算。
 
 迁移 0261 新增无父外键的 `StorageObservationBucket`，主键为完成时 UTC 日期、Location、Source 和 metric，仅保存成功／失败数与首次／最近时间。独立事务以原子 UPSERT 累加（锁等待 250 ms、语句 1 秒、协作预算 2 秒）。现有 `faults` GET 在独立只读短事务中以同一 SQL 的服务器时间和当前来源 ACL 汇总当日 UTC 窗口；零分母比例为 `null`，覆盖为 `recorded_attempts_only`。
+
+`bo0486` 同时把观测率的 UPSERT 与 UTC 汇总限制在 Assets owner 的固定函数内，保持独立写事务和独立只读汇总。LAN 和工作树普通账号只有上述函数的执行权：不能按关系或列读取／写入 `storage_fault_states`、`storage_observation_buckets`、封存密钥或调用 `nextval`。无需配置 owner DSN，公开 URL、字段及角色不变。
