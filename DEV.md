@@ -371,7 +371,7 @@ node scripts/test-codex-session-start.mjs
 
 常规平台开发无需插件源码。需要修改插件时，在平台根目录单独执行 `git clone https://github.com/YOAO-Labs/YOAO-Plugins.git plugins/YOAO-plugins`，按该仓库 README 准备独立环境；该目录被忽略，不作为平台可编辑依赖或 Docker 源码挂载。插件 SDK、共享运行时和 Mask 工具由独立 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK#readme) 维护，LibreYOLO 专属适配由 YOAO-Plugins 维护。作者 SDK 的 `python scripts/build-sdk-artifacts.py --revision COMMIT --output DIR` 从真实不可变提交构建候选制品，具体步骤见该仓库文档；取得实际输出及其可信 manifest 摘要后，按本页的核验流程暂存，不能以源码路径或旧公开制品替代。
 
-新建本地库时，先只起基础设施并完成迁移和 Jobs 两个受限 LOGIN 的配置，然后再启动 worker 与 Beat。详见[本地冷启动](docs-site/ops/deploy/development.md#development-cold-start)；已经完成授权的开发栈可直接执行 `docker compose up -d`。不把新配方应用到未经授权的日常环境。
+新建本地库时，先只起基础设施，完成迁移并配置 Jobs 恢复和媒体执行的受限 LOGIN，再启动 worker 与 Beat。详见[本地冷启动](docs-site/ops/deploy/development.md#development-cold-start)；已完成授权的开发栈可直接执行 `docker compose up -d`。不把新配方应用到未经授权的日常环境。
 
 ```bash
 docker compose up -d --wait postgres redis minio mailpit
@@ -2484,7 +2484,7 @@ API／worker 默认用现有数据库连接保存检查点；设置 `PREANNOTATI
 
 `apps/assets-media` 的固定视频与图片合同由 API 内嵌控制，默认视频由 Celery、图片由 `celery-worker-image-pyramid` 执行。只有需要 FFmpeg／临时盘或 libvips／内存隔离时才分别启用独立执行器。控制端也可单独拆出，但不是执行器依赖。图片配置见[图片金字塔运行手册](docs-site/ops/runbooks/image-pyramid.md)。
 
-严格运行账号的媒体执行者用独立 `ASSETS_CELERY_VIDEO_DATABASE_URL(_FILE)`；Celery Native 图片写入另用 `ASSETS_CELERY_IMAGE_DATABASE_URL(_FILE)`。参见[媒体执行角色](docs-site/ops/deploy/docker-compose.md#media-executor-provisioning)。下文旧 media/image grant 命令仅用于已经有 Assets NOLOGIN owner 的数据库，不在普通库上混用。
+Celery 视频与图片执行分别使用 `ASSETS_CELERY_VIDEO_DATABASE_URL(_FILE)` 和 `ASSETS_CELERY_IMAGE_DATABASE_URL(_FILE)`，普通图片领取和写入也需要独立 image LOGIN。参见[媒体执行角色](docs-site/ops/deploy/docker-compose.md#media-executor-provisioning)。下文 `assets_code` 的配法只适用于已有 Assets NOLOGIN owner 的数据库。
 
 安装当前迁移后，沿用 module-data 初始化流程，为现有 Assets NOLOGIN owner 创建分离的 `yoao_asset_media_control_client` 和 `yoao_asset_media_worker_client` LOGIN。受理视频输入及请求者撤权处理使用 `0225`、`0226`。先应用 owner 与既有 Catalog/Source/importer/operator grants，再由 migration role 安装媒体授权：
 

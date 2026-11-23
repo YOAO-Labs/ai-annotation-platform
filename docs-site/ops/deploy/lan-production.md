@@ -153,7 +153,7 @@ psql -X -U anno_prod_owner -d annotation_production \
 
 在 `$AAP_PRODUCTION_STATE_DIR` 写两份独立文件，内容为各自 LOGIN 的 `postgresql://` DSN，使用实际共享私网数据库地址和 `annotation_production`，密码按 URL 编码。在 `.env.production` 只设绝对宿主路径，不保存原始 DSN。Compose 只把 claim 文件给 `celery-worker-jobs-recovery`；publication 文件只给恢复者和必要的应用生产／执行进程。恢复 worker 加入生产 Redis 与共享 PostgreSQL 网络，不持有迁移／维护 DSN，也没有共享应用权限回退。Beat 等待其就绪。
 
-默认 `ASSETS_VIDEO_EXECUTOR=celery` 需要窄视频执行 LOGIN。按[媒体执行角色](./docker-compose#media-executor-provisioning)安装后设置 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`。需要 Native 图片写入时也安装独立 image LOGIN，配置 `ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`；普通非 Native 图片路径不因此要求新的 DSN。API／Beat 不挂载这些凭据，不向应用 LOGIN 增补执行函数。
+默认 Celery 视频和图片执行分别使用独立的窄 LOGIN。按[媒体执行角色](./docker-compose#media-executor-provisioning)授权并设置 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`、`ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`。普通图片领取和写入也用 image LOGIN，Native writer token 只在启用 Native 时另挂给实际执行者。API／Beat 不挂载这些凭据，也不给应用 LOGIN 增授执行函数。
 
 **运行角色并非纯 DML 账号**：现有月分区任务需要 CREATE/DROP 子分区，PostgreSQL 的统计刷新需要视图所有权和数据库 TEMPORARY 权限。因此它拥有上述限定维护对象及 `public` schema CREATE 权限；其余业务对象仍由迁移角色所有。迁移角色单向继承运行角色，运行角色不能反过来成为迁移角色，也没有集群管理权限。
 

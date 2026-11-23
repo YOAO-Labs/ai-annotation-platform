@@ -57,7 +57,7 @@ Mailpit 只收不发，在 `http://localhost:8025` 查看。`identity-mail-v2` �
 (cd apps/api && uv sync --locked --extra test && uv run alembic upgrade head)
 ```
 
-按[受限 Jobs 账号初始化](./docker-compose#jobs-recovery-provisioning)安装普通运行授权及 claim／publication LOGIN。用 `docker compose exec postgres sh -c 'exec psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB"'` 进入内置数据库交互终端设置密码。配置容器可达的 `JOBS_DISPATCH_DATABASE_URL_FILE`、`JOBS_PUBLICATION_DATABASE_URL_FILE`，并按[媒体执行角色](./docker-compose#media-executor-provisioning)准备 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`。下节另为宿主 API 提供宿主可达的 publication DSN。授权后再启动：
+按[受限 Jobs 账号初始化](./docker-compose#jobs-recovery-provisioning)安装普通运行授权及 claim／publication LOGIN。用 `docker compose exec postgres sh -c 'exec psql -X -U "$POSTGRES_USER" -d "$POSTGRES_DB"'` 进入内置数据库交互终端设置密码。配置容器可达的 `JOBS_DISPATCH_DATABASE_URL_FILE`、`JOBS_PUBLICATION_DATABASE_URL_FILE`，并按[媒体执行角色](./docker-compose#media-executor-provisioning)准备 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`、`ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`。下节另为宿主 API 提供宿主可达的 publication DSN。授权后再启动：
 
 ```bash
 docker compose up -d --wait
