@@ -18,7 +18,7 @@ from app.services import export_execution_context
 from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as media_storage
 from app.services import export_media_transfer as transfer
-from app.services import export_outputs, export_storage, storage_access
+from app.services import export_outputs, export_storage, saved_output_io, storage_access
 from app.services import storage_migration_artifact_reads as artifact_reads
 from app.services import storage_migration_read_publications as read_publications
 from app.services.content_snapshot import ContentError
@@ -117,6 +117,7 @@ async def _io(
     published=False,
     expected_revision=None,
     accounting=None,
+    source=None,
 ):
     """Use a durable operation and drain every physical exception before release."""
 
@@ -144,6 +145,8 @@ async def _io(
     failure, result, entered = None, None, False
     try:
         await transfer._async(fresh(permit.revision))
+        if source is not None:
+            source.attach(permit)
         await export_execution_context.enter_io()
         entered = True
         result = await transfer.physical_work(call)
@@ -400,6 +403,7 @@ async def _lookup(db, receipt, key, *, guard):
     zip_target = (
         None if zip_route is not None else await export_storage.io_target(db, candidate)
     )
+    zip_source = saved_output_io.capture(zip_target, "zip", candidate)
     media_routes = {
         full_key: await artifact_reads.resolve(
             db, owner.ref, full_key, facts["sha256"], facts["size_bytes"]
@@ -432,13 +436,18 @@ async def _lookup(db, receipt, key, *, guard):
             present, zip_revision = await _io(
                 db,
                 previous,
-                lambda: export_storage.verify(
-                    candidate,
-                    missing_ok=True,
-                    **({"target": zip_target} if zip_target is not None else {}),
+                lambda: (
+                    zip_source.verify(missing_ok=True)
+                    if zip_source is not None
+                    else export_storage.verify(
+                        candidate,
+                        missing_ok=True,
+                        **({"target": zip_target} if zip_target is not None else {}),
+                    )
                 ),
                 guard=source_guard,
                 published=True,
+                **({"source": zip_source} if zip_source is not None else {}),
             )
         if not present:
             await _invalidate(db, artifact_id, output_id)
@@ -460,8 +469,13 @@ async def _lookup(db, receipt, key, *, guard):
                     guard=exact_guard,
                 )
             else:
+                member_source = saved_output_io.capture(
+                    media_target, "member", record, relative=relative
+                )
 
                 def verify():
+                    if member_source is not None:
+                        return member_source.verify()
                     with media_storage.open_storage(
                         record,
                         **(
@@ -475,9 +489,16 @@ async def _lookup(db, receipt, key, *, guard):
                             version=member_versions.get(full_key),
                         )
 
-                await _io(db, previous, verify, guard=exact_guard, published=True)
+                await _io(
+                    db, previous, verify, guard=exact_guard, published=True,
+                    **({"source": member_source} if member_source is not None else {}),
+                )
+
+        media_source = saved_output_io.capture(media_target, "media", record)
 
         def inventory():
+            if media_source is not None:
+                return media_source.list_media()
             with media_storage.open_storage(
                 record, **({"target": media_target} if media_target is not None else {})
             ) as client:
@@ -496,7 +517,10 @@ async def _lookup(db, receipt, key, *, guard):
                 await source_guard(owned)
                 await _published(owned, previous)
         else:
-            await _io(db, previous, inventory, guard=source_guard, published=True)
+            await _io(
+                db, previous, inventory, guard=source_guard, published=True,
+                **({"source": media_source} if media_source is not None else {}),
+            )
     except (
         media_storage.ExportMediaStorageError,
         export_storage.ExportStorageError,
@@ -850,23 +874,29 @@ async def run_owned(
                 reject(adapter.error("output_changed"))
 
         zip_target = await export_storage.io_target(db, candidate)
+        source = saved_output_io.capture(zip_target, "zip", candidate)
         await db.commit()
         from app.services import export_zip_accounting
 
         zip_accounting = export_zip_accounting.recorder(db, candidate)
-        save_proof = export_outputs.proof_writer(db, candidate)
+        save_proof = export_outputs.proof_writer(db, candidate) if source is None else None
         _, revision = await _io(
             db,
             receipt,
-            lambda: export_storage.write(
-                candidate,
-                path,
-                accounting=zip_accounting,
-                **({"save_proof": save_proof} if save_proof is not None else {}),
-                **({"target": zip_target} if zip_target is not None else {}),
+            lambda: (
+                source.write_path(path, accounting=zip_accounting)
+                if source is not None
+                else export_storage.write(
+                    candidate,
+                    path,
+                    accounting=zip_accounting,
+                    **({"save_proof": save_proof} if save_proof is not None else {}),
+                    **({"target": zip_target} if zip_target is not None else {}),
+                )
             ),
             guard=zip_guard,
             accounting=zip_accounting,
+            **({"source": source} if source is not None else {}),
         )
         prepared = await export_outputs.prepare_download(
             db, candidate, download_name=name

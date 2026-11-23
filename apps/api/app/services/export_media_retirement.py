@@ -19,7 +19,7 @@ from app.services import export_media_bundles as bundles
 from app.services import export_media_removal_accounting as removal
 from app.services import export_media_storage as physical
 from app.services import export_media_transfer as transfer
-from app.services import export_storage, storage_access
+from app.services import export_storage, saved_output_io, storage_access
 from app.services import key_removal_accounting as key_removal
 from app.services import object_removal_accounting as version_removal
 from app.services.content_snapshot import ContentError
@@ -199,12 +199,17 @@ async def _physical_delete(db, receipt, *, zip_output=None, zip_proof=None):
         await transfer._async(_guard(db, receipt, permit, zip_output=zip_output))
         if zip_output is None:
             target = await transfer._async(transfer._io_target(db, receipt))
+            source = saved_output_io.capture(target, "media", receipt)
+            if source is not None:
+                source.attach(permit)
             accounting = removal.recorder(db, receipt)
             versions = await bundles.member_versions(
                 db, receipt.id, physical.resolve(receipt)
             )
 
             def remove():
+                if source is not None:
+                    return source.delete_media(accounting=accounting, versions=versions)
                 with physical.open_storage(
                     receipt,
                     owned=True,
@@ -221,6 +226,9 @@ async def _physical_delete(db, receipt, *, zip_output=None, zip_proof=None):
         else:
             async with transfer._session(db) as owned:
                 target = await export_storage.io_target(owned, zip_output)
+            source = saved_output_io.capture(target, "zip", zip_output)
+            if source is not None:
+                source.attach(permit)
             recorder = (
                 version_removal
                 if zip_proof is not None and zip_proof["version_id"] is not None
@@ -230,11 +238,12 @@ async def _physical_delete(db, receipt, *, zip_output=None, zip_proof=None):
                 db, zip_output, producer="export_zip_removals", purpose="temporary"
             )
             await transfer.physical_work(
-                export_storage.delete,
-                zip_output,
+                source.delete if source is not None else export_storage.delete,
+                *(() if source is not None else (zip_output,)),
                 accounting=accounting,
-                **({"proof": zip_proof} if zip_proof is not None else {}),
-                **({"target": target} if target is not None else {}),
+                **({"version": zip_proof["version_id"]} if source is not None and zip_proof is not None else {}),
+                **({"proof": zip_proof} if zip_proof is not None and source is None else {}),
+                **({"target": target} if target is not None and source is None else {}),
             )
         await transfer._async(_guard(db, receipt, permit, zip_output=zip_output))
     except BaseException as exc:

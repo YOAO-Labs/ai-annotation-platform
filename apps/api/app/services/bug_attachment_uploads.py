@@ -19,6 +19,7 @@ from app.schemas.bug_report import BugAttachment
 from app.services import bug_attachment_accounting as accounting
 from app.services import bug_attachment_storage as storage, storage_access
 from app.services import object_removal_accounting as removal
+from app.services import saved_output_io
 from app.services import storage_migration_artifact_reads as migrated_reads
 from app.services.bug_report import attachment_error
 from app.services import storage_migration_read_publications as publications
@@ -329,6 +330,7 @@ async def upload(db, authority, data, mime_type, file_name):
         raise http_error(exc) from None
     await reauthorize(db, authority)
     await db.commit()
+    source = saved_output_io.capture(target, "bug", receipt, actor_id=authority.actor_id)
     revision = None
     owned_permit = None
 
@@ -336,6 +338,8 @@ async def upload(db, authority, data, mime_type, file_name):
         nonlocal revision, owned_permit
         owned_permit = permit
         revision = permit.revision
+        if source is not None:
+            source.attach(permit)
         current = await _locked_pending(db, receipt)
         _check_expiry(current)
         await db.commit()
@@ -347,12 +351,11 @@ async def upload(db, authority, data, mime_type, file_name):
             db,
             uuid.UUID(receipt.storage_ref["location_id"]),
             "bug_attachment_write_" + receipt.id.hex,
-            storage.write,
-            receipt,
-            data,
+            source.write if source is not None else storage.write,
+            *((data,) if source is not None else (receipt, data)),
             accounting=recorder,
             on_acquired=acquired,
-            **({"target": target} if target is not None else {}),
+            **({"target": target} if target is not None and source is None else {}),
         )
         if version is not None:
             await _locked_pending(db, receipt)
@@ -448,6 +451,7 @@ async def read(db, actor, request, report_id, key):
             ),
         )
         target = await storage.io_target(db, receipt) if route is None else None
+        source = saved_output_io.capture(target, "bug", receipt)
         await db.commit()
         revision = None
 
@@ -460,6 +464,9 @@ async def read(db, actor, request, report_id, key):
                 reject()
             await reauthorize(db, authority)
             _check_expiry(current)
+            if source is not None:
+                source.attach(permit)
+                await source.admit_read(db, authority.actor_id, report_id=report_id, key=key)
             await db.commit()
 
         if route is not None:
@@ -477,10 +484,10 @@ async def read(db, actor, request, report_id, key):
                 db,
                 uuid.UUID(receipt.storage_ref["location_id"]),
                 read_purpose(receipt.id),
-                storage.read,
-                receipt,
+                source.read_bytes if source is not None else storage.read,
+                *(() if source is not None else (receipt,)),
                 on_acquired=acquired,
-                **({"target": target} if target is not None else {}),
+                **({"target": target} if target is not None and source is None else {}),
             )
         actor = await reauthorize(db, authority)
         current = await _registered_receipt(db, actor, report_id, key)
@@ -513,6 +520,7 @@ async def _cleanup_one(db, identifier):
     if receipt is None:
         return False
     target = await storage.io_target(db, receipt)
+    source = saved_output_io.capture(target, "bug", receipt)
     recorder = removal.recorder(
         db, receipt, producer="bug_attachment_removals", purpose="other_platform"
     )
@@ -521,6 +529,8 @@ async def _cleanup_one(db, identifier):
     async def acquired(permit):
         nonlocal owned_permit
         owned_permit = permit
+        if source is not None:
+            source.attach(permit)
         current = _decode_receipt(
             await _native(db, _LOCK_RETIREMENT, {"id": identifier})
         )
@@ -533,11 +543,12 @@ async def _cleanup_one(db, identifier):
             db,
             uuid.UUID(receipt.storage_ref["location_id"]),
             "bug_attachment_delete_" + receipt.id.hex,
-            storage.delete,
-            receipt,
+            source.delete if source is not None else storage.delete,
+            *(() if source is not None else (receipt,)),
             on_acquired=acquired,
             accounting=recorder,
-            **({"target": target} if target is not None else {}),
+            **({"version": receipt.object_version_id} if source is not None else {}),
+            **({"target": target} if target is not None and source is None else {}),
         )
     except BaseException as exc:
         failure = exc

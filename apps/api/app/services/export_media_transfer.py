@@ -7,18 +7,18 @@ caller; each callback receives a fresh session which closes before physical I/O.
 """
 
 import asyncio
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from contextvars import copy_context
 from copy import deepcopy
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from functools import partial
+from tempfile import TemporaryFile
 import threading
 import time
 from types import SimpleNamespace
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
-from app.services import export_delivery_data as data
 
 from app.services import async_job, fixture_original_read
 from app.services import export_execution_context
@@ -26,6 +26,7 @@ from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as physical
 from app.services import managed_original_reader as reader, original_sources
 from app.services import media_cache_accounting
+from app.services import saved_output_io
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
 
@@ -475,6 +476,9 @@ async def copy_source(
         )
 
         target = await _async(_io_target(db, record))
+        remote = saved_output_io.capture(target, "member", record, relative=relative)
+        if remote is not None:
+            remote.attach(permit)
         recorder = media_cache_accounting.Recorder(
             async_sessionmaker(storage_access.engine(db), expire_on_commit=False),
             "export_media_outputs",
@@ -484,25 +488,15 @@ async def copy_source(
             purpose="temporary",
         )
 
-        loop = asyncio.get_running_loop()
-        version = None
-
-        async def persist_version(value):
-            async with _session(db) as owned:
-                await bundles.check_claim(owned, snapshot, lock=True)
-                if not await data.save_media_version(
-                    owned, snapshot, uuid.UUID(relative[:-4]), value
-                ):
-                    bundles.reject("lease_lost")
-                await owned.commit()
-
-        def capture_version(value):
-            nonlocal version
-            if value is not None:
-                asyncio.run_coroutine_threadsafe(persist_version(value), loop).result()
-                version = value
-
         def write():
+            if remote is not None:
+                offset = stage.file.tell()
+                try:
+                    stage.file.seek(0)
+                    remote.write(stage.file, accounting=recorder)
+                finally:
+                    stage.file.seek(offset)
+                return remote.sign()
             with physical.open_storage(
                 record,
                 **({"target": target} if target is not None else {}),
@@ -514,13 +508,11 @@ async def copy_source(
                     relative,
                     stage.file.fileno(),
                     accounting=recorder,
-                    **({"on_version": capture_version} if owner.external else {}),
                 )
                 return physical.signed_url(
                     client,
                     record,
                     relative,
-                    **({"version": version} if owner.external else {}),
                 )
 
         url = await physical_work(write)
@@ -655,32 +647,35 @@ async def read_copy(db, snapshot, *, relative, guard, read):
         )
         admission = Admission()
         target = await _async(_io_target(db, record))
-        version = None
-        if owner.external:
-            async with _session(db) as owned:
-                version = await data.media_version(
-                    owned, snapshot.id, uuid.UUID(relative[:-4])
-                )
-
-        @contextmanager
-        def context():
-            with physical.open_storage(record, target=target) as client:
-                physical.require_version(client, owner, version)
-                yield client
-
+        remote = saved_output_io.capture(target, "member", record, relative=relative)
+        if remote is not None:
+            remote.attach(permit)
         await export_execution_context.enter_io()
         entered = True
-        stage = await _capture(
-            source,
-            admission,
-            maximum=physical.object_limit(record),
-            **({"client_context": context} if target is not None else {}),
-            **(
-                {"read_spec": replace(_spec(source), expected_version_id=version)}
-                if version is not None
-                else {}
-            ),
-        )
+        if remote is not None:
+            def capture_remote():
+                file = TemporaryFile()
+                try:
+                    remote.download_to(file)
+                except BaseException:
+                    storage_access.close_registered(file)
+                    raise
+                return reader.BinaryStage(
+                    file, expected["sha256"], expected["size_bytes"], {},
+                    admission.release, True,
+                )
+
+            stage = await _async(physical_work(capture_remote), late=_close_stage)
+        else:
+            stage = await _capture(
+                source,
+                admission,
+                maximum=physical.object_limit(record),
+                **(
+                    {"client_context": lambda: physical.open_storage(record, target=target)}
+                    if target is not None else {}
+                ),
+            )
         stage_closed = False
         if stage.sha256 != source.sha256 or stage.size != source.size_bytes:
             reject()

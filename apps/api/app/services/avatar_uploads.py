@@ -19,6 +19,7 @@ from fastapi import HTTPException
 from app.services import avatar, avatar_storage, avatar_upload_data, storage_access
 from app.services import conditional_write_accounting as accounting
 from app.services import object_removal_accounting as removal
+from app.services import saved_output_io
 from app.services import storage_migration_artifact_reads as migrated_reads
 from app.services import storage_migration_read_publications as publications
 from app.services.content_snapshot import ContentError
@@ -259,6 +260,7 @@ async def upload(db, execute, data, *, principal, authority=None):
     except Exception as exc:
         raise http_error(exc) from None
     await db.commit()
+    source = saved_output_io.capture(target, "avatar", receipt_before_io)
     recorder = accounting.recorder(
         db,
         receipt_before_io,
@@ -272,19 +274,20 @@ async def upload(db, execute, data, *, principal, authority=None):
         nonlocal revision, owned_permit
         owned_permit = permit
         revision = permit.revision
+        if source is not None:
+            source.attach(permit)
 
     try:
         try:
             version = await storage_access.run(
                 db,
                 uuid.UUID(ref["location_id"]),
-                "avatar_upload",
-                avatar.write_avatar_object,
-                receipt_before_io,
-                data,
+                "avatar_upload_" + token if source is not None else "avatar_upload",
+                source.write if source is not None else avatar.write_avatar_object,
+                *((data,) if source is not None else (receipt_before_io, data)),
                 on_acquired=acquired,
                 accounting=recorder,
-                **({"target": target} if target is not None else {}),
+                **({"target": target} if target is not None and source is None else {}),
             )
             confirmed = await _save_write_version(
                 db, receipt_before_io, version, actor_id=actor_id
@@ -366,13 +369,19 @@ async def read(db, token):
                 ),
             )
         target = await avatar_storage.io_target(db, receipt_row)
+        source = saved_output_io.capture(target, "avatar", receipt_row)
+
+        async def acquired(permit):
+            source.attach(permit)
+
         return await storage_access.run(
             db,
             uuid.UUID(receipt_row.storage_ref["location_id"]),
-            "avatar_read",
-            avatar.read_avatar_object,
-            receipt_row,
-            **({"target": target} if target is not None else {}),
+            "avatar_read_" + token if source is not None else "avatar_read",
+            source.read_avatar if source is not None else avatar.read_avatar_object,
+            *(() if source is not None else (receipt_row,)),
+            **({"on_acquired": acquired} if source is not None else {}),
+            **({"target": target} if target is not None and source is None else {}),
         )
     except Exception as exc:
         raise http_error(exc) from None
@@ -386,6 +395,7 @@ async def _cleanup_one(db, token):
     receipt_row = _snapshot(row)
     await db.commit()
     target = await avatar_storage.io_target(db, receipt_row)
+    source = saved_output_io.capture(target, "avatar", receipt_row)
     recorder = removal.recorder(
         db,
         receipt_row,
@@ -398,17 +408,20 @@ async def _cleanup_one(db, token):
     async def acquired(permit):
         nonlocal owned_permit
         owned_permit = permit
+        if source is not None:
+            source.attach(permit)
 
     try:
         await storage_access.run(
             db,
             uuid.UUID(receipt_row.storage_ref["location_id"]),
-            "avatar_retirement",
-            avatar.delete_avatar_object,
-            receipt_row,
+            "avatar_retirement_" + token if source is not None else "avatar_retirement",
+            source.delete if source is not None else avatar.delete_avatar_object,
+            *(() if source is not None else (receipt_row,)),
             on_acquired=acquired,
             accounting=recorder,
-            **({"target": target} if target is not None else {}),
+            **({"version": receipt_row.object_version_id} if source is not None else {}),
+            **({"target": target} if target is not None and source is None else {}),
         )
     except BaseException as exc:
         failure = exc
