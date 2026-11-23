@@ -24,7 +24,6 @@ from app.services.content_snapshot import ContentError
 from tests import test_export_media_retirement as retirement_tests
 from tests.test_export_media_removal_accounting import Provider
 
-owned_db = retirement_tests.owned_db
 gc_db = retirement_tests.gc_db
 owner = retirement_tests.owner
 

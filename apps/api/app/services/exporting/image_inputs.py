@@ -9,17 +9,14 @@ from sqlalchemy import bindparam, cast, func, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 
-from app.db.models.dataset import Dataset, DatasetItem, Scene
-from app.db.models.dataset_asset import DatasetAsset, StorageLocation
-from app.db.models.dataset_source import (
-    DatasetReference,
-    DatasetSource,
-    DatasetSourceRevision,
-)
-from app.db.models.storage_connection import StorageConnection
-from app.services import original_sources, storage_access
+from app.services import original_sources, reference_bindings, storage_access
 from app.services.content_snapshot import ContentError, MAX_BYTES, MAX_PIXELS
 from app.services.exporting import core_reads, lidar_inputs
+from app.services.exporting.asset_facts import (
+    dataset_facts as Dataset,
+    item_facts as DatasetItem,
+    scene_facts as Scene,
+)
 from app.services.exporting.core_reads import Project
 from app.services.labeling_core_read_relations import (
     annotation_row as Annotation,
@@ -189,123 +186,15 @@ async def _rows(
     return rows
 
 
-def _query(query, lock):
-    return query.with_for_update(read=True, nowait=True) if lock else query
-
-
 async def _reference(db, task, item, *, lock):
-    """The reference_binding contract using only bounded source fact columns.
-
-    No config, encrypted credential, root identity or unbounded reason text is
-    materialized. In particular an unlocked recollect cannot race a large JSON
-    replacement between an earlier measurement and an ORM populate_existing.
-    """
+    """Check the frozen item before taking the shared directory-source fence."""
     if item is None or item.file_path != task.file_path:
         reject("content_unverified")
-    reference = (
-        await db.execute(
-            _query(
-                select(
-                    DatasetReference.source_id,
-                    DatasetReference.run_id,
-                ).where(DatasetReference.dataset_item_id == item.id),
-                lock,
-            )
-        )
-    ).one_or_none()
-    asset = (
-        await db.execute(
-            _query(
-                select(
-                    DatasetAsset.id,
-                    DatasetAsset.verification_state,
-                    DatasetAsset.checksum_algorithm,
-                    DatasetAsset.checksum_value,
-                    DatasetAsset.size_bytes,
-                ).where(DatasetAsset.dataset_item_id == item.id),
-                lock,
-            )
-        )
-    ).one_or_none()
-    if (
-        reference is None
-        or asset is None
-        or asset.verification_state != "verified"
-        or asset.checksum_algorithm != "sha256"
-    ):
-        reject("content_unverified")
-    source = (
-        await db.execute(
-            _query(
-                select(
-                    DatasetSource.id,
-                    DatasetSource.location_id,
-                    DatasetSource.enabled,
-                    DatasetSource.unregistered_at,
-                    DatasetSource.config_revision,
-                ).where(DatasetSource.id == reference.source_id),
-                lock,
-            )
-        )
-    ).one_or_none()
-    if source is None or not source.enabled or source.unregistered_at is not None:
-        reject("source_unavailable")
-    location = (
-        await db.execute(
-            _query(
-                select(
-                    StorageLocation.id,
-                    StorageLocation.enabled,
-                    StorageLocation.config_revision,
-                    StorageLocation.connection_id,
-                ).where(StorageLocation.id == source.location_id),
-                lock,
-            )
-        )
-    ).one_or_none()
-    if location is None or not location.enabled:
-        reject("location_unavailable")
-    connection = None
-    if location.connection_id is not None:
-        connection = (
-            await db.execute(
-                _query(
-                    select(
-                        StorageConnection.id,
-                        StorageConnection.revision,
-                    ).where(StorageConnection.id == location.connection_id),
-                    lock,
-                )
-            )
-        ).one_or_none()
-    accepted_id = await db.scalar(
-        select(DatasetSourceRevision.id)
-        .where(
-            DatasetSourceRevision.source_id == reference.source_id,
-            DatasetSourceRevision.dataset_item_id == item.id,
-            DatasetSourceRevision.asset_id == asset.id,
-            DatasetSourceRevision.ownership_mode == "reference",
-        )
-        .order_by(DatasetSourceRevision.acceptance_order.desc())
-        .limit(1)
+    result = await reference_bindings.read_reference_binding(
+        db, item.id, task.file_path, lock=lock
     )
-    result = {
-        "dataset_id": str(item.dataset_id),
-        "asset_id": str(asset.id),
-        "sha256": asset.checksum_value,
-        "size": asset.size_bytes,
-        "width": item.width,
-        "height": item.height,
-        "run_id": str(reference.run_id),
-        "accepted_revision_id": str(accepted_id) if accepted_id else None,
-        "source_id": str(source.id),
-        "source_revision": source.config_revision,
-        "location_id": str(location.id),
-        "location_revision": location.config_revision,
-        "maintenance_revision": await storage_access.check(db, location.id, lock=lock),
-        "connection_id": str(connection.id) if connection else None,
-        "connection_revision": connection.revision if connection else None,
-    }
+    result["dataset_id"] = str(item.dataset_id)
+    result["width"], result["height"] = item.width, item.height
     if (
         type(result["size"]) is not int
         or not 0 < result["size"] <= MAX_BYTES

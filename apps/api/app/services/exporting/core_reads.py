@@ -1,10 +1,11 @@
 """Transaction-affine public core rows and bounded identity-only export locks."""
 
-from sqlalchemy import column, func, select
+from sqlalchemy import Text, cast, column, func, inspect, select
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import aliased
 
 from app.db.models.project import Project as ProjectModel
+from app.services.exporting import asset_facts
 from app.services.labeling_core_read_relations import (
     annotation_row as Annotation,
     batch_row as TaskBatch,
@@ -17,6 +18,21 @@ from app.services.labeling_core_read_relations import (
 from app.services.workspace_read_relations import project_rows
 
 Project = aliased(ProjectModel, project_rows(), adapt_on_names=True)
+_ASSET_LOCKS = {
+    asset_facts.dataset_facts: func.yoao_assets_v1.lock_export_datasets_share,
+    asset_facts.item_facts: func.yoao_assets_v1.lock_export_items_update,
+    asset_facts.scene_facts: func.yoao_assets_v1.lock_export_scenes_update,
+    asset_facts.calibration_facts: func.yoao_assets_v1.lock_export_calibrations_share,
+    asset_facts.pose_facts: func.yoao_assets_v1.lock_export_poses_share,
+}
+
+
+def row_bytes(model):
+    relation = inspect(model).selectable
+    measured = relation.c.get("export_row_bytes")
+    if measured is not None:
+        return measured
+    return func.octet_length(cast(func.to_jsonb(relation.table_valued()), Text))
 
 
 def lock_ids(locked):
@@ -27,7 +43,7 @@ def lock_ids(locked):
 
 def row_lock_query(model, predicate, limit, *, write):
     """Retain bounded global identity ordering for simple core-row scopes."""
-    if model not in (
+    if model not in _ASSET_LOCKS and model not in (
         Project,
         TaskBatch,
         Task,
@@ -45,6 +61,9 @@ def row_lock_query(model, predicate, limit, *, write):
         .limit(limit)
         .scalar_subquery()
     )
+    lock_assets = _ASSET_LOCKS.get(model)
+    if lock_assets is not None:
+        return lock_ids(lock_assets(identities))
     mode = "update" if write else "share"
     if model is Project:
         return select(

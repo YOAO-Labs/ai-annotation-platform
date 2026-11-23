@@ -11,11 +11,13 @@ import uuid
 import pytest
 from sqlalchemy import inspect, select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import load_only
 
 from app.db.models.export_media_bundle import (
     EXPORT_MEDIA_VIDEO_CHECK,
     ExportMediaBundle as Bundle,
 )
+from app.db.models.export_output import ExportOutput
 from app.services import export_media_bundles as bundles
 from app.services import export_media_retirement as retirement
 from app.services import export_media_storage as physical
@@ -23,6 +25,7 @@ from app.services import export_outputs, export_storage
 from app.services.exporting.lidar_sources import canonical_identity
 from tests import test_export_media_bundle_models as models
 from tests import test_export_media_retirement as retirement_tests
+from tests.export_worker_native_fixtures import worker_db as worker_db
 from tests.test_export_media_bundles import (
     FakeDB,
     digest,
@@ -384,29 +387,43 @@ async def video_db(legacy_db):
     yield legacy_db
 
 
-async def test_database_video_projection_and_pair_publish_atomically(video_db):
-    db = video_db
+async def test_database_video_projection_and_pair_publish_atomically(
+    worker_db, tmp_path
+):
+    db = worker_db
     _, receipt, _, _ = await allocate(db, tasks=1, size=5 * 1024**3)
     await db.commit()
     claimed = await bundles.claim(db, receipt.id)
+    await db.commit()
+    locked = await retirement.lock_owner(db, receipt.id, inventory=True)
+    assert locked.input_schema == 4
+    assert not {"input_snapshot", "logical_paths"}.intersection(locked._mapping)
+    retired = retirement.snapshot(locked)
+    assert retired.input_schema == 4 and physical.object_limit(retired) == 5 * 1024**3
     await db.commit()
     owner = await db.get(Bundle, receipt.id)
     with pytest.raises(IntegrityError):
         async with db.begin_nested():
             await models._zip(db, owner, media="image", created_at=owner.created_at)
             await models._constraints(db)
-    output = await models._zip(db, owner, media="video", created_at=owner.created_at)
-    await db.commit()
+    path = tmp_path / "video.zip"
+    path.write_bytes(b"frozen package")
+    await export_outputs.create(
+        db,
+        path=path,
+        project_id=receipt.project_id,
+        job_id=receipt.job_id,
+        media="video",
+        format="mot",
+        file_count=1,
+        media_bundle_id=receipt.id,
+    )
+    output = await db.get(ExportOutput, receipt.zip_output_id)
     await bundles.publish(db, claimed)
     output.state = "ready"
     await db.commit()
+    await db.refresh(owner)
     assert output.expires_at == owner.expires_at and owner.published_at is not None
-    await db.close()
-    locked = await retirement.lock_owner(db, receipt.id, inventory=True)
-    assert locked.input_schema == 4
-    assert {"input_snapshot", "logical_paths"} <= inspect(locked).unloaded
-    retired = retirement.snapshot(locked)
-    assert retired.input_schema == 4 and physical.object_limit(retired) == 5 * 1024**3
 
 
 @pytest.mark.parametrize("state", ["building", "deleted"])
@@ -518,7 +535,9 @@ async def test_database_schema_four_keeps_legacy_zero_byte_inventory_semantics(
 
 
 @pytest.mark.parametrize("fault", [None, "image", "lidar", "both", "boolean", "scalar"])
-async def test_retirement_replacement_accepts_only_exact_exclusive_video_proof(fault):
+async def test_retirement_replacement_accepts_only_exact_exclusive_video_proof(
+    fault, db_session, super_admin
+):
     owner = retirement_tests.owner()
     replacement = SimpleNamespace(
         id=uuid.uuid4(),
@@ -542,9 +561,16 @@ async def test_retirement_replacement_accepts_only_exact_exclusive_video_proof(f
     job = SimpleNamespace(
         kind="export", status="running", project_id=owner.project_id, payload=payload
     )
-    assert await retirement.attempt_ended(
-        retirement_tests.PolicyDB(job, replacement), owner
-    ) is (fault is None)
+    if fault == "scalar":
+        with pytest.raises(IntegrityError):
+            await retirement_tests.store_policy(
+                db_session, super_admin, owner, job, replacement
+            )
+        return
+    await retirement_tests.store_policy(
+        db_session, super_admin, owner, job, replacement
+    )
+    assert await retirement.attempt_ended(db_session, owner) is (fault is None)
 
 
 async def test_small_scalar_claim_fence_checks_schema_again():
@@ -585,6 +611,11 @@ async def test_database_projection_works_on_original_0234_schema_without_new_col
     )
     assert type(projected) is int and projected == 1
     await legacy_db.close()
-    loaded = await retirement.lock_owner(legacy_db, row.id, inventory=True)
+    loaded = await legacy_db.scalar(
+        select(Bundle)
+        .options(load_only(Bundle.id, Bundle.input_schema, Bundle.inventory))
+        .where(Bundle.id == row.id)
+        .with_for_update(skip_locked=True)
+    )
     assert loaded.input_schema == 1
     assert {"input_snapshot", "logical_paths"} <= inspect(loaded).unloaded
