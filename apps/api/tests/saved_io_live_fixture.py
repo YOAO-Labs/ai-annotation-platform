@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import socket
+from tempfile import TemporaryDirectory
 
 import httpx
 import pytest
@@ -56,12 +57,16 @@ async def real_saved_io_source(*, allowlist, encryption_key, sftp_roots=None):
         ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN=secrets.token_urlsafe(32),
         STORAGE_SFTP_ROOTS=json.dumps(sftp_roots or {}),
     )
-    config = load_config(env)
-    service = create_app(config=config)
-    server = uvicorn.Server(
-        uvicorn.Config(service, access_log=False, log_level="critical")
-    )
-    with closing(socket.socket()) as listener:
+    with (
+        TemporaryDirectory(prefix="aap-saved-io-") as spool,
+        closing(socket.socket()) as listener,
+    ):
+        env["ASSETS_SOURCE_SAVED_IO_SPOOL_DIR"] = spool
+        config = load_config(env)
+        service = create_app(config=config)
+        server = uvicorn.Server(
+            uvicorn.Config(service, access_log=False, log_level="critical")
+        )
         listener.bind(("127.0.0.1", 0))
         origin = f"http://127.0.0.1:{listener.getsockname()[1]}"
         task = asyncio.create_task(server.serve(sockets=[listener]))
