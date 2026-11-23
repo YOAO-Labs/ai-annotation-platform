@@ -1,5 +1,6 @@
 x-celery-env: &celery-env
   CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+  MINIO_ENDPOINT: ${MINIO_ENDPOINT_DOCKER:-minio:9000}
   MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
   MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
   ASSETS_VIDEO_EXECUTOR: ${ASSETS_VIDEO_EXECUTOR:-celery}
@@ -185,7 +186,6 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
       MINIO_AUDIT_ARCHIVE_BUCKET: ${MINIO_AUDIT_ARCHIVE_BUCKET:-audit-archive}
@@ -244,7 +244,6 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
       TRAINING_ENABLED: ${TRAINING_ENABLED:-false}
@@ -320,7 +319,6 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
       IMAGE_PYRAMID_AUTO_GENERATE: ${IMAGE_PYRAMID_AUTO_GENERATE:-false}
@@ -374,7 +372,6 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
       GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}
@@ -436,7 +433,6 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
@@ -501,7 +497,6 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
@@ -557,7 +552,6 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
       GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}
@@ -641,7 +635,6 @@ services:
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: minio:9000
       MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:-training}
       MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:-accepted-inputs}
       GPU_ARBITER_MODE: ${GPU_ARBITER_MODE:-off}

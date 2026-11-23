@@ -24,6 +24,8 @@
 
 主 checkout 的 Web/API 可由用户 systemd 的 `aap-development-web.service`（3000）与 `aap-development-api.service`（8000）管理。单元模板位于 `infra/systemd/aap-development-{api,web}.service.in`；安装到 `~/.config/systemd/user/` 前替换 `@PROJECT_DIR@` 和 `@NODE_BIN_DIR@` 为实际绝对路径。API 直接使用本 checkout 的 Python 虚拟环境，Web 使用固定 Node 路径；Web 端口被占用时会失败，不自动换端口。首次接管已有进程需核对其 PID、会话和工作目录，不得按端口杀未知进程。
 
+已有日常环境应保留内置存储位置登记的端点。宿主 `MINIO_ENDPOINT` 与 worker `MINIO_ENDPOINT_DOCKER` 均须解析到原服务，且与已保存的源身份一致；浏览器 `/minio` 代理的目标同样要匹配签名使用的 Host。不要通过改写存量原件记录或重置 bucket 迁移网络地址。
+
 将 `scripts/development-restart.py` 复制到 `~/.local/lib/ai-annotation-platform/`，通过 `~/.local/bin/ai-annotation-platform-dev-restart` 调用，传入 `--project-dir` 主 checkout 绝对路径、`--state-dir ~/.local/state/ai-annotation-platform/development-restart`，并透传手动参数。定时器和恢复 service 使用 `infra/systemd/aap-development-restart.{service,timer}`。
 
 `aap-development-restart.timer` 每天北京时间 04:00 重启开发 Web/API、八类 Celery worker（包括 `celery-worker-jobs-recovery`）和单实例 Beat。它核验项目、Compose 来源、迁移关闭及 Jobs 恢复命令／凭据装配，缺失任何必需容器时拒绝重启，不创建容器或启用 split。worker 的优雅退出上限为 120 秒，长任务应提前避开维护窗口。它不重建、不迁移，也不重启生产或共享基础设施。
