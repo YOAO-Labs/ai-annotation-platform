@@ -40,7 +40,6 @@
 
 ### 待决（Proposed / Draft）
 
-- [0186](0186-modular-monolith-and-on-demand-extraction.md) — 模块化单体部署、语言无关契约与按需拆出（待维护者审阅计划后接受）
 - [0180](0180-installable-inference-plugins.md) — 可安装推理插件与组合式检测开发包（实施与 GPU 验收中）
 - [0166](0166-workspace-locked-authority-snapshots.md) — Workspace 锁定权限读取与会话快照（限定本地定向验收通过）
 - [0167](0167-workspace-unlocked-authority-snapshots.md) — Workspace 无锁权限读取与调用方快照（限定本地定向验收通过）
@@ -80,6 +79,7 @@
 
 ### 已采纳（Accepted，归档）
 
+- [0186](archive/0186-modular-monolith-and-on-demand-extraction.md) — 模块化单体部署、语言无关契约与按需拆出
 - [0181](archive/0181-workbench-interaction-and-rendering-contracts.md) — 工作台交互、帧身份与渲染边界
 - [0182](archive/0182-web-client-and-browser-verification-contracts.md) — Web 客户端与浏览器验证证据
 - [0183](archive/0183-api-orchestration-and-storage-invariants.md) — API 装配、调用方事务与存储责任

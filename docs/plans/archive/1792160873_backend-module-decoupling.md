@@ -1,6 +1,6 @@
 # 后端业务模块解耦与跨语言替换设计
 
-> Status: superseded（2026-11-23）。由[平台插件化计划](../1795366269_platform-pluginization.md)替代，架构决定见 [ADR-0186](../../adr/0186-modular-monolith-and-on-demand-extraction.md)：保留语言无关契约与单一 owner 边界，取消“每个模块默认独立部署”，暂缓语言替换。逐项去向见新计划 §5.1 及文末“交接与替代”。以下为归档时的原状态，不再更新。
+> Status: superseded（2026-11-23）。由[平台插件化计划](../1795366269_platform-pluginization.md)替代，架构决定见 [ADR-0186](../../adr/archive/0186-modular-monolith-and-on-demand-extraction.md)：保留语言无关契约与单一 owner 边界，取消“每个模块默认独立部署”，暂缓语言替换。逐项去向见新计划 §5.1 及文末“交接与替代”。以下为归档时的原状态，不再更新。
 >
 > 原状态：进行中。目标覆盖 identity、workspace、assets、labeling、inference、learning、insights、jobs、audit、notifications 及运行装配。协调视频恢复、Identity 整模块与 Workspace 当前支持协议已完成限定本地功能验收；Workspace 已在本机主部署采用普通API数据库账号与独立运行进程，其他模块／环境及通用旧库退役不据此宣称完成。其余模块先完成实现与调用迁移，再按模块集中验收和采用。唯一剩余工作台账见[模块部署与语言替换状态](../../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)，分开记录实现、消费者迁移、独立运行资格与阻塞。文末 Outcome 保留历史证据，不作为另一份待办。共享物理 PostgreSQL 可以保留，所有者能力、事务／撤权／取消／旧写者与恢复语义必须保持。Go 保持实验；不推送、不发布、不切生产，协调视频恢复仍不切日常主环境。
 >
@@ -8696,7 +8696,7 @@ worker archive, migration roundtrip and preserved primary/shared environment.
 
 ### 交接与替代（2026-11-23）
 
-- 本计划由 `docs/plans/1795366269_platform-pluginization.md` 替代，架构决定为 [ADR-0186](../../adr/0186-modular-monolith-and-on-demand-extraction.md)（拟议）。维护者确认：保留语言无关契约与单一 owner 边界；取消“每个模块默认独立构建、部署”的目标，已拆出且没有资源、安全或扩缩理由的服务合并回默认部署；暂缓语言替换。
+- 本计划由 `docs/plans/1795366269_platform-pluginization.md` 替代，架构决定为 [ADR-0186](../../adr/archive/0186-modular-monolith-and-on-demand-extraction.md)（交接时为拟议）。维护者确认：保留语言无关契约与单一 owner 边界；取消“每个模块默认独立构建、部署”的目标，已拆出且没有资源、安全或扩缩理由的服务合并回默认部署；暂缓语言替换。
 - 阶段 A、B、C 继承为约束；阶段 D 媒体探测保留为按需拆出与语言替换的样板；阶段 E 中 Assets、Learning、Insights 的 owner 收口转入新计划 M4c，逐模块独立运行转入 M2 合并，语言替换暂缓。完整去向见新计划 §5.1。
 - 通用旧库退役入口、生产容量、其他网络拓扑与替代语言提供方不在新计划范围，按上线或升级门槛单独处理。
 - 本文的历史证据和限定资格保持原范围，不因替代而扩大或撤销。实时状态仍以 `docs-site/dev/concepts/module-deployment.md` 的剩余工作台账为准。

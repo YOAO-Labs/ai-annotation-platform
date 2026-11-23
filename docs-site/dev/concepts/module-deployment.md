@@ -2,12 +2,12 @@
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-23
 ---
 
 # 后端模块解耦、插件化与独立部署
 
-后端重构的目标是让核心能力成为随项目发布的内置插件，扩展能力成为可安装插件，而不只是拆分 Python 包或增加独立进程。模块以语言无关契约和单一数据 owner 解耦，默认以少量进程的模块化单体部署；边界保持可拆出，只在资源隔离、安全隔离、经实测的扩缩或实际选定的语言替换需要时独立运行，语言替换目前暂缓（[ADR-0186](/dev/adr/0186-modular-monolith-and-on-demand-extraction)）。当前已有 owner 契约、受限数据能力及部分独立运行工件；LibreYOLO 已完成限定单卡 GPU 托管验收，通用推理准入、RapidOCR CPU 与 ONNXTools 多池 CUDA 已通过限定平台业务链路。面向全部扩展点的统一装配、依赖校验与启停机制仍未交付。本页按源码与运行证据记录进度，不使用百分比推算。
+后端重构的目标是让核心能力成为随项目发布的内置插件，扩展能力成为可安装插件，而不只是拆分 Python 包或增加独立进程。模块以语言无关契约和单一数据 owner 解耦，默认以少量进程的模块化单体部署；边界保持可拆出，只在资源隔离、安全隔离、经实测的扩缩或实际选定的语言替换需要时独立运行，语言替换目前暂缓（[ADR-0186](/dev/adr/archive/0186-modular-monolith-and-on-demand-extraction)）。当前已有 owner 契约、受限数据能力及部分独立运行工件；LibreYOLO 已完成限定单卡 GPU 托管验收，通用推理准入、RapidOCR CPU 与 ONNXTools 多池 CUDA 已通过限定平台业务链路。面向全部扩展点的统一装配、依赖校验与启停机制仍未交付。本页按源码与运行证据记录进度，不使用百分比推算。
 
 ## 范围和判断口径
 
@@ -140,7 +140,7 @@ LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第
 
 ## 剩余工作台账
 
-这是平台插件化计划（仓库 `docs/plans/1795366269_platform-pluginization.md`）的唯一实时台账；下文和 ADR 保存历史资格证据，不另行维护待办列表。原后端解耦计划已被该计划替代并归档，其已闭合条目的证据继续有效；按操作拆出的独立服务将按该计划 M2 合并回默认部署档。
+这是平台插件化计划（仓库 `docs/plans/1795366269_platform-pluginization.md`）的实时状态入口。原后端解耦计划已归档；历史资格继续有效，不代表新默认档已经验收。推理扩展的[直连入门](/dev/ml-backend/starter#direct-registration)与安装档分开。部署收敛先按下面的逐项决定表评审，不直接删除 overlay。
 主线在线学习、数据集原件与受控存储纳入后，重构重点从“等待功能落地”转为提取完整 owner 边界：
 Assets 必须统一原件身份、物理 I/O 责任、存储计量、来源保留与业务发布；
 Learning 必须收口数据版本、训练、评估、主动学习和模型发布账本，再撤销跨领域私表读取。
@@ -149,6 +149,91 @@ Learning 必须收口数据版本、训练、评估、主动学习和模型发�
 迁移图保留主线数字修订，重构修订改用 `bo` 前缀后接主线基底，避免同号不同义。
 已使用旧重构数字修订的数据库不能自动 `stamp` 到新图；必须先在隔离副本审计实际结构和数据，
 再单独安排迁移。本轮隔离验证不改动日常数据库。
+
+### 部署收敛决定表：待维护者确认 {#deployment-convergence}
+
+盘点根目录全部 44 个 `docker-compose*.yml` 的 `services` 键：去重后 59 个。基础文件定义 15 个，连同 `prod`／`lan-prod` 独有的 `api`、`web`、`gateway`、`migrate`、`redis-production` 共 20 个核心键；其余 39 个逐项列在下面。同名覆盖只算一次，数量不是实际运行进程数。`hostvols`、`ml` 只改卷。**以下是基于源码、授权 SQL 和部署配置的建议，不是已执行的合并，也不是默认档冷启动验收。**
+
+“合并”指复用现有 owner 入口、保留固定函数、调用方事务和失败语义；不是给普通账号授予私表或拆出进程的全部权限。表中的 `*_client` 是受限 LOGIN，不是拥有对象的 NOLOGIN 角色。显式选择远端时，其故障不能回退到权限更宽的本地连接。
+
+#### Workspace 与 Labeling
+
+Workspace 的六个 API 入口位于 `apps/api/app/services/workspace_*.py`。每个 split 服务持相应的 `yoao_workspace_<能力>_client` DSN 和控制 bearer；默认档可以把当前 Session 传给同一个 manager。`workspace-development` 只修改六个既有键，`workspace-class-rename`、`workspace-inference-probe` 只修改 `workspace-configuration`。
+
+| 服务键                      | 已有入口与凭据                                                                                              | 建议及切换条件                                                                                                                        |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace-membership`      | `MembershipManager`；membership 的 prepare／apply                                                           | 合并；成员、职责交接、Audit 与成功回执仍同事务。                                                                                      |
+| `workspace-owner-transfer`  | `OwnerTransferManager`；owner_transfer 的 transfer                                                          | 合并；保留账号／项目锁和提交后投影。                                                                                                  |
+| `workspace-configuration`   | `ConfigurationManager`；configuration、guide 能力，另用 Inference probe bearer                              | 合并配置；改类名仍与 Labeling 写入同事务；推理凭据只由远端 probe 打开。                                                               |
+| `workspace-template-query`  | `TemplateQueryManager`；template_query 的 policy／step                                                      | 合并；保留 caller autoflush 和模板投影。                                                                                              |
+| `workspace-project-query`   | `ProjectQueryManager`；project_query，显示资料另用 Identity Briefs                                          | 合并；不要用读账号代替权限复核或直接读用户表。                                                                                        |
+| `workspace-directory-query` | `DirectoryQueryManager`；directory_query，必要时取 Briefs                                                   | 合并；目录与 mention 的可见性、原 Session 的未提交状态不变。                                                                          |
+| `labeling-class-query`      | 进程内 Class Query；`yoao_labeling_class_query_client` 的三个函数                                           | 有条件合并；工作树已有函数授权，LAN 普通登录未配齐，不能授私表补足。                                                                  |
+| `labeling-video-writer`     | tracker worker 的 `video_tracking/writer.py`；`yoao_labeling_video_writer_client`，split 另需 Mask 字节核验 | 合并到原 worker；保留窗口代次、最终写入复核及历史字节归属。                                                                           |
+| `labeling-mask-gc`          | `mask_gc_collection.run_cycle`；`yoao_labeling_mask_gc_client` 和独立 Assets cleanup token                  | 暂留操作入口。现有 Beat 清理的是保存目标对象，开发 overlay 也关闭轮询；先验证同一 GC 的 dry-run、恢复和历史对象清理，再决定合并调度。 |
+
+切换涉及 `test_workspace_module_assembly_live.py`（`AAP_WORKSPACE_MODULE_ASSEMBLY_LIVE`）、Workspace／Labeling 的容器测试、`test_mask_gc_runtime_image.py`（`AAP_MASK_CONTENT_ACCEPTANCE`）；保留 manager／SQL／第二语言对照。同步 `DEV.md` 和 [Workspace](/api/guides/workspace-runtime)、[Labeling](/api/guides/labeling-runtime)、[Mask](/api/guides/mask-content) 运行指南。
+
+#### Identity、Notifications、Jobs 与 Audit
+
+| 服务键                            | 已有入口与凭据                                                                                                                                                | 建议及切换条件                                                                                                                                           |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `identity-admission`              | `IdentityGateway` 和本地命令；split 分配 `yoao_identity_*_client`、控制 bearer、JWT signer、登录 Redis、邮件加密密钥                                          | 有条件合并；先明确 signer 与 API 媒体签名密钥的归属，保持现有 JWT 和 socket 准入，不能直接替换密钥。                                                     |
+| `identity-mail`                   | `run_credential_mail`；`yoao_identity_mail_client`、mail settings 只读、Fernet／SMTP                                                                          | V1 退到一个 V2 sender；先核对遗留恢复邮件、租约与失败恢复。                                                                                              |
+| `identity-mail-v2`                | `run_invitation_mail`；`yoao_identity_mail_v2_client`、同一窄 settings 能力、Fernet／SMTP，无 JWT                                                             | 保留一个隔离 sender。V2 可领取邀请及 V1 恢复邮件，反向不行；目前 Beat 未调度两代恢复任务，不能只靠提交后 kick。                                          |
+| `identity-notification-publisher` | Notifications 的旧 durable relay 入口；publisher LOGIN、仅发布 Redis，无 Identity signer                                                                      | 合并到 Notifications；不向 Identity 准入进程增加发布权。                                                                                                 |
+| `notifications-publisher`         | `notification_publication`／`notification_delivery`；`yoao_notification_publish_client`、仅发布 Redis，私网即时 HTTP 另需 bearer                              | 合并默认发布与已有 Beat；保持即时尽力投递与持久 outbox 的区别。远端 Identity 无 publish DSN 会跳过中继，不能静默漏投。若要求独立 Redis ACL，保留 split。 |
+| `notifications-socket`            | API `ws.py` 与独立入口均用 `serve_notification_socket`；`yoao_notification_delivery_read_client`、仅订阅 Redis、Identity 准入 bearer                          | 合并；保留短会话、握手与逐帧可见性复核。独立扩缩需实测，不以连接数猜测。                                                                                 |
+| `jobs-queue`                      | `jobs_queue.py` 已有 Celery 发送；split 只有 broker 与队列 bearer，无 DB                                                                                      | 合并；保留稳定执行 ID、任务路由和非终止式撤销；要求隔离 broker 时才拆。                                                                                  |
+| `jobs-dispatch-relay`             | `jobs_dispatch.py` 有提交后首发，**没有**恢复轮询；独立 `dispatch_relay` 使用 `yoao_jobs_dispatch_relay_client`、`yoao_jobs_publication_client` 及队列 bearer | 有条件合到 worker；先接入 claim／poll，保留租约、代次、子任务 ID 和不确定发布。普通角色不获 claim 权限。                                                 |
+| `audit-maintenance`               | 默认 Beat 有分区、刷新和归档；独立 CLI 用 `yoao_audit_maintenance_client` 单函数及窄归档桶凭据                                                                | 默认沿用现行任务。CLI 旧归档不产出管理员所读的 `audit_archive_outputs`；在确认不需该一次性入口前保留，不互换。                                           |
+
+对应定向验收：`test_identity_module_assembly_live.py`、Recovery／Invitations live、`test_notifications_{publisher_image,socket_runtime,module_assembly}_live.py`、`test_jobs_queue_assembly.py`、`test_jobs_dispatch_runtime_live.py`、`test_jobs_module_assembly_live.py`、`test_audit_maintenance_{native,module_live,consumers_cold}.py`。同步各包 README、`DEV.md`、[Identity](/api/guides/identity-runtime)、[模块数据](/api/guides/module-data)、[Audit 维护](/api/guides/audit-runtime)与[归档](/api/guides/audit-archives)。
+
+#### Assets 与媒体
+
+`docker-compose.assets-native.yml` 只给 Source、媒体控制、图片 worker 和既有 `celery-worker-image-pyramid` 增加选择器，不是名为 `assets-native` 的服务。独立 Native 读、写、清理 token 不能互换。
+
+| 服务键                 | 已有入口与凭据                                                                                                                             | 建议及切换条件                                                                                        |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `assets-catalog`       | `AssetsCatalogGateway` 和空间目录本地 SQL；`yoao_asset_catalog_client`＋只读来源／缓存 S3                                                  | 合并；保留调用方提交、现有签名和空间读取权限。                                                        |
+| `assets-source`        | `assets_source.py`／`assets_connections.py` 可内嵌常规控制；`yoao_asset_source_client`、连接器密钥／主机策略、S3、核验和 Native 角色 token | 只合并常规控制。导入逐版本核验／恢复、Native 签名只在 `SourceRuntime`；保留凭据进程，不下放到 API。   |
+| `assets-import`        | API 接受／取消；无内嵌 claim／copy。`yoao_asset_import_client`、连接器、目的端写入、Source 核验 bearer                                     | 保留；大字节复制后由 Source 独立读回验证。同名同步上传不能替代连接器导入。                            |
+| `assets-cleanup`       | 业务事务只写 outbox，无等价消费；`yoao_asset_cleanup_client`、按前缀／版本的派生物删除和 Native cleanup token                              | 保留；按保存版本回收，不给原件删除权，不并入混合维护账号。                                            |
+| `assets-media-control` | `media_gateway`／`image_gateway` 支持本地事务；`yoao_asset_media_control_client`、只读 S3、Native reader                                   | 有条件合并；`ASSETS_MEDIA_URL` 同时选择控制和执行，先拆开选择，避免默认 worker 与独立执行器重复工作。 |
+| `assets-media-worker`  | 有 Celery 视频执行；split 用 `yoao_asset_media_worker_client`、原件读、缓存／受理视频版本写                                                | 保留 FFmpeg／临时盘隔离；认领先于 I/O，最终提交仍检查代次。                                           |
+| `assets-images-worker` | 内嵌 `ImageExecutor`；split 用 `yoao_asset_image_worker_client`、受理输入／派生写、Native writer                                           | 保留 libvips／内存隔离；原有 `celery-worker-image-pyramid` 还处理旧任务，不能同时误删。               |
+| `assets-mask-content`  | 本地保存目标为 UUID；split 为按 SHA 寻址、独立 content bearer、S3 读写，无 DB                                                              | 保留可选字节进程；支持历史地址及视频 writer 核验，不授予删除。                                        |
+| `assets-mask-cleanup`  | 本地有 GC store，split 有独立 cleanup bearer、条件删除和回收日志 S3，无 DB                                                                 | 保留可选清理身份；不与内容写合并，不以 UUID 目标清理代替 SHA 对象回收。                               |
+| `media-probe`          | `services/media_probe.py` 可直接调用同一探测内核；split 只有 `MEDIA_PROBE_TOKEN`，无 DB／S3                                                | 按 FFmpeg、临时盘及内存需要保留 split；Node peer 只作契约验收。                                       |
+
+对应定向选择：`test_assets_{media,images}_containers.py`、`test_dataset_import_runtime.py`、`test_asset_storage_cleanup_runtime.py`、Catalog／Source 消费者、Mask GC 镜像、`verify_video_consumers_containers.py` 与 `test_media_probe_process.py`。保留 split 时须处理 Import 和 Images overlay 探针仍引用旧 `aap_*` 模块的问题；制品入口是 `yoao_*`。同步 `DEV.md`、各包 README、[Assets Source](/api/guides/assets-source)、[Catalog](/api/guides/assets-catalog)、[媒体](/api/guides/assets-media)、[探测](/api/guides/media-probe)。
+
+#### Inference、模型插件、训练和实验
+
+| 服务键                  | 已有入口与凭据                                                                                                             | 建议及切换条件                                                       |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `inference`             | 命名流水线与无密拓扑可内嵌；执行／路由／GPU 无等价 API 入口。owner 持各用途 opener LOGIN、独立 bearer、GPU Redis／签名身份 | 保留凭据进程，CPU 预测也需要真实 owner；它不是模型容器。             |
+| `inference-registry`    | 环境同步只有 HTTP；`yoao_inference_registry_ingress_client`、ingress bearer                                                | 合到已有 `inference`，不是合到 API；保留探测、事务和模糊提交查回执。 |
+| `inference-health`      | 调用方捕获／写回，远端观察；`yoao_inference_health_observation_client`、observation bearer                                 | 合到 `inference`；保留签发、打开、校验与最终提交的分工。             |
+| `inference-probe`       | Workspace 探测只有 HTTP；`yoao_inference_backend_probe_client`、probe bearer                                               | 合到 `inference`；只返回 modalities，不让 Workspace 解封后端凭据。   |
+| `grounded-sam2-backend` | `ml-gsam2`；专属 token、模型／HF 缓存，无 DB                                                                               | 保留外部 Grounded SAM 2 图像与视频模型池。                           |
+| `sam3-backend`          | `ml-sam3`；专属 token、模型／HF 缓存，无 DB                                                                                | 保留外部 SAM 3 embedding／视频资源。                                 |
+| `yolo-backend`          | `ml-yolo`；专属 token、checkpoint、只读训练模型，无 DB                                                                     | 保留独立 YOLO 权重与设备。                                           |
+| `onnxtools-backend`     | `ml-onnxtools`；专属 token、只读模型目录，无 DB                                                                            | 保留 ONNX Runtime／设备依赖。                                        |
+| `rapidocr-backend`      | `ml-rapidocr`；专属 token、只读模型目录，无 DB                                                                             | 保留外部 OCR runtime；此 overlay 预留 GPU，不能作为 CPU 制品资格。   |
+| `training-executor`     | 只有物理执行器，无 Celery 替代；GPU UUID、只读权重、持久 journal、专用 API token，无 DB／broker                            | 保留；子进程退出、租约、恢复与产物提交分别取证。                     |
+| `audit-summary`         | 生产是 Python `build_monthly_summary`；Go 进程只接收分组计数，无 DB／业务凭据                                              | 保持手动实验，不进入默认档或生产请求。                               |
+
+Inference 的定向选择是 registry ingress、health observation、Workspace probe 的 `*_CONTAINER_LIVE` 与组合装配；E2E 的 `fixture_inference_services.py` 不是四份 overlay 的冷启动。模型侧核对 `ml-backend-runner.py`、`development-restart.py` 选择清单；`ml-cpu-test.yml` 不证明 GPU 资格。训练执行器有独立 CI 和 handoff 验收，Go 只跑 `backend-go-experiment.yml`。同步 [Inference](/api/guides/inference-runtime)、[部署](/ops/deploy/docker-compose)、GPU 运维与训练说明。
+
+两个不计入 Compose 的边界：**Storage Agent** 从站点出站 HTTPS，持站点 token、只读文件根和 SQLite 日志，无中心 DB；保留远端进程、`storage-agent-tests` 与[站点部署指南](/ops/deploy/site-agents)。**LibreYOLO** 由独立制品和安装器交付，不是遗漏的第六个 ML 服务键。
+
+#### 转入合并前的验收门
+
+1. 建议先选 **Workspace 六项**：已有内嵌 manager，切换不需要把 signer、broker 或存储删除身份交给 API。用真实项目验证权限拒绝、回滚、改名与 Inference 探测，然后再退对应的容器装配选择器。其余组按上表前置条件单独确认。
+2. CI 入口为 `ci.yml` 的 owner matrix（`scripts/test-suite-inventory.mjs`／`scripts/test-suites.json`）及 `backend-test.yml` 的消费者分片；后者直接调用模块验证器时仅跑 `--reclamation-only`。逐 overlay 的冷验收另走 `scripts/verify_module_data_boundary.py --test-file`。只迁移装配选择器，不删除第二语言 peer、协议、SQL／角色拒绝与恢复检查。环境选择器变化时同步 `.env.example`、生成的环境变量页和部署说明。
+3. **两个旧阻塞都未关闭。** [宿主机转发](#runtime-host-forwarding)是特定 Docker Desktop 路径的 TCP 故障；不经过它不等于修复，保留的 split 仍需实际私网连通验证。基础及标准生产的混合维护 worker 优先选迁移 DSN，且还跑预测分区与物化视图；LAN 配置不同。删除 Audit overlay 既不能收掉该权限，也不能把整条队列换成 Audit 单函数账号。
 
 ### 本次主线整合的验证范围
 

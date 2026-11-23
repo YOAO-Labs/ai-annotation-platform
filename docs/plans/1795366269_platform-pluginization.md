@@ -1,12 +1,12 @@
 # 平台插件化：模块化单体、语言无关契约与扩展点
 
-> 状态：草案，待维护者审阅。M0（计划交接与文档对齐）已随本计划完成；M1–M4 尚未开始。
+> 状态：实施中。M0 已完成；首个切片是 M1a 直连与 M2a 部署盘点。M2b 须先确认逐项去向，不随本轮启动。
 >
 > 创建日期：2026-11-23。
 >
 > 替代：[后端业务模块解耦与跨语言替换](archive/1792160873_backend-module-decoupling.md)（已标记 superseded）。承接已完成的 [LibreYOLO 推理插件首切片](archive/1793156248_libreyolo-inference-plugin.md) 与 [推理插件拆仓](archive/1793184138_inference-plugins-repository-extraction.md) 的剩余事项。
 >
-> 架构决定：[ADR-0186](../adr/0186-modular-monolith-and-on-demand-extraction.md)（拟议）。依据：[能力边界与生态研究](../research/51-plugin-capability-boundaries-and-ecosystem.md)、[ADR-0180](../adr/0180-installable-inference-plugins.md)。实时状态仍以[模块部署与边界台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)为唯一入口；本计划不复制模块完成状态。
+> 架构决定：[ADR-0186](../adr/archive/0186-modular-monolith-and-on-demand-extraction.md)（已采纳）。依据：[能力边界与生态研究](../research/51-plugin-capability-boundaries-and-ecosystem.md)、[ADR-0180](../adr/0180-installable-inference-plugins.md)。实时状态仍以[模块部署与边界台账](../../docs-site/dev/concepts/module-deployment.md#剩余工作台账)为唯一入口；本计划不复制模块完成状态。
 
 ## 1. 目标与非目标
 
@@ -165,5 +165,6 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 
 ## 7. 当前状态
 
-- M0 已完成，见上文。
-- 下一步：维护者审阅本计划和 ADR-0186；确认后从 M1a 核实与 M2a 盘点开始。
+- **M1a 已通过。** 无平台源码的作者环境构建并部署 CPU 服务；经真实 Registry、项目服务池及签名原图，默认路由和同代契约完成绑定后的强制路由均返回预期预测。制品范围、被拒绝的旧契约与隔离证据见[运行账本](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md)。作者从[直连教程](../../docs-site/dev/tutorials/ml-backend-starter.md#direct-registration)开始。
+- **M2a 已交付评审，未变更拓扑。** [逐服务决定表](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)列出嵌入入口、凭据、拆出理由及 CI／文档影响。下一决策是确认是否以 Workspace 六项为第一批 M2b；不同时迁移维护者日常环境。
+- M1b、M1c、M3、M4 尚未实施。正式发布和 M2c 日常切换仍需分别授权。

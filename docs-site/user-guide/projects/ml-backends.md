@@ -2,7 +2,7 @@
 audience: [project_admin]
 type: how-to
 status: stable
-last_reviewed: 2026-07-20
+last_reviewed: 2026-11-23
 ---
 
 # 启用模型服务 {#启用-ml-后端}
@@ -34,7 +34,7 @@ last_reviewed: 2026-07-20
 
 每行还展示全局注册项自带的能力快照（`supported_prompts` / `supported_trackers`）、URL、鉴权方式与 `max_concurrency` 并发闸——这些由超管在全局注册时设定，项目侧只读。
 
-> **没有可启用的模型服务？** 说明超管还没在全局注册表注册任何物理服务实例。env 配置的服务启动后会自动成为全局注册项（`source=env`），无需手动注册即可在清单里看到并启用；其余服务由超管在[模型市场 → 注册管理](../superadmin/model-market.md)注册。
+> **没有可启用的模型服务？** 请超管在[模型市场 → 注册管理](../superadmin/model-market.md)确认已注册实例、已执行健康检查，且其**全局服务池**已启用。手动 URL／Token 的[直连服务](/dev/ml-backend/starter#direct-registration)也走这条路径。若项目启用返回 `ml_backend_pool_not_enabled`，请超管检查全局池，不要重复注册实例或更换 Token。
 
 独立推理插件即使已由超管安装，也不会自动对新项目或现有项目启用；请在此显式勾选对应服务池。安装身份、排空和安全停容器由超管管理，项目停用不等于物理实例安全退役。见[插件安装](/user-guide/superadmin/ml-backend-registry#可安装推理插件)。
 

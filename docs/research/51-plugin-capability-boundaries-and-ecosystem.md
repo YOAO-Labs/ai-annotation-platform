@@ -240,7 +240,7 @@ Supervisely 的公开 App 发布要求声明 `instance_version` 与 `docker_imag
 
 旧计划尚未完成上述交接，仍保持原状态与位置。后续已形成并推进[LibreYOLO 推理插件实施规划](../plans/archive/1793156248_libreyolo-inference-plugin.md)，以“现有 LibreYOLO 训练 → 原生权重回流 → 独立 LibreYOLO GPU 推理 → 人工发布与项目使用”为首个切片，并包含低门槛开发路径及首期 GPU 验收要求；实际完成情况和剩余门槛以该计划的 Outcome 为准。它不是覆盖全部旧目标的替代计划。
 
-> 后续（2026-11-23）：维护者确认调整目标后，旧计划已按上述条件由[平台插件化计划](../plans/1795366269_platform-pluginization.md)替代并归档，架构决定见 [ADR-0186](../adr/0186-modular-monolith-and-on-demand-extraction.md)。本节保留调研时的判断。
+> 后续（2026-11-23）：维护者确认调整目标后，旧计划已按上述条件由[平台插件化计划](../plans/1795366269_platform-pluginization.md)替代并归档，架构决定见 [ADR-0186](../adr/archive/0186-modular-monolith-and-on-demand-extraction.md)。本节保留调研时的判断。
 
 ## 9. 建议的实施组织方式
 

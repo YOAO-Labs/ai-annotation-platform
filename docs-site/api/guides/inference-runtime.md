@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-27
+last_reviewed: 2026-11-23
 ---
 
 # Inference 私有运行配置
@@ -109,6 +109,49 @@ Workspace 只传 registry UUID、不透明 `probe_subject`、timeout 和 `Capabi
 ## 持久路由执行权
 
 `/v1/routes/command`、`status`、`runtime` 与 `quiescence` 共用独立 routing bearer。Native 持有 scope、attempt、control、回执和真实 backend continuity；Redis circuit 只提供诊断提示，不替代持久准入。公开读数与 quiescence 是严格绑定 registry 的 owner 观察，不能由普通调用方的宽数据库连接伪造。
+
+### 为直连实例建立路由连续性 {#route-continuity}
+
+默认服务池路由模式 `off` 支持手动 Token 的直连服务。部署已选 `enforce` 时，未绑定的新实例即使健康、全局池与项目均已启用，首次预测仍可能返回 503；路由 `begin` 回执为 `continuity_unverified`，此时不会发送 `/predict`。不要用健康检查、切换模式或手写数据库状态代替绑定。
+
+1. 先确认目标为刚注册的准确实例，无在途或未确认的工作；已有业务的实例先停止接流并核对持久账本。后端必须实现当前 `/v1/yoao-routing/control` 的认证 drain／bind。SDK 示例由服务运营者配置 `AAP_ROUTE_REGISTRY_ID` 和 `ROUTE_CONTROL_TOKEN_FILE`，后者对应注册的服务 Token。它不是平台的 `INFERENCE_ROUTING_TOKEN`。只实现旧 `/v1/aap-routing/control` 的 wheel 即使包名与版本相同也不兼容；请核对平台契约 manifest，不设双名回退。
+2. **平台运维方**通过私网 routing owner 执行一次 `reconcile`。保存实例 ID、唯一操作 UUID 和命令内容，以便在网络不确定时查回执。下面在装有 `yoao-inference-contract` 的运维环境执行；`ROUTING_CONTROL_ID` 在发命令前产生并保存，切勿每次运行随机生成。`ROUTING_ACTION=bind` 仅用于首次绑定；`ROUTING_ACTION=status` 查询原命令。向后端传递绑定材料的链路必须可信，跨主机应使用受保护的传输。不要把 owner bearer 交给服务作者。
+
+   ```python
+   import asyncio
+   import os
+   from pathlib import Path
+   from uuid import UUID
+
+   from yoao_inference_contract.routing import (
+       make_routing_command, make_routing_runtime_request, make_routing_status_request,
+   )
+   from yoao_inference_contract.routing_client import RoutingHttpClient
+
+   registry = UUID(os.environ["REGISTRY_ID"])
+   operation = UUID(os.environ["ROUTING_CONTROL_ID"])
+   client = RoutingHttpClient(
+       os.environ["INFERENCE_ROUTING_URL"],
+       Path(os.environ["INFERENCE_ROUTING_TOKEN_FILE"]).read_text().strip(),
+   )
+   command = make_routing_command(
+       "reconcile", {"registry_id": str(registry), "control_id": str(operation)}, request_id=operation,
+   )
+   async def inspect():
+       action = os.environ["ROUTING_ACTION"]
+       if action == "bind":
+           reply = await client.execute(command)
+       elif action == "status":
+           reply = await client.status(make_routing_status_request(command))
+       else:
+           raise ValueError("ROUTING_ACTION must be bind or status")
+       view = (await client.runtime(make_routing_runtime_request([registry]))).registries[0]
+       print(reply.state, getattr(reply.result, "phase", None), getattr(reply.result, "reason", None), view.continuity)
+
+   asyncio.run(inspect())
+   ```
+
+3. 只有原实例、原操作的回执为 `committed` 且 `phase=completed`，并且该实例运行读数为 `continuity=ready`，才恢复接流并用真实项目任务验证。`draining`、拒绝和未知状态都不是完成。安装档在激活时由安装 owner 发起此绑定，不能对其另建手动操作替代安装证明。
 
 ### 单个执行范围的退役
 

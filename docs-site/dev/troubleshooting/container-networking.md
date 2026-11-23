@@ -2,7 +2,7 @@
 audience: [dev]
 type: how-to
 status: stable
-last_reviewed: 2026-10-19
+last_reviewed: 2026-11-23
 ---
 
 # 容器网络与 loopback 限制
@@ -34,6 +34,8 @@ Use the Docker bridge IP (172.17.0.1) or service DNS (e.g. grounded-sam2-backend
 | ML Backend 跑在**同一个 docker-compose** | `http://<service-name>:<port>`（例 `http://grounded-sam2-backend:8001`）                      |
 | ML Backend 跑在**宿主机本地**进程        | `http://172.17.0.1:<port>`（Linux 默认 bridge 网关；macOS/Windows 用 `host.docker.internal`） |
 | ML Backend 跑在**另一台机器**            | 该机器的 LAN IP / 公网域名                                                                    |
+
+SDK 的 `yoao-plugin dev` 固定监听回环；**只改注册 URL 不能让进程在桥接口上监听**。先用已安装 provider 的 `serve` 监听受控私网接口，再从实际调用方检查 `/health` 和带服务 Token 的 `/setup`。注册 422 是地址问题；健康通过后项目启用仍报 `409 ml_backend_pool_not_enabled` 则应检查**全局服务池**，不是网络故障。见[直连接入步骤](/dev/ml-backend/starter#direct-registration)。
 
 **自检命令：**
 

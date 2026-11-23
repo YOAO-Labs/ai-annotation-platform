@@ -3,18 +3,18 @@ title: ML Backend 接入教程
 audience: [dev]
 type: tutorial
 status: stable
-last_reviewed: 2026-10-30
+last_reviewed: 2026-11-23
 ---
 
 # ML Backend 接入教程：自定义插件与 HTTP 契约
 
-简单检测服务可以使用独立 Plugin-SDK 实现自己的 provider，无需安装官方模型；复杂服务或其他语言实现可直接遵守完整 HTTP 契约。下文另保留 echo 协议教学，它不执行真实推理。
+已有符合[推理 HTTP 契约](/dev/reference/ml-backend-protocol)的服务，可直接从[直连注册](#direct-registration)开始，不需要安装插件 SDK。没有现成服务时，下面的 CPU 示例只需 Python 和经核验的 wheel：先在本机检查算法，再把同一个作者入口部署到平台私网。需要平台管理镜像、启停和退役时，才走[安装档](#managed-installation)。
 
 ## 使用自定义推理 SDK
 
 作者 SDK 是独立的 `yoao-inference-plugin-sdk`（Python 导入 `yoao_inference_plugin`，命令 `yoao-plugin`），不是调用平台 API 的 `yoao-sdk`。开发过程不依赖平台或官方插件 checkout、数据库、管理员凭据、Torch 或模型权重。
 
-先从可信渠道取得经核验的候选 SDK、平台便携契约及完整依赖 wheelhouse，包括 `build` 和生成项目的构建后端。指定真实 manifest 路径或 URL 与可信的 manifest SHA256，按[制品获取接口](/dev/concepts/module-deployment#plugin-candidate-artifacts)核验来源；不要假定新发行名已公开发布。第三方依赖和权重的许可分别核验。在 CPython 3.11 新环境安装：
+先从可信渠道取得经核验的候选 SDK、平台便携契约及匹配 Python 解释器和平台的完整依赖 wheelhouse，包括 `build` 和生成项目的构建后端。指定真实 manifest 路径或 URL 与可信的 manifest SHA256，按[制品获取接口](/dev/concepts/module-deployment#plugin-candidate-artifacts)核验来源；不要假定新发行名已公开发布。第三方依赖和权重的许可分别核验。以下以 CPython 3.11 为例：
 
 ```bash
 python3.11 -m venv .venv
@@ -72,7 +72,33 @@ Image.new("RGB", (100, 100), "black").save("empty.png")
 AAP_PLUGIN_TOKEN="$(cat ./token)" yoao-plugin check --url http://127.0.0.1:8000 --fixtures ./fixtures.json
 ```
 
-检查核对多检测与空检测的数量、类别、坐标、分数、认证、参数和本地路径拒绝，只报告 HTTP 事实。CPU 示例不实现 GPU 检查钩子。具备 `probe`／`qualification-server` 钩子的 GPU provider 才能进行下面的可选检查；先确保指定设备获准独占，用于取消场景的图片不大于 2 MiB：
+检查核对多检测与空检测的数量、类别、坐标、分数、认证、参数和本地路径拒绝。它只证明开发机上的模型可用，不证明平台能连接或读取项目图片。
+
+## 直连档：注册 HTTP 服务并预测 {#direct-registration}
+
+1. **作者部署服务。** `yoao-plugin dev` 固定监听 `127.0.0.1`，注册表拒绝该地址。仅把表单 URL 换成宿主机 IP 或 Docker 网关，并不会改变监听地址。停止 `dev`，改用已安装的 **provider `serve`**，绑定平台 API、Inference owner 和执行 worker 可达的受控接口；同一私有容器网络也可注册服务 DNS，无需发布到公网。
+2. **允许服务读取平台图片。** 示例的本地 `check` 使用 data URL，项目任务使用有时限的签名 URL。默认 `DetectionConfig.allowed_image_hosts` 为空。请向管理员取得**签名时使用且从模型端可达的对象存储主机名**；不要改写已签名 URL，不给模型 S3 密钥或通配许可。对于生成的示例，在 `my_color_region_plugin.py` 的 `args = parser.parse_args()` 之前添加 `serve.add_argument("--image-host", action="append", default=[])`，并给现有 `DetectionConfig(...)` 加上 `allowed_image_hosts=tuple(args.image_host)`。这是示例自定义参数，不是 `yoao-plugin dev` 的选项。
+
+   ```bash
+   yoao-plugin build my-detector
+   python -m pip install --no-deps --force-reinstall my-detector/dist/*.whl
+   my-color-region-plugin serve --device cpu --token-file ./token \
+     --host "$PRIVATE_BIND_IP" --port 8000 --image-host "$STORAGE_HOSTNAME"
+   ```
+
+   `PRIVATE_BIND_IP` 是服务所在主机的私网接口地址，`STORAGE_HOSTNAME` 只填主机，不含协议、端口和路径。其他语言的服务直接部署其受认证的 `/setup` 和 `/predict`；跨不可信网络用 HTTPS。
+
+3. **超管注册并启用全局池。** 「模型市场 → 注册管理 → 实例」添加服务，用调用方可达的 URL 和**手动 Token**（即服务端 token 文件的值，不是平台 API Key）。「测试连接」只探测 `/health`；保存后执行实例健康检查，确认 `/setup` 的模型目录包含 `colors`。在「服务池」核对同名单成员池、成员和能力；若池已停用，选择「启用服务池」。能力漂移须先审核，不能用启用代替。仅有健康实例、没有启用全局池时，项目绑定会返回 `409 ml_backend_pool_not_enabled`。普通 URL 注册不创建插件安装身份。
+
+   部署若使用服务池 `enforce` 路由，健康与池启用还不够。确认作者服务使用与平台同代的 `yoao-protocol-v2` wheel（核对 manifest 摘要，不能只比版本号）。注册取得实例 ID 后，服务运营者以 `AAP_ROUTE_REGISTRY_ID` 指定该 ID、`ROUTE_CONTROL_TOKEN_FILE` 指向登记的服务 token 文件，启动同一个 `serve`。平台运维方须完成[路由连续性绑定](/api/guides/inference-runtime#route-continuity)再预测。仅支持普通预测、或只实现旧控制路径的 HTTP 服务不能靠 URL 加入强制路由；不要为了接入而更改平台策略。此绑定不创建安装身份，也不授予 GPU 管理权限。
+
+4. **项目负责人启用并验证。** 在「项目设置 → 模型服务 → 管理模型服务」显式启用该服务池。选择项目内的 `multi.png` 图像任务；可用项目管理凭据调用 `POST /api/v1/projects/{project_id}/ml-backends/{backend_id}/predict-test?task_id={task_id}`。这里传**实例 ID** 而非池 ID。核对响应属于该任务，红、绿框分别为 `[10,10,20,30]`、`[50,40,30,50]`，分数均为 1。此接口只返回预测；需要保存候选时，在[项目预标注](/user-guide/projects/ai-preannotate)中选择已启用的服务和模型，执行后在任务中检查候选。批量型 `colors` 不会因此成为交互工具。
+
+**直连的能力边界。** 手动 Token 只授权平台访问服务，不授予平台启停外部进程的权力，也不产生镜像来源、GPU 驻留、签名准入或安全停机证明。没有 GPU 声明不等于已确认 CPU；受管资源仍须通过实际健康、资源与生命周期门禁。受控训练权重也不是按「直连／安装」一刀切：还需项目启用、符合要求的认证、精确实例路由，以及兼容的权重安装、加载试用和回执。普通示例没有这些能力。详见[模型服务接入、路由与认证](../concepts/ml-backend-routing-and-auth)。
+
+## 可选：本地 GPU 资格检查
+
+CPU 示例不实现 GPU 检查钩子。具备 `probe`／`qualification-server` 钩子的 GPU provider 才能进行下面的可选检查；先确保指定设备获准独占，用于取消场景的图片不大于 2 MiB：
 
 ```bash
 yoao-plugin check --qualify-local --entrypoint your-gpu-provider --fixtures ./fixtures.json \
@@ -85,6 +111,8 @@ yoao-plugin check --qualify-local --entrypoint your-gpu-provider --fixtures ./fi
 本地检查执行真实的缺失资产、错误设备、驻留、两次推理释放和签名排空／取消验证；它启动独立 loopback 服务和临时签名密钥，不是平台控制器的签名权，也不证明平台托管资格。看不到必要事实时失败而不虚报成功。平台图片 URL 主机须由部署管理员明确配置。
 
 检测 SDK 的窄 Python 合同由 `Detection`、`DetectionModel` 和 `DetectionProvider` 组成：provider 的 `load(model_id, device, config)` 返回持有 `classes` 的 model，model 的 `predict(image, parameters)` 返回原图像素坐标的检测，`close()` 释放模型。SDK 负责协议响应、类别索引和坐标转换；裁剪图坐标相对传入的裁剪图，父图映射仍由平台处理。通用 SDK 不依赖 ORM、Celery 或原生模型框架；具体模型运行时由 provider 提供，可选训练产物通过共享受控收据安装，不直接访问平台数据库。
+
+## 安装档：交付供平台管理的制品 {#managed-installation}
 
 构建生产镜像时，先将作者 wheel 和全部依赖放入 wheelhouse，并准备包含每个固定版本及 SHA-256 的完整 requirements lock。基础镜像必须以 digest 固定，`--entrypoint` 必须由 lock 中的发行包提供；镜像的 pip 安装步骤禁网并使用 `--require-hashes`，不加载工作目录。系统包安装步骤仍需要可用的软件包源。以下命令使用已安装的 CLI，不要求当前目录位于平台仓库：
 
@@ -249,19 +277,9 @@ async def predict(req: PredictRequest):
 
 本教程的 OCR 主题，真实推理参考 [RapidOCR 插件](https://github.com/YOAO-Labs/YOAO-Plugins/tree/main/plugins/inference/rapidocr)：它把 RapidOCR 的 det→cls→rec 拆为**原子能力 + 端到端 composite** 三个 model（`ocr-det` / `ocr-rec` / `ocr-e2e`），并输出 `attributes.text` / `orientation` / `language` 富属性（协议 §4.1.8）。
 
-## Step 5：全局注册并对项目启用
+## Step 5：连接平台
 
-backend 跑起来后，按两层模型接入平台：
-
-1. **全局注册（超级管理员）**：进入「模型市场 → 注册管理 → 实例」，添加平台可达的 Backend URL。手动 Token 或 None 方式可用「测试连接」检查公开健康端点；保存后执行实例健康检查，读取 `/setup` 更新能力快照；
-2. **项目启用（项目管理员）**：进入目标项目的「项目设置 → ML 模型」，勾选启用该服务池并按需设置项目主模型；
-3. **触发推理**：在批次详情页或预标注编排面板触发「AI 预标注」；若为交互式 backend（`/setup.is_interactive: true`），还会自动出现在工作台 AI 助手工具栏中。
-
-操作细节见用户手册：[ML 后端绑定](/user-guide/projects/ml-backends)、[AI 预标注](/user-guide/projects/ai-preannotate)；超管全局视角见 [ML Backend 注册](/user-guide/superadmin/ml-backend-registry)。
-
-本教程的 echo 示例不要求认证，开发调试可选 None。系统托管仅适用于部署配置的可信地址：保存时平台验证该服务的 `/managed-auth`，不需要填写手动 Token，普通「测试连接」也不能替代这一步。自建服务可实现自己的 Bearer 认证，手动注册时服务端与平台的令牌必须一致。受控插件使用各安装实例自己的凭据，不继承同名服务的托管身份。
-
-一个外部 Backend 实现普通预测协议，不代表它已实现训练权重安装、共享逐样本评估或 GPU 仲裁。接入这些能力前分别核对[协议契约](/dev/reference/ml-backend-protocol)；服务池接流和凭据生命周期见[模型服务接入、路由与认证](../concepts/ml-backend-routing-and-auth)，已有训练模型的排查见[模型回流链路](../how-to/debug-model-return)。
+按[直连注册](#direct-registration)部署、注册、启用并触发推理。echo 示例不要求认证，**仅限隔离的协议教学环境**可选 None；固定 demo 框不能用于验证真实模型。项目绑定细节见[启用模型服务](/user-guide/projects/ml-backends)，超管操作见[模型服务注册](/user-guide/superadmin/ml-backend-registry)。
 
 ## 下一步
 
