@@ -576,7 +576,7 @@ async def _read_and_sign(runtime, provider, output, row, publication_id):
             export_outputs.snapshot(output),
             download_name="retained.zip",
         )
-        assert ready.route == route
+        assert ready.read_route == route
 
     def signed_get():
         with httpx.Client(
