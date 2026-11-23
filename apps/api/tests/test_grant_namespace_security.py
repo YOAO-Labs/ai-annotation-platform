@@ -387,6 +387,91 @@ async def test_insights_lan_replay_removes_direct_access_without_owner_transfer(
             assert "42883" in arguments.stderr
 
 
+async def test_insights_refresh_login_is_scoped_and_replays(
+    owner_engine, migration_url, monkeypatch, tmp_path
+):
+    from app.workers.cleanup import _refresh_mv_async
+
+    async with (
+        _login(owner_engine, "insights_app") as (ordinary, ordinary_password),
+        _login(owner_engine, "cleanup") as (cleanup, _),
+        _login(owner_engine, "insights_refresh") as (refresh, refresh_password),
+    ):
+        lan = await _apply(
+            migration_url,
+            "lan-production-grants.sql",
+            {"application_role": ordinary, "asset_cleanup_role": cleanup},
+        )
+        assert lan.returncode == 0, lan.stderr
+
+        await _execute(
+            owner_engine,
+            [f"GRANT SELECT(name) ON public.project_task_views TO {refresh}"],
+        )
+        variables = {"refresh_role": refresh}
+        denied = await _apply(migration_url, "insights-refresh-grants.sql", variables)
+        _assert_guard_rejected(denied)
+        assert "has direct data privileges" in denied.stderr
+        installed_early = await _scalar(
+            owner_engine,
+            "SELECT has_function_privilege(CAST(:login AS name), "
+            "'yoao_insights_v1.refresh_user_perf_daily()', 'EXECUTE')",
+            login=refresh,
+        )
+        assert installed_early is False
+        await _execute(
+            owner_engine,
+            [f"REVOKE SELECT(name) ON public.project_task_views FROM {refresh}"],
+        )
+
+        for _ in range(2):
+            installed = await _apply(
+                migration_url, "insights-refresh-grants.sql", variables
+            )
+            assert installed.returncode == 0, installed.stderr
+        allowed = await _psql(
+            migration_url,
+            sql="SELECT yoao_insights_v1.refresh_user_perf_daily()",
+            username=refresh,
+            password=refresh_password,
+        )
+        assert allowed.returncode == 0, allowed.stderr
+
+        for sql in (
+            "SELECT day FROM public.mv_user_perf_daily",
+            "SELECT name FROM public.project_task_views",
+            "SELECT nextval('public.display_seq_tasks')",
+            "REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_user_perf_daily",
+            "SELECT yoao_insights_v1.list_saved_task_views(gen_random_uuid(),gen_random_uuid(),'shared')",
+            "CREATE TABLE yoao_insights_v1.denied(id integer)",
+            "CREATE TEMPORARY TABLE denied(id integer)",
+            "SET ROLE insights_code",
+        ):
+            denied = await _psql(
+                migration_url, sql=sql, username=refresh, password=refresh_password
+            )
+            _assert_insufficient_privilege(denied)
+
+        ordinary_url = migration_url.set(
+            drivername="postgresql+asyncpg",
+            username=ordinary,
+            password=ordinary_password,
+        ).render_as_string(hide_password=False)
+        refresh_url = migration_url.set(
+            drivername="postgresql+asyncpg",
+            username=refresh,
+            password=refresh_password,
+        ).render_as_string(hide_password=False)
+        secret = tmp_path / "insights-refresh-url"
+        secret.touch(mode=0o600)
+        monkeypatch.setattr(settings, "database_url", ordinary_url)
+        monkeypatch.setattr(settings, "insights_refresh_database_url_file", str(secret))
+        secret.write_text(ordinary_url + "\n", encoding="utf-8")
+        assert (await _refresh_mv_async())["refreshed"] is False
+        secret.write_text(refresh_url + "\n", encoding="utf-8")
+        assert (await _refresh_mv_async())["refreshed"] is True
+
+
 async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
     owner_engine, migration_url
 ):

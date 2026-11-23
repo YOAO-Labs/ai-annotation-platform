@@ -31,7 +31,10 @@ import shutil
 from urllib.parse import quote, urlsplit
 import xml.etree.ElementTree as ET
 
-from grant_sql import read_psql_grant_script
+if __package__:
+    from .grant_sql import read_psql_grant_script
+else:
+    from grant_sql import read_psql_grant_script
 
 
 ROOT = Path(__file__).resolve().parents[1]
