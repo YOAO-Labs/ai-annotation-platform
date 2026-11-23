@@ -91,7 +91,7 @@ class NativeCleanupProbe:
                 source_identity,status,normalization_version,policy
             ) VALUES (
                 :asset,:generation,:job,1,1,:snapshot,:source,'failed','cleanup-runtime-v1',
-                '{"gc_grace_hours":0,"url_expiry_seconds":1}'::jsonb
+                jsonb_build_object('gc_grace_hours',0,'url_expiry_seconds',1)
             )
             """,
             """
