@@ -1,4 +1,4 @@
-"""Real Workspace owner-transfer provider and public API binding checks."""
+"""Standalone owner-transfer receipts and public caller-session behavior."""
 
 from __future__ import annotations
 
@@ -18,7 +18,15 @@ from app.db.models.audit_log import AuditLog
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
+from app.services.workspace_membership import (
+    add_member,
+    change_role,
+    preview_role_change,
+)
+from app.services.workspace_owner_transfer import transfer_project_owner
 from tests.factory import create_project, create_user
+from tests.labeling_class_query_helpers import make_request_runtime
+from tests.workspace_configuration_helpers import public_workspace_client
 
 
 pytestmark = [
@@ -76,13 +84,6 @@ def _peer(origin, token, request, *, expect_transport_failure=False):
 
 def _auth(user):
     return {"Authorization": f"Bearer {create_access_token(str(user.id), user.role)}"}
-
-
-def _suppress_request_audit(monkeypatch):
-    from app.config import settings
-
-    monkeypatch.setattr(settings, "audit_async", True)
-    monkeypatch.setattr("app.middleware.audit._enqueue_audit", lambda _payload: True)
 
 
 async def _seed_world(test_engine, label):
@@ -154,15 +155,11 @@ async def _cleanup_world(maker, actor_id, project_id, user_ids):
 
 
 async def test_node_owner_transfer_survives_response_loss_restart_and_supersession(
-    test_engine, httpx_client, monkeypatch
+    test_engine, app_module, monkeypatch
 ):
-    from tests.workspace_owner_transfer_helpers import (
-        api_transfer_binding,
-        node_provider_url,
-    )
+    from tests.workspace_owner_transfer_helpers import node_provider_url
 
     dsn = _owner_transfer_dsn(test_engine)
-    _suppress_request_audit(monkeypatch)
     control = secrets.token_urlsafe(32)
     maker, actor, first, second, employee, project = await _seed_world(
         test_engine, "replay"
@@ -190,10 +187,10 @@ async def test_node_owner_transfer_survives_response_loss_restart_and_supersessi
             assert owner == first.id
             assert member_count == 0
 
-            async with api_transfer_binding(dsn=dsn, token=control):
-                response = await _public_transfer(
-                    httpx_client, project.id, second.id, actor
-                )
+            async with public_workspace_client(
+                test_engine, app_module, monkeypatch
+            ) as client:
+                response = await _public_transfer(client, project.id, second.id, actor)
             assert response.status_code == 200, response.text
             assert response.json()["owner_id"] == str(second.id)
             superseded = await _snapshot(maker, project.id, actor.id)
@@ -217,89 +214,115 @@ async def _public_transfer(client, project_id, new_owner_id, actor):
     )
 
 
-@pytest.mark.parametrize("binding", ["remote_node", "dedicated_dsn"])
 async def test_public_owner_transfer_preserves_response_and_noop_behavior(
-    test_engine, httpx_client, monkeypatch, binding
+    test_engine, app_module, monkeypatch
 ):
-    from tests.workspace_owner_transfer_helpers import (
-        api_transfer_binding,
-        node_provider_url,
-    )
-
-    dsn = _owner_transfer_dsn(test_engine)
-    _suppress_request_audit(monkeypatch)
-    control = secrets.token_urlsafe(32)
     maker, actor, first, second, employee, project = await _seed_world(
-        test_engine, binding
+        test_engine, "caller"
     )
     users = [actor.id, first.id, second.id, employee.id]
     try:
-        if binding == "remote_node":
-            async with node_provider_url(dsn, control) as origin:
-                async with api_transfer_binding(url=origin, token=control):
-                    changed = await _public_transfer(
-                        httpx_client, project.id, first.id, actor
-                    )
-                    assert changed.status_code == 200, changed.text
-                    assert changed.json()["owner_id"] == str(first.id)
-                    after_change = await _snapshot(maker, project.id, actor.id)
-                    assert after_change[0] == first.id
+        async with public_workspace_client(
+            test_engine, app_module, monkeypatch
+        ) as client:
+            changed = await _public_transfer(client, project.id, first.id, actor)
+            assert changed.status_code == 200, changed.text
+            assert changed.json()["owner_id"] == str(first.id)
+            after_change = await _snapshot(maker, project.id, actor.id)
+            assert after_change[0] == first.id
 
-                    noop = await _public_transfer(
-                        httpx_client, project.id, first.id, actor
-                    )
-                    assert noop.status_code == 200, noop.text
-                    assert noop.json()["owner_id"] == str(first.id)
-                    after_noop = await _snapshot(maker, project.id, actor.id)
-                    assert after_noop[1] == after_change[1]
+            noop = await _public_transfer(client, project.id, first.id, actor)
+            assert noop.status_code == 200, noop.text
+            assert noop.json()["owner_id"] == str(first.id)
+            after_noop = await _snapshot(maker, project.id, actor.id)
+            assert after_noop[1] == after_change[1]
 
-                    rejected = await _public_transfer(
-                        httpx_client, project.id, employee.id, actor
-                    )
-                    assert rejected.status_code == 400
-                    assert rejected.json()["detail"] == "仅可转移给 project_admin"
-                    assert await _snapshot(maker, project.id, actor.id) == after_noop
+            rejected = await _public_transfer(client, project.id, employee.id, actor)
+            assert rejected.status_code == 400
+            assert rejected.json()["detail"] == "仅可转移给 project_admin"
+            assert await _snapshot(maker, project.id, actor.id) == after_noop
 
-                    project_admin_actor = await _create_second_actor(
-                        maker, binding, users
-                    )
-                    forbidden = await _public_transfer(
-                        httpx_client, project.id, second.id, project_admin_actor
-                    )
-                    assert forbidden.status_code == 403
-                    assert await _snapshot(maker, project.id, actor.id) == after_noop
-        else:
-            async with api_transfer_binding(dsn=dsn, token=control):
-                changed = await _public_transfer(
-                    httpx_client, project.id, first.id, actor
-                )
-                assert changed.status_code == 200, changed.text
-                assert changed.json()["owner_id"] == str(first.id)
-                after_change = await _snapshot(maker, project.id, actor.id)
-                assert after_change[0] == first.id
-
-                noop = await _public_transfer(httpx_client, project.id, first.id, actor)
-                assert noop.status_code == 200, noop.text
-                assert noop.json()["owner_id"] == str(first.id)
-                after_noop = await _snapshot(maker, project.id, actor.id)
-                assert after_noop[1] == after_change[1]
-
-                rejected = await _public_transfer(
-                    httpx_client, project.id, employee.id, actor
-                )
-                assert rejected.status_code == 400
-                assert rejected.json()["detail"] == "仅可转移给 project_admin"
-                assert await _snapshot(maker, project.id, actor.id) == after_noop
-
-                project_admin_actor = await _create_second_actor(maker, binding, users)
-                forbidden = await _public_transfer(
-                    httpx_client, project.id, second.id, project_admin_actor
-                )
-                assert forbidden.status_code == 403
-                assert await _snapshot(maker, project.id, actor.id) == after_noop
+            project_admin_actor = await _create_second_actor(maker, "caller", users)
+            forbidden = await _public_transfer(
+                client, project.id, second.id, project_admin_actor
+            )
+            assert forbidden.status_code == 403
+            assert await _snapshot(maker, project.id, actor.id) == after_noop
         assert after_noop[2] == after_change[2]
         assert after_noop[3] == 0
     finally:
+        await _cleanup_world(maker, actor.id, project.id, users)
+
+
+async def test_membership_and_owner_transfer_share_the_ordinary_caller_transaction(
+    test_engine,
+):
+    maker, actor, first, second, employee, project = await _seed_world(
+        test_engine, "caller-rollback"
+    )
+    users = [actor.id, first.id, second.id, employee.id]
+    engine = None
+    initial = await _snapshot(maker, project.id, actor.id)
+    try:
+        engine, runtime = await make_request_runtime(
+            test_engine, application_name="workspace-membership-transfer-caller"
+        )
+        async with runtime() as caller:
+            member = await add_member(
+                caller,
+                project_id=project.id,
+                actor_id=actor.id,
+                target_user_id=employee.id,
+                project_role="annotator",
+            )
+            preview = await preview_role_change(
+                caller,
+                project_id=project.id,
+                actor_id=actor.id,
+                member_id=member.id,
+                target_role="viewer",
+            )
+            assert preview["blockers"] == []
+            updated = await change_role(
+                caller,
+                project_id=project.id,
+                actor_id=actor.id,
+                member_id=member.id,
+                target_role="viewer",
+                expected_version=member.version,
+                preview_token=preview["preview_token"],
+                reason="Caller-owned role change",
+            )
+            assert updated.role == "viewer" and updated.version == member.version + 1
+            transfer = await transfer_project_owner(
+                caller, actor_id=actor.id, project_id=project.id, new_owner_id=first.id
+            )
+            assert transfer.data.changed and transfer.data.previous_owner_id == actor.id
+            assert caller.in_transaction()
+            assert await _snapshot(maker, project.id, actor.id) == initial
+            await caller.rollback()
+        assert await _snapshot(maker, project.id, actor.id) == initial
+        async with maker() as observer:
+            for owner in ("membership", "owner_transfer"):
+                count = await observer.scalar(
+                    text(
+                        f"SELECT count(*) FROM public.workspace_{owner}_operation_receipts "
+                        "WHERE project_id=:id"
+                    ),
+                    {"id": project.id},
+                )
+                assert count == 0
+    finally:
+        if engine is not None:
+            await engine.dispose()
+        async with maker.begin() as cleanup:
+            await cleanup.execute(
+                text(
+                    "DELETE FROM public.workspace_membership_operation_receipts "
+                    "WHERE project_id=:id"
+                ),
+                {"id": project.id},
+            )
         await _cleanup_world(maker, actor.id, project.id, users)
 
 

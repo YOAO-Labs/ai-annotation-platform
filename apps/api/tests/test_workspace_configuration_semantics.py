@@ -65,12 +65,6 @@ def _legacy_preflight() -> dict:
     return json.loads(fixture.read_text(encoding="utf-8"))
 
 
-def _borrowed_configuration(monkeypatch) -> None:
-    monkeypatch.setattr(settings, "workspace_configuration_url", "")
-    monkeypatch.setattr(settings, "workspace_configuration_database_url", "")
-    monkeypatch.setattr(settings, "workspace_configuration_database_url_file", "")
-
-
 def _sqlstate(error: BaseException) -> str | None:
     seen: set[int] = set()
     while error is not None and id(error) not in seen:
@@ -212,7 +206,6 @@ async def _cleanup_owned(test_engine, actor_id: uuid.UUID) -> None:
 async def test_numeric_updates_match_legacy_postgres_semantics(
     test_engine, monkeypatch
 ):
-    _borrowed_configuration(monkeypatch)
     monkeypatch.setattr(settings, "ml_health_timeout", 15)
     legacy = _legacy_preflight()["numeric"]
     owner = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -361,9 +354,8 @@ async def test_numeric_updates_match_legacy_postgres_semantics(
 
 
 async def test_account_lock_contention_preserves_create_transaction_semantics(
-    test_engine, monkeypatch
+    test_engine,
 ):
-    _borrowed_configuration(monkeypatch)
     legacy = _legacy_preflight()["account_busy"]
     owner = async_sessionmaker(test_engine, expire_on_commit=False)
     actor_id = None
@@ -460,7 +452,6 @@ async def test_account_lock_contention_preserves_create_transaction_semantics(
 async def test_setup_authority_revocation_rolls_back_draft_and_pool_changes(
     test_engine, monkeypatch
 ):
-    _borrowed_configuration(monkeypatch)
     monkeypatch.setattr(settings, "ml_health_timeout", 15)
     legacy = _legacy_preflight()["setup_role_revocation"]
     owner = async_sessionmaker(test_engine, expire_on_commit=False)

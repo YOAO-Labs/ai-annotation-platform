@@ -13,12 +13,14 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from app.core.security import create_access_token
+from app.db.models.project import Project
+from app.services.workspace_configuration import execute_configuration
 from tests.labeling_class_query_helpers import (
     api_db_binding,
     clear_local_identity,
     make_request_runtime,
 )
-from tests.project_class_rename_owner_helpers import class_rename_binding
+from tests.project_class_rename_owner_helpers import override_rename_projection
 from tests.test_project_class_rename_legacy import _snapshot
 from tests.test_workspace_class_rename_native import _cleanup, _seed
 
@@ -30,58 +32,6 @@ pytestmark = [
         reason="requires verified disposable module-data resources",
     ),
 ]
-
-
-async def _query_function_metadata(connection):
-    return (
-        (
-            await connection.execute(
-                text(
-                    """SELECT function.oid::bigint AS oid,
-                              function.proacl::text AS acl,
-                              function.proowner::bigint AS owner,
-                              pg_catalog.pg_get_functiondef(function.oid) AS definition
-                       FROM pg_catalog.pg_proc AS function
-                       JOIN pg_catalog.pg_namespace AS namespace
-                         ON namespace.oid=function.pronamespace
-                       WHERE namespace.nspname='yoao_workspace_project_query_v1'
-                         AND function.proname='project_query_step'"""
-                )
-            )
-        )
-        .mappings()
-        .one()
-    )
-
-
-@asynccontextmanager
-async def _gated_rename_projection(test_engine, *, project_id, lock_key):
-    async with test_engine.connect() as owner:
-        original = dict(await _query_function_metadata(owner))
-    needle = "BEGIN\n"
-    assert needle in original["definition"]
-    definition = original["definition"].replace(
-        needle,
-        "BEGIN\n"
-        "    IF p_action='projection_row' "
-        "AND p_request->>'operation'='get_project_projection' "
-        f"AND p_request->>'target_id'='{project_id}' "
-        "AND p_request #>> '{projection_evidence,source}'='class_rename' THEN\n"
-        f"        PERFORM pg_catalog.pg_advisory_xact_lock({lock_key}::bigint);\n"
-        "    END IF;\n",
-        1,
-    )
-    try:
-        async with test_engine.begin() as owner:
-            await owner.exec_driver_sql(definition)
-            current = await _query_function_metadata(owner)
-            for field in ("oid", "acl", "owner"):
-                assert current[field] == original[field]
-        yield
-    finally:
-        async with test_engine.begin() as owner:
-            await owner.exec_driver_sql(original["definition"])
-            assert dict(await _query_function_metadata(owner)) == original
 
 
 async def _wait_for_lock(test_engine, *, application_name=None):
@@ -149,9 +99,8 @@ async def _projection_gate(test_engine, lock_key):
             await gate.commit()
 
 
-@pytest.mark.parametrize("mode", ("borrowed", "dedicated", "http"))
 async def test_noop_projection_keeps_account_and_project_fences_until_result_is_ready(
-    test_engine, app_module, monkeypatch, tmp_path, mode
+    test_engine, app_module, monkeypatch
 ):
     maker, world = await _seed(test_engine)
     runtime = None
@@ -176,68 +125,63 @@ async def test_noop_projection_keeps_account_and_project_fences_until_result_is_
 
     try:
         runtime, runtime_maker = await make_request_runtime(
-            test_engine, application_name=f"rename-fence-api-{mode}"
+            test_engine, application_name="rename-fence-api"
         )
-        async with class_rename_binding(
-            monkeypatch, test_engine, mode=mode, tmp_path=tmp_path
-        ):
-            async with api_db_binding(app_module, runtime_maker):
-                async with _gated_rename_projection(
-                    test_engine, project_id=world["project_id"], lock_key=lock_key
-                ):
-                    async with _projection_gate(test_engine, lock_key) as gate:
-                        transport = httpx.ASGITransport(
-                            app=app_module, raise_app_exceptions=False
+        async with api_db_binding(app_module, runtime_maker):
+            async with override_rename_projection(
+                test_engine,
+                project_id=world["project_id"],
+                statement=f"PERFORM pg_catalog.pg_advisory_xact_lock({lock_key}::bigint)",
+            ):
+                async with _projection_gate(test_engine, lock_key) as gate:
+                    transport = httpx.ASGITransport(
+                        app=app_module, raise_app_exceptions=False
+                    )
+                    async with httpx.AsyncClient(
+                        transport=transport, base_url="http://class-rename-fences"
+                    ) as client:
+                        url = f"/api/v1/projects/{world['project_id']}/classes/rename"
+                        body = {
+                            "old_name": " Car ",
+                            "new_name": "Car",
+                            "tool_unit_id": "__unknown_unit_ignored_for_noop__",
+                        }
+                        headers = {"Authorization": f"Bearer {token}"}
+                        request_task = asyncio.create_task(
+                            client.post(url, headers=headers, json=body)
                         )
-                        async with httpx.AsyncClient(
-                            transport=transport, base_url="http://class-rename-fences"
-                        ) as client:
-                            url = (
-                                f"/api/v1/projects/{world['project_id']}/classes/rename"
-                            )
-                            body = {
-                                "old_name": " Car ",
-                                "new_name": "Car",
-                                "tool_unit_id": "__unknown_unit_ignored_for_noop__",
-                            }
-                            headers = {"Authorization": f"Bearer {token}"}
-                            request_task = asyncio.create_task(
-                                client.post(url, headers=headers, json=body)
-                            )
-                            blocked = await _wait_for_lock(test_engine)
-                            assert not request_task.done(), blocked
-                            await _assert_update_blocked(
-                                test_engine, table="users", target=world["owner_id"]
-                            )
-                            await _assert_update_blocked(
-                                test_engine,
-                                table="projects",
-                                target=world["project_id"],
-                            )
-                            revoke_task = asyncio.create_task(revoke_actor())
-                            waiting_revoke = await _wait_for_lock(
-                                test_engine, application_name=label
-                            )
-                            assert not revoke_task.done(), waiting_revoke
-                            unlocked = await gate.scalar(
-                                text("SELECT pg_catalog.pg_advisory_unlock(:key)"),
-                                {"key": lock_key},
-                            )
-                            assert unlocked is True
-                            await gate.commit()
-                            response = await asyncio.wait_for(request_task, timeout=30)
-                            assert response.status_code == 200, response.text
-                            assert (
-                                response.json()["tool_bindings"]["bbox"]["classes"][0][
-                                    "name"
-                                ]
-                                == "Car"
-                            )
-                            await asyncio.wait_for(revoke_task, timeout=10)
-                            assert await _snapshot(maker, world["project_id"]) == before
-                            denied = await client.post(url, headers=headers, json=body)
-                            assert denied.status_code == 401, denied.text
-                            assert denied.headers["www-authenticate"] == "Bearer"
+                        blocked = await _wait_for_lock(test_engine)
+                        assert not request_task.done(), blocked
+                        await _assert_update_blocked(
+                            test_engine, table="users", target=world["owner_id"]
+                        )
+                        await _assert_update_blocked(
+                            test_engine, table="projects", target=world["project_id"]
+                        )
+                        revoke_task = asyncio.create_task(revoke_actor())
+                        waiting_revoke = await _wait_for_lock(
+                            test_engine, application_name=label
+                        )
+                        assert not revoke_task.done(), waiting_revoke
+                        unlocked = await gate.scalar(
+                            text("SELECT pg_catalog.pg_advisory_unlock(:key)"),
+                            {"key": lock_key},
+                        )
+                        assert unlocked is True
+                        await gate.commit()
+                        response = await asyncio.wait_for(request_task, timeout=30)
+                        assert response.status_code == 200, response.text
+                        assert (
+                            response.json()["tool_bindings"]["bbox"]["classes"][0][
+                                "name"
+                            ]
+                            == "Car"
+                        )
+                        await asyncio.wait_for(revoke_task, timeout=10)
+                        assert await _snapshot(maker, world["project_id"]) == before
+                        denied = await client.post(url, headers=headers, json=body)
+                        assert denied.status_code == 401, denied.text
+                        assert denied.headers["www-authenticate"] == "Bearer"
     finally:
         for pending in (request_task, revoke_task):
             if pending is not None and not pending.done():
@@ -245,4 +189,90 @@ async def test_noop_projection_keeps_account_and_project_fences_until_result_is_
                 await asyncio.gather(pending, return_exceptions=True)
         if runtime is not None:
             await runtime.dispose()
+        await _cleanup(maker, world)
+
+
+async def test_failed_rename_rolls_back_labeling_and_prior_configuration_on_caller(
+    test_engine,
+):
+    maker, world = await _seed(test_engine)
+    project_id, actor_id = world["project_id"], world["owner_id"]
+    suffix = uuid.uuid4().hex
+    trigger = f"caller_rename_failure_{suffix}"
+    function = f"public.{trigger}"
+    runtime = None
+    installed = False
+    try:
+        before = await _snapshot(maker, project_id)
+        async with test_engine.begin() as owner:
+            await owner.exec_driver_sql(
+                f"""CREATE FUNCTION {function}() RETURNS trigger
+                LANGUAGE plpgsql SECURITY DEFINER
+                SET search_path=pg_catalog,pg_temp AS $probe$
+                BEGIN
+                    IF (SELECT class_name FROM public.annotations
+                        WHERE id='{world["annotation_id"]}'::uuid) IS DISTINCT FROM 'Truck'
+                    THEN RAISE EXCEPTION 'Labeling write did not precede Workspace write'; END IF;
+                    RAISE EXCEPTION USING ERRCODE='23514',
+                        MESSAGE='owned caller failure after Labeling write';
+                END; $probe$"""
+            )
+            await owner.exec_driver_sql(
+                f"CREATE TRIGGER {trigger} BEFORE UPDATE OF tool_bindings "
+                "ON public.projects FOR EACH ROW "
+                f"WHEN (NEW.id='{project_id}'::uuid "
+                "AND NEW.tool_bindings IS DISTINCT FROM OLD.tool_bindings) "
+                f"EXECUTE FUNCTION {function}()"
+            )
+        installed = True
+        runtime, caller = await make_request_runtime(
+            test_engine, application_name="class-rename-failed-caller"
+        )
+        staged_guide = "Guide update must roll back with class rename"
+        with pytest.raises(
+            DBAPIError, match="owned caller failure after Labeling write"
+        ) as rejected:
+            async with caller.begin() as db:
+                configuration = await execute_configuration(
+                    db,
+                    operation="update_project",
+                    actor_id=actor_id,
+                    target_id=project_id,
+                    payload={"annotation_guide": staged_guide},
+                )
+                await execute_configuration(
+                    db,
+                    operation="rename_project_class",
+                    actor_id=actor_id,
+                    target_id=project_id,
+                    payload={
+                        "old_name": "Car",
+                        "new_name": "Truck",
+                        "tool_unit_id": "bbox",
+                    },
+                )
+        assert rejected.value.orig.sqlstate == "23514"
+        assert await _snapshot(maker, project_id) == before
+        async with maker() as observer:
+            project = await observer.get(Project, project_id)
+            assert project.annotation_guide != staged_guide
+            assert (
+                await observer.scalar(
+                    text(
+                        "SELECT count(*) FROM public.workspace_configuration_operation_receipts "
+                        "WHERE operation_id=:id"
+                    ),
+                    {"id": configuration.operation_id},
+                )
+                == 0
+            )
+    finally:
+        if runtime is not None:
+            await runtime.dispose()
+        if installed:
+            async with test_engine.begin() as owner:
+                await owner.exec_driver_sql(
+                    f"DROP TRIGGER {trigger} ON public.projects"
+                )
+                await owner.exec_driver_sql(f"DROP FUNCTION {function}() RESTRICT")
         await _cleanup(maker, world)

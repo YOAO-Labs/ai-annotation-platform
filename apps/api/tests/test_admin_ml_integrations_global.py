@@ -7,15 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.config import settings
 from app.services.ml_backend import MLBackendService
-
-
-def _borrowed_configuration(monkeypatch) -> None:
-    """Keep project creation on the caller transaction instead of an external owner."""
-    monkeypatch.setattr(settings, "workspace_configuration_url", "")
-    monkeypatch.setattr(settings, "workspace_configuration_database_url", "")
-    monkeypatch.setattr(settings, "workspace_configuration_database_url_file", "")
 
 
 def _patch_gpu_authority(monkeypatch) -> None:
@@ -87,7 +79,6 @@ async def test_create_project_with_backend_source_reuses_registry(
     httpx_client, db_session, super_admin, monkeypatch
 ):
     """ADR-0044 · 复用已注册 backend 不复制 row, 而是为新项目建启用关联, 共享同一全局 id。"""
-    _borrowed_configuration(monkeypatch)
 
     async def probe(registry_id, probe_subject, *, timeout, limits):
         return ["image"]
@@ -122,10 +113,7 @@ async def test_create_project_with_backend_source_reuses_registry(
 
 
 @pytest.mark.asyncio
-async def test_create_project_invalid_backend_source_400(
-    httpx_client, super_admin, monkeypatch
-):
-    _borrowed_configuration(monkeypatch)
+async def test_create_project_invalid_backend_source_400(httpx_client, super_admin):
     _, token = super_admin
     payload = {
         "name": "X",

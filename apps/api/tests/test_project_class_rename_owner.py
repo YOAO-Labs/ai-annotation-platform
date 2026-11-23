@@ -1,29 +1,30 @@
-"""Exercise Project class-rename behavior across Configuration owners."""
+"""Compare embedded Project class rename with frozen legacy behavior."""
 
 from __future__ import annotations
 
+from contextlib import contextmanager, nullcontext
 import os
-import secrets
 import uuid
 
 import httpx
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.config import settings
+from app.services.labeling_class_query_data import LabelingClassQueryData
 from app.services.project_access import get_workspace_project
 from tests import test_project_class_rename_legacy as legacy
 from tests.labeling_class_query_helpers import (
     api_db_binding,
+    clear_local_identity,
     make_request_runtime,
 )
 from tests.project_class_rename_owner_helpers import (
     aliased_uuid,
-    class_rename_binding,
     cleanup_lock_world,
     cleanup_world,
     locks_fixture,
+    override_rename_projection,
     samples_fixture,
     seed_lock_world,
     seed_legacy_world,
@@ -39,7 +40,6 @@ pytestmark = [
     ),
 ]
 
-_MODES = ("borrowed", "dedicated", "http")
 _LOCK_SCENARIOS = {
     "account_update_blocks_changed": ("users", "UPDATE", "changed"),
     "account_update_blocks_noop": ("users", "UPDATE", "noop"),
@@ -100,6 +100,32 @@ def _business_snapshot(value, aliases):
     return result
 
 
+@contextmanager
+def _observe_api_commits(runtime_engine):
+    engine = runtime_engine.sync_engine
+    state = {"count": 0, "active": False}
+
+    def count_commit(_connection):
+        if state["active"]:
+            state["count"] += 1
+
+    event.listen(engine, "commit", count_commit)
+    try:
+        yield state
+    finally:
+        event.remove(engine, "commit", count_commit)
+
+
+async def _tracked_request(commit_state, request):
+    commit_state["count"] = 0
+    commit_state["active"] = True
+    try:
+        response = await request
+    finally:
+        commit_state["active"] = False
+    return response, commit_state["count"]
+
+
 async def _replay_lock_cases(client, test_engine, maker, world, fixture):
     aliases = world["aliases"]
     project_id = world["project_id"]
@@ -140,7 +166,9 @@ async def _replay_lock_cases(client, test_engine, maker, world, fixture):
                 )
 
 
-async def _replay_http_samples(client, maker, world, fixture):
+async def _replay_http_samples(
+    client, test_engine, maker, world, fixture, commit_state
+):
     aliases = world["aliases"]
     for sample in fixture["samples"]:
         request = sample["request"]
@@ -152,34 +180,26 @@ async def _replay_http_samples(client, maker, world, fixture):
         body = _denormalise(request["body"], aliases)
         path = _sample_path(sample, aliases)
 
-        previous_query = None
-        if sample["label"] == "commit_then_projection_unavailable":
-            previous_query = {
-                name: getattr(settings, name)
-                for name in (
-                    "workspace_project_query_url",
-                    "workspace_project_query_database_url",
-                    "workspace_project_query_database_url_file",
-                    "workspace_membership_control_token",
-                )
-            }
-            settings.workspace_project_query_url = "http://127.0.0.1:1"
-            settings.workspace_project_query_database_url = ""
-            settings.workspace_project_query_database_url_file = ""
-            if not settings.workspace_membership_control_token:
-                settings.workspace_membership_control_token = secrets.token_urlsafe(24)
-        try:
-            response = await client.request(
-                request["method"], path, headers=headers, json=body
+        project_id = uuid.UUID(path.split("/")[4])
+        fail_projection = sample["label"] == "commit_then_projection_unavailable"
+        gate = (
+            override_rename_projection(
+                test_engine, project_id=project_id, statement="RETURN NULL"
             )
-        finally:
-            if previous_query is not None:
-                for name, value in previous_query.items():
-                    setattr(settings, name, value)
+            if fail_projection
+            else nullcontext()
+        )
+        async with gate:
+            response, commits = await _tracked_request(
+                commit_state,
+                client.request(request["method"], path, headers=headers, json=body),
+            )
+        assert commits == sample["observation"]["commit_count"], sample["label"]
+        if fail_projection:
+            assert response.json() == sample["response"]["body"]
 
         _assert_response(sample["response"], response, aliases)
         if "post_response_state" in sample:
-            project_id = uuid.UUID(path.split("/")[4])
             current = await legacy._snapshot(maker, project_id)
             assert _business_snapshot(current, aliases) == _business_snapshot(
                 sample["post_response_state"], {}
@@ -194,6 +214,14 @@ async def _verify_borrowed_caller_rollback(maker, runtime_maker, world):
     before = await legacy._snapshot(maker, project_id)
     assert before["tool_bindings"]["bbox"]["classes"][0]["name"] == "Car"
     async with runtime_maker() as caller:
+        configuration = await execute_configuration(
+            caller,
+            operation="update_project",
+            actor_id=actor_id,
+            target_id=project_id,
+            payload={"annotation_guide": "caller-only guide update"},
+        )
+        assert configuration.resource_id == project_id
         result = await execute_configuration(
             caller,
             operation="rename_project_class",
@@ -202,11 +230,24 @@ async def _verify_borrowed_caller_rollback(maker, runtime_maker, world):
             payload={"old_name": "Car", "new_name": "Truck", "tool_unit_id": "bbox"},
         )
         assert result.resource_id == project_id
+        assert result.rename_result is not None and result.rename_result.changed
         assert caller.in_transaction()
         project = await get_workspace_project(
             caller, actor_id=actor_id, project_id=project_id
         )
         assert project.tool_bindings["bbox"]["classes"][0]["name"] == "Truck"
+        assert project.annotation_guide == "caller-only guide update"
+        assert await LabelingClassQueryData(caller).class_rows(project_id) == [
+            ("Truck", 1)
+        ]
+        noop = await execute_configuration(
+            caller,
+            operation="rename_project_class",
+            actor_id=actor_id,
+            target_id=project_id,
+            payload={"old_name": "Truck", "new_name": "Truck", "tool_unit_id": "bbox"},
+        )
+        assert noop.rename_result is not None and not noop.rename_result.changed
         await caller.flush()
         assert legacy._normalise(
             await legacy._snapshot(maker, project_id), world["aliases"]
@@ -220,9 +261,8 @@ async def _verify_borrowed_caller_rollback(maker, runtime_maker, world):
     )
 
 
-@pytest.mark.parametrize("mode", _MODES)
-async def test_project_class_rename_matches_frozen_legacy_across_owners(
-    mode, test_engine, app_module, monkeypatch, tmp_path
+async def test_project_class_rename_matches_frozen_legacy_on_caller_session(
+    test_engine, app_module, monkeypatch, tmp_path
 ):
     samples = samples_fixture()
     lock_samples = locks_fixture()
@@ -231,33 +271,26 @@ async def test_project_class_rename_matches_frozen_legacy_across_owners(
     runtime_engine = None
     try:
         lock_world = await seed_lock_world(test_engine)
-        async with class_rename_binding(
-            monkeypatch, test_engine, mode=mode, tmp_path=tmp_path
-        ) as binding:
-            assert binding.mode == mode
-            assert bool(binding.url) == (mode == "http")
-            runtime_engine, runtime_maker = await make_request_runtime(
-                test_engine,
-                application_name=f"class-rename-owner-{mode}",
-            )
-            maker = async_sessionmaker(test_engine, expire_on_commit=False)
-            async with api_db_binding(app_module, runtime_maker):
-                transport = httpx.ASGITransport(
-                    app=app_module, raise_app_exceptions=False
+        clear_local_identity(monkeypatch)
+        runtime_engine, runtime_maker = await make_request_runtime(
+            test_engine, application_name="class-rename-caller"
+        )
+        maker = async_sessionmaker(test_engine, expire_on_commit=False)
+        async with api_db_binding(app_module, runtime_maker):
+            transport = httpx.ASGITransport(app=app_module, raise_app_exceptions=False)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://class-rename-owner-replay",
+                timeout=30,
+            ) as client:
+                await _replay_lock_cases(
+                    client, test_engine, maker, lock_world, lock_samples
                 )
-                async with httpx.AsyncClient(
-                    transport=transport,
-                    base_url="http://class-rename-owner-replay",
-                    timeout=30,
-                ) as client:
-                    await _replay_lock_cases(
-                        client, test_engine, maker, lock_world, lock_samples
+                with _observe_api_commits(runtime_engine) as commit_state:
+                    await _replay_http_samples(
+                        client, test_engine, maker, world, samples, commit_state
                     )
-                    await _replay_http_samples(client, maker, world, samples)
-                    if mode == "borrowed":
-                        await _verify_borrowed_caller_rollback(
-                            maker, runtime_maker, world
-                        )
+                await _verify_borrowed_caller_rollback(maker, runtime_maker, world)
     finally:
         try:
             if runtime_engine is not None:

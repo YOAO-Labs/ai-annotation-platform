@@ -1,26 +1,26 @@
-"""Owned PostgreSQL acceptance for Workspace configuration DSN and HTTP owners."""
+"""Public configuration parity and independent owner replay on owned state."""
 
 from __future__ import annotations
 
 import os
 import secrets
-import socket
 import uuid
 
 import httpx
 import pytest
-from sqlalchemy import delete, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from yoao_workspace.configuration_contract import configuration_request
 from app.core.security import create_access_token
 from app.db.models.project import Project
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
 from tests.factory import create_user
 from tests.workspace_configuration_helpers import (
-    api_configuration_binding,
     configuration_dsn,
     provider_url,
+    public_workspace_client,
 )
 
 pytestmark = [
@@ -52,21 +52,18 @@ def _suppress_request_audit(monkeypatch) -> None:
     monkeypatch.setattr("app.middleware.audit._enqueue_audit", lambda _payload: True)
 
 
-def _fixed_configuration_requests(monkeypatch):
+def _fixed_configuration_operation_ids(monkeypatch):
     from app.services import workspace_configuration
 
     operation_ids = {operation: uuid.uuid4() for operation in _OPERATIONS}
-    requests = {}
     original = workspace_configuration.configuration_request
 
     def build(**kwargs):
         operation = kwargs["operation"]
-        request = original(**kwargs, operation_id=operation_ids[operation])
-        requests[operation] = request
-        return request
+        return original(**kwargs, operation_id=operation_ids[operation])
 
     monkeypatch.setattr(workspace_configuration, "configuration_request", build)
-    return operation_ids, requests
+    return operation_ids
 
 
 async def _seed_actor(test_engine, label: str):
@@ -146,7 +143,7 @@ async def _public_configuration_commands(client, actor, label: str):
         "/api/v1/project-templates",
         json={
             "name": template_name,
-            "description": "created through the selected owner",
+            "description": "created through the public API",
             "type_label": "Image",
             "type_key": "image-det",
             "box_threshold": 0.41,
@@ -191,56 +188,22 @@ async def _public_configuration_commands(client, actor, label: str):
     return template_id, project_id, updated_template_name, updated_project_name
 
 
-@pytest.mark.parametrize("binding", ["dsn", "http"])
-async def test_public_configuration_commands_use_selected_dsn_or_http_owner(
-    test_engine, httpx_client, monkeypatch, binding
+async def test_public_configuration_commands_use_caller_session(
+    test_engine, app_module, monkeypatch
 ):
-    dsn = configuration_dsn(test_engine)
-    control = secrets.token_urlsafe(32)
-    maker, actor = await _seed_actor(test_engine, binding)
-    operation_ids, requests = _fixed_configuration_requests(monkeypatch)
-    _suppress_request_audit(monkeypatch)
-    template_id = project_id = None
-    label = f"{binding}-{uuid.uuid4().hex[:8]}"
+    maker, actor = await _seed_actor(test_engine, "caller")
+    operation_ids = _fixed_configuration_operation_ids(monkeypatch)
+    label = uuid.uuid4().hex[:8]
     try:
-        if binding == "dsn":
-            async with api_configuration_binding(dsn=dsn, token=control):
-                (
-                    template_id,
-                    project_id,
-                    template_name,
-                    project_name,
-                ) = await _public_configuration_commands(httpx_client, actor, label)
-        else:
-            drop_id = operation_ids["create_template"]
-            async with provider_url(
-                dsn, control, drop_operation_id=str(drop_id)
-            ) as origin:
-                async with api_configuration_binding(url=origin, token=control):
-                    (
-                        template_id,
-                        project_id,
-                        template_name,
-                        project_name,
-                    ) = await _public_configuration_commands(httpx_client, actor, label)
-
-            assert requests["create_template"].operation_id == drop_id
-            async with provider_url(dsn, control) as origin:
-                async with httpx.AsyncClient(trust_env=False, timeout=15) as client:
-                    replay = await client.post(
-                        origin + _CONFIGURATION_PATH,
-                        headers={"Authorization": f"Bearer {control}"},
-                        json=requests["create_template"].model_dump(
-                            mode="json", by_alias=True
-                        ),
-                    )
-            assert replay.status_code == 200, replay.text
-            replay_reply = replay.json()
-            assert replay_reply["ok"] is True
-            assert replay_reply["operation_id"] == str(drop_id)
-            assert set(replay_reply["result"]) == {"resource_id", "template_id"}
-            assert replay_reply["result"]["resource_id"] == str(template_id)
-            assert replay_reply["result"]["template_id"] is None
+        async with public_workspace_client(
+            test_engine, app_module, monkeypatch
+        ) as client:
+            (
+                template_id,
+                project_id,
+                template_name,
+                project_name,
+            ) = await _public_configuration_commands(client, actor, label)
 
         async with maker() as db:
             template = await db.get(ProjectTemplate, template_id)
@@ -264,40 +227,55 @@ async def test_public_configuration_commands_use_selected_dsn_or_http_owner(
         await _cleanup_world(maker, actor.id, operation_ids)
 
 
-async def test_unavailable_selected_configuration_owner_does_not_fall_back(
-    test_engine, httpx_client, monkeypatch
+async def test_standalone_configuration_receipt_survives_lost_reply_and_restart(
+    test_engine,
 ):
-    maker, actor = await _seed_actor(test_engine, "unavailable")
-    operation_ids, _requests = _fixed_configuration_requests(monkeypatch)
-    _suppress_request_audit(monkeypatch)
-    project_name = f"Unavailable configuration {uuid.uuid4().hex}"
+    dsn = configuration_dsn(test_engine)
+    control = secrets.token_urlsafe(32)
+    maker, actor = await _seed_actor(test_engine, "standalone-replay")
+    request = configuration_request(
+        operation="create_template",
+        actor_id=actor.id,
+        target_id=None,
+        payload={
+            "name": f"Standalone template {uuid.uuid4().hex}",
+            "type_label": "Image",
+            "type_key": "image-det",
+            "scope": "private",
+        },
+    )
+    command = request.model_dump(mode="json", by_alias=True)
+    headers = {"Authorization": f"Bearer {control}"}
+    operation_id = request.operation_id
     try:
-        with socket.socket() as reservation:
-            reservation.bind(("127.0.0.1", 0))
-            unused_port = reservation.getsockname()[1]
-            async with api_configuration_binding(
-                url=f"http://127.0.0.1:{unused_port}",
-                token=secrets.token_urlsafe(32),
-            ):
-                response = await httpx_client.post(
-                    "/api/v1/projects",
-                    json={"name": project_name, "type_label": "Image"},
-                    headers=_auth(actor),
+        async with httpx.AsyncClient(trust_env=False, timeout=15) as client:
+            async with provider_url(
+                dsn, control, drop_operation_id=operation_id
+            ) as origin:
+                with pytest.raises(httpx.RequestError):
+                    await client.post(
+                        origin + _CONFIGURATION_PATH, headers=headers, json=command
+                    )
+            async with maker() as observer:
+                assert await _counts_for_operation(observer, operation_id) == (1, 0, 0)
+                template_id = (
+                    await observer.scalars(
+                        select(ProjectTemplate.id).where(
+                            ProjectTemplate.created_by == actor.id
+                        )
+                    )
+                ).one()
+            async with provider_url(dsn, control) as origin:
+                replay = await client.post(
+                    origin + _CONFIGURATION_PATH, headers=headers, json=command
                 )
-        assert response.status_code == 503, response.text
-        assert response.json()["detail"] == "项目配置服务暂不可用"
-        async with maker() as db:
-            assert (
-                await db.scalar(
-                    text("SELECT count(*) FROM public.projects WHERE name=:name"),
-                    {"name": project_name},
-                )
-                == 0
-            )
-            assert await _counts_for_operation(db, operation_ids["create_project"]) == (
-                0,
-                0,
-                0,
-            )
+        assert replay.status_code == 200, replay.text
+        replay_reply = replay.json()
+        assert replay_reply["ok"] is True
+        assert replay_reply["operation_id"] == str(operation_id)
+        assert replay_reply["result"] == {
+            "resource_id": str(template_id),
+            "template_id": None,
+        }
     finally:
-        await _cleanup_world(maker, actor.id, operation_ids)
+        await _cleanup_world(maker, actor.id, {"create_template": operation_id})

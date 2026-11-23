@@ -5,7 +5,6 @@ from __future__ import annotations
 from contextlib import AsyncExitStack
 import os
 import secrets
-from types import SimpleNamespace
 import uuid
 
 import asyncpg
@@ -15,20 +14,19 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
+from yoao_workspace.owner_transfer import OwnerTransferManager
+from yoao_workspace.owner_transfer_contract import OwnerTransferUnavailable
+from yoao_workspace.owner_transfer_postgres import OwnerTransferPostgresData
 from app.application.project_workspace import transfer_project_owner
-from app.services import workspace_owner_transfer as commands
 from app.services.identity_contracts import IdentityActorFacts
 from tests.test_workspace_owner_transfer_live import (
     _cleanup_world,
     _peer,
-    _public_transfer,
     _request,
     _seed_world,
     _snapshot,
-    _suppress_request_audit,
 )
 from tests.workspace_owner_transfer_helpers import (
-    api_transfer_binding,
     node_provider_url,
     python_provider_url,
     transfer_dsn,
@@ -44,17 +42,12 @@ pytestmark = [
 ]
 
 
-async def _binding(stack, test_engine, binding, token):
-    dsn = transfer_dsn(test_engine)
-    if binding.startswith("remote_"):
-        factory = node_provider_url if binding == "remote_node" else python_provider_url
-        origin = await stack.enter_async_context(factory(dsn, token))
-        await stack.enter_async_context(api_transfer_binding(url=origin, token=token))
-    else:
-        await stack.enter_async_context(
-            api_transfer_binding(
-                dsn=dsn if binding == "dedicated" else None, token=token
-            )
+async def _owner_post(origin, token, command):
+    async with httpx.AsyncClient(trust_env=False, timeout=10) as client:
+        return await client.post(
+            origin + "/v1/workspace/owner-transfer/execute",
+            json=command,
+            headers={"Authorization": f"Bearer {token}"},
         )
 
 
@@ -75,9 +68,17 @@ async def test_owner_failure_fences_rollback_partial_effects(
     token = secrets.token_urlsafe(32)
     trigger = "owner_transfer_probe_" + uuid.uuid4().hex
     original, signature = None, None
+    dsn = transfer_dsn(test_engine) if binding != "caller" else None
+    command = _request(actor.id, project.id, first.id)
     try:
         async with AsyncExitStack() as stack:
-            await _binding(stack, test_engine, binding, token)
+            if binding.startswith("remote_"):
+                provider = (
+                    node_provider_url
+                    if binding == "remote_node"
+                    else python_provider_url
+                )
+                origin = await stack.enter_async_context(provider(dsn, token))
             async with test_engine.begin() as db:
                 if fault in {"dml_busy", "deferred_write"}:
                     code = "55P03" if fault == "dml_busy" else "23514"
@@ -124,48 +125,57 @@ async def test_owner_failure_fences_rollback_partial_effects(
                         )
                     assert replacement != original
                     await db.execute(text(replacement))
-            async with maker() as caller:
-                with pytest.raises(Exception) as rejected:
-                    await transfer_project_owner(
-                        caller,
-                        actor=IdentityActorFacts(
-                            id=actor.id,
-                            name=actor.name,
-                            email=actor.email,
-                            role=actor.role,
-                            is_active=actor.is_active,
-                        ),
-                        project_id=project.id,
-                        new_owner_id=first.id,
-                    )
-                    if fault == "deferred_write" and binding == "caller":
-                        await caller.commit()
-                if fault in {"dml_busy", "deferred_write"} and binding in {
-                    "caller",
-                    "dedicated",
-                }:
+            if binding == "caller":
+                async with maker() as caller:
                     expected = (
-                        DBAPIError if binding == "caller" else asyncpg.PostgresError
+                        DBAPIError
+                        if fault in {"dml_busy", "deferred_write"}
+                        else HTTPException
                     )
-                    assert isinstance(rejected.value, expected)
-                    error = (
-                        rejected.value.orig if binding == "caller" else rejected.value
-                    )
-                    assert error.sqlstate == (
-                        "55P03" if fault == "dml_busy" else "23514"
-                    )
-                    if binding == "caller" and fault == "dml_busy":
+                    with pytest.raises(expected) as rejected:
+                        await transfer_project_owner(
+                            caller,
+                            actor=IdentityActorFacts(
+                                id=actor.id,
+                                name=actor.name,
+                                email=actor.email,
+                                role=actor.role,
+                                is_active=actor.is_active,
+                            ),
+                            project_id=project.id,
+                            new_owner_id=first.id,
+                        )
+                        if fault == "deferred_write":
+                            await caller.commit()
+                    if fault == "dml_busy":
+                        assert rejected.value.orig.sqlstate == "55P03"
                         with pytest.raises(DBAPIError) as aborted:
                             await caller.scalar(text("SELECT 1"))
                         assert aborted.value.orig.sqlstate == "25P02"
-                else:
-                    assert isinstance(rejected.value, HTTPException)
-                    assert rejected.value.status_code == (
-                        500 if fault in {"dml_busy", "deferred_write"} else 503
-                    )
-                    if binding == "caller":
+                    elif fault == "deferred_write":
+                        assert rejected.value.orig.sqlstate == "23514"
+                    else:
+                        assert rejected.value.status_code == 503
                         assert not caller.in_transaction()
-                await caller.rollback()
+                    await caller.rollback()
+            elif binding == "dedicated":
+                expected = (
+                    asyncpg.PostgresError
+                    if fault in {"dml_busy", "deferred_write"}
+                    else OwnerTransferUnavailable
+                )
+                manager = OwnerTransferManager(OwnerTransferPostgresData(dsn))
+                with pytest.raises(expected) as rejected:
+                    await manager.execute(command)
+                if fault in {"dml_busy", "deferred_write"}:
+                    assert rejected.value.sqlstate == (
+                        "55P03" if fault == "dml_busy" else "23514"
+                    )
+            else:
+                response = await _owner_post(origin, token, command)
+                assert response.status_code == (
+                    500 if fault in {"dml_busy", "deferred_write"} else 503
+                ), response.text
             assert await _snapshot(maker, project.id, actor.id) == initial
             async with maker() as observer:
                 assert (
@@ -199,40 +209,6 @@ async def test_python_owner_accepts_the_independent_node_consumer(test_engine):
             result = _peer(origin, token, _request(actor.id, project.id, first.id))
             assert result["ok"] is True and result["reply"]["ok"] is True
             assert (await _snapshot(maker, project.id, actor.id))[0] == first.id
-    finally:
-        await _cleanup_world(
-            maker, actor.id, project.id, [actor.id, first.id, second.id, employee.id]
-        )
-
-
-async def test_public_api_recovers_a_reply_lost_after_node_commit(
-    test_engine, httpx_client, monkeypatch
-):
-    maker, actor, first, second, employee, project = await _seed_world(
-        test_engine, "api-loss"
-    )
-    token, operation_id = secrets.token_urlsafe(32), uuid.uuid4()
-    monkeypatch.setattr(commands, "uuid", SimpleNamespace(uuid4=lambda: operation_id))
-    try:
-        async with node_provider_url(
-            transfer_dsn(test_engine), token, drop_operation_id=str(operation_id)
-        ) as origin:
-            async with api_transfer_binding(url=origin, token=token):
-                response = await _public_transfer(
-                    httpx_client, project.id, first.id, actor
-                )
-                assert response.status_code == 200, response.text
-        assert (await _snapshot(maker, project.id, actor.id))[0] == first.id
-        async with maker() as observer:
-            assert (
-                await observer.scalar(
-                    text(
-                        "SELECT count(*) FROM public.workspace_owner_transfer_operation_receipts WHERE operation_id=:operation"
-                    ),
-                    {"operation": operation_id},
-                )
-                == 1
-            )
     finally:
         await _cleanup_world(
             maker, actor.id, project.id, [actor.id, first.id, second.id, employee.id]
@@ -282,21 +258,33 @@ async def test_installed_runtime_combines_both_restricted_capabilities(test_engi
 
 @pytest.mark.parametrize("binding", ["dedicated", "remote_python", "remote_node"])
 async def test_foreign_public_invoker_function_fails_closed_after_healthy_start(
-    test_engine, httpx_client, monkeypatch, binding
+    test_engine, binding
 ):
-    _suppress_request_audit(monkeypatch)
     maker, actor, first, second, employee, project = await _seed_world(
         test_engine, f"foreign-public-{binding}"
     )
     users = [actor.id, first.id, second.id, employee.id]
     token = secrets.token_urlsafe(32)
     schema = f"yoao_n5_ot_foreign_{uuid.uuid4().hex}_v1"
+    dsn = transfer_dsn(test_engine)
     created = False
     try:
         async with AsyncExitStack() as stack:
-            await _binding(stack, test_engine, binding, token)
-            healthy = await _public_transfer(httpx_client, project.id, first.id, actor)
-            assert healthy.status_code == 200, healthy.text
+            command = _request(actor.id, project.id, first.id)
+            if binding == "dedicated":
+                manager = OwnerTransferManager(OwnerTransferPostgresData(dsn))
+                healthy = await manager.execute(command)
+                assert healthy.ok
+            else:
+                provider = (
+                    node_provider_url
+                    if binding == "remote_node"
+                    else python_provider_url
+                )
+                origin = await stack.enter_async_context(provider(dsn, token))
+                healthy = await _owner_post(origin, token, command)
+                assert healthy.status_code == 200, healthy.text
+                assert healthy.json()["ok"] is True
             initial = await _snapshot(maker, project.id, actor.id)
             assert initial[0] == first.id
             async with test_engine.begin() as db:
@@ -315,10 +303,13 @@ async def test_foreign_public_invoker_function_fails_closed_after_healthy_start(
                         "probe_public_invoker() TO PUBLIC"
                     )
                 )
-            response = await _public_transfer(
-                httpx_client, project.id, second.id, actor
-            )
-            assert response.status_code == 503, response.text
+            command = _request(actor.id, project.id, second.id)
+            if binding == "dedicated":
+                with pytest.raises(OwnerTransferUnavailable):
+                    await manager.execute(command)
+            else:
+                response = await _owner_post(origin, token, command)
+                assert response.status_code == 503, response.text
             assert await _snapshot(maker, project.id, actor.id) == initial
             async with maker() as observer:
                 assert (

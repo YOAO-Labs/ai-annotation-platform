@@ -41,7 +41,6 @@ class WorkspaceMembershipData:
             yield self
             if write:
                 await self.db.flush()
-                await self.db.commit()
         except MembershipCommandFailure as error:
             if error.error.rollback:
                 await self.db.rollback()

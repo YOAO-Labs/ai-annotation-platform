@@ -112,7 +112,6 @@ from app.services.inference_pipelines import (
 from app.services.workspace_configuration import execute_configuration
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.workspace_project_query import execute_project_query
-from yoao_workspace_contract.project_query_values import materialize_project_query_data
 from app.services.workspace_directory_query import execute_directory_query
 
 from app.services.labeling_core_read_relations import (
@@ -583,8 +582,6 @@ async def rename_class(
         raise HTTPException(status_code=503, detail="项目配置服务暂不可用")
     if rename_result.changed:
         await db.commit()
-    elif rename_result.projection is not None:
-        return materialize_project_query_data(rename_result.projection)
     return await execute_project_query(
         db,
         operation="get_project_projection",
@@ -750,6 +747,7 @@ async def add_member(
         target_user_id=body.user_id,
         project_role=body.role,
     )
+    await db.commit()
     return await _member_out(db, member)
 
 
@@ -805,6 +803,7 @@ async def change_member_role(
         replacement_annotator_id=body.replacement_annotator_id,
         replacement_reviewer_id=body.replacement_reviewer_id,
     )
+    await db.commit()
     return await _member_out(db, member)
 
 
@@ -819,6 +818,7 @@ async def remove_member(
     await remove_project_member(
         db, project_id=project.id, actor_id=current_user.id, member_id=member_id
     )
+    await db.commit()
     return Response(status_code=204)
 
 
