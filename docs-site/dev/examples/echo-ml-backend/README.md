@@ -1,6 +1,6 @@
 # Echo ML Backend（最小协议参考实现）
 
-> 这是 [ML Backend 协议](/dev/reference/ml-backend-protocol) v2.1 的最小可跑参考实现（`/setup` 声明 `protocol_version: "2.1"` + 单条 `models[]` 目录）。本目录的 `main.py` 通过 `<!--snippet-->` 注释被协议文档 §8 镜像引用，源端改一字 `pnpm docs:build` 即报漂移；`tests/` 下的 contract test 在 CI 保活，防示例与协议脱节。
+> 这是 [ML Backend 协议](https://yoao-labs.github.io/ai-annotation-platform/dev/reference/ml-backend-protocol) v2.1 的最小可跑参考实现。文档构建比较 [Echo 教程片段](https://yoao-labs.github.io/ai-annotation-platform/dev/ml-backend/starter#step-1-跑通-echo-示例)与 `main.py`；CI 用 `tests/` 运行实际端点合同。
 
 ## 快速开始
 
@@ -32,12 +32,7 @@ HOST=http://host.docker.internal:8000 ./test.sh
 
 ## 接入平台
 
-在前端 ProjectSettings → ML Backends 添加：
-
-- 平台跑 Docker：`http://host.docker.internal:8000`
-- 平台直接本机：`http://localhost:8000`
-
-点「测试连接」应通过。然后在批次详情页触发「AI 预标注」即可看到固定的 demo bbox 落到任务上。
+按[接入教程](https://yoao-labs.github.io/ai-annotation-platform/dev/ml-backend/starter)的直连步骤注册并启用样例，然后触发预测。使用平台进程可达的 base URL；平台在容器中时，按本地网络使用可访问的宿主地址。固定结果只证明协议链路，不证明真实模型。
 
 ## 跑 contract tests
 
@@ -48,6 +43,6 @@ uv run --extra test pytest -q
 
 ## 把 echo 改成真 backend
 
-`main.py:predict()` 把固定 demo bbox 替换为真实推理调用即可——其它端点（health / setup / versions）的 schema 协议要求不变，照搬。完整改造路径见教程 [ML Backend 接入教程](/dev/ml-backend/starter)。
+在 `main.py:predict()` 中把固定 demo bbox 替换为真实推理。完整改造路径见 [ML Backend 接入教程](https://yoao-labs.github.io/ai-annotation-platform/dev/ml-backend/starter)。
 
-更复杂场景（异步队列、多模型目录、variants、点 / 框交互式 prompt）参考 [ML Backend 协议 §2.2 / §4.1 / §6](/dev/reference/ml-backend-protocol) 与同级的 `mock-v2-backend/` 示例。
+多模型目录、variants 与交互式 prompt 见 [ML Backend 协议](https://yoao-labs.github.io/ai-annotation-platform/dev/reference/ml-backend-protocol)和同级的 `mock-v2-backend/` 示例。

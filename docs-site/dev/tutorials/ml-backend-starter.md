@@ -163,9 +163,108 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 它对任何输入都返回同一个固定 demo bbox——没有模型、没有 GPU，但协议形态是完整的 v2.1，足以让平台端到端链路（注册 → 测试连接 → AI 预标注 → 预测落库）整条走通。
 
+::: details Echo backend 完整源码
+
+<!-- snippet:docs-site/dev/examples/echo-ml-backend/main.py -->
+
+```python
+"""Echo ML backend — 协议 v2.1 参考实现（最小可跑版）。
+
+满足 ml-backend-protocol 的 4 个端点：/health、/setup、/versions、/predict。
+所有 /predict 输出固定的 demo bbox，让平台端到端链路可以直接走通。
+真实 backend 的 inference 替换到 predict() 内部即可。
+
+零外部依赖（仅 fastapi + pydantic），整目录可直接拷走当 starter。
+字段语义以 docs-site/dev/reference/ml-backend-protocol.md 为准。
+"""
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI()
+
+MODEL_VERSION = "echo-v1"
+
+
+class TaskItem(BaseModel):
+    id: str
+    file_path: str
+
+
+class PredictRequest(BaseModel):
+    tasks: list[TaskItem]
+
+
+@app.get("/health")
+async def health():
+    return {"ok": True}
+
+
+@app.get("/setup")
+async def setup():
+    return {
+        "name": "echo-backend",
+        "version": "0.1.0",
+        "protocol_version": "2.1",
+        "task_contract_revision": 1,
+        "compat_protocol_versions": ["2.0"],
+        "model_version": MODEL_VERSION,
+        "is_interactive": False,
+        "labels": ["demo"],
+        "models": [
+            {
+                "id": "echo-detect",
+                "display_name": "Echo 固定框 demo",
+                "task": "detect",
+                "supported_prompts": ["none"],
+                "supported_geometric_outputs": ["bbox"],
+            }
+        ],
+    }
+
+
+@app.get("/versions")
+async def versions():
+    return {"versions": [MODEL_VERSION]}
+
+
+@app.post("/predict")
+async def predict(req: PredictRequest):
+    results = []
+    for t in req.tasks:
+        results.append(
+            {
+                "task": t.id,
+                "result": [
+                    {
+                        "type": "rectanglelabels",
+                        "value": {
+                            "x": 0.1,
+                            "y": 0.1,
+                            "width": 0.2,
+                            "height": 0.2,
+                            "rectanglelabels": ["demo"],
+                        },
+                        "score": 0.5,
+                    }
+                ],
+                "score": 0.5,
+                "model_version": MODEL_VERSION,
+                "inference_time_ms": 1,
+                "cache_hit": True,
+                "model_load_ms": 0,
+            }
+        )
+    return {"results": results}
+```
+
+<!-- /snippet -->
+
+:::
+
 ## Step 2：理解三端点契约
 
-打开 `main.py`（全文也镜像在协议文档 §8），backend 必需实现的只有三件事：
+打开 `main.py`。这里的 echo 实现三个接入端点；各端点的必需条件与字段以协议为准。
 
 | 端点            | 一句话职责                                               | 协议章节  |
 | --------------- | -------------------------------------------------------- | --------- |
@@ -177,7 +276,7 @@ uvicorn main:app --host 0.0.0.0 --port 8000
 
 - **`/setup` 是能力的唯一真相源**：前端哪些 AI 工具可用、参数面板长什么样，全部由 `/setup` 返回体决定。echo 声明了 `protocol_version: "2.1"`、一条 `models[]` 目录条目（`task: "detect"`、`supported_prompts: ["none"]` 表示纯批量）。
 - **`/predict` 的 `result[]` 是 Label Studio 风格标注数组**：`type` + `value`（坐标兼容 `[0,1]` 与 `[0,100]` 百分比），见协议 §3。
-- **平台不强校验 schema**：契约靠你自觉对齐，跑不通时优先对照协议文档逐字段排查。
+- **用契约测试核对字段**：先检查后端实际请求与响应，再在平台测试连接和预测。仅健康检查通过不能证明结果格式正确。
 
 ## Step 3：把 echo 改造成 OCR backend
 
@@ -281,7 +380,18 @@ async def predict(req: PredictRequest):
 
 按[直连注册](#direct-registration)部署、注册、启用并触发推理。echo 示例不要求认证，**仅限隔离的协议教学环境**可选 None；固定 demo 框不能用于验证真实模型。项目绑定细节见[启用模型服务](/user-guide/projects/ml-backends)，超管操作见[模型服务注册](/user-guide/superadmin/ml-backend-registry)。
 
+## 接入 checklist {#integration-checklist}
+
+- [ ] `/health` 返回 200
+- [ ] `/setup` 声明 `protocol_version: "2.1"` 与 `compat_protocol_versions: ["2.0"]`
+- [ ] `/predict` 批量 schema 与[批量预测合同](/dev/reference/ml-backend-protocol#_2-1-批量预测-同步)对齐，至少回填 `task` + `result`
+- [ ] 如声明 `is_interactive=True`，`/predict` 也接受[交互请求](/dev/reference/ml-backend-protocol#_2-2-交互式预测)
+- [ ] `/predict.context.model_variants` 支持通用 axis dict；旧字段仅作为兼容期 normalize
+- [ ] `/setup.params` 给阈值/数量/简化容差等字段标 `x-platform-role`
+- [ ] 每条 result 的 `type` 与项目类型匹配（image-det 项目至少要有 `rectanglelabels`）
+- [ ] 非法 variant 返回 422；模型暂不可用返回 503 + `Retry-After`（见[错误响应](/dev/reference/ml-backend-protocol#_6-错误响应约定)）
+- [ ] 在当前部署的推理请求时限内返回结果；先运行[协议验证](/dev/reference/ml-backend-protocol#协议验证)，再用实际平台注册和预测核对端到端结果。
+
 ## 下一步
 
-- 对照协议 [接入 checklist](/dev/reference/ml-backend-protocol#_9-接入-checklist) 自查每一项
 - 排障：[ML Backend 不可用 runbook](/ops/runbooks/ml-backend-down)

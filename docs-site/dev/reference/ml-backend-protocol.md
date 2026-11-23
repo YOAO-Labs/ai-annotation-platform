@@ -2,20 +2,12 @@
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-10-20
+last_reviewed: 2026-11-23
 ---
 
 # ML Backend 协议契约
 
-本页供推理服务接入者查阅健康检查、预测、能力声明和错误响应合同。项目如何启用服务见[全局注册表与项目启用](#全局注册表与项目启用)。
-
-使用共享凭据目录的 Compose 服务要求独立 Bearer：业务路由（含 `/setup`、预测、模型与生命周期控制）拒绝缺失或错误凭据；`/health` 和 `/metrics` 保持公开。`GET /managed-auth` 同样要求认证，仅返回固定服务 ID 和认证来源，不返回令牌。平台将 `managed:<provider>` 精确绑定到部署指定的可信地址，禁止代理与重定向。其他地址按服务端要求选择 `none` 或手动 `token`，受控安装的插件使用安装实例自己的凭据。GPU 生命周期签名仍须独立通过，Bearer 不替代控制授权。
-
-真实 GPU 资格验证脚本从相同部署凭据读取 Bearer，与逐请求 GPU 签名一起发送。使用各服务 README 中的 `docker compose ... run` 命令会继承服务的私有只读凭据挂载；先在平台初始化默认凭据。单独 `docker run` 必须挂载该服务自己的私有目录到 `/run/aap-inference-auth:ro`，或显式传入既有手动 Token；缺少凭据会在验证前明确失败，不生成临时绕过凭据。
-
-平台不内置任何具体模型。它把可挂接的「推理服务」抽象成 `MLBackend` 行——一个 URL + 鉴权信息 + 几个布尔位（`is_interactive` / `state`）。本文规定接入方需要实现的 HTTP 端点与请求/响应 schema。只要遵循，就能在「模型市场 → 注册管理」里注册、在「项目设置 → ML 模型」里启用。
-
-插件以统一、语言无关的 manifest 和 HTTP 协议接入 Registry；运行时 SDK 组合协议、认证和生命周期，模型实现由插件提供。当前实现覆盖 Inference 与图片检测 Python SDK，尚无通用前端插件框架。LibreYOLO 检测使用独立插件，而不是 YOLO 服务的另一条运行路径。作者通过 `Detection`、`DetectionModel` 和 `DetectionProvider` 实现 `load`／单图 `predict`／`close`；SDK 不依赖平台 ORM、Celery 或原生模型框架。安装、作者命令、权重许可证边界与本地检查限制见[自定义推理 SDK 教程](/dev/ml-backend/starter#使用自定义推理-sdk)。
+本页定义推理服务对平台提供的 HTTP 端点、字段、错误和兼容要求。注册、启用或编写插件见[接入教程](/dev/ml-backend/starter)，平台内部的服务池、路由与凭据管理见[模型服务接入、路由与认证](../concepts/ml-backend-routing-and-auth)。
 
 受控模型兼容条目必须同时声明 `framework`、`format` 和 `runtime_device`。`format: null` 明确表示没有独立导出格式标识的原生 checkpoint（如 Ultralytics 原生权重），不是通配符；具名格式使用非空字符串，缺字段或空字符串均无效。安装清单、实际 `/setup` 观测及平台保存的模型回执必须精确匹配，CPU／CUDA 资格仍分别核对。
 
@@ -31,28 +23,23 @@ API 请求和保存的流水线使用 `task`；兼容读取旧 `task_type` 和�
 
 ## 端点总览
 
-| 端点        | 方法 | 用途                         | 必需 | 平台调用点                                                                                |
-| ----------- | ---- | ---------------------------- | ---- | ----------------------------------------------------------------------------------------- |
-| `/health`   | GET  | 健康检查                     | ✅   | `MLBackendClient.health` (`ml_client.py:31`)                                              |
-| `/predict`  | POST | 批量 / 交互式预测            | ✅   | `MLBackendClient.predict` (`ml_client.py:41`) / `predict_interactive` (`ml_client.py:64`) |
-| `/setup`    | GET  | 返回模型配置（schema、超参） | ⚪   | `MLBackendClient.setup` (`ml_client.py:84`)                                               |
-| `/warmup`   | POST | 显式预热模型权重到 pool      | ⚪   | `MLBackendClient.warmup`                                                                  |
-| `/versions` | GET  | 列出可用模型版本             | ⚪   | `MLBackendClient.get_versions` (`ml_client.py:90`)                                        |
+| 端点        | 方法 | 用途                        | 条件                                   |
+| ----------- | ---- | --------------------------- | -------------------------------------- |
+| `/health`   | GET  | 健康检查                    | 必需                                   |
+| `/predict`  | POST | 批量或交互式预测            | 必需；交互形态按已声明能力             |
+| `/setup`    | GET  | 能力、模型目录和参数 schema | 能力协商及受管服务需要；旧服务可不实现 |
+| `/warmup`   | POST | 显式加载模型变体            | 可选，需声明 `warmup_endpoint`         |
+| `/versions` | GET  | 列出模型版本                | 可选                                   |
 
-base URL 由超级管理员在「模型市场 → 注册管理」录入；项目管理员只在
-项目设置中启用已注册 backend。末尾 `/` 会被平台自动 `rstrip`
-(`ml_client.py:21`)。
+平台连接时忽略 base URL 末尾的 `/`。
 
 ---
 
 ## 鉴权
 
-`MLBackend.auth_method` 二选一（`ml_backend.py:22`）：
+匿名实例不接收认证头；手动令牌或系统托管实例使用 `Authorization: Bearer <token>`。使用共享凭据的服务须对 `/setup`、预测、模型和生命周期控制校验令牌；`/health` 与 `/metrics` 仍公开。受管 GPU 所需的签名和资源许可另行校验。
 
-- `none`（默认）— 平台不发送任何认证头。
-- `token` — 平台在所有请求加 `Authorization: Bearer <auth_token>`（`ml_client.py:25-29`）。`auth_token` 在全局注册表单录入，存入 PG 且不在 API 响应中回传。
-
-未来扩展（如 mTLS、HMAC 签名）走新 `auth_method` 值，不破坏现有 backend。
+仅系统托管握手使用 `GET /managed-auth`。成功返回 HTTP 200 与精确 JSON `{"provider":"<provider>","mode":"managed"}`，不回显令牌。平台只向该 provider 的受信任 origin 发送托管凭据。运维配置见[托管凭据](../concepts/ml-backend-routing-and-auth#系统托管凭据如何生成和同步)。
 
 ---
 
@@ -62,14 +49,7 @@ base URL 由超级管理员在「模型市场 → 注册管理」录入；项目
 
 **请求**：无 body。可能携带 `Authorization: Bearer ...`。
 
-**响应**：HTTP 状态码即结论。`MLBackendClient.health` 不解析 body，只看 `status_code == 200`（`ml_client.py:33-39`）。
-
-**超时**：服务端配置 `ml_health_timeout`（默认 10s，`config.py:55`）。超时或任何 `httpx.RequestError` 视为不健康，平台将 `ml_backends.state` 改写为 `"error"`（`ml_backend.py:63`）。
-
-平台侧调用时机：
-
-- 项目管理员在前端点「测试连接」（`POST /api/v1/projects/{pid}/ml-backends/{bid}/health`）。
-- 周期健康检查可按 ROADMAP 的 ML Backend 健康检查方案扩展。
+**响应**：HTTP 200 表示可达，不证明模型、权重或 GPU 可执行。超时或传输失败视为不可达。声明健康观测字段时按下文合同返回。
 
 > **`pool` 子对象**（backend 统一为 `PoolStatus` 结构，详见 §4.3）：`{ cap, current_size, loaded_keys: [{key, loaded_at, last_used_at, hit_count}], last_evict: {key, at, reason} | null }`。`key` 是 backend-defined 的 opaque 字符串（yolo `{series}/{size}/{task}`、gsam2 `sam=X/dino=Y`、sam3 `sam3`），前端只做相等比较。`last_evict.reason` 受控为 `lru | manual | idle_timeout`。平台把健康快照缓存到 `ml_backend_registry.health_meta.pool`，模型市场列表用 `loaded_keys[]` 反查每行 variant 的运行时态。**未统一的老 backend**回的 `pool` 字段结构各家各异，平台层向后兼容；新接入的 backend 必须按 §4.3 落地。
 
@@ -263,9 +243,7 @@ backend lifecycle 错误保持 FastAPI envelope `{"detail":{"error_code":"..."}}
 }
 ```
 
-> **运行时观测三件套**（`cache_hit` / `model_load_ms` / `pool_state`）：详见 §4.2。所有 backend 应在 `/predict` 与 `/warmup`（§4.4）响应里至少填 `cache_hit` 与 `model_load_ms`，前端据此切换"加载中…"和"推理中…"按钮文案。三个字段都是可选的，缺省时前端走"未知"路径（按热路径渲染，第一次响应回来后修正）。
-
-平台侧解析：`MLBackendClient.predict` (`ml_client.py:41-62`) 把每项映射到 `PredictionResult` dataclass，再由调用方落到 `predictions` / `prediction_metas` 表。
+> **运行时观测**：`cache_hit`、`model_load_ms`、`pool_state` 均可选，缺失表示未知。建议 `/predict` 和 `/warmup` 上报 `cache_hit` 和 `model_load_ms`，字段见 §4.2 与 §4.4。
 
 **超时**：服务端配置 `ml_predict_timeout`（默认 100s，`config.py:54`）。超时由 worker 捕获，写一行 `failed_predictions` 并继续下一 batch（不阻断）。
 
@@ -441,15 +419,7 @@ Mask 的 RLE、媒体尺寸和 ID 校验保持不变。`candidate_id` 和采纳�
 的 chunked 响应也不能绕过。返回给工作台的代理响应同时包含实际 backend
 instance / pool、目标 model 与 `model_version`，供后续接受时写入 lineage。
 
-`accept_receipts` 按 `candidate_id` 返回短生命周期签名回执。回执绑定 task、候选像素、候选序号、
-prompt revision、服务端生成的 prompt 计数摘要、实际路由、模型、模型变体、推理摘要、源 Mask
-digest 与精确接受目标；客户端不能自己构造、改成新建目标或跨任务 / 源版本复用。
-接受原生候选使用 `POST /api/v1/tasks/{task_id}/ai-mask-candidates/accept`，提交候选、对应回执、
-类别、目标（新建或带源版本精修）、prompt 摘要、路由与推理元数据。服务端重新校验任务与写闸，
-并在一次数据库提交中写 Prediction、PredictionMeta、接受 decision、Annotation 与审计。图片写成
-`raster_mask`，视频写成仅含当前帧关键帧的 `video_track_mask`。同一 task 与 idempotency key 的相同
-请求返回首次完整响应；同 key 不同请求或过期 decision 返回 409。失败事务最多留下受宽限期 GC
-管理的未引用内容对象，不会留下半个预测或标注。
+平台对原生候选签发和验证 `accept_receipts` 的合同见[原生 AI Mask 候选采纳](/api/guides/tasks-and-annotations#原生-ai-mask-候选采纳)。这些是平台代理字段，Backend 不生成采纳回执。
 
 > **`mask_input` 回灌（多轮精修增量）**：SAM2/SAM3 的 `predict()` 接收上一轮 256×256 low-res logits 回灌，多次追加点、框或笔迹时提升 Mask 稳定性与边界质量。backend 把本轮 `low_res_masks` 编码为内部 raw logits；平台代理将其封装成五分钟 Fernet 加密鉴权 token 后才作为 `mask_input_next` 返回。浏览器只保存并原样回传 token，不能读取或自行构造 raw logits；平台复核 task、frame、backend、model、模型变体、源 Mask、origin revision 与候选后再解封给 backend。token 不写数据库、对象存储、审计详情或普通日志，部署 secret 轮换会立即使旧会话失效。
 >
@@ -491,7 +461,7 @@ digest 与精确接受目标；客户端不能自己构造、改成新建目标�
 >
 > **能力声明（`/setup`）**：支持 video tracker 的 backend 在 `/setup` 返回 `supported_trackers: ["sam2_video", ...]`，平台动态消费并用于模态校验。每个 tracker model 还要按真实 consumer 声明 `supported_prompts` / `supported_inputs` / `supported_geometric_outputs` 和正数 `max_window_frames`；平台对外暴露 backend 上限与平台配置的较小值。**文本驱动的 tracker**（如 `sam3_video`，其 propagate 需 `text` / `exemplars` 而非仅 seed bbox）在此之外再声明 `text_driven_trackers`（`supported_trackers` 的子集）：前端仅在选中此类 tracker 时才显示「文本描述」输入框并强制填写；模型选择器只列出项目已启用、已连接且能力可达的 backend 所声明的 tracker。组合模型的全部原子能力必须由同一个 backend 提供。
 >
-> **视频单帧交互式（平台中继）**：视频工作台在**单帧**上用智能点 / 框时，走平台端点 `POST /projects/{pid}/ml-backends/{bid}/interactive-annotating-frame`（multipart：`frame` JPEG + `task_id` + `frame_index` + `context` JSON 串）——它先把当前帧上传对象存储，再以该帧图片 URL 调 backend 的 `predict_interactive`。**backend 无需为视频做任何特殊处理**，看到的就是一次普通的图片交互式预测；`frame_index` 仅用于存储 key 命名、不参与坐标变换，候选瞬态返回、不落库（区别于走批量 `/predict` 会落 Prediction 的 `predict-frame`）。
+> **视频单帧交互式**：当前视频帧作为普通图片 URL 发给 `/predict`，字段和坐标仍遵循单图交互合同。平台转发见[交互式示例候选](/api/guides/ml-backend#交互式示例候选)。
 >
 > **观测（`/health` + `/metrics`）**：开了 video 独立池的 backend，`/health` 返回 `video_pool` 区块（PoolStatus：`cap/current_size/loaded_keys/last_evict`，外加 `active_sessions/idle_seconds`）；`/metrics` 增 `video_tracker_frames_processed_total{sam_variant}` / `video_tracker_latency_seconds{sam_variant}`，并对推理指标加 `task_type="image|video"` 维度。模型市场观测页据此按图像 / 视频分类。
 
@@ -499,16 +469,15 @@ digest 与精确接受目标；客户端不能自己构造、改成新建目标�
 >
 > - `box`：仅 GroundingDINO 出框，跳过 SAM image embedding + mask 推理 + cv2/shapely 简化。返回 `result[]` 全为 `rectanglelabels`，单图 ~50-100ms（4060 / tiny），相比 mask 全链路 200-500ms 快 50-80%。**适用 image-det 项目**：标注员要的就是 bbox annotation。
 > - `mask`（**默认**）：DINO + SAM mask → polygon，返回 `polygonlabels`。
-> - `both`：同 instance 配对返回 `[rectanglelabels, polygonlabels, ...]` 严格交错（box 优先，对应 polygon 在后）。前端 `Tab` 切活跃几何，`Enter` 接受当前形态。
-> - **老 backend 兼容**：缺 `output` 字段时按 `"mask"` 路径返回，零回归。
-> - **老前端兼容**：不识别 `rectanglelabels` 候选时只显示 `polygonlabels`。
+> - `both`：同 instance 配对返回 `[rectanglelabels, polygonlabels, ...]`，框在前、对应 polygon 紧随其后。只识别 polygon 的旧调用方可忽略框。
+> - **缺省兼容**：未提供 `output` 等同于 `"mask"`。
 > - **point/interactive_box/polygon 类型**：`output` 字段无意义，始终走 SAM mask → polygon。
 
 > **`simplify_tolerance: number`**（可选；缺省走 backend 默认 1.0）：
 >
 > - 像素级 shapely.simplify 容差。**大物体 / 大致形状** 调高（2-3）减顶点、提速；**精细物体** 调低（0.3-0.5）保细节。
 > - 仅 `output ∈ {"mask", "both"}` 路径生效；`output="box"` 不简化。
-> - 单次请求级覆盖；项目级常量化未实现（运维 / dev 通过 `Context.simplify_tolerance` 注入足够，未来可加 ProjectSettings 字段，触发条件：客户提需求）。
+> - `Context.simplify_tolerance` 只覆盖本次请求。
 > - 后端在返回 polygon 顶点 > 200 时 `logger.warning`（非阻塞，仅运维信号）。
 
 **响应**：单条 `PredictionResult`，**没有外层 `results` 数组**：
@@ -709,8 +678,6 @@ span 边界继续使用上一窗末帧 geometry 续种。
 > **变体 `modelVariant` 语义**：v2.1 起变体选择由 `/setup.supported_variants[].key` 声明，前端发送 `/predict` 时统一放进 `context.model_variants`（详见 §2.2）。如果老 backend 只在 `params.properties.*` 里暴露 enum，则应给该字段标 `x-platform-role: "modelVariant"`；前端会把它移出普通参数表单，渲染到模型变体选择器。
 >
 > **`supported_variants`（可选）**：用于声明 model variant 轴并补富元数据。结构为数组，每项代表一个轴：`{ key, title?, description?, variants: [{ value, label?, vram_gb?, tier?, recommended?, note? }] }`。`key` 是 `context.model_variants` 的 axis key；`value` 必须与 backend runtime 校验来源一致。前端优先读 `supported_variants` 渲染富选择器，缺失或为空时回落 `params` 中 `x-platform-role=modelVariant` 或 legacy `*_variant.enum` 字段，因此老 backend 不需要立即升级。`tier` 建议使用 `fast | balanced | accurate`，但前端会容忍未知字符串。
->
-> 超管运行时观测端点 `GET /admin/ml-integrations/observe` 会把 `/setup.supported_variants` 透传到每个 `ObserveTarget.supported_variants`，用于未注册观测容器的只读多轴变体展示。顶层未声明时，平台合并 `models[].supported_variants` 并按 axis key 去重；旧 grounded-sam2/sam3 的 `sam_variant` / `dino_variant` enum 仍通过 `variant_catalog` 双发。仅声明通用变体目录的容器暂不启用「试启动」，直到 backend 实现通用 warm 接口。
 
 > **`supported_prompts`**：枚举 `point | interactive_box | text | exemplar | sketch | scribble | mask | correction_frame | …`。**交互式用户 prompt**，前端 ToolDock 据此置灰不支持的工具。`correction_frame` 是视频局部纠错种子，不进入单帧图片工具路由。（`bbox` 已退出交互 prompt 命名空间，仅保留为几何形状名。）
 >
@@ -722,15 +689,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 >
 > **`x-platform-role`（v2.1）**：`params.properties.*` 可用该扩展字段声明平台语义，前端用统一标签渲染但仍按原字段名发送。当前受控值：`confidence` / `iou` / `maxDet` / `textThreshold` / `simplifyTolerance` / `modelVariant`。本版**不统一物理参数名**：yolo 仍用 `conf/iou/max_det`，grounded-sam2 仍用 `box_threshold/text_threshold/simplify_tolerance`，sam3 仍用 `score_threshold/simplify_tolerance`。
 
-**平台代理端点**：前端通过 `GET /api/v1/projects/{id}/ml-backends/{bid}/setup` 拉取；apps/api 30s TTL 进程内缓存，update/delete backend 时自动 invalidate。
-
-**前端兜底**：返回体缺少 `supported_prompts` 时，前端回落到 `["point","interactive_box","text"]`，并在控制台提示后端声明实际支持的提示类型。`/setup` 返回 502 时整套 AI 工具置灰。
-
-> **能力快照持久化**：除上述代理端点的实时拉取外，平台在 `check_health`（services/ml_backend.py）拉完 `/health` 后会 best-effort 再探一次 `/setup`，把能力快照（`models[]`、`supported_prompts`、`supported_inputs`、`supported_trackers`、`supported_text_outputs`、`supported_geometric_outputs`、`warnings` + 平台派生的 `modalities`）落进 `ml_backend_registry.health_meta["capabilities"]`，供「按模态分流 / 绑定校验 / 列表只读展示」消费（无需每处实时拉 `/setup`）。模态派生规则：`supported_prompts` 非空 ⇒ image、`supported_trackers` 非空 ⇒ video（见 yoao_inference.capabilities）。
->
-> **`is_interactive` 改派生**：`is_interactive` 不再由注册表单手填，而是以 backend `/setup.is_interactive` 自报为真值，在 `check_health` 时回写 `MLBackend.is_interactive`。backend 必须在 `/setup` 如实声明该位。
->
-> **绑定按 data_type 校验**：`PATCH /projects/{id}` 绑定 backend 时实时探 `/setup` 派生模态，与项目 `data_type` 不兼容 → 422；探测失败则 fail-open 放行（mismatch 留到 `/predict` 暴露）。
+Backend 必须如实声明 `/setup.is_interactive`。平台代理、能力快照和刷新见[平台能力目录](/api/guides/ml-backend#能力目录-capabilities)。
 
 ---
 
@@ -861,46 +820,7 @@ span 边界继续使用上一窗末帧 geometry 续种。
 
 #### 4.1.4 平台派生形态（health_meta）
 
-`extract_capabilities(setup)`（`yoao_inference.capabilities`）遍历 `models[]` 派生 model 列表，落进 `ml_backend_registry.health_meta["capabilities"]`：
-
-```jsonc
-{
-  "infra": "pytorch", // backend 默认
-  "models": [
-    {
-      "id": "detect",
-      "task": "detect",
-      "model_family": "yolo",
-      "infra": "pytorch",
-      "supported_prompts": ["none"],
-      "supported_inputs": ["full_image", "crop"],
-      "supported_geometric_outputs": ["bbox"],
-      "output_attribute_types": [],
-      "supported_variants": [
-        /*…*/
-      ],
-      "default_thresholds": {
-        /*…*/
-      },
-      "resource_profile": {
-        /*…*/
-      },
-      "modality": "image",
-    },
-    /* … */
-  ],
-  // 兼容字段:老消费方仍能读到「扁平并集」(所有 model 的 prompts/geometry 去重合并)
-  "supported_prompts": ["none"],
-  "supported_inputs": ["full_image", "crop"],
-  "supported_geometric_outputs": ["bbox", "polygon", "keypoint", "rotated_bbox"],
-  "modalities": ["image"],
-  "warnings": [],
-}
-```
-
-保留顶层「扁平并集」字段，让现有 `useMLCapabilities` / 绑定校验在改造完成前零回归。模态派生升级为 **per-model 派生 + backend 汇总**：`task=tracker` 或 `supported_trackers` 非空 ⇒ video；几何含 `lidar_box_3d` / `point_mask_3d` ⇒ lidar（留位）；否则 ⇒ image（含 `supported_prompts=["none"]` 的批量模型）。backend `modalities` = 各 model modality 去重并集。
-
-`warnings` 是非阻断诊断列表，由平台校验规范化后的 `task` / `infra` / `supported_prompts` / `supported_geometric_outputs` 是否落在受控词表内后生成。每条包含 `{level, model_id, field, value, message}`；可用它定位拼写或枚举漂移，平台不会因此丢弃该 model。当前模型目录不显示旧卡片的 `⚠ 协议 N` 徽标；要核对告警请读取诊断字段。
+平台从 `/setup` 派生的快照格式、模态与告警见[项目能力快照](/api/guides/ml-backend#项目能力快照)。这些不是 Backend 返回字段。
 
 #### 4.1.5 向后兼容规则
 
@@ -1176,18 +1096,7 @@ result 映射（统一 adapter，不新增 prediction 表）：`ocr_text` → `a
 
 #### 4.1.9 平台能力目录端点（派生视图）
 
-能力目录是 `health_meta` 的派生视图，复用现有 `POST …/{bid}/setup`（30s TTL 缓存）的探测链路：
-
-```text
-GET  /projects/{pid}/ml-backends/{bid}/capabilities          # 返回 models[] 目录(含 infra/task/variants)
-POST /projects/{pid}/ml-backends/{bid}/capabilities/refresh  # 强制重探 /setup 并刷新缓存
-```
-
-- `capabilities` 返回派生后的 model 目录（含每条 `infra` / `task` / `supported_inputs` / `supported_geometric_outputs` / `output_attribute_types` / `supported_variants` / `last_seen_at`），并在顶层携带受控词表诊断 `warnings`，供模型市场 / 工作台多模型选择器消费。
-- `capabilities/refresh` 跳过缓存强制重探，用于 backend 升级 model_version 后立即看到新能力。
-- 批量预标入口扩展 `model_id`（指向目录条目；缺省 = backend 隐式单 model，兼容老路径）；variant / threshold 经 `context` / `params` 透传。
-
-> 若后续需要持久化跨 backend 模型检索，再考虑独立表 `ml_model_capabilities` 与全局聚合端点 `GET /ml-backends/capabilities`。
+项目 API 返回实例能力的派生结果，不由 Backend 实现。见[平台能力目录](/api/guides/ml-backend#能力目录-capabilities)。
 
 #### 4.1.10 可跑参考实现
 
@@ -1197,142 +1106,15 @@ POST /projects/{pid}/ml-backends/{bid}/capabilities/refresh  # 强制重探 /set
 
 **协议形态参考实现（无真实推理）**：[`docs-site/dev/examples/mock-v2-backend/`](https://github.com/YOAO-Labs/ai-annotation-platform/tree/main/docs-site/dev/examples/mock-v2-backend) —— `/setup` 暴露 YOLO 风格多任务 `models[]`、PaddleOCR / DocLayout、点 / 框 / exemplar 交互分割及视频 tracker 条目；`/predict` 按 `context.type` 返回固定几何、OCR 文本属性或逐帧追踪结果。可在该示例目录用 `uvicorn main:app --port 9100` 启动，平台仍通过正常探测和绑定读取其能力。固定响应只用于理解协议，不代表真实模型结果。
 
-**最小 v1 参考实现**：见下文 echo-ml-backend。
+**最小 v2.1 参考实现**：见[可运行 echo](#_8-最小-echo-backend-示例)。
 
 #### 4.1.11 协议能力目录端点
 
-> 决策见 [ADR-0037 — 协议能力目录与 backend 注册解耦](../adr/archive/0037-protocol-capability-catalog-decoupling.md)。
-
-§4.1 描述的 `/projects/{pid}/ml-backends/{bid}/capabilities` 是**实例能力视图**（已注册 backend 探测出的 `models[]` 派生）。但「模型市场 · 能力目录」面板在用户心智里要回答的是「平台支持哪些 AI 标注能力」，与 backend 是否注册无关。为此提供**协议级**端点：
-
-```
-GET /api/v1/ml-capabilities/protocol
-```
-
-- **数据源**：`apps/inference/src/yoao_inference/capability_registry.py`（SSOT），与 `yoao_inference.capabilities` 的受控词表同源（归一化层显式消费同一词表）。
-- **鉴权**：登录用户即可访问；不暴露任何 backend 实例信息，无需 super_admin。
-- **缓存**：`Cache-Control: private, max-age=300` + ETag；二次请求带 `If-None-Match` 返回 304。
-
-**响应结构**：
-
-```jsonc
-{
-  "version": "v2",        // 与协议 v2 对齐, 受控词表不兼容变更才 bump
-  "tasks": [
-    {
-      "id": "detection",
-      "label": "目标检测",
-      "summary": "在图像或视频帧中输出 bbox + 类别标签。",
-      "default_geometry": ["bbox"],
-      "default_modalities": ["image", "video"],
-      "typical_models": ["YOLO 系", "DETR 系", "Grounding DINO"],
-      "protocol_notes": "/predict 响应 result.type=rectanglelabels, ...",
-      "suggested_backends": [
-        {
-          "name": "Label Studio ML Backend (YOLO)",
-          "repo_url": "https://github.com/HumanSignal/label-studio-ml-backend",
-          "summary": "官方示例覆盖 YOLOv8 / DETR, 适合上手。",
-          "research_link": "docs/research/01-label-studio.md"
-        }
-      ]
-    }
-    // 共 9 个 task
-  ],
-  "infras":     [ { "id": "pytorch", "label": "PyTorch", "summary": "..." }, ... ],   // 6 项
-  "modalities": [ { "id": "image",   "label": "图像",   "summary": "..." }, ... ],   // 3 项 (image/video/lidar)
-  "geometries": [ { "id": "bbox",    "label": "bbox",   "summary": "..." }, ... ],  // 8 项
-  "prompts": [
-    {
-      "id": "interactive_box",
-      "label": "框提示",
-      "summary": "SAM-style 单框单 mask 交互分割。",
-      "requires_input": true,
-      "interactive_route": true
-    },
-    {
-      "id": "text",
-      "label": "文本提示",
-      "summary": "开放词汇文本驱动检测/分割; 走批量线, 不进画布交互工具。",
-      "requires_input": true,
-      "interactive_route": false
-    }
-    // 共 9 个 prompt
-  ]
-}
-```
-
-**消费方**：[模型市场的协议能力页](../../user-guide/superadmin/model-market#协议能力)用 `tasks` 显示协议并打开技术详情，不依赖任何 backend 已注册。按任务显示的模型数量来自模型目录；未接入显示零，目录读取失败则显示数量暂不可用，而不是零。
-
-**维护流程**：`capability_registry.py` 是 task / infra / modality / geometry / prompt 的 SSOT。修改受控词表、响应 schema 或序列化后，运行：
-
-```bash
-cd apps/api && uv run python ../../scripts/export_capability_registry.py
-cd ../.. && pnpm codegen
-```
-
-第一步刷新 `apps/api/capability-registry.snapshot.json`；第二步让前端根据 snapshot 生成受控词表常量。pre-commit 会对 registry 相关文件自动重导 snapshot，CI 可用 `uv run python ../../scripts/export_capability_registry.py --check` 检测漂移。
-
-**协议与实例的关系**：
-
-| 端点                                                 | 数据源                                                | 何时可用                              | 视角                                      | 鉴权     |
-| ---------------------------------------------------- | ----------------------------------------------------- | ------------------------------------- | ----------------------------------------- | -------- |
-| `GET /v1/ml-capabilities/protocol`                   | `capability_registry.py` SSOT                         | 启动即可（与注册无关）                | 协议层「平台支持什么」                    | 登录用户 |
-| `GET /v1/ml-capabilities/instances`                  | 注册实例探测 + `ml_backend_registry.health_meta` 合并 | docker-compose 启动或手动注册任一即可 | 实例层「现在跑着哪些 model 可用」         | 登录用户 |
-| `GET /projects/{pid}/ml-backends/{bid}/capabilities` | `ml_backend_registry.health_meta["capabilities"]`     | backend 注册并 health 探测后          | 实例层「该项目启用的 backend 暴露了什么」 | 项目成员 |
+平台词表、缓存和条件 GET 见[协议能力目录端点](/api/guides/ml-backend#协议能力目录端点)。
 
 #### 4.1.12 实例能力清单端点
 
-`GET /api/v1/ml-capabilities/instances` 从全局 `ml_backend_registry` 返回 connected backend 的 model 清单。env 配置的 backend 在启动 / 初始化时自动 upsert 为 `source="env"` 的一等注册项；超管手动注册的是 `source="manual"`。因此实例能力不再维护“env-only 临时探测 + 项目内重复注册”两套来源。
-
-**数据源合并**：
-
-1. 从 `ml_backend_registry` 读取 `state="connected"` 的注册项（env 自动注册与 manual 手动注册同表）。
-2. 直接消费每项 `health_meta["capabilities"]` 的 `models[]` 快照，并带出 `backend_id / state / source / name`。
-3. URL 唯一性与 env upsert 在注册表层解决，instances 端点无需再做临时来源去重。
-
-**字段裁剪**（与项目级 `/capabilities` 的差别）：
-
-| 字段                                                                                                                                               | `/projects/.../capabilities` | `/v1/ml-capabilities/instances`                  |
-| -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------ |
-| url                                                                                                                                                | ✓                            | ✗（避免暴露内网拓扑）                            |
-| gpu_info / cache / pool / video_pool                                                                                                               | ✓                            | ✗（运维敏感）                                    |
-| params                                                                                                                                             | ✓                            | ✗（运维细节给项目级视图）                        |
-| `models[]` 的核心字段（id / display_name / task / infra / prompts / geometry / trackers / modality / output_attribute_types / supported_variants） | ✓                            | ✓                                                |
-| supported_inputs / resource_profile                                                                                                                | ✓                            | ✓（全局编排选择器需投递契约 + 批量画像，故透传） |
-
-**响应结构**：
-
-```jsonc
-{
-  "instances": [
-    {
-      "backend_id": "9f1c…", // ml_backend_registry.id
-      "state": "connected", // 注册表状态; disconnected 已在服务层过滤
-      "source": "env", // ml_backend_registry.source: "env"(docker-compose/env 自动注册) | "manual"(superadmin 手动注册)
-      "name": "grounded-sam2", // ml_backend_registry.name
-      "infra": "pytorch",
-      "models": [
-        {
-          "id": "grounded-sam2-detection",
-          "display_name": "Grounded-SAM 2 · 文本检测 (DINO)",
-          "task": "detect",
-          "infra": "pytorch",
-          "is_interactive": false,
-          "supported_prompts": ["text"],
-          "supported_inputs": ["full_image", "crop"],
-          "supported_geometric_outputs": ["bbox"],
-          "supported_trackers": [],
-          "resource_profile": { "device": "gpu", "batchable": true },
-          "modality": "image",
-        },
-        // ...
-      ],
-    },
-  ],
-}
-```
-
-**前端消费**：预标流水线库与项目类别配置使用实例能力清单。`source` 描述注册来源（环境自动注册或人工注册），不能据此断定项目已启用该模型。模型市场的模型目录读取 `/model-catalog`，不是用实例清单拼装项目可见目录。
+实例可见性、字段裁剪和示例见[实例能力清单端点](/api/guides/ml-backend#实例能力清单端点)。
 
 ---
 
@@ -1391,15 +1173,11 @@ cd ../.. && pnpm codegen
 
 **LRU evict 触发**：pool 满 + miss 时按 LRU 头部淘汰，`last_evict.reason="lru"`。`/unload` 手动卸载用 `"manual"`，sam3 的 idle 超时用 `"idle_timeout"`。
 
-**前端消费**：模型市场列表的"运行时态"列直接从 `health_meta.pool.loaded_keys[]` 反查 `key` 即可；卡片视图按分组展示 `current_size/cap` 与 `last_evict` 摘要。
-
 ---
 
 ### 4.4 `POST /warmup`（可选）
 
-**用途**：把指定 variant 的权重显式加载到 pool，不消耗推理算力。模型市场"⚡ 预热"按钮、自动化预热脚本、CI 烟测时手动控制 pool warm 状态都走这个端点。
-
-**前置条件**：backend 在 `/setup` 顶层声明 `warmup_endpoint: true`。未声明的 backend 视为不支持，前端 ⚡ 按钮置灰。
+显式加载所选变体到权重池，不执行预测。只有 `/setup.warmup_endpoint: true` 才声明支持。
 
 **请求**（per-backend 自定义结构；建议与 `/predict` 的 context 部分一致）：
 
@@ -1465,7 +1243,7 @@ POST /warmup
 { "versions": ["v1.0.0", "v1.1.0", "v1.2.3"] }
 ```
 
-前端会把这个列表填到「模型版本」下拉框；用户选定后写到 `MLBackend.extra_params` 并在后续 `/predict` 请求 header 或 body 携带（具体由 backend 自行约定）。未实现时返回 `{"versions": []}`。
+实现此端点但没有版本时返回 `{"versions": []}`。对成功响应省略 `versions` 的旧服务按空列表读取；端点不可达不是空列表。
 
 ---
 
@@ -1483,12 +1261,7 @@ v2.1 推荐 backend 使用结构化错误体。平台代理会保留上游 4xx�
 
 共享实现位于 `apps/_shared/protocol_v2/src/yoao_protocol_v2/errors.py`：`VariantNotSupportedError` 与 `ModelUnavailableError`。三家内置 backend 已统一使用这两个错误类。
 
-平台调用行为：
-
-- 批量 `/predict` 中的 task 级失败会写一行 `failed_predictions` 并继续下一条。普通异常保留原有异常类型与消息；平台 GPU 仲裁在 backend HTTP 前拒绝时，`error_type` 直接保存稳定 `error_code`，`message` 保存干净人类消息，完整的 `status_code` / `retry_after_s` 记录保存在 `FailedPrediction.extra.gpu_arbiter_error`。
-- 跨 Backend 下游阶段仍按 `keep_parent|drop_box` 降级，但仲裁根因会同时写入 `PredictionMeta.extra.pipeline.gpu_arbiter_failures` 和 `AsyncJob.result.gpu_arbiter_failures`。逐帧预标只在作业结果聚合，不为每帧创建无法按原帧上下文重试的 `FailedPrediction`。
-- `gpu_arbiter_failures[].count` 统计被拒绝的派发次数，不是受影响的 task、帧或 ROI 数；摘要按稳定错误码合并并取保守的最大 `retry_after_s`。工作端只记录该窗口，不会自动 sleep 或额外重试。
-- 交互式（`/predict` 单条）：服务层 `predict_interactive` (`ml_client.py`) 透传上游 4xx 与 503；其它上游 5xx / 连接超时映射为 502。前端按 422 / 503 / 500+ 分流：422 显示“参数错误，请检查输入”，503 显示“模型暂不可用，N 秒后重试”，500+ 显示“服务异常”。
+平台接口错误与失败预测的持久结果见[预测与作业](/api/guides/predictions)；GPU 拒绝的运行边界见[路由与认证](../concepts/ml-backend-routing-and-auth)。
 
 ---
 
@@ -1506,195 +1279,44 @@ v2.1 推荐 backend 使用结构化错误体。平台代理会保留上游 4xx�
 | `total_cost`        | float  | 美元                                     |
 | `extra`             | object | 任意 JSON，写到 `prediction_metas.extra` |
 
-> 当前 ROADMAP §A「预测成本统计」前端可视化未做；后端字段已经在表里。
-
 ---
 
 ## 8. 最小 echo backend 示例
 
-> 完整可跑样板（含 Dockerfile + curl 测试脚本 + README）见 [`docs-site/dev/examples/echo-ml-backend/`](https://github.com/YOAO-Labs/ai-annotation-platform/tree/main/docs-site/dev/examples/echo-ml-backend)。下面的代码块由 `check-doc-snippets.mjs` 锁定到样板源文件，源端改一字 `pnpm docs:build` 即报漂移。
-
-<!-- snippet:docs-site/dev/examples/echo-ml-backend/main.py -->
-
-```python
-"""Echo ML backend — 协议 v2.1 参考实现（最小可跑版）。
-
-满足 ml-backend-protocol 的 4 个端点：/health、/setup、/versions、/predict。
-所有 /predict 输出固定的 demo bbox，让平台端到端链路可以直接走通。
-真实 backend 的 inference 替换到 predict() 内部即可。
-
-零外部依赖（仅 fastapi + pydantic），整目录可直接拷走当 starter。
-字段语义以 docs-site/dev/reference/ml-backend-protocol.md 为准。
-"""
-
-from fastapi import FastAPI
-from pydantic import BaseModel
-
-app = FastAPI()
-
-MODEL_VERSION = "echo-v1"
-
-
-class TaskItem(BaseModel):
-    id: str
-    file_path: str
-
-
-class PredictRequest(BaseModel):
-    tasks: list[TaskItem]
-
-
-@app.get("/health")
-async def health():
-    return {"ok": True}
-
-
-@app.get("/setup")
-async def setup():
-    return {
-        "name": "echo-backend",
-        "version": "0.1.0",
-        "protocol_version": "2.1",
-        "task_contract_revision": 1,
-        "compat_protocol_versions": ["2.0"],
-        "model_version": MODEL_VERSION,
-        "is_interactive": False,
-        "labels": ["demo"],
-        "models": [
-            {
-                "id": "echo-detect",
-                "display_name": "Echo 固定框 demo",
-                "task": "detect",
-                "supported_prompts": ["none"],
-                "supported_geometric_outputs": ["bbox"],
-            }
-        ],
-    }
-
-
-@app.get("/versions")
-async def versions():
-    return {"versions": [MODEL_VERSION]}
-
-
-@app.post("/predict")
-async def predict(req: PredictRequest):
-    results = []
-    for t in req.tasks:
-        results.append(
-            {
-                "task": t.id,
-                "result": [
-                    {
-                        "type": "rectanglelabels",
-                        "value": {
-                            "x": 0.1,
-                            "y": 0.1,
-                            "width": 0.2,
-                            "height": 0.2,
-                            "rectanglelabels": ["demo"],
-                        },
-                        "score": 0.5,
-                    }
-                ],
-                "score": 0.5,
-                "model_version": MODEL_VERSION,
-                "inference_time_ms": 1,
-                "cache_hit": True,
-                "model_load_ms": 0,
-            }
-        )
-    return {"results": results}
-```
-
-<!-- /snippet -->
-
-启动（任选其一）：
-
-```bash
-# 直接 uvicorn
-pip install -r docs-site/dev/examples/echo-ml-backend/requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000
-
-# Docker
-cd docs-site/dev/examples/echo-ml-backend && docker build -t echo-ml-backend . && docker run --rm -p 8000:8000 echo-ml-backend
-```
-
-然后在前端 ProjectSettings → ML Backends 添加 `http://host.docker.internal:8000`（如果平台跑 Docker）或 `http://localhost:8000`，点「测试连接」应通过。或直接在样板目录跑 `./test.sh` 脚本三连击校验四个端点。
-
----
+完整源码见[接入教程的 Echo 示例](/dev/ml-backend/starter#step-1-跑通-echo-示例)，也可从[样板目录](https://github.com/YOAO-Labs/ai-annotation-platform/tree/dev/docs-site/dev/examples/echo-ml-backend)直接运行。教程的源码片段由文档构建检查与 `main.py` 逐字一致。
 
 ## 9. 接入 checklist
 
-- [ ] `/health` 返回 200
-- [ ] `/setup` 声明 `protocol_version: "2.1"` 与 `compat_protocol_versions: ["2.0"]`
-- [ ] `/predict` 批量 schema 与 §2.1 对齐，至少回填 `task` + `result`
-- [ ] 如声明 `is_interactive=True`，`/predict` 也接受 §2.2 单条请求
-- [ ] `/predict.context.model_variants` 支持通用 axis dict；旧字段仅作为兼容期 normalize
-- [ ] `/setup.params` 给阈值/数量/简化容差等字段标 `x-platform-role`
-- [ ] 每条 result 的 `type` 与项目类型匹配（image-det 项目至少要有 `rectanglelabels`）
-- [ ] 非法 variant 返回 422；模型暂不可用返回 503 + `Retry-After`（见 §6）
-- [ ] 长任务考虑 backend 内部异步 + 在合理时间内（< `ml_predict_timeout`）返回结果，否则平台会判超时并落 `failed_predictions`
-
----
+开发者自查清单维护在[接入教程](/dev/ml-backend/starter#integration-checklist)。
 
 ## 10. 兼容性与迁移
 
 protocol v2.1 为 minor bump，不是 v3。平台与内置 backend 保留 v2.0 兼容期，避免外部自建 backend 立刻中断。
 
-| 旧字段                                         | 新字段                                                   | 兼容行为                                                               |
-| ---------------------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `context.variants.{series,size}`               | `context.model_variants.{series,size}`                   | yolo-backend normalize 并记录 deprecation warning                      |
-| `context.sam_variant` / `context.dino_variant` | `context.model_variants.{sam_variant,dino_variant}`      | grounded-sam2-backend normalize；新字段优先                            |
-| `context.model_variant`                        | `context.model_variants.model_variant`                   | sam3-backend normalize；非 `sam3` 仍返回 422                           |
-| `params.*_variant.enum` 无 role                | `supported_variants[]` 或 `x-platform-role=modelVariant` | 前端仍回落渲染 legacy enum；新 backend 应声明 `supported_variants`     |
-| `projects.ai_model`                            | `projects.ml_backend_id` + backend name 展示             | 数据库迁移已删除列；解绑过的项目若残留旧 `ai_model` 字符串会被直接丢弃 |
+| 旧字段                                         | 新字段                                                   | 兼容行为                                                           |
+| ---------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------ |
+| `context.variants.{series,size}`               | `context.model_variants.{series,size}`                   | yolo-backend normalize 并记录 deprecation warning                  |
+| `context.sam_variant` / `context.dino_variant` | `context.model_variants.{sam_variant,dino_variant}`      | grounded-sam2-backend normalize；新字段优先                        |
+| `context.model_variant`                        | `context.model_variants.model_variant`                   | sam3-backend normalize；非 `sam3` 仍返回 422                       |
+| `params.*_variant.enum` 无 role                | `supported_variants[]` 或 `x-platform-role=modelVariant` | 前端仍回落渲染 legacy enum；新 backend 应声明 `supported_variants` |
 
-迁移建议：
-
-1. 先在 `/setup` 加 `protocol_version: "2.1"` 与 `compat_protocol_versions: ["2.0"]`。
-2. `/predict` 接受 `context.model_variants`，保留旧字段 normalize 一版。
-3. 给参数 schema 补 `x-platform-role`，不要改物理参数名。
-4. 把非法 variant 统一改为 422，把权重缺失 / 显存暂不可服务改为 503 + `Retry-After`。
-5. 确认前端或第三方调用方不再读取 `projects.ai_model`；项目是否绑定 backend 只看 `projects.ml_backend_id`。
+升级时同时核对旧输入和规范输出。接入顺序见[接入教程](/dev/ml-backend/starter#integration-checklist)。
 
 ## 11. 参考实现
 
-> 适用读者：要把自家推理服务接入到本平台的工程师；项目管理员配置 ML Backend 时遇到调试问题。
->
-> 平台侧实现：
->
-> - 服务: `apps/api/app/services/ml_backend.py` · `ml_client.py`
-> - HTTP 接入点: `apps/api/app/api/v1/ml_backends.py`
-> - 数据模型: `apps/api/app/db/models/{ml_backend,prediction}.py`
+运行库在 `apps/_shared/protocol_v2`，任务词表在 `apps/_shared/task_contract`。可跑样例和真实插件见[参考实现](#_4-1-10-可跑参考实现)。
 
-社区已有几种现成接入：
+### 协议验证
 
-- **Label Studio ML Backends 模板**（兼容平台 schema）：https://github.com/HumanSignal/label-studio-ml-backend
-- **GroundingDINO + SAM**：调研报告 [`docs/research/06-ai-patterns.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/research/06-ai-patterns.md) §模式 B
-- **X-AnyLabeling SAM 工厂**：调研报告 [`docs/research/04-x-anylabeling.md`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docs/research/04-x-anylabeling.md)
+从仓库根运行 `bash scripts/run-ml-cpu-tests.sh run shared-protocol-v2` 检查任务字段、请求与响应 schema、错误和生命周期合同。Echo 和 Mock v2 分别在各自样例目录运行 `uv run --extra test pytest -q`。受控模型资产走同一 runner 的 `controlled-assets` 套件；CPU 套件不能证明真实权重、端点认证形态或 GPU 资格。
 
 ## 全局注册表与项目启用
 
-ML Backend 走全局注册表模型（ADR-0044）：一个物理 backend = 全局 `ml_backend_registry` 一行 = 一份能力快照和一份 `max_concurrency` 配置；项目侧只做「启用」。本地 semaphore 在所有模式下提供单进程背压；当 `ML_BACKEND_ROUTER_MODE=enforce` 时，持久路由 owner 使用同一上限限制跨进程实例准入。GPU 仲裁的 effective mode、request lease、release latch 与逐资源 rollout 另行负责显存准入和驱逐（[ADR-0049](/dev/adr/archive/0049-cross-backend-gpu-memory-arbitration)），不能与请求路由模式互相替代。两层职责：
-
-- **全局层（超管）**：`ml_backend_registry`。URL / 鉴权 / `auth_method` / `auth_token` / `extra_params`（含 `max_concurrency`）/ `is_interactive` / `state` 等端点固有属性写在这里，所有启用该 backend 的项目共享。env 配置的 backend 启动时自动 upsert 为 `source=env` 注册项；env 删项时对应行置 `disconnected` 而非删除，保留历史 prediction 溯源。
-- **项目层（项目管理员）**：`project_ml_backend_pool` 关联表，仅记「启用 / 停用」+ 项目级变体覆盖（`default_variants`，pool 级）。多阶段编排里选不同 backend 跑不同阶段时，先在「管理 backend」面板里勾选启用，再到编排卡里选用即可。
+实例与服务池的选择及管理见[模型服务接入、路由与认证](../concepts/ml-backend-routing-and-auth)。项目绑定和管理端点见 [ML Backend 平台 API](/api/guides/ml-backend)。
 
 ### 服务池与请求路由（ADR-0050）
 
-在全局注册表之上叠加一层**逻辑服务池**（`ml_backend_service_pools` + `ml_backend_pool_members`），把「项目请求一个逻辑能力」与「平台选择一个物理实例」拆成两个步骤。pool id 是逻辑请求身份，registry id 是物理执行身份，二者永不互换。
-
-- **一个 registry 实例同时最多属于一个服务池**。每个现有 registry 经迁移自动得到一个 singleton 服务池（`legacy_instance_id` 指向该 registry，off mode 下解析回原实例，行为与之前完全一致）。
-- **身份边界**：项目启用、项目主绑定和请求 lineage 使用 pool id；`preannotate_pipeline`、`projects.default_variants` 以及账户偏好 `ai` 中按 backend 分桶的公共配置仍使用 registry id，与当前 API schema 和前端注册表索引一致。派发时由 registry 的唯一成员关系解析所属 pool，不会在这两种 UUID 之间猜测或混用。
-- **能力等价合同**：指纹以 `/setup` 派生的真实 `models[]` 目录为主，包含协议/模型/权重版本、task、modality、请求合法性参数、variant 轴与组合、tracker 及 batchable 等稳定合同字段，列表按确定规则排序后计算 SHA-256。URL、展示名、GPU / VRAM / residency、动态类别等实例态字段不参与。singleton 在首次有效探活时建立指纹；后续漂移的成员自动 disabled。
-- **持久路由 owner**：PostgreSQL 保存平滑加权轮询状态、执行 scope、真实 HTTP attempt、管理占用和后端连续性。Redis 仅提供非权威诊断，不作为真实工作已结束的证据，见 [ADR-0155](/dev/adr/0155-durable-inference-routing-authority)。
-- **双 ID 溯源**：`Prediction` / `FailedPrediction` 同时记录 `ml_backend_id`（实际执行的 selected instance）和 `ml_backend_pool_id`（requested pool）。多阶段聚合的 stage-level lineage 存 `PredictionMeta.extra.pipeline`。
-- **模式**：`ML_BACKEND_ROUTER_MODE=off|observe|enforce`。off/observe 保持 legacy 实例选择，observe 另记 would-select 诊断；enforce 执行选择与并发准入。三种模式均保留持久执行计数和管理安全检查，选定 owner 或拓扑不可确认时拒绝执行。
-- **管理 API**：项目池绑定 `GET /projects/:id/ml-backends/pools/available` + `PUT /pools/:pool_id/enablement`；超管 pool/member CRUD + drain/resume `/admin/ml-integrations/service-pools/*`；读模型 `GET /admin/ml-integrations/{topology,runtime-snapshot}`。详见 [ADR-0050](/dev/adr/archive/0050-ml-backend-service-pools-and-request-routing)。
-- **管理操作门禁**：管理员卸载／重载、移除成员或删除实例要求精确停流状态、持久账本、后端连续性与控制状态复核。Redis 清空、超时或租约过期都不能代替真实工作完成证明；未决工作保持阻塞。GPU 自动驻留驱逐另用 GPU 授权与专用执行 scope，不要求手动停流服务池。
-
-**没有项目级数量上限**。全局行的 `max_concurrency` 同时作为本地 semaphore 配置与 `ML_BACKEND_ROUTER_MODE=enforce` 的持久准入上限。off/observe 的本地并发仍可能跨进程叠加；enforce 才收口实例并发。项目复用同一注册项，不复制物理实例记录。
+持久状态、路由模式和停流边界见[一个推理请求如何到达 Backend](../concepts/ml-backend-routing-and-auth#一个推理请求如何到达-backend)。
 
 ### 后端执行范围的定向退役
 
@@ -1716,20 +1338,7 @@ challenge。其他 scope 继续运行。屏蔽记录覆盖 Native 记录的实�
 
 #### 受管派发与显存驱逐执行流（GPU Authority）
 
-- **统一派发上下文（`MLBackendClient`）**：平台 API 与 Worker 直接消费共享 `yoao-protocol-v2` lifecycle wire。`MLBackendClient` 将 `predict`、`predict_interactive`、`warmup`、`reload` 与 `unload` 收口到同一派发上下文：预测请求先获取当前 event loop 的本地 semaphore，再进入 authority context，退出后才释放本地许可；`health` 与 `setup` 保持只读，不进入该边界。
-- **`off/observe` 与传输结果边界**：GPU `observe` 模式仅在 HTTP 派发前计算非权威 `would-*` 快照；effective `off/observe` 不签发 generation / admission token，backend 侧仍走 legacy 路径（`generation=null, evictable=false`）。五个受管业务入口在收到完整 HTTP 响应后、解析状态或 JSON 前同步回报 `response_received`；传输超时、断连或取消则收敛为 `uncertain`（仅表达传输边界，不直接提交显存终态）。
-- **Cold 准入与空闲 Victim 驱逐**：
-  - cold 请求收到完整响应后使用新 challenge 探活，并在逐资源持久锁内将 `Loading` 归类为 `Resident`、CPU fallback、`Unloaded` 或保守 `Unknown`。
-  - 当单卡预算不足时，authority 仅从同一 `gpu_resource_id` 中选择 exact `Resident`、可驱逐且零 lease 的空闲 victim（保护更高优先级，按优先级、LRU 与 backend ID 稳定排序），依次执行受签 `/drain` → 严格 ACK + 新鲜空闲证明 → 受签 `/unload` → 全空驻留证明后释放预算。
-  - 新 residency 在首次可信 `Loading → Resident` CAS 中按 Redis `TIME` 写入 `not_evict_before_ms` 冷却窗口，未到期 victim 不参与淘汰。
-- **Busy Victim 排空与原子分支冻结**：
-  - 仅当空闲候选累计预算不足时才选择 busy victim。进入 `Draining` 后关闭新准入并保留旧 lease，每轮同时核对新鲜 Redis lease 快照与新 challenge backend health（单次 MVCC 快照只读区分 `draining_busy`、`ready_to_unload` 与 `uncertain`），仅当两域同时归零才进入 `Unloading`。
-  - `Draining → Unloading` 与 `cancel` 在同一逐资源 Redis transition owner 上原子冻结持久分支（二者互斥，unload 获胜后绝不发送 RESUME）。超时或取消时先持久化 cancel intent 并调用 `/drain/cancel`，再结合 strict ACK 与 fresh health 收敛为 `Resident` 或 `Unknown`。
-- **单卡可见设备与逐卡 Effective Mode 门禁**：
-  - 五个受管 backend 启动时检查 NVIDIA/CUDA/ROCm 可见设备配置，仅允许单索引、单 GPU/MIG UUID 或显式无设备值；逗号多值或无界 `all` 直接拒绝启动。
-  - 派发只认逐卡 effective mode（demotion 握手完成前仍发送受管请求）。多卡部分灰度时，缺失或未知 `gpu_resource_id` 的非纯 CPU 注册项在任一卡处于 effective `enforce` 时会在 HTTP 前返回 `gpu_config_invalid`（`raw reload` 同样在 HTTP 前拒绝）。
-
-补充边界：legacy unload 另记只读事件，不能作为显存释放或预算减账证据；非空 residency 保持 `generation=null, evictable=false`，不会被影子策略当成可驱逐真值。非法 grant 在 HTTP 前 fail-closed，authority context 也不能抑制 backend 错误或调用取消。平台 signer、membership promotion、Redis admission lease、业务 token、Resident 快路、cold admission 与空闲 victim 驱逐均已接入惰性 authority。cold authority 会继续持有 exact card ticket，按 Redis 快照给出的累计最早时刻在 admission deadline 与固定 ticket TTL 内有界等待；等待不续期，超时或取消会精确清票，只有 victim 已可驱逐时才为终态清理预留独立窗口。冻结 marker 不随 owner TTL 消失，只能由 exact 分支终态释放或 challenge-bound proof reset 清理；缺 key、mirror/branch/deadline 损坏均 fail-closed。DRAIN、双域等待与 UNLOAD 受工作 deadline 限制，owner 另保留 30 秒取消收尾窗口。以上状态与等待按完整 `gpu_resource_id` 分片，单卡、多卡共用同一路径。参考环境的实物单卡、多卡与跨宿主门禁均已通过；各部署仍须用自身 Backend、模型制品与 GPU 拓扑完成验收，并由运维逐资源启用默认关闭的 release latch。
+提供方须遵循[受管 GPU 生命周期](#_1-3-受管-gpu-生命周期-能力协商)的签名、驻留证明和确认顺序。平台的本地 semaphore、显存队列、victim 选择及超时见[受管派发与显存驱逐](../concepts/ml-backend-routing-and-auth#受管派发与显存驱逐)。
 
 ---
 

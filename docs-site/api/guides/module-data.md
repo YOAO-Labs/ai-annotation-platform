@@ -128,7 +128,7 @@ autoflush、缓存及 Task／Audit 的共同提交或回滚。函数不接收任
 
 调用方使用相同连接组合范围、分页和计数；独立调用查询时也保留原 autoflush。
 专用 owner、应用及 worktree grant 清单同步更新，PUBLIC 无新函数执行权。合同与
-限定验收见 [Workspace 运行指南](./workspace-runtime#项目范围看板与列表读取)和
+限定验收见 [Workspace 运行指南](./workspace-runtime#项目范围、看板与列表读取)和
 [ADR-0173](/dev/adr/0173-workspace-actor-scope-relations)。
 
 ## 非锁定成员事实关系
@@ -153,7 +153,7 @@ Labeling `project_catalog_counters`，计数所有权和原 43 列行布局保�
 
 该关系支持原 SQL 内的联接、外联接、分组、相关谓词和分页，不预取全量行再在应用
 过滤。原授权和各调用的 autoflush／缓存语义继续由调用方持有。接口与资格边界见
-[Workspace 运行指南](./workspace-runtime#项目集合投影与元数据)。
+[Workspace 运行指南](./workspace-runtime#项目集合、投影与元数据)。
 
 ## 同事务的主后端绑定清理
 
@@ -249,36 +249,10 @@ Celery 对连接、锁和序列化暂时失败持续重试，不将它们转为�
 
 ## 项目删除与跨 owner 强事务
 
-`DELETE /projects/{project_id}` 成功仍返回 HTTP 204。Workspace 的
-`yoao_workspace_v1.delete_project(operation_id, actor_id, project_id, audit_context)`
-是该命令的事务协调者：它在调用方同一 PostgreSQL 连接和外层事务中组合各 owner 的
-检查、清理、审计与回执，不在函数内部提交。Python 适配器只传 UUID 和 JSON，校验冻结
-响应并提交原请求事务；它不把 ORM 对象或 SQL Session 传给其他 owner。
+项目删除由 Workspace 在调用方事务中协调。命令、授权、错误与回执重放见
+[项目删除的调用方事务](./workspace-runtime#项目删除的调用方事务)。
 
-新命令先锁定当前活跃身份，再按稳定操作 ID 和项目串行化，随后锁定当前项目管理权并以
-NOWAIT 锁定项目行。Learning owner 按既定优先级检查主动学习引用和保留的训练、模型、评估、
-策略及数据版本；有保留引用时拒绝删除。通过检查后，Workspace 依次调用 Diagnostics、
-Assets、Inference、Insights、Export、Jobs、Learning 和 Labeling 的私有数据所有者能力，
-最后清除成员与模板来源引用、删除项目，并由 Audit owner 写入 `project.delete` 记录。
-Audit owner 通过 Identity 的私有类型化 `lock_audit_actor` helper 获取当前锁定身份事实；只有 Audit owner
-可以执行该 helper。
-审计快照、删除计数和操作回执与这些删除处于同一事务；owner 清理函数不授予工作流调用角色。
-
-函数返回 `aap-project-delete/v1`。成功结果包含 operation、actor 与 project UUID，删除的 Task/annotation
-计数及 audit ID；失败返回稳定 `error.code`，由现有 Python/HTTP 边界恢复原状态与错误细节。Owner-specific
-cleanup 函数只授予各自 `NOLOGIN` owner 和协调方需要的最小权限；受限 `LOGIN` 调用者没有其他 owner 的私有
-表权限或清理 helper 执行权。
-
-数据库异常或事务最终提交失败会使所有 owner 的变更、审计行和回执共同回滚。锁冲突返回稳定
-`project_busy` 失败结果；其他未预期数据库错误继续中止事务。该命令不删除源对象存储字节或导出文件，
-不发布或撤销 broker 消息。Jobs owner 在 SQL 中取消活动建题作业并解除 live Project 外键；这不是
-Celery 撤销或对象存储清理。
-
-回执不依赖 Project 外键，因而项目删除后仍保留。相同操作 ID 只有在 actor 仍是原活跃账号且
-actor/project/operation 身份完全一致时才重放原结果；同一 ID 换 actor 或 project 返回
-`operation_conflict`。仅拥有函数执行权限不代表有管理权：首次执行仍按当前账号和项目管理权
-锁重新授权。需要处理不确定提交的原生调用方必须在首次发送前生成并保存稳定 operation ID。
-现有 REST 路由仍按原行为处理缺失项目，HTTP 重试不会自动暴露原生回执重放接口。
+## Jobs 保留的项目范围
 
 迁移 0200 在 `async_jobs` 保存由数据库维护、不可重绑且无 Project 外键的
 `retained_project_id`。项目删除后，作业以及关联通知仍使用原项目范围进行授权；项目 A 的作业不能变成

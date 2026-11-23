@@ -177,7 +177,7 @@ socket 目录固定在短路径 `/tmp` 下并校验归属：`scripts/fixture_inf
 
 ### 根因
 
-`apps/web/playwright.config.ts` 以 `Boolean(process.env.CI)` 决定 `globalTimeout: 15 * 60_000`、`maxFailures: 1`、`retries: 1` 与 `preview` 模式；开发工具 shell（或宿主的 CI 变量）里残留的 `CI=true` 会被 `scripts/worktree_env.py` 的 `frontend_environment()` 原样透传给浏览器进程，于是本地运行套用了 CI 分片预算（参见 [测试指南](../testing) 的 CI 时延护栏）。
+`apps/web/playwright.config.ts` 以 `Boolean(process.env.CI)` 决定 `globalTimeout: 15 * 60_000`、`maxFailures: 1`、`retries: 1` 与 `preview` 模式；开发工具 shell（或宿主的 CI 变量）里残留的 `CI=true` 会被 `scripts/worktree_env.py` 的 `frontend_environment()` 原样透传给浏览器进程，于是本地运行套用了 CI 分片预算。运行入口见 [E2E README](https://github.com/YOAO-Labs/ai-annotation-platform/blob/dev/apps/web/e2e/README.md)。
 
 ### 规避
 

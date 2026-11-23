@@ -15,7 +15,7 @@ last_reviewed: 2026-10-23
 
 `SECRET_KEY` 仍用于 API 媒体 URL 和其他应用签名。内嵌 Identity 如未配置单独签发根密钥，为保持原 JWT／回执默认从 `SECRET_KEY` 按既有 `aap-identity/v1` 上下文派生。`IDENTITY_EMBEDDED_SIGNING_SECRET(_FILE)` 两项二选一，可在保留原 issuer 根密钥时迁回 API；配置错误不能回退，远端档不能配置内嵌签发根。文件读取与订阅复核消费已准入主体，而不是拿媒体 key 重新核验原 JWT。
 
-此前的功能资格、Compose 私网边界与具体证据见[模块台账](/dev/concepts/module-deployment#identity-整模块独立装配)。旧宿主机数据库转发实验的间歇性 503 根因仍未确认；日常与生产环境尚未切换。本页各操作的案例数只证明各自合同，不能相加作为整模块覆盖率。
+早期资格与采用记录见 [Identity 验收索引](/dev/concepts/module-deployment#identity-整模块独立装配)，不作为当前部署资格。测试夹具、角色审计与 CLI 专用的数据能力见 [Identity 运维数据能力](./identity-operator-data)。
 
 | 接口                                             | 用途                                           |
 | ------------------------------------------------ | ---------------------------------------------- |
@@ -55,13 +55,10 @@ Notifications 不持有通用控制凭据、签名密钥或 API 数据库凭据�
 JSON boolean，返回的 UUID 必须匹配请求。它不验证 JWT、比较先前 role、加锁或写入；
 握手先认证再单独读取活动状态，保留“角色变化但账号仍活动”的原行为。
 
-仅此 endpoint 使用可选 `IDENTITY_ACTOR_STATUS_DATABASE_URL(_FILE)` 和既有
-`read_actor_facts(uuid)`。专用 LOGIN 由 `identity-actor-status-grants.sql` 授予一项
-EXECUTE，无表／列权限或其他 owner 能力，不扩大原 AUTH 五函数。
-未配置或不可用返回 HTTP 503；非法 JSON／闭合字段返回 HTTP 400 的
-`invalid_request` 失败封套；错误 bearer 返回 401。配置该数据源后 `/ready` 也检查
-它，未配置时不影响原能力就绪。原整模块资格覆盖原先配置的能力，本次新增接口的
-独立运行资格单独列于模块台账，不计入旧案例或能力数量。
+仅此 endpoint 使用可选 `IDENTITY_ACTOR_STATUS_DATABASE_URL(_FILE)` 和
+`read_actor_facts(uuid)`，专用 LOGIN 以 `identity-actor-status-grants.sql` 为准，
+不扩大 AUTH 权限。未配置或不可用返回 HTTP 503；非法 JSON 或字段返回
+HTTP 400 `invalid_request`；错误 bearer 返回 401。配置数据源后 `/ready` 也检查它。
 
 ## 认证后的主体上下文
 
@@ -69,7 +66,7 @@ EXECUTE，无表／列权限或其他 owner 能力，不扩大原 AUTH 五函数
 
 成功 envelope 为 `schema/ok/data`，其中 `ok: true`，`data` 严格包含 `id`、`name`、`email`、`role`、`is_active: true` 与 nullable int32 `weekly_target_default`。name/email 保留数据库原值；响应不含偏好、头像、密码或凭据。API 将返回的 `id`、`role` 和 active 状态绑定到本次准入结果。失败 envelope 的 `error.code` 只能是 `invalid_request` 或 `credential_invalid`。私有接口对 `invalid_request` 返回 HTTP 400，对 `credential_invalid` 返回 HTTP 200 的失败封套；账号缺失、停用或精确 role 不匹配由 API 映射到现有 401 和 Bearer challenge。owner 未配置／不可用、超时、响应损坏或绑定不符映射到现有 503，不回退 API ORM。
 
-Identity migration 0250 新增只读 `yoao_identity_v1.read_actor_context(uuid,text)`，并把该函数加入既有 `yoao_identity_auth_client` 的第五项 allowlist。函数不取锁、不写 Audit/receipt，也不新增 LOGIN、DSN、设置或依赖。该 endpoint 沿用 AUTH 的既有 timeout、并发槽和有界请求体限制。内嵌 reader 留在调用方事务并遵循 `autoflush`／`no_autoflush`，不 commit/rollback；专用 AUTH binding 自行持有有界只读事务。API-key 准入原提交点不变，本次读取不引入新提交。凭据过期、generation/revocation、API-key scope 和 last-used 仍由原准入负责；写入时的账号锁、目标 User 查询和 ORM mutation synchronization 保留在现有路径。本切片已通过限定本地验收，覆盖实际受限权限、事务保留、双向语言 peer、真实 API 和恢复；缺少第五项 AUTH 权限时 readiness 和读取均失败，深层非法 JSON 返回闭合的 400 失败封套。结果不代表完整 Identity 或生产切换。详见 [ADR-0130](/dev/adr/0130-identity-post-admission-actor-context)。
+`yoao_identity_v1.read_actor_context(uuid,text)` 使用既有 AUTH LOGIN，缺少该权限时 `/ready` 和读取均失败。函数不取锁、不写 Audit 或回执，沿用 AUTH 的超时、并发槽和请求体限制。内嵌 reader 借用调用方事务并遵循 `autoflush`／`no_autoflush`，不提交也不回滚；专用 AUTH binding 自持有界只读事务。API key 的既有提交点、过期、generation、revocation、scope 和 last-used 不变。当前账号锁和 ORM mutation synchronization 仍由写入方负责。验收见 [ADR-0130](/dev/adr/0130-identity-post-admission-actor-context)。
 
 ## 调用方事务内的账号事实锁
 
@@ -79,124 +76,19 @@ Migration 0251 在 `yoao_identity_v1` 提供三项安全函数：`lock_accounts_
 
 账号事实锁必须遵守账号 → Project → membership → resource 的既有顺序，保留每个调用方的 SHARE/UPDATE/KEY SHARE 和 NOWAIT/wait 选择。API 依旧由 caller 映射错误：单账号竞争保持 `account_busy`，账号／项目联合 guard 保持 `project_busy`，Project access 分别区分账号、项目、成员争用。`UserLifecycleService.lock_accounts` 对所有 DBAPIError 显式回滚并保留 `账号正在更新，请刷新后重试` 的旧 409 文案；其他调用方由原事务所有者决定回滚，不能在共享数据端口统一处理。
 
-跨帧 worker 每个待写帧都重新锁定并核对当前账号及项目／成员／任务权限，不使用跨帧快照或 `db.refresh(User)` 替代。忙碌仍映射到既有 `permission_changed`，无新重试；账号删除、停用、基础设施失败与阶段拒绝的分类也保持旧区分。非锁定 Workspace authority 查询与 bootstrap/import 写入由下文的 provisioning 切片接管。最新本地 qualification 去重后 231 项全部通过，包括受限 Node 调用、转移／角色变更竞态、恢复与新 Celery 进程。源码及非 editable 安装各通过 595 项，119 个包文件与独立 owner／API 容器指纹一致。旧行为 baseline 的一个测试覆盖 15 个场景，不能叠加到新资格数量。细节见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
+跨帧 worker 每个待写帧都重新锁定并核对当前账号与项目、成员、任务权限，不用跨帧快照或 `db.refresh(User)` 替代。忙碌仍映射为 `permission_changed`，不重试；删除、停用、基础设施失败与阶段拒绝保持区别。验收见 [ADR-0131](/dev/adr/0131-identity-transactional-account-locks)。
 
-## 门控 E2E 夹具
+## Identity 运维数据入口
 
-`aap-identity-e2e-fixtures/v1` 是可信测试运维的固定 PostgreSQL 契约，独立于普通
-API 的 consumer 配置。`yoao_identity_fixture_v1.account_profiles` 只提供原
-`UserOut` 的 21 个资料字段；不返回密码哈希、凭据代际、注销原因或周目标默认值。
-关系使用 security barrier，并仅在实际数据库名转小写后以 `_test`／`_e2e` 结尾时
-返回行。登录仍可返回停用账号，精确邮箱、缓存资料及 peek 优先级保持。
+<span id="门控-e2e-夹具" aria-hidden="true"></span>
+[门控 E2E 夹具](./identity-operator-data#门控-e2e-夹具)由独立 owner 进程准备与清理，不给普通 API 追加权限。
 
-七项固定能力分别为 `create_account`、`mark_manual_inactive`、`create_invitations`、
-`delete_accounts`、`delete_reset_tokens`、`delete_invitations` 与
-`delete_organization_members`。它们保留原工厂默认值、历史角色、邀请状态和清理谓词，
-不提供任意 SQL、表名或动态谓词。每项写入都检查实际数据库后缀，调用方持有事务；
-原始约束错误和行锁等待保持。SQL 层不新增账号授权、审计、回执、重试或提交。
+<span id="截图夹具的账号与偏好" aria-hidden="true"></span>
+原截图夹具和授权入口已退役。遗留协议只见[历史源码](https://github.com/YOAO-Labs/ai-annotation-platform/blob/5f2da55125d9ce647e07ee5351b5f6ee71153a7f/docs-site/api/guides/identity-runtime.md?plain=1#L105-L119)，不要用于新部署。现行流程走[按需截图与录屏](/dev/how-to/update-screenshots)。
 
-路由挂载及每请求的环境／开关／数据库守卫保持。可信 operator 在普通 Identity 围栏
-后通过 `identity-e2e-fixture-grants.sql` 追加这些能力，仍无 Identity 私表及列权限；
-普通 API 不能追加此配置。其他领域的可信测试写入及对象权限需分别提供。配置与
-实际资格见[模块台账](/dev/concepts/module-deployment#identity-门控-e2e-夹具)。
-
-完整 E2E 数据准备／清理使用独立 owner 夹具进程，而非给普通 API 追加这些权限。Identity／Workspace 原生场景将 seed 请求与受限业务 HTTP 显式分流；受限固定能力、私表拒绝和借用事务的检查仍独立保留。owner 通道成功不计作受限角色执行完整 seed 的资格，见[测试边界](/dev/testing)。
-
-## 历史截图夹具的账号与偏好 {#截图夹具的账号与偏好}
-
-原录制夹具 CLI 和专用授权入口已退役。以下记录遗留数据库合同，不是当前的运行或授权步骤。
-
-恢复／拒绝夹具按精确 email 从公开 `account_profiles` 关系读取 UUID，不增加角色或
-启用状态条件。单账号查询保持原 Session 的缓存行为，不用 email 映射重新查找已缓存行。
-
-`aap-identity-fixture-preferences/v1` 描述一项固定 Native 函数：
-`yoao_identity_v1.replace_fixture_preferences(uuid,jsonb)` 返回整数 0 或 1。它完整替换
-指定账号的 JSON object；同值更新仍返回 1，缺失或 NULL ID 返回 0。未知嵌套键、空值及
-停用账号保持原行为，不走公开偏好接口的深合并。调用方持有事务，正常等待行锁；没有
-隐式提交、重试、审计或账号授权。SQL NULL／非 object 值返回 SQLSTATE 22023。
-
-函数仅在实际数据库名严格以 `_test` 或 `_e2e` 结尾时执行，否则返回 42501；后缀区分大小写。
-普通 API 不获得这项能力。历史资格仅覆盖当时的受限消费者，见[模块台账](/dev/concepts/module-deployment#identity-截图夹具)。
-
-## 历史角色审计关系
-
-`aap-identity-role-audit/v1` 是可信运维只读关系契约，独立于普通 HTTP 凭据配置。
-
-| 关系                                         | 字段与用途                                                                          |
-| -------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `yoao_identity_audit_v1.account_roles`       | id、原始 role、is_active；保留 NULL、未知角色与停用行                               |
-| `yoao_identity_audit_v1.invitation_facts`    | id、project_id、role、project_role、expires_at、accepted_at、revoked_at、invited_by |
-| `yoao_identity_audit_v1.schema_capabilities` | 单行布尔值 invitation_project_role，表示源库是否存在该准备列                        |
-
-关系没有筛选、排序、权限决策或提交，调用方在原 SQL 中保留作用域、连接和计数。
-邀请的项目角色通过整行 JSON 的单字段表达式读取：旧库缺列时为 NULL，列加入后
-自动读到新值。整行 JSON 和 email／token 不返回给消费者。
-
-维护者显式运行 `infra/docker/identity-role-audit-grants.sql`，验证目标库及迁移角色、
-既有非 LOGIN Identity owner 和受限审计 LOGIN。该步骤兼容普通 Identity schema
-出现之前的数据库，不属于审计 CLI 的只读事务，也不修改 Alembic revision。普通
-Identity API 仍只有两视图／五函数；审计 LOGIN 仅追加三个审计关系的 SELECT，并
-被撤销 User／邀请私表及列权限。其他领域的读取与 Alembic 元数据由原 owner 提供。
-
-审计 CLI 继续使用 `REPEATABLE READ, READ ONLY`，缺少关系或权限时返回退出码 2，
-不自动降级为私表读取。安装与调用见[项目角色迁移手册](/ops/runbooks/project-role-migration)；资格和剩余项见
-[历史角色审计](/dev/concepts/module-deployment#identity-历史角色审计)。
-
-## 运维账号选择
-
-`aap-identity-scale-seed-actors/v1` 提供两项固定只读 Native 能力，回复只有
-`schema`／`kind`／`account_id`；缺失账号为 null。创建时间保留在 Identity 内部。
-
-| 能力                                | 选择规则                                                        |
-| ----------------------------------- | --------------------------------------------------------------- |
-| `read_scale_seed_super_admin()`     | 最早创建的 super_admin，保留停用账号，kind 为 super_admin       |
-| `read_scale_seed_annotator(uuid[])` | 输入候选中最早创建的启用账号，不检查平台角色，kind 为 annotator |
-
-没有额外的 UUID 排序、账号锁、授权或提交。这些 `STABLE` 函数只对调用语句的快照
-负责；规模种子把 Workspace annotator 成员事实组成 UUID 数组，在同一 SQL 语句中传给
-第二项能力。`seed_scale.py` 在其受限运行账号上执行这两次选择，夹具 owner 通道
-仍负责私有台账和写入；选择权限缺失时不回退 owner。可信运行账号的追加配置是
-`identity-scale-seed-grants.sql`；普通消费者仍是既有两视图／五函数，无法执行选择能力。
-不能拆成跨连接的先读候选、再选账号。
-
-图片导入只复用既有公开账号事实，无序选择任意首账号，不增加角色或启用条件。
-定向与冷运行范围见[运维账号选择](/dev/concepts/module-deployment#identity-运维账号选择)。
-
-## 运维账号 provisioning
-
-开发主种子另使用 `aap-identity-seed-persona/v1` 和固定函数
-`create_seed_persona_account(jsonb)`。`seed.py` 先精确查询 email；已有账号（包括停用、
-角色或资料漂移的账号）完整复用，缺失时才计算密码哈希并创建，保留中文 `group_name`
-和 nullable 值，不创建 Group。函数只插入账号，不隐式授权、审计、提交或重试；并发
-重复仍以原始约束错误中止。主脚本继续拒绝 `production`，账号循环后统一提交一次。
-
-迁移新增的函数独立于原 provisioning 合同。可信 `yoao_identity_provisioning_client` 当前
-具有三项固定 Identity 函数；普通 Identity API 消费者仍只有两张视图与五项函数。
-已应用普通围栏的可信种子运维连接可通过
-`infra/docker/identity-seed-operator-grants.sql` 追加精确查询与 persona 创建能力；
-该配置拒绝普通 API 账号、角色继承和 User 私表／列权限。
-主种子的限定验收见[模块台账](/dev/concepts/module-deployment#主种子账号与演示成员)。
-
-COCO8 和视频示例复用固定 persona 能力，新账号保留中文管理员名称，已有账号原样复用；
-大图保留按精确邮箱选择 owner 的行为。这些消费者不新增协议、SQL 函数、角色或公开 REST。
-历史定向和冷运行资格见
-[模块台账](/dev/concepts/module-deployment#媒体种子-identity-边界)。
-
-Identity operational provisioning 是给 bootstrap/import CLI 使用的内部 SQL owner，不是 HTTP/SDK 账号创建接口。Portable protocol `aap-identity-provisioning/v1` 只有 exact-email lookup 与 `bootstrap_admin`／`import_admin` create 两种模式；`AccountProvisioningManager` 通过 `create_bootstrap_super_admin(...)` 返回 UUID 或 `None`，通过 `ensure_import_admin(environment=...)` 返回 UUID。API caller adapter 不返回可变 User 或 password hash。
-
-Bootstrap 按单个 email 判重，不要求全局用户表为空。已有同 email 行无论 role、active 状态、姓名或 hash 都原样复用，不额外 hash、不写 Audit；不同 email 的 bootstrap admin 可共存。CLI 继续 lowercase/trim email、trim name，owner 不增加 normalization、长度或 password-strength policy。新用户保留 role `super_admin`、active、`status=online`、null group、`email_verified_at=caller now`、generation 0、`preferences={}` 和其余 nullable lifecycle fields null；`created_at` 使用 DB transaction time。Identity 与 Audit owners 在同一 caller transaction 原子写固定 `system.bootstrap_admin`，actor 为新用户，target 为 user UUID，detail 只含 `{email}`；method/path/status/IP 为 null，request ID 来自既有 context 或 null，Audit 时间使用 DB 默认值。应用 wrapper 不重复写 Audit。
-
-Import 只查精确 email `admin`。已有任意 row 都原样复用，包括 inactive、历史或非管理员账号；不存在时环境字符串严格为 `production` 才在 hash/create 前抛原 RuntimeError：
-
-```text
-生产环境下未找到 admin 用户,拒绝自动创建弱口令 admin/123456。请先手动创建管理员账号再运行本导入脚本。
-```
-
-其它环境（包括 staging）沿用 `admin`／`超级管理员`／bcrypt(`123456`)／`super_admin`／active／`offline`／null `email_verified_at`，不写 Audit。Importer 对 Assets、Workspace、Labeling 的 SQL 提交/回滚与账号 provisioning 保持一个事务，失败回滚全部业务行。
-
-Migration 0252 只增加只读 `read_provisioning_account(text)` 和 mutable `create_provisioning_account(jsonb)` 两个 Identity 函数，并新增仅有这两项 function grants 的 `yoao_identity_provisioning_client`。Audit 由固定 `yoao_audit_v1.record_identity_bootstrap_admin(uuid,text,text)` capability 写入，Identity 没有 Audit table 权限。Native SQL constraint／duplicate 错误原样抛出；相同 email 并发创建仍以 `23505` 中止事务，无 conflict-ignore、重试或 adapter rollback。读路径遵循 `autoflush/no_autoflush`；create 即使在 `no_autoflush` 下也显式 flush caller pending work。没有新 runtime DSN、setting 或独立服务；verifier-only `AAP_MODULE_DATA_IDENTITY_PROVISIONING_URL` 不是应用配置。
-
-Project authority 的非锁定 actor/status 查询与任务、批次等已拥有者复用现有 `read_actor_facts` 和事务内 account-lock functions，不新增 SQL/http 协议，不改变锁序、mode、等待行为或 401/Bearer/403/404 映射；仍需要 Project ORM refresh 的调用方继续 refresh，active-only guard 不新增 role check。Provisioning 与 authority consumers 已通过限定本地资格：236 个去重选定案例全部通过、无有效跳过，包括受限 Node client、实际 CLI、新 Celery worker、八项恢复及事务／锁语义。源码与非 editable 安装各通过 619 项检查，122 个包文件在独立 owner 及禁网只读 API 镜像中一致。此前 account locks 的 231-case 验收独立，不计入本切片；整模块资格与完整多模块目标见[模块台账](/dev/concepts/module-deployment)。精确默认、Audit 与权限边界见 [ADR-0132](/dev/adr/0132-identity-operational-provisioning-and-authority-reads)。
+- <span id="历史角色审计关系" aria-hidden="true"></span>[历史角色审计关系](./identity-operator-data#历史角色审计关系)
+- <span id="运维账号选择" aria-hidden="true"></span>[运维账号选择](./identity-operator-data#运维账号选择)
+- <span id="运维账号-provisioning" aria-hidden="true"></span>[运维账号 provisioning](./identity-operator-data#运维账号-provisioning)
 
 ## API key 请求
 
@@ -237,11 +129,15 @@ key 元数据只有 `id`、`name`、`key_prefix`、`scopes`、`expires_at`、`la
 
 ## 部署与数据权限
 
-准入使用原有四函数 LOGIN；命令另用只有 `key_policy` 和 `execute_key_command` 的 LOGIN。两个连接使用同一 Identity 数据库中的所有者能力，不能赋予直接表权限或角色成员关系。缺少命令 DSN 的运行时只提供准入，命令返回 503。
+准入、API key 命令与会话执行分别使用专用 LOGIN。精确权限由
+[准入 SQL](https://github.com/YOAO-Labs/ai-annotation-platform/blob/dev/infra/docker/identity-auth-grants.sql)、
+[API key SQL](https://github.com/YOAO-Labs/ai-annotation-platform/blob/dev/infra/docker/identity-keys-grants.sql)和
+[会话 SQL](https://github.com/YOAO-Labs/ai-annotation-platform/blob/dev/infra/docker/identity-sessions-grants.sql)定义。
+不要给任一 LOGIN 增授私表权限或角色成员关系。缺少 API key 命令 DSN 时准入仍可用，命令返回 503。
 
-会话另用三函数 LOGIN：`session_policy`、`read_login_candidate` 和 `execute_session_command`。它与准入、key LOGIN 分开，不持有身份表或 Audit 表权限。独立 Redis 身份只允许 `login_failed:*` 的 GET／INCRBY／EXPIRE／DEL 及必要连接命令，不能访问业务缓存、broker 或 Pub/Sub。
-
-精确授权分别由 `infra/docker/identity-auth-grants.sql`、`identity-keys-grants.sql` 与 `identity-sessions-grants.sql` 定义。独立镜像与本地验收见[模块边界定向验收](/dev/testing#module-boundary-acceptance)。设计及 secret 轮换限制见 [ADR-0116](/dev/adr/0116-independent-identity-key-commands) 和 [ADR-0117](/dev/adr/0117-independent-identity-session-commands)。
+登录计数使用独立 Redis 身份，只允许 `login_failed:*` 上的 GET／INCRBY／EXPIRE／DEL 及必要连接命令，不访问业务缓存、broker 或 Pub/Sub。
+配置与复验见[模块边界定向验收](/dev/testing#module-boundary-acceptance)；secret 轮换见
+[ADR-0116](/dev/adr/0116-independent-identity-key-commands)和 [ADR-0117](/dev/adr/0117-independent-identity-session-commands)。
 
 ## 核心会话请求
 
@@ -371,7 +267,7 @@ V2 claim／renew／finish 在发送前后重新校验当前 invitation token has
 
 默认邀请命令走调用方事务，显式 `IDENTITY_INVITATION_DATABASE_URL(_FILE)` 必须指向和 sender 相同的业务数据库，配置错误不回退。API 与私有 issuer 都不发邮件，也不发送 Celery kick；sender 独立轮询已提交意图。等待上限 `IDENTITY_INVITATION_MAIL_TIMEOUT_SECONDS` 默认 60 秒、必须 >0 且 ≤120。Runtime 邀请链接默认 `IDENTITY_INVITATION_FRONTEND_BASE_URL=http://localhost:5173`，系统 `frontend_base_url` 可覆盖；恢复默认 `http://localhost:3000` 不变。部署和迁移见[独立账号邮件执行](#独立账号邮件执行)。
 
-Invitation/MailV2、Directory reads 和 batched UserBrief reads 均有各自限定的本地资格；上文分别限定了 Directory 38 个选定数据库／进程案例与 UserBrief 64 个 selected cases，邀请的 68/375/324 数字只属于旧 slice。平台角色管理和管理员 offboarding preview/commit 也通过各自限定的本地资格；其他用户 hydration、其余 Identity lifecycle、整个 Identity、另一语言 provider 和生产容量仍待完成。`v1` 恢复邮件保持原协议；没有新的 Notifications event、Jobs backfill、生产切换或 Go 扩展。
+邀请与 MailV2 的运行资格见 [ADR-0122](/dev/adr/0122-independent-identity-invitations-and-mail-v2)，不等于整模块或生产验收。
 
 ## 用户目录读取
 
@@ -402,15 +298,9 @@ Native protocol 是 `aap-identity-directory-native/v1`，policy schema/protocol 
 
 Migration 0243 创建目标 schema `yoao_identity_directory_v1`。API 与 Identity runtime 通过 `IDENTITY_DIRECTORY_DATABASE_URL` 或 `IDENTITY_DIRECTORY_DATABASE_URL_FILE` 选择此函数 owner。可选 Compose host selector 是 `IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE`，容器内映射为 `IDENTITY_DIRECTORY_DATABASE_URL_FILE`。selector 留空会关闭 Directory，私有路由返回 503，既有 Identity Compose service 仍能启动；只有启用 Directory 时才配置该 secret file。显式 DSN 连接失败不回退 API ORM。平台角色变更、管理员重置密码、deactivate/delete/offboarding/reactivation、bootstrap/import 和 dashboard analytics 不属于这四项读取。
 
-Directory read slice 已通过限定的本地资格。Committed source `eeeaa16e48459a1357389723a6d99ec74e3c71d3` 对应 32 个 native/role cases、3 个 restore cases 与 3 个 live/API cases，均 0 skip；合计 38 个选定数据库／进程用例。Restore/live suite 包含邀请与 legacy challenge 兼容用例，因此不能将 38 项都称为新 Directory 测试。
+设计与隔离验收见 [ADR-0123](/dev/adr/0123-independent-identity-directory-reads)，其中的样本不是生产容量或 SLO。
 
-安装包 398 项检查通过，82 个 installed source 文件与 hash 一致；noneditable Identity 安装不依赖 app、SQLAlchemy、Celery、Boto3 或 Torch。Node consumers 22 项自检、SDK 31 项检查通过；API assembly 348 项通过，另有 125 项 lazy architecture rules 明确延期跳过。Identity 镜像 SHA-256 `04cc403370bdccce6d84d89b6bc222997b9e4d77b976c0a547f0aff28805704e` 含这 82 个文件，实际 runtime 与 API proof 通过。
-
-API image SHA-256 `12eadf471566c1487a5830961928232e9abf4b01728912b03fb18fa70fc60479` 在无网络、只读、512 MiB cold container 核对 82 个 package files、70 个 API/native inputs、Directory 四路由和既有 13 Inv/5 Recovery/8 Group/2 Deactivation 路由、OpenAPI 与 0243 head。Public paths/fields/statuses 不变；OpenAPI 仅 users/stats description 更新。环境文档生成核对 447 个 variables／48 sections，codegen、schema export 通过。所用 API cold-proof 容器已移除。
-
-Live 用 540 个 synthetic users 覆盖超过 500 行与 64 KiB 的 list/export；int64 大页、生命周期引用类别、stale role 403、profile/context frozen export、no-repeat Audit、当前可见性 409、credential-generation fence 与 restart 也通过。受限 remote Identity container 的 1 CPU／256 MiB 边界只适用于该容器。另一个 12 次读取、并发 4 的 host-process sample 为 elapsed 0.232s、p50 0.077s、p95 0.081s，包含 Node process overhead；它不对应上述容器预算，也不是生产容量或 SLO。Node fixture 保留输入 JSON 数值 token 与 wide integers；20 位小数 `0.12345678901234568` 只验证既有后端 canonical form，不主张新的后端十进制精度。此前 Invitation/MailV2 的 68/375/324 counts 仍只属于该 slice。
-
-## 内部批量 UserBrief 读取（已通过限定本地资格） {#identity-user-briefs}
+## 内部批量 UserBrief 读取 {#identity-user-briefs}
 
 此 owner 抽取的是现有 API enrichment helper `app.services.user_brief.resolve_briefs` 与 `resolve_briefs_with_project_role`，不是可供用户任意查询的 public profile endpoint。所有调用方仍先授权自己的 task/project/result rows，再 enrichment 相关 user IDs；helper 没有 actor 参数，不使用 Directory 的 manager gate，也不改变公开 API／SDK schemas、paths、pagination 或 errors。
 
@@ -420,11 +310,11 @@ Wire success 的 data 是 `{project_id: UUID|null,users:[UserBrief,...]}`：全�
 
 Native schema `aap-identity-briefs-native/v1` 使用同操作与 payload，只返回 `id/name/email/role/avatar_ref` 五个 source 字段；Identity Python owner 计算 initial 并在嵌入式或远程路径都验证 owner envelope、scope、ID 子集与输出形状。当前数据库能力位于 `yoao_identity_briefs_v1`：历史 0249 安装文件保留原 schema 与函数体，由前向迁移切换名称后，专用 LOGIN `yoao_identity_briefs_client` 只获 `briefs_policy()` 与 `execute_briefs_command(jsonb)` 两项函数权限。Workspace 仅暴露 `identity_brief_project_roles(project_id,user_ids)`，不授权读取 ProjectMember 原表。
 
-API 可选 `IDENTITY_BRIEFS_DATABASE_URL(_FILE)`；两项互斥，留空时沿用现有 caller Session。已有 `IDENTITY_URL` 优先并调用 private HTTP。独立 runtime 的 DSN 也可留空，此时 briefs capability disabled；Compose host selector 为 `IDENTITY_RUNTIME_BRIEFS_DATABASE_URL_FILE`。嵌入式 SQLAlchemy adapter 永不提交或回滚调用方事务；text SQL 前只有 `autoflush=true` 且不在 `no_autoflush` 时才 flush。专用 asyncpg 绑定则拥有只读 transaction 并在每次调用后关闭连接。Root 的最新 union 通过 64 个 distinct selected cases（59 DB/process、5 pure/static），零跳过；source/installed suites 各 549 项、114 个 package hash 精确匹配，API assembly 625 项通过并延期 132 条规则，Node 21 与 SDK 43 项通过。14 个 live/restore cases 均通过，覆盖安装 owner、普通 JWT caller、task/project role projection、404 no-PII、远程 DSN 无回退与 owner restore。Migration 0249/frozen SQL/grants 及资源清理通过；Identity owner 和禁网、只读冷 API images 均已通过，Compose disabled/enabled selectors 的 configuration-only checks 通过且没有启动 deployment。冷 API image 的 41.875 秒是 build 加 offline verification，不是启动时延。准确的镜像 hashes、schema hashes、latest-case union 和 sample caveats 见 [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads)。这些数字只限定内部 UserBrief slice；整模块当前资格见[模块台账](/dev/concepts/module-deployment#identity-整模块独立装配)。生产容量、十模块／七门槛、另一语言完整 provider 与 primary cutover 仍未完成。
+`IDENTITY_BRIEFS_DATABASE_URL(_FILE)` 二选一，留空沿用 caller Session。`IDENTITY_URL` 优先走私有 HTTP；独立 runtime 的 DSN 留空则关闭本能力。Compose 使用 `IDENTITY_RUNTIME_BRIEFS_DATABASE_URL_FILE`。内嵌绑定不提交或回滚，只在允许 `autoflush` 时 flush；专用 asyncpg 绑定自行持有只读事务，每次调用后关闭连接。证据见 [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads)。
 
-Projects 成员列表是该 UserBrief owner 的一个已验证消费者：`projects.list_members` 先由 Workspace 完成当前成员授权和行选择，再将全部用户 ID 一次交给全局 `resolve_briefs`。输出仍使用原十字段 DTO；UserBrief 的全局 `role` 填入必填四值 `platform_role`，membership 的 `role` 仍表示项目职责，不采用项目角色 overlay，也不输出 `avatar_initial`。空列表不会调用资料 owner；缺失用户在列表中省略，以保持旧 inner join 行为。若 `_member_out` 收到缺失目标，或历史全局角色不属于四值枚举，既有 `ValidationError` 保持不变。此调用只增加一次批量读取，没有逐用户 RPC；远程组合不保证 Workspace 与 Identity 共用数据库快照。21 个选定消费者案例（18 DB/process、3 pure/static）和 SDK 序列化 44 项通过，详情见 [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads#project-member-list-consumer)。
+`projects.list_members` 先授权并选定 Workspace 成员行，再一次批量调用全局 `resolve_briefs`。全局 role 填入 `platform_role`，成员 role 仍表示项目职责。不输出 `avatar_initial`；空列表不查询，缺失用户省略，单项转换遇缺失目标或历史非法 `platform_role` 保留 `ValidationError`。远程组合不保证共用数据库快照。见 [ADR-0129 成员列表消费者](/dev/adr/0129-identity-batched-user-brief-reads#project-member-list-consumer)。
 
-Project owner 展示是另一条独立的只读消费者，不参与授权判断。`projects._serialize_project` 与 `_serialize_project_list` 复用全局 `resolve_briefs`，只填充原 `ProjectOut.owner_name`／`owner_avatar_ref`；`owner_id` 仍为必需 UUID。资料缺失继续得到两个 `null`，inactive/history owner 仍展示，name/avatar 原样返回。不走项目角色 overlay，也不改公开 schema。列表和查询先按原规则授权、过滤、排序、计数及分页，再对返回页的 owner IDs 一次批量读取；共享 owner 复用结果，空页不调用 Identity，传入 `{}` 不会使单项 serializer 再查一次。创建、详情、patch、改名与转移仅对非空 owner ID 在旧授权和提交/refresh 位置查询一次。Dataset-linked `/datasets/{id}/projects` 仍保留 null owner 显示字段。旧响应基线和 59 个选定消费者案例（53 DB/process、6 pure/static）见 [ADR-0129](/dev/adr/0129-identity-batched-user-brief-reads#project-owner-display-consumer)；更新后的 API cold image、OpenAPI/codegen/catalog 核对均通过，范围仍限定于这条消费者。
+Project owner 展示复用全局 `resolve_briefs`，不参与授权，只填充 `ProjectOut.owner_name`／`owner_avatar_ref`。缺失资料仍为两个 `null`，保留历史或停用 owner；不改 `owner_id`、公开 schema 或项目角色。列表先授权、筛选和分页，再批量读取本页 owner；复用同一 owner，空页不查询，传入空结果不触发逐项再查。创建、详情、patch、改名与转移在原授权与提交位置查询非空 owner ID 一次。Dataset-linked 列表仍保留 null 展示字段。见 [ADR-0129 项目 owner 展示](/dev/adr/0129-identity-batched-user-brief-reads#project-owner-display-consumer)。
 
 ## 管理员临时密码重置
 
@@ -454,7 +344,7 @@ Malformed／unknown／duplicate／extra fields、alias 字段、secret echo 或�
 
 Migration 0244 创建 `yoao_identity_admin_passwords_v1`。`yoao_identity_admin_password_client` LOGIN 仅可执行 `admin_password_policy()` 和 `execute_admin_password_command(jsonb)`，没有 table/column/sequence/DDL 或 foreign-schema 权限。API/runtime 可选 `IDENTITY_ADMIN_PASSWORD_DATABASE_URL` 或 `IDENTITY_ADMIN_PASSWORD_DATABASE_URL_FILE`；Compose host selector 是 `IDENTITY_RUNTIME_ADMIN_PASSWORD_DATABASE_URL_FILE`。selector 留空只关闭该 capability、私有路由返回 503，不影响既有 Identity service 启动；显式 DSN 故障不回退 ORM。
 
-管理员重置 slice 已通过本地限定验收：42 个选定数据库／进程案例全部通过且零跳过，其中 36 个 DB/restore 案例与 6 个 live 案例包含 Directory、Invitation、legacy challenge 等兼容路径，不能视为 42 个全新的 admin-reset 案例。Identity portable source 与 installed package 各通过 420 项检查；API/architecture 467 项通过、126 条 lazy rule 明确延期；SDK user/CLI/OpenAPI 35 项通过，公开 OpenAPI 保持不变。非 root、只读 Identity 镜像及禁网、只读、512 MiB API cold image 均通过，镜像哈希、输入清单和精确分类见 [ADR-0124](/dev/adr/0124-independent-identity-admin-password-reset)。一次 12 目标、并发 4 的 host-process sample 含 Node/HTTP/bcrypt 开销，不对应 Identity 容器预算，也不构成生产容量或 SLO。该 qualification 仅覆盖本地；不包括平台角色修改、deactivate/delete、offboarding 或其他账号写入，也不表示生产部署或主认证切换完成。
+本地数据库与进程验收见 [ADR-0124](/dev/adr/0124-independent-identity-admin-password-reset)。不覆盖其他账号写入、主认证切换或生产容量。
 
 ## 平台角色预览与变更
 
@@ -710,7 +600,7 @@ Identity URL 和专用数据库选择器留空时，API 沿用既有 caller Sess
 固定 Native 能力。`lan-production-grants.sql` 和工作区 `grant_runtime` 在各自授权
 事务内撤销应用角色对 Identity 私表的全部表级及列级权限：八项账号、凭据、组织和
 邀请表、`public.identity_*` 关系，以及 Identity 协议 schema 内的底层存储。
-固定公开视图与已有命令能力继续保留；不将内嵌角色缩减为远程消费者的五函数清单。
+固定公开视图与已有命令能力继续保留；内嵌角色不沿用独立 AUTH LOGIN 的授权清单。
 工作区授权同时补齐目录、管理员重置密码、平台角色、暂停／恢复、删除及离职的能力。
 
 授权要求普通 LOGIN 与迁移操作者分离，应用角色不能持有任何角色成员资格；
@@ -724,9 +614,7 @@ PUBLIC 授权、所有权或其他遗留权限仍可绕过时，整笔授权回�
 只供迁移、测试夹具及专用维护 worker。需要迁移账号具备 `CREATEROLE`，否则先配置
 已有的分离账号；不会回退 owner。所有 Identity 专用数据库／文件选择器在工作区
 子进程中清空，避免绕回共享配置。角色和凭据按精确归属恢复／删除，停止不改密。
-此路径已通过 20 项去重 Native 检查、真实普通／维护 worker、完整备份恢复及匹配
-冷镜像的实际 HTTP 流程；迁移 head 0306、冻结 SQL 回滚与自有资源清理通过。完整
-资格范围与剩余阻断见[模块台账](/dev/concepts/module-deployment#identity-内嵌运行权限)。
+历史恢复及冷镜像证据见[内嵌运行权限验收](/dev/concepts/module-deployment#identity-内嵌运行权限)。
 主开发环境和生产配置的切换必须单独验收；直接启动 API 的其他入口不在本流程中。独立部署仍在完整 owner 授权之后最后应用前述 consumer
 清单；门控 E2E 操作继续使用私有夹具通道、固定能力及数据库守卫。
 

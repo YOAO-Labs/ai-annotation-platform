@@ -470,22 +470,31 @@ membership_busy 与账号 → 项目 → 成员锁序，不解码无关时间列
 
 ## 项目删除的调用方事务
 
-项目删除使用已有 `aap-project-delete/v1` 和
-`yoao_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)`，不提供独立提交的 HTTP 命令。
-命令只有 `operation_id/actor_id/project_id/audit_context` 四字段；Audit context 为 null
-时绑定 SQL NULL。回复保留 schema、严格 ok、成功回执或稳定业务错误。API 的兼容导入
-仍可用，实际验证和 UUID 绑定由 Workspace 包持有。
+`DELETE /projects/{project_id}` 要求当前项目管理权，成功返回空体 204，项目不存在返回 404。
+没有独立提交的私有 HTTP 命令，也没有公开幂等头。Workspace 通过
+`yoao_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)` 协调同库事务。输入只有
+`operation_id`、`actor_id`、`project_id`、`audit_context`，无审计上下文时绑定 SQL NULL。
 
-调用方须保持同一外层事务：API 先 flush 原 pending work，Native 执行当前权威、保留
-检查、各 owner 清理、Audit 和回执，原路由最后提交。连接式
-`ProjectDeletionPostgresData(connection)` 要求已开启的 asyncpg 事务，并在同一事务中
-检查 `yoao_workspace_project_deletion_client` 及唯一协调器权限；不会新建或结束事务。
-提交失败必须由调用方处理，不把事务内回执当成已完成提交。
+API 先 flush 原有待写入变更，在原事务中调用 Native 函数，再由原路由提交。
+`ProjectDeletionPostgresData(connection)` 要求已开启的 asyncpg 事务，用
+`yoao_workspace_project_deletion_client` 核验唯一协调器执行权限，不新建或结束事务。
+`aap-project-delete/v1` 响应包含严格的 `ok`，成功回执带操作、actor、项目 UUID，
+以及删除的 Task／Annotation 计数和审计 ID；失败返回稳定 `error.code`，在 API 边界映射为既有 HTTP 错误。
 
-公开删除仍要求当前项目管理权，成功为空体 204，后续删除不存在项目返回 404；没有新增
-幂等头。持有原 operation ID 的内部调用方可重放冻结回执，仍受 Native 当前 active-actor
-检查约束。受限 Node、Python 和实际公开 API 定向检查通过；未退役时由上述门禁返回
-409。通用旧库排空／修复尚未实现；本机当前无历史作业的适用性及日常采用状态见[唯一模块台账](/dev/concepts/module-deployment#剩余工作台账)，不能据空库放宽守卫。
+首次执行锁定当前活跃账号，按操作 ID 和项目串行化，核验当前项目管理权并以 NOWAIT 锁定项目行。
+Learning 先检查主动学习引用和保留的训练、模型、评估、策略与数据版本，
+Labeling 随后检查[视频退役围栏](./module-data#视频退役与删除围栏)。保留引用或未退役执行返回 409。
+通过门禁后，各 owner 清理各自数据。Workspace 退役项目上传记录、清理成员和模板来源引用并删除项目，
+Audit 获取当前锁定的身份事实并写入 `project.delete`。应用 LOGIN 不获私表权限或各 owner 的清理 helper。
+源对象和导出文件不在该事务中物理删除；取消数据库中的活动建题作业也不等于撤销 Celery 消息。
+
+锁冲突返回 `project_busy`；数据库异常或提交失败使各 owner 变更、审计和回执一起回滚。
+事务内回执不是提交确认。内部调用方要处理不确定提交，须在首次调用前持久保存 operation ID。
+已提交回执不依赖 Project 外键。账号仍活跃且操作 ID、actor 和项目完全一致时可重放；
+同一 ID 改用其他 actor 或项目返回 `operation_conflict`。公开 HTTP 重试不会进入该回执重放路径。
+Jobs 与通知保留[原项目范围](./module-data#jobs-保留的项目范围)，不会因项目删除而变为全局。
+
+设计与验收范围见 [ADR-0165](/dev/adr/0165-workspace-caller-transaction-project-deletion)。
 
 ## 普通消费者的 SQL 凭据边界
 

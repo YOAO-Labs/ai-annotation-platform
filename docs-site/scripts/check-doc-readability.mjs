@@ -14,6 +14,7 @@ const PAGE_LINE_LIMITS = [
     join(DOCS_ROOT, "dev/concepts/module-deployment.md"),
     140,
   ],
+  ["docs-site/dev/testing.md", join(DOCS_ROOT, "dev/testing.md"), 150],
 ];
 
 const SKIP_ROOTS = new Set([
