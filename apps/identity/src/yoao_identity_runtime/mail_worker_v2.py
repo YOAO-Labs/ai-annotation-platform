@@ -11,6 +11,7 @@ from yoao_identity.mail_v2_postgres import MailV2PostgresData
 
 from .mail_config_v2 import MailV2WorkerSettings
 from .mail_worker import MailExecutor
+from .smtp_test import run_smtp_test_once
 
 
 def _fallbacks(settings: MailV2WorkerSettings) -> dict[str, object]:

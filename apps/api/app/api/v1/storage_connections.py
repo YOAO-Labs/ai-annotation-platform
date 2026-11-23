@@ -117,7 +117,7 @@ async def reset_allowlist(
     db: AsyncSession = Depends(get_db),
     actor: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
 ):
-    await SystemSettingsService.reset(db, "connector_host_allowlist")
+    await SystemSettingsService.reset_many(db, ["connector_host_allowlist"], actor.id)
     entries = list(settings.connector_host_allowlist)
     await AuditService.log(
         db,

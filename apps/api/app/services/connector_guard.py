@@ -12,10 +12,8 @@ from yoao_assets_source.connectors.host_guard import (
     normalize_allowlist,
     resolve_allowed_ips,
 )
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.system_setting import SystemSetting
 from app.services.system_settings_service import SystemSettingsService
 
 
@@ -31,14 +29,13 @@ async def get_allowlist_state(
     db: AsyncSession,
 ) -> tuple[list[str], Literal["database", "environment"]]:
     """Return the active allowlist and whether DB explicitly overrides env."""
-    entries = await get_allowlist(db)
-    row = await db.scalar(
-        select(SystemSetting).where(SystemSetting.key == "connector_host_allowlist")
+    raw, overridden = await SystemSettingsService.connector_allowlist_state(db)
+    entries = (
+        normalize_allowlist([str(entry) for entry in raw])
+        if isinstance(raw, list)
+        else []
     )
-    source: Literal["database", "environment"] = (
-        "database" if row is not None and row.value_json is not None else "environment"
-    )
-    return entries, source
+    return entries, "database" if overridden else "environment"
 
 
 async def assert_connection_target_allowed(

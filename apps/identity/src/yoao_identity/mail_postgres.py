@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import json
+import uuid
 
 from .contract import IdentityUnavailable
 from .mail_contract import (
@@ -227,8 +229,22 @@ class MailPostgresData:
         )
 
 
+SMTP_SETTINGS_CAPABILITIES = {
+    "yoao_settings_v1.mail_delivery_policy(jsonb)",
+    "yoao_settings_v1.claim_smtp_test()",
+    "yoao_settings_v1.finish_smtp_test(uuid, uuid, text, text, text, integer)",
+}
+
+
+@dataclass(frozen=True)
+class SmtpTestAttempt:
+    id: uuid.UUID
+    lease_id: uuid.UUID
+    recipient: str
+
+
 class MailSettingsPostgresData:
-    """Reads only the Settings-owned mail delivery policy function."""
+    """Read the mail policy and settle one-shot diagnostics as the isolated sender."""
 
     def __init__(
         self, dsn: str, *, connect_timeout: float = 5, command_timeout: float = 10
@@ -236,6 +252,70 @@ class MailSettingsPostgresData:
         self.dsn = dsn
         self.connect_timeout = connect_timeout
         self.command_timeout = command_timeout
+
+    async def _smtp_test_command(self, statement, args, decode):
+        import asyncpg
+
+        connection = None
+        try:
+            connection = await asyncpg.connect(
+                self.dsn,
+                timeout=self.connect_timeout,
+                command_timeout=self.command_timeout,
+                server_settings={"application_name": "yoao-identity-mail-settings"},
+            )
+            async with connection.transaction():
+                return decode(await connection.fetchval(statement, *args))
+        except (
+            asyncpg.PostgresError,
+            asyncpg.InterfaceError,
+            OSError,
+            TimeoutError,
+            ValueError,
+            TypeError,
+            KeyError,
+        ):
+            raise IdentityUnavailable() from None
+        finally:
+            if connection is not None:
+                try:
+                    await asyncio.shield(connection.close(timeout=2))
+                except Exception:
+                    if not asyncio.current_task().cancelling():
+                        raise IdentityUnavailable() from None
+
+    async def claim_smtp_test(self) -> SmtpTestAttempt | None:
+        def decode(raw):
+            if raw is None:
+                return None
+            result = json.loads(raw)
+            if not isinstance(result["recipient"], str) or not result["recipient"]:
+                raise IdentityUnavailable()
+            return SmtpTestAttempt(
+                uuid.UUID(result["id"]),
+                uuid.UUID(result["lease_id"]),
+                result["recipient"],
+            )
+
+        return await self._smtp_test_command(
+            "SELECT yoao_settings_v1.claim_smtp_test()", (), decode
+        )
+
+    async def finish_smtp_test(
+        self,
+        attempt: SmtpTestAttempt,
+        reason: str,
+        *,
+        sender: str | None = None,
+        host: str | None = None,
+        port: int | None = None,
+    ) -> bool:
+        return await self._smtp_test_command(
+            "SELECT yoao_settings_v1.finish_smtp_test($1::uuid, $2::uuid, $3::text, "
+            "$4::text, $5::text, $6::integer)",
+            (attempt.id, attempt.lease_id, reason, sender, host, port),
+            bool,
+        )
 
     async def mail_delivery_policy(
         self, fallbacks: dict[str, object], *, require_isolated_role: bool = False

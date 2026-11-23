@@ -1,83 +1,50 @@
-"""SMTP diagnostics using the shared standard-library mail transport."""
+"""Wait for one owner-settled SMTP diagnostic; the API never opens SMTP."""
 
 from __future__ import annotations
 
 import asyncio
-from email.message import EmailMessage
-from email.utils import formatdate
+import uuid
 from typing import Any
 
-from yoao_mail_transport import MailOutcome, MailReason, SMTPConfig, send_message
+from fastapi import HTTPException
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.system_settings_service import SystemSettingsService
+_QUEUE = text("SELECT yoao_settings_v1.queue_smtp_test(CAST(:actor AS uuid))")
+_RESULT = text(
+    "SELECT yoao_settings_v1.read_smtp_test(CAST(:actor AS uuid), CAST(:attempt AS uuid))"
+)
 
 
 class SmtpConfigError(Exception):
     pass
 
 
-async def _load_smtp_config(db: AsyncSession) -> dict[str, Any]:
-    keys = ["smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from"]
-    out = await SystemSettingsService.get_many(db, keys, bypass_cache=True)
-    if not out["smtp_host"] or not out["smtp_port"] or not out["smtp_from"]:
-        raise SmtpConfigError("SMTP 未完整配置（host / port / from 必填）")
-    return out
-
-
-def _plain_text_message(
-    body: str, *, subject: str, sender: str, recipient: str
-) -> EmailMessage:
-    msg = EmailMessage()
-    msg.set_content(body, subtype="plain", charset="utf-8")
-    msg["Subject"] = subject
-    msg["From"] = sender
-    msg["To"] = recipient
-    msg["Date"] = formatdate(localtime=True)
-    return msg
-
-
-def _send_message(cfg: dict[str, Any], msg: EmailMessage) -> None:
-    """Compatibility adapter for existing API callers and their error contract."""
+async def send_test_email(db: AsyncSession, actor_id: uuid.UUID) -> dict[str, Any]:
+    attempt = await db.scalar(_QUEUE, {"actor": actor_id})
+    if attempt is None:
+        raise HTTPException(403, detail="需要角色权限: super_admin")
+    await db.commit()
     try:
-        port = int(cfg.get("smtp_port") or 0)
-    except (TypeError, ValueError):
-        port = 0
-    result = send_message(
-        SMTPConfig(
-            host=str(cfg.get("smtp_host") or ""),
-            port=port,
-            user=str(cfg.get("smtp_user") or ""),
-            password=str(cfg.get("smtp_password") or ""),
-            sender=str(cfg.get("smtp_from") or msg.get("From") or ""),
-        ),
-        msg,
-    )
-    if result.outcome == MailOutcome.DELIVERED:
-        return
-    if result.reason == MailReason.NOT_CONFIGURED:
+        async with asyncio.timeout(60):
+            while True:
+                result = await db.scalar(
+                    _RESULT, {"actor": actor_id, "attempt": attempt}
+                )
+                await db.rollback()
+                if result is not None:
+                    break
+                await asyncio.sleep(0.5)
+    except TimeoutError:
+        raise SmtpConfigError("SMTP 发送失败: transport_failed") from None
+
+    reason = result["reason"]
+    if reason == "sent":
+        return {key: result[key] for key in ("to", "from", "host", "port")}
+    if reason == "not_authorized":
+        raise HTTPException(403, detail="需要角色权限: super_admin")
+    if reason == "not_configured":
         raise SmtpConfigError("SMTP 未完整配置（host / port / from 必填）")
-    if result.reason == MailReason.MESSAGE_INVALID:
+    if reason == "message_invalid":
         raise SmtpConfigError("SMTP 邮件内容无效")
-    raise SmtpConfigError(f"SMTP 发送失败: {result.reason.value}")
-
-
-async def send_test_email(db: AsyncSession, to_address: str) -> dict[str, Any]:
-    """连 SMTP 发一封测试邮件。返回诊断字典；失败抛 SmtpConfigError。"""
-    cfg = await _load_smtp_config(db)
-    msg = _plain_text_message(
-        "这是一封 YOAO 的 SMTP 测试邮件。\n"
-        "收到这封邮件，表示本次测试已送达你的邮箱。\n",
-        subject="[YOAO] SMTP 测试邮件",
-        sender=cfg["smtp_from"],
-        recipient=to_address,
-    )
-
-    await asyncio.to_thread(_send_message, cfg, msg)
-
-    return {
-        "to": to_address,
-        "from": cfg["smtp_from"],
-        "host": cfg["smtp_host"],
-        "port": int(cfg["smtp_port"]),
-    }
+    raise SmtpConfigError(f"SMTP 发送失败: {reason}")
