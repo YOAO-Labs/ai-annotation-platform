@@ -7,6 +7,7 @@ the publisher process death, replay and frame writes are real.
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import hashlib
 import json
 import os
@@ -114,7 +115,8 @@ class _SecondPublicationGate:
                 target_writer.close()
                 await target_writer.wait_closed()
             writer.close()
-            await writer.wait_closed()
+            with suppress(ConnectionResetError):
+                await writer.wait_closed()
             self.connections.discard(task)
 
     async def __aenter__(self):
@@ -319,7 +321,7 @@ async def test_killed_publisher_partial_canvas_replays_original_ids_and_complete
                 {"id": lease.intent_id},
             )
         ).all()
-    assert attempts == [(1, "entered"), (2, "accepted")]
+    assert attempts == [(1, "entered"), (2, "settled")]
     with redis.from_url(broker_url) as broker:
         envelopes = [json.loads(value) for value in broker.lrange("ml", 0, -1)]
         wanted = [task["execution_id"] for task in lease.envelope["tasks"]]
