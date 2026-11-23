@@ -14,7 +14,7 @@ from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from tests.factory import create_user
-from tests.workspace_project_query_helpers import _dsn
+from tests.workspace_project_query_helpers import _dsn, query_with_pending_orm_work
 
 
 def directory_query_dsn(test_engine, database=None):
@@ -38,13 +38,64 @@ async def execute_directory_query_contract(
     return decode_directory_query_reply(request, response.content)
 
 
+async def _borrowed_member_probe(
+    *,
+    runtime_maker,
+    owner_maker,
+    project_id,
+    pending_user_id,
+    actor_id,
+    no_autoflush,
+    pending_user_alias,
+):
+    from app.api.v1.projects import list_members
+    from app.services.workspace_membership import add_member
+
+    async with runtime_maker() as db:
+
+        async def read_members():
+            return await list_members(project_id, db=db, actor_id=actor_id)
+
+        before = await read_members()
+        assert all(row["user_id"] != pending_user_id for row in before)
+        staged = await add_member(
+            db,
+            project_id=project_id,
+            actor_id=actor_id,
+            target_user_id=pending_user_id,
+            project_role="annotator",
+        )
+        async with query_with_pending_orm_work(
+            db, no_autoflush=no_autoflush
+        ) as pending:
+            rows = await read_members()
+        included = any(
+            row["id"] == staged.id and row["user_id"] == pending_user_id for row in rows
+        )
+        pending_in_new = pending in db.new
+        transaction_open = db.in_transaction()
+        async with owner_maker() as observer:
+            committed = await observer.get(ProjectMember, staged.id) is not None
+        await db.rollback()
+        assert await read_members() == before
+    async with owner_maker() as observer:
+        assert await observer.get(ProjectMember, staged.id) is None
+    return {
+        "no_autoflush": no_autoflush,
+        "pending_member_in_route_result": included,
+        "pending_member_in_session_new_after_read": pending_in_new,
+        "caller_transaction_open_after_read": transaction_open,
+        "visible_from_owner_before_caller_rollback": committed,
+        "pending_user_alias": pending_user_alias,
+    }
+
+
 async def capture_directory_scenario(
     test_engine, app_module, monkeypatch, *, member_ids_by_user_id
 ):
     """Seed the frozen world and compare HTTP without recapturing legacy evidence."""
 
     from datetime import datetime, timezone
-    from types import SimpleNamespace
     import uuid
 
     from sqlalchemy import delete, func, select, text
@@ -337,53 +388,17 @@ async def capture_directory_scenario(
                     "members",
                 )
 
-        direct_observation = {"sql": [], "transaction_events": []}
-        from app.api.v1 import projects as projects_api
-
-        original_list_members = projects_api.list_members
-
-        async def direct_probe(**kwargs):
-            async def new_call_shape(*, project, db):
-                rows = await original_list_members(
-                    project.id, db, actor_id=kwargs["assigner"].id
-                )
-                return [
-                    SimpleNamespace(**row) if isinstance(row, dict) else row
-                    for row in rows
-                ]
-
-            with monkeypatch.context() as direct_patch:
-                direct_patch.setattr(projects_api, "list_members", new_call_shape)
-                return await scenarios._direct_member_list_probe(**kwargs)
-
-        _active_previous = scenarios._active_observation
-        scenarios._active_observation = direct_observation
-        try:
-            with scenarios._observe_runtime(runtime_engine)():
-                default_probe = await direct_probe(
-                    runtime_maker=runtime_maker,
-                    owner_maker=owner_maker,
-                    project=target,
-                    pending_user=pending_user,
-                    assigner=root,
-                    no_autoflush=False,
-                    aliases=aliases,
-                )
-                no_autoflush_probe = await direct_probe(
-                    runtime_maker=runtime_maker,
-                    owner_maker=owner_maker,
-                    project=target,
-                    pending_user=pending_user,
-                    assigner=root,
-                    no_autoflush=True,
-                    aliases=aliases,
-                )
-        finally:
-            scenarios._active_observation = _active_previous
         capture["observations"]["caller_autoflush"] = {
-            "default": default_probe,
-            "no_autoflush": no_autoflush_probe,
-            "ordered_sql_and_transaction_events": direct_observation,
+            mode: await _borrowed_member_probe(
+                runtime_maker=runtime_maker,
+                owner_maker=owner_maker,
+                project_id=target.id,
+                pending_user_id=pending_user.id,
+                actor_id=root.id,
+                no_autoflush=no_autoflush,
+                pending_user_alias=aliases[str(pending_user.id)],
+            )
+            for mode, no_autoflush in (("default", False), ("no_autoflush", True))
         }
         return capture
     finally:

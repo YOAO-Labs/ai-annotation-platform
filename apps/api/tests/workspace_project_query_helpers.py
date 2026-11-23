@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager, nullcontext
+
 import httpx
+from sqlalchemy import event, select, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.orm import Mapped, mapped_column, registry
 
 from yoao_workspace.api import create_app
 from yoao_workspace.config import RuntimeSettings
@@ -14,6 +18,51 @@ from yoao_workspace_contract.project_query_contract import (
 from yoao_workspace_contract.project_query_values import decode_project_query_reply
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_module_data_roles import _role_url
+
+
+@registry().mapped
+class _PendingQueryWork:
+    __tablename__ = "workspace_query_pending_work"
+    __table_args__ = {"schema": "pg_temp"}
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=False)
+
+
+@asynccontextmanager
+async def query_with_pending_orm_work(db, *, no_autoflush):
+    """Probe flush ordering without granting the caller any private-table access."""
+    await db.execute(
+        text(
+            "CREATE TEMP TABLE workspace_query_pending_work (id integer PRIMARY KEY)"
+            " ON COMMIT DROP"
+        )
+    )
+    transaction = db.get_transaction()
+    assert transaction is not None
+    pending = _PendingQueryWork(id=1)
+    db.add(pending)
+    connection = (await db.connection()).sync_connection
+    pending_at_first_read = None
+
+    def observe(_conn, _cursor, statement, _params, _context, _many):
+        nonlocal pending_at_first_read
+        if pending_at_first_read is None and "_query_step(" in statement:
+            pending_at_first_read = pending in db.new
+
+    event.listen(connection, "before_cursor_execute", observe)
+    try:
+        with db.no_autoflush if no_autoflush else nullcontext():
+            yield pending
+    finally:
+        event.remove(connection, "before_cursor_execute", observe)
+
+    assert db.get_transaction() is transaction
+    assert pending_at_first_read is no_autoflush
+    assert (pending in db.new) is no_autoflush
+    with db.no_autoflush:
+        assert await db.scalar(select(_PendingQueryWork.id)) == (
+            None if no_autoflush else pending.id
+        )
 
 
 def workspace_query_client(*, token: str, **options) -> httpx.AsyncClient:
