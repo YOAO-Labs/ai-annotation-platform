@@ -28,7 +28,6 @@ WORKER_DATABASE_SOURCES = {
     "DATABASE_URL": "identity_api_consumer",
     "PREANNOTATION_RESULTS_DATABASE_URL_FILE": "yoao_preannotation_result_client",
     "INFERENCE_ROUTING_DATABASE_URL": "yoao_inference_routing_client",
-    "LABELING_VIDEO_WRITER_DATABASE_URL": "yoao_labeling_video_writer_client",
 }
 _ROLE_NAME = re.compile(r"[a-z][a-z0-9_]{0,62}\Z")
 _WORKER_ACCEPTANCE_ID = re.compile(r"[0-9a-f]{20}\Z")
@@ -145,9 +144,11 @@ def inspect_worker_write_selectors(
         or not sensitive.get("MINIO_SECRET_KEY")
         or not sensitive.get("SECRET_KEY")
         or environment.get("INFERENCE_ROUTING_TOKEN")
-        or environment.get("LABELING_VIDEO_WRITER_CONTROL_TOKEN")
         or environment.get("INFERENCE_ROUTING_TOKEN_FILE")
-        or environment.get("LABELING_VIDEO_WRITER_CONTROL_TOKEN_FILE")
+        or any(
+            name.startswith("LABELING_VIDEO_WRITER_") and value
+            for name, value in environment.items()
+        )
     ):
         raise LocalFenceRefused("worker_write_selector_mismatch")
     return {

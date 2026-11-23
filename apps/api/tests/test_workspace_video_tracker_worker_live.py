@@ -227,25 +227,15 @@ class _VideoTrackerCeleryWorker(WorkspaceInferenceCeleryWorker):
     def __init__(self, *args, media_url: str, media_token: str, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.queue = "gpu"
-        writer_dsn = self._role_dsn(
-            "AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL",
-            "yoao_labeling_video_writer_client",
-        )
         self._worker_environment.update(
             {
                 "ASSETS_MEDIA_URL": media_url,
+                "ASSETS_VIDEO_EXECUTOR": "split",
                 "ASSETS_MEDIA_TOKEN": media_token,
                 "ASSETS_MEDIA_TOKEN_FILE": "",
                 "ML_BACKEND_ROUTER_MODE": "enforce",
                 "VIDEO_TRACKER_WINDOW_SIZE_FRAMES": "2",
                 "VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES": "2",
-                "LABELING_VIDEO_WRITER_URL": "",
-                "LABELING_VIDEO_WRITER_CONTROL_TOKEN": "",
-                "LABELING_VIDEO_WRITER_CONTROL_TOKEN_FILE": "",
-                "LABELING_VIDEO_WRITER_DATABASE_URL": writer_dsn.render_as_string(
-                    hide_password=False
-                ),
-                "LABELING_VIDEO_WRITER_DATABASE_URL_FILE": "",
             }
         )
         self._inference_owner_environment.update(

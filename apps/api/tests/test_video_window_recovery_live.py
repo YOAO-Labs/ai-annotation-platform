@@ -362,6 +362,7 @@ def _worker_environment(
         "PYTHONUNBUFFERED": "1",
         "DATABASE_URL": database_url,
         "ASSETS_MEDIA_URL": media_url,
+        "ASSETS_VIDEO_EXECUTOR": "split",
         "ASSETS_MEDIA_TOKEN": media_token,
         "ASSETS_MEDIA_TOKEN_FILE": "",
         "INFERENCE_ROUTING_URL": routing_url,

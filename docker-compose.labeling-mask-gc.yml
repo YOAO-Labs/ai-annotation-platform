@@ -1,28 +1,19 @@
 services:
-  labeling-class-query:
-    image: ${AAP_LABELING_CLASS_QUERY_IMAGE:?Set the accepted Labeling class-query image}
-    restart: unless-stopped
-  labeling-video-writer:
-    image: ${AAP_LABELING_VIDEO_WRITER_IMAGE:?Set the accepted Labeling video-writer image}
-    environment:
-      ASSETS_MASK_CONTENT_URL: http://assets-mask-content:8770
-    restart: unless-stopped
-  assets-mask-content:
-    image: ${AAP_ASSETS_MASK_CONTENT_IMAGE:?Set the accepted Mask Content image}
-    ports:
-      - "127.0.0.1:8770:8770"
-    pids_limit: 64
-  assets-mask-cleanup:
-    image: ${AAP_ASSETS_MASK_CONTENT_IMAGE:?Set the accepted Mask Content image}
-    pids_limit: 64
   labeling-mask-gc:
-    image: ${AAP_LABELING_MASK_GC_IMAGE:?Set the accepted Labeling Mask GC image}
+    profiles: [mask-gc]
     build:
       context: .
       dockerfile: apps/labeling-mask-gc/Dockerfile
+    depends_on:
+      assets-mask-cleanup:
+        condition: service_healthy
+    extra_hosts:
+      - host.docker.internal:host-gateway
     environment:
       MASK_GC_DATABASE_URL_FILE: /run/secrets/mask_gc_database_url
       MASK_GC_TOKEN_FILE: /run/secrets/mask_gc_token
+      MASK_GC_HOST: 0.0.0.0
+      MASK_GC_PORT: 8771
       MASK_GC_CONTENT_URL: http://assets-mask-cleanup:8770
       MASK_GC_CONTENT_TOKEN_FILE: /run/secrets/mask_cleanup_token
       MASK_GC_POLL_ENABLED: "false"
@@ -47,8 +38,3 @@ secrets:
     file: ${LABELING_RUNTIME_MASK_GC_DATABASE_URL_FILE:?Set the Mask GC function-only DSN file}
   mask_gc_token:
     file: ${LABELING_RUNTIME_MASK_GC_CONTROL_TOKEN_FILE:?Set the Mask GC private bearer file}
-
-networks:
-  default:
-    external: true
-    name: ${AAP_LABELING_DEVELOPMENT_NETWORK:?Set the verified primary infrastructure network}

@@ -1,13 +1,11 @@
-"""Seed-only legacy scenarios and current Labeling query-owner test bindings."""
+"""Seed-only legacy scenarios and the embedded Labeling query replay."""
 
 from __future__ import annotations
 
 import asyncio
-from contextlib import AsyncExitStack, asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager, contextmanager
 import json
-import os
 from pathlib import Path
-import tempfile
 from uuid import UUID
 
 import httpx
@@ -18,7 +16,6 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.config import settings
 from tests import test_labeling_class_usage_reads_legacy as legacy_capture
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
-from tests.test_identity_admission_live import _port, _start
 from tests.test_module_data_roles import _role_url
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -214,103 +211,34 @@ def labeling_class_query_dsn(test_engine) -> str:
 
 
 @asynccontextmanager
-async def installed_labeling_query_provider(dsn, token):
-    assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
-    parsed = make_url(dsn)
-    assert parsed.username == "yoao_labeling_class_query_client"
-    assert parsed.database and parsed.database.endswith("_test")
-    _verify_postgres(parsed)
-    interpreter = Path(os.environ["AAP_LABELING_CLASS_QUERY_PYTHON"])
-    assert interpreter.is_file()
-    with tempfile.TemporaryDirectory(
-        prefix="labeling-class-query-", dir=ROOT / ".worktree"
-    ) as temporary:
-        directory = Path(temporary)
-        port = _port()
-        environment = {
-            "PATH": os.environ.get("PATH", ""),
-            "LABELING_CLASS_QUERY_DATABASE_URL": dsn,
-            "LABELING_CLASS_QUERY_CONTROL_TOKEN": token,
-            "LABELING_CLASS_QUERY_HOST": "127.0.0.1",
-            "LABELING_CLASS_QUERY_PORT": str(port),
-            "LABELING_CLASS_QUERY_TIMEOUT_SECONDS": "20",
-        }
-        owner = await asyncio.to_thread(
-            _start,
-            [str(interpreter), "-I", "-m", "yoao_labeling"],
-            environment,
-            directory,
-            directory / "owner.log",
-            port,
-            "/ready",
-        )
-        try:
-            yield owner.origin
-        finally:
-            owner.stop()
-
-
-@asynccontextmanager
-async def _bind_labeling_owner(test_engine, *, binding: str, token: str):
-    async with AsyncExitStack() as stack:
-        url = dsn = None
-        if binding == "dedicated":
-            dsn = labeling_class_query_dsn(test_engine)
-        elif binding == "http":
-            url = await stack.enter_async_context(
-                installed_labeling_query_provider(
-                    labeling_class_query_dsn(test_engine), token
-                )
-            )
-        elif binding != "borrowed":
-            raise AssertionError(f"unknown Labeling binding: {binding}")
-
-        changes = {
-            "labeling_class_query_url": url or "",
-            "labeling_class_query_database_url": dsn or "",
-            "labeling_class_query_database_url_file": "",
-            "labeling_class_query_control_token": token if url else "",
-            "labeling_class_query_control_token_file": "",
-            "labeling_class_query_timeout_seconds": 20,
-        }
-        original = {name: getattr(settings, name) for name in changes}
-        try:
-            for name, value in changes.items():
-                setattr(settings, name, value)
-            yield
-        finally:
-            for name, value in original.items():
-                setattr(settings, name, value)
-
-
-@asynccontextmanager
 async def bound_api_client(
     test_engine,
     app_module,
     monkeypatch,
     *,
-    binding: str,
-    labeling_token: str,
+    login: str,
     application_name: str = "labeling-class-query-replay",
 ):
     clear_local_identity(monkeypatch)
-    runtime_engine, runtime_maker = await make_request_runtime(
-        test_engine, application_name=application_name
-    )
+    if login == "worktree":
+        runtime_engine, runtime_maker = await make_request_runtime(
+            test_engine, application_name=application_name
+        )
+    elif login == "lan":
+        from tests.test_jobs_creation_runtime_native import _lan_runtime
+
+        runtime_engine = await _lan_runtime(test_engine)
+        runtime_maker = async_sessionmaker(runtime_engine, expire_on_commit=False)
+    else:
+        raise AssertionError(f"unknown runtime grant profile: {login}")
     try:
-        async with (
-            api_db_binding(app_module, runtime_maker),
-            _bind_labeling_owner(test_engine, binding=binding, token=labeling_token),
-        ):
+        async with api_db_binding(app_module, runtime_maker):
             transport = httpx.ASGITransport(app=app_module, raise_app_exceptions=False)
             async with httpx.AsyncClient(
-                transport=transport, base_url="http://test", timeout=30
+                transport, base_url="http://test", timeout=30
             ) as client:
-                if binding == "borrowed":
-                    with observe_borrowed_labeling_rpc(runtime_engine) as rpc:
-                        yield client, runtime_engine, rpc
-                else:
-                    yield client, runtime_engine, None
+                with observe_borrowed_labeling_rpc(runtime_engine) as rpc:
+                    yield client, runtime_engine, rpc
     finally:
         await runtime_engine.dispose()
 

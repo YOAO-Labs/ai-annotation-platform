@@ -1,4 +1,4 @@
-"""Real worker publication through each Labeling video-writer binding."""
+"""Real worker publication using the ordinary worker LOGIN and Mask byte owner."""
 
 from __future__ import annotations
 
@@ -8,20 +8,17 @@ import asyncio
 import json
 import math
 import os
-from pathlib import Path
 import secrets
 import socket
-import sys
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
-import asyncpg
 from yoao_assets_video_inputs.tracker import TrackerSourceReferenceRequest
 from yoao_inference.pipeline_server import PipelineHttpServer
 from yoao_inference.routing_runtime import RoutingRuntime
 from yoao_inference_contract.routing import make_routing_command
-from yoao_labeling.video_writer_client import VideoWriterHttpClient
+from yoao_labeling.video_writer import VideoWriterManager
 from yoao_labeling.video_writer_contract import video_writer_operation_id
 from yoao_protocol_v2.routing import ROUTE_ADMISSION_HEADER
 from yoao_protocol_v2.routing_runtime import install_backend_routing_controller
@@ -34,15 +31,11 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.services.ml_backend import MLBackendService
+from app.services.video_tracking import writer
 from app.services.video_tracking.execution import execution_proof
 from app.services.video_tracking.runner import run_tracker_job
 from tests.labeling_class_query_helpers import assert_owned_test_database
-from tests.test_assets_media_live import (
-    _free_loopback_port,
-    _process_log,
-    _start_process,
-    _stop_process,
-)
+from tests.test_assets_media_live import _free_loopback_port
 from tests.test_inference_routing_owner_integration import (
     _start_model_execution_owner,
     _stop_process as _stop_execution_owner,
@@ -65,10 +58,8 @@ pytestmark = [
     ),
 ]
 
-ROOT = Path(__file__).resolve().parents[3]
 _JOBS_SCHEMA = "yoao_jobs_v1"
 _ROUTING_SCHEMA = "yoao_inference_routing_v1"
-_WRITER_ROLE = "yoao_labeling_video_writer_client"
 
 
 def _reserve_listener() -> tuple[socket.socket, str]:
@@ -281,117 +272,6 @@ async def _cpu_backend(
         await storage.aclose()
 
 
-class _StandaloneWriter:
-    def __init__(
-        self,
-        *,
-        dsn: str,
-        output_geometry: str,
-        mask_url: str,
-        mask_token: str,
-        tmp_path: Path,
-    ):
-        self.port = _free_loopback_port()
-        self.origin = f"http://127.0.0.1:{self.port}"
-        self.token = secrets.token_urlsafe(36)
-        self.log = tmp_path / f"video-writer-owner-{uuid4().hex}.log"
-        roots = [
-            ROOT / "apps" / "labeling" / "src",
-            ROOT / "apps" / "preannotation-results" / "src",
-            ROOT / "apps" / "assets-media" / "src",
-            ROOT / "apps" / "assets-mask-content" / "src",
-            *sorted((ROOT / "apps" / "_shared").glob("*/src")),
-        ]
-        forbidden_api_root = str(ROOT / "apps" / "api")
-        assert all(forbidden_api_root not in str(path) for path in roots)
-        self.environment = {
-            "PATH": os.environ.get("PATH", ""),
-            "PYTHONUNBUFFERED": "1",
-            "PYTHONDONTWRITEBYTECODE": "1",
-            "PYTHONPATH": os.pathsep.join(str(path) for path in roots),
-            "LABELING_VIDEO_WRITER_DATABASE_URL": dsn,
-            "LABELING_VIDEO_WRITER_CONTROL_TOKEN": self.token,
-            "LABELING_VIDEO_WRITER_HOST": "127.0.0.1",
-            "LABELING_VIDEO_WRITER_PORT": str(self.port),
-            "LABELING_VIDEO_WRITER_TIMEOUT_SECONDS": "30",
-        }
-        if output_geometry == "mask":
-            self.environment.update(
-                {
-                    "ASSETS_MASK_CONTENT_URL": mask_url,
-                    "ASSETS_MASK_CONTENT_TOKEN": mask_token,
-                }
-            )
-        assert forbidden_api_root not in self.environment["PYTHONPATH"]
-        assert not {
-            "DATABASE_URL",
-            "ASSETS_MEDIA_URL",
-            "MINIO_ACCESS_KEY",
-            "MINIO_SECRET_KEY",
-            "AWS_ACCESS_KEY_ID",
-            "AWS_SECRET_ACCESS_KEY",
-        }.intersection(self.environment)
-        assert self.environment["LABELING_VIDEO_WRITER_DATABASE_URL"] == dsn
-        self.process = None
-        self.stream = None
-
-    def start(self) -> None:
-        self.process, self.stream = _start_process(
-            [sys.executable, "-m", "yoao_labeling.video_writer_main"],
-            self.environment,
-            self.log,
-        )
-
-    async def wait_ready(self) -> None:
-        assert self.process is not None
-        async with httpx.AsyncClient(timeout=1, trust_env=False) as client:
-            async with asyncio.timeout(25):
-                while True:
-                    if self.process.poll() is not None:
-                        pytest.fail(
-                            "Labeling writer owner exited before /ready: "
-                            + _process_log(self.log)
-                        )
-                    try:
-                        response = await client.get(self.origin + "/ready")
-                        if response.status_code == 200 and response.json() == {
-                            "status": "ready"
-                        }:
-                            return
-                    except httpx.HTTPError:
-                        pass
-                    await asyncio.sleep(0.05)
-
-    async def restart(self) -> None:
-        self.stop()
-        self.start()
-        await self.wait_ready()
-
-    def stop(self) -> None:
-        if self.process is not None:
-            _stop_process(self.process)
-            self.process = None
-        if self.stream is not None:
-            self.stream.close()
-            self.stream = None
-
-
-async def _writer_dsn_identity(dsn: str, expected_database: str) -> None:
-    connection = await asyncpg.connect(
-        dsn.replace("postgresql+asyncpg://", "postgresql://", 1),
-        timeout=5,
-        command_timeout=10,
-    )
-    try:
-        role, database = await connection.fetchrow(
-            "SELECT current_user,current_database()"
-        )
-        assert role == _WRITER_ROLE
-        assert database == expected_database
-    finally:
-        await connection.close(timeout=2)
-
-
 async def _wait_last_window(peer, running) -> None:
     async with asyncio.timeout(25):
         while not peer.gate.is_set():
@@ -459,18 +339,14 @@ def _assert_candidate_fidelity(row: dict) -> None:
 
 
 @pytest.mark.parametrize("output_geometry", ["bbox", "mask"])
-@pytest.mark.parametrize("binding", ["borrowed", "dsn", "http"])
 async def test_video_job_finalizes_through_real_labeling_writer_owner(
-    test_engine, tmp_path, monkeypatch, output_geometry, binding
+    test_engine, tmp_path, monkeypatch, output_geometry
 ):
     ownership = await assert_owned_test_database(test_engine)
     legacy_dsn = os.environ["AAP_MODULE_DATA_LEGACY_RUNTIME_URL"]
     routing_dsn = os.environ.get("AAP_MODULE_DATA_INFERENCE_ROUTING_URL")
-    writer_dsn = os.environ.get("AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL")
     assert routing_dsn, "the verifier must provide the restricted routing DSN"
-    assert writer_dsn, "the verifier must provide the Labeling writer LOGIN DSN"
     await _verify_restricted_routing_dsn(routing_dsn, ownership["database"])
-    await _writer_dsn_identity(writer_dsn, ownership["database"])
 
     mask_owner = mask_storage = None
     mask_url = mask_token = ""
@@ -483,9 +359,16 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
         execution_engine = None
         execution_sessions = None
         execution_owner = None
-        owner = None
-        owner_runtime_receipt = None
         observation = AsyncExitStack()
+        verified_masks = []
+
+        async def verify(reference):
+            content = await original_load(reference)
+            verified_masks.append(reference)
+            return content
+
+        original_load = writer.load_coco_rle
+        monkeypatch.setattr(writer, "load_coco_rle", verify)
         try:
             from tests.inference_health_observation_helpers import observation_provider
 
@@ -503,6 +386,15 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
             execution_sessions = async_sessionmaker(
                 execution_engine, expire_on_commit=False
             )
+            async with execution_engine.connect() as connection:
+                identity = await connection.execute(
+                    text("SELECT session_user,current_user,current_database()")
+                )
+                assert tuple(identity.one()) == (
+                    "legacy_runtime",
+                    "legacy_runtime",
+                    ownership["database"],
+                )
             if output_geometry == "mask":
                 _, mask_bucket, _, mask_storage, mask_credentials, _ = _owned_resources(
                     test_engine
@@ -595,6 +487,7 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                 assert (await media.http.get(source_reference.url)).content == video
 
                 monkeypatch.setattr(settings, "assets_media_url", media.origin)
+                monkeypatch.setattr(settings, "assets_video_executor", "split")
                 monkeypatch.setattr(settings, "assets_media_token", media.token)
                 monkeypatch.setattr(settings, "inference_routing_url", "")
                 monkeypatch.setattr(settings, "inference_routing_token", "")
@@ -655,83 +548,33 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                     settings, "inference_model_execution_token_file", ""
                 )
 
-                monkeypatch.setattr(settings, "labeling_video_writer_url", "")
-                monkeypatch.setattr(settings, "labeling_video_writer_database_url", "")
-                monkeypatch.setattr(
-                    settings, "labeling_video_writer_database_url_file", ""
-                )
-                monkeypatch.setattr(settings, "labeling_video_writer_control_token", "")
-                monkeypatch.setattr(
-                    settings, "labeling_video_writer_control_token_file", ""
-                )
-                if binding == "dsn":
-                    monkeypatch.setattr(
-                        settings, "labeling_video_writer_database_url", writer_dsn
-                    )
-                elif binding == "http":
-                    owner = _StandaloneWriter(
-                        dsn=writer_dsn,
-                        output_geometry=output_geometry,
-                        mask_url=mask_url,
-                        mask_token=mask_token,
-                        tmp_path=tmp_path,
-                    )
-                    owner.start()
-                    await owner.wait_ready()
-                    monkeypatch.setattr(
-                        settings, "labeling_video_writer_url", owner.origin
-                    )
-                    monkeypatch.setattr(
-                        settings, "labeling_video_writer_control_token", owner.token
-                    )
                 assert sha256(artifact_bytes).hexdigest() == artifact_digest
 
                 completed_events: list[dict] = []
 
                 async def publish(_channel, event):
-                    nonlocal owner_runtime_receipt
-                    if event["type"] == "job_completed" and binding == "http":
-                        proof = execution_proof(job_id)
-                        async with media.sessions() as owner_db:
-                            receipt_row = (
-                                (
-                                    await owner_db.execute(
-                                        text(
-                                            "SELECT operation_id,run_id,"
-                                            "request_digest FROM "
-                                            "yoao_labeling_v1.video_writer_receipts "
-                                            "WHERE job_id=:job"
-                                        ),
-                                        {"job": job_id},
-                                    )
-                                )
-                                .mappings()
-                                .one()
-                            )
-                        assert receipt_row["run_id"] == proof.run_id
-                        assert receipt_row["operation_id"] == video_writer_operation_id(
-                            proof.run_id
+                    if event["type"] != "job_completed":
+                        return
+                    proof = execution_proof(job_id)
+                    async with media.sessions() as observer:
+                        digest = await observer.scalar(
+                            text(
+                                "SELECT request_digest FROM "
+                                "yoao_labeling_v1.video_writer_receipts "
+                                "WHERE job_id=:job AND run_id=:run"
+                            ),
+                            {"job": job_id, "run": proof.run_id},
                         )
-                        assert owner is not None
-                        await owner.restart()
-                        async with VideoWriterHttpClient(
-                            owner.origin, owner.token, timeout_seconds=20
-                        ) as client:
-                            status_receipt = await client.status(
-                                receipt_row["operation_id"],
-                                proof,
-                                receipt_row["request_digest"],
-                            )
-                        assert status_receipt is not None
-                        assert (
-                            status_receipt.request_digest
-                            == receipt_row["request_digest"]
-                        )
-                        assert status_receipt.outcome == "completed"
-                        assert status_receipt.status == "pending_review"
-                        owner_runtime_receipt = status_receipt
-                    if event["type"] == "job_completed":
-                        completed_events.append(event)
+                    assert digest is not None
+                    async with execution_sessions() as reopened:
+                        saved = await VideoWriterManager(
+                            writer.SqlAlchemyVideoWriterData(reopened)
+                        ).status(video_writer_operation_id(proof.run_id), proof, digest)
+                    assert saved is not None
+                    assert saved.outcome == "completed"
+                    assert saved.status == "pending_review"
+                    assert saved.request_digest == digest
+                    completed_events.append(event)
 
                 assert execution_sessions is not None
                 async with execution_sessions() as execution_db:
@@ -814,8 +657,6 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                 assert final_event["type"] == "job_completed"
                 assert final_event["job_id"] == str(job_id)
                 assert isinstance(final_event["at"], str)
-                if binding == "http":
-                    assert owner_runtime_receipt is not None
 
                 async with media.sessions() as db:
                     row = (
@@ -1030,6 +871,7 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                 ]
                 assert staged["results"][: len(first_rows)] == first_rows
                 if output_geometry == "bbox":
+                    assert verified_masks == []
                     assert math.copysign(1.0, canonical_results[0]["geometry"]["x"]) < 0
                     assert staged["results"][0]["geometry"]["y"] == 1e-5
                     assert staged["results"][0]["confidence"] == 1e-7
@@ -1041,6 +883,10 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                         for item in staged["results"]
                     }
                     assert len(references) == 1
+                    assert {
+                        reference["object_key"]: reference
+                        for reference in verified_masks
+                    } == references
                     assert {
                         root.object_key
                         for root in mask_roots
@@ -1076,8 +922,6 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                 await _stop_execution_owner(execution_owner)
             if listener is not None:
                 listener.close()
-            if owner is not None:
-                owner.stop()
             if execution_engine is not None:
                 await execution_engine.dispose()
             if route_server is not None:

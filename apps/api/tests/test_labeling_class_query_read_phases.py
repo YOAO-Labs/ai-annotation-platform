@@ -25,9 +25,9 @@ pytestmark = [
 ]
 
 
-@pytest.mark.parametrize("binding", ["borrowed", "dedicated", "http"])
+@pytest.mark.parametrize("login", ["worktree", "lan"])
 async def test_committed_annotation_between_real_labeling_reads_is_visible_to_attributes(
-    test_engine, app_module, monkeypatch, tmp_path, binding
+    test_engine, app_module, monkeypatch, tmp_path, login
 ):
     reference = fixture_data()
     baseline = next(
@@ -41,8 +41,7 @@ async def test_committed_annotation_between_real_labeling_reads_is_visible_to_at
             test_engine,
             app_module,
             monkeypatch,
-            binding=binding,
-            labeling_token="test-labeling-phase-control",
+            login=login,
             application_name="labeling-class-query-phase",
         ) as (client, _runtime_engine, _native_rpc):
             async with gated_class_counts(test_engine):
