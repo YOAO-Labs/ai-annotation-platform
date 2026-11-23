@@ -164,6 +164,7 @@ def _start_importer(stack, suffix, *, values=None):
         "  assets-import:\n"
         f"    image: {stack.image}\n"
         "    build: !reset null\n"
+        "    networks: !reset []\n"
         "    network_mode: bridge\n"
         '    restart: "no"\n'
         "    healthcheck: {interval: 1s, start_period: 1s}\n"

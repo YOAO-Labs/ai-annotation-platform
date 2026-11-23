@@ -22,6 +22,7 @@
 - **Audit Summary 实验档**：`audit-summary-experiment-cold.json` 记录 `3d75a3d45` 上用发布的 `docker-compose.experiments.yml` 冷启 `audit-summary-experiment`；真实健康响应报告协议 1，`mixed.request.json` 的汇总响应与预期完全匹配。它不替代 Audit 核心写入与归档恢复测试。
 - **新建数据库**：`schema-all-private-owner-502.json` 保留首次完整模块 owner 迁移；`native-schema-508-ddl.json` 在 `55e7cb4108` 上用全新 PostgreSQL 16 从空库迁至 `bo0508`，包括已登记 Source 的固定能力。`native-schema-508-ddl-reset-cli.json` 另验证普通连接不可达时，重置 CLI 只用显式迁移身份删除目标数据集和其中一项，并保留无关用户。两项均不是运行账号或连接器字节路径的证明。
 - **带导入租约的最终迁移链**：`native-schema-509-lease.json` 记录 `4daf9631f1` 上全新 PostgreSQL 16 迁至 `bo0509`。`acl-509-owner-leases.json` 在独立的 `0267` 基线升级前后核对了 651 个冻结函数体，并通过临时存储预置；随后装配 owner 时发现已经删除的七参数 Labeling 函数，事务失败，未使用该回执声称授权或业务通过。
+- **三个真实普通 LOGIN 和发布安装器**：`native-grants-509-learning.json` 在 `f3a12a5a83`、全新 PostgreSQL 16／`bo0509` 上实跑 `module-data-grants.sql`、两个 LAN profile 和工作树启动器。每种登录先获旧 `users.id` 列权限，再重放发布授权。逐个真实连接枚举私表、分区、外表、物化视图、列和序列，均为 **0**；显式读取 `public.users.id` 均返回 `42501`。工作树用启动器实际生成的 `…_test_app`，未用 `legacy_runtime` 冒充。Source 专用 LOGIN 通过 41 个固定能力的启动校验，租约 Importer installer 也成功；临时容器已删除。此证据不等于全部旧授权类型、业务或存储 I/O 已通过。
 - **默认业务**：`hosted-business.json` 首次停在资源准备；`native-grant-hosted-business.json` 已进入独立插件及服务启动，因 Inference 就绪探针未通过而中止。两者都是失败回执，不是业务通过。
 
 ## 完整 M2b 仍需独立回执

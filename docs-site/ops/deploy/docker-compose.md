@@ -57,6 +57,7 @@ psql -X "$MIGRATION_PSQL_URL" -v expected_database="$DB_NAME" \
 - Source overlay 的 `ASSETS_SOURCE_NETWORK` 默认是 `default`；叠加同一 LAN 项目时显式选 `shared`，先核对调用方和数据库可达，不对宿主发布 8767。启用保存 I/O 时，用 `install -d -o 10003 -g 10003 -m 0700 "$scratch"` 准备该 Source 副本独用的暂存目录，把绝对路径设为 `ASSETS_SOURCE_SAVED_IO_SPOOL_DIR`。每次重启挂回同一目录以恢复在途操作；不要用 tmpfs、ZIP 暂存目录或其他部署的目录。
 - 每个 Source 副本同时接收一次保存上传。暂存配额和可用空间须大于 `ASSETS_SOURCE_SAVED_IO_MAX_UPLOAD_BYTES`，默认 `68719476736`（64 GiB）；显式调低后会拒绝超限上传，不会改向或自动扩大分配。
 - 按原保存目标访问；缺 Source、身份不符或历史目标不可达时不改向、不回退。内建 MinIO、受控目录及站点 Agent 仍走原路径。升级前按[旧拓扑升级门禁](../upgrade-guide#split-topology-upgrade)验证真实连接器和恢复。
+- 选 `docker-compose.assets-import.yml` 时，Importer 和 Source 加入同一个 `ASSETS_SOURCE_NETWORK`。将 `ASSETS_IMPORT_SAVED_IO_URL` 和 `ASSETS_IMPORT_VERIFY_URL` 指向其中的 `http://assets-source:8767`。按[持久连接器导入](../../api/guides/assets-source#持久连接器导入)分别装配读取、复制和核验令牌；Importer 不接收连接器密钥、Source SQL 身份或 SSH 文件。
 
 #### 独立 Notifications 发布者 {#notification-publisher-split}
 
