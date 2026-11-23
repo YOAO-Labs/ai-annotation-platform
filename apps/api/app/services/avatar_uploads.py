@@ -8,30 +8,24 @@ new upload, retires the previous owned upload, and moves the account reference.
 This module never reads or writes the private ``users`` table.
 """
 
-from copy import deepcopy
+from copy import copy, deepcopy
 from dataclasses import dataclass
-from datetime import datetime, timezone
 import logging
 from types import SimpleNamespace
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
 
-from app.db.models.avatar_upload import AvatarUpload
-from app.services import avatar, avatar_storage, storage_access
+from app.services import avatar, avatar_storage, avatar_upload_data, storage_access
 from app.services import conditional_write_accounting as accounting
 from app.services import object_removal_accounting as removal
 from app.services import storage_migration_artifact_reads as migrated_reads
 from app.services import storage_migration_read_publications as publications
 from app.services.content_snapshot import ContentError
-from app.services.identity_read_relations import account_profiles
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import AcceptedApiKeyFacts
 
 logger = logging.getLogger(__name__)
-
-
-def now():
-    return datetime.now(timezone.utc)
 
 
 def http_error(exc):
@@ -45,29 +39,13 @@ def http_error(exc):
 
 
 @dataclass(frozen=True)
-class AcceptedKeyProof:
-    """Non-secret authority of the exact accepted API key.
-
-    ``revision`` is the Identity owner's digest of the stored verifier, so a
-    rotation changes it without this module ever reading or carrying the
-    verifier itself. ``scopes`` is the full ordered snapshot, not a required
-    subset: a rewritten key must not inherit the original credential's
-    publication authority.
-    """
-
-    scopes: tuple[str, ...]
-    expires_at: datetime | None
-    revision: str
-
-
-@dataclass(frozen=True)
 class Authority:
     """Account and credential facts frozen before normalization can outlive them."""
 
     actor_id: uuid.UUID
     previous_ref: str | None
     key_id: uuid.UUID | None
-    key_proof: AcceptedKeyProof | None
+    key_proof: AcceptedApiKeyFacts | None
 
 
 def _rejected():
@@ -106,14 +84,11 @@ async def capture_key_proof(db, actor_id, principal, *, expected=None):
         if expected is not None and expected.key_proof is not None:
             raise _rejected()
         return None
-    from app.services.identity_account_lock_data import IdentityAccountLockData
-
-    facts = await IdentityAccountLockData(db).read_accepted_api_key_facts(
+    proof = await IdentityAccountLockData(db).read_accepted_api_key_facts(
         actor_id, key_id
     )
-    if facts is None:
+    if proof is None:
         raise _rejected()
-    proof = AcceptedKeyProof(tuple(facts.scopes), facts.expires_at, facts.revision)
     if expected is not None:
         if expected.key_proof != proof:
             raise _rejected()
@@ -184,28 +159,17 @@ def receipt(row, maintenance_revision):
     }
 
 
-async def _save_write_version(db, receipt, version):
+async def _save_write_version(db, receipt, version, *, actor_id):
     """Keep a provider receipt even when later user publication is refused."""
     if version is None:
         return receipt
     from app.services.avatar_storage_target import version_id
 
     version_id({"VersionId": version})
-    row = await db.scalar(
-        select(AvatarUpload)
-        .where(AvatarUpload.token == receipt.token)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if (
-        row is None
-        or row.state != "pending"
-        or _snapshot(row).__dict__ != receipt.__dict__
-    ):
+    if not await avatar_upload_data.confirm_version(db, actor_id, receipt, version):
         raise http_error(ContentError("avatar_upload_changed", 409))
-    row.object_version_id = version
-    await db.flush()
-    result = _snapshot(row)
+    result = copy(receipt)
+    result.object_version_id = version
     await db.commit()
     return result
 
@@ -275,17 +239,21 @@ async def upload(db, execute, data, *, principal, authority=None):
         ref = await avatar_storage.allocate(db, token)
     except (avatar_storage.AvatarStorageError, ContentError) as exc:
         raise http_error(exc) from None
-    row = AvatarUpload(
-        token=token,
-        owner_id=actor_id,
-        storage_ref=ref,
-        sha256=hashlib.sha256(data).hexdigest(),
-        size_bytes=len(data),
-        state="pending",
+    receipt_before_io = _snapshot(
+        SimpleNamespace(
+            token=token,
+            storage_ref=ref,
+            sha256=hashlib.sha256(data).hexdigest(),
+            size_bytes=len(data),
+        )
     )
-    db.add(row)
-    await db.flush()
-    receipt_before_io = _snapshot(row)
+    status = await avatar_upload_data.reserve(db, actor_id, receipt_before_io)
+    if status == "avatar_authority_revoked":
+        raise _rejected()
+    if status == "avatar_storage_binding_unproven":
+        raise http_error(avatar_storage.AvatarStorageError(status))
+    if status != "reserved":
+        raise http_error(ContentError("avatar_storage_unavailable", 503))
     try:
         target = await avatar_storage.io_target(db, receipt_before_io)
     except Exception as exc:
@@ -318,20 +286,12 @@ async def upload(db, execute, data, *, principal, authority=None):
                 accounting=recorder,
                 **({"target": target} if target is not None else {}),
             )
-            confirmed = await _save_write_version(db, receipt_before_io, version)
+            confirmed = await _save_write_version(
+                db, receipt_before_io, version, actor_id=actor_id
+            )
         except Exception as exc:
             raise http_error(exc) from None
-        current = await db.scalar(
-            select(AvatarUpload)
-            .where(AvatarUpload.token == token)
-            .execution_options(populate_existing=True)
-        )
-        if (
-            current is None
-            or current.state != "pending"
-            or current.owner_id != actor_id
-            or _snapshot(current).__dict__ != confirmed.__dict__
-        ):
+        if not await avatar_upload_data.pending_matches(db, actor_id, confirmed):
             raise http_error(ContentError("avatar_upload_changed", 409))
         try:
             await storage_access.check(
@@ -345,9 +305,9 @@ async def upload(db, execute, data, *, principal, authority=None):
             {
                 "avatar_ref": avatar.build_upload_ref(token),
                 "kind": "upload",
-                "bytes": current.size_bytes,
+                "bytes": confirmed.size_bytes,
                 "expected_previous_avatar_ref": previous_ref,
-                "receipt": receipt(current, revision),
+                "receipt": receipt(confirmed, revision),
                 "accepted_api_key_proof": proof_payload(authority.key_proof),
             },
         )
@@ -378,14 +338,10 @@ async def upload(db, execute, data, *, principal, authority=None):
 
 async def read(db, token):
     """Anonymous token reads resolve only a ready, independently saved receipt."""
-    row = await db.scalar(
-        select(AvatarUpload)
-        .where(AvatarUpload.token == token, AvatarUpload.state == "ready")
-        .execution_options(populate_existing=True)
-    )
-    if row is None:
-        return None
     try:
+        row = await avatar_upload_data.read_ready(db, token)
+        if row is None:
+            return None
         receipt_row = _snapshot(row)
         owner = avatar_storage.resolve(receipt_row)
         route = await migrated_reads.resolve(
@@ -422,31 +378,12 @@ async def read(db, token):
         raise http_error(exc) from None
 
 
-async def _has_reference(db, token):
-    if db.autoflush:
-        await db.flush()
-    return (
-        await db.scalar(
-            select(account_profiles.c.id)
-            .where(account_profiles.c.avatar_ref == avatar.build_upload_ref(token))
-            .limit(1)
-        )
-        is not None
-    )
-
-
 async def _cleanup_one(db, token):
-    row = await db.scalar(
-        select(AvatarUpload)
-        .where(AvatarUpload.token == token, AvatarUpload.state == "retired")
-        .with_for_update(skip_locked=True)
-        .execution_options(populate_existing=True)
-    )
-    if row is None or await _has_reference(db, token):
+    row = await avatar_upload_data.begin_retirement(db, token)
+    if row is None:
         await db.commit()
         return False
     receipt_row = _snapshot(row)
-    row.last_attempted_at = now()
     await db.commit()
     target = await avatar_storage.io_target(db, receipt_row)
     recorder = removal.recorder(
@@ -483,23 +420,9 @@ async def _cleanup_one(db, token):
     )
     if failure is not None:
         raise failure
-    current = await db.scalar(
-        select(AvatarUpload)
-        .where(AvatarUpload.token == token)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if (
-        current is not None
-        and current.state == "retired"
-        and _snapshot(current).__dict__ == receipt_row.__dict__
-        and not await _has_reference(db, token)
-    ):
-        await db.delete(current)
-        await db.commit()
-        return True
+    deleted = await avatar_upload_data.finish_retirement(db, receipt_row)
     await db.commit()
-    return False
+    return deleted
 
 
 async def cleanup(db, *, token=None, limit=100):
@@ -507,18 +430,7 @@ async def cleanup(db, *, token=None, limit=100):
     if token is not None:
         tokens = [token] if avatar.is_upload_token(token) else []
     else:
-        tokens = list(
-            await db.scalars(
-                select(AvatarUpload.token)
-                .where(AvatarUpload.state == "retired")
-                .order_by(
-                    AvatarUpload.last_attempted_at.asc().nulls_first(),
-                    AvatarUpload.created_at,
-                    AvatarUpload.token,
-                )
-                .limit(max(1, min(limit, 100)))
-            )
-        )
+        tokens = await avatar_upload_data.list_retired(db, limit)
         await db.commit()
     result = {"deleted": 0, "failed": 0, "retained": 0}
     for candidate in tokens:

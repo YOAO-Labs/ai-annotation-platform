@@ -36,7 +36,10 @@ async def test_new_location_record_keeps_its_prefix_and_version_after_retirement
     await db_session.flush()
     saved = deepcopy(row.storage_ref)
     receipt = await avatar_uploads._save_write_version(
-        db_session, avatar_uploads._snapshot(row), "actual-provider-version"
+        db_session,
+        avatar_uploads._snapshot(row),
+        "actual-provider-version",
+        actor_id=row.owner_id,
     )
     assert receipt.object_version_id == "actual-provider-version"
     await db_session.refresh(row)

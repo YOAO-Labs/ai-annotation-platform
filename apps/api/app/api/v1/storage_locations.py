@@ -80,6 +80,7 @@ from app.services.dataset_content import key_authority
 from app.services.audit import AuditAction, AuditService
 from app.services.content_snapshot import ContentError
 from app.services.filesystem_storage import FilesystemStorageError
+from app.services.identity_account_lock_data import IdentityAccountLockData
 
 manager = require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 super_admin = require_roles(UserRole.SUPER_ADMIN)
@@ -99,28 +100,18 @@ def filesystem_error(exc):
 
 
 async def lock_current_admin(db, actor, request):
-    from app.db.models.api_key import ApiKey
-
     key_id = getattr(request.state, "api_key_id", None)
     proof = await key_authority(db, actor, key_id, "datasets:write")
-    actor = await db.scalar(
-        select(User)
-        .where(User.id == actor.id)
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
-    )
-    if not actor or not actor.is_active or actor.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(403, "Platform administrator required")
-    if key_id:
-        await db.scalar(
-            select(ApiKey)
-            .where(ApiKey.id == key_id)
-            .with_for_update(read=True)
-            .execution_options(populate_existing=True)
+    current = (
+        await IdentityAccountLockData(db).lock_accounts(
+            [actor.id], mode="share", nowait=False
         )
-    if await key_authority(db, actor, key_id, "datasets:write") != proof:
+    ).get(actor.id)
+    if not current or not current.is_active or current.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(403, "Platform administrator required")
+    if await key_authority(db, current, key_id, "datasets:write") != proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-    return actor
+    return current
 
 
 @router.get("/roots", response_model=list[str])
