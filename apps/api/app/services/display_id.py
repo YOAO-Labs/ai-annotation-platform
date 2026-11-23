@@ -1,7 +1,6 @@
 """统一 display_id 生成器：Postgres SEQUENCE 驱动的「字母前缀 + 顺序号」。
 
-bug_reports 保持 `B-N` 命名。task_batches 使用 `BT-N`，
-避免与 bug 的 `B-` 前缀冲突。
+BUG 反馈的 `B-N` 由 Diagnostics owner 分配；批次以 `BT-` 区分。
 
 迁移见 `alembic/versions/0021_unify_display_id.py`：建 5 个序列、回填存量、
 unique 约束、setval 同步。
@@ -14,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 ENTITY_TO_PREFIX: dict[str, str] = {
-    "bug_reports": "B",
     "tasks": "T",
     "datasets": "D",
     "projects": "P",

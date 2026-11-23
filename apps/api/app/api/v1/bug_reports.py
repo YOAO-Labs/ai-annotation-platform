@@ -24,7 +24,7 @@ from app.schemas.bug_report import (
     BugAttachment,
     BUG_ATTACHMENT_MIME_TYPES,
 )
-from app.services.bug_report import BugReportService
+from app.services.bug_report import BugReportService, TERMINAL_STATUSES
 from app.services.audit import AuditService
 from app.services.notification import NotificationService
 from app.services.identity_read_relations import account_profiles
@@ -156,11 +156,6 @@ async def upload_bug_screenshot(
     )
 
 
-def _bug_is_visible_to_user(report, current_user: IdentityActorFacts) -> bool:
-    is_admin = current_user.role in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
-    return bool(is_admin or report.reporter_id == current_user.id)
-
-
 @router.post("/bug_reports", response_model=BugReportOut, status_code=201)
 @limiter.limit("10/hour")
 async def create_bug_report(
@@ -175,20 +170,8 @@ async def create_bug_report(
         request,
     )
     svc = BugReportService(db)
-    create_fields = data.model_dump(exclude_unset=True)
-    route = create_fields.pop("route", "") or str(request.url.path)
-    owners = await bug_attachment_uploads.normalize_for_report(
-        db,
-        current_user.id,
-        create_fields,
-    )
-    report = await svc.create(
-        reporter_id=current_user.id,
-        user_role=current_user.role,
-        route=route,
-        **create_fields,
-    )
-    bug_attachment_uploads.bind(owners, report.id)
+    route = data.route or str(request.url.path)
+    report = await svc.create(current_user.id, data, route=route)
     await AuditService.log(
         db,
         actor=current_user,
@@ -200,10 +183,9 @@ async def create_bug_report(
         detail={"display_id": report.display_id, "route": route},
     )
     await bug_attachment_uploads.reauthorize(db, authority)
-    for owner in owners:
-        bug_attachment_uploads._ready(owner)
+    if report.attachments:
+        await svc.confirm_attachments(current_user.id, report.id)
     await db.commit()
-    await db.refresh(report)
     return report
 
 
@@ -235,13 +217,17 @@ async def list_bug_reports(
     if format == "markdown":
         from fastapi.responses import PlainTextResponse
 
-        md = await svc.list_markdown(status=status or "new")
+        md = await svc.list_markdown(current_user.id, status=status or "new")
         return PlainTextResponse(content=md, media_type="text/markdown; charset=utf-8")
 
-    items, total = await svc.list(
-        status=status, severity=severity, route=route, limit=limit, offset=offset
+    return await svc.list(
+        current_user.id,
+        status=status,
+        severity=severity,
+        route=route,
+        limit=limit,
+        offset=offset,
     )
-    return BugReportList(items=items, total=total)
 
 
 @router.get("/bug_reports/mine", response_model=BugReportList)
@@ -252,10 +238,7 @@ async def list_my_bug_reports(
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BugReportService(db)
-    items, total = await svc.list(
-        reporter_id=current_user.id, limit=limit, offset=offset
-    )
-    return BugReportList(items=items, total=total)
+    return await svc.list(current_user.id, mine=True, limit=limit, offset=offset)
 
 
 @router.get("/bug_reports/{report_id}", response_model=BugReportDetail)
@@ -264,25 +247,7 @@ async def get_bug_report(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    svc = BugReportService(db)
-    report, comment_rows = await svc.get_with_comments(report_id)
-    if not report:
-        raise HTTPException(status_code=404, detail="Bug report not found")
-    if not _bug_is_visible_to_user(report, current_user):
-        raise HTTPException(status_code=403, detail="Access denied")
-    comments_out = [
-        BugCommentOut(
-            id=c.id,
-            bug_report_id=c.bug_report_id,
-            author_id=c.author_id,
-            author_name=name,
-            author_role=role,
-            body=c.body,
-            created_at=c.created_at,
-        )
-        for (c, name, role) in comment_rows
-    ]
-    return BugReportDetail(**{**report.__dict__, "comments": comments_out})
+    return await BugReportService(db).get_with_comments(report_id, current_user.id)
 
 
 @router.get(
@@ -333,21 +298,10 @@ async def update_bug_report(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    svc = BugReportService(db)
-    report = await svc.get(report_id)
-    if not report:
-        raise HTTPException(status_code=404, detail="Bug report not found")
-    is_admin = current_user.role in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
-    if not is_admin and report.reporter_id != current_user.id:
-        raise HTTPException(status_code=403, detail="只能编辑自己提交的反馈")
-    old_status = report.status
-    update_fields = data.model_dump(exclude_unset=True)
-    if not is_admin and set(update_fields) - {"title", "description", "severity"}:
-        raise HTTPException(
-            status_code=403, detail="仅管理员可修改处理状态、分派和处理结果"
-        )
-    new_status = update_fields.get("status")
-    report = await svc.update(report_id, **update_fields)
+    report, old_status = await BugReportService(db).update(
+        report_id, current_user.id, data
+    )
+    new_status = data.status
     await AuditService.log(
         db,
         actor=current_user,
@@ -381,7 +335,6 @@ async def update_bug_report(
     await db.commit()
     if pending_notifications:
         await NotificationService(db).publish_committed([pending_notifications])
-    await db.refresh(report)
     return report
 
 
@@ -397,25 +350,17 @@ async def delete_bug_report(
         current_user,
         request,
     )
-    svc = BugReportService(db)
-    report = await bug_attachment_uploads.locked_report(db, report_id)
-    if not report:
-        raise HTTPException(status_code=404, detail="Bug report not found")
-    is_admin = current_user.role in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
-    if not is_admin and report.reporter_id != current_user.id:
-        raise HTTPException(status_code=403, detail="只能删除自己提交的反馈")
+    display_id, retired = await BugReportService(db).delete(report_id, current_user.id)
     await AuditService.log(
         db,
         actor=current_user,
         action="bug_report.deleted",
         target_type="bug_report",
-        target_id=str(report.id),
+        target_id=str(report_id),
         request=request,
         status_code=204,
-        detail={"display_id": report.display_id},
+        detail={"display_id": display_id},
     )
-    retired = await bug_attachment_uploads.retire_report(db, report)
-    await svc.delete(report_id)
     await bug_attachment_uploads.reauthorize(db, authority)
     await db.commit()
     try:
@@ -439,17 +384,9 @@ async def add_bug_comment(
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
     svc = BugReportService(db)
-    report = await svc.get(report_id)
-    if not report:
-        raise HTTPException(status_code=404, detail="Bug report not found")
-    is_admin = current_user.role in (UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
-    if not is_admin and report.reporter_id != current_user.id:
-        raise HTTPException(status_code=403, detail="只有反馈提交者或管理员可以评论")
-
-    will_reopen = current_user.id == report.reporter_id and report.status in (
-        "fixed",
-        "wont_fix",
-        "duplicate",
+    before = await svc.lock_for_comment(report_id, current_user.id)
+    will_reopen = (
+        current_user.id == before.reporter_id and before.status in TERMINAL_STATUSES
     )
     if will_reopen:
         rkey = f"bug:reopen:{current_user.id}:{report_id}:day"
@@ -466,10 +403,9 @@ async def add_bug_comment(
                 detail="reopen 次数超出每日上限（5 次/日）",
             )
 
-    result = await svc.add_comment(report_id, current_user.id, data.body)
-    if not result:
-        raise HTTPException(status_code=404, detail="Bug report not found")
-    comment, was_reopened, author_name, author_role = result
+    comment, was_reopened, report = await svc.add_comment(
+        report_id, current_user.id, data.body
+    )
 
     await AuditService.log(
         db,
@@ -554,16 +490,7 @@ async def add_bug_comment(
     await db.commit()
     if pending_notifications:
         await NotificationService(db).publish_committed(pending_notifications)
-    await db.refresh(comment)
-    return BugCommentOut(
-        id=comment.id,
-        bug_report_id=comment.bug_report_id,
-        author_id=comment.author_id,
-        author_name=author_name,
-        author_role=author_role,
-        body=comment.body,
-        created_at=comment.created_at,
-    )
+    return comment
 
 
 @router.post("/bug_reports/cluster")
@@ -574,10 +501,10 @@ async def cluster_bug_reports(
     ),
 ):
     svc = BugReportService(db)
-    items, _ = await svc.list(status="new", limit=50)
+    page = await svc.list(current_user.id, status="new", limit=50)
     merged: list[dict] = []
-    for item in items:
-        similar = await svc.cluster_similar(item.id)
+    for item in page.items:
+        similar = await svc.cluster_similar(item, current_user.id)
         if similar:
             merged.append(
                 {"report_id": str(item.id), "similar_ids": [str(s) for s in similar]}

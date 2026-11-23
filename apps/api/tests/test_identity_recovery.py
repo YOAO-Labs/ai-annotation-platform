@@ -37,7 +37,11 @@ from yoao_identity.key_contract import KeyFailure, decode_key_request
 from yoao_identity.key_manager import KeyManager
 from yoao_identity.key_postgres import KeyPostgresData
 from yoao_identity.mail_contract import MAIL_POLICY
-from yoao_identity.mail_postgres import MailPostgresData, MailSettingsPostgresData
+from yoao_identity.mail_postgres import (
+    SMTP_SETTINGS_CAPABILITIES,
+    MailPostgresData,
+    MailSettingsPostgresData,
+)
 from yoao_identity.notification_delivery_postgres import (
     NotificationDeliveryPostgresData,
 )
@@ -682,7 +686,7 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
         )
         await _assert_exact_identity_functions(
             mail_settings_dsn,
-            {"yoao_settings_v1.mail_delivery_policy(jsonb)"},
+            SMTP_SETTINGS_CAPABILITIES,
         )
         assert (await MailPostgresData(mail_dsn).mail_policy()).policy == MAIL_POLICY
         fallback_settings = {

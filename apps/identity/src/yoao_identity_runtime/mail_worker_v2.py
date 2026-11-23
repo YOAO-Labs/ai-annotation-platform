@@ -11,6 +11,7 @@ from yoao_identity.mail_v2_postgres import MailV2PostgresData
 
 from .mail_config_v2 import MailV2WorkerSettings
 from .mail_worker import MailExecutor
+from .smtp_test import run_smtp_test_once
 
 
 def _fallbacks(settings: MailV2WorkerSettings) -> dict[str, object]:
@@ -76,8 +77,13 @@ def create_app(
     async def poll_queue() -> None:
         while not stop.is_set():
             try:
+                tested = await run_smtp_test_once(settings_data, policy)
                 result = await executor.run_once()
-                if result.get("state") in {"idle", "stale", "unavailable"}:
+                if not tested and result.get("state") in {
+                    "idle",
+                    "stale",
+                    "unavailable",
+                }:
                     await asyncio.sleep(settings.poll_interval_seconds)
             except asyncio.CancelledError:
                 raise
