@@ -598,6 +598,7 @@ async def _operator_probe(
     from cutover_storage_migration import probe_targets
 
     monkeypatch.setenv("ASSETS_SOURCE_URL", provider.origin)
+    monkeypatch.delenv("ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE", raising=False)
     monkeypatch.setenv(
         "ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN", provider.tokens["cutover"]
     )
