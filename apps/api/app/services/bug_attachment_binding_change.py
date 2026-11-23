@@ -135,6 +135,7 @@ async def capture(db, payload, actor, api_key_id, *, lock=False):
     counts = await history(db, actor.id)
     current = await storage_registry_data.get_location(db, binding.location_id)
     previous = {
+        "purpose": "bug-reports",
         **before,
         "location_config_revision": current.config_revision,
         "state": "configured",

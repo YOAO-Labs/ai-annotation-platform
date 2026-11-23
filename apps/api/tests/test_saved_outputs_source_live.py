@@ -350,7 +350,10 @@ async def test_audit_source_archive_write_and_admin_egress(registered_outputs, t
         archive_url = "/api/v1/audit-logs/archives/2085/1"
         assert (await world.api.get(archive_url, headers=world.user_headers)).status_code == 403
         page = await world.api.get(archive_url, headers=world.admin_headers, params={"limit": 1})
-        assert page.status_code == 200 and page.json()["total"] == 0
+        assert page.status_code == 200
+        response = page.json()
+        assert response["total"] == 1
+        assert response["items"] == [audit_archive_storage.metadata(archive)]
         assert len(_versions(world, archive.storage_ref["object_key"])) == 1
     finally:
         async with world.owner.begin() as owner:
