@@ -12170,6 +12170,10 @@ SELECT id FROM removed;
                     ),
                 }
             )
+        if _WORKSPACE_ASSEMBLY_TARGET in selected_test_paths:
+            resource_environment["AAP_MODULE_DATA_WORKSPACE_CONSUMER_PROFILE"] = (
+                evidence["workspace_api_consumer"]["profile"]
+            )
         workspace_import_cli_fence = None
         seed_parent_live = (
             "tests/test_seed_parent_operator_live.py" in selected_test_paths
