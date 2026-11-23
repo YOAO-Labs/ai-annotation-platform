@@ -246,14 +246,24 @@ async def _activate_batch(
             "strategy": "random",
             "n_batches": 1,
             "shuffle": False,
-            "annotator_id": annotator_id,
-            "reviewer_id": reviewer_id,
         },
     )
     assert batch["total_tasks"] == 1
+    batch_path = f"{project_path}/batches/{batch['id']}"
+    assignment = {"annotator_id": annotator_id, "reviewer_id": reviewer_id}
+    preview = await owner("POST", f"{batch_path}/assignment-preview", json=assignment)
+    planned = await owner(
+        "POST",
+        f"{batch_path}/assignment-apply",
+        json={**assignment, "preview_version": preview["preview_version"]},
+    )
+    assert (planned["annotator_id"], planned["reviewer_id"]) == (
+        annotator_id,
+        reviewer_id,
+    )
     active = await owner(
         "POST",
-        f"{project_path}/batches/{batch['id']}/transition",
+        f"{batch_path}/transition",
         json={"target_status": "active"},
     )
     assert active["status"] == "active"
