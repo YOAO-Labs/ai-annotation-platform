@@ -9,12 +9,9 @@ import json
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.export_artifact import ExportArtifact
-from app.db.models.export_output import ExportOutput
+from app.services import export_delivery_data as data
 from app.services import export_outputs
 
 
@@ -62,14 +59,7 @@ def compute_cache_key(
 
 async def lookup(db: AsyncSession, cache_key: str):
     """A hit is independently verified at its saved location, never a current bucket."""
-    artifact = await db.scalar(
-        select(ExportArtifact)
-        .where(
-            ExportArtifact.cache_key == cache_key,
-            ExportArtifact.expires_at > datetime.now(timezone.utc),
-        )
-        .execution_options(populate_existing=True)
-    )
+    artifact = await data.find_cache(db, cache_key, datetime.now(timezone.utc))
     if artifact is None:
         return None
     return await export_outputs.verify_cache(db, artifact)
@@ -82,40 +72,12 @@ async def record(db: AsyncSession, *, cache_key: str, output, batch_id):
     receipt = export_outputs.snapshot(output)
     if receipt.expires_at <= datetime.now(timezone.utc):
         export_outputs.reject("export_storage_expired")
-    values = {
-        "project_id": receipt.project_id,
-        "batch_id": batch_id,
-        "format": receipt.format,
-        "object_key": export_outputs.object_key(receipt),
-        "file_count": receipt.file_count,
-        "size_bytes": receipt.size_bytes,
-        "expires_at": receipt.expires_at,
-        "output_id": receipt.id,
-    }
-    await db.execute(
-        insert(ExportArtifact)
-        .values(id=uuid.uuid4(), cache_key=cache_key, **values)
-        .on_conflict_do_nothing(index_elements=[ExportArtifact.cache_key])
-    )
-    artifact = await db.scalar(
-        select(ExportArtifact)
-        .where(ExportArtifact.cache_key == cache_key)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if artifact.project_id != receipt.project_id:
+    artifact = await data.record_cache(db, cache_key, receipt.id, batch_id)
+    if artifact is None:
         export_outputs.reject("export_cache_output_mismatch")
-    if artifact.output_id is not None and artifact.expires_at > datetime.now(
-        timezone.utc
-    ):
-        existing = await db.get(
-            ExportOutput, artifact.output_id, populate_existing=True
-        )
+    if artifact.output_id != receipt.id:
+        existing = await data.zip_receipt(db, artifact.output_id)
         if existing is None or existing.state != "ready":
             export_outputs.reject("export_cache_output_mismatch")
         export_outputs.couple(artifact, existing)
-        return artifact
-    for name, value in values.items():
-        setattr(artifact, name, value)
-    await db.flush()
     return artifact

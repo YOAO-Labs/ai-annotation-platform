@@ -17,9 +17,21 @@ async def target_for(db, location, *, require_enabled=True, saved_root=None):
     )
 
 
+async def target_origin_for(
+    db, location, *, require_enabled=True, historical_export=False
+):
+    return await shared.target_origin_for(
+        db,
+        location,
+        purpose="export",
+        require_enabled=require_enabled,
+        historical_export=historical_export,
+    )
+
+
 async def bound_bucket(db, location):
-    target = await shared.target_for(
-        db, location, purpose="export", require_enabled=False, historical_export=True
+    target = await target_origin_for(
+        db, location, require_enabled=False, historical_export=True
     )
     return target.bucket
 

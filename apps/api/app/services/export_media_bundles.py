@@ -7,19 +7,17 @@ no original/object I/O, acquire no authority, and never commit caller work.
 from collections import Counter
 from contextlib import asynccontextmanager
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import re
 import uuid
+from types import SimpleNamespace
 
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 
-from types import SimpleNamespace
-from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
-from app.db.models.export_media_bundle import ExportMediaMemberVersion
+from app.services import export_delivery_data as data
 from app.services import export_media_storage as physical
 from app.services import export_storage
 from app.services.content_snapshot import ContentError
@@ -797,7 +795,7 @@ async def allocate(
         keys[source_key] = key
         source = sources[source_key]
         objects[key] = {"sha256": source["sha256"], "size_bytes": source["size_bytes"]}
-    row = Bundle(
+    row = SimpleNamespace(
         id=identifier,
         project_id=project_id,
         job_id=job_id,
@@ -825,11 +823,12 @@ async def allocate(
         retired_at=None,
     )
     source_objects(snapshot(row), logical_sources)
-    db.add(row)
-    await db.flush()
-    await db.refresh(
-        row, attribute_names=["created_at", "expires_at", "fixture_run_id"]
-    )
+    saved = await data.allocate_media(db, row)
+    if saved is None:
+        raise export_storage.ExportStorageError("export_storage_binding_unproven")
+    row.fixture_run_id = saved.fixture_run_id
+    row.created_at = saved.created_at
+    row.expires_at = saved.expires_at
     return snapshot(row)
 
 
@@ -854,16 +853,9 @@ async def _reads(db, lock):
             await savepoint.commit()
 
 
-def _query(statement, identifier, lock):
-    statement = statement.where(Bundle.id == _uuid(identifier))
-    if lock:
-        statement = statement.with_for_update(nowait=True)
-    return statement.execution_options(populate_existing=True)
-
-
 async def _row(db, identifier, *, lock):
     async with _reads(db, lock):
-        current = await db.scalar(_query(select(Bundle), identifier, lock))
+        current = await data.media_delivery(db, _uuid(identifier), lock=lock)
     if current is None:
         reject("missing", 404)
     return current
@@ -880,12 +872,11 @@ async def claim(db, identifier):
     started = now()
     if current.expires_at <= started:
         reject("expired")
-    row.lease_token = uuid.uuid4()
-    row.lease_expires_at = min(
-        started + timedelta(seconds=LEASE_SECONDS), current.expires_at
-    )
-    await db.flush()
-    return snapshot(row)
+    token = uuid.uuid4()
+    expires = min(started + timedelta(seconds=LEASE_SECONDS), current.expires_at)
+    if not await data.claim_media(db, current.id, token, expires):
+        reject("expired")
+    return replace(current, lease_token=token, lease_expires_at=expires)
 
 
 def _check(current, receipt):
@@ -907,15 +898,12 @@ def _check(current, receipt):
 async def check_claim(db, receipt, *, lock=False):
     """Small scalar fence; immutable DB guards protect documents between full checks."""
     async with _reads(db, lock):
-        result = await db.execute(
-            _query(
-                select(*(getattr(Bundle, name) for name in _SCALARS)), receipt.id, lock
-            )
+        row = await data.media_fence(
+            db, _uuid(receipt.id), mode="update_nowait" if lock else "read"
         )
-        row = result.mappings().one_or_none()
     if row is None:
         reject("missing", 404)
-    current = _fence(dict(row))
+    current = _fence(row)
     _check(current, receipt)
     return current
 
@@ -923,11 +911,7 @@ async def check_claim(db, receipt, *, lock=False):
 async def member_versions(db, bundle_id, owner):
     if not owner.external:
         return {}
-    rows = await db.execute(
-        select(
-            ExportMediaMemberVersion.member_id, ExportMediaMemberVersion.version_id
-        ).where(ExportMediaMemberVersion.bundle_id == bundle_id)
-    )
+    rows = await data.media_versions(db, bundle_id)
     return {owner.key(f"{member_id}.bin"): version for member_id, version in rows}
 
 
@@ -939,6 +923,7 @@ async def publish(db, receipt):
     if not same(current, receipt):
         reject()
     _check(current, receipt)
-    row.state, row.published_at = "ready", now()
-    await db.flush()
-    return row
+    published = now()
+    if not await data.publish_media(db, receipt, published):
+        reject("expired")
+    return replace(current, state="ready", published_at=published)

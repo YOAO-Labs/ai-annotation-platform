@@ -15,14 +15,19 @@ import hashlib
 import json
 import uuid
 
-from sqlalchemy import Text, and_, bindparam, case, cast, func, inspect, or_, select
+from sqlalchemy import and_, bindparam, case, cast, func, inspect, or_, select
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 
-from app.db.models.dataset import Dataset, DatasetItem, Scene, SensorCalibrationRevision
-from app.db.models.scene_pose import SceneFramePose
 from app.services import original_sources, storage_access
 from app.services.exporting import core_reads
+from app.services.exporting.asset_facts import (
+    calibration_facts as SensorCalibrationRevision,
+    dataset_facts as Dataset,
+    item_facts as DatasetItem,
+    pose_facts as SceneFramePose,
+    scene_facts as Scene,
+)
 from app.services.exporting.core_reads import Project
 from app.services.labeling_core_read_relations import (
     annotation_row as Annotation,
@@ -200,14 +205,12 @@ class _Budget:
     media_bytes: int = 0
 
     async def measure(self, db, model, predicate, max_rows):
-        encoded_row = cast(
-            func.to_jsonb(inspect(model).selectable.table_valued()), Text
-        )
+        measured = core_reads.row_bytes(model)
         count, size = (
             await db.execute(
                 select(
                     func.count(),
-                    func.coalesce(func.sum(func.octet_length(encoded_row)), 0),
+                    func.coalesce(func.sum(measured), 0),
                 )
                 .select_from(model)
                 .where(predicate)
@@ -267,11 +270,11 @@ async def _rows(
             reject("lidar_export_input_budget_exceeded", 422)
     prior_size = budget.read_bytes
     count = await budget.measure(db, model, predicate, max_rows)
-    encoded_row = cast(func.to_jsonb(inspect(model).selectable.table_valued()), Text)
+    measured = core_reads.row_bytes(model)
     aggregate = (
         select(
             func.count().label("count"),
-            func.coalesce(func.sum(func.octet_length(encoded_row)), 0).label("size"),
+            func.coalesce(func.sum(measured), 0).label("size"),
         )
         .select_from(model)
         .where(predicate)

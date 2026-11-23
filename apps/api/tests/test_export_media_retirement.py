@@ -12,19 +12,17 @@ import pytest
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.db.models.async_job import AsyncJob
 from app.db.models.export_media_bundle import ExportMediaBundle as Bundle
 from app.db.models.export_output import ExportOutput
-from app.db.models.storage_maintenance import StorageOperation
-from app.db.models.storage_usage import StorageUsageMutation
+from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
+from app.services import async_job
 from app.services import export_media_retirement as retirement
 from app.services import export_media_storage as physical
 from app.services import export_media_transfer as transfer
 from app.services import export_outputs, export_storage
 from tests import test_export_media_bundle_models as model_tests
+from tests.factory import create_project
 from tests.test_export_media_storage import Client
-
-owned_db = model_tests.owned_db
 
 
 def owner(**changes):
@@ -43,18 +41,49 @@ def owner(**changes):
 
 
 class PolicyDB:
-    def __init__(self, job=None, replacement=None):
-        self.job, self.replacement = job, replacement
+    def __init__(self):
         self.committed = False
-
-    async def get(self, *args, **kwargs):
-        return self.job
-
-    async def execute(self, statement, params=None):
-        return SimpleNamespace(one_or_none=lambda: self.replacement)
 
     async def commit(self):
         self.committed = True
+
+
+async def store_policy(db, actor, row, job, replacement=None):
+    project = await create_project(db, owner_id=actor.id)
+    job_id = row.job_id
+    if job is not None:
+        stored = await async_job.create_job(
+            db,
+            kind=job.kind,
+            user_id=actor.id,
+            project_id=project.id,
+            payload=job.payload,
+        )
+        stored.status = job.status
+        row.job_id = stored.id
+    if replacement is not None and replacement.id != row.id:
+        project_id = (
+            project.id
+            if replacement.project_id == row.project_id
+            else replacement.project_id
+        )
+        await database_owner(
+            db,
+            id=replacement.id,
+            project_id=project_id,
+            job_id=row.job_id if replacement.job_id == job_id else replacement.job_id,
+            input_digest=replacement.input_digest,
+            input_snapshot={
+                "schema": replacement.input_schema,
+                "probe_contract": 1,
+                "references": {},
+                "project": {"id": str(project_id), "data_type": "video"},
+                "tasks": [],
+                "media": [],
+            },
+        )
+    row.project_id = project.id
+    await database_owner(db, id=row.id, project_id=row.project_id, job_id=row.job_id)
 
 
 @pytest.mark.parametrize("state", ["building", "ready", "retiring"])
@@ -67,7 +96,9 @@ async def test_published_latch_survives_missing_job_until_exact_expiry(state):
 @pytest.mark.parametrize(
     "status", ["pending", "running", "completed", "failed", "cancelled", None]
 )
-async def test_unpublished_attempt_end_is_explicit_and_never_a_job_age_timeout(status):
+async def test_unpublished_attempt_end_is_explicit_and_never_a_job_age_timeout(
+    status, db_session, super_admin
+):
     row = owner()
     job = (
         None
@@ -81,9 +112,10 @@ async def test_unpublished_attempt_end_is_explicit_and_never_a_job_age_timeout(s
         )
     )
     expected = status not in {"pending", "running"}
-    assert await retirement.attempt_ended(PolicyDB(job), row) is expected
+    await store_policy(db_session, super_admin, row, job)
+    assert await retirement.attempt_ended(db_session, row) is expected
     row.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
-    assert await retirement.attempt_ended(PolicyDB(job), row)
+    assert await retirement.attempt_ended(db_session, row)
 
 
 def replacement_claim(key, schema):
@@ -126,9 +158,12 @@ def replacement_claim(key, schema):
         ("video_media", 4, True),
     ],
 )
-async def test_replacement_must_match_its_media_protocol(key, schema, accepted):
+async def test_replacement_must_match_its_media_protocol(
+    key, schema, accepted, db_session, super_admin
+):
     row, job, replacement = replacement_claim(key, schema)
-    assert await retirement.attempt_ended(PolicyDB(job, replacement), row) is accepted
+    await store_policy(db_session, super_admin, row, job, replacement)
+    assert await retirement.attempt_ended(db_session, row) is accepted
 
 
 @pytest.mark.parametrize(
@@ -145,7 +180,9 @@ async def test_replacement_must_match_its_media_protocol(key, schema, accepted):
         "both",
     ],
 )
-async def test_unproven_replacement_does_not_retire_bundle(fault):
+async def test_unproven_replacement_does_not_retire_bundle(
+    fault, db_session, super_admin
+):
     row, job, replacement = replacement_claim("lidar_media", 1)
     proof = job.payload["lidar_media"]
     if fault == "foreign_project":
@@ -166,7 +203,8 @@ async def test_unproven_replacement_does_not_retire_bundle(fault):
         job.payload["image_media"] = proof
     elif fault == "missing":
         replacement = None
-    assert not await retirement.attempt_ended(PolicyDB(job, replacement), row)
+    await store_policy(db_session, super_admin, row, job, replacement)
+    assert not await retirement.attempt_ended(db_session, row)
 
 
 @pytest.mark.parametrize("unknown_close", [False, True])
@@ -284,6 +322,19 @@ async def test_private_fixture_inventory_requires_owner_before_physical_deletion
     monkeypatch.setattr(physical, "create_client", lambda: client)
     monkeypatch.setattr(retirement.removal, "recorder", lambda *args: None)
 
+    async def start(_db, identifier, at):
+        assert identifier == row.id
+        row.state, row.retired_at = "retiring", at
+        return at
+
+    async def finish(_db, identifier, _at):
+        assert identifier == row.id
+        row.state = "deleted"
+        return True
+
+    monkeypatch.setattr(retirement.data, "start_media_retirement", start)
+    monkeypatch.setattr(retirement.data, "finish_media_retirement", finish)
+
     assert not await retirement._cleanup_one(db, row.id)
     assert row.state == "building"
     assert all(client.rows[key] for key in row.inventory["objects"])
@@ -367,22 +418,30 @@ async def test_pending_zip_has_its_own_retirement_and_preserves_legacy_pending(
         bundle.published_at = datetime.now(timezone.utc)
     if protection == "legacy":
         output.media_bundle_id = None
-    job = (
-        SimpleNamespace(
-            kind="export", status="running", project_id=bundle.project_id, payload={}
-        )
-        if protection == "running"
-        else None
-    )
-    db = PolicyDB(job)
-    db.delete = AsyncMock()
+    db = PolicyDB()
+    remove_output = AsyncMock(return_value=True)
     monkeypatch.setattr(
         export_outputs,
         "_cleanup_locked",
         AsyncMock(return_value=(output, None if protection == "legacy" else bundle)),
     )
-    monkeypatch.setattr(export_outputs, "_has_read", AsyncMock(return_value=False))
-    monkeypatch.setattr(export_outputs, "_has_index", AsyncMock(return_value=False))
+    monkeypatch.setattr(
+        export_outputs, "fixture_native_lifetime", AsyncMock(return_value=None)
+    )
+
+    async def stage(_db, identifier, at):
+        assert identifier == output.id
+        output.state, output.retired_at = "retired", at
+        return 0
+
+    monkeypatch.setattr(export_outputs.data, "start_zip_retirement", stage)
+    monkeypatch.setattr(
+        export_outputs.data, "zip_retirement_unreferenced", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr(export_outputs.data, "remove_retired_zip", remove_output)
+    monkeypatch.setattr(
+        retirement, "attempt_ended", AsyncMock(return_value=protection != "running")
+    )
     monkeypatch.setattr(
         retirement, "has_operations", AsyncMock(return_value=protection == "operation")
     )
@@ -398,29 +457,12 @@ async def test_pending_zip_has_its_own_retirement_and_preserves_legacy_pending(
     assert result is (protection is None)
     if protection is None:
         remove.assert_awaited_once()
-        db.delete.assert_awaited_once_with(output)
+        assert remove_output.await_args.args[:2] == (db, output.id)
         assert bundle.state == "building" and bundle.inventory
     else:
         assert output.state == "pending"
         remove.assert_not_awaited()
-        db.delete.assert_not_awaited()
-
-
-@pytest.fixture
-async def gc_db(owned_db):
-    db = owned_db
-    for ddl in (
-        "CREATE TABLE storage_maintenance_gates (location_id uuid PRIMARY KEY, state text DEFAULT 'active', revision integer DEFAULT 1, changed_at timestamptz, changed_by uuid)",
-        "CREATE TABLE storage_operations (id uuid PRIMARY KEY, location_id uuid, revision integer, purpose text, node_id text, started_at timestamptz DEFAULT now())",
-        "ALTER TABLE export_artifacts ADD COLUMN expires_at timestamptz",
-        "ALTER TABLE export_outputs ADD COLUMN upload_proof jsonb",
-    ):
-        await db.execute(text(ddl))
-    connection = await db.connection()
-    await connection.run_sync(AsyncJob.__table__.create)
-    await connection.run_sync(StorageUsageMutation.__table__.create)
-    await db.commit()
-    return db
+        remove_output.assert_not_awaited()
 
 
 async def database_owner(db, **changes):
@@ -453,10 +495,13 @@ async def retirement_queue(gc_db):
         f"export_write_{write.zip_output_id.hex}",
         f"export_read_{read.zip_output_id.hex}",
     ):
+        location = uuid.uuid4()
+        gc_db.add(StorageMaintenanceGate(location_id=location))
+        await gc_db.flush()
         gc_db.add(
             StorageOperation(
                 id=uuid.uuid4(),
-                location_id=uuid.uuid4(),
+                location_id=location,
                 revision=1,
                 purpose=purpose,
                 node_id="unknown-close",
@@ -497,7 +542,8 @@ async def test_database_locked_candidate_is_skipped_without_waiting(gc_db, monke
         try:
             await db.execute(text("SET LOCAL lock_timeout = '2s'"))
             assert (await retirement.cleanup(db, limit=1))["deleted"] == 1
-            assert (await db.get(Bundle, second.id)).state == "deleted"
+            current = await db.get(Bundle, second.id, populate_existing=True)
+            assert current.state == "deleted"
             assert (await db.get(Bundle, first.id)).state == "building"
         finally:
             await blocker.rollback()
@@ -632,7 +678,7 @@ async def test_database_pending_zip_and_media_retire_independently_legacy_pendin
     assert await db.get(ExportOutput, legacy.id) is not None
     assert not client.calls
     assert (await retirement.cleanup(db))["deleted"] == 1
-    assert (await db.get(Bundle, row.id)).state == "deleted"
+    assert (await db.get(Bundle, row.id, populate_existing=True)).state == "deleted"
 
 
 async def test_database_zip_cleanup_observes_bundle_reads_at_any_location_before_limit(
