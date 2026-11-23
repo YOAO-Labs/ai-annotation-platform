@@ -7,6 +7,7 @@ from contextlib import contextmanager, suppress
 from threading import Timer
 from typing import Any
 
+from ..reference_protocol import s3_directory_prefix
 from .host_guard import assert_host_allowed, normalize_allowlist
 from .registry import target_host
 
@@ -159,7 +160,7 @@ def _probe_s3(config: dict[str, Any], secret: dict[str, Any], allowlist=None) ->
     try:
         response = client.list_objects_v2(
             Bucket=config["bucket"],
-            Prefix=config.get("base_prefix", "") or "",
+            Prefix=s3_directory_prefix(config.get("base_prefix") or ""),
             MaxKeys=_SAMPLE_LIMIT,
         )
         return max(0, min(int(response.get("KeyCount", 0)), _SAMPLE_LIMIT))

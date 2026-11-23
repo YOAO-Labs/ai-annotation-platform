@@ -109,6 +109,14 @@ async def test_saved_source_registered_binding_probe_and_denial(
             + create_access_token(subject=str(actor_id), role="super_admin")
         }
         with registered_sink(test_engine) as sink:
+            sink.storage.put_object(
+                Bucket=sink.bucket, Key=f"{sink.prefix}/inside.bin", Body=b"inside"
+            )
+            sink.storage.put_object(
+                Bucket=sink.bucket,
+                Key=f"{sink.prefix}-adjacent/outside.bin",
+                Body=b"outside",
+            )
             with real_source(
                 test_engine, tmp_path, s3_credentials=sink.credentials
             ) as runtime:
@@ -163,6 +171,7 @@ async def test_saved_source_registered_binding_probe_and_denial(
                     assert check.status_code == 200 and check.json()["ok"] is True, (
                         check.text
                     )
+                    assert check.json()["sample_count"] == 1
 
                     async with owner_session() as db:
                         location = await db.scalar(

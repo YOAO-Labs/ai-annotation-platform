@@ -60,12 +60,18 @@ def _s3_config() -> dict:
 
 
 @pytest.mark.asyncio
-async def test_s3_probe_preserves_limits_counts_samples_and_closes_client(monkeypatch):
+@pytest.mark.parametrize(
+    ("prefix", "listed_prefix"),
+    [("", ""), ("imports", "imports/"), ("imports/", "imports/")],
+)
+async def test_s3_probe_preserves_limits_counts_samples_and_closes_client(
+    monkeypatch, prefix, listed_prefix
+):
     client, arguments = _install_s3(monkeypatch, response={"KeyCount": 4})
 
     result = await probe_connection(
         "s3",
-        _s3_config(),
+        _s3_config() | {"base_prefix": prefix},
         {"access_key": "access", "secret_key": "secret"},
         allowlist=["8.8.8.0/24"],
     )
@@ -78,7 +84,7 @@ async def test_s3_probe_preserves_limits_counts_samples_and_closes_client(monkey
     assert arguments["region_name"] == "test-region"
     assert client.list_arguments == {
         "Bucket": "source-bucket",
-        "Prefix": "imports/",
+        "Prefix": listed_prefix,
         "MaxKeys": 20,
     }
     assert client.closed
