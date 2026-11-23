@@ -29,6 +29,7 @@ from tests.factory import (
     create_project,
     create_task,
     create_user,
+    make_user_dict,
 )
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -149,15 +150,16 @@ async def _seed_membership_world(test_engine, legacy):
             ("new_employee", "employee"),
             ("viewer", "viewer"),
         ):
-            users[name] = await create_user(
-                db,
+            values = make_user_dict(
                 platform_role,
                 f"member-baseline-{name}-{uuid.uuid4().hex}@example.test",
                 name,
             )
-            users[name].id = identifiers[name]
-            await db.flush()
+            values["id"] = identifiers[name]
+            users[name] = User(**values)
             aliases[str(users[name].id)] = name
+        db.add_all(users.values())
+        await db.flush()
 
         project = await create_project(
             db, owner_id=users["owner"].id, name="Membership baseline"
