@@ -1,6 +1,6 @@
 # Notifications owner capabilities
 
-This package defines language-neutral Notifications contracts, bounded PostgreSQL capabilities, the durable publisher, and an optional immediate-publication HTTP route hosted by that same publisher process. API requests keep preference changes, notification inserts, read-state changes, deletions, and caller-owned changes in the same PostgreSQL transaction; the API remains the transaction coordinator.
+This package defines language-neutral Notifications contracts, bounded PostgreSQL capabilities, and the shared publication and WebSocket owners. API requests keep preference changes, notification inserts, read state, deletion, and caller-owned changes in the same PostgreSQL transaction.
 
 The preference contract in `preferences.schema.json` covers reads, partial updates, and in-app mute checks. Migration `0311` installs `yoao_notifications_v1.preference_command(jsonb)`. The policy JSON and owner SQL carry the same known types and toast defaults.
 
@@ -34,7 +34,7 @@ The durable delivery contract in `notification_delivery_protocol.schema.json` de
 
 `publication.py` keeps the existing `publish_committed`, `publish_by_id`, and `publish_sync` behavior, including the caller's commit timing, authorization-read order, unrestricted fallback, per-row best effort, and `publish_by_id` error propagation. `publication_client.py` sends one request with no redirects, environment proxy, retry, or fallback. Its `httpx` import is lazy and is provided by the optional `publication-client` extra. The API's embedded binding retains `redis_pubsub.py` as its compatibility transport; remote mode uses the same manager with the HTTP client. Both paths preserve the existing immediate `json.dumps` output, separate from the durable publisher's compact UTF-8 encoding and lease protocol.
 
-The `realtime_event.schema.json` contract defines the existing persisted-notification event and `notifications.sync` control message on that channel. It keeps business notification types open, event payloads as any native JSONB value, and sync reasons and extension fields optional/open. The immediate manager and durable worker share the event field contract while retaining their existing timestamp construction and JSON encoder settings; the API still chooses when to publish and each caller's best-effort or retry behavior. The WebSocket owner checks its own credentials, current account activity, and each persisted notification before relay; the API keeps its compatibility route and gateway.
+The versioned `realtime_event.schema.json` keeps business notification types open, payloads as any native JSONB value, and sync extensions optional. The public API hosts `/ws/notifications` directly through `serve_notification_socket`. It checks a JWT and current account state before subscribing and rechecks Identity admission, including expiration and revocation, and the stored notification's current visibility for each frame. A terminal ID is relayed once per connection; non-terminal notices retain the four reads and three 150 ms waits for rows that have not appeared yet.
 
 The optional `websocket` extra and `yoao-notifications-socket` entry point run a separate Starlette WebSocket owner on port 8180, bound to `127.0.0.1` by default. `/ws/notifications` keeps the handshake active-account check, per-message Identity admission and target authorization, `notify:<user_id>` Redis channel, heartbeat and raw event shape. Terminal notices use one row read and are relayed once per connection for each stable notification ID. Other notices retain four row reads with three 150 ms waits. The native adapter opens one read-only `READ COMMITTED` transaction per gated message, uses native JSONB values and calls only the seven existing Notifications read capabilities. The socket has no publisher or business-write credentials.
 
@@ -42,14 +42,28 @@ The socket runtime requires exactly one of `NOTIFICATION_SOCKET_DATABASE_URL` or
 
 `conformance/node/realtime_event_provider.mjs --stdio` validates one JSON event or sync sample from stdin and echoes the original bytes to stdout. It has no Redis connection and preserves timestamp strings and sync extensions for a separate transport test.
 
-`Dockerfile` builds a non-editable runtime from this package's locked `runtime` extra and runs the same publisher entry point as a non-root user. The optional HTTP route binds to loopback by default on port 8181; configure `NOTIFICATION_PUBLISH_HOST` for the private container network. The image exposes no host port. Provide `NOTIFICATION_PUBLISH_*` settings through the runtime environment or secret files. The Identity image retains its old module and CLI as compatibility entry points.
+### Deployment
 
-`Dockerfile.socket` independently installs the locked `websocket` extra and runs
-the socket entry point as the same non-root user. The optional
-`docker-compose.notifications.yml` joins the selected Compose private network
-without a host port. See the repository `DEV.md` for the API compatibility binding,
-admission-only Identity bearer and function-only PostgreSQL / subscribe-only Redis
-credentials. Run package checks with
+Default deployments run the durable publisher in the existing Celery worker,
+triggered by `relay-notification-deliveries` every 10 seconds. Identity can run
+locally or remotely; it only writes the receipt and outbox in its business
+transaction and never needs a publisher credential. The worker can use a
+function-only `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` and a publish-only
+`NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`; otherwise it uses its runtime database
+and Redis. API subscribers use `NOTIFICATION_SUBSCRIBE_REDIS_URL(_FILE)` if
+specified, not the worker's publisher credential.
+
+Choose `docker-compose.notifications-publisher.yml` on LAN production only
+when Redis publication must be isolated from API and workers. It hosts the same
+durable publisher plus private immediate HTTP, disables the hosted Beat relay,
+and gives the API subscribe-only Redis and producers the private bearer.
+The publisher keeps the function-only database and publish-only Redis
+credentials, runs non-root from the locked `Dockerfile`, and exposes no host port.
+See [deployment and upgrade instructions](../../docs-site/api/guides/module-data.md#notifications-即时发布).
+
+`Dockerfile.socket` still installs the portable `websocket` extra and runs the
+standalone socket entry point. No product Compose overlay or gateway selects it.
+Run package checks with
 `uv run --project apps/notifications --locked --extra runtime --extra publication-client --extra websocket --extra test python -m pytest`.
 
 `infra/docker/module-data-grants.sql` gives `notifications_code` the narrow notification write privileges needed by its owner functions. The preference grant script gives the existing API LOGIN and a function-only peer access to `preference_command(jsonb)`, then revokes direct preference-table access. The append grant script grants the API LOGIN and `yoao_notification_append_client` the append, read-state, and deletion functions; the peer also gets `preference_command(jsonb)` to compose policy and writes in one transaction. It revokes direct notification INSERT, UPDATE, and DELETE from the API LOGIN while retaining reads. Apply the strict grants only after the API and worker artifacts use the owner paths and old processes are drained.

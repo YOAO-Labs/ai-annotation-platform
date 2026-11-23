@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 import redis.asyncio as aioredis
 from redis.asyncio.connection import ConnectionPool
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
+from yoao_notifications.delivery_config import optional_notification_secret
+from yoao_notifications.websocket import serve_notification_socket
 
 from app.config import settings
 from app.db.enums import PlatformRole
@@ -36,8 +38,6 @@ _ADMIN_SOCKET_ROLES = (
     PlatformRole.SUPER_ADMIN.value,
     PlatformRole.PROJECT_ADMIN.value,
 )
-
-_NOTIFICATION_GATE_RETRY_SECONDS = 0.15
 
 
 async def _load_active_user(user_id: str | None) -> IdentityActorStatus | None:
@@ -85,26 +85,7 @@ async def _revalidate_project_stream(token: str, project_id: uuid.UUID) -> bool:
 
 
 async def _notification_authenticate(token: str):
-    return await _authenticate_socket_token(token, allow_api_key=True)
-
-
-def _notification_inventory_visible(principal) -> bool:
-    scopes = getattr(principal, "scopes", None)
-    return scopes is None or "*" in scopes
-
-
-async def _notification_message_allowed(token: str, data) -> bool:
-    from yoao_notifications.websocket import notification_message_allowed
-
-    return await notification_message_allowed(
-        token,
-        data,
-        authenticate=_notification_authenticate,
-        open_delivery=_open_notification_delivery,
-        retry_seconds=_NOTIFICATION_GATE_RETRY_SECONDS,
-        allow_api_keys=True,
-        include_migration_inventory=_notification_inventory_visible,
-    )
+    return await _authenticate_socket_token(token, allow_api_key=False)
 
 
 @asynccontextmanager
@@ -174,6 +155,7 @@ async def _revalidate_task_visible(task_id: uuid.UUID, user_id: str) -> bool:
 
 
 _REDIS_POOL: ConnectionPool | None = None
+_NOTIFICATION_REDIS_POOL: ConnectionPool | None = None
 
 
 def _get_redis_pool() -> ConnectionPool:
@@ -185,6 +167,25 @@ def _get_redis_pool() -> ConnectionPool:
             decode_responses=False,
         )
     return _REDIS_POOL
+
+
+def _get_notification_redis_pool() -> ConnectionPool:
+    global _NOTIFICATION_REDIS_POOL
+    if _NOTIFICATION_REDIS_POOL is None:
+        url = optional_notification_secret(
+            settings.notification_subscribe_redis_url,
+            settings.notification_subscribe_redis_url_file,
+        )
+        if url is None:
+            if settings.notification_publication_url:
+                raise ValueError(
+                    "Isolated Notifications requires a subscribe Redis source"
+                )
+            return _get_redis_pool()
+        _NOTIFICATION_REDIS_POOL = ConnectionPool.from_url(
+            url, max_connections=200, decode_responses=False
+        )
+    return _NOTIFICATION_REDIS_POOL
 
 
 async def close_redis_pool() -> None:
@@ -199,18 +200,16 @@ async def close_redis_pool() -> None:
     协作式的); 不带 timeout 会让 worker 永久卡 "Waiting for background tasks to
     complete". 实测 2s 足够 pubsub.listen() 协程注意到 cancellation 退出.
     """
-    global _REDIS_POOL
-    if _REDIS_POOL is None:
-        return
-    try:
-        await asyncio.wait_for(
-            _REDIS_POOL.disconnect(inuse_connections=True),
-            timeout=2.0,
-        )
-    except (asyncio.TimeoutError, Exception) as e:
-        log.debug("close_redis_pool: %s (continuing shutdown)", e)
-    finally:
-        _REDIS_POOL = None
+    global _REDIS_POOL, _NOTIFICATION_REDIS_POOL
+    pools = (_REDIS_POOL, _NOTIFICATION_REDIS_POOL)
+    _REDIS_POOL = _NOTIFICATION_REDIS_POOL = None
+    for pool in pools:
+        if pool is None:
+            continue
+        try:
+            await asyncio.wait_for(pool.disconnect(inuse_connections=True), timeout=2)
+        except Exception:
+            log.debug("WebSocket Redis pool close failed; continuing shutdown")
 
 
 HEARTBEAT_INTERVAL = 30
@@ -526,16 +525,7 @@ async def notifications_socket(
     websocket: WebSocket,
     token: str = Query(...),
 ):
-    """Keep the existing public binding for embedded or independent Notifications."""
-    if settings.notification_socket_url:
-        from app.services.notification_socket_bridge import proxy_notification_socket
-
-        await proxy_notification_socket(
-            websocket, token, settings.notification_socket_url
-        )
-        return
-
-    from yoao_notifications.websocket import serve_notification_socket
+    """Subscribe to the current user's Notifications through the owner gate."""
 
     await serve_notification_socket(
         websocket,
@@ -543,6 +533,8 @@ async def notifications_socket(
         authenticate=_notification_authenticate,
         active_actor=_load_active_user,
         open_delivery=_open_notification_delivery,
-        redis_client=lambda: aioredis.Redis(connection_pool=_get_redis_pool()),
+        redis_client=lambda: aioredis.Redis(
+            connection_pool=_get_notification_redis_pool()
+        ),
         relay=_run_pubsub_ws,
     )

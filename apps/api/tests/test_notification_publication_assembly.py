@@ -1,50 +1,57 @@
-"""Publication assembly gives API only its selected transport credential."""
+"""The isolated LAN overlay never mounts publisher credentials in producers."""
 
-from types import SimpleNamespace
+from pathlib import Path
 
-import pytest
-from sqlalchemy.engine import make_url
-
-from tests.identity_module_assembly_helpers import IdentityModuleStack
+import yaml
 
 
-@pytest.mark.parametrize("selected", [False, True])
-def test_publication_api_environment_keeps_file_token_and_scoped_redis(selected):
-    source = {
-        "REDIS_URL": "redis://cache:offline@owned-redis:6379/0",
-        "MINIO_ENDPOINT": "owned-storage:9000",
-        "AAP_MODULE_DATA_API_BOOTSTRAP_S3_ACCESS_KEY": "offline-access",
-        "AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY": "offline-secret",
-    }
-    scoped = "redis://api:offline-api@owned-redis:6379/0"
-    stack = SimpleNamespace(
-        _api_database_url=make_url(
-            "postgresql://api:offline@owned-postgres/probe_test"
-        ),
-        _api_secret="offline-api-secret",
-        _control="offline-control",
-        _required_environment=source.__getitem__,
-        _docker_url=lambda value: value,
-        _docker_endpoint=lambda value: value,
-        _docker_http_url=lambda value: value,
-        _notifications_socket_enabled=False,
-        _notification_publication_enabled=selected,
-        _notification_api_redis_url=scoped,
+def test_isolated_publication_overlay_wires_producers_and_only_one_relay():
+    root = Path(__file__).resolve().parents[3]
+    assert not (root / "docker-compose.notifications.yml").exists()
+    overlay = yaml.safe_load(
+        (root / "docker-compose.notifications-publisher.yml").read_text()
     )
-
-    values = IdentityModuleStack._api_environment(stack)
-
-    if selected:
-        assert "NOTIFICATION_PUBLICATION_TOKEN" not in values
-        assert values["NOTIFICATION_PUBLICATION_TOKEN_FILE"] == (
+    services = overlay["services"]
+    assert set(services) == {
+        "api",
+        "celery-beat",
+        "celery-worker",
+        "celery-worker-export",
+        "notifications-publisher",
+    }
+    origin = "http://notifications-publisher:8181"
+    api = services["api"]
+    assert api["environment"]["NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE"] == (
+        "/run/secrets/notification_subscribe_redis_url"
+    )
+    assert services["celery-beat"]["environment"] == {
+        "NOTIFICATION_PUBLICATION_URL": origin
+    }
+    publish_targets = {
+        "/run/secrets/notification_publish_redis_url",
+        "/run/secrets/notification_publish_database_url",
+    }
+    for name in ("api", "celery-worker", "celery-worker-export"):
+        producer = services[name]
+        assert producer["environment"]["NOTIFICATION_PUBLICATION_URL"] == origin
+        assert producer["environment"]["NOTIFICATION_PUBLICATION_TOKEN_FILE"] == (
             "/run/secrets/notification_publication_token"
         )
-        assert values["NOTIFICATION_PUBLICATION_URL"] == (
-            "http://identity-notification-publisher:8181"
+        assert not producer["environment"]["NOTIFICATION_PUBLICATION_TOKEN"]
+        assert all(
+            value == ""
+            for key, value in producer["environment"].items()
+            if key.startswith("NOTIFICATION_PUBLISH_")
         )
-        assert values["REDIS_URL"] == values["CELERY_BROKER_URL"] == scoped
-    else:
-        assert values["NOTIFICATION_PUBLICATION_URL"] == ""
-        assert values["NOTIFICATION_PUBLICATION_TOKEN"] == ""
-        assert values["NOTIFICATION_PUBLICATION_TOKEN_FILE"] == ""
-        assert values["REDIS_URL"] == source["REDIS_URL"]
+        assert all(
+            mount["source"] == "/dev/null"
+            for mount in producer["volumes"]
+            if mount["target"] in publish_targets
+        )
+    publisher = services["notifications-publisher"]
+    assert set(publisher["secrets"]) == {
+        "notification_publish_database_url",
+        "notification_publish_redis_url",
+        "notification_publication_token",
+    }
+    assert "ports" not in publisher

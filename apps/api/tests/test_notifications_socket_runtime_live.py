@@ -1,9 +1,9 @@
-"""Cold Notifications owner behind the existing public API WebSocket binding."""
+"""Cold Notifications WebSocket hosted by the public API."""
 
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 import os
 from pathlib import Path
@@ -24,6 +24,7 @@ from sqlalchemy.engine import URL, make_url
 import websockets
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
+from yoao_identity.security import create_access_token, decode_access_token
 from yoao_notifications.realtime_event_contract import notification_event_message
 from yoao_notifications.websocket import (
     _NOTIFICATION_GATE_ATTEMPTS,
@@ -39,6 +40,10 @@ from tests.identity_module_assembly_helpers import (
     verifier_database_url,
 )
 from tests.identity_recovery_live_helpers import SMTPInbox
+from tests.notifications_module_acceptance_helpers import (
+    NotificationsModuleStack,
+    required_module_inputs,
+)
 from tests.test_identity_admission_live import ROOT
 from tests.test_identity_module_assembly_live import _publisher_redis
 from tests.test_identity_sessions_live import _login_redis, _verify_redis
@@ -211,23 +216,6 @@ def test_unprepared_diagnostics_skip_docker_and_record_minimal_state(
         path.unlink(missing_ok=True)
 
 
-def _required_native_inputs() -> dict[str, str]:
-    names = (
-        "AAP_IDENTITY_RUNTIME_IMAGE",
-        "AAP_IDENTITY_RUNTIME_IDENTITY",
-        "AAP_IDENTITY_API_RUNTIME_IMAGE",
-        "AAP_IDENTITY_API_RUNTIME_IDENTITY",
-        "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IMAGE",
-        "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IDENTITY",
-        "AAP_MODULE_DATA_NOTIFICATION_DELIVERY_READ_URL",
-        "AAP_MODULE_DATA_IDENTITY_ACTOR_STATUS_URL",
-    )
-    missing = [name for name in names if not os.environ.get(name)]
-    if missing:
-        pytest.fail("Owned cold runtime inputs are missing: " + ", ".join(missing))
-    return {name: os.environ[name] for name in names}
-
-
 def _websocket_url(api_origin: str, token: str | None) -> str:
     parsed = urlsplit(api_origin)
     scheme = {"http": "ws", "https": "wss"}.get(parsed.scheme)
@@ -349,11 +337,11 @@ async def _assert_role_capabilities(
     os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
     reason="requires the verifier-owned disposable PostgreSQL and Redis",
 )
-async def test_cold_notifications_owner_behind_api_bridge(
+async def test_cold_notifications_owner_hosted_in_api(
     test_engine, socket_world, tmp_path, record_property
 ):
-    """Exercise the cold owner, Identity RPC, and same-origin API path together."""
-    inputs = _required_native_inputs()
+    """Exercise the packaged owner in the API with real Identity admission."""
+    inputs = required_module_inputs()
     seed, actor, project, membership = socket_world
     actor_status_host_url = inputs["AAP_MODULE_DATA_IDENTITY_ACTOR_STATUS_URL"]
     delivery_host_url = inputs["AAP_MODULE_DATA_NOTIFICATION_DELIVERY_READ_URL"]
@@ -429,11 +417,11 @@ async def test_cold_notifications_owner_behind_api_bridge(
 
         async with (
             _login_redis() as (login_redis_url, _),
-            _publisher_redis() as (publisher_redis_url, redis_publisher),
+            _publisher_redis() as (_, redis_publisher),
         ):
             mail_key = Fernet.generate_key().decode()
             assert isinstance(Fernet(mail_key.encode()), Fernet)
-            stack = IdentityModuleStack(
+            stack = NotificationsModuleStack(
                 test_engine,
                 tmp_path,
                 secret=identity_secret,
@@ -441,33 +429,28 @@ async def test_cold_notifications_owner_behind_api_bridge(
                 control=control,
                 mail_key=mail_key,
                 login_redis_url=login_redis_url,
-                publisher_redis_url=publisher_redis_url,
                 smtp_port=inbox.port,
-                notifications_socket_image=inputs[
-                    "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IMAGE"
-                ],
-                notifications_socket_identity=inputs[
-                    "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IDENTITY"
-                ],
-                notification_delivery_database_url=delivery_host_url,
                 identity_actor_status_database_url=actor_status_host_url,
-                notifications_socket_redis_url=socket_redis_host_url,
+                subscribe_redis_url=socket_redis_host_url,
                 admission_token=admission_token,
             )
             try:
                 await test_engine.dispose()
                 await stack.start()
                 evidence = stack.inspection_evidence
-                socket_evidence = evidence["notifications-socket"]
-                assert socket_evidence["user"] == "10004:10004"
-                assert socket_evidence["read_only"] is True
-                assert socket_evidence["running"] is True
-                assert socket_evidence["health"] == "healthy"
-                assert socket_evidence["secret_mount_targets"] == [
-                    "/run/secrets/notification_socket_database_url",
-                    "/run/secrets/notification_socket_identity_token",
-                    "/run/secrets/notification_socket_redis_url",
-                ]
+                api_evidence = evidence["identity-api"]
+                assert api_evidence["user"] == "10003:10003"
+                assert api_evidence["read_only"] is True
+                assert api_evidence["running"] is True
+                assert (
+                    "NOTIFICATION_SUBSCRIBE_REDIS_URL"
+                    in api_evidence["environment_names"]
+                )
+                assert "notifications-socket" not in evidence
+                assert not any(
+                    name.startswith("NOTIFICATION_PUBLISH_")
+                    for name in api_evidence["environment_names"]
+                )
 
                 async with httpx.AsyncClient(
                     base_url=stack.api_origin,
@@ -515,6 +498,55 @@ async def test_cold_notifications_owner_behind_api_bridge(
                     await _expect_rejected_socket(
                         _websocket_url(stack.api_origin, api_key)
                     )
+                    await _wait_for_subscribers(redis_publisher, channel, 0)
+                    claims = decode_access_token(token, secret=identity_secret)
+                    expired = create_access_token(
+                        str(actor.id),
+                        claims["role"],
+                        secret=identity_secret,
+                        expire_minutes=1,
+                        expires_delta=timedelta(seconds=-1),
+                        gen=claims["gen"],
+                    )
+                    await _expect_rejected_socket(
+                        _websocket_url(stack.api_origin, expired)
+                    )
+
+                    short = create_access_token(
+                        str(actor.id),
+                        claims["role"],
+                        secret=identity_secret,
+                        expire_minutes=1,
+                        expires_delta=timedelta(seconds=6),
+                        gen=claims["gen"],
+                    )
+                    short_exp = decode_access_token(short, secret=identity_secret)[
+                        "exp"
+                    ]
+                    sync_before = b'{"type":"notifications.sync","marker":"before-exp"}'
+                    async with websockets.connect(
+                        _websocket_url(stack.api_origin, short),
+                        proxy=None,
+                        open_timeout=4,
+                        close_timeout=3,
+                        ping_interval=None,
+                    ) as temporary:
+                        await _wait_for_subscribers(redis_publisher, channel, 1)
+                        assert await redis_publisher.publish(channel, sync_before) == 1
+                        assert (
+                            await asyncio.wait_for(temporary.recv(), 3)
+                            == sync_before.decode()
+                        )
+                        await asyncio.sleep(max(0, short_exp + 0.2 - time.time()))
+                        assert (
+                            await redis_publisher.publish(
+                                channel,
+                                b'{"type":"notifications.sync","marker":"after-exp"}',
+                            )
+                            == 1
+                        )
+                        with pytest.raises(TimeoutError):
+                            await asyncio.wait_for(temporary.recv(), 0.5)
                     await _wait_for_subscribers(redis_publisher, channel, 0)
 
                     socket = await websockets.connect(
@@ -770,7 +802,7 @@ async def test_cold_notifications_owner_behind_api_bridge(
                             == demoted_marker
                         )
 
-                        await stack.kill_service("notifications-socket")
+                        await stack.kill_service("identity-api")
                         with pytest.raises(ConnectionClosed):
                             await asyncio.wait_for(socket.recv(), 5)
                         await socket.close()
@@ -781,7 +813,8 @@ async def test_cold_notifications_owner_behind_api_bridge(
                             kind="future.durable",
                             payload={"offline": True},
                         )
-                        await stack.start_service("notifications-socket")
+                        await stack.start_service("identity-api")
+                        api.base_url = stack.api_origin
                         inbox_response = await api.get("/api/v1/notifications")
                         assert inbox_response.status_code == 200, stack.redact(
                             inbox_response.text
@@ -923,11 +956,12 @@ async def test_cold_notifications_owner_behind_api_bridge(
                     "notifications_socket_cold_native",
                     json.dumps(
                         {
-                            "api_same_origin_bridge": True,
+                            "api_hosted_socket": True,
                             "identity_admission_rpc": True,
                             "scoped_bearer_rejects_actor_context": True,
                             "api_key_and_missing_jwt_rejected": True,
-                            "notification_role_function_only": True,
+                            "expired_jwt_and_expiring_connection_gated": True,
+                            "portable_notification_role_function_only": True,
                             "actor_status_role_function_only": True,
                             "actor_channel_redis_acl": True,
                             "jsonb_payload_shapes": len(payloads),
@@ -941,7 +975,7 @@ async def test_cold_notifications_owner_behind_api_bridge(
                             "current_scope_revocation_and_role_drift": True,
                             "retired_private_jobs_require_current_super_admin": True,
                             "unknown_jobs_denied_for_super_admin": True,
-                            "owner_restart_durable_inbox_reconciled": True,
+                            "api_restart_durable_inbox_reconciled": True,
                             "sdk_source_import": str(
                                 sdk_source.relative_to(ROOT.resolve())
                             ),

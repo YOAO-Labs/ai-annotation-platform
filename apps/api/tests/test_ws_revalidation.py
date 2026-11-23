@@ -6,11 +6,13 @@ import asyncio
 import json
 import os
 import uuid
+from functools import partial
 from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import delete, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from yoao_notifications.websocket import notification_message_allowed
 
 from app.api.v1 import ws
 from app.core.security import create_access_token
@@ -130,9 +132,12 @@ async def test_project_stream_rejects_when_credential_invalid(monkeypatch):
     assert await ws._revalidate_project_stream("tok", None) is False
 
 
-@pytest.fixture(autouse=True)
-def _no_redis_pool(monkeypatch):
-    yield
+_notification_message_allowed = partial(
+    notification_message_allowed,
+    authenticate=ws._notification_authenticate,
+    open_delivery=ws._open_notification_delivery,
+    retry_seconds=0,
+)
 
 
 async def test_notification_parser_fails_closed(monkeypatch):
@@ -143,11 +148,11 @@ async def test_notification_parser_fails_closed(monkeypatch):
 
     monkeypatch.setattr(ws, "_authenticate_socket_token", fake_auth)
 
-    assert await ws._notification_message_allowed("t", b"not-json") is False
-    assert await ws._notification_message_allowed("t", b"[1,2]") is False
-    assert await ws._notification_message_allowed("t", b'{"type":"x"}') is False
+    assert await _notification_message_allowed("t", b"not-json") is False
+    assert await _notification_message_allowed("t", b"[1,2]") is False
+    assert await _notification_message_allowed("t", b'{"type":"x"}') is False
     assert (
-        await ws._notification_message_allowed(
+        await _notification_message_allowed(
             "t", b'{"type":"notifications.sync","reason":"read"}'
         )
         is True
@@ -186,7 +191,7 @@ async def test_notification_parser_resolves_stored_row(monkeypatch):
         NotificationService, "notification_deliverable", fake_deliverable
     )
     notification_id = uuid.uuid4()
-    allowed = await ws._notification_message_allowed(
+    allowed = await _notification_message_allowed(
         "t", json.dumps({"id": str(notification_id)})
     )
     assert allowed is False
@@ -204,7 +209,6 @@ async def test_notification_gate_retries_until_row_visible(monkeypatch):
         return user
 
     monkeypatch.setattr(ws, "_authenticate_socket_token", fake_auth)
-    monkeypatch.setattr(ws, "_NOTIFICATION_GATE_RETRY_SECONDS", 0)
 
     class _FakeDb:
         def __init__(self) -> None:
@@ -232,7 +236,7 @@ async def test_notification_gate_retries_until_row_visible(monkeypatch):
     monkeypatch.setattr(
         NotificationService, "notification_deliverable", fake_deliverable
     )
-    allowed = await ws._notification_message_allowed(
+    allowed = await _notification_message_allowed(
         "t", json.dumps({"id": str(notification_id)})
     )
     assert allowed is True
@@ -246,7 +250,6 @@ async def test_notification_gate_fails_closed_after_retry_window(monkeypatch):
         return user
 
     monkeypatch.setattr(ws, "_authenticate_socket_token", fake_auth)
-    monkeypatch.setattr(ws, "_NOTIFICATION_GATE_RETRY_SECONDS", 0)
 
     class _FakeDb:
         def __init__(self) -> None:
@@ -269,9 +272,7 @@ async def test_notification_gate_fails_closed_after_retry_window(monkeypatch):
 
     monkeypatch.setattr(NotificationService, "notification_by_id", fake_notification)
     assert (
-        await ws._notification_message_allowed(
-            "t", json.dumps({"id": str(uuid.uuid4())})
-        )
+        await _notification_message_allowed("t", json.dumps({"id": str(uuid.uuid4())}))
         is False
     )
     assert fake_db.looks == 4

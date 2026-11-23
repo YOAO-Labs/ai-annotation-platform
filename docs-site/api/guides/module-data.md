@@ -20,8 +20,8 @@ HTTP 数据集路由对 API key 按操作检查 `datasets:read` / `datasets:writ
 
 ## 操作与职责
 
-| 操作                                      | 输入                                         | 返回与约束                                             |
-| ----------------------------------------- | -------------------------------------------- | ------------------------------------------------------ |
+| 操作                                       | 输入                                         | 返回与约束                                             |
+| ------------------------------------------ | -------------------------------------------- | ------------------------------------------------------ |
 | `yoao_workspace_v1.lock_project_reference` | project UUID                                 | 当前 UUID 或 null，持有引用锁；不判断当前用户权限      |
 | `yoao_assets_v1.lock_dataset_reference`    | dataset UUID                                 | 当前 UUID 或 null，持有父行锁                          |
 | `yoao_assets_v1.lock_current_association`  | dataset、project UUID                        | 当前关联 UUID 或 null，锁定父行、项目引用和关联        |
@@ -203,8 +203,8 @@ kind 为 `batch_predict`、status 为 `running` 的作业数。两者分别返�
 完整请求和响应字段见 `0192_creation_authority.schema.json`、
 `0193_task_creation_jobs.schema.json`、`0194_task_creation.schema.json`。
 
-| 所有者    | 操作                                            | 输入与行为                                                                                       |
-| --------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| 所有者    | 操作                                             | 输入与行为                                                                                       |
+| --------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
 | Identity  | `yoao_identity_v1.lock_active_actor`             | actor UUID；当前活跃身份事实，仅供 Workspace owner 组合                                          |
 | Workspace | `yoao_workspace_v1.lock_project_manager`         | actor/project UUID；当前管理权和媒体/scene 事实，锁住身份与项目配置                              |
 | Assets    | `yoao_assets_v1.associate_project`               | actor/dataset/project UUID；授权后创建或返回关联 UUID、现有标记、素材数和项目类型                |
@@ -826,13 +826,34 @@ Redis 接受后才返回 true，零订阅者也视为成功。未认证返回 40
 
 API 保留通知的 identity-map／过期字段、autoflush、Jobs 范围与四项顺序授权读取，
 owner 使用该次事实，不另开事务读取尚未提交的行。普通提交后发布及同步提示仍为
-best-effort，终态发布保留提交前路径；按 ID 发布失败仍传播给既有投递租约。
+best-effort；白名单作业终态和两种账号注销事件只由 durable outbox 在提交后投递。
+按 ID 发布失败仍传播给既有导入投递租约。
 既有 durable outbox 的 lease／ack／重试单独保留，普通发布不转为耐久队列。
 
-API 配置 `NOTIFICATION_PUBLICATION_URL` 和 `NOTIFICATION_PUBLICATION_TOKEN(_FILE)`；
-publisher 使用 `NOTIFICATION_PUBLISH_API_TOKEN(_FILE)`、`NOTIFICATION_PUBLISH_HOST`、
-`NOTIFICATION_PUBLISH_PORT`。直接 token 与文件二选一，空 URL 保留内嵌装配；
-未给 publisher API token 时仍只运行原 durable 循环，`--once` 行为保持。
-独立 Compose 文件 `docker-compose.notifications-publisher.yml` 不发布宿主端口。
-`/health/live` 检查进程，`/health/ready` 检查 Redis、原投递策略及 publisher 循环。
+默认由 API 处理即时 Redis 发布，`/ws/notifications` 也由 API 直接运行同一 owner。
+`celery-beat` 每 10 秒经 `default` 队列触发 `relay-notification-deliveries`，从同一
+PostgreSQL 领取两类 durable 事件；远端 Identity 仍可写入受理回执及 outbox，不持
+发布数据库或 Redis 凭据。普通 worker 可以单独设置
+`NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 和 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`；
+未设置时使用 worker 的基础连接。API 可单独设置 `NOTIFICATION_SUBSCRIBE_REDIS_URL(_FILE)`。
+
+只有需要隔离 Redis 发布权的 LAN 生产环境才在 `docker-compose.lan-prod.yml` 后叠加
+`docker-compose.notifications-publisher.yml`。通过 `--env-file` 提供以下宿主机文件：
+
+| 文件选择器                               | 内容                                                 |
+| ---------------------------------------- | ---------------------------------------------------- |
+| `NOTIFICATION_PUBLISH_DATABASE_URL_FILE` | `yoao_notification_publish_client` 三函数 LOGIN DSN  |
+| `NOTIFICATION_PUBLISH_REDIS_URL_FILE`    | 仅能在 `notify:*` 发布的 Redis DSN                   |
+| `NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE`  | 同一 Redis 上仅能订阅 `notify:*` 的身份，由 API 使用 |
+| `NOTIFICATION_PUBLISH_API_TOKEN_FILE`    | 仅允许调用私网即时发布 HTTP 的独立 bearer            |
+
+生产 Redis ACL 必须禁止通用 cache／Celery 账号访问通知频道；否则仅换连接不会产生隔离。
+叠加层向 API、默认与导出 worker 注入私网 `NOTIFICATION_PUBLICATION_URL` 和 bearer，
+只保留独立 publisher 消费 durable outbox。Beat 收到同一 URL 后不再排入 durable relay；
+已经排队的旧任务也不会本地发布。独立 publisher 不监听宿主端口，
+`/health/live` 检查进程，`/health/ready` 检查 Redis、投递策略及 durable 循环。
+移除该叠加层前先停独立 publisher，并重建 API、生产通知的 worker 和 Beat；
+切入时也先排空旧消费者，再启动所选宿主。不要保留已退役的
+`identity-notification-publisher`、`NOTIFICATION_SOCKET_URL` 或指向旧服务的发布 URL。
+不截断 outbox，不重发历史收件箱；已提交的待投递行及未确认租约按原逻辑恢复。
 本地运行与完整模块资格按[唯一台账](../../dev/concepts/module-deployment#notification-publication-owner)分别记录。

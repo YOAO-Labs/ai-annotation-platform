@@ -7,6 +7,7 @@ import uuid
 
 import pytest
 from sqlalchemy import delete, select
+from yoao_notifications.websocket import notification_message_allowed
 
 from app.core import security
 from app.db.models.api_key import ApiKey
@@ -118,7 +119,7 @@ async def test_rest_notification_reads_counts_and_mutations_use_current_authorit
     assert len(remaining) == (0 if allowed else 2)
 
 
-async def test_creation_and_late_websocket_delivery_recheck_current_role_and_key(
+async def test_creation_and_late_websocket_delivery_recheck_current_role(
     db_session, super_admin, monkeypatch
 ):
     from app.api.v1 import ws
@@ -143,27 +144,31 @@ async def test_creation_and_late_websocket_delivery_recheck_current_role_and_key
     async def session():
         yield db_session
 
-    current_scopes = ["*"]
-
-    async def authenticate(raw, *, allow_api_key=True):
+    async def authenticate(_raw, *, allow_api_key=False):
         from types import SimpleNamespace
 
-        scopes = current_scopes if raw.startswith("ak_") else None
-        return SimpleNamespace(actor_id=actor.id, scopes=scopes)
+        assert not allow_api_key
+        return SimpleNamespace(actor_id=actor.id)
 
     monkeypatch.setattr(base, "async_session", session)
     monkeypatch.setattr(ws, "_authenticate_socket_token", authenticate)
     message = json.dumps({"id": str(protected.id), "type": "job.completed"})
-    assert await ws._notification_message_allowed("ak_fixture", message)
-    current_scopes[:] = ["datasets:read"]
-    assert not await ws._notification_message_allowed("ak_fixture", message)
-    assert await ws._notification_message_allowed(token, message)
+
+    async def allowed(credential):
+        return await notification_message_allowed(
+            credential,
+            message,
+            authenticate=ws._notification_authenticate,
+            open_delivery=ws._open_notification_delivery,
+        )
+
+    assert not await allowed("ak_fixture")
+    assert await allowed(token)
     await db_session.execute(delete(AsyncJob).where(AsyncJob.id == protected.target_id))
-    assert await ws._notification_message_allowed(token, message)
-    assert not await ws._notification_message_allowed("ak_fixture", message)
+    assert await allowed(token)
     actor.role = "project_admin"
     await db_session.flush()
-    assert not await ws._notification_message_allowed(token, message)
+    assert not await allowed(token)
 
 
 async def test_actual_job_kind_wins_over_stale_notification_payload(
@@ -268,7 +273,12 @@ async def test_unresolved_job_is_hidden_from_rest_mutations_and_socket(
     monkeypatch.setattr(base, "async_session", session)
     monkeypatch.setattr(ws, "_authenticate_socket_token", authenticate)
     message = json.dumps({"id": str(hidden_unread.id), "type": "job.completed"})
-    assert not await ws._notification_message_allowed(token, message)
+    assert not await notification_message_allowed(
+        token,
+        message,
+        authenticate=ws._notification_authenticate,
+        open_delivery=ws._open_notification_delivery,
+    )
     assert (
         await httpx_client.post(
             f"/api/v1/notifications/{hidden_unread.id}/read", headers=headers
