@@ -3062,13 +3062,20 @@ PYTHONPATH="$PWD" apps/api/.venv/bin/python scripts/verify_module_data_boundary.
 ```
 
 默认采用 `--workspace-consumer-profile strict`，在现有 LAN 授权后应用 32 函数最小配置。
-要验证默认凭据而不再收紧，在另一个新隔离库运行：
+严格档不授予发布指南资产的 `guide_assets_step`：上传应返回 503，不能新增项目引用或成功收据。已写入对象存储的内容仍由一条 `pending` 记录持有，不能把拒绝发布解释成未写入字节。
+要验证默认 LAN 凭据能上传、读回并解除引用，在另一个新隔离库运行：
 
 ```bash
 PYTHONPATH="$PWD" apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
   --output .worktree/workspace-module-assembly-default.json \
   --workspace-consumer-profile default \
   --test-file tests/test_workspace_module_assembly_live.py
+
+# 指南复制另用一个新库，以验证最后一个引用移除后的退役。
+PYTHONPATH="$PWD" apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-guide-clone-default.json \
+  --workspace-consumer-profile default \
+  --test-file tests/test_guide_clone_api_login_native.py
 ```
 
 ### Workspace 冷 API 工件与 worker 验收

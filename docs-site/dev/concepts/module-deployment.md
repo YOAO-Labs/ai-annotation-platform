@@ -233,7 +233,7 @@ Inference 的定向选择是 registry ingress、health observation、Workspace p
 
 #### 验收与后续收敛
 
-1. **Workspace 六项已完成源码与部署定义合并。** 现有嵌入 manager 不需要把 signer、broker、存储删除身份或 probe DSN 交给 API。验收须用真实请求核对权限拒绝、回滚、改名与跨 owner Inference 探测。其余组仍按上表前置条件单独确认；日常切换属于另行授权的 M2c。
+1. **Workspace 六项已合并，并通过本地冷启动和数据库恢复验收。** 默认 LAN 和严格 32 函数账号均经真实 API 验证权限拒绝、调用方回滚和类目改名；独立 Inference 探测停止后，建项目返回 503，没有额外项目或收据。未给 API 增加私表权限、signer、broker 或 probe DSN。运行依据见仓库 `docs/plans/evidence/1795366269_platform-pluginization/first-slice-run-ledger.md` 的「M2b Workspace」。其余组须另行确认；本机日常切换属于 M2c。
 2. CI 入口为 `ci.yml` 的 owner matrix（`scripts/test-suite-inventory.mjs`／`scripts/test-suites.json`）及 `backend-test.yml` 的消费者分片；后者直接调用模块验证器时仅跑 `--reclamation-only`。逐 overlay 的冷验收另走 `scripts/verify_module_data_boundary.py --test-file`。只迁移装配选择器，不删除第二语言 peer、协议、SQL／角色拒绝与恢复检查。环境选择器变化时同步 `.env.example`、生成的环境变量页和部署说明。
 3. **两个旧阻塞都未关闭。** [宿主机转发](#runtime-host-forwarding)是特定 Docker Desktop 路径的 TCP 故障；不经过它不等于修复，保留的 split 仍需实际私网连通验证。基础及标准生产的混合维护 worker 优先选迁移 DSN，且还跑预测分区与物化视图；LAN 配置不同。删除 Audit overlay 既不能收掉该权限，也不能把整条队列换成 Audit 单函数账号。
 

@@ -1,6 +1,6 @@
 # 平台插件化：模块化单体、语言无关契约与扩展点
 
-> 状态：实施中。M0、M1a 与 M2a 已完成；维护者已确认 Workspace 六项作为 M2b 首批。M2c 日常环境迁移不随代码合并进行。
+> 状态：实施中。M0、M1a、M2a 已完成；M2b 首批 Workspace 六项已在默认 LAN 与严格账号下通过本地验收。其他服务未切换，M2c 日常环境迁移不随代码合并进行。
 >
 > 创建日期：2026-11-23。
 >
@@ -166,5 +166,6 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 ## 7. 当前状态
 
 - **M1a 已通过。** 无平台源码的作者环境构建并部署 CPU 服务；经真实 Registry、项目服务池及签名原图，默认路由和同代契约完成绑定后的强制路由均返回预期预测。制品范围、被拒绝的旧契约与隔离证据见[运行账本](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md)。作者从[直连教程](../../docs-site/dev/tutorials/ml-backend-starter.md#direct-registration)开始。
-- **M2a 已完成。** [逐服务决定表](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)保留各能力的嵌入入口、凭据和拆出理由。M2b 首批只含 Workspace 成员管理、负责人移交、项目配置、模板查询、项目查询和成员目录查询；其他候选尚未获准合并。
+- **M2a 已完成。** [逐服务决定表](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)保留各能力的嵌入入口、凭据和拆出理由。
+- **M2b 首批：Workspace 六项。** 成员管理、负责人移交、项目配置、模板查询、项目查询和成员目录查询已改用 API 调用方的数据库会话。跨模块类目改名仍在一个事务内，Inference 后端探测保留独立凭据和可拆出的进程。[首批验收记录](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md#m2b-workspace)区分默认 LAN 与严格账号能执行的操作；其他候选尚未获准合并。
 - M1b、M1c、M3、M4 尚未实施。正式发布和 M2c 日常切换仍需分别授权。
