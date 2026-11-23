@@ -9,7 +9,7 @@ from sqlalchemy import String, and_, cast, false, or_, select, text, true
 from app.db.enums import UserRole
 from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset
-from app.db.models.dataset_asset import StorageLocation
+from app.services.storage_registry_data import location_row
 from app.db.models.dataset_source import (
     DatasetSource,
     DatasetScanRun,
@@ -140,7 +140,7 @@ def source_scope_clause(actor):
             select(Dataset.id).where(Dataset.created_by == actor.id)
         ),
         DatasetSource.location_id.in_(
-            select(StorageLocation.id).where(visible_clause(actor))
+            select(location_row.c.id).where(visible_clause(actor))
         ),
     )
 

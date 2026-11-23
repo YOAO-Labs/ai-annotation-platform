@@ -4,18 +4,17 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from jose import ExpiredSignatureError, JWTError, jwt
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.storage_connection import StorageConnection
 from app.services import storage_access, storage_maintenance
+from app.services import storage_registry_data as registry
 from app.services.audit import AuditAction, AuditService
 from app.services.annotations_storage import AnnotationsStorageError
 from app.services.annotations_storage_target import probe_target, target_for
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID, validate_legacy_bindings
+from app.services.dataset_assets import validate_legacy_bindings
 from app.services.filesystem_storage import FilesystemStorageError
 from app.services.storage_location_change import digest
 
@@ -36,33 +35,7 @@ def binding_facts(binding):
 
 
 async def candidates(db, *, limit, offset):
-    display_name = func.coalesce(StorageConnection.name, StorageLocation.name)
-    eligible = or_(
-        StorageLocation.id == LEGACY_LOCATION_ID,
-        (StorageConnection.kind == "s3") & (StorageConnection.scope == "global"),
-    )
-    query = (
-        select(StorageLocation, display_name.label("display_name"))
-        .outerjoin(
-            StorageConnection, StorageConnection.id == StorageLocation.connection_id
-        )
-        .where(StorageLocation.enabled, StorageLocation.kind == "s3", eligible)
-    )
-    total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    rows = await db.execute(
-        query.order_by(display_name, StorageLocation.id).limit(limit).offset(offset)
-    )
-    return {
-        "items": [
-            {
-                "location_id": row.id,
-                "name": name,
-                "config_revision": row.config_revision,
-            }
-            for row, name in rows
-        ],
-        "total": total,
-    }
+    return await registry.binding_candidates_page(db, limit=limit, offset=offset)
 
 
 async def history(db):
@@ -89,43 +62,19 @@ async def history(db):
 
 
 async def _binding(db, *, lock=False):
-    query = select(StorageBinding).where(StorageBinding.purpose == "annotations")
-    if lock:
-        query = query.with_for_update(nowait=True)
-    row = await db.scalar(query.execution_options(populate_existing=True))
+    row = await registry.get_binding(
+        db, "annotations", lock="update_nowait" if lock else None
+    )
     if row is None:
         reject("annotations_storage_binding_unproven")
     return row
 
 
 async def _lock_positions(db, current, target_id):
-    ids = sorted({current.location_id, target_id})
-    initial = list(
-        await db.scalars(select(StorageLocation).where(StorageLocation.id.in_(ids)))
-    )
-    if len(initial) != len(ids):
+    state = await registry.lock_binding_locations(db, current.location_id, target_id)
+    if state == "missing":
         reject("annotations_binding_target_missing", 404)
-    connections = {row.id: row.connection_id for row in initial}
-    connection_ids = sorted(
-        {value for value in connections.values() if value is not None}
-    )
-    if connection_ids:
-        await db.execute(
-            select(StorageConnection.id)
-            .where(StorageConnection.id.in_(connection_ids))
-            .order_by(StorageConnection.id)
-            .with_for_update(read=True, nowait=True)
-        )
-    rows = list(
-        await db.scalars(
-            select(StorageLocation)
-            .where(StorageLocation.id.in_(ids))
-            .order_by(StorageLocation.id)
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True)
-        )
-    )
-    if {row.id: row.connection_id for row in rows} != connections:
+    if state != "locked":
         reject("storage_binding_preview_changed")
 
 
@@ -154,22 +103,20 @@ async def capture(db, payload, actor, api_key_id, *, lock=False):
         reject("annotations_binding_unchanged")
     if await validate_legacy_bindings(db):
         reject("annotations_storage_binding_unproven")
-    location = await db.get(
-        StorageLocation, payload.target_location_id, populate_existing=True
-    )
+    location = await registry.get_location(db, payload.target_location_id)
     if location is None:
         reject("annotations_binding_target_missing", 404)
     if location.config_revision != payload.target_config_revision:
         reject("storage_binding_preview_changed")
     target = await target_for(db, location)
     connection = (
-        await db.get(StorageConnection, location.connection_id, populate_existing=True)
+        await registry.get_connection(db, location.connection_id)
         if location.connection_id is not None
         else None
     )
     revision = await storage_access.check(db, location.id, lock=lock)
     counts = await history(db)
-    current = await db.get(StorageLocation, binding.location_id, populate_existing=True)
+    current = await registry.get_location(db, binding.location_id)
     previous = {
         "purpose": "annotations",
         **before,
@@ -279,10 +226,15 @@ async def apply(db, payload, actor, *, api_key_id=None, request=None):
     if digest(reviewed) != token["review"]:
         reject("storage_binding_preview_changed")
     decode_token(payload.impact_token)
-    binding.location_id = target.location_id
-    binding.bucket = target.bucket
-    binding.generation += 1
-    await db.flush()
+    if not await registry.switch_binding(
+        db,
+        "annotations",
+        expected_generation=binding.generation,
+        location_id=target.location_id,
+        bucket=target.bucket,
+    ):
+        reject("storage_binding_preview_changed")
+    generation = binding.generation + 1
     await AuditService.log(
         db,
         actor=actor,
@@ -298,7 +250,7 @@ async def apply(db, payload, actor, *, api_key_id=None, request=None):
                 "location_id": str(target.location_id),
                 "bucket": target.bucket,
                 "key_prefix": target.key_prefix,
-                "generation": binding.generation,
+                "generation": generation,
             },
             "history": reviewed["history"],
             "reviewed_at": token["measured_at"],
@@ -307,7 +259,7 @@ async def apply(db, payload, actor, *, api_key_id=None, request=None):
     return {
         **previous,
         "location_id": target.location_id,
-        "generation": binding.generation,
+        "generation": generation,
         "bucket": target.bucket,
         "location_config_revision": target.config_revision,
     }

@@ -104,6 +104,24 @@ def allowed_endpoint(endpoint, allowlist):
         raise StorageError("connector_host_denied") from None
 
 
+def configured_endpoint(config):
+    endpoint = config["endpoint"]
+    if "://" not in endpoint:
+        endpoint = ("https://" if config.get("use_ssl") else "http://") + endpoint
+    parts = urlsplit(endpoint)
+    if (
+        parts.scheme not in {"http", "https"}
+        or not parts.hostname
+        or parts.username
+        or parts.password
+        or parts.query
+        or parts.fragment
+        or parts.path not in {"", "/"}
+    ):
+        raise StorageError("s3_endpoint_not_supported")
+    return endpoint.rstrip("/")
+
+
 class _S3ClientAccess:
     config: dict
     allowlist: tuple[str, ...]
@@ -119,23 +137,7 @@ class _S3ClientAccess:
 
     @property
     def endpoint(self):
-        endpoint = self.config["endpoint"]
-        if "://" not in endpoint:
-            endpoint = (
-                "https://" if self.config.get("use_ssl") else "http://"
-            ) + endpoint
-        parts = urlsplit(endpoint)
-        if (
-            parts.scheme not in {"http", "https"}
-            or not parts.hostname
-            or parts.username
-            or parts.password
-            or parts.query
-            or parts.fragment
-            or parts.path not in {"", "/"}
-        ):
-            raise StorageError("s3_endpoint_not_supported")
-        return endpoint.rstrip("/")
+        return configured_endpoint(self.config)
 
     def _check_destination(self, endpoint):
         allowed_endpoint(endpoint, self.allowlist)

@@ -23,8 +23,10 @@ from app.services import agent_transport as transport
 from app.services import dataset_registration as registration, dataset_scans as scans
 from app.services import storage_location as locations
 from app.services.dataset_references import reference_snapshot
+from app.services.site_agents import get_identity
 from app.workers import dataset_registration as registration_worker
 from tests.test_agent_dataset_scans import NODE, agent_world as agent_world
+from tests.test_agent_transport import fixture_agent_permit
 
 
 async def test_agent_scan_preflight_confirm_and_authorized_original_share_existing_owners(
@@ -85,10 +87,13 @@ async def test_agent_scan_preflight_confirm_and_authorized_original_share_existi
                 revision = await transport.storage_access.check(
                     session, where, expected_revision=expected_revision
                 )
+                operation_id = await fixture_agent_permit(
+                    session, where, purpose, revision
+                )
 
                 @asynccontextmanager
                 async def permit():
-                    yield SimpleNamespace(id=uuid.uuid4(), revision=revision)
+                    yield SimpleNamespace(id=operation_id, revision=revision)
 
                 return permit()
 
@@ -96,14 +101,20 @@ async def test_agent_scan_preflight_confirm_and_authorized_original_share_existi
 
             async def deliver(session, command_id):
                 rows.append(command_id)
+                stored = await session.get(AgentCredential, (agent_id, 1))
+                _, credential = await get_identity(
+                    session, agent_id, revision=1, verifier=stored.token_digest
+                )
                 command = await transport.lease(
-                    session, agent_id, uuid.UUID(journal.poll_session(credentials))
+                    session,
+                    agent_id,
+                    uuid.UUID(journal.poll_session(credentials)),
+                    credential=credential,
                 )
                 assert command is not None and command["command_id"] == str(command_id)
                 await session.commit()
                 result = runner.execute(command)
                 assert result["status"] == "completed", result
-                credential = await session.get(AgentCredential, (agent_id, 1))
                 if command["operation"] == "read":
                     with runner.outgoing(result) as body:
                         offset = 0

@@ -3,11 +3,11 @@
 from dataclasses import dataclass, replace
 import uuid
 
-from app.db.models.dataset_asset import StorageLocation
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.export_storage import _endpoint as _parse_endpoint, _plain
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
+from app.services.storage_registry_data import get_location
 
 _FIELDS = frozenset(
     {
@@ -188,7 +188,7 @@ async def target_for_ref(db, ref, *, require_enabled=True):
     from app.services.dataset_storage_target import target_for
 
     saved = resolve_ref(ref)
-    location = await db.get(StorageLocation, saved.location_id, populate_existing=True)
+    location = await get_location(db, saved.location_id)
     target = await target_for(db, location, require_enabled=require_enabled)
     if saved.location_id == LEGACY_LOCATION_ID:
         target = replace(target, bucket=saved.bucket)

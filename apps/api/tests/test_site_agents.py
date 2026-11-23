@@ -102,7 +102,9 @@ async def test_pair_is_one_time_and_never_exposes_plaintext_on_list(
     assert (await pair(httpx_client, pending)).status_code == 401
     authenticated, credential = await svc.authenticate(db_session, credentials["token"])
     assert authenticated.id == agent.id and credential.revision == 1
-    assert credential.token_digest != credentials["token"]
+    stored = await db_session.get(AgentCredential, (agent.id, 1))
+    assert stored.token_digest != credentials["token"]
+    assert not hasattr(credential, "token_digest")
     await db_session.refresh(agent)
     assert agent.pair_digest is None and agent.pair_expires_at is None
     listed = await httpx_client.get(
@@ -113,7 +115,7 @@ async def test_pair_is_one_time_and_never_exposes_plaintext_on_list(
     assert body["items"][0]["state"] == "offline"
     for secret in [
         credentials["token"],
-        credential.token_digest,
+        stored.token_digest,
         pending["pair_code"],
         "pair_digest",
         "token_digest",
@@ -150,6 +152,9 @@ async def test_rotation_retires_old_token_and_repair_does_not_reuse_identity(
     httpx_client, super_admin, db_session
 ):
     _, pending, first = await provision(httpx_client, super_admin)
+    from app.services import agent_transport
+
+    _, old_poll = await svc.authenticate(db_session, first["token"])
     agent_id = first["agent_id"]
     url = BASE + f"/agents/{agent_id}/rotate"
     assert (
@@ -186,6 +191,10 @@ async def test_rotation_retires_old_token_and_repair_does_not_reuse_identity(
     assert second["credential_revision"] == 2 and second["token"] != first["token"]
     agent, current = await svc.authenticate(db_session, second["token"])
     assert current.revision == agent.credential_revision == 2
+    with pytest.raises(svc.SiteAgentError, match="agent_unauthorized"):
+        await agent_transport.lease(
+            db_session, agent.id, uuid.uuid4(), credential=old_poll
+        )
     history = list(
         await db_session.scalars(
             select(AgentCredential)
@@ -275,10 +284,9 @@ async def test_protocol_revision_and_pairing_guards_are_explicit(
     with pytest.raises(svc.SiteAgentError, match="credential_revision_changed"):
         svc.validate_current(agent, credential)
     agent.credential_revision -= 1
-    agent.pair_digest = "f" * 64
+    agent.pairing_pending = True
     with pytest.raises(svc.SiteAgentError, match="agent_unpaired"):
         svc.validate_current(agent, credential)
-    agent.pair_digest = None
     for version in [True, "1", 0, 2]:
         with pytest.raises(svc.SiteAgentError, match="agent_protocol_incompatible"):
             await svc.authenticate(
@@ -292,13 +300,17 @@ async def test_drain_expected_revision_and_heartbeat_state_projection(
     site_id, _, credentials = await provision(httpx_client, super_admin)
     agent, _ = await svc.authenticate(db_session, credentials["token"])
     stamp = await svc.now(db_session)
-    agent.last_seen = stamp
-    agent.session_id = uuid.uuid4()
-    agent.roots = [
+    registration = await db_session.get(AgentRegistration, agent.id)
+    registration.last_seen = stamp
+    registration.session_id = uuid.uuid4()
+    registration.roots = [
         {"root_handle": "photos", "root_revision": 1, "absolute_path": "/not-public"}
     ]
-    agent.reported_limits = dict(agent.limits, private_path="/not-public")
+    registration.reported_limits = dict(agent.limits, private_path="/not-public")
     await db_session.flush()
+    agent, _ = await svc.authenticate(db_session, credentials["token"])
+    assert agent.roots == [{"root_handle": "photos", "root_revision": 1}]
+    assert "private_path" not in agent.reported_limits
     assert svc.state(agent, stamp) == "online"
     assert svc.state(agent, stamp + timedelta(seconds=60)) == "offline"
     listed = await httpx_client.get(

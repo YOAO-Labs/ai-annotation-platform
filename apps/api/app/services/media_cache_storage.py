@@ -7,17 +7,15 @@ import re
 import uuid
 from botocore.exceptions import ClientError
 
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.storage_connection import StorageConnection
 from app.db.models.thumbnail_output import media_cache_ref_check
 from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.export_storage import _endpoint as _parse_endpoint, _plain
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service as storage_service
+from app.services.storage_registry_data import get_binding, get_connection, get_location
 
 ref_check = media_cache_ref_check
 
@@ -179,6 +177,7 @@ async def target_for(db, location, *, require_enabled=True):
 async def allocate(db, logical_prefix):
     logical = _logical(logical_prefix)
     from app.services import fixture_media_execution
+    from app.services.managed_s3_target import target_origin_for
 
     execution = fixture_media_execution.current()
     if execution is not None:
@@ -187,27 +186,28 @@ async def allocate(db, logical_prefix):
             location_id = uuid.UUID(binding["location_id"])
         except (ValueError, TypeError, AttributeError):
             _reject("media_cache_storage_binding_unproven")
-        location = await db.scalar(
-            select(StorageLocation)
-            .where(StorageLocation.id == location_id)
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True)
-        )
-        target = await target_for(db, location)
+        location = await get_location(db, location_id, lock="share_nowait")
+        target = await target_origin_for(db, location, purpose="media-cache")
         if (
-            target.endpoint_url != binding["endpoint"] or target.bucket != binding["bucket"]
+            target.endpoint_url != binding["endpoint"]
+            or target.bucket != binding["bucket"]
             or target.key_prefix != MANAGED_NAMESPACE
-            or managed_storage_identity(target.endpoint_url, target.bucket) != binding["storage_identity"]
+            or managed_storage_identity(target.endpoint_url, target.bucket)
+            != binding["storage_identity"]
         ):
             _reject("media_cache_storage_binding_unproven")
         await storage_access.check(db, location.id, lock=True)
         return resolve_ref(
             {
-                "schema": 2, "purpose": "media-cache", "location_id": str(location.id),
+                "schema": 2,
+                "purpose": "media-cache",
+                "location_id": str(location.id),
                 "config_revision": location.config_revision,
                 "binding_generation": binding["binding_generation"],
-                "endpoint_url": target.endpoint_url, "bucket": target.bucket,
-                "key_prefix": target.key_prefix, "prefix": target.key_prefix + logical,
+                "endpoint_url": target.endpoint_url,
+                "bucket": target.bucket,
+                "key_prefix": target.key_prefix,
+                "prefix": target.key_prefix + logical,
                 "storage_identity": binding["storage_identity"],
             },
             expected_prefix=logical,
@@ -216,32 +216,18 @@ async def allocate(db, logical_prefix):
     savepoint = await connection.begin_nested()
     try:
         await ensure_legacy_bindings(db)
-        initial = await db.get(StorageBinding, "media-cache", populate_existing=True)
+        initial = await get_binding(db, "media-cache")
         if initial is None:
             _reject("media_cache_storage_binding_unproven")
         facts = initial.location_id, initial.bucket, initial.generation
-        location = await db.get(StorageLocation, facts[0], populate_existing=True)
+        location = await get_location(db, facts[0])
         if location is None:
             _reject("media_cache_storage_binding_unproven")
         connection_id = location.connection_id
         if connection_id is not None:
-            await db.execute(
-                select(StorageConnection.id)
-                .where(StorageConnection.id == connection_id)
-                .with_for_update(read=True, nowait=True)
-            )
-        location = await db.scalar(
-            select(StorageLocation)
-            .where(StorageLocation.id == facts[0])
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True)
-        )
-        binding = await db.scalar(
-            select(StorageBinding)
-            .where(StorageBinding.purpose == "media-cache")
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True)
-        )
+            await get_connection(db, connection_id, lock="share_nowait")
+        location = await get_location(db, facts[0], lock="share_nowait")
+        binding = await get_binding(db, "media-cache", lock="share_nowait")
         if (
             location is None
             or location.connection_id != connection_id
@@ -249,7 +235,7 @@ async def allocate(db, logical_prefix):
             or (binding.location_id, binding.bucket, binding.generation) != facts
         ):
             _reject("media_cache_storage_binding_unproven")
-        target = await target_for(db, location)
+        target = await target_origin_for(db, location, purpose="media-cache")
         if (
             binding.bucket != target.bucket
             or type(binding.generation) is not int
@@ -287,7 +273,7 @@ async def allocate(db, logical_prefix):
 
 async def target_for_ref(db, ref, *, require_enabled=True):
     owner = resolve_ref(ref)
-    location = await db.get(StorageLocation, owner.location_id, populate_existing=True)
+    location = await get_location(db, owner.location_id)
     target = await target_for(db, location, require_enabled=require_enabled)
     if owner.location_id == LEGACY_LOCATION_ID:
         target = replace(target, bucket=owner.bucket)
@@ -304,7 +290,8 @@ async def target_for_ref(db, ref, *, require_enabled=True):
         binding = await execution.target()
         if str(owner.location_id) == binding["location_id"]:
             if (
-                owner.bucket != binding["bucket"] or ref["endpoint_url"] != binding["endpoint"]
+                owner.bucket != binding["bucket"]
+                or ref["endpoint_url"] != binding["endpoint"]
                 or ref["storage_identity"] != binding["storage_identity"]
                 or ref["binding_generation"] != binding["binding_generation"]
             ):
@@ -312,13 +299,24 @@ async def target_for_ref(db, ref, *, require_enabled=True):
             from app.services.source_readers.s3 import ScopedS3Access
             from yoao_assets_media_runtime.fixture_native_outputs import load_target
 
-            control_url = fixture_media_execution._control_url().render_as_string(hide_password=False)
-            writer = load_target(
-                "AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE", control_url, "aap_fixture_media_"
+            control_url = fixture_media_execution._control_url().render_as_string(
+                hide_password=False
             )
-            if any(writer[name] != binding[name] for name in (
-                "run_id", "endpoint", "bucket", "storage_identity", "receipt_sha256",
-            )):
+            writer = load_target(
+                "AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE",
+                control_url,
+                "aap_fixture_media_",
+            )
+            if any(
+                writer[name] != binding[name]
+                for name in (
+                    "run_id",
+                    "endpoint",
+                    "bucket",
+                    "storage_identity",
+                    "receipt_sha256",
+                )
+            ):
                 _reject()
             access = target._access
             if access is None:
@@ -353,7 +351,9 @@ def retire_fixture_versions(client, owner, versions, checkpoint):
     marker = {}
     visited = set()
     while True:
-        page = client.list_object_versions(Bucket=owner.bucket, Prefix=owner.prefix, **marker)
+        page = client.list_object_versions(
+            Bucket=owner.bucket, Prefix=owner.prefix, **marker
+        )
         if (
             page.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
             or type(page.get("IsTruncated")) is not bool
@@ -383,8 +383,13 @@ def retire_fixture_versions(client, owner, versions, checkpoint):
             marker["VersionIdMarker"] = version_marker
 
     def absent(exc):
-        return isinstance(exc, ClientError) and exc.response.get("Error", {}).get("Code") in {
-            "NoSuchKey", "NoSuchVersion", "NotFound", "404",
+        return isinstance(exc, ClientError) and exc.response.get("Error", {}).get(
+            "Code"
+        ) in {
+            "NoSuchKey",
+            "NoSuchVersion",
+            "NotFound",
+            "404",
         }
 
     for identity, receipt in expected.items():
@@ -437,9 +442,11 @@ def retire_fixture_versions(client, owner, versions, checkpoint):
             try:
                 deleted = client.delete_object(**params, IfMatch=receipt["etag"])
                 if (
-                    deleted.get("ResponseMetadata", {}).get("HTTPStatusCode") not in (200, 204)
+                    deleted.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                    not in (200, 204)
                     or deleted.get("DeleteMarker")
-                    or deleted.get("VersionId", receipt["version_id"]) != receipt["version_id"]
+                    or deleted.get("VersionId", receipt["version_id"])
+                    != receipt["version_id"]
                 ):
                     raise ContentError("fixture_media_delete_unproven", 503)
             except BaseException as exc:

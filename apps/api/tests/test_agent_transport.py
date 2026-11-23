@@ -9,12 +9,14 @@ import uuid
 
 from yoao_site_agent_contract import digest
 import pytest
+from sqlalchemy import text
 
 from app.db.models.dataset_asset import StorageLocation
 from app.db.models.site_agent import AgentCredential, AgentRegistration
 from app.schemas.site_agent_transport import AgentPollRequest
 from app.services import agent_transport as svc
 from app.services.content_snapshot import ContentError
+from app.services.site_agents import get_identity
 
 
 @pytest.fixture
@@ -88,6 +90,32 @@ async def remote(db_session, httpx_client, auth_headers):
             await client.aclose()
 
 
+async def fixture_agent_permit(db, location_id, purpose, revision):
+    await svc.storage_access.ensure(db, location_id)
+    operation_id = uuid.uuid4()
+    await db.scalar(
+        text(
+            "SELECT yoao_assets_storage_v1.begin_physical_io"
+            "(:id,:location,:purpose,'agent-test',:revision)"
+        ),
+        {
+            "id": operation_id,
+            "location": location_id,
+            "purpose": purpose,
+            "revision": revision,
+        },
+    )
+    return operation_id
+
+
+async def lease(remote, session_id):
+    db, _, agent, stored, _, _, _ = remote
+    _, proof = await get_identity(
+        db, agent.id, revision=stored.revision, verifier=stored.token_digest
+    )
+    return await svc.lease(db, agent.id, session_id, credential=proof)
+
+
 async def queued(remote, operation="read"):
     db, _, _, _, location, _, rows = remote
     args = {"path": "image.bin"} if operation in {"read", "scan"} else {}
@@ -99,16 +127,32 @@ async def queued(remote, operation="read"):
         operation,
         args,
         fence={"maintenance_revision": 1, "purpose": "reference_read"},
+        operation_id=await fixture_agent_permit(db, location.id, "reference_read", 1),
     )
     rows.append(row.id)
     await db.commit()
     return row
 
 
+async def test_enqueue_requires_the_exact_open_storage_permit(remote):
+    db, _, _, _, location, _, _ = remote
+    operation_id = await fixture_agent_permit(db, location.id, "reference_read", 1)
+    for candidate, revision in ((uuid.uuid4(), 1), (operation_id, 2)):
+        with pytest.raises(ContentError, match="agent_location_changed"):
+            await svc.enqueue(
+                db,
+                location,
+                "read",
+                {"path": "image.bin"},
+                fence={"maintenance_revision": revision, "purpose": "reference_read"},
+                operation_id=candidate,
+            )
+
+
 async def leased(remote, operation="read"):
-    db, _, agent, _, _, _, _ = remote
+    db = remote[0]
     row = await queued(remote, operation)
-    payload = await svc.lease(db, agent.id, uuid.uuid4())
+    payload = await lease(remote, uuid.uuid4())
     assert payload["command_id"] == str(row.id)
     await db.commit()
     return row
@@ -287,34 +331,33 @@ async def test_result_digest_conflict_does_not_replace_original_receipt(remote):
 
 
 async def test_read_priority_and_concurrency_limit(remote):
-    db, _, agent, _, _, _, _ = remote
     scan = await queued(remote, "scan")
     read = await queued(remote, "read")
-    assert (await svc.lease(db, agent.id, uuid.uuid4()))["command_id"] == str(read.id)
-    assert await svc.lease(db, agent.id, uuid.uuid4()) is None
+    assert (await lease(remote, uuid.uuid4()))["command_id"] == str(read.id)
+    assert await lease(remote, uuid.uuid4()) is None
     assert scan.state == "queued"
 
 
 async def test_lost_poll_response_redelivers_same_command_without_renewal(remote):
-    db, _, agent, _, _, _, _ = remote
+    db = remote[0]
     row = await queued(remote)
     session_id = uuid.uuid4()
-    first = await svc.lease(db, agent.id, session_id)
+    first = await lease(remote, session_id)
     await db.commit()
-    assert await svc.lease(db, agent.id, uuid.uuid4()) is None
-    second = await svc.lease(db, agent.id, session_id)
+    assert await lease(remote, uuid.uuid4()) is None
+    second = await lease(remote, session_id)
     assert first == second == row.payload
     assert row.expires_at.timestamp() >= second["expires_at"]
 
 
 async def test_business_accept_cannot_revive_rejected_receipt(remote):
-    db, _, agent, _, _, _, _ = remote
+    db = remote[0]
     row = await leased(remote)
     assert (await send_chunk(remote, row)).status_code == 200
     assert (await send_result(remote, row, completed(row))).status_code == 200
     row.expires_at = svc.now() - timedelta(seconds=1)
     await db.commit()
-    await svc.lease(db, agent.id, uuid.uuid4())
+    await lease(remote, uuid.uuid4())
     await db.commit()
     with pytest.raises(ContentError, match="agent_command_expired"):
         await svc.acknowledge(db, row, accepted=True)
@@ -412,7 +455,7 @@ async def test_root_revision_drift_rejects_queued_command(remote):
     row = await queued(remote)
     agent.roots = [{"root_handle": "images", "root_revision": 2}]
     await db.flush()
-    assert await svc.lease(db, agent.id, uuid.uuid4()) is None
+    assert await lease(remote, uuid.uuid4()) is None
     assert row.state == "rejected"
 
 

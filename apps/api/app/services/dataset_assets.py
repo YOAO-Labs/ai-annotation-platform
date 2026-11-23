@@ -10,7 +10,6 @@ from types import SimpleNamespace
 
 from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
@@ -18,10 +17,9 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.dataset_asset import (
     DatasetAsset,
     DatasetAssetLocation,
-    StorageBinding,
-    StorageLocation,
 )
 from app.services.storage import storage_service
+from app.services import storage_registry_data
 
 LEGACY_LOCATION_ID = uuid.uuid5(uuid.NAMESPACE_URL, "aap:platform-storage:legacy")
 MAX_DIRECT_UPLOAD_BYTES = 5 * 1024**3
@@ -41,7 +39,7 @@ PURPOSE_BUCKET_ATTRIBUTES = {
 
 async def validate_legacy_bindings(db):
     """Read-only validation, including all purposes rather than just datasets."""
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
+    location = await storage_registry_data.get_location(db, LEGACY_LOCATION_ID)
     errors = []
     config = {"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl}
     if location is None:
@@ -52,12 +50,7 @@ async def validate_legacy_bindings(db):
         or location.config_revision != 1
     ):
         errors.append("platform_location_mismatch")
-    bindings = {
-        row.purpose: row
-        for row in await db.scalars(
-            select(StorageBinding).execution_options(populate_existing=True)
-        )
-    }
+    bindings = {row.purpose: row for row in await storage_registry_data.bindings(db)}
     for purpose, attr in PURPOSE_BUCKET_ATTRIBUTES.items():
         binding = bindings.get(purpose)
         if binding is None:
@@ -87,37 +80,20 @@ async def validate_legacy_bindings(db):
             from app.services.bug_attachment_storage import BugAttachmentStorageError
             from app.services.training_dataset_bridge import TrainingDatasetError
 
-            if purpose == "avatars":
-                from app.services.avatar_storage_target import target_for
-            elif purpose == "bug-reports":
-                from app.services.bug_attachment_storage_target import target_for
-            elif purpose == "audit-archive":
-                from app.services.audit_archive_storage_target import target_for
-            elif purpose == "import":
-                from app.services.import_storage_target import target_for
-            elif purpose == "media-cache":
-                from app.services.media_cache_storage import target_for
-            elif purpose == "annotations":
-                from app.services.annotations_storage import target_for
-            elif purpose == "datasets":
-                from app.services.dataset_storage_target import target_for
-            elif purpose == "training":
-                from app.services.training_dataset_storage import target_for
-            else:
-                from app.services.export_storage_target import bound_bucket
+            from app.services.managed_s3_target import target_origin_for
 
-            target_location = await db.get(
-                StorageLocation, binding.location_id, populate_existing=True
+            target_location = await storage_registry_data.get_location(
+                db, binding.location_id
             )
             try:
-                if purpose == "export":
-                    bucket = await bound_bucket(db, target_location)
-                else:
-                    target = await target_for(
-                        db, target_location, require_enabled=False
-                    )
-                    bucket = target.bucket
-                if binding.bucket != bucket:
+                target = await target_origin_for(
+                    db,
+                    target_location,
+                    purpose=purpose,
+                    require_enabled=False,
+                    historical_export=purpose == "export",
+                )
+                if binding.bucket != target.bucket:
                     errors.append(f"binding_mismatch:{purpose}")
             except (
                 AvatarStorageError,
@@ -148,46 +124,15 @@ async def ensure_legacy_bindings(db):
     }
     if any(not bucket for bucket in buckets.values()):
         raise ValueError("Platform storage purpose has no configured bucket")
-    await db.execute(
-        insert(StorageLocation)
-        .values(
-            id=LEGACY_LOCATION_ID, name="legacy-platform-s3", kind="s3", config=config
-        )
-        .on_conflict_do_nothing()
-    )
-    location = await db.get(StorageLocation, LEGACY_LOCATION_ID, populate_existing=True)
-    if location is None or location.config != config:
+    if not await storage_registry_data.ensure_embedded_targets(db, config, buckets):
         raise ValueError(
             "Platform storage location differs from its pinned configuration"
         )
-    await db.execute(
-        insert(StorageBinding)
-        .values(
-            [
-                {
-                    "purpose": purpose,
-                    "location_id": LEGACY_LOCATION_ID,
-                    "bucket": bucket,
-                    "generation": 1,
-                }
-                for purpose, bucket in buckets.items()
-            ]
-        )
-        .on_conflict_do_nothing()
-    )
-    bindings = {
-        row.purpose: row
-        for row in (
-            await db.scalars(
-                select(StorageBinding).execution_options(populate_existing=True)
-            )
-        ).all()
-    }
     if await validate_legacy_bindings(db):
         raise ValueError(
             "Platform storage binding differs from its pinned configuration"
         )
-    return bindings["datasets"]
+    return await storage_registry_data.get_binding(db, "datasets")
 
 
 async def register_item_asset(

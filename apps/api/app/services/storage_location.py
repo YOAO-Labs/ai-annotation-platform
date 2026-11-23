@@ -9,26 +9,18 @@ import uuid
 
 from fastapi import HTTPException
 from jose import JWTError, jwt
-from sqlalchemy import func, or_, select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import func, select, text
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
 from app.db.enums import UserRole
-from app.db.models.dataset_asset import (
-    DatasetAssetLocation,
-    StorageBinding,
-    StorageLocation,
-    StorageLocationProbe,
-)
-from app.db.models.storage_connection import StorageConnection
-from app.db.models.user import User
+from app.db.models.dataset_asset import StorageLocation
 from app.services import filesystem_storage as fs, storage_access
+from app.services import storage_registry_data as registry
 from app.services.dataset_assets import (
     PURPOSE_BUCKET_ATTRIBUTES,
     validate_legacy_bindings,
 )
-from app.services.connection_access import can_use_connection
 
 PROBE_TTL = timedelta(minutes=5)
 
@@ -59,143 +51,22 @@ def connector_location_id(connection_id):
 
 
 async def register_connection(db, connection):
-    location = StorageLocation(
-        id=connector_location_id(connection.id),
-        name=f"connector-{connection.id}",
-        kind=connection.kind,
-        config={},
-        config_revision=1,
-        enabled=True,
-        connection_id=connection.id,
+    return await db.scalar(
+        select(StorageLocation).from_statement(
+            text(
+                "SELECT * FROM yoao_assets_storage_v1.register_connector_location(:connection)"
+            )
+        ),
+        {"connection": connection.id},
     )
-    db.add(location)
-    await db.flush()
-    return location
 
 
 async def location_is_referenced(db, location_id):
-    from app.db.models.storage_migration_copy import StorageMigrationCopy
-
-    if await db.scalar(
-        select(StorageMigrationCopy.id)
-        .where(StorageMigrationCopy.target_location_id == location_id)
-        .limit(1)
-    ):
-        return True
-
-    from app.db.models.audit_archive_output import AuditArchiveOutput
-    from app.db.models.prediction_input import PredictionInputLease
-    from app.db.models.managed_original_creation import ManagedOriginalCreation
-    from app.db.models.mask_format_upload import MaskFormatUpload
-    from app.db.models.mask_format_import import MaskFormatImport
-    from app.db.models.export_output import ExportOutput
-    from app.db.models.export_media_bundle import ExportMediaBundle
-    from app.db.models.avatar_upload import AvatarUpload
-    from app.db.models.bug_attachment_upload import BugAttachmentUpload
-    from app.db.models.dataset_source import DatasetSource
-    from app.db.models.original_cache import OriginalCacheEntry
-    from app.db.models.thumbnail_output import ThumbnailOutput
-    from app.db.models.image_pyramid import ImagePyramidOutput
-    from app.db.models.video_derivative import VideoDerivativeOutput
-    from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
-    from app.db.models.managed_original_retirement import ManagedOriginalRetirement
-    from app.db.models.comment_attachment_upload import CommentAttachmentUpload
-    from app.db.models.guide_asset_upload import GuideAssetUpload
-    from app.db.models.raster_mask_object import RasterMaskObject
-    from app.db.models.task_original import TaskOriginal
-    from app.db.models.training_dataset import TrainingDatasetVersion
-    from app.services.training_run_data import preview_storage_row, run_storage_row
-    from app.db.models.sample_evaluation import SampleEvaluationRun
-    from app.db.models.active_learning import ActiveLearningRound
-    from app.db.models.training_storage_deletion import TrainingStorageDeletion
-
-    for model, column in (
-        (ThumbnailOutput, ThumbnailOutput.storage_ref),
-        (ImagePyramidOutput, ImagePyramidOutput.storage_ref),
-        (VideoDerivativeOutput, VideoDerivativeOutput.storage_ref),
-        (PredictionInputLease, PredictionInputLease.storage_ref),
-        (ManagedOriginalCreation, ManagedOriginalCreation.staging_ref),
-        (MaskFormatUpload, MaskFormatUpload.storage_ref),
-        (MaskFormatImport, MaskFormatImport.staging_ref),
-        (CommentAttachmentUpload, CommentAttachmentUpload.storage_ref),
-        (GuideAssetUpload, GuideAssetUpload.storage_ref),
-        (RasterMaskObject, RasterMaskObject.storage_ref),
-        (TrainingDatasetVersion, TrainingDatasetVersion.storage_ref),
-        (SampleEvaluationRun, SampleEvaluationRun.storage_ref),
-        (ActiveLearningRound, ActiveLearningRound.storage_ref),
-        (TrainingStorageDeletion, TrainingStorageDeletion.storage_ref),
-    ):
-        if await db.scalar(
-            select(model.id)
-            .where(column["location_id"].astext == str(location_id))
-            .limit(1)
-        ):
-            return True
-    for row in (run_storage_row, preview_storage_row):
-        if await db.scalar(
-            select(row.c.id)
-            .where(row.c.storage_ref["location_id"].astext == str(location_id))
-            .limit(1)
-        ):
-            return True
-    for model in (
-        OriginalCacheEntry,
-        ManagedOriginalCreation,
-        DatasetAuxiliaryOriginal,
-        ManagedOriginalRetirement,
-        TaskOriginal,
-    ):
-        if await db.scalar(
-            select(model.id).where(model.location_id == location_id).limit(1)
-        ):
-            return True
+    if db.autoflush:
+        await db.flush()
     return bool(
         await db.scalar(
-            select(DatasetSource.id)
-            .where(DatasetSource.location_id == location_id)
-            .limit(1)
-        )
-        or await db.scalar(
-            select(DatasetAssetLocation.asset_id)
-            .where(DatasetAssetLocation.location_id == location_id)
-            .limit(1)
-        )
-        or await db.scalar(
-            select(StorageBinding.purpose)
-            .where(StorageBinding.location_id == location_id)
-            .limit(1)
-        )
-        or await db.scalar(
-            select(BugAttachmentUpload.id)
-            .where(
-                BugAttachmentUpload.storage_ref["location_id"].astext
-                == str(location_id)
-            )
-            .limit(1)
-        )
-        or await db.scalar(
-            select(AuditArchiveOutput.id)
-            .where(
-                AuditArchiveOutput.storage_ref["location_id"].astext == str(location_id)
-            )
-            .limit(1)
-        )
-        or await db.scalar(
-            select(ExportOutput.id)
-            .where(ExportOutput.storage_ref["location_id"].astext == str(location_id))
-            .limit(1)
-        )
-        or await db.scalar(
-            select(ExportMediaBundle.id)
-            .where(
-                ExportMediaBundle.storage_ref["location_id"].astext == str(location_id)
-            )
-            .limit(1)
-        )
-        or await db.scalar(
-            select(AvatarUpload.token)
-            .where(AvatarUpload.storage_ref["location_id"].astext == str(location_id))
-            .limit(1)
+            select(func.yoao_assets_storage_v1.location_storage_referenced(location_id))
         )
     )
 
@@ -203,40 +74,17 @@ async def location_is_referenced(db, location_id):
 def visible_clause(actor):
     if actor.role == UserRole.SUPER_ADMIN:
         return True
-    return or_(
-        StorageLocation.connection_id.in_(
-            select(StorageConnection.id).where(
-                or_(
-                    StorageConnection.scope == "global",
-                    StorageConnection.created_by == actor.id,
-                )
-            )
-        ),
-        StorageLocation.kind.in_(["filesystem", "agent"])
-        & or_(
-            StorageLocation.config["scope"].astext == "global",
-            StorageLocation.config["use_user_ids"].contains([str(actor.id)]),
-        ),
+    return func.yoao_assets_storage_v1.location_visible(
+        actor.id, actor.role, registry.location_row.c.id
     )
 
 
 async def get_visible(db, location_id, actor, *, lock=False):
-    stmt = (
-        select(StorageLocation)
-        .where(StorageLocation.id == location_id, visible_clause(actor))
-        .execution_options(populate_existing=True)
+    location = await registry.get_location(
+        db, location_id, actor=actor, lock="update" if lock else None
     )
-    if lock:
-        stmt = stmt.with_for_update()
-    location = await db.scalar(stmt)
     if location is None:
         raise HTTPException(404, "Storage location not found")
-    if location.connection_id is not None:
-        connection = await db.get(
-            StorageConnection, location.connection_id, populate_existing=True
-        )
-        if connection is None or not can_use_connection(actor, connection):
-            raise HTTPException(404, "Storage location not found")
     return location
 
 
@@ -260,7 +108,7 @@ def require_reference_backend(location):
 
 async def to_out(db, location, actor):
     connection = (
-        await db.get(StorageConnection, location.connection_id)
+        await registry.get_connection(db, location.connection_id)
         if location.connection_id
         else None
     )
@@ -337,16 +185,20 @@ def location_out(location, actor, connection, maintenance):
 
 
 async def validate_grants(db, user_ids):
+    from app.services.identity_read_relations import account_profiles
+
     ids = set(user_ids)
     if not ids:
         return
     count = await db.scalar(
         select(func.count())
-        .select_from(User)
+        .select_from(account_profiles)
         .where(
-            User.id.in_(ids),
-            User.is_active.is_(True),
-            User.role.in_([UserRole.SUPER_ADMIN.value, UserRole.PROJECT_ADMIN.value]),
+            account_profiles.c.id.in_(ids),
+            account_profiles.c.is_active.is_(True),
+            account_profiles.c.role.in_(
+                [UserRole.SUPER_ADMIN.value, UserRole.PROJECT_ADMIN.value]
+            ),
         )
     )
     if count != len(ids):
@@ -367,39 +219,16 @@ async def create_filesystem(db, payload):
     validate_cache_config(config)
     anchor = await run_in_threadpool(fs.capture_anchor, config)
     config.update(registration_node=api_node_id(), registration_anchor=anchor)
-    location = StorageLocation(
-        id=uuid.uuid4(),
-        name=payload.name,
-        kind="filesystem",
-        config_revision=1,
-        config=config,
-        enabled=True,
+    return await registry.create_location(
+        db, uuid.uuid4(), payload.name, "filesystem", config
     )
-    db.add(location)
-    await db.flush()
-    return location
 
 
 async def create_agent(db, payload):
-    from app.db.models.site_agent import AgentCredential, AgentRegistration
-    from app.services.site_agents import SiteAgentError, validate_current
+    from app.services.site_agents import SiteAgentError, get_identity, validate_current
 
     await validate_grants(db, payload.use_user_ids)
-    agent = await db.get(
-        AgentRegistration,
-        payload.agent_id,
-        populate_existing=True,
-        with_for_update={"read": True},
-    )
-    credential = (
-        await db.get(
-            AgentCredential,
-            (agent.id, agent.credential_revision),
-            populate_existing=True,
-        )
-        if agent
-        else None
-    )
+    agent, credential = await get_identity(db, payload.agent_id, lock="share")
     try:
         validate_current(agent, credential)
     except SiteAgentError as exc:
@@ -422,17 +251,9 @@ async def create_agent(db, payload):
         "original_cache_ttl_seconds": payload.original_cache_ttl_seconds,
     }
     validate_cache_config(config)
-    location = StorageLocation(
-        id=uuid.uuid4(),
-        name=payload.name,
-        kind="agent",
-        config_revision=1,
-        config=config,
-        enabled=True,
+    return await registry.create_location(
+        db, uuid.uuid4(), payload.name, "agent", config
     )
-    db.add(location)
-    await db.flush()
-    return location
 
 
 async def update_candidate(db, location, payload):
@@ -473,11 +294,10 @@ async def update_candidate(db, location, payload):
 
 async def update_filesystem(db, location, payload):
     candidate = await update_candidate(db, location, payload)
-    location.name = candidate["name"]
-    location.enabled = candidate["enabled"]
-    location.config = candidate["config"]
-    location.config_revision += 1
-    await db.flush()
+    updated = await registry.edit_location(db, location, **candidate)
+    if updated is None:
+        raise HTTPException(409, detail={"code": "storage_location_revision_changed"})
+    return updated
 
 
 def validate_cache_config(config):
@@ -500,7 +320,7 @@ async def node_anchor(db, location, node_id):
     node_id = probe_node_id(location, node_id)
     if node_id == location.config.get("registration_node"):
         return location.config["registration_anchor"]
-    prior = await db.get(StorageLocationProbe, (location.id, node_id))
+    prior = await registry.get_probe(db, location.id, node_id)
     return (prior.result or {}).get("anchor") if prior else None
 
 
@@ -755,49 +575,24 @@ async def store_probe(db, location, node_id, result, observed_at):
                 "code": "root_identity_changed",
                 "capabilities": {},
             }
-        elif anchor is None:
-            location.config = {**location.config, "agent_anchor": result["anchor"]}
     await storage_access.check(
         db,
         location.id,
         expected_revision=result.get("maintenance_revision", 1),
         lock=True,
     )
-    previous = await db.get(
-        StorageLocationProbe, (location.id, node_id), populate_existing=True
-    )
+    previous = await registry.get_probe(db, location.id, node_id)
     anchor = (previous.result or {}).get("anchor") if previous else None
     if anchor is not None:
         result = dict(result)
         if result.get("anchor") not in (None, anchor):
             result.update(ok=False, code="root_identity_changed", capabilities={})
         result["anchor"] = anchor
-    stmt = insert(StorageLocationProbe).values(
-        location_id=location.id,
-        node_id=node_id,
-        config_revision=location.config_revision,
-        observed_at=observed_at,
-        result=result,
-    )
-    await db.execute(
-        stmt.on_conflict_do_update(
-            index_elements=[
-                StorageLocationProbe.location_id,
-                StorageLocationProbe.node_id,
-            ],
-            set_={
-                "config_revision": stmt.excluded.config_revision,
-                "observed_at": stmt.excluded.observed_at,
-                "result": stmt.excluded.result,
-            },
-            where=StorageLocationProbe.observed_at <= observed_at,
-        )
-    )
+    await registry.record_probe(db, location, node_id, result, observed_at)
     if receipt_id is not None:
-        from app.db.models.site_agent_command import SiteAgentCommand
-        from app.services.agent_transport import acknowledge
+        from app.services.agent_transport import acknowledge, get_receipt
 
-        await acknowledge(db, await db.get(SiteAgentCommand, receipt_id), accepted=True)
+        await acknowledge(db, await get_receipt(db, receipt_id), accepted=True)
 
 
 def probe_out(probe, location, *, measured_at=None, include_disabled=False):
@@ -830,9 +625,7 @@ async def require_scan_node(db, location, node_id):
     revision = await storage_access.check(db, location.id, lock=True)
     if not node_id.startswith("worker:"):
         raise HTTPException(409, "Scanning requires a verified worker node")
-    probe = await db.get(
-        StorageLocationProbe, (location.id, probe_node_id(location, node_id))
-    )
+    probe = await registry.get_probe(db, location.id, probe_node_id(location, node_id))
     if (
         probe is None
         or (probe.result or {}).get("maintenance_revision", 1) != revision
@@ -847,12 +640,17 @@ async def require_scan_node(db, location, node_id):
 async def binding_rows(db):
     findings = await validate_legacy_bindings(db)
     bindings = {
-        row.purpose: (row, revision)
-        for row, revision in await db.execute(
-            select(StorageBinding, StorageLocation.config_revision).outerjoin(
-                StorageLocation, StorageLocation.id == StorageBinding.location_id
+        row.purpose: (row, row.config_revision)
+        for row in (
+            await db.execute(
+                select(
+                    registry.binding_row, registry.location_row.c.config_revision
+                ).outerjoin(
+                    registry.location_row,
+                    registry.location_row.c.id == registry.binding_row.c.location_id,
+                )
             )
-        )
+        ).mappings()
     }
     result = []
     for purpose in PURPOSE_BUCKET_ATTRIBUTES:
