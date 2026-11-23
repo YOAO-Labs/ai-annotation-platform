@@ -5,9 +5,9 @@ import os
 
 import asyncpg
 import pytest
+from sqlalchemy.engine import make_url
 
 from tests.test_workspace_project_authority_locking import _api_url
-
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -54,10 +54,29 @@ ORDER BY nspname, relname
 """
 
 
+@pytest.mark.parametrize(
+    ("selector", "role"),
+    [
+        (
+            "AAP_MODULE_DATA_IDENTITY_EMBEDDED_API_CONSUMER_URL",
+            "identity_embedded_api_consumer",
+        ),
+        ("AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL", "identity_api_consumer"),
+        ("AAP_MODULE_DATA_LEGACY_RUNTIME_URL", "legacy_runtime"),
+    ],
+    ids=("lan-embedded", "lan-isolated-issuer", "worktree"),
+)
 async def test_default_login_cannot_directly_use_private_relations(
-    test_engine, record_property
+    test_engine, record_property, selector, role
 ):
-    url = _api_url(test_engine).set(drivername="postgresql")
+    verified = _api_url(test_engine)
+    url = make_url(os.environ[selector]).set(drivername="postgresql")
+    assert (url.host, url.port, url.database, url.username) == (
+        verified.host,
+        verified.port,
+        verified.database,
+        role,
+    )
     connection = await asyncpg.connect(url.render_as_string(hide_password=False))
     try:
         assert await connection.fetchval("SELECT current_user") == url.username

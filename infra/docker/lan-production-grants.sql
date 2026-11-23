@@ -159,6 +159,10 @@ GRANT EXECUTE ON FUNCTION yoao_assets_v1.begin_operator_auxiliary(jsonb),
     yoao_assets_v1.fail_operator_original(uuid,text,text,jsonb),
     yoao_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)
     TO :"application_role";
+GRANT USAGE ON SCHEMA yoao_labeling_class_query_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION yoao_labeling_class_query_v1.class_query_policy(),
+    yoao_labeling_class_query_v1.class_counts(uuid),
+    yoao_labeling_class_query_v1.attribute_rows(uuid) TO :"application_role";
 GRANT EXECUTE ON FUNCTION yoao_labeling_v1.video_writer_step(text,text),
     yoao_labeling_v1.task_edit_lock_command(jsonb),
     yoao_labeling_v1.task_workflow_command(jsonb),

@@ -52,6 +52,54 @@ _GPU_ARBITER_MODE_ORDER = {
 }
 
 
+_RETIRED_HOST_BINDINGS = (
+    *(
+        f"workspace_{operation}_{suffix}"
+        for operation in (
+            "membership",
+            "owner_transfer",
+            "configuration",
+            "template_query",
+            "project_query",
+            "directory_query",
+        )
+        for suffix in ("url", "database_url", "database_url_file")
+    ),
+    *(
+        f"labeling_{operation}_{suffix}"
+        for operation in ("class_query", "video_writer")
+        for suffix in (
+            "url",
+            "database_url",
+            "database_url_file",
+            "control_token",
+            "control_token_file",
+        )
+    ),
+    *(
+        f"identity_{sender}_{suffix}"
+        for sender in ("mail", "mail_v2", "mail_settings")
+        for suffix in ("database_url", "database_url_file")
+    ),
+    "assets_catalog_url",
+    "assets_catalog_token",
+    "assets_catalog_token_file",
+    "assets_catalog_database_url",
+    "assets_catalog_database_url_file",
+    "jobs_queue_url",
+    "jobs_queue_token",
+    "jobs_queue_token_file",
+    "jobs_queue_broker_url",
+    "jobs_queue_broker_url_file",
+    "jobs_dispatch_relay_database_url",
+    "jobs_dispatch_relay_database_url_file",
+    "notification_socket_url",
+    "identity_runtime_notification_publish_database_url_file",
+    "identity_runtime_notification_publish_redis_url_file",
+    "identity_runtime_mail_database_url_file",
+)
+
+
 class SftpReferenceRoot(BaseModel):
     """Deployment attestation: this account's entire namespace is a read-only jail."""
 
@@ -203,6 +251,10 @@ class Settings(BaseSettings):
 
     identity_url: str = ""
     identity_token: str = Field(default="", repr=False)
+    identity_embedded_signing_secret_file: str = Field(
+        default="", repr=False, exclude=True
+    )
+    identity_embedded_signing_secret: str = Field(default="", repr=False, exclude=True)
     identity_timeout_seconds: float = Field(default=20, gt=0, le=120)
     identity_auth_database_url: str = Field(default="", repr=False)
     identity_auth_database_url_file: str = ""
@@ -235,43 +287,23 @@ class Settings(BaseSettings):
     identity_deactivation_database_url_file: str = ""
     identity_deactivation_operator_database_url: str = Field(default="", repr=False)
     identity_deactivation_operator_database_url_file: str = ""
-    notification_socket_url: str = ""
     notification_publication_url: str = ""
     notification_publication_token: str = Field(default="", repr=False)
     notification_publication_token_file: str = ""
-    jobs_queue_url: str = ""
-    jobs_queue_token: str = Field(default="", repr=False)
-    jobs_queue_token_file: str = ""
     notification_publish_database_url: str = Field(default="", repr=False)
     notification_publish_database_url_file: str = ""
+    notification_publish_redis_url: str = Field(default="", repr=False)
+    notification_publish_redis_url_file: str = ""
+    notification_subscribe_redis_url: str = Field(default="", repr=False)
+    notification_subscribe_redis_url_file: str = ""
     identity_presence_database_url: str = Field(default="", repr=False)
     identity_presence_database_url_file: str = ""
     identity_recovery_database_url: str = Field(default="", repr=False)
     identity_recovery_database_url_file: str = ""
     identity_recovery_mail_key: str = Field(default="", repr=False)
     identity_recovery_mail_key_file: str = ""
-    identity_mail_database_url: str = Field(default="", repr=False)
-    identity_mail_database_url_file: str = ""
-    identity_mail_v2_database_url: str = Field(default="", repr=False)
-    identity_mail_v2_database_url_file: str = ""
-    identity_mail_settings_database_url: str = Field(default="", repr=False)
-    identity_mail_settings_database_url_file: str = ""
 
     workspace_membership_timeout_seconds: float = Field(default=30, gt=0, le=3600)
-
-    labeling_class_query_url: str = ""
-    labeling_class_query_database_url: str = Field(default="", repr=False)
-    labeling_class_query_database_url_file: str = ""
-    labeling_class_query_control_token: str = Field(default="", repr=False)
-    labeling_class_query_control_token_file: str = ""
-    labeling_class_query_timeout_seconds: float = Field(default=30, gt=0, le=3600)
-
-    labeling_video_writer_url: str = ""
-    labeling_video_writer_database_url: str = Field(default="", repr=False)
-    labeling_video_writer_database_url_file: str = ""
-    labeling_video_writer_control_token: str = Field(default="", repr=False)
-    labeling_video_writer_control_token_file: str = ""
-    labeling_video_writer_timeout_seconds: float = Field(default=90, gt=0, le=3600)
 
     inference_pipelines_url: str = ""
     inference_pipelines_token: str = Field(default="", repr=False)
@@ -311,16 +343,14 @@ class Settings(BaseSettings):
     media_probe_token: str = Field(default="", repr=False)
     media_probe_timeout_seconds: float = Field(default=90, gt=0, le=3600)
 
-    assets_catalog_url: str = ""
-    assets_catalog_token: str = Field(default="", repr=False)
-    assets_catalog_timeout_seconds: float = Field(default=5, gt=0, le=60)
-
     assets_source_url: str = ""
     assets_source_token: str = Field(default="", repr=False)
     assets_source_timeout_seconds: float = Field(default=300, gt=0, le=3600)
     assets_media_url: str = ""
     assets_media_token: str = Field(default="", repr=False)
     assets_media_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    assets_video_executor: Literal["celery", "split"] = "celery"
+    assets_image_executor: Literal["celery", "split"] = "celery"
     assets_images_native_storage_url: str = ""
     assets_images_native_storage_token: str = Field(default="", repr=False)
     assets_images_native_storage_token_file: str = ""
@@ -356,6 +386,54 @@ class Settings(BaseSettings):
     image_pyramid_max_temp_bytes: int = 12 * 1024 * 1024 * 1024
     image_pyramid_job_timeout_seconds: int = Field(default=1_800, gt=0)
     image_pyramid_lease_seconds: int = Field(default=2_100, gt=0)
+
+    @field_validator("identity_embedded_signing_secret")
+    @classmethod
+    def load_embedded_signing_key(cls, key: str, info: ValidationInfo) -> str:
+        filename = info.data.get("identity_embedded_signing_secret_file")
+        if not filename:
+            return key
+        if key:
+            raise RuntimeError(
+                "Configure only one embedded Identity signing key source"
+            )
+        path = Path(filename)
+        try:
+            if not path.is_file():
+                raise OSError
+            key = path.read_text(encoding="utf-8").rstrip("\r\n")
+        except (OSError, UnicodeError):
+            raise RuntimeError(
+                "Cannot read IDENTITY_EMBEDDED_SIGNING_SECRET_FILE"
+            ) from None
+        if not key:
+            raise RuntimeError(
+                "IDENTITY_EMBEDDED_SIGNING_SECRET_FILE must not be empty"
+            )
+        return key
+
+    @model_validator(mode="after")
+    def configure_identity_issuer(self):
+        if bool(self.identity_url) != bool(self.identity_token):
+            raise RuntimeError("Configure IDENTITY_URL and IDENTITY_TOKEN together")
+        if self.identity_url and self.identity_embedded_signing_secret:
+            raise RuntimeError(
+                "The remote Identity issuer must retain its own signing key"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def configure_notification_publisher(self):
+        if self.notification_publication_url and (
+            self.notification_publish_database_url
+            or self.notification_publish_database_url_file
+            or self.notification_publish_redis_url
+            or self.notification_publish_redis_url_file
+        ):
+            raise RuntimeError(
+                "Do not configure embedded credentials for a remote Notification publisher"
+            )
+        return self
 
     @model_validator(mode="after")
     def pyramid_lease_outlasts_writer(self):
@@ -605,21 +683,25 @@ class Settings(BaseSettings):
         dotenv_settings,
         file_secret_settings,
     ):
-        for operation in (
-            "membership",
-            "owner_transfer",
-            "configuration",
-            "template_query",
-            "project_query",
-            "directory_query",
-        ):
-            for suffix in ("url", "database_url", "database_url_file"):
-                key = f"workspace_{operation}_{suffix}"
-                if env_settings.env_vars.get(key, dotenv_settings.env_vars.get(key)):
-                    raise RuntimeError(
-                        f"{key.upper()} selects a retired Workspace service; "
-                        "migrate the deployment before starting the embedded API"
-                    )
+        def configured(key):
+            return env_settings.env_vars.get(key, dotenv_settings.env_vars.get(key))
+
+        for key in _RETIRED_HOST_BINDINGS:
+            if configured(key):
+                raise RuntimeError(
+                    f"{key.upper()} selects a retired service; migrate the deployment "
+                    "before starting the embedded application"
+                )
+        if (configured("jobs_dispatch_relay_enabled") or "").strip().lower() not in {
+            "",
+            "0",
+            "off",
+            "no",
+            "false",
+            "n",
+            "f",
+        }:
+            raise RuntimeError("JOBS_DISPATCH_RELAY_ENABLED selects a retired service")
         return init_settings, env_settings, dotenv_settings, file_secret_settings
 
     class Config:

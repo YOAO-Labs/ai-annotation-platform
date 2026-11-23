@@ -2417,9 +2417,7 @@ TEST_FILES = (
     "tests/test_labeling_module_restore.py",
     "tests/test_labeling_module_api_cold.py",
     "tests/test_labeling_video_writer_live.py",
-    "tests/test_labeling_video_writer_containers.py",
     "tests/test_labeling_video_writer_restore.py",
-    "tests/test_labeling_video_writer_capacity.py",
     "tests/test_video_execution_checkpoints_native.py",
     "tests/test_video_window_journal_native.py",
     "tests/test_video_execution_plan_native_validation.py",
@@ -2505,7 +2503,7 @@ TEST_FILES = (
     "tests/test_identity_invitations_native.py",
     "tests/test_identity_invitations_roles.py",
     "tests/test_identity_invitation_gateway.py",
-    "tests/test_identity_mail_v2_gateway.py",
+    "tests/test_identity_mail_topology.py",
     "tests/test_identity_deactivation_native.py",
     "tests/test_identity_deactivation_roles.py",
     "tests/test_identity_groups_native.py",
@@ -11953,21 +11951,51 @@ SELECT id FROM removed;
             },
         )
         phase = "install-identity-api-consumer-broad-grants"
-        _psql(
-            container_id,
-            container_name,
-            container_identity,
-            username="owner",
-            password=owner_password,
-            database=database,
-            sql=lan_production_grant_sql,
-            variables={
-                "expected_database": database,
-                "application_role": IDENTITY_API_CONSUMER_ROLE,
-                "migration_role": "owner",
-                "asset_cleanup_role": "yoao_asset_cleanup_client",
-            },
-        )
+        lan_profiles = [IDENTITY_API_CONSUMER_ROLE]
+        if selected_test_paths & {
+            "tests/test_m2b_private_access_live.py",
+            "tests/test_m2b_business_live.py",
+            "tests/test_identity_module_assembly_live.py",
+        }:
+            embedded_role = "identity_embedded_api_consumer"
+            embedded_password = secrets.token_hex(24)
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=f"CREATE ROLE {embedded_role} LOGIN PASSWORD '{embedded_password}' "
+                "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;",
+            )
+            lan_profiles.append(embedded_role)
+            resource_environment[
+                "AAP_MODULE_DATA_IDENTITY_EMBEDDED_API_CONSUMER_URL"
+            ] = URL.create(
+                "postgresql+asyncpg",
+                username=embedded_role,
+                password=embedded_password,
+                host="127.0.0.1",
+                port=port,
+                database=database,
+            ).render_as_string(hide_password=False)
+        for lan_role in lan_profiles:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=lan_production_grant_sql,
+                variables={
+                    "expected_database": database,
+                    "application_role": lan_role,
+                    "migration_role": "owner",
+                    "asset_cleanup_role": "yoao_asset_cleanup_client",
+                },
+            )
         phase = "install-identity-api-consumer-fence-last"
         _psql(
             container_id,
@@ -12087,7 +12115,7 @@ SELECT id FROM removed;
             )
             or (
                 "tests/test_jobs_module_assembly_live.py" in selected_test_paths
-                and os.environ.get("AAP_JOBS_QUEUE_MODULE_LIVE") == "1"
+                and os.environ.get("AAP_JOBS_HOST_ASSEMBLY_LIVE") == "1"
             )
             or (
                 "tests/test_workspace_video_tracker_worker_live.py"
@@ -12799,7 +12827,6 @@ SELECT pg_catalog.jsonb_build_object(
             }
         if selected_test_paths & {
             "tests/test_labeling_video_writer_live.py",
-            "tests/test_labeling_video_writer_containers.py",
             "tests/test_mask_content_live.py",
             "tests/test_mask_content_containers.py",
             "tests/test_mask_gc_live.py",
