@@ -955,7 +955,8 @@ async def test_independent_image_worker_publishes_thumbnail_after_response_loss_
                 "/v1/images/source-reference",
                 {"actor_id": str(actor_id), "dataset_item_id": str(item_id)},
             )
-            assert denied.status_code == 403
+            assert denied.status_code == 401
+            assert denied.json()["error"]["code"] == "account_not_active"
             container_id = compose.start(IMAGE)
             await _wait_healthy(container_id)
             worker = _ContainerWatch(container_id)
