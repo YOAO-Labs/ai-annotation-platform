@@ -2996,7 +2996,7 @@ BEGIN
         WHERE o.id IN (v_source_id, v_target_id) ORDER BY o.id FOR UPDATE
     LOOP
         IF v_operation.location_id IS DISTINCT FROM
-               CASE WHEN v_operation.id = v_source_id THEN v_source_location ELSE v_target_location END
+               (CASE WHEN v_operation.id = v_source_id THEN v_source_location ELSE v_target_location END)
            OR v_operation.purpose <> 'storage_migration_copy'
            OR v_operation.node_id IS DISTINCT FROM ('migration:' || (p_process->>'pid')) THEN
             RETURN false;
