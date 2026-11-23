@@ -1,8 +1,7 @@
-"""Replay the frozen Project-access contract through each current provider."""
+"""Replay the frozen Project-access contract through the borrowed API owner."""
 
 from __future__ import annotations
 
-from contextlib import AsyncExitStack
 import hashlib
 import json
 import os
@@ -10,16 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from app.config import settings
 from tests.workspace_project_access_query_helpers import (
     replay_workspace_project_access,
 )
-from tests.workspace_project_query_helpers import (
-    api_project_query_binding,
-    project_query_dsn,
-    project_query_provider,
-)
-
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -65,9 +57,8 @@ def _resolver_probe(sample: dict) -> dict:
     return {name: sample[name] for name in fields if name in sample}
 
 
-@pytest.mark.parametrize("binding", ["borrowed", "dedicated", "http"])
 async def test_current_project_access_owner_matches_frozen_public_samples(
-    test_engine, app_module, monkeypatch, binding
+    test_engine, app_module, monkeypatch
 ):
     fixture_bytes = _FIXTURE.read_bytes()
     assert hashlib.sha256(fixture_bytes).hexdigest() == _FIXTURE_SHA256
@@ -75,32 +66,9 @@ async def test_current_project_access_owner_matches_frozen_public_samples(
     assert reference["capture_kind"] == "actual-pre-extraction-project-access-http"
     assert len(reference["samples"]) == 16
 
-    for name in (
-        "workspace_project_query_url",
-        "workspace_project_query_database_url",
-        "workspace_project_query_database_url_file",
-    ):
-        monkeypatch.setattr(settings, name, "")
-
-    async with AsyncExitStack() as stack:
-        token = "test-project-query"
-        url = dsn = None
-        if binding == "dedicated":
-            dsn = project_query_dsn(test_engine)
-        elif binding == "http":
-            url = await stack.enter_async_context(
-                project_query_provider(project_query_dsn(test_engine), token)
-            )
-        await stack.enter_async_context(
-            api_project_query_binding(url=url, dsn=dsn, token=token)
-        )
-        current = await replay_workspace_project_access(
-            test_engine,
-            app_module,
-            monkeypatch,
-            reference["samples"],
-            token=token,
-        )
+    current = await replay_workspace_project_access(
+        test_engine, app_module, monkeypatch, reference["samples"]
+    )
 
     expected_http = [_public_http_sample(sample) for sample in reference["samples"]]
     assert current["samples"] == expected_http

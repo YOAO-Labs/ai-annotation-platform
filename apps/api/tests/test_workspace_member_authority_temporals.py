@@ -47,9 +47,6 @@ async def test_project_detail_matches_legacy_member_authority_timestamp_decoding
             yield db
 
     for name in (
-        "workspace_project_query_url",
-        "workspace_project_query_database_url",
-        "workspace_project_query_database_url_file",
         "identity_url",
         "identity_briefs_database_url",
         "identity_briefs_database_url_file",

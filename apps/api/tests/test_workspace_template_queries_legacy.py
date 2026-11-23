@@ -400,9 +400,6 @@ async def test_capture_legacy_template_query_and_projection_samples(
         async with runtime_maker() as db:
             yield db
 
-    monkeypatch.setattr(settings, "workspace_configuration_url", "")
-    monkeypatch.setattr(settings, "workspace_configuration_database_url", "")
-    monkeypatch.setattr(settings, "workspace_configuration_database_url_file", "")
     monkeypatch.setattr(settings, "audit_async", True)
     monkeypatch.setattr("app.middleware.audit._enqueue_audit", lambda _payload: True)
     monkeypatch.setattr(

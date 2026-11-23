@@ -1,25 +1,33 @@
-"""Installed Directory processes fail closed and isolate optional display profiles."""
+"""Portable Directory query wire responses over restricted owner credentials."""
 
 import os
 import uuid
 
-from fastapi import HTTPException
 import httpx
 import pytest
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from yoao_workspace.directory_query_contract import (
+    DirectoryQueryUnavailable,
+    directory_query_request,
+)
+from yoao_workspace.directory_query_values import (
+    decode_directory_query_reply,
+    materialize_directory_query_data,
+)
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
-from app.services import workspace_directory_query
 from tests.factory import create_membership, create_project, create_user
 from tests.workspace_directory_query_helpers import (
-    api_directory_query_binding,
     directory_query_dsn,
-    directory_query_provider,
+    execute_directory_query_contract,
 )
-from tests.workspace_project_query_helpers import project_query_briefs_dsn
+from tests.workspace_project_query_helpers import (
+    project_query_briefs_dsn,
+    workspace_query_client,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -31,19 +39,13 @@ pytestmark = [
 
 
 @pytest.mark.parametrize("profiles_configured", [False, True])
-async def test_directory_owner_isolates_profiles_data_grants_and_process_restart(
-    test_engine, monkeypatch, profiles_configured
+async def test_directory_query_contract_isolates_profile_and_grant_failures(
+    test_engine, profiles_configured
 ):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     users, projects = [], []
     token = uuid.uuid4().hex
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError(
-            "A selected Directory owner must not invoke a local manager"
-        )
-
-    monkeypatch.setattr(workspace_directory_query, "DirectoryQueryManager", forbidden)
     try:
         async with maker.begin() as db:
             owner = await create_user(
@@ -66,84 +68,100 @@ async def test_directory_owner_isolates_profiles_data_grants_and_process_restart
                 db, project_id=full.id, user_id=member.id, role="annotator"
             )
 
-        async def read(project_id, operation="list_members"):
-            return await workspace_directory_query.execute_directory_query(
-                object(), operation=operation, actor_id=owner.id, target_id=project_id
-            )
+        async def read(client, project_id, operation="list_members"):
+            request = directory_query_request(operation, owner.id, project_id)
+            return await execute_directory_query_contract(client, token, request)
 
         dsn = directory_query_dsn(test_engine)
         briefs = project_query_briefs_dsn(test_engine) if profiles_configured else None
-        async with directory_query_provider(dsn, token, briefs_dsn=briefs) as origin:
-            async with api_directory_query_binding(url=origin, token=token):
-                async with httpx.AsyncClient(base_url=origin, timeout=5) as client:
+        async with workspace_query_client(
+            token=token,
+            directory_query_database_url=dsn,
+            project_query_identity_briefs_database_url=briefs,
+        ) as client:
+            assert (await client.get("/ready")).status_code == 200
+            empty_reply = await read(client, empty.id)
+            assert materialize_directory_query_data(empty_reply) == []
+            another_actor = empty_reply.request.model_copy(
+                update={"actor_id": member.id}
+            )
+            with pytest.raises(DirectoryQueryUnavailable):
+                decode_directory_query_reply(another_actor, empty_reply)
+            mentions = materialize_directory_query_data(
+                await read(client, full.id, "mention_candidates")
+            )
+            assert [row["user_id"] for row in mentions] == [owner.id, member.id]
+            if profiles_configured:
+                rows = materialize_directory_query_data(await read(client, full.id))
+                assert [row["user_id"] for row in rows] == [member.id]
+                try:
+                    async with maker.begin() as db:
+                        await db.execute(
+                            text(
+                                "REVOKE EXECUTE ON FUNCTION "
+                                "yoao_identity_briefs_v1.briefs_policy() "
+                                "FROM yoao_identity_briefs_client"
+                            )
+                        )
                     assert (await client.get("/ready")).status_code == 200
-                    assert await read(empty.id) == []
-                    assert [
-                        row["user_id"]
-                        for row in await read(full.id, "mention_candidates")
-                    ] == [owner.id, member.id]
-                    if profiles_configured:
-                        assert [row["user_id"] for row in await read(full.id)] == [
-                            member.id
-                        ]
-                        try:
-                            async with maker.begin() as db:
-                                await db.execute(
-                                    text(
-                                        "REVOKE EXECUTE ON FUNCTION yoao_identity_briefs_v1.briefs_policy() FROM yoao_identity_briefs_client"
-                                    )
-                                )
-                            assert (await client.get("/ready")).status_code == 200
-                            assert await read(empty.id) == []
-                            assert await read(full.id, "mention_candidates")
-                            with pytest.raises(HTTPException) as unavailable_profiles:
-                                await read(full.id)
-                            assert unavailable_profiles.value.status_code == 503
-                            assert (
-                                unavailable_profiles.value.detail
-                                == "身份资料服务暂不可用"
+                    assert (
+                        materialize_directory_query_data(await read(client, empty.id))
+                        == []
+                    )
+                    assert (
+                        materialize_directory_query_data(
+                            await read(client, full.id, "mention_candidates")
+                        )
+                        == mentions
+                    )
+                    failure = await read(client, full.id)
+                    assert not failure.ok
+                    assert failure.error.status_code == 503
+                    assert failure.error.detail == "身份资料服务暂不可用"
+                finally:
+                    async with maker.begin() as db:
+                        await db.execute(
+                            text(
+                                "GRANT EXECUTE ON FUNCTION "
+                                "yoao_identity_briefs_v1.briefs_policy() "
+                                "TO yoao_identity_briefs_client"
                             )
-                        finally:
-                            async with maker.begin() as db:
-                                await db.execute(
-                                    text(
-                                        "GRANT EXECUTE ON FUNCTION yoao_identity_briefs_v1.briefs_policy() TO yoao_identity_briefs_client"
-                                    )
-                                )
-                    else:
-                        with pytest.raises(HTTPException) as missing_profiles:
-                            await read(full.id)
-                        assert missing_profiles.value.status_code == 503
-                        assert missing_profiles.value.detail == "身份资料服务暂不可用"
-                    try:
-                        async with maker.begin() as db:
-                            await db.execute(
-                                text(
-                                    "REVOKE EXECUTE ON FUNCTION yoao_workspace_directory_query_v1.directory_query_policy() FROM yoao_workspace_directory_query_client"
-                                )
-                            )
-                        assert (await client.get("/ready")).status_code == 503
-                        with pytest.raises(HTTPException) as unavailable_data:
-                            await read(empty.id)
-                        assert unavailable_data.value.status_code == 503
-                        assert unavailable_data.value.detail == "项目目录服务暂不可用"
-                    finally:
-                        async with maker.begin() as db:
-                            await db.execute(
-                                text(
-                                    "GRANT EXECUTE ON FUNCTION yoao_workspace_directory_query_v1.directory_query_policy() TO yoao_workspace_directory_query_client"
-                                )
-                            )
-                    assert (await client.get("/ready")).status_code == 200
-        async with api_directory_query_binding(url=origin, token=token, timeout=2):
-            with pytest.raises(HTTPException) as stopped:
-                await read(empty.id)
-            assert stopped.value.status_code == 503
-        async with directory_query_provider(dsn, token, briefs_dsn=briefs) as restarted:
-            async with api_directory_query_binding(url=restarted, token=token):
-                assert await read(empty.id) == []
-                if profiles_configured:
-                    assert (await read(full.id))[0]["user_id"] == member.id
+                        )
+            else:
+                failure = await read(client, full.id)
+                assert not failure.ok
+                assert failure.error.status_code == 503
+                assert failure.error.detail == "身份资料服务暂不可用"
+            try:
+                async with maker.begin() as db:
+                    await db.execute(
+                        text(
+                            "REVOKE EXECUTE ON FUNCTION "
+                            "yoao_workspace_directory_query_v1.directory_query_policy() "
+                            "FROM yoao_workspace_directory_query_client"
+                        )
+                    )
+                assert (await client.get("/ready")).status_code == 503
+                with pytest.raises(httpx.HTTPStatusError) as unavailable:
+                    await read(client, empty.id)
+                assert unavailable.value.response.status_code == 503
+                assert unavailable.value.response.json() == {
+                    "detail": "Workspace directory query unavailable"
+                }
+            finally:
+                async with maker.begin() as db:
+                    await db.execute(
+                        text(
+                            "GRANT EXECUTE ON FUNCTION "
+                            "yoao_workspace_directory_query_v1.directory_query_policy() "
+                            "TO yoao_workspace_directory_query_client"
+                        )
+                    )
+            assert (await client.get("/ready")).status_code == 200
+            assert materialize_directory_query_data(await read(client, empty.id)) == []
+            if profiles_configured:
+                rows = materialize_directory_query_data(await read(client, full.id))
+                assert rows[0]["user_id"] == member.id
     finally:
         async with maker.begin() as db:
             if projects:

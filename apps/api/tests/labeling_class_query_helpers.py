@@ -20,12 +20,6 @@ from tests import test_labeling_class_usage_reads_legacy as legacy_capture
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import _port, _start
 from tests.test_module_data_roles import _role_url
-from tests.workspace_project_query_helpers import (
-    api_project_query_binding,
-    project_query_dsn,
-    project_query_provider,
-)
-
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE_PATH = (
@@ -220,22 +214,6 @@ def labeling_class_query_dsn(test_engine) -> str:
 
 
 @asynccontextmanager
-async def installed_workspace_query_provider(dsn, token):
-    interpreter = Path(os.environ["AAP_WORKSPACE_QUERY_PYTHON"])
-    assert interpreter.is_file()
-    previous = os.environ.get("AAP_WORKSPACE_RUNTIME_PYTHON")
-    os.environ["AAP_WORKSPACE_RUNTIME_PYTHON"] = str(interpreter)
-    try:
-        async with project_query_provider(dsn, token) as url:
-            yield url
-    finally:
-        if previous is None:
-            os.environ.pop("AAP_WORKSPACE_RUNTIME_PYTHON", None)
-        else:
-            os.environ["AAP_WORKSPACE_RUNTIME_PYTHON"] = previous
-
-
-@asynccontextmanager
 async def installed_labeling_query_provider(dsn, token):
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
     parsed = make_url(dsn)
@@ -273,58 +251,36 @@ async def installed_labeling_query_provider(dsn, token):
 
 
 @asynccontextmanager
-async def bind_query_owners(
-    stack: AsyncExitStack,
-    test_engine,
-    *,
-    binding: str,
-    workspace_token: str,
-    labeling_token: str,
-):
-    workspace_url = workspace_dsn = None
-    labeling_url = labeling_dsn = None
-    if binding == "dedicated":
-        workspace_dsn = project_query_dsn(test_engine)
-        labeling_dsn = labeling_class_query_dsn(test_engine)
-    elif binding == "http":
-        workspace_url = await stack.enter_async_context(
-            installed_workspace_query_provider(
-                project_query_dsn(test_engine), workspace_token
+async def _bind_labeling_owner(test_engine, *, binding: str, token: str):
+    async with AsyncExitStack() as stack:
+        url = dsn = None
+        if binding == "dedicated":
+            dsn = labeling_class_query_dsn(test_engine)
+        elif binding == "http":
+            url = await stack.enter_async_context(
+                installed_labeling_query_provider(
+                    labeling_class_query_dsn(test_engine), token
+                )
             )
-        )
-        labeling_url = await stack.enter_async_context(
-            installed_labeling_query_provider(
-                labeling_class_query_dsn(test_engine), labeling_token
-            )
-        )
-    elif binding != "borrowed":
-        raise AssertionError(f"unknown owner binding: {binding}")
+        elif binding != "borrowed":
+            raise AssertionError(f"unknown Labeling binding: {binding}")
 
-    changes = {
-        "labeling_class_query_url": labeling_url or "",
-        "labeling_class_query_database_url": labeling_dsn or "",
-        "labeling_class_query_database_url_file": "",
-        "labeling_class_query_control_token": labeling_token if labeling_url else "",
-        "labeling_class_query_control_token_file": "",
-        "labeling_class_query_timeout_seconds": 20,
-    }
-    original = {name: getattr(settings, name) for name in changes}
-    try:
-        async with api_project_query_binding(
-            url=workspace_url,
-            dsn=workspace_dsn,
-            token=workspace_token,
-        ):
+        changes = {
+            "labeling_class_query_url": url or "",
+            "labeling_class_query_database_url": dsn or "",
+            "labeling_class_query_database_url_file": "",
+            "labeling_class_query_control_token": token if url else "",
+            "labeling_class_query_control_token_file": "",
+            "labeling_class_query_timeout_seconds": 20,
+        }
+        original = {name: getattr(settings, name) for name in changes}
+        try:
             for name, value in changes.items():
                 setattr(settings, name, value)
-            try:
-                yield
-            finally:
-                for name, value in original.items():
-                    setattr(settings, name, value)
-    finally:
-        for name, value in original.items():
-            setattr(settings, name, value)
+            yield
+        finally:
+            for name, value in original.items():
+                setattr(settings, name, value)
 
 
 @asynccontextmanager
@@ -334,7 +290,6 @@ async def bound_api_client(
     monkeypatch,
     *,
     binding: str,
-    workspace_token: str,
     labeling_token: str,
     application_name: str = "labeling-class-query-replay",
 ):
@@ -343,28 +298,19 @@ async def bound_api_client(
         test_engine, application_name=application_name
     )
     try:
-        async with api_db_binding(app_module, runtime_maker):
-            async with AsyncExitStack() as stack:
-                await stack.enter_async_context(
-                    bind_query_owners(
-                        stack,
-                        test_engine,
-                        binding=binding,
-                        workspace_token=workspace_token,
-                        labeling_token=labeling_token,
-                    )
-                )
-                transport = httpx.ASGITransport(
-                    app=app_module, raise_app_exceptions=False
-                )
-                async with httpx.AsyncClient(
-                    transport=transport, base_url="http://test", timeout=30
-                ) as client:
-                    if binding == "borrowed":
-                        with observe_borrowed_labeling_rpc(runtime_engine) as rpc:
-                            yield client, runtime_engine, rpc
-                    else:
-                        yield client, runtime_engine, None
+        async with (
+            api_db_binding(app_module, runtime_maker),
+            _bind_labeling_owner(test_engine, binding=binding, token=labeling_token),
+        ):
+            transport = httpx.ASGITransport(app=app_module, raise_app_exceptions=False)
+            async with httpx.AsyncClient(
+                transport=transport, base_url="http://test", timeout=30
+            ) as client:
+                if binding == "borrowed":
+                    with observe_borrowed_labeling_rpc(runtime_engine) as rpc:
+                        yield client, runtime_engine, rpc
+                else:
+                    yield client, runtime_engine, None
     finally:
         await runtime_engine.dispose()
 

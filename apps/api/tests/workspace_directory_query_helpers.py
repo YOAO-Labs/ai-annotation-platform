@@ -1,23 +1,20 @@
-"""Owned Workspace Directory-query bindings for compatibility replay."""
+"""Directory API replay and portable owner protocol helpers."""
 
 from __future__ import annotations
 
-import asyncio
-from contextlib import asynccontextmanager
-import os
-from pathlib import Path
-import tempfile
+import httpx
 
-from sqlalchemy.engine import make_url
-
-from app.config import settings
+from yoao_workspace.directory_query_contract import (
+    DirectoryQueryReply,
+    DirectoryQueryRequest,
+)
+from yoao_workspace.directory_query_values import decode_directory_query_reply
 from app.core.security import create_access_token
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
-from tests.test_identity_admission_live import _port, _start
 from tests.factory import create_user
-from tests.workspace_project_query_helpers import ROOT, _dsn
+from tests.workspace_project_query_helpers import _dsn
 
 
 def directory_query_dsn(test_engine, database=None):
@@ -29,90 +26,16 @@ def directory_query_dsn(test_engine, database=None):
     )
 
 
-@asynccontextmanager
-async def api_directory_query_binding(*, url=None, dsn=None, token, timeout=20):
-    if url and dsn:
-        raise ValueError("Select at most one independent Directory-query provider")
-    changes = {
-        "workspace_directory_query_url": url or "",
-        "workspace_directory_query_database_url": dsn or "",
-        "workspace_directory_query_database_url_file": "",
-        "workspace_directory_query_timeout_seconds": timeout,
-        "workspace_membership_control_token": token,
-        "workspace_membership_control_token_file": "",
-    }
-    original = {name: getattr(settings, name) for name in changes}
-    try:
-        for name, value in changes.items():
-            setattr(settings, name, value)
-        yield
-    finally:
-        for name, value in original.items():
-            setattr(settings, name, value)
-
-
-@asynccontextmanager
-async def directory_query_provider(dsn, token, briefs_dsn=None):
-    assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
-    parsed = make_url(dsn)
-    assert parsed.username == "yoao_workspace_directory_query_client"
-    assert parsed.database and parsed.database.endswith("_test")
-    from tests.test_asset_storage_cleanup_runtime import _verify_postgres
-
-    _verify_postgres(parsed)
-    interpreter = Path(os.environ["AAP_WORKSPACE_RUNTIME_PYTHON"])
-    assert interpreter.is_file()
-    if briefs_dsn is not None:
-        briefs_url = make_url(briefs_dsn)
-        assert briefs_url.username == "yoao_identity_briefs_client"
-        assert (briefs_url.host, briefs_url.port, briefs_url.database) == (
-            parsed.host,
-            parsed.port,
-            parsed.database,
-        )
-
-    with tempfile.TemporaryDirectory(
-        prefix="workspace-directory-query-", dir=ROOT / ".worktree"
-    ) as temporary:
-        directory = Path(temporary)
-        port = _port()
-        environment = {
-            "PATH": os.environ.get("PATH", ""),
-            "WORKSPACE_HOST": "127.0.0.1",
-            "WORKSPACE_PORT": str(port),
-            "WORKSPACE_TIMEOUT_SECONDS": "15",
-        }
-        secrets = [
-            ("WORKSPACE_DIRECTORY_QUERY_DATABASE_URL_FILE", "directory-database", dsn),
-            ("WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE", "control-token", token),
-        ]
-        if briefs_dsn is not None:
-            secrets.append(
-                (
-                    "WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE",
-                    "identity-briefs-database",
-                    briefs_dsn,
-                )
-            )
-        for variable, filename, value in secrets:
-            secret = directory / filename
-            secret.write_text(value, encoding="utf-8")
-            secret.chmod(0o600)
-            environment[variable] = str(secret)
-
-        owner = await asyncio.to_thread(
-            _start,
-            [str(interpreter), "-I", "-m", "yoao_workspace"],
-            environment,
-            directory,
-            directory / "owner.log",
-            port,
-            "/ready",
-        )
-        try:
-            yield owner.origin
-        finally:
-            owner.stop()
+async def execute_directory_query_contract(
+    client: httpx.AsyncClient, token: str, request: DirectoryQueryRequest
+) -> DirectoryQueryReply:
+    response = await client.post(
+        "/v1/workspace/directory-queries/execute",
+        headers={"Authorization": f"Bearer {token}"},
+        json=request.model_dump(mode="json", by_alias=True),
+    )
+    response.raise_for_status()
+    return decode_directory_query_reply(request, response.content)
 
 
 async def capture_directory_scenario(
@@ -124,7 +47,6 @@ async def capture_directory_scenario(
     from types import SimpleNamespace
     import uuid
 
-    import httpx
     from sqlalchemy import delete, func, select, text
     from sqlalchemy.engine import make_url
     from sqlalchemy.exc import IntegrityError
@@ -432,8 +354,7 @@ async def capture_directory_scenario(
 
             with monkeypatch.context() as direct_patch:
                 direct_patch.setattr(projects_api, "list_members", new_call_shape)
-                async with api_directory_query_binding(token="directory-probe-token"):
-                    return await scenarios._direct_member_list_probe(**kwargs)
+                return await scenarios._direct_member_list_probe(**kwargs)
 
         _active_previous = scenarios._active_observation
         scenarios._active_observation = direct_observation

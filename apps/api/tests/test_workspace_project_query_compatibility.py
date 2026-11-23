@@ -1,22 +1,15 @@
-"""Replay the frozen Project scenarios against the current owner, without recapture."""
+"""Replay frozen Project HTTP scenarios through the borrowed API owner."""
 
 from __future__ import annotations
 
 import json
-from contextlib import AsyncExitStack
 import os
 from pathlib import Path
 
 import pytest
 
-from app.config import settings
 from tests import test_workspace_project_queries_legacy as scenarios
-from tests.workspace_project_query_helpers import (
-    api_project_query_binding,
-    project_query_briefs_dsn,
-    project_query_dsn,
-    project_query_provider,
-)
+from tests.workspace_project_query_helpers import expected_project_sample
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -27,9 +20,8 @@ pytestmark = [
 ]
 
 
-@pytest.mark.parametrize("binding", ["borrowed", "dedicated", "http"])
 async def test_owner_matches_frozen_public_samples_and_caller_boundaries(
-    test_engine, app_module, monkeypatch, tmp_path, binding
+    test_engine, app_module, monkeypatch, tmp_path
 ):
     reference = json.loads(
         (
@@ -40,47 +32,16 @@ async def test_owner_matches_frozen_public_samples_and_caller_boundaries(
     comparisons = []
 
     def compare(current):
-        assert current["samples"] == reference["samples"]
+        assert current["samples"] == [
+            expected_project_sample(sample) for sample in reference["samples"]
+        ]
         assert current["direct_read_probes"] == reference["direct_read_probes"]
         comparisons.append(len(current["samples"]))
 
-    for name in (
-        "workspace_project_query_url",
-        "workspace_project_query_database_url",
-        "workspace_project_query_database_url_file",
-    ):
-        monkeypatch.setattr(settings, name, "")
     monkeypatch.setattr(scenarios, "_CAPTURE_PATH", tmp_path / "unused-current-run")
     monkeypatch.setattr(scenarios, "_source_metadata", lambda: {"current_owner": True})
     monkeypatch.setattr(scenarios, "_write_capture", compare)
-    original_probe = scenarios._direct_read_probe
-
-    async def borrowed_probe(**kwargs):
-        async with api_project_query_binding(token="test-query"):
-            return await original_probe(**kwargs)
-
-    monkeypatch.setattr(scenarios, "_direct_read_probe", borrowed_probe)
-    async with AsyncExitStack() as stack:
-        token = "test-query"
-        url = dsn = None
-        if binding == "dedicated":
-            dsn = project_query_dsn(test_engine)
-        elif binding == "http":
-            url = await stack.enter_async_context(
-                project_query_provider(
-                    project_query_dsn(test_engine),
-                    token,
-                    briefs_dsn=project_query_briefs_dsn(test_engine),
-                )
-            )
-        await stack.enter_async_context(
-            api_project_query_binding(
-                url=url,
-                dsn=dsn,
-                token=token,
-            )
-        )
-        await scenarios.test_capture_legacy_project_query_and_projection_samples(
-            test_engine, app_module, monkeypatch
-        )
+    await scenarios.test_capture_legacy_project_query_and_projection_samples(
+        test_engine, app_module, monkeypatch
+    )
     assert comparisons == [len(reference["samples"])]

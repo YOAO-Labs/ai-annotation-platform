@@ -200,7 +200,6 @@ async def _capture_bound_samples(
     binding: str,
 ) -> list[dict]:
     frozen_samples = reference["samples"]
-    workspace_token = f"workspace-class-restore-{uuid.uuid4().hex}"
     labeling_token = f"labeling-class-restore-{uuid.uuid4().hex}"
     observed = []
     interleave_id = None
@@ -209,7 +208,6 @@ async def _capture_bound_samples(
         app_module,
         monkeypatch,
         binding=binding,
-        workspace_token=workspace_token,
         labeling_token=labeling_token,
         application_name=f"labeling-class-restore-{binding}",
     ) as (client, _runtime_engine, native_rpc):
@@ -242,14 +240,12 @@ async def _assert_phase_probe(engine, app_module, monkeypatch, world, reference)
         for sample in reference["samples"]
         if sample["label"] == "target_project_owner_aggregation"
     )
-    workspace_token = f"workspace-class-phase-{uuid.uuid4().hex}"
     labeling_token = f"labeling-class-phase-{uuid.uuid4().hex}"
     async with bound_api_client(
         engine,
         app_module,
         monkeypatch,
         binding="borrowed",
-        workspace_token=workspace_token,
         labeling_token=labeling_token,
         application_name="labeling-class-restore-phase",
     ) as (client, _runtime_engine, native_rpc):
@@ -423,7 +419,6 @@ async def test_labeling_class_query_owner_survives_owned_database_restore(
             ),
             "AAP_MODULE_DATA_LEGACY_RUNTIME_URL": cloned_legacy_dsn,
             "AAP_MODULE_DATA_LABELING_CLASS_QUERY_URL": cloned_labeling_dsn,
-            "AAP_MODULE_DATA_WORKSPACE_PROJECT_QUERY_URL": cloned_workspace_dsn,
         }
         with monkeypatch.context() as clone_environment:
             for name, value in cloned_urls.items():

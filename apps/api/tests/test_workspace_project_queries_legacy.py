@@ -289,6 +289,8 @@ async def _direct_read_probe(
         async with admin_maker() as observer:
             committed = await observer.get(Project, pending.id) is not None
         await db.rollback()
+    async with admin_maker() as observer:
+        assert await observer.get(Project, pending.id) is None
     return {
         "no_autoflush": no_autoflush,
         "included_in_route_result": included,
@@ -404,9 +406,6 @@ async def test_capture_legacy_project_query_and_projection_samples(
         async with runtime_maker() as db:
             yield db
 
-    monkeypatch.setattr(settings, "workspace_configuration_url", "")
-    monkeypatch.setattr(settings, "workspace_configuration_database_url", "")
-    monkeypatch.setattr(settings, "workspace_configuration_database_url_file", "")
     monkeypatch.setattr(settings, "audit_async", True)
     monkeypatch.setattr("app.middleware.audit._enqueue_audit", lambda _payload: True)
     monkeypatch.setattr(

@@ -76,7 +76,6 @@ async def test_current_labeling_query_owner_matches_all_frozen_http_samples(
             app_module,
             monkeypatch,
             binding=binding,
-            workspace_token="test-workspace-query-control",
             labeling_token="test-labeling-class-query-control",
         ) as (client, _runtime_engine, _native_rpc):
             actual = []

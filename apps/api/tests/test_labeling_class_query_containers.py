@@ -1,4 +1,4 @@
-"""Exercise public class usage through the owned Labeling and Workspace HTTP owners."""
+"""Exercise active Labeling HTTP with caller-transaction Workspace authorization."""
 
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ from tests.labeling_class_query_helpers import (
     cleanup_world,
     clear_local_identity,
     fixture_data,
-    installed_workspace_query_provider,
     labeling_class_query_dsn,
     make_request_runtime,
     request_sample,
@@ -40,10 +39,6 @@ from tests.test_asset_storage_cleanup_runtime import (
     _verify_postgres,
 )
 from tests.test_labeling_class_query_restore import _assert_labeling_client
-from tests.workspace_project_query_helpers import (
-    api_project_query_binding,
-    project_query_dsn,
-)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -551,7 +546,6 @@ async def test_labeling_owner_container_public_api_restart_and_bounded_load(
     )
     world = None
     observation = None
-    workspace_token = secrets.token_urlsafe(32)
     labeling_token = secrets.token_urlsafe(32)
     target_project_id = None
 
@@ -565,198 +559,156 @@ async def test_labeling_owner_container_public_api_restart_and_bounded_load(
             test_engine, application_name="labeling-container-api"
         )
         try:
-            async with installed_workspace_query_provider(
-                project_query_dsn(test_engine), workspace_token
-            ) as workspace_origin:
-                async with _labeling_owner_container(
+            async with (
+                _labeling_owner_container(
                     test_engine, tmp_path / "labeling-owner", labeling_token
-                ) as owner:
-                    async with api_db_binding(app_module, runtime_maker):
-                        async with api_project_query_binding(
-                            url=workspace_origin, token=workspace_token
-                        ):
-                            for name, value in (
-                                ("labeling_class_query_url", owner["origin"]),
-                                ("labeling_class_query_database_url", ""),
-                                ("labeling_class_query_database_url_file", ""),
-                                ("labeling_class_query_control_token", labeling_token),
-                                ("labeling_class_query_control_token_file", ""),
-                            ):
-                                monkeypatch.setattr(settings, name, value)
+                ) as owner,
+                api_db_binding(app_module, runtime_maker),
+            ):
+                for name, value in (
+                    ("labeling_class_query_url", owner["origin"]),
+                    ("labeling_class_query_database_url", ""),
+                    ("labeling_class_query_database_url_file", ""),
+                    ("labeling_class_query_control_token", labeling_token),
+                    ("labeling_class_query_control_token_file", ""),
+                ):
+                    monkeypatch.setattr(settings, name, value)
 
-                            transport = httpx.ASGITransport(
-                                app=app_module, raise_app_exceptions=False
-                            )
-                            async with httpx.AsyncClient(
-                                transport=transport,
-                                base_url="http://test",
-                                timeout=30,
-                            ) as client:
-                                observed = []
-                                interleave_id = None
-                                try:
-                                    for frozen in reference["samples"]:
-                                        if frozen["label"] == _PHASE_SAMPLE:
-                                            interleave_id = (
-                                                await add_frozen_interleave_row(
-                                                    test_engine, world
-                                                )
-                                            )
-                                        replayed = await request_sample(
-                                            client, world, frozen
-                                        )
-                                        assert replayed == _expected_public_sample(
-                                            frozen
-                                        )
-                                        observed.append(replayed)
-                                finally:
-                                    if interleave_id is not None:
-                                        async with test_engine.begin() as connection:
-                                            await connection.execute(
-                                                text(
-                                                    "DELETE FROM public.annotations "
-                                                    "WHERE id=CAST(:annotation_id AS uuid)"
-                                                ),
-                                                {"annotation_id": str(interleave_id)},
-                                            )
-
-                                assert len(observed) == 16
-                                raw_500 = next(
-                                    sample
-                                    for sample in observed
-                                    if sample["label"]
-                                    == "large_json_number_attribute_read"
-                                )
-                                assert raw_500["response"]["status"] == 500
-                                assert (
-                                    raw_500["response"]["body"]
-                                    == "Internal Server Error"
-                                )
-                                assert raw_500["response"]["headers"][
-                                    "content-type"
-                                ].startswith("text/plain")
-                                assert raw_500 == _expected_public_sample(
-                                    decode_failure_sample
-                                )
-
-                                recent_annotation = await add_frozen_interleave_row(
+                transport = httpx.ASGITransport(
+                    app=app_module, raise_app_exceptions=False
+                )
+                async with httpx.AsyncClient(
+                    transport=transport,
+                    base_url="http://test",
+                    timeout=30,
+                ) as client:
+                    observed = []
+                    interleave_id = None
+                    try:
+                        for frozen in reference["samples"]:
+                            if frozen["label"] == _PHASE_SAMPLE:
+                                interleave_id = await add_frozen_interleave_row(
                                     test_engine, world
                                 )
-                                try:
-                                    recent = await request_sample(
-                                        client, world, target_sample
-                                    )
-                                    assert recent["response"]["status"] == 200
-                                    expected_attributes = dict(
-                                        target_sample["response"]["body"]["attributes"]
-                                    )
-                                    assert "between_reads" not in expected_attributes
-                                    expected_attributes["between_reads"] = 1
-                                    expected_body = {
-                                        "classes": target_sample["response"]["body"][
-                                            "classes"
-                                        ],
-                                        "attributes": expected_attributes,
-                                    }
-                                    assert recent["response"]["body"] == expected_body
+                            replayed = await request_sample(client, world, frozen)
+                            assert replayed == _expected_public_sample(frozen)
+                            observed.append(replayed)
+                    finally:
+                        if interleave_id is not None:
+                            async with test_engine.begin() as connection:
+                                await connection.execute(
+                                    text(
+                                        "DELETE FROM public.annotations "
+                                        "WHERE id=CAST(:annotation_id AS uuid)"
+                                    ),
+                                    {"annotation_id": str(interleave_id)},
+                                )
 
-                                    path = f"/api/v1/projects/{target_project_id}/class-usage"
-                                    headers = {
-                                        "Authorization": f"Bearer {world['tokens']['owner']}"
-                                    }
-                                    gate = asyncio.Semaphore(4)
+                    assert len(observed) == 16
+                    raw_500 = next(
+                        sample
+                        for sample in observed
+                        if sample["label"] == "large_json_number_attribute_read"
+                    )
+                    assert raw_500["response"]["status"] == 500
+                    assert raw_500["response"]["body"] == "Internal Server Error"
+                    assert raw_500["response"]["headers"]["content-type"].startswith(
+                        "text/plain"
+                    )
+                    assert raw_500 == _expected_public_sample(decode_failure_sample)
 
-                                    async def read_once():
-                                        async with gate:
-                                            started = time.perf_counter()
-                                            response = await client.get(
-                                                path, headers=headers
-                                            )
-                                            elapsed_ms = (
-                                                time.perf_counter() - started
-                                            ) * 1000
-                                            assert response.status_code == 200, (
-                                                response.text
-                                            )
-                                            assert response.json() == expected_body
-                                            return elapsed_ms
+                    recent_annotation = await add_frozen_interleave_row(
+                        test_engine, world
+                    )
+                    try:
+                        recent = await request_sample(client, world, target_sample)
+                        assert recent["response"]["status"] == 200
+                        expected_attributes = dict(
+                            target_sample["response"]["body"]["attributes"]
+                        )
+                        assert "between_reads" not in expected_attributes
+                        expected_attributes["between_reads"] = 1
+                        expected_body = {
+                            "classes": target_sample["response"]["body"]["classes"],
+                            "attributes": expected_attributes,
+                        }
+                        assert recent["response"]["body"] == expected_body
 
-                                    durations = await asyncio.gather(
-                                        *(read_once() for _ in range(16))
-                                    )
-                                    assert len(durations) == 16
-                                    assert not _inspect_docker(owner["container_id"])[
-                                        "State"
-                                    ]["OOMKilled"]
+                        path = f"/api/v1/projects/{target_project_id}/class-usage"
+                        headers = {
+                            "Authorization": f"Bearer {world['tokens']['owner']}"
+                        }
+                        gate = asyncio.Semaphore(4)
 
-                                    _docker(
-                                        "restart", owner["container_id"], timeout=60
-                                    )
-                                    restarted_metadata = _inspect_docker(
-                                        owner["container_id"]
-                                    )
-                                    assert (
-                                        restarted_metadata["State"]["Running"] is True
-                                    )
-                                    restarted_origin = _published_origin(
-                                        restarted_metadata
-                                    )
-                                    await _wait_ready(
-                                        restarted_origin, owner["container_id"]
-                                    )
-                                    monkeypatch.setattr(
-                                        settings,
-                                        "labeling_class_query_url",
-                                        restarted_origin,
-                                    )
-                                    after_restart = await request_sample(
-                                        client, world, target_sample
-                                    )
-                                    assert after_restart["response"]["status"] == 200
-                                    assert (
-                                        after_restart["response"]["body"]
-                                        == expected_body
-                                    )
-                                    assert not _inspect_docker(owner["container_id"])[
-                                        "State"
-                                    ]["OOMKilled"]
+                        async def read_once():
+                            async with gate:
+                                started = time.perf_counter()
+                                response = await client.get(path, headers=headers)
+                                elapsed_ms = (time.perf_counter() - started) * 1000
+                                assert response.status_code == 200, response.text
+                                assert response.json() == expected_body
+                                return elapsed_ms
 
-                                    observation = {
-                                        "status": "passed",
-                                        "image_id": owner["image_id"],
-                                        "image_identity": owner["image_identity"],
-                                        "container_id": owner["container_id"],
-                                        "container_identity": owner[
-                                            "container_identity"
-                                        ],
-                                        "network_id": owner["network_id"],
-                                        "network_identity": owner["network_identity"],
-                                        "image_limits": owner["limits"],
-                                        "owner_budget": {"cpu": 1, "memory_mib": 256},
-                                        "secret_mounts": 2,
-                                        "database_role": "yoao_labeling_class_query_client",
-                                        "workspace_provider": "installed-http-artifact",
-                                        "workspace_identity_profiles_configured": False,
-                                        "api_and_database_outside_owner_budget": True,
-                                        "public_api_samples": len(observed),
-                                        "raw_500_preserved": True,
-                                        "recent_annotation_attribute_reflected": True,
-                                        "bounded_requests": 16,
-                                        "bounded_concurrency": 4,
-                                        "milliseconds": durations,
-                                        "container_restarted": True,
-                                        "initial_origin": owner["origin"],
-                                        "restarted_origin": restarted_origin,
-                                    }
-                                finally:
-                                    async with test_engine.begin() as connection:
-                                        await connection.execute(
-                                            text(
-                                                "DELETE FROM public.annotations "
-                                                "WHERE id=CAST(:annotation_id AS uuid)"
-                                            ),
-                                            {"annotation_id": str(recent_annotation)},
-                                        )
+                        durations = await asyncio.gather(
+                            *(read_once() for _ in range(16))
+                        )
+                        assert len(durations) == 16
+                        assert not _inspect_docker(owner["container_id"])["State"][
+                            "OOMKilled"
+                        ]
+
+                        _docker("restart", owner["container_id"], timeout=60)
+                        restarted_metadata = _inspect_docker(owner["container_id"])
+                        assert restarted_metadata["State"]["Running"] is True
+                        restarted_origin = _published_origin(restarted_metadata)
+                        await _wait_ready(restarted_origin, owner["container_id"])
+                        monkeypatch.setattr(
+                            settings,
+                            "labeling_class_query_url",
+                            restarted_origin,
+                        )
+                        after_restart = await request_sample(
+                            client, world, target_sample
+                        )
+                        assert after_restart["response"]["status"] == 200
+                        assert after_restart["response"]["body"] == expected_body
+                        assert not _inspect_docker(owner["container_id"])["State"][
+                            "OOMKilled"
+                        ]
+
+                        observation = {
+                            "status": "passed",
+                            "image_id": owner["image_id"],
+                            "image_identity": owner["image_identity"],
+                            "container_id": owner["container_id"],
+                            "container_identity": owner["container_identity"],
+                            "network_id": owner["network_id"],
+                            "network_identity": owner["network_identity"],
+                            "image_limits": owner["limits"],
+                            "owner_budget": {"cpu": 1, "memory_mib": 256},
+                            "secret_mounts": 2,
+                            "database_role": "yoao_labeling_class_query_client",
+                            "workspace_provider": "borrowed-host-transaction",
+                            "api_and_database_outside_owner_budget": True,
+                            "public_api_samples": len(observed),
+                            "raw_500_preserved": True,
+                            "recent_annotation_attribute_reflected": True,
+                            "bounded_requests": 16,
+                            "bounded_concurrency": 4,
+                            "milliseconds": durations,
+                            "container_restarted": True,
+                            "initial_origin": owner["origin"],
+                            "restarted_origin": restarted_origin,
+                        }
+                    finally:
+                        async with test_engine.begin() as connection:
+                            await connection.execute(
+                                text(
+                                    "DELETE FROM public.annotations "
+                                    "WHERE id=CAST(:annotation_id AS uuid)"
+                                ),
+                                {"annotation_id": str(recent_annotation)},
+                            )
         finally:
             await runtime_engine.dispose()
     finally:

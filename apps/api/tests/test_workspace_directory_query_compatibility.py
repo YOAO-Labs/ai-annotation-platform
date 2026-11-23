@@ -1,22 +1,14 @@
-"""Replay frozen public directory samples against each current owner binding."""
+"""Replay frozen public directory samples through the borrowed API owner."""
 
 from __future__ import annotations
 
-from contextlib import AsyncExitStack
 import json
 import os
 from pathlib import Path
 
 import pytest
 
-from app.config import settings
-from tests.workspace_directory_query_helpers import (
-    api_directory_query_binding,
-    capture_directory_scenario,
-    directory_query_dsn,
-    directory_query_provider,
-)
-from tests.workspace_project_query_helpers import project_query_briefs_dsn
+from tests.workspace_directory_query_helpers import capture_directory_scenario
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -60,9 +52,8 @@ def _compare_caller_probes(current, reference):
         }
 
 
-@pytest.mark.parametrize("binding", ["borrowed", "dedicated", "http"])
 async def test_current_directory_owner_matches_frozen_samples_and_caller_probes(
-    test_engine, app_module, monkeypatch, binding
+    test_engine, app_module, monkeypatch
 ):
     reference = json.loads(_SAMPLE_PATH.read_text(encoding="utf-8"))
     assert len(reference["samples"]) == 13
@@ -71,34 +62,12 @@ async def test_current_directory_owner_matches_frozen_samples_and_caller_probes(
     }
     assert len(member_ids_by_user_id) == 6
 
-    for name in (
-        "workspace_directory_query_url",
-        "workspace_directory_query_database_url",
-        "workspace_directory_query_database_url_file",
-    ):
-        monkeypatch.setattr(settings, name, "")
-
-    async with AsyncExitStack() as stack:
-        token = "directory-query-control"
-        url = dsn = None
-        if binding == "dedicated":
-            dsn = directory_query_dsn(test_engine)
-        elif binding == "http":
-            briefs_dsn = project_query_briefs_dsn(test_engine)
-            url = await stack.enter_async_context(
-                directory_query_provider(
-                    directory_query_dsn(test_engine), token, briefs_dsn
-                )
-            )
-        await stack.enter_async_context(
-            api_directory_query_binding(url=url, dsn=dsn, token=token)
-        )
-        current = await capture_directory_scenario(
-            test_engine,
-            app_module,
-            monkeypatch,
-            member_ids_by_user_id=member_ids_by_user_id,
-        )
+    current = await capture_directory_scenario(
+        test_engine,
+        app_module,
+        monkeypatch,
+        member_ids_by_user_id=member_ids_by_user_id,
+    )
 
     assert [_comparable(sample) for sample in current["samples"]] == [
         _comparable(sample) for sample in reference["samples"]

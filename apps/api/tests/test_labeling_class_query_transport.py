@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 import json
 import uuid
 
@@ -7,32 +6,23 @@ import httpx
 import pytest
 
 from app.config import settings
-from app.services import labeling_class_query, workspace_project_query
+from app.services import labeling_class_query
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("family", ["labeling_class_query", "workspace_project_query"])
 async def test_empty_explicit_dsn_file_fails_before_local_provider(
-    monkeypatch, tmp_path, family
+    monkeypatch, tmp_path
 ):
     empty = tmp_path / "dsn"
     empty.write_text("\n")
-    monkeypatch.setattr(settings, family + "_url", "")
-    monkeypatch.setattr(settings, family + "_database_url", "")
-    monkeypatch.setattr(settings, family + "_database_url_file", str(empty))
+    monkeypatch.setattr(settings, "labeling_class_query_url", "")
+    monkeypatch.setattr(settings, "labeling_class_query_database_url", "")
+    monkeypatch.setattr(settings, "labeling_class_query_database_url_file", str(empty))
     project_id = uuid.uuid4()
     with pytest.raises(HTTPException) as unavailable:
-        if family == "labeling_class_query":
-            await labeling_class_query.execute_labeling_class_query(
-                object(), project_id=project_id
-            )
-        else:
-            await workspace_project_query.execute_project_query(
-                object(),
-                operation="require_project_manager",
-                actor=SimpleNamespace(id=uuid.uuid4(), role="project_admin"),
-                target_id=project_id,
-            )
+        await labeling_class_query.execute_labeling_class_query(
+            object(), project_id=project_id
+        )
     assert unavailable.value.status_code == 503
 
 

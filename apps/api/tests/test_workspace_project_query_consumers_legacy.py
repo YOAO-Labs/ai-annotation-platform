@@ -395,12 +395,6 @@ async def test_capture_legacy_project_query_consumers_and_postcommit_projections
         "identity_auth_database_url_file",
         "identity_briefs_database_url",
         "identity_briefs_database_url_file",
-        "workspace_configuration_url",
-        "workspace_configuration_database_url",
-        "workspace_configuration_database_url_file",
-        "workspace_owner_transfer_url",
-        "workspace_owner_transfer_database_url",
-        "workspace_owner_transfer_database_url_file",
     ):
         monkeypatch.setattr(settings, field, "")
     monkeypatch.setattr(settings, "audit_async", True)
