@@ -1,5 +1,6 @@
 services:
   assets-media-control:
+    profiles: [assets-media-control]
     build:
       context: .
       dockerfile: apps/assets-media/Dockerfile
@@ -9,11 +10,11 @@ services:
       ASSETS_MEDIA_TOKEN_FILE: /run/secrets/media_token
       ASSETS_MEDIA_S3_ACCESS_KEY_FILE: /run/secrets/media_control_s3_access_key
       ASSETS_MEDIA_S3_SECRET_KEY_FILE: /run/secrets/media_control_s3_secret_key
-      ASSETS_MEDIA_S3_ENDPOINT: ${ASSETS_MEDIA_S3_ENDPOINT:?Set the internal S3 origin}
-      ASSETS_MEDIA_S3_PUBLIC_ENDPOINT: ${ASSETS_MEDIA_S3_PUBLIC_ENDPOINT:?Set the browser-reachable S3 origin}
+      ASSETS_MEDIA_S3_ENDPOINT: ${ASSETS_MEDIA_S3_ENDPOINT:-}
+      ASSETS_MEDIA_S3_PUBLIC_ENDPOINT: ${ASSETS_MEDIA_S3_PUBLIC_ENDPOINT:-}
       ASSETS_MEDIA_S3_REGION: ${ASSETS_MEDIA_S3_REGION:-us-east-1}
-      ASSETS_MEDIA_DATASETS_BUCKET: ${ASSETS_MEDIA_DATASETS_BUCKET:?Set the datasets bucket}
-      ASSETS_MEDIA_CACHE_BUCKET: ${ASSETS_MEDIA_CACHE_BUCKET:?Set the media-cache bucket}
+      ASSETS_MEDIA_DATASETS_BUCKET: ${ASSETS_MEDIA_DATASETS_BUCKET:-}
+      ASSETS_MEDIA_CACHE_BUCKET: ${ASSETS_MEDIA_CACHE_BUCKET:-}
       ASSETS_MEDIA_INPUTS_BUCKET: ${ASSETS_MEDIA_INPUTS_BUCKET:-${MINIO_INPUTS_BUCKET:-accepted-inputs}}
       ASSETS_IMAGES_LEGACY_BUCKET: ${ASSETS_IMAGES_LEGACY_BUCKET:-${MINIO_BUCKET:-${MINIO_BUCKET_ANNOTATIONS:-annotations}}}
       ASSETS_MEDIA_HOST: 0.0.0.0
@@ -60,21 +61,35 @@ services:
     mem_limit: 512m
     restart: unless-stopped
     stop_grace_period: 30s
+    healthcheck:
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8768/health/ready', timeout=2)",
+        ]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
 
   assets-media-worker:
+    profiles: [assets-video-executor]
     build:
       context: .
       dockerfile: apps/assets-media/Dockerfile
       target: worker
     environment:
+      ASSETS_VIDEO_EXECUTOR: ${ASSETS_VIDEO_EXECUTOR:-celery}
       ASSETS_MEDIA_WORKER_DATABASE_URL_FILE: /run/secrets/media_worker_database_url
       ASSETS_MEDIA_S3_ACCESS_KEY_FILE: /run/secrets/media_worker_s3_access_key
       ASSETS_MEDIA_S3_SECRET_KEY_FILE: /run/secrets/media_worker_s3_secret_key
-      ASSETS_MEDIA_S3_ENDPOINT: ${ASSETS_MEDIA_S3_ENDPOINT:?Set the internal S3 origin}
-      ASSETS_MEDIA_S3_PUBLIC_ENDPOINT: ${ASSETS_MEDIA_S3_PUBLIC_ENDPOINT:?Set the browser-reachable S3 origin}
+      ASSETS_MEDIA_S3_ENDPOINT: ${ASSETS_MEDIA_S3_ENDPOINT:-}
+      ASSETS_MEDIA_S3_PUBLIC_ENDPOINT: ${ASSETS_MEDIA_S3_PUBLIC_ENDPOINT:-}
       ASSETS_MEDIA_S3_REGION: ${ASSETS_MEDIA_S3_REGION:-us-east-1}
-      ASSETS_MEDIA_DATASETS_BUCKET: ${ASSETS_MEDIA_DATASETS_BUCKET:?Set the datasets bucket}
-      ASSETS_MEDIA_CACHE_BUCKET: ${ASSETS_MEDIA_CACHE_BUCKET:?Set the media-cache bucket}
+      ASSETS_MEDIA_DATASETS_BUCKET: ${ASSETS_MEDIA_DATASETS_BUCKET:-}
+      ASSETS_MEDIA_CACHE_BUCKET: ${ASSETS_MEDIA_CACHE_BUCKET:-}
       ASSETS_MEDIA_INPUTS_BUCKET: ${ASSETS_MEDIA_INPUTS_BUCKET:-${MINIO_INPUTS_BUCKET:-accepted-inputs}}
       ASSETS_MEDIA_POLL_SECONDS: ${ASSETS_MEDIA_POLL_SECONDS:-5}
       ASSETS_MEDIA_LEASE_SECONDS: ${ASSETS_MEDIA_LEASE_SECONDS:-1200}
@@ -100,21 +115,29 @@ services:
     mem_limit: 2g
     restart: unless-stopped
     stop_grace_period: 60s
+    healthcheck:
+      test: [CMD, python, -m, yoao_assets_media_runtime.worker, --healthcheck]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
 
   assets-images-worker:
+    profiles: [assets-image-executor]
     build:
       context: .
       dockerfile: apps/assets-media/Dockerfile
       target: image-worker
     environment:
+      ASSETS_IMAGE_EXECUTOR: ${ASSETS_IMAGE_EXECUTOR:-celery}
       ASSETS_IMAGES_DATABASE_URL_FILE: /run/secrets/images_database_url
       ASSETS_MEDIA_S3_ACCESS_KEY_FILE: /run/secrets/images_s3_access_key
       ASSETS_MEDIA_S3_SECRET_KEY_FILE: /run/secrets/images_s3_secret_key
-      ASSETS_MEDIA_S3_ENDPOINT: ${ASSETS_MEDIA_S3_ENDPOINT:?Set the internal S3 origin}
-      ASSETS_MEDIA_S3_PUBLIC_ENDPOINT: ${ASSETS_MEDIA_S3_PUBLIC_ENDPOINT:?Set the browser-reachable S3 origin}
+      ASSETS_MEDIA_S3_ENDPOINT: ${ASSETS_MEDIA_S3_ENDPOINT:-}
+      ASSETS_MEDIA_S3_PUBLIC_ENDPOINT: ${ASSETS_MEDIA_S3_PUBLIC_ENDPOINT:-}
       ASSETS_MEDIA_S3_REGION: ${ASSETS_MEDIA_S3_REGION:-us-east-1}
-      ASSETS_MEDIA_DATASETS_BUCKET: ${ASSETS_MEDIA_DATASETS_BUCKET:?Set the datasets bucket}
-      ASSETS_MEDIA_CACHE_BUCKET: ${ASSETS_MEDIA_CACHE_BUCKET:?Set the media-cache bucket}
+      ASSETS_MEDIA_DATASETS_BUCKET: ${ASSETS_MEDIA_DATASETS_BUCKET:-}
+      ASSETS_MEDIA_CACHE_BUCKET: ${ASSETS_MEDIA_CACHE_BUCKET:-}
       ASSETS_MEDIA_INPUTS_BUCKET: ${ASSETS_MEDIA_INPUTS_BUCKET:-${MINIO_INPUTS_BUCKET:-accepted-inputs}}
       ASSETS_IMAGES_LEGACY_BUCKET: ${ASSETS_IMAGES_LEGACY_BUCKET:-${MINIO_BUCKET:-${MINIO_BUCKET_ANNOTATIONS:-annotations}}}
       ASSETS_IMAGES_POLL_SECONDS: ${ASSETS_IMAGES_POLL_SECONDS:-5}
@@ -137,16 +160,11 @@ services:
     restart: unless-stopped
     stop_grace_period: 120s
     healthcheck:
-      test: ["CMD", "python", "-m", "aap_assets_images_runtime.worker", "--healthcheck"]
+      test: [CMD, python, -m, yoao_assets_images_runtime.worker, --healthcheck]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
 
 secrets:
   media_control_database_url:

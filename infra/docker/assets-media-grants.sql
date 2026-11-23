@@ -3,25 +3,33 @@ BEGIN;
 SELECT set_config('yoao.expected_database', :'expected_database', true);
 SELECT set_config('yoao.migration_role', :'migration_role', true);
 SELECT set_config('yoao.assets_owner', :'assets_owner', true);
+\if :{?asset_media_control_role}
 SELECT set_config('yoao.asset_media_control_role', :'asset_media_control_role', true);
+\else
+SELECT set_config('yoao.asset_media_control_role', '', true);
+\endif
 SELECT set_config('yoao.asset_media_worker_role', :'asset_media_worker_role', true);
 
 DO $$
 DECLARE
     role_name text;
     role_oid oid;
-    role_names text[] := ARRAY[
+    migration_owned boolean := current_setting('yoao.assets_owner') = current_user;
+    role_names text[] := array_remove(ARRAY[
         current_setting('yoao.assets_owner'),
         current_setting('yoao.asset_media_control_role'),
         current_setting('yoao.asset_media_worker_role')
-    ];
+    ], '');
 BEGIN
     IF current_database() <> current_setting('yoao.expected_database')
        OR current_user <> current_setting('yoao.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF (SELECT count(DISTINCT name) FROM unnest(role_names) AS name) <> 3 THEN
-        RAISE EXCEPTION 'Assets owner, media control and media worker roles must be distinct';
+    IF (SELECT count(DISTINCT name) FROM unnest(role_names) AS name)
+       <> cardinality(role_names)
+       OR current_user IN (current_setting('yoao.asset_media_control_role'),
+                          current_setting('yoao.asset_media_worker_role')) THEN
+        RAISE EXCEPTION 'Assets owner, migration user and configured media logins must not share a runtime LOGIN';
     END IF;
     FOREACH role_name IN ARRAY role_names LOOP
         IF role_name !~ '^[a-z_][a-z0-9_]{0,62}$' THEN
@@ -32,6 +40,9 @@ BEGIN
         WHERE role.rolname = role_name;
         IF NOT FOUND THEN
             RAISE EXCEPTION 'Missing media role: %', role_name;
+        END IF;
+        IF migration_owned AND role_name = current_user THEN
+            CONTINUE;
         END IF;
         IF EXISTS (
             SELECT 1 FROM pg_catalog.pg_roles AS role
@@ -48,70 +59,72 @@ BEGIN
             RAISE EXCEPTION 'Media roles must not inherit or have members: %', role_name;
         END IF;
     END LOOP;
-    IF EXISTS (
+    IF (NOT migration_owned AND EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
         WHERE role.rolname = current_setting('yoao.assets_owner') AND role.rolcanlogin
-    ) OR NOT EXISTS (
+    )) OR (current_setting('yoao.asset_media_control_role') <> '' AND NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
         WHERE role.rolname = current_setting('yoao.asset_media_control_role')
           AND role.rolcanlogin
-    ) OR NOT EXISTS (
+    )) OR NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
         WHERE role.rolname = current_setting('yoao.asset_media_worker_role')
           AND role.rolcanlogin
     ) THEN
-        RAISE EXCEPTION 'Assets owner must be NOLOGIN and media roles must LOGIN';
+        RAISE EXCEPTION 'Dedicated Assets owner must be NOLOGIN and configured media roles must LOGIN';
     END IF;
 END $$;
 
 REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;
-REVOKE ALL ON DATABASE :"expected_database"
-    FROM :"asset_media_control_role", :"asset_media_worker_role";
-GRANT CONNECT ON DATABASE :"expected_database"
-    TO :"asset_media_control_role", :"asset_media_worker_role";
-REVOKE ALL ON SCHEMA public
-    FROM :"asset_media_control_role", :"asset_media_worker_role";
-REVOKE ALL ON ALL TABLES IN SCHEMA public
-    FROM :"asset_media_control_role", :"asset_media_worker_role";
-REVOKE ALL ON ALL SEQUENCES IN SCHEMA public
-    FROM :"asset_media_control_role", :"asset_media_worker_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public
-    FROM :"asset_media_control_role", :"asset_media_worker_role";
+REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_media_worker_role";
+GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_media_worker_role";
+REVOKE ALL ON SCHEMA public FROM :"asset_media_worker_role";
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"asset_media_worker_role";
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"asset_media_worker_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM :"asset_media_worker_role";
+\if :{?asset_media_control_role}
+REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_media_control_role";
+GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_media_control_role";
+REVOKE ALL ON SCHEMA public FROM :"asset_media_control_role";
+REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"asset_media_control_role";
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"asset_media_control_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM :"asset_media_control_role";
+\endif
 
 DO $$
 DECLARE
     namespace record;
-    control_role text := current_setting('yoao.asset_media_control_role');
-    worker_role text := current_setting('yoao.asset_media_worker_role');
+    role_name text;
+    logins text[] := array_remove(ARRAY[
+        current_setting('yoao.asset_media_control_role'),
+        current_setting('yoao.asset_media_worker_role')
+    ], '');
 BEGIN
     FOR namespace IN
         SELECT ns.nspname
         FROM pg_catalog.pg_namespace AS ns
         WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
     LOOP
-        EXECUTE pg_catalog.format(
-            'REVOKE ALL ON SCHEMA %I FROM %I, %I',
-            namespace.nspname, control_role, worker_role
-        );
-        EXECUTE pg_catalog.format(
-            'REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM %I, %I',
-            namespace.nspname, control_role, worker_role
-        );
-        EXECUTE pg_catalog.format(
-            'REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM %I, %I',
-            namespace.nspname, control_role, worker_role
-        );
-        EXECUTE pg_catalog.format(
-            'REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I, %I',
-            namespace.nspname, control_role, worker_role
-        );
+        FOREACH role_name IN ARRAY logins LOOP
+            EXECUTE pg_catalog.format(
+                'REVOKE ALL ON SCHEMA %I FROM %I', namespace.nspname, role_name
+            );
+            EXECUTE pg_catalog.format(
+                'REVOKE ALL ON ALL TABLES IN SCHEMA %I FROM %I', namespace.nspname, role_name
+            );
+            EXECUTE pg_catalog.format(
+                'REVOKE ALL ON ALL SEQUENCES IN SCHEMA %I FROM %I', namespace.nspname, role_name
+            );
+            EXECUTE pg_catalog.format(
+                'REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I', namespace.nspname, role_name
+            );
+        END LOOP;
     END LOOP;
 END $$;
 
-REVOKE ALL ON SCHEMA yoao_assets_v1
-    FROM :"asset_media_control_role", :"asset_media_worker_role";
-GRANT USAGE ON SCHEMA yoao_assets_v1
-    TO :"asset_media_control_role", :"asset_media_worker_role";
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"asset_media_worker_role";
+\if :{?asset_media_control_role}
+GRANT USAGE ON SCHEMA yoao_assets_v1 TO :"asset_media_control_role";
 GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.begin_media_original_actor(uuid,uuid,uuid,text,text),
     yoao_assets_v1.finish_media_original_read(uuid,uuid),
@@ -184,6 +197,7 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.prepare_video_tracker_input(uuid,uuid,uuid,uuid,text,text,bigint,jsonb,text),
     yoao_assets_v1.reference_video_tracker_source(uuid,uuid,uuid,uuid,text,text)
     TO :"asset_media_control_role";
+\endif
 GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text),
     yoao_assets_v1.finish_media_original_worker(uuid,uuid),
@@ -338,6 +352,18 @@ DECLARE
         pg_catalog.to_regprocedure('yoao_assets_v1.sweep_video_tracker_inputs(integer)')::oid
     ];
 BEGIN
+    IF current_setting('yoao.assets_owner') = current_user AND EXISTS (
+        SELECT 1
+        FROM pg_catalog.unnest(worker_functions ||
+            CASE WHEN control_oid IS NULL THEN '{}'::oid[]
+                 ELSE control_functions || accepted_input_control_functions END
+        ) AS approved(oid)
+        LEFT JOIN pg_catalog.pg_proc AS proc USING (oid)
+        WHERE proc.proowner IS DISTINCT FROM current_user::regrole
+           OR proc.prosecdef IS DISTINCT FROM true
+    ) THEN
+        RAISE EXCEPTION 'Expected migration-owned SECURITY DEFINER media capabilities';
+    END IF;
     IF pg_catalog.has_database_privilege(control_oid, current_database(), 'CREATE')
        OR pg_catalog.has_database_privilege(control_oid, current_database(), 'TEMP')
        OR pg_catalog.has_database_privilege(worker_oid, current_database(), 'CREATE')

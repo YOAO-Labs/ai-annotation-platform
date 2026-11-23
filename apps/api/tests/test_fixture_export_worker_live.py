@@ -242,6 +242,8 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
         monkeypatch.setenv("ASSETS_MEDIA_URL", settings.assets_media_url)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN", media.control_token)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN_FILE", "")
+        monkeypatch.setattr(settings, "assets_image_executor", "split")
+        monkeypatch.setenv("ASSETS_IMAGE_EXECUTOR", "split")
         await _start_image_worker(media, tmp_path)
         owner_log = tempfile.TemporaryFile()
         process = subprocess.Popen(

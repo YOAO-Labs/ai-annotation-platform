@@ -87,7 +87,7 @@ writer lease 后处理；原始 bytes 始终保留，包括不确定提交产生
 
 解绑 HTTP 仍执行 `datasets:read` / `datasets:write` scope 与项目负责人预检，Workspace 原生命令再检查当前身份和管理权；可选 UUID `Idempotency-Key` 对应回执身份并在成功响应回传，SDK/Web 重试沿用原 key。独立清理进程直接轮询已提交的 outbox，不依赖 Celery 派发；解绑保留 Dataset、DatasetItem、原始文件及共享来源金字塔，公开来源删除使用上面的 Assets 合同。
 
-目录列表、详情、文件分页和公开创建/更新通过 `services/assets_catalog.py::AssetsCatalogGateway` 消费五项原生目录能力。本地装配沿用请求方事务，显式远程装配由独立 `apps/assets-catalog` 提交并签发文件 URL，远程故障不自动切回本地。创建/更新与 `dataset_catalog_operations` 回执原子保存，当前账号与素材库管理权在数据库内重验；响应中断后同键重放原快照。普通创建只写 SQL，不再写空目录标记。该服务使用 execute-only LOGIN 与只读 S3 身份，协议见[独立素材目录](/api/guides/assets-catalog)。
+目录详情、创建/更新和关联查询由 `services/assets_catalog.py::AssetsCatalogGateway` 在调用方事务内消费原生能力；带归档、目录来源和筛选的列表继续使用本地组合投影。签名读取重验当前主体和来源快照。创建/更新与 `dataset_catalog_operations` 回执原子保存；响应中断后同键重放原快照。普通创建只写 SQL，不写空目录标记。独立 `apps/assets-catalog` 保留可携带的协议和只读 S3 身份，不再是部署选择；见[目录协议](/api/guides/assets-catalog)。
 
 `application/project_task_cleanup.py::cleanup_annotation_orphans` 组合当前项目管理权、配置和 `AnnotationService`。执行命令先按账号 → 项目取得当前管理权，再取得项目排他锁并刷新 `tool_bindings`；`AnnotationService` 委托 Labeling 的固定 maintenance 能力读取候选、按批次 → 任务 → 标注排序锁定并刷新目标身份及执行修剪；贡献证据和任务统计复用既有 owner 能力。权限撤销、项目转移或目标改向不会沿用旧快照，NOWAIT 忙锁返回冲突。默认 dry-run 只读且不写审计；真实修改与 HTTP 审计同事务提交，保留标注来源、几何、`_` 系统元数据，不执行对象存储删除。该服务所有者不反向依赖应用层。
 
@@ -95,9 +95,9 @@ writer lease 后处理；原始 bytes 始终保留，包括不确定提交产生
 
 `application/dataset_reset.py::DatasetResetWorkflow` 组合任务素材引用解除与 `DatasetService` 的链接/素材/Dataset 行删除；CLI 只列出和提交，重置仍是数据库清理，不遍历或删除 MinIO 对象。nuScenes/图片导入先写对象再由调用方提交 SQL；SQL 回滚无法回滚新对象上传或对既有键的覆盖。开发 seed 替换旧 `P-PC-DEV` 时仅把旧对象 key 作为清理计划返回，并在所属调用方 SQL 提交成功后删除；SQL 提交失败保留旧对象，提交后对象删除失败则保留无引用对象并告警。数据库与对象存储仍非原子事务，新上传对象在 SQL 回滚后可能成为孤儿。
 
-运维 CLI 仅保留参数/环境读取、报告和对应 owner 的命令装配：`application/bootstrap_admin.py` 调用 Identity provisioning owner 创建单邮箱 bootstrap 管理员；user 与固定 bootstrap Audit 在 Identity/Audit owner 同一外层事务中提交，CLI 保留提交和既有 boolean 返回，不重复 ORM Audit。`application/task_dataset_backfill.py` 扫描并委托项目关联。`application/video_timetable_rebuild.py` 通过媒体 owner 的稳定分页选择来源，非 dry-run 受理持久时间表作业并等候终态；dry-run 仅读取来源并使用同一 `media-probe` 客户端探测，不写时间表。显式选择远程媒体服务后，CLI 不在本地替它执行作业；探测服务的选择也继续生效。
+运维 CLI 仅保留参数/环境读取、报告和对应 owner 的命令装配：`application/bootstrap_admin.py` 调用 Identity provisioning owner 创建单邮箱 bootstrap 管理员；user 与固定 bootstrap Audit 在 Identity/Audit owner 同一外层事务中提交，CLI 保留提交和既有 boolean 返回，不重复 ORM Audit。`application/task_dataset_backfill.py` 扫描并委托项目关联。`application/video_timetable_rebuild.py` 通过媒体 owner 的稳定分页选择来源，非 dry-run 受理持久时间表作业并等候终态；dry-run 用内嵌控制的精确原片许可和同一 `media-probe` 客户端探测，不写时间表，也不绕过单设的私有控制。执行模式独立由 `ASSETS_VIDEO_EXECUTOR` 选择。
 
-`DatasetService` 继续持有连接器导入管理、部分派生写入及内部组合所需的 ORM 读取；`application/project_task_cleanup.py` 的无源任务清理也保留既有本地组合。目录五项 HTTP、来源删除/上传和同步 ZIP/扫描已有选定合同，但其他入口、跨 owner 读取和完整 Blob 协议仍需迁移。共享 PostgreSQL 的冻结 SQL 及来源/目录子工件不代表 Assets、Labeling 或 Workspace 全模块已完成独立部署。
+`DatasetService` 继续持有连接器导入管理、部分派生写入及内部组合所需的 ORM 读取。来源删除/上传、同步 ZIP/扫描与 spatial 控制在 API 绑定原 owner，不另启 HTTP 服务。Source 精确原件验证、恢复与 Native 签名保留在持有相应凭据的进程。
 
 `application/task_lifecycle.py`、`task_review.py` 和 `task_submission.py` 组合标注生命周期、贡献证据、首次审核事实、反馈镜像、计数、审计、持久通知及质检。Task 状态和对应 Project 计数写入归 `LabelingTaskService`；原路由共享提交函数已删除，单题与批次入口直接消费同一工作流。`AuditOriginContext` 仅保存 method/path/IP，不把 FastAPI 请求对象传入用例；其他审计调用方仍保留原请求适配。
 
@@ -555,6 +555,6 @@ Dataset→Project 和 Project→Dataset 列表通过 `aap-assets-associations/v1
 
 Scene、DatasetItem 的 Scene/frame 分配、位姿和标定通过 Assets 的 `aap-assets-spatial/v1` 与 0216 原生能力读写，复用独立 Catalog 工件。Labeling 的任务、相机链接、时间轴、标注与轨迹组合读取 detached Assets 事实；不会把这些关系交给 Assets 私有表查询。公开角色、旧值格式和整体轨迹响应保持。
 
-标定 CAS、历史修订、当前元数据合并、Audit 和不可变回执共享事务；最终写入重新校验当前项目管理与共享相机权限。已受理点云准备保持原操作执行权，解绑、取消和关联代次变化阻止迟到结果。普通远程工作流由独立工件执行；明确要求整体回滚的导入在同一调用方 SQL 连接上组合公开原生能力，不在远程故障后自动回退。
+标定 CAS、历史修订、当前元数据合并、Audit 和不可变回执共享调用方 SQL 事务；最终写入重新校验当前项目管理与共享相机权限。已受理点云准备保持原操作执行权，解绑、取消和关联代次变化阻止迟到结果。常规入口和组合导入都绑定调用方 SQL 连接；独立工件保留协议和移植用途。
 
-Catalog LOGIN 精确执行 29 项公开能力；Source LOGIN 执行 42 项（15 项来源/入库能力、11 项连接相关能力、3 项图片来源能力、8 项托管原件能力和 5 项导入核验能力），导入 LOGIN 执行 18 项，operator LOGIN 单独执行 6 项 Dataset/Item 能力。共享 Assets Media 控制 LOGIN 执行视频、图片、受理输入及批量清单合计 49 项，视频 worker 20 项、图片 worker 10 项，Cleanup LOGIN 执行通用存储、图片及受理输入垃圾清理合计 8 项；各 LOGIN 只执行其冻结函数清单。连接列表、读取、策略、捕获、回执和四类写入均经既有 Assets Source runtime；它不直接读取业务表。`storage_connection_operations` 保存无 live FK 的不可变回执。需要网络策略的变更在 DNS/探测完成后才短暂锁定 Settings 并重查策略；锁不跨越外部 I/O。连接管理字段与重放规则见[连接器 API](/api/guides/storage-connections)；空间字段、分页完整性、S3 条件读取与部署次序见[空间素材协议](/api/guides/assets-spatial)及 [ADR-0102](/dev/adr/0102-assets-spatial-state)。其他媒体与 Blob 类型仍按各自 owner/生命周期管理。
+API 内嵌连接器的公开投影列表和读取；显式配置 Source 只选择持有连接凭据的创建、更新、删除和探测宿主。`storage_connection_operations` 保存无 live FK 的不可变回执。需要网络策略的变更在 DNS/探测完成后才短暂锁定 Settings 并重查策略；锁不跨越外部 I/O。媒体视频、图片执行各使用自己精确的 worker LOGIN，按 lane 选择 Celery 或独立轮询；API 不持有 worker 凭据。详见[连接器 API](/api/guides/storage-connections)、[空间素材协议](/api/guides/assets-spatial)及[媒体执行边界](/api/guides/assets-media)。

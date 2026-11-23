@@ -9,6 +9,7 @@ DO $$
 DECLARE
     role_name text;
     role_oid oid;
+    migration_owned boolean := current_setting('yoao.assets_owner') = current_user;
     role_names text[] := ARRAY[
         current_setting('yoao.assets_owner'),
         current_setting('yoao.asset_image_worker_role')
@@ -19,9 +20,8 @@ BEGIN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
     IF (SELECT count(DISTINCT name) FROM unnest(role_names) AS name) <> 2
-       OR current_setting('yoao.migration_role') = current_setting('yoao.assets_owner')
        OR current_setting('yoao.migration_role') = current_setting('yoao.asset_image_worker_role') THEN
-        RAISE EXCEPTION 'Migration, Assets owner and image worker roles must be distinct';
+        RAISE EXCEPTION 'Assets owner, migration user and image executor must not share the executor LOGIN';
     END IF;
     FOREACH role_name IN ARRAY role_names LOOP
         IF role_name !~ '^[a-z_][a-z0-9_]{0,62}$' THEN
@@ -32,6 +32,9 @@ BEGIN
         WHERE role.rolname = role_name;
         IF NOT FOUND THEN
             RAISE EXCEPTION 'Missing image worker role: %', role_name;
+        END IF;
+        IF migration_owned AND role_name = current_user THEN
+            CONTINUE;
         END IF;
         IF EXISTS (
             SELECT 1 FROM pg_catalog.pg_roles AS role
@@ -45,15 +48,15 @@ BEGIN
             RAISE EXCEPTION 'Unsafe image worker role: %', role_name;
         END IF;
     END LOOP;
-    IF EXISTS (
+    IF (NOT migration_owned AND EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
         WHERE role.rolname = current_setting('yoao.assets_owner') AND role.rolcanlogin
-    ) OR NOT EXISTS (
+    )) OR NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles AS role
         WHERE role.rolname = current_setting('yoao.asset_image_worker_role')
           AND role.rolcanlogin
     ) THEN
-        RAISE EXCEPTION 'Assets owner must be NOLOGIN and image worker must LOGIN';
+        RAISE EXCEPTION 'Dedicated Assets owner must be NOLOGIN and image worker must LOGIN';
     END IF;
 END $$;
 
@@ -150,6 +153,15 @@ DECLARE
         pg_catalog.to_regprocedure('yoao_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)')::oid
     ];
 BEGIN
+    IF current_setting('yoao.assets_owner') = current_user AND EXISTS (
+        SELECT 1
+        FROM pg_catalog.unnest(worker_functions || accepted_input_worker_functions) AS approved(oid)
+        LEFT JOIN pg_catalog.pg_proc AS proc USING (oid)
+        WHERE proc.proowner IS DISTINCT FROM current_user::regrole
+           OR proc.prosecdef IS DISTINCT FROM true
+    ) THEN
+        RAISE EXCEPTION 'Expected migration-owned SECURITY DEFINER image capabilities';
+    END IF;
     IF pg_catalog.has_database_privilege(role_oid, current_database(), 'CREATE')
        OR pg_catalog.has_database_privilege(role_oid, current_database(), 'TEMP') THEN
         RAISE EXCEPTION 'Image worker LOGIN can create database or temporary objects';

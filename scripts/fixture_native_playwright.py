@@ -218,6 +218,8 @@ def _api_environment(environment, origin, token):
             del values[key]
     values["ASSETS_MEDIA_URL"] = origin
     values["ASSETS_MEDIA_TOKEN"] = token
+    values["ASSETS_VIDEO_EXECUTOR"] = "split"
+    values["ASSETS_IMAGE_EXECUTOR"] = "split"
     return values
 
 
@@ -581,10 +583,16 @@ class NativeSuiteControl:
         self.origin = f"http://127.0.0.1:{self.port}"
         if self.authority_owned:
             self.environment.update(
-                ASSETS_MEDIA_URL=self.origin, ASSETS_MEDIA_TOKEN=self.token
+                ASSETS_MEDIA_URL=self.origin,
+                ASSETS_MEDIA_TOKEN=self.token,
+                ASSETS_VIDEO_EXECUTOR="split",
+                ASSETS_IMAGE_EXECUTOR="split",
             )
             os.environ.update(
-                ASSETS_MEDIA_URL=self.origin, ASSETS_MEDIA_TOKEN=self.token
+                ASSETS_MEDIA_URL=self.origin,
+                ASSETS_MEDIA_TOKEN=self.token,
+                ASSETS_VIDEO_EXECUTOR="split",
+                ASSETS_IMAGE_EXECUTOR="split",
             )
         (
             resources,

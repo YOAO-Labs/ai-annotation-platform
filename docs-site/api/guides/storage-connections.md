@@ -30,7 +30,7 @@ last_reviewed: 2026-10-25
 
 `global` 连接器对所有登录用户可用（测试与导入），`owner` 连接器仅创建者和超管可用；读取配置本身仍受上表的管理角色限制。创建 `owner` 连接器需要项目管理员或超管，创建和管理 `global` 连接器仅限超管。`owner` 创建者即使后来降为 employee 或 viewer，仍可管理自己创建的连接器。创建请求中历史兼容字段 `project_id` 会被忽略，新连接器的 `project_id` 始终为 `null`。
 
-这六个公开端点继续由 API 认证并保留原响应模型。Assets Source 持有同一套连接器工作流：未配置远程服务时，API 在本地调用它并通过当前数据库连接执行原生能力；配置 `ASSETS_SOURCE_URL` 和 `ASSETS_SOURCE_TOKEN` 后，请求发送到内部 `/v1/connections/{list,read,create,update,delete,test}`。远程错误直接失败，不会改走本地实现。公开列表仍返回所有可见连接器，网关内部按有界页面读取并验证快照和游标，不把分页参数暴露给调用方。
+六个端点继续由 API 认证。列表与读取常驻 API 并逐页核验完整快照；它们不打开连接器密文。配置 `ASSETS_SOURCE_URL` 和 `ASSETS_SOURCE_TOKEN` 后，创建、更新、删除和测试发送到内部 `/v1/connections/{create,update,delete,test}`，不把 Source 的连接器密钥或探测配置交给 API。远程错误直接失败，不会改走本地实现。未配置独立宿主时继续使用同一连接器工作流。
 
 创建、`PATCH`、删除和测试接受可选 UUID `Idempotency-Key`。省略时 API 会生成新的 UUID；成功响应都会回传实际使用的键，创建时连接器 ID 也等于该键。结果不确定时，调用方可用首次请求中的同一键和相同请求确认原结果；相同键配不同请求会冲突。SDK 与 CLI 提供显式传键的参数，客户端不会自动重试这些写入和测试请求。
 

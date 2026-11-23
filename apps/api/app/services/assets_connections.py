@@ -255,7 +255,6 @@ class AssetsConnectionsGateway:
 
     def __init__(self, db: AsyncSession):
         self.db = db
-        self._peer = _peer_url()
 
     def _workflow(self):
         from yoao_assets_source.connections_workflow import (
@@ -273,9 +272,8 @@ class AssetsConnectionsGateway:
         )
 
     async def _remote(
-        self, operation: str, request: BaseModel, result_type: type[_RESULT]
+        self, peer: str, operation: str, request: BaseModel, result_type: type[_RESULT]
     ) -> _RESULT:
-        assert self._peer is not None
         body = _encode_request(request)
         try:
             async with httpx.AsyncClient(
@@ -285,7 +283,7 @@ class AssetsConnectionsGateway:
             ) as client:
                 async with client.stream(
                     "POST",
-                    f"{self._peer}/v1/connections/{operation}",
+                    f"{peer}/v1/connections/{operation}",
                     headers={
                         "Authorization": f"Bearer {settings.assets_source_token}",
                         "Content-Type": "application/json",
@@ -342,12 +340,13 @@ class AssetsConnectionsGateway:
         if CONNECTION_OPERATIONS.get(operation) != (type(request), result_type):
             raise TypeError(f"Invalid connection request/result pair for {operation}")
         _encode_request(request)
-        local = self._peer is None
+        peer = _peer_url() if operation in _MUTATING_OPERATIONS else None
+        local = peer is None
         try:
-            if local:
+            if peer is None:
                 result = await self._workflow().invoke(operation, request)
             else:
-                result = await self._remote(operation, request, result_type)
+                result = await self._remote(peer, operation, request, result_type)
             if not isinstance(result, result_type):
                 raise _invalid_response()
             try:

@@ -166,6 +166,7 @@ class BucketUpgradeTests(unittest.TestCase):
         self.backend.grant_runtime = granted
         self.backend.grant_jobs_recovery = granted
         self.backend.verify_runtime_login = granted
+        self.backend.prepare_assets_worker_roles = granted
         self.backend.start_redis = lambda: None
         with patch(
             "worktree_resources.migration_graph",

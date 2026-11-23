@@ -16,6 +16,7 @@ from yoao_assets_video_inputs import values as v
 from yoao_assets_video_inputs.client import VideoInputClient
 from yoao_assets_video_inputs.http_contract import require_scope
 from app.config import settings
+from app.services.assets_executor_db import executor_sessions
 
 
 def _storage_error(exc):
@@ -225,13 +226,6 @@ class VideoInputGateway:
 
 @asynccontextmanager
 async def video_input_gateway(*, session_factory=None):
-    if settings.assets_media_url:
-        async with VideoInputClient(
-            settings.assets_media_url, settings.assets_media_token
-        ) as client:
-            yield VideoInputGateway(client)
-        return
-
     from yoao_assets_video_inputs_runtime.control import VideoInputControl
     from yoao_assets_video_inputs_runtime.storage import (
         S3VideoInputStorage,
@@ -240,8 +234,18 @@ async def video_input_gateway(*, session_factory=None):
     from yoao_assets_video_inputs_runtime.worker import VideoInputExecutor
     from app.services.assets_images import image_policy, image_storage
 
+    local_execution = settings.assets_video_executor == "celery"
+
     async with AsyncExitStack() as resources:
-        source = image_storage()
+        remote = None
+        if settings.assets_media_url:
+            remote = await resources.enter_async_context(
+                VideoInputClient(settings.assets_media_url, settings.assets_media_token)
+            )
+            if not local_execution:
+                yield VideoInputGateway(remote)
+                return
+        source = image_storage(control=not local_execution)
         resources.push_async_callback(source.close)
         scheme = "https" if settings.minio_use_ssl else "http"
         config = replace(
@@ -255,12 +259,16 @@ async def video_input_gateway(*, session_factory=None):
         )
         storage = S3VideoInputStorage(config, source_storage=VideoSourceStorage(source))
         resources.push_async_callback(storage.close)
-        database = _IndependentVideoDatabase(session_factory)
-        policy = image_policy()
-        control = VideoInputControl(
-            database, storage, url_expiry_seconds=min(policy.url_expiry_seconds, 3600)
+        control = remote or VideoInputControl(
+            _IndependentVideoDatabase(session_factory),
+            storage,
+            url_expiry_seconds=min(image_policy().url_expiry_seconds, 3600),
         )
-        yield VideoInputGateway(control, executor=VideoInputExecutor(database, storage))
+        executor = None
+        if local_execution:
+            factory = await resources.enter_async_context(executor_sessions("video"))
+            executor = VideoInputExecutor(_IndependentVideoDatabase(factory), storage)
+        yield VideoInputGateway(control, executor=executor)
 
 
 async def lock_video_input_source(db, request: c.LockVideoInputRequest):

@@ -42,6 +42,7 @@ from tests.test_asset_storage_cleanup_runtime import (
 from tests.test_assets_catalog_runtime import (
     _catalog_origin,
     _lost_response_proxy,
+    _ordinary_assets_engine,
     _seed_actor,
     _start_catalog,
     _wait_public_ready,
@@ -126,10 +127,13 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
     objects = []
     previous_db = app_module.dependency_overrides.get(get_db)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    runtime = _ordinary_assets_engine(test_engine)
+    sessions = async_sessionmaker(runtime, expire_on_commit=False)
 
     async def gateway_database():
-        async with maker() as session:
+        async with sessions() as session:
             yield session
+            await session.commit()
 
     try:
         build = await asyncio.to_thread(
@@ -267,8 +271,6 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
         )
         objects.append((datasets, calibration_key))
         app_module.dependency_overrides[get_db] = gateway_database
-        monkeypatch.setattr(settings, "assets_catalog_token", service_token)
-        monkeypatch.setattr(settings, "assets_catalog_timeout_seconds", 30)
         scheme = "https" if settings.minio_use_ssl else "http"
         values = {
             "ASSETS_CATALOG_DATABASE_URL": _container_database_url(catalog_url),
@@ -307,7 +309,6 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
             origin = _catalog_origin(container, image, identity)
             await _wait_healthy(container)
             await _wait_public_ready(origin)
-            monkeypatch.setattr(settings, "assets_catalog_url", origin)
             private_headers = {"Authorization": f"Bearer {service_token}"}
             previous_etag = owner_s3.head_object(Bucket=datasets, Key=calibration_key)[
                 "ETag"
@@ -471,14 +472,22 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                     "source_metadata": {"keep": True, "new": "value"},
                 }
                 async with _lost_response_proxy(origin) as proxy:
-                    monkeypatch.setattr(settings, "assets_catalog_url", proxy)
-                    lost = await api.patch(
-                        f"/api/v1/scenes/{scene_id}",
-                        json=body,
-                        headers={**headers, "Idempotency-Key": str(patch_id)},
-                    )
-                    assert lost.status_code in {502, 503}
-                monkeypatch.setattr(settings, "assets_catalog_url", origin)
+                    async with httpx.AsyncClient(trust_env=False) as old_consumer:
+                        with pytest.raises(httpx.TransportError):
+                            await old_consumer.post(
+                                f"{proxy}/v1/spatial/mutate_spatial_scene",
+                                json={
+                                    "patch": body,
+                                    "scene_id": str(scene_id),
+                                    "operation_id": str(patch_id),
+                                    "actor_id": str(actor_id),
+                                    "audit_context": {
+                                        "path": f"/scenes/{scene_id}",
+                                        "method": "PATCH",
+                                    },
+                                },
+                                headers=private_headers,
+                            )
                 replay = await api.patch(
                     f"/api/v1/scenes/{scene_id}",
                     json=body,
@@ -617,18 +626,12 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
                     )
 
                 await asyncio.to_thread(_docker, "stop", "--time", "15", container)
-                unavailable = await api.get(
-                    f"/api/v1/scenes/{scene_id}", headers=headers
-                )
-                assert unavailable.status_code in {502, 503}
-                monkeypatch.setattr(settings, "assets_catalog_url", "")
                 local = await api.get(f"/api/v1/scenes/{scene_id}", headers=headers)
                 assert local.status_code == 200 and local.json() == replay.json()
                 await asyncio.to_thread(_docker, "start", container)
                 await _wait_healthy(container)
                 origin = _catalog_origin(container, image, identity)
                 await _wait_public_ready(origin)
-                monkeypatch.setattr(settings, "assets_catalog_url", origin)
                 restarted = await api.patch(
                     f"/api/v1/scenes/{scene_id}",
                     json=body,
@@ -670,3 +673,4 @@ async def test_spatial_container_complete_reads_replay_and_accepted_source_prepa
             owner_s3.delete_object(Bucket=bucket, Key=key)
         if actor_id is not None:
             await _cleanup_spatial_fixture(test_engine, actor_id, operation_id)
+        await runtime.dispose()

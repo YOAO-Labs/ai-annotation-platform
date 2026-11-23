@@ -73,18 +73,11 @@ def test_completed_wakes_continue_the_accepted_pool_but_idle_wakes_stop(monkeypa
 @pytest.mark.asyncio
 @pytest.mark.parametrize("local", [True, False])
 async def test_local_reconciliation_recovers_a_missing_wake(monkeypatch, local):
-    from contextlib import asynccontextmanager
-
     wakeups = []
-
-    @asynccontextmanager
-    async def factory():
-        yield object()
 
     async def maintain(**_kwargs):
         return object() if local else None
 
-    monkeypatch.setattr("app.workers.image_pyramid.task_session_factory", factory)
     monkeypatch.setattr("app.services.assets_images.maintain_images", maintain)
     monkeypatch.setattr(
         execute_image_media, "delay", lambda job_id: wakeups.append(job_id)

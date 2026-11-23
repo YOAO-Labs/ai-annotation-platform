@@ -475,6 +475,7 @@ def _worker_environment(test_engine, media, execution_url, execution_token, brok
         CELERY_BROKER_URL=broker,
         ASSETS_MEDIA_URL=str(media.control_client.base_url).rstrip("/"),
         ASSETS_MEDIA_TOKEN=media.control_token,
+        ASSETS_IMAGE_EXECUTOR="split",
         INFERENCE_ROUTING_URL=settings.inference_routing_url,
         INFERENCE_ROUTING_TOKEN=settings.inference_routing_token,
         INFERENCE_MODEL_EXECUTION_URL=execution_url,
@@ -768,6 +769,8 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
         monkeypatch.setenv("ASSETS_MEDIA_URL", settings.assets_media_url)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN", media.control_token)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN_FILE", "")
+        monkeypatch.setattr(settings, "assets_image_executor", "split")
+        monkeypatch.setenv("ASSETS_IMAGE_EXECUTOR", "split")
         image_worker = await _start_image_worker(media, tmp_path)
         (
             execution_process,

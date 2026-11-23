@@ -1,4 +1,4 @@
-"""Public source consumers use a real isolated SQL/S3 service."""
+"""Embedded source consumers and portable SQL/S3 process acknowledgements."""
 
 import asyncio
 from contextlib import asynccontextmanager
@@ -22,6 +22,12 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from yoao_assets_source.contract import (
+    UploadCompleteRequest,
+    UploadOutcome,
+    decode_source_reply,
+)
+
 from tests.test_asset_storage_cleanup_runtime import (
     _container_database_url,
     _container_s3_endpoint,
@@ -37,6 +43,7 @@ from tests.test_asset_storage_cleanup_runtime import (
 from tests.test_assets_catalog_runtime import (
     _assert_startup_rejected,
     _lost_response_proxy,
+    _ordinary_assets_engine,
     _wait_public_ready,
     _write_environment,
 )
@@ -125,7 +132,7 @@ async def _source_stack(test_engine, app_module, monkeypatch):
     containers = []
     world = None
     extras = set()
-    auth_engine = create_async_engine(test_engine.url, hide_parameters=True)
+    auth_engine = _ordinary_assets_engine(test_engine)
 
     @event.listens_for(auth_engine.sync_engine, "before_cursor_execute")
     def forbid_owner_reads(
@@ -141,6 +148,7 @@ async def _source_stack(test_engine, app_module, monkeypatch):
     async def authentication_db():
         async with async_sessionmaker(auth_engine, expire_on_commit=False)() as db:
             yield db
+            await db.commit()
 
     previous = dict(app_module.dependency_overrides)
     try:
@@ -425,7 +433,24 @@ async def _complete(stack, dataset_id, item_id, *, key=None, actor="employee"):
     )
 
 
-async def test_independent_source_publication_legacy_replay_deletion_and_switching(
+async def _complete_on_owner(
+    stack, origin, dataset_id, item_id, *, key, actor="employee"
+):
+    actor_id = (
+        stack.world.actor_id if actor == "manager" else stack.world.other_actor_id
+    )
+    command = UploadCompleteRequest(
+        operation_id=key, actor_id=actor_id, dataset_id=dataset_id, item_id=item_id
+    )
+    async with httpx.AsyncClient(trust_env=False, timeout=30) as direct:
+        return await direct.post(
+            f"{origin}/v1/source/upload-complete",
+            json=command.model_dump(mode="json"),
+            headers={"Authorization": f"Bearer {stack.values['ASSETS_SOURCE_TOKEN']}"},
+        )
+
+
+async def test_embedded_source_publication_replays_frozen_receipts_without_source(
     test_engine, app_module, monkeypatch
 ):
     from app.config import settings
@@ -476,10 +501,10 @@ async def test_independent_source_publication_legacy_replay_deletion_and_switchi
         assert wrong_actor.status_code == 403
         operation = uuid4()
         async with _lost_response_proxy(stack.origin) as proxy:
-            monkeypatch.setattr(settings, "assets_source_url", proxy)
-            lost = await _complete(stack, world.dataset_id, item, key=operation)
-            assert lost.status_code == 503
-        monkeypatch.setattr(settings, "assets_source_url", stack.origin)
+            with pytest.raises(httpx.TransportError):
+                await _complete_on_owner(
+                    stack, proxy, world.dataset_id, item, key=operation
+                )
         accepted = await _complete(stack, world.dataset_id, item, key=operation)
         assert accepted.status_code == 200, accepted.text
         assert accepted.json() == {"status": "ok", "item_id": item, "linked_tasks": 1}
@@ -563,16 +588,15 @@ async def test_independent_source_publication_legacy_replay_deletion_and_switchi
                 {"id": world.dataset_id},
             )
         async with _lost_response_proxy(stack.origin) as proxy:
-            monkeypatch.setattr(settings, "assets_source_url", proxy)
-            lost = await _complete(
-                stack,
-                world.dataset_id,
-                legacy_id,
-                key=legacy_operation,
-                actor="manager",
-            )
-            assert lost.status_code == 503
-        monkeypatch.setattr(settings, "assets_source_url", stack.origin)
+            with pytest.raises(httpx.TransportError):
+                await _complete_on_owner(
+                    stack,
+                    proxy,
+                    world.dataset_id,
+                    legacy_id,
+                    key=legacy_operation,
+                    actor="manager",
+                )
         legacy = await _complete(
             stack, world.dataset_id, legacy_id, key=legacy_operation, actor="manager"
         )
@@ -596,12 +620,6 @@ async def test_independent_source_publication_legacy_replay_deletion_and_switchi
                 )
                 == 1
             )
-        monkeypatch.setattr(settings, "assets_source_url", "")
-        local = await _complete(
-            stack, world.dataset_id, legacy_id, key=legacy_operation, actor="manager"
-        )
-        assert local.status_code == 200 and local.json() == legacy.json()
-        monkeypatch.setattr(settings, "assets_source_url", stack.origin)
         extra = uuid4()
         stack.extras.add(extra)
         async with world.maker.begin() as owner:
@@ -722,21 +740,12 @@ async def test_independent_source_publication_legacy_replay_deletion_and_switchi
         await asyncio.to_thread(_docker, "stop", "--time", "15", stack.container)
         assert (
             await _complete(stack, world.dataset_id, item, key=operation)
-        ).status_code == 503
-        await asyncio.to_thread(_docker, "start", stack.container)
-        await _wait_healthy(stack.container)
-        origin = _source_origin(stack.container, stack.image, stack.identity)
-        await _wait_public_ready(origin)
-        monkeypatch.setattr(settings, "assets_source_url", origin)
-        assert (
-            await _complete(stack, world.dataset_id, item, key=operation)
         ).json() == accepted.json()
 
 
 async def test_source_process_loss_preserves_staging_and_single_publication_owner(
     test_engine, app_module, monkeypatch
 ):
-    from app.config import settings
 
     async with _source_stack(test_engine, app_module, monkeypatch) as stack:
         world = stack.world
@@ -774,13 +783,15 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
             await gate.execute(text("SELECT pg_advisory_lock(:key)"), {"key": lock_key})
             gate_pid = await gate.scalar(text("SELECT pg_backend_pid()"))
             request_task = asyncio.create_task(
-                _complete(stack, world.dataset_id, item, key=operation)
+                _complete_on_owner(
+                    stack, stack.origin, world.dataset_id, item, key=operation
+                )
             )
             deadline = asyncio.get_running_loop().time() + 15
             while True:
                 if request_task.done():
                     pytest.fail(
-                        f"source operation did not reach the controlled SQL gate: {(await request_task).text}"
+                        f"source operation did not reach the controlled SQL gate: {(await request_task).status_code}"
                     )
                 async with test_engine.connect() as observer:
                     waiting = await observer.scalar(
@@ -811,8 +822,8 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
             await gate.execute(
                 text("SELECT pg_advisory_unlock(:key)"), {"key": lock_key}
             )
-            interrupted = await asyncio.wait_for(request_task, timeout=15)
-            assert interrupted.status_code == 503
+            with pytest.raises(httpx.TransportError):
+                await asyncio.wait_for(request_task, timeout=15)
             deadline = asyncio.get_running_loop().time() + 10
             while True:
                 async with test_engine.connect() as observer:
@@ -858,10 +869,12 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
             await _wait_healthy(stack.container)
             origin = _source_origin(stack.container, stack.image, stack.identity)
             await _wait_public_ready(origin)
-            monkeypatch.setattr(settings, "assets_source_url", origin)
-            completed = await _complete(stack, world.dataset_id, item, key=operation)
+            completed = await _complete_on_owner(
+                stack, origin, world.dataset_id, item, key=operation
+            )
             assert completed.status_code == 200, completed.text
-            assert completed.json()["linked_tasks"] == 1
+            result = decode_source_reply(completed.json(), UploadOutcome)
+            assert result.result is not None and result.result.linked_tasks == 1
             async with world.maker() as owner:
                 final_key = await owner.scalar(
                     text(

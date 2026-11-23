@@ -492,6 +492,7 @@ BEGIN
 END
 $audit_private_acl$;
 """
+ASSETS_EXECUTION_LANES = ("video", "image")
 VIDEO_RUNTIME_CAPABILITIES = (
     "yoao_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)",
     "yoao_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text)",
@@ -499,10 +500,6 @@ VIDEO_RUNTIME_CAPABILITIES = (
     "yoao_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text)",
     "yoao_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text)",
     "yoao_assets_v1.finish_tracker_control_original(uuid,uuid)",
-    "yoao_assets_v1.begin_accepted_video_original(uuid,bigint,uuid)",
-    "yoao_assets_v1.finish_accepted_video_original(uuid,uuid)",
-    "yoao_assets_v1.begin_tracker_video_original(uuid,bigint,uuid)",
-    "yoao_assets_v1.finish_tracker_video_original(uuid,uuid)",
     "yoao_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)",
     "yoao_assets_v1.read_accepted_video_manifest(uuid,uuid,uuid)",
     "yoao_assets_v1.read_accepted_video_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)",
@@ -513,15 +510,6 @@ VIDEO_RUNTIME_CAPABILITIES = (
     "yoao_assets_v1.read_accepted_video_times(uuid,uuid,uuid,uuid,text,bigint,integer)",
     "yoao_assets_v1.require_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)",
     "yoao_assets_v1.read_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint)",
-    "yoao_assets_v1.claim_accepted_video_input(uuid,uuid,integer)",
-    "yoao_assets_v1.heartbeat_accepted_video_input(uuid,bigint,uuid,integer)",
-    "yoao_assets_v1.stage_accepted_video_times(uuid,bigint,uuid,bigint,jsonb)",
-    "yoao_assets_v1.finish_accepted_video_input(uuid,bigint,uuid,jsonb)",
-    "yoao_assets_v1.fail_accepted_video_input(uuid,bigint,uuid,text)",
-    "yoao_assets_v1.claim_accepted_video_frame(uuid,uuid,integer)",
-    "yoao_assets_v1.heartbeat_accepted_video_frame(uuid,bigint,uuid,integer)",
-    "yoao_assets_v1.finish_accepted_video_frame(uuid,bigint,uuid,jsonb)",
-    "yoao_assets_v1.fail_accepted_video_frame(uuid,bigint,uuid,text)",
     "yoao_assets_v1.lock_accepted_video_frame(uuid,uuid,uuid,uuid,text,bigint,jsonb,jsonb)",
     "yoao_assets_v1.lock_accepted_video_input(uuid,uuid,uuid,uuid,text)",
     "yoao_assets_v1._lock_accepted_video_input_pin(uuid,uuid,jsonb,uuid)",
@@ -534,9 +522,6 @@ IMAGE_MEDIA_RUNTIME_CAPABILITIES = (
     "yoao_assets_v1.finish_image_original_read(uuid,uuid)",
     "yoao_assets_v1.begin_image_original_system(text,uuid,text,text)",
     "yoao_assets_v1.finish_image_original_system(uuid,uuid)",
-    "yoao_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
-    "yoao_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)",
-    "yoao_assets_v1.finish_image_original_worker(uuid,uuid)",
     "yoao_assets_v1.read_video_derivative_links(uuid[])",
     "yoao_assets_v1.publish_image_pyramid_thumbnail(uuid,integer,uuid)",
     "yoao_assets_v1.read_image_source(uuid,uuid,uuid)",
@@ -553,14 +538,6 @@ IMAGE_MEDIA_RUNTIME_CAPABILITIES = (
     "yoao_assets_v1.read_internal_image_work(uuid)",
     "yoao_assets_v1.scan_image_backfill(jsonb,text,uuid,integer)",
     "yoao_assets_v1.read_image_usage()",
-    "yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
-    "yoao_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)",
-    "yoao_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)",
-    "yoao_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)",
-    "yoao_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)",
-    "yoao_assets_v1.reconcile_image_media(jsonb,integer)",
-    "yoao_assets_v1.claim_image_garbage(uuid,integer,integer)",
-    "yoao_assets_v1.complete_image_garbage(uuid,uuid)",
 )
 INFERENCE_ROUTING_RUNTIME_CAPABILITIES = (
     "yoao_inference_routing_v1.model_dispatch_step(text)",
@@ -573,16 +550,10 @@ INFERENCE_ROUTING_RUNTIME_CAPABILITIES = (
     "yoao_inference_routing_v1.video_execution_scope_step(text,text)",
 )
 IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES = (
-    "yoao_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)",
-    "yoao_assets_v1.finish_accepted_image_original(uuid,uuid)",
     "yoao_assets_v1.find_accepted_image_input(uuid,uuid,uuid)",
     "yoao_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb)",
     "yoao_assets_v1.read_accepted_image_input(uuid,uuid,uuid)",
     "yoao_assets_v1.read_accepted_image_input_work(uuid,uuid,uuid)",
-    "yoao_assets_v1.claim_accepted_image_input(uuid,uuid,integer)",
-    "yoao_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)",
-    "yoao_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)",
-    "yoao_assets_v1.fail_accepted_image_input(uuid,bigint,uuid,text)",
     "yoao_assets_v1.lock_accepted_image_input(uuid,uuid,uuid)",
 )
 IMAGE_MANIFEST_RUNTIME_CAPABILITIES = (
@@ -858,6 +829,8 @@ class LocalResources:
                 "run.json",
                 "services.json",
                 "runtime-credentials.json",
+                "assets-image-credentials.json",
+                "assets-video-credentials.json",
                 "fixture-store-owner.json",
             )
         ):
@@ -993,6 +966,20 @@ class LocalResources:
             username=credentials["role"],
             password=credentials["password"],
         )
+
+    def assets_worker_url(self, lane):
+        credentials = self._runtime_credentials(required=True, lane=lane)
+        return self.url.set(
+            username=credentials["role"], password=credentials["password"]
+        )
+
+    def assets_worker_environment(self) -> dict:
+        return {
+            f"ASSETS_CELERY_{lane.upper()}_DATABASE_URL": self.assets_worker_url(
+                lane
+            ).render_as_string(hide_password=False)
+            for lane in ASSETS_EXECUTION_LANES
+        }
 
     async def _runtime_role_record(self, connection, operator_oid, *, role=None):
         result = (
@@ -2238,6 +2225,7 @@ class LocalResources:
                 await connection.exec_driver_sql(self.private_runtime_acl("labeling"))
                 await connection.exec_driver_sql(self.private_runtime_acl("workspace"))
                 await connection.exec_driver_sql(self.private_runtime_acl("inference"))
+                await connection.exec_driver_sql(self.private_runtime_acl("assets"))
                 notification_result = await connection.execute(
                     text(
                         "SELECT pg_catalog.has_function_privilege("
@@ -2752,6 +2740,7 @@ class LocalResources:
         asyncio.run(self.grant_runtime())
         asyncio.run(self.grant_jobs_recovery())
         asyncio.run(self.verify_runtime_login())
+        asyncio.run(self.prepare_assets_worker_roles())
         if self.resources["mode"] in {"test", "e2e"}:
             from fixture_suite_coordinator import prepare_worktree_store
 
