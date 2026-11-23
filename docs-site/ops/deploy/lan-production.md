@@ -244,7 +244,7 @@ journalctl --user -u aap-production-health.service -n 40 --no-pager
 
 `Linger=yes` 保证退出登录后用户定时器仍运行，并可随系统启动。确认首次运行成功后，移除旧的每日全栈重启 cron 条目，保留其他任务。不要保留会按 3000/8000 杀进程、执行默认 Compose 全量重启或自动迁移的旧入口。检查其他用户及 root 的 crontab 需要相应权限，当前用户的检查不能替代它们。
 
-开发环境如需每天定时重启，应另设 `aap-development-restart.timer`，仅重启开发 Web/API 与开发专用 worker/beat；不要重新启用旧的全栈 cron。其配置和暂停方式见仓库 `DEV.md` 的“本机开发服务定时重启”。两个定时器使用独立入口、锁和维护开关。
+开发环境使用独立的[本机开发服务定时重启](./development#development-restart)。两个定时器使用独立入口、锁和维护开关；不要重新启用旧的全栈 cron。
 
 ### 暂停、升级和回退
 

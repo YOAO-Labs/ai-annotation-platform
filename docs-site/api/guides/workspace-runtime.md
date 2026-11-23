@@ -167,7 +167,7 @@ API 与数据库不在该容器预算内。完整模块当前状态见[模块台
 消费者围栏及两项 provisioning 能力验证同事务行为；普通 API 不增加运维权限。真实
 对象存储的小夹具通过缺失能力、后置失败、容器中断后同名恢复、重复导入及来源漂移
 检查。失败时 SQL 共同回滚，外部对象可能保留；重放也可能重写同键对象。中断只证明
-连接释放后的最终回滚，不保证立即中断正在执行的长 SQL。可重复命令见 `DEV.md`，
+连接释放后的最终回滚，不保证立即中断正在执行的长 SQL。可重复命令见[模块边界定向验收](/dev/testing#module-boundary-acceptance)，
 限定证据见[冷运维导入验收](/dev/concepts/module-deployment#workspace-冷运维导入验收)。
 
 质量晋升继续由原入口重验项目管理权，在既有 Project `FOR UPDATE` 下校验评估 gate、
@@ -178,7 +178,7 @@ baseline 与候选修订。Native setter 只写精确配置与事务时间戳，
 预建的 `yoao_workspace_project_maintenance_client` 通过
 `infra/docker/workspace-project-maintenance-grants.sql` 获取六项固定业务 owner 执行权，
 没有私表／列、序列、DDL 或 TEMP 权限；PostgreSQL/public invoker helpers 不属于这项
-业务能力计数。迁移、owner grants 与精确授权入口见 `DEV.md`。严格回复及 Native／Node／
+业务能力计数。先应用当前迁移和 `module-data-grants.sql`，再按专用脚本设置 `expected_database`、`migration_role`、`workspace_owner` 与 `workspace_project_maintenance_role`。严格回复及 Native／Node／
 真实消费者的限定本地证据见 [ADR-0164](/dev/adr/0164-workspace-transactional-project-maintenance)。
 
 开发点云种子还使用 `aap-workspace-seed-project/v1`，仍在同一 SQL Session 内调用：

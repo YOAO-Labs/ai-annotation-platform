@@ -4,7 +4,7 @@
   "version": "0.26.2",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node scripts/codegen-if-changed.mjs && vite",
     "prebuild": "node scripts/codegen-if-changed.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview",

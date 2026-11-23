@@ -7,6 +7,8 @@ import { dirname } from "node:path";
 
 const __here = dirname(fileURLToPath(import.meta.url));
 const DOCS_ROOT = join(__here, "..");
+const DEV_GUIDE = join(DOCS_ROOT, "..", "DEV.md");
+const DEV_GUIDE_MAX_LINES = 120;
 
 const SKIP_ROOTS = new Set([
   ".vitepress",
@@ -75,6 +77,14 @@ function checkFile(filePath) {
       }
     }
   }
+}
+
+const devGuideLines = readFileSync(DEV_GUIDE, "utf8").trimEnd().split("\n").length;
+if (devGuideLines > DEV_GUIDE_MAX_LINES) {
+  console.error(
+    `[error] DEV.md has ${devGuideLines} lines (limit ${DEV_GUIDE_MAX_LINES}). Move the details to their owning guide and link to it.`,
+  );
+  errors++;
 }
 
 walk(DOCS_ROOT);

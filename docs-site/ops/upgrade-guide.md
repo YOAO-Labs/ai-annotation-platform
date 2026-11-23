@@ -49,7 +49,37 @@ last_reviewed: 2026-10-28
 - 只有目标 migration 明确提供可逆 downgrade 时才能执行 `alembic downgrade`；数据归位、合并或候选暂存类迁移可能是 no-op downgrade 或会丢数据，回滚前必须先读 migration docstring
 - 前端静态资源由 Vite 构建，版本号在文件名中，无缓存问题
 
+合并后的迁移链保留主线 `0190`–`0267`，随后接入改名前缀的 `bo0190`–`bo0370`。旧 backend-opt 数字谱系（包括旧 `0366`、`0370`）不等于主线。Alembic 在发现这组旧数字修订与旧 Workspace owner schema 时会在 DDL 前拒绝。先备份数据库与角色，在副本上迁入并核对主线结构、来源身份与位置账本，再由部署负责人确认采用。不要用 `stamp`、删版本表或放宽授权绕过。
+
 ## 重点注意事项
+
+<span id="native-owner-namespace-cutover" aria-hidden="true"></span>
+
+### Native 数据库协调切换
+
+1. 按 `apps/api/alembic/sql/0474_owner_namespaces.json` 核对目标库实际存在的 schema、专用账号与事务设置。备份数据库、角色、授权和凭据，记录原连接上限与登录状态。不要用清单补建未绑定角色或改名共享账号。
+2. 停止 API、worker、中继、插件及独立模块的新准入，结清在途写入、租约和物理工作。在独立事务中将目标库设为 `CONNECTION LIMIT 0`，将已绑定的旧专用账号设为 `NOLOGIN`。检查无其他客户端和预备事务。连接上限不约束超级用户，维护窗口内须另行关闭其他管理入口。
+3. 由有权限修改清单内对象的迁移账号在已验证的 PostgreSQL 16 库执行 `alembic upgrade head`。遇到目标名冲突、跨库角色、额外依赖、持久设置或目录摘要不符时保持围栏，定位准确对象，不绕过校验。
+4. 在围栏内更新 DSN、授权与模块工件。角色改名会清除依赖旧用户名的 MD5 密码；按凭据更新流程设置新密码，不轮换用户签名密钥。仅恢复原获准角色的登录和原连接上限，放行前核对受限读取和回执重放。
+
+### 媒体输入升级 {#media-input-cutover}
+
+升级到 `bo0222`／`bo0227` 前，停止旧图片批量预标受理并排空没有清单的作业。无法核实旧 payload 或来源时，由旧运行时明确失败，不补造输入清单。升级到 `bo0228` 前，同样排空旧跟踪和修正作业，采纳或丢弃仍可审阅的旧候选。升级后按[媒体执行角色](./deploy/docker-compose#media-executor-provisioning)装配授权，刷新实际 API、Celery 和独立 Media 消费者。
+
+应用 `bo0233` 前，停用旧预测重试的派发与消费者，查明相关队列和在途执行均已排空。如果仍有未绑定的历史重试标记，确认排空后才可以使用 `alembic -x prediction_retry_legacy_drained=true upgrade head`。参数不绕过活跃旧作业检查。
+
+### 回填历史任务数据集关联
+
+先在目标库应用迁移，刷新 API、自动学习策略 worker 和 scheduler。使用 `apps/api/scripts/backfill_task_datasets.py`，明确选择 `--project-id UUID` 或 `--all-projects`。先以 `--dry-run` 预演并核对 JSON Lines 报告，再以 `--apply` 分批写入，最后用 `--verify` 检查遗漏和序号一致性。未知记录保留原样；中断时可重跑 `--apply`，不会重新分配既有序号。
+
+在独立工作树中，先核对 `pnpm dev:worktree -- doctor --mode dev` 的目标，停止同模式进程，再用该模式执行。例如：
+
+```bash
+pnpm dev:worktree -- exec --mode dev -- sh -c \
+  'cd apps/api && .venv/bin/python scripts/backfill_task_datasets.py --all-projects --dry-run'
+```
+
+仅 `--apply` 写库。兼容应用回退时停止新关联与回填，保留成员关系和序号，不降级删表。
 
 ### Workspace 旧拆分安装 {#workspace-split-upgrade}
 

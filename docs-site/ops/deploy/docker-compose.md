@@ -925,6 +925,8 @@ TRAINING_ENABLED=true
 TRAINING_EXECUTOR_TOKEN=<secrets/training_executor_token 中的内容>
 ```
 
+为 API 与执行器配置匹配的 `TRAINING_NODE_ID` 和物理 `TRAINING_GPU_UUID`。在 API 端设置 `TRAINING_CATALOG_JSON`，只列已核验的框架版本、镜像摘要与基础权重；结构示例见[环境变量参考](/dev/reference/env-vars)。修改目录后刷新 API，重建实际执行训练策略检查的默认 Celery worker。
+
 #### 2. 配置执行器环境变量
 
 获取宿主机物理 GPU 的真实 UUID：

@@ -51,6 +51,14 @@ docker compose --env-file /path/to/inference.env -f docker-compose.inference.yml
 
 只启动 `inference` 一个服务。让该容器通过私网访问已迁移、已授权的 PostgreSQL 和 Redis，消费者也须能访问同一 owner。已与此服务共享网络的容器使用 `http://inference:8768`，在宿主运行的消费者使用 `http://127.0.0.1:8768`。不通过公网网关转发私有 Inference 路由。已有本机开发使用的 `docker-compose.inference-development.yml` 仅指定完整 owner 的镜像和外部网络，不会再启动一组凭据进程。
 
+若使用已核验的开发镜像，在 `0600` 私有 env 文件设置 `AAP_INFERENCE_IMAGE` 和 `AAP_INFERENCE_DEVELOPMENT_NETWORK`，不重新构建：
+
+```bash
+docker compose --env-file /path/to/inference.env -p aap-inference-development \
+  -f docker-compose.inference.yml -f docker-compose.inference-development.yml \
+  up -d --no-build --wait inference
+```
+
 在仅给 owner 使用的 env 文件里，把 `.env.example` 中 28 个 `INFERENCE_RUNTIME_*_FILE` 指向实际 secret 文件：十八个专用 PostgreSQL LOGIN 的 DSN、八个不同的 HTTP bearer、一个 GPU 账本 Redis 身份、一个 Ed25519 私钥环。Compose 以只读方式挂载这些文件，针对 UID/GID 10008 设置最小读取权限；不要把它们放进源码、镜像或 API 的 env 文件。`GPU_LIFECYCLE_ACTIVE_SIGNING_KID` 对应私钥环中的 key ID；collector DSN 使用完整 `postgresql+asyncpg://` URL。文件与授权映射见 [`docker-compose.inference.yml`](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/docker-compose.inference.yml) 和[专用 DSN](#使用专用-dsn)。
 
 `GET /health` 要求 `pipelines,backend_probe,health_observation,registry_ingress,routing,execution,backend_control,gpu` 八项全部就绪。容器使用只读根文件系统、32 MiB 不允许设备节点的 `/tmp`、丢弃 capabilities 和 `no-new-privileges`，宿主发布仅限 loopback。`INFERENCE_MAX_CONCURRENCY` 默认 8，满载立即拒绝，不建立无界等待队列。
@@ -65,7 +73,7 @@ docker compose --env-file /path/to/inference.env -f docker-compose.inference.yml
 
 ### 冷启动验收 {#inference-owner-cold}
 
-在已提交的隔离 checkout 上运行（使用可达 Docker 桥接网关的 Linux 测试宿主、支持 `!override` 的 Compose 和支持 `network connect --gw-priority` 的 Docker；模块验证器前置依赖见 `DEV.md`）：
+在已提交的隔离 checkout 上运行。Linux 测试宿主须能访问 Docker 桥接网关，Compose 须支持 `!override`，Docker 须支持 `network connect --gw-priority`。通用前置条件见[模块边界定向验收](/dev/testing#module-boundary-acceptance)。
 
 ```sh
 (
@@ -196,6 +204,16 @@ Workspace 配置 owner 运行在 API 内；需要探测时，API 使用 `INFEREN
 ### 离线视频恢复 operator
 
 `yoao-video-restore` 使用 `--database-url-file`、`--inspect`／`--command-file`／`--status`，只执行专用 `video_restore_step(text,text)`。恢复绑定备份摘要、外部停机／凭据围栏、实际 controller incarnation 和固定 control IDs，原子轮换恢复后的执行权。未知／pending 按原命令查询与恢复，不自动回滚或重跑模型。
+
+应用迁移及 module-data owner 授权后，按 `infra/docker/video-restore-grants.sql` 安装 `yoao_video_restore_operator_client`，变量 `video_restore_operator_role` 指向该专用 LOGIN。其 DSN 只写入操作用户可读的 `0600` 文件。
+
+```bash
+yoao-video-restore --database-url-file /secure/restore-dsn --inspect
+yoao-video-restore --database-url-file /secure/restore-dsn --command-file /secure/restore-command.json
+yoao-video-restore --database-url-file /secure/restore-dsn --status "$RESTORE_ID"
+```
+
+命令文件固定同一恢复 UUID、备份和外部围栏 SHA-256，以及 inspect 返回的目标身份。退出码为零仍可能是 `pending`；核对实际 controller epoch／incarnation 与完成回执后，才能恢复普通 claim。
 
 摘要不是外部进程停止、S3 身份撤销或对象存储恢复的证明。先满足[备份恢复前提](/ops/deploy/docker-compose#_5-0-恢复前提与执行权)，再按[协调恢复决策](/dev/adr/0160-coordinated-video-restore)操作。
 

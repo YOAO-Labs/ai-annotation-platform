@@ -6,6 +6,7 @@ on:
       - "docs-site/**"
       - "docs/**"
       - "apps/api/openapi.snapshot.json"
+      - "DEV.md"
       - "CHANGELOG.md"
       - "ROADMAP.md"
       - "ROADMAP/**"
@@ -23,6 +24,7 @@ on:
       - "docs-site/**"
       - "docs/**"
       - "apps/api/openapi.snapshot.json"
+      - "DEV.md"
       - "CHANGELOG.md"
       - "ROADMAP.md"
       - "ROADMAP/**"
@@ -75,6 +77,9 @@ jobs:
 
       - name: Navigation coverage
         run: pnpm --filter docs-site check:navigation -- --strict
+
+      - name: Documentation readability
+        run: pnpm --filter docs-site check:readability
 
       - name: Materialize generated link targets (openapi + ADR mirror)
         run: |

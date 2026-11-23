@@ -12,7 +12,7 @@ last_reviewed: 2026-10-22
 
 实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0219*`。接口通过 PostgreSQL
 协议调用，使用调用方同一连接的外层事务，不接收 Python Session、ORM 或任意 SQL。
-安装、独立角色及本地验收命令见仓库 `DEV.md`；数据所有权见
+安装和角色顺序见[升级门禁](/ops/upgrade-guide#split-topology-upgrade)，参数以 `infra/docker/module-data-grants.sql` 为准。复验见[模块边界定向验收](/dev/testing#module-boundary-acceptance)。数据所有权见
 [ADR-0092](/dev/adr/0092-transactional-module-data-capabilities)。
 
 HTTP 数据集路由对 API key 按操作检查 `datasets:read` / `datasets:write` scope；现有 JWT
@@ -441,7 +441,7 @@ PUT 只签发到 import 桶 `dataset-uploads/{item}/source`。`lock_dataset_uplo
 已到。数据库读取事务在 S3 操作前结束，确认另用短事务。对象删除失败、响应丢失或确认失败不会移除
 未完成责任。进程显式配置 cleanup DSN 和 S3 专用凭据，只允许一个桶中 `image-pyramids/*` 的
 ListBucket/DeleteObject，不继承 API、Redis 或 Celery 配置。配置、独立镜像和本地 Compose 入口见
-仓库 `DEV.md`、`apps/assets-cleanup/README.md` 与 [ADR-0096](/dev/adr/0096-assets-source-deletion-and-cleanup)。
+[图片金字塔运行手册](/ops/runbooks/image-pyramid)与 [ADR-0096](/dev/adr/0096-assets-source-deletion-and-cleanup)。
 
 ## 目录与关联读取
 
@@ -517,7 +517,7 @@ Source 在 `public.storage_connection_operations` 中保存不可变幂等回执
 
 每个写能力都接收操作 UUID；重放必须匹配原操作和请求。`dataset_operator_operations` 存储不可变回执且没有 live Dataset/Item 外键。批量追加/更新最多 500 项，请求 JSON 最多 8 MiB。读取每页最多 500 项，Item 记录 JSON 最多 15 MiB，完整响应最多 16 MiB；调用方跨页核对稳定摘要、总数、顺序、游标和完成标记，因此完整读取不受单页上限截断。source snapshot 是 opaque CAS 值，由 Assets 持有并在 patch 时重验；更新保留 Scene/frame、标定和无关 metadata，只改请求字段，尺寸只在目标相机尺寸不完整时成对回填。
 
-本地导入器通过 `AssetsOperatorGateway` 将这些函数绑定到自己的 SQL Session；nuScenes 路径与既有 Labeling、Workspace 和空间写入共用外层事务，函数不自行提交。它们不是 Source HTTP 工作流，没有 `ASSETS_SOURCE_URL` 远程选择或错误回退。对象存储上传、nuScenes 文件写入及必要的既有对象覆盖不属于 SQL 事务，回滚保留原始字节。专用 operator LOGIN 不读业务表，也不继承其他角色。完整边界与部署顺序见仓库 `DEV.md` 和 [ADR-0104](/dev/adr/0104-operator-source-registration)；SQL schema 在 `apps/api/alembic/sql/0218_assets_operator.schema.json`。
+本地导入器通过 `AssetsOperatorGateway` 复用调用方 SQL Session，不经 Source HTTP，也不自行提交。nuScenes 与 Labeling、Workspace 和空间写入共用外层事务。SQL 回滚不撤销已写的对象。为独立受限 operator 安装权限时，先应用 common owner、nuScenes 所需 Catalog 及部署使用的 Source／Importer grants，再运行 `infra/docker/assets-operator-grants.sql`，其中 `asset_operator_role` 指向 `yoao_asset_operator_client`。该 LOGIN 不替代完整跨 owner 导入所需的调用方权限。合同见 [ADR-0104](/dev/adr/0104-operator-source-registration)。
 
 图片导入的 `yoao_asset_operator_client` 另可执行 Identity 的 `read_first_seed_account()`，只返回现有账号的 ID 和邮箱，不筛选角色或启用状态；多个账号时不保证选择顺序。该能力不授予用户表或账号 profile 关系的读取权限，也不改变调用方事务。
 

@@ -60,7 +60,7 @@ pnpm codegen
 # 输出：apps/web/src/api/generated/types.gen.ts（gitignored）
 ```
 
-`pnpm --filter web build` 通过 `prebuild` 钩子（`apps/web/scripts/codegen-if-changed.mjs`）仅在 snapshot 比本地生成产物更新时执行 codegen，兼顾类型安全与构建速度。
+`pnpm dev:web` 和 `pnpm build:web` 都会在 Vite 启动前运行 `apps/web/scripts/codegen-if-changed.mjs`。生成物缺失、快照比生成物新，或显式设置 `OPENAPI_URL` 时，脚本重新生成；生成失败会停止启动或构建。
 
 ## Capability Registry Codegen
 
@@ -145,12 +145,12 @@ Mask 多对象写入使用独立的 `MaskMutationCommitRequest / Response` 边�
 
 ## 何时跑 codegen
 
-| 场景                              | 动作                                                                                   |
-| --------------------------------- | -------------------------------------------------------------------------------------- |
-| 后端加新端点 / 改 Pydantic schema | `uv run python scripts/export_openapi.py` → `pnpm codegen`                             |
-| 切分支 (snapshot 可能改了)        | `pnpm install` 后第一次 build 自动跑 (prebuild hook)                                   |
-| CI                                | 走 `prebuild` 自动逻辑; 显式 drift 检测可加 `python scripts/export_openapi.py --check` |
-| 强制重生                          | 删 `apps/web/src/api/generated/` → `pnpm codegen`                                      |
+| 场景                       | 动作                                                  |
+| -------------------------- | ----------------------------------------------------- |
+| 后端改动 API 路由或 Schema | `pnpm openapi:export` → `pnpm codegen`                |
+| 切换分支或更新快照         | Web 启动和构建会检查快照与本地生成物                  |
+| CI                         | `pnpm openapi:check` 校验快照；Web 构建检查本地生成物 |
+| 强制重新生成               | `pnpm codegen`                                        |
 
 ## 故障注入: 何时打破契约
 

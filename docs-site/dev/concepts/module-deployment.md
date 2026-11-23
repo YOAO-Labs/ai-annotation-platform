@@ -627,7 +627,7 @@ PostgreSQL 认证拒绝；超时、TCP 拒绝或其他 SQL 错误不能充当围
 DSN／密码。`aap-local-postgres-fence-facts/v1` 只声明指定本地测试库及显式凭据的
 观察事实，不证明凭据来自完整历史部署，不证明进程、存储或 broker 已隔离，也不创建
 execution、journal、clearance 或 Jobs 退役凭证。原 409 和输入保留守卫保持。
-运维输入格式与命令见 `DEV.md` 的“独立 PostgreSQL 围栏观察”。
+从仓库根目录运行 `apps/api/.venv/bin/python scripts/video_worker_fence.py --input-file <私有 JSON>`。输入字段及校验由该脚本定义；同一冷组合的 worker 与 S3 观察入口见 `scripts/video_worker_observation.py` 和 `scripts/video_storage_fence.py`。这些观察不替代旧 Jobs 退役证明。
 
 独占 PostgreSQL 的真实 CLI smoke 通过五个场景：未围栏账号拒绝、NOLOGIN 后残留
 会话拒绝、完整围栏后旧凭据认证拒绝、物理集群不匹配拒绝、prepared transaction
@@ -709,7 +709,7 @@ API 使用既有远程 consumer 权限模型：在 owner 及兼容应用授权�
 
 整模块真实消费者场景连续两轮通过。每轮记录 66 个公开请求，另含私有 RPC、Node 与 Socket 调用；覆盖注册设置、分组／邀请、目录／UserBrief、管理员生命周期、到期注销、停服拒绝、重启重放、两种实际邮件发送、通知积压后投递，以及完整 dump/restore 后的 JWT、撤销、回执、待发邮件、通知与受限 ACL。两轮是同一案例的重复验证，不计为两个去重案例。恢复保持原有 owner 密钥，没有执行密钥轮换。
 
-所有进程使用普通 UID、只读根文件系统、禁提权及固定预算：每进程 1 CPU，Identity／worker 各 256 MiB，API 512 MiB。每轮另采样 16 个混合读取、并发 4，观察到 p95 为 0.134／0.135 秒。这只是本机 ARM64 的有限样本，不提供生产容量或 SLA 结论。证据汇总在验收工作树的 `.worktree/identity-module-qualification.json`，可重复入口见 `DEV.md` 的“Identity 整模块私网验收”。
+所有进程使用普通 UID、只读根文件系统、禁提权及固定预算：每进程 1 CPU，Identity／worker 各 256 MiB，API 512 MiB。每轮另采样 16 个混合读取、并发 4，观察到 p95 为 0.134／0.135 秒。这只是本机 ARM64 的有限样本，不提供生产容量或 SLA 结论。证据汇总在验收工作树的 `.worktree/identity-module-qualification.json`。当前拓扑复验见[模块边界定向验收](/dev/testing#module-boundary-acceptance)。
 
 此前容器经 `host.docker.internal` 访问数据库发布端口的实验，曾在邀请、恢复后的 `/auth/me` 和离职提交中出现间歇性 503；后续无业务代码的传输探针已复现 TCP 建连故障，但历史单次请求的根因仍未确认。`/auth/me` 的失败日志不能区分认证与账号读取 RPC，不能归因于 actor-context。当前通过的是上述 Compose 私网拓扑，没有将旧转发路径记为已修复。日常主环境、AMD64、远程 CI、生产部署与另一语言完整提供方均未因本次本地资格完成；其他模块的阻塞仍以本页台账为准。
 
@@ -757,7 +757,7 @@ Identity account-lock boundary 用三项 typed SQL functions（SHARE／UPDATE／
 
 > 以下为退役前拆分拓扑的历史验收，不是当前部署步骤或宿主装配结果。
 
-当前复验见 [Workspace 运行指南](/api/guides/workspace-runtime#workspace-deployment) 与 `DEV.md` 的“Workspace 宿主与包一致性验收”；旧拆分测试配方已退役。
+当前宿主装配及包复验见 [Workspace 运行指南](/api/guides/workspace-runtime#workspace-deployment)与[模块边界定向验收](/dev/testing#module-boundary-acceptance)；旧拆分测试配方已退役。
 
 复用六个既有 Compose 片段，用同一个 Workspace 冷镜像启动成员、交接、配置、模板、项目及目录服务；另起 API、Inference probe 和 Guide 对象服务。九个进程经独占私网访问本轮 PostgreSQL／Redis。API 使用独立冷镜像，Workspace 权限限定为 32 个函数和两张事实视图，私表及回执不可读；六项 HTTP 选择器与借用调用方事务的 Native 能力共同装配。
 
@@ -1083,7 +1083,7 @@ API 组合既有 Workspace 成员事实与 Identity `STABLE` 函数，在同一 
 
 这是本机 ARM64 上这两个消费者的 Identity 边界资格，不代表全部导入、规模种子容量
 或完整 Identity 模块资格。实现提交 `dce7d425a`，证据见仓库
-`.worktree/identity-seed-selection-qualification.json`；凭据与复验见 `DEV.md`。
+`.worktree/identity-seed-selection-qualification.json`；当前复验见[模块边界定向验收](/dev/testing#module-boundary-acceptance)。
 日常主环境未切换，整体剩余项只按上方唯一台账跟踪。
 
 ## 媒体种子 Identity 边界
@@ -1115,7 +1115,7 @@ Inference 和 Assets-source 工件复用已通过指纹。隔离桶版本保持�
 证据见 `.worktree/media-seed-identity-qualification.json`。
 
 本切片只关闭六个消费者的 Identity 操作，不代表完整媒体种子、截图就绪、其余运维
-入口或整个 Identity 模块完成。命令与凭据边界见仓库 `DEV.md`，日常主环境未切换。
+入口或整个 Identity 模块完成。凭据边界见 [Identity 协议](/api/guides/identity-runtime)，日常主环境未切换。
 
 ## 主种子账号与演示成员
 
@@ -1142,7 +1142,7 @@ Node 直接使用两个 owner 协议并共同回滚。源码、合同与架构�
 
 证据见 `.worktree/seed-parent-qualification.json`。此切片只包含主脚本自身的账号与
 成员操作，未证明媒体子入口、整个种子 CLI 或完整 Workspace 已独立部署。既有模块
-安装、组合恢复及负载只复用未改变部分的证据。运行命令和精确授权见仓库 `DEV.md`；
+安装、组合恢复及负载只复用未改变部分的证据。当前复验见[模块边界定向验收](/dev/testing#module-boundary-acceptance)；
 剩余范围只按上方唯一台账推进，日常主环境未切换。
 
 ## Workspace 媒体及截图种子
@@ -1241,7 +1241,7 @@ Project／Identity 私表凭据被拒绝，S3 凭据仅限本次素材桶。一�
 证据见 `.worktree/workspace-seed-qualification.json`；既有完整安装、组合恢复和负载
 只复用未改变部分的已通过证据。资源已清理，日常主环境未切换。这仍是本地小夹具，
 不构成整个开发种子、Assets 或 Workspace 的独立部署／生产容量资格。
-授权边界见 [Workspace 运行指南](/api/guides/workspace-runtime#同事务运维导入与质量配置)，复验命令见仓库 `DEV.md`。
+授权边界见 [Workspace 运行指南](/api/guides/workspace-runtime#同事务运维导入与质量配置)，复验见[模块边界定向验收](/dev/testing#module-boundary-acceptance)。
 
 ## Workspace 公共结构契约与本地负载
 
@@ -1273,7 +1273,7 @@ Project／Identity 私表凭据被拒绝，S3 凭据仅限本次素材桶。一�
 
 夹具为两场景、每场景两帧，成功导入十项素材、四项任务和四条姿态。对象读写使用隔离桶内保留前缀的受限存储身份，核对真实点云、相机、标定和地图字节。失败／中断导入保留不确定的外部对象；重复导入也可能重写同键对象及产生新操作回执，因此只断言业务状态不重复，不声称 S3 事务或零写入重放。全部自有资源与存储身份在验收后销毁。
 
-API 镜像核对 1,271 个应用、安装包与 CLI 文件；本次仅增加验收代码，既有 Workspace 安装、组合恢复和 worker 证据继续有效。可重复入口见 `DEV.md` 的“Workspace 冷运维导入验收”。这项结果限 macOS ARM64 本地小夹具，不代表真实 nuScenes 数据集、ML、生产容量或日常环境切换。
+API 镜像核对 1,271 个应用、安装包与 CLI 文件；本次仅增加验收代码，既有 Workspace 安装、组合恢复和 worker 证据继续有效。当前复验见[模块边界定向验收](/dev/testing#module-boundary-acceptance)。这项结果限 macOS ARM64 本地小夹具，不代表真实 nuScenes 数据集、ML、生产容量或日常环境切换。
 
 ## Workspace 相邻项目写入
 
@@ -1669,7 +1669,7 @@ assets 的视频探测能力已完成首片本地验收：`apps/media-probe` 持
 
 服务接收不带对象键或 URL 的视频字节流，不持有业务数据库或对象存储凭据。视频元数据用有类型的 JSON 返回；帧与 packet 记录用 NDJSON 流返回，并以包含记录数和 SHA-256 的完成行结束。缺少完成行、数量不符或摘要错误时，消费者放弃结果；真实数据库验收确认随后提交也不会部分替换原有帧索引。调用端继续负责授权、读取源对象、写 assets 表和现有事务提交。字段、错误和摘要规则见[独立素材探测协议](/api/guides/media-probe)。
 
-消费者包括 `apps/api/app/workers/media.py`、`apps/api/app/application/video_timetable_rebuild.py`、`apps/api/scripts/seed_video.py` 和测试用 `apps/api/app/api/v1/_test_seed_webcodecs.py`。本地装配复用包内同一实现；`MEDIA_PROBE_URL` 显式选择远程服务后不会因故障切回本地。独立容器与主 API 镜像均通过构建和真实导入检查；独立容器未安装 SQLAlchemy、Celery、Boto3 或 Torch。部署与配置入口见仓库 `DEV.md` 和 `docker-compose.modules.yml`。
+消费者包括 `apps/api/app/workers/media.py`、`apps/api/app/application/video_timetable_rebuild.py`、`apps/api/scripts/seed_video.py` 和测试用 `apps/api/app/api/v1/_test_seed_webcodecs.py`。本地装配复用包内同一实现；`MEDIA_PROBE_URL` 显式选择远程服务后不会因故障切回本地。独立容器与主 API 镜像均通过构建和真实导入检查；独立容器未安装 SQLAlchemy、Celery、Boto3 或 Torch。部署入口见[探测协议](/api/guides/media-probe)和 `docker-compose.modules.yml`。
 
 完整时间表及 packet 样本会随输入规模增长。`ffprobe -show_frames -of json` 仍把探测输出整体读入内存，调用方也保留完整结果后再落库。NDJSON 避免新增一次整体 JSON 编码/解码副本，但不会消除原算法的线性内存需求；默认 1 GiB 文件上限、30 秒探测超时和容器预算不构成长视频或生产容量证明。每个远程操作还会上传一次源文件。
 
@@ -1821,7 +1821,7 @@ Assets 的来源删除命令在当前素材库管理员与来源锁内组合 Lea
 
 普通上传初始化只存 intent，签发 import staging PUT；完成时以同一 ETag 条件拷贝到本次 publication UUID 路径，再原子登记 Item、通过 Labeling 追加任务并冻结结果。已完成重试不重新拷贝。旧无 intent 记录不补造上传者，缺失/重复不删旧行或文件。原始字节始终保留；未完成 intent 和提交不确定时的未引用拷贝目前也保留，不能把 staging 生命周期当作所有原始拷贝的回收证明。
 
-`apps/assets-cleanup` 是独立 Python 执行工件，只有 asyncpg/boto3 与纯协议依赖；没有 API/ORM/Celery/Redis 依赖。数据库角色精确执行六项能力：原存储 outbox 的 bucket/keyset pending、完成确认，以及图片垃圾、受理输入垃圾各自的领取和完成确认。S3 可以在 media-cache 的 `image-pyramids/*`、`image-assets/*` 列举与删除；版本化输入桶仅授予版本状态探测及 `accepted-inputs/*` 的版本列举、指定版本删除和 multipart 清理，不允许读取或写入内容。调用方提交 outbox 后无需 broker 唤醒。独立 Compose、secret 文件、健康/就绪及回退职责见 `DEV.md` 和 [ADR-0096](/dev/adr/0096-assets-source-deletion-and-cleanup)。
+`apps/assets-cleanup` 是独立 Python 执行工件，只有 asyncpg/boto3 与纯协议依赖；没有 API/ORM/Celery/Redis 依赖。该历史工件的数据库角色精确执行六项能力：原存储 outbox 的 bucket/keyset pending、完成确认，以及图片垃圾、受理输入垃圾各自的领取和完成确认。S3 可以在 media-cache 的 `image-pyramids/*`、`image-assets/*` 列举与删除；版本化输入桶仅授予版本状态探测及 `accepted-inputs/*` 的版本列举、指定版本删除和 multipart 清理，不允许读取或写入内容。调用方提交 outbox 后无需 broker 唤醒。现行部署见[图片金字塔运行手册](/ops/runbooks/image-pyramid)。
 
 本地隔离 PostgreSQL、受限 LOGIN、真实 MinIO 与独立容器的有效结果共覆盖 630 个唯一用例，无业务跳过；先前失败/夹具缺失的用例以定向补验结果替换，不把多次执行重复相加。覆盖两种生产者、当前权限、引用保留、强事务、重放、UTF-8 key 预算、条件拷贝、lease 延迟、迟到对象、确认丢失与重启恢复。独立包 29 项单元用例及 writer deadline 2 项通过；自有数据库、Redis、桶、存储身份、临时容器和镜像均已清理。
 
@@ -1908,7 +1908,7 @@ Media 接管另使用 20 秒、600 帧、约 32.4 MB 的视频：暂停实际执
 
 本地图片和 nuScenes 导入脚本通过 Assets operator SQL 能力登记数据，不经过 `apps/assets-source` HTTP runtime，也不读取 `ASSETS_SOURCE_URL` 或在远程错误后回退。它们使用调用方 SQL Session；nuScenes 的 Dataset/Item、Labeling、Workspace 和空间事实仍在原有外层事务中提交。S3 上传或 nuScenes 对象覆盖无法随数据库回滚，原始字节保留。独立 `yoao_asset_operator_client` 具有固定 Assets 能力，以及图片归属所需的单项 Identity 账号选择函数；它没有表权限或角色继承。owner UUID 保持归属标记，图片 owner 选择和 nuScenes Catalog 资格/锁顺序沿用现有行为。
 
-0218 新增的 `dataset_operator_operations` 以不可变回执记录操作且没有 live Dataset/Item 外键。追加、更新最多 500 项一批；读取使用有序 Item UUID 游标和跨页 snapshot digest，单页受 15 MiB 记录 JSON、16 MiB 响应和 500 项限制，单次请求受 8 MiB 限制。更新在 Assets 校验 opaque source snapshot 后只合并请求字段。部署 grants 和完整字段语义见[同库数据接口](/api/guides/module-data#可信导入器数据集与素材登记)、仓库 `DEV.md` 和 [ADR-0104](/dev/adr/0104-operator-source-registration)。这是现有共享数据库上的可信本地写入边界，不代表独立 Assets 或 CLI 部署资格。
+0218 新增的 `dataset_operator_operations` 以不可变回执记录操作且没有 live Dataset/Item 外键。追加、更新最多 500 项一批；读取使用有序 Item UUID 游标和跨页 snapshot digest，单页受 15 MiB 记录 JSON、16 MiB 响应和 500 项限制，单次请求受 8 MiB 限制。更新在 Assets 校验 opaque source snapshot 后只合并请求字段。部署 grants 和完整字段语义见[同库数据接口](/api/guides/module-data#可信导入器数据集与素材登记)与 [ADR-0104](/dev/adr/0104-operator-source-registration)。这是现有共享数据库上的可信本地写入边界，不代表独立 Assets 或 CLI 部署资格。
 
 ## 同步 ZIP 与旧桶扫描
 
@@ -2040,7 +2040,7 @@ Native migration 0241 先安装 `0241_deactivation_notifications.sql`，再安�
 
 自助 due 只做 inactive/offline 软删除并写固定 Audit／通知事件，不推进 JWT generation、不撤 API key、不交接任务／项目。批准后 Audit 只擦除现有 `actor_email`／`actor_role` 两列，`detail_json` 和旧通知 payload 保持；这不是完整 GDPR 删除。Identity 在原生事务调用 Notifications owner 创建申请／完成两种 event，`notification_delivery_outbox` 在同一事务持久化；独立 `yoao_identity_runtime.notification_worker` 或同 executor 的 default queue relay 发布到 Redis，worker claim 提交前绝不做网络调用。发送语义 at-least-once，复用同一 notification ID，偏好仍在创建时应用。
 
-三个专用 LOGIN 分别是 `yoao_identity_deactivation_client`（两个 self 函数）、`yoao_identity_deactivation_operator`（policy 与 due 函数）和 `yoao_notification_publish_client`（policy、claim、finish）。API/runtime 的可选 DSN、Compose secret files 与权限见仓库根 `DEV.md` 和 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。本地验收覆盖三个精确受限账号、最终超管竞态、已受理申请跨停用／恢复、冻结 due 页、真实 Redis 与发布进程中断后的接管，以及备份恢复后的收据和租约保留。AUTH-only API 已验证专用 DSN 和远程容器两种绑定；两类 Celery task 入口各跨新事件循环执行，采用 eager 模式，不作为 broker／prefork 的新增资格。独立安装包通过 323 项测试，68 个不同数据库及进程用例通过；Node 只验证协议消费，不是另一语言 provider。完整 Identity、生产准备、另一语言 provider 与 Go 实验均不因该切片变更完成状态。
+三个专用 LOGIN 分别是 `yoao_identity_deactivation_client`（两个 self 函数）、`yoao_identity_deactivation_operator`（policy 与 due 函数）和 `yoao_notification_publish_client`（policy、claim、finish）。凭据见[注销通知的 durable publisher](/api/guides/identity-runtime#注销通知的-durable-publisher)和 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。本地验收覆盖三个精确受限账号、最终超管竞态、已受理申请跨停用／恢复、冻结 due 页、真实 Redis 与发布进程中断后的接管，以及备份恢复后的收据和租约保留。AUTH-only API 已验证专用 DSN 和远程容器两种绑定；两类 Celery task 入口各跨新事件循环执行，采用 eager 模式，不作为 broker／prefork 的新增资格。独立安装包通过 323 项测试，68 个不同数据库及进程用例通过；Node 只验证协议消费，不是另一语言 provider。完整 Identity、生产准备、另一语言 provider 与 Go 实验均不因该切片变更完成状态。
 
 ### Identity 邀请与 MailV2 独立投递
 
@@ -2052,7 +2052,7 @@ Native migration 0242 的依赖顺序是 `0242_identity_invitations_support.sql`
 
 `identity_credential_mail_outbox` 保存 invitation ID 与封闭发送上下文，用户/邀请凭据只使用现有 Fernet epoch/key，不能复制明文 token/link 到第二列或 receipt。MailV2 运行工件默认仍使用旧 Identity 镜像；可选 Compose `mail-v2` profile 会启动非 root、只读、健康检查在容器 8171 的 `identity-mail-v2`，只取得自身 MAILV2 DSN、既有 MAIL_SETTINGS、Recovery Fernet key 和 SMTP fallback。Recovery v1 MAIL worker/LOGIN 不变且只领取两个 Recovery purpose。SMTP sender 不获得 AUTH、control bearer、JWT signing secret 或 Invitation SQL 权限。
 
-API config 包含可选 `IDENTITY_INVITATION_DATABASE_URL(_FILE)`、`IDENTITY_MAIL_V2_DATABASE_URL(_FILE)` 与 `IDENTITY_INVITATION_MAIL_TIMEOUT_SECONDS`；runtime invitation owner 用 `IDENTITY_INVITATION_DATABASE_URL(_FILE)` 和独立 `IDENTITY_INVITATION_FRONTEND_BASE_URL` fallback（default 5173，系统 Settings 覆盖），Recovery 的 3000 fallback 保持不变。MAILv2 Compose host selector 为 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`，Settings/Fernet host secret 复用现有 selector 并在 container 映射为 V2 变量。细节见[Identity 私有运行协议](/api/guides/identity-runtime#邀请生命周期)、[ADR-0122](/dev/adr/0122-independent-identity-invitations-and-mail-v2)与仓库根 `DEV.md`。
+API config 包含可选 `IDENTITY_INVITATION_DATABASE_URL(_FILE)`、`IDENTITY_MAIL_V2_DATABASE_URL(_FILE)` 与 `IDENTITY_INVITATION_MAIL_TIMEOUT_SECONDS`；runtime invitation owner 用 `IDENTITY_INVITATION_DATABASE_URL(_FILE)` 和独立 `IDENTITY_INVITATION_FRONTEND_BASE_URL` fallback（default 5173，系统 Settings 覆盖），Recovery 的 3000 fallback 保持不变。MAILv2 Compose host selector 为 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`，Settings/Fernet host secret 复用现有 selector 并在 container 映射为 V2 变量。细节见 [Identity 私有运行协议](/api/guides/identity-runtime#邀请生命周期)和 [ADR-0122](/dev/adr/0122-independent-identity-invitations-and-mail-v2)。
 
 本地联合验收 68 项通过、零跳过，其中 58 项覆盖原生能力、受限角色和既有 API 行为，10 项覆盖独立 Node 消费者、真实 Identity 进程／容器、API、SMTP、恢复和旧挑战迁移。API 只持 AUTH 数据权限，分别经远程 Identity 容器与专用 Invitation DSN 完成全部 13 个公开操作；独立 MailV2 发送时 API 不持 MAILV2 连接。500 项真实预览全部回滚，部分成功、同操作重放、当前 issuer／owner／凭据代次围栏和注册／数据组／成员关系原子性均通过。迁移到 head、降至基线、冻结 SQL 安装回滚、恢复 head 与 grants 重装通过。
 
@@ -2180,7 +2180,7 @@ Workspace 包共 513 项源码检查通过，另有 358 项架构和 9 项报告
 不证明完整模块、生产容量或日常环境切换。
 
 本项只收口历史角色审计的 Workspace 操作；完整模块资格与日常主环境切换按唯一台账
-跟踪。安装与复验命令见 `DEV.md`，本地收据按操作组保留。
+跟踪。安装与审计命令见[项目角色迁移手册](/ops/runbooks/project-role-migration)，本地收据按操作组保留。
 
 ## Workspace cross-frame 冷 worker
 
@@ -2235,7 +2235,7 @@ broker 队列。当前 API 工件核对 1,336 项代码／包／CLI 文件及四
 核对 1,336 个应用／安装包／CLI 文件和 4 个运行夹具输入，另四个镜像的完整 COPY 集合
 及哈希复用既有资格。规范证据为 `.worktree/workspace-export-loss-qualification.json`，
 SHA-256 为 `eadb3df1d922370fca25f0e1bfb2b7d5de4d94ff8381e168744eb1e06af88dea`。
-执行命令见仓库 `DEV.md` 的“Workspace export 冷 worker 验收”。
+复验入口见[模块边界定向验收](/dev/testing#module-boundary-acceptance)。
 
 本机 ARM64 的图像案例不代表每种导出格式、完整 Jobs／Workspace、AMD64、远程 CI
 或生产容量资格。整容器丢失后的原消息由验收夹具按唯一投递标签显式恢复，未证明自动
@@ -2262,7 +2262,7 @@ reconciled。最终五个作业确认、队列及 unacked 均归零。
 夹具输入；另四个既有镜像的完整 COPY 路径与哈希继续匹配。
 规范证据为 `.worktree/workspace-video-tracker-qualification.json`，SHA-256 为
 `c8978e1f78d3889000ae360d1d7b796ad460ed51900e51a27bcfde8baa7ff2c4`。
-可重复入口见仓库 `DEV.md` 的“Workspace video-tracker 冷 worker 验收”。
+复验入口见[模块边界定向验收](/dev/testing#module-boundary-acceptance)。
 
 本项关闭 tracker 的限定 Workspace 消费者资格，未改变生产执行实现。PostgreSQL／
 Redis 使用私网别名；Media 与确定性 CPU 推理 peer 仍经宿主机转发，依赖 Runtime
@@ -2302,7 +2302,7 @@ Docker 工件或本地切换证据。它不是本仓库的 API／数据库逻辑
 仓库的 `scripts/verify_docker_host_forwarding.py` 保存配对复现和受限的宿主机元数据抓取
 入口。它只使用自有短期监听器、网络及不可变本地 Python 镜像，不执行 SQL、不取业务
 凭据、不修改 Docker 配置。`diagnosed_not_repaired` 会返回非零退出码，不能把发现故障
-计为验收通过。命令及本机管理员授权要求见 `DEV.md` 的“宿主机转发诊断”。
+计为验收通过。命令及本机管理员授权要求见[宿主机转发诊断](/dev/troubleshooting/local-acceptance-runtime#host-forwarding-diagnostics)。
 本机授权前置条件已完成，抓包进程及所有已完成探针的自有容器、网络和监听器均已
 清理。最新证据为 `.worktree/runtime-host-forwarding-host-trace-diagnosis.json`，SHA-256
 `4472b6f773e9f27edafb1ec961eee4c5806f600552897d4c0c29e3b978a8091d`。

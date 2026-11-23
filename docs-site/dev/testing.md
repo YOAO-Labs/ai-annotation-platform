@@ -183,6 +183,48 @@ RLE 清理仍拒绝删除带有未归属 publication 的对象，拒绝时整次
 
 合并 API 或 SDK 改动后，离线操作目录仍由 `packages/python-sdk/scripts/generate_operation_catalog.py` 从当前快照与真实消费者生成。目录过期时运行生成器并复验 discovery／OpenAPI 契约，不修改测试期望绕过漂移检查。
 
+<span id="module-boundary-acceptance" aria-hidden="true"></span>
+
+### 模块边界定向验收
+
+模块验证器从仓库根目录运行，使用当前 API 虚拟环境，并为本次验收创建独立的 PostgreSQL、Redis 和对象存储。冷工件场景另需要 Docker 与 Compose；运行前确认私网和镜像匹配。用新的报告路径，每个需要独占资源的场景单独运行：
+
+```bash
+PYTHONPATH="$PWD" apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
+  --output .worktree/workspace-host-acceptance.json \
+  --test-file tests/test_workspace_module_assembly_live.py
+```
+
+Workspace 宿主验收默认使用 `strict` 授权档，指南上传应在分配上传记录和写对象前拒绝。另用新环境和 `--workspace-consumer-profile default` 验证默认 LAN 角色的上传、读取、解除引用；最后引用移除单独选择 `tests/test_guide_clone_api_login_native.py`。这些 LAN 角色结果不代替生成工作树 LOGIN 的验收。
+
+Workspace 包和共享契约分别运行 `(cd apps/workspace && uv run --extra test --extra runtime pytest -q)` 和 `(cd apps/_shared/workspace_contract && uv run --extra test pytest -q)`。用 `--test-file` 定向选择 Native 成员、负责人转移、配置、模板、项目查询、目录查询和普通角色用例；文件名见 `scripts/verify_module_data_boundary.py` 的 `TEST_FILES`。
+
+独立 Workspace 成员与负责人转移用例需要私有解释器。用 `UV_PROJECT_ENVIRONMENT` 选择单独环境，运行 `uv sync --project apps/workspace --frozen --no-dev --extra runtime --no-editable`，将 `AAP_WORKSPACE_RUNTIME_PYTHON` 指向该解释器。
+
+Workspace 的冷 worker 与 CLI 用例使用当前源码构建的 `infra/docker/Dockerfile.api` 工件，保留 `org.aap.acceptance=workspace-module-api`、唯一 `org.aap.acceptance-id` 与 `org.aap.source-revision` 标签。设置 `AAP_WORKSPACE_MODULE_API_IMAGE` 为该镜像，`AAP_WORKSPACE_MODULE_API_IDENTITY` 为对应 acceptance ID。仅在完整的 Docker COPY 输入集合与哈希匹配时复用镜像，不以标签代替源码核对。复用上面的 runner，将选项改为下表对应的环境变量及 `--test-file`。
+
+| 开关（值为 `1`）                          | `--test-file`                                       |
+| ----------------------------------------- | --------------------------------------------------- |
+| `AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE`      | `tests/test_workspace_worker_assembly_live.py`      |
+| `AAP_WORKSPACE_CROSS_FRAME_WORKER_LIVE`   | `tests/test_workspace_cross_frame_worker_live.py`   |
+| `AAP_WORKSPACE_EXPORT_WORKER_LIVE`        | `tests/test_workspace_export_worker_live.py`        |
+| `AAP_WORKSPACE_VIDEO_TRACKER_WORKER_LIVE` | `tests/test_workspace_video_tracker_worker_live.py` |
+| `AAP_WORKSPACE_IMPORT_CLI_LIVE`           | `tests/test_workspace_import_cli_live.py`           |
+| `AAP_WORKSPACE_SEED_OPERATOR_LIVE`        | `tests/test_workspace_seed_operator_live.py`        |
+| `AAP_WORKSPACE_MEDIA_SEED_LIVE`           | `tests/test_media_seed_workspace_live.py`           |
+| `AAP_SEED_PARENT_OPERATOR_LIVE`           | `tests/test_seed_parent_operator_live.py`           |
+| `AAP_IDENTITY_E2E_FIXTURE_LIVE`           | `tests/test_identity_e2e_live.py`                   |
+| `AAP_IDENTITY_SEED_SELECTION_LIVE`        | `tests/test_identity_seed_selection_live.py`        |
+| `AAP_LEGACY_VIDEO_FENCE_LIVE`             | `tests/test_legacy_video_fence_live.py`             |
+
+旧视频围栏还要求设置 `AAP_LEGACY_VIDEO_FENCE_API_SOURCE_REVISION`，与镜像的源码标签一致。最后单独运行这一场景；它会撤销验收库里非 owner 角色的登录，不接触日常数据库。它不产生旧 Jobs 的退役证明。[模块台账](./concepts/module-deployment#剩余工作台账)记录各场景覆盖与既有结果。
+
+Identity 整模块冷验收另使用当前源码的非 editable Identity 安装（`uv sync --project apps/identity --locked --extra runtime --no-editable --reinstall-package yoao-identity`）及 `apps/identity/Dockerfile`、`infra/docker/Dockerfile.api` 两个镜像。将 `AAP_IDENTITY_RUNTIME_PYTHON` 指向该安装的解释器。两个镜像都设置 `org.aap.acceptance=identity-admission`，各用不同的唯一 `org.aap.acceptance-id`，依次配置 `AAP_IDENTITY_RUNTIME_IMAGE`、`AAP_IDENTITY_RUNTIME_IDENTITY` 以及 `AAP_IDENTITY_API_RUNTIME_IMAGE`、`AAP_IDENTITY_API_RUNTIME_IDENTITY`。
+
+设置 `AAP_IDENTITY_LIVE_ACCEPTANCE=1`，用同一 runner 分别选择 `tests/test_identity_module_assembly_live.py::test_complete_compose_remote_api_workers_restart_and_restore` 和 `tests/test_identity_module_assembly_live.py::test_complete_identity_migration_roundtrip`。分别保留 JSON、collection 和 JUnit；跳过不算通过。独立转发诊断见[验收运行时排障](./troubleshooting/local-acceptance-runtime#host-forwarding-diagnostics)。
+
+受理视频输入与执行器联调另用 `apps/api/.venv/bin/python scripts/verify_video_consumers_containers.py --profile smoke --output .worktree/video-containers.json`。从当前源码构建 API、Media control、Media worker 与 Cleanup 镜像，并以 `AAP_VIDEO_CONSUMER_{API,MEDIA_CONTROL,MEDIA_WORKER,CLEANUP}_IMAGE` 指定。四个工件均用 `org.aap.acceptance=module-data-boundary` 和同一 24 位十六进制 `org.aap.acceptance-id`。`capacity` 运行固定负载和优雅交接，不能证明强杀后的自动重投；`media-handoff` 只需 Media worker 工件，验收过期租约接管。图片默认运行角色对照使用 `scripts/verify_legacy_image_runtime.py`。
+
 ---
 
 ## 后端：pytest (`apps/api`)
@@ -338,11 +380,14 @@ API 使用自己的运行环境，交接 peer 使用独立的 `.artifacts/traini
 2. **跨网络隔离拓扑真实演练（`scripts/verify_site_agent.py`）**：
    在双 Docker bridge 隔离网络（中心无法向站点发起入站连接）中验证端到端链路，支持三种场景（`--scenario basic | recovery | replicas`）：
    ```bash
-   apps/api/.venv/bin/python scripts/verify_site_agent.py \
+   pnpm dev:worktree -- exec --mode test -- \
+     apps/api/.venv/bin/python scripts/verify_site_agent.py \
      --state /tmp/aap-site-agent-verify \
+     --runtime-image "$SITE_AGENT_RUNTIME_IMAGE_ID" \
      --scenario basic
    ```
    分别验证基础配对/扫描/预检登记/Range 读取（`basic`）、断网与重启恢复及撤销凭据关闭回执（`recovery`），以及主站点离线时显式同内容备用来源（`DatasetReferenceReplica`）的委托读取（`replicas`）。
+   `SITE_AGENT_RUNTIME_IMAGE_ID` 使用本机已核对的 `sha256:…` 镜像 ID，每次使用新的私有状态路径。仅对归属已确认的残留，用同一状态路径运行 `--cleanup`；工作树资源仍由启动器清理。
 3. **数据集与存储资源基线测量脚本**：
    在当前工作树专属且业务表为空的可丢弃 `e2e` / `test` 模式下运行，严禁指向非空开发库：
    - `scripts/benchmark_dataset_workbench.py`：[数据集工作台规模测量](./reference/dataset-workbench-benchmark)（1k / 10k 索引分页、组合筛选与项目统计）

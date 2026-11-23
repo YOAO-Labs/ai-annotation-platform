@@ -98,7 +98,7 @@ API 的 consumer 配置。`yoao_identity_fixture_v1.account_profiles` 只提供�
 路由挂载及每请求的环境／开关／数据库守卫保持。可信 operator 在普通 Identity 围栏
 后通过 `identity-e2e-fixture-grants.sql` 追加这些能力，仍无 Identity 私表及列权限；
 普通 API 不能追加此配置。其他领域的可信测试写入及对象权限需分别提供。配置与
-实际资格见 `DEV.md` 和[模块台账](/dev/concepts/module-deployment#identity-门控-e2e-夹具)。
+实际资格见[模块台账](/dev/concepts/module-deployment#identity-门控-e2e-夹具)。
 
 完整 E2E 数据准备／清理使用独立 owner 夹具进程，而非给普通 API 追加这些权限。Identity／Workspace 原生场景将 seed 请求与受限业务 HTTP 显式分流；受限固定能力、私表拒绝和借用事务的检查仍独立保留。owner 通道成功不计作受限角色执行完整 seed 的资格，见[测试边界](/dev/testing)。
 
@@ -139,7 +139,7 @@ Identity API 仍只有两视图／五函数；审计 LOGIN 仅追加三个审计
 被撤销 User／邀请私表及列权限。其他领域的读取与 Alembic 元数据由原 owner 提供。
 
 审计 CLI 继续使用 `REPEATABLE READ, READ ONLY`，缺少关系或权限时返回退出码 2，
-不自动降级为私表读取。安装命令见仓库 `DEV.md`；资格和剩余项见
+不自动降级为私表读取。安装与调用见[项目角色迁移手册](/ops/runbooks/project-role-migration)；资格和剩余项见
 [历史角色审计](/dev/concepts/module-deployment#identity-历史角色审计)。
 
 ## 运维账号选择
@@ -241,7 +241,7 @@ key 元数据只有 `id`、`name`、`key_prefix`、`scopes`、`expires_at`、`la
 
 会话另用三函数 LOGIN：`session_policy`、`read_login_candidate` 和 `execute_session_command`。它与准入、key LOGIN 分开，不持有身份表或 Audit 表权限。独立 Redis 身份只允许 `login_failed:*` 的 GET／INCRBY／EXPIRE／DEL 及必要连接命令，不能访问业务缓存、broker 或 Pub/Sub。
 
-变量、精确授权、独立镜像和本地验收入口见仓库 `DEV.md`。设计及 secret 轮换限制见 [ADR-0116](/dev/adr/0116-independent-identity-key-commands) 和 [ADR-0117](/dev/adr/0117-independent-identity-session-commands)。这些协议覆盖准入、API key 和核心会话；完整 Identity 和其他模块的部署状态见[模块台账](/dev/concepts/module-deployment)。
+精确授权分别由 `infra/docker/identity-auth-grants.sql`、`identity-keys-grants.sql` 与 `identity-sessions-grants.sql` 定义。独立镜像与本地验收见[模块边界定向验收](/dev/testing#module-boundary-acceptance)。设计及 secret 轮换限制见 [ADR-0116](/dev/adr/0116-independent-identity-key-commands) 和 [ADR-0117](/dev/adr/0117-independent-identity-session-commands)。
 
 ## 核心会话请求
 
@@ -640,9 +640,9 @@ API／独立 Identity runtime 的自助与 due operator DSN 分别使用 `IDENTI
 
 已投递和确定拒绝为终态；临时故障、DATA 后断线等结果不明状态继续使用同一挑战、密文与 Message-ID 重试。投递属于至少一次语义，用户可能收到多封相同有效链接。错误 key epoch 保留待投递项，不破坏仍有效的挑战；轮换前应排空旧邮件或保留对应旧 key 的执行器。缺少 SMTP 配置或确定拒绝只使对应重置挑战作废，验证挑战保持有效。
 
-挂载 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`（`yoao_identity_mail_v2_client`，四函数）、`IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE`（`yoao_identity_mail_settings_client`，仅 `mail_delivery_policy`）和 `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE`。两条 DSN 均为显式 PostgreSQL 登录，指向业务 outbox 所在数据库；不得使用普通应用、迁移或 owner 登录。可提供 `IDENTITY_MAIL_SMTP_*` 环境 fallback（密码可改用 `IDENTITY_MAIL_SMTP_PASSWORD_FILE`）；Settings 数据库配置优先。Sender 不挂 JWT signer、控制 bearer 或生产者数据库凭据；普通 API/worker 无 outbox 或发送函数的权限。
+挂载 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`（`yoao_identity_mail_v2_client`）、`IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE`（`yoao_identity_mail_settings_client`）和 `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE`。两条 DSN 都必须指向业务 outbox 所在库的独立受限 LOGIN，不得使用普通应用、迁移或 owner 登录。精确授权由 `infra/docker/identity-recovery-grants.sql` 和 `infra/docker/identity-invitations-grants.sql` 定义，先应用模块 owner 授权并撤销 PUBLIC TEMP。可配 `IDENTITY_MAIL_SMTP_*` 环境 fallback；Settings 配置优先。Sender 不挂 JWT signer、控制 bearer 或生产者数据库凭据。
 
-内嵌 API 生产者使用同一 `IDENTITY_RECOVERY_MAIL_KEY(_FILE)`；独立 issuer 由 overlay 挂载同一 Fernet 文件。已有密钥原样保留；如果旧内嵌生产者使用派生密钥，离线用 `yoao_identity.recovery_crypto.mail_key_from_secret` 从原签发根派生 Fernet 值，直接写保护文件，勿将根密钥交给 sender。切换时停止旧发送器、确认新的 `/ready` 且同一 outbox 开始被领取；保留待投递行和原密钥，无 SQL 回填或 token 轮换。V1 worker、SQL 和 LOGIN 仍用于独立契约验收。操作顺序详见 [DEV.md](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/DEV.md#注册密码恢复与凭据邮件) 和 [ADR-0119](/dev/adr/0119-independent-identity-recovery-and-mail)。
+内嵌 API 生产者使用同一 `IDENTITY_RECOVERY_MAIL_KEY(_FILE)`；独立 issuer 由 overlay 挂载同一 Fernet 文件。切换时停止旧发送器，保留待投递行和原密钥，确认新 sender 的 `/ready` 与实际投递。不回填 SQL，也不轮换 token。授权与配置见[生产邮件部署](/ops/deploy/docker-compose#production-mail)；旧环境若由 JWT 密钥派生 Fernet key，按[旧拓扑升级门禁](/ops/upgrade-guide#split-topology-upgrade)迁移密钥。V1 worker、SQL 和 LOGIN 仅用于独立契约验收。
 
 ## 已接受 API-key 的最终授权与当前账号读取
 
