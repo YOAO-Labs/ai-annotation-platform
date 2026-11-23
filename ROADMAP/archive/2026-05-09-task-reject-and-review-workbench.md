@@ -24,9 +24,9 @@
 
 | 层 | 现状 | 文件 / 行号 |
 |---|---|---|
-| 后端 reject 接口 | `task.status = "in_progress"` + `task.reject_reason = reason` + audit log；**无 notification fan-out** | [apps/api/app/api/v1/tasks.py:894-948](../../apps/api/app/api/v1/tasks.py#L894-L948) |
-| 后端 approve 接口（对照） | 写 audit log + `notify_many(type="task.approved")` 给 assignee | [apps/api/app/api/v1/tasks.py:872-888](../../apps/api/app/api/v1/tasks.py#L872-L888) |
-| 后端 reopen 接口 | `task.reject_reason = None` 清空（即标注员重做就抹掉痕迹） | [apps/api/app/api/v1/tasks.py:981](../../apps/api/app/api/v1/tasks.py#L981) |
+| 后端 reject 接口 | `task.status = "in_progress"` + `task.reject_reason = reason` + audit log；**无 notification fan-out** | [原 tasks.py:894–948](https://github.com/YOAO-Labs/ai-annotation-platform/blob/3cfad2b54bf8d7a0ec123141c6b38f169d8ac575/apps/api/app/api/v1/tasks.py#L894-L948) |
+| 后端 approve 接口（对照） | 写 audit log + `notify_many(type="task.approved")` 给 assignee | [原 tasks.py:872–888](https://github.com/YOAO-Labs/ai-annotation-platform/blob/3cfad2b54bf8d7a0ec123141c6b38f169d8ac575/apps/api/app/api/v1/tasks.py#L872-L888) |
+| 后端 reopen 接口 | `task.reject_reason = None` 清空（即标注员重做就抹掉痕迹） | [原 tasks.py:981](https://github.com/YOAO-Labs/ai-annotation-platform/blob/3cfad2b54bf8d7a0ec123141c6b38f169d8ac575/apps/api/app/api/v1/tasks.py#L981) |
 | 前端工作台横幅 | `status==="in_progress" && reject_reason` 时渲染审核员退回横幅 | [apps/web/src/pages/Workbench/shell/WorkbenchShell.tsx:995](../../apps/web/src/pages/Workbench/shell/WorkbenchShell.tsx#L995) |
 | 前端任务队列 | 与普通 `in_progress` 无视觉差异，标注员需要逐个点开才知道哪个被退回 | [TaskQueuePanel.tsx](../../apps/web/src/pages/Workbench/shell/TaskQueuePanel.tsx) |
 | 标注员 Dashboard | 仅 KPI"被退回率"百分比，无"待重做退回"清单 | [AnnotatorDashboard.tsx:85-90](../../apps/web/src/pages/Dashboard/AnnotatorDashboard.tsx#L85) |

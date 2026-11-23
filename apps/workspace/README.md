@@ -26,7 +26,7 @@ The `postgres`, `runtime`, `client`, and `test` extras remain for portable SQL,
 HTTP, and package conformance. Standalone HTTP or Node providers are run in
 isolated conformance fixtures, not as services for the product API. Use only
 the existing function-scoped test roles and never put an owner or migrator DSN
-in the API environment. See [DEV.md](../../DEV.md#workspace-宿主与包一致性验收)
+in the API environment. See [module boundary acceptance](../../docs-site/dev/testing.md#module-boundary-acceptance)
 for the supported checks.
 
 Owner transfer uses `aap-workspace-owner-transfer/v1`. The caller-session

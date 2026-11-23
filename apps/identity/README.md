@@ -105,7 +105,7 @@ application source bind, and support a read-only root filesystem. The issuer
 has function-only DSNs and a login-counter Redis identity; it has no SMTP or
 Notification publication credentials. Neither process needs S3 credentials. See the
 [private protocol guide](../../docs-site/api/guides/identity-runtime.md) and
-[local runbook](../../DEV.md) for configuration and exact permissions.
+[local runbook](../../docs-site/ops/deploy/development.md) for configuration and exact permissions.
 
 The monolithic application's Identity function allowlist is included in
 `infra/docker/lan-production-grants.sql`; this grant-source change has not been
@@ -127,7 +127,7 @@ Full migration validation passes all five phases. The complete real-consumer
 case passes twice, including REST/Socket credentials, lifecycle writes, Node
 replay, worker restarts, and full database restore with pending mail and
 notifications. Existing operation-specific qualifications are retained separately.
-The runbook entry is [Identity 整模块私网验收](../../DEV.md#identity-整模块私网验收).
+To repeat the current assembly checks, see [module boundary acceptance](../../docs-site/dev/testing.md#module-boundary-acceptance).
 
 This qualifies local ARM64 functionality on that private-network topology. Earlier
 host-forwarded database experiments had intermittent 503 responses whose root
@@ -586,7 +586,7 @@ not a hosted selector.
 When starting the package without Compose, the V2 sender reads
 `IDENTITY_MAIL_V2_DATABASE_URL(_FILE)`, `IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL(_FILE)`,
 `IDENTITY_MAIL_V2_ENCRYPTION_KEY(_FILE)` and `IDENTITY_MAIL_V2_SMTP_*`.
-For permissions and recovery semantics, see [DEV.md](../../DEV.md) and
+For permissions and recovery semantics, see the [private protocol guide](../../docs-site/api/guides/identity-runtime.md#独立账号邮件执行) and
 [ADR-0119](../../docs/adr/0119-independent-identity-recovery-and-mail.md).
 
 Recovery and mail have their own operation-level qualification. Complete-module

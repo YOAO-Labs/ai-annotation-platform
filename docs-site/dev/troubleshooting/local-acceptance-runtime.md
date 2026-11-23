@@ -83,7 +83,7 @@ Kombu 会留下被动的 `_kombu.binding.*` 集合；已封存的 worker 还会�
 
 ### 规避
 
-运行中依赖接入临时网络时显式使用较低优先级：`docker network connect --gw-priority -1 <network> <container>`，保留原网关与既有连接；移除时同样按身份核验。现有装配 helper 与 `DEV.md` 的冷装配要求都以此为前提，见 `apps/api/tests/workspace_module_assembly_helpers.py`、`apps/api/tests/identity_module_assembly_helpers.py` 与 `DEV.md` 的 "冷装配验收" 一节。
+运行中依赖接入临时网络时显式使用较低优先级：`docker network connect --gw-priority -1 <network> <container>`，保留原网关与既有连接；移除时同样按身份核验。Workspace 和 Identity 的装配 helper 都使用这项规则，见[模块边界定向验收](../testing#module-boundary-acceptance)。
 
 ## 5. Docker 默认地址池耗尽
 
@@ -177,7 +177,7 @@ socket 目录固定在短路径 `/tmp` 下并校验归属：`scripts/fixture_inf
 
 ### 根因
 
-`apps/web/playwright.config.ts` 以 `Boolean(process.env.CI)` 决定 `globalTimeout: 15 * 60_000`、`maxFailures: 1`、`retries: 1` 与 `preview` 模式；开发工具 shell（或宿主的 CI 变量）里残留的 `CI=true` 会被 `scripts/worktree_env.py` 的 `frontend_environment()` 原样透传给浏览器进程，于是本地运行套用了 CI 分片预算（参见 [测试指南](../testing) 的 CI 时延护栏）。
+`apps/web/playwright.config.ts` 以 `Boolean(process.env.CI)` 决定 `globalTimeout: 15 * 60_000`、`maxFailures: 1`、`retries: 1` 与 `preview` 模式；开发工具 shell（或宿主的 CI 变量）里残留的 `CI=true` 会被 `scripts/worktree_env.py` 的 `frontend_environment()` 原样透传给浏览器进程，于是本地运行套用了 CI 分片预算。运行入口见 [E2E README](https://github.com/YOAO-Labs/ai-annotation-platform/blob/dev/apps/web/e2e/README.md)。
 
 ### 规避
 
@@ -242,6 +242,18 @@ Playwright 通用的 `webServer.gracefulShutdown` 向整个 Web 进程组发信�
 首次打开与重载后，都必须观察当前路由存在可见瓦片、已解码保留字节为正、目标覆盖率为 1，且瓦片错误和可见瓦片重试均为 0；浏览器 console error／page error 也应使该 8K 用例失败。不能仅等待 `image-ready` 或检查 Mask 自身的内存预算。
 
 CORS 配置位于 `scripts/fixture_native_playwright.py` 的 `_proxy_child`；逐成员读取与物理关闭仍由 `fixture_native_output_proxy.py` 负责。
+
+## 诊断 macOS 宿主机转发 {#host-forwarding-diagnostics}
+
+使用本机已有的不可变 Docker Python 镜像。镜像须有 `/opt/venv/bin/python`，并可由 UID `10003` 运行。从仓库根目录执行：
+
+```bash
+python3 scripts/verify_docker_host_forwarding.py \
+  --image "$HOST_FORWARDING_IMAGE_ID" \
+  --output .worktree/host-forwarding-diagnosis.json
+```
+
+探针只创建自己的临时网络、容器和回环监听器，不连接业务数据库。结果 `diagnosed_not_repaired` 和非零退出码表示复现问题，不表示修复。需要本机 TCP 元数据时，先在本机交互终端 `sudo -v`，再加 `--host-trace` 并选用新的报告路径。不要在命令或日志中传入管理员口令。证据及限制见[宿主机转发台账](../concepts/module-deployment#runtime-host-forwarding)。
 
 ## 相关
 

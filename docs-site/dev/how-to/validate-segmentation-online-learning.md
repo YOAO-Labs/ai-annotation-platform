@@ -21,7 +21,7 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 
 夹具在「COCO8 在线训练（dev）」中准备 8 张已审核图片、30 个检测框和 30 个原图实例 RLE。分割来源为官方 COCO8-seg 多边形，经 COCO 栅格化保存；两个素材包的原图逐字节一致。检测、分割各有独立初始版本，均保留官方 4/4 划分。旧夹具增补前会检查原任务未被人工修改，已有分割重跑不会恢复人工删改的掩膜。
 
-默认开发账号为 `pm` / `qa` / `anno`，密码 `123456`；已有账号不会被重置。夹具不创建实验、不启用策略、不发布模型。离线和缓存选项见 [DEV.md](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/DEV.md#coco8-在线训练夹具)。
+默认开发账号为 `pm` / `qa` / `anno`，密码 `123456`；已有账号不会被重置。夹具不创建实验、不启用策略、不发布模型。[本地开发教程](../tutorials/local-dev#_2-准备-coco8-检测夹具)列出离线和缓存选项。
 
 ## 原生 CPU 固定批大小与离线字体
 

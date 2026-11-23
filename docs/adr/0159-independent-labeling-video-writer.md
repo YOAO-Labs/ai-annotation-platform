@@ -54,7 +54,7 @@ Labeling 获得 worker 最终结果的唯一原子发布路径，且普通重试
 - Portable policy、wire schema 与运行时位于 `apps/labeling/src/aap_labeling/video_writer*.py`。
 - API 集成位于 `apps/api/app/services/video_tracking/writer.py` 与 `runner.py`。
 - Native capability 与 receipt 位于迁移 `0283`；部署角色来源见 `infra/docker/labeling-video-writer-grants.sql`。
-- 开发启动、配置及权限顺序见仓库 `DEV.md`；协议调用见 `docs-site/api/guides/labeling-runtime.md` 与 `docs-site/api/guides/module-data.md`。
+- 启动、权限与协议见 `docs-site/api/guides/labeling-runtime.md` 和 `docs-site/api/guides/module-data.md`。
 
 ## Terminal publication and cleanup lease
 

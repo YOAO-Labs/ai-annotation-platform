@@ -8,8 +8,7 @@ last_reviewed: 2026-10-18
 # 独立素材探测协议
 
 独立素材探测服务处理视频元数据、完整帧时间表和分块 packet 样本。它直接接收文件
-字节，不需要平台数据库、Redis 或对象存储凭据。启动方式见仓库 `DEV.md` 的
-“独立素材探测服务”；全模块提取进度见[模块部署状态](/dev/concepts/module-deployment)。
+字节，不需要平台数据库、Redis 或对象存储凭据。启动方式见 [media-probe 工件说明](https://github.com/YOAO-Labs/ai-annotation-platform/tree/main/apps/media-probe#run-locally)。全模块进度见[模块部署状态](/dev/concepts/module-deployment)。
 
 该服务在自己的地址提供 `/openapi.json`，主 API 的 `/api/v1` 路由和公开 SDK 目录不
 包含这些内部操作。服务使用专用 `Authorization: Bearer` token，平台 JWT/API key

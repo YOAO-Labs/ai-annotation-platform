@@ -24,7 +24,7 @@
 
 ### 部署盘点
 
-根目录 44 份 Compose 文件按 `services` 一级键去重，基础 15、基础与两个生产变体合计 20、全量 59。差集的 39 项及两个非 Compose 边界见[部署收敛决定表](../../../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)。依据是对应入口、授权 SQL、运行选择器和文档；没有删除服务、运行全套 split 冷验收或改变日常拓扑。维护者确认第一批服务后才进入 M2b。
+根目录 44 份 Compose 文件按 `services` 一级键去重，基础 15、基础与两个生产变体合计 20、全量 59。差集为 39 项，另有两个非 Compose 边界。依据是当时的入口、授权 SQL、运行选择器和文档；没有删除服务、运行全套 split 冷验收或改变日常拓扑。维护者确认第一批服务后才进入 M2b。当前进程决定见[部署进程清单](../../../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)，不以当时的数量为准。
 
 ## M2b Workspace
 

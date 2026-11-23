@@ -355,4 +355,4 @@ scene 默认只跑 `desktop-light`；声明 `matrix.themes:['light','dark']` 自
 - Playwright trace viewer：https://playwright.dev/docs/trace-viewer
 - sharp：https://sharp.pixelplumbing.com/
 - ffmpeg GIF best practices：https://trac.ffmpeg.org/wiki/Create+a+thumbnail+image+every+X+seconds+of+the+video
-- 内部参考：[apps/web/e2e/screenshots/scenes/](../../apps/web/e2e/screenshots/scenes/)、[playwright.screenshots.config.ts](../../apps/web/playwright.screenshots.config.ts)、[截图维护清单](../../docs-site/maintainers/image-checklist.md)
+- 退役前的源码：[截图场景目录](https://github.com/YOAO-Labs/ai-annotation-platform/tree/474b1ce171388f2e475024836d1a54c2f248fcb5/apps/web/e2e/screenshots/scenes)、[Playwright 截图配置](https://github.com/YOAO-Labs/ai-annotation-platform/blob/474b1ce171388f2e475024836d1a54c2f248fcb5/apps/web/playwright.screenshots.config.ts)。当前流程见[按需截图和录屏](../../docs-site/dev/how-to/update-screenshots.md)及[截图维护清单](../../docs-site/maintainers/image-checklist.md)。

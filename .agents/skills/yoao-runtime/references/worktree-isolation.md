@@ -44,4 +44,4 @@ After successful destruction, the mode's infrastructure manifest is removed but 
 - `apps/api/.venv/bin/python scripts/verify_worktree_isolation.py -v` creates/deletes random owned resources on validated local infrastructure. This is a live, state-changing acceptance test, not a read-only probe.
 - `apps/api/.venv/bin/python scripts/verify_worktree_maintenance.py` uses disposable PostgreSQL with separate roles plus owned Redis/buckets to exercise all five maintenance tasks and worker shutdown. It does not alter the shared PostgreSQL roles or data.
 
-The user-facing source is `docs-site/dev/how-to/worktree-environments.md`. Keep that page and `DEV.md` aligned with the actual CLI, and distinguish local acceptance results from remote CI.
+The user-facing source is [worktree environments](../../../../docs-site/dev/how-to/worktree-environments.md). Keep it aligned with the actual CLI, and distinguish local acceptance results from remote CI.

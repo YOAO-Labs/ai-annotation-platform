@@ -12,7 +12,7 @@ last_reviewed: 2026-10-22
 
 实现与冻结合同位于 `apps/api/alembic/sql/0190*` 至 `0219*`。接口通过 PostgreSQL
 协议调用，使用调用方同一连接的外层事务，不接收 Python Session、ORM 或任意 SQL。
-安装、独立角色及本地验收命令见仓库 `DEV.md`；数据所有权见
+安装和角色顺序见[升级门禁](/ops/upgrade-guide#split-topology-upgrade)，参数以 `infra/docker/module-data-grants.sql` 为准。复验见[模块边界定向验收](/dev/testing#module-boundary-acceptance)。数据所有权见
 [ADR-0092](/dev/adr/0092-transactional-module-data-capabilities)。
 
 HTTP 数据集路由对 API key 按操作检查 `datasets:read` / `datasets:write` scope；现有 JWT
@@ -128,7 +128,7 @@ autoflush、缓存及 Task／Audit 的共同提交或回滚。函数不接收任
 
 调用方使用相同连接组合范围、分页和计数；独立调用查询时也保留原 autoflush。
 专用 owner、应用及 worktree grant 清单同步更新，PUBLIC 无新函数执行权。合同与
-限定验收见 [Workspace 运行指南](./workspace-runtime#项目范围看板与列表读取)和
+限定验收见 [Workspace 运行指南](./workspace-runtime#项目范围、看板与列表读取)和
 [ADR-0173](/dev/adr/0173-workspace-actor-scope-relations)。
 
 ## 非锁定成员事实关系
@@ -153,7 +153,7 @@ Labeling `project_catalog_counters`，计数所有权和原 43 列行布局保�
 
 该关系支持原 SQL 内的联接、外联接、分组、相关谓词和分页，不预取全量行再在应用
 过滤。原授权和各调用的 autoflush／缓存语义继续由调用方持有。接口与资格边界见
-[Workspace 运行指南](./workspace-runtime#项目集合投影与元数据)。
+[Workspace 运行指南](./workspace-runtime#项目集合、投影与元数据)。
 
 ## 同事务的主后端绑定清理
 
@@ -249,36 +249,10 @@ Celery 对连接、锁和序列化暂时失败持续重试，不将它们转为�
 
 ## 项目删除与跨 owner 强事务
 
-`DELETE /projects/{project_id}` 成功仍返回 HTTP 204。Workspace 的
-`yoao_workspace_v1.delete_project(operation_id, actor_id, project_id, audit_context)`
-是该命令的事务协调者：它在调用方同一 PostgreSQL 连接和外层事务中组合各 owner 的
-检查、清理、审计与回执，不在函数内部提交。Python 适配器只传 UUID 和 JSON，校验冻结
-响应并提交原请求事务；它不把 ORM 对象或 SQL Session 传给其他 owner。
+项目删除由 Workspace 在调用方事务中协调。命令、授权、错误与回执重放见
+[项目删除的调用方事务](./workspace-runtime#项目删除的调用方事务)。
 
-新命令先锁定当前活跃身份，再按稳定操作 ID 和项目串行化，随后锁定当前项目管理权并以
-NOWAIT 锁定项目行。Learning owner 按既定优先级检查主动学习引用和保留的训练、模型、评估、
-策略及数据版本；有保留引用时拒绝删除。通过检查后，Workspace 依次调用 Diagnostics、
-Assets、Inference、Insights、Export、Jobs、Learning 和 Labeling 的私有数据所有者能力，
-最后清除成员与模板来源引用、删除项目，并由 Audit owner 写入 `project.delete` 记录。
-Audit owner 通过 Identity 的私有类型化 `lock_audit_actor` helper 获取当前锁定身份事实；只有 Audit owner
-可以执行该 helper。
-审计快照、删除计数和操作回执与这些删除处于同一事务；owner 清理函数不授予工作流调用角色。
-
-函数返回 `aap-project-delete/v1`。成功结果包含 operation、actor 与 project UUID，删除的 Task/annotation
-计数及 audit ID；失败返回稳定 `error.code`，由现有 Python/HTTP 边界恢复原状态与错误细节。Owner-specific
-cleanup 函数只授予各自 `NOLOGIN` owner 和协调方需要的最小权限；受限 `LOGIN` 调用者没有其他 owner 的私有
-表权限或清理 helper 执行权。
-
-数据库异常或事务最终提交失败会使所有 owner 的变更、审计行和回执共同回滚。锁冲突返回稳定
-`project_busy` 失败结果；其他未预期数据库错误继续中止事务。该命令不删除源对象存储字节或导出文件，
-不发布或撤销 broker 消息。Jobs owner 在 SQL 中取消活动建题作业并解除 live Project 外键；这不是
-Celery 撤销或对象存储清理。
-
-回执不依赖 Project 外键，因而项目删除后仍保留。相同操作 ID 只有在 actor 仍是原活跃账号且
-actor/project/operation 身份完全一致时才重放原结果；同一 ID 换 actor 或 project 返回
-`operation_conflict`。仅拥有函数执行权限不代表有管理权：首次执行仍按当前账号和项目管理权
-锁重新授权。需要处理不确定提交的原生调用方必须在首次发送前生成并保存稳定 operation ID。
-现有 REST 路由仍按原行为处理缺失项目，HTTP 重试不会自动暴露原生回执重放接口。
+## Jobs 保留的项目范围
 
 迁移 0200 在 `async_jobs` 保存由数据库维护、不可重绑且无 Project 外键的
 `retained_project_id`。项目删除后，作业以及关联通知仍使用原项目范围进行授权；项目 A 的作业不能变成
@@ -441,7 +415,7 @@ PUT 只签发到 import 桶 `dataset-uploads/{item}/source`。`lock_dataset_uplo
 已到。数据库读取事务在 S3 操作前结束，确认另用短事务。对象删除失败、响应丢失或确认失败不会移除
 未完成责任。进程显式配置 cleanup DSN 和 S3 专用凭据，只允许一个桶中 `image-pyramids/*` 的
 ListBucket/DeleteObject，不继承 API、Redis 或 Celery 配置。配置、独立镜像和本地 Compose 入口见
-仓库 `DEV.md`、`apps/assets-cleanup/README.md` 与 [ADR-0096](/dev/adr/0096-assets-source-deletion-and-cleanup)。
+[图片金字塔运行手册](/ops/runbooks/image-pyramid)与 [ADR-0096](/dev/adr/0096-assets-source-deletion-and-cleanup)。
 
 ## 目录与关联读取
 
@@ -517,7 +491,7 @@ Source 在 `public.storage_connection_operations` 中保存不可变幂等回执
 
 每个写能力都接收操作 UUID；重放必须匹配原操作和请求。`dataset_operator_operations` 存储不可变回执且没有 live Dataset/Item 外键。批量追加/更新最多 500 项，请求 JSON 最多 8 MiB。读取每页最多 500 项，Item 记录 JSON 最多 15 MiB，完整响应最多 16 MiB；调用方跨页核对稳定摘要、总数、顺序、游标和完成标记，因此完整读取不受单页上限截断。source snapshot 是 opaque CAS 值，由 Assets 持有并在 patch 时重验；更新保留 Scene/frame、标定和无关 metadata，只改请求字段，尺寸只在目标相机尺寸不完整时成对回填。
 
-本地导入器通过 `AssetsOperatorGateway` 将这些函数绑定到自己的 SQL Session；nuScenes 路径与既有 Labeling、Workspace 和空间写入共用外层事务，函数不自行提交。它们不是 Source HTTP 工作流，没有 `ASSETS_SOURCE_URL` 远程选择或错误回退。对象存储上传、nuScenes 文件写入及必要的既有对象覆盖不属于 SQL 事务，回滚保留原始字节。专用 operator LOGIN 不读业务表，也不继承其他角色。完整边界与部署顺序见仓库 `DEV.md` 和 [ADR-0104](/dev/adr/0104-operator-source-registration)；SQL schema 在 `apps/api/alembic/sql/0218_assets_operator.schema.json`。
+本地导入器通过 `AssetsOperatorGateway` 复用调用方 SQL Session，不经 Source HTTP，也不自行提交。nuScenes 与 Labeling、Workspace 和空间写入共用外层事务。SQL 回滚不撤销已写的对象。为独立受限 operator 安装权限时，先应用 common owner、nuScenes 所需 Catalog 及部署使用的 Source／Importer grants，再运行 `infra/docker/assets-operator-grants.sql`，其中 `asset_operator_role` 指向 `yoao_asset_operator_client`。该 LOGIN 不替代完整跨 owner 导入所需的调用方权限。合同见 [ADR-0104](/dev/adr/0104-operator-source-registration)。
 
 图片导入的 `yoao_asset_operator_client` 另可执行 Identity 的 `read_first_seed_account()`，只返回现有账号的 ID 和邮箱，不筛选角色或启用状态；多个账号时不保证选择顺序。该能力不授予用户表或账号 profile 关系的读取权限，也不改变调用方事务。
 

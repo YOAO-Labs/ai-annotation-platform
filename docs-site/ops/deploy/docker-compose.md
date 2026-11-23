@@ -636,15 +636,13 @@ docker compose -f docker-compose.yml -f docker-compose.hostvols.yml up -d
 3. **重新构建并拉起**：
    ```bash
    docker compose --env-file .env.production \
-     -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+     -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait
    ```
    依赖（`uv.lock` / `pnpm-lock.yaml`）烤进新镜像、api entrypoint 自动 `alembic upgrade head`，一步到位。迁移失败时容器启动失败、read 容器日志，**不要**手动 `alembic stamp`（除非熟悉 alembic 内部）。worker 仅改业务码时可 `docker compose restart celery-worker` 免重建（规则见[升级指南](/ops/upgrade-guide)）。
-4. **冒烟测试**：
+4. **冒烟测试**：`--wait` 等待 API 容器的 `/health` 检查通过。该检查汇总数据库、Redis、MinIO 和 Celery。有问题时，从部署主机直连私有 API 端口查看各项结果；如果该端口绑定在另一个私网地址，替换下方的回环地址。外层 HTTPS 入口单独检查 Web 容器的 `/healthz`。
    ```bash
-   curl -fsS https://app.example.com/api/v1/health/db | jq
-   curl -fsS https://app.example.com/api/v1/health/redis | jq
-   curl -fsS https://app.example.com/api/v1/health/minio | jq
-   curl -fsS https://app.example.com/api/v1/health/celery | jq
+   curl -fsS http://127.0.0.1:8080/health &&
+     curl -fsS https://app.example.com/healthz
    ```
 5. **回退预案**：先停止写入并按具体迁移说明选择兼容的应用版本，保留已使用的内容身份、来源、用途绑定和归属账本；不能对含迁移的升级统一执行 `alembic downgrade -1`。已有映射或不可逆屏障时保留当前 schema，采用应用回退或向前修复。旧应用不理解外部引用时，不得让它接管这些记录的写入、删除或后台清理，必要时保持受控只读。只有明确允许降级、数据条件满足且已在一次性环境演练的迁移，才按指定目标执行降级；不要用 `stamp` 绕过屏障。回退前的数据库与对象存储备份必须保留，详见[内容身份决策](/dev/adr/archive/0091-dataset-content-and-location-identity)与[升级指南](/ops/upgrade-guide)。
 
@@ -663,7 +661,7 @@ docker compose -f docker-compose.yml -f docker-compose.hostvols.yml up -d
 | `/health/celery` | broker + 一个 worker 应答 | DataDog / Grafana  |
 | `/metrics`       | Prometheus exposition     | 仅内网             |
 
-LB 配置 `livenessProbe → /health`、`readinessProbe → /health/db`。`/metrics` 不要暴露公网（包含 path 维度 label，可能泄露内部路由）。
+这些 `/health` 路径由 API 提供，默认整栈生产的 Web 代理不转发它们。API 就绪探针直连私有 API 地址，Web 探针使用 `/healthz`。`/metrics` 仅供内网采集。
 
 ---
 
@@ -924,6 +922,8 @@ chmod 600 ./secrets/training_executor_token
 TRAINING_ENABLED=true
 TRAINING_EXECUTOR_TOKEN=<secrets/training_executor_token 中的内容>
 ```
+
+为 API 与执行器配置匹配的 `TRAINING_NODE_ID` 和物理 `TRAINING_GPU_UUID`。在 API 端设置 `TRAINING_CATALOG_JSON`，只列已核验的框架版本、镜像摘要与基础权重；结构示例见[环境变量参考](/dev/reference/env-vars)。修改目录后刷新 API，重建实际执行训练策略检查的默认 Celery worker。
 
 #### 2. 配置执行器环境变量
 
