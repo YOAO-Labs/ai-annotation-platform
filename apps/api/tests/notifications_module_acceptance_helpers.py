@@ -451,6 +451,7 @@ async def api_redis_url(actor_ids: tuple[UUID, ...]) -> AsyncIterator[str]:
             "~*",
             "resetchannels",
             *kombu_fanout_channel_patterns(base_url),
+            "&celery-task-meta-*",
             *api_redis_acl_commands(),
         )
         client = redis.from_url(host_url, decode_responses=False)
