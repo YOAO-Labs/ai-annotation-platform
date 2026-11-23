@@ -249,6 +249,66 @@ def _failure(exc):
     return ContentError("content_source_unavailable", 503)
 
 
+def _copy_verified(body, temporary, spec, max_bytes, check):
+    digest, size = hashlib.sha256(), 0
+    while True:
+        check()
+        requested = min(CHUNK_BYTES, spec.size_bytes - size + 1)
+        chunk = body.read(requested)
+        check()
+        if type(chunk) is not bytes or len(chunk) > requested:
+            _reject()
+        if not chunk:
+            break
+        size += len(chunk)
+        if size > spec.size_bytes or size > max_bytes:
+            _reject()
+        if temporary.write(chunk) != len(chunk):
+            _reject("content_source_unavailable", 503)
+        digest.update(chunk)
+    if size != spec.size_bytes:
+        _reject()
+    if digest.hexdigest() != spec.sha256:
+        _reject("content_mismatch")
+
+
+def _capture_registered(open_download, temporary, spec, max_bytes, check):
+    from app.services import saved_media_io
+
+    try:
+        with open_download() as response:
+            metadata = dict(response.metadata)
+            if isinstance(metadata.get("LastModified"), str):
+                try:
+                    metadata["LastModified"] = datetime.fromisoformat(
+                        metadata["LastModified"]
+                    )
+                except ValueError:
+                    _reject()
+            observed = _observation(metadata, spec)
+            _copy_verified(response, temporary, spec, max_bytes, check)
+        return observed
+    except saved_media_io.SavedIOError as exc:
+        if exc.unsettled:
+            raise mark_unsettled(
+                ContentError("storage_operation_unsettled", 503)
+            ) from None
+        if exc.storage_code in saved_media_io.MISSING:
+            _reject("content_source_missing", 404)
+        if exc.storage_code in saved_media_io.CONFLICT or exc.code in {
+            "media_owner_changed",
+            "media_content_mismatch",
+            "source_changed",
+        }:
+            _reject()
+        if exc.code in {
+            "content_conditions_unverified",
+            "content_conditions_unsupported",
+        }:
+            _reject(exc.code)
+        _reject("content_source_unavailable", 503)
+
+
 def _capture(
     spec,
     max_bytes,
@@ -260,6 +320,7 @@ def _capture(
     transport_timeout_seconds=None,
     retain_on_close_error=False,
     client_context=None,
+    source_download=None,
 ):
     temporary, transferred, unsettled = None, False, False
 
@@ -270,6 +331,22 @@ def _capture(
     try:
         check()
         temporary = tempfile.TemporaryFile(mode="w+b", prefix="original-")
+        if source_download is not None:
+            before = _capture_registered(
+                source_download, temporary, spec, max_bytes, check
+            )
+            check()
+            temporary.seek(0)
+            stage = BinaryStage(
+                temporary,
+                spec.sha256,
+                spec.size_bytes,
+                before,
+                _release=release,
+                _retain_on_close_error=retain_on_close_error,
+            )
+            transferred = True
+            return stage
         client, context = None, None
         try:
             try:
@@ -315,26 +392,7 @@ def _capture(
                     getattr(body, "read", None)
                 ):
                     _reject()
-                digest, size = hashlib.sha256(), 0
-                while True:
-                    check()
-                    requested = min(CHUNK_BYTES, spec.size_bytes - size + 1)
-                    chunk = body.read(requested)
-                    check()
-                    if type(chunk) is not bytes or len(chunk) > requested:
-                        _reject()
-                    if not chunk:
-                        break
-                    size += len(chunk)
-                    if size > spec.size_bytes or size > max_bytes:
-                        _reject()
-                    if temporary.write(chunk) != len(chunk):
-                        _reject("content_source_unavailable", 503)
-                    digest.update(chunk)
-                if size != spec.size_bytes:
-                    _reject()
-                if digest.hexdigest() != spec.sha256:
-                    _reject("content_mismatch")
+                _copy_verified(body, temporary, spec, max_bytes, check)
             finally:
                 primary = sys.exception()
                 try:
@@ -411,6 +469,8 @@ async def capture(
     admission=None,
     transport_timeout_seconds=None,
     client_context=None,
+    source_read=None,
+    _source_download=None,
 ):
     """Return a full verified file; cancellation drains every real I/O handle."""
     try:
@@ -439,11 +499,32 @@ async def capture(
         or timeout_seconds <= 0
         or not valid_transport_timeout
         or (client_context is not None and not callable(client_context))
+        or (
+            source_read is not None
+            and (client_context is not None or _source_download is not None)
+        )
         or (admission is not None and not isinstance(admission, threading.Semaphore))
     ):
         _reject("managed_original_read_invalid")
     if spec.size_bytes > max_bytes:
         _reject("content_too_large", 413)
+    if source_read is not None:
+        stage = None
+        try:
+            async with source_read() as open_download:
+                stage = await capture(
+                    spec,
+                    max_bytes=max_bytes,
+                    timeout_seconds=timeout_seconds,
+                    admission=admission,
+                    transport_timeout_seconds=transport_timeout_seconds,
+                    _source_download=open_download,
+                )
+        except BaseException:
+            if stage is not None:
+                stage.close()
+            raise
+        return stage
     slots = _slots if admission is None else admission
     if not slots.acquire(blocking=False):
         _reject("snapshot_capacity_exceeded", 429)
@@ -454,6 +535,8 @@ async def capture(
         options = {}
         if client_context is not None:
             options["client_context"] = client_context
+        if _source_download is not None:
+            options["source_download"] = _source_download
         if admission is not None:
             options["retain_on_close_error"] = True
         if transport_timeout_seconds is not None:

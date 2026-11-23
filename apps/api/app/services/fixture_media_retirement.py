@@ -76,26 +76,17 @@ async def _retire_output(db, control, kind, identifier, remove):
             target = await media_cache_storage.target_for_ref(
                 owner, reference, require_enabled=False
             )
-            from dataclasses import replace
-            from app.services.source_readers.s3 import ScopedS3Access
+            from app.services.saved_media_io import scoped_fixture_target
 
             cleanup = control.cleanup_target
             if (
-                target._access is None
-                or target.endpoint_url != cleanup["endpoint"]
+                target.endpoint_url != cleanup["endpoint"]
                 or target.bucket != cleanup["bucket"]
                 or reference["storage_identity"] != cleanup["storage_identity"]
                 or cleanup["run_id"] != str(control.run_id)
             ):
                 raise ContentError("fixture_media_owner_changed", 409)
-            target = replace(
-                target,
-                _access=ScopedS3Access(
-                    target._access.config,
-                    cleanup,
-                    target._access.allowlist,
-                ),
-            )
+            target = await scoped_fixture_target(owner, target, cleanup)
             await owner.commit()
             permit = await control.acquire(kind, identifier)
             async with permit:

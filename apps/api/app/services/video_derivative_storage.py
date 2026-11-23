@@ -298,6 +298,10 @@ def _reading_client(storage, owner, key, receipt):
 
 
 def _client(storage, owner):
+    from app.services import saved_media_io
+
+    if isinstance(storage, saved_media_io.Derivative):
+        return storage
     endpoint = getattr(getattr(storage.client, "meta", None), "endpoint_url", None)
     if (
         not isinstance(endpoint, str)
@@ -312,7 +316,9 @@ def _translate(exc):
         exc, "storage_operation_unsettled", False
     ):
         return exc
-    code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+    code = getattr(exc, "storage_code", None) or str(
+        getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+    )
     suffix = (
         "missing"
         if code in {"404", "NoSuchKey", "NoSuchVersion", "NotFound"}
@@ -327,8 +333,21 @@ def _translate(exc):
 
 
 @contextmanager
-def open_storage(factory=None, *, target=None, single_attempt=False, owned=False):
+def open_storage(
+    factory=None,
+    *,
+    target=None,
+    single_attempt=False,
+    owned=False,
+    output=None,
+    permit=None,
+):
     """Keep constructor/close uncertainty inside the caller's output permit."""
+    from app.services import saved_media_io
+
+    if saved_media_io.registered(target):
+        yield saved_media_io.Derivative("video", output, permit)
+        return
     if target is not None:
         try:
             context = target.client(
@@ -477,6 +496,10 @@ def _read(
     saved_etag=None,
 ):
     owner.contains(key)
+    from app.services import saved_media_io
+
+    if isinstance(client, saved_media_io.Derivative):
+        return client.read(owner, key, receipt, collect=collect)
     _receipt(receipt)
     params = {"Bucket": owner.bucket, "Key": key}
     if saved_version is not None:
@@ -799,6 +822,13 @@ def signed_url(storage, output, key, expires=3600):
 def delete_output(storage, output, *, accounting=None, fixture=None):
     """Delete only the saved UUID prefix after the caller retires its owner."""
     owner = resolve(output)
+    from app.services import saved_media_io
+
+    if isinstance(storage, saved_media_io.Derivative):
+        try:
+            return storage.delete(output, accounting=accounting, timeout=900)
+        except Exception as exc:
+            raise _translate(exc) from None
     client = _client(storage, owner)
     if fixture is not None:
         from app.services import media_cache_storage

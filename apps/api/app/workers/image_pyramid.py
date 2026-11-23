@@ -602,7 +602,10 @@ async def _run_image_pyramid(
                             raise storage_access.mark_unsettled(exc)
                     else:
                         context = physical.open_storage(
-                            target=target, single_attempt=True
+                            target=target,
+                            single_attempt=True,
+                            output=output,
+                            permit=permit,
                         )
 
                         def open_owned():

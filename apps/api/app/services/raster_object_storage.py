@@ -403,7 +403,7 @@ async def io_target(db, record):
         _reject()
 
 
-def run_io(target, client, operation, record, *args, **kwargs):
+def run_io(target, client, operation, record, *args, permit=None, **kwargs):
     """Open and close the captured transport inside the caller's existing permit."""
     owner = resolve(record)
     ref = owner.ref
@@ -414,6 +414,36 @@ def run_io(target, client, operation, record, *args, **kwargs):
         or target.key_prefix != ref.get("key_prefix", "")
     ):
         _reject()
+    from app.services import saved_media_io as source
+
+    if source.registered(target):
+        if operation == "write":
+            _verified_data(record, args[0])
+        try:
+            result = source.artifact(
+                "raster",
+                operation,
+                record,
+                permit,
+                key=owner.object_key,
+                size=record.stored_size_bytes,
+                digest=record.stored_sha256,
+                data=args[0] if args else None,
+                accounting=kwargs.get("accounting"),
+            )
+        except source.SavedIOError as exc:
+            if not exc.unsettled:
+                if (
+                    exc.storage_code in source.CONFLICT
+                    or exc.code == "media_content_mismatch"
+                ):
+                    _reject("integrity_mismatch")
+                if operation == "read" and exc.storage_code in source.MISSING:
+                    _reject("missing")
+            raise _unavailable(exc) from None
+        if operation == "read":
+            return _verified_data(record, result)
+        return None
     if target.location_id == LEGACY_LOCATION_ID:
         target = replace(target, _legacy_client=client)
     try:

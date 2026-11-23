@@ -69,11 +69,24 @@ async def begin_admitted(
     for name in ("staging", "source_contract"):
         if payload.get(name) is None:
             payload.pop(name, None)
+    try:
+        proof = await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.prove_embedded_admitted_original(CAST(:request AS jsonb))"
+            ),
+            {"request": json.dumps(payload, ensure_ascii=False, allow_nan=False)},
+        )
+    except SQLAlchemyError:
+        raise ValueError("managed_original_storage_unavailable") from None
+    if isinstance(proof, (str, bytes)):
+        proof = json.loads(proof)
+    if not isinstance(proof, dict):
+        raise ValueError("creation_target_unavailable")
     body = await call(
         db,
-        "yoao_assets_v1.begin_operator_auxiliary",
-        {"request": payload},
-        {"request": "jsonb"},
+        "yoao_assets_v1.begin_embedded_admitted_original",
+        {"proof": proof},
+        {"proof": "jsonb"},
     )
     return decode_managed_original_reply(body, material_type)
 

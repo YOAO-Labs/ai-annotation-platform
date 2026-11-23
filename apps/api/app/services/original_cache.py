@@ -434,6 +434,27 @@ async def reserve(factory, source_id, asset_id, storage, *, expected_revision=No
 
 
 @contextmanager
+def registered_object(record, lease_id, permit, settled):
+    from app.services import saved_media_io
+
+    failure = None
+    try:
+        payload = saved_media_io.subject(record.id, permit, lease=str(lease_id))
+        with saved_media_io.download(
+            "original-cache-read", payload, timeout=READ_SECONDS
+        ) as response:
+            if response.metadata.get("ContentLength") != record.size_bytes:
+                raise snapshots.ContentError("cache_content_mismatch")
+            yield response, {"size": record.size_bytes}
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        if not storage_access.failure_unsettled(failure):
+            settled.set()
+
+
+@contextmanager
 def stored_object(record, settled=None, *, observed=None):
     with _stored_object(
         record, physical_storage(record), settled, observed=observed
@@ -619,6 +640,8 @@ async def publish(factory, record, storage):
 
 async def store(factory, source_id, asset_id, snapshot, *, expected_revision=None):
     """Best-effort retention; the caller retains ownership of its verified snapshot."""
+    from app.services import saved_media_io
+
     if (
         not isinstance(snapshot, snapshots.Snapshot)
         or snapshot._closed
@@ -648,46 +671,67 @@ async def store(factory, source_id, asset_id, snapshot, *, expected_revision=Non
                 record._target.endpoint_url,
                 record.bucket,
             )
+            registered = saved_media_io.registered(record._target)
             async with await storage_access.acquire(
                 db,
                 record.location_id,
-                "original_cache_write",
+                f"original_cache_write_{record.id.hex}"
+                if registered
+                else "original_cache_write",
                 expected_revision=record._target_maintenance_revision,
-            ):
-                context = physical_storage(record)
-                storage = await settled_io(context.__enter__)
-                failure = None
-                try:
+            ) as permit:
+                if registered:
                     snapshot.file.seek(0)
-                    _, attempt = await settled_io(
-                        media_cache_accounting.put,
-                        recorder,
-                        storage.client,
+                    await settled_io(
+                        saved_media_io.write_checked,
+                        "original-cache-write",
+                        saved_media_io.subject(
+                            record.id, permit, content_type=snapshot.media_type
+                        ),
+                        snapshot.file,
                         object_key(record),
                         {"sha256": record.sha256, "size_bytes": record.size_bytes},
-                        Bucket=record.bucket,
-                        Key=object_key(record),
-                        Body=snapshot.file,
-                        ContentLength=snapshot.size,
-                        ContentType=snapshot.media_type,
-                        IfNoneMatch="*",
+                        accounting=recorder,
+                        timeout=READ_SECONDS,
                     )
-                    confirmed_put = True
-                    observed_version = await settled_io(verify_stored, record)
-                    await settled_io(attempt.verified, storage.client, observed_version)
-                except BaseException as exc:
-                    failure = exc
-                    raise
-                finally:
+                    confirmed_put = accounting_settled = True
+                else:
+                    context = physical_storage(record)
+                    storage = await settled_io(context.__enter__)
+                    failure = None
                     try:
-                        await settled_io(context.__exit__, None, None, None)
-                        accounting_settled = not getattr(
-                            failure, "storage_operation_unsettled", False
+                        snapshot.file.seek(0)
+                        _, attempt = await settled_io(
+                            media_cache_accounting.put,
+                            recorder,
+                            storage.client,
+                            object_key(record),
+                            {"sha256": record.sha256, "size_bytes": record.size_bytes},
+                            Bucket=record.bucket,
+                            Key=object_key(record),
+                            Body=snapshot.file,
+                            ContentLength=snapshot.size,
+                            ContentType=snapshot.media_type,
+                            IfNoneMatch="*",
                         )
-                    except BaseException:
-                        if failure is None:
-                            raise
-                        storage_access.mark_unsettled(failure)
+                        confirmed_put = True
+                        observed_version = await settled_io(verify_stored, record)
+                        await settled_io(
+                            attempt.verified, storage.client, observed_version
+                        )
+                    except BaseException as exc:
+                        failure = exc
+                        raise
+                    finally:
+                        try:
+                            await settled_io(context.__exit__, None, None, None)
+                            accounting_settled = not getattr(
+                                failure, "storage_operation_unsettled", False
+                            )
+                        except BaseException:
+                            if failure is None:
+                                raise
+                            storage_access.mark_unsettled(failure)
         if await publish(factory, record, None):
             return "stored"
         await retire(factory, record.id, uncertain=False)
@@ -774,16 +818,21 @@ async def _current_read(db, record, facts, lease_id, configured, route):
 
 async def read(factory, source_id, asset_id, *, on_acquired=None):
     """Return only a newly verified complete snapshot; callers still authorize it."""
+    from app.services import saved_media_io
+
     lease_id, identity, snapshot = uuid.uuid4(), None, None
     settled = threading.Event()
     damaged = False
     admission_failed = False
     physical_started = False
     route, admission = None, None
+    target_permit = None
 
     def open_stored():
         nonlocal physical_started
         physical_started = True
+        if route is None and saved_media_io.registered(record._target):
+            return registered_object(record, lease_id, target_permit, settled)
         return (
             stored_object(record, settled)
             if route is None
@@ -886,7 +935,7 @@ async def read(factory, source_id, asset_id, *, on_acquired=None):
                         record.location_id,
                         read_purpose(identity),
                         expected_revision=record._target_maintenance_revision,
-                    ):
+                    ) as target_permit:
                         snapshot = await capture()
         except snapshots.ContentError as exc:
             if not physical_started:
@@ -954,6 +1003,8 @@ async def evict_lru(factory, location_id):
 
 
 async def purge(factory, identity):
+    from app.services import saved_media_io
+
     async with factory() as db:
         record = await _cache_entry(db, identity, lock="skip")
         if not record or record.next_check_at > now() or await readers(db, identity):
@@ -1019,11 +1070,22 @@ async def purge(factory, identity):
             async with await storage_access.acquire(
                 permit_db,
                 record.location_id,
-                "original_cache_cleanup",
+                f"original_cache_delete_{record.id.hex}"
+                if saved_media_io.registered(record._target)
+                else "original_cache_cleanup",
                 expected_revision=record._target_maintenance_revision,
             ) as owned_permit:
 
                 def remove():
+                    if saved_media_io.registered(record._target):
+                        accounting.begin(object_key(record), {"version_id": None})
+                        saved_media_io.command(
+                            "original-cache-delete",
+                            saved_media_io.subject(record.id, owned_permit),
+                            access="cleanup",
+                            timeout=READ_SECONDS,
+                        )
+                        return
                     with physical_storage(record, owned=True) as storage:
                         key = object_key(record)
                         observation = removal.Observation(

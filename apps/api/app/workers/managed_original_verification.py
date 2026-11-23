@@ -65,7 +65,8 @@ async def execute(db, job_id, task_id):
         await notify_job_terminal(db, job_id=job_id)
         await db.commit()
         return False
-    from app.services.managed_original_probe import ProbeInput, run_probe
+    from app.services import saved_media_io
+    from app.services.managed_original_probe import ProbeInput, ProbeResult, run_probe
 
     verification_id, revision = row.id, row.maintenance_revision
     request = ProbeInput(
@@ -76,23 +77,37 @@ async def execute(db, job_id, task_id):
         size_bytes=row.expected_size_bytes,
         endpoint_url=(row.configuration.get("saved_ref") or {}).get("endpoint_url"),
     )
+    physical_permit = None
 
     async def on_acquired(permit):
+        nonlocal physical_permit
         await service.acquired(db, verification_id, permit)
+        physical_permit = permit
 
     result, failure, cancelled = None, None, False
     try:
         options = await service.probe_options(db, row)
+        registered = options.pop("registered", False)
+
+        def probe():
+            if registered:
+                return ProbeResult(
+                    **saved_media_io.command(
+                        "retired-original-verify",
+                        saved_media_io.subject(verification_id, physical_permit),
+                        timeout=service.TIMEOUT_SECONDS + 10,
+                    )
+                )
+            return run_probe(request, **options)
+
         result = await storage_access.run(
             db,
             uuid.UUID(row.anchor["location_id"]),
             "managed_original_verification",
-            run_probe,
-            request,
+            probe,
             expected_revision=revision,
             timeout=service.TIMEOUT_SECONDS + 10,
             on_acquired=on_acquired,
-            **options,
         )
     except asyncio.CancelledError:
         cancelled = True

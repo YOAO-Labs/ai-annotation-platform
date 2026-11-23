@@ -326,15 +326,55 @@ async def validate_upload_url(
         _reject("import_storage_expired")
 
 
-async def prepare_upload_url(db, owner, relative, content_type, *, expires_in=900):
+async def prepare_upload_url(
+    db, owner, relative, content_type, *, expires_in=900, source_owner=None
+):
     deadline = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
     target = await io_target(db, owner)
     revision = await storage_access.check(db, owner.location_id)
+    from app.services import saved_media_io
+
+    registered = saved_media_io.registered(target)
+    purpose = "import_upload_sign"
+    if registered:
+        if source_owner is None:
+            _reject("import_storage_invalid_receipt")
+        kind, identifier = source_owner
+        if (
+            kind == "creation"
+            and owner.logical_prefix == f"__aap_upload_staging__/{identifier}/"
+            and relative == "payload"
+        ):
+            operation = "creation-sign"
+            purpose = "managed_original_sign_" + identifier.hex
+        elif (
+            kind == "mask-format"
+            and owner.logical_prefix.startswith("mask-formats/")
+            and owner.logical_prefix.endswith(f"/{identifier}/")
+        ):
+            operation = "mask-format-sign"
+            purpose = "mask_format_sign_" + identifier.hex
+        else:
+            _reject("import_storage_invalid_receipt")
     async with await storage_access.acquire(
-        db, owner.location_id, "import_upload_sign", expected_revision=revision
-    ):
+        db, owner.location_id, purpose, expected_revision=revision
+    ) as permit:
 
         def sign():
+            if registered:
+                try:
+                    return saved_media_io.command(
+                        operation,
+                        saved_media_io.subject(identifier, permit),
+                        access="write",
+                    )["url"]
+                except saved_media_io.SavedIOError as exc:
+                    error = ImportStorageError(
+                        "import_storage_unavailable", status_code=503
+                    )
+                    if exc.unsettled:
+                        storage_access.mark_unsettled(error)
+                    raise error from None
             with target.client() as client:
                 seconds = int((deadline - datetime.now(timezone.utc)).total_seconds())
                 if seconds <= 0:

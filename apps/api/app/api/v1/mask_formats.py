@@ -254,6 +254,7 @@ async def init_mask_format_upload(
         suffix,
         body.content_type,
         expires_in=expires_in,
+        source_owner=("mask-format", upload_id),
     )
     await _upload_authority(db, project.id, user, key_id, key_proof)
     await _upload_storage_call(

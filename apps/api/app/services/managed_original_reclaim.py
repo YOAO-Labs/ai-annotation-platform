@@ -755,6 +755,10 @@ async def io_options(db, row):
         bind=storage_access.engine(db), expire_on_commit=False
     ) as owned:
         target = await dataset_storage.target_for_ref(owned, row.target["saved_ref"])
+    from app.services import saved_media_io
+
+    if saved_media_io.registered(target):
+        return {"registered": True}
     return {
         "client_context": partial(target.client, single_attempt=True, read_timeout=2)
     }

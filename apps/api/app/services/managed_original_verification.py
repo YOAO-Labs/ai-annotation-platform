@@ -114,6 +114,10 @@ async def probe_options(db, row):
         if await _registered_ref(owned, row.anchor) != ref:
             reject("verification_context_changed")
         target = await dataset_storage.target_for_ref(owned, ref)
+    from app.services import saved_media_io
+
+    if saved_media_io.registered(target):
+        return {"registered": True}
     return {"client_context": partial(target.client, read_timeout=2)}
 
 

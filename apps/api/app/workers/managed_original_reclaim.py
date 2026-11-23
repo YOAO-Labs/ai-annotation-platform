@@ -75,7 +75,11 @@ async def execute(db, job_id, task_id):
         await notify_job_terminal(db, job_id=job_id)
         await db.commit()
         return False
-    from app.services.managed_original_reclaim_io import ReclaimInput, run_reclaim
+    from app.services.managed_original_reclaim_io import (
+        ReclaimInput,
+        run_reclaim,
+        run_registered,
+    )
 
     loop = asyncio.get_running_loop()
     attempt_id, target = row.id, dict(row.target)
@@ -91,7 +95,11 @@ async def execute(db, job_id, task_id):
         future.result()
 
     def native(options):
-        result = run_reclaim(candidate, checkpoint=checkpoint, **options)
+        result = (
+            run_registered(candidate, attempt_id, permit, checkpoint=checkpoint)
+            if options.get("registered")
+            else run_reclaim(candidate, checkpoint=checkpoint, **options)
+        )
         holder["result"] = result
         return result
 

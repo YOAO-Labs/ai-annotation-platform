@@ -296,7 +296,7 @@ async def target_for_ref(db, ref, *, require_enabled=True):
                 or ref["binding_generation"] != binding["binding_generation"]
             ):
                 _reject()
-            from app.services.source_readers.s3 import ScopedS3Access
+            from app.services.saved_media_io import scoped_fixture_target
             from yoao_assets_media_runtime.fixture_native_outputs import load_target
 
             control_url = fixture_media_execution._control_url().render_as_string(
@@ -318,17 +318,7 @@ async def target_for_ref(db, ref, *, require_enabled=True):
                 )
             ):
                 _reject()
-            access = target._access
-            if access is None:
-                _reject()
-            target = replace(
-                target,
-                _access=ScopedS3Access(
-                    access.config,
-                    writer,
-                    access.allowlist,
-                ),
-            )
+            target = await scoped_fixture_target(db, target, writer)
     return target
 
 

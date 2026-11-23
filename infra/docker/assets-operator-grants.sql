@@ -102,16 +102,16 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.publish_operator_item_original(jsonb),
     yoao_assets_v1.operator_item_original_facts(uuid,uuid),
     yoao_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid),
-    yoao_assets_v1.begin_operator_auxiliary(jsonb),
+    yoao_assets_v1.begin_saved_operator_original(jsonb),
     yoao_assets_v1.publish_operator_auxiliary(uuid),
     yoao_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid),
-    yoao_assets_v1.operator_auxiliary_material(uuid,uuid),
-    yoao_assets_v1.operator_item_original_material(uuid,uuid),
+    yoao_assets_v1.saved_operator_auxiliary_original(uuid,uuid),
+    yoao_assets_v1.saved_operator_item_original(uuid,uuid),
     yoao_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid),
     yoao_assets_v1.bind_operator_auxiliary_scene(uuid,uuid,uuid),
     yoao_assets_v1.operator_dataset_state(uuid),
     yoao_assets_v1.operator_scene_state(uuid,uuid),
-    yoao_assets_v1.open_operator_storage_operation(uuid),
+    yoao_assets_v1.open_saved_operator_original_operation(uuid),
     yoao_assets_v1.record_operator_original_prepared(uuid,jsonb),
     yoao_assets_v1.mark_operator_original_writing(uuid),
     yoao_assets_v1.record_operator_original_written(uuid,jsonb),
@@ -146,7 +146,7 @@ DECLARE
             'yoao_assets_v1.operator_auxiliary_pointer(uuid,uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'yoao_assets_v1.begin_operator_auxiliary(jsonb)'
+            'yoao_assets_v1.begin_saved_operator_original(jsonb)'
         )::oid,
         pg_catalog.to_regprocedure(
             'yoao_assets_v1.publish_operator_auxiliary(uuid)'
@@ -155,10 +155,10 @@ DECLARE
             'yoao_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'yoao_assets_v1.operator_auxiliary_material(uuid,uuid)'
+            'yoao_assets_v1.saved_operator_auxiliary_original(uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'yoao_assets_v1.operator_item_original_material(uuid,uuid)'
+            'yoao_assets_v1.saved_operator_item_original(uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
             'yoao_assets_v1.bind_operator_auxiliary_item(uuid,uuid,uuid)'
@@ -173,7 +173,7 @@ DECLARE
             'yoao_assets_v1.operator_scene_state(uuid,uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
-            'yoao_assets_v1.open_operator_storage_operation(uuid)'
+            'yoao_assets_v1.open_saved_operator_original_operation(uuid)'
         )::oid,
         pg_catalog.to_regprocedure(
             'yoao_assets_v1.record_operator_original_prepared(uuid,jsonb)'

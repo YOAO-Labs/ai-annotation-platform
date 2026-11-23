@@ -452,6 +452,19 @@ async def read_options(db, source, *, read_timeout=30, permit=None):
     if source.location_id == LEGACY_LOCATION_ID:
         return {}
     target = await read_target(db, source)
+    from app.services import saved_media_io
+
+    if saved_media_io.registered(target):
+        return {
+            "source_read": saved_media_io.original_reader(
+                db,
+                source.owner_kind,
+                source.content_id,
+                source.location_id,
+                source.maintenance_revision,
+                timeout=read_timeout,
+            )
+        }
     return {"client_context": partial(target.client, read_timeout=read_timeout)}
 
 

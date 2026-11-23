@@ -441,6 +441,7 @@ async def prepare_upload_url(db, allocation):
             staging_owner(allocation),
             "payload",
             content_type=allocation["content_type"],
+            source_owner=("creation", allocation["id"]),
             expires_in=upload_expires_in(allocation),
         )
     except ContentError:
@@ -1067,8 +1068,9 @@ class _Physical:
             return await _drain(future)
 
 
-async def _physical(db, row, stream, *, source_target=None):
+async def _physical(db, row, stream, *, permit, source_permit=None, source_target=None):
     from app.services import managed_original_writer as writer
+    from app.services import saved_media_io
 
     client, source_client, source_context, target_context = None, None, None, None
     prepared, completion_started = None, False
@@ -1078,13 +1080,22 @@ async def _physical(db, row, stream, *, source_target=None):
     mutation = None
     evidence = {"physical_outcome": "unknown"}
     settled = False
+    remote = None
     try:
-        if row["location_id"] == LEGACY_LOCATION_ID:
+        target = (
+            await _original_storage(row).target_for_ref(db, original_ref(row))
+            if row["location_id"] != LEGACY_LOCATION_ID
+            else None
+        )
+        if saved_media_io.registered(target) or saved_media_io.registered(
+            source_target
+        ):
+            remote = saved_media_io.OriginalWrite(row, permit, source_permit)
+        elif target is None:
             client = await physical.run(
                 create_client, timeout_seconds=row["timeout_seconds"]
             )
         else:
-            target = await _original_storage(row).target_for_ref(db, original_ref(row))
             target_context = target.client(
                 read_timeout=max(10, min(row["timeout_seconds"], 3600))
             )
@@ -1092,16 +1103,19 @@ async def _physical(db, row, stream, *, source_target=None):
         if row["origin"] == "direct":
             if source_target is None:
                 reject("managed_original_creation_input_changed")
-            source_context = source_target.client()
-            source_client = await physical.run(source_context.__enter__)
-            source = await physical.run(
-                writer.inspect_staging,
-                source_client,
-                row["staging_bucket"],
-                row["staging_key"],
-                max_bytes=row["max_bytes"],
-                timeout_seconds=row["timeout_seconds"],
-            )
+            if remote is not None:
+                source = await physical.run(remote.inspect)
+            else:
+                source_context = source_target.client()
+                source_client = await physical.run(source_context.__enter__)
+                source = await physical.run(
+                    writer.inspect_staging,
+                    source_client,
+                    row["staging_bucket"],
+                    row["staging_key"],
+                    max_bytes=row["max_bytes"],
+                    timeout_seconds=row["timeout_seconds"],
+                )
             await _change(
                 db,
                 row["id"],
@@ -1114,18 +1128,23 @@ async def _physical(db, row, stream, *, source_target=None):
                     "observation": _json(source.observation),
                 },
             )
-            prepared = await physical.run(
-                writer.prepare_copy,
-                client,
-                row["staging_bucket"],
-                row["staging_key"],
-                row["bucket"],
-                row["object_key"],
-                source,
-                content_type=row["content_type"],
-                timeout_seconds=row["timeout_seconds"],
-                source_client=source_client,
-            )
+            if remote is not None:
+                prepared = await physical.run(remote.prepare_copy)
+            else:
+                prepared = await physical.run(
+                    writer.prepare_copy,
+                    client,
+                    row["staging_bucket"],
+                    row["staging_key"],
+                    row["bucket"],
+                    row["object_key"],
+                    source,
+                    content_type=row["content_type"],
+                    timeout_seconds=row["timeout_seconds"],
+                    source_client=source_client,
+                )
+        elif remote is not None:
+            prepared = await physical.run(remote.prepare_stream, stream)
         else:
             prepared = await physical.run(
                 writer.prepare_stream,
@@ -1154,6 +1173,7 @@ async def _physical(db, row, stream, *, source_target=None):
                 "parts": _json(prepared.parts),
                 "bucket": prepared.bucket,
                 "object_key": prepared.object_key,
+                **({"source_owned": True} if remote is not None else {}),
             },
         )
         _, mutation = await _change(
@@ -1165,14 +1185,17 @@ async def _physical(db, row, stream, *, source_target=None):
             write_started_at=now(),
         )
         completion_started = True
-        receipt = await physical.run(
-            writer.complete,
-            client,
-            row["bucket"],
-            row["object_key"],
-            prepared,
-            content_type=row["content_type"],
-        )
+        if remote is not None:
+            receipt = await physical.run(remote.complete)
+        else:
+            receipt = await physical.run(
+                writer.complete,
+                client,
+                row["bucket"],
+                row["object_key"],
+                prepared,
+                content_type=row["content_type"],
+            )
         observed_receipt = {
             "etag": receipt.etag,
             "version_id": receipt.version_id,
@@ -1201,28 +1224,35 @@ async def _physical(db, row, stream, *, source_target=None):
             raise storage_access.mark_unsettled(
                 ContentError("managed_original_receipt_persistence_unknown", 503)
             ) from None
-        verified = await physical.run(
-            writer.verify,
-            client,
-            row["bucket"],
-            row["object_key"],
-            receipt,
-            sha256=prepared.sha256,
-            size_bytes=prepared.size_bytes,
-            max_bytes=row["max_bytes"],
-            timeout_seconds=row["timeout_seconds"],
-        )
+        if remote is not None:
+            verified = await physical.run(remote.verify)
+        else:
+            verified = await physical.run(
+                writer.verify,
+                client,
+                row["bucket"],
+                row["object_key"],
+                receipt,
+                sha256=prepared.sha256,
+                size_bytes=prepared.size_bytes,
+                max_bytes=row["max_bytes"],
+                timeout_seconds=row["timeout_seconds"],
+            )
         if _proof(verified) != _proof(prepared):
             reject("managed_original_readback_mismatch")
         evidence["full_readback"] = True
         if receipt.version_id not in {None, "", "null"}:
-            evidence["current_head_matches"] = await physical.run(
-                accounting.current_matches,
-                client,
-                row["bucket"],
-                row["object_key"],
-                receipt.version_id,
-                prepared.size_bytes,
+            evidence["current_head_matches"] = (
+                verified.current_head_matches
+                if remote is not None
+                else await physical.run(
+                    accounting.current_matches,
+                    client,
+                    row["bucket"],
+                    row["object_key"],
+                    receipt.version_id,
+                    prepared.size_bytes,
+                )
             )
             if evidence["current_head_matches"]:
                 evidence["current_delta_bytes"] = prepared.size_bytes
@@ -1253,13 +1283,16 @@ async def _physical(db, row, stream, *, source_target=None):
             evidence.update(physical_outcome="not_written", current_delta_bytes=0)
         if prepared is not None and not completion_started:
             try:
-                await physical.run(
-                    writer.abort_prepared,
-                    client,
-                    row["bucket"],
-                    row["object_key"],
-                    prepared,
-                )
+                if remote is not None:
+                    await physical.run(remote.abort)
+                else:
+                    await physical.run(
+                        writer.abort_prepared,
+                        client,
+                        row["bucket"],
+                        row["object_key"],
+                        prepared,
+                    )
             except BaseException as abort_failure:
                 failure = storage_access.mark_unsettled(
                     BaseExceptionGroup(
@@ -1382,12 +1415,19 @@ async def _execute(db, allocation, stream):
                     await validate_staging(
                         db, row, expected_revision=source_permit.revision
                     )
-                    head_bytes = await _physical(db, row, stream, source_target=target)
+                    head_bytes = await _physical(
+                        db,
+                        row,
+                        stream,
+                        permit=permit,
+                        source_permit=source_permit,
+                        source_target=target,
+                    )
                     await validate_staging(
                         db, row, expected_revision=source_permit.revision
                     )
             else:
-                head_bytes = await _physical(db, row, stream)
+                head_bytes = await _physical(db, row, stream, permit=permit)
         await _validate(db, row)
         row = await _change(
             db,
@@ -1518,7 +1558,19 @@ async def image_dimensions(db, allocation, created):
     options = {}
     if owner.location_id != LEGACY_LOCATION_ID:
         target = await _original_storage(allocation).target_for_ref(db, owner.ref)
-        options["client_context"] = partial(target.client, read_timeout=60)
+        from app.services import saved_media_io
+
+        if saved_media_io.registered(target):
+            options["source_read"] = saved_media_io.original_reader(
+                db,
+                "creation",
+                allocation["id"],
+                owner.location_id,
+                allocation["maintenance_revision"],
+                timeout=60,
+            )
+        else:
+            options["client_context"] = partial(target.client, read_timeout=60)
     async with await storage_access.acquire(
         db,
         owner.location_id,
