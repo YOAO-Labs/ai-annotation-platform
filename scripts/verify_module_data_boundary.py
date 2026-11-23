@@ -2911,7 +2911,6 @@ TEST_FILES = (
     "tests/test_audit_project_scope.py::test_project_admin_audit_scope_and_superadmin_global_access",
     "tests/test_audit_project_scope.py::test_project_admin_audit_relation_preserves_native_inet_dto_values",
     "tests/test_audit_metadata_append.py",
-    "tests/test_notification_delivery_scope.py",
     "tests/test_pointcloud_box3d_annotation.py",
     "tests/test_pointcloud_import.py",
     "tests/test_pointcloud_manifest.py",

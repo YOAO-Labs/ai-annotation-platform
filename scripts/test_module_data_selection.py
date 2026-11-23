@@ -1,5 +1,6 @@
 """Selected acceptance targets must remain inside the API test tree."""
 
+from collections import Counter
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
@@ -10,13 +11,27 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 from scripts.verify_module_data_boundary import (
+    ROOT,
     TEST_FILES,
     _RECLAMATION_PROFILES,
+    _STRICT_PROFILE_TARGETS,
     _append_profile_junit,
     _arguments,
     _passed_test_count,
     _run_strict_default,
     main,
+)
+
+RETIRED_MODULE_DATA_SELECTORS = frozenset(
+    {
+        "tests/test_screenshot_seed_catalog.py",
+        "tests/test_identity_recording_live.py",
+        "tests/test_identity_recording_native.py",
+        "tests/test_inference_registry_ingress_binding.py",
+        "tests/test_inference_registry_ingress_uow.py",
+        "tests/test_workspace_capacity_live.py",
+        "tests/test_workspace_module_healthcheck.py",
+    }
 )
 
 
@@ -433,6 +448,34 @@ class ModuleDataSelectionTests(unittest.TestCase):
                 with self.assertRaises(SystemExit) as rejected:
                     _arguments(args)
                 self.assertEqual(rejected.exception.code, 2)
+
+    def test_default_test_files_have_no_duplicates(self):
+        duplicates = sorted(
+            target for target, count in Counter(TEST_FILES).items() if count > 1
+        )
+        self.assertEqual(duplicates, [])
+
+    def test_selected_and_strict_profile_targets_exist_under_api_tests(self):
+        api_root = (ROOT / "apps/api").resolve()
+        tests_root = (api_root / "tests").resolve()
+        for target in (*TEST_FILES, *_STRICT_PROFILE_TARGETS):
+            relative = Path(target.split("::", 1)[0])
+            resolved = (api_root / relative).resolve()
+            with self.subTest(target=target):
+                self.assertFalse(relative.is_absolute())
+                self.assertTrue(resolved.is_relative_to(tests_root))
+                self.assertEqual(resolved.suffix, ".py")
+                self.assertTrue(resolved.is_file())
+
+    def test_strict_profile_targets_are_subset_of_default_test_files(self):
+        missing = sorted(set(_STRICT_PROFILE_TARGETS) - set(TEST_FILES))
+        self.assertEqual(missing, [])
+
+    def test_retired_selectors_do_not_return_to_default_selection(self):
+        selected_paths = {target.split("::", 1)[0] for target in TEST_FILES}
+        strict_paths = {target.split("::", 1)[0] for target in _STRICT_PROFILE_TARGETS}
+        self.assertEqual(sorted(selected_paths & RETIRED_MODULE_DATA_SELECTORS), [])
+        self.assertEqual(sorted(strict_paths & RETIRED_MODULE_DATA_SELECTORS), [])
 
 
 if __name__ == "__main__":
