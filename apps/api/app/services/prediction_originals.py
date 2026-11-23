@@ -412,46 +412,60 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
     try:
         permit = await settled(acquire(), late=close_permit)
         await settled(fresh(source))
-        read_options = await settled(
-            original_sources.read_options(db, source, read_timeout=15, permit=permit)
-        )
-        if not _slots.acquire(blocking=False):
-            raise ContentError("snapshot_capacity_exceeded", 429)
-        stop = threading.Event()
-        try:
-            pending = asyncio.get_running_loop().run_in_executor(
-                None,
-                copy_context().run,
-                partial(
-                    reader._capture,
-                    plan.spec,
-                    images.MAX_BYTES,
-                    COPY_SECONDS,
-                    time.monotonic() + COPY_SECONDS,
-                    stop,
-                    _slots.release,
-                    transport_timeout_seconds=15,
-                    retain_on_close_error=True,
-                    **read_options,
-                ),
+        read_options = dict(
+            await settled(
+                original_sources.read_options(
+                    db, source, read_timeout=15, permit=permit
+                )
             )
-        except BaseException:
-            _slots.release()
-            raise
-        try:
-            stage = await asyncio.shield(pending)
-        except BaseException as interrupted:
-            stop.set()
+        )
+        source_read = read_options.pop("source_read", None)
+
+        async def capture_stage(extra_options):
+            if not _slots.acquire(blocking=False):
+                raise ContentError("snapshot_capacity_exceeded", 429)
+            stop = threading.Event()
             try:
-                late_stage = await drain(pending)
-            except BaseException as later:
-                _uncertain(interrupted, later)
-            else:
+                pending = asyncio.get_running_loop().run_in_executor(
+                    None,
+                    copy_context().run,
+                    partial(
+                        reader._capture,
+                        plan.spec,
+                        images.MAX_BYTES,
+                        COPY_SECONDS,
+                        time.monotonic() + COPY_SECONDS,
+                        stop,
+                        _slots.release,
+                        transport_timeout_seconds=15,
+                        retain_on_close_error=True,
+                        **read_options,
+                        **extra_options,
+                    ),
+                )
+            except BaseException:
+                _slots.release()
+                raise
+            try:
+                return await asyncio.shield(pending)
+            except BaseException as interrupted:
+                stop.set()
                 try:
-                    await physical_close(late_stage.close)
+                    late_stage = await drain(pending)
                 except BaseException as later:
                     _uncertain(interrupted, later)
-            raise
+                else:
+                    try:
+                        await physical_close(late_stage.close)
+                    except BaseException as later:
+                        _uncertain(interrupted, later)
+                raise
+
+        if source_read is not None:
+            async with source_read() as open_download:
+                stage = await capture_stage({"source_download": open_download})
+        else:
+            stage = await capture_stage({})
         if stage.sha256 != source.sha256 or stage.size != source.size_bytes:
             raise ContentError("source_changed")
         consumed, stage = stage, None

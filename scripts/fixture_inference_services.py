@@ -662,8 +662,10 @@ class FixtureInferenceServices:
                 "connector_host_allowlist": allowlist,
                 "s3_endpoint": storage_origin,
                 "s3_public_endpoint": storage_origin,
-                "s3_access_key": backend_env.get("MINIO_ACCESS_KEY", ""),
-                "s3_secret_key": backend_env.get("MINIO_SECRET_KEY", ""),
+                "s3_access_key": backend_env.get("MINIO_ACCESS_KEY")
+                or self.backend.settings.minio_access_key,
+                "s3_secret_key": backend_env.get("MINIO_SECRET_KEY")
+                or self.backend.settings.minio_secret_key,
                 "datasets_bucket": backend_env.get(
                     "MINIO_DATASETS_BUCKET",
                     self.resources["buckets"]["MINIO_DATASETS_BUCKET"],

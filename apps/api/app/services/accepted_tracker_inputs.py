@@ -247,7 +247,9 @@ async def tracker_video_input_gateway(*, session_factory=None):
 
 
 @asynccontextmanager
-async def embedded_tracker_video_input_gateway(*, session_factory=None, provider=None):
+async def embedded_tracker_video_input_gateway(
+    *, session_factory=None, worker_session_factory=None, provider=None
+):
     from yoao_assets_video_inputs_runtime.tracker_control import (
         TrackerVideoInputControl,
     )
@@ -291,7 +293,11 @@ async def embedded_tracker_video_input_gateway(*, session_factory=None, provider
         )
         executor = None
         if local_execution:
-            factory = await resources.enter_async_context(executor_sessions("video"))
+            factory = (
+                worker_session_factory
+                if worker_session_factory is not None
+                else await resources.enter_async_context(executor_sessions("video"))
+            )
             worker_database = _IndependentTrackerVideoInputDatabase(
                 factory, allowed_roles=("worker",)
             )

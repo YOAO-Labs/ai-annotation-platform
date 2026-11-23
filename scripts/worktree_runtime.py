@@ -1220,7 +1220,7 @@ def run_processes(
                         }
                     else:
                         worker_environment = application_environment(environment)
-                        if role == "worker" and not ai_request_worker:
+                        if role == "worker":
                             worker_environment.update(
                                 backend.assets_worker_environment()
                             )
