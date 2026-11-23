@@ -7,13 +7,17 @@ import threading
 from typing import Literal
 import uuid
 
-from sqlalchemy import Date, DateTime, cast, func, literal, select, text
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text
 
-from app.db.enums import UserRole
-from app.db.models.dataset_source import DatasetSource
-from app.db.models.storage_observation_rate import StorageObservationBucket as Bucket
 from app.services import storage_access
+
+_RECORD_RATE = text(
+    "SELECT yoao_assets_v1.record_storage_observation_rate("
+    ":location_id, :source_id, :metric, :success)"
+)
+_VISIBLE_RATES = text(
+    "SELECT * FROM yoao_assets_v1.read_storage_observation_rates(:actor_id, :location_id)"
+)
 
 log = logging.getLogger(__name__)
 Metric = Literal["original_read", "preview_generate"]
@@ -91,43 +95,15 @@ async def _bounds(connection, *, readonly=False):
 
 
 async def _persist(db, attempt, outcome):
-    table = Bucket.__table__
-    clock = select(func.statement_timestamp().label("at")).cte("clock")
-    stamp = clock.c.at
-    statement = insert(table).from_select(
-        [column.name for column in table.columns],
-        select(
-            cast(func.timezone("UTC", stamp), Date),
-            literal(attempt.location_id),
-            literal(attempt.source_id),
-            literal(attempt.metric),
-            literal(int(outcome == "success")),
-            literal(int(outcome == "failure")),
-            stamp,
-            stamp,
-        ),
-    )
-    statement = statement.on_conflict_do_update(
-        index_elements=[
-            table.c.day,
-            table.c.location_id,
-            table.c.source_id,
-            table.c.metric,
-        ],
-        set_={
-            "success_count": table.c.success_count + statement.excluded.success_count,
-            "failure_count": table.c.failure_count + statement.excluded.failure_count,
-            "first_observed_at": func.least(
-                table.c.first_observed_at, statement.excluded.first_observed_at
-            ),
-            "last_observed_at": func.greatest(
-                table.c.last_observed_at, statement.excluded.last_observed_at
-            ),
-        },
-    )
+    parameters = {
+        "location_id": attempt.location_id,
+        "source_id": attempt.source_id,
+        "metric": attempt.metric,
+        "success": outcome == "success",
+    }
     async with storage_access.engine(db).begin() as connection:
         await _bounds(connection)
-        await connection.execute(statement)
+        await connection.execute(_RECORD_RATE, parameters)
 
 
 async def finish(db, attempt: Attempt | None, outcome: Outcome | None) -> bool:
@@ -155,54 +131,15 @@ def _counts(success, failure):
     }
 
 
-def _visible_statement(location_id, actor):
-    from app.services.dataset_source_access import source_scope_clause
-
-    table = Bucket.__table__
-    visible = (
-        select(table)
-        .outerjoin(DatasetSource, DatasetSource.id == table.c.source_id)
-        .where(table.c.location_id == location_id)
-    )
-    if actor.role != UserRole.SUPER_ADMIN or not actor.is_active:
-        visible = visible.where(
-            source_scope_clause(actor), DatasetSource.location_id == location_id
-        )
-    visible = visible.subquery("visible")
-    clock = select(func.statement_timestamp().label("measured_at")).cte("clock")
-    day = cast(func.timezone("UTC", clock.c.measured_at), Date)
-    columns = []
-    for metric in ("original_read", "preview_generate"):
-        for outcome in ("success", "failure"):
-            columns.append(
-                func.coalesce(
-                    func.sum(visible.c[outcome + "_count"]).filter(
-                        visible.c.metric == metric
-                    ),
-                    0,
-                ).label(metric + "_" + outcome)
-            )
-    return (
-        select(
-            clock.c.measured_at,
-            func.timezone("UTC", cast(day, DateTime)).label("window_start"),
-            *columns,
-        )
-        .select_from(clock.outerjoin(visible, visible.c.day == day))
-        .group_by(clock.c.measured_at)
-    )
-
-
-async def visible_rates(db, location, actor) -> dict | None:
+async def visible_rates(db, location_id: uuid.UUID, actor_id: uuid.UUID) -> dict | None:
     try:
         async with asyncio.timeout(2):
             async with storage_access.engine(db).begin() as connection:
                 await _bounds(connection, readonly=True)
-                row = (
-                    (await connection.execute(_visible_statement(location.id, actor)))
-                    .mappings()
-                    .one()
+                result = await connection.execute(
+                    _VISIBLE_RATES, {"actor_id": actor_id, "location_id": location_id}
                 )
+                row = result.mappings().one()
         return {
             "measured_at": row["measured_at"],
             "window_start": row["window_start"],

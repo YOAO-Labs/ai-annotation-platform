@@ -5,6 +5,10 @@ from copy import deepcopy
 import pytest
 
 from app.db.models.async_job import AsyncJob
+from app.db.models.storage_migration_copy import (
+    StorageMigrationCopyAttempt as Attempt,
+    StorageMigrationCopyDelta as Delta,
+)
 from app.db.models.user import User
 from app.services import storage_migration_copies as copies
 from tests.storage_migration_isolation import migration_engine as migration_engine
@@ -87,7 +91,7 @@ async def test_late_or_unobservable_ack_stays_durable_without_refresh(
     data = await delta_world(world, clients, tmp_path)
     async with world.maker() as db:
         if late == "terminal":
-            a = await copies.by_job(db, world.job_id)
+            a = await db.get(Attempt, (await copies.by_job(db, world.job_id)).id)
             job = await db.get(AsyncJob, world.job_id)
             a.status = job.status = "failed"
         elif late == "revoked":
@@ -104,7 +108,7 @@ async def test_late_or_unobservable_ack_stays_durable_without_refresh(
             db, world.job_id, world.task_id, data, copies.row_digest(data)
         )
     async with world.maker() as db:
-        saved = await db.get(copies.Delta, (world.copy_id, data["id"]))
+        saved = await db.get(Delta, (world.copy_id, data["id"]))
         job = await db.get(AsyncJob, world.job_id)
         assert saved.data == data
         assert job.last_progress_at is None and job.progress_observation is None
@@ -126,6 +130,6 @@ async def test_copy_owner_commit_failure_rolls_back_receipt_and_observation(
             )
         await db.rollback()
     async with world.maker() as db:
-        assert await db.get(copies.Delta, (world.copy_id, data["id"])) is None
+        assert await db.get(Delta, (world.copy_id, data["id"])) is None
         job = await db.get(AsyncJob, world.job_id)
         assert job.last_progress_at is None and job.progress_observation is None

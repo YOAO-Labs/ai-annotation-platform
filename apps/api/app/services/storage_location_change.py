@@ -8,8 +8,8 @@ from fastapi import HTTPException
 from jose import ExpiredSignatureError, JWTError, jwt
 
 from app.config import settings
-from app.db.models.storage_connection import StorageConnection
 from app.services import storage_location, storage_maintenance_impact as maintenance
+from app.services.storage_registry_data import get_connection
 from app.services.dataset_content import key_authority
 from app.services.storage_maintenance_targets import confirmation_counts
 
@@ -50,7 +50,7 @@ async def review(db, location, payload, actor, api_key_id):
     proof = await key_authority(db, actor, api_key_id, "datasets:write")
     candidate = await storage_location.update_candidate(db, location, payload)
     connection = (
-        await db.get(StorageConnection, location.connection_id, populate_existing=True)
+        await get_connection(db, location.connection_id)
         if location.connection_id
         else None
     )
@@ -83,9 +83,7 @@ async def review(db, location, payload, actor, api_key_id):
     if proof != await key_authority(db, actor, api_key_id, "datasets:write"):
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
     if connection is not None:
-        current_connection = await db.get(
-            StorageConnection, location.connection_id, populate_existing=True
-        )
+        current_connection = await get_connection(db, location.connection_id)
         if (
             current_connection is None
             or current_connection.revision != connection_revision
@@ -173,8 +171,8 @@ async def apply(db, location, payload, actor, *, api_key_id=None):
         raise HTTPException(409, detail={"code": "storage_change_preview_changed"})
     decode_token(payload.impact_token)
     revision = location.config_revision
-    await storage_location.update_filesystem(db, location, payload)
-    return {
+    location = await storage_location.update_filesystem(db, location, payload)
+    return location, {
         "previous_revision": revision,
         "config_revision": location.config_revision,
         "enabled": location.enabled,

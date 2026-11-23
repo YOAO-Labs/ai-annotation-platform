@@ -10,19 +10,20 @@ business consumers use the same types and bounds.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import hashlib
 import hmac
 import json
 import time
+import uuid
 from typing import Any, Literal
 
-from sqlalchemy import delete, event, func, select, text
-from sqlalchemy.dialects.postgresql import insert as pg_insert
+from fastapi import HTTPException
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.db.models.system_setting import SystemSetting
 
 
 ValueType = Literal["bool", "int", "str", "json"]
@@ -61,10 +62,19 @@ class SettingSpec:
 
 
 @dataclass(frozen=True)
+class SettingOverride:
+    value_json: Any
+    is_override: bool
+    updated_at: datetime | None
+    updated_by: str | None
+
+
+@dataclass(frozen=True)
 class SettingsSnapshot:
     values: dict[str, Any]
-    rows: dict[str, SystemSetting]
+    rows: dict[str, SettingOverride]
     version: str
+    stamp: str
     registration_default: bool | None = None
 
 
@@ -201,7 +211,24 @@ SYSTEM_SETTINGS_METADATA_KEYS = tuple(
 _CACHE_TTL_SECONDS = 30
 _cache: dict[str, tuple[float, Any]] = {}
 _CHANGED_KEYS_INFO = "system_settings_changed_keys"
-_SETTINGS_LOCK_NAME = "aap.system_settings"
+_KNOBS = {
+    "offline_threshold_minutes",
+    "task_create_sync_threshold",
+    "video_chunk_warmup_lookahead",
+}
+_IMPORT_LIMITS = ("dataset_import_max_files", "dataset_import_max_total_bytes")
+
+_RUNTIME_KNOB = text("SELECT yoao_settings_v1.runtime_knob(CAST(:key AS text))")
+_CONNECTOR_OVERRIDE = text("SELECT yoao_settings_v1.connector_override()")
+_IMPORT_SNAPSHOT = text("SELECT yoao_settings_v1.import_limits()")
+_MANAGEMENT_SNAPSHOT = text(
+    "SELECT yoao_settings_v1.management_snapshot(CAST(:actor AS uuid), CAST(:edit AS boolean))"
+)
+_APPLY_EDIT = text(
+    "SELECT yoao_settings_v1.apply_settings_edit(CAST(:actor AS uuid), "
+    "CAST(:stamp AS text), CAST(:updates AS jsonb), CAST(:resets AS text[]), "
+    "CAST(:deployment_password AS text))"
+)
 
 
 def _env_default(key: str) -> Any:
@@ -267,28 +294,10 @@ def _cache_set(key: str, value: Any, read_started_at: float) -> None:
     _cache[key] = (read_started_at, value)
 
 
-def _version(
-    rows: dict[str, SystemSetting], registration_default: bool | None = None
-) -> str:
-    """Stable opaque version that also changes when the last override is reset."""
-
-    payload = []
-    for key in sorted(rows):
-        row = rows[key]
-        payload.append(
-            {
-                "key": key,
-                "value_type": row.value_type,
-                "value_json": row.value_json,
-                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-                "updated_by": str(row.updated_by)
-                if row.updated_by is not None
-                else None,
-            }
-        )
+def _version(stamp: str, registration_default: bool | None) -> str:
     encoded = json.dumps(
         {
-            "overrides": payload,
+            "overrides": stamp,
             "deployment": {
                 key: _deployment_default(key, registration_default)
                 for key in SETTING_SPECS
@@ -302,6 +311,24 @@ def _version(
         settings.secret_key.encode(), encoded.encode(), hashlib.sha256
     ).hexdigest()
     return f"v1-{digest}"
+
+
+def _effective(key: str, raw: Any, registration_default: bool | None = None) -> Any:
+    if raw is not None:
+        try:
+            return _coerce(SETTING_SPECS[key].value_type, raw)
+        except (TypeError, ValueError):
+            pass
+    return _deployment_default(key, registration_default)
+
+
+async def _flush(db: AsyncSession) -> None:
+    if db.autoflush:
+        await db.flush()
+
+
+def _require_admin() -> HTTPException:
+    return HTTPException(403, detail="需要角色权限: super_admin")
 
 
 def _mark_changed(db: AsyncSession, keys: set[str]) -> None:
@@ -330,15 +357,6 @@ class SystemSettingsService:
     """Read effective settings and serialize transactional overrides."""
 
     @staticmethod
-    async def _lock(db: AsyncSession) -> None:
-        """Serialize writes and expected-version checks until this tx commits."""
-
-        await db.execute(
-            text("SELECT pg_advisory_xact_lock(hashtext(:lock_name))"),
-            {"lock_name": _SETTINGS_LOCK_NAME},
-        )
-
-    @staticmethod
     def invalidate(key: str | None = None) -> None:
         if key is None:
             _cache.clear()
@@ -351,128 +369,159 @@ class SystemSettingsService:
             _cache.pop(key, None)
 
     @staticmethod
-    async def _load_snapshot(
+    async def snapshot(
         db: AsyncSession,
+        actor_id: uuid.UUID,
         *,
-        keys: set[str] | None = None,
-        bypass_cache: bool = False,
-        for_update: bool = False,
         registration_default: bool | None = None,
+        edit: bool = False,
     ) -> SettingsSnapshot:
         if registration_default is not None and type(registration_default) is not bool:
             raise ValueError("registration_default must be a bool")
-        selected_keys = keys or set(SETTING_SPECS)
-        unknown = selected_keys.difference(SETTING_SPECS)
-        if unknown:
-            raise ValueError(f"非法配置项: {', '.join(sorted(unknown))}")
-
-        read_started_at = time.monotonic()
-        query = select(SystemSetting).execution_options(populate_existing=True)
-        if selected_keys:
-            query = query.where(SystemSetting.key.in_(selected_keys))
-        if for_update:
-            query = query.with_for_update()
-        rows = {row.key: row for row in (await db.execute(query)).scalars().all()}
-
-        values: dict[str, Any] = {}
-        for key in selected_keys:
-            spec = SETTING_SPECS[key]
-            row = rows.get(key)
-            deployment_default = _deployment_default(key, registration_default)
-            value = deployment_default
-            if row is not None and row.value_json is not None:
-                try:
-                    value = _coerce(spec.value_type, row.value_json)
-                except (TypeError, ValueError):
-                    value = deployment_default
-            values[key] = value
-            if (
-                not bypass_cache
-                and not db.sync_session.info.get(_CHANGED_KEYS_INFO)
-                and not (
-                    key == "allow_open_registration"
-                    and registration_default is not None
-                )
-            ):
-                _cache_set(key, value, read_started_at)
+        await _flush(db)
+        raw = await db.scalar(_MANAGEMENT_SNAPSHOT, {"actor": actor_id, "edit": edit})
+        if raw is None:
+            raise _require_admin()
+        rows = {
+            key: SettingOverride(
+                value_json=value["value"],
+                is_override=value["is_override"],
+                updated_at=datetime.fromisoformat(value["updated_at"])
+                if value["updated_at"] is not None
+                else None,
+                updated_by=value["updated_by"],
+            )
+            for key, value in raw["overrides"].items()
+        }
+        values = {
+            key: _effective(
+                key,
+                rows[key].value_json if key in rows else None,
+                registration_default,
+            )
+            for key in SETTING_SPECS
+            if key not in SENSITIVE_KEYS
+        }
+        password = rows.get("smtp_password")
+        values["smtp_password"] = (
+            password.value_json
+            if password is not None and password.value_json is not None
+            else bool(_env_default("smtp_password"))
+        )
         return SettingsSnapshot(
             values=values,
             rows=rows,
-            version=_version(rows, registration_default),
+            stamp=raw["stamp"],
+            version=_version(raw["stamp"], registration_default),
             registration_default=registration_default,
         )
+
+    @staticmethod
+    async def connector_allowlist_state(db: AsyncSession) -> tuple[Any, bool]:
+        await _flush(db)
+        raw = await db.scalar(_CONNECTOR_OVERRIDE)
+        return _effective("connector_host_allowlist", raw), raw is not None
 
     @staticmethod
     async def get(db: AsyncSession, key: str) -> Any:
-        if key not in SETTING_SPECS:
-            return _env_default(key)
-        if not db.sync_session.info.get(_CHANGED_KEYS_INFO):
+        if key not in _KNOBS and key != "connector_host_allowlist":
+            raise ValueError(f"非法配置项: {key}")
+        cacheable = not db.sync_session.info.get(_CHANGED_KEYS_INFO)
+        if cacheable:
             hit, value = _cache_get(key)
             if hit:
                 return value
-        snapshot = await SystemSettingsService._load_snapshot(db, keys={key})
-        return snapshot.values[key]
-
-    @staticmethod
-    async def get_many(
-        db: AsyncSession,
-        keys: list[str] | tuple[str, ...] | set[str],
-        *,
-        bypass_cache: bool = False,
-    ) -> dict[str, Any]:
-        return (
-            await SystemSettingsService._load_snapshot(
-                db, keys=set(keys), bypass_cache=bypass_cache
-            )
-        ).values
-
-    @staticmethod
-    async def get_all(
-        db: AsyncSession, *, bypass_cache: bool = False
-    ) -> dict[str, Any]:
-        return (
-            await SystemSettingsService._load_snapshot(db, bypass_cache=bypass_cache)
-        ).values
-
-    @staticmethod
-    async def snapshot(
-        db: AsyncSession,
-        *,
-        bypass_cache: bool = False,
-        registration_default: bool | None = None,
-    ) -> SettingsSnapshot:
-        return await SystemSettingsService._load_snapshot(
-            db,
-            bypass_cache=bypass_cache,
-            registration_default=registration_default,
-        )
+        read_started_at = time.monotonic()
+        if key == "connector_host_allowlist":
+            value, _ = await SystemSettingsService.connector_allowlist_state(db)
+        else:
+            await _flush(db)
+            value = _effective(key, await db.scalar(_RUNTIME_KNOB, {"key": key}))
+        if cacheable:
+            _cache_set(key, value, read_started_at)
+        return value
 
     @staticmethod
     async def get_import_limits_snapshot(
         db: AsyncSession, *, registration_default: bool | None = None
     ) -> dict[str, Any]:
-        snapshot = await SystemSettingsService._load_snapshot(
-            db,
-            bypass_cache=True,
-            registration_default=registration_default,
-        )
+        if registration_default is not None and type(registration_default) is not bool:
+            raise ValueError("registration_default must be a bool")
+        await _flush(db)
+        raw = await db.scalar(_IMPORT_SNAPSHOT)
         return {
-            "dataset_import_max_files": snapshot.values["dataset_import_max_files"],
-            "dataset_import_max_total_bytes": snapshot.values[
-                "dataset_import_max_total_bytes"
-            ],
-            "version": snapshot.version,
+            **{
+                key: _effective(key, raw["overrides"].get(key))
+                for key in _IMPORT_LIMITS
+            },
+            "version": _version(raw["stamp"], registration_default),
+        }
+
+    @staticmethod
+    async def _edit(
+        db: AsyncSession,
+        actor_id: uuid.UUID,
+        *,
+        updates: dict[str, Any],
+        resets: set[str],
+        expected_version: str | None,
+        registration_default: bool | None,
+    ) -> dict[str, dict[str, Any]]:
+        current = await SystemSettingsService.snapshot(
+            db, actor_id, registration_default=registration_default, edit=True
+        )
+        if expected_version is not None and expected_version != current.version:
+            raise SettingsVersionConflict(expected_version, current)
+        changed = await db.scalar(
+            _APPLY_EDIT,
+            {
+                "actor": actor_id,
+                "stamp": current.stamp,
+                "updates": json.dumps(updates, allow_nan=False),
+                "resets": sorted(resets),
+                "deployment_password": (
+                    _env_default("smtp_password")
+                    if "smtp_password" in updates or "smtp_password" in resets
+                    else None
+                ),
+            },
+        )
+        if changed is None:
+            raise _require_admin()
+        if changed.get("conflict"):
+            refreshed = await SystemSettingsService.snapshot(
+                db, actor_id, registration_default=registration_default, edit=True
+            )
+            raise SettingsVersionConflict(
+                expected_version or current.version, refreshed
+            )
+        changes = changed["changes"]
+        _mark_changed(db, resets | changes.keys())
+        return {
+            key: (
+                {"changed": value}
+                if key in SENSITIVE_KEYS
+                else {
+                    "old": current.values[key],
+                    "new": (
+                        updates[key]
+                        if key in updates
+                        else _deployment_default(key, registration_default)
+                    ),
+                }
+            )
+            for key, value in changes.items()
         }
 
     @staticmethod
     async def set_many(
         db: AsyncSession,
         updates: dict[str, Any],
-        actor_id: Any | None,
+        actor_id: uuid.UUID,
         *,
         expected_version: str | None = None,
         registration_default: bool | None = None,
-    ) -> dict[str, tuple[Any, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """Validate and write explicit overrides in the caller's transaction."""
 
         unknown = set(updates).difference(SETTING_SPECS)
@@ -486,100 +535,38 @@ class SystemSettingsService:
                 validated[key] = _validate_stored_value(SETTING_SPECS[key], raw)
             except (TypeError, ValueError) as exc:
                 raise ValueError(f"{key} 类型或范围错误: {exc}") from exc
-        await SystemSettingsService._lock(db)
-        current = await SystemSettingsService._load_snapshot(
+        return await SystemSettingsService._edit(
             db,
-            keys=set(SETTING_SPECS),
-            bypass_cache=True,
-            for_update=True,
+            actor_id,
+            updates=validated,
+            resets=set(),
+            expected_version=expected_version,
             registration_default=registration_default,
         )
-        if expected_version is not None and expected_version != current.version:
-            raise SettingsVersionConflict(expected_version, current)
-
-        changes: dict[str, tuple[Any, Any]] = {}
-        changed_keys: set[str] = set()
-        for key, stored in validated.items():
-            spec = SETTING_SPECS[key]
-            old_value = current.values[key]
-            row = current.rows.get(key)
-            if row is not None and row.value_json is not None and old_value == stored:
-                try:
-                    _coerce(spec.value_type, row.value_json)
-                except (TypeError, ValueError):
-                    pass
-                else:
-                    continue
-
-            stmt = pg_insert(SystemSetting).values(
-                key=key,
-                value_type=spec.value_type,
-                value_json=stored,
-                updated_by=actor_id,
-                updated_at=func.now(),
-            )
-            stmt = stmt.on_conflict_do_update(
-                index_elements=[SystemSetting.key],
-                set_={
-                    "value_json": stored,
-                    "value_type": spec.value_type,
-                    "updated_by": actor_id,
-                    "updated_at": func.now(),
-                },
-            )
-            await db.execute(stmt)
-            changes[key] = (old_value, stored)
-            changed_keys.add(key)
-        _mark_changed(db, changed_keys)
-        return changes
 
     @staticmethod
     async def reset_many(
         db: AsyncSession,
         keys: list[str] | tuple[str, ...] | set[str],
-        actor_id: Any | None = None,
+        actor_id: uuid.UUID,
         *,
         expected_version: str | None = None,
         registration_default: bool | None = None,
-    ) -> dict[str, tuple[Any, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         selected = set(keys)
         if not selected:
             raise ValueError("至少指定一个配置项")
         unknown = selected.difference(SETTING_SPECS)
         if unknown:
             raise ValueError(f"非法配置项: {', '.join(sorted(unknown))}")
-        await SystemSettingsService._lock(db)
-        current = await SystemSettingsService._load_snapshot(
+        return await SystemSettingsService._edit(
             db,
-            keys=set(SETTING_SPECS),
-            bypass_cache=True,
-            for_update=True,
+            actor_id,
+            updates={},
+            resets=selected,
+            expected_version=expected_version,
             registration_default=registration_default,
         )
-        if expected_version is not None and expected_version != current.version:
-            raise SettingsVersionConflict(expected_version, current)
-
-        changes: dict[str, tuple[Any, Any]] = {}
-        changed_keys: set[str] = set()
-        for key in selected:
-            row = current.rows.get(key)
-            changed_keys.add(key)
-            if row is None:
-                continue
-            old_value = current.values[key]
-            await db.execute(delete(SystemSetting).where(SystemSetting.key == key))
-            changes[key] = (
-                old_value,
-                _deployment_default(key, registration_default),
-            )
-        _mark_changed(db, changed_keys)
-        return changes
-
-    @staticmethod
-    async def reset(db: AsyncSession, key: str) -> None:
-        """Compatibility wrapper for connector allowlist and older callers."""
-
-        await SystemSettingsService.reset_many(db, [key])
 
     @staticmethod
     def metadata(snapshot: SettingsSnapshot) -> dict[str, dict[str, Any]]:
@@ -591,9 +578,7 @@ class SystemSettingsService:
             if spec.sensitive:
                 deployment_default = bool(deployment_default)
             source: SettingSource = (
-                "override"
-                if row is not None and row.value_json is not None
-                else "deployment"
+                "override" if row is not None and row.is_override else "deployment"
             )
             low, high = spec.bounds()
             effective = snapshot.values.get(key)
@@ -607,7 +592,7 @@ class SystemSettingsService:
                 "source": source,
                 "deployment_default": deployment_default,
                 "updated_at": row.updated_at if row is not None else None,
-                "updated_by": str(row.updated_by) if row and row.updated_by else None,
+                "updated_by": row.updated_by if row is not None else None,
                 "value_type": spec.value_type,
                 "unit": spec.unit,
                 "effect": spec.effect,
@@ -615,22 +600,3 @@ class SystemSettingsService:
                 "max_value": high,
                 "in_range": in_range,
             }
-        return result
-
-    @staticmethod
-    def mask_for_response(key: str, value: Any) -> Any:
-        if key in SENSITIVE_KEYS:
-            return bool(value)
-        return value
-
-    @staticmethod
-    def safe_audit_detail(changes: dict[str, tuple[Any, Any]]) -> dict[str, Any]:
-        """Audit sensitive fields by change state only, never by value."""
-
-        out: dict[str, Any] = {}
-        for key, (old, new) in changes.items():
-            if key in SENSITIVE_KEYS:
-                out[key] = {"changed": old != new}
-            else:
-                out[key] = {"old": old, "new": new}
-        return out

@@ -31,6 +31,8 @@ import shutil
 from urllib.parse import quote, urlsplit
 import xml.etree.ElementTree as ET
 
+from grant_sql import read_psql_grant_script
+
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/api"))
@@ -494,6 +496,14 @@ FUNCTION_BODY_ARTIFACTS = {
     },
     "yoao_audit_v1.refresh_audit_bi_mv()": "0322_audit_daily_projection.sql",
     "yoao_audit_v1.maintenance_command(jsonb)": "0438_fixture_audit_namespace.sql",
+    "yoao_audit_v1.platform_maintenance(text,date,bigint,bigint,text,uuid,timestamptz)": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1._assert_platform_partition(date,bigint,bigint)": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1.archive_output_has_ready(integer,integer)": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1.archive_output_ready_month(integer,integer)": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1.archive_output_ready_list()": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1.archive_output_pending(uuid)": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1.archive_output_history()": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1.archive_output_save_candidate(uuid,uuid,date,bigint,bigint,bigint,bigint,text,bigint,text,jsonb,timestamptz)": "0485_audit_platform_maintenance.sql",
     "yoao_notifications_v1.append_job_terminal_notification(jsonb)": "0484_notifications_terminal_outbox.sql",
     "yoao_notifications_v1.claim_identity_deliveries(jsonb)": "0484_notifications_terminal_outbox.sql",
     "yoao_audit_v1.query_events(pg_catalog.jsonb)": "0317_audit_query.sql",
@@ -5828,6 +5838,8 @@ def _sql_artifact_path(name: str) -> Path:
         directory = ROOT / "apps/assets-source/src/yoao_assets_source"
     elif name == "0484_notifications_terminal_outbox.sql":
         directory = ROOT / "apps/notifications/src/yoao_notifications/sql"
+    elif name == "0485_audit_platform_maintenance.sql":
+        directory = ROOT / "apps/audit/src/yoao_audit/sql"
     else:
         directory = ROOT / "apps/api/alembic/sql"
     return directory / name
@@ -5862,6 +5874,7 @@ def _installed_function_body_sha256(
             "0481_fixture_video_requests.sql",
             "0483_fixture_prediction_import.sql",
             "0484_notifications_terminal_outbox.sql",
+            "0485_audit_platform_maintenance.sql",
         ):
             frozen_schema = schema
         else:
@@ -6231,8 +6244,12 @@ def _verify_audit_maintenance_boundary(
                 "AND defaults.defaclnamespace IN (0,'public'::pg_catalog.regnamespace) "
                 "AND defaults.defaclobjtype IN ('r','S') "
                 "AND acl.grantee<>'audit_code'::pg_catalog.regrole),"
-                "'runtime_audit_parent_select', pg_catalog.has_table_privilege("
-                "'legacy_runtime','public.audit_logs','SELECT')) "
+                "'runtime_audit_tree_private', NOT EXISTS ("
+                "SELECT FROM pg_catalog.pg_partition_tree(parent.oid::pg_catalog.regclass) AS partition "
+                "WHERE pg_catalog.has_table_privilege('legacy_runtime',partition.relid,"
+                "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') "
+                "OR pg_catalog.has_any_column_privilege('legacy_runtime',partition.relid,"
+                "'SELECT,INSERT,UPDATE,REFERENCES'))) "
                 "FROM pg_catalog.pg_class AS parent, pg_catalog.pg_class AS current_partition, "
                 "pg_catalog.pg_class AS future_partition, pg_catalog.pg_class AS sequence "
                 "WHERE parent.oid='public.audit_logs'::pg_catalog.regclass "
@@ -6256,12 +6273,13 @@ def _verify_audit_maintenance_boundary(
         "maintenance_schema_usage_only": True,
         "maintenance_owns_no_objects": True,
         "default_audit_storage_private": True,
-        "runtime_audit_parent_select": True,
+        "runtime_audit_tree_private": True,
     }
     if ownership != expected_ownership:
         raise RuntimeError("Audit maintenance role, owner, or future ACL differs")
 
     direct_statements = (
+        "SELECT id FROM {relation} LIMIT 0",
         "INSERT INTO {relation} (id, action, created_at) "
         "SELECT 9223372036854775806, 'probe.audit.denied', "
         f"TIMESTAMPTZ '{current_month.isoformat()} 00:00:00+00' WHERE false",
@@ -6293,6 +6311,8 @@ def _verify_audit_maintenance_boundary(
             "CREATE TABLE public.audit_maintenance_denied_probe(id integer)",
             "CREATE TABLE yoao_audit_v1.audit_maintenance_denied_probe(id integer)",
             "ALTER TABLE public.audit_logs ADD COLUMN audit_maintenance_denied_probe integer",
+            "SELECT day FROM public.mv_audit_bi_daily LIMIT 0",
+            "SELECT id FROM public.audit_archive_outputs LIMIT 0",
         )
         if username == AUDIT_MAINTENANCE_ROLE:
             ddl_statements += (
@@ -6312,9 +6332,9 @@ def _verify_audit_maintenance_boundary(
     return {
         "function_only_login": True,
         "direct_partition_writes_denied": True,
+        "direct_partition_reads_denied": True,
         "sequence_and_ddl_denied": True,
         "owner_and_future_acl_verified": True,
-        "runtime_audit_parent_select_preserved": True,
         "probe_partitions": [current_partition, "audit_logs_y2098m04"],
         "ownership": ownership,
     }
@@ -7452,6 +7472,7 @@ def main(
                 "0481_fixture_video_requests.sql",
                 "0483_fixture_prediction_import.sql",
                 "0484_notifications_terminal_outbox.sql",
+                "0485_audit_platform_maintenance.sql",
             ],
             "schemas": list(SCHEMA_ARTIFACTS),
         },
@@ -7553,9 +7574,9 @@ def main(
         "audit_maintenance": {
             "function_only_role_grant": False,
             "direct_partition_writes_denied": False,
+            "direct_partition_reads_denied": False,
             "sequence_and_ddl_denied": False,
             "owner_and_future_acl_verified": False,
-            "runtime_audit_parent_select_preserved": False,
         },
         "jobs_notification_scope": {
             "node_prerequisites": "not_checked",
@@ -8271,7 +8292,7 @@ def main(
                 or not isinstance(contract.get("$defs", {}), dict)
             ):
                 raise RuntimeError(f"invalid frozen module-data schema: {path.name}")
-        grant_sql = grants_path.read_text(encoding="utf-8")
+        grant_sql = read_psql_grant_script(grants_path)
         catalog_grant_sql = catalog_grants_path.read_text(encoding="utf-8")
         source_grant_sql = source_grants_path.read_text(encoding="utf-8")
         import_grant_sql = import_grants_path.read_text(encoding="utf-8")
@@ -8461,11 +8482,9 @@ def main(
         identity_recovery_grant_sql = identity_recovery_grants_path.read_text(
             encoding="utf-8"
         )
-        lan_production_grant_sql = lan_production_grants_path.read_text(
-            encoding="utf-8"
-        )
-        identity_consumer_grant_sql = identity_consumer_grants_path.read_text(
-            encoding="utf-8"
+        lan_production_grant_sql = read_psql_grant_script(lan_production_grants_path)
+        identity_consumer_grant_sql = read_psql_grant_script(
+            identity_consumer_grants_path
         )
 
         from sqlalchemy.engine import URL, make_url
@@ -8820,6 +8839,124 @@ def main(
             raise RuntimeError(
                 "installed SQL function bodies differ after fresh-base upgrade"
             )
+        if not collect_only:
+            phase = "preflight-migration-owned-assets-executors"
+            fresh_password = secrets.token_hex(32)
+            fresh_roles = (
+                "fresh_lan_asset_cleanup",
+                "fresh_lan_asset_video",
+                "fresh_lan_asset_image",
+            )
+            fresh_owner = {
+                "username": "owner",
+                "password": owner_password,
+                "database": frozen_database,
+            }
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                **fresh_owner,
+                sql="\n".join(
+                    f"CREATE ROLE {role} LOGIN PASSWORD '{fresh_password}' "
+                    "NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE "
+                    "NOREPLICATION NOBYPASSRLS;"
+                    for role in fresh_roles
+                ),
+            )
+            grant_scope = {
+                "expected_database": frozen_database,
+                "migration_role": "owner",
+            }
+            for fresh_grant_sql, parameters in (
+                (
+                    lan_production_grant_sql,
+                    {
+                        "application_role": "legacy_runtime",
+                        "asset_cleanup_role": fresh_roles[0],
+                    },
+                ),
+                (
+                    media_grant_sql,
+                    {
+                        "assets_owner": "owner",
+                        "asset_media_worker_role": fresh_roles[1],
+                    },
+                ),
+                (
+                    image_grant_sql,
+                    {
+                        "assets_owner": "owner",
+                        "asset_image_worker_role": fresh_roles[2],
+                    },
+                ),
+            ):
+                _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    **fresh_owner,
+                    sql=fresh_grant_sql,
+                    variables={**grant_scope, **parameters},
+                )
+            fresh_app_probe = _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="legacy_runtime",
+                password=runtime_password,
+                database=frozen_database,
+                sql="""
+                    SELECT current_user = 'legacy_runtime'
+                      AND has_function_privilege(
+                        'yoao_assets_v1.get_catalog_dataset(uuid,uuid)', 'EXECUTE')
+                      AND has_function_privilege(
+                        'yoao_assets_v1.begin_dataset_ingest(uuid,uuid,uuid,jsonb)', 'EXECUTE')
+                      AND has_function_privilege(
+                        'yoao_assets_v1.read_media_summaries(uuid[])', 'EXECUTE')
+                      AND has_function_privilege(
+                        'yoao_assets_v1.read_image_usage()', 'EXECUTE')
+                      AND NOT EXISTS (
+                        SELECT 1 FROM unnest(ARRAY[
+                          'yoao_assets_v1.begin_import_original_verification(jsonb)',
+                          'yoao_assets_v1.capture_native_pyramid_read_io(uuid,uuid,jsonb)',
+                          'yoao_assets_v1.claim_video_media(uuid,uuid,integer,text[])',
+                          'yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[])'
+                        ]) signature WHERE has_function_privilege(signature, 'EXECUTE')
+                      )
+                      AND NOT has_table_privilege(
+                        'yoao_assets_v1.import_original_verifications', 'SELECT');
+                """,
+            ).strip()
+            if fresh_app_probe != "t":
+                raise RuntimeError(
+                    "Fresh LAN Assets control LOGIN has an incorrect capability set"
+                )
+            for role, function in (
+                (fresh_roles[1], "read_video_media_usage()"),
+                (
+                    fresh_roles[2],
+                    "claim_image_media(gen_random_uuid(),NULL,30,ARRAY['thumbnail'])",
+                ),
+            ):
+                reply_ok = _psql(
+                    container_id,
+                    container_name,
+                    container_identity,
+                    username=role,
+                    password=fresh_password,
+                    database=frozen_database,
+                    sql=f"SELECT (yoao_assets_v1.{function}->>'ok')::boolean;",
+                ).strip()
+                if reply_ok != "t":
+                    raise RuntimeError(
+                        "Fresh LAN Assets executor could not call its worker authority"
+                    )
+            evidence["assets_migration_owned_execution"] = {
+                "ordinary_control": "passed",
+                "celery_video_login": "passed",
+                "celery_image_login": "passed",
+            }
         phase = "retire-frozen-sql-database"
         observed_frozen_identity = json.loads(
             _psql(
@@ -11692,7 +11829,7 @@ SELECT id FROM removed;
                 "inference_backend_probe_role": "yoao_inference_backend_probe_client",
             },
         )
-        for label, grant_sql, variable, role in (
+        for label, health_grant_sql, variable, role in (
             (
                 "observation",
                 inference_health_observation_grant_sql,
@@ -11720,7 +11857,7 @@ SELECT id FROM removed;
                 username="owner",
                 password=owner_password,
                 database=database,
-                sql=grant_sql,
+                sql=health_grant_sql,
                 variables={
                     "expected_database": database,
                     "migration_role": "owner",
@@ -12249,7 +12386,7 @@ SELECT id FROM removed;
                         username="owner",
                         password=owner_password,
                         database=database,
-                        sql=(ROOT / "infra/docker" / profile).read_text(),
+                        sql=read_psql_grant_script(ROOT / "infra/docker" / profile),
                         variables={
                             "expected_database": database,
                             "migration_role": "owner",

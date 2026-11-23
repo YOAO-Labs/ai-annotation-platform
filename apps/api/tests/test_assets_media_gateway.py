@@ -49,7 +49,7 @@ async def test_waiter_admits_once_and_reuses_one_executor_until_gateway_closes(
             closed.append(True)
 
     executor = Executor()
-    monkeypatch.setattr(assets_media, "_executor", lambda: executor)
+    monkeypatch.setattr(assets_media, "_executor", lambda **_: executor)
 
     class Provider:
         reads = 0
@@ -148,22 +148,75 @@ async def test_caller_transaction_cannot_wait_or_sign_references():
 
 
 @pytest.mark.asyncio
-async def test_selected_remote_provider_never_runs_local_executor(monkeypatch):
-    monkeypatch.setattr(assets_media.settings, "assets_media_url", "http://media.local")
+async def test_embedded_control_does_not_claim_split_video_work(monkeypatch):
+    monkeypatch.setattr(assets_media.settings, "assets_media_url", "")
+    monkeypatch.setattr(assets_media.settings, "assets_video_executor", "split")
     monkeypatch.setattr(
         assets_media,
         "_executor",
-        lambda: pytest.fail("remote execution used local worker"),
+        lambda: pytest.fail("split execution opened a local worker"),
     )
     assert await assets_media.run_media_job(uuid4()) is False
     assert await assets_media.maintain_video_media() is None
+    async with assets_media.media_gateway() as gateway:
+        assert gateway.provider.wakeup is None
+        assert await gateway._execute(uuid4()) is False
 
 
 @pytest.mark.asyncio
-async def test_remote_cli_dry_run_never_constructs_api_s3_storage(monkeypatch):
-    from yoao_assets_media_runtime import processing
-    from yoao_assets_media_runtime.http_source import HttpMediaSourceStorage
+async def test_embedded_control_does_not_claim_split_image_work(monkeypatch):
+    from app.services import assets_images
 
+    monkeypatch.setattr(assets_images.settings, "assets_media_url", "")
+    monkeypatch.setattr(assets_images.settings, "assets_image_executor", "split")
+    monkeypatch.setattr(
+        assets_images,
+        "image_executor",
+        lambda: pytest.fail("split execution opened a local worker"),
+    )
+    assert await assets_images.run_image_job(uuid4()) is False
+    assert await assets_images.maintain_images() is None
+    async with assets_images.image_gateway() as gateway:
+        assert gateway.provider.wakeup is None
+
+
+def test_standalone_workers_refuse_celery_owned_lanes():
+    from yoao_assets_images_runtime.config import load_config as load_image
+    from yoao_assets_media_runtime.config import load_config as load_video
+
+    for load, key in (
+        (load_video, "ASSETS_VIDEO_EXECUTOR"),
+        (load_image, "ASSETS_IMAGE_EXECUTOR"),
+    ):
+        with pytest.raises(ValueError, match=key + "=split"):
+            load({key: "celery"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("lane", ["image", "video"])
+async def test_celery_executor_never_falls_back_to_application_login(monkeypatch, lane):
+    from app.services import assets_executor_db
+
+    name = f"assets_celery_{lane}_database_url"
+    monkeypatch.setattr(assets_executor_db.settings, name, "")
+    monkeypatch.setattr(assets_executor_db.settings, name + "_file", "")
+    async with assets_executor_db.executor_sessions(lane) as sessions:
+        with pytest.raises(ValueError, match=f"{name.upper()}.*required"):
+            async with sessions():
+                pytest.fail("Missing worker credentials opened a database session")
+
+    secret = "must-not-appear-in-errors"
+    monkeypatch.setattr(assets_executor_db.settings, name, secret)
+    monkeypatch.setattr(assets_executor_db.settings, name + "_file", secret)
+    async with assets_executor_db.executor_sessions(lane) as sessions:
+        with pytest.raises(ValueError, match=f"Set only one of {name.upper()}") as exc:
+            async with sessions():
+                pytest.fail("Conflicting worker credentials opened a database session")
+        assert secret not in str(exc.value)
+
+
+@pytest.mark.asyncio
+async def test_separate_control_cli_dry_run_does_not_use_api_s3(monkeypatch):
     monkeypatch.setattr(assets_media.settings, "assets_media_url", "http://media.local")
     monkeypatch.setattr(assets_media.settings, "assets_media_token", "t" * 32)
     monkeypatch.setattr(
@@ -172,13 +225,8 @@ async def test_remote_cli_dry_run_never_constructs_api_s3_storage(monkeypatch):
         lambda: pytest.fail("remote CLI used API-local S3 credentials"),
     )
 
-    async def probe(current, storage, **kwargs):
-        assert isinstance(storage, HttpMediaSourceStorage)
-        assert kwargs["sparse_stride"] == 3
-        return []
-
-    monkeypatch.setattr(processing, "probe_source_timetable", probe)
-    assert await assets_media.probe_video_timetable(source(), sparse_stride=3) == []
+    with pytest.raises(c.MediaFailure, match="storage_unavailable"):
+        await assets_media.probe_video_timetable(source(), sparse_stride=3)
 
 
 @pytest.mark.asyncio

@@ -5,11 +5,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 
 from app.db.enums import PlatformRole
-from app.db.models.dataset import Dataset, DatasetItem
-from app.db.models.project import Project
-from app.db.models.user import User
 from app.services import comment_attachment_authority as credentials
-from app.services import storage_access
+from app.services import assets_dataset_data, original_source_data, storage_access
 from app.services.content_snapshot import ContentError
 
 
@@ -61,20 +58,6 @@ def check_clock(proof, key=None):
             credentials.check_clock(proof)
         except HTTPException as exc:
             raise credential_error(exc) from None
-
-
-async def _row(db, model, identifier, *, lock):
-    if identifier is None:
-        return None
-    if lock and model in {User, Project}:
-        try:
-            return await credentials.locked(db, model, identifier, wait=True)
-        except HTTPException as exc:
-            raise credential_error(exc) from None
-    statement = select(model).where(model.id == identifier)
-    if lock:
-        statement = statement.with_for_update(read=True, nowait=True)
-    return await db.scalar(statement.execution_options(populate_existing=True))
 
 
 async def visible_task(db, task_id, actor, *, lock=False, wait_for_task=False):
@@ -191,13 +174,16 @@ async def managed_dataset(db, item_id, actor, *, lock=False):
 
     try:
         with db.no_autoflush:
-            dataset_id = await db.scalar(
-                select(DatasetItem.dataset_id).where(DatasetItem.id == item_id)
-            )
-            if dataset_id is None:
+            item = await original_source_data.item_source_facts(db, item_id)
+            if item is None:
                 raise ContentError("item_removed")
-            dataset = await _row(db, Dataset, dataset_id, lock=lock)
-            if dataset is None:
+            dataset_id = item.dataset_id
+            if (
+                await assets_dataset_data.dataset_metadata(
+                    db, dataset_id, lock_share_nowait=lock
+                )
+                is None
+            ):
                 raise ContentError("item_removed")
             await assert_dataset_manage(db, dataset_id, actor)
             return dataset_id

@@ -13,6 +13,8 @@ import asyncio
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.schemas.bug_report import BugReportCreate
+from app.services.bug_report import BugReportService
 from app.services.display_id import next_display_id, ENTITY_TO_PREFIX
 
 
@@ -22,7 +24,6 @@ pytestmark = pytest.mark.usefixtures("apply_migrations")
 @pytest.mark.asyncio
 async def test_prefix_mapping_complete() -> None:
     assert ENTITY_TO_PREFIX == {
-        "bug_reports": "B",
         "tasks": "T",
         "datasets": "D",
         "projects": "P",
@@ -71,10 +72,14 @@ async def test_concurrent_uniqueness(test_engine) -> None:
 
 
 @pytest.mark.asyncio
-async def test_prefix_per_entity(db_session: AsyncSession) -> None:
+async def test_prefix_per_entity(db_session: AsyncSession, annotator) -> None:
     proj = await next_display_id(db_session, "projects")
-    bug = await next_display_id(db_session, "bug_reports")
+    bug = await BugReportService(db_session).create(
+        annotator[0].id,
+        BugReportCreate(title="display id", description="test"),
+        route="/test",
+    )
     batch = await next_display_id(db_session, "batches")
     assert proj.startswith("P-")
-    assert bug.startswith("B-")
+    assert bug.display_id.startswith("B-")
     assert batch.startswith("BT-")

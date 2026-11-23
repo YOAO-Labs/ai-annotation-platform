@@ -1,33 +1,32 @@
 """Claim-once fixed-source inventory lifecycle and private report publication."""
 
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import hashlib
 import io
 import json
 import re
 from types import SimpleNamespace
+from typing import Literal, overload
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, text
-from sqlalchemy.orm import undefer
+from sqlalchemy import bindparam, text
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.dataset_asset import StorageLocation
-from app.db.models.storage_maintenance import StorageOperation
-from app.db.models.storage_migration_inventory import (
-    REPORT_LIMIT,
-    StorageMigrationInventory as Inventory,
-)
-from app.db.models.user import User
+from app.db.models.storage_migration_inventory import REPORT_LIMIT
 from app.schemas.storage_migration_inventory import (
     StorageMigrationInventoryHistory,
     StorageMigrationInventoryItem,
     StorageMigrationInventoryRequest,
 )
-from app.services import async_job as jobs, storage_access, storage_maintenance
+from app.services import async_job as jobs
+from app.services import storage_access, storage_maintenance, storage_registry_data
 from app.services.audit import AuditService
 from app.services.dataset_assets import LEGACY_LOCATION_ID, PURPOSE_BUCKET_ATTRIBUTES
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.storage import storage_service
 from app.services.storage_migration_inventory import PURPOSES, verify_inventory
@@ -36,6 +35,89 @@ from app.services.storage_migration_observations import endpoint_identity
 KIND = "storage_migration_inventory"
 ACTIVE = {"pending", "running"}
 SAFE_CODE = re.compile(r"[a-z][a-z0-9_]{0,79}")
+
+_BY_JOB = text("SELECT * FROM yoao_assets_v1.read_migration_inventory(:job_id, :lock)")
+_PRIVATE_BY_JOB = text(
+    "SELECT * FROM yoao_assets_v1.read_migration_inventory_report(:job_id, :lock)"
+)
+_ACTIVE = text(
+    "SELECT facts.* FROM "
+    "yoao_assets_v1.lock_active_migration_inventory() AS active(job_id) "
+    "CROSS JOIN LATERAL "
+    "yoao_assets_v1.read_migration_inventory(active.job_id, false) AS facts"
+)
+_QUEUE = text(
+    "SELECT yoao_assets_v1.queue_migration_inventory("
+    ":job_id, :actor_id, :task_id, :window_id, :window_revision, :revision, "
+    ":source, :limits, :handling, :authority, :fingerprint)"
+).bindparams(
+    *(
+        bindparam(key, type_=JSONB)
+        for key in ("source", "limits", "handling", "authority")
+    )
+)
+_CLAIM = text(
+    "SELECT yoao_assets_v1.claim_migration_inventory(:job_id, :task_id, :started_at)"
+)
+_CANCEL = text(
+    "SELECT yoao_assets_v1.request_migration_inventory_cancel("
+    ":job_id, :task_id, :requested_at)"
+)
+_ATTACH = text(
+    "SELECT yoao_assets_v1.attach_migration_inventory_operation("
+    ":job_id, :task_id, :operation_id)"
+)
+_FINISH = text(
+    "SELECT yoao_assets_v1.end_migration_inventory("
+    ":job_id, :task_id, :expected_status, :status, :completed_at, :error_code)"
+)
+_SEAL = text(
+    "SELECT yoao_assets_v1.seal_migration_inventory("
+    ":job_id, :task_id, :completed_at, :report, :sha256, :complete, :counts, :error_code)"
+).bindparams(bindparam("counts", type_=JSONB))
+_HISTORY = text(
+    "SELECT * FROM yoao_assets_v1.migration_inventory_history(:limit, :offset)"
+)
+_HISTORY_COUNT = text("SELECT yoao_assets_v1.migration_inventory_history_count()")
+_ACTIVE_WINDOW = text(
+    "SELECT yoao_assets_v1.migration_window_has_active_inventory(:window_id)"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class InventorySummary:
+    async_job_id: uuid.UUID
+    window_id: uuid.UUID | None
+    window_revision: int | None
+    status: str
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    source_location_id: uuid.UUID
+    limits: dict[str, int]
+    handling: dict[str, str]
+    cancel_requested_at: datetime | None
+    complete: bool | None
+    counts: dict[str, int] | None
+    error_code: str | None
+    report_sha256: str | None
+    report_size_bytes: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class InventoryFacts(InventorySummary):
+    requested_by: uuid.UUID
+    task_id: str
+    source: dict
+    authority: dict[str, str | None]
+    input_fingerprint: str
+    maintenance_revision: int
+    operation_id: uuid.UUID | None
+
+
+@dataclass(frozen=True, slots=True)
+class InventoryReport(InventoryFacts):
+    report: bytes | None
 
 
 def now():
@@ -57,7 +139,7 @@ async def authority(db, actor, api_key_id=None, *, lock=False):
 
 
 async def attempt_authority(db, row, *, lock=False):
-    actor = await db.get(User, row.requested_by, populate_existing=True)
+    actor = await IdentityAccountLockData(db).read_actor_status(row.requested_by)
     if actor is None:
         reject("inventory_authority_changed", 403)
     actor, proof = await authority(
@@ -69,14 +151,9 @@ async def attempt_authority(db, row, *, lock=False):
 
 
 async def source_scope(db, *, lock=False):
-    statement = (
-        select(StorageLocation)
-        .where(StorageLocation.id == LEGACY_LOCATION_ID)
-        .execution_options(populate_existing=True)
+    location = await storage_registry_data.get_location(
+        db, LEGACY_LOCATION_ID, lock="share" if lock else None
     )
-    if lock:
-        statement = statement.with_for_update(read=True)
-    location = await db.scalar(statement)
     endpoint = (
         f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
     )
@@ -108,15 +185,40 @@ async def source_scope(db, *, lock=False):
     }
 
 
-async def by_job(db, job_id, *, lock=False):
-    statement = (
-        select(Inventory)
-        .where(Inventory.async_job_id == job_id)
-        .execution_options(populate_existing=True)
+@overload
+async def by_job(
+    db: AsyncSession,
+    job_id: uuid.UUID,
+    *,
+    lock: bool = False,
+    private: Literal[False] = False,
+) -> InventoryFacts | None: ...
+
+
+@overload
+async def by_job(
+    db: AsyncSession, job_id: uuid.UUID, *, lock: bool = False, private: Literal[True]
+) -> InventoryReport | None: ...
+
+
+async def by_job(
+    db: AsyncSession, job_id: uuid.UUID, *, lock: bool = False, private: bool = False
+) -> InventoryFacts | None:
+    if db.autoflush:
+        await db.flush()
+    query, facts = (
+        (_PRIVATE_BY_JOB, InventoryReport) if private else (_BY_JOB, InventoryFacts)
     )
-    if lock:
-        statement = statement.with_for_update()
-    return await db.scalar(statement)
+    row = (
+        (await db.execute(query, {"job_id": job_id, "lock": lock}))
+        .mappings()
+        .one_or_none()
+    )
+    return facts(**row) if row is not None else None
+
+
+async def active_for_window(db, window_id) -> bool:
+    return await db.scalar(_ACTIVE_WINDOW, {"window_id": window_id})
 
 
 def matches(row, job):
@@ -162,7 +264,7 @@ async def gate_revision(db, location_id, *, lock=False):
         reject(exc.code, exc.status)
 
 
-def item(row):
+def item(row: InventorySummary) -> StorageMigrationInventoryItem:
     return StorageMigrationInventoryItem(
         job_id=row.async_job_id,
         window_id=row.window_id,
@@ -189,36 +291,34 @@ def item(row):
 
 async def history(db, actor, *, api_key_id=None, limit=20, offset=0):
     actor, proof = await authority(db, actor, api_key_id)
-    total = await db.scalar(select(func.count()).select_from(Inventory))
-    rows = list(
-        await db.scalars(
-            select(Inventory)
-            .order_by(Inventory.created_at.desc(), Inventory.async_job_id.desc())
-            .limit(limit)
-            .offset(offset)
-            .execution_options(populate_existing=True)
-        )
+    total = await db.scalar(_HISTORY_COUNT)
+    rows = (
+        (await db.execute(_HISTORY, {"limit": limit, "offset": offset}))
+        .mappings()
+        .all()
     )
     _, current = await authority(db, actor, api_key_id)
     if current != proof:
         reject("inventory_authority_changed", 403)
     return StorageMigrationInventoryHistory(
-        items=[item(row) for row in rows], total=total, limit=limit, offset=offset
+        items=[item(InventorySummary(**row)) for row in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
 
 
 async def start(db, actor, request_body=None, *, api_key_id=None, request=None):
     body = request_body or StorageMigrationInventoryRequest()
     actor, proof = await authority(db, actor, api_key_id, lock=True)
-    await db.execute(text("SELECT pg_advisory_xact_lock(8592650717001)"))
+    await db.execute(text("SELECT pg_catalog.pg_advisory_xact_lock(8592650717001)"))
     source = await source_scope(db, lock=True)
     window_revision = None
     if body.window_id is not None:
-        from app.db.models.storage_migration_window import StorageMigrationWindow
         from app.services import storage_migration_windows as windows
 
         revision = await windows.source_revision(db, body.window_id, source, lock=True)
-        window = await db.get(StorageMigrationWindow, body.window_id)
+        window = await windows.owner(db, body.window_id)
         window_revision = window.revision
     else:
         revision = await gate_revision(db, LEGACY_LOCATION_ID, lock=True)
@@ -227,15 +327,8 @@ async def start(db, actor, request_body=None, *, api_key_id=None, request=None):
     if body.window_id is not None:
         inputs.extend([str(body.window_id), window_revision])
     fingerprint = digest(inputs)
-    row = await db.scalar(
-        select(Inventory)
-        .where(
-            Inventory.source_location_id == LEGACY_LOCATION_ID,
-            Inventory.status.in_(ACTIVE),
-        )
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    active = (await db.execute(_ACTIVE)).mappings().one_or_none()
+    row = InventoryFacts(**active) if active is not None else None
     if row is not None:
         job = await db.scalar(
             job_lock_statement(row.async_job_id, mode="update", populate_existing=True)
@@ -258,27 +351,31 @@ async def start(db, actor, request_body=None, *, api_key_id=None, request=None):
                 )
             ),
         )
-        job.result = {"stage": "queued", "migration_ready": False}
-        row = Inventory(
-            async_job_id=job.id,
-            requested_by=actor.id,
-            task_id=task_id,
-            source_location_id=LEGACY_LOCATION_ID,
-            source=source,
-            window_id=body.window_id,
-            window_revision=window_revision,
-            limits=limits,
-            handling=handling,
-            authority={
-                "api_key_id": str(api_key_id) if api_key_id else None,
-                "key_proof": proof,
-            },
-            input_fingerprint=fingerprint,
-            maintenance_revision=revision,
-            status="pending",
+        await jobs.replace_result(
+            db, job.id, result={"stage": "queued", "migration_ready": False}
         )
-        db.add(row)
-        await db.flush()
+        reserved = await db.scalar(
+            _QUEUE,
+            {
+                "job_id": job.id,
+                "actor_id": actor.id,
+                "task_id": task_id,
+                "window_id": body.window_id,
+                "window_revision": window_revision,
+                "revision": revision,
+                "source": source,
+                "limits": limits,
+                "handling": handling,
+                "authority": {
+                    "api_key_id": str(api_key_id) if api_key_id else None,
+                    "key_proof": proof,
+                },
+                "fingerprint": fingerprint,
+            },
+        )
+        if not reserved:
+            reject("inventory_context_changed")
+        row = await by_job(db, job.id)
         await AuditService.log(
             db,
             actor=actor,
@@ -307,37 +404,55 @@ async def redispatch(db, job_id, actor, *, api_key_id=None):
     return row, job
 
 
-async def finish(db, row, job, status, *, error_code=None, report=None):
+async def finish(db, row: InventoryFacts, job, status, *, error_code=None, report=None):
     if row.status not in ACTIVE:
         return False
-    row.status, row.completed_at, row.error_code = status, now(), error_code
-    if status == "cancelled" and row.cancel_requested_at is None:
-        row.cancel_requested_at = row.completed_at
-    if report is not None:
-        raw, tail = report
-        row.report, row.report_sha256, row.report_size_bytes = (
-            raw,
-            hashlib.sha256(raw).hexdigest(),
-            len(raw),
+    completed_at = now()
+    values = {
+        "job_id": row.async_job_id,
+        "task_id": row.task_id,
+        "completed_at": completed_at,
+        "error_code": error_code,
+    }
+    if report is None:
+        changed = await db.scalar(
+            _FINISH, {**values, "expected_status": row.status, "status": status}
         )
-        row.complete, row.counts = tail["complete"], tail["counts"]
-    job.status, job.completed_at, job.error_message = (
-        status,
-        row.completed_at,
-        error_code,
-    )
-    job.progress_pct = 100 if status == "completed" else job.progress_pct
-    job.result = {
+        complete, counts = row.complete, row.counts
+        sha256, size = row.report_sha256, row.report_size_bytes
+    else:
+        raw, tail = report
+        sha256, size = hashlib.sha256(raw).hexdigest(), len(raw)
+        complete, counts = tail["complete"], tail["counts"]
+        changed = await db.scalar(
+            _SEAL,
+            {
+                **values,
+                "report": raw,
+                "sha256": sha256,
+                "complete": complete,
+                "counts": counts,
+            },
+        )
+    if not changed:
+        return False
+    job.status, job.completed_at, job.error_message = status, completed_at, error_code
+    result = {
         "stage": "sealed" if report is not None else "ended",
         "migration_ready": False,
-        "complete": row.complete,
-        "counts": row.counts,
+        "complete": complete,
+        "counts": counts,
         "error_code": error_code,
-        "cancel_requested": row.cancel_requested_at is not None,
+        "cancel_requested": row.cancel_requested_at is not None
+        or status == "cancelled",
         "report_available": report is not None,
-        "report_sha256": row.report_sha256,
-        "report_size_bytes": row.report_size_bytes,
+        "report_sha256": sha256,
+        "report_size_bytes": size,
     }
+    if status == "completed":
+        await jobs.update_progress(db, job.id, 100, result=result)
+    else:
+        await jobs.replace_result(db, job.id, result=result)
     await db.flush()
     return True
 
@@ -355,11 +470,17 @@ async def cancel(db, job_id):
         reject("inventory_terminal")
     if not matches(row, job):
         reject("inventory_job_unavailable")
-    row.cancel_requested_at = row.cancel_requested_at or now()
     if row.status == "pending":
-        await finish(db, row, job, "cancelled")
+        if not await finish(db, row, job, "cancelled"):
+            reject("inventory_context_changed")
         return "cancelled"
-    job.result = {**job.result, "cancel_requested": True}
+    if row.cancel_requested_at is None and not await db.scalar(
+        _CANCEL, {"job_id": job_id, "task_id": row.task_id, "requested_at": now()}
+    ):
+        reject("inventory_context_changed")
+    await jobs.replace_result(
+        db, job_id, result={**job.result, "cancel_requested": True}
+    )
     await jobs.request_cancel(db, job_id)
     await db.flush()
     return "cancel_requested"
@@ -392,7 +513,12 @@ async def claim(db, job_id, task_id):
     job = await db.scalar(
         job_lock_statement(job_id, mode="update", populate_existing=True)
     )
-    if row.status != "pending" or row.task_id != task_id or not matches(row, job):
+    if (
+        row is None
+        or row.status != "pending"
+        or row.task_id != task_id
+        or not matches(row, job)
+    ):
         return None
     if row.cancel_requested_at is not None:
         await finish(db, row, job, "cancelled")
@@ -400,34 +526,44 @@ async def claim(db, job_id, task_id):
     if failure:
         await finish(db, row, job, "failed", error_code=failure)
         return None
-    row.status, row.started_at = "running", now()
-    job.status, job.started_at = "running", row.started_at
-    job.result = {"stage": "reading", "migration_ready": False}
+    started_at = now()
+    changed = await db.scalar(
+        _CLAIM, {"job_id": job_id, "task_id": task_id, "started_at": started_at}
+    )
+    if not changed:
+        return None
+    job.status, job.started_at = "running", started_at
+    await jobs.replace_result(
+        db, job.id, result={"stage": "reading", "migration_ready": False}
+    )
     await db.flush()
-    return row
+    return replace(row, status="running", started_at=started_at)
 
 
 async def acquired(db, job_id, task_id, permit):
     row = await by_job(db, job_id)
+    if row is None:
+        reject("inventory_context_changed")
     await current(db, row, lock=True)
     row = await by_job(db, job_id, lock=True)
     job = await db.scalar(
         job_lock_statement(job_id, mode="update", populate_existing=True)
     )
-    operation = await db.get(StorageOperation, permit.id, populate_existing=True)
     if (
-        row.status != "running"
+        row is None
+        or row.status != "running"
         or row.task_id != task_id
         or row.operation_id is not None
         or not matches(row, job)
         or row.cancel_requested_at is not None
-        or operation is None
         or permit.location_id != LEGACY_LOCATION_ID
         or permit.revision != row.maintenance_revision
-        or operation.purpose != KIND
     ):
         reject("inventory_context_changed")
-    row.operation_id = permit.id
+    if not await db.scalar(
+        _ATTACH, {"job_id": job_id, "task_id": task_id, "operation_id": permit.id}
+    ):
+        reject("inventory_context_changed")
     await db.commit()
 
 
@@ -468,10 +604,15 @@ async def publish(
     job = await db.scalar(
         job_lock_statement(job_id, mode="update", populate_existing=True)
     )
-    if row.status != "running" or row.task_id != task_id or not matches(row, job):
+    if (
+        row is None
+        or row.status != "running"
+        or row.task_id != task_id
+        or not matches(row, job)
+    ):
         return False
-    if row.operation_id and await db.get(
-        StorageOperation, row.operation_id, populate_existing=True
+    if row.operation_id and await storage_access.operation_receipt(
+        db, row.operation_id
     ):
         return await finish(
             db, row, job, "failed", error_code="storage_operation_unsettled"
@@ -536,12 +677,7 @@ async def publish(
 
 async def download(db, job_id, actor, *, api_key_id=None):
     actor, proof = await authority(db, actor, api_key_id, lock=True)
-    row = await db.scalar(
-        select(Inventory)
-        .where(Inventory.async_job_id == job_id)
-        .options(undefer(Inventory.report))
-        .execution_options(populate_existing=True)
-    )
+    row = await by_job(db, job_id, private=True)
     if row is None:
         raise HTTPException(404, "Inventory not found")
     if row.report is None:

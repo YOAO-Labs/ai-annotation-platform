@@ -187,6 +187,47 @@ async def _labeling_catalog_snapshot(engine) -> dict[str, tuple]:
     }
 
 
+async def _insights_perf_snapshot(engine, project_id):
+    async with engine.connect() as connection:
+        catalog = (
+            await connection.execute(
+                text("""
+            SELECT pg_catalog.pg_get_userbyid(relation.relowner),
+                   relation.relispopulated,
+                   ARRAY(SELECT acl::text FROM pg_catalog.unnest(COALESCE(
+                       relation.relacl, pg_catalog.acldefault('r', relation.relowner)
+                   )) AS acl ORDER BY 1),
+                   pg_catalog.pg_get_viewdef(relation.oid, true),
+                   ARRAY(SELECT pg_catalog.pg_get_indexdef(indexes.indexrelid)
+                         FROM pg_catalog.pg_index AS indexes
+                         WHERE indexes.indrelid = relation.oid ORDER BY 1),
+                   pg_catalog.pg_get_userbyid(function.proowner),
+                   pg_catalog.pg_get_functiondef(function.oid),
+                   ARRAY(SELECT acl::text FROM pg_catalog.unnest(COALESCE(
+                       function.proacl, pg_catalog.acldefault('f', function.proowner)
+                   )) AS acl ORDER BY 1)
+            FROM pg_catalog.pg_class AS relation CROSS JOIN pg_catalog.pg_proc AS function
+            WHERE relation.oid='public.mv_user_perf_daily'::regclass
+              AND function.oid='yoao_insights_v1.refresh_user_perf_daily()'::regprocedure
+            """)
+            )
+        ).one()
+        aggregate = (
+            await connection.execute(
+                text(
+                    "SELECT event_count,throughput,median_duration_ms,p95_duration_ms,"
+                    "rejected_n,active_minutes FROM public.mv_user_perf_daily "
+                    "WHERE project_id=:id AND kind='annotate' AND day='2026-09-10'"
+                ),
+                {"id": project_id},
+            )
+        ).one()
+    assert catalog[0] == catalog[5] == "insights_code"
+    assert catalog[1] and len(catalog[4]) == 3
+    assert tuple(aggregate) == (1, 3, 60_000, 60_000, 0, 1)
+    return catalog, aggregate
+
+
 async def _labeling_business_snapshot(
     engine,
     *,
@@ -403,6 +444,25 @@ async def test_current_labeling_module_state_survives_owned_restore(
         await source_writer.close()
         role_connections.remove(source_writer)
 
+        async with source_engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO public.task_events(id,task_id,user_id,project_id,kind,"
+                    "started_at,ended_at,duration_ms,annotation_count) "
+                    "VALUES (pg_catalog.gen_random_uuid(),:task,:actor,:project,'annotate',"
+                    "'2026-09-10 23:59:00+00','2026-09-11 00:00:00+00',60000,3)"
+                ),
+                {
+                    "task": task_id,
+                    "actor": world["member_id"],
+                    "project": world["project_id"],
+                },
+            )
+            await connection.execute(
+                text("SELECT yoao_insights_v1.refresh_user_perf_daily()")
+            )
+        source_perf = await _insights_perf_snapshot(source_engine, world["project_id"])
+
         source_catalog = await _labeling_catalog_snapshot(source_engine)
         source_business = await _labeling_business_snapshot(
             source_engine,
@@ -454,6 +514,10 @@ async def test_current_labeling_module_state_survives_owned_restore(
             await _database_acl(restored_engine)
         )
         assert await _labeling_catalog_snapshot(restored_engine) == source_catalog
+        assert (
+            await _insights_perf_snapshot(restored_engine, world["project_id"])
+            == source_perf
+        )
         assert (
             await _labeling_business_snapshot(
                 restored_engine,

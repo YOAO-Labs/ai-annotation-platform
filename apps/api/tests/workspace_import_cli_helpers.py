@@ -908,8 +908,6 @@ class WorkspaceImportCli:
             "WORKSPACE_MEMBERSHIP_CONTROL_TOKEN": "",
             "WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE": "",
             "WORKSPACE_INFERENCE_PROBE_URL": "",
-            "ASSETS_CATALOG_URL": "",
-            "ASSETS_CATALOG_TOKEN": "",
             "ASSETS_SOURCE_URL": "",
             "ASSETS_SOURCE_TOKEN": "",
             "ASSETS_MEDIA_URL": "",

@@ -140,10 +140,9 @@ class AssetsTaskMediaSummaryReader(TaskMediaSummaryReader):
     async def current_video_summary(
         self, item_id: uuid.UUID
     ) -> tuple[int | None, int | None, dict[str, Any]] | None:
-        from app.db.models.dataset import DatasetItem
         from app.services import video_derivative_originals, video_derivatives
 
-        item = await self._db.get(DatasetItem, item_id, populate_existing=True)
+        item = await video_derivatives.item_row(self._db, item_id)
         if item is None or item.file_type != "video" or item.video_output_id is None:
             return None
         source = await video_derivative_originals.pin(self._db, "dataset_item", item_id)

@@ -45,7 +45,10 @@ from tests.storage_migration_isolation import (
     migration_engine as migration_engine,
     super_admin as super_admin,
 )
-from tests.test_storage_migration_inventories import EmptySource
+from tests.test_storage_migration_inventories import (
+    EmptySource,
+    settled_inventory_fixture,
+)
 from tests.test_storage_migration_windows import (
     prepared as prepared,
     reader_world as reader_world,
@@ -120,7 +123,7 @@ async def child(db, world):
     )
     inv, job, _ = await inventories.start(db, world.actor, request)
     await inventories.claim(db, job.id, inv.task_id)
-    inv.operation_id = uuid.uuid4()
+    inv = await settled_inventory_fixture(db, job.id)
     sink = ReportSink()
     write_inventory(
         None,
@@ -141,6 +144,7 @@ async def child(db, world):
         sink=sink,
     )
     await inventories.publish(db, job.id, inv.task_id, report=sink.value)
+    inv = await inventories.by_job(db, job.id)
     assert inv.status == "completed"
     baseline, catalog = b"control-only-closed-checkpoint", b"control-only-catalog"
     row = Copy(
@@ -406,7 +410,7 @@ async def test_bind_rejects_actual_or_queued_responsibility(db_session, control,
             StorageMigrationInventoryRequest(window_id=control.window_id),
         )
     else:
-        attempt = await copies.last(db_session, control.parent)
+        attempt = await db_session.get(Attempt, control.parent.last_attempt_id)
         attempt.status = "running"
     await db_session.flush()
     await code(

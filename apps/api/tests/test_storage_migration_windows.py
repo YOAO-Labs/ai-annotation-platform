@@ -58,8 +58,9 @@ async def prepared(db_session, super_admin, monkeypatch):
     monkeypatch.setattr(settings, "storage_maintenance_protocol_enabled", True)
     _, _, _, body = await seed(db_session, super_admin[0])
     parent, job, _ = await copies.start(db_session, super_admin[0], body)
+    parent = await db_session.get(Copy, parent.id)
     parent.baseline, parent.baseline_sha256 = b"bounded fixture", "a" * 64
-    attempt = await copies.last(db_session, parent)
+    attempt = await db_session.get(Attempt, parent.last_attempt_id)
     attempt.status = job.status = "completed"
     attempt.completed_at = job.completed_at = inventories.now()
     await db_session.flush()

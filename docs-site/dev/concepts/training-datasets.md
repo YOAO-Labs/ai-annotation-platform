@@ -93,7 +93,9 @@ last_reviewed: 2026-10-24
 3. **版本继承语义**：
    父版本代表独立的分区继承关系，允许从旧分支派生，并不自动指向上一自然序号。
 
-手动创建由 `services/training_datasets.create_version` 持有；HTTP 入口只传入当前项目/负责人、认证所带 API Key 身份和注入的派发端口。命令复用 `freeze_selection` 与 `project_task_dataset.ensure_membership`，先按规范请求摘要处理幂等重放，再冻结并校验预检摘要；创建、任务流成员关系和作业入队仍在派发前的同一事务提交，随后按原时序派发、刷新并附加只读元数据。重放只修复缺失的任务流成员关系，不重建快照、不重复派发。
+手动创建先在项目管理权威下按规范请求摘要处理幂等重放，再准备冻结选择并复核预检摘要。`training_dataset_data` 的写入、任务流成员关系和 Jobs 新作业仍在派发前的同一事务提交；HTTP 保留原派发时序，随后读取响应元数据。重放只修复缺失的任务流成员关系，不重建快照、不重复派发。
+
+普通 API、构建 Worker 与版本流维护 CLI 通过 `yoao_learning_v1` 的固定能力访问版本。列表、血缘与流诊断只查询投影，不读取整个快照或清单；需要样本正文的构建仍读取指定的固定版本。能力在调用方事务中取得原版本行和项目流锁，失败不消耗版本序号，不提前提交 Job。
 
 ### 2.3 语句级快照与素材物化流水线
 
@@ -135,6 +137,8 @@ Worker 的保留媒体读取/写入、包发布与尝试清理，analysis 的图
 `prepare_selection` 在独立读取阶段完成原件读取、完整核验与解码；调用者先释放项目、身份及业务行锁，媒体 helper 不提交调用者的业务修改。`finalize_selection` 不执行对象 I/O，在调用者重新取得串行化锁后复核选择、标注、原件与权限，再由同一业务事务保存版本、版本流关联和 Job。预检后输入变化使创建返回 `409`。
 
 `workers/training_dataset.py` 保留先复核当前权威、再锁定当前版本行的顺序，以及 job/attempt/status 围栏、执行 advisory lock、逐样本提交和对象发布/清理编排；`training_datasets` 的窄领域命令集中写入构建过程的运行状态/进度、ready 包身份/摘要/大小、完成时间及失败字段。worker 仍负责冻结快照物化、S3/ZIP I/O、AsyncJob 终态/通知和事务提交；只有 ready 提交成功后才置 published，未发布 attempt 仍按原时点清理。
+
+持久状态迁移校验当前 Version、Job 与 attempt；ready 发布同时核对冻结摘要、保存目标及该 attempt 的 ZIP 键。普通调用无法覆写已就绪的包或清单。分析在同一版本的冻结输入上构建和分页，样本详情只读取对应清单成员及保留的来源证据；读取不会用当前原件补齐历史事实。
 
 #### 托管图片的原件身份与物化
 
@@ -254,6 +258,8 @@ API 预检逐项执行有界严格读取并及时关闭临时快照，报告引�
 2. 任务终止时先对进程组发送信号，并持续轮询直至确认进程组完全消亡。
 3. 退出回执先在本地固化保存，再随不可变的 `finish body` 向平台重试提交，彻底杜绝迟到汇报或虚假成功。
 
+训练账本通过 `yoao_learning_v1` 的固定数据能力访问。普通 API（包括内部执行器协议）和周期清理不再直接读写 Run、Attempt、事件、观测流或预览私表；训练执行器仍独占原生进程与文件锁。完成回执、尝试终态和数据库资源租约释放留在同一调用方事务，提交失败时一并回滚。只读的实验摘要与谱系不包含租约摘要，且不会授权调用方修改账本。
+
 ### 3.3 原生训练框架适配与原生权重初始化
 
 平台内置适配器实现框架抽象，支持 Ultralytics YOLO 与 LibreYOLO：
@@ -339,6 +345,8 @@ API 预检逐项执行有界严格读取并及时关闭临时快照，报告引�
 
 Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkpoint、lost/cancel 状态以及 dispatch/maintenance 时间戳，连同 HTTP `deletion_requested_at`，均由 `sample_evaluations` 的命令写入。worker 仍保留围栏、authority 重查、推理/收据与报告 I/O、每个原始 commit 和先提交再派发的窗口；通用 AsyncJob 字段继续通过 `services.async_job` 更新。
 
+评估 HTTP、通用作业取消和 Celery worker 在调用方事务中通过 `yoao_learning_v1` 的固定能力读取和写入。运行代次、当前 Attempt、claim 与已有样本请求共同围栏迟到 checkpoint；待确认原生执行停止时保持 `cancelling`，不会提前写入终态或替换已核验的证据。原始 API Key 在领取及结果写入时重新核验。
+
 ### 4.2 实验指标比较与横向对齐
 
 比较视图支持多实验横向对比：
@@ -371,6 +379,8 @@ Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkp
 
 `ModelRelease` 的 generation CAS、不可变发布历史与既有预测冻结身份保持独立，部署检查完成不等于模型已被发布。
 
+模型目录、谱系和发布历史通过 Learning 的项目作用域读取、只读字段投影和固定命令访问。部署结果仅提交给仍为 `checking` 的同一 `check_id`；发布原子比较并递增 `(project_id, task)` 的 generation。重试继续核对最初冻结的发布、部署与类别绑定，不解析今天的项目选择。
+
 ### 4.4 预标注动态回流与收据协议
 
 自训检测（`detect`）和已合格 YOLO11n 实例分割（`segment`）经过核验与发布后，可回流至预标注子系统；分割的原生像素契约与预算见[实例分割闭环](./instance-segmentation-learning)。
@@ -398,6 +408,8 @@ Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkp
   - `LearningTrigger` 记录每次候选构建与终态审计（`building → queued → running → succeeded / failed / cancelled`）。
   - 数据库部分唯一索引限制每个项目**同时仅允许存在一个活跃的自动实验**（包含排队、准备、训练与失联状态）。
   - 每次成功训练完成后方可推进语义基线；若实验失败或被取消，系统保留原基线并阻止相同增量数据的重复触发。
+
+定时检查与 executor 领取分别读取当前策略围栏。内部领取使用原实验的项目、候选数据版本、固定 Trigger 与策略修订；已取消的 Trigger 不会因策略仍启用而获领。参数搜索在同一项目事务内锁定搜索与真实子实验，读取原生 Attempt 的已消费和预留证据，再允许下一项入队。计划及 Trial 配置冻结，更新只绑定本搜索的确切子实验并记入调度状态。
 
 ### 5.2 人工审核主动选样
 
@@ -427,6 +439,8 @@ Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkp
 
 `active_learning.create_round` 是 Round、PoolMember、Candidate 和首个 Attempt 的写入所有者；`retry_round` 只重置失败候选的状态/错误，并释放旧 Attempt 的 claim、补齐完成时间后创建下一 generation。HTTP 入口保留管理者锁、当前授权、状态/原 24 小时窗口及失败候选请求准入，并保持提交后派发。重试不改写冻结 spec、候选 request UUID、已成功证据或非失败候选。
 
+普通 API、Beat 和选样 worker 经 `yoao_learning_v1` 的固定数据库能力读写这些账本，不持有私表权限。调用方仍持有原事务和来源锁；轮次写入同时固定完整池和代表候选，执行推进比较当前 attempt、generation 与 claim，反馈只追加并按原请求返回已冻结快照。
+
 ### 5.3 版本化参数契约
 
 为保证超参数配置的确定性与可复现性，体系引入静态参数快照：
@@ -438,7 +452,7 @@ Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkp
   - 训练配方由 `training_recipes` 身份与 `training_recipe_revisions` 不可变快照构成。
   - 配方保存用户显式指定的原始入参（`user_values`），重放时不将平台派生的生效参数（`effective_values`）回写覆盖，保障历史重放精确一致。
 
-创建、追加修订的管理权威/项目锁、请求摘要重放、预期 head CAS、来源解析与 revision/head 写入归 `services/training_recipes.write_revision`。归档命令由同模块 `archive_recipe` 持有，保留当前管理权威、配方行锁和 head CAS，HTTP 在原位置提交。HTTP 保留现有路由权限与状态码并适配 schema；失败由请求事务回滚，不留下预建配方身份或半个 head。这些命令仍是进程内 Session/ORM 操作，不是新远程协议。
+创建、追加修订的管理权威和项目锁、请求摘要重放、预期 head CAS 与来源解析归 `services/training_recipes.write_revision`。数据库能力在调用方事务内原子追加不可变修订并更新 head；归档单独按 head CAS，只改变归档状态。HTTP 保留原提交点、权限和状态码。失败不会留下配方身份或半个 head；不新增远程协议或运行凭据。
 
 ### 5.4 存储生命周期、队列拓扑与本地联调
 

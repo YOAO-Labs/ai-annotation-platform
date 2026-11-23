@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import bindparam, func, select
-from sqlalchemy.dialects.postgresql import ARRAY, UUID as PGUUID
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.selectable import FromClause
 
 from app.application.project_workspace import lock_managed_project
 from app.db.models.project import Project
@@ -20,18 +17,6 @@ from yoao_labeling.task_maintenance_contract import (
     ReadSourceLessTaskCandidates,
 )
 from yoao_workspace_contract import derive_attribute_keys, derive_classes_list
-
-
-def _task_ids_query(task_ids: list[uuid.UUID]) -> FromClause:
-    return select(
-        func.unnest(
-            bindparam(
-                "task_ids",
-                value=task_ids,
-                type_=ARRAY(PGUUID(as_uuid=True)),
-            )
-        ).label("id")
-    ).subquery("orphan_task_ids")
 
 
 async def delete_source_less_tasks(
@@ -62,13 +47,12 @@ async def delete_source_less_tasks(
         return {"deleted_tasks": 0, "deleted_annotations": 0}
 
     await guard_source(db, task_ids=task_ids)
-    task_id_relation = _task_ids_query(task_ids)
 
     labeling = LabelingTaskService(db)
     annotation_count = await labeling.delete_source_less_task_children(
         task_ids, project_id=project_id
     )
-    await BugReportService(db).detach_task_references(task_id_relation)
+    await BugReportService(db).detach_task_references(project_id, task_ids)
     await labeling.delete_source_less_task_records(project_id, task_ids)
     await labeling.recalculate_source_less_task_counters(project_id)
     return {

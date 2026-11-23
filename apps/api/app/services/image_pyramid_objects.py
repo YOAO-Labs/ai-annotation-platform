@@ -9,16 +9,11 @@ import uuid
 import re
 import sys
 
-from sqlalchemy import String, cast, exists, func, select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.db.models.image_pyramid import (
-    ImagePyramidAsset as Asset,
-    ImagePyramidGeneration as Generation,
-    ImagePyramidOutput as Output,
-)
-from app.db.models.storage_maintenance import StorageOperation
+from app.services import image_pyramid_data as data
 from app.services import image_pyramid_originals as originals
 from app.services import image_pyramid_storage as physical
 from app.services import key_removal_accounting as removal
@@ -236,29 +231,8 @@ async def read_access(db, receipt, plan, guard):
         await storage_access.finish(asyncio.create_task(session.close()))
 
 
-async def allocate(db, asset, generation, token):
-    identifier = uuid.uuid4()
-    ref = await physical.allocate(db, identifier)
-    await storage_access.check(db, uuid.UUID(ref["location_id"]), lock=True)
-    output = Output(
-        id=identifier,
-        asset_id=asset.id,
-        generation=generation.generation,
-        lease_token=token,
-        storage_ref=ref,
-        state="building",
-    )
-    db.add(output)
-    await db.flush()
-    generation.output_id = identifier
-    return snapshot(output)
-
-
-async def _row(db, model, predicate, *, lock=False):
-    statement = select(model).where(predicate)
-    if lock:
-        statement = statement.with_for_update(read=True, nowait=True)
-    return await db.scalar(statement.execution_options(populate_existing=True))
+async def get_output(db, identifier, *, lock=False):
+    return await data.read_output(db, identifier, lock=lock)
 
 
 async def check(
@@ -278,33 +252,23 @@ async def check(
     if authority is not None:
         await originals.check(db, authority, lock=lock)
     current = await originals.pin(db, owner.kind, owner.id, lock=lock)
-    asset = await _row(db, Asset, Asset.id == asset_id, lock=lock)
-    generation = await _row(
-        db,
-        Generation,
-        (Generation.asset_id == asset_id)
-        & (Generation.generation == generation_number),
-        lock=lock,
+    output = await data.read_context(
+        db, asset_id, generation_number, output_id, lock=lock
     )
-    output = await _row(db, Output, Output.id == output_id, lock=lock)
-    if asset is None or generation is None or output is None:
+    if output is None:
         reject()
     if (
-        asset.dataset_item_id != (owner.id if owner.kind == "dataset_item" else None)
-        or asset.task_id != (owner.id if owner.kind == "task" else None)
-        or generation.output_id != output_id
-        or output.asset_id != asset_id
-        or output.generation != generation_number
+        output.dataset_item_id != (owner.id if owner.kind == "dataset_item" else None)
+        or output.task_id != (owner.id if owner.kind == "task" else None)
+        or output.original_ref != originals.receipt(owner.source)
     ):
         reject()
-    if generation.original_ref != originals.receipt(owner.source):
-        reject()
-    if originals.receipt(current) != generation.original_ref:
+    if originals.receipt(current) != output.original_ref:
         reject("source_changed")
     if lease_token is None:
         if (
-            generation.status != "ready"
-            or asset.active_generation != generation_number
+            output.status != "ready"
+            or output.active_generation != generation_number
             or output.state != "ready"
             or output.inventory is None
         ):
@@ -313,13 +277,13 @@ async def check(
         from app.services.image_pyramid import utcnow
 
         if (
-            generation.status != "building"
-            or generation.lease_token != lease_token
+            output.status != "building"
+            or output.generation_token != lease_token
             or output.lease_token != lease_token
             or output.state != "building"
-            or asset.building_generation != generation_number
-            or generation.lease_expires_at is None
-            or generation.lease_expires_at <= utcnow()
+            or output.building_generation != generation_number
+            or output.lease_expires_at is None
+            or output.lease_expires_at <= utcnow()
         ):
             reject("lease_lost")
     ref = physical.resolve(output).ref
@@ -340,21 +304,13 @@ async def check(
     return snapshot(output), revision
 
 
-async def publish(db, asset, generation, output_id, token, inventory, gate_revision):
-    output = await db.scalar(
-        select(Output)
-        .where(Output.id == output_id)
-        .with_for_update(nowait=True)
-        .execution_options(populate_existing=True)
+async def publish(
+    db, asset, generation, output_id, token, facts, inventory, gate_revision
+):
+    output = await data.lock_output_for_publish(
+        db, asset.id, generation.generation, token, output_id
     )
-    if (
-        output is None
-        or output.state != "building"
-        or output.asset_id != asset.id
-        or output.generation != generation.generation
-        or output.lease_token != token
-        or generation.output_id != output_id
-    ):
+    if output is None:
         reject()
     owner = physical.resolve(output)
     await storage_access.check(
@@ -364,10 +320,23 @@ async def publish(db, asset, generation, output_id, token, inventory, gate_revis
         lock=True,
     )
     validate_inventory(output, generation, inventory)
-    output.inventory = deepcopy(inventory)
-    output.state = "ready"
-    physical.resolve(output)
-    await db.flush()
+    try:
+        return await data.publish(
+            db,
+            asset.id,
+            generation.generation,
+            token,
+            output_id,
+            facts,
+            inventory,
+            gate_revision,
+        )
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) == "P0500":
+            from app.services.image_pyramid import ImagePyramidError
+
+            raise ImagePyramidError("thumbnail_publication_rejected") from exc
+        raise
 
 
 def validate_inventory(output, generation, inventory):
@@ -470,7 +439,7 @@ async def reading(db, owner, generation, *, authority=None, keys=None):
     if keys is not None:
         factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
         async with factory() as selected:
-            row = await selected.get(Output, generation.output_id)
+            row = await get_output(selected, generation.output_id)
             if row is None:
                 reject()
             plan = await read_plan(selected, row, keys)
@@ -570,8 +539,8 @@ async def thumbnail_url(db, owner_kind, owner_id, path, *, actor_id):
             asset = await get_asset_for_owner(session, owner)
             if asset is None or asset.active_generation is None:
                 return None
-            generation = await session.get(
-                Generation, (asset.id, asset.active_generation)
+            generation = await data.read_generation(
+                session, asset.id, asset.active_generation
             )
             if generation is None or generation.overview_key != path:
                 return None
@@ -607,20 +576,7 @@ async def retire_fixture(db, control, identifier):
         ) as storage:
             return physical.delete(storage, output, fixture=fixture)
 
-    await _retire_output(db, control, "pyramid_output", identifier, Output, retire)
-
-
-async def _legacy_gc_eligible(db, kind, owner_id, generation):
-    """Ask the owner boundary, never a prefix or current binding, for eligibility."""
-    return bool(
-        await db.scalar(
-            select(
-                func.yoao_assets_v1.legacy_pyramid_gc_eligible(
-                    kind, owner_id, generation
-                )
-            )
-        )
-    )
+    await _retire_output(db, control, "pyramid_output", identifier, retire)
 
 
 async def reconcile(db, storage):
@@ -628,137 +584,32 @@ async def reconcile(db, storage):
     from app.services.image_pyramid import fail_generation, utcnow
 
     cutoff = utcnow() - timedelta(hours=settings.image_pyramid_gc_grace_hours)
-    candidates = list(
-        (
-            await db.execute(
-                select(Generation.asset_id, Generation.generation)
-                .where(
-                    Generation.status == "building",
-                    func.yoao_assets_v1.legacy_pyramid_gc_eligible(
-                        "pyramid_generation", Generation.asset_id, Generation.generation
-                    ),
-                    Generation.lease_expires_at <= utcnow(),
-                )
-                .limit(100)
-            )
-        ).all()
-    )
-    for asset_id, number in candidates:
-        asset = await db.scalar(
-            select(Asset).where(Asset.id == asset_id).with_for_update()
+    for asset_id, number in await data.expired(db):
+        await fail_generation(
+            db,
+            asset_id=asset_id,
+            generation_number=number,
+            lease_token=None,
+            error_code="lease_expired",
         )
-        generation = await db.scalar(
-            select(Generation)
-            .where(Generation.asset_id == asset_id, Generation.generation == number)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        if (
-            asset is not None
-            and generation is not None
-            and generation.status == "building"
-            and generation.lease_expires_at is not None
-            and generation.lease_expires_at <= utcnow()
-            and await _legacy_gc_eligible(db, "pyramid_generation", asset_id, number)
-        ):
-            await fail_generation(
-                db,
-                asset_id=asset_id,
-                generation_number=number,
-                lease_token=None,
-                error_code="lease_expired",
-            )
         await db.commit()
-    stale = list(
-        (
-            await db.execute(
-                select(Generation.asset_id, Generation.generation)
-                .join(Asset, Asset.id == Generation.asset_id)
-                .where(
-                    Generation.output_id.is_not(None),
-                    Generation.updated_at < cutoff,
-                    func.yoao_assets_v1.legacy_pyramid_gc_eligible(
-                        "pyramid_generation", Generation.asset_id, Generation.generation
-                    ),
-                    Generation.status.in_(("ready", "failed")),
-                    Generation.generation.is_distinct_from(Asset.active_generation),
-                    Generation.generation.is_distinct_from(Asset.building_generation),
-                )
-                .order_by(
-                    Generation.updated_at, Generation.asset_id, Generation.generation
-                )
-                .limit(100)
-            )
-        ).all()
-    )
-    for asset_id, number in stale:
-        asset = await db.scalar(
-            select(Asset).where(Asset.id == asset_id).with_for_update()
-        )
-        generation = await db.scalar(
-            select(Generation)
-            .where(Generation.asset_id == asset_id, Generation.generation == number)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        if (
-            asset is not None
-            and generation is not None
-            and number not in {asset.active_generation, asset.building_generation}
-            and generation.status in {"ready", "failed"}
-            and generation.updated_at < cutoff
-            and await _legacy_gc_eligible(db, "pyramid_generation", asset_id, number)
-        ):
-            await db.delete(generation)
+    for asset_id, number in await data.stale(db, cutoff):
+        await data.remove_stale(db, asset_id, number, cutoff)
         await db.commit()
-    identifiers = list(
-        await db.scalars(
-            select(Output.id)
-            .where(
-                Output.state != "deleted",
-                func.yoao_assets_v1.legacy_pyramid_gc_eligible(
-                    "pyramid_output", Output.id, 0
-                ),
-                Output.updated_at < cutoff,
-                ~exists().where(Generation.output_id == Output.id),
-                ~exists().where(
-                    StorageOperation.purpose
-                    == "image_pyramid_" + func.replace(cast(Output.id, String), "-", "")
-                ),
-            )
-            .order_by(Output.updated_at, Output.id)
-            .limit(100)
-        )
-    )
+    identifiers = await data.retirable(db, cutoff)
     await db.commit()
     removed = 0
     for identifier in identifiers:
-        output = await db.scalar(
-            select(Output)
-            .where(Output.id == identifier)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-        if output is None or output.state == "deleted":
-            await db.rollback()
-            continue
-        if not await _legacy_gc_eligible(db, "pyramid_output", identifier, 0):
-            await db.rollback()
-            continue
-        if await db.scalar(
-            select(exists().where(Generation.output_id == identifier))
-        ) or await db.scalar(
-            select(exists().where(StorageOperation.purpose == purpose(identifier)))
-        ):
+        output = await data.begin_retirement(db, identifier, cutoff)
+        if output is None:
             await db.rollback()
             continue
         physical.resolve(output)
         published = output.state == "ready"
-        output.state = "retiring"
         await db.commit()
         if published:
             continue
-        receipt = snapshot(output)
+        receipt = replace(snapshot(output), state="retiring")
         try:
             target = await physical.transport_target(db, receipt, require_enabled=False)
             accounting = removal.recorder(
@@ -769,33 +620,11 @@ async def reconcile(db, storage):
             async def admitted(permit):
                 nonlocal owned_permit
                 owned_permit = permit
-                current = await db.scalar(
-                    select(Output)
-                    .where(Output.id == identifier)
-                    .with_for_update()
-                    .execution_options(populate_existing=True)
+                error = await data.check_retirement(
+                    db, identifier, receipt.storage_ref, permit.id
                 )
-                if (
-                    current is None
-                    or current.state != "retiring"
-                    or current.storage_ref != receipt.storage_ref
-                    or await db.scalar(
-                        select(exists().where(Generation.output_id == identifier))
-                    )
-                    or not await _legacy_gc_eligible(
-                        db, "pyramid_output", identifier, 0
-                    )
-                ):
-                    reject()
-                if await db.scalar(
-                    select(
-                        exists().where(
-                            StorageOperation.purpose == purpose(identifier),
-                            StorageOperation.id != permit.id,
-                        )
-                    )
-                ):
-                    reject("storage_operation_unsettled")
+                if error is not None:
+                    reject(error)
                 await storage_access.check(
                     db, permit.location_id, expected_revision=permit.revision, lock=True
                 )
@@ -843,19 +672,8 @@ async def reconcile(db, storage):
             )
             if failure is not None:
                 raise failure
-            current = await db.scalar(
-                select(Output)
-                .where(Output.id == identifier)
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-            if (
-                current is None
-                or current.state != "retiring"
-                or current.storage_ref != receipt.storage_ref
-            ):
+            if not await data.finish_retirement(db, identifier, receipt.storage_ref):
                 reject()
-            current.state = "deleted"
             await db.commit()
             removed += count
         except (ContentError, physical.ImagePyramidStorageError):

@@ -30,6 +30,7 @@ from app.db.models.trained_model import ModelDeployment, TrainedModelVersion
 from app.db.models.training_dataset import TrainingDatasetVersion
 from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.db.models.user import User
+from app.services import evaluation_data
 from app.services import sample_evaluations as service
 from app.services.training_dataset_bridge import content_digest
 from app.workers import sample_evaluations as worker
@@ -41,6 +42,7 @@ from tests.sample_evaluation_fixtures import (
     prediction,
     seed,
 )
+from tests.training_consumer_fixtures import learning_consumer
 
 
 @pytest.fixture
@@ -217,8 +219,9 @@ async def test_duplicate_delivery_has_one_claim_and_stale_writer_cannot_checkpoi
         )
         row.request = service.request_identity(current.spec, row, preprocessing)
         result = prediction(current, row)
-        current.status = old.status = "lost"
-        old.claim_id = None
+        assert await service.mark_lost(
+            db, current, old, code="execution_lost", message="Lost test delivery"
+        )
         new = await service.new_attempt(db, current)
         await db.commit()
     with pytest.raises(worker.FencedOut):
@@ -350,7 +353,9 @@ async def test_completed_receipt_is_recovered_without_routed_inference_or_new_gr
         await db.commit()
     backend_control = object()
     monkeypatch.setattr(
-        worker, "backend_control_handle", AsyncMock(return_value=backend_control)
+        worker.managed,
+        "backend_control_handle",
+        AsyncMock(return_value=backend_control),
     )
     monkeypatch.setattr(
         worker,
@@ -364,7 +369,7 @@ async def test_completed_receipt_is_recovered_without_routed_inference_or_new_gr
         ),
     )
     new_grant = Mock(side_effect=AssertionError("Receipt must not ask for a new grant"))
-    monkeypatch.setattr(worker.managed, "build_gpu_dispatch_context_factory", new_grant)
+    monkeypatch.setattr(worker.managed, "predict", new_grant)
     recovered = await worker.obtain_result(
         world.factory, run, row, png, world.attempt.id, uuid.uuid4()
     )
@@ -372,19 +377,25 @@ async def test_completed_receipt_is_recovered_without_routed_inference_or_new_gr
 
 
 async def test_cancel_stays_pending_while_native_busy_and_seals_before_late_post(
-    world, monkeypatch
+    world, monkeypatch, test_engine
 ):
-    claim_id = await worker.claim(world.factory, world.attempt.id, "cancel")
-    async with world.factory() as db:
-        run, _attempt = await worker.fenced(db, world.attempt.id, claim_id)
-        row = await db.get(Sample, (run.id, 0))
+    async with learning_consumer(test_engine) as consumer:
+        await exercise_native_cancel(world, monkeypatch, consumer)
+
+
+async def exercise_native_cancel(world, monkeypatch, consumer):
+    claim_id = await worker.claim(consumer, world.attempt.id, "cancel")
+    assert claim_id is not None
+    async with consumer() as db:
+        run, attempt = await worker.fenced(db, world.attempt.id, claim_id)
+        row = await evaluation_data.get_sample(db, run.id, 0)
         _png, preprocessing = service.prepare_input(
             run, world.fixture.dataset, run.spec["samples"][0]
         )
-        row.request, row.status = (
-            service.request_identity(run.spec, row, preprocessing),
-            "inflight",
-        )
+        request = service.request_identity(run.spec, row, preprocessing)
+        assert await evaluation_data.start_sample(db, run, attempt, row, request)
+        row.request = request
+        late_result = prediction(run, row)
         await service.request_cancel(db, run)
         await db.commit()
     busy = True
@@ -398,23 +409,76 @@ async def test_cancel_stays_pending_while_native_busy_and_seals_before_late_post
         return {"state": "sealed"}
 
     monkeypatch.setattr(worker, "remote_receipt", receipt)
-    assert not await worker.settle_cancel(world.factory, run.id)
+    assert not await worker.settle_cancel(consumer, run.id)
     async with world.factory() as db:
         assert (await db.get(Run, run.id)).status == "cancelling"
         assert (await db.get(AsyncJob, world.attempt.async_job_id)).status == "running"
     busy = False
-    assert await worker.settle_cancel(world.factory, run.id)
+    assert await worker.settle_cancel(consumer, run.id)
     async with world.factory() as db:
         current = await db.get(Run, run.id)
         assert current.status == "cancelled" and sealed == [row.request_id]
+        assert (await db.get(Attempt, world.attempt.id)).claim_id is None
+        assert (await db.get(Sample, (run.id, 0))).evidence is None
         report = await service.read_report(
             db, current, await db.get(Attempt, world.attempt.id)
         )
         assert not report["complete"] and report["aggregate"] is None
         assert report["pending_samples"] == 3
     with pytest.raises(worker.FencedOut):
-        async with world.factory() as db:
-            await worker.fenced(db, world.attempt.id, claim_id)
+        await worker.checkpoint(consumer, attempt.id, claim_id, 0, late_result)
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the disposable verifier and embedded application LOGIN",
+)
+async def test_private_learning_model_and_evaluation_acl(world, test_engine):
+    from app.services import learning_models_data
+
+    async with learning_consumer(test_engine) as consumer, consumer() as db:
+        version = await learning_models_data.get_version(
+            db, world.run.project_id, world.fixture.model.id
+        )
+        assert version is not None and version.id == world.fixture.model.id
+        assert (
+            await learning_models_data.get_version(db, uuid.uuid4(), version.id) is None
+        )
+        run = await evaluation_data.get_run(db, world.run.project_id, world.run.id)
+        assert run is not None and run.current_attempt_id == world.attempt.id
+        assert await evaluation_data.get_run(db, uuid.uuid4(), run.id) is None
+
+        for relation in (
+            "public.trained_model_versions",
+            "public.trained_model_deployments",
+            "public.project_model_releases",
+            "public.project_model_selections",
+            "public.model_decisions",
+            "public.sample_evaluation_runs",
+            "public.sample_evaluation_attempts",
+            "public.sample_evaluation_samples",
+            "yoao_learning_v1._model_version_rows",
+            "yoao_learning_v1._evaluation_run_rows",
+        ):
+            assert not await db.scalar(
+                text(
+                    "SELECT has_table_privilege(:relation, 'SELECT,INSERT,UPDATE,DELETE') "
+                    "OR has_any_column_privilege(:relation, 'SELECT,INSERT,UPDATE')"
+                ),
+                {"relation": relation},
+            ), relation
+        assert not await db.scalar(
+            text(
+                "SELECT has_function_privilege("
+                "'yoao_learning_v1._hold_evaluation_attempt(uuid,uuid,integer,uuid,boolean,text[])', 'EXECUTE')"
+            )
+        )
+        assert await db.scalar(
+            text(
+                "SELECT has_table_privilege('yoao_learning_v1.model_version_lineage', 'SELECT') "
+                "AND NOT has_table_privilege('yoao_learning_v1.model_version_lineage', 'INSERT,UPDATE,DELETE')"
+            )
+        )
 
 
 async def test_cancel_recovers_completed_receipt_preserving_sample_diagnostics(
@@ -475,10 +539,8 @@ async def test_lost_commit_acknowledgement_keeps_the_published_report(world):
             commit = db.commit
 
             async def commit_then_lose_ack():
-                publishing = any(
-                    isinstance(row, Attempt) and row.report
-                    for row in db.identity_map.values()
-                )
+                current = await evaluation_data.get_attempt(db, run.id, attempt.id)
+                publishing = bool(current.report)
                 await commit()
                 if publishing:
                     raise ConnectionError("Commit ACK lost after success")

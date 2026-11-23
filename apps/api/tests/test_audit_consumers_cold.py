@@ -403,9 +403,14 @@ async def test_current_cold_audit_api_worker_queries_exports_and_restore(
     nonce = uuid.uuid4().hex
     now = datetime.now(timezone.utc).replace(microsecond=123456)
     async with maker.begin() as db:
-        assert await db.scalar(
+        assert not await db.scalar(
             text(
-                "SELECT has_table_privilege('legacy_runtime','public.audit_logs','SELECT')"
+                "SELECT has_any_column_privilege('legacy_runtime','public.audit_logs','SELECT')"
+            )
+        )
+        assert not await db.scalar(
+            text(
+                "SELECT has_any_column_privilege('identity_api_consumer','public.audit_logs','SELECT')"
             )
         )
         admin = await create_user(
@@ -480,9 +485,6 @@ async def test_current_cold_audit_api_worker_queries_exports_and_restore(
                     },
                 )
             )
-        await db.execute(
-            text("REVOKE SELECT ON public.audit_logs FROM identity_api_consumer")
-        )
     tokens = {
         name: {
             "Authorization": "Bearer "
@@ -786,9 +788,12 @@ async def test_current_cold_audit_api_worker_queries_exports_and_restore(
                             )
                         ).one()
                         assert row.actor_id is None and row.action == "http.post"
-                        assert await db.scalar(
+                        assert not await db.scalar(
                             text(
-                                "SELECT has_table_privilege('legacy_runtime','public.audit_logs','SELECT')"
+                                "SELECT EXISTS ("
+                                "SELECT FROM pg_catalog.pg_partition_tree('public.audit_logs') AS partition "
+                                "CROSS JOIN (VALUES ('legacy_runtime'), ('identity_api_consumer')) roles(role) "
+                                "WHERE pg_catalog.has_any_column_privilege(role::name,partition.relid,'SELECT'))"
                             )
                         )
                 finally:

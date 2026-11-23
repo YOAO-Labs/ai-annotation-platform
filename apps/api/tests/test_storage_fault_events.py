@@ -1,13 +1,14 @@
 """Physical failures retain safe evidence without taking over caller transactions."""
 
 import hashlib
+import os
 from unittest.mock import AsyncMock, Mock
 import uuid
 
 from botocore.exceptions import ClientError
 import pytest
 from sqlalchemy import delete, select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from app.config import settings
 from app.db.models.audit_log import AuditLog
@@ -19,10 +20,12 @@ from app.services import dataset_content as content, dataset_references as refer
 from app.services import dataset_scans
 from app.services import directory_previews, filesystem_storage as fs
 from app.services import storage_fault_events as events
+from app.services.audit import AuditService
 from app.services.content_snapshot import ContentError
 from app.services.source_readers import s3 as s3_reference
 from app.services.source_readers import sftp as sftp_reference
 from tests.test_dataset_content import content_world as content_world, headers
+from tests.test_workspace_project_authority_locking import _api_url
 
 
 async def rows(engine, location_id):
@@ -299,6 +302,61 @@ async def test_independent_event_does_not_commit_caller_business(test_engine):
         assert saved[0]["actor_id"] is None
         assert saved[0]["detail_json"]["actor_id"] == str(actor_id)
     finally:
+        await clean(test_engine, location_id)
+
+
+@pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the real application LOGIN in the disposable module-data verifier",
+)
+async def test_restricted_login_records_physical_fault_once_and_preserves_caller_rollback(
+    test_engine, monkeypatch
+):
+    url = _api_url(test_engine)
+    runtime = create_async_engine(url, hide_parameters=True)
+    location_id, actor_id = uuid.uuid4(), uuid.uuid4()
+    events_for_location = text(
+        "SELECT action, actor_id, detail_json FROM yoao_audit_v1.audit_events "
+        "WHERE target_type = 'storage_location' AND target_id = :id"
+    )
+    params = {"id": str(location_id)}
+    monkeypatch.setattr(settings, "storage_filesystem_roots", {})
+    try:
+        async with AsyncSession(runtime) as db:
+            assert await db.scalar(text("SELECT current_user")) == url.username
+            await AuditService.log(
+                db,
+                actor=None,
+                action="audit.probe.rollback",
+                target_type="storage_location",
+                target_id=location_id,
+            )
+            with pytest.raises(fs.FilesystemStorageError) as caught:
+                async with events.observe(
+                    db,
+                    operation="reference_read",
+                    location_id=location_id,
+                    actor_id=actor_id,
+                ):
+                    with fs.location_directory({"root_handle": "unconfigured"}):
+                        pytest.fail("unconfigured filesystem root opened")
+            assert caught.value.code == "root_not_configured"
+            assert {
+                row.action for row in await db.execute(events_for_location, params)
+            } == {"audit.probe.rollback", events.ACTION}
+            await db.rollback()
+        async with runtime.connect() as observer:
+            saved = (await observer.execute(events_for_location, params)).one()
+            assert saved.action == events.ACTION and saved.actor_id is None
+            assert saved.detail_json == {
+                "category": "root_unavailable",
+                "code": "root_not_configured",
+                "operation": "reference_read",
+                "location_id": str(location_id),
+                "actor_id": str(actor_id),
+            }
+    finally:
+        await runtime.dispose()
         await clean(test_engine, location_id)
 
 

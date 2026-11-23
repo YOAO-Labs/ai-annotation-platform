@@ -27,6 +27,7 @@ from app.services.workspace_e2e_fixtures import (
 )
 from app.services.seed_membership_data import SeedMembershipWrites
 from app.services.labeling_e2e_fixture_writes import LabelingE2EFixtureWrites
+from app.services.insights_saved_views import ProjectSavedViews
 from app.services.workspace_seed_data import register_seed_project_projection
 
 _StageVideoOutputs = Callable[
@@ -516,8 +517,6 @@ async def _seed_image_semantics(
     users: dict[str, Any],
     image_payload: bytes,
 ) -> FilteringImageManifest:
-    from app.db.models.project_task_view import ProjectTaskView
-
     admin, annotator, reviewer = users["admin"], users["anno"], users["rev"]
     project = await _create_project(
         db,
@@ -701,9 +700,10 @@ async def _seed_image_semantics(
         ]
     )
 
-    root_or = ProjectTaskView(
+    views = ProjectSavedViews(db)
+    root_or = await views.create(
         project_id=project.id,
-        owner_id=admin.id,
+        actor_id=admin.id,
         name="Filter Root OR",
         visibility="project",
         entity_scope="tasks",
@@ -717,9 +717,9 @@ async def _seed_image_semantics(
         sort_json=[{"field": "task.created_at", "direction": "asc"}],
         columns_json=["display_id", "status"],
     )
-    required_nested = ProjectTaskView(
+    required_nested = await views.create(
         project_id=project.id,
-        owner_id=admin.id,
+        actor_id=admin.id,
         name="Filter Required Nested",
         visibility="private",
         entity_scope="tasks",
@@ -738,9 +738,9 @@ async def _seed_image_semantics(
         sort_json=[],
         columns_json=["display_id"],
     )
-    object_filter = ProjectTaskView(
+    object_filter = await views.create(
         project_id=project.id,
-        owner_id=admin.id,
+        actor_id=admin.id,
         name="Filter Object Color",
         visibility="project",
         entity_scope="objects",
@@ -758,9 +758,9 @@ async def _seed_image_semantics(
         sort_json=[{"field": "annotation.updated_at", "direction": "desc"}],
         columns_json=["class_name", "attributes"],
     )
-    invalid_view = ProjectTaskView(
+    invalid_view = await views.create(
         project_id=project.id,
-        owner_id=admin.id,
+        actor_id=admin.id,
         name="Filter Removed Attribute",
         visibility="private",
         entity_scope="objects",
@@ -768,8 +768,6 @@ async def _seed_image_semantics(
         sort_json=[],
         columns_json=["class_name"],
     )
-    db.add_all([root_or, required_nested, object_filter, invalid_view])
-    await db.flush()
     register_seed_project_projection(db, project.id)
     project.tool_bindings = {
         **project.tool_bindings,
@@ -1208,7 +1206,6 @@ async def _seed_lidar(
     from yoao_assets_catalog.spatial_values import FramePose
     from app.services.assets_spatial import AssetsSpatialGateway
     from app.services.task_dataset_link import link_items
-    from app.db.models.project_task_view import ProjectTaskView
     from app.services.scene_track_domain import ensure_scene_track
 
     admin, annotator = users["admin"], users["anno"]
@@ -1441,9 +1438,9 @@ async def _seed_lidar(
             ),
         ]
     )
-    track_view = ProjectTaskView(
+    track_view = await ProjectSavedViews(db).create(
         project_id=project.id,
-        owner_id=admin.id,
+        actor_id=admin.id,
         name="Filter Track IDs",
         visibility="project",
         entity_scope="tracks",
@@ -1455,8 +1452,6 @@ async def _seed_lidar(
         sort_json=[{"field": "track.track_id", "direction": "asc"}],
         columns_json=["track_id", "class_name"],
     )
-    db.add(track_view)
-    await db.flush()
     return FilteringLidarManifest(
         project_id=str(project.id),
         scene_id=str(scene.id),

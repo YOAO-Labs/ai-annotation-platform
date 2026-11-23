@@ -23,6 +23,7 @@ from sqlalchemy.ext.asyncio import (
 from yoao_assets_images import contract as c
 from yoao_assets_images.policy import ImagePolicy
 from app.config import settings
+from app.services.assets_executor_db import executor_sessions
 
 _LOGGER = logging.getLogger(__name__)
 _WAKEUPS: OrderedDict[tuple[UUID, int], float] = OrderedDict()
@@ -208,7 +209,7 @@ def _native_storage_client(prefix: str):
     return NativePyramidStorageClient(config.url, config.token)
 
 
-def image_storage(*, control: bool = False):
+def image_storage(*, control: bool = False, native_writer: bool = False):
     from yoao_assets_images_runtime.config import ImageStorageConfig
     from yoao_assets_media_runtime.additional_original import (
         load_additional_original_config,
@@ -236,7 +237,9 @@ def image_storage(*, control: bool = False):
             read_timeout=10 if control else 120,
         ),
         native_writer=(
-            None if control else _native_storage_client("ASSETS_IMAGES_NATIVE_STORAGE")
+            _native_storage_client("ASSETS_IMAGES_NATIVE_STORAGE")
+            if native_writer
+            else None
         ),
     )
 
@@ -309,7 +312,7 @@ def image_gateway(db: AsyncSession | None = None, *, caller_transaction: bool = 
             _IndependentImageDatabase(factory),
             image_storage(control=True),
             policy=image_policy(),
-            wakeup=_wake,
+            wakeup=_wake if settings.assets_image_executor == "celery" else None,
             native_storage=_native_storage_client("ASSETS_MEDIA_NATIVE_IMAGE_STORAGE"),
         )
     return ImageGateway(provider)
@@ -320,27 +323,29 @@ def image_executor(*, session_factory=None):
 
     return ImageExecutor(
         _IndependentImageDatabase(session_factory),
-        image_storage(),
+        image_storage(native_writer=True),
         worker_id=uuid4(),
         srgb_profile=settings.image_pyramid_srgb_profile,
     )
 
 
-async def run_image_job(job_id: UUID | None = None, *, session_factory=None) -> bool:
-    if settings.assets_media_url:
+async def run_image_job(job_id: UUID | None = None) -> bool:
+    if settings.assets_image_executor == "split":
         return False
-    executor = image_executor(session_factory=session_factory)
-    try:
-        return await executor.execute_once(job_id=job_id) is not None
-    finally:
-        await executor.close()
+    async with executor_sessions("image") as factory:
+        executor = image_executor(session_factory=factory)
+        try:
+            return await executor.execute_once(job_id=job_id) is not None
+        finally:
+            await executor.close()
 
 
-async def maintain_images(*, session_factory=None):
-    if settings.assets_media_url:
+async def maintain_images():
+    if settings.assets_image_executor == "split":
         return None
-    executor = image_executor(session_factory=session_factory)
-    try:
-        return await executor.reconcile_once()
-    finally:
-        await executor.close()
+    async with executor_sessions("image") as factory:
+        executor = image_executor(session_factory=factory)
+        try:
+            return await executor.reconcile_once()
+        finally:
+            await executor.close()

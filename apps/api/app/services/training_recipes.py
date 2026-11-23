@@ -2,10 +2,8 @@
 
 import uuid
 from fastapi import HTTPException
-from sqlalchemy import select
-from app.db.models.training_recipe import TrainingRecipe, TrainingRecipeRevision
-from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.services import training_adapters as adapters
+from app.services import learning_selection_data as data, training_run_data
 from app.services.training_dataset_bridge import content_digest
 from app.services import training_initialization as initialization
 from app.services import training_claims as claims
@@ -103,47 +101,26 @@ def compatibility(value):
 
 
 async def recipe_revision(db, project_id, recipe_id, revision_id=None, *, lock=False):
-    statement = select(TrainingRecipe).where(
-        TrainingRecipe.id == recipe_id, TrainingRecipe.project_id == project_id
-    )
-    if lock:
-        statement = statement.with_for_update().execution_options(
-            populate_existing=True
-        )
-    recipe = await db.scalar(statement)
+    recipe = await data.get_recipe(db, project_id, recipe_id, lock=lock)
     if not recipe:
         raise HTTPException(status_code=404, detail="配方不存在或不属于当前项目")
-    query = select(TrainingRecipeRevision).where(
-        TrainingRecipeRevision.recipe_id == recipe.id
-    )
-    query = (
-        query.where(TrainingRecipeRevision.id == revision_id)
-        if revision_id
-        else query.where(TrainingRecipeRevision.ordinal == recipe.head_revision)
-    )
-    revision = await db.scalar(query)
+    revision = await data.get_revision(db, recipe.id, revision_id, recipe.head_revision)
     if not revision:
         raise HTTPException(status_code=404, detail="配方修订不存在")
     return recipe, revision
 
 
 async def source_run(db, project_id, run_id, attempt_id=None):
-    run = await db.scalar(
-        select(TrainingRun).where(
-            TrainingRun.id == run_id, TrainingRun.project_id == project_id
-        )
-    )
-    if not run:
+    run = await training_run_data.get_run(db, project_id, run_id)
+    if run is None:
         raise HTTPException(
             status_code=404,
             detail="来源实验已删除或不属于当前项目；请明确解除来源后继续",
         )
-    if attempt_id and not await db.scalar(
-        select(TrainingAttempt.id).where(
-            TrainingAttempt.id == attempt_id, TrainingAttempt.run_id == run.id
-        )
-    ):
-        raise HTTPException(status_code=404, detail="来源执行尝试不属于该实验")
+    if attempt_id:
+        attempt = await training_run_data.get_attempt(db, attempt_id)
+        if not attempt or attempt.run_id != run.id:
+            raise HTTPException(status_code=404, detail="来源执行尝试不属于该实验")
     return run
 
 
@@ -185,11 +162,8 @@ async def describe(db, recipe, revision):
     source_available = True
     if origin.get("kind") == "clone":
         source_available = bool(
-            await db.scalar(
-                select(TrainingRun.id).where(
-                    TrainingRun.id == uuid.UUID(origin["run_id"]),
-                    TrainingRun.project_id == recipe.project_id,
-                )
+            await training_run_data.get_run(
+                db, recipe.project_id, uuid.UUID(origin["run_id"])
             )
         )
     if revision.snapshot.get("initialization"):
@@ -311,12 +285,7 @@ async def write_revision(body, project, user, db, recipe_id=None):
             "body": body.request_payload(),
         }
     )
-    previous = await db.scalar(
-        select(TrainingRecipeRevision).where(
-            TrainingRecipeRevision.project_id == project.id,
-            TrainingRecipeRevision.request_id == body.request_id,
-        )
-    )
+    previous = await data.revision_request(db, project.id, body.request_id)
     if previous:
         if previous.request_digest != digest:
             raise HTTPException(
@@ -331,12 +300,8 @@ async def write_revision(body, project, user, db, recipe_id=None):
                 status_code=409,
                 detail="配方已归档或出现新修订；保留编辑内容并刷新后重试",
             )
-    else:
-        if body.expected_head_revision != 0:
-            raise HTTPException(status_code=409, detail="新配方的预期修订必须为零")
-        recipe = TrainingRecipe(project_id=project.id, head_revision=0)
-        db.add(recipe)
-        await db.flush()
+    elif body.expected_head_revision != 0:
+        raise HTTPException(status_code=409, detail="新配方的预期修订必须为零")
     if body.source_run_id:
         run = await source_run(
             db, project.id, body.source_run_id, body.source_attempt_id
@@ -369,22 +334,23 @@ async def write_revision(body, project, user, db, recipe_id=None):
     else:
         value = await resolve_snapshot(db, project.id, body.configuration)
         origin = await origin_snapshot(db, project.id, body.origin, value)
-    recipe.head_revision += 1
-    revision = TrainingRecipeRevision(
-        recipe_id=recipe.id,
-        project_id=project.id,
-        creator_id=user.id,
-        ordinal=recipe.head_revision,
-        name=body.name,
-        description=body.description,
-        snapshot=value,
-        snapshot_digest=content_digest(value),
-        origin=origin,
-        initialization_model_id=initialization.model_id(value.get("initialization")),
-        request_id=body.request_id,
-        request_digest=digest,
+    revision = await data.append_recipe(
+        db,
+        project.id,
+        recipe_id,
+        user.id,
+        body,
+        value,
+        content_digest(value),
+        origin,
+        initialization.model_id(value.get("initialization")),
+        digest,
     )
-    db.add(revision)
+    if revision is None:
+        raise HTTPException(
+            status_code=409, detail="配方已归档或出现新修订；保留编辑内容并刷新后重试"
+        )
+    recipe = await data.get_recipe(db, project.id, revision.recipe_id)
     await db.commit()
     return await describe(db, recipe, revision)
 
@@ -395,5 +361,9 @@ async def archive_recipe(db, project, user, recipe_id, expected_head_revision):
     recipe, revision = await recipe_revision(db, project.id, recipe_id, lock=True)
     if recipe.head_revision != expected_head_revision:
         raise HTTPException(status_code=409, detail="配方已有新修订，请刷新")
-    recipe.archived = True
+    recipe = await data.archive_recipe(
+        db, project.id, recipe.id, expected_head_revision
+    )
+    if recipe is None:
+        raise HTTPException(status_code=409, detail="配方已有新修订，请刷新")
     return recipe, revision

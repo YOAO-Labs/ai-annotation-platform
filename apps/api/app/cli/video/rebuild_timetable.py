@@ -5,11 +5,12 @@ import asyncio
 import uuid
 from typing import Sequence
 
-from sqlalchemy import select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import async_session, engine
-from app.db.models.dataset import DatasetItem
+from app.services import video_derivative_objects as objects
+from app.services import video_derivatives as derivatives
 from app.services.video_frame_service import select_sparse_anchor_rows
 
 
@@ -58,44 +59,48 @@ async def select_video_items(
     dataset_id: uuid.UUID | None,
     all_items: bool,
     limit: int | None,
-) -> list[DatasetItem]:
+) -> Sequence[uuid.UUID]:
     selectors = sum([bool(dataset_item_ids), dataset_id is not None, all_items])
     if selectors != 1:
         raise SystemExit(
             "Pass exactly one selector: --dataset-item-id, --dataset-id, or --all"
         )
 
-    stmt = select(DatasetItem).where(DatasetItem.file_type == "video")
-    if dataset_item_ids:
-        stmt = stmt.where(DatasetItem.id.in_(dataset_item_ids))
-    elif dataset_id is not None:
-        stmt = stmt.where(DatasetItem.dataset_id == dataset_id)
-    stmt = stmt.order_by(DatasetItem.created_at.asc())
-    if limit is not None:
-        stmt = stmt.limit(max(0, limit))
-    return (await db.execute(stmt)).scalars().all()
+    if db.autoflush:
+        await db.flush()
+    return (
+        await db.scalars(
+            text(
+                "SELECT * FROM yoao_assets_v1.legacy_video_rebuild_items(:items, :dataset, :limit)"
+            ),
+            {
+                "items": list(dataset_item_ids) if dataset_item_ids else None,
+                "dataset": dataset_id,
+                "limit": max(0, limit) if limit is not None else None,
+            },
+        )
+    ).all()
 
 
 async def rebuild_item_timetable(
     db: AsyncSession,
-    item: DatasetItem,
+    item_id: uuid.UUID,
     *,
     storage: object | None = None,
     dry_run: bool = False,
     sparse_stride: int = 1,
 ) -> int:
-    from app.db.models.video_derivative import VideoDerivativeOutput
     from app.services import video_derivative_originals as originals
-    from app.services import video_derivatives as derivatives
     from app.services.content_snapshot import ContentError
     from app.workers.media_derivatives import run_outputs
 
-    source = await originals.pin(db, "dataset_item", item.id)
-    delegation = originals.system_authorization("dataset_item", item.id, source)
+    source = await originals.pin(db, "dataset_item", item_id)
+    delegation = originals.system_authorization("dataset_item", item_id, source)
     authority = await originals.delegated(db, delegation)
     stride = max(1, int(sparse_stride))
     if dry_run:
         try:
+            item = await derivatives.item_row(db, item_id)
             current = await derivatives.metadata(db, item, source)
             _, frames = derivatives.metadata_result(current)
         except ContentError as exc:
@@ -110,19 +115,17 @@ async def rebuild_item_timetable(
 
     output, _ = await derivatives.prepare(
         db,
-        item.id,
+        item_id,
         authority,
         "metadata",
         spec={"schema": 1, "timetable_stride": stride},
         force=True,
     )
-    output_id, item_id = output.id, item.id
+    output_id = output.id
     await db.commit()
     await run_outputs([str(output_id)])
-    current_item = await db.get(DatasetItem, item_id, populate_existing=True)
-    current_output = await db.get(
-        VideoDerivativeOutput, output_id, populate_existing=True
-    )
+    current_item = await derivatives.item_row(db, item_id)
+    current_output = await objects.read_attempt(db, item_id, "metadata", output_id)
     if (
         current_item is None
         or current_output is None
@@ -155,18 +158,18 @@ async def async_main(argv: Sequence[str] | None = None) -> int:
             limit=args.limit,
         )
         failures = 0
-        for item in items:
+        for item_id in items:
             try:
                 count = await rebuild_item_timetable(
-                    db, item, dry_run=args.dry_run, sparse_stride=args.sparse_stride
+                    db, item_id, dry_run=args.dry_run, sparse_stride=args.sparse_stride
                 )
                 prefix = "would rebuild" if args.dry_run else "rebuilt"
                 suffix = " (sparse)" if args.sparse_stride > 1 else ""
-                print(f"{prefix} {item.id}: {count} anchor rows{suffix}")
+                print(f"{prefix} {item_id}: {count} anchor rows{suffix}")
             except Exception as exc:
                 failures += 1
                 await db.rollback()
-                print(f"failed {item.id}: {exc}")
+                print(f"failed {item_id}: {exc}")
                 if not args.keep_going:
                     break
 

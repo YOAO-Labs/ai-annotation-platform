@@ -216,11 +216,11 @@ async def io_target(db, record):
     owner = resolve(record)
     if owner.ref["schema"] == 1:
         return None
-    from app.db.models.dataset_asset import StorageLocation
+    from app.services import storage_registry_data
     from app.services.export_storage_target import target_for
 
-    location = await db.get(
-        StorageLocation, uuid.UUID(owner.ref["location_id"]), populate_existing=True
+    location = await storage_registry_data.get_location(
+        db, uuid.UUID(owner.ref["location_id"])
     )
     logical = prefix_for(_field(record, "id"))
     target = await target_for(db, location, saved_root=owner.prefix[: -len(logical)])

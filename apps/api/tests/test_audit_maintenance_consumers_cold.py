@@ -492,14 +492,14 @@ async def _verify_runtime_denials(test_engine, database):
             privileges = (
                 await db.execute(
                     text(
-                        "SELECT has_table_privilege('public.audit_logs','INSERT'),"
+                        "SELECT has_any_column_privilege('public.audit_logs','SELECT,INSERT'),"
                         "has_table_privilege('public.async_jobs','INSERT'),"
                         "has_table_privilege('public.notifications','SELECT'),"
-                        "has_table_privilege('legacy_runtime','public.audit_logs','SELECT')"
+                        "has_any_column_privilege('legacy_runtime','public.audit_logs','SELECT')"
                     )
                 )
             ).one()
-            assert privileges == (False, False, False, True)
+            assert privileges == (False, False, False, False)
             with pytest.raises(DBAPIError) as denied:
                 await db.execute(
                     text(

@@ -18,13 +18,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.config import settings
-from app.db.models.model_decision import ModelDecision
-from app.db.models.trained_model import (
-    ModelDeployment,
-    ModelRelease,
-    ProjectModelSelection,
-    TrainedModelVersion,
-)
+from app.services import learning_models_data as model_data
 from app.schemas.ml_backend import ModelCapability
 from app.schemas.model_catalog import (
     CatalogClassMetadata,
@@ -368,14 +362,8 @@ async def list_catalog(
                     entries[key].class_metadata = class_meta
                     entries[key].capabilities = capability
     versions = (
-        (
-            await db.scalars(
-                select(TrainedModelVersion).where(
-                    TrainedModelVersion.project_id.in_(projects)
-                )
-            )
-        ).all()
-        if projects
+        await model_data.catalog_models(db, project_ids, include_candidates=manager)
+        if project_ids
         else []
     )
     version_ids = [v.id for v in versions]
@@ -383,44 +371,18 @@ async def list_catalog(
     releases = defaultdict(list)
     decisions = {}
     if version_ids:
-        for deployment in (
-            await db.scalars(
-                select(ModelDeployment).where(
-                    ModelDeployment.model_version_id.in_(version_ids)
-                )
-            )
-        ).all():
+        for deployment in await model_data.deployments_for_versions(
+            db, project_ids, version_ids
+        ):
             deployments[deployment.model_version_id].append(deployment)
-        for release in (
-            await db.scalars(
-                select(ModelRelease)
-                .where(ModelRelease.model_version_id.in_(version_ids))
-                .order_by(ModelRelease.generation.desc())
-            )
-        ).all():
+        for release in await model_data.catalog_releases(db, project_ids, version_ids):
             releases[release.model_version_id].append(release)
-        for decision in (
-            await db.scalars(
-                select(ModelDecision)
-                .where(ModelDecision.model_version_id.in_(version_ids))
-                .order_by(ModelDecision.sequence.desc())
+        decisions = {
+            fact.id: fact.disposition
+            for fact in await model_data.candidate_metadata(
+                db, project_ids, version_ids
             )
-        ).all():
-            decisions.setdefault(decision.model_version_id, decision.disposition)
-    selections = (
-        {
-            (s.project_id, s.task): s.release_id
-            for s in (
-                await db.scalars(
-                    select(ProjectModelSelection).where(
-                        ProjectModelSelection.project_id.in_(projects)
-                    )
-                )
-            ).all()
         }
-        if projects
-        else {}
-    )
     current_releases = {}
     for version in versions:
         history = releases[version.id]
@@ -429,8 +391,7 @@ async def list_catalog(
         owner = projects[version.project_id]
         version_task = trained_models.model_task(version)
         current = next(
-            (r for r in history if r.id == selections.get((owner.id, version_task))),
-            None,
+            (r for r in history if r.is_current and r.task == version_task), None
         )
         archived = decisions.get(version.id) in {"archived", "declined"}
         publication = (

@@ -209,13 +209,12 @@ async def allocated(db, *, commit=True, legacy=False):
         inserted = await db.scalar(
             text(
                 "SELECT yoao_labeling_v1.create_uploading_task("
-                ":task_id, :project_id, :display_id, :file_name, "
+                ":task_id, :project_id, :file_name, "
                 ":file_path, :file_type, :actor_id)"
             ),
             {
                 "task_id": task.id,
                 "project_id": task.project_id,
-                "display_id": task.display_id,
                 "file_name": task.file_name,
                 "file_path": allocation["object_key"],
                 "file_type": "other",

@@ -3,10 +3,7 @@
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from sqlalchemy import func, select
-from app.db.models.learning_policy import LearningPolicy, LearningTrigger
 from app.db.models.project import Project
-from app.db.models.training_run import TrainingRun
 from app.deps import (
     get_current_user,
     get_db,
@@ -22,6 +19,7 @@ from app.schemas.learning_policy import (
     LearningTriggerPage,
 )
 from app.services import learning_policies as service
+from app.services import learning_selection_data as data, training_run_data
 
 from app.services.training_dataset_dispatch import TrainingDatasetDispatcher
 from app.services.training_authority_contract import TrainingAuthorityPort
@@ -39,11 +37,7 @@ async def get_policy(
     db=Depends(get_db),
     task: Literal["detect", "segment"] = "detect",
 ) -> LearningPolicyOut | None:
-    return await db.scalar(
-        select(LearningPolicy).where(
-            LearningPolicy.project_id == project.id, LearningPolicy.task == task
-        )
-    )
+    return await data.get_policy(db, project.id, task)
 
 
 @router.put(
@@ -110,8 +104,7 @@ async def check_policy(
     )
     await db.commit()
     await service.dispatch_pending(db, policy.id, dispatcher=dataset_dispatcher)
-    await db.refresh(policy)
-    return policy
+    return await data.policy_by_id(db, policy.id)
 
 
 @router.get("/triggers", response_model=LearningTriggerPage)
@@ -122,44 +115,12 @@ async def list_triggers(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> dict:
-    total = await db.scalar(
-        select(func.count())
-        .select_from(LearningTrigger)
-        .where(
-            LearningTrigger.project_id == project.id,
-            LearningTrigger.policy_id.in_(
-                select(LearningPolicy.id).where(
-                    LearningPolicy.project_id == project.id, LearningPolicy.task == task
-                )
-            ),
-        )
-    )
-    triggers = list(
-        await db.scalars(
-            select(LearningTrigger)
-            .where(
-                LearningTrigger.project_id == project.id,
-                LearningTrigger.policy_id.in_(
-                    select(LearningPolicy.id).where(
-                        LearningPolicy.project_id == project.id,
-                        LearningPolicy.task == task,
-                    )
-                ),
-            )
-            .order_by(LearningTrigger.created_at.desc(), LearningTrigger.id.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-    )
+    total = await data.trigger_count(db, project.id, task)
+    triggers = await data.triggers_page(db, project.id, task, limit, offset)
     run_ids = (
-        {
-            r.auto_trigger_id: str(r.id)
-            for r in await db.scalars(
-                select(TrainingRun).where(
-                    TrainingRun.auto_trigger_id.in_([t.id for t in triggers])
-                )
-            )
-        }
+        await training_run_data.trigger_run_ids(
+            db, project.id, [t.id for t in triggers]
+        )
         if triggers
         else {}
     )
@@ -168,7 +129,7 @@ async def list_triggers(
         "items": [
             {
                 **LearningTriggerOut.model_validate(t).model_dump(mode="json"),
-                "run_id": run_ids.get(t.id),
+                "run_id": str(run_id) if (run_id := run_ids.get(t.id)) else None,
             }
             for t in triggers
         ],

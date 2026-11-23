@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services import task_access
 from app.db.models.task import Task
 from app.services.identity_contracts import IdentityActorFacts
-from app.db.models.video_chapter import VideoChapter
 from app.deps import get_current_user, get_db, require_active_task_actor
 from app.schemas.task import (
     TaskVideoFrameTimetableResponse,
@@ -37,6 +36,7 @@ from yoao_workspace_contract.access import ProjectAccess
 from app.application.task_workflow_errors import TaskWorkflowError
 from app.application.video_chapters import VideoChapterWorkflow
 from app.services.labeling_core_read_relations import task_row
+from app.services.video_chapter_service import list_chapters
 from app.services.video_frame_service import (
     build_context_from_dataset_item,
     authorize_context,
@@ -64,23 +64,6 @@ async def _video_chapter_target_context(
 
 def _raise_task_workflow_error(error: TaskWorkflowError) -> None:
     raise HTTPException(status_code=error.status_code, detail=error.detail) from error
-
-
-def _chapter_out(row: VideoChapter) -> VideoChapterOut:
-    return VideoChapterOut.model_validate(
-        {
-            "id": row.id,
-            "dataset_item_id": row.dataset_item_id,
-            "start_frame": row.start_frame,
-            "end_frame": row.end_frame,
-            "title": row.title,
-            "color": row.color,
-            "metadata": dict(row.chapter_metadata or {}),
-            "created_by": row.created_by,
-            "created_at": row.created_at,
-            "updated_at": row.updated_at,
-        }
-    )
 
 
 async def _visible_video_task_for_item(
@@ -299,19 +282,10 @@ async def list_video_chapters(
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
-    await _visible_video_task_for_item(db, dataset_item_id, current_user)
-    rows = (
-        (
-            await db.execute(
-                select(VideoChapter)
-                .where(VideoChapter.dataset_item_id == dataset_item_id)
-                .order_by(VideoChapter.start_frame.asc(), VideoChapter.end_frame.asc())
-            )
-        )
-        .scalars()
-        .all()
+    task = await _visible_video_task_for_item(db, dataset_item_id, current_user)
+    return VideoChapterList(
+        chapters=await list_chapters(db, dataset_item_id, task.id, current_user.id)
     )
-    return VideoChapterList(chapters=[_chapter_out(row) for row in rows])
 
 
 @router.post(
@@ -339,7 +313,6 @@ async def create_video_chapter(
         )
     except TaskWorkflowError as exc:
         _raise_task_workflow_error(exc)
-    body = _chapter_out(chapter)
     await AuditService.log(
         db,
         actor=current_user,
@@ -356,7 +329,7 @@ async def create_video_chapter(
         },
     )
     await db.commit()
-    return body
+    return chapter
 
 
 @router.patch(
@@ -385,8 +358,6 @@ async def update_video_chapter(
         )
     except TaskWorkflowError as exc:
         _raise_task_workflow_error(exc)
-    await db.refresh(chapter)
-    body = _chapter_out(chapter)
     await AuditService.log(
         db,
         actor=current_user,
@@ -401,7 +372,7 @@ async def update_video_chapter(
         },
     )
     await db.commit()
-    return body
+    return chapter
 
 
 @router.delete(

@@ -316,6 +316,7 @@ def worker_session(db_session, monkeypatch):
 def remote_exchange(monkeypatch, world, *, after_result=None, uncertain=False):
     from yoao_site_agent_contract import digest, validate_result
     from app.services import agent_transport as transport
+    from tests.test_agent_transport import fixture_agent_permit
 
     receipts = []
 
@@ -344,6 +345,9 @@ def remote_exchange(monkeypatch, world, *, after_result=None, uncertain=False):
                 "purpose": purpose,
                 "maintenance_revision": expected_revision,
             },
+            operation_id=await fixture_agent_permit(
+                db, location.id, purpose, expected_revision
+            ),
         )
         assert row.payload["arguments"]["relative_path"] == "mounted"
         row.lease_session_id = world.agent.session_id

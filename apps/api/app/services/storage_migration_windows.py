@@ -1,33 +1,18 @@
 """Fence registered access while admitting only bound migration source readers."""
 
-import json
+from dataclasses import dataclass
+from datetime import datetime
 import os
 import socket
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import func, select, text
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import bindparam, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.db.models.async_job import AsyncJob
-from app.db.models.dataset_asset import StorageLocation
-from app.db.models.storage_connection import StorageConnection
-from app.db.models.storage_maintenance import (
-    StorageMaintenanceGate as Gate,
-    StorageOperation,
-)
-from app.db.models.storage_migration_copy import (
-    StorageMigrationCopy as Copy,
-    StorageMigrationCopyAttempt as Attempt,
-)
-from app.db.models.storage_migration_inventory import (
-    StorageMigrationInventory as Inventory,
-)
-from app.db.models.storage_migration_window import StorageMigrationWindow as Window
-from app.db.models.user import User
 from app.schemas.storage_migration_window import (
     StorageMigrationWindowHistory,
     StorageMigrationWindowItem,
@@ -35,7 +20,56 @@ from app.schemas.storage_migration_window import (
 from app.services import storage_access, storage_maintenance
 from app.services.audit import AuditService
 from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.storage_migration_observations import endpoint_identity
+
+_WINDOW = text("SELECT * FROM yoao_assets_v1.read_migration_window(:window_id, :lock)")
+_HISTORY = text(
+    "SELECT * FROM yoao_assets_v1.migration_window_history(:limit, :offset)"
+)
+_HISTORY_COUNT = text("SELECT yoao_assets_v1.migration_window_history_count()")
+_OPEN_OPERATIONS = text(
+    "SELECT yoao_assets_v1.migration_window_open_operations(:window_id)"
+)
+_ACTIVE = text("SELECT yoao_assets_v1.migration_window_exists()")
+_OPEN = text(
+    "SELECT yoao_assets_v1.open_migration_window("
+    ":window_id, :parent_id, :actor_id, :expected_gate_revision, :source, :target)"
+).bindparams(bindparam("source", type_=JSONB), bindparam("target", type_=JSONB))
+_TRANSITION = text(
+    "SELECT yoao_assets_v1.transition_migration_window("
+    ":window_id, :expected_revision, :action, :actor_id)"
+)
+_BUMP_FINALIZATION = text(
+    "SELECT yoao_assets_v1.bump_migration_window_finalization_revision("
+    ":window_id, :expected_revision)"
+)
+_REGISTER_SOURCE = text(
+    "SELECT yoao_assets_v1.register_migration_window_source_read("
+    ":window_id, :window_revision, :gate_revision, :owner_kind, :owner_id, :task_id, "
+    ":actor_id, :authority, :source, :operation_id, :node)"
+).bindparams(bindparam("authority", type_=JSONB), bindparam("source", type_=JSONB))
+
+
+@dataclass(frozen=True, slots=True)
+class WindowSummary:
+    id: uuid.UUID
+    parent_copy_id: uuid.UUID
+    target_location_id: uuid.UUID
+    state: str
+    revision: int
+    source_gate_revision: int
+    source_config_revision: int
+    created_by: uuid.UUID | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class WindowFacts(WindowSummary):
+    source_location_id: uuid.UUID
+    source: dict
+    target: dict
 
 
 def reject(code, status=409):
@@ -66,16 +100,25 @@ def physical_source(source):
     return endpoint, buckets
 
 
-async def owner(db, window_id, *, lock=False, exclusive=False):
-    query = (
-        select(Window)
-        .where(Window.id == window_id)
-        .execution_options(populate_existing=True)
+async def _window(db, window_id, lock) -> WindowFacts | None:
+    if db.autoflush:
+        await db.flush()
+    row = (
+        (await db.execute(_WINDOW, {"window_id": window_id, "lock": lock}))
+        .mappings()
+        .one_or_none()
     )
-    if lock:
-        query = query.with_for_update(read=not exclusive, nowait=True)
+    return WindowFacts(**row) if row is not None else None
+
+
+async def copy_scope(db, window_id, *, lock=False) -> WindowFacts | None:
+    return await _window(db, window_id, "share" if lock else None)
+
+
+async def owner(db, window_id, *, lock=False, exclusive=False) -> WindowFacts:
+    mode = ("update_nowait" if exclusive else "share_nowait") if lock else None
     try:
-        row = await db.scalar(query)
+        row = await _window(db, window_id, mode)
     except DBAPIError as exc:
         if storage_access.unavailable(exc):
             reject("storage_maintenance_busy")
@@ -86,39 +129,36 @@ async def owner(db, window_id, *, lock=False, exclusive=False):
 
 
 async def gate(db, row, *, exclusive=False):
-    query = (
-        select(Gate)
-        .where(Gate.location_id == row.source_location_id)
-        .with_for_update(read=not exclusive, nowait=True)
-        .execution_options(populate_existing=True)
-    )
     try:
-        current = await db.scalar(query)
+        current = await storage_access.gate_facts(
+            db,
+            row.source_location_id,
+            lock="update_nowait" if exclusive else "share_nowait",
+        )
     except DBAPIError as exc:
         if storage_access.unavailable(exc):
             reject("storage_maintenance_busy")
         raise
     expected = "draining" if row.state == "draining" else "stopped"
     if row.state == "closing":
-        valid_state = current is not None and current.state in {"draining", "stopped"}
+        valid_state = current is not None and current["state"] in {
+            "draining",
+            "stopped",
+        }
     else:
-        valid_state = current is not None and current.state == expected
-    if not valid_state or current.revision != row.source_gate_revision:
+        valid_state = current is not None and current["state"] == expected
+    if not valid_state or current["revision"] != row.source_gate_revision:
         reject("migration_window_gate_changed")
     return current
 
 
 async def operations(db, row):
-    return int(
-        await db.scalar(
-            select(func.count())
-            .select_from(StorageOperation)
-            .where(StorageOperation.location_id == row.source_location_id)
-        )
-    )
+    if db.autoflush:
+        await db.flush()
+    return await db.scalar(_OPEN_OPERATIONS, {"window_id": row.id})
 
 
-async def item(db, row):
+async def item(db, row: WindowSummary) -> StorageMigrationWindowItem:
     from app.services.storage_migration_finalizations import public_for_window
 
     count = await operations(db, row)
@@ -150,17 +190,13 @@ async def view(db, window_id, actor, *, api_key_id=None):
 
 async def history(db, actor, *, api_key_id=None, limit=20, offset=0):
     actor, proof = await authority(db, actor, api_key_id)
-    total = await db.scalar(select(func.count()).select_from(Window))
-    rows = list(
-        await db.scalars(
-            select(Window)
-            .order_by(Window.created_at.desc(), Window.id.desc())
-            .limit(limit)
-            .offset(offset)
-            .execution_options(populate_existing=True)
-        )
+    total = await db.scalar(_HISTORY_COUNT)
+    rows = (
+        (await db.execute(_HISTORY, {"limit": limit, "offset": offset}))
+        .mappings()
+        .all()
     )
-    values = [await item(db, row) for row in rows]
+    values = [await item(db, WindowSummary(**row)) for row in rows]
     _, current = await authority(db, actor, api_key_id)
     if current != proof:
         reject("migration_window_authority_changed", 403)
@@ -178,26 +214,11 @@ async def open_window(db, actor, body, *, api_key_id=None, request=None):
 
     enabled()
     actor, _ = await authority(db, actor, api_key_id, lock=True)
-    await db.execute(text("SELECT pg_advisory_xact_lock(8592650719001)"))
+    await db.execute(text("SELECT pg_catalog.pg_advisory_xact_lock(8592650719001)"))
     initial = await copies.owner(db, body.parent_copy_id)
-    locations = sorted({LEGACY_LOCATION_ID, initial.target_location_id})
-    connection_ids = select(StorageLocation.connection_id).where(
-        StorageLocation.id.in_(locations), StorageLocation.connection_id.is_not(None)
-    )
-    await db.execute(
-        select(StorageConnection.id)
-        .where(StorageConnection.id.in_(connection_ids))
-        .order_by(StorageConnection.id)
-        .with_for_update(read=True)
-    )
-    await db.execute(
-        select(StorageLocation.id)
-        .where(StorageLocation.id.in_(locations))
-        .order_by(StorageLocation.id)
-        .with_for_update(read=True)
-    )
+    await targets.lock_scope(db, initial.target_location_id)
     source = await inventories.source_scope(db)
-    target, _, _, _ = await targets.resolve(db, initial.target_location_id)
+    target, _, _ = await targets.facts(db, initial.target_location_id)
     if physical_source(source) != physical_source(initial.source):
         reject("migration_window_source_changed")
     if target != initial.target:
@@ -209,14 +230,18 @@ async def open_window(db, actor, body, *, api_key_id=None, request=None):
         reject("target_is_source")
     await storage_access.check(db, initial.target_location_id, lock=True)
     await storage_access.ensure(db, LEGACY_LOCATION_ID)
-    if await db.scalar(
-        select(Window.id).where(
-            Window.source_location_id == LEGACY_LOCATION_ID, Window.state != "closed"
-        )
-    ):
+    if await db.scalar(_ACTIVE):
         reject("migration_window_exists")
-    current = await storage_maintenance.lock_gate(db, LEGACY_LOCATION_ID)
-    if current.state != "active":
+    try:
+        async with db.begin_nested():
+            current = await storage_access.gate_facts(
+                db, LEGACY_LOCATION_ID, lock="update_nowait"
+            )
+    except DBAPIError as exc:
+        if storage_access.unavailable(exc):
+            reject("storage_maintenance_busy")
+        raise
+    if current is None or current["state"] != "active":
         reject("migration_window_gate_changed")
     parent = await copies.owner(db, body.parent_copy_id, lock=True)
     if parent.target != target or physical_source(parent.source) != physical_source(
@@ -227,41 +252,31 @@ async def open_window(db, actor, body, *, api_key_id=None, request=None):
         reject("copy_not_prepared")
     await copies.writable(db, parent)
     await copies.settled_parent(db, parent)
-    stamp = await db.scalar(select(func.statement_timestamp()))
-    current.state, current.revision, current.changed_at, current.changed_by = (
-        "draining",
-        current.revision + 1,
-        stamp,
-        actor.id,
+    window_id = uuid.uuid4()
+    opened = await db.scalar(
+        _OPEN,
+        {
+            "window_id": window_id,
+            "parent_id": parent.id,
+            "actor_id": actor.id,
+            "expected_gate_revision": current["revision"],
+            "source": source,
+            "target": target,
+        },
     )
-    row = Window(
-        id=uuid.uuid4(),
-        source_location_id=LEGACY_LOCATION_ID,
-        source=json.loads(json.dumps(source)),
-        source_config_revision=source["location_revision"],
-        parent_copy_id=parent.id,
-        target_location_id=parent.target_location_id,
-        target=json.loads(json.dumps(target)),
-        state="draining",
-        revision=1,
-        source_gate_revision=current.revision,
-        created_by=actor.id,
-        created_at=stamp,
-        updated_at=stamp,
-    )
-    db.add(row)
-    await db.flush()
+    if not opened:
+        reject("migration_window_gate_changed")
     await AuditService.log(
         db,
         actor=actor,
         action="storage.migration_window_open",
         target_type="storage_migration_window",
-        target_id=str(row.id),
+        target_id=str(window_id),
         request=request,
         status_code=201,
         detail={"registered_access_only": True, "source_quiescence_proven": False},
     )
-    return await item(db, row)
+    return await item(db, await owner(db, window_id))
 
 
 async def transition(db, window_id, actor, body, *, api_key_id=None, request=None):
@@ -279,16 +294,7 @@ async def transition(db, window_id, actor, body, *, api_key_id=None, request=Non
         if body.action == "close":
             return await item(db, row)
         reject("migration_window_state_invalid")
-    current = await gate(db, row, exclusive=True)
-    if body.action == "close":
-        from app.services.storage_migration_finalizations import require_window_open
-
-        await require_window_open(db, row.id, closing=True)
-        from app.services.managed_original_reclaim_fence import require_resumable
-
-        await require_resumable(db, row.source_location_id)
-    count = await operations(db, row)
-    stamp = await db.scalar(select(func.statement_timestamp()))
+    await gate(db, row, exclusive=True)
     if body.action == "stop":
         if row.state != "draining":
             reject("migration_window_state_invalid")
@@ -297,22 +303,18 @@ async def transition(db, window_id, actor, body, *, api_key_id=None, request=Non
             or source["location_revision"] != row.source_config_revision
         ):
             reject("migration_window_source_changed")
-        if count:
-            reject("migration_window_unsettled")
-        row.state, current.state = "stopped", "stopped"
-        current.revision += 1
-        current.changed_at, current.changed_by = stamp, actor.id
-        row.source_gate_revision = current.revision
-    else:
-        row.state = "closing"
-        if not count:
-            row.state, current.state = "closed", "active"
-            current.revision += 1
-            current.changed_at, current.changed_by = stamp, actor.id
-            row.source_gate_revision = current.revision
-    row.revision += 1
-    row.updated_at = stamp
-    await db.flush()
+    failure = await db.scalar(
+        _TRANSITION,
+        {
+            "window_id": window_id,
+            "expected_revision": body.expected_revision,
+            "action": body.action,
+            "actor_id": actor.id,
+        },
+    )
+    if failure is not None:
+        reject(failure)
+    row = await owner(db, window_id)
     await AuditService.log(
         db,
         actor=actor,
@@ -329,6 +331,15 @@ async def transition(db, window_id, actor, body, *, api_key_id=None, request=Non
         },
     )
     return await item(db, row)
+
+
+async def bump_finalization_revision(db, window: WindowFacts) -> WindowFacts:
+    if not await db.scalar(
+        _BUMP_FINALIZATION,
+        {"window_id": window.id, "expected_revision": window.revision},
+    ):
+        reject("finalization_changed")
+    return await owner(db, window.id)
 
 
 async def _source_state(db, window_id, source, *, lock=False, window_revision=None):
@@ -353,7 +364,7 @@ async def _source_state(db, window_id, source, *, lock=False, window_revision=No
     ):
         reject("migration_window_source_changed")
     current_gate = await gate(db, row)
-    return row, current_gate.revision
+    return row, current_gate["revision"]
 
 
 async def source_revision(db, window_id, source, *, lock=False):
@@ -391,18 +402,17 @@ async def acquire_source_read(
             ) as owned,
         ):
             if owner_kind == "inventory":
-                record = await owned.get(Inventory, owner_id, populate_existing=True)
-                copy = None
+                record = bound = await inventories.by_job(owned, owner_id)
             else:
-                record = await owned.get(Attempt, owner_id, populate_existing=True)
-                copy = (
-                    await owned.get(Copy, record.copy_id, populate_existing=True)
-                    if record is not None
-                    else None
+                record = await copies.by_attempt(owned, owner_id)
+                bound = (
+                    await copies.window_copy(owned, record.copy_id) if record else None
                 )
-            if record is None:
+            if record is None or bound is None:
                 reject("migration_window_owner_invalid")
-            actor = await owned.get(User, record.requested_by, populate_existing=True)
+            actor = await IdentityAccountLockData(owned).read_actor_status(
+                record.requested_by
+            )
             if actor is None:
                 reject("migration_window_authority_changed", 403)
             _, proof = await authority(
@@ -410,7 +420,6 @@ async def acquire_source_read(
             )
             if proof != record.authority.get("key_proof"):
                 reject("migration_window_authority_changed", 403)
-            bound = record if copy is None else copy
             if bound.window_id != window_id or bound.window_revision is None:
                 reject("migration_window_owner_invalid")
             window, revision = await _source_state(
@@ -420,68 +429,24 @@ async def acquire_source_read(
                 lock=True,
                 window_revision=bound.window_revision,
             )
-            model = Inventory if owner_kind == "inventory" else Attempt
-            record = await owned.scalar(
-                select(model)
-                .where(
-                    (model.async_job_id if owner_kind == "inventory" else model.id)
-                    == owner_id
-                )
-                .with_for_update(nowait=True)
-                .execution_options(populate_existing=True)
+            registered = await owned.scalar(
+                _REGISTER_SOURCE,
+                {
+                    "window_id": window_id,
+                    "window_revision": bound.window_revision,
+                    "gate_revision": revision,
+                    "owner_kind": owner_kind,
+                    "owner_id": owner_id,
+                    "task_id": task_id,
+                    "actor_id": actor.id,
+                    "authority": record.authority,
+                    "source": bound.source,
+                    "operation_id": operation_id,
+                    "node": node,
+                },
             )
-            job = await owned.scalar(
-                select(AsyncJob)
-                .where(AsyncJob.id == record.async_job_id)
-                .with_for_update(read=True, nowait=True)
-                .execution_options(populate_existing=True)
-            )
-            if (
-                record.status != "running"
-                or record.task_id != task_id
-                or record.cancel_requested_at is not None
-                or job is None
-                or job.payload.get("cancel_requested")
-            ):
+            if not registered:
                 reject("migration_window_owner_invalid")
-            if owner_kind == "inventory":
-                if (
-                    not inventories.matches(record, job)
-                    or record.operation_id is not None
-                    or record.source_location_id != LEGACY_LOCATION_ID
-                    or record.maintenance_revision != revision
-                ):
-                    reject("migration_window_owner_invalid")
-                purpose = inventories.KIND
-            else:
-                copy = await owned.get(
-                    Copy,
-                    record.copy_id,
-                    populate_existing=True,
-                    with_for_update={"read": True, "nowait": True},
-                )
-                if (
-                    not copies.matches(copy, record, job)
-                    or record.source_operation_id is not None
-                    or copy.parent_copy_id != window.parent_copy_id
-                    or copy.target_location_id != window.target_location_id
-                    or copy.target != window.target
-                    or record.scope.get("window_id") != str(window_id)
-                    or record.scope.get("window_revision") != copy.window_revision
-                    or record.scope.get("maintenance", {}).get(str(LEGACY_LOCATION_ID))
-                    != revision
-                ):
-                    reject("migration_window_owner_invalid")
-                purpose = copies.KIND
-            await owned.execute(
-                insert(StorageOperation).values(
-                    id=operation_id,
-                    location_id=LEGACY_LOCATION_ID,
-                    revision=revision,
-                    purpose=purpose,
-                    node_id=node,
-                )
-            )
     except DBAPIError as exc:
         if storage_access.unavailable(exc):
             reject("storage_maintenance_busy")

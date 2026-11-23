@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.enums import UserRole
-from app.db.models.dataset_asset import StorageLocation, StorageLocationProbe
 from app.db.models.user import User
 from app.deps import get_db, require_roles, assert_request_scopes
 from app.schemas.storage_location import (
@@ -69,6 +68,7 @@ from app.schemas.storage_location import (
     StorageProbeOut,
     StorageProbeRequest,
 )
+from app.services import storage_registry_data as registry
 from app.schemas.storage_cache import (
     OriginalCacheCleanup,
     OriginalCacheCleanupResult,
@@ -80,6 +80,7 @@ from app.services.dataset_content import key_authority
 from app.services.audit import AuditAction, AuditService
 from app.services.content_snapshot import ContentError
 from app.services.filesystem_storage import FilesystemStorageError
+from app.services.identity_account_lock_data import IdentityAccountLockData
 
 manager = require_roles(UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN)
 super_admin = require_roles(UserRole.SUPER_ADMIN)
@@ -99,28 +100,18 @@ def filesystem_error(exc):
 
 
 async def lock_current_admin(db, actor, request):
-    from app.db.models.api_key import ApiKey
-
     key_id = getattr(request.state, "api_key_id", None)
     proof = await key_authority(db, actor, key_id, "datasets:write")
-    actor = await db.scalar(
-        select(User)
-        .where(User.id == actor.id)
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
-    )
-    if not actor or not actor.is_active or actor.role != UserRole.SUPER_ADMIN:
-        raise HTTPException(403, "Platform administrator required")
-    if key_id:
-        await db.scalar(
-            select(ApiKey)
-            .where(ApiKey.id == key_id)
-            .with_for_update(read=True)
-            .execution_options(populate_existing=True)
+    current = (
+        await IdentityAccountLockData(db).lock_accounts(
+            [actor.id], mode="share", nowait=False
         )
-    if await key_authority(db, actor, key_id, "datasets:write") != proof:
+    ).get(actor.id)
+    if not current or not current.is_active or current.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(403, "Platform administrator required")
+    if await key_authority(db, current, key_id, "datasets:write") != proof:
         raise HTTPException(403, detail={"code": "api_key_authority_revoked"})
-    return actor
+    return current
 
 
 @router.get("/roots", response_model=list[str])
@@ -647,24 +638,23 @@ async def list_locations(
     if agent_id is not None:
         clause = and_(
             clause,
-            StorageLocation.kind == "agent",
-            StorageLocation.config["agent_id"].astext == str(agent_id),
+            registry.location_row.c.kind == "agent",
+            registry.location_row.c.config["agent_id"].astext == str(agent_id),
         )
     total = await db.scalar(
-        select(func.count()).select_from(StorageLocation).where(clause)
+        select(func.count()).select_from(registry.location_row).where(clause)
     )
-    rows = list(
-        await db.scalars(
-            select(StorageLocation)
-            .where(clause)
-            .order_by(StorageLocation.name, StorageLocation.id)
-            .limit(limit)
-            .offset(offset)
-        )
+    rows = await db.execute(
+        select(registry.location_row)
+        .where(clause)
+        .order_by(registry.location_row.c.name, registry.location_row.c.id)
+        .limit(limit)
+        .offset(offset)
     )
     from app.services.storage_location_list import list_items
 
-    return {"items": await list_items(db, rows, actor), "total": total}
+    locations = [registry.LocationFacts(**row) for row in rows.mappings()]
+    return {"items": await list_items(db, locations, actor), "total": total}
 
 
 @router.post("", response_model=StorageLocationOut, status_code=201)
@@ -740,16 +730,17 @@ async def source_faults(
     proof = await key_authority(
         db, actor, getattr(request.state, "api_key_id", None), "datasets:read"
     )
-    location = await svc.get_visible(db, location_id, actor)
     initial_role = actor.role
     result = await storage_fault_state.visible_page(
-        db, location, actor, state=state, limit=limit, offset=offset
+        db, location_id, actor, state=state, limit=limit, offset=offset
     )
-    result["rates"] = await storage_observation_rates.visible_rates(db, location, actor)
+    result["rates"] = await storage_observation_rates.visible_rates(
+        db, location_id, actor.id
+    )
     actor = await require_manager(db, actor.id)
     if actor.role != initial_role:
         raise HTTPException(403, detail={"code": "access_revoked"})
-    await svc.get_visible(db, location_id, actor)
+    await storage_fault_state.require_visible_location(db, location_id, actor.id)
     if (
         await key_authority(
             db, actor, getattr(request.state, "api_key_id", None), "datasets:read"
@@ -793,17 +784,10 @@ async def source_summary(
 
 
 async def lock_change_location(db, location_id, actor):
-    from app.db.models.storage_connection import StorageConnection
-
     initial = await svc.get_visible(db, location_id, actor)
     connection_id = initial.connection_id
     if connection_id is not None:
-        await db.scalar(
-            select(StorageConnection)
-            .where(StorageConnection.id == connection_id)
-            .with_for_update(read=True)
-            .execution_options(populate_existing=True)
-        )
+        await registry.get_connection(db, connection_id, lock="share")
     location = await svc.get_visible(db, location_id, actor, lock=True)
     if location.connection_id != connection_id:
         raise HTTPException(409, detail={"code": "storage_change_preview_changed"})
@@ -846,7 +830,7 @@ async def update_location(
     actor = await lock_current_admin(db, actor, request)
     location = await lock_change_location(db, location_id, actor)
     try:
-        detail = await apply(
+        location, detail = await apply(
             db,
             location,
             payload,
@@ -990,10 +974,9 @@ async def directories(
     except ContentError as exc:
         raise filesystem_error(exc) from None
     if receipt_id is not None:
-        from app.db.models.site_agent_command import SiteAgentCommand
-        from app.services.agent_transport import acknowledge
+        from app.services.agent_transport import acknowledge, get_receipt
 
-        await acknowledge(db, await db.get(SiteAgentCommand, receipt_id), accepted=True)
+        await acknowledge(db, await get_receipt(db, receipt_id), accepted=True)
         await db.commit()
     return result
 
@@ -1134,12 +1117,9 @@ async def probe(
         result = {**result, "maintenance_revision": maintenance_revision}
         await svc.store_probe(db, location, node_id, result, observed_at)
         if receipt_id is not None:
-            from app.db.models.site_agent_command import SiteAgentCommand
-            from app.services.agent_transport import acknowledge
+            from app.services.agent_transport import acknowledge, get_receipt
 
-            await acknowledge(
-                db, await db.get(SiteAgentCommand, receipt_id), accepted=True
-            )
+            await acknowledge(db, await get_receipt(db, receipt_id), accepted=True)
     except ContentError as exc:
         raise filesystem_error(exc) from None
     await AuditService.log(
@@ -1153,10 +1133,8 @@ async def probe(
         detail={"ok": result["ok"], "code": result["code"]},
     )
     await db.commit()
-    row = await db.get(
-        StorageLocationProbe,
-        (location_id, svc.probe_node_id(location, node_id)),
-        populate_existing=True,
+    row = await registry.get_probe(
+        db, location_id, svc.probe_node_id(location, node_id)
     )
     return svc.probe_out(row, location)
 
@@ -1168,9 +1146,5 @@ async def probes(
     actor: User = Depends(manager),
 ):
     location = await svc.get_visible(db, location_id, actor)
-    rows = await db.scalars(
-        select(StorageLocationProbe)
-        .where(StorageLocationProbe.location_id == location_id)
-        .order_by(StorageLocationProbe.node_id)
-    )
+    rows = await registry.probes(db, location_id)
     return [svc.probe_out(row, location) for row in rows]

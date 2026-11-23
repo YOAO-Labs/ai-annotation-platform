@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "aap-labeling-upload-tasks/v2",
+  "$id": "aap-labeling-upload-tasks/v3",
   "$defs": {
     "CreateUploadingTask": {
       "type": "object",
@@ -8,21 +8,12 @@
       "properties": {
         "task_id": { "type": "string", "format": "uuid" },
         "project_id": { "type": "string", "format": "uuid" },
-        "display_id": { "type": "string", "maxLength": 30 },
         "file_name": { "type": "string", "maxLength": 500 },
         "file_path": { "type": "string", "maxLength": 1000 },
         "file_type": { "enum": ["image", "video", "other"] },
         "actor_id": { "type": "string", "format": "uuid" }
       },
-      "required": [
-        "task_id",
-        "project_id",
-        "display_id",
-        "file_name",
-        "file_path",
-        "file_type",
-        "actor_id"
-      ]
+      "required": ["task_id", "project_id", "file_name", "file_path", "file_type", "actor_id"]
     },
     "PublishTaskOriginal": {
       "type": "object",
@@ -57,7 +48,7 @@
   },
   "x-postgresql-functions": {
     "yoao_labeling_v1.create_uploading_task": {
-      "arguments": "uuid,uuid,text,text,text,text,uuid",
+      "arguments": "uuid,uuid,text,text,text,uuid",
       "request": "CreateUploadingTask",
       "returns": "boolean",
       "reply": "true only for the fixed uploading Task row created by this call",
@@ -81,7 +72,7 @@
   "x-transactions": {
     "commit": false,
     "rollback": false,
-    "initialization": "caller allocates the independent managed original, then creates the fixed uploading Task in the same transaction and commits before signing the staging URL",
+    "initialization": "caller allocates the independent managed original, then Labeling allocates the Task display ID and creates the fixed uploading Task in the same transaction; caller commits before signing the staging URL",
     "completion": "caller verifies and seals the independent original, then republishes the immutable source and atomically casts the Task pointer from the observed uploading status"
   }
 }

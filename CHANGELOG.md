@@ -40,7 +40,8 @@
 
 ### Changed
 
-- Workspace 的成员管理、负责人移交、项目配置、模板、项目和成员目录查询不再需要六个独立服务。API 使用调用方事务和原有数据库权限；配置旧 Workspace 服务地址或专用数据库连接的部署会拒绝启动，不会静默改写目标库。日常环境须单独迁移。
+- 默认模块部署将 Workspace、Labeling 类目／视频写入、Assets Catalog、身份准入与 Notifications WebSocket 汇入已有 API／worker；Jobs 恢复仍有专用 Celery 消费者，Inference 凭据端合为单个私有服务。管理员测试邮件经 V2 sender 投递，API 不直接连 SMTP。旧拆分安装先核对[进程清单](docs-site/dev/concepts/module-deployment.md#deployment-convergence)与[升级门禁](docs-site/ops/upgrade-guide.md#split-topology-upgrade)；完整 M2b 未验收，不切换日常环境。
+- 已登记自定义 S3／SFTP 的物理 I/O 归入既有私有 Assets Source，内建 MinIO、受控目录与站点 Agent 路径不变。Source 收口与三种普通运行角色的零私表／序列权限仍需集成验证；不迁移已有保存目标，也不改变连接器的用户入口。
 - 推理服务直连接入指南现在区分本机自检、私网监听、全局服务池启用和项目预测；强制路由部署另列实例绑定步骤。手动注册不等于安装插件。
 - `pnpm lint:comments` 禁止在自维护源码、测试和配置中新增解释性注释。原有约束归入 ADR，权宜实现有可追踪的 issue；冻结迁移和工具真正消费的输入保留，不能用删除旧注释换取新额度。贡献者可用 `/delete-comment` 复查。
 - 生产 Compose 不再包含开发收件箱；告警邮件须显式配置 SMTP。生产 API 也要求显式给出允许跨域访问的来源，不再沿用开发默认值。
@@ -50,6 +51,7 @@
 - 模型服务注册页只允许为部署指定的可信地址选择系统托管认证；无可信地址时，设置页说明如何配置并禁用批量初始化。服务出现在认证列表不代表已安装。维护提示明确两个 SAM 服务也先拉取并核验固定镜像，失败不停止原容器。
 - 新生成的图片、视频 YOLO `data.yaml` 和点云导出包说明不再显示旧品牌；原生 JSON 指南区分当前导出目标与历史文件身份。已有 ZIP、格式字段、目录名和标注数据不改写。
 - Native 数据库模块的现行 schema、专用连接账号和事务设置统一到 `yoao` 命名。已有部署需在维护窗口同步迁移数据库、凭据配置和服务；历史回执仍可重放，私表权限不变。见 [Native 数据库协调切换](DEV.md#native-数据库协调切换)。
+- 来源故障与原图／预览观测率改用 Assets 固定数据库能力。API 与 Worker 普通账号不再直接访问观测表和序列；保留历史故障、独立观测事务及现有接口。
 - PostgreSQL 中模块连接的显示名统一使用 `yoao-` 前缀。按旧 `aap-` 名称过滤的看板和告警需要更新；不需要迁移数据库或更换凭据。
 - API 密钥管理和 GPU 回收分别改用 `yoao_identity_key_client`、`yoao_inference_gpu_collector_client`。升级需停旧准入、排空连接并更新部署凭据。用户无需重新签发 API key；已有密钥操作回执、GPU 围栏和回收凭证仍然有效。
 - 用户资料补全和项目类别用量查询改用 `yoao_identity_briefs_client` 与 `yoao_labeling_class_query_client`。升级须停旧接入、排空连接并更新受限凭据；项目成员角色、类别计数和属性的读取规则不变。

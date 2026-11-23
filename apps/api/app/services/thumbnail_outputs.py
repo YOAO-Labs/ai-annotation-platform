@@ -3,18 +3,17 @@
 import asyncio
 from contextlib import nullcontext
 from copy import deepcopy
-from dataclasses import asdict
-from datetime import datetime, timedelta, timezone
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 import uuid
 
 from botocore.exceptions import BotoCoreError, ClientError
-from sqlalchemy import select
+from sqlalchemy import bindparam, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.db.models.dataset import DatasetItem
-from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import media_cache_storage, media_cache_urls, original_sources
 from app.services import media_cache_accounting
 from app.services import storage_access
@@ -40,6 +39,184 @@ def purpose(identifier):
 
 def prefix_for(identifier):
     return f"thumbnails/objects/{uuid.UUID(str(identifier))}/"
+
+
+@dataclass(frozen=True, slots=True)
+class ThumbnailFacts:
+    id: uuid.UUID
+    owner_kind: str
+    owner_id: uuid.UUID
+    path_digest: str | None
+    input_ref: dict
+    storage_ref: dict
+    state: str
+    uncertain_write: bool
+    sha256: str | None
+    size_bytes: int | None
+    etag: str | None
+    version_id: str | None
+    writer_until: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ThumbnailBusinessFacts:
+    id: uuid.UUID
+    dataset_id: uuid.UUID | None
+    dataset_item_id: uuid.UUID | None
+    project_id: uuid.UUID | None
+    file_type: str
+    width: int | None
+    height: int | None
+    thumbnail_output_id: uuid.UUID | None
+
+
+@dataclass(frozen=True, slots=True)
+class DirectoryPreviewFacts:
+    source_id: uuid.UUID
+    path_digest: str
+    thumbnail_output_id: uuid.UUID | None
+    source_sha256: str
+    spec: str
+    location_id: uuid.UUID | None
+    bucket: str | None
+    object_key: str | None
+    sha256: str | None
+    size_bytes: int | None
+
+
+def _uuid(value):
+    return uuid.UUID(value) if value is not None else None
+
+
+def _facts(record):
+    if record is None:
+        return None
+    return ThumbnailFacts(
+        **{
+            **record,
+            "id": uuid.UUID(record["id"]),
+            "owner_id": uuid.UUID(record["owner_id"]),
+            "writer_until": datetime.fromisoformat(record["writer_until"]),
+        }
+    )
+
+
+async def get_output(db, identifier, *, lock=False):
+    if db.autoflush:
+        await db.flush()
+    return _facts(
+        await db.scalar(
+            text("SELECT yoao_assets_v1.legacy_thumbnail_output(:id, :lock)"),
+            {"id": identifier, "lock": lock},
+        )
+    )
+
+
+async def business_facts(db, kind, identifier, *, lock=False):
+    record = await db.scalar(
+        text("SELECT yoao_assets_v1.legacy_thumbnail_business(:kind, :id, :lock)"),
+        {"kind": kind, "id": identifier, "lock": lock},
+    )
+    if record is None:
+        return None
+    return ThumbnailBusinessFacts(
+        **{
+            **record,
+            "id": uuid.UUID(record["id"]),
+            "dataset_id": _uuid(record["dataset_id"]),
+            "dataset_item_id": _uuid(record["dataset_item_id"]),
+            "project_id": _uuid(record["project_id"]),
+            "thumbnail_output_id": _uuid(record["thumbnail_output_id"]),
+        }
+    )
+
+
+async def set_item_dimensions(db, identifier, width, height):
+    await db.execute(
+        text("SELECT yoao_assets_v1.set_legacy_item_dimensions(:id, :width, :height)"),
+        {"id": identifier, "width": width, "height": height},
+    )
+
+
+async def record_item_error(db, identifier, error):
+    await db.execute(
+        text("SELECT yoao_assets_v1.record_legacy_item_thumbnail_error(:id, :error)"),
+        {"id": identifier, "error": error},
+    )
+
+
+async def publish_ordinary(db, kind, identifier, output, blurhash):
+    async with original_sources._reads(db, True):
+        applied = await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.publish_legacy_thumbnail("
+                ":kind, :owner, :id, :input, :ref, :blurhash, :at)"
+            ).bindparams(
+                bindparam("input", type_=JSONB), bindparam("ref", type_=JSONB)
+            ),
+            {
+                "kind": kind,
+                "owner": identifier,
+                "id": output.id,
+                "input": output.input_ref,
+                "ref": output.storage_ref,
+                "blurhash": blurhash,
+                "at": now(),
+            },
+        )
+    if not applied:
+        raise ContentError("thumbnail_output_changed")
+
+
+async def directory_candidate(db, identifier, source_id, path_digest, directory):
+    return _facts(
+        await db.scalar(
+            text(
+                "SELECT yoao_assets_v1.legacy_directory_thumbnail_candidate("
+                ":id, :source, :path, :directory)"
+            ).bindparams(bindparam("directory", type_=JSONB)),
+            {
+                "id": identifier,
+                "source": source_id,
+                "path": path_digest,
+                "directory": directory,
+            },
+        )
+    )
+
+
+async def retire_directory_output(db, identifier):
+    await db.execute(
+        text(
+            "SELECT yoao_assets_v1.retire_legacy_directory_thumbnail("
+            ":id, :retired_at, :next_check_at)"
+        ),
+        {"id": identifier, "retired_at": now(), "next_check_at": now()},
+    )
+
+
+async def directory_evidence(db, source_ids):
+    if db.autoflush:
+        await db.flush()
+    rows = await db.execute(
+        text("SELECT * FROM yoao_assets_v1.directory_thumbnail_evidence(:sources)"),
+        {"sources": source_ids},
+    )
+    return (
+        (
+            DirectoryPreviewFacts(
+                **{
+                    **preview,
+                    "source_id": uuid.UUID(preview["source_id"]),
+                    "thumbnail_output_id": _uuid(preview["thumbnail_output_id"]),
+                    "location_id": _uuid(preview["location_id"]),
+                }
+            ),
+            _facts(output),
+            location_id,
+        )
+        for preview, output, location_id in rows
+    )
 
 
 def owner(output):
@@ -156,33 +333,32 @@ def _write(target, reference, data, *, accounting=None):
 
 async def _persist_result(factory, identifier, reference, receipt, failure):
     async with factory() as current:
-        output = await current.scalar(
-            select(ThumbnailOutput)
-            .where(ThumbnailOutput.id == identifier)
-            .with_for_update()
+        unsettled = storage_access.failure_unsettled(failure)
+        ready = receipt is not None and not unsettled
+        uncertain = not ready and (
+            unsettled or not getattr(failure, "thumbnail_write_refused", False)
         )
-        if (
-            output is None
-            or output.storage_ref != reference
-            or output.state != "building"
-        ):
+        record = await current.scalar(
+            text(
+                "SELECT yoao_assets_v1.record_legacy_thumbnail_result("
+                ":id, :ref, :sha256, :size_bytes, :etag, :version_id, :ready, :uncertain, :at)"
+            ).bindparams(bindparam("ref", type_=JSONB)),
+            {
+                "id": identifier,
+                "ref": reference,
+                **(
+                    receipt
+                    if receipt is not None
+                    else dict.fromkeys(("sha256", "size_bytes", "etag", "version_id"))
+                ),
+                "ready": ready,
+                "uncertain": uncertain,
+                "at": now() if ready else None,
+            },
+        )
+        if record is None:
             raise ContentError("thumbnail_output_changed")
-        if receipt is not None:
-            for name, value in receipt.items():
-                setattr(output, name, value)
-        if receipt is not None and not storage_access.failure_unsettled(failure):
-            output.state, output.ready_at = "ready", now()
-            output.uncertain_write, output.error_code = False, None
-        else:
-            output.state = "failed"
-            output.uncertain_write = storage_access.failure_unsettled(
-                failure
-            ) or not getattr(failure, "thumbnail_write_refused", False)
-            output.error_code = (
-                "thumbnail_write_unproven"
-                if output.uncertain_write
-                else "thumbnail_write_rejected"
-            )
+        output = _facts(record)
         await current.commit()
         return output
 
@@ -215,13 +391,12 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
         if execution is not None:
             item_value = input_ref["source"]["item_id"]
             item_id = uuid.UUID(item_value) if item_value else None
-            dataset_id = (
-                await current.scalar(
-                    select(DatasetItem.dataset_id).where(DatasetItem.id == item_id)
-                )
-                if item_id
+            item = (
+                await business_facts(current, "dataset_item", item_id)
+                if item_id is not None
                 else None
             )
+            dataset_id = item.dataset_id if item is not None else None
             task_id = (
                 owner_id if item_id is None and owner_kind == "task_thumbnail" else None
             )
@@ -230,19 +405,26 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
             reference = await media_cache_storage.allocate(
                 current, prefix_for(identifier)
             )
-            output = ThumbnailOutput(
-                id=identifier,
-                owner_kind=owner_kind,
-                owner_id=owner_id,
-                path_digest=path_digest,
-                input_ref=frozen,
-                storage_ref=reference,
-                state="building",
-                writer_until=allocated_at + timedelta(seconds=WRITE_SECONDS),
-                next_check_at=allocated_at + timedelta(seconds=WRITE_SECONDS),
-                uncertain_write=True,
-            )
-            current.add(output)
+            if not await current.scalar(
+                text(
+                    "SELECT yoao_assets_v1.allocate_legacy_thumbnail("
+                    ":id, :kind, :owner, :path, :input, :ref, :at)"
+                ).bindparams(
+                    bindparam("input", type_=JSONB), bindparam("ref", type_=JSONB)
+                ),
+                {
+                    "id": identifier,
+                    "kind": owner_kind,
+                    "owner": owner_id,
+                    "path": path_digest,
+                    "input": frozen,
+                    "ref": reference,
+                    "at": allocated_at,
+                },
+            ):
+                raise media_cache_storage.MediaCacheStorageError(
+                    "media_cache_storage_binding_unproven"
+                )
             await current.commit()
     recorder = media_cache_accounting.Recorder(
         factory,
@@ -254,7 +436,9 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
     observed, entered, failure = [], [], None
     try:
         async with factory() as current:
-            saved = owner(output)
+            saved = media_cache_storage.resolve_ref(
+                reference, expected_prefix=prefix_for(identifier)
+            )
             target = await media_cache_storage.target_for_ref(current, saved.ref)
             revision = await storage_access.check(current, saved.location_id)
             await current.commit()
@@ -311,23 +495,33 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
     return result
 
 
+async def _item_pointer(db, identifier, path):
+    if db.autoflush:
+        await db.flush()
+    row = (
+        await db.execute(
+            text(
+                "SELECT output_id FROM yoao_assets_v1.legacy_item_thumbnail_pointer(:id, :path)"
+            ),
+            {"id": identifier, "path": path},
+        )
+    ).one_or_none()
+    return ("dataset_thumbnail", identifier, row.output_id) if row is not None else None
+
+
 async def _business_pointer(db, owner_kind, owner_id, path):
     if owner_kind == "task":
         task = await get_core_row(db, task_row, owner_id, populate_existing=True)
         if task is None:
             return None
         if task.dataset_item_id is not None:
-            item = await db.get(
-                DatasetItem, task.dataset_item_id, populate_existing=True
-            )
-            if item is not None and item.thumbnail_path == path:
-                return "dataset_thumbnail", item.id, item.thumbnail_output_id
+            pointer = await _item_pointer(db, task.dataset_item_id, path)
+            if pointer is not None:
+                return pointer
         if task.thumbnail_path == path:
             return "task_thumbnail", task.id, task.thumbnail_output_id
     elif owner_kind == "dataset_item":
-        item = await db.get(DatasetItem, owner_id, populate_existing=True)
-        if item is not None and item.thumbnail_path == path:
-            return "dataset_thumbnail", item.id, item.thumbnail_output_id
+        return await _item_pointer(db, owner_id, path)
     return None
 
 
@@ -448,7 +642,7 @@ async def read_bytes(db, output_id):
     """Verify a ready saved output without committing caller-owned changes."""
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
     async with factory() as current:
-        output = await current.get(ThumbnailOutput, output_id)
+        output = await get_output(current, output_id)
         if output is None or output.state != "ready" or output.uncertain_write:
             raise ContentError("thumbnail_output_changed")
         saved = owner(output)
@@ -460,12 +654,7 @@ async def read_bytes(db, output_id):
         async def acquired(permit):
             nonlocal output, target
             async with original_sources._reads(current, True):
-                output = await current.get(
-                    ThumbnailOutput,
-                    output_id,
-                    populate_existing=True,
-                    with_for_update={"read": True, "nowait": True},
-                )
+                output = await get_output(current, output_id, lock=True)
             if (
                 output is None
                 or output.state != "ready"
@@ -521,9 +710,7 @@ async def thumbnail_url(db, owner_kind, owner_id, path):
                 else None
             )
         try:
-            output = await current.get(
-                ThumbnailOutput, output_id, populate_existing=True
-            )
+            output = await get_output(current, output_id)
             if (
                 output is None
                 or output.state != "ready"
@@ -547,9 +734,7 @@ async def thumbnail_url(db, owner_kind, owner_id, path):
             if not _same_source(output, source):
                 return None
             await original_sources.recheck_read_route(current, source)
-            output = await current.get(
-                ThumbnailOutput, output_id, populate_existing=True
-            )
+            output = await get_output(current, output_id)
             if (
                 output is None
                 or output.state != "ready"

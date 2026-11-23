@@ -11,12 +11,13 @@ or ORM model packages.
 
 The same runtime also owns the six storage-connection operations:
 `POST /v1/connections/list`, `read`, `create`, `update`, `delete`, and `test`.
-The API keeps its authenticated public endpoints and sends actor UUIDs and
-request values to this internal bearer-authenticated interface. When
-`ASSETS_SOURCE_URL` is configured, a remote error is returned to the caller;
-the gateway does not retry through the local implementation.
+The public API always embeds `list` and `read`. Setting `ASSETS_SOURCE_URL`
+selects the credential-owning host for `create`, `update`, `delete` and `test`
+only. A remote failure never retries through the API's local implementation.
+The Source process retains exact import verification, recovery and Native
+signing with operation-specific credentials.
 
-The gateway calls five source operations: `POST /v1/source/upload-init`,
+The portable server retains five source operations: `POST /v1/source/upload-init`,
 `POST /v1/source/upload-complete`, `POST /v1/source/delete`,
 `POST /v1/source/upload-zip`, and `POST /v1/source/scan`. Delete handles both
 Dataset and DatasetItem deletion. ZIP accepts a bounded `application/zip`
@@ -28,6 +29,10 @@ Assets SQL fences the current credential and Dataset before publishing. ZIP
 normally requires `datasets:write`; a Dataset with a directory source also
 requires current directory management authority. Scan retains the existing
 `super_admin` and `project_admin` manager set plus `datasets:write`.
+
+Public upload, delete, ZIP and scan use these same owner workflows on the
+API's request transaction, not the Source origin. Keep shared PostgreSQL
+receipts during cutover and reconcile uncertain acknowledgements by key.
 
 Each operation uses one PostgreSQL transaction through native reply validation,
 bounded S3 work, and response serialization. Upload initialization reserves a
@@ -185,8 +190,8 @@ connection credentials need the same explicit denials; they remain inside Source
 
 The finite signer routes are consumed by three independent runtimes with one
 distinct role token each: the image worker and API-local executor use
-`ASSETS_IMAGES_NATIVE_STORAGE_URL` with the writer token, shared control and
-API-local control use `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL` with the reader
+`ASSETS_IMAGES_NATIVE_STORAGE_URL` with the writer token; embedded API control
+or explicitly separate Media control uses `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL` with the reader
 token, and Assets Cleanup uses `ASSET_CLEANUP_NATIVE_STORAGE_URL` with the
 cleanup token. Each caller reads its token from its own file; the values must
 equal the corresponding Source token, but the files are not shared across
@@ -223,9 +228,9 @@ exact legacy prefix.
 The scan command has a frozen protocol fingerprint, so a retried operation
 with the same optional key returns the original receipt.
 
-Neither operation creates a connector Job or uses the connector-import
-protocol. ZIP runs in the existing Source HTTP runtime and uses its existing
-configuration; no bulk-ingest environment variables are added.
+Neither operation creates a connector Job or uses the connector-import protocol.
+The synchronous public ZIP path runs within the API's existing bounded spool
+and Source workflow; the standalone HTTP operation is retained for portability.
 
 ## Configuration
 

@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import String, cast, func, select
-
-from app.db.models.sample_evaluation import SampleEvaluationRun as Evaluation
-from app.db.models.training_dataset import TrainingDatasetVersion as Version
+from app.services import active_learning_data as data, evaluation_data
 from app.services import active_learning_engine as strategy
 from app.services import active_learning_originals as originals
 from app.services import sample_evaluation_engine as detection
@@ -30,38 +27,8 @@ SCOPES = originals.SCOPES
 
 async def exclusions(db, project_id, *, lock=False):
     """Fail closed at the history budget; never silently drop old membership."""
-    clauses = [Version.project_id == project_id]
-    version_sizes = (
-        await db.execute(
-            select(
-                func.count(),
-                func.coalesce(
-                    func.sum(
-                        func.coalesce(
-                            func.octet_length(cast(Version.snapshot, String)), 0
-                        )
-                        + func.coalesce(
-                            func.octet_length(cast(Version.manifest, String)), 0
-                        )
-                    ),
-                    0,
-                ),
-            ).where(*clauses)
-        )
-    ).one()
-    evaluation_sizes = (
-        await db.execute(
-            select(
-                func.count(),
-                func.coalesce(
-                    func.sum(func.octet_length(cast(Evaluation.spec, String))), 0
-                ),
-            ).where(
-                Evaluation.project_id == project_id,
-                Evaluation.spec["role"].astext == "held_out_test",
-            )
-        )
-    ).one()
+    version_sizes = await data.dataset_history_budget(db, project_id)
+    evaluation_sizes = await evaluation_data.held_out_budget(db, project_id)
     if (
         version_sizes[0] + evaluation_sizes[0] > MAX_HISTORICAL_SOURCES
         or version_sizes[1] + evaluation_sizes[1] > MAX_HISTORICAL_BYTES
@@ -71,24 +38,14 @@ async def exclusions(db, project_id, *, lock=False):
             "项目保留历史超过本期有界排除检查范围，未省略任何历史成员",
             422,
         )
-    versions_query = select(Version).where(*clauses).order_by(Version.id)
-    evals_query = (
-        select(Evaluation)
-        .where(
-            Evaluation.project_id == project_id,
-            Evaluation.spec["role"].astext == "held_out_test",
+    versions = await data.dataset_history(db, project_id, lock=lock)
+    evaluations = await evaluation_data.held_out_specs(db, project_id, lock=lock)
+    if len(versions) + len(evaluations) > MAX_HISTORICAL_SOURCES:
+        raise reject(
+            "history_budget",
+            "项目保留历史超过本期有界排除检查范围，未省略任何历史成员",
+            422,
         )
-        .order_by(Evaluation.id)
-    )
-    if lock:
-        versions_query = versions_query.with_for_update(read=True)
-        evals_query = evals_query.with_for_update(read=True)
-    versions = (
-        await db.scalars(versions_query.execution_options(populate_existing=True))
-    ).all()
-    evaluations = (
-        await db.scalars(evals_query.execution_options(populate_existing=True))
-    ).all()
     identities, refs = set(), []
     for version in versions:
         if content_digest(version.snapshot) != version.snapshot_digest:

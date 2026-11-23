@@ -118,9 +118,6 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.lock_directory_reference_location(uuid, uuid),
     yoao_assets_v1.lock_directory_reference_replica_primary(uuid, uuid),
     yoao_assets_v1.lock_managed_item_asset_slot(uuid, text),
-    yoao_assets_v1.lock_point_quality_item_datasets(uuid[]),
-    yoao_assets_v1.lock_point_quality_poses(uuid[]),
-    yoao_assets_v1.lock_point_quality_scenes(uuid[]),
     yoao_assets_v1.next_dataset_scan_directory(uuid, uuid, text, integer, uuid),
     yoao_assets_v1.next_directory_registration_entry(uuid, uuid, text, integer, uuid),
     yoao_assets_v1.note_directory_registration_dispatch_failure(uuid, uuid, text),
@@ -151,6 +148,5 @@ GRANT EXECUTE ON FUNCTION
     yoao_assets_v1.validate_dataset_scan_directory(uuid, uuid, text, integer, uuid, text, text, text),
     yoao_assets_v1.verify_observed_dataset_scan_file(uuid, uuid, text, jsonb),
     yoao_assets_v1.visible_dataset_sources(uuid, uuid, uuid, uuid),
-    yoao_labeling_v1.lock_point_quality_annotation_geometry(uuid),
-    yoao_labeling_v1.point_quality_original_run(uuid, boolean)
+    yoao_labeling_v1.lock_point_quality_annotation_geometry(uuid)
     TO :"application_role";

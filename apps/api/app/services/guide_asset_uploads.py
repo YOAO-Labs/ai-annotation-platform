@@ -1,17 +1,17 @@
 """Authenticated guide-image publication, current references and durable cleanup."""
 
 import hashlib
+import json
 import logging
 import uuid
+from types import SimpleNamespace
 
 from fastapi import HTTPException
-from sqlalchemy import exists, or_, select, text
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from app.db.enums import PlatformRole
-from app.db.models.guide_asset_upload import GuideAssetUpload as Upload
-from app.db.models.project_guide_asset import ProjectGuideAsset as Reference
-from app.db.models.storage_maintenance import StorageOperation
+from app.db.models.guide_asset_upload import GuideAssetUpload
 from app.services import conditional_write_accounting as accounting
 from app.services import comment_attachment_authority as authority
 from app.services import guide_asset_references as references
@@ -174,11 +174,19 @@ def purpose(operation, identifier):
     return "guide_asset_" + operation + "_" + uuid.UUID(str(identifier)).hex
 
 
-async def locked_owner(db, identifier, *, read=False, skip_locked=False):
-    rows = await references.locked_owners(
-        db, [identifier], read=read, skip_locked=skip_locked
-    )
-    return rows[0] if rows else None
+async def locked_owner(db, identifier, *, skip_locked=False):
+    try:
+        with db.no_autoflush:
+            return (
+                await db.execute(
+                    text(
+                        "SELECT * FROM yoao_workspace_v1.lock_guide_upload(:id, :skip)"
+                    ),
+                    {"id": identifier, "skip": skip_locked},
+                )
+            ).one_or_none()
+    except DBAPIError as exc:
+        references.db_error(exc)
 
 
 async def capture_upload(db, actor, request, project_id):
@@ -206,7 +214,7 @@ async def upload(db, proof, project_id, data, mime_type, file_name):
         file_name = storage.safe_file_name(file_name)
         actor = await reauthorize(db, proof)
         await lock_projects(db, actor, [project_id], write_ids=[project_id], wait=True)
-        row = Upload(
+        row = SimpleNamespace(
             id=uuid.uuid4(),
             owner_id=proof.actor_id,
             project_id=project_id,
@@ -215,11 +223,16 @@ async def upload(db, proof, project_id, data, mime_type, file_name):
             mime_type=mime_type,
             file_name=file_name,
             created_at=authority.now(),
-            state="pending",
         )
         row.storage_ref = await storage.allocate(db, row)
-        db.add(row)
-        await db.flush()
+        await db.execute(
+            text(
+                "SELECT yoao_workspace_v1.stage_guide_upload("
+                ":id, :owner_id, :project_id, CAST(:storage_ref AS jsonb), "
+                ":sha256, :size_bytes, :mime_type, :file_name, :created_at)"
+            ),
+            {**vars(row), "storage_ref": json.dumps(row.storage_ref)},
+        )
         receipt = storage.snapshot(row)
         await reauthorize(db, proof)
         await db.commit()
@@ -327,36 +340,23 @@ async def _read_binding(db, actor, project_id, key, *, receipt=None):
         if registered:
             raise
         reject("guide_asset_missing", 404)
-    if (
-        await db.scalar(
-            select(Reference.upload_id).where(
-                Reference.project_id == project_id, Reference.upload_id == identifier
-            )
-        )
-        is None
-    ):
-        reject(
-            "guide_asset_storage_unpinned" if registered else "guide_asset_missing",
-            409 if registered else 404,
-        )
-    row = await locked_owner(db, identifier, read=True)
     try:
-        ref = await db.scalar(
-            select(Reference)
-            .where(
-                Reference.project_id == project_id, Reference.upload_id == identifier
+        row = (
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_workspace_v1.mount_guide_upload(:project, :id)"
+                ),
+                {"project": project_id, "id": identifier},
             )
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True)
-        )
+        ).one_or_none()
     except DBAPIError as exc:
         references.db_error(exc)
-    if ref is None:
+    if row is None:
         reject(
             "guide_asset_storage_unpinned" if registered else "guide_asset_missing",
             409 if registered else 404,
         )
-    if row is None or row.project_id != original_project_id:
+    if row.project_id != original_project_id:
         reject("guide_asset_storage_unpinned")
     if row.state != "ready":
         reject("guide_asset_not_ready")
@@ -452,21 +452,29 @@ async def unlink(db, actor, request, project_id, key):
 
 
 async def _has_operation(db, receipt, *, excluding=None):
-    statement = select(StorageOperation.id).where(
-        or_(
-            StorageOperation.purpose == purpose("read", receipt.id),
-            (
-                StorageOperation.location_id
-                == uuid.UUID(receipt.storage_ref["location_id"])
-            )
-            & StorageOperation.purpose.in_(
-                [purpose(operation, receipt.id) for operation in ("write", "delete")]
+    return bool(
+        await db.scalar(
+            text(
+                "SELECT yoao_assets_storage_v1.physical_io_is_open(:read, NULL, :excluded) "
+                "OR yoao_assets_storage_v1.physical_io_is_open(:write, :location, :excluded) "
+                "OR yoao_assets_storage_v1.physical_io_is_open(:delete, :location, :excluded)"
             ),
-        ),
+            {
+                "read": purpose("read", receipt.id),
+                "write": purpose("write", receipt.id),
+                "delete": purpose("delete", receipt.id),
+                "location": uuid.UUID(receipt.storage_ref["location_id"]),
+                "excluded": excluding,
+            },
+        )
     )
-    if excluding is not None:
-        statement = statement.where(StorageOperation.id != excluding)
-    return await db.scalar(statement.limit(1)) is not None
+
+
+async def _has_reference(db, identifier):
+    return await db.scalar(
+        text("SELECT yoao_workspace_v1.guide_upload_has_reference(:id)"),
+        {"id": identifier},
+    )
 
 
 async def _cleanup_one(db, identifier):
@@ -474,17 +482,18 @@ async def _cleanup_one(db, identifier):
     if row is None or row.state == "pending":
         await db.commit()
         return "retained"
-    if await references._has_reference(db, row.id):
+    if await _has_reference(db, row.id) or row.state not in {"ready", "retired"}:
         await db.commit()
         return "retained"
+    updated = await db.scalar(
+        text("SELECT yoao_workspace_v1.attempt_guide_retirement(:id, :now)"),
+        {"id": row.id, "now": authority.now()},
+    )
+    if updated != "retired":
+        reject()
     if row.state == "ready":
-        row.state, row.retired_at = "retired", authority.now()
         await db.commit()
         return "retired"
-    if row.state != "retired":
-        await db.commit()
-        return "retained"
-    row.last_attempted_at = authority.now()
     receipt = storage.snapshot(row)
     if await _has_operation(db, receipt):
         await db.commit()
@@ -500,7 +509,7 @@ async def _cleanup_one(db, identifier):
             current is None
             or current.state != "retired"
             or not storage.same(current, receipt)
-            or await references._has_reference(db, identifier)
+            or await _has_reference(db, identifier)
             or await _has_operation(db, receipt, excluding=permit.id)
         ):
             reject()
@@ -519,11 +528,22 @@ async def _cleanup_one(db, identifier):
         current is not None
         and current.state == "retired"
         and storage.same(current, receipt)
-        and not await references._has_reference(db, identifier)
+        and not await _has_reference(db, identifier)
         and not await _has_operation(db, receipt)
     ):
-        await db.delete(current)
+        if not await db.scalar(
+            text(
+                "SELECT yoao_workspace_v1.settle_guide_retirement(:id, CAST(:ref AS jsonb))"
+            ),
+            {"id": identifier, "ref": json.dumps(receipt.storage_ref)},
+        ):
+            reject()
         await db.commit()
+        cached = db.sync_session.identity_map.get(
+            db.sync_session.identity_key(GuideAssetUpload, identifier)
+        )
+        if cached is not None:
+            db.sync_session.expunge(cached)
         return "objects"
     await db.commit()
     return "retained"
@@ -533,22 +553,10 @@ async def cleanup(db, *, identifiers=None, limit=500):
     """No implicit age policy, pending cleanup, JSON scan or reverse Project lock."""
     limit = max(1, min(int(limit), 500))
     if identifiers is None:
-        referenced = exists().where(Reference.upload_id == Upload.id)
         identifiers = list(
             await db.scalars(
-                select(Upload.id)
-                .where(
-                    or_(
-                        Upload.state == "retired",
-                        (Upload.state == "ready") & ~referenced,
-                    )
-                )
-                .order_by(
-                    Upload.last_attempted_at.asc().nulls_first(),
-                    Upload.created_at,
-                    Upload.id,
-                )
-                .limit(limit)
+                text("SELECT yoao_workspace_v1.guide_retirement_candidates(:limit)"),
+                {"limit": limit},
             )
         )
         await db.commit()

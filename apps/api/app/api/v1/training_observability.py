@@ -7,7 +7,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.training_runs import executor_auth
 from app.db.models.project import Project
-from app.db.models.training_run import TrainingAttempt
 from app.deps import (
     get_db,
     get_training_authority,
@@ -23,6 +22,7 @@ from app.schemas.training_observability import (
 )
 from app.services import training_observability as service
 from app.services import training_runs as run_service
+from app.services.training_run_data import get_attempt
 from app.services.training_authority_contract import TrainingAuthorityPort
 
 router = APIRouter(
@@ -36,7 +36,7 @@ executor_router = APIRouter(
 
 async def load_attempt(db, project_id, run_id, attempt_id):
     run = await run_service.load_run(db, project_id, run_id)
-    attempt = await db.get(TrainingAttempt, attempt_id)
+    attempt = await get_attempt(db, attempt_id)
     if attempt is None or attempt.run_id != run.id:
         raise HTTPException(status_code=404, detail="执行尝试不存在")
     return attempt

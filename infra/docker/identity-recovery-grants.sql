@@ -195,7 +195,9 @@ GRANT EXECUTE ON FUNCTION
     yoao_identity_recovery_v1.finish_mail(jsonb)
     TO :"identity_mail_role";
 GRANT USAGE ON SCHEMA yoao_settings_v1 TO :"identity_mail_settings_role";
-GRANT EXECUTE ON FUNCTION yoao_settings_v1.mail_delivery_policy(jsonb)
+GRANT EXECUTE ON FUNCTION yoao_settings_v1.mail_delivery_policy(jsonb),
+    yoao_settings_v1.claim_smtp_test(),
+    yoao_settings_v1.finish_smtp_test(uuid,uuid,text,text,text,integer)
     TO :"identity_mail_settings_role";
 
 DO $$
@@ -235,7 +237,11 @@ BEGIN
             (
                 current_setting('yoao.identity_mail_settings_role'),
                 'yoao_settings_v1'::text,
-                ARRAY[pg_catalog.to_regprocedure('yoao_settings_v1.mail_delivery_policy(jsonb)')::oid]::oid[]
+                ARRAY[
+                    pg_catalog.to_regprocedure('yoao_settings_v1.mail_delivery_policy(jsonb)')::oid,
+                    pg_catalog.to_regprocedure('yoao_settings_v1.claim_smtp_test()')::oid,
+                    pg_catalog.to_regprocedure('yoao_settings_v1.finish_smtp_test(uuid,uuid,text,text,text,integer)')::oid
+                ]::oid[]
             )
         ) AS expected(role_name, allowed_schema, allowed_functions)
     LOOP

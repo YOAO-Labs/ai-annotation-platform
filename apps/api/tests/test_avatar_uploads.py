@@ -1,7 +1,7 @@
 """Avatar publication fences and cleanup retain physical ownership on failure."""
 
 import asyncio
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import io
 import threading
 from types import SimpleNamespace
@@ -288,9 +288,9 @@ async def test_key_proof_change_after_io_refuses_publication(
             elif change == "scopes":
                 key.scopes = ["*"]
             elif change == "expires":
-                key.expires_at = avatar_uploads.now() - timedelta(seconds=1)
+                key.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
             else:
-                key.revoked_at = avatar_uploads.now()
+                key.revoked_at = datetime.now(timezone.utc)
             await db_session.flush()
         return result
 

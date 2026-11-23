@@ -23,6 +23,7 @@ class NativeStage:
         self.permit_id = permit.id
         self.before_cleanup = before_cleanup
         self.location_id = permit.location_id
+        self.revision = permit.revision
         root = os.path.realpath(tempfile.gettempdir())
         self.path = Path(root) / f"aap-media-stage-{permit.id}"
         self.receipt = {
@@ -37,18 +38,19 @@ class NativeStage:
 
     async def _checkpoint(self):
         async with self.engine.begin() as connection:
-            result = await connection.execute(
+            settled = await connection.scalar(
                 text(
-                    "UPDATE public.storage_operations SET native_stage=CAST(:stage AS jsonb) "
-                    "WHERE id=:id AND location_id=:location"
+                    "SELECT yoao_assets_storage_v1.checkpoint_media_native_stage"
+                    "(:id,:location,:revision,CAST(:stage AS jsonb))"
                 ),
                 {
                     "stage": json.dumps(self.receipt, separators=(",", ":")),
                     "id": self.permit_id,
                     "location": self.location_id,
+                    "revision": self.revision,
                 },
             )
-            if result.rowcount != 1:
+            if not settled:
                 raise RuntimeError("media_native_stage_owner_changed")
 
     def _write(self):
@@ -101,7 +103,8 @@ class NativeStage:
                 raise failure from cleanup
             if failure is not None:
                 raise builtins.BaseExceptionGroup(
-                    "Native media work and owned stage cleanup failed", [failure, cleanup]
+                    "Native media work and owned stage cleanup failed",
+                    [failure, cleanup],
                 ) from None
             raise
         return False

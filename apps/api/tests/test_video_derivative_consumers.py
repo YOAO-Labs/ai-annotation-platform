@@ -262,9 +262,10 @@ async def test_cli_rebuild_uses_committed_new_generation_and_reports_only_real_p
     output = SimpleNamespace(id=output_id)
     source, authority, delegation, events = object(), object(), {"mode": "system"}, []
     db = SimpleNamespace(
-        get=AsyncMock(side_effect=[value, output]),
         commit=AsyncMock(side_effect=lambda: events.append("commit")),
     )
+    monkeypatch.setattr(derivatives, "item_row", AsyncMock(return_value=value))
+    monkeypatch.setattr(cli.objects, "read_attempt", AsyncMock(return_value=output))
     monkeypatch.setattr(originals, "pin", AsyncMock(return_value=source))
     monkeypatch.setattr(
         originals, "system_authorization", MagicMock(return_value=delegation)
@@ -286,14 +287,14 @@ async def test_cli_rebuild_uses_committed_new_generation_and_reports_only_real_p
     if published:
         assert (
             await cli.rebuild_item_timetable(
-                db, value, sparse_stride=2, storage=object()
+                db, item_id, sparse_stride=2, storage=object()
             )
             == 2
         )
     else:
         with pytest.raises(ContentError) as failure:
             await cli.rebuild_item_timetable(
-                db, value, sparse_stride=2, storage=object()
+                db, item_id, sparse_stride=2, storage=object()
             )
         assert failure.value.code == "video_metadata_rebuild_failed"
     prepare.assert_awaited_once_with(
@@ -316,6 +317,7 @@ async def test_cli_dry_run_is_metadata_only_and_never_dispatches(monkeypatch):
         originals, "system_authorization", MagicMock(return_value={"mode": "system"})
     )
     monkeypatch.setattr(originals, "delegated", AsyncMock(return_value=authority))
+    monkeypatch.setattr(derivatives, "item_row", AsyncMock(return_value=value))
     monkeypatch.setattr(
         derivatives,
         "metadata",
@@ -326,7 +328,7 @@ async def test_cli_dry_run_is_metadata_only_and_never_dispatches(monkeypatch):
     monkeypatch.setattr(media_derivatives, "run_outputs", run)
     db = SimpleNamespace(commit=AsyncMock())
     denied = deny_current_storage(monkeypatch)
-    assert await cli.rebuild_item_timetable(db, value, dry_run=True) == 0
+    assert await cli.rebuild_item_timetable(db, value.id, dry_run=True) == 0
     prepare.assert_not_awaited()
     run.assert_not_awaited()
     db.commit.assert_not_awaited()

@@ -339,6 +339,7 @@ async def test_cancel_study_stops_admission_and_preserves_owned_lease(
     await studies.coordinate(
         db_session, study.id, training_authority=bind_training_authority(db_session)
     )
+    await db_session.refresh(study)
     assert (
         len(await studies.children(db_session, study.id)) == 1
         and study.status == "cancelled"
@@ -443,6 +444,7 @@ async def test_resume_re_reserves_current_study_balance_after_later_trial_consum
     await studies.coordinate(
         db_session, study.id, training_authority=bind_training_authority(db_session)
     )
+    await db_session.refresh(study)
     assert study.status == "completed"
     response = await httpx_client.post(path, headers=headers)
     assert response.status_code == 202, response.text
@@ -484,6 +486,7 @@ async def test_authority_revocation_cancels_queued_child_and_protected_deletion_
     await studies.coordinate(
         db_session, study.id, training_authority=bind_training_authority(db_session)
     )
+    await db_session.refresh(study)
     child = (await studies.children(db_session, study.id))[0]
     assert child.status == "cancelled" and not study.scheduling
     owner.is_active = True
@@ -503,7 +506,6 @@ async def test_verified_final_reports_rank_only_within_compatible_identity_and_c
     _, _, study, _, _, _, _ = await setup(db_session, httpx_client, owner, token)
     objects = {}
     for index in range(2):
-        run = (await studies.children(db_session, study.id))[-1]
         trial = await db_session.scalar(
             select(TrainingTrial).where(
                 TrainingTrial.study_id == study.id, TrainingTrial.ordinal == index + 1
@@ -511,7 +513,8 @@ async def test_verified_final_reports_rank_only_within_compatible_identity_and_c
         )
         run = await db_session.get(TrainingRun, trial.run_id)
         attempt = await db_session.get(TrainingAttempt, run.current_attempt_id)
-        await runs.mark_terminal(db_session, run, attempt, "succeeded")
+        run.status = attempt.status = "succeeded"
+        run.completed_at = attempt.completed_at = runs.now()
         report, _, _, _, weights = evidence()
         report["validation_digest"] = run.config["validation_digest"]
         report["per_class"] = [{"index": 0, "name": "car", "mAP50": 0.2}]

@@ -1,4 +1,4 @@
-"""Association reads use a real independent catalog and current owner facts."""
+"""Compare embedded association reads with the portable Catalog HTTP contract."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.test_assets_catalog_runtime import (
     _catalog_origin,
+    _ordinary_assets_engine,
     _start_catalog,
     _wait_public_ready,
     _write_environment,
@@ -220,10 +221,9 @@ async def _cleanup(engine, seeded):
             )
 
 
-async def test_association_container_preserves_policy_projection_and_switching(
+async def test_association_reads_survive_catalog_container_shutdown(
     test_engine,
     app_module,
-    monkeypatch,
 ):
     from app.config import settings
     from app.deps import get_db
@@ -239,7 +239,7 @@ async def test_association_container_preserves_policy_projection_and_switching(
     container = None
     seeded = None
     previous_db = app_module.dependency_overrides.get(get_db)
-    auth_engine = create_async_engine(test_engine.url, hide_parameters=True)
+    auth_engine = _ordinary_assets_engine(test_engine)
 
     @event.listens_for(auth_engine.sync_engine, "before_cursor_execute")
     def forbid_private_reads(_conn, _cursor, statement, _parameters, _context, _many):
@@ -279,7 +279,6 @@ async def test_association_container_preserves_policy_projection_and_switching(
         assert build.returncode == 0, "independent association image did not build"
         seeded = await _seed(test_engine)
         app_module.dependency_overrides[get_db] = gateway_db
-        monkeypatch.setattr(settings, "assets_catalog_token", service_token)
         scheme = "https" if settings.minio_use_ssl else "http"
         values = {
             "ASSETS_CATALOG_DATABASE_URL": _container_database_url(catalog_url),
@@ -310,7 +309,6 @@ async def test_association_container_preserves_policy_projection_and_switching(
             await _wait_healthy(container)
             origin = _catalog_origin(container, image, identity)
             await _wait_public_ready(origin)
-            monkeypatch.setattr(settings, "assets_catalog_url", origin)
             transport = httpx.ASGITransport(app=app_module)
             async with httpx.AsyncClient(
                 transport=transport, base_url="http://gateway"
@@ -353,6 +351,27 @@ async def test_association_container_preserves_policy_projection_and_switching(
                     str(dataset_id),
                 ]
                 assert rows[1]["items_count"] == 3 and rows[1]["tasks_in_project"] == 1
+                async with httpx.AsyncClient(
+                    base_url=origin, trust_env=False
+                ) as direct:
+                    command = {
+                        "actor_id": str(seeded["actors"]["reader"]),
+                        "project_id": str(project_id),
+                    }
+                    denied = await direct.post(
+                        "/v1/catalog/project-datasets", json=command
+                    )
+                    assert denied.status_code == 401
+                    portable = await direct.post(
+                        "/v1/catalog/project-datasets",
+                        json=command,
+                        headers={"Authorization": f"Bearer {service_token}"},
+                    )
+                assert portable.status_code == 200, portable.text
+                assert [item["id"] for item in portable.json()["data"]["datasets"]] == [
+                    str(empty_dataset),
+                    str(dataset_id),
+                ]
                 assert rows[1]["linked_at"] == seeded["stamp"].isoformat()
                 assert rows[0]["items_count"] == rows[0]["tasks_in_project"] == 0
                 assert all(
@@ -411,21 +430,6 @@ async def test_association_container_preserves_policy_projection_and_switching(
                 ).status_code == 401
 
                 await asyncio.to_thread(_docker, "stop", "--time", "15", container)
-                assert (
-                    await api.get(dataset_path, headers=headers("manager"))
-                ).status_code in {502, 503}
-                assert (
-                    await api.get(project_path, headers=headers("manager"))
-                ).status_code in {502, 503}
-                await asyncio.to_thread(_docker, "start", container)
-                await _wait_healthy(container)
-                origin = _catalog_origin(container, image, identity)
-                await _wait_public_ready(origin)
-                monkeypatch.setattr(settings, "assets_catalog_url", origin)
-                assert (
-                    await api.get(project_path, headers=headers("manager"))
-                ).json() == rows
-                monkeypatch.setattr(settings, "assets_catalog_url", "")
                 local_projects = await api.get(dataset_path, headers=headers("manager"))
                 local_datasets = await api.get(project_path, headers=headers("manager"))
                 assert local_projects.status_code == local_datasets.status_code == 200

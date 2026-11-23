@@ -15,7 +15,8 @@ import httpx
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.test_asset_storage_cleanup_runtime import (
     _container_database_url,
@@ -41,6 +42,15 @@ pytestmark = [
     ),
 ]
 ROOT = Path(__file__).resolve().parents[3]
+
+
+def _ordinary_assets_engine(test_engine):
+    url = make_url(_required_env("AAP_MODULE_DATA_LEGACY_RUNTIME_URL"))
+    assert url.username == "legacy_runtime" and url.password
+    assert url.host == "127.0.0.1"
+    assert (url.port, url.database) == (test_engine.url.port, test_engine.url.database)
+    _verify_postgres(url)
+    return create_async_engine(url, hide_parameters=True)
 
 
 def _write_environment(path: Path, values: dict[str, str]) -> None:
@@ -204,7 +214,7 @@ async def _cleanup_rows(engine, actor_id: UUID):
             await owner.execute(text(statement), {"actor": actor_id})
 
 
-async def test_catalog_container_public_consumer_replay_and_local_switch(
+async def test_catalog_frozen_receipt_replays_in_embedded_host(
     test_engine,
     app_module,
     monkeypatch,
@@ -243,10 +253,13 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
     membership_granted = False
     objects = []
     previous_db = app_module.dependency_overrides.get(get_db)
+    runtime = _ordinary_assets_engine(test_engine)
+    sessions = async_sessionmaker(runtime, expire_on_commit=False)
 
     async def gateway_database():
-        async with async_sessionmaker(test_engine, expire_on_commit=False)() as session:
+        async with sessions() as session:
             yield session
+            await session.commit()
 
     try:
         build = await asyncio.to_thread(
@@ -273,7 +286,17 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
         assert build.returncode == 0, "standalone catalog image build failed"
         actor_id, token = await _seed_actor(test_engine)
         app_module.dependency_overrides[get_db] = gateway_database
-        monkeypatch.setattr(settings, "assets_catalog_token", service_token)
+        async with runtime.connect() as ordinary:
+            for query in (
+                "SELECT 1 FROM public.dataset_catalog_operations LIMIT 1",
+                "SELECT 1 FROM yoao_assets_v1.import_original_verifications LIMIT 1",
+                "SELECT yoao_assets_v1.begin_import_original_verification(NULL::jsonb)",
+                "SELECT yoao_assets_v1.capture_native_pyramid_read_io(NULL::uuid,NULL::uuid,NULL::jsonb)",
+            ):
+                with pytest.raises(DBAPIError) as denied:
+                    async with ordinary.begin():
+                        await ordinary.execute(text(query))
+                assert denied.value.orig.sqlstate == "42501"
         scheme = "https" if settings.minio_use_ssl else "http"
         monkeypatch.setattr(
             settings, "minio_public_url", f"{scheme}://{settings.minio_endpoint}"
@@ -311,7 +334,6 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                 "import importlib.util; assert all(importlib.util.find_spec(n) is None "
                 "for n in ('app','sqlalchemy','celery','redis','torch'))",
             )
-            monkeypatch.setattr(settings, "assets_catalog_url", origin)
             async with httpx.AsyncClient(base_url=origin, trust_env=False) as direct:
                 assert (await direct.get("/health")).status_code == 200
                 assert (await direct.get("/ready")).status_code == 200
@@ -335,13 +357,17 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                 transport=transport, base_url="http://gateway"
             ) as api:
                 async with _lost_response_proxy(origin) as proxy:
-                    monkeypatch.setattr(settings, "assets_catalog_url", proxy)
-                    lost = await api.post(
-                        "/api/v1/datasets",
-                        json=body,
-                        headers={**headers, "Idempotency-Key": create_key},
-                    )
-                    assert lost.status_code in {502, 503}
+                    async with httpx.AsyncClient(trust_env=False) as old_consumer:
+                        with pytest.raises(httpx.TransportError):
+                            await old_consumer.post(
+                                f"{proxy}/v1/catalog/create",
+                                json={
+                                    **body,
+                                    "operation_id": create_key,
+                                    "actor_id": str(actor_id),
+                                },
+                                headers={"Authorization": f"Bearer {service_token}"},
+                            )
                 async with test_engine.connect() as owner:
                     assert (
                         await owner.scalar(
@@ -353,7 +379,6 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                         )
                         == 1
                     )
-                monkeypatch.setattr(settings, "assets_catalog_url", origin)
                 created = await api.post(
                     "/api/v1/datasets",
                     json=body,
@@ -459,24 +484,16 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                     and changed.json()["axis_convention"] is None
                 )
                 await asyncio.to_thread(_stop_owned_container, container, identity)
-                unavailable = await api.get(
+                current = await api.get(
                     f"/api/v1/datasets/{dataset_id}", headers=headers
                 )
-                assert unavailable.status_code in {502, 503}
-                await asyncio.to_thread(_docker, "start", container)
-                await _wait_healthy(container)
-                origin = _catalog_origin(container, image, identity)
-                await _wait_public_ready(origin)
-                monkeypatch.setattr(settings, "assets_catalog_url", origin)
+                assert current.status_code == 200 and current.json() == changed.json()
                 replay = await api.put(
                     f"/api/v1/datasets/{dataset_id}",
                     json={"description": "committed", "axis_convention": None},
                     headers={**headers, "Idempotency-Key": update_key},
                 )
                 assert replay.status_code == 200 and replay.json() == changed.json()
-                monkeypatch.setattr(settings, "assets_catalog_url", "")
-                local = await api.get(f"/api/v1/datasets/{dataset_id}", headers=headers)
-                assert local.status_code == 200 and local.json() == changed.json()
                 local_replay = await api.post(
                     "/api/v1/datasets",
                     json=body,
@@ -521,6 +538,7 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
             app_module.dependency_overrides.pop(get_db, None)
         else:
             app_module.dependency_overrides[get_db] = previous_db
+        await runtime.dispose()
         for candidate in (forbidden_container, container):
             if candidate is not None:
                 _stop_remove_container(candidate, identity)

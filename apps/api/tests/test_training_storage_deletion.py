@@ -1,6 +1,8 @@
 """Training deletion commits a durable cleanup intent before destructive IO."""
 
+import os
 import uuid
+from contextlib import nullcontext
 from copy import deepcopy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -28,6 +30,7 @@ from app.services.storage import storage_service
 from app.services.training_dataset_bridge import TrainingDatasetError
 from tests.factory import create_user
 from tests.test_training_runs import ready_dataset
+from tests.test_training_dataset_owner_fences import restricted_sessions
 
 
 @pytest.fixture(autouse=True)
@@ -83,7 +86,14 @@ async def committed_record(request, test_engine):
         else {"actor_id": owner.id},
     )
     try:
-        yield world
+        runtime = (
+            restricted_sessions(test_engine)
+            if os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
+            else nullcontext(factory)
+        )
+        async with runtime as consumer:
+            world.consumer = consumer
+            yield world
     finally:
         async with factory() as db:
             for model, condition in (
@@ -109,7 +119,7 @@ async def test_commit_failure_never_purges_training_storage(
     world = committed_record
     purge = Mock(side_effect=RuntimeError("must not run"))
     monkeypatch.setattr(storage_service, "delete_prefix", purge)
-    async with world.factory() as db:
+    async with world.consumer() as db:
         monkeypatch.setattr(
             db, "commit", AsyncMock(side_effect=RuntimeError("commit unavailable"))
         )
@@ -147,7 +157,7 @@ async def test_storage_failure_keeps_intent_for_existing_maintenance_owner(
     monkeypatch.setattr(storage_service, "delete_prefix", purge)
 
     async def request_session():
-        async with world.factory() as db:
+        async with world.consumer() as db:
             yield db
 
     monkeypatch.setitem(app_module.dependency_overrides, get_db, request_session)
@@ -172,17 +182,17 @@ async def test_storage_failure_keeps_intent_for_existing_maintenance_owner(
         intent_id = intent.id
     assert objects[original_bucket] == {key: b"original"}
     monkeypatch.setattr(storage_service, "training_bucket", other_bucket)
-    await cleanup.maintain(world.factory)
+    await cleanup.maintain(world.consumer)
     async with world.factory() as db:
         assert await db.get(TrainingStorageDeletion, intent_id) is not None
     unavailable = False
-    await cleanup.maintain(world.factory)
+    await cleanup.maintain(world.consumer)
     assert objects[original_bucket] == {}
     assert objects[other_bucket] == {key: b"unrelated"}
     async with world.factory() as db:
         assert await db.get(TrainingStorageDeletion, intent_id) is None
         assert not await cleanup.purge_requested(db, intent_id)
-    await cleanup.maintain(world.factory)
+    await cleanup.maintain(world.consumer)
     assert objects[other_bucket] == {key: b"unrelated"}
 
 
@@ -199,7 +209,7 @@ async def test_cleanup_commit_failure_keeps_retryable_intent(
         objects.clear()
 
     monkeypatch.setattr(storage_service, "delete_prefix", purge)
-    async with world.factory() as db:
+    async with world.consumer() as db:
         commit = db.commit
         commits = 0
 
@@ -227,7 +237,7 @@ async def test_cleanup_commit_failure_keeps_retryable_intent(
                 TrainingStorageDeletion.prefix == world.prefix
             )
         )
-    await cleanup.maintain(world.factory)
+    await cleanup.maintain(world.consumer)
     assert objects == {}
     async with world.factory() as db:
         assert not await db.scalar(
@@ -255,6 +265,7 @@ async def test_unknown_training_owner_retains_intent_without_physical_delete(
         storage_ref=None if unresolved else ref,
     )
     db_session.add(intent)
+    await db_session.delete(record)
     await db_session.flush()
     purge = Mock()
     monkeypatch.setattr(storage_service, "delete_prefix", purge)
@@ -262,4 +273,5 @@ async def test_unknown_training_owner_retains_intent_without_physical_delete(
         await cleanup.purge_requested(db_session, intent.id)
     purge.assert_not_called()
     assert await db_session.get(TrainingStorageDeletion, intent.id) is intent
+    await db_session.refresh(intent)
     assert intent.last_attempted_at is not None

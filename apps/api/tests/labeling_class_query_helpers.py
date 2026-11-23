@@ -235,7 +235,7 @@ async def bound_api_client(
         async with api_db_binding(app_module, runtime_maker):
             transport = httpx.ASGITransport(app=app_module, raise_app_exceptions=False)
             async with httpx.AsyncClient(
-                transport, base_url="http://test", timeout=30
+                transport=transport, base_url="http://test", timeout=30
             ) as client:
                 with observe_borrowed_labeling_rpc(runtime_engine) as rpc:
                     yield client, runtime_engine, rpc

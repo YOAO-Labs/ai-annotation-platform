@@ -1143,11 +1143,6 @@ async def _delete_owned_project_data(db, scope, run_id):
             db, _JOBS_FIXTURE_PROJECT_DELETE_SQL, {"pids": project_ids}
         )
         await _try_fixture_delete(
-            db,
-            "DELETE FROM project_task_views WHERE project_id=ANY(:pids)",
-            {"pids": project_ids},
-        )
-        await _try_fixture_delete(
             db, _LABELING_FIXTURE_DELETE_SQL, {"pids": project_ids}
         )
         await _try_fixture_delete(

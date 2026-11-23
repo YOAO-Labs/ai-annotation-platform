@@ -1,0 +1,54 @@
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+    public.training_dataset_versions, public.training_dataset_analyses,
+    public.training_dataset_analyzed_samples, public.training_storage_deletions
+    TO :"learning_owner";
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.project_task_datasets TO :"learning_owner";
+GRANT SELECT, INSERT ON TABLE public.task_dataset_version_memberships TO :"learning_owner";
+GRANT SELECT (id, storage_ref) ON public.training_runs TO :"learning_owner";
+GRANT SELECT (id) ON public.training_previews, public.sample_evaluation_runs,
+    public.active_learning_rounds TO :"learning_owner";
+GRANT USAGE ON SCHEMA yoao_assets_v1, yoao_labeling_v1 TO :"learning_owner";
+GRANT SELECT (item_id, dataset_id) ON yoao_assets_v1.spatial_item_references TO :"learning_owner";
+GRANT SELECT (id, project_id, dataset_item_id) ON yoao_labeling_v1.task_rows TO :"learning_owner";
+GRANT USAGE ON SCHEMA yoao_learning_v1 TO :"assets_owner", :"learning_owner";
+GRANT CREATE ON SCHEMA yoao_learning_v1 TO :"learning_owner";
+ALTER VIEW yoao_learning_v1.training_dataset_metadata OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_task(jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_facts(uuid,uuid,boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_profile(jsonb,text) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_read(uuid,uuid,boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_hold(uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_request(uuid,uuid,boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_job_lock(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_create(uuid,uuid,uuid,uuid,uuid,text,uuid,text,jsonb,text,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_stream(uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_associate(uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_set_storage(uuid,uuid,uuid,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_queue(uuid,uuid,uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_start(uuid,uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_progress(uuid,uuid,uuid,integer) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_publish(uuid,uuid,uuid,text,jsonb,jsonb,text,text,bigint,timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_fail(uuid,uuid,uuid,text,boolean,text,text,timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_delete(uuid,uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_manifest(uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_sample_evidence(uuid,uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_original_history() OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_binding_history() OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_asset_versions(uuid,boolean) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_location_versions(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_read(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_start(uuid,uuid,text,text,text,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_add_members(uuid,text,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_sample_page(uuid,text,integer,bigint,text,integer,text,text,text[]) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_member(uuid,uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_observations(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_media_counts(uuid) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_analysis_observe_media(uuid,uuid,text,bigint,text,timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_storage_stage_deletion(uuid,uuid,text,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_storage_claim_deletion(uuid,timestamptz) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_storage_complete_deletion(uuid,jsonb) OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_storage_deletion_batch() OWNER TO :"learning_owner";
+ALTER FUNCTION yoao_learning_v1.training_dataset_high_water_violations(uuid) OWNER TO :"learning_owner";
+REVOKE CREATE ON SCHEMA yoao_learning_v1 FROM :"learning_owner";
+GRANT EXECUTE ON FUNCTION yoao_learning_v1.training_dataset_asset_versions(uuid,boolean) TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_learning_v1.training_original_history() TO :"assets_owner";

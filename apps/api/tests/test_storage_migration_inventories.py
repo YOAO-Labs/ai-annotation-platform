@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import HTTPException
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.core import security
@@ -72,13 +72,21 @@ def report(row, *, partial=False):
     return sink.value
 
 
+async def settled_inventory_fixture(db, job_id):
+    await db.execute(
+        update(Inventory)
+        .where(Inventory.async_job_id == job_id)
+        .values(operation_id=uuid.uuid4())
+    )
+    return await service.by_job(db, job_id)
+
+
 async def running(db, actor):
     row, job, reused = await service.start(db, actor)
     assert not reused
-    assert await service.claim(db, job.id, row.task_id) is row
-    row.operation_id = uuid.uuid4()
-    await db.flush()
-    return row, job
+    claimed = await service.claim(db, job.id, row.task_id)
+    assert claimed.async_job_id == row.async_job_id
+    return await settled_inventory_fixture(db, job.id), job
 
 
 @pytest.mark.parametrize("identity", ["super_admin", "project_admin", "annotator"])
@@ -162,7 +170,7 @@ async def test_start_reuses_exact_input_and_conflicts_for_other_inputs_or_actor(
     again, same, reused = await service.start(
         db_session, actor, StorageMigrationInventoryRequest()
     )
-    assert reused and again is row and same is job
+    assert reused and again.async_job_id == row.async_job_id and same is job
     with pytest.raises(HTTPException) as caught:
         await service.start(
             db_session,
@@ -235,6 +243,7 @@ async def test_sealed_report_publishes_safe_summary_and_private_download_without
     row, job = await running(db_session, super_admin[0])
     raw = report(row, partial=partial)
     assert await service.publish(db_session, job.id, row.task_id, report=raw)
+    row = await service.by_job(db_session, job.id)
     assert row.status == ("failed" if partial else "completed")
     assert row.complete is not partial
     assert row.error_code == ("inventory_incomplete" if partial else None)
@@ -300,6 +309,7 @@ async def test_final_fences_never_publish_report_after_revocation_or_unsettled_c
         )
     await db_session.flush()
     assert await service.publish(db_session, job.id, row.task_id, report=raw)
+    row = await service.by_job(db_session, job.id)
     assert row.status == ("cancelled" if change == "cancel" else "failed")
     assert not service.item(row).report_available
     if change == "unsettled":
@@ -312,6 +322,7 @@ async def test_digest_corruption_and_unsealed_or_wrong_input_never_download(
 ):
     row, job = await running(db_session, super_admin[0])
     assert await service.publish(db_session, job.id, row.task_id, report=b"unsealed\n")
+    row = await service.by_job(db_session, job.id)
     assert row.error_code == "inventory_invalid_result"
     with pytest.raises(HTTPException) as caught:
         await service.download(db_session, job.id, super_admin[0])
@@ -319,8 +330,11 @@ async def test_digest_corruption_and_unsealed_or_wrong_input_never_download(
     row, job = await running(db_session, super_admin[0])
     raw = report(row)
     await service.publish(db_session, job.id, row.task_id, report=raw)
-    row.report = raw[:-1] + b" "
-    await db_session.flush()
+    await db_session.execute(
+        update(Inventory)
+        .where(Inventory.async_job_id == job.id)
+        .values(report=raw[:-1] + b" ")
+    )
     with pytest.raises(HTTPException) as caught:
         await service.download(db_session, job.id, super_admin[0])
     assert caught.value.detail["code"] == "inventory_report_integrity"
@@ -386,7 +400,7 @@ async def test_saved_key_revocation_is_rechecked_before_claim_and_publish(
     row, job, _ = await service.start(db_session, actor, api_key_id=key.id)
     if stage == "running":
         assert await service.claim(db_session, job.id, row.task_id)
-        row.operation_id = uuid.uuid4()
+        row = await settled_inventory_fixture(db_session, job.id)
         raw = report(row)
     key.scopes = ["datasets:read"]
     await db_session.flush()
@@ -394,6 +408,7 @@ async def test_saved_key_revocation_is_rechecked_before_claim_and_publish(
         assert await service.claim(db_session, job.id, row.task_id) is None
     else:
         assert await service.publish(db_session, job.id, row.task_id, report=raw)
+    row = await service.by_job(db_session, job.id)
     assert row.status == "failed" and not service.item(row).report_available
 
 
@@ -415,6 +430,7 @@ async def test_running_signal_keeps_physical_receipt_and_no_report(
     assert await service.signal_interrupted(
         db_session, job.id, row.task_id, cancelled=cancelled
     )
+    row = await service.by_job(db_session, job.id)
     assert row.status == "failed" and row.error_code == "inventory_interrupted"
     assert await db_session.get(StorageOperation, row.operation_id)
     assert not await service.signal_interrupted(
@@ -429,6 +445,9 @@ async def test_private_report_database_cap_and_job_fk_are_enforced(
     raw = report(row)
     await service.publish(db_session, job.id, row.task_id, report=raw)
     async with db_session.begin_nested():
-        row.report_size_bytes += 1
         with pytest.raises(IntegrityError):
-            await db_session.flush()
+            await db_session.execute(
+                update(Inventory)
+                .where(Inventory.async_job_id == job.id)
+                .values(report_size_bytes=Inventory.report_size_bytes + 1)
+            )

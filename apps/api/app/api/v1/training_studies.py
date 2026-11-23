@@ -3,11 +3,9 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, select
 
 from app.services.project_write_guard import lock_project_manager
 from app.db.models.project import Project
-from app.db.models.training_study import TrainingStudy
 from app.deps import (
     get_current_user,
     get_db,
@@ -16,6 +14,7 @@ from app.deps import (
     require_scopes,
 )
 from app.schemas.training_study import TrainingStudyCreate
+from app.services import learning_selection_data as data
 from app.services import training_studies as service
 from app.services import training_claims as claims
 from app.services.training_authority_contract import TrainingAuthorityPort
@@ -73,15 +72,8 @@ async def list_studies(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> dict:
-    query = select(TrainingStudy).where(TrainingStudy.project_id == project.id)
-    total = await db.scalar(select(func.count()).select_from(query.subquery()))
-    items = list(
-        await db.scalars(
-            query.order_by(TrainingStudy.created_at.desc(), TrainingStudy.id.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-    )
+    total = await data.study_count(db, project.id)
+    items = await data.studies_page(db, project.id, limit, offset)
     return {
         "total": total,
         "items": [
@@ -92,7 +84,7 @@ async def list_studies(
                 "scheduling": study.scheduling,
                 "message": study.message,
                 "created_at": study.created_at,
-                "trial_count": len(study.plan["trials"]),
+                "trial_count": study.trial_count,
             }
             for study in items
         ],

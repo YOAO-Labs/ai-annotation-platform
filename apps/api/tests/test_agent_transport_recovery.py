@@ -11,6 +11,7 @@ from app.services.content_snapshot import ContentError
 from app.services.site_agents import SiteAgentError
 from tests.test_agent_transport import (
     completed,
+    lease,
     queued,
     remote as remote,
     send_chunk,
@@ -26,14 +27,14 @@ async def test_expired_lost_delivery_replays_only_to_same_journal_for_closure(
     db, _, agent, _, _, _, _ = remote
     row = await queued(remote, "scan")
     session_id = uuid.uuid4()
-    original = await svc.lease(db, agent.id, session_id)
+    original = await lease(remote, session_id)
     deadline = row.expires_at
     row.state = state
     agent.draining = draining
     await db.commit()
     monkeypatch.setattr(svc, "now", lambda: deadline + timedelta(seconds=1))
-    assert await svc.lease(db, agent.id, uuid.uuid4()) is None
-    assert await svc.lease(db, agent.id, session_id) == original
+    assert await lease(remote, uuid.uuid4()) is None
+    assert await lease(remote, session_id) == original
     assert row.expires_at == deadline and row.state == state and row.closed is None
     result = {
         **completed(row),
@@ -56,7 +57,7 @@ async def test_expired_replay_closes_even_after_source_authority_changes(
     db, _, agent, _, location, _, _ = remote
     row = await queued(remote)
     session_id = uuid.uuid4()
-    original = await svc.lease(db, agent.id, session_id)
+    original = await lease(remote, session_id)
     if change == "location":
         location.enabled = False
     elif change == "root":
@@ -68,35 +69,35 @@ async def test_expired_replay_closes_even_after_source_authority_changes(
             db.add(gate)
         gate.state, gate.revision = "stopped", 2
     await db.commit()
-    assert await svc.lease(db, agent.id, session_id) is None
+    assert await lease(remote, session_id) is None
     deadline = row.expires_at
     monkeypatch.setattr(svc, "now", lambda: deadline + timedelta(seconds=1))
-    assert await svc.lease(db, agent.id, session_id) == original
+    assert await lease(remote, session_id) == original
 
 
 async def test_revoked_identity_cannot_recover_old_delivery_through_poll(remote):
     db, _, agent, _, _, _, _ = remote
     row = await queued(remote)
     session_id = uuid.uuid4()
-    await svc.lease(db, agent.id, session_id)
+    await lease(remote, session_id)
     agent.revoked_at = svc.now()
     await db.commit()
     with pytest.raises(SiteAgentError, match="agent_revoked"):
-        await svc.lease(db, agent.id, session_id)
+        await lease(remote, session_id)
     assert row.closed is None
 
 
 async def test_drain_cleans_confirmed_relay_without_leasing_queued_work(remote):
     db, _, agent, _, _, _, _ = remote
     row = await queued(remote)
-    await svc.lease(db, agent.id, uuid.uuid4())
+    await lease(remote, uuid.uuid4())
     assert (await send_chunk(remote, row)).status_code == 200
     assert (await send_result(remote, row, completed(row))).status_code == 200
     await svc.acknowledge(db, row, accepted=True)
     agent.draining = True
     await db.commit()
     pending = await queued(remote, "scan")
-    assert await svc.lease(db, agent.id, uuid.uuid4()) is None
+    assert await lease(remote, uuid.uuid4()) is None
     assert pending.state == "queued" and row.relay_released is True
     client = svc.redis_client()
     try:
@@ -109,18 +110,17 @@ async def test_drain_redelivers_existing_grant_without_creating_another(remote):
     db, _, agent, _, _, _, _ = remote
     row = await queued(remote)
     session_id = uuid.uuid4()
-    original = await svc.lease(db, agent.id, session_id)
+    original = await lease(remote, session_id)
     agent.draining = True
     await db.commit()
-    assert await svc.lease(db, agent.id, session_id) == original
+    assert await lease(remote, session_id) == original
     assert row.lease_session_id == session_id
 
 
 async def test_unconfirmed_physical_close_is_never_reexecuted_or_inferred(remote):
-    db, _, agent, _, _, _, _ = remote
     row = await queued(remote)
     session_id = uuid.uuid4()
-    await svc.lease(db, agent.id, session_id)
+    await lease(remote, session_id)
     result = {
         **completed(row),
         "status": "failed",
@@ -129,7 +129,7 @@ async def test_unconfirmed_physical_close_is_never_reexecuted_or_inferred(remote
         "closed": False,
     }
     assert (await send_result(remote, row, result)).status_code == 200
-    assert await svc.lease(db, agent.id, session_id) is None
+    assert await lease(remote, session_id) is None
     assert row.state == "unsettled" and row.closed is False
 
 

@@ -86,8 +86,12 @@ async def require_empty_database(backend):
 def prepare_empty_target(backend):
     """Own the same resources as the launcher, without migrating over the dump."""
     require_fresh_inventory(backend)
+    asyncio.run(backend.owned_runtime_role("check_create"))
+    backend.manage_worker_roles("check_create")
     atomic_json(state_path(backend.root, "test", "resources.json"), backend.manifest)
     backend.touched = True
+    asyncio.run(backend.owned_runtime_role("create"))
+    backend.manage_worker_roles("create")
     asyncio.run(backend.database("create"))
     for name in set(backend.resources["buckets"].values()):
         if backend.bucket_info(name) is not None:
@@ -391,6 +395,9 @@ def rehearse(options):
         )
         validate_revisions(revisions, heads, asyncio.run(target.revisions()), skip=True)
         asyncio.run(target.grant_runtime())
+        asyncio.run(target.grant_jobs_recovery())
+        asyncio.run(target.verify_runtime_login())
+        asyncio.run(target.prepare_assets_worker_roles())
         require_offline(target)
         finish(stage, before)
 

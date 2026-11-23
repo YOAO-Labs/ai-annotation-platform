@@ -136,6 +136,9 @@ async def test_rotation_uses_current_credentials_and_never_reinterprets_address(
         return location if model is StorageLocation else connection
 
     db = SimpleNamespace(get=AsyncMock(side_effect=get))
+    monkeypatch.setattr(
+        storage.storage_registry_data, "get_location", AsyncMock(return_value=location)
+    )
     monkeypatch.setattr(connector_guard, "get_allowlist", AsyncMock(return_value=[]))
     if kind == "zip":
         row, service = (
@@ -626,8 +629,11 @@ async def test_mapped_cache_keeps_final_business_and_route_checks(
         format=case.receipt.format,
         expires_at=case.receipt.expires_at,
     )
-    db = SimpleNamespace(scalar=AsyncMock(return_value=artifact))
+    db = SimpleNamespace()
     monkeypatch.setattr(export_outputs, "_locked", AsyncMock(return_value=case.row))
+    monkeypatch.setattr(
+        export_outputs.data, "lock_cache", AsyncMock(return_value=artifact)
+    )
     hit = export_outputs.CacheHit(
         artifact.id,
         artifact.cache_key,

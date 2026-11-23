@@ -59,7 +59,10 @@ async def test_retry_reuses_own_job_and_preserves_other_actor_privacy(
             f"/api/v1/async-jobs/{job.id}", headers=_headers(annotator)
         )
     ).status_code == 403
-    await objects.claim(db_session, output)
+    pending = await objects.read_attempt(
+        db_session, output.dataset_item_id, "metadata", output.id
+    )
+    await objects.claim(db_session, pending)
     original_authority = deepcopy(output.auth_ref)
     world.project.owner_id = project_admin[0].id
     await db_session.commit()
@@ -94,7 +97,7 @@ async def test_metadata_job_uses_requested_asset_result(
         },
         "frames": [],
     }
-    await core.publish(
+    output = await core.publish(
         db_session,
         output,
         world.authority,

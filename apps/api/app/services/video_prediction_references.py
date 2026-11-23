@@ -13,17 +13,14 @@ import math
 from types import SimpleNamespace
 import uuid
 
-from sqlalchemy import select
-
 from yoao_inference import extract_capabilities
 from yoao_inference_contract.execution import ModelExecutionDispatch, thaw_json
 
-from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
-from app.db.models.ml_backend_registry import MLBackendRegistry, ProjectMLBackendPool
 from app.services import prediction_inputs, prediction_originals as authority
 from app.services import video_prediction_originals as originals
 from app.services import async_job as jobs
 from app.services.content_snapshot import ContentError
+from app.services.inference_topology_data import InferenceTopologyData
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.prediction_execution import load_snapshot, validate_task_scope
 from app.services.prediction_inputs import PredictionInputs
@@ -282,47 +279,16 @@ def _models(value):
 
 
 async def _backend(db, identifier):
-    return await db.scalar(
-        select(MLBackendRegistry)
-        .where(MLBackendRegistry.id == identifier)
-        .with_for_update(read=True, nowait=True)
-        .execution_options(populate_existing=True)
-    )
+    return await InferenceTopologyData(db).lock_video_prediction_registry(identifier)
 
 
 async def _pool(db, project_id, registry_id, expected=None):
-    member = await db.scalar(
-        select(MLBackendPoolMember)
-        .where(MLBackendPoolMember.registry_id == registry_id)
-        .with_for_update(read=True, nowait=True)
-        .execution_options(populate_existing=True)
+    pool_id = await InferenceTopologyData(db).lock_video_prediction_pool(
+        project_id, registry_id, _uuid(expected) if expected is not None else None
     )
-    if member is None or member.traffic_state != "active":
+    if pool_id is None:
         reject("prediction_video_model_changed")
-    pool = await db.scalar(
-        select(MLBackendServicePool)
-        .where(MLBackendServicePool.id == member.pool_id)
-        .with_for_update(read=True, nowait=True)
-        .execution_options(populate_existing=True)
-    )
-    association = await db.scalar(
-        select(ProjectMLBackendPool)
-        .where(
-            ProjectMLBackendPool.project_id == project_id,
-            ProjectMLBackendPool.pool_id == member.pool_id,
-        )
-        .with_for_update(read=True, nowait=True)
-        .execution_options(populate_existing=True)
-    )
-    if (
-        pool is None
-        or not pool.enabled
-        or association is None
-        or not association.enabled
-        or (expected is not None and str(pool.id) != expected)
-    ):
-        reject("prediction_video_model_changed")
-    return str(pool.id)
+    return str(pool_id)
 
 
 async def _capture_models(db, project_id, payload):
@@ -343,9 +309,7 @@ async def _capture_models(db, project_id, payload):
         if backend is None or backend.state != "connected":
             reject("prediction_video_model_changed")
         pool_id = await _pool(db, project_id, backend_id)
-        declaration = model_declaration(
-            (backend.health_meta or {}).get("capabilities") or {}, stage
-        )
+        declaration = model_declaration(backend.capabilities or {}, stage)
         row = {
             "stage": stage["stage"],
             "parent_stage": stage.get("parent_stage"),
@@ -779,7 +743,7 @@ class VideoPredictionJob:
             )
             or not _same(
                 model_declaration(
-                    (backend.health_meta or {}).get("capabilities") or {},
+                    backend.capabilities or {},
                     {
                         "model_id": selected["declaration"]["model"]["id"],
                         "task": selected["declaration"]["model"]["task"],
@@ -1188,13 +1152,14 @@ class VideoPredictionJob:
                     )
                 ):
                     reject("prediction_video_dispatch_unrecorded")
-                backend = await _backend(self.db, _uuid(actual))
+                actual_id = _uuid(actual)
+                backend = await _backend(self.db, actual_id)
                 if (
                     backend is None
                     or backend.state != "connected"
                     or not _same(
                         model_declaration(
-                            (backend.health_meta or {}).get("capabilities") or {},
+                            backend.capabilities or {},
                             {
                                 "model_id": row["declaration"]["model"]["id"],
                                 "task": row["declaration"]["model"]["task"],
@@ -1204,7 +1169,7 @@ class VideoPredictionJob:
                     )
                 ):
                     reject("prediction_video_model_changed")
-                await _pool(self.db, self.project_id, backend.id, row["pool_id"])
+                await _pool(self.db, self.project_id, actual_id, row["pool_id"])
             models.append({**row, "executed_registry_id": actual})
         return bounded(
             {

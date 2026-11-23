@@ -12,16 +12,10 @@ from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
 
 from app.config import settings
-from app.db.models.dataset import Dataset, DatasetItem
-from app.db.models.dataset_asset import (
-    DatasetAsset,
-    DatasetAssetLocation,
-    StorageBinding,
-    StorageLocation,
-)
+from app.db.models.dataset import Dataset
 from app.db.models.managed_original_retirement import ManagedOriginalRetirement
 from app.services.dataset_assets import LEGACY_LOCATION_ID
-from app.services.reference_keys import PREFIX
+from app.services.managed_original_lifecycle_data import original_json
 from app.services.storage import storage_service
 
 
@@ -161,52 +155,12 @@ async def capture_managed_original_retirements(
         from app.services.test_seed_access import assert_isolated_test_seed_database
 
         await assert_isolated_test_seed_database(db)
-    statement = (
-        select(
-            Dataset.id.label("dataset_id"),
-            Dataset.lifecycle_revision.label("dataset_lifecycle_revision"),
-            DatasetItem.id.label("dataset_item_id"),
-            DatasetAsset.id.label("asset_id"),
-            DatasetAsset.verification_state.label("asset_verification_state"),
-            DatasetAsset.checksum_algorithm,
-            DatasetAsset.checksum_value,
-            DatasetAsset.size_bytes,
-            DatasetAssetLocation.location_id,
-            DatasetAssetLocation.bucket,
-            DatasetAssetLocation.object_key,
-            DatasetAssetLocation.storage_ref,
-            DatasetAssetLocation.creation_id,
-            DatasetAssetLocation.role,
-            DatasetAssetLocation.reference_state,
-            DatasetAssetLocation.etag,
-            DatasetAssetLocation.verified_at,
-            StorageLocation.kind.label("location_kind"),
-            StorageLocation.config.label("location_config"),
-            StorageLocation.config_revision.label("location_config_revision"),
-            StorageBinding.generation.label("binding_generation"),
-        )
-        .select_from(Dataset)
-        .join(DatasetItem, DatasetItem.dataset_id == Dataset.id)
-        .join(DatasetAsset, DatasetAsset.dataset_item_id == DatasetItem.id)
-        .join(DatasetAssetLocation, DatasetAssetLocation.asset_id == DatasetAsset.id)
-        .outerjoin(
-            StorageLocation, StorageLocation.id == DatasetAssetLocation.location_id
-        )
-        .outerjoin(
-            StorageBinding,
-            (StorageBinding.purpose == "datasets")
-            & (StorageBinding.location_id == DatasetAssetLocation.location_id)
-            & (StorageBinding.bucket == DatasetAssetLocation.bucket),
-        )
-        .where(
-            Dataset.id == dataset_id,
-            DatasetAssetLocation.role == "managed_original",
-            ~DatasetItem.file_path.startswith(PREFIX, autoescape=True),
-        )
+    result = await db.stream(
+        text(
+            "SELECT * FROM yoao_assets_v1.original_retirement_candidates(:dataset, :item)"
+        ),
+        {"dataset": dataset_id, "item": item_id},
     )
-    if item_id is not None:
-        statement = statement.where(DatasetItem.id == item_id)
-    result = await db.stream(statement)
     try:
         async for rows in result.mappings().partitions(500):
             from app.services.managed_original_reclaim_fence import shared
@@ -259,11 +213,18 @@ async def capture_managed_original_retirements(
                     ):
                         raise ContentError("fixture_original_retirement_unqualified")
                     assertion["retain_until"] = func.statement_timestamp()
-            await db.execute(
-                insert(ManagedOriginalRetirement)
-                .values(assertions)
-                .on_conflict_do_nothing(index_elements=["assertion_digest"])
-            )
+                await db.execute(
+                    insert(ManagedOriginalRetirement)
+                    .values(assertions)
+                    .on_conflict_do_nothing(index_elements=["assertion_digest"])
+                )
+            else:
+                await db.execute(
+                    text(
+                        "SELECT yoao_assets_v1.append_original_retirement_assertions(:dataset, CAST(:assertions AS jsonb))"
+                    ),
+                    {"dataset": dataset_id, "assertions": original_json(assertions)},
+                )
     finally:
         await result.close()
 

@@ -17,10 +17,20 @@ from app.services import thumbnail_outputs as service
 from app.services import storage as storage_module
 from app.services import media_cache_accounting, storage_usage_accounting
 from app.services.content_snapshot import ContentError
-from app.services.dataset_assets import LEGACY_LOCATION_ID
+from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.source_readers.s3 import S3Access
 from tests.managed_original_provider_support import MemoryS3, error, response
-from tests.test_media_cache_targets import media_db as media_db, switch
+from tests.managed_image_inference_fixtures import managed_database
+from tests.test_media_cache_targets import switch as switch
+
+
+@pytest.fixture
+async def media_db(test_engine):
+    async with managed_database(test_engine.url) as engine:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            await ensure_legacy_bindings(db)
+            await db.commit()
+            yield db
 
 
 class Client(MemoryS3):
@@ -351,3 +361,42 @@ async def test_checkpoint_failure_preserves_each_actual_failure_once(
         assert (
             (service.owner(output).bucket, saved_key) in client.objects
         ) is not write_refused
+
+
+async def test_checkpoint_refuses_retargeting_changed_bytes_and_replay(
+    media_db, client, monkeypatch
+):
+    persist = service._persist_result
+
+    async def challenge(factory, identifier, reference, receipt, failure):
+        wrong_ref = {
+            **reference,
+            "binding_generation": reference["binding_generation"] + 1,
+        }
+        with pytest.raises(ContentError, match="thumbnail_output_changed"):
+            await persist(factory, identifier, wrong_ref, receipt, failure)
+        with pytest.raises(ContentError, match="thumbnail_output_changed"):
+            await persist(
+                factory, identifier, reference, {**receipt, "sha256": "0" * 64}, failure
+            )
+        result = await persist(factory, identifier, reference, receipt, failure)
+        with pytest.raises(ContentError, match="thumbnail_output_changed"):
+            await persist(factory, identifier, reference, receipt, failure)
+        return result
+
+    monkeypatch.setattr(service, "_persist_result", challenge)
+    body = b"webp"
+    output = await service.create(
+        media_db,
+        owner_kind="dataset_thumbnail",
+        owner_id=uuid.uuid4(),
+        input_ref={},
+        body=body,
+    )
+    saved = service.owner(output)
+    observed = client.objects[saved.bucket, saved.key(service.RELATIVE_KEY)]
+    assert (output.sha256, output.etag, output.version_id) == (
+        hashlib.sha256(body).hexdigest(),
+        observed["ETag"],
+        observed["VersionId"],
+    )

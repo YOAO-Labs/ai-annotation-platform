@@ -14,12 +14,14 @@ import uuid
 import httpx
 import pytest
 from sqlalchemy import event, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.security import create_access_token
 from app.services.project_access import get_workspace_project
 from app.services.project_workspace import lock_project_row
 from tests.factory import create_project, create_task, create_user
+from tests.grant_sql_helpers import read_grant_script
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_labeling_counter_deltas_workflows_native import _configure_actual_api
 from tests.test_workspace_configuration_live import _public_configuration_commands
@@ -78,7 +80,7 @@ async def _grants(test_engine, filename, role, **overrides):
     return await asyncio.to_thread(
         subprocess.run,
         command,
-        input=filename.read_text(),
+        input=read_grant_script(filename),
         text=True,
         capture_output=True,
         timeout=30,
@@ -94,6 +96,10 @@ FROM (
     SELECT relid,'predictions' FROM pg_partition_tree('public.predictions')
     UNION ALL
     SELECT 'public.mv_user_perf_daily'::regclass,'mv_user_perf_daily'
+    UNION ALL
+    SELECT 'public.project_task_views'::regclass,'project_task_views'
+    UNION ALL
+    SELECT 'public.dataset_saved_views'::regclass,'dataset_saved_views'
     UNION ALL
     SELECT 'public.mv_audit_bi_daily'::regclass,'mv_audit_bi_daily'
 ) tree
@@ -242,10 +248,17 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
                     "AND acl.grantee=0 AND acl.privilege_type='SELECT')"
                 )
             )
-            await db.execute(
-                text("REFRESH MATERIALIZED VIEW public.mv_user_perf_daily")
+            assert await db.scalar(
+                text(
+                    "SELECT relation.relowner = function.proowner "
+                    "AND relation.relowner = 'insights_code'::regrole "
+                    "AND function.prosecdef AND function.pronargs=0 "
+                    "AND function.proconfig = ARRAY['search_path=pg_catalog, pg_temp'] "
+                    "FROM pg_class AS relation CROSS JOIN pg_proc AS function "
+                    "WHERE relation.oid='public.mv_user_perf_daily'::regclass "
+                    "AND function.oid='yoao_insights_v1.refresh_user_perf_daily()'::regprocedure"
+                )
             )
-            await db.commit()
             functions = (
                 await db.execute(
                     text(
@@ -294,6 +307,180 @@ async def test_profile_closes_private_columns_receipts_helpers_and_sequences(
         assert result.returncode == 0, result.stderr
         async with api() as db:
             await _assert_closed(db)
+
+
+async def test_insights_refresh_is_concurrent_and_uses_the_callers_transaction(
+    test_engine,
+):
+    from datetime import timedelta
+
+    from app.db.models.task_event import TaskEvent
+
+    async with _world(test_engine) as (owner, api, _role, _url):
+        async with owner.begin() as db:
+            actor = await create_user(
+                db, "project_admin", f"perf-{uuid.uuid4()}@example.test", "Insight"
+            )
+            project = await create_project(db, owner_id=actor.id)
+            task = await create_task(db, project_id=project.id)
+            start = datetime(2026, 9, 10, 23, 59, tzinfo=timezone.utc)
+            db.add(
+                TaskEvent(
+                    task_id=task.id,
+                    user_id=actor.id,
+                    project_id=project.id,
+                    kind="annotate",
+                    started_at=start,
+                    ended_at=start + timedelta(seconds=60),
+                    duration_ms=60_000,
+                    annotation_count=7,
+                    was_rejected=True,
+                )
+            )
+        projection = text(
+            "SELECT day, event_count, throughput, median_duration_ms, "
+            "p95_duration_ms, rejected_n, active_minutes "
+            "FROM public.mv_user_perf_daily WHERE user_id=:actor"
+        )
+        args = {"actor": actor.id}
+        refresh = text("SELECT yoao_insights_v1.refresh_user_perf_daily()")
+        async with owner() as reader, api() as worker:
+            assert (await reader.execute(projection, args)).one_or_none() is None
+            for statement in (
+                "SELECT day FROM public.mv_user_perf_daily",
+                "CREATE TABLE yoao_insights_v1.denied(id integer)",
+                "SET ROLE insights_code",
+                "REFRESH MATERIALIZED VIEW CONCURRENTLY public.mv_user_perf_daily",
+            ):
+                with pytest.raises(DBAPIError) as denied:
+                    async with worker.begin_nested():
+                        await worker.execute(text(statement))
+                assert denied.value.orig.sqlstate == "42501"
+            await worker.execute(
+                text("CREATE TEMP TABLE mv_user_perf_daily (shadow int)")
+            )
+            await worker.execute(text("SET LOCAL search_path = pg_temp, public"))
+            await worker.execute(text("SET LOCAL lock_timeout = '2s'"))
+            await worker.execute(refresh)
+            await worker.rollback()
+            assert (await reader.execute(projection, args)).one_or_none() is None
+            await worker.execute(text("SET LOCAL lock_timeout = '2s'"))
+            await worker.execute(refresh)
+            await worker.commit()
+            row = (await reader.execute(projection, args)).one()
+            assert row[0].isoformat() == "2026-09-10"
+            assert tuple(row[1:]) == (1, 7, 60_000, 60_000, 1, 1)
+
+
+async def test_actual_http_saved_views_preserve_scope_with_private_tables_closed(
+    test_engine, app_module, monkeypatch
+):
+    from app.db.models.dataset import Dataset
+    from app.deps import get_db
+    from app.middleware import audit as audit_middleware
+    from app.services.insights_saved_views import ProjectSavedViews
+
+    _configure_actual_api(test_engine, monkeypatch)
+    async with _world(test_engine) as (owner, api, _role, _url):
+        world = uuid.uuid4().hex
+        async with owner.begin() as db:
+            actor = await create_user(
+                db, "project_admin", f"view-{world}@example.test", "Owner"
+            )
+            other = await create_user(
+                db, "super_admin", f"other-{world}@example.test", "Other"
+            )
+            project = await create_project(db, owner_id=actor.id)
+            dataset = Dataset(
+                display_id=f"DS-V-{world[:10]}", name="Views", created_by=actor.id
+            )
+            db.add(dataset)
+
+        async def request_db():
+            async with api() as db:
+                yield db
+
+        monkeypatch.setitem(app_module.dependency_overrides, get_db, request_db)
+        monkeypatch.setattr(audit_middleware, "async_session", api)
+        headers = {
+            "Authorization": "Bearer "
+            + create_access_token(subject=str(actor.id), role="project_admin")
+        }
+        other_headers = {
+            "Authorization": "Bearer "
+            + create_access_token(subject=str(other.id), role="super_admin")
+        }
+        tasks = f"/api/v1/projects/{project.id}/task-views"
+        datasets = f"/api/v1/datasets/{dataset.id}/saved-views"
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app_module), base_url="http://test"
+        ) as client:
+            task = await client.post(
+                tasks, json={"name": "Owner's view"}, headers=headers
+            )
+            assert task.status_code == 201, task.text
+            task_path = f"{tasks}/{task.json()['id']}"
+            assert (
+                await client.get(task_path, headers=other_headers)
+            ).status_code == 404
+            renamed = await client.patch(
+                task_path,
+                json={"name": "Shared", "visibility": "project"},
+                headers=headers,
+            )
+            assert renamed.status_code == 200, renamed.text
+            visible = await client.get(task_path, headers=other_headers)
+            assert visible.status_code == 200 and visible.json()["name"] == "Shared"
+            copied = await client.post(
+                task_path + "/copy",
+                json={"visibility": "private"},
+                headers=other_headers,
+            )
+            assert copied.status_code == 201, copied.text
+            assert (await client.delete(task_path, headers=headers)).status_code == 204
+            personal = await client.post(
+                datasets,
+                json={"name": "My samples", "query": {"extension": ".JPEG"}},
+                headers=headers,
+            )
+            assert personal.status_code == 201, personal.text
+            assert personal.json()["query"]["extension"] == "jpg"
+            assert (await client.get(datasets, headers=other_headers)).json()[
+                "items"
+            ] == []
+            personal_path = f"{datasets}/{personal.json()['id']}"
+            assert (
+                await client.delete(personal_path, headers=other_headers)
+            ).status_code == 404
+            changed = await client.put(
+                personal_path,
+                json={"name": "My videos", "query": {"media_type": "video"}},
+                headers=headers,
+            )
+            assert changed.status_code == 200, changed.text
+            assert changed.json()["query"]["media_type"] == "video"
+            assert (
+                await client.delete(personal_path, headers=headers)
+            ).status_code == 204
+        async with api() as db:
+            row = await ProjectSavedViews(db).create(
+                project_id=project.id,
+                actor_id=actor.id,
+                name="Rolled back",
+                visibility="private",
+                entity_scope="tasks",
+                filter_json={},
+                sort_json=[],
+                columns_json=[],
+            )
+            await db.rollback()
+        async with owner() as db:
+            assert not await db.scalar(
+                text(
+                    "SELECT EXISTS (SELECT FROM public.project_task_views WHERE id=:id)"
+                ),
+                {"id": row.id},
+            )
 
 
 async def test_lan_profile_revokes_public_mask_execution_and_keeps_runtime(test_engine):

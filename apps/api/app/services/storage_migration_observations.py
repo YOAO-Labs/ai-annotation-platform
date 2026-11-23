@@ -79,14 +79,7 @@ async def collect_observations(engine, purpose_buckets, endpoint, legacy_id):
             (
                 await connection.execute(
                     text(
-                        "SELECT b.purpose,b.location_id,b.bucket,b.generation,"
-                        "l.kind AS location_kind,l.config AS location_config,"
-                        "l.config_revision,l.connection_id,c.kind AS connection_kind,"
-                        "c.scope AS connection_scope,c.config AS connection_config,"
-                        "c.revision AS connection_revision "
-                        "FROM storage_bindings b LEFT JOIN storage_locations l "
-                        "ON l.id=b.location_id LEFT JOIN storage_connections c "
-                        "ON c.id=l.connection_id ORDER BY b.purpose LIMIT 101"
+                        "SELECT * FROM yoao_assets_v1.migration_inventory_binding_context()"
                     )
                 )
             )
@@ -97,9 +90,7 @@ async def collect_observations(engine, purpose_buckets, endpoint, legacy_id):
             (
                 await connection.execute(
                     text(
-                        "SELECT kind,status,count(*) AS count FROM async_jobs "
-                        "WHERE status IN ('pending','running') "
-                        "GROUP BY kind,status ORDER BY kind,status LIMIT 101"
+                        "SELECT * FROM yoao_jobs_v1.active_storage_writer_job_counts()"
                     )
                 )
             )
@@ -110,8 +101,7 @@ async def collect_observations(engine, purpose_buckets, endpoint, legacy_id):
             (
                 await connection.execute(
                     text(
-                        "SELECT kind,count(*) AS count FROM storage_locations "
-                        "GROUP BY kind ORDER BY kind LIMIT 101"
+                        "SELECT * FROM yoao_assets_v1.migration_location_kind_counts()"
                     )
                 )
             )

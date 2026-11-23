@@ -3,33 +3,21 @@
 from sqlalchemy import Text, Uuid, cast, func, select
 from sqlalchemy.dialects.postgresql import ARRAY
 
-from app.db.models.dataset_asset import StorageLocation
-from app.db.models.dataset_source import DatasetSource, DatasetSourcePreview
-from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services.dataset_assets import LEGACY_LOCATION_ID
 from app.services.dataset_workbench import STATES, available_cache_ids
 from app.services.storage import storage_service
+from app.services.storage_registry_data import get_location
 
 PREVIEW_STATES = ("ready", "failed", "unrecorded", "not_requested", "blocked")
 
 
 async def available_preview_keys(db, source_ids):
     """Validate saved preview owners and current target metadata, never bytes."""
-    from app.services import media_cache_storage, storage_access, thumbnail_outputs
+    from app.services import storage_access, thumbnail_outputs
     from app.services.content_snapshot import ContentError
+    from app.services.managed_s3_target import target_origin_for
 
-    rows = await db.execute(
-        select(DatasetSourcePreview, ThumbnailOutput, DatasetSource.location_id)
-        .join(DatasetSource, DatasetSource.id == DatasetSourcePreview.source_id)
-        .outerjoin(
-            ThumbnailOutput,
-            ThumbnailOutput.id == DatasetSourcePreview.thumbnail_output_id,
-        )
-        .where(
-            DatasetSourcePreview.source_id.in_(source_ids),
-            DatasetSourcePreview.state == "ready",
-        )
-    )
+    rows = await thumbnail_outputs.directory_evidence(db, source_ids)
     targets, sources, available = {}, {}, []
     for preview, output, source_location_id in rows:
         try:
@@ -42,10 +30,8 @@ async def available_preview_keys(db, source_ids):
                 target_key = None
                 if target_key not in targets:
                     targets[target_key] = False
-                    location = await db.get(
-                        StorageLocation, LEGACY_LOCATION_ID, populate_existing=True
-                    )
-                    await media_cache_storage.target_for(db, location)
+                    location = await get_location(db, LEGACY_LOCATION_ID)
+                    await target_origin_for(db, location, purpose="media-cache")
                     await storage_access.check(db, LEGACY_LOCATION_ID)
                     targets[target_key] = True
             else:

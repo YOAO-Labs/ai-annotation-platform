@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,13 +26,13 @@ router = APIRouter()
 
 
 async def _build_response(
-    db: AsyncSession, registration_default: bool | None = None
+    db: AsyncSession, actor_id: uuid.UUID, registration_default: bool | None
 ) -> SystemSettingsOut:
     """Build management readback from committed DB state, bypassing TTL cache."""
 
     snapshot = await SystemSettingsService.snapshot(
         db,
-        bypass_cache=True,
+        actor_id,
         registration_default=registration_default,
     )
     cur = snapshot.values
@@ -65,10 +67,11 @@ async def _build_response(
 async def _version_conflict_response(
     db: AsyncSession,
     exc: SettingsVersionConflict,
-    registration_default: bool | None = None,
+    actor_id: uuid.UUID,
+    registration_default: bool | None,
 ) -> HTTPException:
     await db.rollback()
-    latest = await _build_response(db, registration_default)
+    latest = await _build_response(db, actor_id, registration_default)
     return HTTPException(
         status_code=status.HTTP_409_CONFLICT,
         detail={
@@ -83,10 +86,10 @@ async def _version_conflict_response(
 @router.get("/system", response_model=SystemSettingsOut)
 async def get_system_settings(
     db: AsyncSession = Depends(get_db),
-    _: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
+    actor: IdentityActorFacts = Depends(require_roles(UserRole.SUPER_ADMIN)),
     registration_default: bool = Depends(get_registration_default),
 ):
-    return await _build_response(db, registration_default)
+    return await _build_response(db, actor.id, registration_default)
 
 
 @router.patch("/system", response_model=SystemSettingsOut)
@@ -119,7 +122,7 @@ async def update_system_settings(
         if key in payload.model_fields_set and getattr(payload, key) is not None
     }
     if not updates:
-        return await _build_response(db, registration_default)
+        return await _build_response(db, actor.id, registration_default)
 
     try:
         changes = await SystemSettingsService.set_many(
@@ -130,7 +133,7 @@ async def update_system_settings(
             registration_default=registration_default,
         )
     except SettingsVersionConflict as exc:
-        raise await _version_conflict_response(db, exc, registration_default)
+        raise await _version_conflict_response(db, exc, actor.id, registration_default)
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(
@@ -146,10 +149,10 @@ async def update_system_settings(
             target_id="settings",
             request=request,
             status_code=200,
-            detail=SystemSettingsService.safe_audit_detail(changes),
+            detail=changes,
         )
     await db.commit()
-    return await _build_response(db, registration_default)
+    return await _build_response(db, actor.id, registration_default)
 
 
 @router.post("/system/reset", response_model=SystemSettingsOut)
@@ -169,7 +172,7 @@ async def reset_system_settings(
             registration_default=registration_default,
         )
     except SettingsVersionConflict as exc:
-        raise await _version_conflict_response(db, exc, registration_default)
+        raise await _version_conflict_response(db, exc, actor.id, registration_default)
     except ValueError as exc:
         await db.rollback()
         raise HTTPException(
@@ -187,11 +190,11 @@ async def reset_system_settings(
         detail={
             "operation": "reset",
             "keys": payload.keys,
-            "changes": SystemSettingsService.safe_audit_detail(changes),
+            "changes": changes,
         },
     )
     await db.commit()
-    return await _build_response(db, registration_default)
+    return await _build_response(db, actor.id, registration_default)
 
 
 @router.post("/system/test-smtp", status_code=200)
@@ -203,7 +206,7 @@ async def test_smtp(
 ):
     """用当前 DB override 的 SMTP 配置发一封测试邮件到 actor.email。"""
     try:
-        result = await send_test_email(db, actor.email)
+        result = await send_test_email(db, actor.id)
     except SmtpConfigError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return {"ok": True, **result}

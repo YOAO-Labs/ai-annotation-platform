@@ -15,6 +15,11 @@ from io import BytesIO
 from PIL import Image
 import pytest
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
+from yoao_assets_images import contract as images
+from yoao_assets_images.transport import ImageGenerationReferenceRequest
+from app.services.assets_images import image_gateway, image_policy, run_image_job
 
 from tests.test_asset_storage_cleanup_runtime import (
     _container_database_url,
@@ -24,7 +29,10 @@ from tests.test_asset_storage_cleanup_runtime import (
     _stop_remove_container,
     _wait_healthy,
 )
-from tests.test_assets_catalog_runtime import _write_environment
+from tests.test_assets_catalog_runtime import (
+    _ordinary_assets_engine,
+    _write_environment,
+)
 from tests.test_assets_catalog_native import _seed_actor
 from tests.test_assets_media_containers import (
     _ACCEPTANCE,
@@ -34,13 +42,13 @@ from tests.test_assets_media_containers import (
     _start_container,
 )
 from tests.test_assets_images_live import (
-    _accept_image_work,
     _assert_image_storage_scopes,
     _image_live_runtime,
     _quadrant_png,
     _read_job,
     _seed_item,
     _solid_png,
+    _track_job_prefix,
 )
 from tests.test_assets_media_live import _post
 
@@ -81,6 +89,7 @@ def _image_worker_environment(
     runtime, internal_s3: str, public_s3: str
 ) -> dict[str, str]:
     return {
+        "ASSETS_IMAGE_EXECUTOR": "split",
         "ASSETS_IMAGES_DATABASE_URL": _container_database_url(runtime.worker_url),
         "ASSETS_IMAGES_LEGACY_BUCKET": runtime.legacy_bucket,
         "ASSETS_IMAGES_POLL_SECONDS": "0.1",
@@ -117,6 +126,7 @@ def _verify_image_worker_container(
     labels = config.get("Labels") or {}
     env_names = {value.partition("=")[0] for value in config.get("Env", [])}
     required = {
+        "ASSETS_IMAGE_EXECUTOR",
         "ASSETS_IMAGES_DATABASE_URL",
         "ASSETS_IMAGES_LEGACY_BUCKET",
         "ASSETS_IMAGES_POLL_SECONDS",
@@ -207,7 +217,7 @@ async def _wait_for_image_jobs(
 
 
 async def test_restricted_image_worker_container_generates_thumbnail_and_vips_pyramid(
-    test_engine, tmp_path, record_property, native_signer
+    test_engine, tmp_path, record_property, native_signer, monkeypatch
 ):
     image_ref = _required_env("AAP_ASSETS_IMAGES_WORKER_IMAGE")
     image_id, _image_identity = _owned_image_ref(image_ref)
@@ -219,6 +229,8 @@ async def test_restricted_image_worker_container_generates_thumbnail_and_vips_py
         environment_file = tmp_path / "image-worker.env"
         container_id = None
         worker_started_at = None
+        embedded_engine = _ordinary_assets_engine(test_engine)
+        control_sessions = async_sessionmaker(embedded_engine, expire_on_commit=False)
         try:
             internal_s3, public_s3 = _container_s3_origins(runtime.settings)
             _write_environment(
@@ -248,20 +260,39 @@ async def test_restricted_image_worker_container_generates_thumbnail_and_vips_py
                 width=1024,
                 height=1024,
             )
-            thumbnail_acceptance, _ = await _accept_image_work(
-                runtime,
-                actor_id=actor_id,
-                item_id=small_item_id,
-                purpose="thumbnail",
-            )
-            pyramid_acceptance, _ = await _accept_image_work(
-                runtime,
-                actor_id=actor_id,
-                item_id=pyramid_item_id,
-                purpose="pyramid",
-            )
-            thumbnail_job_id = UUID(thumbnail_acceptance["work"]["job_id"])
-            pyramid_job_id = UUID(pyramid_acceptance["work"]["job_id"])
+            settings = runtime.settings
+            monkeypatch.setattr(settings, "assets_media_url", "")
+            monkeypatch.setattr(settings, "assets_image_executor", "split")
+            monkeypatch.setattr(settings, "image_pyramid_optional_pixels", 1_048_576)
+            monkeypatch.setattr(settings, "image_pyramid_auto_generate", True)
+            with monkeypatch.context() as scoped:
+                scoped.setattr(settings, "minio_access_key", runtime.control_access)
+                scoped.setattr(settings, "minio_secret_key", runtime.control_secret)
+                scoped.setattr(settings, "minio_public_url", public_s3)
+                async with control_sessions() as db, image_gateway(db) as embedded:
+                    assert embedded.provider.wakeup is None
+                    thumbnail, pyramid = [
+                        await embedded.prepare_image_media(
+                            images.PrepareImageMediaRequest(
+                                actor_id=actor_id,
+                                dataset_item_id=item_id,
+                                operation_id=uuid4(),
+                                purpose=purpose,
+                                policy=image_policy(),
+                            )
+                        )
+                        for item_id, purpose in (
+                            (small_item_id, "thumbnail"),
+                            (pyramid_item_id, "pyramid"),
+                        )
+                    ]
+                thumbnail_job_id = thumbnail.work.job_id
+                pyramid_job_id = pyramid.work.job_id
+                for job_id in (thumbnail_job_id, pyramid_job_id):
+                    job = await _read_job(runtime.test_engine, job_id)
+                    assert job["status"] == "pending"
+                    _track_job_prefix(runtime, job)
+                assert not await run_image_job(pyramid_job_id)
 
             worker_started_at = time.monotonic()
             container_id = _start_container(
@@ -350,14 +381,48 @@ async def test_restricted_image_worker_container_generates_thumbnail_and_vips_py
                     "actor_id": str(actor_id),
                     "task_id": None,
                     "dataset_item_id": str(pyramid_item_id),
-                    "expected_source_snapshot": pyramid_acceptance["source"][
-                        "source_snapshot"
-                    ],
+                    "expected_source_snapshot": pyramid.source.source_snapshot,
                 },
             )
             assert generation_response.status_code == 200
             generation = generation_response.json()["data"]
             manifest = generation["manifest"]
+            read = ImageGenerationReferenceRequest(
+                actor_id=actor_id,
+                dataset_item_id=pyramid_item_id,
+                expected_source_snapshot=pyramid.source.source_snapshot,
+            )
+            with monkeypatch.context() as scoped:
+                scoped.setattr(settings, "minio_access_key", runtime.control_access)
+                scoped.setattr(settings, "minio_secret_key", runtime.control_secret)
+                scoped.setattr(settings, "minio_public_url", public_s3)
+                scoped.setattr(settings, "assets_media_native_image_storage_url", "")
+                scoped.setattr(settings, "assets_media_native_image_storage_token", "")
+                scoped.setattr(
+                    settings, "assets_media_native_image_storage_token_file", ""
+                )
+                async with control_sessions() as db, image_gateway(db) as embedded:
+                    with pytest.raises(
+                        images.ImageFailure, match="storage_unavailable"
+                    ):
+                        await embedded.generation_reference(read)
+                scoped.setattr(
+                    settings, "assets_media_native_image_storage_url", native_signer.url
+                )
+                scoped.setattr(
+                    settings,
+                    "assets_media_native_image_storage_token",
+                    native_signer.reader_token,
+                )
+                async with control_sessions() as db, image_gateway(db) as embedded:
+                    ready = await embedded.generation_reference(read)
+                    assert (
+                        ready.pyramid.generation == generation["pyramid"]["generation"]
+                    )
+                    assert ready.manifest.model_dump(mode="json") == manifest
+                    assert (
+                        await runtime.control_client.get(ready.overview_url)
+                    ).status_code == 200
             assert generation["pyramid"]["status"] == "ready"
             assert manifest["width"] == 1024 and manifest["height"] == 1024
             assert len(manifest["levels"]) == 11
@@ -391,9 +456,7 @@ async def test_restricted_image_worker_container_generates_thumbnail_and_vips_py
                     "actor_id": str(actor_id),
                     "task_id": None,
                     "dataset_item_id": str(pyramid_item_id),
-                    "expected_source_snapshot": pyramid_acceptance["source"][
-                        "source_snapshot"
-                    ],
+                    "expected_source_snapshot": pyramid.source.source_snapshot,
                     "items": [
                         {
                             "kind": "tile",
@@ -430,5 +493,6 @@ async def test_restricted_image_worker_container_generates_thumbnail_and_vips_py
             if peak is not None:
                 assert peak <= 2 * 1024**3
         finally:
+            await embedded_engine.dispose()
             if container_id is not None:
                 await asyncio.to_thread(_stop_remove_container, container_id, identity)

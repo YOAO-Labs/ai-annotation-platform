@@ -1,62 +1,62 @@
-"""The API keeps its existing mail helpers on the shared SMTP transport."""
+"""The isolated sender emits one fixed message and settles only safe outcomes."""
 
-from email.message import EmailMessage
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+import uuid
 
 import pytest
 
 from yoao_mail_transport import MailDeliveryResult, MailOutcome, MailReason, SMTPConfig
-from app.services.email import SmtpConfigError, _send_message
+from yoao_identity.mail_postgres import SmtpTestAttempt
+from yoao_identity_runtime.smtp_test import run_smtp_test_once
 
 
-def test_api_adapter_passes_one_snapshot_and_raises_only_safe_transport_status(
-    monkeypatch,
+@pytest.mark.asyncio
+@pytest.mark.parametrize("configured", [True, False])
+async def test_isolated_diagnostic_sends_only_to_claimed_account(
+    monkeypatch, configured
 ):
-    observed = {}
+    attempt = SmtpTestAttempt(uuid.uuid4(), uuid.uuid4(), "recipient@example.test")
+    sender = SimpleNamespace(
+        claim_smtp_test=AsyncMock(side_effect=[attempt, None]),
+        finish_smtp_test=AsyncMock(return_value=True),
+    )
+    policy = AsyncMock(
+        return_value=SimpleNamespace(
+            smtp_host="mail.test" if configured else "",
+            smtp_port=587,
+            smtp_user="user-secret",
+            smtp_password="password-secret",
+            smtp_from="sender@example.test",
+        )
+    )
 
     def fail(config, message):
-        observed["config"] = config
-        observed["message"] = message
+        assert config == SMTPConfig(
+            host="mail.test",
+            port=587,
+            user="user-secret",
+            password="password-secret",
+            sender="sender@example.test",
+        )
+        assert message["To"] == attempt.recipient
+        assert message["Subject"] == "[YOAO] SMTP 测试邮件"
         return MailDeliveryResult(MailOutcome.RETRY, MailReason.CONNECT_FAILED)
 
-    monkeypatch.setattr("app.services.email.send_message", fail)
-    message = EmailMessage()
-    message["From"] = "sender@example.test"
-    message["To"] = "recipient@example.test"
-    message.set_content("test")
-
-    with pytest.raises(SmtpConfigError, match="connect_failed") as caught:
-        _send_message(
-            {
-                "smtp_host": "mail.test",
-                "smtp_port": 587,
-                "smtp_user": "user-secret",
-                "smtp_password": "password-secret",
-                "smtp_from": "sender@example.test",
-            },
-            message,
+    monkeypatch.setattr("yoao_identity_runtime.smtp_test.send_message", fail)
+    assert await run_smtp_test_once(sender, policy)
+    assert not await run_smtp_test_once(sender, policy)
+    policy.assert_awaited_once()
+    if configured:
+        sender.finish_smtp_test.assert_awaited_once_with(
+            attempt,
+            MailReason.CONNECT_FAILED,
+            sender="sender@example.test",
+            host="mail.test",
+            port=587,
         )
-
-    assert observed["config"] == SMTPConfig(
-        host="mail.test",
-        port=587,
-        user="user-secret",
-        password="password-secret",
-        sender="sender@example.test",
-    )
-    assert observed["message"] is message
-    assert "user-secret" not in str(caught.value)
-    assert "password-secret" not in str(caught.value)
-
-
-def test_api_adapter_preserves_missing_configuration_error():
-    with pytest.raises(SmtpConfigError, match="SMTP 未完整配置"):
-        _send_message(
-            {
-                "smtp_host": "",
-                "smtp_port": 587,
-                "smtp_user": "",
-                "smtp_password": "",
-                "smtp_from": "",
-            },
-            EmailMessage(),
+    else:
+        sender.finish_smtp_test.assert_awaited_once_with(
+            attempt, MailReason.NOT_CONFIGURED
         )
+    assert "password-secret" not in repr(sender.finish_smtp_test.await_args)

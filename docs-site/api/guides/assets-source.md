@@ -5,9 +5,9 @@ status: stable
 last_reviewed: 2026-11-16
 ---
 
-# 独立素材来源控制
+# 素材来源与独立核验
 
-`apps/assets-source` 是 Assets 来源控制运行时，持有单文件上传初始化、发布完成、Dataset/Item 删除、同步 ZIP 入库、旧对象桶扫描，以及存储连接器列表、读取、创建、更新、删除和连通性测试。公开 API 继续认证 JWT/API key、检查各入口既有 scope 与角色并保持原响应；显式远程配置失败会报错，不回退到本地。未配置远程地址时使用同一工作流与原生能力。
+公开单文件上传、Dataset/Item 删除、同步 ZIP 入库和旧桶扫描在 API 内复用 `apps/assets-source` 的工作流，使用调用方事务。API 继续认证 JWT/API key、检查既有 scope 与角色并保持原响应；旧 HTTP 信封保留为可移植合同，不作为这些公共操作的后端选择。连接器导入的准确版本回读、持久恢复和 Native 金字塔签名仍由持有专用凭据的 Source 进程完成。
 
 ## 接口与身份
 
@@ -37,7 +37,7 @@ last_reviewed: 2026-11-16
 
 ## 存储连接器管理
 
-六个公开连接器端点保留原路径、权限、状态码和响应模型。它们调用 Assets Source 的内部 `POST /v1/connections/{list,read,create,update,delete,test}` 工作流。本地模式复用同一 Python 工作流并在调用方数据库事务中执行；配置 `ASSETS_SOURCE_URL` 与 `ASSETS_SOURCE_TOKEN` 后，API 调用独立 Source，远程错误会直接返回，不自动切到本地。`GET /storage-connections` 仍返回全部可见连接器，网关逐页读取并校验完整快照与游标，不把内部分页暴露给公开响应。
+列表和读取始终在 API 中使用同一原生能力和有界分页，从不读取密文或依赖 Source HTTP 就绪。仅创建、更新、删除与测试在配置 `ASSETS_SOURCE_URL` 和 `ASSETS_SOURCE_TOKEN` 时走独立 Source；这些路径的捕获、解封或 I/O 不转给 API，远程失败不会回退。未配置 Source URL 的开发装配可按已有本地连接器权限和 Fernet 设置调用同一工作流。
 
 内部协议为 `aap-assets-connections/v1`，完整请求、结果和原生参数合同见 `apps/assets-source/src/yoao_assets_source/connections_contract.schema.json`。本地与远程连接器请求/响应都受 1/16 MiB 单次预算约束；完整列表由多个有界私有页面组成。
 
@@ -63,7 +63,7 @@ ZIP 要求当前活跃账号和 `datasets:write`，不要求管理员角色。�
 
 ZIP 将新字节写入不可变 key：`dataset-sources/{dataset_id}/{item_id}/{publication_id}/{logical_relpath}`。Item 元数据在 `metadata.source_ingest` 保存操作 UUID 和逻辑相对路径。重复请求和失败回滚都不会覆盖或删除旧来源。ZIP 场景推断只在已有文件新增且数据集尚无 Scene、无既有场景分配时执行，并基于所有历史与新增 Item 规划。若 `is_temporal` 为真但没有可接受的 Scene，整个 SQL 事务回滚，已复制的原始字节仍保留。
 
-每个 Source 进程只接收一个 ZIP 请求并在数据库事务开始前将已认证的请求流 spool 到临时文件。公开网关按实际流量限制 multipart 包体，为边界和头部另留 64 KiB；断连或异常会关闭解析器的临时文件。独立 Compose 资源上限为 512 MiB 内存和 256 MiB `/tmp`。保留的可信 nuScenes namespace 仍受写入保护；扫描还会拒绝以 `dataset-sources` 或 `dataset-uploads` 为首段的 legacy prefix，不改变 Dataset 名称目录的通用规则。
+公开 API 先按实际流量限制 multipart 包体，为边界和头部另留 64 KiB，并把归档保存在有界临时文件。断连或异常会关闭解析器的临时文件。可移植 Source HTTP 制品仍按其资源预算接收 ZIP。可信 nuScenes 命名空间继续受写入保护；扫描拒绝 `dataset-sources` 或 `dataset-uploads` 为首段的前缀。
 
 扫描保留管理员权限，只枚举固定 datasets 桶中当前 Dataset 的精确 `{Dataset.name}/` legacy 前缀，按 S3 页流式读取，不设新增的文件数/字节截断上限。它跳过已登记路径，只为缺失路径登记 Item，保留旧扩展名类型判断与子目录文件名；只有单段 ETag 是有效 MD5 时才将其作为内容哈希提示。扫描不复制或删除对象，也不推断 Scene，不会把 `dataset-sources/` 下的现代 publication 当成 legacy 对象或越过当前 Dataset 前缀。
 
@@ -81,9 +81,9 @@ S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历�
 
 ## 运行与回退
 
-先应用当前迁移、module-data owner 授权与 `infra/docker/assets-source-grants.sql`，再为非 root 用户 10003 准备专用 secret、固定桶和 S3 origin。独立启动配置见仓库 `DEV.md`、`docker-compose.assets-source.yml` 及服务 README；启用 Native 金字塔时再叠加 `docker-compose.assets-native.yml` 与媒体/清理 overlay。先确认服务 `/health` 与 `/ready`，再设置网关 `ASSETS_SOURCE_URL`、`ASSETS_SOURCE_TOKEN` 并刷新 API。网关 I/O 超时默认 300 秒，上限 3600 秒；独立服务的池、SQL、S3 连接/读取和消息预算均可独立限制。0215 的 SQL 工件仍按 core 后 delivery 的顺序安装；降级会移除来源和连接器回执并丢失同键重放结果，故应先停止来源写入并排空活动操作和待派发媒体记录。
+独立 Source 先使用兼容 SQL、`infra/docker/assets-source-grants.sql` 的受限 LOGIN 和专属 S3 身份，再部署 `docker-compose.assets-source.yml`；启用 Native 时叠加 `docker-compose.assets-native.yml`。连接器写路径才使用 API 的 `ASSETS_SOURCE_URL`／`ASSETS_SOURCE_TOKEN`（默认超时 300 秒），与 Importer 使用的 `ASSETS_IMPORT_VERIFY_URL`／核验 token、Native 三类签名绑定分别配置。`/ready` 仅证明 Source 宿主就绪，不把任何 owner 凭据交给 API。
 
-回退到本地模式可清空网关 URL 并刷新 API，保留兼容的 SQL 与完成回执，再停止指定独立 Compose 项目。回退迁移前须停止来源写入并处理仍需确认的操作；空库迁移往返不证明删除在途回执安全。Go 仍是隔离实验，不进入本服务或真实环境。
+仅在导入核验、恢复和历史 Native 输出已无依赖时才停止独立 Source；把连接器 URL 清空不会迁移这三类责任。回退前保留兼容 SQL 与完成回执，在途操作沿用原键确认。
 
 ## 持久连接器导入
 

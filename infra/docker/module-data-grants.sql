@@ -1236,7 +1236,6 @@ GRANT SELECT (
 GRANT SELECT (id, pool_id, enabled), INSERT (id, project_id, pool_id, enabled),
     UPDATE (enabled, updated_at)
     ON public.project_ml_backend_pool TO :"inference_owner";
-GRANT SELECT (project_id), DELETE ON public.project_task_views TO :"insights_owner";
 GRANT SELECT (project_id, task_id), UPDATE (project_id, task_id)
     ON public.bug_reports TO :"diagnostics_owner";
 GRANT SELECT (project_id), DELETE ON public.export_artifacts TO :"export_owner";
@@ -1315,6 +1314,12 @@ GRANT EXECUTE ON FUNCTION
     yoao_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
     TO :"workspace_owner";
 GRANT USAGE ON SCHEMA yoao_insights_v1 TO :"insights_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA yoao_labeling_v1, yoao_workspace_v1, yoao_assets_v1 TO :"insights_owner";
+GRANT SELECT (user_id, project_id, kind, started_at, duration_ms, annotation_count, was_rejected)
+    ON yoao_labeling_v1.task_event_facts TO :"insights_owner";
+GRANT EXECUTE ON FUNCTION yoao_workspace_v1.read_project_visibility(uuid,uuid),
+    yoao_workspace_v1.lock_media_project_access(uuid,uuid),
+    yoao_assets_v1.lock_dataset_reference(uuid) TO :"insights_owner";
 GRANT USAGE ON SCHEMA yoao_diagnostics_v1
     TO :"diagnostics_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA yoao_export_v1 TO :"export_owner", :"workspace_owner";
@@ -3180,10 +3185,31 @@ ALTER FUNCTION yoao_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,
     OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA yoao_inference_pipelines_v1 FROM :"inference_owner";
 
-GRANT CREATE ON SCHEMA yoao_insights_v1 TO :"insights_owner";
+GRANT TEMPORARY ON DATABASE :"expected_database" TO :"insights_owner";
+GRANT CREATE ON SCHEMA public, yoao_insights_v1 TO :"insights_owner";
+ALTER MATERIALIZED VIEW public.mv_user_perf_daily OWNER TO :"insights_owner";
+ALTER TABLE public.project_task_views OWNER TO :"insights_owner";
+ALTER TABLE public.dataset_saved_views OWNER TO :"insights_owner";
 ALTER FUNCTION yoao_insights_v1.clear_project_task_views(uuid)
     OWNER TO :"insights_owner";
-REVOKE CREATE ON SCHEMA yoao_insights_v1 FROM :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.refresh_user_perf_daily() OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1._task_view_project_scope(uuid,uuid,boolean) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1._task_view_snapshot(public.project_task_views) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1._lock_writable_task_view(uuid,uuid,uuid,boolean) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.list_saved_task_views(uuid,uuid,text) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.read_saved_task_view(uuid,uuid,uuid) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.create_saved_task_view(uuid,uuid,text,text,text,jsonb,jsonb,jsonb) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.update_saved_task_view(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.delete_saved_task_view(uuid,uuid,uuid) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1._dataset_view_snapshot(public.dataset_saved_views) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.list_personal_dataset_views(uuid,uuid) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.has_personal_dataset_view(uuid,uuid,uuid) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.prepare_personal_dataset_view(uuid,uuid) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.create_personal_dataset_view(uuid,uuid,text,jsonb) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.update_personal_dataset_view(uuid,uuid,uuid,text,jsonb) OWNER TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.delete_personal_dataset_view(uuid,uuid,uuid) OWNER TO :"insights_owner";
+GRANT EXECUTE ON FUNCTION yoao_insights_v1.refresh_user_perf_daily() TO :"migration_role";
+REVOKE CREATE ON SCHEMA public, yoao_insights_v1 FROM :"insights_owner";
 
 GRANT CREATE ON SCHEMA yoao_diagnostics_v1 TO :"diagnostics_owner";
 ALTER FUNCTION yoao_diagnostics_v1.detach_project_references(uuid)
@@ -3299,6 +3325,19 @@ ALTER VIEW yoao_audit_v1.audit_events OWNER TO :"audit_owner";
 ALTER VIEW yoao_audit_v1.audit_daily_facts OWNER TO :"audit_owner";
 ALTER FUNCTION yoao_audit_v1.refresh_audit_bi_mv() OWNER TO :"audit_owner";
 ALTER FUNCTION yoao_audit_v1.maintenance_command(jsonb) OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1._assert_platform_partition(date,bigint,bigint) OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.platform_maintenance(text,date,bigint,bigint,text,uuid,timestamptz)
+    OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.archive_output_has_ready(integer,integer) OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.archive_output_ready_month(integer,integer) OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.archive_output_ready_list() OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.archive_output_pending(uuid) OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.archive_output_history() OWNER TO :"audit_owner";
+ALTER FUNCTION yoao_audit_v1.archive_output_save_candidate(
+    uuid,uuid,date,bigint,bigint,bigint,bigint,text,bigint,text,jsonb,timestamptz
+) OWNER TO :"audit_owner";
+GRANT SELECT, INSERT, UPDATE (state, published_at)
+    ON public.audit_archive_outputs TO :"audit_owner";
 GRANT EXECUTE ON FUNCTION yoao_audit_v1.refresh_audit_bi_mv() TO :"migration_role";
 GRANT USAGE ON SCHEMA yoao_fixture_v1 TO :"audit_owner";
 GRANT SELECT (id, parent_run_id, scope_key, family, state), UPDATE (id)
@@ -3447,6 +3486,8 @@ BEGIN
         'public.dataset_spatial_operations', 'public.sensor_calibration_revisions',
         'public.dataset_operator_operations',
         'public.scene_frame_poses',
+        'public.storage_fault_states', 'public.storage_observation_buckets',
+        'yoao_assets_v1.storage_fault_observation_key',
         'public.notification_preferences','public.system_settings',
         'public.dataset_items', 'public.project_datasets',
         'public.storage_connections', 'public.storage_connection_operations',
@@ -4157,6 +4198,17 @@ GRANT SELECT, INSERT ON public.storage_maintenance_gates TO :"assets_owner";
 GRANT UPDATE (location_id, state, revision, changed_at)
     ON public.storage_maintenance_gates TO :"assets_owner";
 GRANT SELECT (location_id) ON public.storage_location_probes TO :"assets_owner";
+GRANT SELECT (node_id, result) ON public.storage_location_probes TO :"assets_owner";
+GRANT SELECT (id, dataset_id, location_id, name, enabled, unregistered_at, config,
+              config_revision, policy_revision, cache_policy)
+    ON public.dataset_sources TO :"assets_owner";
+GRANT SELECT (source_id, path_digest, content_sha256, asset_id)
+    ON public.dataset_source_items TO :"assets_owner";
+GRANT SELECT (id, source_id, async_job_id)
+    ON public.dataset_scan_runs, public.dataset_registration_runs TO :"assets_owner";
+GRANT SELECT, INSERT, UPDATE ON public.storage_fault_states, public.storage_observation_buckets
+    TO :"assets_owner";
+GRANT USAGE ON SEQUENCE public.storage_fault_observation_seq TO :"assets_owner";
 GRANT SELECT ON public.image_pyramid_assets, public.image_pyramid_generations,
     public.image_pyramid_outputs TO :"assets_owner";
 GRANT UPDATE (id) ON public.image_pyramid_assets TO :"assets_owner";
@@ -4859,4 +4911,34 @@ BEGIN
     END IF;
 END;
 $fixture_owner$;
+GRANT CREATE ON SCHEMA yoao_assets_v1 TO :"assets_owner";
+ALTER TABLE yoao_assets_v1.storage_fault_observation_key OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._storage_fault_seal(bigint,uuid,uuid,text,text,jsonb,jsonb)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._storage_fault_location_visible(uuid,text,uuid,boolean)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1._storage_fault_job_visible(uuid,text,uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.reserve_storage_fault_observation(uuid,uuid,text,text,jsonb,jsonb)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_storage_fault_observation(bigint,bytea,uuid,uuid,text,text,jsonb,jsonb,text)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_storage_fault_facts(uuid,uuid,text,boolean,boolean)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.storage_fault_location_visible(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.storage_fault_page(uuid,uuid,text,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.record_storage_observation_rate(uuid,uuid,text,boolean)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION yoao_assets_v1.read_storage_observation_rates(uuid,uuid) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA yoao_assets_v1 FROM :"assets_owner";
+GRANT CREATE ON SCHEMA yoao_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION yoao_jobs_v1.read_storage_fault_job(uuid) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA yoao_jobs_v1 FROM :"jobs_owner";
+GRANT USAGE ON SCHEMA yoao_jobs_v1 TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION yoao_jobs_v1.read_storage_fault_job(uuid) TO :"assets_owner";
+REVOKE ALL ON TABLE yoao_assets_v1.storage_fault_observation_key FROM PUBLIC;
+REVOKE ALL ON SEQUENCE public.storage_fault_observation_seq
+    FROM PUBLIC, :"workflow_role", :"asset_cleanup_role", :"mask_gc_role";
+
+\ir m2b-owner-grants.sql
 COMMIT;

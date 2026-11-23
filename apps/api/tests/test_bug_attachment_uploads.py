@@ -33,6 +33,8 @@ from tests.feedback_committed_fixtures import (
 from tests.test_export_output_authority import world as world
 from tests.test_reference_original_cache import referenced_cache as referenced_cache
 
+from tests.test_system_settings_patch import settings_acl_world as settings_acl_world
+
 UPLOAD = "/api/v1/bug_reports/screenshot/upload"
 
 
@@ -1107,3 +1109,145 @@ def test_storage_removes_only_bug_bucket_lifecycle():
         Bucket=service.import_bucket
     )
     assert targets == {service.media_cache_bucket, service.export_bucket}
+
+
+async def test_live_diagnostics_login_preserves_report_and_exact_version_attachment_lifecycle(
+    settings_acl_world,
+    objects,
+    monkeypatch,
+):
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    from app.db.models.bug_report import BugComment
+    from app.schemas.bug_report import BugReportCreate, BugReportUpdate
+    from app.services.bug_report import BugReportService
+
+    owner, api, (admin, _, reporter, other), shadow = settings_acl_world
+    version = "verified-provider-version"
+    deleted_versions = []
+
+    def put(**params):
+        return {**objects.put(**params), "VersionId": version}
+
+    def read_versioned(method, params):
+        requested = params.pop("VersionId", None)
+        assert requested in (None, version)
+        return {**method(**params), "VersionId": version}
+
+    def delete_versioned(**params):
+        deleted_versions.append(params.pop("VersionId", None))
+        objects.delete_object(params["Key"], bucket=params["Bucket"])
+
+    monkeypatch.setattr(objects.client, "put_object", put)
+    monkeypatch.setattr(
+        objects.client,
+        "head_object",
+        lambda **params: read_versioned(objects.head, params),
+    )
+    monkeypatch.setattr(
+        objects.client,
+        "get_object",
+        lambda **params: read_versioned(objects.get, params),
+    )
+    monkeypatch.setattr(
+        objects.client, "delete_object", delete_versioned, raising=False
+    )
+
+    try:
+        async with api() as db:
+            assert (
+                await db.scalar(text("SELECT session_user"))
+                == "identity_embedded_api_consumer"
+            )
+            for sql in (
+                "SELECT id FROM public.bug_reports",
+                "SELECT id FROM public.bug_comments",
+                "SELECT storage_ref FROM public.bug_attachment_uploads",
+                "SELECT nextval('public.display_seq_bug_reports'::regclass)",
+                "SELECT yoao_diagnostics_v1.bug_attachment_maintenance_facts()",
+            ):
+                with pytest.raises(DBAPIError) as denied:
+                    async with db.begin_nested():
+                        await db.execute(text(sql))
+                assert denied.value.orig.sqlstate == "42501"
+
+            data = image_bytes()
+            attachment = await uploads.upload(
+                db,
+                uploads.Authority(reporter.id, None, None),
+                data,
+                "image/png",
+                "evidence.png",
+            )
+            await db.execute(text(f"SET LOCAL search_path = {shadow}, public"))
+            svc = BugReportService(db)
+            payload = BugReportCreate(
+                title="restricted report",
+                description="diagnostic",
+                attachments=[attachment],
+            )
+            with pytest.raises(HTTPException) as denied:
+                await svc.create(other.id, payload, route="/diagnostics")
+            assert denied.value.status_code == 403
+            report = await svc.create(reporter.id, payload, route="/diagnostics")
+            assert (
+                report.display_id.startswith("B-") and report.display_id != "B-9000000"
+            )
+            assert report.attachments == [attachment]
+            await svc.confirm_attachments(reporter.id, report.id)
+            await db.commit()
+
+            with pytest.raises(HTTPException) as denied:
+                await svc.get_with_comments(report.id, other.id)
+            assert denied.value.status_code == 403
+            with pytest.raises(HTTPException) as denied:
+                await svc.update(
+                    report.id, reporter.id, BugReportUpdate(status="fixed")
+                )
+            assert denied.value.status_code == 403
+            assert (await svc.list(reporter.id, mine=True)).items[0].id == report.id
+            fixed, before = await svc.update(
+                report.id, admin.id, BugReportUpdate(status="fixed")
+            )
+            assert fixed.status == "fixed" and before == "new"
+            comment, reopened, current = await svc.add_comment(
+                report.id, reporter.id, "still broken"
+            )
+            assert (
+                reopened and current.reopen_count == 1 and current.status == "triaged"
+            )
+            assert comment.author_id == reporter.id
+            await db.commit()
+
+            request = Request({"type": "http", "headers": []})
+            receipt, result = await uploads.read(
+                db, admin, request, report.id, attachment.storage_key
+            )
+            assert receipt.object_version_id == version and result == data
+            label, retired = await svc.delete(report.id, reporter.id)
+            assert label == report.display_id and retired == [receipt.id]
+            await db.commit()
+            assert await uploads.cleanup(db, identifiers=retired) == {
+                "deleted": 1,
+                "retained": 0,
+                "failed": 0,
+            }
+            assert deleted_versions == [version] and not objects.objects
+            with pytest.raises(HTTPException) as missing:
+                await svc.get_with_comments(report.id, reporter.id)
+            assert missing.value.status_code == 404
+    finally:
+        async with owner.begin() as db:
+            reports = select(BugReport.id).where(BugReport.reporter_id == reporter.id)
+            await db.execute(
+                delete(BugComment).where(BugComment.bug_report_id.in_(reports))
+            )
+            await db.execute(
+                delete(BugReport).where(BugReport.reporter_id == reporter.id)
+            )
+            await db.execute(
+                delete(BugAttachmentUpload).where(
+                    BugAttachmentUpload.owner_id == reporter.id
+                )
+            )

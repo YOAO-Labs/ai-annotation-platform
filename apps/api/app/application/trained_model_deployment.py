@@ -29,7 +29,7 @@ async def deploy_model(
         project, version.classes, version.bindings, learning.model_task(version)
     )
     await learning.enabled_backend(db, project.id, registry_id)
-    deployment = await learning.lock_deployment(db, version.id, registry_id)
+    deployment = await learning.lock_deployment(db, project.id, version.id, registry_id)
     if deployment and deployment.status in {"draining", "retired"}:
         raise HTTPException(status_code=409, detail="该部署已停止创建新引用")
     if deployment and deployment.status == "ready":
@@ -52,7 +52,7 @@ async def deploy_model(
             return deployment
 
     deployment, check_id = await learning.begin_deployment_check(
-        db, version, registry_id, deployment
+        db, version, registry_id
     )
     deployment_id = deployment.id
     await db.commit()
@@ -81,6 +81,7 @@ async def deploy_model(
         error = "推理插件安装已停用"
     deployment = await learning.complete_deployment_check(
         db,
+        project.id,
         deployment_id,
         check_id,
         receipt=receipt,

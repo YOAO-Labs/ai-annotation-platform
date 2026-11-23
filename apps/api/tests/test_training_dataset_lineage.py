@@ -356,11 +356,15 @@ async def test_cache_schema_upgrade_preserves_only_matching_media_observations(
 ):
     from datetime import datetime, timezone
     from sqlalchemy import select
-    from app.db.models.training_dataset_analysis import TrainingDatasetAnalyzedSample
+    from app.db.models.training_dataset_analysis import (
+        TrainingDatasetAnalysis,
+        TrainingDatasetAnalyzedSample,
+    )
 
     owner, _ = super_admin
     project, data = await version(db_session, owner)
-    _, cached, _ = await analysis.ensure_analysis(db_session, project.id, data.id)
+    await analysis.ensure_analysis(db_session, project.id, data.id)
+    cached = await db_session.get(TrainingDatasetAnalysis, data.id)
     row = await db_session.scalar(
         select(TrainingDatasetAnalyzedSample).where(
             TrainingDatasetAnalyzedSample.version_id == data.id

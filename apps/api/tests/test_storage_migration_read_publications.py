@@ -5,6 +5,7 @@ withdrawal; they do not claim provider I/O or independent evidence qualification
 """
 
 from copy import deepcopy
+from dataclasses import asdict
 import hashlib
 import uuid
 
@@ -161,7 +162,9 @@ async def test_publish_preflight_cas_idempotency_and_exact_locator(db_session, s
     assert route.source_location_id != route.target_location_id
     assert route.maintenance_revision == 1
     await service.recheck(db_session, route)
-    assert callable((await service.target_for_route(db_session, route)).client)
+    assert route.target_bucket == sealed.copy.target["bucket"]
+    assert route.target_object_key.startswith(sealed.copy.target["key_prefix"])
+    assert "secret_enc" not in asdict(route)
     for changes in (
         {"endpoint_url": "http://127.0.0.1:9999"},
         {"bucket": "other"},
@@ -236,7 +239,7 @@ async def test_prefix_inventory_refuses_conflicting_latest_keys(db_session, seal
 
 
 @pytest.mark.parametrize(
-    "operation", ["lookup", "locked_lookup", "recheck", "locked_recheck", "target"]
+    "operation", ["lookup", "locked_lookup", "recheck", "locked_recheck", "prefix"]
 )
 async def test_route_snapshots_preserve_unflushed_caller_work(
     db_session, sealed, operation
@@ -255,7 +258,7 @@ async def test_route_snapshots_preserve_unflushed_caller_work(
         elif operation in {"recheck", "locked_recheck"}:
             await service.recheck(db_session, route, lock=operation == "locked_recheck")
         else:
-            assert await service.target_for_route(db_session, route)
+            assert await service.prefix_inventory(db_session, route, prefix="original/")
         assert pending in db_session.new
     finally:
         db_session.expunge(pending)
@@ -441,8 +444,9 @@ async def test_current_credentials_rotate_without_rewriting_publication_identity
     assert current.target_endpoint_url == before.target_endpoint_url
     assert current.target_version_id == before.target_version_id
     await service.recheck(db_session, current)
-    access = await service.target_for_route(db_session, current)
-    assert access.secret_enc == b"rotated-private-secret"
+    assert current.target_bucket == before.target_bucket
+    assert current.target_object_key == before.target_object_key
+    assert "rotated-private-secret" not in str(asdict(current))
 
 
 async def test_withdrawal_keeps_native_claim_and_waits_only_own_actual_permits(
