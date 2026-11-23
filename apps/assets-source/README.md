@@ -435,6 +435,9 @@ to the saved managed-original prefix. The importer does not hold that
 principal and cannot use its scoped import tokens for unrelated Source I/O.
 Source durably records write evidence; an unavailable or ambiguous copy
 response never authorizes retrying the request or falling back to local I/O.
+The importer retries a PostgreSQL original-record statement only on a confirmed
+lock rollback (`55P03`). Persistent contention leaves the current import
+entry pending for lease recovery, rather than reporting a file read error.
 
 Transient `dataset_busy` heartbeats retry the same lease only until its last
 confirmed expiry, including the renewal call itself. Lease loss, cancellation

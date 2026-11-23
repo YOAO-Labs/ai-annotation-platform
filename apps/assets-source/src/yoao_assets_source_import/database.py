@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 import json
 from typing import Any, AsyncIterator
@@ -561,11 +562,18 @@ class ImportDatabase:
         )
 
     async def _original_reply(self, statement: str, arguments: tuple[Any, ...]) -> Any:
-        async with self._pool.acquire(
-            timeout=self._config.pool_timeout_seconds
-        ) as connection:
-            raw = await connection.fetchval(statement, *arguments)
-        return _parse_json_reply(raw)
+        for attempt in range(5):
+            async with self._pool.acquire(
+                timeout=self._config.pool_timeout_seconds
+            ) as connection:
+                try:
+                    raw = await connection.fetchval(statement, *arguments)
+                except asyncpg.LockNotAvailableError:
+                    if attempt == 4:
+                        raise ImportFailure("dataset_busy") from None
+                else:
+                    return _parse_json_reply(raw)
+            await asyncio.sleep(0.05 * (2**attempt))
 
     async def ready(self) -> bool:
         async with self._pool.acquire(
