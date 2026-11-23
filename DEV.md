@@ -699,7 +699,7 @@ Workspace、Notifications、Audit 和 Jobs 的独立 Node 对照依赖须分别�
 `pnpm install --ignore-workspace --frozen-lockfile --ignore-scripts`；
 已准备离线缓存时可加 `--offline`。验证器在创建数据库或容器前检查这些依赖，
 不会借用共享 Node 安装，也不需要重复安装已就绪的工作树根依赖。
-包含 Workspace 独立包 HTTP 一致性案例时，还需将 `AAP_WORKSPACE_RUNTIME_PYTHON`
+运行成员管理或负责人移交的独立 Python 进程一致性案例时，还需将 `AAP_WORKSPACE_RUNTIME_PYTHON`
 指向当前候选按 `apps/workspace/uv.lock` 安装的独立解释器。用私有
 `UV_PROJECT_ENVIRONMENT` 执行 `uv sync --project apps/workspace --frozen --no-dev --extra runtime --no-editable`。
 这是包对照夹具，不是产品设置；不要借用 API 源码环境或旧安装来证明当前包制品。
