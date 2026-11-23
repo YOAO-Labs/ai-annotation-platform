@@ -244,18 +244,10 @@ services:
       IDENTITY_EMBEDDED_SIGNING_SECRET_FILE: ${IDENTITY_EMBEDDED_SIGNING_SECRET_FILE:+/run/secrets/identity_embedded_signing_secret}
       IDENTITY_RECOVERY_MAIL_KEY: ${IDENTITY_RECOVERY_MAIL_KEY:-}
       IDENTITY_RECOVERY_MAIL_KEY_FILE: ${IDENTITY_RECOVERY_MAIL_KEY_FILE:+/run/secrets/identity_recovery_mail_key}
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_PASSWORD_FILE: ${SMTP_PASSWORD_FILE:+/run/secrets/api_smtp_password}
     volumes:
       - *jobs-publication-secret
       - *notification-publication-secret
       - *native-image-reader-secret
-      - type: bind
-        source: ${SMTP_PASSWORD_FILE:-/dev/null}
-        target: /run/secrets/api_smtp_password
-        read_only: true
-        bind:
-          create_host_path: false
       - type: bind
         source: ${IDENTITY_EMBEDDED_SIGNING_SECRET_FILE:-/dev/null}
         target: /run/secrets/identity_embedded_signing_secret

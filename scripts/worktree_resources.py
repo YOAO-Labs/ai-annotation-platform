@@ -53,6 +53,8 @@ _OWNED_ROLE_SUFFIXES = {
     "runtime": "app",
     "jobs-dispatch": "jobs_claim",
     "jobs-publication": "jobs_pub",
+    "assets-video": "assets_video",
+    "assets-image": "assets_image",
 }
 _JOBS_ROLE_PURPOSES = ("jobs-dispatch", "jobs-publication")
 IDENTITY_RUNTIME_CAPABILITIES = (
@@ -968,7 +970,7 @@ class LocalResources:
         )
 
     def assets_worker_url(self, lane):
-        credentials = self._runtime_credentials(required=True, lane=lane)
+        credentials = self._runtime_credentials(required=True, purpose=f"assets-{lane}")
         return self.url.set(
             username=credentials["role"], password=credentials["password"]
         )
@@ -1086,7 +1088,7 @@ class LocalResources:
                     if not (operator["rolsuper"] or operator["rolcreaterole"]):
                         if purpose != "runtime":
                             raise WorktreeError(
-                                "迁移账号需要 CREATEROLE 创建隔离 Jobs 账号"
+                                f"迁移账号需要 CREATEROLE 创建隔离的 {purpose} 账号"
                             )
                         raise WorktreeError(
                             "同账号配置需要迁移账号具备 CREATEROLE；请由管理员预配置普通运行账号，"
@@ -1282,9 +1284,77 @@ class LocalResources:
             except (PostgresError, OSError, FunctionRoleUnavailable):
                 raise WorktreeError(f"无法核对本环境的 {purpose} 函数账号") from None
 
-    def manage_jobs_roles(self, action: str) -> None:
-        for purpose in _JOBS_ROLE_PURPOSES:
+    def manage_worker_roles(self, action: str) -> None:
+        for purpose in (
+            *_JOBS_ROLE_PURPOSES,
+            *(f"assets-{lane}" for lane in ASSETS_EXECUTION_LANES),
+        ):
             asyncio.run(self.owned_runtime_role(action, purpose=purpose))
+
+    async def prepare_assets_worker_roles(self) -> None:
+        from yoao_assets_images_runtime.health import check_connection as check_image
+        from yoao_assets_media_runtime.health import (
+            check_worker_connection as check_video,
+        )
+
+        self._require_preparation_allowed()
+        profiles = (
+            ("video", "media", "asset_media_worker_role", check_video),
+            ("image", "image", "asset_image_worker_role", check_image),
+        )
+        engine = create_async_engine(self.url, poolclass=NullPool, hide_parameters=True)
+        try:
+            async with engine.begin() as connection:
+                await self.verify_database_server(connection)
+                quote = connection.dialect.identifier_preparer.quote_identifier
+                database = quote(self.resources["database"])
+                operator = await connection.scalar(
+                    text("SELECT current_user::regrole::oid")
+                )
+                for lane, script, variable, _ in profiles:
+                    credentials = self._runtime_credentials(
+                        required=True, purpose=f"assets-{lane}"
+                    )
+                    name = credentials["role"]
+                    role = await self._runtime_role_record(
+                        connection, operator, role=name
+                    )
+                    if role is None:
+                        raise WorktreeError(f"缺少 Assets {lane} worker 专用账号")
+                    self._validate_runtime_role(role, credentials)
+                    grants = (
+                        self.code_root / f"infra/docker/assets-{script}-grants.sql"
+                    ).read_text()
+                    prefix = f'\n    TO :"{variable}";'
+                    if grants.count(prefix) != 1:
+                        raise WorktreeError(f"Assets {lane} worker 授权片段缺失或重复")
+                    functions = grants.split(prefix, 1)[0].rsplit(
+                        "\nGRANT EXECUTE ON FUNCTION\n", 1
+                    )[1]
+                    await connection.exec_driver_sql(
+                        f"GRANT CONNECT ON DATABASE {database} TO {quote(name)}"
+                    )
+                    await connection.exec_driver_sql(
+                        f"GRANT USAGE ON SCHEMA yoao_assets_v1 TO {quote(name)}"
+                    )
+                    await connection.exec_driver_sql(
+                        f"GRANT EXECUTE ON FUNCTION {functions} TO {quote(name)}"
+                    )
+        finally:
+            await engine.dispose()
+        for lane, _, _, check in profiles:
+            worker = create_async_engine(
+                self.assets_worker_url(lane), poolclass=NullPool, hide_parameters=True
+            )
+            try:
+                async with worker.connect() as connection:
+                    raw = await connection.get_raw_connection()
+                    if not await check(raw.driver_connection):
+                        raise WorktreeError(
+                            f"Assets {lane} worker 专用账号的有效权限不符"
+                        )
+            finally:
+                await worker.dispose()
 
     def environment(self) -> dict:
         if getattr(self, "_retire_finished_bootstrap", False):
@@ -2667,7 +2737,7 @@ class LocalResources:
         current = asyncio.run(self.revisions()) if inventory["database"] else []
         validate_revisions(revisions, heads, current, skip=skip_migrations)
         asyncio.run(self.owned_runtime_role("check_create"))
-        self.manage_jobs_roles("check_create")
+        self.manage_worker_roles("check_create")
         self.touched = True
         path = state_path(self.root, self.resources["mode"], "resources.json")
         if not path.exists():
@@ -2681,7 +2751,7 @@ class LocalResources:
             self.manifest,
         )
         asyncio.run(self.owned_runtime_role("create"))
-        self.manage_jobs_roles("create")
+        self.manage_worker_roles("create")
         asyncio.run(self.database("create"))
         raster_owner = getattr(self, "_raster_redis_birth_owner", None)
         if raster_owner is not None and "postgres" in raster_owner.data["raster"]:
@@ -3254,7 +3324,7 @@ class LocalResources:
         inventory = self.inspect()
         validate_destruction(self.resources, inventory, confirmation)
         asyncio.run(self.owned_runtime_role("check_drop"))
-        self.manage_jobs_roles("check_drop")
+        self.manage_worker_roles("check_drop")
         inference = None
         if self.resources["mode"] == "e2e":
             from fixture_inference_services import FixtureInferenceServices
@@ -3632,7 +3702,7 @@ class LocalResources:
         if inference is not None:
             inference.finish_destroy()
         asyncio.run(self.owned_runtime_role("drop"))
-        self.manage_jobs_roles("drop")
+        self.manage_worker_roles("drop")
         if prepared.storage != "raster_provider_retired" and require_owner(
             self.resources["redis_name"], self.redis_info(), self.resources["owner"]
         ):

@@ -428,6 +428,12 @@ def business_stack(test_engine, directory):
             ],
             {
                 **app_env,
+                "ASSETS_CELERY_VIDEO_DATABASE_URL": _role_dsn(
+                    test_engine, "ASSET_MEDIA_WORKER", "yoao_asset_media_worker_client"
+                ),
+                "ASSETS_CELERY_IMAGE_DATABASE_URL": _role_dsn(
+                    test_engine, "ASSET_IMAGE_WORKER", "yoao_asset_image_worker_client"
+                ),
                 "PREANNOTATION_RESULTS_DATABASE_URL": _role_dsn(
                     test_engine,
                     "PREANNOTATION_RESULT",

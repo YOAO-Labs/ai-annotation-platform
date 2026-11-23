@@ -20,7 +20,6 @@ PRODUCTION = {
 JOBS_RECOVERY = "celery-worker-jobs-recovery"
 JOBS_DISPATCH_FILE = "/run/secrets/jobs_dispatch_database_url"
 JOBS_PUBLICATION_FILE = "/run/secrets/jobs_publication_database_url"
-APP_PASSWORD = "/run/secrets/api_smtp_password"
 ALERT_CONFIG = "/etc/alertmanager/alertmanager.yml"
 ALERT_PASSWORD = "/run/secrets/alertmanager_smtp_password"
 
@@ -160,19 +159,16 @@ class ComposeMailTests(unittest.TestCase):
             profile="monitoring",
         )
         api = services["api"]
-        self.assert_read_only_bind(api, APP_PASSWORD, app_password)
         self.assertEqual(api["environment"]["SMTP_HOST"], "smtp.example.test")
-        self.assertEqual(api["environment"]["SMTP_PASSWORD_FILE"], APP_PASSWORD)
-        self.assertFalse(api["environment"]["SMTP_PASSWORD"])
         for name, service in services.items():
-            if name.startswith("celery-"):
+            if name == "api" or name.startswith("celery-"):
                 with self.subTest(service=name):
                     self.assertFalse(
                         service.get("environment", {}).get("SMTP_PASSWORD_FILE")
                     )
                     self.assertNotIn(
-                        APP_PASSWORD,
-                        [v.get("target") for v in service.get("volumes", [])],
+                        str(app_password),
+                        [v.get("source") for v in service.get("volumes", [])],
                     )
         self.assert_read_only_bind(services["alertmanager"], ALERT_CONFIG, alert_config)
         self.assert_read_only_bind(

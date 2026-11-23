@@ -186,16 +186,8 @@ services:
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://yolo-backend:8003","onnxtools":"http://onnxtools-backend:8004","rapidocr":"http://rapidocr-backend:8005"}}'
       ML_MANAGED_AUTH_DIR: /run/aap-inference-auth
       ML_BACKEND_OPERATIONS_DIR: /run/aap-backend-manager
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_PASSWORD_FILE: ${SMTP_PASSWORD_FILE:+/run/secrets/api_smtp_password}
     volumes:
       - *notification-publication-secret
-      - type: bind
-        source: ${SMTP_PASSWORD_FILE:-/dev/null}
-        target: /run/secrets/api_smtp_password
-        read_only: true
-        bind:
-          create_host_path: false
       - type: bind
         source: ${IDENTITY_EMBEDDED_SIGNING_SECRET_FILE:-/dev/null}
         target: /run/secrets/identity_embedded_signing_secret
