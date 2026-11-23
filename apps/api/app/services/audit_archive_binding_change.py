@@ -8,11 +8,11 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
-from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
 from app.db.models.storage_connection import StorageConnection
 from app.services import storage_access, storage_maintenance
 from app.services.audit import AuditAction, AuditService
+from app.services.audit_archive_output_data import output_history
 from app.services.audit_archive_storage import AuditArchiveStorageError
 from app.services.audit_archive_storage_target import probe_target, target_for
 from app.services.content_snapshot import ContentError
@@ -67,23 +67,7 @@ async def candidates(db, *, limit, offset):
 
 
 async def history(db):
-    row = (
-        (
-            await db.execute(
-                select(
-                    func.count()
-                    .filter(AuditArchiveOutput.state == "pending")
-                    .label("pending"),
-                    func.count()
-                    .filter(AuditArchiveOutput.state == "ready")
-                    .label("ready"),
-                ).select_from(AuditArchiveOutput)
-            )
-        )
-        .mappings()
-        .one()
-    )
-    return dict(row)
+    return await output_history(db)
 
 
 async def _binding(db, *, lock=False):

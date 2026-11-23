@@ -150,6 +150,17 @@ class JobsLifecyclePostgresData:
             self._reset_snapshot_binding(row)
         return row
 
+    async def find_archive_deliveries(self, execution_id: str):
+        result = await self.db.execute(
+            text(
+                "SELECT id, status, result FROM yoao_jobs_v1.jobs_by_execution_id("
+                "CAST(:execution_id AS pg_catalog.text)) "
+                "WHERE kind = 'audit_archive' ORDER BY created_at, id LIMIT 2"
+            ),
+            {"execution_id": execution_id},
+        )
+        return result.all()
+
     async def insert_video_summary(self, **values):
         await self._autoflush()
         await self.db.scalar(

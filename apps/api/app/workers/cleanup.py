@@ -197,11 +197,11 @@ def refresh_audit_bi_mv() -> dict:
 
 
 async def _refresh_audit_bi_mv_async() -> dict:
-    from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
+    from yoao_audit.maintenance_postgres import platform_maintenance
 
     async with task_session() as db:
         try:
-            await AuditMaintenancePostgresData(db).refresh_daily()
+            await platform_maintenance(db, "refresh_daily")
             await db.commit()
         except Exception as exc:
             await db.rollback()

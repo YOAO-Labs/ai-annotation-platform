@@ -9,11 +9,14 @@ import gzip
 import hashlib
 import re
 from time import monotonic
-from typing import BinaryIO
-from uuid import uuid4
+from typing import BinaryIO, Literal
+from uuid import UUID, uuid4
 
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+
+from yoao_audit.maintenance_postgres import platform_maintenance
 
 from app.services import audit_archive_storage as archive_storage
 from app.services import storage_access
@@ -244,9 +247,57 @@ async def month_mutex(db: AsyncSession, month_start: date) -> None:
         raise AuditArchiveError("audit_archive_busy")
 
 
+async def _source_command(
+    db: AsyncSession,
+    source: SourcePartition,
+    operation: Literal["lock_source", "open_source", "lock_retirement", "retire"],
+    *,
+    cursor: str | None = None,
+    output_id: UUID | None = None,
+    published_at: datetime | None = None,
+) -> None:
+    try:
+        await platform_maintenance(
+            db,
+            operation,
+            month=source.month_start,
+            parent_oid=source.parent_oid,
+            source_oid=source.source_oid,
+            cursor=cursor,
+            output_id=output_id,
+            published_at=published_at,
+        )
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) == "55000":
+            raise AuditArchiveError("audit_archive_source_changed") from None
+        raise
+
+
 async def lock_source(db: AsyncSession, source: SourcePartition) -> None:
-    await db.execute(text(f"LOCK TABLE ONLY {source.qualified} IN SHARE MODE NOWAIT"))
+    await _source_command(db, source, "lock_source")
     await verify_source(db, source)
+
+
+async def lock_retirement(db: AsyncSession, source: SourcePartition) -> None:
+    await _source_command(db, source, "lock_retirement")
+    await verify_source(db, source)
+
+
+async def publish_source(
+    db: AsyncSession, source: SourcePartition, output_id: UUID, published_at: datetime
+) -> None:
+    await _source_command(
+        db, source, "retire", output_id=output_id, published_at=published_at
+    )
+
+
+async def ensure_month(db: AsyncSession, month: date) -> None:
+    try:
+        await platform_maintenance(db, "ensure", month=month)
+    except DBAPIError as exc:
+        if getattr(exc.orig, "sqlstate", None) == "55000":
+            raise AuditArchiveError("audit_archive_source_invalid") from None
+        raise
 
 
 def _deadline(deadline: float) -> None:
@@ -273,12 +324,7 @@ async def _stream_source(
     name = f"audit_archive_{uuid4().hex}"
     declared = failed = False
     try:
-        await db.execute(
-            text(
-                f'DECLARE "{name}" NO SCROLL CURSOR FOR '
-                f"SELECT * FROM ONLY {source.qualified} ORDER BY id, created_at"
-            )
-        )
+        await _source_command(db, source, "open_source", cursor=name)
         declared = True
         while True:
             _deadline(deadline)

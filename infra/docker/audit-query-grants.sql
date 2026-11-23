@@ -56,6 +56,7 @@ $guard$;
 
 REVOKE ALL ON SCHEMA yoao_audit_v1 FROM :"query_client";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_audit_v1 FROM :"query_client";
+REVOKE ALL ON ALL TABLES IN SCHEMA yoao_audit_v1 FROM :"query_client";
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"query_client";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"query_client";
 DO $revoke$
@@ -70,7 +71,7 @@ BEGIN
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid=relation.relnamespace
         WHERE relation.relkind IN ('r','p','v','m','f')
-          AND namespace.nspname='public'
+          AND namespace.nspname IN ('public','yoao_audit_v1')
     LOOP
         SELECT pg_catalog.string_agg(pg_catalog.quote_ident(attribute.attname), ',' ORDER BY attribute.attnum)
         INTO v_columns
@@ -125,7 +126,7 @@ BEGIN
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_class AS relation
-        WHERE relation.relnamespace='public'::regnamespace
+        WHERE relation.relnamespace IN ('public'::regnamespace, 'yoao_audit_v1'::regnamespace)
           AND relation.relkind IN ('r','p','v','m','f')
           AND (
               pg_catalog.has_table_privilege(
@@ -167,8 +168,22 @@ BEGIN
     END IF;
     IF NOT pg_catalog.has_schema_privilege(v_api, 'yoao_audit_v1', 'USAGE')
        OR NOT pg_catalog.has_function_privilege(v_api, v_query, 'EXECUTE')
-       OR NOT pg_catalog.has_table_privilege(v_api, 'public.audit_logs', 'SELECT') THEN
-        RAISE EXCEPTION 'API role is missing query execution or existing Audit reads';
+       OR pg_catalog.has_sequence_privilege(v_api,
+            pg_catalog.pg_get_serial_sequence('public.audit_logs','id'), 'USAGE,SELECT,UPDATE')
+       OR EXISTS (
+            SELECT FROM pg_catalog.pg_class AS relation
+            WHERE (relation.oid IN (
+                SELECT relid FROM pg_catalog.pg_partition_tree('public.audit_logs')
+            ) OR relation.oid IN ('public.mv_audit_bi_daily'::regclass,
+                                  'public.audit_archive_outputs'::regclass))
+              AND (
+                  pg_catalog.has_table_privilege(v_api, relation.oid,
+                      'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                  OR pg_catalog.has_any_column_privilege(v_api, relation.oid,
+                      'SELECT,INSERT,UPDATE,REFERENCES')
+              )
+       ) THEN
+        RAISE EXCEPTION 'API role is missing query execution or has direct Audit storage access';
     END IF;
     IF NOT pg_catalog.has_column_privilege(v_audit, 'public.audit_logs', 'id', 'SELECT')
        OR NOT pg_catalog.has_column_privilege(v_audit, 'public.audit_logs', 'actor_id', 'SELECT')

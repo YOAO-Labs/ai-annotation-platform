@@ -494,6 +494,14 @@ FUNCTION_BODY_ARTIFACTS = {
     },
     "yoao_audit_v1.refresh_audit_bi_mv()": "0322_audit_daily_projection.sql",
     "yoao_audit_v1.maintenance_command(jsonb)": "0438_fixture_audit_namespace.sql",
+    "yoao_audit_v1.platform_maintenance(text,date,bigint,bigint,text,uuid,timestamptz)": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1._assert_platform_partition(date,bigint,bigint)": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1.archive_output_has_ready(integer,integer)": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1.archive_output_ready_month(integer,integer)": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1.archive_output_ready_list()": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1.archive_output_pending(uuid)": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1.archive_output_history()": "0485_audit_platform_maintenance.sql",
+    "yoao_audit_v1.archive_output_save_candidate(uuid,uuid,date,bigint,bigint,bigint,bigint,text,bigint,text,jsonb,timestamptz)": "0485_audit_platform_maintenance.sql",
     "yoao_notifications_v1.append_job_terminal_notification(jsonb)": "0484_notifications_terminal_outbox.sql",
     "yoao_notifications_v1.claim_identity_deliveries(jsonb)": "0484_notifications_terminal_outbox.sql",
     "yoao_audit_v1.query_events(pg_catalog.jsonb)": "0317_audit_query.sql",
@@ -5830,6 +5838,8 @@ def _sql_artifact_path(name: str) -> Path:
         directory = ROOT / "apps/assets-source/src/yoao_assets_source"
     elif name == "0484_notifications_terminal_outbox.sql":
         directory = ROOT / "apps/notifications/src/yoao_notifications/sql"
+    elif name == "0485_audit_platform_maintenance.sql":
+        directory = ROOT / "apps/audit/src/yoao_audit/sql"
     else:
         directory = ROOT / "apps/api/alembic/sql"
     return directory / name
@@ -5864,6 +5874,7 @@ def _installed_function_body_sha256(
             "0481_fixture_video_requests.sql",
             "0483_fixture_prediction_import.sql",
             "0484_notifications_terminal_outbox.sql",
+            "0485_audit_platform_maintenance.sql",
         ):
             frozen_schema = schema
         else:
@@ -6233,8 +6244,12 @@ def _verify_audit_maintenance_boundary(
                 "AND defaults.defaclnamespace IN (0,'public'::pg_catalog.regnamespace) "
                 "AND defaults.defaclobjtype IN ('r','S') "
                 "AND acl.grantee<>'audit_code'::pg_catalog.regrole),"
-                "'runtime_audit_parent_select', pg_catalog.has_table_privilege("
-                "'legacy_runtime','public.audit_logs','SELECT')) "
+                "'runtime_audit_tree_private', NOT EXISTS ("
+                "SELECT FROM pg_catalog.pg_partition_tree(parent.oid::pg_catalog.regclass) AS partition "
+                "WHERE pg_catalog.has_table_privilege('legacy_runtime',partition.relid,"
+                "'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') "
+                "OR pg_catalog.has_any_column_privilege('legacy_runtime',partition.relid,"
+                "'SELECT,INSERT,UPDATE,REFERENCES'))) "
                 "FROM pg_catalog.pg_class AS parent, pg_catalog.pg_class AS current_partition, "
                 "pg_catalog.pg_class AS future_partition, pg_catalog.pg_class AS sequence "
                 "WHERE parent.oid='public.audit_logs'::pg_catalog.regclass "
@@ -6258,12 +6273,13 @@ def _verify_audit_maintenance_boundary(
         "maintenance_schema_usage_only": True,
         "maintenance_owns_no_objects": True,
         "default_audit_storage_private": True,
-        "runtime_audit_parent_select": True,
+        "runtime_audit_tree_private": True,
     }
     if ownership != expected_ownership:
         raise RuntimeError("Audit maintenance role, owner, or future ACL differs")
 
     direct_statements = (
+        "SELECT id FROM {relation} LIMIT 0",
         "INSERT INTO {relation} (id, action, created_at) "
         "SELECT 9223372036854775806, 'probe.audit.denied', "
         f"TIMESTAMPTZ '{current_month.isoformat()} 00:00:00+00' WHERE false",
@@ -6295,6 +6311,8 @@ def _verify_audit_maintenance_boundary(
             "CREATE TABLE public.audit_maintenance_denied_probe(id integer)",
             "CREATE TABLE yoao_audit_v1.audit_maintenance_denied_probe(id integer)",
             "ALTER TABLE public.audit_logs ADD COLUMN audit_maintenance_denied_probe integer",
+            "SELECT day FROM public.mv_audit_bi_daily LIMIT 0",
+            "SELECT id FROM public.audit_archive_outputs LIMIT 0",
         )
         if username == AUDIT_MAINTENANCE_ROLE:
             ddl_statements += (
@@ -6314,9 +6332,9 @@ def _verify_audit_maintenance_boundary(
     return {
         "function_only_login": True,
         "direct_partition_writes_denied": True,
+        "direct_partition_reads_denied": True,
         "sequence_and_ddl_denied": True,
         "owner_and_future_acl_verified": True,
-        "runtime_audit_parent_select_preserved": True,
         "probe_partitions": [current_partition, "audit_logs_y2098m04"],
         "ownership": ownership,
     }
@@ -7454,6 +7472,7 @@ def main(
                 "0481_fixture_video_requests.sql",
                 "0483_fixture_prediction_import.sql",
                 "0484_notifications_terminal_outbox.sql",
+                "0485_audit_platform_maintenance.sql",
             ],
             "schemas": list(SCHEMA_ARTIFACTS),
         },
@@ -7555,9 +7574,9 @@ def main(
         "audit_maintenance": {
             "function_only_role_grant": False,
             "direct_partition_writes_denied": False,
+            "direct_partition_reads_denied": False,
             "sequence_and_ddl_denied": False,
             "owner_and_future_acl_verified": False,
-            "runtime_audit_parent_select_preserved": False,
         },
         "jobs_notification_scope": {
             "node_prerequisites": "not_checked",

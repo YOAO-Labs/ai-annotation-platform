@@ -65,6 +65,16 @@ BEGIN
        OR pg_catalog.has_schema_privilege(v_owner, 'yoao_audit_v1', 'CREATE') THEN
         RAISE EXCEPTION 'Audit owner is missing its bounded partition and refresh rights';
     END IF;
+    IF EXISTS (
+        SELECT FROM pg_catalog.pg_default_acl AS defaults
+        CROSS JOIN LATERAL pg_catalog.aclexplode(defaults.defaclacl) AS acl
+        WHERE defaults.defaclrole=v_owner
+          AND defaults.defaclnamespace IN (0,'public'::pg_catalog.regnamespace)
+          AND defaults.defaclobjtype IN ('r','S')
+          AND acl.grantee<>v_owner
+    ) THEN
+        RAISE EXCEPTION 'Audit owner default privileges expose future private storage';
+    END IF;
 END;
 $guard$;
 

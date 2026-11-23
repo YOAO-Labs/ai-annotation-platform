@@ -9,13 +9,12 @@ import uuid
 
 from fastapi import HTTPException
 from jose import JWTError
-from sqlalchemy import select
 
 from app.core.security import decode_access_token
 from app.core import token_blacklist
 from app.db.enums import UserRole
-from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.services import audit_archive_storage as storage, bug_attachment_uploads
+from app.services.audit_archive_output_data import list_ready_outputs, lock_ready_output
 from app.services import storage_access
 from app.services import storage_migration_artifact_reads as migrated_reads
 from app.services import storage_migration_read_publications as publications
@@ -156,17 +155,7 @@ def read_purpose(identifier):
 
 
 async def _ready_month(db, year, month):
-    result = await db.execute(
-        select(AuditArchiveOutput)
-        .where(
-            AuditArchiveOutput.year == year,
-            AuditArchiveOutput.month == month,
-            AuditArchiveOutput.state == "ready",
-        )
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
-    )
-    row = result.scalar_one_or_none()
+    row = await lock_ready_output(db, year, month)
     if row is None:
         reject("audit_archive_storage_unpinned")
     return row
@@ -183,30 +172,16 @@ async def list_archives(db, actor, request):
     """List only published database owners; never probe the current bucket."""
     try:
         _, proof = await lock_authority(db, actor, request)
-        rows = list(
-            await db.scalars(
-                select(AuditArchiveOutput)
-                .where(AuditArchiveOutput.state == "ready")
-                .order_by(
-                    AuditArchiveOutput.year.desc(), AuditArchiveOutput.month.desc()
-                )
-            )
-        )
+        rows = await list_ready_outputs(db)
         result = []
         for row in rows:
             key = storage.key_for(row.year, row.month, row.id)
-            if (
-                not isinstance(row.storage_ref, dict)
-                or not (
-                    row.storage_ref.get("object_key") == key
-                    or (
-                        isinstance(row.storage_ref.get("object_key"), str)
-                        and row.storage_ref["object_key"].endswith(
-                            "_aap_managed/audit-archive/" + key
-                        )
-                    )
+            if row.published_at is None or not (
+                row.object_key == key
+                or (
+                    isinstance(row.object_key, str)
+                    and row.object_key.endswith("_aap_managed/audit-archive/" + key)
                 )
-                or row.published_at is None
             ):
                 reject()
             result.append(
