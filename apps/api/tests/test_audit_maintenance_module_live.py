@@ -91,61 +91,80 @@ async def _cli(image, directory, database_url, bucket, command):
         path = directory / name
         path.write_text(value)
         path.chmod(0o444)
-    directory.chmod(0o555)
     token = uuid.uuid4().hex
     name = "aap-audit-maintenance-" + token[:12]
+    project = "aap-audit-" + token[:12]
+    pg_network = "container:" + _required_env("AAP_MODULE_DATA_PG_CONTAINER_ID")
+    overlay = directory / "compose.json"
+    overlay.write_text(
+        json.dumps(
+            {
+                "services": {
+                    "audit-maintenance": {
+                        "image": image["image_id"],
+                        "network_mode": pg_network,
+                        "labels": {
+                            "org.aap.acceptance": "audit-maintenance-module",
+                            "org.aap.acceptance-id": token,
+                        },
+                    }
+                }
+            }
+        )
+    )
+    bindings = directory / "compose.env"
+    bindings.write_text(
+        f"AUDIT_MAINTENANCE_DATABASE_URL_FILE={directory / 'database'}\n"
+        f"AUDIT_MAINTENANCE_ARCHIVE_S3_ACCESS_KEY_ID_FILE={directory / 'access-key'}\n"
+        f"AUDIT_MAINTENANCE_ARCHIVE_S3_SECRET_ACCESS_KEY_FILE={directory / 'secret-key'}\n"
+        f"AUDIT_MAINTENANCE_ARCHIVE_S3_ENDPOINT_URL={_container_s3_endpoint(settings)}\n"
+        f"AUDIT_MAINTENANCE_ARCHIVE_S3_BUCKET={bucket}\n"
+    )
+    compose = (
+        "compose",
+        "--project-name",
+        project,
+        "--env-file",
+        str(bindings),
+        "-f",
+        str(ROOT / "docker-compose.audit.yml"),
+        "-f",
+        str(overlay),
+        "--profile",
+        "maintenance",
+    )
     container = None
     try:
         container = await asyncio.to_thread(
             _docker,
+            *compose,
             "run",
             "--detach",
             "--name",
             name,
-            "--label",
-            "org.aap.acceptance=audit-maintenance-module",
-            "--label",
-            f"org.aap.acceptance-id={token}",
-            "--network",
-            "container:" + _required_env("AAP_MODULE_DATA_PG_CONTAINER_ID"),
-            "--read-only",
-            "--cap-drop",
-            "ALL",
-            "--security-opt",
-            "no-new-privileges:true",
-            "--pids-limit",
-            "64",
-            "--cpus",
-            "1",
-            "--memory",
-            "512m",
-            "--mount",
-            f"type=bind,source={directory},target=/run/audit-secrets,readonly",
-            "--env",
-            "AUDIT_MAINTENANCE_DATABASE_URL_FILE=/run/audit-secrets/database",
-            "--env",
-            "AUDIT_MAINTENANCE_ARCHIVE_S3_ACCESS_KEY_ID_FILE=/run/audit-secrets/access-key",
-            "--env",
-            "AUDIT_MAINTENANCE_ARCHIVE_S3_SECRET_ACCESS_KEY_FILE=/run/audit-secrets/secret-key",
-            "--env",
-            "AUDIT_MAINTENANCE_ARCHIVE_S3_ENDPOINT_URL="
-            + _container_s3_endpoint(settings),
-            "--env",
-            "AUDIT_MAINTENANCE_ARCHIVE_S3_BUCKET=" + bucket,
-            image["image_id"],
+            "--no-deps",
+            "--pull",
+            "never",
+            "audit-maintenance",
             command,
         )
         details = _inspect_docker(container)
         assert details["Config"]["Labels"]["org.aap.acceptance-id"] == token
-        assert details["Config"]["Image"] == image["image_id"]
-        assert details["HostConfig"]["ReadonlyRootfs"] is True
-        assert details["HostConfig"]["NetworkMode"] == "container:" + _required_env(
-            "AAP_MODULE_DATA_PG_CONTAINER_ID"
+        assert (
+            details["Config"]["Labels"]["com.docker.compose.service"]
+            == "audit-maintenance"
         )
+        assert details["Config"]["Labels"]["com.docker.compose.project"] == project
+        assert details["Image"] == image["image_id"]
+        assert details["HostConfig"]["ReadonlyRootfs"] is True
+        assert details["HostConfig"]["NetworkMode"] == pg_network
         assert not details["HostConfig"].get("PortBindings")
-        assert len(details["Mounts"]) == 1
-        assert details["Mounts"][0]["Destination"] == "/run/audit-secrets"
-        assert details["Mounts"][0]["RW"] is False
+        assert {mount["Destination"] for mount in details["Mounts"]} == {
+            "/run/secrets/audit_maintenance_database_url",
+            "/run/secrets/audit_archive_access_key_id",
+            "/run/secrets/audit_archive_secret_access_key",
+        }
+        assert all(not mount["RW"] for mount in details["Mounts"])
         yield container
     finally:
         try:
@@ -171,7 +190,9 @@ async def _cli(image, directory, database_url, bucket, command):
                 finally:
                     await asyncio.to_thread(_docker, "rm", "--force", container)
         finally:
-            directory.chmod(0o700)
+            await asyncio.to_thread(_docker, *compose, "down")
+            overlay.unlink(missing_ok=True)
+            bindings.unlink(missing_ok=True)
             for name in values:
                 (directory / name).unlink(missing_ok=True)
             directory.rmdir()
