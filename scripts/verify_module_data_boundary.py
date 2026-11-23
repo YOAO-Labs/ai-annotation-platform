@@ -122,6 +122,15 @@ SAVED_SOURCE_FUNCTIONS = (
     "yoao_assets_v1.saved_io_allowlist(jsonb)",
     "yoao_assets_v1.capture_saved_binding_probe(uuid,uuid,boolean)",
 )
+LEASED_IMPORT_FUNCTIONS = (
+    "yoao_assets_v1.save_observed_dataset_import_manifest(uuid,uuid,jsonb)",
+    "yoao_assets_v1.begin_dataset_import_original(uuid,uuid,jsonb)",
+    "yoao_assets_v1.open_dataset_import_original(uuid,uuid,bigint,uuid,uuid)",
+    "yoao_assets_v1.record_import_original_prepared(jsonb,jsonb)",
+    "yoao_assets_v1.mark_import_original_writing(jsonb)",
+    "yoao_assets_v1.record_import_original_written(jsonb,jsonb)",
+    "yoao_assets_v1.fail_import_original(jsonb,text,text,jsonb)",
+)
 PRIVATE_RUNTIME_FUNCTIONS = (
     "yoao_assets_v1.capture_storage_connection(uuid,uuid,text)",
     "yoao_assets_v1.begin_operator_auxiliary(jsonb)",
@@ -135,6 +144,7 @@ PRIVATE_RUNTIME_FUNCTIONS = (
     "yoao_insights_v1.refresh_user_perf_daily()",
     "yoao_jobs_v1.claim_dispatches(jsonb)",
     *SAVED_SOURCE_FUNCTIONS,
+    *LEASED_IMPORT_FUNCTIONS,
 )
 JOBS_DOMAIN_QUERY_FUNCTIONS = (
     "yoao_jobs_v1.lock_cross_frame_singleflight(uuid,text)",
@@ -1224,6 +1234,14 @@ FUNCTION_BODY_ARTIFACTS = {
             "yoao_assets_v1.migration_io_cutover(uuid,integer,integer,integer,uuid,text,integer,uuid,integer,integer)",
         )
     },
+    **{
+        signature: "0509_import_saved_io.sql"
+        for signature in (
+            *LEASED_IMPORT_FUNCTIONS,
+            "yoao_assets_v1.import_saved_io_list(uuid,uuid,jsonb,jsonb)",
+            "yoao_assets_v1.import_saved_io_action(jsonb,text,jsonb,jsonb)",
+        )
+    },
 }
 AUDIT_APPEND_ROLE = "yoao_audit_append_client"
 AUDIT_QUERY_ROLE = "yoao_audit_query_client"
@@ -1881,6 +1899,7 @@ CURRENT_NAMESPACE_SQL = (
     "0506_media_io.sql",
     "0507_training_saved_io.sql",
     "0508_migration_saved_io.sql",
+    "0509_import_saved_io.sql",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -2546,6 +2565,7 @@ _SAVED_SOURCE_FILES = frozenset(
     {
         _REFERENCE_IO_TARGET,
         "tests/test_dataset_import_runtime.py",
+        "tests/test_dataset_import_saved_io_live.py",
         "tests/test_saved_outputs_source_live.py",
     }
 )

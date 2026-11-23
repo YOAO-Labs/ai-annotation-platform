@@ -32,4 +32,5 @@ GRANT EXECUTE ON FUNCTION yoao_assets_v1.saved_io_connector(uuid,integer,jsonb),
 \ir media-io-source-grants.sql
 \ir training-saved-io-source-grants.sql
 \ir migration-io-source-grants.sql
+\ir import-saved-io-source-grants.sql
 COMMIT;

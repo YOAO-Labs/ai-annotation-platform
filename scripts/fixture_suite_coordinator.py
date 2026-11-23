@@ -357,7 +357,7 @@ async def _complete_provisioning(expected):
     from app.services import connector_guard, dataset_storage_target
     from app.services.managed_original_retirement import managed_storage_identity
     from app.services.managed_s3_target import Target
-    from app.services.source_readers.s3 import S3Access
+    from app.services.source_readers.s3 import ScopedS3Access
     from app.services.storage_location import connector_location_id, register_connection
     from fixture_store import observe_empty, verified_store
     from verify_storage_candidates import Owner
@@ -411,7 +411,9 @@ async def _complete_provisioning(expected):
                     bucket,
                     dataset_storage_target.managed_prefix(""),
                     purpose="datasets",
-                    _access=S3Access(config, encrypt_secret(account), allowlist),
+                    _access=ScopedS3Access(
+                        config, {**account, "endpoint": endpoint}, allowlist
+                    ),
                 )
                 dataset_storage_target.probe_target(target)
 
