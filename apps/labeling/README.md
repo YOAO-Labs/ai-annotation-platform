@@ -8,10 +8,13 @@ assets-media and mask-content contracts. It does not depend on the platform API,
 SQLAlchemy, Celery, an object-storage SDK or ML implementations. PostgreSQL and
 HTTP runtime bindings are optional extras.
 
-For class-usage reads, the trusted API peer checks current Workspace management
-authority before calling the Labeling projection. This runtime does not accept public credentials or an
-`is_manager` flag. Independent providers use read-only READ COMMITTED transactions;
-the default API adapter borrows its caller Session without owning commit.
+For class-usage reads, the API checks current Workspace management authority
+before calling the Labeling projection on its own Session. The manager does not
+commit or roll back; the adapter preserves both flush points, `no_autoflush`,
+and caller rollback, including Workspace's same-transaction class rename.
+The ordinary Worktree and LAN roles get only the three class-query functions,
+not the Annotation tables. The manager accepts no public credentials or
+`is_manager` flag.
 
 `get_project_class_usage` first reads class counts, then reads every active
 annotation's stored attributes JSON text. Class counts are grouped by the
@@ -28,12 +31,12 @@ extra fields, booleans and nonpositive integers; map order and JSON whitespace a
 not part of the contract. Late attribute decoding failure remains an internal500,
 including the frozen legacy large-integer case, without returning partial counts.
 
-Run `uv run --project apps/labeling --extra runtime python -m yoao_labeling` with
-`LABELING_CLASS_QUERY_DATABASE_URL(_FILE)` for `yoao_labeling_class_query_client`
-and `LABELING_CLASS_QUERY_CONTROL_TOKEN(_FILE)`. It listens on port 8178 by default.
-The private route is `POST /v1/labeling/class-queries/execute`; `/ready` verifies
-the policy and the exact three-function credential. The standalone Compose file
-uses two read-only secret files and binds only localhost.
+The optional portable provider remains for contract verification, not product
+deployment. `python -m yoao_labeling` serves
+`POST /v1/labeling/class-queries/execute`; `/ready` verifies the policy and the
+exact `yoao_labeling_class_query_client` credential. Its independent PostgreSQL
+adapter uses read-only READ COMMITTED transactions. API deployment has no
+class-query URL, DSN, or control bearer selector.
 
 Use `uv run --project apps/labeling --extra runtime --extra test pytest
 apps/labeling/tests` for the package suite. Native permissions, coordinated API
@@ -316,21 +319,14 @@ owner. The portable manager validates one stable command, checks the current
 execution proof and reconstructs completed candidates from Jobs' sealed canonical
 video windows. It does not rerun inference.
 
-The API can use three bindings to the same manager and Native function:
-
-- its default borrowed SQLAlchemy Session, where the API retains commit control;
-- a dedicated function-only PostgreSQL DSN, where the provider owns a
-  READ COMMITTED transaction; or
-- the private HTTP owner, selected explicitly with a URL and control token.
-
-URL and DSN cannot both be configured. An explicitly selected provider failure
-does not silently fall back. Retries keep the same operation ID, execution proof
-and request digest; after an ambiguous response, callers can query status for that
-exact operation before deciding whether to retry. A separate Native
-read_publication action and proof-only HTTP status lookup accept only the current
-execution proof; a new-generation cancellation first reuses
-an existing immutable publication receipt and only reconstructs the sealed prefix
-when no publication exists. No retry sends the model request again.
+The tracking worker is the product host. It commits preceding progress and
+borrows the same worker Session and ordinary LOGIN for the final transaction;
+the manager owns no commit. There is no dedicated writer DSN, private bearer,
+or HTTP selector in the application. Retries keep the operation ID, execution
+proof and request digest. After an ambiguous commit, the worker reads status in
+a fresh transaction using those same facts. A new-generation cancellation only
+reconstructs the sealed prefix after the current-proof `read_publication`
+lookup misses. No retry sends the model request again.
 
 Completion requires every frozen window and required session close. Ordinary
 tracking cancellation keeps the sealed result prefix and may accept only a
@@ -341,15 +337,12 @@ an already cancelled candidate payload. The owner continues to enforce current
 tracker actor, source, Task and segment checks; the task-creation accepted-rights
 rule does not grant a tracker worker new authority.
 
-The optional process entry point is `yoao-labeling-video-writer`; it serves
-`POST /v1/labeling/video-writer/execute` and
-`POST /v1/labeling/video-writer/status` on port 8180 by default. It requires
-`LABELING_VIDEO_WRITER_DATABASE_URL(_FILE)` and
-`LABELING_VIDEO_WRITER_CONTROL_TOKEN(_FILE)`. Mask candidates additionally
-require the Assets Mask Content URL and token; bbox-only results do not require
-Mask credentials. The HTTP client uses the separate `LABELING_VIDEO_WRITER_URL`,
-`LABELING_VIDEO_WRITER_CONTROL_TOKEN(_FILE)` and
-`LABELING_VIDEO_WRITER_TIMEOUT_SECONDS` settings.
+The worker keeps the existing Mask byte custody: verify saved owned objects
+or use the explicitly selected Assets Mask Content host. A remote read failure
+never falls back locally. No cleanup credential is passed to the writer;
+bbox-only results need no Mask Content credential. The portable
+`yoao-labeling-video-writer` entrypoint, one-function test LOGIN and private
+HTTP wire contract remain for independent contract verification.
 
 Human accept/decide/discard and intermediate start/progress use separate fixed
 Native capabilities in their original caller transaction. Consumer, Mask,
@@ -373,8 +366,8 @@ frame 0/0/10 geometry. Automatic metric-only seeds are unchanged. The caller
 retains the existing separate post-seed commit and synchronizes loaded rows from
 the owner reply; there is no generic prediction editor or production grant.
 
-For daily local topology, combine the existing class-query, video-writer and Mask
-Content Compose files with `docker-compose.labeling-development.yml`. Select
-immutable qualified images, scoped credentials and the verified external
-infrastructure network. The Mask GC process is manual-only in this overlay;
-automatic collection requires a separate explicit operational decision.
+The only separate Labeling operator overlay is `docker-compose.labeling-mask-gc.yml`
+(profile `mask-gc`), over `docker-compose.assets-mask-content.yml`. It runs manual
+Mask GC with a six-function LOGIN and a distinct Assets cleanup bearer, without
+enabling polling or replacing Beat's saved-object cleanup. See the
+[Mask GC package](../labeling-mask-gc/README.md) for activation and recovery.

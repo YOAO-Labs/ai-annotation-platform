@@ -1,4 +1,4 @@
-"""Installed GC owner and cleanup byte owner under bounded local capacity."""
+"""Qualify the retained Mask GC operator assembly and installed entrypoint."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import secrets
+from pathlib import Path
 import subprocess
 import time
 from uuid import uuid4
@@ -21,6 +22,7 @@ from app.services import mask_gc_collection as collection
 from tests.test_assets_media_containers import _memory_peak
 from tests.test_asset_storage_cleanup_runtime import (
     _container_database_url,
+    _container_s3_endpoint,
     _docker,
     _inspect_docker,
     _required_env,
@@ -46,6 +48,76 @@ pytestmark = [
         reason="requires verifier-owned resources and both installed runtime images",
     ),
 ]
+
+
+ROOT = Path(__file__).resolve().parents[3]
+
+
+def _operator_environment(directory, secrets_by_name):
+    secret_directory = directory / "gc-operator-secrets"
+    secret_directory.mkdir(mode=0o700)
+    mounted = {}
+    for name, value in secrets_by_name.items():
+        path = secret_directory / name
+        path.write_text(value + "\n", encoding="utf-8")
+        path.chmod(0o444)
+        mounted[name] = path
+    env = {
+        "LABELING_RUNTIME_MASK_GC_DATABASE_URL_FILE": mounted["mask_gc_database_url"],
+        "LABELING_RUNTIME_MASK_GC_CONTROL_TOKEN_FILE": mounted["mask_gc_token"],
+        "MASK_CLEANUP_TOKEN_FILE": mounted["mask_cleanup_token"],
+        "MASK_CONTENT_S3_ENDPOINT_URL": _container_s3_endpoint(settings),
+        "MASK_CONTENT_BUCKET": settings.minio_bucket,
+    }
+    env_file = secret_directory / "compose.env"
+    env_file.write_text("".join(f"{key}={value}\n" for key, value in env.items()))
+    spec = json.loads(
+        _docker(
+            "compose",
+            "--project-name",
+            "yoao-mask-gc-contract",
+            "--profile",
+            "mask-gc",
+            "--env-file",
+            str(env_file),
+            "-f",
+            str(ROOT / "docker-compose.assets-mask-content.yml"),
+            "-f",
+            str(ROOT / "docker-compose.labeling-mask-gc.yml"),
+            "config",
+            "--format",
+            "json",
+        )
+    )
+    services = spec["services"]
+    assert set(services) == {
+        "assets-mask-content",
+        "assets-mask-cleanup",
+        "labeling-mask-gc",
+    }
+    cleanup = services["assets-mask-cleanup"]
+    assert cleanup["environment"]["MASK_CONTENT_ROLE"] == "cleanup"
+    assert "mask_cleanup_token" in {secret["source"] for secret in cleanup["secrets"]}
+    operator = services["labeling-mask-gc"]
+    assert operator["profiles"] == ["mask-gc"]
+    assert operator["build"]["dockerfile"] == "apps/labeling-mask-gc/Dockerfile"
+    assert (
+        operator["depends_on"]["assets-mask-cleanup"]["condition"] == "service_healthy"
+    )
+    assert {secret["source"] for secret in operator["secrets"]} == mounted.keys()
+    for name, path in mounted.items():
+        assert Path(spec["secrets"][name]["file"]) == path
+    environment = operator["environment"]
+    assert environment == {
+        "MASK_GC_DATABASE_URL_FILE": "/run/secrets/mask_gc_database_url",
+        "MASK_GC_TOKEN_FILE": "/run/secrets/mask_gc_token",
+        "MASK_GC_CONTENT_URL": "http://assets-mask-cleanup:8770",
+        "MASK_GC_CONTENT_TOKEN_FILE": "/run/secrets/mask_cleanup_token",
+        "MASK_GC_POLL_ENABLED": "false",
+        "MASK_GC_HOST": "0.0.0.0",
+        "MASK_GC_PORT": "8771",
+    }
+    return environment, mounted
 
 
 def _container_state_evidence(container: str) -> str:
@@ -74,17 +146,25 @@ async def _start_gc(
         and dsn.database == resources["database"]
     )
     token = secrets.token_urlsafe(32)
-    database_url = _container_database_url(dsn)
-    content_url = _byte_container_origin(
+    environment, files = _operator_environment(
+        directory,
+        {
+            "mask_gc_database_url": _container_database_url(dsn),
+            "mask_gc_token": token,
+            "mask_cleanup_token": byte_token,
+        },
+    )
+    environment["MASK_GC_CONTENT_URL"] = _byte_container_origin(
         byte_container, byte_image, identity, resources["owner"]
     )
-    environment = {
-        "MASK_GC_DATABASE_URL": database_url,
-        "MASK_GC_TOKEN": token,
-        "MASK_GC_CONTENT_URL": content_url,
-        "MASK_GC_CONTENT_TOKEN": byte_token,
-        "MASK_GC_POLL_ENABLED": "false",
-    }
+    secret_args = [
+        argument
+        for name, path in files.items()
+        for argument in (
+            "--mount",
+            f"type=bind,src={path},dst=/run/secrets/{name},readonly",
+        )
+    ]
     envfile = directory / "gc-image.env"
     envfile.touch(mode=0o600)
     envfile.write_text(
@@ -120,6 +200,7 @@ async def _start_gc(
             "127.0.0.1::8771",
             "--env-file",
             str(envfile),
+            *secret_args,
             image,
         ).strip()
         details = _inspect_docker(container)
@@ -127,9 +208,19 @@ async def _start_gc(
         assert set(details["NetworkSettings"]["Networks"]) == {"bridge"}
         assert details["HostConfig"]["ReadonlyRootfs"] is True
         assert details["Config"]["User"] == "10003:10003"
-        assert all(
-            mount["Type"] == "tmpfs" and mount["Destination"] == "/tmp"
+        assert details["Config"]["Cmd"] == [
+            "python",
+            "-m",
+            "yoao_labeling_mask_gc_runtime",
+        ]
+        volumes = {
+            mount["Destination"]: mount
             for mount in details["Mounts"]
+            if mount["Type"] != "tmpfs"
+        }
+        assert volumes.keys() == {f"/run/secrets/{name}" for name in files}
+        assert all(
+            mount["Type"] == "bind" and not mount["RW"] for mount in volumes.values()
         )
         assert not any(
             value.startswith(("REDIS_", "CELERY_", "MINIO_", "MASK_CONTENT_S3_"))
@@ -289,6 +380,17 @@ async def test_installed_gc_progresses_past_retained_prefix_with_independent_bud
                 cycles.append(result)
             assert cycles[0].scanned == 1008 and cycles[0].eligible == 7
             assert [cycle.deleted for cycle in cycles] == [3, 3, 1]
+            once = c.CycleStats.model_validate_json(
+                _docker(
+                    "exec",
+                    gc,
+                    "python",
+                    "-m",
+                    "yoao_labeling_mask_gc_runtime",
+                    "--once",
+                )
+            )
+            assert once.scan_errors == once.data_errors == once.deleted == 0
             from tests.test_asset_storage_cleanup_runtime import _object_exists
 
             assert all(

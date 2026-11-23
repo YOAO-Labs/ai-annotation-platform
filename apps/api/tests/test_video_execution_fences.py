@@ -34,9 +34,6 @@ def _writer_rejection_port(monkeypatch, job_id, codes):
         lease_token=uuid4(),
     )
     monkeypatch.setattr(writer, "execution_proof", lambda _job_id: proof)
-    monkeypatch.setattr(writer.settings, "labeling_video_writer_url", "")
-    monkeypatch.setattr(writer.settings, "labeling_video_writer_database_url", "")
-    monkeypatch.setattr(writer.settings, "labeling_video_writer_database_url_file", "")
     replies = iter(codes)
     instances = []
 

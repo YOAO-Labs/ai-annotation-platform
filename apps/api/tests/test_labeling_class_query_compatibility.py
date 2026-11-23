@@ -1,4 +1,4 @@
-"""Replay the frozen class-usage HTTP contract through each current provider."""
+"""Replay the frozen class-usage HTTP contract through the ordinary logins."""
 
 from __future__ import annotations
 
@@ -62,11 +62,13 @@ def _assert_borrowed_native_phases(sample: dict) -> None:
         assert phases.count("class_counts") == 1
         assert phases.count("attribute_rows") == 1
         assert phases.index("class_counts") < phases.index("attribute_rows")
+    else:
+        assert phases == [], sample["label"]
 
 
-@pytest.mark.parametrize("binding", ["borrowed", "dedicated", "http"])
+@pytest.mark.parametrize("login", ["worktree", "lan"])
 async def test_current_labeling_query_owner_matches_all_frozen_http_samples(
-    test_engine, app_module, monkeypatch, tmp_path, binding
+    test_engine, app_module, monkeypatch, tmp_path, login
 ):
     reference = fixture_data()
     world = await seed_legacy_world(test_engine, app_module, monkeypatch, tmp_path)
@@ -75,8 +77,7 @@ async def test_current_labeling_query_owner_matches_all_frozen_http_samples(
             test_engine,
             app_module,
             monkeypatch,
-            binding=binding,
-            labeling_token="test-labeling-class-query-control",
+            login=login,
         ) as (client, _runtime_engine, _native_rpc):
             actual = []
             for frozen in reference["samples"]:
@@ -86,8 +87,7 @@ async def test_current_labeling_query_owner_matches_all_frozen_http_samples(
                     client, world, frozen, native_rpc=_native_rpc
                 )
                 actual.append(sample)
-                if binding == "borrowed":
-                    _assert_borrowed_native_phases(sample)
+                _assert_borrowed_native_phases(sample)
 
             expected = [_expected_sample(sample) for sample in reference["samples"]]
             assert [_semantic_sample(sample) for sample in actual] == expected

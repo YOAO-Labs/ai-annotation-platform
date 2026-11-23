@@ -70,14 +70,6 @@ _ROUTING_DSN = URL.create(
     port=5432,
     database=_DATABASE,
 ).render_as_string(hide_password=False)
-_WRITER_DSN = URL.create(
-    "postgresql",
-    username="yoao_labeling_video_writer_client",
-    password="writer-secret",
-    host="worker-postgres",
-    port=5432,
-    database=_DATABASE,
-).render_as_string(hide_password=False)
 
 
 @pytest.mark.parametrize("denial_code", ["AccessDenied", "NoSuchBucket", None])
@@ -166,7 +158,6 @@ async def test_stale_login_proof_accepts_only_authentication_denials(
             "identity_api_consumer",
             "yoao_preannotation_result_client",
             "yoao_inference_routing_client",
-            "yoao_labeling_video_writer_client",
         }
 
 
@@ -177,7 +168,6 @@ def _environment() -> dict[str, str]:
             "/run/secrets/preannotation_results_dsn"
         ),
         "INFERENCE_ROUTING_DATABASE_URL": _ROUTING_DSN,
-        "LABELING_VIDEO_WRITER_DATABASE_URL": _WRITER_DSN,
         "MIGRATION_DATABASE_URL": "",
         "INFERENCE_ROUTING_DATABASE_URL_FILE": "",
     }
@@ -339,12 +329,10 @@ def test_worker_database_inventory_observes_all_dsns_without_serializing_secrets
         "identity_api_consumer",
         "yoao_preannotation_result_client",
         "yoao_inference_routing_client",
-        "yoao_labeling_video_writer_client",
     }
     assert {item.source_variable: item.secret_file for item in result} == {
         "DATABASE_URL": False,
         "INFERENCE_ROUTING_DATABASE_URL": False,
-        "LABELING_VIDEO_WRITER_DATABASE_URL": False,
         "PREANNOTATION_RESULTS_DATABASE_URL_FILE": True,
     }
     assert "worker-secret" not in repr(result)
@@ -360,7 +348,12 @@ def test_worker_database_inventory_observes_all_dsns_without_serializing_secrets
         lambda env: env.update(
             ASSETS_DATABASE_URL="postgresql://assets:secret@worker-postgres/db"
         ),
-        lambda env: env.pop("LABELING_VIDEO_WRITER_DATABASE_URL"),
+        lambda env: env.pop("INFERENCE_ROUTING_DATABASE_URL"),
+        lambda env: env.update(
+            LABELING_VIDEO_WRITER_DATABASE_URL=(
+                "postgresql://retired_writer:unexpected-secret@worker-postgres/db"
+            )
+        ),
         lambda env: env.update(
             DATABASE_URL=env["DATABASE_URL"].replace(_DATABASE, "shared")
         ),
@@ -407,8 +400,6 @@ def test_worker_write_selectors_bind_only_to_owned_media_and_s3_identities():
             "MINIO_SECRET_KEY": "minio-secret",
             "INFERENCE_ROUTING_TOKEN": "",
             "INFERENCE_ROUTING_TOKEN_FILE": "",
-            "LABELING_VIDEO_WRITER_CONTROL_TOKEN": "",
-            "LABELING_VIDEO_WRITER_CONTROL_TOKEN_FILE": "",
         },
         expected_s3_access_key="aapcln0123456789",
         expected_media_token="media-token",
@@ -417,7 +408,6 @@ def test_worker_write_selectors_bind_only_to_owned_media_and_s3_identities():
         "database_roles": [
             "identity_api_consumer",
             "yoao_inference_routing_client",
-            "yoao_labeling_video_writer_client",
             "yoao_preannotation_result_client",
         ],
         "media_control_token": "present_and_bound_to_owned_media_peer",
@@ -779,7 +769,6 @@ def test_structured_local_fence_evidence_keeps_scope_and_broker_limits_explicit(
                 "identity_api_consumer",
                 "yoao_preannotation_result_client",
                 "yoao_inference_routing_client",
-                "yoao_labeling_video_writer_client",
             )
         ],
         "s3_revocation": {

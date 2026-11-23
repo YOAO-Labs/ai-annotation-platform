@@ -6,7 +6,8 @@ import uuid
 
 import asyncpg
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from yoao_labeling.class_queries import (
@@ -24,7 +25,7 @@ from yoao_labeling.class_query_postgres import (
 )
 from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
-from app.services.labeling_class_query_data import LabelingClassQueryData
+from app.services.labeling_class_query import execute_labeling_class_query
 from tests.factory import create_project, create_task, create_user
 from tests.test_labeling_class_usage_reads_legacy import (
     _cleanup_owned,
@@ -203,7 +204,6 @@ async def test_labeling_readiness_rejects_lost_function_or_extra_column_grant(
 
 async def test_borrowed_labeling_read_keeps_autoflush_and_caller_rollback(test_engine):
     async with seeded(test_engine) as (maker, actor_id, project_id, task_id):
-        request = labeling_class_query_request(project_id)
         pending_id = uuid.uuid4()
         async with maker() as caller:
             caller.add(
@@ -222,16 +222,13 @@ async def test_borrowed_labeling_read_keeps_autoflush_and_caller_rollback(test_e
                     was_cancelled=False,
                 )
             )
-            manager = LabelingClassQueryManager(LabelingClassQueryData(caller))
             with caller.no_autoflush:
-                result = materialize_labeling_class_query_data(
-                    await manager.execute(request)
+                result = await execute_labeling_class_query(
+                    caller, project_id=project_id
                 )
                 assert "pending" not in result["classes"]
                 assert "pending_key" not in result["attributes"]
-            result = materialize_labeling_class_query_data(
-                await manager.execute(request)
-            )
+            result = await execute_labeling_class_query(caller, project_id=project_id)
             assert result["classes"]["pending"] == 1
             assert result["attributes"]["pending_key"] == 1
             assert caller.in_transaction()
@@ -256,3 +253,37 @@ async def test_borrowed_labeling_read_keeps_autoflush_and_caller_rollback(test_e
                 )
                 == 0
             )
+
+
+async def test_labeling_read_flushes_again_before_attributes_and_leaves_rollback_to_caller(
+    test_engine,
+):
+    async with seeded(test_engine) as (maker, actor_id, project_id, task_id):
+        async with maker() as caller:
+            annotation = await _create_annotation(
+                caller,
+                project_id=project_id,
+                task_id=task_id,
+                user_id=actor_id,
+                class_name="late-dirty-row",
+                attributes={},
+            )
+            statements = []
+
+            def dirty_after_first_read(_conn, _cursor, statement, *_args):
+                statements.append(statement)
+                if f"{CLASS_QUERY_SCHEMA}.class_counts(" in statement:
+                    annotation.class_name = None
+
+            engine = test_engine.sync_engine
+            event.listen(engine, "after_cursor_execute", dirty_after_first_read)
+            try:
+                with pytest.raises(IntegrityError) as error:
+                    await execute_labeling_class_query(caller, project_id=project_id)
+                assert error.value.orig.sqlstate == "23502"
+                assert caller.in_transaction()
+                assert not caller.is_active
+                assert not any(".attribute_rows(" in query for query in statements)
+            finally:
+                event.remove(engine, "after_cursor_execute", dirty_after_first_read)
+                await caller.rollback()

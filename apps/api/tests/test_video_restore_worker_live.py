@@ -76,7 +76,6 @@ pytestmark = [
 
 _ROUTING_ROLE = "yoao_inference_routing_client"
 _RESTORE_ROLE = "yoao_video_restore_operator_client"
-_WRITER_ROLE = "yoao_labeling_video_writer_client"
 _LEGACY_ROLE = "legacy_runtime"
 
 _EXECUTION_ROLES = (
@@ -384,38 +383,6 @@ async def _wait_peer(peer, *, timeout: float) -> int:
     return int(peer.returncode)
 
 
-def _worker_env_with_writer(
-    *,
-    database_url: str,
-    media_url: str,
-    media_token: str,
-    routing_url: str,
-    routing_token: str,
-    execution_url: str,
-    execution_token: str,
-    writer_url: str,
-) -> dict[str, str]:
-    environment = _worker_environment(
-        database_url=database_url,
-        media_url=media_url,
-        media_token=media_token,
-        routing_url=routing_url,
-        routing_token=routing_token,
-        execution_url=execution_url,
-        execution_token=execution_token,
-    )
-    environment.update(
-        {
-            "LABELING_VIDEO_WRITER_URL": "",
-            "LABELING_VIDEO_WRITER_DATABASE_URL": writer_url,
-            "LABELING_VIDEO_WRITER_DATABASE_URL_FILE": "",
-            "LABELING_VIDEO_WRITER_CONTROL_TOKEN": "",
-            "LABELING_VIDEO_WRITER_CONTROL_TOKEN_FILE": "",
-        }
-    )
-    return environment
-
-
 async def _target_source_reference(target_media, actor_id, task_id, job_id, ready):
     client = TrackerVideoInputClient(
         target_media.origin,
@@ -638,11 +605,6 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                     _LEGACY_ROLE,
                     source_database,
                 )
-                source_writer_dsn = _clone_role_dsn(
-                    "AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL",
-                    _WRITER_ROLE,
-                    source_database,
-                )
                 source_owner_runtime = RoutingRuntime(
                     source_routing_dsn,
                     backend_control=BackendRoutingControl(timeout_seconds=8),
@@ -676,7 +638,7 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                     monkeypatch,
                 )
 
-                source_environment = _worker_env_with_writer(
+                source_environment = _worker_environment(
                     database_url=source_legacy_dsn,
                     media_url=source_media.origin,
                     media_token=source_media.token,
@@ -684,7 +646,6 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                     routing_token=source_routing_token,
                     execution_url=source_execution_url,
                     execution_token=source_execution_token,
-                    writer_url=source_writer_dsn,
                 )
                 source_peer = _start_runner_peer(job_id, source_environment)
                 await _wait_entered(backend, 0, source_peer)
@@ -848,11 +809,6 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                         _ROUTING_ROLE,
                         restored_database,
                     )
-                    target_writer_dsn = _clone_role_dsn(
-                        "AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL",
-                        _WRITER_ROLE,
-                        restored_database,
-                    )
                     target_legacy_dsn = _clone_role_dsn(
                         "AAP_MODULE_DATA_LEGACY_RUNTIME_URL",
                         _LEGACY_ROLE,
@@ -991,7 +947,7 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                         restored_database,
                         monkeypatch,
                     )
-                    target_environment = _worker_env_with_writer(
+                    target_environment = _worker_environment(
                         database_url=target_legacy_dsn,
                         media_url=target_media.origin,
                         media_token=target_media.token,
@@ -999,7 +955,6 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                         routing_token=target_routing_token,
                         execution_url=target_execution_url,
                         execution_token=target_execution_token,
-                        writer_url=target_writer_dsn,
                     )
                     target_peer = _start_runner_peer(job_id, target_environment)
                     assert await _wait_peer(target_peer, timeout=90) == 0

@@ -920,9 +920,6 @@ def create_tracker_input_owner_fakes(db_session, monkeypatch):
     from app.services.video_tracking import writer
 
     monkeypatch.setattr(writer, "SqlAlchemyVideoWriterData", InMemoryVideoWriterData)
-    monkeypatch.setattr(writer.settings, "labeling_video_writer_url", "")
-    monkeypatch.setattr(writer.settings, "labeling_video_writer_database_url", "")
-    monkeypatch.setattr(writer.settings, "labeling_video_writer_database_url_file", "")
 
     async def _unit_mask_verifier(_staged):
         return None

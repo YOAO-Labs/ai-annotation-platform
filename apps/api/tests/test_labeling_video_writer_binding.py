@@ -1,4 +1,4 @@
-"""Configured finalization never falls back or reposts inference on uncertainty."""
+"""Worker publication preserves the caller transaction and its final fences."""
 
 from contextlib import nullcontext
 from datetime import datetime, timezone
@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from yoao_labeling.video_writer_contract import (
     VideoWriterReceipt,
     VideoWriterRejected,
-    VideoWriterUnavailable,
     video_writer_command_digest,
 )
 from yoao_preannotation_results.video_execution import ExecutionProof
@@ -26,14 +26,6 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def writer_scope(monkeypatch):
-    for field in (
-        "url",
-        "database_url",
-        "database_url_file",
-        "control_token",
-        "control_token_file",
-    ):
-        monkeypatch.setattr(writer.settings, "labeling_video_writer_" + field, "")
     proof = ExecutionProof(
         job_id=uuid4(),
         run_id=uuid4(),
@@ -67,61 +59,40 @@ def receipt(command):
     )
 
 
-async def test_conflicting_explicit_writer_selectors_do_not_touch_caller_transaction(
-    monkeypatch, writer_scope
-):
+async def test_pending_worker_flush_failure_rolls_back_before_publication(writer_scope):
     db, proof = writer_scope
-    monkeypatch.setattr(
-        writer.settings, "labeling_video_writer_url", "http://owner.test"
-    )
-    monkeypatch.setattr(
-        writer.settings, "labeling_video_writer_database_url", "postgresql://private"
-    )
+    db.commit.side_effect = IntegrityError("fixture flush", None, Exception())
     with pytest.raises(TrackerExecutionDeferred, match="video_writer_unavailable"):
         await writer.commit_tracker_outcome(
             db, proof.job_id, "failed", error_message="fixture"
         )
-    db.commit.assert_not_awaited()
+    db.commit.assert_awaited_once()
+    db.rollback.assert_awaited_once()
     db.connection.assert_not_awaited()
+    db.scalar.assert_not_awaited()
 
 
-async def test_explicit_http_writer_outage_never_uses_borrowed_native_fallback(
-    monkeypatch, writer_scope
-):
+async def test_worker_cannot_publish_with_denied_native_policy(writer_scope):
     db, proof = writer_scope
-    monkeypatch.setattr(
-        writer.settings, "labeling_video_writer_url", "http://owner.test"
+    transaction = SimpleNamespace(is_active=True)
+    db.get_transaction = lambda: transaction
+    db.connection.return_value = SimpleNamespace(scalar=AsyncMock(return_value="xid"))
+    db.scalar.side_effect = ProgrammingError(
+        "SELECT video_writer_step", None, Exception("permission denied")
     )
-    monkeypatch.setattr(
-        writer.settings, "labeling_video_writer_control_token", "t" * 32
-    )
-    calls = []
-
-    class UnavailableClient:
-        def __init__(self, *_args, **_kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            pass
-
-        async def execute(self, command):
-            calls.append(video_writer_command_digest(command))
-            raise VideoWriterUnavailable()
-
-    monkeypatch.setattr(writer, "VideoWriterHttpClient", UnavailableClient)
     with pytest.raises(
-        TrackerExecutionDeferred, match="video_writer_unavailable"
+        TrackerExecutionDeferred, match="^video_writer_unavailable$"
     ) as failure:
         await writer.commit_tracker_outcome(
             db, proof.job_id, "failed", error_message="fixture"
         )
-    assert len(calls) == 3 and len(set(calls)) == 1
     assert str(proof.lease_token) not in str(failure.value)
-    db.connection.assert_not_awaited()
-    db.scalar.assert_not_awaited()
+    db.commit.assert_awaited_once()
+    assert db.connection.await_count == 2
+    assert [call.args[1]["action"] for call in db.scalar.await_args_list] == [
+        "policy",
+        "policy",
+    ]
 
 
 async def test_repeated_writer_contention_keeps_exact_held_command(
@@ -234,3 +205,30 @@ async def test_each_distinct_mask_reference_is_verified_even_when_object_keys_ma
     )
     assert load.await_count == 2
     assert {call.args[0]["bytes"] for call in load.await_args_list} == {51, 52}
+
+
+async def test_worker_cannot_replace_unavailable_external_mask_bytes(monkeypatch):
+    from yoao_assets_mask_content.contract import MaskContentFailure
+
+    from app.config import settings
+    from app.services import raster_mask_objects
+
+    digest = "a" * 64
+    reference = {
+        "encoding": "coco_rle_ref",
+        "size": [2, 2],
+        "object_key": f"raster-masks/sha256/aa/aa/{digest}.json",
+        "sha256": digest,
+        "runs": 2,
+        "bytes": 51,
+    }
+    monkeypatch.setattr(
+        settings, "assets_mask_content_url", "http://retained-mask.test"
+    )
+    monkeypatch.setattr(settings, "assets_mask_content_token", "")
+    local = AsyncMock(side_effect=AssertionError("must not replace external custody"))
+    monkeypatch.setattr(raster_mask_objects, "load", local)
+    with pytest.raises(MaskContentFailure) as unavailable:
+        await writer._verify_candidate_masks({"results": [{"mask": reference}]})
+    assert unavailable.value.code == "storage_unavailable"
+    local.assert_not_awaited()

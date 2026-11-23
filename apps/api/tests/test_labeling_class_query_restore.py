@@ -49,7 +49,6 @@ pytestmark = [
 ]
 
 _PHASE_SAMPLE = "class_then_attributes_second_session_commit"
-_OWNER_BINDINGS = ("borrowed", "dedicated", "http")
 _CLASS_QUERY_NAMES = ("attribute_rows", "class_counts", "class_query_policy")
 
 
@@ -196,20 +195,16 @@ async def _capture_bound_samples(
     monkeypatch,
     world: dict,
     reference: dict,
-    *,
-    binding: str,
 ) -> list[dict]:
     frozen_samples = reference["samples"]
-    labeling_token = f"labeling-class-restore-{uuid.uuid4().hex}"
     observed = []
     interleave_id = None
     async with bound_api_client(
         engine,
         app_module,
         monkeypatch,
-        binding=binding,
-        labeling_token=labeling_token,
-        application_name=f"labeling-class-restore-{binding}",
+        login="worktree",
+        application_name="labeling-class-restore",
     ) as (client, _runtime_engine, native_rpc):
         try:
             for frozen in frozen_samples:
@@ -219,10 +214,9 @@ async def _capture_bound_samples(
                     client, world, frozen, native_rpc=native_rpc
                 )
                 assert _public_response_sample(sample) == _legacy_public_sample(frozen)
-                if native_rpc is not None:
-                    assert sample["borrowed_labeling_rpc_phases"] == (
-                        _expected_labeling_rpc_phases(frozen)
-                    )
+                assert sample["borrowed_labeling_rpc_phases"] == (
+                    _expected_labeling_rpc_phases(frozen)
+                )
                 observed.append(sample)
         finally:
             if interleave_id is not None:
@@ -240,13 +234,11 @@ async def _assert_phase_probe(engine, app_module, monkeypatch, world, reference)
         for sample in reference["samples"]
         if sample["label"] == "target_project_owner_aggregation"
     )
-    labeling_token = f"labeling-class-phase-{uuid.uuid4().hex}"
     async with bound_api_client(
         engine,
         app_module,
         monkeypatch,
-        binding="borrowed",
-        labeling_token=labeling_token,
+        login="worktree",
         application_name="labeling-class-restore-phase",
     ) as (client, _runtime_engine, native_rpc):
         async with gated_class_counts(engine):
@@ -322,16 +314,9 @@ async def test_labeling_class_query_owner_survives_owned_database_restore(
             "project_id": target_project_id
         }
 
-        source_responses = {}
-        for binding in _OWNER_BINDINGS:
-            source_responses[binding] = await _capture_bound_samples(
-                test_engine,
-                app_module,
-                monkeypatch,
-                world,
-                reference,
-                binding=binding,
-            )
+        source_responses = await _capture_bound_samples(
+            test_engine, app_module, monkeypatch, world, reference
+        )
         assert target_sample["response"]["body"]["classes"]
         assert target_sample["response"]["body"]["attributes"]
 
@@ -418,7 +403,6 @@ async def test_labeling_class_query_owner_survives_owned_database_restore(
                 hide_password=False
             ),
             "AAP_MODULE_DATA_LEGACY_RUNTIME_URL": cloned_legacy_dsn,
-            "AAP_MODULE_DATA_LABELING_CLASS_QUERY_URL": cloned_labeling_dsn,
         }
         with monkeypatch.context() as clone_environment:
             for name, value in cloned_urls.items():
@@ -443,16 +427,9 @@ async def test_labeling_class_query_owner_survives_owned_database_restore(
             assert materialize_project_query_data(cloned_manager) == {
                 "project_id": target_project_id
             }
-            restored_responses = {}
-            for binding in _OWNER_BINDINGS:
-                restored_responses[binding] = await _capture_bound_samples(
-                    restored_engine,
-                    app_module,
-                    monkeypatch,
-                    world,
-                    reference,
-                    binding=binding,
-                )
+            restored_responses = await _capture_bound_samples(
+                restored_engine, app_module, monkeypatch, world, reference
+            )
             assert restored_responses == source_responses
 
             restored_phase = await _assert_phase_probe(

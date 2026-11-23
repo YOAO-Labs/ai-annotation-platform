@@ -14,6 +14,32 @@ The process has no application imports, caller-owned SQL sessions, task model,
 Celery, Redis, or S3 client. The byte owner receives cleanup credentials; this
 process receives only its native database URL and service tokens.
 
+After current migrations and `infra/docker/module-data-grants.sql`, apply
+`infra/docker/labeling-mask-gc-data-grants.sql` to
+`yoao_labeling_mask_gc_client`. Keep that LOGIN separate from the tracking
+worker and the ordinary API; cleanup bytes use a different Assets bearer and
+S3 identity. This operator does not replace Beat's saved-object cleanup.
+
+## Operator profile
+
+From the repository root, use a private Compose environment file:
+
+```sh
+docker compose --env-file "$HOME/.config/yoao/mask-gc.env" -p yoao-mask-gc \
+  -f docker-compose.assets-mask-content.yml -f docker-compose.labeling-mask-gc.yml \
+  --profile mask-gc up -d --build --wait labeling-mask-gc
+```
+
+Set `LABELING_RUNTIME_MASK_GC_DATABASE_URL_FILE`,
+`LABELING_RUNTIME_MASK_GC_CONTROL_TOKEN_FILE`, `MASK_CLEANUP_TOKEN_FILE`,
+`MASK_CLEANUP_S3_ACCESS_KEY_FILE`, `MASK_CLEANUP_S3_SECRET_KEY_FILE`,
+`MASK_CONTENT_S3_ENDPOINT_URL` and `MASK_CONTENT_BUCKET`. Mount the secrets
+read-only from a private host directory, readable by their respective
+nonroot container users. The profile starts the cleanup byte peer on the
+private network, binds the GC service to localhost and sets
+`MASK_GC_POLL_ENABLED=false`. Dry-run over the authenticated HTTP run route is
+read-only; `--once` is an explicit mutating collection pass.
+
 ## Configuration
 
 Provide the four secrets either inline or through a sibling `_FILE` setting:

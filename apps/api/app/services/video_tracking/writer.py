@@ -1,4 +1,4 @@
-"""Bind final tracker publication to its configured Labeling owner."""
+"""Finalize a claimed tracker outcome in the tracking worker's transaction."""
 
 from __future__ import annotations
 
@@ -8,9 +8,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from yoao_labeling.config import secret_source
 from yoao_labeling.video_writer import VideoWriterManager
-from yoao_labeling.video_writer_client import VideoWriterHttpClient
 from yoao_labeling.video_writer_contract import (
     VideoWriterExpectedInput,
     VideoWriterFailure,
@@ -22,11 +20,10 @@ from yoao_labeling.video_writer_contract import (
     video_writer_command_digest,
     video_writer_data_arguments_bytes,
 )
-from yoao_labeling.video_writer_postgres import VideoWriterPostgresProvider
 
-from app.config import settings
-from app.services.raster_mask_storage import load_coco_rle
 from app.services.raster_mask_contract import RasterMaskContractError
+from app.services.raster_mask_storage import load_coco_rle
+
 from .execution import TrackerExecutionDeferred, TrackerExecutionLost, execution_proof
 
 _STEP = text("SELECT yoao_labeling_v1.video_writer_step(:action,:arguments)")
@@ -126,67 +123,32 @@ async def commit_tracker_outcome(
     )
     digest = video_writer_command_digest(command)
     try:
-        url = settings.labeling_video_writer_url
-        dsn = secret_source(
-            settings.labeling_video_writer_database_url,
-            settings.labeling_video_writer_database_url_file,
-        )
-        if url and dsn:
-            raise ValueError("ambiguous owner binding")
-        token = (
-            secret_source(
-                settings.labeling_video_writer_control_token,
-                settings.labeling_video_writer_control_token_file,
-            )
-            if url
-            else ""
-        )
-    except (ValueError, OSError):
-        raise TrackerExecutionDeferred("video_writer_unavailable") from None
-
-    try:
         await db.commit()
     except (SQLAlchemyError, OSError):
         await db.rollback()
         raise TrackerExecutionDeferred("video_writer_unavailable") from None
-    timeout = settings.labeling_video_writer_timeout_seconds
-    data = (
-        VideoWriterPostgresProvider(dsn, command_timeout=timeout)
-        if dsn
-        else SqlAlchemyVideoWriterData(db)
+    manager = VideoWriterManager(
+        SqlAlchemyVideoWriterData(db), verify_masks=_verify_candidate_masks
     )
-    manager = VideoWriterManager(data, verify_masks=_verify_candidate_masks)
     failures, delay = 0, 0.05
     while True:
         execution_proof(job_id)
         try:
-            if url:
-                async with VideoWriterHttpClient(
-                    url, token, timeout_seconds=timeout
-                ) as client:
-                    if recover_cancelled:
-                        receipt = await client.publication(command.execution)
-                        if receipt is not None:
-                            return receipt
-                    return await client.execute(command)
             try:
                 if recover_cancelled:
                     receipt = await manager.publication(command.execution)
-                    if not dsn:
-                        await db.commit()
+                    await db.commit()
                     if receipt is not None:
                         return receipt
                 receipt = await manager.execute(command)
-                if not dsn:
-                    await db.commit()
+                await db.commit()
                 return receipt
             except (VideoWriterUnavailable, SQLAlchemyError, OSError):
                 await db.rollback()
                 receipt = await manager.status(
                     command.operation_id, command.execution, digest
                 )
-                if not dsn:
-                    await db.commit()
+                await db.commit()
                 if receipt is not None:
                     return receipt
                 raise VideoWriterUnavailable()

@@ -3,7 +3,7 @@ title: Mask 字节接口
 audience: [dev, ops]
 type: reference
 status: stable
-last_reviewed: 2026-10-20
+last_reviewed: 2026-11-23
 ---
 
 # Mask 字节接口
@@ -40,6 +40,10 @@ last_reviewed: 2026-10-20
 `ASSETS_MASK_CONTENT_URL` 显式选择独立 owner 时，API 的 Mask 内容入口、导入、AI 采纳、修复、QC、追踪、导出、训练／评估读取继续使用既有包装函数，但持久 RLE 只经该 owner 在可移植逻辑键 `raster-masks/sha256/...json[.gz]` 上存取；失败保持失败，不回退 API 自身对象存储。未选择 owner 时，API 沿用自身保存归属：物理对象为 `raster-masks/objects/{uuid}.json[.gz]`，由保存记录、发布保护与受保护清理管理。
 
 两种模式的引用、业务校验、上传预约和每键代次相同。切换模式不迁移已有 Mask，也不双写；切换后已有内容仍留在原归属，新写入按当前选择落位。选择 owner 时的回收由 Labeling 的 Mask 回收集合负责；API 保存归属清理只处理自身登记记录。部署边界见[独立部署台账](/dev/concepts/module-deployment#mask-内容字节服务)，保存归属详见[存储位置、连接器与用途绑定](/dev/concepts/storage-connections#持久-rle-的独立归属与发布保护)。
+
+跟踪 worker 直接调用同一字节核验：最终事务锁定待审候选的 Mask 引用，成功后原子交接
+保留根。保留所需的历史对象位置和原所有者；核验不可用时不按当前默认路径猜测归属，
+也不会发布未核验的候选。内容 bearer 不能用于删除。
 
 ## 引用、回收与失败
 
@@ -82,4 +86,30 @@ Labeling 的 `aap-labeling-mask-gc/v1` 以原生每键代次、删除意图与�
 
 预览的 `eligible + skipped = scanned`，`staged` 保持 0。正式执行的 `eligible = staged`，只计实际建立的意图；`deleted/missing/content_changed` 对应明确终态回执。`pending/indeterminate`、`durable_uncertainties` 和 `finish_errors` 分别保留未完成、持久不确定和确认失败的事实。清单失败不阻止既有意图继续协调。
 
-Celery 消费者保留原任务名与 `cleanup` 路由，先提交领域过期记录并释放指标读取事务，再调用同一协调器；因此其 `dry_run` 仍会提交领域过期清理。独立服务的预览完全只读。现有故障证据覆盖本地数据库、真实对象存储、迟到回执及重启；本地容量验证不代表完整 Labeling 或生产容量资格。
+默认 Celery Beat 的 `purge_unreferenced_raster_masks` 维护已登记的保存目标对象，
+不扫描历史 SHA 对象，也不替代下面的独立预览与恢复。
+
+## 手动回收运行入口 {#mask-gc-operator}
+
+先迁移至当前 head，再应用 `module-data-grants.sql` 和
+`labeling-mask-gc-data-grants.sql`。独立 `yoao_labeling_mask_gc_client` 仅取六项
+回收函数；清理字节进程只持有独立的 S3 cleanup 身份。准备私有环境文件和只读
+secret 文件，由实际容器 UID 可读，宿主父目录权限设为 `0700`：
+
+- `LABELING_RUNTIME_MASK_GC_DATABASE_URL_FILE` 和 `LABELING_RUNTIME_MASK_GC_CONTROL_TOKEN_FILE`；
+- `MASK_CLEANUP_TOKEN_FILE`（Labeling GC 与 Assets cleanup 共享的私有 bearer）；
+- `MASK_CLEANUP_S3_ACCESS_KEY_FILE`、`MASK_CLEANUP_S3_SECRET_KEY_FILE`、
+  `MASK_CONTENT_S3_ENDPOINT_URL` 与 `MASK_CONTENT_BUCKET`。
+
+```bash
+docker compose --env-file "$HOME/.config/yoao/mask-gc.env" -p yoao-mask-gc \
+  -f docker-compose.assets-mask-content.yml -f docker-compose.labeling-mask-gc.yml \
+  --profile mask-gc up -d --build --wait labeling-mask-gc
+```
+
+该组合随 `labeling-mask-gc` 启动 `assets-mask-cleanup`，只在回环地址发布 GC 的 8771
+端口。镜像入口为 `python -m yoao_labeling_mask_gc_runtime`；该 profile 关闭自动轮询，仅凭
+GC 专用 bearer 调用 run／progress 路由，预览先用 `dry_run=true`。显式运行同一镜像入口的
+`--once` 会执行有界**写入**回收，而不是预览。任何未知的删除确认都继续走持久意图
+与清理回执恢复，不能撤掉围栏或直接删除对象。独立测试环境可验证入口与凭据，
+不会为日常环境启用自动回收。
