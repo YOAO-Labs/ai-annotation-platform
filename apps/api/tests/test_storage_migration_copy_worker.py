@@ -28,6 +28,7 @@ from app.schemas.storage_migration_copy import (
     StorageMigrationCopyAttemptRequest,
     StorageMigrationCopyGenerationRequest,
 )
+from app.services import async_job as jobs
 from app.services import storage_access, storage_migration_copies as service
 from app.services.storage_migration_copy import CopyStopped
 from app.workers import storage_migration_copy as worker
@@ -120,6 +121,10 @@ async def test_real_collector_and_plan_once_with_no_source_or_target_sdk_calls(
         )
         assert service.sha(raw) == checksum and raw.startswith(b"SQLite format 3")
         a = await service.by_job(db, world.job_id)
+        job = await jobs.get_job(db, world.job_id)
+        assert job.status == a.status and job.progress_pct == 100
+        assert (job.started_at, job.completed_at) == (a.started_at, a.completed_at)
+        assert job.result["stage"] == "completed"
         assert not await db.get(StorageOperation, a.source_operation_id)
         assert not await db.get(StorageOperation, a.target_operation_id)
 
@@ -176,6 +181,9 @@ async def test_running_cancel_waits_for_native_close_and_preserves_plan_owner(
     async with world.maker() as db:
         a = await service.by_job(db, world.job_id)
         assert a.status == "cancelled"
+        job = await jobs.get_job(db, world.job_id)
+        assert job.status == a.status and job.completed_at == a.completed_at
+        assert job.result["stage"] == "cancelled"
         assert not await db.get(StorageOperation, a.source_operation_id)
         assert await service.owner(db, world.copy_id)
 
@@ -300,6 +308,9 @@ async def test_explicit_hard_restart_uses_real_child_death_proof(world):
             )
             old = await service.by_job(db, old_job)
             assert old.status == "failed" and old.error_code == "copy_process_ended"
+            job = await jobs.get_job(db, old_job)
+            assert job.status == old.status and job.error_message == old.error_code
+            assert job.completed_at == old.completed_at
     finally:
         if child.poll() is None:
             child.kill()
