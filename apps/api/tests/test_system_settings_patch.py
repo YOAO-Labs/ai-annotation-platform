@@ -730,8 +730,11 @@ async def test_live_smtp_attempt_uses_only_dedicated_mail_login(
             MailV2WorkerSettings(
                 _env_file=None,
                 database_url=mail.render_as_string(hide_password=False),
+                database_url_file=None,
                 settings_database_url=dsn.render_as_string(hide_password=False),
+                settings_database_url_file=None,
                 encryption_key=Fernet.generate_key().decode(),
+                encryption_key_file=None,
                 smtp_host="127.0.0.1",
                 smtp_port=inbox.port,
                 smtp_password="private-smtp-password",

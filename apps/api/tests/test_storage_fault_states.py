@@ -679,10 +679,18 @@ async def _replay_fault_grants(test_engine, role):
     ids=("lan-embedded", "lan-isolated-issuer", "worktree"),
 )
 async def test_real_login_observes_and_reads_without_private_storage_access(
-    test_engine, app_module, committed_world, role, selector
+    test_engine, app_module, committed_world, role, selector, tmp_path, monkeypatch
 ):
+    from contextlib import AsyncExitStack
+    import secrets
+    import sys
+
+    from app.config import settings
     from app.core.security import create_access_token
     from app.deps import get_db
+    from tests.factory import DEFAULT_PASSWORD
+    from tests.test_identity_admission_live import _start_identity
+    from tests.test_identity_sessions_live import _login_redis
 
     actors, location, sources = committed_world
     actor, source = actors[1], sources[0]
@@ -752,12 +760,50 @@ async def test_real_login_observes_and_reads_without_private_storage_access(
             await db.rollback()
 
         app_module.dependency_overrides[get_db] = runtime_db
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app_module), base_url="http://test"
-        ) as client:
+        remote = role == "identity_api_consumer"
+        async with (
+            AsyncExitStack() as stack,
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(
+                    app=app_module, client=("127.0.0.42", 12345)
+                ),
+                base_url="http://test",
+            ) as client,
+        ):
+            if remote:
+                patch = stack.enter_context(monkeypatch.context())
+                patch.setenv("AAP_IDENTITY_RUNTIME_PYTHON", sys.executable)
+                redis_url, _ = await stack.enter_async_context(_login_redis())
+                control = secrets.token_urlsafe(32)
+                issuer = _start_identity(
+                    test_engine,
+                    tmp_path,
+                    secrets.token_urlsafe(32),
+                    control,
+                    enable_keys=False,
+                    enable_accounts=False,
+                    enable_presence=False,
+                    login_redis_url=redis_url,
+                )
+                stack.callback(issuer.stop)
+                patch.setattr(settings, "identity_url", issuer.origin)
+                patch.setattr(settings, "identity_token", control)
             path = f"/api/v1/storage-locations/{location.id}/faults"
             for requested_actor, total in ((actor, 1), (actors[2], 0), (actors[0], 1)):
-                jwt = create_access_token(str(requested_actor.id), requested_actor.role)
+                if remote:
+                    login = await client.post(
+                        "/api/v1/auth/login",
+                        json={
+                            "email": requested_actor.email,
+                            "password": DEFAULT_PASSWORD,
+                        },
+                    )
+                    assert login.status_code == 200
+                    jwt = login.json()["access_token"]
+                else:
+                    jwt = create_access_token(
+                        str(requested_actor.id), requested_actor.role
+                    )
                 response = await client.get(
                     path, headers={"Authorization": f"Bearer {jwt}"}
                 )
