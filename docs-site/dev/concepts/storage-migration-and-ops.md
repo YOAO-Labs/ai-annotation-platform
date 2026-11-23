@@ -29,9 +29,11 @@ Worker 对保存 task ID 仅作一次 `pending → running` 领取，显式重�
 
 `storage_migration_copy` 使用同一 27 家族保存业务引用目录及复制核心，先从保存的封存报告生成配对目录及 SQLite 计划，审阅后再执行初次复制。0256 的复制 owner 独立于单次 AsyncJob，保存冻结输入、目标物理身份、处理选择、基线及摘要；逐对象 delta 在独立短事务中提交。执行时恢复同一基线＋delta，`writing/nonce` 先于 PUT，ACK 版本先于完整读回，权限或取消的晚期变化不删除已发生事实。
 
-目标为已登记全局 S3 位置／连接，由薄适配器复用 `S3Access` 当前凭据、allowlist 与请求 guard，在保存 `base_prefix` 下生成独立迁移命名空间；不借用业务 purpose 或改变 Binding。仅轮换密钥不会重解释旧地址，运行中修订变化停止下一次 I/O，后续 attempt 重新解析当前配置。新 owner 计入位置引用保护与维护影响，任务终态和 30 天清理不解除实际保存责任。
+目标为已登记全局 S3 位置／连接，冻结 `base_prefix` 下的独立迁移命名空间，不借用业务 purpose 或改变 Binding。普通 Worker 不读取连接凭据：既有 Assets Source 按已提交的 attempt、两个 Permit、精确对象决策及写入 nonce 复核目标。在接收单次条件写之前校验正文 SHA／大小和目标版本历史；同一 attempt 的意图不可重放，明确续跑仍先读回原创建身份。仅轮换密钥不会重解释旧地址，运行中修订变化停止下一次 I/O，后续 attempt 重新解析当前配置。新 owner 计入位置引用保护与维护影响，任务终态和 30 天清理不解除实际保存责任。
 
 源与目标分别取得 Permit，两个 operation ID 先提交，再启动原生线程；回到所属 loop 的短 Session 处理检查及对象 delta，不跨线程共享 Session，不跨 S3 I/O 持有事务。流、客户端、SQLite 和临时正文真正关闭后才发布；应用正文使用匿名临时文件，检查点权威在数据库。未知关闭保留责任，不按超时清除。显式续跑创建新 attempt，共享 Job 只描述该次执行。
+
+跨进程请求另在 Assets Source 持有物理在途回执，Source 未实际关闭流／客户端时不允许普通 Worker 结算两端许可；仅证明旧 Worker 退出不足以解除责任。Source 必须复用同一私有持久 spool，继任进程取得同一锁文件的排他锁后才核销旧 Source 在途回执。Worker 随后通过现有 `recover` 围栏继续原计划，仍按原 nonce 核验物理结果，不按 TTL 取消或重传。
 
 ### 复制计划与增量批次（迁移 0257）
 
@@ -73,7 +75,7 @@ Inventory 和 Copy 的 nullable 窗口引用保留旧任务兼容。窗口任务
 
 reader 的两次 HEAD、条件探测和 GET 均固定目标回执 `VersionId` 及 ETag，完整 SHA／大小保持原合同。当前目标连接、物理身份、发布修订及 Gate 在准入和交付边界重验，凭据从当前连接获取；SDK 响应不伪装成源 A。活动或撤回中的 Publication 独立保留 Copy 责任，并禁止普通 Finalization 解除。撤回先提交 `withdrawing`，禁止新路由 I/O，实际所属许可全部结束后提交 `withdrawn`；历史不删除、同一发布不重新激活。晚到物理回执照常保存并使活动发布进入 `withdrawing`。
 
-保存产物可显式使用 `storage_migration_artifact_reads` 只读接缝：按原地址及保存 SHA 选择准确映射；有独立大小或保存源版本时同时限定。缺少独立大小的冻结成员可使用映射的已核验大小，不从同名键或今日 Binding 猜测。适配器只开放指定对象的 HEAD、完整 GET 和 GET 签名，固定目标版本及 ETag；验证目标属性和迁移创建元数据后才向原业务核验交付内容。实际 B 同时登记发布许可和原 owner 专属读取 purpose，供撤回与既有回收查询排空；写入、写后核验和删除不经过此接缝。直接 S3 签名在其原有效期内独立于应用许可，撤回不会撤销已经签发的 URL；旧入口的观察期须覆盖已有 A 签名的自然失效时间。
+保存产物可显式使用 `storage_migration_artifact_reads` 只读接缝：按原地址及保存 SHA 选择准确映射；有独立大小或保存源版本时同时限定。缺少独立大小的冻结成员可使用映射的已核验大小，不从同名键或今日 Binding 猜测。实际 B 同时登记发布许可和原 owner 专属读取 purpose；既有 Assets Source 只接受该许可已绑定的不可变路由成员，并固定目标版本及 ETag、复核创建元数据、限制 Range。既有 ZIP 下载仍可签发只读 GET，但须匹配已就绪的归档回执及其失效时间；撤回不会撤销已签发的 URL。写入、写后核验和删除不经过此接缝。旧入口的观察期须覆盖已有 A 签名的自然失效时间。
 
 头像和报告附件把保存源版本与实际响应目标版本分开核对；审计归档仍完整解压并校验 JSONL 行数和内容。RLE 路由采用 stored SHA／大小，canonical 身份独立；持久 Publication Guard 继续保存 A Gate 修订，内存路由单独复核 B 发布与实际许可。独立导出媒体冻结同一发布及物理修订的完整 read-set，最终业务发布持共享锁复核。`prefix_inventory` 只读投影同一封存源目录中当前可见的逻辑键及 SHA／大小；仅当源桶全部选择 `migrate` 且输入摘要仍与发布证据一致时，完整 copy 映射才能提供此集合。
 
@@ -81,7 +83,7 @@ Mask 导入暂存以保存的完整定位及预期 SHA 选择单对象读取计�
 
 ### 九用途事务与回滚责任（迁移 0264）
 
-`StorageMigrationCutover` 以 Publication ID 为耐久组身份，固定已发布映射摘要、源窗口及前后九用途绑定向量。运维 CLI 事务外执行各用途原有探测，短期签名 review 覆盖当前管理员、全部代际、配置和 Gate 修订。服务同事务比较并更新九行、创建组记录；不调用九次单用途 apply，不改已有 owner 保存地址。连接、位置、绑定及控制责任按一致顺序加 `NOWAIT` 锁，冲突不产生部分切换。
+`StorageMigrationCutover` 以 Publication ID 为耐久组身份，固定已发布映射摘要、源窗口及前后九用途绑定向量。受信运维 CLI 以独立 `ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN[_FILE]` 请求既有 Assets Source 对准确 B、当前发布、绑定代际及许可执行各用途原有探测；普通 API／Worker 凭据不能执行该探测。短期签名 review 覆盖当前管理员、全部代际、配置和 Gate 修订。服务同事务比较并更新九行、创建组记录；不调用九次单用途 apply，不改已有 owner 保存地址。连接、位置、绑定及控制责任按一致顺序加 `NOWAIT` 锁，冲突不产生部分切换。
 
 组状态为 `active → rollback_draining → rollback_bound → rollback_restoring → rolled_back`。B 排空后用独立 Journal 封闭原生写入；rollback claim 先 fsync，再提交 B Gate 停止及九项 A 地址恢复，代际仍递增。A release UUID 先持久保存，再撤回读取发布、解除 Finalization、解绑 A claim、实际恢复 A 入口并关闭 Window。最后复核完整回滚向量及 B 仍 held，原子恢复 B 应用读取准入。B 物理仍只读、claim 继续保留；应用 Gate active 不代表 B 可写，既有 B pending owner 不能跟随 Binding 重定向。
 

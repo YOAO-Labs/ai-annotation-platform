@@ -413,7 +413,7 @@ async def open_snapshot(db, task_id, expected, *, guard, purpose, node_id):
         permit = await settled(acquire(), late=close_permit)
         await settled(fresh(source))
         read_options = await settled(
-            original_sources.read_options(db, source, read_timeout=15)
+            original_sources.read_options(db, source, read_timeout=15, permit=permit)
         )
         if not _slots.acquire(blocking=False):
             raise ContentError("snapshot_capacity_exceeded", 429)

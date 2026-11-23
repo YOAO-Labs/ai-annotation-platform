@@ -440,7 +440,7 @@ async def read_target(db, source):
             raise ContentError("location_unavailable") from None
 
 
-async def read_options(db, source, *, read_timeout=30):
+async def read_options(db, source, *, read_timeout=30, permit=None):
     """Keep legacy transport and old callback signatures unchanged."""
     from app.services.managed_original_reclaim_fence import protect_source
 
@@ -450,9 +450,11 @@ async def read_options(db, source, *, read_timeout=30):
         await protect_source(owned, source)
         route = getattr(source, "read_route", None)
         if route is not None:
+            from app.services import storage_migration_artifact_reads as migrated
             from app.services import storage_migration_read_publications as publications
 
-            target = await publications.target_for_route(owned, route)
+            await publications.recheck(owned, route)
+            target = await migrated.bind_routes(owned, permit, (route,))
             return {"client_context": partial(target.client, read_timeout=read_timeout)}
     if source.location_id == LEGACY_LOCATION_ID:
         return {}

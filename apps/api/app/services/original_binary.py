@@ -201,9 +201,9 @@ async def _ordinary_admission(db, context, plan):
         plan.location_id,
         plan.purpose(purpose),
         expected_revision=plan.maintenance_revision,
-    ):
+    ) as permit:
         await recheck_original(db, context)
-        yield plan.spec, await original_sources.read_options(db, source)
+        yield plan.spec, await original_sources.read_options(db, source, permit=permit)
 
 
 @asynccontextmanager

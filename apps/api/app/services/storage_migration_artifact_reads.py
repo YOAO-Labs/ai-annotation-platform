@@ -8,8 +8,14 @@ Direct S3 URLs retain their original expiry contract after signing.
 
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
+import json
 import re
+from types import SimpleNamespace
 import uuid
+
+from sqlalchemy import text
+
+from yoao_assets_source.saved_io import SavedIOError
 
 from app.services import (
     export_execution_context,
@@ -18,6 +24,12 @@ from app.services import (
     storage_migration_read_publications as publications,
 )
 from app.services.content_snapshot import ContentError
+from app.services.saved_io import saved_io_client
+from app.services.storage_migration_copy_target import (
+    DownloadBody,
+    provider_error,
+    response_metadata,
+)
 
 
 async def resolve(
@@ -91,6 +103,173 @@ def validate_response(
         reject()
 
 
+_BIND_READ = text("""
+    SELECT yoao_assets_v1.migration_io_bind_read(
+        CAST(:permit AS uuid), CAST(:publication AS uuid), :revision,
+        CAST(:request AS jsonb)
+    )
+""")
+
+
+async def bind_routes(db, permit, routes, *, owner_permit=None):
+    """Commit an exact immutable read set without committing the caller."""
+    routes = tuple(routes)
+    if not routes or permit is None:
+        reject()
+    first = routes[0]
+    members = {route.source_object_id: route.target_version_id for route in routes}
+    if (
+        len(members) != len(routes)
+        or permit.location_id != first.target_location_id
+        or permit.revision != first.maintenance_revision
+        or any(
+            route.publication_id != first.publication_id
+            or route.publication_revision != first.publication_revision
+            or route.target_location_id != first.target_location_id
+            or route.target_location_revision != first.target_location_revision
+            or route.target_connection_revision != first.target_connection_revision
+            or route.maintenance_revision != first.maintenance_revision
+            for route in routes
+        )
+    ):
+        reject()
+    async with storage_access.engine(db).begin() as owned:
+        accepted = await owned.scalar(
+            _BIND_READ,
+            {
+                "permit": permit.id,
+                "publication": first.publication_id,
+                "revision": first.publication_revision,
+                "request": json.dumps(
+                    {
+                        "members": members,
+                        "owner_operation_id": str(owner_permit.id)
+                        if owner_permit
+                        else None,
+                    }
+                ),
+            },
+        )
+    if accepted is not True:
+        reject()
+    return RouteTransport(routes, permit.id)
+
+
+def _remote_error(exc, action):
+    if exc.storage_code:
+        return provider_error(exc, action)
+    if exc.status_code >= 500:
+        error = ContentError("content_source_unavailable", 503)
+    else:
+        error = ContentError("read_publication_changed", 409)
+    return storage_access.mark_unsettled(error) if exc.unsettled else error
+
+
+class _RetainedIO:
+    """Consumer-local handle; every request proves the persisted member at Source."""
+
+    def __init__(self, channel, routes, operation_id):
+        self.channel, self.operation_id = channel, operation_id
+        self.routes = {
+            (route.target_bucket, route.target_object_key): route for route in routes
+        }
+        self.meta = SimpleNamespace(endpoint_url=routes[0].target_endpoint_url)
+        self.bodies = []
+
+    def _subject(self, bucket, key, version, **extra):
+        route = self.routes.get((bucket, key))
+        if route is None or version != route.target_version_id:
+            reject()
+        return route, {
+            "publication_id": str(route.publication_id),
+            "publication_revision": route.publication_revision,
+            "operation_id": str(self.operation_id),
+            "object_id": route.source_object_id,
+            "version": version,
+            "location_revision": route.target_location_revision,
+            "connection_revision": route.target_connection_revision,
+            **extra,
+        }
+
+    def _command(self, action, subject):
+        try:
+            return self.channel.command("migration", action, subject)
+        except SavedIOError as exc:
+            raise _remote_error(exc, action) from None
+
+    def head_object(self, *, Bucket, Key, VersionId, IfMatch=None):
+        route, subject = self._subject(Bucket, Key, VersionId)
+        if IfMatch not in (None, route.target_etag):
+            reject()
+        return response_metadata(self._command("retained_head", subject))
+
+    def get_object(self, *, Bucket, Key, VersionId, IfMatch=None, Range=None):
+        route, subject = self._subject(Bucket, Key, VersionId, range=Range)
+        if IfMatch in (None, route.target_etag):
+            subject["condition"] = "match"
+        elif (
+            IfMatch in ('"aap-impossible-etag"', '"aap-impossible-etag-2"')
+            and Range is None
+        ):
+            subject["condition"] = "probe"
+        else:
+            reject()
+        context = self.channel.download("migration", "retained_get", subject)
+        try:
+            result = context.__enter__()
+        except SavedIOError as exc:
+            raise _remote_error(exc, "retained_get") from None
+        body = DownloadBody(context, result)
+        self.bodies.append(body)
+        return {**response_metadata(result.metadata), "Body": body}
+
+    def generate_presigned_url(self, action, *, Params, ExpiresIn):
+        if action != "get_object" or Params.keys() - {
+            "Bucket",
+            "Key",
+            "VersionId",
+            "ResponseContentDisposition",
+            "ResponseContentType",
+        }:
+            reject()
+        _, subject = self._subject(
+            Params.get("Bucket"),
+            Params.get("Key"),
+            Params.get("VersionId"),
+            expires_in=ExpiresIn,
+            disposition=Params.get("ResponseContentDisposition"),
+            content_type=Params.get("ResponseContentType"),
+        )
+        return self._command("retained_sign", subject)["url"]
+
+    def close(self):
+        failure = None
+        for body in self.bodies:
+            try:
+                storage_access.close_registered(body)
+            except BaseException as exc:
+                if failure is None:
+                    failure = exc
+        if failure is not None:
+            raise failure
+
+
+@dataclass(frozen=True)
+class RouteTransport:
+    routes: tuple
+    operation_id: uuid.UUID
+
+    @contextmanager
+    def client(self, *, read_timeout=None):
+        transport = _RetainedIO(
+            saved_io_client("read", timeout=read_timeout),
+            self.routes,
+            self.operation_id,
+        )
+        with storage_access.closing_registered(transport) as client:
+            yield client
+
+
 @dataclass(frozen=True)
 class Admission:
     route: object
@@ -99,20 +278,19 @@ class Admission:
 
 
 @asynccontextmanager
-async def admit(db, route, purpose, *, on_acquired=None):
+async def admit(db, route, purpose, *, on_acquired=None, routes=None):
     """Keep both actual-target permits around caller-owned closed read work.
 
     This opens no SDK and commits no caller transaction. The caller finishes
     metadata transactions before I/O and drains its existing physical boundary
     before leaving, including body/client close failures and cancellation.
     """
-    target = await publications.target_for_route(db, route)
     async with await storage_access.acquire(
         db,
         route.target_location_id,
         route.purpose,
         expected_revision=route.maintenance_revision,
-    ):
+    ) as publication_permit:
         async with await storage_access.acquire(
             db,
             route.target_location_id,
@@ -122,6 +300,12 @@ async def admit(db, route, purpose, *, on_acquired=None):
             if on_acquired is not None:
                 await on_acquired(permit)
             await publications.recheck(db, route)
+            target = await bind_routes(
+                db,
+                publication_permit,
+                (route,) if routes is None else routes,
+                owner_permit=permit,
+            )
             yield Admission(route, target, permit)
             await publications.recheck(db, route)
 
@@ -338,7 +522,7 @@ async def run(
     the final route check prevents delivery. Both permits stay on the physical
     target; no exception to the stopped source Gate is introduced.
     """
-    target = await publications.target_for_route(db, route)
+    target = None
     result, completed = None, False
 
     def physical():
@@ -349,11 +533,15 @@ async def run(
         return result
 
     async def acquired(permit):
+        nonlocal target
         if on_acquired is not None:
             await on_acquired(permit)
         await publications.recheck(db, route)
+        target = await bind_routes(
+            db, publication_permit, (route,), owner_permit=permit
+        )
 
-    permit = await storage_access.acquire(
+    publication_permit = await storage_access.acquire(
         db,
         route.target_location_id,
         route.purpose,
@@ -362,7 +550,7 @@ async def run(
     owner = export_execution_context.current_optional()
     entered, failure = False, None
     try:
-        async with permit:
+        async with publication_permit:
             if owner is not None:
                 await owner.enter_io()
                 entered = True
@@ -392,7 +580,7 @@ async def run(
     finally:
         if (
             entered
-            and permit._settled
+            and publication_permit._settled
             and (failure is None or not storage_access.failure_unsettled(failure))
         ):
             await export_execution_context.settle_io(failure)

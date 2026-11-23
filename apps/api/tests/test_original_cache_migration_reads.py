@@ -281,7 +281,7 @@ class World:
         self.retire = AsyncMock()
         monkeypatch.setattr(cache, "scope", self.scope)
         monkeypatch.setattr(publications, "lookup", self.lookup)
-        monkeypatch.setattr(publications, "target_for_route", self.target_for_route)
+        monkeypatch.setattr(cache.migrated_reads, "bind_routes", self.bind_routes)
         monkeypatch.setattr(publications, "recheck", self.recheck)
         monkeypatch.setattr(storage_access, "acquire", self.acquire)
         monkeypatch.setattr(storage_access, "check", self.source_gate)
@@ -341,8 +341,8 @@ class World:
         }
         return self.route if self.mapped else None
 
-    async def target_for_route(self, db, route):
-        await self.recheck(db, route)
+    async def bind_routes(self, db, permit, routes, *, owner_permit):
+        assert routes == (self.route,) and permit is not owner_permit
         return self.target
 
     async def recheck(self, db, route, **_kwargs):

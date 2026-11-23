@@ -12,6 +12,7 @@ import pytest
 from app import services
 from app.services import original_sources as sources
 from app.services import managed_original_reclaim_fence as reclaim
+from app.services import storage_migration_artifact_reads as migrated
 from app.services.content_snapshot import ContentError
 from app.services.original_read_plan import ReadRoute
 
@@ -178,15 +179,22 @@ async def test_mapped_read_options_protect_logical_source_and_resolve_current_ta
     def client(**kwargs):
         return kwargs
 
-    async def target(session, candidate):
+    permit = object()
+
+    async def recheck(session, candidate):
         assert session is owned and candidate is selected
-        events.append("resolve_current_target")
+        events.append("recheck_route")
+
+    async def target(session, admitted, routes):
+        assert session is owned and admitted is permit and routes == (selected,)
+        events.append("bind_route")
         return SimpleNamespace(client=client)
 
     monkeypatch.setattr(sources, "AsyncSession", session)
     monkeypatch.setattr(sources.storage_access, "engine", lambda candidate: engine)
     monkeypatch.setattr(reclaim, "protect_source", protect)
-    publication_stub(monkeypatch, target_for_route=target)
-    options = await sources.read_options(db, original, read_timeout=11)
-    assert events == ["session", "protect_logical", "resolve_current_target"]
+    publication_stub(monkeypatch, recheck=recheck)
+    monkeypatch.setattr(migrated, "bind_routes", target)
+    options = await sources.read_options(db, original, read_timeout=11, permit=permit)
+    assert events == ["session", "protect_logical", "recheck_route", "bind_route"]
     assert options["client_context"]() == {"read_timeout": 11}

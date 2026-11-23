@@ -196,9 +196,7 @@ async def test_read_bytes_admits_b_owner_purpose_and_rechecks_before_delivery(
     session = bind_session(monkeypatch, row)
     metadata(monkeypatch, selected)
     sdk, admissions = SDK(selected), []
-    monkeypatch.setattr(
-        publications, "target_for_route", AsyncMock(return_value=Target(sdk))
-    )
+    monkeypatch.setattr(reads, "bind_routes", AsyncMock(return_value=Target(sdk)))
     recheck = AsyncMock()
     monkeypatch.setattr(publications, "recheck", recheck)
 

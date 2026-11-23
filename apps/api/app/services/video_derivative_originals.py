@@ -658,6 +658,7 @@ async def _read_media(db, authority, source, guard, plan, fixture_options=None):
                 expected_revision=plan.maintenance_revision,
             )
         await permits.enter_async_context(permit)
+        migration = None
         if plan.read_route is not None:
             async with _session(db) as owned:
                 migration = await storage_access.acquire(
@@ -674,7 +675,7 @@ async def _read_media(db, authority, source, guard, plan, fixture_options=None):
             read_options = (
                 fixture_options
                 if fixture_options is not None
-                else await original_sources.read_options(db, source)
+                else await original_sources.read_options(db, source, permit=migration)
             )
             stage = await _capture(plan, admission, **read_options)
             yield stage

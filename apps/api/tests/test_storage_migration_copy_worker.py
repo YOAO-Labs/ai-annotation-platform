@@ -376,16 +376,15 @@ def clients(monkeypatch):
     source.closed = target.closed = False
     source.close = lambda: setattr(source, "closed", True)
     target.close = lambda: setattr(target, "closed", True)
-    from app.services.source_readers.s3 import S3Access
 
     @contextmanager
-    def client(access, **kwargs):
+    def client(**kwargs):
         try:
             yield target
         finally:
             storage_access.close_registered(target)
 
-    monkeypatch.setattr(S3Access, "client", client)
+    monkeypatch.setattr(worker.targets, "copy_io", client)
 
     def configured(**kwargs):
         return SimpleNamespace(client=source)

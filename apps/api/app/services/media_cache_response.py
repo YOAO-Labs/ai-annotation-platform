@@ -324,7 +324,7 @@ async def _metadata(capability):
                 location_id = target.location_id
                 revision = await storage_access.check(db, location_id)
             else:
-                target = await publications.target_for_route(db, route)
+                target = None
                 location_id, revision = (
                     route.target_location_id,
                     route.maintenance_revision,
@@ -351,7 +351,9 @@ async def _metadata(capability):
                     db, target.location_id, expected_revision=permit.revision, lock=True
                 )
             else:
-                target = await publications.target_for_route(db, route)
+                target = await artifact_reads.bind_routes(
+                    db, publication_permit, (route,), owner_permit=permit
+                )
                 await publications.recheck(db, route, lock=True)
             await db.commit()
         return Transfer(

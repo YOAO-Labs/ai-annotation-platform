@@ -528,9 +528,9 @@ async def prepare_copy(
                 plan.location_id,
                 plan.purpose("directory_copy_dedup"),
                 expected_revision=plan.maintenance_revision,
-            ):
+            ) as permit:
                 await sources.recheck_read_route(db, canonical)
-                options = await sources.read_options(db, canonical)
+                options = await sources.read_options(db, canonical, permit=permit)
                 if not options:
                     target = await sources.read_target(db, canonical)
                     options = {"client_context": target.client}

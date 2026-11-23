@@ -74,8 +74,8 @@ class MigratedHarness(Harness):
 
         monkeypatch.setattr(service.artifact_reads, "resolve", resolve)
         monkeypatch.setattr(
-            service.publications,
-            "target_for_route",
+            service.artifact_reads,
+            "bind_routes",
             AsyncMock(return_value=self.target),
         )
         monkeypatch.setattr(service.publications, "recheck", recheck)
