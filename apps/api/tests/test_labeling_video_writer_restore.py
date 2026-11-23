@@ -46,6 +46,7 @@ from yoao_preannotation_results.video_window_checkpoint import (
     snapshot_video_window_checkpoint,
 )
 from tests.frozen_namespaces import current
+from tests.grant_sql_helpers import read_grant_script
 from tests.test_identity_recovery import _alembic, _postgres_tool
 from tests.test_inference_backend_dependency_reads_restore import (
     _assert_clone_identity,
@@ -144,7 +145,7 @@ def _run_psql_file(test_engine, database: str, path: Path, variables: dict[str, 
     for name, value in variables.items():
         command.extend(("-v", f"{name}={value}"))
     command.extend(("-f", "-"))
-    _postgres_tool(test_engine, command, body=path.read_bytes())
+    _postgres_tool(test_engine, command, body=read_grant_script(path).encode())
 
 
 def _apply_current_owner_grants(test_engine, database: str) -> None:

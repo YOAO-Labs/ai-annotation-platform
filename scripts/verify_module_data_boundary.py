@@ -92,6 +92,58 @@ JOBS_LIFECYCLE_ROLE = "yoao_jobs_lifecycle_client"
 JOBS_DISPATCH_RELAY_ROLE = "yoao_jobs_dispatch_relay_client"
 JOBS_PUBLICATION_ROLE = "yoao_jobs_publication_client"
 EXPORT_EXECUTION_ROLE = "yoao_export_execution_client"
+IDENTITY_EMBEDDED_API_CONSUMER_ROLE = "identity_embedded_api_consumer"
+IDENTITY_ISSUER_FACT_FUNCTIONS = (
+    "yoao_identity_v1.read_actor_facts(uuid)",
+    "yoao_identity_v1.lock_accounts_share(uuid[],boolean)",
+    "yoao_identity_v1.lock_accounts_update(uuid[],boolean)",
+    "yoao_identity_v1.lock_accounts_key_share(uuid[],boolean)",
+    "yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
+    "yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
+    "yoao_identity_v1.is_jti_revoked(uuid)",
+    "yoao_identity_v1.get_credential_generation(uuid)",
+)
+IDENTITY_AVATAR_FUNCTIONS = (
+    "yoao_identity_v1.reserve_avatar_upload(uuid,text,jsonb,text,integer)",
+    "yoao_identity_v1.confirm_avatar_upload_version(uuid,text,jsonb,text,integer,text)",
+    "yoao_identity_v1.avatar_upload_pending_matches(uuid,text,jsonb,text,integer,text)",
+    "yoao_identity_v1.read_ready_avatar_upload(text)",
+    "yoao_identity_v1.list_avatar_retirements(integer)",
+    "yoao_identity_v1.begin_avatar_retirement(text)",
+    "yoao_identity_v1.finish_avatar_retirement(text,jsonb,text,integer,text)",
+    "yoao_identity_v1.read_avatar_binding_history()",
+    "yoao_identity_v1.avatar_saved_target_referenced(uuid)",
+)
+SAVED_SOURCE_ROLE = "yoao_asset_source_saved_io_client"
+STORAGE_MIGRATION_CONTROL_ROLE = "yoao_storage_migration_control_client"
+SAVED_SOURCE_GRANTS = (
+    "source-channel-saved-io-grants.sql",
+    "reference-io-source-grants.sql",
+    "saved-outputs-source-grants.sql",
+    "media-io-source-grants.sql",
+    "training-saved-io-source-grants.sql",
+    "migration-io-source-grants.sql",
+)
+SAVED_SOURCE_FUNCTIONS = (
+    "yoao_assets_v1.saved_io_connector(uuid,integer,jsonb)",
+    "yoao_assets_v1.saved_io_target(uuid,integer,integer,jsonb)",
+    "yoao_assets_v1.saved_io_allowlist(jsonb)",
+    "yoao_assets_v1.capture_saved_binding_probe(uuid,uuid,boolean)",
+)
+PRIVATE_RUNTIME_FUNCTIONS = (
+    "yoao_assets_v1.capture_storage_connection(uuid,uuid,text)",
+    "yoao_assets_v1.begin_operator_auxiliary(jsonb)",
+    "yoao_assets_v1.operator_item_original_material(uuid,uuid)",
+    "yoao_assets_v1.capture_native_pyramid_write_io(uuid,uuid,bigint,uuid,text)",
+    "yoao_assets_v1.capture_native_pyramid_read_io(uuid,uuid,jsonb)",
+    "yoao_assets_v1.capture_native_pyramid_retirement_io(uuid,uuid,uuid)",
+    "yoao_settings_v1.mail_delivery_policy(jsonb)",
+    "yoao_settings_v1.claim_smtp_test()",
+    "yoao_settings_v1.finish_smtp_test(uuid,uuid,text,text,text,integer)",
+    "yoao_insights_v1.refresh_user_perf_daily()",
+    "yoao_jobs_v1.claim_dispatches(jsonb)",
+    *SAVED_SOURCE_FUNCTIONS,
+)
 JOBS_DOMAIN_QUERY_FUNCTIONS = (
     "yoao_jobs_v1.lock_cross_frame_singleflight(uuid,text)",
     "yoao_jobs_v1.active_cross_frame_job(uuid,text)",
@@ -640,7 +692,7 @@ FUNCTION_BODY_ARTIFACTS = {
             "yoao_workspace_project_query_v1._project_query_step_impl(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamp with time zone,timestamp with time zone,bigint,integer)",
         )
     },
-    "yoao_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,text,uuid)": "0380_labeling_upload_task_retirement.sql",
+    "yoao_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,uuid)": "0499_labeling_artifact_boundaries.sql",
     "yoao_jobs_v1.read_job_progress(uuid)": "0382_jobs_row_progress_facts.sql",
     "yoao_jobs_v1.read_job_progress_for_update(uuid,text,text)": "0384_jobs_row_progress_write.sql",
     "yoao_jobs_v1.record_job_progress(uuid,text,text,timestamptz,jsonb)": "0384_jobs_row_progress_write.sql",
@@ -1038,6 +1090,146 @@ FUNCTION_BODY_ARTIFACTS = {
             "yoao_assets_v1._native_pyramid_fixture_scope(uuid)",
             "yoao_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)",
             "yoao_assets_v1.record_fixture_media_birth()",
+        )
+    },
+    "yoao_insights_v1.refresh_user_perf_daily()": "0487_insights_perf_refresh.sql",
+    **{
+        signature: "0487_insights_task_views.sql"
+        for signature in (
+            "yoao_insights_v1._task_view_project_scope(uuid,uuid,boolean)",
+            "yoao_insights_v1._task_view_snapshot(public.project_task_views)",
+            "yoao_insights_v1._lock_writable_task_view(uuid,uuid,uuid,boolean)",
+            "yoao_insights_v1.list_saved_task_views(uuid,uuid,text)",
+            "yoao_insights_v1.read_saved_task_view(uuid,uuid,uuid)",
+            "yoao_insights_v1.create_saved_task_view(uuid,uuid,text,text,text,jsonb,jsonb,jsonb)",
+            "yoao_insights_v1.update_saved_task_view(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)",
+            "yoao_insights_v1.delete_saved_task_view(uuid,uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0487_insights_dataset_views.sql"
+        for signature in (
+            "yoao_insights_v1._dataset_view_snapshot(public.dataset_saved_views)",
+            "yoao_insights_v1.list_personal_dataset_views(uuid,uuid)",
+            "yoao_insights_v1.has_personal_dataset_view(uuid,uuid,uuid)",
+            "yoao_insights_v1.prepare_personal_dataset_view(uuid,uuid)",
+            "yoao_insights_v1.create_personal_dataset_view(uuid,uuid,text,jsonb)",
+            "yoao_insights_v1.update_personal_dataset_view(uuid,uuid,uuid,text,jsonb)",
+            "yoao_insights_v1.delete_personal_dataset_view(uuid,uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0489_inference_prediction_runtime.sql"
+        for signature in (
+            "yoao_inference_topology_v1.lock_video_prediction_registry(uuid)",
+            "yoao_inference_topology_v1.lock_video_prediction_pool(uuid,uuid,uuid)",
+            "yoao_inference_topology_v1.lock_native_prediction_route(uuid,uuid,uuid)",
+            "yoao_inference_pipelines_v1.create_prediction_execution_snapshot(uuid,text,jsonb)",
+            "yoao_inference_pipelines_v1.read_prediction_execution_snapshot(uuid,uuid)",
+            "yoao_inference_pipelines_v1.prune_prediction_execution_snapshots(timestamptz)",
+            "yoao_jobs_v1.prediction_execution_snapshot_in_use(uuid)",
+            "yoao_labeling_v1.prediction_execution_snapshot_in_use(uuid)",
+        )
+    },
+    "yoao_labeling_v1.finish_prediction_retry_pipeline_failure(jsonb,jsonb)": (
+        "0489_prediction_retry_pipeline_failure.sql"
+    ),
+    **{
+        signature: "0489_prediction_input_leases.sql"
+        for signature in (
+            "yoao_assets_v1.create_prediction_input_lease(uuid,uuid,text,uuid,integer,jsonb,integer,jsonb,timestamptz)",
+            "yoao_assets_v1.prediction_input_lease_facts(uuid,boolean,timestamptz)",
+            "yoao_assets_v1.prediction_input_objects_pending(uuid)",
+            "yoao_assets_v1.read_prediction_input_inventory(uuid)",
+            "yoao_assets_v1.read_prediction_input_object(uuid,text)",
+            "yoao_assets_v1.reserve_prediction_input_object(uuid,text,jsonb)",
+            "yoao_assets_v1.verify_prediction_input_object(uuid,text,jsonb,text,text)",
+            "yoao_assets_v1.seal_prediction_input_lease(uuid,boolean,timestamptz)",
+            "yoao_assets_v1.prepare_prediction_input_cleanup(uuid,timestamptz)",
+            "yoao_assets_v1.record_prediction_input_cleanup_failure(uuid,text,boolean)",
+            "yoao_assets_v1.finish_prediction_input_cleanup(uuid,uuid,integer,timestamptz)",
+            "yoao_assets_v1.list_due_prediction_input_cleanups(timestamptz,integer)",
+            "yoao_assets_v1.prediction_input_binding_history()",
+        )
+    },
+    **{
+        signature: "0495_original_capabilities.sql"
+        for signature in (
+            "yoao_assets_v1.lock_original_item(uuid,boolean)",
+            "yoao_assets_v1.task_original_source(uuid,boolean)",
+            "yoao_assets_v1.auxiliary_original_source(uuid,boolean)",
+            "yoao_assets_v1.publish_task_original_source(uuid)",
+            "yoao_assets_v1.attach_verified_original(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0501_identity_avatar_uploads.sql"
+        for signature in (
+            *IDENTITY_AVATAR_FUNCTIONS,
+            "yoao_assets_v1.matches_avatar_reservation(text,jsonb)",
+        )
+    },
+    **{
+        signature: "0502_jobs_ordinary_ledger.sql"
+        for signature in (
+            "yoao_jobs_v1.dataset_job_visible(uuid,uuid)",
+            "yoao_jobs_v1._directory_job_ids(uuid,uuid)",
+            "yoao_jobs_v1.directory_job_page(uuid,uuid,integer,integer)",
+            "yoao_jobs_v1.directory_job_total(uuid,uuid)",
+            "yoao_jobs_v1.dataset_active_job_facts(uuid)",
+            "yoao_jobs_v1.active_storage_writer_job_counts()",
+            "yoao_jobs_v1.settle_dataset_scan_job(uuid,text,text,timestamptz,text,jsonb)",
+            "yoao_jobs_v1.transition_directory_registration_job(uuid,uuid,text,text,text,timestamptz,text,jsonb)",
+        )
+    },
+    **{signature: "0503_source_saved_io.sql" for signature in SAVED_SOURCE_FUNCTIONS},
+    **{
+        signature: "0504_reference_io.sql"
+        for signature in (
+            "yoao_assets_v1.prepare_reference_io(uuid,text,uuid,uuid,text,jsonb)",
+            "yoao_assets_v1.capture_reference_io(uuid,text)",
+            "yoao_assets_v1.recheck_reference_io(uuid,text)",
+        )
+    },
+    **{
+        signature: "0505_saved_outputs_source.sql"
+        for signature in (
+            "yoao_assets_v1.saved_output_origin(jsonb,text,text)",
+            "yoao_assets_v1.saved_avatar_subject(text,uuid,text)",
+            "yoao_assets_v1.saved_bug_subject(uuid,uuid,text,uuid)",
+            "yoao_assets_v1.saved_archive_subject(uuid,uuid,text)",
+            "yoao_assets_v1.begin_saved_output_write(uuid,text,text,jsonb)",
+            "yoao_assets_v1.finish_saved_output_write(uuid,text,text,jsonb)",
+            "yoao_assets_v1.saved_output_write_status(uuid,text,text)",
+        )
+    },
+    **{
+        signature: "0506_media_io.sql"
+        for signature in (
+            "yoao_assets_v1.media_io_artifact(text,text,uuid,uuid,boolean)",
+            "yoao_assets_v1.media_io_cache_read(text,uuid,text,uuid)",
+            "yoao_assets_v1.media_io_original_read(text,uuid,uuid)",
+            "yoao_assets_v1.media_io_creation(uuid,uuid,uuid,text,boolean)",
+            "yoao_assets_v1.media_io_creation_evidence(uuid,uuid,text,jsonb)",
+            "yoao_assets_v1.media_io_thumbnail(text,uuid,uuid,boolean)",
+            "yoao_assets_v1.begin_saved_operator_original(jsonb)",
+        )
+    },
+    **{
+        signature: "0507_training_saved_io.sql"
+        for signature in (
+            "yoao_assets_v1.capture_training_saved_io(uuid,text,uuid,uuid,text,text,jsonb)",
+            "yoao_assets_v1.record_training_saved_io(uuid,text,uuid,uuid,text,text,jsonb,jsonb)",
+        )
+    },
+    **{
+        signature: "0508_migration_saved_io.sql"
+        for signature in (
+            "yoao_assets_v1.migration_io_copy(uuid,uuid,text,uuid,text,integer,integer,text)",
+            "yoao_assets_v1.migration_io_baseline(uuid,uuid,text,uuid,text,integer,integer,text)",
+            "yoao_assets_v1.migration_io_claim_write(uuid,uuid,text,uuid,text,integer,integer,text,integer,text)",
+            "yoao_assets_v1.migration_io_read(uuid,uuid,integer,text,text,integer,integer,boolean)",
+            "yoao_assets_v1.migration_io_cutover(uuid,integer,integer,integer,uuid,text,integer,uuid,integer,integer)",
         )
     },
 }
@@ -1668,6 +1860,36 @@ WORKER_JOB_SCOPE_SQL = (
     "0465_worker_job_dataset_scope.sql",
 )
 ASSETS_SOURCE_SQL_ARTIFACTS = ("0453_import_original_verification.sql",)
+PACKAGED_CURRENT_SQL = {
+    "0489_inference_prediction_runtime.sql": "apps/inference/src/yoao_inference/sql",
+    "0489_prediction_input_leases.sql": "apps/assets-media/src/yoao_assets_media/sql",
+    "0489_prediction_retry_pipeline_failure.sql": "apps/labeling/src/yoao_labeling/sql",
+    "0495_original_capabilities.sql": "apps/assets-source/src/yoao_assets_source",
+    "0502_jobs_ordinary_ledger.sql": "apps/jobs/src/yoao_jobs/sql",
+}
+INSIGHTS_STORAGE_SQL = (
+    "0487_insights_perf_refresh.sql",
+    "0487_insights_task_views.sql",
+    "0487_insights_dataset_views.sql",
+    "0487_insights_storage_owner.sql",
+)
+CURRENT_NAMESPACE_SQL = (
+    "0480_fixture_annotation_import.sql",
+    "0481_fixture_video_requests.sql",
+    "0483_fixture_prediction_import.sql",
+    "0484_notifications_terminal_outbox.sql",
+    "0485_audit_platform_maintenance.sql",
+    *INSIGHTS_STORAGE_SQL,
+    *PACKAGED_CURRENT_SQL,
+    "0499_labeling_artifact_boundaries.sql",
+    "0501_identity_avatar_uploads.sql",
+    "0503_source_saved_io.sql",
+    "0504_reference_io.sql",
+    "0505_saved_outputs_source.sql",
+    "0506_media_io.sql",
+    "0507_training_saved_io.sql",
+    "0508_migration_saved_io.sql",
+)
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
     "0191_dataset_task_append_contract.sql",
@@ -2316,9 +2538,85 @@ _RECLAMATION_PROFILES = {
     "tests/test_managed_original_reclaim_fences.py::test_only_valid_current_attempt_can_exclude_its_exact_operation": "reclaim-operation",
     "tests/test_managed_original_reclaim.py::test_observation_gets_do_not_claim_reclamation_in_read_only_transactions": "reclaim-read-only",
     "tests/test_managed_original_reclaim.py::test_http_preview_commit_and_worker_real_small_version_delete": "reclaim-version-delete",
+    "tests/test_original_owner_acl_live.py::test_restricted_original_wait_and_permission_recheck": "reclaim-original-lock",
+    "tests/test_original_owner_acl_live.py::test_restricted_original_retention_refuses_claimed_object": "reclaim-original-retention",
 }
 
 _WORKSPACE_ASSEMBLY_TARGET = "tests/test_workspace_module_assembly_live.py"
+_IDENTITY_ASSEMBLY_TARGET = "tests/test_identity_module_assembly_live.py"
+_M2B_BUSINESS_TARGET = "tests/test_m2b_business_live.py"
+_REFERENCE_IO_TARGET = "tests/test_reference_saved_io_live.py"
+_SAVED_MIGRATION_NODE = (
+    "tests/test_saved_io_migration_live.py"
+    "::test_registered_copy_and_retained_route_use_exact_live_receipts"
+)
+_SAVED_SOURCE_FILES = frozenset(
+    {_REFERENCE_IO_TARGET, "tests/test_saved_outputs_source_live.py"}
+)
+_SAVED_SOURCE_NODES = frozenset(
+    {
+        "tests/test_saved_source_channel_live.py::test_saved_source_registered_binding_probe_and_denial",
+        "tests/test_saved_media_io_live.py::test_registered_media_round_trip_and_denial",
+        _SAVED_MIGRATION_NODE,
+        "tests/test_training_saved_io_live.py::test_training_attached_archive_publication_and_retirement",
+    }
+)
+_EMBEDDED_LOGIN_FILES = frozenset(
+    {
+        _IDENTITY_ASSEMBLY_TARGET,
+        "tests/test_model_lineage.py",
+        "tests/test_sample_evaluations.py",
+    }
+)
+_WORKSPACE_DEFAULT_TARGETS = frozenset(
+    {
+        _WORKSPACE_ASSEMBLY_TARGET,
+        "tests/test_workspace_worker_assembly_live.py",
+    }
+)
+_M2B_DEFAULT_FILES = frozenset(
+    {
+        _M2B_BUSINESS_TARGET,
+        "tests/test_dataset_source_private_live.py",
+        "tests/test_guide_clone_api_login_native.py",
+        "tests/test_identity_avatar_acl_live.py",
+        "tests/test_jobs_ordinary_ledger_live.py",
+        "tests/test_learning_selection_live.py",
+        "tests/test_m2b_private_access_live.py",
+        "tests/test_m2b_runtime_acl_replay.py",
+        "tests/test_media_ledger_private_live.py",
+        *_SAVED_SOURCE_FILES,
+        "tests/test_prediction_runtime_native.py",
+        "tests/test_storage_inventory_acl.py",
+    }
+)
+_M2B_DEFAULT_NODES = frozenset(
+    {
+        *_SAVED_SOURCE_NODES,
+        "tests/test_bug_attachment_uploads.py::test_live_diagnostics_login_preserves_report_and_exact_version_attachment_lifecycle",
+        "tests/test_mask_ai_observability.py::test_metrics_reads_current_tracker_and_accept_ledger_as_api_login",
+        "tests/test_model_lineage.py::test_real_concurrent_decisions_and_publication_preserve_both_notes",
+        "tests/test_sample_evaluation_worker.py::test_cancel_stays_pending_while_native_busy_and_seals_before_late_post",
+        "tests/test_sample_evaluation_worker.py::test_dispatch_without_private_jobs_read",
+        "tests/test_sample_evaluation_worker.py::test_private_learning_model_and_evaluation_acl",
+        "tests/test_storage_fault_states.py::test_real_login_observes_and_reads_without_private_storage_access",
+        "tests/test_storage_migration_copy_worker.py::test_real_collector_and_plan_once_with_no_source_or_target_sdk_calls",
+        "tests/test_system_settings_patch.py::test_live_settings_cas_rechecks_after_another_admin_commits",
+        "tests/test_system_settings_patch.py::test_live_smtp_attempt_uses_only_dedicated_mail_login",
+        "tests/test_training_dataset_owner_fences.py::test_api_login_publishes_and_replays_immutable_training_package",
+        "tests/test_training_dataset_owner_fences.py::test_finalization_fails_closed_on_locked_snapshot_rows",
+        "tests/test_training_executor_handoff.py::test_live_executor_claim_replay_competition_cancel_and_finish_replay",
+        "tests/test_training_executor_handoff.py::test_finish_commit_failure_rolls_back_attempt_and_lease_before_retry",
+        "tests/test_training_storage_deletion.py::test_cleanup_commit_failure_keeps_retryable_intent",
+        "tests/test_video_export_worker.py::test_delivery_capabilities_deny_cross_role_and_table_access",
+        "tests/test_video_prepare_lock_windows.py::test_ordinary_video_login_keeps_current_and_historical_receipts_without_table_rights",
+    }
+)
+
+
+def _is_m2b_default_target(target: str) -> bool:
+    node = target.split("[", 1)[0]
+    return node.split("::", 1)[0] in _M2B_DEFAULT_FILES or node in _M2B_DEFAULT_NODES
 
 
 TEST_FILES = (
@@ -2811,28 +3109,24 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         help="Workspace consumer credentials: strict function-only or default LAN capabilities",
     )
     args = parser.parse_args(argv)
-    guide_clone_file = "tests/test_guide_clone_api_login_native.py"
-    if args.workspace_consumer_profile != "default" and any(
-        name.split("::", 1)[0] == guide_clone_file for name in args.test_files or ()
-    ):
-        parser.error(
-            "Guide clone qualification requires --workspace-consumer-profile default"
+    targets = args.test_files or ()
+    if args.workspace_consumer_profile == "default":
+        workspace_assembly = (
+            len(targets) == 1
+            and targets[0].split("::", 1)[0] in _WORKSPACE_DEFAULT_TARGETS
         )
-    if args.workspace_consumer_profile == "default" and (
-        not args.test_files
-        or len(args.test_files) != 1
-        or args.test_files[0].split("::", 1)[0]
-        not in {
-            _WORKSPACE_ASSEMBLY_TARGET,
-            "tests/test_workspace_worker_assembly_live.py",
-            "tests/test_m2b_business_live.py",
-            "tests/test_m2b_private_access_live.py",
-            guide_clone_file,
-        }
+        if not workspace_assembly and not (
+            targets and all(_is_m2b_default_target(target) for target in targets)
+        ):
+            parser.error(
+                "The default profile requires one Workspace assembly target "
+                "or explicitly approved M2b targets"
+            )
+    elif any(
+        _is_m2b_default_target(target) and target.partition("[")[0] not in TEST_FILES
+        for target in targets
     ):
-        parser.error(
-            "The default profile requires one explicit Workspace or M2b acceptance target"
-        )
+        parser.error("M2b targets require --workspace-consumer-profile default")
     return args
 
 
@@ -5728,6 +6022,94 @@ def _psql(
     return result.stdout
 
 
+def _ordinary_login_acl(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    username: str,
+    password: str,
+    database: str,
+    source_signatures: tuple[str, ...],
+) -> dict:
+    private_signatures = ", ".join(
+        f"'{signature}'"
+        for signature in sorted({*PRIVATE_RUNTIME_FUNCTIONS, *source_signatures})
+    )
+    ordinary_signatures = ", ".join(
+        f"'{signature}'"
+        for signature in (
+            *IDENTITY_AVATAR_FUNCTIONS,
+            "yoao_jobs_v1.directory_job_total(uuid,uuid)",
+            "yoao_assets_v1.read_legacy_pyramid_summaries(uuid[],uuid[],text)",
+        )
+    )
+    return json.loads(
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username=username,
+            password=password,
+            database=database,
+            sql=f"""
+WITH RECURSIVE scoped(oid) AS (
+    SELECT c.oid
+    FROM pg_catalog.pg_class c
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+    WHERE (n.nspname = 'public' OR n.nspname ~ '^(aap_|yoao_)')
+      AND c.relkind IN ('r', 'p', 'm', 'f', 'S')
+    UNION
+    SELECT i.inhrelid FROM pg_catalog.pg_inherits i
+    JOIN scoped ON scoped.oid = i.inhparent
+), relations AS (
+    SELECT c.oid, c.relkind, pg_catalog.format('%I.%I', n.nspname, c.relname) AS name
+    FROM scoped
+    JOIN pg_catalog.pg_class c ON c.oid = scoped.oid
+    JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+)
+SELECT pg_catalog.jsonb_build_object(
+    'login', session_user,
+    'effective_role', current_user,
+    'database_oid', (SELECT oid::bigint FROM pg_catalog.pg_database
+                     WHERE datname = current_database()),
+    'restricted_login', (SELECT rolcanlogin AND NOT (rolsuper OR rolcreatedb
+        OR rolcreaterole OR rolreplication OR rolbypassrls)
+        AND NOT EXISTS (SELECT FROM pg_catalog.pg_auth_members WHERE member = r.oid)
+        FROM pg_catalog.pg_roles r WHERE r.rolname = session_user),
+    'scanned_private_relations', (SELECT count(*) FROM relations WHERE relkind <> 'S'),
+    'scanned_private_sequences', (SELECT count(*) FROM relations WHERE relkind = 'S'),
+    'unexpected_private_relations', ARRAY(
+        SELECT name FROM relations
+        WHERE CASE WHEN relkind <> 'S' THEN
+            pg_catalog.has_table_privilege(oid,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+                || CASE WHEN current_setting('server_version_num')::integer >= 170000
+                        THEN ',MAINTAIN' ELSE '' END)
+            OR pg_catalog.has_any_column_privilege(oid, 'SELECT,INSERT,UPDATE,REFERENCES')
+            ELSE false END
+        ORDER BY name),
+    'unexpected_private_sequences', ARRAY(
+        SELECT name FROM relations
+        WHERE CASE WHEN relkind = 'S' THEN
+            pg_catalog.has_sequence_privilege(oid, 'SELECT,UPDATE,USAGE')
+            ELSE false END
+        ORDER BY name),
+    'unexpected_private_functions', ARRAY(
+        SELECT signature FROM unnest(ARRAY[{private_signatures}]) signature
+        WHERE pg_catalog.has_function_privilege(signature, 'EXECUTE')
+        ORDER BY signature),
+    'missing_business_functions', ARRAY(
+        SELECT signature FROM unnest(ARRAY[{ordinary_signatures}]) signature
+        WHERE NOT pg_catalog.has_function_privilege(signature, 'EXECUTE')
+           OR NOT pg_catalog.has_schema_privilege(pg_catalog.split_part(signature, '.', 1), 'USAGE')
+        ORDER BY signature)
+)::text;
+""",
+        )
+    )
+
+
 def _verify_inference_project_grant_reapplication(
     container_id: str,
     container_name: str,
@@ -5841,8 +6223,8 @@ def _sql_artifact_path(name: str) -> Path:
         directory = ROOT / "apps/assets-source/src/yoao_assets_source"
     elif name == "0484_notifications_terminal_outbox.sql":
         directory = ROOT / "apps/notifications/src/yoao_notifications/sql"
-    elif name == "0485_audit_platform_maintenance.sql":
-        directory = ROOT / "apps/audit/src/yoao_audit/sql"
+    elif name in PACKAGED_CURRENT_SQL:
+        directory = ROOT / PACKAGED_CURRENT_SQL[name]
     else:
         directory = ROOT / "apps/api/alembic/sql"
     return directory / name
@@ -5872,13 +6254,7 @@ def _installed_function_body_sha256(
     current_name = signature.split("(", 1)[0]
     if "." in current_name:
         schema, function = current_name.split(".", 1)
-        if base_sql_name in (
-            "0480_fixture_annotation_import.sql",
-            "0481_fixture_video_requests.sql",
-            "0483_fixture_prediction_import.sql",
-            "0484_notifications_terminal_outbox.sql",
-            "0485_audit_platform_maintenance.sql",
-        ):
+        if base_sql_name in CURRENT_NAMESPACE_SQL:
             frozen_schema = schema
         else:
             frozen_schema = FROZEN_OWNER_NAMESPACES.get(schema, schema)
@@ -5889,13 +6265,13 @@ def _installed_function_body_sha256(
         function_name = re.escape(current_name)
     match = re.search(
         rf"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+{function_name}\s*\("
-        r".*?\bAS\s+\$function\$(.*?)\$function\$;",
+        r".*?\bAS\s+(?P<tag>\$(?:[a-z_]\w*)?\$)(?P<body>.*?)(?P=tag);",
         source,
         re.MULTILINE | re.DOTALL | re.IGNORECASE,
     )
     if match is None:
         raise RuntimeError(f"frozen SQL has no function body: {sql_name}")
-    expected = match.group(1)
+    expected = match.group("body")
     if base_sql_name != sql_name:
         patch_source = _sql_artifact_path(sql_name).read_text(encoding="utf-8")
         tags = ("before", "after")
@@ -7425,6 +7801,65 @@ def _install_and_rollback_frozen_sql(
     return frozen_relations
 
 
+def _replay_insights_storage_contract(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    database: str,
+    owner_password: str,
+) -> dict:
+    artifacts = "\n".join(
+        _sql_artifact_path(name).read_text(encoding="utf-8")
+        for name in INSIGHTS_STORAGE_SQL
+    )
+    result = _psql(
+        container_id,
+        container_name,
+        container_identity,
+        username="owner",
+        password=owner_password,
+        database=database,
+        variables={"expected_database": database},
+        sql=f"""
+BEGIN;
+SELECT 1 / (current_database() = :'expected_database'
+    AND (SELECT version_num FROM public.alembic_version) = 'bo0486')::integer;
+SELECT 'public.mv_user_perf_daily'::pg_catalog.regclass::oid AS mv_oid \\gset
+{artifacts}
+SELECT yoao_insights_v1.refresh_user_perf_daily();
+SELECT 'insights_contract_installed=' || (
+    SELECT c.oid = :'mv_oid'::oid AND c.relispopulated
+        AND (SELECT count(*) FROM pg_catalog.pg_index i WHERE i.indrelid = c.oid) = 3
+        AND NOT yoao_insights_v1.has_personal_dataset_view(NULL, NULL, NULL)
+    FROM pg_catalog.pg_class c
+    WHERE c.oid = 'public.mv_user_perf_daily'::pg_catalog.regclass
+)::text;
+ROLLBACK;
+SELECT 'insights_contract_rolled_back=' || (
+    pg_catalog.to_regprocedure('yoao_insights_v1.refresh_user_perf_daily()') IS NULL
+    AND pg_catalog.to_regprocedure('yoao_insights_v1.list_saved_task_views(uuid,uuid,text)') IS NULL
+    AND pg_catalog.to_regprocedure('yoao_insights_v1.has_personal_dataset_view(uuid,uuid,uuid)') IS NULL
+    AND 'public.mv_user_perf_daily'::pg_catalog.regclass::oid = :'mv_oid'::oid
+)::text;
+""",
+    )
+    markers = {line for line in result.splitlines() if line.startswith("insights_")}
+    if markers != {
+        "insights_contract_installed=true",
+        "insights_contract_rolled_back=true",
+    }:
+        raise RuntimeError(
+            "Insights SQL did not preserve the existing projection and roll back"
+        )
+    return {
+        "base_revision": "bo0486",
+        "revision": "bo0487",
+        "materialized_view_preserved_and_refreshed": True,
+        "rolled_back": True,
+    }
+
+
 def main(
     argv: list[str] | None = None,
     *,
@@ -7471,11 +7906,7 @@ def main(
                 *SQL_ARTIFACTS,
                 "0475_inbox_retained_job_scope.sql",
                 "0479_identity_api_key_usage.sql",
-                "0480_fixture_annotation_import.sql",
-                "0481_fixture_video_requests.sql",
-                "0483_fixture_prediction_import.sql",
-                "0484_notifications_terminal_outbox.sql",
-                "0485_audit_platform_maintenance.sql",
+                *CURRENT_NAMESPACE_SQL,
             ],
             "schemas": list(SCHEMA_ARTIFACTS),
         },
@@ -7679,6 +8110,20 @@ def main(
 
     try:
         selected_test_paths = {name.split("::", 1)[0] for name in test_files}
+        m2b_profile = args.workspace_consumer_profile == "default" and all(
+            _is_m2b_default_target(target) for target in test_files
+        )
+        source_signatures = ()
+        if m2b_profile:
+            from yoao_assets_source_runtime.saved_io import _registry
+
+            source_signatures = tuple(_registry().signatures.values())
+        saved_source_profile = bool(selected_test_paths & _SAVED_SOURCE_FILES) or any(
+            target.partition("[")[0] in _SAVED_SOURCE_NODES for target in test_files
+        )
+        migration_control_profile = any(
+            target.partition("[")[0] == _SAVED_MIGRATION_NODE for target in test_files
+        )
         native_lifecycle_profile = (
             not collect_only
             and "tests/test_native_pyramid_lifecycle_live.py" in selected_test_paths
@@ -8193,6 +8638,9 @@ def main(
         )
         phase = "preflight-contract-artifacts"
         artifacts = tuple(_sql_artifact_path(name) for name in SQL_ARTIFACTS)
+        contract_sql_paths = tuple(
+            _sql_artifact_path(name) for name in evidence["contract_artifacts"]["sql"]
+        )
         schema_paths = tuple(
             (ROOT / "apps/assets-source/src/yoao_assets_source" / name)
             if name in ASSETS_SOURCE_SCHEMA_ARTIFACTS
@@ -8280,7 +8728,7 @@ def main(
             or not identity_recovery_grants_path.is_file()
             or not lan_production_grants_path.is_file()
             or not identity_consumer_grants_path.is_file()
-            or any(not path.is_file() for path in artifacts)
+            or any(not path.is_file() for path in contract_sql_paths)
             or any(not path.is_file() for path in schema_paths)
         ):
             raise RuntimeError(
@@ -8295,7 +8743,13 @@ def main(
                 or not isinstance(contract.get("$defs", {}), dict)
             ):
                 raise RuntimeError(f"invalid frozen module-data schema: {path.name}")
-        grant_sql = read_psql_grant_script(grants_path)
+        evidence["contract_artifacts"]["input_sha256"] = {
+            path.relative_to(ROOT).as_posix(): hashlib.sha256(
+                path.read_bytes()
+            ).hexdigest()
+            for path in (*contract_sql_paths, *schema_paths)
+        }
+        grant_sql = grants_path.read_text(encoding="utf-8")
         catalog_grant_sql = catalog_grants_path.read_text(encoding="utf-8")
         source_grant_sql = source_grants_path.read_text(encoding="utf-8")
         import_grant_sql = import_grants_path.read_text(encoding="utf-8")
@@ -8795,6 +9249,17 @@ def main(
             read_relations_frozen
         )
         evidence["migrations"]["frozen_sql_installed_and_rolled_back"] = True
+        phase = "insights-frozen-sql-roundtrip"
+        _run_alembic(backend, "upgrade", "bo0486", database=frozen_database)
+        evidence["migrations"]["insights_frozen_sql"] = (
+            _replay_insights_storage_contract(
+                container_id,
+                container_name,
+                container_identity,
+                database=frozen_database,
+                owner_password=owner_password,
+            )
+        )
         phase = "upgrade-to-head"
         _container_details(
             container_id, container_name, container_identity, require_running=True
@@ -8871,7 +9336,7 @@ def main(
                 "expected_database": frozen_database,
                 "migration_role": "owner",
             }
-            for fresh_grant_sql, parameters in (
+            for worker_grant_sql, parameters in (
                 (
                     lan_production_grant_sql,
                     {
@@ -8899,7 +9364,7 @@ def main(
                     container_name,
                     container_identity,
                     **fresh_owner,
-                    sql=fresh_grant_sql,
+                    sql=worker_grant_sql,
                     variables={**grant_scope, **parameters},
                 )
             fresh_app_probe = _psql(
@@ -8922,13 +9387,23 @@ def main(
                       AND NOT EXISTS (
                         SELECT 1 FROM unnest(ARRAY[
                           'yoao_assets_v1.begin_import_original_verification(jsonb)',
+                          'yoao_assets_v1.capture_storage_connection(uuid,uuid,text)',
                           'yoao_assets_v1.capture_native_pyramid_read_io(uuid,uuid,jsonb)',
                           'yoao_assets_v1.claim_video_media(uuid,uuid,integer,text[])',
                           'yoao_assets_v1.claim_image_media(uuid,uuid,integer,text[])'
                         ]) signature WHERE has_function_privilege(signature, 'EXECUTE')
                       )
-                      AND NOT has_table_privilege(
-                        'yoao_assets_v1.import_original_verifications', 'SELECT');
+                      AND NOT EXISTS (
+                        SELECT FROM unnest(ARRAY[
+                          'yoao_assets_v1.import_original_verifications',
+                          'public.async_jobs',
+                          'public.asset_media_jobs',
+                          'public.asset_image_jobs',
+                          'public.video_derivative_outputs'
+                        ]) relation
+                        WHERE has_table_privilege(relation, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                           OR has_any_column_privilege(relation, 'SELECT,INSERT,UPDATE,REFERENCES')
+                      );
                 """,
             ).strip()
             if fresh_app_probe != "t":
@@ -8949,16 +9424,20 @@ def main(
                     username=role,
                     password=fresh_password,
                     database=frozen_database,
-                    sql=f"SELECT (yoao_assets_v1.{function}->>'ok')::boolean;",
+                    sql=(
+                        "SELECT session_user = :'role' AND current_user = session_user "
+                        f"AND (yoao_assets_v1.{function}->>'ok')::boolean;"
+                    ),
+                    variables={"role": role},
                 ).strip()
                 if reply_ok != "t":
                     raise RuntimeError(
                         "Fresh LAN Assets executor could not call its worker authority"
                     )
             evidence["assets_migration_owned_execution"] = {
-                "ordinary_control": "passed",
-                "celery_video_login": "passed",
-                "celery_image_login": "passed",
+                "ordinary_control": {"role": "legacy_runtime", "passed": True},
+                "celery_video_login": {"role": fresh_roles[1], "passed": True},
+                "celery_image_login": {"role": fresh_roles[2], "passed": True},
             }
         phase = "retire-frozen-sql-database"
         observed_frozen_identity = json.loads(
@@ -11974,6 +12453,18 @@ SELECT id FROM removed;
         )
         resource_environment["MINIO_ACCESS_KEY"] = backend.settings.minio_access_key
         resource_environment["MINIO_SECRET_KEY"] = backend.settings.minio_secret_key
+        if saved_source_profile:
+            resource_environment.update(
+                AAP_REFERENCE_IO_S3_ENDPOINT=(
+                    f"{'https' if backend.settings.minio_use_ssl else 'http'}://"
+                    f"{backend.settings.minio_endpoint}"
+                ),
+                AAP_REFERENCE_IO_S3_ACCESS_KEY=backend.settings.minio_access_key,
+                AAP_REFERENCE_IO_S3_SECRET_KEY=backend.settings.minio_secret_key,
+                AAP_REFERENCE_IO_SFTP_HOST=resource_environment[
+                    "PLAYWRIGHT_ML_FIXTURE_HOST"
+                ],
+            )
         resource_environment.update(
             {
                 (
@@ -12025,6 +12516,153 @@ SELECT id FROM removed;
                 "asset_source_role": "yoao_asset_source_client",
             },
         )
+        if saved_source_profile:
+            phase = "install-saved-source-io-grants"
+            saved_source_password = secrets.token_hex(24)
+            saved_source_scripts = {
+                filename: read_psql_grant_script(ROOT / "infra/docker" / filename)
+                for filename in SAVED_SOURCE_GRANTS
+            }
+            saved_source_sql = "\n".join(saved_source_scripts.values())
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=(
+                    f"CREATE ROLE {SAVED_SOURCE_ROLE} LOGIN "
+                    f"PASSWORD '{saved_source_password}' "
+                    "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
+                    "NOREPLICATION NOBYPASSRLS;\n"
+                    f"{saved_source_sql}"
+                ),
+                variables={
+                    "expected_database": database,
+                    "assets_source_saved_io_login": SAVED_SOURCE_ROLE,
+                },
+            )
+            saved_source_url = URL.create(
+                "postgresql",
+                username=SAVED_SOURCE_ROLE,
+                password=saved_source_password,
+                host="127.0.0.1",
+                port=port,
+                database=database,
+            ).render_as_string(hide_password=False)
+
+            async def verify_saved_source_login() -> None:
+                import asyncpg
+
+                from yoao_assets_source_runtime.saved_io import _PREFLIGHT
+
+                connection = await asyncpg.connect(saved_source_url, timeout=5)
+                try:
+                    allowed = await connection.fetchval(
+                        _PREFLIGHT,
+                        list(source_signatures),
+                        sorted(
+                            {
+                                signature.split(".", 1)[0]
+                                for signature in source_signatures
+                            }
+                        ),
+                    )
+                    login = await connection.fetchrow(
+                        "SELECT session_user, oid::bigint, "
+                        "pg_catalog.has_database_privilege(current_database(), 'TEMP') "
+                        "FROM pg_catalog.pg_database WHERE datname=current_database()"
+                    )
+                    if allowed is not True or tuple(login) != (
+                        SAVED_SOURCE_ROLE,
+                        database_oid,
+                        False,
+                    ):
+                        raise RuntimeError("The Source Saved I/O LOGIN profile differs")
+                finally:
+                    await connection.close()
+
+            asyncio.run(verify_saved_source_login())
+            resource_environment["AAP_MODULE_DATA_ASSETS_SOURCE_SAVED_IO_URL"] = (
+                saved_source_url
+            )
+            evidence["roles"].append(SAVED_SOURCE_ROLE)
+            evidence["saved_source_io"] = {
+                "role": SAVED_SOURCE_ROLE,
+                "function_only_login": True,
+                "installer_inputs_sha256": {
+                    f"infra/docker/{filename}": hashlib.sha256(sql.encode()).hexdigest()
+                    for filename, sql in saved_source_scripts.items()
+                },
+                "capabilities": sorted(source_signatures),
+            }
+        if migration_control_profile:
+            phase = "install-storage-migration-control-grants"
+            migration_control_password = secrets.token_hex(24)
+            migration_control_grant_path = (
+                ROOT / "infra/docker/storage-migration-control-grants.sql"
+            )
+            migration_control_grant_sql = read_psql_grant_script(
+                migration_control_grant_path
+            )
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=(
+                    f"CREATE ROLE {STORAGE_MIGRATION_CONTROL_ROLE} LOGIN "
+                    f"PASSWORD '{migration_control_password}' "
+                    "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
+                    "NOREPLICATION NOBYPASSRLS;\n"
+                    f"{migration_control_grant_sql}"
+                ),
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "application_role": IDENTITY_EMBEDDED_API_CONSUMER_ROLE,
+                    "storage_migration_control_role": STORAGE_MIGRATION_CONTROL_ROLE,
+                },
+            )
+            migration_control_probe = _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username=STORAGE_MIGRATION_CONTROL_ROLE,
+                password=migration_control_password,
+                database=database,
+                sql="""
+SELECT current_user = session_user AND session_user = :'role'
+    AND pg_catalog.has_function_privilege('yoao_assets_v1.read_migration_window(uuid,text)', 'EXECUTE')
+    AND pg_catalog.has_column_privilege('public.storage_migration_cutovers', 'review', 'SELECT')
+    AND NOT pg_catalog.has_any_column_privilege('public.storage_connections', 'SELECT,INSERT,UPDATE,REFERENCES');
+""",
+                variables={"role": STORAGE_MIGRATION_CONTROL_ROLE},
+            )
+            if migration_control_probe.strip() != "t":
+                raise RuntimeError("Storage migration control LOGIN profile differs")
+            resource_environment["AAP_MODULE_DATA_STORAGE_MIGRATION_CONTROL_URL"] = (
+                URL.create(
+                    "postgresql+asyncpg",
+                    username=STORAGE_MIGRATION_CONTROL_ROLE,
+                    password=migration_control_password,
+                    host="127.0.0.1",
+                    port=port,
+                    database=database,
+                ).render_as_string(hide_password=False)
+            )
+            evidence["roles"].append(STORAGE_MIGRATION_CONTROL_ROLE)
+            evidence["storage_migration_control"] = {
+                "role": STORAGE_MIGRATION_CONTROL_ROLE,
+                "grant_path": migration_control_grant_path.relative_to(ROOT).as_posix(),
+                "sha256": hashlib.sha256(
+                    migration_control_grant_sql.encode()
+                ).hexdigest(),
+                "connector_storage_denied": True,
+            }
         phase = "install-import-grants"
         _psql(
             container_id,
@@ -12090,14 +12728,11 @@ SELECT id FROM removed;
                 "asset_image_worker_role": "yoao_asset_image_worker_client",
             },
         )
-        phase = "install-identity-api-consumer-broad-grants"
+        phase = "install-lan-application-grants"
         lan_profiles = [IDENTITY_API_CONSUMER_ROLE]
-        if selected_test_paths & {
-            "tests/test_m2b_private_access_live.py",
-            "tests/test_m2b_business_live.py",
-            "tests/test_identity_module_assembly_live.py",
-        }:
-            embedded_role = "identity_embedded_api_consumer"
+        embedded_password = None
+        if m2b_profile or selected_test_paths & _EMBEDDED_LOGIN_FILES:
+            embedded_role = IDENTITY_EMBEDDED_API_CONSUMER_ROLE
             embedded_password = secrets.token_hex(24)
             _psql(
                 container_id,
@@ -12150,6 +12785,14 @@ SELECT id FROM removed;
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
                 "consumer_role": IDENTITY_API_CONSUMER_ROLE,
+                **(
+                    {
+                        "application_role": IDENTITY_API_CONSUMER_ROLE,
+                        "identity_avatar_runtime": "1",
+                    }
+                    if m2b_profile
+                    else {}
+                ),
             },
         )
         identity_consumer_notification_fact = _psql(
@@ -12464,7 +13107,7 @@ SELECT id FROM removed;
                         database=database,
                         sql="""
 GRANT EXECUTE ON FUNCTION
-    yoao_assets_v1.begin_operator_auxiliary(jsonb),
+    yoao_assets_v1.begin_saved_operator_original(jsonb),
     yoao_assets_v1.record_operator_original_prepared(uuid,jsonb),
     yoao_assets_v1.mark_operator_original_writing(uuid),
     yoao_assets_v1.record_operator_original_written(uuid,jsonb),
@@ -12639,94 +13282,71 @@ GRANT EXECUTE ON FUNCTION
                 container_id,
                 container_name,
                 container_identity,
-                username="owner",
-                password=owner_password,
+                username=IDENTITY_API_CONSUMER_ROLE,
+                password=identity_api_consumer_password,
                 database=database,
-                sql=f"""
+                sql="""
 SELECT pg_catalog.jsonb_build_object(
     'views', pg_catalog.jsonb_build_object(
         'account_profiles', pg_catalog.has_table_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
-            'yoao_identity_v1.account_profiles', 'SELECT'),
+            current_user, 'yoao_identity_v1.account_profiles', 'SELECT'),
         'invitation_audit_targets', pg_catalog.has_table_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
-            'yoao_identity_v1.invitation_audit_targets', 'SELECT')),
-    'functions', pg_catalog.jsonb_build_object(
-        'read_actor_facts', pg_catalog.has_function_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
-            'yoao_identity_v1.read_actor_facts(uuid)', 'EXECUTE'),
-        'lock_accounts_share', pg_catalog.has_function_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
-            'yoao_identity_v1.lock_accounts_share(uuid[],boolean)', 'EXECUTE'),
-        'lock_accounts_update', pg_catalog.has_function_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
-            'yoao_identity_v1.lock_accounts_update(uuid[],boolean)', 'EXECUTE'),
-        'lock_accounts_key_share', pg_catalog.has_function_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
-            'yoao_identity_v1.lock_accounts_key_share(uuid[],boolean)', 'EXECUTE'),
-        'check_accepted_api_key', pg_catalog.has_function_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
-            'yoao_identity_v1.check_accepted_api_key(uuid,uuid,text[])', 'EXECUTE'),
-        'read_accepted_api_key_facts', pg_catalog.has_function_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
-            'yoao_identity_v1.read_accepted_api_key_facts(uuid,uuid)', 'EXECUTE'),
-        'is_jti_revoked', pg_catalog.has_function_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
-            'yoao_identity_v1.is_jti_revoked(uuid)', 'EXECUTE'),
-        'get_credential_generation', pg_catalog.has_function_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
-            'yoao_identity_v1.get_credential_generation(uuid)', 'EXECUTE')),
+            current_user, 'yoao_identity_v1.invitation_audit_targets', 'SELECT')),
+    'functions', (SELECT pg_catalog.jsonb_agg(signature ORDER BY signature) FROM (
+        SELECT n.nspname || '.' || p.proname || '(' ||
+            pg_catalog.replace(pg_catalog.oidvectortypes(p.proargtypes), ', ', ',') || ')' AS signature
+        FROM pg_catalog.pg_proc p
+        JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$'
+          AND pg_catalog.has_function_privilege(current_user, p.oid, 'EXECUTE')
+    ) AS identity_functions),
     'presence_private', NOT (
         pg_catalog.has_table_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_account_presence',
+            current_user, 'public.identity_account_presence',
             'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
         OR pg_catalog.has_any_column_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_account_presence',
+            current_user, 'public.identity_account_presence',
             'SELECT,INSERT,UPDATE,REFERENCES')
         OR pg_catalog.has_function_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
+            current_user,
             'yoao_identity_v1._initialize_account_presence()', 'EXECUTE')
     ),
     'key_usage_private', NOT (
         pg_catalog.has_any_column_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_api_key_usage',
+            current_user, 'public.identity_api_key_usage',
             'SELECT,INSERT,UPDATE,REFERENCES')
         OR pg_catalog.has_table_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_api_key_usage',
+            current_user, 'public.identity_api_key_usage',
             'DELETE,TRUNCATE,TRIGGER')
         OR pg_catalog.has_function_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}', 'yoao_identity_v1._initialize_api_key_usage()', 'EXECUTE')
+            current_user, 'yoao_identity_v1._initialize_api_key_usage()', 'EXECUTE')
     ),
     'preferences_private', NOT (
         pg_catalog.has_table_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_account_preferences',
+            current_user, 'public.identity_account_preferences',
             'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
         OR pg_catalog.has_any_column_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}', 'public.identity_account_preferences',
+            current_user, 'public.identity_account_preferences',
             'SELECT,INSERT,UPDATE,REFERENCES')
         OR pg_catalog.has_function_privilege(
-            '{IDENTITY_API_CONSUMER_ROLE}',
+            current_user,
             'yoao_identity_v1._initialize_account_preferences()', 'EXECUTE')
     )
 )::text;
 """,
             ).strip()
         )
+        expected_identity_functions = (
+            (*IDENTITY_ISSUER_FACT_FUNCTIONS, *IDENTITY_AVATAR_FUNCTIONS)
+            if m2b_profile
+            else IDENTITY_ISSUER_FACT_FUNCTIONS
+        )
         if identity_consumer_acl["views"] != {
             "account_profiles": True,
             "invitation_audit_targets": True,
-        } or identity_consumer_acl["functions"] != {
-            "read_actor_facts": True,
-            "lock_accounts_share": True,
-            "lock_accounts_update": True,
-            "lock_accounts_key_share": True,
-            "check_accepted_api_key": True,
-            "read_accepted_api_key_facts": True,
-            "is_jti_revoked": True,
-            "get_credential_generation": True,
-        }:
+        } or identity_consumer_acl["functions"] != sorted(expected_identity_functions):
             raise RuntimeError(
-                "Identity API consumer is missing an approved read capability"
+                "Identity API consumer's exact capability profile differs"
             )
         if not identity_consumer_acl["presence_private"]:
             raise RuntimeError(
@@ -12742,17 +13362,18 @@ SELECT pg_catalog.jsonb_build_object(
             )
         evidence["identity_api_consumer"] = {
             "role": IDENTITY_API_CONSUMER_ROLE,
+            "avatar_runtime_capabilities": m2b_profile,
             "grant_order": [
                 {
                     "path": "infra/docker/lan-production-grants.sql",
                     "sha256": hashlib.sha256(
-                        lan_production_grants_path.read_bytes()
+                        lan_production_grant_sql.encode()
                     ).hexdigest(),
                 },
                 {
                     "path": "infra/docker/identity-consumer-grants.sql",
                     "sha256": hashlib.sha256(
-                        identity_consumer_grants_path.read_bytes()
+                        identity_consumer_grant_sql.encode()
                     ).hexdigest(),
                 },
             ],
@@ -13489,6 +14110,64 @@ SELECT EXISTS (
                     )
                 )
                 evidence["audit_maintenance"]["after_launcher_prepare"] = True
+                if m2b_profile:
+                    phase = "verify-three-ordinary-application-logins"
+                    evidence["ordinary_profiles"] = {}
+                    for profile, username, password, installer in (
+                        (
+                            "lan-embedded",
+                            IDENTITY_EMBEDDED_API_CONSUMER_ROLE,
+                            embedded_password,
+                            ["infra/docker/lan-production-grants.sql"],
+                        ),
+                        (
+                            "lan-remote-issuer",
+                            IDENTITY_API_CONSUMER_ROLE,
+                            identity_api_consumer_password,
+                            [
+                                grant["path"]
+                                for grant in evidence["identity_api_consumer"][
+                                    "grant_order"
+                                ]
+                            ],
+                        ),
+                        (
+                            "worktree-runtime",
+                            "legacy_runtime",
+                            runtime_password,
+                            [
+                                "scripts/worktree_resources.py::LocalResources.grant_runtime"
+                            ],
+                        ),
+                    ):
+                        access = _ordinary_login_acl(
+                            container_id,
+                            container_name,
+                            container_identity,
+                            username=username,
+                            password=password,
+                            database=database,
+                            source_signatures=source_signatures,
+                        )
+                        evidence["ordinary_profiles"][profile] = {
+                            "installers": installer,
+                            **access,
+                        }
+                        if (
+                            access["login"] != username
+                            or access["effective_role"] != username
+                            or access["database_oid"] != database_oid
+                            or access["restricted_login"] is not True
+                            or not access["scanned_private_relations"]
+                            or not access["scanned_private_sequences"]
+                            or access["unexpected_private_relations"]
+                            or access["unexpected_private_sequences"]
+                            or access["unexpected_private_functions"]
+                            or access["missing_business_functions"]
+                        ):
+                            raise RuntimeError(
+                                f"Unexpected {profile} application LOGIN access"
+                            )
                 phase = "retire-notification-preparation"
                 _container_details(
                     container_id,
@@ -13872,6 +14551,19 @@ SELECT EXISTS (
 
                 docker("rm", "-f", "-v", container_id)
                 evidence["cleanup"]["postgres_container_removed"] = True
+                if evidence.get("ordinary_profiles"):
+                    evidence["cleanup"]["retired_ordinary_logins"] = sorted(
+                        access["login"]
+                        for access in evidence["ordinary_profiles"].values()
+                    )
+                if "saved_source_io" in evidence:
+                    evidence["cleanup"]["retired_saved_source_login"] = (
+                        SAVED_SOURCE_ROLE
+                    )
+                if "storage_migration_control" in evidence:
+                    evidence["cleanup"]["retired_storage_migration_control_login"] = (
+                        STORAGE_MIGRATION_CONTROL_ROLE
+                    )
             except Exception as error:
                 evidence["cleanup"]["errors"].append(
                     {

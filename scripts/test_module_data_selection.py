@@ -367,6 +367,42 @@ class ModuleDataSelectionTests(unittest.TestCase):
                 self.assertEqual(parsed.workspace_consumer_profile, profile)
                 self.assertEqual(parsed.test_files, [target])
 
+    def test_default_profile_combines_reviewed_m2b_targets(self):
+        inventory = "tests/test_m2b_private_access_live.py"
+        jobs = "tests/test_jobs_ordinary_ledger_live.py"
+        replay = "tests/test_m2b_runtime_acl_replay.py"
+        fault = (
+            "tests/test_storage_fault_states.py"
+            "::test_real_login_observes_and_reads_without_private_storage_access"
+            "[lan-embedded]"
+        )
+        args = [
+            "--output",
+            "/tmp/unused.json",
+            "--test-file",
+            inventory,
+            "--test-file",
+            jobs,
+            "--test-file",
+            replay,
+            "--test-file",
+            fault,
+        ]
+        parsed = _arguments([*args, "--workspace-consumer-profile", "default"])
+        self.assertEqual(parsed.test_files, [inventory, jobs, replay, fault])
+        self.assertEqual(parsed.workspace_consumer_profile, "default")
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            _arguments(args)
+
+    def test_existing_training_fence_stays_in_the_strict_selection(self):
+        target = (
+            "tests/test_training_dataset_owner_fences.py"
+            "::test_finalization_fails_closed_on_locked_snapshot_rows"
+        )
+        self.assertIn(target, TEST_FILES)
+        parsed = _arguments(["--output", "/tmp/unused.json", "--test-file", target])
+        self.assertEqual(parsed.workspace_consumer_profile, "strict")
+
     def test_default_workspace_profile_rejects_unrelated_or_combined_targets(self):
         for targets in (
             [],
@@ -375,6 +411,15 @@ class ModuleDataSelectionTests(unittest.TestCase):
                 "tests/test_workspace_module_assembly_live.py",
                 "tests/test_workspace_worker_assembly_live.py",
             ],
+            [
+                "tests/test_workspace_module_assembly_live.py",
+                "tests/test_m2b_private_access_live.py",
+            ],
+            [
+                "tests/test_m2b_private_access_live.py",
+                "tests/test_identity_recovery.py",
+            ],
+            ["tests/test_storage_fault_states.py"],
         ):
             args = [
                 "--output",

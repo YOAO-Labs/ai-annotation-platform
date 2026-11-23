@@ -14,6 +14,7 @@ from verify_module_data_boundary import (
     FROZEN_OWNER_NAMESPACES,
     READ_RELATION_SPECS,
     _assert_read_relation_structure_matches,
+    _sql_artifact_path,
     _normalize_read_relation_observations,
     _installed_function_body_sha256,
 )
@@ -52,6 +53,32 @@ def test_installed_body_uses_named_function_in_multi_function_resource(
     monkeypatch.setattr(verifier, "_psql", lambda *_args, **_kwargs: b"SELECT 1".hex())
     with pytest.raises(RuntimeError, match="differs from frozen SQL"):
         _installed_function_body_sha256("id", "name", "identity", **arguments)
+
+
+def test_insights_saved_view_body_references_current_assets_owner(monkeypatch):
+    name = "0487_insights_dataset_views.sql"
+    signature = "yoao_insights_v1.prepare_personal_dataset_view(uuid,uuid)"
+    source = _sql_artifact_path(name).read_text(encoding="utf-8")
+    body = source.split("CREATE FUNCTION " + signature.split("(")[0], 1)[1].split(
+        "$function$", 2
+    )[1]
+    assert "yoao_assets_v1.lock_dataset_reference(p_dataset)" in body
+    assert verifier.FUNCTION_BODY_ARTIFACTS[signature] == name
+    monkeypatch.setattr(
+        verifier, "_psql", lambda *_args, **_kwargs: body.encode().hex()
+    )
+    assert (
+        _installed_function_body_sha256(
+            "id",
+            "name",
+            "identity",
+            database="owned_test",
+            owner_password="fixture-only",
+            signature=signature,
+            sql_name=name,
+        )
+        == hashlib.sha256(body.encode()).hexdigest()
+    )
 
 
 def test_installed_mask_owner_requires_acceptance_history_dispatch(monkeypatch):
