@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-from app.application.async_job_read import _build_async_job_query
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.user import User
@@ -27,6 +26,7 @@ from app.services.project_aggregates import (
     project_scope_clause,
     task_project_scope,
 )
+from tests.jobs_list_legacy_query import legacy_async_job_query
 
 
 def _sql(clause) -> str:
@@ -135,7 +135,7 @@ def test_membership_helpers_filter_by_role():
 def test_async_job_query_gates_export_results():
     """The list/count query also gates export rows by reviewer membership."""
 
-    stmt = _build_async_job_query(
+    stmt = legacy_async_job_query(
         current_user=_user("employee"),
         status=None,
         kind=None,

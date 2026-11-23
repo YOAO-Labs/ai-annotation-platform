@@ -75,6 +75,7 @@ packages = ["src/yoao_jobs"]
 "src/yoao_jobs/sql/0368_jobs_dispatch_ledger.sql" = "yoao_jobs/sql/0368_jobs_dispatch_ledger.sql"
 "src/yoao_jobs/sql/0447_jobs_publication_execution.sql" = "yoao_jobs/sql/0447_jobs_publication_execution.sql"
 "src/yoao_jobs/sql/0447_jobs_fixture_media_publication.sql" = "yoao_jobs/sql/0447_jobs_fixture_media_publication.sql"
+"src/yoao_jobs/sql/0502_jobs_ordinary_ledger.sql" = "yoao_jobs/sql/0502_jobs_ordinary_ledger.sql"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
