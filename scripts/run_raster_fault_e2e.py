@@ -909,10 +909,7 @@ async def inspect_records(environment, references, suite, prepared_cases):
     from sqlalchemy.pool import NullPool
     from app.db.models.raster_mask_object import RasterMaskObject
     from app.services import raster_object_storage as physical
-    from app.services.raster_mask_references import (
-        _MASK_REFERENCE_QUERIES,
-        referenced_keys,
-    )
+    from app.services.raster_mask_references import referenced_keys
     from fixture_suite_coordinator import _verified_database
 
     owner_url, resources, identity = await _verified_database(environment)
@@ -984,13 +981,53 @@ async def inspect_records(environment, references, suite, prepared_cases):
                 and len(fault_rows) == len(expected_faults),
                 "raster_fault_annotation_not_exclusive",
             )
-            for index, query in enumerate(_MASK_REFERENCE_QUERIES):
-                if index != 2:
-                    other_keys = set((await db.execute(text(query))).scalars())
-                    require(
-                        not fault_keys.intersection(other_keys),
-                        "raster_fault_other_reference",
-                    )
+            other_reference_queries = (
+                "SELECT object_key FROM yoao_learning_v1.pending_dataset_mask_keys()",
+                "SELECT object_key FROM yoao_learning_v1.trial_mask_keys()",
+                "SELECT DISTINCT value #>> '{}' FROM public.predictions AS p "
+                "CROSS JOIN LATERAL pg_catalog.jsonb_path_query(p.result, '$.**.object_key') AS key(value) "
+                "WHERE value #>> '{}' LIKE 'raster-masks/sha256/%'",
+                "SELECT DISTINCT value #>> '{}' FROM public.video_tracker_jobs AS job "
+                "CROSS JOIN LATERAL pg_catalog.jsonb_path_query(job.staged_result, '$.**.object_key') AS key(value) "
+                "WHERE job.staged_result IS NOT NULL "
+                "AND job.status IN ('pending_review', 'partially_reviewed', 'cancelled') "
+                "AND (job.completed_at IS NULL OR job.completed_at > now() - interval '24 hours') "
+                "AND value #>> '{}' LIKE 'raster-masks/sha256/%'",
+                "SELECT DISTINCT value #>> '{}' FROM public.ai_mask_accept_decisions AS d "
+                "CROSS JOIN LATERAL pg_catalog.jsonb_path_query(d.response_json, '$.**.object_key') AS key(value) "
+                "WHERE d.expires_at > now() "
+                "AND value #>> '{}' LIKE 'raster-masks/sha256/%'",
+                "SELECT DISTINCT value #>> '{}' FROM public.mask_annotation_revisions AS r "
+                "CROSS JOIN LATERAL pg_catalog.jsonb_path_query(r.geometry, '$.**.object_key') AS key(value) "
+                "WHERE r.expires_at > now() "
+                "AND value #>> '{}' LIKE 'raster-masks/sha256/%'",
+                "SELECT DISTINCT value #>> '{}' FROM public.mask_qc_runs AS run "
+                "CROSS JOIN LATERAL pg_catalog.jsonb_path_query(run.source_snapshot, '$.**.object_key') AS key(value) "
+                "WHERE run.status IN ('pending', 'running') "
+                "AND value #>> '{}' LIKE 'raster-masks/sha256/%'",
+                "SELECT DISTINCT i.region_mask_ref ->> 'object_key' FROM public.mask_qc_issues AS i "
+                "WHERE i.region_mask_ref ->> 'object_key' LIKE 'raster-masks/sha256/%'",
+                "SELECT DISTINCT value #>> '{}' FROM public.mask_repair_batches AS b "
+                "CROSS JOIN LATERAL pg_catalog.jsonb_path_query(b.plan_json, '$.**.object_key') AS key(value) "
+                "WHERE ((b.status = 'planned' AND b.receipt_expires_at > now()) "
+                "OR b.status IN ('pending', 'running', 'rolling_back') "
+                "OR (b.status IN ('completed', 'partial', 'rollback_failed') AND b.rollback_expires_at > now())) "
+                "AND value #>> '{}' LIKE 'raster-masks/sha256/%'",
+                "SELECT DISTINCT s.region_mask_ref ->> 'object_key' FROM public.mask_review_scopes AS s "
+                "JOIN public.annotations AS a ON a.id = s.annotation_id "
+                "AND a.task_id = s.task_id AND a.project_id = s.project_id "
+                "WHERE a.is_active IS TRUE AND a.version = s.result_annotation_version "
+                "AND s.region_mask_ref ->> 'object_key' LIKE 'raster-masks/sha256/%'",
+                "SELECT DISTINCT u.object_key FROM public.raster_mask_uploads AS u "
+                "WHERE u.linked_at IS NULL AND u.created_at > now() - interval '24 hours' "
+                "AND u.object_key LIKE 'raster-masks/sha256/%'",
+            )
+            for query in other_reference_queries:
+                other_keys = set((await db.execute(text(query))).scalars())
+                require(
+                    not fault_keys.intersection(other_keys),
+                    "raster_fault_other_reference",
+                )
             rows = list(await db.scalars(select(RasterMaskObject)))
             require(
                 len(rows) == len(keys) and {row.logical_key for row in rows} == keys,

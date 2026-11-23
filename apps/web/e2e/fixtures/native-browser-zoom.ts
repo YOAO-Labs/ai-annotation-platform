@@ -90,7 +90,7 @@ export async function launchNativeBrowserZoom(
     );
 
     context = await chromium.launchPersistentContext(join(directory, "profile"), {
-      channel: "chromium",
+      channel: process.env.PLAYWRIGHT_CHROMIUM_CHANNEL || "chromium",
       headless: options.headless ?? true,
       baseURL: options.baseURL,
       viewport: null,

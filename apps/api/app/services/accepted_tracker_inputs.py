@@ -263,7 +263,9 @@ async def embedded_tracker_video_input_gateway(
     from yoao_assets_video_inputs_runtime.worker import VideoInputExecutor
     from app.services.assets_images import image_policy, image_storage
 
-    local_execution = settings.assets_video_executor == "celery"
+    local_execution = (
+        worker_session_factory is not None or settings.assets_video_executor == "celery"
+    )
     if provider is not None and not local_execution:
         yield TrackerVideoInputGateway(provider)
         return
