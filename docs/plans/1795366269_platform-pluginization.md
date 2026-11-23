@@ -1,6 +1,6 @@
 # 平台插件化：模块化单体、语言无关契约与扩展点
 
-> 状态：实施中。M0、M1a、M2a 已完成；M2b 已有源码收敛和有限冷运行证据，完整验收未通过。M2c 日常环境迁移未获授权。
+> 状态：实施中。M0、M1a、M2a 已完成；M2b 默认业务与三档普通登录已在新环境通过，存储恢复仍在验收。M2c 日常环境迁移未获授权。
 >
 > 创建日期：2026-11-23。
 >
@@ -167,5 +167,5 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 
 - **M1a 已通过。** 无平台源码的作者环境构建并部署 CPU 服务；经真实 Registry、项目服务池及签名原图，默认路由和同代契约完成绑定后的强制路由均返回预期预测。制品范围、被拒绝的旧契约与隔离证据见[运行账本](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md)。作者从[直连教程](../../docs-site/dev/tutorials/ml-backend-starter.md#direct-registration)开始。
 - **M2a 已完成。** 历史数目和当前源码装配统一索引在[进程清单](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)。
-- **M2b 已完成部署收敛，正在集成验收。** [Workspace 六项首切片](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md#m2b-workspace)后，进程与凭据归属见[进程清单](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)。全新和非空恢复的 PostgreSQL 16（`bo0509`）均已验证三种实际普通登录拒绝私表、保留公开读写能力。独立 Audit、Notifications、媒体执行器已通过各自的恢复实测。已登记自定义 S3／SFTP 经既有 Source，内建 MinIO、受控目录和站点 Agent 不改路。默认业务、独立运行档与自定义存储的逐项通过范围见[全量账本](evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md)；在真实业务闭环前不判定整个 M2b 通过。
+- **M2b 已完成部署收敛和默认档业务实测。** [Workspace 六项首切片](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md#m2b-workspace)之后的进程与凭据归属见[进程清单](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)。全新冷启动已完成登录、建项目、导入、真实 CPU 插件预标注、人工标注、审核和收件箱通知；两种 LAN 普通登录及工作树生成的普通登录已通过私表拒绝、固定能力与非空恢复。剩余的独立导入器争用和自定义迁移恢复门禁见[全量账本](evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md)，不把默认冒烟代作存储门禁。
 - M1b、M1c、M3、M4 尚未实施。正式发布和 M2c 日常切换仍需分别授权。

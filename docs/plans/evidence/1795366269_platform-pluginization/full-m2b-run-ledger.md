@@ -45,12 +45,14 @@
 - **训练执行器**：`retained-training-e99a3945/training-split-evidence.json` 在一张空闲 RTX 3090 上实启源码匹配的镜像；容器没有数据库、Broker、MinIO 凭据，API 拒绝错误 token（403）。重建后复用 journal 中的同一 claim，`recover_only` 返回 200、无任务重复分配。`training-official-handoff.junit.xml` 单项真实 HTTP 交接通过；没有已批准的权重清单及匹配文件，未宣称完成原生模型训练。
 - **默认业务**：`hosted-business.json` 首次停在资源准备；`native-grant-hosted-business.json` 停在 Inference 就绪。`flow-final-public-business-52ef34cd` 已启动真实 API、Celery 与独立插件，使用普通角色完成登录、建项目和建数据集，随后内建原图 `upload-init` 返回 `502`。没有因此推定上传成功、重复未经确认的写入，或把后续标注、审核与插件预测记为通过。
 - **首次上传及真实业务闭环**：首次失败发生在新库尚未建立内建 `import`／`datasets` 绑定时，未产生写入操作。补齐缺项、不覆盖已有绑定后，`flow-retained-native-job-uri.junit.xml` 用真实公开 API 完成签名上传、原字节读回、批次显式分派、插件注册与启用、Celery 调用 CPU 插件并持久化预测、提交标注、审核批准及收件箱通知。该项在先前保留的隔离命名空间通过；不冒充全新部署的一次性回执。
+- **全新默认档正式验收通过**：冻结 `8b1280a103`，从无 `.env` 的隔离 checkout 用真实 API、Celery、Inference、独立 CPU 插件（四个进程）完成同一条公开业务链。签名下载的原图摘要、持久预测、已审核任务和批准通知都有独立身份；与三种普通 LOGIN 的重放拒绝、迁移身份重置合计 **5/5，零跳过**。见 `flow-official-8b1280a1.qualification.json` 及其中绑定的 verifier／JUnit 摘要。独立 PostgreSQL、Redis、MinIO、桶及凭据均已退役，无保留数据库。
+  同一轮中三个普通 LOGIN 调用旧 Inference 凭据函数都得到 `42501`，正确用途的独立角色仍可读回登记的原凭据；回执不包含该值。
 
-## 验收口径与剩余门禁
+## 验收结论与范围
 
 - **普通角色三档：已实测通过。** 上述回执分别覆盖全新安装、重放旧有效授权、跨角色切换、持久 Jobs 业务与非空恢复。生成的工作树 LOGIN 不是测试替代身份。保留这些证据的边界：它们不证明所有 HTTP 工作流，也不替代各私有服务的授权与恢复。
-- **默认业务冷启动与恢复**：用真实 API／worker／Beat、Broker 与对象存储验证登录、建项目、导入、标注、审核、通知及插件预标注。按恢复账本核对提交、进程丢失后的再领取、原操作 ID 和不确定确认；另取数据库恢复证据，不以全部服务健康代替业务结果。
+- **默认业务已冷启动通过。** `flow-official-8b1280a1.qualification.json` 证明业务结果，`m2b-auth-overlays-final.json` 另证 Broker 故障恢复后不重复发布通知。非空数据库恢复、媒体和独立服务的进程丢失分别按上述专项回执判定，不能由服务健康代替。
 - **保留的私有运行档**：按进程清单使用准确的 overlay／profile、固定镜像及窄登录。分别取实际冷启、凭据拒绝，以及该 owner 的恢复／重放回执；既有历史工件和只读配置解析不计为这些新档通过。
-- **自定义 S3／SFTP**：验证既有 Source 的新受限 I/O 能力、真实字节与原保存身份，保留内建 MinIO、受控目录、站点 Agent 路径。负例至少覆盖停 Source 不回退、当前绑定变化不改历史目标、失联恢复复用原记录、unrelated 函数与操作 token 被拒；检查 API／普通 worker 不持有连接器密文、解密密钥或 Source 私有 SQL 身份。SFTP 使用实际核验的主机公钥，不将 S3 或内建存储的结果推及 SFTP。
+- **已登记 S3／SFTP 的独立矩阵**：`bytes-registered-providers-final.json` 的 12 项按实际传输分别取证。已通过 11 项，包括两个真实提供方、S3 的五类已保存输出、两项训练归档／执行器 I/O、媒体及连接绑定。`bytes-b6d0d3a482-scoped-prefix-binding` 使用只允许所选目录的 MinIO 权限，验证测试、浏览不采样相邻键，伪造、过期和错角色许可不能改动存储。迁移验证了目标版本的准确字节，但接管进程未返回回执，不能据此宣称切换成功。
 
 最终回执需绑定实际提交、Alembic head、Compose 文件链和 profile、镜像、数据库及业务／对象身份；失败和窄项重试单独留存。以上未完成前，**不标记完整 M2b 通过；M2c 未获授权**。
