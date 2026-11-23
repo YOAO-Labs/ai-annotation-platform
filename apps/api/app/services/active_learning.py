@@ -6,29 +6,24 @@ import hashlib
 import time
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
 from sqlalchemy import func, select
 
-from app.db.models.active_learning import (
-    ActiveLearningAttempt as Attempt,
-    ActiveLearningCandidate as Candidate,
-    ActiveLearningDecision as Decision,
-    ActiveLearningPoolMember as Member,
-    ActiveLearningRound as Round,
-)
-from app.db.models.trained_model import ModelDeployment, TrainedModelVersion
 from app.schemas.active_learning import RoundOut, Selection
 from app.schemas.batch import BatchCreate
 from app.schemas.sample_evaluation import DetectionPrediction, EvaluationProfile
 from app.services import (
+    active_learning_data as data,
     active_learning_references as source_references,
     active_learning_engine as engine,
     active_learning_pool as pool,
     active_learning_storage as owners,
     active_learning_originals as originals,
     async_job as jobs,
+    learning_models_data,
     managed_inference as managed,
     sample_evaluation_engine as detection,
     trained_models,
@@ -92,26 +87,14 @@ async def authority(db, round, *, training_authority: TrainingAuthorityPort):
 
 
 async def load_round(db, project_id, round_id, *, lock=False):
-    query = select(Round).where(Round.id == round_id, Round.project_id == project_id)
-    if lock:
-        query = query.with_for_update().execution_options(populate_existing=True)
-    round = await db.scalar(query)
+    round = await data.get_round(db, project_id, round_id, lock=lock)
     if round is None:
         raise reject("round_missing", "选样轮次不存在", 404)
     return round
 
 
 async def candidate_rows(db, round):
-    return list(
-        (
-            await db.scalars(
-                select(Candidate)
-                .where(Candidate.round_id == round.id)
-                .order_by(Candidate.ordinal)
-                .execution_options(populate_existing=True)
-            )
-        ).all()
-    )
+    return await data.candidates(db, round.id)
 
 
 def validate_spec(round):
@@ -254,28 +237,17 @@ async def create_round(
         api_key_id=api_key_id,
         required_scopes=pool.SCOPES,
     )
-    existing = await db.scalar(
-        select(Round).where(
-            Round.project_id == project.id, Round.request_id == body.request_id
-        )
-    )
+    existing = await data.round_request(db, project.id, body.request_id)
     if existing:
         if existing.request_digest != digest:
             raise reject("request_conflict", "同一请求标识不能用于不同选样轮次")
         return existing
     if prepared["preview_digest"] != body.preview_digest:
         raise reject("preview_changed", "候选、模型或预算已变化，请重新预览")
-    for model, identity in (
-        (TrainedModelVersion, body.model_version_id),
-        (ModelDeployment, body.deployment_id),
+    if not await learning_models_data.lock_candidate(
+        db, project.id, body.model_version_id, body.deployment_id
     ):
-        if (
-            await db.scalar(
-                select(model).where(model.id == identity).with_for_update(read=True)
-            )
-            is None
-        ):
-            raise reject("model_missing", "固定模型或部署已不可用")
+        raise reject("model_missing", "固定模型或部署已不可用")
     from app.services.trained_model_reference_contract import (
         FreezeModelReferenceError,
         ValidateFrozenModelReferenceRequest,
@@ -326,7 +298,7 @@ async def create_round(
         "issued_at": issued,
         "expires_at": issued + 86400,
     }
-    round = Round(
+    round = SimpleNamespace(
         id=identity,
         project_id=project.id,
         creator_id=user.id,
@@ -342,36 +314,18 @@ async def create_round(
             "original_contract": 1,
             "api_key_fingerprint": originals.key_fingerprint(context.key),
         },
-        generation=0,
-        inference_dispatches=0,
-        accepted_tasks=0,
+        storage_ref=None,
     )
     validate_spec(round)
-    db.add(round)
-    await db.flush()
     await owners.allocate(db, round)
-    for sample in spec["pool"]:
-        db.add(
-            Member(
-                round_id=round.id,
-                task_id=uuid.UUID(sample["task_id"]),
-                dataset_item_id=uuid.UUID(sample["snapshot"]["dataset_item_id"])
-                if sample["snapshot"]["dataset_item_id"]
-                else None,
-            )
-        )
-    for sample in spec["samples"]:
-        db.add(
-            Candidate(
-                round_id=round.id,
-                ordinal=sample["ordinal"],
-                task_id=uuid.UUID(sample["task_id"]),
-                dataset_item_id=uuid.UUID(sample["snapshot"]["dataset_item_id"])
-                if sample["snapshot"]["dataset_item_id"]
-                else None,
-                request_id=uuid.uuid5(round.id, f"candidate:{sample['ordinal']}"),
-            )
-        )
+    round = await data.create_round(
+        db,
+        round,
+        [
+            uuid.uuid5(identity, f"candidate:{sample['ordinal']}")
+            for sample in spec["samples"]
+        ],
+    )
     await source_references.retain_references(
         db, round, spec["exclusions"]["references"]
     )
@@ -380,28 +334,19 @@ async def create_round(
     return round
 
 
-async def retry_round(db, round, previous, candidates):
-    previous.claim_id = None
-    previous.completed_at = previous.completed_at or now()
-    for row in candidates:
-        if row.status == "failed":
-            row.status, row.error_code, row.error_message = "pending", None, None
+async def retry_round(db, round, previous):
+    if (
+        previous.id != round.current_attempt_id
+        or previous.generation != round.generation
+    ):
+        raise reject("attempt_stale", "执行尝试已变化")
     await new_attempt(db, round)
 
 
 async def new_attempt(db, round):
     owners.resolve(round)
     validate_spec(round)
-    round.generation += 1
-    ordinal = (
-        await db.scalar(
-            select(func.max(Attempt.ordinal)).where(Attempt.round_id == round.id)
-        )
-        or 0
-    ) + 1
-    attempt = Attempt(round_id=round.id, ordinal=ordinal, generation=round.generation)
-    db.add(attempt)
-    await db.flush()
+    attempt_id = uuid.uuid4()
     job = await jobs.create_job(
         db,
         kind="active_learning_round",
@@ -409,60 +354,33 @@ async def new_attempt(db, round):
         project_id=round.project_id,
         payload={
             "round_id": str(round.id),
-            "attempt_id": str(attempt.id),
+            "attempt_id": str(attempt_id),
             "name": round.name,
         },
     )
-    round.current_attempt_id, round.async_job_id = attempt.id, job.id
-    attempt.async_job_id = job.id
-    round.status = "queued"
+    opened = await data.open_attempt(db, round, attempt_id, job.id, now())
+    round.generation = opened.generation
+    round.current_attempt_id, round.async_job_id = (
+        opened.current_attempt_id,
+        opened.async_job_id,
+    )
+    round.status = opened.status
     round.error_code = round.error_message = round.completed_at = None
-    return attempt
+    return await data.get_attempt(db, attempt_id, round_id=round.id)
 
 
-def claim_attempt(round, attempt):
+async def claim_attempt(db, attempt):
     claim_id = uuid.uuid4()
-    round.status = attempt.status = "running"
-    attempt.claim_id = claim_id
-    started = now()
-    attempt.started_at = attempt.heartbeat_at = started
-    return claim_id
+    if await data.claim_attempt(db, attempt, claim_id, now()):
+        return claim_id
 
 
-def record_heartbeat(attempt):
-    attempt.heartbeat_at = now()
-
-
-def record_inference_dispatch(round):
-    round.inference_dispatches += 1
-
-
-def record_candidate_inflight(row, request, media):
-    row.request, row.status, row.media = request, "inflight", media
-
-
-def record_candidate_success(row, attempt, evidence):
-    row.evidence = evidence
-    row.status, row.produced_attempt_id = "succeeded", attempt.id
-    row.error_code = row.error_message = None
-
-
-def mark_lost(round, attempt, *, code, message):
-    round.status = attempt.status = "lost"
-    round.error_code = attempt.error_code = code
-    round.error_message = attempt.error_message = message
-
-
-def release_claim(attempt):
-    attempt.claim_id = None
-
-
-def record_dispatched(attempt):
-    attempt.dispatched_at = now()
-
-
-def record_maintenance(attempt, at):
-    attempt.maintenance_at = at
+async def mark_lost(db, round, attempt, *, code, message):
+    if not await data.settle_attempt(db, attempt, "lost", code, message, None, now()):
+        return False
+    round.status = "lost"
+    round.error_code, round.error_message = code, message
+    return True
 
 
 def media_descriptor(round, sample):
@@ -757,9 +675,7 @@ async def build_report(db, round, attempt):
     rows = await candidate_rows(db, round)
     if [row.ordinal for row in rows] != list(range(len(round.spec["samples"]))):
         raise reject("evidence_corrupt", "候选序号与冻结窗口不一致")
-    attempts = set(
-        (await db.scalars(select(Attempt.id).where(Attempt.round_id == round.id))).all()
-    )
+    attempts = set(await data.attempt_ids(db, round.id))
     evidence = {row.ordinal: verified_evidence(round, row) for row in rows}
     if any(row.produced_attempt_id not in attempts for row in rows):
         raise reject("evidence_corrupt", "候选证据不属于本轮次的执行尝试")
@@ -796,12 +712,14 @@ async def read_report(db, round, attempt):
 async def mark_terminal(
     db, round, attempt, status, *, code=None, message=None, report=None
 ):
-    round.status = attempt.status = status
-    round.completed_at = attempt.completed_at = now()
-    round.error_code = attempt.error_code = code
-    round.error_message = attempt.error_message = message
-    attempt.report = report
-    attempt.claim_id = None
+    completed = now()
+    if not await data.settle_attempt(
+        db, attempt, status, code, message, report, completed
+    ):
+        raise reject("attempt_stale", "执行尝试已变化")
+    round.status = status
+    round.completed_at = completed
+    round.error_code, round.error_message = code, message
     result = {"round_id": str(round.id), "attempt_id": str(attempt.id)}
     if status == "succeeded":
         await jobs.mark_complete(db, attempt.async_job_id, result=result)
@@ -817,7 +735,7 @@ async def mark_terminal(
 async def request_cancel(db, round, *, code=None, message=None):
     if round.status in TERMINAL:
         return
-    attempt = await db.get(Attempt, round.current_attempt_id)
+    attempt = await data.get_attempt(db, round.current_attempt_id, round_id=round.id)
     rows = await candidate_rows(db, round)
     if round.status != "cancelling" or code is not None:
         round.error_code, round.error_message = code, message
@@ -831,39 +749,44 @@ async def request_cancel(db, round, *, code=None, message=None):
             message=message,
         )
     else:
-        round.status = attempt.status = "cancelling"
+        if not await data.settle_attempt(
+            db,
+            attempt,
+            "cancelling",
+            round.error_code,
+            round.error_message,
+            None,
+            now(),
+        ):
+            raise reject("attempt_stale", "执行尝试已变化")
+        round.status = "cancelling"
         await jobs.request_cancel(db, attempt.async_job_id)
 
 
 async def signal_interrupted(db, job, *, cancelled):
-    round = await db.scalar(
-        select(Round).where(Round.async_job_id == job.id).with_for_update()
-    )
+    round = await data.round_for_job(db, job.id)
     if not round or round.status in TERMINAL:
         return
-    attempt = await db.get(Attempt, round.current_attempt_id)
+    attempt = await data.get_attempt(db, round.current_attempt_id, round_id=round.id)
     if not attempt or attempt.async_job_id != job.id:
         return
     if cancelled or round.status == "cancelling":
         await request_cancel(db, round)
+        if round.status == "cancelling" and attempt.claim_id is not None:
+            await data.release_cancelled_claim(db, attempt)
     else:
         message = "选样执行失联；原请求可能仍在运行，恢复前须核对同一请求收据"
-        mark_lost(round, attempt, code="execution_lost", message=message)
+        if not await mark_lost(
+            db, round, attempt, code="execution_lost", message=message
+        ):
+            return
         await jobs.mark_failed(db, job.id, error=message)
         await notify_job_terminal(db, job_id=job.id)
-    release_claim(attempt)
 
 
 async def output(db, round):
     validate_spec(round)
-    attempts = (
-        await db.scalars(
-            select(Attempt)
-            .where(Attempt.round_id == round.id)
-            .order_by(Attempt.ordinal.desc())
-            .limit(20)
-        )
-    ).all()
+    attempts = await data.recent_attempts(db, round.id)
     public_spec = {
         key: value
         for key, value in round.spec.items()
@@ -929,16 +852,12 @@ async def decide(
     context = await originals.authorize(db, project.id, user.id, request, api_key_id)
     digest = content_digest(body.model_dump(mode="json"))
     round = await load_round(db, project.id, round_id)
-    existing = await db.scalar(
-        select(Decision).where(
-            Decision.round_id == round.id, Decision.request_id == body.request_id
-        )
-    )
+    existing = await data.decision_request(db, round.id, body.request_id)
     if existing:
         if existing.request_digest != digest:
             raise reject("request_conflict", "同一请求标识不能用于不同选样决策")
         return existing
-    attempt = await db.get(Attempt, round.current_attempt_id)
+    attempt = await data.get_attempt(db, round.current_attempt_id, round_id=round.id)
     report = await read_report(db, round, attempt)
     if round.status != "succeeded":
         raise reject("round_incomplete", "仅完整成功的选样轮次可接纳或拒绝建议")
@@ -1009,16 +928,12 @@ async def decide(
         required_scopes=pool.SCOPES,
     )
     round = await load_round(db, project.id, round_id, lock=True)
-    existing = await db.scalar(
-        select(Decision).where(
-            Decision.round_id == round.id, Decision.request_id == body.request_id
-        )
-    )
+    existing = await data.decision_request(db, round.id, body.request_id)
     if existing:
         if existing.request_digest != digest:
             raise reject("request_conflict", "同一请求标识不能用于不同选样决策")
         return existing
-    attempt = await db.get(Attempt, round.current_attempt_id, populate_existing=True)
+    attempt = await data.get_attempt(db, round.current_attempt_id, round_id=round.id)
     current_report = await read_report(db, round, attempt)
     if round.status != "succeeded" or report != current_report:
         raise reject("round_stale", "选样结果已变化，请重新检查")
@@ -1096,7 +1011,6 @@ async def decide(
         await batches.assign_tasks_to_batch(batch.id, ids)
         for old_id in batch_ids:
             await batches.recalculate_counters(old_id)
-        round.accepted_tasks += len(ids)
         await source_references.retain_references(db, round, history["references"])
     snapshot = {
         "round_id": str(round.id),
@@ -1124,23 +1038,18 @@ async def decide(
         "current_exclusions": history,
         "claim": "task_selection_only",
     }
-    decision = Decision(
-        id=uuid.uuid4(),
-        round_id=round.id,
-        actor_id=user.id,
-        request_id=body.request_id,
-        request_digest=digest,
-        action=body.action,
-        accepted_batch_id=batch.id if batch else None,
-        snapshot=snapshot,
-        snapshot_digest=content_digest(snapshot),
+    decision = await data.record_decision(
+        db,
+        round,
+        attempt,
+        user.id,
+        body.request_id,
+        digest,
+        body.action,
+        batch.id if batch else None,
+        sorted(body.ordinals),
+        snapshot,
+        content_digest(snapshot),
     )
-    db.add(decision)
-    await db.flush()
-    for ordinal in body.ordinals:
-        rows[ordinal].disposition = (
-            "accepted" if body.action == "accept" else "rejected"
-        )
-        rows[ordinal].decision_id = decision.id
     await originals.check(db, context, commit=False)
     return decision

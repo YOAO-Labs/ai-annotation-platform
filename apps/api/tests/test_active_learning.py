@@ -11,7 +11,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import func, select, text
 
-from app.db.models.active_learning import ActiveLearningFeedback as Feedback
+from app.db.models.active_learning import ActiveLearningDecision as Decision
 from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.audit_log import AuditLog
@@ -21,10 +21,12 @@ from app.db.models.trained_model import ModelRelease
 from app.schemas.active_learning import DecisionCreate, FeedbackCreate
 from app.services import (
     active_learning as service,
+    active_learning_data as selection_data,
     active_learning_feedback as feedback,
 )
 from app.services.training_datasets import bind_training_authority
 from tests.active_learning_fixtures import (
+    candidate_seed_rows,
     complete,
     create,
     decide_with_ports,
@@ -122,7 +124,7 @@ async def test_retry_resets_failed_candidates_only_and_keeps_frozen_receipts(
     owner, token = super_admin
     world = await seed(db_session, owner, monkeypatch)
     round, attempt, _body = await create(db_session, owner, world)
-    candidates = await service.candidate_rows(db_session, round)
+    candidates = await candidate_seed_rows(db_session, round.id)
     failed, inflight = candidates[:2]
     failed.status = "failed"
     failed.error_code, failed.error_message = "transient", "retry this candidate"
@@ -160,6 +162,8 @@ async def test_retry_resets_failed_candidates_only_and_keeps_frozen_receipts(
     assert response.status_code == 202, response.text
     await db_session.refresh(round)
     await db_session.refresh(attempt)
+    await db_session.refresh(failed)
+    await db_session.refresh(inflight)
     assert round.generation == 2 and round.spec == frozen_spec
     assert round.spec_digest == frozen_digest
     assert round.current_attempt_id != attempt.id
@@ -188,7 +192,7 @@ async def test_unavailable_retry_keeps_round_and_candidates_unchanged(
     owner, token = super_admin
     world = await seed(db_session, owner, monkeypatch)
     round, attempt, _body = await create(db_session, owner, world)
-    candidates = await service.candidate_rows(db_session, round)
+    candidates = await candidate_seed_rows(db_session, round.id)
     candidate = candidates[0]
     candidate.status = "failed"
     candidate.error_code, candidate.error_message = "keep", "unchanged"
@@ -267,6 +271,7 @@ async def test_accept_subset_creates_ordinary_draft_replay_preserves_batch_and_r
         and batch.total_tasks == 2
         and batch.annotator_id is None
     )
+    await db_session.refresh(round)
     assert round.accepted_tasks == 2
     assert (
         await db_session.scalar(
@@ -299,6 +304,7 @@ async def test_accept_subset_creates_ordinary_draft_replay_preserves_batch_and_r
         )
     assert error.value.detail["code"] == "candidate_decided"
     saved = copy.deepcopy(decision.snapshot)
+    decision = await db_session.get(Decision, decision.id)
     decision.accepted_batch_id = None
     await db_session.flush()
     assert service.decision_output(decision)["snapshot"] == saved
@@ -338,6 +344,7 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
             request_id=uuid.uuid4(), action="accept", ordinals=[chosen["ordinal"]]
         ),
     )
+    decision = await db_session.get(Decision, decision.id)
     decision.created_at = service.now() - timedelta(minutes=5)
     task = next(task for task in world.tasks if str(task.id) == chosen["task_id"])
     task.status, task.reviewed_at = "completed", service.now()
@@ -412,39 +419,17 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
         role = "feedback_probe_" + uuid.uuid4().hex
         await db_session.execute(text(f'CREATE ROLE "{role}" NOLOGIN'))
         await db_session.execute(
-            text(
-                f"""
-                DO $grant$
-                DECLARE item record;
-                BEGIN
-                  GRANT USAGE ON SCHEMA public TO "{role}";
-                  FOR item IN
-                    SELECT c.oid::regclass AS relation
-                    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-                    WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm')
-                      AND c.oid NOT IN (
-                        SELECT relid FROM pg_partition_tree('public.audit_logs')
-                      )
-                  LOOP
-                    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %s TO %I',
-                                   item.relation, '{role}');
-                  END LOOP;
-                  GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO "{role}";
-                  FOR item IN SELECT nspname FROM pg_namespace
-                              WHERE nspname LIKE 'aap\\_%' ESCAPE '\\'
-                  LOOP
-                    EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', item.nspname, '{role}');
-                    EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO %I', item.nspname, '{role}');
-                    EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA %I TO %I', item.nspname, '{role}');
-                  END LOOP;
-                END $grant$
-                """
-            )
+            text(f'GRANT identity_embedded_api_consumer TO "{role}"')
         )
         await db_session.execute(text(f'SET LOCAL ROLE "{role}"'))
         assert not await db_session.scalar(
             text(
                 "SELECT has_any_column_privilege(current_user, 'public.audit_logs', 'SELECT')"
+            )
+        )
+        assert not await db_session.scalar(
+            text(
+                "SELECT has_any_column_privilege(current_user, 'public.active_learning_feedback', 'INSERT')"
             )
         )
     body = FeedbackCreate(request_id=uuid.uuid4())
@@ -472,7 +457,12 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
     assert (
         not snapshot["efficiency_claim"] and not snapshot["evaluations"]["comparable"]
     )
+    if restricted_audit:
+        await db_session.execute(text("RESET ROLE"))
     task.status = "in_progress"
+    await db_session.flush()
+    if restricted_audit:
+        await db_session.execute(text(f'SET LOCAL ROLE "{role}"'))
     again = await feedback.snapshot(
         db_session,
         world.project,
@@ -482,14 +472,7 @@ async def test_feedback_uses_actual_review_facts_union_sessions_and_keeps_correc
         training_authority=bind_training_authority(db_session),
     )
     assert again.id == row.id and again.snapshot == snapshot
-    assert (
-        await db_session.scalar(
-            select(func.count())
-            .select_from(Feedback)
-            .where(Feedback.round_id == round.id)
-        )
-        == 1
-    )
+    assert await selection_data.receipt_count(db_session, round.id, feedback=True) == 1
     with pytest.raises(HTTPException) as error:
         await feedback.snapshot(
             db_session,
@@ -528,7 +511,7 @@ async def test_repeated_cancel_and_old_job_signal_preserve_fences_and_failure(
     owner, _ = super_admin
     world = await seed(db_session, owner, monkeypatch)
     round, attempt, _ = await create(db_session, owner, world)
-    row = (await service.candidate_rows(db_session, round))[0]
+    row = (await candidate_seed_rows(db_session, round.id))[0]
     row.request = service.managed.request_identity(
         round.spec, row, round.spec["samples"][0]["preprocessing"]
     )
@@ -543,6 +526,8 @@ async def test_repeated_cancel_and_old_job_signal_preserve_fences_and_failure(
     )
     job = await db_session.get(AsyncJob, attempt.async_job_id)
     await apply_signal_terminal(db_session, job, cancelled=True)
+    await db_session.refresh(round)
+    await db_session.refresh(attempt)
     assert (
         round.status == "cancelling"
         and round.error_code == "inference_budget_exhausted"

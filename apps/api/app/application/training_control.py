@@ -5,11 +5,11 @@ from __future__ import annotations
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.learning_policy import LearningTrigger
+
 from app.services import (
+    learning_selection_data as selection,
     learning_policies,
     learning_models_data,
     training_claims,
@@ -49,14 +49,8 @@ async def resume_run(
         await training_claims.project_lock(db, project_id)
         if await learning_policies.active_run(
             db, project_id, excluding=run_id
-        ) or await db.scalar(
-            select(LearningTrigger.id)
-            .where(
-                LearningTrigger.project_id == project_id,
-                LearningTrigger.status.in_(learning_policies.ACTIVE_TRIGGERS),
-                LearningTrigger.id != preliminary.auto_trigger_id,
-            )
-            .limit(1)
+        ) or await selection.other_active_trigger(
+            db, project_id, excluding_trigger=preliminary.auto_trigger_id
         ):
             raise HTTPException(
                 status_code=409, detail="项目已有其他自动候选或实验，请先结束它"
@@ -115,7 +109,7 @@ async def resume_run(
     if study:
         await training_runs.reserve_study_budget(db, attempt, run, allowance)
         await training_runs.mark_study_manual_resume(db, run)
-        training_studies.stage_manual_resume(study)
+        await training_studies.stage_manual_resume(db, study, run)
     if run.auto_trigger_id:
         await training_runs.mark_policy_manual_resume(db, run)
         await learning_policies.requeue_after_manual_resume(db, run.auto_trigger_id)
@@ -138,7 +132,7 @@ async def delete_run(
             detail="实验属于保留的参数搜索，不能单独删除其计划与预算证据",
         )
     if run.auto_trigger_id:
-        trigger = await db.get(LearningTrigger, run.auto_trigger_id)
+        trigger = await selection.get_trigger(db, run.auto_trigger_id)
         if trigger.status in {"building", "queued", "running"}:
             raise HTTPException(
                 status_code=409, detail="请先检查自动策略以同步实验终态，再删除实验"

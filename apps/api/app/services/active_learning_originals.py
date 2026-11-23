@@ -11,11 +11,11 @@ import uuid
 from fastapi import HTTPException
 from PIL import Image
 
-from app.db.models.user import User
 from app.services import managed_original_reader as reader
 from app.services import original_content_access as access
 from app.services import original_sources, storage_access
 from app.services import sample_evaluation_engine as detection
+from app.services.identity_read_relations import read_account_profile
 from app.services.original_binary_response import close_stage
 from app.services.sample_evaluation_originals import bounded_thread
 from app.services.training_dataset_bridge import content_digest
@@ -83,7 +83,7 @@ async def check(db, authority, *, commit=True, guard=None):
 
 
 async def authorize(db, project_id, actor_id, request, api_key_id=None):
-    actor = await db.get(User, actor_id)
+    actor = await read_account_profile(db, actor_id)
     if actor is None:
         raise HTTPException(403, {"code": "content_authority_revoked"})
     proof = await access.capture_credentials(db, actor, request)
