@@ -2530,6 +2530,8 @@ _RECLAMATION_PROFILES = {
     "tests/test_managed_original_reclaim_fences.py::test_only_valid_current_attempt_can_exclude_its_exact_operation": "reclaim-operation",
     "tests/test_managed_original_reclaim.py::test_observation_gets_do_not_claim_reclamation_in_read_only_transactions": "reclaim-read-only",
     "tests/test_managed_original_reclaim.py::test_http_preview_commit_and_worker_real_small_version_delete": "reclaim-version-delete",
+    "tests/test_original_owner_acl_live.py::test_restricted_original_wait_and_permission_recheck": "reclaim-original-lock",
+    "tests/test_original_owner_acl_live.py::test_restricted_original_retention_refuses_claimed_object": "reclaim-original-retention",
 }
 
 _WORKSPACE_ASSEMBLY_TARGET = "tests/test_workspace_module_assembly_live.py"
