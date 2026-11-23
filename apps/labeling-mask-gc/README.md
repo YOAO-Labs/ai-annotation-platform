@@ -40,6 +40,20 @@ private network, binds the GC service to localhost and sets
 `MASK_GC_POLL_ENABLED=false`. Dry-run over the authenticated HTTP run route is
 read-only; `--once` is an explicit mutating collection pass.
 
+With the same Compose project and environment, run the installed one-shot
+entrypoint in a fresh container after reviewing the preview:
+
+```sh
+docker compose --env-file "$HOME/.config/yoao/mask-gc.env" -p yoao-mask-gc \
+  -f docker-compose.assets-mask-content.yml -f docker-compose.labeling-mask-gc.yml \
+  --profile mask-gc run --rm --no-deps -T labeling-mask-gc \
+  python -m yoao_labeling_mask_gc_runtime --once
+```
+
+This requires the existing `assets-mask-cleanup` service to be healthy. It
+does not need the GC HTTP service running and uses the same file mounts and
+scoped LOGIN as that service.
+
 ## Configuration
 
 Provide the four secrets either inline or through a sibling `_FILE` setting:
@@ -90,3 +104,19 @@ docker build -f apps/labeling-mask-gc/Dockerfile -t aap-labeling-mask-gc .
 Run the image with a read-only root filesystem and no S3, Celery, or Redis
 settings. The locked server dependencies are installed into the image's virtual
 environment, and the process runs as UID/GID 10003 with no source bind mount.
+
+## Disposable split acceptance
+
+Use `scripts/verify_module_data_boundary.py --output <receipt.json> --test-file
+tests/test_mask_gc_runtime_image.py::test_mask_gc_operator_cold` with the
+verifier-owned PostgreSQL and MinIO fixtures. Set `AAP_MASK_GC_IMAGE` and
+`AAP_MASK_CONTENT_IMAGE` to the immutable image IDs, and
+`AAP_MASK_IMAGE_ACCEPTANCE_ID` and `AAP_MASK_IMAGE_SOURCE_REVISION` to their
+matching build labels. The test compares the image build inputs against that
+revision, boots the shipped Compose services, and recovers an unacknowledged
+byte-owner receipt through a fresh `--once` invocation.
+
+Select the entire test file to also enforce the original measured-peak gate
+on the same workload. The operational case still requires the 256 MiB kernel
+limit; it does not qualify peak usage. If a kernel lacks cgroup v2
+`memory.peak`, exact peak measurements are `null` and the strict case fails.
