@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from ipaddress import IPv4Network
 import json
 import os
 from pathlib import Path
@@ -225,12 +226,18 @@ class MediaCompose:
             for path in self.secret_paths[service].values()
             if path.name in spec.get("secrets", [])
         }
+        network_config = {"labels": {_OWNER_LABEL: self.owner}}
+        subnet_value = os.environ.get("AAP_ASSETS_MEDIA_COMPOSE_SUBNET")
+        if subnet_value:
+            subnet = IPv4Network(subnet_value)
+            assert subnet.is_private
+            network_config["ipam"] = {"config": [{"subnet": str(subnet)}]}
         self.override.write_text(
             json.dumps(
                 {
                     "services": self.services,
                     "secrets": secrets,
-                    "networks": {"default": {"labels": {_OWNER_LABEL: self.owner}}},
+                    "networks": {"default": network_config},
                 }
             ),
             encoding="utf-8",
@@ -252,6 +259,9 @@ class MediaCompose:
         _docker("network", "connect", "--alias", _DATABASE_ALIAS, self.network, self.pg)
         self.record("media_compose_project", self.project)
         self.record("media_compose_network", self.network)
+        if subnet_value:
+            assert network["IPAM"]["Config"][0]["Subnet"] == str(subnet)
+            self.record("media_compose_subnet", str(subnet))
 
     def start(self, role):
         self._compose("up", "-d", "--no-build", "--pull", "never", role.service)
