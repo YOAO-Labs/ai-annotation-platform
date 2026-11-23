@@ -339,6 +339,8 @@ API 预检逐项执行有界严格读取并及时关闭临时快照，报告引�
 
 Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkpoint、lost/cancel 状态以及 dispatch/maintenance 时间戳，连同 HTTP `deletion_requested_at`，均由 `sample_evaluations` 的命令写入。worker 仍保留围栏、authority 重查、推理/收据与报告 I/O、每个原始 commit 和先提交再派发的窗口；通用 AsyncJob 字段继续通过 `services.async_job` 更新。
 
+评估 HTTP、通用作业取消和 Celery worker 在调用方事务中通过 `yoao_learning_v1` 的固定能力读取和写入。运行代次、当前 Attempt、claim 与已有样本请求共同围栏迟到 checkpoint；待确认原生执行停止时保持 `cancelling`，不会提前写入终态或替换已核验的证据。原始 API Key 在领取及结果写入时重新核验。
+
 ### 4.2 实验指标比较与横向对齐
 
 比较视图支持多实验横向对比：
@@ -370,6 +372,8 @@ Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkp
 | I/O 期间撤权            | 最终管理准入拒绝回填，已提交的 checking 保留；不把未获授权的迟到结果保存为成功，也不伪造失败终态。                                                                    |
 
 `ModelRelease` 的 generation CAS、不可变发布历史与既有预测冻结身份保持独立，部署检查完成不等于模型已被发布。
+
+模型目录、谱系和发布历史通过 Learning 的项目作用域读取、只读字段投影和固定命令访问。部署结果仅提交给仍为 `checking` 的同一 `check_id`；发布原子比较并递增 `(project_id, task)` 的 generation。重试继续核对最初冻结的发布、部署与类别绑定，不解析今天的项目选择。
 
 ### 4.4 预标注动态回流与收据协议
 

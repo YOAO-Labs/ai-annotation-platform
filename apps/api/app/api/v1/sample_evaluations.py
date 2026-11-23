@@ -4,17 +4,12 @@ import asyncio
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
-from app.db.models.sample_evaluation import (
-    SampleEvaluationAttempt as Attempt,
-    SampleEvaluationRun as Run,
-    SampleEvaluationSample as Sample,
-)
-from app.db.models.trained_model import ModelDeployment, TrainedModelVersion
-from app.db.models.training_dataset import TrainingDatasetVersion
+from app.services import evaluation_data as data, learning_models_data
+from app.services.training_claims import project_lock
+from app.services.training_dataset_data import hold_version, read_version
 from app.deps import (
     get_current_user,
     get_db,
@@ -67,8 +62,8 @@ async def pin_legacy_evaluation_storage(
 
 
 async def attempt_for(db, run, attempt_id):
-    attempt = await db.get(Attempt, attempt_id)
-    if not attempt or attempt.run_id != run.id:
+    attempt = await data.get_attempt(db, run.id, attempt_id)
+    if attempt is None:
         raise service.reject("attempt_missing", "评估执行尝试不存在", 404)
     return attempt
 
@@ -119,11 +114,7 @@ async def create(
     db: AsyncSession = Depends(get_db),
 ):
     digest = content_digest(body.model_dump(mode="json"))
-    existing = await db.scalar(
-        select(Run).where(
-            Run.project_id == project.id, Run.request_id == body.request_id
-        )
-    )
+    existing = await data.replay(db, project.id, body.request_id)
     if existing:
         if existing.request_digest != digest:
             raise service.reject("request_conflict", "同一请求标识不能用于不同评估")
@@ -132,31 +123,19 @@ async def create(
         db, project, body.model_version_id, body.deployment_id
     )
     await db.commit()
-    await db.execute(
-        select(func.pg_advisory_xact_lock(func.hashtextextended(str(project.id), 0)))
-    )
+    await project_lock(db, project.id)
     await lock_project_manager(db, user.id, project.id)
-    existing = await db.scalar(
-        select(Run).where(
-            Run.project_id == project.id, Run.request_id == body.request_id
-        )
-    )
+    existing = await data.replay(db, project.id, body.request_id)
     if existing:
         if existing.request_digest != digest:
             raise service.reject("request_conflict", "同一请求标识不能用于不同评估")
         return await service.output(db, existing)
-    for model, identity in (
-        (TrainingDatasetVersion, body.dataset_id),
-        (TrainedModelVersion, body.model_version_id),
-        (ModelDeployment, body.deployment_id),
+    if not await hold_version(
+        db, body.dataset_id, project.id
+    ) or not await learning_models_data.lock_candidate(
+        db, project.id, body.model_version_id, body.deployment_id
     ):
-        if (
-            await db.scalar(
-                select(model).where(model.id == identity).with_for_update(read=True)
-            )
-            is None
-        ):
-            raise service.reject("reference_missing", "冻结引用已不可用", 404)
+        raise service.reject("reference_missing", "冻结引用已不可用", 404)
     await trained_models.validate_frozen_reference(db, project.id, ref)
     identity = uuid.uuid4()
     try:
@@ -169,36 +148,16 @@ async def create(
             else "冻结样本、类别或真值超过支持范围",
             422,
         ) from exc
-    run = Run(
-        id=identity,
-        project_id=project.id,
-        creator_id=user.id,
-        dataset_id=body.dataset_id,
-        model_version_id=body.model_version_id,
-        deployment_id=body.deployment_id,
-        request_id=body.request_id,
+    run = await service.create_run(
+        db,
+        project,
+        user,
+        body,
+        evaluation_id=identity,
         request_digest=digest,
-        name=body.name,
         spec=spec,
-        spec_digest=content_digest(spec),
-        authorization={"api_key_id": getattr(request.state, "api_key_id", None)},
-        generation=0,
+        api_key_id=getattr(request.state, "api_key_id", None),
     )
-    db.add(run)
-    await db.flush()
-    try:
-        await service.owners.allocate(db, run)
-    except TrainingDatasetError as exc:
-        raise service.reject(exc.code, str(exc), exc.status_code) from exc
-    for frozen in spec["samples"]:
-        db.add(
-            Sample(
-                run_id=run.id,
-                ordinal=frozen["ordinal"],
-                request_id=uuid.uuid5(run.id, f"sample:{frozen['ordinal']}"),
-            )
-        )
-    await service.new_attempt(db, run)
     await db.commit()
     from app.workers.sample_evaluations import dispatch
 
@@ -213,18 +172,7 @@ async def list_evaluations(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> dict:
-    total = await db.scalar(
-        select(func.count()).select_from(Run).where(Run.project_id == project.id)
-    )
-    runs = (
-        await db.scalars(
-            select(Run)
-            .where(Run.project_id == project.id)
-            .order_by(Run.created_at.desc(), Run.id.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-    ).all()
+    total, runs = await data.list_runs(db, project.id, limit, offset)
     return {
         "total": total,
         "items": [
@@ -336,6 +284,7 @@ async def cancel(
     await lock_project_manager(db, user.id, project.id)
     run = await service.load_run(db, project.id, evaluation_id, lock=True)
     await service.request_cancel(db, run)
+    run = await service.load_run(db, project.id, evaluation_id)
     await db.commit()
     return await service.output(db, run)
 
@@ -374,19 +323,7 @@ async def retry(
         service.owners.resolve(run)
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
-    previous = await db.get(Attempt, run.current_attempt_id)
-    previous.claim_id = None
-    if previous.status == "lost":
-        previous.completed_at = service.now()
-        await service.jobs.mark_failed(
-            db,
-            previous.async_job_id,
-            error="旧执行已被新尝试接管；后端请求仍通过同一把锁防止重叠",
-        )
-    for row in await service.sample_rows(db, run):
-        if row.status == "failed":
-            row.status, row.error_code, row.error_message = "pending", None, None
-    await service.new_attempt(db, run)
+    run = await service.retry_run(db, run)
     await db.commit()
     from app.workers.sample_evaluations import dispatch
 
@@ -473,13 +410,13 @@ async def image(
     spec = service.validate_spec(run)
     if not 0 <= ordinal < len(spec["samples"]):
         raise service.reject("sample_missing", "冻结样本不存在", 404)
-    version = await db.get(TrainingDatasetVersion, run.dataset_id)
+    version = await read_version(db, run.dataset_id, project_id=run.project_id)
     try:
         png, preprocessing = await asyncio.to_thread(
             service.prepare_input, run, version, spec["samples"][ordinal]
         )
-        row = await db.get(Sample, (run.id, ordinal))
-        if row.request and row.request["preprocessing"] != preprocessing:
+        row = await data.get_sample(db, run.id, ordinal)
+        if row is None or row.request and row.request["preprocessing"] != preprocessing:
             raise ValueError("Frozen preprocessing differs")
     except Exception as exc:
         raise service.reject(
@@ -558,7 +495,8 @@ async def delete(
         service.owners.resolve(run)
     except TrainingDatasetError as exc:
         raise service.reject(exc.code, str(exc), exc.status_code) from exc
-    run.deletion_requested_at = run.deletion_requested_at or service.now()
+    if not await data.request_deletion(db, run, at=service.now()):
+        raise service.reject("evaluation_active", "评估尚未确认结束，不能删除")
     await db.commit()
     try:
         await service.purge_requested(db, run.id)

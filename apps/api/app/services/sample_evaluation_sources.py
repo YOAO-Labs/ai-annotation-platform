@@ -6,9 +6,11 @@ import uuid
 from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import String, cast, func, select
 
-from app.db.models.annotation import Annotation
-from app.db.models.dataset import DatasetItem
-from app.db.models.task import Task
+from app.services.assets_spatial_views import labeling_dataset_item_facts as DatasetItem
+from app.services.labeling_core_read_relations import (
+    annotation_row as Annotation,
+    task_row as Task,
+)
 from app.services import sample_evaluations as service
 from app.services.training_dataset_bridge import detection_labels
 
@@ -64,31 +66,49 @@ async def current_snapshot(db, project_id, task_id, *, task="detect"):
     )
     result = (
         await db.execute(
-            select(Task, DatasetItem, annotations)
+            select(
+                Task.id,
+                Task.project_id,
+                Task.batch_id,
+                Task.dataset_item_id,
+                Task.file_path,
+                Task.file_type,
+                Task.version,
+                Task.status,
+                Task.submitted_at,
+                Task.skipped_at,
+                Task.skip_reason,
+                Task.reviewed_at,
+                DatasetItem.width,
+                DatasetItem.height,
+                annotations.label("labels"),
+            )
             .outerjoin(DatasetItem, DatasetItem.id == Task.dataset_item_id)
             .where(Task.id == task_id, Task.project_id == project_id)
-            .execution_options(populate_existing=True)
         )
     ).first()
     if not result:
         return None
-    task, item, labels = result
     return {
-        "task_id": str(task.id),
-        "project_id": str(task.project_id),
-        "batch_id": str(task.batch_id) if task.batch_id else None,
-        "dataset_item_id": str(task.dataset_item_id) if task.dataset_item_id else None,
-        "source_key": task.file_path,
-        "file_type": task.file_type,
-        "version": task.version,
-        "status": task.status,
-        "submitted_at": task.submitted_at.isoformat() if task.submitted_at else None,
-        "skipped_at": task.skipped_at.isoformat() if task.skipped_at else None,
-        "skip_reason": task.skip_reason,
-        "reviewed_at": task.reviewed_at.isoformat() if task.reviewed_at else None,
-        "expected_width": item.width if item else None,
-        "expected_height": item.height if item else None,
-        "annotations": sorted(labels or [], key=lambda a: a["id"]),
+        "task_id": str(result.id),
+        "project_id": str(result.project_id),
+        "batch_id": str(result.batch_id) if result.batch_id else None,
+        "dataset_item_id": str(result.dataset_item_id)
+        if result.dataset_item_id
+        else None,
+        "source_key": result.file_path,
+        "file_type": result.file_type,
+        "version": result.version,
+        "status": result.status,
+        "submitted_at": result.submitted_at.isoformat()
+        if result.submitted_at
+        else None,
+        "skipped_at": result.skipped_at.isoformat() if result.skipped_at else None,
+        "skip_reason": result.skip_reason,
+        "reviewed_at": result.reviewed_at.isoformat() if result.reviewed_at else None,
+        "expected_width": result.width,
+        "expected_height": result.height,
+        "annotations": sorted(result.labels or [], key=lambda a: a["id"]),
     }
 
 

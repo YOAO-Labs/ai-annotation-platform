@@ -142,7 +142,12 @@ def world(monkeypatch):
         endpoint=endpoint,
     )
     attempt = SimpleNamespace(
-        id=uuid.uuid4(), run_id=run.id, status="succeeded", report=None, claim_id=None
+        id=uuid.uuid4(),
+        run_id=run.id,
+        status="succeeded",
+        report=None,
+        claim_id=None,
+        generation=run.generation,
     )
     run.current_attempt_id = attempt.id
     round = SimpleNamespace(id=uuid.uuid4(), project_id=project_id, generation=1)
@@ -250,15 +255,12 @@ async def test_evaluation_reads_refuse_before_io(world, monkeypatch, invalid):
 
 
 async def test_late_candidate_cleanup_carries_owner_after_run_is_deleted(
-    world, storage_db
+    world, storage_db, monkeypatch
 ):
     _report, artifact = published_report(world)
-    db = SimpleNamespace(
-        bind=storage_db.bind,
-        scalar=AsyncMock(return_value=None),
-        get=AsyncMock(return_value=None),
-        commit=AsyncMock(),
-    )
+    db = SimpleNamespace(bind=storage_db.bind, commit=AsyncMock())
+    monkeypatch.setattr(evaluations.data, "get_run", AsyncMock(return_value=None))
+    monkeypatch.setattr(evaluations.data, "get_attempt", AsyncMock(return_value=None))
     await evaluation_worker.cleanup_candidate(
         factory_for(db),
         world.run.id,
@@ -292,12 +294,9 @@ async def test_finish_captures_owner_before_upload_and_row_disappearance(
         return artifact
 
     monkeypatch.setattr(evaluations, "upload_report", upload_then_remove_row)
-    db = SimpleNamespace(
-        bind=storage_db.bind,
-        scalar=AsyncMock(return_value=None),
-        get=AsyncMock(return_value=None),
-        commit=AsyncMock(),
-    )
+    db = SimpleNamespace(bind=storage_db.bind, commit=AsyncMock())
+    monkeypatch.setattr(evaluations.data, "get_run", AsyncMock(return_value=None))
+    monkeypatch.setattr(evaluations.data, "get_attempt", AsyncMock(return_value=None))
     with pytest.raises(evaluation_worker.FencedOut):
         await evaluation_worker.finish(factory_for(db), world.attempt.id, uuid.uuid4())
     assert not world.client.objects
@@ -309,7 +308,9 @@ async def test_finish_captures_owner_before_upload_and_row_disappearance(
 @pytest.mark.parametrize(
     "invalid", ["missing-owner", "foreign-run", "foreign-key", "changed-owner"]
 )
-async def test_candidate_cleanup_never_guesses_or_crosses_owner(world, invalid):
+async def test_candidate_cleanup_never_guesses_or_crosses_owner(
+    world, invalid, monkeypatch
+):
     _report, artifact = published_report(world)
     snapshot, run_id = deepcopy(world.run.storage_ref), world.run.id
     live = None
@@ -324,23 +325,23 @@ async def test_candidate_cleanup_never_guesses_or_crosses_owner(world, invalid):
     else:
         live = deepcopy(world.run)
         live.storage_ref = None
-    db = SimpleNamespace(
-        scalar=AsyncMock(return_value=live),
-        get=AsyncMock(return_value=None),
-        commit=AsyncMock(),
-    )
+    db = SimpleNamespace(commit=AsyncMock())
+    monkeypatch.setattr(evaluations.data, "get_run", AsyncMock(return_value=live))
+    monkeypatch.setattr(evaluations.data, "get_attempt", AsyncMock(return_value=None))
     await evaluation_worker.cleanup_candidate(
         factory_for(db), run_id, world.attempt.id, artifact, storage_ref=snapshot
     )
     assert not world.client.calls
 
 
-async def test_candidate_cleanup_preserves_committed_report_after_lost_ack(world):
+async def test_candidate_cleanup_preserves_committed_report_after_lost_ack(
+    world, monkeypatch
+):
     _report, artifact = published_report(world)
-    db = SimpleNamespace(
-        scalar=AsyncMock(return_value=world.run),
-        get=AsyncMock(return_value=world.attempt),
-        commit=AsyncMock(),
+    db = SimpleNamespace(commit=AsyncMock())
+    monkeypatch.setattr(evaluations.data, "get_run", AsyncMock(return_value=world.run))
+    monkeypatch.setattr(
+        evaluations.data, "get_attempt", AsyncMock(return_value=world.attempt)
     )
     await evaluation_worker.cleanup_candidate(
         factory_for(db),
@@ -360,12 +361,10 @@ async def test_evaluation_cleanup_uses_saved_prefix_outside_business_transaction
     foreign_key = "another-owner/retained.json"
     world.client.objects[world.bucket, foreign_key] = b"unrelated"
     world.run.deletion_requested_at = evaluations.now()
-    db = SimpleNamespace(
-        bind=storage_db.bind,
-        scalar=AsyncMock(return_value=world.run),
-        commit=AsyncMock(),
-        delete=AsyncMock(),
-    )
+    db = SimpleNamespace(bind=storage_db.bind, commit=AsyncMock())
+    monkeypatch.setattr(evaluations.data, "get_run", AsyncMock(return_value=world.run))
+    purge = AsyncMock(return_value=True)
+    monkeypatch.setattr(evaluations.data, "purge", purge)
     monkeypatch.setattr(evaluations, "guard_source", AsyncMock())
     delete_objects = world.client.delete_objects
 
@@ -378,7 +377,7 @@ async def test_evaluation_cleanup_uses_saved_prefix_outside_business_transaction
     assert await evaluations.purge_requested(db, world.run.id)
     assert (world.bucket, artifact["key"]) not in world.client.objects
     assert world.client.objects[world.bucket, foreign_key] == b"unrelated"
-    db.delete.assert_awaited_once_with(world.run)
+    purge.assert_awaited_once_with(db, world.run, world.run.storage_ref)
 
 
 async def test_unknown_evaluation_delete_cannot_create_misleading_intent(
@@ -386,7 +385,7 @@ async def test_unknown_evaluation_delete_cannot_create_misleading_intent(
 ):
     world.run.storage_ref = None
     db = SimpleNamespace(commit=AsyncMock())
-    monkeypatch.setattr(evaluation_api, "lock_owner", AsyncMock())
+    monkeypatch.setattr(evaluation_api, "lock_project_manager", AsyncMock())
     monkeypatch.setattr(evaluations, "load_run", AsyncMock(return_value=world.run))
     monkeypatch.setattr(
         "app.services.active_learning_references.guard_source", AsyncMock()
@@ -412,14 +411,15 @@ async def test_unknown_owner_keeps_existing_evaluation_cleanup_responsibility(
 ):
     world.run.storage_ref = None
     world.run.deletion_requested_at = evaluations.now()
-    db = SimpleNamespace(
-        scalar=AsyncMock(return_value=world.run), commit=AsyncMock(), delete=AsyncMock()
-    )
+    db = SimpleNamespace(commit=AsyncMock())
+    monkeypatch.setattr(evaluations.data, "get_run", AsyncMock(return_value=world.run))
+    purge = AsyncMock()
+    monkeypatch.setattr(evaluations.data, "purge", purge)
     physical = Mock(side_effect=AssertionError("unknown owner cannot delete"))
     monkeypatch.setattr(storage_service, "delete_prefix", physical)
     with pytest.raises(TrainingDatasetError):
         await evaluations.purge_requested(db, world.run.id)
-    db.delete.assert_not_awaited()
+    purge.assert_not_awaited()
     physical.assert_not_called()
 
 
@@ -430,11 +430,10 @@ async def test_unknown_owner_does_not_block_confirmed_evaluation_stop(
     world.run.status = world.attempt.status = "cancelling"
     world.run.storage_ref = None
     world.attempt.claim_id = uuid.uuid4()
-    db = SimpleNamespace(
-        get=AsyncMock(
-            side_effect=[world.run, world.attempt, world.attempt, world.attempt]
-        ),
-        commit=AsyncMock(),
+    db = SimpleNamespace(commit=AsyncMock())
+    monkeypatch.setattr(evaluations.data, "get_run", AsyncMock(return_value=world.run))
+    monkeypatch.setattr(
+        evaluations.data, "get_attempt", AsyncMock(return_value=world.attempt)
     )
     monkeypatch.setattr(evaluations, "authority", AsyncMock())
     monkeypatch.setattr(evaluations, "load_run", AsyncMock(return_value=world.run))
@@ -450,20 +449,22 @@ async def test_unknown_owner_does_not_block_confirmed_evaluation_stop(
     monkeypatch.setattr(evaluations, "sample_rows", AsyncMock(return_value=rows))
     client = object()
     monkeypatch.setattr(
-        evaluation_worker, "private_client", AsyncMock(return_value=client)
+        evaluation_worker.managed,
+        "backend_control_handle",
+        AsyncMock(return_value=client),
     )
     receipt = AsyncMock(return_value={"state": "sealed"})
     monkeypatch.setattr(evaluation_worker, "remote_receipt", receipt)
     monkeypatch.setattr(
         evaluations, "build_report", Mock(return_value={"status": "cancelled"})
     )
-    terminal = AsyncMock()
+    terminal = AsyncMock(return_value=True)
     monkeypatch.setattr(evaluations, "mark_terminal", terminal)
     upload = Mock(side_effect=AssertionError("unknown output cannot upload"))
     monkeypatch.setattr(evaluations, "upload_report", upload)
     assert await evaluation_worker.settle_cancel(factory_for(db), world.run.id)
     assert terminal.await_args.kwargs["report"] is None
-    assert world.attempt.claim_id is None
+    assert terminal.await_args.args[3] == "cancelled"
     upload.assert_not_called()
     if has_request:
         receipt.assert_awaited_once_with(client, rows[0], seal=True)

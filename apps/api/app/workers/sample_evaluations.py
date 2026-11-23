@@ -8,24 +8,18 @@ import uuid
 from datetime import timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
-from app.db.models.sample_evaluation import (
-    SampleEvaluationAttempt as Attempt,
-    SampleEvaluationRun as Run,
-    SampleEvaluationSample as Sample,
-)
-from app.db.models.training_dataset import TrainingDatasetVersion
+from app.services import evaluation_data as data
+from app.services.training_dataset_data import read_version
 from app.services import (
     async_job as jobs,
     sample_evaluations as service,
     managed_inference as managed,
 )
 from app.services.training_dataset_bridge import TrainingDatasetError
-from app.services.training_datasets import bind_training_authority
 from app.workers.celery_app import celery_app
 
 log = logging.getLogger(__name__)
@@ -39,16 +33,16 @@ RemoteUncertain = managed.RemoteUncertain
 
 
 async def fenced(db, attempt_id, claim_id, *, check_authority=False):
-    attempt = await db.get(Attempt, attempt_id)
-    run = await db.get(Run, attempt.run_id) if attempt else None
+    run = await data.for_attempt(db, attempt_id)
     if not run:
         raise FencedOut
     if check_authority:
         await service.authority(db, run)
     run = await service.load_run(db, run.project_id, run.id, lock=True)
-    attempt = await db.get(Attempt, attempt_id, populate_existing=True)
+    attempt = await data.get_attempt(db, run.id, attempt_id)
     if (
-        run.current_attempt_id != attempt.id
+        attempt is None
+        or run.current_attempt_id != attempt.id
         or run.generation != attempt.generation
         or attempt.claim_id != claim_id
         or run.deletion_requested_at is not None
@@ -60,39 +54,27 @@ async def fenced(db, attempt_id, claim_id, *, check_authority=False):
 
 async def claim(factory, attempt_id, celery_task_id):
     async with factory() as db:
-        attempt = await db.get(Attempt, attempt_id)
-        run = await db.get(Run, attempt.run_id) if attempt else None
+        run = await data.for_attempt(db, attempt_id)
         if not run:
             return None
         try:
-            await bind_training_authority(db).assert_authority(
-                project_id=run.project_id,
-                actor_id=run.creator_id,
-                api_key_id=run.authorization.get("api_key_id"),
-                required_scopes=service.SCOPES,
-            )
+            await service.authority(db, run)
             service.owners.resolve(run)
         except TrainingDatasetError as exc:
             run = await service.load_run(db, run.project_id, run.id, lock=True)
             if run.current_attempt_id == attempt_id and run.status == "queued":
-                await service.request_cancel(db, run)
-                run.error_code = attempt.error_code = exc.code
-                run.error_message = attempt.error_message = str(exc)[:1000]
+                await service.request_cancel(
+                    db, run, code=exc.code, message=str(exc)[:1000]
+                )
                 await db.commit()
             return None
         run = await service.load_run(db, run.project_id, run.id, lock=True)
-        attempt = await db.get(Attempt, attempt_id, populate_existing=True)
-        if (
-            run.current_attempt_id != attempt_id
-            or run.status != "queued"
-            or attempt.claim_id
-            or run.deletion_requested_at is not None
-        ):
+        attempt = await data.get_attempt(db, run.id, attempt_id)
+        if attempt is None:
             return None
         claim_id = uuid.uuid4()
-        run.status = attempt.status = "running"
-        attempt.claim_id = claim_id
-        attempt.heartbeat_at = attempt.started_at = service.now()
+        if not await data.claim(db, run, attempt, claim_id, at=service.now()):
+            return None
         await jobs.mark_running(db, attempt.async_job_id, celery_task_id=celery_task_id)
         await db.commit()
         return claim_id
@@ -107,17 +89,14 @@ async def heartbeat(factory, attempt_id, claim_id, stop):
             pass
         try:
             async with factory() as db:
-                _run, attempt = await fenced(db, attempt_id, claim_id)
-                attempt.heartbeat_at = service.now()
+                run, attempt = await fenced(db, attempt_id, claim_id)
+                if not await data.heartbeat(db, run, attempt, at=service.now()):
+                    return
                 await db.commit()
         except FencedOut:
             return
         except Exception:
             log.warning("Evaluation heartbeat unavailable attempt=%s", attempt_id)
-
-
-async def private_client(db, run):
-    return await managed.private_client(db, run.spec["model_ref"])
 
 
 def recovered_result(receipt, run):
@@ -130,7 +109,9 @@ async def remote_receipt(client, row, *, seal=False):
 
 async def obtain_result(factory, run, row, png, attempt_id, claim_id):
     async with factory() as db:
-        client = await private_client(db, run)
+        client = await managed.backend_control_handle(
+            db, run.spec["model_ref"], session_factory=factory
+        )
         await db.commit()
     for _ in range(120):
         try:
@@ -185,16 +166,14 @@ async def obtain_result(factory, run, row, png, attempt_id, claim_id):
 async def checkpoint(factory, attempt_id, claim_id, ordinal, result):
     async with factory() as db:
         run, attempt = await fenced(db, attempt_id, claim_id, check_authority=True)
-        row = await db.get(Sample, (run.id, ordinal))
+        row = await data.get_sample(db, run.id, ordinal)
+        if row is None:
+            raise FencedOut
         if row.evidence:
             return
         evidence = service.successful_evidence(run, attempt, row, result)
-        row.evidence, row.status, row.produced_attempt_id = (
-            evidence,
-            "succeeded",
-            attempt.id,
-        )
-        row.error_code = row.error_message = None
+        if not await data.checkpoint(db, run, attempt, row, evidence):
+            raise FencedOut
         rows = await service.sample_rows(db, run)
         await jobs.update_progress(
             db,
@@ -209,14 +188,14 @@ async def mark_lost(factory, attempt_id, claim_id):
         run, attempt = await fenced(db, attempt_id, claim_id)
         if run.status == "cancelling":
             return
-        run.status = attempt.status = "lost"
-        run.error_code = attempt.error_code = "remote_execution_uncertain"
-        run.error_message = attempt.error_message = (
-            "推理结果或退出状态尚未确认；恢复时会先读取同一请求的收据"
-        )
-        attempt.claim_id = None
-        await jobs.mark_failed(db, attempt.async_job_id, error=run.error_message)
-        await service.notify_job_terminal(db, job_id=attempt.async_job_id)
+        if not await service.mark_lost(
+            db,
+            run,
+            attempt,
+            code="remote_execution_uncertain",
+            message="推理结果或退出状态尚未确认；恢复时会先读取同一请求的收据",
+        ):
+            raise FencedOut
         await db.commit()
 
 
@@ -233,8 +212,8 @@ async def cleanup_candidate(factory, run_id, attempt_id, artifact, *, storage_re
             owner, attempt_id, artifact["key"], artifact["sha256"]
         )
         async with factory() as db:
-            run = await db.scalar(select(Run).where(Run.id == run_id).with_for_update())
-            attempt = await db.get(Attempt, attempt_id)
+            run = await data.get_run(db, None, run_id, lock="update")
+            attempt = await data.get_attempt(db, None, attempt_id)
             if run and service.owners.resolve(run).ref != owner.ref:
                 return
             if attempt and attempt.run_id != run_id:
@@ -304,7 +283,7 @@ async def finish(factory, attempt_id, claim_id):
             service.verify_report(
                 report, current, current_attempt, await service.sample_rows(db, current)
             )
-            await service.mark_terminal(
+            if not await service.mark_terminal(
                 db,
                 current,
                 current_attempt,
@@ -312,7 +291,8 @@ async def finish(factory, attempt_id, claim_id):
                 code="sample_failed" if status == "failed" else None,
                 message="部分样本失败，未生成成功汇总" if status == "failed" else None,
                 report=artifact,
-            )
+            ):
+                raise FencedOut
             await db.commit()
     finally:
         await cleanup_candidate(
@@ -338,10 +318,14 @@ async def execute(factory, attempt_id, celery_task_id=None):
                 )
                 if run.status == "cancelling":
                     return
-                row = await db.get(Sample, (run.id, frozen["ordinal"]))
+                row = await data.get_sample(db, run.id, frozen["ordinal"])
+                if row is None:
+                    raise FencedOut
                 if row.evidence:
                     continue
-                version = await db.get(TrainingDatasetVersion, run.dataset_id)
+                version = await read_version(
+                    db, run.dataset_id, project_id=run.project_id
+                )
                 if (
                     not version
                     or version.snapshot_digest != spec["snapshot_digest"]
@@ -370,17 +354,13 @@ async def execute(factory, attempt_id, celery_task_id=None):
                     )
             except Exception:
                 async with factory() as db:
-                    current, _attempt = await fenced(
+                    current, attempt = await fenced(
                         db, attempt_id, claim_id, check_authority=True
                     )
-                    row = await db.get(Sample, (current.id, frozen["ordinal"]))
-                    if row.request:
+                    if not await data.fail_input(
+                        db, current, attempt, frozen["ordinal"]
+                    ):
                         raise RemoteUncertain
-                    row.status, row.error_code, row.error_message = (
-                        "failed",
-                        "frozen_input_unavailable",
-                        "冻结图片未通过完整性、尺寸或解码检查；未运行推理",
-                    )
                     await db.commit()
                 continue
             async with factory() as db:
@@ -389,9 +369,11 @@ async def execute(factory, attempt_id, celery_task_id=None):
                 )
                 if run.status != "running":
                     return
-                row = await db.get(Sample, (run.id, frozen["ordinal"]))
+                row = await data.get_sample(db, run.id, frozen["ordinal"])
+                if row is None:
+                    raise FencedOut
                 request = service.request_identity(spec, row, preprocessing)
-                if row.request and row.request != request:
+                if not await data.start_sample(db, run, attempt, row, request):
                     raise RemoteUncertain
                 row.request, row.status = request, "inflight"
                 await db.commit()
@@ -403,10 +385,10 @@ async def execute(factory, attempt_id, celery_task_id=None):
     except TrainingDatasetError as exc:
         async with factory() as db:
             try:
-                run, attempt = await fenced(db, attempt_id, claim_id)
-                await service.request_cancel(db, run)
-                run.error_code = attempt.error_code = exc.code
-                run.error_message = attempt.error_message = str(exc)[:1000]
+                run, _attempt = await fenced(db, attempt_id, claim_id)
+                await service.request_cancel(
+                    db, run, code=exc.code, message=str(exc)[:1000]
+                )
                 await db.commit()
             except FencedOut:
                 pass
@@ -422,13 +404,19 @@ async def execute(factory, attempt_id, celery_task_id=None):
 
 async def settle_cancel(factory, run_id):
     async with factory() as db:
-        run = await db.get(Run, run_id)
+        run = await data.get_run(db, None, run_id)
         if not run or run.status != "cancelling":
             return False
-        attempt = await db.get(Attempt, run.current_attempt_id)
+        attempt = await data.get_attempt(db, run.id, run.current_attempt_id)
+        if attempt is None:
+            return False
         rows = await service.sample_rows(db, run)
         client = (
-            await private_client(db, run) if any(row.request for row in rows) else None
+            await managed.backend_control_handle(
+                db, run.spec["model_ref"], session_factory=factory
+            )
+            if any(row.request for row in rows)
+            else None
         )
         await db.commit()
     recovered = {}
@@ -453,17 +441,22 @@ async def settle_cancel(factory, run_id):
         except TrainingDatasetError:
             authorized = False
         current = await service.load_run(db, run.project_id, run.id, lock=True)
-        if current.status != "cancelling" or current.current_attempt_id != attempt.id:
+        if (
+            current.status != "cancelling"
+            or current.current_attempt_id != attempt.id
+            or current.generation != attempt.generation
+        ):
             return False
         for ordinal, evidence in recovered.items() if authorized else []:
-            row = await db.get(Sample, (run.id, ordinal))
-            if not row.evidence:
-                row.evidence, row.status, row.produced_attempt_id = (
-                    evidence,
-                    "succeeded",
-                    attempt.id,
-                )
-        attempt = await db.get(Attempt, attempt.id, populate_existing=True)
+            row = await data.get_sample(db, run.id, ordinal)
+            if row and not row.evidence:
+                if not await data.checkpoint(
+                    db, current, attempt, row, evidence, recovered=True
+                ):
+                    return False
+        attempt = await data.get_attempt(db, run.id, attempt.id)
+        if attempt is None:
+            return False
         status = (
             "failed"
             if current.error_code in {"authority_revoked", "api_key_revoked"}
@@ -511,9 +504,12 @@ async def settle_cancel(factory, run_id):
             if (
                 current.status != "cancelling"
                 or current.current_attempt_id != attempt.id
+                or current.generation != attempt.generation
             ):
                 return False
-            attempt = await db.get(Attempt, attempt.id, populate_existing=True)
+            current_attempt = await data.get_attempt(db, run.id, attempt.id)
+            if current_attempt is None:
+                return False
             if artifact:
                 try:
                     if service.owners.resolve(current).ref != storage_ref:
@@ -522,18 +518,21 @@ async def settle_cancel(factory, run_id):
                     artifact = None
             if artifact:
                 service.verify_report(
-                    report, current, attempt, await service.sample_rows(db, current)
+                    report,
+                    current,
+                    current_attempt,
+                    await service.sample_rows(db, current),
                 )
-            await service.mark_terminal(
+            if not await service.mark_terminal(
                 db,
                 current,
-                attempt,
+                current_attempt,
                 status,
                 code=current.error_code,
                 message=current.error_message,
                 report=artifact,
-            )
-            attempt.claim_id = None
+            ):
+                return False
             await db.commit()
             return True
     finally:
@@ -544,11 +543,10 @@ async def settle_cancel(factory, run_id):
 
 
 async def dispatch(db, run):
-    attempt = await db.get(Attempt, run.current_attempt_id)
-    if run.status != "queued" or not attempt or attempt.claim_id:
+    attempt = await data.get_attempt(db, run.id, run.current_attempt_id)
+    if not attempt or not await data.dispatched(db, run, attempt, at=service.now()):
         return
     task_id = str(uuid.uuid4())
-    attempt.dispatched_at = service.now()
     job = await jobs.get_job(db, attempt.async_job_id)
     if job:
         jobs.bind_execution_id(job, task_id)
@@ -565,47 +563,17 @@ async def maintain(factory):
     await training_storage_cleanup.maintain(factory)
     cutoff = service.now()
     async with factory() as db:
-        ids = list(
-            (
-                await db.scalars(
-                    select(Run.id)
-                    .join(Attempt, Attempt.id == Run.current_attempt_id)
-                    .where(
-                        or_(
-                            Run.deletion_requested_at.is_not(None),
-                            Run.status == "cancelling",
-                            and_(
-                                Run.status == "queued",
-                                or_(
-                                    Attempt.dispatched_at.is_(None),
-                                    Attempt.dispatched_at
-                                    < cutoff - timedelta(seconds=30),
-                                ),
-                            ),
-                            and_(
-                                Run.status == "running",
-                                or_(
-                                    Attempt.heartbeat_at.is_(None),
-                                    Attempt.heartbeat_at
-                                    < cutoff - timedelta(seconds=45),
-                                ),
-                            ),
-                        )
-                    )
-                    .order_by(Attempt.maintenance_at.asc().nulls_first(), Run.id)
-                    .limit(100)
-                )
-            ).all()
-        )
+        ids = await data.maintenance_candidates(db, cutoff)
     for run_id in ids:
         async with factory() as db:
-            run = await db.scalar(
-                select(Run).where(Run.id == run_id).with_for_update(skip_locked=True)
-            )
+            run = await data.get_run(db, None, run_id, lock="maintenance")
             if not run:
                 continue
-            attempt = await db.get(Attempt, run.current_attempt_id)
-            attempt.maintenance_at = cutoff
+            attempt = await data.get_attempt(db, run.id, run.current_attempt_id)
+            if not attempt or not await data.maintenance_checked(
+                db, run, attempt, at=cutoff
+            ):
+                continue
             if run.deletion_requested_at:
                 await db.commit()
                 try:
@@ -617,16 +585,13 @@ async def maintain(factory):
                 not attempt.heartbeat_at
                 or attempt.heartbeat_at < service.now() - timedelta(seconds=45)
             ):
-                run.status = attempt.status = "lost"
-                run.error_code = attempt.error_code = "execution_lost"
-                run.error_message = attempt.error_message = (
-                    "执行心跳超时；旧请求可能仍在运行，恢复将核对收据"
+                await service.mark_lost(
+                    db,
+                    run,
+                    attempt,
+                    code="execution_lost",
+                    message="执行心跳超时；旧请求可能仍在运行，恢复将核对收据",
                 )
-                attempt.claim_id = None
-                await jobs.mark_failed(
-                    db, attempt.async_job_id, error=run.error_message
-                )
-                await service.notify_job_terminal(db, job_id=attempt.async_job_id)
             elif run.status == "queued" and (
                 not attempt.dispatched_at
                 or attempt.dispatched_at < service.now() - timedelta(seconds=30)
