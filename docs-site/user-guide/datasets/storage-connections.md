@@ -60,7 +60,7 @@ S3 endpoint 只填写服务地址，用户名和密码放入密钥字段；地�
 
 1. 在 **存储管理 → 位置** 点击 **新建远端连接**，填写名称、类型（`S3 / OSS` 或 `SFTP`，创建后不可改）与范围（`owner` 个人可见，或仅超级管理员可建的 `global` 全局连接）。
 2. **填写参数与加密凭据**：
-   - **S3 / OSS**：必填 `endpoint`、`bucket`、`access_key`、`secret_key`；可选 `region`、`base_prefix`（导入起始前缀，后续 `source_path` 限制在其内部）、`use_ssl`。
+   - **S3 / OSS**：必填 `endpoint`、`bucket`、`access_key`、`secret_key`；可选 `region`、`base_prefix`、`use_ssl`。`base_prefix` 按目录处理：例如填写 `frames` 或 `frames/`，测试和浏览都只列举 `frames/` 下的对象，不会列举 `frames-backup/`。`source_path` 也限于这个目录内；留空 `base_prefix` 才从桶根开始。
    - **SFTP**：必填 `host`、`username` 及 `password` 或 `private_key`（支持 RSA / Ed25519 / ECDSA，可选 `passphrase`）；可选 `port`（默认 22）与 `base_path`。
 3. **SFTP 主机指纹前置条件**：连接器测试与复制导入拒绝未知主机，不自动信任首次连接。运维应从可信渠道核对公钥后，配置实际连接进程的 `known_hosts`；[SFTP 原地引用](./sources)使用独立的 `STORAGE_SFTP_ROOTS` 与固定主机公钥，不混用系统 `known_hosts`。
 4. **测试、编辑与并发保护**：点击列表的 **测试** 会真实连接并采样列举最多 20 条记录（只验证执行测试的进程可以认证与列举，不代表原图读取、Range 或写入已就绪）。编辑参数或轮换密钥（留空表示保持原密钥）时，系统先对候选配置执行认证与列举验证，通过后才落库；保存校验修订版本（`expected_revision`），防止多人并发覆盖。删除连接器不影响已复制入库的文件。`owner` 连接器仅创建者或超级管理员可以编辑／删除；创建者后来变为 employee 或 viewer 时仍保留这项管理权限。`global` 连接器仅超级管理员可以编辑／删除。
