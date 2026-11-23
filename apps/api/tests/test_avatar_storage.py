@@ -2,13 +2,12 @@
 
 from copy import deepcopy
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 import uuid
 
 import pytest
 
 from app.config import settings
-from app.db.models.dataset_asset import StorageBinding
 from app.services import avatar_storage as owners
 from app.services.avatar_image import MAX_AVATAR_FILE_BYTES
 from app.services.dataset_assets import LEGACY_LOCATION_ID
@@ -179,40 +178,43 @@ def test_content_receipt_requires_strict_sha_and_bounded_size(storage, changes):
     assert caught.value.code == "avatar_storage_invalid_receipt"
 
 
-def allocation_db(storage):
+def allocation_db(storage, monkeypatch):
     location = SimpleNamespace(
         id=LEGACY_LOCATION_ID,
         kind="s3",
         config_revision=1,
         enabled=True,
         config={"endpoint": settings.minio_endpoint, "use_ssl": settings.minio_use_ssl},
+        connection_id=None,
     )
     binding = SimpleNamespace(
         location_id=LEGACY_LOCATION_ID, generation=1, bucket=storage.avatars_bucket
     )
 
-    async def selected(statement):
-        entity = statement.column_descriptions[0]["entity"]
-        return binding if entity is StorageBinding else location
-
-    db = SimpleNamespace(
-        get=AsyncMock(return_value=location), scalar=AsyncMock(side_effect=selected)
+    monkeypatch.setattr(owners.registry, "get_binding", AsyncMock(return_value=binding))
+    monkeypatch.setattr(
+        owners.registry, "get_location", AsyncMock(return_value=location)
     )
-    return db, location, binding
+    return object(), location, binding
 
 
 async def test_new_allocation_uses_verified_persisted_binding_only(
     storage, monkeypatch
 ):
-    db, _, _ = allocation_db(storage)
+    db, _, _ = allocation_db(storage, monkeypatch)
     ensure = AsyncMock()
     monkeypatch.setattr(owners, "ensure_legacy_bindings", ensure)
     original = reference(bucket=storage.avatars_bucket)
     assert await owners.allocate(db, TOKEN) == original
     ensure.assert_awaited_once_with(db)
-    db.get.assert_awaited_once()
-    statement = db.scalar.await_args.args[0]
-    assert statement.compile().params == {"purpose_1": "avatars"}
+    assert owners.registry.get_binding.await_args_list == [
+        call(db, "avatars"),
+        call(db, "avatars", lock="share"),
+    ]
+    assert owners.registry.get_location.await_args_list == [
+        call(db, LEGACY_LOCATION_ID),
+        call(db, LEGACY_LOCATION_ID, lock="share"),
+    ]
 
 
 @pytest.mark.parametrize(
@@ -231,7 +233,7 @@ async def test_new_allocation_uses_verified_persisted_binding_only(
 async def test_new_allocation_rejects_changed_binding(
     storage, monkeypatch, target, field, value
 ):
-    db, location, binding = allocation_db(storage)
+    db, location, binding = allocation_db(storage, monkeypatch)
     monkeypatch.setattr(owners, "ensure_legacy_bindings", AsyncMock())
     setattr(location if target == "location" else binding, field, deepcopy(value))
     with pytest.raises(owners.AvatarStorageError) as caught:
@@ -241,10 +243,13 @@ async def test_new_allocation_rejects_changed_binding(
 
 @pytest.mark.parametrize("missing", ["location", "binding"])
 async def test_new_allocation_rejects_missing_binding(storage, monkeypatch, missing):
-    db, _, _ = allocation_db(storage)
+    db, _, _ = allocation_db(storage, monkeypatch)
     monkeypatch.setattr(owners, "ensure_legacy_bindings", AsyncMock())
-    mock = db.get if missing == "location" else db.scalar
-    mock.side_effect = None
+    mock = (
+        owners.registry.get_location
+        if missing == "location"
+        else owners.registry.get_binding
+    )
     mock.return_value = None
     with pytest.raises(owners.AvatarStorageError) as caught:
         await owners.allocate(db, TOKEN)
@@ -252,7 +257,7 @@ async def test_new_allocation_rejects_missing_binding(storage, monkeypatch, miss
 
 
 async def test_new_allocation_does_not_hide_bootstrap_conflict(storage, monkeypatch):
-    db, _, _ = allocation_db(storage)
+    db, _, _ = allocation_db(storage, monkeypatch)
     monkeypatch.setattr(
         owners, "ensure_legacy_bindings", AsyncMock(side_effect=ValueError("secret"))
     )
@@ -260,11 +265,11 @@ async def test_new_allocation_does_not_hide_bootstrap_conflict(storage, monkeypa
         await owners.allocate(db, TOKEN)
     assert caught.value.code == "avatar_storage_binding_unproven"
     assert "secret" not in str(caught.value)
-    db.get.assert_not_awaited()
+    owners.registry.get_location.assert_not_awaited()
 
 
 async def test_switch_back_to_legacy_keeps_new_binding_generation(storage, monkeypatch):
-    db, _, binding = allocation_db(storage)
+    db, _, binding = allocation_db(storage, monkeypatch)
     monkeypatch.setattr(owners, "ensure_legacy_bindings", AsyncMock())
     binding.generation = 3
     result = await owners.allocate(db, TOKEN)
