@@ -27,6 +27,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from tests.asset_cleanup_compose_support import CleanupCompose
 from tests.native_signer_support import (
@@ -1255,6 +1256,7 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
         cleanup_url.drivername == "postgresql+asyncpg"
         and cleanup_url.username == "yoao_asset_cleanup_client"
         and cleanup_url.host == "127.0.0.1"
+        and cleanup_url.host == target_url.host
         and cleanup_url.port == target_url.port
         and cleanup_url.database == target_url.database
         and cleanup_url.database
@@ -1308,22 +1310,15 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
     ):
         pytest.fail("cleanup worker must not reuse the general MinIO principal")
     scoped_client = _local_s3_client(settings, cleanup_s3_key, cleanup_s3_secret)
-    cleanup_engine = create_async_engine(
-        cleanup_url,
-        hide_parameters=True,
-        connect_args={"timeout": 5, "command_timeout": 10},
-    )
-    append_engine = create_async_engine(
-        append_url,
-        hide_parameters=True,
-        connect_args={"timeout": 5, "command_timeout": 10},
-    )
-
-    source_engine = create_async_engine(
-        source_url,
-        hide_parameters=True,
-        connect_args={"timeout": 5, "command_timeout": 10},
-    )
+    owner_engine, cleanup_engine, append_engine, source_engine = [
+        create_async_engine(
+            url,
+            poolclass=NullPool,
+            hide_parameters=True,
+            connect_args={"timeout": 5, "command_timeout": 10},
+        )
+        for url in (target_url, cleanup_url, append_url, source_url)
+    ]
     ack_revoked = False
     fixture: dict | None = None
     operation_id = uuid.uuid4()
@@ -1343,7 +1338,7 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
     )
 
     try:
-        async with test_engine.connect() as owner:
+        async with owner_engine.connect() as owner:
             compose.receipt["schema_head"] = await owner.scalar(
                 text("SELECT version_num FROM public.alembic_version")
             )
@@ -1368,12 +1363,12 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
         )
         compose.receipt["postgres_role_denials"] = True
 
-        fixture = await _seed_dataset_case(test_engine, lease_seconds=20)
+        fixture = await _seed_dataset_case(owner_engine, lease_seconds=20)
         target_prefix = fixture["target_prefix"]
         sibling_prefix = fixture["sibling_prefix"]
         if (
             await _pending_count(
-                test_engine,
+                owner_engine,
                 media_bucket,
                 (target_prefix, sibling_prefix, fixture["task_prefix"]),
             )
@@ -1418,7 +1413,7 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
             assert reply["ok"] is True
             assert reply["data"]["operation_id"] == str(operation_id)
             assert reply["data"]["queued_storage_deletions"] == 1
-            await _assert_native_source_state(test_engine, fixture)
+            await _assert_native_source_state(owner_engine, fixture)
 
             unlink_reply = await _call_native_dataset_unlink(
                 append_engine,
@@ -1432,9 +1427,9 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
             assert unlink_reply["ok"] is True
             assert unlink_reply["data"]["operation_id"] == str(unlink_operation_id)
             assert unlink_reply["data"]["deleted_tasks"] == 1
-            await _assert_native_unlink_state(test_engine, fixture)
+            await _assert_native_unlink_state(owner_engine, fixture)
 
-            outbox = await _outbox_row(test_engine, operation_id)
+            outbox = await _outbox_row(owner_engine, operation_id)
             assert outbox is not None
             assert outbox["asset_id"] == fixture["target_asset_id"]
             assert outbox["bucket"] == media_bucket
@@ -1444,7 +1439,7 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
             assert outbox["not_before"] > datetime.now(timezone.utc) + timedelta(
                 seconds=2
             )
-            task_outbox = await _outbox_row(test_engine, unlink_operation_id)
+            task_outbox = await _outbox_row(owner_engine, unlink_operation_id)
             assert task_outbox is not None
             assert task_outbox["asset_id"] == fixture["task_asset_id"]
             assert task_outbox["bucket"] == media_bucket
@@ -1472,17 +1467,17 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
                 )
             assert early_ack is False
             assert early_task_ack is False
-            assert (await _outbox_row(test_engine, operation_id))[
+            assert (await _outbox_row(owner_engine, operation_id))[
                 "completed_at"
             ] is None
-            assert (await _outbox_row(test_engine, unlink_operation_id))[
+            assert (await _outbox_row(owner_engine, unlink_operation_id))[
                 "completed_at"
             ] is None
 
-            await _set_complete_permission(test_engine, enabled=False)
+            await _set_complete_permission(owner_engine, enabled=False)
             ack_revoked = True
             await _insert_poison_page_row(
-                test_engine,
+                owner_engine,
                 operation_id=poison_operation_id,
                 asset_id=poison_asset_id,
                 bucket=media_bucket,
@@ -1522,15 +1517,15 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
                 media_bucket,
                 keys["target"] + [late_key] + keys["task"] + [task_late_key],
             )
-            pending_after_lost_ack = await _outbox_row(test_engine, operation_id)
+            pending_after_lost_ack = await _outbox_row(owner_engine, operation_id)
             assert pending_after_lost_ack is not None
             assert pending_after_lost_ack["completed_at"] is None
             task_pending_after_lost_ack = await _outbox_row(
-                test_engine, unlink_operation_id
+                owner_engine, unlink_operation_id
             )
             assert task_pending_after_lost_ack is not None
             assert task_pending_after_lost_ack["completed_at"] is None
-            poison_after_lost_ack = await _outbox_row(test_engine, poison_operation_id)
+            poison_after_lost_ack = await _outbox_row(owner_engine, poison_operation_id)
             assert poison_after_lost_ack is not None
             assert poison_after_lost_ack["completed_at"] is None
             await _wait_until(
@@ -1555,18 +1550,18 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
             }
             await asyncio.to_thread(compose.stop_worker)
 
-            await _set_complete_permission(test_engine, enabled=True)
+            await _set_complete_permission(owner_engine, enabled=True)
             ack_revoked = False
             await asyncio.to_thread(compose.restart_worker)
             await compose.wait_ready("assets-cleanup")
-            completed = await _wait_outbox_complete(test_engine, operation_id)
+            completed = await _wait_outbox_complete(owner_engine, operation_id)
             assert completed["completed_at"] is not None
             task_completed = await _wait_outbox_complete(
-                test_engine, unlink_operation_id
+                owner_engine, unlink_operation_id
             )
             assert task_completed["completed_at"] is not None
             if poison_inserted:
-                poison = await _wait_outbox_complete(test_engine, poison_operation_id)
+                poison = await _wait_outbox_complete(owner_engine, poison_operation_id)
                 assert poison["completed_at"] is not None
             _verify_expected_objects(
                 owner_client, media_bucket, datasets_bucket, fixture, keys
@@ -1579,7 +1574,7 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
 
         await exercise_outbox()
         native_probe = NativeCleanupProbe(
-            test_engine, owner_client, media_bucket, endpoint, fixture
+            owner_engine, owner_client, media_bucket, endpoint, fixture
         )
         async with native_probe:
             _expect_s3_denied(
@@ -1596,13 +1591,13 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
             cleanup_errors.append(f"owned Compose project ({error})")
         if ack_revoked:
             try:
-                await _set_complete_permission(test_engine, enabled=True)
+                await _set_complete_permission(owner_engine, enabled=True)
             except Exception:
                 cleanup_errors.append("cleanup-role permission")
         if fixture is not None:
             try:
                 await _cleanup_database_rows(
-                    test_engine,
+                    owner_engine,
                     fixture,
                     operation_id,
                     unlink_operation_id,
@@ -1617,7 +1612,7 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
                 )
             except Exception:
                 cleanup_errors.append("owned MinIO objects")
-        for engine in (append_engine, cleanup_engine, source_engine):
+        for engine in (owner_engine, cleanup_engine, append_engine, source_engine):
             try:
                 await engine.dispose()
             except Exception:
