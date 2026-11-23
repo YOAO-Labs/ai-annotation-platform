@@ -1,3 +1,57 @@
+x-celery-env: &celery-env
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+  ASSETS_VIDEO_EXECUTOR: ${ASSETS_VIDEO_EXECUTOR:-celery}
+  ASSETS_IMAGE_EXECUTOR: ${ASSETS_IMAGE_EXECUTOR:-celery}
+
+x-assets-celery-video-env: &assets-celery-video-env
+  ASSETS_CELERY_VIDEO_DATABASE_URL: ${ASSETS_CELERY_VIDEO_DATABASE_URL:-}
+  ASSETS_CELERY_VIDEO_DATABASE_URL_FILE: ${ASSETS_CELERY_VIDEO_DATABASE_URL_FILE:+/run/secrets/assets_celery_video_database_url}
+
+x-assets-celery-video-secret: &assets-celery-video-secret
+  type: bind
+  source: ${ASSETS_CELERY_VIDEO_DATABASE_URL_FILE:-/dev/null}
+  target: /run/secrets/assets_celery_video_database_url
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-assets-celery-image-env: &assets-celery-image-env
+  ASSETS_CELERY_IMAGE_DATABASE_URL: ${ASSETS_CELERY_IMAGE_DATABASE_URL:-}
+  ASSETS_CELERY_IMAGE_DATABASE_URL_FILE: ${ASSETS_CELERY_IMAGE_DATABASE_URL_FILE:+/run/secrets/assets_celery_image_database_url}
+
+x-assets-celery-image-secret: &assets-celery-image-secret
+  type: bind
+  source: ${ASSETS_CELERY_IMAGE_DATABASE_URL_FILE:-/dev/null}
+  target: /run/secrets/assets_celery_image_database_url
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-notification-producer-env: &notification-producer-env
+  NOTIFICATION_PUBLICATION_URL: ${NOTIFICATION_PUBLICATION_URL:-}
+  NOTIFICATION_PUBLICATION_TOKEN: ${NOTIFICATION_PUBLICATION_TOKEN:-}
+  NOTIFICATION_PUBLICATION_TOKEN_FILE: ${NOTIFICATION_PUBLICATION_TOKEN_FILE:+/run/secrets/notification_publication_token}
+
+x-notification-publication-secret: &notification-publication-secret
+  type: bind
+  source: ${NOTIFICATION_PUBLICATION_TOKEN_FILE:-/dev/null}
+  target: /run/secrets/notification_publication_token
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-native-image-reader-secret: &native-image-reader-secret
+  type: bind
+  source: ${ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE:-/dev/null}
+  target: /run/secrets/assets_media_native_image_storage_token
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-jobs-publication-env: &jobs-publication-env
+  JOBS_PUBLICATION_DATABASE_URL: ${JOBS_PUBLICATION_DATABASE_URL:-}
+  JOBS_PUBLICATION_DATABASE_URL_FILE: ${JOBS_PUBLICATION_DATABASE_URL_FILE:+/run/secrets/jobs_publication_database_url}
+
 x-jobs-publication-secret: &jobs-publication-secret
   type: bind
   source: ${JOBS_PUBLICATION_DATABASE_URL_FILE:-/dev/null}
@@ -13,6 +67,13 @@ x-export-execution-secret: &export-execution-secret
   read_only: true
   bind:
     create_host_path: false
+
+x-worker-health: &worker-health
+  test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME -t 10"]
+  interval: 30s
+  timeout: 15s
+  retries: 3
+  start_period: 40s
 
 services:
   postgres:
@@ -77,6 +138,7 @@ services:
       dockerfile: infra/docker/Dockerfile.api
     command: celery -A app.workers.celery_app worker -l info -Q maintenance --concurrency=1 --prefetch-multiplier=1
     environment:
+      <<: *celery-env
       DATABASE_URL: ${MIGRATION_DATABASE_URL_DOCKER:-${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}}
       MIGRATION_DATABASE_URL: ""
       TEST_DATABASE_URL: ""
@@ -116,7 +178,20 @@ services:
     command: celery -A app.workers.celery_app worker -l info -Q default,media,cleanup,audit --concurrency=4
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<:
+        [
+          *celery-env,
+          *jobs-publication-env,
+          *notification-producer-env,
+          *assets-celery-video-env,
+          *assets-celery-image-env,
+        ]
+      NOTIFICATION_PUBLISH_DATABASE_URL: ${NOTIFICATION_PUBLISH_DATABASE_URL:-}
+      NOTIFICATION_PUBLISH_DATABASE_URL_FILE: ${NOTIFICATION_PUBLISH_DATABASE_URL_FILE:+/run/secrets/notification_publish_database_url}
+      NOTIFICATION_PUBLISH_REDIS_URL: ${NOTIFICATION_PUBLISH_REDIS_URL:-}
+      NOTIFICATION_PUBLISH_REDIS_URL_FILE: ${NOTIFICATION_PUBLISH_REDIS_URL_FILE:+/run/secrets/notification_publish_redis_url}
+      ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL: ${ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL:-}
+      ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE: ${ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE:+/run/secrets/assets_media_native_image_storage_token}
       MIGRATION_DATABASE_URL: ""
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
@@ -148,6 +223,22 @@ services:
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
     volumes:
       - *jobs-publication-secret
+      - *notification-publication-secret
+      - *native-image-reader-secret
+      - *assets-celery-video-secret
+      - *assets-celery-image-secret
+      - type: bind
+        source: ${NOTIFICATION_PUBLISH_DATABASE_URL_FILE:-/dev/null}
+        target: /run/secrets/notification_publish_database_url
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${NOTIFICATION_PUBLISH_REDIS_URL_FILE:-/dev/null}
+        target: /run/secrets/notification_publish_redis_url
+        read_only: true
+        bind:
+          create_host_path: false
       - ./data/duckdb:/var/lib/duckdb
       - ./config/ssh/known_hosts:/root/.ssh/known_hosts:ro
       - ./apps/api:/app
@@ -158,13 +249,7 @@ services:
         read_only: true
         bind:
           create_host_path: false
-    healthcheck:
-      test:
-        ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME -t 10"]
-      interval: 30s
-      timeout: 15s
-      retries: 3
-      start_period: 40s
+    healthcheck: *worker-health
     stop_grace_period: 30s
     depends_on:
       celery-worker-maintenance:
@@ -182,6 +267,7 @@ services:
       dockerfile: infra/docker/Dockerfile.api
     command: celery -A app.workers.celery_app worker -l info -Q image-pyramid --concurrency=1 --prefetch-multiplier=1 --max-memory-per-child=1572864
     environment:
+      <<: [*celery-env, *assets-celery-image-env]
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
@@ -210,6 +296,7 @@ services:
       MALLOC_TRIM_THRESHOLD_: "131072"
       IMAGE_PYRAMID_SRGB_PROFILE: ${IMAGE_PYRAMID_SRGB_PROFILE:-/usr/share/color/icc/sRGB.icc}
     volumes:
+      - *assets-celery-image-secret
       - ./apps/api:/app
       - /app/.venv
     healthcheck:
@@ -234,6 +321,7 @@ services:
       dockerfile: infra/docker/Dockerfile.api
     command: celery -A app.workers.celery_app worker -l info -Q gpu.control --concurrency=1 --prefetch-multiplier=1
     environment:
+      <<: *celery-env
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
@@ -287,7 +375,9 @@ services:
     command: celery -A app.workers.celery_app worker -l info -Q ml,gpu --concurrency=${CELERY_GPU_CONCURRENCY:-2}
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<: [*celery-env, *jobs-publication-env, *assets-celery-video-env, *assets-celery-image-env]
+      ASSETS_MASK_CONTENT_URL: ${ASSETS_MASK_CONTENT_URL:-}
+      ASSETS_MASK_CONTENT_TOKEN: ${ASSETS_MASK_CONTENT_TOKEN:-}
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
@@ -306,6 +396,8 @@ services:
       GPU_LIFECYCLE_ACTIVE_SIGNING_KID: ${GPU_LIFECYCLE_ACTIVE_SIGNING_KID:-}
       VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES: ${VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES:-16}
     volumes:
+      - *assets-celery-video-secret
+      - *assets-celery-image-secret
       - *jobs-publication-secret
       - ./data/duckdb:/var/lib/duckdb
       - ./config/ssh/known_hosts:/root/.ssh/known_hosts:ro
@@ -340,7 +432,7 @@ services:
     command: celery -A app.workers.celery_app worker -l info -Q ml.cpu --concurrency=${CELERY_CPU_CONCURRENCY:-4}
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<: [*celery-env, *jobs-publication-env, *assets-celery-video-env, *assets-celery-image-env]
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
@@ -356,6 +448,8 @@ services:
       GPU_ARBITER_ADMISSION_TIMEOUT_SECONDS: ${GPU_ARBITER_ADMISSION_TIMEOUT_SECONDS:-30}
       GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS: ${GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS:-30}
     volumes:
+      - *assets-celery-video-secret
+      - *assets-celery-image-secret
       - *jobs-publication-secret
       - ./data/duckdb:/var/lib/duckdb
       - ./config/ssh/known_hosts:/root/.ssh/known_hosts:ro
@@ -384,7 +478,7 @@ services:
     command: celery -A app.workers.celery_app worker -l info -Q export --concurrency=2
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<: [*celery-env, *jobs-publication-env, *notification-producer-env]
       EXPORT_EXECUTION_DATABASE_URL_FILE: /run/secrets/export_execution_database_url
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
@@ -401,6 +495,7 @@ services:
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
     volumes:
       - *jobs-publication-secret
+      - *notification-publication-secret
       - *export-execution-secret
       - ./data/duckdb:/var/lib/duckdb
       - ./apps/api:/app
@@ -421,12 +516,51 @@ services:
       minio:
         condition: service_healthy
 
+  celery-worker-jobs-recovery:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.api
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        python -m app.workers.jobs_dispatch;
+        exec celery -A app.workers.celery_app worker -l info -Q jobs.recovery
+        --concurrency=1 --prefetch-multiplier=1
+    environment:
+      <<: *jobs-publication-env
+      ALEMBIC_AUTO_UPGRADE: "false"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+      JOBS_DISPATCH_DATABASE_URL: ${JOBS_DISPATCH_DATABASE_URL:-}
+      JOBS_DISPATCH_DATABASE_URL_FILE: ${JOBS_DISPATCH_DATABASE_URL_FILE:+/run/secrets/jobs_dispatch_database_url}
+    volumes:
+      - *jobs-publication-secret
+      - type: bind
+        source: ${JOBS_DISPATCH_DATABASE_URL_FILE:-/dev/null}
+        target: /run/secrets/jobs_dispatch_database_url
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck: *worker-health
+    stop_grace_period: 30s
+    pids_limit: 64
+    mem_limit: 1g
+    cpus: 1
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
   celery-beat:
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.api
     command: celery -A app.workers.celery_app beat -l info --schedule=/tmp/celerybeat-schedule
     environment:
+      <<: *celery-env
+      NOTIFICATION_PUBLICATION_URL: ${NOTIFICATION_PUBLICATION_URL:-}
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
@@ -445,6 +579,8 @@ services:
       - /app/.venv
     stop_grace_period: 30s
     depends_on:
+      celery-worker-jobs-recovery:
+        condition: service_healthy
       redis:
         condition: service_healthy
       postgres:

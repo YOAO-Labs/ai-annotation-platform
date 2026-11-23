@@ -1,13 +1,142 @@
-x-prod-infra-env: &prod-infra-env
-  DATABASE_URL: ${DATABASE_URL:?.env.production 必须设置 DATABASE_URL}
-  MIGRATION_DATABASE_URL: ""
+x-private-env: &private-env
+  JOBS_DISPATCH_DATABASE_URL: ""
+  JOBS_DISPATCH_DATABASE_URL_FILE: ""
+  JOBS_DISPATCH_RELAY_DATABASE_URL: ""
+  JOBS_DISPATCH_RELAY_DATABASE_URL_FILE: ""
+  JOBS_QUEUE_URL: ""
+  JOBS_QUEUE_TOKEN: ""
+  JOBS_QUEUE_TOKEN_FILE: ""
   JOBS_PUBLICATION_DATABASE_URL: ""
   JOBS_PUBLICATION_DATABASE_URL_FILE: ""
   EXPORT_EXECUTION_DATABASE_URL: ""
   EXPORT_EXECUTION_DATABASE_URL_FILE: ""
-  ALEMBIC_AUTO_UPGRADE: "false"
+  NOTIFICATION_PUBLICATION_URL: ""
+  NOTIFICATION_PUBLICATION_TOKEN: ""
+  NOTIFICATION_PUBLICATION_TOKEN_FILE: ""
+  NOTIFICATION_PUBLISH_DATABASE_URL: ""
+  NOTIFICATION_PUBLISH_DATABASE_URL_FILE: ""
+  NOTIFICATION_PUBLISH_REDIS_URL: ""
+  NOTIFICATION_PUBLISH_REDIS_URL_FILE: ""
+  NOTIFICATION_PUBLISH_API_TOKEN: ""
+  NOTIFICATION_PUBLISH_API_TOKEN_FILE: ""
+  NOTIFICATION_SUBSCRIBE_REDIS_URL: ""
+  NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE: ""
+  NOTIFICATION_SOCKET_URL: ""
+  IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE: ""
+  IDENTITY_EMBEDDED_SIGNING_SECRET: ""
+  IDENTITY_EMBEDDED_SIGNING_SECRET_FILE: ""
+  IDENTITY_SIGNING_SECRET: ""
+  IDENTITY_DATABASE_URL: ""
+  IDENTITY_DATABASE_URL_FILE: ""
+  IDENTITY_LOGIN_REDIS_URL: ""
+  IDENTITY_LOGIN_REDIS_URL_FILE: ""
+  IDENTITY_RUNTIME_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_KEY_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_SESSION_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_ACCOUNT_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_ADMIN_PASSWORD_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_PLATFORM_ROLE_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_SUSPENSION_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_OFFBOARDING_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_BRIEFS_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_RECOVERY_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE: ""
+  IDENTITY_RUNTIME_TOKEN_FILE: ""
+  IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE: ""
+  IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE: ""
+  IDENTITY_SIGNING_SECRET_FILE: ""
+  IDENTITY_RUNTIME_SIGNING_SECRET_FILE: ""
+  IDENTITY_RECOVERY_MAIL_KEY: ""
+  IDENTITY_RECOVERY_MAIL_KEY_FILE: ""
+  IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE: ""
+  IDENTITY_MAIL_DATABASE_URL: ""
+  IDENTITY_MAIL_DATABASE_URL_FILE: ""
+  IDENTITY_MAIL_V2_DATABASE_URL: ""
+  IDENTITY_MAIL_V2_DATABASE_URL_FILE: ""
+  IDENTITY_MAIL_SETTINGS_DATABASE_URL: ""
+  IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE: ""
+  IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL: ""
+  IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE: ""
+  IDENTITY_MAIL_ENCRYPTION_KEY: ""
+  IDENTITY_MAIL_ENCRYPTION_KEY_FILE: ""
+  IDENTITY_MAIL_V2_ENCRYPTION_KEY: ""
+  IDENTITY_MAIL_V2_ENCRYPTION_KEY_FILE: ""
+  IDENTITY_MAIL_SMTP_PASSWORD: ""
+  IDENTITY_MAIL_SMTP_PASSWORD_FILE: ""
+  IDENTITY_MAIL_V2_SMTP_PASSWORD: ""
+  IDENTITY_MAIL_V2_SMTP_PASSWORD_FILE: ""
   SMTP_PASSWORD: ""
   SMTP_PASSWORD_FILE: ""
+  ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL: ""
+  ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN: ""
+  ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE: ""
+  ASSETS_CELERY_VIDEO_DATABASE_URL: ""
+  ASSETS_CELERY_VIDEO_DATABASE_URL_FILE: ""
+  ASSETS_CELERY_IMAGE_DATABASE_URL: ""
+  ASSETS_CELERY_IMAGE_DATABASE_URL_FILE: ""
+  ASSETS_MEDIA_WORKER_DATABASE_URL: ""
+  ASSETS_MEDIA_WORKER_DATABASE_URL_FILE: ""
+  ASSETS_IMAGES_DATABASE_URL: ""
+  ASSETS_IMAGES_DATABASE_URL_FILE: ""
+  ASSETS_IMAGES_NATIVE_STORAGE_URL: ""
+  ASSETS_IMAGES_NATIVE_STORAGE_TOKEN: ""
+  ASSETS_IMAGES_NATIVE_STORAGE_TOKEN_FILE: ""
+  ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY: ""
+  ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE: ""
+  ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN: ""
+  ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN_FILE: ""
+  ASSETS_SOURCE_NATIVE_PYRAMID_READER_TOKEN: ""
+  ASSETS_SOURCE_NATIVE_PYRAMID_READER_TOKEN_FILE: ""
+  ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN: ""
+  ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN_FILE: ""
+  ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY: ""
+  ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY_FILE: ""
+  ASSETS_SOURCE_NATIVE_S3_SECRET_KEY: ""
+  ASSETS_SOURCE_NATIVE_S3_SECRET_KEY_FILE: ""
+  LABELING_RUNTIME_VIDEO_WRITER_DATABASE_URL_FILE: ""
+  LABELING_RUNTIME_VIDEO_WRITER_CONTROL_TOKEN_FILE: ""
+  LABELING_RUNTIME_VIDEO_WRITER_MASK_CONTENT_TOKEN_FILE: ""
+
+x-jobs-publication-env: &jobs-publication-env
+  JOBS_PUBLICATION_DATABASE_URL: ${JOBS_PUBLICATION_DATABASE_URL:-}
+  JOBS_PUBLICATION_DATABASE_URL_FILE: ${JOBS_PUBLICATION_DATABASE_URL_FILE:+/run/secrets/jobs_publication_database_url}
+
+x-notification-producer-env: &notification-producer-env
+  NOTIFICATION_PUBLICATION_URL: ${NOTIFICATION_PUBLICATION_URL:-}
+  NOTIFICATION_PUBLICATION_TOKEN: ${NOTIFICATION_PUBLICATION_TOKEN:-}
+  NOTIFICATION_PUBLICATION_TOKEN_FILE: ${NOTIFICATION_PUBLICATION_TOKEN_FILE:+/run/secrets/notification_publication_token}
+
+x-native-image-reader-env: &native-image-reader-env
+  ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL: ${ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL:-}
+  ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE: ${ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE:+/run/secrets/assets_media_native_image_storage_token}
+
+x-assets-celery-video-env: &assets-celery-video-env
+  ASSETS_CELERY_VIDEO_DATABASE_URL: ${ASSETS_CELERY_VIDEO_DATABASE_URL:-}
+  ASSETS_CELERY_VIDEO_DATABASE_URL_FILE: ${ASSETS_CELERY_VIDEO_DATABASE_URL_FILE:+/run/secrets/assets_celery_video_database_url}
+
+x-assets-celery-image-env: &assets-celery-image-env
+  ASSETS_CELERY_IMAGE_DATABASE_URL: ${ASSETS_CELERY_IMAGE_DATABASE_URL:-}
+  ASSETS_CELERY_IMAGE_DATABASE_URL_FILE: ${ASSETS_CELERY_IMAGE_DATABASE_URL_FILE:+/run/secrets/assets_celery_image_database_url}
+
+x-assets-celery-env: &assets-celery-env
+  <<: [*assets-celery-video-env, *assets-celery-image-env]
+
+x-prod-infra-env: &prod-infra-env
+  <<: *private-env
+  DATABASE_URL: ${DATABASE_URL:?.env.production 必须设置 DATABASE_URL}
+  MIGRATION_DATABASE_URL: ""
+  ALEMBIC_AUTO_UPGRADE: "false"
   ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://yolo-backend:8003","onnxtools":"http://onnxtools-backend:8004","rapidocr":"http://rapidocr-backend:8005"}}'
   STORAGE_FILESYSTEM_ROOTS: "${STORAGE_FILESYSTEM_ROOTS:-{}}"
   REDIS_URL: ${REDIS_URL:?.env.production 必须设置 REDIS_URL}
@@ -16,10 +145,10 @@ x-prod-infra-env: &prod-infra-env
   MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:?.env.production 必须设置 MINIO_ACCESS_KEY}
   MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:?.env.production 必须设置 MINIO_SECRET_KEY}
 
-x-smtp-password: &smtp-password
+x-notification-publication-secret: &notification-publication-secret
   type: bind
-  source: ${SMTP_PASSWORD_FILE:-/dev/null}
-  target: /run/secrets/api_smtp_password
+  source: ${NOTIFICATION_PUBLICATION_TOKEN_FILE:-/dev/null}
+  target: /run/secrets/notification_publication_token
   read_only: true
   bind:
     create_host_path: false
@@ -40,10 +169,18 @@ services:
     env_file:
       - .env.production
     environment:
-      JOBS_PUBLICATION_DATABASE_URL: ""
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
-      EXPORT_EXECUTION_DATABASE_URL: ""
-      EXPORT_EXECUTION_DATABASE_URL_FILE: ""
+      <<:
+        [*jobs-publication-env, *notification-producer-env, *native-image-reader-env, *private-env]
+      REDIS_URL: ${REDIS_URL:?.env.production 必须设置 REDIS_URL}
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+      ASSETS_VIDEO_EXECUTOR: ${ASSETS_VIDEO_EXECUTOR:-celery}
+      ASSETS_IMAGE_EXECUTOR: ${ASSETS_IMAGE_EXECUTOR:-celery}
+      NOTIFICATION_SUBSCRIBE_REDIS_URL: ${NOTIFICATION_SUBSCRIBE_REDIS_URL:-}
+      NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE: ${NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE:+/run/secrets/notification_subscribe_redis_url}
+      IDENTITY_EMBEDDED_SIGNING_SECRET: ${IDENTITY_EMBEDDED_SIGNING_SECRET:-}
+      IDENTITY_EMBEDDED_SIGNING_SECRET_FILE: ${IDENTITY_EMBEDDED_SIGNING_SECRET_FILE:+/run/secrets/identity_embedded_signing_secret}
+      IDENTITY_RECOVERY_MAIL_KEY: ${IDENTITY_RECOVERY_MAIL_KEY:-}
+      IDENTITY_RECOVERY_MAIL_KEY_FILE: ${IDENTITY_RECOVERY_MAIL_KEY_FILE:+/run/secrets/identity_recovery_mail_key}
       GPU_LIFECYCLE_SIGNING_KEYS_FILE: /run/secrets/gpu_lifecycle_signing_keys
       GPU_LIFECYCLE_ACTIVE_SIGNING_KID: ${GPU_LIFECYCLE_ACTIVE_SIGNING_KID:-}
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://yolo-backend:8003","onnxtools":"http://onnxtools-backend:8004","rapidocr":"http://rapidocr-backend:8005"}}'
@@ -52,7 +189,37 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
       SMTP_PASSWORD_FILE: ${SMTP_PASSWORD_FILE:+/run/secrets/api_smtp_password}
     volumes:
-      - *smtp-password
+      - *notification-publication-secret
+      - type: bind
+        source: ${SMTP_PASSWORD_FILE:-/dev/null}
+        target: /run/secrets/api_smtp_password
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${IDENTITY_EMBEDDED_SIGNING_SECRET_FILE:-/dev/null}
+        target: /run/secrets/identity_embedded_signing_secret
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${IDENTITY_RECOVERY_MAIL_KEY_FILE:-/dev/null}
+        target: /run/secrets/identity_recovery_mail_key
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE:-/dev/null}
+        target: /run/secrets/notification_subscribe_redis_url
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_media_native_image_storage_token
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: ${JOBS_PUBLICATION_DATABASE_URL_FILE:-/dev/null}
         target: /run/secrets/jobs_publication_database_url
@@ -124,19 +291,25 @@ services:
     env_file:
       - .env.production
     environment:
-      <<: *prod-infra-env
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<:
+        [
+          *jobs-publication-env,
+          *notification-producer-env,
+          *native-image-reader-env,
+          *assets-celery-env,
+          *prod-infra-env,
+        ]
+      NOTIFICATION_PUBLISH_DATABASE_URL: ${NOTIFICATION_PUBLISH_DATABASE_URL:-}
+      NOTIFICATION_PUBLISH_DATABASE_URL_FILE: ${NOTIFICATION_PUBLISH_DATABASE_URL_FILE:+/run/secrets/notification_publish_database_url}
+      NOTIFICATION_PUBLISH_REDIS_URL: ${NOTIFICATION_PUBLISH_REDIS_URL:-}
+      NOTIFICATION_PUBLISH_REDIS_URL_FILE: ${NOTIFICATION_PUBLISH_REDIS_URL_FILE:+/run/secrets/notification_publish_redis_url}
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
-      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
-      SMTP_PASSWORD_FILE: ${SMTP_PASSWORD_FILE:+/run/secrets/api_smtp_password}
-    volumes:
-      - *smtp-password
 
   celery-worker-image-pyramid:
     env_file:
       - .env.production
     environment:
-      <<: *prod-infra-env
+      <<: [*assets-celery-image-env, *prod-infra-env]
 
   celery-worker-gpu-control:
     env_file:
@@ -148,32 +321,40 @@ services:
     env_file:
       - .env.production
     environment:
-      <<: *prod-infra-env
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<: [*jobs-publication-env, *assets-celery-env, *prod-infra-env]
+      ASSETS_MASK_CLEANUP_URL: ""
+      ASSETS_MASK_CLEANUP_TOKEN: ""
+      ASSETS_MASK_CLEANUP_TOKEN_FILE: ""
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
 
   celery-worker-cpu:
     env_file:
       - .env.production
     environment:
-      <<: *prod-infra-env
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<: [*jobs-publication-env, *assets-celery-env, *prod-infra-env]
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
 
   celery-worker-export:
     env_file:
       - .env.production
     environment:
-      <<: *prod-infra-env
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<: [*jobs-publication-env, *notification-producer-env, *prod-infra-env]
       EXPORT_EXECUTION_DATABASE_URL_FILE: /run/secrets/export_execution_database_url
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
+
+  celery-worker-jobs-recovery:
+    environment:
+      REDIS_URL: ${REDIS_URL:?.env.production 必须设置 REDIS_URL}
+    depends_on:
+      api:
+        condition: service_healthy
 
   celery-beat:
     env_file:
       - .env.production
     environment:
       <<: *prod-infra-env
+      NOTIFICATION_PUBLICATION_URL: ${NOTIFICATION_PUBLICATION_URL:-}
 
   alertmanager:
     volumes:
