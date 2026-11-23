@@ -4,12 +4,9 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from jose import ExpiredSignatureError, JWTError, jwt
-from sqlalchemy import func, select
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.storage_connection import StorageConnection
 from app.services import storage_access, storage_maintenance
 from app.services import storage_registry_data as registry
 from app.services.audit import AuditAction, AuditService

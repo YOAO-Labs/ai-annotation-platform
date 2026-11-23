@@ -8868,7 +8868,7 @@ def main(
                 "expected_database": frozen_database,
                 "migration_role": "owner",
             }
-            for grant_sql, parameters in (
+            for fresh_grant_sql, parameters in (
                 (
                     lan_production_grant_sql,
                     {
@@ -8896,7 +8896,7 @@ def main(
                     container_name,
                     container_identity,
                     **fresh_owner,
-                    sql=grant_sql,
+                    sql=fresh_grant_sql,
                     variables={**grant_scope, **parameters},
                 )
             fresh_app_probe = _psql(
@@ -11829,7 +11829,7 @@ SELECT id FROM removed;
                 "inference_backend_probe_role": "yoao_inference_backend_probe_client",
             },
         )
-        for label, grant_sql, variable, role in (
+        for label, health_grant_sql, variable, role in (
             (
                 "observation",
                 inference_health_observation_grant_sql,
@@ -11857,7 +11857,7 @@ SELECT id FROM removed;
                 username="owner",
                 password=owner_password,
                 database=database,
-                sql=grant_sql,
+                sql=health_grant_sql,
                 variables={
                     "expected_database": database,
                     "migration_role": "owner",

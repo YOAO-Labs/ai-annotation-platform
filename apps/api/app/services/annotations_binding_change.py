@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from jose import ExpiredSignatureError, JWTError, jwt
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
 from app.config import settings

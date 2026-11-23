@@ -10,15 +10,10 @@ import uuid
 from types import SimpleNamespace
 
 from botocore.exceptions import BotoCoreError, ClientError
-from sqlalchemy import select, text
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
 
 from app.config import settings
-from app.db.models.dataset_asset import (
-    StorageBinding,
-    StorageLocation,
-)
 from app.services.storage import storage_service
 from app.services import storage_registry_data
 

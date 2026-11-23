@@ -62,81 +62,8 @@ async def register_connection(db, connection):
 
 
 async def location_is_referenced(db, location_id):
-    from app.db.models.storage_migration_copy import StorageMigrationCopy
-
-    if await db.scalar(
-        select(StorageMigrationCopy.id)
-        .where(StorageMigrationCopy.target_location_id == location_id)
-        .limit(1)
-    ):
-        return True
-
-    from app.db.models.audit_archive_output import AuditArchiveOutput
-    from app.db.models.prediction_input import PredictionInputLease
-    from app.db.models.managed_original_creation import ManagedOriginalCreation
-    from app.db.models.mask_format_upload import MaskFormatUpload
-    from app.db.models.mask_format_import import MaskFormatImport
-    from app.db.models.export_output import ExportOutput
-    from app.db.models.export_media_bundle import ExportMediaBundle
-    from app.db.models.avatar_upload import AvatarUpload
-    from app.db.models.bug_attachment_upload import BugAttachmentUpload
-    from app.db.models.dataset_source import DatasetSource
-    from app.db.models.original_cache import OriginalCacheEntry
-    from app.db.models.thumbnail_output import ThumbnailOutput
-    from app.db.models.image_pyramid import ImagePyramidOutput
-    from app.db.models.video_derivative import VideoDerivativeOutput
-    from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
-    from app.db.models.managed_original_retirement import ManagedOriginalRetirement
-    from app.db.models.comment_attachment_upload import CommentAttachmentUpload
-    from app.db.models.guide_asset_upload import GuideAssetUpload
-    from app.db.models.raster_mask_object import RasterMaskObject
-    from app.db.models.task_original import TaskOriginal
-    from app.db.models.training_dataset import TrainingDatasetVersion
-    from app.services.training_run_data import preview_storage_row, run_storage_row
-    from app.db.models.sample_evaluation import SampleEvaluationRun
-    from app.db.models.active_learning import ActiveLearningRound
-    from app.db.models.training_storage_deletion import TrainingStorageDeletion
-
-    for model, column in (
-        (ThumbnailOutput, ThumbnailOutput.storage_ref),
-        (ImagePyramidOutput, ImagePyramidOutput.storage_ref),
-        (VideoDerivativeOutput, VideoDerivativeOutput.storage_ref),
-        (PredictionInputLease, PredictionInputLease.storage_ref),
-        (ManagedOriginalCreation, ManagedOriginalCreation.staging_ref),
-        (MaskFormatUpload, MaskFormatUpload.storage_ref),
-        (MaskFormatImport, MaskFormatImport.staging_ref),
-        (CommentAttachmentUpload, CommentAttachmentUpload.storage_ref),
-        (GuideAssetUpload, GuideAssetUpload.storage_ref),
-        (RasterMaskObject, RasterMaskObject.storage_ref),
-        (TrainingDatasetVersion, TrainingDatasetVersion.storage_ref),
-        (SampleEvaluationRun, SampleEvaluationRun.storage_ref),
-        (ActiveLearningRound, ActiveLearningRound.storage_ref),
-        (TrainingStorageDeletion, TrainingStorageDeletion.storage_ref),
-    ):
-        if await db.scalar(
-            select(model.id)
-            .where(column["location_id"].astext == str(location_id))
-            .limit(1)
-        ):
-            return True
-    for row in (run_storage_row, preview_storage_row):
-        if await db.scalar(
-            select(row.c.id)
-            .where(row.c.storage_ref["location_id"].astext == str(location_id))
-            .limit(1)
-        ):
-            return True
-    for model in (
-        OriginalCacheEntry,
-        ManagedOriginalCreation,
-        DatasetAuxiliaryOriginal,
-        ManagedOriginalRetirement,
-        TaskOriginal,
-    ):
-        if await db.scalar(
-            select(model.id).where(model.location_id == location_id).limit(1)
-        ):
-            return True
+    if db.autoflush:
+        await db.flush()
     return bool(
         await db.scalar(
             select(func.yoao_assets_storage_v1.location_storage_referenced(location_id))
