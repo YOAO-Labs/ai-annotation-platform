@@ -6,14 +6,184 @@ x-logging: &logging
     max-size: "10m"
     max-file: "3"
 
-x-runtime-env: &runtime-env
-  ALEMBIC_AUTO_UPGRADE: "false"
-  MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:?.env.production must set MINIO_TRAINING_BUCKET}
-  MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:?.env.production must set MINIO_INPUTS_BUCKET}
+x-private-env: &private-env
+  JOBS_DISPATCH_DATABASE_URL: ""
+  JOBS_DISPATCH_DATABASE_URL_FILE: ""
+  JOBS_DISPATCH_RELAY_DATABASE_URL: ""
+  JOBS_DISPATCH_RELAY_DATABASE_URL_FILE: ""
+  JOBS_QUEUE_URL: ""
+  JOBS_QUEUE_TOKEN: ""
+  JOBS_QUEUE_TOKEN_FILE: ""
   JOBS_PUBLICATION_DATABASE_URL: ""
   JOBS_PUBLICATION_DATABASE_URL_FILE: ""
   EXPORT_EXECUTION_DATABASE_URL: ""
   EXPORT_EXECUTION_DATABASE_URL_FILE: ""
+  NOTIFICATION_PUBLICATION_URL: ""
+  NOTIFICATION_PUBLICATION_TOKEN: ""
+  NOTIFICATION_PUBLICATION_TOKEN_FILE: ""
+  NOTIFICATION_PUBLISH_DATABASE_URL: ""
+  NOTIFICATION_PUBLISH_DATABASE_URL_FILE: ""
+  NOTIFICATION_PUBLISH_REDIS_URL: ""
+  NOTIFICATION_PUBLISH_REDIS_URL_FILE: ""
+  NOTIFICATION_PUBLISH_API_TOKEN: ""
+  NOTIFICATION_PUBLISH_API_TOKEN_FILE: ""
+  NOTIFICATION_SUBSCRIBE_REDIS_URL: ""
+  NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE: ""
+  NOTIFICATION_SOCKET_URL: ""
+  IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE: ""
+  IDENTITY_EMBEDDED_SIGNING_SECRET: ""
+  IDENTITY_EMBEDDED_SIGNING_SECRET_FILE: ""
+  IDENTITY_SIGNING_SECRET: ""
+  IDENTITY_DATABASE_URL: ""
+  IDENTITY_DATABASE_URL_FILE: ""
+  IDENTITY_LOGIN_REDIS_URL: ""
+  IDENTITY_LOGIN_REDIS_URL_FILE: ""
+  IDENTITY_RUNTIME_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_KEY_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_SESSION_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_ACCOUNT_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_PRESENCE_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_GROUP_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_DIRECTORY_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_ADMIN_PASSWORD_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_PLATFORM_ROLE_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_SUSPENSION_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_OFFBOARDING_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_BRIEFS_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_RECOVERY_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE: ""
+  IDENTITY_RUNTIME_TOKEN_FILE: ""
+  IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE: ""
+  IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE: ""
+  IDENTITY_SIGNING_SECRET_FILE: ""
+  IDENTITY_RUNTIME_SIGNING_SECRET_FILE: ""
+  IDENTITY_RECOVERY_MAIL_KEY: ""
+  IDENTITY_RECOVERY_MAIL_KEY_FILE: ""
+  IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE: ""
+  IDENTITY_MAIL_DATABASE_URL: ""
+  IDENTITY_MAIL_DATABASE_URL_FILE: ""
+  IDENTITY_MAIL_V2_DATABASE_URL: ""
+  IDENTITY_MAIL_V2_DATABASE_URL_FILE: ""
+  IDENTITY_MAIL_SETTINGS_DATABASE_URL: ""
+  IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE: ""
+  IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL: ""
+  IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE: ""
+  IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE: ""
+  IDENTITY_MAIL_ENCRYPTION_KEY: ""
+  IDENTITY_MAIL_ENCRYPTION_KEY_FILE: ""
+  IDENTITY_MAIL_V2_ENCRYPTION_KEY: ""
+  IDENTITY_MAIL_V2_ENCRYPTION_KEY_FILE: ""
+  IDENTITY_MAIL_SMTP_PASSWORD: ""
+  IDENTITY_MAIL_SMTP_PASSWORD_FILE: ""
+  IDENTITY_MAIL_V2_SMTP_PASSWORD: ""
+  IDENTITY_MAIL_V2_SMTP_PASSWORD_FILE: ""
+  SMTP_PASSWORD: ""
+  SMTP_PASSWORD_FILE: ""
+  ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL: ""
+  ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN: ""
+  ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE: ""
+  ASSETS_CELERY_VIDEO_DATABASE_URL: ""
+  ASSETS_CELERY_VIDEO_DATABASE_URL_FILE: ""
+  ASSETS_CELERY_IMAGE_DATABASE_URL: ""
+  ASSETS_CELERY_IMAGE_DATABASE_URL_FILE: ""
+  ASSETS_MEDIA_WORKER_DATABASE_URL: ""
+  ASSETS_MEDIA_WORKER_DATABASE_URL_FILE: ""
+  ASSETS_IMAGES_DATABASE_URL: ""
+  ASSETS_IMAGES_DATABASE_URL_FILE: ""
+  ASSETS_IMAGES_NATIVE_STORAGE_URL: ""
+  ASSETS_IMAGES_NATIVE_STORAGE_TOKEN: ""
+  ASSETS_IMAGES_NATIVE_STORAGE_TOKEN_FILE: ""
+  ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY: ""
+  ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE: ""
+  ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN: ""
+  ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN_FILE: ""
+  ASSETS_SOURCE_NATIVE_PYRAMID_READER_TOKEN: ""
+  ASSETS_SOURCE_NATIVE_PYRAMID_READER_TOKEN_FILE: ""
+  ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN: ""
+  ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN_FILE: ""
+  ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY: ""
+  ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY_FILE: ""
+  ASSETS_SOURCE_NATIVE_S3_SECRET_KEY: ""
+  ASSETS_SOURCE_NATIVE_S3_SECRET_KEY_FILE: ""
+  LABELING_RUNTIME_VIDEO_WRITER_DATABASE_URL_FILE: ""
+  LABELING_RUNTIME_VIDEO_WRITER_CONTROL_TOKEN_FILE: ""
+  LABELING_RUNTIME_VIDEO_WRITER_MASK_CONTENT_TOKEN_FILE: ""
+
+x-broker-env: &broker-env
+  REDIS_URL: ${REDIS_URL:-redis://redis-production:6379/0}
+  CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
+
+x-jobs-publication-env: &jobs-publication-env
+  JOBS_PUBLICATION_DATABASE_URL: ${JOBS_PUBLICATION_DATABASE_URL:-}
+  JOBS_PUBLICATION_DATABASE_URL_FILE: ${JOBS_PUBLICATION_DATABASE_URL_FILE:+/run/secrets/jobs_publication_database_url}
+
+x-notification-producer-env: &notification-producer-env
+  NOTIFICATION_PUBLICATION_URL: ${NOTIFICATION_PUBLICATION_URL:-}
+  NOTIFICATION_PUBLICATION_TOKEN: ${NOTIFICATION_PUBLICATION_TOKEN:-}
+  NOTIFICATION_PUBLICATION_TOKEN_FILE: ${NOTIFICATION_PUBLICATION_TOKEN_FILE:+/run/secrets/notification_publication_token}
+
+x-native-image-reader-env: &native-image-reader-env
+  ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL: ${ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL:-}
+  ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE: ${ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE:+/run/secrets/assets_media_native_image_storage_token}
+
+x-assets-celery-video-env: &assets-celery-video-env
+  ASSETS_CELERY_VIDEO_DATABASE_URL: ${ASSETS_CELERY_VIDEO_DATABASE_URL:-}
+  ASSETS_CELERY_VIDEO_DATABASE_URL_FILE: ${ASSETS_CELERY_VIDEO_DATABASE_URL_FILE:+/run/secrets/assets_celery_video_database_url}
+
+x-assets-celery-image-env: &assets-celery-image-env
+  ASSETS_CELERY_IMAGE_DATABASE_URL: ${ASSETS_CELERY_IMAGE_DATABASE_URL:-}
+  ASSETS_CELERY_IMAGE_DATABASE_URL_FILE: ${ASSETS_CELERY_IMAGE_DATABASE_URL_FILE:+/run/secrets/assets_celery_image_database_url}
+
+x-assets-celery-env: &assets-celery-env
+  <<: [*assets-celery-video-env, *assets-celery-image-env]
+
+x-assets-celery-video-secret: &assets-celery-video-secret
+  type: bind
+  source: ${ASSETS_CELERY_VIDEO_DATABASE_URL_FILE:-/dev/null}
+  target: /run/secrets/assets_celery_video_database_url
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-assets-celery-image-secret: &assets-celery-image-secret
+  type: bind
+  source: ${ASSETS_CELERY_IMAGE_DATABASE_URL_FILE:-/dev/null}
+  target: /run/secrets/assets_celery_image_database_url
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-runtime-env: &runtime-env
+  <<: [*broker-env, *private-env]
+  MIGRATION_DATABASE_URL: ""
+  ASSETS_VIDEO_EXECUTOR: ${ASSETS_VIDEO_EXECUTOR:-celery}
+  ASSETS_IMAGE_EXECUTOR: ${ASSETS_IMAGE_EXECUTOR:-celery}
+  ALEMBIC_AUTO_UPGRADE: "false"
+  MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:?.env.production must set MINIO_TRAINING_BUCKET}
+  MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:?.env.production must set MINIO_INPUTS_BUCKET}
+
+x-notification-publication-secret: &notification-publication-secret
+  type: bind
+  source: ${NOTIFICATION_PUBLICATION_TOKEN_FILE:-/dev/null}
+  target: /run/secrets/notification_publication_token
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-native-image-reader-secret: &native-image-reader-secret
+  type: bind
+  source: ${ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE:-/dev/null}
+  target: /run/secrets/assets_media_native_image_storage_token
+  read_only: true
+  bind:
+    create_host_path: false
 
 x-jobs-publication-secret: &jobs-publication-secret
   type: bind
@@ -31,10 +201,8 @@ x-export-execution-secret: &export-execution-secret
   bind:
     create_host_path: false
 
-x-runtime: &runtime
+x-process: &process
   image: aap-production-api:${AAP_IMAGE_TAG:?Set AAP_IMAGE_TAG to the deployed revision}
-  env_file: .env.production
-  environment: *runtime-env
   restart: unless-stopped
   init: true
   logging: *logging
@@ -44,14 +212,21 @@ x-runtime: &runtime
       condition: service_healthy
   stop_grace_period: 60s
 
+x-runtime: &runtime
+  <<: *process
+  env_file: .env.production
+  environment: *runtime-env
+
+x-worker-health: &worker-health
+  test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME -t 10"]
+  interval: 30s
+  timeout: 15s
+  retries: 3
+  start_period: 60s
+
 x-worker: &worker
   <<: *runtime
-  healthcheck:
-    test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME -t 10"]
-    interval: 30s
-    timeout: 15s
-    retries: 3
-    start_period: 60s
+  healthcheck: *worker-health
 
 services:
   api:
@@ -61,10 +236,44 @@ services:
       dockerfile: infra/docker/Dockerfile.api
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
     environment:
-      <<: *runtime-env
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<:
+        [*jobs-publication-env, *notification-producer-env, *native-image-reader-env, *runtime-env]
+      NOTIFICATION_SUBSCRIBE_REDIS_URL: ${NOTIFICATION_SUBSCRIBE_REDIS_URL:-}
+      NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE: ${NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE:+/run/secrets/notification_subscribe_redis_url}
+      IDENTITY_EMBEDDED_SIGNING_SECRET: ${IDENTITY_EMBEDDED_SIGNING_SECRET:-}
+      IDENTITY_EMBEDDED_SIGNING_SECRET_FILE: ${IDENTITY_EMBEDDED_SIGNING_SECRET_FILE:+/run/secrets/identity_embedded_signing_secret}
+      IDENTITY_RECOVERY_MAIL_KEY: ${IDENTITY_RECOVERY_MAIL_KEY:-}
+      IDENTITY_RECOVERY_MAIL_KEY_FILE: ${IDENTITY_RECOVERY_MAIL_KEY_FILE:+/run/secrets/identity_recovery_mail_key}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_PASSWORD_FILE: ${SMTP_PASSWORD_FILE:+/run/secrets/api_smtp_password}
     volumes:
       - *jobs-publication-secret
+      - *notification-publication-secret
+      - *native-image-reader-secret
+      - type: bind
+        source: ${SMTP_PASSWORD_FILE:-/dev/null}
+        target: /run/secrets/api_smtp_password
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${IDENTITY_EMBEDDED_SIGNING_SECRET_FILE:-/dev/null}
+        target: /run/secrets/identity_embedded_signing_secret
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${IDENTITY_RECOVERY_MAIL_KEY_FILE:-/dev/null}
+        target: /run/secrets/identity_recovery_mail_key
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE:-/dev/null}
+        target: /run/secrets/notification_subscribe_redis_url
+        read_only: true
+        bind:
+          create_host_path: false
       - duckdb:/var/lib/duckdb:ro
       - type: bind
         source: ${AAP_PRODUCTION_STATE_DIR}/known_hosts
@@ -150,10 +359,36 @@ services:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q default,media,cleanup,audit --concurrency=4
     environment:
-      <<: *runtime-env
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<:
+        [
+          *jobs-publication-env,
+          *notification-producer-env,
+          *native-image-reader-env,
+          *assets-celery-env,
+          *runtime-env,
+        ]
+      NOTIFICATION_PUBLISH_DATABASE_URL: ${NOTIFICATION_PUBLISH_DATABASE_URL:-}
+      NOTIFICATION_PUBLISH_DATABASE_URL_FILE: ${NOTIFICATION_PUBLISH_DATABASE_URL_FILE:+/run/secrets/notification_publish_database_url}
+      NOTIFICATION_PUBLISH_REDIS_URL: ${NOTIFICATION_PUBLISH_REDIS_URL:-}
+      NOTIFICATION_PUBLISH_REDIS_URL_FILE: ${NOTIFICATION_PUBLISH_REDIS_URL_FILE:+/run/secrets/notification_publish_redis_url}
     volumes:
       - *jobs-publication-secret
+      - *notification-publication-secret
+      - *native-image-reader-secret
+      - *assets-celery-video-secret
+      - *assets-celery-image-secret
+      - type: bind
+        source: ${NOTIFICATION_PUBLISH_DATABASE_URL_FILE:-/dev/null}
+        target: /run/secrets/notification_publish_database_url
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${NOTIFICATION_PUBLISH_REDIS_URL_FILE:-/dev/null}
+        target: /run/secrets/notification_publish_redis_url
+        read_only: true
+        bind:
+          create_host_path: false
       - duckdb:/var/lib/duckdb
       - type: bind
         source: ${AAP_PRODUCTION_STATE_DIR}/known_hosts
@@ -170,49 +405,93 @@ services:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q ml,gpu --concurrency=1
     environment:
-      <<: *runtime-env
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<: [*jobs-publication-env, *assets-celery-env, *runtime-env]
+      ASSETS_MASK_CONTENT_URL: ${ASSETS_MASK_CONTENT_URL:-}
+      ASSETS_MASK_CONTENT_TOKEN: ${ASSETS_MASK_CONTENT_TOKEN:-}
+      ASSETS_MASK_CLEANUP_URL: ""
+      ASSETS_MASK_CLEANUP_TOKEN: ""
+      ASSETS_MASK_CLEANUP_TOKEN_FILE: ""
     volumes:
       - *jobs-publication-secret
+      - *assets-celery-video-secret
+      - *assets-celery-image-secret
 
   celery-worker-cpu:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q ml.cpu --concurrency=4
     environment:
-      <<: *runtime-env
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<: [*jobs-publication-env, *assets-celery-env, *runtime-env]
     volumes:
       - *jobs-publication-secret
+      - *assets-celery-video-secret
+      - *assets-celery-image-secret
 
   celery-worker-export:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q export --concurrency=2
     environment:
-      <<: *runtime-env
-      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      <<: [*jobs-publication-env, *notification-producer-env, *runtime-env]
       EXPORT_EXECUTION_DATABASE_URL_FILE: /run/secrets/export_execution_database_url
     volumes:
       - *jobs-publication-secret
+      - *notification-publication-secret
       - *export-execution-secret
 
   celery-worker-image-pyramid:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q image-pyramid --concurrency=1 --prefetch-multiplier=1 --max-memory-per-child=1572864
     environment:
-      <<: *runtime-env
+      <<: [*assets-celery-image-env, *runtime-env]
       VIPS_CONCURRENCY: "4"
       MALLOC_ARENA_MAX: "2"
       MALLOC_TRIM_THRESHOLD_: "131072"
+    volumes:
+      - *assets-celery-image-secret
 
   celery-worker-gpu-control:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q gpu.control --concurrency=1 --prefetch-multiplier=1
 
+  celery-worker-jobs-recovery:
+    <<: *process
+    command:
+      - /bin/sh
+      - -ec
+      - >-
+        python -m app.workers.jobs_dispatch;
+        exec celery -A app.workers.celery_app worker -l info -Q jobs.recovery
+        --concurrency=1 --prefetch-multiplier=1
+    environment:
+      <<: [*broker-env, *jobs-publication-env]
+      ALEMBIC_AUTO_UPGRADE: "false"
+      JOBS_DISPATCH_DATABASE_URL: ${JOBS_DISPATCH_DATABASE_URL:-}
+      JOBS_DISPATCH_DATABASE_URL_FILE: ${JOBS_DISPATCH_DATABASE_URL_FILE:+/run/secrets/jobs_dispatch_database_url}
+    volumes:
+      - *jobs-publication-secret
+      - type: bind
+        source: ${JOBS_DISPATCH_DATABASE_URL_FILE:-/dev/null}
+        target: /run/secrets/jobs_dispatch_database_url
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck: *worker-health
+    pids_limit: 64
+    mem_limit: 1g
+    cpus: 1
+
   celery-beat:
     <<: *runtime
     command: celery -A app.workers.celery_app beat -l info --schedule=/var/lib/celery/celerybeat-schedule
+    environment:
+      <<: *runtime-env
+      NOTIFICATION_PUBLICATION_URL: ${NOTIFICATION_PUBLICATION_URL:-}
     volumes:
       - beat_data:/var/lib/celery
+    depends_on:
+      redis-production:
+        condition: service_healthy
+      celery-worker-jobs-recovery:
+        condition: service_healthy
 
 networks:
   production:

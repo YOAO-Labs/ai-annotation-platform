@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import Mock
 
 import pytest
 
-from yoao_jobs.queue_client import JobsQueueExecutionControl
 from yoao_jobs.queue_contract import (
+    JOBS_QUEUE_PROTOCOL,
     JobsQueueContractError,
-    JobsQueueUnavailable,
     load_queue_configuration,
 )
 from app.config import Settings
 from app import deps
 from app.services import jobs_queue
+from app.workers import celery_app as worker_assembly
 from app.workers.celery_app import celery_app
 from app.workers.job_execution_control import CeleryJobExecutionControl
+from app.workers.jobs_dispatch import recover_job_dispatches
 
 
 _TASK_NAME = "app.workers.cross_frame_job.run_cross_frame_job"
@@ -22,10 +24,17 @@ _EXECUTION_ID = "predeclared-execution-id"
 _JOB_ID = "8ccbf8e4-cce2-4eec-a15d-9f58222987a1"
 
 
-def _configure(monkeypatch, **values):
-    config = Settings(_env_file=None, **values)
-    monkeypatch.setattr(jobs_queue, "settings", config)
-    return config
+def test_jobs_recovery_is_registered_and_scheduled_on_only_its_queue():
+    assert "app.workers.jobs_dispatch" in celery_app.conf.include
+    entry = celery_app.conf.beat_schedule["recover-job-dispatches"]
+    assert entry["task"] == recover_job_dispatches.name
+    assert entry["schedule"].total_seconds() == 5
+    assert entry["options"] == {"queue": "jobs.recovery", "expires": 5}
+    assert recover_job_dispatches.queue == "jobs.recovery"
+    assert {
+        "app.workers.identity_mail_delivery",
+        "app.workers.identity_mail_v2_delivery",
+    }.isdisjoint(celery_app.conf.include)
 
 
 def test_api_celery_assembly_uses_the_jobs_route_resource():
@@ -41,27 +50,53 @@ def test_api_celery_assembly_uses_the_jobs_route_resource():
     assert celery_app.conf.worker_max_memory_per_child == 512_000
 
 
-def test_settings_keep_queue_disabled_by_default_and_hide_the_token():
-    config = Settings(_env_file=None, jobs_queue_token="service-token")
-    assert config.jobs_queue_url == ""
-    assert config.jobs_queue_token_file == ""
-    assert "service-token" not in repr(config)
-
-
-def test_embedded_dispatch_uses_send_task_with_stable_id_and_preserved_wire(
-    monkeypatch,
+@pytest.mark.parametrize(
+    ("selectors", "suppressed"),
+    [
+        (
+            {"assets_video_executor": "split"},
+            {"reconcile-accepted-video-media", "execute-video-media-recovery"},
+        ),
+        (
+            {"assets_image_executor": "split"},
+            {"reconcile-image-pyramids"},
+        ),
+        (
+            {"notification_publication_url": "http://notifications-publisher:8181"},
+            {"relay-notification-deliveries"},
+        ),
+    ],
+)
+def test_beat_only_suppresses_the_separately_hosted_tasks(
+    selectors, suppressed, monkeypatch
 ):
-    _configure(monkeypatch)
+    values = {
+        "assets_video_executor": "celery",
+        "assets_image_executor": "celery",
+        "notification_publication_url": "",
+    }
+    monkeypatch.setattr(worker_assembly, "settings", Settings(_env_file=None, **values))
+    embedded = worker_assembly._build_beat_schedule()
+    monkeypatch.setattr(
+        worker_assembly, "settings", Settings(_env_file=None, **(values | selectors))
+    )
+    selected = worker_assembly._build_beat_schedule()
+    assert set(embedded) - set(selected) == suppressed
+    assert selected == {
+        key: value for key, value in embedded.items() if key not in suppressed
+    }
+    assert "cleanup-video-frame-assets" in selected
+    assert "purge-unreferenced-raster-masks" in selected
+    assert "recover-job-dispatches" in selected
+
+
+def test_dispatch_uses_the_platform_broker_with_a_stable_execution_id(monkeypatch):
     calls = []
 
     def send_task(task_name, **kwargs):
         calls.append((task_name, kwargs))
 
-    async def to_thread(function, *args, **kwargs):
-        return function(*args, **kwargs)
-
     monkeypatch.setattr(celery_app, "send_task", send_task)
-    monkeypatch.setattr(jobs_queue.asyncio, "to_thread", to_thread)
 
     result = asyncio.run(
         jobs_queue.dispatch_job(
@@ -85,114 +120,16 @@ def test_embedded_dispatch_uses_send_task_with_stable_id_and_preserved_wire(
     ]
 
 
-def test_explicit_remote_dispatch_uses_selected_client_and_never_falls_back(
-    monkeypatch,
-):
-    _configure(
-        monkeypatch,
-        jobs_queue_url="http://jobs-queue:8190",
-        jobs_queue_token="service-token",
-    )
-    clients = []
-
-    class FakeQueueClient:
-        def __init__(self, origin, token):
-            clients.append((origin, token))
-
-        async def dispatch_job(self, task_name, execution_id, args, **kwargs):
-            clients.append((task_name, execution_id, args, kwargs))
-            return execution_id
-
-    def no_embedded_fallback(*_args, **_kwargs):
-        raise AssertionError("explicit remote failure must not use the local broker")
-
-    monkeypatch.setattr(jobs_queue, "JobsQueueClient", FakeQueueClient)
-    monkeypatch.setattr(jobs_queue.asyncio, "to_thread", no_embedded_fallback)
-    result = asyncio.run(
-        jobs_queue.dispatch_job(
-            task_name=_TASK_NAME,
-            execution_id=_EXECUTION_ID,
-            args=[_JOB_ID],
-        )
-    )
-    assert result == _EXECUTION_ID
-    assert clients == [
-        ("http://jobs-queue:8190", "service-token"),
-        (_TASK_NAME, _EXECUTION_ID, [_JOB_ID], {"kwargs": None, "options": None}),
-    ]
-
-    async def unavailable(*_args, **_kwargs):
-        raise JobsQueueUnavailable()
-
-    FakeQueueClient.dispatch_job = unavailable
-    with pytest.raises(JobsQueueUnavailable):
-        asyncio.run(
-            jobs_queue.dispatch_job(
-                task_name=_TASK_NAME,
-                execution_id=_EXECUTION_ID,
-                args=[_JOB_ID],
-            )
-        )
+def test_fastapi_revoke_uses_platform_broker_without_termination(monkeypatch):
+    revoke = Mock()
+    monkeypatch.setattr(celery_app.control, "revoke", revoke)
+    control = deps.get_job_execution_control()
+    assert isinstance(control, CeleryJobExecutionControl)
+    control.request_cancel(_EXECUTION_ID)
+    revoke.assert_called_once_with(_EXECUTION_ID, terminate=False)
 
 
-def test_remote_token_file_and_selector_failures_are_sanitized(tmp_path, monkeypatch):
-    token_file = tmp_path / "jobs-queue-token"
-    token_file.write_text("service-token\n", encoding="utf-8")
-    _configure(
-        monkeypatch,
-        jobs_queue_url="http://jobs-queue:8190",
-        jobs_queue_token_file=str(token_file),
-    )
-    assert jobs_queue._jobs_queue_token() == "service-token"
-
-    _configure(
-        monkeypatch,
-        jobs_queue_url="http://jobs-queue:8190",
-        jobs_queue_token="direct-token",
-        jobs_queue_token_file=str(token_file),
-    )
-    with pytest.raises(JobsQueueUnavailable) as conflict:
-        jobs_queue._jobs_queue_token()
-    assert str(token_file) not in str(conflict.value)
-
-    missing = tmp_path / "missing-token"
-    _configure(
-        monkeypatch,
-        jobs_queue_url="http://jobs-queue:8190",
-        jobs_queue_token_file=str(missing),
-    )
-    with pytest.raises(JobsQueueUnavailable) as unreadable:
-        jobs_queue._jobs_queue_token()
-    assert str(missing) not in str(unreadable.value)
-
-
-def test_sync_execution_control_is_remote_only_when_queue_url_is_selected(
-    monkeypatch,
-):
-    _configure(monkeypatch)
-    assert isinstance(
-        jobs_queue.build_job_execution_control(), CeleryJobExecutionControl
-    )
-
-    _configure(
-        monkeypatch,
-        jobs_queue_url="http://jobs-queue:8190",
-        jobs_queue_token="service-token",
-    )
-    control = jobs_queue.build_job_execution_control()
-    assert isinstance(control, JobsQueueExecutionControl)
-    assert control.origin == "http://jobs-queue:8190"
-    assert control.token == "service-token"
-
-
-def test_fastapi_dependency_uses_the_queue_execution_control_factory(monkeypatch):
-    expected = object()
-    monkeypatch.setattr(jobs_queue, "build_job_execution_control", lambda: expected)
-    assert deps.get_job_execution_control() is expected
-
-
-def test_embedded_dispatch_rejects_unqualified_options_before_publish(monkeypatch):
-    _configure(monkeypatch)
+def test_saved_dispatch_rejects_unqualified_options_before_publish(monkeypatch):
     published = []
     monkeypatch.setattr(
         celery_app, "send_task", lambda *_args, **_kwargs: published.append(True)
@@ -200,11 +137,16 @@ def test_embedded_dispatch_rejects_unqualified_options_before_publish(monkeypatc
 
     with pytest.raises(JobsQueueContractError):
         asyncio.run(
-            jobs_queue.dispatch_job(
-                task_name=_TASK_NAME,
-                execution_id=_EXECUTION_ID,
-                args=[_JOB_ID],
-                options={"queue": "ml"},
+            jobs_queue.publish_queue_envelope(
+                {
+                    "schema": JOBS_QUEUE_PROTOCOL,
+                    "operation": "dispatch",
+                    "task_name": _TASK_NAME,
+                    "execution_id": _EXECUTION_ID,
+                    "args": [_JOB_ID],
+                    "kwargs": {},
+                    "options": {"expires": 1},
+                }
             )
         )
     assert not published

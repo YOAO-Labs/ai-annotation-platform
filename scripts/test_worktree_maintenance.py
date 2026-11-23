@@ -1,6 +1,7 @@
 """Maintenance routing and launcher regressions; no services or database fixtures."""
 
 from copy import deepcopy
+from itertools import count
 import json
 import os
 from pathlib import Path
@@ -143,10 +144,6 @@ class MaintenanceTests(unittest.TestCase):
         )
         routes = json.loads(result.stdout)
         self.assertEqual(
-            routes["app.workers.identity_mail_delivery.relay_credential_mail"]["queue"],
-            "default",
-        )
-        self.assertEqual(
             {name for name, route in routes.items() if route["queue"] == "maintenance"},
             MAINTENANCE_TASKS,
         )
@@ -163,41 +160,53 @@ class MaintenanceTests(unittest.TestCase):
             ):
                 root = Path(temporary)
                 resources = topology(root, load_identity(root, create=True), "test")
+                dispatch = "postgresql://dispatch:fixture@postgres/test"
+                publication = "postgresql://publication:fixture@postgres/test"
                 env = {
                     "DATABASE_URL": "runtime-fixture",
                     "MIGRATION_DATABASE_URL": "owner-fixture",
                     "TEST_DATABASE_URL": "owner-fixture",
                     "PLAYWRIGHT_E2E_DATABASE_URL": "owner-fixture",
                     "CELERY_BROKER_URL": "redis://127.0.0.1:6391/0",
+                    "JOBS_PUBLICATION_DATABASE_URL": publication,
+                    "SMTP_PASSWORD": "ordinary-config-fixture",
                 }
                 backend = Mock(resources=resources, code_root=ROOT)
                 backend.environment.return_value = env
-                workers = [Mock(pid=101), Mock(pid=102)]
-                for worker in workers:
+                backend.jobs_database_url.return_value = dispatch
+                workers = [Mock(pid=101), Mock(pid=102), Mock(pid=103)]
+                beat = Mock(pid=104)
+                for worker in (*workers, beat):
                     worker.poll.return_value = None
-                supervisor = MagicMock(pid=103, returncode=0)
+                supervisor = MagicMock(pid=105, returncode=0)
                 supervisor.poll.return_value = 0
                 if failure == "worker_exit":
                     workers[1].poll.side_effect = [None, 1, 1]
                     supervisor.poll.side_effect = [None, 0]
                 names = [
                     f"worktree-{resources['id']}-test{suffix}@local"
-                    for suffix in ("", "-maintenance")
+                    for suffix in ("", "-maintenance", "-jobs-recovery")
                 ]
                 queues = [
                     "default,media,cleanup,audit,export,image-pyramid,ml.cpu",
                     "maintenance",
+                    "jobs.recovery",
                 ]
+                registered_tasks = (
+                    [
+                        "app.workers.audit.persist_audit_entry",
+                        "app.workers.tasks.batch_predict",
+                    ],
+                    ["app.workers.audit_partition.ensure_future_audit_partitions"],
+                    ["app.workers.jobs_dispatch.recover_job_dispatches"],
+                )
                 client = Mock()
 
                 def inspect(*, destination, timeout):
                     index = names.index(destination[0])
                     inspector = Mock()
                     inspector.registered.return_value = {
-                        names[index]: [
-                            "app.workers.audit.persist_audit_entry",
-                            *MAINTENANCE_TASKS,
-                        ]
+                        names[index]: registered_tasks[index]
                     }
                     active = queues[index].split(",")
                     if index == 1 and failure == "wrong_queue":
@@ -207,17 +216,25 @@ class MaintenanceTests(unittest.TestCase):
                     }
                     return inspector
 
+                def launch(command, **_kwargs):
+                    if command[0] == "node":
+                        return supervisor
+                    if command[1] == "-c":
+                        self.assertIn("recover-job-dispatches", command[2])
+                        return beat
+                    return next(
+                        worker
+                        for queue, worker in zip(queues, workers, strict=True)
+                        if f"--queues={queue}" in command
+                    )
+
                 client.control.inspect.side_effect = inspect
                 published = []
                 with (
                     patch.object(
                         runtime.subprocess,
                         "Popen",
-                        side_effect=lambda command, **kwargs: (
-                            supervisor
-                            if command[0] == "node"
-                            else workers[int("--queues=maintenance" in command)]
-                        ),
+                        side_effect=launch,
                     ) as popen,
                     patch.object(
                         runtime,
@@ -236,7 +253,7 @@ class MaintenanceTests(unittest.TestCase):
                     patch.object(
                         runtime.time,
                         "monotonic",
-                        side_effect=[0, 0, 0, 0, 61, 62, 62, 62, 62],
+                        side_effect=count(step=30),
                     ),
                 ):
                     options = runtime.parse_arguments(["--with-worker"])
@@ -245,10 +262,12 @@ class MaintenanceTests(unittest.TestCase):
                             runtime.run_processes(backend, options)
                     else:
                         self.assertEqual(runtime.run_processes(backend, options), 0)
-                self.assertEqual(popen.call_count, 2 if failure == "wrong_queue" else 3)
-                for index, (call, expected_db) in enumerate(
-                    zip(popen.call_args_list, ("runtime-fixture", "owner-fixture"))
+                self.assertEqual(popen.call_count, 2 if failure == "wrong_queue" else 5)
+                backend.jobs_database_url.assert_called_once_with("jobs-dispatch")
+                for index, expected_db in enumerate(
+                    ("runtime-fixture", "owner-fixture")
                 ):
+                    call = popen.call_args_list[index]
                     self.assertIn(f"--queues={queues[index]}", call.args[0])
                     self.assertEqual(call.kwargs["env"]["DATABASE_URL"], expected_db)
                     for key in (
@@ -257,7 +276,49 @@ class MaintenanceTests(unittest.TestCase):
                         "PLAYWRIGHT_E2E_DATABASE_URL",
                     ):
                         self.assertEqual(call.kwargs["env"][key], "")
-                for worker in workers:
+                    self.assertFalse(
+                        call.kwargs["env"].get("JOBS_DISPATCH_DATABASE_URL")
+                    )
+                self.assertEqual(
+                    popen.call_args_list[0].kwargs["env"][
+                        "JOBS_PUBLICATION_DATABASE_URL"
+                    ],
+                    publication,
+                )
+                self.assertFalse(
+                    popen.call_args_list[1].kwargs["env"][
+                        "JOBS_PUBLICATION_DATABASE_URL"
+                    ]
+                )
+                if failure != "wrong_queue":
+                    recovery, interval = popen.call_args_list[2:4]
+                    self.assertIn("--queues=jobs.recovery", recovery.args[0])
+                    self.assertEqual(
+                        recovery.kwargs["env"]["JOBS_DISPATCH_DATABASE_URL"], dispatch
+                    )
+                    self.assertEqual(
+                        recovery.kwargs["env"]["JOBS_PUBLICATION_DATABASE_URL"],
+                        publication,
+                    )
+                    self.assertEqual(
+                        recovery.kwargs["env"]["DATABASE_URL"],
+                        "postgresql+asyncpg://dispatch:fixture@postgres/test",
+                    )
+                    for process in (recovery, interval):
+                        process_env = process.kwargs["env"]
+                        self.assertEqual(
+                            process_env["CELERY_BROKER_URL"], env["CELERY_BROKER_URL"]
+                        )
+                        self.assertFalse(process_env.get("SMTP_PASSWORD"))
+                        self.assertFalse(process_env.get("MIGRATION_DATABASE_URL"))
+                    for key in (
+                        "JOBS_DISPATCH_DATABASE_URL",
+                        "JOBS_PUBLICATION_DATABASE_URL",
+                    ):
+                        self.assertFalse(interval.kwargs["env"].get(key))
+                    beat.wait.assert_called_once()
+                started_workers = workers[:2] if failure == "wrong_queue" else workers
+                for worker in started_workers:
                     worker.wait.assert_called_once()
                 client.close.assert_called_once()
                 self.assertIn(101, [call.args[0] for call in kill.call_args_list])
@@ -269,9 +330,17 @@ class MaintenanceTests(unittest.TestCase):
                     self.assertEqual(api_env["MIGRATION_DATABASE_URL"], "")
                     self.assertEqual(published[-1]["worker"], names[0])
                     self.assertEqual(published[-1]["maintenance_worker"], names[1])
+                    self.assertEqual(published[-1]["jobs_recovery_worker"], names[2])
+                    self.assertEqual(published[-1]["jobs_recovery_beat"], beat.pid)
                     self.assertEqual(
                         {child["role"] for child in published[-1]["children"]},
-                        {"worker", "maintenance_worker", "supervisor"},
+                        {
+                            "worker",
+                            "maintenance_worker",
+                            "jobs_recovery_worker",
+                            "jobs_recovery_beat",
+                            "supervisor",
+                        },
                     )
 
 

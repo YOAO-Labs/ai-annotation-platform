@@ -20,8 +20,7 @@ celery_app = Celery(
         "app.workers.assets_media",
         "app.workers.image_pyramid",
         "app.workers.dataset_import_delivery",
-        "app.workers.identity_mail_delivery",
-        "app.workers.identity_mail_v2_delivery",
+        "app.workers.jobs_dispatch",
         "app.workers.notification_delivery",
         "app.workers.cleanup",
         "app.workers.avatar_cleanup",
@@ -73,13 +72,9 @@ celery_app = Celery(
     ],
 )
 
-celery_app.conf.update(
-    **load_queue_configuration(),
-    timezone="UTC",
-    task_track_started=True,
-    worker_max_memory_per_child=512_000,
-    worker_direct=True,
-    beat_schedule={
+
+def _build_beat_schedule():
+    return {
         "maintain-original-cache": {
             "task": "app.workers.original_cache.maintain_original_cache",
             "schedule": 60.0,
@@ -186,19 +181,31 @@ celery_app.conf.update(
             "task": "app.workers.media.cleanup_video_frame_assets",
             "schedule": crontab(hour=2, minute=30),
         },
-        "reconcile-accepted-video-media": {
-            "task": "app.workers.assets_media.reconcile_video_media",
-            "schedule": crontab(hour=2, minute=30),
-        },
-        "execute-video-media-recovery": {
-            "task": "app.workers.assets_media.run_video_media",
-            "schedule": timedelta(seconds=60),
-            "options": {"expires": 55},
-        },
-        "reconcile-image-pyramids": {
-            "task": "app.workers.image_pyramid.reconcile_image_media",
-            "schedule": crontab(hour=2, minute=45),
-        },
+        **(
+            {
+                "reconcile-accepted-video-media": {
+                    "task": "app.workers.assets_media.reconcile_video_media",
+                    "schedule": crontab(hour=2, minute=30),
+                },
+                "execute-video-media-recovery": {
+                    "task": "app.workers.assets_media.run_video_media",
+                    "schedule": timedelta(seconds=60),
+                    "options": {"expires": 55},
+                },
+            }
+            if settings.assets_video_executor == "celery"
+            else {}
+        ),
+        **(
+            {
+                "reconcile-image-pyramids": {
+                    "task": "app.workers.image_pyramid.reconcile_image_media",
+                    "schedule": crontab(hour=2, minute=45),
+                },
+            }
+            if settings.assets_image_executor == "celery"
+            else {}
+        ),
         "sync-to-duckdb": {
             "task": "app.workers.analytics.sync_to_duckdb",
             "schedule": crontab(hour=2, minute=30),
@@ -235,11 +242,31 @@ celery_app.conf.update(
             "task": "app.workers.dataset_import_delivery.relay_dataset_import_deliveries",
             "schedule": timedelta(seconds=10),
         },
-        "relay-notification-deliveries": {
-            "task": "app.workers.notification_delivery.relay_identity_notifications",
-            "schedule": timedelta(seconds=10),
+        "recover-job-dispatches": {
+            "task": "app.workers.jobs_dispatch.recover_job_dispatches",
+            "schedule": timedelta(seconds=5),
+            "options": {"queue": "jobs.recovery", "expires": 5},
         },
-    },
+        **(
+            {
+                "relay-notification-deliveries": {
+                    "task": "app.workers.notification_delivery.relay_identity_notifications",
+                    "schedule": timedelta(seconds=10),
+                },
+            }
+            if not settings.notification_publication_url
+            else {}
+        ),
+    }
+
+
+celery_app.conf.update(
+    **load_queue_configuration(),
+    timezone="UTC",
+    task_track_started=True,
+    worker_max_memory_per_child=512_000,
+    worker_direct=True,
+    beat_schedule=_build_beat_schedule(),
 )
 
 from app.workers.heartbeat import HeartbeatStep  # noqa: E402
