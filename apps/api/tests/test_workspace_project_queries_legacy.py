@@ -361,7 +361,7 @@ def _write_capture(capture: dict) -> None:
 
 
 async def test_capture_legacy_project_query_and_projection_samples(
-    test_engine, app_module, monkeypatch
+    test_engine, app_module, monkeypatch, *, direct_read_probe=_direct_read_probe
 ):
     from app.config import settings
     from app.deps import get_db
@@ -1017,7 +1017,7 @@ async def test_capture_legacy_project_query_and_projection_samples(
             assert reset_body["rendering_config"] is not None
 
         capture["direct_read_probes"] = [
-            await _direct_read_probe(
+            await direct_read_probe(
                 admin_maker=owner_maker,
                 runtime_maker=runtime_maker,
                 actor=actors["project_admin"],
@@ -1025,15 +1025,16 @@ async def test_capture_legacy_project_query_and_projection_samples(
             )
             for no_autoflush in (False, True)
         ]
-        assert [
-            (
-                row["included_in_route_result"],
-                row["pending_in_session_new_after_read"],
-                row["caller_transaction_open_after_read"],
-                row["visible_from_owner_before_caller_rollback"],
-            )
-            for row in capture["direct_read_probes"]
-        ] == [(True, False, True, False), (False, True, True, False)]
+        if direct_read_probe is _direct_read_probe:
+            assert [
+                (
+                    row["included_in_route_result"],
+                    row["pending_in_session_new_after_read"],
+                    row["caller_transaction_open_after_read"],
+                    row["visible_from_owner_before_caller_rollback"],
+                )
+                for row in capture["direct_read_probes"]
+            ] == [(True, False, True, False), (False, True, True, False)]
 
         async with owner_maker() as observer:
             persisted = await observer.get(Project, created_project_id)

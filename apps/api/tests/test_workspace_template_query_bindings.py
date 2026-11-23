@@ -29,13 +29,19 @@ from yoao_workspace.template_query_contract import (
     template_query_request,
 )
 from yoao_workspace.template_query_postgres import TemplateQueryPostgresData
+from app.api.v1.project_templates import list_templates
 from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
+from app.services.identity_contracts import IdentityActorFacts
+from app.services.workspace_configuration import execute_configuration
 from app.services.workspace_template_query import execute_template_query
 from tests import test_workspace_template_queries_legacy as scenarios
 from tests.factory import create_user
 from tests.workspace_configuration_helpers import configuration_dsn
-from tests.workspace_project_query_helpers import expected_project_sample
+from tests.workspace_project_query_helpers import (
+    expected_project_sample,
+    query_with_pending_orm_work,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -211,6 +217,12 @@ async def test_borrowed_reader_preserves_pending_work_and_caller_timezone(
     engine = create_async_engine(runtime, hide_parameters=True)
     caller = async_sessionmaker(engine, expire_on_commit=False)
     actor_id = None
+    template_id = uuid.uuid4()
+    original_name = "Persisted query caller"
+    pending_name = "Pending query caller"
+    original_threshold = 0.5
+    pending_threshold = 0.3500000000000001
+    created_at = datetime(2020, 1, 1, tzinfo=UTC)
     try:
         async with maker.begin() as db:
             actor = await create_user(
@@ -220,50 +232,115 @@ async def test_borrowed_reader_preserves_pending_work_and_caller_timezone(
                 "Query caller",
             )
             actor_id = actor.id
-        pending = ProjectTemplate(
-            id=uuid.uuid4(),
-            display_id=f"TQ-{uuid.uuid4().hex[:8]}",
-            name="Pending query caller",
-            type_label="Image",
-            type_key="image-det",
-            created_by=actor_id,
-            box_threshold=0.3500000000000001,
-            created_at=datetime(2020, 1, 1, tzinfo=UTC),
-            updated_at=datetime(2020, 1, 1, tzinfo=UTC),
-        )
+            db.add(
+                ProjectTemplate(
+                    id=template_id,
+                    display_id=f"TQ-{uuid.uuid4().hex[:8]}",
+                    name=original_name,
+                    type_label="Image",
+                    type_key="image-det",
+                    scope="private",
+                    created_by=actor_id,
+                    box_threshold=original_threshold,
+                    created_at=created_at,
+                    updated_at=created_at,
+                )
+            )
         arguments = {
             "operation": "list_templates",
             "actor": actor,
-            "filters": {"scope": "private", "type_key": None, "search": None},
+            "filters": {"scope": "private", "type_key": None, "search": pending_name},
         }
         async with caller() as db:
             await db.execute(text("SET LOCAL TIME ZONE 'Asia/Shanghai'"))
             await db.execute(text("SET LOCAL extra_float_digits=0"))
-            db.add(pending)
-            if no_autoflush:
-                with db.no_autoflush:
-                    rows = await execute_template_query(db, **arguments)
-            else:
-                rows = await execute_template_query(db, **arguments)
-            assert any(row["id"] == pending.id for row in rows) is (not no_autoflush)
-            assert (pending in db.new) is no_autoflush
-            assert db.in_transaction()
+            assert await execute_template_query(db, **arguments) == []
+            staged = await execute_configuration(
+                db,
+                operation="update_template",
+                actor_id=actor_id,
+                target_id=template_id,
+                payload={"name": pending_name, "box_threshold": pending_threshold},
+            )
+            assert staged.resource_id == template_id
+            async with query_with_pending_orm_work(db, no_autoflush=no_autoflush):
+                (row,) = await execute_template_query(db, **arguments)
+            assert row["id"] == template_id
+            assert row["name"] == pending_name
             assert (
                 await db.scalar(text("SELECT current_setting('TimeZone')"))
                 == "Asia/Shanghai"
             )
-            if rows:
-                assert rows[0]["created_at"].isoformat() == "2020-01-01T00:00:00+00:00"
-                assert rows[0]["box_threshold"] == 0.3500000000000001
+            assert row["created_at"].isoformat() == created_at.isoformat()
+            assert row["box_threshold"] == pending_threshold
             assert await db.scalar(text("SHOW extra_float_digits")) == "0"
             async with maker() as observer:
-                assert await observer.get(ProjectTemplate, pending.id) is None
+                stored = await observer.get(ProjectTemplate, template_id)
+                assert stored is not None
+                assert (stored.name, stored.box_threshold) == (
+                    original_name,
+                    original_threshold,
+                )
             await db.rollback()
             assert await execute_template_query(db, **arguments) == []
+        async with maker() as observer:
+            stored = await observer.get(ProjectTemplate, template_id)
+            assert stored is not None
+            assert (stored.name, stored.box_threshold) == (
+                original_name,
+                original_threshold,
+            )
     finally:
         await engine.dispose()
         if actor_id is not None:
             await _remove_actor(maker, actor_id)
+
+
+async def _borrowed_template_probe(
+    *, admin_maker, runtime_maker, actor: User, no_autoflush: bool
+):
+    facts = IdentityActorFacts(
+        id=actor.id,
+        name=actor.name,
+        email=actor.email,
+        role=actor.role,
+        is_active=True,
+    )
+    name = f"Uncommitted template query probe {uuid.uuid4()}"
+    payload = ProjectTemplateCreate(
+        name=name, type_label="Image", type_key="image-det", scope="private"
+    ).model_dump(exclude_unset=True)
+    async with runtime_maker() as db:
+
+        async def read_templates():
+            return await list_templates(scope="private", search=name, db=db, user=facts)
+
+        assert await read_templates() == []
+        staged = await execute_configuration(
+            db, operation="create_template", actor_id=actor.id, payload=payload
+        )
+        async with query_with_pending_orm_work(
+            db, no_autoflush=no_autoflush
+        ) as pending:
+            rows = await read_templates()
+        included = [row["id"] for row in rows] == [staged.resource_id]
+        pending_in_new = pending in db.new
+        transaction_open = db.in_transaction()
+        async with admin_maker() as observer:
+            committed = (
+                await observer.get(ProjectTemplate, staged.resource_id) is not None
+            )
+        await db.rollback()
+        assert await read_templates() == []
+    async with admin_maker() as observer:
+        assert await observer.get(ProjectTemplate, staged.resource_id) is None
+    return {
+        "no_autoflush": no_autoflush,
+        "included_in_route_result": included,
+        "pending_in_session_new_after_read": pending_in_new,
+        "caller_transaction_open_after_read": transaction_open,
+        "visible_from_owner_before_caller_rollback": committed,
+    }
 
 
 async def test_borrowed_template_owner_matches_frozen_http_and_caller_probes(
@@ -285,7 +362,11 @@ async def test_borrowed_template_owner_matches_frozen_http_and_caller_probes(
         assert current["samples"] == [
             expected_project_sample(sample) for sample in reference["samples"]
         ]
-        assert current["direct_read_probes"] == reference["direct_read_probes"]
+        expected_with_native_write_staged = [
+            {**probe, "included_in_route_result": True}
+            for probe in reference["direct_read_probes"]
+        ]
+        assert current["direct_read_probes"] == expected_with_native_write_staged
         assert current["timezone_read_probe"] == reference["timezone_read_probe"]
         compared.append(len(current["samples"]))
 
@@ -293,6 +374,6 @@ async def test_borrowed_template_owner_matches_frozen_http_and_caller_probes(
     monkeypatch.setattr(scenarios, "_source_metadata", lambda: {"current_owner": True})
     monkeypatch.setattr(scenarios, "_write_capture", compare)
     await scenarios.test_capture_legacy_template_query_and_projection_samples(
-        test_engine, app_module, monkeypatch
+        test_engine, app_module, monkeypatch, direct_read_probe=_borrowed_template_probe
     )
     assert compared == [40]

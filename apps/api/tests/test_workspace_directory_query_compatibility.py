@@ -47,9 +47,13 @@ def _comparable(sample):
 
 def _compare_caller_probes(current, reference):
     for mode in ("default", "no_autoflush"):
-        assert {field: current[mode][field] for field in _PROBE_FIELDS} == {
-            field: reference[mode][field] for field in _PROBE_FIELDS
+        expected_with_native_member_staged = {
+            **{field: reference[mode][field] for field in _PROBE_FIELDS},
+            "pending_member_in_route_result": True,
         }
+        assert {
+            field: current[mode][field] for field in _PROBE_FIELDS
+        } == expected_with_native_member_staged
 
 
 async def test_current_directory_owner_matches_frozen_samples_and_caller_probes(
