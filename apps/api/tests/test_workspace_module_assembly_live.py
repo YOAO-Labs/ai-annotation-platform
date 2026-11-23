@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import ExitStack, asynccontextmanager, closing, contextmanager
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -16,6 +16,7 @@ import subprocess
 import threading
 from types import SimpleNamespace
 import uuid
+from urllib.parse import unquote, urlsplit
 
 from yoao_identity.security import create_access_token
 from sqlalchemy import text
@@ -214,6 +215,13 @@ async def _assert_guide_publication_privilege(db, profile) -> None:
             "::regprocedure, 'EXECUTE')"
         )
     ) is (profile == "default")
+    assert await db.scalar(
+        text(
+            "SELECT pg_catalog.has_function_privilege(current_user, "
+            "'yoao_workspace_v1.stage_guide_upload(uuid,uuid,uuid,jsonb,text,integer,text,text,timestamptz)'"
+            "::regprocedure, 'EXECUTE')"
+        )
+    ) is (profile == "default")
     if profile == "strict":
         with pytest.raises(DBAPIError) as denied:
             async with db.begin_nested():
@@ -291,6 +299,7 @@ async def _assert_restricted_api_consumer(test_engine, profile) -> None:
             "SELECT operation_id FROM public.workspace_owner_transfer_operation_receipts LIMIT 1",
             "SELECT auth_token FROM public.ml_backend_registry LIMIT 1",
             "UPDATE public.projects SET name=name WHERE false",
+            "SELECT pg_catalog.nextval('public.display_seq_tasks'::regclass)",
         ):
             async with engine.connect() as db:
                 with pytest.raises(DBAPIError) as denied:
@@ -431,37 +440,50 @@ def _guide_versions(s3, bucket, prefix):
         yield from page.get("DeleteMarkers", ())
 
 
-async def _assert_pending_guide_object(db, s3, bucket, prefix, upload, actor_id) -> str:
-    key = f"{prefix}{upload['id']}"
-    assert upload["state"] == "pending" and upload["retired_at"] is None
-    assert upload["owner_id"] == str(actor_id)
-    assert upload["sha256"] == hashlib.sha256(GUIDE_FILE).hexdigest()
-    assert upload["size_bytes"] == len(GUIDE_FILE)
-    assert upload["storage_ref"]["bucket"] == bucket
-    assert upload["storage_ref"]["object_key"] == key
-
-    (version,) = _guide_versions(s3, bucket, prefix)
-    assert version["Key"] == key and version.get("Size") == len(GUIDE_FILE)
-    version_id = version["VersionId"]
-    assert version_id not in {None, "", "null"}
-    with closing(
-        s3.get_object(Bucket=bucket, Key=key, VersionId=version_id)["Body"]
-    ) as body:
-        assert body.read() == GUIDE_FILE
-
-    accounting = (
-        await db.execute(
-            text(
-                "SELECT object_key, physical_outcome, physical_size_bytes, "
-                "evidence->>'returned_version', (evidence->>'full_readback')::boolean "
-                "FROM public.storage_usage_mutations "
-                "WHERE producer='guide_asset_uploads' AND owner_id=:id"
-            ),
-            {"id": uuid.UUID(upload["id"])},
+async def _assert_managed_upload_init(client, maker, *, project_id, headers):
+    response = await client.post(
+        "/api/v1/files/upload-init",
+        headers=headers,
+        json={
+            "project_id": str(project_id),
+            "file_name": "folder/labeling-authority.png",
+            "content_type": "image/png",
+        },
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert 0 < result["expires_in"] <= 900
+    task_id = uuid.UUID(result["task_id"])
+    async with maker.begin() as db:
+        row = (
+            await db.execute(
+                text(
+                    "SELECT task.display_id, task.file_name, task.status, "
+                    "creation.id, creation.staging_bucket, creation.staging_key "
+                    "FROM public.tasks AS task "
+                    "JOIN public.managed_original_creations AS creation "
+                    "ON creation.task_id = task.id AND creation.object_key = task.file_path "
+                    "WHERE task.id = :id AND task.project_id = :project"
+                ),
+                {"id": task_id, "project": project_id},
+            )
+        ).one()
+        assert re.fullmatch(r"T-[1-9][0-9]*", row.display_id)
+        assert (
+            row.file_name == "folder/labeling-authority.png"
+            and row.status == "uploading"
         )
-    ).one()
-    assert accounting == (key, "written", len(GUIDE_FILE), version_id, True)
-    return key
+        url = urlsplit(result["upload_url"])
+        assert unquote(url.path).endswith(f"/{row.staging_bucket}/{row.staging_key}")
+        assert "X-Amz-Signature=" in url.query
+        await db.execute(
+            text("DELETE FROM public.managed_original_creations WHERE id = :id"),
+            {"id": row.id},
+        )
+        await db.execute(
+            text("DELETE FROM public.tasks WHERE id = :id"), {"id": task_id}
+        )
+    return response.status_code
 
 
 @asynccontextmanager
@@ -1040,15 +1062,11 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     async with maker() as db:
                         after_guide = await _guide_state(db, project_id)
                         assert after_guide.publication == before_guide.publication
-                        (pending,) = after_guide.uploads
-                        guide_key = await _assert_pending_guide_object(
-                            db,
-                            owner_s3,
-                            guide_bucket,
-                            guide_prefix,
-                            pending,
-                            actors["successor"].id,
-                        )
+                        assert after_guide.uploads == []
+                    assert not tuple(
+                        _guide_versions(owner_s3, guide_bucket, guide_prefix)
+                    )
+                    guide_key = "unregistered-guide-key"
                 else:
                     assert guide_upload.status_code == 200, guide_upload.text
                     guide_key = guide_upload.json()["key"]
@@ -1068,6 +1086,15 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     )
                     assert guide_delete.status_code == 200, guide_delete.text
                     assert guide_delete.json() == {"deleted": guide_key}
+                    record_property(
+                        "labeling_upload_init",
+                        await _assert_managed_upload_init(
+                            client,
+                            maker,
+                            project_id=project_id,
+                            headers=headers["successor"],
+                        ),
+                    )
 
                 missing_guide = await client.get(
                     content_path,
@@ -1084,7 +1111,7 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                         "profile": profile,
                         "upload_status": guide_upload.status_code,
                         "strict_sqlstate": "42501" if profile == "strict" else None,
-                        "unpublished_pending_object": profile == "strict",
+                        "allocation_denied_before_io": profile == "strict",
                     },
                 )
 

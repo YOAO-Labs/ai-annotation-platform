@@ -147,8 +147,10 @@ class AnnotationCommentWorkflow:
             rows = list(attachment_rows)
             await attachment_uploads.bind(self.db, rows, comment.id)
             await attachment_uploads.reauthorize(self.db, attachment_authority)
-            attachment_uploads.validate_bound(rows, comment.id)
             attachment_expiries = tuple(row.expires_at for row in rows)
+            attachment_uploads.check_deadlines(
+                attachment_authority, attachment_expiries
+            )
         await self.db.commit()
         if attachment_authority is not None:
             attachment_uploads.check_deadlines(

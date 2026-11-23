@@ -2,17 +2,17 @@
 
 from datetime import timedelta
 import hashlib
+import json
 import logging
 import re
+from types import SimpleNamespace
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import exists, or_, select
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
-from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.comment_attachment_upload import CommentAttachmentUpload
-from app.db.models.storage_maintenance import StorageOperation
 from app.schemas._jsonb_types import Attachment
 from app.services.annotation_comment import AnnotationCommentService
 from app.services import conditional_write_accounting as accounting
@@ -21,6 +21,7 @@ from app.services import comment_attachment_storage as storage, storage_access
 from app.services import storage_migration_artifact_reads as migration_reads
 from app.services import storage_migration_read_publications as read_publications
 from app.services.content_snapshot import ContentError
+from app.services.labeling_discussion_relations import annotation_comment_facts
 from app.services.storage import storage_service
 
 log = logging.getLogger(__name__)
@@ -62,9 +63,20 @@ def read_purpose(identifier):
 
 
 async def _locked(db, identifier, *, skip_locked=False):
-    return await authority.locked(
-        db, CommentAttachmentUpload, identifier, read=False, skip_locked=skip_locked
-    )
+    try:
+        with db.no_autoflush:
+            return (
+                await db.execute(
+                    text(
+                        "SELECT * FROM yoao_labeling_v1.lock_comment_attachment(:id, :skip)"
+                    ),
+                    {"id": identifier, "skip": skip_locked},
+                )
+            ).one_or_none()
+    except DBAPIError as exc:
+        if authority._busy(exc):
+            reject("comment_attachment_busy")
+        reject("comment_attachment_unavailable", 503)
 
 
 def _check_expiries(expiries):
@@ -137,7 +149,7 @@ async def upload(db, proof, original, data, mime_type, file_name):
             db, actor, original.annotation_id, active=True, expected=original
         )
         started = now()
-        row = CommentAttachmentUpload(
+        row = SimpleNamespace(
             id=uuid.uuid4(),
             owner_id=proof.actor_id,
             annotation_id=ctx.annotation_id,
@@ -149,12 +161,18 @@ async def upload(db, proof, original, data, mime_type, file_name):
             file_name=storage.safe_file_name(file_name),
             created_at=started,
             expires_at=started + timedelta(seconds=storage.RETENTION_SECONDS),
-            state="pending",
             bound_comment_id=None,
         )
         row.storage_ref = await storage.allocate(db, row)
-        db.add(row)
-        await db.flush()
+        await db.execute(
+            text(
+                "SELECT yoao_labeling_v1.stage_comment_attachment("
+                ":id, :owner_id, :annotation_id, :task_id, :project_id, "
+                "CAST(:storage_ref AS jsonb), :sha256, :size_bytes, :mime_type, "
+                ":file_name, :created_at)"
+            ),
+            {**vars(row), "storage_ref": json.dumps(row.storage_ref)},
+        )
         receipt = storage.snapshot(row)
         expiries = (receipt.expires_at,)
         await reauthorize(db, proof)
@@ -224,7 +242,14 @@ async def upload(db, proof, original, data, mime_type, file_name):
         await reauthorize(db, proof)
         if current.expires_at <= now():
             reject("comment_attachment_expired", 410)
-        current.state = "ready"
+        if not await db.scalar(
+            text(
+                "SELECT yoao_labeling_v1.publish_comment_attachment(:id, CAST(:ref AS jsonb))"
+            ),
+            {"id": receipt.id, "ref": json.dumps(receipt.storage_ref)},
+        ):
+            _check_expiries(expiries)
+            reject()
         await db.commit()
         check_deadlines(proof, expiries)
         result = attachment(receipt)
@@ -290,13 +315,11 @@ async def bind(db, rows, comment_id):
         _ready(row)
         if row.bound_comment_id is not None:
             reject("comment_attachment_already_bound")
-        row.bound_comment_id = comment_id
-
-
-def validate_bound(rows, comment_id):
-    for row in rows:
-        _ready(row)
-        if row.bound_comment_id != comment_id:
+        if not await db.scalar(
+            text("SELECT yoao_labeling_v1.bind_comment_attachment(:id, :comment_id)"),
+            {"id": row.id, "comment_id": comment_id},
+        ):
+            _check_expiries((row.expires_at,))
             reject("comment_attachment_binding_mismatch")
 
 
@@ -346,9 +369,8 @@ async def _read_binding(db, actor, annotation_id, key, *, expected=None, receipt
         reject("comment_attachment_unregistered_key", 400)
     with db.no_autoflush:
         comment_id = await db.scalar(
-            select(CommentAttachmentUpload.bound_comment_id).where(
-                CommentAttachmentUpload.id == identifier
-            )
+            text("SELECT yoao_labeling_v1.comment_attachment_binding(:id)"),
+            {"id": identifier},
         )
     if comment_id is None:
         reject("comment_attachment_storage_unpinned")
@@ -447,13 +469,12 @@ async def retire_for_comments(db, comment_ids):
     """Retire known owners in the caller's deletion transaction, without commit."""
     with db.no_autoflush:
         try:
-            rows = list(
+            return list(
                 await db.scalars(
-                    select(CommentAttachmentUpload)
-                    .where(CommentAttachmentUpload.bound_comment_id.in_(comment_ids))
-                    .order_by(CommentAttachmentUpload.id)
-                    .with_for_update(nowait=True)
-                    .execution_options(populate_existing=True)
+                    text(
+                        "SELECT yoao_labeling_v1.retire_comment_attachments(:ids, :now)"
+                    ),
+                    {"ids": list(comment_ids), "now": now()},
                 )
             )
         except Exception as exc:
@@ -465,26 +486,10 @@ async def retire_for_comments(db, comment_ids):
             }:
                 reject("comment_attachment_busy")
             raise http_error(exc) from None
-    identifiers = []
-    for row in rows:
-        if row.state == "ready":
-            row.state, row.retired_at = "retired", now()
-        if row.state == "retired":
-            identifiers.append(row.id)
-    return identifiers
 
 
 async def _has_read(db, receipt):
-    return (
-        await db.scalar(
-            select(StorageOperation.id)
-            .where(
-                StorageOperation.purpose == read_purpose(receipt.id),
-            )
-            .limit(1)
-        )
-        is not None
-    )
+    return await storage_access.operation_is_open(db, read_purpose(receipt.id))
 
 
 async def _active_comment(db, row):
@@ -492,21 +497,22 @@ async def _active_comment(db, row):
         return False
     return (
         await db.scalar(
-            select(AnnotationComment.id).where(
-                AnnotationComment.id == row.bound_comment_id,
-                AnnotationComment.is_active.is_(True),
-                AnnotationComment.author_id == row.owner_id,
-                AnnotationComment.annotation_id == row.annotation_id,
-                AnnotationComment.project_id == row.project_id,
+            select(annotation_comment_facts.id).where(
+                annotation_comment_facts.id == row.bound_comment_id,
+                annotation_comment_facts.is_active.is_(True),
+                annotation_comment_facts.author_id == row.owner_id,
+                annotation_comment_facts.annotation_id == row.annotation_id,
+                annotation_comment_facts.project_id == row.project_id,
             )
         )
         is not None
     )
 
 
-def _due(row):
+def _due(row, *, retired_at=None):
+    retired_at = row.retired_at if retired_at is None else retired_at
     return row.expires_at <= now() or (
-        row.retired_at is not None and row.retired_at + GRACE <= now()
+        retired_at is not None and retired_at + GRACE <= now()
     )
 
 
@@ -515,20 +521,17 @@ async def _cleanup_one(db, identifier):
     if row is None or row.state == "pending":
         await db.commit()
         return None
-    if await _active_comment(db, row):
+    retired_at = await db.scalar(
+        text(
+            "SELECT retired_at FROM yoao_labeling_v1.attempt_comment_attachment_retirement(:id, :now)"
+        ),
+        {"id": row.id, "now": now()},
+    )
+    if retired_at is None:
         await db.commit()
         return None
-    if row.state == "ready":
-        if row.expires_at > now() and row.bound_comment_id is None:
-            await db.commit()
-            return None
-        row.state, row.retired_at = "retired", now()
-    if row.state != "retired":
-        await db.commit()
-        return None
-    row.last_attempted_at = now()
     receipt = storage.snapshot(row)
-    if not _due(row) or await _has_read(db, receipt):
+    if not _due(row, retired_at=retired_at) or await _has_read(db, receipt):
         await db.commit()
         return None
     await db.commit()
@@ -566,8 +569,20 @@ async def _cleanup_one(db, identifier):
         and not await _active_comment(db, current)
         and not await _has_read(db, receipt)
     ):
-        await db.delete(current)
+        if not await db.scalar(
+            text(
+                "SELECT yoao_labeling_v1.settle_comment_attachment_retirement("
+                ":id, CAST(:ref AS jsonb), :now)"
+            ),
+            {"id": identifier, "ref": json.dumps(receipt.storage_ref), "now": now()},
+        ):
+            reject()
         await db.commit()
+        cached = db.sync_session.identity_map.get(
+            db.sync_session.identity_key(CommentAttachmentUpload, identifier)
+        )
+        if cached is not None:
+            db.sync_session.expunge(cached)
         return receipt
     await db.commit()
     return None
@@ -577,33 +592,12 @@ async def cleanup(db, *, identifiers=None, limit=500):
     """Retry only known owners; leave all pending and legacy JSON untouched."""
     limit = max(1, min(int(limit), 500))
     if identifiers is None:
-        active = exists().where(
-            AnnotationComment.id == CommentAttachmentUpload.bound_comment_id,
-            AnnotationComment.is_active.is_(True),
-            AnnotationComment.author_id == CommentAttachmentUpload.owner_id,
-            AnnotationComment.annotation_id == CommentAttachmentUpload.annotation_id,
-            AnnotationComment.project_id == CommentAttachmentUpload.project_id,
-        )
         identifiers = list(
             await db.scalars(
-                select(CommentAttachmentUpload.id)
-                .where(
-                    or_(
-                        CommentAttachmentUpload.state == "retired",
-                        (CommentAttachmentUpload.state == "ready")
-                        & or_(
-                            CommentAttachmentUpload.expires_at <= now(),
-                            CommentAttachmentUpload.bound_comment_id.is_not(None)
-                            & ~active,
-                        ),
-                    )
-                )
-                .order_by(
-                    CommentAttachmentUpload.last_attempted_at.asc().nulls_first(),
-                    CommentAttachmentUpload.created_at,
-                    CommentAttachmentUpload.id,
-                )
-                .limit(limit)
+                text(
+                    "SELECT yoao_labeling_v1.comment_attachment_retirement_candidates(:now, :limit)"
+                ),
+                {"now": now(), "limit": limit},
             )
         )
         await db.commit()

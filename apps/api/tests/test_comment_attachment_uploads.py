@@ -911,7 +911,7 @@ async def test_active_original_protects_until_expiry_but_native_metadata_does_no
     assert (await db_session.get(AnnotationComment, uuid.UUID(created["id"]))).is_active
 
 
-async def test_hard_delete_hook_accepts_select_without_commit(
+async def test_hard_delete_hook_retires_exact_comments_without_commit(
     httpx_client, super_admin, discussion, objects, db_session
 ):
     value = await upload(httpx_client, super_admin, discussion[1])
@@ -919,12 +919,7 @@ async def test_hard_delete_hook_accepts_select_without_commit(
     commit = db_session.commit
     db_session.commit = AsyncMock(side_effect=AssertionError("hook must not commit"))
     try:
-        ids = await uploads.retire_for_comments(
-            db_session,
-            select(AnnotationComment.id).where(
-                AnnotationComment.id == uuid.UUID(created["id"])
-            ),
-        )
+        ids = await uploads.retire_for_comments(db_session, [uuid.UUID(created["id"])])
     finally:
         db_session.commit = commit
     assert len(ids) == 1
