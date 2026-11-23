@@ -349,6 +349,24 @@ class ModuleDataSelectionTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     _arguments(["--output", "/tmp/unused.json", "--test-file", target])
 
+    def test_workspace_assembly_accepts_explicit_strict_and_default_profiles(self):
+        target = "tests/test_workspace_module_assembly_live.py"
+        self.assertIn(target, TEST_FILES)
+        for profile in ("strict", "default"):
+            with self.subTest(profile=profile):
+                parsed = _arguments(
+                    [
+                        "--output",
+                        "/tmp/unused.json",
+                        "--workspace-consumer-profile",
+                        profile,
+                        "--test-file",
+                        target,
+                    ]
+                )
+                self.assertEqual(parsed.workspace_consumer_profile, profile)
+                self.assertEqual(parsed.test_files, [target])
+
     def test_default_workspace_profile_rejects_unrelated_or_combined_targets(self):
         for targets in (
             [],

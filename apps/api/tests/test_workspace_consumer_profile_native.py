@@ -16,7 +16,6 @@ import pytest
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.config import settings
 from app.core.security import create_access_token
 from app.services.project_access import get_workspace_project
 from app.services.project_workspace import lock_project_row
@@ -465,16 +464,6 @@ async def test_actual_http_workspace_lifecycle_uses_closed_borrowed_profile(
     test_engine, app_module, monkeypatch
 ):
     _configure_actual_api(test_engine, monkeypatch)
-    for capability in (
-        "membership",
-        "owner_transfer",
-        "configuration",
-        "template_query",
-        "project_query",
-        "directory_query",
-    ):
-        for suffix in ("url", "database_url", "database_url_file"):
-            monkeypatch.setattr(settings, f"workspace_{capability}_{suffix}", "")
     async with _world(test_engine) as (owner, api, _role, _url):
         async with owner.begin() as db:
             actor = await create_user(
