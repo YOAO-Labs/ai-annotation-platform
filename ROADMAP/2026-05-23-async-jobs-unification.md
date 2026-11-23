@@ -32,9 +32,9 @@
    - 批次自动翻状态依赖的 `batch_id` 从 `async_job.payload["batch_id"]` 取。
    - `_mark_job_failed`（327-376）去掉专表分支，只走 `async_job_svc.mark_failed`。
    - → verify：现有 `test_prediction_jobs_worker.py` 改写为断言 async_jobs；batch_predict 端到端跑通。
-2. **弃用读取端点**：[admin_preannotate_jobs.py](../apps/api/app/api/v1/admin_preannotate_jobs.py) `/admin/preannotate-jobs` 改读 `async_jobs WHERE kind=batch_predict`，或直接删端点 + 前端 api 定义。
+2. **弃用读取端点**：[原 admin_preannotate_jobs.py](https://github.com/YOAO-Labs/ai-annotation-platform/blob/fcb9900a38d33a442ee2279bcc5f6c1cc0c997c6/apps/api/app/api/v1/admin_preannotate_jobs.py#L71) 中的 `/admin/preannotate-jobs` 改读 `async_jobs WHERE kind=batch_predict`，或直接删端点 + 前端 api 定义。
    - [admin_preannotate.py](../apps/api/app/api/v1/admin_preannotate.py) 的 `MAX(started_at) GROUP BY project_id` 改查 async_jobs。
-3. **删表迁移**：drop `prediction_jobs`；删 [prediction_job.py](../apps/api/app/db/models/prediction_job.py) model。
+3. **删表迁移**：drop `prediction_jobs`；删 [原 PredictionJob 模型](https://github.com/YOAO-Labs/ai-annotation-platform/blob/fcb9900a38d33a442ee2279bcc5f6c1cc0c997c6/apps/api/app/db/models/prediction_job.py#L27)。
    - → verify：`alembic upgrade head` + 全后端测试通过。
 
 ## Phase 2 — 收敛 VideoTrackerJob：**决定不做，保留专表**（2026-05-23 拍板）
