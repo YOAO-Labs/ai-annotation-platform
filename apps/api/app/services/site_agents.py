@@ -1,5 +1,6 @@
 """One-time pairing and current authority, separate from transport operations."""
 
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import hashlib
 import hmac
@@ -7,27 +8,121 @@ import re
 import secrets
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import Uuid, column, func, select, table, text
 
 from app.config import settings
 from app.db.enums import UserRole
-from app.db.models.api_key import ApiKey
-from app.db.models.site_agent import AgentCredential, AgentRegistration, Site
-from app.db.models.user import User
 from app.schemas.site_agent import AgentLimits, AgentRoot
 from app.services.dataset_content import key_authority
+from app.services.identity_account_lock_data import IdentityAccountLockData
 
 PROTOCOL_VERSION = 1
-PAIR_TTL = timedelta(minutes=10)
-CREDENTIAL_TTL = timedelta(days=30)
 HEARTBEAT_TTL = timedelta(seconds=60)
 _SECRET = re.compile(r"[A-Za-z0-9_-]{32,256}\Z")
+
+_SITE = table(
+    "site_facts",
+    column("id", Uuid),
+    column("name"),
+    column("region"),
+    column("created_by", Uuid),
+    column("created_at"),
+    schema="yoao_assets_storage_v1",
+)
+_AGENT = table(
+    "agent_facts",
+    column("id", Uuid),
+    column("site_id", Uuid),
+    column("name"),
+    column("protocol_version"),
+    column("credential_revision"),
+    column("pair_expires_at"),
+    column("pairing_pending"),
+    column("revoked_at"),
+    column("draining"),
+    column("session_id", Uuid),
+    column("last_seen"),
+    column("roots"),
+    column("limits"),
+    column("reported_limits"),
+    column("created_by", Uuid),
+    column("created_at"),
+    schema="yoao_assets_storage_v1",
+)
+_IDENTITY = text(
+    "SELECT (a.agent).*, a.authenticated_revision, a.credential_expires_at, "
+    "a.credential_revoked_at FROM yoao_assets_storage_v1.agent_identity"
+    "(:id, :revision, :verifier, :lock) AS a"
+)
+_CREATE_SITE = text(
+    "SELECT * FROM yoao_assets_storage_v1.create_site(:actor,:id,:name,:region)"
+)
+_REGISTER = text(
+    "SELECT yoao_assets_storage_v1.register_agent"
+    "(:actor,:site,:id,:name,CAST(:limits AS jsonb),:pair_digest)"
+)
+_ROTATE = text(
+    "SELECT * FROM yoao_assets_storage_v1.rotate_agent(:id,:revision,:pair_digest)"
+)
+_CONTROL = text(
+    "SELECT a.code, (a.agent).* "
+    "FROM yoao_assets_storage_v1.control_agent(:id,:revision,:revoke,:draining) AS a"
+)
+_PAIR = text(
+    "SELECT * FROM yoao_assets_storage_v1.pair_agent(:id,:pair_digest,:token_digest)"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class CredentialFacts:
+    agent_id: uuid.UUID
+    revision: int
+    expires_at: datetime
+    revoked_at: datetime | None
+    verifier: str | None = field(repr=False)
+
+
+@dataclass(slots=True)
+class AgentFacts:
+    id: uuid.UUID
+    site_id: uuid.UUID
+    name: str
+    protocol_version: int
+    credential_revision: int
+    pair_expires_at: datetime | None
+    pairing_pending: bool
+    revoked_at: datetime | None
+    draining: bool
+    session_id: uuid.UUID | None
+    last_seen: datetime | None
+    roots: list
+    limits: dict
+    reported_limits: dict | None
+    created_by: uuid.UUID
+    created_at: datetime
 
 
 class SiteAgentError(ValueError):
     def __init__(self, code, status=409):
         self.code, self.status = code, status
         super().__init__(code)
+
+
+def raise_identity_error(code):
+    if code:
+        raise SiteAgentError(
+            code,
+            {
+                "agent_unauthorized": 401,
+                "credential_expired": 401,
+                "pair_code_invalid": 401,
+                "agent_revoked": 403,
+                "agent_unpaired": 403,
+                "agent_not_found": 404,
+                "site_not_found": 404,
+                "agent_protocol_incompatible": 426,
+            }.get(code, 409),
+        )
 
 
 async def now(db):
@@ -57,7 +152,7 @@ def validate_current(agent, credential, now=None):
         raise SiteAgentError("agent_unauthorized", 401)
     if agent.revoked_at is not None:
         raise SiteAgentError("agent_revoked", 403)
-    if agent.pair_digest is not None:
+    if agent.pairing_pending:
         raise SiteAgentError("agent_unpaired", 403)
     if credential.revoked_at is not None:
         raise SiteAgentError("agent_unauthorized", 401)
@@ -65,6 +160,30 @@ def validate_current(agent, credential, now=None):
         raise SiteAgentError("credential_expired", 401)
     if credential.revision != agent.credential_revision:
         raise SiteAgentError("credential_revision_changed", 409)
+
+
+async def get_identity(db, agent_id, *, revision=None, verifier=None, lock=None):
+    if db.autoflush:
+        await db.flush()
+    result = await db.execute(
+        _IDENTITY,
+        {"id": agent_id, "revision": revision, "verifier": verifier, "lock": lock},
+    )
+    row = result.mappings().one_or_none()
+    if row is None:
+        return None, None
+    data = dict(row)
+    authenticated_revision = data.pop("authenticated_revision")
+    expires_at = data.pop("credential_expires_at")
+    revoked_at = data.pop("credential_revoked_at")
+    return (
+        AgentFacts(**data),
+        CredentialFacts(
+            data["id"], authenticated_revision, expires_at, revoked_at, verifier
+        )
+        if authenticated_revision is not None
+        else None,
+    )
 
 
 async def authenticate(db, token, protocol_version=1, allow_retired_receipt=False):
@@ -76,17 +195,11 @@ async def authenticate(db, token, protocol_version=1, allow_retired_receipt=Fals
     _protocol(protocol_version)
     if type(token) is not str or _SECRET.fullmatch(token) is None:
         raise SiteAgentError("agent_unauthorized", 401)
-    row = (
-        await db.execute(
-            select(AgentRegistration, AgentCredential)
-            .join(AgentCredential, AgentCredential.agent_id == AgentRegistration.id)
-            .where(AgentCredential.token_digest == _digest(token, "credential"))
-            .execution_options(populate_existing=True)
-        )
-    ).one_or_none()
-    if row is None:
+    agent, credential = await get_identity(
+        db, None, verifier=_digest(token, "credential")
+    )
+    if agent is None or credential is None:
         raise SiteAgentError("agent_unauthorized", 401)
-    agent, credential = row
     _protocol(agent.protocol_version)
     if not allow_retired_receipt:
         validate_current(agent, credential, now=await now(db))
@@ -95,192 +208,129 @@ async def authenticate(db, token, protocol_version=1, allow_retired_receipt=Fals
 
 async def lock_current_admin(db, actor, api_key_id=None):
     proof = await key_authority(db, actor, api_key_id, "datasets:write")
-    current = await db.scalar(
-        select(User)
-        .where(User.id == actor.id)
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
-    )
+    current = (
+        await IdentityAccountLockData(db).lock_accounts(
+            (actor.id,), mode="share", nowait=False
+        )
+    ).get(actor.id)
     if current is None or not current.is_active or current.role != UserRole.SUPER_ADMIN:
         raise SiteAgentError("site_agent_admin_required", 403)
-    if api_key_id is not None:
-        await db.scalar(
-            select(ApiKey)
-            .where(ApiKey.id == uuid.UUID(str(api_key_id)))
-            .with_for_update(read=True)
-            .execution_options(populate_existing=True)
-        )
     if await key_authority(db, current, api_key_id, "datasets:write") != proof:
         raise SiteAgentError("api_key_authority_revoked", 403)
     return current
 
 
 async def create_site(db, payload, actor):
-    site = Site(name=payload.name, region=payload.region, created_by=actor.id)
-    db.add(site)
-    await db.flush()
-    return site
+    row = await db.execute(
+        _CREATE_SITE,
+        {
+            "actor": actor.id,
+            "id": uuid.uuid4(),
+            "name": payload.name,
+            "region": payload.region,
+        },
+    )
+    return row.mappings().one()
 
 
 async def list_sites(db, *, limit=100, offset=0):
-    total = await db.scalar(select(func.count()).select_from(Site))
-    rows = list(
-        await db.scalars(
-            select(Site)
-            .order_by(Site.created_at.desc(), Site.id)
-            .offset(offset)
-            .limit(limit)
-        )
+    total = await db.scalar(select(func.count()).select_from(_SITE))
+    rows = await db.execute(
+        select(_SITE)
+        .order_by(_SITE.c.created_at.desc(), _SITE.c.id)
+        .offset(offset)
+        .limit(limit)
     )
-    return {"items": rows, "total": total}
-
-
-async def _agent(db, agent_id):
-    agent = await db.scalar(
-        select(AgentRegistration)
-        .where(AgentRegistration.id == agent_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if agent is None:
-        raise SiteAgentError("agent_not_found", 404)
-    return agent
-
-
-def _revision(agent, expected):
-    if expected is not None and agent.credential_revision != expected:
-        raise SiteAgentError("credential_revision_changed", 409)
-
-
-def _pairing(agent, stamp):
-    code = secrets.token_urlsafe(32)
-    agent.pair_digest = _digest(code, "pair")
-    agent.pair_expires_at = stamp + PAIR_TTL
-    return {
-        "agent_id": agent.id,
-        "pair_code": code,
-        "expires_at": agent.pair_expires_at,
-    }
+    return {"items": rows.mappings().all(), "total": total}
 
 
 async def create_agent(db, site_id, payload, actor):
-    site = await db.scalar(
-        select(Site).where(Site.id == site_id).with_for_update(read=True)
+    agent_id, code = uuid.uuid4(), secrets.token_urlsafe(32)
+    expires = await db.scalar(
+        _REGISTER,
+        {
+            "actor": actor.id,
+            "site": site_id,
+            "id": agent_id,
+            "name": payload.name,
+            "limits": payload.limits.model_dump_json(),
+            "pair_digest": _digest(code, "pair"),
+        },
     )
-    if site is None:
+    if expires is None:
         raise SiteAgentError("site_not_found", 404)
-    agent = AgentRegistration(
-        site_id=site.id,
-        name=payload.name,
-        protocol_version=PROTOCOL_VERSION,
-        credential_revision=1,
-        roots=[],
-        limits=payload.limits.model_dump(),
-        created_by=actor.id,
-    )
-    db.add(agent)
-    await db.flush()
-    result = _pairing(agent, await now(db))
-    await db.flush()
-    return result
-
-
-async def _retire_credentials(db, agent, stamp):
-    rows = list(
-        await db.scalars(
-            select(AgentCredential)
-            .where(AgentCredential.agent_id == agent.id)
-            .order_by(AgentCredential.revision)
-            .with_for_update()
-            .execution_options(populate_existing=True)
-        )
-    )
-    for credential in rows:
-        credential.revoked_at = credential.revoked_at or stamp
+    return {"agent_id": agent_id, "pair_code": code, "expires_at": expires}
 
 
 async def rotate(db, agent_id, *, expected_revision=None):
-    from app.db.models.site_agent_command import SiteAgentCommand
-
-    agent = await _agent(db, agent_id)
-    _revision(agent, expected_revision)
-    if agent.revoked_at is not None:
-        raise SiteAgentError("agent_revoked", 403)
-    active = await db.scalar(
-        select(SiteAgentCommand.id)
-        .where(
-            SiteAgentCommand.agent_id == agent.id,
-            SiteAgentCommand.state.in_({"leased", "received", "unsettled"}),
+    code = secrets.token_urlsafe(32)
+    row = (
+        (
+            await db.execute(
+                _ROTATE,
+                {
+                    "id": agent_id,
+                    "revision": expected_revision,
+                    "pair_digest": _digest(code, "pair"),
+                },
+            )
         )
-        .limit(1)
+        .mappings()
+        .one()
     )
-    if not agent.draining or active is not None:
-        raise SiteAgentError("agent_tasks_not_drained", 409)
-    stamp = await now(db)
-    await _retire_credentials(db, agent, stamp)
-    agent.credential_revision += 1
-    agent.session_id = agent.last_seen = agent.reported_limits = None
-    agent.roots = []
-    result = _pairing(agent, stamp)
-    await db.flush()
-    return result
+    raise_identity_error(row["code"])
+    return {"agent_id": agent_id, "pair_code": code, "expires_at": row["expires_at"]}
+
+
+async def _control(db, agent_id, expected_revision, *, revoke, draining):
+    result = await db.execute(
+        _CONTROL,
+        {
+            "id": agent_id,
+            "revision": expected_revision,
+            "revoke": revoke,
+            "draining": draining,
+        },
+    )
+    data = dict(result.mappings().one())
+    raise_identity_error(data.pop("code"))
+    return AgentFacts(**data)
 
 
 async def revoke(db, agent_id, *, expected_revision=None):
-    agent = await _agent(db, agent_id)
-    _revision(agent, expected_revision)
-    stamp = await now(db)
-    agent.revoked_at = agent.revoked_at or stamp
-    agent.draining = True
-    agent.pair_digest = agent.pair_expires_at = None
-    await _retire_credentials(db, agent, stamp)
-    await db.flush()
-    return agent
+    return await _control(db, agent_id, expected_revision, revoke=True, draining=None)
 
 
 async def set_draining(db, agent_id, *, expected_revision, draining):
-    agent = await _agent(db, agent_id)
-    _revision(agent, expected_revision)
-    if agent.revoked_at is not None:
-        raise SiteAgentError("agent_revoked", 403)
-    agent.draining = draining
-    await db.flush()
-    return agent
+    return await _control(
+        db, agent_id, expected_revision, revoke=False, draining=draining
+    )
 
 
 async def pair(db, payload):
     _protocol(payload.protocol_version)
-    agent = await _agent(db, payload.agent_id)
-    if agent.revoked_at is not None:
-        raise SiteAgentError("agent_revoked", 403)
-    stamp = await now(db)
-    if (
-        agent.pair_digest is None
-        or agent.pair_expires_at is None
-        or agent.pair_expires_at <= stamp
-        or not hmac.compare_digest(
-            agent.pair_digest, _digest(payload.pair_code, "pair")
-        )
-    ):
-        raise SiteAgentError("pair_code_invalid", 401)
-    _protocol(agent.protocol_version)
-    token = secrets.token_urlsafe(32)
-    expires = stamp + CREDENTIAL_TTL
-    db.add(
-        AgentCredential(
-            agent_id=agent.id,
-            revision=agent.credential_revision,
-            token_digest=_digest(token, "credential"),
-            expires_at=expires,
-        )
-    )
-    agent.pair_digest = agent.pair_expires_at = None
     await db.flush()
+    token = secrets.token_urlsafe(32)
+    row = (
+        (
+            await db.execute(
+                _PAIR,
+                {
+                    "id": payload.agent_id,
+                    "pair_digest": _digest(payload.pair_code, "pair"),
+                    "token_digest": _digest(token, "credential"),
+                },
+            )
+        )
+        .mappings()
+        .one()
+    )
+    raise_identity_error(row["code"])
     return {
-        "agent_id": agent.id,
-        "credential_revision": agent.credential_revision,
+        "agent_id": payload.agent_id,
+        "credential_revision": row["credential_revision"],
         "token": token,
-        "expires_at": int(expires.timestamp()),
+        "expires_at": int(row["expires_at"].timestamp()),
     }
 
 
@@ -288,7 +338,7 @@ def state(agent, measured_at=None):
     stamp = measured_at or datetime.now(timezone.utc)
     if agent.revoked_at is not None:
         return "revoked"
-    if agent.pair_digest is not None:
+    if agent.pairing_pending:
         return "pending"
     if agent.last_seen is None or agent.last_seen + HEARTBEAT_TTL <= stamp:
         return "offline"
@@ -340,21 +390,21 @@ def agent_out(agent, measured_at=None):
 
 
 async def list_agents(db, *, site_id=None, agent_id=None, limit=100, offset=0):
-    query = select(AgentRegistration)
-    count = select(func.count()).select_from(AgentRegistration)
+    filters = []
     if site_id is not None:
-        query = query.where(AgentRegistration.site_id == site_id)
-        count = count.where(AgentRegistration.site_id == site_id)
+        filters.append(_AGENT.c.site_id == site_id)
     if agent_id is not None:
-        query = query.where(AgentRegistration.id == agent_id)
-        count = count.where(AgentRegistration.id == agent_id)
-    total = await db.scalar(count)
-    rows = list(
-        await db.scalars(
-            query.order_by(AgentRegistration.created_at.desc(), AgentRegistration.id)
-            .offset(offset)
-            .limit(limit)
-        )
+        filters.append(_AGENT.c.id == agent_id)
+    total = await db.scalar(select(func.count()).select_from(_AGENT).where(*filters))
+    rows = await db.execute(
+        select(_AGENT)
+        .where(*filters)
+        .order_by(_AGENT.c.created_at.desc(), _AGENT.c.id)
+        .offset(offset)
+        .limit(limit)
     )
     stamp = await now(db)
-    return {"items": [agent_out(row, stamp) for row in rows], "total": total}
+    return {
+        "items": [agent_out(AgentFacts(**row), stamp) for row in rows.mappings()],
+        "total": total,
+    }

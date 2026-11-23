@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.db.enums import UserRole
-from app.db.models.dataset_asset import StorageLocation, StorageLocationProbe
 from app.db.models.user import User
 from app.deps import get_db, require_roles, assert_request_scopes
 from app.schemas.storage_location import (
@@ -69,6 +68,7 @@ from app.schemas.storage_location import (
     StorageProbeOut,
     StorageProbeRequest,
 )
+from app.services import storage_registry_data as registry
 from app.schemas.storage_cache import (
     OriginalCacheCleanup,
     OriginalCacheCleanupResult,
@@ -638,24 +638,23 @@ async def list_locations(
     if agent_id is not None:
         clause = and_(
             clause,
-            StorageLocation.kind == "agent",
-            StorageLocation.config["agent_id"].astext == str(agent_id),
+            registry.location_row.c.kind == "agent",
+            registry.location_row.c.config["agent_id"].astext == str(agent_id),
         )
     total = await db.scalar(
-        select(func.count()).select_from(StorageLocation).where(clause)
+        select(func.count()).select_from(registry.location_row).where(clause)
     )
-    rows = list(
-        await db.scalars(
-            select(StorageLocation)
-            .where(clause)
-            .order_by(StorageLocation.name, StorageLocation.id)
-            .limit(limit)
-            .offset(offset)
-        )
+    rows = await db.execute(
+        select(registry.location_row)
+        .where(clause)
+        .order_by(registry.location_row.c.name, registry.location_row.c.id)
+        .limit(limit)
+        .offset(offset)
     )
     from app.services.storage_location_list import list_items
 
-    return {"items": await list_items(db, rows, actor), "total": total}
+    locations = [registry.LocationFacts(**row) for row in rows.mappings()]
+    return {"items": await list_items(db, locations, actor), "total": total}
 
 
 @router.post("", response_model=StorageLocationOut, status_code=201)
@@ -785,17 +784,10 @@ async def source_summary(
 
 
 async def lock_change_location(db, location_id, actor):
-    from app.db.models.storage_connection import StorageConnection
-
     initial = await svc.get_visible(db, location_id, actor)
     connection_id = initial.connection_id
     if connection_id is not None:
-        await db.scalar(
-            select(StorageConnection)
-            .where(StorageConnection.id == connection_id)
-            .with_for_update(read=True)
-            .execution_options(populate_existing=True)
-        )
+        await registry.get_connection(db, connection_id, lock="share")
     location = await svc.get_visible(db, location_id, actor, lock=True)
     if location.connection_id != connection_id:
         raise HTTPException(409, detail={"code": "storage_change_preview_changed"})
@@ -838,7 +830,7 @@ async def update_location(
     actor = await lock_current_admin(db, actor, request)
     location = await lock_change_location(db, location_id, actor)
     try:
-        detail = await apply(
+        location, detail = await apply(
             db,
             location,
             payload,
@@ -982,10 +974,9 @@ async def directories(
     except ContentError as exc:
         raise filesystem_error(exc) from None
     if receipt_id is not None:
-        from app.db.models.site_agent_command import SiteAgentCommand
-        from app.services.agent_transport import acknowledge
+        from app.services.agent_transport import acknowledge, get_receipt
 
-        await acknowledge(db, await db.get(SiteAgentCommand, receipt_id), accepted=True)
+        await acknowledge(db, await get_receipt(db, receipt_id), accepted=True)
         await db.commit()
     return result
 
@@ -1126,12 +1117,9 @@ async def probe(
         result = {**result, "maintenance_revision": maintenance_revision}
         await svc.store_probe(db, location, node_id, result, observed_at)
         if receipt_id is not None:
-            from app.db.models.site_agent_command import SiteAgentCommand
-            from app.services.agent_transport import acknowledge
+            from app.services.agent_transport import acknowledge, get_receipt
 
-            await acknowledge(
-                db, await db.get(SiteAgentCommand, receipt_id), accepted=True
-            )
+            await acknowledge(db, await get_receipt(db, receipt_id), accepted=True)
     except ContentError as exc:
         raise filesystem_error(exc) from None
     await AuditService.log(
@@ -1145,10 +1133,8 @@ async def probe(
         detail={"ok": result["ok"], "code": result["code"]},
     )
     await db.commit()
-    row = await db.get(
-        StorageLocationProbe,
-        (location_id, svc.probe_node_id(location, node_id)),
-        populate_existing=True,
+    row = await registry.get_probe(
+        db, location_id, svc.probe_node_id(location, node_id)
     )
     return svc.probe_out(row, location)
 
@@ -1160,9 +1146,5 @@ async def probes(
     actor: User = Depends(manager),
 ):
     location = await svc.get_visible(db, location_id, actor)
-    rows = await db.scalars(
-        select(StorageLocationProbe)
-        .where(StorageLocationProbe.location_id == location_id)
-        .order_by(StorageLocationProbe.node_id)
-    )
+    rows = await registry.probes(db, location_id)
     return [svc.probe_out(row, location) for row in rows]

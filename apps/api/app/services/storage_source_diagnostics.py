@@ -13,8 +13,9 @@ PREVIEW_STATES = ("ready", "failed", "unrecorded", "not_requested", "blocked")
 
 async def available_preview_keys(db, source_ids):
     """Validate saved preview owners and current target metadata, never bytes."""
-    from app.services import media_cache_storage, storage_access, thumbnail_outputs
+    from app.services import storage_access, thumbnail_outputs
     from app.services.content_snapshot import ContentError
+    from app.services.managed_s3_target import target_origin_for
 
     rows = await thumbnail_outputs.directory_evidence(db, source_ids)
     targets, sources, available = {}, {}, []
@@ -29,10 +30,8 @@ async def available_preview_keys(db, source_ids):
                 target_key = None
                 if target_key not in targets:
                     targets[target_key] = False
-                    location = await db.get(
-                        StorageLocation, LEGACY_LOCATION_ID, populate_existing=True
-                    )
-                    await media_cache_storage.target_for(db, location)
+                    location = await get_location(db, LEGACY_LOCATION_ID)
+                    await target_origin_for(db, location, purpose="media-cache")
                     await storage_access.check(db, LEGACY_LOCATION_ID)
                     targets[target_key] = True
             else:

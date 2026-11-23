@@ -3,17 +3,15 @@
 from dataclasses import dataclass, replace
 import re
 
-from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
 import uuid
 
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.storage_connection import StorageConnection
 from app.services import storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.export_storage import _endpoint as _parse_endpoint, _plain
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
+from app.services.storage_registry_data import get_binding, get_connection, get_location
 
 MANAGED_NAMESPACE = "_aap_managed/annotations/"
 MAX_MANAGED_PREFIX_CHARS = 896
@@ -234,7 +232,7 @@ async def target_for(db, location, *, require_enabled=True):
 
 async def target_for_ref(db, ref, *, require_enabled=True):
     saved = resolve_ref(ref)
-    location = await db.get(StorageLocation, saved.location_id, populate_existing=True)
+    location = await get_location(db, saved.location_id)
     target = await target_for(db, location, require_enabled=require_enabled)
     if saved.location_id == LEGACY_LOCATION_ID:
         target = replace(target, bucket=saved.bucket)
@@ -250,36 +248,24 @@ async def target_for_ref(db, ref, *, require_enabled=True):
 async def allocate(db, logical_key):
     """Save an allocation in the caller transaction before any provider I/O."""
     logical = _logical(logical_key)
+    from app.services.managed_s3_target import target_origin_for
+
     connection = await db.connection()
     savepoint = await connection.begin_nested()
     try:
         await ensure_legacy_bindings(db)
-        initial = await db.get(StorageBinding, "annotations", populate_existing=True)
+        initial = await get_binding(db, "annotations")
         if initial is None:
             _reject("annotations_storage_binding_unproven")
         facts = initial.location_id, initial.bucket, initial.generation
-        location = await db.get(StorageLocation, facts[0], populate_existing=True)
+        location = await get_location(db, facts[0])
         if location is None:
             _reject("annotations_storage_binding_unproven")
         connection_id = location.connection_id
         if connection_id is not None:
-            await db.execute(
-                select(StorageConnection.id)
-                .where(StorageConnection.id == connection_id)
-                .with_for_update(read=True, nowait=True)
-            )
-        location = await db.scalar(
-            select(StorageLocation)
-            .where(StorageLocation.id == facts[0])
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True)
-        )
-        binding = await db.scalar(
-            select(StorageBinding)
-            .where(StorageBinding.purpose == "annotations")
-            .with_for_update(read=True, nowait=True)
-            .execution_options(populate_existing=True)
-        )
+            await get_connection(db, connection_id, lock="share_nowait")
+        location = await get_location(db, facts[0], lock="share_nowait")
+        binding = await get_binding(db, "annotations", lock="share_nowait")
         if (
             location is None
             or location.connection_id != connection_id
@@ -287,7 +273,7 @@ async def allocate(db, logical_key):
             or (binding.location_id, binding.bucket, binding.generation) != facts
         ):
             _reject("annotations_storage_binding_unproven")
-        target = await target_for(db, location)
+        target = await target_origin_for(db, location, purpose="annotations")
         if (
             binding.bucket != target.bucket
             or type(binding.generation) is not int

@@ -7,14 +7,11 @@ from datetime import datetime, timedelta, timezone
 import re
 import uuid
 
-from sqlalchemy import select
-
-from app.db.models.dataset_asset import StorageBinding, StorageLocation
-from app.db.models.storage_connection import StorageConnection
 from app.services import storage_access, storage_presigning
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
+from app.services.storage_registry_data import get_binding, get_connection, get_location
 from app.services.export_storage import (
     _endpoint as _export_endpoint,
     _plain,
@@ -193,33 +190,18 @@ async def allocate(db, logical_prefix):
         await ensure_legacy_bindings(db)
     except ValueError:
         _reject("import_storage_binding_unproven")
-    initial = await db.get(StorageBinding, "import", populate_existing=True)
+    initial = await get_binding(db, "import")
     if initial is None:
         _reject("import_storage_binding_unproven")
     facts = initial.location_id, initial.bucket, initial.generation
-    initial_location = await db.get(StorageLocation, facts[0], populate_existing=True)
+    initial_location = await get_location(db, facts[0])
     if initial_location is None:
         _reject("import_storage_binding_unproven")
     connection_id = initial_location.connection_id
     if connection_id is not None:
-        await db.scalar(
-            select(StorageConnection)
-            .where(StorageConnection.id == connection_id)
-            .with_for_update(read=True)
-            .execution_options(populate_existing=True)
-        )
-    location = await db.scalar(
-        select(StorageLocation)
-        .where(StorageLocation.id == facts[0])
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
-    )
-    binding = await db.scalar(
-        select(StorageBinding)
-        .where(StorageBinding.purpose == "import")
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
-    )
+        await get_connection(db, connection_id, lock="share")
+    location = await get_location(db, facts[0], lock="share")
+    binding = await get_binding(db, "import", lock="share")
     if (
         location is None
         or location.connection_id != connection_id
@@ -227,9 +209,9 @@ async def allocate(db, logical_prefix):
         or (binding.location_id, binding.bucket, binding.generation) != facts
     ):
         _reject("import_storage_binding_unproven")
-    from app.services.import_storage_target import target_for
+    from app.services.managed_s3_target import target_origin_for
 
-    target = await target_for(db, location)
+    target = await target_origin_for(db, location, purpose="import")
     if (
         type(binding.generation) is not int
         or binding.generation < 1
@@ -259,7 +241,7 @@ async def io_target(db, owner, *, lock=False):
     from app.services.import_storage_target import target_for
     from app.services.managed_s3_target import Target
 
-    initial = await db.get(StorageLocation, owner.location_id, populate_existing=True)
+    initial = await get_location(db, owner.location_id)
     if (
         initial is None
         and owner.location_id == LEGACY_LOCATION_ID
@@ -279,16 +261,8 @@ async def io_target(db, owner, *, lock=False):
         _reject("import_storage_binding_unproven")
     connection_id = initial.connection_id
     if lock and connection_id is not None:
-        await db.scalar(
-            select(StorageConnection)
-            .where(StorageConnection.id == connection_id)
-            .with_for_update(read=True)
-            .execution_options(populate_existing=True)
-        )
-    query = select(StorageLocation).where(StorageLocation.id == owner.location_id)
-    if lock:
-        query = query.with_for_update(read=True)
-    location = await db.scalar(query.execution_options(populate_existing=True))
+        await get_connection(db, connection_id, lock="share")
+    location = await get_location(db, owner.location_id, lock="share" if lock else None)
     if location is None or location.connection_id != connection_id:
         _reject()
     target = await target_for(db, location, require_enabled=False)

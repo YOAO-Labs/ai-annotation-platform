@@ -13,23 +13,119 @@ import uuid
 
 from yoao_site_agent_contract import digest, validate_command, validate_result
 import redis.asyncio as aioredis
-from sqlalchemy import delete, func, inspect, or_, select, text, update
+from sqlalchemy import inspect, select, text
 
 from app.config import settings
-from app.db.models.dataset_asset import StorageLocation
-from app.db.models.site_agent import AgentCredential, AgentRegistration
 from app.db.models.site_agent_command import SiteAgentCommand as Command
-from app.db.models.storage_maintenance import StorageOperation
 from app.services import filesystem_storage as fs, storage_access
 from app.services.content_snapshot import ContentError
-from app.services.site_agents import SiteAgentError, validate_current
+from app.services.site_agents import (
+    SiteAgentError,
+    get_identity,
+    raise_identity_error,
+    validate_current,
+)
+from app.services.storage_registry_data import get_location
 
 MAX_BYTES = 64 * 1024 * 1024
 CHUNK_BYTES = 256 * 1024
-GLOBAL_SLOTS = 4
-ACTIVE = ("leased", "received", "unsettled")
 DISPATCH_LOCK = 7164521385097
 SHA = re.compile(r"[a-f0-9]{64}\Z")
+
+_RECEIPT = (
+    select(Command)
+    .from_statement(
+        text("SELECT * FROM yoao_assets_storage_v1.agent_command_receipt(:id)")
+    )
+    .execution_options(populate_existing=True)
+)
+_ENQUEUE = (
+    select(Command)
+    .from_statement(
+        text(
+            "SELECT * FROM yoao_assets_storage_v1.enqueue_agent_command"
+            "(:id,:location,:agent,:revision,:operation,CAST(:payload AS jsonb),:digest,:expires)"
+        )
+    )
+    .execution_options(populate_existing=True)
+)
+_OBSERVE = text(
+    "SELECT yoao_assets_storage_v1.observe_agent"
+    "(:agent,:revision,:verifier,:session,CAST(:roots AS jsonb),CAST(:limits AS jsonb))"
+)
+_CANDIDATES = (
+    select(Command)
+    .from_statement(
+        text(
+            "SELECT * FROM yoao_assets_storage_v1.agent_lease_candidates(:agent,:revision,:verifier,:session)"
+        )
+    )
+    .execution_options(populate_existing=True)
+)
+_CLAIM = (
+    select(Command)
+    .from_statement(
+        text(
+            "SELECT * FROM yoao_assets_storage_v1.claim_agent_command"
+            "(:id,:agent,:revision,:verifier,:session,:rejection)"
+        )
+    )
+    .execution_options(populate_existing=True)
+)
+_LOCK_COMMAND = (
+    select(Command)
+    .from_statement(
+        text(
+            "SELECT * FROM yoao_assets_storage_v1.lock_agent_command(:id,:agent,:revision,:verifier)"
+        )
+    )
+    .execution_options(populate_existing=True)
+)
+_CHUNK = text(
+    "SELECT yoao_assets_storage_v1.record_agent_chunk(:id,:agent,:revision,:verifier,:digest,:offset,:size,:checksum)"
+)
+_RESULT = (
+    select(Command)
+    .from_statement(
+        text(
+            "SELECT * FROM yoao_assets_storage_v1.record_agent_result"
+            "(:id,:agent,:revision,:verifier,:digest,CAST(:result AS jsonb),:result_digest,:rejection)"
+        )
+    )
+    .execution_options(populate_existing=True)
+)
+_LOCK_ACK = (
+    select(Command)
+    .from_statement(text("SELECT * FROM yoao_assets_storage_v1.lock_agent_ack(:id)"))
+    .execution_options(populate_existing=True)
+)
+_ACK = text(
+    "SELECT yoao_assets_storage_v1.acknowledge_agent_result(:id,:digest,:accepted,:code)"
+)
+_CLEANUP = text("SELECT * FROM yoao_assets_storage_v1.cleanup_agent_relays()")
+_RELEASE = (
+    select(Command)
+    .from_statement(
+        text("SELECT * FROM yoao_assets_storage_v1.release_agent_relay(:id,:digest)")
+    )
+    .execution_options(populate_existing=True)
+)
+_EXPIRE = (
+    select(Command)
+    .from_statement(
+        text("SELECT * FROM yoao_assets_storage_v1.expire_agent_command(:id)")
+    )
+    .execution_options(populate_existing=True)
+)
+_ABANDON = (
+    select(Command)
+    .from_statement(
+        text(
+            "SELECT * FROM yoao_assets_storage_v1.abandon_agent_command(:id,:operation,:code)"
+        )
+    )
+    .execution_options(populate_existing=True)
+)
 
 
 def now():
@@ -51,10 +147,21 @@ def relay_key(command_id):
     return f"yoao:site-agent:relay:{command_id}"
 
 
+async def get_receipt(db, command_id):
+    return await db.scalar(_RECEIPT, {"id": command_id})
+
+
+def _proof(credential):
+    return {
+        "agent": credential.agent_id,
+        "revision": credential.revision,
+        "verifier": credential.verifier,
+    }
+
+
 async def _identity(db, row):
-    agent = await db.get(AgentRegistration, row.agent_id, populate_existing=True)
-    credential = await db.get(
-        AgentCredential, (row.agent_id, row.credential_revision), populate_existing=True
+    agent, credential = await get_identity(
+        db, row.agent_id, revision=row.credential_revision
     )
     validate_current(agent, credential)
     if agent.draining and row.lease_session_id is None:
@@ -67,7 +174,7 @@ async def _identity(db, row):
 
 async def _authority(db, row):
     await _identity(db, row)
-    location = await db.get(StorageLocation, row.location_id, populate_existing=True)
+    location = await get_location(db, row.location_id)
     fence = row.payload["fence"]
     if (
         location is None
@@ -94,24 +201,18 @@ async def enqueue(
     arguments,
     *,
     fence,
-    operation_id=None,
+    operation_id,
     max_bytes=MAX_BYTES,
     ttl_seconds=60,
 ):
     """Caller has authorized the business operation; commit before waiting."""
     if location.kind != "agent" or not location.enabled:
         raise failure("reference_backend_not_supported")
-    agent = await db.get(
-        AgentRegistration,
-        uuid.UUID(location.config["agent_id"]),
-        populate_existing=True,
-        with_for_update={"read": True},
+    agent, credential = await get_identity(
+        db, uuid.UUID(location.config["agent_id"]), lock="share"
     )
     if agent is None:
         raise failure("agent_unavailable", 503)
-    credential = await db.get(
-        AgentCredential, (agent.id, agent.credential_revision), populate_existing=True
-    )
     validate_current(agent, credential)
     issued = int(time.time())
     expires = min(
@@ -152,23 +253,21 @@ async def enqueue(
             },
         }
     )
-    row = Command(
-        id=uuid.UUID(payload["command_id"]),
-        agent_id=agent.id,
-        credential_revision=agent.credential_revision,
-        location_id=location.id,
-        operation_id=operation_id,
-        payload=payload,
-        command_digest=digest(payload),
-        priority=0 if operation == "read" else (2 if operation == "scan" else 1),
-        state="queued",
-        expires_at=datetime.fromtimestamp(expires, timezone.utc),
-        received_bytes=0,
-        relay_released=True,
-        chunks={},
+    row = await db.scalar(
+        _ENQUEUE,
+        {
+            "id": uuid.UUID(payload["command_id"]),
+            "agent": agent.id,
+            "revision": agent.credential_revision,
+            "location": location.id,
+            "operation": operation_id,
+            "payload": json.dumps(payload),
+            "digest": digest(payload),
+            "expires": datetime.fromtimestamp(expires, timezone.utc),
+        },
     )
-    db.add(row)
-    await db.flush()
+    if row is None:
+        raise failure("agent_location_changed")
     return row
 
 
@@ -178,52 +277,34 @@ async def observe(db, agent, credential, payload):
         or payload.credential_revision != credential.revision
     ):
         raise SiteAgentError("agent_identity_mismatch", 403)
-    agent = await db.get(
-        AgentRegistration, agent.id, populate_existing=True, with_for_update=True
+    raise_identity_error(
+        await db.scalar(
+            _OBSERVE,
+            {
+                **_proof(credential),
+                "session": payload.session_id,
+                "roots": json.dumps([root.model_dump() for root in payload.roots]),
+                "limits": payload.limits.model_dump_json(),
+            },
+        )
     )
-    validate_current(agent, credential)
-    agent.last_seen = now()
-    agent.session_id = payload.session_id
-    agent.roots = [root.model_dump() for root in payload.roots]
-    agent.reported_limits = payload.limits.model_dump()
-    await db.flush()
 
 
-async def lease(db, agent_id, session_id):
+async def lease(db, agent_id, session_id, *, credential):
     await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": DISPATCH_LOCK})
-    agent = await db.get(
-        AgentRegistration,
+    agent, current = await get_identity(
+        db,
         agent_id,
-        populate_existing=True,
-        with_for_update={"read": True},
+        revision=credential.revision,
+        verifier=credential.verifier,
+        lock="share",
     )
-    credential = await db.get(
-        AgentCredential, (agent.id, agent.credential_revision), populate_existing=True
-    )
-    validate_current(agent, credential)
-    await db.execute(
-        update(Command)
-        .where(
-            Command.state == "received",
-            Command.closed.is_(True),
-            Command.expires_at <= now(),
-        )
-        .values(state="rejected", error_code="agent_command_expired", updated_at=now())
-    )
+    validate_current(agent, current)
     await cleanup_terminal(db)
-    prior = await db.scalar(
-        select(Command)
-        .where(
-            Command.agent_id == agent_id,
-            Command.state.in_(("leased", "unsettled")),
-            Command.lease_session_id == session_id,
-            Command.result.is_(None),
-        )
-        .order_by(Command.created_at)
-        .with_for_update()
-        .limit(1)
-    )
-    if prior is not None:
+    proof = {**_proof(credential), "session": session_id}
+    rows = (await db.scalars(_CANDIDATES, proof)).all()
+    if rows and rows[0].lease_session_id is not None:
+        prior = rows[0]
         if now().timestamp() >= prior.payload["expires_at"]:
             return prior.payload
         try:
@@ -231,58 +312,22 @@ async def lease(db, agent_id, session_id):
         except (ContentError, SiteAgentError):
             return None
         return prior.payload
-    if agent.draining:
-        return None
-    active = await db.scalar(
-        select(func.count())
-        .select_from(Command)
-        .where(or_(Command.state.in_(ACTIVE), Command.relay_released.is_(False)))
-    )
-    owned = await db.scalar(
-        select(func.count())
-        .select_from(Command)
-        .where(Command.agent_id == agent_id, Command.state.in_(ACTIVE))
-    )
-    limit = min(
-        agent.limits["max_concurrency"], agent.reported_limits["max_concurrency"]
-    )
-    if active >= GLOBAL_SLOTS or owned >= limit:
-        return None
-    rows = (
-        await db.scalars(
-            select(Command)
-            .where(Command.agent_id == agent_id, Command.state == "queued")
-            .order_by(Command.priority, Command.created_at)
-            .with_for_update(skip_locked=True)
-            .limit(16)
-        )
-    ).all()
     for row in rows:
         try:
             await _authority(db, row)
         except (ContentError, SiteAgentError) as exc:
-            row.state, row.error_code, row.updated_at = "rejected", exc.code, now()
+            await db.scalar(_CLAIM, {**proof, "id": row.id, "rejection": exc.code})
             continue
-        row.state, row.lease_session_id, row.updated_at = "leased", session_id, now()
-        await db.flush()
-        return row.payload
+        if await db.scalar(_CLAIM, {**proof, "id": row.id, "rejection": None}):
+            return row.payload
     return None
 
 
-async def _command(db, command_id, agent, credential, *, lock=True):
-    stmt = (
-        select(Command)
-        .where(Command.id == command_id)
-        .execution_options(populate_existing=True)
-    )
-    if lock:
-        stmt = stmt.with_for_update()
-    row = await db.scalar(stmt)
-    if (
-        row is None
-        or row.agent_id != agent.id
-        or row.credential_revision != credential.revision
-    ):
+async def _command(db, command_id, agent, credential):
+    if credential.agent_id != agent.id:
+        raise failure("agent_command_not_found", 404)
+    row = await db.scalar(_LOCK_COMMAND, {"id": command_id, **_proof(credential)})
+    if row is None:
         raise failure("agent_command_not_found", 404)
     if row.lease_session_id is None:
         raise failure("agent_command_not_leased")
@@ -338,11 +383,18 @@ async def receive_chunk(
         raise failure("agent_relay_unavailable", 503) from None
     finally:
         await client.aclose()
-    row.chunks = {**row.chunks, str(offset): receipt}
-    row.relay_released = False
-    row.received_bytes += len(data)
-    row.updated_at = now()
-    await db.flush()
+    if not await db.scalar(
+        _CHUNK,
+        {
+            **_proof(credential),
+            "id": row.id,
+            "digest": command_digest,
+            "offset": offset,
+            "size": len(data),
+            "checksum": checksum,
+        },
+    ):
+        raise failure("agent_chunk_not_expected")
     return {
         "command_id": str(row.id),
         "command_digest": row.command_digest,
@@ -521,40 +573,39 @@ async def receive_result(db, command_id, agent, credential, value):
     ):
         raise failure("agent_result_identity_mismatch")
     result_digest = digest(result)
+    rejected = None
     if row.result_digest is not None:
         if row.result_digest != result_digest:
             raise failure("agent_result_replay_conflict")
-        if row.state == "received":
-            try:
-                await _authority(db, row)
-            except (ContentError, SiteAgentError) as exc:
-                row.state, row.error_code, row.updated_at = "rejected", exc.code, now()
-        return acknowledgement(row)
-    validate_payload(row.payload, result)
-    rejected = None
+        if row.state != "received":
+            return acknowledgement(row)
+    else:
+        validate_payload(row.payload, result)
     try:
         await _authority(db, row)
     except (ContentError, SiteAgentError) as exc:
         rejected = exc.code
     if (
-        not rejected
+        row.result_digest is None
+        and not rejected
         and row.payload["operation"] == "read"
         and result["status"] == "completed"
         and row.received_bytes != result["result"]["size_bytes"]
     ):
         raise failure("agent_content_incomplete")
-    row.result, row.result_digest, row.closed = result, result_digest, result["closed"]
-    row.error_code = rejected or result["error_code"]
-    row.state = ("rejected" if rejected else "received") if row.closed else "unsettled"
-    row.updated_at = now()
-    if row.closed and row.operation_id is not None:
-        await db.execute(
-            delete(StorageOperation).where(
-                StorageOperation.id == row.operation_id,
-                StorageOperation.location_id == row.location_id,
-            )
-        )
-    await db.flush()
+    row = await db.scalar(
+        _RESULT,
+        {
+            **_proof(credential),
+            "id": row.id,
+            "digest": row.command_digest,
+            "result": json.dumps(result),
+            "result_digest": result_digest,
+            "rejection": rejected,
+        },
+    )
+    if row is None:
+        raise failure("agent_result_replay_conflict")
     return acknowledgement(row)
 
 
@@ -602,16 +653,11 @@ async def read_stage(row):
 
 async def acknowledge(db, row, *, accepted, code=None):
     """Call after business fences, in the same transaction as the owner checkpoint."""
-    identity = inspect(row).identity
-    expected_digest = inspect(row).dict.get("result_digest")
+    identity = inspect(row).identity if row is not None else None
     if identity is None:
         raise failure("agent_command_not_found", 404)
-    current = await db.scalar(
-        select(Command)
-        .where(Command.id == identity[0])
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    expected_digest = inspect(row).dict.get("result_digest")
+    current = await db.scalar(_LOCK_ACK, {"id": identity[0]})
     if (
         current is None
         or (expected_digest is not None and current.result_digest != expected_digest)
@@ -624,32 +670,28 @@ async def acknowledge(db, row, *, accepted, code=None):
         return
     if accepted:
         await _authority(db, current)
-    current.state = "applied" if accepted else "rejected"
-    current.error_code = None if accepted else (code or "agent_result_rejected")
-    current.updated_at = now()
+    if not await db.scalar(
+        _ACK,
+        {
+            "id": current.id,
+            "digest": current.result_digest,
+            "accepted": accepted,
+            "code": code,
+        },
+    ):
+        raise failure("agent_result_unsettled", 503, unsettled=True)
 
 
 async def cleanup_terminal(db):
     """Only delete relay bytes after the owner transaction made its ACK durable."""
-    rows = (
-        await db.scalars(
-            select(Command)
-            .where(
-                Command.state.in_(("applied", "rejected")),
-                Command.closed.is_(True),
-                Command.relay_released.is_(False),
-            )
-            .with_for_update(skip_locked=True)
-            .limit(16)
-        )
-    ).all()
+    rows = (await db.execute(_CLEANUP)).mappings().all()
     if not rows:
         return
     client = redis_client()
     try:
         for row in rows:
             await client.delete(relay_key(row.id))
-            row.relay_released = True
+            await db.scalar(_RELEASE, {"id": row.id, "digest": row.result_digest})
     except aioredis.RedisError:
         raise failure("agent_relay_unavailable", 503) from None
     finally:
@@ -659,7 +701,7 @@ async def cleanup_terminal(db):
 async def wait(db, command_id):
     """No source locks span network waiting. Return a receipt, not a new task."""
     while True:
-        row = await db.get(Command, command_id, populate_existing=True)
+        row = await get_receipt(db, command_id)
         if row is None:
             raise failure("agent_command_not_found", 404)
         if row.result is not None:
@@ -670,10 +712,10 @@ async def wait(db, command_id):
                 raise failure(row.error_code or "agent_operation_failed", 503)
             return row
         if now() >= row.expires_at:
-            row.state = "rejected" if row.lease_session_id is None else "unsettled"
-            row.error_code = "agent_command_expired"
-            row.updated_at = now()
+            row = await db.scalar(_EXPIRE, {"id": command_id})
             await db.commit()
+            if row is None:
+                continue
             raise failure(
                 "agent_command_expired", 504, unsettled=row.lease_session_id is not None
             )
@@ -727,19 +769,14 @@ async def exchange(
                 storage_access.mark_unsettled(exc)
             await db.rollback()
             if command_id is not None:
-                row = await db.get(Command, command_id, populate_existing=True)
-                if (
-                    row is not None
-                    and row.closed is not True
-                    and row.lease_session_id is not None
-                ):
-                    row.state, row.updated_at = "unsettled", now()
-                    storage_access.mark_unsettled(exc)
-                elif row is not None and row.state not in {"applied", "rejected"}:
-                    row.state, row.error_code = (
-                        "rejected",
-                        getattr(exc, "code", "agent_command_interrupted"),
-                    )
+                row = await db.scalar(
+                    _ABANDON,
+                    {
+                        "id": command_id,
+                        "operation": permit.id,
+                        "code": getattr(exc, "code", "agent_command_interrupted"),
+                    },
+                )
                 await db.commit()
                 if row is None or row.closed is True or row.lease_session_id is None:
                     await permit._settle()

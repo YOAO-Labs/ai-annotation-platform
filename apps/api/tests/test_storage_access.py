@@ -2,11 +2,13 @@
 
 import asyncio
 from contextlib import asynccontextmanager
+import os
 import threading
 import uuid
 
+import asyncpg
 import pytest
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -110,6 +112,58 @@ async def test_independent_receipt_does_not_commit_caller_and_connection_bind_is
             await connection.execute(
                 delete(Gate).where(Gate.location_id == location_id)
             )
+
+
+async def test_settlement_requires_the_exact_receipt_location_and_revision(test_engine):
+    async with world(test_engine) as (db, location_id):
+        permit = await access.acquire(db, location_id, "receipt_scope")
+        async with permit:
+            async with test_engine.begin() as connection:
+                for where, revision in ((location_id, 2), (uuid.uuid4(), 1)):
+                    assert not await connection.scalar(
+                        text(
+                            "SELECT yoao_assets_storage_v1.settle_physical_io(:operation,:location,:revision)"
+                        ),
+                        {
+                            "operation": permit.id,
+                            "location": where,
+                            "revision": revision,
+                        },
+                    )
+                facts = await access.operation_receipt(connection, permit.id)
+                assert facts.location_id == location_id and facts.revision == 1
+            assert await count(test_engine, location_id) == 1
+        assert await count(test_engine, location_id) == 0
+
+
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the actual ordinary LOGIN from the module-data verifier",
+)
+async def test_storage_login_cannot_read_connector_or_agent_secrets(test_engine):
+    from tests.test_workspace_project_authority_locking import _api_url
+
+    url = _api_url(test_engine).set(drivername="postgresql")
+    connection = await asyncpg.connect(url.render_as_string(hide_password=False))
+    try:
+        assert await connection.fetchval("SELECT current_user") == url.username
+        for sql in (
+            "SELECT secret_enc FROM public.storage_connections LIMIT 0",
+            "SELECT token_digest FROM public.agent_credentials LIMIT 0",
+            "SELECT pair_digest FROM public.agent_registrations LIMIT 0",
+        ):
+            with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                await connection.fetch(sql)
+        assert not await connection.fetchval(
+            "SELECT has_function_privilege("
+            "'yoao_assets_v1.capture_storage_connection(uuid,uuid,text)', 'EXECUTE')"
+        )
+        facts = await connection.fetchrow(
+            "SELECT * FROM yoao_assets_storage_v1.maintenance_status($1)", uuid.uuid4()
+        )
+        assert facts["revision"] == 1 and facts["open_operations"] == 0
+    finally:
+        await connection.close()
 
 
 async def test_drain_rejects_new_io_and_resume_rejects_old_proof(test_engine):

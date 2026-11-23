@@ -1,7 +1,7 @@
 """Registered S3 targets and physical probes for the reviewed purposes."""
 
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import hashlib
 import uuid
 
@@ -12,7 +12,8 @@ from app.config import settings
 from app.db.models.storage_connection import StorageConnection
 from app.services import connector_guard, storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
-from app.services.source_readers.s3 import S3Access, ScopedS3Access
+from app.services.source_readers.s3 import S3Access, ScopedS3Access, configured_endpoint
+from app.services.storage_registry_data import get_connection
 from app.services.reference_keys import is_reference
 
 EXPORT_NAMESPACE = "_yoao_managed/export/"
@@ -201,6 +202,8 @@ class Target:
 
     @contextmanager
     def client(self, *, read_timeout=None, single_attempt=False, owned=False):
+        if self._access is None and self._legacy_client is None:
+            raise error(self.purpose, "binding_unproven")
         if self._access is None and owned:
             from app.services.storage import StorageService
 
@@ -238,7 +241,7 @@ class Target:
                 yield client
 
 
-async def target_for(
+async def target_origin_for(
     db,
     location,
     *,
@@ -247,7 +250,7 @@ async def target_for(
     saved_export_root=None,
     historical_export=False,
 ):
-    """Capture metadata and credentials without DNS, network I/O or binding locks."""
+    """Capture the registered origin without obtaining a physical credential."""
     owners = owner_module(purpose)
 
     if (
@@ -301,31 +304,23 @@ async def target_for(
             ),
             "",
             purpose=purpose,
-            _legacy_client=owners.storage_service.client,
         )
     connection_id = getattr(location, "connection_id", None)
     connection = (
-        await db.get(StorageConnection, connection_id, populate_existing=True)
-        if connection_id is not None
-        else None
+        await get_connection(db, connection_id) if connection_id is not None else None
     )
     if (
         connection is None
         or connection.kind != "s3"
         or connection.scope != "global"
         or connection.project_id is not None
-        or not connection.secret_enc
+        or not connection.secret_set
         or type(connection.revision) is not int
         or connection.revision < 1
     ):
         raise error(purpose, "binding_unproven")
-    access = S3Access(
-        dict(connection.config),
-        connection.secret_enc,
-        tuple(await connector_guard.get_allowlist(db)),
-    )
     try:
-        endpoint = owners._endpoint(access.endpoint)
+        endpoint = owners._endpoint(configured_endpoint(connection.config))
         bucket = connection.config["bucket"]
         if not owners._plain(bucket, 255) or any(char in bucket for char in "/\\?#@"):
             raise error(purpose, "binding_unproven")
@@ -352,7 +347,46 @@ async def target_for(
         bucket,
         prefix,
         purpose=purpose,
-        _access=access,
+    )
+
+
+async def target_for(
+    db,
+    location,
+    *,
+    purpose,
+    require_enabled=True,
+    saved_export_root=None,
+    historical_export=False,
+):
+    origin = await target_origin_for(
+        db,
+        location,
+        purpose=purpose,
+        require_enabled=require_enabled,
+        saved_export_root=saved_export_root,
+        historical_export=historical_export,
+    )
+    if location.id == LEGACY_LOCATION_ID:
+        return replace(
+            origin, _legacy_client=owner_module(purpose).storage_service.client
+        )
+    connection = await db.get(
+        StorageConnection, location.connection_id, populate_existing=True
+    )
+    if (
+        connection is None
+        or connection.revision != origin.connection_revision
+        or not connection.secret_enc
+    ):
+        raise error(purpose, "binding_unproven")
+    return replace(
+        origin,
+        _access=S3Access(
+            dict(connection.config),
+            connection.secret_enc,
+            tuple(await connector_guard.get_allowlist(db)),
+        ),
     )
 
 
