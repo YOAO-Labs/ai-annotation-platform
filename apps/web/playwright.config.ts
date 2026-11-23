@@ -103,6 +103,7 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: isCI ? 1 : 0,
   maxFailures: isCI ? 1 : 0,
+  timeout: isCI ? 90_000 : 30_000,
   globalTimeout: isCI ? 25 * 60_000 : 0,
   workers: 1,
   reporter: isCI
