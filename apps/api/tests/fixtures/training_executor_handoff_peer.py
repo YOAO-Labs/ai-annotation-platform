@@ -42,8 +42,6 @@ def _wait_for_file(path: Path, *, timeout: float) -> bool:
 def _load_runtime():
     runtime_json = os.environ["AAP_HANDOFF_RUNTIME_JSON"]
     runtime = json.loads(runtime_json)
-    repo_root = Path(__file__).resolve().parents[4]
-    sys.path.insert(0, str(repo_root / "apps" / "training-executor"))
     from training_executor import worker
 
     worker.runtime_identity = lambda: runtime
