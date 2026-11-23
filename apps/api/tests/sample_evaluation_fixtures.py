@@ -8,8 +8,10 @@ from types import SimpleNamespace
 
 from botocore.exceptions import ClientError
 from PIL import Image
+from sqlalchemy import select
 
 from app.db.models.sample_evaluation import (
+    SampleEvaluationAttempt as Attempt,
     SampleEvaluationRun as Run,
     SampleEvaluationSample as Sample,
 )
@@ -240,8 +242,8 @@ async def evaluation(db, owner, world):
             )
         )
     attempt = await service.new_attempt(db, run)
-    await db.flush()
-    return run, attempt
+    await db.refresh(run)
+    return run, await db.get(Attempt, attempt.id)
 
 
 def prediction(run, row, *, boxes=None):
@@ -271,7 +273,8 @@ def prediction(run, row, *, boxes=None):
 
 
 async def complete_rows(db, run, attempt, world):
-    for row in await service.sample_rows(db, run):
+    rows = await db.scalars(select(Sample).where(Sample.run_id == run.id))
+    for row in rows:
         _png, preprocessing = service.prepare_input(
             run, world.dataset, run.spec["samples"][row.ordinal]
         )
@@ -281,3 +284,12 @@ async def complete_rows(db, run, attempt, world):
         )
         row.status, row.produced_attempt_id = "succeeded", attempt.id
     await db.flush()
+
+
+async def finish_with_report(db, run, attempt, artifact):
+    run.status = attempt.status = "running"
+    attempt.claim_id = uuid.uuid4()
+    await db.flush()
+    assert await service.mark_terminal(db, run, attempt, "succeeded", report=artifact)
+    await db.refresh(run)
+    await db.refresh(attempt)

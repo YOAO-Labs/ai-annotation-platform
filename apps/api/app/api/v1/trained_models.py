@@ -4,19 +4,13 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.project_write_guard import lock_project_manager
 from app.services.training_claims import project_lock
 from app.db.models.project import Project
-from app.db.models.training_dataset import TrainingDatasetVersion
-from app.db.models.trained_model import (
-    ModelDeployment,
-    ModelRelease,
-    ProjectModelSelection,
-    TrainedModelVersion,
-)
+from app.services import learning_models_data as data
+from app.services.training_dataset_data import read_version
 from app.deps import (
     get_current_user,
     get_current_user_id,
@@ -87,35 +81,18 @@ async def list_models(
     ),
 ) -> dict:
     start, end = created_date_bounds(created_from, created_to)
-    predicates = [
-        TrainedModelVersion.project_id == project.id,
-        lineage.archive_condition(project.id, archive),
-    ]
-    pattern = literal_search_pattern(q)
-    if pattern is not None:
-        predicates.append(TrainedModelVersion.name.ilike(pattern, escape="\\"))
-    if framework is not None:
-        predicates.append(TrainedModelVersion.framework == framework)
-    if task is not None:
-        predicates.append(service.model_task_expression() == task)
-    if start is not None:
-        predicates.append(TrainedModelVersion.created_at >= start)
-    if end is not None:
-        predicates.append(TrainedModelVersion.created_at <= end)
-    total = await db.scalar(
-        select(func.count()).select_from(TrainedModelVersion).where(*predicates)
+    total, items = await data.list_models(
+        db,
+        project.id,
+        archive=archive,
+        pattern=literal_search_pattern(q),
+        framework=framework,
+        task=task,
+        start=start,
+        end=end,
+        limit=limit,
+        offset=offset,
     )
-    items = (
-        await db.scalars(
-            select(TrainedModelVersion)
-            .where(*predicates)
-            .order_by(
-                TrainedModelVersion.created_at.desc(), TrainedModelVersion.id.desc()
-            )
-            .limit(limit)
-            .offset(offset)
-        )
-    ).all()
     metadata = await lineage.model_metadata(db, project.id, [i.id for i in items])
     return {
         "total": total,
@@ -138,22 +115,17 @@ async def model_detail(
 ) -> dict:
     await lock_project_manager(db, user.id, project.id)
     version = await service.load_version(db, project.id, version_id)
-    deployments = (
-        await db.scalars(
-            select(ModelDeployment).where(
-                ModelDeployment.model_version_id == version.id
-            )
-        )
-    ).all()
+    deployments = await data.deployments_for_versions(db, [project.id], [version.id])
     rendered_deployments = []
     dataset = None
     for item in deployments:
         rendered = ModelDeploymentOut.model_validate(item).model_dump(mode="json")
         if item.status == "ready" and item.trial.get("task_id"):
             if dataset is None:
-                dataset = await db.get(
-                    TrainingDatasetVersion,
+                dataset = await read_version(
+                    db,
                     uuid.UUID(version.provenance["dataset_id"]),
+                    project_id=project.id,
                 )
             owner, key = service.frozen_sample_location(
                 project.id, dataset, item.trial["task_id"]
@@ -210,11 +182,10 @@ async def trial_mask_content(
 
     await lock_project_manager(db, user.id, project.id)
     await service.load_version(db, project.id, version_id)
-    deployment = await db.get(ModelDeployment, deployment_id)
+    deployment = await data.get_deployment(db, project.id, version_id, deployment_id)
     if (
         not settings.raster_mask_read_enabled
         or not deployment
-        or deployment.model_version_id != version_id
         or deployment.status != "ready"
     ):
         raise HTTPException(status_code=404, detail="分割试用掩码不存在或未开放读取")
@@ -327,26 +298,13 @@ async def list_releases(
     offset: int = Query(0, ge=0),
     task: Literal["detect", "segment"] = "detect",
 ) -> dict:
-    selection = await db.get(ProjectModelSelection, (project.id, task))
+    selection = await data.get_selection(db, project.id, task)
     current = (
-        await db.get(ModelRelease, selection.release_id)
+        await data.get_release(db, project.id, selection.release_id)
         if selection and selection.release_id
         else None
     )
-    total = await db.scalar(
-        select(func.count())
-        .select_from(ModelRelease)
-        .where(ModelRelease.project_id == project.id, ModelRelease.task == task)
-    )
-    items = (
-        await db.scalars(
-            select(ModelRelease)
-            .where(ModelRelease.project_id == project.id, ModelRelease.task == task)
-            .order_by(ModelRelease.generation.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-    ).all()
+    total, items = await data.list_releases(db, project.id, task, limit, offset)
     return {
         "task": task,
         "current": ModelReleaseOut.model_validate(current).model_dump(mode="json")

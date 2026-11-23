@@ -9,22 +9,16 @@ import uuid
 from datetime import datetime
 
 from fastapi import HTTPException
-from sqlalchemy import and_, case, func, or_, select, tuple_
+from sqlalchemy import and_, func, select, tuple_
 
-from app.db.models.model_decision import ModelDecision
-from app.db.models.sample_evaluation import SampleEvaluationRun as Evaluation
-from app.db.models.trained_model import (
-    ModelDeployment as Deployment,
-    ModelRelease as Release,
-    ProjectModelSelection,
-    TrainedModelVersion as Model,
+from app.services import learning_models_data as models
+from app.services.evaluation_data import evaluation_lineage_row
+from app.services.learning_selection_data import (
+    recipe_lineage_row,
+    recipe_revision_lineage_row,
 )
-from app.db.models.training_dataset import TrainingDatasetVersion as Dataset
-from app.db.models.training_recipe import (
-    TrainingRecipe as Recipe,
-    TrainingRecipeRevision as Revision,
-)
-from app.db.models.training_run import TrainingAttempt as Attempt, TrainingRun as Run
+from app.services.training_dataset_data import dataset_lineage_row
+from app.services.training_run_data import attempt_lineage_row, run_lineage_row
 from app.schemas.model_lineage import LineageNode
 from app.services.training_dataset_bridge import content_digest
 from app.services.labeling_core_read_relations import (
@@ -35,148 +29,35 @@ from app.services.labeling_core_read_relations import (
 
 
 MODELS = {
-    "dataset": Dataset,
-    "run": Run,
-    "attempt": Attempt,
-    "model": Model,
-    "deployment": Deployment,
-    "release": Release,
-    "recipe": Recipe,
-    "recipe_revision": Revision,
-    "evaluation": Evaluation,
+    "dataset": dataset_lineage_row,
+    "run": run_lineage_row,
+    "attempt": attempt_lineage_row,
+    "model": models.model_lineage_row,
+    "deployment": models.deployment_lineage_row,
+    "release": models.release_lineage_row,
+    "recipe": recipe_lineage_row,
+    "recipe_revision": recipe_revision_lineage_row,
+    "evaluation": evaluation_lineage_row,
 }
+Dataset = dataset_lineage_row.c
+Run = run_lineage_row.c
+Attempt = attempt_lineage_row.c
+Model = models.model_lineage_row.c
+Deployment = models.deployment_lineage_row.c
+Release = models.release_lineage_row.c
+Revision = recipe_revision_lineage_row.c
+Evaluation = evaluation_lineage_row.c
 GAP = "来源缺失、已删除或归属不一致；未推断替代记录"
 
 
-def scalar_json(column, *path):
-    for key in path:
-        column = column[key]
-    return case(
-        (func.jsonb_typeof(column) == "string", func.substr(column.astext, 1, 256)),
-        else_=None,
-    )
-
-
-def projection(kind):
-    m = MODELS[kind]
-    fields = [m.id, m.created_at]
-    for key in (
-        "name",
-        "status",
-        "project_id",
-        "run_id",
-        "attempt_id",
-        "dataset_id",
-        "parent_id",
-        "ordinal",
-        "resume_from_id",
-        "current_attempt_id",
-        "model_version_id",
-        "deployment_id",
-        "registry_id",
-        "checked_at",
-        "generation",
-        "previous_release_id",
-        "rollback_from_id",
-        "recipe_id",
-        "snapshot_digest",
-        "config_digest",
-        "spec_digest",
-        "archived",
-        "initialization_model_id",
-    ):
-        if hasattr(m, key):
-            fields.append(getattr(m, key))
-    if kind in {"run", "recipe_revision"}:
-        fields += [
-            scalar_json(m.origin, key).label(f"origin_{key}")
-            for key in (
-                "kind",
-                "run_id",
-                "attempt_id",
-                "recipe_id",
-                "revision_id",
-                "digest",
-            )
-        ]
-    if kind == "run":
-        fields += [
-            scalar_json(m.config, key).label(key)
-            for key in ("framework", "dataset_digest", "validation_digest")
-        ]
-    if kind in {"run", "recipe_revision"}:
-        snapshot = m.config if kind == "run" else m.snapshot
-        fields += [
-            scalar_json(snapshot, "initialization", key).label(f"initialization_{key}")
-            for key in (
-                "kind",
-                "project_id",
-                "model_version_id",
-                "run_id",
-                "attempt_id",
-                "source_digest",
-                "policy_digest",
-            )
-        ]
-    if kind == "model":
-        fields += [
-            m.binding_digest,
-            m.framework,
-            scalar_json(m.artifact, "sha256").label("weights_sha256"),
-        ]
-        fields += [
-            scalar_json(m.provenance, key).label(f"frozen_{key}")
-            for key in (
-                "run_id",
-                "attempt_id",
-                "dataset_id",
-                "dataset_digest",
-                "validation_digest",
-                "config_digest",
-            )
-        ]
-    if kind == "release":
-        fields += [
-            scalar_json(m.snapshot, key).label(f"frozen_{key}")
-            for key in (
-                "model_version_id",
-                "deployment_id",
-                "sha256",
-                "reference_digest",
-            )
-        ]
-    if kind == "evaluation":
-        fields += [m.deletion_requested_at]
-        fields += [
-            scalar_json(m.spec, "model_ref", key).label(f"frozen_{key}")
-            for key in (
-                "model_version_id",
-                "deployment_id",
-                "project_id",
-                "sha256",
-                "reference_digest",
-            )
-        ]
-    return select(*fields)
-
-
 def owned_query(kind, project_id):
-    m = MODELS[kind]
-    q = projection(kind)
-    if kind == "attempt":
-        return q.join(Run, Run.id == Attempt.run_id).where(Run.project_id == project_id)
-    if kind == "deployment":
-        return q.join(Model, Model.id == Deployment.model_version_id).where(
-            Model.project_id == project_id
-        )
-    if kind == "recipe_revision":
-        return q.join(Recipe, Recipe.id == Revision.recipe_id).where(
-            Recipe.project_id == project_id, Revision.project_id == project_id
-        )
-    return q.where(m.project_id == project_id)
+    relation = MODELS[kind]
+    return select(relation).where(relation.c.project_id == project_id)
 
 
 async def read_node(db, project_id, kind, node_id):
+    if db.autoflush:
+        await db.flush()
     try:
         node_id = uuid.UUID(str(node_id))
     except (ValueError, TypeError, AttributeError):
@@ -184,7 +65,7 @@ async def read_node(db, project_id, kind, node_id):
     return (
         (
             await db.execute(
-                owned_query(kind, project_id).where(MODELS[kind].id == node_id)
+                owned_query(kind, project_id).where(MODELS[kind].c.id == node_id)
             )
         )
         .mappings()
@@ -521,11 +402,8 @@ async def prediction_usage(db, project_id, row):
             "truncated": False,
             "unavailable_reason": "candidate_identity_incomplete",
         }
-    classes = await db.scalar(
-        select(Model.classes).where(
-            Model.id == row["id"], Model.project_id == project_id
-        )
-    )
+    version = await models.get_version(db, project_id, row["id"])
+    classes = version.classes if version else None
     metadata = alias_core_row(prediction_meta_row, name="lineage_prediction_meta")
     prediction = alias_core_row(prediction_row, name="lineage_prediction")
     ref = metadata.extra.op("->")("trained_model")
@@ -582,7 +460,7 @@ async def lineage(db, project_id, kind, node_id, relation=None, cursor=None, lim
         result["usage"] = await prediction_usage(db, project_id, row)
         return result
     target_kind, condition = specs[relation]
-    m = MODELS[target_kind]
+    m = MODELS[target_kind].c
     q = owned_query(target_kind, project_id).where(condition)
     binding = (str(project_id), kind, str(node_id), relation)
     if cursor:
@@ -604,137 +482,43 @@ async def lineage(db, project_id, kind, node_id, relation=None, cursor=None, lim
 
 
 async def append_decision(db, project_id, model_id, user, body):
-    model = await db.scalar(
-        select(Model)
-        .where(Model.id == model_id, Model.project_id == project_id)
-        .with_for_update()
-    )
-    if not model:
-        raise HTTPException(status_code=404, detail="模型版本不存在")
     digest = content_digest(body.model_dump(mode="json"))
-    existing = await db.scalar(
-        select(ModelDecision).where(
-            ModelDecision.model_version_id == model_id,
-            ModelDecision.request_id == body.request_id,
-        )
-    )
-    if existing:
-        if existing.request_digest != digest:
-            raise HTTPException(status_code=409, detail="决策请求标识已用于其他内容")
-        return existing
-    sequence = (
-        await db.scalar(
-            select(func.max(ModelDecision.sequence)).where(
-                ModelDecision.model_version_id == model_id
-            )
-        )
-        or 0
-    )
-    item = ModelDecision(
-        project_id=project_id,
-        model_version_id=model_id,
-        creator_id=user.id,
-        creator_label=user.name,
-        sequence=sequence + 1,
+    item = await models.append_decision(
+        db,
+        project_id,
+        model_id,
+        actor_id=user.id,
+        actor_label=user.name,
         request_id=body.request_id,
         request_digest=digest,
         disposition=body.disposition,
         note=body.note,
     )
-    db.add(item)
-    await db.flush()
+    if item is None:
+        raise HTTPException(status_code=404, detail="模型版本不存在")
+    if item.request_digest != digest:
+        raise HTTPException(status_code=409, detail="决策请求标识已用于其他内容")
     return item
 
 
 async def decisions(db, project_id, model_id, before=None, limit=20):
     if not await read_node(db, project_id, "model", model_id):
         raise HTTPException(status_code=404, detail="模型版本不存在")
-    q = select(ModelDecision).where(
-        ModelDecision.model_version_id == model_id,
-        ModelDecision.project_id == project_id,
-    )
-    if before is not None:
-        q = q.where(ModelDecision.sequence < before)
-    rows = (
-        await db.scalars(q.order_by(ModelDecision.sequence.desc()).limit(limit + 1))
-    ).all()
+    rows = await models.list_decisions(db, project_id, model_id, before, limit + 1)
     return {
         "items": rows[:limit],
         "next_before": rows[limit - 1].sequence if len(rows) > limit else None,
     }
 
 
-def latest_disposition():
-    return (
-        select(ModelDecision.disposition)
-        .where(
-            ModelDecision.model_version_id == Model.id,
-            ModelDecision.project_id == Model.project_id,
-        )
-        .order_by(ModelDecision.sequence.desc())
-        .limit(1)
-        .correlate(Model)
-        .scalar_subquery()
-    )
-
-
-def current_model_ids(project_id):
-    return (
-        select(Release.model_version_id)
-        .join(ProjectModelSelection, ProjectModelSelection.release_id == Release.id)
-        .where(
-            ProjectModelSelection.project_id == project_id,
-            Release.project_id == project_id,
-            ProjectModelSelection.task == Release.task,
-        )
-    )
-
-
 async def model_metadata(db, project_id, model_ids):
-    if not model_ids:
-        return {}
-    sequence = (
-        select(func.max(ModelDecision.sequence))
-        .where(
-            ModelDecision.model_version_id == Model.id,
-            ModelDecision.project_id == project_id,
-        )
-        .correlate(Model)
-        .scalar_subquery()
-    )
-    rows = (
-        (
-            await db.execute(
-                select(
-                    Model.id,
-                    latest_disposition().label("disposition"),
-                    sequence.label("sequence"),
-                    Model.id.in_(current_model_ids(project_id)).label("current"),
-                ).where(Model.id.in_(model_ids), Model.project_id == project_id)
-            )
-        )
-        .mappings()
-        .all()
-    )
+    rows = await models.candidate_metadata(db, [project_id], model_ids)
     return {
-        r["id"]: {
-            "disposition": r["disposition"],
-            "decision_sequence": r["sequence"] or 0,
-            "archived": r["disposition"] == "archived",
-            "is_current_release": bool(r["current"]),
+        row.id: {
+            "disposition": row.disposition,
+            "decision_sequence": row.sequence or 0,
+            "archived": row.disposition == "archived",
+            "is_current_release": bool(row.is_current),
         }
-        for r in rows
+        for row in rows
     }
-
-
-def archive_condition(project_id, archive):
-    disposition = latest_disposition()
-    if archive == "only":
-        return disposition == "archived"
-    if archive == "exclude":
-        return or_(
-            disposition.is_(None),
-            disposition != "archived",
-            Model.id.in_(current_model_ids(project_id)),
-        )
-    return True

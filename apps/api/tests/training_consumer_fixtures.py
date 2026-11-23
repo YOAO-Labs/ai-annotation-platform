@@ -1,7 +1,13 @@
 """Keep existing fake-provider lifecycle tests at the transport boundary."""
 
 import asyncio
+import os
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
+
+from sqlalchemy import text
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.services import training_storage_io
 from app.services.storage import storage_service
@@ -23,3 +29,26 @@ def mock_legacy_transport(monkeypatch):
     monkeypatch.setattr(
         training_storage_io.artifact_reads, "resolve", AsyncMock(return_value=None)
     )
+
+
+@asynccontextmanager
+async def learning_consumer(test_engine):
+    if os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
+        yield async_sessionmaker(test_engine, expire_on_commit=False)
+        return
+
+    url = make_url(os.environ["AAP_MODULE_DATA_IDENTITY_EMBEDDED_API_CONSUMER_URL"])
+    assert url.username == "identity_embedded_api_consumer"
+    assert (url.host, url.port, url.database) == (
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+    )
+    engine = create_async_engine(url, hide_parameters=True)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with maker() as db:
+            assert await db.scalar(text("SELECT current_user")) == url.username
+        yield maker
+    finally:
+        await engine.dispose()

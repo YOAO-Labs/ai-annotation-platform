@@ -36,6 +36,7 @@ from app.application.project_deletion import (
 )
 from tests.conftest import _create_user
 from tests.factory import create_membership, create_task
+from tests.training_consumer_fixtures import learning_consumer
 from tests.test_trained_models import (
     controlled_artifacts,  # noqa: F401
     seed_source,
@@ -56,7 +57,7 @@ async def seed(db, owner):
         bindings=["car", "person"],
     )
     model = await trained_models.register(db, project, owner, body)
-    return project, run, attempt, model
+    return project, run, attempt, await db.get(TrainedModelVersion, model.id)
 
 
 def url(project, kind, node_id):
@@ -693,37 +694,30 @@ async def test_real_concurrent_decisions_and_publication_preserve_both_notes(
             await db.commit()
 
         async def decision(note):
-            async with maker() as db:
-                project, user = (
-                    await db.get(Project, project_id),
-                    await db.get(User, user_id),
-                )
+            async with consumer() as db:
                 return await create_decision(
                     model_id,
                     ModelDecisionCreate(
                         request_id=uuid.uuid4(), disposition="research", note=note
                     ),
                     project,
-                    user,
+                    owner,
                     db,
                 )
 
         async def publication():
-            async with maker() as db:
-                project, user = (
-                    await db.get(Project, project_id),
-                    await db.get(User, user_id),
-                )
+            async with consumer() as db:
                 return await publish_model(
                     ModelReleaseCreate(request_id=uuid.uuid4(), expected_generation=1),
                     project,
-                    user,
+                    owner,
                     db,
                 )
 
-        first, second, published = await asyncio.gather(
-            decision("first"), decision("second"), publication()
-        )
+        async with learning_consumer(test_engine) as consumer:
+            first, second, published = await asyncio.gather(
+                decision("first"), decision("second"), publication()
+            )
         assert {first.sequence, second.sequence} == {1, 2}
         async with maker() as db:
             selection = await db.get(ProjectModelSelection, (project_id, "detect"))

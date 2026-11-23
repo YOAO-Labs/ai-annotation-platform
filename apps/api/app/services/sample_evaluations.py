@@ -19,14 +19,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
-
-from app.db.models.sample_evaluation import (
-    SampleEvaluationAttempt as Attempt,
-    SampleEvaluationRun as Run,
-    SampleEvaluationSample as Sample,
-)
-from app.db.models.training_dataset import TrainingDatasetVersion
+from app.services import evaluation_data as data
+from app.services.training_dataset_data import read_version
 from app.schemas.sample_evaluation import (
     EvaluationReport,
     EvaluationSampleResult,
@@ -179,7 +173,6 @@ async def frozen_mask_truth(project_id, version, member, source, classes, *, db)
     return result
 
 
-ACTIVE = {"queued", "running", "cancelling", "lost"}
 TERMINAL = {"succeeded", "failed", "cancelled"}
 SCOPES = frozenset({"datasets:read", "datasets:write", "annotations:read"})
 
@@ -193,13 +186,21 @@ def reject(code, message, status=409):
 
 
 async def load_run(db, project_id, run_id, *, lock=False):
-    query = select(Run).where(Run.id == run_id, Run.project_id == project_id)
-    if lock:
-        query = query.with_for_update().execution_options(populate_existing=True)
-    run = await db.scalar(query)
+    run = await data.get_run(db, project_id, run_id, lock="update" if lock else "read")
     if run is None:
         raise reject("evaluation_missing", "样本评估不存在", 404)
     return run
+
+
+async def authority(db, run):
+    from app.services.training_datasets import bind_training_authority
+
+    await bind_training_authority(db).assert_authority(
+        project_id=run.project_id,
+        actor_id=run.creator_id,
+        api_key_id=run.authorization.get("api_key_id"),
+        required_scopes=SCOPES,
+    )
 
 
 def checked_dataset(version, expected_task="detect"):
@@ -236,10 +237,8 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
     selected_engine = engine_for(ref)
     segmentation = selected_engine is not engine
     task = "segment" if segmentation else "detect"
-    version = await db.get(
-        TrainingDatasetVersion, body.dataset_id, populate_existing=True
-    )
-    if not version or version.project_id != project.id:
+    version = await read_version(db, body.dataset_id, project_id=project.id)
+    if version is None:
         raise reject("dataset_missing", "冻结数据版本不存在", 404)
     manifest = checked_dataset(version, task)
     if profile["implementation"] != (
@@ -321,8 +320,8 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
                 sorted((item["class_index"], item["mask_sha256"]) for item in truth)
             )
     if body.role == "held_out_test":
-        native_dataset = await db.get(
-            TrainingDatasetVersion, uuid.UUID(ref["provenance"]["dataset_id"])
+        native_dataset = await read_version(
+            db, uuid.UUID(ref["provenance"]["dataset_id"]), project_id=project.id
         )
         if not native_dataset:
             raise reject("candidate_dataset_missing", "候选训练数据身份不可核验")
@@ -371,67 +370,52 @@ async def frozen_spec(db, project, body, evaluation_id, ref, profile):
 async def create_run(
     db, project, user, body, *, evaluation_id, request_digest, spec, api_key_id=None
 ):
-    run = Run(
-        id=evaluation_id,
+    pending = SimpleNamespace(id=evaluation_id, project_id=project.id, storage_ref=None)
+    try:
+        storage_ref = await owners.allocate(db, pending)
+    except TrainingDatasetError as exc:
+        raise reject(exc.code, str(exc), exc.status_code) from exc
+    run = await data.create_run(
+        db,
         project_id=project.id,
+        run_id=evaluation_id,
         creator_id=user.id,
         dataset_id=body.dataset_id,
-        model_version_id=body.model_version_id,
+        model_id=body.model_version_id,
         deployment_id=body.deployment_id,
         request_id=body.request_id,
         request_digest=request_digest,
         name=body.name,
         spec=spec,
         spec_digest=content_digest(spec),
-        authorization={"api_key_id": api_key_id},
-        generation=0,
+        storage_ref=storage_ref,
+        api_key_id=uuid.UUID(str(api_key_id)) if api_key_id is not None else None,
+        sample_requests=[
+            uuid.uuid5(evaluation_id, f"sample:{sample['ordinal']}")
+            for sample in spec["samples"]
+        ],
     )
-    db.add(run)
-    await db.flush()
-    try:
-        await owners.allocate(db, run)
-    except TrainingDatasetError as exc:
-        raise reject(exc.code, str(exc), exc.status_code) from exc
-    for frozen in spec["samples"]:
-        db.add(
-            Sample(
-                run_id=run.id,
-                ordinal=frozen["ordinal"],
-                request_id=uuid.uuid5(run.id, f"sample:{frozen['ordinal']}"),
-            )
-        )
+    if run is None:
+        raise reject("reference_missing", "冻结引用已不可用", 404)
     await new_attempt(db, run)
-    return run
+    return await load_run(db, run.project_id, run.id)
 
 
 async def retry_run(db, run):
-    previous = await db.get(Attempt, run.current_attempt_id)
-    previous.claim_id = None
-    if previous.status == "lost":
-        previous.completed_at = now()
+    previous = await data.get_attempt(db, run.id, run.current_attempt_id)
+    await new_attempt(db, run)
+    if previous and previous.status == "lost":
         await jobs.mark_failed(
             db,
             previous.async_job_id,
             error="旧执行已被新尝试接管；后端请求仍通过同一把锁防止重叠",
         )
-    for row in await sample_rows(db, run):
-        if row.status == "failed":
-            row.status, row.error_code, row.error_message = "pending", None, None
-    await new_attempt(db, run)
+    return await load_run(db, run.project_id, run.id)
 
 
 async def new_attempt(db, run):
     owners.resolve(run)
-    run.generation += 1
-    ordinal = (
-        await db.scalar(
-            select(func.max(Attempt.ordinal)).where(Attempt.run_id == run.id)
-        )
-        or 0
-    ) + 1
-    attempt = Attempt(run_id=run.id, ordinal=ordinal, generation=run.generation)
-    db.add(attempt)
-    await db.flush()
+    attempt_id = uuid.uuid4()
     job = await jobs.create_job(
         db,
         kind="sample_evaluation",
@@ -439,25 +423,18 @@ async def new_attempt(db, run):
         project_id=run.project_id,
         payload={
             "evaluation_id": str(run.id),
-            "attempt_id": str(attempt.id),
+            "attempt_id": str(attempt_id),
             "name": run.name,
         },
     )
-    run.current_attempt_id, run.async_job_id = attempt.id, job.id
-    attempt.async_job_id = job.id
-    run.status = "queued"
-    run.error_code = run.error_message = run.completed_at = None
+    attempt = await data.queue_attempt(db, run, attempt_id, job.id, at=now())
+    if attempt is None:
+        raise reject("retry_unavailable", "评估的执行身份、状态或有效期已变化")
     return attempt
 
 
 async def sample_rows(db, run):
-    return list(
-        (
-            await db.scalars(
-                select(Sample).where(Sample.run_id == run.id).order_by(Sample.ordinal)
-            )
-        ).all()
-    )
+    return await data.sample_evidence(db, run.id)
 
 
 def validate_spec(run):
@@ -863,70 +840,21 @@ async def read_report(db, run, attempt):
         ) from exc
 
 
-def claim_attempt(run, attempt, claim_id):
-    run.status = attempt.status = "running"
-    attempt.claim_id = claim_id
-    attempt.heartbeat_at = attempt.started_at = now()
-
-
-def heartbeat_attempt(attempt):
-    attempt.heartbeat_at = now()
-
-
-def checkpoint_sample(row, attempt, evidence, *, clear_errors: bool):
-    """Cancellation recovery preserves existing diagnostics."""
-    row.evidence, row.status, row.produced_attempt_id = (
-        evidence,
-        "succeeded",
-        attempt.id,
-    )
-    if clear_errors:
-        row.error_code = row.error_message = None
-
-
-def fail_sample(row, *, code, message):
-    row.status, row.error_code, row.error_message = "failed", code, message
-
-
-def mark_sample_inflight(row, request):
-    row.request, row.status = request, "inflight"
-
-
-def mark_lost(run, attempt, *, code, message):
-    run.status = attempt.status = "lost"
-    run.error_code = attempt.error_code = code
-    run.error_message = attempt.error_message = message
-
-
-def set_error(run, attempt, code, message):
-    run.error_code = attempt.error_code = code
-    run.error_message = attempt.error_message = message
-
-
-def release_claim(attempt):
-    attempt.claim_id = None
-
-
-def mark_dispatched(attempt):
-    attempt.dispatched_at = now()
-
-
-def mark_maintenance(attempt, timestamp):
-    attempt.maintenance_at = timestamp
-
-
-def request_deletion(run):
-    run.deletion_requested_at = run.deletion_requested_at or now()
+async def mark_lost(db, run, attempt, *, code, message):
+    if not await data.mark_lost(db, run, attempt, code=code, message=message):
+        return False
+    await jobs.mark_failed(db, attempt.async_job_id, error=message)
+    await notify_job_terminal(db, job_id=attempt.async_job_id)
+    return True
 
 
 async def mark_terminal(
     db, run, attempt, status, *, code=None, message=None, report=None
 ):
-    run.status = attempt.status = status
-    run.completed_at = attempt.completed_at = now()
-    run.error_code = attempt.error_code = code
-    run.error_message = attempt.error_message = message
-    attempt.report = report
+    if not await data.finish(
+        db, run, attempt, status, code=code, message=message, report=report, at=now()
+    ):
+        return False
     if status == "succeeded":
         await jobs.mark_complete(
             db,
@@ -938,56 +866,46 @@ async def mark_terminal(
     else:
         await jobs.mark_failed(db, attempt.async_job_id, error=message or "评估失败")
     await notify_job_terminal(db, job_id=attempt.async_job_id)
+    return True
 
 
 async def request_job_cancel(db, job_id):
     """Resolve the current evaluation for this job before requesting cancellation."""
-    run = await db.scalar(
-        select(Run).where(Run.async_job_id == job_id).with_for_update()
-    )
+    run = await data.lock_for_job(db, job_id)
     if run is None:
         raise HTTPException(status_code=409, detail="该任务已被新的评估尝试替代")
     await request_cancel(db, run)
 
 
-async def request_cancel(db, run):
-    if run.status in TERMINAL or run.status == "cancelling":
+async def request_cancel(db, run, *, code=None, message=None, release_claim=False):
+    if run.status in TERMINAL:
         return
-    attempt = await db.get(Attempt, run.current_attempt_id)
-    run.status = attempt.status = "cancelling"
-    run.error_code = attempt.error_code = "cancel_requested"
-    run.error_message = attempt.error_message = "已请求取消，正在确认旧推理已停止"
+    if not await data.request_cancel(
+        db, run, code=code, message=message, release_claim=release_claim
+    ):
+        raise reject("attempt_changed", "样本评估已由新尝试接管")
 
 
 async def signal_interrupted(db, job, *, cancelled):
-    run = await db.scalar(
-        select(Run).where(Run.async_job_id == job.id).with_for_update()
-    )
+    run = await data.lock_for_job(db, job.id)
     if not run or run.status in TERMINAL:
         return
-    attempt = await db.get(Attempt, run.current_attempt_id)
     if cancelled or run.status == "cancelling":
-        await request_cancel(db, run)
+        await request_cancel(db, run, release_claim=True)
     else:
-        mark_lost(
-            run,
-            attempt,
-            code="execution_lost",
-            message="评估执行失联；恢复前会核对旧请求收据",
-        )
-        await jobs.mark_failed(db, attempt.async_job_id, error=run.error_message)
-        await notify_job_terminal(db, job_id=attempt.async_job_id)
-    release_claim(attempt)
+        attempt = await data.get_attempt(db, run.id, run.current_attempt_id)
+        if attempt:
+            await mark_lost(
+                db,
+                run,
+                attempt,
+                code="execution_lost",
+                message="评估执行失联；恢复前会核对旧请求收据",
+            )
 
 
 async def output(db, run):
-    attempts = (
-        await db.scalars(
-            select(Attempt)
-            .where(Attempt.run_id == run.id)
-            .order_by(Attempt.ordinal.desc())
-        )
-    ).all()
+    attempts = await data.attempt_history(db, run.id)
     rows = await sample_rows(db, run)
     from app.schemas.sample_evaluation import EvaluationAttemptOut, SampleEvaluationOut
 
@@ -1025,12 +943,7 @@ async def output(db, run):
 
 
 async def purge_requested(db, run_id):
-    run = await db.scalar(
-        select(Run)
-        .where(Run.id == run_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    run = await data.get_run(db, None, run_id, lock="update")
     if not run or not run.deletion_requested_at or run.status not in TERMINAL:
         return False
 
@@ -1045,12 +958,7 @@ async def purge_requested(db, run_id):
             transport, owner.prefix, bucket=owner.bucket
         ),
     )
-    run = await db.scalar(
-        select(Run)
-        .where(Run.id == run_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    run = await data.get_run(db, None, run_id, lock="update")
     if run and run.deletion_requested_at and run.status in TERMINAL:
         if owners.resolve(run).ref != owner.ref:
             raise TrainingDatasetError(
@@ -1059,6 +967,6 @@ async def purge_requested(db, run_id):
                 status_code=409,
             )
         await guard_source(db, evaluation_id=run.id)
-        await db.delete(run)
-        await db.commit()
+        if await data.purge(db, run, owner.ref):
+            await db.commit()
     return True
