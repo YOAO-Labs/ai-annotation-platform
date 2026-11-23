@@ -600,3 +600,4 @@ class SystemSettingsService:
                 "max_value": high,
                 "in_range": in_range,
             }
+        return result
