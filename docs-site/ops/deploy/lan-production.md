@@ -24,7 +24,7 @@ last_reviewed: 2026-11-16
 | 模型       | 复用运行中的实例及权重，在新库重新注册和探测能力                             |
 | DuckDB     | 生产独立卷，通用 Worker 写，API 只读                                         |
 
-默认 API 内嵌 Identity、Notifications socket、Workspace、Labeling 类目和 Assets Catalog；视频最终写入由 tracker worker 持有。按[进程清单](../../dev/concepts/module-deployment#deployment-convergence)选配邮件、推理或媒体隔离，不重启退役的按操作服务。该清单区分源码、已取得的运行证据与 M2b 仍待验证的门槛。
+默认 API 内嵌 Identity、Notifications socket、Workspace、Labeling 类目和 Assets Catalog；视频最终写入由 tracker worker 持有。按[进程清单](../../dev/concepts/module-deployment#deployment-convergence)选配邮件、推理或媒体隔离，不重启退役的按操作服务。隔离验收结果不代表本 LAN 安装已迁移。
 
 Redis 使用新实例，因为目前全局任务和模型状态推送使用固定频道。Redis Pub/Sub **不按逻辑数据库编号隔离**，仅把 `/0` 改成 `/1` 会让新旧环境仍然收到同一频道消息。[Redis 官方说明](https://redis.io/docs/latest/develop/pubsub/)
 
@@ -60,7 +60,7 @@ Redis 使用新实例，因为目前全局任务和模型状态推送使用固�
 
 应用 `.env.production` 中**不放 `MIGRATION_DATABASE_URL`**。将完整迁移连接字符串作为一行写入 `$AAP_PRODUCTION_STATE_DIR/migration-database-url`，权限设为 `0400`；仅一次性 `migrate` 服务获得该文件。常驻服务不自动迁移，也不接收迁移 owner 的登录凭据。
 
-旧直接访问档把核验过的 SFTP `known_hosts` 和连接器加密 key 交给原读写进程。对 M2b 的已登记自定义 S3／SFTP，改由[既有 Source](./docker-compose#source-registered-io)持有连接器密钥、主机白名单与所需的主机公钥；核对备份中的原加密 key，不在重建时轮换。新边界仍需验收，不得把旧密钥分发给普通 API／worker 来绕过 Source；内建存储和站点 Agent 路径不变。
+旧直接访问档把核验过的 SFTP `known_hosts` 和连接器加密 key 交给原读写进程。使用当前拓扑时，只给[既有 Source](./docker-compose#source-registered-io)配置已登记自定义 S3／SFTP 的连接器密钥、主机白名单与所需公钥；核对备份中的原加密 key，不在重建时轮换。切换前用目标环境的实际凭据和已保存对象验证，不能向普通 API／worker 分发旧密钥来绕过 Source。内建存储和站点 Agent 路径不变。
 
 十个桶变量固定为：
 
