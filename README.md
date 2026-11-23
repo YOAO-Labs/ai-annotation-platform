@@ -7,7 +7,7 @@
 <p><strong>You Only Annotate Once — 开源多模态 AI 辅助数据标注与在线学习平台</strong></p>
 
 <p>
-  <a href="https://github.com/YOAO-Labs/ai-annotation-platform/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/YOAO-Labs/ai-annotation-platform/actions/workflows/ci.yml/badge.svg?branch=main"></a>
+  <a href="https://github.com/YOAO-Labs/ai-annotation-platform/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/YOAO-Labs/ai-annotation-platform/actions/workflows/ci.yml/badge.svg?branch=dev"></a>
   <a href="https://github.com/YOAO-Labs/ai-annotation-platform/actions/workflows/docs-deploy.yml"><img alt="Docs" src="https://github.com/YOAO-Labs/ai-annotation-platform/actions/workflows/docs-deploy.yml/badge.svg?branch=main"></a>
   <a href="./LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue"></a>
 </p>

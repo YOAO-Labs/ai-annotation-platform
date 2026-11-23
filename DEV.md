@@ -1854,7 +1854,7 @@ Raster 写入部署；不要再套 `dev:worktree exec`。成员核对见 [E2E �
 `Frontend E2E` 汇总门禁同时要求路由和全部已选任务成功。每个套件的 HTML、JSON、
 失败截图和 trace 分别上传到 `playwright-report-<suite>`，Actions 摘要展示结果与耗时，
 并区分失败、flaky、跳过及全局错误。详见 [E2E 运行说明](apps/web/e2e/README.md)。
-同一 PR 的新提交会取消旧 CI；main 的每次 push 验证均保留。
+主 CI 检查推送到 `dev` 的提交和目标为 `dev` 的 PR。同一 PR 的新提交会取消旧 CI，每次 push 的验证互不取消。Pages 仍在 `main` 上有文档相关改动时自动发布。
 
 调整分片时，在 `apps/web` 用 `pnpm exec playwright test --list --project=chromium` 列出基准，
 再分别列出全部 `--shard=i/16`。点云使用 `--project=pointcloud --shard=i/4`；视频使用 `pnpm test:e2e:video --project=chromium e2e/tests/video- e2e/tests/workbench-video- --shard=i/4`，开启真实 Mask 写入，覆盖只读部署中按设计跳过的轨迹写入场景。
