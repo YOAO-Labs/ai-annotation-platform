@@ -22,7 +22,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
 from tests.factory import create_project, create_user
-from tests.identity_recovery_live_helpers import SMTPInbox
+from tests.identity_recovery_live_helpers import SMTPInbox, start_mail
 from tests.test_identity_admission_live import (
     _dsn,
     _start_api,
@@ -34,7 +34,6 @@ from tests.test_identity_invitations_live import (
     _cleanup_invitations,
     _command,
     _node,
-    _start_mail_v2,
 )
 
 pytestmark = [
@@ -305,7 +304,7 @@ async def test_auth_only_api_exercises_all_thirteen_invitation_operations(
             mail_invitation_id = await _invitation_id(maker, old_mail_proof)
             invitation_ids.append(mail_invitation_id)
             smtp = SMTPInbox()
-            mail_worker = _start_mail_v2(
+            mail_worker = start_mail(
                 test_engine, tmp_path, mail_key_from_secret(secret), smtp
             )
             resent = await manager.post(

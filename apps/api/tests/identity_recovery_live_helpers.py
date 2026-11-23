@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from email import policy
 from email.parser import BytesParser
+import errno
+import ipaddress
 import json
 import os
 import socketserver
@@ -28,7 +30,11 @@ from tests.test_identity_admission_live import (
     _start,
     _verify_installation,
 )
-from tests.test_asset_storage_cleanup_runtime import _docker, _inspect_docker
+from tests.test_asset_storage_cleanup_runtime import (
+    _docker,
+    _inspect_docker,
+    _verify_postgres,
+)
 
 
 def command(operation, payload, *, operation_id=None):
@@ -86,7 +92,7 @@ async def cleanup(maker, actors, operations):
 class SMTPInbox:
     """Minimal real SMTP peer: no external relay and no credential logging."""
 
-    def __init__(self, *, lose_ack=0, pause_ack=False):
+    def __init__(self, *, lose_ack=0, pause_ack=False, host="127.0.0.1"):
         self.messages = []
         self.lose_ack = lose_ack
         self.condition = threading.Condition()
@@ -138,10 +144,27 @@ class SMTPInbox:
             daemon_threads = True
             allow_reuse_address = False
 
-        self.server = Server(("127.0.0.1", 0), Handler)
+        self.host = host
+        self.server = Server((host, 0), Handler)
         self.port = self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
+
+    @classmethod
+    def for_docker(cls, **options):
+        gateway = _docker(
+            "network",
+            "inspect",
+            "bridge",
+            "--format",
+            "{{(index .IPAM.Config 0).Gateway}}",
+        )
+        try:
+            return cls(host=str(ipaddress.IPv4Address(gateway)), **options)
+        except OSError as exc:
+            if exc.errno != errno.EADDRNOTAVAIL:
+                raise
+            return cls(**options)
 
     def close(self):
         self.release.set()
@@ -170,42 +193,45 @@ class SMTPInbox:
         return result
 
 
-def start_mail(test_engine, directory, key, inbox, *, port=None):
+def start_mail(test_engine, directory, key, inbox, *, port=None, legacy=False):
+    prefix = "IDENTITY_MAIL" if legacy else "IDENTITY_MAIL_V2"
+    module = "mail_worker" if legacy else "mail_worker_v2"
+    port = port or _port()
     values = {
-        "DATABASE_URL": _dsn("MAIL", test_engine),
+        "DATABASE_URL": _dsn("MAIL" if legacy else "MAIL_V2", test_engine),
         "SETTINGS_DATABASE_URL": _dsn("MAIL_SETTINGS", test_engine),
         "ENCRYPTION_KEY": key,
     }
     environment = {
         "PATH": os.environ.get("PATH", ""),
-        "IDENTITY_MAIL_HOST": "127.0.0.1",
-        "IDENTITY_MAIL_PORT": str(port or _port()),
-        "IDENTITY_MAIL_SMTP_HOST": "127.0.0.1",
-        "IDENTITY_MAIL_SMTP_PORT": str(inbox.port),
-        "IDENTITY_MAIL_SMTP_FROM": "noreply@example.test",
-        "IDENTITY_MAIL_POLL_INTERVAL_SECONDS": "0.1",
-        "IDENTITY_MAIL_LEASE_SECONDS": "2",
-        "IDENTITY_MAIL_RETRY_DELAY_SECONDS": "1",
+        f"{prefix}_HOST": "127.0.0.1",
+        f"{prefix}_PORT": str(port),
+        f"{prefix}_SMTP_HOST": inbox.host,
+        f"{prefix}_SMTP_PORT": str(inbox.port),
+        f"{prefix}_SMTP_FROM": "noreply@example.test",
+        f"{prefix}_POLL_INTERVAL_SECONDS": "0.1",
+        f"{prefix}_LEASE_SECONDS": "2",
+        f"{prefix}_RETRY_DELAY_SECONDS": "1",
     }
+    if not legacy:
+        environment[f"{prefix}_CONNECT_TIMEOUT_SECONDS"] = "3"
+        environment[f"{prefix}_COMMAND_TIMEOUT_SECONDS"] = "5"
     for name, value in values.items():
-        path = directory / f"mail-{name.lower()}"
+        path = directory / f"{module}-{name.lower()}"
+        path.touch(mode=0o600)
         path.write_text(value)
-        path.chmod(0o600)
-        environment[f"IDENTITY_MAIL_{name}_FILE"] = str(path)
-    assert all(
-        name == "PATH" or name.startswith("IDENTITY_MAIL_") for name in environment
-    )
+        environment[f"{prefix}_{name}_FILE"] = str(path)
     return _start(
         [
             os.environ["AAP_IDENTITY_RUNTIME_PYTHON"],
             "-I",
             "-m",
-            "yoao_identity_runtime.mail_worker",
+            "yoao_identity_runtime." + module,
         ],
         environment,
         directory,
-        directory / f"mail-{environment['IDENTITY_MAIL_PORT']}.log",
-        int(environment["IDENTITY_MAIL_PORT"]),
+        directory / f"{module}-{port}.log",
+        port,
         "/ready",
     )
 
@@ -217,24 +243,33 @@ async def start_mail_container(test_engine, directory, key, inbox):
         "org.aap.acceptance": "identity-admission",
         "org.aap.acceptance-id": identity,
     }
+    _verify_postgres(test_engine.url)
+    database = _inspect_docker(os.environ["AAP_MODULE_DATA_PG_CONTAINER_ID"])
+    pg_address = str(
+        ipaddress.IPv4Address(
+            database["NetworkSettings"]["Networks"]["bridge"]["IPAddress"]
+        )
+    )
     values = {
-        "IDENTITY_MAIL_DATABASE_URL": make_url(_dsn("MAIL", test_engine))
-        .set(host="host.docker.internal")
+        "IDENTITY_MAIL_V2_DATABASE_URL": make_url(_dsn("MAIL_V2", test_engine))
+        .set(host=pg_address, port=5432)
         .render_as_string(hide_password=False),
-        "IDENTITY_MAIL_SETTINGS_DATABASE_URL": make_url(
+        "IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL": make_url(
             _dsn("MAIL_SETTINGS", test_engine)
         )
-        .set(host="host.docker.internal")
+        .set(host=pg_address, port=5432)
         .render_as_string(hide_password=False),
-        "IDENTITY_MAIL_ENCRYPTION_KEY": key,
-        "IDENTITY_MAIL_HOST": "0.0.0.0",
-        "IDENTITY_MAIL_PORT": "8171",
-        "IDENTITY_MAIL_SMTP_HOST": "host.docker.internal",
-        "IDENTITY_MAIL_SMTP_PORT": str(inbox.port),
-        "IDENTITY_MAIL_SMTP_FROM": "noreply@example.test",
-        "IDENTITY_MAIL_POLL_INTERVAL_SECONDS": "0.1",
-        "IDENTITY_MAIL_LEASE_SECONDS": "2",
-        "IDENTITY_MAIL_RETRY_DELAY_SECONDS": "1",
+        "IDENTITY_MAIL_V2_ENCRYPTION_KEY": key,
+        "IDENTITY_MAIL_V2_HOST": "0.0.0.0",
+        "IDENTITY_MAIL_V2_PORT": "8171",
+        "IDENTITY_MAIL_V2_SMTP_HOST": (
+            "host.docker.internal" if inbox.host == "127.0.0.1" else inbox.host
+        ),
+        "IDENTITY_MAIL_V2_SMTP_PORT": str(inbox.port),
+        "IDENTITY_MAIL_V2_SMTP_FROM": "noreply@example.test",
+        "IDENTITY_MAIL_V2_POLL_INTERVAL_SECONDS": "0.1",
+        "IDENTITY_MAIL_V2_LEASE_SECONDS": "2",
+        "IDENTITY_MAIL_V2_RETRY_DELAY_SECONDS": "1",
     }
     path = directory / "mail-container.env"
     path.touch(mode=0o600)
@@ -264,7 +299,7 @@ async def start_mail_container(test_engine, directory, key, inbox):
             image["Id"],
             "python",
             "-m",
-            "yoao_identity_runtime.mail_worker",
+            "yoao_identity_runtime.mail_worker_v2",
         )
         container = Container(container_id, identity, "")
         details = _inspect_docker(container_id)

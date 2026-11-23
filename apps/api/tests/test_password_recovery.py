@@ -182,6 +182,8 @@ async def test_forgot_password_sends_reset_email_and_keeps_response_uniform(
 
     assert response.status_code == 202
     assert "如果该邮箱已注册" in response.json()["message"]
+    assert credential_mail_capture.messages == []
+    assert (await credential_mail_capture.poll())["outcome"] == "delivered"
     tokens = credential_mail_capture.tokens()
     assert len(tokens) == 1
     token = tokens[0]
@@ -230,6 +232,7 @@ async def test_forgot_password_smtp_failure_keeps_uniform_response_and_invalidat
     )
 
     assert response.status_code == 202
+    assert (await credential_mail_capture.poll())["outcome"] == "rejected"
     tokens = credential_mail_capture.tokens()
     assert len(tokens) == 1
     token = tokens[0]

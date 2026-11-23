@@ -3,16 +3,13 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
-import math
 import uuid
 
 from fastapi import HTTPException
-from jose import JWTError
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 
 from app.core import token_blacklist
-from app.core.security import decode_access_token
 from app.db.enums import PlatformRole
 from app.services import storage_access
 from app.services.identity_account_lock_data import IdentityAccountLockData
@@ -103,51 +100,25 @@ def _presented(actor_id, request):
     principal = getattr(request.state, "identity_principal", None)
     state_key_id = getattr(request.state, "api_key_id", None)
     state_scopes = getattr(request.state, "api_key_scopes", None)
-    if principal is not None:
-        if str(principal.actor_id) != str(actor_id):
-            reject("comment_attachment_authority_revoked", 403)
-        if principal.credential_type == "api_key":
-            if str(principal.credential_id) != str(state_key_id):
-                reject("api_key_authority_revoked", 403)
-            scopes = tuple(principal.scopes or ())
-            if state_scopes is not None and tuple(state_scopes) != scopes:
-                reject("api_key_authority_revoked", 403)
-            return principal.credential_id, scopes, principal.expires_at, None
-    scheme, _, token = request.headers.get("authorization", "").partition(" ")
-    if scheme.lower() != "bearer" or not token:
+    if principal is None or principal.actor_id != actor_id:
         reject("comment_attachment_authority_revoked", 403)
-    if state_key_id is not None:
-        try:
-            key_id = uuid.UUID(str(state_key_id))
-        except (ValueError, TypeError, AttributeError):
+    if principal.credential_type == "api_key":
+        if str(principal.credential_id) != str(state_key_id):
             reject("api_key_authority_revoked", 403)
-        return key_id, tuple(state_scopes or ()), None, None
-    if state_scopes is not None:
+        scopes = tuple(principal.scopes or ())
+        if state_scopes is not None and tuple(state_scopes) != scopes:
+            reject("api_key_authority_revoked", 403)
+        return principal.credential_id, scopes, principal.expires_at, None
+    if state_key_id is not None or state_scopes is not None:
         reject("api_key_authority_revoked", 403)
-    try:
-        claims = decode_access_token(token)
-        expiration, generation, jti = (
-            claims.get("exp"),
-            claims.get("gen", 0),
-            claims.get("jti"),
-        )
-        if (
-            str(uuid.UUID(claims.get("sub", ""))) != str(actor_id)
-            or type(expiration) not in {int, float}
-            or not math.isfinite(expiration)
-            or type(generation) is not int
-            or generation < 0
-            or (jti is not None and (not isinstance(jti, str) or not jti))
-        ):
-            raise ValueError
-        return (
-            None,
-            None,
-            None,
-            JwtProof(datetime.fromtimestamp(expiration, timezone.utc), generation, jti),
-        )
-    except (JWTError, ValueError, TypeError, OverflowError, AttributeError):
-        reject("comment_attachment_authority_revoked", 403)
+    return (
+        None,
+        None,
+        None,
+        JwtProof(
+            principal.expires_at, principal.generation, str(principal.credential_id)
+        ),
+    )
 
 
 def check_clock(proof):

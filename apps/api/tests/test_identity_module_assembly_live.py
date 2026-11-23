@@ -31,7 +31,7 @@ from yoao_identity.security import create_access_token, decode_access_token
 from tests.factory import create_project, create_user
 from tests.identity_module_assembly_helpers import IdentityModuleStack
 from tests.identity_recovery_live_helpers import SMTPInbox
-from tests.test_identity_admission_live import ROOT, _world
+from tests.test_identity_admission_live import ROOT, _dsn, _world
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_briefs_api_live import _caller_world
 from tests.test_identity_deactivation_live import (
@@ -122,6 +122,44 @@ async def _publisher_redis(*, retain=None):
             ) from None
 
 
+async def _run_hosted_notification_relay(test_engine, publisher_url, database_name):
+    database_url = (
+        make_url(_dsn("NOTIFICATION_PUBLISH", test_engine))
+        .set(database=database_name)
+        .render_as_string(hide_password=False)
+    )
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "from app.workers.notification_delivery import relay_identity_notifications; "
+        "relay_identity_notifications()",
+        cwd=ROOT / "apps/api",
+        env={
+            "PATH": os.environ.get("PATH", ""),
+            "DATABASE_URL": os.environ["AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL"],
+            "REDIS_URL": os.environ["REDIS_URL"],
+            "IDENTITY_URL": "",
+            "IDENTITY_TOKEN": "",
+            "IDENTITY_EMBEDDED_SIGNING_SECRET": "",
+            "IDENTITY_EMBEDDED_SIGNING_SECRET_FILE": "",
+            "NOTIFICATION_PUBLISH_MODE": "embedded",
+            "NOTIFICATION_PUBLISH_DATABASE_URL": database_url,
+            "NOTIFICATION_PUBLISH_DATABASE_URL_FILE": "",
+            "NOTIFICATION_PUBLISH_REDIS_URL": publisher_url,
+            "NOTIFICATION_PUBLISH_REDIS_URL_FILE": "",
+        },
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        await asyncio.wait_for(process.communicate(), 30)
+        assert process.returncode == 0, "Hosted Notifications relay failed"
+    finally:
+        if process.returncode is None:
+            process.kill()
+            await process.wait()
+
+
 async def _assert_consumer_is_restricted(test_engine, actor):
     url = make_url(os.environ["AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL"])
     assert (url.host, url.port, url.database) == (
@@ -151,16 +189,24 @@ async def _assert_consumer_is_restricted(test_engine, actor):
                 )
                 == actor
             )
-            assert (
-                await connection.scalar(
-                    text(
-                        "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
-                        "WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' "
-                        "AND has_function_privilege(current_user,p.oid,'EXECUTE')"
-                    )
+            functions = await connection.scalars(
+                text(
+                    "SELECT p.proname || '(' || replace(oidvectortypes(p.proargtypes), ', ', ',') || ')' "
+                    "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+                    "WHERE n.nspname ~ '^(yoao|aap)_identity(_[a-z0-9]+)*_v[0-9]+$' "
+                    "AND has_function_privilege(current_user,p.oid,'EXECUTE')"
                 )
-                == 5
             )
+            assert set(functions) == {
+                "check_accepted_api_key(uuid,uuid,text[])",
+                "get_credential_generation(uuid)",
+                "is_jti_revoked(uuid)",
+                "lock_accounts_key_share(uuid[],boolean)",
+                "lock_accounts_share(uuid[],boolean)",
+                "lock_accounts_update(uuid[],boolean)",
+                "read_accepted_api_key_facts(uuid,uuid)",
+                "read_actor_facts(uuid)",
+            }
     finally:
         await engine.dispose()
 
@@ -325,7 +371,7 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
         project = await create_project(db, owner_id=leaver.id, name="Module handoff")
     briefs = await _briefs_consumer_world(maker, actor, suffix)
     await _assert_consumer_is_restricted(test_engine, actor)
-    inbox = SMTPInbox()
+    inbox = SMTPInbox.for_docker()
     snapshot = tmp_path / "identity-module.dump"
     stack = None
     pubsub = None
@@ -343,7 +389,6 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
                 control=control,
                 mail_key=Fernet.generate_key().decode(),
                 login_redis_url=login_url,
-                publisher_redis_url=publisher_url,
                 smtp_port=inbox.port,
             )
             await stack.start()
@@ -384,6 +429,16 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
                     decode_access_token(token, secret=api_secret)
                 client.headers["Authorization"] = "Bearer " + token
                 assert (await call("GET", "/api/v1/auth/me"))["id"] == str(actor)
+                assert await call("GET", "/api/v1/audit-logs/archives") == []
+                wrong_token = create_access_token(
+                    str(actor), "super_admin", secret=api_secret, expire_minutes=15
+                )
+                await call(
+                    "GET",
+                    "/api/v1/auth/me",
+                    401,
+                    headers={"Authorization": "Bearer " + wrong_token},
+                )
                 async with websockets.connect(
                     stack.api_origin.replace("http://", "ws://")
                     + "/ws/notifications?token="
@@ -594,6 +649,8 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
                     202,
                     json={"email": target.email},
                 )
+                assert not inbox.messages
+                await stack.start_service("identity-mail-v2")
                 await inbox.wait(1)
                 reset_token = inbox.tokens()[0]
                 await call(
@@ -607,8 +664,6 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
                     400,
                     json={"token": reset_token, "new_password": password},
                 )
-                await stack.stop_service("identity-mail")
-                await stack.start_service("identity-mail-v2")
                 invitation = await call(
                     "POST",
                     "/api/v1/users/invite",
@@ -723,10 +778,10 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
                 assert due.status_code == 200 and due.json()["ok"] is True
                 assert due.json()["processed"] == due.json()["examined"] == 1
                 await call("GET", "/api/v1/auth/me", 401, headers=due_headers)
-                await stack.stop_service("identity-admission")
+                await stack.stop_service("identity-issuer")
                 await call("GET", "/api/v1/auth/me", 503)
                 await call("GET", "/api/v1/auth/registration-status", 503)
-                await stack.start_service("identity-admission")
+                await stack.start_service("identity-issuer")
                 replay = await asyncio.to_thread(
                     _node,
                     SimpleNamespace(origin=stack.identity_origin),
@@ -736,7 +791,6 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
                 assert replay == first
                 await call("GET", "/api/v1/auth/me")
 
-                await stack.stop_service("identity-notification-publisher")
                 pubsub = redis_owner.pubsub()
                 channels = [f"notify:{value}" for value in (actor, successor.id)]
                 await pubsub.subscribe(*channels)
@@ -763,12 +817,13 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
                 assert len(notifications) == 2 and all(
                     row["state"] == "pending" for row in notifications
                 )
-                await stack.start_service("identity-notification-publisher")
+                await _run_hosted_notification_relay(
+                    test_engine, publisher_url, test_engine.url.database
+                )
                 await _collect_notifications(
                     pubsub, [row["id"] for row in notifications]
                 )
                 await call("DELETE", "/api/v1/auth/me/deactivation-request")
-                await stack.stop_service("identity-notification-publisher")
                 await stack.stop_service("identity-mail-v2")
                 await call("POST", "/api/v1/auth/me/deactivation-request", json={})
                 async with maker() as db:
@@ -861,6 +916,9 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
                         ) == first
                         await inbox.wait(3)
                         assert inbox.tokens()[2] == pending["token"]
+                        await _run_hosted_notification_relay(
+                            test_engine, publisher_url, clone
+                        )
                         await _collect_notifications(
                             pubsub, [row["id"] for row in restore_notifications]
                         )
@@ -909,7 +967,7 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
             record_property("container_assembly", json.dumps(stack.inspection_evidence))
             record_property(
                 "assembly",
-                "current cold Identity/API images; all capabilities; distinct signer; restricted API and Redis; MailV1/V2; Node replay; owner outage; notification restart; complete dump/restore",
+                "cold opt-in issuer and API; distinct JWT/media keys; API and Redis ACLs; one V2 sender; hosted relay; Node replay; owner outage; dump/restore",
             )
     finally:
         if pubsub is not None:
@@ -917,6 +975,144 @@ async def test_complete_compose_remote_api_workers_restart_and_restore(
         if stack is not None:
             await stack.stop()
         snapshot.unlink(missing_ok=True)
+        inbox.close()
+
+
+async def test_embedded_identity_with_isolated_mail_on_cold_api(
+    test_engine, tmp_path, record_property
+):
+    password = "IdentityEmbeddedStrong123!"
+    maker, actor = await _world(test_engine, password=password)
+    api_role = make_url(
+        os.environ["AAP_MODULE_DATA_IDENTITY_EMBEDDED_API_CONSUMER_URL"]
+    )
+    restricted = create_async_engine(api_role, hide_parameters=True)
+    try:
+        for command in (
+            "SELECT token_ciphertext FROM public.identity_credential_mail_outbox",
+            "SELECT yoao_identity_recovery_v1.claim_mail('{}'::jsonb)",
+            "SELECT yoao_identity_mail_v2.claim_mail('{}'::jsonb)",
+            "SELECT yoao_settings_v1.mail_delivery_policy('{}'::jsonb)",
+        ):
+            async with restricted.connect() as connection:
+                with pytest.raises(DBAPIError) as denied:
+                    await connection.execute(text(command))
+                assert denied.value.orig.sqlstate == "42501"
+    finally:
+        await restricted.dispose()
+
+    signer, edge_secret, control = [secrets.token_urlsafe(32) for _ in range(3)]
+    inbox = SMTPInbox.for_docker()
+    stack = None
+    try:
+        async with _login_redis() as (login_url, redis_owner):
+            stack = IdentityModuleStack(
+                test_engine,
+                tmp_path,
+                secret=signer,
+                api_secret=edge_secret,
+                control=control,
+                mail_key=Fernet.generate_key().decode(),
+                login_redis_url=login_url,
+                smtp_port=inbox.port,
+                embedded=True,
+            )
+            await stack.start()
+            assert set(stack.service_ids) == {"identity-api", "identity-mail-v2"}
+            async with httpx.AsyncClient(
+                base_url=stack.api_origin, trust_env=False, timeout=30
+            ) as client:
+                email = f"identity-live-{actor}@example.test"
+                login = await client.post(
+                    "/api/v1/auth/login", json={"email": email, "password": password}
+                )
+                assert login.status_code == 200, login.text
+                jwt = login.json()["access_token"]
+                assert decode_access_token(jwt, secret=signer)["sub"] == str(actor)
+                with pytest.raises(JWTError):
+                    decode_access_token(jwt, secret=edge_secret)
+                client.headers["Authorization"] = "Bearer " + jwt
+                refreshed = await client.post("/api/v1/auth/refresh")
+                assert refreshed.status_code == 200, refreshed.text
+                fresh_jwt = refreshed.json()["access_token"]
+                client.headers["Authorization"] = "Bearer " + fresh_jwt
+                key = await client.post(
+                    "/api/v1/me/api-keys",
+                    json={"name": "Embedded key", "scopes": ["*"]},
+                )
+                assert key.status_code == 201, key.text
+                api_key = {"Authorization": "Bearer " + key.json()["plaintext"]}
+                admitted = await client.get("/api/v1/auth/me", headers=api_key)
+                assert admitted.status_code == 200 and admitted.json()["id"] == str(
+                    actor
+                )
+                async with websockets.connect(
+                    stack.api_origin.replace("http://", "ws://")
+                    + "/ws/notifications?token="
+                    + fresh_jwt
+                ) as socket:
+                    deadline = time.monotonic() + 5
+                    while time.monotonic() < deadline:
+                        if (await redis_owner.pubsub_numsub(f"notify:{actor}"))[0][1]:
+                            break
+                        await asyncio.sleep(0.05)
+                    await redis_owner.publish(
+                        f"notify:{actor}",
+                        '{"type":"notifications.sync","marker":"embedded"}',
+                    )
+                    frame = json.loads(await asyncio.wait_for(socket.recv(), 5))
+                    assert frame["marker"] == "embedded"
+
+                await stack.stop_service("identity-mail-v2")
+                recovery = await client.post(
+                    "/api/v1/auth/forgot-password", json={"email": email}
+                )
+                assert recovery.status_code == 202
+                async with maker() as db:
+                    status = await db.scalar(
+                        text(
+                            "SELECT status FROM identity_credential_mail_outbox "
+                            "WHERE actor_id=:actor AND purpose='password_reset'"
+                        ),
+                        {"actor": actor},
+                    )
+                    assert status == "pending"
+                assert not inbox.messages
+                await stack.start_service("identity-mail-v2")
+                await inbox.wait(1)
+
+                invitation = await client.post(
+                    "/api/v1/users/invite",
+                    json={
+                        "email": f"embedded-{actor}@example.test",
+                        "role": "employee",
+                    },
+                )
+                assert invitation.status_code == 201, invitation.text
+                invitation_token = invitation.json()["token"]
+                async with maker() as db:
+                    invitation_id = await db.scalar(
+                        text("SELECT id FROM user_invitations WHERE token=:token"),
+                        {"token": invitation_token},
+                    )
+                sent = await client.post(
+                    f"/api/v1/invitations/{invitation_id}/send-email"
+                )
+                assert sent.status_code == 200, sent.text
+                await inbox.wait(2)
+                assert inbox.tokens()[1] == invitation_token
+                reset = await client.post(
+                    "/api/v1/auth/reset-password",
+                    json={"token": inbox.tokens()[0], "new_password": password},
+                )
+                assert reset.status_code == 200
+                assert (await client.get("/api/v1/auth/me")).status_code == 401
+            record_property(
+                "embedded_container_assembly", json.dumps(stack.inspection_evidence)
+            )
+    finally:
+        if stack is not None:
+            await stack.stop()
         inbox.close()
 
 
@@ -1039,10 +1235,7 @@ async def test_host_forwarded_identity_rpc_failures(
         trace_offsets.update(counts)
 
     try:
-        async with (
-            _login_redis() as (login_url, _),
-            _publisher_redis() as (publisher_url, _),
-        ):
+        async with _login_redis() as (login_url, _):
             stack = ForwardedIdentityStack(
                 test_engine,
                 tmp_path,
@@ -1052,7 +1245,6 @@ async def test_host_forwarded_identity_rpc_failures(
                 control=control,
                 mail_key=Fernet.generate_key().decode(),
                 login_redis_url=login_url,
-                publisher_redis_url=publisher_url,
                 smtp_port=inbox.port,
             )
             await stack.start()

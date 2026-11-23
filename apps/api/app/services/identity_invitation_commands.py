@@ -22,7 +22,6 @@ from app.services.identity_account_commands import (
 from app.services.identity_contracts import IdentityGatewayUnavailable
 from app.services.identity_gateway import IdentityGateway, identity_database_source
 from app.services.identity_invitation_data import IdentityInvitationCommandData
-from app.services.identity_mail_v2_delivery import kick_invitation_mail
 from app.services.identity_recovery_commands import recovery_mail_key
 
 
@@ -53,7 +52,6 @@ class IdentityInvitationCommands:
         try:
             async with asyncio.timeout(timeout):
                 manager = None
-                invitation_dsn = None
                 if self.identity.identity_url is None:
                     invitation_dsn = identity_database_source(
                         settings.identity_invitation_database_url,
@@ -66,9 +64,7 @@ class IdentityInvitationCommands:
                     )
                     if invitation_dsn:
                         await data.invitation_policy()
-                    secret = self.identity.signing_secret or settings.secret_key
-                    if not secret:
-                        raise IdentityGatewayUnavailable()
+                    secret = self.identity.require_signing_secret()
                     manager = InvitationManager(
                         _AccountAuthenticator(self.identity, self.db),
                         data,
@@ -79,7 +75,6 @@ class IdentityInvitationCommands:
                         frontend_base_url=settings.frontend_base_url,
                         expire_minutes=settings.access_token_expire_minutes,
                     )
-                kicked = False
                 delay = 0.1
                 while True:
                     if manager is None:
@@ -98,14 +93,6 @@ class IdentityInvitationCommands:
                     if not mail or reply.data.mail_status != "pending":
                         return reply
                     last_pending = reply
-                    if not kicked and manager is not None:
-                        mail_dsn = identity_database_source(
-                            settings.identity_mail_v2_database_url,
-                            settings.identity_mail_v2_database_url_file,
-                        )
-                        if not invitation_dsn or mail_dsn:
-                            await kick_invitation_mail(request.operation_id)
-                        kicked = True
                     await asyncio.sleep(delay)
                     delay = min(1.0, delay * 2)
         except TimeoutError:

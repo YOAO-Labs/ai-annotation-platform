@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import sys
@@ -14,6 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from yoao_identity.contract import IdentityUnavailable
 from yoao_identity.mail_contract import MailDeliveryPolicy
 from yoao_identity.mail_v2_contract import (
     MAIL_V2_POLICY,
@@ -195,15 +197,16 @@ async def test_v2_executor_retries_ambiguous_smtp_without_exposing_exception():
 async def test_v2_readiness_checks_only_v2_and_settings_policies():
     settings = MailV2WorkerSettings(
         _env_file=None,
-        database_url="postgresql://mail-v2/db",
-        settings_database_url="postgresql://settings/db",
+        database_url="postgresql://mail-v2@db/identity",
+        settings_database_url="postgresql://settings@db/identity",
         encryption_key=KEY,
         jwt_signing_secret="unused-auth-secret",
     )
     data = FakeData()
 
     class SettingsData:
-        async def mail_delivery_policy(self, fallbacks):
+        async def mail_delivery_policy(self, fallbacks, *, require_isolated_role=False):
+            assert require_isolated_role
             assert set(fallbacks) == {
                 "smtp_host",
                 "smtp_port",
@@ -229,6 +232,45 @@ async def test_v2_readiness_checks_only_v2_and_settings_policies():
     assert data.policy_reads == 1
     assert data.claimed == []
     assert data.finished == []
+
+
+@pytest.mark.asyncio
+async def test_started_poller_waits_for_isolated_bindings_then_claims_without_a_request():
+    settings = MailV2WorkerSettings(
+        _env_file=None,
+        database_url="postgresql://mail-v2@db/identity",
+        settings_database_url="postgresql://settings@db/identity",
+        encryption_key=KEY,
+        poll_interval_seconds=0.01,
+    )
+    refused = asyncio.Event()
+    claimed = asyncio.Event()
+
+    class SettingsData:
+        isolated = False
+
+        async def mail_delivery_policy(self, _, *, require_isolated_role=False):
+            if require_isolated_role and not self.isolated:
+                refused.set()
+                raise IdentityUnavailable()
+            return smtp_policy()
+
+    class PollData(FakeData):
+        async def claim_mail(self, worker_id, *, lease_seconds, delivery_id):
+            claimed.set()
+            return await super().claim_mail(
+                worker_id, lease_seconds=lease_seconds, delivery_id=delivery_id
+            )
+
+    settings_data = SettingsData()
+    data = PollData()
+    app = create_app(settings, data=data, settings_data=settings_data)
+    async with app.router.lifespan_context(app):
+        await asyncio.wait_for(refused.wait(), 1)
+        assert not data.claimed
+        settings_data.isolated = True
+        await asyncio.wait_for(claimed.wait(), 1)
+        assert data.claimed[0][2] is None
 
 
 @pytest.mark.asyncio

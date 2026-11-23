@@ -91,6 +91,8 @@ async def test_register_with_verification_no_token(
     assert data["access_token"] is None
     assert data["email_verification_required"] is True
     assert data["user"]["email_verified_at"] is None
+    assert credential_mail_capture.messages == []
+    assert (await credential_mail_capture.poll())["outcome"] == "delivered"
     tokens = credential_mail_capture.tokens()
     assert len(tokens) == 1
     row = await db_session.scalar(
@@ -110,7 +112,6 @@ async def test_login_blocked_when_unverified(
     enable_open_registration,
     require_verification,
     reset_rate_limiter,
-    credential_mail_capture,  # noqa: F811
 ):
     await httpx_client.post(
         "/api/v1/auth/register-open",
@@ -142,6 +143,7 @@ async def test_verify_then_login(
         await db_session.execute(select(User).where(User.email == email))
     ).scalar_one()
     assert user.email == email
+    assert (await credential_mail_capture.poll())["outcome"] == "delivered"
     tokens = credential_mail_capture.tokens()
     assert len(tokens) == 1
     token_value = tokens[0]
@@ -192,6 +194,7 @@ async def test_verify_token_reuse_rejected(
         await db_session.execute(select(User).where(User.email == email))
     ).scalar_one()
     assert user.email == email
+    assert (await credential_mail_capture.poll())["outcome"] == "delivered"
     tokens = credential_mail_capture.tokens()
     assert len(tokens) == 1
     token_value = tokens[0]
@@ -238,6 +241,7 @@ async def test_resend_verification_always_202(
         json={"email": user.email},
     )
     assert known.status_code == 202
+    assert (await credential_mail_capture.poll())["outcome"] == "delivered"
     tokens = credential_mail_capture.tokens()
     assert len(tokens) == 1
     row = await db_session.scalar(

@@ -7,7 +7,6 @@ import json
 import os
 import secrets
 import subprocess
-import sys
 import time
 import uuid
 
@@ -37,7 +36,6 @@ from tests.identity_recovery_live_helpers import (
 )
 from tests.test_identity_admission_live import (
     INSTALLATION_PROBE,
-    ROOT,
     _dsn,
     _start_api,
     _start_container_identity,
@@ -548,7 +546,7 @@ async def test_readonly_mail_container_takes_over_after_sender_process_dies(
 ):
     maker, actor = await _world(test_engine)
     operation_id, key = uuid.uuid4(), Fernet.generate_key().decode()
-    inbox = SMTPInbox(pause_ack=True)
+    inbox = SMTPInbox.for_docker(pause_ack=True)
     first = second = None
     try:
         await RecoveryManager(
@@ -592,7 +590,7 @@ async def test_readonly_mail_container_takes_over_after_sender_process_dies(
         assert not details["State"]["OOMKilled"]
         record_property(
             "mail_process_handoff",
-            "killed-during-DATA,expired-lease-takeover,same-link,readonly-nonroot256MiB,MAIL-and-settings-only",
+            "killed-during-DATA,expired-lease-takeover,same-link,readonly-nonroot256MiB,MAIL_V2-and-settings-only",
         )
     finally:
         inbox.release.set()
@@ -604,93 +602,22 @@ async def test_readonly_mail_container_takes_over_after_sender_process_dies(
         await cleanup(maker, [actor], [operation_id])
 
 
-async def test_existing_celery_scheduler_delivers_across_separate_task_loops(
+async def test_fresh_v2_poller_recovers_committed_recovery_without_a_kick(
     test_engine, tmp_path, record_property
 ):
-    from celery import Celery
-    from tests.test_identity_sessions_live import _verify_redis
-
-    _verify_redis()
     maker, actor = await _world(test_engine)
     key = Fernet.generate_key().decode()
     operations = [uuid.uuid4(), uuid.uuid4()]
     inbox = SMTPInbox()
-    queue = f"identity_mail_{uuid.uuid4().hex}"
-    hostname = queue + "@owned"
-    broker = os.environ["REDIS_URL"]
-    sender = Celery("identity-mail-acceptance", broker=broker, backend=broker)
-    worker = None
-    log = (tmp_path / "celery-mail.log").open("wb")
-    deliveries = []
-    environment = {
-        "PATH": os.environ.get("PATH", ""),
-        "ENVIRONMENT": "development",
-        "YOAO_WORKTREE_MODE": "test",
-        "DATABASE_URL": os.environ["AAP_MODULE_DATA_LEGACY_RUNTIME_URL"],
-        "MIGRATION_DATABASE_URL": "",
-        "TEST_DATABASE_URL": "",
-        "PLAYWRIGHT_E2E_DATABASE_URL": "",
-        "REDIS_URL": broker,
-        "CELERY_BROKER_URL": broker,
-        "CELERY_RESULT_BACKEND": broker,
-        "CELERY_BROKER_READ_URL": broker,
-        "CELERY_BROKER_WRITE_URL": broker,
-        "IDENTITY_URL": "",
-        "IDENTITY_RECOVERY_DATABASE_URL": "",
-        "IDENTITY_RECOVERY_DATABASE_URL_FILE": "",
-        "IDENTITY_MAIL_DATABASE_URL": "",
-        "IDENTITY_MAIL_DATABASE_URL_FILE": "",
-        "IDENTITY_MAIL_SETTINGS_DATABASE_URL": "",
-        "IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE": "",
-        "IDENTITY_RECOVERY_MAIL_KEY": key,
-        "IDENTITY_RECOVERY_MAIL_KEY_FILE": "",
-        "SECRET_KEY": secrets.token_urlsafe(32),
-        "SENTRY_DSN": "",
-        "SMTP_HOST": "127.0.0.1",
-        "SMTP_PORT": str(inbox.port),
-        "SMTP_FROM": "noreply@example.test",
-        "SMTP_USER": "",
-        "SMTP_PASSWORD": "",
-    }
+    recovery = RecoveryManager(
+        RecoveryPostgresData(_dsn("RECOVERY", test_engine)),
+        "durable-recovery-fixture",
+        key,
+    )
+    sender = None
     try:
-        worker = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "celery",
-            "-A",
-            "app.workers.celery_app:celery_app",
-            "worker",
-            "--pool=solo",
-            "--concurrency=1",
-            f"--queues={queue}",
-            f"--hostname={hostname}",
-            "--without-gossip",
-            "--without-mingle",
-            "--without-heartbeat",
-            "--loglevel=WARNING",
-            cwd=ROOT / "apps/api",
-            env=environment,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-        )
-        inspector = sender.control.inspect(destination=[hostname], timeout=1)
-        task_name = "app.workers.identity_mail_delivery.relay_credential_mail"
-        deadline = time.monotonic() + 35
-        while time.monotonic() < deadline:
-            assert worker.returncode is None, "Owned mail scheduler worker exited"
-            registered = await asyncio.to_thread(inspector.registered)
-            if registered:
-                assert task_name in registered[hostname]
-                break
-            await asyncio.sleep(0.1)
-        else:
-            raise AssertionError("Owned mail scheduler worker did not register")
         for index, operation_id in enumerate(operations):
-            await RecoveryManager(
-                RecoveryPostgresData(_dsn("RECOVERY", test_engine)),
-                "celery-recovery-fixture",
-                key,
-            ).execute(
+            await recovery.execute(
                 decode_recovery_request(
                     command(
                         "request_password_reset",
@@ -702,39 +629,32 @@ async def test_existing_celery_scheduler_delivers_across_separate_task_loops(
                     )
                 )
             )
-            delivery = await asyncio.to_thread(sender.send_task, task_name, queue=queue)
-            deliveries.append(delivery)
-            result = await asyncio.to_thread(delivery.get, timeout=30)
-            assert result == {"processed": 1, "state": "idle"}
+            assert (await outbox(maker, operation_id)).status == "pending"
+            assert len(inbox.messages) == index
+            sender = await asyncio.to_thread(
+                start_mail, test_engine, tmp_path, key, inbox
+            )
             await inbox.wait(index + 1)
-            assert (await outbox(maker, operation_id)).status == "delivered"
+            assert (await wait_status(maker, operation_id, "delivered")).attempt == 1
+            await asyncio.to_thread(sender.stop)
+            sender = None
         async with maker() as db:
             assert (
                 await db.scalar(
                     text(
-                        "SELECT count(*) FROM pg_stat_activity WHERE usename='legacy_runtime' AND state='idle in transaction'"
+                        "SELECT count(*) FROM pg_stat_activity "
+                        "WHERE usename='yoao_identity_mail_v2_client' "
+                        "AND state='idle in transaction'"
                     )
                 )
                 == 0
             )
         record_property(
-            "credential_mail_scheduler",
-            "registered-task,owned-broker,two-real-dispatches,separate-event-loops,no-idle-transactions",
+            "credential_mail_poller",
+            "two-fresh-v2-processes,committed-v1-intents,no-api-kick,no-idle-transactions",
         )
     finally:
-        if worker is not None and worker.returncode is None:
-            worker.terminate()
-            try:
-                await asyncio.wait_for(worker.wait(), timeout=15)
-            except TimeoutError:
-                worker.kill()
-                await worker.wait()
-        log.close()
-        _verify_redis()
-        for delivery in deliveries:
-            await asyncio.to_thread(delivery.forget)
-        with sender.connection_for_write() as connection:
-            connection.default_channel.queue_delete(queue)
-        sender.close()
+        if sender is not None:
+            await asyncio.to_thread(sender.stop)
         inbox.close()
         await cleanup(maker, [actor], operations)

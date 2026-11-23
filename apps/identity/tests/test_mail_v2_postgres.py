@@ -84,6 +84,8 @@ class FakeConnection:
 
     async def fetchval(self, sql, *args):
         self.calls.append((sql, args, self.in_transaction))
+        if "pg_auth_members" in sql:
+            return True
         if "has_sequence_privilege" in sql:
             return self.sequence_access
         if "has_table_privilege" in sql:

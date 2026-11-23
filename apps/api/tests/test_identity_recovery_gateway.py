@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 import json
-from types import SimpleNamespace
 import uuid
 
 import httpx
@@ -19,7 +17,6 @@ from app.api.v1.recovery_commands import _reject_recovery_error
 from app.config import settings
 from app.services.identity_contracts import IdentityGatewayUnavailable
 from app.services.identity_gateway import IdentityGateway
-from app.services.identity_mail_delivery import IdentityMailCommandData
 from app.services.identity_recovery_commands import IdentityRecoveryCommands
 from app.services.identity_recovery_data import IdentityRecoveryCommandData
 
@@ -134,35 +131,22 @@ async def test_explicit_recovery_dsn_file_failure_does_not_select_caller_transac
         await gateway.execute(_command())
 
 
-async def test_dedicated_recovery_mail_requires_both_narrow_delivery_bindings(
-    monkeypatch,
-):
-    from app.services import identity_mail_delivery
-
-    monkeypatch.setattr(
-        identity_mail_delivery,
-        "get_identity_gateway",
-        lambda: IdentityGateway(signing_secret="fixture-only"),
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        "sqlite://fixture@localhost/recovery_test",
+        "postgresql://localhost/recovery_test",
+        "postgresql://fixture@localhost/recovery_test?host=other",
+    ],
+)
+async def test_explicit_recovery_dsn_never_selects_an_implicit_login(monkeypatch, dsn):
+    monkeypatch.setattr(settings, "identity_recovery_database_url", dsn)
+    monkeypatch.setattr(settings, "identity_recovery_database_url_file", "")
+    gateway = IdentityRecoveryCommands(
+        object(), IdentityGateway(signing_secret="fixture-only")
     )
-    monkeypatch.setattr(
-        settings,
-        "identity_recovery_database_url",
-        "postgresql://fixture@localhost/recovery_test",
-    )
-    for name in (
-        "identity_recovery_database_url_file",
-        "identity_mail_database_url",
-        "identity_mail_database_url_file",
-        "identity_mail_settings_database_url",
-        "identity_mail_settings_database_url_file",
-    ):
-        monkeypatch.setattr(settings, name, "")
-
-    def forbidden():
-        raise AssertionError("Explicit owner selection must not poll the API database")
-
     with pytest.raises(IdentityGatewayUnavailable):
-        await identity_mail_delivery.run_credential_mail(session_factory=forbidden)
+        await gateway.execute(_command())
 
 
 class _Session:
@@ -224,46 +208,6 @@ async def test_invalid_native_apply_reply_rolls_back_before_acknowledging_comman
             "fixture-only",
             mail_key_from_secret("fixture-only"),
         ).execute(command)
-    assert db.events[-1] == "rollback" and "commit" not in db.events
-
-
-@pytest.mark.parametrize(
-    "raw,expected",
-    [
-        (
-            {
-                "schema": "aap-identity-recovery-mail-native/v1",
-                "ok": True,
-                "data": {"accepted": False},
-            },
-            False,
-        ),
-        (
-            {
-                "schema": "aap-identity-recovery-mail-native/v1",
-                "ok": 1,
-                "data": {"accepted": True},
-            },
-            None,
-        ),
-    ],
-)
-async def test_mail_stale_or_invalid_reply_is_not_committed(raw, expected):
-    db = _Session(lambda *_args: raw)
-
-    @asynccontextmanager
-    async def session():
-        yield db
-
-    runner = IdentityMailCommandData(session)
-    lease = SimpleNamespace(
-        id=uuid.uuid4(), worker_id=uuid.uuid4(), lease_token="fixture-lease"
-    )
-    if expected is None:
-        with pytest.raises(IdentityUnavailable):
-            await runner.renew_mail(lease)
-    else:
-        assert await runner.renew_mail(lease) is expected
     assert db.events[-1] == "rollback" and "commit" not in db.events
 
 

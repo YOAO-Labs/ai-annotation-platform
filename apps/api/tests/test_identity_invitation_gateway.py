@@ -364,13 +364,6 @@ async def test_mail_polls_same_operation_without_api_local_remote_sender(monkeyp
     command = _command("send_invitation_email", {"invitation_id": str(uuid.uuid4())})
     seen = []
 
-    async def forbidden(*args, **kwargs):
-        raise AssertionError("Remote invitation owner uses its own durable sender")
-
-    monkeypatch.setattr(
-        "app.services.identity_invitation_commands.kick_invitation_mail", forbidden
-    )
-
     def respond(request):
         seen.append(json.loads(request.content))
         return httpx.Response(

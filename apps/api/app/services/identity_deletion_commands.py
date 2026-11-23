@@ -64,13 +64,7 @@ class IdentityDeletionCommands:
                     await data.deletion_policy()
                 else:
                     data = IdentityDeletionCommandData(self.db)
-                secret = (
-                    self.identity.signing_secret
-                    if self.identity.signing_secret is not None
-                    else settings.secret_key
-                )
-                if not secret:
-                    raise IdentityGatewayUnavailable()
+                secret = self.identity.require_signing_secret()
                 return await DeletionManager(
                     _AccountAuthenticator(self.identity, self.db), data, secret
                 ).execute(request)

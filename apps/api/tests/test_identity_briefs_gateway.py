@@ -230,7 +230,7 @@ async def test_explicit_dsn_requires_policy_and_never_uses_caller(monkeypatch):
     monkeypatch.setattr(
         commands_module.settings,
         "identity_briefs_database_url",
-        "postgresql://localhost/briefs_test",
+        "postgresql://briefs@localhost/briefs_test",
     )
     monkeypatch.setattr(
         commands_module.settings, "identity_briefs_database_url_file", ""

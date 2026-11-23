@@ -9,9 +9,13 @@ last_reviewed: 2026-10-23
 
 协议对象只接受声明的 wire 字段名：版本字段为 `schema`。内部 Python 字段名 `protocol` 无论单独使用还是与 `schema` 同时提交都被拒绝；opaque 偏好值中的同名键不受影响。
 
-Identity 运行时提供认证准入、API key、核心会话、自助账户、全局分组目录与指派、完整邀请生命周期、四项用户目录读取、自助注销、注销到期处理、账号恢复和在线扫描命令；平台角色预览／变更、管理员暂停／恢复与 UserBrief 批量 reads 均通过各自限定的本地资格。公开用户接口仍是 `/api/v1/auth/`、`/api/v1/me/api-keys` 与 `/api/v1/users`。私有接口要求独立控制 Bearer；需要用户身份的操作将凭据放在 JSON 的 `token` 中，不能代替控制凭据。注册/邀请证明凭据另置于 `payload`，与调用者身份 token 分开。账号恢复使用匿名请求或单次挑战证明，邮件与注销通知分别由独立执行进程投递。
+默认 API 进程内调用同一 Identity owner 做 JWT／API key 准入、会话签发和账户命令；公开用户接口仍为 `/api/v1/auth/`、`/api/v1/me/api-keys` 和 `/api/v1/users`。身份相关的 PostgreSQL 授权、调用方事务、回执和 socket 复核保持原合同。
 
-已配置能力的装配通过本地 Compose 私网功能验收：独立安装／冷镜像、全部配置能力、受限远程 API、不同签名密钥、邮件／通知 worker、真实消费者及完整数据库恢复。运维与门控测试操作已按 owner 收口；默认兼容运行角色的私表权限仍按台账验收。旧宿主机数据库转发实验的间歇性 503 根因仍未确认；日常主环境尚未切换。精确证据、网络边界和其他模块剩余工作见[模块台账](/dev/concepts/module-deployment#identity-整模块独立装配)。本页各操作的案例数只证明各自合同，不能相加作为整模块覆盖率。
+需要隔离签发根密钥时，显式给身份叠加选择 `--profile identity-issuer`，并在 API 设置 `IDENTITY_URL=http://identity-issuer:8170` 和独立控制 `IDENTITY_TOKEN`。此时只有 `identity-issuer` 能读取原有 `IDENTITY_RUNTIME_SIGNING_SECRET_FILE`、Identity 专用 LOGIN 和登录计数 Redis；不要将它们交给 API、邮件 sender 或 Notifications publisher。私有接口要求控制 Bearer，用户凭据放在请求 JSON 的 `token` 中，注册／邀请证明凭据另放 `payload`。显式 issuer 出错返回 503，不回退本地。
+
+`SECRET_KEY` 仍用于 API 媒体 URL 和其他应用签名。内嵌 Identity 如未配置单独签发根密钥，为保持原 JWT／回执默认从 `SECRET_KEY` 按既有 `aap-identity/v1` 上下文派生。`IDENTITY_EMBEDDED_SIGNING_SECRET(_FILE)` 两项二选一，可在保留原 issuer 根密钥时迁回 API；配置错误不能回退，远端档不能配置内嵌签发根。文件读取与订阅复核消费已准入主体，而不是拿媒体 key 重新核验原 JWT。
+
+此前的功能资格、Compose 私网边界与具体证据见[模块台账](/dev/concepts/module-deployment#identity-整模块独立装配)。旧宿主机数据库转发实验的间歇性 503 根因仍未确认；日常与生产环境尚未切换。本页各操作的案例数只证明各自合同，不能相加作为整模块覆盖率。
 
 | 接口                                             | 用途                                           |
 | ------------------------------------------------ | ---------------------------------------------- |
@@ -365,9 +369,7 @@ V2 claim／renew／finish 在发送前后重新校验当前 invitation token has
 
 独立 sender 运行 `python -m yoao_identity_runtime.mail_worker_v2`，同一 `MailExecutor` 重用已提取的 SMTP transport；该进程只持 MAILV2 DSN、MAIL_SETTINGS DSN、Fernet key 与 SMTP fallback，不带 Identity/AUTH/control/signing secret，不使用 User/Invitation SQL 事务来发送。`mail_policy/claim/renew/finish` 的短事务在 SMTP 网络调用前后提交，不持 SQL lock。Claims 保存同一 message ID；unknown timeout 允许重复邮件而不损坏邀请链接。邮件 Settings DB snapshot 覆盖 env fallback。
 
-Invitation API 使用可选 `IDENTITY_INVITATION_DATABASE_URL(_FILE)` 和 `IDENTITY_MAIL_V2_DATABASE_URL(_FILE)`；独立 Identity runtime 选择 `IDENTITY_INVITATION_DATABASE_URL(_FILE)`，并复用既有 recovery Fernet key。Invitation DSN 缺失／显式失败分别按 capability 503／fail closed。API embedded MailV2 kick 可选 MAILV2 DSN；选择邀请 owner 但未选择 mail kick 时允许独立 mail-v2 服务消费，绝不 fallback 到 caller SQL。API mail wait 配置 `IDENTITY_INVITATION_MAIL_TIMEOUT_SECONDS` 默认60、必须 >0 且 ≤120。Runtime invitation link fallback 为独立 `IDENTITY_INVITATION_FRONTEND_BASE_URL` 默认 `http://localhost:5173`; Settings 的 system `frontend_base_url` 若设置则覆盖，Recovery Runtime 原 `http://localhost:3000` fallback 不变。
-
-可选 Compose `--profile mail-v2` 启动 `identity-mail-v2`：它使用 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE` 新文件；既有 `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` 分别映射到 V2 `IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL_FILE`、`IDENTITY_MAIL_V2_ENCRYPTION_KEY_FILE`；原宿主机 `IDENTITY_MAIL_SMTP_*` fallback 映射到 `IDENTITY_MAIL_V2_SMTP_*`。身份、Settings、key 和 SMTP 只授予 sender；`identity-admission` 没有 SMTP fallback credentials。V1 `identity-mail` 服务/LOGIN 仍有效并只领取 recovery intents。迁移 0242 先加载 `0242_identity_invitations_support.sql`，再 Mail 的 `0242_invitation_mail.sql`，最后 `0242_identity_invitations.sql`；grant 入口见 [DEV.md](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/DEV.md) 和 [ADR-0122](/dev/adr/0122-independent-identity-invitations-and-mail-v2)。
+默认邀请命令走调用方事务，显式 `IDENTITY_INVITATION_DATABASE_URL(_FILE)` 必须指向和 sender 相同的业务数据库，配置错误不回退。API 与私有 issuer 都不发邮件，也不发送 Celery kick；sender 独立轮询已提交意图。等待上限 `IDENTITY_INVITATION_MAIL_TIMEOUT_SECONDS` 默认 60 秒、必须 >0 且 ≤120。Runtime 邀请链接默认 `IDENTITY_INVITATION_FRONTEND_BASE_URL=http://localhost:5173`，系统 `frontend_base_url` 可覆盖；恢复默认 `http://localhost:3000` 不变。部署和迁移见[独立账号邮件执行](#独立账号邮件执行)。
 
 Invitation/MailV2、Directory reads 和 batched UserBrief reads 均有各自限定的本地资格；上文分别限定了 Directory 38 个选定数据库／进程案例与 UserBrief 64 个 selected cases，邀请的 68/375/324 数字只属于旧 slice。平台角色管理和管理员 offboarding preview/commit 也通过各自限定的本地资格；其他用户 hydration、其余 Identity lifecycle、整个 Identity、另一语言 provider 和生产容量仍待完成。`v1` 恢复邮件保持原协议；没有新的 Notifications event、Jobs backfill、生产切换或 Go 扩展。
 
@@ -602,9 +604,9 @@ Audit 只允许 `user.deactivation_request`、`user.deactivation_cancel`、`user
 
 独立 publisher 使用仅有三个函数权限的 `yoao_notification_publish_client`：`identity_delivery_policy()`、`claim_identity_deliveries(jsonb)`、`finish_identity_delivery(jsonb)`。原 `aap-notifications-delivery/v1` claim 仍只领取注销通知；升级后的 publisher 使用 v2 claim 同时领取注销和 Jobs 终态，确认仍用 v1 finish。必须先提交 lease，再向 `notify:{user_id}` 发布；只有 Redis 接受后才能确认。过期或旧 lease 不能确认，worker 失联后可重新领取；重试保留同一通知 ID。每页 1–100 条（默认 16）、lease 60 秒、进程并发 4、Redis I/O timeout 不超过 5 秒。只有 `delivered` 和 `retry` 两种 finish 状态；publisher 不持有 Identity、AUTH、JWT signing secret 或其他 SQL 能力。
 
-独立进程由 Notifications 包的 `yoao-notifications-publisher` 或 `python -m yoao_notifications.delivery_worker` 启动，配置类为 `yoao_notifications.delivery_config.NotificationPublisherSettings`，仍读取 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 与 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)` 两组必需 secret。默认模式持续 poll，`--once` 只领取并处理一个 batch；它不是 HTTP server，也没有 HTTP health endpoint。`apps/notifications/Dockerfile` 定义独立运行工件，Identity 原导入路径和 `python -m yoao_identity_runtime.notification_worker` 继续兼容，现有 Compose 命令不变。API/Celery 复用 Notifications executor、显式设置 `notification_publish_database_url` 并使用现有 task Redis 配置；default queue 每 10 秒的 relay 与独立 publisher 处理同一 leased outbox，不再并行做 ephemeral best-effort publish。Notifications owner、Compose secret 和运行限制见 [开发部署说明](/ops/deploy/development) 与 [ADR-0121](/dev/adr/0121-identity-self-deactivation-and-notification-delivery)。
+默认由 Notifications owner 的现有 Celery worker 定期 relay，同一 outbox 无需 Identity publisher。配置独立 publication LOGIN 和 Redis；不能因为选择远端 issuer 就绕过 relay。需要专属发布网络／凭据时，由 Notifications 的 `docker-compose.notifications-publisher.yml` 提供 `notifications-publisher`，按同一 Notifications 部署档显式二选一。Identity 的 `notification_worker` 入口仅为可移植包兼容，不再用于平台 Compose。
 
-API／独立 Identity runtime 的自助 DSN 分别使用 `IDENTITY_DEACTIVATION_DATABASE_URL(_FILE)` 和 `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL(_FILE)`；选择器可留空用于调用方事务，明确选择后连接失败不回退。API/Celery 的可选 Notifications SQL binding 为 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)`，Redis 继续使用现有 task settings。可选 Compose 的 host selectors 是 `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE`。独立 publisher secret 只映射到它自己的两项 `NOTIFICATION_PUBLISH_*_FILE`；这些 owner 能力须在共享 PostgreSQL transaction owner 中组合。
+API／独立 Identity runtime 的自助与 due operator DSN 分别使用 `IDENTITY_DEACTIVATION_DATABASE_URL(_FILE)` 和 `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL(_FILE)`；明示不可用时不回退。业务事务仍在同一数据库中组合原 owner 能力。Issuer 不获得发布权限。
 
 ## 开放注册与账号恢复
 
@@ -632,13 +634,15 @@ API／独立 Identity runtime 的自助 DSN 分别使用 `IDENTITY_DEACTIVATION_
 
 ## 独立账号邮件执行
 
-同一个安装包或镜像以 `python -m yoao_identity_runtime.mail_worker` 启动邮件进程，默认健康端口 8171。它只有 `MAIL` 四函数连接、独立的 `MAIL_SETTINGS` 单函数连接及 Fernet key，不需要认证控制 token、AUTH 数据连接或 JWT signing secret。`/health` 检查进程，`/ready` 检查所需权限、策略和 key 格式；就绪不保证 SMTP 可送达。
+要启用密码恢复、邮箱验证或邀请邮件，在同一 Compose 项目加入 `-f docker-compose.identity.yml`。唯一的邮件服务 `identity-mail-v2` 随该叠加启动，不再使用 `--profile mail-v2`；分离 signer 用的 `--profile identity-issuer` 与邮件无关。进程启动即持续轮询 durable outbox，恢复已提交的旧版 recovery intent 和新版邀请，不依赖 API 进程、Celery 或提交后唤醒。私有 `/ready` 检查两个 LOGIN 的权限和 Fernet key 格式，启动 poll 也先检查再领取；就绪不保证 SMTP 可送达。
 
 执行器先提交有期限的领取租约，再读取密文并发信，网络等待期间续租。User → 挑战 → outbox 的行锁不跨 SMTP。领取、续租和完成在锁等待结束后按数据库当前时间检查；过期或旧租约不能确认投递。进程失联后，另一执行器可以接管过期租约。
 
 已投递和确定拒绝为终态；临时故障、DATA 后断线等结果不明状态继续使用同一挑战、密文与 Message-ID 重试。投递属于至少一次语义，用户可能收到多封相同有效链接。错误 key epoch 保留待投递项，不破坏仍有效的挑战；轮换前应排空旧邮件或保留对应旧 key 的执行器。缺少 SMTP 配置或确定拒绝只使对应重置挑战作废，验证挑战保持有效。
 
-`RECOVERY` LOGIN 仅有 `recovery_policy`、`prepare_recovery_command`、`apply_recovery_command`、`read_registration_status`；`MAIL` 仅有 `mail_policy`、`claim_mail`、`renew_mail`、`finish_mail`；`MAIL_SETTINGS` 仅有 Settings 的 `mail_delivery_policy`。客户端均无直接表、序列或 DDL 权限。内嵌装配与专用连接选择、Compose secret 文件和授权命令见 [DEV.md](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/DEV.md#注册密码恢复与凭据邮件)。设计与剩余模块边界见 [ADR-0119](/dev/adr/0119-independent-identity-recovery-and-mail)及[模块台账](/dev/concepts/module-deployment)。
+挂载 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`（`yoao_identity_mail_v2_client`，四函数）、`IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE`（`yoao_identity_mail_settings_client`，仅 `mail_delivery_policy`）和 `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE`。两条 DSN 均为显式 PostgreSQL 登录，指向业务 outbox 所在数据库；不得使用普通应用、迁移或 owner 登录。可提供 `IDENTITY_MAIL_SMTP_*` 环境 fallback（密码可改用 `IDENTITY_MAIL_SMTP_PASSWORD_FILE`）；Settings 数据库配置优先。Sender 不挂 JWT signer、控制 bearer 或生产者数据库凭据；普通 API/worker 无 outbox 或发送函数的权限。
+
+内嵌 API 生产者使用同一 `IDENTITY_RECOVERY_MAIL_KEY(_FILE)`；独立 issuer 由 overlay 挂载同一 Fernet 文件。已有密钥原样保留；如果旧内嵌生产者使用派生密钥，离线用 `yoao_identity.recovery_crypto.mail_key_from_secret` 从原签发根派生 Fernet 值，直接写保护文件，勿将根密钥交给 sender。切换时停止旧发送器、确认新的 `/ready` 且同一 outbox 开始被领取；保留待投递行和原密钥，无 SQL 回填或 token 轮换。V1 worker、SQL 和 LOGIN 仍用于独立契约验收。操作顺序详见 [DEV.md](https://github.com/YOAO-Labs/ai-annotation-platform/blob/main/DEV.md#注册密码恢复与凭据邮件) 和 [ADR-0119](/dev/adr/0119-independent-identity-recovery-and-mail)。
 
 ## 已接受 API-key 的最终授权与当前账号读取
 
@@ -659,11 +663,6 @@ commit／rollback，函数不改事务范围；等待后以 `clock_timestamp()` 
 账号保持 401 与 Bearer 错误。集合查询和展示投影通过下文公开关系读取，当前定向结果
 不代表完整 Identity 独立部署完成；实际剩余项见[模块台账](/dev/concepts/module-deployment#剩余工作台账)。详见
 [ADR-0161](/dev/adr/0161-identity-current-authority-consumers)。
-
-独立 HTTP Identity 保管自己的签发／派生 secret；API edge 的 `SECRET_KEY` 可以不同，
-RPC 使用独立的 `IDENTITY_TOKEN`。API 的远程响应解码不重新派生 Identity 输出。
-不同密钥已通过整模块真实 REST／Socket 和恢复验收。已有 Identity secret 影响 JWT、
-派生凭据和持久回执，不能为此改动已有部署或静默恢复旧结果。
 
 ## 集合与展示的同事务读取关系
 

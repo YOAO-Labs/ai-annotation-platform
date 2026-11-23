@@ -32,6 +32,24 @@ writes and compose explicit same-transaction capabilities when required.
 
 ## Run
 
+The hosted API uses Identity in-process for admission, credential commands,
+and session issue/refresh by default. It calls the same native functions as
+this package. `SECRET_KEY` remains the API media URL and binding-token key.
+For existing local installations with no explicit JWT source, Identity uses
+that value as its signing/receipt derivation root (JWT HS256 uses the
+`aap-identity/v1` derivation context). Set `IDENTITY_EMBEDDED_SIGNING_SECRET`
+or `IDENTITY_EMBEDDED_SIGNING_SECRET_FILE` in the API when using a distinct
+embedded root or preserving an existing issuer's root in the API. There is
+no fallback when an explicit source cannot be loaded.
+
+When a security boundary requires keeping that root outside the API, use the
+opt-in `identity-issuer` profile in `docker-compose.identity.yml`. Set the API's
+`IDENTITY_URL=http://identity-issuer:8170` and `IDENTITY_TOKEN`; do not pass the
+issuer's signing secret or database credentials to the API. API media URLs
+still use `SECRET_KEY`; authenticated file flows consume the admitted Identity
+principal rather than verifying its bearer against the media key. A selected
+issuer failing to respond does not cause local authentication or issuance.
+
 Install the current migration head and the exact Identity owner/runtime grants
 for the enabled capabilities first.
 Provide exactly one direct value or secret file for each of
@@ -80,14 +98,12 @@ UUID. Its reply contains only that UUID and the current strict boolean activity
 flag, or `actor: null` when the account is absent. It deliberately does not
 compare the actor's current role with the role from credential admission.
 
-`docker-compose.identity.yml` starts optional admission and Recovery credential-
-mail processes from the same `aap-identity:local` image. The opt-in `mail-v2`
-profile adds `identity-mail-v2` with its own MAILV2 DSN plus the existing
-MAIL_SETTINGS and Fernet key files; only this sender receives SMTP fallback
-configuration. These services use installed packages, not an application
-source bind, and support a read-only root filesystem. Session commands require
-their own database DSN and Redis identity; admission and API-key management do
-not use Redis. No capability needs S3 credentials. See the
+`docker-compose.identity.yml` adds one SMTP sender to a mail-enabled deployment:
+`identity-mail-v2`. It does not start the private issuer without the explicit
+`identity-issuer` profile. The processes use installed packages, not an
+application source bind, and support a read-only root filesystem. The issuer
+has function-only DSNs and a login-counter Redis identity; it has no SMTP or
+Notification publication credentials. Neither process needs S3 credentials. See the
 [private protocol guide](../../docs-site/api/guides/identity-runtime.md) and
 [local runbook](../../DEV.md) for configuration and exact permissions.
 
@@ -98,12 +114,12 @@ LOGINS described below.
 
 ## Local complete-module qualification
 
-The existing Compose assembly runs one HTTP owner with all 17 configured
+The prior Compose qualification ran one HTTP owner with all 17 configured
 capabilities, two mail workers and a notification publisher, alongside a cold API
-image. PostgreSQL and Redis use the owned Compose private network. The API's
-Identity access is restricted to two public relations and five transactional
-functions, with no private table or credential-command access. Its edge secret
-differs from the stable owner signing secret.
+image. PostgreSQL and Redis used the owned Compose private network. The API had
+two public relations and a fixed transactional allowlist, with no private
+Identity table or credential-command access. Its edge secret
+differed from the stable owner signing secret.
 
 The noneditable installed package passes 658 checks. File probes match 129 package
 files in the installation and both images, plus 1,294 API/Native/metadata inputs.
@@ -371,16 +387,14 @@ is at-least-once with the same Message-ID; the current invitation state is
 rechecked at claim/renew/finish boundaries. Keep old Fernet keys available until
 pending messages encrypted with them are delivered or manually handled.
 
-API/runtime invitation DSN uses `IDENTITY_INVITATION_DATABASE_URL(_FILE)`;
-the API may optionally configure `IDENTITY_MAIL_V2_DATABASE_URL(_FILE)` for an
-embedded kick after commit. Runtime link fallback is
+The invitation producer uses the caller's API transaction or the explicit
+`IDENTITY_INVITATION_DATABASE_URL(_FILE)` owner, with no fallback on source
+failure. It polls the same committed operation status until delivery completes
+or the HTTP deadline expires; it does not execute or enqueue an SMTP task.
+Runtime link fallback is
 `IDENTITY_INVITATION_FRONTEND_BASE_URL=http://localhost:5173`, separate from
 Recovery's 3000 fallback; system `frontend_base_url` still overrides it.
-The opt-in Compose `mail-v2` profile runs
-`python -m yoao_identity_runtime.mail_worker_v2` with its own four-function
-MAILV2 DSN, the existing MAIL_SETTINGS DSN and Recovery Fernet key, and SMTP
-fallbacks; it receives no AUTH/control/JWT/signing credential. See [the private
-protocol](../../docs-site/api/guides/identity-runtime.md#邀请生命周期),
+See [the private protocol](../../docs-site/api/guides/identity-runtime.md#邀请生命周期),
 [ADR-0122](../../docs/adr/0122-independent-identity-invitations-and-mail-v2.md),
 and the [module status](../../docs-site/dev/concepts/module-deployment.md).
 
@@ -415,20 +429,12 @@ The portable user/due command contracts and Postgres owner live in
 through its existing API process.
 
 Identity writes the two fixed deactivation events through the Notifications
-owner in the same database transaction. Delivery uses the separate
-`yoao_notification_publish_client`; the existing
-`python -m yoao_identity_runtime.notification_worker` entry remains as a
-compatibility wrapper around the Notifications publisher. The publisher
-requires only `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` and
-`NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`, with no Identity/auth/signing secret.
-The contract, PostgreSQL client, runtime settings, and executor are owned by
-`yoao_notifications.notification_delivery_contract`,
-`yoao_notifications.notification_delivery_postgres`,
-`yoao_notifications.delivery_config`, and
-`yoao_notifications.delivery_worker`; Identity's old import paths remain
-compatibility wrappers. The Identity runtime image installs the Notifications
-package as a noneditable dependency so its existing worker deployment remains
-independent.
+owner in the same database transaction. The hosted Notifications relay and
+optional dedicated Notifications publisher consume that outbox with the
+`yoao_notification_publish_client` role and publication Redis identity. They
+do not receive the Identity signing key. The Identity overlay no longer hosts
+a publisher; the old module entry and import paths remain portable wrappers
+around the Notifications-owned contracts and worker.
 See [the private protocol](../../docs-site/api/guides/identity-runtime.md#自助注销与最后一名超级管理员围栏),
 [ADR-0121](../../docs/adr/0121-identity-self-deactivation-and-notification-delivery.md),
 and the [deployment slice status](../../docs-site/dev/concepts/module-deployment.md).
@@ -510,9 +516,9 @@ or logs. Recovery operation receipts store a keyed request fingerprint and froze
 result, not passwords, tokens or JWTs.
 
 The recovery LOGIN has exactly `recovery_policy`, `prepare_recovery_command`,
-`apply_recovery_command` and `read_registration_status`. The mail LOGIN has only `mail_policy`, `claim_mail`,
-`renew_mail` and `finish_mail`. A third MAIL_SETTINGS LOGIN can call only
-`mail_delivery_policy` in Settings. These function roles do not receive direct
+`apply_recovery_command` and `read_registration_status`. The deployed sender
+LOGIN uses the four MailV2 functions. A separate MAIL_SETTINGS LOGIN can call
+only `mail_delivery_policy` in Settings. These function roles do not receive direct
 table access. Identity's code owner can call only
 `yoao_settings_v1.identity_recovery_policy(jsonb)` for open-registration and
 frontend-URL policy; it takes a Settings SHARE lock to fence registration. The
@@ -522,10 +528,13 @@ credential-mail delivery does not use notification preferences.
 
 ## Independent credential-mail worker
 
-The `identity-mail` service runs
-`python -m yoao_identity_runtime.mail_worker` from the same image as
-`identity-admission`. It polls the durable outbox, claims one message, commits
-its lease before SMTP, and uses short transactions for claim, renew and finish.
+Include `docker-compose.identity.yml` in the same Compose project whenever
+password recovery, verification email, or invitation delivery is enabled.
+This starts `identity-mail-v2` (no `mail-v2` profile) from the Identity image
+with `python -m yoao_identity_runtime.mail_worker_v2`. It polls at process start
+and independently of API/worker requests or post-commit notifications. It
+claims either a legacy Recovery intent or a V2 invitation, commits the lease
+before SMTP, and uses short transactions for claim, renew and finish.
 SMTP never runs under an SQL lock. The default lease is 60 seconds, renewable
 while SMTP blocks; lease and retry intervals are bounded to 1–300 seconds. A
 stable Message-ID lets retries reuse the same challenge, ciphertext and message
@@ -543,35 +552,42 @@ token. Expired intents are terminal. Keep old Fernet keys available until pendin
 outbox rows encrypted under them drain; changing the mail key does not invalidate
 already hashed links, but those rows cannot be sent without their original key.
 
-The worker listens on port 8171; `/health` is liveness and `/ready` checks both
-function capabilities, Settings access and the encryption key. Compose overrides
-the image health check to use `/ready` on 8171. The nonroot mail container gets
-only its MAIL DSN, `MAIL_SETTINGS` DSN, the shared Fernet key and optional
-`IDENTITY_MAIL_SMTP_HOST`, `IDENTITY_MAIL_SMTP_PORT`, `IDENTITY_MAIL_SMTP_USER`,
-`IDENTITY_MAIL_SMTP_PASSWORD` and `IDENTITY_MAIL_SMTP_FROM` fallbacks. It receives
-no AUTH/control bearer, JWT signing secret or recovery DSN.
+The worker's private port is 8171; `/health` is liveness and `/ready` checks
+both role bindings and the encryption key. Polling also checks those bindings
+before the first claim. Compose gives it only:
 
-For direct process configuration, the API has eight optional
-`IDENTITY_RECOVERY_DATABASE_URL(_FILE)`, `IDENTITY_RECOVERY_MAIL_KEY(_FILE)`,
-`IDENTITY_MAIL_DATABASE_URL(_FILE)` and
-`IDENTITY_MAIL_SETTINGS_DATABASE_URL(_FILE)` settings. A configured pair accepts
-one value or one file; explicit file errors do not fall back. With no recovery
-DSN, recovery uses the API caller transaction. If a recovery DSN is configured,
-both mail DSNs must also be configured together; partial binding fails closed
-instead of silently polling the API database. If both mail DSNs are omitted,
-the embedded mail kick may use the API session. A remote `IDENTITY_URL` requires
-the selected Identity owner to run its own mail worker; the API does not poll a
-remote outbox. The recovery key can be derived from the signing secret when the
-API runs embedded. The independent runtime requires an explicit shared Fernet
-key whenever recovery is enabled; Compose requires its key file. Runtime direct
-configuration uses `IDENTITY_RECOVERY_DATABASE_URL(_FILE)` and
-`IDENTITY_RECOVERY_MAIL_KEY(_FILE)` for the producer, and `IDENTITY_MAIL_*` DSN,
-encryption-key and SMTP settings for the worker. The Compose wrapper names
-`IDENTITY_RUNTIME_*_FILE` select host files; inside the containers those mount at
-the runtime-specific `IDENTITY_*_FILE` names. The runtime does not read the API
-`.env` file. See the [local runbook](../../DEV.md) and
-[ADR-0119](../../docs/adr/0119-independent-identity-recovery-and-mail.md) for
-the exact file mapping and lifecycle rules.
+- `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`: DSN for
+  `yoao_identity_mail_v2_client` (`infra/docker/identity-invitations-grants.sql`).
+- `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE`: DSN for
+  `yoao_identity_mail_settings_client` (`infra/docker/identity-recovery-grants.sql`).
+- `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE`: the existing shared Fernet key file.
+- Optional `IDENTITY_MAIL_SMTP_{HOST,PORT,USER,PASSWORD,FROM}` fallbacks, or
+  `IDENTITY_MAIL_SMTP_PASSWORD_FILE` instead of a direct password.
+
+Both DSNs are explicit `postgresql://` LOGIN URLs to the database that owns the
+outbox and Settings. Use distinct least-privilege logins, never the migration
+or application login. Ordinary API/worker roles cannot claim the outbox or
+invoke mail delivery policy. The sender gets no JWT, control or producer DSN.
+
+With an embedded producer, set `IDENTITY_RECOVERY_MAIL_KEY(_FILE)` in the API
+to the **same Fernet key** and leave `IDENTITY_RECOVERY_DATABASE_URL(_FILE)`
+unset to use the API caller transaction. An explicit producer DSN must select
+the same database as the sender; it never falls back. For a separate issuer,
+the overlay mounts the same producer key file in the issuer and sender only.
+Re-use an existing explicit key. If an older embedded producer derived it from
+its JWT root, derive **only** the Fernet key once offline using
+`yoao_identity.recovery_crypto.mail_key_from_secret` with that original root
+and write it directly to the protected key file. Do not print the root or give
+it to the sender. Stop the old sender before starting the V2 sender against
+that outbox. No SQL backfill or token rotation is needed. Keep the existing
+key until all older pending rows drain. V1 remains a standalone contract,
+not a hosted selector.
+
+When starting the package without Compose, the V2 sender reads
+`IDENTITY_MAIL_V2_DATABASE_URL(_FILE)`, `IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL(_FILE)`,
+`IDENTITY_MAIL_V2_ENCRYPTION_KEY(_FILE)` and `IDENTITY_MAIL_V2_SMTP_*`.
+For permissions and recovery semantics, see [DEV.md](../../DEV.md) and
+[ADR-0119](../../docs/adr/0119-independent-identity-recovery-and-mail.md).
 
 Recovery and mail have their own operation-level qualification. Complete-module
 assembly and its local-only limits are recorded above; this evidence does not

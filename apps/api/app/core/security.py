@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+from yoao_identity.contract import IdentityUnavailable
 from yoao_identity.security import (
     ALGORITHM as _ALGORITHM,
     create_access_token as _create_access_token,
@@ -19,6 +20,16 @@ hash_password = _hash_password
 verify_password = _verify_password
 
 
+def embedded_signing_secret() -> str:
+    """Resolve the local JWT/receipt secret, never the selected remote issuer's."""
+    if settings.identity_url:
+        raise IdentityUnavailable()
+    secret = settings.identity_embedded_signing_secret or settings.secret_key
+    if not secret:
+        raise IdentityUnavailable()
+    return secret
+
+
 def create_access_token(
     subject: str,
     role: str,
@@ -28,7 +39,7 @@ def create_access_token(
     return _create_access_token(
         subject,
         role,
-        secret=settings.secret_key,
+        secret=embedded_signing_secret(),
         expire_minutes=settings.access_token_expire_minutes,
         expires_delta=expires_delta,
         gen=gen,
@@ -37,5 +48,5 @@ def create_access_token(
 
 def decode_access_token(token: str, *, verify_exp: bool = True) -> dict:
     return _decode_access_token(
-        token, secret=settings.secret_key, verify_exp=verify_exp
+        token, secret=embedded_signing_secret(), verify_exp=verify_exp
     )

@@ -30,8 +30,8 @@ def source_injected_key_validator(monkeypatch):
 def test_v2_worker_requires_only_its_owner_settings_key_and_smtp_sources():
     settings = MailV2WorkerSettings(
         _env_file=None,
-        database_url="postgresql://mail-v2-role/db",
-        settings_database_url="postgresql://settings-role/db",
+        database_url="postgresql://mail-v2-role@db/identity",
+        settings_database_url="postgresql://settings-role@db/identity",
         encryption_key=FERNET_KEY,
         jwt_signing_secret="ignored-auth-secret",
         control_token="ignored-api-token",
@@ -46,8 +46,8 @@ def test_v2_worker_requires_only_its_owner_settings_key_and_smtp_sources():
 def test_v2_worker_reads_dedicated_files_and_keeps_long_smtp_password(tmp_path):
     files = {}
     for name, value in (
-        ("mail-v2-db", "postgresql://mail-v2/db\n"),
-        ("settings-db", "postgresql://settings/db\n"),
+        ("mail-v2-db", "postgresql://mail-v2@db/identity\n"),
+        ("settings-db", "postgresql://settings@db/identity\n"),
         ("encryption-key", FERNET_KEY + "\n"),
         ("smtp-password", "p" * 5000 + "\n"),
     ):
@@ -62,9 +62,12 @@ def test_v2_worker_reads_dedicated_files_and_keeps_long_smtp_password(tmp_path):
         encryption_key_file=files["encryption-key"],
         smtp_password_file=files["smtp-password"],
     )
-    assert settings.database_url.get_secret_value() == "postgresql://mail-v2/db"
     assert (
-        settings.settings_database_url.get_secret_value() == "postgresql://settings/db"
+        settings.database_url.get_secret_value() == "postgresql://mail-v2@db/identity"
+    )
+    assert (
+        settings.settings_database_url.get_secret_value()
+        == "postgresql://settings@db/identity"
     )
     assert len(settings.smtp_password.get_secret_value()) == 5000
 
@@ -75,15 +78,36 @@ def test_v2_worker_rejects_missing_conflicting_and_malformed_key_sources():
     with pytest.raises(ValidationError):
         MailV2WorkerSettings(
             _env_file=None,
-            database_url="postgresql://mail-v2/db",
+            database_url="postgresql://mail-v2@db/identity",
             database_url_file="/ignored/path",
-            settings_database_url="postgresql://settings/db",
+            settings_database_url="postgresql://settings@db/identity",
             encryption_key=FERNET_KEY,
         )
     with pytest.raises(ValidationError):
         MailV2WorkerSettings(
             _env_file=None,
-            database_url="postgresql://mail-v2/db",
-            settings_database_url="postgresql://settings/db",
+            database_url="postgresql://mail-v2@db/identity",
+            settings_database_url="postgresql://settings@db/identity",
             encryption_key="bad-key",
+        )
+
+
+@pytest.mark.parametrize(
+    "mail_dsn",
+    [
+        "postgresql://db/identity",
+        "postgresql://settings@db/identity",
+        "postgresql://mail@db/identity?user=other",
+        "redis://mail@db/identity",
+        "postgresql://mail@db/unrelated",
+        "postgresql://mail@db",
+    ],
+)
+def test_v2_worker_rejects_implicit_overridden_and_shared_logins(mail_dsn):
+    with pytest.raises(ValidationError):
+        MailV2WorkerSettings(
+            _env_file=None,
+            database_url=mail_dsn,
+            settings_database_url="postgresql://settings@db/identity",
+            encryption_key=FERNET_KEY,
         )

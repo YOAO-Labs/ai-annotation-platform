@@ -56,13 +56,7 @@ class IdentityKeyManagement:
                 data = KeyPostgresData(dsn) if dsn else IdentityKeySessionData(self.db)
                 if dsn:
                     await data.key_policy()
-                secret = (
-                    self.identity.signing_secret
-                    if self.identity.signing_secret is not None
-                    else settings.secret_key
-                )
-                if not secret:
-                    raise IdentityGatewayUnavailable()
+                secret = self.identity.require_signing_secret()
                 result = await KeyManager(
                     _CommandAuthenticator(self.identity, self.db), data, secret
                 ).execute(request)

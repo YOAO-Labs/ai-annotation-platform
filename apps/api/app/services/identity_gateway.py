@@ -22,9 +22,10 @@ from yoao_identity.actor_contract import (
 )
 from yoao_identity.actor_reader import ActorContextReader
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.config import settings
+from app.core.security import embedded_signing_secret
 from app.services.identity_contracts import (
     IdentityCredentialRejected,
     IdentityGatewayUnavailable,
@@ -53,12 +54,18 @@ def _secret_value(value) -> str | None:
 
 def identity_postgres_dsn(value: str) -> str:
     try:
-        return (
-            make_url(value)
-            .set(drivername="postgresql")
-            .render_as_string(hide_password=False)
-        )
-    except Exception:
+        url = make_url(value)
+        if (
+            url.drivername not in {"postgresql", "postgresql+asyncpg"}
+            or not (url.host and url.database and url.username)
+            or any(
+                name in url.query
+                for name in ("host", "port", "user", "password", "database", "dbname")
+            )
+        ):
+            raise IdentityGatewayUnavailable()
+        return url.set(drivername="postgresql").render_as_string(hide_password=False)
+    except (ValueError, TypeError, ArgumentError):
         raise IdentityGatewayUnavailable() from None
 
 
@@ -130,9 +137,20 @@ class IdentityGateway:
             async with asyncio.timeout(self.timeout_seconds):
                 if self.identity_url is not None:
                     principal = await self._authenticate_remote(token)
+                elif db is None and not (
+                    self.auth_database_url or self.auth_database_url_file
+                ):
+                    from app.db.base import async_session
+
+                    async with async_session() as short_session:
+                        principal = await self._authenticate_embedded(
+                            token, db=short_session
+                        )
+                        if principal.credential_type == "api_key":
+                            await short_session.commit()
                 else:
                     principal = await self._authenticate_embedded(token, db=db)
-        except TimeoutError:
+        except (TimeoutError, SQLAlchemyError):
             raise IdentityGatewayUnavailable() from None
         return principal
 
@@ -198,35 +216,40 @@ class IdentityGateway:
     def embedded_data(self, db: AsyncSession | None):
         from yoao_identity.postgres import PostgresData
 
-        try:
-            if self.identity_url is not None:
-                raise IdentityGatewayUnavailable()
-            dsn = identity_database_source(
-                self.auth_database_url, self.auth_database_url_file
-            )
-            if self.uses_caller_session(db):
-                from app.services.identity_session_data import IdentitySessionData
+        if self.identity_url is not None:
+            raise IdentityGatewayUnavailable()
+        dsn = identity_database_source(
+            self.auth_database_url, self.auth_database_url_file
+        )
+        if dsn is not None:
+            return PostgresData(dsn)
+        if db is None:
+            raise IdentityGatewayUnavailable()
+        from app.services.identity_session_data import IdentitySessionData
 
-                data = IdentitySessionData(db)
-            else:
-                if not dsn:
-                    dsn = identity_postgres_dsn(settings.database_url)
-                data = PostgresData(dsn)
-            return data
-        except (OSError, UnicodeError):
+        return IdentitySessionData(db)
+
+    def require_signing_secret(self) -> str:
+        if self.identity_url is not None:
+            raise IdentityGatewayUnavailable()
+        try:
+            secret = (
+                self.signing_secret
+                if self.signing_secret is not None
+                else embedded_signing_secret()
+            )
+        except IdentityUnavailable:
             raise IdentityGatewayUnavailable() from None
+        if not secret:
+            raise IdentityGatewayUnavailable()
+        return secret
 
     def embedded_authenticator(self, db: AsyncSession | None):
         from yoao_identity.authenticator import Authenticator
 
-        secret = (
-            self.signing_secret
-            if self.signing_secret is not None
-            else _secret_value(settings.secret_key)
+        return Authenticator(
+            self.embedded_data(db), secret=self.require_signing_secret()
         )
-        if not secret:
-            raise IdentityGatewayUnavailable()
-        return Authenticator(self.embedded_data(db), secret=secret)
 
     async def _authenticate_embedded(self, token: str, *, db: AsyncSession | None):
         from yoao_identity.contract import IdentityFailure, IdentityUnavailable
@@ -260,5 +283,4 @@ def get_identity_gateway() -> IdentityGateway:
         auth_database_url_file=_secret_value(
             getattr(settings, "identity_auth_database_url_file", None)
         ),
-        signing_secret=_secret_value(settings.secret_key),
     )
