@@ -1,11 +1,10 @@
-"""Owned provider and API bindings for Workspace configuration acceptance."""
+"""Disposable caller and standalone fixtures for Workspace commands."""
 
 from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import httpx
 import json
 import os
 from pathlib import Path
@@ -14,15 +13,43 @@ import sys
 import tempfile
 import threading
 
+import httpx
 from sqlalchemy.engine import make_url
 
-from app.config import settings
+from tests.inference_backend_probe_helpers import probe_provider
+from tests.labeling_class_query_helpers import (
+    api_db_binding,
+    clear_local_identity,
+    make_request_runtime,
+)
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import _port, _start
 from tests.test_module_data_roles import _role_url
-from tests.inference_backend_probe_helpers import probe_provider
 
 ROOT = Path(__file__).resolve().parents[3]
+
+
+@asynccontextmanager
+async def public_workspace_client(test_engine, app_module, monkeypatch):
+    """Make real commits through the ordinary runtime login, without a savepoint."""
+    engine, maker = await make_request_runtime(
+        test_engine, application_name="workspace-command-caller"
+    )
+    try:
+        with monkeypatch.context() as patch:
+            clear_local_identity(patch)
+            async with api_db_binding(app_module, maker):
+                transport = httpx.ASGITransport(
+                    app=app_module, raise_app_exceptions=False
+                )
+                async with httpx.AsyncClient(
+                    transport=transport,
+                    base_url="http://workspace-command-test",
+                    timeout=30,
+                ) as client:
+                    yield client
+    finally:
+        await engine.dispose()
 
 
 def configuration_dsn(test_engine, database: str | None = None) -> str:
@@ -46,28 +73,6 @@ def configuration_dsn(test_engine, database: str | None = None) -> str:
         ) and database.endswith("_test")
         value = value.set(database=database)
     return value.set(drivername="postgresql").render_as_string(hide_password=False)
-
-
-@asynccontextmanager
-async def api_configuration_binding(*, url=None, dsn=None, token, timeout=15):
-    if bool(url) == bool(dsn):
-        raise ValueError("Select exactly one Workspace configuration owner")
-    changes = {
-        "workspace_configuration_url": url or "",
-        "workspace_configuration_database_url": dsn or "",
-        "workspace_configuration_database_url_file": "",
-        "workspace_configuration_timeout_seconds": timeout,
-        "workspace_membership_control_token": token,
-        "workspace_membership_control_token_file": "",
-    }
-    original = {key: getattr(settings, key) for key in changes}
-    try:
-        for key, value in changes.items():
-            setattr(settings, key, value)
-        yield
-    finally:
-        for key, value in original.items():
-            setattr(settings, key, value)
 
 
 class _DropOnceRelay:

@@ -269,9 +269,8 @@ def _normalize(value, aliases: dict[str, str]):
     return value
 
 
-@pytest.mark.parametrize("binding", ["remote_container", "dedicated_dsn"])
 async def test_project_member_http_preserves_the_actual_legacy_contract(
-    test_engine, tmp_path, binding
+    test_engine, tmp_path
 ):
     runtime_helpers = pytest.importorskip("tests.test_workspace_membership_runtime")
     legacy = _legacy()
@@ -286,26 +285,9 @@ async def test_project_member_http_preserves_the_actual_legacy_contract(
     ) = await _seed_membership_world(test_engine, legacy)
     _add_email_aliases(legacy, users, aliases)
     task_ids = {name: task.id for name, task in tasks.items()}
-    control = secrets.token_urlsafe(32)
-    workspace = api = None
+    api = None
     try:
-        if binding == "remote_container":
-            workspace = await runtime_helpers._start_container_workspace(
-                test_engine, tmp_path, control
-            )
-            api = await runtime_helpers._start_workspace_api(
-                test_engine,
-                tmp_path,
-                workspace_url=workspace.origin,
-                control=control,
-            )
-        else:
-            api = await runtime_helpers._start_workspace_api(
-                test_engine,
-                tmp_path,
-                workspace_dsn=_membership_dsn(test_engine),
-                control=control,
-            )
+        api = await runtime_helpers._start_workspace_api(test_engine, tmp_path)
 
         token = create_access_token(
             subject=str(users["owner"].id), role=users["owner"].role
@@ -533,8 +515,6 @@ async def test_project_member_http_preserves_the_actual_legacy_contract(
     finally:
         if api is not None:
             api.stop()
-        if workspace is not None:
-            workspace.stop()
         await _cleanup_project(maker, project.id)
 
 

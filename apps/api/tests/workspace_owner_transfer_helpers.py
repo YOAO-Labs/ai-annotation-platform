@@ -10,7 +10,6 @@ import tempfile
 
 from sqlalchemy.engine import make_url
 
-from app.config import settings
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import _port, _start
 from tests.test_module_data_roles import _role_url
@@ -38,27 +37,6 @@ def transfer_dsn(test_engine, database=None):
         ) and database.endswith("_test")
         value = value.set(database=database)
     return value.set(drivername="postgresql").render_as_string(hide_password=False)
-
-
-@asynccontextmanager
-async def api_transfer_binding(*, url=None, dsn=None, token):
-    assert not (url and dsn)
-    changes = {
-        "workspace_owner_transfer_url": url or "",
-        "workspace_owner_transfer_database_url": dsn or "",
-        "workspace_owner_transfer_database_url_file": "",
-        "workspace_membership_control_token": token,
-        "workspace_membership_control_token_file": "",
-        "workspace_membership_timeout_seconds": 15,
-    }
-    original = {key: getattr(settings, key) for key in changes}
-    try:
-        for key, value in changes.items():
-            setattr(settings, key, value)
-        yield
-    finally:
-        for key, value in original.items():
-            setattr(settings, key, value)
 
 
 @asynccontextmanager

@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from contextlib import AsyncExitStack, suppress
+from contextlib import suppress
 import json
-import secrets
 import asyncio
 import os
 from pathlib import Path
@@ -52,11 +51,7 @@ def _actor_facts(user: User) -> IdentityActorFacts:
 
 
 @pytest.fixture
-async def pending_write_model(test_engine, binding):
-    if binding != "caller":
-        yield None
-        return
-
+async def pending_write_model(test_engine):
     class Base(DeclarativeBase):
         pass
 
@@ -81,11 +76,8 @@ async def pending_write_model(test_engine, binding):
         Base.registry.dispose()
 
 
-@pytest.mark.parametrize(
-    "binding", ["caller", "dedicated", "remote_python", "remote_node"]
-)
 async def test_owner_transfer_matches_actual_legacy(
-    test_engine, monkeypatch, binding, pending_write_model
+    test_engine, monkeypatch, pending_write_model
 ):
     for field in (
         "identity_url",
@@ -93,9 +85,6 @@ async def test_owner_transfer_matches_actual_legacy(
         "identity_auth_database_url_file",
         "identity_briefs_database_url",
         "identity_briefs_database_url_file",
-        "workspace_owner_transfer_url",
-        "workspace_owner_transfer_database_url",
-        "workspace_owner_transfer_database_url_file",
     ):
         monkeypatch.setattr(settings, field, "")
     monkeypatch.setattr(settings, "audit_async", False)
@@ -221,31 +210,7 @@ async def test_owner_transfer_matches_actual_legacy(
                 await observed
         return http_audit_started.is_set()
 
-    stack = AsyncExitStack()
     try:
-        if binding != "caller":
-            from tests.workspace_owner_transfer_helpers import (
-                api_transfer_binding,
-                transfer_dsn,
-                python_provider_url,
-                node_provider_url,
-            )
-
-            dsn, token = transfer_dsn(test_engine), secrets.token_urlsafe(32)
-            if binding == "dedicated":
-                await stack.enter_async_context(
-                    api_transfer_binding(dsn=dsn, token=token)
-                )
-            else:
-                factory = (
-                    python_provider_url
-                    if binding == "remote_python"
-                    else node_provider_url
-                )
-                origin = await stack.enter_async_context(factory(dsn, token))
-                await stack.enter_async_context(
-                    api_transfer_binding(url=origin, token=token)
-                )
         transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
         async with httpx.AsyncClient(
             transport=transport, base_url="http://owned-test"
@@ -353,93 +318,84 @@ async def test_owner_transfer_matches_actual_legacy(
                 )
                 assert business == 0
 
-        if binding == "caller":
-            for phase, table, key in (
-                ("accounts", User, users["receiver"].id),
-                ("project", Project, projects["direct"].id),
-            ):
-                pending_id = uuid.uuid4()
-                async with maker() as holder, service(autoflush=True) as caller:
-                    await holder.scalar(
-                        select(table).where(table.id == key).with_for_update()
-                    )
-                    caller.add(pending_write_model(id=pending_id))
-                    with pytest.raises(Exception) as rejected:
-                        await transfer_project_owner(
-                            caller,
-                            actor=_actor_facts(users["actor"]),
-                            project_id=projects["direct"].id,
-                            new_owner_id=users["receiver"].id,
-                        )
-                    assert getattr(rejected.value, "status_code", None) == 409
-                    state = {
-                        "status": rejected.value.status_code,
-                        "detail": rejected.value.detail,
-                        "in_transaction": caller.in_transaction(),
-                    }
-                    if phase == "accounts":
-                        assert not caller.in_transaction()
-                        state["query_after_error"] = await caller.scalar(
-                            text("SELECT 1")
-                        )
-                    else:
-                        with pytest.raises(DBAPIError) as aborted:
-                            await caller.scalar(text("SELECT 1"))
-                        state["query_after_error_sqlstate"] = (
-                            aborted.value.orig.sqlstate
-                        )
-                        assert state["query_after_error_sqlstate"] == "25P02"
-                    await caller.rollback()
-                    await holder.rollback()
-                    async with maker() as observer:
-                        assert (
-                            await observer.get(pending_write_model, pending_id) is None
-                        )
-                    transactions[phase + "_busy"] = state
-
-            for autoflush in (False, True):
-                pending_id = uuid.uuid4()
-                async with service(autoflush=autoflush) as caller:
-                    pending = pending_write_model(id=pending_id)
-                    caller.add(pending)
-                    evidence = await transfer_project_owner(
+        for phase, table, key in (
+            ("accounts", User, users["receiver"].id),
+            ("project", Project, projects["direct"].id),
+        ):
+            pending_id = uuid.uuid4()
+            async with maker() as holder, service(autoflush=True) as caller:
+                await holder.scalar(
+                    select(table).where(table.id == key).with_for_update()
+                )
+                caller.add(pending_write_model(id=pending_id))
+                with pytest.raises(Exception) as rejected:
+                    await transfer_project_owner(
                         caller,
                         actor=_actor_facts(users["actor"]),
                         project_id=projects["direct"].id,
                         new_owner_id=users["receiver"].id,
                     )
-                    assert evidence.source == "owner_transfer"
-                    assert evidence.new_owner_id == users["receiver"].id
-                    state = {
-                        "in_transaction": caller.in_transaction(),
-                        "pending_unflushed": pending in caller.new,
-                    }
-                    assert state == {
-                        "in_transaction": True,
-                        "pending_unflushed": not autoflush,
-                    }
-                    async with maker() as observer:
-                        assert (
-                            await observer.get(Project, projects["direct"].id)
-                        ).owner_id == users["old_owner"].id
-                        assert (
-                            await observer.get(pending_write_model, pending_id) is None
-                        )
-                        for table, key in (
-                            (User, users["actor"].id),
-                            (User, users["receiver"].id),
-                            (Project, projects["direct"].id),
-                        ):
-                            with pytest.raises(DBAPIError) as held:
-                                await observer.scalar(
-                                    select(table.id)
-                                    .where(table.id == key)
-                                    .with_for_update(nowait=True)
-                                )
-                            assert held.value.orig.sqlstate == "55P03"
-                            await observer.rollback()
-                    await caller.rollback()
-                    transactions[f"success_autoflush_{autoflush}"] = state
+                assert getattr(rejected.value, "status_code", None) == 409
+                state = {
+                    "status": rejected.value.status_code,
+                    "detail": rejected.value.detail,
+                    "in_transaction": caller.in_transaction(),
+                }
+                if phase == "accounts":
+                    assert not caller.in_transaction()
+                    state["query_after_error"] = await caller.scalar(text("SELECT 1"))
+                else:
+                    with pytest.raises(DBAPIError) as aborted:
+                        await caller.scalar(text("SELECT 1"))
+                    state["query_after_error_sqlstate"] = aborted.value.orig.sqlstate
+                    assert state["query_after_error_sqlstate"] == "25P02"
+                await caller.rollback()
+                await holder.rollback()
+                async with maker() as observer:
+                    assert await observer.get(pending_write_model, pending_id) is None
+                transactions[phase + "_busy"] = state
+
+        for autoflush in (False, True):
+            pending_id = uuid.uuid4()
+            async with service(autoflush=autoflush) as caller:
+                pending = pending_write_model(id=pending_id)
+                caller.add(pending)
+                evidence = await transfer_project_owner(
+                    caller,
+                    actor=_actor_facts(users["actor"]),
+                    project_id=projects["direct"].id,
+                    new_owner_id=users["receiver"].id,
+                )
+                assert evidence.source == "owner_transfer"
+                assert evidence.new_owner_id == users["receiver"].id
+                state = {
+                    "in_transaction": caller.in_transaction(),
+                    "pending_unflushed": pending in caller.new,
+                }
+                assert state == {
+                    "in_transaction": True,
+                    "pending_unflushed": not autoflush,
+                }
+                async with maker() as observer:
+                    assert (
+                        await observer.get(Project, projects["direct"].id)
+                    ).owner_id == users["old_owner"].id
+                    assert await observer.get(pending_write_model, pending_id) is None
+                    for table, key in (
+                        (User, users["actor"].id),
+                        (User, users["receiver"].id),
+                        (Project, projects["direct"].id),
+                    ):
+                        with pytest.raises(DBAPIError) as held:
+                            await observer.scalar(
+                                select(table.id)
+                                .where(table.id == key)
+                                .with_for_update(nowait=True)
+                            )
+                        assert held.value.orig.sqlstate == "55P03"
+                        await observer.rollback()
+                await caller.rollback()
+                transactions[f"success_autoflush_{autoflush}"] = state
         frozen = json.loads(
             (
                 Path(__file__).parent / "fixtures/workspace_owner_transfer_legacy.json"
@@ -450,8 +406,7 @@ async def test_owner_transfer_matches_actual_legacy(
                 "main"
             ].guide_assets_revision
         assert responses == frozen["responses"]
-        if binding == "caller":
-            assert transactions == frozen["caller_transactions"]
+        assert transactions == frozen["caller_transactions"]
         evidence = {
             "api_sqlalchemy_round_trips": counts,
             "counter_scope": frozen["counter_scope"],
@@ -460,13 +415,12 @@ async def test_owner_transfer_matches_actual_legacy(
         }
         destination = (
             Path(__file__).resolve().parents[3]
-            / f".worktree/workspace-owner-transfer-current-samples-{binding}.json"
+            / ".worktree/workspace-owner-transfer-current-samples-caller.json"
         )
         destination.write_text(
             json.dumps(evidence, ensure_ascii=False, indent=2) + "\n"
         )
     finally:
-        await stack.aclose()
         if previous is None:
             app.dependency_overrides.pop(get_db, None)
         else:

@@ -33,7 +33,7 @@ pytestmark = [
 
 
 @contextmanager
-def setup_backend():
+def setup_backend(host="127.0.0.1"):
     calls = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -55,11 +55,11 @@ def setup_backend():
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer((host, 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        yield f"http://127.0.0.1:{server.server_port}", calls
+        yield f"http://{host}:{server.server_port}", calls
     finally:
         server.shutdown()
         server.server_close()
@@ -257,45 +257,19 @@ async def test_explicit_http_credential_failure_is_unavailable_without_backend_c
                 await caller.rollback()
 
 
-@pytest.mark.parametrize("configuration_binding", ["borrowed", "dsn", "http"])
 async def test_missing_probe_secret_is_503_before_public_configuration_writes(
-    test_engine, httpx_client, monkeypatch, configuration_binding
+    test_engine, app_module, monkeypatch
 ):
     from app.core.security import create_access_token
     from tests.factory import create_user
-    from tests.workspace_configuration_helpers import (
-        api_configuration_binding,
-        configuration_dsn,
-        provider_url,
-    )
-    from tests.test_workspace_configuration_live import _suppress_request_audit
+    from tests.workspace_configuration_helpers import public_workspace_client
 
     await assert_owned_test_database(test_engine)
-    _suppress_request_audit(monkeypatch)
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     actor_id = registry_id = None
     retained_key = None
     async with AsyncExitStack() as stack:
         await _binding(stack, monkeypatch, test_engine)
-        for name in (
-            "workspace_configuration_url",
-            "workspace_configuration_database_url",
-            "workspace_configuration_database_url_file",
-        ):
-            monkeypatch.setattr(settings, name, "")
-        if configuration_binding == "dsn":
-            await stack.enter_async_context(
-                api_configuration_binding(
-                    dsn=configuration_dsn(test_engine), token="workspace-test-control"
-                )
-            )
-        elif configuration_binding == "http":
-            origin = await stack.enter_async_context(
-                provider_url(configuration_dsn(test_engine), "workspace-test-control")
-            )
-            await stack.enter_async_context(
-                api_configuration_binding(url=origin, token="workspace-test-control")
-            )
         try:
             async with maker.begin() as seed:
                 actor = await create_user(
@@ -313,18 +287,21 @@ async def test_missing_probe_secret_is_503_before_public_configuration_writes(
                     )
                 )
                 assert type(retained_key) is bytes and len(retained_key) == 32
-            response = await httpx_client.post(
-                "/api/v1/projects",
-                json={
-                    "name": "Missing probe key",
-                    "type_label": "Image",
-                    "ml_backend_source_id": str(registry_id),
-                },
-                headers={
-                    "Authorization": "Bearer "
-                    + create_access_token(str(actor.id), actor.role)
-                },
-            )
+            async with public_workspace_client(
+                test_engine, app_module, monkeypatch
+            ) as client:
+                response = await client.post(
+                    "/api/v1/projects",
+                    json={
+                        "name": "Missing probe key",
+                        "type_label": "Image",
+                        "ml_backend_source_id": str(registry_id),
+                    },
+                    headers={
+                        "Authorization": "Bearer "
+                        + create_access_token(str(actor.id), actor.role)
+                    },
+                )
             assert response.status_code == 503, response.text
             async with maker() as observer:
                 assert (

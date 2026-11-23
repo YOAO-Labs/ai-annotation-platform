@@ -422,12 +422,15 @@ async def test_capture_pre_extraction_project_class_rename(
         "identity_url",
         "identity_auth_database_url",
         "identity_auth_database_url_file",
-        "workspace_project_query_url",
-        "workspace_project_query_database_url",
-        "workspace_project_query_database_url_file",
-        "workspace_membership_control_token",
-        "workspace_membership_control_token_file",
     )
+    if not source.get("seed_only_reuse"):
+        setting_names += (
+            "workspace_project_query_url",
+            "workspace_project_query_database_url",
+            "workspace_project_query_database_url_file",
+            "workspace_membership_control_token",
+            "workspace_membership_control_token_file",
+        )
     for name in setting_names:
         monkeypatch.setattr(settings, name, "")
     monkeypatch.setattr(settings, "audit_async", True)

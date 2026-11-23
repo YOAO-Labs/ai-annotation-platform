@@ -1,4 +1,4 @@
-"""Real standalone Workspace processes and public API bindings on owned state."""
+"""Standalone Workspace conformance and embedded membership transaction checks."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import secrets
 import time
 import uuid
 
+import asyncpg
 import httpx
 import pytest
 from fastapi import HTTPException
@@ -19,6 +20,9 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from yoao_workspace.contract import MembershipUnavailable
+from yoao_workspace.manager import MembershipManager
+from yoao_workspace.postgres import MembershipPostgresData
 from app.config import settings
 from app.db.models.audit_log import AuditLog
 from app.db.models.project_member import ProjectMember
@@ -28,15 +32,10 @@ from app.services.workspace_membership import (
     change_role,
     preview_role_change,
 )
+from app.services.workspace_membership_data import WorkspaceMembershipData
 from tests.factory import create_membership, create_project, create_user
-from tests.test_asset_storage_cleanup_runtime import (
-    _docker,
-    _inspect_docker,
-    _stop_remove_container,
-    _verify_postgres,
-)
+from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import (
-    Container,
     _port,
     _start,
     _start_api,
@@ -70,9 +69,9 @@ def _workspace_dsn(test_engine):
     return value.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
-def _secret(path: Path, value: str, *, container=False):
+def _secret(path: Path, value: str):
     path.write_text(value, encoding="utf-8")
-    path.chmod(0o444 if container else 0o600)
+    path.chmod(0o600)
     return path
 
 
@@ -101,77 +100,7 @@ async def _start_workspace(test_engine, directory, control):
     )
 
 
-async def _start_container_workspace(test_engine, directory, control):
-    directory.mkdir(parents=True, exist_ok=True)
-    identity = os.environ["AAP_WORKSPACE_RUNTIME_IDENTITY"]
-    image = _inspect_docker(os.environ["AAP_WORKSPACE_RUNTIME_IMAGE"])
-    assert image["Config"]["Labels"]["org.aap.acceptance"] == "workspace-membership"
-    assert image["Config"]["Labels"]["org.aap.acceptance-id"] == identity
-    dsn = (
-        make_url(_workspace_dsn(test_engine))
-        .set(host="host.docker.internal")
-        .render_as_string(hide_password=False)
-    )
-    dsn_file = _secret(directory / "membership-dsn", dsn, container=True)
-    token_file = _secret(directory / "membership-control", control, container=True)
-    owner = secrets.token_hex(12)
-    container_id = _docker(
-        "run",
-        "--detach",
-        "--name",
-        f"aap-workspace-membership-{owner}",
-        "--label",
-        "org.aap.acceptance=module-data-boundary",
-        "--label",
-        f"org.aap.acceptance-id={owner}",
-        "--read-only",
-        "--cap-drop=ALL",
-        "--security-opt=no-new-privileges:true",
-        "--pids-limit=64",
-        "--memory=256m",
-        "--cpus=1",
-        "--tmpfs",
-        "/tmp:rw,noexec,nosuid,size=32m",
-        "--publish",
-        "127.0.0.1::8172",
-        "--mount",
-        f"type=bind,src={dsn_file},dst=/run/secrets/membership-dsn,readonly",
-        "--mount",
-        f"type=bind,src={token_file},dst=/run/secrets/membership-control,readonly",
-        "--env",
-        "WORKSPACE_MEMBERSHIP_DATABASE_URL_FILE=/run/secrets/membership-dsn",
-        "--env",
-        "WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE=/run/secrets/membership-control",
-        image["Id"],
-    ).strip()
-    try:
-        metadata = _inspect_docker(container_id)
-        port = metadata["NetworkSettings"]["Ports"]["8172/tcp"][0]["HostPort"]
-        origin = f"http://127.0.0.1:{port}"
-        deadline = time.monotonic() + 35
-        async with httpx.AsyncClient(trust_env=False, timeout=2) as client:
-            while True:
-                try:
-                    if (await client.get(origin + "/ready")).status_code == 200:
-                        break
-                except httpx.HTTPError:
-                    pass
-                assert _inspect_docker(container_id)["State"]["Running"], (
-                    "Owned Workspace container exited"
-                )
-                assert time.monotonic() < deadline, (
-                    "Owned Workspace container did not become ready"
-                )
-                await asyncio.sleep(0.1)
-        return Container(container_id, owner, origin)
-    except BaseException:
-        _stop_remove_container(container_id, owner)
-        raise
-
-
-async def _start_workspace_api(
-    test_engine, directory, *, workspace_url=None, workspace_dsn=None, control
-):
+async def _start_workspace_api(test_engine, directory):
     directory.mkdir(parents=True, exist_ok=True)
     _verify_postgres(test_engine.url)
     runtime = _role_url("AAP_MODULE_DATA_LEGACY_RUNTIME_URL", "legacy_runtime")
@@ -181,14 +110,7 @@ async def _start_workspace_api(
         test_engine.url.port,
         test_engine.url.database,
     )
-    configuration = {
-        "WORKSPACE_MEMBERSHIP_URL": workspace_url or "",
-        "WORKSPACE_MEMBERSHIP_DATABASE_URL": workspace_dsn or "",
-        "WORKSPACE_MEMBERSHIP_DATABASE_URL_FILE": "",
-        "WORKSPACE_MEMBERSHIP_CONTROL_TOKEN": control,
-        "WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE": "",
-        "AUDIT_ASYNC": "false",
-    }
+    configuration = {"AUDIT_ASYNC": "false"}
     return await asyncio.to_thread(
         _start_api,
         directory,
@@ -212,6 +134,32 @@ def _command(operation, actor_id, project_id, payload, *, operation_id=None):
     }
 
 
+def _role_change_command(
+    actor_id,
+    project_id,
+    member_id,
+    *,
+    target_role,
+    expected_version,
+    preview_token,
+    reason,
+):
+    return _command(
+        "change_role",
+        actor_id,
+        project_id,
+        {
+            "member_id": str(member_id),
+            "target_role": target_role,
+            "expected_version": expected_version,
+            "preview_token": preview_token,
+            "reason": reason,
+            "replacement_annotator_id": None,
+            "replacement_reviewer_id": None,
+        },
+    )
+
+
 async def _seed_owned_member_scope(test_engine):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     async with maker.begin() as db:
@@ -228,11 +176,8 @@ async def _seed_owned_member_scope(test_engine):
 
 @pytest.mark.parametrize("autoflush", [False, True])
 async def test_rejected_local_command_never_commits_unrelated_pending_work(
-    test_engine, monkeypatch, autoflush
+    test_engine, autoflush
 ):
-    monkeypatch.setattr(settings, "workspace_membership_url", "")
-    monkeypatch.setattr(settings, "workspace_membership_database_url", "")
-    monkeypatch.setattr(settings, "workspace_membership_database_url_file", "")
     maker, actor_id, employee_id, project_id = await _seed_owned_member_scope(
         test_engine
     )
@@ -273,12 +218,7 @@ async def test_rejected_local_command_never_commits_unrelated_pending_work(
         await caller.rollback()
 
 
-async def test_local_account_contention_rolls_back_unrelated_caller_work(
-    test_engine, monkeypatch
-):
-    monkeypatch.setattr(settings, "workspace_membership_url", "")
-    monkeypatch.setattr(settings, "workspace_membership_database_url", "")
-    monkeypatch.setattr(settings, "workspace_membership_database_url_file", "")
+async def test_local_account_contention_rolls_back_unrelated_caller_work(test_engine):
     maker, actor_id, employee_id, project_id = await _seed_owned_member_scope(
         test_engine
     )
@@ -311,12 +251,7 @@ async def test_local_account_contention_rolls_back_unrelated_caller_work(
         await holder.rollback()
 
 
-async def test_native_audit_rejection_requires_explicit_caller_rollback(
-    test_engine, monkeypatch
-):
-    monkeypatch.setattr(settings, "workspace_membership_url", "")
-    monkeypatch.setattr(settings, "workspace_membership_database_url", "")
-    monkeypatch.setattr(settings, "workspace_membership_database_url_file", "")
+async def test_native_audit_rejection_requires_explicit_caller_rollback(test_engine):
     _verify_postgres(test_engine.url)
     maker, actor_id, employee_id, project_id = await _seed_owned_member_scope(
         test_engine
@@ -386,15 +321,8 @@ async def test_native_audit_rejection_requires_explicit_caller_rollback(
 @pytest.mark.parametrize("field", ["preview_token", "reason"])
 @pytest.mark.parametrize("expected_version", [1, 2])
 async def test_opaque_nul_text_keeps_legacy_conflict_precedence(
-    test_engine, monkeypatch, binding, field, expected_version
+    test_engine, binding, field, expected_version
 ):
-    monkeypatch.setattr(settings, "workspace_membership_url", "")
-    monkeypatch.setattr(settings, "workspace_membership_database_url_file", "")
-    monkeypatch.setattr(
-        settings,
-        "workspace_membership_database_url",
-        _workspace_dsn(test_engine) if binding == "dedicated" else "",
-    )
     maker, actor_id, employee_id, project_id = await _seed_owned_member_scope(
         test_engine
     )
@@ -415,19 +343,40 @@ async def test_opaque_nul_text_keeps_legacy_conflict_precedence(
             )
             == "string"
         )
-        with pytest.raises(HTTPException) as rejected:
-            await change_role(
-                caller,
-                project_id=project_id,
-                actor_id=actor_id,
-                member_id=member_id,
-                target_role="viewer",
-                expected_version=expected_version,
-                preview_token="\u0000" if field == "preview_token" else "0" * 64,
-                reason="\u0000" if field == "reason" else "Conflict precedence",
+        token = "\u0000" if field == "preview_token" else "0" * 64
+        reason = "\u0000" if field == "reason" else "Conflict precedence"
+        if binding == "caller":
+            with pytest.raises(HTTPException) as rejected:
+                await change_role(
+                    caller,
+                    project_id=project_id,
+                    actor_id=actor_id,
+                    member_id=member_id,
+                    target_role="viewer",
+                    expected_version=expected_version,
+                    preview_token=token,
+                    reason=reason,
+                )
+            assert rejected.value.status_code == 409
+            detail = rejected.value.detail
+        else:
+            manager = MembershipManager(
+                MembershipPostgresData(_workspace_dsn(test_engine))
             )
-        assert rejected.value.status_code == 409
-        assert rejected.value.detail["reason"] == (
+            result = await manager.execute(
+                _role_change_command(
+                    actor_id,
+                    project_id,
+                    member_id,
+                    target_role="viewer",
+                    expected_version=expected_version,
+                    preview_token=token,
+                    reason=reason,
+                )
+            )
+            assert not result.ok and result.error.status_code == 409
+            detail = result.error.detail
+        assert detail["reason"] == (
             "stale_member_version"
             if expected_version == 2
             else "stale_resource_snapshot"
@@ -445,17 +394,8 @@ async def test_opaque_nul_text_keeps_legacy_conflict_precedence(
 
 @pytest.mark.parametrize("binding", ["caller", "dedicated"])
 async def test_current_nul_reason_still_aborts_at_audit_without_effects(
-    test_engine, monkeypatch, binding
+    test_engine, binding
 ):
-    import asyncpg
-
-    monkeypatch.setattr(settings, "workspace_membership_url", "")
-    monkeypatch.setattr(settings, "workspace_membership_database_url_file", "")
-    monkeypatch.setattr(
-        settings,
-        "workspace_membership_database_url",
-        _workspace_dsn(test_engine) if binding == "dedicated" else "",
-    )
     maker, actor_id, employee_id, project_id = await _seed_owned_member_scope(
         test_engine
     )
@@ -477,28 +417,39 @@ async def test_current_nul_reason_still_aborts_at_audit_without_effects(
             target_role="viewer",
         )
         assert preview["blockers"] == []
-        with pytest.raises((DBAPIError, asyncpg.PostgresError)) as rejected:
-            await change_role(
-                caller,
-                project_id=project_id,
-                actor_id=actor_id,
-                member_id=member_id,
-                target_role="viewer",
-                expected_version=1,
-                preview_token=preview["preview_token"],
-                reason="\u0000",
-            )
-        original = (
-            rejected.value.orig
-            if isinstance(rejected.value, DBAPIError)
-            else rejected.value
-        )
-        assert original.sqlstate == "22P05"
         if binding == "caller":
+            with pytest.raises(DBAPIError) as rejected:
+                await change_role(
+                    caller,
+                    project_id=project_id,
+                    actor_id=actor_id,
+                    member_id=member_id,
+                    target_role="viewer",
+                    expected_version=1,
+                    preview_token=preview["preview_token"],
+                    reason="\u0000",
+                )
+            assert rejected.value.orig.sqlstate == "22P05"
             with pytest.raises(DBAPIError) as aborted:
                 await caller.scalar(text("SELECT 1"))
             assert aborted.value.orig.sqlstate == "25P02"
         else:
+            manager = MembershipManager(
+                MembershipPostgresData(_workspace_dsn(test_engine))
+            )
+            with pytest.raises(asyncpg.PostgresError) as rejected:
+                await manager.execute(
+                    _role_change_command(
+                        actor_id,
+                        project_id,
+                        member_id,
+                        target_role="viewer",
+                        expected_version=1,
+                        preview_token=preview["preview_token"],
+                        reason="\u0000",
+                    )
+                )
+            assert rejected.value.sqlstate == "22P05"
             assert await caller.scalar(text("SELECT 1")) == 1
         await caller.rollback()
     async with maker() as observer:
@@ -523,21 +474,8 @@ async def test_current_nul_reason_still_aborts_at_audit_without_effects(
 
 @pytest.mark.parametrize("binding", ["caller", "dedicated"])
 async def test_literal_reason_and_receipt_fingerprint_keep_exact_text(
-    test_engine, monkeypatch, binding
+    test_engine, binding
 ):
-    from yoao_workspace.contract import decode_membership_request
-    from yoao_workspace.manager import MembershipManager
-    from yoao_workspace.postgres import MembershipPostgresData
-    from app.services.workspace_membership_data import WorkspaceMembershipData
-
-    monkeypatch.setattr(settings, "workspace_membership_url", "")
-    monkeypatch.setattr(settings, "workspace_membership_database_url_file", "")
-    dsn = _workspace_dsn(test_engine)
-    monkeypatch.setattr(
-        settings,
-        "workspace_membership_database_url",
-        dsn if binding == "dedicated" else "",
-    )
     maker, actor_id, employee_id, project_id = await _seed_owned_member_scope(
         test_engine
     )
@@ -552,11 +490,12 @@ async def test_literal_reason_and_receipt_fingerprint_keep_exact_text(
         member_id = member.id
     reasons = ["\\u0000", "null", "\u007f", '  "quote" \\ \n  ', "ß 中 😀"]
     async with maker() as caller:
-        manager = MembershipManager(
-            MembershipPostgresData(dsn)
-            if binding == "dedicated"
-            else WorkspaceMembershipData(caller)
+        data = (
+            WorkspaceMembershipData(caller)
+            if binding == "caller"
+            else MembershipPostgresData(_workspace_dsn(test_engine))
         )
+        manager = MembershipManager(data)
         for index, reason in enumerate(reasons):
             role = "viewer" if index % 2 == 0 else "annotator"
             preview = await preview_role_change(
@@ -566,37 +505,28 @@ async def test_literal_reason_and_receipt_fingerprint_keep_exact_text(
                 member_id=member_id,
                 target_role=role,
             )
-            request = decode_membership_request(
-                _command(
-                    "change_role",
-                    actor_id,
-                    project_id,
-                    {
-                        "member_id": str(member_id),
-                        "target_role": role,
-                        "expected_version": index + 1,
-                        "preview_token": preview["preview_token"],
-                        "reason": reason,
-                        "replacement_annotator_id": None,
-                        "replacement_reviewer_id": None,
-                    },
-                )
+            request = _role_change_command(
+                actor_id,
+                project_id,
+                member_id,
+                target_role=role,
+                expected_version=index + 1,
+                preview_token=preview["preview_token"],
+                reason=reason,
             )
             original = await manager.execute(request)
             assert original.ok and original.data.member.version == index + 2
             assert await manager.execute(request) == original
-            changed = request.model_copy(
-                update={
-                    "payload": request.payload.model_copy(
-                        update={"reason": reason + "changed"}
-                    )
-                }
-            )
+            changed = {
+                **request,
+                "payload": {**request["payload"], "reason": reason + "changed"},
+            }
             conflict = await manager.execute(changed)
             assert not conflict.ok and conflict.error.detail == {
                 "reason": "operation_conflict"
             }
-        await caller.rollback()
+        if binding == "caller":
+            await caller.commit()
     async with maker() as observer:
         rows = list(
             (
@@ -618,15 +548,8 @@ async def test_literal_reason_and_receipt_fingerprint_keep_exact_text(
 
 @pytest.mark.parametrize("binding", ["caller", "dedicated", "remote"])
 async def test_execute_rejects_an_unready_native_text_codec(
-    test_engine, monkeypatch, tmp_path, binding
+    test_engine, tmp_path, binding
 ):
-    monkeypatch.setattr(settings, "workspace_membership_url", "")
-    monkeypatch.setattr(settings, "workspace_membership_database_url_file", "")
-    monkeypatch.setattr(
-        settings,
-        "workspace_membership_database_url",
-        _workspace_dsn(test_engine) if binding == "dedicated" else "",
-    )
     maker, actor_id, employee_id, project_id = await _seed_owned_member_scope(
         test_engine
     )
@@ -654,6 +577,12 @@ async def test_execute_rejects_an_unready_native_text_codec(
                 $body$
             """)
             )
+        request = _command(
+            "add_member",
+            actor_id,
+            project_id,
+            {"target_user_id": str(employee_id), "project_role": "annotator"},
+        )
         if binding == "remote":
             async with httpx.AsyncClient(
                 base_url=owner.origin, trust_env=False, timeout=5
@@ -662,17 +591,15 @@ async def test_execute_rejects_an_unready_native_text_codec(
                 response = await client.post(
                     "/v1/workspace/membership/execute",
                     headers={"Authorization": f"Bearer {control}"},
-                    json=_command(
-                        "add_member",
-                        actor_id,
-                        project_id,
-                        {
-                            "target_user_id": str(employee_id),
-                            "project_role": "annotator",
-                        },
-                    ),
+                    json=request,
                 )
                 assert response.status_code == 503
+        elif binding == "dedicated":
+            manager = MembershipManager(
+                MembershipPostgresData(_workspace_dsn(test_engine))
+            )
+            with pytest.raises(MembershipUnavailable):
+                await manager.execute(request)
         else:
             async with maker() as caller:
                 with pytest.raises(HTTPException) as rejected:
