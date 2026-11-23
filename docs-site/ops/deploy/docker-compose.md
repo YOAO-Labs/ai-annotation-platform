@@ -12,7 +12,7 @@ last_reviewed: 2026-10-26
 
 > 适用读者：第一次把平台搬到 staging / production 的运维或开发者。本机开发部署见[开发部署（本地）](/ops/deploy/development)，不确定去哪先看[部署总览](/ops/deploy/)。
 >
-> 当前部署形态：叠加 `docker-compose.prod.yml` 把 **api / web 容器化**（api 镜像 entrypoint 自动跑迁移 + uvicorn，web 镜像 nginx 托管构建产物 + 反代），基础设施（PG / Redis / MinIO / Celery）沿用基础 `docker-compose.yml`。Assets Source 不在这组默认/生产 Compose 内；它有独立的 `docker-compose.assets-source.yml` 项目，按需部署。不走容器、改 systemd 进程式跑 api/web 的替代路径见 §4.5。
+> 当前部署形态：叠加 `docker-compose.prod.yml` 将 API／Web 容器化，复用基础 Compose 中的 PostgreSQL、Redis、MinIO 和 Celery。新环境须先迁移并安装窄授权，再启动完整栈。进程式部署见 §4.5。
 >
 > 想先理解开发态 / staging / 生产态的整体差异（谁进容器、profile、`ENVIRONMENT` 断言行为），先读[运行环境形态](/dev/concepts/runtime-environments)。
 >
@@ -24,17 +24,44 @@ last_reviewed: 2026-10-26
 
 <ExcalidrawDiagram
   src="/diagrams/ops/deploy/production-compose-topology.svg"
-  alt="基础 Compose 与生产叠加文件合并后的公网反代、Web、API、五类 Celery worker、私有数据面、可选 ML 后端和内网监控拓扑"
+  alt="整栈生产的入口、API、Web、Celery 消费者、私有数据面、可选模型后端和监控拓扑"
   caption="Docker Compose 生产拓扑与网络边界"
 />
 
 > **Celery beat 必须单实例**：worker 可水平扩多副本，但 beat 多实例会重复触发定时任务（见 §4.2），漏了它则审计归档、PerfHud、ml health 等全部静默失效。
 
-连接列表、读取、创建、更新、删除与测试默认由本地 API 装配的 Source 工作流处理。部署独立 Source runtime 时，API 配置 `ASSETS_SOURCE_URL` 和共享 token 后会把这些操作发送到远端；远端不可用或返回错误时 API 不切回本地 SQL。Source 使用专用 PostgreSQL LOGIN 和对象存储身份，连接管理共用现有 runtime，不另加连接容器。具体变量、可选 Fernet key、JSON 主机 allowlist 回退与 SFTP known-hosts 文件见[环境变量参考](/dev/reference/env-vars)和[模块部署状态](/dev/concepts/module-deployment)。
+默认部署不启动按操作拆分的容器。Workspace、Labeling 类目与 Assets 目录沿用原 API 事务，视频最终写入留在 tracker worker；模块包、冻结 SQL 与函数权限保留。曾使用拆分模式的环境先看[升级门禁](../upgrade-guide#split-topology-upgrade)；以下不是维护者日常环境（M2c）的切换指令。
 
 最小生产部署：1 台 4C8G + 1 个独立 PG 实例（托管 RDS 优先）。
 
-默认部署不启动 Workspace 按操作拆分的容器。项目、成员、配置与查询由 API 在原请求事务中调用 Workspace owner，继续使用普通应用数据库角色。曾使用拆分装配的安装先看[升级门禁](../upgrade-guide#workspace-split-upgrade)，不要把旧配置直接带入当前 Compose。
+### 默认进程、可选服务与凭据 {#module-process-selection}
+
+| 能力                     | 默认运行者与凭据                                                                         | 何时另启进程／选什么                                                                                                                                                                                      |
+| ------------------------ | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace、Labeling      | API／tracker worker 使用既有 SQL 角色与调用方事务；LAN 类目查询只增三项固定函数          | 旧按操作服务不再部署。历史 SHA Mask 回收用 `docker-compose.labeling-mask-gc.yml` 的 `mask-gc` profile 加 Assets Mask overlay；六函数 LOGIN 与仅清理 bearer，默认不轮询。                                  |
+| Jobs                     | 本地 broker；`celery-worker-jobs-recovery` 有独立 claim／publication LOGIN               | 默认必须启动恢复消费者，不能换成普通／维护 worker。Broker 不再经 Jobs HTTP 转发。发布凭据只交给实际需要的生产者、消费者与恢复 worker。                                                                    |
+| Identity                 | JWT 在 API 内签发，可独立配置本地 JWT 密钥；API 的 `SECRET_KEY` 保留媒体签名             | 签发或登录 Redis 需隔离时选择 `identity-issuer` profile；需要投递邮件时加 Identity overlay 的独立 `identity-mail-v2`。两者不共享 signer、SMTP 或 LOGIN 凭据，见[配置](#production-mail)。                 |
+| Notifications            | API 终结 `/ws/notifications`；默认 Beat 每 10 秒恢复 outbox，独立于 Identity             | 单独的 Redis ACL 可区分订阅与发布；要求进程级 publish-only 时才启用[私有发布者](#notification-publisher-split)。无远程 socket。                                                                           |
+| Assets Catalog 与 Source | 目录和常规来源工作流内嵌；无需目录服务专用 SQL／S3 身份                                  | `docker-compose.assets-source.yml` 持独立连接器凭据与主机策略，提供精确版本核验／恢复和 Native 有限签名。只有连接器创建／更新／删除／测试可用 Source 控制 URL；不转发列表／读取。                         |
+| Assets Media             | 默认用 Celery 与[窄媒体执行身份](#media-executor-provisioning)，控制留在 API             | FFmpeg／临时盘或 libvips／内存需隔离时，用 `docker-compose.assets-media.yml` 相应执行 profile 与 `ASSETS_VIDEO_EXECUTOR=split` 或 `ASSETS_IMAGE_EXECUTOR=split`；`ASSETS_MEDIA_URL` 只选控制。            |
+| Assets 字节与清理        | 没有等价 API 领取／复制／删除者                                                          | 按需保留 Source 核验配套的 Import、Assets Cleanup、Mask Content／Cleanup；使用各自函数 LOGIN 与精确前缀、版本、读写／清理身份。FFmpeg 探测可用 `docker-compose.modules.yml` 的 `media-probe`，无 DB／S3。 |
+| Inference                | 简单命名流水线可调用方内嵌；真实执行、Registry 同步、探测／观察、路由与 GPU 有凭据 owner | `docker-compose.inference.yml` 只起一个 `inference`；启用的 URL 指向同一私网 origin 8768，每项保留独立 bearer／窄 DSN。CPU 路径也需要 owner，不等于启用 GPU。                                             |
+| 模型、训练、站点         | 按需启用，不随核心栈安装；不是 Inference owner 的替代                                    | 官方插件依设备／模型分开；`training-executor` 持专用 token 与固定设备、不持 DB／broker；[站点 Agent](./site-agents)出站访问中心、只读源文件。                                                             |
+| Audit                    | 仍由单实例 Beat 与 `celery-worker-maintenance` 调度，管理员读 `audit_archive_outputs`    | `docker-compose.audit.yml` 的 `maintenance` profile 仅用于显式一次性 CLI，单函数 LOGIN、独立归档身份，不生成管理员的同一输出表，也不能接管混合维护队列。                                                  |
+
+有独立进程的能力按服务准备密钥文件，不复制整份 API 环境或把迁移连接、私有 opener 或宽 S3 身份交给调用方。容器使用私网 DNS，宿主 DB 转发故障不因服务合并而解决。LAN 沿用已有 `production`／`shared` 网络，除明确支持 LAN 的 overlay 外，要为独立 owner 按实际拓扑配置私网可达性，不能假设它加入 LAN 应用网络。独立媒体、导入与清理的探针使用实际 `yoao_*` 包入口，具体命令见[图片运行手册](../runbooks/image-pyramid)与[来源／导入指南](/api/guides/assets-source)。
+
+#### 独立 Notifications 发布者 {#notification-publisher-split}
+
+默认不需要此 overlay。要求发布者是**唯一**持有 `notify:*` PUBLISH 权限的进程时，在 LAN 维护窗口准备：`NOTIFICATION_PUBLISH_DATABASE_URL_FILE`（`yoao_notification_publish_client` 的仅函数 LOGIN）、`NOTIFICATION_PUBLISH_REDIS_URL_FILE`（只发布的 Redis ACL）、`NOTIFICATION_PUBLISH_API_TOKEN_FILE`（内部 bearer）和 `NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE`（只订阅的 Redis ACL）。通用 `REDIS_URL` 的身份不得有该频道的发布或订阅权限。发布者不持有 Identity 密钥；API 不持有发布者 Redis 密钥。用既有 Notifications／Identity deactivation 授权配置发布者，不授予私表权限，见[同库数据接口](/api/guides/module-data)。
+
+```bash
+docker compose --env-file .env.production \
+  -f docker-compose.lan-prod.yml -f docker-compose.notifications-publisher.yml \
+  up -d --build --wait notifications-publisher api celery-worker celery-worker-export celery-beat
+```
+
+该组合在私网绑定 `NOTIFICATION_PUBLICATION_URL` 与对应内部 token，并禁用本地 Beat 恢复同一 outbox；耐久领取和即时发布由 `notifications-publisher` 负责，绝不向宿主发布 8181。显式 URL 故障不回退到宽 Redis。公网 WebSocket 仍走 API 原路径。
 
 ---
 
@@ -61,10 +88,10 @@ last_reviewed: 2026-10-26
 
 ### 2.2 缓存 / 消息队列 (Redis)
 
-| 变量                 | 默认                       | 说明                                                                                               |
-| -------------------- | -------------------------- | -------------------------------------------------------------------------------------------------- |
-| `REDIS_URL` **必填** | `redis://localhost:6379/0` | 同时承担：Celery broker、result backend、WebSocket pub/sub、限流计数、token 黑名单，无需单独配置。 |
-| `CELERY_BROKER_URL`  | 空 → 复用 `REDIS_URL`      | 想拆开 broker（如换 RabbitMQ）时单独设。                                                           |
+| 变量                 | 默认                       | 说明                                                                                                                                                      |
+| -------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `REDIS_URL` **必填** | `redis://localhost:6379/0` | 默认供 broker、结果、通知发布／订阅和限流。可通过 `NOTIFICATION_SUBSCRIBE_REDIS_URL(_FILE)` 与 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)` 单独绑定通知 ACL。 |
+| `CELERY_BROKER_URL`  | 空 → 复用 `REDIS_URL`      | 想拆开 broker（如换 RabbitMQ）时单独设。                                                                                                                  |
 
 > Redis 建议为生产挂 AOF volume——dev 容器**没**挂 volume，重启即清空所有队列与限流计数。详见 [后端基础设施](/dev/concepts/backend-infrastructure)。
 
@@ -96,18 +123,18 @@ Mask 格式 staged object 和预标临时输入使用 import bucket，导出产�
 
 ### 2.4 认证 / 安全
 
-| 变量                                          | 默认              | 说明                                                                                                                                                                                                   |
-| --------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `SECRET_KEY` **必填**                         | `change-this-...` | JWT 签名密钥，≥ 32 字节随机串。`ENVIRONMENT=production` 仍是默认值时启动会 RuntimeError（`apps/api/app/main.py:50-57`）。生成：`python -c "import secrets; print(secrets.token_hex(32))"`。            |
-| `ALLOW_OPEN_REGISTRATION`                     | `false`           | 自助注册开关，可在 SettingsPage 热更新覆盖。                                                                                                                                                           |
-| `REQUIRE_EMAIL_VERIFICATION`                  | 空（按环境派生）  | 开放注册是否强制邮箱验证。留空时 production 默认开、dev/staging 默认关；显式 `true`/`false` 覆盖。开启后注册需点邮件链接验证才能登录，邀请注册恒视为已验证。依赖 SMTP 配置（未配时验证链接仅写日志）。 |
-| `TURNSTILE_ENABLED`                           | `false`           | Cloudflare Turnstile CAPTCHA。开启后 `/auth/register-open` `/auth/forgot-password` 必须带 `captcha_token`。                                                                                            |
-| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | 空                | 启用 Turnstile 时配套；secret 绝不暴露给前端。                                                                                                                                                         |
-| `AUDIT_RETENTION_MONTHS`                      | `12`              | 正整数保留月数。Celery beat 每月 2 日归档完整超期月分区，以独立UUID对象键保存；完整读回与源分区复核后，同事务发布并DROP。失败保留源分区和待确认候选。                                                  |
-| `ACCESS_TOKEN_EXPIRE_MINUTES`                 | `1440`（24h）     | 未列入 `.env.example`；高敏环境调到 `480`（8h）。                                                                                                                                                      |
-| `CONNECTOR_ENCRYPTION_KEY`                    | 空                | 存储连接器凭据的 Fernet key；留空时连接器加解密拒绝。                                                                                                                                                  |
-| `CONNECTOR_HOST_ALLOWLIST`                    | 空                | 连接器主机白名单的部署默认值；数据库覆盖可由超级管理员在系统设置中管理和恢复。                                                                                                                         |
-| `CONNECTOR_DEPLOYMENT_SFTP_HOST`              | 空                | 部署主机 SFTP 快捷项地址；留空时不展示，不包含用户名、凭据、路径或放行规则。                                                                                                                           |
+| 变量                                          | 默认              | 说明                                                                                                                                                  |
+| --------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SECRET_KEY` **必填**                         | `change-this-...` | API 媒体签名等用途的强随机密钥。内嵌 JWT 未设 `IDENTITY_EMBEDDED_SIGNING_SECRET(_FILE)` 时才沿用它；独立 `identity-issuer` 不接收它。生产禁止默认值。 |
+| `ALLOW_OPEN_REGISTRATION`                     | `false`           | 自助注册开关，可在 SettingsPage 热更新覆盖。                                                                                                          |
+| `REQUIRE_EMAIL_VERIFICATION`                  | 空（按环境派生）  | 开放注册的邮箱验证策略。留空时 production 默认开、dev/staging 默认关；邀请注册恒视为已验证。开放验证注册前须实际启动并验证 `identity-mail-v2`。       |
+| `TURNSTILE_ENABLED`                           | `false`           | Cloudflare Turnstile CAPTCHA。开启后 `/auth/register-open` `/auth/forgot-password` 必须带 `captcha_token`。                                           |
+| `TURNSTILE_SITE_KEY` / `TURNSTILE_SECRET_KEY` | 空                | 启用 Turnstile 时配套；secret 绝不暴露给前端。                                                                                                        |
+| `AUDIT_RETENTION_MONTHS`                      | `12`              | 正整数保留月数。Celery beat 每月 2 日归档完整超期月分区，以独立UUID对象键保存；完整读回与源分区复核后，同事务发布并DROP。失败保留源分区和待确认候选。 |
+| `ACCESS_TOKEN_EXPIRE_MINUTES`                 | `1440`（24h）     | 未列入 `.env.example`；高敏环境调到 `480`（8h）。                                                                                                     |
+| `CONNECTOR_ENCRYPTION_KEY`                    | 空                | 存储连接器凭据的 Fernet key；留空时连接器加解密拒绝。                                                                                                 |
+| `CONNECTOR_HOST_ALLOWLIST`                    | 空                | 连接器主机白名单的部署默认值；数据库覆盖可由超级管理员在系统设置中管理和恢复。                                                                        |
+| `CONNECTOR_DEPLOYMENT_SFTP_HOST`              | 空                | 部署主机 SFTP 快捷项地址；留空时不展示，不包含用户名、凭据、路径或放行规则。                                                                          |
 
 把部署服务器作为连接器目标时，应在 `.env.production` 显式填写 API 与 worker 都可达的 hostname/IP，并将其单独加入白名单。为导入目录创建只读、最好禁用 shell 的专用 SFTP 账号，私钥优先；不要复用 root 或日常部署账号。将目标主机公钥写入 `config/ssh/known_hosts`，生产 Compose 会把该文件只读挂载到 API 与 worker，使测试连接和异步导入使用同一信任源。
 
@@ -211,9 +238,21 @@ SAM3 图像、PVS 与 multiplex 视频分别依赖获准的 `sam3.pt` 和 `sam3.
 
 ### 2.11 应用邮件与监控告警 {#production-mail}
 
-**应用邮件默认不发送。** 需要发送密码重置、邀请等邮件时，在 `.env.production` 设置实际中继的 `SMTP_HOST`、`SMTP_PORT`、`SMTP_FROM`，认证时另设 `SMTP_USER`。推荐使用 587（STARTTLS）或 465（TLS）。管理员在「系统设置」保存的 SMTP 覆盖优先于部署配置；从旧部署迁移时先检查并重置指向 Mailpit 的覆盖。不要使用 `mailpit`、`localhost:1025` 或 `host.docker.internal:1025` 作为生产中继。
+**默认栈没有邮件执行者。** 台账中的密码恢复、验证和邀请邮件只由 `identity-mail-v2` 投递。启用前对目标库迁移、装好 Identity Recovery／Invitations 授权，按[Identity 运行协议](/api/guides/identity-runtime)给 sender 建立 MailV2 四函数 LOGIN 和 Settings 单函数 LOGIN；两者须与 producer 使用同一数据库。需要生产发信时先配置真实中继和可信的前端链接，再启用开放邮箱验证／邀请邮件功能。
 
-在仓库和镜像构建上下文之外保存单行密码文件，只允许部署和容器运行身份读取。在 `.env.production` 设置 `SMTP_PASSWORD_FILE=/绝对路径/应用邮件密码文件`，不设置 `SMTP_PASSWORD`。Compose 只读挂载到 API 和消费默认队列的 worker；文件无法读取、为空或两种密码配置并存时拒绝启动。已有 `SMTP_PASSWORD` 配置仍可用，但直接传入环境并不能把密码与容器配置隔离。
+在仓库外的私有 `$IDENTITY_OWNER_ENV` 中设置 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` 和 `IDENTITY_MAIL_SMTP_HOST`／`PORT`／`FROM`；认证时另设 `IDENTITY_MAIL_SMTP_USER` 和 `IDENTITY_MAIL_SMTP_PASSWORD_FILE`，不同时放入明文密码。选用 587（STARTTLS）或 465（TLS），数据库 Settings 保存的中继策略优先；删除旧 Mailpit 覆盖。文件只读、仅给调用身份。`IDENTITY_OWNER_ENV` 是插值来源，不是 API／Celery 的环境文件。
+
+API 内嵌 producer 设置 `IDENTITY_RECOVERY_MAIL_KEY(_FILE)`，与 sender 使用同一个 Fernet key；已有密文先按[升级门禁](../upgrade-guide#split-topology-upgrade)保留原 key。下例起 sender，不改变 JWT 归属：
+
+```bash
+docker compose --env-file .env.production --env-file "$IDENTITY_OWNER_ENV" \
+  -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.identity.yml \
+  up -d --build --wait identity-mail-v2
+```
+
+若明确要求私有签发进程，提供 `IDENTITY_RUNTIME_SIGNING_SECRET_FILE`、登录 Redis、控制 bearer 与各 Identity 函数 DSN，在同一命令选择 `--profile identity-issuer` 并同时指定 `identity-issuer identity-mail-v2`。API 使用 `IDENTITY_URL=http://identity-issuer:8170` 和 `IDENTITY_TOKEN`，不持远程签发／登录 Redis／Recovery DSN 或该 producer 的 Fernet key；issuer 不持 sender 的 MailV2／Settings DSN 或 SMTP secret。确认 signer 归属和原 JWT 密钥后再刷新 API／相关 worker；失败不会切回本地。LAN 或宿主机绑定使用各进程实际可达的私网 origin。
+
+管理员「发送测试邮件」是独立 API 功能。只有需要显式测试独立中继时才为 API 配置 `SMTP_*`／`SMTP_PASSWORD_FILE`，不要复用 sender 密码或给 Celery 注入它。sender 健康检查不代表邮件已发送；在隔离库和本地收件器上实际验证恢复与邀请。
 
 **Alertmanager 的邮件单独配置。** `monitoring` profile 默认不启动；启用后，生产默认仍只接收告警，不发通知。要启用邮件，在仓库外保存下列配置并设置 `ALERTMANAGER_CONFIG_FILE` 为宿主文件绝对路径。用户名、发件地址和收件地址用实际值替换；密码仅存放在 `ALERTMANAGER_SMTP_PASSWORD_FILE` 指向的宿主文件中。两份文件均只读挂载，宿主权限须允许 Alertmanager 的容器运行身份（镜像默认 `nobody`）读取，不要为此将密码改成全局可读。无认证的受信任中继不填用户名和密码文件项，也不设置 `ALERTMANAGER_SMTP_PASSWORD_FILE`。
 
@@ -305,24 +344,75 @@ server {
 
 ## 4. 启动顺序
 
-### 4.1 一键拉起（容器化生产标准路径）
+### 4.1 首次安装与启动 {#compose-cold-start}
 
-使用 Docker Compose v2.32 或更新版本；生产覆盖用 `!reset` 删除整个 Mailpit 服务，而不只是取消端口发布。
-
-如果从曾启动 Mailpit 的旧版整栈生产升级，先用**原生产项目名**和基础文件定向移除遗留容器：`docker compose -p <原生产项目名> --env-file .env.production -f docker-compose.yml rm --stop --force mailpit`。不要在仍需保留的开发项目上执行此命令。
+使用 Docker Compose v2.32 或更新版本。准备 `.env.production`（权限 `0600`），配置私网地址、新的存储身份、生产安全选项、普通 `DATABASE_URL` 和单独的迁移连接；禁止直接照抄示例凭据。准备已锁定的构建制品、TrackEval 固定子模块及实际对象桶；已受理输入桶需启用版本控制。使用显式的环境和文件链：
 
 ```bash
-docker compose --env-file .env.production \
-  -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+stack() {
+  docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml "$@"
+}
+stack config --quiet
+stack up -d --wait postgres redis minio
+stack build api
+stack run --rm --no-deps --entrypoint alembic api upgrade head
 ```
 
-这一条命令做完整套生产部署：
+初装先只启动基础设施；随后以迁移角色安装目标库的普通应用授权与下列 Jobs 恢复授权。角色和连接在执行迁移前准备好。若升级已有生产，先按[升级门禁](../upgrade-guide#split-topology-upgrade)排空旧拓扑；若旧生产残留 Mailpit，仅在核对了**原生产项目名**后使用原文件定向移除，不动开发 Mailpit。
 
-- **构建并起 api 容器**（`infra/docker/Dockerfile.api`）：entrypoint `apps/api/scripts/entrypoint.sh` 先 `alembic upgrade head`，再 exec uvicorn（`--host 0.0.0.0 --port 8000`，宿主映射 `8080:8000`）。**迁移自动跑，无需手动**。
-- **构建并起 web 容器**（`infra/docker/Dockerfile.web`，多阶段）：`pnpm build` 产物交容器内 nginx 托管，nginx 反代 `/api/` `/ws/`→`api:8000`（`infra/docker/nginx.conf`），宿主映射 `8088:80`。Compose 会把 Raster Mask WebGPU 的非敏感 build arg 注入镜像；修改后必须重新构建而非只重启容器。
-- **celery-worker / celery-worker-gpu-control / celery-worker-gpu / celery-worker-cpu / celery-worker-export / celery-beat** 改用生产配置（`env_file: .env.production` + inline 覆盖基础文件硬编码的 dev infra 凭据）。
+#### 受限 Jobs 账号初始化 {#jobs-recovery-provisioning}
 
-两个 `-f` 与 `--env-file .env.production` **都不可省**：前者把 prod 叠加文件合进来才会容器化 api/web，后者是 worker 用 `${VAR}` 覆盖 dev 凭据的插值源（原理见[运行环境形态](/dev/concepts/runtime-environments)）。
+`celery-worker-jobs-recovery` 默认必需，未配置即不能完成整栈启动。由数据库管理员创建本环境独占的 claim 与 publication LOGIN，均须 `NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS`、无角色成员关系；用 `psql` 的 `\password` 交互设置，不把密码写入命令行：
+
+```sql
+CREATE ROLE yoao_jobs_dispatch_relay_client LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE yoao_jobs_publication_client LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+```
+
+共享实例使用目标部署独占的角色名及凭据。目标库须有独立普通 `application_role`（不是 owner 或超级用户）并撤销 PUBLIC 的 TEMP。新普通库可复用[局域网普通账号授权](./lan-production#lan-cold-start)中的 `lan-production-grants.sql`，替换为自己的数据库、迁移／应用及 Assets cleanup 角色，然后安装 Jobs 授权。已使用 Jobs NOLOGIN owner 的模块库复用 `jobs-dispatch-grants.sql` 和 `module-execution-grants.sql`，不混用两种 profile。
+
+普通库使用下例。设 `AAP_DB`、`AAP_MIGRATION_ROLE`、`AAP_APP_ROLE` 为本部署的数据库、迁移 LOGIN、普通应用 LOGIN。`psql` 连接到准确的实例，认证通过交互或私有 `PGPASSFILE`；整栈内置数据库没有宿主端口，可将开头的 `psql` 改成 `stack exec -T postgres psql`：
+
+```bash
+psql -X -U "$AAP_MIGRATION_ROLE" -d "$AAP_DB" \
+  -v expected_database="$AAP_DB" -v migration_role="$AAP_MIGRATION_ROLE" \
+  -v application_role="$AAP_APP_ROLE" -v dispatch_role=yoao_jobs_dispatch_relay_client \
+  -v publication_role=yoao_jobs_publication_client < infra/docker/jobs-recovery-grants.sql
+```
+
+在 Compose 环境设 `JOBS_DISPATCH_DATABASE_URL_FILE` 与 `JOBS_PUBLICATION_DATABASE_URL_FILE` 为两个绝对宿主路径。每个文件只写一行 `postgresql://` DSN（数据库名和 URL 编码后的密码与上述角色一致；不要写 `postgresql+asyncpg://`）。Compose 内置数据库使用 `postgres:5432`，LAN 使用核实的私网主机名；宿主 API 需要宿主可达地址。文件置于仓库和构建上下文外，只允许相应进程读取。claim URL 只挂载到恢复 worker；publication URL 可给实际业务 producer／消费者和恢复 worker。Beat 不读取两份文件；两个 LOGIN 绝不能用 API／维护或迁移 DSN 代替。
+
+#### 媒体执行角色 {#media-executor-provisioning}
+
+严格应用账号只装配视频控制，默认 `ASSETS_VIDEO_EXECUTOR=celery` 的视频执行需独立函数 LOGIN。创建本部署专用 `yoao_asset_media_worker_client`，使用与 Jobs LOGIN 相同的非管理、`NOINHERIT`、无成员关系约束。若采用 Native 图片写入，另建 `yoao_asset_image_worker_client`；普通非 Native 图片不要求该 LOGIN。分别设置密码并保存在各自只读文件。
+
+对于迁移角色持有 Assets 函数的普通数据库，迁移及普通授权后执行：
+
+```bash
+psql -X -U "$AAP_MIGRATION_ROLE" -d "$AAP_DB" \
+  -v expected_database="$AAP_DB" -v migration_role="$AAP_MIGRATION_ROLE" \
+  -v assets_owner="$AAP_MIGRATION_ROLE" -v asset_media_worker_role=yoao_asset_media_worker_client \
+  < infra/docker/assets-media-grants.sql
+
+# 仅在启用 Native 图片写入时安装相应角色
+psql -X -U "$AAP_MIGRATION_ROLE" -d "$AAP_DB" \
+  -v expected_database="$AAP_DB" -v migration_role="$AAP_MIGRATION_ROLE" \
+  -v assets_owner="$AAP_MIGRATION_ROLE" -v asset_image_worker_role=yoao_asset_image_worker_client \
+  < infra/docker/assets-image-grants.sql
+```
+
+不启动私有控制端就不用 `asset_media_control_role`。以上不会移交函数或改写 Jobs 所有权，不为默认单体运行 `module-data-grants.sql`。已有 Assets NOLOGIN owner 的库用相同脚本明确指定实际 `assets_owner`，并沿用原模块授权。文件设为 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`、按需 `ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`，同库且绑定上述独立角色。视频只挂通用、GPU、CPU worker；图片还挂图片 worker。API、Beat、Jobs 恢复、维护、导出及 GPU 控制 worker 不得到执行 DSN。
+
+显式切换 `split` 时移除该执行通道的 Celery 绑定；独立服务改用 `ASSETS_MEDIA_WORKER_DATABASE_URL_FILE` 或 `ASSETS_IMAGES_DATABASE_URL_FILE`。不把执行 DSN、Native writer／cleanup token 或存储写身份交给控制端。`ASSETS_MEDIA_URL` 不选择执行器。
+
+安装普通、Jobs 与视频授权和所需 secret 后启动完整默认栈：
+
+```bash
+stack up -d --build --wait
+stack ps celery-worker-jobs-recovery celery-beat api web
+```
+
+镜像 entrypoint 可再次检查 Alembic head，不代替前面的普通角色／Jobs 授权。Nginx 托管 Web 构建产物并反代 `/api/`、`/ws/`→`api:8000`。修改 Raster Mask WebGPU build arg 仍须重建 Web 镜像。两份 Compose 文件与 `--env-file .env.production` 都不能省。
 
 Raster Mask WebGPU 使用访问网页的客户端 GPU，不使用 Compose 主机或 Celery GPU。客户端首次失败会
 进入 30 秒 cooldown，下一次 eligible foreground request 只重试一次；连续第二次失败后当前页面固定 CPU。
@@ -330,14 +420,14 @@ Raster Mask WebGPU 使用访问网页的客户端 GPU，不使用 Compose 主机
 `fallbackReason`、`failureStage`、`webGpuCircuitState`、CPU/GPU budgets 与 transient/capacity bytes；
 需要整体停止 adapter 请求时，将 build arg 设为 `false` 后重新构建 web 镜像。
 
-默认服务包括 postgres / redis / minio / api / web / celery-worker / celery-worker-maintenance / celery-worker-image-pyramid / celery-worker-gpu-control / celery-worker-gpu / celery-worker-cpu / celery-worker-export / celery-beat。五个 ML backend 分别使用 `gpu`、`gpu-sam3`、`gpu-yolo`、`gpu-onnxtools`、`gpu-rapidocr` profile，监控使用 `monitoring` profile，均按需启用。生产不会创建 Mailpit；应用邮件与告警发信按 §2.11 分别配置。
+默认常驻进程为 PostgreSQL、Redis、MinIO、API、Web、八类 Celery worker（见下节）和单实例 Beat。无 Mailpit、独立邮件或模型服务；模型 `gpu*` 与 `monitoring` profile 按需选择，邮件另按 §2.11 配置。
 
 > 宿主端口 `8080`（api）/ `8088`（web）只供外层反代转发，**绝不直接暴露公网**。prod 叠加文件默认把它们绑在宿主回环 `127.0.0.1`（`${PROXY_BIND_HOST:-127.0.0.1}`）——外层反代同机时开箱即安全；反代在**别的机器**时于 `.env.production` 设 `PROXY_BIND_HOST=<内网IP>`（勿用 `0.0.0.0`）。详见[端口暴露与网络安全](/ops/deploy/network-security)。
 
 #### 隔离冒烟验收
 
 1. **只解析配置**：可先跑 `python3 scripts/test_compose_mail.py`（只用测试变量，不需要 Docker daemon 和数据库），再用 `docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml config --services` 检查部署配置。默认没有 `mailpit` 和 `alertmanager`；加 `--profile monitoring` 后有 `alertmanager`，仍没有 `mailpit`。不要把包含环境值的完整 `config` 输出贴到工单。
-2. **启动检查**：用独立项目名、一次性数据库/卷及测试凭据执行 §4.1 的启动命令。若与其他工作栈同机，用测试专用叠加文件把端口改为回环随机端口（例如 `ports: !override ["127.0.0.1::8000"]`），不要改现有工作栈。`docker compose ... ps --all` 不应有 Mailpit；检查 API/Web 的绑定及 `/health`，确认没有发布 PostgreSQL、Redis、MinIO、SMTP 或收件箱端口。在 `ENVIRONMENT=production` 下分别用缺失、空列表和有效的 `CORS_ALLOW_ORIGINS` 重新创建 API，前两者必须退出，合法配置允许启动。
+2. **启动检查**：用独立项目、一次性数据库／卷、私网与测试凭据执行 §4.1。端口冲突时用测试叠加改为回环随机端口（如 `ports: !override ["127.0.0.1::8000"]`），不改现有栈。`ps --all` 需列出 `celery-worker-jobs-recovery`，并确认未发布 PostgreSQL、Redis、MinIO、SMTP 或收件箱端口。仅在独立负面用例中移除一份 Jobs 凭据，恢复进程必须拒绝启动，不能回退普通账号。另验证 production 下缺失、空列表和合法 `CORS_ALLOW_ORIGINS` 的 API 启动行为。
 3. **开发试投**：在另一个隔离项目中仅起 `mailpit`，把宿主 1025/8025 改成回环随机端口；用 `docker compose ... port mailpit 1025` / `8025` 找到端口。向该 SMTP 端口发送 `probe@example.test` → `inbox@example.test`，确认收件箱收到邮件。
 4. **生产告警试投（不发真实邮件）**：在隔离生产项目的测试叠加中将默认网络设为 `internal: true`，加一个只收信、不转发的 `smtp-fixture`，仅用 `*.example.test` 地址。分别使用默认生产监控配置和显式指向 `smtp-fixture` 的测试配置启动 Alertmanager。每次用 `docker compose ... exec -T alertmanager amtool --alertmanager.url=http://localhost:9093 alert add alertname=SMTPDeliverySmoke service=smtp-smoke` 触发合成告警，等待 `group_wait` 后确认默认配置不投递、测试配置将邮件送到收件器。仅用不支持 TLS 的本地收件器时，才在测试配置中临时设 `smtp_require_tls: false`；若验认证，收件器须要求测试凭据，并使用单独的测试密码文件。只检查配置或 `/ready` 不等于验证了投递；不得将合成告警发到线上 Alertmanager 或真实邮箱。
 
@@ -355,14 +445,16 @@ worker/beat 容器已在 `docker-compose.yml` 定义、由 §4.1 一并拉起，
   - `cleanup` — 软删清理、DuckDB 同步
   - `audit` — 审计日志 / task event 批量入库
 - **维护 worker（`celery-worker-maintenance`）** 单并发订阅 `maintenance`，执行审计/预测分区创建、旧审计分区归档、人员效率与审计统计刷新；分离账号时使用 owner 连接。
-- **GPU 控制 worker（`celery-worker-gpu-control`）** 单并发订阅 `gpu.control`，负责显存 repair、tombstone GC 与 collector 账本；它是唯一持有 collector 数据库凭据的应用进程，不与普通 GPU worker 合并。
+- **GPU 控制 worker（`celery-worker-gpu-control`）** 单并发订阅 `gpu.control`，处理显存修复与生命周期回收调度，不与模型进程合并；部署 Inference owner 时使用其 GPU 控制绑定，owner 专用签名和 SQL 凭据不交给普通 worker。
 - **GPU worker（`celery-worker-gpu`）** 订阅 `ml`（自动预标注 / 模型调用，整条 pipeline 任一阶段 device=gpu 或未自报即落此）+ `gpu`（视频目标追踪）；并发默认 `CELERY_GPU_CONCURRENCY=2`，**低并发护显存**。
 - **CPU worker（`celery-worker-cpu`）** 订阅 `ml.cpu`（整条 pipeline 全部 device=cpu 的预标任务）；并发默认 `CELERY_CPU_CONCURRENCY=4`，可较高。
 - **导出 worker（`celery-worker-export`）** 订阅 `export`（导出大任务资源隔离，不拖累预标 / 媒体）。
+- **图片 worker（`celery-worker-image-pyramid`）** 订阅 `image-pyramid`，默认处理图片尺寸、缩略图和可选金字塔。
+- **Jobs 恢复 worker（`celery-worker-jobs-recovery`）** 只订阅 `jobs.recovery`；即使 API 提交后首发丢失，也用窄 claim／publication 连接续投原执行 ID。
 
 队列名经 `PREANNOTATE_GPU_QUEUE`（默认 `ml`）/ `PREANNOTATE_CPU_QUEUE`（默认 `ml.cpu`）配置；改名须同步各 worker 的 `-Q`，否则任务静默积压。device 未自报的老 backend / 混合 device 的 pipeline 一律保守落 `ml`（GPU 队列），与拆分前行为等价、零退化。
 
-**Celery beat（`celery-beat`，必须单实例）**：定时任务调度（审计 partition 月度归档、PerfHud 推送、ml health 巡检等）。worker 可水平扩多副本（`docker compose up -d --scale celery-worker=N`），但 **beat 多实例会重复触发，绝不能扩副本**。漏了 beat 不报错，但所有定时任务静默不跑。
+**Celery Beat（`celery-beat`，单实例）**：排队触发 Jobs 恢复、默认 Notifications outbox 恢复、审计归档和其他周期任务，不持 Jobs claim／publication 凭据。停掉 Beat 会静默停止定时恢复，不能借扩副本补漏。
 
 多阶段 ROI 临时输入需要应用 0239，先由部署者启用并核对准确 import 桶的版本控制，再刷新平台 API、worker 和 beat。应用不会自动启用版本控制；签名读取和清理都固定非 null 的不可变 VersionId。启动后独立确认 import 桶不再有 `import-artifacts-7d`，运维自设规则不能覆盖仍受保护的预测输入。`app.workers.prediction_input_cleanup.recover_prediction_inputs` 每分钟派发到 `cleanup`；正常处理结束尝试回收，源许可尚未结算、删除失败及过期尝试由该任务后续重扫。清理按保存位置、精确清单、完整内容及写入标记执行，成功保留 `deleted` 墓碑；`legacy_unpinned` 表示历史记录缺少固定位置，不能按当前配置删除，`storage_operation_unsettled` 表示仍有未收尾物理责任。回收记录独立于业务记录；有记录时降级迁移会拒绝，不能通过删账本绕过。预算和恢复观察期见[预测流水线](/dev/concepts/prediction-pipeline#crop-投递通用化)。挂载源码只需刷新对应进程，无需因此重建后端或 ML 镜像。
 
@@ -386,7 +478,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml exec \
 
 ### 4.4 升级时重新构建
 
-`git pull` 后镜像不会自动更新，需带 `--build` 重新拉起（entrypoint 会自动跑新迁移）：
+先按[升级指南](/ops/upgrade-guide)准备迁移、资格和兼容凭据；确认目标配置后用 `--build` 重建并创建服务，不用纯 `restart` 试探旧拓扑：
 
 ```bash
 docker compose --env-file .env.production \
@@ -397,7 +489,7 @@ rebuild 与 restart 的判断规则见[升级指南](/ops/upgrade-guide)。
 
 ### 4.5 进程式部署（替代路径，不走容器）
 
-如果不容器化 api/web（例如裸机 + systemd），改为手动跑进程；此时迁移要自己跑：
+若只用容器运行基础设施，先迁移并完成[受限 Jobs 授权](#jobs-recovery-provisioning)。下列进程用各自的受限环境或 systemd 单元运行；`JOBS_RECOVERY_ENV` 只供恢复进程读取，内容为 broker 绑定和两组专用 DSN／secret 文件，不放 API／迁移持有的连接。
 
 ```bash
 # API
@@ -406,7 +498,7 @@ uv sync
 uv run alembic upgrade head
 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers $(($(nproc) * 2 + 1))
 
-# Celery（主 / 维护 / GPU 控制 / GPU / CPU / 导出 worker + beat，beat 务必单实例）
+# 后台消费者分别运行，Beat 单实例；普通 worker 不加载 JOBS_RECOVERY_ENV
 MIGRATION_DATABASE_URL= uv run celery -A app.workers.celery_app worker -l info -Q default,media,cleanup,audit --concurrency=4
 # 维护进程的环境需提供同库的 owner 连接；单角色部署可使用同一 DATABASE_URL。
 DATABASE_URL="${MIGRATION_DATABASE_URL:-$DATABASE_URL}" MIGRATION_DATABASE_URL= uv run celery -A app.workers.celery_app worker -l info -Q maintenance --concurrency=1 --prefetch-multiplier=1
@@ -414,6 +506,9 @@ uv run celery -A app.workers.celery_app worker -l info -Q gpu.control --concurre
 uv run celery -A app.workers.celery_app worker -l info -Q ml,gpu --concurrency=2
 uv run celery -A app.workers.celery_app worker -l info -Q ml.cpu --concurrency=4
 uv run celery -A app.workers.celery_app worker -l info -Q export --concurrency=2
+uv run celery -A app.workers.celery_app worker -l info -Q image-pyramid --concurrency=1 --prefetch-multiplier=1
+uv run --env-file "$JOBS_RECOVERY_ENV" python -m app.workers.jobs_dispatch
+uv run --env-file "$JOBS_RECOVERY_ENV" celery -A app.workers.celery_app worker -l info -Q jobs.recovery --concurrency=1 --prefetch-multiplier=1
 uv run celery -A app.workers.celery_app beat -l info --schedule=/tmp/celerybeat-schedule
 
 # Web：构建静态产物后交给宿主机 nginx 托管
@@ -527,10 +622,10 @@ docker compose -f docker-compose.yml -f docker-compose.hostvols.yml up -d
 
 ## 6. 升级与迁移 runbook
 
-每次 `git pull` 主分支后（容器化生产）：
+按[标准升级步骤](/ops/upgrade-guide)执行：
 
-1. **读 CHANGELOG**：包含 Alembic 迁移的版本需要先确认迁移顺序和回滚策略。
-2. **先备份**：`pg_dump` + `mc mirror`（见 §5）。
+1. **读 CHANGELOG 和拓扑门禁**：有被退役的选择器／服务时先排空旧写者，不能直接带原配置滚动更新。
+2. **先备份**：保存数据库、对象与凭据归属（见 §5）；迁移后重施目标角色授权，检查 Jobs 两个受限身份。
 3. **重新构建并拉起**：
    ```bash
    docker compose --env-file .env.production \

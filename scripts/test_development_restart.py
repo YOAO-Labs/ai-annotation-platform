@@ -36,6 +36,20 @@ class DevelopmentRestartTests(unittest.TestCase):
             )
             for s in m.WORKERS
         ]
+        self.recovery = next(
+            c for c in self.containers if c["Id"] == "celery-worker-jobs-recovery"
+        )["Config"]
+        self.recovery["Cmd"] = [
+            "/bin/sh",
+            "-ec",
+            "python -m app.workers.jobs_dispatch; "
+            "exec celery -A app.workers.celery_app worker -l info -Q jobs.recovery "
+            "--concurrency=1 --prefetch-multiplier=1",
+        ]
+        self.recovery["Env"] += [
+            "JOBS_DISPATCH_DATABASE_URL_FILE=/run/secrets/jobs_dispatch_database_url",
+            "JOBS_PUBLICATION_DATABASE_URL_FILE=/run/secrets/jobs_publication_database_url",
+        ]
 
     def test_only_development_workers_selected(self):
         extra = [
@@ -55,6 +69,8 @@ class DevelopmentRestartTests(unittest.TestCase):
                 "web",
                 "gateway",
                 "yolo-backend",
+                "assets-images-worker",
+                "identity-issuer",
             )
         ]
         self.assertEqual(
@@ -84,6 +100,35 @@ class DevelopmentRestartTests(unittest.TestCase):
     def test_missing_worker_refused(self):
         with self.assertRaises(RuntimeError):
             m.validate(self.containers[:-1], self.root)
+
+    def test_missing_jobs_recovery_refused(self):
+        without_recovery = [
+            c for c in self.containers if c["Id"] != "celery-worker-jobs-recovery"
+        ]
+        with self.assertRaisesRegex(
+            RuntimeError, "Missing.*celery-worker-jobs-recovery"
+        ):
+            m.validate(without_recovery, self.root)
+
+    def test_jobs_recovery_rejects_wrong_queue_and_missing_credential(self):
+        command = self.recovery["Cmd"]
+        self.recovery["Cmd"] = [
+            *command[:2],
+            command[2].replace("jobs.recovery", "default"),
+        ]
+        with self.assertRaisesRegex(RuntimeError, "Jobs recovery configuration"):
+            m.validate(self.containers, self.root)
+        self.recovery["Cmd"] = command
+        self.recovery["Env"].pop()
+        with self.assertRaisesRegex(RuntimeError, "Jobs recovery configuration"):
+            m.validate(self.containers, self.root)
+
+    def test_claim_credential_not_allowed_on_ordinary_workers(self):
+        self.containers[0]["Config"]["Env"].append(
+            "JOBS_DISPATCH_DATABASE_URL_FILE=/run/secrets/jobs_dispatch_database_url"
+        )
+        with self.assertRaisesRegex(RuntimeError, "Jobs claim credential"):
+            m.validate(self.containers, self.root)
 
     def test_duplicate_worker_refused(self):
         with self.assertRaises(RuntimeError):

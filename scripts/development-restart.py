@@ -10,6 +10,15 @@ import time
 import urllib.request
 import urllib.error
 
+RECOVERY_WORKER = "celery-worker-jobs-recovery"
+RECOVERY_COMMAND = [
+    "/bin/sh",
+    "-ec",
+    "python -m app.workers.jobs_dispatch; "
+    "exec celery -A app.workers.celery_app worker -l info -Q jobs.recovery "
+    "--concurrency=1 --prefetch-multiplier=1",
+]
+
 WORKERS = (
     "celery-worker",
     "celery-worker-maintenance",
@@ -18,6 +27,7 @@ WORKERS = (
     "celery-worker-export",
     "celery-worker-image-pyramid",
     "celery-worker-gpu-control",
+    RECOVERY_WORKER,
     "celery-beat",
 )
 
@@ -65,9 +75,31 @@ def validate(containers, project_dir):
             raise RuntimeError(
                 "Automatic migration enabled or unspecified; recreate development workers before scheduled restart"
             )
+        dispatch = "JOBS_DISPATCH_DATABASE_URL"
+        publication = "JOBS_PUBLICATION_DATABASE_URL"
+        if service == RECOVERY_WORKER:
+            if (
+                container["Config"].get("Cmd") != RECOVERY_COMMAND
+                or any(
+                    bool(environment.get(key)) == bool(environment.get(f"{key}_FILE"))
+                    for key in (dispatch, publication)
+                )
+                or environment.get("DATABASE_URL")
+                or environment.get("MIGRATION_DATABASE_URL")
+            ):
+                raise RuntimeError("Development Jobs recovery configuration mismatch")
+        elif environment.get(dispatch) or environment.get(f"{dispatch}_FILE"):
+            raise RuntimeError(
+                "Jobs claim credential belongs only to the recovery worker"
+            )
+        if service == "celery-beat" and (
+            environment.get(publication) or environment.get(f"{publication}_FILE")
+        ):
+            raise RuntimeError("Beat must not hold Jobs publication credentials")
         found[service] = container["Id"]
     if set(found) != set(WORKERS):
-        raise RuntimeError("Missing development workers; restart refused")
+        missing = ", ".join(s for s in WORKERS if s not in found)
+        raise RuntimeError(f"Missing development workers; restart refused: {missing}")
     return [found[s] for s in WORKERS]
 
 
@@ -103,7 +135,7 @@ def run(args):
             json.loads(docker("inspect", *ids)), args.project_dir.resolve()
         )
         print(
-            "Validated eight development worker/beat containers; shared services excluded.",
+            f"Validated {len(workers)} development worker/beat containers; shared services excluded.",
             flush=True,
         )
         if args.check:
@@ -116,7 +148,7 @@ def run(args):
             "Restarting development workers (120-second graceful stop timeout).",
             flush=True,
         )
-        docker("restart", "--time", "120", *workers, timeout=1050)
+        docker("restart", "--time", "120", *workers, timeout=120 * len(workers) + 30)
         if (args.state_dir / "maintenance").exists():
             print(
                 "Development maintenance enabled during worker restart; host restart skipped.",
@@ -146,7 +178,7 @@ def run(args):
                 and http_ok("http://127.0.0.1:3000/")
             ):
                 print(
-                    "Development API/Web and all eight worker/beat containers ready.",
+                    f"Development API/Web and all {len(workers)} worker/beat containers ready.",
                     flush=True,
                 )
                 return

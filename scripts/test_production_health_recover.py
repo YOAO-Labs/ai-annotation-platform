@@ -50,6 +50,21 @@ class RecoveryTests(unittest.TestCase):
                     "Health": {"Status": "healthy"},
                 },
             }
+        self.recovery = self.containers["celery-worker-jobs-recovery"]
+        self.recovery["Config"].update(
+            Cmd=[
+                "/bin/sh",
+                "-ec",
+                "python -m app.workers.jobs_dispatch; "
+                "exec celery -A app.workers.celery_app worker -l info -Q jobs.recovery "
+                "--concurrency=1 --prefetch-multiplier=1",
+            ],
+            Env=[
+                "ALEMBIC_AUTO_UPGRADE=false",
+                "JOBS_DISPATCH_DATABASE_URL_FILE=/run/secrets/jobs_dispatch_database_url",
+                "JOBS_PUBLICATION_DATABASE_URL_FILE=/run/secrets/jobs_publication_database_url",
+            ],
+        )
         self.mutations = []
         self.now = 10000
         for name, replacement in (
@@ -133,6 +148,40 @@ class RecoveryTests(unittest.TestCase):
     def test_missing_service_refuses_all_mutations(self):
         del self.containers["web"]
         with self.assertRaisesRegex(RuntimeError, "Missing"):
+            self.runs()
+        self.assertEqual(self.mutations, [])
+
+    def test_absent_jobs_recovery_requires_manual_deployment(self):
+        del self.containers["celery-worker-jobs-recovery"]
+        with self.assertRaisesRegex(
+            RuntimeError, "Missing.*celery-worker-jobs-recovery"
+        ):
+            self.runs()
+        self.assertEqual(self.mutations, [])
+
+    def test_recovery_is_started_before_beat(self):
+        self.recovery["State"]["Status"] = "exited"
+        self.containers["celery-beat"]["State"]["Status"] = "exited"
+        self.runs()
+        self.assertEqual(self.mutations, [("start", "celery-worker-jobs-recovery-id")])
+
+    def test_recovery_privilege_or_wrong_command_refuses_mutation(self):
+        self.containers["celery-beat"]["State"]["Status"] = "exited"
+        config = self.recovery["Config"]
+        config["Env"].append("MIGRATION_DATABASE_URL=forbidden")
+        with self.assertRaisesRegex(RuntimeError, "identity"):
+            self.runs()
+        config["Env"].pop()
+        config["Cmd"] = ["celery", "worker", "-Q", "jobs.recovery,default"]
+        with self.assertRaisesRegex(RuntimeError, "identity"):
+            self.runs()
+        self.assertEqual(self.mutations, [])
+
+    def test_split_service_not_managed_by_default_supervisor(self):
+        split = copy.deepcopy(self.containers["api"])
+        split["Config"]["Labels"]["com.docker.compose.service"] = "identity-issuer"
+        self.containers["identity-issuer"] = split
+        with self.assertRaisesRegex(RuntimeError, "identity"):
             self.runs()
         self.assertEqual(self.mutations, [])
 

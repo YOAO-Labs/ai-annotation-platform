@@ -20,11 +20,13 @@
 
 ## 本机开发服务定时重启
 
+以下仅适用于已经按[本地冷启动](docs-site/ops/deploy/development.md#development-cold-start)准备好的默认拓扑。不自动替换已安装脚本、修改运行环境或执行 M2c，使用拆分服务的部署不将其交给此默认定时器。
+
 主 checkout 的 Web/API 可由用户 systemd 的 `aap-development-web.service`（3000）与 `aap-development-api.service`（8000）管理。单元模板位于 `infra/systemd/aap-development-{api,web}.service.in`；安装到 `~/.config/systemd/user/` 前替换 `@PROJECT_DIR@` 和 `@NODE_BIN_DIR@` 为实际绝对路径。API 直接使用本 checkout 的 Python 虚拟环境，Web 使用固定 Node 路径；Web 端口被占用时会失败，不自动换端口。首次接管已有进程需核对其 PID、会话和工作目录，不得按端口杀未知进程。
 
 将 `scripts/development-restart.py` 复制到 `~/.local/lib/ai-annotation-platform/`，通过 `~/.local/bin/ai-annotation-platform-dev-restart` 调用，传入 `--project-dir` 主 checkout 绝对路径、`--state-dir ~/.local/state/ai-annotation-platform/development-restart`，并透传手动参数。定时器和恢复 service 使用 `infra/systemd/aap-development-restart.{service,timer}`。
 
-`aap-development-restart.timer` 每天北京时间 04:00 重启开发 Web/API，以及开发 Compose 的七类 Celery worker 和 beat。每次先核验容器项目、服务、Compose 来源及 `ALEMBIC_AUTO_UPGRADE=false`，再重启现有容器并等待健康检查；worker 的优雅退出上限为 120 秒，长任务应提前避开维护窗口。它不重建镜像、不自动迁移，也不重启生产容器、共享 PostgreSQL/MinIO/模型服务或其他基础设施。生产 3030/8080 仍由独立的 `aap-production-health.timer` 维护。
+`aap-development-restart.timer` 每天北京时间 04:00 重启开发 Web/API、八类 Celery worker（包括 `celery-worker-jobs-recovery`）和单实例 Beat。它核验项目、Compose 来源、迁移关闭及 Jobs 恢复命令／凭据装配，缺失任何必需容器时拒绝重启，不创建容器或启用 split。worker 的优雅退出上限为 120 秒，长任务应提前避开维护窗口。它不重建、不迁移，也不重启生产或共享基础设施。
 
 ```bash
 # 立即重启并等待开发服务就绪
@@ -369,17 +371,13 @@ node scripts/test-codex-session-start.mjs
 
 常规平台开发无需插件源码。需要修改插件时，在平台根目录单独执行 `git clone https://github.com/YOAO-Labs/YOAO-Plugins.git plugins/YOAO-plugins`，按该仓库 README 准备独立环境；该目录被忽略，不作为平台可编辑依赖或 Docker 源码挂载。插件 SDK、共享运行时和 Mask 工具由独立 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK#readme) 维护，LibreYOLO 专属适配由 YOAO-Plugins 维护。作者 SDK 的 `python scripts/build-sdk-artifacts.py --revision COMMIT --output DIR` 从真实不可变提交构建候选制品，具体步骤见该仓库文档；取得实际输出及其可信 manifest 摘要后，按本页的核验流程暂存，不能以源码路径或旧公开制品替代。
 
+新建本地库时，先只起基础设施并完成迁移和 Jobs 两个受限 LOGIN 的配置，然后再启动 worker 与 Beat。详见[本地冷启动](docs-site/ops/deploy/development.md#development-cold-start)；已经完成授权的开发栈可直接执行 `docker compose up -d`。不把新配方应用到未经授权的日常环境。
+
 ```bash
-docker compose up -d
+docker compose up -d --wait postgres redis minio mailpit
 ```
 
-这会启动：
-
-- PostgreSQL 16 — `localhost:5432` (user/pass/annotation)
-- Redis 7 — `localhost:6379`
-- MinIO — `localhost:9000` (控制台 `localhost:9001`, minioadmin/minioadmin)
-- Mailpit — SMTP `localhost:1025`、收件箱 `localhost:8025`
-- Celery default / GPU / CPU / export worker 与 beat；按任务队列隔离并发
+基础端口：PostgreSQL 5432、Redis 6379、MinIO 9000／控制台 9001、Mailpit SMTP 1025／收件箱 8025。完整默认栈另启动八类 worker（包括只消费 `jobs.recovery` 的 `celery-worker-jobs-recovery`）和单实例 Beat；API／Web 仍在宿主机运行。
 
 如需测试 MinIO 放在指定磁盘上的性能，可在 `.env` 设置：
 
@@ -418,8 +416,10 @@ pnpm dev:web
 
 ### 3. 启动后端
 
+按[本地启动](docs-site/ops/deploy/development.md#development-cold-start)为宿主进程准备 `HOST_JOBS_PUBLICATION_FILE`（同一发布 LOGIN，宿主可达的连接地址）：
+
 ```bash
-pnpm dev:api
+JOBS_PUBLICATION_DATABASE_URL_FILE="$HOST_JOBS_PUBLICATION_FILE" pnpm dev:api
 ```
 
 该命令先执行 `alembic upgrade head`，再启动
@@ -465,57 +465,35 @@ launchctl kickstart -k "gui/$(id -u)/local.ai-annotation-platform.api"
 
 API 文档：http://localhost:8000/docs
 
-### 默认 Workspace 装配与旧拆分环境
+### 默认模块装配与旧拆分环境
 
-当前默认档随 API 启动 Workspace：成员命令、负责人转移、配置、模板查询、项目查询和
-目录查询直接调用进程内 owner，并借用原请求 `AsyncSession`。不启动六个独立服务，也不
-为这些操作配置 URL、专用 DSN 或共享 Workspace bearer。普通 API 继续使用既有应用 SQL
-角色；配置探测与资料读取仍调用各自的 Inference／Identity 边界。
+默认档由 API 和现有 worker 在原事务中调用 Workspace、Labeling 类目／视频写入、Assets Catalog；Identity 签发和 Notifications WebSocket 也留在 API。Jobs 使用同一个 Celery broker，只有恢复队列另用受限 LOGIN。实际需要的 Inference 凭据 owner、媒体隔离和邮件 sender 按[部署与凭据矩阵](docs-site/ops/deploy/docker-compose.md#module-process-selection)选择。
 
-已经运行旧拆分安装时，**不要用旧选择器、Compose 文件链和 secret 挂载滚动升级**。
-暂停升级，单独批准并计划维护窗口，先备份、核对实际角色及服务归属，再在隔离副本验证。
-不要把旧专用 DSN、owner DSN 或迁移连接复制给 API。工作树的默认装配不修改日常服务、
-数据库或共享 `.env`，也不撤销旧凭据。见[升级门禁](docs-site/ops/upgrade-guide.md#workspace-split-upgrade)和
-[Workspace 运行指南](docs-site/api/guides/workspace-runtime.md#workspace-deployment)。
+原拆分服务、选择器和密钥文件不能带入新装配滚动升级。先看[旧拓扑升级门禁](docs-site/ops/upgrade-guide.md#split-topology-upgrade)；M2c 日常切换另行授权。工作树的默认装配不修改日常服务、数据库、共享 `.env` 或既有凭据。
 
-### Labeling 本机组合运行
+### Labeling Mask GC 手动运行
 
-Labeling 的本机组合使用单独项目 `aap-labeling-development`：将
-`docker-compose.labeling-class-query.yml`、`docker-compose.labeling-video-writer.yml`、
-`docker-compose.assets-mask-content.yml` 与 `docker-compose.labeling-development.yml`
-组合，不叠加主基础设施 Compose。
+类目查询和视频最终写入已在 API／原 tracker worker 内调用同一 Labeling owner。只有历史 SHA 寻址对象回收需要时，才另启 `mask-gc` 运维 profile；它不是现有 Beat 对保存目标进行清理的替代品。先迁移和应用 module-data owner 授权，以迁移角色连接准确目标库，再用 `infra/docker/labeling-mask-gc-data-grants.sql`（`expected_database`、`migration_role`、`labeling_owner`、`mask_gc_role=yoao_labeling_mask_gc_client`）授予六项固定 GC 函数。
 
-私有 `~/.local/state/ai-annotation-platform/labeling-development/compose.env`
-保存 `COMPOSE_FILE`／项目名、`AAP_LABELING_DEVELOPMENT_NETWORK`、四项不可变镜像选择
-（`AAP_LABELING_CLASS_QUERY_IMAGE`、`AAP_LABELING_VIDEO_WRITER_IMAGE`、
-`AAP_ASSETS_MASK_CONTENT_IMAGE`、`AAP_LABELING_MASK_GC_IMAGE`）及各宿主 secret 文件选择器。
-私有环境及备份文件使用 `0600`，容器 secret 只读挂载给普通 UID，放在 `0700` 父目录；
-保留原外部私网和只读根文件系统约定，不用共享根 `.env` 保存这些凭据。
-
-先备份并应用当前迁移、module-data／LAN 授权，再分别安装
-`labeling-class-query-grants.sql`（三函数）、`labeling-video-writer-grants.sql`
-（单函数）与既有 `labeling-mask-gc-data-grants.sql`（六函数）。
-历史角色审计另用受限只读 LOGIN，按 Identity → Workspace → Labeling 安装三份
-`*-role-audit-grants.sql`；不要把审计投影或私表权限交给普通 API。
+在私有 `MASK_OPERATOR_ENV` 所指的环境文件中配置 `LABELING_RUNTIME_MASK_GC_DATABASE_URL_FILE`、`LABELING_RUNTIME_MASK_GC_CONTROL_TOKEN_FILE`、`MASK_CLEANUP_TOKEN_FILE` 与对应 cleanup S3 secret 文件及实际 endpoint／桶。区分 GC 控制 bearer、cleanup bearer 与内容 bearer，按 `scripts/mask_content_s3_policy.py` 的固定前缀模板准备独立字节身份；GC 不挂载 S3 凭据。
 
 ```bash
-docker compose --env-file "$HOME/.local/state/ai-annotation-platform/labeling-development/compose.env" up -d --no-build --wait
-docker compose --env-file "$HOME/.local/state/ai-annotation-platform/labeling-development/compose.env" ps
+docker compose --env-file "$MASK_OPERATOR_ENV" -p yoao-mask-gc \
+  -f docker-compose.assets-mask-content.yml -f docker-compose.labeling-mask-gc.yml \
+  --profile mask-gc up -d --build --wait labeling-mask-gc
+curl -fsS http://127.0.0.1:8771/health/ready
 ```
 
-API 继续复用 Workspace 私有 `api.env` 与既有 LaunchAgent，显式选择 localhost 的
-类别查询、视频最终发布、Mask Content 和 Mask GC 地址；事务型能力仍走原业务连接。
-Mask cleanup 不公开宿主端口。内容和清理 S3 身份分离，策略由
-`scripts/mask_content_s3_policy.py` 生成，只覆盖固定桶的内容／回收 journal 前缀。
-该 overlay 明确关闭自动 GC 轮询；采用只启用手动／预览入口，不授权自动删除。
-只读审计和负面权限检查可在空日常库执行，真实标注／候选写入验证必须使用独占测试库。
+命令启动 GC 和仅私网可达的 `assets-mask-cleanup`；需要独立字节读写时才另加 `assets-mask-content`。GC 固定关闭自动轮询；先通过本机 `/v1/mask-gc/run` 以 `{"dry_run":true}` 预览，确认目标范围与不确定意图后再显式执行。边界、回执和只读预览见 [Mask 字节接口](docs-site/api/guides/mask-content.md#持久回收协议)。
+
+历史角色审计仍使用已单独配置的只读 LOGIN，按 Identity → Workspace → Labeling 安装三份 `*-role-audit-grants.sql`；不要把审计投影或私表权限交给普通 API。
 实际执行结果及未覆盖范围以[模块台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)为准。
 
-只读审计使用独立的0600 `labeling-development/audit.env`，不要默认继承普通API或迁移连接：
+使用仅该审计可读的 `0600` 私有环境文件（下例为 `LABELING_AUDIT_ENV`），不继承 API 或迁移连接：
 
 ```bash
 cd apps/api
-UV_ENV_FILE="$HOME/.local/state/ai-annotation-platform/labeling-development/audit.env" \
+UV_ENV_FILE="$LABELING_AUDIT_ENV" \
   uv run --locked python scripts/audit_project_roles.py --pretty
 ```
 
@@ -715,12 +693,7 @@ Workspace、Notifications、Audit 和 Jobs 的独立 Node 对照依赖须分别�
 `test_image_pyramid.py` 覆盖公开 manifest、ETag、资源范围和重试，默认选集还包含
 `test_image_pyramid_http.py`，覆盖实际 HTTP 消费、授权撤销和损坏清单恢复。
 这些是当前消费者的选择调整，不表示已删除实现的内部调用合同仍然存在。
-Labeling video-writer 容器验收还要求不可变 `AAP_LABELING_VIDEO_WRITER_IMAGE` 和
-绝对路径 `AAP_LABELING_VIDEO_WRITER_IMAGE_ARTIFACT`；工件记录镜像 ID、身份、源码提交、
-构建输入哈希和断网安装文件核对结果。验收会重新核对源码、镜像标签与受限容器配置，
-不把历史镜像的旧提交标签当作当前源码资格。
-它不验证生产容量，也不提供完整 assets/labeling 模块的独立部署资格。具体事务约束
-见 [ADR-0092](docs/adr/0092-transactional-module-data-capabilities.md)。
+Labeling 类目与视频最终写入复验当前 API／worker 消费者；包级协议、SQL、受限角色与恢复用例保留，不再准备这两项的按操作服务镜像。独立 Mask 回收镜像仍可定向选择 `tests/test_mask_gc_runtime_image.py`，使用 `AAP_MASK_CONTENT_ACCEPTANCE=1` 和独占测试资源。验收范围以实际收据为准，不能从包测试推断真实容器或生产资格。
 
 ### Audit 同事务追加能力
 
@@ -758,48 +731,24 @@ Labeling video-writer 容器验收还要求不可变 `AAP_LABELING_VIDEO_WRITER_
 
 安装迁移及 module-data grants 后，按 `infra/docker/jobs-notification-scope-grants.sql` 文件头为明确 API 与独立只读 LOGIN 授权。只读账号不能读取 Jobs 私表、写入关系或调用 Jobs 函数。普通 API 的其他作业消费者尚需原表权限，因此不能整体撤销 `async_jobs` 读取。没有新增 DSN、服务、执行器或环境变量；父线 27 项组合案例、真实独立 LOGIN／Node 及完整 `0323→0189→0323` 已通过，新 API 镜像的文件／导入／依赖检查为离线证据，详见[唯一台账](docs-site/dev/concepts/module-deployment.md#support-daily-and-jobs-facts)。
 
-### Jobs 私有 Celery 队列（本地实验）
+### Jobs 本地 Celery 派发
 
-可选 `yoao-jobs-queue` 只接收现有 Celery 的 JSON 派发和协作撤销命令。API 的 `JOBS_QUEUE_URL` 留空时继续使用内嵌 Celery；显式配置后，远程失败不会回退。API 与 owner 使用同一服务 bearer：`JOBS_QUEUE_TOKEN` 或 `JOBS_QUEUE_TOKEN_FILE`。Owner 只持有 broker URL 与 bearer，不接收数据库或 Identity 凭据。
-
-在本地组合启动私有容器：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.jobs-queue.yml up -d --build jobs-queue
-```
-
-先在 Compose 环境中设置 `JOBS_QUEUE_BROKER_URL_FILE` 和 `JOBS_QUEUE_TOKEN_FILE`，分别指向只含 broker URL 与共享 bearer 的文件；本地 Redis broker URL 可用 `redis://redis:6379/0`。API 的 secret file 也必须读到相同 bearer。容器不发布宿主机端口，同一 Compose 网络中的 API 通过 `http://jobs-queue:8190` 调用；宿主机 API 需要单独配置可达的私网端点。当前 `aap-jobs-queue/v2` 支持原 JSON 派发、`queue`／`soft_time_limit` 两项选项、单层帧任务 group＋callback 和协作撤销，不接收任意 Celery canvas 或非 JSON serializer。普通预标保留动态 CPU／GPU 队列，失败项重试保留原投递账本。`accepted` 只代表 broker 接收，不代表任务完成；`terminate=False` 不代表执行停止。训练与暂缓资产入口未切换。
+API、worker 与恢复消费者使用同一部署的 Celery broker，不经 Jobs HTTP 转发。保留原 JSON 消息、稳定执行 ID、CPU／GPU 路由和帧 group／callback 的执行身份。`accepted` 只表示 broker 接收，不表示任务完成；取消仍是 `terminate=False` 的协作撤销，不等于物理执行已停止。
 
 ### Jobs 持久派发交接
 
-迁移 `0368` 安装 `aap-jobs-dispatch-ledger/v1` 的四项固定能力。业务调用方在原接受事务内保存完整消息、执行 ID 和 intent，提交后才发布。API 只持有 prepare／finish／status；独立 relay 只持有 claim／finish／status，二者均不能直接访问私有派发表。先安装匹配的 owner 授权，再按 `infra/docker/jobs-dispatch-grants.sql` 文件头给明确数据库和角色授权；不可把 schema owner DSN 交给 relay。Learning 的四处暂缓读取仍需 Jobs 兼容读权，不能因此全局撤销 `async_jobs` SELECT。
+业务调用方在原接受事务内保存完整消息、执行 ID 和 intent，提交后首发。默认 `celery-worker-jobs-recovery` 在 `jobs.recovery` 队列重领未确认 intent；仅它持有 claim 凭据，常规 producer 没有 claim 或私有派发表权限。恢复 worker 与 producer 均用专用发布控制 LOGIN 记录物理尝试；Beat 只排队，不打开这两个连接。
+
+空库先按[受限 Jobs 账号初始化](docs-site/ops/deploy/docker-compose.md#jobs-recovery-provisioning)准备角色、授权和凭据。已有 `jobs_code`／`export_code` NOLOGIN owner 的模块库分别复用 `infra/docker/jobs-dispatch-grants.sql` 和 `infra/docker/module-execution-grants.sql`，不套用普通库的授权脚本。
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.jobs-queue.yml \
-  -f docker-compose.jobs-dispatch-relay.yml up -d --build jobs-queue jobs-dispatch-relay
+docker compose up -d --build --wait celery-worker-jobs-recovery celery-beat
+docker compose logs --tail=100 celery-worker-jobs-recovery
 ```
 
-额外设置 `JOBS_DISPATCH_RELAY_DATABASE_URL_FILE` 与 `JOBS_PUBLICATION_DATABASE_URL_FILE`，各文件只含对应专用 LOGIN 的 PostgreSQL DSN。relay 与 queue 使用同一不可变镜像但分进程、分秘密：queue 只有 broker 和 bearer；relay 使用受限的账本及发布控制函数凭据与 bearer，不持有 broker。业务发布入口也需配置 `JOBS_PUBLICATION_DATABASE_URL` 或 `_FILE`；export worker 另需仅供该 worker 使用的 `EXPORT_EXECUTION_DATABASE_URL` 或 `_FILE`，并使用 Jobs 发布凭据记录其 Celery 重投。不得向 API 授予 Export 执行完成函数或私表写权限。每组直接值和 `_FILE` 不可同时设置。可按 `JOBS_DISPATCH_RELAY_BATCH_SIZE`、`JOBS_DISPATCH_RELAY_LEASE_SECONDS`、`JOBS_DISPATCH_RELAY_POLL_SECONDS` 调整每轮上限、租约与空闲间隔。
+`JOBS_DISPATCH_DATABASE_URL(_FILE)` 只供恢复 worker，`JOBS_PUBLICATION_DATABASE_URL(_FILE)` 供所需生产者、执行消费者和恢复 worker；两者须属于同一 owner database 的不同函数 LOGIN。导出执行仍用仅 export worker 可读的 `EXPORT_EXECUTION_DATABASE_URL(_FILE)`，不把执行完成权限授给 API。文件路径从宿主只读挂载，值／文件二选一。
 
-发布在调用 broker 前记录物理尝试；只有明确在 HTTP 请求发出前遭到连接拒绝，才记录独立的未发送结果，不视为接收成功。HTTP 错误、丢失响应和取消等未确认的尝试不会因租约到期或进程退出而视为完成。后续有效代次仍可按原消息和全部执行 ID 重投；即使重投成功，旧代次的不确定物理责任仍保留，不能据此清理资源或撤销凭据。Export worker 在实际物理操作前登记进入，只有操作线程排空、资源真实关闭且相关许可确认结算后才回到静止状态；已知关闭后的业务错误可正常结算，未知关闭和会话丢失继续保留责任。丢失中的 generation 只允许在该代从未进入物理操作时安全接续；静止状态不代表可重放已完成的部分复制。普通导出保留 168 小时策略，fixture 导出的独立保留期限不变。
-
-本机已有基础设施时，可用独立 Compose project 复用已核实的网络，不再要求把 Redis
-服务定义合入队列配置。私有 Compose 环境文件还需设置
-`AAP_JOBS_QUEUE_RUNTIME_IMAGE`（已验收不可变镜像）和
-`AAP_JOBS_DEVELOPMENT_NETWORK`（实际基础设施网络名）：
-
-```bash
-docker compose --project-name aap-jobs-development --env-file /private/path/compose.env \
-  -f docker-compose.jobs-queue.yml -f docker-compose.jobs-dispatch-relay.yml \
-  -f docker-compose.jobs-development.yml up -d --no-build
-```
-
-该组合只发布 `127.0.0.1:8190`；宿主 API 使用此地址和同一 bearer，容器内 relay
-仍使用私网 queue 地址。它不会启动 Beat 或业务 worker；应用迁移／窄授权后，
-还须刷新实际消费者、核对其任务签名与队列，并验证 API、queue、relay 的独立秘密。
-运行环境文件不保存迁移 DSN；先用单独 operator 进程完成升级和窄授权，再启动
-普通 API／worker。`dev:api` 的启动版本检查不能替代该 operator 步骤，也不应
-为了自动升级而把迁移 owner 凭据交给长期运行的消费者。
+发布在调用 broker 前记录物理尝试。不确定发送不随租约到期或进程退出自动完成；后续代次按原消息与全部执行 ID 重投，成功也不抹去旧代次的不确定物理责任。Export worker 只在物理操作、线程与句柄真实收尾且许可结算后才标记静止；未知关闭保留责任，不能凭静止状态重放已完成的部分复制。不要清账本、清整个 broker 或向恢复 worker 传入 API／迁移／混合维护 DSN 来排障。
 
 发布结果不明或发布后回执丢失时，relay 在退避／租约到期后复用原消息和全部执行 ID，不重建业务参数；旧代次回执不能确认新租约。已确认发布不会自动重投；业务终态不再派发，取消 tracker 仅允许对已取消 canonical tracker 的原任务做退役重投。帧任务以冻结的逻辑段回执聚合，重复 header 不能提前完成。租约过期不是 worker 已停止的证明，不授予项目删除或历史执行退役权限。当前工件、真实消费者和恢复的验收状态见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)。
 
@@ -863,69 +812,25 @@ docker compose --project-name aap-jobs-development --env-file /private/path/comp
 
 Node peer 使用 `NOTIFICATION_DELIVERY_DATABASE_URL`、`_USER_ID`、`_NOTIFICATION_ID`、`_EXPECTED_ROLE` 及可选 `_PROJECT_ID`／`_JOB_ID`，全部只由隔离验收器提供，不新增应用环境配置或服务。真实受限账号、外部提交撤权、原 ORM 对照、当前冷工件及整模块资格见[投递读取台账](docs-site/dev/concepts/module-deployment.md#notification-delivery-read-owner)。
 
-### 独立 Notifications WebSocket
+### API 内的 Notifications WebSocket
 
-`apps/notifications/Dockerfile.socket` 安装 `yoao-notifications[websocket]`，入口为
-`yoao-notifications-socket`。服务持有 JWT 准入、单独的当前账号活动检查、逐帧认证及
-投递授权、Redis 订阅、30 秒心跳与取消清理；原 publisher 命令仍单独运行。
-API 设置 `NOTIFICATION_SOCKET_URL=ws://notifications-socket:8180` 后，将原
-`/ws/notifications` 的文本和二进制消息直接转发给它。空值使用同一 owner 的内嵌
-装配；显式地址失效或拒绝握手时关闭连接，不回退本地 DB／Redis。SDK、Web 与反代
-继续使用 API 原地址。新服务 CLI 禁用访问日志，避免记录 query 中的用户 JWT。
-托管工作树清空继承的 `NOTIFICATION_SOCKET_URL`，避免误连共享 owner；独立验收夹具
-显式注入自己私网内的地址。
+客户端仍使用 API 的 `/ws/notifications`；不另部署 socket，也不修改反代。JWT 准入、账号存活复核、逐帧投递授权、短事务、30 秒心跳与取消收尾保持。显式配置远端 Identity 时准入失败不改用本地签发。
 
-独立服务只需要三组秘密，每组直接值与 `_FILE` 二选一：
-
-- `NOTIFICATION_SOCKET_DATABASE_URL`：先应用既有 `0325` 和
-  `notification-delivery-read-grants.sql`，使用仅七函数的 LOGIN，无私表或视图读取。
-- `NOTIFICATION_SOCKET_REDIS_URL`：只允许 `notify:*` 的 SUBSCRIBE／UNSUBSCRIBE
-  和连接所需 PING／SELECT／CLIENT SETINFO；不授予 PUBLISH、key 或其他 channel 权限。
-- `NOTIFICATION_SOCKET_IDENTITY_TOKEN`：与 Identity 通用控制 token 不同的
-  admission-only bearer。`NOTIFICATION_SOCKET_IDENTITY_URL` 是私网 HTTP(S) 根 origin。
-
-Identity 配置可选 `IDENTITY_ADMISSION_TOKEN(_FILE)`，仅接受该 bearer 调用
-`/v1/identity/authenticate` 和 `/v1/identity/actor-status`。状态读取另设
-`IDENTITY_ACTOR_STATUS_DATABASE_URL(_FILE)`，使用
-`identity-actor-status-grants.sql` 的 `yoao_identity_actor_status_client`，只获得既有
-`read_actor_facts(uuid)`。它不扩展原 AUTH 五函数，不取锁或核对 admitted role；
-缺失账号返回 null，未配置／错误的状态数据源返回 503，不回退其他连接。
-
-可选 `docker-compose.notifications.yml` 与 `docker-compose.identity.yml` 放在同一
-Compose 私网，socket 不发布宿主端口。前者使用上述三组 `_FILE`；后者另用宿主
-selector `IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE` 与
-`IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE`。直接启动默认监听
-`127.0.0.1:8180`，可设 `NOTIFICATION_SOCKET_HOST`／`PORT`；镜像固定监听容器内部
-8180。`/health/live` 检查进程，`/health/ready` 检查数据库与 Redis，Identity 故障
-由握手／逐帧检查拒绝。独立冷运行与恢复资格仍按模块台账验证，日常环境未切换。
+`NOTIFICATION_SUBSCRIBE_REDIS_URL(_FILE)` 绑定 API 的订阅身份，`NOTIFICATION_PUBLISH_REDIS_URL(_FILE)` 绑定实际发布者，留空复用本部署的 `REDIS_URL`。需要按进程隔离时，订阅身份只允许 `notify:*` 的订阅及连接所需命令，发布身份只允许该频道发布及连接所需命令；通用 Redis 身份不能绕过这两项 ACL。函数读取继续使用原 API 的有限能力。
 
 ### Notifications 实时消息合同
 
-独立即时发布使用现有 `yoao-notifications-publisher` 进程。配置
-`NOTIFICATION_PUBLISH_API_TOKEN(_FILE)` 后，同一进程在 `NOTIFICATION_PUBLISH_HOST`
-与 `NOTIFICATION_PUBLISH_PORT` 提供私网发布和健康接口；不配置 token 时保留原
-durable-only 循环，`--once` 仍只处理一页耐久消息后退出。
-`docker-compose.notifications-publisher.yml` 只装配这个已有工件，可与 socket 的
-Compose 放在同一私网；使用它替换兼容发布服务，保持同一 outbox 的服务装配明确。
-HTTP 端口不发布到宿主机，服务只接收独立发布 bearer、原有函数 DSN 和 publish-only
-Redis 凭据，不持有 Identity 控制或签名密钥。
+默认提交后尽力发布；`relay-notification-deliveries` 由 Beat 每 10 秒向 `default` 调度 `app.workers.notification_delivery.relay_identity_notifications`，即使 Identity 使用远程 issuer 也继续运行。耐久 outbox 先提交领取再发布，只有 Redis 接受后才确认；未知结果保留同一通知 ID 重投，可能重复。
 
-API 可设 `NOTIFICATION_PUBLICATION_URL=http://notifications-publisher:8181`，并通过
-`NOTIFICATION_PUBLICATION_TOKEN(_FILE)` 读取同一发布 bearer。两组 token 的直接值和
-文件均二选一，文件只挂载给对应 API／publisher。空 URL 使用原内嵌装配；显式选择
-远程 owner 后，错误不回退本地 Redis。工作树清空继承的 URL 和 token 选择器，验收
-夹具只注入自己拥有的地址。该 HTTP 入口使用版本化即时发布合同，不创建普通通知
-的 outbox 或自动重试；普通尽力发布和按 ID 发布的错误传播不变。事务内的查找、
-缓存与四次授权事实读取仍由调用方 Session 适配，publisher
-使用受信调用方提供的快照，不另开连接读取未提交行。
+仅有进程级 publish-only Redis 隔离需求时，按[可选发布者](docs-site/ops/deploy/docker-compose.md#notification-publisher-split)叠加 `docker-compose.notifications-publisher.yml`。这时 publisher 持有限函数 DSN、publish-only Redis 和私有 bearer，同时负责即时与耐久发布，Beat 不再另领相同 outbox。调用方用 `NOTIFICATION_PUBLICATION_URL` 和 `NOTIFICATION_PUBLICATION_TOKEN(_FILE)`，不接收 publisher Redis secret；私网故障不回退本地。即时发布不新增耐久 outbox。
 
 `apps/notifications` 发布 `aap-notification-realtime/v1` 和 `realtime_event.schema.json`，API 与 durable publisher 共用六个业务事件字段的构造，保留各自的日期字符串和 JSON 编码。合同不向既有帧增加 schema 字段，业务 type 与 sync reason 保持开放；原生 JSONB 的对象、数组、标量与 null 均可保留。通用 ping 仍属于 WebSocket 层。
 
-普通通知仍由调用方提交后尽力发布。迁移 `bo0484` 将白名单 Jobs 终态的收件箱行和投递租约入口写在同一事务内；既有独立 publisher 或内嵌 Celery relay 在提交后领取（内嵌每 10 秒）。先迁移再切换 publisher、API／worker 与 socket，停掉仍使用提交前发布的终态生产者后再切换 socket；回退数据库前须先排空终态 outbox。旧 v1 claim 仍只领取 Identity 注销事件，新 v2 claim 同时领取终态事件；函数级凭据和 Redis ACL 不变。现有 WS 逐帧验证身份和目标权限，终态用稳定 ID 在连接内去重，缺行不再等待；普通通知保留四次读取及三次 150ms 等待。
+迁移 `bo0484` 将白名单 Jobs 终态的收件箱行和投递租约入口写在同一事务内。跨过该迁移时先排空旧生产者、迁移，再同步切换 API／worker 与发布装配；回退数据库前须先排空终态 outbox。旧 v1 claim 仍只领取 Identity 注销事件，新 v2 claim 同时领取终态事件。现有 WS 逐帧验证身份和目标权限，终态用稳定 ID 在连接内去重；普通通知保留四次读取及三次 150ms 等待。
 
 Jobs refresh/fetch 与 Notifications evaluate 的 SQLAlchemy 私有行为仅由 `app/db/owner_orm_compat.py` 适配，API 固定 `2.0.49`。升级时先核对入口签名、刷新列投影和 DML 同步状态，在真实受限登录上运行 `test_jobs_lifecycle_refresh_loader.py`、`test_jobs_lifecycle_native.py`、`test_notifications.py`、`test_notification_read_state_cache.py`、`test_notifications_delete_baseline.py`；不要以全量过期或重复写 SQL 替代缓存登记和回滚语义。
 
-Node peer `apps/notifications/conformance/node/realtime_event_provider.mjs --stdio` 校验 stdin 的单条事件／sync 并原字节回显，不读取连接凭据。真实本地 socket 案例 `tests/test_notifications_socket_live.py` 通过现有 module-data verifier 运行，要求独占临时 PostgreSQL／Redis，分别使用受限 API、认证角色和单频道订阅 ACL。它覆盖原始事件、Node 帧、历史 JSONB、提交可见性、撤权及断连／handler 取消；既有 8 项组合案例继续复用；当前冷工件、即时发布、受限 API Redis 及完整数据库恢复已通过一次限定本地组合验收，见[发布与恢复台账](docs-site/dev/concepts/module-deployment.md#notification-publication-owner)。源码检查、实际运行与整模块资格见[唯一台账](docs-site/dev/concepts/module-deployment.md#notification-realtime-wire)。
+Node peer `apps/notifications/conformance/node/realtime_event_provider.mjs --stdio` 校验 stdin 的事件／sync 并原字节回显，不读取连接凭据。真实 API socket 和可选发布者的定向验收使用独占 PostgreSQL／Redis，分别验证订阅／发布 ACL、撤权、投递恢复和断连清理；测试文件见[部署决定表](docs-site/dev/concepts/module-deployment.md#deployment-convergence)。包一致性、冷运行与恢复证据分别记录。
 
 ### 视频输入回收的保留前提
 
@@ -961,63 +866,15 @@ Native namespace 为 `yoao_workspace_membership_v1`，同事务 prepare／apply 
 专用 `yoao_workspace_membership_client` 的精确 grants 保留供包一致性与权限验收，
 不作为 API 运行凭据。
 
-## 独立 Assets 目录服务
+## Assets 目录和空间素材读取
 
-`apps/assets-catalog` 提供目录列表、详情、文件分页、公开创建/更新、数据集与项目的双向关联列表，以及 Scene、位姿、标定和点云素材准备。数据集关联写入、建题、
-导入、上传和来源删除继续使用自己的既有事务合同；不要把需要保留调用方锁的内部
-`DatasetService` 操作替换为 HTTP。完整范围见[目录协议](docs-site/api/guides/assets-catalog.md)和[空间素材协议](docs-site/api/guides/assets-spatial.md)。
+目录列表、详情、文件分页、公开创建／更新、项目关联投影，以及 Scene／标定等空间素材能力由 API 在调用方事务中调用 Assets Catalog。保留授权、签名和不可变回执；不再部署目录 HTTP，不为本地 API 配置目录专用 DSN 或 S3 身份。数据集关联写入、建题、导入、上传和来源删除仍各用原事务合同；不要用 HTTP 替换内部持锁的 `DatasetService` 操作。冻结合同和包对照保留，见[目录协议](docs-site/api/guides/assets-catalog.md)与[空间素材协议](docs-site/api/guides/assets-spatial.md)。
 
-先应用迁移并完成上面的 module-data owner 授权，再创建一个无管理权限、无角色成员资格、
-不拥有业务表的独立 `yoao_asset_catalog_client` LOGIN，运行专用授权脚本：
+## Audit 定时维护和一次性运维
 
-```bash
-psql -v expected_database=annotation_test -v migration_role=owner \
-  -v assets_owner=assets_code -v asset_catalog_role=yoao_asset_catalog_client \
-  -f infra/docker/assets-catalog-grants.sql
-```
+默认由 `celery-beat` 调度 `celery-worker-maintenance` 处理分区、刷新和归档，管理员从 `audit_archive_outputs` 查看实际已发布输出。混合维护队列还处理非 Audit 任务，不可换成只持 Audit 能力的账号；LAN 与标准生产的维护凭据区别见[部署说明](docs-site/ops/deploy/docker-compose.md#module-process-selection)。
 
-这里的数据库和连接参数应换成明确选择的环境；不要把日常 API 的宽权限账号当作目录
-LOGIN。该 LOGIN 只可执行 27 个目录、关联与空间素材函数，不可读取表、序列或其他 owner schema。启动时的
-权限检查会拒绝过宽身份。迁移期主 API 仍保持既有角色，未因此获得整体隔离资格。
-
-目录服务使用独立的四个 secret：数据库 URL、Bearer token、S3 access key、S3 secret key。
-容器通过 `.env.example` 对应 `_FILE` 变量选择宿主文件，用户 10002 必须可读。S3 身份仅允许
-datasets 桶的 `GetObject` 和 media-cache 中 `thumbnails/`、`videos/`、`playback/`、
-`image-pyramids/` 的 `GetObject`，不允许列桶、Put/Delete 或桶管理。原始文件可能使用历史
-数据集名称路径，不能只授予新的 `dataset-sources/` 前缀。桶须预先准备，普通创建不写目录标记。
-
-配置浏览器可达的固定签名 origin 及两个桶后，显式启动本地项目。空间素材准备还从 datasets 桶只读标定 JSON；`ASSETS_CATALOG_S3_ENDPOINT` 可另设服务可达 origin，留空沿用公开 origin：
-
-```bash
-docker compose -p aap-assets-catalog-dev -f docker-compose.assets-catalog.yml up -d --build
-docker compose -p aap-assets-catalog-dev -f docker-compose.assets-catalog.yml exec assets-catalog python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8766/ready', timeout=2)"
-```
-
-该 Compose 默认不发布宿主端口。网关与目录服务应在可互通的容器网络中运行；宿主 API
-联调可在本机用 `uv run --project apps/assets-catalog --extra server python -m yoao_assets_catalog`
-启动目录服务，并为该进程显式传入专用配置，再将网关指向 `http://127.0.0.1:8766`。
-目录进程不读取主 API 的通用数据库或 AWS 凭据。
-
-网关的 `ASSETS_CATALOG_URL` 留空使用同一原生 SQL 合同；设置 URL 后还需设置实际
-`ASSETS_CATALOG_TOKEN`，独立服务的同名 secret 可用 `_FILE`。刷新网关进程使配置生效。
-远程不可用时返回错误，不切换成本地写入；HTTP 各 I/O 阶段默认 5 秒，上限 60 秒。
-内部请求/响应预算分别为 1/16 MiB，超出明确失败，不截断数据。
-
-先暂停受影响写入，将 SQL 升至 0216 并重跑 owner/目录授权，升级目录镜像，确认 `/health` 和 `/ready` 后再切换网关配置。旧镜像的权限预检不接受新的 27 项角色，需协调升级。创建、更新、Scene PATCH、场景回填和标定 PATCH 使用保存的
-UUID `Idempotency-Key`，结果不确定时以原内容和原键重放；回执保留原快照，重复创建不会
-生成第二个数据集。回退服务实现可先清空网关 URL、重启网关并保留兼容 SQL 和回执，
-再停止同一 `-p` / `-f` 的独立项目。若要回退迁移，必须先停止目录写入并处理仍需确认的
-请求；删除回执会丢失重放依据。目录、来源和空间素材回执目前没有自动清理。
-
-`verify_module_data_boundary.py` 在自有 PostgreSQL、Redis、桶和专属只读 S3 身份上验证
-真实目录容器、公开 API 消费、响应丢失、重启和本地/远程切换；不修改日常角色，不提供
-生产容量或完整 Assets 语言替换资格。Go 月报仍是单独实验，不参与默认运行。
-
-## 独立 Audit 维护运行时
-
-`apps/audit` 提供 `yoao-audit-maintenance`，仅按明确命令执行一次操作；分区创建、
-快照／退役、归档事件和日聚合刷新由固定 `maintenance_command(jsonb)` 能力持有。
-原 API／Celery 适配器借用调用方事务，独立 CLI 自己提交或回滚。
+`apps/audit` 的 `yoao-audit-maintenance` 只在明确授权的运维窗口运行一次；每个命令由固定 `maintenance_command(jsonb)` 能力持有。它不代替定时归档，也不发布管理员使用的 `audit_archive_outputs`。
 
 ```bash
 uv run --project apps/audit --locked --extra runtime yoao-audit-maintenance ensure-partitions
@@ -1028,10 +885,7 @@ uv run --project apps/audit --locked --extra runtime yoao-audit-maintenance arch
 
 CLI 使用 `AUDIT_MAINTENANCE_DATABASE_URL(_FILE)` 的单函数 LOGIN；归档另需独立
 `AUDIT_MAINTENANCE_ARCHIVE_S3_*`，只检查已配置桶，不创建桶。可选
-`docker-compose.audit.yml` 使用文件 secret 和 `maintenance` profile，不自动运行归档。
-API 的 `AUDIT_ARCHIVE_READ_S3_*` 只配置归档读取凭据；配置的 endpoint 留空时保持
-兼容绑定，显式配置失败不回退。环境变量见 `.env.example`，授权与迁移顺序见
-[Audit 运行时](docs-site/api/guides/audit-runtime.md)。本轮未切换日常维护调度。
+`docker-compose.audit.yml` 使用文件 secret 和 `maintenance` profile，不自动运行归档。API 的 `AUDIT_ARCHIVE_READ_S3_*` 只配置归档读取凭据；endpoint 留空保持原绑定，显式配置失败不回退。授权与迁移顺序见 [Audit 运行时](docs-site/api/guides/audit-runtime.md)。
 
 ## 技术栈
 
@@ -1700,67 +1554,13 @@ apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
 
 ### Labeling 类别与属性统计查询
 
-`class-usage` 的 API 先调用 Workspace `require_project_manager`，再调用独立 Labeling
-统计边界；管理权限只解析一轮，两个 owner 使用各自的数据和凭据。
-默认借用调用方事务。显式 `LABELING_CLASS_QUERY_DATABASE_URL(_FILE)` 与
-`LABELING_CLASS_QUERY_URL` 二选一，HTTP 另配 `LABELING_CLASS_QUERY_CONTROL_TOKEN(_FILE)`。
-`LABELING_CLASS_QUERY_TIMEOUT_SECONDS` 默认30秒；显式选择失败或 DSN 文件为空时不回退。
-
-独立进程运行 `uv run --project apps/labeling --extra runtime python -m yoao_labeling`，
-只需要自己的 DSN 和 control bearer；无 Workspace／Identity Briefs／对象存储配置。
-`docker-compose.labeling-class-query.yml` 只发布本机8178，并读取
-`LABELING_RUNTIME_CLASS_QUERY_DATABASE_URL_FILE` 与
-`LABELING_RUNTIME_CLASS_QUERY_CONTROL_TOKEN_FILE` 两个宿主 secret 文件。
-先迁移当前 head，再应用 module-data 和 Labeling class-query 两份 grants。
-匹配的 Workspace owner 也必须支持单轮管理权检查；不对旧提供方静默降级。
-
-独立安装包、三路径响应、真实语句间提交、受限镜像与备份恢复已完成限定本地验收。
-命令、权限和范围见[内部运行协议](docs-site/api/guides/labeling-runtime.md)及
-[ADR-0142](docs/adr/0142-labeling-class-usage-query-owner.md)。
+`class-usage` 先在 Workspace 检查当前项目管理权，再由 API 在原事务内调用 Labeling 的三项固定类目／属性统计函数。LAN 的普通应用 LOGIN 只获得这三项类目查询能力，不授私表或其他专用能力。先迁移、再刷新选定授权；独立一致性与恢复验证仍使用受限函数 LOGIN，不能代替真实 API 消费者验证。见 [Labeling 运行协议](docs-site/api/guides/labeling-runtime.md)。
 
 ### Labeling 视频 worker 最终写入 owner
 
-这是一项仍在本地验收的后端切片，不会自动切换日常服务。它把视频跟踪 worker
-成功、普通取消和失败时的最终 Job／候选结算交给 Labeling 私有 owner；公开 API
-不变。worker 候选从 Jobs 已封存的视频窗口重建，API 不会重新请求模型。API 可以
-借用 Session、配置专用数据库连接，或显式使用远程 HTTP owner；URL 与 DSN 不能同时
-设置，显式绑定失败会保留任务重试，不回退。人工 accept/decide/discard 和
-start/progress 写仍由 API ORM 持有。
+成功、普通取消和失败的 Job／候选结算由原 tracker worker 调用 Labeling owner，使用原工作事务；API 不重新请求模型，也不再向独立视频 writer 发请求。候选从 Jobs 已封存的窗口重建，保留发布回执复查、代次围栏、迟到拒绝、取消和最终当前权限验证。人工 accept／decide／discard 及 start／progress 仍走各自现有路径。
 
-API 侧使用 `LABELING_VIDEO_WRITER_URL` 与
-`LABELING_VIDEO_WRITER_CONTROL_TOKEN(_FILE)` 选择 HTTP；使用
-`LABELING_VIDEO_WRITER_DATABASE_URL(_FILE)` 选择专用 DSN；两者留空时借用现有
-Session。`LABELING_VIDEO_WRITER_TIMEOUT_SECONDS` 默认 90 秒。HTTP 私有路由为
-`POST /v1/labeling/video-writer/execute` 和
-`POST /v1/labeling/video-writer/status`。status 支持两种封闭请求：原 operation、
-执行证明和摘要用于不确定提交恢复；只有 execution proof 的查询调用 Native
-read_publication action，只读查找当前 job/run 已有 publication 回执。普通取消需数据库取消标记；纠错取消跳过
-candidate stage 授权。新代次清理先复用既有 publication，未命中才重建封存前缀。
-
-独立进程使用 Labeling 包的 runtime extra 启动：
-`uv run --project apps/labeling --locked --extra runtime yoao-labeling-video-writer`
-
-进程必需 `LABELING_VIDEO_WRITER_DATABASE_URL(_FILE)` 和
-`LABELING_VIDEO_WRITER_CONTROL_TOKEN(_FILE)`。默认 host 为 `127.0.0.1`、port 为
-8180、最大并发为 8，超时默认 90 秒；可通过 `LABELING_VIDEO_WRITER_HOST`、
-`PORT`、`MAX_CONCURRENCY` 和 `TIMEOUT_SECONDS` 调整。处理 Mask 候选时，还须配置
-Assets Mask Content 的 `ASSETS_MASK_CONTENT_URL` 和
-`ASSETS_MASK_CONTENT_TOKEN(_FILE)`；bbox-only 结果不访问 Mask owner。
-
-可选 `docker-compose.labeling-video-writer.yml` 只发布本机 8180，host 文件选择器是
-`LABELING_RUNTIME_VIDEO_WRITER_DATABASE_URL_FILE`、
-`LABELING_RUNTIME_VIDEO_WRITER_CONTROL_TOKEN_FILE` 和
-`LABELING_RUNTIME_VIDEO_WRITER_MASK_CONTENT_TOKEN_FILE`。三个容器凭据均以只读 secret 挂载；bbox-only 使用空 Mask token 文件。该开发
-Compose 为 1 CPU／768 MiB，
-不是生产容量结论，也不会接入默认服务。先应用当前数据库迁移和
-`infra/docker/module-data-grants.sql`，再按专用角色应用
-`infra/docker/labeling-video-writer-grants.sql`。
-
-协议、执行证明、候选重建与准确限制见
-[Labeling 运行协议](docs-site/api/guides/labeling-runtime.md)、
-[同库数据接口](docs-site/api/guides/module-data.md)和
-[ADR-0159](docs/adr/0159-independent-labeling-video-writer.md)。当前尚未通过完整
-三路径消费者、崩溃取消、Mask、备份恢复、受限镜像和容量验收；不作为生产切换依据。
+若显式选择分离的 Mask Content，**实际 tracker worker** 配置 `ASSETS_MASK_CONTENT_URL` 和对应内容 bearer，核验精确历史字节归属；bbox-only 结果不打开 Mask 字节服务。Native 写入与原业务连接同事务，不挂载 video-writer DSN 或控制 token。冻结协议和随包一致性检查见 [Labeling 运行协议](docs-site/api/guides/labeling-runtime.md)与[同库数据接口](docs-site/api/guides/module-data.md)。
 
 ### Inference 命名流水线
 
@@ -1776,30 +1576,19 @@ DSN selector。`INFERENCE_PIPELINES_TIMEOUT_SECONDS` 默认30秒，显式提供�
 先迁移当前 head，再对同一数据库安装 `infra/docker/module-data-grants.sql` 和
 `infra/docker/inference-pipelines-grants.sql`；后者要求显式指定数据库与 owner／client 角色。
 
-`docker-compose.inference.yml` 装配流水线、探测、健康观察、环境同步、路由、模型执行、
-后端控制及 GPU 八项能力，只发布本机8768。`.env.example` 中 `INFERENCE_RUNTIME_*_FILE`
-映射各专用 LOGIN、独立 bearer、Redis 与 GPU 签名文件；私有凭据只挂载给 Inference。
-容器使用 UID10008 与只读文件系统；运行预算不代替容量资格，配置变更也不等于已切换日常或生产。
-合同、事务及故障恢复见 [Inference 运行指南](docs-site/api/guides/inference-runtime.md)。
+`docker-compose.inference.yml` 是唯一 Inference owner overlay：同一个 `inference:8768` origin 提供流水线、探测、健康观察、Registry 同步、路由、执行、后端控制和 GPU 八项能力；宿主机仅能从回环端口访问。每项沿用自己的 bearer 和窄 LOGIN；不能共用 token，也不能把 owner DSN 或 GPU 签名文件交给 API／普通 worker。CPU-only 仍须准备全量 28 个 owner secret，保持 GPU `off`、资源 `{}`、rollout 关闭，不需要 GPU 或模型容器。安装与冷验收配方见 [Inference 运行指南](docs-site/api/guides/inference-runtime.md)。
 
 本机完整 Inference 使用独立项目 `aap-inference-development`，组合
 `docker-compose.inference.yml` 与 `docker-compose.inference-development.yml`。
-私有 `~/.local/state/ai-annotation-platform/inference-development/compose.env` 固定已验收镜像、
-外部基础设施私网和28项只读 secret；十八个专用 LOGIN、八种 bearer 与普通 API 账号分离。
-API 的 LaunchAgent `UV_ENV_FILE` 和普通 worker 的 `--env-file` 指向同目录的 `api.env`；
-该文件保留原 Workspace、Labeling 和 Jobs 配置，只新增所需 HTTP selector，不携带 owner DSN 或 GPU 私钥。
+在独立、`0600` 的 `INFERENCE_DEPLOY_ENV` 文件中设置 `AAP_INFERENCE_IMAGE`、`AAP_INFERENCE_DEVELOPMENT_NETWORK` 和 28 个只读 secret 的宿主选择器，使用已核实的目标基础设施私网。
 
 ```bash
-docker compose --env-file "$HOME/.local/state/ai-annotation-platform/inference-development/compose.env" up -d --no-build --wait
-docker compose --env-file "$HOME/.local/state/ai-annotation-platform/inference-development/compose.env" ps
+docker compose --env-file "$INFERENCE_DEPLOY_ENV" -p aap-inference-development \
+  -f docker-compose.inference.yml -f docker-compose.inference-development.yml \
+  up -d --no-build --wait inference
 ```
 
-Workspace configuration 使用同一私网中的 `aap-inference-development-inference-1:8768` 及专用
-probe bearer；其私有 `COMPOSE_FILE` 不再包含 `docker-compose.inference-probe.yml`。
-切换时须先识别并停止占用8768的旧 probe，再创建完整 owner；新服务就绪前保留原配置供回退。
-LaunchAgent 环境变更须先 bootout，确认旧 label 已不存在，再 bootstrap 已验证的 plist，
-不能把尚未卸载的 job 直接重载，或用 sudo 绕过失败。
-本机 GPU 策略保持 `off`、资源列表为空；健康检查和 CPU 路径不构成 NVIDIA 或硬件容量资格。
+API／worker 将实际启用的 URL 指向进程可达的同一 origin：宿主机用已授权的回环地址，容器用其私网服务地址。Workspace probe、Registry ingress 和健康观察的调用凭据仍相互独立。已经运行旧形态时遵守[升级门禁](docs-site/ops/upgrade-guide.md#split-topology-upgrade)，不要把本段作为日常环境切换授权。健康检查不是 NVIDIA、CPU 模型执行或硬件容量资格。
 
 ### Inference 服务池策略与项目主绑定清理
 
@@ -1837,12 +1626,7 @@ Inference owner 使用 `INFERENCE_BACKEND_PROBE_DATABASE_URL(_FILE)` 和独立�
 `infra/docker/inference-backend-probe-grants.sql`，指定专用 `yoao_inference_backend_probe_client`。
 该 LOGIN 只能执行 policy/open 两项能力，没有 registry、私钥表或其他 owner 原表权限。
 
-`docker-compose.inference-probe.yml` 发布本机8768，宿主 selector 为
-`INFERENCE_RUNTIME_BACKEND_PROBE_DATABASE_URL_FILE` 与
-`INFERENCE_RUNTIME_BACKEND_PROBE_CONTROL_TOKEN_FILE`。它与已有流水线 Compose 示例共用
-宿主端口，分别启动时只能选择其一；同一二进制也支持双能力和两个不同 bearer。
-完整 Inference owner 装配见 [Inference 私有运行配置](docs-site/api/guides/inference-runtime.md#使用私有-http-runtime)。
-Secret 文件只挂载给相应 owner 与调用方；示例不切换日常或生产环境。
+部署时使用完整 `docker-compose.inference.yml`，以 `INFERENCE_RUNTIME_BACKEND_PROBE_DATABASE_URL_FILE` 和 `INFERENCE_RUNTIME_BACKEND_PROBE_CONTROL_TOKEN_FILE` 挂入该项凭据；API 使用同一 `inference` origin 上的专用探测 bearer。不要单独启动探测服务。
 
 Subject 绑定原数据库、registry 和仍在进行的原事务。它保留未提交后端和配置轮换前的事实，
 不新增业务提交，不在外部 I/O 前持 registry 行锁。事务结束后不能再次打开；已经接受的
@@ -1953,23 +1737,15 @@ uv run --project packages/inference/mask-utils python packages/inference/mask-ut
 
 ### 开发环境
 
-```bash
-docker compose up -d     # 基础服务
-pnpm dev:web             # 前端 :3000
-pnpm dev:api             # 后端 :8000
-```
+新建环境先按[本地冷启动](docs-site/ops/deploy/development.md#development-cold-start)启动基础设施、迁移并配置 Jobs 受限凭据，再启动完整 `docker compose up -d`、`pnpm dev:api` 和 `pnpm dev:web`。并行工作树使用自己的 `pnpm dev:worktree`，不更改共享 `.env`。
 
 ### 生产（api/web 进容器）
 
-```bash
-# 1. 准备生产配置：复制 .env.example → .env.production，逐项审过
-#    （ENVIRONMENT=production 下 SECRET_KEY / CORS_ALLOW_ORIGINS / MINIO_SECRET_KEY 等必填）
-cp .env.example .env.production
+整栈生产按[首次安装与启动](docs-site/ops/deploy/docker-compose.md#compose-cold-start)先构建、迁移并授权，随后使用：
 
-# 2. 叠加 prod 文件，基础设施 + api/web 容器一起拉起、worker 改用生产配置
-#    --env-file 不可省：用于覆盖 worker 硬编码的 dev 凭据（详见 docker-compose.prod.yml 注释）
+```bash
 docker compose --env-file .env.production \
-  -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+  -f docker-compose.yml -f docker-compose.prod.yml up -d --build --wait
 ```
 
 > 开发态不带 `-f docker-compose.prod.yml`，api/web 仍跑宿主机。
@@ -1977,7 +1753,7 @@ docker compose --env-file .env.production \
 
 ### 局域网生产环境（同机共存）
 
-同机另建生产环境时，使用独立 `docker-compose.lan-prod.yml`，详见[局域网生产部署](docs-site/ops/deploy/lan-production.md)。从现有 `.env` 派生本地 `.env.production`，设置 `LAN_BIND_IP`、`AAP_SHARED_NETWORK`、`AAP_IMAGE_TAG`、`AAP_PRODUCTION_STATE_DIR`；生产数据库、九个存储桶、Redis、Worker 和 DuckDB 独立，前端/API 使用 HTTPS 3030/8080。命令始终显式带 `--env-file .env.production -f docker-compose.lan-prod.yml`，不要与开发或整栈生产 Compose 叠加。
+同机另建生产环境时，使用独立 `docker-compose.lan-prod.yml`，详见[局域网生产部署](docs-site/ops/deploy/lan-production.md)。生产数据库、十个存储桶、Redis、Worker 和 DuckDB 独立；前端／API 使用 HTTPS 3030／8080。完成迁移及 Jobs 恢复凭据配置后，以 `--env-file .env.production -f docker-compose.lan-prod.yml` 启动，不与开发或整栈生产 Compose 叠加。
 
 ## 测试与文档
 
@@ -2093,8 +1869,7 @@ CI 检查名称统一使用 `领域 职责`，例如 `Backend tests`、`Frontend
 
 完整测试指南见 [docs-site/dev/testing.md](docs-site/dev/testing.md)。
 
-真实超大图回归使用固定来源、字节数和 SHA-256 的开发夹具。API、共享媒体控制端与
-`assets-images-worker` 启动后，可下载、入库并等待生成完成；共享控制端和图片 Worker 使用同一测试数据库及缓存桶，API 的 `ASSETS_MEDIA_URL` 指向共享控制端：
+真实超大图回归使用固定来源、字节数和 SHA-256 的开发夹具。先准备当前独立开发库与测试存储；默认启用 API 内嵌控制和 `celery-worker-image-pyramid`。选择 split 时，按[图片运行手册](docs-site/ops/runbooks/image-pyramid.md#启动与健康检查)同步设置 `ASSETS_IMAGE_EXECUTOR=split`，使用同一测试数据库和桶启动独立 `assets-images-worker`。如无额外控制隔离需求，不设置 `ASSETS_MEDIA_URL`：
 
 ```bash
 pnpm --filter web image:seeds
@@ -2185,7 +1960,7 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 
 ## 独立 Assets 来源服务
 
-`apps/assets-source` 的现有 HTTP runtime 执行单文件上传初始化、条件发布完成、Dataset/Item 删除、同步 ZIP 入库和旧对象桶扫描，也承载六项连接管理操作：列表、读取、创建、更新、删除和连通性测试。公开 API 保留认证、scope、ZIP/扫描各自既有角色规则和同步响应；来源服务不连接 Redis/Celery。连接操作继续使用现有 API 路由和 Source runtime，不另加一个连接服务。协议与重放见[来源控制](docs-site/api/guides/assets-source.md)。
+`apps/assets-source` 的独立进程只在这些部署需求下保留：隔离连接器凭据与主机策略、连接器导入的精确版本核验／恢复、Native 保存目标有限签名。API 默认本地处理来源工作流；显式 `ASSETS_SOURCE_URL` 只把连接器创建、更新、删除和连通性测试交给 Source，不转发列表／读取、受管上传、来源删除、同步 ZIP 或旧桶扫描。来源不连接 Redis/Celery，不另加连接容器。协议与重放见[来源控制](docs-site/api/guides/assets-source.md)。
 
 先将迁移应用至当前 head、完成 module-data owner 授权，再为独立 `yoao_asset_source_client` LOGIN 应用：
 
@@ -2201,9 +1976,9 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 Native 金字塔签名是可选能力：`ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN`、`READER_TOKEN`、`CLEANUP_TOKEN` 及 `ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY`、`ASSETS_SOURCE_NATIVE_S3_SECRET_KEY` 必须同时配置，三项 token 互不相同并区别于 `ASSETS_SOURCE_TOKEN` / `ASSETS_SOURCE_IMPORT_VERIFY_TOKEN`，Native access key 必须区别于普通 Source 身份。全部留空时功能关闭，五个签名路由返回 `source_unavailable`，调用方不会回退其他签名方或当前缓存桶；部分配置拒绝启动。内建目标使用独立 Native S3 身份，策略模板见 `infra/docker/native-source-minio-policy.json`，只允许缓存桶 `image-pyramids/objects/*` 保存输出的精确对象/版本操作、受限列举和桶级 multipart 列举，不授予桶管理或其他对象。已注册连接目标仍只由 Source 使用其既有加密凭据、连接密钥和主机策略，不向调用方分发凭据。
 
-调用方各有一项 URL 与角色 token：图片 Worker/API 本地执行器用 `ASSETS_IMAGES_NATIVE_STORAGE_URL` 与 writer token，共享控制/API 本地控制用 `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL` 与 reader token，Cleanup 用 `ASSET_CLEANUP_NATIVE_STORAGE_URL` 与 cleanup token。Token 值与 Source 对应角色 token 相同，但用各自运行用户可读的独立文件；`docker-compose.assets-native.yml` 与 Source/media/cleanup 三个 overlay 组合使用。Cleanup 当前强制要求其 Native URL/token，因此运行清理进程也要求 Source signer 已启用。Native 输出在受理时保存 endpoint、bucket、prefix 和存储身份；管理界面把用途绑定从 A 切到 B 只影响新输出，旧输出继续从 A 读取和回收，不需要改 Images/Cleanup 的桶、endpoint 或 secret。修改 A 的注册位置不是重定向：保存坐标与注册目标不一致时明确拒绝。公开 URL 按冻结策略和 SigV4 604800 秒上限签发，显式超限请求失败而不是静默缩短。
+Native token 按角色分开：`ASSETS_IMAGES_NATIVE_STORAGE_*` writer 只给所选图片执行器；`ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_*` reader 只给内嵌 API 控制或另选的共享控制端；`ASSET_CLEANUP_NATIVE_STORAGE_*` cleanup 只给清理进程。各 token 与 Source 对应角色的值相同，用独立文件挂载。实际启动与凭据见[图片金字塔运行手册](docs-site/ops/runbooks/image-pyramid.md#native-签名与保存输出配置)。Native 输出的旧坐标不会随新用途绑定迁移；保存坐标与注册目标不一致时明确拒绝。按冻结策略和 SigV4 的 604800 秒上限签名，显式超限拒绝。
 
-连接管理凭据使用可选 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` 或 `_FILE`，值与本地 API/导入执行器的 `CONNECTOR_ENCRYPTION_KEY` 相同。该 key 留空时 Source 仍可启动；创建凭据或需要解密既有密文的操作会返回配置错误，单纯改名或空 patch 不需要 key。`ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST` 是 JSON 字符串数组回退值，数据库 `system_settings.connector_host_allowlist` 覆盖它；`ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` 可指定只读的可信 SFTP 主机文件。空白回退列表拒绝连接器网络目标。DNS 和探测在锁外完成，最终提交只短暂共享锁定 Settings 表并复核策略。API 的 `ASSETS_SOURCE_URL` 留空时用本地 Source 工作流；一旦配置远程 URL，远程错误不会回退到本地。
+Source 的 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY(_FILE)` 沿用既有连接器密文的 Fernet key，空值不允许需要加密／解密的操作。隔离档不把这一配置交给普通 API；实际导入执行器仍按其读取范围持有自己的连接器访问配置。`ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST` 是只在数据库未覆盖时使用的 JSON 数组，空数组全拒；SFTP 用只读、经核验的 `ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE`。DNS／探测在最终 SQL 锁外完成。显式选择 Source 处理凭据写操作时，不因 owner 故障改由普通 API 执行。
 
 Assets 当前由 31 张映射表组成；全仓 ORM 所有权台账共 133 张表。连接操作写入新的 `storage_connection_operations` 不可变回执表，该表没有指向实时连接的外键。连接删除保留已接受的导入快照；后续导入仍要重新读取当前连接。
 
@@ -2216,7 +1991,7 @@ docker compose -p aap-assets-source-dev -f docker-compose.assets-source.yml up -
 docker compose -p aap-assets-source-dev -f docker-compose.assets-source.yml exec assets-source python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8767/ready', timeout=2)"
 ```
 
-该项目不进入默认 Compose，默认只 expose 内部 8767。宿主联调可使用 `uv run --project apps/assets-source --extra server python -m yoao_assets_source_runtime`，传入专用环境，再将网关指向实际可达地址。网关 `ASSETS_SOURCE_URL` 留空为本地模式，设置后还需同一 token；刷新 API 生效。默认网关超时 300 秒，上限 3600 秒；服务默认池 1..8、取得连接 2 秒、SQL 5 秒、S3 连接/读取 2/10 秒、请求/响应 1/16 MiB。就绪检查验证 SQL 身份，实际对象权限由业务调用及本地验收验证。
+默认只 expose 私网 8767。宿主联调可直接运行 `uv run --project apps/assets-source --extra server python -m yoao_assets_source_runtime` 并传入该进程独享环境。仅把实际用到的调用方指向私网 origin：连接器变更用 `ASSETS_SOURCE_URL` 与控制 bearer，导入核验与 Native 签名各用独立 token；不要求启用全部绑定。就绪检查验证 SQL 身份，实际对象权限由业务调用验收。
 
 指南素材使用统一受管上传和不可变存储引用，不再通过独立指南字节 RPC 签名或删除对象。
 上传初始化选择存储绑定并建立 pending 记录；完成时校验实际对象，之后由 Workspace
@@ -2231,7 +2006,7 @@ Compose overlay 已移除；旧指南切片的容器、恢复和容量证据只�
 
 复制后进程退出或 SQL 回滚可能留下未登记来源拷贝；目前保留这些字节，尚无自动回收。单文件上传重试保持原 Item/操作 UUID，并使用新 publication 代次，不能通过删除原始文件或旧条目恢复。ZIP/扫描在一个外层 SQL 事务中提交素材、Labeling append、计数、ZIP Scene/frame 变更、收据和媒体派发意图。媒体派发由 API maintenance relay 领取，交付回执只表示 broker 接受，不代表媒体已完成。
 
-回退时可先清空网关 URL、刷新 API 并保留 SQL/回执，再停止同一 `-p`/`-f` 独立项目。回退迁移须先停止写入并处理活动操作及待确认媒体派发；0215 会拒绝降级仍在准备的已提交操作或待派发记录，0217 会拒绝删除仍保留的连接操作回执。完整 Assets 的其他 CRUD、派生媒体和 Blob 边界仍在推进；此服务不代表全模块独立部署或生产容量资格。
+退役独立 Source 前先排空连接器变更、导入核验／恢复和 Native 使用者，保留 SQL 回执及旧目标访问。清空连接器控制 URL 只改变四项变更的调用路径，不会接管导入核验或 Native 历史输出。需停掉该项目时沿用同一 `-p`／`-f`，不要删除未确认回执或对象；跨过历史迁移时仍须遵守其各自的拒绝降级门禁。
 
 ## 独立连接器导入执行器
 
@@ -2338,7 +2113,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/labeling-mask-gc-data-grants.sql
 ```
 
-该进程仅接收 `MASK_GC_DATABASE_URL`、`MASK_GC_TOKEN`、`MASK_GC_CONTENT_URL` 和 `MASK_GC_CONTENT_TOKEN`，四项均支持 `_FILE`；内容地址必须指向 cleanup 字节进程。运行 `uv run --project apps/labeling-mask-gc --extra server python -m yoao_labeling_mask_gc_runtime --once` 执行一次有界协调，省略 `--once` 后提供轮询及私有 run/progress 路由。`MASK_GC_POLL_ENABLED=false` 关闭后台轮询，保留手动 HTTP 操作与健康检查；默认值为 `true`。它不接收 S3、Celery 或 Redis 凭据。GC 登录没有四项业务生产能力；默认本地装配的受信任应用角色另持有六项 GC 能力，每次调用使用当前任务事件循环内的新事务。
+该进程仅接收 `MASK_GC_DATABASE_URL`、`MASK_GC_TOKEN`、`MASK_GC_CONTENT_URL` 和 `MASK_GC_CONTENT_TOKEN`（或分别用 `_FILE`）。内容地址必须指向 cleanup，不是写入身份。运维 Compose 配方见[Labeling Mask GC 手动运行](#labeling-mask-gc-手动运行)，固定关闭轮询；直启时显式设 `MASK_GC_POLL_ENABLED=false` 可保留只读预览和手动接口。已完成预览与授权后，`uv run --project apps/labeling-mask-gc --extra server python -m yoao_labeling_mask_gc_runtime --once` 是实际会修改数据的一次有界回收，不接收 S3、Celery 或 Redis 凭据。
 
 私有 `POST /v1/mask-gc/run` 接受 `scan_pages`（默认 1，上限 20）、`delete_limit`（默认及上限 100）、`dry_run` 和仅预览可用的 `after_key`。预览不创建 sweep、删除意图或字节日志，也不改变破坏性扫描游标；用结果的 `next_after_key` 继续，直到 `scan_complete=true`。`referenced` 是全局当前存活引用键的去重计数，无法观察时为 null，不代表删除许可。
 
@@ -2350,9 +2125,9 @@ Celery 原任务仍在 `cleanup` 队列运行，兼容原 `dry_run` 参数，并
 
 日志和终态回执不设置自动过期或删除策略；没有回执的操作持续保留围栏，不能按租约或时间自动释放。普通批处理及重试的结果交接、独立回收镜像和固定本地样本已通过隔离验收；日常 API 使用同一协调器的内嵌装配，远程配置仍关闭。完整模块部署和生产容量仍未完成。详见 [ADR-0112](docs/adr/0112-durable-mask-gc-fences.md)。
 
-## Identity 独立认证准入
+## Identity 默认认证与可选 issuer
 
-`apps/identity` 提供同一个 JWT／API key 验证器及私有 `POST /v1/identity/authenticate`。`IDENTITY_URL` 留空时在 API 内装配；设置后使用 `IDENTITY_TOKEN` 和独立服务，错误不会回退。`IDENTITY_AUTH_DATABASE_URL` 或 `_FILE` 可在内嵌模式选择函数专用 LOGIN，两项不能同时设置；显式文件错误不会改用应用连接。未配置时，本地请求复用调用方事务，socket 使用独立短事务。
+`apps/identity` 提供同一个 JWT／API key 验证器。默认 `IDENTITY_URL` 为空，API 在原事务内使用固定 Identity 能力；Notifications socket 用独立短事务。可用 `IDENTITY_EMBEDDED_SIGNING_SECRET(_FILE)` 仅覆盖本地 JWT 密钥，留空仍用原 `SECRET_KEY`。`SECRET_KEY` 继续用于 API 自己的媒体签名，不复制给远程 signer。显式 `IDENTITY_AUTH_DATABASE_URL(_FILE)` 仍可为内嵌准入选择函数 LOGIN，文件错误不回退。
 
 准入成功后，`deps.get_current_user` 使用同一 AUTH capability 调用私有 `POST /v1/identity/actor-context`，只读取当前账号的 name、email、role、active 状态和 weekly target。请求传入已准入的 actor UUID 与 role，不再重复验签、generation/revocation、API key last-used 或 scope；缺失、停用或 role drift 仍映射为原 401/Bearer challenge，服务失败或无效响应为原 503，选定的远程/专用绑定不回退 ORM。此读取沿用现有 `IDENTITY_URL`、`IDENTITY_AUTH_DATABASE_URL(_FILE)`、control bearer 和连接限额，不新增 DSN、LOGIN 或环境变量。迁移 0250 将 `read_actor_context(uuid,text)` 加入既有 AUTH LOGIN 的第五项函数能力；本切片已通过受限 SQL、调用方事务／专用 DSN／远程三种绑定、真实 API、双向语言 peer 与恢复的限定本地验收。写路径账号锁、目标 User 查询与 ORM 状态同步仍留在各自调用事务中。字段和失败语义见 [ADR-0130](docs/adr/0130-identity-post-admission-actor-context.md)。
 
@@ -2401,11 +2176,11 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 该 LOGIN 只有策略、登录候选和会话执行三项能力，不含准入、key、Audit 或表权限。登录／刷新／登出／全端登出的当前账号、密码 hash、generation、JTI 和 key 校验与在线状态、业务审计和成功操作回执共同提交。有效登录失败也保留业务审计；格式或主体绑定错误不能确认事务。内嵌装配可设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 使用该角色，远程服务故障不会回退。
 
-独立进程显式设置 `IDENTITY_DATABASE_URL(_FILE)`、`IDENTITY_TOKEN(_FILE)`、`IDENTITY_SIGNING_SECRET(_FILE)`，每对恰好一项；它不读取 API `.env`。key 命令另设 `IDENTITY_KEY_DATABASE_URL(_FILE)`；会话另设 `IDENTITY_SESSION_DATABASE_URL(_FILE)` 和 `IDENTITY_LOGIN_REDIS_URL(_FILE)`。账户与在线扫描分别设置 `IDENTITY_ACCOUNT_DATABASE_URL(_FILE)`、`IDENTITY_PRESENCE_DATABASE_URL(_FILE)`。未配置某类命令 DSN 时，该 RPC 返回 503，已配置能力仍可就绪。独立 Identity 的签发／派生 secret 不必等于 API edge 的 `SECRET_KEY`；远程调用以 `IDENTITY_TOKEN` 鉴权。现有 Identity 发行与回执账本仍须使用稳定密钥，不能把新隔离环境的不同密钥验收当作已有部署的轮换方案。运行 `uv run --project apps/identity --locked --extra runtime python -m yoao_identity_runtime`，或使用可选 `docker-compose.identity.yml` 并提供所启用 capability 的 `IDENTITY_RUNTIME_*_FILE` selector。`/health` 是进程存活，`/ready` 检查原生协议及已配置能力的精确函数权限。Secret 文件须对容器用户可读，源码目录不挂入运行镜像。
+需要隔离 signer 或登录 Redis 时才选 `docker-compose.identity.yml` 的 `identity-issuer` profile。设 API `IDENTITY_URL` 为 issuer 可达 origin（同一网络为 `http://identity-issuer:8170`），使用原 `IDENTITY_TOKEN` 绑定，不向 API 挂载远程 signer、登录 Redis 或远程命令 LOGIN。Issuer 保持各用途 `IDENTITY_RUNTIME_*_FILE` 专用凭据，`/ready` 校验已启用能力的数据库角色；漏配能力返回 503，无本地回退。运行与邮件组合见[生产邮件及可选 issuer](docs-site/ops/deploy/docker-compose.md#production-mail)。
 
 会话计数的 Redis 身份只需 `~login_failed:*`、`+get +incrby +expire +del +ping +select +client|setinfo +client|setname`，清除其他命令和频道权限。客户端的 `incr()` 实际发送 `INCRBY key 1`。API 边缘与提供方使用同一计数实例／命名空间；提供方拥有增量、清零及阈值复查，API 保留通用限流和 Turnstile 验证。Redis 不可用时维持现有计数 fail-open。直启配置 `IDENTITY_EXPIRE_MINUTES=1440`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED=false`、`IDENTITY_LOGIN_CAPTCHA_THRESHOLD=5`、`IDENTITY_LOGIN_FAILED_WINDOW_SECONDS=3600`；Compose 使用相应的 `IDENTITY_RUNTIME_*`。这些值须与 API 的签发时长、有效邮箱验证策略、阈值和窗口一致，生产模式下有效邮箱策略可能为 true。Web 登录页收到 HTTP 400、`detail: "captcha_required"` 后展示验证，不从失败次数推算阈值；`X-Login-Failed-Count` 仅用于提示。挑战后的失败会清除已用证明并重建组件；登录成功清除本地挑战。
 
-这次认证切换要求旧 JWT 重新登录，API key 保留原 SQL 状态。先停止全部旧 API／WebSocket／签发与刷新进程，再受控迁移并启动新验证器；不能新旧认证滚动并行或回到接受旧 JWT 的代码。已有用户或撤销记录时，迁移拒绝降级；保留数据向前恢复。独立安装包、只读容器、真实 API／WebSocket 和 Node 准入客户端已通过一次性本地联调，备份还原后保留原生权限和撤销状态。当前日常环境尚未切换；整模块的本地私网资格及部署边界见下文“Identity 整模块私网验收”。详见 [ADR-0115](docs/adr/0115-identity-admission-and-durable-revocation.md)。
+从既有 JWT 验证路径切换时保持原实际签发密钥，不能将拓扑切换当作密钥轮换；先排空旧签发／刷新和 WebSocket 连接再启动新消费者。在更老数据库上跨过 [ADR-0115](docs/adr/0115-identity-admission-and-durable-revocation.md) 的撤销迁移时，仍需遵守其重新登录与降级保护。
 
 复验使用 `scripts/verify_module_data_boundary.py` 创建的独立 PostgreSQL、Redis 和测试桶。先用 `uv sync --project apps/identity --locked --extra runtime --no-editable --reinstall-package yoao-identity` 安装当前源码的独立包，再构建 `apps/identity/Dockerfile`。镜像须带 `org.aap.acceptance=identity-admission` 和唯一的 `org.aap.acceptance-id` 标签。设置 `AAP_IDENTITY_RUNTIME_PYTHON` 为该虚拟环境 Python 的绝对路径，`AAP_IDENTITY_RUNTIME_IMAGE` 为镜像名或摘要，`AAP_IDENTITY_RUNTIME_IDENTITY` 为对应标签值，然后运行：
 
@@ -2426,10 +2201,7 @@ key 命令验收另覆盖无身份表权限的真实 API 调用层、Node 五项
 
 ### Identity 整模块私网验收
 
-整模块入口复用 `docker-compose.identity.yml`，由验收器启动一个配置全部能力的 HTTP owner、
-MailV1、MailV2、Notifications publisher 和单独的 API 冷镜像。PostgreSQL／Redis 只连接
-该次验收拥有的 Compose 私网；测试结束先停服务、断开独占依赖，再删除自己的容器／网络。
-数据库 clone 使用独占名称、所有权标记和连接检查后删除，不强制终止未知连接。
+冷用例使用 `docker-compose.identity.yml` 的 `identity-issuer` 和 `identity-mail-v2`，另起独立 API 冷镜像及 PostgreSQL／Redis、SMTP 收件器。默认档的 API 内嵌签发与远程档以实际运行分别验收，不把旧按操作拓扑的收据当作当前结果。仅使用一次性数据库、桶和私网。
 
 先按上文准备当前源码的非 editable Identity 安装和镜像，再构建当前 API 镜像。
 两个镜像都设置 `org.aap.acceptance=identity-admission`，各自使用不同的唯一
@@ -2455,48 +2227,7 @@ AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
 也没有 Identity 命令 DSN、owner 私钥或邮件 key。API 启动仅获得隔离桶的元数据／生命周期
 权限；UserBrief 使用不需要读取对象内容的点云任务夹具。
 
-当前私网装配连续两轮通过真实 API／Socket、Node 重放、邮件、通知和完整备份恢复；
-非 editable 安装包 658 项、包／镜像指纹及完整五阶段迁移均通过。旧宿主机数据库端口转发
-实验已复现底层 TCP 建连故障，但历史单次业务 503 的归因仍未确认，不能将私网通过视为修复。固定预算和有限并发样本、
-精确证据及尚未覆盖的环境见[模块台账](docs-site/dev/concepts/module-deployment.md#identity-整模块独立装配)。
-日常运行环境没有切换。
-
-旧宿主机 PostgreSQL 转发路径的定向诊断复用上述镜像和凭据。两项用例各自单独
-选择并使用新的验收数据库；普通 API 的凭据、签名隔离与 Compose 资源检查保持。
-
-```bash
-AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
-  scripts/verify_module_data_boundary.py --output .worktree/identity-forwarding-traced.json \
-  --test-file 'tests/test_identity_module_assembly_live.py::test_host_forwarded_identity_rpc_failures[traced]'
-
-AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
-  scripts/verify_module_data_boundary.py --output .worktree/identity-forwarding-untraced.json \
-  --test-file 'tests/test_identity_module_assembly_live.py::test_host_forwarded_identity_rpc_failures[untraced]'
-```
-
-插桩只记录 RPC 路径、阶段、耗时、原始状态、异常类型、SQLSTATE、函数和数据库身份，
-不记录请求内容、令牌、密码或任意 SQL。每项包含真实邀请／离职、连接拒绝及恢复，
-以及完整备份恢复后的资料读取；受控拒绝通过修改一次性 PostgreSQL 中普通邀请
-LOGIN 的连接上限实现，并在 finally 恢复。诊断收据路径写入 JUnit property。
-两项均已通过；它们仍未复现历史间歇故障，不能作为故障已修复或生产容量结论。
-
-保留原始完整业务顺序的复放入口如下，仍须每项使用全新验收数据库：
-
-```bash
-AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
-  scripts/verify_module_data_boundary.py --output .worktree/identity-forwarding-original-traced.json \
-  --test-file 'tests/test_identity_module_assembly_live.py::test_host_forwarded_identity_original_sequence[traced]'
-
-AAP_IDENTITY_LIVE_ACCEPTANCE=1 apps/api/.venv/bin/python \
-  scripts/verify_module_data_boundary.py --output .worktree/identity-forwarding-original-untraced.json \
-  --test-file 'tests/test_identity_module_assembly_live.py::test_host_forwarded_identity_original_sequence[untraced]'
-```
-
-这两项复用原整模块用例，覆盖邮件／通知交互、Node／Socket、停服、重放和完整恢复。
-插桩收据在停止／切库前保留日志，并记录 API 响应体读取、异常转换及连接取消的安全
-堆栈帧。两项已通过，但恢复期间的就绪探测实际遇到过一次连接超时。独立传输探针
-还复现了宿主机转发的 TCP `sock_connect` 超时；这与应用 SQL 错误不同，且不能据此
-逐次归因历史三类业务 503。当前独立部署仍使用已通过验收的 Compose 私网直连。
+旧版完整私网运行、宿主机转发故障和恢复的历史收据见[模块台账](docs-site/dev/concepts/module-deployment.md#identity-整模块独立装配)。移除旧装配不是修复宿主机转发；保留的 split 仍须在实际私网验证。不自动切换任何日常服务。
 
 手动筛选 CLI 的 Identity 边界另用真实生成的普通 E2E LOGIN 验收：
 
@@ -2538,7 +2269,7 @@ Identity recovery 包含五个私有操作：`register_open`、`request_password
 
 Native 0239 将两个 token 表的现存明文 token 原地改为 SHA-256 摘要，保留已经签发的链接，并冻结 `issued_email`。Recovery owner 保存 operation HMAC 回执；mail outbox 仅存 token 摘要及 Fernet 密文。原 token 不进入 API／RPC 结果或日志。Reset 会消费挑战、更新密码、清除管理员重置标记并推进 JWT generation；API key 不因此撤销。邮箱验证可验证 inactive 用户而不重新激活或改变 generation。两个挑战在 `now >= expires_at` 时失效；同一邮箱的旧有效链接仍各自可用一次。
 
-为预先创建、无成员关系的 `yoao_identity_recovery_client`、`yoao_identity_mail_client`、`yoao_identity_mail_settings_client` 安装最小函数权限；先应用当前迁移并重新应用 `module-data-grants.sql`，数据库初始化须已撤销 PUBLIC TEMP：
+独立邮件配置先应用当前迁移和 `module-data-grants.sql`，撤销 PUBLIC TEMP，再使用既有 Recovery 授权脚本。脚本仍校验 V1 函数 LOGIN，保留作包一致性／SQL 兼容，不配置其运行 DSN，也不启动 V1。Recovery producer、MailV2 与 mail Settings 各用自己的受限能力：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
@@ -2552,19 +2283,11 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 Recovery LOGIN 只有 `recovery_policy()`、`prepare_recovery_command(jsonb)`、`apply_recovery_command(jsonb)`、`read_registration_status(jsonb)`；MAIL LOGIN 只有 `mail_policy()`、`claim_mail(jsonb)`、`renew_mail(jsonb)`、`finish_mail(jsonb)`；`MAIL_SETTINGS` LOGIN 只有 Settings 的 `mail_delivery_policy(jsonb)`。Identity code owner 另只能调用 `yoao_settings_v1.identity_recovery_policy(jsonb)` 读取开放注册与 frontend URL 策略；它用 Settings SHARE 锁围栏注册策略。SMTP snapshot 只含 `smtp_host`、`smtp_port`、`smtp_user`、`smtp_password`、`smtp_from`，由 `MAIL_SETTINGS` function 一次返回，数据库值覆盖环境 fallback；credential mail 不读取通知偏好。角色不得拥有 recovery token、outbox、User 或 Settings 的直接表权限，也不得是其他角色的成员。
 
-`identity-mail` 使用同一 `apps/identity/Dockerfile` 制成的 `aap-identity:local` 镜像，命令为 `python -m yoao_identity_runtime.mail_worker`。它只得到 MAIL DSN、`MAIL_SETTINGS` DSN、Fernet key，以及 `IDENTITY_MAIL_SMTP_HOST`、`IDENTITY_MAIL_SMTP_PORT`、`IDENTITY_MAIL_SMTP_USER`、`IDENTITY_MAIL_SMTP_PASSWORD`、`IDENTITY_MAIL_SMTP_FROM` fallback；不配置 AUTH、control bearer 或 JWT signing secret，也不接收 Recovery DSN。Worker 每次领取一条 intent 并先提交 lease，再做 SMTP；claim、续租和 finish 使用短事务，绝不持 SQL 锁发信。默认 lease 60 秒，发送期间续租；lease 与 retry delay 限在 1–300 秒。稳定 Message-ID 为 `<aap.{delivery_id}.{purpose}@aap.invalid>`。SMTP 是 at-least-once：发送开始后的断连会按 unknown 处理，并用相同 token 密文与 Message-ID 重排队，允许重复邮件。`delivered` 和确定 `rejected` 终态；`not_configured` 也是确定拒绝，只回收该 reset token，验证 token 仍有效。retry、unknown 与 invalid_key 保留 intent；过期 intent 终止。
+唯一邮件进程 `identity-mail-v2` 持四函数 MailV2 LOGIN、单函数 Settings LOGIN、Fernet key 和邮件中继配置，轮询恢复、验证和邀请。API／Beat 不发送生产邮件、不 kick 领取，issuer 不持有 sender DSN 或 SMTP 密码。嵌入 producer 用原事务或显式的同库 Recovery LOGIN，并使用与 sender 相同的加密 key；远程 producer 只在 issuer 上设置 key。无专用 key 的本地兼容派生仍从当前有效 JWT 密钥计算，sender 不使用该 JWT 密钥。旧 pending 密文沿用旧 Fernet key；若原配置是自动派生，按[升级门禁](docs-site/ops/upgrade-guide.md#split-topology-upgrade)离线派生一次并传递保护文件。
 
-Fernet key 应单独配置，不与 JWT secret 共用。轮换时保留旧 key，直到旧密钥加密的待投递行排空；换 key 不会改变 hash-only 链接的有效性，但缺少旧 key 的行无法解密投递。SMTP 超时后仍可能产生重复邮件，不能把结果未知当成未发送。
+供 sender 的 `.env` 只作为 Compose 插值来源，不作为 API、issuer 或 Celery 的 `env_file`。设置 `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` 及必要的 `IDENTITY_MAIL_SMTP_*`。SMTP 在短领取事务提交后执行，断连的未知结果可能以同 Message-ID 重发；不能因超时删意图。`127.0.0.1:8171/ready` 在容器内验证数据库与密钥，实际投递另用私有收件器验收。见[启动配方](docs-site/ops/deploy/docker-compose.md#production-mail)。
 
-`.env.example` 区分 API 配置与 Compose 宿主机的 secret-file 选择器。API 可配置八个字段，即四组直接值／文件：`IDENTITY_RECOVERY_DATABASE_URL` 与 `IDENTITY_RECOVERY_DATABASE_URL_FILE`、`IDENTITY_RECOVERY_MAIL_KEY` 与 `IDENTITY_RECOVERY_MAIL_KEY_FILE`、`IDENTITY_MAIL_DATABASE_URL` 与 `IDENTITY_MAIL_DATABASE_URL_FILE`、`IDENTITY_MAIL_SETTINGS_DATABASE_URL` 与 `IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE`；每对最多设置一项。Recovery DSN 留空时使用 API 调用方事务；指定 Recovery DSN 后，MAIL 与 `MAIL_SETTINGS` 两个 DSN 必须同时指定，否则 fail closed，不会静默轮询 API 数据库。若两个 mail DSN 都留空，嵌入式 mail kick 复用 API session。若 API 选用远程 `IDENTITY_URL`，该 Identity owner 旁必须部署自己的 mail worker；本 API 不会扫描远程 outbox。Compose 主机路径选择器分别是 `IDENTITY_RUNTIME_RECOVERY_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE`、`IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE` 和 `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE`；Admission 容器映射为 `IDENTITY_RECOVERY_DATABASE_URL_FILE`、`IDENTITY_RECOVERY_MAIL_KEY_FILE`，Mail worker 映射为 `IDENTITY_MAIL_DATABASE_URL_FILE`、`IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE`、`IDENTITY_MAIL_ENCRYPTION_KEY_FILE`。上述三个 PostgreSQL DSN 文件与共用 Fernet key 文件都必须显式配置；secret-file 读取失败不会回退。
-
-普通单体 API 的 `application_role` 增加了 Identity public-function allowlist，源文件为 `infra/docker/lan-production-grants.sql`；这是 grants source 的改动，尚未应用到生产数据库。隔离 service 使用上面的三个专用 LOGIN 与同一函数集合，不把这项单体授权解释为 API 全角色已实现最小权限。
-
-独立运行时启用 Recovery DSN 时，必须显式提供共享 Fernet key；API 默认内嵌模式才保留由签名 secret 派生邮件 key 的兼容路径。
-
-Producer 的直启策略名是 `IDENTITY_ALLOW_OPEN_REGISTRATION`、`IDENTITY_EMAIL_VERIFICATION_REQUIRED` 和 `IDENTITY_FRONTEND_BASE_URL`；Compose 主机端以 `IDENTITY_RUNTIME_ALLOW_OPEN_REGISTRATION`、`IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED`、`IDENTITY_RUNTIME_FRONTEND_BASE_URL` 提供值。SMTP 环境 fallback 与主 API 现存的 `SMTP_*` SMTP 测试邮件配置分开；Settings 中的 mail policy 优先。mail worker `/health` 为 liveness，`/ready` 检查 8171 端口上的原生能力、Settings 与 key；Compose 覆盖镜像原先检查 8170 的 healthcheck，容器只读并以 UID 10003 运行。
-
-Recovery/mail、分组目录／指派、自助注销／outbox、完整 invitation lifecycle／MailV2、四项 Identity Directory reads、管理员临时密码重置、平台角色预览／变更、管理员暂停／恢复、管理员 DELETE、offboarding preview/commit 与批量 UserBrief reads 均通过各自限定的本地资格。Directory 有 38 个选定数据库／进程案例；admin-reset 有 42 个选定联合案例（含兼容路径）；platform-role 有 56 个选定 DB/process 案例，均按自己的切片统计。Suspension 有 77 个选定 DB/process 案例、零跳过（73 DB/restore 加 4 live）；管理员 DELETE 有 72 个 selected cases（71 DB/process、1 static artifact），零跳过；offboarding 有 77 个 selected cases（76 DB/process、1 static artifact），零跳过；UserBrief 有 64 个 distinct selected cases（59 DB/process、5 pure/static），零跳过。细节分别见 [ADR-0127](docs/adr/0127-independent-identity-deletion-commands.md)、[ADR-0128](docs/adr/0128-independent-identity-offboarding-commands.md) 与 [ADR-0129](docs/adr/0129-identity-batched-user-brief-reads.md)。各切片的精确哈希、样本和范围见[后端解耦计划](docs/plans/archive/1792160873_backend-module-decoupling.md)。公开 API 继续聚合这些 owner 能力；Identity 的本地私网模块资格见上文，日常认证环境未切换，也没有另一语言完整 provider；Go 月报仍是独立实验。详见 [ADR-0119](docs/adr/0119-independent-identity-recovery-and-mail.md)、[ADR-0120](docs/adr/0120-independent-identity-group-catalog-and-assignment.md)、[ADR-0121](docs/adr/0121-identity-self-deactivation-and-notification-delivery.md)、[ADR-0122](docs/adr/0122-independent-identity-invitations-and-mail-v2.md)、[ADR-0123](docs/adr/0123-independent-identity-directory-reads.md)、[ADR-0124](docs/adr/0124-independent-identity-admin-password-reset.md)、[ADR-0125](docs/adr/0125-independent-identity-platform-role-commands.md) 与下方 [ADR-0126](docs/adr/0126-independent-identity-suspension-commands.md)。
+既有 Identity 子协议的已安装包与隔离证据见各 ADR 和[模块台账](docs-site/dev/concepts/module-deployment.md#identity-整模块独立装配)，不代表当前默认档、sender 或生产容量验收。
 
 ### Identity 分组目录与指派
 
@@ -2594,27 +2317,19 @@ Native migration 0241 按顺序安装 `0241_deactivation_notifications.sql`、`0
 
 API 与独立 Identity runtime 的用户能力 DSN 为 `IDENTITY_DEACTIVATION_DATABASE_URL(_FILE)`；到期 operator 使用 `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL(_FILE)`。这两项在 API 可选，直接配置或 `_FILE` 每对最多一项；独立运行时省略所选能力时对应路由返回 503，显式 DSN 失败不回退本地 ORM。
 
-注销 request/completion 两种 Notification 由 Notifications owner 在 Identity 业务事务中写入 `notification_delivery_outbox`，创建时应用现有 in-app preference truthiness，不含注销原因。单体 API/Celery relay 可选 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 并复用现有 task Redis 配置，每 10 秒运行；Notifications 独立入口为 `yoao-notifications-publisher` 或 `python -m yoao_notifications.delivery_worker`，原 Identity 模块命令保留兼容转发。默认持续 poll，`--once` 仅领取一个 batch，只接收原 `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` 与 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`。两种执行方式使用同一个 lease executor；claim 先提交，Redis 接受前不确认，重试沿用同一 notification ID，投递为 at-least-once。publisher 没有 HTTP health endpoint，也没有 Identity/AUTH/control/JWT/SMTP 配置。`apps/notifications/Dockerfile` 使用其独立锁文件构建非 editable 运行包；已有 Identity image 同时安装 Notifications，以保留原入口。
-
-可选 `docker-compose.identity.yml` 中 `identity-admission` 仅挂载 deactivation user/operator DSN；独立 `identity-notification-publisher` 服务只获得 Notifications 数据库与 Redis 两个 secret，并以同一 Identity image、非 root、只读方式启动。宿主机路径选择器分别为 `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE`、`IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE`；运行容器内使用 `IDENTITY_DEACTIVATION_DATABASE_URL_FILE`、`IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`、`NOTIFICATION_PUBLISH_DATABASE_URL_FILE`、`NOTIFICATION_PUBLISH_REDIS_URL_FILE`。DSN 必须指向同一 PostgreSQL owner database，以共同提交身份状态、Audit 与通知 outbox。完整协议、最后管理员状态、Audit 边界和 worker recovery 见[Identity 私有运行协议](docs-site/api/guides/identity-runtime.md#自助注销与最后一名超级管理员围栏)、[审计与通知](docs-site/dev/concepts/audit-and-notifications.md#自助注销的-durable-delivery)和 [ADR-0121](docs/adr/0121-identity-self-deactivation-and-notification-delivery.md)。
-
-Identity deactivation/outbox 的既有本地证据继续有效；发布器归属迁移的源码／独立安装与实际新进程验收分别记录，不把旧宿主机执行标为新 Notifications 镜像结果。Identity 整模块与 Notifications 剩余能力状态见[唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)，逐项历史证据见[后端解耦计划](docs/plans/archive/1792160873_backend-module-decoupling.md)。Go 月报仍是独立实验。
-
-独立镜像的定向用例是 `tests/test_notifications_publisher_image_live.py`，通过现有验证器的 `--test-file` 选择。仅在新建、独占的验证器测试库中运行，并显式设置 `AAP_NOTIFICATIONS_DELIVERY_LIVE_ACCEPTANCE=1`、不可变 SHA 镜像引用 `AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IMAGE`、对应 label 的 `AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IDENTITY`／`AAP_NOTIFICATIONS_DELIVERY_RUNTIME_SOURCE_REVISION`，以及已安装非 editable Identity 工件的 `AAP_IDENTITY_RUNTIME_PYTHON`。验证器提供测试角色、隔离 Redis 与依赖容器身份；用例先拒绝已有 pending outbox／发布器会话，再通过私网验证发布授权、重试、空批次重启和进程死亡后的租约接管。受控推进只作用于该用例的回执时间，不能据此推断生产恢复时限；密钥文件在自有容器清理后删除。
+注销 request/completion 由 Notifications owner 在 Identity 业务事务中写入 `notification_delivery_outbox`，沿用 in-app preference，不存注销原因。发布由[默认 Notifications 调度](#notifications-实时消息合同)恢复，无需 Identity 进程持有发布凭据；只在隔离发布 Redis 时选择 Notifications publisher。独立 issuer 的用户／operator DSN 仍使用 `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE` 与 `IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE`，必须指向同一 owner database，以共同提交身份状态、Audit 与 outbox。
 
 ### Identity 邀请 owner 与 MailV2 durable sender
 
 本次把完整 invitation lifecycle 从 API ORM workflows 移到 Identity，而不是只挪 `InvitationService`。私有 `POST /v1/identity/invitations/execute` 使用 `aap-identity-invitations/v1`，覆盖 13 项操作：单人创建、批量预览／应用、数组读取、分页查询、统计、CSV/JSON 导出、撤销、换新链接、发送当前链接、匿名链接解析、首次注册和已有账号接受。公开路由、schemas、SDK fields、错误／HTTP status 与导出格式保持当前契约。
 
-`yoao_identity_invitation_client` LOGIN 只有 `invitation_policy()`、`prepare_invitation_command(jsonb)`、`apply_invitation_command(jsonb)`。API 与独立 Identity runtime 分别配置 `IDENTITY_INVITATION_DATABASE_URL(_FILE)`；Compose Admission 用 host selector `IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE` 挂载。没有此 capability 时所选 runtime 返回 503，明确选择连接失败绝不回退 API User/Invitation ORM。角色只可执行函数，不获得业务表、序列、DDL 或 GROUP/MAIL helper 权限。
+`yoao_identity_invitation_client` LOGIN 只有 `invitation_policy()`、`prepare_invitation_command(jsonb)`、`apply_invitation_command(jsonb)`。内嵌 producer 可用 `IDENTITY_INVITATION_DATABASE_URL(_FILE)`；独立 issuer 通过 `IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE` 挂载专用 DSN。显式配置错误不回退；角色不持有业务表、序列、DDL 或 GROUP／MAIL helper 权限。
 
 Migration 0242 按顺序安装 `0242_identity_invitations_support.sql`、`0242_invitation_mail.sql`、`0242_identity_invitations.sql`，先建立跨 owner 协调能力和 mail support，再安装邀请 RPC。受理／接受以当前 inviter、User credentials、project owner、Invitation token 和 Group/Workspace member 权威共同围栏；事务提交原子包含 User、Group、ProjectMember、token 状态与 typed Audit。Labeling 的当前 active-batch count 只作完成页 work hint，不创建或分配任务。
 
 邀请账号／项目角色、批量与查询保真、 quota/TTL、锁序、receipt/Audit 与安全失败细节见 [Identity 私有运行协议](docs-site/api/guides/identity-runtime.md#邀请生命周期) 和 [ADR-0122](docs/adr/0122-independent-identity-invitations-and-mail-v2.md)。项目管理员仍只能管理自己创建的邀请；管理员邀请角色仅由超级管理员签发；已接受邀请不编辑平台角色。老 token proof 列保持 authoritative，不迁移为 hash；值 1–64 Unicode 字符保持 opaque。
 
-邀请 email 使用 separate `aap-identity-mail-native/v2`，不改变 recovery `aap-identity-mail/v1`。`yoao_identity_mail_v2_client` 只有 `mail_policy()`、`claim_mail(jsonb)`、`renew_mail(jsonb)`、`finish_mail(jsonb)` 四个函数；V1 client 保持仅领取 password-reset 与 email-verification purpose。API `send-email` 保留 HTTP 200/502 与原 invitation link；Identity durable-accept 后最多等默认 60 秒（上限 120）查询 private pending/sent/failed，timeout 后仍为 502 而不是 202，已接受 intent 仍能被 worker 接管。
-
-独立 sender `python -m yoao_identity_runtime.mail_worker_v2` 通过可选 `mail-v2` Compose profile 运行。它只得到 MailV2 DSN、`MAIL_SETTINGS` DSN、Recovery Fernet key 与 SMTP fallback，不带 Identity/Auth/control/JWT signing secret；邮箱/链接发送在 lease commit 后执行，不持 SQL 锁。host `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE` 选择自己的四函数 DSN；现有 `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE` 与 `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` 挂载复用，旧的 `IDENTITY_MAIL_SMTP_*` host fallback 映射成 `IDENTITY_MAIL_V2_SMTP_*`。SMTP unknown outcome 是 at-least-once，同 Message-ID 可能重发；当前 invitation 仍保持 valid。API embedded kick 可选 `IDENTITY_MAIL_V2_DATABASE_URL` 或 `IDENTITY_MAIL_V2_DATABASE_URL_FILE`，不注入 SMTP 凭据到 producer。轮换 Fernet key 时保留旧 key，直到相关 pending 邮件送达或被人工处理。
+`aap-identity-mail-native/v2` 保持四函数能力，唯一 sender 同时领取恢复、邮箱验证和邀请对象；历史 Recovery V1 协议和已加密 intent 不变。API `send-email` 保留原本 200／502 和 invitation link，默认等待 60 秒（上限 120 秒）；超时后已接受的 intent 仍可由 sender 接管。API 不挂载 MailV2 或 Settings 邮件 DSN，也不持 sender 的 SMTP 密码。部署、密钥和恢复见[生产邮件](docs-site/ops/deploy/docker-compose.md#production-mail)。
 
 邀请／MailV2 已通过本地限定资格；68 个数据库／进程用例、375 个已安装 Identity package 检查、324 个 API assembly 检查及其边界见[后端解耦计划](docs/plans/archive/1792160873_backend-module-decoupling.md)。这些历史数字只覆盖 Invitation/MailV2；Directory 采用后文独立的 38 个选定数据库／进程案例和当前安装、API、镜像证据。
 
@@ -2767,7 +2482,9 @@ API／worker 默认用现有数据库连接保存检查点；设置 `PREANNOTATI
 
 ## 视频媒体的独立控制与执行
 
-`apps/assets-media` 定义 `aap-assets-media/v1` 与 `aap-assets-images/v1` 契约。视频与图片共用控制进程；视频和图片分别由独立 Worker 执行，图片通过固定 SQL 能力与来源/派生对象身份完成受理、发布和清理。视频控制/执行已通过隔离本地进程和受限容器联调；图片的可选运行方式与验证边界见下文及[图片金字塔运行手册](docs-site/ops/runbooks/image-pyramid.md)。Go 实验不进入这些默认运行路径。
+`apps/assets-media` 的固定视频与图片合同由 API 内嵌控制，默认视频由 Celery、图片由 `celery-worker-image-pyramid` 执行。只有需要 FFmpeg／临时盘或 libvips／内存隔离时才分别启用独立执行器。控制端也可单独拆出，但不是执行器依赖。图片配置见[图片金字塔运行手册](docs-site/ops/runbooks/image-pyramid.md)。
+
+严格运行账号的媒体执行者用独立 `ASSETS_CELERY_VIDEO_DATABASE_URL(_FILE)`；Celery Native 图片写入另用 `ASSETS_CELERY_IMAGE_DATABASE_URL(_FILE)`。参见[媒体执行角色](docs-site/ops/deploy/docker-compose.md#media-executor-provisioning)。下文旧 media/image grant 命令仅用于已经有 Assets NOLOGIN owner 的数据库，不在普通库上混用。
 
 安装当前迁移后，沿用 module-data 初始化流程，为现有 Assets NOLOGIN owner 创建分离的 `yoao_asset_media_control_client` 和 `yoao_asset_media_worker_client` LOGIN。受理视频输入及请求者撤权处理使用 `0225`、`0226`。先应用 owner 与既有 Catalog/Source/importer/operator grants，再由 migration role 安装媒体授权：
 
@@ -2783,7 +2500,17 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 为两个进程准备不同的数据库和 S3 身份。源桶只需对象 HEAD/GET，不能写或删除原素材；控制身份对缓存只需 HEAD/GET，执行身份另需 `media-assets/*` 的 Put/Get/List/Delete 及精确旧视频缓存清理，不授予桶管理。S3 不单独定义 HEAD 动作，相应权限由 GetObject 提供。浏览器可达的 `ASSETS_MEDIA_S3_PUBLIC_ENDPOINT` 必须与内部请求地址分开配置；不改写已签名主机名。
 
-可选 `docker-compose.assets-media.yml` 不被默认 Compose 引用。准备其中列出的独立 secret 文件，使容器用户 10005 能读取，再显式启动两个服务；该文件只暴露内部 8768，不绑定宿主端口，不连接 Celery/Redis。宿主联调入口为：
+准备 `docker-compose.assets-media.yml` 列举的专用 secret 文件（UID 10005 只读），排空旧视频执行者，向 API 与 worker 同步设置 `ASSETS_VIDEO_EXECUTOR=split`。仓库默认 `celery`，未选择 `split` 却启动独立 worker 会失败。可选远程控制还需独立的 `assets-media-control` profile、只读控制身份和 API 的 `ASSETS_MEDIA_URL/TOKEN`；本例只启动视频执行器：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml \
+  --profile assets-video-executor up -d --build --wait assets-media-worker
+docker compose -f docker-compose.yml -f docker-compose.assets-media.yml \
+  --profile assets-video-executor exec assets-media-worker \
+  python -m yoao_assets_media_runtime.worker --healthcheck
+```
+
+overlay 不发布宿主端口，独立控制仅在私网监听 8768；视频执行器不连接 Celery/Redis。宿主直启入口：
 
 ```bash
 uv run --project apps/assets-media --extra runtime --extra server python -m yoao_assets_media_runtime
@@ -2819,7 +2546,7 @@ uv run --project apps/assets-media --extra runtime python -m yoao_assets_media_r
 
 该命令在一次性 PostgreSQL、专用 Redis 和十个归属桶内执行真实 HTTP、队列和版本化对象读写，再按归属清理。API 的启动身份只有这十个桶的元数据和生命周期权限，不能读写源对象；Media 持单独身份，Celery 使用无效直接存储凭据。默认视频执行策略需要的空闲临时盘至少为源大小加 128 MiB；验收的 256 MiB 临时盘仅覆盖小样本，不应直接作为大视频部署预算。
 
-每个进程只接收自己的专用环境。必填的 DSN、token、S3 凭据可用对应 `_FILE`，直接值与文件变量不能同时存在，空值不作为回退来源。控制进程使用 `ASSETS_MEDIA_CONTROL_DATABASE_URL`，执行进程使用 `ASSETS_MEDIA_WORKER_DATABASE_URL`；S3 endpoint、region、两个桶和身份由 `ASSETS_MEDIA_*` 显式提供。API 设置 `ASSETS_MEDIA_URL` 和同一 token 后选择远程控制，任何远程配置或调用失败都不回退本地；留空使用同一工作流的本地 SQL/对象装配和薄 Celery 执行适配。
+每个进程只接收自己的环境。DSN、token、S3 凭据的值／文件二选一；控制使用 `ASSETS_MEDIA_CONTROL_DATABASE_URL`，视频执行器使用 `ASSETS_MEDIA_WORKER_DATABASE_URL`。`ASSETS_MEDIA_URL` 与对应 token 只选择控制，显式故障不回退，也不将 `celery` 改为 `split`。视频执行由 `ASSETS_VIDEO_EXECUTOR` 单独选择。
 
 原生请求/完整回复上限为 8/16 MiB，记录页为 15 MiB/500 条；完整时间表和 packet 样本可以跨页。客户端验证顺序、总数、游标、来源和摘要，来源引用批量读取也按回复预算拆分。控制默认池为 1..8、取连接 2 秒、SQL 5 秒、S3 连接/读取 2/10 秒；执行默认轮询 5 秒、租约 1200 秒及定期续租，S3 连接/读取为 10/120 秒。帧和分块的空闲保留为 14/30 天，海报使用独立持久对象，不参与普通帧淘汰。Compose 的控制 512 MiB/0.5 CPU 和执行 2 GiB/2 CPU 是可选本地预算，不是生产容量证明；解码、完整索引及临时文件仍随视频大小增长。
 
@@ -2829,46 +2556,23 @@ uv run --project apps/assets-media --extra runtime python -m yoao_assets_media_r
 
 控制 `/health/live` 只证明进程可响应，`/health/ready` 和执行器 `--healthcheck` 验证精确 SQL 身份；它们不能替代实际对象权限、解码和发布验收。数据 schema 与 HTTP OpenAPI 分别随包发布为 `protocol.schema.json`、`openapi.snapshot.json`。完整切片状态与本地证据记录在[后端解耦计划](docs/plans/archive/1792160873_backend-module-decoupling.md)和 [ADR-0105](docs/adr/0105-independent-video-media-owner.md)。
 
-## 图片金字塔的独立控制与执行
+## 图片金字塔执行选档
 
-图片金字塔现由 `apps/assets-media` 中的共享媒体控制进程和专用图片 Worker 承担。共享控制端同时承载视频、图片与已受理输入契约，`yoao_asset_media_control_client` 使用当前完整控制能力集（视频、图片、图片输入、批量清单、视频输入与跟踪）；视频 Worker 使用自己的受限函数集，图片 Worker 使用独立的 `yoao_asset_image_worker_client`（图片 16 项、输入 6 项）。图片处理使用 Pillow 与受资源上限约束的 libvips 子进程，不依赖 Celery 执行队列。图片和输入垃圾由既有 `assets-cleanup` 进程处理，`yoao_asset_cleanup_client` 获 11 项清理能力（五条 lane，含 Native 保存输出回收）。
+默认 `ASSETS_IMAGE_EXECUTOR=celery`，`celery-worker-image-pyramid` 复用原执行器。用 `split` 才由 `assets-images-worker` 独立轮询；Pillow、libvips 及临时盘成为该进程的资源边界。图片／输入清理由拥有专用身份的 `assets-cleanup` 负责；不用图片 executor 或 API 身份代删。
 
-API 设置 `ASSETS_MEDIA_URL` 和相同的 `ASSETS_MEDIA_TOKEN` 后，将图片控制请求发到共享控制进程；一旦配置远程地址，连接或请求失败不会退回本地。地址留空时，当前开发兼容路径仍在 API 进程内装配本地控制，并保留轻量 Celery 唤醒适配；这条路径不代表独立控制/执行部署。默认 Compose 不启动媒体 overlay，也不表示图片 Worker 已部署到主环境或生产环境。
+`ASSETS_MEDIA_URL/TOKEN` 只选择控制端，留空使用 API 内嵌控制，与采用哪个图片执行器无关；显式远程失败不回退。更换执行者时暂停受理、结算在途任务及对象许可，再同时更新 API 与普通 worker，不能并行领取同一作业。
 
 图片 schema 属于迁移 `0220`，已受理输入属于 `0221`。按既有 module-data 与媒体授权顺序安装 owner/辅助能力、`infra/docker/assets-media-grants.sql` 和 `infra/docker/assets-image-grants.sql`。图片 Worker 只能执行自己的 16 项图片与 6 项输入函数，不能直接访问表或其他 owner schema；清理 LOGIN 只能领取/确认 owner 发出的删除责任（含 Native 保存输出回收）。所有 SQL LOGIN 必须与迁移角色和 NOLOGIN owner 分离。
 
 批量图片输入清单的基础迁移为 `0222`，Scene 模式普通单图 Task 需要 `0227`，均不增加服务、桶或 secret。各自升级前先排空或明确处理对应图片项目中仍为 pending/running、scope 为 bulk 或缺省、且没有清单协议的旧预标作业；迁移会拒绝这些在途记录。旧 pending payload 没有完整配方，无法分类的文字／跟踪／场景配方也保守纳入排空；有明确保存的执行单位或配方标记时按原独立路径处理。刷新 API、普通预标 Celery consumer 和共享 Media 控制，核验三项 `accepted_input_manifest_*` 派发参数及四个 `/v1/input-manifests/` 路由；当前共享控制就绪探针核验当前代码声明的完整控制能力集，包含跟踪输入能力。清单封存前不交付 Input 引用。清单和成员是 native 管理的两张证据表，保留记录时拒绝删除表；仍有 Scene 模式清单时也拒绝恢复旧的普通图片范围，不自动清空历史。
 
-可选 `docker-compose.assets-media.yml` 增加共享控制、视频 Worker 和图片 Worker；需要把它与默认服务文件组合，并只启动所需服务：
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.assets-media.yml build assets-media-control assets-images-worker
-docker compose -f docker-compose.yml -f docker-compose.assets-media.yml up -d assets-media-control assets-images-worker
-docker compose -f docker-compose.yml -f docker-compose.assets-media.yml logs --tail=100 assets-media-control assets-images-worker
-docker compose -f docker-compose.yml -f docker-compose.assets-media.yml exec assets-images-worker python -m yoao_assets_images_runtime.worker --healthcheck
-```
-
-将 API 与控制进程接入同一受限网络，并配置 API 的控制 URL/token。overlay 不发布宿主端口；控制端仅在内部网络监听 8768。容器以 UID 10005 运行。镜像的 `image-worker` target 安装 libvips 和 ICC 文件；独立 Worker 的默认本地预算为 4 CPU、16 GiB 内存和 12 GiB 临时盘，这些是 Compose 资源限制，不是生产容量证明。回收派生对象时，按本节 Native 组合运行 `docker-compose.assets-cleanup.yml` 中的 `assets-cleanup`（同时提供 Source 与 Native overlay），不要把删除权限交给控制端或图片 Worker。
+配置 `ASSETS_IMAGE_EXECUTOR=split` 后，按[运行手册](docs-site/ops/runbooks/image-pyramid.md#启动与健康检查)使用 `docker-compose.assets-media.yml --profile assets-image-executor` 启动 `assets-images-worker`。用 `python -m yoao_assets_images_runtime.worker --healthcheck` 检查真实进程配置。镜像 `image-worker` target 安装 libvips 和 ICC；4 CPU、16 GiB 内存、12 GiB 临时盘仅为示例预算。控制远程模式另行选择，不是该 profile 的依赖。
 
 源桶和历史 Task 桶只需读取原图。共享控制凭据可 HEAD/GET 来源与缓存并签发受限读取 URL，不写源、不删除对象；图片 Worker 只读源对象，并在缓存桶的 `image-assets/*`、`image-pyramids/*` 前缀写入不可变派生输出，孤儿扫描的列举范围限制在金字塔前缀，不写/删原图。清理身份仅能列举并删除这两个派生前缀下由数据库签发的精确 key/prefix；不得配置整桶生命周期删除这些前缀，不能把原图桶作为清理桶。Native 保存输出另由 Source 内独立 Native 身份处理：只对缓存桶 `image-pyramids/objects/*` 的精确保存输出执行 GetObject/GetObjectVersion、PutObject、DeleteObject/DeleteObjectVersion、带前缀条件的 ListBucket/ListBucketVersions 及桶级 ListBucketMultipartUploads，模板见 `infra/docker/native-source-minio-policy.json`。不要把该权限加到普通 Source、控制、Worker 或清理身份；Cleanup 的 Native lane 只执行 Source 签发的请求，不持有对象凭据。
 
 已受理推理输入使用独立 `ASSETS_MEDIA_INPUTS_BUCKET`（默认继承 `MINIO_INPUTS_BUCKET=accepted-inputs`），必须启用 versioning，不能与源桶、历史 Task 桶或 `media-cache` 共用。控制端与图片 Worker 只需读取该桶的版本状态；Worker 按受理记录写入具备非空、非 `null` VersionId 的输入对象，输入清理身份按保留账本列举版本、删除标记与未完成 multipart 并按精确版本删除。在 MinIO 上，清理按每个 `(key, VersionId)` 发送 DELETE，并需 `DeleteObjectVersion` 加上仅接受非空、非 `null` `s3:versionid` 的 `DeleteObject`；无版本 ID 与批量删除不授权。不要授予桶创建/版本配置权限，也不要对输入桶或媒体缓存桶配置生命周期自动过期。
 
-Secrets 使用各 overlay 对应的独立数据库/S3 文件，不能共享高权限应用或迁移身份。
-
-启用 Native 保存输出时，把 `docker-compose.assets-native.yml` 与 Source、media、cleanup 三个既有 overlay 组合使用；Source 在共享网络内监听 8767，Native overlay 为 Source 提供五类签名 secret、为控制与图片 Worker 提供各自角色的 URL/token，cleanup overlay 自带其必需的 cleanup token：
-
-```bash
-docker compose \
-  -f docker-compose.yml \
-  -f docker-compose.assets-source.yml \
-  -f docker-compose.assets-media.yml \
-  -f docker-compose.assets-cleanup.yml \
-  -f docker-compose.assets-native.yml \
-  up -d --build assets-source assets-media-control assets-images-worker assets-cleanup
-```
-
-Source 的五项 Native 设置必须同时配置：三项互不相同的 token 及独立 Native S3 access/secret；全部留空时功能关闭，部分配置拒绝启动。调用方 token 值分别与 Source 的 writer/reader/cleanup token 相同，但各自使用对应运行用户可读的文件：Source 为 10003，控制与图片 Worker 为 10005，Cleanup 为 10001。Cleanup 当前强制要求其 Native URL/token，即使 `IMAGE_PYRAMID_AUTO_GENERATE=false`。API 宿主进程若承担本地控制或本地执行，需要设置相同的 `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_*` / `ASSETS_IMAGES_NATIVE_STORAGE_*`，URL 必须是该进程可达的 origin；远程 `ASSETS_MEDIA_URL` 模式由独立控制与 Worker 承担。Native 输出在受理时保存 endpoint、bucket、prefix 和存储身份，管理界面把用途绑定从 A 切到 B 只影响新输出；旧输出继续从 A 读取和回收，无需修改 Images/Cleanup 的桶、endpoint 或 secret。修改 A 的注册位置不是重定向，保存坐标不一致时明确拒绝。
+Native 保存输出的 Source、图片执行、控制、Cleanup 凭据及完整启动命令见[运行手册](docs-site/ops/runbooks/image-pyramid.md#native-签名与保存输出配置)。改用独立执行器不改变旧输出的保存坐标；不得为了访问历史对象把 writer／cleanup token 给 API。
 
 自动受理默认关闭；`IMAGE_PYRAMID_PROFILE_VERSION` 默认为 `pyramid-v1`，API 与共享控制端必须使用相同 profile。作业受理时固定 normalization/profile policy，修改 profile 应作为新输出线规划，而不是只切换一台服务。Worker 的 `ASSETS_IMAGES_SRGB_PROFILE`（默认镜像内 `/usr/share/color/icc/sRGB.icc`）必须是可读绝对路径。`VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 是 Web 构建开关，与自动受理无关，改动后需重建 Web。
 
@@ -2876,23 +2580,7 @@ Worker `--healthcheck` 仅验证配置、连接及精确 SQL 能力，不证明�
 
 ### Inference 健康观察
 
-所有既有健康入口复用同一个观察 owner 执行 `/health` 及条件 `/setup`。默认嵌入调用方；
-可选 `INFERENCE_HEALTH_OBSERVATION_DATABASE_URL(_FILE)` 或 `INFERENCE_HEALTH_OBSERVATION_URL`，
-两者互斥。DSN 指向只读三函数的 `yoao_inference_health_observation_client`，HTTP 使用
-`INFERENCE_HEALTH_OBSERVATION_TOKEN(_FILE)`。独立进程同样使用这两组 DSN/token selector；
-单个进程可同时提供流水线、Workspace setup probe 和健康观察，但各 bearer 必须不同。
-默认90秒的 `INFERENCE_HEALTH_OBSERVATION_TIMEOUT_SECONDS` 是整个 HTTP 调用预算，
-`ML_HEALTH_TIMEOUT` 仍控制每次实际后端请求；挑战兼容回退与 setup 最多产生三次请求。
-
-先应用当前 Alembic head，再应用 `infra/docker/module-data-grants.sql` 和
-`infra/docker/inference-health-observation-grants.sql`。后者仅授予 policy/open/seal；
-`inference-health-origin-grants.sql` 则测试独立签发与验证的三函数边界，不能用其 LOGIN
-替换整套 API 数据库账号。嵌入模式继续使用 API 的过渡角色，不代表宽表权限已收口。
-
-`docker-compose.inference-health.yml` 提供1 CPU／256 MiB、只读与降权示例，使用
-`INFERENCE_RUNTIME_HEALTH_OBSERVATION_DATABASE_URL_FILE` 和
-`INFERENCE_RUNTIME_HEALTH_OBSERVATION_TOKEN_FILE`。它和其他 Inference Compose 示例共用
-宿主8768，分别启动时只能选其一；secret 文件只读挂载。本地验收不切换日常或生产环境。
+`INFERENCE_HEALTH_OBSERVATION_URL` 指向统一的 `inference` origin，调用方使用独立的 `INFERENCE_HEALTH_OBSERVATION_TOKEN(_FILE)`。owner 使用 `INFERENCE_RUNTIME_HEALTH_OBSERVATION_DATABASE_URL_FILE` 与 `INFERENCE_RUNTIME_HEALTH_OBSERVATION_TOKEN_FILE`；先应用当前 head 和 `infra/docker/module-data-grants.sql`，再应用 `infra/docker/inference-health-observation-grants.sql` 的 policy/open/seal 授权。`inference-health-origin-grants.sql` 是签发与验证的单独能力，不能替换 API 数据库账号。`INFERENCE_HEALTH_OBSERVATION_TIMEOUT_SECONDS` 限制整个 RPC（默认 90 秒），`ML_HEALTH_TIMEOUT` 仍限制每次对后端的请求。
 
 请求/响应只携带不透明密封串；快照取自原 ORM 对象的已物化字段，保留关闭自动刷新时
 尚未落库的 URL/凭据。观察回执只能在原连接、原事务内验证，提交或回滚后失效。
@@ -2902,11 +2590,7 @@ Worker `--healthcheck` 仅验证配置、连接及精确 SQL 能力，不证明�
 
 ### Registry 环境同步
 
-启动同步可设置 `INFERENCE_REGISTRY_INGRESS_URL` 或
-`INFERENCE_REGISTRY_INGRESS_DATABASE_URL(_FILE)`，两者互斥；均为空时借用原启动事务。
-HTTP 使用 `INFERENCE_REGISTRY_INGRESS_TOKEN(_FILE)`，整体调用预算由
-`INFERENCE_REGISTRY_INGRESS_TIMEOUT_SECONDS` 控制；实际后端请求仍使用 `ML_HEALTH_TIMEOUT`。
-独立进程使用相同 DSN/token selector；bearer 必须与其他 Inference 能力不同。
+启动的 Registry 环境同步依赖统一 `inference` owner。为 `INFERENCE_REGISTRY_INGRESS_URL` 配置同一私网 origin，另用 `INFERENCE_REGISTRY_INGRESS_TOKEN(_FILE)`；远程故障不退回 API。本次合并不变更各用途 DSN 或 `INFERENCE_REGISTRY_INGRESS_TIMEOUT_SECONDS`、`ML_HEALTH_TIMEOUT`。
 
 先应用当前迁移，再以迁移角色应用 `infra/docker/module-data-grants.sql`，
 随后应用 `infra/docker/inference-registry-ingress-grants.sql`，设置
@@ -2914,10 +2598,7 @@ HTTP 使用 `INFERENCE_REGISTRY_INGRESS_TOKEN(_FILE)`，整体调用预算由
 `inference_registry_ingress_role=yoao_inference_registry_ingress_client`。专用 LOGIN 只能调用11项固定函数，
 没有原表、列、序列、临时对象或其他模块权限。不要把日常 API 的宽权限 DSN 用于该独立进程。
 
-本地容器示例为 `docker-compose.inference-registry.yml`，其两个
-`INFERENCE_RUNTIME_REGISTRY_INGRESS_*_FILE` 变量指向 DSN 和独立 bearer 文件。
-该进程独立监听，但尚不代表整个 Inference 模块可独立替换语言；截图 seed 的项目绑定、
-普通 Registry/Pool 管理、路由排空和租约连续性仍在后续范围。
+只使用 `docker-compose.inference.yml` 安装 owner，把既有 `INFERENCE_RUNTIME_REGISTRY_INGRESS_*_FILE` 给这个进程。冷镜像和定向容器消费者配方见[Inference 运行指南](docs-site/api/guides/inference-runtime.md)，不要用合并后的探针或启动健康推断 GPU／模型容量。
 
 ### 持久路由执行权（实施中）
 

@@ -13,6 +13,14 @@ import urllib.error
 import urllib.request
 
 PROJECT = "aap-production"
+RECOVERY_WORKER = "celery-worker-jobs-recovery"
+RECOVERY_COMMAND = [
+    "/bin/sh",
+    "-ec",
+    "python -m app.workers.jobs_dispatch; "
+    "exec celery -A app.workers.celery_app worker -l info -Q jobs.recovery "
+    "--concurrency=1 --prefetch-multiplier=1",
+]
 SERVICES = (
     "redis-production",
     "api",
@@ -25,6 +33,7 @@ SERVICES = (
     "celery-worker-export",
     "celery-worker-image-pyramid",
     "celery-worker-gpu-control",
+    RECOVERY_WORKER,
     "celery-beat",
 )
 THRESHOLD = 3
@@ -48,7 +57,31 @@ def inspect(cid):
 
 
 def owned(container, service, project_dir):
-    labels = container["Config"].get("Labels") or {}
+    config = container["Config"]
+    labels = config.get("Labels") or {}
+    environment = dict(
+        item.split("=", 1) for item in config.get("Env", []) if "=" in item
+    )
+    dispatch = "JOBS_DISPATCH_DATABASE_URL"
+    publication = "JOBS_PUBLICATION_DATABASE_URL"
+    if service == RECOVERY_WORKER:
+        if (
+            config.get("Cmd") != RECOVERY_COMMAND
+            or environment.get("ALEMBIC_AUTO_UPGRADE") != "false"
+            or environment.get("DATABASE_URL")
+            or environment.get("MIGRATION_DATABASE_URL")
+            or any(
+                bool(environment.get(key)) == bool(environment.get(f"{key}_FILE"))
+                for key in (dispatch, publication)
+            )
+        ):
+            return False
+    elif environment.get(dispatch) or environment.get(f"{dispatch}_FILE"):
+        return False
+    if service == "celery-beat" and (
+        environment.get(publication) or environment.get(f"{publication}_FILE")
+    ):
+        return False
     return (
         labels.get("com.docker.compose.project") == PROJECT
         and labels.get("com.docker.compose.service") == service
@@ -116,6 +149,10 @@ def ingress_ok(container, ca_file):
 def classify(service, container, containers, ca_file):
     state = container["State"]
     status = state["Status"]
+    if service == RECOVERY_WORKER and not healthy(containers["redis-production"]):
+        return None, "broker unhealthy; Jobs recovery suppressed"
+    if service == "celery-beat" and not healthy(containers[RECOVERY_WORKER]):
+        return None, "Jobs recovery unhealthy; Beat recovery suppressed"
     if status in ("exited", "created"):
         return "start", status
     if status != "running":

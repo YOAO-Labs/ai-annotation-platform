@@ -59,6 +59,45 @@ last_reviewed: 2026-10-28
 
 不要把旧专用 DSN、数据库 owner 或迁移账号复制到 API `DATABASE_URL`，也不要扩大普通角色的私表权限。保留实际需要的 Inference 认证探测和 Identity 资料依赖，见 [Workspace 部署说明](/api/guides/workspace-runtime#workspace-deployment)。较老数据库若要跨过已有迁移，仍须满足相应迁移的原门禁。
 
+### 旧模块拓扑升级门禁 {#split-topology-upgrade}
+
+**部署合并不迁移数据库账本或对象归属，也不自动更换密钥。** 下列步骤只供已获授权的目标部署。先在隔离副本运行新装配，核对当前版本的固定函数和所用角色；包／协议测试通过不等于现网可切换。先备份数据库、角色、对象及私有环境文件，保留旧镜像和启动定义。暂停入口、定时器及领取新任务，排空旧 worker、独立服务、连接、租约和实际 I/O；到期、撤销或未收到确认不证明外部动作停止。
+
+| 旧绑定                                        | 切换到当前装配并核验                                                                                                                                                                                                                                                         |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workspace、Labeling Class Query／Video Writer | 停止旧进程，删除旧 Workspace 与 `LABELING_CLASS_QUERY_*`／`LABELING_VIDEO_WRITER_*` 产品绑定及对应宿主 secret 选择器。复核普通角色的三个类目函数；历史 SHA Mask GC 仍可用 `mask-gc` profile 手动预览。保留 `WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS`，它仍约束本地事务。        |
+| Jobs Queue／Dispatch Relay                    | 退役旧 HTTP 队列／relay、`JOBS_QUEUE_*`、`JOBS_DISPATCH_RELAY_*`、`AAP_JOBS_DEVELOPMENT_NETWORK` 及旧开发镜像选择。先安装新的[受限绑定](./deploy/docker-compose#jobs-recovery-provisioning)，再启恢复 worker 与 Beat。保留原消息、租约、执行 ID 及不确定发布记录。           |
+| Identity Admission／Mail／通知 publisher      | 默认内嵌签发；需要隔离才选 `identity-issuer` 与既有 `IDENTITY_URL`。保留原有效 JWT key，停 V1 Mail 与旧 kick；唯一 `identity-mail-v2` 接管同库邮件。移除 `IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE`、旧 Identity publisher 选择器和旧 `mail-v2` profile。                     |
+| 独立 Notifications socket／publisher          | 移除 `NOTIFICATION_SOCKET_*`，反代仍指向 API；默认 Beat 每 10 秒恢复，与远程 Identity 无关。只在 publish-only 隔离时启用新发布 overlay，确认 API 仅有订阅身份与私有 bearer。                                                                                                 |
+| Assets Catalog／Source／Media                 | 退役 Catalog HTTP 和 `ASSETS_CATALOG_*`。确定 `ASSETS_VIDEO_EXECUTOR`／`ASSETS_IMAGE_EXECUTOR`，Celery 需要时准备[窄 LOGIN](./deploy/docker-compose#media-executor-provisioning)，不靠 `ASSETS_MEDIA_URL` 切换执行。保留实际需要的 Source 与历史对象访问，结清旧领取和 I/O。 |
+| 独立 Inference Registry／Health／Probe        | 关闭按操作的容器，把已启用 URL 指向同一个 `inference:8768` 私网 origin。各用途 bearer、窄 SQL LOGIN、GPU Redis 与签名文件继续分开；不交给 API 或模型容器。确认端口空闲、逐项就绪后才放行调用方；不把宿主机转发可达性或 GPU 资格当作已验收。                                  |
+| Audit                                         | 保持 Beat 与维护 worker；先确认管理员能查看已发布的归档输出。受限 CLI 只作一次性运维，不能代替产出 `audit_archive_outputs` 的定时任务或整个维护队列。                                                                                                                        |
+
+**需要保留的 Recovery 邮件密文**：原来设置了独立 Recovery Fernet key 的，继续使用原 key。若旧内嵌 producer 曾自动由其有效 JWT 密钥派生，则在可信离线环境用已安装的 Identity 包一次性派生到新文件；`OLD_EFFECTIVE_JWT_FILE` 是只含旧有效 JWT key 的只读单行文件，`RECOVERY_FERNET_FILE` 是受限目录内尚不存在的目标：
+
+```bash
+uv run --project apps/identity --locked python - "$OLD_EFFECTIVE_JWT_FILE" "$RECOVERY_FERNET_FILE" <<'PY'
+import os
+from pathlib import Path
+import sys
+
+from yoao_identity.recovery_crypto import mail_key_from_secret
+
+old_key = Path(sys.argv[1]).read_text(encoding="utf-8").removesuffix("\n")
+mail_key = mail_key_from_secret(old_key)
+with os.fdopen(os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w", encoding="ascii") as stream:
+    stream.write(mail_key + "\n")
+PY
+```
+
+不打印或挂载旧 JWT key 给 sender。只把派生结果交给 sender 和实际恢复 producer（API 内嵌或远程 issuer）；不要把 SMTP／sender DSN 提供给 API。先在隔离恢复中确认历史待投递邮件可解密，再启新生产者。若原 key 不可确定，保持围栏与记录，不随机生成密钥覆盖历史意图。
+
+迁移与授权后重建实际消费者，先检查真实 claim／publication、至少一次重新派发、WebSocket 许可、待投递邮件和已启用的 split。若显式 owner 不可用，确认请求不会降回更宽的本地凭据。新配置未通过时保持入口关闭并保留原工件与数据，不用无保护回退或强删 outbox。仅在验证成功、回退资源已有副本且获明确授权后退役已不再使用的凭据。
+
+### 维护者日常环境另行迁移（M2c） {#daily-topology-cutover}
+
+本次代码、Compose 配方和隔离验收均**不**授权 M2c。不自动改维护者日常 `.env`、工作空间、systemd／LaunchAgent、数据库、卷、角色或旧服务，不根据文档照搬新启停命令。如需切换，应另批准目标环境、备份与恢复证据、维护窗口和实际新拓扑验证方案，再执行上述步骤。
+
 ### 训练、数据集与存储演进迁移索引（0175–0267）
 
 升级时按实际数据库版本选择下表涉及的迁移段，核对受影响表族、进程刷新要求及降级保护边界。训练执行器还须使用与 API 目录匹配的共享契约和镜像；数据集与对象存储的逐项恢复、切换顺序见[一致备份与隔离恢复演练](/ops/deploy/storage-recovery)与[对象存储迁移与切换](/ops/deploy/storage-migration-inventory)：

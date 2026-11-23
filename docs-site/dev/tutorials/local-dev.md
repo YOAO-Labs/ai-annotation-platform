@@ -8,7 +8,7 @@ last_reviewed: 2026-10-19
 
 # 本地开发
 
-本教程引导你在本机搭建完整的平台开发环境，包括前端（Vite/React）、后端（FastAPI + Celery）、基础设施容器（PostgreSQL / Redis / MinIO / Mailpit）以及在线学习独立训练执行器（`training-executor`）。
+本教程引导你安装平台开发环境：API／Web 在宿主机热重载，PostgreSQL、Redis、MinIO、Mailpit、Celery worker 和 Beat 运行在 Compose。在线学习需要另外配置独立 `training-executor`。
 
 ## 前置依赖
 
@@ -33,10 +33,12 @@ python scripts/fetch-python-artifacts.py --manifest "$SDK_MANIFEST" --sha256 "$S
 cd apps/api
 uv sync --locked --extra test
 
-# 3. 启动基础服务与后台队列容器
+# 3. 首次只启动基础设施
 cd ../..
-docker compose up -d       # postgres / redis / minio / mailpit / celery workers / beat
+docker compose up -d --wait postgres redis minio mailpit
 ```
+
+按[本地冷启动](/ops/deploy/development#development-cold-start)迁移目标库，安装普通角色、Jobs claim／publication 和视频执行授权，准备各自的文件。不要在未配置受限凭据时启动完整栈，也不要用现有日常拆分环境试跑新配方；多工作树使用下节的隔离 launcher。
 
 ---
 
@@ -64,19 +66,25 @@ python3 scripts/test-orca-worktree-setup.py
 
 ## 日常启动流
 
-```bash
-# 1. 确保基础设施容器在线
-docker compose up -d
+仅用于已完成迁移和权限配置的当前开发项目。`HOST_JOBS_PUBLICATION_FILE` 指向给宿主 API 的受限 DSN 文件，不需要 claim 凭据。
 
-# 2. 启动后端 API（终端 1，支持热重载）
-pnpm dev:api               # 等价于 cd apps/api && uv run uvicorn app.main:app --reload --port 8000
+```bash
+# 1. 第一次启动须先完成上文的窄授权
+docker compose up -d --wait
+
+# 2. 启动后端 API（终端 1，先迁移后热重载）
+JOBS_PUBLICATION_DATABASE_URL_FILE="$HOST_JOBS_PUBLICATION_FILE" pnpm dev:api
 
 # 3. 启动前端开发服（终端 2）
 pnpm dev:web               # http://localhost:3000
 
 # 4. 查看 Compose 中的 Celery Worker 与 Beat 状态
-docker compose ps celery-worker celery-worker-gpu celery-worker-cpu celery-worker-export celery-worker-image-pyramid celery-worker-gpu-control celery-worker-maintenance celery-beat
+docker compose ps celery-worker celery-worker-gpu celery-worker-cpu celery-worker-export \
+  celery-worker-image-pyramid celery-worker-gpu-control celery-worker-maintenance \
+  celery-worker-jobs-recovery celery-beat
 ```
+
+`celery-worker-jobs-recovery` 只消费 `jobs.recovery`；Beat 不读取 claim／publication 文件。Identity、Notifications socket 和目录默认不额外起服务，其他可选 owner 及其凭据见[部署矩阵](/ops/deploy/docker-compose#module-process-selection)。
 
 > **提示**：Celery 不会热重载挂载的 Python 代码。修改 `apps/api/app/workers/` 或相关服务后，请执行 `docker compose restart celery-worker ...` 刷新对应队列的消费者。
 

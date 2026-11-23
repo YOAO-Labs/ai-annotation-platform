@@ -31,6 +31,7 @@ last_reviewed: 2026-10-26
 
 - **开发态**：API / Web 跑宿主机进程（`uvicorn --reload` + `vite`），源码热更新，端口绑本机，宽松 CORS / 测试后门开着。
 - **生产态**：叠加 `docker-compose.prod.yml` 把 api/web 进容器，外层反代终结 TLS，`ENVIRONMENT=production` 收紧所有安全断言。
+- **两态都使用模块化默认档**：先迁移与预置 Jobs 的两个受限 LOGIN，再启动后台消费者；模型、远程 signer、媒体隔离等按[进程与凭据矩阵](./docker-compose#module-process-selection)选择。已有拆分环境不要套用新装命令，先走[升级门禁](../upgrade-guide#split-topology-upgrade)。
 
 差异背后的代码行为（`ENVIRONMENT` 如何改变断言、谁进容器、profile）详见[运行环境形态](/dev/concepts/runtime-environments)；物理机器怎么摆（单机 / 分离 GPU）见[部署拓扑](/dev/concepts/deployment-topology)。
 
