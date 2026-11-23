@@ -82,7 +82,7 @@ RETURNS jsonb LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalo
         )
         WHEN 'read' THEN archive.state = 'ready' AND archive.published_at IS NOT NULL AND EXISTS (
             SELECT FROM yoao_identity_v1.read_actor_facts(p_actor) actor
-            WHERE actor.is_active AND actor.role = 'super_admin'
+            WHERE actor.is_active AND actor.platform_role = 'super_admin'
         )
         ELSE false END;
 $function$;

@@ -32,6 +32,7 @@ from app.services.prediction_inputs import settled_io
 from app.services.storage import StorageService
 
 log = logging.getLogger(__name__)
+READ_SECONDS = 15
 WRITE_SECONDS = 120
 CHECK_SECONDS = 60
 RECOVERY_DAYS = 7
@@ -58,7 +59,7 @@ def make_storage():
     return StorageService(
         client_config=Config(
             connect_timeout=3,
-            read_timeout=15,
+            read_timeout=READ_SECONDS,
             retries={"total_max_attempts": 1, "mode": "standard"},
         )
     )
@@ -303,7 +304,9 @@ def physical_storage(record, *, owned=False):
     else:
         from types import SimpleNamespace
 
-        context = target.client(read_timeout=15, **({"owned": True} if owned else {}))
+        context = target.client(
+            read_timeout=READ_SECONDS, **({"owned": True} if owned else {})
+        )
         try:
             client = context.__enter__()
         except BaseException as exc:
@@ -692,7 +695,7 @@ async def store(factory, source_id, asset_id, snapshot, *, expected_revision=Non
                         object_key(record),
                         {"sha256": record.sha256, "size_bytes": record.size_bytes},
                         accounting=recorder,
-                        timeout=READ_SECONDS,
+                        timeout=WRITE_SECONDS,
                     )
                     confirmed_put = accounting_settled = True
                 else:
