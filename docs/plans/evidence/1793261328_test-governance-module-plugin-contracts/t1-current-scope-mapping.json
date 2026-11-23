@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "issue": "#190",
-  "scope": "Machine-readable current T1 module-data default scope, execution-profile routing, historical f6e349674 -> feat/backend-opt delta, retired selector ledger, #188/#189 boundaries, and external prerequisites. Read-only collection reconciliation only; NOT a formal default T1/T2 pass receipt.",
+  "scope": "Machine-readable current T1 module-data default scope, execution-profile routing, historical f6e349674 -> dev delta, retired selector ledger, #188/#189 boundaries, and external prerequisites. Read-only collection reconciliation only; NOT a formal default T1/T2 pass receipt.",
   "execution_principles": {
     "routine_changes": "Verify affected consumers only; this inventory does not authorize full-repo pytest, 32-suite E2E, or default verify_module_data_boundary.py reruns.",
     "formal_default_qualification": "Requires a maintainer-confirmed scope and window reconciling collection, JUnit, exit status, and owned resource retirement on one frozen candidate; record not-run, skipped, and deferred items separately.",
@@ -29,15 +29,15 @@
       "g7_evidence_reference": "docs/plans/evidence/1793261328_test-governance-module-plugin-contracts/g7-current-consumers.json"
     },
     "current_base": {
-      "branch": "feat/backend-opt",
-      "commit": "4c2912fab47351a75ae7d7039bcf178543e8a775",
-      "origin_feat_backend_opt_at_mapping": "a63e999a367e77353c3464dd76523dfb08c47152",
-      "commits_ahead_of_origin": 1,
+      "branch": "dev",
+      "commit": "2f99ea65b0065ad7df17e4e73b062919be0cbeaf",
+      "origin_dev_at_mapping": "2f99ea65b0065ad7df17e4e73b062919be0cbeaf",
+      "commits_ahead_of_origin": 0,
       "deduplication_applied": {
         "file": "scripts/verify_module_data_boundary.py",
         "removed_duplicate_selector": "tests/test_notification_delivery_scope.py",
-        "removed_line_on_base": 2574,
-        "retained_line_on_base": 2557,
+        "removed_line_on_base": 2914,
+        "retained_line_on_base": 2897,
         "anti_drift_guard": "scripts/test_module_data_selection.py"
       }
     }
@@ -47,22 +47,22 @@
     "exit_code": 0,
     "selectors_total": 438,
     "selectors_unique": 438,
-    "distinct_test_files": 431,
+    "distinct_test_files": 430,
     "duplicate_selectors": 0,
-    "collected_nodes": 3323,
-    "collected_unique_nodes": 3323,
+    "collected_nodes": 3320,
+    "collected_unique_nodes": 3320,
     "duplicate_nodes": 0,
     "unmatched_nodes": 0,
     "zero_node_selectors": 0,
-    "profiles_total": 31,
+    "profiles_total": 33,
     "ordinary_profile": {
-      "selector_count": 406,
-      "collected_nodes": 3224
+      "selector_count": 404,
+      "collected_nodes": 3217
     },
     "isolated_profiles_summary": {
-      "profile_count": 30,
-      "selector_count": 32,
-      "collected_nodes": 99
+      "profile_count": 32,
+      "selector_count": 34,
+      "collected_nodes": 103
     },
     "selector_overlap_notes": [
       {
@@ -77,8 +77,8 @@
   },
   "profile_routing": {
     "ordinary": {
-      "selector_count": 406,
-      "collected_nodes": 3224,
+      "selector_count": 404,
+      "collected_nodes": 3217,
       "selectors": [
         "tests/test_video_frame_service.py",
         "tests/test_video_control_worker_binding.py",
@@ -174,9 +174,7 @@
         "tests/test_labeling_module_restore.py",
         "tests/test_labeling_module_api_cold.py",
         "tests/test_labeling_video_writer_live.py",
-        "tests/test_labeling_video_writer_containers.py",
         "tests/test_labeling_video_writer_restore.py",
-        "tests/test_labeling_video_writer_capacity.py",
         "tests/test_video_execution_checkpoints_native.py",
         "tests/test_video_window_journal_native.py",
         "tests/test_video_execution_plan_native_validation.py",
@@ -262,7 +260,7 @@
         "tests/test_identity_invitations_native.py",
         "tests/test_identity_invitations_roles.py",
         "tests/test_identity_invitation_gateway.py",
-        "tests/test_identity_mail_v2_gateway.py",
+        "tests/test_identity_mail_topology.py",
         "tests/test_identity_deactivation_native.py",
         "tests/test_identity_deactivation_roles.py",
         "tests/test_identity_groups_native.py",
@@ -546,7 +544,7 @@
       },
       "notifications-restore": {
         "selector_count": 1,
-        "collected_nodes": 1,
+        "collected_nodes": 2,
         "selectors": ["tests/test_notifications_module_assembly_live.py"]
       },
       "media-seed": {
@@ -615,7 +613,7 @@
       },
       "mask-gc-runtime": {
         "selector_count": 1,
-        "collected_nodes": 1,
+        "collected_nodes": 2,
         "selectors": ["tests/test_mask_gc_runtime_image.py"]
       },
       "reclaim-scope": {
@@ -651,6 +649,20 @@
         "collected_nodes": 1,
         "selectors": [
           "tests/test_managed_original_reclaim.py::test_http_preview_commit_and_worker_real_small_version_delete"
+        ]
+      },
+      "reclaim-original-lock": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": [
+          "tests/test_original_owner_acl_live.py::test_restricted_original_wait_and_permission_recheck"
+        ]
+      },
+      "reclaim-original-retention": {
+        "selector_count": 1,
+        "collected_nodes": 1,
+        "selectors": [
+          "tests/test_original_owner_acl_live.py::test_restricted_original_retention_refuses_claimed_object"
         ]
       }
     }
@@ -762,6 +774,25 @@
         "test_introduced_commit": "859e7af699364f76c8ce40aafab88b40f32a509d",
         "selection_issue": "#189",
         "reason": "Fast native audit receipt forward-migration guard routed to isolated fixture-audit-migration profile because it creates standalone migration databases."
+      },
+      {
+        "selector": "tests/test_identity_mail_topology.py",
+        "profile": "ordinary",
+        "commit": "08a7df163efe8548ffc9d1f6c0d839ccf844facd",
+        "test_introduced_commit": "40f8ba593ef173fb8f158d7777917fbef99a9676",
+        "reason": "Replaces retired test_identity_mail_v2_gateway.py after embedding identity admission and consolidating durable mail delivery."
+      },
+      {
+        "selector": "tests/test_original_owner_acl_live.py::test_restricted_original_wait_and_permission_recheck",
+        "profile": "reclaim-original-lock",
+        "commit": "8fd3c64dced0c2a9a890902d47f79db4f36c51f1",
+        "reason": "Original-owner live permission and lock recheck isolated profile (requires empty registration and Jobs ledger)."
+      },
+      {
+        "selector": "tests/test_original_owner_acl_live.py::test_restricted_original_retention_refuses_claimed_object",
+        "profile": "reclaim-original-retention",
+        "commit": "8fd3c64dced0c2a9a890902d47f79db4f36c51f1",
+        "reason": "Original-owner live retention refusal isolated profile (requires empty registration and Jobs ledger)."
       }
     ],
     "profile_routing_changes": [
@@ -826,6 +857,32 @@
         ],
         "commit": "765f8ec779cb943cde48b054cc0327cd962f03a2",
         "scope_note": "Legacy screenshot/recording ingress UoW helper test retired; active ingress contracts remain in retained modules."
+      },
+      {
+        "historical_selector": "tests/test_labeling_video_writer_containers.py",
+        "replacement_selectors": [
+          "tests/test_labeling_video_writer_live.py",
+          "tests/test_labeling_video_writer_native.py",
+          "tests/test_labeling_video_writer_restore.py"
+        ],
+        "commit": "08a7df163efe8548ffc9d1f6c0d839ccf844facd",
+        "scope_note": "Split labeling video writer container deployment qualifier retired in 24d225f7873af9357514ee13e46d07352bef6f00 when video publication was hosted in its callers."
+      },
+      {
+        "historical_selector": "tests/test_labeling_video_writer_capacity.py",
+        "replacement_selectors": [
+          "tests/test_labeling_video_writer_live.py",
+          "tests/test_labeling_video_writer_native.py",
+          "tests/test_labeling_video_writer_restore.py"
+        ],
+        "commit": "08a7df163efe8548ffc9d1f6c0d839ccf844facd",
+        "scope_note": "Split labeling video writer capacity deployment qualifier retired in 24d225f7873af9357514ee13e46d07352bef6f00 when video publication was hosted in its callers."
+      },
+      {
+        "historical_selector": "tests/test_identity_mail_v2_gateway.py",
+        "replacement_selectors": ["tests/test_identity_mail_topology.py"],
+        "commit": "08a7df163efe8548ffc9d1f6c0d839ccf844facd",
+        "scope_note": "Consolidated into test_identity_mail_topology.py in 40f8ba593ef173fb8f158d7777917fbef99a9676 after embedding admission and deploying one signer-free MailV2 poller."
       }
     ],
     "retired_selectors": [
@@ -877,6 +934,27 @@
         "commit": "52c234c9b14d5bc210e6277d29ba65c76235e49a",
         "basis": "Split Workspace service image-port healthcheck retired under modular-monolith topology.",
         "must_not_resurrect": true
+      },
+      {
+        "selector": "tests/test_labeling_video_writer_containers.py",
+        "category": "split_labeling_video_writer_deployment",
+        "commit": "24d225f7873af9357514ee13e46d07352bef6f00",
+        "basis": "Split video writer container qualifier retired when video publication was hosted in its callers; removed from TEST_FILES in 08a7df163efe8548ffc9d1f6c0d839ccf844facd.",
+        "must_not_resurrect": true
+      },
+      {
+        "selector": "tests/test_labeling_video_writer_capacity.py",
+        "category": "split_labeling_video_writer_deployment",
+        "commit": "24d225f7873af9357514ee13e46d07352bef6f00",
+        "basis": "Split video writer capacity qualifier retired when video publication was hosted in its callers; removed from TEST_FILES in 08a7df163efe8548ffc9d1f6c0d839ccf844facd.",
+        "must_not_resurrect": true
+      },
+      {
+        "selector": "tests/test_identity_mail_v2_gateway.py",
+        "category": "consolidated_identity_mail_topology",
+        "commit": "40f8ba593ef173fb8f158d7777917fbef99a9676",
+        "basis": "Retired when durable mail delivery was consolidated into tests/test_identity_mail_topology.py; replaced in TEST_FILES in 08a7df163efe8548ffc9d1f6c0d839ccf844facd.",
+        "must_not_resurrect": true
       }
     ],
     "not_added_in_minimal_pr": [
@@ -926,7 +1004,7 @@
   "issue_189_t2_shared_receipt_boundary": {
     "issue": "#189",
     "policy": "T2 cross-run cleanup and neighbor protection shares receipts with T1 during any maintainer-approved formal default run on one frozen candidate: do not duplicate execution, do not cross-sign across different candidates, and do not resurrect retired screenshot/recording fixtures to match the historical 44-node count.",
-    "combined_baseline_alignment": "Integrated with #190 on the same feat/backend-opt baseline: adds 4 fast native fixture guards (tests/test_jobs_fixture_cleanup_native.py, tests/test_jobs_fixture_media_publication_native.py, tests/test_fixture_export_owner_native.py, and tests/test_fixture_audit_migration.py routed to isolated fixture-audit-migration) while scripts/test_module_data_selection.py enforces structural invariants instead of hard-coding len(TEST_FILES).",
+    "combined_baseline_alignment": "Integrated with #190 on the same dev baseline: adds 4 fast native fixture guards (tests/test_jobs_fixture_cleanup_native.py, tests/test_jobs_fixture_media_publication_native.py, tests/test_fixture_export_owner_native.py, and tests/test_fixture_audit_migration.py routed to isolated fixture-audit-migration) while scripts/test_module_data_selection.py enforces structural invariants instead of hard-coding len(TEST_FILES).",
     "active_t2_related_selectors_in_current_default": [
       {
         "selector": "tests/test_identity_e2e_live.py",
@@ -1036,7 +1114,7 @@
       "AAP_IDENTITY_LIVE_ACCEPTANCE",
       "AAP_IDENTITY_ROLE_AUDIT_LIVE",
       "AAP_IDENTITY_SEED_SELECTION_LIVE",
-      "AAP_JOBS_QUEUE_MODULE_LIVE",
+      "AAP_JOBS_HOST_ASSEMBLY_LIVE",
       "AAP_LABELING_COLD_API_ACCEPTANCE",
       "AAP_LEGACY_VIDEO_FENCE_LIVE",
       "AAP_MASK_CONTENT_ACCEPTANCE",
@@ -1053,23 +1131,16 @@
       "AAP_WORKSPACE_WORKER_ASSEMBLY_LIVE"
     ],
     "installed_images_and_interpreters": [
-      "AAP_ASSETS_IMAGES_WORKER_IMAGE",
-      "AAP_ASSETS_MEDIA_CONTROL_IMAGE",
-      "AAP_ASSETS_MEDIA_WORKER_IMAGE",
       "AAP_AUDIT_MAINTENANCE_MODULE_IMAGE_ARTIFACT",
       "AAP_AUDIT_MAINTENANCE_MODULE_IMAGE_ID",
       "AAP_LABELING_COLD_API_IMAGE_ARTIFACT",
       "AAP_LABELING_COLD_API_IMAGE_ID",
       "AAP_LABELING_COLD_API_IMAGE_REF",
-      "AAP_LABELING_VIDEO_WRITER_IMAGE",
-      "AAP_LABELING_VIDEO_WRITER_IMAGE_ARTIFACT",
       "AAP_MASK_CONTENT_IMAGE",
       "AAP_MASK_GC_IMAGE",
       "AAP_MASK_GC_RUNTIME_PYTHON",
       "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IDENTITY",
       "AAP_NOTIFICATIONS_DELIVERY_RUNTIME_IMAGE",
-      "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IDENTITY",
-      "AAP_NOTIFICATIONS_SOCKET_RUNTIME_IMAGE",
       "AAP_PREANNOTATION_RESULT_RUNTIME_IDENTITY",
       "AAP_PREANNOTATION_RESULT_RUNTIME_IMAGE",
       "AAP_VIDEO_RESTORE_CLI",
