@@ -193,7 +193,7 @@ def _hold_verified_body(
         engine = create_async_engine(db_url)
         maker = async_sessionmaker(engine, expire_on_commit=False, autoflush=False)
         try:
-            async with maker() as db, ExitStack() as response:
+            async with maker() as db:
                 stage = "claim"
                 attempt = await copies.claim(db, job_id, task_id)
                 if attempt is None:
@@ -254,12 +254,10 @@ def _hold_verified_body(
                     assert denied.value.status_code in {401, 403, 404}
                 stage = "open_copy_body"
                 client = SavedIOClient(origin, tokens["write"])
-                transfer = response.enter_context(
-                    client.download("migration", "copy_get", subject)
-                )
-                assert transfer.length == len(_BYTES)
-                ready.send((None, (attempt.id, source_id, target_id)))
-                ready.recv()
+                with client.download("migration", "copy_get", subject) as transfer:
+                    assert transfer.length == len(_BYTES)
+                    ready.send((None, (attempt.id, source_id, target_id)))
+                    ready.recv()
         finally:
             await engine.dispose()
 
