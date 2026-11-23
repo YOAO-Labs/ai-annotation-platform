@@ -146,7 +146,13 @@ psql -X -U anno_prod_owner -d annotation_production \
 
 默认 `ASSETS_VIDEO_EXECUTOR=celery` 需要窄视频执行 LOGIN。按[媒体执行角色](./docker-compose#media-executor-provisioning)安装后设置 `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE`。需要 Native 图片写入时也安装独立 image LOGIN，配置 `ASSETS_CELERY_IMAGE_DATABASE_URL_FILE`；普通非 Native 图片路径不因此要求新的 DSN。API／Beat 不挂载这些凭据，不向应用 LOGIN 增补执行函数。
 
-维护队列的身份与权限须单独核对；它能执行维护不构成普通 LOGIN 验收。不能因现有安装给普通角色保留物化视图、分区所有权或 `public` 创建权限，就把这类授权视为新档要求。
+`celery-worker-maintenance` 使用自己的文件执行 Insights 每日统计刷新。创建独立的 `anno_prod_insights_refresh` LOGIN（不授角色成员关系或对象所有权），在目标库重放以下脚本。将这个 LOGIN 的单行 PostgreSQL DSN 存入独立私密文件，`INSIGHTS_REFRESH_DATABASE_URL_FILE` 只填写其宿主绝对路径。其唯一业务函数是无参 `yoao_insights_v1.refresh_user_perf_daily()`；普通 API、Beat 和其他 worker 不挂载该文件。
+
+```bash
+psql -X -v ON_ERROR_STOP=1 -U anno_prod_owner -d annotation_production \
+  -v expected_database=annotation_production -v migration_role=anno_prod_owner \
+  -v refresh_role=anno_prod_insights_refresh -f infra/docker/insights-refresh-grants.sql
+```
 
 启动常驻服务：
 

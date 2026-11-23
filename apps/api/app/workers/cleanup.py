@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 
+from app.config import settings
 from app.observability.raster_mask import (
     refresh_raster_mask_active_geometries_safely,
 )
@@ -86,14 +89,25 @@ def refresh_user_perf_mv() -> dict:
 
 
 async def _refresh_mv_async() -> dict:
-    async with task_session() as db:
-        try:
+    try:
+        url = None
+        direct = settings.insights_refresh_database_url
+        path = settings.insights_refresh_database_url_file
+        if direct and path:
+            raise ValueError("Select only one Insights refresh database credential")
+        if direct or path:
+            url = make_url(
+                Path(path).read_text(encoding="utf-8").strip() if path else direct
+            )
+            if url.drivername not in {"postgresql", "postgresql+asyncpg"}:
+                raise ValueError("Insights refresh requires PostgreSQL")
+            url = url.set(drivername="postgresql+asyncpg")
+        async with task_session(database_url=url) as db, db.begin():
             await db.execute(text("SELECT yoao_insights_v1.refresh_user_perf_daily()"))
-            await db.commit()
-        except Exception as exc:
-            await db.rollback()
-            log.warning("refresh_user_perf_mv failed: %s", exc)
-            return {"refreshed": False, "error": str(exc)}
+    except Exception as exc:
+        error_type = type(exc).__name__
+        log.warning("refresh_user_perf_mv failed: %s", error_type)
+        return {"refreshed": False, "error": error_type}
     log.info("refresh_user_perf_mv done")
     return {"refreshed": True}
 

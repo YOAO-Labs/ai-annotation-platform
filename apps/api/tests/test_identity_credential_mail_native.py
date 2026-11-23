@@ -21,7 +21,7 @@ from yoao_identity.recovery_crypto import token_hash
 from yoao_identity.recovery_manager import RecoveryManager
 from yoao_identity.recovery_postgres import RecoveryPostgresData
 from yoao_identity_runtime.mail_worker import MailExecutor
-from tests.grant_sql_helpers import read_grant_script
+from tests.grant_script import read_psql_grant_script
 from tests.identity_recovery_live_helpers import SMTPInbox, cleanup, command, outbox
 from tests.test_identity_admission_live import _dsn, _world
 from tests.test_identity_admission_live import ROOT
@@ -280,7 +280,7 @@ async def test_embedded_recovery_hands_off_to_dedicated_mail_sender(
                 "-v",
                 "asset_cleanup_role=yoao_asset_cleanup_client",
             ],
-            body=read_grant_script(
+            body=read_psql_grant_script(
                 ROOT / "infra/docker/lan-production-grants.sql"
             ).encode(),
         )

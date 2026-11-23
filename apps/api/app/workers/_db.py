@@ -12,15 +12,21 @@ Celery prefork worker 每个任务用 ``asyncio.run()`` 跑一个**新事件循�
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from sqlalchemy.engine import URL
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
 
 
 @asynccontextmanager
-async def task_session_factory() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+async def task_session_factory(
+    *,
+    database_url: str | URL | None = None,
+) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
     engine = create_async_engine(
-        settings.database_url, echo=False, hide_parameters=True
+        settings.database_url if database_url is None else database_url,
+        echo=False,
+        hide_parameters=True,
     )
     factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     try:
@@ -30,7 +36,9 @@ async def task_session_factory() -> AsyncIterator[async_sessionmaker[AsyncSessio
 
 
 @asynccontextmanager
-async def task_session() -> AsyncIterator[AsyncSession]:
-    async with task_session_factory() as factory:
+async def task_session(
+    *, database_url: str | URL | None = None
+) -> AsyncIterator[AsyncSession]:
+    async with task_session_factory(database_url=database_url) as factory:
         async with factory() as session:
             yield session

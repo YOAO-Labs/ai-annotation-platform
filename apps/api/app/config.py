@@ -132,6 +132,10 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+asyncpg://user:pass@localhost:5432/annotation"
     migration_database_url: str | None = None
+    insights_refresh_database_url: str = Field(default="", repr=False, exclude=True)
+    insights_refresh_database_url_file: str = Field(
+        default="", repr=False, exclude=True
+    )
     redis_url: str = "redis://localhost:6379/0"
 
     cors_allow_origins: Annotated[list[str], NoDecode] = [

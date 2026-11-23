@@ -19,6 +19,8 @@ last_reviewed: 2026-11-23
 | `MIGRATION_DATABASE_URL` | `—` | 可选的 Alembic / 专用维护 worker 的 schema-owner 连接；运行角色没有 DDL 权限时必须配置。 未设置或留空时迁移仍回退 DATABASE_URL，保持单角色部署兼容。 dev:worktree 会同时覆盖运行/迁移目标库名；迁移账号需具备本机 CREATEDB 权限。 |
 | `DATABASE_URL_DOCKER` | `postgresql+asyncpg://user:pass@postgres:5432/annotation` | 仅供开发态 Compose 内的 Celery worker 使用；容器访问 PostgreSQL 应使用 postgres 服务名。 GPU collector 启用前请改成独立、非 owner、非超级用户且无 membership/fence DELETE 的应用角色。 生产叠加文件仍统一读取 DATABASE_URL，不使用此项。 |
 | `MIGRATION_DATABASE_URL_DOCKER` | `—` | 开发态 Compose 的 maintenance worker 使用此连接执行数据库维护，迁移由宿主机显式执行；容器地址通常为 postgres:5432。 |
+| `INSIGHTS_REFRESH_DATABASE_URL` | `—` | Insights 独立刷新 LOGIN 仅供 maintenance worker；LAN Compose 必须提供宿主单行 DSN 文件。 整栈生产／开发 Compose 可选，留空继续使用各自的维护连接；受管工作树不继承共享刷新凭据。 明文变量仅用于单独启动的专用维护进程，Compose 只挂载 _FILE，不向 API 或普通 worker 注入。 |
+| `INSIGHTS_REFRESH_DATABASE_URL_FILE` | `—` | — |
 | `ALEMBIC_AUTO_UPGRADE` | `true` | API 镜像 entrypoint 是否自动执行 Alembic；标准生产 API 保持 true。 开发及生产 Worker 均强制为 false；开发迁移使用 pnpm dev:api 或显式运行 Alembic。 |
 
 ## 仅供 docker-compose.yml 里的 postgres 容器初始化用（后端不读这三项）。
@@ -44,29 +46,16 @@ last_reviewed: 2026-11-23
 | `CELERY_GPU_CONCURRENCY` | `2` | GPU/CPU 预标 worker 并发 (docker-compose celery-worker-gpu / celery-worker-cpu 读取)。 GPU 低并发避免多预标并发打爆显存; CPU 可较高并发。 |
 | `CELERY_CPU_CONCURRENCY` | `4` | — |
 
-## 可选 Jobs 私有 Celery owner；URL 留空时 API 使用现有内嵌 broker。
+## Jobs 直接使用本部署的 Celery broker。默认恢复 worker 启动前须准备两个独立的仅函数 LOGIN。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `JOBS_QUEUE_URL` | `—` | 私有 HTTP 服务没有宿主机端口，仅供同一 Compose 网络内的 API 调用。 |
-| `JOBS_QUEUE_TOKEN` | `—` | — |
-| `JOBS_QUEUE_TOKEN_FILE` | `—` | — |
-| `JOBS_QUEUE_BROKER_URL` | `—` | 独立 Jobs owner 只读取 broker 和服务 bearer，不接收 API、数据库或 Identity 凭据。 |
-| `JOBS_QUEUE_BROKER_URL_FILE` | `—` | — |
-| `JOBS_QUEUE_HOST` | `127.0.0.1` | — |
-| `JOBS_QUEUE_PORT` | `8190` | — |
-| `JOBS_DISPATCH_RELAY_ENABLED` | `false` | 独立持久派发 relay 必须显式开启；账本凭据只持有 claim/finish/status 函数权限。 不注入 broker、API 迁移凭据或私表读写权限；与 jobs-queue 分进程运行。 |
-| `JOBS_DISPATCH_RELAY_DATABASE_URL` | `—` | — |
-| `JOBS_DISPATCH_RELAY_DATABASE_URL_FILE` | `—` | — |
-| `JOBS_DISPATCH_RELAY_BATCH_SIZE` | `100` | — |
-| `JOBS_DISPATCH_RELAY_LEASE_SECONDS` | `30` | — |
-| `JOBS_DISPATCH_RELAY_POLL_SECONDS` | `1` | — |
-| `JOBS_PUBLICATION_DATABASE_URL` | `—` | Jobs 发布入口和 relay 使用独立的仅函数调用凭据；不得授予私有表读写权限。 |
+| `JOBS_DISPATCH_DATABASE_URL` | `—` | 只向 celery-worker-jobs-recovery 注入 claim 凭据；不要给 API、普通 worker、维护 worker 或 Beat。 每组值／文件二选一；Compose 的 _FILE 路径指向宿主机上的单行凭据文件。 |
+| `JOBS_DISPATCH_DATABASE_URL_FILE` | `—` | — |
+| `JOBS_PUBLICATION_DATABASE_URL` | `—` | 发布凭据只给实际 Jobs producer、执行消费者及恢复 worker；不是 claim 或迁移 DSN。 |
 | `JOBS_PUBLICATION_DATABASE_URL_FILE` | `—` | — |
 | `EXPORT_EXECUTION_DATABASE_URL` | `—` | 仅 export worker 挂载执行控制凭据；不得向 API 注入此凭据。 |
 | `EXPORT_EXECUTION_DATABASE_URL_FILE` | `—` | — |
-| `AAP_JOBS_QUEUE_RUNTIME_IMAGE` | `—` | 本机独立 Compose 组合：使用已验收镜像和已核实的基础设施网络，不创建第二份 Redis／PostgreSQL。 |
-| `AAP_JOBS_DEVELOPMENT_NETWORK` | `—` | — |
 
 ## 对象存储 (MinIO / S3 兼容)
 
@@ -263,29 +252,6 @@ last_reviewed: 2026-11-23
 | `MEDIA_PROBE_TIMEOUT_SECONDS` | `90` | HTTP 各 I/O 阶段超时秒数，包含上传／等待／读取；ffprobe 自身仍有独立的 30 秒上限。 |
 | `MEDIA_PROBE_MAX_FILE_BYTES` | `1073741824` | 独立探测服务单次文件输入上限（字节），仅由 apps/media-probe 读取。 |
 | `MEDIA_PROBE_HOST_PORT` | `8092` | docker-compose.modules.yml 的宿主回环端口，仅供显式本地独立部署。 |
-| `ASSETS_CATALOG_URL` | `—` | 独立 Assets 目录服务：留空时目录、关联和空间素材操作使用同一原生 SQL 合同；显式选远程后不自动回退。 |
-| `ASSETS_CATALOG_TIMEOUT_SECONDS` | `5` | 网关 HTTP 各 I/O 阶段超时；范围 (0,60] 秒。 |
-| `ASSETS_CATALOG_TOKEN` | `—` | API 网关与目录服务共享专用 Bearer secret，至少 32 个非空白 ASCII 字符。 |
-| `ASSETS_CATALOG_TOKEN_FILE` | `—` | 独立目录服务的 secret 文件入口；主 API 网关使用上面的实际 token 值。 |
-| `ASSETS_CATALOG_DATABASE_URL` | `—` | 独立目录服务专用 execute-only LOGIN，不使用 API DATABASE_URL。 |
-| `ASSETS_CATALOG_DATABASE_URL_FILE` | `—` | — |
-| `ASSETS_CATALOG_S3_ACCESS_KEY` | `—` | 专用只读 S3 身份；不得沿用 API/MinIO 管理员凭据。 |
-| `ASSETS_CATALOG_S3_SECRET_KEY` | `—` | — |
-| `ASSETS_CATALOG_S3_ACCESS_KEY_FILE` | `—` | — |
-| `ASSETS_CATALOG_S3_SECRET_KEY_FILE` | `—` | — |
-| `ASSETS_CATALOG_S3_PUBLIC_ENDPOINT` | `—` | 固定公开签名 origin，必须能由浏览器到达；不从请求接收 endpoint。 |
-| `ASSETS_CATALOG_S3_ENDPOINT` | `—` | 服务连接 S3 的固定 origin；留空沿用公开 origin，支持容器内外地址不同。 |
-| `ASSETS_CATALOG_S3_REGION` | `us-east-1` | — |
-| `ASSETS_CATALOG_DATASETS_BUCKET` | `—` | — |
-| `ASSETS_CATALOG_MEDIA_CACHE_BUCKET` | `—` | — |
-| `ASSETS_CATALOG_HOST` | `0.0.0.0` | 独立服务进程监听；Compose 只在内部网络开放端口。 |
-| `ASSETS_CATALOG_PORT` | `8766` | — |
-| `ASSETS_CATALOG_MAX_REQUEST_BYTES` | `1048576` | 独立服务与网关 HTTP JSON 请求上限（1 MiB）；内部同事务计划不套用 HTTP 体积限制。 |
-| `ASSETS_CATALOG_MAX_RESPONSE_BYTES` | `16777216` | 独立服务原生回执/HTTP 响应上限（16 MiB）；网关本地与远程单页响应同为 16 MiB。 |
-| `ASSETS_CATALOG_POOL_MIN_SIZE` | `1` | 专用数据库连接池及获取连接/SQL 的秒级等待上限。 |
-| `ASSETS_CATALOG_POOL_MAX_SIZE` | `8` | — |
-| `ASSETS_CATALOG_POOL_TIMEOUT_SECONDS` | `2` | — |
-| `ASSETS_CATALOG_SQL_TIMEOUT_SECONDS` | `5` | — |
 | `ASSET_CLEANUP_DATABASE_URL` | `—` | 独立 Assets 清理进程；不继承 API 的 DATABASE_URL、MINIO_* 或 Celery 配置。 宿主进程可直接设置 ASSET_CLEANUP_DATABASE_URL / S3_ACCESS_KEY / S3_SECRET_KEY； 每项与对应 *_FILE 二选一。Compose 的 *_FILE 是宿主 secret 文件路径。 |
 | `ASSET_CLEANUP_S3_ACCESS_KEY` | `—` | — |
 | `ASSET_CLEANUP_S3_SECRET_KEY` | `—` | — |
@@ -342,17 +308,16 @@ last_reviewed: 2026-11-23
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `SECRET_KEY` | `change-this-to-a-random-string-in-production` | JWT 签名密钥；生产环境必须替换为高强度随机字符串（≥32 字符） |
+| `SECRET_KEY` | `change-this-to-a-random-string-in-production` | API 媒体签名与其他 API 密钥用途；内嵌 Identity 未设专用签名密钥时才复用它签发 JWT。 生产必须使用高强度随机字符串（≥32 字符）。独立 issuer 不接收此密钥。 |
 
-## 存储连接器（外部 S3 / SFTP 服务端拉取）凭据 Fernet key，与 SECRET_KEY 隔离。
+## 存储连接器的既有 Fernet key 仅给 Source 和受限导入进程，与 SECRET_KEY 隔离。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `CONNECTOR_ENCRYPTION_KEY` | `—` | 本地 API 模式留空时，创建或解密凭据的连接器操作不可用；远程 Source 模式由 Source 服务配置同一 key。 生成: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" |
-| `CONNECTOR_HOST_ALLOWLIST` | `—` | 存储连接器主机白名单部署默认值（CIDR/IP/域名，CSV 或 JSON 数组）。 超管通过 /storage-connections/allowlist 写入 DB 后会覆盖该默认值。 本地连接宿主机 SFTP 示例: CONNECTOR_HOST_ALLOWLIST=172.17.0.1/32,172.26.1.17/32 |
+| `CONNECTOR_HOST_ALLOWLIST` | `—` | 普通 API／Worker 不配置此密钥；启用自定义目标时，通过下方 Source 专用文件提供。 新部署生成: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" 存储连接器主机白名单部署默认值（CIDR/IP/域名，CSV 或 JSON 数组）。 超管通过 /storage-connections/allowlist 写入 DB 后会覆盖该默认值。 本地连接宿主机 SFTP 示例: CONNECTOR_HOST_ALLOWLIST=172.17.0.1/32,172.26.1.17/32 |
 | `CONNECTOR_DEPLOYMENT_SFTP_HOST` | `—` | 可选：超级管理员「添加部署主机」快捷项预填的 SFTP hostname/IP；留空不展示。 只配置地址，不包含凭据、路径或白名单规则。目标仍须显式加入 CONNECTOR_HOST_ALLOWLIST。 |
 | `STORAGE_FILESYSTEM_ROOTS` | `{}` | 部署允许的只读根；位置和子目录通过存储位置 API 动态登记。 API 与指定 worker 各自配置实际可见路径，默认空映射拒绝所有根。 示例：STORAGE_FILESYSTEM_ROOTS={"ceph":"/mnt/cephfs","local":"/mnt/storage"} |
-| `STORAGE_SFTP_ROOTS` | `{}` | 已验收只读 chroot 的 SFTP 账号资格；整个账号命名空间必须属于该位置，连接 base_path 必须为 /。 JSON 根句柄 → {host, port, username, host_key}；host_key 为完整 SSH 公钥（类型与 base64）。默认不开放。 变更前先禁用相关位置，再协调 API/worker 配置；仅修改一个进程环境不能撤销旧 worker。 |
+| `STORAGE_SFTP_ROOTS` | `{}` | 已验收只读 chroot 的 SFTP 账号资格；整个账号命名空间必须属于该位置，连接 base_path 必须为 /。 JSON 根句柄 → {host, port, username, host_key}；host_key 为完整 SSH 公钥（类型与 base64）。默认不开放。 自定义根由独立 Source 复核；变更前先禁用相关位置，不能用配置变更撤销已取得的访问。 |
 | `STORAGE_MAINTENANCE_PROTOCOL_ENABLED` | `false` | 位置维护控制默认关闭；新代码始终登记受控访问。 仅在该部署命名空间全部 API/Worker 退出旧协议并完成核验后启用，空账本不是部署资格。 |
 | `DATASET_IMPORT_MAX_FILES` | `50000` | 连接器导入单个 job 最多扫描 / 导入的文件数；超限直接失败，避免误扫全桶。 |
 | `DATASET_IMPORT_MAX_TOTAL_BYTES` | `214748364800` | 连接器导入单个 job 允许的总字节数；默认 200GiB。 |
@@ -388,7 +353,7 @@ last_reviewed: 2026-11-23
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `AUDIT_RETENTION_MONTHS` | `12` | Celery beat 每月 2 日扫描超期分区，归档为 jsonl.gz 上传 MinIO `audit-archive/{YYYY}/{MM}.jsonl.gz`， 然后 DROP 该分区。默认 12 个月。 |
+| `AUDIT_RETENTION_MONTHS` | `12` | Celery Beat 每月 2 日由维护 Worker 处理超期完整分区；读回确认后发布 audit_archive_outputs，再退休源分区。 默认 12 个月；一次性 Audit CLI 不代替这个归档流程。 |
 
 ## 错误监控（Sentry）
 
@@ -405,16 +370,16 @@ last_reviewed: 2026-11-23
 |---|---|---|
 | `VITE_TURNSTILE_SITE_KEY` | `—` | — |
 
-## SMTP 邮件：管理员可以发送测试邮件；开发环境使用 Mailpit。
+## SMTP 管理员测试邮件（非 Identity 密码恢复、验证和邀请投递）
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `SMTP_HOST` | `localhost` | 未配置则不发送应用邮件；GET /settings/system 显示「未配置」。 下面的 SMTP 地址是开发示例，不是运行默认值。docker compose up -d mailpit → http://localhost:8025。 宿主机上的 API 连 localhost:1025；同一开发 Compose 网络内连 mailpit:1025。 整栈生产不会启动 Mailpit；需要发信时填写真实中继，优先使用 587（STARTTLS）或 465（TLS）。 |
+| `SMTP_HOST` | `localhost` | Identity 投递在独立 sender 上配置 IDENTITY_MAIL_SMTP_*；不要把 sender 的 SMTP 凭据放进 API。 如需独立测试中继，可使用以下 SMTP_* 配置。整栈生产不启动 Mailpit。 |
 | `SMTP_PORT` | `1025` | — |
 | `SMTP_FROM` | `noreply@local.test` | — |
 | `SMTP_USER` | `—` | — |
-| `SMTP_PASSWORD` | `—` | 旧式直接传入密码。整栈生产优先配置密码文件，两者不可并用。 |
-| `SMTP_PASSWORD_FILE` | `—` | SMTP 密码文件，内容为单个密码。整栈生产填写宿主文件路径，仅只读挂载到 API 与默认队列 worker。 |
+| `SMTP_PASSWORD` | `—` | — |
+| `SMTP_PASSWORD_FILE` | `—` | 密码与文件二选一；整栈生产填写绝对宿主路径。不要复用 Identity sender 的密码文件。 |
 
 ## 生产监控邮件（仅整栈 Compose 的 monitoring profile）
 
@@ -530,13 +495,15 @@ last_reviewed: 2026-11-23
 | `YOAO_WORKTREE_MODE` | `—` | 由 pnpm dev:worktree 向子进程注入 dev/test/e2e；不要手工配置。 pytest / Playwright 据此拒绝在 dev 模式运行破坏性测试；测试连接、队列和存储也由入口覆盖。 |
 | `YOAO_WORKTREE_RESOURCE_ROOT` | `—` | 启动器注入当前 checkout 的规范绝对路径；夹具据此核对 manifest 和资源归属。不要手工配置。 |
 
-## Identity 认证与账号恢复（可选独立进程，不进入默认 Compose）
+## Identity：默认 API 内嵌签发；安全隔离时显式启用 identity-issuer
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `IDENTITY_URL` | `—` | 空 URL 使用同一个内嵌验证器；显式远程失败不回退。原角色/项目/scope检查继续由业务入口执行。 |
+| `IDENTITY_URL` | `—` | IDENTITY_URL 仅用于独立 issuer；远程故障不回退，原角色／项目／scope 检查继续由业务入口执行。 |
 | `IDENTITY_TOKEN` | `—` | — |
 | `IDENTITY_TIMEOUT_SECONDS` | `20` | — |
+| `IDENTITY_EMBEDDED_SIGNING_SECRET` | `—` | 仅本地 JWT，值／文件二选一；留空沿用 SECRET_KEY，升级时须保留旧有效签名密钥。 |
+| `IDENTITY_EMBEDDED_SIGNING_SECRET_FILE` | `—` | — |
 | `IDENTITY_AUTH_DATABASE_URL` | `—` | 可选函数专用准入 LOGIN；两项二选一，使用 postgresql://，留空沿用当前应用连接。 |
 | `IDENTITY_AUTH_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_KEY_DATABASE_URL` | `—` | 内嵌 API key 命令可用独立的两项函数 LOGIN；每对 DSN / 文件最多一项。 |
@@ -563,46 +530,19 @@ last_reviewed: 2026-11-23
 | `IDENTITY_OFFBOARDING_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_BRIEFS_DATABASE_URL` | `—` | Optional function-only profile reads; empty uses the API caller transaction. |
 | `IDENTITY_BRIEFS_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_INVITATION_DATABASE_URL` | `—` | Complete Identity invitation lifecycle uses an optional three-function owner; mail-v2 is a separate optional four-function sender. |
+| `IDENTITY_INVITATION_DATABASE_URL` | `—` | 邀请 producer 可用窄 LOGIN；专用邮件 sender 的凭据见下方，不给 API。 |
 | `IDENTITY_INVITATION_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_MAIL_V2_DATABASE_URL` | `—` | — |
-| `IDENTITY_MAIL_V2_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_INVITATION_MAIL_TIMEOUT_SECONDS` | `60` | — |
 | `IDENTITY_INVITATION_FRONTEND_BASE_URL` | `http://localhost:5173` | — |
 | `IDENTITY_DEACTIVATION_DATABASE_URL` | `—` | 自助注销用户命令与到期 operator 命令使用不同能力；每对 DSN／文件最多设置一项。 |
 | `IDENTITY_DEACTIVATION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL` | `—` | — |
 | `IDENTITY_DEACTIVATION_OPERATOR_DATABASE_URL_FILE` | `—` | — |
-| `NOTIFICATION_PUBLISH_DATABASE_URL` | `—` | API/Celery durable-notification relay 的可选 Notifications DSN；Redis 复用现有 Celery task 设置。 |
-| `NOTIFICATION_PUBLISH_DATABASE_URL_FILE` | `—` | — |
-| `NOTIFICATION_PUBLISH_REDIS_URL` | `—` | 独立 notification publisher 的 Redis DSN；与可选 Notifications 数据库 DSN 成对配置。 |
-| `NOTIFICATION_PUBLISH_REDIS_URL_FILE` | `—` | — |
-| `NOTIFICATION_PUBLISH_API_TOKEN` | `—` | 同一独立 publisher 的可选即时发布 HTTP；没有 API token 时保持原 durable-only 循环。 |
-| `NOTIFICATION_PUBLISH_API_TOKEN_FILE` | `—` | — |
-| `NOTIFICATION_PUBLISH_HOST` | `127.0.0.1` | — |
-| `NOTIFICATION_PUBLISH_PORT` | `8181` | — |
-| `NOTIFICATION_PUBLICATION_URL` | `—` | API 的可选独立即时发布绑定；空 URL 使用内嵌 transport，显式地址故障不回退。 |
-| `NOTIFICATION_PUBLICATION_TOKEN` | `—` | — |
-| `NOTIFICATION_PUBLICATION_TOKEN_FILE` | `—` | — |
-| `NOTIFICATION_SOCKET_URL` | `—` | 独立 Notifications WebSocket 的可选 API 绑定；留空时使用同一 owner 的内嵌装配。 配置私网 ws://notifications-socket:8180 后，故障不会回退本地数据库／Redis。 |
-| `NOTIFICATION_SOCKET_DATABASE_URL` | `—` | 独立 socket 的七函数只读 DSN、subscribe-only Redis 和 Identity admission-only bearer。 直接启动可用值或文件（二选一）；Compose 只使用文件且不发布宿主机端口。 |
-| `NOTIFICATION_SOCKET_DATABASE_URL_FILE` | `—` | — |
-| `NOTIFICATION_SOCKET_REDIS_URL` | `—` | — |
-| `NOTIFICATION_SOCKET_REDIS_URL_FILE` | `—` | — |
-| `NOTIFICATION_SOCKET_IDENTITY_URL` | `http://identity-admission:8170` | — |
-| `NOTIFICATION_SOCKET_IDENTITY_TOKEN` | `—` | — |
-| `NOTIFICATION_SOCKET_IDENTITY_TOKEN_FILE` | `—` | — |
-| `NOTIFICATION_SOCKET_HOST` | `127.0.0.1` | — |
-| `NOTIFICATION_SOCKET_PORT` | `8180` | — |
-| `IDENTITY_RECOVERY_DATABASE_URL` | `—` | API 内嵌恢复与 mail kick 的四组配置；每一对直接值／文件最多设置一项。 未配置 recovery DSN 时沿用调用方事务；配置 recovery DSN 后，MAIL 和 MAIL_SETTINGS DSN 必须同时指定。 两个 mail DSN 都留空时，内嵌 mail kick 复用应用连接；显式 DSN 只成对使用。 |
+| `IDENTITY_RECOVERY_DATABASE_URL` | `—` | 内嵌恢复 producer 默认用调用方事务；选用显式 DSN 时必须指向同一 owner database。 远程 issuer 模式由 issuer 持有 Recovery DSN 和加密 key，不向 API 挂载。 |
 | `IDENTITY_RECOVERY_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_RECOVERY_MAIL_KEY` | `—` | — |
+| `IDENTITY_RECOVERY_MAIL_KEY` | `—` | 本地 producer 与 sender 使用同一独立 Fernet key，值／文件二选一。 旧待投递邮件须沿用原 key；旧环境自动派生过时离线从原有效 JWT root 派生一次，不把 JWT root 给 sender。 |
 | `IDENTITY_RECOVERY_MAIL_KEY_FILE` | `—` | — |
-| `IDENTITY_MAIL_DATABASE_URL` | `—` | — |
-| `IDENTITY_MAIL_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_MAIL_SETTINGS_DATABASE_URL` | `—` | — |
-| `IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_RUNTIME_DATABASE_URL_FILE` | `—` | 独立 Compose 的运行时 secret 文件选择器；左侧是宿主机路径，容器内会映射为 IDENTITY_*_FILE。 各数据库身份只授权对应函数。Fernet key 与 producer 使用同一秘密，并独立于 JWT secret。 Redis 身份只需 login_failed:* 的 GET/INCRBY/EXPIRE/DEL；签名 secret 与所有现存签发端相同。 |
+| `IDENTITY_RUNTIME_DATABASE_URL_FILE` | `—` | docker-compose.identity.yml 宿主 secret：identity-issuer profile 独立 signer、私有 bearer、各函数 LOGIN 与登录 Redis。 Redis 身份只需 login_failed:* 及客户端连接所需命令；签发密钥需与该部署原有效 JWT 密钥一致。 |
 | `IDENTITY_RUNTIME_KEY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_SESSION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_ACCOUNT_DATABASE_URL_FILE` | `—` | — |
@@ -615,53 +555,80 @@ last_reviewed: 2026-11-23
 | `IDENTITY_RUNTIME_DELETION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_OFFBOARDING_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_INVITATION_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE` | `—` | Required when starting the optional `mail-v2` Compose profile. |
+| `IDENTITY_RUNTIME_MAIL_V2_DATABASE_URL_FILE` | `—` | 添加 identity overlay 即启动 identity-mail-v2，需提供 MailV2 四函数 LOGIN、Settings 单函数 LOGIN 与 Fernet key。 |
 | `IDENTITY_RUNTIME_DEACTIVATION_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_DEACTIVATION_OPERATOR_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_RUNTIME_NOTIFICATION_PUBLISH_REDIS_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_RECOVERY_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_RECOVERY_MAIL_KEY_FILE` | `—` | — |
-| `IDENTITY_RUNTIME_MAIL_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_MAIL_SETTINGS_DATABASE_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_LOGIN_REDIS_URL_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_TOKEN_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE` | `—` | — |
 | `IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_ADMISSION_TOKEN` | `—` | 独立 Identity 的可选 admission-only bearer 与单函数状态 DSN；API 无需持有它们。 |
-| `IDENTITY_ADMISSION_TOKEN_FILE` | `—` | — |
-| `IDENTITY_ACTOR_STATUS_DATABASE_URL` | `—` | — |
-| `IDENTITY_ACTOR_STATUS_DATABASE_URL_FILE` | `—` | — |
-| `IDENTITY_RUNTIME_SIGNING_SECRET_FILE` | `—` | — |
+| `IDENTITY_RUNTIME_SIGNING_SECRET_FILE` | `—` | 上述 admission-only bearer／单函数状态 DSN 由独立 issuer 按需持有，不用于 API 的常规绑定。 |
 | `IDENTITY_RUNTIME_EXPIRE_MINUTES` | `1440` | — |
 | `IDENTITY_RUNTIME_EMAIL_VERIFICATION_REQUIRED` | `false` | — |
 | `IDENTITY_RUNTIME_LOGIN_CAPTCHA_THRESHOLD` | `5` | — |
 | `IDENTITY_RUNTIME_LOGIN_FAILED_WINDOW_SECONDS` | `3600` | — |
 | `IDENTITY_RUNTIME_ALLOW_OPEN_REGISTRATION` | `false` | — |
 | `IDENTITY_RUNTIME_FRONTEND_BASE_URL` | `http://localhost:3000` | — |
-| `IDENTITY_MAIL_SMTP_HOST` | `—` | Standalone mail worker fallbacks; Settings DB values take precedence. Blank password means no SMTP authentication. These IDENTITY_MAIL_SMTP_* values are distinct from legacy API SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD / SMTP_FROM. |
+| `IDENTITY_MAIL_SMTP_HOST` | `—` | 只给 identity-mail-v2；Settings 的 SMTP 配置优先，空密码表示不认证。不接收 signer、登录 Redis 或 Recovery DSN。 |
 | `IDENTITY_MAIL_SMTP_PORT` | `0` | — |
 | `IDENTITY_MAIL_SMTP_USER` | `—` | — |
 | `IDENTITY_MAIL_SMTP_PASSWORD` | `—` | — |
+| `IDENTITY_MAIL_SMTP_PASSWORD_FILE` | `—` | — |
 | `IDENTITY_MAIL_SMTP_FROM` | `—` | — |
+
+## Notifications：API 自己终结 WebSocket；发布和订阅允许分别绑定 Redis ACL。
+
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `NOTIFICATION_SUBSCRIBE_REDIS_URL` | `—` | 未配置专用 URL 时沿用本部署 REDIS_URL；显式凭据错误不回退。文件与直接值二选一。 |
+| `NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE` | `—` | — |
+| `NOTIFICATION_PUBLISH_REDIS_URL` | `—` | — |
+| `NOTIFICATION_PUBLISH_REDIS_URL_FILE` | `—` | — |
+| `NOTIFICATION_PUBLISH_DATABASE_URL` | `—` | 默认由 Beat 每 10 秒恢复耐久投递，是否启用独立 Identity 与之无关。 窄发布 DSN 可仅注入实际 relay worker；独立 publisher 必须使用该仅函数 LOGIN。 |
+| `NOTIFICATION_PUBLISH_DATABASE_URL_FILE` | `—` | — |
+| `NOTIFICATION_PUBLICATION_URL` | `—` | 仅当需要进程级 publish-only Redis 隔离时使用 publisher overlay。 API／producer 使用下列私网 origin 和 bearer，远程故障不回退到 Redis。 |
+| `NOTIFICATION_PUBLICATION_TOKEN` | `—` | — |
+| `NOTIFICATION_PUBLICATION_TOKEN_FILE` | `—` | — |
+| `NOTIFICATION_PUBLISH_API_TOKEN_FILE` | `—` | overlay 宿主 secret：同一个即时发布 bearer，挂载到 publisher 和所需调用进程。 |
 
 ## 独立 Assets 来源服务（可选，不进入默认 Compose）
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ASSETS_SOURCE_URL` | `—` | 网关：URL 留空时用本地 Source 工作流；设置 URL 后所有操作都走远程，失败不会回退。 |
-| `ASSETS_SOURCE_TOKEN` | `—` | — |
+| `ASSETS_SOURCE_URL` | `—` | 留空走内建目标。自定义保存目标显式配置私网 Source origin，故障不回退到本地凭据。 连接管理变更使用单独令牌；导入逐版本核验与 Native 签名仍使用各自专用绑定。 |
+| `ASSETS_SOURCE_CLIENT_READ_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_CLIENT_WRITE_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_CLIENT_CLEANUP_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_CLIENT_CONNECTIONS_TOKEN_FILE` | `—` | — |
 | `ASSETS_SOURCE_TIMEOUT_SECONDS` | `300` | — |
-| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 Source、Catalog 和导入 LOGIN 各自只执行部署 grants 中列明的能力。 不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
+| `ASSETS_SOURCE_TOKEN` | `—` | 上述 CLIENT 文件只用于 Compose 插值；每个角色分别挂载匹配的单行令牌。 不与 Source UID 10003 的文件共用路径，不把明文令牌放入 .env.production。 以下为 Source 端配置；宿主进程直启时也可注入对应的运行时值或 _FILE。 |
+| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 Source 和导入 LOGIN 各自只执行部署 grants 中列明的能力。 不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
 | `ASSETS_SOURCE_DATABASE_URL_FILE` | `—` | — |
 | `ASSETS_SOURCE_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_DATABASE_URL` | `—` | 保存目标 I/O 使用独立 assets_source_saved_io_login，只有有限执行权限。 DSN、读、写、清理令牌必须完整配置；三种令牌互异，也不复用其他 Source 令牌。 连接管理与受限切换身份独立；切换只给 Source 和私有 cutover preview CLI。 |
+| `ASSETS_SOURCE_SAVED_IO_DATABASE_URL_FILE` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_READ_TOKEN` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_READ_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_CONNECTIONS_TOKEN` | `—` | — |
+| `ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_SPOOL_DIR` | `—` | 容器内仅 Source 挂载该宿主绝对路径。启用保存目标 I/O 前创建目录，属主 10003:10003、0700。 每个 Source 实例一次只接受一个上传；默认上限 64 GiB，以保留现有导出／审计上限。 专用磁盘限额及可用空间须超过配置上限；小型部署可显式设为 5368709120（5 GiB）。 非 Compose 直启时填 Source 可写的实际目录；不会回退到 256 MiB 的 /tmp。 |
+| `ASSETS_SOURCE_SAVED_IO_MAX_UPLOAD_BYTES` | `68719476736` | — |
 | `ASSETS_SOURCE_IMPORT_VERIFY_TOKEN` | `—` | 导入核验专用令牌；与网关令牌不同，并与导入进程核验令牌相同。 |
 | `ASSETS_SOURCE_IMPORT_VERIFY_TOKEN_FILE` | `—` | — |
 | `ASSETS_SOURCE_S3_ACCESS_KEY` | `—` | — |
 | `ASSETS_SOURCE_S3_ACCESS_KEY_FILE` | `—` | — |
 | `ASSETS_SOURCE_S3_SECRET_KEY` | `—` | — |
 | `ASSETS_SOURCE_S3_SECRET_KEY_FILE` | `—` | — |
-| `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` | `—` | 可选 Fernet key；应与 CONNECTOR_ENCRYPTION_KEY 相同，以读取既有密文。留空仍可启动；创建/加密或需要解密密文的操作会失败。 |
+| `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` | `—` | 沿用既有连接器密文的 Fernet key；独立 Source 与导入进程用各自可读的文件。 |
 | `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE` | `—` | — |
 | `ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST` | `[]` | Settings 数据库覆盖不存在时使用的部署回退；必须为 JSON 字符串数组，空数组不允许连接器目标出网。 |
 | `ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` | `—` | 可选只读 known_hosts 文件；容器内路径必须可读，未知 SFTP 主机仍被拒绝。 |
@@ -671,6 +638,8 @@ last_reviewed: 2026-11-23
 | `ASSETS_SOURCE_DATASETS_BUCKET` | `—` | — |
 | `ASSETS_SOURCE_IMPORT_BUCKET` | `—` | — |
 | `ASSETS_SOURCE_MEDIA_CACHE_BUCKET` | `—` | — |
+| `ASSETS_SOURCE_ANNOTATIONS_BUCKET` | `—` | — |
+| `ASSETS_SOURCE_NETWORK` | `default` | Compose 网络逻辑名；同项目部署默认 default，LAN 组合可选已有私网 shared。不要发布宿主端口。 |
 | `ASSETS_SOURCE_HOST` | `0.0.0.0` | — |
 | `ASSETS_SOURCE_PORT` | `8767` | — |
 | `ASSETS_SOURCE_MAX_REQUEST_BYTES` | `1048576` | — |
@@ -715,7 +684,7 @@ last_reviewed: 2026-11-23
 | `ASSETS_IMPORT_S3_ENDPOINT` | `—` | — |
 | `ASSETS_IMPORT_S3_REGION` | `us-east-1` | — |
 | `ASSETS_IMPORT_DATASETS_BUCKET` | `—` | — |
-| `CONNECTOR_ENCRYPTION_KEY_FILE` | `—` | 本进程可从文件读取与 API 相同的 Fernet key；API 仍使用 CONNECTOR_ENCRYPTION_KEY。 |
+| `CONNECTOR_ENCRYPTION_KEY_FILE` | `—` | 导入进程专用文件，使用与独立 Source 相同的 Fernet key、不同文件路径。 |
 | `ASSETS_IMPORT_SFTP_KNOWN_HOSTS` | `—` | 宿主执行时为本地文件；Compose 将该文件挂载到固定只读 secret 路径。 留空时 Compose 使用空示例，SFTP 未知指纹仍然拒绝。 |
 | `ASSETS_IMPORT_LEASE_SECONDS` | `120` | — |
 | `ASSETS_IMPORT_HEARTBEAT_SECONDS` | `20` | — |
@@ -737,10 +706,12 @@ last_reviewed: 2026-11-23
 | `ASSETS_MASK_CLEANUP_URL` | `—` | — |
 | `ASSETS_MASK_CLEANUP_TOKEN` | `—` | — |
 | `ASSETS_MASK_CONTENT_TIMEOUT_SECONDS` | `30` | — |
-| `LABELING_MASK_GC_URL` | `—` | Mask 回收协调服务；URL/token 全空时本地装配同一持久协调器。 显式远程配置失败时不回退；扫描页数和删除数分别受限。 |
+| `LABELING_MASK_GC_URL` | `—` | Mask 回收默认仍由本地保存目标任务处理；独立 SHA 对象回收使用手动 GC overlay。 显式私有 URL/token 不会失败回退；GC 不启动 Class Query 或 Video Writer。 |
 | `LABELING_MASK_GC_TOKEN` | `—` | — |
 | `LABELING_MASK_GC_TIMEOUT_SECONDS` | `300` | — |
-| `MASK_GC_DATABASE_URL` | `—` | 独立回收进程：只持有六项 GC 函数登录与 cleanup HTTP token。 |
+| `LABELING_RUNTIME_MASK_GC_DATABASE_URL_FILE` | `—` | 操作 overlay 宿主 secret 文件；只允许固定 GC 函数及独立的 Assets cleanup bearer。 |
+| `LABELING_RUNTIME_MASK_GC_CONTROL_TOKEN_FILE` | `—` | — |
+| `MASK_GC_DATABASE_URL` | `—` | GC 直接启动的进程设置；与 overlay 宿主 secret 路径不是同一层。 |
 | `MASK_GC_DATABASE_URL_FILE` | `—` | — |
 | `MASK_GC_TOKEN` | `—` | — |
 | `MASK_GC_TOKEN_FILE` | `—` | — |
@@ -751,7 +722,7 @@ last_reviewed: 2026-11-23
 | `MASK_GC_HOST` | `0.0.0.0` | — |
 | `MASK_GC_PORT` | `8771` | — |
 | `MASK_GC_POLL_SECONDS` | `5` | — |
-| `MASK_GC_POLL_ENABLED` | `true` | false 保留手动 HTTP 与健康检查，关闭后台回收轮询。 |
+| `MASK_GC_POLL_ENABLED` | `false` | Compose 固定关闭后台回收轮询；直接运行同样先使用手动／预览模式。 |
 | `PREANNOTATION_RESULTS_DATABASE_URL` | `—` | Optional function-only LOGIN for batch result checkpoints; final Labeling writes keep the normal application transaction. Empty uses DATABASE_URL. |
 | `PREANNOTATION_RESULTS_DATABASE_URL_FILE` | `—` | — |
 | `MASK_CONTENT_S3_ENDPOINT_URL` | `—` | 运行工件无数据库凭据；两个进程只共享固定桶/前缀，各用自己的 S3 身份。 |
@@ -770,11 +741,17 @@ last_reviewed: 2026-11-23
 | `MASK_CLEANUP_S3_ACCESS_KEY_FILE` | `—` | — |
 | `MASK_CLEANUP_S3_SECRET_KEY_FILE` | `—` | — |
 
-## 独立图片/视频媒体控制与执行器：仅显式选择，默认本地组合，不进入默认 Compose。
+## 媒体执行分别选择 celery（默认）或 split；换档前排空旧执行器，并同步更新 API 与 worker。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ASSETS_MEDIA_URL` | `—` | — |
+| `ASSETS_VIDEO_EXECUTOR` | `celery` | — |
+| `ASSETS_IMAGE_EXECUTOR` | `celery` | — |
+| `ASSETS_CELERY_VIDEO_DATABASE_URL` | `—` | 默认 Celery 选档的窄 worker LOGIN。普通 API、Beat、maintenance 不接收这两个 DSN。 严格 LAN 应为视频执行配置独立 LOGIN；Native 图片写入须另配独立 image LOGIN。 每组值／文件二选一。选择 split 时移除该路 Celery 绑定，改用独立执行器凭据。 |
+| `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE` | `—` | — |
+| `ASSETS_CELERY_IMAGE_DATABASE_URL` | `—` | — |
+| `ASSETS_CELERY_IMAGE_DATABASE_URL_FILE` | `—` | — |
+| `ASSETS_MEDIA_URL` | `—` | 可选私网控制端与执行器选择无关。只在要求独立控制身份时设置下列 URL；故障不回退。 |
 | `ASSETS_MEDIA_TOKEN` | `—` | — |
 | `ASSETS_MEDIA_TIMEOUT_SECONDS` | `30` | — |
 | `ASSETS_MEDIA_CONTROL_DATABASE_URL` | `—` | 两个独立函数 LOGIN；与 migration/Assets owner 分离。直接值和 _FILE 二选一。 |
@@ -840,44 +817,11 @@ last_reviewed: 2026-11-23
 |---|---|---|
 | `WORKSPACE_MEMBERSHIP_TIMEOUT_SECONDS` | `30` | 已配置独立 Workspace URL 或专用 DSN 的部署须另行迁移，不能直接切换。 |
 
-## Labeling class usage: API first checks current Workspace management authority.
+## Labeling 类目查询和视频最终写入借用现有调用方／worker 事务；无独立部署选择器。
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `LABELING_CLASS_QUERY_URL` | `—` | Empty selectors borrow the caller transaction. Select DSN or HTTP, never both. |
-| `LABELING_CLASS_QUERY_DATABASE_URL` | `—` | — |
-| `LABELING_CLASS_QUERY_DATABASE_URL_FILE` | `—` | — |
-| `LABELING_CLASS_QUERY_CONTROL_TOKEN` | `—` | — |
-| `LABELING_CLASS_QUERY_CONTROL_TOKEN_FILE` | `—` | — |
-| `LABELING_CLASS_QUERY_TIMEOUT_SECONDS` | `30` | — |
-| `LABELING_CLASS_QUERY_HOST` | `0.0.0.0` | Standalone runtime; it requires only its Labeling DSN and private bearer. |
-| `LABELING_CLASS_QUERY_PORT` | `8178` | — |
-| `LABELING_CLASS_QUERY_MAX_CONCURRENCY` | `8` | — |
-| `LABELING_RUNTIME_CLASS_QUERY_DATABASE_URL_FILE` | `—` | Host paths mapped to the standalone container's read-only secret files. |
-| `LABELING_RUNTIME_CLASS_QUERY_CONTROL_TOKEN_FILE` | `—` | — |
-
-## Video finalization: empty selectors borrow the current worker transaction.
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `LABELING_VIDEO_WRITER_URL` | `—` | Select a function-only DSN or authenticated HTTP owner; never both. |
-| `LABELING_VIDEO_WRITER_DATABASE_URL` | `—` | — |
-| `LABELING_VIDEO_WRITER_DATABASE_URL_FILE` | `—` | — |
-| `LABELING_VIDEO_WRITER_CONTROL_TOKEN` | `—` | — |
-| `LABELING_VIDEO_WRITER_CONTROL_TOKEN_FILE` | `—` | — |
-| `LABELING_VIDEO_WRITER_TIMEOUT_SECONDS` | `90` | — |
-| `LABELING_VIDEO_WRITER_HOST` | `127.0.0.1` | Standalone owner uses the same DSN/control-token names and existing MaskContent URL/token settings when a candidate contains Mask references. |
-| `LABELING_VIDEO_WRITER_PORT` | `8180` | — |
-| `LABELING_VIDEO_WRITER_MAX_CONCURRENCY` | `8` | — |
-| `LABELING_RUNTIME_VIDEO_WRITER_DATABASE_URL_FILE` | `—` | — |
-| `LABELING_RUNTIME_VIDEO_WRITER_CONTROL_TOKEN_FILE` | `—` | — |
-| `LABELING_RUNTIME_VIDEO_WRITER_MASK_CONTENT_TOKEN_FILE` | `—` | — |
-
-## API/worker Inference HTTP clients. Stored backend secrets stay in the owner.
-
-| 变量 | 默认值 | 说明 |
-|---|---|---|
-| `INFERENCE_PIPELINES_URL` | `—` | Saved pipeline operations may still borrow the caller's transaction when URL is empty. |
+| `INFERENCE_PIPELINES_URL` | `—` | API／worker 的 Inference HTTP 客户端：已启用 URL 指向同一 inference origin（私网端口 8768），各用独立 bearer。 存量后端凭据只保存在 owner；没有远程 URL 的命名流水线仍可借用调用方事务。 |
 | `INFERENCE_PIPELINES_TOKEN` | `—` | — |
 | `INFERENCE_PIPELINES_TOKEN_FILE` | `—` | — |
 | `INFERENCE_PIPELINES_TIMEOUT_SECONDS` | `30` | — |
@@ -999,11 +943,11 @@ last_reviewed: 2026-11-23
 | `ROUTE_CONTROL_TOKEN_FILE` | `—` | — |
 | `AAP_ROUTE_REGISTRY_ID` | `—` | 路由注册表实例身份；与已安装插件制品共用，保留旧名，按独立门迁移。 |
 
-## Audit 独立维护与归档读取（可选，不改变默认运行拓扑）
+## Audit 默认由 maintenance worker + Beat 调度；以下为显式运维 CLI 和管理员只读选项
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `AUDIT_MAINTENANCE_DATABASE_URL` | `—` | 一次性维护 CLI 只使用单函数 LOGIN；值／文件恰好选择一项。 |
+| `AUDIT_MAINTENANCE_DATABASE_URL` | `—` | 一次性维护 CLI 只使用单函数 LOGIN；值／文件二选一。不代替生成 audit_archive_outputs 的定时归档。 |
 | `AUDIT_MAINTENANCE_DATABASE_URL_FILE` | `—` | — |
 | `AUDIT_MAINTENANCE_ARCHIVE_S3_ENDPOINT_URL` | `—` | 只有 archive-partitions 需要以下独立 Audit 归档桶凭据；不创建桶、不持有删除权限。 |
 | `AUDIT_MAINTENANCE_ARCHIVE_S3_REGION` | `us-east-1` | — |

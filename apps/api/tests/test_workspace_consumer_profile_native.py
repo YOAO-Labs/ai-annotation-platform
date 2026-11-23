@@ -21,7 +21,7 @@ from app.core.security import create_access_token
 from app.services.project_access import get_workspace_project
 from app.services.project_workspace import lock_project_row
 from tests.factory import create_project, create_task, create_user
-from tests.grant_sql_helpers import read_grant_script
+from tests.grant_script import read_psql_grant_script
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_labeling_counter_deltas_workflows_native import _configure_actual_api
 from tests.test_workspace_configuration_live import _public_configuration_commands
@@ -80,7 +80,7 @@ async def _grants(test_engine, filename, role, **overrides):
     return await asyncio.to_thread(
         subprocess.run,
         command,
-        input=read_grant_script(filename),
+        input=read_psql_grant_script(filename),
         text=True,
         capture_output=True,
         timeout=30,
