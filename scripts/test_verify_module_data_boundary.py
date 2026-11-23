@@ -40,22 +40,17 @@ def test_installed_body_uses_named_function_in_multi_function_resource(
         "AS $function$SELECT 2$function$;\n"
     )
     monkeypatch.setattr(verifier, "ROOT", tmp_path)
-    monkeypatch.setattr(verifier, "_psql", lambda *_args, **_kwargs: b"SELECT 2".hex())
-    arguments = dict(
-        database="owned_test",
-        owner_password="fixture-only",
-        signature="aap_test.second()",
-        sql_name="queries.sql",
-    )
-    assert _installed_function_body_sha256("id", "name", "identity", **arguments) == (
+    signature = "aap_test.second()"
+    assert _installed_function_body_sha256(signature, "queries.sql", "SELECT 2") == (
         hashlib.sha256(b"SELECT 2").hexdigest()
     )
-    monkeypatch.setattr(verifier, "_psql", lambda *_args, **_kwargs: b"SELECT 1".hex())
     with pytest.raises(RuntimeError, match="differs from frozen SQL"):
-        _installed_function_body_sha256("id", "name", "identity", **arguments)
+        _installed_function_body_sha256(signature, "queries.sql", "SELECT 1")
+    with pytest.raises(RuntimeError, match="body is missing"):
+        _installed_function_body_sha256(signature, "queries.sql", None)
 
 
-def test_insights_saved_view_body_references_current_assets_owner(monkeypatch):
+def test_insights_saved_view_body_references_current_assets_owner():
     name = "0487_insights_dataset_views.sql"
     signature = "yoao_insights_v1.prepare_personal_dataset_view(uuid,uuid)"
     source = _sql_artifact_path(name).read_text(encoding="utf-8")
@@ -64,19 +59,8 @@ def test_insights_saved_view_body_references_current_assets_owner(monkeypatch):
     )[1]
     assert "yoao_assets_v1.lock_dataset_reference(p_dataset)" in body
     assert verifier.FUNCTION_BODY_ARTIFACTS[signature] == name
-    monkeypatch.setattr(
-        verifier, "_psql", lambda *_args, **_kwargs: body.encode().hex()
-    )
     assert (
-        _installed_function_body_sha256(
-            "id",
-            "name",
-            "identity",
-            database="owned_test",
-            owner_password="fixture-only",
-            signature=signature,
-            sql_name=name,
-        )
+        _installed_function_body_sha256(signature, name, body)
         == hashlib.sha256(body.encode()).hexdigest()
     )
 
@@ -91,21 +75,17 @@ def test_installed_mask_owner_requires_acceptance_history_dispatch(monkeypatch):
     migration._mask_command(history=True)
     installed = _qualified_namespace(captured[0].split("$function$", 2)[1].encode())
     arguments = dict(
-        database="owned_test",
-        owner_password="fixture-only",
         signature="yoao_labeling_v1.mask_edit_command(jsonb)",
         sql_name="0348_labeling_mask_edits.sql",
     )
-    monkeypatch.setattr(verifier, "_psql", lambda *_args, **_kwargs: installed.hex())
-    assert _installed_function_body_sha256("id", "name", "identity", **arguments) == (
+    assert _installed_function_body_sha256(actual=installed.decode(), **arguments) == (
         hashlib.sha256(installed).hexdigest()
     )
     captured.clear()
     migration._mask_command(history=False)
     old_body = _qualified_namespace(captured[0].split("$function$", 2)[1].encode())
-    monkeypatch.setattr(verifier, "_psql", lambda *_args, **_kwargs: old_body.hex())
     with pytest.raises(RuntimeError, match="differs from frozen SQL"):
-        _installed_function_body_sha256("id", "name", "identity", **arguments)
+        _installed_function_body_sha256(actual=old_body.decode(), **arguments)
 
 
 def test_view_evidence_hashes_catalog_deparser_and_tracks_owner_transfer():
