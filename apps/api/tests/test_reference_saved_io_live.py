@@ -239,7 +239,7 @@ def _s3_world():
             client.put_bucket_versioning(
                 Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}
             )
-            key = "root/collection/branch//edge +%2F.png"
+            key = "root/collection/branch/edge +%2F.png"
             client.put_object(Bucket=bucket, Key=key, Body=_png("navy"))
             client.put_object(
                 Bucket=bucket, Key="root/collection/skip.txt", Body=b"not an image"
@@ -504,6 +504,7 @@ async def test_registered_reference_cutover(
                                 name=f"Reference {kind}",
                                 relative_path="collection",
                                 node_id=_NODE,
+                                include_globs=["*.png"],
                                 cache_policy="none",
                             ),
                             actor,
