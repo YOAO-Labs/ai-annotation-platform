@@ -145,13 +145,18 @@ async def _copy_attempt(db, actor, copy_id):
     return job.id, job.celery_task_id
 
 
+def _configure_inventory_bucket(bucket, assign=setattr):
+    for attr in PURPOSE_BUCKET_ATTRIBUTES.values():
+        assign(settings, f"minio_{attr}", bucket)
+        assign(storage_service, attr, bucket)
+
+
 def _hold_verified_body(
     db_url, endpoint, bucket, origin, tokens, job_id, task_id, row, ready
 ):
     """A separate worker PID starts the real Source read, then stops consuming it."""
     settings.connector_host_allowlist = [urlsplit(endpoint).hostname]
-    for attr in PURPOSE_BUCKET_ATTRIBUTES.values():
-        setattr(storage_service, attr, bucket)
+    _configure_inventory_bucket(bucket)
 
     async def start():
         engine = create_async_engine(db_url)
@@ -635,8 +640,7 @@ async def test_registered_copy_and_retained_route_use_exact_live_receipts(
                 "connector_host_allowlist",
                 [urlsplit(provider.storage_origin).hostname],
             )
-            for attr in PURPOSE_BUCKET_ATTRIBUTES.values():
-                monkeypatch.setattr(storage_service, attr, source.bucket)
+            _configure_inventory_bucket(source.bucket, monkeypatch.setattr)
 
             project, job, output_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
             key = export_storage.key_for("image", project, job, output_id)
@@ -723,6 +727,18 @@ async def test_registered_copy_and_retained_route_use_exact_live_receipts(
                     assert await inventory_worker.execute(
                         db, inventory_job_id, inventory.task_id
                     )
+                    sealed = await inventories.by_job(db, inventory_job_id)
+                    assert sealed is not None
+                    assert sealed.report_sha256 is not None, (
+                        sealed.status,
+                        sealed.error_code,
+                    )
+                    assert sealed.status == "completed" and sealed.complete, (
+                        sealed.status,
+                        sealed.error_code,
+                        sealed.counts,
+                    )
+                    assert sealed.counts["verified_objects"] == 1
                     copy, prep, reused = await copies.start(
                         db,
                         actor,
