@@ -467,7 +467,7 @@ API 文档：http://localhost:8000/docs
 
 ### 默认模块装配与旧拆分环境
 
-默认档由 API 和现有 worker 在原事务中调用 Workspace、Labeling 类目／视频写入、Assets Catalog；Identity 签发和 Notifications WebSocket 也留在 API。Jobs 使用同一个 Celery broker，只有恢复队列另用受限 LOGIN。实际需要的 Inference 凭据 owner、媒体隔离和邮件 sender 按[部署与凭据矩阵](docs-site/ops/deploy/docker-compose.md#module-process-selection)选择。
+默认与保留服务以[模块部署进程清单](docs-site/dev/concepts/module-deployment.md#deployment-convergence)为准。独立工作树仅用该模式生成的应用 LOGIN 和资源；M2b 验收须另证这个 LOGIN、两种 LAN 普通 LOGIN 均无私表、列、物化视图、外表、分区或序列的有效权限。不要用本地 owner、维护或 Source 凭据代替普通登录跑通业务。各场景的安装参数见[运维部署](docs-site/ops/deploy/docker-compose.md#module-process-selection)。
 
 原拆分服务、选择器和密钥文件不能带入新装配滚动升级。先看[旧拓扑升级门禁](docs-site/ops/upgrade-guide.md#split-topology-upgrade)；M2c 日常切换另行授权。工作树的默认装配不修改日常服务、数据库、共享 `.env` 或既有凭据。
 

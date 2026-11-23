@@ -140,7 +140,7 @@ LibreYOLO 原生 loader 留在该插件的 `native/`，不进入通用 SDK。第
 
 ## 剩余工作台账
 
-这是平台插件化计划（仓库 `docs/plans/1795366269_platform-pluginization.md`）的实时状态入口。原后端解耦计划已归档；历史资格仍限定原源码与拓扑，不代表新默认档已经验收。推理扩展的[直连入门](/dev/ml-backend/starter#direct-registration)与安装档分开。部署收敛已实施首批 Workspace 六项，其余动作仍按下表确认。
+这是平台插件化计划 `docs/plans/1795366269_platform-pluginization.md` 的实时状态入口。原后端解耦计划已归档；历史资格仍限定原源码与拓扑，不代表新默认档已经验收。推理扩展的[直连入门](../tutorials/ml-backend-starter#direct-registration)与安装档分开；当前部署以[进程清单](#deployment-convergence)为准。
 主线在线学习、数据集原件与受控存储纳入后，重构重点从“等待功能落地”转为提取完整 owner 边界：
 Assets 必须统一原件身份、物理 I/O 责任、存储计量、来源保留与业务发布；
 Learning 必须收口数据版本、训练、评估、主动学习和模型发布账本，再撤销跨领域私表读取。
@@ -150,92 +150,54 @@ Learning 必须收口数据版本、训练、评估、主动学习和模型发�
 已使用旧重构数字修订的数据库不能自动 `stamp` 到新图；必须先在隔离副本审计实际结构和数据，
 再单独安排迁移。本轮隔离验证不改动日常数据库。
 
-### 部署收敛决定表 {#deployment-convergence}
+### 部署收敛：进程清单 {#deployment-convergence}
 
-M2a 历史盘点：根目录 44 个 `docker-compose*.yml`，去重后 59 个 `services` 键。基础定义 15 个，连同 `prod`／`lan-prod` 独有的 `api`、`web`、`gateway`、`migrate`、`redis-production` 共 20 个核心键，其余 39 个列在下表。`hostvols`、`ml` 只改卷。
+**源码拓扑已收敛，完整 M2b 尚未验收。** 下文的「默认」「保留」「退役」描述源码装配，不表示新档已冷启动、通过恢复或被日常环境采用。M2a 历史盘点为 44 份 Compose 文件、59 个去重服务键；Workspace 首切片后为 35／53。当前根目录为 **25 份 `docker-compose*.yml`、43 个不同服务键**；基础文件有 16 个键，连同两份生产定义并集为 21 个。按 `services` 一级键去重；同名覆盖、profile、`migrate` 的一次性执行和实际容器副本不另计。`docker-compose.hostvols.yml`、`docker-compose.ml.yml` 只覆盖卷；`docker-compose.inference-development.yml` 覆盖同一个 `inference`；`docker-compose.assets-native.yml` 只覆盖既有 Source、媒体控制和图片 worker，不是第四个执行通道或一个新服务。
 
-M2b 首批退役 Workspace 的九份 Compose 文件和六个服务键。当前根目录为 35 份 Compose 定义、53 个不同服务键，基础及两份生产叠加之外为 33 个。同名覆盖只算一次，数量不是实际运行进程数。**仅标为「已合并」的 Workspace 六项已变更**；其余行仍是待确认的建议，不是默认档冷启动或生产验收结论。
+#### 默认宿主
 
-“合并”指复用现有 owner 入口、保留固定函数、调用方事务和失败语义；不是给普通账号授予私表或拆出进程的全部权限。表中的 `*_client` 是受限 LOGIN，不是拥有对象的 NOLOGIN 角色。显式选择远端时，其故障不能回退到权限更宽的本地连接。
+| 部署入口                                                  | 默认进程及职责                                                                                                                                                 |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 本机开发基座 `docker-compose.yml`                         | PostgreSQL、Redis、MinIO、Mailpit、八类 Celery worker 和单实例 `celery-beat`；API／Web 通常在宿主运行，监控按 `monitoring` profile 启用。                      |
+| 标准生产 `docker-compose.yml` + `docker-compose.prod.yml` | 同一组基础设施及 Celery，`api`／`web` 加入容器；去掉 Mailpit，监控仍按 profile。                                                                               |
+| LAN `docker-compose.lan-prod.yml`                         | 单独使用，不叠基础文件。`gateway`、`web`、`api`、`redis-production`、同组 Celery；`migrate` 一次性运行。PostgreSQL、MinIO 在栈外，LAN 用独立目标库、桶和凭据。 |
+| 独立工作树 `pnpm dev:worktree`                            | 启动器隔离 DB、Redis、桶及运行凭据；按请求启动 API／Web 和 worker，不是完整 LAN Compose，不能借日常 Beat 或凭据补齐验收。                                      |
 
-#### Workspace 与 Labeling
+八类 worker 是 `celery-worker`、`celery-worker-maintenance`、`celery-worker-cpu`、`celery-worker-gpu`、`celery-worker-export`、`celery-worker-image-pyramid`、`celery-worker-gpu-control`、`celery-worker-jobs-recovery`。API 复用调用方事务的 Workspace 六项、Labeling 类目、Assets Catalog 与常规来源控制；tracker worker 保留 Labeling 视频最后写入。Identity 默认内嵌签发；Notifications 公共 WebSocket 由 API 终结，提交后即时投递和 Beat 恢复 outbox 是不同路径。Jobs 直接走 Celery broker，专用恢复 worker 从持久账本认领并重派稳定执行 ID；它的 claim／publication 凭据不同于 API 普通连接。Audit 定时维护仍归 Beat 与维护队列，不能用 Audit 单函数 operator 替代整个队列。图片、视频默认各走 Celery 的窄执行身份；API 控制端不持有媒体执行 DSN。
 
-Workspace 的六个入口 `apps/api/app/services/workspace_*.py` 现在使用与原调用方 `AsyncSession` 绑定的数据适配器和现有 manager，登录仍是普通应用 SQL 角色。冻结 SQL、专用一致性凭据及可移植合同保留；产品不再读取按操作的 URL、专用命令／查询 DSN 或共享 Workspace HTTP bearer。M2b 不切换本机日常环境；旧安装先阅读[升级门禁](/ops/upgrade-guide#workspace-split-upgrade)，不得照旧拓扑滚动升级或把 owner 连接交给 API。
+#### 保留的独立服务及选择条件
 
-| 服务键                      | 已有入口与凭据                                                                                              | 状态及切换条件                                                                                                                        |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace-membership`      | `MembershipManager`；membership 的 prepare／apply                                                           | 已合并；成员、职责交接、Audit 与成功回执仍同事务。                                                                                    |
-| `workspace-owner-transfer`  | `OwnerTransferManager`；owner_transfer 的 transfer                                                          | 已合并；保留账号／项目锁和提交后投影。                                                                                                |
-| `workspace-configuration`   | `ConfigurationManager`；configuration、guide 能力，另用 Inference probe bearer                              | 已合并；改类名仍与 Labeling 写入同事务；推理凭据只由 Inference probe 打开。                                                           |
-| `workspace-template-query`  | `TemplateQueryManager`；template_query 的 policy／step                                                      | 已合并；保留 caller autoflush 和模板投影。                                                                                            |
-| `workspace-project-query`   | `ProjectQueryManager`；project_query，显示资料另用 Identity Briefs                                          | 已合并；不要用资料读取代替权限复核或直接读用户表。                                                                                    |
-| `workspace-directory-query` | `DirectoryQueryManager`；directory_query，必要时取 Briefs                                                   | 已合并；目录与 mention 的可见性、原 Session 的未提交状态不变。                                                                        |
-| `labeling-class-query`      | 进程内 Class Query；`yoao_labeling_class_query_client` 的三个函数                                           | 有条件合并；工作树已有函数授权，LAN 普通登录未配齐，不能授私表补足。                                                                  |
-| `labeling-video-writer`     | tracker worker 的 `video_tracking/writer.py`；`yoao_labeling_video_writer_client`，split 另需 Mask 字节核验 | 合并到原 worker；保留窗口代次、最终写入复核及历史字节归属。                                                                           |
-| `labeling-mask-gc`          | `mask_gc_collection.run_cycle`；`yoao_labeling_mask_gc_client` 和独立 Assets cleanup token                  | 暂留操作入口。现有 Beat 清理的是保存目标对象，开发 overlay 也关闭轮询；先验证同一 GC 的 dry-run、恢复和历史对象清理，再决定合并调度。 |
+| Compose 文件                                                                              | 服务键／profile                                                                                                                             | 隔离原因、凭据与行为                                                                                                                                                                                 |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docker-compose.identity.yml`                                                             | `identity-issuer`（`identity-issuer` profile）；`identity-mail-v2`                                                                          | 单独保护签发和登录 Redis 时选 issuer；正常邮件只启 V2 sender，消费邀请及旧 Recovery，持窄函数、邮件密钥及 SMTP，不持 JWT 私钥。                                                                      |
+| `docker-compose.notifications-publisher.yml`                                              | `notifications-publisher`                                                                                                                   | 仅当需要 publish-only 的进程级 Redis ACL；私网 bearer 与窄 SQL，API 只订阅，不恢复同一 outbox 两次。                                                                                                 |
+| `docker-compose.inference.yml`                                                            | `inference`                                                                                                                                 | 真实推理（含 CPU）、Registry 同步、健康观察、Workspace 探测及 GPU 控制；同一私网 origin 8768，按用途分 bearer、窄 LOGIN 和签名／GPU 身份。不是模型容器，显式远端不可用不回退。                       |
+| `docker-compose.assets-source.yml`                                                        | `assets-source`                                                                                                                             | 连接器秘密、主机策略、导入精确版本核验／恢复及 Native 有限签名留在 Source；已登记 S3／SFTP 的物理 I/O 决定见下节。                                                                                   |
+| `docker-compose.assets-import.yml`；`docker-compose.assets-cleanup.yml`                   | `assets-import`；`assets-cleanup`                                                                                                           | 导入复制保留独立租约、受限目的端写入和 Source 版本核验；清理只按已保存派生对象的前缀／版本工作，不授予通用原件删除权。                                                                               |
+| `docker-compose.assets-media.yml`                                                         | `assets-media-control`（同名 profile）；`assets-media-worker`（`assets-video-executor`）；`assets-images-worker`（`assets-image-executor`） | `ASSETS_MEDIA_URL` 只选择远端控制；执行分别用 `ASSETS_VIDEO_EXECUTOR=split`、`ASSETS_IMAGE_EXECUTOR=split`，只停对应 Celery 通道。FFmpeg／临时盘与 libvips／内存分离，控制、领取及实际写入身份分开。 |
+| `docker-compose.assets-mask-content.yml`；`docker-compose.labeling-mask-gc.yml`           | `assets-mask-content`、`assets-mask-cleanup`；`labeling-mask-gc`（`mask-gc` profile）                                                       | 内容与条件清理各用独立字节凭据；手动 GC 持固定函数和 cleanup bearer，无 S3 凭据，不替代 Beat 的保存目标回收。                                                                                        |
+| `docker-compose.modules.yml`；`docker-compose.audit.yml`                                  | `media-probe`；`audit-maintenance`（`maintenance` profile）                                                                                 | 前者隔离 FFmpeg，仅持探测 token，无 DB／S3；后者是窄归档账号的一次性 operator，不替代产出 `audit_archive_outputs` 的默认任务。                                                                       |
+| `docker-compose.ml-gsam2.yml`；`docker-compose.ml-sam3.yml`；`docker-compose.ml-yolo.yml` | `grounded-sam2-backend`（`gpu`）；`sam3-backend`（`gpu-sam3`）；`yolo-backend`（`gpu-yolo`）                                                | 独立模型、权重及设备；用模型服务 token，不持核心 DB 凭据。                                                                                                                                           |
+| `docker-compose.ml-onnxtools.yml`；`docker-compose.ml-rapidocr.yml`                       | `onnxtools-backend`（`gpu-onnxtools`）；`rapidocr-backend`（`gpu-rapidocr`）                                                                | 独立运行时和模型目录；RapidOCR 的该 overlay 预留 GPU，不能用它证明 CPU 制品资格。                                                                                                                    |
+| `docker-compose.training.yml`；`docker-compose.experiments.yml`                           | `training-executor`（`training`）；`audit-summary`（`audit-summary-experiment`）                                                            | 前者是独立训练执行器，持 API token、固定 GPU、权重和持久 journal，无 DB／broker；后者仅为 Go 计数实验，不进默认／生产路径。                                                                          |
 
-Workspace 的真实宿主装配用例通过模块数据验证器显式选择 `tests/test_workspace_module_assembly_live.py`，配方见 `DEV.md` 的“Workspace 宿主与包一致性验收”；包级 manager、SQL、第二语言对照及独立冷 worker 验收仍保留。Labeling 继续使用其容器测试及 `test_mask_gc_runtime_image.py`（`AAP_MASK_CONTENT_ACCEPTANCE`）。运行边界见 [Workspace](/api/guides/workspace-runtime)、[Labeling](/api/guides/labeling-runtime)、[Mask](/api/guides/mask-content)。
+[站点 Agent](../../ops/deploy/site-agents)通过出站 HTTPS 持站点 token、只读根和本地 SQLite 日志，无中心 DB；LibreYOLO 使用独立制品与安装器。两者都不是仓库的 Compose 服务键。
 
-#### Identity、Notifications、Jobs 与 Audit
+#### 已退役的选择器与工件
 
-| 服务键                            | 已有入口与凭据                                                                                                                                                | 建议及切换条件                                                                                                                                           |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `identity-admission`              | `IdentityGateway` 和本地命令；split 分配 `yoao_identity_*_client`、控制 bearer、JWT signer、登录 Redis、邮件加密密钥                                          | 有条件合并；先明确 signer 与 API 媒体签名密钥的归属，保持现有 JWT 和 socket 准入，不能直接替换密钥。                                                     |
-| `identity-mail`                   | `run_credential_mail`；`yoao_identity_mail_client`、mail settings 只读、Fernet／SMTP                                                                          | V1 退到一个 V2 sender；先核对遗留恢复邮件、租约与失败恢复。                                                                                              |
-| `identity-mail-v2`                | `run_invitation_mail`；`yoao_identity_mail_v2_client`、同一窄 settings 能力、Fernet／SMTP，无 JWT                                                             | 保留一个隔离 sender。V2 可领取邀请及 V1 恢复邮件，反向不行；目前 Beat 未调度两代恢复任务，不能只靠提交后 kick。                                          |
-| `identity-notification-publisher` | Notifications 的旧 durable relay 入口；publisher LOGIN、仅发布 Redis，无 Identity signer                                                                      | 合并到 Notifications；不向 Identity 准入进程增加发布权。                                                                                                 |
-| `notifications-publisher`         | `notification_publication`／`notification_delivery`；`yoao_notification_publish_client`、仅发布 Redis，私网即时 HTTP 另需 bearer                              | 合并默认发布与已有 Beat；保持即时尽力投递与持久 outbox 的区别。远端 Identity 无 publish DSN 会跳过中继，不能静默漏投。若要求独立 Redis ACL，保留 split。 |
-| `notifications-socket`            | API `ws.py` 与独立入口均用 `serve_notification_socket`；`yoao_notification_delivery_read_client`、仅订阅 Redis、Identity 准入 bearer                          | 合并；保留短会话、握手与逐帧可见性复核。独立扩缩需实测，不以连接数猜测。                                                                                 |
-| `jobs-queue`                      | `jobs_queue.py` 已有 Celery 发送；split 只有 broker 与队列 bearer，无 DB                                                                                      | 合并；保留稳定执行 ID、任务路由和非终止式撤销；要求隔离 broker 时才拆。                                                                                  |
-| `jobs-dispatch-relay`             | `jobs_dispatch.py` 有提交后首发，**没有**恢复轮询；独立 `dispatch_relay` 使用 `yoao_jobs_dispatch_relay_client`、`yoao_jobs_publication_client` 及队列 bearer | 有条件合到 worker；先接入 claim／poll，保留租约、代次、子任务 ID 和不确定发布。普通角色不获 claim 权限。                                                 |
-| `audit-maintenance`               | 默认 Beat 有分区、刷新和归档；独立 CLI 用 `yoao_audit_maintenance_client` 单函数及窄归档桶凭据                                                                | 默认沿用现行任务。CLI 旧归档不产出管理员所读的 `audit_archive_outputs`；在确认不需该一次性入口前保留，不互换。                                           |
+- Workspace 首切片退役六个按操作部署入口：`workspace-membership`、`workspace-owner-transfer`、`workspace-configuration`、`workspace-template-query`、`workspace-project-query`、`workspace-directory-query`。冻结 SQL、原 manager、包及一致性用例保留；[旧安装门禁](../../ops/upgrade-guide#workspace-split-upgrade)适用。
+- 退役 `labeling-class-query`、`labeling-video-writer`（删除两份同名 overlay，开发组合改为 `docker-compose.labeling-mask-gc.yml`）；退役 `assets-catalog` 和 `docker-compose.assets-catalog.yml`。不保留旧 HTTP 入口或调用方的专用 DSN。
+- `identity-admission` 改为按需 `identity-issuer`；同文件退役 `identity-mail`、`identity-notification-publisher` 和旧 `mail-v2` profile。退役 `notifications-socket` 与 `docker-compose.notifications.yml`，保留发布者 overlay。
+- 退役 `jobs-queue`、`jobs-dispatch-relay` 与 `docker-compose.jobs-queue.yml`、`docker-compose.jobs-dispatch-relay.yml`、`docker-compose.jobs-development.yml`；退役 `inference-registry`、`inference-health`、`inference-probe` 与三份同名 overlay，对应私有契约由单个 `inference` 承载。
 
-对应定向验收：`test_identity_module_assembly_live.py`、Recovery／Invitations live、`test_notifications_{publisher_image,socket_runtime,module_assembly}_live.py`、`test_jobs_queue_assembly.py`、`test_jobs_dispatch_runtime_live.py`、`test_jobs_module_assembly_live.py`、`test_audit_maintenance_{native,module_live,consumers_cold}.py`。同步各包 README、`DEV.md`、[Identity](/api/guides/identity-runtime)、[模块数据](/api/guides/module-data)、[Audit 维护](/api/guides/audit-runtime)与[归档](/api/guides/audit-archives)。
+旧绑定、密钥和停止／恢复顺序见[旧拓扑升级门禁](../../ops/upgrade-guide#split-topology-upgrade)，安装命令见[运维部署](../../ops/deploy/docker-compose#module-process-selection)与 [LAN 冷启动](../../ops/deploy/lan-production#lan-cold-start)。[宿主机转发](#runtime-host-forwarding)是特定 Docker Desktop 路径的 TCP 故障；已验证的私网路径不证明该故障修复。
 
-#### Assets 与媒体
+#### 普通角色、Source 与 M2b 验收门槛 {#m2b-runtime-boundary}
 
-`docker-compose.assets-native.yml` 只给 Source、媒体控制、图片 worker 和既有 `celery-worker-image-pyramid` 增加选择器，不是名为 `assets-native` 的服务。独立 Native 读、写、清理 token 不能互换。
-
-| 服务键                 | 已有入口与凭据                                                                                                                             | 建议及切换条件                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `assets-catalog`       | `AssetsCatalogGateway` 和空间目录本地 SQL；`yoao_asset_catalog_client`＋只读来源／缓存 S3                                                  | 合并；保留调用方提交、现有签名和空间读取权限。                                                        |
-| `assets-source`        | `assets_source.py`／`assets_connections.py` 可内嵌常规控制；`yoao_asset_source_client`、连接器密钥／主机策略、S3、核验和 Native 角色 token | 只合并常规控制。导入逐版本核验／恢复、Native 签名只在 `SourceRuntime`；保留凭据进程，不下放到 API。   |
-| `assets-import`        | API 接受／取消；无内嵌 claim／copy。`yoao_asset_import_client`、连接器、目的端写入、Source 核验 bearer                                     | 保留；大字节复制后由 Source 独立读回验证。同名同步上传不能替代连接器导入。                            |
-| `assets-cleanup`       | 业务事务只写 outbox，无等价消费；`yoao_asset_cleanup_client`、按前缀／版本的派生物删除和 Native cleanup token                              | 保留；按保存版本回收，不给原件删除权，不并入混合维护账号。                                            |
-| `assets-media-control` | `media_gateway`／`image_gateway` 支持本地事务；`yoao_asset_media_control_client`、只读 S3、Native reader                                   | 有条件合并；`ASSETS_MEDIA_URL` 同时选择控制和执行，先拆开选择，避免默认 worker 与独立执行器重复工作。 |
-| `assets-media-worker`  | 有 Celery 视频执行；split 用 `yoao_asset_media_worker_client`、原件读、缓存／受理视频版本写                                                | 保留 FFmpeg／临时盘隔离；认领先于 I/O，最终提交仍检查代次。                                           |
-| `assets-images-worker` | 内嵌 `ImageExecutor`；split 用 `yoao_asset_image_worker_client`、受理输入／派生写、Native writer                                           | 保留 libvips／内存隔离；原有 `celery-worker-image-pyramid` 还处理旧任务，不能同时误删。               |
-| `assets-mask-content`  | 本地保存目标为 UUID；split 为按 SHA 寻址、独立 content bearer、S3 读写，无 DB                                                              | 保留可选字节进程；支持历史地址及视频 writer 核验，不授予删除。                                        |
-| `assets-mask-cleanup`  | 本地有 GC store，split 有独立 cleanup bearer、条件删除和回收日志 S3，无 DB                                                                 | 保留可选清理身份；不与内容写合并，不以 UUID 目标清理代替 SHA 对象回收。                               |
-| `media-probe`          | `services/media_probe.py` 可直接调用同一探测内核；split 只有 `MEDIA_PROBE_TOKEN`，无 DB／S3                                                | 按 FFmpeg、临时盘及内存需要保留 split；Node peer 只作契约验收。                                       |
-
-对应定向选择：`test_assets_{media,images}_containers.py`、`test_dataset_import_runtime.py`、`test_asset_storage_cleanup_runtime.py`、Catalog／Source 消费者、Mask GC 镜像、`verify_video_consumers_containers.py` 与 `test_media_probe_process.py`。保留 split 时须处理 Import 和 Images overlay 探针仍引用旧 `aap_*` 模块的问题；制品入口是 `yoao_*`。同步 `DEV.md`、各包 README、[Assets Source](/api/guides/assets-source)、[Catalog](/api/guides/assets-catalog)、[媒体](/api/guides/assets-media)、[探测](/api/guides/media-probe)。
-
-#### Inference、模型插件、训练和实验
-
-| 服务键                  | 已有入口与凭据                                                                                                             | 建议及切换条件                                                       |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `inference`             | 命名流水线与无密拓扑可内嵌；执行／路由／GPU 无等价 API 入口。owner 持各用途 opener LOGIN、独立 bearer、GPU Redis／签名身份 | 保留凭据进程，CPU 预测也需要真实 owner；它不是模型容器。             |
-| `inference-registry`    | 环境同步只有 HTTP；`yoao_inference_registry_ingress_client`、ingress bearer                                                | 合到已有 `inference`，不是合到 API；保留探测、事务和模糊提交查回执。 |
-| `inference-health`      | 调用方捕获／写回，远端观察；`yoao_inference_health_observation_client`、observation bearer                                 | 合到 `inference`；保留签发、打开、校验与最终提交的分工。             |
-| `inference-probe`       | Workspace 探测只有 HTTP；`yoao_inference_backend_probe_client`、probe bearer                                               | 合到 `inference`；只返回 modalities，不让 Workspace 解封后端凭据。   |
-| `grounded-sam2-backend` | `ml-gsam2`；专属 token、模型／HF 缓存，无 DB                                                                               | 保留外部 Grounded SAM 2 图像与视频模型池。                           |
-| `sam3-backend`          | `ml-sam3`；专属 token、模型／HF 缓存，无 DB                                                                                | 保留外部 SAM 3 embedding／视频资源。                                 |
-| `yolo-backend`          | `ml-yolo`；专属 token、checkpoint、只读训练模型，无 DB                                                                     | 保留独立 YOLO 权重与设备。                                           |
-| `onnxtools-backend`     | `ml-onnxtools`；专属 token、只读模型目录，无 DB                                                                            | 保留 ONNX Runtime／设备依赖。                                        |
-| `rapidocr-backend`      | `ml-rapidocr`；专属 token、只读模型目录，无 DB                                                                             | 保留外部 OCR runtime；此 overlay 预留 GPU，不能作为 CPU 制品资格。   |
-| `training-executor`     | 只有物理执行器，无 Celery 替代；GPU UUID、只读权重、持久 journal、专用 API token，无 DB／broker                            | 保留；子进程退出、租约、恢复与产物提交分别取证。                     |
-| `audit-summary`         | 生产是 Python `build_monthly_summary`；Go 进程只接收分组计数，无 DB／业务凭据                                              | 保持手动实验，不进入默认档或生产请求。                               |
-
-Inference 的定向选择是 registry ingress、health observation、Workspace probe 的 `*_CONTAINER_LIVE` 与组合装配；E2E 的 `fixture_inference_services.py` 不是四份 overlay 的冷启动。模型侧核对 `ml-backend-runner.py`、`development-restart.py` 选择清单；`ml-cpu-test.yml` 不证明 GPU 资格。训练执行器有独立 CI 和 handoff 验收，Go 只跑 `backend-go-experiment.yml`。同步 [Inference](/api/guides/inference-runtime)、[部署](/ops/deploy/docker-compose)、GPU 运维与训练说明。
-
-两个不计入 Compose 的边界：**Storage Agent** 从站点出站 HTTPS，持站点 token、只读文件根和 SQLite 日志，无中心 DB；保留远端进程、`storage-agent-tests` 与[站点部署指南](/ops/deploy/site-agents)。**LibreYOLO** 由独立制品和安装器交付，不是遗漏的第六个 ML 服务键。
-
-#### 验收与后续收敛
-
-1. **Workspace 六项已合并，并通过本地冷启动和数据库恢复验收。** 默认 LAN 和严格 32 函数账号均经真实 API 验证权限拒绝、调用方回滚和类目改名；独立 Inference 探测停止后，建项目返回 503，没有额外项目或收据。未给 API 增加私表权限、signer、broker 或 probe DSN。运行依据见仓库 `docs/plans/evidence/1795366269_platform-pluginization/first-slice-run-ledger.md` 的「M2b Workspace」。其余组须另行确认；本机日常切换属于 M2c。
-2. CI 入口为 `ci.yml` 的 owner matrix（`scripts/test-suite-inventory.mjs`／`scripts/test-suites.json`）及 `backend-test.yml` 的消费者分片；后者直接调用模块验证器时仅跑 `--reclamation-only`。逐 overlay 的冷验收另走 `scripts/verify_module_data_boundary.py --test-file`。只迁移装配选择器，不删除第二语言 peer、协议、SQL／角色拒绝与恢复检查。环境选择器变化时同步 `.env.example`、生成的环境变量页和部署说明。
-3. **两个旧阻塞都未关闭。** [宿主机转发](#runtime-host-forwarding)是特定 Docker Desktop 路径的 TCP 故障；不经过它不等于修复，保留的 split 仍需实际私网连通验证。基础及标准生产的混合维护 worker 优先选迁移 DSN，且还跑预测分区与物化视图；LAN 配置不同。删除 Audit overlay 既不能收掉该权限，也不能把整条队列换成 Audit 单函数账号。
+- **普通角色门槛**：LAN 内嵌签发、LAN 远程 issuer 的 API 运行角色、工作树生成运行角色，分别使用真实 LOGIN。任何模块私表（含列权限、分区父子表、物化视图、外表）或序列都不能有有效权限，亦不能从所有权、PUBLIC 或角色成员关系间接取得。允许的是公开投影和固定 owner 能力；数据库迁移、分区维护、刷新和回收使用各自的受限身份，不把迁移 owner 或维护者权限交给普通进程。普通授权收口与三角色业务验证仍在实施。
+- **已确认的 Source 归属**：对已登记的自定义 S3／SFTP，扩展现有私有 `assets-source` 执行原件读取、媒体、保存产物、训练和迁移涉及的物理操作，不新加进程。内建 MinIO、受控文件系统和站点 Agent 的数据路径不因此改向。普通调用方只传经授权的业务主体、冻结代次／回执和所需的窄操作 token；连接器密文／明文、打开凭据的 SQL 能力和实际连接仍只归 Source。接口不是任意主机、桶或键的代理；已保存目标按原身份读取、写入或回收，Source 不可用时不改用宽凭据或当前绑定。Source 能力和安装授权仍在实施；不得用内建存储的成功补记自定义连接器已通过。
+- **运行门槛**：在新的隔离部署用真实登录、建项目、导入、标注、审核、持久通知恢复和插件预标注验证默认链路；保留独立服务须实际用选定 overlay 冷启，并核对拒绝、进程丢失后的恢复和同一持久回执。配置解析、包一致性和历史资格均不替代这些回执。恢复时必须查原业务账本确认，不将未知确认当作回滚后重发。
+- **已观察范围**：历史 Workspace 首切片有本地冷启与数据库恢复记录；完整 M2b 有 20 项启动配置检查和 `bo0484` 上 Inference 合并 owner 的三项冷容器回执。同一基线的三普通账号 ACL 检查均失败，不是当前目标集成态的验收。完整记录及缺口见仓库 `docs/plans/evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md`。**M2c 日常环境迁移未获授权；不是发布或生产切换资格。**
 
 ### 本次主线整合的验证范围
 
