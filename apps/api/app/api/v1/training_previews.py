@@ -11,7 +11,6 @@ from starlette.responses import StreamingResponse
 from app.services.project_write_guard import lock_project_manager
 from app.api.v1.training_runs import executor_auth
 from app.db.models.project import Project
-from app.db.models.training_preview import TrainingPreview
 from app.deps import (
     get_current_user,
     get_db,
@@ -35,6 +34,7 @@ from app.schemas.training_run import ExecutorFence
 from app.services import training_previews as service
 from app.services.training_dataset_analysis import stream_media
 from app.services.training_authority_contract import TrainingAuthorityPort
+from app.services.training_preview_data import get_preview
 from app.services.identity_contracts import IdentityActorFacts
 
 router = APIRouter(
@@ -47,14 +47,7 @@ executor_router = APIRouter(
 
 
 async def load(db, project_id, preview_id, *, lock=False):
-    statement = select(TrainingPreview).where(
-        TrainingPreview.id == preview_id, TrainingPreview.project_id == project_id
-    )
-    if lock:
-        statement = statement.with_for_update(read=lock == "share").execution_options(
-            populate_existing=True
-        )
-    preview = await db.scalar(statement)
+    preview = await get_preview(db, project_id, preview_id, lock=lock)
     if preview is None:
         raise HTTPException(status_code=404, detail="原生预览不存在或已清理")
     return preview

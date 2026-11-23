@@ -104,8 +104,7 @@ async def location_is_referenced(db, location_id):
     from app.db.models.raster_mask_object import RasterMaskObject
     from app.db.models.task_original import TaskOriginal
     from app.db.models.training_dataset import TrainingDatasetVersion
-    from app.db.models.training_run import TrainingRun
-    from app.db.models.training_preview import TrainingPreview
+    from app.services.training_run_data import preview_storage_row, run_storage_row
     from app.db.models.sample_evaluation import SampleEvaluationRun
     from app.db.models.active_learning import ActiveLearningRound
     from app.db.models.training_storage_deletion import TrainingStorageDeletion
@@ -122,8 +121,6 @@ async def location_is_referenced(db, location_id):
         (GuideAssetUpload, GuideAssetUpload.storage_ref),
         (RasterMaskObject, RasterMaskObject.storage_ref),
         (TrainingDatasetVersion, TrainingDatasetVersion.storage_ref),
-        (TrainingRun, TrainingRun.storage_ref),
-        (TrainingPreview, TrainingPreview.storage_ref),
         (SampleEvaluationRun, SampleEvaluationRun.storage_ref),
         (ActiveLearningRound, ActiveLearningRound.storage_ref),
         (TrainingStorageDeletion, TrainingStorageDeletion.storage_ref),
@@ -131,6 +128,13 @@ async def location_is_referenced(db, location_id):
         if await db.scalar(
             select(model.id)
             .where(column["location_id"].astext == str(location_id))
+            .limit(1)
+        ):
+            return True
+    for row in (run_storage_row, preview_storage_row):
+        if await db.scalar(
+            select(row.c.id)
+            .where(row.c.storage_ref["location_id"].astext == str(location_id))
             .limit(1)
         ):
             return True

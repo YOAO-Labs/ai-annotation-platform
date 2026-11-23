@@ -67,16 +67,15 @@ async def candidates(db, *, limit, offset):
 
 async def history(db):
     from app.db.models.training_dataset import TrainingDatasetVersion
-    from app.db.models.training_run import TrainingRun
-    from app.db.models.training_preview import TrainingPreview
+    from app.services.training_run_data import preview_storage_row, run_storage_row
     from app.db.models.sample_evaluation import SampleEvaluationRun
     from app.db.models.active_learning import ActiveLearningRound
     from app.db.models.training_storage_deletion import TrainingStorageDeletion
 
     models = {
         "training_versions": TrainingDatasetVersion,
-        "training_runs": TrainingRun,
-        "training_previews": TrainingPreview,
+        "training_runs": run_storage_row,
+        "training_previews": preview_storage_row,
         "sample_evaluations": SampleEvaluationRun,
         "active_learning_rounds": ActiveLearningRound,
         "deletion_intents": TrainingStorageDeletion,
