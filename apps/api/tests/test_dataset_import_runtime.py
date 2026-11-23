@@ -284,17 +284,46 @@ async def _facts(stack):
 
 
 async def _wait_job(stack, job_id, status="completed", seconds=25):
-    async with asyncio.timeout(seconds):
-        while True:
-            facts = await _facts(stack)
-            match = next((job for job in facts.jobs if job["id"] == job_id), None)
-            if match and match["status"] == status:
-                return facts
-            if match and match["status"] in {"completed", "failed", "cancelled"}:
-                pytest.fail(
-                    f"unexpected import status={match['status']} error={match['error_message']}"
+    last = None
+    try:
+        async with asyncio.timeout(seconds):
+            while True:
+                facts = await _facts(stack)
+                match = next((job for job in facts.jobs if job["id"] == job_id), None)
+                if match:
+                    last = (match["status"], match["error_message"])
+                    if match["status"] == status:
+                        return facts
+                    if match["status"] in {"completed", "failed", "cancelled"}:
+                        pytest.fail(f"unexpected import outcome: {last}")
+                await asyncio.sleep(0.1)
+    except TimeoutError:
+        async with stack.world.maker() as db:
+            cursor = (
+                await db.execute(
+                    text(
+                        "SELECT stage,cursor,total FROM public.dataset_import_operations "
+                        "WHERE job_id=:job"
+                    ),
+                    {"job": job_id},
                 )
-            await asyncio.sleep(0.1)
+            ).one_or_none()
+        logs = [
+            line
+            for worker in stack.containers
+            for line in (
+                await asyncio.to_thread(
+                    subprocess.run,
+                    ["docker", "logs", "--tail", "30", worker],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    check=False,
+                )
+            ).stderr.splitlines()
+            if f"job={job_id} " in line and "Dataset import" in line
+        ]
+        pytest.fail(f"import did not reach {status}: {last}, {cursor}, {logs}")
 
 
 def _objects(stack):
@@ -3209,9 +3238,12 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
                             text(
                                 "SELECT v.lease_token,v.creation_id,v.operation_id,v.item_id,v.entry_index,"
                                 "v.mode,v.state,v.result,c.authority->>'publication_id' AS publication_id,"
-                                "c.prepared->'parts' AS parts,c.bucket,c.object_key "
+                                "c.prepared ? 'parts' AS retained_parts,c.bucket,c.object_key,"
+                                "jsonb_array_length(preparation.evidence->'parts') AS physical_part_count "
                                 "FROM yoao_assets_v1.import_original_verifications AS v "
                                 "JOIN public.managed_original_creations AS c ON c.id=v.creation_id "
+                                "LEFT JOIN yoao_assets_v1.media_io_claims AS preparation "
+                                "ON preparation.permit_id=v.operation_id AND preparation.step='original_prepare' "
                                 "WHERE v.job_id=:job"
                             ),
                             {"job": job},
@@ -3227,7 +3259,8 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
             assert receipt["bucket"] == stack.destination_bucket
             assert receipt["object_key"] in old_paths
             if target_kind == "registered":
-                assert len(receipt["parts"]) >= 2
+                assert receipt["retained_parts"] is False
+                assert receipt["physical_part_count"] >= 2
             _docker("kill", "--signal", "KILL", worker)
             await release()
         await asyncio.sleep(0.2)
