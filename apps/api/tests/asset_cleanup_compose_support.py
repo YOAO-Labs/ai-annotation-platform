@@ -283,7 +283,10 @@ class CleanupCompose:
             mounted = [
                 mount for mount in observed["Mounts"] if mount["Source"] != "/dev/null"
             ]
-            environment = dict(entry.split("=", 1) for entry in config["Env"])
+            environment = {
+                key: value
+                for key, _, value in (entry.partition("=") for entry in config["Env"])
+            }
             if not (
                 config["User"] == _SERVICES[service]
                 and config["Image"] == self.images[service]
