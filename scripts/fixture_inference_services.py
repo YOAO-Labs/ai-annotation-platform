@@ -1347,7 +1347,7 @@ async def _serve(payload):
     }
     source_server = uvicorn.Server(
         uvicorn.Config(
-            create_source_app(load_source_config(source_env)),
+            create_source_app(config=load_source_config(source_env)),
             host="127.0.0.1",
             port=source["port"],
             access_log=False,
