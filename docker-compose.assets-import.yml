@@ -34,6 +34,8 @@ services:
       - assets_import_saved_io_write_token
     extra_hosts:
       - host.docker.internal:host-gateway
+    networks:
+      - ${ASSETS_SOURCE_NETWORK:-default}
     read_only: true
     tmpfs:
       - /tmp

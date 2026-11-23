@@ -167,5 +167,5 @@ M1、M2 盘点、M3 设计可以并行；M2 合并与 M3 实施都会改动 Noti
 
 - **M1a 已通过。** 无平台源码的作者环境构建并部署 CPU 服务；经真实 Registry、项目服务池及签名原图，默认路由和同代契约完成绑定后的强制路由均返回预期预测。制品范围、被拒绝的旧契约与隔离证据见[运行账本](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md)。作者从[直连教程](../../docs-site/dev/tutorials/ml-backend-starter.md#direct-registration)开始。
 - **M2a 已完成。** 历史数目和当前源码装配统一索引在[进程清单](../../docs-site/dev/concepts/module-deployment.md#deployment-convergence)。
-- **M2b 实施中，无全量通过结论。** [Workspace 首切片](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md#m2b-workspace)保留原验收范围；[全量账本](evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md)另记配置、Inference 冷容器以及三角色 ACL 的失败基线。三角色授权、默认业务与恢复、保留 overlay 的定向验收仍需最终集成回执。维护者决定将已登记自定义 S3／SFTP 的物理 I/O 收到既有 Source，不增进程，也不改变内建 MinIO、受控目录或站点 Agent；实现和运行证据仍在推进。
+- **M2b 正在集成验收。** [Workspace 首切片](evidence/1795366269_platform-pluginization/first-slice-run-ledger.md#m2b-workspace)沿用原验收范围。全新 PostgreSQL 16 已安装至 `bo0509`；两个 LAN 普通登录和工作树实际生成的登录重放发布授权后，私有关系有效权限均为零，私表查询均返回 `42501`。已登记自定义 S3／SFTP 的物理 I/O 收入既有 Source，包括独立导入器的租约读取与复制；内建 MinIO、受控目录及站点 Agent 保留原路径。默认业务、全套恢复以及保留 overlay 的进度见[全量账本](evidence/1795366269_platform-pluginization/full-m2b-run-ledger.md)，不将数据库验收写成全量通过。
 - M1b、M1c、M3、M4 尚未实施。正式发布和 M2c 日常切换仍需分别授权。

@@ -1,5 +1,7 @@
 """Bind Insights' saved-view operations to the caller's transaction."""
 
+from __future__ import annotations
+
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Any

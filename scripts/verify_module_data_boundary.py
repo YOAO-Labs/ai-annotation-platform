@@ -6254,15 +6254,10 @@ def _sql_artifact_path(name: str) -> Path:
 
 
 def _installed_function_body_sha256(
-    container_id: str,
-    container_name: str,
-    container_identity: str,
-    *,
-    database: str,
-    owner_password: str,
-    signature: str,
-    sql_name: str,
+    signature: str, sql_name: str, actual: str | None
 ) -> str:
+    if actual is None:
+        raise RuntimeError(f"installed function body is missing: {signature}")
     base_sql_name = {
         "0405_video_tracker_asset_candidates.sql": "0281_video_execution.sql",
         "0450_video_candidate_status_restore.sql": "0284_video_restore.sql",
@@ -6379,30 +6374,43 @@ def _installed_function_body_sha256(
         "yoao_inference_gpu_collector_v1.gpu_collector_policy",
     }:
         expected = expected.replace(f"'{frozen_schema}'", f"'{schema}'")
-    encoded = _psql(
-        container_id,
-        container_name,
-        container_identity,
-        username="owner",
-        password=owner_password,
-        database=database,
-        sql=(
-            "SELECT pg_catalog.encode(pg_catalog.convert_to(prosrc, 'UTF8'), 'hex') "
-            "FROM pg_catalog.pg_proc WHERE oid = "
-            f"pg_catalog.to_regprocedure('{signature}')"
-        ),
-    ).strip()
-    try:
-        actual = bytes.fromhex(encoded).decode("utf-8")
-    except (ValueError, UnicodeError):
-        raise RuntimeError(
-            f"installed function body is missing or malformed: {signature}"
-        ) from None
     if actual != expected:
         raise RuntimeError(
             f"installed function body differs from frozen SQL: {signature}"
         )
     return hashlib.sha256(actual.encode("utf-8")).hexdigest()
+
+
+def _installed_function_bodies(
+    container_id: str,
+    container_name: str,
+    container_identity: str,
+    *,
+    database: str,
+    owner_password: str,
+) -> dict[str, str]:
+    bodies = json.loads(
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql=(
+                "SELECT pg_catalog.json_object_agg(s.signature, p.prosrc) "
+                "FROM pg_catalog.json_array_elements_text(:'signatures'::json) AS s(signature) "
+                "LEFT JOIN pg_catalog.pg_proc AS p ON p.oid = pg_catalog.to_regprocedure(s.signature)"
+            ),
+            variables={"signatures": json.dumps(list(FUNCTION_BODY_ARTIFACTS))},
+        )
+    )
+    return {
+        signature: _installed_function_body_sha256(
+            signature, sql_name, bodies[signature]
+        )
+        for signature, sql_name in FUNCTION_BODY_ARTIFACTS.items()
+    }
 
 
 def _verify_audit_daily_projection_boundary(
@@ -9196,18 +9204,13 @@ def main(
         evidence["migrations"]["read_relations_before_frozen_install"] = (
             read_relations_before
         )
-        installed_function_bodies = {
-            signature: _installed_function_body_sha256(
-                container_id,
-                container_name,
-                container_identity,
-                database=database,
-                owner_password=owner_password,
-                signature=signature,
-                sql_name=sql_name,
-            )
-            for signature, sql_name in FUNCTION_BODY_ARTIFACTS.items()
-        }
+        installed_function_bodies = _installed_function_bodies(
+            container_id,
+            container_name,
+            container_identity,
+            database=database,
+            owner_password=owner_password,
+        )
         evidence["migrations"]["installed_function_body_sha256"] = (
             installed_function_bodies
         )
@@ -9315,18 +9318,14 @@ def main(
             phase="migration upgrade",
         )
         evidence["migrations"]["read_relations_after_upgrade"] = read_relations_after
-        if {
-            signature: _installed_function_body_sha256(
-                container_id,
-                container_name,
-                container_identity,
-                database=frozen_database,
-                owner_password=owner_password,
-                signature=signature,
-                sql_name=sql_name,
-            )
-            for signature, sql_name in FUNCTION_BODY_ARTIFACTS.items()
-        } != installed_function_bodies:
+        upgraded_bodies = _installed_function_bodies(
+            container_id,
+            container_name,
+            container_identity,
+            database=frozen_database,
+            owner_password=owner_password,
+        )
+        if upgraded_bodies != installed_function_bodies:
             raise RuntimeError(
                 "installed SQL function bodies differ after fresh-base upgrade"
             )

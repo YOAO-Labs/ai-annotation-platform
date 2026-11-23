@@ -193,6 +193,27 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
                     text("SELECT has_table_privilege(:role, :relation, 'SELECT')"),
                     {"role": peer, "relation": f"{yoao}.private_table"},
                 )
+                private_view = await db.scalar(
+                    text("SELECT CAST(:name AS regclass)::oid"),
+                    {"name": f"{aap}.private_view"},
+                )
+                denied_routines = list(
+                    await db.scalars(
+                        text(
+                            "SELECT CAST(name AS regprocedure)::oid FROM "
+                            "unnest(CAST(:names AS text[])) AS t(name)"
+                        ),
+                        {
+                            "names": [
+                                f"{aap}.private_fn()",
+                                f"{aap}.future_fn()",
+                                "yoao_assets_v1.capture_storage_connection(uuid,uuid,text)",
+                                "yoao_jobs_v1.claim_dispatches(jsonb)",
+                                "yoao_insights_v1.refresh_user_perf_daily()",
+                            ]
+                        },
+                    )
+                )
             assert not await conn.fetch(_EFFECTIVE_ACCESS)
             assert await conn.fetchval(
                 "SELECT has_table_privilege('public.v_annotation_feedback_unified', 'SELECT')"
@@ -209,18 +230,18 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
             assert not await conn.fetchval(
                 "SELECT has_schema_privilege('public', 'CREATE')"
             )
-            assert not await conn.fetchval(
-                f"SELECT has_table_privilege('{aap}.private_view', 'SELECT')"
+            assert (
+                await conn.fetchval(
+                    "SELECT has_table_privilege($1::oid, 'SELECT')", private_view
+                )
+                is False
             )
-            for signature in (
-                f"{aap}.private_fn()",
-                f"{aap}.future_fn()",
-                "yoao_assets_v1.capture_storage_connection(uuid,uuid,text)",
-                "yoao_jobs_v1.claim_dispatches(jsonb)",
-                "yoao_insights_v1.refresh_user_perf_daily()",
-            ):
-                assert not await conn.fetchval(
-                    "SELECT has_function_privilege($1, 'EXECUTE')", signature
+            for oid in denied_routines:
+                assert (
+                    await conn.fetchval(
+                        "SELECT has_function_privilege($1::oid, 'EXECUTE')", oid
+                    )
+                    is False
                 )
             assert await conn.fetchval(
                 "SELECT has_function_privilege('yoao_identity_v1.authentication_policy()', 'EXECUTE')"
