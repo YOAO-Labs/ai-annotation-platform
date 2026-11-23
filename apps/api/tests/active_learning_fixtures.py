@@ -9,6 +9,7 @@ from PIL import Image
 from sqlalchemy import select
 
 from app.db.models.active_learning import ActiveLearningAttempt as Attempt
+from app.db.models.active_learning import ActiveLearningCandidate as Candidate
 from app.schemas.active_learning import RoundCreate, Selection
 from app.services import active_learning as service, active_learning_pool as pool
 from app.services.assets_active_learning_fence import (
@@ -109,7 +110,11 @@ async def create(db, owner, world):
         training_authority=bind_training_authority(db),
     )
     await db.flush()
-    return round, await db.get(Attempt, round.current_attempt_id), body
+    return (
+        await current_round(db, round.id),
+        await db.get(Attempt, round.current_attempt_id),
+        body,
+    )
 
 
 def candidate_ports(db):
@@ -161,7 +166,9 @@ async def decide_with_ports(
 
 
 async def complete(db, round, attempt):
-    rows = await service.candidate_rows(db, round)
+    rows = await candidate_seed_rows(db, round.id)
+    round.status = attempt.status = "running"
+    attempt.claim_id = uuid.uuid4()
     for row in rows:
         sample = round.spec["samples"][row.ordinal]
         await service.prepare_image(db, round, sample)
@@ -178,6 +185,7 @@ async def complete(db, round, attempt):
     report = await service.build_report(db, round, attempt)
     await service.mark_terminal(db, round, attempt, "succeeded", report=report)
     await db.flush()
+    await db.refresh(attempt)
     return report
 
 
@@ -189,3 +197,13 @@ async def current_round(db, identity):
         .where(ActiveLearningRound.id == identity)
         .execution_options(populate_existing=True)
     )
+
+
+async def candidate_seed_rows(db, round_id):
+    return (
+        await db.scalars(
+            select(Candidate)
+            .where(Candidate.round_id == round_id)
+            .order_by(Candidate.ordinal)
+        )
+    ).all()

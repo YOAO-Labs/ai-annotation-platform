@@ -5,25 +5,25 @@ import logging
 import math
 import uuid
 from collections.abc import Callable
+from types import SimpleNamespace
 
 from fastapi import HTTPException
-from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from training_contract import definition
 from training_contract.budget import POLICY_DIGEST, validate_receipt
 
 from app.db.models.project import Project
-from app.db.models.training_run import TrainingAttempt, TrainingEvent, TrainingRun
-from app.db.models.training_study import TrainingStudy, TrainingTrial
 from app.db.models.user import User
 from app.schemas.training_study import TrainingStudyCreate
 from app.services import (
+    learning_selection_data as data,
     training_adapters as adapters,
     training_claims as claims,
     training_evaluations,
     training_initialization,
     training_recipes,
     training_runs as runs,
+    training_run_data,
 )
 from app.services.identity_contracts import IdentityActorFacts
 from app.services.project_access import get_workspace_project
@@ -148,12 +148,7 @@ async def create(
     await claims.project_lock(db, project.id)
     await lock_project_manager(db, user.id, project.id)
     request_digest = content_digest(body.request_payload())
-    existing = await db.scalar(
-        select(TrainingStudy).where(
-            TrainingStudy.project_id == project.id,
-            TrainingStudy.request_id == body.base.request_id,
-        )
-    )
+    existing = await data.study_request(db, project.id, body.base.request_id)
     if existing:
         if existing.request_digest != request_digest:
             raise HTTPException(
@@ -168,7 +163,7 @@ async def create(
             status_code=409, detail="搜索计划已变化或尚未预览，请重新核对全部组合和预算"
         )
     first = plan["trials"][0]["config"]
-    study = TrainingStudy(
+    study = SimpleNamespace(
         id=uuid.UUID(plan["study_id"]),
         project_id=project.id,
         creator_id=user.id,
@@ -184,64 +179,30 @@ async def create(
         origin=plan["origin"],
         authorization={"api_key_id": api_key_id},
     )
-    db.add(study)
-    await db.flush()
-    for trial in plan["trials"]:
-        db.add(
-            TrainingTrial(
-                id=uuid.UUID(trial["id"]),
-                study_id=study.id,
-                ordinal=trial["ordinal"],
-                config=trial["config"],
-                config_digest=trial["config_digest"],
-                values=trial["values"],
-            )
-        )
-    await db.flush()
-    await coordinate(db, study.id, training_authority=training_authority)
-    return study, True
+    study = await data.create_study(db, study)
+    coordinated = await coordinate(db, study.id, training_authority=training_authority)
+    return coordinated or study, True
 
 
 async def load(db, project_id, study_id, *, lock=False):
-    query = select(TrainingStudy).where(
-        TrainingStudy.id == study_id, TrainingStudy.project_id == project_id
-    )
-    if lock:
-        query = query.with_for_update(key_share=True).execution_options(
-            populate_existing=True
-        )
-    study = await db.scalar(query)
+    study = await data.get_study(db, project_id, study_id, lock=lock)
     if not study:
         raise HTTPException(status_code=404, detail="参数搜索不存在")
     return study
 
 
 async def children(db, study_id, *, lock=False):
-    query = (
-        select(TrainingRun)
-        .where(TrainingRun.study_id == study_id)
-        .order_by(TrainingRun.id)
-    )
-    if lock:
-        query = query.with_for_update().execution_options(populate_existing=True)
-    return list(await db.scalars(query))
+    return await training_run_data.study_children(db, study_id, lock=lock)
 
 
 async def ledger(db, study, child_runs):
-    attempts = (
-        list(
-            await db.scalars(
-                select(TrainingAttempt).where(
-                    TrainingAttempt.run_id.in_([run.id for run in child_runs])
-                )
-            )
-        )
-        if child_runs
-        else []
-    )
+    child_ids = {run.id for run in child_runs}
+    attempts = await training_run_data.study_attempts(db, study.id) if child_ids else ()
     consumed, reserved, unknown = 0.0, 0.0, []
     per_run = {}
     for attempt in attempts:
+        if attempt.run_id not in child_ids:
+            continue
         accounting = attempt.native_accounting
         if accounting is not None:
             try:
@@ -287,12 +248,14 @@ async def cancel(
     study.message = "已停止后续试验；活动进程按普通训练取消协议退出"
     for run in await children(db, study.id, lock=True):
         await runs.cancel_study_child(db, run)
-    await coordinate(db, study.id, training_authority=training_authority)
-    return study
+    await _persist_study(db, study)
+    return (
+        await coordinate(db, study.id, training_authority=training_authority) or study
+    )
 
 
 async def coordinate(db, study_id, *, training_authority: TrainingAuthorityPort):
-    preliminary = await db.get(TrainingStudy, study_id)
+    preliminary = await data.get_study(db, None, study_id)
     if preliminary is None or not await claims.project_lock(
         db, preliminary.project_id, wait=False
     ):
@@ -334,25 +297,20 @@ async def coordinate(db, study_id, *, training_authority: TrainingAuthorityPort)
         study.status = "active" if study.scheduling or manual else "cancelling"
         if manual and not study.scheduling:
             study.message = "后续组合保持停止；当前子实验由管理员手动续训"
-        return
+        return await _persist_study(db, study)
     if not study.scheduling:
         if study.status in {"completed", "budget_exhausted"}:
-            return
+            return await _persist_study(db, study)
         study.status, study.completed_at = "cancelled", runs.now()
-        return
+        return await _persist_study(db, study)
     account, _ = await ledger(db, study, child_runs)
     if account["unknown_attempt_ids"]:
         study.status, study.message = (
             "blocked",
             "原生执行时间未知，停止后续试验；不能按零结算",
         )
-        return
-    trial = await db.scalar(
-        select(TrainingTrial)
-        .where(TrainingTrial.study_id == study.id, TrainingTrial.run_id.is_(None))
-        .order_by(TrainingTrial.ordinal)
-        .limit(1)
-    )
+        return await _persist_study(db, study)
+    trial = await data.next_trial(db, study.id)
     if trial is None:
         study.scheduling = False
         study.status, study.message, study.completed_at = (
@@ -360,7 +318,7 @@ async def coordinate(db, study_id, *, training_authority: TrainingAuthorityPort)
             "全部试验已结束；结果按已验证的兼容评估身份分组",
             runs.now(),
         )
-        return
+        return await _persist_study(db, study)
     if account["remaining_seconds"] <= 0:
         study.scheduling = False
         study.status, study.message, study.completed_at = (
@@ -368,7 +326,7 @@ async def coordinate(db, study_id, *, training_authority: TrainingAuthorityPort)
             "原生计算时间预算已用尽，未启动的组合保留在计划中",
             runs.now(),
         )
-        return
+        return await _persist_study(db, study)
     value = {
         key: trial.config[key]
         for key in (
@@ -384,7 +342,7 @@ async def coordinate(db, study_id, *, training_authority: TrainingAuthorityPort)
     compatible, reason = training_recipes.compatibility(value)
     if not compatible:
         study.status, study.message = "blocked", reason
-        return
+        return await _persist_study(db, study)
     run = await runs.create_study_child(
         db,
         project_id=study.project_id,
@@ -401,12 +359,20 @@ async def coordinate(db, study_id, *, training_authority: TrainingAuthorityPort)
         authorization=study.authorization,
         allowance=account["remaining_seconds"],
     )
-    trial.run_id = run.id
+    if not await data.bind_trial(db, study.id, trial.id, run.id):
+        raise HTTPException(status_code=409, detail="参数搜索试验已变化")
     study.status, study.message, study.completed_at = (
         "active",
         "当前试验已进入普通训练队列；结束后再放行下一项",
         None,
     )
+    return await _persist_study(db, study)
+
+
+async def _persist_study(db, study):
+    if not await data.study_progress(db, study):
+        raise HTTPException(status_code=409, detail="参数搜索状态已变化")
+    return study
 
 
 async def admit_resume(db, study, run):
@@ -434,11 +400,7 @@ async def describe(db, study):
     by_id = {run.id: run for run in child_runs}
     account, _ = await ledger(db, study, child_runs)
     items, groups = [], {}
-    for trial in await db.scalars(
-        select(TrainingTrial)
-        .where(TrainingTrial.study_id == study.id)
-        .order_by(TrainingTrial.ordinal)
-    ):
+    for trial in await data.trials(db, study.id):
         run = by_id.get(trial.run_id)
         item = {
             "id": str(trial.id),
@@ -462,13 +424,7 @@ async def describe(db, study):
             "native_time_unknown": False,
         }
         if run:
-            attempts = list(
-                await db.scalars(
-                    select(TrainingAttempt)
-                    .where(TrainingAttempt.run_id == run.id)
-                    .order_by(TrainingAttempt.ordinal)
-                )
-            )
+            attempts = await training_run_data.list_attempts(db, run.id)
             queue, occupancy = 0.0, 0.0
             for attempt in attempts:
                 end = attempt.completed_at or runs.now()
@@ -492,11 +448,8 @@ async def describe(db, study):
                 (a for a in attempts if a.id == run.current_attempt_id), None
             )
             if current:
-                item["actual_epochs"] = await db.scalar(
-                    select(func.max(TrainingEvent.payload["epoch"].as_integer())).where(
-                        TrainingEvent.attempt_id == current.id,
-                        TrainingEvent.kind == "epoch",
-                    )
+                item["actual_epochs"] = await training_run_data.last_epoch(
+                    db, current.id
                 )
             if run.status == "succeeded" and current:
                 item["completion"] = (
@@ -566,19 +519,7 @@ async def tick(
     training_authority_factory: Callable[[AsyncSession], TrainingAuthorityPort],
 ):
     async with session_factory() as db:
-        ids = list(
-            await db.scalars(
-                select(TrainingStudy.id)
-                .where(
-                    or_(
-                        TrainingStudy.scheduling.is_(True),
-                        TrainingStudy.status.in_(("active", "cancelling")),
-                    )
-                )
-                .order_by(TrainingStudy.last_checked_at.nullsfirst(), TrainingStudy.id)
-                .limit(100)
-            )
-        )
+        ids = await data.due_studies(db)
     for identity in ids:
         async with session_factory() as db:
             try:
@@ -593,7 +534,6 @@ async def tick(
                 log.exception("Training Study coordination failed: %s", identity)
 
 
-def stage_manual_resume(study: TrainingStudy) -> None:
-    if study.status == "completed":
-        study.scheduling = True
-    study.status, study.completed_at = "active", None
+async def stage_manual_resume(db, study, run) -> None:
+    if not await data.resume_study(db, study.id, run.id):
+        raise HTTPException(status_code=409, detail="参数搜索试验已变化")

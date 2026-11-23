@@ -409,6 +409,8 @@ Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkp
   - 数据库部分唯一索引限制每个项目**同时仅允许存在一个活跃的自动实验**（包含排队、准备、训练与失联状态）。
   - 每次成功训练完成后方可推进语义基线；若实验失败或被取消，系统保留原基线并阻止相同增量数据的重复触发。
 
+定时检查与 executor 领取分别读取当前策略围栏。内部领取使用原实验的项目、候选数据版本、固定 Trigger 与策略修订；已取消的 Trigger 不会因策略仍启用而获领。参数搜索在同一项目事务内锁定搜索与真实子实验，读取原生 Attempt 的已消费和预留证据，再允许下一项入队。计划及 Trial 配置冻结，更新只绑定本搜索的确切子实验并记入调度状态。
+
 ### 5.2 人工审核主动选样
 
 主动学习机制（`ActiveLearningRound`，由 `ml.cpu` 队列执行）用于从海量未标注池中精准筛选高价值样本：
@@ -437,6 +439,8 @@ Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkp
 
 `active_learning.create_round` 是 Round、PoolMember、Candidate 和首个 Attempt 的写入所有者；`retry_round` 只重置失败候选的状态/错误，并释放旧 Attempt 的 claim、补齐完成时间后创建下一 generation。HTTP 入口保留管理者锁、当前授权、状态/原 24 小时窗口及失败候选请求准入，并保持提交后派发。重试不改写冻结 spec、候选 request UUID、已成功证据或非失败候选。
 
+普通 API、Beat 和选样 worker 经 `yoao_learning_v1` 的固定数据库能力读写这些账本，不持有私表权限。调用方仍持有原事务和来源锁；轮次写入同时固定完整池和代表候选，执行推进比较当前 attempt、generation 与 claim，反馈只追加并按原请求返回已冻结快照。
+
 ### 5.3 版本化参数契约
 
 为保证超参数配置的确定性与可复现性，体系引入静态参数快照：
@@ -448,7 +452,7 @@ Run/Attempt/Sample 的 claim、heartbeat、失败输入、请求与证据 checkp
   - 训练配方由 `training_recipes` 身份与 `training_recipe_revisions` 不可变快照构成。
   - 配方保存用户显式指定的原始入参（`user_values`），重放时不将平台派生的生效参数（`effective_values`）回写覆盖，保障历史重放精确一致。
 
-创建、追加修订的管理权威/项目锁、请求摘要重放、预期 head CAS、来源解析与 revision/head 写入归 `services/training_recipes.write_revision`。归档命令由同模块 `archive_recipe` 持有，保留当前管理权威、配方行锁和 head CAS，HTTP 在原位置提交。HTTP 保留现有路由权限与状态码并适配 schema；失败由请求事务回滚，不留下预建配方身份或半个 head。这些命令仍是进程内 Session/ORM 操作，不是新远程协议。
+创建、追加修订的管理权威和项目锁、请求摘要重放、预期 head CAS 与来源解析归 `services/training_recipes.write_revision`。数据库能力在调用方事务内原子追加不可变修订并更新 head；归档单独按 head CAS，只改变归档状态。HTTP 保留原提交点、权限和状态码。失败不会留下配方身份或半个 head；不新增远程协议或运行凭据。
 
 ### 5.4 存储生命周期、队列拓扑与本地联调
 
