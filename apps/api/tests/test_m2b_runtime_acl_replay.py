@@ -1,8 +1,10 @@
 """Replay the shipped ACL installers against deliberately stale PostgreSQL grants."""
 
 from contextlib import asynccontextmanager
+import json
 import os
 from pathlib import Path
+import secrets
 import uuid
 
 import asyncpg
@@ -10,6 +12,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from yoao_owner_data.postgres import verify_function_only_role
 
 from app.services.async_job import create_job
 from tests.test_asset_storage_cleanup_runtime import (
@@ -22,6 +25,24 @@ from tests.test_workspace_consumer_profile_native import _grants
 from tests.test_worktree_identity_runtime_role_native import _backend, _role_row
 
 GRANTS = Path(__file__).resolve().parents[3] / "infra/docker"
+_INFERENCE_FENCES = {
+    "yoao_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)": (
+        "NULL::text, NULL::uuid"
+    ),
+    "yoao_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)": (
+        "NULL::text, NULL::uuid, NULL::uuid, NULL::text"
+    ),
+    "yoao_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)": (
+        "NULL::text, NULL::uuid, NULL::uuid"
+    ),
+    "yoao_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)": (
+        "NULL::text, NULL::uuid, NULL::uuid, NULL::text"
+    ),
+    "yoao_inference_registry_ingress_v1.registry_by_url(text)": "NULL::text",
+    "yoao_inference_registry_ingress_v1.registry_candidates(text)": "NULL::text",
+}
+_HEALTH_OWNER = "yoao_inference_health_observation_client"
+_HEALTH_SCHEMA = "yoao_inference_health_observation_v1"
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(
@@ -72,6 +93,77 @@ async def _profile(test_engine, tmp_path, profile):
     yield url, install
 
 
+async def _observe_health_owner(test_engine, caller, registry_id, token):
+    url = make_url(os.environ["AAP_MODULE_DATA_INFERENCE_HEALTH_OBSERVATION_URL"])
+    assert (url.host, url.port, url.database, url.username) == (
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+        _HEALTH_OWNER,
+    )
+    dsn = url.set(drivername="postgresql").render_as_string(hide_password=False)
+    owner = await asyncpg.connect(dsn)
+    try:
+        await verify_function_only_role(
+            owner,
+            schema=_HEALTH_SCHEMA,
+            functions={
+                ("health_observation_policy", ""),
+                ("open_health_observation_subject", "text, uuid, uuid"),
+                ("seal_health_observation", "text, uuid, uuid, text"),
+            },
+            role=_HEALTH_OWNER,
+        )
+        request_id = uuid.uuid4()
+        async with caller.transaction():
+            endpoint = await caller.fetchval(
+                "SELECT yoao_inference_backend_endpoint_v1.capture_backend_endpoint_subject("
+                "$1::uuid, $2::uuid, 'health_observation', NULL::text)",
+                registry_id,
+                request_id,
+            )
+            endpoint = json.loads(endpoint)
+            assert endpoint["status"] == "ok"
+            subject = await caller.fetchval(
+                f"SELECT {_HEALTH_SCHEMA}.capture_health_observation_subject("
+                "$1::uuid, $2::uuid, $3::text, NULL::text, 2::double precision)",
+                registry_id,
+                request_id,
+                json.dumps(
+                    {
+                        "id": str(registry_id),
+                        "endpoint_subject": {
+                            "schema": "aap-inference-backend-endpoint/v1",
+                            "registry_id": str(registry_id),
+                            "request_id": str(request_id),
+                            "purpose": "health_observation",
+                            "authority": None,
+                            "subject": endpoint["subject"],
+                        },
+                    }
+                ),
+            )
+            open_sql = (
+                f"SELECT {_HEALTH_SCHEMA}.open_health_observation_subject("
+                "$1::text, $2::uuid, $3::uuid)"
+            )
+            args = (subject, registry_id, request_id)
+            with pytest.raises(asyncpg.InsufficientPrivilegeError) as denied:
+                async with caller.transaction():
+                    await caller.fetchval(open_sql, *args)
+            assert denied.value.sqlstate == "42501"
+            transport = json.loads(await owner.fetchval(open_sql, *args))
+            observed = json.loads(transport["backend_json"]).get("auth_token")
+            if not isinstance(observed, str) or not secrets.compare_digest(
+                observed, token
+            ):
+                raise AssertionError(
+                    "Health owner did not recover the exact private token"
+                )
+    finally:
+        await owner.close()
+
+
 async def _publish_job(url):
     engine = create_async_engine(url, hide_parameters=True)
     jobs = async_sessionmaker(engine, expire_on_commit=False)
@@ -90,6 +182,8 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
     _verify_postgres(test_engine.url)
     suffix = uuid.uuid4().hex[:12]
     yoao, aap = f"yoao_acl_{suffix}", f"aap_acl_{suffix}"
+    registry_id = uuid.uuid4()
+    token = secrets.token_urlsafe(32)
     partition_schema = f"acl_partition_{suffix}"
     foreign = f"acl_foreign_{suffix}"
     peer = f"acl_peer_{suffix}"
@@ -113,6 +207,19 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
             )
             assert not await conn.fetch(_EFFECTIVE_ACCESS)
             async with test_engine.begin() as db:
+                await db.execute(
+                    text(
+                        "INSERT INTO public.ml_backend_registry "
+                        "(id, name, url, state, auth_method, auth_token) "
+                        "VALUES (:id, :name, :url, 'disconnected', 'token', :token)"
+                    ),
+                    {
+                        "id": registry_id,
+                        "name": f"M2b private credential {suffix}",
+                        "url": f"http://{suffix}.example.test",
+                        "token": token,
+                    },
+                )
                 for schema in (yoao, aap, partition_schema):
                     await db.exec_driver_sql(f"CREATE SCHEMA {schema}")
                 await db.exec_driver_sql(f"CREATE ROLE {peer} NOLOGIN")
@@ -149,6 +256,7 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
                         f"GRANT ALL ON SEQUENCE {aap}.private_sequence",
                         f"GRANT EXECUTE ON FUNCTION {aap}.private_fn(), "
                         "yoao_assets_v1.capture_storage_connection(uuid,uuid,text)",
+                        "GRANT EXECUTE ON FUNCTION " + ", ".join(_INFERENCE_FENCES),
                         "ALTER DEFAULT PRIVILEGES GRANT ALL ON TABLES",
                         f"ALTER DEFAULT PRIVILEGES IN SCHEMA {aap} GRANT ALL ON TABLES",
                         "ALTER DEFAULT PRIVILEGES GRANT ALL ON SEQUENCES",
@@ -178,6 +286,11 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
                 "S",
             }
             assert await conn.fetchval(f"SELECT {aap}.private_fn()") == 1
+            assert await conn.fetchval(
+                "SELECT bool_and(has_function_privilege(signature, 'EXECUTE')) "
+                "FROM unnest($1::text[]) AS t(signature)",
+                list(_INFERENCE_FENCES),
+            )
 
             await install()
             await install()
@@ -210,6 +323,7 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
                                 "yoao_assets_v1.capture_storage_connection(uuid,uuid,text)",
                                 "yoao_jobs_v1.claim_dispatches(jsonb)",
                                 "yoao_insights_v1.refresh_user_perf_daily()",
+                                *_INFERENCE_FENCES,
                             ]
                         },
                     )
@@ -243,6 +357,14 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
                     )
                     is False
                 )
+            for signature, arguments in _INFERENCE_FENCES.items():
+                function = signature.partition("(")[0]
+                with pytest.raises(asyncpg.InsufficientPrivilegeError) as denied:
+                    await conn.fetchval(f"SELECT {function}({arguments})")
+                assert denied.value.sqlstate == "42501"
+            await _observe_health_owner(test_engine, conn, registry_id, token)
+            record_property("private_inference_rpc_sqlstate", "42501")
+            record_property("inference_health_owner", _HEALTH_OWNER)
             assert await conn.fetchval(
                 "SELECT has_function_privilege('yoao_identity_v1.authentication_policy()', 'EXECUTE')"
             ) == (profile != "lan-isolated-issuer")
@@ -270,6 +392,10 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
         finally:
             await conn.close()
             async with test_engine.begin() as db:
+                await db.execute(
+                    text("DELETE FROM public.ml_backend_registry WHERE id=:id"),
+                    {"id": registry_id},
+                )
                 if job_id:
                     await db.execute(
                         text("DELETE FROM public.async_jobs WHERE id=:id"),
@@ -280,6 +406,9 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
                         "REVOKE SELECT,DELETE,TRUNCATE,TRIGGER,UPDATE(status),REFERENCES(id) ON public.async_jobs FROM",
                         "REVOKE UPDATE (source_table) ON public.v_annotation_feedback_unified FROM",
                         "REVOKE EXECUTE ON FUNCTION yoao_assets_v1.capture_storage_connection(uuid,uuid,text) FROM",
+                        "REVOKE EXECUTE ON FUNCTION "
+                        + ", ".join(_INFERENCE_FENCES)
+                        + " FROM",
                         "REVOKE CREATE ON SCHEMA public FROM",
                         "ALTER DEFAULT PRIVILEGES REVOKE ALL ON TABLES FROM",
                         "ALTER DEFAULT PRIVILEGES REVOKE ALL ON SEQUENCES FROM",

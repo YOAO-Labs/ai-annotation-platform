@@ -18,12 +18,10 @@ GRANT USAGE ON SCHEMA
     yoao_identity_suspensions_v1,
     yoao_identity_v1,
     yoao_inference_backend_endpoint_v1,
-    yoao_inference_backend_probe_v1,
     yoao_inference_gpu_caller_v1,
     yoao_inference_health_data_v1,
     yoao_inference_health_observation_v1,
     yoao_inference_pipelines_v1,
-    yoao_inference_registry_ingress_v1,
     yoao_inference_routing_v1,
     yoao_inference_topology_v1,
     yoao_inference_v1,
@@ -399,11 +397,6 @@ GRANT EXECUTE ON FUNCTION
     TO :"application_role";
 
 GRANT EXECUTE ON FUNCTION
-    yoao_inference_backend_probe_v1.backend_probe_policy(),
-    yoao_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)
-    TO :"application_role";
-
-GRANT EXECUTE ON FUNCTION
     yoao_inference_gpu_caller_v1.gpu_caller_policy(),
     yoao_inference_gpu_caller_v1.gpu_caller_step(text,text)
     TO :"application_role";
@@ -424,29 +417,12 @@ GRANT EXECUTE ON FUNCTION
 
 GRANT EXECUTE ON FUNCTION
     yoao_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision),
-    yoao_inference_health_observation_v1.health_observation_policy(),
-    yoao_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid),
-    yoao_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text),
     yoao_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)
     TO :"application_role";
 
 GRANT EXECUTE ON FUNCTION
     yoao_inference_pipelines_v1.pipeline_policy(),
     yoao_inference_pipelines_v1.pipeline_step(jsonb,text,jsonb,text[],text[])
-    TO :"application_role";
-
-GRANT EXECUTE ON FUNCTION
-    yoao_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text),
-    yoao_inference_registry_ingress_v1.create_registry(uuid,text,text,text,boolean,text),
-    yoao_inference_registry_ingress_v1.create_singleton_pool(uuid,uuid,uuid,text,text,text),
-    yoao_inference_registry_ingress_v1.disconnect_env_registry(uuid,text),
-    yoao_inference_registry_ingress_v1.record_sync_result(uuid,text,integer),
-    yoao_inference_registry_ingress_v1.registry_by_url(text),
-    yoao_inference_registry_ingress_v1.registry_candidates(text),
-    yoao_inference_registry_ingress_v1.registry_ingress_policy(),
-    yoao_inference_registry_ingress_v1.singleton_pool(uuid),
-    yoao_inference_registry_ingress_v1.sync_result(uuid,text),
-    yoao_inference_registry_ingress_v1.tag_seed_registry(uuid,text)
     TO :"application_role";
 
 GRANT EXECUTE ON FUNCTION

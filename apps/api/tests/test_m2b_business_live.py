@@ -117,6 +117,8 @@ async def _assert_default_login(default_engine):
             "SELECT yoao_jobs_v1.claim_dispatches(NULL::jsonb)",
             "SELECT yoao_inference_backend_endpoint_v1.open_execution_endpoint"
             "(NULL::text, NULL::uuid, NULL::uuid, NULL::text)",
+            "SELECT yoao_inference_health_observation_v1.open_health_observation_subject"
+            "(NULL::text, NULL::uuid, NULL::uuid)",
         ):
             with pytest.raises(DBAPIError) as denied:
                 async with db.begin_nested():

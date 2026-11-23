@@ -143,6 +143,12 @@ PRIVATE_RUNTIME_FUNCTIONS = (
     "yoao_settings_v1.finish_smtp_test(uuid,uuid,text,text,text,integer)",
     "yoao_insights_v1.refresh_user_perf_daily()",
     "yoao_jobs_v1.claim_dispatches(jsonb)",
+    "yoao_inference_backend_probe_v1.open_backend_probe_subject(text,uuid)",
+    "yoao_inference_backend_endpoint_v1.open_execution_endpoint(text,uuid,uuid,text)",
+    "yoao_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
+    "yoao_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
+    "yoao_inference_registry_ingress_v1.registry_by_url(text)",
+    "yoao_inference_registry_ingress_v1.registry_candidates(text)",
     *SAVED_SOURCE_FUNCTIONS,
     *LEASED_IMPORT_FUNCTIONS,
 )
@@ -6063,6 +6069,9 @@ def _ordinary_login_acl(
             *IDENTITY_AVATAR_FUNCTIONS,
             "yoao_jobs_v1.directory_job_total(uuid,uuid)",
             "yoao_assets_v1.read_legacy_pyramid_summaries(uuid[],uuid[],text)",
+            "yoao_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)",
+            "yoao_inference_health_observation_v1.capture_health_observation_subject(uuid,uuid,text,text,double precision)",
+            "yoao_inference_health_observation_v1.verify_health_observation(text,uuid,uuid,text)",
         )
     )
     return json.loads(
