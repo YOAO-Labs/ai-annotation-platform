@@ -100,6 +100,37 @@ x-private-env: &private-env
   ASSETS_IMAGES_NATIVE_STORAGE_URL: ""
   ASSETS_IMAGES_NATIVE_STORAGE_TOKEN: ""
   ASSETS_IMAGES_NATIVE_STORAGE_TOKEN_FILE: ""
+  CONNECTOR_ENCRYPTION_KEY: ""
+  CONNECTOR_ENCRYPTION_KEY_FILE: ""
+  ASSETS_SOURCE_URL: ""
+  ASSETS_SOURCE_DATABASE_URL: ""
+  ASSETS_SOURCE_DATABASE_URL_FILE: ""
+  ASSETS_SOURCE_TOKEN: ""
+  ASSETS_SOURCE_TOKEN_FILE: ""
+  ASSETS_SOURCE_IMPORT_VERIFY_TOKEN: ""
+  ASSETS_SOURCE_IMPORT_VERIFY_TOKEN_FILE: ""
+  ASSETS_SOURCE_S3_ACCESS_KEY: ""
+  ASSETS_SOURCE_S3_ACCESS_KEY_FILE: ""
+  ASSETS_SOURCE_S3_SECRET_KEY: ""
+  ASSETS_SOURCE_S3_SECRET_KEY_FILE: ""
+  ASSETS_SOURCE_SAVED_IO_DATABASE_URL: ""
+  ASSETS_SOURCE_SAVED_IO_DATABASE_URL_FILE: ""
+  ASSETS_SOURCE_SAVED_IO_READ_TOKEN: ""
+  ASSETS_SOURCE_SAVED_IO_READ_TOKEN_FILE: ""
+  ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN: ""
+  ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE: ""
+  ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN: ""
+  ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE: ""
+  ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN: ""
+  ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE: ""
+  ASSETS_SOURCE_CONNECTIONS_TOKEN: ""
+  ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE: ""
+  ASSETS_SOURCE_CLIENT_READ_TOKEN_FILE: ""
+  ASSETS_SOURCE_CLIENT_WRITE_TOKEN_FILE: ""
+  ASSETS_SOURCE_CLIENT_CLEANUP_TOKEN_FILE: ""
+  ASSETS_SOURCE_CLIENT_CONNECTIONS_TOKEN_FILE: ""
+  ASSETS_SOURCE_SAVED_IO_SPOOL_DIR: ""
+  ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE: ""
   ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY: ""
   ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE: ""
   ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN: ""
@@ -143,6 +174,40 @@ x-assets-celery-image-env: &assets-celery-image-env
 
 x-assets-celery-env: &assets-celery-env
   <<: [*assets-celery-video-env, *assets-celery-image-env]
+
+x-assets-source-read-env: &assets-source-read-env
+  ASSETS_SOURCE_URL: ${ASSETS_SOURCE_URL:-}
+  ASSETS_SOURCE_SAVED_IO_READ_TOKEN_FILE: ${ASSETS_SOURCE_CLIENT_READ_TOKEN_FILE:+/run/secrets/assets_source_saved_io_read_token}
+
+x-assets-source-write-env: &assets-source-write-env
+  ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE: ${ASSETS_SOURCE_CLIENT_WRITE_TOKEN_FILE:+/run/secrets/assets_source_saved_io_write_token}
+
+x-assets-source-cleanup-env: &assets-source-cleanup-env
+  ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE: ${ASSETS_SOURCE_CLIENT_CLEANUP_TOKEN_FILE:+/run/secrets/assets_source_saved_io_cleanup_token}
+
+x-assets-source-read-secret: &assets-source-read-secret
+  type: bind
+  source: ${ASSETS_SOURCE_CLIENT_READ_TOKEN_FILE:-/dev/null}
+  target: /run/secrets/assets_source_saved_io_read_token
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-assets-source-write-secret: &assets-source-write-secret
+  type: bind
+  source: ${ASSETS_SOURCE_CLIENT_WRITE_TOKEN_FILE:-/dev/null}
+  target: /run/secrets/assets_source_saved_io_write_token
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-assets-source-cleanup-secret: &assets-source-cleanup-secret
+  type: bind
+  source: ${ASSETS_SOURCE_CLIENT_CLEANUP_TOKEN_FILE:-/dev/null}
+  target: /run/secrets/assets_source_saved_io_cleanup_token
+  read_only: true
+  bind:
+    create_host_path: false
 
 x-assets-celery-video-secret: &assets-celery-video-secret
   type: bind
@@ -237,7 +302,16 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
     environment:
       <<:
-        [*jobs-publication-env, *notification-producer-env, *native-image-reader-env, *runtime-env]
+        [
+          *jobs-publication-env,
+          *notification-producer-env,
+          *native-image-reader-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
+          *runtime-env,
+        ]
+      ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE: ${ASSETS_SOURCE_CLIENT_CONNECTIONS_TOKEN_FILE:+/run/secrets/assets_source_connections_token}
       NOTIFICATION_SUBSCRIBE_REDIS_URL: ${NOTIFICATION_SUBSCRIBE_REDIS_URL:-}
       NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE: ${NOTIFICATION_SUBSCRIBE_REDIS_URL_FILE:+/run/secrets/notification_subscribe_redis_url}
       IDENTITY_EMBEDDED_SIGNING_SECRET: ${IDENTITY_EMBEDDED_SIGNING_SECRET:-}
@@ -248,6 +322,15 @@ services:
       - *jobs-publication-secret
       - *notification-publication-secret
       - *native-image-reader-secret
+      - *assets-source-read-secret
+      - *assets-source-write-secret
+      - *assets-source-cleanup-secret
+      - type: bind
+        source: ${ASSETS_SOURCE_CLIENT_CONNECTIONS_TOKEN_FILE:-/dev/null}
+        target: /run/secrets/assets_source_connections_token
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: ${IDENTITY_EMBEDDED_SIGNING_SECRET_FILE:-/dev/null}
         target: /run/secrets/identity_embedded_signing_secret
@@ -357,6 +440,9 @@ services:
           *notification-producer-env,
           *native-image-reader-env,
           *assets-celery-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
           *runtime-env,
         ]
       NOTIFICATION_PUBLISH_DATABASE_URL: ${NOTIFICATION_PUBLISH_DATABASE_URL:-}
@@ -369,6 +455,9 @@ services:
       - *native-image-reader-secret
       - *assets-celery-video-secret
       - *assets-celery-image-secret
+      - *assets-source-read-secret
+      - *assets-source-write-secret
+      - *assets-source-cleanup-secret
       - type: bind
         source: ${NOTIFICATION_PUBLISH_DATABASE_URL_FILE:-/dev/null}
         target: /run/secrets/notification_publish_database_url
@@ -392,12 +481,25 @@ services:
   celery-worker-maintenance:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q maintenance --concurrency=1 --prefetch-multiplier=1
+    environment:
+      <<: [*assets-source-read-env, *assets-source-write-env, *runtime-env]
+    volumes:
+      - *assets-source-read-secret
+      - *assets-source-write-secret
 
   celery-worker-gpu:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q ml,gpu --concurrency=1
     environment:
-      <<: [*jobs-publication-env, *assets-celery-env, *runtime-env]
+      <<:
+        [
+          *jobs-publication-env,
+          *assets-celery-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
+          *runtime-env,
+        ]
       ASSETS_MASK_CONTENT_URL: ${ASSETS_MASK_CONTENT_URL:-}
       ASSETS_MASK_CONTENT_TOKEN: ${ASSETS_MASK_CONTENT_TOKEN:-}
       ASSETS_MASK_CLEANUP_URL: ""
@@ -407,38 +509,66 @@ services:
       - *jobs-publication-secret
       - *assets-celery-video-secret
       - *assets-celery-image-secret
+      - *assets-source-read-secret
+      - *assets-source-write-secret
+      - *assets-source-cleanup-secret
 
   celery-worker-cpu:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q ml.cpu --concurrency=4
     environment:
-      <<: [*jobs-publication-env, *assets-celery-env, *runtime-env]
+      <<:
+        [
+          *jobs-publication-env,
+          *assets-celery-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
+          *runtime-env,
+        ]
     volumes:
       - *jobs-publication-secret
       - *assets-celery-video-secret
       - *assets-celery-image-secret
+      - *assets-source-read-secret
+      - *assets-source-write-secret
+      - *assets-source-cleanup-secret
 
   celery-worker-export:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q export --concurrency=2
     environment:
-      <<: [*jobs-publication-env, *notification-producer-env, *runtime-env]
+      <<:
+        [
+          *jobs-publication-env,
+          *notification-producer-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
+          *runtime-env,
+        ]
       EXPORT_EXECUTION_DATABASE_URL_FILE: /run/secrets/export_execution_database_url
     volumes:
       - *jobs-publication-secret
       - *notification-publication-secret
       - *export-execution-secret
+      - *assets-source-read-secret
+      - *assets-source-write-secret
+      - *assets-source-cleanup-secret
 
   celery-worker-image-pyramid:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q image-pyramid --concurrency=1 --prefetch-multiplier=1 --max-memory-per-child=1572864
     environment:
-      <<: [*assets-celery-image-env, *runtime-env]
+      <<:
+        [*assets-celery-image-env, *assets-source-read-env, *assets-source-write-env, *runtime-env]
       VIPS_CONCURRENCY: "4"
       MALLOC_ARENA_MAX: "2"
       MALLOC_TRIM_THRESHOLD_: "131072"
     volumes:
       - *assets-celery-image-secret
+      - *assets-source-read-secret
+      - *assets-source-write-secret
 
   celery-worker-gpu-control:
     <<: *worker

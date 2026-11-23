@@ -68,6 +68,40 @@ x-export-execution-secret: &export-execution-secret
   bind:
     create_host_path: false
 
+x-assets-source-read-env: &assets-source-read-env
+  ASSETS_SOURCE_URL: ${ASSETS_SOURCE_URL:-}
+  ASSETS_SOURCE_SAVED_IO_READ_TOKEN_FILE: ${ASSETS_SOURCE_CLIENT_READ_TOKEN_FILE:+/run/secrets/assets_source_saved_io_read_token}
+
+x-assets-source-write-env: &assets-source-write-env
+  ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN_FILE: ${ASSETS_SOURCE_CLIENT_WRITE_TOKEN_FILE:+/run/secrets/assets_source_saved_io_write_token}
+
+x-assets-source-cleanup-env: &assets-source-cleanup-env
+  ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE: ${ASSETS_SOURCE_CLIENT_CLEANUP_TOKEN_FILE:+/run/secrets/assets_source_saved_io_cleanup_token}
+
+x-assets-source-read-secret: &assets-source-read-secret
+  type: bind
+  source: ${ASSETS_SOURCE_CLIENT_READ_TOKEN_FILE:-/dev/null}
+  target: /run/secrets/assets_source_saved_io_read_token
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-assets-source-write-secret: &assets-source-write-secret
+  type: bind
+  source: ${ASSETS_SOURCE_CLIENT_WRITE_TOKEN_FILE:-/dev/null}
+  target: /run/secrets/assets_source_saved_io_write_token
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-assets-source-cleanup-secret: &assets-source-cleanup-secret
+  type: bind
+  source: ${ASSETS_SOURCE_CLIENT_CLEANUP_TOKEN_FILE:-/dev/null}
+  target: /run/secrets/assets_source_saved_io_cleanup_token
+  read_only: true
+  bind:
+    create_host_path: false
+
 x-worker-health: &worker-health
   test: ["CMD-SHELL", "celery -A app.workers.celery_app inspect ping -d celery@$$HOSTNAME -t 10"]
   interval: 30s
@@ -138,7 +172,7 @@ services:
       dockerfile: infra/docker/Dockerfile.api
     command: celery -A app.workers.celery_app worker -l info -Q maintenance --concurrency=1 --prefetch-multiplier=1
     environment:
-      <<: *celery-env
+      <<: [*celery-env, *assets-source-read-env, *assets-source-write-env]
       DATABASE_URL: ${MIGRATION_DATABASE_URL_DOCKER:-${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}}
       MIGRATION_DATABASE_URL: ""
       TEST_DATABASE_URL: ""
@@ -153,6 +187,8 @@ services:
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_AUDIT_ARCHIVE_BUCKET: ${MINIO_AUDIT_ARCHIVE_BUCKET:-audit-archive}
     volumes:
+      - *assets-source-read-secret
+      - *assets-source-write-secret
       - ./apps/api:/app
       - /app/.venv
     healthcheck:
@@ -185,6 +221,9 @@ services:
           *notification-producer-env,
           *assets-celery-video-env,
           *assets-celery-image-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
         ]
       NOTIFICATION_PUBLISH_DATABASE_URL: ${NOTIFICATION_PUBLISH_DATABASE_URL:-}
       NOTIFICATION_PUBLISH_DATABASE_URL_FILE: ${NOTIFICATION_PUBLISH_DATABASE_URL_FILE:+/run/secrets/notification_publish_database_url}
@@ -206,7 +245,6 @@ services:
       TRAINING_CATALOG_JSON: ${TRAINING_CATALOG_JSON:-{}}
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
-      CONNECTOR_ENCRYPTION_KEY: ${CONNECTOR_ENCRYPTION_KEY:-}
       CONNECTOR_HOST_ALLOWLIST: ${CONNECTOR_HOST_ALLOWLIST:-}
       STORAGE_FILESYSTEM_ROOTS: "${STORAGE_FILESYSTEM_ROOTS:-{}}"
       STORAGE_SFTP_ROOTS: "${STORAGE_SFTP_ROOTS:-{}}"
@@ -227,6 +265,9 @@ services:
       - *native-image-reader-secret
       - *assets-celery-video-secret
       - *assets-celery-image-secret
+      - *assets-source-read-secret
+      - *assets-source-write-secret
+      - *assets-source-cleanup-secret
       - type: bind
         source: ${NOTIFICATION_PUBLISH_DATABASE_URL_FILE:-/dev/null}
         target: /run/secrets/notification_publish_database_url
@@ -267,7 +308,7 @@ services:
       dockerfile: infra/docker/Dockerfile.api
     command: celery -A app.workers.celery_app worker -l info -Q image-pyramid --concurrency=1 --prefetch-multiplier=1 --max-memory-per-child=1572864
     environment:
-      <<: [*celery-env, *assets-celery-image-env]
+      <<: [*celery-env, *assets-celery-image-env, *assets-source-read-env, *assets-source-write-env]
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
@@ -297,6 +338,8 @@ services:
       IMAGE_PYRAMID_SRGB_PROFILE: ${IMAGE_PYRAMID_SRGB_PROFILE:-/usr/share/color/icc/sRGB.icc}
     volumes:
       - *assets-celery-image-secret
+      - *assets-source-read-secret
+      - *assets-source-write-secret
       - ./apps/api:/app
       - /app/.venv
     healthcheck:
@@ -375,7 +418,16 @@ services:
     command: celery -A app.workers.celery_app worker -l info -Q ml,gpu --concurrency=${CELERY_GPU_CONCURRENCY:-2}
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
-      <<: [*celery-env, *jobs-publication-env, *assets-celery-video-env, *assets-celery-image-env]
+      <<:
+        [
+          *celery-env,
+          *jobs-publication-env,
+          *assets-celery-video-env,
+          *assets-celery-image-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
+        ]
       ASSETS_MASK_CONTENT_URL: ${ASSETS_MASK_CONTENT_URL:-}
       ASSETS_MASK_CONTENT_TOKEN: ${ASSETS_MASK_CONTENT_TOKEN:-}
       ALEMBIC_AUTO_UPGRADE: "false"
@@ -398,6 +450,9 @@ services:
     volumes:
       - *assets-celery-video-secret
       - *assets-celery-image-secret
+      - *assets-source-read-secret
+      - *assets-source-write-secret
+      - *assets-source-cleanup-secret
       - *jobs-publication-secret
       - ./data/duckdb:/var/lib/duckdb
       - ./config/ssh/known_hosts:/root/.ssh/known_hosts:ro
@@ -432,7 +487,16 @@ services:
     command: celery -A app.workers.celery_app worker -l info -Q ml.cpu --concurrency=${CELERY_CPU_CONCURRENCY:-4}
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
-      <<: [*celery-env, *jobs-publication-env, *assets-celery-video-env, *assets-celery-image-env]
+      <<:
+        [
+          *celery-env,
+          *jobs-publication-env,
+          *assets-celery-video-env,
+          *assets-celery-image-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
+        ]
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
@@ -450,6 +514,9 @@ services:
     volumes:
       - *assets-celery-video-secret
       - *assets-celery-image-secret
+      - *assets-source-read-secret
+      - *assets-source-write-secret
+      - *assets-source-cleanup-secret
       - *jobs-publication-secret
       - ./data/duckdb:/var/lib/duckdb
       - ./config/ssh/known_hosts:/root/.ssh/known_hosts:ro
@@ -478,7 +545,15 @@ services:
     command: celery -A app.workers.celery_app worker -l info -Q export --concurrency=2
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
-      <<: [*celery-env, *jobs-publication-env, *notification-producer-env]
+      <<:
+        [
+          *celery-env,
+          *jobs-publication-env,
+          *notification-producer-env,
+          *assets-source-read-env,
+          *assets-source-write-env,
+          *assets-source-cleanup-env,
+        ]
       EXPORT_EXECUTION_DATABASE_URL_FILE: /run/secrets/export_execution_database_url
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
@@ -496,6 +571,9 @@ services:
     volumes:
       - *jobs-publication-secret
       - *notification-publication-secret
+      - *assets-source-read-secret
+      - *assets-source-write-secret
+      - *assets-source-cleanup-secret
       - *export-execution-secret
       - ./data/duckdb:/var/lib/duckdb
       - ./apps/api:/app
