@@ -321,7 +321,7 @@ async def _wait_job(stack, job_id, status="completed", seconds=25):
                     check=False,
                 )
             ).stderr.splitlines()
-            if f"job={job_id} " in line and "Dataset import" in line
+            if f"job={job_id}" in line and "Dataset import" in line
         ]
         pytest.fail(f"import did not reach {status}: {last}, {cursor}, {logs}")
 
@@ -3238,12 +3238,10 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
                             text(
                                 "SELECT v.lease_token,v.creation_id,v.operation_id,v.item_id,v.entry_index,"
                                 "v.mode,v.state,v.result,c.authority->>'publication_id' AS publication_id,"
-                                "c.prepared ? 'parts' AS retained_parts,c.bucket,c.object_key,"
-                                "jsonb_array_length(preparation.evidence->'parts') AS physical_part_count "
+                                "c.prepared ?| ARRAY['parts','upload_id'] AS retained_multipart,"
+                                "c.bucket,c.object_key "
                                 "FROM yoao_assets_v1.import_original_verifications AS v "
                                 "JOIN public.managed_original_creations AS c ON c.id=v.creation_id "
-                                "LEFT JOIN yoao_assets_v1.media_io_claims AS preparation "
-                                "ON preparation.permit_id=v.operation_id AND preparation.step='original_prepare' "
                                 "WHERE v.job_id=:job"
                             ),
                             {"job": job},
