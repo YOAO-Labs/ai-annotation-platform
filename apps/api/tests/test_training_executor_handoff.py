@@ -26,7 +26,7 @@ from typing import Any
 import httpx
 import pytest
 from sqlalchemy import delete, select, text
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.engine import make_url
 
 from app.config import settings
@@ -42,6 +42,41 @@ from app.db.models.training_run import (
 from app.db.models.user import User
 from tests.factory import create_user
 from tests.test_training_runs import ready_dataset
+from tests.test_workspace_project_authority_locking import _api_url
+
+_RUN_PRIVATE_RELATIONS = (
+    "public.training_runs",
+    "public.training_attempts",
+    "public.training_events",
+    "public.training_resource_leases",
+    "public.training_previews",
+    "public.training_preview_resource_leases",
+    "public.training_telemetry_samples",
+    "public.training_log_chunks",
+    "yoao_learning_v1._training_run_facts",
+    "yoao_learning_v1._training_attempt_facts",
+    "yoao_learning_v1._training_preview_facts",
+)
+
+
+async def _assert_runtime_has_no_training_table_access(runtime_url):
+    engine = create_async_engine(runtime_url, hide_parameters=True)
+    try:
+        async with engine.connect() as db:
+            assert await db.scalar(text("SELECT session_user")) == engine.url.username
+            result = await db.execute(
+                text("""
+                    SELECT name
+                    FROM unnest(CAST(:relations AS text[])) AS name
+                    WHERE has_table_privilege(name, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                       OR has_any_column_privilege(name, 'SELECT,INSERT,UPDATE,REFERENCES')
+                """),
+                {"relations": list(_RUN_PRIVATE_RELATIONS)},
+            )
+            assert not result.scalars().all()
+    finally:
+        await engine.dispose()
+
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("AAP_TRAINING_EXECUTOR_HANDOFF_ACCEPTANCE") != "1"
@@ -247,6 +282,20 @@ async def training_handoff_api(test_db_url: str, test_engine, tmp_path: Path):
         )
     if os.name != "posix":
         pytest.skip("executor flock/process-group handoff is POSIX-only")
+    runtime_url = test_db_url
+    if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1":
+        url = make_url(os.environ["AAP_MODULE_DATA_IDENTITY_EMBEDDED_API_CONSUMER_URL"])
+        verified = _api_url(test_engine)
+        assert (url.host, url.port, url.database, url.username) == (
+            verified.host,
+            verified.port,
+            verified.database,
+            "identity_embedded_api_consumer",
+        )
+        runtime_url = url.set(drivername="postgresql+asyncpg").render_as_string(
+            hide_password=False
+        )
+        await _assert_runtime_has_no_training_table_access(runtime_url)
 
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -260,10 +309,9 @@ async def training_handoff_api(test_db_url: str, test_engine, tmp_path: Path):
     env = os.environ.copy()
     env.update(
         YOAO_WORKTREE_MODE="test",
-        DATABASE_URL=test_db_url,
+        DATABASE_URL=runtime_url,
         MIGRATION_DATABASE_URL="",
         TEST_DATABASE_URL="",
-        E2E_SEED_ENABLED="false",
         SECRET_KEY=settings.secret_key,
         TRAINING_ENABLED="true",
         TRAINING_EXECUTOR_TOKEN=_TOKEN,

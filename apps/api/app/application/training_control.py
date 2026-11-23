@@ -5,16 +5,16 @@ from __future__ import annotations
 import uuid
 
 from fastapi import HTTPException
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.learning_policy import LearningTrigger
-from app.db.models.trained_model import TrainedModelVersion
-from app.db.models.training_run import TrainingAttempt, TrainingRun
 from app.services import (
     learning_policies,
+    learning_models_data,
     training_claims,
     training_observability,
+    training_run_data,
     training_runs,
     training_studies,
     training_storage_cleanup,
@@ -31,7 +31,7 @@ async def resume_run(
     actor_id: uuid.UUID,
     *,
     training_authority: TrainingAuthorityPort,
-) -> TrainingRun:
+) -> training_run_data.RunFacts:
     preliminary = await training_runs.load_run(db, project_id, run_id)
     eligibility = await training_observability.recovery(
         db, preliminary, training_authority=training_authority
@@ -97,7 +97,7 @@ async def resume_run(
                 "message": "恢复条件已变化，请刷新后重试",
             },
         )
-    parent = await db.get(TrainingAttempt, run.current_attempt_id)
+    parent = await training_run_data.get_attempt(db, run.current_attempt_id)
     checkpoint = next(
         (item for item in parent.artifacts.values() if item["role"] == "checkpoint"),
         None,
@@ -113,11 +113,11 @@ async def resume_run(
     allowance = await training_studies.admit_resume(db, study, run) if study else None
     attempt = await training_runs.new_attempt(db, run, resume_from=parent.id)
     if study:
-        training_runs.reserve_study_budget(attempt, run, allowance)
-        training_runs.mark_study_manual_resume(run)
+        await training_runs.reserve_study_budget(db, attempt, run, allowance)
+        await training_runs.mark_study_manual_resume(db, run)
         training_studies.stage_manual_resume(study)
     if run.auto_trigger_id:
-        training_runs.mark_policy_manual_resume(run)
+        await training_runs.mark_policy_manual_resume(db, run)
         await learning_policies.requeue_after_manual_resume(db, run.auto_trigger_id)
     return run
 
@@ -143,23 +143,12 @@ async def delete_run(
             raise HTTPException(
                 status_code=409, detail="请先检查自动策略以同步实验终态，再删除实验"
             )
-    if await db.scalar(
-        select(TrainedModelVersion.id)
-        .where(
-            or_(
-                TrainedModelVersion.run_id == run.id,
-                TrainedModelVersion.attempt_id.in_(
-                    select(TrainingAttempt.id).where(TrainingAttempt.run_id == run.id)
-                ),
-            )
-        )
-        .limit(1)
-    ):
+    if await learning_models_data.run_has_candidate(db, run.id):
         raise HTTPException(
             status_code=409, detail="训练产物已被模型版本引用，不能删除"
         )
     try:
-        intent = training_storage_cleanup.stage_deletion(
+        intent_id = await training_storage_cleanup.stage_deletion(
             db, run, f"projects/{project_id}/runs/{run.id}/"
         )
     except TrainingDatasetError as exc:
@@ -168,4 +157,4 @@ async def delete_run(
         ) from None
     await training_runs.stage_run_deletion(db, run)
     await db.commit()
-    await training_storage_cleanup.purge_committed(db, intent.id)
+    await training_storage_cleanup.purge_committed(db, intent_id)
