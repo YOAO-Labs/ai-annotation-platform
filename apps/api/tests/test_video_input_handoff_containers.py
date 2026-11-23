@@ -26,6 +26,7 @@ from sqlalchemy.pool import NullPool
 from yoao_assets_video_inputs import execution as video_execution
 from app.config import settings
 from tests.test_asset_storage_cleanup_runtime import (
+    _container_database_url,
     _docker as _shared_docker,
     _inspect_docker as _shared_inspect,
     _required_env,
@@ -35,7 +36,6 @@ from tests.test_assets_catalog_runtime import _write_environment
 from tests.test_assets_media_containers import (
     _memory_peak,
     _container_environment,
-    _container_database_url,
     _container_s3_origins,
 )
 from tests.test_assets_media_live import _guard_role_url

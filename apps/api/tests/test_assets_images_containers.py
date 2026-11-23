@@ -6,7 +6,6 @@ import asyncio
 import json
 import os
 import re
-import subprocess
 import time
 from uuid import UUID, uuid4
 
@@ -21,26 +20,15 @@ from yoao_assets_images import contract as images
 from yoao_assets_images.transport import ImageGenerationReferenceRequest
 from app.services.assets_images import image_gateway, image_policy, run_image_job
 
+from tests.assets_media_compose_support import IMAGE
 from tests.test_asset_storage_cleanup_runtime import (
-    _container_database_url,
     _docker,
     _inspect_docker,
-    _required_env,
-    _stop_remove_container,
     _wait_healthy,
 )
-from tests.test_assets_catalog_runtime import (
-    _ordinary_assets_engine,
-    _write_environment,
-)
+from tests.test_assets_catalog_runtime import _ordinary_assets_engine
 from tests.test_assets_catalog_native import _seed_actor
-from tests.test_assets_media_containers import (
-    _ACCEPTANCE,
-    _IDENTITY,
-    _container_s3_origins,
-    _memory_peak,
-    _start_container,
-)
+from tests.test_assets_media_containers import _memory_peak
 from tests.test_assets_images_live import (
     _assert_image_storage_scopes,
     _image_live_runtime,
@@ -70,120 +58,19 @@ def _owned_image_ref(image_ref: str) -> tuple[str, str]:
         pytest.fail("image-worker image reference did not resolve uniquely")
     image = values[0]
     labels = image.get("Config", {}).get("Labels") or {}
-    image_identity = labels.get(_IDENTITY)
+    image_identity = labels.get("org.aap.acceptance-id")
     published_refs = set(image.get("RepoTags") or []) | set(
         image.get("RepoDigests") or []
     )
     if not (
         image.get("Id")
         and (image_ref in published_refs or image_ref == image.get("Id"))
-        and labels.get(_ACCEPTANCE) == "module-data-boundary"
+        and labels.get("org.aap.acceptance") == "module-data-boundary"
         and isinstance(image_identity, str)
         and re.fullmatch(r"[0-9a-f]{24}", image_identity)
     ):
         pytest.fail("image-worker image ownership label did not match this acceptance")
     return image["Id"], image_identity
-
-
-def _image_worker_environment(
-    runtime, internal_s3: str, public_s3: str
-) -> dict[str, str]:
-    return {
-        "ASSETS_IMAGE_EXECUTOR": "split",
-        "ASSETS_IMAGES_DATABASE_URL": _container_database_url(runtime.worker_url),
-        "ASSETS_IMAGES_LEGACY_BUCKET": runtime.legacy_bucket,
-        "ASSETS_IMAGES_POLL_SECONDS": "0.1",
-        "ASSETS_IMAGES_SRGB_PROFILE": "/usr/share/color/icc/sRGB.icc",
-        "ASSETS_IMAGES_NATIVE_STORAGE_URL": runtime.native_signer.url,
-        "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN": runtime.native_signer.writer_token,
-        "ASSETS_MEDIA_S3_ENDPOINT": internal_s3,
-        "ASSETS_MEDIA_S3_PUBLIC_ENDPOINT": public_s3,
-        "ASSETS_MEDIA_S3_REGION": "us-east-1",
-        "ASSETS_MEDIA_S3_ACCESS_KEY": runtime.worker_access,
-        "ASSETS_MEDIA_S3_SECRET_KEY": runtime.worker_secret,
-        "ASSETS_MEDIA_S3_CONNECT_TIMEOUT_SECONDS": "2",
-        "ASSETS_MEDIA_S3_READ_TIMEOUT_SECONDS": "10",
-        "ASSETS_MEDIA_S3_MAX_ATTEMPTS": "1",
-        "ASSETS_MEDIA_DATASETS_BUCKET": runtime.datasets_bucket,
-        "ASSETS_MEDIA_CACHE_BUCKET": runtime.cache_bucket,
-        "ASSETS_MEDIA_INPUTS_BUCKET": runtime.resources["buckets"][
-            "MINIO_INPUTS_BUCKET"
-        ],
-    }
-
-
-def _verify_image_worker_container(
-    container_id: str,
-    *,
-    name: str,
-    image_ref: str,
-    image_id: str,
-    container_identity: str,
-) -> None:
-    observed = _inspect_docker(container_id)
-    config = observed.get("Config", {})
-    host = observed.get("HostConfig", {})
-    labels = config.get("Labels") or {}
-    env_names = {value.partition("=")[0] for value in config.get("Env", [])}
-    required = {
-        "ASSETS_IMAGE_EXECUTOR",
-        "ASSETS_IMAGES_DATABASE_URL",
-        "ASSETS_IMAGES_LEGACY_BUCKET",
-        "ASSETS_IMAGES_POLL_SECONDS",
-        "ASSETS_IMAGES_SRGB_PROFILE",
-        "ASSETS_IMAGES_NATIVE_STORAGE_URL",
-        "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN",
-        "ASSETS_MEDIA_S3_ENDPOINT",
-        "ASSETS_MEDIA_S3_PUBLIC_ENDPOINT",
-        "ASSETS_MEDIA_S3_ACCESS_KEY",
-        "ASSETS_MEDIA_S3_SECRET_KEY",
-        "ASSETS_MEDIA_DATASETS_BUCKET",
-        "ASSETS_MEDIA_CACHE_BUCKET",
-        "ASSETS_MEDIA_INPUTS_BUCKET",
-    }
-    forbidden = {
-        "ASSETS_MEDIA_CONTROL_DATABASE_URL",
-        "ASSETS_MEDIA_WORKER_DATABASE_URL",
-        "ASSETS_MEDIA_TOKEN",
-        "DATABASE_URL",
-    }
-    forbidden_prefixes = ("CELERY_", "REDIS_", "MINIO_", "AWS_", "APP_")
-    ports = observed.get("NetworkSettings", {}).get("Ports") or {}
-    if not (
-        observed.get("Id") == container_id
-        and observed.get("Name") == f"/{name}"
-        and observed.get("Image") == image_id
-        and config.get("Image") == image_ref
-        and config.get("User") == "10005:10005"
-        and config.get("Cmd") == ["python", "-m", "yoao_assets_images_runtime.worker"]
-        and labels.get(_ACCEPTANCE) == "module-data-boundary"
-        and labels.get(_IDENTITY) == container_identity
-        and observed.get("Mounts") == []
-        and host.get("Binds") in (None, [])
-        and host.get("ReadonlyRootfs") is True
-        and host.get("CapDrop") == ["ALL"]
-        and host.get("Privileged") is False
-        and "no-new-privileges:true" in (host.get("SecurityOpt") or [])
-        and host.get("PidsLimit") == 64
-        and host.get("NanoCpus") == 2_000_000_000
-        and host.get("Memory") == 2 * 1024**3
-        and not any(bindings for bindings in ports.values())
-        and required <= env_names
-        and not (forbidden & env_names)
-        and not any(name.startswith(forbidden_prefixes) for name in env_names)
-    ):
-        pytest.fail("image-worker container escaped its restricted runtime profile")
-
-
-def _worker_logs(container_id: str) -> str:
-    result = subprocess.run(
-        ["docker", "logs", container_id],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        timeout=20,
-    )
-    return f"docker logs exit {result.returncode}: {result.stdout[:5000]}"
 
 
 async def _wait_for_image_jobs(
@@ -208,36 +95,31 @@ async def _wait_for_image_jobs(
         state = observed.get("State", {})
         if state.get("Running") is not True:
             pytest.fail(
-                f"image-worker container exited during image work: {_worker_logs(container_id)}"
+                "image-worker container exited during image work: "
+                + runtime.compose.logs(container_id)
             )
         await asyncio.sleep(0.2)
     pytest.fail(
-        f"container image jobs did not finish: {last}; {_worker_logs(container_id)}"
+        f"container image jobs did not finish: {last}; "
+        + runtime.compose.logs(container_id)
     )
 
 
 async def test_restricted_image_worker_container_generates_thumbnail_and_vips_pyramid(
     test_engine, tmp_path, record_property, native_signer, monkeypatch
 ):
-    image_ref = _required_env("AAP_ASSETS_IMAGES_WORKER_IMAGE")
-    image_id, _image_identity = _owned_image_ref(image_ref)
     async with _image_live_runtime(
-        test_engine, tmp_path, native_signer=native_signer
+        test_engine,
+        tmp_path,
+        native_signer=native_signer,
+        compose_receipt=record_property,
     ) as runtime:
-        identity = uuid4().hex[:24]
-        name = f"aap-images-worker-{identity[:12]}"
-        environment_file = tmp_path / "image-worker.env"
-        container_id = None
-        worker_started_at = None
+        compose = runtime.compose
+        assert compose is not None
         embedded_engine = _ordinary_assets_engine(test_engine)
         control_sessions = async_sessionmaker(embedded_engine, expire_on_commit=False)
         try:
-            internal_s3, public_s3 = _container_s3_origins(runtime.settings)
-            _write_environment(
-                environment_file,
-                _image_worker_environment(runtime, internal_s3, public_s3),
-            )
-            assert environment_file.stat().st_mode & 0o777 == 0o600
+            public_s3 = compose.public_s3
 
             async with runtime.owner_sessions.begin() as owner:
                 actor_id = await _seed_actor(owner, role="super_admin")
@@ -295,30 +177,8 @@ async def test_restricted_image_worker_container_generates_thumbnail_and_vips_py
                 assert not await run_image_job(pyramid_job_id)
 
             worker_started_at = time.monotonic()
-            container_id = _start_container(
-                role="worker",
-                name=name,
-                image=image_ref,
-                identity=identity,
-                environment_file=environment_file,
-            )
-            _verify_image_worker_container(
-                container_id,
-                name=name,
-                image_ref=image_ref,
-                image_id=image_id,
-                container_identity=identity,
-            )
+            container_id = compose.start(IMAGE)
             await _wait_healthy(container_id, timeout=120)
-            _docker(
-                "exec",
-                container_id,
-                "python",
-                "-m",
-                "yoao_assets_images_runtime.worker",
-                "--healthcheck",
-                timeout=30,
-            )
 
             jobs = await _wait_for_image_jobs(
                 runtime,
@@ -485,14 +345,10 @@ async def test_restricted_image_worker_container_generates_thumbnail_and_vips_py
             )
 
             peak = _memory_peak(container_id)
-            assert worker_started_at is not None
             wall_seconds = time.monotonic() - worker_started_at
-            record_property("image_worker_image_id", image_id)
             record_property("image_worker_wall_seconds", round(wall_seconds, 3))
             record_property("image_worker_cgroup_memory_peak_bytes", peak)
             if peak is not None:
                 assert peak <= 2 * 1024**3
         finally:
             await embedded_engine.dispose()
-            if container_id is not None:
-                await asyncio.to_thread(_stop_remove_container, container_id, identity)

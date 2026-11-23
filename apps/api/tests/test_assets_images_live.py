@@ -29,6 +29,7 @@ from app.db.models.dataset import DatasetItem, ProjectDataset
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.services.dataset_assets import ensure_legacy_bindings
+from tests.assets_media_compose_support import CONTROL, IMAGE, MediaCompose
 from tests.factory import create_project
 from tests.native_signer_support import NativeSigner
 from tests.test_asset_storage_cleanup_runtime import (
@@ -38,8 +39,10 @@ from tests.test_asset_storage_cleanup_runtime import (
     _verified_resource_manifest,
     _verify_bucket_owner,
     _verify_postgres,
+    _wait_healthy,
 )
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
+from tests.test_assets_media_containers import _ContainerWatch
 from tests.test_assets_media_live import (
     _free_loopback_port,
     _post,
@@ -244,6 +247,7 @@ class _ImageLiveRuntime:
     owner_sessions: async_sessionmaker
     srgb_profile: Path
     native_signer: NativeSigner | None = None
+    compose: MediaCompose | None = None
     processes: list[subprocess.Popen] = field(default_factory=list)
     streams: list[object] = field(default_factory=list)
     source_objects: list[tuple[str, str]] = field(default_factory=list)
@@ -254,7 +258,6 @@ class _ImageLiveRuntime:
     task_ids: list[UUID] = field(default_factory=list)
     project_ids: list[UUID] = field(default_factory=list)
     control_process: subprocess.Popen | None = None
-    control_log: Path | None = None
 
     def start_worker(
         self,
@@ -399,7 +402,11 @@ async def _delete_objects(client, bucket: str, prefixes: list[str]) -> None:
 
 @asynccontextmanager
 async def _image_live_runtime(
-    test_engine, tmp_path: Path, *, native_signer: NativeSigner | None = None
+    test_engine,
+    tmp_path: Path,
+    *,
+    native_signer: NativeSigner | None = None,
+    compose_receipt=None,
 ):
     control_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
@@ -467,38 +474,68 @@ async def _image_live_runtime(
 
     srgb_profile = _srgb_profile()
     control_token = secrets.token_urlsafe(32)
-    control_port = _free_loopback_port()
-    control_log = tmp_path / "image-control.log"
-    control_settings = dict(_CONTROL_POLICY_ENV)
-    if native_signer is not None:
-        native_signer.assert_running()
-        control_settings.update(
-            {
-                "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL": native_signer.url,
-                "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN": native_signer.reader_token,
-            }
+    compose = None
+    control_process = control_stream = None
+    if compose_receipt is not None:
+        compose = MediaCompose(
+            tmp_path,
+            settings,
+            resources["buckets"],
+            compose_receipt,
+            policy=_CONTROL_POLICY_ENV,
         )
-    control_environment = _runtime_environment(
-        tmp_path=tmp_path,
-        role="control",
-        database_url=_runtime_database_url(control_url),
-        endpoint=endpoint,
-        public_endpoint=endpoint,
-        datasets_bucket=datasets_bucket,
-        legacy_bucket=legacy_bucket,
-        cache_bucket=cache_bucket,
-        access_key=control_access,
-        secret_key=control_secret,
-        token=control_token,
-        port=control_port,
-        image_control_settings=control_settings,
-    )
-    control_process, control_stream = _start_process(
-        [sys.executable, "-m", "yoao_assets_media_runtime"],
-        control_environment,
-        control_log,
-    )
-    control_origin = f"http://127.0.0.1:{control_port}"
+        try:
+            compose.add(
+                CONTROL,
+                control_url,
+                control_access,
+                control_secret,
+                token=control_token,
+                signer=native_signer,
+            )
+            compose.add(
+                IMAGE, worker_url, worker_access, worker_secret, signer=native_signer
+            )
+            compose.create()
+            control_container = compose.start(CONTROL)
+            await _wait_healthy(control_container)
+            control_origin = compose.origin()
+        except BaseException:
+            await asyncio.to_thread(compose.close)
+            raise
+    else:
+        control_port = _free_loopback_port()
+        control_log = tmp_path / "image-control.log"
+        control_settings = dict(_CONTROL_POLICY_ENV)
+        if native_signer is not None:
+            native_signer.assert_running()
+            control_settings.update(
+                {
+                    "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL": native_signer.url,
+                    "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN": native_signer.reader_token,
+                }
+            )
+        control_environment = _runtime_environment(
+            tmp_path=tmp_path,
+            role="control",
+            database_url=_runtime_database_url(control_url),
+            endpoint=endpoint,
+            public_endpoint=endpoint,
+            datasets_bucket=datasets_bucket,
+            legacy_bucket=legacy_bucket,
+            cache_bucket=cache_bucket,
+            access_key=control_access,
+            secret_key=control_secret,
+            token=control_token,
+            port=control_port,
+            image_control_settings=control_settings,
+        )
+        control_process, control_stream = _start_process(
+            [sys.executable, "-m", "yoao_assets_media_runtime"],
+            control_environment,
+            control_log,
+        )
+        control_origin = f"http://127.0.0.1:{control_port}"
     control_client = httpx.AsyncClient(
         base_url=control_origin, timeout=10, trust_env=False
     )
@@ -525,49 +562,56 @@ async def _image_live_runtime(
         owner_sessions=async_sessionmaker(test_engine, expire_on_commit=False),
         srgb_profile=srgb_profile,
         native_signer=native_signer,
+        compose=compose,
         control_process=control_process,
-        control_log=control_log,
-        processes=[control_process],
-        streams=[control_stream],
+        processes=[control_process] if control_process else [],
+        streams=[control_stream] if control_stream else [],
     )
     try:
         if native_signer is not None:
             async with runtime.owner_sessions.begin() as owner:
                 await ensure_legacy_bindings(owner)
-        await _wait_control_ready(control_client, control_process, control_log)
-        worker_environment = _runtime_environment(
-            tmp_path=tmp_path,
-            role="worker",
-            database_url=_runtime_database_url(worker_url),
-            endpoint=endpoint,
-            public_endpoint=endpoint,
-            datasets_bucket=datasets_bucket,
-            legacy_bucket=legacy_bucket,
-            cache_bucket=cache_bucket,
-            access_key=worker_access,
-            secret_key=worker_secret,
-            image_worker=True,
-            srgb_profile=srgb_profile,
-        )
-        probe = await asyncio.to_thread(
-            subprocess.run,
-            [
-                sys.executable,
-                "-m",
-                "yoao_assets_images_runtime.worker",
-                "--healthcheck",
-            ],
-            cwd=ROOT,
-            env=worker_environment,
-            capture_output=True,
-            text=True,
-            timeout=20,
-            check=False,
-        )
-        assert probe.returncode == 0, "restricted image worker login failed healthcheck"
+        if compose is None:
+            await _wait_control_ready(control_client, control_process, control_log)
+            worker_environment = _runtime_environment(
+                tmp_path=tmp_path,
+                role="worker",
+                database_url=_runtime_database_url(worker_url),
+                endpoint=endpoint,
+                public_endpoint=endpoint,
+                datasets_bucket=datasets_bucket,
+                legacy_bucket=legacy_bucket,
+                cache_bucket=cache_bucket,
+                access_key=worker_access,
+                secret_key=worker_secret,
+                image_worker=True,
+                srgb_profile=srgb_profile,
+            )
+            probe = await asyncio.to_thread(
+                subprocess.run,
+                [
+                    sys.executable,
+                    "-m",
+                    "yoao_assets_images_runtime.worker",
+                    "--healthcheck",
+                ],
+                cwd=ROOT,
+                env=worker_environment,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            assert probe.returncode == 0, (
+                "restricted image worker login failed healthcheck"
+            )
         yield runtime
     finally:
-        await runtime.close()
+        try:
+            if compose is not None:
+                await asyncio.to_thread(compose.close)
+        finally:
+            await runtime.close()
 
 
 async def _seed_item(
@@ -795,9 +839,13 @@ async def _assert_image_storage_scopes(
 
 
 async def test_independent_image_worker_publishes_thumbnail_after_response_loss_and_actor_disable(
-    test_engine, tmp_path
+    test_engine, tmp_path, record_property
 ):
-    async with _image_live_runtime(test_engine, tmp_path) as runtime:
+    async with _image_live_runtime(
+        test_engine, tmp_path, compose_receipt=record_property
+    ) as runtime:
+        compose = runtime.compose
+        assert compose is not None
         actor_id = item_id = None
         source_key = f"image-source/{uuid4()}/original.png"
         source_bytes = _solid_png((32, 24), (240, 20, 30))
@@ -839,6 +887,8 @@ async def test_independent_image_worker_publishes_thumbnail_after_response_loss_
                         json=request,
                     )
                 assert transport.dropped is True
+                compose.restart(CONTROL)
+                await _wait_healthy(compose.containers[CONTROL.service])
                 replay = await uncertain_client.post(
                     "/v1/images/commands/prepare_image_media",
                     headers={"Authorization": f"Bearer {runtime.control_token}"},
@@ -897,17 +947,18 @@ async def test_independent_image_worker_publishes_thumbnail_after_response_loss_
                     text("UPDATE public.users SET is_active=false WHERE id=:actor"),
                     {"actor": actor_id},
                 )
-            worker, worker_log = runtime.start_worker(
-                "image-thumbnail-worker", job_id=job_id
+            denied = await _post(
+                runtime.control_client,
+                runtime.control_token,
+                "/v1/images/source-reference",
+                {"actor_id": str(actor_id), "dataset_item_id": str(item_id)},
             )
-            assert (
-                await _wait_process_exit(
-                    worker,
-                    timeout=90,
-                    message="independent image thumbnail worker did not finish",
-                )
-                == 0
-            ), _process_log(worker_log)
+            assert denied.status_code == 403
+            container_id = compose.start(IMAGE)
+            await _wait_healthy(container_id)
+            worker = _ContainerWatch(container_id)
+            worker_log = tmp_path / "image-thumbnail-worker.log"
+            worker_log.write_text(compose.logs(container_id), encoding="utf-8")
             job = await _wait_job(
                 runtime.test_engine,
                 job_id,
