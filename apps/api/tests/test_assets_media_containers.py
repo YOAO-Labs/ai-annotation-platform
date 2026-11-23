@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from io import BytesIO
 import os
-from pathlib import Path
 import secrets
 import shutil
 import subprocess
@@ -14,6 +14,7 @@ import time
 from uuid import uuid4
 
 import httpx
+from PIL import Image
 import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -23,27 +24,24 @@ from app.services.assets_media import media_gateway, run_media_job
 
 from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
+from tests.assets_media_compose_support import CONTROL, VIDEO, MediaCompose
 from tests.factory import create_project
 from tests.test_asset_storage_cleanup_runtime import (
-    _container_database_url,
     _container_s3_endpoint,
-    _docker,
     _inspect_docker,
     _local_s3_client,
     _required_env,
-    _stop_remove_container,
     _verified_resource_manifest,
     _verify_bucket_owner,
     _wait_healthy,
 )
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
-from tests.test_assets_catalog_runtime import (
-    _ordinary_assets_engine,
-    _write_environment,
-)
+from tests.test_assets_catalog_runtime import _ordinary_assets_engine
 from tests.test_assets_media_live import (
+    _assert_sql_role_is_narrow,
     _delete_objects,
     _guard_role_url,
+    _job_for_frame,
     _post,
     _wait_asset_ready,
     _wait_source_ready,
@@ -56,8 +54,6 @@ pytestmark = [
         reason="requires the verifier's owned PostgreSQL and S3 resources",
     ),
 ]
-_ACCEPTANCE = "org.aap.acceptance"
-_IDENTITY = "org.aap.acceptance-id"
 
 
 def _container_s3_origins(settings) -> tuple[str, str]:
@@ -115,151 +111,6 @@ def _container_environment(
             "ASSETS_MEDIA_CHUNK_TTL_DAYS": "30",
         }
     return common | role_values
-
-
-def _start_container(
-    *,
-    role: str,
-    name: str,
-    image: str,
-    identity: str,
-    environment_file: Path,
-) -> str:
-    arguments = [
-        "run",
-        "--detach",
-        "--name",
-        name,
-        "--label",
-        f"{_ACCEPTANCE}=module-data-boundary",
-        "--label",
-        f"{_IDENTITY}={identity}",
-        "--add-host",
-        "host.docker.internal:host-gateway",
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges:true",
-        "--user",
-        "10005:10005",
-        "--pids-limit",
-        "64",
-        "--tmpfs",
-        "/tmp:rw,noexec,nosuid,size=256m",
-        "--env-file",
-        str(environment_file),
-    ]
-    if role == "control":
-        arguments.extend(
-            [
-                "--publish",
-                "127.0.0.1::8768",
-                "--cpus",
-                "0.5",
-                "--memory",
-                "512m",
-                "--stop-timeout",
-                "30",
-            ]
-        )
-    else:
-        arguments.extend(["--cpus", "2", "--memory", "2g", "--stop-timeout", "60"])
-    arguments.append(image)
-    return _docker(*arguments, timeout=120)
-
-
-def _verify_container(
-    *,
-    container_id: str,
-    role: str,
-    name: str,
-    image: str,
-    identity: str,
-) -> str | None:
-    observed = _inspect_docker(container_id)
-    config = observed.get("Config", {})
-    host = observed.get("HostConfig", {})
-    labels = config.get("Labels") or {}
-    names = {value.partition("=")[0] for value in config.get("Env", [])}
-    control = role == "control"
-    module = (
-        "yoao_assets_media_runtime" if control else "yoao_assets_media_runtime.worker"
-    )
-    if not (
-        observed.get("Id") == container_id
-        and observed.get("Name") == f"/{name}"
-        and config.get("Image") == image
-        and config.get("User") == "10005:10005"
-        and config.get("Cmd") == ["python", "-m", module]
-        and labels.get(_ACCEPTANCE) == "module-data-boundary"
-        and labels.get(_IDENTITY) == identity
-        and observed.get("Mounts") == []
-        and host.get("ReadonlyRootfs") is True
-        and host.get("CapDrop") == ["ALL"]
-        and host.get("Privileged") is False
-        and "no-new-privileges:true" in (host.get("SecurityOpt") or [])
-        and host.get("PidsLimit") == 64
-        and host.get("NanoCpus") == (500_000_000 if control else 2_000_000_000)
-        and host.get("Memory") == (512 * 1024**2 if control else 2 * 1024**3)
-        and not any(
-            key == "DATABASE_URL"
-            or key.startswith(("MINIO_", "AWS_", "CELERY_", "REDIS_", "APP_"))
-            for key in names
-        )
-    ):
-        pytest.fail(f"{role} container did not match the restricted runtime profile")
-    required = {
-        "ASSETS_MEDIA_CONTROL_DATABASE_URL"
-        if control
-        else "ASSETS_MEDIA_WORKER_DATABASE_URL",
-        "ASSETS_MEDIA_S3_ACCESS_KEY",
-        "ASSETS_MEDIA_S3_SECRET_KEY",
-    }
-    if control:
-        required.add("ASSETS_MEDIA_TOKEN")
-        required.add("ASSETS_IMAGES_LEGACY_BUCKET")
-    else:
-        required.add("ASSETS_VIDEO_EXECUTOR")
-    forbidden_credentials = (
-        {"ASSETS_MEDIA_WORKER_DATABASE_URL"}
-        if control
-        else {"ASSETS_MEDIA_CONTROL_DATABASE_URL", "ASSETS_MEDIA_TOKEN"}
-    )
-    if not required <= names or forbidden_credentials & names:
-        pytest.fail(f"{role} container received the wrong runtime credentials")
-
-    probe = _docker(
-        "exec",
-        container_id,
-        "python",
-        "-c",
-        "import importlib, os; s=open('/proc/self/status').read().splitlines(); "
-        f"importlib.import_module('{module}'); "
-        "print(os.getuid(), os.getgid(), "
-        "next(x.split()[1] for x in s if x.startswith('CapEff:')), "
-        "next(x.split()[1] for x in s if x.startswith('NoNewPrivs:')))",
-    )
-    uid, gid, capabilities, no_new_privileges = probe.split()
-    if (
-        uid != "10005"
-        or gid != "10005"
-        or int(capabilities, 16) != 0
-        or no_new_privileges != "1"
-    ):
-        pytest.fail(f"{role} cold import escaped the restricted process profile")
-
-    if role == "worker":
-        ports = observed.get("NetworkSettings", {}).get("Ports") or {}
-        if any(bindings for bindings in ports.values() if bindings):
-            pytest.fail("worker container unexpectedly publishes an HTTP port")
-        return None
-    bindings = (
-        observed.get("NetworkSettings", {}).get("Ports", {}).get("8768/tcp") or []
-    )
-    if len(bindings) != 1 or bindings[0].get("HostIp") != "127.0.0.1":
-        pytest.fail("control container did not publish only its loopback HTTP port")
-    return f"http://127.0.0.1:{int(bindings[0]['HostPort'])}"
 
 
 async def _wait_control(origin: str) -> None:
@@ -326,8 +177,6 @@ async def test_restricted_media_images_serve_real_video_assets(
 
     from app.config import settings
 
-    control_image = _required_env("AAP_ASSETS_MEDIA_CONTROL_IMAGE")
-    worker_image = _required_env("AAP_ASSETS_MEDIA_WORKER_IMAGE")
     resources = _verified_resource_manifest(test_engine, control_url)
     datasets_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
     legacy_bucket = resources["buckets"]["MINIO_BUCKET"]
@@ -351,46 +200,18 @@ async def test_restricted_media_images_serve_real_video_assets(
         or control_secret == worker_secret
     ):
         pytest.fail("media containers need distinct scoped S3 identities")
+    for url, table in (
+        (control_url, "public.dataset_items"),
+        (worker_url, "public.asset_media_jobs"),
+    ):
+        await _assert_sql_role_is_narrow(
+            url.render_as_string(hide_password=False), url.username, table
+        )
 
-    internal_s3, public_s3 = _container_s3_origins(settings)
-    control_db = _container_database_url(control_url)
-    worker_db = _container_database_url(worker_url)
     control_token = secrets.token_urlsafe(32)
     identity = uuid4().hex
-    control_name = f"aap-media-control-{identity[:12]}"
-    worker_name = f"aap-media-worker-{identity[:12]}"
-    control_env_file = tmp_path / "media-control.env"
-    worker_env_file = tmp_path / "media-worker.env"
-    _write_environment(
-        control_env_file,
-        _container_environment(
-            role="control",
-            database_url=control_db,
-            s3_endpoint=internal_s3,
-            s3_public_endpoint=public_s3,
-            datasets_bucket=datasets_bucket,
-            legacy_bucket=legacy_bucket,
-            cache_bucket=cache_bucket,
-            access_key=control_access,
-            secret_key=control_secret,
-            token=control_token,
-        ),
-    )
-    _write_environment(
-        worker_env_file,
-        _container_environment(
-            role="worker",
-            database_url=worker_db,
-            s3_endpoint=internal_s3,
-            s3_public_endpoint=public_s3,
-            datasets_bucket=datasets_bucket,
-            cache_bucket=cache_bucket,
-            access_key=worker_access,
-            secret_key=worker_secret,
-        ),
-    )
-    assert control_env_file.stat().st_mode & 0o777 == 0o600
-    assert worker_env_file.stat().st_mode & 0o777 == 0o600
+    compose = MediaCompose(tmp_path, settings, resources["buckets"], record_property)
+    public_s3 = compose.public_s3
 
     ffmpeg = shutil.which("ffmpeg")
     assert ffmpeg, "container acceptance needs host ffmpeg for the source fixture"
@@ -429,11 +250,15 @@ async def test_restricted_media_images_serve_real_video_assets(
     item_id = uuid4()
     actor_id = dataset_id = project_id = None
     source_uploaded = False
-    control_container = worker_container = None
     embedded_engine = _ordinary_assets_engine(test_engine)
     control_sessions = async_sessionmaker(embedded_engine, expire_on_commit=False)
 
     try:
+        compose.add(
+            CONTROL, control_url, control_access, control_secret, token=control_token
+        )
+        compose.add(VIDEO, worker_url, worker_access, worker_secret)
+        compose.create()
         owner_s3.put_object(
             Bucket=datasets_bucket,
             Key=source_key,
@@ -505,46 +330,11 @@ async def test_restricted_media_images_serve_real_video_assets(
                 assert accepted.work.status == "pending"
             assert not await run_media_job(accepted.work.job_id)
 
-        control_container = _start_container(
-            role="control",
-            name=control_name,
-            image=control_image,
-            identity=identity,
-            environment_file=control_env_file,
-        )
-        worker_container = _start_container(
-            role="worker",
-            name=worker_name,
-            image=worker_image,
-            identity=identity,
-            environment_file=worker_env_file,
-        )
+        control_container = compose.start(CONTROL)
+        worker_container = compose.start(VIDEO)
         await _wait_healthy(control_container, timeout=90)
         await _wait_healthy(worker_container, timeout=90)
-        _docker(
-            "exec",
-            worker_container,
-            "python",
-            "-m",
-            "yoao_assets_media_runtime.worker",
-            "--healthcheck",
-            timeout=30,
-        )
-        control_origin = _verify_container(
-            container_id=control_container,
-            role="control",
-            name=control_name,
-            image=control_image,
-            identity=identity,
-        )
-        _verify_container(
-            container_id=worker_container,
-            role="worker",
-            name=worker_name,
-            image=worker_image,
-            identity=identity,
-        )
-        assert control_origin is not None
+        control_origin = compose.origin()
         await _wait_control(control_origin)
         worker_watch = _ContainerWatch(worker_container)
         worker_log = tmp_path / "container-media-worker.log"
@@ -560,6 +350,8 @@ async def test_restricted_media_images_serve_real_video_assets(
                 "dataset_item_id": str(item_id),
                 "task_id": str(task_id),
             }
+            unauthorized = await client.post("/v1/source-reference", json=request)
+            assert unauthorized.status_code == 401
             source = await _wait_source_ready(
                 client, control_token, request, worker_watch, worker_log
             )
@@ -567,14 +359,37 @@ async def test_restricted_media_images_serve_real_video_assets(
             assert source_data["file_size"] == len(source_bytes)
             assert source["poster_url"]
             assert source["video_url"] != source["original_url"]
-            for url in (
-                source["original_url"],
-                source["poster_url"],
-                source["video_url"],
+            original = await client.get(source["original_url"])
+            poster = await client.get(source["poster_url"])
+            playback = await client.get(source["video_url"])
+            assert original.status_code == 200 and original.content == source_bytes
+            assert poster.status_code == 200
+            with Image.open(BytesIO(poster.content)) as decoded:
+                decoded.load()
+                assert decoded.format == "WEBP"
+            assert playback.status_code == 200 and playback.content[4:8] == b"ftyp"
+            async with test_engine.connect() as owner:
+                metadata = (
+                    await owner.execute(
+                        text(
+                            "SELECT status,last_outcome FROM public.asset_media_jobs "
+                            "WHERE job_id=:id"
+                        ),
+                        {"id": accepted.work.job_id},
+                    )
+                ).one()
+                persisted = await owner.scalar(
+                    text(
+                        "SELECT metadata->'video' FROM public.dataset_items WHERE id=:id"
+                    ),
+                    {"id": item_id},
+                )
+            assert (metadata.status, metadata.last_outcome) == ("ready", "published")
+            for key, url in (
+                ("poster_frame_path", source["poster_url"]),
+                ("playback_path", source["video_url"]),
             ):
-                response = await client.get(url)
-                assert response.status_code == 200 and response.content
-
+                assert httpx.URL(url).path == f"/{cache_bucket}/{persisted[key]}"
             timetable = await _post(
                 client,
                 control_token,
@@ -585,29 +400,58 @@ async def test_restricted_media_images_serve_real_video_assets(
             timetable_data = timetable.json()["data"]
             assert timetable_data["complete"] and timetable_data["total"] >= 6
 
-            frame = await _wait_asset_ready(
-                client,
-                control_token,
-                {
-                    **request,
-                    "selection": {
-                        "kind": "frames",
-                        "intent": "access",
-                        "expected_source_snapshot": source_data["source_snapshot"],
-                        "frame_indices": [1],
-                        "width": 96,
-                        "format": "webp",
-                        "force": False,
-                        "failed_only": False,
+            async def verify_frame(index):
+                frame = await _wait_asset_ready(
+                    client,
+                    control_token,
+                    {
+                        **request,
+                        "selection": {
+                            "kind": "frames",
+                            "intent": "access",
+                            "expected_source_snapshot": source_data["source_snapshot"],
+                            "frame_indices": [index],
+                            "width": 96,
+                            "format": "webp",
+                            "force": False,
+                            "failed_only": False,
+                        },
                     },
-                },
-                "frame",
-                1,
-                worker_watch,
-                worker_log,
-            )
-            frame_response = await client.get(frame["url"])
-            assert frame_response.status_code == 200 and frame_response.content
+                    "frame",
+                    index,
+                    worker_watch,
+                    worker_log,
+                )
+                response = await client.get(frame["url"])
+                assert response.status_code == 200
+                with Image.open(BytesIO(response.content)) as decoded:
+                    decoded.load()
+                    assert decoded.format == "WEBP" and decoded.size == (96, 72)
+                job = await _job_for_frame(test_engine, item_id, index, 96)
+                assert job["status"] == "ready" and job["lease_token"] is None
+                async with test_engine.connect() as owner:
+                    cache = (
+                        await owner.execute(
+                            text(
+                                "SELECT storage_key, byte_size, status "
+                                "FROM public.video_frame_cache WHERE dataset_item_id=:id "
+                                "AND frame_index=:frame AND width=96 AND format='webp'"
+                            ),
+                            {"id": item_id, "frame": index},
+                        )
+                    ).one()
+                assert cache.status == "ready" and cache.byte_size == len(
+                    response.content
+                )
+                assert (
+                    httpx.URL(frame["url"]).path
+                    == f"/{cache_bucket}/{cache.storage_key}"
+                )
+
+            await verify_frame(1)
+            compose.restart(VIDEO)
+            await _wait_healthy(worker_container, timeout=90)
+            await verify_frame(2)
             with monkeypatch.context() as scoped:
                 scoped.setattr(settings, "minio_access_key", control_access)
                 scoped.setattr(settings, "minio_secret_key", control_secret)
@@ -629,7 +473,7 @@ async def test_restricted_media_images_serve_real_video_assets(
             if peak is not None:
                 record_property(f"{role}_cgroup_memory_peak_bytes", peak)
 
-        _docker("stop", worker_container, timeout=90)
+        compose.stop(VIDEO)
         async with media_gateway(session_factory=control_sessions) as embedded:
             work = await embedded.call(
                 "request_video_media",
@@ -638,7 +482,7 @@ async def test_restricted_media_images_serve_real_video_assets(
                     actor_id=actor_id,
                     dataset_item_id=item_id,
                     spec=media.FrameSpec(
-                        frame_index=2,
+                        frame_index=3,
                         width=96,
                         expected_source_snapshot=source_data["source_snapshot"],
                     ),
@@ -670,29 +514,10 @@ async def test_restricted_media_images_serve_real_video_assets(
         primary = sys.exception()
         cleanup_errors = []
         await embedded_engine.dispose()
-        for role, container_id in (
-            ("worker", worker_container),
-            ("control", control_container),
-        ):
-            if container_id is not None:
-                try:
-                    captured = subprocess.run(
-                        ["docker", "logs", container_id],
-                        capture_output=True,
-                        timeout=15,
-                        check=True,
-                    )
-                    (tmp_path / f"container-media-{role}.log").write_bytes(
-                        captured.stdout + captured.stderr
-                    )
-                except Exception as error:
-                    cleanup_errors.append(error)
-                try:
-                    _stop_remove_container(container_id, identity)
-                except BaseException as error:
-                    if isinstance(error, (KeyboardInterrupt, SystemExit)):
-                        raise
-                    cleanup_errors.append(error)
+        try:
+            await asyncio.to_thread(compose.close)
+        except Exception as error:
+            cleanup_errors.append(error)
         if actor_id is not None:
             try:
                 async with test_engine.connect() as owner:
