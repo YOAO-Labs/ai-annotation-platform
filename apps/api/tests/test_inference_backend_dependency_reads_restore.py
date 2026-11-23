@@ -591,7 +591,6 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
         }
         await _assert_inference_has_no_raw_reads(source_engine)
         await _assert_ordinary_dependency_reads(source_engine, world)
-        database_acl = await _database_acl(source_engine)
 
         source_dump.touch(mode=0o600)
         source_dump.write_bytes(
@@ -608,7 +607,7 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
             test_engine,
             restored_database,
             restored_owner,
-            database_acl,
+            [],
             database_created,
         )
         _verify_postgres(test_engine.url)
@@ -635,6 +634,13 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
         assert {row["owner"] for row in await _function_metadata(restored_engine)} == {
             "owner"
         }
+        async with restored_engine.connect() as connection:
+            assert not await connection.scalar(
+                text(
+                    "SELECT pg_catalog.has_database_privilege("
+                    "'legacy_runtime', current_database(), 'CONNECT')"
+                )
+            )
         _replay_installers(test_engine, restored_database)
         await _assert_copied_authority_quarantined(restored_engine)
         assert await _function_metadata(restored_engine) == source_function_metadata
