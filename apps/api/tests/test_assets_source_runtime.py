@@ -95,7 +95,7 @@ def _start_source(image, identity, environment, suffix="", *, known_hosts=None):
         "--health-interval",
         "1s",
         "--tmpfs",
-        "/tmp:rw,noexec,nosuid,size=256m",
+        "/tmp:rw,noexec,nosuid,size=256m,uid=10003,gid=10003,mode=0700",
         "--env-file",
         str(environment),
         *mount,
