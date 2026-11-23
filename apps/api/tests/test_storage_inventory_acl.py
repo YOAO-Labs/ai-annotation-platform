@@ -187,7 +187,10 @@ async def test_ordinary_snapshot_sees_all_reference_families_and_pages_audit_cla
             metadata = await collect(ordinary, spool, budget)
         finally:
             spool.stream.close()
-        assert metadata["enumeration_complete"], metadata
+        assert metadata["enumeration_complete"], (
+            metadata.get("issue"),
+            metadata["families"][-1:],
+        )
         assert metadata["revisions"] == revisions
         assert metadata["families"] == [family.table for family in FAMILIES]
         assert "families_not_present_in_schema" not in metadata

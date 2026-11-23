@@ -538,7 +538,13 @@ class AssetsSpatialGateway:
             )
         )
         return {
-            (pose.scene_id, pose.frame_index): FramePose.model_validate(pose)
+            (pose.scene_id, pose.frame_index): FramePose.model_construct(
+                frame_index=pose.frame_index,
+                timestamp_us=pose.timestamp_us,
+                ego_translation=pose.ego_translation,
+                ego_rotation=pose.ego_rotation,
+                source_metadata=pose.source_metadata,
+            )
             for pose in result.poses
         }
 
