@@ -55,8 +55,8 @@ function binary(value: Blob | Promise<Blob>) {
 function json(value: unknown) {
   return { ok: true, status: 200, json: async () => value };
 }
-function readError(status: number, detail: unknown) {
-  return { ok: false, status, headers: new Headers(), json: async () => ({ detail }) };
+function readError(status: number, detail: unknown, headers?: Record<string, string>) {
+  return { ok: false, status, headers: new Headers(headers), json: async () => ({ detail }) };
 }
 function authenticate(token = "private-token") {
   useAuthStore.getState().setAuth(token, { id: "alice" } as MeResponse);
@@ -351,10 +351,30 @@ it.each([
 });
 
 it("does not retry a busy original identity lookup", async () => {
-  fetchMock.mockResolvedValue(readError(409, { code: "content_busy" }));
+  fetchMock.mockResolvedValue(
+    readError(409, { code: "content_busy" }, { "x-request-id": "req-identity-409" }),
+  );
   await expect(readOriginal(resource)).rejects.toMatchObject({
     status: 409,
     detailRaw: { code: "content_busy" },
+    requestId: "req-identity-409",
+    headers: { "x-request-id": "req-identity-409" },
+  });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  { code: "storage_original_busy" },
+  { code: "storage_maintenance_busy" },
+  { reason: "account_busy" },
+  { reason: "project_busy" },
+  { reason: "membership_busy" },
+])("never auto-retries describeOriginal on 409 %j and preserves x-request-id", async (detail) => {
+  fetchMock.mockResolvedValue(readError(409, detail, { "x-request-id": "req-no-retry" }));
+  await expect(describeOriginal(resource)).rejects.toMatchObject({
+    status: 409,
+    detailRaw: detail,
+    requestId: "req-no-retry",
   });
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });

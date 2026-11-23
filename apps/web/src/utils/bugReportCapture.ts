@@ -3,6 +3,7 @@ interface ApiCallEntry {
   url: string;
   status: number;
   ms: number;
+  requestId?: string;
 }
 
 interface ConsoleErrorEntry {
@@ -78,9 +79,11 @@ export function patchFetchForBugCapture() {
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const start = Date.now();
     let status = 0;
+    let requestId: string | undefined;
     try {
       const resp = await orig(input, init);
       status = resp.status;
+      requestId = resp.headers?.get?.("x-request-id")?.trim() || undefined;
       return resp;
     } finally {
       const url =
@@ -91,6 +94,7 @@ export function patchFetchForBugCapture() {
           url,
           status,
           ms: Date.now() - start,
+          ...(requestId ? { requestId } : {}),
         });
         if (apiCallRing.length > MAX_API_CALLS) apiCallRing.shift();
       }

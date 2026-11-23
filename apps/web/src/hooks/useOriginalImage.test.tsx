@@ -1,9 +1,14 @@
 import { StrictMode } from "react";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/api/client";
 import { useAuthStore } from "@/stores/authStore";
 import { readOriginalImage } from "@/utils/originalImageCache";
 import { createOriginalImageAddress } from "@/utils/originalImageDisplay";
+import {
+  clearOriginalReadDiagnostics,
+  getOriginalReadDiagnosticsSnapshot,
+} from "@/utils/originalReadDiagnostics";
 import { useOriginalImage } from "./useOriginalImage";
 
 vi.mock("@/utils/originalImageCache", () => ({ readOriginalImage: vi.fn() }));
@@ -13,6 +18,7 @@ const decodes: Array<{ resolve(): void; reject(error: Error): void }> = [];
 const releases: Array<ReturnType<typeof vi.fn>> = [];
 const user = { id: "reader" } as Parameters<ReturnType<typeof useAuthStore.getState>["setAuth"]>[1];
 beforeEach(() => {
+  clearOriginalReadDiagnostics();
   useAuthStore.getState().setAuth("one", user);
   decodes.length = 0;
   releases.length = 0;
@@ -122,5 +128,72 @@ describe("owned original image", () => {
     await waitFor(() => expect(decodes).toHaveLength(1));
     await act(async () => decodes[0].resolve());
     expect(result.current.ready).toBe(true);
+  });
+
+  it("exposes busy 409 receipt and records sanitized diagnostics for error and manual retry recovery", async () => {
+    const taskId = "11111111-1111-1111-1111-111111111111";
+    const contentId = "44444444-4444-4444-4444-444444444444";
+    const sha256 = "b".repeat(64);
+    vi.mocked(readOriginalImage)
+      .mockRejectedValueOnce(
+        new ApiError(
+          409,
+          "Conflict",
+          { code: "storage_original_busy" },
+          { "x-request-id": "req-orig-busy-1" },
+          `/files/tasks/${taskId}/original-identity`,
+        ),
+      )
+      .mockResolvedValueOnce({
+        identity: {
+          owner_kind: "dataset_asset",
+          content_id: contentId,
+          sha256,
+          size_bytes: 5,
+          media_type: "image",
+          verification_state: "verified",
+          original_availability: "unchecked",
+          download_path: `/api/v1/files/tasks/${taskId}/original?content_id=${contentId}&sha256=${sha256}`,
+        },
+        blob: new Blob(["image"]),
+      });
+
+    const { result } = renderHook(() => useOriginalImage({ kind: "task", taskId }));
+    await waitFor(() => expect(result.current.error).toContain("原件记录正在被其他操作占用"));
+    expect(result.current.errorReceipt).toEqual({
+      status: 409,
+      code: "storage_original_busy",
+      reason: null,
+      requestId: "req-orig-busy-1",
+    });
+
+    act(() => result.current.retry());
+    await waitFor(() => expect(decodes).toHaveLength(1));
+    await act(async () => decodes[0].resolve());
+    expect(result.current.ready).toBe(true);
+    expect(result.current.errorReceipt).toBeNull();
+
+    const snapshot = getOriginalReadDiagnosticsSnapshot();
+    expect(snapshot?.events).toEqual([
+      expect.objectContaining({
+        kind: "error",
+        attempt: 0,
+        manualRetry: false,
+        resourceKind: "task",
+        requestPath: "/api/v1/files/tasks/{task_id}/original-identity",
+        status: 409,
+        code: "storage_original_busy",
+        reason: null,
+        requestId: "req-orig-busy-1",
+      }),
+      expect.objectContaining({
+        kind: "manual_retry_recovered",
+        attempt: 1,
+        resourceKind: "task",
+        requestPath: "/api/v1/files/tasks/{task_id}/original-identity",
+        contentId,
+        sha256Prefix: sha256.slice(0, 12),
+      }),
+    ]);
   });
 });

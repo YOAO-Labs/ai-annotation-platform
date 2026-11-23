@@ -6,21 +6,41 @@ const BASE = "/api/v1";
 class ApiError extends Error {
   detailRaw?: unknown;
   headers?: Record<string, string>;
+  requestPath?: string;
 
   constructor(
     public status: number,
     message: string,
     detailRaw?: unknown,
     headers?: Record<string, string>,
+    requestPath?: string,
   ) {
     super(message);
     this.name = "ApiError";
     this.detailRaw = detailRaw;
     this.headers = headers;
+    this.requestPath = requestPath;
+  }
+
+  get requestId(): string | undefined {
+    const value = this.headers?.["x-request-id"]?.trim();
+    return value || undefined;
+  }
+
+  get code(): string | undefined {
+    if (!this.detailRaw || typeof this.detailRaw !== "object") return undefined;
+    const raw = (this.detailRaw as { code?: unknown }).code;
+    return typeof raw === "string" && raw.length > 0 ? raw : undefined;
+  }
+
+  get reason(): string | undefined {
+    if (!this.detailRaw || typeof this.detailRaw !== "object") return undefined;
+    const raw = (this.detailRaw as { reason?: unknown }).reason;
+    return typeof raw === "string" && raw.length > 0 ? raw : undefined;
   }
 }
 
-const EXPOSED_HEADERS = ["x-login-failed-count", "retry-after"] as const;
+const EXPOSED_HEADERS = ["x-login-failed-count", "retry-after", "x-request-id"] as const;
 
 function validationIssueMessage(issue: unknown): string | undefined {
   if (!issue || typeof issue !== "object") return undefined;
@@ -117,7 +137,7 @@ async function request<T>(
     }
     const exposedHeaders: Record<string, string> = {};
     for (const k of EXPOSED_HEADERS) {
-      const v = res.headers.get(k);
+      const v = res.headers?.get?.(k);
       if (v != null) exposedHeaders[k] = v;
     }
     throw new ApiError(
@@ -125,11 +145,19 @@ async function request<T>(
       detail ?? res.statusText,
       rawDetail,
       Object.keys(exposedHeaders).length ? exposedHeaders : undefined,
+      path,
     );
   }
 
-  if (opts?.expectedEtag && res.headers.get("ETag") !== opts.expectedEtag) {
-    throw new ApiError(409, "请求内容已变化，请刷新后重试");
+  if (opts?.expectedEtag && res.headers?.get?.("ETag") !== opts.expectedEtag) {
+    const requestId = res.headers?.get?.("x-request-id");
+    throw new ApiError(
+      409,
+      "请求内容已变化，请刷新后重试",
+      undefined,
+      requestId != null ? { "x-request-id": requestId } : undefined,
+      path,
+    );
   }
   if (res.status === 204) return undefined as T;
   return opts?.responseType === "blob" ? (res.blob() as Promise<T>) : res.json();

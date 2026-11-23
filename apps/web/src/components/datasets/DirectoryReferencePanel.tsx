@@ -8,7 +8,11 @@ import { datasetSourcesApi as api } from "@/api/datasetSources";
 import { listStyles } from "@/components/ui/listStyles";
 import { Button } from "@/components/ui/Button";
 import { useAuthStore } from "@/stores/authStore";
-import { useVerifiedImage, verifiedContentError } from "@/hooks/useVerifiedImage";
+import {
+  formatVerifiedContentErrorReceipt,
+  useVerifiedImage,
+  verifiedContentError,
+} from "@/hooks/useVerifiedImage";
 import { DirectoryRegistrationProgress } from "./DirectoryRegistrationProgress";
 import { DirectorySyncSchedule } from "./DirectorySyncSchedule";
 import { DirectorySourceProtection } from "./DirectorySourceProtection";
@@ -32,14 +36,16 @@ const field =
 
 export function ReferenceImagePreview({ itemId, sha256 }: { itemId: string; sha256: string }) {
   const image = useVerifiedImage(`/dataset-items/${itemId}/content?sha256=${sha256}`);
+  const receipt = image.error ? formatVerifiedContentErrorReceipt(image.errorReceipt) : null;
   return (
     <div className="mt-2 rounded-md border border-border p-2">
       {image.url ? (
         <img src={image.url} alt="已核验原图" className="max-h-56 max-w-full object-contain" />
       ) : (
-        <p role="status" className="text-xs text-muted-foreground">
-          {image.error ?? "正在核验并读取原图…"}
-        </p>
+        <div role="status" className="text-xs text-muted-foreground">
+          <p>{image.error ?? "正在核验并读取原图…"}</p>
+          {receipt && <p className="mt-0.5 break-all text-xs text-muted-foreground">{receipt}</p>}
+        </div>
       )}
       <Button size="sm" onClick={image.retry}>
         重读原图

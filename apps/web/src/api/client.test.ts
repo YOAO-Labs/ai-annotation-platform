@@ -333,3 +333,46 @@ it("keeps authenticated delete cancellation and errors scoped to its caller", as
     useAuthStore.getState().logout();
   }
 });
+
+it("exposes x-request-id and preserves code/reason and requestPath on ApiError", async () => {
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: { code: "storage_original_busy" } }), {
+        status: 409,
+        headers: { "X-Request-ID": "req-orig-409" },
+      }),
+    )
+    .mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: { reason: "project_busy" } }), {
+        status: 409,
+        headers: { "X-Request-ID": "req-proj-409" },
+      }),
+    );
+  vi.stubGlobal("fetch", fetch);
+  useAuthStore.getState().setAuth("trace-token", { id: "trace-user" } as MeResponse);
+  try {
+    await expect(
+      apiClient.silentGet("/files/tasks/11111111-1111-1111-1111-111111111111/original-identity"),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "storage_original_busy",
+      reason: undefined,
+      requestId: "req-orig-409",
+      requestPath: "/files/tasks/11111111-1111-1111-1111-111111111111/original-identity",
+      headers: { "x-request-id": "req-orig-409" },
+    });
+    await expect(
+      apiClient.silentGet("/files/tasks/11111111-1111-1111-1111-111111111111/original-identity"),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: undefined,
+      reason: "project_busy",
+      requestId: "req-proj-409",
+      headers: { "x-request-id": "req-proj-409" },
+    });
+  } finally {
+    vi.unstubAllGlobals();
+    useAuthStore.getState().logout();
+  }
+});

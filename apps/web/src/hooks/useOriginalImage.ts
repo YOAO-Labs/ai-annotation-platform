@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError } from "@/api/client";
 import {
   captureOriginalOwner,
   isOriginalOwnerCurrent,
@@ -7,9 +8,28 @@ import {
 import { useAuthStore } from "@/stores/authStore";
 import { createOriginalImageAddress } from "@/utils/originalImageDisplay";
 import { readOriginalImage } from "@/utils/originalImageCache";
-import { verifiedContentError } from "./useVerifiedImage";
+import {
+  recordOriginalManualRetrySuccess,
+  recordOriginalReadError,
+} from "@/utils/originalReadDiagnostics";
+import {
+  extractVerifiedContentErrorReceipt,
+  verifiedContentError,
+  type VerifiedContentErrorReceipt,
+} from "./useVerifiedImage";
 
 let addressVersion = 0;
+
+function resourceIdentityTemplate(resource: OriginalResource): string {
+  switch (resource.kind) {
+    case "task":
+      return "/api/v1/files/tasks/{task_id}/original-identity";
+    case "camera":
+      return "/api/v1/files/tasks/{task_id}/links/{link_id}/original-identity";
+    case "item":
+      return "/api/v1/datasets/{dataset_id}/items/{item_id}/original-identity";
+  }
+}
 
 export function useOriginalImage(resource: OriginalResource | null, sourceKey?: string | null) {
   const userId = useAuthStore((state) => state.user?.id);
@@ -31,6 +51,7 @@ export function useOriginalImage(resource: OriginalResource | null, sourceKey?: 
     url: string;
     version: number;
     error: string | null;
+    errorReceipt: VerifiedContentErrorReceipt | null;
   } | null>(null);
   useEffect(() => {
     const owner = captureOriginalOwner();
@@ -64,10 +85,45 @@ export function useOriginalImage(resource: OriginalResource | null, sourceKey?: 
         }
         if (current()) {
           published = true;
-          setResult({ identity, epoch, url: address.url, version: ++addressVersion, error: null });
+          if (attempt > 0) {
+            recordOriginalManualRetrySuccess({
+              attempt,
+              resourceKind: target.kind,
+              requestPath: resourceIdentityTemplate(target),
+              contentId:
+                typeof download.identity?.content_id === "string"
+                  ? download.identity.content_id
+                  : null,
+              sha256:
+                typeof download.identity?.sha256 === "string" ? download.identity.sha256 : null,
+            });
+          }
+          setResult({
+            identity,
+            epoch,
+            url: address.url,
+            version: ++addressVersion,
+            error: null,
+            errorReceipt: null,
+          });
         }
       } catch (error) {
-        if (current())
+        if (current()) {
+          const errorReceipt = extractVerifiedContentErrorReceipt(error);
+          if (!(error instanceof DOMException && error.name === "AbortError")) {
+            recordOriginalReadError({
+              attempt,
+              resourceKind: target.kind,
+              requestPath:
+                error instanceof ApiError && error.requestPath
+                  ? error.requestPath
+                  : resourceIdentityTemplate(target),
+              status: error instanceof ApiError ? error.status : null,
+              code: errorReceipt?.code ?? null,
+              reason: errorReceipt?.reason ?? null,
+              requestId: errorReceipt?.requestId ?? null,
+            });
+          }
           setResult({
             identity,
             epoch,
@@ -77,7 +133,9 @@ export function useOriginalImage(resource: OriginalResource | null, sourceKey?: 
               (error as { status?: number })?.status === 413
                 ? "原件超过完整下载大小限制；请联系管理员处理"
                 : verifiedContentError(error),
+            errorReceipt,
           });
+        }
       } finally {
         if (!published) address?.release();
       }
@@ -91,7 +149,7 @@ export function useOriginalImage(resource: OriginalResource | null, sourceKey?: 
       address = undefined;
       setResult((value) => (value?.identity === identity && value.epoch === epoch ? null : value));
     };
-  }, [identity, resourceKey, scope, usable]);
+  }, [attempt, identity, resourceKey, scope, usable]);
   const owned =
     usable &&
     resource &&
@@ -104,6 +162,7 @@ export function useOriginalImage(resource: OriginalResource | null, sourceKey?: 
     url: owned?.url || null,
     version: owned?.version ?? 0,
     error: owned?.error ?? null,
+    errorReceipt: owned?.errorReceipt ?? null,
     ready: !!owned?.url,
     retry: useCallback(() => setAttempt((value) => value + 1), []),
   };

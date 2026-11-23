@@ -247,6 +247,7 @@ describe("resolveWorkbenchImageSource", () => {
         url: "blob:decoded-owned",
         version: 7,
         error: null,
+        errorReceipt: null,
         ready: true,
         retry: retryOriginal,
       });
@@ -328,6 +329,7 @@ describe("resolveWorkbenchImageSource", () => {
       url: "blob:resolved-owned",
       version: 11,
       error: null,
+      errorReceipt: null,
       ready: true,
       retry: vi.fn(),
     });
@@ -493,9 +495,14 @@ describe("authenticated single selection", () => {
   afterEach(() => vi.restoreAllMocks());
   it("keeps required and ready pyramids off the complete original loader", async () => {
     const original = await import("@/hooks/useOriginalImage");
-    const image = vi
-      .spyOn(original, "useOriginalImage")
-      .mockReturnValue({ url: null, version: 0, error: null, ready: false, retry: vi.fn() });
+    const image = vi.spyOn(original, "useOriginalImage").mockReturnValue({
+      url: null,
+      version: 0,
+      error: null,
+      errorReceipt: null,
+      ready: false,
+      retry: vi.fn(),
+    });
     vi.spyOn(tasksApi, "getImagePyramid").mockResolvedValue(ready);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const wrapper = ({ children }: { children: ReactNode }) =>
@@ -514,6 +521,7 @@ describe("authenticated single selection", () => {
       url: "blob:owned-one",
       version: 1,
       error: null,
+      errorReceipt: null,
       ready: true,
       retry: vi.fn(),
     });
@@ -534,6 +542,7 @@ describe("authenticated single selection", () => {
       url: "blob:owned-two",
       version: 2,
       error: null,
+      errorReceipt: null,
       ready: true,
       retry: vi.fn(),
     });
@@ -543,12 +552,21 @@ describe("authenticated single selection", () => {
       url: null,
       version: 0,
       error: "来源已变化",
+      errorReceipt: {
+        status: 409,
+        code: "content_binding_changed",
+        reason: null,
+        requestId: "req-drift-1",
+      },
       ready: false,
       retry: vi.fn(),
     });
     rerender();
     expect(result.current.source).toBeNull();
     expect(result.current.contentBlockedReason).toBe("来源已变化");
+    expect(result.current.contentBlockedDetail).toBe(
+      "错误码：content_binding_changed · 请求回执：req-drift-1",
+    );
     unmount();
     client.clear();
   });
@@ -567,9 +585,14 @@ describe("session-scoped task retention", () => {
     >[1];
     useAuthStore.getState().setAuth("first", user);
     const original = await import("@/hooks/useOriginalImage");
-    const image = vi
-      .spyOn(original, "useOriginalImage")
-      .mockReturnValue({ url: "blob:owned", version: 1, error: null, ready: true, retry: vi.fn() });
+    const image = vi.spyOn(original, "useOriginalImage").mockReturnValue({
+      url: "blob:owned",
+      version: 1,
+      error: null,
+      errorReceipt: null,
+      ready: true,
+      retry: vi.fn(),
+    });
     const single = { ...task(false, "pending"), image_pyramid: null };
     const client = new QueryClient();
     const wrapper = ({ children }: { children: ReactNode }) =>
