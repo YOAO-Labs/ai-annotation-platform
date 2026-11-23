@@ -341,10 +341,16 @@ docker build -f apps/assets-source/Dockerfile .
 `Dockerfile.import` builds a separate worker process, started with
 `python -m yoao_assets_source_import`. It uses its own PostgreSQL LOGIN role
 with the exact functions in `infra/docker/assets-import-grants.sql`; it exposes
-no HTTP port. Source S3 reads are conditional on the listed ETag,
-SFTP uses known-host verification and checks the listed file identity, and the
-destination client uses only multipart create, part, complete, abort, and empty
-object PUT operations.
+no HTTP port. Install the lease-bound import capabilities and grants with the
+Source Saved I/O capabilities before starting the worker.
+
+The existing Source process enumerates and opens registered S3 and SFTP objects.
+It admits the exact job and unexpired lease and checks the durable observation
+and entry before completing a read. Source checks the configured host policy,
+pins S3 reads to the observed provider identity, and checks the SFTP host key,
+file identity and path. The importer gets only the observed manifest and the
+bytes needed to write a builtin original. It never receives the connector
+ciphertext, decryption key, outbound host allowlist or known-hosts file.
 
 The importer never reads destination objects. After a conditional write and its
 durable storage-owner receipt, the Source service performs a full, version-pinned
@@ -360,10 +366,24 @@ identical bytes and each runtime's read access; do not broaden file permissions
 to share one path. A Source-only Compose deployment still prepares its mounted
 verification secret, even if no importer is running.
 
-For local Compose, combine both existing overlay files in one project and set
-`ASSETS_IMPORT_VERIFY_URL=http://assets-source:8767`; the default private network
-supplies the service name. A host-loopback published port is not a Source origin
-reachable from the Importer container. See the root `DEV.md` deployment recipe.
+For local Compose, combine `docker-compose.assets-source.yml` and
+`docker-compose.assets-import.yml` in one project. Set both `ASSETS_IMPORT_VERIFY_URL`
+and `ASSETS_IMPORT_SAVED_IO_URL` to `http://assets-source:8767` on the default private
+network. Do not use a host-loopback published port from inside the importer.
+
+Supply two more distinct, scoped token pairs using read-only files:
+
+| Action                                   | Source (UID 10003)                               | Importer (UID 10004)                      |
+| ---------------------------------------- | ------------------------------------------------ | ----------------------------------------- |
+| Enumerate/read an accepted import        | `ASSETS_SOURCE_SAVED_IO_IMPORT_READ_TOKEN_FILE`  | `ASSETS_IMPORT_SAVED_IO_READ_TOKEN_FILE`  |
+| Copy into a saved registered destination | `ASSETS_SOURCE_SAVED_IO_IMPORT_WRITE_TOKEN_FILE` | `ASSETS_IMPORT_SAVED_IO_WRITE_TOKEN_FILE` |
+
+For each row, the two files hold the same token bytes, but the read token, write
+token and verification token must differ from one another and from the Source
+management and general Saved I/O tokens. Only Source receives its Saved I/O
+database LOGIN, connector key, host allowlist and SFTP known-hosts file.
+`ASSETS_IMPORT_SAVED_IO_TIMEOUT_SECONDS` (default 120) bounds HTTP waits; it
+does not grant a lease extension or authorize retrying an uncertain copy.
 
 Requests name only the accepted job, current lease, entry, item, creation and
 storage operation; Source resolves the target itself. Source's
@@ -405,13 +425,15 @@ and `s3:GetObjectVersion` on the existing `dataset-sources/*` managed-original
 scope and on the Dataset scan roots it is already allowed to read. Scan adoption
 reads the observed exact version to verify bytes; multipart ETags are not content
 hashes. This does not grant writes or deletes on those scan roots.
-Connection-backed targets must grant their own configured Source credentials
-the same read operations on their saved managed-original scope.
-The built-in importer identity does not receive destination read permissions.
-Connection-backed destinations retain the existing shared connection principal:
-the importer can decrypt those configured credentials for writes, so any read
-permissions already held by that principal are also available to the importer.
-There is no separate external read/write credential boundary in this contract.
+The builtin importer identity remains write-only (multipart create, part,
+complete, abort and conditional empty PUT). For a registered S3 destination,
+Source resolves the exact saved target and streams the conditional multipart
+copy itself. Its configured connection principal needs those write operations
+and `s3:GetObject` / `s3:GetObjectVersion` for independent verification, scoped
+to the saved managed-original prefix. The importer does not hold that
+principal and cannot use its scoped import tokens for unrelated Source I/O.
+Source durably records write evidence; an unavailable or ambiguous copy
+response never authorizes retrying the request or falling back to local I/O.
 
 Transient `dataset_busy` heartbeats retry the same lease only until its last
 confirmed expiry, including the renewal call itself. Lease loss, cancellation
@@ -423,9 +445,7 @@ Build the worker image from the repository root with:
 docker build -f apps/assets-source/Dockerfile.import .
 ```
 
-The worker buffers at most one 64 MiB multipart part. S3's 10,000-part limit
-therefore caps one object at about 625 GiB. If the accepted job budget permits
-a larger individual object, it is recorded as a per-file destination write
-failure before any destination upload starts. The accepted per-job byte budget
-remains the value frozen in the import request. Supporting larger individual
-objects requires a separate capacity design.
+Each writer uses multipart parts of at most 64 MiB. S3's 10,000-part limit
+allows objects up to 625 GiB; larger entries fail before destination upload,
+even if the accepted job budget would otherwise permit them. The accepted
+per-job byte budget and 16 MiB manifest limit are unchanged.

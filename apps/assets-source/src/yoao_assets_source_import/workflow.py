@@ -3,15 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import base64
-import binascii
-from collections.abc import Callable
-from contextlib import suppress
+from contextlib import ExitStack, suppress
 from datetime import datetime, timezone
-import json
 import logging
 import os
-import posixpath
 import re
 import threading
 import time
@@ -20,41 +15,35 @@ from uuid import UUID, uuid4
 
 from pydantic import ValidationError
 
-from yoao_assets_source.connectors import (
-    ConnectorCryptoError,
-    ConnectorCryptoNotConfigured,
-    ConnectorHostDenied,
-    SourceAdapter,
-    SourceChangedError,
-    SourceNotFoundError,
-    SourcePathError,
-    build_source_adapter,
-)
-from yoao_assets_source.connectors.crypto import decrypt_secret
+from yoao_assets_source.connectors import SourceChangedError
 from yoao_assets_source.import_contract import (
-    ImportConnection,
     ImportEntry,
     ImportEntryCompletion,
     ImportFailure,
     ImportSourceObject,
     ImportState,
 )
-from yoao_assets_source.import_verification_contract import ImportVerificationRequest
+from yoao_assets_source.import_verification_contract import (
+    ImportVerificationRequest,
+    ImportVerificationResult,
+)
 from yoao_assets_images.contract import ImageFailure, ObjectIdentity
 from yoao_assets_source.managed_original_contract import (
     ManagedOriginalFailure,
     ManagedOriginalFailureEvidence,
-    ManagedOriginalMaterial,
 )
+from yoao_assets_source.saved_io import SavedIOError
 
 from .config import ImportConfig
-from .database import ImportDatabase
+from .database import ImportDatabase, ImportOriginalMaterial
+from .leased_source import LeasedSource, as_import_failure
 from .storage import (
     DestinationStorage,
     DestinationWriteError,
     TransferResult,
     SourceReadError,
     _object_identity_from_verified,
+    _thread,
 )
 from .verification import (
     ExpectedOriginal,
@@ -81,7 +70,14 @@ _HEARTBEAT_RETRY_MAX_SECONDS = 2.0
 _IMAGE_EXTS = {"jpg", "jpeg", "png", "bmp", "webp", "tiff", "tif", "gif", "svg"}
 _VIDEO_EXTS = {"mp4", "avi", "mov", "mkv", "wmv", "flv", "webm"}
 _POINTCLOUD_EXTS = {"pcd", "bin", "las", "ply"}
-_MAX_MANIFEST_WIRE_BYTES = 16 * 1024 * 1024
+_SOURCE_ITEM_ERRORS = {
+    "invalid_source_object": "invalid_source_object",
+    "source_not_found": "source_not_found",
+    "source_changed": "source_changed",
+    "source_read_failed": "source_read_failed",
+    "download_interrupted": "source_read_failed",
+    "destination_write_failed": "destination_write_failed",
+}
 
 
 class WorkerStopping(Exception):
@@ -181,9 +177,6 @@ class LeaseKeeper:
             self._stop_unavailable()
             raise LeaseUnavailable
 
-    def stop_requested_from_thread(self) -> bool:
-        return self._thread_stop.is_set()
-
     async def _run(self) -> None:
         while not self._shutdown.is_set():
             remaining = self._remaining_lease()
@@ -244,7 +237,7 @@ class LeaseKeeper:
 
 
 class ImportWorkflow:
-    """Execute one job using only the LOGIN role's seven public capabilities."""
+    """Execute a claimed import; only the builtin destination is written locally."""
 
     def __init__(
         self,
@@ -252,13 +245,20 @@ class ImportWorkflow:
         storage: DestinationStorage,
         config: ImportConfig,
         *,
+        source: LeasedSource | None = None,
         shutdown: asyncio.Event | None = None,
     ) -> None:
         self._database = database
         self._storage = storage
         self._config = config
+        self._source = source
         self._verifier = None
         self._shutdown = shutdown or asyncio.Event()
+
+    def _leased_source(self) -> LeasedSource:
+        if self._source is None:
+            self._source = LeasedSource(self._config)
+        return self._source
 
     async def run_claimed(self, state: ImportState) -> None:
         """Run one claimed lease; database transport failures leave it recoverable."""
@@ -267,85 +267,21 @@ class ImportWorkflow:
         async with LeaseKeeper(
             self._database, self._config, state, self._shutdown
         ) as keeper:
-            adapter: SourceAdapter | None = None
             try:
-                connection = await self._read_connection(state)
-                secret = self._decrypt_connection(connection)
-                keeper.check()
-                try:
-                    adapter = await asyncio.to_thread(
-                        build_source_adapter,
-                        connection.kind,
-                        connection.config,
-                        secret,
-                        connection.allowlist,
-                        source_path=state.source_path,
-                        known_hosts_file=self._config.sftp_known_hosts_file,
-                        sftp_timeout_seconds=self._config.sftp_timeout_seconds,
-                        require_conditional_reads=True,
-                    )
-                except (ConnectorHostDenied, SourcePathError):
-                    raise
-                except ValueError:
-                    raise ImportFailure("connection_changed") from None
-                except Exception as exc:
-                    logger.warning(
-                        "Dataset import connector could not connect job=%s kind=%s",
-                        state.job_id,
-                        type(exc).__name__,
-                    )
-                    raise ImportFailure("storage_unavailable") from None
-
                 if state.stage == "enumerating":
-                    try:
-                        objects = await asyncio.to_thread(
-                            _collect_manifest,
-                            adapter,
-                            state,
-                            keeper.stop_requested_from_thread,
-                        )
-                    except (WorkerStopping, ImportFailure, SourcePathError):
-                        raise
-                    except Exception as exc:
-                        logger.warning(
-                            "Dataset import source enumeration failed job=%s kind=%s",
-                            state.job_id,
-                            type(exc).__name__,
-                        )
-                        raise ImportFailure("storage_unavailable") from None
+                    objects = await _thread(
+                        self._leased_source().list, state, keeper.check
+                    )
                     keeper.check()
                     state = await self._save_manifest(state, objects)
 
                 if state.stage != "importing" or state.total is None:
                     raise ImportFailure("invalid_response")
-                await self._copy_manifest(state, adapter, connection.config, keeper)
+                await self._copy_manifest(state, keeper)
                 keeper.check()
                 await self._finish_completed(state)
-            except (WorkerStopping, LeaseUnavailable, PersistenceBusy):
-                raise
-            except ImportFailure:
-                raise
-            except (ConnectorCryptoError, ConnectorCryptoNotConfigured):
-                raise ImportFailure("connection_changed") from None
-            except ConnectorHostDenied:
-                raise ImportFailure("connection_changed") from None
-            except SourcePathError:
-                raise ImportFailure("invalid_request") from None
             except ValidationError:
                 raise ImportFailure("invalid_response") from None
-            finally:
-                if adapter is not None:
-                    with suppress(Exception):
-                        await asyncio.to_thread(adapter.close)
-
-    async def _read_connection(self, state: ImportState) -> ImportConnection:
-        assert state.lease_token is not None
-        async with self._database.transaction() as data:
-            return await data.read_connection(
-                state.job_id,
-                state.lease_token,
-                self._config.connector_host_allowlist,
-            )
 
     async def _save_manifest(
         self, state: ImportState, objects: list[ImportSourceObject]
@@ -359,7 +295,6 @@ class ImportWorkflow:
     async def _next_entry(
         self,
         state: ImportState,
-        connector_config: dict[str, Any],
         publication_id: UUID,
     ) -> ImportEntry | None:
         assert state.lease_token is not None
@@ -373,7 +308,7 @@ class ImportWorkflow:
             else:
                 if state.total is None or state.cursor >= state.total:
                     raise ImportFailure("invalid_response")
-                _validate_entry_scope(entry, state, connector_config, publication_id)
+                _validate_entry_scope(entry, state, publication_id)
         return entry
 
     async def _finish_completed(self, state: ImportState) -> ImportState:
@@ -385,25 +320,9 @@ class ImportWorkflow:
                 raise ImportFailure("invalid_response")
         return finished
 
-    def _decrypt_connection(self, connection: ImportConnection) -> dict[str, Any]:
-        try:
-            token = base64.b64decode(connection.secret_enc, validate=True)
-            secret = decrypt_secret(token, self._config.connector_encryption_key)
-        except (ConnectorCryptoError, ConnectorCryptoNotConfigured):
-            raise
-        except binascii.Error as exc:
-            raise ConnectorCryptoError(
-                "connector secret encoding is malformed"
-            ) from exc
-        if not isinstance(secret, dict):
-            raise ConnectorCryptoError("connector credentials are malformed")
-        return secret
-
     async def _copy_manifest(
         self,
         initial_state: ImportState,
-        adapter: SourceAdapter,
-        connector_config: dict[str, Any],
         keeper: LeaseKeeper,
     ) -> None:
         assert initial_state.lease_token is not None
@@ -413,7 +332,7 @@ class ImportWorkflow:
             keeper.check()
             publication_id = uuid4()
             try:
-                entry = await self._next_entry(state, connector_config, publication_id)
+                entry = await self._next_entry(state, publication_id)
             except ImportFailure as exc:
                 if exc.code != "invalid_source_object":
                     raise
@@ -436,7 +355,6 @@ class ImportWorkflow:
             else:
                 completion, stream_bytes, object_identity = await self._transfer_entry(
                     entry,
-                    adapter,
                     keeper,
                     state=state,
                     byte_budget=max(
@@ -469,7 +387,6 @@ class ImportWorkflow:
     async def _transfer_entry(
         self,
         entry: ImportEntry,
-        adapter: SourceAdapter,
         keeper: LeaseKeeper,
         *,
         state: ImportState,
@@ -477,6 +394,7 @@ class ImportWorkflow:
     ) -> tuple[ImportEntryCompletion, int, ObjectIdentity | None]:
         attempted = 0
         written_receipt = None
+        scope: dict[str, Any] | None = None
 
         def count_bytes(amount: int) -> None:
             nonlocal attempted
@@ -485,16 +403,30 @@ class ImportWorkflow:
         async def record_written(receipt) -> None:
             nonlocal written_receipt
             written_receipt = receipt.evidence()
-            await self._database.original_written(target.creation_id, written_receipt)
+            await self._database.original_written(scope, written_receipt)
 
-        stream: Any | None = None
-        target: ManagedOriginalMaterial | None = None
+        target: ImportOriginalMaterial | None = None
         operation = None
         try:
             keeper.check()
             target = await self._database.allocate(
-                _original_request(entry, state, byte_budget)
+                entry, _original_request(entry, state, byte_budget)
             )
+            if (
+                target.dataset_id != state.dataset_id
+                or target.file_path != entry.file_path
+                or target.publication_id != entry.publication_id
+            ):
+                raise ImportFailure("invalid_response")
+            scope = {
+                "job_id": str(entry.job_id),
+                "lease_token": str(entry.lease_token),
+                "entry_index": entry.index,
+                "publication_id": str(entry.publication_id),
+                "item_id": str(entry.item_id),
+                "creation_id": str(target.creation_id),
+                "operation_id": None,
+            }
             keeper.check()
             if target.status in {"written", "verified"}:
                 verification_scope = {
@@ -529,7 +461,10 @@ class ImportWorkflow:
                     else:
                         raise LeaseUnavailable
             else:
-                operation = await self._database.open_operation(target.creation_id)
+                operation = await self._database.open_operation(
+                    entry, target.creation_id
+                )
+            scope["operation_id"] = str(operation.operation_id)
             if operation.mode == "read" or target.status == "written":
                 result = await self._verified_reuse(target, operation, entry, keeper)
                 return (
@@ -545,35 +480,44 @@ class ImportWorkflow:
                     result.object_identity,
                 )
             keeper.check()
-            stream = await asyncio.to_thread(
-                adapter.open, entry.source.relpath, etag=entry.source.etag
-            )
-            keeper.check()
-            try:
-                result = await self._storage.transfer(
-                    stream,
-                    entry,
-                    target=target,
-                    byte_budget=byte_budget,
-                    before_io=keeper.check,
-                    on_bytes=count_bytes,
-                    on_prepared=lambda prepared: self._database.original_prepared(
-                        target.creation_id, prepared.evidence()
-                    ),
-                    on_writing=lambda: self._database.original_writing(
-                        target.creation_id
-                    ),
-                    on_written=record_written,
-                    on_verify=lambda expected: self._verify_original(
-                        entry, target, operation, keeper, expected
-                    ),
+            source = self._leased_source()
+            if target.connection_id is not None:
+                attempted = entry.source.size
+                expected = await _thread(source.copy, scope, size=entry.source.size)
+                keeper.check()
+                verified = await self._verify_original(
+                    entry, target, operation, keeper, expected
                 )
-            except BaseException as exc:
-                await _drain_source(stream, exc)
-                raise
+                result = _verified_result(verified, entry.file_type)
             else:
-                await _drain_source(stream, None)
-                stream = None
+                stream_scope = ExitStack()
+                try:
+                    stream = await _thread(
+                        stream_scope.enter_context,
+                        source.open(scope, size=entry.source.size),
+                    )
+                    keeper.check()
+                    result = await self._storage.transfer(
+                        stream,
+                        entry,
+                        target=target,
+                        byte_budget=byte_budget,
+                        before_io=keeper.check,
+                        on_bytes=count_bytes,
+                        on_prepared=lambda prepared: self._database.original_prepared(
+                            scope, prepared.evidence()
+                        ),
+                        on_writing=lambda: self._database.original_writing(scope),
+                        on_written=record_written,
+                        on_verify=lambda expected: self._verify_original(
+                            entry, target, operation, keeper, expected
+                        ),
+                    )
+                except BaseException as exc:
+                    await _drain_source(stream_scope, exc)
+                    raise
+                else:
+                    await _drain_source(stream_scope, None)
             if entry.file_type == "image":
                 keeper.check()
                 if result.object_identity is None:
@@ -590,29 +534,32 @@ class ImportWorkflow:
                 attempted,
                 result.object_identity,
             )
+        except SavedIOError as exc:
+            code = _SOURCE_ITEM_ERRORS.get(exc.code)
+            await self._fail_original(
+                target,
+                scope,
+                "write",
+                code or "source_read_failed",
+                exc,
+                written_receipt,
+            )
+            if code is None:
+                raise as_import_failure(exc) from None
+            return _item_error(code), attempted, None
         except SourceChangedError as exc:
             await self._fail_original(
-                target, "write", "source_changed", exc, written_receipt
+                target, scope, "write", "source_changed", exc, written_receipt
             )
             return _item_error("source_changed"), attempted, None
-        except SourceNotFoundError as exc:
-            await self._fail_original(
-                target, "write", "source_not_found", exc, written_receipt
-            )
-            return _item_error("source_not_found"), attempted, None
-        except SourcePathError as exc:
-            await self._fail_original(
-                target, "write", "invalid_source_object", exc, written_receipt
-            )
-            return _item_error("invalid_source_object"), attempted, None
         except SourceReadError as exc:
             await self._fail_original(
-                target, "write", "source_read_failed", exc, written_receipt
+                target, scope, "write", "source_read_failed", exc, written_receipt
             )
             return _item_error("source_read_failed"), attempted, None
         except DestinationWriteError as exc:
             await self._fail_original(
-                target, "write", "destination_write_failed", exc, written_receipt
+                target, scope, "write", "destination_write_failed", exc, written_receipt
             )
             return _item_error("destination_write_failed"), attempted, None
         except ManagedOriginalFailure as exc:
@@ -622,11 +569,13 @@ class ImportWorkflow:
                 exc.code,
             )
             await self._fail_original(
-                target, "open", "allocation_refused", exc, written_receipt
+                target, scope, "open", "allocation_refused", exc, written_receipt
             )
             return _item_error("destination_write_failed"), attempted, None
         except (WorkerStopping, LeaseUnavailable, ImportFailure):
             raise
+        except ValidationError:
+            raise ImportFailure("invalid_response") from None
         except Exception as exc:
             logger.info(
                 "Dataset import item I/O failed job=%s kind=%s",
@@ -634,16 +583,13 @@ class ImportWorkflow:
                 type(exc).__name__,
             )
             await self._fail_original(
-                target, "write", "source_read_failed", exc, written_receipt
+                target, scope, "write", "source_read_failed", exc, written_receipt
             )
             return _item_error("source_read_failed"), attempted, None
-        finally:
-            if stream is not None:
-                await _drain_source(stream, None)
 
     async def _verified_reuse(
         self,
-        target: ManagedOriginalMaterial,
+        target: ImportOriginalMaterial,
         operation,
         entry: ImportEntry,
         keeper: LeaseKeeper,
@@ -668,21 +614,7 @@ class ImportWorkflow:
             ),
         )
         keeper.check()
-        dimensions = (
-            (verified.width, verified.height) if verified.width is not None else None
-        )
-        object_identity = None
-        if entry.file_type == "image":
-            object_identity = _object_identity_from_verified(
-                verified, byte_size=verified.size_bytes
-            )
-        return TransferResult(
-            proof=None,
-            file_size=verified.size_bytes,
-            content_hash=verified.md5,
-            dimensions=dimensions,
-            object_identity=object_identity,
-        )
+        return _verified_result(verified, entry.file_type)
 
     async def _verify_original(self, entry, target, operation, keeper, expected):
         request = ImportVerificationRequest(
@@ -724,20 +656,21 @@ class ImportWorkflow:
 
     async def _fail_original(
         self,
-        target: ManagedOriginalMaterial | None,
+        target: ImportOriginalMaterial | None,
+        scope: dict[str, Any] | None,
         stage: str,
         code: str,
         exc: BaseException,
         receipt: dict[str, Any] | None = None,
     ) -> None:
-        """Record durable failure evidence without inventing a written object."""
-        if target is None:
+        """Settle only the builtin write this process actually owns."""
+        if target is None or scope is None or target.connection_id is not None:
             return
         evidence = _failure_evidence(stage, exc, receipt=receipt)
         outcome = "unknown" if not evidence["physical_settled"] else "failed"
         try:
             await self._database.fail_original(
-                target.creation_id,
+                scope,
                 outcome,
                 _safe_error_code("import_" + code),
                 evidence,
@@ -857,58 +790,9 @@ async def claim_next(
         return await data.claim(uuid4(), config.lease_seconds, requested_job)
 
 
-def _collect_manifest(
-    adapter: SourceAdapter,
-    state: ImportState,
-    stop_requested: Callable[[], bool],
-) -> list[ImportSourceObject]:
-    """Enumerate into a bounded manifest using the accepted immutable budgets."""
-    limits = state.settings_snapshot
-    collected: list[ImportSourceObject] = []
-    seen: set[str] = set()
-    total_bytes = 0
-    manifest_bytes = 2
-    for source_object in adapter.list(
-        state.source_path, state.recursive, state.include_globs
-    ):
-        if stop_requested():
-            raise WorkerStopping
-        if len(collected) >= limits.dataset_import_max_files:
-            raise ImportFailure("invalid_request")
-        if source_object.relpath in seen:
-            raise ImportFailure("invalid_response")
-        try:
-            current = ImportSourceObject.model_validate(
-                {
-                    "relpath": source_object.relpath,
-                    "size": max(0, source_object.size),
-                    "mtime": source_object.mtime,
-                    "etag": source_object.etag,
-                }
-            )
-        except ValidationError:
-            raise ImportFailure("invalid_response") from None
-        seen.add(current.relpath)
-        total_bytes += current.size
-        if total_bytes > limits.dataset_import_max_total_bytes:
-            raise ImportFailure("invalid_request")
-        serialized = json.dumps(
-            current.model_dump(mode="json"),
-            ensure_ascii=False,
-            separators=(",", ":"),
-            allow_nan=False,
-        ).encode("utf-8")
-        manifest_bytes += len(serialized) + (1 if collected else 0)
-        if manifest_bytes > _MAX_MANIFEST_WIRE_BYTES:
-            raise ImportFailure("invalid_request")
-        collected.append(current)
-    return collected
-
-
 def _validate_entry_scope(
     entry: ImportEntry,
     state: ImportState,
-    connector_config: dict[str, Any],
     requested_publication_id: UUID,
 ) -> None:
     if state.lease_token is None:
@@ -920,55 +804,13 @@ def _validate_entry_scope(
         or entry.publication_id != requested_publication_id
     ):
         raise ImportFailure("invalid_response")
-    parts = entry.file_path.split("/", 4)
-    if (
-        len(parts) != 5
-        or parts[0] != "dataset-sources"
-        or parts[1] != str(state.dataset_id)
+    if entry.file_path != (
+        f"dataset-sources/{state.dataset_id}/{entry.item_id}/"
+        f"{entry.publication_id}/{entry.file_name}"
     ):
         raise ImportFailure("invalid_response")
     if entry.source.size > state.settings_snapshot.dataset_import_max_total_bytes:
         raise ImportFailure("invalid_response")
-    base = (
-        connector_config.get("base_prefix") or connector_config.get("base_path") or ""
-    )
-    expected_name = destination_relative_path(
-        entry.source.relpath, state.source_path, str(base)
-    ) or posixpath.basename(entry.source.relpath)
-    expected_dir, _, expected_basename = expected_name.rpartition("/")
-    actual_dir, _, actual_basename = entry.file_name.rpartition("/")
-    if expected_dir != actual_dir or not _matches_unique_name(
-        expected_basename or expected_name, actual_basename
-    ):
-        raise ImportFailure("invalid_response")
-
-
-def destination_relative_path(
-    relpath: str, source_path: str, base_prefix: str = ""
-) -> str:
-    """Strip the selected source directory while preserving its subdirectory tree."""
-    relative = _normalize_path(relpath)
-    source = _normalize_path(source_path)
-    base = _normalize_path(base_prefix)
-    if base and (source == base or source.startswith(f"{base}/")):
-        source = source[len(base) :].lstrip("/")
-    if source and (relative == source or relative.startswith(f"{source}/")):
-        relative = relative[len(source) :].lstrip("/")
-    return relative
-
-
-def _normalize_path(value: str) -> str:
-    return (value or "").replace("\\", "/").strip().strip("/")
-
-
-def _matches_unique_name(expected: str, actual: str) -> bool:
-    if actual == expected:
-        return True
-    stem, extension = posixpath.splitext(expected)
-    return (
-        re.fullmatch(rf"{re.escape(stem)}-[1-9][0-9]*{re.escape(extension)}", actual)
-        is not None
-    )
 
 
 def _infer_file_type(file_name: str) -> str:
@@ -982,6 +824,23 @@ def _infer_file_type(file_name: str) -> str:
     return "other"
 
 
+def _verified_result(
+    verified: ImportVerificationResult, file_type: str
+) -> TransferResult:
+    return TransferResult(
+        file_size=verified.size_bytes,
+        content_hash=verified.md5,
+        dimensions=(
+            (verified.width, verified.height) if verified.width is not None else None
+        ),
+        object_identity=(
+            _object_identity_from_verified(verified, byte_size=verified.size_bytes)
+            if file_type == "image"
+            else None
+        ),
+    )
+
+
 def _item_error(code: str) -> ImportEntryCompletion:
     return ImportEntryCompletion(status="error", error_code=code)
 
@@ -991,6 +850,7 @@ def _original_request(
 ) -> dict[str, Any]:
     """Describe only facts the owner can verify against its own entry row."""
     return {
+        "kind": "role_media",
         "dataset_id": str(state.dataset_id),
         "item_id": str(entry.item_id),
         "publication_id": str(entry.publication_id),
@@ -1019,7 +879,6 @@ def _content_type(file_name: str) -> str:
 
 
 def _safe_error_code(code: str) -> str:
-    import re
 
     cleaned = re.sub(r"[^a-z0-9_]+", "_", (code or "").lower()).strip("_")
     if not cleaned or not cleaned[0].isalpha():
@@ -1065,10 +924,10 @@ def _failure_evidence(
     )
 
 
-async def _drain_source(handle: Any, pending: BaseException | None) -> None:
+async def _drain_source(handle: ExitStack, pending: BaseException | None) -> None:
     """Drain one source handle; a failed close leaves settlement unknown."""
     try:
-        await asyncio.to_thread(handle.close)
+        await _thread(handle.close)
     except Exception:
         if pending is not None:
             try:

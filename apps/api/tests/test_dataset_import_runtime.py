@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager, closing
+from contextlib import asynccontextmanager, closing, nullcontext
 from io import BytesIO
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -55,6 +55,14 @@ pytestmark = [
     ),
 ]
 ROOT = Path(__file__).resolve().parents[3]
+_IMPORT_SECRET_NAMES = (
+    "assets_import_database_url",
+    "assets_import_verify_token",
+    "assets_import_s3_access_key",
+    "assets_import_s3_secret_key",
+    "assets_import_saved_io_read_token",
+    "assets_import_saved_io_write_token",
+)
 
 
 def _host_address() -> str:
@@ -135,41 +143,86 @@ async def importer_image():
         _remove_worker_image(image, identity)
 
 
-def _start_importer(stack, suffix, *, values=None, mounts=()):
-    path = stack.directory / f"worker-{suffix}.env"
-    _write_environment(path, values or stack.values)
-    command = [
-        "run",
-        "-d",
-        "--name",
-        f"aap-assets-import-{stack.identity[:10]}-{suffix}",
-        "--label",
-        "org.aap.acceptance=module-data-boundary",
-        "--label",
-        f"org.aap.acceptance-id={stack.identity}",
-        "--add-host",
-        "host.docker.internal:host-gateway",
-        "--read-only",
-        "--cap-drop",
-        "ALL",
-        "--security-opt",
-        "no-new-privileges:true",
-        "--pids-limit",
-        "64",
-        "--health-interval",
-        "1s",
-        "--tmpfs",
-        "/tmp:rw,noexec,nosuid,size=16m",
+def _start_importer(stack, suffix, *, values=None):
+    directory = stack.directory / f"worker-{suffix}"
+    directory.mkdir(mode=0o700)
+    environment = dict(stack.values if values is None else values)
+    secret_paths = {}
+    for name in _IMPORT_SECRET_NAMES:
+        path = directory / name
+        path.write_text(environment.pop(name.upper()) + "\n", encoding="utf-8")
+        path.chmod(0o444)
+        environment[f"{name.upper()}_FILE"] = str(path)
+        secret_paths[f"/run/secrets/{name}"] = path
+    env_path = directory / "compose.env"
+    _write_environment(env_path, environment)
+
+    project = f"aap-assets-import-{stack.identity[:10]}-{suffix}"
+    override = directory / "compose.override.yml"
+    override.write_text(
+        "services:\n"
+        "  assets-import:\n"
+        f"    image: {stack.image}\n"
+        "    build: !reset null\n"
+        "    network_mode: bridge\n"
+        '    restart: "no"\n'
+        "    healthcheck: {interval: 1s, start_period: 1s}\n"
+        "    labels:\n"
+        "      org.aap.acceptance: module-data-boundary\n"
+        f"      org.aap.acceptance-id: {stack.identity}\n",
+        encoding="utf-8",
+    )
+    compose = (
+        "compose",
+        "--project-name",
+        project,
         "--env-file",
-        str(path),
-    ]
-    for source, target in mounts:
-        command.extend(
-            ["--mount", f"type=bind,source={source},target={target},readonly"]
-        )
-    command.append(stack.image)
-    container = _docker(*command)
+        str(env_path),
+        "-f",
+        str(ROOT / "docker-compose.assets-import.yml"),
+        "-f",
+        str(override),
+    )
+    _docker(*compose, "create", "--no-build", "assets-import")
+    container = _docker(*compose, "ps", "--all", "--quiet", "assets-import")
+    observed = _inspect_docker(container)
+    assert observed["Id"] == container and observed["Config"]["Image"] == stack.image
+    assert observed["Config"]["Labels"]["com.docker.compose.project"] == project
+    assert observed["Config"]["Labels"]["org.aap.acceptance-id"] == stack.identity
     stack.containers.append(container)
+    assert observed["Config"]["User"] == "10004:10004"
+    assert observed["HostConfig"]["ReadonlyRootfs"] is True
+    assert not observed["HostConfig"]["PortBindings"]
+    assert observed["HostConfig"]["CapDrop"] == ["ALL"]
+    assert observed["HostConfig"]["Memory"] == 256 * 1024 * 1024
+    mounts = {
+        m["Destination"]: m for m in observed["Mounts"] if m["Destination"] != "/tmp"
+    }
+    assert set(mounts) == set(secret_paths)
+    for destination, path in secret_paths.items():
+        mount = mounts[destination]
+        assert mount["Type"] == "bind" and not mount["RW"]
+        assert Path(mount["Source"]) == path
+    env = dict(value.split("=", 1) for value in observed["Config"]["Env"])
+    assert not any(
+        name.startswith(
+            (
+                "DATABASE_",
+                "MINIO_",
+                "AWS_",
+                "CELERY_",
+                "REDIS_",
+                "CONNECTOR_",
+                "ASSETS_SOURCE_",
+                "ASSETS_IMPORT_SFTP_",
+            )
+        )
+        for name in env
+    )
+    for name in _IMPORT_SECRET_NAMES:
+        assert name.upper() not in env
+        assert env[f"{name.upper()}_FILE"] == f"/run/secrets/{name}"
+    _docker("start", container)
     return container
 
 
@@ -245,8 +298,8 @@ async def _wait_job(stack, job_id, status="completed", seconds=25):
 
 def _objects(stack):
     result = stack.storage.client.list_objects_v2(
-        Bucket=stack.storage.datasets_bucket,
-        Prefix=f"dataset-sources/{stack.world.dataset_id}/",
+        Bucket=stack.destination_bucket,
+        Prefix=f"{stack.destination_prefix}dataset-sources/{stack.world.dataset_id}/",
     )
     return [entry["Key"] for entry in result.get("Contents", [])]
 
@@ -262,15 +315,23 @@ async def _wait_copy(stack):
 
 @asynccontextmanager
 async def _import_stack(
-    test_engine, app_module, monkeypatch, importer_image, *, sftp=False
+    test_engine,
+    app_module,
+    monkeypatch,
+    importer_image,
+    *,
+    sftp=False,
+    destination=None,
 ):
     from app.config import settings
     from app.core.crypto import encrypt_secret
     from app.core.security import create_access_token
+    from app.db.models.dataset_asset import StorageBinding
     from app.db.models.storage_connection import StorageConnection
     from app.deps import get_db
     from app.services.managed_original_creation import bootstrap as bootstrap_originals
     from app.services.storage import storage_service
+    from app.services.storage_location import register_connection
     from app.services.system_settings_service import SystemSettingsService
 
     role_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_IMPORT_URL"))
@@ -299,6 +360,8 @@ async def _import_stack(
     image, source_image, identity = importer_image
     world = await _seed_world(test_engine)
     connection_id = uuid4()
+    target_connection = uuid4() if destination is not None else None
+    previous_binding = None
     prefix = f"connector-import-source/{uuid4()}"
     policy = json.dumps(allowlist)
     connector_config = {
@@ -335,6 +398,31 @@ async def _import_stack(
                 created_by=world.actor_id,
             )
         )
+        if destination is not None:
+            target = StorageConnection(
+                id=target_connection,
+                name=f"import-destination-{target_connection}",
+                kind="s3",
+                scope="global",
+                config={
+                    "endpoint": source_endpoint,
+                    "bucket": destination.bucket,
+                    "base_prefix": destination.prefix,
+                    "use_ssl": settings.minio_use_ssl,
+                },
+                secret_enc=encrypt_secret(
+                    dict(zip(("access_key", "secret_key"), destination.credentials))
+                ),
+                created_by=world.actor_id,
+            )
+            db.add(target)
+            await db.flush()
+            location = await register_connection(db, target)
+            binding = await db.get(StorageBinding, "datasets", with_for_update=True)
+            previous_binding = (binding.location_id, binding.bucket, binding.generation)
+            binding.location_id = location.id
+            binding.bucket = destination.bucket
+            binding.generation += 1
         await db.execute(
             text(
                 "INSERT INTO public.system_settings(key,value_type,value_json) VALUES "
@@ -363,10 +451,29 @@ async def _import_stack(
             assert source_role.database == test_engine.url.database
             _verify_postgres(source_role)
             verify_token = secrets.token_urlsafe(32)
+            read_token, write_token = (
+                secrets.token_urlsafe(32),
+                secrets.token_urlsafe(32),
+            )
+            saved_io_role = make_url(
+                _required_env("AAP_MODULE_DATA_ASSETS_SOURCE_SAVED_IO_URL")
+            )
+            assert saved_io_role.username == "yoao_asset_source_saved_io_client"
+            assert saved_io_role.database == test_engine.url.database
+            _verify_postgres(saved_io_role)
             source_values = {
                 "ASSETS_SOURCE_DATABASE_URL": _container_database_url(source_role),
                 "ASSETS_SOURCE_TOKEN": secrets.token_urlsafe(32),
                 "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN": verify_token,
+                "ASSETS_SOURCE_SAVED_IO_DATABASE_URL": _container_database_url(
+                    saved_io_role
+                ),
+                "ASSETS_SOURCE_SAVED_IO_IMPORT_READ_TOKEN": read_token,
+                "ASSETS_SOURCE_SAVED_IO_IMPORT_WRITE_TOKEN": write_token,
+                "ASSETS_SOURCE_SAVED_IO_READ_TOKEN": secrets.token_urlsafe(32),
+                "ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN": secrets.token_urlsafe(32),
+                "ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN": secrets.token_urlsafe(32),
+                "ASSETS_SOURCE_SAVED_IO_SPOOL_DIR": "/tmp",
                 "ASSETS_SOURCE_S3_ENDPOINT": source_endpoint,
                 "ASSETS_SOURCE_S3_PUBLIC_ENDPOINT": source_endpoint,
                 "ASSETS_SOURCE_S3_ACCESS_KEY": _required_env(
@@ -385,14 +492,29 @@ async def _import_stack(
                     "MINIO_MEDIA_CACHE_BUCKET"
                 ],
                 "ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY": settings.connector_encryption_key,
+                "ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST": policy,
             }
+            known_hosts = None
+            if sftp:
+                known_hosts = Path(directory) / "source_known_hosts"
+                known_hosts.touch(mode=0o644)
+                known_hosts.chmod(0o644)
+                source_values["ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE"] = (
+                    "/run/secrets/assets_source_sftp_known_hosts"
+                )
             source_environment = Path(directory) / "source.env"
             _write_environment(source_environment, source_values)
             source_container = await asyncio.to_thread(
-                _start_source, source_image, identity, source_environment
+                _start_source,
+                source_image,
+                identity,
+                source_environment,
+                known_hosts=known_hosts,
             )
             await _wait_healthy(source_container)
-            source_origin = _source_origin(source_container, source_image, identity)
+            source_origin = _source_origin(
+                source_container, source_image, identity, known_hosts=known_hosts
+            )
             source_ip = _inspect_docker(source_container)["NetworkSettings"][
                 "Networks"
             ]["bridge"]["IPAddress"]
@@ -401,6 +523,9 @@ async def _import_stack(
                 "ASSETS_IMPORT_DATABASE_URL": _container_database_url(role_url),
                 "ASSETS_IMPORT_VERIFY_URL": f"http://{source_ip}:8767",
                 "ASSETS_IMPORT_VERIFY_TOKEN": verify_token,
+                "ASSETS_IMPORT_SAVED_IO_URL": f"http://{source_ip}:8767",
+                "ASSETS_IMPORT_SAVED_IO_READ_TOKEN": read_token,
+                "ASSETS_IMPORT_SAVED_IO_WRITE_TOKEN": write_token,
                 "ASSETS_IMPORT_S3_ENDPOINT": source_endpoint,
                 "ASSETS_IMPORT_S3_ACCESS_KEY": _required_env(
                     "AAP_MODULE_DATA_ASSET_IMPORT_S3_ACCESS_KEY"
@@ -411,8 +536,6 @@ async def _import_stack(
                 "ASSETS_IMPORT_DATASETS_BUCKET": resources["buckets"][
                     "MINIO_DATASETS_BUCKET"
                 ],
-                "CONNECTOR_ENCRYPTION_KEY": settings.connector_encryption_key,
-                "CONNECTOR_HOST_ALLOWLIST": policy,
                 "ASSETS_IMPORT_LEASE_SECONDS": "30",
                 "ASSETS_IMPORT_HEARTBEAT_SECONDS": "2",
                 "ASSETS_IMPORT_POLL_SECONDS": "0.1",
@@ -428,7 +551,19 @@ async def _import_stack(
                     connection_id=connection_id,
                     prefix=prefix,
                     sftp_host=sftp_host,
+                    source_known_hosts=known_hosts,
                     source_bucket=resources["buckets"]["MINIO_IMPORT_BUCKET"],
+                    destination_bucket=(
+                        destination.bucket
+                        if destination is not None
+                        else resources["buckets"]["MINIO_DATASETS_BUCKET"]
+                    ),
+                    destination_prefix=(
+                        destination.prefix + "/_aap_managed/datasets/"
+                        if destination is not None
+                        else ""
+                    ),
+                    source_container=source_container,
                     resources=resources,
                     source_secret=connector_secret,
                     values=values,
@@ -439,6 +574,8 @@ async def _import_stack(
                     identity=identity,
                     verifier_origin=source_origin,
                     verifier_token=verify_token,
+                    saved_io_read_token=read_token,
+                    saved_io_write_token=write_token,
                     source_gateway_token=source_values["ASSETS_SOURCE_TOKEN"],
                     containers=[],
                     storage=storage_service,
@@ -518,6 +655,11 @@ async def _import_stack(
                 text("DELETE FROM public.storage_connections WHERE id=:id"),
                 {"id": connection_id},
             )
+            if previous_binding is not None:
+                binding = await db.get(StorageBinding, "datasets", with_for_update=True)
+                binding.location_id, binding.bucket, binding.generation = (
+                    previous_binding
+                )
             await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
             await db.execute(
                 text("DELETE FROM public.audit_logs WHERE actor_id=:id"),
@@ -542,6 +684,12 @@ async def _import_stack(
                 )
         SystemSettingsService.invalidate("connector_host_allowlist")
         await _cleanup_world(world)
+        if target_connection is not None:
+            async with world.maker.begin() as db:
+                await db.execute(
+                    text("DELETE FROM public.storage_connections WHERE id=:id"),
+                    {"id": target_connection},
+                )
 
 
 def _picture(color="white"):
@@ -782,13 +930,6 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
         await _accept(stack, operation=job)
         after = await _facts(stack)
         assert after.tasks == 1 and len(after.jobs) == 1
-        observed = _inspect_docker(worker)
-        assert observed["Config"]["User"] == "10004:10004"
-        assert not observed["Mounts"]
-        assert not any(
-            value.startswith(("DATABASE_URL=", "MINIO_", "CELERY_", "REDIS_"))
-            for value in observed["Config"]["Env"]
-        )
         imported = _docker(
             "exec",
             worker,
@@ -3014,16 +3155,36 @@ async def test_unstarted_read_cancellation_and_current_lease_publication_fence(
             await restricted.dispose()
 
 
+@pytest.fixture
+def import_destination(test_engine, target_kind):
+    from tests.saved_io_live import registered_sink
+
+    sink = (
+        registered_sink(test_engine) if target_kind == "registered" else nullcontext()
+    )
+    with sink as target:
+        yield target
+
+
+@pytest.mark.parametrize("target_kind", ["builtin", "registered"])
 async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publication(
     test_engine,
     app_module,
     monkeypatch,
     importer_image,
+    target_kind,
+    import_destination,
 ):
     async with _import_stack(
-        test_engine, app_module, monkeypatch, importer_image
+        test_engine,
+        app_module,
+        monkeypatch,
+        importer_image,
+        destination=import_destination,
     ) as stack:
         data = _picture("green")
+        if target_kind == "registered":
+            data += b"\0" * (8 * 1024**2)
         stack.storage.client.put_object(
             Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
         )
@@ -3045,8 +3206,12 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
                     (
                         await observer.execute(
                             text(
-                                "SELECT lease_token,creation_id,operation_id,item_id,entry_index,mode,state,result "
-                                "FROM yoao_assets_v1.import_original_verifications WHERE job_id=:job"
+                                "SELECT v.lease_token,v.creation_id,v.operation_id,v.item_id,v.entry_index,"
+                                "v.mode,v.state,v.result,c.authority->>'publication_id' AS publication_id,"
+                                "c.prepared->'parts' AS parts,c.bucket,c.object_key "
+                                "FROM yoao_assets_v1.import_original_verifications AS v "
+                                "JOIN public.managed_original_creations AS c ON c.id=v.creation_id "
+                                "WHERE v.job_id=:job"
                             ),
                             {"job": job},
                         )
@@ -3058,6 +3223,10 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
             assert receipt["result"]["sha256"] == hashlib.sha256(data).hexdigest()
             assert receipt["result"]["size_bytes"] == len(data)
             assert receipt["result"]["version_id"]
+            assert receipt["bucket"] == stack.destination_bucket
+            assert receipt["object_key"] in old_paths
+            if target_kind == "registered":
+                assert len(receipt["parts"]) >= 2
             _docker("kill", "--signal", "KILL", worker)
             await release()
         await asyncio.sleep(0.2)
@@ -3083,7 +3252,12 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
             and facts.jobs[0]["result"]["error_count"] == 0
         )
         paths = _objects(stack)
-        assert len(paths) == 2 and facts.items[0]["file_path"] not in old_paths
+        published_key = stack.destination_prefix + facts.items[0]["file_path"]
+        assert (
+            len(paths) == 2
+            and published_key in paths
+            and published_key not in old_paths
+        )
         async with stack.world.maker() as observer:
             receipts = (
                 (
@@ -3118,10 +3292,34 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
             )
             assert old_status.status_code == 200
             assert old_status.json()["state"] == "fenced"
+            action = "copy" if target_kind == "registered" else "read"
+            stale = await source_api.post(
+                f"/v1/saved-io/import/{action}",
+                headers={
+                    "Authorization": "Bearer "
+                    + (
+                        stack.saved_io_write_token
+                        if target_kind == "registered"
+                        else stack.saved_io_read_token
+                    )
+                },
+                json={
+                    "job_id": str(job),
+                    "lease_token": str(receipt["lease_token"]),
+                    "entry_index": receipt["entry_index"],
+                    "publication_id": receipt["publication_id"],
+                    "item_id": str(receipt["item_id"]),
+                    "creation_id": str(receipt["creation_id"]),
+                    "operation_id": str(receipt["operation_id"]),
+                },
+            )
+            assert stale.status_code == 409
+            assert stale.json()["code"] in {"job_terminal", "lease_lost"}
+            assert stale.json()["unsettled"] is False
         for path in paths:
             assert (
                 stack.storage.client.get_object(
-                    Bucket=stack.storage.datasets_bucket, Key=path
+                    Bucket=stack.destination_bucket, Key=path
                 )["Body"].read()
                 == data
             )
@@ -3170,6 +3368,90 @@ async def test_cancel_and_delete_fence_a_copied_late_import_result(
             ].read()
             == data
         )
+
+
+async def test_import_fails_closed_without_its_source_byte_service(
+    test_engine, app_module, monkeypatch, importer_image
+):
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
+        stack.storage.client.put_object(
+            Bucket=stack.source_bucket,
+            Key=f"{stack.prefix}/batch/a.png",
+            Body=_picture("green"),
+        )
+        job = await _accept(stack)
+        _docker("stop", "--time", "3", stack.source_container)
+        worker = _start_importer(stack, "source-unavailable")
+        await _wait_healthy(worker)
+        facts = await _wait_job(stack, job, status="failed")
+        assert facts.jobs[0]["error_message"] == "storage_unavailable"
+        assert not facts.items and not _objects(stack)
+
+
+async def test_import_rejects_a_changed_observed_source_version(
+    test_engine, app_module, monkeypatch, importer_image
+):
+    from yoao_assets_source.import_contract import ImportFailure, ImportSourceObject
+    from yoao_assets_source_import.config import load_config
+    from yoao_assets_source_import.database import ImportDatabase
+
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
+        source = {"Bucket": stack.source_bucket, "Key": f"{stack.prefix}/batch/a.png"}
+        data = _picture("blue")
+        stack.storage.client.put_object(**source, Body=data + b"old")
+        job = await _accept(stack)
+        config = load_config(
+            {
+                **stack.values,
+                "ASSETS_IMPORT_DATABASE_URL": _required_env(
+                    "AAP_MODULE_DATA_ASSET_IMPORT_URL"
+                ),
+            }
+        )
+        token = uuid4()
+        database = await ImportDatabase.connect(config)
+        try:
+            async with database.transaction() as db:
+                claimed = await db.claim(token, config.lease_seconds, job)
+                assert claimed.stage == "enumerating"
+            async with httpx.AsyncClient(base_url=stack.verifier_origin) as source_api:
+                listed = await source_api.post(
+                    "/v1/saved-io/import/list",
+                    headers={"Authorization": f"Bearer {stack.saved_io_read_token}"},
+                    json={"job_id": str(job), "lease_token": str(token)},
+                )
+            assert listed.status_code == 200
+            [observed] = [ImportSourceObject.model_validate(x) for x in listed.json()]
+            with pytest.raises(ImportFailure, match="invalid_request"):
+                async with database.transaction() as db:
+                    await db.save_manifest(
+                        job, token, [observed.model_copy(update={"etag": "unobserved"})]
+                    )
+            async with database.transaction() as db:
+                saved = await db.save_manifest(job, token, [observed])
+                assert saved.stage == "importing" and saved.total == 1
+        finally:
+            await database.close()
+        stack.storage.client.put_object(**source, Body=data + b"new")
+        async with stack.world.maker.begin() as owner:
+            await owner.execute(
+                text(
+                    "UPDATE public.dataset_import_operations SET lease_expires_at="
+                    "clock_timestamp()-interval '1 second' WHERE job_id=:job"
+                ),
+                {"job": job},
+            )
+        worker = _start_importer(stack, "source-drift")
+        await _wait_healthy(worker)
+        facts = await _wait_job(stack, job)
+        result = facts.jobs[0]["result"]
+        assert result["total"] == result["error_count"] == 1
+        assert result["errors"] == ["batch/a.png: source_changed"]
+        assert result["added"] == 0 and not facts.items and not _objects(stack)
 
 
 async def test_import_storage_identities_cannot_delete_read_destination_or_write_source(
@@ -3229,6 +3511,54 @@ async def test_import_storage_identities_cannot_delete_read_destination_or_write
                 headers={"Authorization": f"Bearer {stack.verifier_token}"},
             )
             assert absent.status_code == 200 and absent.json()["state"] == "missing"
+            lease_scope = {key: command[key] for key in ("job_id", "lease_token")}
+            copy_scope = {
+                **command,
+                "publication_id": str(uuid4()),
+            }
+            del copy_scope["mode"]
+            for action, scope, wrong_tokens in (
+                (
+                    "list",
+                    lease_scope,
+                    (
+                        stack.saved_io_write_token,
+                        stack.source_values["ASSETS_SOURCE_SAVED_IO_READ_TOKEN"],
+                        stack.source_gateway_token,
+                        stack.verifier_token,
+                    ),
+                ),
+                (
+                    "copy",
+                    copy_scope,
+                    (
+                        stack.saved_io_read_token,
+                        stack.source_values["ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN"],
+                        stack.source_gateway_token,
+                        stack.verifier_token,
+                    ),
+                ),
+            ):
+                for token in wrong_tokens:
+                    denied = await source_api.post(
+                        f"/v1/saved-io/import/{action}",
+                        json=scope,
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                    assert denied.status_code == 401
+                    assert denied.json()["code"] == "access_denied"
+            for action, scope, token in (
+                ("list", lease_scope, stack.saved_io_read_token),
+                ("read", copy_scope, stack.saved_io_read_token),
+                ("copy", copy_scope, stack.saved_io_write_token),
+            ):
+                malformed = await source_api.post(
+                    f"/v1/saved-io/import/{action}",
+                    json={**scope, "object_key": "caller/chosen"},
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                assert malformed.status_code == 400
+                assert malformed.json()["code"] == "invalid_request"
         for role_env, statements in (
             (
                 "AAP_MODULE_DATA_ASSET_SOURCE_URL",
@@ -3238,6 +3568,12 @@ async def test_import_storage_identities_cannot_delete_read_destination_or_write
                 "AAP_MODULE_DATA_ASSET_IMPORT_URL",
                 (
                     "SELECT * FROM yoao_assets_v1.import_original_verifications LIMIT 1",
+                    "SELECT secret_enc FROM public.storage_connections LIMIT 1",
+                    "SELECT yoao_assets_v1.read_dataset_import_connection(NULL::uuid,NULL::uuid,'[]'::jsonb)",
+                    "SELECT yoao_assets_v1.saved_io_connector(NULL::uuid,1,'[]'::jsonb)",
+                    "SELECT yoao_assets_v1.begin_operator_auxiliary('{}'::jsonb)",
+                    "SELECT yoao_assets_v1.open_operator_storage_operation(NULL::uuid)",
+                    "SELECT yoao_assets_v1.save_dataset_import_manifest(NULL::uuid,NULL::uuid,'[]'::jsonb)",
                     "SELECT yoao_assets_v1.record_import_original_read(CAST('{}' AS jsonb), NULL)",
                     "SELECT yoao_assets_v1.finish_import_original_verification(CAST('{}' AS jsonb), NULL)",
                     "SELECT yoao_assets_v1.recover_import_original_verification(NULL::jsonb)",
@@ -3503,19 +3839,9 @@ async def test_real_sftp_requires_known_host_and_rejects_escape(
             await _wait_healthy(unknown)
             facts = await _wait_job(stack, first, status="failed")
             assert not facts.items and facts.tasks == 0
-            _docker("stop", "--time", "3", unknown)
-            values = {
-                **stack.values,
-                "ASSETS_IMPORT_SFTP_KNOWN_HOSTS": "/run/secrets/known_hosts",
-            }
+            assert stack.source_known_hosts is not None
+            stack.source_known_hosts.write_bytes(server.known_hosts.read_bytes())
             second = await _accept(stack, body={**body, "source_path": "/data/good"})
-            known = _start_importer(
-                stack,
-                "known-host",
-                values=values,
-                mounts=((server.known_hosts, "/run/secrets/known_hosts"),),
-            )
-            await _wait_healthy(known)
             facts = await _wait_job(stack, second)
             assert facts.file_count == facts.tasks == 1
             assert facts.items[0]["file_name"] == "a.png"

@@ -8,7 +8,7 @@ from typing import Any, AsyncIterator
 from uuid import UUID
 
 import asyncpg
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from yoao_assets_images.policy import ImagePolicy
 
 from yoao_assets_source.managed_original_contract import (
@@ -18,7 +18,6 @@ from yoao_assets_source.managed_original_contract import (
     require_managed_original_ok,
 )
 from yoao_assets_source.import_contract import (
-    ImportConnection,
     ImportEntry,
     ImportEntryCompletion,
     ImportFailure,
@@ -41,19 +40,18 @@ EXPECTED_IMPORT_FUNCTIONS = frozenset(
         "cancel_unstarted_import_original_read(jsonb)",
         "claim_dataset_import(uuid,integer,uuid)",
         "heartbeat_dataset_import(uuid,uuid,integer)",
-        "read_dataset_import_connection(uuid,uuid,jsonb)",
-        "save_dataset_import_manifest(uuid,uuid,jsonb)",
+        "save_observed_dataset_import_manifest(uuid,uuid,jsonb)",
         "next_dataset_import_entry(uuid,uuid,uuid)",
         "complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)",
         "finish_dataset_import(uuid,uuid,text)",
         "resolve_internal_image_source(text,uuid,text,jsonb)",
         "schedule_image_media(uuid,text,uuid,jsonb,boolean)",
-        "begin_operator_auxiliary(jsonb)",
-        "open_operator_storage_operation(uuid)",
-        "record_operator_original_prepared(uuid,jsonb)",
-        "mark_operator_original_writing(uuid)",
-        "record_operator_original_written(uuid,jsonb)",
-        "fail_operator_original(uuid,text,text,jsonb)",
+        "begin_dataset_import_original(uuid,uuid,jsonb)",
+        "open_dataset_import_original(uuid,uuid,bigint,uuid,uuid)",
+        "record_import_original_prepared(jsonb,jsonb)",
+        "mark_import_original_writing(jsonb)",
+        "record_import_original_written(jsonb,jsonb)",
+        "fail_import_original(jsonb,text,text,jsonb)",
     }
 )
 
@@ -65,19 +63,18 @@ WITH expected(signature) AS (
         ('cancel_unstarted_import_original_read(jsonb)'::text),
         ('claim_dataset_import(uuid,integer,uuid)'::text),
         ('heartbeat_dataset_import(uuid,uuid,integer)'::text),
-        ('read_dataset_import_connection(uuid,uuid,jsonb)'::text),
-        ('save_dataset_import_manifest(uuid,uuid,jsonb)'::text),
+        ('save_observed_dataset_import_manifest(uuid,uuid,jsonb)'::text),
         ('next_dataset_import_entry(uuid,uuid,uuid)'::text),
         ('complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)'::text),
         ('finish_dataset_import(uuid,uuid,text)'::text),
         ('resolve_internal_image_source(text,uuid,text,jsonb)'::text),
         ('schedule_image_media(uuid,text,uuid,jsonb,boolean)'::text),
-        ('begin_operator_auxiliary(jsonb)'::text),
-        ('open_operator_storage_operation(uuid)'::text),
-        ('record_operator_original_prepared(uuid,jsonb)'::text),
-        ('mark_operator_original_writing(uuid)'::text),
-        ('record_operator_original_written(uuid,jsonb)'::text),
-        ('fail_operator_original(uuid,text,text,jsonb)'::text)
+        ('begin_dataset_import_original(uuid,uuid,jsonb)'::text),
+        ('open_dataset_import_original(uuid,uuid,bigint,uuid,uuid)'::text),
+        ('record_import_original_prepared(jsonb,jsonb)'::text),
+        ('mark_import_original_writing(jsonb)'::text),
+        ('record_import_original_written(jsonb,jsonb)'::text),
+        ('fail_import_original(jsonb,text,text,jsonb)'::text)
 ),
 expected_oids AS (
     SELECT
@@ -253,6 +250,25 @@ class DataContractError(RuntimeError):
     """The database role or native capability response violated the contract."""
 
 
+class ImportOriginalMaterial(ManagedOriginalMaterial):
+    """Allocation facts only; connector material is not a valid importer reply."""
+
+    destination: None = None
+
+    @model_validator(mode="after")
+    def check_target(self):
+        if (
+            self.origin != "connector"
+            or self.mode != "write"
+            or self.staging is not None
+            or self.publication_id is None
+            or self.object_key != self.key_prefix + self.file_path
+            or (self.connection_id is None) != (self.connection_revision is None)
+        ):
+            raise ValueError("Invalid importer original allocation")
+        return self
+
+
 class ImportData:
     """One transaction over a single LOGIN database connection."""
 
@@ -299,26 +315,12 @@ class ImportData:
         self._require_lease(result, job_id, token)
         return result
 
-    async def read_connection(
-        self, job_id: UUID, token: UUID, fallback_allowlist: list[str]
-    ) -> ImportConnection:
-        result = await self._call(
-            "SELECT yoao_assets_v1.read_dataset_import_connection("
-            "$1::uuid, $2::uuid, $3::jsonb)",
-            (job_id, token, fallback_allowlist),
-            ImportConnection,
-        )
-        assert result is not None
-        if (result.job_id, result.lease_token) != (job_id, token):
-            raise ImportFailure("invalid_response")
-        return result
-
     async def save_manifest(
         self, job_id: UUID, token: UUID, objects: list[ImportSourceObject]
     ) -> ImportState:
         payload = [item.model_dump(mode="json") for item in objects]
         result = await self._call(
-            "SELECT yoao_assets_v1.save_dataset_import_manifest("
+            "SELECT yoao_assets_v1.save_observed_dataset_import_manifest("
             "$1::uuid, $2::uuid, $3::jsonb)",
             (job_id, token, payload),
             ImportState,
@@ -462,21 +464,31 @@ class ImportDatabase:
         require_managed_original_ok(raw)
         return raw
 
-    async def allocate(self, request: dict[str, Any]) -> ManagedOriginalMaterial:
+    async def allocate(
+        self, entry: ImportEntry, request: dict[str, Any]
+    ) -> ImportOriginalMaterial:
         """Allocate independently and durably before any physical I/O."""
-        payload = dict(request)
-        payload.setdefault("kind", "role_media")
         raw = await self._original_reply(
-            "SELECT yoao_assets_v1.begin_operator_auxiliary($1::jsonb)",
-            (payload,),
+            "SELECT yoao_assets_v1.begin_dataset_import_original("
+            "$1::uuid,$2::uuid,$3::jsonb)",
+            (entry.job_id, entry.lease_token, request),
         )
-        return decode_managed_original_reply(raw, ManagedOriginalMaterial)
+        return decode_managed_original_reply(raw, ImportOriginalMaterial)
 
-    async def open_operation(self, creation_id: UUID) -> ManagedOriginalOperation:
+    async def open_operation(
+        self, entry: ImportEntry, creation_id: UUID
+    ) -> ManagedOriginalOperation:
         """Acquire this creation's one permit; verified reuse stays read-only."""
         raw = await self._original_reply(
-            "SELECT yoao_assets_v1.open_operator_storage_operation($1::uuid)",
-            (creation_id,),
+            "SELECT yoao_assets_v1.open_dataset_import_original("
+            "$1::uuid,$2::uuid,$3::bigint,$4::uuid,$5::uuid)",
+            (
+                entry.job_id,
+                entry.lease_token,
+                entry.index,
+                entry.publication_id,
+                creation_id,
+            ),
         )
         return decode_managed_original_reply(raw, ManagedOriginalOperation)
 
@@ -514,38 +526,38 @@ class ImportDatabase:
         return decode_managed_original_reply(raw, ManagedOriginalOperation)
 
     async def original_prepared(
-        self, creation_id: UUID, prepared: dict[str, Any]
+        self, scope: dict[str, Any], prepared: dict[str, Any]
     ) -> None:
         await self._original_ok(
-            "SELECT yoao_assets_v1.record_operator_original_prepared($1::uuid,$2::jsonb)",
-            (creation_id, prepared),
+            "SELECT yoao_assets_v1.record_import_original_prepared($1::jsonb,$2::jsonb)",
+            (scope, prepared),
         )
 
-    async def original_writing(self, creation_id: UUID) -> None:
+    async def original_writing(self, scope: dict[str, Any]) -> None:
         await self._original_ok(
-            "SELECT yoao_assets_v1.mark_operator_original_writing($1::uuid)",
-            (creation_id,),
+            "SELECT yoao_assets_v1.mark_import_original_writing($1::jsonb)",
+            (scope,),
         )
 
     async def original_written(
-        self, creation_id: UUID, receipt: dict[str, Any]
+        self, scope: dict[str, Any], receipt: dict[str, Any]
     ) -> None:
         await self._original_ok(
-            "SELECT yoao_assets_v1.record_operator_original_written($1::uuid,$2::jsonb)",
-            (creation_id, receipt),
+            "SELECT yoao_assets_v1.record_import_original_written($1::jsonb,$2::jsonb)",
+            (scope, receipt),
         )
 
     async def fail_original(
         self,
-        creation_id: UUID,
+        scope: dict[str, Any],
         outcome: str,
         error_code: str,
         evidence: dict[str, Any],
     ) -> None:
         await self._original_ok(
-            "SELECT yoao_assets_v1.fail_operator_original("
-            "$1::uuid,$2::text,$3::text,$4::jsonb)",
-            (creation_id, outcome, error_code, evidence),
+            "SELECT yoao_assets_v1.fail_import_original("
+            "$1::jsonb,$2::text,$3::text,$4::jsonb)",
+            (scope, outcome, error_code, evidence),
         )
 
     async def _original_reply(self, statement: str, arguments: tuple[Any, ...]) -> Any:

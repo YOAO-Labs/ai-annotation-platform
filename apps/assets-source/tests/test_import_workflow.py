@@ -1,24 +1,22 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import hashlib
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
 import io
 
 import pytest
+from pydantic import ValidationError
 
 from yoao_assets_source.connectors import SourceChangedError
 from yoao_assets_source.connectors.base import SourceObject
 from yoao_assets_source.managed_original_contract import (
-    ManagedOriginalMaterial,
     ManagedOriginalProof,
 )
 from yoao_assets_source.import_contract import (
-    ImportConnection,
     ImportEntry,
     ImportEntryCompletion,
     ImportFailure,
@@ -27,7 +25,9 @@ from yoao_assets_source.import_contract import (
     ImportState,
 )
 from yoao_assets_images.contract import ImageFailure, ObjectIdentity
+from yoao_assets_source.saved_io import SavedIOError
 from yoao_assets_source_import.__main__ import _handle_failure
+from yoao_assets_source_import.database import ImportOriginalMaterial
 from yoao_assets_source_import.storage import SourceReadError
 from yoao_assets_source_import.workflow import (
     ImportWorkflow,
@@ -36,11 +36,8 @@ from yoao_assets_source_import.workflow import (
     PersistenceBusy,
     WorkerStopping,
 )
-from yoao_assets_source_import.workflow import (
-    _collect_manifest,
-    _validate_entry_scope,
-    destination_relative_path,
-)
+from yoao_assets_source_import.workflow import _validate_entry_scope
+from yoao_assets_source_runtime.saved_io_import import _collect_manifest
 
 
 def _state(
@@ -116,37 +113,18 @@ def test_manifest_collection_stops_at_file_count_limit() -> None:
         def list(self, path, recursive, include_globs=None):
             return infinite()
 
-    with pytest.raises(ImportFailure, match="invalid_request"):
-        _collect_manifest(InfiniteSource(), _state(max_files=3), lambda: False)
+    with pytest.raises(SavedIOError, match="invalid_request"):
+        _collect_manifest(InfiniteSource(), _state(max_files=3), lambda: None)
     assert consumed == 4
 
 
 def test_manifest_collection_enforces_accepted_byte_snapshot() -> None:
-    with pytest.raises(ImportFailure, match="invalid_request"):
+    with pytest.raises(SavedIOError, match="invalid_request"):
         _collect_manifest(
             _Source([_source_object("a.bin", 6), _source_object("b.bin", 5)]),
             _state(max_bytes=10),
-            lambda: False,
+            lambda: None,
         )
-
-
-@pytest.mark.parametrize(
-    ("relpath", "source_path", "base_prefix", "expected"),
-    [
-        ("dataset-A/a/img.jpg", "dataset-A", "", "a/img.jpg"),
-        ("dataset-A/b/img.png", "dataset-A/", "", "b/img.png"),
-        ("a/img.jpg", "", "", "a/img.jpg"),
-        ("dataset-A", "dataset-A", "", ""),
-        ("dataset-A/a/x.jpg", "root/dataset-A", "root", "a/x.jpg"),
-        ("dataset-A/a/x.jpg", "dataset-A", "root", "a/x.jpg"),
-        ("batch/a.jpg", "/data/batch", "/data", "a.jpg"),
-        ("batch/a.jpg", "batch", "/data", "a.jpg"),
-    ],
-)
-def test_destination_relative_path_preserves_source_subdirectories(
-    relpath, source_path, base_prefix, expected
-) -> None:
-    assert destination_relative_path(relpath, source_path, base_prefix) == expected
 
 
 def test_native_entry_dataset_scope_is_checked_again_at_runtime() -> None:
@@ -168,7 +146,7 @@ def test_native_entry_dataset_scope_is_checked_again_at_runtime() -> None:
         ),
     )
     with pytest.raises(ImportFailure, match="invalid_response"):
-        _validate_entry_scope(entry, state, {"base_prefix": ""}, publication_id)
+        _validate_entry_scope(entry, state, publication_id)
 
 
 @pytest.mark.asyncio
@@ -176,11 +154,11 @@ async def test_wrong_scope_next_entry_rolls_back_before_opening_source() -> None
     state = _state(stage="importing")
     database = _TransactionRecorder(_WrongScopeNextData(state))
     adapter = _NoOpenAdapter()
-    workflow = ImportWorkflow(database, object(), object())
+    workflow = ImportWorkflow(database, object(), object(), source=adapter)
     keeper = LeaseKeeper(database, object(), state, asyncio.Event())
 
     with pytest.raises(ImportFailure, match="invalid_response"):
-        await workflow._copy_manifest(state, adapter, {"base_prefix": ""}, keeper)
+        await workflow._copy_manifest(state, keeper)
 
     assert database.commits == 0
     assert database.rollbacks == 1
@@ -199,11 +177,11 @@ async def test_null_next_entry_is_only_valid_at_manifest_end(cursor: int) -> Non
 
     if cursor == 0:
         with pytest.raises(ImportFailure, match="invalid_response"):
-            await workflow._next_entry(state, {"base_prefix": ""}, uuid4())
+            await workflow._next_entry(state, uuid4())
         assert database.commits == 0
         assert database.rollbacks == 1
     else:
-        assert await workflow._next_entry(state, {"base_prefix": ""}, uuid4()) is None
+        assert await workflow._next_entry(state, uuid4()) is None
         assert database.commits == 1
         assert database.rollbacks == 0
 
@@ -364,16 +342,15 @@ class _RejectedSourceDatabase:
     def __getattr__(self, name):
         return getattr(self.data, name)
 
-    async def allocate(self, request):
+    async def allocate(self, _entry, request):
         return _managed_target(request)
 
-    async def open_operation(self, creation_id):
+    async def open_operation(self, _entry, _creation_id):
         from yoao_assets_source.managed_original_contract import (
             ManagedOriginalOperation,
         )
 
         return ManagedOriginalOperation(operation_id=uuid4(), mode="write")
-
 
     async def original_prepared(self, creation_id, prepared):
         return None
@@ -384,7 +361,6 @@ class _RejectedSourceDatabase:
     async def original_written(self, creation_id, receipt):
         return None
 
-
     async def fail_original(self, creation_id, outcome, error_code, evidence):
         return None
 
@@ -393,12 +369,12 @@ class _RejectedSourceDatabase:
         yield self.data
 
 
-def _managed_target(request: dict) -> ManagedOriginalMaterial:
+def _managed_target(request: dict) -> ImportOriginalMaterial:
     from uuid import UUID
 
     file_path = request["file_path"]
     key_prefix = ""
-    return ManagedOriginalMaterial(
+    return ImportOriginalMaterial(
         creation_id=uuid4(),
         dataset_id=UUID(request["dataset_id"]),
         location_id=UUID("4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7"),
@@ -458,10 +434,10 @@ class _TransactionRecorder:
         self.rollbacks = 0
         self.originals: list[tuple] = []
 
-    async def allocate(self, request):
+    async def allocate(self, _entry, request):
         return _managed_target(request)
 
-    async def open_operation(self, creation_id):
+    async def open_operation(self, _entry, _creation_id):
         from uuid import uuid4
 
         from yoao_assets_source.managed_original_contract import (
@@ -469,7 +445,6 @@ class _TransactionRecorder:
         )
 
         return ManagedOriginalOperation(operation_id=uuid4(), mode="write")
-
 
     async def original_prepared(self, creation_id, prepared) -> None:
         self.originals.append((creation_id, "prepared"))
@@ -479,7 +454,6 @@ class _TransactionRecorder:
 
     async def original_written(self, creation_id, receipt) -> None:
         self.originals.append((creation_id, "written"))
-
 
     async def fail_original(self, creation_id, outcome, error_code, evidence) -> None:
         self.originals.append((creation_id, outcome))
@@ -628,12 +602,14 @@ class _NoOpenAdapter:
 
 class _ValidOnlyAdapter:
     def __init__(self) -> None:
-        self.opened: list[str] = []
+        self.opened = []
 
-    def open(self, relpath, *, etag=None):
-        self.opened.append(relpath)
-        assert etag == "listed-etag"
-        return io.BytesIO(b"img")
+    @contextmanager
+    def open(self, scope, *, size):
+        assert size == 3
+        self.opened.append(dict(scope))
+        with io.BytesIO(b"img") as data:
+            yield data
 
 
 class _ValidOnlyStorage:
@@ -729,13 +705,16 @@ class _BudgetData:
 class _BudgetAdapter:
     def __init__(self, entries: dict[int, tuple[str, bytes]]) -> None:
         self.entries = entries
-        self.opened: list[str] = []
+        self.opened: list[int] = []
 
-    def open(self, relpath, *, etag=None):
-        self.opened.append(relpath)
-        index = int(relpath.split("/")[-1].split(".")[0].removeprefix("item"))
-        assert etag == f"etag-{index}"
-        return io.BytesIO(self.entries[index][1])
+    @contextmanager
+    def open(self, scope, *, size):
+        index = scope["entry_index"]
+        self.opened.append(index)
+        payload = self.entries[index][1]
+        assert size == len(payload)
+        with io.BytesIO(payload) as data:
+            yield data
 
 
 class _BudgetStorage:
@@ -787,10 +766,10 @@ async def test_committed_success_bytes_are_not_counted_again_in_local_budget() -
     database = _TransactionRecorder(data)
     adapter = _BudgetAdapter(entries)
     storage = _BudgetStorage()
-    workflow = ImportWorkflow(database, storage, object())
+    workflow = ImportWorkflow(database, storage, object(), source=adapter)
     keeper = LeaseKeeper(database, object(), state, asyncio.Event())
 
-    await workflow._copy_manifest(state, adapter, {"base_prefix": ""}, keeper)
+    await workflow._copy_manifest(state, keeper)
 
     assert storage.budgets == [6, 3]
     assert data.state.cursor == 2
@@ -808,12 +787,12 @@ async def test_partial_failed_read_reduces_same_worker_budget() -> None:
     data = _BudgetData(state, entries)
     database = _TransactionRecorder(data)
     storage = _BudgetStorage(fail_after={0: 2})
-    workflow = ImportWorkflow(database, storage, object())
+    workflow = ImportWorkflow(
+        database, storage, object(), source=_BudgetAdapter(entries)
+    )
     keeper = LeaseKeeper(database, object(), state, asyncio.Event())
 
-    await workflow._copy_manifest(
-        state, _BudgetAdapter(entries), {"base_prefix": ""}, keeper
-    )
+    await workflow._copy_manifest(state, keeper)
 
     assert storage.budgets == [6, 4]
     assert data.state.cursor == 2
@@ -833,12 +812,12 @@ async def test_reclaimed_worker_restarts_partial_attempt_budget_from_durable_byt
     data = _BudgetData(after_partial_error, remaining)
     database = _TransactionRecorder(data)
     storage = _BudgetStorage()
-    workflow = ImportWorkflow(database, storage, object())
+    workflow = ImportWorkflow(
+        database, storage, object(), source=_BudgetAdapter(remaining)
+    )
     keeper = LeaseKeeper(database, object(), after_partial_error, asyncio.Event())
 
-    await workflow._copy_manifest(
-        after_partial_error, _BudgetAdapter(remaining), {"base_prefix": ""}, keeper
-    )
+    await workflow._copy_manifest(after_partial_error, keeper)
 
     assert storage.budgets == [6]
     assert data.state.cursor == 2
@@ -882,10 +861,10 @@ async def test_unrepresentable_source_name_is_recorded_and_next_file_is_copied(
     data = _RejectedSourceData(state)
     database = _RejectedSourceDatabase(data)
     adapter = _ValidOnlyAdapter()
-    workflow = ImportWorkflow(database, _ValidOnlyStorage(), object())
+    workflow = ImportWorkflow(database, _ValidOnlyStorage(), object(), source=adapter)
     keeper = LeaseKeeper(database, object(), state, asyncio.Event())
 
-    await workflow._copy_manifest(state, adapter, {"base_prefix": ""}, keeper)
+    await workflow._copy_manifest(state, keeper)
 
     assert len(data.next_publications) == 2
     invalid_settlements = [item for item in data.completions if item[0] == 0]
@@ -896,14 +875,32 @@ async def test_unrepresentable_source_name_is_recorded_and_next_file_is_copied(
     }
     assert data.completions[-1][0] == 1
     assert data.completions[-1][2].status == "copied"
-    assert adapter.opened == ["batch/valid.jpg"]
+    assert len(adapter.opened) == 1
     assert data.state.cursor == 2
     assert data.state.error_count == 1
     assert data.state.added == 1
     assert len(data.image_admission.calls) == 1
     assert data.entry is not None
+    [scope] = adapter.opened
+    assert set(scope) == {
+        "job_id",
+        "lease_token",
+        "entry_index",
+        "publication_id",
+        "item_id",
+        "creation_id",
+        "operation_id",
+    }
+    assert scope["job_id"] == str(state.job_id)
+    assert scope["lease_token"] == str(state.lease_token)
+    assert scope["entry_index"] == data.entry.index
+    assert scope["item_id"] == str(data.entry.item_id)
+    assert scope["publication_id"] == str(data.entry.publication_id)
     assert data.image_admission.calls[0]["item_id"] == data.entry.item_id
-    assert data.image_admission.calls[0]["operation_namespace"] == data.entry.publication_id
+    assert (
+        data.image_admission.calls[0]["operation_namespace"]
+        == data.entry.publication_id
+    )
     assert data.image_admission.calls[0]["object_identity"] == ObjectIdentity(
         etag="etag", byte_size=3, version_id="v1"
     )
@@ -1180,7 +1177,8 @@ async def test_blocked_heartbeat_is_cancelled_at_known_lease_expiry() -> None:
         await asyncio.wait_for(data.cancelled.wait(), timeout=0.3)
         with pytest.raises(LeaseUnavailable):
             keeper.check()
-        assert keeper.stop_requested_from_thread()
+        with pytest.raises(LeaseUnavailable):
+            await asyncio.to_thread(keeper.check)
 
     assert data.heartbeat_calls == 1
     assert asyncio.get_running_loop().time() - started < 0.5
@@ -1257,33 +1255,22 @@ async def test_shutdown_event_prevents_followup_work_without_releasing_lease() -
     assert data.heartbeat_calls == 0
 
 
-def test_import_connection_uses_standard_base64_wrapped_fernet_bytes() -> None:
-    from cryptography.fernet import Fernet
+def test_import_allocation_accepts_saved_target_identity_but_not_ciphertext() -> None:
+    state = _state(stage="importing")
+    entry = _valid_entry(state)
+    from yoao_assets_source_import.workflow import _original_request
 
-    from yoao_assets_source.connectors.crypto import encrypt_secret
-
-    key = Fernet.generate_key()
-    encrypted = base64.b64encode(
-        encrypt_secret({"access_key": "access", "secret_key": "secret"}, key)
-    ).decode("ascii")
-    connection = ImportConnection(
-        job_id=uuid4(),
-        lease_token=uuid4(),
-        kind="s3",
-        config={"endpoint": "http://example.test", "bucket": "incoming"},
-        secret_enc=encrypted,
-        allowlist=[],
-    )
-    workflow = ImportWorkflow(
-        object(),
-        object(),
-        SimpleNamespace(connector_encryption_key=key.decode()),
-    )
-
-    assert workflow._decrypt_connection(connection) == {
-        "access_key": "access",
-        "secret_key": "secret",
+    material = _managed_target(_original_request(entry, state, 100))
+    projection = {
+        **material.model_dump(),
+        "connection_id": uuid4(),
+        "connection_revision": 1,
     }
+    assert ImportOriginalMaterial.model_validate(projection).destination is None
+    with pytest.raises(ValidationError, match="destination"):
+        ImportOriginalMaterial.model_validate(
+            {**projection, "destination": {"secret_enc": "not-a-consumer-field"}}
+        )
 
 
 def test_manifest_wire_budget_stops_large_paths_before_materializing_all_files() -> (
@@ -1307,6 +1294,6 @@ def test_manifest_wire_budget_stops_large_paths_before_materializing_all_files()
         def list(self, path, recursive, include_globs=None):
             return long_paths()
 
-    with pytest.raises(ImportFailure, match="invalid_request"):
-        _collect_manifest(LongPathSource(), state, lambda: False)
+    with pytest.raises(SavedIOError, match="invalid_request"):
+        _collect_manifest(LongPathSource(), state, lambda: None)
     assert count < state.settings_snapshot.dataset_import_max_files
