@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import uuid
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 
 from app.db.models.storage_migration_copy import BASELINE_LIMIT
 from app.schemas.storage_migration_copy import (
@@ -595,7 +596,14 @@ async def settle_dead(db, a):
         else None
     )
     at = now()
-    if not await data.settle_process(db, a, at):
+    try:
+        async with db.begin_nested():
+            settled = await data.settle_process(db, a, at)
+    except IntegrityError as exc:
+        if getattr(exc.orig, "sqlstate", None) != "23503":
+            raise
+        reject("copy_execution_unsettled")
+    if not settled:
         reject("copy_execution_unsettled")
     if job:
         job.status, job.completed_at, job.error_message = (
