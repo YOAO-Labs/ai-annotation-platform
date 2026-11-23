@@ -1592,6 +1592,8 @@ docker compose --env-file "$INFERENCE_DEPLOY_ENV" -p aap-inference-development \
 
 API／worker 将实际启用的 URL 指向进程可达的同一 origin：宿主机用已授权的回环地址，容器用其私网服务地址。Workspace probe、Registry ingress 和健康观察的调用凭据仍相互独立。已经运行旧形态时遵守[升级门禁](docs-site/ops/upgrade-guide.md#split-topology-upgrade)，不要把本段作为日常环境切换授权。健康检查不是 NVIDIA、CPU 模型执行或硬件容量资格。
 
+普通 Celery 接入这个私网服务时，基础 Compose 叠加 `docker-compose.inference-workers-development.yml`。将 `INFERENCE_DEVELOPMENT_CLIENTS_DIR` 指向仓库外的私有目录，按队列准备 `default.env`、`gpu.env`、`cpu.env`、`gpu-control.env`；每个文件只列该队列的 URL 和 `_TOKEN_FILE=/run/secrets/inference-client/<文件名>`。对应 bearer 放在 `callers/<队列>/`，只读挂入本队列；不挂 GPU 签名或采集数据库凭据。不接入独立 Inference 时无需这个 overlay。
+
 ### Inference 服务池策略与项目主绑定清理
 
 能力规范化、指纹及 diff 的单一实现位于 `aap_inference.pool_capability`。API 使用

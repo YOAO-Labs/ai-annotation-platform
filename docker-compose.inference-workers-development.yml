@@ -1,0 +1,33 @@
+x-no-signing-key: &no-signing-key /dev/null:/run/secrets/gpu_lifecycle_signing_keys:ro
+
+services:
+  celery-worker:
+    env_file: ${INFERENCE_DEVELOPMENT_CLIENTS_DIR:?Set the private Inference client directory}/default.env
+    environment:
+      GPU_LIFECYCLE_SIGNING_KEYS_FILE: ""
+    volumes:
+      - *no-signing-key
+      - ${INFERENCE_DEVELOPMENT_CLIENTS_DIR}/callers/default:/run/secrets/inference-client:ro
+
+  celery-worker-gpu:
+    env_file: ${INFERENCE_DEVELOPMENT_CLIENTS_DIR:?Set the private Inference client directory}/gpu.env
+    environment:
+      GPU_LIFECYCLE_SIGNING_KEYS_FILE: ""
+    volumes:
+      - *no-signing-key
+      - ${INFERENCE_DEVELOPMENT_CLIENTS_DIR}/callers/gpu:/run/secrets/inference-client:ro
+
+  celery-worker-cpu:
+    env_file: ${INFERENCE_DEVELOPMENT_CLIENTS_DIR:?Set the private Inference client directory}/cpu.env
+    volumes:
+      - ${INFERENCE_DEVELOPMENT_CLIENTS_DIR}/callers/cpu:/run/secrets/inference-client:ro
+
+  celery-worker-gpu-control:
+    env_file: ${INFERENCE_DEVELOPMENT_CLIENTS_DIR:?Set the private Inference client directory}/gpu-control.env
+    environment:
+      GPU_LIFECYCLE_SIGNING_KEYS_FILE: ""
+      GPU_ARBITER_COLLECTOR_DATABASE_URL_FILE: ""
+    volumes:
+      - *no-signing-key
+      - /dev/null:/run/secrets/gpu_arbiter_collector_database_url:ro
+      - ${INFERENCE_DEVELOPMENT_CLIENTS_DIR}/callers/gpu-control:/run/secrets/inference-client:ro

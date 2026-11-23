@@ -83,6 +83,7 @@ class DevelopmentRestartTests(unittest.TestCase):
             ",/checkout/docker-compose.ml-yolo.yml"
             ",/checkout/docker-compose.ml-onnxtools.yml"
             ",/checkout/docker-compose.ml-rapidocr.yml"
+            ",/checkout/docker-compose.inference-workers-development.yml"
         )
         self.assertEqual(m.validate(self.containers, self.root), list(m.WORKERS))
 

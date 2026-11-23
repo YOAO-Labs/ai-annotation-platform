@@ -828,7 +828,8 @@ last_reviewed: 2026-11-23
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `INFERENCE_PIPELINES_URL` | `—` | API／worker 的 Inference HTTP 客户端：已启用 URL 指向同一 inference origin（私网端口 8768），各用独立 bearer。 存量后端凭据只保存在 owner；没有远程 URL 的命名流水线仍可借用调用方事务。 |
+| `INFERENCE_DEVELOPMENT_CLIENTS_DIR` | `—` | API／worker 的 Inference HTTP 客户端：已启用 URL 指向同一 inference origin（私网端口 8768），各用独立 bearer。 存量后端凭据只保存在 owner；没有远程 URL 的命名流水线仍可借用调用方事务。 |
+| `INFERENCE_PIPELINES_URL` | `—` | — |
 | `INFERENCE_PIPELINES_TOKEN` | `—` | — |
 | `INFERENCE_PIPELINES_TOKEN_FILE` | `—` | — |
 | `INFERENCE_PIPELINES_TIMEOUT_SECONDS` | `30` | — |

@@ -605,6 +605,7 @@ services:
     environment:
       <<: *jobs-publication-env
       ALEMBIC_AUTO_UPGRADE: "false"
+      OPENBLAS_NUM_THREADS: "1"
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
       JOBS_DISPATCH_DATABASE_URL: ${JOBS_DISPATCH_DATABASE_URL:-}
