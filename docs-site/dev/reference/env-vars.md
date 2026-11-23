@@ -618,6 +618,10 @@ last_reviewed: 2026-11-23
 | `ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN_FILE` | `—` | — |
 | `ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN` | `—` | — |
 | `ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_IMPORT_READ_TOKEN` | `—` | 独立导入进程专用令牌，启用时成对配置，不能复用通用或核验令牌。 |
+| `ASSETS_SOURCE_SAVED_IO_IMPORT_READ_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_IMPORT_WRITE_TOKEN` | `—` | — |
+| `ASSETS_SOURCE_SAVED_IO_IMPORT_WRITE_TOKEN_FILE` | `—` | — |
 | `ASSETS_SOURCE_CONNECTIONS_TOKEN` | `—` | — |
 | `ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE` | `—` | — |
 | `ASSETS_SOURCE_SAVED_IO_SPOOL_DIR` | `—` | 容器内仅 Source 挂载该宿主绝对路径。启用保存目标 I/O 前创建目录，属主 10003:10003、0700。 每个 Source 实例一次只接受一个上传；默认上限 64 GiB，以保留现有导出／审计上限。 专用磁盘限额及可用空间须超过配置上限；小型部署可显式设为 5368709120（5 GiB）。 非 Compose 直启时填 Source 可写的实际目录；不会回退到 256 MiB 的 /tmp。 |
@@ -628,7 +632,7 @@ last_reviewed: 2026-11-23
 | `ASSETS_SOURCE_S3_ACCESS_KEY_FILE` | `—` | — |
 | `ASSETS_SOURCE_S3_SECRET_KEY` | `—` | — |
 | `ASSETS_SOURCE_S3_SECRET_KEY_FILE` | `—` | — |
-| `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` | `—` | 沿用既有连接器密文的 Fernet key；独立 Source 与导入进程用各自可读的文件。 |
+| `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` | `—` | 沿用既有连接器密文的 Fernet key，仅独立 Source 挂载。 |
 | `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY_FILE` | `—` | — |
 | `ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST` | `[]` | Settings 数据库覆盖不存在时使用的部署回退；必须为 JSON 字符串数组，空数组不允许连接器目标出网。 |
 | `ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` | `—` | 可选只读 known_hosts 文件；容器内路径必须可读，未知 SFTP 主机仍被拒绝。 |
@@ -677,6 +681,12 @@ last_reviewed: 2026-11-23
 | `ASSETS_IMPORT_VERIFY_URL` | `—` | Source 核验服务的进程可达 origin 与独立令牌。 |
 | `ASSETS_IMPORT_VERIFY_TOKEN` | `—` | — |
 | `ASSETS_IMPORT_VERIFY_TOKEN_FILE` | `—` | — |
+| `ASSETS_IMPORT_SAVED_IO_URL` | `—` | 私网 Source 导入字节通道。读取／复制／独立核验分别使用不同令牌。 |
+| `ASSETS_IMPORT_SAVED_IO_READ_TOKEN` | `—` | — |
+| `ASSETS_IMPORT_SAVED_IO_READ_TOKEN_FILE` | `—` | — |
+| `ASSETS_IMPORT_SAVED_IO_WRITE_TOKEN` | `—` | — |
+| `ASSETS_IMPORT_SAVED_IO_WRITE_TOKEN_FILE` | `—` | — |
+| `ASSETS_IMPORT_SAVED_IO_TIMEOUT_SECONDS` | `120` | — |
 | `ASSETS_IMPORT_S3_ACCESS_KEY` | `—` | — |
 | `ASSETS_IMPORT_S3_ACCESS_KEY_FILE` | `—` | — |
 | `ASSETS_IMPORT_S3_SECRET_KEY` | `—` | — |
@@ -684,8 +694,6 @@ last_reviewed: 2026-11-23
 | `ASSETS_IMPORT_S3_ENDPOINT` | `—` | — |
 | `ASSETS_IMPORT_S3_REGION` | `us-east-1` | — |
 | `ASSETS_IMPORT_DATASETS_BUCKET` | `—` | — |
-| `CONNECTOR_ENCRYPTION_KEY_FILE` | `—` | 导入进程专用文件，使用与独立 Source 相同的 Fernet key、不同文件路径。 |
-| `ASSETS_IMPORT_SFTP_KNOWN_HOSTS` | `—` | 宿主执行时为本地文件；Compose 将该文件挂载到固定只读 secret 路径。 留空时 Compose 使用空示例，SFTP 未知指纹仍然拒绝。 |
 | `ASSETS_IMPORT_LEASE_SECONDS` | `120` | — |
 | `ASSETS_IMPORT_HEARTBEAT_SECONDS` | `20` | — |
 | `ASSETS_IMPORT_POLL_SECONDS` | `2` | — |
@@ -695,7 +703,6 @@ last_reviewed: 2026-11-23
 | `ASSETS_IMPORT_SQL_TIMEOUT_SECONDS` | `10` | — |
 | `ASSETS_IMPORT_S3_CONNECT_TIMEOUT_SECONDS` | `10` | — |
 | `ASSETS_IMPORT_S3_READ_TIMEOUT_SECONDS` | `120` | — |
-| `ASSETS_IMPORT_SFTP_TIMEOUT_SECONDS` | `10` | — |
 
 ## 独立 Mask 字节服务：API 持有内容 token，清单查询使用单独的清理 token。
 
@@ -747,7 +754,7 @@ last_reviewed: 2026-11-23
 |---|---|---|
 | `ASSETS_VIDEO_EXECUTOR` | `celery` | — |
 | `ASSETS_IMAGE_EXECUTOR` | `celery` | — |
-| `ASSETS_CELERY_VIDEO_DATABASE_URL` | `—` | 默认 Celery 选档的窄 worker LOGIN。普通 API、Beat、maintenance 不接收这两个 DSN。 严格 LAN 应为视频执行配置独立 LOGIN；Native 图片写入须另配独立 image LOGIN。 每组值／文件二选一。选择 split 时移除该路 Celery 绑定，改用独立执行器凭据。 |
+| `ASSETS_CELERY_VIDEO_DATABASE_URL` | `—` | 默认 Celery 选档的窄 worker LOGIN。普通 API、Beat、maintenance 不接收这两个 DSN。 视频与图片分别使用独立 LOGIN；普通图片领取、写入及输入准备同样使用窄 image LOGIN。 每组值／文件二选一。选择 split 时移除该路 Celery 绑定，改用独立执行器凭据。 |
 | `ASSETS_CELERY_VIDEO_DATABASE_URL_FILE` | `—` | — |
 | `ASSETS_CELERY_IMAGE_DATABASE_URL` | `—` | — |
 | `ASSETS_CELERY_IMAGE_DATABASE_URL_FILE` | `—` | — |

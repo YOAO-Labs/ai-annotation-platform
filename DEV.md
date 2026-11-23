@@ -2022,13 +2022,13 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-import-grants.sql
 ```
 
-连接参数和数据库名须指向选定环境。该账号仅能执行 18 项导入、托管原件和核验回执消费能力，不能读业务关系、序列或其他模块 schema，也不能有任一方向的角色成员资格。受理/取消和派发能力留给 API/维护运行时，不授予导入账号。
+连接参数和数据库名须指向选定环境。该账号只能领取已接受的工作，通过当前租约保存清单、推进原件并消费核验回执；不能读业务关系、序列或其他模块 schema，也不能有任一方向的角色成员资格。受理／取消和派发能力不授予导入账号。为 Source 单独安装[保存 I/O 授权](docs-site/ops/deploy/docker-compose.md#source-registered-io)。
 
-准备 `.secrets/assets-import-database-url`、`assets-import-verify-token`、`assets-import-s3-access-key`、`assets-import-s3-secret-key` 和 `connector-encryption-key`，内容分别为专用 DSN、独立核验令牌、目标存储身份及与 API 相同的 Fernet key；文件须能被容器用户 10004 读取。Source overlay 另准备 `.secrets/assets-source-import-verify-token`，由用户 10003 读取，与 Importer 核验令牌内容相同但不同于网关令牌；两个进程可各用自己的只读文件，不需要放宽文件权限来共用路径。可用 `.env.example` 中对应的 `_FILE` 变量改路径。内建目标身份只允许 datasets 桶的 `dataset-sources/*` Put 与 AbortMultipartUpload，不授予 Get、List、Delete 或桶管理。来源连接器使用自身的只读凭据，不复用内建目标凭据。
+Importer（UID 10004）准备专用数据库 DSN、内建目的端只写 S3 身份，以及 `ASSETS_IMPORT_SAVED_IO_READ_TOKEN_FILE`、`ASSETS_IMPORT_SAVED_IO_WRITE_TOKEN_FILE`、`ASSETS_IMPORT_VERIFY_TOKEN_FILE` 三个不同的只读文件。Source（UID 10003）分别配置匹配的 `ASSETS_SOURCE_SAVED_IO_IMPORT_READ_TOKEN_FILE`、`ASSETS_SOURCE_SAVED_IO_IMPORT_WRITE_TOKEN_FILE`、`ASSETS_SOURCE_IMPORT_VERIFY_TOKEN_FILE`；不与通用操作或网关令牌复用。每端使用自己可读的文件，不下发连接器 Fernet key。内建目标只允许在 datasets 桶 `dataset-sources/*` 写入、AbortMultipartUpload，不授予 Get、List、Delete 或桶管理。
 
-图片身份来自成功 PutObject 或 CompleteMultipartUpload 回执中的 ETag、可选 VersionId 和实际传输字节数；回执缺失或格式无效时保留明确的文件失败。完整版本回读由 Source 的有限核验通道完成，内建目标的只写 Importer 身份不执行 HEAD／GET。Source 仅在原 datasets `dataset-sources/*` 范围补齐 `GetObjectVersion`，不扩大键范围或给 Importer 增加读取权。外部连接目标沿用同一既有配置身份及其权限，不因此获得读写凭据分离；缺少准确版本读取权限时明确失败。导入心跳的 `dataset_busy` 重试仍受最后一次确认的租约到期时间约束，无法确认时停止 I/O。
+图片身份来自成功 PutObject 或 CompleteMultipartUpload 回执中的 ETag、可选 VersionId 和实际传输字节数；缺少有效回执不能发布。内建目标的准确版本只由 Source 在原 `dataset-sources/*` 范围核验，Importer 不执行 HEAD／GET。已登记目标则由 Source 按保存身份复制并独立核验，Importer 不持有该连接器凭据。导入心跳重试受最后一次确认的租约到期时间约束，无法确认时停止新 I/O。
 
-显式设置 `ASSETS_IMPORT_S3_ENDPOINT` 和 `ASSETS_IMPORT_DATASETS_BUCKET`。执行器每次读取当前数据库白名单，未覆盖时才用 `CONNECTOR_HOST_ALLOWLIST` 部署默认值；显式空数组全拒。SFTP 需将可信指纹文件路径赋给 `ASSETS_IMPORT_SFTP_KNOWN_HOSTS`；默认示例为空，只支持不依赖 SSH 的来源，未知 SFTP 主机被拒绝。
+内建目标显式设置 `ASSETS_IMPORT_S3_ENDPOINT` 和 `ASSETS_IMPORT_DATASETS_BUCKET`。对已登记 S3／SFTP，Source 核对当前主机白名单；显式空数组全拒。SFTP 的可信指纹文件只挂到 Source 的 `ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE`，未知主机被拒绝。不再给 Importer 挂载原加密密钥、出网策略或 SSH 文件。
 
 为完整 Source 配置 `ASSETS_SOURCE_IMPORT_VERIFY_TOKEN` 或其 `_FILE`；Importer 使用
 内容相同的 `ASSETS_IMPORT_VERIFY_TOKEN` 或其 `_FILE`，并配置从该进程实际可达的
@@ -2045,6 +2045,7 @@ Source 另以 `ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS` 限制整段原件�
 
 ```bash
 export ASSETS_IMPORT_VERIFY_URL=http://assets-source:8767
+export ASSETS_IMPORT_SAVED_IO_URL=http://assets-source:8767
 docker compose -p aap-assets-source-import-dev \
   -f docker-compose.assets-source.yml -f docker-compose.assets-import.yml \
   up -d --build assets-source assets-import
@@ -2073,7 +2074,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-operator-grants.sql
 ```
 
-`yoao_asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它只能执行 `yoao_assets_v1` 中六项 operator 函数，不直接读写表、不访问其他 owner schema；`dataset_operator_operations` 保存不可变操作回执且没有 live Dataset/Item 外键。不要把 Source 的完整能力集、Catalog 的 29 项或导入执行器的 18 项能力授给该角色。现有脚本继续使用原装配连接；六函数账号供来源能力的独立消费者使用，不能直接运行还包含 Identity、Workspace 或 Labeling 步骤的完整脚本。operator grants 会拒绝数据库 CREATE/TEMP 权限，包含从 PUBLIC 获得的权限；初始化应撤销 PUBLIC 的 TEMP，只对既有确需临时表的角色显式授予。
+`yoao_asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它通过固定函数工作，不直接读写业务表；owner UUID 表示归属，不替代可信 operator 身份。不要将 Source、Catalog 或租约导入器的凭据授给它。完整脚本涉及的 Identity、Workspace 或 Labeling 操作不能由这一个窄账号代替。operator grants 会拒绝数据库 CREATE/TEMP 权限，包括从 PUBLIC 获得的权限；只对确需临时表的角色单独授予。
 
 登记操作继续使用调用方同一 SQL 事务；nuScenes 导入可将 Dataset/Item、Scene、标定、工作区关联和 Labeling 任务共同提交或回滚。条目按输入顺序以至多 500 项分批追加或更新。重导读取通过排序游标返回稳定快照；单页最多 500 项，记录 JSON 上限 15 MiB，完整响应上限 16 MiB，单次请求上限 8 MiB。调用方校验页序、总数和快照摘要后再使用数据；source snapshot 是不透明 CAS 值，更新时由 Assets 重新校验并只合并请求字段。
 

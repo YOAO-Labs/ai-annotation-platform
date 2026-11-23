@@ -71,7 +71,7 @@ ZIP 将新字节写入不可变 key：`dataset-sources/{dataset_id}/{item_id}/{p
 
 ## 事务与存储权限
 
-Source LOGIN 当前执行完整能力集，覆盖来源/入库、连接器、图片来源/作业受理、托管原件、导入核验和 Native 捕获。连接导入器使用独立的 18 项 LOGIN 能力；两者均不能直接读写业务表、序列、其他 owner schema 或继承角色。两个媒体派发 claim/ack 能力只由 API maintenance relay 使用。原生 SQL 安装与 owner 授权见[同库数据接口](/api/guides/module-data)。来源删除的 Audit、回执和派生清理 outbox 与业务删除在同一事务；原始字节始终保留。
+来源控制、入库和核验用 Source 控制 LOGIN；已登记连接器的物理读写另用保存 I/O LOGIN。Importer 仅能领取已接受的导入、推进托管原件并消费核验回执，不能获取连接器密文。各 LOGIN 不能直接读写业务表、序列或继承角色。两个媒体派发 claim/ack 能力只由 API maintenance relay 使用。见[同库数据接口](/api/guides/module-data)。来源删除的 Audit、回执和派生清理 outbox 与业务删除在同一事务；原始字节始终保留。
 
 S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历史来源读取与该桶自身的 ListBucket，以及 `dataset-sources/*` 的 Put、multipart Abort 和准确版本核验所需的 `GetObjectVersion`。扫描只对原生能力返回的 Dataset 前缀执行条件 HEAD/GET。它不能删除对象、列其它桶或管理桶，普通身份也不写 media-cache。可选 Native 金字塔签名使用单独 Native S3 身份，只为已保存输出签发有限请求，不执行对象 I/O；配置、调用方 token 与策略模板见服务 README 和[图片金字塔运行手册](/ops/runbooks/image-pyramid)。内部 I/O endpoint 与浏览器签名 endpoint 分别显式配置，签名后不改 Host。服务不读取请求提供的任意 URL、bucket 或对象 key。
 
@@ -81,15 +81,15 @@ S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历�
 
 ## 运行与回退
 
-独立 Source 先使用兼容 SQL、`infra/docker/assets-source-grants.sql` 的受限 LOGIN 和专属 S3 身份，再部署 `docker-compose.assets-source.yml`；启用 Native 时叠加 `docker-compose.assets-native.yml`。连接器写路径才使用 API 的 `ASSETS_SOURCE_URL`／`ASSETS_SOURCE_TOKEN`（默认超时 300 秒），与 Importer 使用的 `ASSETS_IMPORT_VERIFY_URL`／核验 token、Native 三类签名绑定分别配置。`/ready` 仅证明 Source 宿主就绪，不把任何 owner 凭据交给 API。
+先迁移并安装 `infra/docker/assets-source-grants.sql` 的控制 LOGIN 和[保存 I/O 的独立授权与私网 token](/ops/deploy/docker-compose#source-registered-io)，再启动 `docker-compose.assets-source.yml`；需要 Native 签名时叠加 `docker-compose.assets-native.yml`。API 的连接管理令牌、普通读写令牌、导入租约令牌、准确版本核验令牌及 Native 签名分别配置。`/ready` 只证明 Source 宿主就绪。
 
-仅在导入核验、恢复和历史 Native 输出已无依赖时才停止独立 Source；把连接器 URL 清空不会迁移这三类责任。回退前保留兼容 SQL 与完成回执，在途操作沿用原键确认。
+已登记原件、保存产物、在途导入或历史 Native 输出仍依赖 Source 时不能停它。清空 URL 不会迁移责任或把已保存目标改向内建存储。回退前须保留兼容 SQL 和操作回执，按原身份处置在途 I/O。
 
 ## 持久连接器导入
 
 `POST /api/v1/datasets/{dataset_id}/import-from-connection` 仍返回 202 与 `job_id`，并保留 `datasets:write`、全局管理员角色、连接器可见性和出网白名单检查。可传 UUID `Idempotency-Key`，成功时回显；相同键与请求找回原作业，改变请求复用旧键返回 409。当前账户与权限在重放时仍需有效。
 
-`aap-dataset-import/v1` 将接受、租约、冻结清单、逐文件完成和终态分开；每次调用在完整回复验证后提交。`python -m yoao_assets_source_import` 使用独立数据库身份轮询已接受作业，不导入 API、ORM、Celery 或 Redis。18 项执行能力只允许处理已接受的导入及其托管原件、核验回执；接受和取消能力由 API 使用，不授予执行器。
+`aap-dataset-import/v1` 将接受、租约、冻结清单、逐文件完成和终态分开；每次调用在完整回复验证后提交。`python -m yoao_assets_source_import` 使用独立数据库身份轮询已接受作业，不导入 API、ORM、Celery 或 Redis。它用当前作业及租约调用 Source，仅能枚举、读取已观察条目或复制到本次保存目标；请求不能指定任意 endpoint、bucket 或 key。受理和取消仍由 API 执行。
 
 每个作业固定预算与连接器配置/加密凭据快照。已接受作业继续使用这份快照；删除连接器不会删除快照或撤销已受理的执行授权。执行时再次读取有效白名单，显式空数据库覆盖保持拒绝。已接受执行不因原发起者被停用而丢弃；显式取消、Jobs 终态、父数据集和当前租约仍逐项围栏。
 
@@ -97,7 +97,7 @@ S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历�
 
 图片对象身份取自成功上传回执的 ETag、可选 VersionId 和实际字节数，与登记的同一份输出相匹配。内建目标的 Importer 身份继续只有写入与 multipart Abort 权限，不用于 HEAD／GET；缺少有效写回执或完整核验回执时不能发布。心跳遇到 `dataset_busy` 时复用当前租约重试，全部重试与续租调用受最后一次确认的到期时间约束；真正失租、取消或无法确认续租时停止 I/O。
 
-S3 源读取核对枚举的 ETag；SFTP 使用已知主机指纹、目录围栏和读取前后身份校验。取消可能无法立即中止外部阻塞调用，但旧结果不能越过 SQL 围栏登记。已提交条目保留；未知或重复的未引用原始拷贝暂不回收。
+Source 按观察到的 S3 VersionId 读取并核对 ETag；SFTP 核验主机公钥、目录边界和读取前后身份。取消不能保证已经发出的网络调用立即停止，旧结果不能越过租约围栏登记。已提交条目保留；未知或重复的未引用原始拷贝不自动回收。
 
 ### Source 所属的导入核验
 
@@ -131,9 +131,6 @@ Importer 保留自身有限等待期限。初始错误或内容不可信的回�
 当前完成文档位于打包的 `0453_import_original_completion.schema.json`，冻结的历史 schema
 保持不变。已接受作业不重新授权原发起者；取消、删除与当前 Job／租约围栏仍生效。
 
-内建目标仅由 Source 核验身份在原 `dataset-sources/*` 范围持有 `GetObjectVersion`。
-外部连接目标沿用既有配置身份：Importer 已使用同一凭据写入，该身份原有的读权限也对
-Importer 可用，不能宣称外部目标已有读写凭据分离。外部目标核验需要其保存身份具备
-准确范围内的 `GetObject`／`GetObjectVersion`；缺失即失败，不自动授权、不改读当前版本。
+内建目标由 Importer 的受限身份写入，Source 在原 `dataset-sources/*` 范围用 `GetObjectVersion` 验证。已登记 S3 目标的连接凭据仅由 Source 打开，用于保存前缀内的条件复制与准确版本回读；Importer 只持当前租约的窄令牌。缺少准确版本、回执或 `GetObjectVersion` 权限即失败，不自动授权，也不改读当前版本。
 
 媒体和通知沿用既有执行方，持久 outbox 由 API maintenance relay 领取并在派发成功后确认。队列投递可能重复；确认代表 broker 接受，不代表媒体计算完成。此能力不迁移连接器管理和媒体执行本身，也不等同完整 Assets 可独立部署。部署及旧作业排空规则见 `DEV.md`、[ADR-0100](/dev/adr/0100-durable-connector-import) 与 [ADR-0101](/dev/adr/0101-assets-synchronous-zip-and-scan)。

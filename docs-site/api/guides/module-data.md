@@ -484,7 +484,7 @@ ZIP 的 `read_dataset_ingest_layout` 以 UUID keyset 分页返回至多 500 个 
 
 ## 存储连接器管理
 
-下表九项原生能力用于连接管理；连同运行时配置读取，Source 的连接相关能力为 11 项。Source LOGIN 还包含来源/入库、`resolve_internal_image_source`、`schedule_image_media`、`read_legacy_dataset_upload`、托管原件和导入核验能力，共执行 42 项。独立连接器导入执行器使用 18 项 LOGIN 能力，执行已接受的导入、托管原件写入及准确核验回执消费；它不能接受新的导入授权。两个角色都不能直接读取或写入业务表。
+下表九项原生能力用于连接管理。Source 控制 LOGIN 还承担来源／入库、图片受理、托管原件和导入核验。独立导入器则用当前租约推进已接受的作业和消费准确核验回执，不能受理新导入或打开连接器凭据。已登记来源的物理 I/O 使用 Source 专属的固定能力；三种 LOGIN 均不能直接读写业务私表。
 
 | 原生能力                          | SQL 参数签名                                                       |
 | --------------------------------- | ------------------------------------------------------------------ |
@@ -504,7 +504,7 @@ Source 在 `public.storage_connection_operations` 中保存不可变幂等回执
 
 ## 可信导入器数据集与素材登记
 
-0218 为现有本地图片与 nuScenes 导入器发布独立的 `aap-assets-operator/v1` SQL 合同。它与 Source 的 42 项、Catalog 的 29 项和连接器导入执行器的 18 项 LOGIN 能力分开；专用 `yoao_asset_operator_client` LOGIN 被授予下面六项 Assets 函数。持有该 operator 凭据即获得此路径的受信任执行权限，owner UUID 只保留既有归属标记。图片导入沿用已有 owner 选择且没有新增 manager 门槛；nuScenes 保留既有 Catalog 资格检查和先锁 actor、再锁 Dataset 的顺序。函数不接收调用者传来的角色布尔值。
+现有本地图片与 nuScenes 导入器使用 `aap-assets-operator/v1` SQL 合同。专用 `yoao_asset_operator_client` 可执行以下 Assets 操作，不共用 Source、Catalog 或租约导入器的凭据。owner UUID 只表示既有归属，不代替 operator 身份；函数不信任调用者传入的角色布尔值。图片导入沿用既有 owner 选择且不追加 manager 门槛，nuScenes 保留 Catalog 资格检查和先锁 actor、再锁 Dataset 的顺序。
 
 | 原生能力                           | SQL 参数签名               | 用途                                                                |
 | ---------------------------------- | -------------------------- | ------------------------------------------------------------------- |

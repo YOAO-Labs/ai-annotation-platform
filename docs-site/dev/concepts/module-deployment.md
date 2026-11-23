@@ -173,7 +173,7 @@ Learning 必须收口数据版本、训练、评估、主动学习和模型发�
 | `docker-compose.notifications-publisher.yml`                                              | `notifications-publisher`                                                                                                                   | 仅当需要 publish-only 的进程级 Redis ACL；私网 bearer 与窄 SQL，API 只订阅，不恢复同一 outbox 两次。                                                                                                 |
 | `docker-compose.inference.yml`                                                            | `inference`                                                                                                                                 | 真实推理（含 CPU）、Registry 同步、健康观察、Workspace 探测及 GPU 控制；同一私网 origin 8768，按用途分 bearer、窄 LOGIN 和签名／GPU 身份。不是模型容器，显式远端不可用不回退。                       |
 | `docker-compose.assets-source.yml`                                                        | `assets-source`                                                                                                                             | 连接器秘密、主机策略、导入精确版本核验／恢复及 Native 有限签名留在 Source；已登记 S3／SFTP 的物理 I/O 决定见下节。                                                                                   |
-| `docker-compose.assets-import.yml`；`docker-compose.assets-cleanup.yml`                   | `assets-import`；`assets-cleanup`                                                                                                           | 导入复制保留独立租约、受限目的端写入和 Source 版本核验；清理只按已保存派生对象的前缀／版本工作，不授予通用原件删除权。                                                                               |
+| `docker-compose.assets-import.yml`；`docker-compose.assets-cleanup.yml`                   | `assets-import`；`assets-cleanup`                                                                                                           | 导入保留独立租约，内建目的端只写；已登记来源的读取、外部目的端复制及准确版本核验归 Source。清理只按已保存派生对象的前缀／版本工作，不授予通用原件删除权。                                            |
 | `docker-compose.assets-media.yml`                                                         | `assets-media-control`（同名 profile）；`assets-media-worker`（`assets-video-executor`）；`assets-images-worker`（`assets-image-executor`） | `ASSETS_MEDIA_URL` 只选择远端控制；执行分别用 `ASSETS_VIDEO_EXECUTOR=split`、`ASSETS_IMAGE_EXECUTOR=split`，只停对应 Celery 通道。FFmpeg／临时盘与 libvips／内存分离，控制、领取及实际写入身份分开。 |
 | `docker-compose.assets-mask-content.yml`；`docker-compose.labeling-mask-gc.yml`           | `assets-mask-content`、`assets-mask-cleanup`；`labeling-mask-gc`（`mask-gc` profile）                                                       | 内容与条件清理各用独立字节凭据；手动 GC 持固定函数和 cleanup bearer，无 S3 凭据，不替代 Beat 的保存目标回收。                                                                                        |
 | `docker-compose.modules.yml`；`docker-compose.audit.yml`                                  | `media-probe`；`audit-maintenance`（`maintenance` profile）                                                                                 | 前者隔离 FFmpeg，仅持探测 token，无 DB／S3；后者是窄归档账号的一次性 operator，不替代产出 `audit_archive_outputs` 的默认任务。                                                                       |
@@ -1847,9 +1847,9 @@ Assets 的来源删除命令在当前素材库管理员与来源锁内组合 Lea
 
 ## Assets 来源控制与连接管理
 
-`apps/assets-source` 的既有 HTTP runtime 执行单文件上传初始化、发布完成、Dataset/Item 删除、同步 ZIP、旧前缀扫描，以及列表、读取、创建、更新、删除和测试六项连接管理操作。连接管理仍通过 API 原有认证入口；内部 Source 接口接收 API 提供的 actor UUID，并由 Identity 与 Assets 原生能力重新验证活动状态、连接范围和当前权限。`ASSETS_SOURCE_URL` 为空时使用本地 Source 工作流；配置远程 URL 后，远程故障不会回退到本地实现。Source 容器不是默认或生产 Compose 的一部分，按独立工件部署。
+公开素材来源操作和连接器可见性经 API 鉴权，复用现有工作流与调用方事务。已登记连接器的凭据管理与物理 I/O 由私网 Source 承担；API 不因远程失败而改用本地密钥或直接打开客户端。Source 容器按需部署，安装步骤见[Source 边界](../../ops/deploy/docker-compose#source-registered-io)。
 
-Source LOGIN 精确执行 42 项 Assets 能力：15 项来源/入库、11 项连接相关、3 项图片来源、8 项托管原件和 5 项导入核验能力，不授予业务关系、序列或其他 owner schema 的直接权限。Catalog LOGIN 仍为 29 项，导入执行器 LOGIN 为 18 项；两个媒体投递 claim/ack 能力只供 API maintenance relay。
+Source 控制 LOGIN 执行来源、入库、连接管理、图片受理和导入核验能力。保存 I/O、租约导入和 Catalog 各用不同的固定能力，没有业务私表权限；两个媒体投递 claim/ack 能力只供 API maintenance relay。
 
 Assets Media 共用控制 LOGIN 执行 49 项能力（视频 18 项、图片 14 项、图片输入 4 项、图片批量清单 4 项、视频输入 9 项），视频 worker 执行 20 项（既有视频 10 项、视频输入执行 9 项和回收扫描 1 项）；图片执行 worker 使用独立 LOGIN，精确执行 6 项图片及 4 项输入能力。Assets cleanup LOGIN 执行 8 项能力，分别处理通用存储 outbox、图片垃圾、图片输入垃圾和视频输入垃圾。以上受限角色均不获得业务表、列、序列、外部 owner schema 或 DDL 权限。视频输入的原生状态、HTTP、独立执行、证据与回收已完成本地数据库和真实对象存储联调，Node 消费者验证全部十个 HTTP 操作。逐帧业务的受理、覆盖、推理、失败重试及候选采纳已接入固定输入；API/Celery、Media 和 Cleanup 的本地容器链路、固定负载与两类在途交接均已有本地证据；全模块目标继续推进。
 
@@ -1898,7 +1898,7 @@ Media 接管另使用 20 秒、600 帧、约 32.4 MB 的视频：暂停实际执
 
 ## 独立连接器导入执行
 
-`yoao_assets_source_import` 消费已接受的导入操作，以 18 项 execute-only Assets 能力和专用来源发布 S3 身份运行，不依赖 API/Celery/Redis 包。API 的接受/取消适配器使用版本化命令；Jobs、Settings 和 Notifications 的跨 owner 数据只经各自能力传递。
+`yoao_assets_source_import` 只领取已接受的导入，通过受限 SQL 能力推进当前租约、清单、提交与恢复，不依赖 API、Celery 或 Redis。内建目的端使用只写前缀身份；已登记 S3／SFTP 的列表、读取和外部目标复制仅由 Source 按观察身份执行。API 仍负责接受和取消。
 
 冻结清单、租约接替、条件源读取与不可变发布路径，使导入在进程中断后继续已提交进度。Item、Labeling append、计数、游标和派发 outbox 原子提交；显式取消与当前作业状态阻止迟到 I/O 重新建题。后续媒体/通知仍由现有执行方接手，outbox 只保证可恢复派发，不宣称计算完成或 broker 恰好一次。
 

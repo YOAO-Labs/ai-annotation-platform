@@ -98,7 +98,7 @@ CONNECTOR_DEPLOYMENT_SFTP_HOST=deploy-sftp.internal
 
 超级管理员随后可在数据连接器页点击「添加部署主机」，复用 SFTP 表单并预填地址与端口 22。该快捷项不会自动探测宿主地址、加入白名单或写入凭据；仍需显式配置白名单，并录入专用 SFTP 账号。推荐使用只能读取 staging 目录、最好禁用 shell 的账号和私钥认证，不要使用 root 或日常部署账号。
 
-SFTP 测试与实际导入统一支持 RSA、Ed25519、ECDSA 私钥，并都使用 Paramiko `RejectPolicy`。本地 API 的目标主机指纹写入只读挂载的 `config/ssh/known_hosts`；独立 Source 通过 `ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` 指定可读文件，独立导入执行器使用 `ASSETS_IMPORT_SFTP_KNOWN_HOSTS`，均挂载同一份可信指纹。Source 未指定文件时使用进程的系统 `known_hosts`。可选 Compose 的默认示例文件没有指纹，未知主机会被拒绝；启用 SFTP 导入前须显式配置。探测失败只公开安全异常类名。S3 导入不需要 SSH 指纹。
+已登记 SFTP 的测试和导入都由 Source 使用 Paramiko `RejectPolicy` 核验主机，支持 RSA、Ed25519、ECDSA 私钥。可信主机指纹挂到 `ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE`；未配置时使用 Source 进程的系统 `known_hosts`。默认示例无指纹，未知主机拒绝连接。Importer 不持 SSH 文件或私钥；S3 导入不需要 SSH 指纹。
 
 ## 导入护栏
 
@@ -106,7 +106,7 @@ SFTP 测试与实际导入统一支持 RSA、Ed25519、ECDSA 私钥，并都使�
 
 API 受理时固定本次限制，独立执行器在复制前保存不可变清单；修改部署限制不会改变已受理作业。清单另有 16 MiB 协议上限。单个对象使用最多 64 MiB 的分块与最多 10000 个分块，协议上限为 625 GiB；这不是容量承诺。
 
-导入执行器使用独立的九函数数据库账号和目标存储写入凭据，不读取业务表，也不连接 Redis/Celery。目标凭据只允许 `dataset-sources/*` 的 Put 与中止未完成 multipart；来源连接器使用自身只读凭据。未登记的复制对象保留，当前没有自动回收。运行边界见[模块部署](/dev/concepts/module-deployment#独立连接器导入执行)，具体部署命令见仓库 `DEV.md`。
+导入执行器使用独立的租约函数账号，不读业务表或连接 Redis／Celery。内建目的端只允许在 `dataset-sources/*` 写入和中止 multipart；已登记来源读取和外部目标复制由 Source 按保存身份执行，Importer 不持连接器密钥或私钥。未登记的复制对象保留，不自动回收。见[独立连接器导入](/dev/concepts/module-deployment#独立连接器导入执行)。
 
 ## 相关文档
 
