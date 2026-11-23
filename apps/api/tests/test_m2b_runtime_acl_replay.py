@@ -264,6 +264,15 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
                         f"ALTER DEFAULT PRIVILEGES IN SCHEMA {aap} GRANT EXECUTE ON FUNCTIONS",
                     ):
                         await db.exec_driver_sql(f"{statement} TO {grantee}")
+                credential_oids = list(
+                    await db.scalars(
+                        text(
+                            "SELECT CAST(name AS regprocedure)::oid FROM "
+                            "unnest(CAST(:names AS text[])) AS t(name)"
+                        ),
+                        {"names": list(_INFERENCE_FENCES)},
+                    )
+                )
 
             before = {
                 row["relation"]: row for row in await conn.fetch(_EFFECTIVE_ACCESS)
@@ -287,9 +296,9 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
             }
             assert await conn.fetchval(f"SELECT {aap}.private_fn()") == 1
             assert await conn.fetchval(
-                "SELECT bool_and(has_function_privilege(signature, 'EXECUTE')) "
-                "FROM unnest($1::text[]) AS t(signature)",
-                list(_INFERENCE_FENCES),
+                "SELECT bool_and(has_function_privilege(oid, 'EXECUTE')) "
+                "FROM unnest($1::oid[]) AS t(oid)",
+                credential_oids,
             )
 
             await install()
@@ -323,7 +332,6 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
                                 "yoao_assets_v1.capture_storage_connection(uuid,uuid,text)",
                                 "yoao_jobs_v1.claim_dispatches(jsonb)",
                                 "yoao_insights_v1.refresh_user_perf_daily()",
-                                *_INFERENCE_FENCES,
                             ]
                         },
                     )
@@ -350,7 +358,7 @@ async def test_ordinary_acl_removes_stale_grants_on_replay(
                 )
                 is False
             )
-            for oid in denied_routines:
+            for oid in (*denied_routines, *credential_oids):
                 assert (
                     await conn.fetchval(
                         "SELECT has_function_privilege($1::oid, 'EXECUTE')", oid
