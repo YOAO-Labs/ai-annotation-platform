@@ -22,6 +22,8 @@ JOBS_DISPATCH_FILE = "/run/secrets/jobs_dispatch_database_url"
 JOBS_PUBLICATION_FILE = "/run/secrets/jobs_publication_database_url"
 ALERT_CONFIG = "/etc/alertmanager/alertmanager.yml"
 ALERT_PASSWORD = "/run/secrets/alertmanager_smtp_password"
+INSIGHTS_REFRESH_KEY = "INSIGHTS_REFRESH_DATABASE_URL_FILE"
+INSIGHTS_REFRESH_TARGET = "/run/secrets/insights_refresh_database_url"
 SOURCE_SPOOL = "/var/lib/yoao/assets-source/spool"
 SOURCE_URL = "http://assets-source:8767"
 SOURCE_CONFIG = {
@@ -83,6 +85,12 @@ class ComposeMailTests(unittest.TestCase):
             shutil.copy(ROOT / name, self.root / name)
         alert_config_dir = Path("infra/alertmanager")
         shutil.copytree(ROOT / alert_config_dir, self.root / alert_config_dir)
+        self.insights_refresh = self.root / "insights-refresh-database-url"
+        self.insights_refresh.write_text(
+            "postgresql://insights_refresh:fixture-file@postgres/fixture\n",
+            encoding="utf-8",
+        )
+        self.insights_refresh.chmod(0o400)
 
     def config(
         self,
@@ -103,6 +111,7 @@ class ComposeMailTests(unittest.TestCase):
                 "LAN_BIND_IP": "127.0.0.1",
                 "MINIO_TRAINING_BUCKET": "fixture-training",
                 "MINIO_INPUTS_BUCKET": "fixture-inputs",
+                INSIGHTS_REFRESH_KEY: str(self.insights_refresh),
                 **values,
             }
         env_file = self.root / (
@@ -403,6 +412,57 @@ class ComposeMailTests(unittest.TestCase):
             services["alertmanager"], ALERT_PASSWORD, alert_password
         )
         self.assertNotIn("fixture-only", json.dumps(services))
+
+    def test_insights_refresh_file_is_available_only_to_maintenance(self):
+        for production, lan in ((None, False), (PRODUCTION, False), (PRODUCTION, True)):
+            with self.subTest(production=production is not None, lan=lan):
+                services = self.config(
+                    production=production,
+                    lan=lan,
+                    profile="maintenance" if lan else None,
+                    variables={
+                        "INSIGHTS_REFRESH_DATABASE_URL": "fixture-inline-refresh-secret",
+                        INSIGHTS_REFRESH_KEY: str(self.insights_refresh),
+                    },
+                )
+                self.assertNotIn("fixture-inline-refresh-secret", json.dumps(services))
+                self.assertNotIn("fixture-file@postgres", json.dumps(services))
+                for name, service in services.items():
+                    env = service.get("environment", {})
+                    self.assertFalse(env.get("INSIGHTS_REFRESH_DATABASE_URL"), name)
+                    if name == "celery-worker-maintenance":
+                        self.assertEqual(
+                            env[INSIGHTS_REFRESH_KEY], INSIGHTS_REFRESH_TARGET
+                        )
+                        self.assert_read_only_bind(
+                            service, INSIGHTS_REFRESH_TARGET, self.insights_refresh
+                        )
+                    else:
+                        self.assertFalse(env.get(INSIGHTS_REFRESH_KEY), name)
+                        for mount in service.get("volumes", []):
+                            self.assertNotEqual(
+                                mount.get("source"), str(self.insights_refresh), name
+                            )
+                            self.assertNotEqual(
+                                mount["target"], INSIGHTS_REFRESH_TARGET, name
+                            )
+
+    def test_insights_refresh_file_is_required_for_lan_only(self):
+        with self.assertRaisesRegex(AssertionError, INSIGHTS_REFRESH_KEY):
+            self.config(
+                production=PRODUCTION,
+                lan=True,
+                variables={
+                    INSIGHTS_REFRESH_KEY: "",
+                    "INSIGHTS_REFRESH_DATABASE_URL": "not-a-file",
+                },
+            )
+        for production in (None, PRODUCTION):
+            with self.subTest(production=production is not None):
+                services = self.config(production=production)
+                worker = services["celery-worker-maintenance"]
+                self.assertFalse(worker["environment"][INSIGHTS_REFRESH_KEY])
+                self.assert_read_only_bind(worker, INSIGHTS_REFRESH_TARGET, "/dev/null")
 
     def test_recovery_is_a_default_bare_worker_using_the_actual_broker(self):
         for deployment, production, lan in (

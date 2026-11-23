@@ -33,6 +33,10 @@ FIXTURE_ORIGINAL_ENV_KEYS = frozenset(
         "SECRET_KEY_FILE",
     )
 )
+_INSIGHTS_REFRESH_SELECTORS = (
+    "INSIGHTS_REFRESH_DATABASE_URL",
+    "INSIGHTS_REFRESH_DATABASE_URL_FILE",
+)
 
 
 class WorktreeError(ValueError):
@@ -229,6 +233,7 @@ def _validate_environment_sources(
 def isolated_module_environment() -> dict[str, str]:
     """Beat, API and local workers must not rediscover shared .env credentials."""
     empty_selectors = {
+        *_INSIGHTS_REFRESH_SELECTORS,
         "ASSETS_MEDIA_URL",
         "ASSETS_MEDIA_TOKEN",
         "ASSETS_CATALOG_URL",
@@ -617,8 +622,13 @@ def application_environment(environment: dict) -> dict:
             for key, value in environment.items()
             if not is_private_inference_dsn(key)
             and key.upper()
-            not in {"JOBS_DISPATCH_DATABASE_URL", "JOBS_DISPATCH_DATABASE_URL_FILE"}
+            not in {
+                "JOBS_DISPATCH_DATABASE_URL",
+                "JOBS_DISPATCH_DATABASE_URL_FILE",
+                *_INSIGHTS_REFRESH_SELECTORS,
+            }
         },
+        **dict.fromkeys(_INSIGHTS_REFRESH_SELECTORS, ""),
         "MIGRATION_DATABASE_URL": "",
         "TEST_DATABASE_URL": "",
         "PLAYWRIGHT_E2E_DATABASE_URL": "",

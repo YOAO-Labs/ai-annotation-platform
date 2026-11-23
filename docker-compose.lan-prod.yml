@@ -18,6 +18,8 @@ x-private-env: &private-env
   JOBS_PUBLICATION_DATABASE_URL_FILE: ""
   EXPORT_EXECUTION_DATABASE_URL: ""
   EXPORT_EXECUTION_DATABASE_URL_FILE: ""
+  INSIGHTS_REFRESH_DATABASE_URL: ""
+  INSIGHTS_REFRESH_DATABASE_URL_FILE: ""
   NOTIFICATION_PUBLICATION_URL: ""
   NOTIFICATION_PUBLICATION_TOKEN: ""
   NOTIFICATION_PUBLICATION_TOKEN_FILE: ""
@@ -483,9 +485,16 @@ services:
     command: celery -A app.workers.celery_app worker -l info -Q maintenance --concurrency=1 --prefetch-multiplier=1
     environment:
       <<: [*assets-source-read-env, *assets-source-write-env, *runtime-env]
+      INSIGHTS_REFRESH_DATABASE_URL_FILE: /run/secrets/insights_refresh_database_url
     volumes:
       - *assets-source-read-secret
       - *assets-source-write-secret
+      - type: bind
+        source: ${INSIGHTS_REFRESH_DATABASE_URL_FILE:?Set the maintenance-only Insights refresh DSN file}
+        target: /run/secrets/insights_refresh_database_url
+        read_only: true
+        bind:
+          create_host_path: false
 
   celery-worker-gpu:
     <<: *worker

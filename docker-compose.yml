@@ -2,6 +2,8 @@ x-celery-env: &celery-env
   CELERY_BROKER_URL: ${CELERY_BROKER_URL:-}
   ASSETS_VIDEO_EXECUTOR: ${ASSETS_VIDEO_EXECUTOR:-celery}
   ASSETS_IMAGE_EXECUTOR: ${ASSETS_IMAGE_EXECUTOR:-celery}
+  INSIGHTS_REFRESH_DATABASE_URL: ""
+  INSIGHTS_REFRESH_DATABASE_URL_FILE: ""
 
 x-assets-celery-video-env: &assets-celery-video-env
   ASSETS_CELERY_VIDEO_DATABASE_URL: ${ASSETS_CELERY_VIDEO_DATABASE_URL:-}
@@ -174,6 +176,7 @@ services:
     environment:
       <<: [*celery-env, *assets-source-read-env, *assets-source-write-env]
       DATABASE_URL: ${MIGRATION_DATABASE_URL_DOCKER:-${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}}
+      INSIGHTS_REFRESH_DATABASE_URL_FILE: ${INSIGHTS_REFRESH_DATABASE_URL_FILE:+/run/secrets/insights_refresh_database_url}
       MIGRATION_DATABASE_URL: ""
       TEST_DATABASE_URL: ""
       PLAYWRIGHT_E2E_DATABASE_URL: ""
@@ -189,6 +192,12 @@ services:
     volumes:
       - *assets-source-read-secret
       - *assets-source-write-secret
+      - type: bind
+        source: ${INSIGHTS_REFRESH_DATABASE_URL_FILE:-/dev/null}
+        target: /run/secrets/insights_refresh_database_url
+        read_only: true
+        bind:
+          create_host_path: false
       - ./apps/api:/app
       - /app/.venv
     healthcheck:
