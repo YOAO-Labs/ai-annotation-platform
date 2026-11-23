@@ -115,7 +115,7 @@ dependencies = [
     { name = "yoao-identity-admission", extra = ["http"] },
     { name = "yoao-inference" },
     { name = "yoao-inference-contract", extra = ["client"] },
-    { name = "yoao-jobs", extra = ["queue-client"] },
+    { name = "yoao-jobs" },
     { name = "yoao-labeling", extra = ["postgres"] },
     { name = "yoao-labeling-mask-gc", extra = ["client"] },
     { name = "yoao-lifecycle-contract" },
@@ -189,7 +189,7 @@ requires-dist = [
     { name = "yoao-identity-admission", extras = ["http"], editable = "../_shared/identity_admission" },
     { name = "yoao-inference", editable = "../inference" },
     { name = "yoao-inference-contract", extras = ["client"], editable = "../_shared/inference_contract" },
-    { name = "yoao-jobs", extras = ["queue-client"], editable = "../jobs" },
+    { name = "yoao-jobs", editable = "../jobs" },
     { name = "yoao-labeling", extras = ["postgres"], editable = "../labeling" },
     { name = "yoao-labeling-mask-gc", extras = ["client"], editable = "../labeling-mask-gc" },
     { name = "yoao-lifecycle-contract", editable = "../_shared/lifecycle_contract" },
@@ -3338,11 +3338,6 @@ version = "0.1.0"
 source = { editable = "../jobs" }
 dependencies = [
     { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-queue-client = [
-    { name = "httpx" },
 ]
 
 [package.metadata]

@@ -25,9 +25,6 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from yoao_jobs.dispatch_postgres import JobsDispatchPostgres
-from yoao_jobs.dispatch_relay import JobsDispatchRelay
-from yoao_jobs.queue_client import JobsQueueClient
 
 from app.config import settings
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
@@ -44,10 +41,7 @@ from tests.project_guide_asset_owner_helpers import (
     endpoint_url,
 )
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
-from tests.test_identity_module_assembly_live import (
-    _publisher_redis,
-    _restored_database,
-)
+from tests.test_identity_module_assembly_live import _restored_database
 from tests.test_identity_recovery import _postgres_tool
 from tests.identity_recovery_live_helpers import SMTPInbox
 from tests.test_identity_sessions_live import _login_redis, _verify_redis
@@ -71,6 +65,7 @@ from tests.test_workspace_export_worker_live import (
 )
 from tests.workspace_worker_assembly_helpers import WorkspaceCeleryWorker
 from tests.jobs_quality_module_helpers import exercise_quality_dispatch
+from tests.jobs_recovery_helpers import denied_first_publication, jobs_recovery_worker
 
 
 pytestmark = [
@@ -78,21 +73,13 @@ pytestmark = [
     pytest.mark.skipif(
         os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1"
         or os.getenv("AAP_IDENTITY_LIVE_ACCEPTANCE") != "1"
-        or os.getenv("AAP_JOBS_QUEUE_MODULE_LIVE") != "1"
-        or not os.getenv("AAP_JOBS_QUEUE_RUNTIME_IMAGE")
-        or not os.getenv("AAP_JOBS_QUEUE_RUNTIME_IDENTITY")
-        or not os.getenv("AAP_JOBS_QUEUE_RUNTIME_SOURCE_REVISION")
+        or os.getenv("AAP_JOBS_HOST_ASSEMBLY_LIVE") != "1"
         or not os.getenv("AAP_IDENTITY_API_RUNTIME_IMAGE")
         or not os.getenv("AAP_WORKSPACE_MODULE_API_IMAGE"),
-        reason="requires the source-bound API, Jobs queue, and owned worker verifier",
+        reason="requires the source-bound API and owned worker verifier",
     ),
 ]
 
-_JOBS_QUEUE_IMAGE_INPUTS = (
-    "AAP_JOBS_QUEUE_RUNTIME_IMAGE",
-    "AAP_JOBS_QUEUE_RUNTIME_IDENTITY",
-    "AAP_JOBS_QUEUE_RUNTIME_SOURCE_REVISION",
-)
 _CLONE_ROLE_ENVIRONMENT = (
     "TEST_DATABASE_URL",
     "AAP_MODULE_DATA_IDENTITY_API_CONSUMER_URL",
@@ -702,7 +689,6 @@ async def _exercise_export_dispatch(
     owner_s3,
     directory,
     known_task_ids,
-    queue_token,
     realm,
     *,
     check_outage,
@@ -755,9 +741,9 @@ async def _exercise_export_dispatch(
         ) as client:
             headers = await _login(client, maker, world["owner_id"])
             if check_outage:
-                await stack.stop_service("jobs-queue")
                 for label, path, body in requests:
-                    response = await client.post(path, headers=headers, json=body)
+                    async with denied_first_publication(test_engine):
+                        response = await client.post(path, headers=headers, json=body)
                     assert response.status_code == 500, stack.redact(response.text)
                     async with maker() as db:
                         pending = await db.scalar(
@@ -779,7 +765,7 @@ async def _exercise_export_dispatch(
                                         "SELECT i.intent_id, i.execution_id, i.envelope, i.state, "
                                         "a.state AS physical_state "
                                         "FROM yoao_jobs_v1.dispatch_intents AS i "
-                                        "JOIN yoao_jobs_v1.dispatch_publication_attempts AS a "
+                                        "LEFT JOIN yoao_jobs_v1.dispatch_publication_attempts AS a "
                                         "ON a.intent_id=i.intent_id AND a.generation=i.generation "
                                         "WHERE i.job_id=:job AND i.purpose='execution'"
                                     ),
@@ -790,7 +776,7 @@ async def _exercise_export_dispatch(
                             .one()
                         )
                         assert intent["state"] == "pending"
-                        assert intent["physical_state"] == "not_sent"
+                        assert intent["physical_state"] is None
                         assert (
                             intent["envelope"]["execution_id"] == intent["execution_id"]
                         )
@@ -812,7 +798,6 @@ async def _exercise_export_dispatch(
                         "queue_size": 0,
                         "unacknowledged": 0,
                     }
-                await stack.start_service("jobs-queue")
                 relay_url = _owned_jobs_role_url(
                     "AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL",
                     "yoao_jobs_dispatch_relay_client",
@@ -823,33 +808,31 @@ async def _exercise_export_dispatch(
                     "yoao_jobs_publication_client",
                     test_engine,
                 )
-                async with await JobsDispatchPostgres.connect(relay_url) as provider:
-                    relay = JobsDispatchRelay(
-                        provider.client,
-                        JobsQueueClient(stack.jobs_queue_origin, queue_token),
-                        publication_url,
-                        batch_size=3,
+                expected_jobs = {uuid.UUID(item["job_id"]) for item in outages}
+                async with maker() as db:
+                    candidates = set(
+                        (
+                            await db.execute(
+                                text(
+                                    "SELECT i.job_id FROM yoao_jobs_v1.dispatch_intents i "
+                                    "JOIN public.async_jobs j ON j.id=i.job_id "
+                                    "WHERE i.state IN ('pending','leased') "
+                                    "AND j.status IN ('pending','running')"
+                                )
+                            )
+                        ).scalars()
                     )
-                    expected_jobs = {uuid.UUID(item["job_id"]) for item in outages}
+                assert candidates == expected_jobs, (
+                    "recovery scope contains foreign work"
+                )
+                async with jobs_recovery_worker(
+                    directory=directory / "jobs-recovery",
+                    dispatch_url=relay_url,
+                    publication_url=publication_url,
+                ) as (worker_process, beat):
                     deadline = time.monotonic() + 60
                     while time.monotonic() < deadline:
-                        async with maker() as db:
-                            candidates = set(
-                                (
-                                    await db.execute(
-                                        text(
-                                            "SELECT i.job_id FROM yoao_jobs_v1.dispatch_intents i "
-                                            "JOIN public.async_jobs j ON j.id=i.job_id "
-                                            "WHERE i.state IN ('pending','leased') "
-                                            "AND j.status IN ('pending','running')"
-                                        )
-                                    )
-                                ).scalars()
-                            )
-                        assert candidates <= expected_jobs, (
-                            "relay scope contains foreign work"
-                        )
-                        await relay.run_once()
+                        assert worker_process.poll() is None and beat.poll() is None
                         async with maker() as db:
                             submitted = set(
                                 (
@@ -867,7 +850,7 @@ async def _exercise_export_dispatch(
                         await asyncio.sleep(0.2)
                     else:
                         raise AssertionError(
-                            "Jobs relay did not recover all outage exports"
+                            "Jobs worker did not recover all outage exports"
                         )
                 for item in outages:
                     async with maker() as db:
@@ -1212,13 +1195,8 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
         f"outside-guide/jobs-queue-{uuid.uuid4()}.txt",
     )
 
-    secret, api_secret, control, queue_token = [
-        secrets.token_urlsafe(32) for _ in range(4)
-    ]
-    assert len({secret, api_secret, control, queue_token}) == 4
-    queue_image, queue_identity, queue_revision = (
-        os.environ[name] for name in _JOBS_QUEUE_IMAGE_INPUTS
-    )
+    secret, api_secret, control = [secrets.token_urlsafe(32) for _ in range(3)]
+    assert len({secret, api_secret, control}) == 3
     inbox = SMTPInbox()
     tmp_path = create_retained_realm()
     realm = _ColdExportRealm(tmp_path)
@@ -1263,18 +1241,14 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
     @asynccontextmanager
     async def redis_users_with_stack_cleanup():
         async with _login_redis(retain=retain_realm) as (login_url, _login_owner):
-            async with _publisher_redis(retain=retain_realm) as (
-                publisher_url,
-                _publisher_owner,
-            ):
-                try:
-                    yield login_url, publisher_url
-                finally:
-                    if stack is not None and not retain_realm():
-                        await stack.stop()
+            try:
+                yield login_url
+            finally:
+                if stack is not None and not retain_realm():
+                    await stack.stop()
 
     try:
-        async with redis_users_with_stack_cleanup() as (login_url, publisher_url):
+        async with redis_users_with_stack_cleanup() as login_url:
             sender_url = os.environ.get("CELERY_BROKER_URL") or os.environ["REDIS_URL"]
             sender = Celery(
                 "jobs-queue-cold-acceptance", broker=sender_url, backend=sender_url
@@ -1294,23 +1268,22 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 control=control,
                 mail_key=Fernet.generate_key().decode(),
                 login_redis_url=login_url,
-                publisher_redis_url=publisher_url,
                 smtp_port=inbox.port,
-                jobs_queue_image=queue_image,
-                jobs_queue_identity=queue_identity,
-                jobs_queue_source_revision=queue_revision,
-                jobs_queue_token=queue_token,
+                jobs_publication=True,
             )
             stack.retain_while(lambda: realm.unsettled)
             await stack.start()
-            queue_evidence = stack.inspection_evidence["jobs-queue"]
-            assert queue_evidence["user"] == "10005:10005"
-            assert queue_evidence["read_only"] is True
-            assert queue_evidence["secret_mount_targets"] == [
-                "/run/secrets/jobs_queue_broker_url",
-                "/run/secrets/jobs_queue_token",
-            ]
-            record_property("jobs_queue_runtime", queue_evidence)
+            api_evidence = stack.inspection_evidence["identity-api"]
+            assert api_evidence["read_only"] is True
+            assert (
+                "/run/secrets/jobs_publication_database_url"
+                in api_evidence["secret_mount_targets"]
+            )
+            assert (
+                "/run/secrets/jobs_dispatch_database_url"
+                not in api_evidence["secret_mount_targets"]
+            )
+            record_property("jobs_api_broker_runtime", api_evidence)
 
             async with httpx.AsyncClient(
                 base_url=stack.api_origin,
@@ -1318,9 +1291,8 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 timeout=40,
             ) as client:
                 headers = await _login(client, maker, world["actor_id"])
-                await stack.stop_service("jobs-queue")
-
-                unavailable = await _request_cross_frame(client, headers, world)
+                async with denied_first_publication(test_engine):
+                    unavailable = await _request_cross_frame(client, headers, world)
                 assert unavailable.status_code == 503, unavailable.text
                 failed_job = await _latest_job(
                     test_engine,
@@ -1338,18 +1310,15 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 assert _broker_state(sender, "default") == {
                     "queue_size": 0,
                     "unacknowledged": 0,
-                }, (
-                    "API fell back to its embedded Celery broker while Jobs owner was down"
-                )
+                }, "failed owner admission must not send a broker message"
                 record_property(
-                    "jobs_queue_owner_outage",
+                    "jobs_publication_authority_outage",
                     {
                         "http_status": unavailable.status_code,
                         "job_status": failed_job.status,
                     },
                 )
 
-                await stack.start_service("jobs-queue")
                 accepted = await _request_cross_frame(client, headers, world)
                 assert accepted.status_code == 202, stack.redact(accepted.text)
                 accepted_job = accepted.json()
@@ -1441,7 +1410,6 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 owner_s3,
                 tmp_path / "jobs-export-before-restore",
                 known_task_ids,
-                queue_token,
                 realm,
                 check_outage=True,
             )
@@ -1607,7 +1575,6 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                             owner_s3,
                             tmp_path / "jobs-export-after-restore",
                             known_task_ids,
-                            queue_token,
                             realm,
                             check_outage=False,
                         )
@@ -1773,91 +1740,81 @@ async def test_cold_jobs_queue_cancel_and_terminal_replay(
         guide_bucket,
         f"outside-guide/jobs-cancel-{uuid.uuid4()}.txt",
     )
-    secret, api_secret, control, queue_token = [
-        secrets.token_urlsafe(32) for _ in range(4)
-    ]
-    queue_image, queue_identity, queue_revision = (
-        os.environ[name] for name in _JOBS_QUEUE_IMAGE_INPUTS
-    )
+    secret, api_secret, control = [secrets.token_urlsafe(32) for _ in range(3)]
     inbox = SMTPInbox()
     stack = None
     worker = None
     sender = None
     try:
         async with _login_redis() as (login_url, _login_owner):
-            async with _publisher_redis() as (publisher_url, _publisher_owner):
+            try:
+                sender_url = (
+                    os.environ.get("CELERY_BROKER_URL") or os.environ["REDIS_URL"]
+                )
+                sender = Celery(
+                    "jobs-cancel-cold-acceptance",
+                    broker=sender_url,
+                    backend=sender_url,
+                )
+                sender.conf.update(
+                    task_serializer="json",
+                    result_serializer="json",
+                    accept_content=["json"],
+                )
+                _assert_owned_broker_target(sender)
+                stack = IdentityModuleStack(
+                    test_engine,
+                    tmp_path,
+                    secret=secret,
+                    api_secret=api_secret,
+                    control=control,
+                    mail_key=Fernet.generate_key().decode(),
+                    login_redis_url=login_url,
+                    smtp_port=inbox.port,
+                    jobs_publication=True,
+                )
+                await stack.start()
+                worker = WorkspaceCeleryWorker(
+                    test_engine,
+                    tmp_path / "jobs-cancel-worker",
+                    backend_token=uuid.uuid4().hex,
+                    object_store_endpoint=minio_origin,
+                    object_store_bucket=guide_bucket,
+                    object_store_use_ssl=urlsplit(minio_origin).scheme == "https",
+                    object_store_access_key=guide_scope["access_key"],
+                    object_store_secret_key=guide_scope["secret_key"],
+                    queue_name="default",
+                )
+                worker.start()
+                await _wait_worker_ready(sender, worker)
+                known_task_ids: set[str] = set()
+                async with httpx.AsyncClient(
+                    base_url=stack.api_origin, trust_env=False, timeout=40
+                ) as client:
+                    await _exercise_queue_cancellation(
+                        test_engine,
+                        client,
+                        maker,
+                        sender,
+                        worker,
+                        known_task_ids,
+                        record_property,
+                    )
+                _assert_owned_broker_target(sender)
+                record_property("jobs_queue_execution_ids", sorted(known_task_ids))
+            except BaseException:
+                if stack is not None:
+                    record_property(
+                        "jobs_queue_module_diagnostics", stack.capture_diagnostics()
+                    )
+                raise
+            finally:
                 try:
-                    sender_url = (
-                        os.environ.get("CELERY_BROKER_URL") or os.environ["REDIS_URL"]
-                    )
-                    sender = Celery(
-                        "jobs-cancel-cold-acceptance",
-                        broker=sender_url,
-                        backend=sender_url,
-                    )
-                    sender.conf.update(
-                        task_serializer="json",
-                        result_serializer="json",
-                        accept_content=["json"],
-                    )
-                    _assert_owned_broker_target(sender)
-                    stack = IdentityModuleStack(
-                        test_engine,
-                        tmp_path,
-                        secret=secret,
-                        api_secret=api_secret,
-                        control=control,
-                        mail_key=Fernet.generate_key().decode(),
-                        login_redis_url=login_url,
-                        publisher_redis_url=publisher_url,
-                        smtp_port=inbox.port,
-                        jobs_queue_image=queue_image,
-                        jobs_queue_identity=queue_identity,
-                        jobs_queue_source_revision=queue_revision,
-                        jobs_queue_token=queue_token,
-                    )
-                    await stack.start()
-                    worker = WorkspaceCeleryWorker(
-                        test_engine,
-                        tmp_path / "jobs-cancel-worker",
-                        backend_token=uuid.uuid4().hex,
-                        object_store_endpoint=minio_origin,
-                        object_store_bucket=guide_bucket,
-                        object_store_use_ssl=urlsplit(minio_origin).scheme == "https",
-                        object_store_access_key=guide_scope["access_key"],
-                        object_store_secret_key=guide_scope["secret_key"],
-                        queue_name="default",
-                    )
-                    worker.start()
-                    await _wait_worker_ready(sender, worker)
-                    known_task_ids: set[str] = set()
-                    async with httpx.AsyncClient(
-                        base_url=stack.api_origin, trust_env=False, timeout=40
-                    ) as client:
-                        await _exercise_queue_cancellation(
-                            test_engine,
-                            client,
-                            maker,
-                            sender,
-                            worker,
-                            known_task_ids,
-                            record_property,
-                        )
-                    _assert_owned_broker_target(sender)
-                    record_property("jobs_queue_execution_ids", sorted(known_task_ids))
-                except BaseException:
-                    if stack is not None:
-                        record_property(
-                            "jobs_queue_module_diagnostics", stack.capture_diagnostics()
-                        )
-                    raise
+                    if worker is not None:
+                        worker.stop()
                 finally:
-                    try:
-                        if worker is not None:
-                            worker.stop()
-                    finally:
-                        if stack is not None:
-                            await stack.stop()
+                    if stack is not None:
+                        await stack.stop()
     finally:
         try:
             if sender is not None:

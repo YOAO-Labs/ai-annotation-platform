@@ -223,7 +223,6 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
     assert make_url(celery_app.conf.broker_url) == make_url(
         settings.effective_celery_broker
     )
-    monkeypatch.setattr(settings, "jobs_queue_url", "")
     routing = fixture_routing_owner(test_engine, monkeypatch)
     owner = suite = media = worker = sender = scope = owner_log = None
     neighbor_suite = None

@@ -25,6 +25,7 @@ from worktree_env import (
     WorktreeError,
     application_environment,
     atomic_json,
+    isolated_module_environment,
     frontend_environment,
     load_identity,
     read_state,
@@ -32,6 +33,31 @@ from worktree_env import (
     topology,
     validate_launch_mode,
 )
+
+_WORKER_ROLES = (
+    "worker",
+    "maintenance_worker",
+    "jobs_recovery_worker",
+    "jobs_recovery_beat",
+)
+
+
+def _recovery_broker_environment(environment: dict) -> dict:
+    broker = environment["CELERY_BROKER_URL"]
+    return {
+        **isolated_module_environment(),
+        **{
+            key: environment[key]
+            for key in ("PATH", "LANG", "LC_ALL", "TMPDIR")
+            if key in environment
+        },
+        "REDIS_URL": broker,
+        "CELERY_BROKER_URL": broker,
+        "DATABASE_URL": "postgresql+asyncpg://",
+        "MIGRATION_DATABASE_URL": "",
+        "TEST_DATABASE_URL": "",
+        "PLAYWRIGHT_E2E_DATABASE_URL": "",
+    }
 
 
 def worker_queues_match(node: str, configured: str, active: list[dict]) -> bool:
@@ -602,8 +628,8 @@ def diagnose(backend) -> dict:
     script = str(backend.code_root / "scripts/worktree_runtime.py")
     report["running"] = bool(record and process_matches(record, script))
     report["state"] = "stopped"
-    report["worker"] = "not requested"
-    report["maintenance_worker"] = "not requested"
+    for role in _WORKER_ROLES:
+        report[role] = "not requested"
     if resources["mode"] == "e2e":
         marker_path = state_path(Path(resources["root"]), "e2e", "inference-owner.json")
         if marker_path.exists():
@@ -631,8 +657,8 @@ def diagnose(backend) -> dict:
             {**child, "alive": process_matches(child, str(backend.code_root))}
             for child in record.get("children", [])
         ]
-        report["worker"] = record.get("worker", "not requested")
-        report["maintenance_worker"] = record.get("maintenance_worker", "not requested")
+        for role in _WORKER_ROLES:
+            report[role] = record.get(role, "not requested")
         service_path = state_path(
             Path(resources["root"]), resources["mode"], "services.json"
         )
@@ -650,7 +676,7 @@ def diagnose(backend) -> dict:
         if record.get("command") == "up" and "services" not in report:
             report["state"] = "starting"
             report["errors"].append("API/Web 尚未就绪")
-        for role in ("worker", "maintenance_worker"):
+        for role in _WORKER_ROLES:
             if record.get("worker_requested") and not record.get(role):
                 report[role] = "starting"
                 report["state"] = "starting"
@@ -837,7 +863,7 @@ def finish_e2e_direct_children(
                     entry["command_exit_acknowledged"] = acknowledged
                     if not acknowledged:
                         failures.append(f"{role}:{result}")
-                elif role in {"worker", "maintenance_worker"}:
+                elif role in _WORKER_ROLES:
                     if (
                         command_exit is None
                         or child.pid not in requested
@@ -1021,9 +1047,6 @@ def run_processes(
                 if any(value != "ml.cpu" for value in selectors):
                     raise WorktreeError(f"当前题 AI 门禁要求 {key}=ml.cpu")
                 environment[key] = "ml.cpu"
-            environment["JOBS_PUBLICATION_DATABASE_URL"] = asyncio.run(
-                selected_inference.prepare_jobs_publication()
-            )
             print(
                 f"[dev:worktree] 当前题 AI：数据库 {runtime.database}，普通账号 {runtime.username}，"
                 "受限 Jobs 发布及私有路由、健康、模型执行已就绪",
@@ -1149,8 +1172,13 @@ def run_processes(
         if options.with_worker:
             from celery import Celery
 
+            broker_env = _recovery_broker_environment(environment)
+            dispatch_url = backend.jobs_database_url("jobs-dispatch")
+            recovery_database = dispatch_url.replace(
+                "postgresql://", "postgresql+asyncpg://", 1
+            )
             client = Celery(
-                "worktree_readiness", broker=environment["CELERY_BROKER_URL"]
+                "worktree_readiness", broker=broker_env["CELERY_BROKER_URL"]
             )
             try:
                 for role, suffix, queues, database_url, required_tasks in (
@@ -1171,10 +1199,29 @@ def run_processes(
                         environment["MIGRATION_DATABASE_URL"],
                         ("app.workers.audit_partition.ensure_future_audit_partitions",),
                     ),
+                    (
+                        "jobs_recovery_worker",
+                        "-jobs-recovery",
+                        "jobs.recovery",
+                        recovery_database,
+                        ("app.workers.jobs_dispatch.recover_job_dispatches",),
+                    ),
                 ):
                     worker_name = (
                         f"worktree-{resources['id']}-{resources['mode']}{suffix}@local"
                     )
+                    if role == "jobs_recovery_worker":
+                        worker_environment = {
+                            **broker_env,
+                            "JOBS_DISPATCH_DATABASE_URL": dispatch_url,
+                            "JOBS_PUBLICATION_DATABASE_URL": environment[
+                                "JOBS_PUBLICATION_DATABASE_URL"
+                            ],
+                        }
+                    else:
+                        worker_environment = application_environment(environment)
+                        if role == "maintenance_worker" or ai_request_worker:
+                            worker_environment["JOBS_PUBLICATION_DATABASE_URL"] = ""
                     worker = launch(
                         [
                             sys.executable,
@@ -1192,13 +1239,8 @@ def run_processes(
                         role,
                         root / "apps/api",
                         child_environment={
-                            **application_environment(environment),
+                            **worker_environment,
                             "DATABASE_URL": database_url,
-                            **(
-                                {"JOBS_PUBLICATION_DATABASE_URL": ""}
-                                if ai_request_worker
-                                else {}
-                            ),
                         },
                     )
                     deadline = time.monotonic() + 60
@@ -1237,6 +1279,25 @@ def run_processes(
                     )
             finally:
                 client.close()
+            schedule_path = str(
+                state_path(
+                    Path(resources["root"]), resources["mode"], "data", "jobs-beat"
+                )
+            )
+            recovery_beat_command = (
+                "from app.workers.celery_app import celery_app; "
+                "key = 'recover-job-dispatches'; "
+                "celery_app.conf.beat_schedule = {key: celery_app.conf.beat_schedule[key]}; "
+                f"celery_app.start(['beat', '--loglevel=WARNING', {('--schedule=' + schedule_path)!r}])"
+            )
+            beat = launch(
+                [sys.executable, "-c", recovery_beat_command],
+                "jobs_recovery_beat",
+                root / "apps/api",
+                child_environment=broker_env,
+            )
+            record["jobs_recovery_beat"] = beat.pid
+            atomic_json(record_path, record)
         if stopping:
             return 128 + stop_signal if canonical_e2e else 0
         module = (root / "scripts/dev-worktree.mjs").as_uri()

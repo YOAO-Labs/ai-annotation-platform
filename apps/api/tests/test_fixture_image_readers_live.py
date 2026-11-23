@@ -727,8 +727,6 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         media_url = str(media.control_client.base_url).rstrip("/")
         monkeypatch.setattr(settings, "assets_media_url", media_url)
         monkeypatch.setattr(settings, "assets_media_token", media.control_token)
-        monkeypatch.setattr(settings, "jobs_queue_url", "")
-        monkeypatch.setenv("JOBS_QUEUE_URL", "")
         monkeypatch.setattr(settings, "image_pyramid_auto_generate", True)
         monkeypatch.setattr(
             settings, "image_pyramid_optional_pixels", _POLICY.optional_pixels

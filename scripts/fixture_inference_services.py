@@ -310,7 +310,6 @@ class FixtureInferenceServices:
         action: str,
         *,
         require_existing: bool = False,
-        publication_only: bool = False,
     ):
         credentials = self._load_credentials(create=action == "create")
         observed_db = await self.backend.database()
@@ -350,16 +349,12 @@ class FixtureInferenceServices:
                     .mappings()
                     .one()
                 )
-                profiles = (
-                    {}
-                    if publication_only
-                    else {
-                        "routing": ("yoao_inference_routing_v1", _ROUTING),
-                        "health": ("yoao_inference_health_observation_v1", _HEALTH),
-                        **_control_profiles(),
-                    }
-                )
-                if publication_only or action != "create":
+                profiles = {
+                    "routing": ("yoao_inference_routing_v1", _ROUTING),
+                    "health": ("yoao_inference_health_observation_v1", _HEALTH),
+                    **_control_profiles(),
+                }
+                if action != "create":
                     profiles["jobs_publication"] = (
                         "yoao_jobs_v1",
                         tuple(
@@ -399,11 +394,7 @@ class FixtureInferenceServices:
                             ),
                             {
                                 "role": role,
-                                "password": (
-                                    _derive_secret(credentials, b"jobs-publication/v1")
-                                    if kind == "jobs_publication"
-                                    else credentials[kind + "_password"]
-                                ),
+                                "password": credentials[kind + "_password"],
                                 "owner": self.resources["owner"],
                             },
                         )
@@ -845,42 +836,6 @@ class FixtureInferenceServices:
             "INFERENCE_MODEL_EXECUTION_TOKEN_FILE": "",
             "ML_BACKEND_ROUTER_MODE": "enforce",
         }
-
-    async def prepare_jobs_publication(self) -> str:
-        import asyncpg
-        from yoao_owner_data.postgres import (
-            FunctionRoleUnavailable,
-            verify_function_only_role,
-        )
-
-        if self._credentials is None or not self.is_alive():
-            raise WorktreeError("推理夹具 owner 不可验证；拒绝选择 Jobs 发布账号")
-        await self._roles("create", publication_only=True)
-        role = self.resources["database"] + "_jobs_publish"
-        url = self.backend.url.set(
-            drivername="postgresql",
-            username=role,
-            password=_derive_secret(self._credentials, b"jobs-publication/v1"),
-        ).render_as_string(hide_password=False)
-        try:
-            connection = await asyncpg.connect(url, timeout=5, command_timeout=5)
-            try:
-                database = await connection.fetchval("SELECT current_database()")
-                if database != self.resources["database"]:
-                    raise WorktreeError("Jobs 发布账号连接的数据库与本环境不一致")
-                await verify_function_only_role(
-                    connection,
-                    schema="yoao_jobs_v1",
-                    functions=_JOBS_PUBLICATION,
-                    role=role,
-                )
-            finally:
-                await connection.close()
-        except (asyncpg.PostgresError, OSError, FunctionRoleUnavailable) as exc:
-            raise WorktreeError("无法核对本环境的受限 Jobs 发布账号") from exc
-        if not self.is_alive():
-            raise WorktreeError("推理夹具 owner 身份变化；拒绝选择 Jobs 发布账号")
-        return url
 
     def pause(self):
         with self._lifecycle_lock:

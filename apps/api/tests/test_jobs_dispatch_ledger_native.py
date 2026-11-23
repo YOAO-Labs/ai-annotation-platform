@@ -857,7 +857,7 @@ async def test_locked_terminal_intent_does_not_block_live_dispatch(test_engine):
 
 @pytest.mark.skipif(
     os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
-    reason="requires verifier-owned API and dispatch-relay LOGINs",
+    reason="requires verifier-owned API, claim and publication LOGINs",
 )
 async def test_api_accepts_and_relay_recovers_without_private_ledger_privileges(
     test_engine,
@@ -872,10 +872,26 @@ async def test_api_accepts_and_relay_recovers_without_private_ledger_privileges(
     _verify_postgres(test_engine.url)
     api_url = make_url(settings.database_url).set(drivername="postgresql")
     relay_url = make_url(os.environ["AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL"])
+    publication_url = make_url(os.environ["AAP_MODULE_DATA_JOBS_PUBLICATION_URL"])
     expected = (test_engine.url.host, test_engine.url.port, test_engine.url.database)
     assert (api_url.host, api_url.port, api_url.database) == expected
     assert (relay_url.host, relay_url.port, relay_url.database) == expected
-    assert len({api_url.username, relay_url.username, test_engine.url.username}) == 3
+    assert (
+        publication_url.host,
+        publication_url.port,
+        publication_url.database,
+    ) == expected
+    assert (
+        len(
+            {
+                api_url.username,
+                relay_url.username,
+                publication_url.username,
+                test_engine.url.username,
+            }
+        )
+        == 4
+    )
     sessions = async_sessionmaker(test_engine, expire_on_commit=False)
     job = _job()
     try:
@@ -912,6 +928,8 @@ async def test_api_accepts_and_relay_recovers_without_private_ledger_privileges(
                     "SELECT * FROM yoao_jobs_v1.dispatch_intents",
                     "SELECT * FROM public.async_jobs",
                     "SELECT yoao_jobs_v1.prepare_dispatch('{}'::jsonb)",
+                    "SELECT * FROM yoao_jobs_v1.dispatch_publication_attempts",
+                    "SELECT yoao_jobs_v1.begin_dispatch_publication(NULL::uuid,NULL::uuid,NULL::text,NULL::bigint,NULL::uuid)",
                     "CREATE TABLE public.jobs_relay_escape(id integer)",
                 ),
             ),
@@ -920,6 +938,18 @@ async def test_api_accepts_and_relay_recovers_without_private_ledger_privileges(
                 (
                     "SELECT * FROM yoao_jobs_v1.dispatch_intents",
                     "SELECT yoao_jobs_v1.claim_dispatches('{}'::jsonb)",
+                    "SELECT * FROM yoao_jobs_v1.dispatch_publication_attempts",
+                    "SELECT yoao_jobs_v1.begin_dispatch_publication(NULL::uuid,NULL::uuid,NULL::text,NULL::bigint,NULL::uuid)",
+                ),
+            ),
+            (
+                publication_url,
+                (
+                    "SELECT * FROM yoao_jobs_v1.dispatch_intents",
+                    "SELECT * FROM yoao_jobs_v1.dispatch_publication_attempts",
+                    "SELECT * FROM public.async_jobs",
+                    "SELECT yoao_jobs_v1.claim_dispatches('{}'::jsonb)",
+                    "CREATE TABLE public.jobs_publication_escape(id integer)",
                 ),
             ),
         ):

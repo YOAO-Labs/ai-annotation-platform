@@ -1,29 +1,23 @@
-"""Owned CLI crash recovery of a partially published real frame canvas.
+"""Process-loss recovery through the normal Jobs sender, Celery worker and Beat.
 
-Model responses and retained-byte readers are fixtures. PostgreSQL, Redis, the
-independently installed queue/relay CLIs, process deaths, and frame writes are real.
+Model responses and retained-byte readers are fixtures. PostgreSQL, Redis,
+the publisher process death, replay and frame writes are real.
 """
 
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
 import hashlib
 import json
 import os
-from pathlib import Path
-import secrets
 import signal
-import socket
-import subprocess
 from types import SimpleNamespace
 
 from celery import signals
 from celery.contrib.testing.worker import start_worker
-import httpx
 import pytest
 import redis
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 
 from yoao_jobs.dispatch_postgres import JobsDispatchPostgres
@@ -36,6 +30,12 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.prediction import Prediction
 from app.workers import frame_preannotate
 from app.workers.celery_app import celery_app
+from tests.jobs_recovery_helpers import (
+    jobs_broker_env,
+    jobs_child,
+    jobs_recovery_worker,
+    jobs_secret,
+)
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_frame_preannotate_persistence import (
     _install_frame_execution_fake,
@@ -49,77 +49,9 @@ pytestmark = [
     pytest.mark.skipif(
         os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1"
         or os.environ.get("AAP_JOBS_DISPATCH_RUNTIME_LIVE") != "1",
-        reason="requires verifier-owned services and the independently installed Jobs CLIs",
+        reason="requires the verifier's isolated database and broker",
     ),
 ]
-
-
-@asynccontextmanager
-async def _child(command, *, environment, directory, name):
-    log = (directory / f"{name}.log").open("xb")
-    process = subprocess.Popen(
-        command,
-        cwd=directory,
-        env=environment,
-        stdin=subprocess.DEVNULL,
-        stdout=log,
-        stderr=subprocess.STDOUT,
-        start_new_session=True,
-    )
-    try:
-        yield process
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                await asyncio.to_thread(process.wait, timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                await asyncio.to_thread(process.wait, timeout=5)
-        log.close()
-
-
-def _secret(directory, name, value):
-    path = directory / name
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    with os.fdopen(descriptor, "w") as output:
-        output.write(value)
-    return str(path)
-
-
-async def _wait_ready(process, origin):
-    async with asyncio.timeout(20):
-        async with httpx.AsyncClient(trust_env=False, timeout=1) as client:
-            while process.poll() is None:
-                try:
-                    response = await client.get(origin + "/health/ready")
-                    if response.status_code == 200:
-                        return
-                except httpx.HTTPError:
-                    pass
-                await asyncio.sleep(0.05)
-    raise AssertionError("owned queue CLI did not become ready")
-
-
-@asynccontextmanager
-async def _queue(binary, *, directory, environment, broker, token_file, name):
-    with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 0))
-        port = listener.getsockname()[1]
-    broker_file = _secret(directory, name + "-broker", broker)
-    env = {
-        **environment,
-        "JOBS_QUEUE_BROKER_URL_FILE": broker_file,
-        "JOBS_QUEUE_TOKEN_FILE": token_file,
-        "JOBS_QUEUE_HOST": "127.0.0.1",
-        "JOBS_QUEUE_PORT": str(port),
-    }
-    async with _child(
-        [str(binary)], environment=env, directory=directory, name=name
-    ) as process:
-        origin = f"http://127.0.0.1:{port}"
-        await _wait_ready(process, origin)
-        yield process, origin
 
 
 class _SecondPublicationGate:
@@ -199,21 +131,26 @@ class _SecondPublicationGate:
 
 
 _PUBLISHER = r"""
-import asyncio, json, os
+import asyncio, os
 from pathlib import Path
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from yoao_jobs.dispatch_contract import DispatchLease
-from yoao_jobs.dispatch_postgres import JobsDispatchPostgres
-from yoao_jobs.queue_client import JobsQueueClient
+from app.services.jobs_dispatch import publish_prepared_dispatch
+from app.services.jobs_queue import publish_queue_envelope
+
 async def main():
     lease = DispatchLease.model_validate_json(Path(os.environ['LEASE_FILE']).read_text())
-    token = Path(os.environ['TOKEN_FILE']).read_text()
-    client = JobsQueueClient(os.environ['QUEUE_URL'], token)
-    accepted = await client.publish_envelope(lease.envelope)
-    assert accepted == lease.execution_id
     dsn = Path(os.environ['API_DSN_FILE']).read_text()
-    async with await JobsDispatchPostgres.connect(dsn) as provider:
-        acknowledged = await provider.client.finish(lease, accepted=True)
-        assert acknowledged.state == 'submitted'
+    engine = create_async_engine(dsn)
+    try:
+        async with async_sessionmaker(engine)() as db:
+            accepted = await publish_prepared_dispatch(
+                db, lease, publish=lambda: publish_queue_envelope(lease.envelope)
+            )
+            assert accepted == lease.execution_id
+    finally:
+        await engine.dispose()
+
 asyncio.run(main())
 """
 
@@ -227,15 +164,25 @@ async def test_killed_publisher_partial_canvas_replays_original_ids_and_complete
     assert make_url(broker_url) == broker_target
     runtime = make_url(settings.database_url)
     relay_dsn = make_url(os.environ["AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL"])
+    publication_dsn = make_url(os.environ["AAP_MODULE_DATA_JOBS_PUBLICATION_URL"])
     expected = (test_engine.url.host, test_engine.url.port, test_engine.url.database)
     assert (runtime.host, runtime.port, runtime.database) == expected
     assert (relay_dsn.host, relay_dsn.port, relay_dsn.database) == expected
-    assert runtime.username != relay_dsn.username != test_engine.url.username
-    binary = Path(os.environ["AAP_JOBS_DISPATCH_INSTALLED_BIN"])
-    assert binary.is_absolute()
-    assert all(
-        (binary / name).is_file()
-        for name in ("python", "yoao-jobs-queue", "yoao-jobs-dispatch-relay")
+    assert (
+        publication_dsn.host,
+        publication_dsn.port,
+        publication_dsn.database,
+    ) == expected
+    assert (
+        len(
+            {
+                runtime.username,
+                relay_dsn.username,
+                publication_dsn.username,
+                test_engine.url.username,
+            }
+        )
+        == 4
     )
     world = frame_world
     _install_video_gateway(monkeypatch, world)
@@ -302,18 +249,12 @@ async def test_killed_publisher_partial_canvas_replays_original_ids_and_complete
         }
         await acceptance.commit()
     lease = prepared.lease
-    token = secrets.token_urlsafe(32)
-    token_file = _secret(tmp_path, "queue-token", token)
-    lease_file = _secret(tmp_path, "accepted-lease.json", lease.model_dump_json())
-    api_file = _secret(
-        tmp_path,
-        "api-dsn",
-        runtime.set(drivername="postgresql").render_as_string(hide_password=False),
+    lease_file = jobs_secret(tmp_path, "accepted-lease.json", lease.model_dump_json())
+    api_file = jobs_secret(
+        tmp_path, "api-dsn", runtime.render_as_string(hide_password=False)
     )
-    relay_file = _secret(
-        tmp_path, "relay-dsn", relay_dsn.render_as_string(hide_password=False)
-    )
-    environment = {"PATH": os.environ.get("PATH", ""), "PYTHONUNBUFFERED": "1"}
+    publication_url = publication_dsn.render_as_string(hide_password=False)
+    publication_file = jobs_secret(tmp_path, "publisher-dsn", publication_url)
     with redis.from_url(broker_url) as broker:
         assert broker.llen("ml") == 0
         assert (
@@ -323,138 +264,112 @@ async def test_killed_publisher_partial_canvas_replays_original_ids_and_complete
         proxied = broker_target.set(host="127.0.0.1", port=gate.port).render_as_string(
             hide_password=False
         )
-        async with _queue(
-            binary / "yoao-jobs-queue",
-            directory=tmp_path,
-            environment=environment,
-            broker=proxied,
-            token_file=token_file,
-            name="first-queue",
-        ) as (queue, origin):
-            publisher_env = {
-                **environment,
+        async with jobs_child(
+            ["-c", _PUBLISHER],
+            environment={
+                **jobs_broker_env(proxied),
                 "LEASE_FILE": lease_file,
-                "TOKEN_FILE": token_file,
                 "API_DSN_FILE": api_file,
-                "QUEUE_URL": origin,
-            }
-            async with _child(
-                [str(binary / "python"), "-I", "-c", _PUBLISHER],
-                environment=publisher_env,
-                directory=tmp_path,
-                name="publisher",
-            ) as publisher:
-                await asyncio.wait_for(gate.blocked.wait(), 20)
-                with redis.from_url(broker_url) as broker:
-                    queued = broker.lrange("ml", 0, -1)
-                    assert len(queued) == 1
-                    assert (
-                        json.loads(queued[0])["headers"]["id"]
-                        == lease.envelope["tasks"][0]["execution_id"]
-                    )
-                publisher.kill()
+                "JOBS_PUBLICATION_DATABASE_URL_FILE": publication_file,
+            },
+            directory=tmp_path,
+            name="publisher",
+        ) as publisher:
+            await asyncio.wait_for(gate.blocked.wait(), 20)
+            with redis.from_url(broker_url) as broker:
+                queued = broker.lrange("ml", 0, -1)
+                assert len(queued) == 1
                 assert (
-                    await asyncio.to_thread(publisher.wait, timeout=5)
-                    == -signal.SIGKILL
+                    json.loads(queued[0])["headers"]["id"]
+                    == (lease.envelope["tasks"][0]["execution_id"])
                 )
-                queue.kill()
-                assert await asyncio.to_thread(queue.wait, timeout=5) == -signal.SIGKILL
-                crashed = {
-                    "publisher_pid": publisher.pid,
-                    "publisher_exit": publisher.returncode,
-                    "queue_pid": queue.pid,
-                    "queue_exit": queue.returncode,
-                }
+            publisher.kill()
+            assert await asyncio.to_thread(publisher.wait, timeout=5) == -signal.SIGKILL
+            crashed = {
+                "publisher_pid": publisher.pid,
+                "publisher_exit": publisher.returncode,
+            }
     async with await JobsDispatchPostgres.connect(
         relay_dsn.render_as_string(hide_password=False)
     ) as observer:
         before = await observer.client.status(lease.intent_id)
         assert before.state == "leased" and before.generation == 1
-        async with _queue(
-            binary / "yoao-jobs-queue",
-            directory=tmp_path,
-            environment=environment,
-            broker=broker_url,
-            token_file=token_file,
-            name="recovered-queue",
-        ) as (_queue_process, origin):
-            relay_env = {
-                **environment,
-                "JOBS_DISPATCH_RELAY_ENABLED": "true",
-                "JOBS_DISPATCH_RELAY_DATABASE_URL_FILE": relay_file,
-                "JOBS_QUEUE_URL": origin,
-                "JOBS_QUEUE_TOKEN_FILE": token_file,
-            }
-            async with _child(
-                [str(binary / "yoao-jobs-dispatch-relay")],
-                environment=relay_env,
-                directory=tmp_path,
-                name="relay",
-            ) as relay:
-                async with asyncio.timeout(75):
-                    while True:
-                        assert relay.poll() is None
-                        submitted = await observer.client.status(lease.intent_id)
-                        if submitted.state == "submitted":
-                            break
-                        await asyncio.sleep(0.1)
-                assert submitted.generation == 2
-                with redis.from_url(broker_url) as broker:
-                    envelopes = [
-                        json.loads(value) for value in broker.lrange("ml", 0, -1)
-                    ]
-                    wanted = [task["execution_id"] for task in lease.envelope["tasks"]]
-                    observed = [message["headers"]["id"] for message in envelopes]
-                    assert sorted(observed) == sorted([wanted[0], *wanted])
-                finished = __import__("threading").Event()
-                seen = []
+        async with jobs_recovery_worker(
+            directory=tmp_path / "recovery",
+            dispatch_url=relay_dsn.render_as_string(hide_password=False),
+            publication_url=publication_url,
+        ) as (recovery, beat):
+            async with asyncio.timeout(75):
+                while True:
+                    assert recovery.poll() is None and beat.poll() is None
+                    submitted = await observer.client.status(lease.intent_id)
+                    if submitted.state == "submitted":
+                        break
+                    await asyncio.sleep(0.1)
+    assert submitted.generation == 2
+    async with test_engine.connect() as db:
+        attempts = (
+            await db.execute(
+                text(
+                    "SELECT generation,state FROM yoao_jobs_v1.dispatch_publication_attempts "
+                    "WHERE intent_id=:id ORDER BY generation"
+                ),
+                {"id": lease.intent_id},
+            )
+        ).all()
+    assert attempts == [(1, "entered"), (2, "accepted")]
+    with redis.from_url(broker_url) as broker:
+        envelopes = [json.loads(value) for value in broker.lrange("ml", 0, -1)]
+        wanted = [task["execution_id"] for task in lease.envelope["tasks"]]
+        observed = [message["headers"]["id"] for message in envelopes]
+        assert sorted(observed) == sorted([wanted[0], *wanted])
+    finished = __import__("threading").Event()
+    seen = []
 
-                def completion(task=None, **_kwargs):
-                    if (
-                        task.name == frame_preannotate.predict_video_segment.name
-                        and task.request.kwargs.get("job_id") == str(world.job_id)
-                    ):
-                        seen.append(task.request.id)
-                        if len(seen) == 4:
-                            finished.set()
+    def completion(task=None, **_kwargs):
+        if (
+            task.name == frame_preannotate.predict_video_segment.name
+            and task.request.kwargs.get("job_id") == str(world.job_id)
+        ):
+            seen.append(task.request.id)
+            if len(seen) == 4:
+                finished.set()
 
-                signals.task_postrun.connect(completion, weak=False)
-                try:
-                    with start_worker(
-                        celery_app,
-                        pool="solo",
-                        concurrency=1,
-                        queues=("ml", "default"),
-                        perform_ping_check=False,
-                        shutdown_timeout=20,
-                    ):
-                        assert await asyncio.to_thread(finished.wait, 60)
-                        async with asyncio.timeout(20):
-                            while True:
-                                async with world.maker() as db:
-                                    job = await db.get(AsyncJob, world.job_id)
-                                    if job.status == "completed":
-                                        rows = list(
-                                            (
-                                                await db.scalars(
-                                                    select(Prediction).where(
-                                                        Prediction.task_id
-                                                        == world.task_id
-                                                    )
-                                                )
-                                            ).all()
+    signals.task_postrun.connect(completion, weak=False)
+    try:
+        with start_worker(
+            celery_app,
+            pool="solo",
+            concurrency=1,
+            queues=("ml", "default"),
+            perform_ping_check=False,
+            shutdown_timeout=20,
+        ):
+            assert await asyncio.to_thread(finished.wait, 60)
+            async with asyncio.timeout(20):
+                while True:
+                    async with world.maker() as db:
+                        job = await db.get(AsyncJob, world.job_id)
+                        if job.status == "completed":
+                            rows = list(
+                                (
+                                    await db.scalars(
+                                        select(Prediction).where(
+                                            Prediction.task_id == world.task_id
                                         )
-                                        assert job.result["frames_done"] == 3
-                                        assert job.result["failed"] == 0
-                                        assert len(rows) == 3
-                                        assert {
-                                            row.result[0]["geometry"]["frame_index"]
-                                            for row in rows
-                                        } == {0, 1, 2}
-                                        break
-                                await asyncio.sleep(0.05)
-                finally:
-                    signals.task_postrun.disconnect(completion)
+                                    )
+                                ).all()
+                            )
+                            assert job.result["frames_done"] == 3
+                            assert job.result["failed"] == 0
+                            assert len(rows) == 3
+                            assert {
+                                row.result[0]["geometry"]["frame_index"] for row in rows
+                            } == {0, 1, 2}
+                            break
+                    await asyncio.sleep(0.05)
+    finally:
+        signals.task_postrun.disconnect(completion)
     record_property(
         "jobs_partial_canvas_runtime",
         {
@@ -465,6 +380,7 @@ async def test_killed_publisher_partial_canvas_replays_original_ids_and_complete
             ).hexdigest(),
             "original_child_ids": wanted,
             "broker_deliveries": observed,
+            "physical_attempts": [list(attempt) for attempt in attempts],
             "consumer_deliveries": seen,
             "recovered_generation": submitted.generation,
             "canonical_saved_frames": 3,

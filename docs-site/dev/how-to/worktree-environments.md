@@ -14,8 +14,8 @@ last_reviewed: 2026-10-23
 
 - macOS 或 Linux、Node.js、pnpm，以及当前 checkout 独立的 `apps/api/.venv`。先完成 [Orca 工作树初始化](../tutorials/local-dev#orca-工作树初始化)。
 - 本机 Docker 可用；共享 PostgreSQL、MinIO 已经启动。建议在主目录只执行 `docker compose up -d postgres minio`，不要为每个工作树重复启动默认 Compose 栈。
-- PostgreSQL 配置使用本机 `postgresql+asyncpg` URL，不带 query 参数；运行连接与迁移连接必须指向同一个本机实例。两个账号都需要连接 `postgres` 库，启动器通过会话锁核对实例，不能仅凭 loopback 地址和相同端口判断。迁移账号需要创建数据库及管理新库的权限。基础配置若共用一个账号，还需具备 `CREATEROLE`，用于创建本模式的普通运行账号；没有该权限时，先由管理员预配置普通账号，再分开 `DATABASE_URL` 与 `MIGRATION_DATABASE_URL`，启动器不会回退使用 owner。MinIO endpoint 也必须位于本机，账号需要创建、标记和管理专属 bucket 的权限。
-- 默认工作树模式关闭外发 SMTP、Sentry、共享 ML 后端自动注册和 GPU 控制配置，不会启动 GPU worker 或 beat。真实 GPU 调度验证应使用专用验收环境，不能让多个独立控制面管理同一块卡。
+- PostgreSQL 配置使用本机 `postgresql+asyncpg` URL，不带 query 参数；运行连接与迁移连接必须指向同一个本机实例。两个账号都需要连接 `postgres` 库，启动器通过会话锁核对实例。迁移账号需要创建和管理新库，并具备 `CREATEROLE`，为每个模式生成两个隔离的 Jobs 函数账号；基础配置共用 owner 时还会生成普通运行账号，不会回退给 API 迁移凭据。MinIO endpoint 也必须位于本机，账号需要创建、标记和管理专属 bucket 的权限。
+- 默认关闭外发 SMTP、Sentry、共享 ML 后端自动注册和 GPU 控制配置。不启动 GPU worker；`--with-worker` 的 Beat 只调度 Jobs 恢复，不执行其他日历任务。真实 GPU 调度验证仍使用专用验收环境。
 - Orca setup 与 `init/up/exec/reset` 在 API／Alembic 导入前初始化缺失的固定 TrackEval 子模块；已有本地修改保留。SAM3 和 Grounded-SAM-2 不在普通 API 初始化中下载，构建模型镜像前另行执行 `git submodule update --init --recursive`。
 
 这不是生产环境隔离或权限沙箱：基础设施进程和账号可能共享。启动器拒绝 staging/production 配置，也不会自动启动、停止或重建共享 PostgreSQL/MinIO 服务。
@@ -42,17 +42,18 @@ pnpm dev:worktree -- up --with-worker
 
 首次准备在创建训练桶或输入桶前保存当前资源清单；若中途失败，自动化验收会先按清单和标签尝试清理。清理无法确认归属时保留数据库、清单和恢复记录，供后续核对，绝不按桶名删除无标签资源。
 
-| 资源            | 隔离方式                                                          |
-| --------------- | ----------------------------------------------------------------- |
-| PostgreSQL      | 共享实例，库名为 `yoao_wt_<id>_<mode>`；数据库 comment 记录归属   |
-| Redis           | 独立、带归属标签的容器；端口仅绑定本机，AOF 存放在工作树目录      |
-| MinIO           | 共享实例，十个 bucket 分别使用环境前缀并记录归属标签              |
-| API/Web         | 当前 checkout 的进程，自动分配空闲端口并设置 API/WebSocket 代理   |
-| Celery          | 可选的普通及维护 worker，各自单并发，共用本环境的 Redis 和 bucket |
-| DuckDB/临时文件 | 当前工作树、当前模式的独立目录                                    |
+| 资源            | 隔离方式                                                        |
+| --------------- | --------------------------------------------------------------- |
+| PostgreSQL      | 共享实例，库名为 `yoao_wt_<id>_<mode>`；数据库 comment 记录归属 |
+| Redis           | 独立、带归属标签的容器；端口仅绑定本机，AOF 存放在工作树目录    |
+| MinIO           | 共享实例，十个 bucket 分别使用环境前缀并记录归属标签            |
+| API/Web         | 当前 checkout 的进程，自动分配空闲端口并设置 API/WebSocket 代理 |
+| Celery          | 可选的普通、维护及 Jobs 恢复 worker；独立 Beat 只调度 Jobs 恢复 |
+| DuckDB/临时文件 | 当前工作树、当前模式的独立目录                                  |
 
 `.worktree/identity.json` 保存稳定 ID 和 checkout 路径；提交代码不会改变 ID。各模式下的资源清单和进程记录不包含数据库密码或完整连接串。
 基础配置共用 owner 时，启动器为当前模式创建 `yoao_wt_<id>_<mode>_app` 普通 LOGIN，角色 comment 记录相同资源归属；随机密码仅保存在权限为 `0600` 的 `.worktree/<mode>/runtime-credentials.json`。API／普通 worker 使用这个账号，迁移与维护 worker 继续使用原 owner。已有分离账号配置不被替换。
+`jobs-dispatch-credentials.json` 和 `jobs-publication-credentials.json` 同样只属于当前模式，权限为 `0600`。普通生产者只接收发布账号；领取账号不进入普通 API、普通 worker、维护 worker 或 Beat。工作树准备完成前核对两个 Jobs LOGIN 的实际函数权限。销毁检查这两个账号的归属、会话和外部依赖，绝不按名字接管。
 
 该目录已被 Git 忽略，**不要复制、软链接或随手删除它**；丢失归属记录后不能靠资源名自动接管旧数据。凭据文件损坏、权限过宽、目标或迁移账号变化、已有角色缺少匹配凭据时都会拒绝继续，不自动改密或接管。移动工作树前，应先停止并按需销毁旧环境。
 
@@ -195,9 +196,9 @@ Playwright 的迁移和数据库夹具使用隔离库的所有者连接；其 AP
 
 CI 的可复用 E2E 工作流同样从仓库根目录调用 `pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web <套件命令>`，不再另起使用 owner 连接的 API 或维护第二套运行账号授权。PostgreSQL 的初始 `postgres` 连接用于协调器建库和迁移；实际普通 API 只获得本模式的受限连接。需要已构建 Web 的 CI 套件仍使用经过指纹核验的产物和严格端口 preview；Mask 的开发服务器与原生构建入口保持各自约定。
 
-`--with-worker` 使用当前 checkout 的 Python 依赖，同时启动普通和维护 worker。普通 worker 消费 `default,media,cleanup,audit,export,image-pyramid,ml.cpu`；维护 worker 只消费 `maintenance`，负责审计与预测月分区、旧审计分区归档，以及人员效率和审计统计物化视图刷新。两者均需通过任务注册与队列订阅检查；除了职责队列，也允许 Celery 自动创建的当前节点专属定向队列，缺失职责队列或其他意外订阅仍会阻止启动。`doctor` 分别显示 `worker` 和 `maintenance_worker`；任一个退出都会停止同次启动的服务。
+`--with-worker` 使用当前 checkout 的 Python 依赖。普通 worker 消费 `default,media,cleanup,audit,export,image-pyramid,ml.cpu`；维护 worker 只消费 `maintenance`，执行审计与预测月分区、审计归档和物化视图刷新；Jobs 恢复 worker 只消费 `jobs.recovery`，由同一环境的 Beat 发送定期唤醒。启动器在运行 Beat 前检查 worker 注册任务及精确订阅，允许 Celery 自动创建的节点专属队列。`doctor` 显示各进程；任何一个退出都会停止本次启动的 API/Web。
 
-这两类 worker 不消费 GPU 队列，也不复用主目录的 Docker worker。媒体任务需要的系统依赖仍须在本机安装。修改 worker Python 代码后应停止并重启当前环境，Celery 不会热重载。
+这些进程不消费 GPU 队列，不复用主目录的 Docker worker。媒体任务需要的系统依赖仍须在本机安装。修改 worker Python 代码后应停止并重启当前环境，Celery 不会热重载。
 
 ## 诊断、停止与重建
 

@@ -749,7 +749,6 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
     queue = "fixture_held_inference_" + uuid.uuid4().hex
     monkeypatch.setattr(settings, "preannotate_cpu_queue", queue)
     monkeypatch.setattr(settings, "preannotate_gpu_queue", queue)
-    monkeypatch.setattr(settings, "jobs_queue_url", "")
     routing_context = fixture_routing_owner(test_engine, monkeypatch)
     media = None
     owner = suite = execution_process = celery_worker = sender = None

@@ -16,6 +16,12 @@ last_reviewed: 2026-11-01
 
 <!-- history: async_jobs started as a release slice and now describes the current long-job surface. -->
 
+## 派发和恢复
+
+已受理的持久派发在业务事务内保存任务名、参数和稳定执行 ID；逐帧派发同时保存组、子任务和回调 ID。提交后由 API 或业务 worker 直接向平台 Celery broker 首发。Beat 定期通知 `celery-worker-jobs-recovery`，它只领取到期的 Jobs 派发并按原消息重投。未进入发布的请求不会被当作已经投递；发送中断或回执丢失不会被当作未投递。后续代次的成功也不会替旧代次补造回执。
+
+恢复不等于保证只执行一次，仍由各领域处理重复投递、取消和终态。普通 API 不能领取派发；专用恢复 worker 使用两个函数专用账号分别领取和确认发布。升级不重建账本，也不替换消息 ID。
+
 ## kind 取值
 
 下表列出常见类型与入口，其他领域作业还保留各自的执行和结果接口。

@@ -426,11 +426,9 @@ def dataset_dispatcher(monkeypatch, app_module):
 
 @pytest.fixture
 def embedded_revocations(monkeypatch):
-    from app.services import jobs_queue
     from app.workers import job_execution_control
 
     calls = []
-    monkeypatch.setattr(jobs_queue.settings, "jobs_queue_url", "")
     monkeypatch.setattr(
         job_execution_control.celery_app.control,
         "revoke",

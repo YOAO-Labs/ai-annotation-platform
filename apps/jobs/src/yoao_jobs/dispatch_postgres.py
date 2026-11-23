@@ -15,6 +15,12 @@ _JSON_FUNCTIONS = frozenset(
 )
 _STATUS_FUNCTION = JOBS_DISPATCH_FUNCTIONS["status"]
 
+RECOVERY_FUNCTIONS = {
+    ("claim_dispatches", "jsonb"),
+    ("finish_dispatch", "jsonb"),
+    ("dispatch_status", "uuid"),
+}
+
 
 class JobsDispatchPostgres:
     """A narrow asyncpg pool that exposes the portable Jobs dispatch client."""

@@ -1,6 +1,5 @@
 import asyncio
 from functools import partial
-import uuid
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import JSONResponse
@@ -9,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from yoao_identity.contract import Principal
+from app.config import settings
 from app.core.ratelimit import limiter
 from app.deps import bearer_scheme, get_current_principal, get_current_user, get_db
 from app.schemas.me import AvatarRefUpdate, PasswordChange, ProfileUpdate
@@ -220,7 +220,6 @@ async def cancel_self_deactivation(
     )
 
 
-from app.config import settings  # noqa: E402
 from app.schemas.task_event import (  # noqa: E402
     TaskEventBatchIn,
     TaskEventBatchOut,
@@ -235,24 +234,14 @@ from app.services.task_event_ingestion import (  # noqa: E402
 
 
 def _enqueue_task_events(payload_list: list[dict]) -> bool:
-    """Send task events to the selected queue.
+    """Send task events to Celery.
 
     Returning False triggers synchronous insertion.
     """
     try:
-        if settings.jobs_queue_url:
-            from app.services.jobs_queue import dispatch_job_sync
+        from app.workers.task_events import persist_task_events_batch
 
-            dispatch_job_sync(
-                task_name="app.workers.task_events.persist_task_events_batch",
-                execution_id=str(uuid.uuid4()),
-                args=[payload_list],
-                options={"queue": "audit"},
-            )
-        else:
-            from app.workers.task_events import persist_task_events_batch
-
-            persist_task_events_batch.delay(payload_list)
+        persist_task_events_batch.delay(payload_list)
         return True
     except Exception:  # pragma: no cover - defensive
         return False

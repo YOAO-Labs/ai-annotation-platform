@@ -6,14 +6,14 @@ function diff(path, body) {
   return `diff --git a/${path} b/${path}\n--- a/${path}\n+++ b/${path}\n${body}`;
 }
 
-test("flags a newly broken relay executable at its new-file line, not its removal", () => {
-  const relay = "docker-compose.jobs-dispatch-relay.yml";
-  const offending = "    command: [aap-jobs-dispatch-relay]";
-  assert.deepEqual(violations(diff(relay, `@@ -6,0 +7 @@\n+${offending}`)), [
-    `${relay}:7: use the installed yoao-* executable`,
+test("flags a broken portable queue executable at its new-file line, not its removal", () => {
+  const queue = "docker-compose.yml";
+  const offending = "    command: [aap-jobs-queue]";
+  assert.deepEqual(violations(diff(queue, `@@ -6,0 +7 @@\n+${offending}`)), [
+    `${queue}:7: use the installed yoao-* executable`,
   ]);
   assert.deepEqual(
-    violations(diff(relay, `@@ -7 +7 @@\n-${offending}\n+    command: [yoao-jobs-dispatch-relay]`)),
+    violations(diff(queue, `@@ -7 +7 @@\n-${offending}\n+    command: [yoao-jobs-queue]`)),
     [],
   );
 });
