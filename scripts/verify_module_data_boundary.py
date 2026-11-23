@@ -2589,6 +2589,7 @@ _M2B_DEFAULT_NODES = frozenset(
         "tests/test_mask_ai_observability.py::test_metrics_reads_current_tracker_and_accept_ledger_as_api_login",
         "tests/test_model_lineage.py::test_real_concurrent_decisions_and_publication_preserve_both_notes",
         "tests/test_sample_evaluation_worker.py::test_cancel_stays_pending_while_native_busy_and_seals_before_late_post",
+        "tests/test_sample_evaluation_worker.py::test_dispatch_without_private_jobs_read",
         "tests/test_sample_evaluation_worker.py::test_private_learning_model_and_evaluation_acl",
         "tests/test_storage_fault_states.py::test_real_login_observes_and_reads_without_private_storage_access",
         "tests/test_storage_migration_copy_worker.py::test_real_collector_and_plan_once_with_no_source_or_target_sdk_calls",
