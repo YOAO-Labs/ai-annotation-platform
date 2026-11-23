@@ -237,7 +237,7 @@ def test_receipt_and_fixed_retention_are_strict(storage, changes):
     assert caught.value.code == "export_storage_invalid_receipt"
 
 
-def allocation_db(storage):
+def allocation_db(storage, monkeypatch):
     location = SimpleNamespace(
         id=LEGACY_LOCATION_ID,
         kind="s3",
@@ -249,14 +249,12 @@ def allocation_db(storage):
         location_id=LEGACY_LOCATION_ID, generation=1, bucket=storage.export_bucket
     )
 
-    async def scalar(statement):
-        entity = statement.column_descriptions[0]["entity"]
-        return location if entity is owners.StorageLocation else binding
-
+    get_location = AsyncMock(return_value=location)
+    get_binding = AsyncMock(return_value=binding)
+    monkeypatch.setattr(owners.storage_registry_data, "get_location", get_location)
+    monkeypatch.setattr(owners.storage_registry_data, "get_binding", get_binding)
     return (
-        SimpleNamespace(
-            get=AsyncMock(return_value=location), scalar=AsyncMock(side_effect=scalar)
-        ),
+        SimpleNamespace(get_location=get_location, get_binding=get_binding),
         location,
         binding,
     )
@@ -265,15 +263,15 @@ def allocation_db(storage):
 async def test_allocate_proves_current_binding_without_mutating_candidate(
     storage, monkeypatch
 ):
-    db, _, _ = allocation_db(storage)
+    db, _, _ = allocation_db(storage, monkeypatch)
     ensure = AsyncMock()
     monkeypatch.setattr(owners, "ensure_legacy_bindings", ensure)
     row = record()
     assert await owners.allocate(db, row) == reference(bucket=storage.export_bucket)
     assert row.storage_ref == reference()
     ensure.assert_awaited_once_with(db)
-    statement = db.scalar.await_args.args[0]
-    assert statement.compile().params == {"purpose_1": "export"}
+    assert db.get_binding.await_args.args == (db, "export")
+    assert db.get_binding.await_args.kwargs == {"lock": "share"}
 
 
 @pytest.mark.parametrize(
@@ -303,7 +301,7 @@ async def test_allocate_proves_current_binding_without_mutating_candidate(
 async def test_allocate_rejects_changed_binding(
     storage, monkeypatch, target, field, value
 ):
-    db, location, binding = allocation_db(storage)
+    db, location, binding = allocation_db(storage, monkeypatch)
     monkeypatch.setattr(owners, "ensure_legacy_bindings", AsyncMock())
     setattr(location if target == "location" else binding, field, deepcopy(value))
     with pytest.raises(owners.ExportStorageError) as caught:
@@ -313,26 +311,25 @@ async def test_allocate_rejects_changed_binding(
 
 @pytest.mark.parametrize("missing", ["location", "binding"])
 async def test_allocate_rejects_missing_binding(storage, monkeypatch, missing):
-    db, _, _ = allocation_db(storage)
+    db, _, _ = allocation_db(storage, monkeypatch)
     monkeypatch.setattr(owners, "ensure_legacy_bindings", AsyncMock())
     if missing == "location":
-        db.get.return_value = None
+        db.get_location.return_value = None
     else:
-        db.scalar.side_effect = None
-        db.scalar.return_value = None
+        db.get_binding.return_value = None
     with pytest.raises(owners.ExportStorageError):
         await owners.allocate(db, record())
 
 
 async def test_allocate_exposes_no_bootstrap_details(storage, monkeypatch):
-    db, _, _ = allocation_db(storage)
+    db, _, _ = allocation_db(storage, monkeypatch)
     monkeypatch.setattr(
         owners, "ensure_legacy_bindings", AsyncMock(side_effect=ValueError("secret"))
     )
     with pytest.raises(owners.ExportStorageError) as caught:
         await owners.allocate(db, record())
     assert "secret" not in str(caught.value)
-    db.get.assert_not_awaited()
+    db.get_location.assert_not_awaited()
 
 
 def readable(storage, data=RAW):

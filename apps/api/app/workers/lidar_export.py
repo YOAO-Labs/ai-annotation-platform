@@ -12,12 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from sqlalchemy import delete, select
-
-from app.db.models.export_artifact import ExportArtifact
-from app.db.models.export_media_bundle import ExportMediaBundle
-from app.db.models.export_output import ExportOutput
 from app.services import async_job as jobs
+from app.services import export_delivery_data as delivery_data
 from app.services import export_execution_context
 from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as media_storage
@@ -94,15 +90,12 @@ async def _guard(db, receipt, task_id):
 
 async def _published(db, receipt, *, lock=False):
     error = for_snapshot(receipt._input_snapshot).error("cache_changed")
-    query = select(
-        *(getattr(ExportMediaBundle, name) for name in bundles._SCALARS)
-    ).where(ExportMediaBundle.id == receipt.id)
-    if lock:
-        query = query.with_for_update(read=True, nowait=True)
-    facts = (await db.execute(query)).mappings().one_or_none()
+    facts = await delivery_data.media_fence(
+        db, receipt.id, mode="share_nowait" if lock else "read"
+    )
     if facts is None:
         reject(error)
-    current = bundles._fence(dict(facts))
+    current = bundles._fence(facts)
     if (
         current.state != "ready"
         or current.published_at is None
@@ -331,11 +324,7 @@ def _cache_key(receipt):
 
 
 async def _invalidate(db, artifact_id, output_id):
-    await db.execute(
-        delete(ExportArtifact).where(
-            ExportArtifact.id == artifact_id, ExportArtifact.output_id == output_id
-        )
-    )
+    await delivery_data.invalidate_cache(db, artifact_id, output_id)
     await db.commit()
 
 
@@ -355,11 +344,7 @@ async def _lookup(db, receipt, key, *, guard):
     adapter = for_snapshot(receipt._input_snapshot)
     if not _cache_reusable(receipt) or receipt._input_snapshot.get("references"):
         return None
-    artifact = await db.scalar(
-        select(ExportArtifact)
-        .where(ExportArtifact.cache_key == key, ExportArtifact.expires_at > now())
-        .execution_options(populate_existing=True)
-    )
+    artifact = await delivery_data.find_cache(db, key, now())
     if artifact is None or artifact.output_id is None:
         return None
     artifact_id, output_id, batch_id = (
@@ -367,15 +352,13 @@ async def _lookup(db, receipt, key, *, guard):
         artifact.output_id,
         artifact.batch_id,
     )
-    output = await db.get(ExportOutput, output_id, populate_existing=True)
+    output = await delivery_data.zip_receipt(db, output_id)
     if output is None or output.media_bundle_id is None:
         await _invalidate(db, artifact_id, output_id)
         return None
     export_outputs.couple(artifact, output)
     candidate = export_outputs.snapshot(output)
-    owner_row = await db.get(
-        ExportMediaBundle, output.media_bundle_id, populate_existing=True
-    )
+    owner_row = await delivery_data.media_delivery(db, output.media_bundle_id)
     if owner_row is None:
         reject(adapter.error("cache_changed"))
     previous = bundles.snapshot(owner_row)
@@ -634,12 +617,7 @@ async def _fail_unclaimed(db, receipt, task_id, exc):
     ):
         await db.rollback()
         return
-    current = await db.scalar(
-        select(ExportMediaBundle)
-        .where(ExportMediaBundle.id == receipt.id)
-        .with_for_update(nowait=True)
-        .execution_options(populate_existing=True)
-    )
+    current = await delivery_data.media_fence(db, receipt.id, mode="update_nowait")
     if current is None or current.lease_token is not None:
         await db.rollback()
         return
@@ -742,9 +720,7 @@ async def run_owned(
                 adapter=adapter,
             )
             return
-        row = await db.get(
-            ExportMediaBundle, uuid.UUID(proof["bundle_id"]), populate_existing=True
-        )
+        row = await delivery_data.media_delivery(db, uuid.UUID(proof["bundle_id"]))
         if row is None:
             reject(adapter.error("contract_missing"))
         receipt = bundles.snapshot(row)
@@ -863,11 +839,8 @@ async def run_owned(
 
         async def zip_guard(owned):
             await guard(owned)
-            current = await owned.scalar(
-                select(ExportOutput)
-                .where(ExportOutput.id == candidate.id)
-                .with_for_update(read=True, nowait=True)
-                .execution_options(populate_existing=True)
+            current = await delivery_data.zip_receipt(
+                owned, candidate.id, mode="share_nowait"
             )
             if (
                 current is None
