@@ -14,21 +14,16 @@ import math
 import uuid
 from collections.abc import Mapping
 from dataclasses import replace
+from types import SimpleNamespace
 
 from yoao_inference_contract.execution import ModelTaskResult, thaw_json
 from datetime import datetime, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import case, func, select
 from training_contract.model_return import registration_eligibility
 
-from app.db.models.trained_model import (
-    ModelDeployment,
-    ModelRelease,
-    ProjectModelSelection,
-    TrainedModelVersion,
-)
-from app.db.models.training_run import TrainingAttempt, TrainingRun
+from app.services import learning_models_data as data
+from app.services import training_run_data
 from app.services.ml_backend import MLBackendService
 from app.services.storage import storage_service as storage
 from app.services import training_dataset_storage
@@ -53,25 +48,6 @@ def model_task(version):
     if task not in {"detect", "segment"}:
         raise HTTPException(status_code=409, detail="模型训练任务身份无效")
     return task
-
-
-def model_task_expression():
-    value = func.coalesce(TrainedModelVersion.provenance["task"].astext, "detect")
-    return case(
-        (value.in_(["detect", "detection", "image-detection"]), "detect"),
-        (
-            value.in_(
-                [
-                    "segment",
-                    "segmentation",
-                    "image-instance-segmentation",
-                    "instance-segmentation",
-                ]
-            ),
-            "segment",
-        ),
-        else_=value,
-    )
 
 
 def release_task(model_id):
@@ -137,13 +113,8 @@ def owner_for_attempt(run, attempt, *artifacts):
 
 async def owner_for_model(db, version):
     """Models retain the referenced run namespace instead of duplicating it."""
-    run = await db.scalar(
-        select(TrainingRun).where(
-            TrainingRun.id == version.run_id,
-            TrainingRun.project_id == version.project_id,
-        )
-    )
-    attempt = await db.get(TrainingAttempt, version.attempt_id)
+    run = await training_run_data.get_run(db, version.project_id, version.run_id)
+    attempt = await training_run_data.get_attempt(db, version.attempt_id)
     if (
         run is None
         or attempt is None
@@ -164,34 +135,21 @@ async def owner_for_model(db, version):
 
 
 async def register(db, project, user, body):
+    if db.autoflush:
+        await db.flush()
     request_digest = content_digest(body.model_dump(mode="json"))
-    existing = await db.scalar(
-        select(TrainedModelVersion).where(
-            TrainedModelVersion.project_id == project.id,
-            TrainedModelVersion.request_id == body.request_id,
-        )
+    existing = await data.registration_replay(
+        db, project.id, request_id=body.request_id
     )
     if existing:
         if existing.request_digest != request_digest:
             raise HTTPException(status_code=409, detail="注册请求标识已用于其他内容")
         return existing
-    run = await db.scalar(
-        select(TrainingRun)
-        .where(
-            TrainingRun.id == body.run_id,
-            TrainingRun.project_id == project.id,
-        )
-        .with_for_update()
-    )
-    attempt = await db.get(TrainingAttempt, body.attempt_id)
+    run = await training_run_data.get_run(db, project.id, body.run_id, lock=True)
+    attempt = await training_run_data.get_attempt(db, body.attempt_id)
     if not run or not attempt or attempt.run_id != run.id:
         raise HTTPException(status_code=404, detail="来源训练实验或执行尝试不存在")
-    existing = await db.scalar(
-        select(TrainedModelVersion).where(
-            TrainedModelVersion.project_id == project.id,
-            TrainedModelVersion.attempt_id == attempt.id,
-        )
-    )
+    existing = await data.registration_replay(db, project.id, attempt_id=attempt.id)
     if existing:
         if existing.request_id == body.request_id:
             if existing.request_digest != request_digest:
@@ -274,7 +232,8 @@ async def register(db, project, user, body):
         raise HTTPException(
             status_code=422, detail="来源产物校验失败，不能注册"
         ) from exc
-    version = TrainedModelVersion(
+    version = await data.register_candidate(
+        db,
         project_id=project.id,
         run_id=run.id,
         attempt_id=attempt.id,
@@ -307,31 +266,21 @@ async def register(db, project, user, body):
         },
         evaluation=evaluation,
     )
-    db.add(version)
-    await db.flush()
+    if version is None:
+        raise HTTPException(status_code=409, detail="只能注册成功训练的权重")
     return version
 
 
 async def load_version(db, project_id, version_id):
-    version = await db.scalar(
-        select(TrainedModelVersion).where(
-            TrainedModelVersion.id == version_id,
-            TrainedModelVersion.project_id == project_id,
-        )
-    )
+    version = await data.get_version(db, project_id, version_id)
     if not version:
         raise HTTPException(status_code=404, detail="模型版本不存在")
     return version
 
 
-async def lock_deployment(db, version_id, registry_id):
-    return await db.scalar(
-        select(ModelDeployment)
-        .where(
-            ModelDeployment.model_version_id == version_id,
-            ModelDeployment.registry_id == registry_id,
-        )
-        .with_for_update()
+async def lock_deployment(db, project_id, version_id, registry_id):
+    return await data.lock_deployment_for_registry(
+        db, project_id, version_id, registry_id
     )
 
 
@@ -343,23 +292,11 @@ async def registry_usage(db, registry_id: uuid.UUID) -> RegistryLearningUsage:
     from yoao_jobs.domain_query_contract import FrozenDeploymentUsageRequest
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 
-    deployments = (
-        await db.scalars(
-            select(ModelDeployment)
-            .where(ModelDeployment.registry_id == registry_id)
-            .order_by(ModelDeployment.id)
-            .with_for_update()
-        )
-    ).all()
+    deployments = await data.lock_registry_deployments(db, registry_id)
     ids = [deployment.id for deployment in deployments]
     if not ids:
         return RegistryLearningUsage(active_releases=0, frozen_executions=0)
-    active_releases = await db.scalar(
-        select(func.count())
-        .select_from(ProjectModelSelection)
-        .join(ModelRelease, ModelRelease.id == ProjectModelSelection.release_id)
-        .where(ModelRelease.deployment_id.in_(ids))
-    )
+    active_releases = await data.count_active_releases(db, ids)
     frozen = 0
     for deployment in deployments:
         usage = await JobsDomainQueryPostgresData(db).frozen_deployment_usage(
@@ -378,84 +315,63 @@ async def registry_usage(db, registry_id: uuid.UUID) -> RegistryLearningUsage:
 async def retire_deployment(db, project_id, version_id, deployment_id, *, terminal):
     """Stop new references first; terminal retirement only after dependencies drain."""
     from app.services.inference_topology_data import InferenceTopologyData
-    from yoao_jobs.domain_query_contract import FrozenDeploymentUsageRequest
-    from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
 
     version = await load_version(db, project_id, version_id)
     if version.framework != "libreyolo":
         raise HTTPException(status_code=422, detail="此操作仅适用于 LibreYOLO 部署")
-    candidate = await db.get(ModelDeployment, deployment_id)
-    if candidate is None or candidate.model_version_id != version.id:
+    candidate = await data.get_deployment(db, project_id, version_id, deployment_id)
+    if candidate is None:
         raise HTTPException(status_code=404, detail="模型部署不存在")
     if (
         await InferenceTopologyData(db).lock_plugin_registry(candidate.registry_id)
         is None
     ):
         raise HTTPException(status_code=404, detail="推理实例不存在")
-    deployment = await db.scalar(
-        select(ModelDeployment)
-        .where(ModelDeployment.id == deployment_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    deployment = await data.get_deployment(
+        db, project_id, version_id, deployment_id, lock=True
     )
-    if deployment is None or deployment.model_version_id != version.id:
+    if deployment is None:
         raise HTTPException(status_code=404, detail="模型部署不存在")
     if terminal:
         if deployment.status == "retired":
             return deployment
         if deployment.status != "draining":
             raise HTTPException(status_code=409, detail="须先停止创建新引用")
-        release_count = await db.scalar(
-            select(func.count())
-            .select_from(ProjectModelSelection)
-            .join(ModelRelease, ModelRelease.id == ProjectModelSelection.release_id)
-            .where(ModelRelease.deployment_id == deployment.id)
-        )
-        usage = await JobsDomainQueryPostgresData(db).frozen_deployment_usage(
-            FrozenDeploymentUsageRequest(
-                deployment_id=deployment.id,
-                registry_id=deployment.registry_id,
-                model_version_id=deployment.model_version_id,
-            )
-        )
-        if release_count or usage.active_jobs or usage.retryable_failures:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "code": "deployment_in_use",
-                    "active_releases": int(release_count),
-                    "active_jobs": usage.active_jobs,
-                    "retryable_failures": usage.retryable_failures,
-                },
-            )
-        deployment.status = "retired"
-    elif deployment.status == "ready":
-        deployment.status = "draining"
-        deployment.check_id = uuid.uuid4()
-    elif deployment.status != "draining":
+    elif deployment.status == "draining":
+        return deployment
+    elif deployment.status != "ready":
         raise HTTPException(status_code=409, detail="只有就绪部署可停止创建新引用")
-    await db.flush()
-    return deployment
-
-
-async def begin_deployment_check(db, version, registry_id, deployment=None):
-    if deployment is None:
-        deployment = ModelDeployment(
-            model_version_id=version.id, registry_id=registry_id
+    outcome = await data.advance_deployment_retirement(
+        db, project_id, deployment, terminal=terminal
+    )
+    if outcome is None:
+        raise HTTPException(status_code=409, detail="模型部署身份已变化")
+    if not outcome.advanced:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "deployment_in_use",
+                "active_releases": outcome.active_releases,
+                "active_jobs": outcome.active_jobs,
+                "retryable_failures": outcome.retryable_failures,
+            },
         )
-        db.add(deployment)
+    return await data.get_deployment(db, project_id, version_id, deployment_id)
+
+
+async def begin_deployment_check(db, version, registry_id):
     check_id = uuid.uuid4()
-    if deployment.status in {"draining", "retired"}:
+    deployment = await data.start_deployment_check(
+        db, version.project_id, version.id, registry_id, check_id
+    )
+    if deployment is None:
         raise HTTPException(status_code=409, detail="该部署已停止创建新引用")
-    deployment.check_id = check_id
-    deployment.status = "checking"
-    deployment.error_message = None
-    await db.flush()
     return deployment, check_id
 
 
 async def complete_deployment_check(
     db,
+    project_id,
     deployment_id,
     check_id,
     *,
@@ -463,20 +379,18 @@ async def complete_deployment_check(
     trial: dict,
     error: str | None,
 ):
-    deployment = await db.scalar(
-        select(ModelDeployment)
-        .where(ModelDeployment.id == deployment_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    deployment = await data.finish_deployment_check(
+        db,
+        project_id,
+        deployment_id,
+        check_id,
+        receipt=receipt,
+        trial=trial,
+        error=error,
+        at=now(),
     )
-    if deployment.check_id != check_id:
+    if deployment is None:
         raise HTTPException(status_code=409, detail="该部署已有更新的检查，请刷新")
-    deployment.status = "failed" if error else "ready"
-    deployment.error_message = error
-    if not error:
-        deployment.receipt = receipt
-        deployment.trial = trial
-    deployment.checked_at = now()
     return deployment
 
 
@@ -947,9 +861,9 @@ async def resolve_reference(
     release = None
     task = release_task(model_id)
     if task is not None:
-        selection = await db.get(ProjectModelSelection, (project.id, task))
+        selection = await data.get_selection(db, project.id, task)
         release = (
-            await db.get(ModelRelease, selection.release_id)
+            await data.get_release(db, project.id, selection.release_id)
             if selection and selection.release_id
             else None
         )
@@ -967,24 +881,10 @@ async def resolve_reference(
     if task is not None and model_task(version) != task:
         raise HTTPException(status_code=409, detail="模型与项目发布的任务不一致")
     if release is None:
-        from app.db.models.model_decision import ModelDecision
-
-        published = await db.scalar(
-            select(ModelRelease.id)
-            .where(
-                ModelRelease.project_id == project.id,
-                ModelRelease.model_version_id == version.id,
-            )
-            .limit(1)
-        )
-        decision = await db.scalar(
-            select(ModelDecision)
-            .where(ModelDecision.model_version_id == version.id)
-            .order_by(ModelDecision.sequence.desc())
-            .limit(1)
-        )
-        if (not published and not allow_candidate) or (
-            decision and decision.disposition == "archived"
+        visibility = await data.candidate_visibility(db, project.id, version.id)
+        if visibility is None or (
+            (not visibility.published and not allow_candidate)
+            or visibility.disposition == "archived"
         ):
             raise HTTPException(
                 status_code=409,
@@ -992,14 +892,8 @@ async def resolve_reference(
             )
     validate_bindings(project, version.classes, version.bindings, model_task(version))
     backend = await enabled_backend(db, project.id, registry_id)
-    deployment = await db.scalar(
-        select(ModelDeployment)
-        .where(
-            ModelDeployment.model_version_id == version.id,
-            ModelDeployment.registry_id == registry_id,
-            ModelDeployment.status == "ready",
-        )
-        .with_for_update()
+    deployment = await data.lock_deployment_for_registry(
+        db, project.id, version.id, registry_id, ready=True
     )
     if not deployment or (release and release.deployment_id != deployment.id):
         raise HTTPException(status_code=409, detail="所选实例没有该模型版本的就绪部署")
@@ -1012,9 +906,7 @@ async def resolve_reference(
 
 
 async def validate_frozen_reference(db, project_id, ref):
-    from app.db.models.project import Project
-
-    project = await db.get(Project, project_id)
+    project = await get_workspace_project(db, project_id=project_id)
     assert_image_scope(project)
     if not isinstance(ref, dict) or ref.get("project_id") != str(project_id):
         raise ValueError("Controlled model project identity mismatch")
@@ -1025,11 +917,8 @@ async def validate_frozen_reference(db, project_id, ref):
     validate_bindings(project, version.classes, version.bindings, model_task(version))
     registry_id = uuid.UUID(ref["registry_id"])
     await enabled_backend(db, project_id, registry_id)
-    deployment = await db.scalar(
-        select(ModelDeployment)
-        .where(ModelDeployment.id == uuid.UUID(ref["deployment_id"]))
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    deployment = await data.get_deployment(
+        db, project_id, version.id, uuid.UUID(ref["deployment_id"]), lock=True
     )
     if (
         not deployment
@@ -1039,7 +928,7 @@ async def validate_frozen_reference(db, project_id, ref):
     ):
         raise ValueError("Controlled deployment is unavailable")
     release = (
-        await db.get(ModelRelease, uuid.UUID(ref["release_id"]))
+        await data.get_release(db, project_id, uuid.UUID(ref["release_id"]))
         if ref.get("release_id")
         else None
     )
@@ -1134,36 +1023,18 @@ def bind_frozen_model_reference(db) -> FreezeModelReferencePort:
 
 async def publish(db, project, user, body):
     digest = content_digest(body.request_payload())
-    existing = await db.scalar(
-        select(ModelRelease).where(
-            ModelRelease.project_id == project.id,
-            ModelRelease.request_id == body.request_id,
-        )
-    )
+    existing = await data.release_replay(db, project.id, body.request_id)
     if existing:
         if existing.request_digest != digest:
             raise HTTPException(status_code=409, detail="发布请求标识已用于其他内容")
         return existing
-    selection = await db.scalar(
-        select(ProjectModelSelection)
-        .where(
-            ProjectModelSelection.project_id == project.id,
-            ProjectModelSelection.task == body.task,
-        )
-        .with_for_update()
-    )
-    if not selection:
-        selection = ProjectModelSelection(
-            project_id=project.id, task=body.task, generation=0
-        )
-        db.add(selection)
-        await db.flush()
-    if selection.generation != body.expected_generation:
+    selection = await data.get_selection(db, project.id, body.task, lock=True)
+    generation = selection.generation if selection else 0
+    previous_id = selection.release_id if selection else None
+    if generation != body.expected_generation:
         raise HTTPException(status_code=409, detail="发布选择已变化，请刷新后重试")
     current = (
-        await db.get(ModelRelease, selection.release_id)
-        if selection.release_id
-        else None
+        await data.get_release(db, project.id, previous_id) if previous_id else None
     )
     if (current.model_version_id if current else None) == body.model_version_id and (
         current.deployment_id if current else None
@@ -1182,16 +1053,16 @@ async def publish(db, project, user, body):
         validate_bindings(
             project, version.classes, version.bindings, model_task(version)
         )
-        candidate = await db.get(ModelDeployment, body.deployment_id)
+        candidate = await data.get_deployment(
+            db, project.id, version.id, body.deployment_id
+        )
         if candidate is None:
             raise HTTPException(
                 status_code=409, detail="模型尚未完成加载检查与样本试用"
             )
         backend = await enabled_backend(db, project.id, candidate.registry_id)
-        deployment = await db.scalar(
-            select(ModelDeployment)
-            .where(ModelDeployment.id == body.deployment_id)
-            .with_for_update()
+        deployment = await data.get_deployment(
+            db, project.id, version.id, body.deployment_id, lock=True
         )
         if (
             not deployment
@@ -1213,7 +1084,7 @@ async def publish(db, project, user, body):
         check_receipt(version, live)
         check_trial_runtime(version, deployment, live)
     if body.rollback_from_id:
-        previous = await db.get(ModelRelease, body.rollback_from_id)
+        previous = await data.get_release(db, project.id, body.rollback_from_id)
         if (
             not previous
             or previous.project_id != project.id
@@ -1222,25 +1093,33 @@ async def publish(db, project, user, body):
             or previous.deployment_id != body.deployment_id
         ):
             raise HTTPException(status_code=422, detail="回退目标与历史发布不一致")
-    release = ModelRelease(
+    release_id = uuid.uuid4()
+    snapshot = (
+        frozen_reference(
+            version,
+            deployment,
+            SimpleNamespace(id=release_id, generation=generation + 1),
+        )
+        if version
+        else {}
+    )
+    release = await data.publish_release(
+        db,
         project_id=project.id,
-        task=body.task,
-        creator_id=user.id,
+        actor_id=user.id,
         request_id=body.request_id,
         request_digest=digest,
-        model_version_id=body.model_version_id,
+        release_id=release_id,
+        task=body.task,
+        generation=generation,
+        previous=previous_id,
+        rollback=body.rollback_from_id,
+        version_id=body.model_version_id,
         deployment_id=body.deployment_id,
-        previous_release_id=selection.release_id,
-        rollback_from_id=body.rollback_from_id,
-        generation=selection.generation + 1,
-        snapshot={},
+        snapshot=snapshot,
     )
-    db.add(release)
-    await db.flush()
-    if version:
-        release.snapshot = frozen_reference(version, deployment, release)
-    selection.release_id = release.id
-    selection.generation = release.generation
+    if release is None:
+        raise HTTPException(status_code=409, detail="发布选择已变化，请刷新后重试")
     return release
 
 

@@ -16,7 +16,13 @@ from app.services import (
 )
 from app.services.training_dataset_bridge import content_digest
 from tests.factory import create_api_key, create_membership
-from tests.sample_evaluation_fixtures import Objects, complete_rows, evaluation, seed
+from tests.sample_evaluation_fixtures import (
+    Objects,
+    complete_rows,
+    evaluation,
+    finish_with_report,
+    seed,
+)
 from tests.sample_evaluation_original_fixtures import (
     Objects as OriginalObjects,
     registered,
@@ -229,7 +235,7 @@ async def test_verified_reads_filter_before_pagination_and_preserve_failed_parti
         run, attempt, await service.sample_rows(db_session, run), "succeeded"
     )
     artifact = service.upload_report(run, attempt, report)
-    await service.mark_terminal(db_session, run, attempt, "succeeded", report=artifact)
+    await finish_with_report(db_session, run, attempt, artifact)
     await db_session.flush()
     base = f"/api/v1/projects/{run.project_id}/sample-evaluations/{run.id}/attempts/{attempt.id}"
     headers = {"Authorization": "Bearer " + token}
@@ -452,12 +458,8 @@ async def test_comparison_requires_two_explicit_compatible_successful_reports(
         report = service.build_report(
             run, attempt, await service.sample_rows(db_session, run), "succeeded"
         )
-        await service.mark_terminal(
-            db_session,
-            run,
-            attempt,
-            "succeeded",
-            report=service.upload_report(run, attempt, report),
+        await finish_with_report(
+            db_session, run, attempt, service.upload_report(run, attempt, report)
         )
     await db_session.flush()
     endpoint = f"/api/v1/projects/{first.project_id}/sample-evaluations/compare?left_id={first.id}&right_id={second.id}"
@@ -472,9 +474,9 @@ async def test_comparison_requires_two_explicit_compatible_successful_reports(
         {"left_ordinal": 0, "right_ordinal": 0},
         {"left_ordinal": 1, "right_ordinal": 1},
     ]
-    await service.mark_terminal(
-        db_session, second, second_attempt, "failed", code="sample_failed"
-    )
+    second.status = second_attempt.status = "failed"
+    second.error_code = second_attempt.error_code = "sample_failed"
+    second_attempt.report = None
     await db_session.flush()
     incompatible = await httpx_client.get(endpoint, headers=headers)
     assert incompatible.status_code == 200 and not incompatible.json()["compatible"]
