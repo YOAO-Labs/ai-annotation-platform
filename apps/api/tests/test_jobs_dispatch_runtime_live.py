@@ -164,7 +164,9 @@ async def test_killed_publisher_partial_canvas_replays_original_ids_and_complete
     assert make_url(broker_url) == broker_target
     runtime = make_url(settings.database_url)
     relay_dsn = make_url(os.environ["AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL"])
-    publication_dsn = make_url(os.environ["AAP_MODULE_DATA_JOBS_PUBLICATION_URL"])
+    publication_dsn = make_url(os.environ["AAP_MODULE_DATA_JOBS_PUBLICATION_URL"]).set(
+        drivername="postgresql"
+    )
     expected = (test_engine.url.host, test_engine.url.port, test_engine.url.database)
     assert (runtime.host, runtime.port, runtime.database) == expected
     assert (relay_dsn.host, relay_dsn.port, relay_dsn.database) == expected
