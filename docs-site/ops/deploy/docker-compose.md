@@ -46,8 +46,9 @@ last_reviewed: 2026-10-26
 
 已登记自定义 S3／SFTP 的物理 I/O 归入既有 `docker-compose.assets-source.yml` 的 `assets-source`，不新启容器。以下是正在集成的凭据边界，不是可直接上线的配方：
 
-- 普通 API／worker 只配私网 `ASSETS_SOURCE_URL` 及所执行操作所需的 `ASSETS_SOURCE_SAVED_IO_READ_TOKEN[_FILE]`、`ASSETS_SOURCE_SAVED_IO_WRITE_TOKEN[_FILE]` 或 `ASSETS_SOURCE_SAVED_IO_CLEANUP_TOKEN[_FILE]`。三类 token 分开，也不复用连接管理、Native 签名或导入核验 token。
-- Source 才持 `ASSETS_SOURCE_SAVED_IO_DATABASE_URL[_FILE]` 的仅函数连接，并使用其 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY[_FILE]`、主机白名单和 SFTP 所需的公钥配置。只给 Source 与获准操作的 CLI 配置 `ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN[_FILE]`；不启用切换时留空。普通进程不接收连接器密钥、Source DSN 或通用 S3／SFTP 凭据。
+- **普通 Compose 调用方**：`ASSETS_SOURCE_URL=http://assets-source:8767` 选私网 origin。只在需要的容器装配宿主选择器 `ASSETS_SOURCE_CLIENT_READ_TOKEN_FILE`、`ASSETS_SOURCE_CLIENT_WRITE_TOKEN_FILE`、`ASSETS_SOURCE_CLIENT_CLEANUP_TOKEN_FILE` 或 `ASSETS_SOURCE_CLIENT_CONNECTIONS_TOKEN_FILE`。它们在容器内映射为 `ASSETS_SOURCE_SAVED_IO_{READ,WRITE,CLEANUP}_TOKEN_FILE` 或 `ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE`；连接管理不复用字节 token、现有私有 `ASSETS_SOURCE_TOKEN_FILE` 或 Native／Import 凭据。不启用时同时清空 URL 和对应的 client-file 选择器。
+- **Source Compose**：保留 Source 自己的 `ASSETS_SOURCE_SAVED_IO_DATABASE_URL_FILE`（仅函数 LOGIN）、`ASSETS_SOURCE_SAVED_IO_{READ,WRITE,CLEANUP}_TOKEN_FILE`、原连接器加密 key、主机白名单及所需 SFTP 公钥。已保存 I/O 的此组配置与暂存目录须同时就绪；`ASSETS_SOURCE_CONNECTIONS_TOKEN_FILE` 是独立的可选能力。各作用域两端使用匹配值，但 Source 与调用方的只读文件分别归各自运行身份，不共用宿主文件。`ASSETS_SOURCE_SAVED_IO_CUTOVER_TOKEN_FILE` 可选，只给 Source 和获准运行 `scripts/cutover_storage_migration.py` 的操作者。普通进程不接收连接器密钥、Source DSN 或通用 S3／SFTP 凭据。
+- **私网与暂存**：Source overlay 的 `ASSETS_SOURCE_NETWORK` 默认使用 `default`；叠加同一 LAN 项目时显式选 `shared`，先核对数据库与调用方可达性，不发布 8767。为每个使用已保存上传的 Source 副本准备 `ASSETS_SOURCE_SAVED_IO_SPOOL_DIR`：独立且限额的宿主磁盘目录，UID/GID `10003:10003`、权限 `0700`；每副本最多一个保存上传，默认上限 5 GiB，预留超过 5 GiB 可用空间。不要与 `/tmp` 的 ZIP 暂存混用。未选择已保存 I/O 的原有 Source／Native／Import 配方不因此要求这组凭据或暂存目录。
 - 按原保存目标访问；缺 Source、身份不符或历史目标不可达时不改向、不回退。内建 MinIO、受控目录及站点 Agent 仍走原路径。升级前按[旧拓扑升级门禁](../upgrade-guide#split-topology-upgrade)验证真实连接器和恢复。
 
 #### 独立 Notifications 发布者 {#notification-publisher-split}
